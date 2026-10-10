@@ -15911,7 +15911,7 @@ function getStealthCredit(txidHex, vout) {
 // Bounded to STEALTH_SEEN_TXIDS_MAX per asset; oldest entries fall off when
 // the array grows past the cap. Credits live in the separate stealth-credits
 // store; this is purely the "scanned, not mine" set.
-const STEALTH_SEEN_TXIDS_MAX = 500;
+const STEALTH_SEEN_TXIDS_MAX = 2000;
 let _stealthSeenTxidsCache = null;
 function _stealthSeenTxidsKey() {
   if (!wallet.pub) return null;
@@ -20141,7 +20141,7 @@ let _holdingsLatestGen = 0;
 //   • Skipped for heavy wallets — they already burned the tx-fetch budget
 //     on classical scan; fall back to the per-card manual Rescan button.
 //   • Per-asset: 1 page × 50 txs (held) / 20 txs (discover) — manual
-//     Rescan still walks 4 × 50 for explicit recovery.
+//     Rescan walks 8 × 200 for explicit recovery.
 //   • Pass 2 uses concurrency 4 to stay polite with the worker.
 //   • Fire-and-forget; never blocks scanHoldings's response.
 //   • Silent unless a credit is found; on found, toast + re-render.
@@ -62399,9 +62399,12 @@ async function renderHoldings() {
             statusEl.textContent = 'walking recent transfers…';
           }
           try {
+            // Same depth as the weld and pay scans (8 pages of 200). A walk always starts from the newest
+            // transfer, so a shallower one would stop at the same place on every click.
             const res = await scanAssetForStealthReceipts(aid, {
-              onProgress: ({ txsScanned, found }) => {
-                if (statusEl) statusEl.textContent = `scanned ${txsScanned} tx · ${found} shielded receipt${found === 1 ? '' : 's'} found`;
+              pageLimit: 200, maxPages: 8,
+              onProgress: ({ txsScanned, txsSkipped, found }) => {
+                if (statusEl) statusEl.textContent = `${(txsScanned + txsSkipped).toLocaleString('en-US')} transfers checked · ${found} shielded receipt${found === 1 ? '' : 's'} found`;
               },
             });
             if (res.discovered.length > 0) {
@@ -62414,7 +62417,7 @@ async function renderHoldings() {
               renderHoldings();
               toast(`Found ${res.discovered.length} shielded receipt${res.discovered.length === 1 ? '' : 's'} for this asset.`, 'success', 6000);
             } else {
-              if (statusEl) statusEl.textContent = `no shielded receipts found · scanned ${res.txsScanned} tx${res.complete ? '' : ' (more available — rescan to continue)'}`;
+              if (statusEl) statusEl.textContent = `no new shielded receipts found · ${(res.txsScanned + res.txsSkipped).toLocaleString('en-US')} transfers checked${res.complete ? '' : ' (the index has more transfers than one scan reads)'}`;
             }
           } catch (e) {
             if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = `scan failed: ${e.message || String(e)}`; }

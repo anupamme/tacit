@@ -232,8 +232,18 @@ test('integration: seen-tx cache skips already-checked txids', () => {
     'isStealthTxidSeen helper missing');
   assert(src.includes('useSeenCache && isStealthTxidSeen('),
     'scanAssetForStealthReceipts does not short-circuit on seen-cache');
-  assert(src.includes('STEALTH_SEEN_TXIDS_MAX = 500'),
+  assert(src.includes('STEALTH_SEEN_TXIDS_MAX = 2000'),
     'seen-cache bound missing or drifted');
+});
+
+test('integration: the manual Rescan reads as deep as the weld and pay scans', () => {
+  // A walk starts from the newest transfer every time, so a Rescan that stops after 4 pages of 50 reads the same
+  // 200 transfers on every click and never reaches the rest of the index. The seen-cache bound must hold one full walk.
+  const btn = src.slice(src.indexOf("b.dataset.act === 'rescan-stealth'"), src.indexOf("b.dataset.act === 'retry-inflated'"));
+  assert(/scanAssetForStealthReceipts\(aid, \{\s*pageLimit: 200, maxPages: 8,/.test(btn),
+    'the manual Rescan does not read 8 pages of 200');
+  const cap = Number(/STEALTH_SEEN_TXIDS_MAX = (\d+)/.exec(src)[1]);
+  assert(cap >= 8 * 200, 'the seen-cache bound is smaller than one full Rescan');
 });
 
 test('integration: background auto-scan surfaces a status pill', () => {
