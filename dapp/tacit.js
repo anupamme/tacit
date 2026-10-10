@@ -29763,7 +29763,10 @@ async function discoverStealthFromTxid(txidHex, { merge = true } = {}) {
   await ensurePrivkey();
   const owner = _holdingsOwner();
   const tx = await getTx(txidHex);
-  if (!tx || !tx.vin || tx.vin.length < 2) throw new Error(`tx ${txidHex.slice(0,16)}… missing or malformed`);
+  if (!tx || !tx.vin) throw new Error(`tx ${txidHex.slice(0,16)}… missing or malformed`);
+  // A shielded transfer spends the envelope input and the sender's asset input. A transaction with one input was read
+  // and is not one: the same message for callers that match on it, flagged for a scan to take it as checked.
+  if (tx.vin.length < 2) throw Object.assign(new Error(`tx ${txidHex.slice(0,16)}… missing or malformed`), { notShielded: true });
   const wit0 = tx.vin[0]?.witness;
   if (!wit0 || wit0.length < 3) return [];
   let envBytes;
@@ -29951,6 +29954,9 @@ async function discoverStealthFromTxid(txidHex, { merge = true } = {}) {
   return counted;
 }
 
+// How many transfers one scan reads at a time (the holdings scan reads 8 at a time too); api() holds every read to its own
+// in-flight caps.
+const STEALTH_SCAN_WINDOW = 8;
 // asset-wide recipient discovery. Walks the worker's
 // xferseen index for `assetIdHex` and runs `discoverStealthFromTxid` on every
 // reveal tx. Used by the holdings card's "Rescan for shielded receipts"
@@ -29970,6 +29976,7 @@ async function scanAssetForStealthReceipts(assetIdHex, { onProgress = null, maxP
   let pagesScanned = 0;
   let txsScanned = 0;
   let txsSkipped = 0;  // already in seen-cache; no network fetch needed
+  let txsFailed = 0;   // read failed; left unmarked, so the next scan tries them again
   let complete = false;
   for (let page = 0; page < maxPages; page++) {
     const url = `${WORKER_BASE}/assets/${assetIdHex}/recent-xfer-txids?network=${encodeURIComponent(NET.name)}&limit=${pageLimit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
@@ -29979,35 +29986,44 @@ async function scanAssetForStealthReceipts(assetIdHex, { onProgress = null, maxP
     const j = await resp.json();
     const txids = Array.isArray(j.txids) ? j.txids : [];
     pagesScanned++;
-    // Sequential walk — most stealth scans return empty for the bulk of
-    // history, so parallelism trades little win for tx-fetch budget.
+    // Negative-cache short-circuit: a prior scan already checked this
+    // txid and either credited us (in stealth-credits) or ruled it out
+    // (in seen-cache). Either way, no need to re-fetch + trial-derive.
+    // Pass useSeenCache:false to force a fresh walk; entries also age
+    // out after 24h.
+    const todo = [];
     for (const t of txids) {
-      // Negative-cache short-circuit: a prior scan already checked this
-      // txid and either credited us (in stealth-credits) or ruled it out
-      // (in seen-cache). Either way, no need to re-fetch + trial-derive.
-      // The manual Rescan button passes useSeenCache:false to force a
-      // fresh walk for explicit recovery.
       if (useSeenCache && isStealthTxidSeen(assetIdHex, t)) { txsSkipped++; continue; }
-      txsScanned++;
-      let cleanScan = false;
-      try {
-        const credits = await discoverStealthFromTxid(t, { merge: true });
-        for (const c of credits) discovered.push(c);
-        cleanScan = true;
-      } catch { /* skip; an indexer hiccup on one tx shouldn't sink the walk */ }
-      // Only mark seen if the trial completed without throwing. A thrown
-      // error mid-scan (network glitch, transient fetch failure) leaves
-      // the txid unmarked so the next scan retries it. Combined with the
-      // 24h TTL on no-credit entries (above), this means a transient
-      // wallet-state degradation can't permanently hide a real receipt.
-      if (cleanScan) markStealthTxidSeen(assetIdHex, t);
-      if (onProgress) { try { onProgress({ pagesScanned, txsScanned, txsSkipped, found: discovered.length }); } catch {} }
+      todo.push(t);
+    }
+    // A window of transfers is read at once, so a walk over hundreds of them takes seconds rather
+    // than a round trip each.
+    for (let i = 0; i < todo.length; i += STEALTH_SCAN_WINDOW) {
+      await Promise.all(todo.slice(i, i + STEALTH_SCAN_WINDOW).map(async (t) => {
+        txsScanned++;
+        let cleanScan = false;
+        try {
+          const credits = await discoverStealthFromTxid(t, { merge: true });
+          for (const c of credits) discovered.push(c);
+          cleanScan = true;
+        } catch (e) {
+          // A transaction that was read and is not a shielded transfer is a checked one; a read that failed is not.
+          if (e?.notShielded) cleanScan = true; else txsFailed++;   // an indexer hiccup on one tx shouldn't sink the walk
+        }
+        // Only mark seen if the trial completed without throwing. A thrown
+        // error mid-scan (network glitch, transient fetch failure) leaves
+        // the txid unmarked so the next scan retries it. Combined with the
+        // 24h TTL on no-credit entries (above), this means a transient
+        // wallet-state degradation can't permanently hide a real receipt.
+        if (cleanScan) markStealthTxidSeen(assetIdHex, t);
+        if (onProgress) { try { onProgress({ pagesScanned, txsScanned, txsSkipped, found: discovered.length }); } catch {} }
+      }));
     }
     if (j.done) { complete = true; break; }
     if (!j.next_cursor) { complete = true; break; }
     cursor = j.next_cursor;
   }
-  return { discovered, pagesScanned, txsScanned, txsSkipped, complete };
+  return { discovered, pagesScanned, txsScanned, txsSkipped, txsFailed, complete };
 }
 
 // forceUtxos (optional) lets callers pre-select the exact asset UTXO(s) to
@@ -62417,7 +62433,7 @@ async function renderHoldings() {
               renderHoldings();
               toast(`Found ${res.discovered.length} shielded receipt${res.discovered.length === 1 ? '' : 's'} for this asset.`, 'success', 6000);
             } else {
-              if (statusEl) statusEl.textContent = `no new shielded receipts found · ${(res.txsScanned + res.txsSkipped).toLocaleString('en-US')} transfers checked${res.complete ? '' : ' (the index has more transfers than one scan reads)'}`;
+              if (statusEl) statusEl.textContent = `no new shielded receipts found · ${(res.txsScanned + res.txsSkipped).toLocaleString('en-US')} transfers checked${res.txsFailed ? ` · ${res.txsFailed.toLocaleString('en-US')} could not be read, rescan to try them again` : ''}${res.complete ? '' : ' (the index has more transfers than one scan reads)'}`;
             }
           } catch (e) {
             if (statusEl) { statusEl.style.color = 'var(--red)'; statusEl.textContent = `scan failed: ${e.message || String(e)}`; }
