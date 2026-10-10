@@ -155,11 +155,14 @@ export function makeStatsReader({ fetchImpl = (...a) => fetch(...a), gapMs = 200
   }
   async function getLogs(chain, address, from, to, budget = 12) {
     const out = [];
+    // A node that refuses without naming a span (publicnode wants a token for old blocks) is left out for the rest of this
+    // read: it would refuse every piece of it. It is asked again on the next read, which may want only recent blocks.
+    const refused = new Set();
     let asked = 0;
     for (let start = from, last = null; start <= to;) {
       let got = null;
       const now = Date.now();
-      const order = eps[chain].map((e, i) => [e, i]).sort(([a, i], [b, j]) => (a.cool > now) - (b.cool > now) || (a.span < b.span) - (a.span > b.span) || i - j).map(([e]) => e);
+      const order = eps[chain].filter((e) => !refused.has(e)).map((e, i) => [e, i]).sort(([a, i], [b, j]) => (a.cool > now) - (b.cool > now) || (a.span < b.span) - (a.span > b.span) || i - j).map(([e]) => e);
       for (const ep of order) {
         let span = Math.min(to - start + 1, ep.span);
         while (!got) {
@@ -172,7 +175,7 @@ export function makeStatsReader({ fetchImpl = (...a) => fetch(...a), gapMs = 200
           } catch (e) {
             last = e;
             const n = narrower(e, span);
-            if (!n) { if (e.kind !== 'rpc') ep.cool = Date.now() + COOL; break; }
+            if (!n) { if (e.kind !== 'rpc') ep.cool = Date.now() + COOL; else refused.add(ep); break; }
             if (n.cap) ep.span = Math.min(ep.span, n.cap);
             span = n.span;
           }

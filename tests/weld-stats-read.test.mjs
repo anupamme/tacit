@@ -325,3 +325,19 @@ test('stats reading: a log history too long for one reading is read on across re
   const whole = (await one({}, 100)).reading;
   assert.deepStrictEqual(figures(base(r)), figures(base(whole)), 'the same figures as one reading that could read it all');
 });
+
+test('stats reading: a node that refuses a long read without naming a span is left out for the rest of it', async () => {
+  const asked = {};
+  const fetchImpl = async (url, opts) => {
+    const host = new URL(url).host; asked[host] = (asked[host] || 0) + 1;
+    const q = JSON.parse(opts.body).params[0], n = Number(BigInt(q.toBlock)) - Number(BigInt(q.fromBlock)) + 1;
+    const error = /publicnode/.test(host) ? 'Archive requests require a personal token. Get one at: https://www.allnodes.com/publicnode'
+      : /mainnet\.base\.org/.test(host) && n > 500 ? 'eth_getLogs is limited to a 500 range'
+      : /tenderly/.test(host) && n > 1000 ? 'Block range too large for public access: maximum 1000 blocks' : null;
+    const body = error ? { jsonrpc: '2.0', id: 1, error: { code: -32602, message: error } } : { jsonrpc: '2.0', id: 1, result: [] };
+    return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
+  };
+  await makeStatsReader({ fetchImpl, gapMs: 0 }).getLogs(8453, A.evmPool, 1, 10_000, 40);
+  assert.strictEqual(asked['base-rpc.publicnode.com'], 1, 'publicnode asked once');
+  assert.strictEqual(asked['base.gateway.tenderly.co'], 11, 'then the widest node that answers: one refusal and ten thousand-block pieces');
+});
