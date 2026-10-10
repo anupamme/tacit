@@ -147,9 +147,9 @@ export function makeStatsReader({ fetchImpl = (...a) => fetch(...a), gapMs = 200
   function narrower(e, span) {
     if (e.kind === 'transport') return e.timeout && span > 2000 ? { span: Math.floor(span / 2) } : null;
     if (e.kind !== 'rpc') return null;
-    const cap = e.message.match(/(?:max(?:imum)?\b\D{0,24}|\bover\s+|\bup to\s+|limited to\s+(?:a\s+)?)([\d,]{2,})/i);
+    const cap = e.message.match(/(?:max(?:imum)?\b\D{0,24}|\bover\s+|\bup to\s+|limited to\s+(?:a\s+)?|\bonly\s+)([\d,]{2,})/i);   // Robinhood: "… but only 10000000 are allowed"
     if (cap) { const n = Number(cap[1].replace(/,/g, '')); return n < span ? { span: n, cap: n } : null; }
-    return /too (large|wide|big|many)|exceed|more than|response size/i.test(e.message) && span > 1 ? { span: Math.floor(span / 2) } : null;
+    return /too (large|wide|big|many)|exceed|more than|response size|narrow the/i.test(e.message) && span > 1 ? { span: Math.floor(span / 2) } : null;
   }
   async function getLogs(chain, address, from, to, budget = 12) {
     const out = [];
