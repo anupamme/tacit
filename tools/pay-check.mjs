@@ -11,6 +11,8 @@
 //          Activity rebuilt from the key
 //   btcsend no network: a silent payment through /pay's Send form to a tacit1 (both forms), captured, shown in Activity, found
 //          by its recipient
+//   lookfor LOCAL=1 POOL_STUB=1, transfer index and Bitcoin explorers stubbed: the shielded TAC balance's refresh also looks through the
+//          asset's transfer index for payments to the key, says what came of it, and counts the transfers it could not read
 //   firstrun no network: a first visit with no wallet leads with a new passkey wallet, a failed way in is said beside the options, and
 //          every module a page preloads is fetched once
 //   saved  no network: the key saved in this browser, behind a passphrase, opens on /pay/ and /pay/eth/ through the passphrase
@@ -560,6 +562,44 @@ try {
       ok(!R.errors.length, `${form}: recipient page, no errors ${R.errors.join(' | ').slice(0, 160)}`);
       await R.ctx.close();
     }
+  }
+
+  if (ONLY.has('lookfor')) {
+    // /pay's TAC mode: the refresh beside the shielded balance reads the balances and also looks through the asset's transfer
+    // index for payments to this key (which no balance read can see). The index and the explorers are stubbed.
+    console.log('lookfor (/pay: the TAC refresh looks for payments to the key)');
+    const TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b', H = { 'access-control-allow-origin': '*' };
+    const json = (r, v) => r.fulfill({ status: 200, contentType: 'application/json', headers: H, body: JSON.stringify(v) });
+    let reads = 0, indexTxids = [];
+    const explorer = (r) => {
+      const path = new URL(r.request().url()).pathname.replace(/^\/(signet\/)?api/, '');
+      if (/\/address\/[^/]+\/utxo$/.test(path) || /\/(address|scripthash)\/[^/]+\/txs/.test(path)) return json(r, []);
+      if (/fees\/recommended/.test(path)) return json(r, { fastestFee: 3, halfHourFee: 2, hourFee: 2, economyFee: 1, minimumFee: 1 });
+      if (/blocks\/tip\/height/.test(path)) return r.fulfill({ status: 200, headers: H, body: '900010' });
+      return r.fulfill({ status: 404, headers: H, body: 'not found' });
+    };
+    const route = async (c) => {
+      await c.route(/mempool\.space|blockstream\.info|mempool\.emzy\.de|mempool\.bitaroo\.net/, explorer);
+      await c.route(new RegExp(`^https://api\\.tacit\\.finance/assets/${TAC}/recent-xfer-txids`), (r) => { reads++; return json(r, { asset_id: TAC, txids: indexTxids, next_cursor: null, done: true }); });
+    };
+    const { ctx, p, errors } = await page(browser, { route });
+    await p.goto(new URL(URL_).origin + '/pay/#tac');
+    await p.waitForSelector('#g-in');
+    await openKey(p, '7e57'.padEnd(64, '1'));
+    const refresh = async (want) => {
+      await p.waitForFunction(() => document.querySelector('#bal-re')?.textContent.trim() === 'refresh', null, { timeout: 180e3 });
+      const before = reads;
+      await p.click('#bal-re');
+      await p.waitForFunction((re) => new RegExp(re).test(document.querySelector('#status')?.textContent || ''), want, { timeout: 180e3 });
+      return { line: (await p.textContent('#status')).replace(/\s+/g, ' ').trim(), reads: reads - before };
+    };
+    const none = await refresh('None for you among the latest transfers');
+    ok(none.reads === 1 && !/could not be read/.test(none.line), `the TAC refresh looks through the transfer index once and says none were for this key (${none.reads} read; ${none.line.slice(0, 80)})`);
+    indexTxids = ['aa', 'bb', 'cc'].map((x) => x.repeat(32));                                 // transactions Bitcoin does not have
+    const unread = await refresh('could not be read');
+    ok(unread.reads === 1 && /None for you among the latest transfers\. 3 could not be read; refresh to try them again/.test(unread.line), `transfers that could not be read are counted and offered again (${unread.line.slice(0, 110)})`);
+    ok(!errors.length, `no page errors ${errors.join(' | ').slice(0, 160)}`);
+    await ctx.close();
   }
 
   if (ONLY.has('fork')) {

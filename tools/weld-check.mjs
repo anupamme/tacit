@@ -61,7 +61,8 @@
 //   shield   the TAC sheet's Shield: public TAC funded into the key's own Tacit account wraps in one router
 //            transaction; the fork's stubbed settle leaves it pending, offered to Finish like any other TAC deposit
 //   btc      a pasted key's Bitcoin sheet: balances read, BTC routes (tacit1 and sp1 as silent payments, bc1 plain), TAC
-//            routes refuse plain addresses, a tacit1's silent-payment keys are the ones this wallet scans, a payment link checks
+//            routes refuse plain addresses, a tacit1's silent-payment keys are the ones this wallet scans, a payment link checks,
+//            the refresh beside the balance also looks through TAC's transfer index for shielded payments
 //   bridge   the TAC sheet's Bridge: stubbed TAC notes on Bitcoin listed (one over the limit refused), a tracked note checks out
 //            as one Bitcoin transaction but waits for sats for its fee, bridges under way show their steps and actions, and
 //            Recover files its claim
@@ -1843,6 +1844,24 @@ await step('btc', async () => {
   await r.page.click('#bt-chk-go');
   await until(r.page, () => /not addressed|not found|not indexed/.test(document.querySelector('#btc-status')?.textContent || ''), null, 120000);
   ok(true, `btc: a payment link is checked against this key (${(await text(r.page, '#btc-status')).trim().slice(0, 50)})`);
+  // The refresh beside the balance also looks for shielded payments, which no balance read can see: TAC's transfer index is
+  // read and the line says what came of it; transfers that could not be read are counted and offered again. (The page's own
+  // background look for shielded payments reads the index too, so only that it was read since the press is asserted.)
+  const TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
+  let indexReads = 0, indexTxids = [];
+  await r.page.route(new RegExp(`^https://api\\.tacit\\.finance/assets/${TAC}/recent-xfer-txids`), (route) => { indexReads++; return json(route, { asset_id: TAC, txids: indexTxids, next_cursor: null, done: true }); });
+  const refresh = async (want) => {
+    await until(r.page, () => document.querySelector('#btc-re')?.textContent.trim() === 'refresh', null, 120000);
+    const before = indexReads;
+    await r.page.click('#btc-re');
+    await until(r.page, (re) => new RegExp(re).test(document.querySelector('#btc-status')?.textContent || ''), want, 180000);
+    return { line: (await text(r.page, '#btc-status')).replace(/\s+/g, ' ').trim(), reads: indexReads - before };
+  };
+  const none = await refresh('None for you among the latest shielded transfers');
+  ok(none.reads >= 1 && /further back is found from its payment link or transaction id/.test(none.line) && !/could not be read/.test(none.line), `btc: refresh looks through TAC's transfer index and says none were for this key (${none.reads} read; ${none.line.slice(0, 90)})`);
+  indexTxids = ['aa', 'bb', 'cc'].map((x) => x.repeat(32));                                   // transactions Bitcoin does not have
+  const unread = await refresh('could not be read');
+  ok(unread.reads >= 1 && /3 could not be read; refresh to try them again/.test(unread.line), `btc: transfers that could not be read are counted and offered again (${unread.line.slice(0, 120)})`);
   if (r.errors.length) { fails++; console.log('FAIL btc page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   await r.browser.close();
 });

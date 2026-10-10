@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-cqMM8Jz8ypvlXPKSN1Mh3An5EOqtCHtsrWVbdpVITIE=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-sC3LUQdJN9DRkLKbT4Ic1fznxQ7l6MtK+ulboZxEMZE=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=b0bddd8d"></script>
 <title>tacit</title>
@@ -5099,14 +5099,24 @@ function paintBtcFoot() {
 // The index serves its most recent transfers first, and older ones only as far as it pages; a payment link finds any.
 async function scanShielded(status) {
   const ids = [...new Set([TAC_BTC_ID, ...BTC.held.map((a) => a.id)])];
-  const found = await withKey(async (t) => {
-    let n = 0;
-    for (const id of ids) n += (await t.scanAssetForStealthReceipts(id, { pageLimit: 200, maxPages: 8, onProgress: (p) => sayLive(status, html`Looking for shielded payments<span aria-hidden="true" data-tick>: ${(p.txsScanned + p.txsSkipped).toLocaleString('en-US')} transfers checked</span>…`) })).discovered.length;
-    if (n) try { t.invalidateHoldingsCache?.(); } catch {}
-    return n;
+  const got = await withKey(async (t) => {
+    let found = 0, failed = 0;
+    for (const id of ids) {
+      const r = await t.scanAssetForStealthReceipts(id, { pageLimit: 200, maxPages: 8, onProgress: (p) => sayLive(status, html`Looking for shielded payments<span aria-hidden="true" data-tick>: ${(p.txsScanned + p.txsSkipped).toLocaleString('en-US')} transfers checked</span>…`) });
+      found += r.discovered.length; failed += r.txsFailed || 0;
+    }
+    if (found) try { t.invalidateHoldingsCache?.(); } catch {}
+    return { found, failed };
   });
-  if (found) await loadBtc(true);
-  return found;
+  if (got.found) await loadBtc(true);
+  return got;
+}
+// The look and its last line, for Receive's Scan now and for the refresh beside the balance.
+async function lookForShielded(status) {
+  try {
+    const { found, failed } = await scanShielded(status);
+    say(status, html`${found ? html`<span class="ok">Found ${found} shielded payment${found === 1 ? '' : 's'}.</span>` : 'None for you among the latest shielded transfers.'}${failed ? ` ${failed.toLocaleString('en-US')} could not be read; refresh to try them again.` : ''} A payment from further back is found from its payment link or transaction id, pasted under Receive.`);
+  } catch (e) { sayErr(status, e); }
 }
 render.btc = () => {
   const el = $('#btc-body');
@@ -5128,7 +5138,13 @@ render.btc = () => {
   if (BTC.err) sayErr(status, BTC.err);
   wireSub(el, 'btcm', (m) => { BTC.mode = m; keep($('#sheet-btc'), render.btc); });
   const re = $('#btc-re');
-  if (re) re.onclick = () => busy(re, async () => { BTC.err = null; await loadBtc(true); rerender('btc'); });
+  // "refresh" reads the balances and looks for shielded payments, which no balance read can see; "retry" reads again.
+  if (re) re.onclick = () => busy(re, async () => {
+    const retry = !!(BTC.err || !b);
+    BTC.err = null; await loadBtc(true);
+    if (!retry && !BTC.err) await lookForShielded(status);
+    rerender('btc');
+  });
   (BTC.mode === 'send' ? btcSendForm : btcReceive)($('#btc-form'), status, b);
 };
 // Where a Bitcoin payment goes. A tacit1 address, or a name publishing one: BTC as a silent payment to its keys, an asset
@@ -5240,10 +5256,7 @@ function btcReceive(f, status, b) {
   const go = $('#bt-chk-go'), scan = $('#bt-scan');
   const run = (raw) => busy(go, async () => { try { await checkBtcPayment(raw, status); rerender('btc'); } catch (e) { sayErr(status, e); } });
   go.onclick = () => run($('#bt-chk').value);
-  scan.onclick = () => busy(scan, async () => {
-    try { const n = await scanShielded(status); say(status, n ? html`<span class="ok">Found ${n} shielded payment${n === 1 ? '' : 's'}.</span>` : 'None for you among the latest shielded transfers. If one was sent to you, ask for its payment link.'); rerender('btc'); }
-    catch (e) { sayErr(status, e); }
-  });
+  scan.onclick = () => busy(scan, async () => { await lookForShielded(status); rerender('btc'); });
   if (BTC.check) { const c = BTC.check; BTC.check = null; run(`#${c.kind}=${c.txid}`); }
 }
 // A payment link (…#sp=<txid> for silent BTC, #st=<txid> for shielded assets) or a bare txid: credit what it holds for this key.

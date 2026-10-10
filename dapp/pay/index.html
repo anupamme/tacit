@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-WHbwuHsrQy0iFfBNUnPRcxblkQRCoG8byw+aRe1viLA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-UiOYp+7wIRqcO7gdautia9cC3wsy785E/OTPa9k7uIo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay</title>
 <meta name="description" content="Simple, private payments: Bitcoin by silent payment, TAC shielded, ETH on Ethereum, Base, Robinhood Chain and MegaETH. One key and one tacit1 address, every payment made on your device, and your balances rebuild from that key.">
@@ -1878,17 +1878,21 @@ async function checkFound() {
 const unread = (t, txid) => Object.assign(new Error(t.txIsRecentlyNotFound?.(txid)
   ? 'Bitcoin explorers don’t have that transaction yet. If it was sent just now, try again in a few minutes.'
   : 'Couldn’t look that transaction up just now.'), { again: true });
-// Shielded TAC transfers land at one-time outputs; the asset's transfer index finds the ones for this key.
-async function scanForMe() {
+// Shielded TAC transfers land at one-time outputs; the asset's transfer index finds the ones for this key. One look at a
+// time: a second press while it runs joins it.
+let LOOKING = null;
+const scanForMe = () => LOOKING || (LOOKING = lookForMe().finally(() => { LOOKING = null; }));
+async function lookForMe() {
   const status = $('#status');
   try {
-    const n = await withKey(async (t) => {
+    const { found, failed } = await withKey(async (t) => {
       const r = await t.scanAssetForStealthReceipts(TAC_ID, { pageLimit: 200, maxPages: 8, onProgress: (p) => say(status, `Looking for payments to you: ${(p.txsScanned + p.txsSkipped).toLocaleString('en-US')} transfers checked…`) });
       if (r.discovered.length) try { t.invalidateHoldingsCache?.(); } catch {}
-      return r.discovered.length;
+      return { found: r.discovered.length, failed: r.txsFailed || 0 };
     });
-    await loadMode(true);
-    say(status, n ? html`<span class="ok">Found ${n} payment${n === 1 ? '' : 's'} to you.</span>` : 'None for you among the latest transfers. Silent BTC payments from Tacit apps show up on their own; from another wallet, open the link its sender shares.');
+    if (found) await loadMode(true);
+    const more = failed ? ` ${failed.toLocaleString('en-US')} could not be read; refresh to try them again.` : '';
+    say(status, found ? html`<span class="ok">Found ${found} payment${found === 1 ? '' : 's'} to you.</span>${more}` : html`None for you among the latest transfers.${more} Silent BTC payments from Tacit apps show up on their own; from another wallet, open the link its sender shares.`);
   } catch (e) { sayErr(status, e); }
 }
 
@@ -2354,7 +2358,12 @@ function paintWallet() {
 function paintBal() {
   keepFocus($('#bal'), () => {
     mount($('#bal'), S.mode === 'tac' ? tacBal() : btcBal());
-    $('#bal-re')?.addEventListener('click', (e) => { e.currentTarget.disabled = true; (S.mode === 'tac' ? (BTC.err = null, TAC.err = null) : (BTC.err = null)); loadMode(true); });
+    $('#bal-re')?.addEventListener('click', (e) => {
+      const retry = e.currentTarget.textContent.trim() === 'retry';
+      e.currentTarget.disabled = true; (S.mode === 'tac' ? (BTC.err = null, TAC.err = null) : (BTC.err = null));
+      const read = loadMode(true);
+      if (S.mode === 'tac' && !retry) read.then(() => scanForMe());          // the shielded TAC's refresh also looks for payments to this key, which no balance read can see
+    });
     $('#bal-comb')?.addEventListener('click', () => {
       const st = $('#status'), [a = 0n, b = 0n] = TAC.vals;
       say(st, combineBox('s-comb', html`Your TAC is in ${TAC.vals.length} notes; one payment spends two. Combining joins your two largest into one note of ${fmt(a + b - (combineFee() || 0n), 8, 4)} TAC.`));
