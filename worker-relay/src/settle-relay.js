@@ -176,7 +176,6 @@ async function submitCall(base, label, { gasLimit = null, landed = null } = {}) 
     publicClient.getTransactionCount({ address: settleWallet.account.address, blockTag: 'pending' }),
     gasLimit ? null : publicClient.estimateContractGas({ ...base, account: settleWallet.account }).catch(() => null),
   ]);
-  lastBroadcastNonce = Math.max(lastBroadcastNonce, nonce);
   const data = encodeFunctionData({ abi: base.abi, functionName: base.functionName, args: base.args });
   let baseFee = blk.baseFeePerGas ?? 0n;
   // Tip proportional to the base fee, floored so it is never dust and capped so a spike can't run away.
@@ -264,6 +263,9 @@ async function submitCall(base, label, { gasLimit = null, landed = null } = {}) 
     const dead = await wouldRevert();
     if (dead) return settledOrDead(dead);
     const tx = { ...call, nonce, maxFeePerGas: baseFee * 3n + tip, maxPriorityFeePerGas: tip };
+    // Marked only now: a call refused by the simulation above was never put on the wire, so it must not hold the
+    // prover top-up behind a nonce that nothing will ever consume.
+    lastBroadcastNonce = Math.max(lastBroadcastNonce, nonce);
     let txHash, taken = false;
     for (const { url, wallet } of endpointsFor(round)) {
       try {
