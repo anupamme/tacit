@@ -631,6 +631,13 @@ export function openStore(dbPath, { excluded = [] } = {}) {
   const insertPoolSnapshotStmt = db.prepare(`INSERT OR IGNORE INTO pool_snapshots (day, chain_id, pool, eth_wei, taken_at) VALUES (@day, @chainId, @pool, @ethWei, @takenAt)`);
   const poolSnapshotsStmt = db.prepare(`SELECT day, chain_id AS chainId, pool, eth_wei AS ethWei FROM pool_snapshots WHERE day >= ? ORDER BY day, chain_id, pool`);
   const poolDepositsStmt = db.prepare(`SELECT block_time AS t, amount_wei AS w FROM deposits WHERE activity IN ('wrap', 'evmpooldeposit') AND block_time >= ? AND block_time < ?`);
+  // The newest activity across everyone, for a public feed: when, what, on which chain and how much, never who or which
+  // transaction (/points/<address> is the per-account view). Accruals (a bond held, a holding reward) are not something
+  // anyone did just then, so they are left out.
+  const FEED_ACTIVITIES = ['wrap', 'evmpooldeposit', 'zswapeth', 'cbtcmint', 'cusdmint', 'weiname', 'pmbet', 'pmcreate'];
+  const recentStmt = db.prepare(`SELECT block_time AS t, activity, chain_id AS chain, amount_wei AS amount FROM deposits
+    WHERE activity IN (${FEED_ACTIVITIES.map(() => '?').join(', ')}) ORDER BY block_time DESC, block_number DESC LIMIT ?`);
+  const recent = (limit) => recentStmt.all(...FEED_ACTIVITIES, limit);
 
   function savePoolSnapshot(snap) {
     return insertPoolSnapshotStmt.run(snap).changes > 0;
@@ -766,7 +773,7 @@ export function openStore(dbPath, { excluded = [] } = {}) {
   return {
     db, recordDeposit, loadCursor, saveCursor, leaderboard, totalFor, depositsFor, countByActivity,
     dayPointsByAddress, dayActivityPoints, weekActivityPoints, lateDays, creditedWithPrefix, commitDay, saveHoldingEvents, holdingEvents, loadHoldingCursor, saveHoldingCursor, saveHoldingSnapshot, holdingSnapshots, recordHoldingClaim, holdingClaimFor, loadHoldingVerified, saveHoldingVerified, rewindHolding, depositorOfTx, getMeta, setMeta, saveBondRef, bondPairsBefore, bondsToCheck, saveBondCheck, applyDayRewards, applyAdjustment, listAdjustments: () => listAdjustmentsStmt.all(), allRewards, rewardFor,
-    savePoolSnapshot, poolSnapshots: (fromDay) => poolSnapshotsStmt.all(fromDay), poolDepositWeiByDay,
+    savePoolSnapshot, poolSnapshots: (fromDay) => poolSnapshotsStmt.all(fromDay), poolDepositWeiByDay, recent,
     loadSettleState, saveSettleState, savePublishedClaims, claimFor,
     recordPpWithdrawal, hasEarlierPpWithdrawal, loadPpCursor, savePpCursor,
     loadCeCursor, saveCeCursor, loadZrouterCursor, saveZrouterCursor,

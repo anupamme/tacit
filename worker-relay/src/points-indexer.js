@@ -1781,6 +1781,13 @@ function startHttp(store, evmState) {
         }));
         return;
       }
+      // The newest activity across everyone, for the front page's live tape: when, what, where and how much, never who or
+      // which transaction.
+      if (url.pathname === '/recent') {
+        const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 30, 1), 60);
+        res.end(JSON.stringify({ asOf: Math.floor(Date.now() / 1000), rows: store.recent(limit) }));
+        return;
+      }
       if (url.pathname === '/tvl') {
         const todayDay = Math.floor(Date.now() / 1000 / 86400);
         const days = Math.min(Math.max(Number(url.searchParams.get('days')) || 30, 1), 120);
