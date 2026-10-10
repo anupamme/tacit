@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-8RTrbjmcodd3aQsLI++R6/gcTEdIKBrP9DzUB/GZKvc=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-9pNnxbmo14EB6b6pu0pR8HbYHtoYrulO35hXSoJIk98=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=b0bddd8d"></script>
 <title>tacit</title>
@@ -8782,27 +8782,49 @@ if (store.get(NUMS_KEY)) paintNums(store.get(NUMS_KEY));
 refreshNums();
 
 // ── live: what happened lately ─────────────────────────────────────────────────────────────────────────────────
-// The tape under the figures, from the stats reading: ETH made private, ETH paid into the pay pools, settles in the Tacit pool,
-// and Bitcoin proven on Ethereum. It names no address or transaction and keeps two figures of an amount, and exits are left
-// out, so it never sets a deposit beside what left. The reading is the API's quarter-hourly one, so the newest line can be
-// minutes old; its times say when each happened.
+// The tape under the figures. The points service's newest rows (/recent, read once a minute) give every way in: ETH made
+// private, ETH paid into the pay pools on each chain, TAC bought, bonds, loans, names and bets. The stats reading (the API's
+// quarter-hourly one) adds the settles in the Tacit pool and Bitcoin proven on Ethereum, and stands in for the deposits when
+// /recent can't be read. It names no address or transaction and keeps two figures of an amount, and exits are left out, so it
+// never sets a deposit beside what left. Each line's time says when it happened.
 const TAPE = { key: '' };
+const RECENT = { p: null, at: 0 };
+function readRecent() {
+  if (RECENT.p && Date.now() - RECENT.at < 60e3) return RECENT.p;
+  RECENT.at = Date.now();
+  return (RECENT.p = fetch(`${API}/recent?limit=40`, { signal: within(15e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null));
+}
+const chainName = (id) => CHAIN_META[id]?.chainName || `chain ${id}`;
+const FEED = {
+  wrap: (r) => ({ icons: ['tk-teth'], what: 'ETH made private', amt: `${twoFig(r.amount)} ETH` }),
+  evmpooldeposit: (r) => ({ icons: ['tk-peth'], what: 'ETH in to pay privately', amt: `${twoFig(r.amount)} ETH on ${chainName(r.chain)}` }),
+  zswapeth: (r) => ({ icons: ['tk-tac'], what: 'TAC bought with ETH', amt: `${twoFig(r.amount)} ETH` }),
+  cbtcmint: (r) => ({ icons: ['tk-cbtc'], what: 'A bond posted toward cBTC', amt: `${twoFig(r.amount)} wstETH` }),
+  cusdmint: (r) => ({ icons: ['tk-cusd'], what: 'cUSD borrowed against bitcoin', amt: `${(Number(BigInt(r.amount)) / 1e8).toLocaleString('en-US', { maximumSignificantDigits: 2 })} cUSD` }),   // 8 decimals
+  weiname: () => ({ icons: ['tk-eth'], what: 'A .wei name registered' }),
+  pmbet: (r) => ({ icons: ['tk-eth'], what: 'A prediction-market bet', amt: `${twoFig(r.amount)} ETH` }),
+  pmcreate: () => ({ icons: ['tk-eth'], what: 'A prediction market opened' }),
+};
 const twoFig = (wei) => (Number(BigInt(wei) / 10n ** 12n) / 1e6).toLocaleString('en-US', { maximumSignificantDigits: 2 });
-function tapeEvents(d) {
+function tapeEvents(d, rec) {
   const latest = (xs, n) => xs.filter((t) => t).sort((a, b) => b - a).slice(0, n);
   const latestIn = (xs, n) => xs.filter(([t]) => t).sort((a, b) => b[0] - a[0]).slice(0, n);
   const ev = [];
-  for (const [t, v] of latestIn(d.eth?.series?.ins || [], 6)) ev.push({ t, icons: ['tk-teth'], what: 'ETH made private', amt: `${twoFig(v)} ETH` });
-  for (const x of d.dev || []) for (const [t, v] of latestIn(x.series?.ins || [], 4)) ev.push({ t, icons: ['tk-peth'], what: 'ETH in to pay privately', amt: `${twoFig(v)} ETH on ${CHAIN_META[x.chain]?.chainName || `chain ${x.chain}`}` });
-  for (const t of latest(d.link?.times?.settles || [], 6)) ev.push({ t, icons: ['tk-tac'], what: 'A private transaction settled' });
-  for (const t of latest(d.link?.times?.attests || [], 4)) ev.push({ t, icons: ['tk-btc', 'tk-eth'], what: 'Bitcoin proven on Ethereum' });
+  const rows = Array.isArray(rec?.rows) ? rec.rows.filter((r) => FEED[r.activity] && r.t) : null;
+  if (rows) for (const r of rows) ev.push({ t: Number(r.t), ...FEED[r.activity](r) });
+  else if (d) {
+    for (const [t, v] of latestIn(d.eth?.series?.ins || [], 6)) ev.push({ t, ...FEED.wrap({ amount: v }) });
+    for (const x of d.dev || []) for (const [t, v] of latestIn(x.series?.ins || [], 4)) ev.push({ t, ...FEED.evmpooldeposit({ amount: v, chain: x.chain }) });
+  }
+  for (const t of latest(d?.link?.times?.settles || [], 6)) ev.push({ t, icons: ['tk-tac'], what: 'A private transaction settled' });
+  for (const t of latest(d?.link?.times?.attests || [], 4)) ev.push({ t, icons: ['tk-btc', 'tk-eth'], what: 'Bitcoin proven on Ethereum' });
   // The same line again within the hour, with no amount to tell them apart, is one line with a count.
   const out = [];
   for (const e of ev.sort((a, b) => b.t - a.t)) { const last = out.at(-1); if (last && !e.amt && last.what === e.what && last.t - e.t < 3600) last.n++; else out.push({ ...e, n: 1 }); }
-  return out.slice(0, 16);
+  return out.slice(0, 18);
 }
-function paintTape(d) {
-  const box = $('#tape'), run = $('#tape-run'), ev = tapeEvents(d);
+function paintTape(d, rec) {
+  const box = $('#tape'), run = $('#tape-run'), ev = tapeEvents(d, rec);
   if (!ev.length) { box.hidden = true; return; }
   const key = ev.map((e) => `${e.t}${e.what}${e.n}`).join();
   if (key === TAPE.key) { for (const el of $$('time[data-t]', run)) el.textContent = ago(Number(el.dataset.t) * 1000); return; }
@@ -8815,7 +8837,7 @@ function paintTape(d) {
   // The same pace whatever its length: about 40 px a second.
   run.style.setProperty('--tape-s', `${Math.max(30, Math.round(run.scrollWidth / 2 / 40))}s`);
 }
-const refreshTape = () => readStats().then(paintTape).catch(() => {});
+const refreshTape = () => Promise.all([readStats().catch(() => null), readRecent()]).then(([d, rec]) => paintTape(d, rec)).catch(() => {});
 refreshTape();
 setInterval(() => { if (!document.hidden) for (const e of $$('[data-left]')) e.textContent = potLeft(); }, 1000);
 
