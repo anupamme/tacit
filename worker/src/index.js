@@ -109,7 +109,7 @@ import { SWAP_BATCH_VK } from '../../dapp/confidential-swapbatch-vk.js';
 import { bpRangeVerify, bpClassicProofLen } from '../../dapp/bulletproofs.js';
 import { makeBridgeRecover } from '../../dapp/bridge-recover.js';
 import { bppRangeVerify, bytesToPoint as bppPoint } from '../../dapp/bulletproofs-plus.js';
-import { makeStatsReader, mergeReadings, toJson as statsJson } from '../../dapp/weld/stats/read.js';
+import { makeStatsReader, mergeReadings, toJson as statsJson, fromJson as statsFromJson } from '../../dapp/weld/stats/read.js';
 
 // Node (Render) egress: several Bitcoin explorers publish AAAA records that this host can't route, so
 // fetch() picks IPv6 and ETIMEDOUTs at connect (AggregateError in internalConnectMultiple) — which broke
@@ -1620,7 +1620,28 @@ async function reflectionStatusBody(env, network) {
 // once. Each reading starts from what the last one kept, so it asks the chains and explorers only for what is new, and a
 // part it can't read keeps its last value (the reading says which, and from when).
 const STATS_TTL_MS = 15 * 60 * 1000;
-const _stats = { body: null, at: 0, reading: null, keep: {}, inflight: null };
+const _stats = { body: null, at: 0, reading: null, keep: {}, inflight: null, loading: null };
+// The reading and what it kept outlast a restart (REGISTRY_KV): a deploy doesn't send every chain's history to be read again,
+// and a history too long for one reading (Base's, from nodes that answer 500 or 1,000 blocks at a time) is read a piece per
+// reading, once. This reading may ask the nodes more often than a visitor's browser does, for that reason.
+const STATS_KEEP_KEY = 'stats:keep:v1', STATS_LAST_KEY = 'stats:last:v1', STATS_LOG_BUDGET = 150;
+function loadStats(env) {
+  return (_stats.loading ||= (async () => {
+    if (!env.REGISTRY_KV) return;
+    try {
+      const [keep, last] = await Promise.all([env.REGISTRY_KV.get(STATS_KEEP_KEY), env.REGISTRY_KV.get(STATS_LAST_KEY)]);
+      if (keep) _stats.keep = statsFromJson(keep);
+      const l = last ? JSON.parse(last) : null;
+      if (l?.body && !_stats.body) { _stats.body = l.body; _stats.reading = statsFromJson(l.body); _stats.at = Number(l.at) || 0; }
+    } catch (e) { console.warn(`[stats] saved reading unreadable: ${(e && e.message) || e}`); }
+  })());
+}
+async function saveStats(env) {
+  if (!env.REGISTRY_KV) return;
+  try {
+    await Promise.all([env.REGISTRY_KV.put(STATS_KEEP_KEY, statsJson(_stats.keep)), env.REGISTRY_KV.put(STATS_LAST_KEY, JSON.stringify({ at: _stats.at, body: _stats.body }))]);
+  } catch (e) { console.warn(`[stats] reading not saved: ${(e && e.message) || e}`); }
+}
 function refreshStats(env) {
   if (_stats.inflight) return _stats.inflight;
   const getApi = async (path) => {
@@ -1637,18 +1658,20 @@ function refreshStats(env) {
     }
     throw new Error(`no ${u.pathname}`);
   };
-  _stats.inflight = makeStatsReader({ getApi }).read(_stats.keep)
-    .then(({ reading, keep }) => {
+  _stats.inflight = loadStats(env).then(() => makeStatsReader({ getApi, logBudget: STATS_LOG_BUDGET }).read(_stats.keep))
+    .then(async ({ reading, keep }) => {
       _stats.keep = keep;
       _stats.reading = mergeReadings(_stats.reading, reading);
       _stats.body = statsJson(_stats.reading);
       _stats.at = Date.now();
+      await saveStats(env);
     })
     .catch((e) => { console.warn(`[stats] reading failed: ${(e && e.message) || e}`); })
     .finally(() => { _stats.inflight = null; });
   return _stats.inflight;
 }
 async function handleStats(env, cors) {
+  await loadStats(env);
   if (!_stats.body || Date.now() - _stats.at > STATS_TTL_MS) {
     const p = refreshStats(env);
     if (!_stats.body) await p;
