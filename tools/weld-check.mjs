@@ -2955,7 +2955,7 @@ await step('stats', async () => {
   // A card as "key | value | context".
   const card = async (k) => (await r.page.$$eval('.card', (cs) => cs.map((c) => ['.k', '.v', '.m'].map((x) => c.querySelector(x).textContent.replace(/\s+/g, ' ').trim()).join(' | ')))).find((t) => t.startsWith(k + ' |')) || '';
   try {
-    await r.page.goto(r.url + 'stats/');
+    await r.page.goto(r.url + 'weld/stats/');
     await until(r.page, () => /^As of /.test(document.querySelector('#asof')?.textContent || '') && !/updating/.test(document.querySelector('#asof')?.textContent || ''), null, 120000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | asof: ${await text(r.page, '#asof')} | errors: ${r.errors.slice(0, 2).join(' | ')}`); });
     ok(!/some figures/.test(await text(r.page, '#asof')), `stats: every part read (${await text(r.page, '#asof')})`);
@@ -3004,7 +3004,7 @@ await step('stats', async () => {
     await r.page.reload();
     await settled();
     ok(hits.length === n && logReads.length === nLogs && /^Made private \| 1\.5ETH/.test(await card('Made private')), `stats: a second visit within the quarter hour shows the last reading and reads nothing (${hits.length - n} explorer, ${logReads.length - nLogs} log reads)`);
-    await r.page.goto(r.url + 'stats/?fresh');
+    await r.page.goto(r.url + 'weld/stats/?fresh');
     await settled();
     const fresh = hits.slice(n);
     ok(fresh.length === 2 && fresh.every((q) => Number(new URLSearchParams(q.split('?')[1]).get('startblock')) > 0) && /^Made private \| 1\.5ETH \| 2 deposits/.test(await card('Made private')),
@@ -3015,7 +3015,7 @@ await step('stats', async () => {
     snapshot = JSON.stringify(kept);
     await r.page.evaluate(() => localStorage.clear());
     const before = [hits.length, logReads.length];
-    await r.page.goto(r.url + 'stats/');
+    await r.page.goto(r.url + 'weld/stats/');
     await settled();
     ok(/^Made private \| 9ETH/.test(await card('Made private')) && hits.length === before[0] && logReads.length === before[1],
       `stats: with the API's shared reading the page shows it and reads nothing itself (${await card('Made private')} · ${hits.length - before[0]} explorer, ${logReads.length - before[1]} log reads)`);
