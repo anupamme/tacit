@@ -292,15 +292,15 @@ test('stats reading: a node that dates every log 0 gets its logs dated from thei
 });
 
 test('stats reading: a node that names its own block limit is asked for that many blocks at a time', async () => {
-  for (const [cap, message] of [
+  for (const [cap, message, data] of [
     [10_000, 'query spans 30000 blocks (1 to 30000), but only 10000 are allowed for this request; narrow the block range'],   // Robinhood's node
-    [1_000, 'Block range too large for public access: maximum 1000 blocks. Try with this block range [0x1, 0x3e8]'],          // Tenderly's public gateway
+    [1_000, 'invalid params', 'Block range too large for public access: maximum 1000 blocks. Try with this block range [0x1, 0x3e8]'],   // Tenderly's public gateway: the why is in `data`
   ]) {
     let asked = 0;
     const fetchImpl = async (url, opts) => {
       asked++;
       const q = JSON.parse(opts.body).params[0], from = Number(BigInt(q.fromBlock)), to = Number(BigInt(q.toBlock));
-      const body = to - from + 1 > cap ? { jsonrpc: '2.0', id: 1, error: { code: -32602, message } } : { jsonrpc: '2.0', id: 1, result: [{ blockNumber: q.fromBlock }] };
+      const body = to - from + 1 > cap ? { jsonrpc: '2.0', id: 1, error: { code: -32602, message, ...(data ? { data } : {}) } } : { jsonrpc: '2.0', id: 1, result: [{ blockNumber: q.fromBlock }] };
       return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
     };
     const logs = await makeStatsReader({ fetchImpl, gapMs: 0 }).getLogs(4663, A.evmPool, 1, 3 * cap);
@@ -334,7 +334,9 @@ test('stats reading: a node that refuses a long read without naming a span is le
     const error = /publicnode/.test(host) ? 'Archive requests require a personal token. Get one at: https://www.allnodes.com/publicnode'
       : /mainnet\.base\.org/.test(host) && n > 500 ? 'eth_getLogs is limited to a 500 range'
       : /tenderly/.test(host) && n > 1000 ? 'Block range too large for public access: maximum 1000 blocks' : null;
-    const body = error ? { jsonrpc: '2.0', id: 1, error: { code: -32602, message: error } } : { jsonrpc: '2.0', id: 1, result: [] };
+    const body = !error ? { jsonrpc: '2.0', id: 1, result: [] }
+      : /tenderly/.test(host) ? { jsonrpc: '2.0', id: 1, error: { code: -32602, message: 'invalid params', data: error } }
+      : { jsonrpc: '2.0', id: 1, error: { code: -32602, message: error } };
     return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
   };
   await makeStatsReader({ fetchImpl, gapMs: 0 }).getLogs(8453, A.evmPool, 1, 10_000, 40);

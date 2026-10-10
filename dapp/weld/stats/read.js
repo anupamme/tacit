@@ -106,7 +106,8 @@ export function makeStatsReader({ fetchImpl = (...a) => fetch(...a), gapMs = 200
     let j = null;
     try { j = await r.json(); } catch { /* not JSON */ }
     if (j && !Array.isArray(j) && j.error) {
-      const msg = String(j.error.message || 'rpc error');
+      // Some nodes say why in `data` (Tenderly: message "invalid params", data "… maximum 1000 blocks …").
+      const msg = String(j.error.message || 'rpc error') + (typeof j.error.data === 'string' ? `: ${j.error.data}` : '');
       throw Object.assign(new Error(msg), { kind: r.status === 429 || /rate limit|too many requests|usage limit/i.test(msg) ? 'busy' : 'rpc' });
     }
     if (!r.ok || j == null) throw Object.assign(new Error(`rpc ${r.status}`), { kind: r.status === 429 ? 'busy' : 'http' });
