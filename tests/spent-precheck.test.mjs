@@ -5,7 +5,7 @@
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { keccak256, concat, pad } from '../worker-relay/node_modules/viem/_esm/index.js';
-import { depositsOf, spentInputsOf, noteNullifier, depositIdOf, consumedInputs, consumedInput, consumedAck, unlandedDeposits } from '../worker-relay/src/lib/spent-precheck.js';
+import { depositsOf, spentInputsOf, noteNullifier, depositIdOf, consumedInputs, consumedInput, consumedAck, unlandedDeposits, bridgeMintNullifier, farmReceiptNullifier, nullifiersOf } from '../worker-relay/src/lib/spent-precheck.js';
 import { secp, sha256, keccak_256 } from '../dapp/vendor/tacit-deps.min.js';
 import { makeConfidentialPool } from '../dapp/confidential-pool.js';
 
@@ -89,5 +89,46 @@ ok('a gone input acks the job settled when its own settle, or any settle of a wr
   assert.match(consumedAck(dep, {}).error, /already settled into a private note$/);
   assert.match(consumedAck(nu, {}).error, /already spent;/);
 });
+
+// Types whose spent input is not a note with a secret in the witness: a bridged Bitcoin note, a farm receipt.
+const bridgeOp = opOf('bridgemint');
+ok('bridgemint: the burned note\'s ν is the one the fixture expects, for every source class, as the dapp\'s pool library has it', () => {
+  assert.equal(lc(bridgeMintNullifier(bridgeOp)), lc(bridgeOp.expect.nullifier));
+  const { asset, chainBinding, input: i } = bridgeOp;
+  const leafOf = { 0: pool.leaf(asset, i.cx, i.cy, i.owner), 1: pool.btcNoteLeaf(asset, i.cx, i.cy, i.owner), 2: pool.btcNoteLeafBound(asset, i.cx, i.cy, i.owner, chainBinding) };
+  for (const [cls, leaf] of Object.entries(leafOf)) assert.equal(lc(bridgeMintNullifier({ ...bridgeOp, sourceClass: Number(cls) })), lc(pool.nullifier(leaf)), `class ${cls}`);
+  assert.equal(bridgeMintNullifier({ ...bridgeOp, sourceClass: 7 }), null);
+  assert.equal(bridgeMintNullifier({ ...bridgeOp, input: null }), null);
+});
+ok('farmunbond: the receipt\'s ν is the one the proof committed, and the dapp\'s pool library computes the same', () => {
+  const op = opOf('farm_unbond'), pv = pvOf('farm_unbond');
+  const nu = farmReceiptNullifier(op);
+  assert.ok(pv.includes(nu.slice(2).toLowerCase()), 'ν is among the committed public values');
+  const farmId = '0x' + '00'.repeat(12) + op.controller.replace(/^0x/, '');
+  assert.equal(lc(nu), lc(pool.farmReceiptNullifier(pool.farmReceiptLeaf(farmId, op.lpAsset, BigInt(op.shares), op.owner, op.nonce))));
+  assert.deepEqual(nullifiersOf('farmunbond', op).map(lc), [lc(nu)]);
+});
+ok('farmharvest: the receipt stays staked and the proof commits no nullifier, so none is looked for', () => {
+  const op = opOf('farm_harvest');
+  assert.ok(!pvOf('farm_harvest').includes(farmReceiptNullifier(op).slice(2).toLowerCase()));
+  assert.deepEqual(nullifiersOf('farmharvest', op), []);
+});
+ok('the same ν is not named twice, and a type without its own rule names only the spent notes\'', () => {
+  assert.deepEqual(nullifiersOf('transfer', opOf('transfer')), [...new Set(spentInputsOf(opOf('transfer')).map(noteNullifier))]);
+  assert.equal(nullifiersOf('bridgemint', bridgeOp).length, 1);
+  assert.deepEqual(nullifiersOf('mystery', { foo: 1 }), []);
+});
+{
+  const jobs = [{ type: 'bridgemint', op: bridgeOp }, { type: 'farmunbond', op: opOf('farm_unbond') }];
+  for (const job of jobs) {
+    const nu = nullifiersOf(job.type, job.op).at(-1);
+    await okAsync(`${job.type}: a ν already recorded stops the job before it is proved; an unspent one and an unreadable chain let it through`, async () => {
+      assert.deepEqual(await consumedInput(job, { client: chain({ spent: [nu] }), pool: POOL }),
+        { kind: 'nullifier', id: nu, reason: `input nullifier ${nu} is already spent` });
+      assert.equal(await consumedInput(job, { client: chain(), pool: POOL }), null);
+      assert.equal(await consumedInput(job, { client: chain({ broken: true }), pool: POOL }), null);
+    });
+  }
+}
 
 console.log(`\n${pass} passed, 0 failed`);

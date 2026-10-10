@@ -1,6 +1,7 @@
 // Before a proof is paid for, look on chain for inputs the settle would consume that are already gone: a note whose
-// nullifier is recorded as spent, or a wrap deposit that was already consumed. Such a settle can only revert (the
-// usual cause is a job served again after its first settle landed), so it is failed without proving.
+// nullifier is recorded as spent (a bridged Bitcoin note and a farm receipt included), or a wrap deposit that was
+// already consumed. Such a settle can only revert (the usual cause is a job served again after its first settle
+// landed), so it is failed without proving.
 //
 // Every id is recomputed from the job's own witness fields with the guest's formulas (cxfer-core leaf, native_nu,
 // deposit id). Anything unrecognised or unreadable lets the job through, so the check only ever skips work that
@@ -24,6 +25,47 @@ export const noteNullifier = ({ asset, cx, cy, owner, nk }) => {
 };
 export const depositIdOf = ({ asset, value, cx, cy, owner }) =>
   keccak256(concat([b32(asset), numberToHex(BigInt(value), { size: 32 }), keccak256(concat([b32(cx), b32(cy), b32(owner)]))]));
+
+const BTC_NOTE_DOM = toHex('tacit-btc-note-v1');
+const BTC_NOTE_DOM_BOUND = toHex('tacit-btc-note-bound');
+const FARM_RECEIPT_DOM = toHex('tacit-farm-receipt-v3');
+const FARM_RECEIPT_NULL_DOM = toHex('tacit-farm-receipt-null-v1');
+const le8 = (n) => { const b = []; let v = BigInt(n); for (let i = 0; i < 8; i++) { b.push(Number(v & 0xffn)); v >>= 8n; } return toHex(new Uint8Array(b)); };
+
+// The nullifier a bridge mint records for the Bitcoin note it burns: the leaf-bound ν of the source leaf, whose form
+// follows the op's source class (0 burn-deposit note owned by its outpoint, 1 reflected note, 2 reflected note bound to
+// the deployment). The op carries no secret for it, so it is not among the spent inputs found by walking the witness.
+export function bridgeMintNullifier(op) {
+  const i = op && op.input;
+  if (!i || !isHex32(op.asset) || !isHex32(i.cx) || !isHex32(i.cy) || !isHex32(i.owner)) return null;
+  const parts = [b32(op.asset), b32(i.cx), b32(i.cy), b32(i.owner)];
+  switch (Number(op.sourceClass)) {
+    case 0: return keccak256(concat([keccak256(concat(parts)), SPENT]));
+    case 1: return keccak256(concat([keccak256(concat([...parts, BTC_NOTE_DOM])), SPENT]));
+    case 2: return isHex32(op.chainBinding) ? keccak256(concat([keccak256(concat([...parts, b32(op.chainBinding), BTC_NOTE_DOM_BOUND])), SPENT])) : null;
+    default: return null;
+  }
+}
+
+// The nullifier of the farm receipt an unbond spends (cxfer-core farm_receipt_leaf / farm_receipt_nullifier): the receipt
+// names the farm's controller, the staked asset, the shares, its owner and its nonce. A harvest keeps the receipt staked
+// and records no nullifier, so it has none here.
+export function farmReceiptNullifier(op) {
+  if (!op || !isHex32(op.controller) || !isHex32(op.lpAsset) || !isHex32(op.owner) || !isHex32(op.nonce) || op.shares == null) return null;
+  const leaf = keccak256(concat([FARM_RECEIPT_DOM, b32(op.controller), b32(op.lpAsset), le8(op.shares), b32(op.owner), b32(op.nonce)]));
+  return keccak256(concat([FARM_RECEIPT_NULL_DOM, leaf]));
+}
+
+// Every nullifier the settle would record for this job that the witness fixes: the spent notes' own, plus the ones
+// whose types carry them another way.
+export function nullifiersOf(type, op) {
+  const out = spentInputsOf(op).map(noteNullifier);
+  try {
+    if (type === 'bridgemint') out.push(bridgeMintNullifier(op));
+    else if (type === 'farmunbond') out.push(farmReceiptNullifier(op));
+  } catch { /* an op in a shape these formulas do not read is let through */ }
+  return [...new Set(out.filter(Boolean))];
+}
 
 // The public deposits a wrap-family op consumes, in the fields its prover harness reads (harnesses/exec-<type>.rs).
 export function depositsOf(type, op) {
@@ -68,7 +110,7 @@ export async function consumedInput({ type, op }, { client, pool }) {
       const status = await client.readContract({ address: pool, abi: DEPOSIT_STATUS_ABI, functionName: 'depositStatus', args: [id] });
       if (Number(status) === DEPOSIT_CONSUMED) return { kind: 'deposit', id, reason: `deposit ${id} was already consumed` };
     }
-    for (const nu of new Set(spentInputsOf(op).map(noteNullifier))) {
+    for (const nu of nullifiersOf(type, op)) {
       if (++reads > MAX_READS) return null;
       const word = await client.getStorageAt({ address: pool, slot: keccak256(concat([nu, NULLIFIER_SPENT_SLOT])) });
       if (word && word !== '0x' && BigInt(word) !== 0n) return { kind: 'nullifier', id: nu, reason: `input nullifier ${nu} is already spent` };
