@@ -290,3 +290,38 @@ test('stats reading: a node that dates every log 0 gets its logs dated from thei
   const again = await makeStatsReader({ fetchImpl: z.fetchImpl, gapMs: 0 }).read(stale);
   assert.deepEqual(again.reading.dev.find((d) => d.chain === 4663).series, rh.series);
 });
+
+test('stats reading: a node that names its own block limit is asked for that many blocks at a time', async () => {
+  for (const [cap, message] of [
+    [10_000, 'query spans 30000 blocks (1 to 30000), but only 10000 are allowed for this request; narrow the block range'],   // Robinhood's node
+    [1_000, 'Block range too large for public access: maximum 1000 blocks. Try with this block range [0x1, 0x3e8]'],          // Tenderly's public gateway
+  ]) {
+    let asked = 0;
+    const fetchImpl = async (url, opts) => {
+      asked++;
+      const q = JSON.parse(opts.body).params[0], from = Number(BigInt(q.fromBlock)), to = Number(BigInt(q.toBlock));
+      const body = to - from + 1 > cap ? { jsonrpc: '2.0', id: 1, error: { code: -32602, message } } : { jsonrpc: '2.0', id: 1, result: [{ blockNumber: q.fromBlock }] };
+      return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) };
+    };
+    const logs = await makeStatsReader({ fetchImpl, gapMs: 0 }).getLogs(4663, A.evmPool, 1, 3 * cap);
+    assert.strictEqual(logs.length, 3, `the whole range, ${cap} blocks at a time`);
+    assert.strictEqual(asked, 4, `one refusal, then ${cap} blocks a request`);
+  }
+});
+
+test('stats reading: a log history too long for one reading is read on across readings, and comes out the same', async () => {
+  const x = world();
+  populate(x, 1);
+  x.explorerDown = /base\.blockscout|routescan/;            // no explorer for Base's logs, as now; Ethereum's lists still answer
+  const one = async (keep, logBudget) => makeStatsReader({ fetchImpl: x.fetchImpl, gapMs: 0, logBudget }).read(keep);
+  const base = (r) => r.dev?.find((d) => d.chain === 8453 && d.dep != null);
+  // Base's pool runs about 36,000 blocks from its first, at 2,000 a request: more than a reading of five requests reads.
+  let keep = {}, r, n = 0;
+  const reached = [];
+  do { ({ reading: r, keep } = await one(keep, 5)); reached.push(keep.logs?.['8453']?.to ?? null); n++; } while (!base(r) && n < 12);
+  assert.ok(base(r), `read in the end (${n} readings)`);
+  assert.ok(n > 2, `across ${n} readings`);
+  assert.ok(reached.every((t, i) => t != null && (i === 0 || t > reached[i - 1])), `each reading read on from the last (${reached.join(', ')})`);
+  const whole = (await one({}, 100)).reading;
+  assert.deepStrictEqual(figures(base(r)), figures(base(whole)), 'the same figures as one reading that could read it all');
+});

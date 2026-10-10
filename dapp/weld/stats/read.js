@@ -43,7 +43,7 @@ export const SEL = {
 // hour on each chain, so neither a reorg nor an endpoint or explorer running behind leaves anything out for good).
 export const CHAINS = {
   1: { rpc: ['https://mainnet.gateway.tenderly.co', 'https://ethereum-rpc.publicnode.com', 'https://cloudflare-eth.com', 'https://eth.drpc.org'], bs: 'https://eth.blockscout.com', final: 75, slot: 12 },
-  8453: { rpc: ['https://mainnet.base.org', 'https://base-rpc.publicnode.com'], bs: 'https://base.blockscout.com', final: 450, slot: 2 },
+  8453: { rpc: ['https://mainnet.base.org', 'https://base-rpc.publicnode.com', 'https://base.gateway.tenderly.co'], bs: 'https://base.blockscout.com', final: 450, slot: 2 },
   4663: { rpc: ['https://rpc.mainnet.chain.robinhood.com'], bs: null, final: 3600, slot: 0.1 },
 };
 export const API = 'https://api.tacit.finance';
@@ -89,7 +89,9 @@ const slimTx = (t, internal) => ({
 
 // `getApi(path)` answers the relay's own reads (the points board, the reflection's status); the API passes its own, the
 // page asks api.tacit.finance.
-export function makeStatsReader({ fetchImpl = (...a) => fetch(...a), gapMs = 200, getApi = null } = {}) {
+// `logBudget` is how many times a reading may ask the nodes for one contract's logs: a browser's few, and more for the API's
+// shared reading, so a history too long for one reading is read in a few (each keeps what it read; see logsOf).
+export function makeStatsReader({ fetchImpl = (...a) => fetch(...a), gapMs = 200, getApi = null, logBudget = 12 } = {}) {
   // ── RPC: an endpoint that doesn't answer goes to the back of its chain's list for a minute ────────────────────
   const COOL = 60e3;
   const eps = Object.fromEntries(Object.entries(CHAINS).map(([c, x]) => [c, x.rpc.map((url) => ({ url, cool: 0, span: Infinity }))]));
@@ -161,7 +163,8 @@ export function makeStatsReader({ fetchImpl = (...a) => fetch(...a), gapMs = 200
       for (const ep of order) {
         let span = Math.min(to - start + 1, ep.span);
         while (!got) {
-          if (++asked > budget) throw Object.assign(new Error('too many requests to read these logs from RPC'), { kind: 'budget' });
+          if (++asked > budget) throw Object.assign(new Error('too many requests to read these logs from RPC'), { kind: 'budget', partial: { logs: out, end: start - 1 } });
+          if (asked > 12 && gapMs) await sleep(gapMs);                       // a long read goes a little apart
           const end = start + span - 1;
           try {
             const { result } = await post(ep.url, { jsonrpc: '2.0', id: 1, method: 'eth_getLogs', params: [{ address, fromBlock: '0x' + start.toString(16), toBlock: '0x' + end.toString(16) }] }, 25e3);
@@ -176,7 +179,7 @@ export function makeStatsReader({ fetchImpl = (...a) => fetch(...a), gapMs = 200
         }
         if (got) break;
       }
-      if (!got) throw last || new Error('no RPC served these logs');
+      if (!got) throw Object.assign(last || new Error('no RPC served these logs'), { partial: { logs: out, end: start - 1 } });
       out.push(...got.logs);
       start = got.end + 1;
     }
@@ -257,10 +260,19 @@ export function makeStatsReader({ fetchImpl = (...a) => fetch(...a), gapMs = 200
       const to = await head(chain), final = CHAINS[chain].final, kept = k.logs[name], start = kept ? kept.to + 1 : from;
       let fresh = [];
       if (start <= to) {
-        try { fresh = await getLogs(chain, addresses.length === 1 ? addresses[0] : addresses, start, to); }
+        try { fresh = await getLogs(chain, addresses.length === 1 ? addresses[0] : addresses, start, to, logBudget); }
         catch (e) {
-          if (!CHAINS[chain].bs) throw e;
-          for (const a of addresses) fresh.push(...(await bsLogs(chain, a, start)).filter((l) => num(l.blockNumber) <= to));
+          try {
+            if (!CHAINS[chain].bs) throw e;
+            fresh = [];
+            for (const a of addresses) fresh.push(...(await bsLogs(chain, a, start)).filter((l) => num(l.blockNumber) <= to));
+          } catch (e2) {
+            // Neither the nodes nor an explorer gave it all: what the nodes did read, up to a final block, is kept, so the next
+            // reading goes on from there instead of from the start (Base's nodes answer 500 or 1,000 blocks at a time).
+            const upto = Math.min(e.partial ? e.partial.end : start - 1, to - final);
+            if (upto >= start) k.logs[name] = { to: upto, items: [...(kept ? kept.items : []), ...e.partial.logs.map(slimLog).filter((l) => l.b <= upto).sort((x, y) => x.b - y.b || x.i - y.i)] };
+            throw e2;
+          }
         }
       }
       let all = [...(kept ? kept.items : []), ...fresh.map(slimLog).sort((x, y) => x.b - y.b || x.i - y.i)];
