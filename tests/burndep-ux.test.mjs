@@ -156,7 +156,8 @@ function makeWorld() {
       const rec = chainTxs.get(stripHex(txid));
       // Once the migrate confirms, its reveal (the burn-home) is on chain; its script is set by setBurnHomeOnChain.
       if (!rec && migrateConfirmed) return json({ status: { confirmed: true, block_height: noteHeight }, vout: [] });
-      if (!rec) throw new Error('world: unknown chain tx ' + txid);
+      // A transaction Bitcoin does not know is a 404 from the proxy, as in production.
+      if (!rec) return { ok: false, status: 404, json: async () => ({ error: 'not found' }), text: async () => 'Transaction not found' };
       return json({ status: { confirmed: rec.confirmed, block_height: noteHeight }, vout: rec.vout, vin: rec.vin || [] });
     }
     throw new Error('world: unstubbed path ' + u.pathname + ' ' + u.hostname);
@@ -1408,6 +1409,67 @@ function storageContainsPrivkey(storage, priv) {
   ok(cur.stage === 'rburn-sent' && cur.errorCount === 3 && /min fee/.test(cur.lastError.message), 'a burn Bitcoin dropped and refuses again is said on the record, each try counted');
   world.chain.broadcastWithRetry = send;
   ok((await ux.cancelSigned(r.walletPub, r.id)) === null && ux.list(r.walletPub).length === 0 && !ux.isReserved(NOTE_TXID, NOTE_VOUT), 'and is cancelled once Bitcoin has neither transaction, its note free again');
+}
+{
+  // A sent burn that Bitcoin has mined moves on even when this service cannot say so: a stale or failing answer is asked again of the
+  // public explorers, and a read no source could answer is said, never taken for "not mined yet".
+  const reply = (how) => (how === 'down' ? { ok: false, status: 503, json: async () => { throw new SyntaxError('x'); }, text: async () => 'down' }
+    : how === 'text' ? { ok: true, status: 200, json: async () => { throw new SyntaxError('Unexpected token R'); }, text: async () => 'Rate limited' }
+    : { ok: true, status: 200, json: async () => (how === 'confirmed' ? { confirmed: true, block_height: 970602 } : { confirmed: false }) });
+  // A bridge sent and waiting, with each source's answer about its burn set by `src` (service | mempool | blockstream: 'unconfirmed' | 'confirmed' | 'down' | 'text').
+  const sentBurn = async (src, asked = []) => {
+    const world = makeWorld();
+    world.setBurnHomeOnChain(NOTE_TXID, '0014' + Buffer.from(ripemd160(nobleSha256(WALLET_PUB))).toString('hex'));
+    world.setReflectedNote({ txid: NOTE_TXID, vout: NOTE_VOUT, value: NOTE_AMOUNT, blinding: NOTE_BLINDING });
+    let burnId = null;
+    const fetchImpl = async (url, opts) => {
+      const u = new URL(url);
+      if (burnId && u.pathname === `/chain/tx/${burnId}`) {
+        const how = src.service;
+        return how === 'confirmed' || how === 'unconfirmed' ? { ok: true, status: 200, json: async () => ({ txid: burnId, status: how === 'confirmed' ? { confirmed: true, block_height: 970602 } : { confirmed: false } }) } : reply(how);
+      }
+      if (burnId && u.pathname === `/api/tx/${burnId}/status`) { asked.push(u.hostname); return reply(u.hostname === 'mempool.space' ? src.mempool : src.blockstream); }
+      return world.fetchImpl(url, opts);
+    };
+    const ux = makeUx({ ...world, fetchImpl }, makeMemStorage());
+    let r = await ux.startReflected({ note: { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING }, walletPriv: WALLET_PRIV, feeRate: BASE_RATE });
+    r = await ux.advance(r.walletPub, r.id);
+    burnId = stripHex(r.burn.txid).toLowerCase();
+    return { ux, r };
+  };
+
+  {
+    const asked = [], src = { service: 'unconfirmed', mempool: 'unconfirmed', blockstream: 'down' };
+    let { ux, r } = await sentBurn(src, asked);
+    ok(r.stage === 'rburn-sent', 'sanity: sent');
+    r = await ux.advance(r.walletPub, r.id);
+    ok(r.stage === 'rburn-sent' && !r.lastError && asked.length === 1, 'a burn both sources see as waiting stays sent, and costs one explorer read');
+    src.mempool = 'confirmed';
+    r = await ux.advance(r.walletPub, r.id);
+    ok(r.stage === 'rburn-mined' && r.burnHeight === 970602, 'a stale answer from this service (still unconfirmed) does not hold a burn an explorer says is mined');
+  }
+  {
+    const src = { service: 'down', mempool: 'confirmed', blockstream: 'down' };
+    let { ux, r } = await sentBurn(src);
+    r = await ux.advance(r.walletPub, r.id);
+    ok(r.stage === 'rburn-mined' && r.burnHeight === 970602, 'with this service down, an explorer read from the page carries the burn on');
+  }
+  {
+    const src = { service: 'down', mempool: 'text', blockstream: 'confirmed' };
+    let { ux, r } = await sentBurn(src);
+    r = await ux.advance(r.walletPub, r.id);
+    ok(r.stage === 'rburn-mined', 'an error text under a 200 is not an answer: the next explorer is asked');
+  }
+  // No source able to answer is a thrown transport failure that the record does not keep, so the stage waits and the row is not failing.
+  for (const how of ['down', 'text']) {
+    const src = { service: 'down', mempool: how, blockstream: how };
+    let { ux, r } = await sentBurn(src);
+    let err = null;
+    await ux.advance(r.walletPub, r.id).catch((e) => { err = e; });
+    const cur = ux.list(r.walletPub)[0];
+    ok(err && Number(err.status) === 503 && /could not read Bitcoin/.test(err.message), `sources that cannot answer (${how}) are said, not read as "not yet"`);
+    ok(cur.stage === 'rburn-sent' && !cur.lastError, `and the row keeps waiting without failing (${how})`);
+  }
 }
 {
   // A mint the relay took is not built and sent again from a reload while it is with the relay; it is found once it lands.

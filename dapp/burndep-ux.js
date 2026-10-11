@@ -702,13 +702,14 @@ export function makeBurnDepositUx(deps) {
       return putRecord({ ...rec, stage: 'rburn-sent', sentAt: now() });
     },
     'rburn-sent': async (rec) => {
-      const t = await fetchChainJson(`/tx/${stripHex(rec.burn.txid)}`).catch(() => null);
-      if (!t || !t.status || !t.status.confirmed) {
+      // A read no source could answer is thrown (the stage keeps waiting and says it could not look), never taken for "not mined".
+      const t = await txMined(rec.burn.txid);
+      if (t.state !== 'mined') {
         // Re-sending a known transaction is a no-op; the signed pair is never rebuilt.
         await resend(rec.burn.commitHex, rec.burn.hex, rec.burn.txid);
         return rec;
       }
-      return putRecord({ ...rec, stage: 'rburn-mined', burnMinedAt: now(), burnHeight: t.status.block_height });
+      return putRecord({ ...rec, stage: 'rburn-mined', burnMinedAt: now(), burnHeight: t.height });
     },
     'rburn-mined': async (rec) => {
       // Until the proof reaches the burn's block there is nothing to look for in its state.
@@ -901,6 +902,37 @@ export function makeBurnDepositUx(deps) {
 
   function list(walletPub) { return loadAll(walletPub); }
   function abandon(walletPub, id) { saveAll(walletPub, loadAll(walletPub).filter((r) => r.id !== id)); }
+
+  // Where a transaction stands, asked of this service first and then of public explorers straight from the page, so one
+  // source that cannot answer (a rate limit, a region, a stale edge answer) does not hold a bridge at "sent":
+  // { state: 'mined', height } or { state: 'notmined' } (a source answered: unconfirmed, or not found). When no source
+  // could answer at all it throws a transport failure (503), which a waiting stage does not keep on its record.
+  const DIRECT_EXPLORERS = ['https://mempool.space/api', 'https://blockstream.info/api'];
+  async function txMined(txid) {
+    const id = stripHex(txid);
+    const mined = (s) => (s.confirmed === true && Number.isInteger(Number(s.block_height)) ? { state: 'mined', height: Number(s.block_height) } : { state: 'notmined' });
+    let answered = false, failure = null;
+    try {
+      const t = await fetchChainJson(`/tx/${id}`);
+      if (t && t.status && typeof t.status.confirmed === 'boolean') { if (t.status.confirmed) return mined(t.status); answered = true; }
+      else failure = new Error('the service gave no status');
+    } catch (e) { if (Number(e && e.status) === 404) answered = true; else failure = e; }
+    const f = fetchImpl || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
+    for (const base of f ? DIRECT_EXPLORERS : []) {
+      try {
+        const res = await f(`${base}/tx/${id}/status`);
+        if (res.status === 404) { answered = true; break; }
+        if (!res.ok) { failure = failure || new Error(`${base} answered ${res.status}`); continue; }
+        const s = await res.json().catch(() => null);
+        // A rate limit can arrive as text with a 200: only a body that says confirmed or not is an answer. The first explorer
+        // that answers is the answer, so a transaction still waiting costs one read here, not two.
+        if (s && typeof s.confirmed === 'boolean') { if (s.confirmed) return mined(s); answered = true; break; }
+        failure = failure || new Error(`${base} gave no status`);
+      } catch (e) { failure = failure || e; }
+    }
+    if (answered) return { state: 'notmined' };
+    throw Object.assign(new Error(`burndep-ux: could not read Bitcoin from this page just now (${String((failure && failure.message) || 'no answer').slice(0, 80)}); it tries again on its own`), { status: 503 });
+  }
 
   // Whether a transaction is on Bitcoin (mined or in a mempool): 'present', 'absent' only on an explicit not-found, and
   // 'unknown' for anything else, a rate limit or an outage included -- a transport failure is never read as absence.
