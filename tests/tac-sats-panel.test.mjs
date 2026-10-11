@@ -15,6 +15,7 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
 const settle = async () => { for (let i = 0; i < 20; i++) await tick(); };
 
 const { mount } = await import('../dapp/tac/sats.js');
+const shared = await import('../dapp/sats/secret.js');   // the panel's decoder and listing are secret.js's
 
 const p2wpkh = (pub) => Uint8Array.from([0x00, 0x14, ...ripemd160(sha256(pub))]);
 const addr = (ver, prog) => bech32.encode('bc', [ver, ...bech32.toWords(prog)]);
@@ -42,6 +43,8 @@ const pw = { addressString: 'bp1qtest', network: 'mainnet' };
 let free = 1;
 const S = {
   TAC_ASSET_MAINNET: 'f0'.repeat(32),
+  payoutScriptFor: shared.payoutScriptFor,
+  listFromSaleKey: shared.listFromSaleKey,
   saleKeys: async (t, w, notes, asset, opts) => { assert.equal(t, T); assert.equal(w, pw); assert.ok(Array.isArray(notes)); assert.deepEqual(opts.addresses, ['bp1qrelay'], 'the relay’s address is passed'); return { keys: [{ ...saleKey, notes: [NOTE] }], free }; },
   saleKey: (w, c) => ({ ...saleKey, counter: c, marker: `key${c}` }),
   poolClientFor: () => ({ relayInfo: async () => ({ address: 'bp1qrelay' }), exit: async (txid, vout) => ({ exists: txid === NOTE.txid && vout === NOTE.vout }) }),
@@ -92,7 +95,7 @@ const list = async (to) => {
 // The payout must be another wallet's bc1q/bc1p address.
 assert.match(await list(own), /ERR That is this wallet’s own address/);
 assert.match(await list(saleKey.address), /ERR That is a key this page made for a sale/);
-assert.match(await list(wsh), /ERR Use a bc1q… or bc1p… address/);
+assert.match(await list(wsh), /ERR Use a bc1q… or bc1p…/);
 assert.equal(listed.length, 0, 'none of those signed anything');
 
 // A fresh address: the sale key signs, for the note it holds, paying that address; the wallet's key comes back.

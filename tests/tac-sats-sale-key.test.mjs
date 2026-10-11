@@ -208,4 +208,72 @@ stub({ status: () => ({ state: 'confirmed' }) });
 r = await out();
 assert.equal(r.revealTxid, null); assert.equal(log.opened.length, 0);
 
+// ── payoutScriptFor: bc1q / bc1p with their own checksums; everything else refused ──
+{
+  const wpkh = secret.saleKey(pw, 0);
+  assert.equal(bytesToHex(secret.payoutScriptFor(wpkh.address)), wpkh.scriptPubKey, 'bc1q… → its P2WPKH script');
+  assert.equal(bytesToHex(secret.payoutScriptFor(wpkh.address.toUpperCase())), wpkh.scriptPubKey, 'upper case reads the same');
+  const trSpk = pool.deriveExitKey(pw, 0, 'p2tr').scriptPubKey.replace(/^0x/, '');
+  assert.equal(bytesToHex(secret.payoutScriptFor(secret.p2trAddress(trSpk, 'mainnet'))), trSpk, 'bc1p… → its P2TR script');
+  const wsh = bech32.encode('bc', [0, ...bech32.toWords(new Uint8Array(32).fill(4))]);
+  const bad = wpkh.address.slice(0, -1) + (wpkh.address.endsWith('q') ? 'p' : 'q');
+  for (const [addr, re] of [[wsh, /bc1q… or bc1p…/], [bad, /did not check out/], [wpkh.address.slice(0, 10) + wpkh.address.slice(10).toUpperCase(), /mixes upper and lower/],
+    [tbKey.address, /bc1q… or bc1p…/], ['1BoatSLRHtKNngkdXEeobR76b53LETtpyT', /bc1q… or bc1p…/], ['', /bc1q… or bc1p…/]]) {
+    assert.throws(() => secret.payoutScriptFor(addr), re, `refused: ${addr.slice(0, 14)}`);
+  }
+}
+
+// ── saleQuote: 2% under the cheapest live ask, or under the mark with an empty book ──
+{
+  const now = Math.floor(Date.now() / 1000);
+  const sale = (amountTac, sats, extra = {}) => ({ asset_opening: { amount: String(Math.round(amountTac * 1e8)) }, min_price_sats: sats, expiry: now + 3600, expired: false, ...extra });
+  const serve = (sales, mark) => { globalThis.fetch = async (u) => {
+    const s = String(u);
+    if (s.includes('/preauth-sales')) return { ok: sales != null, json: async () => ({ sales }) };
+    return { ok: mark != null, json: async () => ({ mark_price: { unit: mark } }) };
+  }; };
+  serve([sale(100, 20000), sale(10, 1680), sale(10, 1500, { expired: true }), sale(10, 1000, { expiry: now - 5 })], 170);
+  let q = await secret.saleQuote(100000n);
+  assert.equal(q.ask, 168, 'the cheapest LIVE ask: expired ones are left out');
+  assert.ok(Math.abs(q.unit - 168 * 0.98) < 1e-9, '2% under it');
+  assert.equal(q.units, BigInt(Math.ceil(100000 * 1e8 / (168 * 0.98))), 'TAC that sells for exactly the sats');
+  serve([], 170);
+  q = await secret.saleQuote(100000n);
+  assert.equal(q.ask, null); assert.ok(Math.abs(q.unit - 170 * 0.98) < 1e-9, 'an empty book prices off the mark');
+  serve(null, null);
+  assert.equal(await secret.saleQuote(100000n), null, 'no price, no quote');
+}
+
+// ── listFromSaleKey: the sale key signs, the wallet's key comes back, the sale key's bytes are wiped ──
+{
+  const mainPriv = new Uint8Array(32).fill(9), mainPub = new Uint8Array(33).fill(2);
+  const k = secret.saleKey(pw, 4), script = secret.payoutScriptFor(secret.saleKey(pw, 5).address);
+  let seen = null, invalidated = 0;
+  const t = { wallet: { priv: mainPriv, pub: mainPub }, invalidateHoldingsCache: () => { invalidated++; },
+    publishPreauthSale: async (o) => { seen = { ...o, pub: bytesToHex(t.wallet.pub), privRef: t.wallet.priv, priv: bytesToHex(t.wallet.priv) }; return { sale_id: 'ab'.repeat(16) }; } };
+  const r = await secret.listFromSaleKey(t, { key: k, note: { txid: 'ee'.repeat(32), vout: 1 }, sats: 3300n, expiry: 1234567890, payoutScript: script });
+  assert.equal(r.sale_id, 'ab'.repeat(16));
+  assert.deepEqual([seen.pub, seen.priv], [k.pub, k.priv], 'signed by the sale key');
+  assert.deepEqual([seen.utxoTxid, seen.utxoVout, seen.minPriceSats, seen.expiry], ['ee'.repeat(32), 1, 3300, 1234567890]);
+  assert.equal(seen.sellerPayoutScript, script);
+  assert.equal(t.wallet.priv, mainPriv); assert.equal(t.wallet.pub, mainPub);
+  assert.ok(seen.privRef.every((x) => x === 0), 'the sale key bytes are wiped'); assert.ok(invalidated >= 2);
+  t.publishPreauthSale = async () => { throw new Error('market said no'); };
+  await assert.rejects(secret.listFromSaleKey(t, { key: k, note: { txid: 'ee'.repeat(32), vout: 1 }, sats: 3300n, expiry: 1, payoutScript: script }), /market said no/);
+  assert.equal(t.wallet.priv, mainPriv, 'the key comes back after a refusal too');
+}
+
+// ── saleSettlement: unspent, paid to the recipient, or spent some other way ──
+{
+  const script = secret.payoutScriptFor(secret.saleKey(pw, 6).address), note = { txid: 'ee'.repeat(32), vout: 0 };
+  let spend = { spent: false };
+  globalThis.fetch = async (u) => ({ ok: true, status: 200, json: async () => spend });
+  const t = { NET: { api: API }, getTx: async () => ({ vout: [{ scriptpubkey: '0014' + '11'.repeat(20), value: 546 }, { scriptpubkey: bytesToHex(script), value: 3300 }], status: { confirmed: true } }) };
+  assert.equal(await secret.saleSettlement(t, { note, payoutScript: script, sats: 3300n }), null, 'unspent: not yet');
+  spend = { spent: true, txid: 'aa'.repeat(32), status: { confirmed: false } };
+  assert.deepEqual(await secret.saleSettlement(t, { note, payoutScript: script, sats: 3300n }), { txid: 'aa'.repeat(32), paid: true, confirmed: false });
+  assert.equal((await secret.saleSettlement(t, { note, payoutScript: script, sats: 3301n })).paid, false, 'less than the price is not paid');
+  assert.equal((await secret.saleSettlement(t, { note, payoutScript: secret.payoutScriptFor(secret.saleKey(pw, 7).address), sats: 1n })).paid, false, 'another script is not paid');
+}
+
 console.log('tac-sats-sale-key: all checks passed');

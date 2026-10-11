@@ -9,6 +9,9 @@
 //          /pay/eth/; BTC and TAC balances read; each kind of address routes as it should, a tacit1 from before the pool
 //          lane included (a silent payment in BTC, a shielded transfer in TAC); the receive addresses and their QR codes;
 //          Activity rebuilt from the key
+//   poolpay read-only against mainnet with KEY (a key holding shielded TAC): BTC Send to a bc1… address switched to the shielded
+//          pool shows what the recipient gets, the TAC it takes with the relay's fee, the price and how private it is; under the
+//          minimum, to this wallet's own address and to a tacit1 it says why or is not offered; nothing is sent
 //   btcsend no network: a silent payment through /pay's Send form to a tacit1 (both forms), captured, shown in Activity, found
 //          by its recipient
 //   lookfor LOCAL=1 POOL_STUB=1, transfer index and Bitcoin explorers stubbed: the shielded TAC balance's refresh also looks through the
@@ -252,6 +255,56 @@ try {
     await ctx.close();
   }
 
+  // The wallet's own Bitcoin address (P2WPKH of its key), to check the page refuses paying itself through the pool.
+  const p2wpkhOf = async (privHex) => {
+    const { secp, sha256, ripemd160 } = await import('../dapp/vendor/tacit-deps.min.js');
+    const prog = ripemd160(sha256(secp.getPublicKey(privHex.replace(/^0x/, ''), true)));
+    const C = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l', G = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+    const poly = (v) => v.reduce((c, x) => { const b = c >>> 25; c = ((c & 0x1ffffff) << 5) ^ x; G.forEach((g, i) => { if ((b >>> i) & 1) c ^= g; }); return c; }, 1);
+    const data = [0]; let acc = 0, bits = 0;
+    for (const x of prog) { acc = (acc << 8) | x; bits += 8; while (bits >= 5) { bits -= 5; data.push((acc >>> bits) & 31); } }
+    if (bits) data.push((acc << (5 - bits)) & 31);
+    const pm = poly([3, 3, 0, 2, 3, ...data, 0, 0, 0, 0, 0, 0]) ^ 1;
+    return 'bc1' + [...data, ...[0, 1, 2, 3, 4, 5].map((i) => (pm >>> (5 * (5 - i))) & 31)].map((d) => C[d]).join('');
+  };
+  if (ONLY.has('poolpay')) {
+    // BTC through the shielded TAC pool, read-only with KEY: the route is offered for a bc1… address and priced; nothing is sent.
+    console.log('poolpay (/pay: BTC through the shielded pool, mainnet reads)');
+    const origin = new URL(URL_).origin, { ctx, p, errors } = await page(browser);
+    const text = async (sel) => ((await p.textContent(sel)) || '').replace(/\s+/g, ' ').trim();
+    const TO = 'bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq';
+    const UNI = 'tacit1qzzs9xyupdmvk43ew87un0hnrmqxcdtq7vjf6mhfuhvrc4mz2ktwqhm0qdk5lnmv6yyy73yd0mccau2em5n66y5a0pyh3xfuhzwmf8g39kctxqngxmx5kxhvt2xqfmf4rufjqgcrgplldjykhww6nnq83gv2kcplcplm0hgggeadk2kqtqtqrk6qpedvat59c6sdeam6ankwjfjgldpjp05v82lv45dajuwype9n88tfdv4d0ta6qyvd9zzzwq58ed9pq75emyyf75';
+    await p.goto(origin + '/pay/#btc');
+    await p.waitForSelector('#g-in');
+    await openKey(p, process.env.KEY);
+    await p.waitForFunction(() => !document.querySelector('#bal .sk'), null, { timeout: 180e3 });
+    const rcpt = async (re, ms = 120e3) => { await p.waitForFunction((s) => new RegExp(s).test(document.querySelector('#f-rcpt')?.textContent || ''), re.source, { timeout: ms }).catch(() => {}); return text('#f-rcpt'); };
+    await p.fill('#f-amt', '0.0005'); await p.fill('#f-to', TO);
+    ok(/Plain payment/.test(await rcpt(/Plain payment|err/)) && !!(await p.$('#f-rcpt [data-via="pool"]')), 'a bc1… payment offers the shielded pool');
+    await p.click('#f-rcpt [data-via="pool"]');
+    const r = await rcpt(/Sold at|err|alert/, 180e3);
+    ok(/Through the shielded TAC pool/.test(r) && /They get\s*0\.0005 BTC/.test(r), `the pool route: ${r.slice(0, 160)}`);
+    ok(/From your shielded TAC.*relay fee.*TAC/.test(r) && /Sold at\s*[\d,.]+ sats per TAC, 2% under the cheapest ask/.test(r), 'it names the TAC it takes, the relay fee and the price');
+    ok(/How this stays private/.test(r), 'with how it stays private, folded');
+    await p.click('#d-poolhow > summary');
+    ok(/Halo2 proof made on this device/.test(await text('#d-poolhow')) && /amounts going in and coming out are public/.test(await text('#d-poolhow')), 'which says what it hides and what it does not');
+    const enough = !/hold .* TAC shielded|at most two of your notes|relay isn’t/.test(r);
+    ok((await text('#f-go')) === 'Pay privately' && (await p.$eval('#f-go', (b) => b.disabled)) === !enough, `Pay privately is ${enough ? 'ready' : 'held back: ' + (r.match(/(This takes|One payment|The relay)[^.]*\./) || [''])[0]}`);
+    await p.fill('#f-amt', '0.0001');
+    ok(/pay 0\.0005 BTC or more/.test(await rcpt(/or more/)), 'under the minimum it says what the minimum is');
+    await p.fill('#f-amt', '0.0005');
+    const own = await p2wpkhOf(process.env.KEY);
+    if (own) { await p.fill('#f-to', own); ok(/own Bitcoin address/.test(await rcpt(/own Bitcoin address|Plain/)), 'to this wallet’s own address it is refused'); }
+    await p.fill('#f-to', UNI);
+    const s = await rcpt(/Silent payment|More than|err/);
+    ok(/Silent payment|More than/.test(s) && !(await p.$('#f-rcpt [data-via]')), `a tacit1 is not offered the pool: ${s.slice(0, 160)}`);
+    await p.fill('#f-to', TO);
+    await rcpt(/Through the shielded TAC pool/);
+    await p.click('#f-rcpt [data-via="direct"]');
+    ok(/Plain payment/.test(await rcpt(/Plain payment/)) && (await text('#f-go')) === 'Send BTC', 'Send it directly instead goes back');
+    ok(!errors.length, `no page errors ${errors.join(' | ').slice(0, 300)}`);
+    await ctx.close();
+  }
   if (ONLY.has('hub')) {
     // tacit.finance/pay: BTC and TAC, read-only against mainnet with KEY; sends are routed, never made.
     console.log('hub (/pay: BTC and TAC, mainnet reads)');

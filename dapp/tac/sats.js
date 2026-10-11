@@ -13,64 +13,6 @@ const WORKER = 'https://api.tacit.finance';
 const ASSET = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
 const DAY = 86400;
 
-// A mainnet segwit address → its scriptPubKey. BIP-173 for v0 (bc1q) and BIP-350 for v1+ (bc1p); the two
-// differ only in the checksum constant, and using the wrong one for a version is itself invalid. Anything
-// else — legacy base58, a testnet HRP, a bad checksum, a mixed-case string — is refused rather than
-// guessed at, because this script is where someone's sale proceeds land.
-const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
-function polymod(values) {
-  const GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
-  let chk = 1;
-  for (const v of values) {
-    const top = chk >>> 25;
-    chk = ((chk & 0x1ffffff) << 5) ^ v;
-    for (let i = 0; i < 5; i++) if ((top >>> i) & 1) chk ^= GEN[i];
-  }
-  return chk;
-}
-function expandHrp(hrp) {
-  const r = [];
-  for (let i = 0; i < hrp.length; i++) r.push(hrp.charCodeAt(i) >>> 5);
-  r.push(0);
-  for (let i = 0; i < hrp.length; i++) r.push(hrp.charCodeAt(i) & 31);
-  return r;
-}
-function convert5to8(words) {
-  let acc = 0, bits = 0;
-  const out = [];
-  for (const v of words) {
-    acc = (acc << 5) | v; bits += 5;
-    while (bits >= 8) { bits -= 8; out.push((acc >>> bits) & 0xff); }
-  }
-  if (bits >= 5 || ((acc << (8 - bits)) & 0xff)) throw new Error('bad padding');
-  return Uint8Array.from(out);
-}
-export function addressToScript(addr) {
-  const s = String(addr || '').trim();
-  if (s !== s.toLowerCase() && s !== s.toUpperCase()) throw new Error('That address mixes upper and lower case — retype it.');
-  const a = s.toLowerCase();
-  if (!/^bc1[02-9ac-hj-np-z]{6,}$/.test(a)) throw new Error('Use a mainnet address (bc1…).');
-  const words = [];
-  for (const ch of a.slice(3)) {
-    const i = CHARSET.indexOf(ch);
-    if (i === -1) throw new Error('That address has a character that cannot appear in one.');
-    words.push(i);
-  }
-  if (words.length < 7) throw new Error('That address is too short.');
-  const ver = words[0];
-  if (ver > 16) throw new Error('Unknown witness version.');
-  const want = ver === 0 ? 1 : 0x2bc830a3;   // BIP-173 vs BIP-350
-  if (polymod(expandHrp('bc').concat(words)) !== want) throw new Error('That address did not check out — retype it.');
-  const prog = convert5to8(words.slice(1, -6));
-  if (ver === 0 && prog.length !== 20 && prog.length !== 32) throw new Error('Unsupported v0 address length.');
-  if (prog.length < 2 || prog.length > 40) throw new Error('Unsupported witness program length.');
-  const out = new Uint8Array(2 + prog.length);
-  out[0] = ver === 0 ? 0x00 : 0x50 + ver;
-  out[1] = prog.length;
-  out.set(prog, 2);
-  return out;
-}
-
 const el = (tag, attrs = {}, ...kids) => {
   const n = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -99,13 +41,6 @@ async function openSales() {
   } catch { return null; }
 }
 
-// A payout script a listing takes: P2WPKH (bc1q…) or P2TR (bc1p…).
-function payoutScript(addr) {
-  const s = addressToScript(addr);
-  if (!(s.length === 22 && s[0] === 0x00) && !(s.length === 34 && s[0] === 0x51)) throw new Error('Use a bc1q… or bc1p… address.');
-  return s;
-}
-const hexBytes = (h) => Uint8Array.from(String(h).match(/../g) || [], (b) => parseInt(b, 16));
 const hexOf = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
 const opKey = (n) => `${n.txid}:${n.vout}`;
 // A price in sats per TAC as it is shown and prefilled: the market's mark carries eight decimals, a price is read to two.
@@ -163,6 +98,7 @@ export function mount(host, ctx) {
     const a = payout.value.trim();
     payHint.textContent = '';
     if (!a || !ctx.T?.NET?.api) return;
+    if (!ctx.S) return;
     try { payoutScript(a); } catch (e) { payHint.textContent = e.message; return; }
     try {
       const r = await fetch(`${ctx.T.NET.api}/address/${a}`);
@@ -216,19 +152,12 @@ export function mount(host, ctx) {
   }
   setInterval(() => { if (host.isConnected) recheck().catch(() => {}); }, 60_000);
 
-  // The sale key in tacit.js for one turn, so the listing is signed by it and names its note; the wallet's key after.
-  const listAs = (key, fn) => ctx.turn(async () => {
-    const T = ctx.T, keep = { priv: T.wallet.priv, pub: T.wallet.pub };
-    if (!keep.priv) throw new Error('Open your wallet first.');
-    const priv = hexBytes(key.priv);
-    T.wallet.priv = priv; T.wallet.pub = hexBytes(key.pub);
-    try { T.invalidateHoldingsCache?.(); } catch {}
-    try { return await fn(T); }
-    finally {
-      priv.fill(0);
-      T.wallet.priv = keep.priv; T.wallet.pub = keep.pub;
-      try { T.invalidateHoldingsCache?.(); } catch {}
-    }
+  // A payout script a listing takes (secret.js payoutScriptFor: bc1q… or bc1p…, checksummed).
+  const payoutScript = (addr) => ctx.S.payoutScriptFor(addr);
+  // The listing, signed by the sale key in this page's turn of tacit.js (secret.js listFromSaleKey).
+  const listAs = (key, note, opts) => ctx.turn(async () => {
+    if (!ctx.T.wallet.priv) throw new Error('Open your wallet first.');
+    return ctx.S.listFromSaleKey(ctx.T, { key, note, ...opts });
   });
 
   async function doOut() {
@@ -274,14 +203,12 @@ export function mount(host, ctx) {
     const days = Number(lasts.value) || 3;
 
     say('st-sats-2', 'Signing the listing with the sale key…');
-    const rec = await listAs(n.key, (T2) => T2.publishPreauthSale({
-      utxoTxid: n.txid,
-      utxoVout: n.vout,
-      minPriceSats: sats,
+    const rec = await listAs(n.key, n, {
+      sats,
       expiry: Math.floor(Date.now() / 1000) + days * DAY,
-      sellerPayoutScript: script,
+      payoutScript: script,
       onProgress: (m) => say('st-sats-2', String(m)),
-    }));
+    });
     say('st-sats-2', `Listed ${fmt(n.value)} TAC for ${sats.toLocaleString('en-US')} sats, for ${days === 1 ? 'a day' : `${days} days`}. A buyer settles it and pays ${dest.slice(0, 12)}… directly; you need nothing further.`,
       rec?.sale_id ? el('div', { class: 'note' }, `Sale ${String(rec.sale_id).slice(0, 12)}…`) : null);
     pick = null;

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-dy8FnPQwmehb9QINgrinmVyBRF1NaQGn8PGxuNXnbFs=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-VkQpcFu+E0rd7mLzXBX5OmmVyYaMex9+wDRPAXcB0XU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay</title>
 <meta name="description" content="Simple, private payments: Bitcoin by silent payment, TAC shielded, ETH on Ethereum, Base, Robinhood Chain and MegaETH. One key and one tacit1 address, every payment made on your device, and your balances rebuild from that key.">
@@ -826,11 +826,12 @@ function setKey(k) {
   else loadUnified().catch(() => {}).then(() => { if (S.key !== key) return; key.tacit = addressFor(key.priv); rememberKey(key); paintWallet(); render(); toast(`Opened ${short(key.tacit, 8)}`); });
   loadMode(true);
   loadActivity();
+  setTimeout(() => { if (S.key === key) poolTick().catch(() => {}); }, 3000);   // payments through the pool move on
   if (FOUND.v) checkFound();
 }
 function forget() {
   S.key = null;
-  Object.assign(BTC, { pub: null, at: 0, loading: null, next: null, err: null, sp: null, held: [], addr: null, share: null, got: 0, part: false, sats: 0n, silent: 0n, pending: 0n, silentList: [], coins: [], skip: null });
+  Object.assign(BTC, { pub: null, at: 0, loading: null, next: null, err: null, sp: null, held: [], addr: null, share: null, got: 0, part: false, sats: 0n, silent: 0n, pending: 0n, silentList: [], coins: [], skip: null, via: 'direct' });
   Object.assign(TAC, { pub: null, at: 0, loading: null, next: null, err: null, pool: null, top2: 0n, settling: 0n, leaving: 0n, notes: null, vals: [], pw: null, fee: null, relay: false, share: null });
   actReset(null);
   dropTacitKey();
@@ -983,7 +984,7 @@ window.addEventListener('tacit:evm-accounts', (e) => {
 
 // ── BTC: silent payments from the key's own Bitcoin address ──────────────────────────────────────────────
 // got: how much of this key's read is in (1 sats, 2 held assets, 3 silent payments); part: a read is still filling it in.
-const BTC = { pub: null, at: 0, loading: null, err: null, sp: null, held: [], addr: null, share: null, got: 0, part: false, silentList: [], coins: [], skip: null };
+const BTC = { pub: null, at: 0, loading: null, err: null, sp: null, held: [], addr: null, share: null, got: 0, part: false, silentList: [], coins: [], skip: null, via: 'direct' };
 // Silent payments this key had when it opened here; any found after (by a hint, a link or a pasted txid) is announced
 // once and marked new.
 const ANN = { pub: null, seen: new Set(), fresh: new Set() };
@@ -1123,6 +1124,171 @@ function btcBal() {
       <div class="u">${!b && BTC.err ? html`<span class="err">Couldn’t read your BTC: ${errText(BTC.err)}</span>` : html`BTC${b?.pending ? ` · ${fmt(b.pending, 8, 8)} arriving` : ''}${b?.silent ? ` · ${fmt(b.silent, 8, 8)} by silent payment` : ''}${more}`}</div></div>
     <div class="side">${b || BTC.err ? html`<button class="link" type="button" id="bal-re">${b ? 'refresh' : 'retry'}</button>` : 'reading…'}</div>`;
 }
+// ── BTC through the shielded pool ───────────────────────────────────────────────────────────────────────────────────
+// A payment to a bc1… address can go through the shielded TAC pool instead of straight from this key's address. The relay
+// takes shielded TAC out to a sale key of the pool wallet (secret.js exitToSaleKey: a new key, recoverable from the same
+// backup); once the pool counts it, three confirmations on, the sale key lists it on Bitcoin's TAC market for exactly the
+// amount, paid only to the recipient (listFromSaleKey), and the buyer's purchase pays them in the same transaction. The
+// steps after the take-out wait on the pool and on a buyer, so each payment is kept here, per key, and moved on whenever
+// this page is open. Losing that record loses only the recipient: the TAC stays at its sale key, where /tac's To sats
+// finds it from the key and lists it.
+const POOL_PAY = 'tacit-pay-poolpay-v1:', POOL_MIN = 50_000n, POOL_DAYS = 1;
+const poolJobs = (pub) => (readJson(POOL_PAY + pub) || []).filter((j) => j?.id);
+const putPoolJobs = (pub, list) => writeJson(POOL_PAY + pub, list.length ? list : null);
+const patchPoolJob = (pub, id, patch) => putPoolJobs(pub, poolJobs(pub).map((j) => (j.id === id ? { ...j, ...patch } : j)));
+const dropPoolJob = (pub, id) => putPoolJobs(pub, poolJobs(pub).filter((j) => j.id !== id));
+const poolSig = () => (S.key ? poolJobs(S.key.pubHex).map((j) => `${j.id}:${j.state}:${j.err || ''}`).join(',') : '');
+// One price read serves the receipt while the amount stays the same.
+const POOLQ = { v: null, at: 0, q: null };
+async function poolQuote(X, v) {
+  if (POOLQ.v !== v || Date.now() - POOLQ.at > 60e3) Object.assign(POOLQ, { v, at: Date.now(), q: await X.saleQuote(v) });
+  return POOLQ.q;
+}
+const poolHow = (fee) => fold('d-poolhow', 'How this stays private', 'and what it costs', html`
+  <p class="note">Your TAC is already in Tacit’s shielded pool, where balances and payments are hidden and every move carries a Halo2 proof made on this device. The relay takes it out to a new key made for this payment and pays the Bitcoin fee, for ${fee != null ? `${fmt(fee, 8, 2)} TAC` : 'a fee in TAC'}.</p>
+  <p class="note">That key lists the TAC on Bitcoin’s TAC market for exactly this amount, payable only to this address. The buyer pays them in the same transaction that hands over the TAC, so nobody can take it halfway. On chain the payment comes from the buyer’s wallet; neither your address nor your wallet appears.</p>
+  <p class="note">The amounts going in and coming out are public, so what the pool hides is which went in became which came out, and the more people use it, the better that works. The relay sees your connection when it takes the TAC out and the market sees it when the payment is listed. TAC’s price can move until a buyer takes it.</p>`);
+// The receipt of a payment through the pool, drawn into the Send form. current() is false once the form has moved on.
+async function poolCheck(r, v, current, rc, go) {
+  const head = html`<div class="kv"><span>${r.name || 'To'}</span><b>${r.shown}</b></div>${idRow(r)}<div class="kv"><span>How</span><b>Through the shielded TAC pool</b></div>`;
+  const back = html`<p class="note"><button class="link" type="button" id="f-via" data-via="direct">Send it directly instead</button></p>`;
+  const draw = (rows, err = null) => {
+    if (!current()) return;
+    mount(rc, html`${head}${rows}${err ? html`<p class="note err" role="alert">${err}</p>` : ''}${back}${poolHow(TAC.pub === S.key?.pubHex ? TAC.fee : null)}`);
+    rc.hidden = false;
+  };
+  go.disabled = true;
+  draw('');
+  if (!v) return;
+  const X = await getSecret();
+  try {
+    X.payoutScriptFor(r.to);
+    if (BTC.pub === S.key?.pubHex && BTC.addr && lc(r.to) === lc(BTC.addr)) throw new Error('That is this wallet’s own Bitcoin address.');
+    if (v < POOL_MIN) throw new Error(`Through the pool, pay ${fmt(POOL_MIN, 8, 8)} BTC or more: its own costs come to about 4,000 sats a payment.`);
+  } catch (e) { return draw('', errText(e)); }
+  if (TAC.pub !== S.key?.pubHex) { loadTac().catch(() => {}); return draw(html`<div class="kv"><span>Your shielded TAC</span><b>reading…</b></div>`); }
+  const q = await poolQuote(X, v).catch(() => null);
+  if (!current()) return;
+  if (!q) return draw('', 'The TAC price could not be read just now. Try again in a moment.');
+  const fee = TAC.fee, need = q.units + (fee ?? 0n);
+  const rows = html`<div class="kv"><span>They get</span><b class="num">${fmt(v, 8, 8)} BTC</b></div>
+    <div class="kv"><span>From your shielded TAC</span><b class="num">${fmt(q.units, 8, 2)}${fee != null ? ` + ${fmt(fee, 8, 2)} relay fee` : ''} TAC</b></div>
+    <div class="kv"><span>Sold at</span><b class="num">${(Math.round(q.unit * 100) / 100).toLocaleString('en-US')} sats per TAC, 2% under the cheapest ask</b></div>
+    <div class="kv"><span>Takes</span><b>about an hour, then until a buyer takes it</b></div>`;
+  const err = !TAC.relay || fee == null ? 'The relay isn’t taking TAC out right now. Try again in a few minutes.'
+    : need > TAC.pool ? `This takes ${fmt(need, 8, 2)} TAC with the relay’s fee; you hold ${fmt(TAC.pool, 8, 2)} TAC shielded.`
+      : need > TAC.top2 ? `One payment spends at most two of your notes, which come to ${fmt(TAC.top2, 8, 2)} TAC. Combine your notes first, under TAC, Send.`
+        : null;
+  draw(rows, err);
+  go.disabled = !!err || S.sending > 0;
+}
+// Takes the TAC out for a payment through the pool and records the payment; poolTick does the rest. → true once the relay
+// has posted the take-out, false when the newest note is too young and the wait is asked about instead.
+async function poolSend(r, v, raw, status) {
+  const X = await getSecret(), pub = S.key.pubHex, pw = TAC.pw, anchor = ANCHOR.tip;
+  const script = X.payoutScriptFor(r.to);
+  const q = await X.saleQuote(v);
+  if (!q) throw new Error('The TAC price could not be read just now. Nothing was sent; try again in a moment.');
+  const info = await X.poolClientFor('mainnet').relayInfo().catch(() => null);
+  if (!info?.address || info.fees?.['0x' + X.TAC_ASSET_MAINNET] == null) throw new Error('The relay isn’t taking TAC out right now. Nothing was sent; try again in a few minutes.');
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  let held = false, res;
+  sayTurn(status, 'Getting ready…');
+  try {
+    res = await withKey(async (t) => {
+      going(status, 'Finding a new key for this payment…');
+      const sk = await X.saleKeys(t, pw, TAC.notes || [], X.TAC_ASSET_MAINNET, { addresses: [info.address] });
+      const key = X.saleKey(pw, sk.free);
+      putPoolJobs(pub, [...poolJobs(pub), { id, to: r.to, script: bytesToHex(script), sats: v.toString(), units: q.units.toString(), counter: key.counter, state: 'posting', at: Date.now() }]);
+      held = true;
+      return X.exitToSaleKey(t, { poolWallet: pw, amount: q.units, asset: X.TAC_ASSET_MAINNET, key, anchor, say: (m) => going(status, m) });
+    }, pub);
+  } catch (e) {
+    // A take-out the relay has not posted yet may still be posted: that payment stays, and moves on once it shows.
+    if (held && !(e?.relayDeclined && /may still/.test(e.message || ''))) dropPoolJob(pub, id);
+    throw e;
+  }
+  if (res.wait) { dropPoolJob(pub, id); waitView(res, 'f-go', X); return false; }
+  patchPoolJob(pub, id, { state: 'out', txid: res.revealTxid || null, vout: res.exitVout });
+  markPaid('btc', raw, v, res.revealTxid);
+  say(status, html`<span class="ok">${fmt(v, 8, 8)} BTC is on its way through the pool. The relay took ${fmt(q.units, 8, 2)} TAC out to a new key; once the pool counts it, about half an hour from now, it is listed for them, and a buyer’s purchase pays them. This page moves it on while it is open.</span> ${btcTx(res.revealTxid)}`);
+  loadTac(true).catch(() => {});
+  poolTick().catch(() => {});
+  return true;
+}
+// Moves each payment through the pool on when its time has come: counted by the pool, it is listed; listed, it is paid, or
+// unsold once its listing has run out. One pass at a time.
+let POOL_TICK = null;
+function poolTick() {
+  if (POOL_TICK || !S.key) return POOL_TICK || Promise.resolve();
+  const pub = S.key.pubHex, open = poolJobs(pub).filter((j) => !['paid', 'gone', 'unsold'].includes(j.state));
+  if (!open.length) return Promise.resolve();
+  POOL_TICK = (async () => {
+    const X = await getSecret(), client = X.poolClientFor('mainnet'), asset = X.TAC_ASSET_MAINNET;
+    if (TAC.pub !== pub) await loadTac().catch(() => {});
+    if (S.key?.pubHex !== pub || !TAC.pw) return;
+    const pw = TAC.pw;
+    // The sale keys read once a pass, and only when a step needs them: it also records each note's opening, so a device
+    // that did not take the TAC out can list it.
+    let keys = null;
+    const atKey = async (counter) => {
+      keys ||= await withKey(async (t) => {
+        const info = await client.relayInfo().catch(() => null);
+        return X.saleKeys(t, pw, TAC.notes || [], asset, { addresses: info?.address ? [info.address] : [] });
+      }, pub);
+      return keys.keys.find((k) => k.counter === counter)?.notes[0] || null;
+    };
+    for (const { id } of open) {
+      const j = poolJobs(pub).find((x) => x.id === id);
+      if (!j || S.key?.pubHex !== pub) continue;
+      try {
+        if (!j.txid) {
+          const n = await atKey(j.counter);
+          if (n) patchPoolJob(pub, id, { state: 'out', txid: n.txid, vout: n.vout, err: null });
+          else if (Date.now() - j.at > 26 * 3600e3) patchPoolJob(pub, id, { state: 'gone', why: 'The relay did not post it, so nothing left the pool.' });
+          continue;
+        }
+        if (j.state === 'out') {
+          const x = await client.exit(j.txid, j.vout).catch(() => null);
+          if (x?.exists !== true) continue;
+          patchPoolJob(pub, id, { state: 'ready', err: null });
+          j.state = 'ready';
+        }
+        if (j.state === 'ready') {
+          await atKey(j.counter);
+          const until = Math.floor(Date.now() / 1000) + POOL_DAYS * 86400;
+          const rec = await withKey((t) => X.listFromSaleKey(t, { key: X.saleKey(pw, j.counter), note: { txid: j.txid, vout: j.vout }, sats: BigInt(j.sats), expiry: until, payoutScript: hexToBytes(j.script) }), pub);
+          patchPoolJob(pub, id, { state: 'listed', sale: rec?.sale_id || null, until, err: null });
+          continue;
+        }
+        if (j.state === 'listed') {
+          const done = await withKey((t) => X.saleSettlement(t, { note: { txid: j.txid, vout: j.vout }, payoutScript: hexToBytes(j.script), sats: BigInt(j.sats) }), pub);
+          if (done) patchPoolJob(pub, id, done.paid ? { state: 'paid', paidTx: done.txid, err: null } : { state: 'gone', paidTx: done.txid, why: 'Its TAC was spent another way.' });
+          else if (Date.now() / 1000 > j.until) patchPoolJob(pub, id, { state: 'unsold', err: null });
+        }
+      } catch (e) { patchPoolJob(pub, id, { err: errText(e) }); }
+    }
+  })().finally(() => { POOL_TICK = null; render(); });
+  return POOL_TICK;
+}
+setInterval(() => { if (!document.hidden && S.key) poolTick().catch(() => {}); }, 60e3);
+const POOL_SAY = {
+  posting: 'Taking it out of the pool…', out: 'Out of the pool; listed once the pool counts it', ready: 'Listing it…',
+  listed: 'Listed; a buyer’s purchase pays them', unsold: 'Not bought in a day', paid: 'Paid',
+};
+function poolJobsView() {
+  const jobs = S.key ? poolJobs(S.key.pubHex) : [];
+  if (!jobs.length) return '';
+  const when = (s) => new Date(s * 1000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return html`<div class="pooljobs" style="margin-top:18px"><div class="lbl"><span>Through the pool</span></div>${jobs.map((j) => html`
+    <div class="kv"><span class="num">${fmt(BigInt(j.sats), 8, 8)} BTC to ${short(j.to, 6)}</span><b>${j.state === 'gone' ? j.why || 'Stopped' : POOL_SAY[j.state] || j.state}</b></div>
+    <p class="note">${j.txid ? html`Taken out ${btcTx(j.txid)}` : ''}${j.state === 'listed' && j.until ? ` · until ${when(j.until)}` : ''}${j.paidTx ? html` · ${j.state === 'paid' ? 'paid' : 'spent'} ${btcTx(j.paidTx)}` : ''}${j.err ? html` <span class="err">${j.err}</span>` : ''}
+      ${j.state === 'unsold' ? html`<button class="link" type="button" data-pool-again="${j.id}">List it again</button>` : ''}${['paid', 'gone'].includes(j.state) ? html`<button class="link" type="button" data-pool-done="${j.id}">Done</button>` : ''}</p>`)}</div>`;
+}
+function wirePoolJobs(root) {
+  $$('[data-pool-again]', root).forEach((b) => b.onclick = () => { patchPoolJob(S.key.pubHex, b.dataset.poolAgain, { state: 'ready', err: null }); render(); poolTick().catch(() => {}); });
+  $$('[data-pool-done]', root).forEach((b) => b.onclick = () => { dropPoolJob(S.key.pubHex, b.dataset.poolDone); render(); });
+}
 function btcSend(f) {
   const b = BTC.pub === S.key.pubHex ? BTC : null;
   mount(f, html`
@@ -1134,9 +1300,12 @@ function btcSend(f) {
     <div class="rcpt" id="f-rcpt" role="status" hidden></div>
     <button class="btn" type="button" id="f-go" aria-describedby="f-rcpt" disabled>Send BTC</button>
     ${BTC.share ? shareView(BTC.share) : ''}
-    <p class="note">Sent from your key’s own Bitcoin address, with the Bitcoin fee on top. To a Tacit or silent-payment address it lands at a fresh address only they can find; to a bc1… address it is an ordinary payment, public on chain.</p>`);
+    <p class="note">Sent from your key’s own Bitcoin address, with the Bitcoin fee on top. To a Tacit or silent-payment address it lands at a fresh address only they can find; to a bc1… address it is an ordinary payment, public on chain, or it can go through the shielded pool.</p>
+    ${poolJobsView()}`);
   wireShare(f);
+  wirePoolJobs(f);
   const to = $('#f-to'), amt = $('#f-amt'), go = $('#f-go'), rc = $('#f-rcpt');
+  rc.addEventListener('click', (e) => { const b = e.target.closest('[data-via]'); if (!b) return; BTC.via = b.dataset.via; check(); });
   $('#f-paste').onclick = async () => { try { to.value = (await navigator.clipboard.readText()).trim(); to.dispatchEvent(new Event('input')); } catch { to.focus(); } };
   const fill = (v) => { amt.value = plain(v); amt.dispatchEvent(new Event('input')); };
   $('#f-max')?.addEventListener('click', async () => {
@@ -1154,11 +1323,15 @@ function btcSend(f) {
       const r = await btcRoute(raw);
       if (my !== seq || !to.isConnected) return;
       route = r;
+      const pooled = r.kind === 'addr' && BTC.via === 'pool';
+      go.textContent = pooled ? 'Pay privately' : 'Send BTC';
+      if (pooled) return poolCheck(r, v, () => my === seq && to.isConnected, rc, go);
       const how = { sp: 'Silent payment · a fresh output only they can find', addr: 'Plain payment · public on chain' }[r.kind];
       const avail = btcAvail(BTC.pub === S.key?.pubHex ? BTC : null);
       // room: the most one send can carry, when this one and its fee come to more than the balance.
       const draw = (est, room = null) => {
         mount(rc, html`<div class="kv"><span>${r.name || 'To'}</span><b>${r.shown}</b></div>${idRow(r)}<div class="kv"><span>How</span><b>${how}</b></div>
+          ${r.kind === 'addr' ? html`<p class="note"><button class="link" type="button" id="f-via" data-via="pool">Pay it through the shielded pool instead</button></p>` : ''}
           ${est ? html`<div class="kv"><span>Bitcoin fee</span><b class="num">≈ ${est.fee.toLocaleString('en-US')} sats (${est.rate} sat/vB)</b></div>` : ''}
           ${est && !room ? html`<div class="kv"><span>Total from your balance</span><b class="num">≈ ${fmt(v + BigInt(est.fee), 8, 8)} BTC</b></div>` : ''}
           ${avail != null && v > avail ? html`<p class="note err" role="alert">More than you hold.</p>` : v && v <= SATS_DUST ? html`<p class="note err" role="alert">Send more than 546 sats.</p>`
@@ -1196,6 +1369,7 @@ function btcSend(f) {
     try {
       refusePaid('btc', raw);
       await pinned(r, raw, btcRoute, check);
+      if (r.kind === 'addr' && BTC.via === 'pool') { if (await poolSend(r, v, raw, status)) amt.value = ''; return; }
       const est = await btcFee(r, v).catch(() => null);
       if (est?.rate > HIGH_RATE && armed !== `${r.to}|${v}|${est.rate}`) return askHigh(r, v, est.rate, est.fee);
       armed = null;
@@ -1451,7 +1625,7 @@ async function hintsForMe(t, pub) {
   }
   if (S.key?.pubHex === pub) writeJson(k, { after, retry: keep.filter((x) => !x.done) });
 }
-const getSecret = lazy(() => import('/sats/secret.js?cb=42f301c0'));
+const getSecret = lazy(() => import('/sats/secret.js?cb=9d2b3ea9'));
 function loadTac(force = false) {
   if (!S.key) return Promise.resolve();
   if (TAC.loading) return force ? (TAC.next ||= TAC.loading.finally(() => { TAC.next = null; }).then(() => loadTac(true))) : TAC.loading;
@@ -2374,7 +2548,7 @@ function paintBal() {
 // What a form draws from the loaded data. A redraw with these unchanged leaves the form alone, and what is typed in it.
 const formReads = () => (S.mode === 'tac'
   ? [S.key.tacit, TAC.pub === S.key.pubHex, TAC.pool, TAC.top2, TAC.vals.join(','), TAC.settling, TAC.route, TAC.relay, TAC.fee, TAC.pw?.addressString, TAC.share?.url, BTC.pub === S.key.pubHex, BTC.got, BTC.err != null, tacOnBtc()?.balance, shieldable().map((u) => `${u.utxo?.txid}:${u.utxo?.vout}:${u.amount}`)]
-  : [S.key.tacit, BTC.pub === S.key.pubHex, BTC.sats, BTC.silent, BTC.silentList.map((x) => x.k + (ANN.fresh.has(x.k) ? '*' : '') + x.at).join(','), BTC.addr, BTC.sp, BTC.got, BTC.pending, BTC.held.length, BTC.share?.url]).join('|');
+  : [S.key.tacit, BTC.pub === S.key.pubHex, BTC.sats, BTC.silent, BTC.silentList.map((x) => x.k + (ANN.fresh.has(x.k) ? '*' : '') + x.at).join(','), BTC.addr, BTC.sp, BTC.got, BTC.pending, BTC.held.length, BTC.share?.url, BTC.via, TAC.pub === S.key.pubHex, TAC.pool, TAC.top2, TAC.fee, TAC.relay, poolSig()]).join('|');
 function render() {
   paintModes(); paintFound(); paintReq(); paintActivity();
   const f = $('#form'), bal = $('#bal'), tabs = $('#tabs');

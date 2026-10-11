@@ -586,22 +586,43 @@ export async function sellForSats(tacit, { poolWallet, amount, asset, anchor = n
 // sweepExitCoins moves them to the wallet's own address, where they are ordinary sats.
 
 const B32 = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+const bech32Poly = (vs) => {
+  const G = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+  let c = 1;
+  for (const v of vs) { const b = c >>> 25; c = ((c & 0x1ffffff) << 5) ^ v; for (let i = 0; i < 5; i++) if ((b >>> i) & 1) c ^= G[i]; }
+  return c >>> 0;
+};
+const hrpWords = (hrp) => [...hrp].map((ch) => ch.charCodeAt(0) >> 5).concat(0, [...hrp].map((ch) => ch.charCodeAt(0) & 31));
 // BIP-173 for version 0, BIP-350 (bech32m) for version 1 and up.
 function segwitAddress(hrp, version, program) {
-  const poly = (vs) => {
-    const G = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
-    let c = 1;
-    for (const v of vs) { const b = c >>> 25; c = ((c & 0x1ffffff) << 5) ^ v; for (let i = 0; i < 5; i++) if ((b >>> i) & 1) c ^= G[i]; }
-    return c >>> 0;
-  };
   const words = [version];
   let acc = 0, bits = 0;
   for (const x of program) { acc = (acc << 8) | x; bits += 8; while (bits >= 5) { bits -= 5; words.push((acc >>> bits) & 31); } }
   if (bits) words.push((acc << (5 - bits)) & 31);
-  const hx = [...hrp].map((ch) => ch.charCodeAt(0) >> 5).concat(0, [...hrp].map((ch) => ch.charCodeAt(0) & 31));
-  const pm = poly([...hx, ...words, 0, 0, 0, 0, 0, 0]) ^ (version === 0 ? 1 : 0x2bc830a3);
+  const pm = bech32Poly([...hrpWords(hrp), ...words, 0, 0, 0, 0, 0, 0]) ^ (version === 0 ? 1 : 0x2bc830a3);
   const cs = Array.from({ length: 6 }, (_, i) => (pm >>> (5 * (5 - i))) & 31);
   return `${hrp}1${[...words, ...cs].map((w) => B32[w]).join('')}`;
+}
+
+// The script a listing pays, from a mainnet address: P2WPKH (bc1q…) or P2TR (bc1p…), each with its own checksum
+// (BIP-173 for version 0, BIP-350 for version 1). Anything else is refused rather than guessed at: this is where
+// someone's sats land.
+export function payoutScriptFor(addr) {
+  const s = String(addr || '').trim();
+  if (!/^bc1/i.test(s)) throw new Error('Use a bc1q… or bc1p… Bitcoin address.');
+  if (s !== s.toLowerCase() && s !== s.toUpperCase()) throw new Error('That address mixes upper and lower case. Retype it.');
+  const a = s.toLowerCase();
+  if (!/^bc1[qp][02-9ac-hj-np-z]{6,}$/.test(a)) throw new Error('Use a bc1q… or bc1p… Bitcoin address.');
+  const words = [...a.slice(3)].map((ch) => B32.indexOf(ch));
+  const ver = words[0];
+  if (bech32Poly([...hrpWords('bc'), ...words]) !== (ver === 0 ? 1 : 0x2bc830a3)) throw new Error('That address did not check out. Retype it.');
+  let acc = 0, bits = 0;
+  const prog = [];
+  for (const v of words.slice(1, -6)) { acc = (acc << 5) | v; bits += 5; while (bits >= 8) { bits -= 8; prog.push((acc >>> bits) & 0xff); } }
+  if (bits >= 5 || ((acc << (8 - bits)) & 0xff)) throw new Error('That address did not check out. Retype it.');
+  if (ver === 0 && prog.length === 20) return Uint8Array.from([0x00, 0x14, ...prog]);
+  if (ver === 1 && prog.length === 32) return Uint8Array.from([0x51, 0x20, ...prog]);
+  throw new Error('Use a bc1q… or bc1p… Bitcoin address.');
 }
 export function p2trAddress(spkHex, network = 'signet') {
   const spk = hexToBytes(String(spkHex).replace(/^0x/, ''));
@@ -867,6 +888,52 @@ export async function exitToSaleKey(tacit, { poolWallet, amount, asset, key, anc
     await new Promise((r) => setTimeout(r, 5000));
   }
   throw relayDeclined('The relay hasn’t posted it yet and may still. Nothing else was sent; once it posts, the TAC shows here, ready to list.');
+}
+
+// Lists `note`, held at sale key `key`, for exactly `sats` paid to `payoutScript`. The sale key signs the pre-authorized
+// sale, so neither the listing nor the chain names the wallet. tacit.js holds one key at a time: the sale key goes in for
+// this call, the caller's comes back after and the sale key's bytes are wiped. Run it inside the page's own turn.
+export async function listFromSaleKey(tacit, { key, note, sats, expiry, payoutScript, onProgress = null }) {
+  const keep = { priv: tacit.wallet.priv, pub: tacit.wallet.pub };
+  const priv = hexToBytes(key.priv);
+  tacit.wallet.priv = priv; tacit.wallet.pub = hexToBytes(key.pub);
+  try { tacit.invalidateHoldingsCache?.(); } catch {}
+  try {
+    return await tacit.publishPreauthSale({ utxoTxid: note.txid, utxoVout: note.vout, minPriceSats: Number(sats), expiry, sellerPayoutScript: payoutScript, onProgress });
+  } finally {
+    priv.fill(0);
+    tacit.wallet.priv = keep.priv; tacit.wallet.pub = keep.pub;
+    try { tacit.invalidateHoldingsCache?.(); } catch {}
+  }
+}
+
+// What a take-out that sells for exactly `sats` is listed at: `under` (2%) below the cheapest live ask on the book, or
+// below the market's mark when the book has none, so a buyer takes it soon. → { unit (sats per whole TAC), units (TAC
+// base units to take out), ask, mark }, or null when neither price can be read.
+export async function saleQuote(sats, { asset = TAC_ASSET_MAINNET, network = 'mainnet', under = 0.02, decimals = 8 } = {}) {
+  const net = network === 'mainnet' ? 'mainnet' : 'signet';
+  const read = (u) => fetch(u, { cache: 'no-store', signal: AbortSignal.timeout?.(20_000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const [book, info] = await Promise.all([read(`${WORKER_BASE}/assets/${asset}/preauth-sales?network=${net}`), read(`${WORKER_BASE}/assets/${asset}?network=${net}`)]);
+  const now = Date.now() / 1000, one = 10 ** decimals;
+  const asks = (book?.sales || [])
+    .filter((s) => !s.expired && Number(s.expiry) > now && /^\d+$/.test(String(s.asset_opening?.amount)) && BigInt(s.asset_opening.amount) > 0n)
+    .map((s) => Number(s.min_price_sats) / (Number(s.asset_opening.amount) / one));
+  const ask = asks.length ? Math.min(...asks) : null, mark = Number(info?.mark_price?.unit) || null;
+  const base = ask ?? mark;
+  if (!(base > 0)) return null;
+  const unit = base * (1 - under);
+  return { unit, units: BigInt(Math.ceil((Number(sats) * one) / unit)), ask, mark };
+}
+
+// Whether a listed note has been bought: the transaction that spent it, and whether it paid `payoutScript` at least
+// `sats`. null while the note is unspent.
+export async function saleSettlement(tacit, { note, payoutScript, sats }) {
+  const sp = await esplora(tacit, `/tx/${note.txid}/outspend/${note.vout}`);
+  if (!sp?.spent || !sp.txid) return null;
+  const tx = await tacit.getTx(sp.txid).catch(() => null);
+  const want = bytesToHex(payoutScript);
+  const paid = !!tx?.vout?.some((o) => String(o.scriptpubkey).toLowerCase() === want && Number(o.value) >= Number(sats));
+  return { txid: sp.txid, paid, confirmed: !!(sp.status?.confirmed ?? tx?.status?.confirmed) };
 }
 
 // ── UI ──
