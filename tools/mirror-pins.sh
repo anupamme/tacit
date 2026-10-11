@@ -52,10 +52,9 @@ S3_BASE="${S3_BASE:-https://s3.filebase.com}"
 # gateway because the bytes are re-hashed locally against the CID before
 # the CAR is built here.
 CAR_GATEWAYS="${CAR_GATEWAYS:-
-https://trustless-gateway.link/ipfs
 https://ipfs.orbitor.dev/ipfs
 https://gateway.pinata.cloud/ipfs
-https://4everland.io/ipfs
+https://ipfs.filebase.io/ipfs
 }"
 IPFS_API="${IPFS_API:-http://127.0.0.1:5001}"
 

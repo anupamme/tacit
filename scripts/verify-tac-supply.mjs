@@ -25,12 +25,11 @@ const ETCH_TXID    = (process.argv[3] || 'e2d10be19c2b73b86e14be99dc237a3d999ba3
 const EXPECT_H     = '02bd7bf40fb5db2f7e0a1e8660ca13df55bb0d9f904e36e6297361f00376865e56'; // KAT, SPEC.md §2
 const BTC_API      = process.env.TACIT_BTC_API || 'https://mempool.space/api';
 const IPFS_GATEWAYS = (process.env.TACIT_IPFS_GATEWAYS || [
-  'https://ipfs.io/ipfs/{cid}',
-  'https://{cid}.ipfs.inbrowser.link/',
-  'https://trustless-gateway.link/ipfs/{cid}?format=raw',
-  'https://dweb.link/ipfs/{cid}',
-  'https://w3s.link/ipfs/{cid}',
   'https://gateway.pinata.cloud/ipfs/{cid}',
+  'https://ipfs.filebase.io/ipfs/{cid}',
+  'https://ipfs.orbitor.dev/ipfs/{cid}',
+  'https://ipfs.io/ipfs/{cid}',
+  'https://dweb.link/ipfs/{cid}',
 ].join(',')).split(',');
 
 // ── tiny helpers ──
