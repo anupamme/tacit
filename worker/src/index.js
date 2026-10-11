@@ -229,6 +229,8 @@ function watchtowerRegisterEnabled(env) {
 }
 // 0x60–0x64: trustless ETH↔Tacit bridge.
 const T_CROSSOUT_MINT           = 0x65; // ETH→BTC cross-out mint: reflect a confidential-pool bridge_burn to Bitcoin
+// 0x6C–0x6D: the Bitcoin shielded pool (worker/src/btc-shielded-pool.js).
+const T_BTC_SPEND               = 0x6d; // a pool spend; its exit output leaves the pool as a transparent note
 const N_BITS = 64; // amount range: [0, 2^64) — bulletproof rangeproof.
 const SECP_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
 
@@ -16603,6 +16605,15 @@ function verifySchnorr(sig64, msgHash, pubXonly32) {
   return bytesToHex(Rb.slice(1)) === bytesToHex(Rx);
 }
 
+// The replay service that records a network's pool exits (T_BTC_SPEND outputs), as the dApp's btcPoolApi names it;
+// a deployment can point at its own. '' where no pool runs.
+function btcPoolApi(env, network) {
+  const v = network === 'mainnet' ? env?.BTC_POOL_API_MAINNET || 'https://tacit-btc-pool-mainnet.onrender.com'
+    : network === 'signet' ? env?.BTC_POOL_API_SIGNET || 'https://tacit-btc-pool.onrender.com'
+      : '';
+  return String(v).replace(/\/+$/, '');
+}
+
 // Resolve the on-chain commitment + declared asset_id for an arbitrary tacit
 // UTXO by walking its parent tx's envelope. Mirrors the dApp's
 // getParentEnvelopeData but lives server-side so the worker can validate
@@ -16704,6 +16715,24 @@ async function commitmentForUtxo(env, txidHex, vout, network, opts = {}) {
     const prefix = (BigInt(cm.cy) % 2n === 0n) ? 0x02 : 0x03;
     const commitment = bytesToHex(concatBytes(new Uint8Array([prefix]), hexToBytes(cm.cx.slice(2))));
     return { commitment, asset_id: cm.assetId.slice(2) };
+  }
+  if (decoded.opcode === T_BTC_SPEND) {
+    // An output of a pool spend is a note only if it is an exit the pool's replay accepted: the envelope alone cannot
+    // say (its proof and nullifiers are checked there), so the commitment and the asset come from the replay's record
+    // of that exit and never from the envelope's own bytes. The encoding is the dApp's: 02/03 by the parity of cy, then cx.
+    const base = btcPoolApi(env, network);
+    if (!base) throw new Error('pool exits are not read on this network');
+    let rec;
+    try {
+      const r = await fetch(`${base}/btc-pool/exit/${txidHex}/${vout}`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      rec = await r.json();
+    } catch (e) { throw new Error(`the pool service did not answer (${e?.message || e})`); }
+    const h = (s) => (typeof s === 'string' && /^(0x)?[0-9a-fA-F]{64}$/.test(s) ? s.replace(/^0x/, '').toLowerCase() : null);
+    const asset = h(rec?.asset), cx = h(rec?.Cx), cy = h(rec?.Cy);
+    if (rec?.exists !== true || String(rec.txid).toLowerCase() !== String(txidHex).toLowerCase() || Number(rec.vout) !== vout) throw new Error('not an accepted pool exit');
+    if (!asset || !cx || !cy) throw new Error('the pool service returned a malformed exit record');
+    return { commitment: ((parseInt(cy.slice(-2), 16) & 1) ? '03' : '02') + cx, asset_id: asset };
   }
   throw new Error('unsupported envelope opcode');
 }
