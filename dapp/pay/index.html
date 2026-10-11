@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-VkQpcFu+E0rd7mLzXBX5OmmVyYaMex9+wDRPAXcB0XU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-+DqLGA1k5idwzPz6l4q9uCu/LRgpWd62z8xBSVmsfiU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay</title>
 <meta name="description" content="Simple, private payments: Bitcoin by silent payment, TAC shielded, ETH on Ethereum, Base, Robinhood Chain and MegaETH. One key and one tacit1 address, every payment made on your device, and your balances rebuild from that key.">
@@ -1289,6 +1289,11 @@ function wirePoolJobs(root) {
   $$('[data-pool-again]', root).forEach((b) => b.onclick = () => { patchPoolJob(S.key.pubHex, b.dataset.poolAgain, { state: 'ready', err: null }); render(); poolTick().catch(() => {}); });
   $$('[data-pool-done]', root).forEach((b) => b.onclick = () => { dropPoolJob(S.key.pubHex, b.dataset.poolDone); render(); });
 }
+// The line under Send BTC, which says where the payment comes from: this key's address, or its shielded TAC.
+const BTC_NOTE = {
+  direct: 'Sent from your key’s own Bitcoin address, with the Bitcoin fee on top. To a Tacit or silent-payment address it lands at a fresh address only they can find; to a bc1… address it is an ordinary payment, public on chain, or it can go through the shielded pool.',
+  pool: 'Paid from your shielded TAC: the relay takes it out to a new key, and it is sold to them on Bitcoin’s TAC market. Your Bitcoin address pays nothing and does not appear.',
+};
 function btcSend(f) {
   const b = BTC.pub === S.key.pubHex ? BTC : null;
   mount(f, html`
@@ -1300,11 +1305,11 @@ function btcSend(f) {
     <div class="rcpt" id="f-rcpt" role="status" hidden></div>
     <button class="btn" type="button" id="f-go" aria-describedby="f-rcpt" disabled>Send BTC</button>
     ${BTC.share ? shareView(BTC.share) : ''}
-    <p class="note">Sent from your key’s own Bitcoin address, with the Bitcoin fee on top. To a Tacit or silent-payment address it lands at a fresh address only they can find; to a bc1… address it is an ordinary payment, public on chain, or it can go through the shielded pool.</p>
+    <p class="note" id="f-bnote">${BTC_NOTE.direct}</p>
     ${poolJobsView()}`);
   wireShare(f);
   wirePoolJobs(f);
-  const to = $('#f-to'), amt = $('#f-amt'), go = $('#f-go'), rc = $('#f-rcpt');
+  const to = $('#f-to'), amt = $('#f-amt'), go = $('#f-go'), rc = $('#f-rcpt'), note = $('#f-bnote');
   rc.addEventListener('click', (e) => { const b = e.target.closest('[data-via]'); if (!b) return; BTC.via = b.dataset.via; check(); });
   $('#f-paste').onclick = async () => { try { to.value = (await navigator.clipboard.readText()).trim(); to.dispatchEvent(new Event('input')); } catch { to.focus(); } };
   const fill = (v) => { amt.value = plain(v); amt.dispatchEvent(new Event('input')); };
@@ -1318,13 +1323,14 @@ function btcSend(f) {
   const check = async () => {
     route = null; go.disabled = true;
     const raw = to.value.trim(), v = parseUnits(amt.value, 8), my = ++seq;
-    if (!raw) { rc.hidden = true; return; }
+    if (!raw) { rc.hidden = true; go.textContent = 'Send BTC'; note.textContent = BTC_NOTE.direct; return; }
     try {
       const r = await btcRoute(raw);
       if (my !== seq || !to.isConnected) return;
       route = r;
       const pooled = r.kind === 'addr' && BTC.via === 'pool';
       go.textContent = pooled ? 'Pay privately' : 'Send BTC';
+      note.textContent = BTC_NOTE[pooled ? 'pool' : 'direct'];
       if (pooled) return poolCheck(r, v, () => my === seq && to.isConnected, rc, go);
       const how = { sp: 'Silent payment · a fresh output only they can find', addr: 'Plain payment · public on chain' }[r.kind];
       const avail = btcAvail(BTC.pub === S.key?.pubHex ? BTC : null);
@@ -1349,7 +1355,7 @@ function btcSend(f) {
       if (my !== seq || !to.isConnected) return;
       draw(est, room);
       if (room) go.disabled = true;
-    } catch (e) { if (my === seq) { mount(rc, html`<p class="note err" role="alert">${errText(e)}</p>`); rc.hidden = false; } }
+    } catch (e) { if (my === seq) { mount(rc, html`<p class="note err" role="alert">${errText(e)}</p>`); rc.hidden = false; go.textContent = 'Send BTC'; note.textContent = BTC_NOTE.direct; } }
   };
   // An address is checked as it is typed; a name waits for a pause, as each check of one is three lookups.
   to.addEventListener('input', () => {

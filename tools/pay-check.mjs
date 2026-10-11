@@ -286,6 +286,7 @@ try {
     ok(/Through the shielded TAC pool/.test(r) && /They get\s*0\.0005 BTC/.test(r), `the pool route: ${r.slice(0, 160)}`);
     ok(/From your shielded TAC.*relay fee.*TAC/.test(r) && /Sold at\s*[\d,.]+ sats per TAC, 2% under the cheapest ask/.test(r), 'it names the TAC it takes, the relay fee and the price');
     ok(/How this stays private/.test(r), 'with how it stays private, folded');
+    ok(/^Paid from your shielded TAC/.test(await text('#f-bnote')), 'the line under the button says it is paid from shielded TAC');
     await p.click('#d-poolhow > summary');
     ok(/Halo2 proof made on this device/.test(await text('#d-poolhow')) && /amounts going in and coming out are public/.test(await text('#d-poolhow')), 'which says what it hides and what it does not');
     const enough = !/hold .* TAC shielded|at most two of your notes|relay isn’t/.test(r);
@@ -301,7 +302,7 @@ try {
     await p.fill('#f-to', TO);
     await rcpt(/Through the shielded TAC pool/);
     await p.click('#f-rcpt [data-via="direct"]');
-    ok(/Plain payment/.test(await rcpt(/Plain payment/)) && (await text('#f-go')) === 'Send BTC', 'Send it directly instead goes back');
+    ok(/Plain payment/.test(await rcpt(/Plain payment/)) && (await text('#f-go')) === 'Send BTC' && /^Sent from your key’s own/.test(await text('#f-bnote')), 'Send it directly instead goes back');
     ok(!errors.length, `no page errors ${errors.join(' | ').slice(0, 300)}`);
     await ctx.close();
   }
