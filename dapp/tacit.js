@@ -15906,10 +15906,10 @@ function getStealthCredit(txidHex, vout) {
 // the previous scan already ruled out. This store records "already checked,
 // no credit for me" so subsequent scans only fetch new txs.
 //
-// Per-(network, wallet) map: { "<asset_id>": [txid1, txid2, ...] }
-// Bounded to STEALTH_SEEN_TXIDS_MAX per asset; oldest entries fall off when
-// the array grows past the cap. Credits live in the separate stealth-credits
-// store; this is purely the "scanned, not mine" set.
+// Per-(network, wallet) map: { "<asset_id>": { "<txid>": { ts }, ... } }
+// Bounded to STEALTH_SEEN_TXIDS_MAX per asset (more than one full Rescan, 8 pages
+// of 200); oldest entries fall off when the bucket grows past the cap. Credits live
+// in the separate stealth-credits store; this is purely the "scanned, not mine" set.
 const STEALTH_SEEN_TXIDS_MAX = 2000;
 let _stealthSeenTxidsCache = null;
 function _stealthSeenTxidsKey() {
@@ -20160,8 +20160,8 @@ function _stealthAutoScanThrottleKey() {
   return `tacit-stealth-discover-last-v1:${NET.name}:${pubHex}`;
 }
 // Protocol-token asset_ids that the auto-scan ALWAYS includes in pass 2,
-// independent of registry signals. TAC is the platform token (~2,500
-// transfers, ~1,500+ holders on mainnet) so a fresh wallet receiving
+// independent of registry signals. TAC is the platform token (thousands of
+// transfers and holders on mainnet) so a fresh wallet receiving
 // stealth TAC must always discover it — even though TAC's etched_at is
 // old enough that a pure recency sort would push it out of the candidate
 // window. Listed once here so additions (cBTC.tac variants, etc.) stay
@@ -20321,16 +20321,16 @@ function _triggerStealthAutoScanInBackground(holdings) {
       if (!globalIndexUsed) {
         let completed = 0;
         const total = discoverCandidates.length;
-        // Per-asset xferseen walk. The worker's /assets/{aid}/recent-xfer-
-        // txids endpoint returns keys in KV's lexicographic order (not
-        // recency) for now — so pageLimit=20 only sees the 20 alphabet-
-        // smallest txids, which misses anything mid-range. For PROTOCOL
-        // TOKENS (TAC, etc.) — which can have thousands of historical
-        // CXFERs — we walk deeper (up to 10 × 200 = 2,000 entries) so a
-        // fresh recipient's stealth tx surfaces regardless of where its
-        // txid sorts. For other discover-tier candidates the shallow walk
-        // (1 × 20) stays opportunistic: most receipts for those will
-        // arrive via the global recent-CXFER index going forward.
+        // Per-asset walk. The worker's /assets/{aid}/recent-xfer-txids
+        // endpoint lists the asset's newest transfers first (a rolling list
+        // of up to 500), then the rest of its index in KV's lexicographic
+        // order, so pageLimit=20 sees the 20 newest. For PROTOCOL TOKENS
+        // (TAC, etc.) — which have thousands of CXFERs — we walk deeper (up
+        // to 10 × 200 = 2,000 entries) so the whole index is read and a
+        // fresh recipient's stealth tx surfaces wherever its txid sorts. For
+        // other discover-tier candidates the shallow walk (1 × 20) stays
+        // opportunistic: most receipts for those will arrive via the global
+        // recent-CXFER index going forward.
         const protoSet = new Set(protocolTokens.map(a => a.toLowerCase()));
         const queue = [...discoverCandidates];
         const worker = async () => {
@@ -29956,16 +29956,20 @@ async function discoverStealthFromTxid(txidHex, { merge = true } = {}) {
 // How many transfers one scan reads at a time (the holdings scan reads 8 at a time too); api() holds every read to its own
 // in-flight caps.
 const STEALTH_SCAN_WINDOW = 8;
-// asset-wide recipient discovery. Walks the worker's
-// xferseen index for `assetIdHex` and runs `discoverStealthFromTxid` on every
-// reveal tx. Used by the holdings card's "Rescan for shielded receipts"
-// button and the auto-scan-on-small-history path so a recipient who lost
-// localStorage can recover stealth credits from priv-key alone (no txid
-// required, no out-of-band share-link).
+// asset-wide recipient discovery. Walks the worker's transfer index for
+// `assetIdHex` (the asset's newest transfers first, then the rest of what the
+// worker still holds, about 30 days of them) and runs `discoverStealthFromTxid`
+// on every reveal tx, a window at a time; a transfer the index lists twice is
+// read once. Used by the holdings card's "Rescan for shielded receipts" button,
+// the refresh beside the Bitcoin and shielded TAC balances on the front page and
+// /pay, and the auto-scan, so a recipient who lost localStorage can recover
+// stealth credits from priv-key alone. A receipt older than the index is found
+// from its transaction id (discoverStealthFromTxid).
 //
-// Bounded cost: maxPages × pageLimit tx fetches. Default 4 × 50 = up to
-// 200 txs/call — same order as a heavy wallet's classical-address scan.
-// onProgress({ pagesScanned, txsScanned, found }) streams a status pill.
+// Bounded cost: maxPages × pageLimit index entries. Default 4 × 50 = up to
+// 200 per call; the Rescan and the front page and /pay scans read 8 × 200.
+// onProgress({ pagesScanned, txsScanned, txsSkipped, txsFailed, found }) streams
+// a status; the result adds `complete`, true when the index ended before maxPages did.
 async function scanAssetForStealthReceipts(assetIdHex, { onProgress = null, maxPages = 4, pageLimit = 50, useSeenCache = true } = {}) {
   if (!WORKER_BASE) throw new Error('worker base URL not configured');
   if (!/^[0-9a-f]{64}$/.test(String(assetIdHex || ''))) throw new Error('invalid assetIdHex');
@@ -29977,6 +29981,7 @@ async function scanAssetForStealthReceipts(assetIdHex, { onProgress = null, maxP
   let txsSkipped = 0;  // already in seen-cache; no network fetch needed
   let txsFailed = 0;   // read failed; left unmarked, so the next scan tries them again
   let complete = false;
+  const walked = new Set();   // the index lists a transfer twice where its recent list and its full walk overlap
   for (let page = 0; page < maxPages; page++) {
     const url = `${WORKER_BASE}/assets/${assetIdHex}/recent-xfer-txids?network=${encodeURIComponent(NET.name)}&limit=${pageLimit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
     let resp;
@@ -29992,6 +29997,8 @@ async function scanAssetForStealthReceipts(assetIdHex, { onProgress = null, maxP
     // out after 24h.
     const todo = [];
     for (const t of txids) {
+      if (walked.has(t)) continue;
+      walked.add(t);
       if (useSeenCache && isStealthTxidSeen(assetIdHex, t)) { txsSkipped++; continue; }
       todo.push(t);
     }
@@ -30015,7 +30022,7 @@ async function scanAssetForStealthReceipts(assetIdHex, { onProgress = null, maxP
         // 24h TTL on no-credit entries (above), this means a transient
         // wallet-state degradation can't permanently hide a real receipt.
         if (cleanScan) markStealthTxidSeen(assetIdHex, t);
-        if (onProgress) { try { onProgress({ pagesScanned, txsScanned, txsSkipped, found: discovered.length }); } catch {} }
+        if (onProgress) { try { onProgress({ pagesScanned, txsScanned, txsSkipped, txsFailed, found: discovered.length }); } catch {} }
       }));
     }
     if (j.done) { complete = true; break; }
