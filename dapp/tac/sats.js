@@ -1,12 +1,13 @@
-// "Withdraw to sats" — the two hops that turn shielded TAC into real bitcoin.
+// "To sats": shielded TAC out, real bitcoin in, with nothing that ties the sats to this wallet.
 //
-//   1. Withdraw. The TAC leaves the pool as an ordinary note in this wallet. This hop funds its own
-//      Bitcoin fee.
-//   2. List. publishPreauthSale signs an authorization and POSTs it — no transaction, no fee. A buyer
-//      settles it alone and pays sats straight to a payout address you name, which can be a wallet that
-//      has never held anything and never touches this page's key.
+//   1. Take out. The relay takes the TAC out of the pool to a sale key (secret.js saleKey: a new key of the pool
+//      wallet, recoverable from the same backup) and posts the carrier from its own coins, for its fee in TAC. This
+//      wallet's Bitcoin address funds nothing and signs nothing; with no relay, nothing is taken out.
+//   2. List. The sale key signs a pre-authorized sale (publishPreauthSale): no transaction, no fee. A buyer settles
+//      it alone and pays sats straight to the address the seller names.
 //
-// The listing price defaults to the worker's mark price for TAC, which is computed from real trades.
+// On chain: a pool exit to a new key, then that key's sale to the payout address. The listing shows the amount and
+// the price, as every listing does. The price defaults to the worker's mark price for TAC, computed from real trades.
 
 const WORKER = 'https://api.tacit.finance';
 const ASSET = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
@@ -98,6 +99,17 @@ async function openSales() {
   } catch { return null; }
 }
 
+// A payout script a listing takes: P2WPKH (bc1q…) or P2TR (bc1p…).
+function payoutScript(addr) {
+  const s = addressToScript(addr);
+  if (!(s.length === 22 && s[0] === 0x00) && !(s.length === 34 && s[0] === 0x51)) throw new Error('Use a bc1q… or bc1p… address.');
+  return s;
+}
+const hexBytes = (h) => Uint8Array.from(String(h).match(/../g) || [], (b) => parseInt(b, 16));
+const hexOf = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+const opKey = (n) => `${n.txid}:${n.vout}`;
+const LASTS = [[1, '1 day'], [3, '3 days'], [7, '7 days']];
+
 export function mount(host, ctx) {
   const { ensureKey, busy, say, fmt, parseUnits, shieldedTotal, txLink, loadShielded } = ctx;
   // fmt() groups thousands, which parseUnits rejects — inputs get the ungrouped form.
@@ -105,117 +117,210 @@ export function mount(host, ctx) {
 
   let mark = null;          // sats per whole TAC
   let book = null;          // open sales on the mainnet book
-  let exited = null;        // { txid, vout, units } once the withdrawal lands
+  let sale = null;          // S.saleKeys: { keys: the sale keys used, each with the TAC still at it, free: the next key }
+  let looking = null;       // that read, while it runs
+  const ready = new Set();  // outpoints the pool's replay has recorded: until then a buyer's wallet does not credit them
+  let pick = null;          // outpoint chosen to list
 
   const amt = el('input', { id: 'sats-amt', inputmode: 'decimal', autocomplete: 'off', placeholder: '0.00' });
   const payout = el('input', { id: 'sats-payout', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', placeholder: 'bc1…' });
   const priceEl = el('input', { id: 'sats-price', inputmode: 'numeric', autocomplete: 'off', placeholder: '—' });
+  const lasts = el('select', { id: 'sats-lasts' }, ...LASTS.map(([d, t]) => el('option', d === 3 ? { value: String(d), selected: '' } : { value: String(d) }, t)));
   const quote = el('div', { class: 'kv' }, el('span', {}, 'You receive'), el('b', { id: 'sats-quote' }, '—'));
+  const payHint = el('p', { class: 'note', id: 'sats-payout-hint' });
 
   const statusStep1 = el('div', { class: 'status', id: 'st-sats-1' });
   const statusStep2 = el('div', { class: 'status', id: 'st-sats-2' });
 
-  const btnExit = el('button', { class: 'btn' }, 'Withdraw from the pool');
+  const btnOut = el('button', { class: 'btn' }, 'Take it out');
   const btnList = el('button', { class: 'btn' }, 'List for sats');
+
+  const fee = () => (ctx.relayFeeUnits ? ctx.relayFeeUnits() : 0n);
+  const held = () => (sale?.keys || []).flatMap((k) => k.notes.map((n) => ({ ...n, key: k })));
+  const listing = (n) => (book?.sales || []).find((s) => !s.expired && s.asset_outpoint?.txid === n.txid && s.asset_outpoint?.vout === n.vout) || null;
+  const listable = () => held().filter((n) => ready.has(opKey(n)) && !listing(n));
+  const chosen = () => { const l = listable(); return l.find((n) => opKey(n) === pick) || l[0] || null; };
 
   function recompute() {
     const px = Number(priceEl.value);
-    let units = 0n;
-    try { units = parseUnits(amt.value); } catch { units = 0n; }
-    if (!Number.isFinite(px) || px <= 0 || units <= 0n) { document.getElementById('sats-quote').textContent = '—'; return; }
+    const n = chosen();
+    let units = n ? n.value : 0n;
+    if (!n) { try { units = parseUnits(amt.value); } catch { units = 0n; } }
+    const q = document.getElementById('sats-quote');
+    if (!q) return;
+    if (!Number.isFinite(px) || px <= 0 || units <= 0n) { q.textContent = '—'; return; }
     // mark price is sats per whole TAC; units are 8-decimal fixed point.
-    const sats = Math.floor((Number(units) / 1e8) * px);
-    document.getElementById('sats-quote').textContent = `${sats.toLocaleString('en-US')} sats`;
+    q.textContent = `${Math.floor((Number(units) / 1e8) * px).toLocaleString('en-US')} sats`;
   }
   amt.addEventListener('input', recompute);
   priceEl.addEventListener('input', recompute);
 
-  async function doExit() {
+  // An address with history still works; a new one keeps the sats apart from everything else it ever held.
+  payout.addEventListener('change', async () => {
+    const a = payout.value.trim();
+    payHint.textContent = '';
+    if (!a || !ctx.T?.NET?.api) return;
+    try { payoutScript(a); } catch (e) { payHint.textContent = e.message; return; }
+    try {
+      const r = await fetch(`${ctx.T.NET.api}/address/${a}`);
+      const j = r.ok ? await r.json() : null;
+      const used = j && [j.chain_stats, j.mempool_stats].some((x) => x?.tx_count > 0);
+      if (payout.value.trim() === a && used) payHint.textContent = 'This address has been used before. A new one keeps these sats apart from the coins it already holds.';
+    } catch {}
+  });
+
+  // The TAC already taken out to sale keys, read from the chain and opened from the pool seed, so it shows on any device.
+  function look() {
+    if (looking) return looking;
+    const pw = ctx.poolWallet, S = ctx.S, T = ctx.T;
+    if (!pw || !S || !T) return Promise.resolve();
+    looking = (async () => {
+      if (!ctx.notes?.length) await loadShielded();
+      const client = S.poolClientFor('mainnet');
+      // The fee notes of past take-outs went to the relay's address; naming it is what lets each one be opened again.
+      const info = await client.relayInfo().catch(() => null);
+      const r = await S.saleKeys(T, pw, ctx.notes || [], S.TAC_ASSET_MAINNET, { addresses: info?.address ? [info.address] : [] });
+      if (ctx.poolWallet !== pw) return;
+      sale = r;
+      await Promise.all(held().filter((n) => !ready.has(opKey(n))).map(async (n) => {
+        const x = await client.exit(n.txid, n.vout).catch(() => null);
+        if (x?.exists) ready.add(opKey(n));
+      }));
+      render();
+    })().finally(() => { looking = null; });
+    return looking;
+  }
+
+  // The sale key in tacit.js for one turn, so the listing is signed by it and names its note; the wallet's key after.
+  const listAs = (key, fn) => ctx.turn(async () => {
+    const T = ctx.T, keep = { priv: T.wallet.priv, pub: T.wallet.pub };
+    if (!keep.priv) throw new Error('Open your wallet first.');
+    const priv = hexBytes(key.priv);
+    T.wallet.priv = priv; T.wallet.pub = hexBytes(key.pub);
+    try { T.invalidateHoldingsCache?.(); } catch {}
+    try { return await fn(T); }
+    finally {
+      priv.fill(0);
+      T.wallet.priv = keep.priv; T.wallet.pub = keep.pub;
+      try { T.invalidateHoldingsCache?.(); } catch {}
+    }
+  });
+
+  async function doOut() {
     await ensureKey();
-    const T = ctx.T, S = ctx.S;
+    const S = ctx.S, pw = ctx.poolWallet;
     const units = parseUnits(amt.value);
     if (units <= 0n) throw new Error('Enter an amount above zero.');
     await loadShielded();   // a cold unlock has not scanned the pool yet
-    if (units > shieldedTotal()) throw new Error('More than your shielded balance.');
-    const r = await S.exitToWallet(T, {
-      poolWallet: ctx.poolWallet, amount: units, asset: S.TAC_ASSET_MAINNET,
+    if (units + fee() > shieldedTotal()) throw new Error(fee() ? `More than your shielded balance with the relay’s ${fmt(fee())} TAC fee.` : 'More than your shielded balance.');
+    say('st-sats-1', 'Finding a new key for this sale…');
+    await look();
+    if (ctx.poolWallet !== pw || sale?.free == null) throw new Error('Your wallet changed, so nothing was done.');
+    const r = await S.exitToSaleKey(ctx.T, {
+      poolWallet: pw, amount: units, asset: S.TAC_ASSET_MAINNET, key: S.saleKey(pw, sale.free),
       say: (m) => say('st-sats-1', m),
     });
     if (r.wait) {
-      say('st-sats-1', `Your newest note needs ${r.wait} more Bitcoin block${r.wait === 1 ? '' : 's'} before the wallet spends it against a settled block. Try again shortly, or withdraw from the "To my wallet" tab, which offers to spend now.`);
+      say('st-sats-1', `Your newest note needs ${r.wait} more Bitcoin block${r.wait === 1 ? '' : 's'} before it can be spent against a settled block. Try again shortly.`);
       return;
     }
-    exited = { txid: r.revealTxid, vout: 0, units };
-    say('st-sats-1', `${fmt(units)} TAC withdrawn in `, txLink(r.revealTxid), '. Once it confirms, list it below.');
+    if (r.revealTxid) pick = `${r.revealTxid}:${r.exitVout}`;
+    say('st-sats-1', `${fmt(units)} TAC is on its way to a new key`, ...(r.revealTxid ? [', posted by the relay in ', txLink(r.revealTxid)] : [', posted by the relay']),
+      '. It can be listed once the pool counts it, three confirmations from now (about 30 minutes).');
     await loadShielded();
-    render();
+    sale = null;
+    await look();
   }
 
   async function doList() {
     await ensureKey();
-    const T = ctx.T;
-    if (!exited) throw new Error('Withdraw from the pool first.');
+    const n = chosen();
+    if (!n) throw new Error(held().length ? 'Nothing is ready to list yet: the pool counts a take-out three confirmations after it is posted.' : 'Take some TAC out first.');
     const dest = payout.value.trim();
     if (!dest) throw new Error('Give a Bitcoin address for the sats to land at.');
+    const script = payoutScript(dest), T = ctx.T;
+    if (hexOf(script) === hexOf(T.p2wpkhScript(T.wallet.pub))) throw new Error('That is this wallet’s own address. Use one from another wallet, so the sats land apart from it.');
+    if ((sale?.keys || []).some((k) => k.scriptPubKey === hexOf(script))) throw new Error('That is a key this page made for a sale. Use an address from another wallet.');
     const px = Number(priceEl.value);
     if (!Number.isFinite(px) || px <= 0) throw new Error('Set a price in sats per TAC.');
-    const sats = Math.floor((Number(exited.units) / 1e8) * px);
-    if (sats < 546) throw new Error('That comes to less than the 546-sat dust limit. Sell more, or raise the price.');
+    const sats = Math.floor((Number(n.value) / 1e8) * px);
+    if (sats < 546) throw new Error('That comes to less than the 546-sat dust limit. Raise the price.');
+    const days = Number(lasts.value) || 3;
 
-    const script = addressToScript(dest);
-
-    say('st-sats-2', 'Signing the listing…');
-    const sale = await T.publishPreauthSale({
-      utxoTxid: exited.txid,
-      utxoVout: exited.vout,
+    say('st-sats-2', 'Signing the listing with the sale key…');
+    const rec = await listAs(n.key, (T2) => T2.publishPreauthSale({
+      utxoTxid: n.txid,
+      utxoVout: n.vout,
       minPriceSats: sats,
-      expiry: Math.floor(Date.now() / 1000) + 7 * DAY,
+      expiry: Math.floor(Date.now() / 1000) + days * DAY,
       sellerPayoutScript: script,
       onProgress: (m) => say('st-sats-2', String(m)),
-    });
-    say('st-sats-2', `Listed ${fmt(exited.units)} TAC for ${sats.toLocaleString('en-US')} sats. A buyer settles it and pays ${dest.slice(0, 12)}… directly — you need nothing further.`, sale?.sale_id ? el('div', { class: 'note' }, `Sale ${String(sale.sale_id).slice(0, 12)}…`) : null);
-    exited = null;
+    }));
+    say('st-sats-2', `Listed ${fmt(n.value)} TAC for ${sats.toLocaleString('en-US')} sats, for ${days === 1 ? 'a day' : `${days} days`}. A buyer settles it and pays ${dest.slice(0, 12)}… directly; you need nothing further.`,
+      rec?.sale_id ? el('div', { class: 'note' }, `Sale ${String(rec.sale_id).slice(0, 12)}…`) : null);
+    pick = null;
+    book = (await openSales()) || book;
     render();
   }
 
+  const until = (s) => new Date(Number(s.expiry) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  function heldRow(n) {
+    const l = listing(n), on = opKey(n) === opKey(chosen() || {});
+    const state = l ? `listed for ${Number(l.min_price_sats).toLocaleString('en-US')} sats until ${until(l)}`
+      : ready.has(opKey(n)) ? 'ready to list'
+        : 'waiting for the pool to count it';
+    const pickable = !l && ready.has(opKey(n)) && listable().length > 1;
+    return el('div', { class: 'kv' },
+      pickable
+        ? el('label', {}, el('input', on ? { type: 'radio', name: 'sats-pick', checked: '' } : { type: 'radio', name: 'sats-pick' }), ` ${fmt(n.value)} TAC`)
+        : el('span', {}, `${fmt(n.value)} TAC`),
+      el('b', {}, state));
+  }
+
   function render() {
-    const depth = book?.count ?? null;
+    const f = fee(), rows = held();
     host.replaceChildren(
       el('p', { class: 'note', style: 'margin-top:0' },
-        'Shielded TAC out, real bitcoin in. You withdraw, which pays its own small Bitcoin fee, then list at the market price; the buyer settles and pays sats straight to an address you name. That address can be a brand-new wallet, so the sats arrive somewhere with no history at all.'),
+        'Shielded TAC out, real bitcoin in. The relay takes your TAC out of the pool to a new key made for this sale and pays its Bitcoin fee, for a fee in TAC. That key lists it at your price, and the buyer pays sats straight to an address you name. This wallet’s address takes no part, so nothing on chain or on the listing ties those sats to it.'),
 
-      el('div', { class: 'lbl' }, el('label', { for: 'sats-amt' }, 'Amount to sell'),
-        el('button', { class: 'link', type: 'button', onclick: () => { amt.value = plain(shieldedTotal()); recompute(); } }, 'max')),
+      el('div', { class: 'lbl' }, el('label', { for: 'sats-amt' }, 'Amount to take out'),
+        el('button', { class: 'link', type: 'button', onclick: () => { const m = shieldedTotal() - f; amt.value = m > 0n ? plain(m) : '0'; recompute(); } }, 'max')),
       el('div', { class: 'amt' }, amt, el('span', { class: 'u' }, 'TAC')),
 
       el('div', { class: 'lbl' }, el('label', { for: 'sats-price' }, 'Price'),
         mark ? el('button', { class: 'link', type: 'button', onclick: () => { priceEl.value = String(mark); recompute(); } }, `market · ${mark} sats`) : el('span', {}, 'market price unavailable')),
       el('div', { class: 'amt' }, priceEl, el('span', { class: 'u' }, 'sats / TAC')),
       quote,
-      depth != null ? el('div', { class: 'kv' }, el('span', {}, 'Open sales on the book'), el('b', {}, String(depth))) : null,
+      book?.count != null ? el('div', { class: 'kv' }, el('span', {}, 'Open sales on the book'), el('b', {}, String(book.count))) : null,
 
       el('div', { class: 'lbl sep' }, el('label', { for: 'sats-payout' }, 'Pay the sats to')),
       el('div', { class: 'amt text' }, payout),
-      el('p', { class: 'note' }, 'A Bitcoin address you control. Use a fresh one — it never has to hold anything first, and nothing links it to the wallet on this page.'),
+      el('p', { class: 'note' }, 'An address from another wallet, best one that has never been used. It needs nothing in it first.'),
+      payHint,
+      el('div', { class: 'lbl' }, el('label', { for: 'sats-lasts' }, 'Listing lasts'), lasts),
 
-      el('p', { class: 'eyebrow', style: 'margin-top:22px' }, 'Step 1 — withdraw'),
-      exited
-        ? el('div', { class: 'kv' }, el('span', {}, 'Withdrawn, ready to list'), el('b', {}, `${fmt(exited.units)} TAC`))
-        : btnExit,
+      el('p', { class: 'eyebrow', style: 'margin-top:22px' }, 'Step 1 — take it out'),
+      f ? el('p', { class: 'note' }, `The relay’s fee is ${fmt(f)} TAC, from your shielded balance. The rest stays shielded.`) : null,
+      btnOut,
       statusStep1,
 
       el('p', { class: 'eyebrow', style: 'margin-top:18px' }, 'Step 2 — list for sats'),
+      ...rows.map(heldRow),
       btnList,
       statusStep2,
-      el('p', { class: 'note' }, 'Listing is a signature, not a transaction: it costs nothing and needs no bitcoin. The listing stays on the book for seven days. Shielding the TAC back into the pool before a buyer takes it spends the note, which ends the listing at once.'),
+      el('p', { class: 'note' }, 'Listing is a signature, not a transaction: it costs nothing and needs no bitcoin. It stands until it ends; to change the price, list again once it has. Like every listing, it shows the amount and the price, so round amounts are harder to pick out.'),
     );
-    btnList.disabled = !exited;
+    host.querySelectorAll('input[name="sats-pick"]').forEach((r, i) => r.addEventListener('change', () => { pick = opKey(listable()[i]); recompute(); }));
+    btnList.disabled = !chosen();
+    recompute();
   }
 
-  btnExit.addEventListener('click', () => busy(btnExit, 'st-sats-1', doExit));
+  btnOut.addEventListener('click', () => busy(btnOut, 'st-sats-1', doOut));
   btnList.addEventListener('click', () => busy(btnList, 'st-sats-2', doList));
+  window.addEventListener('tac:wallet', () => { sale = null; ready.clear(); pick = null; render(); look().catch(() => {}); });
 
   render();
-  markPriceSats().then((m) => { if (m) { mark = m; if (!priceEl.value) priceEl.value = String(m); recompute(); render(); } }).catch(() => {});
+  markPriceSats().then((m) => { if (m) { mark = m; if (!priceEl.value) priceEl.value = String(m); render(); } }).catch(() => {});
   openSales().then((b) => { book = b; render(); }).catch(() => {});
+  look().catch(() => {});
 }

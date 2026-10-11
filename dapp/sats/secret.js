@@ -15,7 +15,7 @@
 // browser (btc-pool-client.js: the pinned circuit and key, downloaded once and cached); the carrier is posted
 // by the pool's relayer when one is configured, else from this wallet's signet sats.
 
-import { secp, sha256, keccak_256, hmac, bytesToHex, hexToBytes } from '../vendor/tacit-deps.min.js';
+import { secp, sha256, keccak_256, hmac, ripemd160, bytesToHex, hexToBytes } from '../vendor/tacit-deps.min.js';
 import { makeBtcShieldedPool } from '../btc-shielded-pool.js';
 import { makeBtcPoolZap } from '../btc-pool-zap.js';
 import { makePoolClient } from '../btc-pool-client.js';
@@ -23,7 +23,7 @@ import { poolRecipient } from '../pool-recipient.js';
 
 export const FAUCET_URL = (globalThis.__SATS_FAUCET_URL__ || 'https://tacit-sats-faucet.onrender.com').replace(/\/$/, '');
 export const WORKER_BASE = (globalThis.__TACIT_WORKER_BASE__ || 'https://api.tacit.finance').replace(/\/$/, '');
-export const pool = makeBtcShieldedPool({ secp, keccak256: keccak_256, sha256 });
+export const pool = makeBtcShieldedPool({ secp, keccak256: keccak_256, sha256, ripemd160 });
 export const zap = makeBtcPoolZap({ secp, sha256, keccak256: keccak_256 });
 
 // One indexer per network. Both serve the same prover artifacts at `base` (the circuit is shared), so only
@@ -577,7 +577,8 @@ export async function sellForSats(tacit, { poolWallet, amount, asset, anchor = n
 // sweepExitCoins moves them to the wallet's own address, where they are ordinary sats.
 
 const B32 = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
-function bech32mAddress(hrp, version, program) {
+// BIP-173 for version 0, BIP-350 (bech32m) for version 1 and up.
+function segwitAddress(hrp, version, program) {
   const poly = (vs) => {
     const G = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
     let c = 1;
@@ -589,14 +590,14 @@ function bech32mAddress(hrp, version, program) {
   for (const x of program) { acc = (acc << 8) | x; bits += 8; while (bits >= 5) { bits -= 5; words.push((acc >>> bits) & 31); } }
   if (bits) words.push((acc << (5 - bits)) & 31);
   const hx = [...hrp].map((ch) => ch.charCodeAt(0) >> 5).concat(0, [...hrp].map((ch) => ch.charCodeAt(0) & 31));
-  const pm = poly([...hx, ...words, 0, 0, 0, 0, 0, 0]) ^ 0x2bc830a3;
+  const pm = poly([...hx, ...words, 0, 0, 0, 0, 0, 0]) ^ (version === 0 ? 1 : 0x2bc830a3);
   const cs = Array.from({ length: 6 }, (_, i) => (pm >>> (5 * (5 - i))) & 31);
   return `${hrp}1${[...words, ...cs].map((w) => B32[w]).join('')}`;
 }
 export function p2trAddress(spkHex, network = 'signet') {
   const spk = hexToBytes(String(spkHex).replace(/^0x/, ''));
   if (spk.length !== 34 || spk[0] !== 0x51 || spk[1] !== 0x20) throw new Error('not a P2TR script');
-  return bech32mAddress(network === 'mainnet' ? 'bc' : 'tb', 1, spk.slice(2));
+  return segwitAddress(network === 'mainnet' ? 'bc' : 'tb', 1, spk.slice(2));
 }
 
 // Counters this browser knows were handed out, from the Secret payment progress of `pubHex`.
@@ -712,6 +713,151 @@ export async function sweepExitCoins(tacit, poolWallet, coins, { feeRate = null 
   const b = await planSweep(tacit, poolWallet, coins, { feeRate });
   await tacit.broadcast(b.hex);
   return { txid: b.txid, total: b.total, added: b.added, fee: b.fee, value: b.value };
+}
+
+// ── sale keys ──
+// "To sats" sells shielded TAC on the market without the wallet's Bitcoin address anywhere in the trail. The relay takes
+// the TAC out of the pool to a sale key, a P2WPKH exit key of the pool wallet (DESIGN-btc-shielded-pool.md §6), posting
+// the carrier from its own coins for a fee in TAC; that key lists the note, and the buyer pays sats to an address the
+// seller names. The wallet's address funds nothing and signs nothing on this path, so a relay that cannot post the
+// take-out is never replaced by a post from that address.
+//
+// A sale key never takes a counter whose P2TR exit key has history: one secret backs both scripts of a counter, and
+// spending the P2WPKH output publishes the point the P2TR output key is tweaked from.
+
+const SALE_GAP = 6;
+const SALE_HOLD_MS = 24 * 3600e3;   // a counter handed out stays reserved while a relay may still post its take-out
+const SALE_KEYS_KEY = 'tacit-pool-sale-keys-v1';
+const strip0x = (h) => String(h).replace(/^0x/, '').toLowerCase();
+
+export function saleKey(poolWallet, counter) {
+  const k = pool.deriveExitKey(poolWallet, counter, 'p2wpkh');
+  const spk = strip0x(k.scriptPubKey);
+  return { counter, priv: strip0x(k.priv), pub: strip0x(k.pub), scriptPubKey: spk, address: segwitAddress(poolWallet.network === 'mainnet' ? 'bc' : 'tb', 0, hexToBytes(spk).slice(2)) };
+}
+
+// Counters this browser handed out in the last day, by pool wallet: a second take-out made before the first one's
+// carrier is seen on chain gets a key of its own.
+function saleHeld(poolWallet) {
+  let v = null;
+  try { v = typeof localStorage === 'undefined' ? null : JSON.parse(localStorage.getItem(SALE_KEYS_KEY) || 'null'); } catch {}
+  const now = Date.now(), mine = v?.[ownerTag(poolWallet)] || {};
+  return new Set(Object.entries(mine).filter(([, at]) => now - at < SALE_HOLD_MS).map(([c]) => Number(c)));
+}
+function saleHold(poolWallet, counter) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const v = JSON.parse(localStorage.getItem(SALE_KEYS_KEY) || 'null') || {}, tag = ownerTag(poolWallet), now = Date.now();
+    const mine = Object.fromEntries(Object.entries(v[tag] || {}).filter(([, at]) => now - at < SALE_HOLD_MS));
+    mine[counter] = now;
+    localStorage.setItem(SALE_KEYS_KEY, JSON.stringify({ ...v, [tag]: mine }));
+  } catch {}
+}
+
+// The sale keys this pool wallet has used, each with the exit notes of `asset` still at it, and `free`: the first
+// counter neither used on chain nor held here. Walks counters until SALE_GAP in a row have no history at either script.
+// `notes` are the pool wallet's notes, spent ones included: each exit found is opened again from the pool seed
+// (recoverExit) and its opening recorded, so the holdings scan credits it under its key and a listing can name it.
+// `addresses` are the pool addresses the take-outs paid a fee to (the relay's, from relayInfo().address): the fee note is
+// not this wallet's, so without its address the opening is searched for among the first 65,536 units and a fee above
+// that is never found.
+export async function saleKeys(tacit, poolWallet, notes, asset, { addresses = [] } = {}) {
+  const assetHex = strip0x(asset), held = saleHeld(poolWallet);
+  const used = async (addr) => {
+    const i = await esplora(tacit, `/address/${addr}`);
+    return !!i && [i.chain_stats, i.mempool_stats].some((x) => x?.tx_count > 0);
+  };
+  const keys = [];
+  let quiet = 0, free = null;
+  for (let c = 0; quiet < SALE_GAP || free == null; c++) {
+    const k = saleKey(poolWallet, c);
+    if (!(await used(k.address))) {
+      if (await used(p2trAddress(pool.deriveExitKey(poolWallet, c, 'p2tr').scriptPubKey, poolWallet.network))) { quiet = 0; continue; }
+      quiet++;
+      if (free == null && !held.has(c)) free = c;
+      continue;
+    }
+    quiet = 0;
+    const found = [];
+    for (const u of (await esplora(tacit, `/address/${k.address}/utxo`)) || []) {
+      const tx = await tacit.getTx(u.txid).catch(() => null);
+      const env = tx ? tacit.txOutputEnvelope(tx) : null;
+      if (!env || env.opcode !== 0x6d) continue;
+      let o;
+      try { o = pool.recoverExit(poolWallet, env.payload, notes, { addresses }); } catch { continue; }
+      if (o.exitVout !== u.vout) continue;
+      tacit.recordOpening(u.txid, u.vout, assetHex, BigInt(o.value), BigInt(o.blinding));
+      found.push({ txid: u.txid, vout: u.vout, value: BigInt(o.value), confirmed: !!u.status?.confirmed });
+    }
+    keys.push({ ...k, notes: found });
+  }
+  return { keys, free };
+}
+
+// Takes `amount` of `asset` out of the pool to sale key `key` (saleKey) through the relay: the exit pays the key's
+// script at the output the relay assigns, the relay's fee is a pool output, and change stays shielded. Proved here.
+// → { revealTxid, exitVout, amount, fee } once the relay posts it (revealTxid null if it reports none; saleKeys finds
+// the note either way), or { wait, tip } when the newest note is too young for the anchor policy. A relay that cannot
+// quote, or has not posted after five minutes, ends it with `relayDeclined`: nothing is posted from the wallet.
+export async function exitToSaleKey(tacit, { poolWallet, amount, asset, key, anchor = null, maxFee = null, say = () => {}, inputs = null, requoted = false }) {
+  const assetHex = strip0x(asset), client = poolClientFor(poolWallet.network);
+  const NOT_NOW = 'The relay isn’t taking TAC out right now. Nothing was sent; try again in a few minutes.';
+  const info = await client.relayInfo().catch(() => null);
+  const listed = info?.fees?.['0x' + assetHex];
+  if (listed == null) throw relayDeclined(NOT_NOW);
+  const askQuote = () => client.quote({ asset: '0x' + assetHex, exitScriptPubKey: key.scriptPubKey });
+  const q = await askQuote().catch(() => new Promise((r) => setTimeout(r, 1500)).then(askQuote).catch(() => null));
+  if (!q || !Number.isInteger(q.exitVout)) throw relayDeclined(NOT_NOW);
+  const fee = BigInt(q.fee);
+  if (fee > (maxFee ?? (BigInt(listed) * 5n) / 4n)) throw Object.assign(new Error('The relay’s fee changed.'), { feeMoved: fee });
+  saleHold(poolWallet, key.counter);
+  say('finding your notes…');
+  const a = await prepare(poolWallet, assetHex, amount + fee, anchor, inputs);
+  if (a.wait) return { wait: a.wait, tip: a.tip };
+  // The fee note, the change and zero-value padding to three outputs (an exit leaves it to the caller), the last two
+  // to the wallet's internal address so what stays shielded does not show as sent.
+  const self = { address: poolWallet.internalAddress, network: poolWallet.network };
+  const change = a.total - amount - fee;
+  const outputs = [{ address: q.address, value: fee }];
+  if (change > 0n) outputs.push({ ...self, value: change });
+  while (outputs.length < 3) outputs.push({ ...self, value: 0n });
+  const build = (exitVout) => pool.buildSpendBody({
+    asset: '0x' + assetHex, hAnchor: a.hAnchor, root: a.root, inputs: a.notes, wallet: poolWallet, bind: q.bind, outputs,
+    exit: { exitVout, scriptPubKey: '0x' + key.scriptPubKey, value: amount },
+  });
+  let built = build(q.exitVout);
+  let { payloadHex } = await proveHere(built, say);
+  say('Handing it to the relay…');
+  let sub;
+  try { sub = await client.submit({ payload: payloadHex, quoteId: q.quoteId }); }
+  catch (e) {
+    if (!requoted && /quote expired/i.test(e?.message || '')) {
+      say('The relay’s quote ran out while the proof was made; asking for a new one…');
+      return exitToSaleKey(tacit, { poolWallet, amount, asset, key, anchor: a.hAnchor, maxFee, say, inputs: a.notes, requoted: true });
+    }
+    // Another take-out filled that output of the relay's open carrier first: the same spend, signed for the one it names.
+    if (e?.status !== 409 || !Number.isInteger(e?.body?.exitVout)) throw e;
+    built = build(e.body.exitVout);
+    ({ payloadHex } = await proveHere(built, say));
+    sub = await client.submit({ payload: payloadHex, quoteId: q.quoteId });
+  }
+  const exitVout = built.exit.exitVout;
+  for (let i = 0; i < 60; i++) {
+    const st = await client.relayStatus(sub.id).catch(() => null);
+    const carrier = st?.carrier || (st?.state === 'confirmed' ? null : undefined);
+    if (carrier !== undefined) {
+      pendingMark(a.notes, carrier, a.total - amount - fee, assetHex, amount, ownerTag(poolWallet));
+      if (carrier) tacit.recordOpening?.(carrier, exitVout, assetHex, amount, BigInt(built.exit.blinding));
+      return { revealTxid: carrier, exitVout, amount, fee };
+    }
+    if (st && (['dropped', 'rejected'].includes(st.state) || spentElsewhere(st.state))) {
+      if (spentElsewhere(st.reason || st.state)) throw new Error('Those notes are already being spent by another payment. Wait for it to settle, then try again.');
+      throw new Error(`The relay could not post it (${st.reason || st.state}). Nothing was sent.`);
+    }
+    say('Waiting for the relay’s batch…');
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+  throw relayDeclined('The relay hasn’t posted it yet and may still. Nothing else was sent; once it posts, the TAC shows here, ready to list.');
 }
 
 // ── UI ──
