@@ -1925,6 +1925,17 @@ await step('bridge', async () => {
   // The dashboard names the bridges waiting for their holder, and opens the Bridge tab.
   await until(r.page, () => /bridges of TAC to Ethereum are waiting for you/.test(document.querySelector('#dash-due')?.textContent || ''), null, 60000);
   ok(/3 bridges of TAC to Ethereum are waiting for you/.test(await text(r.page, '#dash-due')), `bridge: the dashboard says three bridges wait for their holder (${(await text(r.page, '#dash-due')).replace(/\s+/g, ' ').slice(0, 120)})`);
+  // The landing card's Bitcoin tab is a handoff: it says in one line what the one-step bridge costs and how long it takes, and its
+  // button opens the Bridge tab.
+  await r.page.click('[data-hxm="btc"]');
+  await until(r.page, () => document.querySelector('#hx-go')?.textContent === 'Bridge TAC from Bitcoin', null, 120000);
+  const hxBtc = (await text(r.page, '#hx-body')).replace(/\s+/g, ' ');
+  await shot(r.page, 'hx-bitcoin');
+  ok(/Your TAC/.test(hxBtc) && /No relay fee/.test(hxBtc) && /Bitcoin fee in sats/.test(hxBtc) && /few hours/.test(hxBtc), `bridge: the landing card's Bitcoin tab says what the one-step bridge costs and how long it takes (${hxBtc.slice(0, 200)})`);
+  await r.page.click('#hx-go');
+  await until(r.page, () => location.hash === '#bridge' && !document.querySelector('#bridge-body').hidden && document.querySelector('[data-tac-mode="bridge"]').getAttribute('aria-selected') === 'true', null, 120000);
+  ok(true, 'bridge: the landing card\'s Bridge TAC from Bitcoin opens the TAC sheet on its Bridge tab, and the link reads #bridge');
+  await shot(r.page, 'hx-bitcoin-bridge-tab');
   // The Bitcoin sheet's TAC line links here.
   await go(r.page, '#bitcoin');
   await until(r.page, () => !!document.querySelector('#btc-body a[data-link="bridge"]'), null, 120000);
