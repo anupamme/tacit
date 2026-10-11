@@ -76,6 +76,14 @@ let r = await card({ attestedHeight: 970090, tipHeight: 970100, foldedCrossoutCo
 ok(/9 to Bitcoin \(7 folded\)/.test(r.text) && /2 spent on Ethereum/.test(r.text) && /27 bridged in/.test(r.text), 'each kind of move is named', r.text);
 ok(/^Cross-chain \| 38 ?moves/.test(r.text.replace(/\s+/g, ' ')), 'the total counts all three: 9 + 2 + 27', r.text.slice(0, 40));
 ok(/bridges in/.test(r.gloss), 'the glossary says what a bridge in is', r.gloss.slice(0, 160));
+console.log('== a status that also says how many have minted');
+r = await card({ attestedHeight: 970090, tipHeight: 970100, foldedCrossoutCount: 7, consumedCount: 2, bridgeBurns: 37, bridgeMinted: 27, liveNotes: 3860 });
+ok(/27 bridged in \(10 more recorded, not minted yet\)/.test(r.text), 'arrivals are the bridges in, and the recorded-not-minted burns are named beside them', r.text);
+ok(/^Cross-chain \| 38 ?moves/.test(r.text.replace(/\s+/g, ' ')), 'and the total counts the arrivals: 9 + 2 + 27', r.text.slice(0, 40));
+r = await card({ attestedHeight: 970090, tipHeight: 970100, foldedCrossoutCount: 7, consumedCount: 2, bridgeBurns: 27, bridgeMinted: 27, liveNotes: 3860 });
+ok(/27 bridged in/.test(r.text) && !/not minted/.test(r.text), 'with every recorded burn minted nothing is said to wait', r.text);
+r = await card({ attestedHeight: 970090, tipHeight: 970100, foldedCrossoutCount: 7, consumedCount: 2, bridgeBurns: 37, bridgeMinted: null, liveNotes: 3860 });
+ok(/37 bridged in/.test(r.text) && !/not minted/.test(r.text), 'a minted count that could not be read falls back to the recorded figure', r.text);
 console.log('== an API that predates the field');
 r = await card({ attestedHeight: 970090, tipHeight: 970100, foldedCrossoutCount: 7, consumedCount: 2, liveNotes: 3860 });
 ok(/9 to Bitcoin \(7 folded\)/.test(r.text) && /2 spent on Ethereum/.test(r.text) && !/bridged in/.test(r.text), 'the line reads as before, without a bridged-in figure', r.text);

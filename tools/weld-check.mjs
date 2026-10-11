@@ -2993,9 +2993,9 @@ await step('stats', async () => {
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | asof: ${await text(r.page, '#asof')} | errors: ${r.errors.slice(0, 2).join(' | ')}`); });
     ok(!/some figures/.test(await text(r.page, '#asof')), `stats: every part read (${await text(r.page, '#asof')})`);
     const s = await card('Made private');
-    ok(/^Made private \| 1\.5ETH \| 2 deposits/.test(s), `stats: ETH made private is the sum of the pool's ETH wraps (${s})`);
+    ok(/^Made private \| 2ETH \| 4 deposits/.test(s), `stats: ETH made private is the Tacit pool's ETH wraps and the device pools' deposits together (1.5 + 0.3 + 0.2) (${s})`);
     ok(/^Wallets \| 2 \|/.test(await card('Wallets')), `stats: wallets are the senders of those wraps, however they reached the pool (${await card('Wallets')})`);
-    ok(/^Withdrawn \| 0\.2ETH/.test(await card('Withdrawn')), `stats: withdrawn is what the pool paid out, whatever else came in (${await card('Withdrawn')})`);
+    ok(/^Withdrawn \| 0\.31ETH/.test(await card('Withdrawn')), `stats: withdrawn is what the pool paid out plus the device pools' withdrawals (0.2 + 0.11), whatever else came in (${await card('Withdrawn')})`);
     ok(await r.page.$eval('#f-eth', (f) => !f.hidden), 'stats: the ETH-over-time chart is drawn');
     const st = await card('Settles');
     ok(/^Settles \| 3 \| .*3 spent/.test(st), `stats: settles are the transactions that inserted or spent notes (${st})`);
@@ -3043,11 +3043,11 @@ await step('stats', async () => {
     const settled = () => until(r.page, () => /^As of /.test(document.querySelector('#asof')?.textContent || '') && !/updating/.test(document.querySelector('#asof')?.textContent || ''), null, 60000).catch(() => {});
     await r.page.reload();
     await settled();
-    ok(hits.length === n && logReads.length === nLogs && /^Made private \| 1\.5ETH/.test(await card('Made private')), `stats: a second visit within the quarter hour shows the last reading and reads nothing (${hits.length - n} explorer, ${logReads.length - nLogs} log reads)`);
+    ok(hits.length === n && logReads.length === nLogs && /^Made private \| 2ETH/.test(await card('Made private')), `stats: a second visit within the quarter hour shows the last reading and reads nothing (${hits.length - n} explorer, ${logReads.length - nLogs} log reads)`);
     await r.page.goto(r.url + 'weld/stats/?fresh');
     await settled();
     const fresh = hits.slice(n);
-    ok(fresh.length === 2 && fresh.every((q) => Number(new URLSearchParams(q.split('?')[1]).get('startblock')) > 0) && /^Made private \| 1\.5ETH \| 2 deposits/.test(await card('Made private')),
+    ok(fresh.length === 2 && fresh.every((q) => Number(new URLSearchParams(q.split('?')[1]).get('startblock')) > 0) && /^Made private \| 2ETH \| 4 deposits/.test(await card('Made private')),
       `stats: a fresh reading reads on from what the last one kept, asking the explorers only for what is new (${fresh.join(' | ')})`);
     // The API's shared reading, when there is one, is all a visit needs.
     const kept = fromJsonText(await r.page.evaluate(() => localStorage.getItem('tacit-weld-stats-v3')));
@@ -3057,7 +3057,8 @@ await step('stats', async () => {
     const before = [hits.length, logReads.length];
     await r.page.goto(r.url + 'weld/stats/');
     await settled();
-    ok(/^Made private \| 9ETH/.test(await card('Made private')) && hits.length === before[0] && logReads.length === before[1],
+    // The shared reading puts the Tacit pool at 9 ETH; the device pools' 0.5 sit beside it, as they do in every reading.
+    ok(/^Made private \| 9\.5ETH/.test(await card('Made private')) && hits.length === before[0] && logReads.length === before[1],
       `stats: with the API's shared reading the page shows it and reads nothing itself (${await card('Made private')} · ${hits.length - before[0]} explorer, ${logReads.length - before[1]} log reads)`);
     if (r.errors.length) { fails++; console.log('FAIL stats page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); await rpc('anvil_setStorageAt', [ENGINE, CUSD_SLOT, '0x' + word(cusdWas)]); }
