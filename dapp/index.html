@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-NkUSjUCtGDgg7o3YtUzymdfKbA/Fti5dbWf/0sK9+fo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-bccvTYSJQjufhECjKRnHQIUqm5a1HMaGcYi14vvY6cA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=b0bddd8d"></script>
 <title>tacit</title>
@@ -289,12 +289,15 @@ a.di { color: inherit; text-decoration: none; }
 .hero .hx-q { max-width: none; }
 .hx-q { min-height: 18px; margin: 10px 2px 0; font-size: 12px; line-height: 1.5; color: var(--mute); }
 /* What the amount typed earns in the points program, and the nudge toward more of it. */
-.hx-pts { display: grid; gap: 3px; margin-top: 12px; padding: 9px 12px; border: 1px dashed var(--hair-2); font-size: 12px; line-height: 1.5; color: var(--mute); }
-.hx-pts[hidden] { display: none; }
+.hx-pts, .hx-have { display: grid; gap: 3px; margin-top: 12px; padding: 9px 12px; border: 1px dashed var(--hair-2); font-size: 12px; line-height: 1.5; color: var(--mute); }
+.hx-pts[hidden], .hx-have[hidden] { display: none; }
+.hx-have b { font: 600 14px var(--mono); color: var(--ink); }
+.hx-have a { color: var(--ink); }
 .hx-pl { display: flex; align-items: center; gap: 6px; color: var(--ink); }
 .hx-pl .tk { width: 16px; height: 16px; margin-right: 1px; }
 .hx-pl b { font: 600 14px var(--mono); }
 .hx-pl .link { margin-left: auto; padding: 0; font-size: 12px; }
+.hx-have .hx-pl { gap: 7px; }
 .hx-pt { color: var(--ink); }
 .hx-pt::before { content: '+ '; font-weight: 600; color: #16a34a; }
 /* Where a pair has more than one way, each way with what it pays: one is picked, the best is marked. */
@@ -9045,6 +9048,7 @@ async function hxQuote() {
   const done = (q) => { if (my === HX.seq) { HX.q = { eth: ethN, ...q }; paintHxQ(); } };
   HX.held = hxHeld();
   if (m === 'send') return;
+  if (m === 'btc' && HX.dir === 'in' && S.key) loadBridge().then(() => paintHxQ(), () => paintHxQ());
   if (m === 'btc' && HX.dir === 'in') return done({ out: 'Private', line: 'Your TAC notes on Bitcoin become private TAC on Ethereum, up to 1,000 TAC a bridge. No relay fee, only a Bitcoin fee in sats; usually a few hours, sometimes up to a day.', go: 'Bridge TAC from Bitcoin' });
   // A figure that is not an amount (or has more decimals than the pool moves) is said so, not shown as an empty field.
   if (units === null && /\d/.test(HX.amt)) return done({ out: null, line: 'Enter an amount with up to 8 decimals.' });
@@ -9142,6 +9146,28 @@ function hxPts(pk, eth, outTac = 0) {
   const why = [known ? `×${early.toFixed(1)} early` : '', pk === 'wrap' ? `×${PGM.wrapBoost} tETH` : '', wt !== 1 ? `×${wt} now` : '', hold > 1 ? `×${hold} TAC holder` : ''].filter(Boolean).join(' · ');
   return { pts, known, why, tips: tips.filter(Boolean) };
 }
+// What a signed-in key holds on Bitcoin to bring over, as the Bridge tab lists it (its own reading, kept a minute), and the bridges it has
+// under way. The reading needs tacit.js and a scan of the key's address, so it starts only when such a visitor opens the Bitcoin tab;
+// a visitor with no key sees the tab's one line alone.
+function hxHave() {
+  const el = $('#hx-have'), pub = S.key?.pubHex;
+  if (!el) return;
+  if (!pub || HX.mode !== 'btc' || HX.dir !== 'in') { el.hidden = true; return; }
+  const b = BR.pub === pub ? BR : null, recs = brRecords(pub), due = recs.filter((r) => brDue(r)).length;
+  const notes = (b?.notes || []).filter((n) => n.reason !== 'already bridging'), open = notes.filter((n) => n.eligible), over = notes.filter(brOver).length, other = notes.length - open.length - over;
+  const sum = (xs) => xs.reduce((a, n) => a + BigInt(n.amount), 0n), many = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const main = b?.notes ? (notes.length ? html`<b>${fmt(sum(notes), 8, 4)} TAC</b> on Bitcoin, in ${many(notes.length, 'note')}`
+      : html`No TAC on this key’s Bitcoin address yet. <a href="#bitcoin/receive" data-link="bitcoin/receive">Receive TAC there</a>`)
+    : b?.err ? 'Your TAC on Bitcoin could not be read just now. The Bridge tab reads it again.' : BR.loading ? 'Reading your TAC on Bitcoin…' : '';
+  const lines = [
+    recs.length ? `${many(recs.length, 'bridge')} on ${recs.length === 1 ? 'its' : 'their'} way${due ? `: ${due === recs.length ? (due === 1 ? 'it needs' : 'they need') : `${due} need`} you` : ''}.` : '',
+    open.length ? `${many(open.length, 'note')} to pick from (${fmt(sum(open), 8, 4)} TAC). Each bridges whole, and is checked first.` : '',
+    over ? `${many(over, 'note')} over 1,000 TAC: split ${over === 1 ? 'it' : 'them'} in the Bridge tab first.` : '',
+    other > 0 ? `${many(other, 'note')} not ready yet: the Bridge tab says why.` : '',
+  ].filter(Boolean);
+  el.hidden = !main && !lines.length;
+  if (!el.hidden) mount(el, html`${main ? html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span>${main}</span></span>` : ''}${lines.map((l) => html`<span class="hx-hv">${l}</span>`)}`);
+}
 // The wallet's scored rows tell the week's multiplier: read once for the account paying (the Points sheet's own reading, kept a minute).
 function hxWantPoints() {
   const a = String(S.address || '').toLowerCase();
@@ -9173,6 +9199,7 @@ function paintHxQ() {
       ${p.why ? html`<span class="hx-pw">${p.why}</span>` : ''}${p.tips.map((t) => html`<span class="hx-pt">${t}</span>`)}
       <span class="note mute" data-ptsnote ${PTSINFO ? '' : 'hidden'}>${ptsWhy()}</span>`);
   }
+  hxHave();
   if (!q.busy) { const line = $('#hx-q'); if (line) line.textContent = q.line || ''; const go = $('#hx-go'); if (go && q.go) go.textContent = q.go; }
 }
 // The figures behind the estimates (the pool's deposits so far, the TAC an account held through the day) arrive after the
@@ -9223,6 +9250,7 @@ function paintHx() {
   const go0 = { private: 'Make ETH private', swap: 'Swap privately', earn: 'Farm with ETH', btc: HX.dir === 'in' ? 'Bridge TAC from Bitcoin' : 'Send to Bitcoin' }[HX.mode];
   const tail = html`<div class="hx-routes" id="hx-routes" role="radiogroup" aria-label="Route" hidden></div>
     <div class="hx-pts" id="hx-pts" hidden></div>
+    <div class="hx-have" id="hx-have" hidden></div>
     <button class="btn" type="button" id="hx-go">${go0}</button>
     <p class="hx-q" id="hx-q" aria-live="polite"></p>`;
   const ETHER = [HX_ETHER], ETHS = [HX_ETHER, ['eth', 'tETH', 'teth', 6]], TETH = [['eth', 'tETH', 'teth']], TAC = [['tac', 'TAC', 'tac']];
@@ -9278,7 +9306,7 @@ function paintHx() {
   hxQuote();
 }
 // The private balance read, or read again (a key opened, a wrap landed): a route from ETH may now be one step, or two.
-function hxSync() { if (HX.mode !== 'send' && HX.from === 'ether' && hxHeld() !== HX.held) hxQuoteSoon(); }
+function hxSync() { if (HX.mode !== 'send' && HX.from === 'ether' && hxHeld() !== HX.held) hxQuoteSoon(); if (HX.mode === 'btc' && HX.dir === 'in') hxHave(); }
 paintHx();
 refreshTape();
 setInterval(() => { if (!document.hidden) for (const e of $$('[data-left]')) e.textContent = potLeft(); }, 1000);

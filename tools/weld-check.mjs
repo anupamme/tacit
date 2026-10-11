@@ -1932,6 +1932,13 @@ await step('bridge', async () => {
   const hxBtc = (await text(r.page, '#hx-body')).replace(/\s+/g, ' ');
   await shot(r.page, 'hx-bitcoin');
   ok(/Your TAC/.test(hxBtc) && /1,000 TAC a bridge/.test(hxBtc) && /No relay fee/.test(hxBtc) && /Bitcoin fee in sats/.test(hxBtc) && /few hours, sometimes up to a day/.test(hxBtc), `bridge: the landing card's Bitcoin tab says what the one-step bridge costs, the most one bridge takes and how long it takes, as the Bridge tab does (${hxBtc.slice(0, 200)})`);
+  // A signed-in key also sees what the Bridge tab lists, read when the tab opens: the stubbed notes (250, 1,500, 30 and 40 TAC), the
+  // three that can be picked (the Bridge tab checks each one's proof when it is picked), the one over the limit, and the bridges under way (four, three of them waiting for the holder).
+  await until(r.page, () => /1,820 TAC on Bitcoin, in 4 notes/.test(document.querySelector('#hx-have')?.textContent || ''), null, 240000);
+  const have = (await text(r.page, '#hx-have')).replace(/\s+/g, ' ');
+  ok(/3 notes to pick from \(320 TAC\)\. Each bridges whole, and is checked first/.test(have) && /1 note over 1,000 TAC: split it in the Bridge tab first/.test(have) && !/not ready yet/.test(have) && /4 bridges on their way: 3 need you/.test(have),
+    `bridge: the card's Bitcoin tab says what the key holds on Bitcoin and what is under way (${have.slice(0, 260)})`);
+  await shot(r.page, 'hx-bitcoin-have');
   await r.page.click('#hx-go');
   await until(r.page, () => location.hash === '#bridge' && !document.querySelector('#bridge-body').hidden && document.querySelector('[data-tac-mode="bridge"]').getAttribute('aria-selected') === 'true', null, 120000);
   ok(true, 'bridge: the landing card\'s Bridge TAC from Bitcoin opens the TAC sheet on its Bridge tab, and the link reads #bridge');
@@ -3472,6 +3479,10 @@ await step('hxweek', async () => {
     await until(p, () => document.querySelector('#hx-out')?.textContent === '0.0001' && !document.querySelector('#hx-pts')?.hidden, null, 120000);
     const small = (await text(p, '#hx-pts')).replace(/\s+/g, ' ');
     ok(/< 1 TAC points/.test(small) && !/Counts ×/.test(small) && !/: 0 more/.test(small), `hxweek: a deposit too small to count as a kind says nothing of the week (${small.slice(0, 120)})`);
+    // A key with nothing on Bitcoin is told so, and where to receive it.
+    await p.click('[data-hxm="btc"]');
+    await until(p, () => /No TAC on this key’s Bitcoin address yet/.test(document.querySelector('#hx-have')?.textContent || ''), null, 240000);
+    ok(!!(await p.$('#hx-have a[data-link="bitcoin/receive"]')), `hxweek: a key with no TAC on Bitcoin is told so, with the way to receive it (${(await text(p, '#hx-have')).replace(/\s+/g, ' ').slice(0, 120)})`);
     if (r.errors.length) { fails++; console.log('FAIL hxweek page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
