@@ -65,6 +65,48 @@ function fakeEsplora({ coins = [], refuseReveal = 0 } = {}) {
   assert.deepEqual(await two.txStatus(unknown), { confirmed: false }, 'a transaction one base holds is known');
 }
 
+// ── a broadcast reaches every base, so one mirror that loses a transaction does not leave the relay with nothing ──
+{
+  const le = (n, len) => { const b = new Uint8Array(len); let x = BigInt(n); for (let i = 0; i < len; i++) { b[i] = Number(x & 0xffn); x >>= 8n; } return b; };
+  // A small, parseable, non-segwit transaction spending one coin the fake mirrors know.
+  const COIN = { txid: '12'.repeat(32), vout: 0, value: 50_000 };
+  const raw = bytesToHex(new Uint8Array([...le(2, 4), 1, ...hexToBytes(COIN.txid).reverse(), ...le(COIN.vout, 4), 0, ...le(0xfffffffd, 4), 1, ...le(1000, 8), 22, 0x00, 0x14, ...new Uint8Array(20).fill(7), ...le(0, 4)]));
+  const txid = parseTx(hexToBytes(raw)).tx.txid;
+  const U = { a: 'https://a.test/api', b: 'https://b.test/api', c: 'https://c.test/api' };
+  const mirrors = (over = {}) => {
+    const m = { a: fakeEsplora({ coins: [COIN] }), b: fakeEsplora({ coins: [COIN] }), c: fakeEsplora({ coins: [COIN] }) };
+    const refuse = (name) => async (u, i) => (over[name] === 'refuse' && i?.method === 'POST' ? { ok: false, status: 400, text: async () => 'min relay fee not met' } : m[name].fetchImpl(u, i));
+    const fetchImpl = (u, i) => (u.startsWith(U.a) ? refuse('a') : u.startsWith(U.b) ? refuse('b') : refuse('c'))(u, i);
+    return { m, fetchImpl };
+  };
+  const settle = () => new Promise((r) => setTimeout(r, 25));
+
+  let { m, fetchImpl } = mirrors();
+  let chain = makeEsploraRelayChain(Object.values(U), { fetchImpl });
+  assert.equal(await chain.broadcast(raw), txid, 'the first base to accept answers');
+  await settle();
+  assert.deepEqual([m.a.posts.length, m.b.posts.length, m.c.posts.length], [1, 1, 1], 'every base got it once: the winner is not sent it again');
+  assert.ok(m.b.held.has(txid) && m.c.held.has(txid), 'the others hold it');
+
+  // The first base answers 200 and then loses the transaction; the relay still finds it on the others.
+  m.a.held.delete(txid);
+  assert.deepEqual(await chain.txStatus(txid), { confirmed: false }, 'known to the others, so the carrier is not rebroadcast');
+
+  // A base that refuses is not the winner, and the rest still take it.
+  ({ m, fetchImpl } = mirrors({ a: 'refuse' }));
+  chain = makeEsploraRelayChain(Object.values(U), { fetchImpl });
+  assert.equal(await chain.broadcast(raw), txid, 'the next base accepts');
+  await settle();
+  assert.ok(m.b.held.has(txid) && m.c.held.has(txid), 'and the last base gets it too');
+
+  // Every base refusing is a failure, with the own node as the last resort and no fan-out around it.
+  ({ m, fetchImpl } = mirrors({ a: 'refuse', b: 'refuse', c: 'refuse' }));
+  await assert.rejects(makeEsploraRelayChain(Object.values(U), { fetchImpl }).broadcast(raw), /min relay fee/);
+  let own = 0;
+  assert.equal(await makeEsploraRelayChain(Object.values(U), { fetchImpl, fallbackBroadcast: async () => { own++; return 'from-own-node'; } }).broadcast(raw), 'from-own-node');
+  assert.equal(own, 1, 'the own node is asked once');
+}
+
 // ── a relayer whose reveal is refused once ──
 const bp = makeBtcShieldedPool({ secp, keccak256: keccak_256, sha256 });
 const ASSET = '0x' + 'ab'.repeat(32), FEE = 10n, TIP = 1000, ANCHOR = 996, ANCHOR_ROOT = '0a'.repeat(32);

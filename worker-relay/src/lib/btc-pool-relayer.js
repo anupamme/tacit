@@ -1201,13 +1201,13 @@ export function parseFees(s) {
 
 export function makeEsploraRelayChain(bases, { fetchImpl = fetch, feeTarget = '3', timeoutMs = 20000, fallbackBroadcast = null } = {}) {
   const list = (Array.isArray(bases) ? bases : String(bases).split(',')).map((b) => b.trim().replace(/\/$/, '')).filter(Boolean);
-  async function req(path, init) {
+  async function req(path, init, won = null) {
     let last;
     for (const b of list) {
       try {
         const r = await fetchImpl(b + path, { ...init, signal: AbortSignal.timeout(timeoutMs) });
         const text = (await r.text()).trim();
-        if (r.ok) return text;
+        if (r.ok) { if (won) won.base = b; return text; }
         last = Object.assign(new Error(`${path} -> ${r.status} ${text.slice(0, 200)}`), { status: r.status });
         // A 400 on a broadcast used to end the loop, on the reading that the transaction is simply invalid.
         // Often it is instead the node's own policy talking — its minimum relay fee, a standardness rule,
@@ -1237,7 +1237,10 @@ export function makeEsploraRelayChain(bases, { fetchImpl = fetch, feeTarget = '3
       return seen.length % 2 ? seen[(seen.length - 1) / 2] : (seen[seen.length / 2 - 1] + seen[seen.length / 2]) / 2;
     },
     broadcast: async (hex) => {
-      try { return await req('/tx', { method: 'POST', body: hex, headers: { 'Content-Type': 'text/plain' } }); }
+      const init = { method: 'POST', body: hex, headers: { 'Content-Type': 'text/plain' } };
+      const won = {};
+      let out;
+      try { out = await req('/tx', init, won); }
       catch (e) {
         if (!fallbackBroadcast) throw e;
         // Every esplora refused. They share a view and frequently a policy, so another of them is not a
@@ -1245,6 +1248,11 @@ export function makeEsploraRelayChain(bases, { fetchImpl = fetch, feeTarget = '3
         try { return await fallbackBroadcast(hex); }
         catch (e2) { throw Object.assign(new Error(`${e.message}; own node: ${e2.message}`), { status: e.status }); }
       }
+      // A mirror can answer 200 and then lose the transaction before it has spread (the API's own broadcast records a
+      // mainnet reveal that did), and asking only the first that accepts leaves the carrier with that one. The same bytes
+      // go to every other base, unawaited and unheard: an identical transaction sent twice is harmless.
+      for (const b of list) if (b !== won.base) fetchImpl(b + '/tx', { ...init, signal: AbortSignal.timeout(timeoutMs) }).catch(() => {});
+      return out;
     },
     // `/tx/:txid/status` answers 200 {"confirmed":false} for a txid no node has ever seen, so that alone cannot tell a
     // transaction in the mempool from one that was never sent. A refused broadcast read as sent (pushTx) and a carrier
