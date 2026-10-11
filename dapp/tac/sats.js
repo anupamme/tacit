@@ -336,7 +336,7 @@ export function mount(host, ctx) {
       ...rows.map(heldRow),
       btnList,
       statusStep2,
-      el('p', { class: 'note' }, 'Listing is a signature, not a transaction: it costs nothing and needs no bitcoin. It stands until it ends; to change the price, list again once it has. Like every listing, it shows the amount and the price, so round amounts are harder to pick out.'),
+      el('p', { class: 'note' }, 'Listing is a signature, not a transaction: it costs nothing and needs no bitcoin. It stands until it ends; to change the price, list again once it has. Like every listing, it shows the amount and the price, so round amounts are harder to pick out. The relay sees your connection when it takes the TAC out and the market sees it when you list, so Tor or a VPN for the listing keeps those two apart.'),
     );
     host.querySelectorAll('input[name="sats-pick"]').forEach((r, i) => r.addEventListener('change', () => { pick = opKey(listable()[i]); recompute(); }));
     btnList.disabled = !chosen();

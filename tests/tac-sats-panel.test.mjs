@@ -75,6 +75,7 @@ await settle();
 const text = host.textContent;
 assert.ok(!/nothing links it to the wallet on this page/i.test(text), 'the old claim is gone');
 assert.match(text, /This wallet’s address takes no part/);
+assert.match(text, /The relay sees your connection when it takes the TAC out and the market sees it when you list, so Tor or a VPN for the listing keeps those two apart/, 'the panel says what each side sees');
 assert.match(text, /The relay’s fee is 15 TAC/);
 assert.match(text, /2,500 TAC\s*ready to list/, 'the note at the sale key shows, ready');
 assert.equal(host.querySelector('#sats-price').value, '168', 'priced at the mark');
