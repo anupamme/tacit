@@ -264,7 +264,13 @@ async function _cacheFirstVerifiedIpfs(req, expected) {
   const cached = await cache.match(req);
   if (cached) return cached;              // only verified bytes are ever in here
 
-  const resp = await fetch(req);          // network error propagates, as before
+  // A gateway that is down or refuses CORS makes fetch() reject. Answer with a
+  // network error rather than rethrowing: the page's own fetch fails the same
+  // way (and fails over to the next gateway), but the worker no longer logs an
+  // uncaught rejection for every dead gateway a page tries.
+  let resp;
+  try { resp = await fetch(req); }
+  catch { return Response.error(); }
   if (!resp || !resp.ok) return resp;
   if (resp.type !== 'basic' && resp.type !== 'cors' && resp.type !== 'default') return resp;
 

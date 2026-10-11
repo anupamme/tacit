@@ -13,7 +13,7 @@
      leave a stale pin behind. Fonts are same-origin static files, not a third-party
      CDN. connect-src is limited to public Bitcoin explorers + IPFS gateways.
      No third-party script, no analytics. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-rCdQoXUlzHG4nu9veo2ftqB61dMCwz25s1+jJw6frDA='; style-src 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src https://mempool.space https://blockstream.info https://ipfs.io https://w3s.link https://*.ipfs.w3s.link https://dweb.link https://*.ipfs.dweb.link https://gateway.pinata.cloud https://trustless-gateway.link https://*.ipfs.inbrowser.link; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-vtBC+O7NGBCFjxmz4ZK/yTqnTlFAnQls7bO0JKKuCvo='; style-src 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src https://mempool.space https://blockstream.info https://gateway.pinata.cloud https://ipfs.filebase.io https://ipfs.orbitor.dev https://ipfs.io https://dweb.link; base-uri 'none'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
@@ -209,10 +209,13 @@ const ETCH_TXID    = (q.get('txid')     || CANON_ETCH_TXID).toLowerCase();
 const IS_CANONICAL = TAC_ASSET_ID === CANON_ASSET_ID && ETCH_TXID === CANON_ETCH_TXID;
 const EXPECT_H = '02bd7bf40fb5db2f7e0a1e8660ca13df55bb0d9f904e36e6297361f00376865e56'; // SPEC §3.1 KAT
 const BTC_APIS = ['https://mempool.space/api', 'https://blockstream.info/api'];
-// Ordered by observed reliability, not preference — trustless-gateway.link and Pinata answered cleanly in
-// testing while ipfs.io/dweb.link/w3s.link were rate-limiting; fetchVerifiedIpfs still tries all of them
+// Ordered by observed reliability, not preference. Pinata, Filebase and Orbitor answer a cross-origin fetch with
+// CORS `*` and the right bytes; ipfs.io and dweb.link rate-limit (429) and are kept only as a last resort.
+// trustless-gateway.link (its origin was down, and a Cloudflare error page carries no CORS header, so the
+// browser reports every failure as a CORS block), w3s.link (a redirect with no CORS) and *.inbrowser.link
+// (403) cannot serve a page fetch and are not listed. fetchVerifiedIpfs still tries every gateway listed
 // regardless of order, this just reaches a working one faster on the common case.
-const IPFS_GATEWAYS = ['https://trustless-gateway.link/ipfs/{cid}?format=raw', 'https://gateway.pinata.cloud/ipfs/{cid}', 'https://ipfs.io/ipfs/{cid}', 'https://{cid}.ipfs.inbrowser.link/', 'https://dweb.link/ipfs/{cid}', 'https://w3s.link/ipfs/{cid}'];
+const IPFS_GATEWAYS = ['https://gateway.pinata.cloud/ipfs/{cid}', 'https://ipfs.filebase.io/ipfs/{cid}', 'https://ipfs.orbitor.dev/ipfs/{cid}', 'https://ipfs.io/ipfs/{cid}', 'https://dweb.link/ipfs/{cid}'];
 document.getElementById('aid').textContent = TAC_ASSET_ID;
 document.getElementById('txid').textContent = ETCH_TXID;
 if (!IS_CANONICAL) {
