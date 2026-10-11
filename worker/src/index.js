@@ -1606,6 +1606,8 @@ async function reflectionStatusBody(env, network) {
     foldedCrossoutCount: _statusCount(snap.foldedCrossoutCount),
     // The burn set opens with one sentinel entry; every other entry is a recorded burn.
     bridgeBurns: Array.isArray(snap.burnNodes) && snap.burnNodes.length ? snap.burnNodes.length - 1 : null,
+    // Of those, the ones the pool has minted on Ethereum (null while it cannot be read).
+    bridgeMinted: await _bridgeMintedFor(env, network, snap).catch(() => null),
     consumedCount: _statusCount(snap.consumedCount),
     liveNotes: Array.isArray(snap.liveTriples) ? snap.liveTriples.length : null,
     burnDeposits: Array.isArray(snap.pendingDepositRecords) ? snap.pendingDepositRecords.length : null,
@@ -1613,6 +1615,50 @@ async function reflectionStatusBody(env, network) {
   };
   _reflectionStatusCache.set(network, { at: Date.now(), body });
   return { body };
+}
+
+// How many of the recorded bridge burns have minted on Ethereum. The pool sets bridgeMinted[burnId] (an internal mapping, so read
+// by its declaration slot, 76) when it settles the mint and never clears it: a burn found minted is not asked about again, and the
+// ones still waiting are asked about at most every two minutes. A read that fails leaves the last count standing.
+const BRIDGE_MINTED_SLOT = 76;
+const BRIDGE_MINTED_REFRESH_MS = 2 * 60 * 1000;
+const _bridgeMinted = new Map();   // network -> { minted: Set of burn ids, count, at, inflight }
+const _word32 = (h) => String(h).replace(/^0x/, '').toLowerCase().padStart(64, '0');
+function _bridgeBurnIds(snap) {
+  const out = [];
+  for (const n of Array.isArray(snap.burnNodes) ? snap.burnNodes : []) {
+    const id = Array.isArray(n) ? String(n[0] || '') : '';
+    // The opening entry has the zero key; the rest are burns.
+    if (/^0x[0-9a-fA-F]{1,64}$/.test(id) && !/^0x0+$/.test(id) && n[3] !== false) out.push('0x' + _word32(id));
+  }
+  return out;
+}
+async function _refreshBridgeMinted(network, pool, ids, st) {
+  const todo = ids.filter((id) => !st.minted.has(id));
+  let unread = false;
+  for (let i = 0; i < todo.length; i += 8) {
+    await Promise.all(todo.slice(i, i + 8).map(async (id) => {
+      const slot = '0x' + bytesToHex(keccak_256(hexToBytes(_word32(id) + _word32(BRIDGE_MINTED_SLOT.toString(16)))));
+      const v = await _ethGetStorageAt(network, pool, slot);
+      if (typeof v !== 'string' || !/^0x[0-9a-fA-F]*$/.test(v)) unread = true;
+      else if (BigInt(v === '0x' ? '0x0' : v) !== 0n) st.minted.add(id);
+    }));
+  }
+  if (!unread) { st.count = ids.filter((id) => st.minted.has(id)).length; st.at = Date.now(); }
+  else st.at = Date.now() - BRIDGE_MINTED_REFRESH_MS + 20_000;   // look again soon
+}
+async function _bridgeMintedFor(env, network, snap) {
+  const pool = env.REFLECTION_POOL_ADDR || (_CROSSOUT_POOL_DEPLOYMENTS[network] || {}).pool;
+  const ids = _bridgeBurnIds(snap);
+  if (!pool || !ids.length || !(_TETH_ETH_RPCS[network] || []).length) return null;
+  let st = _bridgeMinted.get(network);
+  if (!st) { st = { minted: new Set(), count: null, at: 0, inflight: null }; _bridgeMinted.set(network, st); }
+  if (Date.now() - st.at > BRIDGE_MINTED_REFRESH_MS && !st.inflight) {
+    st.inflight = _refreshBridgeMinted(network, pool, ids, st).catch(() => {}).finally(() => { st.inflight = null; });
+  }
+  // The first reading is waited for (briefly); after that the last count is returned at once while the next one is taken.
+  if (st.count == null && st.inflight) await Promise.race([st.inflight, new Promise((r) => setTimeout(r, 5000))]);
+  return st.count == null ? null : Math.min(st.count, ids.length);
 }
 
 // ── /stats: the weld stats page's reading, taken here and shared by every visitor ──

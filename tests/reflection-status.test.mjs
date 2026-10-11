@@ -3,6 +3,7 @@
 const record = JSON.stringify({ attestedHeight: 967810, tipHeight: 967836, snapshot: { foldedCrossoutCount: '2', consumedCount: 1, burnNodes: [['0x00', '0x01', '0x00', true], ['0x01', '0x02', '0xd1', true], ['0x02', '0x00', '0xd2', true]], liveTriples: [[1], [2], [3]], noteLeaves: new Array(50).fill('0x0'), pendingDepositRecords: [] } });
 let reads = 0;
 const env = { REGISTRY_KV: { get: async (k) => { reads++; return k === 'reflection:scan:mainnet' ? record : null; }, put: async () => {}, delete: async () => {} } };
+globalThis.fetch = async () => { throw new Error('offline'); };   // the minted count reads Ethereum: unreachable here, so absent
 const worker = await import('../worker/src/index.js');
 const get = (q = '') => worker.default.fetch(new Request('https://api.test/reflection/status' + q), env, { waitUntil() {} });
 let pass = 0, fail = 0;
