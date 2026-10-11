@@ -22,6 +22,9 @@ export const ID = { ceth: '0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca7
 export const ZERO32 = '0x' + '00'.repeat(32);
 // The wallets that relay settles for users and so receive each settle's fee mint (the relay key and the settle key).
 const RELAYERS = new Set(['0x68575b073de49a94e3e3acf6f3a0d6e3b66267c7', '0x7a0f0511e1dcf399c2f7bbe8414b6a0d1abc4331']);
+// The protocol's own: the ops multisig (the reserve) and the airdrop contract. The founding bridge of the treasury TAC to Ethereum was
+// minted to them (about 2.4M of the token's 2.5M supply), which is not something an account did, so it is not counted as made public.
+const OWN = new Set(['0x006cd14f36f65ecbb29b2519ccbe63a0dc8549f2', '0x4b4cb98d0c836c2783ac46f0078b904dab533ae8']);
 const FROM = { main: 25998000, evm: { 8453: 51864014, 4663: 73991661 } };
 export const TOPIC = {
   wrap: '0xf5d1711d21af6f42622ab6237626933cefc42cc9f0663d81b7c4c7bc5ce99e44',
@@ -419,12 +422,13 @@ export function makeStatsReader({ fetchImpl = (...a) => fetch(...a), gapMs = 200
       const others = [...byAsset].filter(([id]) => id !== ID.tac && id !== ID.ceth).map(([id, g]) => ({ ...g, m: meta.get(id) || null }));
       // TAC leaving the pool for the public token: every mint of the ERC-20 (a Transfer from the zero address), since the pool is the
       // only minter and mints either to pay a withdrawal or to pay out a swap from its own reserve. The relays' own wallets are the
-      // fee recipients of those settles, so they are left out of the accounts and the volume. The stream is read apart from the rest of
+      // fee recipients of those settles, and the ops multisig and airdrop contract hold the treasury bridged at the start, so none of
+      // them is counted in the accounts or the volume. The stream is read apart from the rest of
       // this part: while a long history is being read on across readings it is absent (null) and the other figures still stand.
       const mints = await tacMints().catch(() => null);
       const tacOut = mints && (() => {
         const to = (l) => '0x' + strip(l.t[2]).slice(24);
-        const out = mints.filter((l) => l.a === lc(A.tac) && l.t[0] === TOPIC.transfer && l.t[1] === ZERO32 && !RELAYERS.has(to(l)));
+        const out = mints.filter((l) => l.a === lc(A.tac) && l.t[0] === TOPIC.transfer && l.t[1] === ZERO32 && !RELAYERS.has(to(l)) && !OWN.has(to(l)));
         return { n: out.length, v: out.reduce((s, l) => s + W(l.d, 0), 0n), who: new Set(out.map(to)).size };
       })();
       return { supply: BigInt(supply), tacIn: byAsset.get(ID.tac) || { n: 0, v: 0n }, tacOut, claims: claims.length, claimed: claims.reduce((s, l) => s + W(l.d, 0), 0n),

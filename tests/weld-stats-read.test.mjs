@@ -148,6 +148,8 @@ function populate(x, stage) {
     // is paid a fee mint, and an ordinary transfer is not a mint at all.
     x.tacMint(at(1300), '0x' + 'a1'.repeat(20), 40n * 10n ** 18n); x.tacMint(at(1310), '0x' + 'a1'.repeat(20), 10n * 10n ** 18n); x.tacMint(at(1320), '0x' + 'b2'.repeat(20), 25n * 10n ** 18n);
     x.tacMint(at(1330), '0x7a0f0511e1dcf399c2f7bbe8414b6a0d1abc4331', 2n * 10n ** 18n); x.tacMove(at(1340), '0x' + 'a1'.repeat(20), '0x' + 'c3'.repeat(20), 5n * 10n ** 18n);
+    // The founding bridge of the treasury: minted to the ops multisig and to the airdrop contract. Not something an account did.
+    x.tacMint(at(1350), '0x006cd14f36f65ecbb29b2519ccbe63a0dc8549f2', 1_000_000n * 10n ** 18n); x.tacMint(at(1360), A.airdrop, 500_000n * 10n ** 18n);
     x.device(1, at(1000), 3n * 10n ** 17n); x.device(1, at(1100), -(10n ** 17n), 10n ** 16n);
     x.device(8453, 51_900_000 - 30_000, 5n * 10n ** 17n); x.device(4663, 74_000_000 - 5_000, 2n * 10n ** 17n);
   }
@@ -180,7 +182,7 @@ test('stats reading: every figure, counted as the stats page shows it', async ()
   assert.equal(r.btc.nBonds, 3, 'bonds on the locks holding one'); assert.equal(r.btc.waiting, 1, 'a bond on a lock not yet proven');
   assert.equal(r.btc.borrowed, 350_000_000n); assert.equal(r.btc.repaid, 100_000_000n); assert.equal(r.btc.out, 250_000_000n); assert.equal(r.btc.open, 1);
   assert.equal(r.tac.claimed, 60n * 10n ** 18n); assert.equal(r.tac.claimers, 2);
-  assert.deepEqual(r.tac.tacOut, { n: 3, v: 75n * 10n ** 18n, who: 2 }, 'TAC made public: the mints to users, not the settle wallet\'s fee mint and not an ordinary transfer');
+  assert.deepEqual(r.tac.tacOut, { n: 3, v: 75n * 10n ** 18n, who: 2 }, 'TAC made public: the mints to accounts, not the settle wallet\'s fee mint, not the treasury minted to the multisig and the airdrop contract, and not an ordinary transfer');
   assert.equal(r.pts.participants, 2); assert.equal(r.pts.points, 30.5); assert.equal(r.pts.full, false);
   assert.equal(r.link.settles, 3); assert.equal(r.link.notes, 3); assert.equal(r.link.spent, 4); assert.equal(r.link.attests, 2, 'only attestations that went through');
   assert.equal(r.link.tip - r.link.anchorHeight, 969_000 - 964_163);
@@ -367,7 +369,7 @@ test('stats reading: TAC made public is read with a mint filter, so the token\'s
   const { reading: r, keep } = await makeStatsReader({ fetchImpl: x.fetchImpl, gapMs: 0 }).read({});
   assert.ok(asked.length > 0 && asked.every((q) => Array.isArray(q.topics) && lc(q.topics[0]) === TOPIC.transfer && lc(q.topics[1]) === ZERO32), 'every request for the token\'s logs names the Transfer topic and the zero address as sender');
   const kept = keep.logs.tacmint.items;
-  assert.equal(kept.length, 4, 'the three user mints and the fee mint are kept');
+  assert.equal(kept.length, 6, 'every mint is kept (the three user mints, the fee mint and the two treasury mints); the count is taken from them');
   assert.ok(kept.every((l) => l.t[0] === TOPIC.transfer && l.t[1] === ZERO32), 'and the ordinary transfer is not among them');
   assert.equal(r.tac.tacOut.n, 3);
 });
