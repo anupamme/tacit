@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Nw9qTZJ6VUiM2tT5+YoJVtlY0Psx0PMzWsdhRIW5uAk=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-uxoMT4wuB1KdFMCryxCumINNXKq5kybJiLd8Cz9clIQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=b0bddd8d"></script>
 <title>tacit</title>
@@ -235,56 +235,81 @@ a.di { color: inherit; text-decoration: none; }
   border-top: 1px solid var(--hair); }
 .proof { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 26px; font-size: 12px; color: var(--mute); }
 .trust { font-size: 12px; font-weight: 500; color: var(--ink); }
-/* ── the hero's action: swap or send privately, drawn like the route map at the foot of the page: no box, a hairline above,
-   big amounts, the coins themselves as the pickers, and a line between them in their colours that a glint runs along when
-   the button is under the pointer. ── */
-.hx { margin-top: 30px; padding-top: 14px; border-top: 1px solid var(--hair-2); }
-.hx-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; margin-bottom: 14px; }
-.hx-h button { padding: 2px 0; background: none; border: 0; cursor: pointer; font: 400 23px/1.1 var(--serif); letter-spacing: -.01em; color: var(--mute); }
+/* ── the hero's control panel: a swap card beside the intro, as anyone who has swapped knows one. Its tabs name what ETH
+   does here; two fields hold what goes in and what comes out, each with its coin as the picker; where there is more than
+   one way, the ways sit above the button with what each pays. ── */
+.hero-go { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 420px); align-items: start; gap: 24px 40px; }
+.hero-l .start .cta { margin-top: 22px; }
+/* Beside the card, the protocol's totals stand in a column under the intro, each figure large. */
+.hero-l .proof-row { display: grid; justify-content: start; gap: 14px; margin-top: 26px; padding-top: 20px; }
+.hero-l .proof { display: grid; gap: 12px; }
+.hero-l .proof [data-nums] { display: flex; align-items: baseline; gap: 8px; }
+.hero-l .proof [data-nums][hidden] { display: none; }
+.hero-l .proof b { font: 600 26px/1 var(--mono); }
+.hero-l .proof b small { margin: 0 0 0 6px; font-size: 13px; }
+.hero-l .proof .go { font-size: 12px; }
+/* With the card beside it, the sign-in is a plain line: the card's own button signs in where it must. */
+.hero-l .start .btn { flex: none; min-width: 0; min-height: 0; padding: 4px 0; color: var(--ink); background: none; border: 0; text-decoration: underline; text-underline-offset: 4px; }
+.hero-l .start .btn::after { content: ' →'; }
+@media (hover: hover) { .hero-l .start .btn:hover { background: none; text-decoration-thickness: 2px; } }
+.hx { padding: 14px 14px 12px; background: var(--card); border: 1px solid var(--hair); }
+.hx-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin: 0 2px 12px; }
+.hx-h button { padding: 2px 0; background: none; border: 0; cursor: pointer; font: 400 20px/1.1 var(--serif); letter-spacing: -.01em; color: var(--mute); }
 .hx-h button[aria-selected="true"] { color: var(--ink); text-decoration: underline; text-underline-offset: 6px; text-decoration-thickness: 1px; }
 @media (hover: hover) { .hx-h button:hover { color: var(--ink); } }
-.hx-note { margin-left: auto; font-size: 12px; color: var(--mute); }
-.hx-row { display: grid; grid-template-columns: auto minmax(60px, 1fr) auto auto; align-items: end; gap: 12px 22px; }
-.hx-side { display: grid; gap: 6px; min-width: 0; }
-.hx-lbl { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--mute); }
-.hx-v { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.hx-amt { width: 7ch; min-width: 0; padding: 2px 0 4px; font: 600 30px/1.1 var(--mono); letter-spacing: -.02em; color: var(--ink); background: none; border: 0;
-  border-bottom: 1px solid var(--hair-2); border-radius: 0; outline: none; }
-.hx-amt:focus { border-bottom-color: var(--ink); }
+.hx-f { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 12px; min-height: 86px; padding: 12px 14px; background: var(--paper); border: 1px solid transparent; transition: border-color .18s; }
+.hx-f:focus-within { border-color: var(--hair-2); }
+.hx-lbl { grid-column: 1 / -1; font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--mute); }
+.hx-amt { width: 100%; min-width: 0; padding: 0; font: 600 28px/1.2 var(--mono); letter-spacing: -.02em; color: var(--ink); background: none; border: 0; border-radius: 0; outline: none; }
 .hx-amt::placeholder { color: var(--mute); opacity: .6; }
-.hx-big { font: 600 30px/1.1 var(--mono); letter-spacing: -.02em; color: var(--ink); white-space: nowrap; }
+.hx-m { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.hx-big { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 600 28px/1.2 var(--mono); letter-spacing: -.02em; color: var(--ink); white-space: nowrap; }
 .hx-big.ph { color: var(--mute); opacity: .6; }
-.hx-coin { position: relative; display: inline-flex; align-items: center; gap: 7px; font: 600 15px var(--mono); color: var(--ink); cursor: pointer; white-space: nowrap; }
-.hx-coin .tk { width: 30px; height: 30px; transition: transform .4s var(--spring); }
-.hx-coin .car { font-size: 11px; color: var(--mute); }
-.hx-coin select { position: absolute; inset: -6px; width: calc(100% + 12px); opacity: 0; font-size: 16px; cursor: pointer; }
-@media (hover: hover) { .hx-coin:hover .tk { transform: translateY(-2px) rotate(-6deg); } .hx-coin:hover b { text-decoration: underline; text-underline-offset: 3px; } }
-.hx-coin:has(select:focus-visible) { outline: 2px solid var(--ink); outline-offset: 3px; }
-/* The way between the two: a line from one asset's colour to the other's, the direction button riding on it. */
-.hx-line { position: relative; display: flex; align-items: center; justify-content: center; height: 34px; margin-bottom: 4px; min-width: 60px; }
-.hx-line::before { content: ''; position: absolute; left: 0; right: 6px; top: 50%; height: 2px; margin-top: -1px; border-radius: 1px;
-  background: linear-gradient(90deg, transparent, var(--ink), transparent) -60% 0 / 34% 100% no-repeat, linear-gradient(90deg, var(--a), var(--b)); }
-.hx-line::after { content: ''; position: absolute; right: 0; top: 50%; margin-top: -4px; border: 4px solid transparent; border-right: 0; border-left: 7px solid var(--b); }
-.hx .hx-line .flip { position: relative; z-index: 1; width: 30px; height: 30px; margin: 0; }
-@media (hover: hover) { .hx:has(#hx-go:hover) .hx-line::before { animation: flow 1.1s linear infinite; } }
-.hx .btn { width: auto; min-height: 46px; margin: 0 0 2px; padding: 0 20px; white-space: nowrap; }
-.hx-to { width: 100%; min-width: 0; padding: 6px 0 6px; font: 500 15px var(--mono); color: var(--ink); background: none; border: 0; border-bottom: 1px solid var(--hair-2); border-radius: 0; outline: none; }
-.hx-to:focus { border-bottom-color: var(--ink); }
+.hx-unit { font: 500 12px var(--mono); color: var(--mute); white-space: nowrap; }
+.hx-word { font: 400 24px/1.2 var(--serif); letter-spacing: -.01em; color: var(--ink); }
+/* A coin and its ticker as a pill in the coin's colour, with the asset picker laid over it. */
+.hx-coin { position: relative; display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px 4px 4px; background: var(--card); border: 1px solid color-mix(in srgb, var(--c, var(--ink)) 45%, transparent);
+  border-radius: 999px; font: 600 14px var(--mono); color: var(--ink); white-space: nowrap; cursor: pointer; transition: border-color .18s; }
+.hx-coin .tk { width: 26px; height: 26px; transition: transform .4s var(--spring); }
+.hx-coin .car { font-size: 10px; color: var(--mute); }
+.hx-coin select { position: absolute; inset: 0; width: 100%; opacity: 0; font-size: 16px; cursor: pointer; }
+.hx-coin.one { padding-right: 12px; cursor: default; }
+@media (hover: hover) { .hx-coin:not(.one):hover { border-color: var(--c, var(--ink)); } .hx-coin:not(.one):hover .tk { transform: rotate(-8deg); } }
+.hx-coin:has(select:focus-visible) { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* Between the two fields: the flip, or an arrow where the pair runs one way only. */
+.hx-mid { position: relative; z-index: 1; height: 6px; }
+.hx .hx-mid .flip, .hx-mid .arr { position: absolute; left: 50%; top: 50%; width: 34px; height: 34px; margin: -17px 0 0 -17px; }
+.hx-mid .arr { display: grid; place-items: center; background: var(--card); border: 1px solid var(--hair); border-radius: 50%; color: var(--mute); }
+.hx-mid .arr svg { width: 14px; height: 14px; }
+.hx .hx-mid .flip { background: var(--card); }
+.hx-to { grid-column: 1 / -1; width: 100%; min-width: 0; padding: 2px 0; font: 500 15px var(--mono); color: var(--ink); background: none; border: 0; border-radius: 0; outline: none; }
+.hx-to::placeholder { color: var(--mute); opacity: .7; }
+.hx-say { grid-column: 1 / -1; font-size: 13px; line-height: 1.5; color: var(--mute); }
+.hx .btn { width: 100%; min-height: 50px; margin: 12px 0 0; }
 .hero .hx-q { max-width: none; }
-.hx-q { min-height: 18px; margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--mute); }
-.hx ~ .start .cta { margin-top: 20px; }
-/* With the action above it, the sign-in is a plain line: the action's own button signs in where it must. */
-.hx ~ .start .btn { min-width: 0; min-height: 0; padding: 4px 0; color: var(--ink); background: none; border: 0; text-decoration: underline; text-underline-offset: 4px; }
-.hx ~ .start .btn::after { content: ' →'; }
-@media (hover: hover) { .hx ~ .start .btn:hover { background: none; text-decoration-thickness: 2px; } }
-@media (max-width: 640px) {
-  .hx-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
-  .hx-line { justify-content: flex-start; height: 52px; margin: 6px 0; padding-left: 14px; }
-  .hx-line::before, .hx-line::after { left: 28px !important; }
-  .hx-line::before { left: 50%; right: auto; top: 0; bottom: 6px; width: 2px; height: auto; margin: 0 0 0 -1px; background: linear-gradient(180deg, var(--a), var(--b)); }
-  .hx-line::after { right: auto; left: 50%; top: auto; bottom: 0; margin: 0 0 0 -4px; border: 4px solid transparent; border-bottom: 0; border-top: 7px solid var(--b); }
-  .hx .btn { width: 100%; margin-top: 12px; }
-  .hx-note { margin-left: 0; flex-basis: 100%; }
+.hx-q { min-height: 18px; margin: 10px 2px 0; font-size: 12px; line-height: 1.5; color: var(--mute); }
+/* Where a pair has more than one way, each way with what it pays: one is picked, the best is marked. */
+.hx-routes { display: grid; margin-top: 10px; }
+.hx-routes[hidden] { display: none; }
+.hx-routes button { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; grid-template-areas: 'dot name out' '. note tag'; align-items: center; gap: 2px 10px; width: 100%; padding: 8px 2px;
+  background: none; border: 0; border-top: 1px solid var(--hair); text-align: left; font: 500 13px var(--mono); color: var(--mute); cursor: pointer; }
+.hx-routes button:first-child { border-top: 0; }
+.hx-routes button::before { content: ''; grid-area: dot; width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px currentColor; }
+.hx-routes button[aria-checked="true"] { color: var(--ink); }
+.hx-routes button[aria-checked="true"]::before { background: radial-gradient(circle, currentColor 0 2.5px, transparent 3px); }
+.hx-routes b { grid-area: name; font-weight: 600; white-space: nowrap; }
+.hx-routes output { grid-area: out; font-weight: 600; text-align: right; white-space: nowrap; }
+.hx-routes span { grid-area: note; font-size: 12px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hx-routes em { grid-area: tag; font: 600 10px var(--mono); font-style: normal; text-transform: uppercase; letter-spacing: .06em; color: #16a34a; text-align: right; }
+@media (hover: hover) { .hx-routes button:hover { color: var(--ink); } }
+.hx-routes button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* One column under 760px: the intro, the card, then the sign-in line. */
+@media (max-width: 760px) {
+  .hero-go { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .hero-l { display: contents; }
+  .hx { order: 1; margin-top: 26px; }
+  .hero-l .start { order: 2; }
+  .hero-l .proof-row { order: 3; }
 }
 /* Tacit Pay, a step from the button: the quickest way in for someone who only wants to pay or be paid. */
 .paytile { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 6px 16px; margin-top: 22px; padding: 12px 16px;
@@ -937,26 +962,30 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   <section class="hero" aria-labelledby="hero-h">
     <a class="news" id="air-news" href="#airdrop" data-link="airdrop"><span class="dot" data-dot="tac"></span><b>TAC airdrop</b><span data-foot="tac">Is your wallet in it?</span><span class="go"><span class="w">Check yours </span>→</span></a>
     <h1 id="hero-h">Private DeFi on<br><em>Bitcoin</em> and Ethereum.</h1>
+    <div class="hero-go">
+    <div class="hero-l">
     <p>Tacit issues assets on Bitcoin and carries them into a confidential pool on Ethereum by zero-knowledge proof, and back. Amounts and owners stay hidden. Every balance recovers from one key.</p>
-    <section class="hx" id="hx" aria-label="Swap or send privately"><div id="hx-body"></div></section>
+    <div class="proof-row">
+      <a class="proof" href="/weld/stats/" title="All stats">
+        <span data-nums><b class="num"><span data-num="in"><span class="sk" style="--w:5ch"></span></span><small>ETH</small></b>made private</span>
+        <span data-nums><b class="num"><span data-num="tx"><span class="sk" style="--w:4ch"></span></span></b> private transactions</span>
+        <span data-nums><b class="num"><span data-num="pts"><span class="sk" style="--w:3ch"></span></span></b> earning points</span>
+        <span class="go">All stats <span aria-hidden="true">→</span></span>
+      </a>
+      <span class="trust">No custodian or multisig</span>
+    </div>
     <div class="start" id="start" hidden>
       <div class="cta"><button class="btn" type="button" id="start-go">Get started</button>
       <p class="hint"><span data-step="1">Sign in with an Ethereum or Bitcoin wallet, or Face ID or Touch ID. It sends nothing and costs no gas.</span><span data-step="2">Next, one transaction moves your ETH into the Tacit pool as tETH.</span> <button class="link" type="button" id="start-x" hidden>Hide</button></p></div>
+    </div>
+    </div>
+    <section class="hx" id="hx" aria-label="Private, swap, earn, Bitcoin or send"><div id="hx-body"></div></section>
     </div>
     <a class="paytile" href="/pay/">
       <span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span>
       <span class="pt-t"><b>Tacit Pay</b><span>Get paid in BTC, TAC or ETH at one private address. No gas, nothing to install.</span></span>
       <span class="pt-go">Get your address <span class="go" aria-hidden="true">→</span></span>
     </a>
-    <div class="proof-row">
-      <a class="proof" href="/weld/stats/" title="All stats">
-        <span data-nums><b class="num"><span data-num="in"><span class="sk" style="--w:5ch"></span></span><small>ETH</small></b>made private</span>
-        <span data-nums><b class="num"><span data-num="tx"><span class="sk" style="--w:4ch"></span></span></b> private transactions</span>
-        <span data-nums><b class="num"><span data-num="pts"><span class="sk" style="--w:3ch"></span></span></b> earning points</span>
-        <span class="go" aria-hidden="true">→</span>
-      </a>
-      <span class="trust">No custodian or multisig</span>
-    </div>
     <div class="tape" id="tape" role="region" aria-label="Recent activity on Tacit" hidden>
       <span class="tape-l"><span class="dot live" aria-hidden="true"></span>Live</span>
       <div class="tape-v"><ul class="tape-run" id="tape-run"></ul></div>
@@ -3210,7 +3239,9 @@ function paintBack(sheet) {
   if (!head) return;
   const line = document.createElement('p');
   line.className = 'farm-back';
-  line.innerHTML = html`<a href="#farm/private-${Number(b.pid)}">← Back to the ${b.label} farm</a>`.s;
+  // The hero's route names its second step; a farm's checklist, the way back to it.
+  line.innerHTML = (b.link ? html`<a href="#${b.link}" data-link="${b.link}">Then ${b.label} →</a>` : html`<a href="#farm/private-${Number(b.pid)}">← Back to the ${b.label} farm</a>`).s;
+  if (b.link) line.firstChild.addEventListener('click', () => { FARM.back = null; b.then?.(); });
   head.after(line);
 }
 function openSheet(name) {
@@ -3689,6 +3720,7 @@ function v1Wrap(el, status) {
       if (!over && floor && wei < 3n * floor) rc.insertAdjacentHTML('beforeend', html`<p class="note">Sending or unwrapping a note this small later costs about ${fmt(floor, 18, 6)} ETH in relay fees.</p>`.s);
     } catch (e) { if (my === seq) quoteErr(rc, e); }
   });
+  takeDraft('wrap', input);
   go.onclick = () => busy(go, async (run) => {
     const x = q, via = payer();                                   // the quote and payer shown when pressed, whatever changes after
     if (!x) return;
@@ -4473,6 +4505,7 @@ function v1Btc(el, status) {
     } catch (x) { if (my === seq && rc.isConnected) quoteErr(rc, xoFail(x)); }
   };
   onEdit([amt], go, check);
+  takeDraft('xo', amt);
   go.onclick = () => busy(go, async (run) => {
     const x = q;
     if (!x?.ok) return;
@@ -6241,6 +6274,7 @@ function renderBuy(el) {
       gateOk();
     } catch (e) { if (my === seq) quoteErr(rc, e); }
   });
+  takeDraft('buy', input);
   go.onclick = () => busy(go, async (run) => {
     const x = q;
     if (!x || !lossOk(ackBox, x.impact)) return;
@@ -7366,6 +7400,7 @@ function renderPrecision(el) {
   $('#pf-max')?.addEventListener('click', () => { if (x.bal == null) return say(status, html`<span class="err">Your ETH balance could not be read. Try again in a moment.</span>`); mode === 'pair' ? x.tac > 0n && pairMax() : fill(ethIn, cutTo(spendable, ETH_DP)); });
   $('#pf-tmax')?.addEventListener('click', () => (mode === 'pair' ? x.tac > 0n && pairMax() : fill(tacIn, cutTo(x.tac, TAC_DP))));
   if (FARM.fill === 'tac' && tacIn) { FARM.fill = null; $('#pf-tmax').click(); }
+  takeDraft('farm', ethIn);
   if (FARM.reinvest && tacIn) {
     const v = FARM.reinvest; FARM.reinvest = null;
     fill(tacIn, cutTo(v < x.tac ? v : x.tac, TAC_DP));
@@ -7732,6 +7767,7 @@ function farmJoin(el, p, status, has) {
     } catch (e2) { if (my === seq) quoteErr(rc, e2); }
   };
   onEdit([aIn, bIn].filter(Boolean), go, requote);
+  takeDraft('join', aIn, (d) => d.pid === pid && mode === 'a');
   // Max. One side: the whole balance, the fees coming out of it. Both: the fullest add both balances cover, unless an add
   // that spends a note whole (so that side needs no cut) is worth more after the cuts' fees.
   $(`#sj-max-${pid}`).onclick = async () => {
@@ -8713,7 +8749,7 @@ const dashId = () => (S.key || S.wallet ? `tacit-lite-dash-v1:${S.key?.pubHex ||
 const lastSeen = (key) => { const id = dashId(); return id ? big(store.get(id)?.v?.[key]?.v) : null; };
 const sharePct = (f) => (f * 100 < 0.1 ? 'under 0.1%' : pctFmt(f * 100));
 let dashQ = 0, dashSaveT = 0;
-function dashSoon() { if (!dashQ) dashQ = requestAnimationFrame(() => { dashQ = 0; paintDash(); }); }
+function dashSoon() { if (!dashQ) dashQ = requestAnimationFrame(() => { dashQ = 0; paintDash(); hxSync(); }); }
 function dashItems() {
   const k = S.key?.pubHex, s = k ? P.scan : null, scanErr = !!(k && !s && P.err), out = [];
   if (k) {
@@ -8932,64 +8968,200 @@ function paintTape(d, rec) {
 }
 const refreshTape = () => Promise.all([readStats().catch(() => null), readRecent()]).then(([d, rec]) => paintTape(d, rec)).catch(() => {});
 
-// ── the hero's action card: swap or send privately ──────────────────────────────────────────────────────────────
-// It quotes as the swap form does, from the pool alone, so it answers before any sign-in. Its button hands the pair, the amount
-// and any recipient to the Private ETH sheet's own form (HX.draft, taken once that form is drawn), which signs in first where it
-// must. Bitcoin and TAC are sent from Tacit Pay.
-const HX = { mode: 'swap', from: 'eth', to: 'tac', send: 'eth', amt: '', rcpt: '', draft: null, seq: 0 };
+// ── the hero's control panel: what ETH does here ──────────────────────────────────────────────────────────────
+// Five verbs, each quoted from the chain and the relay alone, so it answers before any sign-in. Its button hands the amount
+// to the form that does the work (HX.draft, taken once by that form: takeDraft), which signs in first where it must. A
+// route from ETH into the private pool makes the ETH private first, unless the private tETH already held covers it; the
+// sheet that does that first step offers the second at its top (FARM.back, as a farm's checklist uses it).
+const HX = { mode: 'private', from: 'ether', to: 'tac', route: null, pool: 'precision', dir: 'in', send: 'eth', amt: '', rcpt: '', draft: null, seq: 0, q: null };
+const HX_TABS = [['private', 'Private'], ['swap', 'Swap'], ['earn', 'Earn'], ['btc', 'Bitcoin'], ['send', 'Send']];
 const HX_SEND = [['eth', 'tETH', 'teth'], ['tac', 'TAC', 'tac'], ['btc', 'BTC', 'btc']];
-const hxChip = ([k, u, ic]) => [k, html`<svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg>${u}`];
-const hxQuoteSoon = debounce(() => hxQuote(), 400);
-async function hxQuote() {
-  const my = ++HX.seq, out = $('#hx-out'), line = $('#hx-q'), units = parseUnits(HX.amt, 8);
-  if (!out) return;
-  const set = (v, ph) => { out.textContent = v; out.classList.toggle('ph', !!ph); };
-  const [, unit] = swapAsset(HX.from), [, unitTo, , dpTo] = swapAsset(HX.to);
-  if (!units) { set('0.00', true); line.textContent = 'What you hold stays private, and nothing says whose swap it is.'; return; }
-  set('…', true);
-  try {
-    const t = await getUx();
-    const id = (k) => (k === 'cbtc' ? String(t.pool.CBTC_ZK_ASSET_ID) : String(t.assetByTicker[POOL_TK[k]]?.assetId || '')).toLowerCase();
-    const fee = await swapFee(t, HX.from, HX.to).catch(() => 0n);
-    const plan = units > fee * 2n ? await swapPlan(t, HX.from, HX.to, units, fee, id) : null;
-    if (my !== HX.seq || !out.isConnected) return;
-    if (!plan) { set('—', true); line.textContent = units > fee * 2n ? 'There is no pool for this pair yet.' : `Swap more than ${fmt(fee * 2n, 8, 6)} ${unit}: the relay fee is ${fmt(fee, 8, 6)}.`; return; }
-    set(fmt(plan.amountOut, 8, dpTo));
-    line.textContent = `1 ${unit} ≈ ${sig(Number(plan.amountOut) / Number(units - fee))} ${unitTo} · relay fee ${fmt(fee, 8, 6)} ${unit}${plan.impact >= 1 ? ` · moves the price ${plan.impact.toFixed(1)}%` : ''}`;
-  } catch { if (my === HX.seq) { set('—', true); line.textContent = 'The pool could not be read just now.'; } }
+const HX_ETHER = ['ether', 'ETH', 'eth', 6];
+const HX_COLOR = { ether: '#627eea', eth: '#627eea', tac: '#f7931a', cusd: '#16a34a', cbtc: '#f7931a', btc: '#f7931a' };
+const hxAsset = (k) => (k === 'ether' ? HX_ETHER : swapAsset(k));
+const hxUnits = () => parseUnits(HX.amt, 8);                 // the pool moves 8 decimals, so every amount here does
+// From ETH: one step when the private tETH held covers the amount, else the ETH is made private first.
+const hxHeld = () => (S.key && P.scan ? spendable('eth') : null);
+const hxTwo = (units) => HX.from === 'ether' && !(units && hxHeld() >= units);
+// The hero's amount, taken once by the form it was made for, as if typed there.
+function takeDraft(mode, input, ok = () => true) {
+  const d = HX.draft;
+  if (d?.mode !== mode || !input || !ok(d)) return;
+  HX.draft = null; input.value = d.amt || '';
+  if (input.value) input.dispatchEvent(new Event('input'));
 }
-const HX_COLOR = { eth: '#627eea', tac: '#f7931a', cusd: '#16a34a', cbtc: '#f7931a', btc: '#f7931a' };
+async function hxWrapTip(units) {
+  const r = await fetch(`${API}/confidential/quote?asset=cETH&amountWei=${units * E10}`, { signal: within(20e3) });
+  if (!r.ok) throw new Error(`quote ${r.status}`);
+  return BigInt((await r.json()).recommendedWrapTipWei || 0);
+}
+async function hxPoolSwap(from, to, units) {
+  const t = await getUx();
+  const id = (k) => (k === 'cbtc' ? String(t.pool.CBTC_ZK_ASSET_ID) : String(t.assetByTicker[POOL_TK[k]]?.assetId || '')).toLowerCase();
+  const fee = await swapFee(t, from, to).catch(() => 0n);
+  return { fee, plan: units > fee * 2n ? await swapPlan(t, from, to, units, fee, id) : null };
+}
+// What each farm pays a deposit of `eth` ETH a day now, in TAC, beside its APR: the Precision pool from ETH alone, the
+// private pools from tETH alone.
+async function hxFarms(eth) {
+  await Promise.all([FARM.precision || loadPrecision(), HX.program ||= loadProgram().catch(() => FARM.program)]);
+  const out = [], x = FARM.precision;
+  if (HX.from === 'ether' && x?.supply) {
+    const staked = x.value / 1e18 * Number(x.totalStaked) / Number(x.supply);
+    out.push({ k: 'precision', name: 'Precision pool', note: 'public · earns points', apr: precisionApr(x), day: eth ? Number(x.perDay) / 1e18 * eth / (staked + eth) : 0 });
+  }
+  for (const p of FARM.program?.pools || []) {
+    const r = p.reserves || {};
+    if (p.idle || String(r.assetA).toLowerCase() !== CETH_ID || !Number(r.lpTotalShares)) continue;
+    const staked = 2 * Number(r.reserveA) / 1e8 * Number(p.totalShares) / Number(r.lpTotalShares);
+    out.push({ k: String(p.pid), name: pairName(p.pair), note: 'private', apr: shieldedApr(p), day: eth ? Number(p.tacPerDayForPool) * eth / (staked + eth) : 0 });
+  }
+  return out;
+}
+const hxQuoteSoon = debounce(() => hxQuote(), 400);
+// The quote for what is on the panel: the amount out, the routes to choose between, the line under the button and the
+// button's words. Drawn by paintHxQ without touching the field being typed in.
+async function hxQuote() {
+  const my = ++HX.seq, units = hxUnits(), m = HX.mode;
+  const done = (q) => { if (my === HX.seq) { HX.q = q; paintHxQ(); } };
+  HX.held = hxHeld();
+  if (m === 'send') return;
+  if (m === 'btc' && HX.dir === 'in') return done({ out: 'Private', line: 'Your TAC notes on Bitcoin become private TAC on Ethereum. No relay fee, only a Bitcoin fee in sats; usually a few hours.', go: 'Bridge TAC from Bitcoin' });
+  HX.q = { ...(HX.q || {}), busy: true }; paintHxQ();
+  try {
+    if (m === 'private' || (m === 'swap' && HX.from === 'ether' && HX.to === 'eth')) {
+      const tip = units ? await hxWrapTip(units) : null;
+      return done({ out: units ? fmt(units, 8, 6) : null, go: 'Make ETH private',
+        line: units ? `1 for 1, with a relay tip of ${fmt(tip, 18, 6)} ETH on top. Then send, swap, farm${xoOn() ? ' or bridge it' : ''} from one key.` : 'ETH in, tETH out, 1 for 1: a private note that sends, swaps and farms, and recovers from your key.' });
+    }
+    if (m === 'swap') {
+      const from = HX.from === 'ether' ? 'eth' : HX.from, two = hxTwo(units), [, unitTo, , dpTo] = hxAsset(HX.to), [, unit] = hxAsset(HX.from);
+      if (!units) return done({ out: null, go: 'Swap privately', line: HX.from === 'ether' && HX.to === 'tac' ? 'The best price between the public Precision pool and the private Tacit pool.' : 'What you hold stays private, and nothing says whose swap it is.' });
+      const [pub, priv] = await Promise.all([
+        HX.from === 'ether' && HX.to === 'tac' ? venues.quoteAll({ dir: 'ETH_TO_TAC', amountIn: units * E10, account: S.address || undefined, includeZQuoter: false }).catch(() => null) : null,
+        hxPoolSwap(from, HX.to, units).catch(() => null),
+      ]);
+      const rows = [];
+      if (pub?.best) rows.push({ k: 'public', name: pub.best.venue === 'precision' ? 'Precision pool' : 'Tacit public pool', note: pub.best.venue === 'precision' ? 'to your wallet · earns points' : 'to your wallet', v: pub.best.amountOut, show: `${fmt(pub.best.amountOut, 18, dpTo)} ${unitTo}` });
+      if (priv?.plan) rows.push({ k: 'private', name: 'Tacit pool', note: two ? 'private · 2 steps' : 'private', v: priv.plan.amountOut * E10, show: `${fmt(priv.plan.amountOut, 8, dpTo)} ${unitTo}` });
+      if (!rows.length) return done({ out: '—', go: 'Swap privately', line: priv && !priv.plan && units <= priv.fee * 2n ? `Swap more than ${fmt(priv.fee * 2n, 8, 6)} ${unit}: the relay fee is ${fmt(priv.fee, 8, 6)}.` : 'There is no pool for this pair yet.' });
+      const best = rows.reduce((a, b) => (b.v > a.v ? b : a));
+      const pick = rows.find((r) => r.k === HX.route) || best;
+      best.best = rows.length > 1;
+      const publicPick = pick.k === 'public';
+      return done({ out: fmt(pick.v, 18, dpTo), rows: rows.length > 1 ? rows : null, pick: pick.k,
+        go: publicPick ? `Buy ${unitTo}` : two ? 'Make ETH private' : 'Swap privately',
+        line: publicPick ? `1 ETH ≈ ${sig(Number(pick.v) / Number(units * E10))} ${unitTo}, sent to your wallet in one transaction.`
+          : `${two ? 'Two steps: make the ETH private, then swap it. ' : ''}1 ${unit} ≈ ${sig(Number(priv.plan.amountOut) / Number(units - priv.fee))} ${unitTo} · relay fee ${fmt(priv.fee, 8, 6)} tETH${priv.plan.impact >= 1 ? ` · moves the price ${priv.plan.impact.toFixed(1)}%` : ''}` });
+    }
+    if (m === 'earn') {
+      const rows = await hxFarms(units ? Number(units) / 1e8 : 0);
+      if (my !== HX.seq) return;
+      if (!rows.length) return done({ out: '—', go: 'Farm', line: 'The farms could not be read just now.' });
+      const pick = rows.find((r) => r.k === HX.pool) || rows[0], two = pick.k !== 'precision' && hxTwo(units);
+      HX.pool = pick.k;
+      for (const r of rows) { r.show = r.apr == null ? '—' : `${pctFmt(r.apr)} APR`; if (r.k !== 'precision' && hxTwo(units)) r.note = 'private · 2 steps'; }
+      return done({ out: units ? sig(pick.day) : null, rows, pick: pick.k, unit: 'TAC a day',
+        go: pick.k === 'precision' ? 'Farm with ETH' : two ? 'Make ETH private' : 'Farm privately',
+        line: pick.k === 'precision' ? 'From ETH alone: about half is swapped to TAC in the pool, then both farm. Claim TAC any time.'
+          : `${two ? 'Two steps: make the ETH private, then farm it. ' : ''}From tETH alone: about half is swapped inside the pool. Nobody sees whose deposit it is.` });
+    }
+    if (m === 'btc') {
+      const two = hxTwo(units), [t, ux] = await Promise.all([getUx(), xoUx().catch(() => null)]);
+      const lim = ux?.assetOf(CETH_ID), fee = BigInt(await t.quoteOpFee('cETH', 'bridgeburn'));
+      const cap = lim ? `up to ${fmt(lim.capRaw, 8, 6)} tETH a bridge while this is new` : 'a small amount while this is new';
+      return done({ out: units ? (units > fee ? fmt(units - fee, 8, 6) : '0') : null, go: two ? 'Make ETH private' : 'Send to Bitcoin',
+        line: `${two ? 'Two steps: make the ETH private, then bridge it. ' : ''}Relay fee ${fmt(fee, 8, 6)} tETH, plus a Bitcoin fee in sats from your Bitcoin address; ${cap}. Usually a few hours.` });
+    }
+  } catch { done({ out: '—', go: HX.q?.go || 'Continue', line: 'The pool could not be read just now.' }); }
+}
+// The parts of the panel a quote changes.
+function paintHxQ() {
+  const q = HX.q || {}, out = $('#hx-out');
+  if (!out) return;
+  out.textContent = q.busy ? '…' : q.out ?? '0.00';
+  out.classList.toggle('ph', !!q.busy || q.out == null || q.out === '—');
+  const rows = $('#hx-routes');
+  if (rows && !q.busy) {
+    rows.hidden = !q.rows;
+    mount(rows, html`${(q.rows || []).map((r) => html`<button type="button" role="radio" aria-checked="${r.k === q.pick}" data-hxr="${r.k}"><b>${r.name}</b><span>${r.note}</span><output>${r.show}</output>${r.best ? html`<em>best</em>` : ''}</button>`)}`);
+    for (const b of $$('[data-hxr]', rows)) b.onclick = () => { if (HX.mode === 'earn') HX.pool = b.dataset.hxr; else HX.route = b.dataset.hxr; hxQuote(); };
+  }
+  if (!q.busy) { const line = $('#hx-q'); if (line) line.textContent = q.line || ''; const go = $('#hx-go'); if (go && q.go) go.textContent = q.go; }
+}
+function hxGo() {
+  const units = hxUnits(), amt = HX.amt;
+  const wrapFirst = (link, label, then) => { FARM.back = link ? { link, label, at: Date.now(), then } : null; HX.draft = { mode: 'wrap', amt }; openLink('private'); };
+  if (HX.mode === 'private' || (HX.mode === 'swap' && HX.from === 'ether' && HX.to === 'eth')) return wrapFirst();
+  if (HX.mode === 'swap') {
+    if (HX.from === 'ether' && HX.q?.pick === 'public') { HX.draft = { mode: 'buy', amt }; return openLink('buy'); }
+    const swap = () => { SW.from = HX.from === 'ether' ? 'eth' : HX.from; SW.to = HX.to; HX.draft = { mode: 'swap', amt }; };
+    if (hxTwo(units)) return wrapFirst('private/swap', `swap it for ${hxAsset(HX.to)[1]}`, swap);
+    swap(); return openLink('private/swap');
+  }
+  if (HX.mode === 'earn') {
+    if (HX.pool === 'precision') { HX.draft = { mode: 'farm', amt }; return openLink('farm/public'); }
+    const pid = Number(HX.pool), p = FARM.program?.pools?.find((x) => x.pid === pid);
+    const join = () => { (FARM.jm ||= {})[pid] = 'a'; HX.draft = { mode: 'join', pid, amt }; };
+    if (hxTwo(units)) return wrapFirst(`farm/private-${pid}`, `farm it in ${p ? pairName(p.pair) : 'the pool'}`, join);
+    join(); return openLink(`farm/private-${pid}`);
+  }
+  if (HX.mode === 'btc') {
+    if (HX.dir === 'in') return openLink('bridge');
+    const xo = () => { HX.draft = { mode: 'xo', amt }; };
+    if (hxTwo(units)) return wrapFirst('private/bitcoin', 'send it to Bitcoin', xo);
+    xo(); return openLink('private/bitcoin');
+  }
+}
 function paintHx() {
   const el = $('#hx-body');
   if (!el) return;
-  if (HX.to === HX.from) HX.to = HX.from === 'eth' ? 'tac' : 'eth';
-  const tab = (k, label) => html`<button type="button" role="tab" data-hxm="${k}" aria-selected="${HX.mode === k}">${label}</button>`;
-  // A coin and its ticker, with the asset picker laid over them: pressing the coin chooses the asset.
-  const coin = (id, label, list, cur) => { const [, u, ic] = list.find(([k]) => k === cur); return html`<label class="hx-coin"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><b>${u}</b><span class="car" aria-hidden="true">▾</span><select id="${id}" aria-label="${label}">${list.map(([k, n]) => html`<option value="${k}"${k === cur ? ' selected' : ''}>${n}</option>`)}</select></label>`; };
-  const line = (a, b, inner = '') => html`<span class="hx-line" style="--a: ${HX_COLOR[a]}; --b: ${HX_COLOR[b] || 'var(--ink)'}">${inner}</span>`;
-  const head = html`<div class="hx-h" role="tablist" aria-label="Swap or send">${tab('swap', 'Swap')}${tab('send', 'Send')}</div>`;
-  if (HX.mode === 'swap') {
-    const [, unit] = swapAsset(HX.from), [, unitTo] = swapAsset(HX.to);
-    mount(el, html`${head}<div class="hx-row">
-      <div class="hx-side"><span class="hx-lbl">You pay</span><span class="hx-v"><input class="hx-amt" id="hx-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${unit} to swap" value="${HX.amt}">${coin('hx-from', 'You pay', SWAP_ASSETS, HX.from)}</span></div>
-      ${line(HX.from, HX.to, html`<button type="button" class="flip" id="hx-flip" aria-label="Pay with ${unitTo} instead"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v17m0 0-4-4m4 4 4-4M16 21V4m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`)}
-      <div class="hx-side"><span class="hx-lbl">You get</span><span class="hx-v"><output class="hx-big ph" id="hx-out" for="hx-amt">0.00</output>${coin('hx-to', 'You get', SWAP_ASSETS.filter(([k]) => k !== HX.from), HX.to)}</span></div>
-      <button class="btn" type="button" id="hx-go">Swap privately</button></div>
-      <p class="hx-q" id="hx-q" aria-live="polite"></p>`);
-    $('#hx-from').onchange = (e) => { HX.from = e.target.value; paintHx(); };
-    $('#hx-to').onchange = (e) => { HX.to = e.target.value; paintHx(); };
-    $('#hx-flip').onclick = () => { [HX.from, HX.to] = [HX.to, HX.from]; paintHx(); };
-    $('#hx-amt').oninput = (e) => { HX.amt = e.target.value; hxQuoteSoon(); };
-    $('#hx-go').onclick = () => { SW.from = HX.from; SW.to = HX.to; HX.draft = { mode: 'swap', amt: HX.amt }; openLink('private/swap'); };
-    hxQuote();
+  if (!xoOn()) HX.dir = 'in';
+  if (HX.mode === 'swap' && HX.to === HX.from) HX.to = HX.from === 'tac' ? 'eth' : 'tac';
+  if ((HX.mode === 'btc' || HX.mode === 'earn') && HX.from !== 'ether' && HX.from !== 'eth') HX.from = 'ether';
+  const tab = ([k, label]) => html`<button type="button" role="tab" data-hxm="${k}" aria-selected="${HX.mode === k}">${label}</button>`;
+  // A coin and its ticker, with the asset picker laid over them: pressing the coin chooses the asset. One choice is no picker.
+  const coin = (id, label, list, cur) => {
+    const [k, u, ic] = list.find(([x]) => x === cur) || list[0];
+    return html`<label class="hx-coin${list.length < 2 ? ' one' : ''}" style="--c: ${HX_COLOR[k] || 'var(--ink)'}"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><b>${u}</b>${list.length > 1 ? html`<span class="car" aria-hidden="true">▾</span><select id="${id}" aria-label="${label}">${list.map(([x, n]) => html`<option value="${x}"${x === cur ? ' selected' : ''}>${n}</option>`)}</select>` : ''}</label>`;
+  };
+  const field = (lbl, main, side = '') => html`<div class="hx-f"><span class="hx-lbl">${lbl}</span>${main}${side}</div>`;
+  const mid = (flip) => html`<div class="hx-mid">${flip ? html`<button type="button" class="flip" id="hx-flip" aria-label="${flip}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v17m0 0-4-4m4 4 4-4M16 21V4m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
+    : html`<span class="arr" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4v16m0 0-6-6m6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`}</div>`;
+  const amt = (label) => html`<input class="hx-amt" id="hx-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${label}" value="${HX.amt}">`;
+  const out = (unit = '') => html`<span class="hx-m"><output class="hx-big ph" id="hx-out" for="hx-amt">0.00</output>${unit ? html`<span class="hx-unit">${unit}</span>` : ''}</span>`;
+  const head = html`<div class="hx-h" role="tablist" aria-label="What to do">${HX_TABS.map(tab)}</div>`;
+  const go0 = { private: 'Make ETH private', swap: 'Swap privately', earn: 'Farm with ETH', btc: HX.dir === 'in' ? 'Bridge TAC from Bitcoin' : 'Send to Bitcoin' }[HX.mode];
+  const tail = html`<div class="hx-routes" id="hx-routes" role="radiogroup" aria-label="Route" hidden></div>
+    <button class="btn" type="button" id="hx-go">${go0}</button>
+    <p class="hx-q" id="hx-q" aria-live="polite"></p>`;
+  const ETHER = [HX_ETHER], ETHS = [HX_ETHER, ['eth', 'tETH', 'teth', 6]], TETH = [['eth', 'tETH', 'teth']], TAC = [['tac', 'TAC', 'tac']];
+  const m = HX.mode;
+  if (m === 'private') {
+    HX.from = 'ether';
+    mount(el, html`${head}${field('You pay', amt('ETH to make private'), coin('hx-from', 'You pay', ETHER, 'ether'))}${mid()}${field('You get', out(), coin('hx-to', 'You get', TETH, 'eth'))}${tail}`);
+  } else if (m === 'swap') {
+    const froms = [HX_ETHER, ...SWAP_ASSETS], tos = SWAP_ASSETS.filter(([k]) => k !== HX.from);
+    if (!tos.some(([k]) => k === HX.to)) HX.to = tos[0][0];
+    mount(el, html`${head}${field('You pay', amt(`${hxAsset(HX.from)[1]} to swap`), coin('hx-from', 'You pay', froms, HX.from))}
+      ${mid(HX.from !== 'ether' && `Pay with ${hxAsset(HX.to)[1]} instead`)}
+      ${field('You get', out(), coin('hx-to', 'You get', tos, HX.to))}${tail}`);
+  } else if (m === 'earn') {
+    mount(el, html`${head}${field('You put in', amt(`${hxAsset(HX.from)[1]} to farm`), coin('hx-from', 'You put in', ETHS, HX.from))}${mid()}${field('You earn', out('a day'), coin('hx-to', 'You earn', TAC, 'tac'))}${tail}`);
+  } else if (m === 'btc') {
+    const into = HX.dir === 'in', flip = xoOn() && (into ? 'Send tETH to Bitcoin instead' : 'Bring TAC from Bitcoin instead');
+    mount(el, html`${head}${into ? field('On Bitcoin', html`<span class="hx-word">Your TAC</span>`, coin('hx-from', 'On Bitcoin', [['btc', 'TAC', 'tac']], 'btc'))
+        : field('You send', amt(`${hxAsset(HX.from)[1]} to send to Bitcoin`), coin('hx-from', 'You send', ETHS, HX.from))}
+      ${mid(flip)}
+      ${into ? field('On Ethereum', html`<output class="hx-word" id="hx-out">Private</output>`, coin('hx-to', 'On Ethereum', TAC, 'tac'))
+        : field('On Bitcoin', out(), coin('hx-to', 'On Bitcoin', [['btc', 'tETH', 'teth']], 'btc'))}${tail}`);
   } else {
     const [, unit] = HX_SEND.find(([k]) => k === HX.send), here = HX.send === 'eth';
-    mount(el, html`${head}<div class="hx-row">
-      <div class="hx-side"><span class="hx-lbl">Send</span><span class="hx-v"><input class="hx-amt" id="hx-samt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${unit} to send" value="${here ? HX.amt : ''}"${here ? '' : ' disabled'}>${coin('hx-sa', 'Asset to send', HX_SEND, HX.send)}</span></div>
-      ${line(HX.send, null)}
-      <div class="hx-side"><span class="hx-lbl">To</span>${here ? html`<input class="hx-to" id="hx-to" placeholder="tacit1… or name.wei" autocomplete="off" spellcheck="false" autocapitalize="off" aria-label="Recipient" value="${HX.rcpt}">`
-        : html`<span class="hx-q" style="margin:0">${HX.send === 'btc' ? 'Anyone, as a silent payment' : 'Anyone, through the shielded pool on Bitcoin'}, from Tacit Pay</span>`}</div>
-      <button class="btn" type="button" id="hx-go">${here ? 'Send privately' : html`Send ${unit} in Pay`}</button></div>
+    mount(el, html`${head}${field('Send', html`<input class="hx-amt" id="hx-samt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${unit} to send" value="${here ? HX.amt : ''}"${here ? '' : ' disabled'}>`, coin('hx-sa', 'Asset to send', HX_SEND, HX.send))}
+      ${mid()}
+      ${field('To', here ? html`<input class="hx-to" id="hx-to" placeholder="tacit1… or name.wei" autocomplete="off" spellcheck="false" autocapitalize="off" aria-label="Recipient" value="${HX.rcpt}">`
+        : html`<span class="hx-say">${HX.send === 'btc' ? 'Anyone, as a silent payment' : 'Anyone, through the shielded pool on Bitcoin'}, from Tacit Pay.</span>`)}
+      <button class="btn" type="button" id="hx-go">${here ? 'Send privately' : html`Send ${unit} in Pay`}</button>
       <p class="hx-q">${here ? 'Nobody sees how much or to whom.' : 'Same key, same tacit1 address.'}</p>`);
     $('#hx-sa').onchange = (e) => { HX.send = e.target.value; paintHx(); };
     if (here) { $('#hx-to').oninput = (e) => { HX.rcpt = e.target.value.trim(); }; $('#hx-samt').oninput = (e) => { HX.amt = e.target.value; }; }
@@ -8998,8 +9170,18 @@ function paintHx() {
       HX.draft = { mode: 'send', to: HX.rcpt, amt: HX.amt }; openLink('private/send');
     };
   }
-  for (const b of $$('[data-hxm]', el)) b.onclick = () => { HX.mode = b.dataset.hxm; paintHx(); };
+  for (const b of $$('[data-hxm]', el)) b.onclick = () => { if (HX.mode === b.dataset.hxm) return; HX.mode = b.dataset.hxm; HX.q = null; paintHx(); };
+  if (m === 'send') return;
+  $('#hx-from')?.addEventListener('change', (e) => { HX.from = e.target.value; HX.route = null; paintHx(); });
+  $('#hx-to')?.addEventListener('change', (e) => { HX.to = e.target.value; HX.route = null; paintHx(); });
+  $('#hx-flip')?.addEventListener('click', () => { if (m === 'btc') HX.dir = HX.dir === 'in' ? 'out' : 'in'; else [HX.from, HX.to] = [HX.to, HX.from]; paintHx(); });
+  $('#hx-amt')?.addEventListener('input', (e) => { HX.amt = e.target.value; hxQuoteSoon(); });
+  $('#hx-go').onclick = hxGo;
+  paintHxQ();
+  hxQuote();
 }
+// The private balance read, or read again (a key opened, a wrap landed): a route from ETH may now be one step, or two.
+function hxSync() { if (HX.mode !== 'send' && HX.from === 'ether' && hxHeld() !== HX.held) hxQuoteSoon(); }
 paintHx();
 refreshTape();
 setInterval(() => { if (!document.hidden) for (const e of $$('[data-left]')) e.textContent = potLeft(); }, 1000);

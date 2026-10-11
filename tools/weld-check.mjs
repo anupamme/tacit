@@ -3380,6 +3380,45 @@ await step('farmclaim', async () => {
   } finally { await r.browser.close(); }
 });
 
+// The hero's panel: each verb's button opens the form that does it with the amount in. A route from ETH into the private
+// pool is one step when the tETH held covers it; otherwise the ETH is made private first, and the wrap's sheet offers the
+// second step at its top, which opens with the same amount.
+await step('hxpanel', async () => {
+  const r = await openFarmKey('4a7e'.padEnd(64, '6'), { notes: [[FARM_CETH, 5000000n], [FARM_CETH, 5000000n]], swap: true });
+  const p = r.page;
+  const val = (sel) => p.evaluate((s) => document.querySelector(s)?.value ?? null, sel);
+  const press = async (mode, amt, route, label) => {
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    await p.click(`[data-hxm="${mode}"]`);
+    if (amt != null) await p.fill('#hx-amt', amt);
+    if (route) { await p.waitForSelector(`[data-hxr="${route}"]`, { timeout: 120000 }); await p.click(`[data-hxr="${route}"]`); }
+    // The private balance is read on a cold fork first. A wait that runs out says what the panel showed.
+    await until(p, (l) => document.querySelector('#hx-go')?.textContent === l, label, 900000).catch(async (e) => {
+      console.log('     panel:', JSON.stringify(await p.evaluate(() => ['#hx-go', '#hx-out', '#hx-routes', '#hx-q', '#wallet-dot'].map((s) => `${s}=${(document.querySelector(s)?.textContent || '').replace(/\s+/g, ' ').slice(0, 160)}`))));
+      throw e;
+    });
+    await p.click('#hx-go');
+  };
+  const form = (sel, v) => until(p, ([s, x]) => document.querySelector(s)?.value === x, [sel, v], 120000).then(() => true, () => false);
+  try {
+    await press('swap', '0.01', 'private', 'Swap privately');
+    ok(await form('#sw-amt', '0.01') && await p.$eval('#sheet-eth [data-v1="swap"]', (b) => b.getAttribute('aria-selected') === 'true'), 'hxpanel: ETH to TAC through the private pool, with tETH held, is one step: the swap form opens with the amount');
+    await press('swap', '1', 'private', 'Make ETH private');
+    ok(await form('#w-amt', '1') && /Then swap it for TAC/.test(await text(p, '#sheet-eth .farm-back')), `hxpanel: more than the tETH held makes the ETH private first, and the wrap's sheet names the swap next (${(await text(p, '#sheet-eth .farm-back')).trim()})`);
+    await p.click('#sheet-eth .farm-back a');
+    ok(await form('#sw-amt', '1') && !(await p.$('#sheet-eth .farm-back')), 'hxpanel: the second step opens the swap with the same amount, and the line is gone');
+    await press('swap', '0.05', 'public', 'Buy TAC');
+    ok(await form('#b-amt', '0.05'), 'hxpanel: the public route opens Buy TAC with the amount');
+    await press('earn', '0.05', null, 'Farm with ETH');
+    ok(await form('#pf-amt', '0.05'), 'hxpanel: Earn opens the public farm with the ETH in');
+    await press('earn', '0.01', '0', 'Farm privately');
+    ok(await form('#sj-a-0', '0.01'), 'hxpanel: a private farm, with tETH held, opens on tETH alone with the amount');
+    await press('private', '0.02', null, 'Make ETH private');
+    ok(await form('#w-amt', '0.02') && !(await p.$('#sheet-eth .farm-back')), 'hxpanel: Private opens the wrap with the amount and no second step');
+    if (r.errors.length) { fails++; console.log('FAIL hxpanel page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
 // The Swap tab of the Tacit pool: its link, a swap of a note that is exactly the amount (one route over the whole note, the least
 // it returns 1% under the quote, a relay fee), an amount no note matches (cut first), a swap between two assets that are not tETH
 // (through tETH, two pools in one route), and a relay that refuses (the swap offered from the paying account, no relay fee).
