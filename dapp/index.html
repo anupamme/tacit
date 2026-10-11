@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-4LtQ50P2p1/cTQ04boBlL/aWTgDReSMIcpu+Xq97rHo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Vz4J//BGdRZAeMWe6N6vu2aaOZXb+8syWg9v0ZfpEhs=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=b0bddd8d"></script>
 <title>tacit</title>
@@ -165,11 +165,11 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
   background: var(--card); border: 1px solid var(--hair); transition: border-color .15s, box-shadow .15s; }
 @media (hover: hover) { .di:hover { border-color: var(--ink); box-shadow: var(--lift); } }
 a.di { color: inherit; text-decoration: none; }
-.di-k { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--mute); letter-spacing: .02em; }
+.di-k { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--mute); letter-spacing: .02em; }
 .di-k .tk { width: 18px; height: 18px; }
 .di-k .dot { margin-left: auto; }
 .di-v { display: block; font: 500 19px/1.25 var(--mono); letter-spacing: -.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.di-m { display: block; font-size: 11.5px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.di-m { display: block; font-size: 12px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .di-m.wrap { white-space: normal; }
 .di-m .up { color: var(--ok); }
 .di-v small { font-size: 12px; font-weight: 400; color: var(--mute); letter-spacing: 0; }
@@ -180,7 +180,7 @@ a.di { color: inherit; text-decoration: none; }
 .actr-h { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .actr-h b { font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
 .actr-h span { flex: none; font-size: 12px; color: var(--mute); }
-.stp { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; list-style: none; margin: 0; padding: 0; font-size: 11.5px; color: var(--mute); }
+.stp { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 0; list-style: none; margin: 0; padding: 0; font-size: 12px; color: var(--mute); }
 .stp li { display: inline-flex; align-items: center; gap: 6px; }
 .stp li + li::before { content: ''; width: 14px; height: 1px; margin: 0 8px; background: var(--hair-2); }
 .stp i { width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--hair-2); flex: none; }
@@ -205,13 +205,13 @@ a.di { color: inherit; text-decoration: none; }
 .brn { margin-top: 8px; }
 .brn > span { display: grid; gap: 2px; }
 .brn b { font-weight: 500; color: var(--ink); }
-.brn small { font-size: 11.5px; }
+.brn small { font-size: 12px; }
 .brn.off { cursor: default; opacity: .6; }
 .brsp { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; margin-top: 8px; }
 .brsp .amt input { min-width: 0; }
 .brsp > span { display: grid; gap: 2px; }
 .brsp b { font-weight: 500; color: var(--ink); }
-.brsp small { font-size: 11.5px; color: var(--mute); }
+.brsp small { font-size: 12px; color: var(--mute); }
 .brsp .amt { margin: 0; }
 .brsp .btn { width: auto; margin: 0; min-height: 36px; padding: 6px 14px; justify-self: start; }
 .act-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 16px; margin-top: 12px; font-size: 12px; color: var(--mute); }
@@ -252,7 +252,7 @@ a.di { color: inherit; text-decoration: none; }
 @keyframes tape { to { transform: translateX(-50%); } }
 @media (prefers-reduced-motion: reduce) { .tape-v { overflow-x: auto; } }
 .proof b { font: 500 14px var(--mono); letter-spacing: -.02em; color: var(--ink); }
-.proof b small { margin: 0 4px 0 3px; font-size: 11.5px; font-weight: 400; letter-spacing: 0; color: var(--mute); }
+.proof b small { margin: 0 4px 0 3px; font-size: 12px; font-weight: 400; letter-spacing: 0; color: var(--mute); }
 .proof { text-decoration: none; }
 .proof .go { transition: transform .3s var(--spring); }
 @media (hover: hover) { .proof:hover .go { color: var(--ink); transform: translateX(4px); } }
@@ -273,7 +273,7 @@ a.di { color: inherit; text-decoration: none; }
 .tpx summary .more::after { content: ' ▾'; }
 .tpx[open] summary .more::after { content: ' ▴'; }
 @media (hover: hover) { .tpx summary:hover .more { color: var(--ink); } }
-.tpx table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tpx table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tpx th, .tpx td { padding: 8px 12px; border-top: 1px solid var(--hair); vertical-align: top; }
 .tpx th { text-align: left; font-weight: 400; }
 .tpx td { text-align: right; white-space: nowrap; }
@@ -285,7 +285,7 @@ a.di { color: inherit; text-decoration: none; }
 .start .cta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin-top: 30px; }
 .start .btn { width: auto; min-width: 190px; margin: 0; }
 /* Under the button, what it does now: signing in, then making ETH private (paintStart marks the step). */
-.start .hint { flex: 0 0 100%; max-width: none; order: 1; margin-top: -2px; font-size: 12.5px; line-height: 1.5; }
+.start .hint { flex: 0 0 100%; max-width: none; order: 1; margin-top: -2px; font-size: 13px; line-height: 1.5; }
 .start [data-step]:not(.now) { display: none; }
 .start .link { padding: 8px 0; margin: -8px 0 -8px 6px; font-size: 12px; }
 
@@ -347,7 +347,7 @@ button.stn .tk { transition: transform .12s; }
    in (Pay, Earn TAC) lists them, each its own link above the tile's. */
 .group-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin: 0 0 12px; }
 .group-h h2 { font: 400 26px/1 var(--serif); letter-spacing: -.01em; margin: 0; }
-.group-h p { margin: 0; font-size: 12.5px; color: var(--mute); }
+.group-h p { margin: 0; font-size: 13px; color: var(--mute); }
 .tiles { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .tile { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 20px; background: var(--card); border: 1px solid var(--hair);
   transition: border-color .18s, transform .25s var(--ease), box-shadow .25s var(--ease); }
@@ -364,9 +364,9 @@ button.stn .tk { transition: transform .12s; }
 .figs { display: grid; gap: 3px; margin-top: 4px; }
 .fig { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; font-size: 12px; color: var(--mute); }
 .fig b { font: 500 17px var(--mono); letter-spacing: -.02em; color: var(--ink); white-space: nowrap; }
-.fig b small { margin-left: 3px; font-size: 11.5px; font-weight: 400; letter-spacing: 0; color: var(--mute); }
+.fig b small { margin-left: 3px; font-size: 12px; font-weight: 400; letter-spacing: 0; color: var(--mute); }
 .tile .row { position: relative; z-index: 1; }
-.tile-foot, .tile .row { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--hair); font-size: 12.5px; min-width: 0; }
+.tile-foot, .tile .row { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--hair); font-size: 13px; min-width: 0; }
 .tile-foot { margin-top: auto; padding-top: 14px; }
 .tile-foot:has(> span:nth-child(2):empty) { border-top-color: transparent; }
 .tile-foot:has(> span:nth-child(2):empty) .dot { visibility: hidden; }
@@ -398,23 +398,23 @@ main > section + section { margin-top: 40px; }
 .flow-n { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 26px; height: 26px; border-radius: 50%;
   font: 500 12px var(--mono); color: var(--card); background: var(--ink); }
 .pools { position: relative; z-index: 1; list-style: none; display: grid; margin: 4px 0 0; padding: 0; }
-.pools a { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 12.5px; color: var(--ink); text-decoration: none;
+.pools a { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; color: var(--ink); text-decoration: none;
   border-top: 1px dashed var(--hair-2); }
 .pools b { font: 500 13px var(--mono); }
 @media (hover: hover) { .pools a:hover span { text-decoration: underline; } }
 .facts { position: static; }
-.facts li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 12.5px; color: var(--mute); border-top: 1px dashed var(--hair-2); }
+.facts li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; color: var(--mute); border-top: 1px dashed var(--hair-2); }
 .facts b { font-weight: 500; color: var(--ink); text-align: right; }
 /* The public farm, for ETH straight from a wallet: one row under the private steps. */
 .pubfarm { display: grid; grid-template-columns: auto minmax(0, 1fr) auto 14px; align-items: center; gap: 6px 16px; margin-top: 14px; padding: 14px 18px;
   color: inherit; text-decoration: none; background: var(--card); border: 1px solid var(--hair); transition: border-color .18s; }
 .pubfarm .tk { width: 30px; height: 30px; }
 .pubfarm .pair .tk + .tk { margin-left: -10px; box-shadow: 0 0 0 2px var(--card); }
-.pf-t { display: grid; gap: 2px; min-width: 0; font-size: 12.5px; color: var(--mute); line-height: 1.45; }
+.pf-t { display: grid; gap: 2px; min-width: 0; font-size: 13px; color: var(--mute); line-height: 1.45; }
 .pf-t b { font-weight: 500; color: var(--ink); font-size: 13px; }
 .pf-r { display: grid; justify-items: end; gap: 1px; }
 .pf-r b { font: 500 17px var(--mono); letter-spacing: -.02em; white-space: nowrap; }
-.pf-r b small, .pf-r > small { font-size: 11.5px; font-weight: 400; color: var(--mute); }
+.pf-r b small, .pf-r > small { font-size: 12px; font-weight: 400; color: var(--mute); }
 .pf-r b small { margin-left: 3px; }
 .pubfarm .go { transition: transform .3s var(--spring); }
 @media (hover: hover) { .pubfarm:hover { border-color: var(--ink); } .pubfarm:hover .go { transform: translateX(4px); } .pubfarm:hover .pf-t b { text-decoration: underline; } }
@@ -529,7 +529,7 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(2px); }
 .seg button small { display: block; font-size: 11px; }
 .seg button[aria-selected="true"] { background: var(--ink); color: var(--card); }
 .seg.sub { border-color: var(--hair); margin-bottom: 16px; }
-.seg.sub button { min-height: 36px; font-size: 12.5px; }
+.seg.sub button { min-height: 36px; font-size: 13px; }
 .seg.sub button + button { border-color: var(--hair); }
 
 .bal { display: flex; align-items: center; gap: 14px; padding: 14px 0; margin-bottom: 16px; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); }
@@ -562,7 +562,7 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(2px); }
 @media (pointer: coarse) { .amt.text input { font-size: 16px; } }
 input::placeholder { color: var(--mute); opacity: .7; }
 
-.kv { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; color: var(--mute); padding: 5px 0; }
+.kv { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--mute); padding: 5px 0; }
 .kv > span:first-child { flex: none; max-width: 60%; }
 .kv b { font-weight: 400; color: var(--ink); text-align: right; overflow-wrap: anywhere; }
 .kv b.err { color: var(--err); }
@@ -585,15 +585,15 @@ a.btn { text-decoration: none; white-space: nowrap; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .row2 .btn { margin-top: 10px; }
-.link { background: none; border: 0; padding: 0; cursor: pointer; color: var(--mute); text-decoration: underline; text-underline-offset: 3px; font-size: 12.5px; }
+.link { background: none; border: 0; padding: 0; cursor: pointer; color: var(--mute); text-decoration: underline; text-underline-offset: 3px; font-size: 13px; }
 @media (hover: hover) { .link:hover { color: var(--ink); } }
 .actr-f .link, .callout .link, .status .link, .note .link { padding: 6px 2px; margin: -6px -2px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-.status { font-size: 12.5px; min-height: 20px; margin-top: 12px; overflow-wrap: anywhere; }
+.status { font-size: 13px; min-height: 20px; margin-top: 12px; overflow-wrap: anywhere; }
 .status:empty { min-height: 0; margin-top: 0; }                    /* kept in the page, so a live region is there before it speaks */
 .status a { color: var(--ink); }
-.note { font-size: 12.5px; color: var(--mute); margin: 12px 0 0; }
+.note { font-size: 13px; color: var(--mute); margin: 12px 0 0; }
 .note.err { color: var(--err); }
 .rcpt .note { margin: 6px 0 2px; }
 .gate { text-align: center; padding: 26px 8px 8px; }
@@ -611,8 +611,8 @@ a.btn { text-decoration: none; white-space: nowrap; }
 .farm.open > button::after { transform: translateY(2px) rotate(-135deg); }
 .farm > button:disabled::after { visibility: hidden; }
 .farm .name { font: 400 22px/1.1 var(--serif); }
-.farm .kind { display: block; font-size: 11.5px; color: var(--mute); margin-top: 3px; }
-.farm .rate { text-align: right; font-size: 12.5px; }
+.farm .kind { display: block; font-size: 12px; color: var(--mute); margin-top: 3px; }
+.farm .rate { text-align: right; font-size: 13px; }
 .farm .rate b { display: block; font-weight: 500; font-size: 14px; }
 .farm .rate span { color: var(--mute); }
 .farm .body { padding: 0 0 20px; }
@@ -627,7 +627,7 @@ a.btn { text-decoration: none; white-space: nowrap; }
 .step:not(:last-child)::before { content: ''; position: absolute; left: 14.5px; top: 32px; bottom: 4px; width: 1px; background: var(--hair-2); }
 .step .n { width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--hair-2); display: grid; place-items: center; font-size: 12px; color: var(--mute); background: var(--card); }
 .step h3 { font: 400 21px/1.2 var(--serif); margin: 2px 0 2px; color: var(--mute); }
-.step .d { font-size: 12.5px; color: var(--mute); }
+.step .d { font-size: 13px; color: var(--mute); }
 .step .act { margin-top: 10px; }
 .step .act .link { display: block; margin-top: 10px; }
 .step.done .n { background: var(--ink); border-color: var(--ink); color: var(--card); }
@@ -636,29 +636,29 @@ a.btn { text-decoration: none; white-space: nowrap; }
 .step.now h3, .step.now .d { color: var(--ink); }
 
 .callout { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; margin: 0 0 16px;
-  font-size: 12.5px; background: var(--field); border-left: 2px solid var(--orange); }
+  font-size: 13px; background: var(--field); border-left: 2px solid var(--orange); }
 .callout .btn { width: auto; min-height: 36px; margin: 0; padding: 6px 14px; flex: none; }
 .hl { padding: 12px 14px; margin: 0 0 16px; background: var(--field); border: 1px solid var(--hair); border-left: 2px solid var(--ok); }
 .hl-h { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .hl-h b { font-weight: 500; }
-.hl-h .btn { width: auto; min-height: 34px; margin: 0; padding: 6px 14px; font-size: 12.5px; }
-.hl ul { margin: 8px 0 0; padding: 0 0 0 18px; font-size: 12.5px; color: var(--mute); }
+.hl-h .btn { width: auto; min-height: 34px; margin: 0; padding: 6px 14px; font-size: 13px; }
+.hl ul { margin: 8px 0 0; padding: 0 0 0 18px; font-size: 13px; color: var(--mute); }
 .hl li + li { margin-top: 3px; }
 .hl a:not(.btn) { color: var(--ink); }
 .hl .note { margin-top: 8px; }
 .pv { margin-top: 12px; padding: 10px 12px; background: var(--field); border-left: 2px solid var(--bar); }
 .pv.pv-fair { border-left-color: var(--orange); }
 .pv.pv-weak { border-left-color: var(--err); }
-.pv-h { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 500; color: var(--ink); }
+.pv-h { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--ink); }
 .pv-h i { width: 7px; height: 7px; border-radius: 50%; background: var(--bar); }
 .pv-fair .pv-h i { background: var(--orange); }
 .pv-weak .pv-h i { background: var(--err); }
 .rcpt .pv .note { margin-top: 4px; }
 .pv a { color: var(--ink); }
 .callout.bad { border-left-color: var(--err); }
-.ack { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 12.5px; color: var(--err); cursor: pointer; }
+.ack { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 13px; color: var(--err); cursor: pointer; }
 .ack input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--err); flex: none; }
-.pick { display: flex; align-items: flex-start; gap: 10px; margin-top: 12px; font-size: 12.5px; color: var(--mute); cursor: pointer; }
+.pick { display: flex; align-items: flex-start; gap: 10px; margin-top: 12px; font-size: 13px; color: var(--mute); cursor: pointer; }
 .pick input { width: 18px; height: 18px; margin: 0; accent-color: var(--ink); flex: none; }
 .ack input:not([type]) { width: 72px; flex: none; font: 500 16px var(--mono); color: var(--ink); background: var(--field); border: 1px solid var(--err); padding: 6px 8px; }
 .kv .link { flex: none; }
@@ -670,7 +670,7 @@ a.btn { text-decoration: none; white-space: nowrap; }
 .warn { color: var(--warn); }
 .amt.act { margin-top: 12px; }
 .steps .btn { margin-top: 12px; }
-.farm-back { margin: -6px 0 14px; font-size: 12.5px; }
+.farm-back { margin: -6px 0 14px; font-size: 13px; }
 .farm-back a { color: var(--ink); }
 .steps .kv { padding: 3px 0; }
 .opts { display: grid; gap: 8px; margin-top: 4px; }
@@ -681,7 +681,7 @@ a.btn { text-decoration: none; white-space: nowrap; }
 .opt-t { display: flex; align-items: center; gap: 10px; font-weight: 500; }
 .opt-t b { font-weight: 500; }
 .opt-m { font-size: 12px; color: var(--mute); padding-left: 32px; }
-.opt-t .w-bal { margin-left: auto; font-weight: 400; font-size: 12.5px; color: var(--mute); }
+.opt-t .w-bal { margin-left: auto; font-weight: 400; font-size: 13px; color: var(--mute); }
 .opts + .seg { margin-top: 14px; }
 #tac-bal > .opts { margin: 0 0 16px; }
 .note.tb-ask { margin: 0 0 14px; }
@@ -695,9 +695,9 @@ a.btn { text-decoration: none; white-space: nowrap; }
 .pt .note { margin: 4px 0 8px; }
 .ptlog { margin: 6px 0 8px; }
 .ptl { list-style: none; margin: 0; padding: 0; }
-.ptl li { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 0; border-top: 1px solid var(--hair); font-size: 12.5px; }
+.ptl li { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 7px 0; border-top: 1px solid var(--hair); font-size: 13px; }
 .ptl-w { min-width: 0; }
-.ptl-m { display: block; color: var(--mute); font-size: 11.5px; margin-top: 2px; overflow-wrap: anywhere; }
+.ptl-m { display: block; color: var(--mute); font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
 .ptl b { flex: none; font-weight: 500; }
 .ptl.lb li { padding: 6px 0; }
 .ptl.lb li.me { color: var(--ink); font-weight: 500; }
@@ -705,9 +705,9 @@ a.btn { text-decoration: none; white-space: nowrap; }
 .ptl.lb a { color: inherit; text-underline-offset: 3px; }
 .ptl .rk { display: inline-block; min-width: 3ch; color: var(--mute); }
 .ptl li.day { padding-top: 14px; font-weight: 500; color: var(--ink); }
-.ptl li.day small { font-weight: 400; font-size: 11.5px; margin-left: 6px; }
+.ptl li.day small { font-weight: 400; font-size: 12px; margin-left: 6px; }
 .ptl-r { flex: none; display: flex; align-items: baseline; gap: 10px; }
-.ptl-r small { min-width: 5ch; text-align: right; font-size: 11.5px; }
+.ptl-r small { min-width: 5ch; text-align: right; font-size: 12px; }
 .pulse { margin: 0 0 14px; padding: 6px 0; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); }
 .ptd { margin: 4px 0 8px; }
 .ptd-bars { display: flex; gap: 2px; height: 56px; }
@@ -715,14 +715,14 @@ a.btn { text-decoration: none; white-space: nowrap; }
 .ptd-b i { display: block; width: min(100%, 24px); height: max(2px, calc(var(--h) * 100%)); background: var(--bar); border-radius: 4px 4px 0 0; }
 .ptd-b.now i { background: var(--ink); }
 .ptd-b:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
-.ptd-x { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; font-size: 11.5px; color: var(--mute); }
+.ptd-x { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; font-size: 12px; color: var(--mute); }
 .ptd-x output { text-align: center; color: var(--ink); }
 a.opt { color: inherit; text-decoration: none; }
 .kv.sep { border-top: 1px solid var(--hair); margin-top: 18px; padding-top: 12px; }
 .opt[aria-busy="true"] .opt-t::after { content: ''; width: 11px; height: 11px; margin-left: auto; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
 .more { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 18px; margin: 6px 0 0; }
 .lockmore { margin-top: 8px; }
-.lockmore > summary { cursor: pointer; font-size: 12.5px; color: var(--mute); text-decoration: underline; text-underline-offset: 3px; }
+.lockmore > summary { cursor: pointer; font-size: 13px; color: var(--mute); text-decoration: underline; text-underline-offset: 3px; }
 .lockmore[open] > summary { margin-bottom: 8px; }
 .gate-p { color: var(--mute); font-size: 13px; text-align: center; max-width: 42ch; margin: 18px auto 14px; }
 .lede-s { color: var(--mute); font-size: 13px; margin: 0 0 14px; }
@@ -742,11 +742,12 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
 
 .toasts { position: fixed; inset: auto 16px max(16px, env(safe-area-inset-bottom)) 16px; width: auto; height: auto; margin: 0; padding: 0; border: 0; background: transparent; overflow: visible; display: grid; gap: 8px; justify-items: center; pointer-events: none; }
 .toasts:not(:popover-open) { display: none; }
-.toast { max-width: 520px; padding: 10px 16px; font-size: 12.5px; color: var(--card); background: var(--ink); pointer-events: auto; box-shadow: var(--lift); animation: rise .2s ease-out; }
+.toast { max-width: 520px; padding: 10px 16px; font-size: 13px; color: var(--card); background: var(--ink); pointer-events: auto; box-shadow: var(--lift); animation: rise .2s ease-out; }
 .toast.bad, .toast.error { background: var(--err); color: var(--card); }
 .toast a, .toast .link { color: inherit; font-size: inherit; margin-left: 4px; }
 
 @media (max-width: 640px) {
+  .proof .go { display: none; }                          /* the line is the link; its arrow would wrap onto a line of its own */
   .top { gap: 12px; }
   .brand { gap: 8px; }
   .chip { padding: 0 10px; }
@@ -760,7 +761,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .route, .route.r3 { row-gap: 10px; }
   .route { grid-template-columns: auto minmax(80px, 1fr) auto; }
   .route.r3 { grid-template-columns: auto minmax(80px, 1fr) auto minmax(80px, 1fr) auto; }
-  .then { font-size: 11.5px; line-height: 1.5; }
+  .then { font-size: 12px; line-height: 1.5; }
   .stn { flex-direction: column; gap: 5px; justify-self: center; text-align: center; }
   .nm { justify-items: center; line-height: 1.2; }
   .nm b { font-size: 12px; }
@@ -781,7 +782,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .tile .tk { width: 34px; height: 34px; }
   .tile .pair .tk + .tk { margin-left: -10px; }
   .tile h3 { grid-area: title; font-size: 24px; align-self: center; }
-  .tile p { grid-area: text; font-size: 12.5px; }
+  .tile p { grid-area: text; font-size: 13px; }
   .figs { grid-area: figs; margin: 0; align-self: center; }
   .fig { display: grid; justify-items: end; text-align: right; font-size: 11px; line-height: 1.3; }
   .fig b { font-size: 14px; }
@@ -881,6 +882,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
     <div class="proof-row">
       <a class="proof" href="/weld/stats/" title="All stats">
         <span data-nums><b class="num"><span data-num="in"><span class="sk" style="--w:5ch"></span></span><small>ETH</small></b>made private</span>
+        <span data-nums><b class="num"><span data-num="tx"><span class="sk" style="--w:4ch"></span></span></b> private transactions</span>
         <span data-nums><b class="num"><span data-num="pts"><span class="sk" style="--w:3ch"></span></span></b> earning points</span>
         <span class="go" aria-hidden="true">→</span>
       </a>
@@ -931,7 +933,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
     </section>
 
     <section aria-labelledby="g-do">
-      <div class="group-h"><h2 id="g-do">More, privately</h2><p>All from one key, on Bitcoin and Ethereum.</p></div>
+      <div class="group-h"><h2 id="g-do">Pay, swap, borrow</h2><p>Privately, from the same key, on Bitcoin and Ethereum.</p></div>
       <div class="tiles lite">
       <article class="tile">
         <span class="tile-top"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span></span>
@@ -8775,7 +8777,7 @@ addEventListener('pagehide', () => { if (dashSaveT) dashWrite(); });
 // ── in numbers ──────────────────────────────────────────────────────────────────────────────────────────────
 // Headline figures from the stats page's shared reading (readStats), never the chains or an explorer. The last figures
 // paint at once; with none kept and no reading, they go.
-const NUMS_KEY = 'tacit-front-nums-v1', NUMS_MS = 15 * 60e3;
+const NUMS_KEY = 'tacit-front-nums-v2', NUMS_MS = 15 * 60e3;
 let numsAt = 0;
 function paintNums(p) {
   const els = $$('[data-nums]');
@@ -8791,6 +8793,7 @@ async function loadNums() {
   if (!r?.at) throw new Error('no reading');
   const v = { ...store.get(NUMS_KEY)?.v };
   if (r.eth && r.dev) { const t = privateEth(r.eth, r.dev); v.in = fmt(t.inWei, 18, 2); v.held = fmt(t.held, 18, 2); }
+  if (r.link) v.tx = Number(r.link.settles).toLocaleString('en-US');                  // settles in the Tacit pool: inflows that loop can't pad it
   if (r.btc) v.cusd = fmt(r.btc.borrowed, 8, 0);
   if (r.pts) v.pts = Number(r.pts.participants).toLocaleString('en-US') + (r.pts.full ? '+' : '');
   const p = { at: r.at, v };
