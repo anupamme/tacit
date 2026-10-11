@@ -117,10 +117,14 @@ test('the settle service sweeps only its earner and never the sink as one', () =
   ok(/replenishOnce\(\{ roles: \['settle'\]/.test(settle), 'the settle service must scope replenish to the settle role');
 });
 
-test('replenish in the settle loop runs only in idle time, off by default', () => {
-  // Same wallet, same nonce as a settle — concurrency here would be a nonce race, so it is awaited only
-  // where the loop would otherwise sleep.
-  ok(/if \(!worked\) \{[^}]*await maybeReplenish\(\); await sleep/.test(settle), 'replenish must run only when the loop is idle');
+test('replenish in the settle loop never overlaps a settle, and is off by default', () => {
+  // Same wallet, same nonce as a settle, so it must never run CONCURRENTLY with one — but it is awaited between
+  // jobs, not only once the queue empties: a steady stream of jobs is when the prover credit drains fastest, and
+  // an idle-only top-up never gets its turn then (on 2026-10-10 the PROVE sat in the sink through an outage for
+  // exactly that reason). Awaited in the loop body, so "between jobs" is still never "during one".
+  ok(/\n\s*await maybeReplenish\(\);\n\s*if \(!worked\) await sleep/.test(settle), 'replenish must be awaited between jobs, before the idle sleep');
+  ok(!/(?<!await )maybeReplenish\(\);/.test(settle), 'every call must be awaited, so none is left running beside a job');
+  ok(/replenishDue\(/.test(settle), 'the schedule decides whether it is due, so calling it every pass stays cheap');
   ok(/opt\('REPLENISH_IN_SETTLE', '0'\) === '1'/.test(config), 'REPLENISH_IN_SETTLE must default off');
   ok(/replenish failed \(settling continues\)/.test(settle), 'a replenish failure must not take the loop down');
 });

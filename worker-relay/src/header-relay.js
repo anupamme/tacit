@@ -17,6 +17,7 @@ import { withNonceRetry } from './lib/nonce-retry.js';
 import { publicClient, relayWallet, HEADER_RELAY, RELAY_ABI, gasAboveCap } from './lib/chain.js';
 import { planHeaderAdvance } from './lib/header-plan.js';
 import { cbtcLockDemand } from './lib/reflection-demand.js';
+import { tipFor, TIP_HISTORY_BLOCKS, TIP_PERCENTILE } from './lib/gas-tip.js';
 
 const log = (...a) => console.log(`[header ${new Date().toISOString()}]`, ...a);
 const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
@@ -117,17 +118,29 @@ async function resumeHeight(rtip, btip) {
 // The wallet also pays for the reflection's attests, and for users' settles unless those have their own key
 // (SETTLE_ADDRESS names another wallet), so headers never spend into what those need: one attest, and one settle
 // where it applies, each at the fee cap its own service sends with, stay behind.
-const MIN_TIP_WEI = 50_000_000n; // 0.05 gwei: a zero tip is accepted and then never included
+const MIN_TIP_WEI = 50_000_000n; // 0.05 gwei: only a fallback now, for when the fee history cannot be read
+// What recent blocks actually paid, floored on what a batch offers in TOTAL rather than per gas (lib/gas-tip.js). A rate
+// fixed when gas was dear is the overpayment worth removing here: a batch runs to millions of gas (measured on this
+// relay's own advances, ~177k per header), so the tip is the larger part of its cost and the market reading is what
+// binds. GAS_PER_HEADER only sizes the total floor; the real limit is estimated per send below.
+const MIN_TIP_TOTAL_WEI = BigInt(process.env.HEADER_TIP_MIN_TOTAL_WEI || '20000000000000'); // 0.00002 ETH
+const TIP_CAP_WEI = BigInt(process.env.HEADER_TIP_CAP_WEI || '2000000000'); // 2 gwei
+const GAS_PER_HEADER = 180_000n;
 const SETTLE_RESERVE_GAS = CFG.settleFundsGas;   // settle-relay's fee cap: 3x base
 const ATTEST_RESERVE_GAS = CFG.attestGasBudget;  // reflection's fee cap: 2x base
 const eth = (wei) => (Number(wei) / 1e18).toFixed(4);
 async function submitAdvance(from, to) {
-  const [blk, prio, have] = await Promise.all([
+  const [blk, feeHist, have] = await Promise.all([
     publicClient.getBlock({ blockTag: 'latest' }),
-    publicClient.estimateMaxPriorityFeePerGas().catch(() => MIN_TIP_WEI),
+    publicClient.getFeeHistory({ blockCount: TIP_HISTORY_BLOCKS, rewardPercentiles: [TIP_PERCENTILE] }).catch(() => null),
     publicClient.getBalance({ address: relayWallet.account.address }),
   ]);
-  const maxPriorityFeePerGas = prio > MIN_TIP_WEI ? prio : MIN_TIP_WEI;
+  // The gas here is the batch this run means to send. It can still be cut to fit the wallet below, which only leaves the
+  // total floor a shade conservative — at this size the market reading binds anyway.
+  const maxPriorityFeePerGas = tipFor({
+    rewards: feeHist && feeHist.reward, gas: BigInt(Math.max(1, to - from + 1)) * GAS_PER_HEADER,
+    minTotalWei: MIN_TIP_TOTAL_WEI, capWei: TIP_CAP_WEI, fallbackWei: MIN_TIP_WEI,
+  });
   const maxFeePerGas = (blk.baseFeePerGas ?? 0n) * 2n + maxPriorityFeePerGas;
   const base = blk.baseFeePerGas ?? 0n;
   const settlesHere = !CFG.settleAddress || CFG.settleAddress.toLowerCase() === relayWallet.account.address.toLowerCase();

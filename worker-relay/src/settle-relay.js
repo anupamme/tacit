@@ -33,6 +33,7 @@ import { ROUTER_EXIT_ABI, recipeArgs, exitCheck, activationCover } from './lib/e
 import { makeAbandonedSettles } from './lib/abandoned-settles.js';
 import { quoteRelayFee, provePriceUsd, replenishOnce, drainToSink } from './replenish.js';
 import { replenishDue } from './lib/replenish-schedule.js';
+import { tipFor, TIP_HISTORY_BLOCKS, TIP_PERCENTILE } from './lib/gas-tip.js';
 import { safeErr } from './lib/safe-err.js';
 import { encodeFunctionData } from 'viem';
 
@@ -42,7 +43,10 @@ const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
 // Settle submission: a private endpoint accepting a transaction is not the same as a builder including it,
 // and an un-included settle costs a proof that was already paid for. These bound how hard the relay tries
 // before giving up, and how cheap a tip it is willing to start from.
-const TIP_FLOOR_WEI = CFG.settleTipFloorWei;
+const TIP_FLOOR_WEI = CFG.settleTipFloorWei;   // only a fallback now: the rate used when the fee history cannot be read
+// The smallest total priority payment worth a builder's attention. A floor on the total rather than on the rate, so a
+// 350k-gas settle stays worth including without a 3.5M-gas batch paying the same rate for it.
+const TIP_MIN_TOTAL_WEI = BigInt(process.env.SETTLE_TIP_MIN_TOTAL_WEI || '20000000000000'); // 0.00002 ETH
 const TIP_CAP_WEI = BigInt(process.env.SETTLE_TIP_CAP_WEI || '2000000000'); // 2 gwei
 const SUBMIT_ROUNDS = Math.max(1, parseInt(process.env.SETTLE_SUBMIT_ROUNDS || '3', 10));
 const RECEIPT_WAIT_MS = Math.max(30_000, parseInt(process.env.SETTLE_RECEIPT_WAIT_MS || '90000', 10));
@@ -171,20 +175,20 @@ async function submitCall(base, label, { gasLimit = null, landed = null } = {}) 
   // cap (and nonce/gas) through the settle transport, and a cap taken from a lagging view of the base fee
   // gets the tx rejected outright as unincludable. Base fee can also climb between pricing and inclusion, so
   // cap at 3x the current base fee (refunded — only base plus tip is actually paid).
-  let [blk, nonce, gasEst] = await Promise.all([
+  let [blk, nonce, gasEst, feeHist] = await Promise.all([
     publicClient.getBlock({ blockTag: 'latest' }),
     publicClient.getTransactionCount({ address: settleWallet.account.address, blockTag: 'pending' }),
     gasLimit ? null : publicClient.estimateContractGas({ ...base, account: settleWallet.account }).catch(() => null),
+    publicClient.getFeeHistory({ blockCount: TIP_HISTORY_BLOCKS, rewardPercentiles: [TIP_PERCENTILE] }).catch(() => null),
   ]);
   const data = encodeFunctionData({ abi: base.abi, functionName: base.functionName, args: base.args });
   let baseFee = blk.baseFeePerGas ?? 0n;
-  // Tip proportional to the base fee, floored so it is never dust and capped so a spike can't run away.
-  // The floor matters more than it looks: at sub-gwei base fees the proportional term is worth a fraction of
-  // a cent on a ~600k-gas settle, which a builder has no reason to include. A private endpoint ACCEPTS such a
-  // transaction and simply never lands it.
-  let tip = baseFee / 10n;
-  if (tip < TIP_FLOOR_WEI) tip = TIP_FLOOR_WEI;
-  if (tip > TIP_CAP_WEI) tip = TIP_CAP_WEI;
+  // What recent blocks actually paid, floored on what this settle offers in TOTAL rather than per gas (lib/gas-tip.js).
+  // The total is what matters: the proportional term alone is worth a fraction of a cent on a ~600k-gas settle, which a
+  // private endpoint accepts and then never lands, while a rate fixed high enough to fix that overpays by multiples
+  // once gas is cheap. A history we cannot read falls back to that fixed rate.
+  const gasForTip = gasLimit || (gasEst ? (gasEst * 12n) / 10n : 0n);
+  let tip = tipFor({ rewards: feeHist && feeHist.reward, gas: gasForTip, minTotalWei: TIP_MIN_TOTAL_WEI, capWei: TIP_CAP_WEI, fallbackWei: TIP_FLOOR_WEI });
 
   const call = { ...base, ...(gasLimit ? { gas: gasLimit } : gasEst ? { gas: (gasEst * 12n) / 10n } : {}) };
   const endpoints = settleWallets.length ? settleWallets : [{ url: 'default', wallet: settleWallet }];
@@ -198,6 +202,8 @@ async function submitCall(base, label, { gasLimit = null, landed = null } = {}) 
   const endpointsFor = (r) => (privateEps.length
     ? [...privateEps.map((_, i) => privateEps[(i + r) % privateEps.length]), ...publicEps]
     : publicEps);
+  // Rounds spent at one price before it rises: one per private endpoint, so each gets a turn in the lead first.
+  const epsPerTip = Math.max(1, privateEps.length);
   // Every broadcast under this nonce. A later round REPLACES an earlier one, but the earlier hash can still
   // be the one that lands, so all of them are checked before the job is called failed.
   const seen = [];
@@ -295,7 +301,7 @@ async function submitCall(base, label, { gasLimit = null, landed = null } = {}) 
       // A revert is the chain's verdict and is terminal — unless another landing of the same work caused it.
       if (res.state === 'reverted') return finishReverted(res.hash);
       if (res.state === 'taken') { log(`${label} nonce ${nonce} was consumed by another sender before ours landed`); taken = true; }
-      else log(`${label} not included within ${RECEIPT_WAIT_MS}ms at tip ${tip} wei — escalating`);
+      else log(`${label} not included within ${RECEIPT_WAIT_MS}ms at tip ${tip} wei — ${(round + 1) % epsPerTip ? 'trying the next endpoint at the same tip' : 'escalating'}`);
     }
 
     // The nonce is spent. If one of our own broadcasts spent it, that transaction is the answer; otherwise another
@@ -317,6 +323,12 @@ async function submitCall(base, label, { gasLimit = null, landed = null } = {}) 
     const mine = await ownReceipt();
     if (mine) { log(`${label} landed as ${mine}`); return mine; }
 
+    // An endpoint not yet tried at this price goes first, before the price rises. Non-inclusion says nothing about
+    // which of the two it was: a private endpoint reaches only the builders it has, and one that builds few blocks
+    // leaves a perfectly well-priced settle sitting. Re-broadcasting the identical transaction costs nothing (same
+    // nonce, same fee, same bytes — the same transaction, just offered more widely), while raising the tip for it
+    // pays a premium for a problem the tip never had.
+    if ((round + 1) % epsPerTip) continue;
     if (tip >= TIP_CAP_WEI) break; // nothing left to escalate; further rounds would be identical
     tip = tip * 3n > TIP_CAP_WEI ? TIP_CAP_WEI : tip * 3n; // a replacement must clear the node's bump rule
   }
