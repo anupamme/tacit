@@ -92,6 +92,7 @@ import { handleFarm } from './farm-program.js';
 import { buildConfidentialSettler } from './confidential-settle.js';
 import { passesFloor, feeAssetOf, floorInFeeUnits, totalFee, decodePoolState, ammUsdPerUnitBest, AMM_PRICE_DEFAULTS } from './relay-quote.js';
 import { makeConfidentialIndex } from './confidential-index.js';
+import { buildFlow, appendSeries, flowPoint } from './flow-feed.js';
 import { buildCrossoutConsumer, crossoutMintLeaf } from './crossout-consumer.js';
 import { buildGovernance } from './governance.js';
 import { makeTacAncestry } from './tac-ancestry.js';
@@ -629,7 +630,7 @@ const reverseBytes = b => { const r = new Uint8Array(b); r.reverse(); return r; 
 // caller (curl, another server) could already do. This is what lets a third-party page with no fixed
 // origin (an IPFS/web3-gateway-hosted frontend, e.g.) use the relay directly from a browser instead of
 // needing its own backend proxy or a per-deploy entry in ALLOWED_ORIGINS.
-const OPEN_ORIGIN_PATHS = new Set(['/stats', '/bridge/recover', '/reflection/proof', '/confidential/submit', '/confidential/status', '/confidential/quote', '/confidential/index', '/reflection/dump', '/reflection/status', '/reflection/note-witness', '/reflection/burndep', '/reflection/eth-state/covers', '/crossout/minted', '/farm/program', '/farm/health']);
+const OPEN_ORIGIN_PATHS = new Set(['/stats', '/flow', '/bridge/recover', '/reflection/proof', '/confidential/submit', '/confidential/status', '/confidential/quote', '/confidential/index', '/reflection/dump', '/reflection/status', '/reflection/note-witness', '/reflection/burndep', '/reflection/eth-state/covers', '/crossout/minted', '/farm/program', '/farm/health']);
 function corsHeaders(env, reqOrigin, openOrigin) {
   const list = (env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
   const allow = openOrigin || list.includes('*') ? '*' : (list.includes(reqOrigin) ? reqOrigin : list[0]);
@@ -1713,6 +1714,7 @@ function refreshStats(env) {
       _stats.body = statsJson(_stats.reading);
       _stats.at = Date.now();
       await saveStats(env);
+      flowRecord(env);   // the history point is taken beside the reading, never ahead of it: a slow status read must not hold /stats
     })
     .catch((e) => { console.warn(`[stats] reading failed: ${(e && e.message) || e}`); })
     .finally(() => { _stats.inflight = null; });
@@ -1726,6 +1728,34 @@ async function handleStats(env, cors) {
   }
   if (!_stats.body) return jsonResponse({ error: 'not read yet' }, 503, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '30' });
   return new Response(_stats.body, { status: 200, headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60' } });
+}
+
+// ── /flow: the Bitcoin <-> Ethereum visualizer's feed (see flow-feed.js) ──
+// Built from the shared stats reading and the reflection's status, so it asks no chain for anything itself. Its one stored thing is
+// the history of the counters the reading cannot give a time for (bridge burns recorded, bridge mints, cross-outs), one point added
+// each time the stats reading is taken, so the picture can say when a counter moved to the nearest reading.
+const FLOW_SERIES_KEY = 'flow:series:mainnet';
+async function flowSeries(env) {
+  try { const v = JSON.parse((await env.REGISTRY_KV.get(FLOW_SERIES_KEY)) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+async function flowRecord(env) {
+  if (!env.REGISTRY_KV || !_stats.reading) return;
+  try {
+    const st = await reflectionStatusBody(env, 'mainnet').catch(() => null);
+    const point = flowPoint({ reading: _stats.reading, status: st && st.body, now: Date.now() / 1000 });
+    const was = await flowSeries(env), next = appendSeries(was, point);
+    if (next.length !== was.length || next.at(-1)?.t !== was.at(-1)?.t) await env.REGISTRY_KV.put(FLOW_SERIES_KEY, JSON.stringify(next));
+  } catch (e) { console.warn(`[flow] history not saved: ${(e && e.message) || e}`); }
+}
+async function handleFlow(env, cors) {
+  await loadStats(env);
+  if (!_stats.body || Date.now() - _stats.at > STATS_TTL_MS) {
+    const p = refreshStats(env);
+    if (!_stats.body) await p;
+  }
+  if (!_stats.reading) return jsonResponse({ error: 'not read yet' }, 503, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '30' });
+  const [st, series] = await Promise.all([reflectionStatusBody(env, 'mainnet').catch(() => null), flowSeries(env)]);
+  return jsonResponse(buildFlow({ reading: _stats.reading, status: st && st.body, series }), 200, { ...cors, 'Cache-Control': 'public, max-age=15' });
 }
 
 // Export the persisted reflection record verbatim (the counterpart to /reflection/seed). The
@@ -26512,6 +26542,7 @@ async function _routeFetch(req, env, ctx) {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
 
     if (url.pathname === '/stats' && req.method === 'GET') return handleStats(env, cors);
+    if (url.pathname === '/flow' && req.method === 'GET') return handleFlow(env, cors);
 
     if (url.pathname === '/health' && req.method === 'GET') {
       return new Response(JSON.stringify({ ok: true, ts: Date.now() }), {

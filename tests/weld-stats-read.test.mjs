@@ -55,6 +55,7 @@ function world() {
     borrow(block, debt) { log(1, A.engine, [TOPIC.cdpMinted, tx(400 + block % 1000)], w(debt) + w(0), block, tx(401 + block % 1000)); state.outstanding += BigInt(debt); },
     repay(block, debt) { log(1, A.engine, [TOPIC.cdpClosed, tx(300 + block % 1000)], w(debt), block, tx(301 + block % 1000)); state.outstanding -= BigInt(debt); },
     // The TAC ERC-20: a mint is a Transfer from the zero address (the pool pays a withdrawal or a swap out); a move is not.
+    tacWrap(block, amount) { log(1, A.pool, [TOPIC.wrap, tx(1200 + logs[1].length), ID.tac], w(amount), block, tx(1300 + logs[1].length)); },
     tacMint(block, to, amount) { log(1, A.tac, [TOPIC.transfer, ZERO32, addr32(to)], w(amount), block, tx(1000 + logs[1].length)); },
     tacMove(block, from, to, amount) { log(1, A.tac, [TOPIC.transfer, addr32(from), addr32(to)], w(amount), block, tx(1100 + logs[1].length)); },
     claim(block, account, amount) { log(1, A.airdrop, [TOPIC.claimed, '0x' + w(block), addr32(account)], w(amount), block, tx(200 + block % 1000)); },
@@ -147,7 +148,7 @@ function populate(x, stage) {
     // TAC leaving the pool: two accounts mint three times (one of them a swap payout, indistinguishable by its log), the settle wallet
     // is paid a fee mint, and an ordinary transfer is not a mint at all.
     x.tacMint(at(1300), '0x' + 'a1'.repeat(20), 40n * 10n ** 18n); x.tacMint(at(1310), '0x' + 'a1'.repeat(20), 10n * 10n ** 18n); x.tacMint(at(1320), '0x' + 'b2'.repeat(20), 25n * 10n ** 18n);
-    x.tacMint(at(1330), '0x7a0f0511e1dcf399c2f7bbe8414b6a0d1abc4331', 2n * 10n ** 18n); x.tacMove(at(1340), '0x' + 'a1'.repeat(20), '0x' + 'c3'.repeat(20), 5n * 10n ** 18n);
+    x.tacMint(at(1330), '0x7a0f0511e1dcf399c2f7bbe8414b6a0d1abc4331', 2n * 10n ** 18n); x.tacMove(at(1340), '0x' + 'a1'.repeat(20), '0x' + 'c3'.repeat(20), 5n * 10n ** 18n); x.tacWrap(at(1345), 100n * 10n ** 18n);
     // The founding bridge of the treasury: minted to the ops multisig and to the airdrop contract. Not something an account did.
     x.tacMint(at(1350), '0x006cd14f36f65ecbb29b2519ccbe63a0dc8549f2', 1_000_000n * 10n ** 18n); x.tacMint(at(1360), A.airdrop, 500_000n * 10n ** 18n);
     x.device(1, at(1000), 3n * 10n ** 17n); x.device(1, at(1100), -(10n ** 17n), 10n ** 16n);
@@ -383,4 +384,15 @@ test('stats reading: when the TAC mint stream cannot be read, TAC made public is
   assert.ok(!('tac' in r.errors), 'the TAC part is still read: one stream failing does not fail it (the explorer being down is what fails the ETH and link parts here)');
   assert.equal(r.tac.claimed, 60n * 10n ** 18n, 'its other figures stand');
   assert.equal(r.tac.supply, 2_500_000n * 10n ** 18n);
+});
+
+test('stats reading: TAC carries the times it went each way and nothing else of the flows, the treasury and the fee mints left out', async () => {
+  const x = world();
+  populate(x, 1);
+  const { reading: r } = await makeStatsReader({ fetchImpl: x.fetchImpl, gapMs: 0 }).read({});
+  assert.equal(r.tac.times.out.length, 3, 'the three mints to accounts');
+  assert.equal(r.tac.times.in.length, 1, 'the one TAC wrap');
+  assert.ok([...r.tac.times.out, ...r.tac.times.in].every((v) => Number.isFinite(v) && v > 0), 'times only');
+  assert.deepEqual(r.tac.times.out, [...r.tac.times.out].sort((a, b) => a - b), 'oldest first');
+  assert.ok(!JSON.stringify(Object.keys(r.tac.times)).includes('0x'), 'no address among the keys');
 });

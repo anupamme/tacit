@@ -111,7 +111,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmexit,farmclaim,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,pts,ptsview,activity,receipts,stats,dash,tacdeposit').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmexit,farmclaim,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,pts,ptsview,activity,receipts,stats,dash,tacdeposit').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -269,6 +269,11 @@ const ok = (c, m) => { if (!c) fails++; console.log(c ? 'ok  ' : 'FAIL', m); };
 const shot = (page, name) => SHOTS ? page.screenshot({ path: join(SHOTS, `weld-${name}.png`) }) : null;
 async function step(name, fn) { if (!ONLY.has(name)) return; try { await fn(); } catch (e) { fails++; console.log('FAIL', name, '-', e.message.split('\n')[0]); if (process.env.DEBUG_STEP) console.log(e.stack); } }
 const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.textContent || '', sel);
+// The picture of the two chains (dapp/weld/flow/viz.js) as a page shows it: drawn or not, its counters, its clock and its words.
+const flowLook = (page, host) => page.evaluate((h) => { const c = document.querySelector(h + ' canvas'); const d = c ? c.getContext('2d').getImageData(0, 0, c.width, c.height).data : []; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) n++; const q = (x) => (document.querySelector(h + ' ' + x) || {}).textContent || ''; return { has: !!c, drawn: n, foot: q('.fl-foot'), clock: q('.fl-clock'), sr: q('.fl-sr') }; }, host);
+const flowFeed = () => { const t = Math.floor(Date.now() / 1000), ago = (x) => t - x; return { asOf: t, windowSec: 86400, now: { btc: 969200, relay: 969180, attested: 969159, burns: 27, minted: 24, crossOuts: 5, burnDeposits: 1, tacSupply: '2499974665590930000000000' },
+  series: [{ t: ago(90000), burns: 25, minted: 22, out: 4, att: 969000, relay: 969050, btc: 969100 }, { t: ago(40000), burns: 26, minted: 23, out: 5, att: 969090, relay: 969120, btc: 969150 }, { t: ago(600), burns: 27, minted: 24, out: 5, att: 969159, relay: 969180, btc: 969200 }],
+  events: { attests: [ago(70000), ago(30000), ago(900)], settles: [ago(50000), ago(3000)], deposits: [ago(20000)], tacOut: [ago(10000), ago(9000)], tacIn: [ago(5000)] } }; };
 const until = (page, fn, arg, timeout = 60000) => page.waitForFunction(fn, arg, { timeout });
 // A fee quote reads gas and the prove price over the fork, which can take minutes a call when the fork is slow.
 const QUOTE_WAIT = 600000;
@@ -334,6 +339,32 @@ await step('links', async () => {
   const shares = await page.$$eval('dialog.sheet:not(.layer) .sheet-head .x.share', (b) => b.length);
   const sheets = await page.$$eval('dialog.sheet:not(.layer)', (d) => d.length);
   ok(shares === sheets && sheets >= 6, `links: every sheet has a copy-link button (${shares}/${sheets})`);
+});
+
+// The picture of the two chains under the front page's lanes: read nothing until it is near, then its own feed, drawn, and no sideways scroll.
+await step('flowpanel', async () => {
+  for (const [tag, viewport] of [['desk', { width: 1280, height: 900 }], ['phone', { width: 390, height: 900 }]]) {
+    const r = await openPage({ account: A0, key: K0, viewport });
+    let reads = 0;
+    await r.ctx.route(/^https:\/\/api\.tacit\.finance\/flow/, (route) => { reads++; return json(route, flowFeed()); });
+    await r.ctx.route(/^https:\/\/(mempool\.space|blockstream\.info)\/api\/blocks\/tip\/height/, (route) => route.fulfill({ status: 200, contentType: 'text/plain', headers: { 'access-control-allow-origin': '*' }, body: '969200' }));
+    try {
+      await r.page.goto(r.url);
+      await r.page.waitForSelector('#kept', { state: 'attached' });
+      await sleep(1500);
+      ok(reads === 0 && !(await r.page.$('#kept-v .fl')), `flowpanel (${tag}): nothing is read or drawn until the section is near (${reads} reads)`);
+      await r.page.locator('#kept').scrollIntoViewIfNeeded();
+      await until(r.page, () => /proven to block/.test(document.querySelector('#kept-v .fl-foot')?.textContent || ''), null, 30000);
+      await sleep(1500);
+      const fl = await flowLook(r.page, '#kept-v');
+      ok(fl.has && fl.drawn > 200, `flowpanel (${tag}): the picture is drawn (${fl.drawn} pixels)`);
+      ok(/proven to block 969,159/.test(fl.foot) && /41 behind Bitcoin/.test(fl.foot) && /3 proofs · 2 settles/.test(fl.foot), `flowpanel (${tag}): its counters are the feed's (${fl.foot})`);
+      ok(reads >= 1 && /3 proofs of Bitcoin landed on Ethereum/.test(fl.sr), `flowpanel (${tag}): one feed, and the words say what it shows (${reads} reads)`);
+      ok(await r.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `flowpanel (${tag}): no sideways scroll`);
+      await shot(r.page, `flowpanel-${tag}`);
+      if (r.errors.length) { fails++; console.log(`FAIL flowpanel (${tag}) page errors: ` + r.errors.slice(0, 3).join(' | ')); }
+    } finally { await r.browser.close(); }
+  }
 });
 
 await step('ux', async () => {
@@ -2990,6 +3021,9 @@ await step('stats', async () => {
   let snapshot = null;
   await r.ctx.route(/^https:\/\/api\.tacit\.finance\/stats/, (route) => (snapshot ? route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: snapshot }) : route.fulfill({ status: 404, body: '' })));
   await r.ctx.route(/^https:\/\/api\.tacit\.finance\/reflection\/status/, (route) => json(route, { attestedHeight: 969159, tipHeight: 969159, foldedCrossoutCount: 5, consumedCount: 2, bridgeBurns: 27, bridgeMinted: 24, liveNotes: 1234 }));
+  // The picture of the two chains reads its own small feed: counters now, a day of event times.
+  const FLOW = flowFeed();
+  await r.ctx.route(/^https:\/\/api\.tacit\.finance\/flow/, (route) => json(route, FLOW));
   await r.ctx.route(/^https:\/\/api\.tacit\.finance\/leaderboard/, (route) => json(route, [{ address: W1, points: 10 }, { address: W2, points: 20 }]));
   await r.ctx.route(/^https:\/\/(mempool\.space|blockstream\.info)\/api\/blocks\/tip\/height/, (route) => route.fulfill({ status: 200, contentType: 'text/plain', headers: { 'access-control-allow-origin': '*' }, body: '969200' }));
   // A card as "key | value | context".
@@ -3016,6 +3050,17 @@ await step('stats', async () => {
     ok(/^TAC made public \| 75TAC \| 3 mints · 2 accounts/.test(await card('TAC made public')), `stats: TAC made public counts the token's mints to accounts, from its Transfer logs (${await card('TAC made public')})`);
     await r.page.locator('#g-tac').scrollIntoViewIfNeeded(); await shot(r.page, 'stats-tac-desk');
     await r.page.setViewportSize({ width: 390, height: 900 }); await r.page.locator('#g-tac').scrollIntoViewIfNeeded(); await shot(r.page, 'stats-tac-phone');
+    await r.page.setViewportSize({ width: 1280, height: 1100 });
+    // The picture between the chains: mounted from its own feed, its counters the feed's, drawn (not blank) and the day replayable.
+    await r.page.locator('#f-flow').scrollIntoViewIfNeeded(); await sleep(2500);
+    const fl = { ...(await flowLook(r.page, '#c-flow')), hidden: await r.page.$eval('#f-flow', (f) => f.hidden) };
+    ok(fl.has && !fl.hidden && fl.drawn > 200, `stats: the picture between the chains is on the page and drawn (${fl.has}, ${fl.drawn} pixels)`);
+    ok(/proven to block 969,159/.test(fl.foot) && /41 behind Bitcoin/.test(fl.foot) && /3 proofs · 2 settles/.test(fl.foot), `stats: its counters are the feed's (${fl.foot})`);
+    ok(/UTC · \d+ h ago|now/.test(fl.clock) && /3 proofs of Bitcoin landed on Ethereum/.test(fl.sr), `stats: it plays the last day first and says in words what it shows (${fl.clock} | ${fl.sr})`);
+    await shot(r.page, 'stats-flow-desk');
+    await r.page.click('#c-flow [data-flm=live]'); await sleep(300);
+    ok(/^live · updated/.test(await text(r.page, '#c-flow .fl-clock')) && (await r.page.$eval('#c-flow [data-flm=live]', (b) => b.getAttribute('aria-selected'))) === 'true', 'stats: Live can be chosen, and says how fresh it is');
+    await r.page.setViewportSize({ width: 390, height: 900 }); await r.page.locator('#f-flow').scrollIntoViewIfNeeded(); await sleep(600); await shot(r.page, 'stats-flow-phone');
     await r.page.setViewportSize({ width: 1280, height: 1100 });
     ok(/USDC 2\.5/.test(await card('Others made private')) && /USDT 4\.63/.test(await card('Others made private')), `stats: other assets are named from the pool's registry, or their token (${await card('Others made private')})`);
     ok(await r.page.evaluate(() => [...document.querySelectorAll('.card .m a')].some((a) => /etherscan\.io\/token\/0xA1313eb9f3A445606D9583bcAc3ebeB56a858279#balances$/.test(a.href))), 'stats: TAC links to its ERC-20 holders on Etherscan');

@@ -25,6 +25,7 @@ const RELAYERS = new Set(['0x68575b073de49a94e3e3acf6f3a0d6e3b66267c7', '0x7a0f0
 // The protocol's own: the ops multisig (the reserve) and the airdrop contract. The founding bridge of the treasury TAC to Ethereum was
 // minted to them (about 2.4M of the token's 2.5M supply), which is not something an account did, so it is not counted as made public.
 const OWN = new Set(['0x006cd14f36f65ecbb29b2519ccbe63a0dc8549f2', '0x4b4cb98d0c836c2783ac46f0078b904dab533ae8']);
+const TIMES_MAX = 400;   // how many of the newest event times the TAC part carries each way
 const FROM = { main: 25998000, evm: { 8453: 51864014, 4663: 73991661 } };
 export const TOPIC = {
   wrap: '0xf5d1711d21af6f42622ab6237626933cefc42cc9f0663d81b7c4c7bc5ce99e44',
@@ -426,12 +427,18 @@ export function makeStatsReader({ fetchImpl = (...a) => fetch(...a), gapMs = 200
       // them is counted in the accounts or the volume. The stream is read apart from the rest of
       // this part: while a long history is being read on across readings it is absent (null) and the other figures still stand.
       const mints = await tacMints().catch(() => null);
+      let outTimes = [];
       const tacOut = mints && (() => {
         const to = (l) => '0x' + strip(l.t[2]).slice(24);
         const out = mints.filter((l) => l.a === lc(A.tac) && l.t[0] === TOPIC.transfer && l.t[1] === ZERO32 && !RELAYERS.has(to(l)) && !OWN.has(to(l)));
+        outTimes = out.map((l) => l.ts).filter(Boolean);
         return { n: out.length, v: out.reduce((s, l) => s + W(l.d, 0), 0n), who: new Set(out.map(to)).size };
       })();
-      return { supply: BigInt(supply), tacIn: byAsset.get(ID.tac) || { n: 0, v: 0n }, tacOut, claims: claims.length, claimed: claims.reduce((s, l) => s + W(l.d, 0), 0n),
+      // When TAC went each way, and nothing else of it: the live picture of Bitcoin and Ethereum draws these as events. The newest
+      // few hundred are enough for it, so the reading does not grow with the token's whole history.
+      const newest = (xs) => xs.sort((a, b) => a - b).slice(-TIMES_MAX);
+      const times = { out: newest(outTimes), in: newest(ls.filter((l) => l.t[0] === TOPIC.wrap && l.t[2] === ID.tac).map((l) => l.ts).filter(Boolean)) };
+      return { supply: BigInt(supply), tacIn: byAsset.get(ID.tac) || { n: 0, v: 0n }, tacOut, times, claims: claims.length, claimed: claims.reduce((s, l) => s + W(l.d, 0), 0n),
         claimers: new Set(claims.map((l) => l.t[2])).size, others };
     }
 
