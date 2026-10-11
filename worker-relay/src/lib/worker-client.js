@@ -14,13 +14,19 @@ async function getJson(path) {
   if (!res.ok) return {};
   try { return await res.json(); } catch { return {}; }
 }
-async function postJson(path, body) {
-  const res = await fetch(`${CFG.workerBase}${path}`, {
-    method: 'POST',
-    headers: { ...auth(), 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  return res;
+// `timeoutMs` bounds a call that something else is waiting behind. Left out, a call waits as long as the platform lets it
+// (minutes), which is right for the routes whose answer is the work and wrong for one the next step does not depend on.
+async function postJson(path, body, { timeoutMs = 0 } = {}) {
+  const ctl = timeoutMs > 0 ? new AbortController() : null;
+  const timer = ctl && setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    return await fetch(`${CFG.workerBase}${path}`, {
+      method: 'POST',
+      headers: { ...auth(), 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      ...(ctl ? { signal: ctl.signal } : {}),
+    });
+  } finally { if (timer) clearTimeout(timer); }
 }
 
 // ── Reflection ──
@@ -50,9 +56,12 @@ export async function reflectionSubmitted({ newDigest, txHash, attestedTo }) {
 // Publish a proof this run has paid for, ahead of its own submit, so that another wallet can submit it when this one cannot
 // (the proof is over public Bitcoin data and attestBitcoinStateProven takes no permission). Best-effort: the submit
 // does not depend on it.
-export async function reflectionProofPublish({ priorDigest, newDigest, attestedTo, publicValues, proof }) {
+// The submit waits for this call, so it is bounded: a control plane that takes the connection and never answers costs a few
+// seconds of the attest, not minutes of it, and the proof (already paid for) goes on to be submitted.
+export const PROOF_PUBLISH_TIMEOUT_MS = 10_000;
+export async function reflectionProofPublish({ priorDigest, newDigest, attestedTo, publicValues, proof }, { timeoutMs = PROOF_PUBLISH_TIMEOUT_MS } = {}) {
   try {
-    const res = await postJson('/reflection/proof', { network: CFG.network, priorDigest, newDigest, attestedTo, publicValues, proof });
+    const res = await postJson('/reflection/proof', { network: CFG.network, priorDigest, newDigest, attestedTo, publicValues, proof }, { timeoutMs });
     return res.ok;
   } catch { return false; }
 }
