@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-tbAW3xOsspzbvlxzPZCz4qnikbzJCerJ3tlNXhVI4D8=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-4LtQ50P2p1/cTQ04boBlL/aWTgDReSMIcpu+Xq97rHo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=b0bddd8d"></script>
 <title>tacit</title>
@@ -260,6 +260,8 @@ a.di { color: inherit; text-decoration: none; }
 
 
 /* ── TAC's price, where it trades ── */
+.card-acts { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 6px; }
+.card-acts .btn { flex: 1 1 160px; width: auto; margin: 0; }
 .tpx { margin: 0 0 14px; background: var(--field); border: 1px solid var(--hair); }
 /* Opened from an airdrop link, the Airdrop tab is the claim alone: the price and the Tacit wallet above it are for the other tabs. */
 #sheet-tac[data-claim][data-tab="air"] :is(#tac-px, #tac-bal) { display: none; }
@@ -879,7 +881,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
     <div class="proof-row">
       <a class="proof" href="/weld/stats/" title="All stats">
         <span data-nums><b class="num"><span data-num="in"><span class="sk" style="--w:5ch"></span></span><small>ETH</small></b>made private</span>
-        <span data-nums><b class="num"><span data-num="pts"><span class="sk" style="--w:3ch"></span></span></b> points earners</span>
+        <span data-nums><b class="num"><span data-num="pts"><span class="sk" style="--w:3ch"></span></span></b> earning points</span>
         <span class="go" aria-hidden="true">→</span>
       </a>
       <span class="trust">No custodian or multisig</span>
@@ -2601,17 +2603,18 @@ const open = {
 };
 
 // Every way in, as one list: the wallet already known here first. `id` prefixes the element ids so the same list
-// can sit in the wallet sheet and inside any private card.
-function signIn(id) {
+// can sit in the wallet sheet and inside any private card. `first` puts the Bitcoin wallet ahead where the action starts on Bitcoin.
+function signIn(id, first = 'eth') {
   const known = knownWallet(), other = otherWallet();
   const saved = known?.mode !== 'local' && isPub(readJson('tacit-wallet-v1:mainnet')?.pub);
   const pk = isPasskeyAvailable();
   const opt = (k, title, sub, cls = '') => html`<button class="opt ${cls}" type="button" data-in="${k}"><span class="opt-t">${title}</span><span class="opt-m">${sub}</span></button>`;
+  const walletEth = opt('eth', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>Ethereum wallet`, 'MetaMask, Rabby or any browser wallet, or a wallet app through WalletConnect. A free message signature, two the first time.');
+  const walletBtc = opt('btc', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg>Bitcoin wallet`, 'Xverse, Leather or UniSat. One signature, two the first time.');
   return html`<div class="opts" id="${id}-in">
     ${known ? opt('known', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>${known.tacit ? html`Continue as <b>${short(known.tacit, 7)}</b>` : 'Continue with your Tacit wallet'}`, html`Opens with ${viaText(known)}, as in the classic app. The same key handles Bitcoin, TAC and ETH here.`, 'main') : ''}
     ${other ? opt('other', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>${other.tacit ? html`Continue as <b>${short(other.tacit, 7)}</b>` : 'Your other Tacit key'}`, html`A different key, opened here before with ${viaText(other)}. Not the one the classic app has open.`) : ''}
-    ${opt('eth', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>Ethereum wallet`, 'MetaMask, Rabby or any browser wallet, or a wallet app through WalletConnect. A free message signature, two the first time.')}
-    ${opt('btc', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg>Bitcoin wallet`, 'Xverse, Leather or UniSat. One signature, two the first time.')}
+    ${(first === 'btc' ? [walletBtc, walletEth] : [walletEth, walletBtc])}
     ${pk ? opt('passkey', html`<svg class="tk sm" aria-hidden="true"><use href="#i-key"/></svg>Passkey`, 'Already made one? Touch ID, Windows Hello or a security key.') : ''}
     ${pk && !known ? opt('new', html`<svg class="tk sm" aria-hidden="true"><use href="#i-key"/></svg>No wallet yet? Create one`, 'With Face ID, Touch ID or Windows Hello. Nothing to install.') : ''}
     <p class="more">${saved ? html`<button class="link" type="button" data-in="local">Saved in this browser</button>` : ''}
@@ -3013,11 +3016,11 @@ const ASSETS = {
   cbtc: { name: 'cBTC', icon: 'cbtc',
     lede: ['cBTC is bitcoin locked in an output only your key can spend, minted once, one for one, as a private note in the Tacit pool.',
       'A wstETH bond worth at least 1.5 times the lock makes spending that bitcoin unprofitable: spend it without redeeming and the bond is forfeited. Hold cBTC privately or borrow cUSD against it.'],
-    links: [['Borrow on Bitcoin', '#borrow'], ['cBTC and cUSD in the spec', GH + 'SPEC.md#57-cdp-cusd-and-cbtc'], ['The bond helper', ETHERSCAN(ADDR.escrow)], ['A mint in the Tacit pool', ETHERSCAN('0xc6cf22b2a423e807ec8a4a93f635b47e68f5858a0cdce47c734e541770c30a6f', 'tx')]] },
+    links: [['cBTC and cUSD in the spec', GH + 'SPEC.md#57-cdp-cusd-and-cbtc'], ['The bond helper', ETHERSCAN(ADDR.escrow)], ['A mint in the Tacit pool', ETHERSCAN('0xc6cf22b2a423e807ec8a4a93f635b47e68f5858a0cdce47c734e541770c30a6f', 'tx')]] },
   cusd: { name: 'cUSD', icon: 'cusd',
     lede: ['cUSD is a dollar borrowed against cBTC: a loan needs 150% collateral and can be liquidated below 130%.',
       'The borrower stays unlinkable, while loan amounts are public so they can be priced. A stability fee and a savings rate are built in and set to zero today. Withdrawn to a public address, cUSD becomes tacUSD.'],
-    links: [['Borrow on Bitcoin', '#borrow'], ['cBTC and cUSD in the spec', GH + 'SPEC.md#57-cdp-cusd-and-cbtc'], ['The collateral engine', ETHERSCAN(ADDR.engine)], ['A loan opened', ETHERSCAN('0x6da330c161f236030ef83ce5c9c77268c735a52e7f9789c7ebceaccb479b3229', 'tx')]] },
+    links: [['cBTC and cUSD in the spec', GH + 'SPEC.md#57-cdp-cusd-and-cbtc'], ['The collateral engine', ETHERSCAN(ADDR.engine)], ['A loan opened', ETHERSCAN('0x6da330c161f236030ef83ce5c9c77268c735a52e7f9789c7ebceaccb479b3229', 'tx')]] },
   tacbtc: { name: 'tacBTC', icon: 'tacbtc',
     lede: ['tacBTC is cBTC in public: the ERC-20 minted when a cBTC note is withdrawn to an Ethereum address, and burned when it is wrapped back into a note, one for one. Only the Tacit pool can mint it.'],
     links: [['tacBTC on Etherscan', ETHERSCAN(ADDR.tacbtc, 'token')], ['The token list', 'https://token.list.wei.limo'], ['cBTC and cUSD in the spec', GH + 'SPEC.md#57-cdp-cusd-and-cbtc']] },
@@ -3025,6 +3028,8 @@ const ASSETS = {
     lede: ['tacUSD is cUSD in public: the ERC-20 minted when a cUSD note is withdrawn to an Ethereum address, and burned when it is wrapped back into a note, one for one. Only the Tacit pool can mint it.'],
     links: [['tacUSD on Etherscan', ETHERSCAN(ADDR.tacusd, 'token')], ['The token list', 'https://token.list.wei.limo'], ['Borrow on Bitcoin', '#borrow']] },
 };
+// What each asset card leads to: its own action, opened like any link on the page.
+const ASSET_ACTS = { teth: [['Make ETH private', 'private']], tac: [['Buy TAC', 'buy'], ['Bridge from Bitcoin', 'bridge']], cbtc: [['Lock BTC for cBTC', 'lock']], cusd: [['Borrow cUSD', 'borrow']] };
 function openAsset(key) {
   const a = Object.hasOwn(ASSETS, key) ? ASSETS[key] : null;
   if (!a) return;
@@ -3035,7 +3040,9 @@ function openAsset(key) {
     ${a.lede.map((p) => html`<p class="lede-s">${p}</p>`)}
     ${(a.facts || []).map(([k, v]) => html`<div class="kv"><span>${k}</span><b>${v}</b></div>`)}
     ${key === 'tac' && TPX.v?.mid ? html`<div class="kv"><span>Price now</span><b class="num">${sig(TPX.v.mid)} ETH${TPX.v.ethBtc ? ` · ${satsFmt((TPX.v.mid / TPX.v.ethBtc) * 1e8)} sats` : ''} <a href="#buy" data-open="buy">where it trades</a></b></div>` : ''}
+    ${ASSET_ACTS[key] ? html`<div class="card-acts">${ASSET_ACTS[key].map(([label, go], i) => html`<button class="btn${i ? ' ghost' : ''}" type="button" data-go="${go}">${label}</button>`)}</div>` : ''}
     ${a.links?.length ? html`<ul class="links">${a.links.map(([label, href]) => href.startsWith('#') ? html`<li><a href="${href}" data-open="${href.slice(1)}">${label} →</a></li>` : html`<li><a href="${href}" target="_blank" rel="noopener">${label} ↗</a></li>`)}</ul>` : ''}`);
+  $$('[data-go]', $('#asset-body')).forEach((b) => b.onclick = () => { $('#asset-card').close(); openLink(b.dataset.go); });
   $$('[data-open]', $('#asset-body')).forEach((l) => l.onclick = (e) => { e.preventDefault(); $('#asset-card').close(); openSheet(l.dataset.open); });
   const d = $('#asset-card');
   if (!d.open) d.showModal();
@@ -3212,9 +3219,9 @@ function wireConnect(id, after) {
   if (b) b.onclick = () => busy(b, async () => { try { await connect(); after?.(); } catch (e) { toast(errText(e), true); } });
 }
 // Opened, or the ways in, right where the user asked.
-function needKey(el, why) {
+function needKey(el, why, first) {
   if (S.key) return true;
-  mount(el, html`<p class="gate-p">${why}</p>${signIn(el.id)}`);
+  mount(el, html`<p class="gate-p">${why}</p>${signIn(el.id, first)}`);
   wireSignIn(el, el.id);
   return false;
 }
@@ -5120,7 +5127,7 @@ async function lookForShielded(status) {
 }
 render.btc = () => {
   const el = $('#btc-body');
-  if (!needKey(el, 'Your key’s own Bitcoin wallet: hold BTC and TAC on Bitcoin, send them to anyone, and get paid privately at your tacit1 address. Open your Tacit wallet to start.')) return;
+  if (!needKey(el, 'Your key’s own Bitcoin wallet: hold BTC and TAC on Bitcoin, send them to anyone, and get paid privately at your tacit1 address. Open your Tacit wallet to start.', 'btc')) return;
   const b = BTC.pub === S.key.pubHex ? BTC : null, last = b || BTC.err ? null : lastSeen('btc');
   if (!b && !BTC.loading && !BTC.err) loadBtc().then(() => rerender('btc')).catch(() => {});
   mount(el, html`
@@ -5600,7 +5607,7 @@ const brNote = (n) => brOver(n) ? html`<div class="brn brsp"><span><b class="num
   : html`<label class="pick brn${n.eligible ? '' : ' off'}"><input type="radio" name="br-note" value="${brId(n)}" ${n.eligible ? '' : 'disabled'} ${BR.pick === brId(n) ? 'checked' : ''}>
   <span><b class="num">${fmt(BigInt(n.amount), 8, 4)} TAC</b>${n.eligible ? '' : html`<small>${brReason(n.reason)}</small>`}</span></label>`;
 function renderBridge(el) {
-  if (!needKey(el, 'Bring TAC from your Bitcoin address into your private TAC on Ethereum. A burn on Bitcoin pays only BTC, and the pool mints the same TAC once Bitcoin’s proof carries it over, usually within hours. Open your Tacit wallet to start.')) return;
+  if (!needKey(el, 'Bring TAC from your Bitcoin address into your private TAC on Ethereum. A burn on Bitcoin pays only BTC, and the pool mints the same TAC once Bitcoin’s proof carries it over, usually within hours. Open your Tacit wallet to start.', 'btc')) return;
   const pub = S.key.pubHex, b = BR.pub === pub ? BR : null;
   if (!b?.notes && !BR.loading && !b?.err) loadBridge().then(() => rerender('tac')).catch(() => {});
   const recs = brRecords(pub), done = brArrived(pub), notes = (b?.notes || []).filter((n) => n.reason !== 'already bridging'), open = notes.filter((n) => n.eligible);
@@ -8030,7 +8037,7 @@ RETRY.borrow = () => { delete FLASH['bw-status']; rerender('borrow'); };
 RETRY.loan = () => loadBorrow(true).then(() => rerender('borrow')).catch(() => rerender('borrow'));
 render.borrow = () => {
   const el = $('#borrow-body');
-  if (!needKey(el, 'Borrow dollars against your bitcoin, which stays at an address only your key can spend. Open your Tacit wallet to start.')) return;
+  if (!needKey(el, 'Borrow dollars against your bitcoin, which stays at an address only your key can spend. Open your Tacit wallet to start.', 'btc')) return;
   const st = LOCK.state, rec = st?.rec;
   // What the four steps add up to, before any of them: a first-time reader otherwise meets outputs and bonds cold.
   const intro = html`<p class="lede-s">Borrow dollars (cUSD) against your bitcoin. The BTC never leaves an address only your key can spend; an ETH bond, refundable, stands behind the lock.</p>`;
