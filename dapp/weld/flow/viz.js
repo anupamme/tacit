@@ -160,9 +160,11 @@ function arc(a, b, t, c, L) {
 function drawScene(ctx, L, C) {
   ctx.lineWidth = 1;
   ctx.strokeStyle = C.hair2;
-  ctx.setLineDash([2, 5]);
+  ctx.lineWidth = 0.8;
+  ctx.setLineDash([1.5, 6]);
   for (const y of [L.up, L.dn]) { ctx.beginPath(); ctx.moveTo(L.btc.x + L.inset, y); ctx.lineTo(L.eth.x - L.inset, y); ctx.stroke(); }
   ctx.setLineDash([]);
+  ctx.lineWidth = 1;
   ctx.strokeStyle = C.hair;
   ctx.beginPath(); ctx.moveTo(L.btc.x + L.inset, L.mid); ctx.lineTo(L.eth.x - L.inset, L.mid); ctx.stroke();
   // The proof gate: where a burn waits until Bitcoin's state has landed on Ethereum.
@@ -173,7 +175,7 @@ function drawScene(ctx, L, C) {
   ctx.textAlign = 'center';
   ctx.fillText('proof', L.gateX, L.up - (L.compact ? 16 : 18));
   // The column the TAC moves along, broken where Ethereum's own mark and name sit.
-  const gap = L.compact ? [14, 24] : [18, 36], pad = L.compact ? 4 : 10;
+  const gap = L.compact ? [12, 22] : [18, 36], pad = L.compact ? 4 : 10;
   ctx.strokeStyle = C.hair;
   ctx.beginPath();
   ctx.moveTo(L.priv.x, L.priv.y + pad); ctx.lineTo(L.priv.x, L.eth.y - gap[0]);
@@ -206,28 +208,29 @@ function drawMark(ctx, m, L, C) {
 
 const STYLE = `
 .fl { position: relative; font-family: var(--mono, ui-monospace, Menlo, monospace); color: var(--ink, #1a1a1a); }
-.fl-top { display: flex; justify-content: space-between; align-items: center; gap: 8px 14px; flex-wrap: wrap; margin-bottom: 8px; }
-.fl-mode { display: inline-flex; }
-.fl-mode button { font: 400 12px var(--mono, monospace); border: 1px solid var(--hair-2, rgba(26,26,26,.28)); background: transparent; color: var(--mute, #625c4f); padding: 3px 11px; cursor: pointer; margin-left: -1px; }
-.fl-mode button:first-child { margin-left: 0; }
-.fl-mode button[aria-selected="true"] { background: var(--ink, #1a1a1a); border-color: var(--ink, #1a1a1a); color: var(--card, #f2ebd4); position: relative; }
-.fl-mode button:focus-visible { outline: 2px solid var(--ink, #1a1a1a); outline-offset: 2px; position: relative; }
-.fl-clock { font: 400 11px var(--mono, monospace); color: var(--mute, #625c4f); }
+.fl-top { display: flex; justify-content: space-between; align-items: baseline; gap: 4px 14px; flex-wrap: wrap; margin-bottom: 4px; }
+.fl-mode { display: inline-flex; gap: 14px; }
+.fl-mode button { appearance: none; font: 400 11px var(--mono, monospace); letter-spacing: .02em; border: 0; border-radius: 0; border-bottom: 1px solid transparent; background: none; color: var(--mute, #625c4f); padding: 1px 0; margin: 0; cursor: pointer; transition: color .15s; }
+.fl-mode button:hover { color: var(--ink, #1a1a1a); }
+.fl-mode button[aria-selected="true"] { color: var(--ink, #1a1a1a); border-bottom-color: var(--hair-2, rgba(26,26,26,.28)); }
+.fl-mode button:focus-visible { outline: 2px solid var(--ink, #1a1a1a); outline-offset: 3px; }
+.fl-clock { font: 400 10px var(--mono, monospace); color: var(--mute, #625c4f); }
 .fl-stage { position: relative; width: 100%; }
 .fl-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.fl-n { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 3px; font: 500 11px var(--mono, monospace); pointer-events: none; text-align: center; }
+.fl-n { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 3px; font: 400 11px var(--mono, monospace); pointer-events: none; text-align: center; }
 .fl-n small { color: var(--mute, #625c4f); font: 400 10px var(--mono, monospace); white-space: nowrap; }
 .fl-n .fl-ic { width: 30px; height: 30px; display: block; }
-.fl.fl-c .fl-n .fl-ic { width: 24px; height: 24px; }
+.fl.fl-c .fl-n { font-size: 10px; color: var(--mute, #625c4f); }
+.fl.fl-c .fl-n .fl-ic { width: 20px; height: 20px; }
 .fl.fl-c .fl-n small { display: none; }
 .fl-n .fl-disc { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font: 500 15px var(--mono, monospace); }
-.fl.fl-c .fl-n .fl-disc { width: 24px; height: 24px; font-size: 12px; }
-.fl-s { position: absolute; transform: translate(-50%, -50%); font: 400 10px var(--mono, monospace); color: var(--mute, #625c4f); border: 1px solid var(--hair-2, rgba(26,26,26,.28)); border-radius: 999px; padding: 1px 8px; background: var(--card, #f2ebd4); pointer-events: none; white-space: nowrap; }
-.fl.fl-c .fl-s { padding: 0 5px; font-size: 9px; }
-.fl-foot { display: flex; flex-wrap: wrap; gap: 3px 18px; margin-top: 9px; font: 400 12px var(--mono, monospace); color: var(--mute, #625c4f); }
-.fl-foot b { color: var(--ink, #1a1a1a); font-weight: 500; }
+.fl.fl-c .fl-n .fl-disc { width: 20px; height: 20px; font-size: 11px; }
+.fl-s { position: absolute; transform: translate(-50%, -50%); font: 400 10px var(--mono, monospace); letter-spacing: .04em; color: var(--mute, #625c4f); opacity: .8; pointer-events: none; white-space: nowrap; }
+.fl.fl-c .fl-s { font-size: 9px; }
+.fl-foot { display: flex; flex-wrap: wrap; gap: 3px 16px; margin-top: 6px; font: 400 11px var(--mono, monospace); color: var(--mute, #625c4f); }
+.fl-foot b { color: var(--ink, #1a1a1a); font-weight: 400; }
 .fl-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-@media (max-width: 520px) { .fl-n small { display: none; } .fl-foot { gap: 3px 12px; font-size: 11px; } }
+@media (max-width: 520px) { .fl-n small { display: none; } .fl-foot { gap: 3px 12px; font-size: 10px; } }
 `;
 
 export function mountFlow(host, { api = 'https://api.tacit.finance', compact = false, fetchImpl, tipUrl = 'https://mempool.space/api/blocks/tip/height', pollMs = 15000, tipMs = 30000 } = {}) {
@@ -246,7 +249,7 @@ export function mountFlow(host, { api = 'https://api.tacit.finance', compact = f
   modes.append(bLive, bReplay);
   if (!reduce) top.append(modes);
   top.append(clock);
-  const stage = el('div', 'fl-stage'); stage.style.height = compact ? '104px' : '280px';
+  const stage = el('div', 'fl-stage'); stage.style.height = compact ? '88px' : '280px';
   const canvas = doc.createElement('canvas'); canvas.setAttribute('aria-hidden', 'true'); stage.append(canvas);
   const node = (cls, name, sub, sprite, color, letter) => {
     const n = el('div', `fl-n ${cls}`), ic = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -270,10 +273,10 @@ export function mountFlow(host, { api = 'https://api.tacit.finance', compact = f
     C = { orange: v('--orange', '#f7931a'), eth: v('--eth', '#627eea'), ink: v('--ink', '#1a1a1a'), mute: v('--mute', '#625c4f'), hair: v('--hair', 'rgba(26,26,26,.12)'), hair2: v('--hair-2', 'rgba(26,26,26,.28)'), mono: v('--mono', 'ui-monospace, Menlo, monospace') };
   };
   const ctx = canvas.getContext && canvas.getContext('2d');
-  let L = layout(600, compact ? 104 : 280, compact), dpr = 1;
+  let L = layout(600, compact ? 88 : 280, compact), dpr = 1;
 
   const place = () => {
-    const w = stage.clientWidth || 600, h = stage.clientHeight || (compact ? 104 : 280);
+    const w = stage.clientWidth || 600, h = stage.clientHeight || (compact ? 88 : 280);
     dpr = Math.min(2, win.devicePixelRatio || 1);
     canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
     L = layout(w, h, compact);

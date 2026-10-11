@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-XMQOQhndUHkdO0MKIgmZBxafrqie8rkHJq03k96Qs9E=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ID7oCtLFGzwb72ycL9sL9fDYPWR3L4LTx3oOKsZ3tuk=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=b0bddd8d"></script>
 <title>tacit</title>
@@ -438,10 +438,10 @@ button.stn .tk { transition: transform .12s; }
 .twin .tk { width: 24px; height: 24px; margin-left: calc((var(--lg) - 24px) / 2); }
 .twin::before { content: ''; position: absolute; left: var(--cx); top: -14px; height: 13px; border-left: 1px dotted var(--mute); opacity: .7; }
 /* The picture of the two chains, under the lanes: what is passing between them now, and over the last day. No box: a rule and a line. */
-.kept { margin: 0 0 22px; padding: 16px 0 0; border-top: 1px solid var(--hair); }
+.kept { margin: 0 0 22px; padding: 14px 0 0; border-top: 1px solid var(--hair); }
 .kept-h { display: flex; justify-content: space-between; align-items: baseline; gap: 6px 16px; flex-wrap: wrap; margin: 0 0 10px; font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--mute); }
 .kept-h a { font: 400 12px var(--mono); text-transform: none; letter-spacing: 0; color: var(--mute); }
-#kept-v { min-height: 158px; }
+#kept-v { min-height: 134px; }
 /* What the lanes leave out: the ETH-only pools that take payments on four chains. */
 .paths-n { margin: 0 0 26px; padding: 14px 0 0; font-size: 12px; line-height: 1.55; color: var(--mute); border-top: 1px solid var(--hair); }
 /* Narrower than the shell, a lane's line goes under its route, as on a phone. */
@@ -9319,7 +9319,7 @@ function hxSync() { if (HX.mode !== 'send' && HX.from === 'ether' && hxHeld() !=
 paintHx();
 refreshTape();
 // The picture of the two chains loads when it is about to be seen, with its own small feed; if it cannot, the section is as it was.
-{ const k = $('#kept'); if (k && 'IntersectionObserver' in window) { const io = new IntersectionObserver((es) => { if (!es.some((e) => e.isIntersecting)) return; io.disconnect(); import('/weld/flow/viz.js?cb=f0993dac').then((m) => m.mountFlow($('#kept-v'), { compact: true })).catch(() => { k.hidden = true; }); }, { rootMargin: '400px' }); io.observe(k); } else if (k) k.hidden = true; }
+{ const k = $('#kept'); if (k && 'IntersectionObserver' in window) { const io = new IntersectionObserver((es) => { if (!es.some((e) => e.isIntersecting)) return; io.disconnect(); import('/weld/flow/viz.js?cb=e13fcb96').then((m) => m.mountFlow($('#kept-v'), { compact: true })).catch(() => { k.hidden = true; }); }, { rootMargin: '400px' }); io.observe(k); } else if (k) k.hidden = true; }
 setInterval(() => { if (!document.hidden) for (const e of $$('[data-left]')) e.textContent = potLeft(); }, 1000);
 
 function refreshAll() {
