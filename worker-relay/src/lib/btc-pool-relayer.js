@@ -957,8 +957,8 @@ export function createRelayer({
         c.state = 'dropped';
         save(c);
       } else {
-        await chain.broadcast(c.commitHex).catch(() => {});
-        await chain.broadcast(c.revealHex).catch(() => {});
+        await chain.broadcast(c.commitHex).catch(() => {});   // usually already confirmed or held
+        await chain.broadcast(c.revealHex);                   // a refusal is recorded and logged by tick
       }
     }
   }
@@ -1046,7 +1046,11 @@ export function createRelayer({
           if (st && st.confirmed) finalize(c, st);
           else await watch(c, st);
         }
-      } catch (e) { c.lastError = String(e?.message || e); }
+      } catch (e) {
+        const m = String(e?.message || e);
+        if (m !== c.lastError) log(`carrier ${c.id} (${c.state}): ${m}`);
+        c.lastError = m;
+      }
     }
     pruneMemory();
   }
@@ -1242,7 +1246,16 @@ export function makeEsploraRelayChain(bases, { fetchImpl = fetch, feeTarget = '3
         catch (e2) { throw Object.assign(new Error(`${e.message}; own node: ${e2.message}`), { status: e.status }); }
       }
     },
-    txStatus: async (txid) => { try { return JSON.parse(await req(`/tx/${txid}/status`)); } catch (e) { if (e.status === 404) return null; throw e; } },
+    // `/tx/:txid/status` answers 200 {"confirmed":false} for a txid no node has ever seen, so that alone cannot tell a
+    // transaction in the mempool from one that was never sent. A refused broadcast read as sent (pushTx) and a carrier
+    // missing from the chain was never rebroadcast (watch). The transaction itself settles it: null when no base has it.
+    txStatus: async (txid) => {
+      let st;
+      try { st = JSON.parse(await req(`/tx/${txid}/status`)); } catch (e) { if (e.status === 404) return null; throw e; }
+      if (st?.confirmed) return st;
+      try { await req(`/tx/${txid}`); } catch (e) { if (e.status === 404) return null; throw e; }
+      return st;
+    },
     outspend: async (txid, vout) => JSON.parse(await req(`/tx/${txid}/outspend/${vout}`)),
   };
 }
