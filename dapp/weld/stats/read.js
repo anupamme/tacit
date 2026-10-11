@@ -19,6 +19,9 @@ export const A = {
   evmPool: '0x000000c2A20657CE25f2Ba99737933D031AFBEE9',
 };
 export const ID = { ceth: '0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34', tac: '0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b' };
+export const ZERO32 = '0x' + '00'.repeat(32);
+// The wallets that relay settles for users and so receive each settle's fee mint (the relay key and the settle key).
+const RELAYERS = new Set(['0x68575b073de49a94e3e3acf6f3a0d6e3b66267c7', '0x7a0f0511e1dcf399c2f7bbe8414b6a0d1abc4331']);
 const FROM = { main: 25998000, evm: { 8453: 51864014, 4663: 73991661 } };
 export const TOPIC = {
   wrap: '0xf5d1711d21af6f42622ab6237626933cefc42cc9f0663d81b7c4c7bc5ce99e44',
@@ -32,6 +35,7 @@ export const TOPIC = {
   cdpLiquidated: '0x28d08a2db16236ca56b1223ba30ba49824b860a3e7eb8c5a1c1224697aa3ebd1',
   claimed: '0x4ec90e965519d92681267467f775ada5bd214aa92c0dc93d90a5e880ce9ed026',
   transact: '0xdf0ed29e998ac2f2ff0f0516cb9c1b95af189e00d55af3764b95bdd2a835e53a',
+  transfer: '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
 };
 export const SEL = {
   tipHeight: '0x1fd4827a', blockHeight: '0x59a53331', nextLeafIndex: '0x0be4f422', crossOuts: '0xa6f8c9d6', consumed: '0x281d8cc9',
@@ -154,7 +158,7 @@ export function makeStatsReader({ fetchImpl = (...a) => fetch(...a), gapMs = 200
     if (cap) { const n = Number(cap[1].replace(/,/g, '')); return n < span ? { span: n, cap: n } : null; }
     return /too (large|wide|big|many)|exceed|more than|response size|narrow the/i.test(e.message) && span > 1 ? { span: Math.floor(span / 2) } : null;
   }
-  async function getLogs(chain, address, from, to, budget = 12) {
+  async function getLogs(chain, address, from, to, budget = 12, topics = null) {
     const out = [];
     // A node that refuses without naming a span (publicnode wants a token for old blocks) is left out for the rest of this
     // read: it would refuse every piece of it. It is asked again on the next read, which may want only recent blocks.
@@ -171,7 +175,7 @@ export function makeStatsReader({ fetchImpl = (...a) => fetch(...a), gapMs = 200
           if (asked > 12 && gapMs) await sleep(gapMs);                       // a long read goes a little apart
           const end = start + span - 1;
           try {
-            const { result } = await post(ep.url, { jsonrpc: '2.0', id: 1, method: 'eth_getLogs', params: [{ address, fromBlock: '0x' + start.toString(16), toBlock: '0x' + end.toString(16) }] }, 25e3);
+            const { result } = await post(ep.url, { jsonrpc: '2.0', id: 1, method: 'eth_getLogs', params: [{ address, ...(topics ? { topics } : {}), fromBlock: '0x' + start.toString(16), toBlock: '0x' + end.toString(16) }] }, 25e3);
             got = { logs: Array.isArray(result) ? result : [], end };
           } catch (e) {
             last = e;
@@ -260,16 +264,17 @@ export function makeStatsReader({ fetchImpl = (...a) => fetch(...a), gapMs = 200
 
     // Logs from `from` of the given contracts, new ones read and final ones kept. RPC first; where it would take too many
     // requests (a first reading on a chain whose nodes serve short ranges), the explorer, one contract at a time.
-    async function logsOf(name, chain, addresses, from) {
+    async function logsOf(name, chain, addresses, from, topics = null) {
       const to = await head(chain), final = CHAINS[chain].final, kept = k.logs[name], start = kept ? kept.to + 1 : from;
       let fresh = [];
       if (start <= to) {
-        try { fresh = await getLogs(chain, addresses.length === 1 ? addresses[0] : addresses, start, to, logBudget); }
+        try { fresh = await getLogs(chain, addresses.length === 1 ? addresses[0] : addresses, start, to, logBudget, topics); }
         catch (e) {
           try {
             if (!CHAINS[chain].bs) throw e;
             fresh = [];
-            for (const a of addresses) fresh.push(...(await bsLogs(chain, a, start)).filter((l) => num(l.blockNumber) <= to));
+            for (const a of addresses) fresh.push(...(await bsLogs(chain, a, start)).filter((l) => num(l.blockNumber) <= to
+              && (!topics || topics.every((t, i) => t == null || String(l.topics[i] || '').toLowerCase() === String(t).toLowerCase()))));
           } catch (e2) {
             // Neither the nodes nor an explorer gave it all: what the nodes did read, up to a final block, is kept, so the next
             // reading goes on from there instead of from the start (Base's nodes answer 500 or 1,000 blocks at a time).
@@ -313,6 +318,9 @@ export function makeStatsReader({ fetchImpl = (...a) => fetch(...a), gapMs = 200
     }
     const once = (fn) => { let p = null; return () => (p ||= fn()); };
     const main = once(() => logsOf('1', 1, [A.pool, A.engine, A.airdrop, A.evmPool], FROM.main));
+    // TAC leaving the shielded set: the token's mints alone (Transfer from the zero address), asked for with that filter so a
+    // reading never pulls or keeps the token's ordinary transfers.
+    const tacMints = once(() => logsOf('tacmint', 1, [A.tac], FROM.main, [TOPIC.transfer, ZERO32]));
     const poolTxs = once(() => txsOf('txlist', 'txlist'));
     const internal = once(() => txsOf('internal', 'txlistinternal'));
     const of = (address, topic) => (ls) => ls.filter((l) => l.a === lc(address) && (!topic || l.t[0] === topic));
@@ -409,7 +417,17 @@ export function makeStatsReader({ fetchImpl = (...a) => fetch(...a), gapMs = 200
       const byAsset = new Map();
       for (const l of ls.filter((x) => x.t[0] === TOPIC.wrap)) { const g = byAsset.get(l.t[2]) || { n: 0, v: 0n }; g.n++; g.v += W(l.d, 0); byAsset.set(l.t[2], g); }
       const others = [...byAsset].filter(([id]) => id !== ID.tac && id !== ID.ceth).map(([id, g]) => ({ ...g, m: meta.get(id) || null }));
-      return { supply: BigInt(supply), tacIn: byAsset.get(ID.tac) || { n: 0, v: 0n }, claims: claims.length, claimed: claims.reduce((s, l) => s + W(l.d, 0), 0n),
+      // TAC leaving the pool for the public token: every mint of the ERC-20 (a Transfer from the zero address), since the pool is the
+      // only minter and mints either to pay a withdrawal or to pay out a swap from its own reserve. The relays' own wallets are the
+      // fee recipients of those settles, so they are left out of the accounts and the volume. The stream is read apart from the rest of
+      // this part: while a long history is being read on across readings it is absent (null) and the other figures still stand.
+      const mints = await tacMints().catch(() => null);
+      const tacOut = mints && (() => {
+        const to = (l) => '0x' + strip(l.t[2]).slice(24);
+        const out = mints.filter((l) => l.a === lc(A.tac) && l.t[0] === TOPIC.transfer && l.t[1] === ZERO32 && !RELAYERS.has(to(l)));
+        return { n: out.length, v: out.reduce((s, l) => s + W(l.d, 0), 0n), who: new Set(out.map(to)).size };
+      })();
+      return { supply: BigInt(supply), tacIn: byAsset.get(ID.tac) || { n: 0, v: 0n }, tacOut, claims: claims.length, claimed: claims.reduce((s, l) => s + W(l.d, 0), 0n),
         claimers: new Set(claims.map((l) => l.t[2])).size, others };
     }
 

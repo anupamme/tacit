@@ -2874,8 +2874,9 @@ await step('stats', async () => {
     spent: '0x576d91547505afce99e7ebe2baf1a0948b5915598105a55f40ba72fea86e875e', asset: '0x2dcb7e1d588ab99cccaa0e9a2f69798e1e9ca87a30856228f895c2f6b34a905b',
     posted: '0x0c008a699968f2a24063b7eb14d9239b2430c502fda280245345c78cbc47b7c1', cdpMinted: '0x232c7d098ca44092999087e6ee530a2171f95f9ecb1caa363f6dcf448fb7dd57',
     cdpClosed: '0xc0ede5b75ee32986e50a2a39fa32dbf5e8eff1c91a46cd127591edebd91b4db9', claimed: '0x4ec90e965519d92681267467f775ada5bd214aa92c0dc93d90a5e880ce9ed026',
-    transact: '0xdf0ed29e998ac2f2ff0f0516cb9c1b95af189e00d55af3764b95bdd2a835e53a',
+    transact: '0xdf0ed29e998ac2f2ff0f0516cb9c1b95af189e00d55af3764b95bdd2a835e53a', transfer: '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',
   };
+  const TACTOKEN = '0xa1313eb9f3a445606d9583bcac3ebeb56a858279';
   const POOLA = '0x000000000ed1eabd231be41d93b719056f7febfc', ENGINE = '0x000000003f608bddf0ca45934003ffb9dbdf70db', AIR = '0x4b4cb98d0c836c2783ac46f0078b904dab533ae8';
   const EVMP = '0x000000c2a20657ce25f2ba99737933d031afbee9', TIP = '0x000000d218b03db5837943b0b05dea2965ae956e', ROUTER = '0x000000005da3e3b73726af3c774deeb9472d4992';
   const CETH = '0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34', TACID = '0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b', USDC = '0x' + 'c5'.repeat(32), USDT = '0x' + 'c6'.repeat(32);
@@ -2911,7 +2912,9 @@ await step('stats', async () => {
   const transact = (v, i, t, fee = 0n, block) => log(EVMP, [TOPIC.transact, tx('e' + i), tx('e' + (i + 5))], [w(0), w(0), w(0), w(0), w(0), w(v), w(0), w(fee), w(0x140), w(0x160), w(0), w(0)].join(''), tx('9' + i), t, block);
   const devLogs = [transact(3n * 10n ** 17n, 1, T), transact(-(10n ** 17n), 2, T + 86400, 10n ** 16n)];
   const rhLogs = [transact(2n * 10n ** 17n, 3, T, 0n, 74000000)];
-  const MAIN = [...poolLogs, ...engineLogs, ...airLogs, ...devLogs];
+  // The TAC ERC-20's mints (Transfer from the zero address): two accounts, three mints, 75 TAC.
+  const tacLogs = [[CL1, 40], [CL1, 10], [CL2, 25]].map(([a, v], i) => log(TACTOKEN, [TOPIC.transfer, '0x' + '00'.repeat(32), addr32(a)], w(BigInt(v) * 10n ** 18n), tx('d' + i), T));
+  const MAIN = [...poolLogs, ...engineLogs, ...airLogs, ...devLogs, ...tacLogs];
   const BASE_HEAD = 51961580, RH_HEAD = 74100000;
   const inRange = (ls, q) => ls.filter((l) => [].concat(q.address).map(lc).includes(lc(l.address))
     && Number(BigInt(l.blockNumber)) >= Number(BigInt(q.fromBlock)) && (q.toBlock === 'latest' || Number(BigInt(l.blockNumber)) <= Number(BigInt(q.toBlock))));
@@ -2991,6 +2994,11 @@ await step('stats', async () => {
     const ad = await card('Airdrop claimed');
     ok(/^Airdrop claimed \| 60TAC \| 2 wallets/.test(ad), `stats: airdrop claims summed, claimers counted once (${ad})`);
     ok(/^TAC made private \| 100TAC \| 1 deposit/.test(await card('TAC made private')), `stats: TAC made private (${await card('TAC made private')})`);
+    // The way back out sits beside it: present as a card (its history may still be being read, then it says so).
+    ok(/^TAC made public \| 75TAC \| 3 mints · 2 accounts/.test(await card('TAC made public')), `stats: TAC made public counts the token's mints to accounts, from its Transfer logs (${await card('TAC made public')})`);
+    await r.page.locator('#g-tac').scrollIntoViewIfNeeded(); await shot(r.page, 'stats-tac-desk');
+    await r.page.setViewportSize({ width: 390, height: 900 }); await r.page.locator('#g-tac').scrollIntoViewIfNeeded(); await shot(r.page, 'stats-tac-phone');
+    await r.page.setViewportSize({ width: 1280, height: 1100 });
     ok(/USDC 2\.5/.test(await card('Others made private')) && /USDT 4\.63/.test(await card('Others made private')), `stats: other assets are named from the pool's registry, or their token (${await card('Others made private')})`);
     ok(await r.page.evaluate(() => [...document.querySelectorAll('.card .m a')].some((a) => /etherscan\.io\/token\/0xA1313eb9f3A445606D9583bcAc3ebeB56a858279#balances$/.test(a.href))), 'stats: TAC links to its ERC-20 holders on Etherscan');
     const pa = await card('Participants'), pp = await card('Points'), ta = await card('TAC allocated');
@@ -3018,7 +3026,9 @@ await step('stats', async () => {
     const n = hits.length, nLogs = logReads.length;
     ok(n <= 3 && hits.every((q) => /txlist|base\.blockscout|\/8453\//.test(q)), `stats: a first reading asks the explorers only for the pool's two transaction lists and Base's first log read (${hits.join(' | ')})`);
     ok(new Set(hits.filter((q) => !/base|8453/.test(q)).map((q) => q.split('/')[0])).size === 2, 'stats: the two lists go to the two explorers in turn');
-    ok(nLogs === 1, `stats: every Ethereum log in one request (${nLogs})`);
+    // The pool's contracts together in one request, and the TAC token's mints alone (filtered at the node) in a second: asking for the
+    // whole token in the first would pull every TAC transfer.
+    ok(nLogs === 2, `stats: every Ethereum log in two requests, the pool's contracts together and the TAC token's mints alone (${nLogs})`);
     const settled = () => until(r.page, () => /^As of /.test(document.querySelector('#asof')?.textContent || '') && !/updating/.test(document.querySelector('#asof')?.textContent || ''), null, 60000).catch(() => {});
     await r.page.reload();
     await settled();
