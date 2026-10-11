@@ -132,4 +132,72 @@ assert.equal(outs[0].key.marker, 'key4', 'the free counter saleKeys named');
 assert.equal(outs[0].poolWallet, pw);
 assert.match(said['st-sats-1'], /on its way to a new key, posted by the relay in cdcdcdcdcd/);
 
+// A tab left open through the pool's wait: the note turns ready on its own, and only the waiting notes are asked about.
+{
+  Object.defineProperty(document, 'hidden', { value: false, configurable: true });   // jsdom reports a page nobody can see
+  const intervals = [];
+  const realSetInterval = globalThis.setInterval;
+  globalThis.setInterval = (fn) => { intervals.push(fn); return 0; };
+  let counted = false;
+  const asked = [];
+  const host2 = document.createElement('div');
+  document.body.append(host2);
+  const S2 = { ...S, poolClientFor: () => ({ relayInfo: async () => ({ address: 'bp1qrelay' }), exit: async (txid, vout) => { asked.push(`${txid.slice(0, 4)}:${vout}`); return { exists: counted }; } }) };
+  mount(host2, { ...ctx, S: S2 });
+  globalThis.setInterval = realSetInterval;
+  await settle();
+  const listBtn = () => [...host2.querySelectorAll('button.btn')][1];
+  assert.match(host2.textContent, /2,500 TAC\s*waiting for the pool to count it/);
+  assert.equal(listBtn().disabled, true, 'nothing to list yet');
+  assert.equal(intervals.length, 1, 'one timer for the panel');
+  asked.length = 0;
+  await intervals[0](); await settle();
+  assert.deepEqual(asked, ['eeee:1'], 'the waiting note is asked about, once');
+  assert.match(host2.textContent, /waiting for the pool to count it/, 'still waiting while the pool has not counted it');
+  counted = true;
+  await intervals[0](); await settle();
+  assert.match(host2.textContent, /2,500 TAC\s*ready to list/, 'ready with no reload');
+  assert.equal(listBtn().disabled, false);
+  asked.length = 0;
+  await intervals[0](); await settle();
+  assert.deepEqual(asked, [], 'a note that is ready is not asked about again');
+}
+
+// A read that fails says so, and a retry reads again: an empty panel would look like TAC that is gone.
+{
+  let calls = 0;
+  const host3 = document.createElement('div');
+  document.body.append(host3);
+  const S3 = { ...S, saleKeys: async () => { calls++; if (calls === 1) throw new Error('explorer down'); return { keys: [{ ...saleKey, notes: [NOTE] }], free }; } };
+  mount(host3, { ...ctx, S: S3 });
+  await settle();
+  assert.match(host3.textContent, /Couldn’t read what you have taken out just now\. Nothing is lost/);
+  assert.doesNotMatch(host3.textContent, /2,500 TAC/, 'no note is shown for a read that failed');
+  [...host3.querySelectorAll('button.link')].find((b) => b.textContent === 'retry').click();
+  await settle();
+  assert.equal(calls, 2, 'retry reads again');
+  assert.doesNotMatch(host3.textContent, /Couldn’t read/);
+  assert.match(host3.textContent, /2,500 TAC\s*ready to list/);
+}
+
+// A take-out that went through stays said when the read that follows it fails.
+{
+  let calls = 0;
+  const host4 = document.createElement('div');
+  document.body.append(host4);
+  // reads: at mount, before the take-out (it needs the next free key), then the one after it, which fails
+  const S4 = { ...S, saleKeys: async () => { calls++; if (calls >= 3) throw new Error('explorer down'); return { keys: [], free: 5 }; } };
+  const before = outs.length;
+  mount(host4, { ...ctx, S: S4 });
+  await settle();
+  host4.querySelector('#sats-amt').value = '10';
+  [...host4.querySelectorAll('button.btn')][0].click();
+  await settle();
+  assert.equal(outs.length, before + 1, 'the take-out went to the relay');
+  assert.match(said['st-sats-1'], /on its way to a new key/, 'and is still said as done');
+  assert.doesNotMatch(said['st-sats-1'], /^ERR/);
+  assert.match(host4.textContent, /Couldn’t read what you have taken out just now/, 'the failed read says so beside Step 2');
+}
+
 console.log('tac-sats-panel: all checks passed');
+process.exit(0);   // the panel keeps a timer for the page it lives in

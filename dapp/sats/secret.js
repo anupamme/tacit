@@ -79,11 +79,20 @@ const outpointBytes = (txid, vout) => {
   return b;
 };
 
+// One read from the Bitcoin explorer, null when it has none. The dapp lists a second explorer (NET.api2) and a read that
+// the first cannot answer, whether it is down or answers with an error, is asked of the second before it fails.
 async function esplora(tacit, p) {
-  const r = await fetch(tacit.NET.api + p);
-  if (r.status === 404) return null;
-  if (!r.ok) throw new Error(`${p}: HTTP ${r.status}`);
-  return r.json();
+  let last = null;
+  for (const base of [tacit.NET.api, tacit.NET.api2]) {
+    if (!base) continue;
+    try {
+      const r = await fetch(base + p);
+      if (r.status === 404) return null;
+      if (r.ok) return await r.json();
+      last = new Error(`${p}: HTTP ${r.status}`);
+    } catch (e) { last = e; }
+  }
+  throw last || new Error(`${p}: no explorer to ask`);
 }
 
 // ── faucet ──

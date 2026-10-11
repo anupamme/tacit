@@ -87,6 +87,25 @@ pool.recoverExit = (wallet, payload, notes, opts) => { assert.equal(wallet, pw);
   assert.deepEqual(r, { keys: [], free: 0 }, 'a new wallet starts at counter 0');
 }
 
+// ── a first explorer that is down or erroring: the dapp's second explorer answers; both down is a failure, not "none" ──
+{
+  const two = { ...tacitScan, NET: { api: 'https://down.test/api', api2: API } };
+  for (const kind of ['throws', '503']) {
+    chain();
+    const inner = globalThis.fetch;
+    globalThis.fetch = async (url, init) => {
+      if (String(url).startsWith('https://down.test')) {
+        if (kind === 'throws') throw new TypeError('fetch failed');
+        return { ok: false, status: 503, json: async () => ({}) };
+      }
+      return inner(url, init);
+    };
+    assert.deepEqual(await secret.saleKeys(two, pw, [], ASSET, { addresses: [relayAddr] }), { keys: [], free: 0 }, `first explorer ${kind}: the second one answers`);
+  }
+  globalThis.fetch = async () => { throw new TypeError('fetch failed'); };
+  await assert.rejects(secret.saleKeys(two, pw, [], ASSET), /fetch failed/, 'no explorer answering is a failed read, never "no take-outs"');
+}
+
 // ── exitToSaleKey ──
 const NOT_NOW = 'The relay isn’t taking TAC out right now. Nothing was sent; try again in a few minutes.';
 const SLOW = 'The relay hasn’t posted it yet and may still. Nothing else was sent; once it posts, the TAC shows here, ready to list.';

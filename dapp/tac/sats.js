@@ -108,6 +108,8 @@ function payoutScript(addr) {
 const hexBytes = (h) => Uint8Array.from(String(h).match(/../g) || [], (b) => parseInt(b, 16));
 const hexOf = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
 const opKey = (n) => `${n.txid}:${n.vout}`;
+// A price in sats per TAC as it is shown and prefilled: the market's mark carries eight decimals, a price is read to two.
+const pxText = (n) => String(Math.round(Number(n) * 100) / 100);
 const LASTS = [[1, '1 day'], [3, '3 days'], [7, '7 days']];
 
 export function mount(host, ctx) {
@@ -121,6 +123,7 @@ export function mount(host, ctx) {
   let looking = null;       // that read, while it runs
   const ready = new Set();  // outpoints the pool's replay has recorded: until then a buyer's wallet does not credit them
   let pick = null;          // outpoint chosen to list
+  let readErr = false;       // the last read of the sale keys failed
 
   const amt = el('input', { id: 'sats-amt', inputmode: 'decimal', autocomplete: 'off', placeholder: '0.00' });
   const payout = el('input', { id: 'sats-payout', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', placeholder: 'bc1…' });
@@ -175,21 +178,43 @@ export function mount(host, ctx) {
     const pw = ctx.poolWallet, S = ctx.S, T = ctx.T;
     if (!pw || !S || !T) return Promise.resolve();
     looking = (async () => {
-      if (!ctx.notes?.length) await loadShielded();
-      const client = S.poolClientFor('mainnet');
-      // The fee notes of past take-outs went to the relay's address; naming it is what lets each one be opened again.
-      const info = await client.relayInfo().catch(() => null);
-      const r = await S.saleKeys(T, pw, ctx.notes || [], S.TAC_ASSET_MAINNET, { addresses: info?.address ? [info.address] : [] });
-      if (ctx.poolWallet !== pw) return;
-      sale = r;
-      await Promise.all(held().filter((n) => !ready.has(opKey(n))).map(async (n) => {
-        const x = await client.exit(n.txid, n.vout).catch(() => null);
-        if (x?.exists) ready.add(opKey(n));
-      }));
-      render();
+      try {
+        if (!ctx.notes?.length) await loadShielded();
+        const client = S.poolClientFor('mainnet');
+        // The fee notes of past take-outs went to the relay's address; naming it is what lets each one be opened again.
+        const info = await client.relayInfo().catch(() => null);
+        const r = await S.saleKeys(T, pw, ctx.notes || [], S.TAC_ASSET_MAINNET, { addresses: info?.address ? [info.address] : [] });
+        if (ctx.poolWallet !== pw) return;
+        sale = r;
+        await Promise.all(held().filter((n) => !ready.has(opKey(n))).map(async (n) => {
+          const x = await client.exit(n.txid, n.vout).catch(() => null);
+          if (x?.exists) ready.add(opKey(n));
+        }));
+        readErr = false;
+        render();
+      } catch (e) {
+        // A read that fails is said so: a page that shows nothing reads as TAC that is gone.
+        if (ctx.poolWallet === pw) { readErr = true; render(); }
+        throw e;
+      }
     })().finally(() => { looking = null; });
     return looking;
   }
+
+  // The pool counts a take-out three confirmations after its carrier, about half an hour on, and a tab left open through
+  // that wait should not need a reload: each minute the notes still waiting are asked about again, one request apiece.
+  async function recheck() {
+    const waiting = held().filter((n) => !ready.has(opKey(n)));
+    if (!waiting.length || !ctx.S || document.hidden || host.closest('[hidden]')) return;
+    const client = ctx.S.poolClientFor('mainnet');
+    let any = false;
+    await Promise.all(waiting.map(async (n) => {
+      const x = await client.exit(n.txid, n.vout).catch(() => null);
+      if (x?.exists === true) { ready.add(opKey(n)); any = true; }
+    }));
+    if (any) render();
+  }
+  setInterval(() => { if (host.isConnected) recheck().catch(() => {}); }, 60_000);
 
   // The sale key in tacit.js for one turn, so the listing is signed by it and names its note; the wallet's key after.
   const listAs = (key, fn) => ctx.turn(async () => {
@@ -228,8 +253,9 @@ export function mount(host, ctx) {
     say('st-sats-1', `${fmt(units)} TAC is on its way to a new key`, ...(r.revealTxid ? [', posted by the relay in ', txLink(r.revealTxid)] : [', posted by the relay']),
       '. It can be listed once the pool counts it, three confirmations from now (about 30 minutes).');
     await loadShielded();
+    await looking?.catch(() => {});   // a read already under way began before this take-out and would miss it
     sale = null;
-    await look();
+    await look().catch(() => {});     // the take-out is done: a read that fails shows its own note and retry, and does not unsay it
   }
 
   async function doList() {
@@ -288,7 +314,7 @@ export function mount(host, ctx) {
       el('div', { class: 'amt' }, amt, el('span', { class: 'u' }, 'TAC')),
 
       el('div', { class: 'lbl' }, el('label', { for: 'sats-price' }, 'Price'),
-        mark ? el('button', { class: 'link', type: 'button', onclick: () => { priceEl.value = String(mark); recompute(); } }, `market · ${mark} sats`) : el('span', {}, 'market price unavailable')),
+        mark ? el('button', { class: 'link', type: 'button', onclick: () => { priceEl.value = pxText(mark); recompute(); } }, `market · ${pxText(mark)} sats`) : el('span', {}, 'market price unavailable')),
       el('div', { class: 'amt' }, priceEl, el('span', { class: 'u' }, 'sats / TAC')),
       quote,
       book?.count != null ? el('div', { class: 'kv' }, el('span', {}, 'Open sales on the book'), el('b', {}, String(book.count))) : null,
@@ -305,6 +331,8 @@ export function mount(host, ctx) {
       statusStep1,
 
       el('p', { class: 'eyebrow', style: 'margin-top:18px' }, 'Step 2 — list for sats'),
+      readErr ? el('p', { class: 'note' }, 'Couldn’t read what you have taken out just now. Nothing is lost: it stays at its own key. ',
+        el('button', { class: 'link', type: 'button', onclick: () => { readErr = false; render(); look().catch(() => {}); } }, 'retry')) : null,
       ...rows.map(heldRow),
       btnList,
       statusStep2,
@@ -317,10 +345,10 @@ export function mount(host, ctx) {
 
   btnOut.addEventListener('click', () => busy(btnOut, 'st-sats-1', doOut));
   btnList.addEventListener('click', () => busy(btnList, 'st-sats-2', doList));
-  window.addEventListener('tac:wallet', () => { sale = null; ready.clear(); pick = null; render(); look().catch(() => {}); });
+  window.addEventListener('tac:wallet', () => { sale = null; ready.clear(); pick = null; readErr = false; render(); look().catch(() => {}); });
 
   render();
-  markPriceSats().then((m) => { if (m) { mark = m; if (!priceEl.value) priceEl.value = String(m); render(); } }).catch(() => {});
+  markPriceSats().then((m) => { if (m) { mark = m; if (!priceEl.value) priceEl.value = pxText(m); render(); } }).catch(() => {});
   openSales().then((b) => { book = b; render(); }).catch(() => {});
   look().catch(() => {});
 }
