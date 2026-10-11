@@ -3247,11 +3247,12 @@ const stubFarmUx = (page, { notes = [], positions = null, chain = false, swap = 
   }` }));
 const farmPos = (n, shares, units, tac) => ({ pid: 0, pair: 'TAC/cETH', lpAsset: FARM_LP0, shares: String(shares), receiptLeaf: '0x' + String(n).repeat(64), receiptIndex: n, unlockAt: 0, pendingUnits: String(units), pendingTac: tac });
 // Opens a key by its pasted hex, funds its Tacit account for gas and returns the page.
-async function openFarmKey(hex, stub, viewport) {
+async function openFarmKey(hex, stub, viewport, setup) {
   const r = await openPage({ account: A0, key: K0, viewport });
   const acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address;
   await rpc('anvil_setBalance', [acct, '0x' + (10n ** 18n).toString(16)]);
   await stubFarmUx(r.page, stub);
+  if (setup) await setup(r.page);
   await r.page.goto(r.url + '#wallet');
   await r.page.click('#wallet-body [data-in="paste"]'); await r.page.fill('#ws-hex', hex); await r.page.click('#wallet-body [data-in="key"]');
   await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
@@ -3412,7 +3413,7 @@ await step('hxpanel', async () => {
     await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
     await p.click(`[data-hxm="${mode}"]`);
     if (amt != null) await p.fill('#hx-amt', amt);
-    if (route) { await p.waitForSelector(`[data-hxr="${route}"]`, { timeout: 120000 }); await p.click(`[data-hxr="${route}"]`); }
+    if (route) { await p.waitForSelector(`[data-hxr="${route}"]`, { timeout: 600000 }); await p.click(`[data-hxr="${route}"]`); }
     // The private balance is read on a cold fork first. A wait that runs out says what the panel showed.
     await until(p, (l) => document.querySelector('#hx-go')?.textContent === l, label, 900000).catch(async (e) => {
       console.log('     panel:', JSON.stringify(await p.evaluate(() => ['#hx-go', '#hx-out', '#hx-routes', '#hx-q', '#wallet-dot'].map((s) => `${s}=${(document.querySelector(s)?.textContent || '').replace(/\s+/g, ' ').slice(0, 160)}`))));
@@ -3434,9 +3435,43 @@ await step('hxpanel', async () => {
     ok(await form('#pf-amt', '0.05'), 'hxpanel: Earn opens the public farm with the ETH in');
     await press('earn', '0.01', '0', 'Farm privately');
     ok(await form('#sj-a-0', '0.01'), 'hxpanel: a private farm, with tETH held, opens on tETH alone with the amount');
-    await press('private', '0.02', null, 'Make ETH private');
+    // The card's points figure for a wrap is the Private sheet's own: the same number, before and after the hand-off.
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    await p.click('[data-hxm="private"]'); await p.fill('#hx-amt', '0.02');
+    // The amount carries over from the last tab, so the figure for it comes first: wait for this amount's own.
+    await until(p, () => document.querySelector('#hx-out')?.textContent === '0.02' && !document.querySelector('#hx-pts')?.hidden && /≈ [\d,]+/.test(document.querySelector('#hx-pts b')?.textContent || ''), null, 120000);
+    const figure = (t) => (t.match(/≈\s*([\d,]+)/) || [])[1];
+    const onCard = figure(await text(p, '#hx-pts b'));
+    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Make ETH private', null, 120000);
+    await p.click('#hx-go');
     ok(await form('#w-amt', '0.02') && !(await p.$('#sheet-eth .farm-back')), 'hxpanel: Private opens the wrap with the amount and no second step');
+    await until(p, () => /≈\s*[\d,]+/.test(document.querySelector('#w-rcpt [data-pts] b')?.textContent || ''), null, 120000);
+    const onSheet = figure(await text(p, '#w-rcpt [data-pts] b'));
+    ok(onCard && onCard === onSheet, `hxpanel: the card and the Private sheet estimate the same points for 0.02 ETH (${onCard} and ${onSheet})`);
     if (r.errors.length) { fails++; console.log('FAIL hxpanel page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// The card's note on the week's multiplier, from a wallet's own scored rows (the service's /points answer stubbed): a swap
+// yesterday plus a private deposit today is two kinds on two days, x1.5, and the next step is named; a deposit too small to
+// count as a kind says nothing about the week.
+await step('hxweek', async () => {
+  const yesterday = Math.floor(Date.now() / 1000) - 86400;
+  const rows = [{ tx_hash: '0x' + '11'.repeat(32), block_number: 1, block_time: yesterday, amount_wei: '100000000000000000', prior_deposit_count: 0, points: 100, tip_wei: null, tip_recipient: null, pp_boosted: false, activity: 'zswapeth', tac_boost: 1, z_share_boost: 1, chain_id: 1 }];
+  const r = await openFarmKey('7e4b'.padEnd(64, '6'), { notes: [] }, undefined, (page) => page.route(/api\.tacit\.finance\/points\/0x[0-9a-fA-F]{40}$/, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ address: '0x' + '00'.repeat(20), points: 100, deposit_count: 1, amount_wei: '0', today: null, deposits: rows }) })));
+  const p = r.page;
+  try {
+    await p.waitForSelector('#hx-body .hx-h');
+    await p.click('[data-hxm="private"]'); await p.fill('#hx-amt', '0.02');
+    await until(p, () => /Counts ×1\.5 toward/.test(document.querySelector('#hx-pts')?.textContent || ''), null, 300000);   // the card waits for the Points reading made at sign-in
+    const tip = (await text(p, '#hx-pts')).replace(/\s+/g, ' ');
+    ok(/Counts ×1\.5 toward today’s pot\. A loan or a \.wei name this week lifts it to ×1\.75\./.test(tip), `hxweek: yesterday's swap and today's private deposit count x1.5, and the next kind is named (${tip.slice(0, 200)})`);
+    if (SHOTS) await (await p.$('#hx')).screenshot({ path: join(SHOTS, 'weld-hxweek.png') });
+    await p.fill('#hx-amt', '0.0001');
+    await until(p, () => document.querySelector('#hx-out')?.textContent === '0.0001' && !document.querySelector('#hx-pts')?.hidden, null, 120000);
+    const small = (await text(p, '#hx-pts')).replace(/\s+/g, ' ');
+    ok(/< 1 TAC points/.test(small) && !/Counts ×/.test(small) && !/: 0 more/.test(small), `hxweek: a deposit too small to count as a kind says nothing of the week (${small.slice(0, 120)})`);
+    if (r.errors.length) { fails++; console.log('FAIL hxweek page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 

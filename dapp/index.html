@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-prcleUCDNs8Uex9n96yD12a86Ike2Ez2t2DTAopuD2A=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-8vUYNyw0OSZqRhh1ApkvaPMYRcP2vKt/E7oCD8R2M3E=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=b0bddd8d"></script>
 <title>tacit</title>
@@ -288,6 +288,15 @@ a.di { color: inherit; text-decoration: none; }
 .hx .btn { width: 100%; min-height: 50px; margin: 12px 0 0; }
 .hero .hx-q { max-width: none; }
 .hx-q { min-height: 18px; margin: 10px 2px 0; font-size: 12px; line-height: 1.5; color: var(--mute); }
+/* What the amount typed earns in the points program, and the nudge toward more of it. */
+.hx-pts { display: grid; gap: 3px; margin-top: 12px; padding: 9px 12px; border: 1px dashed var(--hair-2); font-size: 12px; line-height: 1.5; color: var(--mute); }
+.hx-pts[hidden] { display: none; }
+.hx-pl { display: flex; align-items: center; gap: 6px; color: var(--ink); }
+.hx-pl .tk { width: 16px; height: 16px; margin-right: 1px; }
+.hx-pl b { font: 600 14px var(--mono); }
+.hx-pl .link { margin-left: auto; padding: 0; font-size: 12px; }
+.hx-pt { color: var(--ink); }
+.hx-pt::before { content: '+ '; font-weight: 600; color: #16a34a; }
 /* Where a pair has more than one way, each way with what it pays: one is picked, the best is marked. */
 .hx-routes { display: grid; margin-top: 10px; }
 .hx-routes[hidden] { display: none; }
@@ -299,7 +308,7 @@ a.di { color: inherit; text-decoration: none; }
 .hx-routes button[aria-checked="true"]::before { background: radial-gradient(circle, currentColor 0 2.5px, transparent 3px); }
 .hx-routes b { grid-area: name; font-weight: 600; white-space: nowrap; }
 .hx-routes output { grid-area: out; font-weight: 600; text-align: right; white-space: nowrap; }
-.hx-routes span { grid-area: note; font-size: 12px; color: var(--mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hx-routes span { grid-area: note; min-width: 0; font-size: 12px; color: var(--mute); }
 .hx-routes em { grid-area: tag; font: 600 10px var(--mono); font-style: normal; text-transform: uppercase; letter-spacing: .06em; color: #16a34a; text-align: right; }
 @media (hover: hover) { .hx-routes button:hover { color: var(--ink); } }
 .hx-routes button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
@@ -3234,7 +3243,7 @@ document.addEventListener('click', (e) => {
 function paintBack(sheet) {
   for (const o of $$('.farm-back')) o.remove();
   const b = FARM.back;
-  if (!b || sheet === 'farm' || Date.now() - b.at > 30 * 60e3 || !['eth', 'tac', 'borrow'].includes(sheet)) return;
+  if (!b || sheet === 'farm' || Date.now() - b.at > 30 * 60e3 || !['eth', 'tac', 'borrow'].includes(sheet) || (b.link && sheet !== 'eth')) return;
   const head = $(`#sheet-${sheet} .sheet-head`);
   if (!head) return;
   const line = document.createElement('p');
@@ -3669,6 +3678,7 @@ function poolLine(where) {
 }
 // Totals and holdings arrive after the form is drawn: fill the pool lines in place, and redo an open receipt.
 function outlookPaint() {
+  OUT.paint?.();
   for (const el of $$('[data-pool]')) mount(el, poolLine(el.dataset.pool));
   // A form's own check redraws its receipt with the figures just read; never while its action is running.
   for (const [id, go, rc] of [['w-amt', 'w-go', 'w-rcpt'], ['d-amt', 'd-go', 'd-rcpt']]) {
@@ -3872,7 +3882,7 @@ function v1Send(el, status) {
     } catch (e) { if (my === seq) quoteErr(rc, e); }
   };
   onEdit([to, amt], go, check);
-  if (HX.draft?.mode === 'send') { to.value = HX.draft.to || ''; amt.value = HX.draft.amt || ''; HX.draft = null; if (to.value || amt.value) check({}); }
+  const dr = hxLive('send'); if (dr) { to.value = dr.to || ''; amt.value = dr.amt || ''; HX.draft = null; if (to.value || amt.value) check({}); }
   go.onclick = () => busy(go, async (run) => {
     const w = who, units = parseUnits(amt.value, 8), raw = to.value.trim();   // the recipient checked, whatever is typed after
     if (!w || !units) return;
@@ -3997,7 +4007,7 @@ function v1Swap(el, status) {
     } catch (x) { if (my === seq) { setOut(null); quoteErr(rc, x); } }
   };
   onEdit([amt], go, check);
-  if (HX.draft?.mode === 'swap') { amt.value = HX.draft.amt || ''; HX.draft = null; if (amt.value) check({}); }
+  const dr = hxLive('swap'); if (dr) { amt.value = dr.amt || ''; HX.draft = null; if (amt.value) check({}); }
   go.onclick = () => busy(go, async (run) => {
     const x = q;
     if (!x || !lossOk(ackBox, x.impact)) return;
@@ -6374,6 +6384,7 @@ const PGM = { startDay: Date.UTC(2026, 8, 23) / 864e5, days: 90, totalWei: 10000
   rateCap: [{ fromDay: Date.UTC(2026, 9, 3) / 864e5, wei: 3n * 10n ** 16n }], early: { max: 5, half: 200 }, wrapBoost: 1.25,
   tiers: [[100, 1.25], [1000, 1.5], [10000, 2]], windowHours: 24,
   rates: { wrap: 1250, evmpooldeposit: 1000, zswapeth: 1000, cbtcmint: 1000, cusdmint: 2 },
+  kinds: { wrap: 'private', evmpooldeposit: 'private', btcpool: 'private', holding: 'private', zswapeth: 'swap', cbtcmint: 'borrow', cbtchold: 'borrow', cusdmint: 'borrow', weiname: 'names', pmbet: 'markets', pmcreate: 'markets' },
   weights: [], engagement: [], bondHoldFromDay: null, cbtcHoldFromDay: null };
 const ptsDays = () => PGM.days, ptsEnd = () => (PGM.startDay + PGM.days) * 86400;   // the first second after the program's last day
 const potTac = () => fmt(PGM.dayWei, 18, 0), rateStr = (n) => Number(n).toLocaleString('en-US');
@@ -6421,6 +6432,7 @@ function takeProgram(p) {
   }).filter(Boolean).sort((a, b) => a.fromDay - b.fromDay);
   if ('bondHoldFromDay' in p) next.bondHoldFromDay = num(p.bondHoldFromDay, 1, 1e6);
   if ('cbtcHoldFromDay' in p) next.cbtcHoldFromDay = num(p.cbtcHoldFromDay, 1, 1e6);
+  if (p.kinds && typeof p.kinds === 'object' && !Array.isArray(p.kinds)) next.kinds = Object.fromEntries(Object.entries(p.kinds).filter(([a, k]) => /^[a-z0-9_]{1,24}$/.test(a) && typeof k === 'string' && /^[a-z0-9_]{1,24}$/.test(k)));
   if (p.rates && typeof p.rates === 'object') next.rates = Object.fromEntries(Object.entries(p.rates).filter(([, v]) => num(v, 0, 1e9) != null && Number(v) > 0).map(([k, v]) => [k, Number(v)]));
   Object.assign(PGM, next);
   for (const e of $$('[data-pgm="pot"]')) e.textContent = potTac();
@@ -6493,6 +6505,7 @@ async function readPoints(current) {
   noteSeen(rows);
   Object.assign(PTS, { at: Date.now(), key, rows, board: lb, day, pulse });
   paintPointsFoot();
+  OUT.paint?.();
 }
 load.pts = () => loadPoints();
 RETRY.points = () => loadPoints(true).then(() => rerender('pts')).catch(() => {});
@@ -8983,10 +8996,16 @@ const hxUnits = () => parseUnits(HX.amt, 8);                 // the pool moves 8
 // From ETH: one step when the private tETH held covers the amount, else the ETH is made private first.
 const hxHeld = () => (S.key && P.scan ? spendable('eth') : null);
 const hxTwo = (units) => HX.from === 'ether' && !(units && hxHeld() >= units);
-// The hero's amount, taken once by the form it was made for, as if typed there.
+// The hero's amount, handed to the form it was made for and taken once, as if typed there. One left unclaimed (a sign-in
+// that was never finished) is dropped after ten minutes, so it never fills a form opened for another reason.
+const hxDraft = (d) => { HX.draft = { ...d, at: Date.now() }; };
+function hxLive(mode) {
+  if (HX.draft && Date.now() - HX.draft.at > 10 * 60e3) HX.draft = null;
+  return HX.draft?.mode === mode ? HX.draft : null;
+}
 function takeDraft(mode, input, ok = () => true) {
-  const d = HX.draft;
-  if (d?.mode !== mode || !input || !ok(d)) return;
+  const d = hxLive(mode);
+  if (!d || !input || !ok(d)) return;
   HX.draft = null; input.value = d.amt || '';
   if (input.value) input.dispatchEvent(new Event('input'));
 }
@@ -9008,7 +9027,7 @@ async function hxFarms(eth) {
   const out = [], x = FARM.precision;
   if (HX.from === 'ether' && x?.supply) {
     const staked = x.value / 1e18 * Number(x.totalStaked) / Number(x.supply);
-    out.push({ k: 'precision', name: 'Precision pool', note: 'public · earns points', apr: precisionApr(x), day: eth ? Number(x.perDay) / 1e18 * eth / (staked + eth) : 0 });
+    out.push({ k: 'precision', name: 'Precision pool', note: 'public', apr: precisionApr(x), day: eth ? Number(x.perDay) / 1e18 * eth / (staked + eth) : 0 });
   }
   for (const p of FARM.program?.pools || []) {
     const r = p.reserves || {};
@@ -9022,16 +9041,18 @@ const hxQuoteSoon = debounce(() => hxQuote(), 400);
 // The quote for what is on the panel: the amount out, the routes to choose between, the line under the button and the
 // button's words. Drawn by paintHxQ without touching the field being typed in.
 async function hxQuote() {
-  const my = ++HX.seq, units = hxUnits(), m = HX.mode;
-  const done = (q) => { if (my === HX.seq) { HX.q = q; paintHxQ(); } };
+  const my = ++HX.seq, units = hxUnits(), m = HX.mode, ethN = units ? Number(units) / 1e8 : 0;
+  const done = (q) => { if (my === HX.seq) { HX.q = { eth: ethN, ...q }; paintHxQ(); } };
   HX.held = hxHeld();
   if (m === 'send') return;
   if (m === 'btc' && HX.dir === 'in') return done({ out: 'Private', line: 'Your TAC notes on Bitcoin become private TAC on Ethereum, up to 1,000 TAC a bridge. No relay fee, only a Bitcoin fee in sats; usually a few hours, sometimes up to a day.', go: 'Bridge TAC from Bitcoin' });
+  // A figure that is not an amount (or has more decimals than the pool moves) is said so, not shown as an empty field.
+  if (units === null && /\d/.test(HX.amt)) return done({ out: null, line: 'Enter an amount with up to 8 decimals.' });
   HX.q = { ...(HX.q || {}), busy: true }; paintHxQ();
   try {
     if (m === 'private' || (m === 'swap' && HX.from === 'ether' && HX.to === 'eth')) {
       const tip = units ? await hxWrapTip(units) : null;
-      return done({ out: units ? fmt(units, 8, 6) : null, go: 'Make ETH private',
+      return done({ out: units ? fmt(units, 8, 6) : null, go: 'Make ETH private', pk: 'wrap',
         line: units ? `1 for 1, with a relay tip of ${fmt(tip, 18, 6)} ETH on top. Then send, swap, farm${xoOn() ? ' or bridge it' : ''} from one key.` : 'ETH in, tETH out, 1 for 1: a private note that sends, swaps and farms, and recovers from your key.' });
     }
     if (m === 'swap') {
@@ -9042,14 +9063,16 @@ async function hxQuote() {
         hxPoolSwap(from, HX.to, units).catch(() => null),
       ]);
       const rows = [];
-      if (pub?.best) rows.push({ k: 'public', name: pub.best.venue === 'precision' ? 'Precision pool' : 'Tacit public pool', note: pub.best.venue === 'precision' ? 'to your wallet · earns points' : 'to your wallet', v: pub.best.amountOut, show: `${fmt(pub.best.amountOut, 18, dpTo)} ${unitTo}` });
-      if (priv?.plan) rows.push({ k: 'private', name: 'Tacit pool', note: two ? 'private · 2 steps' : 'private', v: priv.plan.amountOut * E10, show: `${fmt(priv.plan.amountOut, 8, dpTo)} ${unitTo}` });
+      // The Buy form's own choice: only the Precision route earns points, so it is taken unless another pays over 1% more.
+      const prec = (pub?.ranked || []).find((x) => x.venue === 'precision'), pp = pub?.best && (prec && BigInt(prec.amountOut) * 100n >= BigInt(pub.best.amountOut) * 99n ? prec : pub.best);
+      if (pp) rows.push({ k: 'public', name: pp.venue === 'precision' ? 'Precision pool' : 'Tacit public pool', note: 'to your wallet', pk: pp.venue === 'precision' ? 'zswap' : null, v: pp.amountOut, show: `${fmt(pp.amountOut, 18, dpTo)} ${unitTo}` });
+      if (priv?.plan) rows.push({ k: 'private', name: 'Tacit pool', note: two ? 'private · 2 steps' : 'private', pk: two ? 'wrap' : null, v: priv.plan.amountOut * E10, show: `${fmt(priv.plan.amountOut, 8, dpTo)} ${unitTo}` });
       if (!rows.length) return done({ out: '—', go: 'Swap privately', line: priv && !priv.plan && units <= priv.fee * 2n ? `Swap more than ${fmt(priv.fee * 2n, 8, 6)} ${unit}: the relay fee is ${fmt(priv.fee, 8, 6)}.` : 'There is no pool for this pair yet.' });
       const best = rows.reduce((a, b) => (b.v > a.v ? b : a));
       const pick = rows.find((r) => r.k === HX.route) || best;
       best.best = rows.length > 1;
       const publicPick = pick.k === 'public';
-      return done({ out: fmt(pick.v, 18, dpTo), rows: rows.length > 1 ? rows : null, pick: pick.k,
+      return done({ out: fmt(pick.v, 18, dpTo), rows: rows.length > 1 ? rows : null, pick: pick.k, pk: pick.pk, outTac: HX.to === 'tac' ? Number(pick.v) / 1e18 : 0,
         go: publicPick ? `Buy ${unitTo}` : two ? 'Make ETH private' : 'Swap privately',
         line: publicPick ? `1 ETH ≈ ${sig(Number(pick.v) / Number(units * E10))} ${unitTo}, sent to your wallet in one transaction.`
           : `${two ? 'Two steps: make the ETH private, then swap it. ' : ''}1 ${unit} ≈ ${sig(Number(priv.plan.amountOut) / Number(units - priv.fee))} ${unitTo} · relay fee ${fmt(priv.fee, 8, 6)} tETH${priv.plan.impact >= 1 ? ` · moves the price ${priv.plan.impact.toFixed(1)}%` : ''}` });
@@ -9060,8 +9083,8 @@ async function hxQuote() {
       if (!rows.length) return done({ out: '—', go: 'Farm', line: 'The farms could not be read just now.' });
       const pick = rows.find((r) => r.k === HX.pool) || rows[0], two = pick.k !== 'precision' && hxTwo(units);
       HX.pool = pick.k;
-      for (const r of rows) { r.show = r.apr == null ? '—' : `${pctFmt(r.apr)} APR`; if (r.k !== 'precision' && hxTwo(units)) r.note = 'private · 2 steps'; }
-      return done({ out: units ? sig(pick.day) : null, rows, pick: pick.k, unit: 'TAC a day',
+      for (const r of rows) { r.show = r.apr == null ? '—' : `${r.apr >= 10 ? Math.round(r.apr).toLocaleString('en-US') + '%' : pctFmt(r.apr)} APR`; if (r.k !== 'precision' && hxTwo(units)) r.note = 'private · 2 steps'; }
+      return done({ out: units ? sig(pick.day) : null, rows, pick: pick.k, unit: 'TAC a day', pk: two ? 'wrap' : null,
         go: pick.k === 'precision' ? 'Farm with ETH' : two ? 'Make ETH private' : 'Farm privately',
         line: pick.k === 'precision' ? 'From ETH alone: about half is swapped to TAC in the pool, then both farm. Claim TAC any time.'
           : `${two ? 'Two steps: make the ETH private, then farm it. ' : ''}From tETH alone: about half is swapped inside the pool. Nobody sees whose deposit it is.` });
@@ -9070,11 +9093,63 @@ async function hxQuote() {
       const two = hxTwo(units), [t, ux] = await Promise.all([getUx(), xoUx().catch(() => null)]);
       const lim = ux?.assetOf(CETH_ID), fee = BigInt(await t.quoteOpFee('cETH', 'bridgeburn'));
       const cap = lim ? `up to ${fmt(lim.capRaw, 8, 6)} tETH a bridge while this is new` : 'a small amount while this is new';
-      return done({ out: units ? (units > fee ? fmt(units - fee, 8, 6) : '0') : null, go: two ? 'Make ETH private' : 'Send to Bitcoin',
+      return done({ out: units ? (units > fee ? fmt(units - fee, 8, 6) : '0') : null, go: two ? 'Make ETH private' : 'Send to Bitcoin', pk: two ? 'wrap' : null,
         line: `${two ? 'Two steps: make the ETH private, then bridge it. ' : ''}Relay fee ${fmt(fee, 8, 6)} tETH, plus a Bitcoin fee in sats from your Bitcoin address; ${cap}. Usually a few hours.` });
     }
   } catch { done({ out: '—', go: HX.q?.go || 'Continue', line: 'The pool could not be read just now.' }); }
 }
+// The week's multiplier, by the program's own rule (worker-relay/src/lib/points-engagement.js): the day's points count 1 plus
+// `kindStep` for each kind of activity beyond the first (up to `maxKinds`), plus `returnStep` when the wallet was active on
+// two of the last seven days; a kind or a day counts once it has earned `minPoints` in that window. `rows` are the wallet's
+// scored activity, `kind` and `add` this deposit's. → what today would count for, and the next step toward more ('' when
+// this deposit is too small to count as its kind, or there is no more to gain).
+function hxWeek(sp, rows, today, kindOf, wt, kind, add) {
+  const kinds = new Map(), days = new Map();
+  const put = (d, k, p) => { if (p > 0) { kinds.set(k, (kinds.get(k) || 0) + p); days.set(d, (days.get(d) || 0) + p); } };
+  for (const r of rows) { const d = Math.floor(Number(r.block_time) / 86400); if (d > today - 7 && d <= today) put(d, kindOf(r.activity), Number(r.points) * wt(r.activity)); }
+  put(today, kind, add);
+  const used = [...kinds].filter(([, p]) => p >= sp.minPoints).map(([k]) => k), k = used.length, d = [...days.values()].filter((p) => p >= sp.minPoints).length;
+  const f = (k, d) => Math.round((1 + sp.kindStep * Math.min(Math.max(k - 1, 0), sp.maxKinds) + (d >= 2 ? sp.returnStep : 0)) * 1e6) / 1e6;
+  if (!used.includes(kind)) return { f: f(k, d), tip: '' };
+  const ideas = ['swap', 'borrow', 'names', 'markets', 'private'].filter((x) => !used.includes(x)).slice(0, 2).map((x) => ({ swap: 'a swap', borrow: 'a loan', names: 'a .wei name', markets: 'a market bet', private: 'a private deposit' }[x]));
+  const more = k - 1 < sp.maxKinds && sp.kindStep > 0 && ideas.length > 0, back = d < 2 && sp.returnStep > 0, has = `Counts ×${f(k, d)} toward today’s pot.`;
+  const tip = more ? `${has} ${ideas.join(' or ').replace(/^./, (c) => c.toUpperCase())} this week lifts it to ×${f(k + 1, d)}.`
+    : back ? `${has} Activity on a second day this week lifts it to ×${f(k, 2)}.`
+    : f(k, d) > 1 ? `This week counts ×${f(k, d)} toward today’s pot, as much as it gets.` : '';
+  return { f: f(k, d), tip };
+}
+// What `eth` ETH earns in the points program now, by the terms the page already holds (PGM, the same the Private sheet's
+// own estimate reads): the activity's rate, the day's weight, the early bonus by the deposits so far, and the TAC-holder tier
+// held through the day. A wrap's count is public, so its figure is an estimate; a swap's is not, so it is a floor. `tip` is
+// the nudge: the next tier up, or what the TAC just bought is already enough for.
+function hxPts(pk, eth, outTac = 0) {
+  if (!pk || !(eth > 0)) return null;
+  readOutlook();
+  const act = pk === 'wrap' ? 'wrap' : 'zswapeth', rate = pk === 'wrap' ? PGM.rates.wrap ?? ethBase() * PGM.wrapBoost : PGM.rates.zswapeth ?? ethBase();
+  const today = utcDay(now()), sc = scheduled(PGM.weights, today), wtOf = (a) => (sc && !sc.from ? sc.e.weights[a] ?? 1 : 1), wt = wtOf(act);
+  if (!wt) return null;
+  const known = pk === 'wrap' && !!OUT.v1, early = known ? 1 + (PGM.early.max - 1) / (1 + OUT.v1.deposits / PGM.early.half) : 1;
+  const tier = holderTier(S.address), hold = tier.held, pts = eth * rate * wt * early * hold;
+  const up = PGM.tiers.filter(([, m]) => m > hold), hit = outTac ? [...up].reverse().find(([min]) => outTac >= min) : null, nx = up[0];
+  const tips = [tier.now > hold ? `×${tier.now} on this once your TAC has been held a day.`
+    : hit ? `The ${Math.floor(outTac).toLocaleString('en-US')} TAC you get lifts your next deposits to ×${hit[1]} once held a day.`
+    : nx ? `Hold ${nx[0].toLocaleString('en-US')} TAC through a day for ×${nx[1]}${eth * rate * wt * early * (nx[1] - hold) >= 1 ? `: ${ptsFmt(eth * rate * wt * early * (nx[1] - hold))} more here` : ''}.` : ''];
+  // The week's multiplier, from this wallet's own scored rows (the Points sheet's reading; the service lists the latest 100,
+  // so a window that reaches past them is not judged). The day's pot is split by points times it.
+  const g = scheduled(PGM.engagement, today), sp = g && !g.from ? g.e.spec : null, me = S.address ? PTS.rows?.find((r) => r.addr === String(S.address).toLowerCase()) : null;
+  if (sp && me?.read && (me.recent.length < 100 || Math.floor(Number(me.recent.at(-1).block_time) / 86400) <= today - 6))
+    tips.push(hxWeek(sp, me.recent, today, (a) => PGM.kinds[a] ?? a, wtOf, pk === 'wrap' ? 'private' : 'swap', pts).tip);
+  const why = [known ? `×${early.toFixed(1)} early` : '', pk === 'wrap' ? `×${PGM.wrapBoost} tETH` : '', wt !== 1 ? `×${wt} now` : '', hold > 1 ? `×${hold} TAC holder` : ''].filter(Boolean).join(' · ');
+  return { pts, known, why, tips: tips.filter(Boolean) };
+}
+// The wallet's scored rows tell the week's multiplier: read once for the account paying (the Points sheet's own reading, kept a minute).
+function hxWantPoints() {
+  const a = String(S.address || '').toLowerCase();
+  if (!a || HX.pts === a || PTS.rows?.some((r) => r.addr === a && r.read)) return;
+  HX.pts = a;
+  loadPoints().then(() => paintHxQ(), () => {});
+}
+const hxPtsShort = (p) => (p.pts < 1 ? '< 1 point' : `${p.known ? '≈ ' : ''}${ptsFmt(p.pts)}${p.known ? '' : '+'} points`);
 // The parts of the panel a quote changes.
 function paintHxQ() {
   const q = HX.q || {}, out = $('#hx-out');
@@ -9084,31 +9159,45 @@ function paintHxQ() {
   const rows = $('#hx-routes');
   if (rows && !q.busy) {
     rows.hidden = !q.rows;
-    mount(rows, html`${(q.rows || []).map((r) => html`<button type="button" role="radio" aria-checked="${r.k === q.pick}" data-hxr="${r.k}"><b>${r.name}</b><span>${r.note}</span><output>${r.show}</output>${r.best ? html`<em>best</em>` : ''}</button>`)}`);
+    // A swap's ways differ in what they earn: each says so beside what it pays.
+    const earns = (r) => { const p = HX.mode === 'swap' && r.pk ? hxPts(r.pk, q.eth) : null; return p ? `${r.note} · ${hxPtsShort(p)}` : r.note; };
+    mount(rows, html`${(q.rows || []).map((r) => html`<button type="button" role="radio" aria-checked="${r.k === q.pick}" data-hxr="${r.k}"><b>${r.name}</b><span>${earns(r)}</span><output>${r.show}</output>${r.best ? html`<em>best</em>` : ''}</button>`)}`);
     for (const b of $$('[data-hxr]', rows)) b.onclick = () => { if (HX.mode === 'earn') HX.pool = b.dataset.hxr; else HX.route = b.dataset.hxr; hxQuote(); };
+  }
+  const pts = $('#hx-pts');
+  if (pts && !q.busy) {
+    const p = hxPts(q.pk, q.eth, q.outTac);
+    pts.hidden = !p;
+    if (p) hxWantPoints();
+    if (p) mount(pts, html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><b>${p.pts < 1 ? '< 1' : `${p.known ? '≈ ' : 'at least '}${ptsFmt(p.pts)}`}</b> TAC points <button class="link" type="button" data-ptsinfo aria-expanded="${PTSINFO}">how?</button></span>
+      ${p.why ? html`<span class="hx-pw">${p.why}</span>` : ''}${p.tips.map((t) => html`<span class="hx-pt">${t}</span>`)}
+      <span class="note mute" data-ptsnote ${PTSINFO ? '' : 'hidden'}>${ptsWhy()}</span>`);
   }
   if (!q.busy) { const line = $('#hx-q'); if (line) line.textContent = q.line || ''; const go = $('#hx-go'); if (go && q.go) go.textContent = q.go; }
 }
+// The figures behind the estimates (the pool's deposits so far, the TAC an account held through the day) arrive after the
+// quote does: the panel redraws its points when they do.
+OUT.paint = () => paintHxQ();
 function hxGo() {
   const units = hxUnits(), amt = HX.amt;
-  const wrapFirst = (link, label, then) => { FARM.back = link ? { link, label, at: Date.now(), then } : null; HX.draft = { mode: 'wrap', amt }; openLink('private'); };
+  const wrapFirst = (link, label, then) => { FARM.back = link ? { link, label, at: Date.now(), then } : null; hxDraft({ mode: 'wrap', amt }); openLink('private'); };
   if (HX.mode === 'private' || (HX.mode === 'swap' && HX.from === 'ether' && HX.to === 'eth')) return wrapFirst();
   if (HX.mode === 'swap') {
-    if (HX.from === 'ether' && HX.q?.pick === 'public') { HX.draft = { mode: 'buy', amt }; return openLink('buy'); }
-    const swap = () => { SW.from = HX.from === 'ether' ? 'eth' : HX.from; SW.to = HX.to; HX.draft = { mode: 'swap', amt }; };
+    if (HX.from === 'ether' && HX.q?.pick === 'public') { hxDraft({ mode: 'buy', amt }); return openLink('buy'); }
+    const swap = () => { SW.from = HX.from === 'ether' ? 'eth' : HX.from; SW.to = HX.to; hxDraft({ mode: 'swap', amt }); };
     if (hxTwo(units)) return wrapFirst('private/swap', `swap it for ${hxAsset(HX.to)[1]}`, swap);
     swap(); return openLink('private/swap');
   }
   if (HX.mode === 'earn') {
-    if (HX.pool === 'precision') { HX.draft = { mode: 'farm', amt }; return openLink('farm/public'); }
+    if (HX.pool === 'precision') { hxDraft({ mode: 'farm', amt }); return openLink('farm/public'); }
     const pid = Number(HX.pool), p = FARM.program?.pools?.find((x) => x.pid === pid);
-    const join = () => { (FARM.jm ||= {})[pid] = 'a'; HX.draft = { mode: 'join', pid, amt }; };
+    const join = () => { (FARM.jm ||= {})[pid] = 'a'; hxDraft({ mode: 'join', pid, amt }); };
     if (hxTwo(units)) return wrapFirst(`farm/private-${pid}`, `farm it in ${p ? pairName(p.pair) : 'the pool'}`, join);
     join(); return openLink(`farm/private-${pid}`);
   }
   if (HX.mode === 'btc') {
     if (HX.dir === 'in') return openLink('bridge');
-    const xo = () => { HX.draft = { mode: 'xo', amt }; };
+    const xo = () => { hxDraft({ mode: 'xo', amt }); };
     if (hxTwo(units)) return wrapFirst('private/bitcoin', 'send it to Bitcoin', xo);
     xo(); return openLink('private/bitcoin');
   }
@@ -9119,7 +9208,7 @@ function paintHx() {
   if (!xoOn()) HX.dir = 'in';
   if (HX.mode === 'swap' && HX.to === HX.from) HX.to = HX.from === 'tac' ? 'eth' : 'tac';
   if ((HX.mode === 'btc' || HX.mode === 'earn') && HX.from !== 'ether' && HX.from !== 'eth') HX.from = 'ether';
-  const tab = ([k, label]) => html`<button type="button" role="tab" data-hxm="${k}" aria-selected="${HX.mode === k}">${label}</button>`;
+  const tab = ([k, label]) => html`<button type="button" role="tab" data-hxm="${k}" aria-selected="${HX.mode === k}" tabindex="${HX.mode === k ? 0 : -1}">${label}</button>`;
   // A coin and its ticker, with the asset picker laid over them: pressing the coin chooses the asset. One choice is no picker.
   const coin = (id, label, list, cur) => {
     const [k, u, ic] = list.find(([x]) => x === cur) || list[0];
@@ -9133,6 +9222,7 @@ function paintHx() {
   const head = html`<div class="hx-h" role="tablist" aria-label="What to do">${HX_TABS.map(tab)}</div>`;
   const go0 = { private: 'Make ETH private', swap: 'Swap privately', earn: 'Farm with ETH', btc: HX.dir === 'in' ? 'Bridge TAC from Bitcoin' : 'Send to Bitcoin' }[HX.mode];
   const tail = html`<div class="hx-routes" id="hx-routes" role="radiogroup" aria-label="Route" hidden></div>
+    <div class="hx-pts" id="hx-pts" hidden></div>
     <button class="btn" type="button" id="hx-go">${go0}</button>
     <p class="hx-q" id="hx-q" aria-live="polite"></p>`;
   const ETHER = [HX_ETHER], ETHS = [HX_ETHER, ['eth', 'tETH', 'teth', 6]], TETH = [['eth', 'tETH', 'teth']], TAC = [['tac', 'TAC', 'tac']];
@@ -9167,14 +9257,21 @@ function paintHx() {
     if (here) { $('#hx-to').oninput = (e) => { HX.rcpt = e.target.value.trim(); }; $('#hx-samt').oninput = (e) => { HX.amt = e.target.value; }; }
     $('#hx-go').onclick = () => {
       if (!here) { location.href = `/pay/#${HX.send}`; return; }
-      HX.draft = { mode: 'send', to: HX.rcpt, amt: HX.amt }; openLink('private/send');
+      hxDraft({ mode: 'send', to: HX.rcpt, amt: HX.amt }); openLink('private/send');
     };
   }
-  for (const b of $$('[data-hxm]', el)) b.onclick = () => { if (HX.mode === b.dataset.hxm) return; HX.mode = b.dataset.hxm; HX.q = null; paintHx(); };
+  const pickTab = (k, focus) => { if (HX.mode === k) return; HX.mode = k; HX.q = null; paintHx(); if (focus) $(`[data-hxm="${k}"]`)?.focus(); };
+  for (const b of $$('[data-hxm]', el)) b.onclick = () => pickTab(b.dataset.hxm);
+  // The tabs are one stop: the arrow keys, Home and End move among them.
+  $('.hx-h', el).onkeydown = (e) => {
+    const i = HX_TABS.findIndex(([k]) => k === HX.mode), j = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: HX_TABS.length - 1 }[e.key];
+    if (j == null) return;
+    e.preventDefault(); pickTab(HX_TABS[(j + HX_TABS.length) % HX_TABS.length][0], true);
+  };
   if (m === 'send') return;
-  $('#hx-from')?.addEventListener('change', (e) => { HX.from = e.target.value; HX.route = null; paintHx(); });
-  $('#hx-to')?.addEventListener('change', (e) => { HX.to = e.target.value; HX.route = null; paintHx(); });
-  $('#hx-flip')?.addEventListener('click', () => { if (m === 'btc') HX.dir = HX.dir === 'in' ? 'out' : 'in'; else [HX.from, HX.to] = [HX.to, HX.from]; paintHx(); });
+  $('#hx-from')?.addEventListener('change', (e) => { HX.from = e.target.value; HX.route = HX.q = null; paintHx(); });
+  $('#hx-to')?.addEventListener('change', (e) => { HX.to = e.target.value; HX.route = HX.q = null; paintHx(); });
+  $('#hx-flip')?.addEventListener('click', () => { if (m === 'btc') HX.dir = HX.dir === 'in' ? 'out' : 'in'; else [HX.from, HX.to] = [HX.to, HX.from]; HX.route = HX.q = null; paintHx(); });
   $('#hx-amt')?.addEventListener('input', (e) => { HX.amt = e.target.value; hxQuoteSoon(); });
   $('#hx-go').onclick = hxGo;
   paintHxQ();
