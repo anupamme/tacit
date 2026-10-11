@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Vz4J//BGdRZAeMWe6N6vu2aaOZXb+8syWg9v0ZfpEhs=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-+gF2eNTdnLvI73mWZFqo0aq2kbyloEMwCfUrPVJNbfY=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=b0bddd8d"></script>
 <title>tacit</title>
@@ -235,6 +235,18 @@ a.di { color: inherit; text-decoration: none; }
   border-top: 1px solid var(--hair); }
 .proof { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 26px; font-size: 12px; color: var(--mute); }
 .trust { font-size: 12px; font-weight: 500; color: var(--ink); }
+/* Tacit Pay, a step from the button: the quickest way in for someone who only wants to pay or be paid. */
+.paytile { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 6px 16px; margin-top: 22px; padding: 12px 16px;
+  color: inherit; text-decoration: none; background: var(--card); border: 1px solid var(--hair); transition: border-color .18s, transform .25s var(--ease); }
+.paytile .tk { width: 26px; height: 26px; }
+.paytile .pair .tk + .tk { margin-left: -8px; box-shadow: 0 0 0 2px var(--card); }
+.pt-t { display: grid; gap: 1px; min-width: 0; font-size: 12px; line-height: 1.45; color: var(--mute); }
+.pt-t b { font: 400 19px/1.1 var(--serif); color: var(--ink); }
+.pt-go { font-size: 12px; font-weight: 500; white-space: nowrap; color: var(--ink); }
+.pt-go .go { display: inline-block; transition: transform .3s var(--spring); }
+@media (hover: hover) { .paytile:hover { border-color: var(--ink); } .paytile:hover .go { transform: translateX(4px); } .paytile:hover .pair .tk:nth-child(2) { transform: translate(5px, -2px); } .paytile:hover .pair .tk:nth-child(3) { transform: translate(10px, -2px); } }
+.paytile:active { transform: scale(.99); }
+@media (max-width: 640px) { .paytile { grid-template-columns: auto minmax(0, 1fr); } .pt-go { grid-column: 2; } }
 /* ── live: what happened lately, as a tape under the figures. It stops under the pointer and stands still under reduced
    motion (the tape can then be scrolled by hand). ── */
 .tape { display: flex; align-items: center; gap: 14px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--hair-2); font-size: 12px; color: var(--mute); }
@@ -879,6 +891,11 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
       <div class="cta"><button class="btn" type="button" id="start-go">Get started</button>
       <p class="hint"><span data-step="1">Sign in with an Ethereum or Bitcoin wallet, or Face ID or Touch ID. It sends nothing and costs no gas.</span><span data-step="2">Next, one transaction moves your ETH into the Tacit pool as tETH.</span> <button class="link" type="button" id="start-x" hidden>Hide</button></p></div>
     </div>
+    <a class="paytile" href="/pay/">
+      <span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span>
+      <span class="pt-t"><b>Tacit Pay</b><span>Get paid in BTC, TAC or ETH at one private address. No gas, nothing to install.</span></span>
+      <span class="pt-go">Get your address <span class="go" aria-hidden="true">→</span></span>
+    </a>
     <div class="proof-row">
       <a class="proof" href="/weld/stats/" title="All stats">
         <span data-nums><b class="num"><span data-num="in"><span class="sk" style="--w:5ch"></span></span><small>ETH</small></b>made private</span>
@@ -3565,7 +3582,7 @@ function pointsRow(wei, kind, chain) {
 function poolLine(where) {
   readOutlook();
   const x = where === 'v1' ? OUT.v1 : OUT.dev[where], name = where === 'v1' ? 'The Tacit pool' : `The pool on ${DEVICE_CHAINS.find((c) => c.chainId === Number(where))?.name || 'this chain'}`;
-  return x ? html`${name} holds ${fmt(x.held, 18, 4)} ETH; ${fmt(x.in, 18, 4)} ETH has passed through it in ${x.deposits} deposits.` : html``;
+  return x ? html`<b>${fmt(x.in, 18, 2)} ETH</b> has passed through ${name} in ${Number(x.deposits).toLocaleString('en-US')} deposits; it holds ${fmt(x.held, 18, 3)} ETH now.` : html``;
 }
 // Totals and holdings arrive after the form is drawn: fill the pool lines in place, and redo an open receipt.
 function outlookPaint() {
