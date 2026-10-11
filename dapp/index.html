@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-+gF2eNTdnLvI73mWZFqo0aq2kbyloEMwCfUrPVJNbfY=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-VDrgNlsW2cLwi+49yFhLQH7GD6/Accn5DoB4OIkwen4=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=b0bddd8d"></script>
 <title>tacit</title>
@@ -235,6 +235,57 @@ a.di { color: inherit; text-decoration: none; }
   border-top: 1px solid var(--hair); }
 .proof { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 26px; font-size: 12px; color: var(--mute); }
 .trust { font-size: 12px; font-weight: 500; color: var(--ink); }
+/* ── the hero's action: swap or send privately, drawn like the route map at the foot of the page: no box, a hairline above,
+   big amounts, the coins themselves as the pickers, and a line between them in their colours that a glint runs along when
+   the button is under the pointer. ── */
+.hx { margin-top: 30px; padding-top: 14px; border-top: 1px solid var(--hair-2); }
+.hx-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; margin-bottom: 14px; }
+.hx-h button { padding: 2px 0; background: none; border: 0; cursor: pointer; font: 400 23px/1.1 var(--serif); letter-spacing: -.01em; color: var(--mute); }
+.hx-h button[aria-selected="true"] { color: var(--ink); text-decoration: underline; text-underline-offset: 6px; text-decoration-thickness: 1px; }
+@media (hover: hover) { .hx-h button:hover { color: var(--ink); } }
+.hx-note { margin-left: auto; font-size: 12px; color: var(--mute); }
+.hx-row { display: grid; grid-template-columns: auto minmax(60px, 1fr) auto auto; align-items: end; gap: 12px 22px; }
+.hx-side { display: grid; gap: 6px; min-width: 0; }
+.hx-lbl { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--mute); }
+.hx-v { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.hx-amt { width: 7ch; min-width: 0; padding: 2px 0 4px; font: 600 30px/1.1 var(--mono); letter-spacing: -.02em; color: var(--ink); background: none; border: 0;
+  border-bottom: 1px solid var(--hair-2); border-radius: 0; outline: none; }
+.hx-amt:focus { border-bottom-color: var(--ink); }
+.hx-amt::placeholder { color: var(--mute); opacity: .6; }
+.hx-big { font: 600 30px/1.1 var(--mono); letter-spacing: -.02em; color: var(--ink); white-space: nowrap; }
+.hx-big.ph { color: var(--mute); opacity: .6; }
+.hx-coin { position: relative; display: inline-flex; align-items: center; gap: 7px; font: 600 15px var(--mono); color: var(--ink); cursor: pointer; white-space: nowrap; }
+.hx-coin .tk { width: 30px; height: 30px; transition: transform .4s var(--spring); }
+.hx-coin .car { font-size: 11px; color: var(--mute); }
+.hx-coin select { position: absolute; inset: -6px; width: calc(100% + 12px); opacity: 0; font-size: 16px; cursor: pointer; }
+@media (hover: hover) { .hx-coin:hover .tk { transform: translateY(-2px) rotate(-6deg); } .hx-coin:hover b { text-decoration: underline; text-underline-offset: 3px; } }
+.hx-coin:has(select:focus-visible) { outline: 2px solid var(--ink); outline-offset: 3px; }
+/* The way between the two: a line from one asset's colour to the other's, the direction button riding on it. */
+.hx-line { position: relative; display: flex; align-items: center; justify-content: center; height: 34px; margin-bottom: 4px; min-width: 60px; }
+.hx-line::before { content: ''; position: absolute; left: 0; right: 6px; top: 50%; height: 2px; margin-top: -1px; border-radius: 1px;
+  background: linear-gradient(90deg, transparent, var(--ink), transparent) -60% 0 / 34% 100% no-repeat, linear-gradient(90deg, var(--a), var(--b)); }
+.hx-line::after { content: ''; position: absolute; right: 0; top: 50%; margin-top: -4px; border: 4px solid transparent; border-right: 0; border-left: 7px solid var(--b); }
+.hx .hx-line .flip { position: relative; z-index: 1; width: 30px; height: 30px; margin: 0; }
+@media (hover: hover) { .hx:has(#hx-go:hover) .hx-line::before { animation: flow 1.1s linear infinite; } }
+.hx .btn { width: auto; min-height: 46px; margin: 0 0 2px; padding: 0 20px; white-space: nowrap; }
+.hx-to { width: 100%; min-width: 0; padding: 6px 0 6px; font: 500 15px var(--mono); color: var(--ink); background: none; border: 0; border-bottom: 1px solid var(--hair-2); border-radius: 0; outline: none; }
+.hx-to:focus { border-bottom-color: var(--ink); }
+.hero .hx-q { max-width: none; }
+.hx-q { min-height: 18px; margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--mute); }
+.hx ~ .start .cta { margin-top: 20px; }
+/* With the action above it, the sign-in is a plain line: the action's own button signs in where it must. */
+.hx ~ .start .btn { min-width: 0; min-height: 0; padding: 4px 0; color: var(--ink); background: none; border: 0; text-decoration: underline; text-underline-offset: 4px; }
+.hx ~ .start .btn::after { content: ' →'; }
+@media (hover: hover) { .hx ~ .start .btn:hover { background: none; text-decoration-thickness: 2px; } }
+@media (max-width: 640px) {
+  .hx-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .hx-line { justify-content: flex-start; height: 52px; margin: 6px 0; padding-left: 14px; }
+  .hx-line::before, .hx-line::after { left: 28px !important; }
+  .hx-line::before { left: 50%; right: auto; top: 0; bottom: 6px; width: 2px; height: auto; margin: 0 0 0 -1px; background: linear-gradient(180deg, var(--a), var(--b)); }
+  .hx-line::after { right: auto; left: 50%; top: auto; bottom: 0; margin: 0 0 0 -4px; border: 4px solid transparent; border-bottom: 0; border-top: 7px solid var(--b); }
+  .hx .btn { width: 100%; margin-top: 12px; }
+  .hx-note { margin-left: 0; flex-basis: 100%; }
+}
 /* Tacit Pay, a step from the button: the quickest way in for someone who only wants to pay or be paid. */
 .paytile { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 6px 16px; margin-top: 22px; padding: 12px 16px;
   color: inherit; text-decoration: none; background: var(--card); border: 1px solid var(--hair); transition: border-color .18s, transform .25s var(--ease); }
@@ -562,10 +613,10 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(2px); }
 .swp .seg button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
 .swp .seg .tk { width: 18px; height: 18px; }
 .swp .note { margin: 8px 0 0; }
-.swp .flip { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; margin: 16px auto -6px; padding: 0;
+.swp .flip, .hx .flip { display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; margin: 16px auto -6px; padding: 0;
   border: 1px solid var(--hair-2); border-radius: 50%; background: var(--card); color: var(--ink); cursor: pointer; }
-.swp .flip svg { width: 16px; height: 16px; }
-@media (hover: hover) { .swp .flip:hover { border-color: var(--ink); } }
+.swp .flip svg, .hx .flip svg { width: 16px; height: 16px; }
+@media (hover: hover) { .swp .flip:hover, .hx .flip:hover { border-color: var(--ink); } }
 .amt.out { border-bottom-color: var(--hair-2); }
 .amt.out output { flex: 1; min-width: 0; font: 500 24px/1.2 var(--mono); letter-spacing: -.02em; color: var(--ink); padding: 12px 14px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -887,6 +938,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
     <a class="news" id="air-news" href="#airdrop" data-link="airdrop"><span class="dot" data-dot="tac"></span><b>TAC airdrop</b><span data-foot="tac">Is your wallet in it?</span><span class="go"><span class="w">Check yours </span>→</span></a>
     <h1 id="hero-h">Private DeFi on<br><em>Bitcoin</em> and Ethereum.</h1>
     <p>Tacit issues assets on Bitcoin and carries them into a confidential pool on Ethereum by zero-knowledge proof, and back. Amounts and owners stay hidden. Every balance recovers from one key.</p>
+    <section class="hx" id="hx" aria-label="Swap or send privately"><div id="hx-body"></div></section>
     <div class="start" id="start" hidden>
       <div class="cta"><button class="btn" type="button" id="start-go">Get started</button>
       <p class="hint"><span data-step="1">Sign in with an Ethereum or Bitcoin wallet, or Face ID or Touch ID. It sends nothing and costs no gas.</span><span data-step="2">Next, one transaction moves your ETH into the Tacit pool as tETH.</span> <button class="link" type="button" id="start-x" hidden>Hide</button></p></div>
@@ -3788,6 +3840,7 @@ function v1Send(el, status) {
     } catch (e) { if (my === seq) quoteErr(rc, e); }
   };
   onEdit([to, amt], go, check);
+  if (HX.draft?.mode === 'send') { to.value = HX.draft.to || ''; amt.value = HX.draft.amt || ''; HX.draft = null; if (to.value || amt.value) check({}); }
   go.onclick = () => busy(go, async (run) => {
     const w = who, units = parseUnits(amt.value, 8), raw = to.value.trim();   // the recipient checked, whatever is typed after
     if (!w || !units) return;
@@ -3828,8 +3881,7 @@ async function swapFee(t, from, to) {
   return swapStops(from, to).length > 1 ? twoDigits((f * 14n) / 10n) : f;
 }
 // The best pool at each step (the fee tier that pays most), what the route returns, and how far the trade moves the price.
-async function swapPlan(t, from, to, units, fee) {
-  const id = (k) => P.scan[k].id;
+async function swapPlan(t, from, to, units, fee, id = (k) => P.scan[k].id) {
   let cur = id(from), amt = units - fee, mid = Number(amt);
   const path = [];
   for (const k of swapStops(from, to)) {
@@ -3913,6 +3965,7 @@ function v1Swap(el, status) {
     } catch (x) { if (my === seq) { setOut(null); quoteErr(rc, x); } }
   };
   onEdit([amt], go, check);
+  if (HX.draft?.mode === 'swap') { amt.value = HX.draft.amt || ''; HX.draft = null; if (amt.value) check({}); }
   go.onclick = () => busy(go, async (run) => {
     const x = q;
     if (!x || !lossOk(ackBox, x.impact)) return;
@@ -8878,6 +8931,76 @@ function paintTape(d, rec) {
   run.style.setProperty('--tape-s', `${Math.max(30, Math.round(run.scrollWidth / 2 / 40))}s`);
 }
 const refreshTape = () => Promise.all([readStats().catch(() => null), readRecent()]).then(([d, rec]) => paintTape(d, rec)).catch(() => {});
+
+// ── the hero's action card: swap or send privately ──────────────────────────────────────────────────────────────
+// It quotes as the swap form does, from the pool alone, so it answers before any sign-in. Its button hands the pair, the amount
+// and any recipient to the Private ETH sheet's own form (HX.draft, taken once that form is drawn), which signs in first where it
+// must. Bitcoin and TAC are sent from Tacit Pay.
+const HX = { mode: 'swap', from: 'eth', to: 'tac', send: 'eth', amt: '', rcpt: '', draft: null, seq: 0 };
+const HX_SEND = [['eth', 'tETH', 'teth'], ['tac', 'TAC', 'tac'], ['btc', 'BTC', 'btc']];
+const hxChip = ([k, u, ic]) => [k, html`<svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg>${u}`];
+const hxQuoteSoon = debounce(() => hxQuote(), 400);
+async function hxQuote() {
+  const my = ++HX.seq, out = $('#hx-out'), line = $('#hx-q'), units = parseUnits(HX.amt, 8);
+  if (!out) return;
+  const set = (v, ph) => { out.textContent = v; out.classList.toggle('ph', !!ph); };
+  const [, unit] = swapAsset(HX.from), [, unitTo, , dpTo] = swapAsset(HX.to);
+  if (!units) { set('0.00', true); line.textContent = 'What you hold stays private, and nothing says whose swap it is.'; return; }
+  set('…', true);
+  try {
+    const t = await getUx();
+    const id = (k) => (k === 'cbtc' ? String(t.pool.CBTC_ZK_ASSET_ID) : String(t.assetByTicker[POOL_TK[k]]?.assetId || '')).toLowerCase();
+    const fee = await swapFee(t, HX.from, HX.to).catch(() => 0n);
+    const plan = units > fee * 2n ? await swapPlan(t, HX.from, HX.to, units, fee, id) : null;
+    if (my !== HX.seq || !out.isConnected) return;
+    if (!plan) { set('—', true); line.textContent = units > fee * 2n ? 'There is no pool for this pair yet.' : `Swap more than ${fmt(fee * 2n, 8, 6)} ${unit}: the relay fee is ${fmt(fee, 8, 6)}.`; return; }
+    set(fmt(plan.amountOut, 8, dpTo));
+    line.textContent = `1 ${unit} ≈ ${sig(Number(plan.amountOut) / Number(units - fee))} ${unitTo} · relay fee ${fmt(fee, 8, 6)} ${unit}${plan.impact >= 1 ? ` · moves the price ${plan.impact.toFixed(1)}%` : ''}`;
+  } catch { if (my === HX.seq) { set('—', true); line.textContent = 'The pool could not be read just now.'; } }
+}
+const HX_COLOR = { eth: '#627eea', tac: '#f7931a', cusd: '#16a34a', cbtc: '#f7931a', btc: '#f7931a' };
+function paintHx() {
+  const el = $('#hx-body');
+  if (!el) return;
+  if (HX.to === HX.from) HX.to = HX.from === 'eth' ? 'tac' : 'eth';
+  const tab = (k, label) => html`<button type="button" role="tab" data-hxm="${k}" aria-selected="${HX.mode === k}">${label}</button>`;
+  // A coin and its ticker, with the asset picker laid over them: pressing the coin chooses the asset.
+  const coin = (id, label, list, cur) => { const [, u, ic] = list.find(([k]) => k === cur); return html`<label class="hx-coin"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><b>${u}</b><span class="car" aria-hidden="true">▾</span><select id="${id}" aria-label="${label}">${list.map(([k, n]) => html`<option value="${k}"${k === cur ? ' selected' : ''}>${n}</option>`)}</select></label>`; };
+  const line = (a, b, inner = '') => html`<span class="hx-line" style="--a: ${HX_COLOR[a]}; --b: ${HX_COLOR[b] || 'var(--ink)'}">${inner}</span>`;
+  const head = html`<div class="hx-h" role="tablist" aria-label="Swap or send">${tab('swap', 'Swap')}${tab('send', 'Send')}</div>`;
+  if (HX.mode === 'swap') {
+    const [, unit] = swapAsset(HX.from), [, unitTo] = swapAsset(HX.to);
+    mount(el, html`${head}<div class="hx-row">
+      <div class="hx-side"><span class="hx-lbl">You pay</span><span class="hx-v"><input class="hx-amt" id="hx-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${unit} to swap" value="${HX.amt}">${coin('hx-from', 'You pay', SWAP_ASSETS, HX.from)}</span></div>
+      ${line(HX.from, HX.to, html`<button type="button" class="flip" id="hx-flip" aria-label="Pay with ${unitTo} instead"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v17m0 0-4-4m4 4 4-4M16 21V4m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`)}
+      <div class="hx-side"><span class="hx-lbl">You get</span><span class="hx-v"><output class="hx-big ph" id="hx-out" for="hx-amt">0.00</output>${coin('hx-to', 'You get', SWAP_ASSETS.filter(([k]) => k !== HX.from), HX.to)}</span></div>
+      <button class="btn" type="button" id="hx-go">Swap privately</button></div>
+      <p class="hx-q" id="hx-q" aria-live="polite"></p>`);
+    $('#hx-from').onchange = (e) => { HX.from = e.target.value; paintHx(); };
+    $('#hx-to').onchange = (e) => { HX.to = e.target.value; paintHx(); };
+    $('#hx-flip').onclick = () => { [HX.from, HX.to] = [HX.to, HX.from]; paintHx(); };
+    $('#hx-amt').oninput = (e) => { HX.amt = e.target.value; hxQuoteSoon(); };
+    $('#hx-go').onclick = () => { SW.from = HX.from; SW.to = HX.to; HX.draft = { mode: 'swap', amt: HX.amt }; openLink('private/swap'); };
+    hxQuote();
+  } else {
+    const [, unit] = HX_SEND.find(([k]) => k === HX.send), here = HX.send === 'eth';
+    mount(el, html`${head}<div class="hx-row">
+      <div class="hx-side"><span class="hx-lbl">Send</span><span class="hx-v"><input class="hx-amt" id="hx-samt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${unit} to send" value="${here ? HX.amt : ''}"${here ? '' : ' disabled'}>${coin('hx-sa', 'Asset to send', HX_SEND, HX.send)}</span></div>
+      ${line(HX.send, null)}
+      <div class="hx-side"><span class="hx-lbl">To</span>${here ? html`<input class="hx-to" id="hx-to" placeholder="tacit1… or name.wei" autocomplete="off" spellcheck="false" autocapitalize="off" aria-label="Recipient" value="${HX.rcpt}">`
+        : html`<span class="hx-q" style="margin:0">${HX.send === 'btc' ? 'Anyone, as a silent payment' : 'Anyone, through the shielded pool on Bitcoin'}, from Tacit Pay</span>`}</div>
+      <button class="btn" type="button" id="hx-go">${here ? 'Send privately' : html`Send ${unit} in Pay`}</button></div>
+      <p class="hx-q">${here ? 'Nobody sees how much or to whom.' : 'Same key, same tacit1 address.'}</p>`);
+    $('#hx-sa').onchange = (e) => { HX.send = e.target.value; paintHx(); };
+    if (here) { $('#hx-to').oninput = (e) => { HX.rcpt = e.target.value.trim(); }; $('#hx-samt').oninput = (e) => { HX.amt = e.target.value; }; }
+    $('#hx-go').onclick = () => {
+      if (!here) { location.href = `/pay/#${HX.send}`; return; }
+      HX.draft = { mode: 'send', to: HX.rcpt, amt: HX.amt }; openLink('private/send');
+    };
+  }
+  for (const b of $$('[data-hxm]', el)) b.onclick = () => { HX.mode = b.dataset.hxm; paintHx(); };
+}
+paintHx();
 refreshTape();
 setInterval(() => { if (!document.hidden) for (const e of $$('[data-left]')) e.textContent = potLeft(); }, 1000);
 
