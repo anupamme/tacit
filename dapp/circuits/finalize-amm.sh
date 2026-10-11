@@ -519,7 +519,7 @@ finalize_one_circuit() {
         "build-amm/${c}_final.zkey" \
         > "build-amm/${c}_verify.log" 2>&1 ); then
       echo "    ✗ Downloaded final zkey does NOT verify. Bundle aborted for $c."
-      echo "      Try a different gateway: GATEWAY=https://ipfs.io/ipfs $0"
+      echo "      Try a different gateway: GATEWAY=https://ipfs.orbitor.dev/ipfs $0"
       exit 1
     fi
     echo "    ✓ Final zkey re-verified against chain"

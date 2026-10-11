@@ -29,7 +29,6 @@ const MAINNET_RPCS = [
   'https://mainnet.gateway.tenderly.co',
   'https://eth.drpc.org',
   'https://1rpc.io/eth',
-  'https://cloudflare-eth.com',
 ];
 const PERMIT2 = '0x000000000022D473030F116dDEE9F6B43aC78BA3'; // canonical Permit2 singleton (same on every chain)
 const ZROUTER = '0x000000000000FB114709235f1ccBFfb925F600e4'; // pinned zRouter aggregator

@@ -192,8 +192,9 @@ self.addEventListener('fetch', (event) => {
 });
 
 // Cache-first strategy: serve from cache when present; otherwise fetch from
-// network, store, and return. On network failure with no cache entry,
-// re-throws — caller handles by surfacing as a fetch error.
+// network, store, and return. On network failure with no cache entry the
+// page's fetch fails with a network error — the same outcome as an
+// unhandled worker, without an uncaught rejection logged by the worker.
 async function _cacheFirst(req, cacheName) {
   const cache = await caches.open(cacheName);
   const cached = await cache.match(req);
@@ -211,10 +212,10 @@ async function _cacheFirst(req, cacheName) {
   // No cache entry → fetch, store on success, return.
   let resp;
   try { resp = await fetch(req); }
-  catch (e) {
-    // Network down + cache miss → propagate the error. The dapp's own
-    // fetch-error handling (toasts, retry, etc.) takes over.
-    throw e;
+  catch {
+    // Network down (or the host refuses CORS) + cache miss → a network error.
+    // The dapp's own fetch-error handling (toasts, retry, etc.) takes over.
+    return Response.error();
   }
   if (resp && resp.ok) {
     // Clone before storing because Response bodies are single-use.

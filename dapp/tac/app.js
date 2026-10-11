@@ -8,10 +8,10 @@
 // then the sender needs no BTC at all and pays the relay inside the pool. Shields and exits always fund
 // their own carrier, by design, so those need a little BTC in the wallet.
 
-const TACIT_URL = '/tacit.js?cb=a6c223c2';        // tokens rewritten by build/build.mjs (TAC_CB_FILES)
+const TACIT_URL = '/tacit.js?cb=517c710c';        // tokens rewritten by build/build.mjs (TAC_CB_FILES)
 const SECRET_URL = '/sats/secret.js?cb=cc84a1ef';
 const SATS_URL = '/tac/sats.js?cb=19b44eda';
-const MARKET_URL = '/tac/market.js?cb=b6459103';
+const MARKET_URL = '/tac/market.js?cb=7830ff4d';
 const CLAIM_URL = '/tac/claim.js?cb=0d2f2281';
 const UNIFIED_URL = '/tacit-unified.js?cb=a5b3a042';
 const KNOWN_URL = '/tacit-wallet-known.js?cb=ed4c75b7';

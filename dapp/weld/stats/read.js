@@ -42,7 +42,7 @@ export const SEL = {
 // `final`: how deep a block must be before what was read up to it is kept rather than read again (about a quarter of an
 // hour on each chain, so neither a reorg nor an endpoint or explorer running behind leaves anything out for good).
 export const CHAINS = {
-  1: { rpc: ['https://mainnet.gateway.tenderly.co', 'https://ethereum-rpc.publicnode.com', 'https://cloudflare-eth.com', 'https://eth.drpc.org'], bs: 'https://eth.blockscout.com', final: 75, slot: 12 },
+  1: { rpc: ['https://mainnet.gateway.tenderly.co', 'https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org'], bs: 'https://eth.blockscout.com', final: 75, slot: 12 },
   8453: { rpc: ['https://mainnet.base.org', 'https://base-rpc.publicnode.com', 'https://base.gateway.tenderly.co'], bs: 'https://base.blockscout.com', final: 450, slot: 2 },
   4663: { rpc: ['https://rpc.mainnet.chain.robinhood.com'], bs: null, final: 3600, slot: 0.1 },
 };

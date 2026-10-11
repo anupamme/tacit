@@ -684,7 +684,7 @@ if [ "$BUNDLE_ONLY" = "1" ]; then
       > build/verify.log 2>&1 ); then
     echo "    ✗ Downloaded final zkey does NOT verify against chain. Bundle aborted."
     echo "      The IPFS gateway may have served a corrupt blob. Try a different gateway:"
-    echo "        GATEWAY=https://ipfs.io/ipfs $0"
+    echo "        GATEWAY=https://ipfs.orbitor.dev/ipfs $0"
     exit 1
   fi
   echo "    ✓ Final zkey re-verified against chain"

@@ -13,7 +13,7 @@ const ASSET = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b'
 const POOL = '0x0155358241411dB868BA714aE7c83A27087e3D6E';
 const FARM = '0x0000003bF4BA0B21f5e0d35119b337F4d4CF82E0';
 const SEL = { reserve0: '443cb4bc', reserve1: '5a76f25e', totalSupply: '18160ddd', totalStaked: '817b1cd2', rewardRate: '7b0a47ee', periodFinish: 'ebe2b12b' };
-const RPCS = ['https://cloudflare-eth.com', 'https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org'];
+const RPCS = ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org'];
 
 const el = (tag, attrs = {}, ...kids) => {
   const n = document.createElement(tag);

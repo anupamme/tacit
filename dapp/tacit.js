@@ -3494,12 +3494,12 @@ async function getBtcUsdPrice() {
       return usd;
     };
     const _fetchChainlink = async () => {
-      // Chainlink BTC/USD aggregator on ETH mainnet via Cloudflare's public
-      // eth-gateway. Truly independent of CEX pricing — median of node-
+      // Chainlink BTC/USD aggregator on ETH mainnet via a public Ethereum
+      // RPC. Truly independent of CEX pricing — median of node-
       // operator submissions, settled on chain. Aggregator contract:
       // 0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c · latestAnswer() =
       // selector 0x50d25bcd · returns int256 with 8 decimals.
-      const r = await _withTimeout('https://cloudflare-eth.com', {
+      const r = await _withTimeout('https://ethereum-rpc.publicnode.com', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -11025,7 +11025,6 @@ function _updateBridgeBadge() {
 const _ETH_PUBLIC_RPCS = {
   1: [
     'https://ethereum-rpc.publicnode.com',
-    'https://eth.llamarpc.com',
     'https://1rpc.io/eth',
     'https://eth.drpc.org',
   ],

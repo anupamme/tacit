@@ -331,9 +331,9 @@ async function fetchHeadZkeyBytes() {
   const { state } = await r.json();
   if (!state?.head_cid) throw new Error('no head_cid');
   const gws = [
-    `https://${state.head_cid}.ipfs.w3s.link`,
-    `https://${state.head_cid}.ipfs.dweb.link`,
-    `https://ipfs.io/ipfs/${state.head_cid}`,
+    `https://ipfs.filebase.io/ipfs/${state.head_cid}`,
+    `https://ipfs.orbitor.dev/ipfs/${state.head_cid}`,
+    `https://gateway.pinata.cloud/ipfs/${state.head_cid}`,
   ];
   for (const gw of gws) {
     try {

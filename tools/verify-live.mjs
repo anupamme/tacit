@@ -22,7 +22,6 @@ const ROOT = new URL('..', import.meta.url).pathname;
 const RPCS = [
   'https://ethereum-rpc.publicnode.com',
   'https://eth.drpc.org',
-  'https://cloudflare-eth.com',
   'https://1rpc.io/eth',
 ];
 

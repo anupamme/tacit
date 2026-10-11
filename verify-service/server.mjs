@@ -12,7 +12,7 @@ const AUTH_TOKEN = process.env.VERIFY_SERVICE_TOKEN || '';
 // a smaller circuit's ptau is the only thing in use.
 const MAX_BYTES = parseInt(process.env.MAX_BYTES || String(500 * 1024 * 1024), 10);
 // Default 3 min per gateway. pot18 is 288 MB and the slowest public
-// gateway (ipfs.io) typically completes the full download in 5–15 s
+// gateway typically completes the full download in 5–15 s
 // once it gets going, but cold-cache misses can add a minute or two of
 // indirect lookup.
 const FETCH_TIMEOUT_MS = parseInt(process.env.FETCH_TIMEOUT_MS || '180000', 10);
