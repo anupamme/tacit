@@ -101,7 +101,7 @@ test('the words for a screen reader carry the same numbers and say nothing for w
 
 test('every fixed point of the layout is inside the picture at any width, in both sizes', () => {
   for (const compact of [true, false]) for (const w of [280, 360, 520, 760, 1000, 1400]) {
-    const h = compact ? 88 : 280, L = layout(w, h, compact);
+    const h = compact ? 84 : 280, L = layout(w, h, compact);
     for (const [name, p] of Object.entries({ btc: L.btc, eth: L.eth, priv: L.priv, pub: L.pub })) {
       assert.ok(p.x > 0 && p.x < w && p.y > 0 && p.y < h, `${name} ${JSON.stringify(p)} in ${w}x${h}`);
     }

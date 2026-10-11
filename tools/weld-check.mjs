@@ -3059,7 +3059,7 @@ await step('stats', async () => {
     ok(/UTC · \d+ h ago|now/.test(fl.clock) && /3 proofs of Bitcoin landed on Ethereum/.test(fl.sr), `stats: it plays the last day first and says in words what it shows (${fl.clock} | ${fl.sr})`);
     await shot(r.page, 'stats-flow-desk');
     await r.page.click('#c-flow [data-flm=live]'); await sleep(300);
-    ok(/^live · updated/.test(await text(r.page, '#c-flow .fl-clock')) && (await r.page.$eval('#c-flow [data-flm=live]', (b) => b.getAttribute('aria-selected'))) === 'true', 'stats: Live can be chosen, and says how fresh it is');
+    ok(!/reconnecting/.test(await text(r.page, '#c-flow .fl-clock')) && (await r.page.$eval('#c-flow [data-flm=live]', (b) => b.getAttribute('aria-selected'))) === 'true', 'stats: Live can be chosen, and keeps quiet while it reads');
     await r.page.setViewportSize({ width: 390, height: 900 }); await r.page.locator('#f-flow').scrollIntoViewIfNeeded(); await sleep(600); await shot(r.page, 'stats-flow-phone');
     await r.page.setViewportSize({ width: 1280, height: 1100 });
     ok(/USDC 2\.5/.test(await card('Others made private')) && /USDT 4\.63/.test(await card('Others made private')), `stats: other assets are named from the pool's registry, or their token (${await card('Others made private')})`);

@@ -98,11 +98,11 @@ export function describe(sum) {
 // ── where things are ──────────────────────────────────────────────────────────────────────────────────────────────
 
 export function layout(w, h, compact) {
-  const y = h * 0.5, pad = compact ? 0.075 : 0.09, lane = h * (compact ? 0.1 : 0.085);
-  // The lines start beyond the names under each chain, so no label sits on a line.
-  const L = { w, h, compact, btc: { x: w * pad, y }, eth: { x: w * (1 - pad), y }, gateX: w * 0.5, up: y - lane, dn: y + lane, mid: y, inset: compact ? 30 : 46 };
+  const y = h * 0.5, pad = compact ? 0.075 : 0.09, bow = h * (compact ? 0.2 : 0.17);
+  // The lines start beyond the names under each chain, so no label sits on a line. `up` and `dn` are the tops of the two arcs.
+  const L = { w, h, compact, btc: { x: w * pad, y }, eth: { x: w * (1 - pad), y }, gateX: w * 0.5, up: y - bow, dn: y + bow, mid: y, bow, inset: compact ? 30 : 46 };
   // Ethereum is a column: the private pool above it, the public token below it, so TAC made public and private moves through it
-  // and never crosses the lanes between the chains.
+  // and never crosses the arcs between the chains.
   L.priv = { x: L.eth.x, y: h * (compact ? 0.15 : 0.13) };
   L.pub = { x: L.eth.x, y: h * (compact ? 0.85 : 0.87) };
   return L;
@@ -133,50 +133,54 @@ function spawn(kind, L, born, jitter) {
   return { kind, born, dur: DUR[kind] || 1500, j };
 }
 
-// A mark's position and look at progress t (0..1).
+// A mark's position and look at progress t (0..1). A mark with a `trail` is drawn with that many fading copies of itself behind it.
 function look(p, t, L, C) {
-  const lane = (y0, from, to, prog) => ({ x: lerp(from, to, prog), y: y0 + p.j * (1 - Math.abs(prog - 0.5) * 2) });
+  // An arc between the chains: over the top for a burn, underneath for a cross-out, the same height at the gate.
+  const arcAt = (sign, from, to, prog) => ({ x: lerp(from, to, prog), y: L.mid + sign * (4 * L.bow * prog * (1 - prog) + p.j * Math.sin(Math.PI * prog)) });
+  const x0 = L.btc.x + L.inset, x1 = L.eth.x - L.inset, edge = (t0) => (t < 0.06 ? t / 0.06 : 1 - clamp((t - 0.94) / 0.06, 0, 1)) * t0;
   switch (p.kind) {
-    case 'burn': { const q = lane(L.up, L.btc.x, L.eth.x, gated(t)); return { ...q, r: 3.2, c: C.orange, glow: 9, a: t < 0.06 ? t / 0.06 : 1 - clamp((t - 0.94) / 0.06, 0, 1) }; }
-    case 'cross': { const q = lane(L.dn, L.eth.x, L.btc.x, gated(t)); return { ...q, r: 3.2, c: C.eth, glow: 9, a: t < 0.06 ? t / 0.06 : 1 - clamp((t - 0.94) / 0.06, 0, 1) }; }
-    case 'block': return { x: L.btc.x + 14 + ease(t) * 34, y: L.mid + p.j, r: 1.8, c: C.orange, glow: 0, sq: true, a: 0.7 * (1 - t) };
-    case 'header': return { x: lerp(L.btc.x, L.eth.x, ease(t)), y: L.mid, r: 1.8, c: C.orange, glow: 4, a: 0.55 * Math.sin(Math.PI * t) };
-    case 'proof': return { x: lerp(L.btc.x, L.eth.x, ease(t)), y: L.mid, pulse: true, a: Math.sin(Math.PI * Math.min(1, t * 1.05)) };
-    case 'mint': return { x: L.eth.x, y: L.eth.y, ring: lerp(8, compactRing(L), ease(t)), c: C.orange, a: 1 - t };
-    case 'settle': return { x: L.eth.x, y: L.eth.y, ring: lerp(6, 13, t), c: C.ink, a: 0.28 * (1 - t) };
-    case 'deposit': { const ty = L.priv.y; return { x: lerp(L.priv.x, L.priv.x, t), y: lerp(0, ty, ease(t)), r: 2.6, c: C.eth, glow: 6, a: 1 - clamp((t - 0.85) / 0.15, 0, 1) }; }
+    case 'burn': return { ...arcAt(-1, x0, x1, gated(t)), r: 2.3, c: C.orange, glow: 0, trail: 9, a: edge(0.9) };
+    case 'cross': return { ...arcAt(1, x1, x0, gated(t)), r: 2.3, c: C.eth, glow: 0, trail: 9, a: edge(0.9) };
+    case 'block': return { x: L.btc.x + 12 + ease(t) * 28, y: L.mid + p.j, r: 1.2, c: C.orange, glow: 0, sq: true, a: 0.5 * (1 - t) };
+    case 'header': return { x: lerp(x0, x1, ease(t)), y: L.mid, r: 1.2, c: C.orange, glow: 0, a: 0.45 * Math.sin(Math.PI * t) };
+    case 'proof': return { x: lerp(x0, x1, ease(t)), y: L.mid, pulse: true, a: Math.sin(Math.PI * Math.min(1, t * 1.05)) };
+    case 'mint': return { x: L.eth.x, y: L.eth.y, ring: lerp(7, compactRing(L), ease(t)), c: C.orange, a: 0.55 * (1 - t) };
+    case 'settle': return { x: L.eth.x, y: L.eth.y, ring: lerp(5, 11, t), c: C.ink, a: 0.2 * (1 - t) };
+    case 'deposit': { const ty = L.priv.y; return { x: L.priv.x, y: lerp(0, ty, ease(t)), r: 1.9, c: C.eth, glow: 0, trail: 6, a: 0.9 * (1 - clamp((t - 0.85) / 0.15, 0, 1)) }; }
     case 'out': return arc(L.priv, L.pub, t, C.orange, L);
     case 'in': return arc(L.pub, L.priv, t, C.orange, L);
     default: return null;
   }
 }
-const compactRing = (L) => (L.compact ? 20 : 30);
+const compactRing = (L) => (L.compact ? 16 : 26);
 function arc(a, b, t, c, L) {
   // Bowed to the right of the column, by no more than the room there is.
-  const e = ease(t), room = Math.max(0, L.w - L.eth.x - 8), bow = Math.min(L.compact ? 12 : 26, room) * Math.sin(Math.PI * e);
-  return { x: lerp(a.x, b.x, e) + bow, y: lerp(a.y, b.y, e), r: 2.8, c, glow: 7, a: Math.sin(Math.PI * clamp(t, 0, 1)) * 0.95 + 0.05 };
+  const e = ease(t), room = Math.max(0, L.w - L.eth.x - 8), bow = Math.min(L.compact ? 10 : 22, room) * Math.sin(Math.PI * e);
+  return { x: lerp(a.x, b.x, e) + bow, y: lerp(a.y, b.y, e), r: 2.1, c, glow: 0, trail: 7, a: (Math.sin(Math.PI * clamp(t, 0, 1)) * 0.95 + 0.05) * 0.85 };
 }
 
 function drawScene(ctx, L, C) {
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = C.hair2;
-  ctx.lineWidth = 0.8;
-  ctx.setLineDash([1.5, 6]);
-  for (const y of [L.up, L.dn]) { ctx.beginPath(); ctx.moveTo(L.btc.x + L.inset, y); ctx.lineTo(L.eth.x - L.inset, y); ctx.stroke(); }
+  const x0 = L.btc.x + L.inset, x1 = L.eth.x - L.inset;
   ctx.setLineDash([]);
   ctx.lineWidth = 1;
   ctx.strokeStyle = C.hair;
-  ctx.beginPath(); ctx.moveTo(L.btc.x + L.inset, L.mid); ctx.lineTo(L.eth.x - L.inset, L.mid); ctx.stroke();
+  // The line between them, which Bitcoin's blocks and their proofs travel, and the two arcs over and under it.
+  ctx.beginPath();
+  ctx.moveTo(x0, L.mid); ctx.lineTo(x1, L.mid);
+  ctx.moveTo(x0, L.mid); ctx.quadraticCurveTo(L.gateX, L.mid - 2 * L.bow, x1, L.mid);
+  ctx.moveTo(x0, L.mid); ctx.quadraticCurveTo(L.gateX, L.mid + 2 * L.bow, x1, L.mid);
+  ctx.stroke();
   // The proof gate: where a burn waits until Bitcoin's state has landed on Ethereum.
-  ctx.strokeStyle = C.hair2;
-  ctx.beginPath(); ctx.moveTo(L.gateX, L.up - 12); ctx.lineTo(L.gateX, L.up + 5); ctx.moveTo(L.gateX, L.dn - 5); ctx.lineTo(L.gateX, L.dn + 12); ctx.stroke();
-  ctx.fillStyle = C.mute;
-  ctx.font = `400 ${L.compact ? 9 : 10}px ${C.mono}`;
+  ctx.beginPath(); ctx.moveTo(L.gateX, L.up - 3); ctx.lineTo(L.gateX, L.dn + 3); ctx.stroke();
+  ctx.fillStyle = C.mute; ctx.globalAlpha = 0.75;
+  ctx.font = `400 ${L.compact ? 8 : 9}px ${C.mono}`;
   ctx.textAlign = 'center';
-  ctx.fillText('proof', L.gateX, L.up - (L.compact ? 16 : 18));
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '1.2px';
+  ctx.fillText('PROOF', L.gateX, L.up - (L.compact ? 7 : 9));
+  if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+  ctx.globalAlpha = 1;
   // The column the TAC moves along, broken where Ethereum's own mark and name sit.
-  const gap = L.compact ? [12, 22] : [18, 36], pad = L.compact ? 4 : 10;
-  ctx.strokeStyle = C.hair;
+  const gap = L.compact ? [10, 20] : [18, 36], pad = L.compact ? 4 : 10;
   ctx.beginPath();
   ctx.moveTo(L.priv.x, L.priv.y + pad); ctx.lineTo(L.priv.x, L.eth.y - gap[0]);
   ctx.moveTo(L.priv.x, L.eth.y + gap[1]); ctx.lineTo(L.priv.x, L.pub.y - pad);
@@ -185,52 +189,66 @@ function drawScene(ctx, L, C) {
 
 function drawMark(ctx, m, L, C) {
   if (m.pulse) {
-    // The proof: a short bright capsule, orange at its Bitcoin end and blue at its Ethereum end, travelling along the line.
-    const len = L.compact ? 46 : 78, x0 = m.x - len, g = ctx.createLinearGradient(x0, 0, m.x, 0);
-    g.addColorStop(0, alpha(C.orange, 0)); g.addColorStop(0.55, alpha(C.orange, 0.55 * m.a)); g.addColorStop(1, alpha(C.eth, 0.95 * m.a));
-    ctx.strokeStyle = g; ctx.lineWidth = L.compact ? 2.4 : 3.2; ctx.lineCap = 'round';
+    // The proof: a short capsule, orange at its Bitcoin end and blue at its Ethereum end, travelling along the line.
+    const len = L.compact ? 44 : 74, x0 = m.x - len, g = ctx.createLinearGradient(x0, 0, m.x, 0);
+    g.addColorStop(0, alpha(C.orange, 0)); g.addColorStop(0.6, alpha(C.orange, 0.4 * m.a)); g.addColorStop(1, alpha(C.eth, 0.8 * m.a));
+    ctx.strokeStyle = g; ctx.lineWidth = L.compact ? 1.6 : 2.2; ctx.lineCap = 'round';
     ctx.beginPath(); ctx.moveTo(Math.max(L.btc.x + L.inset, x0), m.y); ctx.lineTo(Math.min(L.eth.x - L.inset, m.x), m.y); ctx.stroke();
     ctx.lineCap = 'butt'; ctx.lineWidth = 1;
     return;
   }
   if (m.ring != null) {
-    ctx.strokeStyle = alpha(m.c, m.a); ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(m.x, m.y, m.ring, 0, Math.PI * 2); ctx.stroke(); ctx.lineWidth = 1;
+    ctx.strokeStyle = alpha(m.c, m.a); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(m.x, m.y, m.ring, 0, Math.PI * 2); ctx.stroke();
     return;
   }
-  if (m.glow) { ctx.fillStyle = alpha(m.c, 0.18 * m.a); ctx.beginPath(); ctx.arc(m.x, m.y, m.r + m.glow * 0.5, 0, Math.PI * 2); ctx.fill(); }
   ctx.fillStyle = alpha(m.c, m.a);
   if (m.sq) ctx.fillRect(m.x - m.r, m.y - m.r, m.r * 2, m.r * 2);
   else { ctx.beginPath(); ctx.arc(m.x, m.y, m.r, 0, Math.PI * 2); ctx.fill(); }
+}
+
+// A mark and, behind it, the fading copies of where it just was.
+function drawMarkTrail(ctx, p, t, L, C) {
+  const m = look(p, t, L, C);
+  if (!m) return;
+  drawMark(ctx, m, L, C);
+  for (let k = 1; k <= (m.trail || 0); k++) {
+    const tt = t - k * 0.013;
+    if (tt < 0) break;
+    const q = look(p, tt, L, C), f = 1 - k / (m.trail + 1);
+    if (!q) break;
+    drawMark(ctx, { ...q, r: q.r * (0.3 + 0.7 * f), a: q.a * 0.5 * f }, L, C);
+  }
 }
 
 // ── the widget ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 const STYLE = `
 .fl { position: relative; font-family: var(--mono, ui-monospace, Menlo, monospace); color: var(--ink, #1a1a1a); }
-.fl-top { display: flex; justify-content: space-between; align-items: baseline; gap: 4px 14px; flex-wrap: wrap; margin-bottom: 4px; }
+@media (prefers-reduced-motion: no-preference) { .fl { transition: opacity 1s ease; } .fl:not(.fl-in) { opacity: 0; } }
+.fl-top { display: flex; justify-content: space-between; align-items: baseline; gap: 4px 14px; flex-wrap: wrap; margin-bottom: 2px; min-height: 17px; }
 .fl-mode { display: inline-flex; gap: 14px; }
-.fl-mode button { appearance: none; font: 400 11px var(--mono, monospace); letter-spacing: .02em; border: 0; border-radius: 0; border-bottom: 1px solid transparent; background: none; color: var(--mute, #625c4f); padding: 1px 0; margin: 0; cursor: pointer; transition: color .15s; }
-.fl-mode button:hover { color: var(--ink, #1a1a1a); }
-.fl-mode button[aria-selected="true"] { color: var(--ink, #1a1a1a); border-bottom-color: var(--hair-2, rgba(26,26,26,.28)); }
+.fl-mode button { appearance: none; font: 400 10px var(--mono, monospace); letter-spacing: .06em; border: 0; border-radius: 0; border-bottom: 1px solid transparent; background: none; color: var(--mute, #625c4f); opacity: .75; padding: 1px 0; margin: 0; cursor: pointer; transition: color .2s, opacity .2s, border-color .2s; }
+.fl-mode button:hover { color: var(--ink, #1a1a1a); opacity: 1; }
+.fl-mode button[aria-selected="true"] { color: var(--ink, #1a1a1a); opacity: 1; border-bottom-color: var(--hair-2, rgba(26,26,26,.28)); }
 .fl-mode button:focus-visible { outline: 2px solid var(--ink, #1a1a1a); outline-offset: 3px; }
-.fl-clock { font: 400 10px var(--mono, monospace); color: var(--mute, #625c4f); }
+.fl-clock { font: 400 10px var(--mono, monospace); letter-spacing: .02em; color: var(--mute, #625c4f); opacity: .8; }
 .fl-stage { position: relative; width: 100%; }
 .fl-stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .fl-n { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 3px; font: 400 11px var(--mono, monospace); pointer-events: none; text-align: center; }
 .fl-n small { color: var(--mute, #625c4f); font: 400 10px var(--mono, monospace); white-space: nowrap; }
 .fl-n .fl-ic { width: 30px; height: 30px; display: block; }
-.fl.fl-c .fl-n { font-size: 10px; color: var(--mute, #625c4f); }
-.fl.fl-c .fl-n .fl-ic { width: 20px; height: 20px; }
+.fl.fl-c .fl-n { gap: 4px; font-size: 8.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--mute, #625c4f); }
+.fl.fl-c .fl-n .fl-ic { width: 16px; height: 16px; opacity: .92; }
 .fl.fl-c .fl-n small { display: none; }
 .fl-n .fl-disc { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font: 500 15px var(--mono, monospace); }
-.fl.fl-c .fl-n .fl-disc { width: 20px; height: 20px; font-size: 11px; }
-.fl-s { position: absolute; transform: translate(-50%, -50%); font: 400 10px var(--mono, monospace); letter-spacing: .04em; color: var(--mute, #625c4f); opacity: .8; pointer-events: none; white-space: nowrap; }
-.fl.fl-c .fl-s { font-size: 9px; }
-.fl-foot { display: flex; flex-wrap: wrap; gap: 3px 16px; margin-top: 6px; font: 400 11px var(--mono, monospace); color: var(--mute, #625c4f); }
+.fl.fl-c .fl-n .fl-disc { width: 16px; height: 16px; font-size: 9px; }
+.fl-s { position: absolute; transform: translate(-50%, -50%); font: 400 10px var(--mono, monospace); letter-spacing: .04em; color: var(--mute, #625c4f); opacity: .75; pointer-events: none; white-space: nowrap; }
+.fl.fl-c .fl-s { font-size: 8px; letter-spacing: .14em; text-transform: uppercase; opacity: .65; }
+.fl-foot { display: flex; flex-wrap: wrap; gap: 3px 16px; margin-top: 4px; font: 400 10px var(--mono, monospace); letter-spacing: .01em; color: var(--mute, #625c4f); }
 .fl-foot b { color: var(--ink, #1a1a1a); font-weight: 400; }
 .fl-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-@media (max-width: 520px) { .fl-n small { display: none; } .fl-foot { gap: 3px 12px; font-size: 10px; } }
+@media (max-width: 520px) { .fl-n small { display: none; } .fl-foot { gap: 3px 12px; } }
 `;
 
 export function mountFlow(host, { api = 'https://api.tacit.finance', compact = false, fetchImpl, tipUrl = 'https://mempool.space/api/blocks/tip/height', pollMs = 15000, tipMs = 30000 } = {}) {
@@ -249,7 +267,7 @@ export function mountFlow(host, { api = 'https://api.tacit.finance', compact = f
   modes.append(bLive, bReplay);
   if (!reduce) top.append(modes);
   top.append(clock);
-  const stage = el('div', 'fl-stage'); stage.style.height = compact ? '88px' : '280px';
+  const stage = el('div', 'fl-stage'); stage.style.height = compact ? '84px' : '280px';
   const canvas = doc.createElement('canvas'); canvas.setAttribute('aria-hidden', 'true'); stage.append(canvas);
   const node = (cls, name, sub, sprite, color, letter) => {
     const n = el('div', `fl-n ${cls}`), ic = doc.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -265,6 +283,7 @@ export function mountFlow(host, { api = 'https://api.tacit.finance', compact = f
   sr.setAttribute('aria-live', 'polite');
   root.append(top, stage, foot, sr);
   host.replaceChildren(root);
+  win.setTimeout(() => root.classList.add('fl-in'), 30);
 
   const css = () => win.getComputedStyle(root);
   let C = null;
@@ -273,10 +292,10 @@ export function mountFlow(host, { api = 'https://api.tacit.finance', compact = f
     C = { orange: v('--orange', '#f7931a'), eth: v('--eth', '#627eea'), ink: v('--ink', '#1a1a1a'), mute: v('--mute', '#625c4f'), hair: v('--hair', 'rgba(26,26,26,.12)'), hair2: v('--hair-2', 'rgba(26,26,26,.28)'), mono: v('--mono', 'ui-monospace, Menlo, monospace') };
   };
   const ctx = canvas.getContext && canvas.getContext('2d');
-  let L = layout(600, compact ? 88 : 280, compact), dpr = 1;
+  let L = layout(600, compact ? 84 : 280, compact), dpr = 1;
 
   const place = () => {
-    const w = stage.clientWidth || 600, h = stage.clientHeight || (compact ? 88 : 280);
+    const w = stage.clientWidth || 600, h = stage.clientHeight || (compact ? 84 : 280);
     dpr = Math.min(2, win.devicePixelRatio || 1);
     canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
     L = layout(w, h, compact);
@@ -322,8 +341,7 @@ export function mountFlow(host, { api = 'https://api.tacit.finance', compact = f
       const ago = Math.max(0, Math.round((st.feed.asOf - t) / 3600));
       clock.textContent = `${hh}:${mm} UTC · ${ago ? `${ago} h ago` : 'now'}`;
     } else {
-      const age = Math.max(0, Math.round((Date.now() - st.at) / 1000));
-      clock.textContent = st.fails >= 3 ? 'reconnecting…' : `live · updated ${age < 60 ? `${age} s` : `${Math.round(age / 60)} min`} ago`;
+      clock.textContent = st.fails >= 3 ? 'reconnecting…' : '';   // live says so in the choice above; it only speaks when it cannot read
     }
   };
 
@@ -349,7 +367,7 @@ export function mountFlow(host, { api = 'https://api.tacit.finance', compact = f
     ctx.clearRect(0, 0, L.w, L.h);
     drawScene(ctx, L, C);
     st.marks = st.marks.filter((p) => ts - p.born < p.dur);
-    for (const p of st.marks) { const m = look(p, clamp((ts - p.born) / p.dur, 0, 1), L, C); if (m) drawMark(ctx, m, L, C); }
+    for (const p of st.marks) drawMarkTrail(ctx, p, clamp((ts - p.born) / p.dur, 0, 1), L, C);
     if (((ts | 0) % 1000) < 17) paintClock();
     st.raf = win.requestAnimationFrame(frame);
   };
