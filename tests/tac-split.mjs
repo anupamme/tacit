@@ -9,7 +9,7 @@ import assert from 'node:assert';
 import { execFileSync } from 'node:child_process';
 import {
   ZERO_ADDR, TAC_ERC20, TAC_POOL_ASSET_ID, CETH_POOL_ASSET_ID, ZROUTER, PRECISION_ROUTE, PRECISION_LENS, PRECISION_POLICY, PRECISION_GUARD,
-  PRECISION_POOL, TACIT_AMM, TACIT_AMM_UNIT_SCALE, MULTICALL3, SAFE_EXECUTOR, makeEvmTradeVenues,
+  PRECISION_POOL, TACIT_AMM, TACIT_AMM_UNIT_SCALE, MULTICALL3, SAFE_EXECUTOR, SPLIT_EXTRA_GAS, splitWorth, makeEvmTradeVenues,
 } from '../dapp/evm-trade-venues.js';
 
 let n = 0;
@@ -158,6 +158,59 @@ const DL = 2000000000n;
   assert.equal(withPermit.data, cast('calldata', 'multicall(bytes[])', `[${permitLeg},${guard},${swapLeg}]`));
   assert.throws(() => makeEvmTradeVenues({ ethCall }).buildSplit({ split, account: A1, deadline: DL }), /keccak256/);
   ok('buildSplit (TAC to ETH) is byte for byte [permit?, guard, snwap(TAC, Multicall3, aggregate3([checkpoint, transfer, route, approve, Tacit swap]))]');
+}
+
+// ── splitWorth: the one rule the card, the sheets and plan() share ──
+{
+  // buying: 1 ETH in, the best single venue pays 12,000 TAC, the split 0.9% more
+  const buy = { gain: 108n * E18, gainBps: 90, single: { amountOut: 12000n * E18 } };
+  assert.equal(splitWorth({ dir: 'ETH_TO_TAC', split: buy, amountIn: E18 }), true, 'no gas price: 0.9% clears the 0.3% margin');
+  assert.equal(splitWorth({ dir: 'ETH_TO_TAC', split: { ...buy, gainBps: 20 }, amountIn: E18 }), false, '0.2% does not');
+  // 0.9% of 1 ETH = 0.009 ETH; its extra gas 110k at 20 gwei = 0.0022 ETH; 0.009 > 1.2 * 0.0022
+  assert.equal(splitWorth({ dir: 'ETH_TO_TAC', split: buy, amountIn: E18, gasPrice: 20n * 10n ** 9n }), true);
+  // at 100 gwei the same gas is 0.011 ETH: more than the gain
+  assert.equal(splitWorth({ dir: 'ETH_TO_TAC', split: buy, amountIn: E18, gasPrice: 100n * 10n ** 9n }), false);
+  // the boundary: gain·10 must EXCEED extraGas·price·12, so equality is not enough
+  const price = 10n * 10n ** 9n, need = (SPLIT_EXTRA_GAS.ETH_TO_TAC * price * 12n) / 10n;   // wei of gain that just pays 1.2x the gas
+  const at = (gainWei) => ({ gain: gainWei * 12000n, gainBps: 50, single: { amountOut: 12000n * E18 } });
+  // gainWei ETH of extra TAC, scaled: gain(TAC) = gainWei * single.amountOut / amountIn
+  const mk = (gainEth) => ({ gain: (gainEth * 12000n * E18) / E18, gainBps: 50, single: { amountOut: 12000n * E18 } });
+  assert.equal(splitWorth({ dir: 'ETH_TO_TAC', split: mk(need), amountIn: E18, gasPrice: price }), false, 'exactly 1.2x its gas is not enough');
+  assert.equal(splitWorth({ dir: 'ETH_TO_TAC', split: mk(need + 1n), amountIn: E18, gasPrice: price }), true, 'one wei more is');
+  // selling: the gain is already ETH
+  const sell = { gain: 4n * 10n ** 15n, gainBps: 100, single: { amountOut: 3n * 10n ** 17n } };
+  assert.equal(splitWorth({ dir: 'TAC_TO_ETH', split: sell, amountIn: 5000n * E18, gasPrice: 10n * 10n ** 9n }), true, '0.004 ETH gain beats 141k gas at 10 gwei (0.0014 ETH)');
+  assert.equal(splitWorth({ dir: 'TAC_TO_ETH', split: sell, amountIn: 5000n * E18, gasPrice: 30n * 10n ** 9n }), false, 'but not at 30 gwei (0.0042 ETH)');
+  assert.equal(splitWorth({ dir: 'TAC_TO_ETH', split: null, amountIn: 1n }), false);
+  assert.equal(splitWorth({ dir: 'TAC_TO_ETH', split: { ...sell, gain: 0n }, amountIn: 1n }), false);
+  assert.ok(SPLIT_EXTRA_GAS.ETH_TO_TAC > 100000n && SPLIT_EXTRA_GAS.TAC_TO_ETH > SPLIT_EXTRA_GAS.ETH_TO_TAC, 'the measured gas deltas');
+  ok('splitWorth: a 0.3% margin without a gas price; with one the gain (in ETH) must exceed 1.2x the extra gas, to the wei, both directions');
+}
+
+// ── route: which way an order runs, with the points preference a purchase carries ──
+{
+  const venues = makeEvmTradeVenues({ ethCall: makeEthCall().ethCall, keccak256 });
+  const gp = 2n * 10n ** 9n;
+  // a large purchase: the split pays far over 1% more than Precision, so it is taken
+  const big = await venues.route({ dir: 'ETH_TO_TAC', amountIn: 2n * E18, account: A1, gasPrice: gp });
+  assert.equal(big.pick, 'split'); assert.equal(big.single.venue, 'precision', 'the single it is weighed against is Precision');
+  // 0.5 ETH: the split pays 0.7% more than Precision, under the 1% a purchase needs to leave it (its points), though worth its gas
+  const mid = await venues.route({ dir: 'ETH_TO_TAC', amountIn: E18 / 2n, account: A1, gasPrice: gp });
+  assert.equal(mid.pick, 'single'); assert.ok(mid.split && mid.split.gainBps >= 60 && mid.split.gainBps < 100, `the split is on offer at ${mid.split?.gainBps} bps`);
+  // small orders gain nothing from a split at all
+  for (const eth of [E18 / 50n, E18 / 10n]) assert.equal((await venues.route({ dir: 'ETH_TO_TAC', amountIn: eth, account: A1, gasPrice: gp })).pick, 'single');
+  // a sale has no points, so any split worth its gas is taken
+  const sale = await venues.route({ dir: 'TAC_TO_ETH', amountIn: 8000n * E18, account: A1, gasPrice: gp });
+  assert.equal(sale.pick, 'split', 'a sale takes a split that is worth its gas, 1% or not');
+  const noPref = await venues.route({ dir: 'ETH_TO_TAC', amountIn: E18 / 2n, account: A1, gasPrice: gp, preferPrecision: false });
+  assert.equal(noPref.pick, 'split', 'without the points preference the 0.7% split is worth its gas');
+  // gas too dear: nothing is worth a split
+  const dear = await venues.route({ dir: 'ETH_TO_TAC', amountIn: 2n * E18, account: A1, gasPrice: 10n ** 13n });
+  assert.equal(dear.pick, 'single'); assert.ok(dear.split, 'the split is still reported');
+  // a single venue only: no split, and a venue that is down is simply absent
+  const oneVenue = await makeEvmTradeVenues({ ethCall: makeEthCall({ tacitDown: true }).ethCall, keccak256 }).route({ dir: 'ETH_TO_TAC', amountIn: E18, account: A1, gasPrice: gp });
+  assert.equal(oneVenue.pick, 'single'); assert.equal(oneVenue.split, null); assert.equal(oneVenue.single.venue, 'precision');
+  ok('route(): a purchase leaves Precision only for something over 1% better (a split included), a sale takes any split worth its gas, and gas too dear or a venue down keeps one pool');
 }
 
 // ── plan: the split is taken only when it is worth its gas, and only when it runs ──

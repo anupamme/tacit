@@ -520,6 +520,18 @@ async function simulateTx({ ethCall, tx, from, block = 'latest' }) {
   } catch (error) { return { ok: false, error }; }
 }
 
+// What a split costs over the best single venue, in gas: measured on a mainnet fork (tests/tac-split-fork.mjs), a split ETH to TAC
+// used about 109k more than one venue, and a split TAC to ETH about 140k more.
+export const SPLIT_EXTRA_GAS = Object.freeze({ ETH_TO_TAC: 110000n, TAC_TO_ETH: 141000n });
+// Whether `split` pays enough more than the best single venue to be worth its extra gas: its gain, in ETH, must be at least 20% over
+// that gas at `gasPrice` (wei). With no gas price known it falls back to a plain 0.3% margin. Pure.
+export function splitWorth({ dir, split, amountIn, gasPrice = null, minGainBps = 30 }) {
+  if (!split || split.gain <= 0n) return false;
+  if (gasPrice == null) return split.gainBps >= minGainBps;
+  const gainEth = dir === 'TAC_TO_ETH' ? split.gain : (split.gain * amountIn) / split.single.amountOut;     // ETH paid in, scaled by the extra TAC it buys
+  return gainEth * 10n > SPLIT_EXTRA_GAS[dir] * BigInt(gasPrice) * 12n;
+}
+
 // ── ranking + top-level API ──
 
 function rankQuotes(quotes) {
@@ -583,9 +595,26 @@ export function makeEvmTradeVenues({ ethCall, keccak256 } = {}) {
     throw new Error(`build: unknown venue ${quote.venue}`);
   }
 
+  // Which way an order runs: the best single venue, or one transaction split across Precision and the Tacit AMM when that pays enough
+  // more to cover its extra gas (`splitWorth` at `gasPrice`, wei, or its plain 0.3% margin without one). A purchase also weighs points,
+  // which only Precision's swaps earn (a split earns on its Precision share): with `preferPrecision` (the default for a purchase) it
+  // stays on Precision unless something else pays over 1% more, a split included. → { r (the quoteAll result), single, split, pick:
+  // 'single' | 'split' }, or { single: null } when no pool answers.
+  async function route({ dir, amountIn, account, gasPrice = null, block = 'latest', preferPrecision = dir === 'ETH_TO_TAC' }) {
+    const [r, split] = await Promise.all([
+      quoteAll({ dir, amountIn, account: account || undefined, block, includeZQuoter: false }),
+      quoteSplit({ ethCall, dir, amountIn, account: account || undefined, block }).catch(() => null),
+    ]);
+    if (!r.best) return { r, single: null, split: null, pick: null };
+    const prec = (r.ranked || []).find((x) => x.venue === VENUES.PRECISION);
+    const single = preferPrecision && prec && BigInt(prec.amountOut) * 100n >= BigInt(r.best.amountOut) * 99n ? prec : r.best;
+    const worth = !!split && splitWorth({ dir, split, amountIn, gasPrice }) && (!preferPrecision || split.amountOut * 100n >= BigInt(single.amountOut) * 101n);
+    return { r, single, split, pick: worth ? 'split' : 'single' };
+  }
+
   // The best way to execute one order: the best single venue, or the split when it pays enough more to cover its extra gas.
-  // `estimateGas(tx) -> bigint` and `gasPrice() -> bigint (wei)` are optional; without them a split is taken when it pays
-  // at least `minGainBps` (0.3%) more. With `verify` the chosen split is simulated as `account` first and a revert falls back
+  // `gasPrice() -> bigint (wei)` and `estimateGas(tx) -> bigint` are optional; without a gas price a split is taken when it pays
+  // at least `minGainBps` (0.3%) more, with one the rule is `splitWorth` (or, given estimates too, the node's own figures). With `verify` the chosen split is simulated as `account` first and a revert falls back
   // to the single venue (`splitError` says why); leave it off for a TAC-in order whose approval is not yet in place.
   async function plan({ dir, amountIn, account, slippageBps = 50, deadline, permit, estimateGas, gasPrice, minGainBps = 30, verify = false, block = 'latest' }) {
     const dl = deadline ?? BigInt(Math.floor(Date.now() / 1000) + 1800);
@@ -600,16 +629,19 @@ export function makeEvmTradeVenues({ ethCall, keccak256 } = {}) {
       return out;
     }
     const splitTx = buildSplit({ split, account, slippageBps, deadline: dl, keccak256, permit });
-    let worth = split.gainBps >= minGainBps;
-    if (estimateGas && gasPrice) {
+    let worth = splitWorth({ dir, split, amountIn, minGainBps });
+    if (gasPrice) {
       try {
-        const [g1, g2, price] = await Promise.all([estimateGas(single.tx), estimateGas(splitTx), gasPrice()]);
-        const extra = (g2 > g1 ? g2 - g1 : 0n) * BigInt(price);                                  // wei
-        // The extra output in ETH: already ETH when selling TAC, else priced at what the best single venue pays.
-        const gainEth = dir === 'TAC_TO_ETH' ? split.gain : split.gain * amountIn / split.single.amountOut;
-        worth = gainEth * 10n > extra * 12n;                                                      // at least 20% over its own gas
-        out.gas = { single: g1, split: g2, extraWei: extra, gainEth };
-      } catch { /* an estimate that fails is no reason to refuse a split the percentage already justifies */ }
+        const price = BigInt(await gasPrice());
+        worth = splitWorth({ dir, split, amountIn, gasPrice: price });
+        if (estimateGas) {
+          const [g1, g2] = await Promise.all([estimateGas(single.tx), estimateGas(splitTx)]);
+          const extra = (g2 > g1 ? g2 - g1 : 0n) * price;                                          // wei, from the node's own estimates
+          const gainEth = dir === 'TAC_TO_ETH' ? split.gain : (split.gain * amountIn) / split.single.amountOut;
+          worth = gainEth * 10n > extra * 12n;
+          out.gas = { single: g1, split: g2, extraWei: extra, gainEth };
+        }
+      } catch { /* a gas price or estimate that cannot be read is no reason to refuse a split the percentage already justifies */ }
     }
     out.split = split;
     if (!worth) return out;
@@ -623,6 +655,7 @@ export function makeEvmTradeVenues({ ethCall, keccak256 } = {}) {
   return {
     quoteAll,
     build,
+    route,
     plan,
     quoteSplit: (args) => quoteSplit({ ethCall, ...args }),
     buildSplit: (args) => buildSplit({ keccak256, ...args }),
