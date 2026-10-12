@@ -118,7 +118,9 @@ export async function makeKeeperChain({ cfg, account, log = () => {} }) {
   const [pool, asset, v1] = await Promise.all(['POOL', 'ASSET', 'V1'].map((f) => read(cfg.router, ROUTER_ABI, f)));
   if (getAddress(pool) !== cfg.pool) throw new Error(`router ${cfg.router} serves pool ${pool}, not EVM_POOL_ADDR ${cfg.pool}`);
 
-  const privateUrls = cfg.sendRpcUrls, publicUrls = cfg.allowPublicSend || !privateUrls.length ? [cfg.rpcUrls[0]] : [];
+  // The public pass tries the read nodes in turn and stops at the first that takes the transaction: a node that is rate-limiting
+  // or down must not fail a relay while another would have taken it.
+  const privateUrls = cfg.sendRpcUrls, publicUrls = cfg.allowPublicSend || !privateUrls.length ? cfg.rpcUrls : [];
   // `functionName` on the router, or `pool.transact` (a relayed user transaction) on the pool.
   const target = (functionName) => (functionName === 'pool.transact'
     ? { address: cfg.pool, abi: POOL_ABI, functionName: 'transact' }
@@ -204,12 +206,13 @@ export async function makeKeeperChain({ cfg, account, log = () => {} }) {
     send: (functionName, args, { gas, simulate = true }) => serial(async () => {
       if (simulate) await pub.estimateContractGas({ ...target(functionName), args, account });
       let lastErr;
-      const via = async (urls, nonce, fee) => {
+      const via = async (urls, nonce, fee, firstWins = false) => {
         let hash = null;
         for (const url of urls) {
           try {
             const wallet = createWalletClient({ account, chain: viemChain, transport: http(url) });
             hash = (await wallet.writeContract({ ...target(functionName), args, gas, nonce, ...fee })) || hash;
+            if (firstWins && hash) break;
           } catch (e) {
             lastErr = e;
             log(`  submit via ${new URL(url).host} failed: ${safeErr(e)}`);
@@ -222,7 +225,7 @@ export async function makeKeeperChain({ cfg, account, log = () => {} }) {
         if (!urls.length) continue;
         const hash = await withNonceRetry(functionName, async () => {
           const [nonce, fee] = await Promise.all([nextNonce(), fees(gas)]);
-          const h = await via(urls, nonce, fee);
+          const h = await via(urls, nonce, fee, urls === publicUrls);
           if (!h) throw lastErr || new Error('no submission endpoint took it');
           sentNonce = nonce;
           sentAt = Date.now();

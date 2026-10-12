@@ -31,6 +31,7 @@ import { stallVerdict, driftVerdict } from './lib/reflection-stall.js';
 import { manualRecoveryHint } from './lib/reflection-reconcile.js';
 import { reflectionDriftSeen, crossOutGapSeen } from './lib/worker-client.js';
 import { creditLevel } from './lib/prove-credit.js';
+import { blockSecOf, feedLagSec, feedLagLevel } from './lib/feed-lag.js';
 import { publicClient, relayWallet, watchedWallets, ERC20_ABI, PROVE, readPool, readReflectionDigest, HEADER_RELAY, RELAY_ABI } from './lib/chain.js';
 import { safeErr } from './lib/safe-err.js';
 
@@ -431,7 +432,7 @@ async function checkCrossOutFold() {
 // headroom it sends with. EVM_POOL_KEEPERS=off skips the check; a JSON list replaces the defaults.
 const EVM_POOL_KEEPERS_DEFAULT = [
   { chainId: 1, name: 'Ethereum', keeper: 'https://tacit-evm-pool-keeper.onrender.com/evm-pool/keeper', address: '0x7c9f8aE4e48Cbb2727F95b6477a1cf92bCFc43D0', rpc: ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org', 'https://mainnet.gateway.tenderly.co'], minTipWei: '50000000' },
-  { chainId: 8453, name: 'Base', keeper: 'https://tacit-evm-pool-keeper-base.onrender.com/evm-pool/keeper', address: '0xfA2afbaB631C7Eda7CeA6AE1440605C504E322Ec', rpc: ['https://mainnet.base.org', 'https://base.drpc.org'] },
+  { chainId: 8453, name: 'Base', keeper: 'https://tacit-evm-pool-keeper-base.onrender.com/evm-pool/keeper', address: '0xfA2afbaB631C7Eda7CeA6AE1440605C504E322Ec', rpc: ['https://mainnet.base.org', 'https://base.drpc.org', 'https://base.rpc.blxrbdn.com'] },
   { chainId: 4663, name: 'Robinhood Chain', keeper: 'https://tacit-evm-pool-keeper-robinhood.onrender.com/evm-pool/keeper', address: '0xc1F8DAc6BC910A5A794b4795b5F9997e0E8A5Fad', rpc: ['https://rpc.mainnet.chain.robinhood.com'] },
   { chainId: 4326, name: 'MegaETH', keeper: 'https://tacit-evm-pool-keeper-megaeth.onrender.com/evm-pool/keeper', address: '0x69e4ea1992561Ce129713899244209Fd955E7D89', rpc: ['https://mainnet.megaeth.com/rpc'], relayGas: 900_000, gasCap: 3_000_000 },
 ];
@@ -494,6 +495,21 @@ async function checkEvmPoolKeepers() {
     if (bal < now) await alert('critical', `${who} ${address} holds ${formatEther(bal)} ETH, under the ${formatEther(now)} ETH it must front for one relay at today's gas: it refuses relays until topped up, and users fall back to their own wallets`, extra);
     else if (bal < spike) await alert('warning', `${who} ${address} holds ${formatEther(bal)} ETH: enough now, but a 4x base-fee rise would stop its relays (needs ${formatEther(spike)} ETH). Top it up`, extra);
     else if (bal < largest) await alert('warning', `${who} ${address} holds ${formatEther(bal)} ETH, under the ${formatEther(largest)} ETH to front its largest transaction (up to ${gasCap} gas, e.g. a bridge move) with full headroom`, extra);
+    // The history feed a new device reads first. Far behind, and every new device reads the gap from public nodes, which on a busy
+    // chain rate-limit it or cap the range: a first sync then fails. Warns at an hour behind, pages at six.
+    try {
+      const fr = await fetch(`${k.keeper}/events?from=999999999999`, { signal: AbortSignal.timeout(20_000) });
+      if (fr.ok) {
+        const through = Number((await fr.json()).through), head = Number(BigInt(await keeperRpc(k.rpc, 'eth_blockNumber')));
+        const ts = async (n) => Number(BigInt((await keeperRpc(k.rpc, 'eth_getBlockByNumber', ['0x' + n.toString(16), false])).timestamp));
+        const span = Math.min(1000, head - 1), blockSec = blockSecOf(await ts(head), await ts(head - span), span);
+        const lag = feedLagSec({ through, head, blockSec }), level = feedLagLevel(lag);
+        log(`${who} history feed through block ${through}, ${lag == null ? 'lag unknown' : `${Math.round(lag / 60)} min behind the chain`}`);
+        if (level === 'warning' || level === 'critical') {
+          await alert(level, `${who} history feed (${k.keeper}/events) is ${(lag / 3600).toFixed(1)} h behind the chain (through block ${through}, head ${head}): a new device reads that gap from public nodes, which can rate-limit a busy chain, so a first sync can fail. Check the keeper's 'history sync' log and its read nodes (EVM_POOL_RPC_URLS_FALLBACK)`, { chainId: k.chainId, through, head, lagHours: +(lag / 3600).toFixed(1) });
+        }
+      }
+    } catch (e) { log(`${who} history feed check failed: ${safeErr(e)}`); }
   }));
 }
 

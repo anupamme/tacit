@@ -79,6 +79,23 @@ const args = [1n, 25, [[0n, 0n], [[0n, 0n], [0n, 0n]], [0n, 0n], Array(11).fill(
   ok(err instanceof Error && pubSeen.length === before2, 'and with public sends off, it fails instead', String(err?.message || err).slice(0, 60));
   a.close(); b.close(); c.close();
 }
+// A chain with no private endpoint (an L2): the read nodes are tried in turn, and the first to take it ends the pass, so a node that is
+// rate-limiting does not fail a relay while another would take it, and the one that took it is the only one sent to.
+{
+  const a = endpoint('refuse'), b = endpoint('take'), c = endpoint('take');
+  const chain = await makeKeeperChain({ cfg: { ...base, rpcUrls: [a.url, b.url, c.url], sendRpcUrls: [] }, account });
+  const hash = await chain.send('sweepReceive', args, { gas: 300_000n, simulate: false }).catch((e) => e);
+  ok(typeof hash === 'string' && /^0x[0-9a-f]{64}$/.test(hash), 'with no private endpoint, a refusing first node is passed over', String(hash?.message || hash).slice(0, 80));
+  ok(a.seen.length === 1 && b.seen.length === 1 && c.seen.length === 0, 'the second node took it and the third was not asked', `${a.seen.length}/${b.seen.length}/${c.seen.length}`);
+  a.close(); b.close(); c.close();
+}
+{
+  const a = endpoint('refuse'), b = endpoint('refuse');
+  const chain = await makeKeeperChain({ cfg: { ...base, rpcUrls: [a.url, b.url], sendRpcUrls: [] }, account });
+  const err = await chain.send('sweepReceive', args, { gas: 300_000n, simulate: false }).catch((e) => e);
+  ok(err instanceof Error && a.seen.length >= 1 && b.seen.length >= 1, 'and when every read node refuses, the send fails', String(err?.message || err).slice(0, 60));
+  a.close(); b.close();
+}
 pubSrv.close();
 console.log(`\n${passed} passed${failures ? `, ${failures} failed` : ''}`);
 process.exit(failures ? 1 : 0);
