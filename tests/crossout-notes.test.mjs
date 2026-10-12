@@ -42,7 +42,7 @@ ok(true, 'a key that is not 32 bytes is refused');
   const H = pedersenCommit(1n, 0n);
   const at = (a) => pedersenCommit(BigInt(a), 0n);
   void H;
-  const cases = [1n, 2n, 8192n, 8193n, 16384n, 400_000n, 500_000n, 123_457n, 67_108_863n];
+  const cases = [1n, 2n, 8192n, 8193n, 16384n, 400_000n, 500_000n, 123_457n, 50_000_000n, 67_108_863n];
   for (const a of cases) ok(solveAmount(at(a), 26) === a, `${a} units is recovered from its commitment`);
   ok(solveAmount(at(70_000_000n), 26) === null, 'an amount past the search range is reported as not found, not guessed');
   ok(solveAmount(secp.ProjectivePoint.BASE.multiply(5n), 26) === null, 'a point that is no multiple of H in range is not found');

@@ -33,8 +33,8 @@ import { makeCrossoutMintReveal } from './crossout-mint-reveal.js';
 import { makeBtcWallet } from './bitcoin-taproot-wallet.js';
 
 export const CROSSOUT_BETA_CAP_RAW = 100_000_000_000n; // 1,000 TAC at 8 decimals -- matches burndep-ux's own beta cap
-export const CROSSOUT_TETH_CAP_RAW = 500_000n;         // 0.005 tETH at 8 decimals: one bridge's most while this is in beta
-export const CROSSOUT_TETH_MIN_RAW = 100_000n;         // 0.001 tETH: under this the Bitcoin fees and the relay fee are most of what moves
+export const CROSSOUT_TETH_CAP_RAW = 50_000_000n;      // 0.5 tETH at 8 decimals: one bridge's most while this is new (the amount search in crossout-notes.js reaches 0.67)
+export const CROSSOUT_TETH_MIN_RAW = 1_000_000n;       // 0.01 tETH: under this the Bitcoin fees and the relay fee are too large a share of what moves
 // The mint is sent hours after the burn, whatever Bitcoin's fees are by then: above this rate (sat/vB) it waits, until the
 // holder says to send it anyway. A mint is about 290 vB, so this caps what an unattended send can cost at ~29,000 sats.
 export const CROSSOUT_MINT_FEE_CEILING = 100;

@@ -2072,7 +2072,7 @@ await step('xobridge', async () => {
       const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
       const note = (value, i) => ({ asset: '${CETH}', value: BigInt(value), blinding: BigInt(1000 + i), leafIndex: 900000 + i, leaf: '0x' + String(i).repeat(64).slice(0, 64), nullifier: '0x' + String(i + 1).repeat(64).slice(0, 64),
         cx: '0x' + String(i).repeat(64).slice(0, 64), cy: '0x01', owner: '0x' + '02'.repeat(32), secret: '0x' + '03'.repeat(32), root: '0x' + '04'.repeat(32), path: Array.from({ length: 32 }, () => '0x' + '00'.repeat(32)) });
-      const add = [note(400000, 1), note(200000, 2), note(1200000, 3), note(500000, 4), note(500000, 5)];
+      const add = [note(4000000, 1), note(2000000, 2), note(60000000, 3), note(5000000, 4), note(5000000, 5)];
       ux.balance = async (priv) => {
         const b = await balance(priv);
         b.notes = [...b.notes, ...add];
@@ -2154,13 +2154,13 @@ await step('xobridge', async () => {
   await r.page.evaluate(() => localStorage.setItem('tacit-teth-btc', 'true'));
   await go(r.page, '#private');
   await go(r.page, '#private/bitcoin');
-  // The form. A tETH balance of five notes (0.004, 0.002, 0.012, 0.005, 0.005) is read; the key's Bitcoin address has nothing yet.
+  // The form. A tETH balance of five notes (0.04, 0.02, 0.6, 0.05, 0.05) is read; the key's Bitcoin address has nothing yet.
   await r.page.waitForSelector('#xo-amt');
-  await r.page.fill('#xo-amt', '0.004');
+  await r.page.fill('#xo-amt', '0.04');
   await until(r.page, () => /Bitcoin fee, when it is sent/.test(document.querySelector('#xo-rcpt')?.textContent || ''), null, 240000)
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | receipt: ${(await text(r.page, '#xo-rcpt')).replace(/\s+/g, ' ')} | status: ${await text(r.page, '#v1-status')} | errors: ${r.errors.slice(0, 2).join(' | ')}`); });
   const rc0 = (await text(r.page, '#xo-rcpt')).replace(/\s+/g, ' ');
-  ok(/You get0\.00\d+ tETH on your Bitcoin address/.test(rc0) && /Relay fee0\.00\d+ tETH/.test(rc0) && /Arrivesusually a few hours, sometimes up to a day/.test(rc0), `xobridge: the receipt names what arrives, the relay fee and the time (${rc0.slice(0, 220)})`);
+  ok(/You get0\.0\d+ tETH on your Bitcoin address/.test(rc0) && /Relay fee0\.00\d+ tETH/.test(rc0) && /Arrivesusually a few hours, sometimes up to a day/.test(rc0), `xobridge: the receipt names what arrives, the relay fee and the time (${rc0.slice(0, 220)})`);
   ok(/needs a coin of \d[\d,]* sats|needs one coin of \d[\d,]* sats/.test(rc0) && await r.page.isDisabled('#xo-go') && await r.page.isHidden('#xo-ackrow'), 'xobridge: with no sats on the key’s Bitcoin address it cannot start, and says how many it needs');
   // Funded: the box appears, and ticking it enables the button. Each bridge still to sign its mint takes a coin of its own,
   // so there is one coin for each of those and one for this.
@@ -2171,17 +2171,17 @@ await step('xobridge', async () => {
   await r.page.check('#xo-ack');
   ok(!(await r.page.isDisabled('#xo-go')), 'xobridge: ticked, it can start');
   // The limits.
-  await r.page.fill('#xo-amt', '0.006');
-  await until(r.page, () => /at most 0\.005 tETH/.test(document.querySelector('#xo-rcpt')?.textContent || ''), null, 120000);
+  await r.page.fill('#xo-amt', '0.6');
+  await until(r.page, () => /at most 0\.5 tETH/.test(document.querySelector('#xo-rcpt')?.textContent || ''), null, 120000);
   ok(await r.page.isDisabled('#xo-go') && await r.page.isHidden('#xo-ackrow'), 'xobridge: more than the limit is refused with the limit named, and the box goes away');
-  await r.page.fill('#xo-amt', '0.0005');
-  await until(r.page, () => /at least 0\.001 tETH/.test(document.querySelector('#xo-rcpt')?.textContent || ''), null, 120000);
+  await r.page.fill('#xo-amt', '0.005');
+  await until(r.page, () => /at least 0\.01 tETH/.test(document.querySelector('#xo-rcpt')?.textContent || ''), null, 120000);
   ok(await r.page.isDisabled('#xo-go'), 'xobridge: under the minimum is refused with the minimum named');
 
   // Start one: the page checks again, takes the note of exactly that size, and the relay is sent a bridge-burn job; the harness's
   // relay then reports the job failed, as a settle the page could not see through, and the intent record is what is left.
   const before = submits.length;
-  await r.page.fill('#xo-amt', '0.004');
+  await r.page.fill('#xo-amt', '0.04');
   await until(r.page, () => !document.querySelector('#xo-ackrow')?.hidden, null, 240000);
   await r.page.check('#xo-ack');
   await r.page.click('#xo-go');
@@ -2197,7 +2197,7 @@ await step('xobridge', async () => {
 
   // A send the relay refuses at submit: nothing was queued, so the intent is let go and the paying account is offered.
   refuseSubmits = 1;
-  await r.page.fill('#xo-amt', '0.005');           // another whole note, the largest the limit allows: the first is held by the action that is still following its job, and the fork's gas can price the relay fee above a smaller one
+  await r.page.fill('#xo-amt', '0.05');            // another whole note: the first is held by the action that is still following its job, and the fork's gas can price the relay fee above a smaller one
   await until(r.page, () => !document.querySelector('#xo-ackrow')?.hidden, null, 240000);
   await r.page.check('#xo-ack');
   await r.page.click('#xo-go');
@@ -2209,12 +2209,12 @@ await step('xobridge', async () => {
   // two-digit ladder, and when that is turned down too (or doubling would eat the note) offers the paying account.
   await r.page.fill('#xo-amt', '');
   await until(r.page, () => document.querySelector('#xo-rcpt')?.hidden, null, 30000);          // the last receipt is gone before the next is waited for
-  await r.page.fill('#xo-amt', '0.005');
+  await r.page.fill('#xo-amt', '0.05');
   await until(r.page, () => /Relay fee0\.\d+ tETH/.test(document.querySelector('#xo-rcpt')?.textContent || '') && !document.querySelector('#xo-ackrow')?.hidden, null, 240000);
   const fee1 = BigInt(Math.round(Number((await text(r.page, '#xo-rcpt')).match(/Relay fee(0\.\d+) tETH/)[1]) * 1e8));
   statusError = 'feeGate: bound fee is below the marginal cost at this gas';
   const b2 = submits.length;
-  const retried = fee1 * 4n < 500000n, want = retried ? 2 : 1;
+  const retried = fee1 * 4n < 5000000n, want = retried ? 2 : 1;
   await r.page.check('#xo-ack');
   await r.page.click('#xo-go');
   // Whatever the page says along the way, the run is over when the relay has been asked as many times as it should be.
@@ -3992,11 +3992,11 @@ await step('hxout', async () => {
     const both = await fromOptions();
     ok(both.join() === 'ETH,tETH,TAC', `hxout: with both on it can send ETH (made tETH first), tETH or TAC (${both.join()})`);
     await p.selectOption('#hx-from', 'eth');
-    await p.fill('#hx-amt', '0.004');
+    await p.fill('#hx-amt', '0.04');
     await until(p, () => /tETH a bridge while this is new/.test(document.querySelector('#hx-q')?.textContent || '') && document.querySelector('#hx-go')?.textContent !== 'Bridge TAC to Bitcoin', null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | card: ${await body()}`); });
     const tethLine = (await text(p, '#hx-q')).replace(/\s+/g, ' ');
-    ok(/Relay fee [\d.]+ tETH, plus a Bitcoin fee in sats from your Bitcoin address; up to [\d.]+ tETH a bridge while this is new\. Usually a few hours, sometimes up to a day\./.test(tethLine) && !/TAC/.test(tethLine), `hxout: tETH is quoted as tETH, in its own words, with the time the sheet gives (${tethLine.slice(0, 200)})`);
+    ok(/Relay fee [\d.]+ tETH, plus a Bitcoin fee in sats from your Bitcoin address; [\d.]+ to [\d.]+ tETH a bridge while this is new\. Usually a few hours, sometimes up to a day\./.test(tethLine) && !/TAC/.test(tethLine), `hxout: tETH is quoted as tETH, in its own words, with the time the sheet gives (${tethLine.slice(0, 200)})`);
     // The picker has the focus when it changes from tETH to TAC, and keeps it through the redraw that causes.
     await p.focus('#hx-from');
     await p.selectOption('#hx-from', 'tac');

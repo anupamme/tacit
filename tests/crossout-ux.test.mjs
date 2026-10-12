@@ -365,7 +365,7 @@ function makeUx(world, extra = {}) {
 // ---- more than one asset: tETH beside TAC, each with its own cap and minimum ----
 const TETH = withHex('3c'.repeat(32));
 const MULTI = { assets: [{ assetId: ASSET, ticker: 'TAC', capRaw: CROSSOUT_BETA_CAP_RAW }, { assetId: TETH, ticker: 'tETH', capRaw: CROSSOUT_TETH_CAP_RAW, minRaw: CROSSOUT_TETH_MIN_RAW }] };
-const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 400_000n, blinding: 0x4321n, asset: TETH, confirmed: true };
+const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 4_000_000n, blinding: 0x4321n, asset: TETH, confirmed: true };
 {
   const world = makeWorld();
   const ux = makeUx(world, MULTI);
@@ -373,8 +373,8 @@ const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 400_000n, blinding: 
     { ...TNOTE, value: CROSSOUT_TETH_CAP_RAW + 1n }, { ...TNOTE, value: CROSSOUT_TETH_MIN_RAW - 1n }, { ...TNOTE, value: CROSSOUT_TETH_CAP_RAW }, { ...TNOTE, value: CROSSOUT_TETH_MIN_RAW }]);
   ok(t.eligible && tac.eligible, 'a tETH note and a TAC note are both eligible when both are configured');
   ok(!other.eligible && other.reason === 'not an asset this bridge takes', 'an asset that is neither is refused, without naming one asset when two are configured');
-  ok(!over.eligible && /over the 0\.005 tETH beta limit/.test(over.reason), 'a tETH note over its own cap is refused, the cap named in tETH');
-  ok(!under.eligible && /under the 0\.001 tETH minimum/.test(under.reason), 'a tETH note under its minimum is refused');
+  ok(!over.eligible && /over the 0\.5 tETH beta limit/.test(over.reason), 'a tETH note over its own cap is refused, the cap named in tETH');
+  ok(!under.eligible && /under the 0\.01 tETH minimum/.test(under.reason), 'a tETH note under its minimum is refused');
   ok(atCap.eligible && atMin.eligible, 'both limits are inclusive');
   ok(ux.assets.length === 2 && ux.assetOf(TETH).ticker === 'tETH', 'the configured assets are readable');
   // TAC's cap does not bleed into tETH and the reverse: a TAC note far over tETH's cap is fine.
@@ -387,10 +387,10 @@ const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 400_000n, blinding: 
   const ux = makeUx(world, MULTI);
   const rec = await ux.start({ note: TNOTE, walletPriv: WALLET_PRIV, fee: 10_000n });
   const call = world.crossOutCalls[0];
-  ok(call.amount === 390_000n && call.fee === 10_000n, 'crossOut is asked to burn the note as amount + fee, nothing left over');
+  ok(call.amount === 3_990_000n && call.fee === 10_000n, 'crossOut is asked to burn the note as amount + fee, nothing left over');
   ok(call.destChain === 1 && /^[0-9a-f]{64}$/.test(stripHex(call.destOwner)), 'the destination is this key\'s own Bitcoin key');
   ok(rec.source.assetId.toLowerCase() === TETH.toLowerCase() && rec.source.ticker === 'tETH', 'the record names the asset it carries');
-  ok(rec.source.value === 400_000n && rec.source.amount === 390_000n && rec.source.fee === 10_000n, 'the record keeps the note, what arrives, and the fee, as bigints');
+  ok(rec.source.value === 4_000_000n && rec.source.amount === 3_990_000n && rec.source.fee === 10_000n, 'the record keeps the note, what arrives, and the fee, as bigints');
   const reread = ux.list(WALLET_PUB)[0];
   ok(typeof reread.source.fee === 'bigint' && typeof reread.source.amount === 'bigint', 'fee and amount survive the journal as bigints');
 
@@ -555,7 +555,7 @@ const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 400_000n, blinding: 
   const world = makeWorld();
   const ux = makeUx(world, MULTI);
   const destXonly = destXonlyOf(WALLET_PRIV);
-  const arrives = 390_000n;
+  const arrives = 3_990_000n;
   const { cx, cy } = pool.commitXY(arrives, deriveCrossoutBlinding(WALLET_PRIV, TNOTE.nullifier));
   const destCommitment = pool.btcNoteLeaf(TETH, cx, cy, withHex(destXonly));
   const h = withHex('e1'.repeat(32));
@@ -589,7 +589,7 @@ const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 400_000n, blinding: 
     let m = null; try { await ux.start({ note: TNOTE, walletPriv: WALLET_PRIV, fee: 10_000n }); } catch (e) { m = e.message; }
     const rec = ux.list(WALLET_PUB)[0];
     ok(m === 'settle timed out' && rec.stage === 'settling', 'a settle the page could not see through leaves an intent record, not nothing');
-    ok(rec.startBlock === 26_147_613 && rec.source.fee === 10_000n && rec.dests.length === 1 && rec.dests[0].amount === 390_000n, 'it keeps the block it began at, the fee, and the destination that fee would make');
+    ok(rec.startBlock === 26_147_613 && rec.source.fee === 10_000n && rec.dests.length === 1 && rec.dests[0].amount === 3_990_000n, 'it keeps the block it began at, the fee, and the destination that fee would make');
     ok(ux.eligibleNotes([TNOTE])[0].reason === 'already bridging', 'the note stays reserved meanwhile');
 
     // Nothing on Ethereum yet: it waits, and says nothing is wrong.
@@ -601,7 +601,7 @@ const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 400_000n, blinding: 
     const found = await ux.advance(WALLET_PUB, TNOTE.nullifier);
     ok(found.stage === 'settled' && found.settle.claimIdVerified === true && found.settle.ethBlock === 26_150_100, 'once the settle shows on Ethereum it becomes an ordinary settled record');
     ok(found.settle.txHash === 'b7'.repeat(32) && found.settle.claimId.toLowerCase() === CLAIM_ID.toLowerCase(), 'with its transaction and claim taken from the event');
-    ok(found.source.fee === 10_000n && found.source.amount === 390_000n && found.source.value === 400_000n, 'and the amounts the fee implies');
+    ok(found.source.fee === 10_000n && found.source.amount === 3_990_000n && found.source.value === 4_000_000n, 'and the amounts the fee implies');
     world.setEthCovered(true);
     const covered = await ux.advance(WALLET_PUB, TNOTE.nullifier);
     const signed = await ux.advance(WALLET_PUB, TNOTE.nullifier, { walletPriv: WALLET_PRIV });
@@ -630,7 +630,7 @@ const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 400_000n, blinding: 
     ok(r.stage === 'settling' && r.dests.length === 2 && r.source.attempts.length === 2, 'both attempts\' destinations are kept on the one record');
     land(world, settleLog(0n));
     const found = await ux.advance(WALLET_PUB, TNOTE.nullifier);
-    ok(found.stage === 'settled' && found.source.fee === 0n && found.source.amount === 400_000n, 'whichever lands is the one recognised, with its own amounts');
+    ok(found.stage === 'settled' && found.source.fee === 0n && found.source.amount === 4_000_000n, 'whichever lands is the one recognised, with its own amounts');
   }
 
   // A settle of this note to an amount it never asked for is not guessed at.
@@ -692,9 +692,9 @@ const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 400_000n, blinding: 
   const { makeConfidentialTransfer } = await import('../dapp/confidential-transfer.js');
   const { randomScalar } = await import('../dapp/bulletproofs-plus.js');
   const ct = makeConfidentialTransfer({ keccak256: keccak_256 });
-  const amount = 390_000n, destOwner = destXonlyOf(WALLET_PRIV);
+  const amount = 3_990_000n, destOwner = destXonlyOf(WALLET_PRIV);
   const built = ct.buildBridgeBurn({
-    inputs: [{ value: 400_000n, blinding: randomScalar() }], outputs: [{ value: amount, blinding: deriveCrossoutBlinding(WALLET_PRIV, TNOTE.nullifier), owner: destOwner }],
+    inputs: [{ value: 4_000_000n, blinding: randomScalar() }], outputs: [{ value: amount, blinding: deriveCrossoutBlinding(WALLET_PRIV, TNOTE.nullifier), owner: destOwner }],
     assetId: TETH, destChain: 1, bindNullifier: TNOTE.nullifier, fee: 10_000n,
   });
   const co = built.crossOuts[0];
