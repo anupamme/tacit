@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-JhvCrH4XFIJI1DiXf0gkb41epehrTc4+TZuYQEBn5hg=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-PC3fc2IEdimAwPZCmcHcVs5bKm1JJrJbA7wv2D+HjbQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=b0bddd8d"></script>
 <title>tacit</title>
@@ -2601,6 +2601,7 @@ function setKey(k) {
   syncAccount(); resetPrivate(); paintWallet(); refreshAll();
   setTimeout(() => brTick(true), 4000);                            // a bridge waiting on this key moves on as soon as it opens
   setTimeout(() => xoTick(true), 6000);
+  setTimeout(() => xoDiscover(pubHex, true), 25000);                // a burn this browser has no record of is found from the key
   const opened = () => { if (S.key === key) toast(`Opened ${short(key.tacit, 8)}`); };
   if (UNI) return opened();
   loadUnified().catch(() => {}).then(() => {
@@ -2616,7 +2617,7 @@ function setKey(k) {
 // tacit.js opens the passphrase-locked and Bitcoin-signed keys exactly as tacit.finance does. It loads only for
 // those paths, as a library: it reads the shared network once at import, so this page pins mainnet for its visit,
 // and any call that rewrites the app's linked-wallet records is run with them put back afterwards.
-const TACIT_URL = '/tacit.js?cb=37f9e0be';
+const TACIT_URL = '/tacit.js?cb=753d949f';
 const SHARED_NET = 'tacit-network-v1', PREV_NET = 'tacit-lite-prev-net-v1';
 const SHARED_WALLET_KEYS = ['tacit-eth-identity', 'tacit-btc-identity', 'tacit-active-mode-v1', 'tacit-ext-mode-v1', 'tacit-ext-state-v1',
   ...['mainnet', 'signet'].flatMap((n) => [`tacit-eth-identity:${n}`, `tacit-btc-identity:${n}`, `tacit-active-mode-v1:${n}`])];
@@ -4331,6 +4332,28 @@ async function xoTick(first = false) {
   for (const sheet of moved) rerender(sheet);
   if (moved.size) dashSoon();
 }
+// Bridges to Bitcoin this key burned that this browser has no record of (another device, storage cleared) are found on Ethereum from the key's own
+// spent notes and made into records the tick carries on. Looked for when a key opens (at most once a day for a key) and whenever a To Bitcoin view is
+// drawn (at most every ten minutes); a note already at the key's Bitcoin address is left alone.
+const XD = { pub: null, at: 0, loading: null }, XD_KEY = 'tacit-crossout-found-v1';
+async function xoDiscover(pub, daily = false) {
+  if (!pub || XD.loading) return XD.loading;
+  if (XD.pub === pub && Date.now() - XD.at < 600e3) return;
+  if (daily && Date.now() - Number(store.get(XD_KEY)?.[pub] || 0) < 86400e3) return;
+  XD.pub = pub; XD.at = Date.now();
+  return (XD.loading = (async () => {
+    const scan = P.scan || await scanPrivate();
+    if (S.key?.pubHex !== pub || !scan?.spentNotes?.length) return;
+    const ux = await xoUx();
+    await Promise.all(Object.values(XA).map((a) => loadBridged(false, a).catch(() => {})));
+    const claims = Object.values(XA).flatMap((a) => (xbOf(a).notes || []).map((n) => n.claimId));
+    const made = await ux.recoverFromKey({ walletPriv: walletPriv(), spent: scan.spentNotes, skipClaims: claims });
+    const m = store.get(XD_KEY) || {}; m[pub] = Date.now(); store.set(XD_KEY, m);
+    if (!made.length || S.key?.pubHex !== pub) return;
+    toast(made.length === 1 ? `Found a bridge of ${xoAmt(made[0])} to Bitcoin that this browser had no record of` : `Found ${made.length} bridges to Bitcoin that this browser had no record of`);
+    xoTick(true); for (const a of Object.values(XA)) rerender(a.sheet); dashSoon();
+  })().catch(() => {}).finally(() => { XD.loading = null; }));
+}
 // What a bridge costs on Bitcoin, in words for the receipt.
 const xoWarn = (w, lag) => w.name === 'reflection-behind' ? `Bitcoin’s proof on Ethereum is ${w.detail} behind (about ${Math.max(1, Math.round(lag / 6))} hours), so this will take longer than usual. Nothing is lost by waiting.`
   : w.name === 'coverage-behind' ? 'The proof’s view of Ethereum is further behind than usual, so this will take longer than usual. Nothing is lost by waiting.' : '';
@@ -4496,6 +4519,7 @@ function wireHeld(el, status, a = XA.teth) {
 function v1Btc(el, status) { return xoOut(el, status, XA.teth); }
 function xoOut(el, status, a) {
   const pub = S.key.pubHex, held = spendable(a.k), recs = xoRecords(pub, a), p = (name) => `${a.pre}-${name}`;
+  xoDiscover(pub);
   // A bridge under way is read from the journal, which tacit.js owns: load it for a key that has one.
   if (!T && (xoJournaled(pub, a) || xbJournaled(pub, a))) loadTacit().then(() => rerender(a.sheet)).catch(() => {});
   // Without the flag the tab is here only for the bridges under way: they are followed and found, and none is started.

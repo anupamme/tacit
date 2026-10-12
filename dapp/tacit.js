@@ -20462,6 +20462,7 @@ function _crossoutUxSingleton() {
   return (_crossoutUx = makeCrossoutUx({
     network: net, hrp: NET.hrp, workerBase: WORKER_BASE, secp, hmac, sha256,
     crossOut: poolUx.crossOut, pool: poolUx.pool, rpc: poolUx.rpc, evmLog: poolUx.evmLog, poolAddress: poolUx.cfg && poolUx.cfg.pool,
+    deployBlock: Number((poolUx.cfg && poolUx.cfg.deployBlock) || 0),
     tacAssetId: '0x' + CANONICAL_TAC_ASSET_ID_HEX,
     assets: [{ assetId: '0x' + CANONICAL_TAC_ASSET_ID_HEX, ticker: 'TAC', capRaw: CROSSOUT_TAC_CAP_RAW },
       ...(tethId ? [{ assetId: tethId, ticker: 'tETH', capRaw: CROSSOUT_TETH_CAP_RAW, minRaw: CROSSOUT_TETH_MIN_RAW }] : [])],

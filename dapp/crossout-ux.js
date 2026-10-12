@@ -82,7 +82,7 @@ function deserializeRecord(text) {
 // before anything is settled, and so is a recovered settle that names one.
 // `poolAddress` (the pool whose CrossOutRecorded events settle a bridge) lets a bridge whose page closed before its
 // settle was seen find that settle again; without it such a record just waits. `nullifierSpent(ν)` says whether the pool has
-// spent a note: a bridge is not cancelled while its note has been.
+// spent a note: a bridge is not cancelled while its note has been. `deployBlock` (the pool's) is where recoverFromKey starts reading its events.
 // `crossOut`, `pool`, `rpc`, `evmLog` are the confidential pool ux's own (dapp/confidential-pool-ux.js) --
 // injected rather than re-instantiated here, matching how burndep-ux.js takes `bridgeMint`/`pool` from the
 // same pool ux singleton instead of building its own. `postHint` is optional (tacit.js's local fast-track
@@ -90,7 +90,7 @@ function deserializeRecord(text) {
 export function makeCrossoutUx(deps) {
   const {
     network = 'mainnet', hrp = 'bc', workerBase, fetchImpl, storage: storageIn = null,
-    secp, hmac, sha256, crossOut, pool, rpc, evmLog, tacAssetId, assets: assetsIn = null, chain, postHint = null, feeCeiling = CROSSOUT_MINT_FEE_CEILING, poolAddress = null, nullifierSpent = null,
+    secp, hmac, sha256, crossOut, pool, rpc, evmLog, tacAssetId, assets: assetsIn = null, chain, postHint = null, feeCeiling = CROSSOUT_MINT_FEE_CEILING, poolAddress = null, deployBlock = 0, nullifierSpent = null,
   } = deps || {};
   for (const [k, v] of Object.entries({ workerBase, secp, hmac, sha256, crossOut, pool, rpc, evmLog, chain })) {
     if (v == null) throw new Error(`crossout-ux: deps.${k} required`);
@@ -583,6 +583,69 @@ export function makeCrossoutUx(deps) {
     return putRecord(rec);
   }
 
+
+  // The relay fees a settle can have taken from a note of `value`: nothing, or a number of at most two significant digits (the ladder
+  // the fees are quoted on), smallest first. Fewer than a thousand for any note the bridge takes.
+  function* feeLadder(value) {
+    yield 0n;
+    for (let scale = 1n; scale < value; scale *= 10n) for (let d = scale === 1n ? 1n : 10n; d <= 99n; d++) { const f = d * scale; if (f >= value) return; yield f; }
+  }
+  // CrossOutRecorded events of the pool from `from` to `to`, in pages (a node that caps a range is asked for half of it).
+  async function crossOutLogs(from, to) {
+    if (from > to) return [];
+    try {
+      return (await rpc('eth_getLogs', [{ address: poolAddress, topics: [evmLog.TOPIC0.CrossOutRecorded], fromBlock: '0x' + from.toString(16), toBlock: '0x' + to.toString(16) }])) || [];
+    } catch (e) {
+      if (to - from < 1000) throw e;
+      const mid = Math.floor((from + to) / 2);
+      return [...await crossOutLogs(from, mid), ...await crossOutLogs(mid + 1, to)];
+    }
+  }
+  // The bridges this key burned that this browser has no record of (another device, storage cleared), found from the key and Ethereum: each
+  // CrossOutRecorded event whose spent note is one of `spent` ({ nullifier, asset, value }: this key's own spent notes, from the pool scan) and whose
+  // destination is the one this key makes for that note less some relay fee. A fee is found by trying the ladder against the event's destination,
+  // so nothing is taken on trust. One the worker already has minted is journaled as arrived and left alone, as is one whose claim is in
+  // `skipClaims` (a note already at the key's Bitcoin address): signing the Bitcoin step again would only cost a fee. One the worker cannot be asked
+  // about is left for the next look. Returns the records made (settled ones go on by themselves; a tick sends their Bitcoin step).
+  async function recoverFromKey({ walletPriv, spent = [], skipClaims = [] } = {}) {
+    if (!poolAddress) return [];
+    const walletPub = secp.getPublicKey(walletPriv, true);
+    const mine = new Map();
+    for (const n of spent) { const a = assetOf(n.asset); if (a && !getRecord(walletPub, n.nullifier)) mine.set(lc(n.nullifier), { n, a }); }
+    if (!mine.size) return [];
+    const skip = new Set(skipClaims.map((c) => lc(c)));
+    const head = Number(BigInt(await rpc('eth_blockNumber', [])));
+    const events = [];
+    for (let from = Number(deployBlock) || 0; from <= head; from += 20_000) {
+      for (const l of await crossOutLogs(from, Math.min(head, from + 19_999))) {
+        const ev = evmLog.decodeLog(l);
+        const m = ev && ev.type === 'CrossOutRecorded' && ev.destChain === 1 ? mine.get(lc(ev.nullifier)) : null;
+        if (m && lc(ev.assetId) === lc(m.a.assetId)) events.push({ ev, l, ...m });
+      }
+    }
+    const destXonly = bytesToHexLocal(freshPrims(walletPriv).wallet.xonly());
+    const made = [];
+    for (const { ev, l, n, a } of events) {
+      if (skip.has(lc(ev.claimId)) || getRecord(walletPub, ev.nullifier)) continue;
+      const value = BigInt(n.value);
+      let hit = null;
+      for (const fee of feeLadder(value)) {
+        const dest = deriveDest(walletPriv, ev.nullifier, value - fee, a.assetId, destXonly);
+        if (lc(dest.destCommitment) === lc(ev.destCommitment)) { hit = { fee, dest }; break; }
+      }
+      if (!hit) continue;
+      let st = null;
+      try { st = await callWorker('GET', `/crossout/minted?asset=${stripHex(a.assetId)}&claim=${stripHex(ev.claimId)}&txid=${'00'.repeat(32)}`); } catch { /* left for the next look */ }
+      if (!st || st.error) continue;
+      const rec = settledRecord({
+        id: ev.nullifier, walletPub, a, amount: value - hit.fee, fee: hit.fee, value, destXonly, dest: hit.dest, ev, txHash: l.transactionHash,
+        ethBlock: Number(BigInt(l.blockNumber)), note: 'found on Ethereum from this key\'s spent notes', recovered: true,
+      });
+      made.push(putRecord(st.status === 'minted' ? { ...rec, stage: 'minted', mintedAt: now(), ...(st.mintedTxid ? { creditedTxid: String(st.mintedTxid) } : {}) } : rec));
+    }
+    return made.filter((r) => r.stage !== 'minted');
+  }
+
   async function resumeAll(walletPub, { walletPriv = null } = {}) {
     const out = [];
     for (const rec of loadAll(walletPub)) {
@@ -593,5 +656,5 @@ export function makeCrossoutUx(deps) {
     return out;
   }
 
-  return { CROSSOUT_BETA_CAP_RAW, network, assets: ASSETS, assetOf, eligibleNotes, isReserved, isFundingReserved, preflight, start, advance, resign, cancelIntent, recoverFromEthTx, resumeAll, list, abandon };
+  return { CROSSOUT_BETA_CAP_RAW, network, assets: ASSETS, assetOf, eligibleNotes, isReserved, isFundingReserved, preflight, start, advance, resign, cancelIntent, recoverFromEthTx, recoverFromKey, resumeAll, list, abandon };
 }

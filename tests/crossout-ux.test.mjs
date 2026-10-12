@@ -685,6 +685,56 @@ const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 4_000_000n, blinding
     land(world, settleLog(10_000n, { block: 26_147_613 + 11_000 }));
     ok((await ux.advance(WALLET_PUB, TNOTE.nullifier)).stage === 'settled', 'a settle many thousands of blocks after the intent is found across the pages');
   }
+
+  // A burn this browser has no record of (another device, storage cleared) is found from the key's own spent notes and Ethereum.
+  {
+    const spent = [{ nullifier: TNOTE.nullifier, asset: TETH, value: TNOTE.value }];
+    const pooled = { ...withPool, deployBlock: 26_140_000 };
+    const fresh = (fee, opts = {}) => { const world = makeWorld(); world.setCredit({ decided: false, minted: false, status: null }); land(world, settleLog(fee, opts)); return world; };
+    for (const fee of [0n, 10_000n, 990_000n]) {
+      const world = fresh(fee), ux = makeUx(world, pooled);
+      const made = await ux.recoverFromKey({ walletPriv: WALLET_PRIV, spent });
+      ok(made.length === 1 && made[0].stage === 'settled' && made[0].source.fee === fee && made[0].source.amount === TNOTE.value - fee && made[0].source.value === TNOTE.value && !!made[0].recoveredAt
+        && ux.list(WALLET_PUB).length === 1 && ux.eligibleNotes([TNOTE])[0].reason === 'already bridging', `a bridge with a relay fee of ${fee} is found from the key's spent note and the settle, and its note is reserved`);
+    }
+    {
+      const world = fresh(10_000n), ux = makeUx(world, pooled);
+      await ux.recoverFromKey({ walletPriv: WALLET_PRIV, spent });
+      ok((await ux.recoverFromKey({ walletPriv: WALLET_PRIV, spent })).length === 0 && ux.list(WALLET_PUB).length === 1, 'a second look makes nothing more');
+      const found = await ux.advance(WALLET_PUB, TNOTE.nullifier);
+      ok(found.stage === 'settled' && found.settle.claimIdVerified === true, 'and the record it made is one the bridge carries on from');
+    }
+    {
+      const world = fresh(10_000n), ux = makeUx(world, pooled);
+      ok((await ux.recoverFromKey({ walletPriv: WALLET_PRIV, spent: [{ ...spent[0], nullifier: withHex('99'.repeat(32)) }] })).length === 0, 'a settle of a note this key did not spend is not taken');
+      ok((await ux.recoverFromKey({ walletPriv: WALLET_PRIV, spent: [{ ...spent[0], asset: withHex('ee'.repeat(32)) }] })).length === 0, 'nor one of an asset this bridge does not take');
+      ok((await ux.recoverFromKey({ walletPriv: WALLET_PRIV, spent, skipClaims: [CLAIM_ID] })).length === 0 && ux.list(WALLET_PUB).length === 0, 'nor one whose note is already at the key\'s Bitcoin address');
+      const other = makeUx(fresh(10_000n, { amountFor: (v) => v - 12_345n }), pooled);
+      ok((await other.recoverFromKey({ walletPriv: WALLET_PRIV, spent })).length === 0 && other.list(WALLET_PUB).length === 0, 'a settle that is not this key\'s destination for the note less a fee on the ladder is not taken');
+      const bare = makeUx(fresh(10_000n), { ...MULTI });
+      ok((await bare.recoverFromKey({ walletPriv: WALLET_PRIV, spent })).length === 0, 'with no pool to read there is nothing to find');
+    }
+    {
+      const world = fresh(10_000n); world.setCredit({ decided: true, minted: false, status: 'minted', mintedTxid: 'ab'.repeat(32) });
+      const ux = makeUx(world, pooled);
+      const made = await ux.recoverFromKey({ walletPriv: WALLET_PRIV, spent });
+      const rec = ux.list(WALLET_PUB)[0];
+      ok(made.length === 0 && rec && rec.stage === 'minted' && rec.creditedTxid === 'ab'.repeat(32), 'a bridge the worker already has minted is journaled as arrived and not sent again');
+      ok((await ux.recoverFromKey({ walletPriv: WALLET_PRIV, spent })).length === 0, 'and is not looked at again');
+      const down = fresh(10_000n); down.setCreditDown(true);
+      const ux2 = makeUx(down, pooled);
+      ok((await ux2.recoverFromKey({ walletPriv: WALLET_PRIV, spent })).length === 0 && ux2.list(WALLET_PUB).length === 0, 'with the worker unreadable nothing is made, so the next look can');
+    }
+    {
+      // A node that refuses a wide range of logs is asked for narrower ones.
+      const world = fresh(10_000n);
+      let widest = 0, calls = 0;
+      const rpc = async (m, p) => { if (m === 'eth_getLogs') { calls++; const f = p[0], span = Number(BigInt(f.toBlock)) - Number(BigInt(f.fromBlock)); widest = Math.max(widest, span); if (span > 5000) throw new Error('range too wide'); } return world.rpc(m, p); };
+      const ux = makeUx(world, { ...pooled, rpc });
+      const made = await ux.recoverFromKey({ walletPriv: WALLET_PRIV, spent });
+      ok(made.length === 1 && calls > 1, `a node that caps a log range is asked for halves until it answers (${calls} reads)`);
+    }
+  }
 }
 
 // ---- the destination worked out beforehand is the one the real bridge-burn builder makes ----

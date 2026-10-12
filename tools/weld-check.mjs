@@ -125,7 +125,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmexit,farmclaim,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,xtbridge,xtring,hxout,hxlink,hxpanel,hxweek,pts,ptsview,activity,receipts,stats,dash,tacdeposit').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmexit,farmclaim,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,pts,ptsview,activity,receipts,stats,dash,tacdeposit').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -2844,6 +2844,78 @@ await step('xtring', async () => {
   const wide = await r.page.evaluate(() => { const d = document.querySelector('#sheet-tac .sheet-in'); return [d.scrollWidth, d.clientWidth, document.documentElement.scrollWidth, innerWidth]; });
   ok(wide[0] <= wide[1] + 1 && wide[2] <= wide[3] + 1, `xtring: no sideways scroll at phone width (${wide})`);
   if (r.errors.length) { fails++; console.log('FAIL xtring page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  await r.browser.close();
+});
+
+// A burn this browser has no record of (another device, storage cleared) is found from the key alone: its settle on Ethereum names a note the key
+// spent, and the destination is the one the key makes for that note less a fee on the ladder. One burn is still on its way (20 TAC, a 2 TAC fee); another
+// the worker already has minted. The first becomes a record the bridge carries on from, the second is journaled as arrived and not sent again.
+await step('xtfind', async () => {
+  const r = await openPage({ account: A0, key: K0 });
+  const hex = 'd7e8'.padEnd(64, '7'), privB = Buffer.from(hex, 'hex'), pubB = secp.getPublicKey(privB, true), pub = Buffer.from(pubB).toString('hex'), XONLY = '0x' + pub.slice(2);
+  const TAC = '0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b', POOL = '0x000000000Ed1eabD231Be41d93b719056F7febFC', CROSSOUT_TOPIC = '0x1dcbefc1323b3b80f7cedfeb490313eff6ded6186b4cf10d72b383ee81d90c13';
+  const { makeConfidentialPool } = await import(new URL('../dapp/confidential-pool.js', import.meta.url));
+  const pool = makeConfidentialPool({ secp, keccak256: keccak_256, sha256 });
+  const derive = (nullifier) => { const m = Buffer.concat([Buffer.from('tacit-crossout-blinding-v1'), Buffer.from(nullifier.slice(2), 'hex')]); let b = 0n; for (const x of hmac(sha256, privB, m)) b = (b << 8n) | BigInt(x); b %= secp.CURVE.n; return b === 0n ? 1n : b; };
+  const mk = (amount, claim, nullifier) => { const nu = '0x' + nullifier.repeat(32), { cx, cy } = pool.commitXY(amount, derive(nu)); return { amount, cx, cy, claimId: '0x' + claim.repeat(32), nullifier: nu }; };
+  const N1 = mk(2_000_000_000n, 'd1', 'b1'), N2 = mk(4_600_000_000n, 'd2', 'b2');           // 22 TAC and 50 TAC spent, each less a 2 and a 4 TAC fee
+  const spentOf = [{ n: N1, value: 2_200_000_000n }, { n: N2, value: 5_000_000_000n }];
+  const poolStub = `
+    import * as real from '/confidential-pool-ux.js?stub=real';
+    export * from '/confidential-pool-ux.js?stub=real';
+    export function makeConfidentialPoolUx(o) {
+      const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
+      ux.balance = async (priv, opts) => { const b = await balance(priv, opts); if (opts && opts.spent) b.spentNotes = [...(b.spentNotes || []), ${spentOf.map(({ n, value }) => `{ nullifier: '${n.nullifier}', asset: '${TAC}', value: ${value}n }`).join(', ')}]; return b; };
+      return ux;
+    }`;
+  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: poolStub }));
+  await r.page.route(/\/confidential-pool-ux\.js$/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: poolStub }));
+  const head = Number(BigInt(await rpc('eth_blockNumber')));
+  const logOf = (n, tx) => ({ address: POOL, topics: [CROSSOUT_TOPIC, n.claimId], data: '0x' + '00'.repeat(31) + '01' + pool.btcNoteLeaf(TAC, n.cx, n.cy, XONLY).slice(2) + n.nullifier.slice(2) + TAC.slice(2), blockNumber: '0x' + (head - 100).toString(16), transactionHash: '0x' + tx.repeat(32), logIndex: '0x0' });
+  const logs = [logOf(N1, 'f1'), logOf(N2, 'f2')];
+  let reads = 0;
+  for (const h of ['ethereum-rpc.publicnode.com', 'eth.drpc.org', '1rpc.io', 'mainnet.gateway.tenderly.co', 'cloudflare-eth.com', 'rpc.flashbots.net'])
+    await r.page.route(`https://${h}/**`, async (route) => {
+      try {
+        const b = JSON.parse(route.request().postData() || '{}');
+        if (b.method === 'eth_getLogs' && b.params?.[0]?.topics?.[0] === CROSSOUT_TOPIC) {
+          const f = b.params[0]; reads++;
+          const from = Number(BigInt(f.fromBlock)), to = Number(BigInt(f.toBlock));
+          const hit = logs.filter((l) => { const blk = Number(BigInt(l.blockNumber)); return blk >= from && blk <= to && (!f.topics[1] || String(f.topics[1]).toLowerCase() === l.topics[1]); });
+          return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ jsonrpc: '2.0', id: b.id, result: hit }) });
+        }
+      } catch { /* not a single JSON-RPC call: the fork answers it */ }
+      return route.fallback();
+    });
+  const api = (re, fn) => r.page.route(re, (route) => fn(route, new URL(route.request().url())));
+  await api(/^https:\/\/(mempool\.space|blockstream\.info|api\.tacit\.finance\/chain)\/(api\/)?address\/[^/]+\/utxo/, (route) => json(route, []));
+  await api(/^https:\/\/api\.tacit\.finance\/crossout\/minted/, (route, u) => json(route, u.searchParams.get('claim') === N2.claimId.slice(2) ? { decided: true, minted: false, status: 'minted', mintedTxid: 'ab'.repeat(32) } : { decided: false, minted: false, status: null }));
+  await api(/^https:\/\/api\.tacit\.finance\/reflection\/(status|eth-state)/, (route) => json(route, { network: 'mainnet', attestedHeight: 970100, tipHeight: 970100, lagBlocks: 0, covered: false }));
+  await r.page.goto(r.url + '#wallet');
+  await r.page.evaluate(async () => {
+    globalThis.__TACIT_NO_INIT__ = true; localStorage.setItem('tacit-network-v1', 'mainnet');
+    const T = await import([...document.scripts].map((x) => x.textContent).join('').match(/\/tacit\.js\?cb=[0-9a-f]+/)[0]);
+    T._testSetScanHoldingsOverride(() => new Map());
+  });
+  await r.page.click('#wallet-body [data-in="paste"]');
+  await r.page.fill('#ws-hex', hex);
+  await r.page.click('#wallet-body [data-in="key"]');
+  await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
+  const key = `tacit-crossout-bridge-v1:mainnet:${pub}`;
+  ok((await r.page.evaluate((k) => localStorage.getItem(k), key)) == null, 'xtfind: this browser has no record of either burn');
+  await go(r.page, '#bridge/out');
+  await until(r.page, () => document.querySelectorAll('#bridge-body .brr').length === 1, null, 240000)
+    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | body: ${(await text(r.page, '#bridge-body')).replace(/\s+/g, ' ').slice(0, 300)} | errors: ${r.errors.slice(0, 3).join(' | ')}`); });
+  const row = (await text(r.page, '#bridge-body .brr')).replace(/\s+/g, ' ');
+  ok(/20 TAC/.test(row) && /Burned on Ethereum/.test(row), `xtfind: the burn still on its way is found from the key and Ethereum, and listed with what arrives (${row.slice(0, 150)})`);
+  const recs = await r.page.evaluate((k) => JSON.parse(localStorage.getItem(k) || '[]'), key);
+  const one = recs.find((x) => x.id === N1.nullifier), two = recs.find((x) => x.id === N2.nullifier);
+  ok(!!one && one.stage === 'settled' && one.source.amount.__big === '2000000000' && one.source.fee.__big === '200000000' && one.source.ticker === 'TAC' && !!one.recoveredAt, 'xtfind: its record has the amount, the 2 TAC fee and the claim, and the bridge goes on from it');
+  ok(!!two && two.stage === 'minted' && two.creditedTxid === 'ab'.repeat(32), 'xtfind: the burn the worker already has minted is journaled as arrived, not listed, and not sent again');
+  const seen = reads;
+  await go(r.page, '#bridge'); await go(r.page, '#bridge/out'); await sleep(2500);
+  ok(reads === seen, `xtfind: a second look within ten minutes reads nothing more (${reads - seen} reads)`);
+  if (r.errors.length) { fails++; console.log('FAIL xtfind page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   await r.browser.close();
 });
 
