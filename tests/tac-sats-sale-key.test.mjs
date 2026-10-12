@@ -263,6 +263,27 @@ assert.equal(r.revealTxid, null); assert.equal(log.opened.length, 0);
   assert.ok(Math.abs(q.unit - 150 * 0.98) < 1e-9 && q.basis === 'trade', 'an empty book prices off the recent trade');
 }
 
+// ── lotsToBuy: live, not our own, within the budget, cheapest per TAC first, one of each size and price ──
+{
+  const now = Math.floor(Date.now() / 1000);
+  const mine = new Uint8Array(33).fill(3);
+  const lot = (id, tac, sats, extra = {}) => ({ sale_id: id, asset_opening: { amount: String(Math.round(tac * 1e8)) }, min_price_sats: sats, expiry: now + 7200, expired: false, seller_pubkey: '02' + 'aa'.repeat(32), ...extra });
+  globalThis.fetch = async () => ({ ok: true, json: async () => ({ sales: [
+    lot('a', 145, 30_160), lot('b', 145, 30_160), lot('c', 48, 8_064), lot('d', 4285, 745_714),
+    lot('e', 10, 1_000, { expired: true }), lot('f', 10, 1_100, { expiry: now + 60 }), lot('g', 10, 1_200, { seller_pubkey: bytesToHex(mine) }),
+  ] }) });
+  let r = await secret.lotsToBuy({ wallet: { pub: mine } }, { budget: 90_000 });
+  assert.deepEqual(r.lots.map((x) => x.sale_id), ['c', 'a'], 'cheapest per TAC first, within the budget, one of each size and price');
+  assert.ok(Math.abs(r.lots[0].unit - 168) < 1e-9);
+  assert.equal(r.smallest.sale_id, 'c', 'expired, expiring and our own listings are left out');
+  r = await secret.lotsToBuy({ wallet: { pub: mine } }, { budget: 5_000 });
+  assert.equal(r.lots.length, 0); assert.equal(r.smallest.sale_id, 'c', 'with nothing affordable it still names the smallest lot');
+  r = await secret.lotsToBuy({ wallet: { pub: mine } });
+  assert.deepEqual(r.lots.map((x) => x.sale_id), ['c', 'd', 'a'], 'with no budget, the three cheapest per TAC');
+  globalThis.fetch = async () => ({ ok: false, json: async () => ({}) });
+  assert.equal(await secret.lotsToBuy({ wallet: { pub: mine } }), null, 'no answer from the market, no list');
+}
+
 // ── listFromSaleKey: the sale key signs, the wallet's key comes back, the sale key's bytes are wiped ──
 {
   const mainPriv = new Uint8Array(32).fill(9), mainPub = new Uint8Array(33).fill(2);

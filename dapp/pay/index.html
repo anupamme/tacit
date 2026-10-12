@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Yv1cJtKy93fxLuTzoKdOCUeT+EzPrnQiUFa5v3cg0No=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-B5JnMhc9l3wmlquKzbcNg4whlNjjd5IIQHfBHODU8F4=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay</title>
 <meta name="description" content="Simple, private payments: Bitcoin by silent payment, TAC shielded, ETH on Ethereum, Base, Robinhood Chain and MegaETH. One key and one tacit1 address, every payment made on your device, and your balances rebuild from that key.">
@@ -1642,7 +1642,7 @@ async function hintsForMe(t, pub) {
   }
   if (S.key?.pubHex === pub) writeJson(k, { after, retry: keep.filter((x) => !x.done) });
 }
-const getSecret = lazy(() => import('/sats/secret.js?cb=cf600436'));
+const getSecret = lazy(() => import('/sats/secret.js?cb=9574c7ec'));
 function loadTac(force = false) {
   if (!S.key) return Promise.resolve();
   if (TAC.loading) return force ? (TAC.next ||= TAC.loading.finally(() => { TAC.next = null; }).then(() => loadTac(true))) : TAC.loading;
@@ -1943,10 +1943,84 @@ function tacReceive(f) {
   $('#f-scan').onclick = (e) => busyBtn(e.currentTarget, () => scanForMe());
 }
 // Moves TAC between this key's Bitcoin address and the pool: shielded in one note at a time, withdrawn in any amount.
+// ── Buy TAC with sats straight into the pool ───────────────────────────────────────────────────────────────────────
+// One carrier pays a listing's seller from this key's Bitcoin address and shields the listed note into the pool (secret.js
+// buyAndShield), so the TAC never sits at the address. Lots are bought whole: the cheapest few within the address's sats.
+const LOTS = { at: 0, pub: null, res: undefined, busy: null, armed: null };
+const BUY_FEE_ROOM = 4000;                     // sats kept back for the purchase's own Bitcoin fee
+function loadLots(force = false) {
+  if (!S.key) return Promise.resolve();
+  const pub = S.key.pubHex;
+  if (LOTS.busy) return LOTS.busy;
+  if (!force && LOTS.pub === pub && Date.now() - LOTS.at < 60e3 && LOTS.res !== undefined) return Promise.resolve();
+  LOTS.busy = (async () => {
+    const X = await getSecret();
+    // The lots offered are the ones this address can pay for, so its sats are read first.
+    if (!(BTC.pub === pub && btcHeld())) await loadBtc().catch(() => {});
+    const budget = BTC.pub === pub && btcHeld() ? Math.max(0, Number(BTC.sats) - BUY_FEE_ROOM) : null;
+    const r = await X.lotsToBuy({ wallet: { pub: hexToBytes(pub) } }, { budget }).catch(() => null);
+    if (S.key?.pubHex !== pub) return;
+    Object.assign(LOTS, { at: Date.now(), pub, res: r && { ...r, budget } });
+  })().finally(() => {
+    LOTS.busy = null;
+    const box = $('#f-lots');
+    if (box) { mount(box, lotsView()); wireLots(box); }
+  });
+  return LOTS.busy;
+}
+const tacOf = (s) => BigInt(s.asset_opening.amount);
+function lotsView() {
+  const r = LOTS.pub === S.key?.pubHex ? LOTS.res : undefined;
+  if (r === undefined) return html`<p class="note"><span class="spin" aria-hidden="true"></span>Reading the market…</p>`;
+  if (!r) return html`<p class="note err">Couldn’t read the market just now. <button class="link" type="button" data-lots-re>Try again</button></p>`;
+  if (!r.lots.length) return html`<p class="note">${r.budget == null ? 'Nothing listed right now.' : html`Nothing listed within the ${Number(r.budget + BUY_FEE_ROOM).toLocaleString('en-US')} sats at your Bitcoin address.`}${r.smallest ? ` The smallest lot is ${fmt(tacOf(r.smallest), 8, 2)} TAC for ${Number(r.smallest.min_price_sats).toLocaleString('en-US')} sats.` : ''} Add BTC under BTC → Receive.</p>`;
+  return html`${r.lots.map((s) => html`<div class="kv"><span class="num">${fmt(tacOf(s), 8, 2)} TAC · ${(Math.round(s.unit * 100) / 100).toLocaleString('en-US')} sats each</span><button class="link" type="button" data-buy="${s.sale_id}" ${TAC.pw ? '' : 'disabled'}>${LOTS.armed === s.sale_id ? 'Press again to buy' : `Buy for ${Number(s.min_price_sats).toLocaleString('en-US')} sats`}</button></div>`)}`;
+}
+function wireLots(root) {
+  $$('[data-lots-re]', root).forEach((b) => b.onclick = () => { LOTS.res = undefined; mount(root, lotsView()); loadLots(true); });
+  $$('[data-buy]', root).forEach((b) => b.onclick = () => buyLot(b, root));
+}
+// First press names the lot and its price; a second press within a minute buys it.
+function buyLot(btn, root) {
+  const id = btn.dataset.buy, sale = LOTS.res?.lots.find((s) => s.sale_id === id), status = $('#status');
+  if (!sale) return;
+  if (LOTS.armed !== id) {
+    LOTS.armed = id;
+    setTimeout(() => { if (LOTS.armed === id) { LOTS.armed = null; const box = $('#f-lots'); if (box) { mount(box, lotsView()); wireLots(box); } } }, 60e3);
+    mount(root, lotsView()); wireLots(root);
+    const ask = (fee) => say(status, html`Buy ${fmt(tacOf(sale), 8, 2)} TAC for ${Number(sale.min_price_sats).toLocaleString('en-US')} sats, plus ${fee ? `about ${fee.toLocaleString('en-US')} sats of` : 'the'} Bitcoin fee, straight into the pool? Press again to buy.`);
+    ask(null);
+    // Bought at the next-block rate, so the purchase does not wait behind other transactions: its fee is named first.
+    getSecret().then((X) => withKey((t) => X.buyFee(t), S.key.pubHex)).then((fee) => { if (LOTS.armed === id) ask(fee); }).catch(() => {});
+    return;
+  }
+  LOTS.armed = null;
+  busyBtn(btn, async () => {
+    const pub = S.key.pubHex, pw = TAC.pw;
+    try {
+      const X = await getSecret();
+      sayTurn(status, 'Getting ready…');
+      const r = await withKey(async (t) => {
+        going(status, 'Checking the listing…', 'it finishes');
+        const fresh = await t.fetchPreauthSale({ assetIdHex: TAC_ID, saleIdHex: id }).catch(() => null);
+        if (!fresh || fresh.expired) throw new Error('That listing is gone. Pick another.');
+        const lot = fresh.asset_outpoint;
+        if (await X.saleSettlement(t, { note: { txid: lot.txid, vout: lot.vout }, payoutScript: hexToBytes(fresh.seller_payout_script), sats: BigInt(fresh.min_price_sats) })) throw new Error('That lot was just bought. Pick another.');
+        return X.buyAndShield(t, { status: { asset_id: TAC_ID }, sale: fresh, poolWallet: pw, feeTier: 'priority', say: (m) => going(status, m, 'it finishes') });
+      }, pub);
+      actJust({ mode: 'tac', kind: 'tshield', v: tacOf(sale), tx: r.revealTxid });
+      say($('#status'), html`<span class="ok">Bought ${fmt(tacOf(sale), 8, 2)} TAC straight into the pool for ${Number(sale.min_price_sats).toLocaleString('en-US')} sats. It counts after three confirmations, about 30 minutes.</span> ${btcTx(r.revealTxid)}`);
+      loadTac(true).catch(() => {}); loadBtc(true).catch(() => {}); LOTS.res = undefined; loadLots(true);
+    } catch (err) { sayErr(status, err); }
+  });
+}
 function tacMove(f) {
   const ok = TAC.pub === S.key.pubHex, notes = shieldable().sort((a, b) => { const d = BigInt(b.amount) - BigInt(a.amount); return d > 0n ? 1 : d < 0n ? -1 : 0; }), pub = tacOnBtc();
   const stealthOnly = pub && !notes.length;
   mount(f, html`
+    <div class="blk"><div class="lbl"><span>Buy</span><span>with sats, straight into the pool</span></div>
+      <div id="f-lots">${lotsView()}</div>
+      <p class="note">One transaction from your Bitcoin address pays the seller and puts the TAC straight into the pool; it never sits at your address. The purchase shows on chain as yours. The pool hides which deposit a later payment comes from.</p></div>
     <div class="blk"><div class="lbl"><span>Shield</span><span>from Bitcoin address into pool</span></div>
       ${notes.length ? html`<div class="kv"><span>Next note</span><b class="num">${fmt(BigInt(notes[0].amount), 8, 4)} TAC</b></div>
         <button class="btn" type="button" id="f-shield" ${TAC.pw ? '' : 'disabled'}>Shield ${fmt(BigInt(notes[0].amount), 8, 4)} TAC</button>
@@ -1958,6 +2032,8 @@ function tacMove(f) {
       <div class="kv" id="f-xfee" hidden><span>Bitcoin fee</span><b class="num"></b></div>
       <button class="btn ghost" type="button" id="f-exit" ${ok && TAC.pw && TAC.pool > 0n ? '' : 'disabled'}>Withdraw</button>
       <p class="note">Your Bitcoin address shows as where it goes; the amount and which notes paid it don’t. The rest stays shielded.</p></div>`);
+  wireLots($('#f-lots', f));
+  loadLots();
   // The most one withdrawal can take is its two largest notes.
   $('#f-xmax')?.addEventListener('click', () => { const x = $('#f-xamt', f); if (x) { x.value = plain(TAC.top2); x.dispatchEvent(new Event('input')); } });
   // A withdrawal is posted from the Bitcoin address.

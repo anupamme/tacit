@@ -151,7 +151,8 @@ async function onChainNote(tacit, assetId, txid, vout, amount, blinding) {
 // Commit/reveal carrier. vin[0] spends the envelope commit; inputs[] follow as vin[1..], each either
 // signed here by the wallet (P2WPKH) or carrying a pre-signed witness. The commit output funds
 // Σoutputs + reveal fee − Σinputs, from the wallet's plain sats.
-export async function broadcastCarrier(tacit, { payload, inputs = [], outputs }) {
+// `feeTier` ('economy' | 'standard' | 'priority') overrides the wallet's own fee preference for this carrier.
+export async function broadcastCarrier(tacit, { payload, inputs = [], outputs, feeTier = null }) {
   const w = tacit.wallet;
   const envelopeScript = tacit.encodeEnvelopeScript(w.xonly(), payload);
   const { Q_xonly, parity } = tacit.tweakedOutputKey(tacit.TAP_NUMS, tacit.tapLeafHash(envelopeScript));
@@ -162,7 +163,7 @@ export async function broadcastCarrier(tacit, { payload, inputs = [], outputs })
   const lenPush = envelopeScript.length < 0xfd ? 1 : 3;
   const witnessLen = 1 + 65 + lenPush + envelopeScript.length + 1 + 33 + inputs.length * 108;
   const baseLen = 4 + 1 + 41 * (1 + inputs.length) + 1 + outputs.reduce((s, o) => s + 9 + o.script.length, 0) + 4;
-  const feeRate = await tacit.getFeeRate(null, { fresh: true, safetyMult: 1.2 });
+  const feeRate = await tacit.getFeeRate(feeTier, { fresh: true, safetyMult: 1.2 });
   const revealFee = tacit.feeFor(Math.ceil((baseLen * 4 + 2 + witnessLen) / 4) + 5, feeRate);
   const outSum = outputs.reduce((s, o) => s + o.value, 0);
   const inSum = inputs.reduce((s, i) => s + i.value, 0);
@@ -223,7 +224,7 @@ export async function shieldNote(tacit, { note, poolWallet, say = () => {} }) {
 
 // Buy and shield in one transaction. The seller's signature commits to vin[1] and vout[1] only, so the
 // envelope in vin[0] can be the shield; the kernel is signed from the sale's published opening.
-export async function buyAndShield(tacit, { status, sale, poolWallet, say = () => {} } = {}) {
+export async function buyAndShield(tacit, { status, sale, poolWallet, say = () => {}, feeTier = null } = {}) {
   status = status || await fetchFaucet();
   sale = sale || await pickSale(tacit, status);
   const assetId = status.asset_id;
@@ -240,7 +241,7 @@ export async function buyAndShield(tacit, { status, sale, poolWallet, say = () =
   const { payload } = await proveHere(sh, say);
   say('buying into the pool…');
   const r = await broadcastCarrier(tacit, {
-    payload,
+    payload, feeTier,
     inputs: [{ txid: lot.txid, vout: lot.vout, value: c.value, script: tacit.p2wpkhScript(sellerPub), witness: [hexToBytes(sale.seller_asset_spend_sig), sellerPub] }],
     outputs: [
       { value: tacit.DUST, script: tacit.p2wpkhScript(tacit.wallet.pub) },
@@ -981,6 +982,32 @@ export async function saleQuote(sats, { asset = TAC_ASSET_MAINNET, network = 'ma
   if (!(base > 0)) return null;
   const unit = base * (1 - under);
   return { unit, units: BigInt(Math.ceil((Number(sats) * one) / unit)), ask, mark, basis };
+}
+
+// What a buy-and-shield carrier costs in Bitcoin fees at `tier`: about 1,150 vB (a one-input commit and a reveal carrying the
+// shield proof), at the rate broadcastCarrier will use.
+export const BUY_CARRIER_VB = 1150;
+export async function buyFee(tacit, tier = 'priority') {
+  return Math.ceil((await tacit.getFeeRate(tier, { fresh: true, safetyMult: 1.2 })) * BUY_CARRIER_VB);
+}
+
+// Listings of `asset` on Bitcoin's market to buy straight into the pool (buyAndShield): unexpired for at least `minLeft`
+// seconds, not this wallet's own, within `budget` sats when one is given, cheapest per unit first. Each is the record the
+// API lists, with `unit` (sats per whole token) added. A lot is bought whole.
+export async function lotsToBuy(tacit, { asset = TAC_ASSET_MAINNET, network = 'mainnet', budget = null, limit = 3, minLeft = 900, decimals = 8 } = {}) {
+  const assetHex = String(asset).replace(/^0x/, '').toLowerCase();
+  const book = await fetch(`${WORKER_BASE}/assets/${assetHex}/preauth-sales?network=${network === 'mainnet' ? 'mainnet' : 'signet'}`, { cache: 'no-store', signal: AbortSignal.timeout?.(20_000) })
+    .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  if (!book) return null;
+  const now = Date.now() / 1000, mine = tacit?.wallet?.pub ? bytesToHex(tacit.wallet.pub) : null, one = 10 ** decimals;
+  const live = (book.sales || [])
+    .filter((s) => !s.expired && Number(s.expiry) > now + minLeft && s.seller_pubkey !== mine && /^\d+$/.test(String(s.asset_opening?.amount)) && BigInt(s.asset_opening.amount) > 0n)
+    .map((s) => ({ ...s, unit: Number(s.min_price_sats) / (Number(s.asset_opening.amount) / one) }))
+    .sort((a, b) => a.unit - b.unit || Number(a.min_price_sats) - Number(b.min_price_sats));
+  const within = budget == null ? live : live.filter((s) => Number(s.min_price_sats) <= Number(budget));
+  // Lots of the same size at the same price are one choice: the first of each stands for the rest.
+  const seen = new Set(), distinct = within.filter((s) => { const k = `${s.asset_opening.amount}:${s.min_price_sats}`; if (seen.has(k)) return false; seen.add(k); return true; });
+  return { lots: distinct.slice(0, limit), smallest: live.reduce((m, s) => (!m || Number(s.min_price_sats) < Number(m.min_price_sats) ? s : m), null) };
 }
 
 // Whether a listed note has been bought: the transaction that spent it, and whether it paid `payoutScript` at least

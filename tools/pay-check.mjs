@@ -269,6 +269,40 @@ try {
     const pm = poly([3, 3, 0, 2, 3, ...data, 0, 0, 0, 0, 0, 0]) ^ 1;
     return 'bc1' + [...data, ...[0, 1, 2, 3, 4, 5].map((i) => (pm >>> (5 * (5 - i))) & 31)].map((d) => C[d]).join('');
   };
+  if (ONLY.has('poolbuy')) {
+    // Read-only with KEY (a key with sats at its Bitcoin address): TAC → Move lists lots to buy into the pool within those
+    // sats, and a first press asks before anything is bought. Nothing is bought.
+    console.log('poolbuy (/pay: buy TAC with sats into the pool, mainnet reads)');
+    const origin = new URL(URL_).origin, { ctx, p, errors } = await page(browser, { colorScheme: 'dark' });
+    const text = async (sel) => ((await p.textContent(sel).catch(() => '')) || '').replace(/\s+/g, ' ').trim();
+    await p.goto(origin + '/pay/#tac/move');
+    await p.waitForSelector('#g-in');
+    await openKey(p, process.env.KEY);
+    await p.waitForSelector('#f-lots', { timeout: 120e3 });
+    await p.waitForFunction(() => !/Reading the market/.test(document.querySelector('#f-lots')?.textContent || ''), null, { timeout: 180e3 });
+    const lots = await text('#f-lots');
+    const n = (await p.$$('#f-lots [data-buy]')).length;
+    ok(n > 0 || /Nothing listed/.test(lots), `the market is read: ${lots.slice(0, 200)}`);
+    if (n) {
+      ok(/TAC · [\d,.]+ sats each\s*Buy for [\d,]+ sats/.test(lots), 'each lot shows its TAC, the price per TAC and what it costs');
+      await p.waitForFunction(() => !document.querySelector('#f-lots [data-buy]')?.disabled, null, { timeout: 180e3 }).catch(() => {});
+      await p.click('#f-lots [data-buy]');
+      const st = await text('#status');
+      ok(/^Buy [\d,.]+ TAC for [\d,]+ sats, plus (the|about [\d,]+ sats of) Bitcoin fee, straight into the pool\? Press again to buy\.$/.test(st), `a first press asks: ${st}`);
+      await p.waitForFunction(() => /plus about [\d,]+ sats of Bitcoin fee/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 30e3 }).catch(() => {});
+      ok(/plus about [\d,]+ sats of Bitcoin fee/.test(await text('#status')), `and then names the fee: ${await text('#status')}`);
+      ok(/Press again to buy/.test(await text('#f-lots')), 'and the lot says to press again');
+    }
+    ok(/never sits at your address/.test(await text('#form')), 'it says the TAC never sits at the address');
+    if (process.env.EXPECT_TAC) {
+      await p.click('#tabs [data-tab="send"]');
+      await p.waitForFunction((v) => (document.querySelector('#bal')?.textContent || '').replace(/\s+/g, ' ').includes(v), process.env.EXPECT_TAC, { timeout: 240e3 }).catch(() => {});
+      const bal = await text('#bal');
+      ok(bal.includes(process.env.EXPECT_TAC), `the bought TAC shows as this wallet's shielded balance: ${bal.slice(0, 120)}`);
+    }
+    ok(!errors.length, `no page errors ${errors.join(' | ').slice(0, 300)}`);
+    await ctx.close();
+  }
   if (ONLY.has('poolact')) {
     console.log('poolact (/pay: Activity names a payment through the pool, mainnet reads)');
     const origin = new URL(URL_).origin, { ctx, p, errors } = await page(browser, { colorScheme: 'dark' });
