@@ -238,6 +238,7 @@ a.di { color: inherit; text-decoration: none; }
   border-top: 1px solid var(--hair); }
 .proof { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 26px; font-size: 12px; color: var(--mute); }
 .trust { font-size: 12px; font-weight: 500; color: var(--ink); }
+.trust::before { content: '✓'; margin-right: 6px; color: var(--green); }
 /* ── the hero's control panel: a swap card beside the intro, as anyone who has swapped knows one. Its tabs name what ETH
    does here; two fields hold what goes in and what comes out, each with its coin as the picker; where there is more than
    one way, the ways sit above the button with what each pays. ── */
@@ -320,6 +321,17 @@ a.di { color: inherit; text-decoration: none; }
 .hx-routes em { grid-area: tag; font: 600 10px var(--mono); font-style: normal; text-transform: uppercase; letter-spacing: .06em; color: #16a34a; text-align: right; }
 @media (hover: hover) { .hx-routes button:hover { color: var(--ink); } }
 .hx-routes button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* Beside the card the way in leads: the sign-in line comes right after the intro, and the protocol's totals follow it. */
+@media (min-width: 761px) {
+  .hero-l { display: flex; flex-direction: column; }
+  .hero-l .start { order: 1; }
+  .hero-l .proof-row { order: 2; }
+}
+/* A step card with nothing in its foot keeps only the arrow, up beside its heading, rather than stranding it at the bottom of the card. */
+.flow-step .tile-foot:has(> span:nth-child(2):empty) { position: absolute; top: 22px; right: 20px; margin: 0; padding: 0; border: 0; }
+.flow-step .tile-foot:has(> span:nth-child(2):empty) .dot { display: none; }
+/* On a wide screen the page uses more of it. */
+@media (min-width: 1100px) { .shell { max-width: 940px; } }
 /* One column under 760px: the intro, the card, then the sign-in line. */
 @media (max-width: 760px) {
   .hero-go { grid-template-columns: minmax(0, 1fr); gap: 0; }
