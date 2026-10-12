@@ -28,7 +28,9 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
 server = http.createServer((req, res) => {
   let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   let f = join(DAPP, p);
-  if (existsSync(f) && statSync(f).isDirectory()) f = join(f, 'index.html');
+  // As the host does: a directory is served at its address with the slash; without it, or with no file at all, the front page answers and its head script sends the visitor on.
+  if (existsSync(f) && statSync(f).isDirectory()) f = p.endsWith('/') ? join(f, 'index.html') : join(DAPP, 'index.html');
+  if (!existsSync(f) && !extname(p)) f = join(DAPP, 'index.html');            // as the host does: an address with no file of its own is the front page, which sends it on
   if (!existsSync(f)) { res.writeHead(404); return res.end('not found'); }
   res.writeHead(200, { 'content-type': TYPES[extname(f)] || 'application/octet-stream' });
   res.end(readFileSync(f));
@@ -80,7 +82,7 @@ async function fundedWallet(eth, tac) {
   return { account: who, key: j.private_key };
 }
 
-async function openPage(viewport, wallet = null, hash = '') {
+async function openPage(viewport, wallet = null, hash = '', path = '/trade/') {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport, colorScheme: 'light' });
   const walletLog = wallet ? await stubWallet(ctx, wallet) : null;
@@ -98,7 +100,7 @@ async function openPage(viewport, wallet = null, hash = '') {
   page.on('pageerror', (e) => errors.push(String(e.message || e)));
   page.on('console', (m) => { if (m.type() === 'error') { const t = m.text(); (/Content Security Policy|Refused to/i.test(t) ? blocked : errors).push(t); } });
   if (walletLog) await page.clock.install();                                   // the wallet pages' timers can be moved on by a test
-  await page.goto(`http://127.0.0.1:${WEB}/trade/${hash}`);
+  await page.goto(`http://127.0.0.1:${WEB}${path}${hash}`);
   return { browser, page, errors, blocked, walletLog };
 }
 
@@ -108,7 +110,10 @@ let r;
 try {
   r = await openPage({ width: 1280, height: 900 });
   const p = r.page;
-  await until(p, () => /^\$/.test(document.querySelector('#px-usd')?.textContent || '') && document.querySelectorAll('#lanes .lane .v').length === 4 && !document.querySelector('#lanes .sk') && document.querySelectorAll('#chart .body').length > 5 && document.querySelectorAll('#depth .dep').length > 3, null, 240000);
+  await until(p, () => /^\$/.test(document.querySelector('#px-usd')?.textContent || '') && document.querySelectorAll('#lanes .lane .v').length === 4 && !document.querySelector('#lanes .sk') && document.querySelectorAll('#chart .body').length > 5 && document.querySelectorAll('#depth .dep').length > 3, null, 240000).catch(async (e) => {
+    console.log('     page at the first wait:', JSON.stringify(await p.evaluate(() => ({ url: location.href, px: document.querySelector('#px-usd')?.textContent, lanes: document.querySelectorAll('#lanes .lane .v').length, skeleton: !!document.querySelector('#lanes .sk'), candles: document.querySelectorAll('#chart .body').length, asks: document.querySelectorAll('#depth .dep').length, chart: document.querySelector('#chart')?.textContent.slice(0, 80) }))), 'errors:', r.errors.slice(0, 3), 'blocked:', r.blocked.slice(0, 2));
+    throw e;
+  });
 
   const head = (await text(p, '#px-usd')).trim(), sub = (await text(p, '#px-sub')).replace(/\s+/g, ' ');
   ok(/^\$0\.\d{2,}/.test(head), `the head shows TAC's price in dollars (${head})`);
@@ -293,6 +298,24 @@ try {
     await until(sw.page, () => /account changed/.test(document.querySelector('#status')?.textContent || ''), null, 120000);
     ok(sw.walletLog.sends.length === 0 && (await tacBal(swapper.account)) === 0n && (await ethBal(swapper.account)) === 5n * E18, 'a wallet whose account changes after the review is sent nothing: the trade stops, and nothing is spent');
     await sw.browser.close();
+  }
+
+
+  // the addresses: TAC's own, and the bare ones people type
+  {
+    const own = await openPage({ width: 1280, height: 900 }, null, '', '/trade/tac/');
+    await until(own.page, () => /^\$/.test(document.querySelector('#px-usd')?.textContent || '') && document.querySelectorAll('#chart .body').length > 5, null, 240000);
+    ok(own.page.url().endsWith('/trade/tac/') && (await own.page.title()) === 'tacit trade' && (await own.page.getAttribute('link[rel="canonical"]', 'href')) === 'https://tacit.finance/trade/tac/', '/trade/tac/ is the trade page at its own address, naming itself as its canonical one');
+    ok((await own.page.getAttribute('meta[property="og:url"]', 'content')) === 'https://tacit.finance/trade/tac/' && own.errors.length === 0 && own.blocked.length === 0, 'and its shared link says so too, with nothing blocked');
+    await own.browser.close();
+    const bare = await openPage({ width: 1280, height: 900 }, null, '#side=sell&amount=1500', '/trade/tac');
+    await until(bare.page, () => /\/trade\/tac\/#side=sell/.test(location.href) && document.querySelector('#amt')?.value === '1500' && !document.querySelector('#out')?.classList.contains('ph'), null, 240000);
+    ok(/\/trade\/tac\/#side=sell&amount=1500$/.test(bare.page.url()) && (await bare.page.title()) === 'tacit trade', '/trade/tac, without the slash, arrives at /trade/tac/ with the link\'s fragment kept: the sale of 1,500 TAC is quoted');
+    await bare.browser.close();
+    const root = await openPage({ width: 1280, height: 900 }, null, '', '/trade');
+    await until(root.page, () => /\/trade\/$/.test(location.pathname) && /^\$/.test(document.querySelector('#px-usd')?.textContent || ''), null, 240000);
+    ok((await root.page.title()) === 'tacit trade', '/trade arrives at /trade/');
+    await root.browser.close();
   }
 
   // dark

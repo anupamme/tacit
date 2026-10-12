@@ -178,6 +178,20 @@ const TAC_CB_FILES = ['tac/sats.js', 'tac/market.js', 'tac/claim.js', 'tac/app.j
 // dapp/trade/ is the TAC trade page: its modules are hashed first (the venues module and the order book it imports are the shared ones the
 // front page uses, so their tokens come out the same), then app.js, then the page that loads it.
 const TRADE_CB_FILES = ['trade/tape.js', 'trade/chart.js', 'trade/wallet.js', 'trade/app.js', 'trade/index.html'];
+// The trade page has one address for each asset it trades: /trade/ is the TAC market today (it will list assets later), and /trade/tac/ is
+// TAC's own, the one to share. Both are the same page, so /trade/tac/index.html is made from /trade/index.html, differing only in the address
+// the page names as its own, and `--verify-only` fails when it is not what this makes.
+const TRADE_PAGE = 'trade/index.html', TRADE_ASSETS = [['tac', 'trade/tac/index.html']];
+const tradeAssetPage = (slug) => readFileSync(join(DAPP_DIR, TRADE_PAGE), 'utf8').replaceAll('https://tacit.finance/trade/"', `https://tacit.finance/trade/${slug}/"`)
+  .replace('<head>', `<head>\n<!-- Made from /trade/index.html by \`npm run build\` (build/build.mjs): edit that file, not this one. -->`);
+function tradeAssetPages(write) {
+  const drift = [];
+  for (const [slug, rel] of TRADE_ASSETS) {
+    const file = join(DAPP_DIR, rel), want = tradeAssetPage(slug), got = existsSync(file) ? readFileSync(file, 'utf8') : null;
+    if (got !== want) { drift.push(`${rel} is not /${TRADE_PAGE} made for /trade/${slug}/`); if (write) { mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, want); } }
+  }
+  return drift;
+}
 function pageCacheBust(files, write) {
   const drift = [];
   for (const rel of files) {
@@ -372,7 +386,7 @@ async function main() {
     if (gotCb !== wantCb) drift.push(`classic.html tacit.js ?cb=${gotCb} but sha256(dapp/tacit.js)=${wantCb}`);
     if (gotPreboot !== wantPreboot) drift.push(`classic.html preboot.js ?cb=${gotPreboot} but sha256(dapp/preboot.js)=${wantPreboot}`);
     if (gotSw !== wantSw) drift.push(`sw.js CACHE_VERSION suffix ${gotSw} but sha256(vendor‖prf-wallet)=${wantSw}`);
-    drift.push(...pageCacheBust(SATS_CB_FILES, false), ...pageCacheBust(WELD_CB_FILES, false), ...pageCacheBust(TAC_CB_FILES, false), ...pageCacheBust(TRADE_CB_FILES, false), ...pageCacheBust(PAY_CB_FILES, false));
+    drift.push(...pageCacheBust(SATS_CB_FILES, false), ...pageCacheBust(WELD_CB_FILES, false), ...pageCacheBust(TAC_CB_FILES, false), ...pageCacheBust(TRADE_CB_FILES, false), ...tradeAssetPages(false), ...pageCacheBust(PAY_CB_FILES, false));
     drift.push(...pagePreloads(false));
     if (drift.length) {
       console.error('✗ cache-bust tokens or preload links are stale — run `npm run build` and commit the result:');
@@ -405,6 +419,8 @@ async function main() {
     console.log(`• tac page cache-bust: ${tacDrift.length ? `${tacDrift.length} token(s) updated` : 'unchanged'}`);
     const tradeDrift = pageCacheBust(TRADE_CB_FILES, true);
     console.log(`• trade page cache-bust: ${tradeDrift.length ? `${tradeDrift.length} token(s) updated` : 'unchanged'}`);
+    const tradeAssets = tradeAssetPages(true);
+    console.log(`• trade page for each asset: ${tradeAssets.length ? 'updated' : 'unchanged'}`);
     const payDrift = pageCacheBust(PAY_CB_FILES, true);
     console.log(`• pay page cache-bust: ${payDrift.length ? `${payDrift.length} token(s) updated` : 'unchanged'}`);
     const preDrift = pagePreloads(true);

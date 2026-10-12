@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- Made from /trade/index.html by `npm run build` (build/build.mjs): edit that file, not this one. -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; worker-src 'self'; connect-src 'self' https://api.tacit.finance https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta name="color-scheme" content="light dark">
+<title>tacit trade</title>
+<meta name="description" content="Trade TAC for ETH or sats at the best price across the Precision pool, Tacit's pools, the Bitcoin order book and any other pool that lists it, with its price history on both chains.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="tacit">
+<link rel="canonical" href="https://tacit.finance/trade/tac/">
+<meta property="og:url" content="https://tacit.finance/trade/tac/">
+<meta property="og:title" content="tacit trade">
+<meta property="og:description" content="TAC's price on Ethereum and Bitcoin, and the best way to trade it.">
+<meta property="og:image" content="https://tacit.finance/tacit-card.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<style>
+@font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-weight: 500; font-display: swap; src: url('/fonts/ibm-plex-mono-500-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Instrument Serif'; font-weight: 400; font-display: swap; src: url('/fonts/instrument-serif-400-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Instrument Serif'; font-weight: 400; font-style: italic; font-display: swap; src: url('/fonts/instrument-serif-400i-latin.woff2') format('woff2'); }
+
+:root {
+  --paper: #E8E0CC; --card: #F2EBD4; --field: #FAF6EA;
+  --ink: #1A1A1A; --mute: #625C4F;
+  --hair: rgba(26,26,26,.12); --hair-2: rgba(26,26,26,.28);
+  --orange: #f7931a; --ok: #0a7234; --warn: #9a4a00; --err: #b8341d;
+  --scrim: rgba(26,26,26,.36); --lift: 0 22px 44px -28px rgba(26,26,26,.45);
+  --sheet-shadow: 0 40px 90px -40px rgba(0,0,0,.6);
+  --skel: rgba(26,26,26,.08); --skel-hi: rgba(26,26,26,.02);
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --serif: 'Instrument Serif', Georgia, serif;
+  --tap: 44px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #15130E; --card: #1F1C15; --field: #191711;
+    --ink: #EDE5CF; --mute: #A39B85;
+    --hair: rgba(237,229,207,.12); --hair-2: rgba(237,229,207,.28);
+    --ok: #8fcf9a; --warn: #f7931a; --err: #f08a6c;
+    --scrim: rgba(0,0,0,.6); --lift: 0 22px 44px -28px rgba(0,0,0,.9);
+    --skel: rgba(237,229,207,.07); --skel-hi: rgba(237,229,207,.15);
+    color-scheme: dark;
+  }
+}
+:root { --eth: #627eea; --up: var(--ok); --down: var(--err); }
+@media (prefers-color-scheme: dark) { :root { --eth: #8ea2f4; } }
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); }
+body {
+  font: 14px/1.6 var(--mono); letter-spacing: -.01em; overflow-x: hidden;
+  background-image: radial-gradient(var(--hair) 1px, transparent 1px); background-size: 24px 24px;
+  padding: 0 max(16px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(16px, env(safe-area-inset-left));
+}
+a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover { text-decoration-thickness: 2px; }
+button, select, input { font: inherit; color: inherit; letter-spacing: inherit; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+[hidden] { display: none !important; }
+.num { font-variant-numeric: tabular-nums; }
+.mute { color: var(--mute); }
+.err { color: var(--err); }
+.ok { color: var(--ok); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.tk { width: 28px; height: 28px; display: block; flex: none; border-radius: 50%; }
+.tk.sm { width: 18px; height: 18px; }
+
+.shell { max-width: 1160px; margin: 0 auto; padding-bottom: 56px; }
+
+/* header */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 0 8px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; flex: none; }
+.brand b { font: italic 400 30px/1 var(--serif); letter-spacing: -.01em; }
+.brand i { font-style: normal; font-size: 12px; color: var(--mute); text-transform: uppercase; letter-spacing: .12em; }
+.top nav { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 2px 18px; font-size: 12.5px; }
+.top nav a { color: var(--mute); text-decoration: none; padding: 8px 0; }
+.top nav a[aria-current="page"] { color: var(--ink); }
+@media (hover: hover) { .top nav a:hover { color: var(--ink); text-decoration: underline; } }
+@media (max-width: 560px) { .top nav a.opt { display: none; } }
+
+/* what TAC costs, and where */
+.hero { padding: 26px 0 18px; display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 20px 40px; align-items: end; }
+.hero h1 { font: 400 clamp(46px, 8vw, 84px)/.92 var(--serif); letter-spacing: -.025em; margin: 0; }
+.hero h1 em { font-style: italic; }
+.hero .sub { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-top: 12px; color: var(--mute); font-size: 13px; }
+.hero .sub b { color: var(--ink); font-weight: 500; }
+.chg.up { color: var(--up); } .chg.down { color: var(--down); }
+.gapnote { margin: 0; font-size: 13px; color: var(--mute); max-width: 52ch; }
+.gapnote b { color: var(--ink); font-weight: 500; }
+@media (max-width: 820px) { .hero { grid-template-columns: minmax(0, 1fr); } }
+
+.lanes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; margin: 0 0 14px; background: var(--hair); border: 1px solid var(--hair); }
+.lane { background: var(--card); padding: 14px 14px 12px; min-width: 0; }
+.lane .k { display: flex; align-items: center; gap: 7px; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--mute); }
+.lane .k .sw { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.lane .v { font: 500 22px/1.15 var(--mono); letter-spacing: -.02em; display: block; margin-top: 6px; }
+.lane .s { font-size: 12px; color: var(--mute); display: block; min-height: 18px; }
+.lane .g { font-size: 11.5px; display: block; margin-top: 2px; min-height: 17px; }
+.lane .sk { display: inline-block; height: 1em; width: 6ch; background: var(--skel); border-radius: 2px; }
+@media (max-width: 860px) { .lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* the page */
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; grid-template-areas: "chart ticket" "venues ticket" "depth ticket" "info ticket"; grid-template-rows: auto auto auto 1fr; gap: 14px 16px; }
+.p-chart { grid-area: chart; } .p-ticket { grid-area: ticket; position: sticky; top: 14px; align-self: start; } .p-venues { grid-area: venues; } .p-depth { grid-area: depth; } .p-info { grid-area: info; }
+@media (max-width: 980px) { .grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "chart" "ticket" "venues" "depth" "info"; } .p-ticket { position: static; } }
+.panel { background: var(--card); border: 1px solid var(--hair); padding: 22px; min-width: 0; }
+@media (max-width: 480px) { .panel { padding: 18px 14px; } }
+.eyebrow { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--mute); margin: 0 0 12px; }
+.h2 { font: 400 30px/1.02 var(--serif); letter-spacing: -.01em; margin: 0 0 14px; }
+.note { font-size: 12.5px; color: var(--mute); margin: 12px 0 0; }
+.note a { color: var(--ink); }
+code { font-size: 12px; overflow-wrap: anywhere; }
+
+.bar { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; justify-content: space-between; margin: 0 0 14px; }
+.seg { display: inline-grid; grid-auto-flow: column; grid-auto-columns: minmax(0, auto); border: 1px solid var(--hair-2); }
+.seg button { min-height: 34px; padding: 4px 13px; background: none; border: 0; cursor: pointer; color: var(--mute); font-size: 12.5px; }
+.seg button + button { border-left: 1px solid var(--hair-2); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--card); }
+@media (hover: hover) { .seg button:not([aria-pressed="true"]):hover { color: var(--ink); } }
+@media (pointer: coarse) { .seg button { min-height: var(--tap); } }
+.bar .seg { max-width: 100%; }
+.seg.big { display: grid; grid-auto-columns: minmax(0, 1fr); margin-bottom: 18px; } .seg.big button { min-height: 42px; font-size: 13.5px; }
+
+/* the chart */
+.chart { position: relative; height: 340px; }
+@media (max-width: 560px) { .chart { height: 260px; } }
+.chart-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.chart-empty { margin: 0; padding: 60px 0; text-align: center; color: var(--mute); }
+.chart .grid { stroke: var(--hair); stroke-width: 1; } .chart .grid.v { stroke-dasharray: 2 4; }
+.chart .axis { fill: var(--mute); font-size: 10.5px; } .chart .axis.mid { text-anchor: middle; }
+.chart .wick { stroke-width: 1.2; } .chart .body { stroke-width: 0; }
+.chart .wick.up { stroke: var(--up); } .chart .body.up { fill: var(--up); } .chart .vol.up { fill: var(--up); opacity: .22; }
+.chart .wick.down { stroke: var(--down); } .chart .body.down { fill: var(--down); } .chart .vol.down { fill: var(--down); opacity: .22; }
+.chart .line { fill: none; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.chart .tagline { stroke-width: 1; stroke-dasharray: 3 3; opacity: .8; }
+.chart .tagbox { opacity: .95; } .chart .tagtext { fill: #fff; font-size: 10px; font-weight: 500; }
+.chart .cross line { stroke: var(--mute); stroke-width: 1; stroke-dasharray: 3 3; }
+.chart-tip { position: absolute; z-index: 2; pointer-events: none; min-width: 170px; max-width: 280px; padding: 8px 10px; font-size: 11.5px; line-height: 1.5; background: var(--paper); border: 1px solid var(--hair-2); box-shadow: var(--lift); }
+.chart-tip i { font-style: normal; color: var(--mute); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 0; font-size: 12px; color: var(--mute); }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.legend .sw { width: 14px; height: 3px; border-radius: 2px; }
+
+/* the ticket */
+.lbl { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--mute); margin: 14px 0 6px; }
+.amt { display: flex; align-items: center; background: var(--field); border: 1px solid var(--hair); border-bottom-color: var(--ink); }
+.amt:focus-within { border-color: var(--ink); }
+.amt input { flex: 1; min-width: 0; font: 500 24px/1.2 var(--mono); letter-spacing: -.02em; color: var(--ink); background: none; border: 0; padding: 12px 14px; outline: none; }
+.amt .u { display: inline-flex; align-items: center; gap: 8px; padding: 0 14px 0 4px; color: var(--mute); white-space: nowrap; }
+@media (pointer: coarse) { .amt input { font-size: 20px; } }
+input::placeholder { color: var(--mute); opacity: .7; }
+.get { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 14px 14px; background: var(--field); border: 1px solid var(--hair); }
+.get b { font: 500 24px/1.2 var(--mono); letter-spacing: -.02em; overflow-wrap: anywhere; }
+.get b.ph { color: var(--mute); }
+.get span { color: var(--mute); white-space: nowrap; }
+.kv { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; color: var(--mute); padding: 5px 0; }
+.kv b { font-weight: 400; color: var(--ink); text-align: right; overflow-wrap: anywhere; }
+.splitnote { margin: 10px 0 0; padding: 10px 12px; font-size: 12.5px; background: var(--field); border-left: 2px solid var(--orange); }
+.splitnote b { font-weight: 500; }
+.btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 52px; margin-top: 16px; padding: 10px 16px; font-weight: 500; text-decoration: none;
+  color: var(--card); background: var(--ink); border: 1px solid var(--ink); cursor: pointer; transition: background .15s, color .15s; }
+.btn:hover:not(:disabled) { background: transparent; color: var(--ink); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn.ghost { color: var(--ink); background: transparent; border-color: var(--hair-2); }
+.btn.ghost:hover:not(:disabled) { border-color: var(--ink); }
+.linkbtn { background: none; border: 0; padding: 0; cursor: pointer; color: var(--mute); text-decoration: underline; text-underline-offset: 3px; font-size: 12px; }
+.linkbtn:hover { color: var(--ink); }
+.slip { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 14px 0 0; font-size: 12px; }
+.slip .seg button { min-height: 28px; padding: 2px 11px; font-size: 12px; }
+.review { margin: 14px 0 0; padding: 14px; background: var(--field); border: 1px solid var(--hair-2); }
+.review h3 { font: 400 22px/1.1 var(--serif); margin: 0 0 8px; }
+.review .ack { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0 0; font-size: 12.5px; cursor: pointer; }
+.review .ack input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--ink); flex: none; }
+.review .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; } .review .row2 .btn { margin-top: 12px; }
+.picks { display: grid; gap: 8px; margin-top: 10px; } .picks .btn { margin-top: 0; }
+.status { font-size: 12.5px; min-height: 0; margin-top: 12px; overflow-wrap: anywhere; }
+.status:empty { margin-top: 0; }
+.status a { color: var(--ink); }
+
+/* where it trades */
+.table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.table th, .table td { padding: 10px 8px; text-align: left; border-top: 1px solid var(--hair); vertical-align: top; }
+.table th { font-weight: 400; color: var(--mute); font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; border-top: 0; padding-top: 0; }
+.table td.r, .table th.r { text-align: right; }
+.table td b { font-weight: 500; }
+.table small { display: block; color: var(--mute); font-size: 11.5px; margin-top: 2px; }
+.table tr.best td { background: color-mix(in srgb, var(--ok) 8%, transparent); }
+.tag { display: inline-block; margin-left: 6px; padding: 1px 6px; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; border: 1px solid currentColor; color: var(--ok); vertical-align: 1px; }
+.tag.mute { color: var(--mute); }
+@media (max-width: 560px) { .table .opt { display: none; } }
+
+.depth { margin-top: 4px; }
+.dep { position: relative; display: grid; grid-template-columns: 76px 1fr auto; gap: 10px; align-items: center; padding: 7px 8px; border-top: 1px solid var(--hair); font-size: 12px; }
+.dep .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--orange); opacity: .1; }
+.dep > * { position: relative; }
+.dep .px { font-weight: 500; }
+
+.facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.facts li { display: grid; grid-template-columns: 150px 1fr; gap: 4px 16px; padding: 11px 0; border-top: 1px solid var(--hair); font-size: 12.5px; }
+.facts li:first-child { border-top: 0; padding-top: 0; }
+.facts b { font-weight: 500; } .facts span { color: var(--mute); overflow-wrap: anywhere; }
+.facts a { color: var(--ink); }
+@media (max-width: 560px) { .facts li { grid-template-columns: 1fr; } }
+.prose p { margin: 0 0 12px; color: var(--mute); font-size: 13px; max-width: 70ch; } .prose p b { color: var(--ink); font-weight: 500; }
+
+footer { display: flex; flex-wrap: wrap; gap: 8px 22px; justify-content: space-between; margin-top: 34px; padding-top: 18px; border-top: 1px solid var(--hair); font-size: 12px; color: var(--mute); }
+footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: var(--mute); }
+@media (hover: hover) { footer a:hover { color: var(--ink); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="sr" id="live" role="status" aria-live="polite"></div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="tk-tac" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="tk-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#F7931A"/><path fill="#FFF" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
+    <symbol id="tk-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#627EEA"/><g fill="#FFF"><path fill-opacity=".602" d="M16.498 4v8.87l7.497 3.35z"/><path d="M16.498 4L9 16.22l7.498-3.35z"/><path fill-opacity=".602" d="M16.498 21.968v6.027L24 17.616z"/><path d="M16.498 27.995v-6.028L9 17.616z"/><path fill-opacity=".2" d="M16.498 20.573l7.497-4.353-7.497-3.348z"/><path fill-opacity=".602" d="M9 16.22l7.498 4.353v-7.701z"/></g></symbol>
+  </defs>
+</svg>
+<div class="shell">
+
+  <header class="top">
+    <a class="brand" href="/" aria-label="tacit"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><b>tacit</b><i>trade</i></a>
+    <nav aria-label="Pages">
+      <a href="/">Home</a>
+      <a href="/trade/" aria-current="page">Trade</a>
+      <a href="/tac/" class="opt">Shielded TAC</a>
+      <a href="/pay/" class="opt">Pay</a>
+      <a href="/weld/stats/" class="opt">Stats</a>
+    </nav>
+  </header>
+
+  <section class="hero" aria-labelledby="px-h">
+    <div>
+      <h1 id="px-h"><span id="px-usd" class="num">TAC</span></h1>
+      <div class="sub" id="px-sub"><span class="mute">Reading the pools…</span></div>
+    </div>
+    <p class="gapnote" id="gapnote"></p>
+  </section>
+
+  <section class="lanes" id="lanes" aria-label="TAC's price in each place it trades"></section>
+
+  <div class="grid">
+    <section class="panel p-chart" aria-labelledby="chart-h">
+      <p class="eyebrow" id="chart-h">Price history</p>
+      <div class="bar">
+        <div class="seg" id="lane-seg" role="group" aria-label="Which lane">
+          <button type="button" data-lane="eth" aria-pressed="true">Ethereum</button>
+          <button type="button" data-lane="btc" aria-pressed="false">Bitcoin</button>
+          <button type="button" data-lane="cmp" aria-pressed="false">Compare</button>
+        </div>
+        <div class="seg" id="tf-seg" role="group" aria-label="Candle size"></div>
+        <div class="seg" id="view-seg" role="group" aria-label="View"></div>
+      </div>
+      <div id="chart" role="group" aria-label="Price chart"><p class="chart-empty">Reading the price history…</p></div>
+      <div class="legend" id="legend"></div>
+      <p class="note" id="chart-note"></p>
+    </section>
+
+    <section class="panel p-ticket" aria-labelledby="tk-h">
+      <p class="eyebrow" id="tk-h">Trade TAC</p>
+      <div class="seg big" id="side-seg" role="group" aria-label="Buy or sell">
+        <button type="button" data-side="buy" aria-pressed="true">Buy TAC</button>
+        <button type="button" data-side="sell" aria-pressed="false">Sell TAC</button>
+      </div>
+      <div class="lbl"><span id="in-lbl">You pay</span><button class="linkbtn" id="in-bal" type="button" hidden></button></div>
+      <div class="amt"><input id="amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="Amount to pay"><span class="u" id="in-unit"><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>ETH</span></div>
+      <div class="lbl"><span>You get about</span><span class="mute" id="out-usd"></span></div>
+      <div class="get"><b id="out" class="ph">0.00</b><span id="out-unit">TAC</span></div>
+      <div id="route"></div>
+      <div class="slip"><span class="mute">Slippage</span><div class="seg" id="slip-seg" role="group" aria-label="Slippage"><button type="button" data-slip="50">0.5%</button><button type="button" data-slip="100">1%</button><button type="button" data-slip="300">3%</button></div></div>
+      <div id="review" hidden></div>
+      <button class="btn" id="go" type="button">Connect wallet</button>
+      <div class="status" id="status" role="status"></div>
+      <p class="note" id="tk-note"></p>
+    </section>
+
+    <section class="panel p-venues" aria-labelledby="v-h">
+      <p class="eyebrow" id="v-h">Where it trades</p>
+      <h2 class="h2" id="v-title">Every pool, for the amount in the ticket</h2>
+      <table class="table" id="venues"><thead><tr><th>Venue</th><th class="r">You get</th><th class="r opt">Against the best</th></tr></thead><tbody></tbody></table>
+      <p class="note" id="venues-note"></p>
+    </section>
+
+    <section class="panel p-depth" aria-labelledby="d-h">
+      <p class="eyebrow" id="d-h">The Bitcoin order book</p>
+      <h2 class="h2">Listings, cheapest first</h2>
+      <div class="depth" id="depth"><p class="note">Reading the book…</p></div>
+      <p class="note" id="depth-note"></p>
+    </section>
+
+    <section class="panel p-info" aria-labelledby="i-h">
+      <p class="eyebrow" id="i-h">About TAC</p>
+      <h2 class="h2">Two lanes, one token</h2>
+      <div class="prose" id="about"></div>
+      <ul class="facts" id="facts"></ul>
+    </section>
+  </div>
+
+  <footer>
+    <span>tacit trade · mainnet</span>
+    <nav aria-label="More">
+      <a href="/">All of Tacit</a>
+      <a href="/tac/">Shielded TAC</a>
+      <a href="/pay/">Pay privately</a>
+      <a href="/weld/stats/">Stats</a>
+      <a href="/classic.html">Classic app</a>
+      <a href="https://github.com/src-company/tacit" target="_blank" rel="noopener noreferrer">Source</a>
+    </nav>
+  </footer>
+</div>
+<script type="module" src="/trade/app.js?cb=8edec955"></script>
+</body>
+</html>
