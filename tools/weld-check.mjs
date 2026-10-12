@@ -2099,15 +2099,21 @@ await step('xobridge', async () => {
   await r.page.click('#wallet-body [data-in="key"]');
   await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
 
-  // Hidden until enabled: with nothing set and no bridge under way there is no tab, and a link to it opens the sheet as it is.
+  // On unless switched off: with nothing set the tab is there; set to false, with no bridge under way, there is no tab, and a link to it opens the sheet as it is.
+  await go(r.page, '#private');
+  await until(r.page, () => !!document.querySelector('#eth-v1 [data-v1="btc"]'), null, 120000);
+  ok(true, 'xobridge: with nothing set the sheet has its To Bitcoin tab');
+  await r.page.evaluate(() => localStorage.setItem('tacit-teth-btc', 'false'));
+  await r.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+  await sleep(400);
   await go(r.page, '#private/bitcoin');
   await until(r.page, () => !!document.querySelector('#eth-v1 [data-v1="wrap"][aria-selected="true"]'), null, 120000);
-  ok(!(await r.page.$('#eth-v1 [data-v1="btc"]')), 'xobridge: with nothing set and no bridge under way the sheet has no To Bitcoin tab, and a link to it opens Make private');
+  ok(!(await r.page.$('#eth-v1 [data-v1="btc"]')), 'xobridge: switched off, with no bridge under way, the sheet has no To Bitcoin tab, and a link to it opens Make private');
   await r.page.evaluate(() => localStorage.setItem('tacit-teth-btc', 'true'));
   await go(r.page, '#private');
   await until(r.page, () => !!document.querySelector('#eth-v1 [data-v1="btc"]'), null, 120000);
-  ok(true, 'xobridge: enabled, the tab is there');
-  await r.page.evaluate(() => localStorage.removeItem('tacit-teth-btc'));
+  ok(true, 'xobridge: switched on, the tab is there');
+  await r.page.evaluate(() => localStorage.setItem('tacit-teth-btc', 'false'));
 
   // A bridge already under way shows the tab even when it is switched off, however the bridge got there.
   await r.page.evaluate(() => localStorage.setItem('tacit-teth-btc', 'false'));
@@ -2399,11 +2405,16 @@ await step('xtbridge', async () => {
   await r.page.click('#wallet-body [data-in="key"]');
   await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
 
-  // Hidden until enabled: with nothing set and no TAC bridge under way the Bridge tab has no To Bitcoin side, and a link to it opens the tab as it is.
+  // On unless switched off: with nothing set the Bridge tab has its To Bitcoin side; set to false, with no TAC bridge under way, it has none,
+  // and a link to it opens the tab as it is.
   await go(r.page, '#bridge/out');
+  await until(r.page, () => !!document.querySelector('#bridge-body [data-brm="out"][aria-selected="true"]') && !!document.querySelector('#xt-amt'), null, 120000);
+  ok(true, 'xtbridge: with nothing set the Bridge tab has its To Bitcoin side, and #bridge/out opens it');
+  await r.page.evaluate(() => localStorage.setItem('tacit-tac-btc', 'false'));
+  await toSide();
   await until(r.page, () => !document.querySelector('#bridge-body')?.hidden, null, 120000);
   await sleep(1500);
-  ok(!(await r.page.$('#bridge-body [data-brm]')) && !(await r.page.$('#xt-amt')), 'xtbridge: with nothing set and no TAC bridge under way the Bridge tab has no To Bitcoin side, and #bridge/out opens the tab as it is');
+  ok(!(await r.page.$('#bridge-body [data-brm]')) && !(await r.page.$('#xt-amt')), 'xtbridge: switched off, with no TAC bridge under way, the Bridge tab has no To Bitcoin side, and #bridge/out opens the tab as it is');
   await r.page.evaluate(() => localStorage.setItem('tacit-tac-btc', 'true'));
   await toSide();
   await until(r.page, () => !!document.querySelector('#bridge-body [data-brm="out"][aria-selected="true"]'), null, 120000)
@@ -2414,13 +2425,13 @@ await step('xtbridge', async () => {
   ok((await r.page.evaluate(() => location.hash)) === '#bridge', 'xtbridge: the From Bitcoin side is the tab as it was, and its address is #bridge');
   await until(r.page, () => /No TAC on this key’s Bitcoin address/.test(document.querySelector('#bridge-body')?.textContent || ''), null, 120000);
   ok(/TAC bridged from Ethereum is listed under To Bitcoin\./.test(await text(r.page, '#bridge-body')), 'xtbridge: with the side on, the From side says where TAC bridged from Ethereum is listed');
-  await r.page.evaluate(() => localStorage.removeItem('tacit-tac-btc'));
+  await r.page.evaluate(() => localStorage.setItem('tacit-tac-btc', 'false'));
   // The tETH tab does not take the TAC flag, nor the TAC side the tETH one.
   await r.page.evaluate(() => localStorage.setItem('tacit-teth-btc', 'true'));
   await toSide();
   await sleep(1500);
   ok(!(await r.page.$('#bridge-body [data-brm]')), 'xtbridge: the tETH setting does not turn on the TAC side');
-  await r.page.evaluate(() => localStorage.removeItem('tacit-teth-btc'));
+  await r.page.evaluate(() => localStorage.setItem('tacit-teth-btc', 'false'));
 
   // A bridge already under way shows the side even when it is switched off, and its rows are TAC's alone.
   await r.page.evaluate(() => localStorage.setItem('tacit-tac-btc', 'false'));
@@ -2454,7 +2465,7 @@ await step('xtbridge', async () => {
   await sleep(2500);
   const tethRows = await r.page.$$eval('#eth-v1 .brr', (xs) => xs.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
   ok(tethRows.length === 1 && /tETH/.test(tethRows[0]) && !/TAC/.test(tethRows[0].replace(/tETH/g, '')), `xtbridge: the tETH tab lists the tETH bridge and none of TAC's (${tethRows.length})`);
-  await r.page.evaluate(() => localStorage.removeItem('tacit-teth-btc'));
+  await r.page.evaluate(() => localStorage.setItem('tacit-teth-btc', 'false'));
   // Cancelling the old unseen burn drops it, as for tETH.
   await toSide();
   await until(r.page, () => document.querySelectorAll('#bridge-body .brr').length === 6, null, 120000);
@@ -2730,7 +2741,7 @@ await step('xtring', async () => {
   await toSide('#private/bitcoin');
   await sleep(2500);
   ok((await r.page.$$('#eth-v1 .brr')).length === 0, 'xtring: the tETH tab does not list the TAC return');
-  await r.page.evaluate(() => localStorage.removeItem('tacit-teth-btc'));
+  await r.page.evaluate(() => localStorage.setItem('tacit-teth-btc', 'false'));
   // A press on the return's row reports on this side's own line (it looked for the other side's, and a press said nothing here).
   await toSide();
   await until(r.page, () => document.querySelectorAll('#bridge-body .brr').length === 1 && !!document.querySelector('#bridge-body .brr [data-bract="poll"]'), null, 120000);
@@ -2792,7 +2803,7 @@ await step('xtring', async () => {
   await toSide('#private/bitcoin');
   await sleep(2500);
   ok((await r.page.$$('#eth-v1 .brr')).length === 0, 'xtring: and the tETH tab lists neither');
-  await r.page.evaluate(() => localStorage.removeItem('tacit-teth-btc'));
+  await r.page.evaluate(() => localStorage.setItem('tacit-teth-btc', 'false'));
   await r.page.evaluate(([k, v]) => localStorage.setItem(k, v), [`tacit-burndep-bridge-v1:mainnet:${pub}`, JSON.stringify([plain])]);
   await toSide('#bridge');
   await until(r.page, () => document.querySelector('#sheet-tac')?.open && !document.querySelector('#bridge-body')?.hidden && !!document.querySelector('#bridge-body #br-go'), null, 120000);
@@ -3929,7 +3940,7 @@ await step('farmclaim', async () => {
 // own relay floor and limits, the button opens the TAC sheet's To Bitcoin side with the amount, and a key short of private TAC is sent to make
 // some first. The key holds 62 TAC privately (50 and 12).
 await step('hxout', async () => {
-  const r = await openFarmKey('6e7b'.padEnd(64, '6'), { notes: [['@cTAC', 5000000000n], ['@cTAC', 1200000000n]] }, undefined, async (page) => { await page.addInitScript(() => { localStorage.setItem('tacit-tac-btc', 'true'); }); await page.route(/^https:\/\/api\.tacit\.finance\/confidential\/quote\?asset=cTAC/, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ ticker: 'cTAC', staticFloorUnits: '400000000' }) })); });
+  const r = await openFarmKey('6e7b'.padEnd(64, '6'), { notes: [['@cTAC', 5000000000n], ['@cTAC', 1200000000n]] }, undefined, async (page) => { await page.addInitScript(() => { localStorage.setItem('tacit-tac-btc', 'true'); localStorage.setItem('tacit-teth-btc', 'false'); }); await page.route(/^https:\/\/api\.tacit\.finance\/confidential\/quote\?asset=cTAC/, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ ticker: 'cTAC', staticFloorUnits: '400000000' }) })); });
   const p = r.page;
   const lander = () => p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
   const body = async () => (await text(p, '#hx-body')).replace(/\s+/g, ' ');
@@ -4002,16 +4013,24 @@ await step('hxout', async () => {
     await p.click('#hx-flip');
     await until(p, () => !!document.querySelector('#hx-from'), null, 60000);
     // Only tETH on: TAC is not offered.
-    await p.evaluate(() => localStorage.removeItem('tacit-tac-btc'));
+    await p.evaluate(() => localStorage.setItem('tacit-tac-btc', 'false'));
     await p.click('[data-hxm="swap"]'); await p.click('[data-hxm="btc"]');
     await until(p, () => !!document.querySelector('#hx-from'), null, 60000);
     const only = await fromOptions();
     ok(only.join() === 'ETH,tETH', `hxout: with only tETH on, TAC is not offered (${only.join()})`);
     // Neither on: the tab only brings TAC in.
-    await p.evaluate(() => localStorage.removeItem('tacit-teth-btc'));
+    await p.evaluate(() => localStorage.setItem('tacit-teth-btc', 'false'));
     await p.click('[data-hxm="swap"]'); await p.click('[data-hxm="btc"]');
     await sleep(800);
-    ok(!(await p.$('#hx-flip')), 'hxout: with neither on there is nothing to turn to: the tab only brings TAC in');
+    ok(!(await p.$('#hx-flip')), 'hxout: with both switched off there is nothing to turn to: the tab only brings TAC in');
+    // Nothing set: both are on, so ETH, tETH and TAC are all offered.
+    await p.evaluate(() => { localStorage.removeItem('tacit-teth-btc'); localStorage.removeItem('tacit-tac-btc'); });
+    await p.click('[data-hxm="swap"]'); await p.click('[data-hxm="btc"]');
+    await until(p, () => !!document.querySelector('#hx-flip'), null, 60000);
+    await p.click('#hx-flip');
+    await until(p, () => !!document.querySelector('#hx-from'), null, 60000);
+    const dflt = await fromOptions();
+    ok(dflt.join() === 'ETH,tETH,TAC', `hxout: with nothing set both are on, and ETH, tETH and TAC are offered (${dflt.join()})`);
     if (r.errors.length) { fails++; console.log('FAIL hxout page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
@@ -4021,7 +4040,7 @@ await step('hxout', async () => {
 await step('hxlink', async () => {
   const r = await openPage({ account: A0, key: K0 });
   await stubFarmUx(r.page, { notes: [['@cTAC', 5000000000n], ['@cTAC', 1200000000n]] });
-  await r.page.addInitScript(() => { localStorage.setItem('tacit-tac-btc', 'true'); });
+  await r.page.addInitScript(() => { localStorage.setItem('tacit-tac-btc', 'true'); localStorage.setItem('tacit-teth-btc', 'false'); });
   await r.page.route(/^https:\/\/api\.tacit\.finance\/confidential\/quote\?asset=cTAC/, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ ticker: 'cTAC', staticFloorUnits: '400000000' }) }));
   const p = r.page;
   try {

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-i1nbfHmne6Lno0vWNOu/6LzWhfIcEdX6K/QLZabCOr0=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-myg9QxKsqzXuKlkG4NWwt0f/QJtr2XLOiwbWUYdsVRA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=b0bddd8d"></script>
 <title>tacit</title>
@@ -4133,9 +4133,9 @@ function v1Out(el, status) {
 // Bitcoin takes the note only after its proof on Ethereum has seen the burn, so everything that can be checked first is, before the
 // note is touched: sats free for the Bitcoin fee, and the proof keeping up. The Bitcoin step then waits for that proof, never goes
 // earlier, and is sent by this page while it is open with the key. The journal is only a cache: a burn this page lost track of is
-// found again on Ethereum, or rebuilt from its transaction and the key. A tab is shown when localStorage 'tacit-teth-btc' (tETH) or
-// 'tacit-tac-btc' (TAC) is true or the key has a bridge of that asset under way; the setting gates only starting one, and a bridge
-// under way is followed to its end either way.
+// found again on Ethereum, or rebuilt from its transaction and the key. Each is on unless localStorage 'tacit-teth-btc' (tETH) or
+// 'tacit-tac-btc' (TAC) is set to false; with it off the tab is shown only while the key has a bridge of that asset under way, the setting
+// gates only starting one, and a bridge under way is followed to its end either way.
 // What each asset that crosses out here is, and where its bridge lives. `pre` and `bpre` name the ids of the form and of the way back
 // (each asset has its own, since both sheets can be in the page at once); `status` is the line under the form; `after` says what the
 // note can do on Bitcoin; `held` heads the list of what it left there; `see` says where a bridge that has arrived is listed; `min` is
@@ -4151,7 +4151,7 @@ const XA = {
     held: 'Bridged TAC on your Bitcoin address', see: 'TAC, Bridge, To Bitcoin', after: 'There it can be brought back to Ethereum below once Bitcoin’s proof has recorded it.',
     get id() { return '0x' + TAC_BTC_ID; } },
 };
-const xoOn = (a = XA.teth) => store.get(a.flag) === true;
+const xoOn = (a = XA.teth) => store.get(a.flag) !== false;                       // on unless its setting is false
 const XO = { pf: null, auto: false, autoAt: 0, acked: null };
 const XO_STEPS = ['Burned on Ethereum', 'Seen by the proof', 'Sent to Bitcoin', 'Arrived'];
 const XO_AT = { settling: 0, settled: 1, covered: 2, 'mint-signed': 2, 'mint-submitted': 3, 'mint-confirmed': 3, 'mint-rejected': 3 };
