@@ -191,7 +191,7 @@ function renderControls() {
   const native = S.lane === 'btc' ? 'sats' : 'ETH';
   $('#view-seg').innerHTML = RANGES.map(([l, d]) => `<button type="button" data-range="${d}" aria-pressed="${S.range === d}">${l}</button>`).join('')
     + `<button type="button" data-log="1" aria-pressed="${S.log}" title="A log axis shows moves of the same size the same height">Log</button>`
-    + (S.lane === 'cmp' ? '' : `<button type="button" data-unit="${S.unit === 'usd' ? 'native' : 'usd'}" aria-pressed="false" title="Show the price in ${S.unit === 'usd' ? native : 'dollars'}">${S.unit === 'usd' ? native : 'USD'}</button>`);
+    + (S.lane === 'cmp' ? '' : `<button type="button" data-unit="${S.unit === 'usd' ? 'native' : 'usd'}" aria-pressed="false" title="Show the price in ${S.unit === 'usd' ? native : 'dollars'}">in ${S.unit === 'usd' ? native : 'USD'}</button>`);
 }
 function renderChart() {
   const lane = S.lane, tf = S.tf[lane];
@@ -310,12 +310,11 @@ function renderQuote(q) {
   const perTac = buy ? Number(wei) / Number(out) : Number(out) / Number(wei);                      // ETH per TAC, as executed
   const name = rt.pick === 'split' ? `Split: ${splitWhat(rt.split)}` : rt.single.venue === 'precision' ? 'Precision pool' : rt.single.venue === 'tacit-amm' ? 'Tacit pool' : 'Other pool';
   const rows = [['Route', name], ['Price', `${usd(usdOf(perTac))} per TAC${D.ethUsd ? '' : ` · ${sig(perTac)} ETH`}`]];
-  const bg = btcUsdPerTac(), eg = usdOf(perTac);
-  if (bg && eg) rows.push(['Bitcoin order book', `${usd(bg)} per TAC · Ethereum's is ${pct(gap(bg, eg), 0)} against it`]);
   let note = '';
-  if (rt.pick === 'split') note = `<p class="splitnote">Split across two pools in one transaction: <b>${(rt.split.gainBps / 100).toFixed(rt.split.gainBps < 100 ? 2 : 1)}%</b> ${buy ? 'more TAC' : 'more ETH'} than the better pool alone. It is run once without sending before it is sent, and falls back to one pool if it does not run.</p>`;
-  else if (rt.split && buy && rt.split.gainBps >= 30) note = `<p class="splitnote">A split across two pools would pay ${(rt.split.gainBps / 100).toFixed(2)}% more, but a purchase stays on the Precision pool (it earns points) unless another way pays over 1% more.</p>`;
-  else if (rt.split) note = `<p class="splitnote">A split would pay ${(rt.split.gainBps / 100).toFixed(2)}% more, which its extra gas costs more than.</p>`;
+  const gainTxt = rt.split ? `${(rt.split.gainBps / 100).toFixed(rt.split.gainBps < 100 ? 2 : 1)}%` : '';
+  if (rt.pick === 'split') note = `<p class="splitnote">Split: <b>${gainTxt}</b> ${buy ? 'more TAC' : 'more ETH'} than the better pool alone.</p>`;
+  else if (rt.split && buy && rt.split.gainBps >= 30) note = `<p class="splitnote mute">A split would pay ${gainTxt} more: not enough to leave the Precision pool, which earns points.</p>`;
+  else if (rt.split) note = `<p class="splitnote mute">A split would pay ${gainTxt} more, less than its extra gas.</p>`;
   route.innerHTML = rows.map(([k, v]) => html`<div class="kv"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('') + note;
   renderGo();
 }
@@ -323,41 +322,44 @@ const splitShare = (sp) => Math.round(Number(sp.legs[0].amountIn * 1000n / (sp.l
 const splitWhat = (sp) => `${splitShare(sp)}% Precision pool, ${100 - splitShare(sp)}% Tacit pool`;
 
 function renderVenues(q) {
-  const tb = $('#venues tbody'), note = $('#venues-note'), buy = S.side === 'buy';
+  const tb = $('#venues tbody'), note = $('#venues-note'), absent = $('#absent'), buy = S.side === 'buy';
   const unit = buy ? 'TAC' : 'ETH', f = (v) => `${fmtUnits(v, 18, buy ? 2 : 6)} ${unit}`;
-  if (!q) { tb.innerHTML = `<tr><td colspan="3" class="mute">Enter an amount in the ticket to see what each pool would pay.</td></tr>`; note.textContent = ''; return; }
+  if (!q) { tb.innerHTML = `<tr><td colspan="3" class="mute">Enter an amount in the ticket to see what each pool would pay.</td></tr>`; note.textContent = ''; absent.textContent = ''; return; }
   const { rt } = q, rows = [], eth = [];
   const add = (r) => rows.push(r);
   const p = rt.r?.precision, t = rt.r?.tacitAmm;
   const runs = rt.pick === 'split' ? 'split' : rt.single?.venue;                                   // the row the ticket sends the order to
-  add({ name: 'Precision pool', note: p ? `Ethereum · fee ${(Number(p.feeBps) / 1e4).toFixed(2)}%` : 'Ethereum', out: p?.amountOut, why: p ? null : 'could not quote', runs: runs === 'precision' });
-  add({ name: 'Tacit pool, public swap', note: `Ethereum · fee 0.30%`, out: t?.amountOut, why: t ? null : 'could not quote', runs: runs === 'tacit-amm' });
+  add({ name: 'Precision pool', note: p ? `fee ${(Number(p.feeBps) / 1e4).toFixed(2)}%` : '', out: p?.amountOut, why: p ? null : 'could not quote', runs: runs === 'precision' });
+  add({ name: 'Tacit pool', note: 'public swap · fee 0.30%', out: t?.amountOut, why: t ? null : 'could not quote', runs: runs === 'tacit-amm' });
   if (rt.split) add({ name: 'Both, split', note: splitWhat(rt.split), out: rt.split.amountOut, split: true, runs: runs === 'split' });
   for (const r of rows) if (r.out != null) eth.push(BigInt(r.out));
   const best = eth.length ? eth.reduce((a, b) => (b > a ? b : a)) : null;
   const priv = q.priv;
-  add({ name: 'Tacit pool, private swap', note: priv != null ? 'the same reserves, swapped with a shielded note · before the relay\'s fee' : 'the same reserves, swapped with a shielded note', out: priv, why: D.priv ? null : 'not read', priv: true });
-  const v4 = D.v4;
-  const funded = v4.filter((x) => x.liquidity && x.liquidity > 0n).length;
-  add({ name: 'Uniswap v4', note: `${v4.length} ETH/TAC pools (${v4.map((x) => `${x.fee / 1e4}%`).join(', ')} fee)`, why: v4.length ? (funded ? `${funded} hold liquidity` : 'none hold liquidity') : '—', out: null });
-  const zqv = q.zq;
-  add({ name: 'Uniswap v2/v3, Sushi, Curve', note: 'found by zQuoter', why: zqv == null ? 'checking…' : zqv.status === 'ok' ? null : zqv.status === 'no-route' ? 'none list TAC' : zqv.status === 'timeout' ? 'no answer in time' : 'no answer', out: zqv?.status === 'ok' ? zqv.amountOut : null });
-  const boards = rt.r?.boards?.restingOrders;
-  add({ name: 'zSwap order boards', note: boards > 0 ? `<a href="${esc(zswapDeepLink({ host: ZSWAP_HOST, dir: q.dir, amount: S.amt }) || ZSWAP_HOST)}" target="_blank" rel="noopener noreferrer">fill there ↗</a>` : 'resting orders', why: boards > 0 ? `${boards} resting order${boards === 1 ? '' : 's'}` : 'no orders for TAC', out: null, raw: boards > 0 });
+  add({ name: 'Tacit pool, private', note: 'a shielded note, before the relay\'s fee', out: priv, why: D.priv ? null : 'not read', priv: true });
+  const v4 = D.v4, funded = v4.filter((x) => x.liquidity && x.liquidity > 0n).length, zqv = q.zq, boards = rt.r?.boards?.restingOrders || 0;
+  if (funded) add({ name: 'Uniswap v4', note: `${funded} of ${v4.length} ETH/TAC pools hold liquidity`, why: 'quoted by zQuoter', out: null });
+  if (zqv?.status === 'ok') add({ name: 'Uniswap, Sushi or Curve', note: 'found by zQuoter', out: zqv.amountOut });
+  if (boards > 0) add({ name: 'zSwap boards', note: `${boards} resting order${boards === 1 ? '' : 's'}`, why: 'see the order book', out: null });
   const bk = q.book;
   if (bk) {
-    if (buy) add({ name: 'Bitcoin order book', note: `pay ${satsFmt(bk.sats)} sats instead · whole listings`, out: bk.out, why: bk.out ? null : 'no listing that small', btc: true });
-    else add({ name: 'Bitcoin order book', note: `no standing bids · listing at the last trade would bring about ${satsFmt(bk.sats)} sats`, why: 'sold by listing', out: null });
+    if (buy) add({ name: 'Bitcoin order book', note: `pay ${satsFmt(bk.sats)} sats instead`, out: bk.out, why: bk.out ? null : 'no listing that small', btc: true });
+    else add({ name: 'Bitcoin order book', note: 'a sale is a listing at your price', why: `about ${satsFmt(bk.sats)} sats at the last trade`, out: null });
   }
   tb.innerHTML = rows.map((r) => {
     const isBest = best != null && r.out != null && !r.priv && !r.btc && BigInt(r.out) === best;
     const delta = r.out != null && best ? Number((BigInt(r.out) - best) * 10000n / best) / 10000 : null;
     const cell = r.out != null ? `<b class="num">${f(r.out)}</b>` : `<span class="mute">${esc(r.why || '')}</span>`;
-    return `<tr${isBest ? ' class="best"' : ''}><td><b>${esc(r.name)}</b>${isBest ? '<span class="tag">best</span>' : ''}${r.runs ? '<span class="tag mute">this ticket</span>' : ''}${r.priv ? '<span class="tag mute">estimate</span>' : ''}<small>${r.raw ? r.note : esc(r.note || '')}</small></td><td class="r">${cell}</td><td class="r opt num">${delta != null && !isBest ? esc(pct(delta, 1)) : ''}</td></tr>`;
+    return `<tr${isBest ? ' class="best"' : ''}><td><b>${esc(r.name)}</b>${isBest ? '<span class="tag">best</span>' : ''}${r.runs ? '<span class="tag mute">this ticket</span>' : ''}${r.priv ? '<span class="tag mute">estimate</span>' : ''}<small>${esc(r.note || '')}</small></td><td class="r">${cell}</td><td class="r opt num">${delta != null && !isBest ? esc(pct(delta, 1)) : ''}</td></tr>`;
   }).join('');
-  note.textContent = q.buy
-    ? 'The first three are what the ticket runs on. The Tacit pool is one set of reserves: a public swap goes through its AMM contract, a private one spends a shielded note in the app, with its relay fee on top. The Bitcoin row buys with sats rather than ETH, and the TAC it buys arrives on Bitcoin.'
-    : 'The first three are what the ticket runs on. The Tacit pool is one set of reserves: a public swap goes through its AMM contract, a private one spends a shielded note in the app, with its relay fee off the TAC. The Bitcoin order book has no standing bids, so a sale there is a listing at your price.';
+  // What holds no TAC quote is one line, not three rows of "none".
+  const none = [];
+  if (!funded) none.push(v4.length ? `Uniswap v4's ${v4.length} ETH/TAC pools hold no liquidity` : 'Uniswap v4 has no ETH/TAC pool');
+  if (zqv == null) none.push('Uniswap v2/v3, Sushi and Curve are being checked');
+  else if (zqv.status === 'no-route') none.push('no Uniswap v2/v3, Sushi or Curve pool lists TAC');
+  else if (zqv.status !== 'ok') none.push('Uniswap v2/v3, Sushi and Curve did not answer in time');
+  if (!boards) none.push('zSwap has no TAC orders');
+  absent.textContent = none.length ? `Not quoting: ${none.join('; ')}.` : '';
+  note.textContent = `The first rows are what the ticket runs on. The Tacit pool is one set of reserves: a public swap goes through its AMM contract, a private one spends a shielded note in the app and pays the relay's fee ${buy ? 'on top' : 'out of the TAC'}. ${buy ? 'The Bitcoin row buys with sats rather than ETH, and the TAC arrives on Bitcoin.' : 'The Bitcoin order book has no standing bids, so selling there means listing at your price.'}`;
 }
 
 // ── the order book and the facts ──
@@ -375,21 +377,24 @@ function renderDepth() {
   note.innerHTML = `${b.asks.length} listings hold ${grp(Number(total) / 1e8, 0)} TAC for ${grp(sats, 0)} sats in all. Listings are taken whole, and a buyer needs sats on a Bitcoin address. <a href="/tac/#buy">Buy on Bitcoin →</a> · <a href="/classic.html#tab=market&aid=${TAC_BTC_ID}&lane=btc">List a sale →</a>`;
 }
 function renderAbout() {
-  $('#about').innerHTML = `<p><b>TAC</b> is Tacit's token: 21,000,000, issued once on Bitcoin, with no mint authority. On Ethereum it is an ERC-20 that only Tacit's confidential pool can mint, and only from TAC proven to have left Bitcoin, so there is one supply and two lanes. <a href="/verify.html">Check the fixed supply yourself →</a></p>
-    <p>It trades in both. On Bitcoin its order book takes sats; on Ethereum it trades in public pools against ETH, and privately in Tacit's confidential pool. This page reads all of them and shows the best price for the amount you type.</p>`;
+  $('#about').innerHTML = `<p><b>TAC</b> is Tacit's token: 21,000,000, issued once on Bitcoin with no mint authority. On Ethereum it is an ERC-20 that only Tacit's confidential pool can mint, from TAC proven to have left Bitcoin, so there is one supply and two lanes. <a href="/verify.html">Check the supply →</a></p>`;
   const link = (a, t) => `<a href="${SCAN}${a}" target="_blank" rel="noopener noreferrer">${t || `${a.slice(0, 8)}…${a.slice(-6)}`}</a>`;
   const pool = getConfidentialDeployment('mainnet')?.pool;
-  const rows = [
-    ['TAC on Ethereum', `ERC-20 ${link(TAC_ERC20)}${D.ethSupply != null ? ` · ${grp(Number(D.ethSupply) / 1e18, 0)} TAC minted there so far` : ''}`],
-    ['TAC on Bitcoin', `Asset <code>${TAC_BTC_ID.slice(0, 8)}…${TAC_BTC_ID.slice(-6)}</code>${D.btc?.holders ? ` · ${grp(D.btc.holders, 0)} holders` : ''}${D.btc?.vol24 ? ` · ${grp(D.btc.vol24, 0)} sats traded in 24 hours` : ''}`],
+  const main = [
+    ['On Ethereum', `ERC-20 ${link(TAC_ERC20)}${D.ethSupply != null ? ` · ${grp(Number(D.ethSupply) / 1e18, 0)} TAC minted there so far` : ''}`],
+    ['On Bitcoin', `Asset <code>${TAC_BTC_ID.slice(0, 8)}…${TAC_BTC_ID.slice(-6)}</code>${D.btc?.holders ? ` · ${grp(D.btc.holders, 0)} holders` : ''}${D.btc?.vol24 ? ` · ${grp(D.btc.vol24, 0)} sats traded in 24 hours` : ''}`],
+    ['Between them', `<a href="/#bridge">The bridge</a> moves TAC from Bitcoin to Ethereum in a few hours, sometimes up to a day.`],
+  ];
+  const more = [
     ['Precision pool', `${link(PRECISION_POOL)} · TAC/ETH${D.precision ? ` · holds ${fmtUnits(D.precision.eth, 18, 2)} ETH and ${fmtUnits(D.precision.tac, 18, 0)} TAC` : ''}`],
-    ['Tacit pool', `AMM inside Tacit's confidential pool ${pool ? link(pool) : ''} · TAC/tETH, 0.30% fee · one set of reserves${D.priv ? ` (${fmtUnits(D.priv.rEth, 8, 2)} tETH, ${fmtUnits(D.priv.rTac, 8, 0)} TAC)` : ''}, swapped in publicly through its AMM contract ${link(TACIT_AMM)} (the amounts are visible) or privately with shielded notes (who swaps and how much stay hidden)`],
-    ['Uniswap v4', `${D.v4.length} hookless ETH/TAC pools exist, with fees of ${D.v4.map((x) => `${x.fee / 1e4}%`).join(', ')}. ${D.v4.some((x) => x.liquidity > 0n) ? 'Some hold liquidity.' : 'None holds liquidity now.'} zQuoter scans the standard fee tiers only, so this page reads these pools itself.`],
+    ['Tacit pool', `AMM inside Tacit's confidential pool ${pool ? link(pool) : ''} · TAC/tETH, 0.30% fee${D.priv ? ` · ${fmtUnits(D.priv.rEth, 8, 2)} tETH and ${fmtUnits(D.priv.rTac, 8, 0)} TAC` : ''}. One set of reserves: swap through its AMM contract ${link(TACIT_AMM)} (amounts visible) or with shielded notes (who and how much stay hidden).`],
+    ['Uniswap v4', `${D.v4.length} hookless ETH/TAC pools exist, with fees of ${D.v4.map((x) => `${x.fee / 1e4}%`).join(', ')}. ${D.v4.some((x) => x.liquidity > 0n) ? 'Some hold liquidity.' : 'None holds liquidity now.'} zQuoter scans only the standard fee tiers, so this page reads these pools itself.`],
     ['Buybacks', `${link('0x6919cbEf0e70AFFA02Ae02c86c532A137154f250', 'TacBuyback')} buys TAC for the reserve on the Tacit pool or the Precision pool, whichever quotes better: at most 0.25 ETH, once every 6 hours.`],
-    ['Between the lanes', `<a href="/#bridge">The bridge</a> moves TAC from Bitcoin to Ethereum in a few hours, sometimes up to a day.`],
     ['More', `<a href="https://github.com/src-company/tacit/blob/main/docs/TAC.md" target="_blank" rel="noopener noreferrer">About TAC</a> · <a href="/#asset/tac">TAC in the app</a> · <a href="/weld/stats/">Stats</a>`],
   ];
-  $('#facts').innerHTML = rows.map(([k, v]) => `<li><b>${esc(k)}</b><span>${v}</span></li>`).join('');
+  const li = ([k, v]) => `<li><b>${esc(k)}</b><span>${v}</span></li>`;
+  $('#facts').innerHTML = main.map(li).join('');
+  $('#facts-more').innerHTML = more.map(li).join('');
 }
 
 // ── the wallet and the trade ──
@@ -448,9 +453,11 @@ function renderReview() {
     ${P.impact >= 0.005 ? `<div class="kv"><span>Price impact</span><b class="${P.impact >= 0.05 ? 'err' : ''}">${(P.impact * 100).toFixed(P.impact < 0.1 ? 1 : 0)}%</b></div>` : ''}
     <div class="kv"><span>From</span><b>${esc(short(W.account))} · ${esc(W.name)}</b></div>
     ${gate ? `<label class="ack"><input type="checkbox" id="ack"><span>I accept losing about ${Math.round(P.impact * 100)}% of this ${buy ? 'purchase' : 'sale'} to the pools' price move. A smaller amount moves it less.</span></label>` : ''}
-    <p class="note">${buy ? 'The wallet asks you to confirm one transaction.' : 'The wallet asks you to sign a permit for the TAC (no gas), then to confirm one transaction.'} It is tested once without sending, and sends only if it passes${P.split ? ' (a split that fails its test goes to one pool instead)' : ''}.</p>
+    <div class="slip"><span class="mute">Slippage</span><div class="seg" id="slip-seg" role="group" aria-label="Slippage"><button type="button" data-slip="50">0.5%</button><button type="button" data-slip="100">1%</button><button type="button" data-slip="300">3%</button></div></div>
+    <p class="note">${buy ? 'One transaction.' : 'A permit signature (no gas), then one transaction.'} It is tested without sending first${P.split ? ', and goes to one pool if the split fails its test' : ''}.</p>
     <div class="row2"><button class="btn ghost" type="button" id="rv-back">Back</button><button class="btn" type="button" id="rv-go"${gate ? ' disabled' : ''}>Confirm in wallet</button></div>`;
   $('#rv-back').onclick = () => { S.review = null; renderReview(); say(''); };
+  paintSlip();
   if (gate) $('#ack').onchange = (e) => { $('#rv-go').disabled = !e.target.checked; };
   $('#rv-go').onclick = () => execute(P);
 }
@@ -546,8 +553,8 @@ $('#in-bal').addEventListener('click', () => {
   S.amt = plain(v); $('#amt').value = S.amt; requote();
 });
 S.slip = (() => { try { const v = Number(localStorage.getItem('tacit-trade-slip')); return [50, 100, 300].includes(v) ? v : 50; } catch { return 50; } })();
-const paintSlip = () => $('#slip-seg').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.slip) === S.slip)));
-$('#slip-seg').addEventListener('click', (e) => { const b = e.target.closest('[data-slip]'); if (!b) return; S.slip = Number(b.dataset.slip); try { localStorage.setItem('tacit-trade-slip', String(S.slip)); } catch { /* storage is a convenience */ } paintSlip(); if (S.review && !S.review.pick) { S.review = planOf(); renderReview(); } });
+const paintSlip = () => $('#slip-seg')?.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.slip) === S.slip)));
+$('#review').addEventListener('click', (e) => { const b = e.target.closest('[data-slip]'); if (!b) return; S.slip = Number(b.dataset.slip); try { localStorage.setItem('tacit-trade-slip', String(S.slip)); } catch { /* storage is a convenience */ } paintSlip(); if (S.review && !S.review.pick) { S.review = planOf(); renderReview(); } });
 paintSlip();
 
 // ── wiring ──
@@ -561,7 +568,7 @@ $('#side-seg').addEventListener('click', (e) => {
   requote(); renderQuote(null); renderVenues(null);
 });
 $('#lane-seg').addEventListener('click', (e) => { const b = e.target.closest('[data-lane]'); if (b) { S.lane = b.dataset.lane; renderChart(); } });
-$('.p-chart .bar').addEventListener('click', (e) => {
+$('.p-chart').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b || b.closest('#lane-seg')) return;
   if (b.dataset.unit) S.unit = b.dataset.unit; else if (b.dataset.tf) S.tf[S.lane] = Number(b.dataset.tf); else if (b.dataset.range != null) S.range = Number(b.dataset.range); else if (b.dataset.log) S.log = !S.log;
