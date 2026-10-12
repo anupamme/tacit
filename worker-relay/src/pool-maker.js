@@ -99,6 +99,27 @@ export function configFromEnv(env = process.env) {
   return cfg;
 }
 
+// ── address ──
+// The BIP-173 address of a P2WPKH key, so /maker/status can name where the float goes.
+export function p2wpkhAddressOf(deps, pub, network = 'mainnet') {
+  const CHARSET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l', GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+  const hrp = network === 'mainnet' ? 'bc' : 'tb';
+  const polymod = (values) => values.reduce((chk, v) => {
+    const top = chk >>> 25;
+    chk = ((chk & 0x1ffffff) << 5) ^ v;
+    GEN.forEach((g, i) => { if ((top >>> i) & 1) chk ^= g; });
+    return chk;
+  }, 1);
+  const program = deps.ripemd160(deps.sha256(pub));
+  const data = [0]; let acc = 0, bits = 0;
+  for (const b of program) { acc = (acc << 8) | b; bits += 8; while (bits >= 5) { bits -= 5; data.push((acc >>> bits) & 31); } }
+  if (bits) data.push((acc << (5 - bits)) & 31);
+  const expand = [...[...hrp].map((c) => c.charCodeAt(0) >> 5), 0, ...[...hrp].map((c) => c.charCodeAt(0) & 31)];
+  const mod = polymod([...expand, ...data, 0, 0, 0, 0, 0, 0]) ^ 1;
+  const check = [0, 1, 2, 3, 4, 5].map((i) => (mod >>> (5 * (5 - i))) & 31);
+  return hrp + '1' + [...data, ...check].map((d) => CHARSET[d]).join('');
+}
+
 // ── price ──
 // refUnit is sats per whole unit of the asset (a float from the market), taken in thousandths so the sums are integers.
 const milliOf = (refUnit) => BigInt(Math.max(1, Math.round(Number(refUnit) * 1000)));
@@ -418,7 +439,7 @@ export function makePoolMaker({ tacit, deps, cfg, store, mk, logger = log, now =
       stranded: (state.makerStranded || []).length,
     };
   }
-  const coinAddress = () => (tacit.p2wpkhAddress ? tacit.p2wpkhAddress(mk.key.pub) : null);
+  const coinAddress = () => p2wpkhAddressOf(deps, mk.key.pub, cfg.network);
 
   return { quote, fill, status, state };
 }

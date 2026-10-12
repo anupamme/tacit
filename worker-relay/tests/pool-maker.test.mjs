@@ -47,6 +47,18 @@ test('config: defaults, the TAC asset, and refusals', () => {
   assert.throws(() => cfgWith({ MAKER_DAILY_SATS: '50000' }), /DAILY_SATS/);
 });
 
+// ── address ──
+test('address: the BIP-173 vectors, and the status names the address the coin key pays to', async () => {
+  const pub = deps.hexToBytes('0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798');
+  assert.equal(M.p2wpkhAddressOf(deps, pub, 'mainnet'), 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4');
+  assert.equal(M.p2wpkhAddressOf(deps, pub, 'signet'), 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx');
+  const { payoutScriptFor } = await import(path.join(DAPP, 'sats/secret.js'));
+  const s = setup();
+  const st = await s.maker.status();
+  assert.match(st.float.address, /^bc1q[0-9a-z]{38}$/);
+  assert.equal(hex(payoutScriptFor(st.float.address)), coinSpkHex, 'it decodes to the coin key\'s script');
+});
+
 // ── price ──
 test('price: units round up, sats round down, and the maker never pays more than it takes', () => {
   const u = M.unitsForSats(50_000, 150, 400);
@@ -284,7 +296,6 @@ test('status: says whether it is quoting, and where the float goes', async () =>
   assert.equal(st.float.coins, 4); assert.equal(st.float.sats, 600_000);
   assert.equal(st.reference.unit, 150);
   assert.equal(st.main_key, hex(tacitMod.wallet.pub));
-  assert.ok(st.float.address === null || /^bc1q/.test(st.float.address), 'an address on mainnet, or none');
   const dry = setup({ coins: [] });
   assert.equal((await dry.maker.status()).quoting, false, 'no coins, no quoting');
   const mute = setup({ ref: null });
