@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Ah/0ubKQ6ZooGCK+qmachGvElLjMjwJYLFTycxK8Dnw=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-CYfIOflVciS2G7toTtS68nTQ/9Rnwb51zfG/0FJgAB4=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=b0bddd8d"></script>
 <title>tacit</title>
@@ -33,7 +33,7 @@
 <link rel="modulepreload" href="/evm-account.js">
 <link rel="modulepreload" href="/evm-tx.js">
 <link rel="modulepreload" href="/tac-airdrop.js?cb=02ef61b4">
-<link rel="modulepreload" href="/evm-trade-venues.js?cb=3f6e79ea">
+<link rel="modulepreload" href="/evm-trade-venues.js?cb=3f639042">
 <link rel="modulepreload" href="/confidential-payout.js?cb=c27b4853">
 <link rel="modulepreload" href="/address-id.js?cb=c4fa5a58">
 <!-- preload:end -->
@@ -288,6 +288,8 @@ a.di { color: inherit; text-decoration: none; }
 .hx .btn { width: 100%; min-height: 50px; margin: 12px 0 0; }
 .hero .hx-q { max-width: none; }
 .hx-q { min-height: 18px; margin: 10px 2px 0; font-size: 12px; line-height: 1.5; color: var(--mute); }
+.hx-trade { display: inline-block; margin: 8px 2px 0; font-size: 12px; color: var(--mute); text-underline-offset: 3px; }
+@media (hover: hover) { .hx-trade:hover { color: var(--ink); } }
 /* What the amount typed earns in the points program, and the nudge toward more of it. */
 .hx-pts, .hx-have { display: grid; gap: 3px; margin-top: 12px; padding: 9px 12px; border: 1px dashed var(--hair-2); font-size: 12px; line-height: 1.5; color: var(--mute); }
 .hx-pts[hidden], .hx-have[hidden] { display: none; }
@@ -1119,7 +1121,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
     <details class="tacbar">
       <summary>TAC · A Privacy Coin on Bitcoin L1</summary>
       <p>Tacit <a href="https://github.com/src-company/tacit/blob/main/SPEC.md" rel="noopener">protocol</a>’s first asset: 21,000,000 issued once on Bitcoin, no mint key. Transfers hide their amounts, its shielded pool hides who received them, and sats swap into it peer to peer. Airdropped to bootstrap one private currency on both chains (claimable by 5,599 <a href="https://zswap.wei.limo" rel="noopener">zFi</a> shareholder wallets on Bitcoin and 8,652 holders on Ethereum), it keeps spreading through points and farms to grow the anonymity set, and gets each new Tacit protocol improvement first.</p>
-      <p class="tacbar-ln"><a href="/verify.html">Verify supply</a><a href="/tac/">Shielded pool</a><a href="#bridge" data-link="bridge">Bridge</a><a href="https://github.com/src-company/tacit/blob/main/docs/TAC.md#holding-tac" rel="noopener">Holding it</a><a href="#buy" data-link="buy">Buy</a></p>
+      <p class="tacbar-ln"><a href="/verify.html">Verify supply</a><a href="/tac/">Shielded pool</a><a href="#bridge" data-link="bridge">Bridge</a><a href="https://github.com/src-company/tacit/blob/main/docs/TAC.md#holding-tac" rel="noopener">Holding it</a><a href="#buy" data-link="buy">Buy</a><a href="/trade/">Price and pools</a></p>
     </details>
   </section>
 
@@ -1297,7 +1299,7 @@ import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
 import { makeEvmAccount } from '/evm-account.js';
 import { makeEvmTx } from '/evm-tx.js';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=02ef61b4';
-import { makeEvmTradeVenues, encErc20Approve, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, TACIT_AMM } from '/evm-trade-venues.js?cb=3f6e79ea';
+import { makeEvmTradeVenues, encErc20Approve, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, TACIT_AMM } from '/evm-trade-venues.js?cb=3f639042';
 import { parseRecipient } from '/confidential-payout.js?cb=c27b4853';
 import { addressId } from '/address-id.js?cb=c4fa5a58';
 // front-route.js is sending this visit to another page: nothing here starts while the browser moves on.
@@ -6363,9 +6365,20 @@ function renderAirdrop(el) {
 
 // Buy: the same venue search Tacit's market page runs (Precision band and Tacit's public AMM), sent through
 // zRouter. minOut is the winning venue's own quote less 0.5%.
-const venues = makeEvmTradeVenues({ ethCall: (to, data, block = 'latest', o = {}) => rpc('eth_call', [{ to, data, ...(o.gas ? { gas: o.gas } : {}) }, block]), keccak256: keccak_256 });
+const venues = makeEvmTradeVenues({ ethCall: (to, data, block = 'latest', o = {}) => rpc('eth_call', [{ to, data, ...(o.from ? { from: o.from } : {}), ...(o.value ? { value: o.value } : {}), ...(o.gas ? { gas: o.gas } : {}) }, block]), keccak256: keccak_256 });
+// What a TAC trade on Ethereum runs (venues.route): the best single venue, or ONE transaction split across the Precision pool and the Tacit
+// public pool when that pays enough more to cover its extra gas. A purchase also weighs points, which only the Precision pool's swaps earn
+// (a split earns on its Precision share), so it stays on Precision unless the other way pays over 1% more; a sale has no such preference.
+// → { r, single, split, pick: 'single' | 'split' } with `single` a venue quote, or { single: null } when no pool answers.
+async function tacRoute(dir, wei, account) {
+  return venues.route({ dir, amountIn: wei, account: account || undefined, gasPrice: await rpc('eth_gasPrice', []).then((g) => BigInt(g), () => null) });
+}
+// The split as the order a buyer or seller reads: how it divides, and what it earns over the best pool alone.
+const splitShare = (sp) => Math.round(Number(sp.legs[0].amountIn * 1000n / (sp.legs[0].amountIn + sp.legs[1].amountIn)) / 10);
+const splitWhat = (sp) => `${splitShare(sp)}% Precision pool, ${100 - splitShare(sp)}% Tacit public pool`;
+const splitGain = (sp) => `${(sp.gainBps / 100).toFixed(sp.gainBps < 100 ? 2 : 1)}%`;
 // TAC also trades for sats on the Bitcoin order book: /tac buys from its asks, and the classic app lists TAC held on Bitcoin.
-const TAC_BOOK = `/classic.html#tab=market&aid=${TAC_BTC_ID}`;
+const TAC_BOOK = `/classic.html#tab=market&aid=${TAC_BTC_ID}&lane=btc`;
 const bookLine = (sell) => html`<p class="note">${sell ? 'Want sats instead?' : 'Paying in sats?'} <a href="${sell ? TAC_BOOK : '/tac/#buy'}">${sell ? 'Sell TAC held on Bitcoin in its order book' : 'Buy TAC on the Bitcoin order book'} →</a></p>`;
 function renderBuy(el) {
   if (!S.address) { mount(el, html`${gate('Buy TAC with ETH at the best price across pools. Buying through the Precision pool earns points.', 'Connect wallet', 'buy-connect')}${bookLine(false)}`); return wireConnect('buy-connect', () => rerender('tac')); }
@@ -6390,19 +6403,18 @@ function renderBuy(el) {
     q = null; go.disabled = true; if (e?.isTrusted) say(status, ''); mount(ackBox, html``);
     if (!wei) { rc.hidden = true; return; }
     try {
-      const [r, sp] = await Promise.all([venues.quoteAll({ dir: 'ETH_TO_TAC', amountIn: wei, account: S.address, includeZQuoter: false }), ethCall(ADDR.precisionPool, SEL.sqrtPrice)]);
+      const [rt, sp] = await Promise.all([tacRoute('ETH_TO_TAC', wei, S.address), ethCall(ADDR.precisionPool, SEL.sqrtPrice)]);
       if (my !== seq || !input.isConnected) return;
-      if (!r.best) throw new Error('No pool can fill this right now.');
-      // Only the Precision route earns points: take it unless another pays more than 1% better.
-      const prec = (r.ranked || []).find((x) => x.venue === 'precision');
-      const pick = prec && BigInt(prec.amountOut) * 100n >= BigInt(r.best.amountOut) * 99n ? prec : r.best;
+      if (!rt.single) throw new Error('No pool can fill this right now.');
+      // Only the Precision route earns points: it is taken unless another way pays more than 1% better (a split earns on its Precision share).
+      const pick = rt.pick === 'split' ? { venue: 'split', split: rt.split, amountIn: wei, amountOut: rt.split.amountOut } : rt.single;
       const s = Number(BigInt(sp)) / 1e18, mid = Number(wei) * s * s;          // TAC wei at the band's mid price
       const impact = mid > 0 ? Math.max(0, (1 - Number(pick.amountOut) / mid) * 100) : 0;
-      q = { ...pick, impact, paid: wei, at: Date.now() };
+      q = { ...pick, single: rt.single, impact, paid: wei, at: Date.now() };
       mount(rc, html`
         <div class="kv"><span>You get about</span><b>${fmt(pick.amountOut, 18, 2)} TAC</b></div>
         ${lossLine(impact)}
-        <div class="kv"><span>Route</span><b>${pick.venue === 'precision' ? 'Precision pool · earns points' : 'Tacit public pool · no points'}</b></div>`);
+        <div class="kv"><span>Route</span><b>${pick.venue === 'split' ? `Split: ${splitWhat(pick.split)} · ${splitGain(pick.split)} more than one pool · earns points on the Precision share` : pick.venue === 'precision' ? 'Precision pool · earns points' : 'Tacit public pool · no points'}</b></div>`);
       rc.hidden = false;
       mount(ackBox, lossGate('b-ackv', impact, 'trade'));
       wireAck(ackBox, 'b-ackv', impact, gateOk);
@@ -6418,7 +6430,14 @@ function renderBuy(el) {
     if (Date.now() - x.at > 60e3) { say(status, 'The price had gone stale. It is being read again; check it and press once more.'); input.dispatchEvent(new Event('input')); return; }
     let hash;
     try {
-      const tx = venues.build({ quote: x, dir: 'ETH_TO_TAC', account: S.address, slippageBps: 50, deadline: deadline() });
+      const dl = deadline();
+      let tx = x.venue === 'split' ? venues.buildSplit({ split: x.split, account: S.address, slippageBps: 50, deadline: dl }) : venues.build({ quote: x, dir: 'ETH_TO_TAC', account: S.address, slippageBps: 50, deadline: dl });
+      // A split runs several calls in one bundle with no check of its own per call, so it is run once without sending first; one that
+      // does not run is replaced by the single pool the order would otherwise have gone to.
+      if (x.venue === 'split' && !(await venues.simulate({ tx, from: S.address })).ok) {
+        say(status, 'The split did not run in a test, so this buys from one pool.');
+        tx = venues.build({ quote: x.single, dir: 'ETH_TO_TAC', account: S.address, slippageBps: 50, deadline: dl });
+      }
       hash = await sendTx({ to: tx.to, data: tx.data, value: tx.value, label: `Buy TAC with ${fmt(x.paid, 18, 6)} ETH` });
       say(status, html`Buying… ${txLink(hash)}`);
       await waitTx(hash);
@@ -6455,16 +6474,17 @@ function renderSell(el) {
     q = null; go.disabled = true; if (e?.isTrusted) say(status, ''); mount(ackBox, html``);
     if (!wei) { rc.hidden = true; return; }
     try {
-      const [r, sp] = await Promise.all([venues.quoteAll({ dir: 'TAC_TO_ETH', amountIn: wei, account: who, includeZQuoter: false }), ethCall(ADDR.precisionPool, SEL.sqrtPrice)]);
+      const [rt, sp] = await Promise.all([tacRoute('TAC_TO_ETH', wei, who), ethCall(ADDR.precisionPool, SEL.sqrtPrice)]);
       if (my !== seq || !input.isConnected) return;
-      if (!r.best) throw new Error('No pool can fill this right now.');
+      if (!rt.single) throw new Error('No pool can fill this right now.');
+      const pick = rt.pick === 'split' ? { venue: 'split', split: rt.split, amountIn: wei, amountOut: rt.split.amountOut } : rt.single;
       const s = Number(BigInt(sp)) / 1e18, mid = s > 0 ? Number(wei) / (s * s) : 0;     // ETH wei at the band's mid price
-      const impact = mid > 0 ? Math.max(0, (1 - Number(r.best.amountOut) / mid) * 100) : 0;
-      q = { ...r.best, impact, at: Date.now() };
+      const impact = mid > 0 ? Math.max(0, (1 - Number(pick.amountOut) / mid) * 100) : 0;
+      q = { ...pick, single: rt.single, impact, at: Date.now() };
       mount(rc, html`
-        <div class="kv"><span>You get about</span><b>${fmt(r.best.amountOut, 18, 6)} ETH</b></div>
+        <div class="kv"><span>You get about</span><b>${fmt(pick.amountOut, 18, 6)} ETH</b></div>
         ${lossLine(impact)}
-        <div class="kv"><span>Route</span><b>${r.best.venue === 'precision' ? 'Precision pool' : 'Tacit public pool'}</b></div>`);
+        <div class="kv"><span>Route</span><b>${pick.venue === 'split' ? `Split: ${splitWhat(pick.split)} · ${splitGain(pick.split)} more than one pool` : pick.venue === 'precision' ? 'Precision pool' : 'Tacit public pool'}</b></div>`);
       rc.hidden = false;
       mount(ackBox, lossGate('sl-ackv', impact, 'sale'));
       wireAck(ackBox, 'sl-ackv', impact, gateOk);
@@ -6473,18 +6493,28 @@ function renderSell(el) {
       gateOk();
     } catch (e) { if (my === seq) quoteErr(rc, e); }
   });
+  takeDraft('sell', input);
   go.onclick = () => busy(go, async (run) => {
     const x = q;
     if (!x || !lossOk(ackBox, x.impact)) return;
     if (Date.now() - x.at > 60e3) { say(status, 'The price had gone stale. It is being read again; check it and press once more.'); input.dispatchEvent(new Event('input')); return; }
     let hash;
     try {
-      const dl = deadline(), args = { quote: x, dir: 'TAC_TO_ETH', account: who, slippageBps: 50, deadline: dl };
-      let tx = venues.build(args);
-      if (tx.approval && wordAt(await ethCall(ADDR.tac, SEL.allowance + addrWord(who) + addrWord(tx.approval.spender)), 0) < tx.approval.amount) {
-        if (x.venue === 'precision') tx = venues.build({ ...args, permit: { value: x.amountIn, deadline: dl, ...(await permitSig({ token: ADDR.tac, name: 'Tacit Token', spender: tx.approval.spender, value: x.amountIn, deadline: dl, status })) } });
-        else { const h = await sendTx({ to: ADDR.tac, data: encErc20Approve(tx.approval.spender, tx.approval.amount), label: 'Approve TAC for the sale' }); say(status, html`Approving TAC… ${txLink(h)}`); await waitTx(h); }
-      }
+      const dl = deadline();
+      // One route made ready to send: the TAC allowed or permitted as it needs, and a split run once without sending, since its bundle checks
+      // nothing per call. null: the split did not run, so the sale goes to the single pool it would otherwise have used.
+      const prepare = async (route) => {
+        const split = route.venue === 'split';
+        const make = (permit) => (split ? venues.buildSplit({ split: route.split, account: who, slippageBps: 50, deadline: dl, permit }) : venues.build({ quote: route, dir: 'TAC_TO_ETH', account: who, slippageBps: 50, deadline: dl, permit }));
+        let tx = make();
+        if (tx.approval && wordAt(await ethCall(ADDR.tac, SEL.allowance + addrWord(who) + addrWord(tx.approval.spender)), 0) < tx.approval.amount) {
+          if (route.venue === 'precision' || split) tx = make({ value: route.amountIn, deadline: dl, ...(await permitSig({ token: ADDR.tac, name: 'Tacit Token', spender: tx.approval.spender, value: route.amountIn, deadline: dl, status })) });
+          else { const h = await sendTx({ to: ADDR.tac, data: encErc20Approve(tx.approval.spender, tx.approval.amount), label: 'Approve TAC for the sale' }); say(status, html`Approving TAC… ${txLink(h)}`); await waitTx(h); }
+        }
+        return split && !(await venues.simulate({ tx, from: who })).ok ? null : tx;
+      };
+      let tx = await prepare(x);
+      if (!tx) { say(status, 'The split did not run in a test, so this sells to one pool.'); tx = await prepare(x.single); }
       hash = await sendTx({ to: tx.to, data: tx.data, value: tx.value, label: `Sell ${fmt(x.amountIn, 18, 2)} TAC` });
       say(status, html`Selling… ${txLink(hash)}`);
       await waitTx(hash);
@@ -9125,11 +9155,15 @@ const HX = { mode: 'private', from: 'ether', to: 'tac', route: null, pool: 'prec
 const HX_TABS = [['private', 'Private'], ['swap', 'Swap'], ['earn', 'Earn'], ['btc', 'Bitcoin'], ['send', 'Send']];
 const HX_SEND = [['eth', 'tETH', 'teth'], ['tac', 'TAC', 'tac'], ['btc', 'BTC', 'btc']];
 const HX_ETHER = ['ether', 'ETH', 'eth', 6];
+const HX_SATS = ['sats', 'sats', 'btc', 0];
 // What can cross out to Bitcoin from the card, by what is switched on: ETH (made tETH first) and tETH, and TAC. None, and the tab only brings TAC in.
 const HX_TETH = ['eth', 'tETH', 'teth'], HX_TACOUT = ['tac', 'TAC', 'tac'];
 const hxOut = () => [...(xoOn(XA.teth) ? [HX_ETHER, HX_TETH] : []), ...(xoOn(XA.tac) ? [HX_TACOUT] : [])];
-const HX_COLOR = { ether: '#627eea', eth: '#627eea', tac: '#f7931a', cusd: '#16a34a', cbtc: '#f7931a', btc: '#f7931a' };
-const hxAsset = (k) => (k === 'ether' ? HX_ETHER : swapAsset(k));
+const HX_COLOR = { ether: '#627eea', eth: '#627eea', tac: '#f7931a', cusd: '#16a34a', cbtc: '#f7931a', btc: '#f7931a', sats: '#f7931a' };
+const hxAsset = (k) => (k === 'ether' ? HX_ETHER : k === 'sats' ? HX_SATS : swapAsset(k));
+// Which pairs the Swap tab offers: pool assets for one another, ETH for any of them, and TAC for ETH (public pools, to the wallet) and
+// for sats (the Bitcoin order book), each way. Sats and wallet ETH are never paired with anything but TAC, nor wallet ETH out of ETH.
+const hxValid = (a, b) => (a === b ? false : a === 'sats' ? b === 'tac' : b === 'sats' ? a === 'tac' : b === 'ether' ? a === 'tac' : true);
 const hxUnits = () => parseUnits(HX.amt, 8);                 // the pool moves 8 decimals, so every amount here does
 // From ETH: one step when the private tETH held covers the amount, else the ETH is made private first.
 const hxHeld = () => (S.key && P.scan ? spendable('eth') : null), hxHeldTac = () => (S.key && P.scan ? spendable('tac') : null);
@@ -9175,6 +9209,66 @@ async function hxFarms(eth) {
   }
   return out;
 }
+// The Bitcoin order book as the card reads it: the standing asks (whole listings, cheapest first) and the last trade. btc-book.js is
+// the market page's own planner; it loads when a sats row is first asked for.
+const HXB = { at: 0, p: null, v: null };
+function hxBook() {
+  if (HXB.v && Date.now() - HXB.at < 60e3) return Promise.resolve(HXB.v);
+  return (HXB.p ||= (async () => {
+    const api = (path) => fetch(`${API}${path}`, { signal: within(10e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const [bb, sales, asset] = await Promise.all([import('/btc-book.js?cb=91371653'), api(`/assets/${TAC_BTC_ID}/preauth-sales?network=mainnet`), api(`/assets/${TAC_BTC_ID}?network=mainnet`), loadTacPrice().catch(() => {})]);
+    if (!Array.isArray(sales?.sales)) throw new Error('book unread');
+    // The sale rows carry no `kind`; every one here is a standing listing a buyer can take.
+    const book = bb.buildBook({ assetId: TAC_BTC_ID, decimals: 8, listings: sales.sales.map((x) => ({ ...x, kind: 'preauth' })), bids: [] });
+    HXB.v = { bb, book, mark: Number(asset?.mark_price?.unit) || null, last: asset?.last_trade || null };
+    HXB.at = Date.now();
+    return HXB.v;
+  })().finally(() => { HXB.p = null; }));
+}
+// What the book says in sats and the other lane's price beside it, in the words under the button.
+const hxLane = (sats) => {
+  if (!(TPX.v?.mid && TPX.v?.ethBtc && sats)) return '';
+  const eth = (TPX.v.mid / TPX.v.ethBtc) * 1e8, gap = Math.round(Math.abs(eth / sats - 1) * 100);
+  return ` On Ethereum the Precision pool's price is about ${satsFmt(eth)} sats${gap >= 1 ? `, ${gap}% ${eth > sats ? 'above' : 'below'} the book's` : ', the same as the book'}.`;
+};
+// Sats to TAC: what the cheapest whole listings that fit the sats typed pay out. Taking them is the Bitcoin page's job.
+async function hxSatsIn(units) {
+  const sats = units ? Math.floor(Number(units) / 1e8) : 0;
+  const { bb, book, mark } = await hxBook();
+  if (!units) return { out: null, go: 'Buy TAC on Bitcoin', line: book.bestAsk ? `The cheapest listing asks ${satsFmt(book.bestAsk)} sats per TAC; the last trade was ${satsFmt(mark || book.bestAsk)}. Listings are taken whole.${hxLane(book.bestAsk)}` : 'No TAC is listed on the Bitcoin order book right now.', sats: true };
+  if (sats < 546) return { out: '—', go: 'Buy TAC on Bitcoin', line: 'A listing costs at least 546 sats.', sats: true };
+  const plan = bb.planBuy(book, { spendSats: sats });
+  if (!plan.fills.length) return { out: '—', go: 'Buy TAC on Bitcoin', sats: true, line: book.bestAsk ? `No listing costs ${satsFmt(sats)} sats or less. The cheapest is ${fmt(book.asks[0].amount, 8, 2)} TAC for ${satsFmt(book.asks[0].sats)} sats.` : 'No TAC is listed on the Bitcoin order book right now.' };
+  const n = plan.fills.length;
+  return { out: fmt(plan.amount, 8, 2), go: 'Buy TAC on Bitcoin', sats: true,
+    line: `${n === 1 ? 'One listing' : `${n} listings`} at ${satsFmt(plan.avgUnit)} sats per TAC, about ${satsFmt(plan.feesEst)} sats of Bitcoin fees on top${plan.leftoverSats ? `; ${satsFmt(plan.leftoverSats)} sats left over, since listings are taken whole` : ''}.${hxLane(plan.avgUnit)}` };
+}
+// TAC to sats: the book holds no standing bids, so a sale is listed at a price and waits for a buyer. What the card can say is where the
+// price stands and what the sale needs: the TAC on Bitcoin (bridged there first when it is on Ethereum).
+async function hxSatsOut(units) {
+  const { book, mark } = await hxBook();
+  const tac = units ? Number(units) / 1e8 : 0, ref = mark || book.bestAsk;
+  const line = `There are no standing bids on the Bitcoin order book: a sale is listed at your price and waits for a buyer. ${ref ? `The last trade was ${satsFmt(ref)} sats per TAC${book.bestAsk ? `; the cheapest listing asks ${satsFmt(book.bestAsk)}` : ''}.` : ''} TAC held on Ethereum is bridged to Bitcoin first.${hxLane(ref)}`;
+  return { out: tac && ref ? `≈ ${satsFmt(tac * ref)}` : null, go: 'Sell TAC on Bitcoin', sats: true, line, alt: { label: 'Bridge TAC to Bitcoin first', link: 'bridge/out' } };
+}
+// TAC to wallet ETH: the public pools (the best one, or a split across two in one transaction) beside the private Tacit pool, which pays in
+// private tETH. Selling earns no points.
+async function hxSellEth(units) {
+  const [rt, priv] = await Promise.all([tacRoute('TAC_TO_ETH', units * E10, S.address).catch(() => null), hxPoolSwap('tac', 'eth', units).catch(() => null)]);
+  const rows = [];
+  if (rt?.single) {
+    const sp = rt.pick === 'split' ? rt.split : null, o = sp ? sp.amountOut : rt.single.amountOut;
+    rows.push({ k: 'public', name: sp ? 'Two public pools' : rt.single.venue === 'precision' ? 'Precision pool' : 'Tacit public pool', note: sp ? `${splitWhat(sp)} · one transaction · to your wallet` : 'to your wallet', v: BigInt(o), show: `${fmt(o, 18, 6)} ETH`, split: sp });
+  }
+  if (priv?.plan) rows.push({ k: 'private', name: 'Tacit pool', note: 'private · arrives as tETH', v: priv.plan.amountOut * E10, show: `${fmt(priv.plan.amountOut, 8, 6)} tETH` });
+  if (!rows.length) return { out: '—', go: 'Sell TAC', line: priv && !priv.plan && units <= priv.fee * 2n ? `Swap more than ${fmt(priv.fee * 2n, 8, 6)} TAC: the relay fee is ${fmt(priv.fee, 8, 6)}.` : 'No pool can fill this right now.' };
+  const best = rows.reduce((a, b) => (b.v > a.v ? b : a)), pick = rows.find((r) => r.k === HX.route) || best;
+  best.best = rows.length > 1;
+  const pub = pick.k === 'public';
+  return { out: fmt(pick.v, 18, 6), rows: rows.length > 1 ? rows : null, pick: pick.k, go: pub ? 'Sell TAC' : 'Swap privately',
+    line: pub ? (pick.split ? `Split across two pools in one transaction: ${splitGain(pick.split)} more than the best pool alone. Sent to your wallet.` : `1 TAC ≈ ${sig(Number(pick.v) / Number(units * E10))} ETH, sent to your wallet in one transaction.`)
+      : `1 TAC ≈ ${sig(Number(priv.plan.amountOut) / Number(units - priv.fee))} tETH · relay fee ${fmt(priv.fee, 8, 6)} TAC${priv.plan.impact >= 1 ? ` · moves the price ${priv.plan.impact.toFixed(1)}%` : ''}. Arrives as private tETH.` };
+}
 const hxQuoteSoon = debounce(() => hxQuote(), 400);
 // The quote for what is on the panel: the amount out, the routes to choose between, the line under the button and the
 // button's words. Drawn by paintHxQ without touching the field being typed in.
@@ -9194,27 +9288,34 @@ async function hxQuote() {
       return done({ out: units ? fmt(units, 8, 6) : null, go: 'Make ETH private', pk: 'wrap',
         line: units ? `1 for 1, with a relay tip of ${fmt(tip, 18, 6)} ETH on top. Then send, swap, farm${xoOn() ? ' or bridge it' : ''} from one key.` : 'ETH in, tETH out, 1 for 1: a private note that sends, swaps and farms, and recovers from your key.' });
     }
+    if (m === 'swap' && HX.from === 'sats') return done(await hxSatsIn(units));
+    if (m === 'swap' && HX.to === 'sats') return done(await hxSatsOut(units));
+    if (m === 'swap' && HX.to === 'ether') return units ? done(await hxSellEth(units)) : done({ out: null, go: 'Sell TAC', line: 'The best price between the public pools, split across two when that pays more, and the private Tacit pool.' });
     if (m === 'swap') {
       const from = HX.from === 'ether' ? 'eth' : HX.from, two = hxTwo(units), [, unitTo, , dpTo] = hxAsset(HX.to), [, unit] = hxAsset(HX.from);
       if (!units) return done({ out: null, go: 'Swap privately', line: HX.from === 'ether' && HX.to === 'tac' ? 'The best price between the public Precision pool and the private Tacit pool.' : 'What you hold stays private, and nothing says whose swap it is.' });
       const [pub, priv] = await Promise.all([
-        HX.from === 'ether' && HX.to === 'tac' ? venues.quoteAll({ dir: 'ETH_TO_TAC', amountIn: units * E10, account: S.address || undefined, includeZQuoter: false }).catch(() => null) : null,
+        HX.from === 'ether' && HX.to === 'tac' ? tacRoute('ETH_TO_TAC', units * E10, S.address).catch(() => null) : null,
         hxPoolSwap(from, HX.to, units).catch(() => null),
       ]);
       const rows = [];
-      // The Buy form's own choice: only the Precision route earns points, so it is taken unless another pays over 1% more.
-      const prec = (pub?.ranked || []).find((x) => x.venue === 'precision'), pp = pub?.best && (prec && BigInt(prec.amountOut) * 100n >= BigInt(pub.best.amountOut) * 99n ? prec : pub.best);
-      if (pp) rows.push({ k: 'public', name: pp.venue === 'precision' ? 'Precision pool' : 'Tacit public pool', note: 'to your wallet', pk: pp.venue === 'precision' ? 'zswap' : null, v: pp.amountOut, show: `${fmt(pp.amountOut, 18, dpTo)} ${unitTo}` });
+      // The Buy form's own choice (tacRoute): only the Precision route earns points, so it is taken unless another pays over 1% more.
+      const pp = pub?.single, sp = pub?.pick === 'split' ? pub.split : null;
+      if (pp) {
+        const o = sp ? sp.amountOut : pp.amountOut;
+        rows.push({ k: 'public', name: sp ? 'Two public pools' : pp.venue === 'precision' ? 'Precision pool' : 'Tacit public pool', note: sp ? `${splitWhat(sp)} · one transaction · to your wallet` : 'to your wallet',
+          pk: sp || pp.venue === 'precision' ? 'zswap' : null, eth: sp ? ethN * splitShare(sp) / 100 : undefined, v: o, show: `${fmt(o, 18, dpTo)} ${unitTo}`, split: sp });
+      }
       if (priv?.plan) rows.push({ k: 'private', name: 'Tacit pool', note: two ? 'private · 2 steps' : 'private', pk: two ? 'wrap' : null, v: priv.plan.amountOut * E10, show: `${fmt(priv.plan.amountOut, 8, dpTo)} ${unitTo}` });
       if (!rows.length) return done({ out: '—', go: 'Swap privately', line: priv && !priv.plan && units <= priv.fee * 2n ? `Swap more than ${fmt(priv.fee * 2n, 8, 6)} ${unit}: the relay fee is ${fmt(priv.fee, 8, 6)}.` : 'There is no pool for this pair yet.' });
       const best = rows.reduce((a, b) => (b.v > a.v ? b : a));
       const pick = rows.find((r) => r.k === HX.route) || best;
       best.best = rows.length > 1;
       const publicPick = pick.k === 'public';
-      return done({ out: fmt(pick.v, 18, dpTo), rows: rows.length > 1 ? rows : null, pick: pick.k, pk: pick.pk, outTac: HX.to === 'tac' ? Number(pick.v) / 1e18 : 0,
+      return done({ out: fmt(pick.v, 18, dpTo), rows: rows.length > 1 ? rows : null, pick: pick.k, pk: pick.pk, ethPts: pick.eth, outTac: HX.to === 'tac' ? Number(pick.v) / 1e18 : 0,
         go: publicPick ? `Buy ${unitTo}` : two ? 'Make ETH private' : 'Swap privately',
-        line: publicPick ? `1 ETH ≈ ${sig(Number(pick.v) / Number(units * E10))} ${unitTo}, sent to your wallet in one transaction.`
-          : `${two ? 'Two steps: make the ETH private, then swap it. ' : ''}1 ${unit} ≈ ${sig(Number(priv.plan.amountOut) / Number(units - priv.fee))} ${unitTo} · relay fee ${fmt(priv.fee, 8, 6)} tETH${priv.plan.impact >= 1 ? ` · moves the price ${priv.plan.impact.toFixed(1)}%` : ''}` });
+        line: publicPick ? (pick.split ? `Split across two pools in one transaction: ${splitGain(pick.split)} more than one pool. Sent to your wallet.` : `1 ETH ≈ ${sig(Number(pick.v) / Number(units * E10))} ${unitTo}, sent to your wallet in one transaction.`)
+          : `${two ? 'Two steps: make the ETH private, then swap it. ' : ''}1 ${unit} ≈ ${sig(Number(priv.plan.amountOut) / Number(units - priv.fee))} ${unitTo} · relay fee ${fmt(priv.fee, 8, 6)} ${from === 'eth' ? 'tETH' : unit}${priv.plan.impact >= 1 ? ` · moves the price ${priv.plan.impact.toFixed(1)}%` : ''}` });
     }
     if (m === 'earn') {
       const rows = await hxFarms(units ? Number(units) / 1e8 : 0);
@@ -9339,13 +9440,13 @@ function paintHxQ() {
   if (rows && !q.busy) {
     rows.hidden = !q.rows;
     // A swap's ways differ in what they earn: each says so beside what it pays.
-    const earns = (r) => { const p = HX.mode === 'swap' && r.pk ? hxPts(r.pk, q.eth) : null; return p ? `${r.note} · ${hxPtsShort(p)}` : r.note; };
+    const earns = (r) => { const p = HX.mode === 'swap' && r.pk ? hxPts(r.pk, r.eth ?? q.eth) : null; return p ? `${r.note} · ${hxPtsShort(p)}` : r.note; };
     mount(rows, html`${(q.rows || []).map((r) => html`<button type="button" role="radio" aria-checked="${r.k === q.pick}" data-hxr="${r.k}"><b>${r.name}</b><span>${earns(r)}</span><output>${r.show}</output>${r.best ? html`<em>best</em>` : ''}</button>`)}`);
     for (const b of $$('[data-hxr]', rows)) b.onclick = () => { if (HX.mode === 'earn') HX.pool = b.dataset.hxr; else HX.route = b.dataset.hxr; hxQuote(); };
   }
   const pts = $('#hx-pts');
   if (pts && !q.busy) {
-    const p = hxPts(q.pk, q.eth, q.outTac);
+    const p = hxPts(q.pk, q.ethPts ?? q.eth, q.outTac);
     pts.hidden = !p;
     if (p) hxWantPoints();
     if (p) mount(pts, html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><b>${p.pts < 1 ? '< 1' : `${p.known ? '≈ ' : 'at least '}${ptsFmt(p.pts)}`}</b> TAC points <button class="link" type="button" data-ptsinfo aria-expanded="${PTSINFO}">how?</button></span>
@@ -9354,6 +9455,18 @@ function paintHxQ() {
   }
   hxHave();
   if (!q.busy) { const line = $('#hx-q'); if (line) line.textContent = q.line || ''; const go = $('#hx-go'); if (go && q.go) go.textContent = q.go; }
+  // A swap with TAC in it leads to the page that prices TAC on both chains and quotes every pool, with the same side and amount.
+  const more = $('#hx-trade');
+  if (more) {
+    const tac = HX.mode === 'swap' && (HX.from === 'tac' || HX.to === 'tac');
+    more.hidden = !tac;
+    if (tac) more.href = `/trade/#side=${HX.from === 'tac' ? 'sell' : 'buy'}${(HX.from === 'tac' || HX.from === 'ether') && HX.amt ? `&amount=${encodeURIComponent(HX.amt)}` : ''}`;
+  }
+  const alt = $('#hx-alt');
+  if (alt && !q.busy) {
+    alt.hidden = !q.alt;
+    if (q.alt) { mount(alt, html`<button class="link" type="button" id="hx-alt-go">${q.alt.label} →</button>`); $('#hx-alt-go').onclick = () => openLink(q.alt.link); }
+  }
 }
 // The figures behind the estimates (the pool's deposits so far, the TAC an account held through the day) arrive after the
 // quote does: the panel redraws its points when they do.
@@ -9364,7 +9477,10 @@ function hxGo() {
   if (HX.mode === 'private' || (HX.mode === 'swap' && HX.from === 'ether' && HX.to === 'eth')) return wrapFirst();
   if (HX.mode === 'swap') {
     if (HX.from === 'ether' && HX.q?.pick === 'public') { hxDraft({ mode: 'buy', amt }); return openLink('buy'); }
-    const swap = () => { SW.from = HX.from === 'ether' ? 'eth' : HX.from; SW.to = HX.to; hxDraft({ mode: 'swap', amt }); };
+    if (HX.from === 'sats') { location.href = '/tac/#buy'; return; }
+    if (HX.to === 'sats') { location.href = TAC_BOOK; return; }
+    if (HX.to === 'ether' && HX.q?.pick === 'public') { hxDraft({ mode: 'sell', amt }); return openLink('sell'); }
+    const swap = () => { SW.from = HX.from === 'ether' ? 'eth' : HX.from; SW.to = HX.to === 'ether' ? 'eth' : HX.to; hxDraft({ mode: 'swap', amt }); };
     if (hxTwo(units)) return wrapFirst('private/swap', `swap it for ${hxAsset(HX.to)[1]}`, swap);
     swap(); return openLink('private/swap');
   }
@@ -9412,17 +9528,21 @@ function paintHx() {
     <div class="hx-pts" id="hx-pts" hidden></div>
     <div class="hx-have" id="hx-have" hidden></div>
     <button class="btn" type="button" id="hx-go">${go0}</button>
-    <p class="hx-q" id="hx-q" aria-live="polite"></p>`;
+    <p class="hx-q" id="hx-q" aria-live="polite"></p>
+    <p class="hx-q" id="hx-alt" hidden></p>
+    <a class="hx-trade" id="hx-trade" href="/trade/" hidden>TAC's price on both chains, and every pool →</a>`;
   const ETHER = [HX_ETHER], ETHS = [HX_ETHER, ['eth', 'tETH', 'teth', 6]], TETH = [['eth', 'tETH', 'teth']], TAC = [['tac', 'TAC', 'tac']];
   const m = HX.mode;
   if (m === 'private') {
     HX.from = 'ether';
     mount(el, html`${head}${field('You pay', amt('ETH to make private'), coin('hx-from', 'You pay', ETHER, 'ether'))}${mid()}${field('You get', out(), coin('hx-to', 'You get', TETH, 'eth'))}${tail}`);
   } else if (m === 'swap') {
-    const froms = [HX_ETHER, ...SWAP_ASSETS], tos = SWAP_ASSETS.filter(([k]) => k !== HX.from);
+    // Wallet ETH and sats are paired only with TAC (see hxValid); the lists offer what the other side allows.
+    const froms = [HX_ETHER, ...SWAP_ASSETS, ...(HX.to === 'tac' || HX.from === 'sats' ? [HX_SATS] : [])];
+    const tos = [...SWAP_ASSETS.filter(([k]) => hxValid(HX.from, k)), ...[HX_ETHER, HX_SATS].filter(([k]) => hxValid(HX.from, k))];
     if (!tos.some(([k]) => k === HX.to)) HX.to = tos[0][0];
     mount(el, html`${head}${field('You pay', amt(`${hxAsset(HX.from)[1]} to swap`), coin('hx-from', 'You pay', froms, HX.from))}
-      ${mid(HX.from !== 'ether' && `Pay with ${hxAsset(HX.to)[1]} instead`)}
+      ${mid(hxValid(HX.to, HX.from) && `Pay with ${hxAsset(HX.to)[1]} instead`)}
       ${field('You get', out(), coin('hx-to', 'You get', tos, HX.to))}${tail}`);
   } else if (m === 'earn') {
     mount(el, html`${head}${field('You put in', amt(`${hxAsset(HX.from)[1]} to farm`), coin('hx-from', 'You put in', ETHS, HX.from))}${mid()}${field('You earn', out('a day'), coin('hx-to', 'You earn', TAC, 'tac'))}${tail}`);
