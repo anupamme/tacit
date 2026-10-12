@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-wqNCnJon1cfMYCuuAIj9cYMvawDKLkfE58mJHHbbIGg=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-jRl61eynQxlvCEW2m6NaIyGGFyI+5H3BnlLVgYoqZtI=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay</title>
 <meta name="description" content="Simple, private payments: Bitcoin by silent payment, TAC shielded, ETH on Ethereum, Base, Robinhood Chain and MegaETH. One key and one tacit1 address, every payment made on your device, and your balances rebuild from that key.">
@@ -831,7 +831,7 @@ function setKey(k) {
 }
 function forget() {
   S.key = null;
-  Object.assign(BTC, { pub: null, at: 0, loading: null, next: null, err: null, sp: null, held: [], addr: null, share: null, got: 0, part: false, sats: 0n, silent: 0n, pending: 0n, silentList: [], coins: [], skip: null, via: 'direct' });
+  Object.assign(BTC, { pub: null, at: 0, loading: null, next: null, err: null, sp: null, held: [], addr: null, share: null, got: 0, part: false, sats: 0n, silent: 0n, pending: 0n, silentList: [], coins: [], skip: null, via: 'direct', speed: 'fast' });
   Object.assign(TAC, { pub: null, at: 0, loading: null, next: null, err: null, pool: null, top2: 0n, settling: 0n, leaving: 0n, notes: null, vals: [], pw: null, fee: null, relay: false, share: null });
   actReset(null);
   dropTacitKey();
@@ -984,7 +984,7 @@ window.addEventListener('tacit:evm-accounts', (e) => {
 
 // ── BTC: silent payments from the key's own Bitcoin address ──────────────────────────────────────────────
 // got: how much of this key's read is in (1 sats, 2 held assets, 3 silent payments); part: a read is still filling it in.
-const BTC = { pub: null, at: 0, loading: null, err: null, sp: null, held: [], addr: null, share: null, got: 0, part: false, silentList: [], coins: [], skip: null, via: 'direct' };
+const BTC = { pub: null, at: 0, loading: null, err: null, sp: null, held: [], addr: null, share: null, got: 0, part: false, silentList: [], coins: [], skip: null, via: 'direct', speed: 'fast' };
 // Silent payments this key had when it opened here; any found after (by a hint, a link or a pasted txid) is announced
 // once and marked new.
 const ANN = { pub: null, seen: new Set(), fresh: new Set() };
@@ -1139,9 +1139,11 @@ const patchPoolJob = (pub, id, patch) => putPoolJobs(pub, poolJobs(pub).map((j) 
 const dropPoolJob = (pub, id) => putPoolJobs(pub, poolJobs(pub).filter((j) => j.id !== id));
 const poolSig = () => (S.key ? poolJobs(S.key.pubHex).map((j) => `${j.id}:${j.state}:${j.err || ''}`).join(',') : '');
 // One price read serves the receipt while the amount stays the same.
-const POOLQ = { v: null, at: 0, q: null };
+const POOLQ = { v: null, fast: null, at: 0, q: null };
+const poolFast = () => BTC.speed !== 'std';
 async function poolQuote(X, v) {
-  if (POOLQ.v !== v || Date.now() - POOLQ.at > 60e3) Object.assign(POOLQ, { v, at: Date.now(), q: await X.saleQuote(v) });
+  const fast = poolFast();
+  if (POOLQ.v !== v || POOLQ.fast !== fast || Date.now() - POOLQ.at > 60e3) Object.assign(POOLQ, { v, fast, at: Date.now(), q: await X.saleQuote(v, { fast }) });
   return POOLQ.q;
 }
 const poolHow = (fee) => fold('d-poolhow', 'How this stays private', 'and what it costs', html`
@@ -1173,8 +1175,10 @@ async function poolCheck(r, v, current, rc, go) {
   const fee = TAC.fee, need = q.units + (fee ?? 0n);
   const rows = html`<div class="kv"><span>They get</span><b class="num">${fmt(v, 8, 8)} BTC</b></div>
     <div class="kv"><span>From your shielded TAC</span><b class="num">${fmt(q.units, 8, 2)}${fee != null ? ` + ${fmt(fee, 8, 2)} relay fee` : ''} TAC</b></div>
-    <div class="kv"><span>Sold at</span><b class="num">${(Math.round(q.unit * 100) / 100).toLocaleString('en-US')} sats per TAC, 2% under the cheapest ask</b></div>
-    <div class="kv"><span>Takes</span><b>about an hour, then until a buyer takes it</b></div>`;
+    <div class="kv"><span>Sold at</span><b class="num">${(Math.round(q.unit * 100) / 100).toLocaleString('en-US')} sats per TAC, 2% under the ${q.basis === 'ask' ? 'cheapest ask' : 'last trade'}</b></div>
+    <div class="kv"><span>Takes</span><b>about an hour, then until a buyer takes it</b></div>
+    <div class="kv"><span>Speed</span><span>${poolFast() ? html`<b aria-current="true">Faster</b>` : html`<button class="link" type="button" data-speed="fast">Faster</button>`} · ${poolFast() ? html`<button class="link" type="button" data-speed="std">Standard</button>` : html`<b aria-current="true">Standard</b>`}</span></div>
+    <p class="note">${poolFast() ? 'Faster prices it just under the last trade, so a buyer is likelier to take it soon. Standard prices it under the cheapest ask: it costs less TAC and can wait longer.' : 'Standard prices it under the cheapest ask: it costs less TAC and can wait longer for a buyer. Faster prices it just under the last trade.'}</p>`;
   const err = !TAC.relay || fee == null ? 'The relay isn’t taking TAC out right now. Try again in a few minutes.'
     : need > TAC.pool ? `This takes ${fmt(need, 8, 2)} TAC with the relay’s fee; you hold ${fmt(TAC.pool, 8, 2)} TAC shielded.`
       : need > TAC.top2 ? `One payment spends at most two of your notes, which come to ${fmt(TAC.top2, 8, 2)} TAC. Combine your notes first, under TAC, Send.`
@@ -1187,7 +1191,7 @@ async function poolCheck(r, v, current, rc, go) {
 async function poolSend(r, v, raw, status) {
   const X = await getSecret(), pub = S.key.pubHex, pw = TAC.pw, anchor = ANCHOR.tip;
   const script = X.payoutScriptFor(r.to);
-  const q = await X.saleQuote(v);
+  const q = await X.saleQuote(v, { fast: poolFast() });
   if (!q) throw new Error('The TAC price could not be read just now. Nothing was sent; try again in a moment.');
   const info = await X.poolClientFor('mainnet').relayInfo().catch(() => null);
   if (!info?.address || info.fees?.['0x' + X.TAC_ASSET_MAINNET] == null) throw new Error('The relay isn’t taking TAC out right now. Nothing was sent; try again in a few minutes.');
@@ -1310,7 +1314,7 @@ function btcSend(f) {
   wireShare(f);
   wirePoolJobs(f);
   const to = $('#f-to'), amt = $('#f-amt'), go = $('#f-go'), rc = $('#f-rcpt'), note = $('#f-bnote');
-  rc.addEventListener('click', (e) => { const b = e.target.closest('[data-via]'); if (!b) return; BTC.via = b.dataset.via; check(); });
+  rc.addEventListener('click', (e) => { const b = e.target.closest('[data-via], [data-speed]'); if (!b) return; if (b.dataset.via) BTC.via = b.dataset.via; else BTC.speed = b.dataset.speed; check(); });
   $('#f-paste').onclick = async () => { try { to.value = (await navigator.clipboard.readText()).trim(); to.dispatchEvent(new Event('input')); } catch { to.focus(); } };
   const fill = (v) => { amt.value = plain(v); amt.dispatchEvent(new Event('input')); };
   $('#f-max')?.addEventListener('click', async () => {
@@ -1631,7 +1635,7 @@ async function hintsForMe(t, pub) {
   }
   if (S.key?.pubHex === pub) writeJson(k, { after, retry: keep.filter((x) => !x.done) });
 }
-const getSecret = lazy(() => import('/sats/secret.js?cb=9d2b3ea9'));
+const getSecret = lazy(() => import('/sats/secret.js?cb=d7caed2c'));
 function loadTac(force = false) {
   if (!S.key) return Promise.resolve();
   if (TAC.loading) return force ? (TAC.next ||= TAC.loading.finally(() => { TAC.next = null; }).then(() => loadTac(true))) : TAC.loading;
@@ -2557,7 +2561,7 @@ function paintBal() {
 // What a form draws from the loaded data. A redraw with these unchanged leaves the form alone, and what is typed in it.
 const formReads = () => (S.mode === 'tac'
   ? [S.key.tacit, TAC.pub === S.key.pubHex, TAC.pool, TAC.top2, TAC.vals.join(','), TAC.settling, TAC.route, TAC.relay, TAC.fee, TAC.pw?.addressString, TAC.share?.url, BTC.pub === S.key.pubHex, BTC.got, BTC.err != null, tacOnBtc()?.balance, shieldable().map((u) => `${u.utxo?.txid}:${u.utxo?.vout}:${u.amount}`)]
-  : [S.key.tacit, BTC.pub === S.key.pubHex, BTC.sats, BTC.silent, BTC.silentList.map((x) => x.k + (ANN.fresh.has(x.k) ? '*' : '') + x.at).join(','), BTC.addr, BTC.sp, BTC.got, BTC.pending, BTC.held.length, BTC.share?.url, BTC.via, TAC.pub === S.key.pubHex, TAC.pool, TAC.top2, TAC.fee, TAC.relay, poolSig()]).join('|');
+  : [S.key.tacit, BTC.pub === S.key.pubHex, BTC.sats, BTC.silent, BTC.silentList.map((x) => x.k + (ANN.fresh.has(x.k) ? '*' : '') + x.at).join(','), BTC.addr, BTC.sp, BTC.got, BTC.pending, BTC.held.length, BTC.share?.url, BTC.via, BTC.speed, TAC.pub === S.key.pubHex, TAC.pool, TAC.top2, TAC.fee, TAC.relay, poolSig()]).join('|');
 function render() {
   paintModes(); paintFound(); paintReq(); paintActivity();
   const f = $('#form'), bal = $('#bal'), tabs = $('#tabs');

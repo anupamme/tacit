@@ -910,7 +910,7 @@ export async function listFromSaleKey(tacit, { key, note, sats, expiry, payoutSc
 // What a take-out that sells for exactly `sats` is listed at: `under` (2%) below the cheapest live ask on the book, or
 // below the market's mark when the book has none, so a buyer takes it soon. → { unit (sats per whole TAC), units (TAC
 // base units to take out), ask, mark }, or null when neither price can be read.
-export async function saleQuote(sats, { asset = TAC_ASSET_MAINNET, network = 'mainnet', under = 0.02, decimals = 8 } = {}) {
+export async function saleQuote(sats, { asset = TAC_ASSET_MAINNET, network = 'mainnet', under = 0.02, decimals = 8, fast = false } = {}) {
   const net = network === 'mainnet' ? 'mainnet' : 'signet';
   const read = (u) => fetch(u, { cache: 'no-store', signal: AbortSignal.timeout?.(20_000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
   const [book, info] = await Promise.all([read(`${WORKER_BASE}/assets/${asset}/preauth-sales?network=${net}`), read(`${WORKER_BASE}/assets/${asset}?network=${net}`)]);
@@ -919,10 +919,16 @@ export async function saleQuote(sats, { asset = TAC_ASSET_MAINNET, network = 'ma
     .filter((s) => !s.expired && Number(s.expiry) > now && /^\d+$/.test(String(s.asset_opening?.amount)) && BigInt(s.asset_opening.amount) > 0n)
     .map((s) => Number(s.min_price_sats) / (Number(s.asset_opening.amount) / one));
   const ask = asks.length ? Math.min(...asks) : null, mark = Number(info?.mark_price?.unit) || null;
-  const base = ask ?? mark;
+  // Faster prices under the last trade when that is below the cheapest ask: asks in a quiet book sit above where trades happen,
+  // and a lot priced off them waits. A last trade older than a week says little about today, so it is left out.
+  const recent = mark && Number(info?.mark_price?.ts) > now - 7 * 86400 ? mark : null;
+  let base, basis;
+  if (fast && recent && (!ask || recent < ask)) { base = recent; basis = 'trade'; }
+  else if (ask) { base = ask; basis = 'ask'; }
+  else { base = mark; basis = 'trade'; }
   if (!(base > 0)) return null;
   const unit = base * (1 - under);
-  return { unit, units: BigInt(Math.ceil((Number(sats) * one) / unit)), ask, mark };
+  return { unit, units: BigInt(Math.ceil((Number(sats) * one) / unit)), ask, mark, basis };
 }
 
 // Whether a listed note has been bought: the transaction that spent it, and whether it paid `payoutScript` at least

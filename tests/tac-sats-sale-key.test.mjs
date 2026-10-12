@@ -227,10 +227,10 @@ assert.equal(r.revealTxid, null); assert.equal(log.opened.length, 0);
 {
   const now = Math.floor(Date.now() / 1000);
   const sale = (amountTac, sats, extra = {}) => ({ asset_opening: { amount: String(Math.round(amountTac * 1e8)) }, min_price_sats: sats, expiry: now + 3600, expired: false, ...extra });
-  const serve = (sales, mark) => { globalThis.fetch = async (u) => {
+  const serve = (sales, mark, ts) => { globalThis.fetch = async (u) => {
     const s = String(u);
     if (s.includes('/preauth-sales')) return { ok: sales != null, json: async () => ({ sales }) };
-    return { ok: mark != null, json: async () => ({ mark_price: { unit: mark } }) };
+    return { ok: mark != null, json: async () => ({ mark_price: { unit: mark, ...(ts != null ? { ts } : {}) } }) };
   }; };
   serve([sale(100, 20000), sale(10, 1680), sale(10, 1500, { expired: true }), sale(10, 1000, { expiry: now - 5 })], 170);
   let q = await secret.saleQuote(100000n);
@@ -242,6 +242,25 @@ assert.equal(r.revealTxid, null); assert.equal(log.opened.length, 0);
   assert.equal(q.ask, null); assert.ok(Math.abs(q.unit - 170 * 0.98) < 1e-9, 'an empty book prices off the mark');
   serve(null, null);
   assert.equal(await secret.saleQuote(100000n), null, 'no price, no quote');
+  // Faster: under the last trade when that is below the cheapest ask and recent
+  serve([sale(10, 1680)], 150, now - 3600);
+  q = await secret.saleQuote(100000n, { fast: true });
+  assert.ok(Math.abs(q.unit - 150 * 0.98) < 1e-9 && q.basis === 'trade', 'under the last trade, below the cheapest ask');
+  assert.equal(q.units, BigInt(Math.ceil(100000 * 1e8 / (150 * 0.98))), 'and it takes more TAC for the same sats');
+  q = await secret.saleQuote(100000n);
+  assert.ok(Math.abs(q.unit - 168 * 0.98) < 1e-9 && q.basis === 'ask', 'standard is unchanged: under the cheapest ask');
+  serve([sale(10, 1680)], 180, now - 3600);
+  q = await secret.saleQuote(100000n, { fast: true });
+  assert.ok(Math.abs(q.unit - 168 * 0.98) < 1e-9 && q.basis === 'ask', 'a last trade above the cheapest ask leaves it under the ask');
+  serve([sale(10, 1680)], 150, now - 8 * 86400);
+  q = await secret.saleQuote(100000n, { fast: true });
+  assert.ok(Math.abs(q.unit - 168 * 0.98) < 1e-9 && q.basis === 'ask', 'a last trade older than a week is left out');
+  serve([sale(10, 1680)], 150);
+  q = await secret.saleQuote(100000n, { fast: true });
+  assert.equal(q.basis, 'ask', 'a last trade with no time is left out');
+  serve([], 150, now - 3600);
+  q = await secret.saleQuote(100000n, { fast: true });
+  assert.ok(Math.abs(q.unit - 150 * 0.98) < 1e-9 && q.basis === 'trade', 'an empty book prices off the recent trade');
 }
 
 // ── listFromSaleKey: the sale key signs, the wallet's key comes back, the sale key's bytes are wiped ──
