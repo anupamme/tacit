@@ -31,8 +31,8 @@ or attestor set signs a bridge message.
 - **Verify it yourself:** [`docs/VERIFY-LIVE.md`](./docs/VERIFY-LIVE.md), `node tools/verify-live.mjs` checks the
   live deployment against this repository
 - **Build on it:** [`docs/BUILD-A-TACIT-DAPP.md`](./docs/BUILD-A-TACIT-DAPP.md) for the confidential pool (DeFi,
-  farms, the Bitcoin bridge); [`docs/EVM-POOL.md`](./docs/EVM-POOL.md) for private ETH on Ethereum, Base and
-  Robinhood Chain
+  farms, the Bitcoin bridge); [`docs/EVM-POOL.md`](./docs/EVM-POOL.md) for private ETH on Ethereum, Base,
+  Robinhood Chain and MegaETH
 - **Security:** [`SECURITY.md`](./SECURITY.md) for reporting issues and the bug bounty; [`audit/AUDITS.md`](./audit/AUDITS.md) — full review history. The v1 release's agentic audits:
   [Fable 5.1 lock checkpoint](./audit/AUDIT-2026-09-16-17-fable51-lock-checkpoint.md) (the review that gated
   the deploy), an [external automated review](./audit/AUDIT-2026-09-21-gpt-astra-external-review.md), and the
@@ -170,11 +170,13 @@ found through the tweak index with no txid shared, and an
 [eight-wallet join](https://mempool.space/signet/tx/c792b4522a6da9a2877ff2568837c5e5434ae4503c186023922210d69961ab0f)
 that mixes plain sats into equal outputs.
 
-**Private ETH is live** on Ethereum, Base and Robinhood Chain at the same addresses: pool
+**Private ETH is live** on Ethereum, Base, Robinhood Chain and MegaETH at the same addresses: pool
 `0x000000c2A20657CE25f2Ba99737933D031AFBEE9`, router `0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5`, verifier
 `0x000000b1c0e84CEc8AdF8278B90c4d6400DfB153`. Its proving key comes from a
 [public ceremony](https://tacit.finance/ceremony): 176 contributions, sealed with Bitcoin block 968840 (key hash
-`43d11e6e…5757`). Use it from the ETH tab at [tacit.finance/sats](https://tacit.finance/sats). Integration:
+`43d11e6e…5757`). Use it at [anon.wei.limo](https://anon.wei.limo/), at
+[tacit.finance/pay/eth](https://tacit.finance/pay/eth/), or from the ETH tab at
+[tacit.finance/sats](https://tacit.finance/sats). Integration:
 [docs/EVM-POOL.md](./docs/EVM-POOL.md); deployments: [contracts/deployments/evm-pool.json](./contracts/deployments/evm-pool.json).
 
 Specification: [SPEC §3.10](./SPEC.md#310-bitcoin-native-shielded-pool-live-on-mainnet-experimental). Design:

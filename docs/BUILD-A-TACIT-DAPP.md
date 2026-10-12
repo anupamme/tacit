@@ -6,7 +6,7 @@ needs a build step, a framework or a backend. A starting skeleton is
 
 The protocol itself is in [`SPEC.md`](../SPEC.md); addresses are in [`DEPLOYMENTS.md`](./DEPLOYMENTS.md).
 
-**Only want private ETH payments, on Ethereum, Base and Robinhood Chain?** That is a separate, smaller pool —
+**Only want private ETH payments, on Ethereum, Base, Robinhood Chain and MegaETH?** That is a separate, smaller pool —
 one fixed Groth16 circuit, proved on the user's own device, no SP1, no relay witness — with its own guide:
 [`EVM-POOL.md`](./EVM-POOL.md). This guide is for the confidential pool: multi-asset notes, DeFi (swap, LP,
 lend, farm, OTC, bids) and the Bitcoin bridge, all through one SP1 program.
@@ -64,7 +64,7 @@ first step works with nothing but an RPC; the second needs the relay.
 
 Ethereum mainnet. The source of truth is
 [`contracts/deployments/1-createx.json`](../contracts/deployments/1-createx.json); read addresses from it.
-(A second, separate Tacit pool — private ETH only, multichain on Ethereum, Base and Robinhood Chain — has its
+(A second, separate Tacit pool — private ETH only, multichain on Ethereum, Base, Robinhood Chain and MegaETH — has its
 own addresses; see §5h.)
 
 | | |
@@ -1117,13 +1117,13 @@ different contract — and it is why the outbox address is not surfaced as a set
 
 `TacitEvmPool` is Tacit's other pool: native ETH only, one fixed Groth16 circuit proved on the user's own
 device, no SP1, no relay witness, and no state shared with the confidential pool above. It is immutable and
-live, unchanged, at the same addresses on Ethereum mainnet, Base and Robinhood Chain:
+live, unchanged, at the same addresses on Ethereum mainnet, Base, Robinhood Chain and MegaETH:
 
 | | |
 |---|---|
 | `TacitEvmPool` | `0x000000c2A20657CE25f2Ba99737933D031AFBEE9` |
 | `TacitEvmPoolRouter` | `0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5` |
-| Chain ids | Ethereum `1`, Base `8453`, Robinhood Chain `4663` |
+| Chain ids | Ethereum `1`, Base `8453`, Robinhood Chain `4663`, MegaETH `4326` |
 | Deploy blocks, transactions | [`contracts/deployments/evm-pool.json`](../contracts/deployments/evm-pool.json) |
 
 The full guide — the ceremony, the router's deposit/wrap/receive boxes, relaying mechanics, moving to an L2 —
@@ -1277,8 +1277,8 @@ client submits the intent; the keeper does not scan for one on its own.
 | `GET /evm-pool/keeper/events?from=<block>` | confirmed `Transact`/`Received` events, for syncing history without a log scanner |
 | `POST /evm-pool/keeper/relay` | `{ tx, call?, wrap? }` — submits a proven transfer, withdrawal, `withdrawAndCall` or `withdrawToV1` |
 
-Live at `https://tacit-evm-pool-keeper.onrender.com/evm-pool/keeper` (Ethereum), `…-base.onrender.com` (Base)
-and `…-robinhood.onrender.com` (Robinhood Chain) — full URLs in
+Live at `https://tacit-evm-pool-keeper.onrender.com/evm-pool/keeper` (Ethereum), `…-base.onrender.com` (Base),
+`…-robinhood.onrender.com` (Robinhood Chain) and `…-megaeth.onrender.com` (MegaETH) — full URLs in
 [`contracts/deployments/evm-pool.json`](../contracts/deployments/evm-pool.json).
 
 ## 7. Iterating on the design

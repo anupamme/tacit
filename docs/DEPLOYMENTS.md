@@ -231,11 +231,12 @@ Bitcoin digest at the anchor height above.
 Roles, claim paths, the emergency sweep and the runbook are in [`AIRDROP.md`](./AIRDROP.md); the inputs and how to rebuild the root are in
 [`airdrop/v1/README.md`](../airdrop/v1/README.md).
 
-## EVM pool (Ethereum, Base, Robinhood Chain)
+## EVM pool (Ethereum, Base, Robinhood Chain, MegaETH)
 
 A separate, smaller pool: native ETH only, one fixed Groth16 circuit, proved on the user's own device — not
-part of the `ConfidentialPool`/SP1 suite above. Same addresses on all three chains (CreateX CREATE3, salts
-locked to deployer `0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7`).
+part of the `ConfidentialPool`/SP1 suite above. Same addresses on all four chains (CreateX CREATE3, salts
+locked to deployer `0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7`). MegaETH has the core (pool, router, verifier,
+PoseidonT5) and no token swaps: zRouter, zQuoter and the zap are not deployed there.
 
 | | |
 |---|---|
@@ -250,6 +251,7 @@ locked to deployer `0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7`).
 | Ethereum (1) | 26069245 | Etherscan, Sourcify | `https://tacit-evm-pool-keeper.onrender.com/evm-pool/keeper` |
 | Base (8453) | 51864014 | Sourcify, Blockscout | `https://tacit-evm-pool-keeper-base.onrender.com/evm-pool/keeper` |
 | Robinhood Chain (4663) | 73991661 | Etherscan, Sourcify | `https://tacit-evm-pool-keeper-robinhood.onrender.com/evm-pool/keeper` |
+| MegaETH (4326) | 28397750 | Sourcify, Etherscan | `https://tacit-evm-pool-keeper-megaeth.onrender.com/evm-pool/keeper` |
 
 Integration guide: [`EVM-POOL.md`](./EVM-POOL.md). Machine-readable source of truth:
 [`contracts/deployments/evm-pool.json`](../contracts/deployments/evm-pool.json). This pool and the
