@@ -2143,6 +2143,16 @@ await step('xobridge', async () => {
   ok(/Cancel/.test(rows[0]) && /Look again/.test(rows[0]), `xobridge: a burn not yet seen to land, an hour or more on, offers to look again or cancel (${rows[0]})`);
   ok(/Send it anyway/.test(rows[2]), `xobridge: a Bitcoin step held back for high fees offers to be sent anyway (${rows[2]})`);
   ok(/Sign it again/.test(rows[3]) && /Try again/.test(rows[3]), `xobridge: a signed pair Bitcoin keeps rejecting offers to be signed again (${rows[3]})`);
+  ok(!!(await r.page.$('#eth-v1 [data-v1="btc"] .dot.live')), 'xobridge: the To Bitcoin tab carries a dot while a bridge is under way');
+  // The lander's dashboard says so too, for each asset: what needs the holder in one line, where the rest is in another, and a way to them.
+  await r.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+  await until(r.page, () => /3 bridges of tETH to Bitcoin are waiting for you\./.test(document.querySelector('#dash')?.textContent || ''), null, 120000)
+    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | dash: ${(await text(r.page, '#dash')).replace(/\s+/g, ' ').slice(0, 500)}`); });
+  const dash0 = (await text(r.page, '#dash')).replace(/\s+/g, ' ');
+  ok(/0\.0039 TAC is on its way from Ethereum to Bitcoin, waiting for Bitcoin’s proof on Ethereum to see the burn\./.test(dash0), `xobridge: the dashboard says where a TAC bridge to Bitcoin is, and names the tETH ones that wait for the holder (${dash0.slice(0, 260)})`);
+  await r.page.click('#dash [data-dash-do="private/bitcoin"]');
+  await until(r.page, () => location.hash === '#private/bitcoin' && document.querySelectorAll('#eth-v1 .brr').length === 6, null, 120000);
+  ok(true, 'xobridge: and its button opens the To Bitcoin tab');
   // Cancelling looks on Ethereum first (nothing there on the fork), then lets the intent go.
   await r.page.click('#eth-v1 [data-xoact="cancel"]');
   await until(r.page, () => document.querySelectorAll('#eth-v1 .brr').length === 5, null, 120000);
@@ -2459,6 +2469,16 @@ await step('xtbridge', async () => {
     `xtbridge: the six unfinished TAC bridges are listed in order, a finished one and a tETH one are not (${rows.length}: ${rows.map((x) => x.slice(0, 80)).join(' || ')})`);
   ok(/48 TAC/.test(rows[0]) && !!(await r.page.$('#bridge-body .brr:nth-child(1) .stp li.now')), 'xtbridge: a row names what arrives (the note less the relay fee, in TAC) and marks its step');
   ok(/Cancel/.test(rows[0]) && /Look again/.test(rows[0]) && /Send it anyway/.test(rows[2]) && /Sign it again/.test(rows[3]), 'xtbridge: the rows offer what each state allows');
+  ok(!!(await r.page.$('[data-tac-mode="bridge"] .dot.live')), 'xtbridge: the Bridge tab carries a dot while a bridge is under way');
+  // The lander's dashboard says so too, for each asset: what needs the holder in one line, where the rest is in another, and a way to them.
+  await r.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+  await until(r.page, () => /3 bridges of TAC to Bitcoin are waiting for you\./.test(document.querySelector('#dash')?.textContent || ''), null, 120000)
+    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | dash: ${(await text(r.page, '#dash')).replace(/\s+/g, ' ').slice(0, 500)}`); });
+  const dash0 = (await text(r.page, '#dash')).replace(/\s+/g, ' ');
+  ok(/48 tETH is on its way from Ethereum to Bitcoin, waiting for Bitcoin’s proof on Ethereum to see the burn\./.test(dash0), `xtbridge: the dashboard names the TAC bridges that wait for the holder and says where a tETH one is (${dash0.slice(0, 260)})`);
+  await r.page.click('#dash [data-dash-do="bridge/out"]');
+  await until(r.page, () => location.hash === '#bridge/out' && document.querySelectorAll('#bridge-body .brr').length === 6, null, 120000);
+  ok(true, 'xtbridge: and its button opens the To Bitcoin side');
   // The tETH tab sees the TAC bridges as nothing of its own.
   await r.page.evaluate(() => localStorage.setItem('tacit-teth-btc', 'true'));
   await toSide('#private/bitcoin');
