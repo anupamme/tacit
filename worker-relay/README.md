@@ -109,7 +109,8 @@ Services have `autoDeploy: false`; deploy from the dashboard.
 ## Pool maker (`src/pool-maker.js`)
 
 Buys TAC out of the Bitcoin shielded pool for sats, so a payment to a bitcoin address settles in the next block instead
-of waiting for a buyer. It is not declared in `render.yaml`: it needs a funded key and the operator's limits first.
+of waiting for a buyer. Declared in `render.yaml` as `tacit-pool-maker`, with small starting limits; set `MAKER_KEY` in the
+dashboard, then fund the coin address `/maker/status` names. It quotes only while that address holds coins.
 
 The payer proves a pool spend (`btc-pool-zap.js` `exitToSats`) that exits TAC to the maker's key and wants `sats` paid to
 a script they name, the recipient's among them. The want is part of the proved body and the pool's replay checks it, so

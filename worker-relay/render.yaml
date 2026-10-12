@@ -594,6 +594,45 @@ services:
       - key: PORT
         value: "10000"
 
+  # Always-on web service: the TAC exit-to-sats maker (src/pool-maker.js). It buys TAC out of the Bitcoin shielded pool
+  # for sats and pays the payer's named script in the same carrier, so a payment settles in a block. Built from the repo
+  # root (it loads dapp/ headlessly). MAKER_KEY is the wallet key that receives the exit notes it buys (its inventory)
+  # and, derived from it, the coins it pays from; GET /maker/status names the coin address to fund. The state file
+  # holds the openings of the notes it bought, so the disk is the only record of that inventory: keep it backed up.
+  # A carrier costs about 1,200 to 2,700 sats, so MAKER_MIN_SATS keeps fills large enough for the spread to cover it.
+  # DELIBERATELY NOT `fromGroup: tacit-relay-shared`.
+  - type: web
+    name: tacit-pool-maker
+    runtime: docker
+    rootDir: .
+    dockerfilePath: ./worker-relay/Dockerfile.pool-maker
+    dockerContext: .
+    plan: starter
+    region: oregon
+    dockerCommand: node src/pool-maker.js
+    healthCheckPath: /health
+    autoDeploy: false
+    disk:
+      name: pool-maker-state
+      mountPath: /var/lib/tacit-pool-maker
+      sizeGB: 1
+    envVars:
+      - key: MAKER_NETWORK
+        value: mainnet
+      - key: MAKER_STATE
+        value: /var/lib/tacit-pool-maker/state.json
+      # Starting limits, small on purpose: raise them as fills go through.
+      - key: MAKER_MIN_SATS
+        value: "40000"
+      - key: MAKER_MAX_SATS
+        value: "60000"
+      - key: MAKER_DAILY_SATS
+        value: "120000"
+      - key: MAKER_KEY    # 32-byte hex wallet key — set in the Render dashboard
+        sync: false
+      - key: PORT
+        value: "10000"
+
   # Always-on web service: Secret Sats signet faucet (src/sats-faucet.js). Keeps FAUCET_TARGET_LISTINGS
   # pre-authorized cBTC sales listed on the control-plane worker (relisting before expiry and after takes), serves
   # GET /faucet/status, and drips signet sats on POST /faucet/sats. Signet only.
