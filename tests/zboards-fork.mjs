@@ -128,7 +128,7 @@ const now0 = await chainNow(), deadline = BigInt(now0 + 3600);
     const t = newWallet(); await fund(t.address, 10n * E18);
     const plan = planBuy(book.asks, eth(60), { skip: (o) => !own(o) });
     assert.deepEqual(plan.fills.map((f) => f.order.board), ['v1', 'v2', 'dutch'], 'a 0.06 ETH buy takes v1 whole, v2 whole, and a part of the Dutchboard lot');
-    const refined = await refine({ ethCall, plan, side: 'buy' });
+    const refined = await refine({ ethCall, plan });
     assert.ok(refined, 'every fill still holds');
     const tx = buildFill({ plan: refined, side: 'buy', token: TAC, account: t.address, deadline, slipBps: 50 });
     assert.ok(!(await reverts(t.address, tx)), 'the fill simulates clean');
@@ -152,7 +152,7 @@ const now0 = await chainNow(), deadline = BigInt(now0 + 3600);
     const t = newWallet(); await fund(t.address, 10n * E18);
     const plan = planBuy(book.asks, eth(15), { skip: (o) => !own(o) });
     assert.equal(plan.fills.length, 2, 'v1 whole and a part of v2');
-    const refined = await refine({ ethCall, plan, side: 'buy' });
+    const refined = await refine({ ethCall, plan });
     const tx = buildFill({ plan: refined, side: 'buy', token: TAC, account: t.address, deadline });
     const tac0 = await balanceOf(TAC, t.address), r = await send(t.address, tx); assert.ok(r.ok);
     const got = (await balanceOf(TAC, t.address)) - tac0;
@@ -166,12 +166,12 @@ const now0 = await chainNow(), deadline = BigInt(now0 + 3600);
   await withSnapshot(async () => {
     const t = newWallet(); await fund(t.address, 10n * E18);
     const plan = planBuy(book.asks, eth(10), { skip: (o) => !own(o) });
-    const refined = await refine({ ethCall, plan, side: 'buy' });
+    const refined = await refine({ ethCall, plan });
     const good = buildFill({ plan: refined, side: 'buy', token: TAC, account: t.address, deadline });
     assert.ok(await reverts(t.address, buildFill({ plan: refined, side: 'buy', token: TAC, account: t.address, deadline: 1n })), 'an expired deadline reverts');
     assert.ok(await reverts(t.address, { ...good, value: good.value - 1n }), 'a payment short of the fills reverts');
     // v1 has no per-order floor (it fills whole at its price, and the bundle's floor guards it), so the floor is tried on a plan that ends in v2
-    const wide = await refine({ ethCall, plan: planBuy(book.asks, eth(15), { skip: (o) => !own(o) }), side: 'buy' });
+    const wide = await refine({ ethCall, plan: planBuy(book.asks, eth(15), { skip: (o) => !own(o) }) });
     const greedy = buildFill({ plan: { ...wide, fills: wide.fills.map((f) => ({ ...f, get: f.get * 2n })) }, side: 'buy', token: TAC, account: t.address, deadline });
     assert.ok(await reverts(t.address, greedy), 'a floor the boards cannot meet reverts');
     // someone else takes the v1 order first: the planned transaction then reverts instead of filling something else
@@ -198,7 +198,7 @@ const now0 = await chainNow(), deadline = BigInt(now0 + 3600);
   assert.deepEqual([...new Set(plan.fills.map((f) => f.order.board))].sort(), ['dutch', 'floor', 'v1', 'v2'], 'a 4500 TAC sale reaches all four boards');
   await withSnapshot(async () => {
     const t = newWallet(); await fund(t.address, 5n * E18, tac(50_000));
-    const refined = await refine({ ethCall, plan, side: 'sell' });
+    const refined = await refine({ ethCall, plan });
     assert.ok(refined, 'every fill still holds');
     const tx = buildFill({ plan: refined, side: 'sell', token: TAC, account: t.address, deadline, slipBps: 100 });
     assert.ok(tx.approval && tx.approval.spender === ZB.ZROUTER, 'a sale needs the TAC approved to zRouter');
@@ -221,7 +221,7 @@ const now0 = await chainNow(), deadline = BigInt(now0 + 3600);
 
   await withSnapshot(async () => {
     const t = newWallet(); await fund(t.address, 5n * E18, tac(50_000));
-    const refined = await refine({ ethCall, plan, side: 'sell' });
+    const refined = await refine({ ethCall, plan });
     const probe = buildFill({ plan: refined, side: 'sell', token: TAC, account: t.address, deadline, slipBps: 100 });
     const typed = JSON.stringify({
       types: { EIP712Domain: [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }],
@@ -244,7 +244,7 @@ const now0 = await chainNow(), deadline = BigInt(now0 + 3600);
     const t = newWallet(); await fund(t.address, 5n * E18, tac(50_000));
     const small = planSell(book.bids, tac(300), { skip: (o) => !own(o) });
     assert.deepEqual(small.fills.map((f) => f.order.board), ['v2'], 'a small sale is a part of the best partial bid (v1 is whole-only)');
-    const refined = await refine({ ethCall, plan: small, side: 'sell' });
+    const refined = await refine({ ethCall, plan: small });
     const tx = buildFill({ plan: refined, side: 'sell', token: TAC, account: t.address, deadline });
     await approve(t.address, TAC, tx.approval.spender, tx.approval.amount);
     const tac0 = await balanceOf(TAC, t.address), e0 = await ethBal(t.address), r = await send(t.address, tx); assert.ok(r.ok);
@@ -273,7 +273,7 @@ const now0 = await chainNow(), deadline = BigInt(now0 + 3600);
     // a plan made before the clock moved: refined now, it is the cheaper figure, and the old transaction still fills
     const t = newWallet(); await fund(t.address, 10n * E18);
     const old = planBuy(book.asks, eth(5), { skip: (o) => !own(o) || o.board !== 'dutch' });
-    const refined = await refine({ ethCall, plan: old, side: 'buy' });
+    const refined = await refine({ ethCall, plan: old });
     assert.ok(refined.get > old.get, `the same ETH now buys more TAC (${refined.get} against ${old.get})`);
     const tx = buildFill({ plan: refined, side: 'buy', token: TAC, account: t.address, deadline: BigInt((await chainNow()) + 600) });
     const tac0 = await balanceOf(TAC, t.address), r = await send(t.address, tx); assert.ok(r.ok);

@@ -83,8 +83,8 @@ const bid = (board, id, baseAmt, quoteAmt, extra = {}) => ({ id, board, tokenA: 
   const { rows, next } = decOrderViews(raw);
   assert.equal(rows.length, 1); assert.equal(next, 0n);
   assert.equal(rows[0].id, 143n); assert.equal(rows[0].amountA, 100n * E18); assert.equal(rows[0].amountB, E18);
-  assert.equal(rows[0].tokenA.toLowerCase(), TOKEN.toLowerCase()); assert.equal(rows[0].symbolA, 'A'); assert.equal(rows[0].board.toLowerCase(), ZB.V1.toLowerCase());
-  ok('an OrderView row decodes: id, amounts, tokens, symbols, board');
+  assert.equal(rows[0].tokenA.toLowerCase(), TOKEN.toLowerCase()); assert.equal(rows[0].board.toLowerCase(), ZB.V1.toLowerCase());
+  ok('an OrderView row decodes: id, amounts, tokens, board');
   assert.deepEqual(decOrderViews(encViews([])).rows, []); assert.deepEqual(decOrderViews('0x').rows, []); assert.deepEqual(decOrderViews(null).rows, []);
   ok('an empty page, empty data and a failed call decode to no rows');
   const more = decOrderViews(encViews([ask(ZB.V2, 1, E18, E18, { partial: true, expiry: NOW + 5 })], 77));
@@ -93,7 +93,7 @@ const bid = (board, id, baseAmt, quoteAmt, extra = {}) => ({ id, board, tokenA: 
   const bids = decBidRows(encBids([{ id: 9, remaining: 50n * E18, proceeds: E18 / 2n, initial: 100n * E18, price: E18, expiry: NOW + 60 }], 3));
   assert.equal(bids.next, 3n); assert.equal(bids.rows[0].id, 9n); assert.equal(bids.rows[0].remaining, 50n * E18); assert.equal(bids.rows[0].proceeds, E18 / 2n);
   assert.equal(bids.rows[0].token.toLowerCase(), TOKEN.toLowerCase()); assert.equal(bids.rows[0].expiry, NOW + 60);
-  ok('a BidRow decodes with its dynamic ids and symbols in place');
+  ok('a BidRow decodes with its dynamic ids and symbols in the way');
 }
 
 // ── normalize: a price from the amounts, never from the views' decimals ──
@@ -214,14 +214,14 @@ const mk = (board, id, base, quote, partial, side = 'ask') => ({ key: `${board}:
       return null;
     }));
   };
-  const r = await refine({ ethCall, plan, side: 'buy' });
+  const r = await refine({ ethCall, plan });
   assert.equal(seen[0].length, 2, 'v1 is not asked: it fills whole at its own price');
   assert.equal(r.fills[1].get, 99n * E18); assert.equal(r.fills[2].get, 49n * E18); assert.equal(r.fills[2].pay, E18 - 10n);
   assert.equal(r.fills[0].get, 100n * E18); assert.equal(r.get, 100n * E18 + 99n * E18 + 49n * E18);
   ok('refine asks v2 and Dutchboard what a fill settles at and keeps v1 at its price');
   const dead = async (to, data) => encReturns(decodeAggregate3Call(data).map(() => null));
-  assert.equal(await refine({ ethCall: dead, plan, side: 'buy' }), null);
-  assert.equal(await refine({ ethCall: async () => { throw new Error('x'); }, plan, side: 'buy' }), null);
+  assert.equal(await refine({ ethCall: dead, plan }), null);
+  assert.equal(await refine({ ethCall: async () => { throw new Error('x'); }, plan }), null);
   ok('a fill the board will not quote (or a dead RPC) refines to null, so it is never sent');
 }
 

@@ -21,7 +21,7 @@ export const ZB = Object.freeze({
 const SEL = {
   candidatesFrom: '5f452988', dutchCandidatesFrom: 'eb33e466', floorCandidatesFrom: 'c587d927', areFillableBy: '4377ef87',
   fillPlan: 'c277f67c', checkpoint: 'a972985e', snwap: '5f3bd1c8', multicall: 'ac9650d8', permit: '7ac2ff7b', agg3: '82ad56cb',
-  v2QuoteFill: 'f325beda', dutchQuoteFill: '5ff4d8ec', dutchTakeFor: 'ed25cb25', floorQuoteHit: '7ee77dae', listings: 'de74e57b',
+  v2QuoteFill: 'f325beda', dutchTakeFor: 'ed25cb25', floorQuoteHit: '7ee77dae',
 };
 export const BOARD_NAMES = { v1: 'Swapboard v1', v2: 'Swapboard v2', dutch: 'Dutchboard', floor: 'Floorboard' };
 
@@ -52,32 +52,29 @@ function decAggregate3(hex, n) {
   }
   return out;
 }
-const utf8 = (hex) => new TextDecoder().decode(Uint8Array.from(strip(hex).match(/../g) || [], (x) => parseInt(x, 16)));
 
 // ── reading the views' answers ──
 
-// SwapboardView's (OrderView[] rows, uint256 nextCursor): each row has 16 head words, with the two symbols as strings.
+// SwapboardView's (OrderView[] rows, uint256 nextCursor): each row has 16 head words (its two symbols and decimals are not read: a price comes from
+// the amounts and the token's decimals the caller gives).
 export function decOrderViews(raw) {
   if (!raw || strip(raw).length < 128) return { rows: [], next: 0n };
   const arr = Number(wordAt(raw, 0)) / 32, n = Number(wordAt(raw, arr)), rows = [];
-  const str = (b, k) => { const p = b + Number(wordAt(raw, b + k)) / 32, len = Number(wordAt(raw, p)); return utf8(strip(raw).slice((p + 1) * 64, (p + 1) * 64 + len * 2)); };
   for (let i = 0; i < n; i++) {
     const b = arr + 1 + Number(wordAt(raw, arr + 1 + i)) / 32;
     rows.push({ id: wordAt(raw, b), maker: addrAt(raw, b + 1), partialFill: wordAt(raw, b + 2) === 1n, expiry: Number(wordAt(raw, b + 3)), nftA: wordAt(raw, b + 4) === 1n, nftB: wordAt(raw, b + 5) === 1n,
-      counterparty: addrAt(raw, b + 6), tokenA: addrAt(raw, b + 7), amountA: wordAt(raw, b + 8), symbolA: str(b, 9), decimalsA: Number(wordAt(raw, b + 10)),
-      tokenB: addrAt(raw, b + 11), amountB: wordAt(raw, b + 12), symbolB: str(b, 13), decimalsB: Number(wordAt(raw, b + 14)), board: addrAt(raw, b + 15) });
+      counterparty: addrAt(raw, b + 6), tokenA: addrAt(raw, b + 7), amountA: wordAt(raw, b + 8), tokenB: addrAt(raw, b + 11), amountB: wordAt(raw, b + 12), board: addrAt(raw, b + 15) });
   }
   return { rows, next: wordAt(raw, 1) };
 }
-// FloorboardView's (BidRow[] rows, uint256 nextCursor): 17 head words, the ids and the two symbols dynamic (not needed here).
+// FloorboardView's (BidRow[] rows, uint256 nextCursor): 17 head words, the ids, symbols and decimals not read.
 export function decBidRows(raw) {
   if (!raw || strip(raw).length < 128) return { rows: [], next: 0n };
   const arr = Number(wordAt(raw, 0)) / 32, n = Number(wordAt(raw, arr)), rows = [];
   for (let i = 0; i < n; i++) {
     const b = arr + 1 + Number(wordAt(raw, arr + 1 + i)) / 32;
     rows.push({ id: wordAt(raw, b), bidder: addrAt(raw, b + 1), token: addrAt(raw, b + 2), quote: addrAt(raw, b + 3), isNFT: wordAt(raw, b + 4) === 1n, anyId: wordAt(raw, b + 5) === 1n,
-      remaining: wordAt(raw, b + 7), initial: wordAt(raw, b + 8), price: wordAt(raw, b + 9), proceeds: wordAt(raw, b + 10), startTime: Number(wordAt(raw, b + 11)), expiry: Number(wordAt(raw, b + 12)),
-      tokenDecimals: Number(wordAt(raw, b + 13)), quoteDecimals: Number(wordAt(raw, b + 14)) });
+      remaining: wordAt(raw, b + 7), initial: wordAt(raw, b + 8), price: wordAt(raw, b + 9), proceeds: wordAt(raw, b + 10), startTime: Number(wordAt(raw, b + 11)), expiry: Number(wordAt(raw, b + 12)) });
   }
   return { rows, next: wordAt(raw, 1) };
 }
@@ -193,7 +190,7 @@ export function planSell(bids, baseAmount, { skip = () => false } = {}) {
 // ── the exact figures, from the boards themselves ──
 // The boards round, and Dutchboard's price moves with time, so before a plan is shown as a transaction each fill is asked of its own board.
 // → the plan with `pay`/`get` as the board would settle them, or null when a fill no longer holds.
-export async function refine({ ethCall, plan, side, block = 'latest' }) {
+export async function refine({ ethCall, plan, block = 'latest' }) {
   const calls = plan.fills.map((f) => {
     const o = f.order;
     if (o.board === 'v2') return { to: ZB.V2, data: '0x' + SEL.v2QuoteFill + word(o.id) + word(f.pay) };                // quoteFill(id, the payment) → (what it buys, what it takes)

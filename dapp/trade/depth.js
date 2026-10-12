@@ -8,7 +8,7 @@
 //   onPick(level, side) is called with the order a click lands on.
 
 import { niceTicks } from '/trade/chart.js?cb=061eeab7';
-import { cumulative } from '/trade/book.js?cb=01035c6e';
+import { cumulative } from '/trade/book.js?cb=3324d19b';
 
 const NS = 'http://www.w3.org/2000/svg';
 const el = (name, attrs = {}, kids = []) => {

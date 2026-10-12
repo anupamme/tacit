@@ -337,9 +337,8 @@ function buildZQuoterSwap({ quote }) {
   return { to: ZROUTER, data: quote.callData, value: quote.msgValue, approval: null };
 }
 
-// ── zSwap order boards — quote-only. A resting-order presence signal, not a priced venue: fill
-// recipes (fill plans, Dutch checkpoints) are the most intricate part of zSwap and aren't worth
-// porting for TAC's near-zero board depth. Surface a link to fill there instead of executing. ──
+// ── zSwap order boards: a count of the resting orders, which the classic app's trade tile shows. The trade page reads and fills the boards
+// themselves with dapp/zboards.js. ──
 
 function encBoardCandidates({ board, isV2, tokenIn, tokenOut, cursor = 0, limit = 32 }) {
   return '0x' + SEL.boardCandidates + addrWord(board) + boolWord(isV2) + addrWord(tokenIn) + addrWord(tokenOut)

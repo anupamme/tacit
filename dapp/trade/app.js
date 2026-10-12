@@ -8,13 +8,13 @@
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import {
   makeEvmTradeVenues, zswapDeepLink, encErc20Approve, PRECISION_POOL, TAC_ERC20, TACIT_AMM, MULTICALL3, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, V4_TAC_POOLS, V4_STATE_VIEW, _internal,
-} from '/evm-trade-venues.js?cb=3f639042';
+} from '/evm-trade-venues.js?cb=5750d83c';
 import { getConfidentialDeployment } from '/confidential-deployments.js';
 import { buildBook, planBuy, planSell as planBtcSell, ladderLevels } from '/btc-book.js?cb=91371653';
 import { decodeTape, chartBars, invert, ethLaneUsd, btcLaneUsd, candlesFromTrades, closeAt, gap, TAPE_FINE, TAPE_COARSE } from '/trade/tape.js?cb=dfc28dd7';
 import { mountChart } from '/trade/chart.js?cb=061eeab7';
-import { mountDepth } from '/trade/depth.js?cb=fdae9452';
-import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=868486b9';
+import { mountDepth } from '/trade/depth.js?cb=019583b6';
+import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=5e8bf338';
 
 const API = 'https://api.tacit.finance';
@@ -195,7 +195,6 @@ function renderLanes() {
 // ── the chart ──
 const chartHost = $('#chart');
 const chart = mountChart(chartHost);
-const unitOf = () => (S.lane === 'cmp' ? 'usd' : S.unit);
 function priceFmt(unit, lane) {
   if (unit === 'usd') return (v) => usd(v);
   return lane === 'btc' ? (v) => `${satsFmt(v)} sats` : (v) => `${sig(v)} ETH`;
@@ -297,7 +296,7 @@ async function boardQuote(dir, wei) {
   const skip = (o) => isMine(o) || (S.pin != null && o.key !== S.pin);
   const plan = buy ? planBoardBuy(list, wei, { skip }) : planBoardSell(list, wei, { skip });
   if (!plan.fills.length) return { ok: false, orders: list.filter((o) => !isMine(o)).length };
-  const fine = await refineBoards({ ethCall, plan, side: buy ? 'buy' : 'sell' });
+  const fine = await refineBoards({ ethCall, plan });
   if (!fine) return { ok: false, orders: list.length, stale: true };
   return { ok: true, plan: fine, out: fine.get, spent: fine.pay, full: fine.pay * 1000n >= wei * 995n, keys: fine.fills.map((f) => f.order.key) };
 }
@@ -434,7 +433,7 @@ function notify(msg, kind = '', ms = 5000) {
 }
 async function openBitcoin(prime = null) {
   try {
-    bitcoin ||= (await import('/trade/btc.js?cb=91c6530d')).makeBitcoin({ notify, onTraded: () => loadBitcoin().then(paintAll).catch(() => {}) });
+    bitcoin ||= (await import('/trade/btc.js?cb=1ecd86c5')).makeBitcoin({ notify, onTraded: () => loadBitcoin().then(paintAll).catch(() => {}) });
     await bitcoin.open(prime);
   } catch (e) { notify(`The Bitcoin market could not be opened: ${e?.message || e}`, 'error', 9000); }
 }
@@ -708,7 +707,7 @@ async function prepareBoards(P, from) {
   const stop = (why) => { S.review = null; renderReview(); say(why); loadBoards().then(paintAll).catch(() => {}); requote(); return null; };
   if (orders.some((o) => !o)) return stop('An order you reviewed was just filled or taken down. Nothing was sent; review it again.');
   const again = (buy ? planBoardBuy : planBoardSell)(orders, P.wei);
-  const fine = again.fills.length ? await refineBoards({ ethCall, plan: again, side }) : null;
+  const fine = again.fills.length ? await refineBoards({ ethCall, plan: again }) : null;
   if (!fine) return stop('These orders can no longer be filled together. Nothing was sent; review it again.');
   if (fine.get < P.floor) return stop('The price moved below the least you accepted. Nothing was sent; review it again.');
   const dl = BigInt(now() + 1200);

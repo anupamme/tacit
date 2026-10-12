@@ -16,8 +16,6 @@ const SHARED_WALLET_KEYS = ['tacit-eth-identity', 'tacit-btc-identity', 'tacit-a
 const DERIVED = new Set(['eth', 'btc', 'passkey']);                          // ways in where the wallet or passkey is itself the backup of the key
 
 const lc = (s) => String(s || '').toLowerCase();
-const isPub = (h) => /^0[23][0-9a-f]{64}$/.test(lc(h));
-const readJson = (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
 const writeJson = (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage is a convenience */ } };
 export const short = (a, n = 4) => (!a ? '' : a.length > 2 * n + 4 ? `${a.slice(0, n + 2)}…${a.slice(-n)}` : a);
 export class Cancelled extends Error { constructor(m = 'Cancelled.') { super(m); this.unlockCancelled = true; } }
@@ -159,6 +157,5 @@ export function makeBtcSession() {
     btcSeen: () => !!(window.btc_providers?.length || window.XverseProviders?.BitcoinProvider || window.LeatherProvider || window.unisat),
     lock() { forget(); emit(); },
     onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
-    isPub, lc,
   };
 }
