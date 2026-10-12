@@ -270,20 +270,25 @@ async function zq(dir, wei) {
   return v;
 }
 
-async function requote() {
+// `quiet` is the page's own refresh: what is on the ticket stays as it is, with no flicker or disabled button, until the new quote replaces
+// it (and is dropped if the amount has changed meanwhile). A change the person made clears the ticket first.
+async function requote(quiet = false) {
   const my = ++S.seq, wei = getAmount(), dir = dirOf(), buy = S.side === 'buy';
-  S.quote = null; S.review = null; renderReview();
-  if (!wei || wei <= 0n) { renderQuote(null); renderVenues(null); return; }
-  renderQuote({ busy: true });
+  if (!quiet) { S.quote = null; S.review = null; renderReview(); }
+  if (!wei || wei <= 0n) { S.quote = null; renderQuote(null); renderVenues(null); return; }
+  if (!quiet) renderQuote({ busy: true });
+  if (quiet) S.refreshing = true;
   try {
     // The Precision pool's price is read with the quote, so the price impact is measured against the price as it stands now.
     const [rt, sp] = await Promise.all([venues.route({ dir, amountIn: wei, account: W.account || undefined, gasPrice: await gasPrice() }), ethCall(PRECISION_POOL, '0x2af1f249').catch(() => null)]);
     if (my !== S.seq) return;
     if (sp) { const root = Number(wordAt(sp, 0)) / 1e18; if (root > 0) { D.perEth = root * root; renderHead(); renderLanes(); } }
-    S.quote = { wei, dir, buy, rt, priv: privQuote(dir, wei), book: bookQuote(dir, wei), zq: null };
+    S.quote = { wei, dir, buy, rt, priv: privQuote(dir, wei), book: bookQuote(dir, wei), zq: S.zq?.k === `${dir}:${wei}` ? S.zq.v : null };
     renderQuote(S.quote); renderVenues(S.quote);
-    zq(dir, wei).then((v) => { if (my === S.seq && S.quote) { S.quote.zq = v; renderVenues(S.quote); } });
-  } catch (e) { if (my === S.seq) { renderQuote({ err: 'The pools could not be read just now.' }); renderVenues(null); } }
+    // zQuoter's answer belongs to the amount and direction asked, so it lands on whichever quote is current for them (a refresh that began meanwhile has the same ones).
+    zq(dir, wei).then((v) => { if (S.quote && S.quote.wei === wei && S.quote.dir === dir) { S.quote.zq = v; renderVenues(S.quote); } });
+  } catch (e) { if (my === S.seq && !quiet) { renderQuote({ err: 'The pools could not be read just now.' }); renderVenues(null); } }
+  finally { if (quiet) S.refreshing = false; }
 }
 function renderQuote(q) {
   const buy = S.side === 'buy', outEl = $('#out'), route = $('#route'), go = $('#go');
@@ -573,5 +578,5 @@ Promise.allSettled(loads).then((rs) => {
   if (params.get('amount')) { S.amt = params.get('amount'); $('#amt').value = S.amt; requote(); }
   paintAll();
 });
-setInterval(() => { if (!document.hidden) { loadChain().then(paintAll).catch(() => {}); loadTapes().then(paintAll).catch(() => {}); loadBitcoin().then(paintAll).catch(() => {}); if (S.quote && !S.review && !S.busy) requote(); if (W.account && !S.review && !S.busy) readBalances().then(() => { renderBalance(); renderGo(); }); } }, 60e3);       // a review being read, or a trade being made, is not redrawn under the person
+setInterval(() => { if (!document.hidden) { loadChain().then(paintAll).catch(() => {}); loadTapes().then(paintAll).catch(() => {}); loadBitcoin().then(paintAll).catch(() => {}); if (S.quote && !S.review && !S.busy && !S.refreshing) requote(true); if (W.account && !S.review && !S.busy) readBalances().then(() => { renderBalance(); renderGo(); }); } }, 60e3);       // a review being read, or a trade being made, is not redrawn under the person
 
