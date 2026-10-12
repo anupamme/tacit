@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-E/pt7NEQRLYfx8lgfFnjp7rrIbv71i86fKqIF7k4bFo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-/pMemgjzCYy82njHEt+qUx3N/00DtOYtcq/iu+eSYTs=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=b0bddd8d"></script>
 <title>tacit</title>
@@ -4145,10 +4145,10 @@ function v1Out(el, status) {
 // used: the constants they come from are further down.
 const XA = {
   teth: { key: 'teth', ticker: 'tETH', pool: 'cETH', k: 'eth', icon: 'tk-teth', flag: 'tacit-teth-btc', sheet: 'eth', status: '#v1-status', pre: 'xo', bpre: 'xb', dp: 6,
-    held: 'tETH on your Bitcoin address', see: 'Private ETH, To Bitcoin', after: 'There it can be traded for bitcoin in the classic app, or brought back to Ethereum below once Bitcoin’s proof has recorded it.',
+    held: 'tETH on your Bitcoin address', see: 'Private ETH, To Bitcoin', none: 'You have no private tETH yet. The Make private tab turns ETH into it.', after: 'There it can be traded for bitcoin in the classic app, or brought back to Ethereum below once Bitcoin’s proof has recorded it.',
     get id() { return CETH_ID; } },
   tac: { key: 'tac', ticker: 'TAC', pool: 'cTAC', k: 'tac', icon: 'tk-tac', flag: 'tacit-tac-btc', sheet: 'tac', status: '#bt-status', pre: 'xt', bpre: 'xc', dp: 4, mixed: true, floor: true, min: 2_000_000_000n,
-    held: 'Bridged TAC on your Bitcoin address', see: 'TAC, Bridge, To Bitcoin', after: 'There it can be brought back to Ethereum below once Bitcoin’s proof has recorded it.',
+    held: 'Bridged TAC on your Bitcoin address', see: 'TAC, Bridge, To Bitcoin', none: 'You have no private TAC yet. Make TAC private above, buy it on the Buy tab, or bring it from Bitcoin on the From Bitcoin side.', after: 'There it can be brought back to Ethereum below once Bitcoin’s proof has recorded it.',
     get id() { return '0x' + TAC_BTC_ID; } },
 };
 const xoOn = (a = XA.teth) => store.get(a.flag) !== false;                       // on unless its setting is false
@@ -4541,7 +4541,7 @@ function xoOut(el, status, a) {
     if (e?.isTrusted) say(status, '');
     if (tooFine(rc, amt.value, units, 8)) return;
     if (!units) { rc.hidden = true; return; }
-    if (P.scan && units > spendable(a.k)) { mount(rc, html``); warn(rc, overBalance()); return; }
+    if (P.scan && units > spendable(a.k)) { mount(rc, html``); warn(rc, P.scan[a.k].notes.length ? overBalance() : a.none); return; }
     mount(rc, html`<p class="note">Checking the fees and the proof…</p>`); rc.hidden = false;
     try {
       const [t, ux] = await Promise.all([getUx(), xoUx()]);

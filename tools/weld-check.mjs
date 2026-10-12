@@ -2702,6 +2702,12 @@ await step('xtring', async () => {
   await go(r.page, '#bridge/out');
   await r.page.waitForSelector('#xc-look', { timeout: 120000 });
   ok(/Look for it/.test(await text(r.page, '#bridge-body')), 'xtring: bridged TAC is listed on request, so a key that has bridged nothing loads nothing');
+  // A key with no private TAC at all is told so, and where to get some, rather than that the amount is "more than your private balance".
+  await r.page.fill('#xt-amt', '25');
+  await until(r.page, () => /You have no private TAC yet\./.test(document.querySelector('#xt-rcpt')?.textContent || ''), null, 240000)
+    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | rcpt: ${(await text(r.page, '#xt-rcpt')).replace(/\s+/g, ' ')}`); });
+  ok(/Make TAC private above, buy it on the Buy tab, or bring it from Bitcoin/.test(await text(r.page, '#xt-rcpt')), 'xtring: a key with no private TAC is told where to get some');
+  await r.page.fill('#xt-amt', '');
   await r.page.click('#xc-look');
   await until(r.page, () => document.querySelectorAll('#bridge-body input[name="xc-note"]').length === 2, null, 240000)
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | section: ${(await text(r.page, '#bridge-body')).replace(/\s+/g, ' ').slice(-420)} | errors: ${r.errors.slice(0, 3).join(' | ')}`); });
