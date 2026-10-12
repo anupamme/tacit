@@ -175,6 +175,9 @@ const PAY_CB_FILES = ['pay/index.html', 'pay/eth/index.html'];
 // dapp/tac/ is the shielded-TAC page: app.js lazy-imports sats.js, so sats.js is hashed first and the page
 // that loads app.js last, same importer-last order as the sats page above.
 const TAC_CB_FILES = ['tac/sats.js', 'tac/market.js', 'tac/claim.js', 'tac/app.js', 'tac/index.html'];
+// dapp/trade/ is the TAC trade page: its modules are hashed first (the venues module and the order book it imports are the shared ones the
+// front page uses, so their tokens come out the same), then app.js, then the page that loads it.
+const TRADE_CB_FILES = ['trade/tape.js', 'trade/chart.js', 'trade/wallet.js', 'trade/app.js', 'trade/index.html'];
 function pageCacheBust(files, write) {
   const drift = [];
   for (const rel of files) {
@@ -369,7 +372,7 @@ async function main() {
     if (gotCb !== wantCb) drift.push(`classic.html tacit.js ?cb=${gotCb} but sha256(dapp/tacit.js)=${wantCb}`);
     if (gotPreboot !== wantPreboot) drift.push(`classic.html preboot.js ?cb=${gotPreboot} but sha256(dapp/preboot.js)=${wantPreboot}`);
     if (gotSw !== wantSw) drift.push(`sw.js CACHE_VERSION suffix ${gotSw} but sha256(vendor‖prf-wallet)=${wantSw}`);
-    drift.push(...pageCacheBust(SATS_CB_FILES, false), ...pageCacheBust(WELD_CB_FILES, false), ...pageCacheBust(TAC_CB_FILES, false), ...pageCacheBust(PAY_CB_FILES, false));
+    drift.push(...pageCacheBust(SATS_CB_FILES, false), ...pageCacheBust(WELD_CB_FILES, false), ...pageCacheBust(TAC_CB_FILES, false), ...pageCacheBust(TRADE_CB_FILES, false), ...pageCacheBust(PAY_CB_FILES, false));
     drift.push(...pagePreloads(false));
     if (drift.length) {
       console.error('✗ cache-bust tokens or preload links are stale — run `npm run build` and commit the result:');
@@ -400,6 +403,8 @@ async function main() {
     console.log(`• weld page cache-bust: ${weldDrift.length ? `${weldDrift.length} token(s) updated` : 'unchanged'}`);
     const tacDrift = pageCacheBust(TAC_CB_FILES, true);
     console.log(`• tac page cache-bust: ${tacDrift.length ? `${tacDrift.length} token(s) updated` : 'unchanged'}`);
+    const tradeDrift = pageCacheBust(TRADE_CB_FILES, true);
+    console.log(`• trade page cache-bust: ${tradeDrift.length ? `${tradeDrift.length} token(s) updated` : 'unchanged'}`);
     const payDrift = pageCacheBust(PAY_CB_FILES, true);
     console.log(`• pay page cache-bust: ${payDrift.length ? `${payDrift.length} token(s) updated` : 'unchanged'}`);
     const preDrift = pagePreloads(true);

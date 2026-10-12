@@ -17,6 +17,7 @@
 # and the matching entry in the dashboard, or the bare URL people type and share lands on the wrong page.
 
 /tac      /tac/      301
+/trade    /trade/    301
 /pay      /pay/      301
 /pay/eth  /pay/eth/  301
 /weld/keeper  /weld/keeper/  301
