@@ -403,7 +403,7 @@ function renderGo() {
   go.disabled = false;
   if (!W.account) { go.textContent = 'Connect wallet'; return; }
   if (!wei) { go.textContent = 'Enter an amount'; go.disabled = true; return; }
-  if (!q?.rt?.single) { go.textContent = 'Reading the pools…'; go.disabled = true; return; }
+  if (!q?.rt?.single || !D.perEth) { go.textContent = 'Reading the pools…'; go.disabled = true; return; }     // the review measures the price impact against the Precision pool's price, so it needs it
   const have = spendable();
   if (have != null && wei > have) { go.textContent = `Not enough ${buy ? 'ETH' : 'TAC'}`; go.disabled = true; return; }
   if (!buy && S.bal && S.bal.eth != null && S.bal.eth < 5n * 10n ** 14n) { go.textContent = 'Needs a little ETH for the network fee'; go.disabled = true; return; }
@@ -559,4 +559,5 @@ Promise.allSettled(loads).then((rs) => {
   if (params.get('amount')) { S.amt = params.get('amount'); $('#amt').value = S.amt; if (params.get('side') === 'sell') $('#side-seg [data-side="sell"]').click(); requote(); }
   paintAll();
 });
-setInterval(() => { if (!document.hidden) { loadChain().then(paintAll).catch(() => {}); loadTapes().then(paintAll).catch(() => {}); loadBitcoin().then(paintAll).catch(() => {}); if (S.quote) requote(); } }, 60e3);
+setInterval(() => { if (!document.hidden) { loadChain().then(paintAll).catch(() => {}); loadTapes().then(paintAll).catch(() => {}); loadBitcoin().then(paintAll).catch(() => {}); if (S.quote && !S.review && !S.busy) requote(); } }, 60e3);       // a review being read, or a trade being made, is not redrawn under the person
+

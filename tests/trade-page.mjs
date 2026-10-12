@@ -97,6 +97,7 @@ async function openPage(viewport, wallet = null) {
   const page = await ctx.newPage(), errors = [], blocked = [];
   page.on('pageerror', (e) => errors.push(String(e.message || e)));
   page.on('console', (m) => { if (m.type() === 'error') { const t = m.text(); (/Content Security Policy|Refused to/i.test(t) ? blocked : errors).push(t); } });
+  if (walletLog) await page.clock.install();                                   // the wallet pages' timers can be moved on by a test
   await page.goto(`http://127.0.0.1:${WEB}/trade/`);
   return { browser, page, errors, blocked, walletLog };
 }
@@ -221,6 +222,9 @@ try {
     ok(await q.$eval('#go', (b) => b.hidden), 'and the main button gives way to its Back and Confirm');
     await q.click('#rv-back'); ok(await q.$eval('#review', (e) => e.hidden), 'Back closes the review without sending anything');
     await q.click('#go'); await q.waitForSelector('#rv-go');
+    // the page refreshes its readings each minute: a review being read is left as it is
+    await q.clock.fastForward(61000); await q.waitForTimeout(2500);
+    ok(!(await q.$eval('#review', (e) => e.hidden)) && !!(await q.$('#rv-go')), 'a minute passing (the page\'s own refresh) leaves an open review as it was');
     ok(await q.$eval('#rv-go', (b) => b.disabled) && /I accept losing about \d+%/.test(await text(q, '#review')), 'a purchase that moves the price over 10% waits for the box to be ticked');
     await q.check('#ack');
     const t0 = await tacBal(me.account), e0 = await ethBal(me.account), n0 = BigInt(await rpcA('eth_getTransactionCount', [me.account, 'latest'])), mc0 = await tacBal(MC3), rt0 = await ethBal(ROUTER);
