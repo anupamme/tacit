@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-nO3em1bSqUqYw3sQbLQXI4r2nPWzTd7a3NGYL/i7woY=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Yv1cJtKy93fxLuTzoKdOCUeT+EzPrnQiUFa5v3cg0No=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay</title>
 <meta name="description" content="Simple, private payments: Bitcoin by silent payment, TAC shielded, ETH on Ethereum, Base, Robinhood Chain and MegaETH. One key and one tacit1 address, every payment made on your device, and your balances rebuild from that key.">
@@ -1179,8 +1179,12 @@ async function poolCheck(r, v, current, rc, go) {
     <div class="kv"><span>Takes</span><b>about an hour, then until a buyer takes it</b></div>
     <div class="kv"><span>Speed</span><span>${poolFast() ? html`<b aria-current="true">Faster</b>` : html`<button class="link" type="button" data-speed="fast">Faster</button>`} · ${poolFast() ? html`<button class="link" type="button" data-speed="std">Standard</button>` : html`<b aria-current="true">Standard</b>`}</span></div>
     <p class="note">${poolFast() ? 'Faster prices it just under the last trade, so a buyer is likelier to take it soon. Standard prices it under the cheapest ask: it costs less TAC and can wait longer.' : 'Standard prices it under the cheapest ask: it costs less TAC and can wait longer for a buyer. Faster prices it just under the last trade.'}</p>`;
+  // Short of shielded TAC: TAC at this key's Bitcoin address is shielded from Move; with none there, it is bought on /tac first.
+  const out = shieldable().reduce((n, u) => n + BigInt(u.amount), 0n);
   const err = !TAC.relay || fee == null ? 'The relay isn’t taking TAC out right now. Try again in a few minutes.'
-    : need > TAC.pool ? `This takes ${fmt(need, 8, 2)} TAC with the relay’s fee; you hold ${fmt(TAC.pool, 8, 2)} TAC shielded.`
+    : need > TAC.pool ? (TAC.pool + out >= need
+      ? html`This takes ${fmt(need, 8, 2)} TAC with the relay’s fee. You hold ${fmt(TAC.pool, 8, 2)} TAC shielded and ${fmt(out, 8, 2)} more at your Bitcoin address: <button class="link" type="button" data-go-move>shield it under TAC → Move</button>.`
+      : html`This takes ${fmt(need, 8, 2)} TAC with the relay’s fee; you hold ${fmt(TAC.pool, 8, 2)} TAC shielded. Get TAC with sats on <a href="/tac/">TAC on Bitcoin</a>, then shield it under <button class="link" type="button" data-go-move>TAC → Move</button>.`)
       : need > TAC.top2 ? `One payment spends at most two of your notes, which come to ${fmt(TAC.top2, 8, 2)} TAC. Combine your notes first, under TAC, Send.`
         : null;
   draw(rows, err);
@@ -1314,7 +1318,10 @@ function btcSend(f) {
   wireShare(f);
   wirePoolJobs(f);
   const to = $('#f-to'), amt = $('#f-amt'), go = $('#f-go'), rc = $('#f-rcpt'), note = $('#f-bnote');
-  rc.addEventListener('click', (e) => { const b = e.target.closest('[data-via], [data-speed]'); if (!b) return; if (b.dataset.via) BTC.via = b.dataset.via; else BTC.speed = b.dataset.speed; check(); });
+  rc.addEventListener('click', (e) => {
+    if (e.target.closest('[data-go-move]')) { S.tab.tac = 'move'; setMode('tac'); return; }
+    const b = e.target.closest('[data-via], [data-speed]'); if (!b) return; if (b.dataset.via) BTC.via = b.dataset.via; else BTC.speed = b.dataset.speed; check();
+  });
   $('#f-paste').onclick = async () => { try { to.value = (await navigator.clipboard.readText()).trim(); to.dispatchEvent(new Event('input')); } catch { to.focus(); } };
   const fill = (v) => { amt.value = plain(v); amt.dispatchEvent(new Event('input')); };
   $('#f-max')?.addEventListener('click', async () => {

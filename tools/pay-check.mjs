@@ -325,6 +325,16 @@ try {
     ok((await text('#f-go')) === 'Pay privately' && (await p.$eval('#f-go', (b) => b.disabled)) === !enough, `Pay privately is ${enough ? 'ready' : 'held back: ' + (r.match(/(This takes|One payment|The relay)[^.]*\./) || [''])[0]}`);
     await p.fill('#f-amt', '0.0001');
     ok(/pay 0\.0005 BTC or more/.test(await rcpt(/or more/)), 'under the minimum it says what the minimum is');
+    await p.fill('#f-amt', '0.05');
+    const short = await rcpt(/TAC shielded/);
+    ok(/This takes [\d,.]+ TAC with the relay’s fee; you hold [\d,.]+ TAC shielded\. Get TAC with sats on TAC on Bitcoin, then shield it under TAC → Move\./.test(short) && !!(await p.$('#f-rcpt a[href="/tac/"]')), `short of TAC it says where to get it: ${short.match(/This takes[^]*?Move\./)?.[0] || short.slice(0, 160)}`);
+    await p.click('#f-rcpt [data-go-move]');
+    ok(await p.waitForFunction(() => location.hash === '#tac/move' || document.querySelector('#tabs [data-tab="move"]')?.getAttribute('aria-selected') === 'true', null, { timeout: 15e3 }).then(() => true).catch(() => false), 'and TAC → Move opens from it');
+    await p.goto(origin + '/pay/#btc'); await p.waitForSelector('#tabs:not([hidden])', { timeout: 60e3 });
+    await p.waitForFunction(() => !document.querySelector('#bal .sk'), null, { timeout: 180e3 });
+    await p.fill('#f-to', TO);
+    await p.waitForFunction(() => /Through the shielded TAC pool|Plain payment/.test(document.querySelector('#f-rcpt')?.textContent || ''), null, { timeout: 120e3 });
+    if (await p.$('#f-rcpt [data-via="pool"]')) await p.click('#f-rcpt [data-via="pool"]');
     await p.fill('#f-amt', '0.0005');
     const own = await p2wpkhOf(process.env.KEY);
     if (own) { await p.fill('#f-to', own); ok(/own Bitcoin address/.test(await rcpt(/own Bitcoin address|Plain/)), 'to this wallet’s own address it is refused'); }
