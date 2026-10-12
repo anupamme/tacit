@@ -8,7 +8,7 @@ server or indexer trusted, the page recomputes it in your browser.
 
 ## Trading TAC
 
-TAC trades in several places, and [tacit.finance/trade](https://tacit.finance/trade/) prices all of them and quotes the best way to
+TAC trades in several places, and [tacit.finance/trade/tac](https://tacit.finance/trade/tac/) prices all of them and quotes the best way to
 trade an amount:
 
 - **The Bitcoin order book**, in sats. It holds listings, taken whole; it holds no standing bids, so a sale is a listing at your

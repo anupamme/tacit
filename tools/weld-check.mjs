@@ -125,7 +125,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmexit,farmclaim,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,pts,ptsview,activity,receipts,stats,dash,tacdeposit').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmexit,farmclaim,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,tradelinks,pts,ptsview,activity,receipts,stats,dash,tacdeposit').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -4265,7 +4265,7 @@ await step('hxsell', async () => {
     await p.fill('#hx-amt', '1');
     await until(p, () => document.querySelector('#hx-out') && !document.querySelector('#hx-out').classList.contains('ph') && /ETH, sent to your wallet in one transaction|tETH/.test(document.querySelector('#hx-q')?.textContent || ''), null, 300000);
     ok(/^Sell TAC$|^Swap privately$/.test(await text(p, '#hx-go')), `hxsell: 1 TAC is quoted with a button that sells it (${await text(p, '#hx-go')})`);
-    ok(await p.$eval('#hx-trade', (a) => !a.hidden && a.getAttribute('href') === '/trade/#side=sell&amount=1'), 'hxsell: and the way to the trade page carries the side and the amount');
+    ok(await p.$eval('#hx-trade', (a) => !a.hidden && a.getAttribute('href') === '/trade/tac/#side=sell&amount=1'), 'hxsell: and the way to the trade page carries the side and the amount');
     ok(!/Split across/.test(await text(p, '#hx-q')), 'hxsell: one TAC is not split');
     await p.fill('#hx-amt', '12000');
     await until(p, () => /Split across two pools in one transaction: [\d.]+% more/.test(document.querySelector('#hx-q')?.textContent || ''), null, 300000);
@@ -4330,7 +4330,7 @@ await step('hxsats', async () => {
     ok((await p.$$('#hx-routes [data-hxr]')).length === 0, 'hxsats: there are no route rows to choose between: it is one way');
     await p.click('#hx-flip');
     ok(await p.$eval('#hx-from', (e) => e.value) === 'sats' && (await p.$$eval('#hx-body .hx-coin b', (b) => b.map((x) => x.textContent))).join() === 'sats,TAC', 'hxsats: the flip makes it sats for TAC (TAC is the only thing sats pay for, so it has no picker)');
-    ok(await p.$eval('#hx-trade', (a) => !a.hidden && a.getAttribute('href') === '/trade/#side=buy'), 'hxsats: sats for TAC leads to the trade page to buy, with no amount (the amount there is ETH)');
+    ok(await p.$eval('#hx-trade', (a) => !a.hidden && a.getAttribute('href') === '/trade/tac/#side=buy'), 'hxsats: sats for TAC leads to the trade page to buy, with no amount (the amount there is ETH)');
     await p.fill('#hx-amt', '200000');
     await until(p, () => /listing/.test(document.querySelector('#hx-q')?.textContent || '') && /^[\d,]+(\.\d+)?$/.test((document.querySelector('#hx-out')?.textContent || '').trim()), null, 120000);
     const buy = (await text(p, '#hx-q')).replace(/\s+/g, ' ');
@@ -4351,6 +4351,29 @@ await step('hxsats', async () => {
     ok(true, 'hxsats: Buy TAC on Bitcoin goes to /tac, where the listings are taken');
     if (r.errors.length) { fails++; console.log('FAIL hxsats page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
+});
+
+// The lander leads to the trade page from the header, from a tile under the card, from the footer and from the TAC bar, and TAC's own
+// links go to its own address (/trade/tac/). At a phone's width the header still holds the link without a sideways scroll.
+await step('tradelinks', async () => {
+  for (const [name, viewport] of [['desktop', { width: 1280, height: 900 }], ['phone', { width: 360, height: 740 }]]) {
+    const r = await openPage({ account: A0, key: K0, viewport });
+    const p = r.page;
+    try {
+      await p.goto(r.url);
+      await p.waitForSelector('#hx-body .hx-h');
+      const seen = await p.evaluate(() => {
+        const vis = (s) => { const e = document.querySelector(s); if (!e) return false; const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 && b.left >= 0 && b.right <= window.innerWidth + 1; };
+        return { header: vis('.top-r a.trade[href="/trade/"]'), headerText: document.querySelector('.top-r a.trade')?.textContent, tile: !!document.querySelector('a#trade-tile[href="/trade/"]') && vis('a#trade-tile'), tileText: document.querySelector('#trade-tile b')?.textContent,
+          footer: !!document.querySelector('footer a[href="/trade/"]'), bar: !!document.querySelector('.tacbar a[href="/trade/tac/"]'), scroll: document.documentElement.scrollWidth > window.innerWidth + 1 };
+      });
+      ok(seen.header && seen.headerText === 'Trade', `tradelinks (${name}): the header has a Trade link in view`);
+      ok(seen.tile && seen.tileText === 'Trade TAC', `tradelinks (${name}): a Trade TAC tile sits under the card`);
+      ok(seen.footer && seen.bar, `tradelinks (${name}): the footer links Trade and the TAC bar links TAC's own address`);
+      ok(!seen.scroll, `tradelinks (${name}): and the page does not scroll sideways`);
+      if (r.errors.length) { fails++; console.log('FAIL tradelinks page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+    } finally { await r.browser.close(); }
+  }
 });
 
 // The Swap tab of the Tacit pool: its link, a swap of a note that is exactly the amount (one route over the whole note, the least

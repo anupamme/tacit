@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-CYfIOflVciS2G7toTtS68nTQ/9Rnwb51zfG/0FJgAB4=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-eCgW/0CgQjlxE+1DV89ML9rCToumiUiJ85FhxuuYNh8=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
-<script src="/front-route.js?cb=259b08da"></script>
+<script src="/front-route.js?cb=2f4a1520"></script>
 <title>tacit</title>
 <meta name="description" content="Private DeFi on Bitcoin and Ethereum. Assets issued on Bitcoin with hidden amounts, a zero-knowledge bridge to a confidential pool on Ethereum, private ETH, TAC, points, farms and dollars borrowed against Bitcoin.">
 <meta property="og:type" content="website">
@@ -140,6 +140,7 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 .dot.live { background: var(--orange); }
 .top-r { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .top-r .classic { flex: none; display: inline-flex; align-items: center; min-height: 40px; padding: 0 8px; color: var(--mute); font-size: 12px; text-decoration: none; }
+.top-r .classic.trade { color: var(--ink); font-weight: 500; }
 @media (hover: hover) { .top-r .classic:hover { color: var(--ink); text-decoration: underline; } }
 .chip.act { position: relative; flex: none; justify-content: center; width: 40px; padding: 0; color: var(--mute); }
 .chip.act svg { width: 18px; height: 18px; flex: none; }
@@ -326,6 +327,8 @@ a.di { color: inherit; text-decoration: none; }
   .hero-l .proof-row { order: 3; }
 }
 /* Tacit Pay, a step from the button: the quickest way in for someone who only wants to pay or be paid. */
+.tiles-2 { display: grid; gap: 10px; margin-top: 22px; }
+.tiles-2 .paytile { margin-top: 0; }
 .paytile { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 6px 16px; margin-top: 22px; padding: 12px 16px;
   color: inherit; text-decoration: none; background: var(--card); border: 1px solid var(--hair); transition: border-color .18s, transform .25s var(--ease); }
 .paytile .tk { width: 26px; height: 26px; }
@@ -970,6 +973,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   <header class="top">
     <a class="brand" href="/" aria-label="tacit v1"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><b>tacit</b><i>v1</i></a>
     <div class="top-r">
+      <a class="classic trade" href="/trade/" title="Trade TAC: its price on Ethereum and Bitcoin, and the best route across every pool">Trade</a>
       <a class="classic" href="/classic.html" title="The classic tacit.finance app: Bitcoin assets, the order book, pools and more">Classic</a>
       <button class="chip act" id="act" type="button" aria-haspopup="dialog" aria-label="Activity" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="num" id="act-n" hidden></span>
@@ -1000,11 +1004,18 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
     </div>
     <section class="hx" id="hx" aria-label="Private, swap, earn, Bitcoin or send"><div id="hx-body"></div></section>
     </div>
+    <div class="tiles-2">
     <a class="paytile" href="/pay/">
       <span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span>
       <span class="pt-t"><b>Tacit Pay</b><span>Get paid in BTC, TAC or ETH at one private address. No gas, nothing to install.</span></span>
       <span class="pt-go">Get your address <span class="go" aria-hidden="true">→</span></span>
     </a>
+    <a class="paytile" href="/trade/" id="trade-tile">
+      <span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg></span>
+      <span class="pt-t"><b>Trade TAC</b><span>Its price on Ethereum and Bitcoin, every pool's quote for your amount, and the best route, split across pools when that pays more.</span></span>
+      <span class="pt-go">Open the market <span class="go" aria-hidden="true">→</span></span>
+    </a>
+    </div>
     <div class="tape" id="tape" role="region" aria-label="Recent activity on Tacit" hidden>
       <span class="tape-l"><span class="dot live" aria-hidden="true"></span>Live</span>
       <div class="tape-v"><ul class="tape-run" id="tape-run"></ul></div>
@@ -1121,7 +1132,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
     <details class="tacbar">
       <summary>TAC · A Privacy Coin on Bitcoin L1</summary>
       <p>Tacit <a href="https://github.com/src-company/tacit/blob/main/SPEC.md" rel="noopener">protocol</a>’s first asset: 21,000,000 issued once on Bitcoin, no mint key. Transfers hide their amounts, its shielded pool hides who received them, and sats swap into it peer to peer. Airdropped to bootstrap one private currency on both chains (claimable by 5,599 <a href="https://zswap.wei.limo" rel="noopener">zFi</a> shareholder wallets on Bitcoin and 8,652 holders on Ethereum), it keeps spreading through points and farms to grow the anonymity set, and gets each new Tacit protocol improvement first.</p>
-      <p class="tacbar-ln"><a href="/verify.html">Verify supply</a><a href="/tac/">Shielded pool</a><a href="#bridge" data-link="bridge">Bridge</a><a href="https://github.com/src-company/tacit/blob/main/docs/TAC.md#holding-tac" rel="noopener">Holding it</a><a href="#buy" data-link="buy">Buy</a><a href="/trade/">Price and pools</a></p>
+      <p class="tacbar-ln"><a href="/verify.html">Verify supply</a><a href="/tac/">Shielded pool</a><a href="#bridge" data-link="bridge">Bridge</a><a href="https://github.com/src-company/tacit/blob/main/docs/TAC.md#holding-tac" rel="noopener">Holding it</a><a href="#buy" data-link="buy">Buy</a><a href="/trade/tac/">Trade and price chart</a></p>
     </details>
   </section>
 
@@ -1129,6 +1140,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
     <span>tacit.finance · mainnet</span>
     <a class="on-x" href="https://x.com/tacitfi" rel="noopener" aria-label="Tacit on X" title="@tacitfi on X"><svg aria-hidden="true"><use href="#i-x"/></svg></a>
     <nav aria-label="More">
+      <a href="/trade/">Trade</a>
       <a href="/weld/stats/">Stats</a>
       <a href="https://defillama.com/protocol/tacit" rel="noopener">DefiLlama</a>
       <a href="/classic.html">Classic app</a>
@@ -9460,7 +9472,7 @@ function paintHxQ() {
   if (more) {
     const tac = HX.mode === 'swap' && (HX.from === 'tac' || HX.to === 'tac');
     more.hidden = !tac;
-    if (tac) more.href = `/trade/#side=${HX.from === 'tac' ? 'sell' : 'buy'}${(HX.from === 'tac' || HX.from === 'ether') && HX.amt ? `&amount=${encodeURIComponent(HX.amt)}` : ''}`;
+    if (tac) more.href = `/trade/tac/#side=${HX.from === 'tac' ? 'sell' : 'buy'}${(HX.from === 'tac' || HX.from === 'ether') && HX.amt ? `&amount=${encodeURIComponent(HX.amt)}` : ''}`;
   }
   const alt = $('#hx-alt');
   if (alt && !q.busy) {
@@ -9530,7 +9542,7 @@ function paintHx() {
     <button class="btn" type="button" id="hx-go">${go0}</button>
     <p class="hx-q" id="hx-q" aria-live="polite"></p>
     <p class="hx-q" id="hx-alt" hidden></p>
-    <a class="hx-trade" id="hx-trade" href="/trade/" hidden>TAC's price on both chains, and every pool →</a>`;
+    <a class="hx-trade" id="hx-trade" href="/trade/tac/" hidden>TAC's price on both chains, and every pool →</a>`;
   const ETHER = [HX_ETHER], ETHS = [HX_ETHER, ['eth', 'tETH', 'teth', 6]], TETH = [['eth', 'tETH', 'teth']], TAC = [['tac', 'TAC', 'tac']];
   const m = HX.mode;
   if (m === 'private') {
