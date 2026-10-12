@@ -12,7 +12,7 @@ import {
   ZERO_ADDR, TAC_ERC20, TAC_POOL_ASSET_ID, CETH_POOL_ASSET_ID,
   ZROUTER, ZQUOTER_V2, PRECISION_ROUTE, PRECISION_LENS, PRECISION_POLICY, PRECISION_GUARD,
   PRECISION_POOL, TACIT_AMM, TACIT_AMM_TIERS, TACIT_AMM_UNIT_SCALE, BOARD_V2, BOARD_V1, BOARD_VIEW,
-  BOARD_SWAP_BOL, MULTICALL3, VENUES,
+  BOARD_SWAP_BOL, MULTICALL3, VENUES, WETH, ZQUOTER_V4, V4_TAC_POOLS,
   makeEvmTradeVenues, zswapDeepLink, encErc20Allowance, encErc20Approve, encErc20BalanceOf, decUint256,
   _internal,
 } from '../dapp/evm-trade-venues.js';
@@ -110,6 +110,24 @@ const B32 = '0x' + 'ab'.repeat(32);
   const mcOracle = cast('calldata', 'multicall(bytes[])', '[0xdeadbeef,0xcafe]');
   assert.equal(mcMine, mcOracle);
   ok('encZRouterMulticall matches the standard multicall(bytes[]) encoding');
+
+  const a3vMine = _internal.encAggregate3Value([{ to: A1, value: 7n, data: '0xdeadbeef' }, { to: A2, value: 0n, data: '0xcafe' }], false);
+  const a3vOracle = cast('calldata', 'aggregate3Value((address,bool,uint256,bytes)[])', `[(${A1},false,7,0xdeadbeef),(${A2},false,0,0xcafe)]`);
+  assert.equal(a3vMine, a3vOracle);
+  ok('encAggregate3Value matches aggregate3Value((address,bool,uint256,bytes)[]) with allowFailure=false');
+
+  const a3Mine = _internal.encAggregate3([{ to: A1, data: '0xdeadbeef' }], false);
+  const a3Oracle = cast('calldata', 'aggregate3((address,bool,bytes)[])', `[(${A1},false,0xdeadbeef)]`);
+  assert.equal(a3Mine, a3Oracle);
+  ok('encAggregate3 takes allowFailure=false for an execution bundle (quotes keep true)');
+
+  assert.equal(_internal.encSafeExecute(A1, '0xdeadbeef'), cast('calldata', 'execute(address,bytes)', A1, '0xdeadbeef'));
+  assert.equal(_internal.encTransfer(A1, 12345n), cast('calldata', 'transfer(address,uint256)', A1, '12345'));
+  ok('encSafeExecute and encTransfer match execute(address,bytes) and transfer(address,uint256)');
+
+  const q4 = _internal.encQuoteV4({ tokenIn: ZERO_ADDR, tokenOut: TAC_ERC20, pool: { fee: 150000, tickSpacing: 1500, hooks: ZERO_ADDR }, amount: 10n ** 17n });
+  assert.equal(q4, cast('calldata', 'quoteV4(bool,address,address,uint24,int24,address,uint256)', 'false', ZERO_ADDR, TAC_ERC20, '150000', '1500', ZERO_ADDR, '100000000000000000'));
+  ok('encQuoteV4 matches zQuoterV4.quoteV4 for a custom (fee, tickSpacing, hooks) key');
 
   const tqMine = _internal.encTacitQuote({ assetIn: B32, assetOut: TAC_POOL_ASSET_ID, feeBps: 30, amountIn: 12345n });
   const tqOracle = cast('calldata', 'quoteSwap(bytes32,bytes32,uint32,uint256)', B32, TAC_POOL_ASSET_ID, '30', '12345');
@@ -235,6 +253,7 @@ const B32 = '0x' + 'ab'.repeat(32);
     return subs;
   }
   const word30 = () => (30n).toString(16).padStart(64, '0');
+  const boardTokens = [];
   async function ethCall(to, data) {
     if (to.toLowerCase() === MULTICALL3.toLowerCase()) {
       calls.agg3++;
@@ -254,7 +273,11 @@ const B32 = '0x' + 'ab'.repeat(32);
           return c.data.includes(word30()) ? cast('abi-encode', 'f(uint256)', '694000000000000000000') : null;
         }
         if (c.to.toLowerCase() === BOARD_VIEW.toLowerCase()) {
+          boardTokens.push(c.data.slice(10 + 2 * 64 + 24, 10 + 3 * 64), c.data.slice(10 + 3 * 64 + 24, 10 + 4 * 64));
           return cast('abi-encode', 'f(uint256[])', '[]'); // no resting orders
+        }
+        if (c.to.toLowerCase() === ZQUOTER_V4.toLowerCase()) {
+          return cast('abi-encode', 'f(uint256,uint256)', '0', '0'); // the pools exist and hold nothing
         }
         return null;
       });
@@ -274,9 +297,14 @@ const B32 = '0x' + 'ab'.repeat(32);
 
   const venues = makeEvmTradeVenues({ ethCall });
   const result = await venues.quoteAll({ dir: 'ETH_TO_TAC', amountIn: 10n ** 16n, account: A1, includeZQuoter: true });
-  // quotePrecision issues two sequential batches (quoteBest, then effFee+routable), quoteTacitAmm
-  // and quoteBoards one each — 4 Multicall3 round-trips total; zQuoter never goes through one.
-  assert.equal(calls.agg3, 4, 'precision (x2) + tacit-amm + boards batch through Multicall3; zQuoter never does');
+  // quotePrecision issues two sequential batches (quoteBest, then effFee+routable), quoteTacitAmm, quoteBoards
+  // and the v4 pools one each — 5 Multicall3 round-trips total; zQuoter never goes through one.
+  assert.equal(calls.agg3, 5, 'precision (x2) + tacit-amm + boards + v4 pools batch through Multicall3; zQuoter never does');
+  assert.ok(boardTokens.every((t) => t === WETH.slice(2).toLowerCase() || t === TAC_ERC20.slice(2).toLowerCase()), 'the boards are asked about WETH and TAC, never native ETH');
+  assert.ok(boardTokens.includes(WETH.slice(2).toLowerCase()), 'WETH is one side of the board query');
+  assert.equal(result.v4.length, V4_TAC_POOLS.length);
+  assert.ok(result.v4.every((q) => q.status === 'no-liquidity' && q.amountOut === 0n), 'the three empty v4 pools say so');
+  assert.ok(!result.ranked.some((q) => q.venue === VENUES.UNISWAP_V4), 'a quote-only venue never enters the ranking');
   assert.ok(result.precision && result.precision.amountOut === 17700000000000000000000n);
   assert.ok(result.tacitAmm && result.tacitAmm.amountOut === 694000000000000000000n);
   assert.equal(result.zquoter.status, 'no-route');

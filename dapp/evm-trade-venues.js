@@ -6,9 +6,15 @@
 // confidential-pool-ux.js's helper) and, only if it wants the Precision/aggregator route builders
 // (which bind a checkpoint to keccak256(routeData)), a `keccak256(bytes) -> bytes` function.
 //
-// One venue executes per trade — an atomic split across two ETH-in legs isn't safe through the
-// zRouter aggregator's `snwap` (it forwards the whole msg.value to whichever executor runs first),
-// so `quoteAll` ranks venues and the caller builds the winner.
+// `quoteAll` ranks the venues and `build` builds one winner. `quoteSplit`/`buildSplit` divide ONE order across
+// Precision and Tacit's public AMM in a single transaction. A plain zRouter multicall cannot do that with native
+// ETH: every `snwap` leg is forwarded the transaction's whole msg.value, Precision's `route` reverts unless
+// msg.value equals its amountIn, and swapV3/V4 refund the router's balance to the caller. What does work is ONE
+// `snwap` whose executor is Multicall3: `aggregate3Value` hands each leg its exact value, Precision is reached
+// through zRouter's SafeExecutor (the address PrecisionRoute trusts, callable by anyone), and the bundle's one
+// `amountOutMin` bounds the total. Multicall3 cannot receive ETH, so no leg may refund to its caller. Nothing
+// here is on-chain-checked per leg, so a caller must `simulate` the exact transaction before signing and fall
+// back to the best single venue when it reverts.
 
 export const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
 export const TAC_ERC20 = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279';
@@ -30,11 +36,24 @@ export const BOARD_V1 = '0x000000fF3D7A2d373615141d7489Ca66683DbecF';
 export const BOARD_VIEW = '0x000000E0b25449F32f7D9259aC449bA88E78dFCE';
 export const BOARD_SWAP_BOL = '0x00000087A6dc5071779Ed1F8274A39230768B976';
 export const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11';
+export const WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
+export const SAFE_EXECUTOR = '0x25Fc36455aa30D012bbFB86f283975440D7Ee8Db'; // zRouter's SafeExecutor: PrecisionRoute.trustedExecutor()
+export const ZQUOTER_V4 = '0x000000DcF8245bdC84fc5018F7825aB029C82845';
+export const V4_POOL_MANAGER = '0x000000000004444c5dc75cB358380D2e3dE08A90';
+export const V4_STATE_VIEW = '0x7ffe42c4a5deea5b0fec41c94c136cf115597227';
+// The three hookless Uniswap v4 ETH/TAC pools found in the PoolManager's Initialize logs (2026-09-22 and 2026-10-05). Their
+// fees are 15-40%, so zQuoter (which scans 1/5/30/100 bp only) never sees them; they hold no liquidity today.
+export const V4_TAC_POOLS = Object.freeze([
+  Object.freeze({ fee: 400000, tickSpacing: 4000, hooks: ZERO_ADDR, id: '0x1f566e24db8e467391f6e9593198daf92c875592546c51ac8ec07361fb8c56fa' }),
+  Object.freeze({ fee: 150000, tickSpacing: 1500, hooks: ZERO_ADDR, id: '0x864c8b10012fdac2b8fab0c878e5a9d3503362032567a1176c40ffd8ff17d151' }),
+  Object.freeze({ fee: 300000, tickSpacing: 3000, hooks: ZERO_ADDR, id: '0x7b3e5906e25464c4778768f6e2fe27eb53c156947d413ea7a0c92d5876cd34bf' }),
+]);
 
 export const VENUES = Object.freeze({
   PRECISION: 'precision',
   TACIT_AMM: 'tacit-amm',
   ZQUOTER: 'zquoter',
+  UNISWAP_V4: 'uniswap-v4',
 });
 
 const SEL = {
@@ -48,6 +67,10 @@ const SEL = {
   zMulticall: 'ac9650d8',     // zRouter.multicall(bytes[])
   zPermit: '7ac2ff7b',        // zRouter.permit(token,value,deadline,v,r,s): an EIP-2612 permit to zRouter, as a multicall leg
   agg3: '82ad56cb',           // Multicall3.aggregate3((address,bool,bytes)[])
+  agg3v: '174dea71',          // Multicall3.aggregate3Value((address,bool,uint256,bytes)[])
+  safeExecute: '1cff79cd',    // SafeExecutor.execute(target,data): forwards its callvalue to `target`
+  transfer: 'a9059cbb',
+  quoteV4: '61d65dee',        // zQuoterV4.quoteV4(exactOut,tokenIn,tokenOut,fee,tickSpacing,hooks,amount) -> (amountIn, amountOut)
   tacitQuote: '3bc1414a',     // TacitPublicAmm.quoteSwap(assetIn,assetOut,feeBps,amountIn) -> amountOut
   tacitSwap: 'cfdf9dcc',      // TacitPublicAmm.swapPublic(assetIn,assetOut,feeBps,amountIn,minOut,deadline,to)
   buildBestSwap: 'e7798987',  // zQuoter.buildBestSwap(to,exactOut,tokenIn,tokenOut,amount,slippageBps,deadline)
@@ -71,18 +94,37 @@ const decAddrWord = (hex, i) => '0x' + strip0x(hex).slice(i * 64 + 24, i * 64 + 
 
 // ── Multicall3.aggregate3 — allowFailure always true, so one reverting probe (e.g. an unfounded
 // Tacit AMM tier) doesn't sink the rest of the batch. ──
-function encAggregate3(calls) {
+function encAggregate3(calls, allowFailure = true) {
   const n = calls.length;
   let head = '', tail = '', off = n * 32;
   for (const c of calls) {
     const d = strip0x(c.data);
-    const body = addrWord(c.to) + boolWord(true) + word(96) + word(d.length / 2) + padRight64(d);
+    const body = addrWord(c.to) + boolWord(allowFailure) + word(96) + word(d.length / 2) + padRight64(d);
     head += word(off);
     tail += body;
     off += body.length / 2;
   }
   return '0x' + SEL.agg3 + word(32) + word(n) + head + tail;
 }
+// Multicall3.aggregate3Value: each call carries its own ETH `value`; the transaction's value must equal their sum.
+function encAggregate3Value(calls, allowFailure = false) {
+  const n = calls.length;
+  let head = '', tail = '', off = n * 32;
+  for (const c of calls) {
+    const d = strip0x(c.data);
+    const body = addrWord(c.to) + boolWord(allowFailure) + word(c.value || 0n) + word(128) + word(d.length / 2) + padRight64(d);
+    head += word(off);
+    tail += body;
+    off += body.length / 2;
+  }
+  return '0x' + SEL.agg3v + word(32) + word(n) + head + tail;
+}
+// SafeExecutor.execute(target, data): zRouter's own executor, which anyone may call; PrecisionRoute answers only to it.
+function encSafeExecute(target, data) {
+  const d = strip0x(data);
+  return '0x' + SEL.safeExecute + addrWord(target) + word(64) + word(d.length / 2) + padRight64(d);
+}
+function encTransfer(to, amount) { return '0x' + SEL.transfer + addrWord(to) + word(amount); }
 function decAggregate3(hex, n) {
   const h = strip0x(hex);
   const out = [];
@@ -315,8 +357,9 @@ function decCandidateCount(raw) {
 }
 
 async function quoteBoards({ ethCall, dir, block }) {
-  const tokenIn = dir === 'ETH_TO_TAC' ? ZERO_ADDR : TAC_ERC20;
-  const tokenOut = dir === 'ETH_TO_TAC' ? TAC_ERC20 : ZERO_ADDR;
+  // The boards hold WETH orders: asking for native ETH (address 0) can never match one.
+  const tokenIn = dir === 'ETH_TO_TAC' ? WETH : TAC_ERC20;
+  const tokenOut = dir === 'ETH_TO_TAC' ? TAC_ERC20 : WETH;
   const [v2Raw, v1Raw] = await batch(ethCall, [
     { to: BOARD_VIEW, data: encBoardCandidates({ board: BOARD_V2, isV2: true, tokenIn, tokenOut }) },
     { to: BOARD_VIEW, data: encBoardCandidates({ board: BOARD_V1, isV2: false, tokenIn, tokenOut }) },
@@ -340,6 +383,142 @@ export function encErc20Allowance(owner, spender) { return '0x' + SEL.allowance 
 export function encErc20Approve(spender, amount) { return '0x' + SEL.approve + addrWord(spender) + word(amount); }
 export function encErc20BalanceOf(account) { return '0x' + SEL.balanceOf + addrWord(account); }
 export function decUint256(raw) { return raw ? decWord(raw, 0) : 0n; }
+
+// ── Uniswap v4 pools zQuoter cannot see (quote-only) ──
+//
+// zQuoter scans the standard 1/5/30/100 bp v4 tiers, so the three 15-40%-fee ETH/TAC pools above are invisible to it.
+// zQuoterV4.quoteV4 takes any (fee, tickSpacing, hooks) key. These are reported (`v4` in quoteAll) but NOT ranked or
+// built: they hold no liquidity today and cannot be exercised on a fork until one does, and an unexercised path must not
+// win a ranking. When a pool gains liquidity: build it as `zRouter.swapV4(to, false, fee, tickSpacing, tokenIn, tokenOut,
+// amount, 0, deadline)` with `to = ZROUTER` and a closing sweep, and fork-test it first.
+
+function encQuoteV4({ tokenIn, tokenOut, pool, amount }) {
+  return '0x' + SEL.quoteV4 + boolWord(false) + addrWord(tokenIn) + addrWord(tokenOut) + word(pool.fee)
+    + word(BigInt.asUintN(256, BigInt(pool.tickSpacing))) + addrWord(pool.hooks || ZERO_ADDR) + word(amount);
+}
+
+async function quoteV4Pools({ ethCall, dir, amountIn, block, pools = V4_TAC_POOLS }) {
+  const tokenIn = dir === 'ETH_TO_TAC' ? ZERO_ADDR : TAC_ERC20;
+  const tokenOut = dir === 'ETH_TO_TAC' ? TAC_ERC20 : ZERO_ADDR;
+  const raws = await batch(ethCall, pools.map((pool) => ({ to: ZQUOTER_V4, data: encQuoteV4({ tokenIn, tokenOut, pool, amount: amountIn }) })), block);
+  return pools.map((pool, i) => {
+    const out = raws[i] ? decWord(raws[i], 1) : 0n;
+    return { venue: VENUES.UNISWAP_V4, fee: pool.fee, tickSpacing: pool.tickSpacing, hooks: pool.hooks || ZERO_ADDR, id: pool.id || null, amountIn, amountOut: out,
+      status: !raws[i] ? 'error' : out > 0n ? 'ok' : 'no-liquidity' };
+  });
+}
+
+// ── splitting one order across Precision and Tacit's public AMM, in one transaction ──
+
+// The grid search below needs only each venue's output at a given amount, so it asks Precision's lens (`quoteBest`) and the
+// AMM (`quoteSwap`, at the tier that wins the full-size quote) directly, in two batches. Both curves are concave, so a coarse
+// pass at 5% steps and a fine pass at 1% steps around its best finds the optimum to within a fraction of a percent.
+const SPLIT_COARSE_BPS = 500n, SPLIT_FINE_BPS = 100n;
+
+async function gridOutputs({ ethCall, dir, account, shares, amountIn, feeBps, block }) {
+  const tokenIn = dir === 'ETH_TO_TAC' ? ZERO_ADDR : TAC_ERC20;
+  const assetIn = dir === 'ETH_TO_TAC' ? CETH_POOL_ASSET_ID : TAC_POOL_ASSET_ID;
+  const assetOut = dir === 'ETH_TO_TAC' ? TAC_POOL_ASSET_ID : CETH_POOL_ASSET_ID;
+  const [c0, c1] = ZERO_ADDR.toLowerCase() < TAC_ERC20.toLowerCase() ? [ZERO_ADDR, TAC_ERC20] : [TAC_ERC20, ZERO_ADDR];
+  const points = shares.map((shareBps) => {
+    const a2 = alignDown(amountIn * (10000n - shareBps) / 10000n, TACIT_AMM_UNIT_SCALE);
+    return { shareBps, a1: amountIn - a2, a2 };
+  });
+  const calls = [];
+  for (const pt of points) {
+    if (pt.a1 > 0n) calls.push({ to: PRECISION_LENS, data: encQuoteBest({ c0, c1, sender: account, tokenIn, amountIn: pt.a1 }) });
+    if (pt.a2 > 0n) calls.push({ to: TACIT_AMM, data: encTacitQuote({ assetIn, assetOut, feeBps, amountIn: pt.a2 }) });
+  }
+  const raws = await batch(ethCall, calls, block);
+  let k = 0;
+  return points.map((pt) => {
+    const p = pt.a1 > 0n ? decQuoteBest(raws[k++]) : null;
+    const t = pt.a2 > 0n ? (raws[k] ? decWord(raws[k], 0) : 0n) : 0n; if (pt.a2 > 0n) k++;
+    const ok = (pt.a1 === 0n || p) && (pt.a2 === 0n || t > 0n);
+    return { ...pt, o1: p ? p.amountOut : 0n, o2: t, total: ok ? (p ? p.amountOut : 0n) + t : 0n };
+  });
+}
+
+// → null when fewer than two venues answer or no split pays more than the best single venue; otherwise
+// { dir, amountIn, amountOut, gain, gainBps, shareBps, single, legs: [precisionLeg, tacitLeg] }.
+async function quoteSplit({ ethCall, dir, amountIn, account, block = 'latest' }) {
+  if (amountIn <= 0n) return null;
+  const [p, t] = await Promise.all([
+    quotePrecision({ ethCall, dir, amountIn, account, block }).catch(() => null),
+    quoteTacitAmm({ ethCall, dir, amountIn, block }).catch(() => null),
+  ]);
+  if (!p || !t) return null;
+  const single = p.amountOut >= t.amountOut ? p : t;
+  const feeBps = Number(t.feeBps);
+  const coarse = [];
+  for (let s = 0n; s <= 10000n; s += SPLIT_COARSE_BPS) coarse.push(s);
+  const best = (rows) => rows.filter((r) => r.total > 0n).reduce((a, b) => (!a || b.total > a.total ? b : a), null);
+  const rows1 = await gridOutputs({ ethCall, dir, account, shares: coarse, amountIn, feeBps, block });
+  let top = best(rows1);
+  if (!top) return null;
+  const lo = top.shareBps > SPLIT_COARSE_BPS ? top.shareBps - SPLIT_COARSE_BPS : 0n, hi = top.shareBps + SPLIT_COARSE_BPS < 10000n ? top.shareBps + SPLIT_COARSE_BPS : 10000n;
+  const fine = [];
+  for (let s = lo; s <= hi; s += SPLIT_FINE_BPS) if (s % SPLIT_COARSE_BPS !== 0n) fine.push(s);
+  if (fine.length) top = best([top, ...(await gridOutputs({ ethCall, dir, account, shares: fine, amountIn, feeBps, block }))]);
+  if (!top || top.a1 === 0n || top.a2 === 0n) return null;
+  // The winning split's two legs, quoted afresh the way a single venue is (pool, fee, policy), not taken from the grid.
+  const [l1, l2] = await Promise.all([
+    quotePrecision({ ethCall, dir, amountIn: top.a1, account, block }).catch(() => null),
+    quoteTacitAmm({ ethCall, dir, amountIn: top.a2, block }).catch(() => null),
+  ]);
+  if (!l1 || !l2 || l2.amountIn !== top.a2) return null;
+  const amountOut = l1.amountOut + l2.amountOut, gain = amountOut - single.amountOut;
+  if (gain <= 0n) return null;
+  return { dir, amountIn, amountOut, gain, gainBps: Number(gain * 10000n / single.amountOut), shareBps: top.shareBps, single: { venue: single.venue, amountOut: single.amountOut },
+    legs: [l1, l2] };
+}
+
+// The one transaction: zRouter.multicall([deadline guard, snwap(executor = Multicall3, aggregate3[Value](legs))]), preceded by
+// the EIP-2612 permit for TAC-in when one is given. Per-leg floors are zero on purpose: the single `minOut` on the snwap bounds
+// the TOTAL the recipient receives, which is the only thing that matters and cannot fail spuriously when one leg slips and the
+// other improves.
+function buildSplit({ split, account, minOut: reviewedMinOut = null, slippageBps = 50, deadline, keccak256, permit }) {
+  if (!split || split.legs?.length !== 2) throw new Error('buildSplit: a split quote is required');
+  const [pl, tl] = split.legs, dir = split.dir;
+  const dl = deadline ?? BigInt(Math.floor(Date.now() / 1000) + 1800);
+  const minOut = reviewedMinOut != null ? BigInt(reviewedMinOut) : (split.amountOut * BigInt(10000 - slippageBps)) / 10000n;
+  if (minOut > split.amountOut) throw new Error('buildSplit: minOut is above what the split pays');
+  if (tl.amountIn % TACIT_AMM_UNIT_SCALE !== 0n) throw new Error('buildSplit: the AMM leg must be a whole multiple of 1e10');
+  const total = pl.amountIn + tl.amountIn;
+  const guardLeg = encSnwap({ tokenIn: ZERO_ADDR, amountIn: 0n, recipient: account, tokenOut: ZERO_ADDR, minOut: 0n, executor: PRECISION_GUARD, data: encGuardDeadline(dl) });
+  if (dir === 'ETH_TO_TAC') {
+    const route = encPrecisionRoute({ tokenIn: ZERO_ADDR, tokenOut: TAC_ERC20, amountIn: pl.amountIn, minOut: 0n, to: account, pools: [pl.pool] });
+    const bundle = encAggregate3Value([
+      { to: SAFE_EXECUTOR, value: pl.amountIn, data: encSafeExecute(PRECISION_ROUTE, route) },
+      { to: TACIT_AMM, value: tl.amountIn, data: encTacitSwap({ assetIn: tl.assetIn, assetOut: tl.assetOut, feeBps: tl.feeBps, amountIn: tl.amountIn, minOut: 0n, deadline: dl, to: account }) },
+    ], false);
+    const swap = encSnwap({ tokenIn: ZERO_ADDR, amountIn: 0n, recipient: account, tokenOut: TAC_ERC20, minOut, executor: MULTICALL3, data: bundle });
+    return { to: ZROUTER, data: encZRouterMulticall([guardLeg, swap]), value: total, approval: null, minOut };
+  }
+  if (typeof keccak256 !== 'function') throw new Error('buildSplit: keccak256 required for a TAC-in split');
+  const route = encPrecisionRoute({ tokenIn: TAC_ERC20, tokenOut: ZERO_ADDR, amountIn: pl.amountIn, minOut: 0n, to: account, pools: [pl.pool] });
+  const bundle = encAggregate3([
+    { to: SAFE_EXECUTOR, data: encSafeExecute(PRECISION_ROUTE, encPrecisionCheckpoint({ fund: TAC_ERC20, routeDataHex: route, account, keccak256 })) },
+    { to: TAC_ERC20, data: encTransfer(PRECISION_ROUTE, pl.amountIn) },
+    { to: SAFE_EXECUTOR, data: encSafeExecute(PRECISION_ROUTE, route) },
+    { to: TAC_ERC20, data: '0x' + SEL.approve + addrWord(TACIT_AMM) + word(tl.amountIn) },
+    { to: TACIT_AMM, data: encTacitSwap({ assetIn: tl.assetIn, assetOut: tl.assetOut, feeBps: tl.feeBps, amountIn: tl.amountIn, minOut: 0n, deadline: dl, to: account }) },
+  ], false);
+  // snwap pulls the TAC from the sender into the executor (Multicall3), which then passes each leg its share.
+  const swap = encSnwap({ tokenIn: TAC_ERC20, amountIn: total, recipient: account, tokenOut: ZERO_ADDR, minOut, executor: MULTICALL3, data: bundle });
+  const legs = [...(permit ? [encZRouterPermit({ token: TAC_ERC20, ...permit })] : []), guardLeg, swap];
+  return { to: ZROUTER, data: encZRouterMulticall(legs), value: 0n, approval: permit ? null : { token: TAC_ERC20, spender: ZROUTER, amount: total }, minOut };
+}
+
+// Runs a built transaction as `from` against current state, changing nothing. A TAC-in transaction needs its approval (or
+// permit) in place, or the simulation fails for that reason alone. `ethCall(to, data, block, { from, value })` must pass
+// `from` and `value` through. → { ok: true } or { ok: false, error }.
+async function simulateTx({ ethCall, tx, from, block = 'latest' }) {
+  try {
+    await ethCall(tx.to, tx.data, block, { from, ...(tx.value ? { value: '0x' + BigInt(tx.value).toString(16) } : {}) });
+    return { ok: true };
+  } catch (error) { return { ok: false, error }; }
+}
 
 // ── ranking + top-level API ──
 
@@ -376,14 +555,15 @@ export function makeEvmTradeVenues({ ethCall, keccak256 } = {}) {
           () => ({ venue: VENUES.ZQUOTER, status: 'timeout' }),
         )
       : Promise.resolve(null);
-    const [precision, tacitAmm, boards, zquoter] = await Promise.all([
+    const [precision, tacitAmm, boards, v4, zquoter] = await Promise.all([
       quotePrecision({ ethCall, dir, amountIn, account, block }).catch(() => null),
       quoteTacitAmm({ ethCall, dir, amountIn, block }).catch(() => null),
       quoteBoards({ ethCall, dir, block }).catch(() => ({ venue: 'boards', restingOrders: 0 })),
+      quoteV4Pools({ ethCall, dir, amountIn, block }).catch(() => []),
       zquoterPromise,
     ]);
     const ranked = rankQuotes([precision, tacitAmm, zquoter && zquoter.status === 'ok' ? zquoter : null]);
-    return { dir, amountIn, ranked, best: ranked[0] || null, precision, tacitAmm, boards, zquoter };
+    return { dir, amountIn, ranked, best: ranked[0] || null, precision, tacitAmm, boards, v4, zquoter };
   }
 
   // `permit` ({ value, deadline, v, r, s }, an EIP-2612 permit over TAC to zRouter) is used by the TAC-in Precision
@@ -403,14 +583,56 @@ export function makeEvmTradeVenues({ ethCall, keccak256 } = {}) {
     throw new Error(`build: unknown venue ${quote.venue}`);
   }
 
+  // The best way to execute one order: the best single venue, or the split when it pays enough more to cover its extra gas.
+  // `estimateGas(tx) -> bigint` and `gasPrice() -> bigint (wei)` are optional; without them a split is taken when it pays
+  // at least `minGainBps` (0.3%) more. With `verify` the chosen split is simulated as `account` first and a revert falls back
+  // to the single venue (`splitError` says why); leave it off for a TAC-in order whose approval is not yet in place.
+  async function plan({ dir, amountIn, account, slippageBps = 50, deadline, permit, estimateGas, gasPrice, minGainBps = 30, verify = false, block = 'latest' }) {
+    const dl = deadline ?? BigInt(Math.floor(Date.now() / 1000) + 1800);
+    const [all, split] = await Promise.all([
+      quoteAll({ dir, amountIn, account, block, includeZQuoter: false, deadline: dl }),
+      quoteSplit({ ethCall, dir, amountIn, account, block }).catch(() => null),
+    ]);
+    const single = all.best ? { quote: all.best, tx: build({ quote: all.best, dir, account, slippageBps, deadline: dl, permit }) } : null;
+    const out = { kind: 'single', ...(single || {}), split: null, all };
+    if (!split || !single) {
+      if (split && !single) { out.kind = 'split'; out.split = split; out.tx = buildSplit({ split, account, slippageBps, deadline: dl, keccak256, permit }); }
+      return out;
+    }
+    const splitTx = buildSplit({ split, account, slippageBps, deadline: dl, keccak256, permit });
+    let worth = split.gainBps >= minGainBps;
+    if (estimateGas && gasPrice) {
+      try {
+        const [g1, g2, price] = await Promise.all([estimateGas(single.tx), estimateGas(splitTx), gasPrice()]);
+        const extra = (g2 > g1 ? g2 - g1 : 0n) * BigInt(price);                                  // wei
+        // The extra output in ETH: already ETH when selling TAC, else priced at what the best single venue pays.
+        const gainEth = dir === 'TAC_TO_ETH' ? split.gain : split.gain * amountIn / split.single.amountOut;
+        worth = gainEth * 10n > extra * 12n;                                                      // at least 20% over its own gas
+        out.gas = { single: g1, split: g2, extraWei: extra, gainEth };
+      } catch { /* an estimate that fails is no reason to refuse a split the percentage already justifies */ }
+    }
+    out.split = split;
+    if (!worth) return out;
+    if (verify) {
+      const sim = await simulateTx({ ethCall, tx: splitTx, from: account, block });
+      if (!sim.ok) { out.splitError = sim.error; return out; }
+    }
+    return { ...out, kind: 'split', tx: splitTx, quote: null };
+  }
+
   return {
     quoteAll,
     build,
+    plan,
+    quoteSplit: (args) => quoteSplit({ ethCall, ...args }),
+    buildSplit: (args) => buildSplit({ keccak256, ...args }),
+    simulate: (args) => simulateTx({ ethCall, ...args }),
     quotePrecision: (args) => quotePrecision({ ethCall, ...args }),
     quoteTacitAmm: (args) => quoteTacitAmm({ ethCall, ...args }),
     quoteBoards: (args) => quoteBoards({ ethCall, ...args }),
+    quoteV4Pools: (args) => quoteV4Pools({ ethCall, ...args }),
     quoteZQuoter: (args) => quoteZQuoter({ ethCall, ...args }),
   };
 }
 
-export const _internal = { alignDown, encAggregate3, decAggregate3, encSnwap, encZRouterMulticall, encZRouterPermit, encPrecisionRoute, encGuardDeadline, encTacitQuote, encTacitSwap, encBuildBestSwap, decBuildBestSwap, decQuoteBest, decCandidateCount };
+export const _internal = { alignDown, encAggregate3, encAggregate3Value, encSafeExecute, encTransfer, encQuoteV4, decAggregate3, encSnwap, encZRouterMulticall, encZRouterPermit, encPrecisionRoute, encGuardDeadline, encTacitQuote, encTacitSwap, encBuildBestSwap, decBuildBestSwap, decQuoteBest, decCandidateCount };
