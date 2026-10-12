@@ -643,10 +643,14 @@ await step('sell', async () => {
     await r.page.fill('#sl-amt', '25');
     await acceptLoss(r.page, '#sl-go', '#sl-ackv');
     const e0 = BigInt(await rpc('eth_getBalance', [who, 'latest'])), n0 = BigInt(await rpc('eth_getTransactionCount', [who, 'latest']));
+    const route = (await text(r.page, '#sl-rcpt')).replace(/\s+/g, ' ');
     await r.page.click('#sl-go');
     await until(r.page, () => /Sold|class="err"/.test(document.querySelector('#sl-status')?.innerHTML || ''), null, 240000);
     ok((await tacOf(who)) === 75n * 10n ** 18n, `sell: 25 TAC sold ${await text(r.page, '#sl-status')}`);
-    ok(BigInt(await rpc('eth_getTransactionCount', [who, 'latest'])) === n0 + 1n && (await allowanceOf(TAC, who, ZROUTER)) === 0n, 'sell: one transaction, the permit riding inside it, no allowance left');
+    // The pool that pays most takes the sale, and that moves with the market: through the Precision pool (or a split) the permit rides inside
+    // one transaction; through the Tacit pool the TAC is approved for exactly the sale first, a second transaction. Either leaves no allowance.
+    const sent = BigInt(await rpc('eth_getTransactionCount', [who, 'latest'])) - n0, viaTacit = /Route\s*Tacit public pool/.test(route);
+    ok(sent === (viaTacit ? 2n : 1n) && (await allowanceOf(TAC, who, ZROUTER)) === 0n && (await allowanceOf(TAC, who, '0x00000000E36C7EC997CC59DCda9E03673B448119')) === 0n, `sell: ${viaTacit ? 'the Tacit pool: an approval for the sale, then the sale' : 'one transaction, the permit riding inside it'}, no allowance left (${sent} sent; ${route.match(/Route\s*([^$]*?)(This pool|$)/)?.[1]?.slice(0, 60)})`);
     ok(BigInt(await rpc('eth_getBalance', [who, 'latest'])) > e0, 'sell: ETH arrives, net of gas');
   } finally { await r.browser.close(); await rpc('anvil_stopImpersonatingAccount', [who]); }
 });
