@@ -8,8 +8,9 @@
 //   3. the Ethereum CrossOutRecorded event for the claim, which names the spent note's nullifier, and so fixes the
 //      destination blinding (HMAC of the key and that nullifier, the derivation crossOut() uses);
 //   4. the amount, which the commitment hides: it is solved from C - r*G = amount*H over a bounded range (baby-step
-//      giant-step), so nothing needs the journal. The solved opening is checked against the commitment and against the
-//      event's destination before it is returned.
+//      giant-step), so nothing needs the journal; past that range (TAC) it is found from the value of the note the key spent
+//      to make it (amountFromSpent). The opening is checked against the commitment and against the event's destination
+//      before it is returned.
 // Whether the worker has credited the mint (GET /crossout/minted) is reported, not required: a note is sent back on the
 // reflection's own state.
 import { extractTaprootEnvelope } from './burn-deposit-bitcoin.js';
@@ -76,10 +77,35 @@ export function solveAmount(P, bits = 26) {
   return null;
 }
 
+// The amount from the note that was spent to make it. The search above reaches about 0.67 of a unit at 8 decimals, which is every tETH
+// the bridge takes but not a TAC one (up to 1,000), and a note's amount is hidden in its commitment. The key can read what the spent
+// note held, though, and a cross-out makes a note of that value less the relay's fee: nothing (a settle the holder sent) or a number of at
+// most two significant digits (the ladder fees are quoted on). With P = amount * H, value * H - P = fee * H, which is found among the
+// ladder's few hundred multiples of H by walking each decade's mantissas with one addition apiece. Null when it is no such amount.
+export function amountFromSpent(P, value) {
+  const v = BigInt(value);
+  if (v <= 0n) return null;
+  const H = pedersenCommit(1n, 0n), ZERO = H.constructor.ZERO;
+  const D = H.multiply(v).add(P.negate());                                         // fee * H
+  if (D.equals(ZERO)) return v;
+  for (let scale = 1n; scale < v; scale *= 10n) {
+    const Hs = scale === 1n ? H : H.multiply(scale);
+    let d = scale === 1n ? 1n : 10n, T = d === 1n ? Hs : Hs.multiply(d);           // one decade: 1..99 at the first, 10..99 after (1..9 are the decade before)
+    for (; d <= 99n; d++, T = T.add(Hs)) {
+      if (d * scale >= v) return null;
+      if (T.equals(D)) return v - d * scale;
+    }
+  }
+  return null;
+}
+
 // deps: chainJson(path) / chainHex(path) read the Bitcoin explorer behind the worker ('/address/..', '/tx/..'); workerJson(path)
 // reads the worker itself ('/crossout/minted?..'); rpc(method, params) is the Ethereum node the pool is read through.
+// Optional: spentValues(walletPriv) → (nullifier) => value | null, what each note this key has spent held, read from the pool afresh.
+// It is asked only for a note whose amount is past the search and which the caller could not name the spent note of, so a TAC note
+// is opened from the key and the chain alone (a bridge rebuilt from its burn, on a device that has seen nothing of it).
 const MAX_LOOKUPS = 8;
-export function makeCrossoutNotes({ secp, hmac, sha256, pool, evmLog, rpc, poolAddress, deployBlock = 0, chainJson, chainHex, workerJson, hrp = 'bc', maxAmountBits = 26 } = {}) {
+export function makeCrossoutNotes({ secp, hmac, sha256, pool, evmLog, rpc, poolAddress, deployBlock = 0, chainJson, chainHex, workerJson, hrp = 'bc', maxAmountBits = 26, spentValues = null } = {}) {
   for (const [k, v] of Object.entries({ secp, hmac, sha256, pool, evmLog, rpc, chainJson, chainHex, workerJson })) if (v == null) throw new Error(`crossout-notes: deps.${k} required`);
 
   // The destination blinding crossOut() derives: HMAC(key, 'tacit-crossout-blinding-v1' || nullifier) mod n, never zero.
@@ -116,7 +142,7 @@ export function makeCrossoutNotes({ secp, hmac, sha256, pool, evmLog, rpc, poolA
 
   // The opening of the note a mint reveal made: from what the journal knows if it knows it, else from the chain and the key.
   // Returns { amount, blinding, nullifier } or null when the amount is out of range.
-  async function openMint({ walletPriv, asset, claimId, cx, cy, ownerXonly, known = null }) {
+  async function openMint({ walletPriv, asset, claimId, cx, cy, ownerXonly, known = null, spentValue = null }) {
     const leafOf = (cxx, cyy) => pool.btcNoteLeaf(withHex(asset), cxx, cyy, withHex(ownerXonly));
     let nullifier = known && known.nullifier, destCommitment = leafOf(cx, cy);
     if (!nullifier) {
@@ -130,7 +156,15 @@ export function makeCrossoutNotes({ secp, hmac, sha256, pool, evmLog, rpc, poolA
     if (amount == null) {
       const C = G.constructor.fromAffine({ x: BigInt(withHex(cx)), y: BigInt(withHex(cy)) });          // the same point class as G and H
       const P = C.add(G.multiply(r).negate());
-      amount = solveAmount(P, maxAmountBits);
+      // The note this key spent to make it comes first when the caller has read it: it reaches any amount the bridge takes. Then the
+      // search, which is every tETH amount. Last, for an amount past the search, the key's own spent notes are read afresh.
+      const held = spentValue ? spentValue(nullifier) : null;
+      amount = held != null ? amountFromSpent(P, held) : null;
+      if (amount == null) amount = solveAmount(P, maxAmountBits);
+      if (amount == null && spentValues) {
+        const fresh = (await spentValues(walletPriv))(nullifier);
+        amount = fresh != null ? amountFromSpent(P, fresh) : null;
+      }
       if (amount == null || amount <= 0n) return null;
     }
     const { cx: c2x, cy: c2y } = pool.commitXY(amount, r);
@@ -139,8 +173,9 @@ export function makeCrossoutNotes({ secp, hmac, sha256, pool, evmLog, rpc, poolA
   }
 
   // Every cross-out note this key holds at its own Taproot address, for the assets named. `known` maps a claim id to what the
-  // journal remembers ({ amount, nullifier }), which spares the log lookup and the search.
-  async function discover({ walletPriv, assetIds, known = {} }) {
+  // journal remembers ({ amount, nullifier }), which spares the log lookup and the search. `spentValue(nullifier)` says what the note
+  // that nullifier spent held (or null): a note the journal does not know is opened from that, and from the search only failing it.
+  async function discover({ walletPriv, assetIds, known = {}, spentValue = null }) {
     const pub = secp.getPublicKey(walletPriv, true), xonly = bytesToHex(pub.slice(1));
     const addr = p2trAddress(xonly, hrp), spk = '5120' + xonly;
     const wanted = new Set((assetIds || []).map((a) => lc(withHex(a))));
@@ -162,7 +197,7 @@ export function makeCrossoutNotes({ secp, hmac, sha256, pool, evmLog, rpc, poolA
       // without being opened; the answers already found are kept, so each later call gets further down the list.
       const fresh = !k && !eventMemo.has(lc(cm.claimId));
       if (fresh && lookups >= MAX_LOOKUPS) openErr = 'not opened: many outputs to look up';
-      else try { if (fresh) lookups++; opening = await openMint({ walletPriv, asset: cm.assetId, claimId: cm.claimId, cx: cm.cx, cy: cm.cy, ownerXonly: xonly, known: k }); }
+      else try { if (fresh) lookups++; opening = await openMint({ walletPriv, asset: cm.assetId, claimId: cm.claimId, cx: cm.cx, cy: cm.cy, ownerXonly: xonly, known: k, spentValue }); }
       catch (e) { openErr = String((e && e.message) || e); }
       let credited = null;
       try {
@@ -180,14 +215,14 @@ export function makeCrossoutNotes({ secp, hmac, sha256, pool, evmLog, rpc, poolA
 
   // The opening of one output this key's cross-out made (spent or not): the transaction is read for a mint reveal whose vout 0 is
   // this key's Taproot output, and opened as discover() does. Null when the output is not such a note, or is not this key's.
-  async function openOutpoint({ walletPriv, txid, vout, known = null }) {
+  async function openOutpoint({ walletPriv, txid, vout, known = null, spentValue = null }) {
     if (Number(vout) !== 0) return null;
     const xonly = bytesToHex(secp.getPublicKey(walletPriv, true).slice(1));
     const [hex, tx] = await Promise.all([chainHex(`/tx/${stripHex(txid)}/hex`), chainJson(`/tx/${stripHex(txid)}`)]);
     const env = hex && extractTaprootEnvelope(stripHex(hex));
     const cm = env && decodeCrossoutMint(stripHex(env));
     if (!cm || !tx || !tx.vout || !tx.vout[0] || lc(tx.vout[0].scriptpubkey) !== '5120' + xonly) return null;
-    const o = await openMint({ walletPriv, asset: cm.assetId, claimId: cm.claimId, cx: cm.cx, cy: cm.cy, ownerXonly: xonly, known });
+    const o = await openMint({ walletPriv, asset: cm.assetId, claimId: cm.claimId, cx: cm.cx, cy: cm.cy, ownerXonly: xonly, known, spentValue });
     return o ? { assetId: lc(withHex(cm.assetId)), amount: o.amount, blinding: o.blinding, nullifier: o.nullifier, owner: withHex(xonly), claimId: cm.claimId } : null;
   }
 

@@ -20,7 +20,7 @@ const { secp } = await import('../dapp/vendor/tacit-deps.min.js');
 secp.etc.hmacSha256Sync = (k, ...m) => hmac(nobleSha256, k, secp.etc.concatBytes(...m));
 const { makeBtcWallet } = await import('../dapp/bitcoin-taproot-wallet.js');
 const { makeCrossoutMintReveal } = await import('../dapp/crossout-mint-reveal.js');
-const { makeCrossoutNotes, p2trAddress, solveAmount } = await import('../dapp/crossout-notes.js');
+const { makeCrossoutNotes, p2trAddress, solveAmount, amountFromSpent } = await import('../dapp/crossout-notes.js');
 const { pedersenCommit } = await import('../dapp/bulletproofs-plus.js');
 
 const sha256 = (b) => new Uint8Array(createHash('sha256').update(Buffer.from(b)).digest());
@@ -214,6 +214,75 @@ const makeNotes = (world, extra = {}) => makeCrossoutNotes({ secp, hmac: (h, k, 
   const l2 = w2.reads.logs;
   await n2.discover({ walletPriv: WALLET_PRIV, assetIds: [TETH] });
   ok(l2 > 0 && w2.reads.logs === l2, 'a claim with no event on Ethereum is searched for once, not on every refresh');
+}
+
+{
+  // A TAC note is past the search's reach (about 0.67 of a unit at 8 decimals; the bridge takes up to 1,000). What the spent note held,
+  // less a fee that is nothing or two significant digits, finds it from the commitment: the fee is read off value*H - P.
+  const at = (a) => pedersenCommit(BigInt(a), 0n);
+  const v = 12_345_678_901n;                                                   // 123.45678901 of an 8-decimal asset
+  const fees = [0n, 1n, 9n, 10n, 99n, 100n, 990n, 1_000n, 120_000n, 200_000_000n, 400_000_000n, 9_900_000_000n];
+  for (const f of fees) ok(amountFromSpent(at(v - f), v) === v - f, `fee ${f} off a note of ${v} is read off the commitment`);
+  ok(solveAmount(at(v - 200_000_000n), 26) === null, 'the search alone cannot reach such an amount');
+  ok(amountFromSpent(at(v - 123_456n), v) === null, 'a fee that is not on the ladder is not guessed');
+  ok(amountFromSpent(at(v - 200_000_000n), v + 1n) === null && amountFromSpent(at(v - 200_000_000n), 5_000_000_000n) === null, 'another note\'s value finds nothing');
+  ok(amountFromSpent(at(5n), 5n) === 5n && amountFromSpent(at(4n), 5n) === 4n && amountFromSpent(at(1n), 5n) === 1n, 'a note too small for a fee, or one whose fee takes nearly all of it, still resolves');
+  ok(amountFromSpent(at(5n), 0n) === null && amountFromSpent(at(5n), -3n) === null, 'a spent note holding nothing finds nothing');
+  const t0 = Date.now(); amountFromSpent(at(v - 9_900_000_000n), v); amountFromSpent(at(v - 123_456n), v);
+  ok(Date.now() - t0 < 1500, `and the whole ladder is walked quickly (${Date.now() - t0} ms for the worst case and a miss)`);
+}
+{
+  // Discovery: a 48 TAC note (50 spent, 2 TAC fee) whose journal is gone is opened from the spent note's value; without it, it is not.
+  const B4 = makeBridge({ assetId: TAC, amount: 4_800_000_000n, nullifier: withHex('a4'.repeat(32)), seed: '64' });
+  const spentOf = (nu, v) => (nu.toLowerCase() === B4.nullifier.toLowerCase() ? v : null);
+  const world = () => makeWorld([B4]);
+  const none = await makeNotes(world()).discover({ walletPriv: WALLET_PRIV, assetIds: [TAC] });
+  ok(none.length === 1 && none[0].amount === null, 'a 48 TAC note is out of the search\'s reach on its own');
+  const got = await makeNotes(world()).discover({ walletPriv: WALLET_PRIV, assetIds: [TAC], spentValue: (nu) => spentOf(nu, 5_000_000_000n) });
+  ok(got.length === 1 && got[0].amount === 4_800_000_000n && got[0].blinding === B4.r && got[0].nullifier === B4.nullifier, 'with the spent note\'s value it is opened: amount, blinding and nullifier');
+  const { cx, cy } = pool.commitXY(got[0].amount, got[0].blinding);
+  ok(cx === B4.cx && cy === B4.cy, 'and the opening reproduces the commitment');
+  const wrong = await makeNotes(world()).discover({ walletPriv: WALLET_PRIV, assetIds: [TAC], spentValue: (nu) => spentOf(nu, 5_000_000_123n) });
+  ok(wrong.length === 1 && wrong[0].amount === null, 'a value that is not the spent note\'s (its difference from the amount is no fee) opens nothing');
+  const other = await makeNotes(world()).discover({ walletPriv: WALLET_PRIV, assetIds: [TAC], spentValue: (nu) => spentOf(nu, 7_000_000_000n) });
+  ok(other.length === 1 && other[0].amount === 4_800_000_000n, 'a value that is off by a fee-shaped difference still gives the true amount: the commitment decides, never the value');
+  const unrelated = await makeNotes(world()).discover({ walletPriv: WALLET_PRIV, assetIds: [TAC], spentValue: () => null });
+  ok(unrelated.length === 1 && unrelated[0].amount === null, 'a key that cannot say what was spent falls back to the search, which finds nothing here');
+  const small = makeBridge({ assetId: TETH, amount: 400_000n, nullifier: withHex('a5'.repeat(32)), seed: '65' });
+  const both = await makeNotes(makeWorld([small])).discover({ walletPriv: WALLET_PRIV, assetIds: [TETH], spentValue: () => 999_999_999n });
+  ok(both.length === 1 && both[0].amount === 400_000n, 'a small amount is still found by the search when the spent note\'s value does not fit');
+  const op = await makeNotes(world()).openOutpoint({ walletPriv: WALLET_PRIV, txid: B4.revealTxid, vout: 0, spentValue: (nu) => spentOf(nu, 5_000_000_000n) });
+  ok(op && op.amount === 4_800_000_000n && op.assetId === TAC.toLowerCase(), 'one output is opened the same way');
+
+  // From the key alone (a bridge rebuilt from its burn on a device that has seen nothing of it): when the caller names no spent note,
+  // the key's own spent notes are read afresh, and only for an amount the search cannot reach.
+  const reads = [];
+  const fromKey = { spentValues: async (priv) => { reads.push(priv); return (nu) => spentOf(nu, 5_000_000_000n); } };
+  const keyOnly = await makeNotes(world(), fromKey).openOutpoint({ walletPriv: WALLET_PRIV, txid: B4.revealTxid, vout: 0 });
+  ok(keyOnly && keyOnly.amount === 4_800_000_000n && keyOnly.blinding === B4.r && reads.length === 1 && reads[0] === WALLET_PRIV, 'a 48 TAC note is opened from the key\'s own spent notes when the caller names none');
+  const keyDisc = await makeNotes(world(), fromKey).discover({ walletPriv: WALLET_PRIV, assetIds: [TAC] });
+  ok(keyDisc.length === 1 && keyDisc[0].amount === 4_800_000_000n, 'and so is a note found by looking at the key\'s Bitcoin address');
+  reads.length = 0;
+  await makeNotes(world(), fromKey).discover({ walletPriv: WALLET_PRIV, assetIds: [TAC], spentValue: (nu) => spentOf(nu, 5_000_000_000n) });
+  ok(reads.length === 0, 'the key\'s notes are not read again when the caller already named the spent note');
+  const small2 = makeBridge({ assetId: TETH, amount: 400_000n, nullifier: withHex('a6'.repeat(32)), seed: '66' });
+  await makeNotes(makeWorld([small2]), fromKey).discover({ walletPriv: WALLET_PRIV, assetIds: [TETH] });
+  ok(reads.length === 0, 'nor for an amount the search finds');
+  const journal = { [B4.claimId.toLowerCase()]: { amount: 4_800_000_000n, nullifier: B4.nullifier } };
+  await makeNotes(world(), fromKey).discover({ walletPriv: WALLET_PRIV, assetIds: [TAC], known: journal });
+  ok(reads.length === 0, 'nor for one the journal knows');
+  const unnamed = await makeNotes(world(), { spentValues: async () => () => null }).discover({ walletPriv: WALLET_PRIV, assetIds: [TAC] });
+  ok(unnamed.length === 1 && unnamed[0].amount === null, 'a key whose spent notes do not include it opens nothing');
+  const broken = { spentValues: async () => { throw new Error('Your private notes could not all be read just now. Try again in a minute.'); } };
+  const brokenDisc = await makeNotes(world(), broken).discover({ walletPriv: WALLET_PRIV, assetIds: [TAC] });
+  ok(brokenDisc.length === 1 && brokenDisc[0].amount === null && /could not all be read/.test(brokenDisc[0].openErr || ''), 'a read that fails is said so on the note, not passed off as an amount that cannot be found');
+  // A scan that listed what it could answers for those, and says so for a note it did not list (that note may only have been missed).
+  const partial = { spentValues: async () => (nu) => { if (nu.toLowerCase() === B4.nullifier.toLowerCase()) throw new Error('Your private notes could not all be read just now. Try again in a minute.'); return null; } };
+  const partialDisc = await makeNotes(world(), partial).discover({ walletPriv: WALLET_PRIV, assetIds: [TAC] });
+  ok(partialDisc.length === 1 && partialDisc[0].amount === null && /could not all be read/.test(partialDisc[0].openErr || ''), 'a lookup that cannot tell a miss from a missed read says so on the note');
+  let thrown = null;
+  try { await makeNotes(world(), broken).openOutpoint({ walletPriv: WALLET_PRIV, txid: B4.revealTxid, vout: 0 }); } catch (e) { thrown = e; }
+  ok(thrown && /could not all be read/.test(thrown.message), 'and a rebuild of one output stops with that, not with a claim that the note is not this key\'s');
 }
 
 console.log(`\n${n} crossout-notes checks passed${failures ? `, ${failures} FAILED` : ''}`);

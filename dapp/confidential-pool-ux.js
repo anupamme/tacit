@@ -758,7 +758,12 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     //
     // `errors` is keyed by channel and empty on a clean scan, so `Object.keys(diag.errors).length` is the
     // one test a caller needs before treating a balance as authoritative.
-    return { notes, byAsset, poolStats: poolStatsFromEvents(events), diag: st.diag };
+    const out = { notes, byAsset, poolStats: poolStatsFromEvents(events), diag: st.diag };
+    // On request (`{ spent: true }`): what each note this key has spent held. The amount of a note a cross-out left on Bitcoin is hidden
+    // in its commitment, and is found from the note spent to make it (dapp/crossout-notes.js amountFromSpent). Read from the same scan;
+    // nothing is stored, and a caller that does not ask gets the result it always did.
+    if (o.spent) out.spentNotes = (st.owned || []).filter((n) => st.spent.has(lc(n.nullifier))).map((n) => ({ nullifier: n.nullifier, asset: n.asset, value: n.value }));
+    return out;
   }
 
   // Rough pool-wide activity stat, derived for free from the SAME event stream balance() just fetched

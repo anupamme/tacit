@@ -20479,6 +20479,31 @@ function _crossoutReserved(txid, vout) {
 // The notes this key holds at its own Taproot output because a cross-out minted them, found from the key and public data
 // (dapp/crossout-notes.js). The holdings scan lists only the key's P2WPKH address, so these are read here instead.
 let _crossoutNotes = null, _crossoutNotesNet = null;
+// What each note this key has spent held, read from the pool (balance's `spentNotes`) and kept a minute, so the several notes of one
+// look read it once. The amount of a TAC note a cross-out left on Bitcoin is found from it (dapp/crossout-notes.js amountFromSpent), which
+// is what lets a bridge be rebuilt from its burn on a device that has seen nothing of it. A scan that could not read everything still
+// answers for the notes it did list, but a note it does not list may only have been missed: that is said, not read as "not this key's",
+// and such a scan is not kept.
+let _spentValuesRead = null;
+function _spentValuesOf(walletPriv) {
+  const key = bytesToHex(secp.getPublicKey(walletPriv, true));                  // by the public key: nothing here keeps the private one
+  if (_spentValuesRead && _spentValuesRead.key === key && Date.now() - _spentValuesRead.at < 60e3) return _spentValuesRead.p;
+  const entry = _spentValuesRead = { key, at: Date.now(), p: null };
+  entry.p = (async () => {
+    const r = await _poolUxSingleton().balance(walletPriv, { spent: true });
+    walletPriv = null;                                                         // read; not held by the answer below
+    const partial = !!(r.diag && r.diag.errors && Object.keys(r.diag.errors).length);
+    if (partial && _spentValuesRead === entry) _spentValuesRead = null;
+    const held = new Map((r.spentNotes || []).map((n) => [String(n.nullifier).toLowerCase(), BigInt(n.value)]));
+    return (nullifier) => {
+      const v = held.get(String(nullifier).toLowerCase());
+      if (v == null && partial) throw new Error('Your private notes could not all be read just now. Try again in a minute.');
+      return v ?? null;
+    };
+  })();
+  entry.p.catch(() => { if (_spentValuesRead === entry) _spentValuesRead = null; });
+  return entry.p;
+}
 function _crossoutNotesSingleton() {
   const net = NET.name;
   if (_crossoutNotes && _crossoutNotesNet === net) return _crossoutNotes;
@@ -20489,6 +20514,7 @@ function _crossoutNotesSingleton() {
     secp, hmac, sha256, pool: poolUx.pool, evmLog: poolUx.evmLog, rpc: poolUx.rpc,
     poolAddress: poolUx.cfg && poolUx.cfg.pool, deployBlock: Number((poolUx.cfg && poolUx.cfg.deployBlock) || 0),
     chainJson: (path) => apiJson(path), chainHex: (path) => apiText(path), workerJson, hrp: NET.hrp,
+    spentValues: _spentValuesOf,
   }));
 }
 // A connected Ethereum wallet's public TAC counts toward the holder exit rate in every pool tab.
@@ -23618,10 +23644,14 @@ function _renderHoldingsBurndepBridges(listEl) {
     const settledOff = rec.stage === 'stopped' || rec.stage === 'not-recorded' || rec.stage === 'recovered';
     const needsKey = rec.stage === 'traced' || rec.stage === 'folded' || rec.stage === 'rfolded' || rec.stage === 'stopped';
     const failing = !!rec.lastError && !settledOff;
+    // A return of a note a cross-out made at this key's Taproot output (source.p2tr) is not a burn-deposit, and the service refuses to recover
+    // one as that: it keeps its row, without a Recover (the front page's bridge rows say the same).
+    const keepRow = rec.stage === 'not-recorded' && !!rec.source?.p2tr;
     const actLabel = rec.stage === 'traced' ? 'Burn' : (rec.stage === 'folded' || rec.stage === 'rfolded') ? 'Mint' : rec.stage === 'stopped' ? 'Move back to my wallet'
-      : rec.stage === 'not-recorded' ? 'Recover' : rec.stage === 'recovered' ? 'Done' : failing ? 'Retry' : 'Refresh';
-    const actKind = rec.stage === 'stopped' ? 'reclaim' : rec.stage === 'not-recorded' ? 'recover' : rec.stage === 'recovered' ? 'dismiss' : needsKey ? 'sign' : 'poll';
-    const noteText = rec.stage === 'recovering' && rec.recover?.status === 'held' ? 'Your recovery is being checked. Nothing else to do.' : _BURNDEP_NOTE[rec.stage];
+      : rec.stage === 'not-recorded' && !keepRow ? 'Recover' : rec.stage === 'recovered' ? 'Done' : failing ? 'Retry' : 'Refresh';
+    const actKind = rec.stage === 'stopped' ? 'reclaim' : rec.stage === 'not-recorded' && !keepRow ? 'recover' : rec.stage === 'recovered' ? 'dismiss' : needsKey ? 'sign' : 'poll';
+    const noteText = rec.stage === 'recovering' && rec.recover?.status === 'held' ? 'Your recovery is being checked. Nothing else to do.'
+      : keepRow ? 'Bitcoin’s proof on Ethereum passed the burn without recording it, so it cannot be minted. Keep this row and its transaction ids, and ask for help with them.' : _BURNDEP_NOTE[rec.stage];
     const selfOffer = (rec.stage === 'folded' || rec.stage === 'rfolded') && failing && _burndepRelayRefused(rec.lastError);
     const noteHtml = (noteText ? `<div style="margin-top:3px;max-width:52ch;">${escapeHtml(noteText)}</div>` : '')
       + (selfOffer ? `<div style="margin-top:3px;max-width:52ch;">The relay can’t take this mint right now. You can finish it from your Tacit account instead: it pays a little ETH for gas (about 0.001–0.003 ETH) and no relay fee.</div>` : '');

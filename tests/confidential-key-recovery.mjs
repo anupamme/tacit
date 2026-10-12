@@ -585,6 +585,22 @@ test('recover: one call returns notes, positions, locks, cBTC and diagnostics wi
   assert.equal(partial.notes.length, 1); assert.equal(partial.diagnostics.coverage.complete, false); assert.ok(partial.diagnostics.errors.farm);
 });
 
+test('balance names the notes it saw spent, with their values, only when asked', async () => {
+  const ux0 = mkUx();
+  const ceth = ux0.assetByTicker.cETH;
+  const a = derivedNote(ux0, walletPriv, ceth.assetId, 9, 555), b = derivedNote(ux0, walletPriv, ceth.assetId, 10, 777);
+  const nuA = ux0.pool.nativeNu(a.owner, a.secret, a.leaf);
+  const events = [leavesEv(0, [a.leaf, b.leaf], [sealTo(ux0, walletPriv, a), sealTo(ux0, walletPriv, b)], tx(50)), nullifiersEv([nuA], tx(51))];
+  const plain = await mkUx(chainHandler(events)).balance(walletPriv);
+  assert.deepEqual(Object.keys(plain).sort(), ['byAsset', 'diag', 'notes', 'poolStats'], 'the result is what it always was unless asked');
+  const asked = await mkUx(chainHandler(events)).balance(walletPriv, { spent: true });
+  assert.equal(asked.notes.length, 1); assert.equal(BigInt(asked.notes[0].value), 777n, 'the unspent note is the balance');
+  assert.equal(asked.spentNotes.length, 1);
+  assert.equal(asked.spentNotes[0].nullifier.toLowerCase(), nuA.toLowerCase());
+  assert.equal(BigInt(asked.spentNotes[0].value), 555n, 'and the spent one says what it held');
+  assert.equal(String(asked.spentNotes[0].asset).toLowerCase(), String(ceth.assetId).toLowerCase());
+});
+
 test('balance keeps its shape and still recovers ordinary memo notes alongside the derived kinds', async () => {
   const ux0 = mkUx();
   const ceth = ux0.assetByTicker.cETH;
