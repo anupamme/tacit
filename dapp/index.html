@@ -577,7 +577,11 @@ main > section + section { margin-top: 40px; }
 
 footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; margin-top: 44px; padding-top: 18px;
   border-top: 1px solid var(--hair-2); color: var(--mute); font-size: 12px; }
-footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; }
+/* The links in three short lists under the site's own line, each with its heading, instead of one run of ten. */
+footer nav { flex: 1 0 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 14px 24px; margin-top: 10px; }
+footer nav div { display: grid; align-content: start; }
+footer nav b { margin-bottom: 2px; font: 500 10.5px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink); }
+@media (pointer: fine) { footer nav a { padding: 6px 0; } }
 footer a { display: inline-block; padding: 12px 0; color: var(--mute); }
 @media (hover: hover) { footer a:hover { color: var(--ink); } }
 /* The X account, as its mark, at the end of the site's own line: a 24px target whose padding is pulled back, so the mark meets the
@@ -1155,16 +1159,22 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
     <span>tacit.finance · mainnet</span>
     <a class="on-x" href="https://x.com/tacitfi" rel="noopener" aria-label="Tacit on X" title="@tacitfi on X"><svg aria-hidden="true"><use href="#i-x"/></svg></a>
     <nav aria-label="More">
-      <a href="/trade/">Trade</a>
-      <a href="/weld/stats/">Stats</a>
-      <a href="https://defillama.com/protocol/tacit" rel="noopener">DefiLlama</a>
-      <a href="/classic.html">Classic app</a>
-      <a href="/weld/keeper/">Community ops</a>
-      <a href="/tacit-v1.pdf">Whitepaper</a>
-      <a href="https://github.com/src-company/tacit/blob/main/SPEC.md" rel="noopener">Spec</a>
-      <a href="https://github.com/src-company/tacit/blob/main/SECURITY.md" rel="noopener">Security</a>
-      <a href="https://github.com/src-company/tacit/blob/main/docs/BUILD-A-TACIT-DAPP.md" rel="noopener">Build on Tacit</a>
-      <a href="https://etherscan.io/address/0x000000000Ed1eabD231Be41d93b719056F7febFC" rel="noopener">Pool contract</a>
+      <div><b>Use</b>
+        <a href="/trade/">Trade</a>
+        <a href="/weld/stats/">Stats</a>
+        <a href="/classic.html">Classic app</a>
+      </div>
+      <div><b>Learn</b>
+        <a href="/tacit-v1.pdf">Whitepaper</a>
+        <a href="https://github.com/src-company/tacit/blob/main/SPEC.md" rel="noopener">Spec</a>
+        <a href="https://github.com/src-company/tacit/blob/main/SECURITY.md" rel="noopener">Security</a>
+        <a href="https://github.com/src-company/tacit/blob/main/docs/BUILD-A-TACIT-DAPP.md" rel="noopener">Build on Tacit</a>
+        <a href="https://etherscan.io/address/0x000000000Ed1eabD231Be41d93b719056F7febFC" rel="noopener">Pool contract</a>
+      </div>
+      <div><b>Community</b>
+        <a href="/weld/keeper/">Community ops</a>
+        <a href="https://defillama.com/protocol/tacit" rel="noopener">DefiLlama</a>
+      </div>
     </nav>
   </footer>
 </div>
