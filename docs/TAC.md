@@ -8,31 +8,29 @@ server or indexer trusted, the page recomputes it in your browser.
 
 ## Trading TAC
 
-TAC trades in several places, and [tacit.finance/trade/tac](https://tacit.finance/trade/tac/) prices all of them and quotes the best way to
-trade an amount:
+[tacit.finance/trade/tac](https://tacit.finance/trade/tac/) prices every place TAC trades and quotes the best way to trade an amount:
 
-- **The Bitcoin order book**, in sats. It holds listings, taken whole, and standing bids; a sale to a bid settles when its bidder is
-  online, and a sale can also be listed at your price.
+- **The Bitcoin order book**, in sats: listings (taken whole) and standing bids. A sale to a bid settles when its bidder is online;
+  a sale can also be listed at your price.
 - **The Precision pool** on Ethereum (TAC/ETH, 0.30% fee), the deepest. It records a price tape on chain (5-minute and 4-hour
-  candles), read with `eth_call` and no indexer, which is the page's Ethereum chart. It is a chart and not an oracle: it shows executed
-  prices, fee included, and one small trade can move a candle's high or low.
-- **The Tacit pool**, the AMM inside the confidential pool: one set of reserves, swapped in publicly through
-  [TacitPublicAmm](./DEPLOYMENTS.md) (amounts visible) or privately with shielded notes (who swaps and how much stay hidden).
+  candles), read with `eth_call` and no indexer, which is the page's Ethereum chart. It is a chart, not an oracle: it shows executed
+  prices with fees, and one small trade can move a candle's high or low.
+- **The Tacit pool**, the AMM inside the confidential pool: one set of reserves, swapped publicly through
+  [TacitPublicAmm](./DEPLOYMENTS.md) (amounts visible) or privately with shielded notes.
 - **Uniswap v4 and other pools.** Three hookless ETH/TAC pools exist on Uniswap v4 (fees of 15%, 30% and 40%) and hold no liquidity
-  today; zQuoter, which finds routes on Uniswap v2/v3, Sushi, Curve and v4's standard fee tiers, does not look at fees that high, so the
-  trade page reads those pools itself.
-- **zSwap's order boards** (Swapboard v1 and v2, Dutchboard, Floorboard). The trade page reads every TAC order resting on them and draws
-  the book. It fills one order, or the best several in a single `snwap` through zSwap's Swapbol executor, and when the orders take the
-  whole amount and pay 1% more than the pools it uses them on its own. An order made out to one account is not offered.
-  `dapp/zboards.js` has the reading and the calldata, and `tests/zboards-fork.mjs` places orders on all four boards and fills them on a
-  fork of mainnet.
+  today. zQuoter, which finds routes on Uniswap v2/v3, Sushi, Curve and v4's standard fee tiers, does not look at fees that high, so the
+  page reads those pools itself.
+- **zSwap's order boards** (Swapboard v1 and v2, Dutchboard, Floorboard). The page reads every TAC order on them and fills one, or the
+  best several in a single `snwap` through zSwap's Swapbol executor. It uses them on its own when they take the whole amount and pay 1%
+  more than the pools. Orders made out to one account are not offered. `dapp/zboards.js` has the reading and the calldata, and
+  `tests/zboards-fork.mjs` places and fills orders on all four boards on a mainnet fork.
 
-An order can be **split across the Precision pool and the Tacit pool in one transaction**, which pays more once an order is large
-enough to move either price. zRouter's own legs cannot do this with ETH (each forwards the whole transaction value, and the Precision
-route requires its input to equal that value), so the split is a single `snwap` whose executor is Multicall3: its `aggregate3Value`
-hands each pool its exact share, and one minimum bounds the total TAC or ETH received. The page splits only when the extra output is
-worth the extra gas, runs the transaction once without sending it first, and falls back to one pool if that fails.
-`dapp/evm-trade-venues.js` has the quoting and the calldata, and `tests/tac-split-fork.mjs` runs both directions on a fork of mainnet.
+An order can be **split across the Precision pool and the Tacit pool in one transaction**, which pays more once it is large enough
+to move either price. zRouter's own legs cannot do this with ETH (each forwards the whole transaction value, and the Precision route
+requires its input to equal that value), so the split is a single `snwap` whose executor is Multicall3: its `aggregate3Value` gives
+each pool its exact share, and one minimum bounds the total received. The page splits only when the extra output is worth the extra
+gas, tests the transaction once without sending it, and falls back to one pool if that fails. `dapp/evm-trade-venues.js` has the
+quoting and the calldata, and `tests/tac-split-fork.mjs` runs both directions on a mainnet fork.
 
 ## Holding TAC
 

@@ -119,10 +119,10 @@ try {
 
   const head = (await text(p, '#px-usd')).trim(), sub = (await text(p, '#px-sub')).replace(/\s+/g, ' ');
   ok(/^\$0\.\d{2,}/.test(head), `the head shows TAC's price in dollars (${head})`);
-  ok(/[\d.]+ ETH · [\d,]+ TAC to the ETH/.test(sub) && /traded in the last day/.test(sub), `and in ETH, TAC to the ETH and the day's volume (${sub.slice(0, 120)})`);
+  ok(/[\d.]+ ETH · [\d,]+ TAC per ETH/.test(sub) && /traded in 24h/.test(sub), `and in ETH, TAC per ETH and the day's volume (${sub.slice(0, 120)})`);
   const lanes = await p.$$eval('#lanes .lane', (ls) => ls.map((l) => l.textContent.replace(/\s+/g, ' ').trim()));
-  ok(lanes.length === 4 && /Precision pool.*\$0\.\d+.*ETH.*the reference/.test(lanes[0]) && /Tacit pool.*\$0\.\d+.*ETH.*against the Precision pool/.test(lanes[1]) && /Bitcoin, last trade.*\$0\.\d+.*150 sats/.test(lanes[2]) && /Bitcoin, cheapest listing.*\$0\.\d+.*157 sats/.test(lanes[3]), `four prices, each in dollars with ETH or sats and its gap against Precision (${lanes.map((l) => l.slice(0, 60)).join(' | ')})`);
-  ok(/On Ethereum TAC costs \d+% (more|less) than on the Bitcoin order book/.test(await text(p, '#gapnote')), `the gap between the two lanes is said in words (${(await text(p, '#gapnote')).slice(0, 110)})`);
+  ok(lanes.length === 4 && /Precision pool.*\$0\.\d+.*ETH.*the reference/.test(lanes[0]) && /Tacit pool.*\$0\.\d+.*ETH.*vs Precision/.test(lanes[1]) && /Bitcoin · last trade.*\$0\.\d+.*150 sats/.test(lanes[2]) && /Bitcoin · cheapest ask.*\$0\.\d+.*157 sats/.test(lanes[3]), `four prices, each in dollars with ETH or sats and its gap against Precision (${lanes.map((l) => l.slice(0, 60)).join(' | ')})`);
+  ok(/TAC costs \d+% (more|less) on Ethereum than on the Bitcoin order book/.test(await text(p, '#gapnote')), `the gap between the two lanes is said in words (${(await text(p, '#gapnote')).slice(0, 110)})`);
 
   // the chart
   const c4 = await candles(p);
@@ -150,7 +150,7 @@ try {
   await p.click('[data-lane="cmp"]'); await until(p, () => document.querySelectorAll('#chart polyline').length === 2);
   ok((await lines(p)) === 2 && !(await p.$('#chart .body')), 'Compare draws the two lanes as lines in dollars');
   ok(/Both lanes in dollars at today's ETH and BTC prices/.test(await text(p, '#chart-note')), 'and says they are at today\'s rates');
-  ok(/Precision pool \(Ethereum\).*Bitcoin order book.*Tacit pool, public or private/.test((await text(p, '#legend')).replace(/\s+/g, ' ')), 'the legend names the lanes and the Tacit pool\'s place against Precision');
+  ok(/Precision pool \(Ethereum\).*Bitcoin order book.*Tacit pool/.test((await text(p, '#legend')).replace(/\s+/g, ' ')), 'the legend names the lanes and the Tacit pool\'s place against Precision');
   await p.hover('#chart svg', { position: { x: 400, y: 150 } });
   await until(p, () => !document.querySelector('.chart-tip')?.hidden, null, 5000).catch(() => {});
   ok(/UTC/.test(await text(p, '.chart-tip')), 'hovering the chart shows the time and prices');
@@ -168,11 +168,11 @@ try {
   ok(rows.length >= 5 && rows.length <= 7, `the quotes table holds the places that quote: the pools, the split, the private swap and the Bitcoin book (${rows.length} rows)`);
   ok(rows.some((x) => /^Precision pool.*fee 0\.30%/.test(x)) && rows.some((x) => /^Tacit pool.*public swap/.test(x)) && rows.some((x) => /^Both, split.*best/.test(x)), 'the pools and the split are there (the Precision fee as 0.30%), the split tagged best');
   ok(rows.some((x) => /^Tacit pool, private.*estimate.*shielded note/.test(x)), 'the private swap is an estimate, from the same reserves');
-  await until(p, () => !/being checked/.test(document.querySelector('#absent')?.textContent || '') && /zSwap has no TAC orders|no TAC order was found/.test(document.querySelector('#absent')?.textContent || ''), null, 150000);   // the boards are read with the first look and again each minute
+  await until(p, () => !/checking/.test(document.querySelector('#absent')?.textContent || '') && /zSwap boards \(no orders\)|zSwap boards \(none found/.test(document.querySelector('#absent')?.textContent || ''), null, 150000);   // the boards are read with the first look and again each minute
   const absent = (await text(p, '#absent')).replace(/\s+/g, ' ');
-  ok(/^Not quoting: Uniswap v4's 3 ETH\/TAC pools hold no liquidity/.test(absent), `what holds no TAC is one line, with Uniswap v4's three empty pools in it (${absent.slice(0, 120)})`);
+  ok(/^Not quoting: Uniswap v4 \(no liquidity\)/.test(absent), `what holds no TAC is one line, with Uniswap v4's empty pools in it (${absent.slice(0, 120)})`);
   // zQuoter's scan is heavy for a forked node, which may not answer inside the page's budget: either answer is said.
-  ok(/no Uniswap v2\/v3, Sushi or Curve pool lists TAC|Uniswap v2\/v3, Sushi and Curve did not answer in time/.test(absent) && /zSwap has no TAC orders|no TAC order was found on the zSwap boards that answered/.test(absent), 'and so are zQuoter\'s search and the empty zSwap boards (a fork that answers only some of the board reads says so)');
+  ok(/Uniswap v2\/v3, Sushi and Curve \((no TAC pool|no answer)\)/.test(absent) && /zSwap boards \((no orders|none found)/.test(absent), 'and so are zQuoter\'s search and the empty zSwap boards (a fork that answers only some of the board reads says so)');
   ok(rows.some((x) => /^Bitcoin order book.*pay [\d,]+ sats/.test(x)), 'the Bitcoin order book (paid in sats) is a row too');
   ok(/Connect wallet/.test(await text(p, '#go')) && !(await p.$eval('#go', (b) => b.disabled)), 'with a quote and no wallet the button asks to connect one');
 
@@ -187,7 +187,7 @@ try {
   const withComma = (await text(p, '#out')).trim();
   await p.fill('#amt', '0.05'); await until(p, (x) => !document.querySelector('#out').classList.contains('ph') && document.querySelector('#out').textContent.trim() !== '…', null, 120000);
   ok(withComma === (await text(p, '#out')).trim() && Number(withComma.replace(/,/g, '')) < 2000, `0,05 ETH reads as 0.05 (both quote ${withComma} TAC), not 5`);
-  await p.fill('#amt', '1,500'); await until(p, () => /cannot be read/.test(document.querySelector('#status')?.textContent || ''), null, 10000);
+  await p.fill('#amt', '1,500'); await until(p, () => /Cannot read that amount/.test(document.querySelector('#status')?.textContent || ''), null, 10000);
   ok(await p.$eval('#out', (e) => e.classList.contains('ph')), 'an ambiguous 1,500 is said to be unreadable, with no quote');
   await p.fill('#amt', '1,500.25'); await until(p, () => !document.querySelector('#out').classList.contains('ph'), null, 120000);
   ok(true, 'and 1,500.25 reads as one thousand five hundred and a quarter');
@@ -206,12 +206,12 @@ try {
   const hd = (await p.$$eval('#ladders .lad h3', (h) => h.map((x) => x.textContent.replace(/\s+/g, ' ')))).join(' | ');
   ok(dep.length >= 7 && dep.length <= 14 && /^\$0\.\d+ sats/.test(dep[0]) && /For sale.*Wanted/.test(hd), `listings are one line per price and the bids sit beside them (${dep.length} lines: ${dep[0]} … ${hd.slice(0, 90)})`);
   ok((await p.$$eval('#depthchart path.dep-ask', (x) => x.length)) === 1 && (await p.$$eval('#depthchart path.dep-bid', (x) => x.length)) === 1, 'drawn as a depth chart of listings and bids');
-  ok(/14 standing bids want [\d,]+ TAC; a sale to one settles when its bidder is online/.test(await text(p, '#depth-note')), 'and the note says how many bids stand and when a sale to one settles');
+  ok(/14 bids want [\d,]+ TAC and settle when the bidder is online/.test(await text(p, '#depth-note')), 'and the note says how many bids stand and when a sale to one settles');
   await p.click('[data-book="eth"]');
-  await until(p, () => /No TAC orders rest on zSwap's boards right now|No TAC orders were found on the boards that answered/.test(document.querySelector('#ladders')?.textContent || ''), null, 150000);
-  ok(/No TAC orders rest on zSwap's boards right now|No TAC orders were found on the boards that answered/.test(await text(p, '#ladders')) && !!(await p.$('#ladders a[href^="https://zswap"]')), 'the Ethereum tab says zSwap holds none and where to place one');
+  await until(p, () => /No TAC orders on zSwap's boards|No TAC orders on the boards that answered/.test(document.querySelector('#ladders')?.textContent || ''), null, 150000);
+  ok(/No TAC orders on zSwap's boards|No TAC orders on the boards that answered/.test(await text(p, '#ladders')) && !!(await p.$('#ladders a[href^="https://zswap"]')), 'the Ethereum tab says zSwap holds none and where to place one');
   await p.click('[data-book="btc"]');
-  ok(/168 listings hold [\d,]+ TAC for [\d,]+ sats in all/.test(await text(p, '#depth-note')) && !(await p.$('#depth-note a')), 'with how deep the book is (the buttons beside it do what the old links did)');
+  ok(/168 listings hold [\d,]+ TAC/.test(await text(p, '#depth-note')) && !(await p.$('#depth-note a')), 'with how deep the book is (the buttons beside it do what the old links did)');
   const facts = (await text(p, '#facts')).replace(/\s+/g, ' '), more = (await text(p, '#facts-more')).replace(/\s+/g, ' ');
   ok(/21,000,000/.test(await text(p, '#about')) && /ERC-20.*0xA1313e.*TAC minted there/.test(facts) && /2,032 holders/.test(facts) && /Precision pool.*holds [\d.,]+ ETH and [\d,]+ TAC/.test(more), `the facts are live (${facts.slice(0, 120)})`);
   ok(/Uniswap v4.*3 hookless ETH\/TAC pools.*None holds liquidity now/.test(more) && /TacBuyback/.test(more) && !(await p.$eval('details.more:has(#facts-more)', (d) => d.open)), 'Uniswap v4\'s pools and the buyback are named, behind a "more" that starts closed');
@@ -250,7 +250,7 @@ try {
     await q.click('#go');
     await q.waitForSelector('#review:not([hidden]) #rv-go');
     const rv = (await text(q, '#review')).replace(/\s+/g, ' ');
-    ok(/Buy TAC/.test(rv) && /You pay2 ETH/.test(rv) && /At least[\d,.]+ TAC/.test(rv) && /Split: \d+% Precision pool, \d+% Tacit pool/.test(rv) && /Price impact/.test(rv) && /tested without sending first/.test(rv) && !!(await q.$('#slip-seg')), `the review says what runs and the least it takes (${rv.slice(0, 200)})`);
+    ok(/Buy TAC/.test(rv) && /You pay2 ETH/.test(rv) && /At least[\d,.]+ TAC/.test(rv) && /Split: \d+% Precision pool, \d+% Tacit pool/.test(rv) && /Price impact/.test(rv) && /tested before it is sent/.test(rv) && !!(await q.$('#slip-seg')), `the review says what runs and the least it takes (${rv.slice(0, 200)})`);
     const floorTxt = (rv.match(/At least([\d,.]+) TAC/) || [])[1];
     ok(await q.$eval('#go', (b) => b.hidden), 'and the main button gives way to its Back and Confirm');
     await q.click('#rv-back'); ok(await q.$eval('#review', (e) => e.hidden), 'Back closes the review without sending anything');
@@ -412,7 +412,7 @@ try {
     const before = w.walletLog.sends.length;
     if (await q.$('#ack')) await q.check('#ack');
     await q.click('#rv-go');
-    await until(q, () => /just filled or taken down/.test(document.querySelector('#status')?.textContent || ''), null, 120000);
+    await until(q, () => /just filled or cancelled/.test(document.querySelector('#status')?.textContent || ''), null, 120000);
     ok(/Nothing was sent/.test(await text(q, '#status')) && w.walletLog.sends.length === before, 'a lot someone else fills after the review stops the trade with nothing sent');
     await until(q, (k) => !document.querySelector(`[data-fill="${k}"]`) && document.querySelector('#pin').hidden, dutchKey, 120000);
     ok(true, 'and the filled lot leaves the book and the pin');

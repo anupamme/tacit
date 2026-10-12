@@ -4330,10 +4330,10 @@ await step('hxsats', async () => {
     });
     ok(await text(p, '#hx-go') === 'Sell TAC on Bitcoin', 'hxsats: TAC for sats offers to sell on Bitcoin');
     const line = (await text(p, '#hx-q')).replace(/\s+/g, ' ');
-    ok(/^The Bitcoin order book holds 2 standing bids, the best at 210 sats per TAC\. They pay about 190,000 sats for it, before about 3,200 sats of Bitcoin fees, and a sale to one settles when its bidder is online\. You can also list a sale at your price and wait for a buyer\./.test(line) && /The last trade was 150 sats per TAC; the cheapest listing asks 150\./.test(line) && /bridged to Bitcoin first/.test(line) && /^≈ 190,000$/.test((await text(p, '#hx-out')).trim()), `hxsats: 1,000 TAC is about 190,000 sats from the two standing bids (settling when each bidder is online), and it says that Ethereum TAC is bridged first (${line.slice(0, 260)})`);
+    ok(/^2 standing bids on the Bitcoin book, the best 210 sats per TAC, pay about 190,000 sats for it before about 3,200 sats of fees; a sale settles when its bidder is online\. Or list a sale at your price\./.test(line) && /Last trade 150 sats, cheapest listing 150\./.test(line) && /bridged to Bitcoin first/.test(line) && /^≈ 190,000$/.test((await text(p, '#hx-out')).trim()), `hxsats: 1,000 TAC is about 190,000 sats from the two standing bids (settling when each bidder is online), and it says that Ethereum TAC is bridged first (${line.slice(0, 260)})`);
     await p.fill('#hx-amt', '3000');
     await until(p, () => /of it/.test(document.querySelector('#hx-q')?.textContent || ''), null, 60000);
-    ok(/They pay about 190,000 sats for 1,000 of it/.test((await text(p, '#hx-q')).replace(/\s+/g, ' ')) && /^≈ 450,000$/.test((await text(p, '#hx-out')).trim()), 'hxsats: an amount larger than the bids want says how much of it they take, and prices the rest at the last trade');
+    ok(/pay about 190,000 sats for 1,000 of it/.test((await text(p, '#hx-q')).replace(/\s+/g, ' ')) && /^≈ 450,000$/.test((await text(p, '#hx-out')).trim()), 'hxsats: an amount larger than the bids want says how much of it they take, and prices the rest at the last trade');
     await p.fill('#hx-amt', '1000');
     await until(p, () => /^≈ 190,000$/.test((document.querySelector('#hx-out')?.textContent || '').trim()), null, 60000);
     ok(!(await p.$eval('#hx-alt', (e) => e.hidden)) && /Bridge TAC to Bitcoin first/.test(await text(p, '#hx-alt')), 'hxsats: and the bridge is offered first');
@@ -4368,8 +4368,8 @@ await step('hxsats', async () => {
     await e.page.goto(e.url);
     await e.page.waitForSelector('#hx-body .hx-h');
     await e.page.click('[data-hxm="swap"]'); await e.page.selectOption('#hx-from', 'tac'); await e.page.selectOption('#hx-to', 'sats'); await e.page.fill('#hx-amt', '1000');
-    await until(e.page, () => /standing bids right now/.test(document.querySelector('#hx-q')?.textContent || '') && /≈ [\d,]+/.test(document.querySelector('#hx-out')?.textContent || ''), null, 120000);
-    ok(/holds no standing bids right now: a sale is listed at your price and waits for a buyer/.test(await text(e.page, '#hx-q')) && /^≈ 150,000$/.test((await text(e.page, '#hx-out')).trim()), 'hxsats: with no bid on the book it says so, and prices the sale at the last trade');
+    await until(e.page, () => /No standing bids/.test(document.querySelector('#hx-q')?.textContent || '') && /≈ [\d,]+/.test(document.querySelector('#hx-out')?.textContent || ''), null, 120000);
+    ok(/No standing bids on the Bitcoin book: list a sale at your price and wait for a buyer/.test(await text(e.page, '#hx-q')) && /^≈ 150,000$/.test((await text(e.page, '#hx-out')).trim()), 'hxsats: with no bid on the book it says so, and prices the sale at the last trade');
   } finally { await e.browser.close(); }
 });
 

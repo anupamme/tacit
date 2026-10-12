@@ -47,11 +47,11 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {} } = {}) {
       const o = overlay({ title: 'Open your Tacit wallet', top: true, onClose: () => { if (!session.unlocked) reject(new Cancelled()); } });
       const opt = (k, t, m, cls = '') => `<button class="way ${cls}" type="button" data-in="${k}"><span class="way-t">${t}</span><span class="way-m">${m}</span></button>`;
       const pk = session.passkeyAvailable(), hasBtc = session.btcSeen(), hasEth = session.ethAvailable();
-      o.body.innerHTML = `<p class="note" style="margin-top:0">Buying and selling on Bitcoin signs with your Tacit wallet's key. This page never stores the key.</p><div class="ways">
+      o.body.innerHTML = `<p class="note" style="margin-top:0">Open your Tacit wallet to trade on Bitcoin. This page never stores the key.</p><div class="ways">
         ${known ? opt('known', 'Continue with your Tacit wallet', `Opens with ${esc(via(known))}, the same key as on tacit.finance.`, 'main') : ''}
         ${other ? opt('other', 'Your other Tacit key', `A different key, opened here before with ${esc(via(other))}.`) : ''}
-        ${opt('eth', 'Ethereum wallet', hasEth ? 'MetaMask, Rabby, Rainbow or any browser wallet. One signature, two the first time on this browser.' : 'MetaMask, Rabby, Rainbow or any browser wallet. None found in this browser.')}
-        ${opt('btc', 'Bitcoin wallet', hasBtc ? 'Xverse, Leather or UniSat. One signature, two the first time.' : 'Xverse, Leather or UniSat. None found in this browser.')}
+        ${opt('eth', 'Ethereum wallet', hasEth ? 'Any browser wallet. One signature (two the first time).' : 'Any browser wallet. Not found in this browser.')}
+        ${opt('btc', 'Bitcoin wallet', hasBtc ? 'Xverse, Leather or UniSat. One signature (two the first time).' : 'Xverse, Leather or UniSat. Not found in this browser.')}
         ${pk ? opt('passkey', 'Passkey', 'Touch ID, Windows Hello or a security key.') : ''}
         <p class="ways-err" role="alert" hidden></p>
         ${pk ? '<p class="more"><button class="linkbtn" type="button" data-in="new">New passkey wallet</button></p>' : ''}
@@ -100,7 +100,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {} } = {}) {
   function fundDialog() {
     const addr = session.address;
     const o = overlay({ title: 'Add sats', top: true });
-    o.body.innerHTML = addr ? `<p style="margin:0 0 12px">Send sats to this Bitcoin address from any wallet. It is the address of the key you opened, and buying takes sats from it.</p><p class="addr"><code>${esc(addr)}</code></p><div class="bsheet-actions"><button class="btn" type="button" data-copy>Copy address</button></div>` : '<p style="margin:0">Open your wallet first: the address is the one of the key you open.</p>';
+    o.body.innerHTML = addr ? `<p style="margin:0 0 12px">Send sats to this address from any Bitcoin wallet. It belongs to the key you opened, and buying spends from it.</p><p class="addr"><code>${esc(addr)}</code></p><div class="bsheet-actions"><button class="btn" type="button" data-copy>Copy address</button></div>` : '<p style="margin:0">Open your wallet first: the address is the one of the key you open.</p>';
     const c = o.body.querySelector('[data-copy]');
     if (c) c.onclick = () => navigator.clipboard?.writeText(addr).then(() => { c.textContent = 'Copied'; }, () => { c.textContent = 'Could not copy'; });
   }
@@ -113,7 +113,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {} } = {}) {
     const v = /(?:Commit tx broadcast — |locked\s+)(\d+)\s*sats/i.exec(msg), sats = v ? Number(v[1]) : 0;
     const yes = await confirmDialog({
       title: 'Purchase stopped · sats recoverable',
-      body: `Your commit broadcast on Bitcoin, but the settlement never landed. The ${sats.toLocaleString('en-US')} sats it holds are not lost: one Bitcoin transaction (with a small fee) sweeps them back to your wallet.\n\nIf you leave it, it stays in the classic app under Holdings, where you can recover it later.`,
+      body: `The purchase stopped after its first transaction. The ${sats.toLocaleString('en-US')} sats it holds are not lost: one more transaction (small fee) returns them to your wallet. If you wait, you can recover them later in the classic app under Holdings.`,
       confirmLabel: `Recover ${sats.toLocaleString('en-US')} sats now`, cancelLabel: 'Later',
     });
     if (!yes) return;
@@ -198,11 +198,11 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {} } = {}) {
       ctl = market.mountBtcMarket(box, ctx);
       meTimer = setInterval(() => { if (!document.hidden && session.unlocked) refreshMe().then(() => ctl?.refresh?.({ soft: true })).catch(() => {}); }, 45e3);
       off = session.onChange(() => { paintHead(); refreshMe().then(() => ctl?.refresh?.({ soft: true })).catch(() => {}); });
-      box.insertAdjacentHTML('beforeend', '<p class="note bm-after">TAC held on Ethereum is bridged to Bitcoin before it can be sold here. <a href="/#bridge">Bridge →</a></p>');
+      box.insertAdjacentHTML('beforeend', '<p class="note bm-after">To sell TAC you hold on Ethereum, bridge it to Bitcoin first. <a href="/#bridge">Bridge →</a></p>');
       paintHead();
       if (prime) await primeWhenReady(prime);
     } catch (e) {
-      if (main === mine) box.innerHTML = `<p class="err">The Bitcoin market could not be loaded just now: ${esc(e?.message || e)}</p>`;
+      if (main === mine) box.innerHTML = `<p class="err">Could not load the Bitcoin market: ${esc(e?.message || e)}</p>`;
     }
   }
   async function primeWhenReady(opts) {

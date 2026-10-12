@@ -169,24 +169,24 @@ function renderHead() {
   // The candles that began in the last day: the 4-hour ones, and the 5-minute ones newer than the last of those (it lags by one).
   const vol = D.tape.coarse.filter((b) => b.t >= now() - 86400).reduce((a, b) => a + b.vol, 0) + D.tape.fine.filter((b) => b.t >= (D.tape.coarse.at(-1)?.t ?? 0) + TAPE_COARSE && b.t >= now() - 86400).reduce((a, b) => a + b.vol, 0);
   const bits = [];
-  if (eth != null) bits.push(html`<span><b class="num">${sig(eth)} ETH</b> · ${grp(D.perEth, 0)} TAC to the ETH</span>`);
-  if (ch != null) bits.push(html`<span class="chg ${ch >= 0 ? 'up' : 'down'}">${pct(ch)} in 24 hours</span>`);
-  if (D.tape.coarse.length) bits.push(html`<span>${vol >= 0.01 ? `${grp(vol, vol < 10 ? 2 : 0)} ETH` : 'under 0.01 ETH'} traded in the last day</span>`);
+  if (eth != null) bits.push(html`<span><b class="num">${sig(eth)} ETH</b> · ${grp(D.perEth, 0)} TAC per ETH</span>`);
+  if (ch != null) bits.push(html`<span class="chg ${ch >= 0 ? 'up' : 'down'}">${pct(ch)} in 24h</span>`);
+  if (D.tape.coarse.length) bits.push(html`<span>${vol >= 0.01 ? `${grp(vol, vol < 10 ? 2 : 0)} ETH` : 'under 0.01 ETH'} traded in 24h</span>`);
   $('#px-sub').innerHTML = bits.length ? bits.join('') : '<span class="mute">Reading the pools…</span>';
   const bg = btcUsdPerTac(), g = bg ? gap(bg, px) : null;
   $('#gapnote').innerHTML = g != null && Math.abs(g) >= 0.01
-    ? html`On Ethereum TAC costs <b>${pct(g, 0).replace(/^[+−]/, '')} ${g > 0 ? 'more' : 'less'}</b> than on the Bitcoin order book. A bridge joins the two, a few hours and sometimes up to a day, so they can sit apart.`
+    ? html`TAC costs <b>${pct(g, 0).replace(/^[+−]/, '')} ${g > 0 ? 'more' : 'less'}</b> on Ethereum than on the Bitcoin order book. The bridge between them takes hours to a day, so they can sit apart.`
     : g != null ? 'TAC costs about the same on Ethereum and on the Bitcoin order book.' : '';
 }
 function renderLanes() {
   const base = usdOf(priceEth()), ask = D.btc?.ask ? (D.btc.ask * (D.btcUsd || 0)) / 1e8 : null, cards = [
-    { name: 'Precision pool', sw: ETHBLUE, v: base, s: priceEth() != null ? `${sig(priceEth())} ETH` : null, g: 'Ethereum · the reference', gc: 'mute' },
+    { name: 'Precision pool', sw: ETHBLUE, v: base, s: priceEth() != null ? `${sig(priceEth())} ETH` : null, g: 'the reference', gc: 'mute' },
     { name: 'Tacit pool', sw: GREEN, v: usdOf(tacitEth()), s: tacitEth() != null ? `${sig(tacitEth())} ETH` : null, gap: laneGap(usdOf(tacitEth())), dev: true, sub: 'public or private swap' },
-    { name: 'Bitcoin, last trade', sw: ORANGE, v: btcUsdPerTac(), s: D.btc?.mark ? `${satsFmt(D.btc.mark)} sats` : null, gap: laneGap(btcUsdPerTac()) },
-    { name: 'Bitcoin, cheapest listing', sw: ORANGE, v: ask || null, s: D.btc?.ask ? `${satsFmt(D.btc.ask)} sats` : null, gap: laneGap(ask || null) },
+    { name: 'Bitcoin · last trade', sw: ORANGE, v: btcUsdPerTac(), s: D.btc?.mark ? `${satsFmt(D.btc.mark)} sats` : null, gap: laneGap(btcUsdPerTac()) },
+    { name: 'Bitcoin · cheapest ask', sw: ORANGE, v: ask || null, s: D.btc?.ask ? `${satsFmt(D.btc.ask)} sats` : null, gap: laneGap(ask || null) },
   ];
   $('#lanes').innerHTML = cards.map((c) => {
-    const g = c.g ?? (c.gap != null ? `${pct(c.gap)} against the Precision pool${c.dev && Math.abs(c.gap) >= 0.01 ? ' · apart' : ''}` : c.sub || '');
+    const g = c.g ?? (c.gap != null ? `${pct(c.gap)} vs Precision${c.dev && Math.abs(c.gap) >= 0.01 ? ' · apart' : ''}` : c.sub || '');
     const loading = c.v == null && c.s == null && !(D.tape.coarse.length || D.btc);
     return html`<div class="lane"><span class="k"><i class="sw" style="background:${c.sw}"></i>${esc(c.name)}</span><span class="v num">${loading ? '<i class="sk"></i>' : usd(c.v)}</span><span class="s num">${c.s ? esc(c.s) : ''}</span><span class="g ${c.gc ?? gapClass(c.gap)}">${esc(g)}</span></div>`;
   }).join('');
@@ -213,7 +213,7 @@ function renderChart() {
   const unit = (lane === 'cmp' || (lane === 'eth' && !D.ethUsd) || (lane === 'btc' && !D.btcUsd)) ? (lane === 'cmp' ? 'usd' : 'native') : S.unit;
   if (lane === 'cmp' && !(D.ethUsd && D.btcUsd)) {                                              // the two lanes meet in dollars, which needs both rates
     chart.update({ series: [], tags: [], period: tf, label: 'TAC price, both lanes' });
-    $('#legend').innerHTML = ''; $('#chart-note').textContent = D.ethUsd || D.btcUsd ? 'One of the dollar rates has not been read yet, so the two lanes cannot be set side by side.' : 'The dollar rates have not been read yet, so the two lanes cannot be set side by side.';
+    $('#legend').innerHTML = ''; $('#chart-note').textContent = D.ethUsd || D.btcUsd ? 'Waiting for the other dollar rate to compare the lanes.' : 'Waiting for the dollar rates to compare the lanes.';
     renderControls();
     return;
   }
@@ -240,13 +240,13 @@ function renderChart() {
   const sw = (c) => `<i class="sw" style="background:${c}"></i>`;
   if (lane !== 'btc') legend.push(`<span>${sw(ETHBLUE)}Precision pool (Ethereum)${ethSpot != null ? ` · ${priceFmt(unit, 'eth')(ethSpot)}` : ''}</span>`);
   if (lane !== 'eth') legend.push(`<span>${sw(ORANGE)}Bitcoin order book${btcSpot != null ? ` · ${priceFmt(unit, 'btc')(btcSpot)}` : ''}</span>`);
-  if (lane !== 'btc' && priv != null) legend.push(`<span>${sw(GREEN)}Tacit pool, public or private · ${priceFmt(unit, 'eth')(privSpot)}${deviates ? `, ${pct(priv / priceEth() - 1)} against Precision` : ', level with Precision'}</span>`);
+  if (lane !== 'btc' && priv != null) legend.push(`<span>${sw(GREEN)}Tacit pool · ${priceFmt(unit, 'eth')(privSpot)}${deviates ? `, ${pct(priv / priceEth() - 1)} vs Precision` : ', level with Precision'}</span>`);
   $('#legend').innerHTML = legend.join('');
   const first = D.tape.coarse[0], days = first ? Math.max(1, Math.round((now() - first.t) / 86400)) : 0;
   $('#chart-note').textContent = lane === 'eth'
-    ? `Executed prices, fee included, from the Precision pool's own on-chain price tape, read from Ethereum with no indexer between. A chart, not an oracle: one small trade can move a candle's high or low. The 5-minute tape reaches back about a day and the 4-hour tape about six weeks; this browser keeps what it has read${first ? ` (${days} days so far)` : ''}.`
-    : lane === 'btc' ? `Every trade on the Bitcoin order book since ${D.btc?.firstTrade ? new Date(D.btc.firstTrade * 1000).toISOString().slice(0, 10) : 'it began'}, as sats per TAC${D.btc?.trades?.length ? ` (${D.btc.trades.length} trades)` : ''}. A fill far from the others' prices is left out.`
-    : 'Both lanes in dollars at today\'s ETH and BTC prices, since a tape has no dollar history: the lines show how the two lanes sit against each other, not what a dollar was worth on a day. A lane draws only where it traded.';
+    ? `Executed prices, fees included, from the Precision pool's on-chain price tape, read without an indexer. A chart, not an oracle: one small trade can move a candle's high or low. The tape holds about a day of 5-minute and six weeks of 4-hour candles; this browser keeps what it has read${first ? ` (${days} days so far)` : ''}.`
+    : lane === 'btc' ? `Every trade on the Bitcoin order book since ${D.btc?.firstTrade ? new Date(D.btc.firstTrade * 1000).toISOString().slice(0, 10) : 'it began'}, in sats per TAC${D.btc?.trades?.length ? ` (${D.btc.trades.length} trades)` : ''}. Fills far from the rest are left out.`
+    : 'Both lanes in dollars at today\'s ETH and BTC prices (the tapes have no dollar history), so the lines show how the lanes sit against each other. A lane draws only where it traded.';
   renderControls();
 }
 
@@ -338,7 +338,7 @@ function renderQuote(q) {
   $('#out-unit').textContent = buy ? 'TAC' : 'ETH';
   $('#amt').setAttribute('aria-label', buy ? 'ETH to pay' : 'TAC to pay');
   const none = (t) => { outEl.textContent = t; outEl.classList.add('ph'); $('#out-usd').textContent = ''; route.innerHTML = ''; renderGo(); };
-  if (!q) { none('0.00'); if (!S.busy) $('#status').textContent = S.amt && getAmount() == null ? 'That amount cannot be read. Write it like 1500 or 0.05, with up to 18 decimals (1,500 alone is ambiguous).' : ''; return; }
+  if (!q) { none('0.00'); if (!S.busy) $('#status').textContent = S.amt && getAmount() == null ? 'Cannot read that amount. Write 1500 or 0.05 (1,500 alone is ambiguous).' : ''; return; }
   if (q.busy) { none('…'); return; }
   if (q.err) { none('—'); $('#status').textContent = q.err; return; }
   if (!S.busy) $('#status').textContent = '';
@@ -358,8 +358,8 @@ function renderQuote(q) {
     name = rt.pick === 'split' ? `Split: ${splitWhat(rt.split)}` : rt.single.venue === 'precision' ? 'Precision pool' : rt.single.venue === 'tacit-amm' ? 'Tacit pool' : 'Other pool';
     const gainTxt = rt.split ? `${(rt.split.gainBps / 100).toFixed(rt.split.gainBps < 100 ? 2 : 1)}%` : '';
     if (rt.pick === 'split') note = `<p class="splitnote">Split: <b>${gainTxt}</b> ${buy ? 'more TAC' : 'more ETH'} than the better pool alone.</p>`;
-    else if (rt.split && buy && rt.split.gainBps >= 30) note = `<p class="splitnote mute">A split would pay ${gainTxt} more: not enough to leave the Precision pool, which earns points.</p>`;
-    else if (rt.split) note = `<p class="splitnote mute">A split would pay ${gainTxt} more, less than its extra gas.</p>`;
+    else if (rt.split && buy && rt.split.gainBps >= 30) note = `<p class="splitnote mute">A split pays ${gainTxt} more, not enough to leave the Precision pool (it earns points).</p>`;
+    else if (rt.split) note = `<p class="splitnote mute">A split pays ${gainTxt} more, less than its extra gas.</p>`;
   }
   outEl.textContent = fmtUnits(out, 18, buy ? 2 : 6); outEl.classList.remove('ph');
   const usdOut = D.ethUsd ? usd((Number(usdIn) / 1e18) * D.ethUsd) : '';
@@ -375,7 +375,7 @@ function renderVenues(q) {
   const tb = $('#venues tbody'), note = $('#venues-note'), absent = $('#absent'), buy = S.side === 'buy';
   const unit = buy ? 'TAC' : 'ETH', f = (v) => `${fmtUnits(v, 18, buy ? 2 : 6)} ${unit}`;
   $('#venues').classList.toggle('empty', !q); note.closest('details').hidden = !q;
-  if (!q) { tb.innerHTML = `<tr><td colspan="3" class="mute">Enter an amount in the ticket to see what every pool would pay for it.</td></tr>`; note.textContent = ''; absent.textContent = ''; return; }
+  if (!q) { tb.innerHTML = `<tr><td colspan="3" class="mute">Enter an amount to compare every pool.</td></tr>`; note.textContent = ''; absent.textContent = ''; return; }
   const { rt } = q, rows = [], via = routeOf(q);
   const add = (r) => rows.push(r);
   const p = rt.r?.precision, t = rt.r?.tacitAmm;
@@ -411,13 +411,13 @@ function renderVenues(q) {
   }).join('');
   // What holds no TAC quote is one line, not three rows of "none".
   const none = [];
-  if (!funded) none.push(v4.length ? `Uniswap v4's ${v4.length} ETH/TAC pools hold no liquidity` : 'Uniswap v4 has no ETH/TAC pool');
-  if (zqv == null) none.push('Uniswap v2/v3, Sushi and Curve are being checked');
-  else if (zqv.status === 'no-route') none.push('no Uniswap v2/v3, Sushi or Curve pool lists TAC');
-  else if (zqv.status !== 'ok') none.push('Uniswap v2/v3, Sushi and Curve did not answer in time');
-  if (D.zb && !D.zb.asks.length && !D.zb.bids.length) none.push(D.zb.answered < BOARD_CALLS ? 'no TAC order was found on the zSwap boards that answered' : 'zSwap has no TAC orders');
+  if (!funded) none.push(v4.length ? 'Uniswap v4 (no liquidity)' : 'Uniswap v4 (no pool)');
+  if (zqv == null) none.push('Uniswap v2/v3, Sushi and Curve (checking)');
+  else if (zqv.status === 'no-route') none.push('Uniswap v2/v3, Sushi and Curve (no TAC pool)');
+  else if (zqv.status !== 'ok') none.push('Uniswap v2/v3, Sushi and Curve (no answer)');
+  if (D.zb && !D.zb.asks.length && !D.zb.bids.length) none.push(D.zb.answered < BOARD_CALLS ? 'zSwap boards (none found on those that answered)' : 'zSwap boards (no orders)');
   absent.textContent = none.length ? `Not quoting: ${none.join('; ')}.` : '';
-  note.textContent = `The first rows are what the ticket runs on. The Tacit pool is one set of reserves: a public swap goes through its AMM contract, a private one spends a shielded note in the app and pays the relay's fee ${buy ? 'on top' : 'out of the TAC'}. zSwap's boards run on their resting orders: the ticket uses them when they take the whole amount and pay 1% more than the pool it would use, or when you pick an order in the order book. ${buy ? 'The Bitcoin row buys with sats rather than ETH, and the TAC arrives on Bitcoin.' : 'On the Bitcoin order book a sale goes to a standing bid, which settles when its bidder is online (or within minutes when a watchtower covers it), or is listed at your price.'}`;
+  note.textContent = `The ticket runs on the first rows. The Tacit pool is one set of reserves: a public swap uses its AMM contract, a private one spends a shielded note and pays the relay fee ${buy ? 'on top' : 'out of the TAC'}. zSwap's boards are used when they take the whole amount and pay 1% more than the pool the ticket would use, or when you pick an order. ${buy ? 'The Bitcoin row pays in sats, and the TAC arrives on Bitcoin.' : 'The Bitcoin row sells to standing bids (they settle when the bidder is online, some within minutes via a watchtower) or lists at your price.'}`;
 }
 
 // ── Bitcoin from the page ──
@@ -433,7 +433,7 @@ function notify(msg, kind = '', ms = 5000) {
 }
 async function openBitcoin(prime = null) {
   try {
-    bitcoin ||= (await import('/trade/btc.js?cb=1ecd86c5')).makeBitcoin({ notify, onTraded: () => loadBitcoin().then(paintAll).catch(() => {}) });
+    bitcoin ||= (await import('/trade/btc.js?cb=34d11404')).makeBitcoin({ notify, onTraded: () => loadBitcoin().then(paintAll).catch(() => {}) });
     await bitcoin.open(prime);
   } catch (e) { notify(`The Bitcoin market could not be opened: ${e?.message || e}`, 'error', 9000); }
 }
@@ -479,18 +479,18 @@ function renderBook() {
   if (tab === 'eth') {
     const z = D.zb;
     if (!z) {
-      depth.update({ asks: [], bids: [], empty: D.zbFailed ? 'zSwap\'s boards could not be read just now.' : 'Reading zSwap\'s boards…' });
-      box.innerHTML = D.zbFailed ? `<p class="note">zSwap's boards could not be read just now. ${ZSWAP_LINK}</p>` : ''; note.textContent = ''; return;
+      depth.update({ asks: [], bids: [], empty: D.zbFailed ? 'Could not read zSwap\'s boards.' : 'Reading zSwap\'s boards…' });
+      box.innerHTML = D.zbFailed ? `<p class="note">Could not read zSwap's boards. ${ZSWAP_LINK}</p>` : ''; note.textContent = ''; return;
     }
-    const missing = z.answered < BOARD_CALLS ? ' Some of the boards did not answer, so orders may be missing here.' : '';
+    const missing = z.answered < BOARD_CALLS ? ' Some boards did not answer; orders may be missing.' : '';
     const bd = S.quote?.board, via = routeOf(S.quote);
     const take = S.pin == null && via === 'boards' && bd?.ok ? { side: S.quote.buy ? 'ask' : 'bid', size: Number(S.quote.buy ? bd.out : bd.spent) / 1e18 } : null;
     depth.update({
       asks: z.asks.map((o) => ({ price: ethPx(o.price), size: Number(o.base) / 1e18, order: o })), bids: z.bids.map((o) => ({ price: ethPx(o.price), size: Number(o.base) / 1e18, order: o })), take,
       priceFmt: ethPxFmt, sizeFmt: (n) => `${tacFmt(n)} TAC`, label: 'zSwap order book for TAC', empty: 'No TAC orders rest on zSwap\'s boards right now.',
     });
-    box.innerHTML = hasBoardOrders() ? `<div class="lads">${ethLadder(z.asks, true)}${ethLadder(z.bids, false)}</div>` : `<p class="note">${z.answered < BOARD_CALLS ? 'No TAC orders were found on the boards that answered.' : 'No TAC orders rest on zSwap\'s boards right now.'}${missing} ${ZSWAP_LINK}</p>`;
-    note.innerHTML = hasBoardOrders() ? `Orders resting on zSwap's boards, read from Ethereum. Fill reads one into the ticket; with none picked, the ticket fills the best several in one transaction when that pays more.${missing} ${ZSWAP_LINK}` : '';
+    box.innerHTML = hasBoardOrders() ? `<div class="lads">${ethLadder(z.asks, true)}${ethLadder(z.bids, false)}</div>` : `<p class="note">${z.answered < BOARD_CALLS ? 'No TAC orders on the boards that answered.' : 'No TAC orders on zSwap\'s boards.'}${missing} ${ZSWAP_LINK}</p>`;
+    note.innerHTML = hasBoardOrders() ? `Orders on zSwap's boards. Fill sets the ticket to that order; otherwise the ticket fills the best orders together when that pays more.${missing} ${ZSWAP_LINK}` : '';
     return;
   }
   const b = D.book;
@@ -513,9 +513,9 @@ function renderBook() {
     }).join('')}</tbody></table></div>`;
   };
   box.innerHTML = `<div class="lads two">${side(b.asks, true)}${side(b.bids, false)}</div>` + (live ? `<div class="btc-actions"><button class="fillbtn primary" type="button" data-btc="open">Trade on Bitcoin</button><button class="fillbtn" type="button" data-btc="list">List a sale</button></div>` : '');
-  const total = b.asks.reduce((a, r) => a + r.amount, 0n), sats = b.asks.reduce((a, r) => a + r.sats, 0), want = b.bids.reduce((a, r) => a + r.amount, 0n);
-  const bidsTxt = !D.bidsRead ? 'The standing bids could not be read just now.' : b.bids.length ? `${b.bids.length} standing bid${b.bids.length === 1 ? '' : 's'} want${b.bids.length === 1 ? 's' : ''} ${grp(Number(want) / 1e8, 0)} TAC; a sale to one settles when its bidder is online${b.bids.some((r) => r.auto) ? ', or within minutes where a watchtower covers it' : ''}.` : 'No bid stands on the book right now.';
-  note.innerHTML = b.asks.length ? `${b.asks.length} listings hold ${grp(Number(total) / 1e8, 0)} TAC for ${grp(sats, 0)} sats in all, taken whole. ${bidsTxt} A buyer needs sats on a Bitcoin address.${live ? '' : ` <a href="/tac/#buy">Buy on Bitcoin →</a> · <a href="/classic.html#tab=market&aid=${TAC_BTC_ID}&lane=btc">List a sale →</a>`}` : bidsTxt;
+  const total = b.asks.reduce((a, r) => a + r.amount, 0n), want = b.bids.reduce((a, r) => a + r.amount, 0n);
+  const bidsTxt = !D.bidsRead ? 'Could not read the bids.' : b.bids.length ? `${b.bids.length} bid${b.bids.length === 1 ? '' : 's'} want${b.bids.length === 1 ? 's' : ''} ${grp(Number(want) / 1e8, 0)} TAC and settle when the bidder is online${b.bids.some((r) => r.auto) ? ' (some within minutes, via a watchtower)' : ''}.` : 'No bids.';
+  note.innerHTML = b.asks.length ? `${b.asks.length} listings hold ${grp(Number(total) / 1e8, 0)} TAC, taken whole. ${bidsTxt} Buying needs sats on a Bitcoin address.${live ? '' : ` <a href="/tac/#buy">Buy on Bitcoin →</a> · <a href="/classic.html#tab=market&aid=${TAC_BTC_ID}&lane=btc">List a sale →</a>`}` : bidsTxt;
 }
 // Pinning an order: the ticket takes its side and size, and trades with that order alone.
 function renderPin() {
@@ -535,13 +535,13 @@ function pinOrder(key) {
   $('.p-ticket').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 function renderAbout() {
-  $('#about').innerHTML = `<p><b>TAC</b> is Tacit's token: 21,000,000, issued once on Bitcoin with no mint authority. On Ethereum it is an ERC-20 that only Tacit's confidential pool can mint, from TAC proven to have left Bitcoin, so there is one supply and two lanes. <a href="/verify.html">Check the supply →</a></p>`;
+  $('#about').innerHTML = `<p><b>TAC</b> is Tacit's token: 21,000,000, issued once on Bitcoin with no mint authority. On Ethereum it is an ERC-20 minted only by Tacit's confidential pool, against TAC proven to have left Bitcoin: one supply, two lanes. <a href="/verify.html">Check the supply →</a></p>`;
   const link = (a, t) => `<a href="${SCAN}${a}" target="_blank" rel="noopener noreferrer">${t || `${a.slice(0, 8)}…${a.slice(-6)}`}</a>`;
   const pool = getConfidentialDeployment('mainnet')?.pool;
   const main = [
     ['On Ethereum', `ERC-20 ${link(TAC_ERC20)}${D.ethSupply != null ? ` · ${grp(Number(D.ethSupply) / 1e18, 0)} TAC minted there so far` : ''}`],
-    ['On Bitcoin', `Asset <code>${TAC_BTC_ID.slice(0, 8)}…${TAC_BTC_ID.slice(-6)}</code>${D.btc?.holders ? ` · ${grp(D.btc.holders, 0)} holders` : ''}${D.btc?.vol24 ? ` · ${grp(D.btc.vol24, 0)} sats traded in 24 hours` : ''}`],
-    ['Between them', `<a href="/#bridge">The bridge</a> moves TAC from Bitcoin to Ethereum in a few hours, sometimes up to a day.`],
+    ['On Bitcoin', `Asset <code>${TAC_BTC_ID.slice(0, 8)}…${TAC_BTC_ID.slice(-6)}</code>${D.btc?.holders ? ` · ${grp(D.btc.holders, 0)} holders` : ''}${D.btc?.vol24 ? ` · ${grp(D.btc.vol24, 0)} sats traded in 24h` : ''}`],
+    ['Between them', `<a href="/#bridge">The bridge</a> takes TAC from Bitcoin to Ethereum in hours, sometimes a day.`],
   ];
   const more = [
     ['Precision pool', `${link(PRECISION_POOL)} · TAC/ETH${D.precision ? ` · holds ${fmtUnits(D.precision.eth, 18, 2)} ETH and ${fmtUnits(D.precision.tac, 18, 0)} TAC` : ''}`],
@@ -617,9 +617,9 @@ function renderReview() {
     <div class="kv"><span>Route</span><b>${esc(P.via === 'boards' ? boardsName(P.board) : P.split ? `Split: ${splitWhat(P.rt.split)}` : P.rt.single.venue === 'precision' ? 'Precision pool' : 'Tacit pool')}</b></div>${P.via === 'boards' ? boardLegs(P) : ''}
     ${P.impact >= 0.005 ? `<div class="kv"><span>Price impact</span><b class="${P.impact >= 0.05 ? 'err' : ''}">${(P.impact * 100).toFixed(P.impact < 0.1 ? 1 : 0)}%</b></div>` : ''}
     <div class="kv"><span>From</span><b>${esc(short(W.account))} · ${esc(W.name)}</b></div>
-    ${gate ? `<label class="ack"><input type="checkbox" id="ack"><span>I accept losing about ${Math.round(P.impact * 100)}% of this ${buy ? 'purchase' : 'sale'} ${P.via === 'boards' ? 'against the Precision pool\'s price' : 'to the pools\' price move. A smaller amount moves it less'}.</span></label>` : ''}
+    ${gate ? `<label class="ack"><input type="checkbox" id="ack"><span>I accept losing about ${Math.round(P.impact * 100)}% of this ${buy ? 'purchase' : 'sale'} ${P.via === 'boards' ? 'against the Precision pool\'s price' : 'to price impact. A smaller amount moves it less'}.</span></label>` : ''}
     <div class="slip"><span class="mute">Slippage</span><div class="seg" id="slip-seg" role="group" aria-label="Slippage"><button type="button" data-slip="50">0.5%</button><button type="button" data-slip="100">1%</button><button type="button" data-slip="300">3%</button></div></div>
-    <p class="note">${buy ? 'One transaction.' : 'A permit signature (no gas), then one transaction.'} It is tested without sending first${P.split ? ', and goes to one pool if the split fails its test' : P.via === 'boards' ? '. If an order is filled before the test, nothing is sent' : ''}.</p>
+    <p class="note">${buy ? 'One transaction' : 'A free permit signature, then one transaction'}, tested before it is sent.${P.split ? ' If the split fails its test it goes to one pool.' : P.via === 'boards' ? ' If an order is filled first, nothing is sent.' : ''}</p>
     <div class="row2"><button class="btn ghost" type="button" id="rv-back">Back</button><button class="btn" type="button" id="rv-go"${gate ? ' disabled' : ''}>Confirm in wallet</button></div>`;
   $('#rv-back').onclick = () => { S.review = null; renderReview(); say(''); };
   paintSlip();
@@ -674,8 +674,8 @@ async function preparePools(P, from) {
   const rt = await venues.route({ dir, amountIn: P.wei, account: from, gasPrice: await gasPrice() });
   if (!rt.single) throw new Error('No pool can fill this right now.');
   const venue = P.rt.single.venue, pick = P.split ? rt.split : (rt.r.ranked || []).find((x) => x.venue === venue);
-  if (!pick) { S.review = null; renderReview(); say('The route you reviewed is no longer on offer. Nothing was sent; review it again.'); requote(); return null; }
-  if (BigInt(pick.amountOut) < P.floor) { S.review = null; renderReview(); say('The price moved below the least you accepted. Nothing was sent; review it again.'); requote(); return null; }
+  if (!pick) { S.review = null; renderReview(); say('That route is no longer offered. Nothing was sent; review it again.'); requote(); return null; }
+  if (BigInt(pick.amountOut) < P.floor) { S.review = null; renderReview(); say('The price fell below your minimum. Nothing was sent; review it again.'); requote(); return null; }
   // The least it will take follows the price now, at the slippage chosen, and is never below what was reviewed.
   const floorFor = (route) => { const f = (BigInt(route.amountOut) * BigInt(10000 - S.slip)) / 10000n; return f > P.floor ? f : P.floor; };
   const dl = BigInt(now() + 1200);
@@ -683,7 +683,7 @@ async function preparePools(P, from) {
     const isSplit = !!route.legs, floor = floorFor(route);
     const make = (permit) => (isSplit ? venues.buildSplit({ split: route, account: from, minOut: floor, deadline: dl, permit }) : venues.build({ quote: route, dir, account: from, minOut: floor, deadline: dl, permit }));
     const tx = await withTacAccess({ make, buy, permit: route.venue === 'precision' || isSplit, from, dl });
-    say('Testing it once without sending…');
+    say('Testing it first…');
     return { tx, sim: await venues.simulate({ tx, from }) };
   };
   let run = await prepare(pick);
@@ -692,7 +692,7 @@ async function preparePools(P, from) {
     if (BigInt(rt.single.amountOut) < P.floor) throw new Error('The price on one pool alone is below the least you accepted. Nothing was sent.');
     run = await prepare(rt.single);
   }
-  if (!run.sim.ok) throw new Error('This trade would not go through right now: it was tested first, and nothing was sent. Try a smaller amount, or again in a moment.');
+  if (!run.sim.ok) throw new Error('This trade would fail right now, so it was not sent. Try a smaller amount or try again soon.');
   return run.tx;
 }
 
@@ -705,16 +705,16 @@ async function prepareBoards(P, from) {
   const rows = new Map((buy ? book.asks : book.bids).map((o) => [o.key, o]));
   const orders = P.board.keys.map((k) => rows.get(k));
   const stop = (why) => { S.review = null; renderReview(); say(why); loadBoards().then(paintAll).catch(() => {}); requote(); return null; };
-  if (orders.some((o) => !o)) return stop('An order you reviewed was just filled or taken down. Nothing was sent; review it again.');
+  if (orders.some((o) => !o)) return stop('An order you reviewed was just filled or cancelled. Nothing was sent; review it again.');
   const again = (buy ? planBoardBuy : planBoardSell)(orders, P.wei);
   const fine = again.fills.length ? await refineBoards({ ethCall, plan: again }) : null;
   if (!fine) return stop('These orders can no longer be filled together. Nothing was sent; review it again.');
-  if (fine.get < P.floor) return stop('The price moved below the least you accepted. Nothing was sent; review it again.');
+  if (fine.get < P.floor) return stop('The price fell below your minimum. Nothing was sent; review it again.');
   const dl = BigInt(now() + 1200);
   const make = (permit) => buildBoardFill({ plan: fine, side, token: TAC_ERC20, account: from, deadline: dl, slipBps: S.slip, permit, floor: P.floor });      // never below the "at least" that was reviewed
   const tx = await withTacAccess({ make, buy, permit: true, from, dl });
-  say('Testing it once without sending…');
-  if (!(await venues.simulate({ tx, from })).ok) throw new Error('This would not go through right now: it was tested first, and nothing was sent. An order may have been filled; the order book is read again.');
+  say('Testing it first…');
+  if (!(await venues.simulate({ tx, from })).ok) throw new Error('This would fail right now, so it was not sent. An order may have been filled; the order book is reloading.');
   return tx;
 }
 
