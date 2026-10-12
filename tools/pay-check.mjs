@@ -9,6 +9,8 @@
 //          /pay/eth/; BTC and TAC balances read; each kind of address routes as it should, a tacit1 from before the pool
 //          lane included (a silent payment in BTC, a shielded transfer in TAC); the receive addresses and their QR codes;
 //          Activity rebuilt from the key
+//   poolact with KEY (the canary): its real take-out that a payment through the pool recorded (sold for 3,300 sats) shows in Activity
+//          as "Paid through the pool", not as a send from its own Bitcoin address
 //   poolpay read-only against mainnet with KEY (a key holding shielded TAC): BTC Send to a bc1… address switched to the shielded
 //          pool shows what the recipient gets, the TAC it takes with the relay's fee, the price and how private it is; under the
 //          minimum, to this wallet's own address and to a tacit1 it says why or is not offered; nothing is sent
@@ -267,6 +269,26 @@ try {
     const pm = poly([3, 3, 0, 2, 3, ...data, 0, 0, 0, 0, 0, 0]) ^ 1;
     return 'bc1' + [...data, ...[0, 1, 2, 3, 4, 5].map((i) => (pm >>> (5 * (5 - i))) & 31)].map((d) => C[d]).join('');
   };
+  if (ONLY.has('poolact')) {
+    console.log('poolact (/pay: Activity names a payment through the pool, mainnet reads)');
+    const origin = new URL(URL_).origin, { ctx, p, errors } = await page(browser, { colorScheme: 'dark' });
+    const { secp, bytesToHex } = await import('../dapp/vendor/tacit-deps.min.js');
+    const pub = bytesToHex(secp.getPublicKey(process.env.KEY.replace(/^0x/, ''), true));
+    const TAKE = '450bad1e3be9db7f8ad05f016b4acbb10ef2b0a2bda5aca63215a931895bc57b', PAID = '804b2f168c0e83f3bfcdb48cdf68310de8e781294683b464da5cccb804f73273';
+    await p.goto(origin + '/pay/#btc');
+    await p.waitForSelector('#g-in');
+    await p.evaluate(({ k, v }) => localStorage.setItem(k, JSON.stringify(v)), { k: 'tacit-pay-poolpay-v1:' + pub, v: [{ id: 'poolact1', to: 'bc1qvc8cvyhvare7xwg2rnws8etxaf2zk5grz8lgx3', script: '0014660f0000000000000000000000000000000051', sats: '3300', units: '2000000000', counter: 1, state: 'paid', txid: TAKE, vout: 0, paidTx: PAID, at: Date.now() }] });
+    await openKey(p, process.env.KEY);
+    const rows = () => p.$$eval('#act-body li', (els) => els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()));
+    await p.waitForFunction((t) => [...document.querySelectorAll('#act-body li')].some((e) => e.textContent.includes(t.slice(0, 8))), TAKE, { timeout: 240e3 }).catch(() => {});
+    const row = (await rows()).find((r) => r.includes(TAKE.slice(0, 8)));
+    ok(!!row, `the take-out is in Activity: ${(row || '').slice(0, 200)}`);
+    ok(/^Paid through the pool\s*−35 TAC/.test(row || ''), 'it is named as a payment through the pool, for what left the pool (35 TAC)');
+    ok(/0\.000033 BTC for them, plus the relay’s fee/.test(row || ''), 'with the Bitcoin amount it paid and the relay’s fee');
+    ok(!/posted from your Bitcoin address/.test(row || ''), 'and it no longer says it was posted from this key’s Bitcoin address');
+    ok(!errors.length, `no page errors ${errors.join(' | ').slice(0, 300)}`);
+    await ctx.close();
+  }
   if (ONLY.has('poolpay')) {
     // BTC through the shielded TAC pool, read-only with KEY: the route is offered for a bc1… address and priced; nothing is sent.
     console.log('poolpay (/pay: BTC through the shielded pool, mainnet reads)');

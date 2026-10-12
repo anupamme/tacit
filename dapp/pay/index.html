@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-+DqLGA1k5idwzPz6l4q9uCu/LRgpWd62z8xBSVmsfiU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-8/iMYKyx96PqDHC8euRmQjkkOzgmxhHf3VnUPkpHX64=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay</title>
 <meta name="description" content="Simple, private payments: Bitcoin by silent payment, TAC shielded, ETH on Ethereum, Base, Robinhood Chain and MegaETH. One key and one tacit1 address, every payment made on your device, and your balances rebuild from that key.">
@@ -2441,7 +2441,9 @@ function actRows() {
   const link = (id) => { const g = byTx.get(id); if (g) taken.add(g); return g || null; };
   const near = groups.filter((g) => g.at && g.height).sort((p, q) => q.height - p.height)[0], anchor = ACT.tip || (near ? { h: near.height, ts: near.at } : null);
   const timeAt = (h) => (anchor && h ? anchor.ts - (anchor.h - h) * 600 : null);
-  if (x) rows.push(...tacRows(x, link, timeAt));
+  // A take-out that a payment through the pool recorded (its txid is in that payment's record) is that payment, not a plain send.
+  const pooled = new Map(S.key ? poolJobs(S.key.pubHex).filter((j) => j.txid).map((j) => [j.txid, j]) : []);
+  if (x) rows.push(...tacRows(x, link, timeAt).map((r) => { const j = r.kind === 'tsent' && pooled.get(r.tx[0]); return j ? { ...r, kind: 'tpool', to: j.to, sats: BigInt(j.sats), relayed: true } : r; }));
   const pool = new Set((x?.mine || []).map((n) => n.txid));
   for (const j of justList()) {
     if (j.mode === 'tac' ? x && pool.has(j.tx) : b?.txs.has(j.tx)) continue;
@@ -2465,7 +2467,7 @@ function actVisible() {
 }
 const ACT_KIND = {
   tin: ['Received privately', '+'], tshield: ['Shielded from your Bitcoin address', '+'], tshieldin: ['Shielded to you from a Bitcoin address', '+'],
-  tsent: ['Sent privately', '−'], tself: ['Combined your notes', ''], texit: ['Withdrew to your Bitcoin address', '−'],
+  tsent: ['Sent privately', '−'], tpool: ['Paid through the pool', '−'], tself: ['Combined your notes', ''], texit: ['Withdrew to your Bitcoin address', '−'],
   tspent: ['Spent from your shielded balance', '−'], tchange: ['Change kept from a payment', ''],
   sp: ['Received by silent payment', '+'], recv: ['Received at your Bitcoin address', '+'], sent: ['Sent', '−'],
   tacit: ['Tacit transaction from your Bitcoin address', '−'], own: ['Your own transaction', '−'],
@@ -2475,6 +2477,7 @@ function actFoot(r) {
   bits.push(r.pending ? (r.unit === 'TAC' && r.just ? 'the pool counts it after three confirmations' : 'waiting for a block')
     : r.at ? `${r.approx ? '≈ ' : ''}${ago(r.at)}` : r.height ? `block ${r.height.toLocaleString('en-US')}` : null);
   if (r.to) bits.push(html`to <span class="nw">${short(r.to, 6)}</span>`);
+  if (r.kind === 'tpool') bits.push(`${fmt(r.sats, 8, 8)} BTC for them, plus the relay’s fee`);
   if (r.kind === 'tsent') bits.push(r.relayed ? (r.just ? 'plus the relay’s fee' : 'includes the relay’s fee') : 'posted from your Bitcoin address');
   if (r.kind === 'tself') bits.push(r.relayFee != null ? `relay fee ${fmt(r.relayFee, 8, 8)} TAC` : 'posted from your Bitcoin address');
   if (r.kind === 'tspent') bits.push(r.n > 1 ? `${r.n} payments in block ${r.height.toLocaleString('en-US')}` : `in block ${r.height.toLocaleString('en-US')}`);
@@ -2498,7 +2501,7 @@ function paintActivity() {
       return mountOnce(el, html`${lede}${err ? html`<p class="note err" role="alert">Couldn’t read your activity: ${errText(err)} ${again('act-re')}</p>`
         : mine && ACT.loading ? html`<p class="note"><span class="spin" aria-hidden="true"></span>Reading your payments…</p>` : ''}`);
     }
-    const rows = actVisible(), list = rows.slice(0, ACT.shown), more = rows.length > ACT.shown || !!b?.more, relayed = list.some((r) => r.kind === 'tsent' && r.relayed && !r.just);
+    const rows = actVisible(), list = rows.slice(0, ACT.shown), more = rows.length > ACT.shown || !!b?.more, relayed = list.some((r) => (r.kind === 'tsent' || r.kind === 'tpool') && r.relayed && !r.just);
     const warn = [
       !b && ACT.btcErr ? html`Couldn’t read your Bitcoin address’s history: ${errText(ACT.btcErr)}` : b && ACT.btcErr ? 'Couldn’t refresh your Bitcoin address’s history.' : null,
       !x && ACT.tacErr ? html`Couldn’t read your shielded TAC: ${tacErr(ACT.tacErr)}` : x && ACT.tacErr ? 'Couldn’t refresh your shielded TAC.' : null,
