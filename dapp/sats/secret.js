@@ -519,15 +519,15 @@ export async function recoverExitOpenings(tacit, { poolWallet, asset, utxos, not
 }
 
 // ── back to sats ──
-async function faucetCall(url, init, { timeoutMs = 60_000 } = {}) {
+async function faucetCall(url, init, { timeoutMs = 60_000, who = 'faucet' } = {}) {
   let r;
   const ctl = typeof AbortController === 'function' ? new AbortController() : null;
   const timer = ctl ? setTimeout(() => ctl.abort(), timeoutMs) : null;
   try { r = await fetch(url, { cache: 'no-store', ...init, headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) }, signal: ctl?.signal }); }
-  catch { throw Object.assign(new Error('The faucet is unreachable; try again in a minute.'), { unreachable: true }); }
+  catch { throw Object.assign(new Error(`The ${who} is unreachable; try again in a minute.`), { unreachable: true }); }
   finally { if (timer) clearTimeout(timer); }
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(`Faucet: ${j.error || `HTTP ${r.status}`}`);
+  if (!r.ok) throw new Error(`${who === 'faucet' ? 'Faucet' : 'The ' + who}: ${j.error || `HTTP ${r.status}`}`);
   return j;
 }
 async function findFill(faucetUrl, quoteId, say) {
@@ -579,6 +579,58 @@ export async function sellForSats(tacit, { poolWallet, amount, asset, anchor = n
     revealTxid: f.txid, commitTxid: f.commitTxid, sats: Number(f.sats), units: BigInt(amount),
     payout: { counter: r.payout.counter, scriptPubKey: r.payout.scriptPubKey, vout: q.wantVout }, anchor: a.hAnchor,
   };
+}
+
+// ── pay a bitcoin address through the pool maker ──
+// The maker (worker-relay/src/pool-maker.js) takes TAC out of the pool for sats. One proved spend exits the TAC to the
+// maker and wants `sats` paid to `payoutScript`, a recipient's output script; the maker posts both in one carrier, so the
+// recipient is paid in the next block. Its terms (the TAC it takes for the sats, a coin to bind the carrier to) come from
+// GET /maker/quote?sats=. The want is in the proved body: a maker that does not pay cannot take the exit.
+export const makerQuoteSats = (sats, makerUrl) => faucetCall(`${String(makerUrl).replace(/\/$/, '')}/maker/quote?sats=${BigInt(sats)}`, undefined, { who: 'maker' });
+async function findMakerFill(makerUrl, quoteId, say) {
+  for (let i = 0; i < 12; i++) {
+    say('checking with the maker…');
+    const st = await fetch(`${String(makerUrl).replace(/\/$/, '')}/maker/status`, { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const hit = st?.recent_fills?.find((x) => x.quoteId === quoteId);
+    if (hit) return { txid: hit.txid, sats: hit.sats, commitTxid: null };
+    await new Promise((res) => setTimeout(res, 10_000));
+  }
+  return null;
+}
+export async function payThroughMaker(tacit, { poolWallet, sats, payoutScript, asset = TAC_ASSET_MAINNET, anchor = null, usedScripts = new Set(), say = () => {}, prove = proveHere, makerUrl }) {
+  const assetHex = String(asset).replace(/^0x/, '').toLowerCase();
+  const base = String(makerUrl).replace(/\/$/, '');
+  say('asking the maker for a price…');
+  const q = await makerQuoteSats(sats, base);
+  if (BigInt(q.sats) !== BigInt(sats) || String(q.asset).replace(/^0x/, '').toLowerCase() !== assetHex) throw new Error('The maker quoted other terms.');
+  const units = BigInt(q.units);
+  say('finding your notes…');
+  const a = await prepare(poolWallet, assetHex, units, anchor);
+  if (a.wait) return { wait: a.wait, tip: a.tip };
+  const r = zap.exitToSats({
+    pool, wallet: poolWallet, notes: a.notes, amount: units, asset: '0x' + assetHex, hAnchor: a.hAnchor, root: a.root, usedScripts,
+    payoutScriptPubKey: payoutScript,
+    maker: { spk: '0x' + String(q.makerSpk).replace(/^0x/, ''), sats: BigInt(q.sats), vout: q.wantVout, exitVout: q.exitVout, bind: q.bind },
+  });
+  const { payloadHex } = await prove(r.spend, say);
+  say('the maker is checking and posting it…');
+  let f;
+  try {
+    f = await faucetCall(`${base}/maker/fill`, {
+      method: 'POST',
+      body: JSON.stringify({
+        quoteId: q.quoteId, payload: payloadHex,
+        offer: { exitOpening: { value: r.offer.exitOpening.value.toString(), blinding: r.offer.exitOpening.blinding }, payoutScriptPubKey: r.offer.payoutScriptPubKey },
+      }),
+    }, { timeoutMs: 120_000, who: 'maker' });
+  } catch (e) {
+    // The fill may have gone out with its answer lost on the way back: the maker lists recent fills by quote.
+    if (!e.unreachable) throw e;
+    f = await findMakerFill(base, q.quoteId, say);
+    if (!f) throw new Error('The maker did not answer. If the payment went out it shows in your activity within a few minutes.');
+  }
+  pendingMark(a.notes, f.txid, 0n, assetHex);
+  return { revealTxid: f.txid, commitTxid: f.commitTxid, sats: Number(f.sats), units, anchor: a.hAnchor, price: q.price };
 }
 
 // ── sats at exit keys ──
