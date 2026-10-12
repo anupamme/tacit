@@ -4,7 +4,7 @@
 <!-- Made from /trade/index.html by `npm run build` (build/build.mjs): edit that file, not this one. -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; worker-src 'self'; connect-src 'self' https://api.tacit.finance https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://api.coinbase.com https://api.kraken.com https://api.coingecko.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://ipfs.filebase.io; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit trade</title>
 <meta name="description" content="Trade TAC for ETH or sats at the best price across the Precision pool, Tacit's pools, the Bitcoin order book and any other pool that lists it, with its price history on both chains.">
@@ -234,6 +234,39 @@ input::placeholder { color: var(--mute); opacity: .7; }
 @media (pointer: coarse) { .fillbtn { min-height: 36px; } }
 .lad .more-rows { margin: 6px 0 0; }
 @media (max-width: 560px) { .lad .opt { display: none; } }
+/* Bitcoin: the market module in a sheet, and the small dialogs it needs above its own confirmations */
+.btc-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
+.fillbtn.primary { background: var(--ink); color: var(--card); border-color: var(--ink); }
+.fillbtn.primary:hover { background: transparent; color: var(--ink); }
+.bsheet { position: fixed; inset: 0; z-index: 900; display: grid; grid-template-columns: minmax(0, 1fr); place-items: start center; padding: 16px; overflow: auto; overflow-x: hidden; overscroll-behavior: contain; background: var(--scrim); backdrop-filter: blur(2px); }
+.bsheet.top { z-index: 1100; place-items: center; }
+.bsheet-in { min-width: 0; width: min(520px, 100%); padding: 22px 22px 24px; color: var(--ink); background: var(--card); border: 1px solid var(--ink); box-shadow: var(--sheet-shadow); }
+.bsheet.wide .bsheet-in { width: min(1100px, 100%); padding: 16px 0 0; }
+.bsheet.wide .bsheet-head { position: sticky; top: -16px; z-index: 3; margin: -16px 0 6px; padding: 12px 16px; background: var(--card); border-bottom: 1px solid var(--hair); }
+.bsheet .bm-back { display: none; }
+.bsheet-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
+.bsheet-head h2 { font: 400 28px/1 var(--serif); letter-spacing: -.01em; margin: 0; }
+.bsheet-head h2:focus { outline: none; }
+.bsheet-head h2 { margin-right: auto; }
+.bsheet .who { display: inline-flex; align-items: center; gap: 10px; font-size: 12px; }
+.bsheet .bm-after { margin: 0; padding: 4px 16px 18px; }
+.bsheet .x { padding: 4px 8px; font-size: 26px; line-height: 1; cursor: pointer; color: var(--mute); background: none; border: 0; }
+.bsheet .x:hover { color: var(--ink); }
+.bsheet-actions { display: grid; grid-auto-flow: column; gap: 10px; } .bsheet-actions .btn { margin-top: 0; }
+.bsheet .addr { margin: 0 0 14px; padding: 10px 12px; overflow-wrap: anywhere; background: var(--field); border: 1px solid var(--hair); }
+@media (max-width: 560px) { .bsheet { padding: 0; place-items: end center; } .bsheet.wide { place-items: stretch; } .bsheet-in { width: 100%; } }
+.opts { display: grid; gap: 8px; margin-top: 4px; }
+.opt { display: grid; gap: 3px; width: 100%; padding: 12px 14px; text-align: left; cursor: pointer; background: var(--field); border: 1px solid var(--hair-2); transition: border-color .15s; }
+@media (hover: hover) { .opt:hover:not(:disabled) { border-color: var(--ink); } }
+.opt:disabled { opacity: .5; cursor: progress; }
+.opt.main { border-color: var(--ink); background: var(--card); }
+.opt-t { display: flex; align-items: center; gap: 10px; font-weight: 500; }
+.opt-m { font-size: 12px; color: var(--mute); }
+.picker { display: grid; gap: 8px; }
+.opts-err { margin: 2px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--err); }
+.opts .more { margin: 6px 0 0; }
+.btoast { position: fixed; left: 50%; bottom: 20px; z-index: 1200; max-width: min(520px, calc(100vw - 32px)); padding: 11px 14px; font-size: 12.5px; transform: translateX(-50%); color: var(--card); background: var(--ink); box-shadow: var(--lift); }
+.btoast.error { color: var(--paper); background: var(--err); }
 .pin { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; margin: -6px 0 6px; padding: 9px 12px; font-size: 12.5px; background: var(--field); border-left: 2px solid var(--orange); }
 
 .facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
@@ -356,6 +389,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/app.js?cb=2e959ae3"></script>
+<script type="module" src="/trade/app.js?cb=8d7626a8"></script>
 </body>
 </html>

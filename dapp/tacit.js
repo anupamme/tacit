@@ -79836,6 +79836,9 @@ export {
   sighashV0WithType,
   // Buyer/seller flow exports.
   publishPreauthSale, publishPreauthSaleChunks, cancelPreauthSale, takePreauthSale, takePreauthSaleBatch, fetchPreauthSale,
+  // The market page's executor context (see btc-market.js), for a page that mounts that module outside the classic app (/trade): it supplies
+  // the executors and the book's data, and the page supplies its own sign-in, confirm, toast and balance.
+  _btcMarketCtx,
   // T_PREAUTH_BID buyer/seller flow exports.
   publishPreauthBid, cancelPreauthBid, takePreauthBid, fetchPreauthBid, fetchPreauthBids,
   // T_PREAUTH_BID opcode + wire-format primitives (inline-binding scheme).

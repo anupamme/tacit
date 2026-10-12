@@ -411,6 +411,32 @@ function renderVenues(q) {
   note.textContent = `The first rows are what the ticket runs on. The Tacit pool is one set of reserves: a public swap goes through its AMM contract, a private one spends a shielded note in the app and pays the relay's fee ${buy ? 'on top' : 'out of the TAC'}. zSwap's boards run on their resting orders: the ticket uses them when they take the whole amount and pay 1% more than the pool it would use, or when you pick an order in the order book. ${buy ? 'The Bitcoin row buys with sats rather than ETH, and the TAC arrives on Bitcoin.' : 'On the Bitcoin order book a sale goes to a standing bid, which settles when its bidder is online, or is listed at your price.'}`;
 }
 
+// ── Bitcoin from the page ──
+// The Bitcoin tab's ladders can take the visitor into the market module (trade/btc.js: tacit.js's own executors behind a sheet). It is
+// off until it is switched on in this browser with #btc=on (and off again with #btc=off): the first real purchases are the owner's to try.
+const btcOn = () => { try { return localStorage.getItem('tacit-trade-btc') === '1'; } catch { return false; } };
+let bitcoin = null;
+function notify(msg, kind = '', ms = 5000) {
+  const t = document.createElement('div');
+  t.className = `btoast ${kind}`; t.setAttribute('role', 'status'); t.textContent = msg; document.body.append(t);
+  $('#live').textContent = msg;
+  setTimeout(() => t.remove(), ms);
+}
+async function openBitcoin(prime = null) {
+  try {
+    bitcoin ||= (await import('/trade/btc.js?cb=db674e0c')).makeBitcoin({ notify, onTraded: () => loadBitcoin().then(paintAll).catch(() => {}) });
+    await bitcoin.open(prime);
+  } catch (e) { notify(`The Bitcoin market could not be opened: ${e?.message || e}`, 'error', 9000); }
+}
+// What the ticket is set to when a listing or a bid is picked: everything cheaper than it, and it, as the market module's own rows do.
+function bookPrime(kind, i) {
+  const b = D.book;
+  if (kind === 'buy') return { side: 'buy', type: 'market', receiveBase: b.asks.slice(0, i + 1).filter((r) => !r.mine).reduce((a, r) => a + r.amount, 0n) };
+  if (kind === 'sell') return { side: 'sell', type: 'market', sellBase: b.bids.slice(0, i + 1).filter((r) => !r.mine).reduce((a, r) => a + r.amount, 0n) };
+  if (kind === 'list') return { side: 'sell', type: 'limit' };
+  return null;
+}
+
 // ── the order books and the facts ──
 // Two books, one panel: zSwap's boards on Ethereum (orders to buy and to sell, any of which the ticket can fill) and the Bitcoin order book
 // (listings). The depth chart draws what the orders add up to by price; the ladders list them, with a Fill on each Ethereum order.
@@ -461,15 +487,16 @@ function renderBook() {
     asks: b.asks.map((r) => ({ price: btcPx(r.unit), size: Number(r.amount) / 1e8 })), bids: b.bids.map((r) => ({ price: btcPx(r.unit), size: Number(r.amount) / 1e8 })), take,
     priceFmt: btcPxFmt, sizeFmt: (n) => `${tacFmt(n)} TAC`, label: 'Bitcoin order book for TAC', empty: 'No TAC is listed on the Bitcoin order book right now.',
   });
+  const live = btcOn();
   const side = (list, ask) => {
     const rows = list.slice(0, ask ? 8 : 6);
     if (!rows.length) return '';
-    return `<div class="lad"><h3>${ask ? 'For sale' : 'Wanted'} <span>${ask ? 'listings are taken whole' : 'sell TAC for sats'}</span></h3><table class="table"><thead><tr><th>Price</th><th class="r">TAC</th><th class="r">Sats</th><th class="r opt">${ask ? 'Ends' : 'Settles'}</th></tr></thead><tbody>${rows.map((r) => {
+    return `<div class="lad"><h3>${ask ? 'For sale' : 'Wanted'} <span>${ask ? 'listings are taken whole' : 'sell TAC for sats'}</span></h3><table class="table"><thead><tr><th>Price</th><th class="r">TAC</th><th class="r">Sats</th><th class="r opt">${ask ? 'Ends' : 'Settles'}</th>${live ? '<th></th>' : ''}</tr></thead><tbody>${rows.map((r, i) => {
       const amt = Number(r.amount) / 1e8;
-      return `<tr><td><b class="num">${esc(btcPxFmt(btcPx(r.unit)))}</b>${D.btcUsd ? `<small>${esc(satsFmt(r.unit))} sats</small>` : ''}</td><td class="r num">${esc(tacFmt(amt))}</td><td class="r num">${esc(satsFmt(r.sats))}</td><td class="r opt">${ask ? (r.expiry ? esc(left(r.expiry)) : '') : r.auto ? 'at once' : 'when the bidder is online'}</td></tr>`;
+      return `<tr${r.mine ? ' class="mine"' : ''}><td><b class="num">${esc(btcPxFmt(btcPx(r.unit)))}</b>${D.btcUsd ? `<small>${esc(satsFmt(r.unit))} sats</small>` : ''}</td><td class="r num">${esc(tacFmt(amt))}</td><td class="r num">${esc(satsFmt(r.sats))}</td><td class="r opt">${ask ? (r.expiry ? esc(left(r.expiry)) : '') : r.auto ? 'at once' : 'when the bidder is online'}</td>${live ? `<td class="go">${r.mine ? '<span class="mute">yours</span>' : `<button class="fillbtn" type="button" data-btc="${ask ? 'buy' : 'sell'}" data-i="${i}" aria-label="${ask ? 'Buy' : 'Sell'} ${esc(tacFmt(amt))} TAC at ${esc(btcPxFmt(btcPx(r.unit)))} each">${ask ? 'Buy' : 'Sell'}</button>`}</td>` : ''}</tr>`;
     }).join('')}</tbody></table></div>`;
   };
-  box.innerHTML = side(b.asks, true) + side(b.bids, false);
+  box.innerHTML = side(b.asks, true) + side(b.bids, false) + (live ? `<div class="btc-actions"><button class="fillbtn primary" type="button" data-btc="open">Trade on Bitcoin</button><button class="fillbtn" type="button" data-btc="list">List a sale</button></div>` : '');
   const total = b.asks.reduce((a, r) => a + r.amount, 0n), sats = b.asks.reduce((a, r) => a + r.sats, 0), want = b.bids.reduce((a, r) => a + r.amount, 0n);
   const bidsTxt = !D.bidsRead ? 'The standing bids could not be read just now.' : b.bids.length ? `${b.bids.length} standing bid${b.bids.length === 1 ? '' : 's'} want${b.bids.length === 1 ? 's' : ''} ${grp(Number(want) / 1e8, 0)} TAC; a sale to one settles when its bidder is online.` : 'No bid stands on the book right now.';
   note.innerHTML = b.asks.length ? `${b.asks.length} listings hold ${grp(Number(total) / 1e8, 0)} TAC for ${grp(sats, 0)} sats in all, taken whole. ${bidsTxt} A buyer needs sats on a Bitcoin address. <a href="/tac/#buy">Buy on Bitcoin →</a> · <a href="/classic.html#tab=market&aid=${TAC_BTC_ID}&lane=btc">List a sale →</a>` : bidsTxt;
@@ -736,7 +763,10 @@ $('#side-seg').addEventListener('click', (e) => {
   requote(); renderQuote(null); renderVenues(null);
 });
 $('#book-seg').addEventListener('click', (e) => { const b = e.target.closest('[data-book]'); if (b) { S.book = b.dataset.book; renderBook(); } });
-$('#ladders').addEventListener('click', (e) => { const b = e.target.closest('[data-fill]'); if (b) pinOrder(b.dataset.fill); });
+$('#ladders').addEventListener('click', (e) => {
+  const f = e.target.closest('[data-fill]'); if (f) { pinOrder(f.dataset.fill); return; }
+  const k = e.target.closest('[data-btc]'); if (k) openBitcoin(bookPrime(k.dataset.btc, Number(k.dataset.i)));
+});
 $('#pin').addEventListener('click', (e) => { if (e.target.closest('#unpin')) { S.pin = null; renderPin(); S.review = null; renderReview(); requote(); renderBook(); } });
 $('#lane-seg').addEventListener('click', (e) => { const b = e.target.closest('[data-lane]'); if (b) { S.lane = b.dataset.lane; renderChart(); } });
 $('.p-chart').addEventListener('click', (e) => {
@@ -752,6 +782,7 @@ Promise.allSettled(loads).then((rs) => {
   D.readAt = now();
   if (rs.every((r) => r.status === 'rejected')) $('#chart').innerHTML = '<p class="chart-empty">The pools could not be read just now. Try again in a moment.</p>';
   const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+  if (params.get('btc') === 'on' || params.get('btc') === 'off') { try { localStorage.setItem('tacit-trade-btc', params.get('btc') === 'on' ? '1' : '0'); } catch { /* storage is a convenience */ } renderBook(); }
   if (params.get('side') === 'sell') $('#side-seg [data-side="sell"]').click();                   // a side change clears the amount, so it comes first
   if (params.get('amount')) { S.amt = params.get('amount'); $('#amt').value = S.amt; requote(); }
   paintAll();

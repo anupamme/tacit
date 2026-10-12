@@ -177,7 +177,7 @@ const PAY_CB_FILES = ['pay/index.html', 'pay/eth/index.html'];
 const TAC_CB_FILES = ['tac/sats.js', 'tac/market.js', 'tac/claim.js', 'tac/app.js', 'tac/index.html'];
 // dapp/trade/ is the TAC trade page: its modules are hashed first (the venues module and the order book it imports are the shared ones the
 // front page uses, so their tokens come out the same), then app.js, then the page that loads it.
-const TRADE_CB_FILES = ['trade/tape.js', 'trade/chart.js', 'trade/book.js', 'trade/depth.js', 'trade/wallet.js', 'trade/app.js', 'trade/index.html'];
+const TRADE_CB_FILES = ['trade/tape.js', 'trade/chart.js', 'trade/book.js', 'trade/depth.js', 'trade/wallet.js', 'trade/btc-session.js', 'trade/btc.js', 'trade/app.js', 'trade/index.html'];
 // The trade page has one address for each asset it trades: /trade/ is the TAC market today (it will list assets later), and /trade/tac/ is
 // TAC's own, the one to share. Both are the same page, so /trade/tac/index.html is made from /trade/index.html, differing only in the address
 // the page names as its own, and `--verify-only` fails when it is not what this makes.
@@ -192,13 +192,34 @@ function tradeAssetPages(write) {
   }
   return drift;
 }
+// The Bitcoin market module on the trade page (trade/btc.js) is styled by the classic app's own stylesheet: the slice of classic.html between
+// the market page's markers, with the tokens that slice reads taken from the trade page's, so the two cannot drift apart. The sheet is
+// generated, and `--verify-only` fails when it is not what this makes.
+const BTC_CSS = 'trade/btc-market.css', BTC_CSS_FROM = ['/* ── Market page (btc-market.js)', "/* ── TAC's Ethereum trading lane"];
+function btcMarketCss(write) {
+  const classic = readFileSync(join(DAPP_DIR, 'classic.html'), 'utf8'), a = classic.indexOf(BTC_CSS_FROM[0]), b = classic.indexOf(BTC_CSS_FROM[1]);
+  if (a < 0 || b < a) throw new Error(`classic.html no longer has the market page's stylesheet between "${BTC_CSS_FROM[0]}" and "${BTC_CSS_FROM[1]}": update BTC_CSS_FROM in build/build.mjs`);
+  const want = `/* Made from classic.html's market page styles by \`npm run build\` (build/build.mjs): edit that, not this. */
+/* The tokens those styles read, taken from the trade page's, so the market follows its light and dark. */
+:root {
+  --bg: var(--paper); --bg-alt: var(--field); --bg-warm: var(--field); --bg-card: var(--card);
+  --ink-mid: var(--mute); --ink-faint: var(--mute); --hairline: var(--hair);
+  --green: var(--ok); --buy: var(--ok); --red: var(--err); --sell: var(--err); --red-warn: var(--warn); --amber: var(--warn);
+}
+${classic.slice(a, b).trim()}
+`;
+  const file = join(DAPP_DIR, BTC_CSS), got = existsSync(file) ? readFileSync(file, 'utf8') : null;
+  if (got === want) return [];
+  if (write) writeFileSync(file, want);
+  return [`${BTC_CSS} is not the market page's styles from classic.html`];
+}
 function pageCacheBust(files, write) {
   const drift = [];
   for (const rel of files) {
     const file = join(DAPP_DIR, rel);
     if (!existsSync(file)) continue;
     const before = readFileSync(file, 'utf8');
-    const after = before.replace(/(["'])(\/[\w./-]+\.js)\?cb=([A-Za-z0-9_-]+)\1/g, (m, q, path, got) => {
+    const after = before.replace(/(["'])(\/[\w./-]+\.(?:js|css))\?cb=([A-Za-z0-9_-]+)\1/g, (m, q, path, got) => {
       const src = join(DAPP_DIR, path);
       if (!existsSync(src)) return m;
       const want = createHash('sha256').update(readFileSync(src)).digest('hex').slice(0, 8);
@@ -386,7 +407,7 @@ async function main() {
     if (gotCb !== wantCb) drift.push(`classic.html tacit.js ?cb=${gotCb} but sha256(dapp/tacit.js)=${wantCb}`);
     if (gotPreboot !== wantPreboot) drift.push(`classic.html preboot.js ?cb=${gotPreboot} but sha256(dapp/preboot.js)=${wantPreboot}`);
     if (gotSw !== wantSw) drift.push(`sw.js CACHE_VERSION suffix ${gotSw} but sha256(vendor‖prf-wallet)=${wantSw}`);
-    drift.push(...pageCacheBust(SATS_CB_FILES, false), ...pageCacheBust(WELD_CB_FILES, false), ...pageCacheBust(TAC_CB_FILES, false), ...pageCacheBust(TRADE_CB_FILES, false), ...tradeAssetPages(false), ...pageCacheBust(PAY_CB_FILES, false));
+    drift.push(...pageCacheBust(SATS_CB_FILES, false), ...pageCacheBust(WELD_CB_FILES, false), ...pageCacheBust(TAC_CB_FILES, false), ...btcMarketCss(false), ...pageCacheBust(TRADE_CB_FILES, false), ...tradeAssetPages(false), ...pageCacheBust(PAY_CB_FILES, false));
     drift.push(...pagePreloads(false));
     if (drift.length) {
       console.error('✗ cache-bust tokens or preload links are stale — run `npm run build` and commit the result:');
@@ -417,6 +438,8 @@ async function main() {
     console.log(`• weld page cache-bust: ${weldDrift.length ? `${weldDrift.length} token(s) updated` : 'unchanged'}`);
     const tacDrift = pageCacheBust(TAC_CB_FILES, true);
     console.log(`• tac page cache-bust: ${tacDrift.length ? `${tacDrift.length} token(s) updated` : 'unchanged'}`);
+    const cssDrift = btcMarketCss(true);
+    console.log(`• trade page market styles: ${cssDrift.length ? 'updated' : 'unchanged'}`);
     const tradeDrift = pageCacheBust(TRADE_CB_FILES, true);
     console.log(`• trade page cache-bust: ${tradeDrift.length ? `${tradeDrift.length} token(s) updated` : 'unchanged'}`);
     const tradeAssets = tradeAssetPages(true);
