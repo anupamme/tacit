@@ -106,6 +106,32 @@ kept as gas up to `ETH_SWEEP_ABOVE_WEI`.
 
 Services have `autoDeploy: false`; deploy from the dashboard.
 
+## Pool maker (`src/pool-maker.js`)
+
+Buys TAC out of the Bitcoin shielded pool for sats, so a payment to a bitcoin address settles in the next block instead
+of waiting for a buyer. It is not declared in `render.yaml`: it needs a funded key and the operator's limits first.
+
+The payer proves a pool spend (`btc-pool-zap.js` `exitToSats`) that exits TAC to the maker's key and wants `sats` paid to
+a script they name, the recipient's among them. The want is part of the proved body and the pool's replay checks it, so
+the maker cannot take the exit without paying; it checks the spend natively (terms, anchor, root, nullifiers, proof)
+before any sats move, then posts one carrier from its own coins.
+
+| Route | |
+|---|---|
+| `GET /maker/quote?sats=N` (or `?units=N`) | The TAC taken for N sats to the payee; reserves a coin to bind the carrier to. |
+| `POST /maker/fill` `{ quoteId, payload, offer }` | Checks the spend and posts the carrier. |
+| `GET /maker/status` | Whether it is quoting, the reference price, caps left, float, recent fills, inventory. |
+
+Price: a trade of the asset within `MAKER_MARK_MAX_AGE_SECS`, or the cheapest live ask when that is lower, less
+`MAKER_SPREAD_BPS`. With no recent trade it does not quote. Limits: sats per fill, sats and TAC per rolling day, fills
+per client per day, one quote lifetime. The exit notes it buys pay `MAKER_KEY`'s own wallet key (inventory, listed or
+sold like any holder's); the sats it pays come from coins on a key derived from `MAKER_KEY`, whose address
+`/maker/status` names. Fund that address with coins larger than the biggest fill; a quote reserves one coin and the
+rest must cover the payment and the fees.
+
+Defaults and every variable are in the header of `src/pool-maker.js`. Tests: `node --test tests/pool-maker.test.mjs`.
+Image: `docker build -f worker-relay/Dockerfile.pool-maker .` from the repo root.
+
 Local run:
 
 ```bash

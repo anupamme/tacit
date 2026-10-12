@@ -10,8 +10,9 @@
 //   returns the buyer's change.
 //
 // exitToSats: the user builds and proves a spend that exits `amount` to a maker's script and wants `sats` paid
-//   to a fresh key of the user's; the maker builds the carrier from its own coins. The want is in the proved
-//   body and checked at acceptance, so the maker cannot take the exit without paying it.
+//   to a fresh key of the user's, or to any standard script they name (a payment: the recipient's address); the
+//   maker builds the carrier from its own coins. The want is in the proved body and checked at acceptance, so the
+//   maker cannot take the exit without paying it.
 //
 // Proofs come from a proof system (btc-pool-halo2-prover.js makeHalo2System), run on the user's device.
 //
@@ -232,7 +233,7 @@ export function makeBtcPoolZap({ secp, sha256, keccak256 }) {
   // with zero-value internal notes. Prove `spend` with pool.prove; the maker needs `offer`: the payload, the
   // exit opening and the payout script. Inputs are chosen from `notes` by pool.selectInputs and carry the
   // paths served at the anchor.
-  function exitToSats({ pool, wallet, notes, note, amount, maker, asset, hAnchor, tip, root, usedScripts, pad = true }) {
+  function exitToSats({ pool, wallet, notes, note, amount, maker, asset, hAnchor, tip, root, usedScripts, pad = true, payoutScriptPubKey = null }) {
     const m = makerTerms(maker);
     const v = checkSats(amount, 'amount');
     if (!wallet || wallet.internalAddress == null) throw new Error('btc-pool-zap: wallet has no internal address');
@@ -240,7 +241,10 @@ export function makeBtcPoolZap({ secp, sha256, keccak256 }) {
     const assetHex = asset ?? candidates[0]?.asset;
     if (assetHex == null) throw new Error('btc-pool-zap: asset required');
     const { inputs, total } = pool.selectInputs(candidates, v, { asset: assetHex });
-    const payout = pool.freshExitKey(wallet, usedScripts ?? wallet.usedScripts);
+    // A script the user names takes the want as it is; otherwise the want pays the next fresh exit key of their wallet.
+    const named = payoutScriptPubKey == null ? null : payoutScriptPubKey instanceof Uint8Array ? payoutScriptPubKey : toBytes(strip(payoutScriptPubKey));
+    if (named && dustFor(named) == null) throw new Error('btc-pool-zap: payout script is not a standard output script');
+    const payout = named ? { scriptPubKey: hx(named), destSpkHash: hx(sha256(named)), external: true } : pool.freshExitKey(wallet, usedScripts ?? wallet.usedScripts);
     if (m.sats < BigInt(dustFor(payout.scriptPubKey))) throw new Error('btc-pool-zap: sats below the payout script dust floor');
     const change = total - v;
     const self = { address: wallet.internalAddress, network: wallet.network };
@@ -253,7 +257,7 @@ export function makeBtcPoolZap({ secp, sha256, keccak256 }) {
       want: { vout: m.wantVout, value: m.sats, scriptPubKey: payout.scriptPubKey },
     });
     const used = usedScripts ?? wallet.usedScripts;
-    if (used instanceof Set) used.add(payout.destSpkHash);
+    if (!named && used instanceof Set) used.add(payout.destSpkHash);
     return {
       spend, payout,
       offer: {

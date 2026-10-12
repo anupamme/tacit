@@ -284,6 +284,38 @@ test('exit to sats: proved exit + want; the maker validates natively, builds the
   assert.equal(zap.exitToSats({ pool: bp, wallet: user, notes: scanned, amount: AMOUNT, maker: MAKER, hAnchor: 1000, usedScripts: used }).payout.counter, 1);
 });
 
+test('exit to sats to a named script (a payment): the want pays the recipient, the maker validates it, the indexer accepts it, and no fresh key is used up', async () => {
+  const user = bp.walletFromSeed(USER_SEED, 'signet');
+  const { st, scanned, root } = poolWithNotes([60_000n, 7n], user);
+  const used = new Set();
+  const RECIPIENT = Uint8Array.from([0x00, 0x14, ...Array(20).fill(0xab)]);    // a P2WPKH script
+  const args = { pool: bp, wallet: user, notes: scanned, amount: AMOUNT, maker: MAKER, hAnchor: 1000, root, usedScripts: used };
+  const r = zap.exitToSats({ ...args, payoutScriptPubKey: RECIPIENT });
+  assert.equal(strip(r.payout.scriptPubKey), bytesToHex(RECIPIENT));
+  assert.equal(r.payout.external, true);
+  assert.equal(r.offer.payoutScriptPubKey, r.payout.scriptPubKey);
+  assert.equal(used.size, 0, 'no fresh key was spent on it');
+  assert.deepEqual(bp.parseSpend(r.spend.body).want, { vout: 1, value: 50_000n, spkHash: '0x' + bytesToHex(sha256(RECIPIENT)) });
+  const { payload } = await bp.prove(r.spend, sys);
+  const v = await zap.validateExitToSats({ pool: bp, payload, offer: r.offer, maker: MAKER, amount: AMOUNT, asset: ASSET, root, verify: verifyProof });
+  assert.equal(v.payoutScriptPubKey, '0x' + bytesToHex(RECIPIENT));
+  const outs = zap.makerCarrierOutputs({ ...v, makerSpk: MAKER_SPK });
+  assert.deepEqual(outs.map((o) => [bytesToHex(o.script), o.value]), [[bytesToHex(MAKER_SPK), 330], [bytesToHex(RECIPIENT), 50_000]]);
+  st.beginBlock(1007);
+  const accepted = await st.acceptSpend(W.parseSpend(payload), { txid: 'd1'.repeat(32), inputs: [{ txid: 'e0'.repeat(32), vout: 0 }, { txid: 'fe'.repeat(32), vout: 3 }], outputs: toOuts(outs), vin0TacitOp: false, verifyProof });
+  assert.ok(accepted.accepted, accepted.reason);
+  assert.deepEqual(accepted.want, { txid: 'd1'.repeat(32), vout: 1, value: 50_000n });
+  st.endBlock();
+  // what the pool would not relay, or below that script's floor, is refused before anything is proved
+  assert.throws(() => zap.exitToSats({ ...args, payoutScriptPubKey: Uint8Array.from([0x6a, 0x01, 0x00]) }), /standard output script/);
+  assert.throws(() => zap.exitToSats({ ...args, maker: { ...MAKER, sats: 200 }, payoutScriptPubKey: RECIPIENT }), /dust floor/);
+  // the same offer, but a maker told to pay a different script, fails the check
+  await assert.rejects(zap.validateExitToSats({ pool: bp, payload, offer: { ...r.offer, payoutScriptPubKey: '0x0014' + 'cd'.repeat(20) }, maker: MAKER, amount: AMOUNT, asset: ASSET, root, verify: verifyProof }), /payout script does not match the want/);
+  // and without a named script the next call still takes the user's first fresh key
+  assert.equal(zap.exitToSats({ ...args }).payout.counter, 0);
+  assert.equal(used.size, 1);
+});
+
 test('exit to sats: the maker refuses offers that do not match its terms', async () => {
   const user = bp.walletFromSeed(rnd(32), 'signet');
   const { scanned, root } = poolWithNotes([60_000n], user);

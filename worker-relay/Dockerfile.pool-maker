@@ -1,0 +1,28 @@
+# tacit-pool-maker: buys TAC out of the Bitcoin shielded pool for sats (src/pool-maker.js).
+# Build context is the repo root: the service loads dapp/tacit.js headlessly, so the runtime image keeps the
+# dapp/ and worker-relay/ layout side by side.
+#   docker build -f worker-relay/Dockerfile.pool-maker .
+# Needs MAKER_KEY (a secret) and a disk for MAKER_STATE; see the header of src/pool-maker.js for the rest.
+
+FROM node:20-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+
+COPY dapp/package.json /app/dapp/package.json
+COPY dapp/*.js /app/dapp/
+COPY dapp/vendor/*.js /app/dapp/vendor/
+# The maker verifies pool proofs with the pool's own verifier (Halo2 wasm, params and key pinned in pin.json).
+COPY dapp/btc-pool/pin.json dapp/btc-pool/vk.bin dapp/btc-pool/params-k13.bin dapp/btc-pool/btc_pool_halo2.js dapp/btc-pool/btc_pool_halo2_bg.wasm /app/dapp/btc-pool/
+
+WORKDIR /app/worker-relay
+COPY worker-relay/package.json ./
+RUN npm install --omit=dev && npm cache clean --force
+COPY worker-relay/src ./src
+
+ENV NODE_ENV=production \
+    MAKER_NETWORK=mainnet \
+    MAKER_STATE=/var/lib/tacit-pool-maker/state.json \
+    PORT=10000
+EXPOSE 10000
+CMD ["node", "src/pool-maker.js"]

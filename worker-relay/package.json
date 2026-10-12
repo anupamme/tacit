@@ -12,6 +12,7 @@
     "monitor": "node src/balance-monitor.js",
     "points": "node src/points-indexer.js",
     "btc-pool": "node src/btc-pool-indexer.js",
+    "pool-maker": "node src/pool-maker.js",
     "evm-pool-keeper": "node src/evm-pool-keeper.js"
   },
   "dependencies": {

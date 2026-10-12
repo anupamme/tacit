@@ -17,7 +17,7 @@
 // 5. Optional: that output alone funds a buy-and-shield of test cBTC; the change is ordinary sats again.
 
 import * as J from '/secret-sats-join.js?cb=7e817f1c';
-import { makeBtcPoolZap, makeNoteResolver } from '/btc-pool-zap.js?cb=f672a6c1';
+import { makeBtcPoolZap, makeNoteResolver } from '/btc-pool-zap.js?cb=be0773dc';
 import { makeBtcWallet } from '/bitcoin-taproot-wallet.js?cb=5fd402f3';
 import { secp, sha256, keccak_256, bytesToHex } from '../vendor/tacit-deps.min.js';
 
