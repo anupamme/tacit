@@ -184,9 +184,9 @@ paid the sender. A link's index is chosen only after that chain's history is rea
 ### An onchain copy of the proving files (Base Sepolia)
 
 The files a wallet fetches from tacit.finance or IPFS and checks against a pinned SHA-256 are also stored as contract code
-on Base Sepolia (chain 84532), written on 4 October 2026. An app can read them from any Base Sepolia node when every
-mirror is down, and must still check the hash. A testnet is not permanent: this is one copy among several, not a
-replacement for the mirrors.
+on Base Sepolia (chain 84532), written on 4 October 2026 (the standalone wallet's current build on 12 October 2026). An
+app can read them from any Base Sepolia node when every mirror is down, and must still check the hash. A testnet is not
+permanent: this is one copy among several, not a replacement for the mirrors.
 
 | File | Bytes | Contracts | SHA-256 | Manifest |
 |---|---|---|---|---|
@@ -194,22 +194,25 @@ replacement for the mirrors.
 | `transact.wasm` (witness program) | 4,916,992 | 201 | `02dd5e84970e5bc629a7a3cd4d7eae5fc9ca05579fa22c9b39b5ea70c8d8a6c1` | `0xc63e43d159429583A9fb3fF0b5053e4D12415F55` |
 | `transact_vk.json` (verifying key) | 4,761 | 1 | `f3e36ac06ad59428003b90abd80b807180badeb06c3960c50b060ebc59b626b3` | `0x8649Dd8ec5b0DE7de9F6934A13188E2b868B975B` |
 | `pin.json` | 1,501 | 1 | `79ddf12a68239eb9d1ddeaff9518d05ef57fa56e20deea8aae730413c3be78f9` | `0x75578ab320147Af1f8d39e7e3643621Bc57e5bE9` |
-| `tacit-evm-pool-wallet.js` (standalone wallet, the build before the current one: Ethereum, Base and Robinhood Chain) | 705,182 | 29 | `cdc59dd5d5c95370a30161dd64637e32590b85290241944184283a05098c15c0` | `0x202fF20B540794CD6f8F54cF80A0Af6170BEaDB4` |
+| `tacit-evm-pool-wallet.js` (standalone wallet, as served) | 667,636 | 28 | `384a88220fb78f576e60480439bceb3e91e0fe8a32557f5c01c672390b81f5bc` | `0x0bFAcFe74c2FfA357BCcd211Ac8b2C687788c0b8` |
 
-The wallet's current build ([Standalone wallet](#standalone-wallet)) is not on Base Sepolia yet; its mirrors are
-tacit.finance and IPFS.
+The wallet's earlier build (`cdc59dd5d5c95370a30161dd64637e32590b85290241944184283a05098c15c0`, 705,182 bytes in 29
+pieces, manifest `0x202fF20B540794CD6f8F54cF80A0Af6170BEaDB4`) is there too. Each file was read back and matched its
+SHA-256 when it was written.
 
 - **How it is stored.** Each file is cut into pieces of up to 24,575 bytes. A piece is the runtime code of its own contract:
   one STOP byte (so it never runs), then the bytes. Pieces and manifests are created through the deterministic CREATE2
   proxy (`0x4e59b44847b379578588920cA78FbF26c0B4956C`, salt 0), so every address follows from its bytes alone. A manifest
   is the same kind of contract: `0x00 ‖ "tacit-artifact-v1" ‖ sha256 ‖ size (uint64) ‖ count (uint16) ‖ count piece
-  addresses`. The five files make 1,395 pieces and 5 manifests; with the index below, 1,401 contracts.
+  addresses`. The six files (the wallet's earlier build included) make 1,423 pieces and 6 manifests; with the index
+  below, 1,430 contracts.
 - **Why an explorer shows "contract call".** A creation through the proxy is a call to the proxy, which creates the
   contract internally, so each transaction is listed as a call and each new contract as an internal creation. Read a
   manifest's code to see the file, not the transaction list.
 - **Reading it.** `TacitArtifacts` at `0x250FCb513A809727b9b538A313895Eec5A36674C` (verified on Sourcify and Basescan)
-  names the five files: `files()`, `manifest(m)` (SHA-256, size and piece addresses), `piece(m, i)`, and `check(m)`
-  (reassembles a small file onchain and compares its SHA-256). Or fetch the pieces with `eth_getCode` and join them
+  names the four ceremony files and the wallet's earlier build in `files()`; `manifest(m)` (SHA-256, size and piece
+  addresses), `piece(m, i)`, and `check(m)` (reassembles a small file onchain and compares its SHA-256) read any manifest,
+  the wallet's current one included. Or fetch the pieces with `eth_getCode` and join them
   without their first byte, then check the SHA-256. A reader that does this and checks the hash is
   `tacit-pay/deploy/artifact-read.mjs` in the ERC8244/dapps repository.
 - **What is not there.** The Groth16 verifier contract is not on Base Sepolia. It lives at the address above on each
@@ -579,9 +582,10 @@ served at `https://tacit.finance/evm-pool/tacit-evm-pool-wallet.js` with `Access
 ceremony files beside it.
 
 Current build (667,636 bytes): sha256 `384a88220fb78f576e60480439bceb3e91e0fe8a32557f5c01c672390b81f5bc`, IPFS
-`bafybeihtthsjejf4ij3g2yfpkcvhavkvvw6tfryismkrw5c6ij5ifb6u3y` (pinned on Filebase). The build is deterministic from the
-repository: `npm ci` in `build/`, then `node build/build-evm-pool-wallet.mjs` prints the same hash. The build before it,
-which knew only Ethereum, Base and Robinhood Chain, was
+`bafybeihtthsjejf4ij3g2yfpkcvhavkvvw6tfryismkrw5c6ij5ifb6u3y` (pinned on Filebase), onchain copy on Base Sepolia
+([above](#an-onchain-copy-of-the-proving-files-base-sepolia)). The build is deterministic from the repository: `npm ci`
+in `build/`, then `node build/build-evm-pool-wallet.mjs` prints the same hash. The build before it, which knew only
+Ethereum, Base and Robinhood Chain, was
 `cdc59dd5d5c95370a30161dd64637e32590b85290241944184283a05098c15c0` (IPFS
 `bafybeigatwjp4gda4y3hj4zza7mgmk4qsipqs7gcgqipudql7625eefthy`).
 
