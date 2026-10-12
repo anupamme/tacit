@@ -13,7 +13,7 @@ import { getConfidentialDeployment } from '/confidential-deployments.js';
 import { buildBook, planBuy } from '/btc-book.js?cb=91371653';
 import { decodeTape, chartBars, invert, ethLaneUsd, btcLaneUsd, candlesFromTrades, closeAt, gap, TAPE_FINE, TAPE_COARSE } from '/trade/tape.js?cb=dfc28dd7';
 import { mountChart } from '/trade/chart.js?cb=e9d552bb';
-import { makeWallet, UserStopped } from '/trade/wallet.js?cb=b52255b7';
+import { makeWallet, UserStopped } from '/trade/wallet.js?cb=5e8bf338';
 
 const API = 'https://api.tacit.finance';
 const TAC_BTC_ID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
@@ -124,12 +124,19 @@ function fmtUnits(v, dec = 18, max = 4) {
   const base = 10n ** BigInt(dec), frac = (n % base).toString().padStart(dec, '0').slice(0, max).replace(/0+$/, '');
   return `${neg ? '−' : ''}${(n / base).toLocaleString('en-US')}${frac ? `.${frac}` : ''}`;
 }
+// An amount as the front page reads it: a comma between digits is a thousands separator only where it plainly is one (1,500.25 or 1,000,000),
+// a lone comma is a decimal point (0,05), and an ambiguous 1,500 is left unread rather than guessed. Anything else with a comma is unread.
 function parseUnits(text, dec = 18) {
-  const s = String(text ?? '').trim().replace(/[,_\s]/g, '');
-  if (!/^\d*\.?\d*$/.test(s) || s === '' || s === '.') return null;
-  const [w, f = ''] = s.split('.');
+  let t = String(text ?? '').trim().replace(/[_\s]/g, '');
+  if (t.includes(',')) {
+    if (/^[1-9]\d{0,2}(?:,\d{3})+(?:\.\d*)?$/.test(t) && (t.includes('.') || t.indexOf(',') !== t.lastIndexOf(','))) t = t.replace(/,/g, '');
+    else if (/^\d*,\d*$/.test(t) && !/^[1-9]\d{0,2},\d{3}$/.test(t)) t = t.replace(',', '.');
+    else return null;
+  }
+  if (!/^\d*\.?\d*$/.test(t) || t === '' || t === '.') return null;
+  const [w, f = ''] = t.split('.');
   if (f.length > dec) return null;
-  return BigInt(w || '0') * 10n ** BigInt(dec) + BigInt(f.padEnd(dec, '0') || '0');
+  return BigInt(w || '0') * 10n ** BigInt(dec) + BigInt((f + '0'.repeat(dec)).slice(0, dec) || '0');
 }
 const priceEth = () => (D.perEth ? 1 / D.perEth : null);                                          // ETH per TAC at the Precision pool
 const usdOf = (eth) => (eth != null && D.ethUsd ? eth * D.ethUsd : null);
@@ -285,7 +292,7 @@ function renderQuote(q) {
   $('#out-unit').textContent = buy ? 'TAC' : 'ETH';
   $('#amt').setAttribute('aria-label', buy ? 'ETH to pay' : 'TAC to pay');
   const none = (t) => { outEl.textContent = t; outEl.classList.add('ph'); $('#out-usd').textContent = ''; route.innerHTML = ''; renderGo(); };
-  if (!q) { none('0.00'); if (!S.busy) $('#status').textContent = S.amt && getAmount() == null ? 'Enter an amount with up to 18 decimals.' : ''; return; }
+  if (!q) { none('0.00'); if (!S.busy) $('#status').textContent = S.amt && getAmount() == null ? 'That amount cannot be read. Write it like 1500 or 0.05, with up to 18 decimals (1,500 alone is ambiguous).' : ''; return; }
   if (q.busy) { none('…'); return; }
   if (q.err) { none('—'); $('#status').textContent = q.err; return; }
   if (!S.busy) $('#status').textContent = '';
@@ -317,9 +324,10 @@ function renderVenues(q) {
   const { rt } = q, rows = [], eth = [];
   const add = (r) => rows.push(r);
   const p = rt.r?.precision, t = rt.r?.tacitAmm;
-  add({ name: 'Precision pool', note: p ? `Ethereum · fee ${(Number(p.feeBps) / 1e4).toFixed(2)}%` : 'Ethereum', out: p?.amountOut, why: p ? null : 'could not quote' });
-  add({ name: 'Tacit pool, public swap', note: `Ethereum · fee 0.30%`, out: t?.amountOut, why: t ? null : 'could not quote' });
-  if (rt.split) add({ name: 'Both, split', note: splitWhat(rt.split), out: rt.split.amountOut, split: true });
+  const runs = rt.pick === 'split' ? 'split' : rt.single?.venue;                                   // the row the ticket sends the order to
+  add({ name: 'Precision pool', note: p ? `Ethereum · fee ${(Number(p.feeBps) / 1e4).toFixed(2)}%` : 'Ethereum', out: p?.amountOut, why: p ? null : 'could not quote', runs: runs === 'precision' });
+  add({ name: 'Tacit pool, public swap', note: `Ethereum · fee 0.30%`, out: t?.amountOut, why: t ? null : 'could not quote', runs: runs === 'tacit-amm' });
+  if (rt.split) add({ name: 'Both, split', note: splitWhat(rt.split), out: rt.split.amountOut, split: true, runs: runs === 'split' });
   for (const r of rows) if (r.out != null) eth.push(BigInt(r.out));
   const best = eth.length ? eth.reduce((a, b) => (b > a ? b : a)) : null;
   const priv = q.priv;
@@ -340,7 +348,7 @@ function renderVenues(q) {
     const isBest = best != null && r.out != null && !r.priv && !r.btc && BigInt(r.out) === best;
     const delta = r.out != null && best ? Number((BigInt(r.out) - best) * 10000n / best) / 10000 : null;
     const cell = r.out != null ? `<b class="num">${f(r.out)}</b>` : `<span class="mute">${esc(r.why || '')}</span>`;
-    return `<tr${isBest ? ' class="best"' : ''}><td><b>${esc(r.name)}</b>${isBest ? '<span class="tag">best</span>' : ''}${r.priv ? '<span class="tag mute">estimate</span>' : ''}<small>${r.raw ? r.note : esc(r.note || '')}</small></td><td class="r">${cell}</td><td class="r opt num">${delta != null && !isBest ? esc(pct(delta, 1)) : ''}</td></tr>`;
+    return `<tr${isBest ? ' class="best"' : ''}><td><b>${esc(r.name)}</b>${isBest ? '<span class="tag">best</span>' : ''}${r.runs ? '<span class="tag mute">this ticket</span>' : ''}${r.priv ? '<span class="tag mute">estimate</span>' : ''}<small>${r.raw ? r.note : esc(r.note || '')}</small></td><td class="r">${cell}</td><td class="r opt num">${delta != null && !isBest ? esc(pct(delta, 1)) : ''}</td></tr>`;
   }).join('');
   note.textContent = q.buy
     ? 'The first three are what the ticket runs on. The Tacit pool is one set of reserves: a public swap goes through its AMM contract, a private one spends a shielded note in the app, with its relay fee on top. The Bitcoin row buys with sats rather than ETH, and the TAC it buys arrives on Bitcoin.'
@@ -435,7 +443,7 @@ function renderReview() {
     ${P.impact >= 0.005 ? `<div class="kv"><span>Price impact</span><b class="${P.impact >= 0.05 ? 'err' : ''}">${(P.impact * 100).toFixed(P.impact < 0.1 ? 1 : 0)}%</b></div>` : ''}
     <div class="kv"><span>From</span><b>${esc(short(W.account))} · ${esc(W.name)}</b></div>
     ${gate ? `<label class="ack"><input type="checkbox" id="ack"><span>I accept losing about ${Math.round(P.impact * 100)}% of this ${buy ? 'purchase' : 'sale'} to the pools' price move. A smaller amount moves it less.</span></label>` : ''}
-    <p class="note">${buy ? 'The wallet asks you to confirm one transaction.' : 'The wallet asks you to sign a permit for the TAC (no gas), then to confirm one transaction.'} It is tested once without sending, and sends only if it passes.</p>
+    <p class="note">${buy ? 'The wallet asks you to confirm one transaction.' : 'The wallet asks you to sign a permit for the TAC (no gas), then to confirm one transaction.'} It is tested once without sending, and sends only if it passes${P.split ? ' (a split that fails its test goes to one pool instead)' : ''}.</p>
     <div class="row2"><button class="btn ghost" type="button" id="rv-back">Back</button><button class="btn" type="button" id="rv-go"${gate ? ' disabled' : ''}>Confirm in wallet</button></div>`;
   $('#rv-back').onclick = () => { S.review = null; renderReview(); say(''); };
   if (gate) $('#ack').onchange = (e) => { $('#rv-go').disabled = !e.target.checked; };
@@ -451,61 +459,66 @@ async function connectWallet() {
   } catch (e) { say(esc(e instanceof UserStopped ? e.message : (e.message || 'The wallet did not connect.'))); }
 }
 async function afterConnect() { S.review = null; await readBalances(); renderBalance(); renderReview(); if (getAmount()) requote(); else renderGo(); }
-wallet.onChange(() => { S.review = null; readBalances().then(() => { renderBalance(); renderReview(); if (getAmount()) requote(); }); });
+wallet.onChange(() => { if (S.busy) return; S.review = null; readBalances().then(() => { renderBalance(); renderReview(); if (getAmount()) requote(); }); });   // a trade in flight keeps the account it was reviewed for: the wallet module refuses to send for another
 
 // The trade: the price read again, the route made ready (TAC permitted or approved), tested once, and only then sent.
 async function execute(P) {
-  if (S.busy) return;
+  if (S.busy || !W.account) return;
+  const from = W.account;                                                                           // everything below is for this account, and the wallet is asked for no other
   S.busy = true; $('#rv-go').disabled = true; $('#rv-back').disabled = true;
   const buy = P.buy, dir = P.dir;
   try {
     say('Reading the price again…');
-    const rt = await venues.route({ dir, amountIn: P.wei, account: W.account, gasPrice: await gasPrice() });
+    const rt = await venues.route({ dir, amountIn: P.wei, account: from, gasPrice: await gasPrice() });
     if (!rt.single) throw new Error('No pool can fill this right now.');
-    const pick = rt.pick === 'split' ? rt.split : rt.single;
+    // The route that was reviewed is the one that runs: a split stays a split, and one pool stays that pool.
+    const venue = P.rt.single.venue, pick = P.split ? rt.split : (rt.r.ranked || []).find((x) => x.venue === venue);
+    if (!pick) { S.review = null; renderReview(); say('The route you reviewed is no longer on offer. Nothing was sent; review it again.'); requote(); return; }
     if (BigInt(pick.amountOut) < P.floor) { S.review = null; renderReview(); say('The price moved below the least you accepted. Nothing was sent; review it again.'); requote(); return; }
+    // The least it will take follows the price now, at the slippage chosen, and is never below what was reviewed.
+    const floorFor = (route) => { const f = (BigInt(route.amountOut) * BigInt(10000 - S.slip)) / 10000n; return f > P.floor ? f : P.floor; };
     const dl = BigInt(now() + 1200);
     const prepare = async (route) => {
-      const isSplit = !!route.legs;
-      const make = (permit) => (isSplit ? venues.buildSplit({ split: route, account: W.account, minOut: P.floor, deadline: dl, permit }) : venues.build({ quote: route, dir, account: W.account, minOut: P.floor, deadline: dl, permit }));
+      const isSplit = !!route.legs, floor = floorFor(route);
+      const make = (permit) => (isSplit ? venues.buildSplit({ split: route, account: from, minOut: floor, deadline: dl, permit }) : venues.build({ quote: route, dir, account: from, minOut: floor, deadline: dl, permit }));
       let tx = make();
       if (!buy && tx.approval) {
-        const have = wordAt(await ethCall(TAC_ERC20, '0xdd62ed3e' + word(BigInt(W.account)) + word(BigInt(tx.approval.spender))), 0);
+        const have = wordAt(await ethCall(TAC_ERC20, '0xdd62ed3e' + word(BigInt(from)) + word(BigInt(tx.approval.spender))), 0);
         if (have < tx.approval.amount) {
           if (route.venue === 'precision' || isSplit) {
             say('Sign the permit for your TAC in your wallet. It costs no gas.');
-            const nonce = wordAt(await ethCall(TAC_ERC20, '0x7ecebe00' + word(BigInt(W.account))), 0);
-            const sig = await wallet.signPermit({ token: TAC_ERC20, name: 'Tacit Token', spender: tx.approval.spender, value: tx.approval.amount, deadline: dl, nonce });
+            const nonce = wordAt(await ethCall(TAC_ERC20, '0x7ecebe00' + word(BigInt(from))), 0);
+            const sig = await wallet.signPermit({ token: TAC_ERC20, name: 'Tacit Token', spender: tx.approval.spender, value: tx.approval.amount, deadline: dl, nonce, owner: from });
             tx = make({ value: tx.approval.amount, deadline: dl, ...sig });
           } else {
             say('Approve the TAC for this pool in your wallet.');
-            const h = await wallet.sendTx({ to: TAC_ERC20, data: encErc20Approve(tx.approval.spender, tx.approval.amount) });
+            const h = await wallet.sendTx({ to: TAC_ERC20, data: encErc20Approve(tx.approval.spender, tx.approval.amount), from });
             say(`Waiting for the approval ${txLink(h)}`);
             if ((await wallet.receipt(h)).status !== '0x1') throw new Error('The approval did not go through.');
           }
         }
       }
       say('Testing it once without sending…');
-      return { tx, sim: await venues.simulate({ tx, from: W.account }) };
+      return { tx, sim: await venues.simulate({ tx, from }) };
     };
     let run = await prepare(pick);
-    if (!run.sim.ok && rt.pick === 'split') {
+    if (!run.sim.ok && P.split) {
       say('The split did not run in a test, so this goes to one pool.');
       if (BigInt(rt.single.amountOut) < P.floor) throw new Error('The price on one pool alone is below the least you accepted. Nothing was sent.');
       run = await prepare(rt.single);
     }
     if (!run.sim.ok) throw new Error('This trade would not go through right now: it was tested first, and nothing was sent. Try a smaller amount, or again in a moment.');
     say('Confirm the transaction in your wallet.');
-    const eth0 = S.bal?.eth ?? null;
-    const hash = await wallet.sendTx(run.tx);
+    const eth0 = await rpc('eth_getBalance', [from, 'latest']).then((x) => BigInt(x), () => null);      // read now: any approval above has been paid for already
+    const hash = await wallet.sendTx({ ...run.tx, from });
     say(`Sent ${txLink(hash)}. Waiting for it to land…`);
     const rc = await wallet.receipt(hash);
     if (rc.status !== '0x1') throw new Error(`The transaction failed on chain (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`);
     // What arrived: the TAC transferred to the account in this transaction (a split makes two), or the ETH balance's rise.
     let got;
-    if (buy) { const T = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', me = '0x' + word(BigInt(W.account)); got = rc.logs.filter((l) => l.address.toLowerCase() === TAC_ERC20.toLowerCase() && l.topics[0] === T && l.topics[2]?.toLowerCase() === me).reduce((a, l) => a + BigInt(l.data), 0n); }
+    if (buy) { const T = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', me = '0x' + word(BigInt(from)); got = rc.logs.filter((l) => l.address.toLowerCase() === TAC_ERC20.toLowerCase() && l.topics[0] === T && l.topics[2]?.toLowerCase() === me).reduce((a, l) => a + BigInt(l.data), 0n); }
     await readBalances();
-    if (!buy && eth0 != null && S.bal?.eth != null) got = S.bal.eth - eth0 + BigInt(rc.gasUsed) * BigInt(rc.effectiveGasPrice || 0);
+    if (!buy && eth0 != null && S.bal?.eth != null && W.account?.toLowerCase() === from.toLowerCase()) got = S.bal.eth - eth0 + BigInt(rc.gasUsed) * BigInt(rc.effectiveGasPrice || 0);
     S.review = null; S.amt = ''; $('#amt').value = '';
     renderBalance(); renderReview(); renderQuote(null); renderVenues(null);
     loadChain().then(paintAll).catch(() => {});                                                  // the pools have moved
@@ -556,8 +569,9 @@ Promise.allSettled(loads).then((rs) => {
   D.readAt = now();
   if (rs.every((r) => r.status === 'rejected')) $('#chart').innerHTML = '<p class="chart-empty">The pools could not be read just now. Try again in a moment.</p>';
   const params = new URLSearchParams(location.hash.replace(/^#/, ''));
-  if (params.get('amount')) { S.amt = params.get('amount'); $('#amt').value = S.amt; if (params.get('side') === 'sell') $('#side-seg [data-side="sell"]').click(); requote(); }
+  if (params.get('side') === 'sell') $('#side-seg [data-side="sell"]').click();                   // a side change clears the amount, so it comes first
+  if (params.get('amount')) { S.amt = params.get('amount'); $('#amt').value = S.amt; requote(); }
   paintAll();
 });
-setInterval(() => { if (!document.hidden) { loadChain().then(paintAll).catch(() => {}); loadTapes().then(paintAll).catch(() => {}); loadBitcoin().then(paintAll).catch(() => {}); if (S.quote && !S.review && !S.busy) requote(); } }, 60e3);       // a review being read, or a trade being made, is not redrawn under the person
+setInterval(() => { if (!document.hidden) { loadChain().then(paintAll).catch(() => {}); loadTapes().then(paintAll).catch(() => {}); loadBitcoin().then(paintAll).catch(() => {}); if (S.quote && !S.review && !S.busy) requote(); if (W.account && !S.review && !S.busy) readBalances().then(() => { renderBalance(); renderGo(); }); } }, 60e3);       // a review being read, or a trade being made, is not redrawn under the person
 

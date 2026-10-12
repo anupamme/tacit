@@ -16,15 +16,21 @@ export function makeWallet({ rpc }) {
   const wrap = async (p) => { try { return await p; } catch (e) { if (e?.code === 4001 || /user (rejected|denied)|rejected the request/i.test(e?.message || '')) throw new UserStopped(); throw e; } };
   const req = (method, params) => wrap(W.prov.request({ method, params }));
 
+  // A wallet's listeners are taken off the provider it is leaving, so a wallet left behind cannot change the account of the one in use.
+  let off = null;
   async function connect(w) {
+    off?.(); off = null;
     W.prov = w.provider; W.name = w.info?.name || 'Wallet';
     const accounts = await req('eth_requestAccounts');
     W.account = accounts?.[0] ? String(accounts[0]) : null;
     W.chain = await req('eth_chainId');
-    W.prov.on?.('accountsChanged', (a) => { W.account = a?.[0] ? String(a[0]) : null; emit(); });
-    W.prov.on?.('chainChanged', (c) => { W.chain = c; emit(); });
+    const prov = W.prov, onAccounts = (a) => { if (prov === W.prov) { W.account = a?.[0] ? String(a[0]) : null; emit(); } }, onChain = (c) => { if (prov === W.prov) { W.chain = c; emit(); } };
+    prov.on?.('accountsChanged', onAccounts); prov.on?.('chainChanged', onChain);
+    off = () => { prov.removeListener?.('accountsChanged', onAccounts); prov.removeListener?.('chainChanged', onChain); };
     emit();
   }
+  // What was reviewed was for one account: a wallet whose account has changed since is not asked to send or sign it.
+  const same = (from) => { if (from && String(from).toLowerCase() !== String(W.account || '').toLowerCase()) throw new Error('The wallet\'s account changed. Nothing was sent; review it again.'); };
   async function ensureMainnet() {
     W.chain = await req('eth_chainId');
     if (W.chain === MAINNET) return;
@@ -32,20 +38,24 @@ export function makeWallet({ rpc }) {
     W.chain = await req('eth_chainId');
     if (W.chain !== MAINNET) throw new Error('Switch your wallet to Ethereum mainnet.');
   }
-  async function sendTx({ to, data, value = 0n }) {
+  async function sendTx({ to, data, value = 0n, from = null }) {
+    same(from);
     await ensureMainnet();
-    return req('eth_sendTransaction', [{ from: W.account, to, data, ...(value ? { value: '0x' + BigInt(value).toString(16) } : {}) }]);
+    same(from);
+    return req('eth_sendTransaction', [{ from: from || W.account, to, data, ...(value ? { value: '0x' + BigInt(value).toString(16) } : {}) }]);
   }
   // TAC's permit to `spender`: the typed data the wallet shows, and the split signature.
-  async function signPermit({ token, name, spender, value, deadline, nonce }) {
+  async function signPermit({ token, name, spender, value, deadline, nonce, owner = null }) {
+    same(owner);
     await ensureMainnet();
+    same(owner);
     const typed = {
       types: { EIP712Domain: [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }],
         Permit: [{ name: 'owner', type: 'address' }, { name: 'spender', type: 'address' }, { name: 'value', type: 'uint256' }, { name: 'nonce', type: 'uint256' }, { name: 'deadline', type: 'uint256' }] },
       primaryType: 'Permit', domain: { name, version: '1', chainId: 1, verifyingContract: token },
-      message: { owner: W.account, spender, value: String(value), nonce: String(nonce), deadline: String(deadline) },
+      message: { owner: owner || W.account, spender, value: String(value), nonce: String(nonce), deadline: String(deadline) },
     };
-    const sig = await req('eth_signTypedData_v4', [W.account, JSON.stringify(typed)]);
+    const sig = await req('eth_signTypedData_v4', [owner || W.account, JSON.stringify(typed)]);
     const h = String(sig).replace(/^0x/, '');
     if (h.length !== 130) throw new Error('The wallet returned a signature of the wrong length.');
     let v = parseInt(h.slice(128, 130), 16); if (v < 27) v += 27;

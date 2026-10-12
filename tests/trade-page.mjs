@@ -56,7 +56,7 @@ async function stubWallet(ctx, { account, key, refuseSends = false }) {
   await ctx.exposeFunction('__wallet', async (method, params) => {
     if (method === 'eth_requestAccounts') { log.connects++; return [account]; }
     if (method === 'eth_accounts') return [account];
-    if (method === 'eth_chainId') return '0x1';
+    if (method === 'eth_chainId') { if (log.onChainId) { const f = log.onChainId; log.onChainId = null; await f(); } return '0x1'; }
     if (method === 'wallet_switchEthereumChain') return null;
     if (method === 'eth_signTypedData_v4') { log.signs++; return cast('wallet', 'sign', '--private-key', key, '--data', params[1]); }
     if (method === 'eth_sendTransaction') {
@@ -66,7 +66,7 @@ async function stubWallet(ctx, { account, key, refuseSends = false }) {
     }
     throw new Error(`the stub wallet does not do ${method}`);
   });
-  await ctx.addInitScript(() => { window.ethereum = { isStub: true, request: ({ method, params }) => window.__wallet(method, params), on() {}, removeListener() {} }; });
+  await ctx.addInitScript(() => { window.__h = {}; window.ethereum = { isStub: true, request: ({ method, params }) => window.__wallet(method, params), on(ev, fn) { window.__h[ev] = fn; }, removeListener() {} }; });
   return log;
 }
 async function fundedWallet(eth, tac) {
@@ -80,7 +80,7 @@ async function fundedWallet(eth, tac) {
   return { account: who, key: j.private_key };
 }
 
-async function openPage(viewport, wallet = null) {
+async function openPage(viewport, wallet = null, hash = '') {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport, colorScheme: 'light' });
   const walletLog = wallet ? await stubWallet(ctx, wallet) : null;
@@ -98,7 +98,7 @@ async function openPage(viewport, wallet = null) {
   page.on('pageerror', (e) => errors.push(String(e.message || e)));
   page.on('console', (m) => { if (m.type() === 'error') { const t = m.text(); (/Content Security Policy|Refused to/i.test(t) ? blocked : errors).push(t); } });
   if (walletLog) await page.clock.install();                                   // the wallet pages' timers can be moved on by a test
-  await page.goto(`http://127.0.0.1:${WEB}/trade/`);
+  await page.goto(`http://127.0.0.1:${WEB}/trade/${hash}`);
   return { browser, page, errors, blocked, walletLog };
 }
 
@@ -156,7 +156,7 @@ try {
   await until(p, () => /Split:/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 240000);
   const route = (await text(p, '#route')).replace(/\s+/g, ' ');
   ok(/Split: \d+% Precision pool, \d+% Tacit pool/.test(route) && /more TAC than the better pool alone/.test(route), `2 ETH is quoted as a split (${route.slice(0, 160)})`);
-  ok(/^[\d,]+(\.\d+)?$/.test((await text(p, '#out')).trim()) && Number((await text(p, '#out')).replace(/,/g, '')) > 15000, `with the TAC it pays (${await text(p, '#out')})`);
+  ok(/^[\d,]+(\.\d+)?$/.test((await text(p, '#out')).trim()) && Number((await text(p, '#out')).replace(/,/g, '')) > 2 * 3000, `with the TAC it pays (${await text(p, '#out')}: at least 3,000 TAC to the ETH even after the price impact of 2 ETH)`);
   const rows = await p.$$eval('#venues tbody tr', (t) => t.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
   ok(rows.length >= 8, `the venues table lists every place (${rows.length} rows)`);
   ok(rows.some((x) => /^Precision pool.*fee 0\.30%/.test(x)) && rows.some((x) => /^Tacit pool, public swap/.test(x)) && rows.some((x) => /^Both, split.*best/.test(x)), 'the pools and the split are there (the Precision fee as 0.30%), the split tagged best');
@@ -172,6 +172,18 @@ try {
   await p.fill('#amt', '0.02');
   await until(p, () => !/Split:/.test(document.querySelector('#route')?.textContent || '') && /Precision pool|Tacit public pool/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 120000);
   ok(/^Route.*Precision pool/.test((await text(p, '#route')).replace(/\s+/g, ' ')), `0.02 ETH runs on one pool (${(await text(p, '#route')).replace(/\s+/g, ' ').slice(0, 100)})`);
+
+  // amounts: a lone comma is a decimal point, as on the front page; 1,500 is ambiguous and not read
+  ok(/this ticket/.test((await text(p, '#venues')).replace(/\s+/g, ' ')), 'the venues table says which row the ticket runs');
+  await p.fill('#amt', '0,05'); await until(p, () => !document.querySelector('#out').classList.contains('ph'), null, 120000);
+  const withComma = (await text(p, '#out')).trim();
+  await p.fill('#amt', '0.05'); await until(p, (x) => !document.querySelector('#out').classList.contains('ph') && document.querySelector('#out').textContent.trim() !== '…', null, 120000);
+  ok(withComma === (await text(p, '#out')).trim() && Number(withComma.replace(/,/g, '')) < 2000, `0,05 ETH reads as 0.05 (both quote ${withComma} TAC), not 5`);
+  await p.fill('#amt', '1,500'); await until(p, () => /cannot be read/.test(document.querySelector('#status')?.textContent || ''), null, 10000);
+  ok(await p.$eval('#out', (e) => e.classList.contains('ph')), 'an ambiguous 1,500 is said to be unreadable, with no quote');
+  await p.fill('#amt', '1,500.25'); await until(p, () => !document.querySelector('#out').classList.contains('ph'), null, 120000);
+  ok(true, 'and 1,500.25 reads as one thousand five hundred and a quarter');
+  await p.fill('#amt', '');
 
   // selling
   await p.click('[data-side="sell"]'); await p.fill('#amt', '12000');
@@ -247,6 +259,7 @@ try {
     await q.click('#rv-go');
     await until(q, () => /Sold\./.test(document.querySelector('#status')?.textContent || '') || document.querySelector('#status .err'), null, 300000);
     ok(/Sold\. Received about [\d.,]+ ETH/.test(await text(q, '#status')) && t1 - (await tacBal(me.account)) === 12000n * E18 && (await ethBal(me.account)) > e1 + 5n * 10n ** 17n, `12,000 TAC sold through the split for ETH (${(await text(q, '#status')).slice(0, 70)})`);
+    ok(w.walletLog.sends.every((t) => t.from.toLowerCase() === me.account.toLowerCase()), 'every transaction was sent from the account that was reviewed');
     ok(w.walletLog.signs === 1 && BigInt(await rpcA('eth_getTransactionCount', [me.account, 'latest'])) === n1 + 1n, 'with the permit signed once in the wallet and one transaction sent: no approval, no allowance');
     ok((await tacBal(MC3)) === mc0, 'and Multicall3 holds no TAC');
     ok(w.errors.length === 0 && w.blocked.length === 0, `no page errors or blocked requests while trading (${[...w.errors, ...w.blocked].slice(0, 2).join(' | ')})`);
@@ -261,6 +274,25 @@ try {
     await until(rf.page, () => /Cancelled in your wallet/.test(document.querySelector('#status')?.textContent || ''), null, 120000);
     ok(/Nothing was sent/.test(await text(rf.page, '#status')) && (await tacBal(refuser.account)) === 0n && (await ethBal(refuser.account)) === 5n * E18, 'a wallet that refuses the transaction ends with Cancelled, nothing sent, nothing spent');
     await rf.browser.close();
+
+    // the card's link: the side and the amount both arrive
+    const dl = await openPage({ width: 1280, height: 900 }, null, '#side=sell&amount=1500');
+    await until(dl.page, () => document.querySelector('#amt')?.value === '1500' && document.querySelector('[data-side="sell"]').getAttribute('aria-pressed') === 'true' && !document.querySelector('#out').classList.contains('ph'), null, 240000);
+    ok(/TAC$/.test((await text(dl.page, '#in-unit')).trim()), 'a link to #side=sell&amount=1500 opens the sale with the 1,500 TAC quoted');
+    await dl.browser.close();
+
+    // an account that changes while a trade is being made: nothing is sent for the other
+    const swapper = await fundedWallet(5n * E18, 0n), sw = await openPage({ width: 1280, height: 900 }, swapper);
+    await until(sw.page, () => /^\$/.test(document.querySelector('#px-usd')?.textContent || ''), null, 240000);
+    await sw.page.click('#go'); await until(sw.page, () => /Balance/.test(document.querySelector('#in-bal')?.textContent || ''), null, 60000);
+    await sw.page.fill('#amt', '0.1'); await until(sw.page, () => /Review buy/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
+    await sw.page.click('#go'); await sw.page.waitForSelector('#rv-go');
+    if (await sw.page.$('#ack')) await sw.page.check('#ack');
+    sw.walletLog.onChainId = () => sw.page.evaluate(() => window.__h.accountsChanged(['0x000000000000000000000000000000000000dEaD']));
+    await sw.page.click('#rv-go');
+    await until(sw.page, () => /account changed/.test(document.querySelector('#status')?.textContent || ''), null, 120000);
+    ok(sw.walletLog.sends.length === 0 && (await tacBal(swapper.account)) === 0n && (await ethBal(swapper.account)) === 5n * E18, 'a wallet whose account changes after the review is sent nothing: the trade stops, and nothing is spent');
+    await sw.browser.close();
   }
 
   // dark
