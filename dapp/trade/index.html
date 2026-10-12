@@ -212,11 +212,28 @@ input::placeholder { color: var(--mute); opacity: .7; }
 .tag.mute { color: var(--mute); }
 @media (max-width: 560px) { .table .opt { display: none; } }
 
-.depth { margin-top: 4px; }
-.dep { position: relative; display: grid; grid-template-columns: 76px 1fr auto; gap: 10px; align-items: center; padding: 7px 8px; border-top: 1px solid var(--hair); font-size: 12px; }
-.dep .fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--orange); opacity: .1; }
-.dep > * { position: relative; }
-.dep .px { font-weight: 500; }
+/* the order books: a depth chart, then each side as a ladder with a Fill on every order */
+.p-depth .bar { margin-bottom: 10px; } .p-depth .eyebrow { margin: 0; }
+.chart.depth-chart { height: 210px; margin: 0 0 6px; }
+@media (max-width: 560px) { .chart.depth-chart { height: 170px; } }
+.dep-ask { fill: var(--down); fill-opacity: .14; stroke: var(--down); stroke-opacity: .85; stroke-width: 1.3; }
+.dep-bid { fill: var(--up); fill-opacity: .14; stroke: var(--up); stroke-opacity: .85; stroke-width: 1.3; }
+.dep-ask.take, .dep-bid.take { fill-opacity: .42; stroke-width: 0; }
+.dep-mid { stroke: var(--mute); stroke-width: 1; stroke-dasharray: 3 3; }
+.lad { margin: 14px 0 0; }
+.lad h3 { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; margin: 0 0 2px; font: 500 12.5px/1.4 var(--mono); }
+.lad h3 span { font-weight: 400; color: var(--mute); }
+.lad .table td { vertical-align: middle; padding: 8px 8px; }
+.lad .table th { padding-top: 6px; }
+.lad .table tr.take td { background: color-mix(in srgb, var(--orange) 10%, transparent); }
+.lad .table tr.mine td { opacity: .6; }
+.lad .go { text-align: right; width: 1%; white-space: nowrap; }
+.fillbtn { min-height: 28px; padding: 3px 11px; font-size: 12px; cursor: pointer; background: none; color: var(--ink); border: 1px solid var(--hair-2); text-decoration: none; display: inline-flex; align-items: center; }
+.fillbtn:hover { border-color: var(--ink); background: var(--ink); color: var(--card); }
+@media (pointer: coarse) { .fillbtn { min-height: 36px; } }
+.lad .more-rows { margin: 6px 0 0; }
+@media (max-width: 560px) { .lad .opt { display: none; } }
+.pin { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; margin: -6px 0 6px; padding: 9px 12px; font-size: 12.5px; background: var(--field); border-left: 2px solid var(--orange); }
 
 .facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
 .facts li { display: grid; grid-template-columns: 150px 1fr; gap: 4px 16px; padding: 11px 0; border-top: 1px solid var(--hair); font-size: 12.5px; }
@@ -286,6 +303,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
         <button type="button" data-side="buy" aria-pressed="true">Buy TAC</button>
         <button type="button" data-side="sell" aria-pressed="false">Sell TAC</button>
       </div>
+      <p class="pin" id="pin" hidden></p>
       <div class="lbl"><span id="in-lbl">You pay</span><button class="linkbtn" id="in-bal" type="button" hidden></button></div>
       <div class="amt"><input id="amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="Amount to pay"><span class="u" id="in-unit"><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>ETH</span></div>
       <div class="lbl"><span>You get about</span><span class="mute" id="out-usd"></span></div>
@@ -305,9 +323,15 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </section>
 
     <section class="panel p-depth" aria-labelledby="d-h">
-      <p class="eyebrow" id="d-h">The Bitcoin order book</p>
-      <h2 class="h2">Listings, cheapest first</h2>
-      <div class="depth" id="depth"><p class="note">Reading the book…</p></div>
+      <div class="bar">
+        <p class="eyebrow" id="d-h">Order books</p>
+        <div class="seg" id="book-seg" role="group" aria-label="Which order book">
+          <button type="button" data-book="eth" aria-pressed="true">Ethereum · zSwap</button>
+          <button type="button" data-book="btc" aria-pressed="false">Bitcoin</button>
+        </div>
+      </div>
+      <div class="chart depth-chart" id="depthchart" role="group" aria-label="Order book depth"></div>
+      <div class="books" id="ladders"><p class="note">Reading the order books…</p></div>
       <p class="note" id="depth-note"></p>
     </section>
 
@@ -331,6 +355,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/app.js?cb=0100c28d"></script>
+<script type="module" src="/trade/app.js?cb=e89b9526"></script>
 </body>
 </html>

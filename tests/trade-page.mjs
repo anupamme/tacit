@@ -110,8 +110,8 @@ let r;
 try {
   r = await openPage({ width: 1280, height: 900 });
   const p = r.page;
-  await until(p, () => /^\$/.test(document.querySelector('#px-usd')?.textContent || '') && document.querySelectorAll('#lanes .lane .v').length === 4 && !document.querySelector('#lanes .sk') && document.querySelectorAll('#chart .body').length > 5 && document.querySelectorAll('#depth .dep').length > 3, null, 240000).catch(async (e) => {
-    console.log('     page at the first wait:', JSON.stringify(await p.evaluate(() => ({ url: location.href, px: document.querySelector('#px-usd')?.textContent, lanes: document.querySelectorAll('#lanes .lane .v').length, skeleton: !!document.querySelector('#lanes .sk'), candles: document.querySelectorAll('#chart .body').length, asks: document.querySelectorAll('#depth .dep').length, chart: document.querySelector('#chart')?.textContent.slice(0, 80) }))), 'errors:', r.errors.slice(0, 3), 'blocked:', r.blocked.slice(0, 2));
+  await until(p, () => /^\$/.test(document.querySelector('#px-usd')?.textContent || '') && document.querySelectorAll('#lanes .lane .v').length === 4 && !document.querySelector('#lanes .sk') && document.querySelectorAll('#chart .body').length > 5 && document.querySelectorAll('#ladders tbody tr').length > 3, null, 240000).catch(async (e) => {
+    console.log('     page at the first wait:', JSON.stringify(await p.evaluate(() => ({ url: location.href, px: document.querySelector('#px-usd')?.textContent, lanes: document.querySelectorAll('#lanes .lane .v').length, skeleton: !!document.querySelector('#lanes .sk'), candles: document.querySelectorAll('#chart .body').length, asks: document.querySelectorAll('#ladders tbody tr').length, chart: document.querySelector('#chart')?.textContent.slice(0, 80) }))), 'errors:', r.errors.slice(0, 3), 'blocked:', r.blocked.slice(0, 2));
     throw e;
   });
 
@@ -199,8 +199,13 @@ try {
   ok(/a sale is a listing at your price/.test((await text(p, '#venues')).replace(/\s+/g, ' ')), 'the Bitcoin row says a sale there is a listing');
 
   // the order book and the facts
-  const dep = await p.$$eval('#depth .dep', (d) => d.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
-  ok(dep.length === 10 && /sats.*\$0\.\d+.*TAC · [\d,]+ sats/.test(dep[0]), `the ten cheapest listings, with their prices (${dep[0]})`);
+  ok((await p.getAttribute('[data-book="btc"]', 'aria-pressed')) === 'true', 'with zSwap holding no TAC order the order book opens on Bitcoin\'s listings');
+  const dep = await p.$$eval('#ladders tbody tr', (d) => d.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
+  ok(dep.length === 8 && /^\$0\.\d+ sats[\d,.]+/.test(dep[0]), `the eight cheapest listings, with their prices (${dep[0]})`);
+  ok((await p.$$eval('#depthchart path.dep-ask', (x) => x.length)) === 1 && !(await p.$('#depthchart path.dep-bid')), 'drawn as a depth chart of asks (the book has no bids)');
+  await p.click('[data-book="eth"]');
+  ok(/No TAC orders rest on zSwap's boards right now/.test(await text(p, '#ladders')) && !!(await p.$('#ladders a[href^="https://zswap"]')), 'the Ethereum tab says zSwap holds none and where to place one');
+  await p.click('[data-book="btc"]');
   ok(/168 listings hold [\d,]+ TAC for [\d,]+ sats in all/.test(await text(p, '#depth-note')) && !!(await p.$('#depth-note a[href="/tac/#buy"]')), 'with how deep the book is and where to buy');
   const facts = (await text(p, '#facts')).replace(/\s+/g, ' '), more = (await text(p, '#facts-more')).replace(/\s+/g, ' ');
   ok(/21,000,000/.test(await text(p, '#about')) && /ERC-20.*0xA1313e.*TAC minted there/.test(facts) && /2,032 holders/.test(facts) && /Precision pool.*holds [\d.,]+ ETH and [\d,]+ TAC/.test(more), `the facts are live (${facts.slice(0, 120)})`);
@@ -301,6 +306,98 @@ try {
     await sw.browser.close();
   }
 
+  // ── zSwap's boards: orders for TAC placed on the fork, read into an order book and filled from the page ──
+  {
+    const sendTx = async (from, to, sig, args = [], value = 0n) => {
+      const h = await rpcA('eth_sendTransaction', [{ from, to, data: cast('calldata', sig, ...args.map(String)), ...(value ? { value: '0x' + value.toString(16) } : {}), gas: '0x2dc6c0' }]);
+      let rc = null; for (let i = 0; i < 80 && !rc; i++) { rc = await rpcA('eth_getTransactionReceipt', [h]); if (!rc) await sleep(250); }
+      if (!rc || rc.status !== '0x1') throw new Error(`${sig} failed on the fork`);
+    };
+    const V1 = '0x000000fF3D7A2d373615141d7489Ca66683DbecF', V2 = '0x000000dA7bb4B2A9E3e80e9A4D4157E26CA6189b', DU = '0x000000a213b430D14Bae6062c176289B05e04489', WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', ZERO = '0x0000000000000000000000000000000000000000';
+    const m1 = await fundedWallet(50n * E18, 100000n * E18), m2 = await fundedWallet(50n * E18, 100000n * E18), m3 = await fundedWallet(50n * E18, 100000n * E18), m4 = await fundedWallet(50n * E18, 100000n * E18);
+    const nextId = async (board, sig) => BigInt(await rpcA('eth_call', [{ to: board, data: cast('sig', sig) }, 'latest']));
+    const idV1 = await nextId(V1, 'nextOrderId()'), idV2 = await nextId(V2, 'nextOrderId()'), idDu = await nextId(DU, 'nextId()');
+    const eth = (milli) => BigInt(milli) * 10n ** 15n, tac = (n) => BigInt(n) * E18;
+    await sendTx(m1.account, TACADDR, 'approve(address,uint256)', [V1, tac(1000)]);
+    await sendTx(m1.account, V1, 'createOrder(address,uint256,address,uint256)', [TACADDR, tac(1000), WETH, eth(10)]);                                       // v1 ask: 1000 TAC for 0.01 ETH
+    await sendTx(m2.account, TACADDR, 'approve(address,uint256)', [V2, tac(2000)]);
+    await sendTx(m2.account, V2, 'createOrder(address,uint256,address,uint256,bool,uint64,bool,bool,address)', [TACADDR, tac(2000), WETH, eth(40), true, 0, false, false, ZERO]);   // v2 ask, partial: 2000 TAC for 0.04 ETH
+    await sendTx(m3.account, V2, 'createOrderWithEth(address,uint256,bool,uint64,bool,address)', [TACADDR, tac(1000), true, 0, false, ZERO], eth(15));            // v2 bid, partial: 0.015 ETH for 1000 TAC
+    await sendTx(m4.account, TACADDR, 'approve(address,uint256)', [DU, tac(1000)]);
+    await sendTx(m4.account, DU, 'listERC20(address,address,uint128,uint256,uint256,uint40,uint40,uint40)', [TACADDR, ZERO, tac(1000), eth(30), eth(20), 0, 360000, 0]);   // Dutchboard ask: 1000 TAC, 0.03 falling to 0.02 ETH
+    const me = await fundedWallet(10n * E18, 30000n * E18);
+    await sendTx(me.account, TACADDR, 'approve(address,uint256)', [V2, tac(500)]);
+    await sendTx(me.account, V2, 'createOrder(address,uint256,address,uint256,bool,uint64,bool,bool,address)', [TACADDR, tac(500), WETH, eth(30), true, 0, false, false, ZERO]);         // the account's own ask
+
+    const w = await openPage({ width: 1280, height: 900 }, me);
+    const q = w.page;
+    await until(q, () => document.querySelectorAll('#chart .body').length > 5 && document.querySelector('[data-book="eth"]')?.getAttribute('aria-pressed') === 'true' && document.querySelectorAll('#ladders [data-fill]').length >= 4, null, 240000);
+    const lad = (sel) => q.$$eval(sel, (rows) => rows.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
+    const asks = await lad('#ladders .lad:nth-of-type(1) tbody tr'), bids = await lad('#ladders .lad:nth-of-type(2) tbody tr');
+    ok(asks.length === 4 && bids.length === 1, `the Ethereum tab opens with orders: ${asks.length} to sell, ${bids.length} to buy (${asks[0].slice(0, 90)})`);
+    ok(/^\$0\.\d+.*1,000.*0\.01.*Swapboard v1.*whole only/.test(asks[0]) || /^\$0\.\d+.*1,000.*0\.01.*Swapboard v1/.test(asks.find((x) => /Swapboard v1/.test(x)) || ''), 'each with its price, size, the ETH it takes, the board and what it allows');
+    ok(asks.some((x) => /Dutchboard.*price changes with time/.test(x)) && asks.some((x) => /Swapboard v2.*part fills ok/.test(x)) && /Swapboard v2/.test(bids[0]), 'a Dutchboard lot, a partial v2 order and the v2 bid are all there');
+    ok((await q.$$eval('#depthchart path.dep-ask', (x) => x.length)) >= 1 && (await q.$$eval('#depthchart path.dep-bid', (x) => x.length)) >= 1, 'and drawn as a depth chart of both sides');
+    ok(!(await lad('#ladders .lad:nth-of-type(1) tbody tr')).some((x) => /yours/.test(x)), 'before a wallet is connected no order is marked as the account\'s');
+    await q.click('#go');
+    await until(q, () => /Balance [\d.,]+ ETH/.test(document.querySelector('#in-bal')?.textContent || '') && document.querySelectorAll('#ladders tr.mine').length === 1, null, 60000);
+    ok(/yours/.test(await text(q, '#ladders tr.mine')) && !(await q.$('#ladders tr.mine [data-fill]')), 'once connected, the account\'s own order says yours and has no Fill');
+
+    // the best route: boards that take the amount and pay more than the pools are what the ticket uses
+    await q.fill('#amt', '0.03');
+    await until(q, () => /zSwap order|Swapboard v\d order|Dutchboard order/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 240000);
+    const auto = (await text(q, '#route')).replace(/\s+/g, ' ');
+    ok(/Route.*(zSwap orders|Swapboard v1 order|Swapboard v2 order)/.test(auto) && !/Tacit pool|Precision/.test(auto), `0.03 ETH goes to the boards, whose orders are cheaper than the pools (${auto.slice(0, 110)})`);
+    const vrows = await lad('#venues tbody tr');
+    ok(vrows.some((x) => /^zSwap boards.*this ticket/.test(x)) && vrows.some((x) => /best/.test(x) && /^zSwap boards/.test(x)), 'the quotes table lists zSwap boards as the route and the best');
+    ok((await q.$$eval('#ladders tr.take', (x) => x.length)) >= 1 && (await q.$$eval('#depthchart path.dep-ask.take', (x) => x.length)) === 1, 'and the order book marks the orders the ticket would take, in the ladder and on the chart');
+    await q.fill('#amt', '');
+
+    // Fill on the cheapest order pins it to the ticket
+    const fillKey = await q.$eval('#ladders .lad:nth-of-type(1) tbody tr:not(.mine) [data-fill]', (b) => b.dataset.fill);
+    ok(fillKey === `v1:${idV1}`, `the cheapest order is the Swapboard v1 one (${fillKey})`);
+    await q.click(`[data-fill="${fillKey}"]`);
+    await until(q, () => !document.querySelector('#out').classList.contains('ph') && /Review buy/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
+    ok(/Filling Swapboard v1 order #\d+/.test(await text(q, '#pin')) && (await q.inputValue('#amt')) === '0.01' && /^1,000/.test((await text(q, '#out')).trim()), `Fill sets the ticket to buy that order whole: 0.01 ETH for ${await text(q, '#out')} TAC`);
+    ok(/Route.*Swapboard v1 order #\d+/.test((await text(q, '#route')).replace(/\s+/g, ' ')), 'and the route is that order');
+    await q.click('#go'); await q.waitForSelector('#rv-go');
+    const rv = (await text(q, '#review')).replace(/\s+/g, ' ');
+    ok(/Buy TAC/.test(rv) && /You pay0\.01 ETH/.test(rv) && /Route.*Swapboard v1 order/.test(rv) && /Swapboard v1 #\d+.*1,000 TAC for 0\.01 ETH/.test(rv) && !/I accept losing/.test(rv), `the review names the order and what it gives (${rv.slice(0, 150)})`);
+    const t0 = await tacBal(me.account), e0 = await ethBal(me.account), mc0 = await tacBal(MC3), n0 = w.walletLog.sends.length;
+    await q.click('#rv-go');
+    await until(q, () => /Bought\./.test(document.querySelector('#status')?.textContent || '') || document.querySelector('#status .err'), null, 300000);
+    ok(/Bought\. Received 1,000 TAC/.test(await text(q, '#status')) && (await tacBal(me.account)) - t0 === tac(1000), `the order was filled: exactly 1,000 TAC arrived (${(await text(q, '#status')).slice(0, 60)})`);
+    ok(w.walletLog.sends.length === n0 + 1 && w.walletLog.sends.at(-1).to.toLowerCase() === ROUTER.toLowerCase() && e0 - (await ethBal(me.account)) >= eth(10) && e0 - (await ethBal(me.account)) < eth(10) + E18 / 100n, 'in one transaction to zRouter, costing 0.01 ETH and its gas');
+    await until(q, (k) => !document.querySelector(`[data-fill="${k}"]`), fillKey, 120000);                       // the page reads the boards again once the trade has landed
+    ok((await tacBal(MC3)) === mc0 && await q.$eval('#pin', (e) => e.hidden), 'the filled order has left the book, the pin is gone, and Multicall3 holds nothing');
+
+    // a sale into the bid: the permit is signed, then one transaction
+    const bidKey = await q.$eval('#ladders .lad:nth-of-type(2) tbody tr [data-fill]', (b) => b.dataset.fill);
+    ok(bidKey === `v2:${idV2 + 1n}`, `the bid is the Swapboard v2 one (${bidKey})`);
+    await q.click(`[data-fill="${bidKey}"]`);
+    await until(q, () => !document.querySelector('#out').classList.contains('ph') && /Review sell/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
+    ok((await q.inputValue('#amt')) === '1000' && /Filling Swapboard v2 order/.test(await text(q, '#pin')) && /^0\.015/.test((await text(q, '#out')).trim()), `Fill on a bid sets the ticket to sell 1,000 TAC for ${await text(q, '#out')} ETH`);
+    await q.click('#go'); await q.waitForSelector('#rv-go');
+    if (await q.$('#ack')) await q.check('#ack');
+    const s1 = w.walletLog.signs, tt = await tacBal(me.account), ee = await ethBal(me.account);
+    await q.click('#rv-go');
+    await until(q, () => /Sold\./.test(document.querySelector('#status')?.textContent || '') || document.querySelector('#status .err'), null, 300000);
+    ok(/Sold\. Received about 0\.01/.test(await text(q, '#status')) && tt - (await tacBal(me.account)) === tac(1000) && (await ethBal(me.account)) - ee > eth(14) - E18 / 100n, `1,000 TAC sold into the bid for about 0.015 ETH (${(await text(q, '#status')).slice(0, 70)})`);
+    await until(q, (k) => !document.querySelector(`[data-fill="${k}"]`), bidKey, 120000);
+    ok(w.walletLog.signs === s1 + 1, 'with the permit signed once, no approval, and the bid gone from the book');
+
+    // a pinned order that cannot take the amount says so instead of trading elsewhere
+    const dutchKey = await q.$eval('#ladders [data-fill^="dutch:"]', (b) => b.dataset.fill);
+    await q.click(`[data-fill="${dutchKey}"]`);
+    await until(q, () => !document.querySelector('#out').classList.contains('ph') && /Filling Dutchboard order/.test(document.querySelector('#pin')?.textContent || ''), null, 240000);
+    await q.fill('#amt', '0.0001');
+    await until(q, () => document.querySelector('#out').classList.contains('ph') || /^\d/.test(document.querySelector('#out').textContent.trim()) && document.querySelector('#amt').value === '0.0001', null, 120000);
+    await q.click('#unpin');
+    ok(await q.$eval('#pin', (e) => e.hidden), '"Use the best route" lets go of the pinned order');
+    ok(w.errors.length === 0 && w.blocked.length === 0, `no page errors or blocked requests with the boards (${[...w.errors, ...w.blocked].slice(0, 2).join(' | ')})`);
+    await w.browser.close();
+  }
+
 
   // the addresses: TAC's own, and the bare ones people type
   {
@@ -325,7 +422,7 @@ try {
     for (const h of RPC_HOSTS) await dctx.route(`https://${h}/**`, async (route) => { const x = await fetch(ANVIL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: route.request().postData() }); await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: await x.text() }); });
     await dctx.route(/^https:\/\/api\.tacit\.finance\/assets\//, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(/preauth-sales/.test(route.request().url()) ? sales : asset) }));
     await dp.goto(`http://127.0.0.1:${WEB}/trade/`);
-    await until(dp, () => document.querySelectorAll('#chart .body').length > 5 && document.querySelectorAll('#depth .dep').length > 3, null, 240000);
+    await until(dp, () => document.querySelectorAll('#chart .body').length > 5 && document.querySelectorAll('#ladders tbody tr').length > 3, null, 240000);
     await dp.click('[data-lane="cmp"]'); await dp.fill('#amt', '0.5');
     await until(dp, () => !document.querySelector('#out').classList.contains('ph'), null, 120000);
     await dp.screenshot({ path: join(SHOTS, 'trade-dark.png') });
