@@ -245,11 +245,13 @@ const encSnwap = ({ tokenIn, amountIn, recipient, tokenOut, minOut, executor, da
 const encMulticall = (calls) => { let head = '', tail = '', off = calls.length * 32; for (const c of calls) { const d = strip(c), body = word(d.length / 2) + padRight(d); head += word(off); tail += body; off += body.length / 2; } return '0x' + SEL.multicall + word(32) + word(calls.length) + head + tail; };
 
 // The transaction for a refined plan. `side` 'buy' pays ETH for the token; 'sell' delivers the token (the taker approves it to zRouter, or a
-// signed permit leads the bundle) for ETH. `slipBps` sets each leg's floor below what the board quoted. → { to, data, value, approval, minOut }.
-export function buildFill({ plan, side, token, account, deadline, slipBps = 50, permit = null }) {
+// signed permit leads the bundle) for ETH. `slipBps` sets each leg's floor below what the board quoted, and `floor` is a least total the whole
+// transaction must deliver whatever the legs' own floors add up to (a review's "at least", which a re-read price must not loosen).
+// → { to, data, value, approval, minOut }.
+export function buildFill({ plan, side, token, account, deadline, slipBps = 50, permit = null, floor = 0n }) {
   const legs = plan.fills.map((f) => legFor(f, side, slipBps));
   if (!legs.length) throw new Error('buildFill: nothing to fill');
-  const minOut = legs.reduce((a, l) => a + l.recv, 0n);
+  const sum = legs.reduce((a, l) => a + l.recv, 0n), minOut = BigInt(floor) > sum ? BigInt(floor) : sum;
   if (side === 'buy') {
     const value = legs.reduce((a, l) => a + l.payIn, 0n);
     const data = encFillPlan({ tokenIn: ZERO, tokenOut: token, recipient: account, refundTo: account, deadline, legs });

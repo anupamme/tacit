@@ -37,7 +37,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {} } = {}) {
   function pickWallet(list) {
     return new Promise((resolve) => {
       const o = overlay({ title: 'Choose a wallet', top: true, onClose: () => resolve(null) });
-      o.body.innerHTML = `<div class="picker">${list.map((w) => `<button class="opt" type="button" data-uuid="${esc(w.uuid)}"><span class="opt-t">${/^data:image\//.test(w.icon || '') ? `<img src="${esc(w.icon)}" alt="" width="20" height="20">` : ''}${esc(w.name)}</span></button>`).join('')}</div>`;
+      o.body.innerHTML = `<div class="picker">${list.map((w) => `<button class="way" type="button" data-uuid="${esc(w.uuid)}"><span class="way-t">${/^data:image\//.test(w.icon || '') ? `<img src="${esc(w.icon)}" alt="" width="20" height="20">` : ''}${esc(w.name)}</span></button>`).join('')}</div>`;
       o.body.querySelectorAll('[data-uuid]').forEach((b) => { b.onclick = () => { resolve(b.dataset.uuid); o.close(); }; });
     });
   }
@@ -45,18 +45,18 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {} } = {}) {
     return new Promise((resolve, reject) => {
       const known = session.known(), other = session.other();
       const o = overlay({ title: 'Open your Tacit wallet', top: true, onClose: () => { if (!session.unlocked) reject(new Cancelled()); } });
-      const opt = (k, t, m, cls = '') => `<button class="opt ${cls}" type="button" data-in="${k}"><span class="opt-t">${t}</span><span class="opt-m">${m}</span></button>`;
+      const opt = (k, t, m, cls = '') => `<button class="way ${cls}" type="button" data-in="${k}"><span class="way-t">${t}</span><span class="way-m">${m}</span></button>`;
       const pk = session.passkeyAvailable(), hasBtc = session.btcSeen(), hasEth = session.ethAvailable();
-      o.body.innerHTML = `<p class="note" style="margin-top:0">Buying and selling on Bitcoin signs with your Tacit wallet's key. This page never stores the key.</p><div class="opts">
+      o.body.innerHTML = `<p class="note" style="margin-top:0">Buying and selling on Bitcoin signs with your Tacit wallet's key. This page never stores the key.</p><div class="ways">
         ${known ? opt('known', 'Continue with your Tacit wallet', `Opens with ${esc(via(known))}, the same key as on tacit.finance.`, 'main') : ''}
         ${other ? opt('other', 'Your other Tacit key', `A different key, opened here before with ${esc(via(other))}.`) : ''}
         ${opt('eth', 'Ethereum wallet', hasEth ? 'MetaMask, Rabby, Rainbow or any browser wallet. One signature, two the first time on this browser.' : 'MetaMask, Rabby, Rainbow or any browser wallet. None found in this browser.')}
         ${opt('btc', 'Bitcoin wallet', hasBtc ? 'Xverse, Leather or UniSat. One signature, two the first time.' : 'Xverse, Leather or UniSat. None found in this browser.')}
         ${pk ? opt('passkey', 'Passkey', 'Touch ID, Windows Hello or a security key.') : ''}
-        <p class="opts-err" role="alert" hidden></p>
+        <p class="ways-err" role="alert" hidden></p>
         ${pk ? '<p class="more"><button class="linkbtn" type="button" data-in="new">New passkey wallet</button></p>' : ''}
       </div>`;
-      const err = o.body.querySelector('.opts-err');
+      const err = o.body.querySelector('.ways-err');
       let busy = false;
       o.body.querySelectorAll('[data-in]').forEach((b) => { b.onclick = async () => {
         if (busy) return;
@@ -75,11 +75,15 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {} } = {}) {
     });
   }
   // The market module's unlock: a key already open is used as it is.
-  async function unlock() {
-    await session.load();
-    if (session.unlocked) return;
-    await signIn();
-    await refreshMe();
+  // Two asks at once (a double click, or the module and a recovery) share one prompt.
+  let signing = null;
+  function unlock() {
+    return (signing ||= (async () => {
+      await session.load();
+      if (session.unlocked) return;
+      await signIn();
+      await refreshMe();
+    })().finally(() => { signing = null; }));
   }
 
   // ── what the module asks the page for ──
@@ -175,28 +179,30 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {} } = {}) {
     l.onload = l.onerror = () => res(); document.head.append(l);
   }));
   function destroy() { try { ctl?.destroy?.(); } catch { /* it is going away */ } ctl = null; host = null; main = null; clearInterval(meTimer); off?.(); off = null; }
-  // `prime` sets the ticket once the book has loaded: { side, type, receiveBase, sellBase, spendSats }.
+  // `prime` sets the ticket once the book has loaded: { side, type, receiveBase, sellBase, spendSats }. A sheet that was closed while it loaded
+  // (and maybe opened again) is not mounted into: each step checks that it is still the current one.
   async function open(prime = null) {
     if (main) { if (prime) await primeWhenReady(prime); return; }
-    main = overlay({ title: 'TAC on Bitcoin', wide: true, onClose: destroy });
-    host = document.createElement('div'); host.className = 'bm-skin'; host.innerHTML = '<p class="note">Loading the Bitcoin market…</p>';
-    main.body.append(host);
+    const mine = overlay({ title: 'TAC on Bitcoin', wide: true, onClose: () => { if (main === mine) destroy(); } });
+    main = mine;
+    const box = document.createElement('div'); box.className = 'bm-skin'; box.innerHTML = '<p class="note">Loading the Bitcoin market…</p>';
+    mine.body.append(box); host = box;
     try {
       await Promise.all([session.load(), ensureCss()]);
       const market = await import(MARKET_URL);
-      if (!main) return;                                                                     // closed while loading
+      if (main !== mine) return;
       await refreshMe();
       const ctx = await buildCtx();
-      if (!main) return;
-      host.replaceChildren();
-      ctl = market.mountBtcMarket(host, ctx);
+      if (main !== mine) return;
+      box.replaceChildren();
+      ctl = market.mountBtcMarket(box, ctx);
       meTimer = setInterval(() => { if (!document.hidden && session.unlocked) refreshMe().then(() => ctl?.refresh?.({ soft: true })).catch(() => {}); }, 45e3);
       off = session.onChange(() => { paintHead(); refreshMe().then(() => ctl?.refresh?.({ soft: true })).catch(() => {}); });
-      host.insertAdjacentHTML('beforeend', '<p class="note bm-after">TAC held on Ethereum is bridged to Bitcoin before it can be sold here. <a href="/#bridge">Bridge →</a></p>');
+      box.insertAdjacentHTML('beforeend', '<p class="note bm-after">TAC held on Ethereum is bridged to Bitcoin before it can be sold here. <a href="/#bridge">Bridge →</a></p>');
       paintHead();
       if (prime) await primeWhenReady(prime);
     } catch (e) {
-      if (host) host.innerHTML = `<p class="err">The Bitcoin market could not be loaded just now: ${esc(e?.message || e)}</p>`;
+      if (main === mine) box.innerHTML = `<p class="err">The Bitcoin market could not be loaded just now: ${esc(e?.message || e)}</p>`;
     }
   }
   async function primeWhenReady(opts) {

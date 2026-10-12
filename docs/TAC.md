@@ -20,7 +20,12 @@ trade an amount:
   [TacitPublicAmm](./DEPLOYMENTS.md) (amounts visible) or privately with shielded notes (who swaps and how much stay hidden).
 - **Uniswap v4 and other pools.** Three hookless ETH/TAC pools exist on Uniswap v4 (fees of 15%, 30% and 40%) and hold no liquidity
   today; zQuoter, which finds routes on Uniswap v2/v3, Sushi, Curve and v4's standard fee tiers, does not look at fees that high, so the
-  trade page reads those pools itself. Resting orders on zSwap's boards are counted too.
+  trade page reads those pools itself.
+- **zSwap's order boards** (Swapboard v1 and v2, Dutchboard, Floorboard). The trade page reads every TAC order resting on them and draws
+  the book. It fills one order, or the best several in a single `snwap` through zSwap's Swapbol executor, and when the orders take the
+  whole amount and pay 1% more than the pools it uses them on its own. An order made out to one account is not offered.
+  `dapp/zboards.js` has the reading and the calldata, and `tests/zboards-fork.mjs` places orders on all four boards and fills them on a
+  fork of mainnet.
 
 An order can be **split across the Precision pool and the Tacit pool in one transaction**, which pays more once an order is large
 enough to move either price. zRouter's own legs cannot do this with ETH (each forwards the whole transaction value, and the Precision

@@ -109,6 +109,9 @@ try {
   let p = r.page;
   await ladderReady(p);
   ok(!(await p.$('#ladders [data-btc]')), 'with the flag off the Bitcoin ladders have no buttons');
+  await p.click('[data-book="eth"]');
+  ok(/zSwap's boards could not be read just now/.test(await text(p, '#ladders')), 'when no RPC answers, the Ethereum tab says the boards could not be read rather than that they hold no orders');
+  await p.click('[data-book="btc"]');
   await p.evaluate(() => { location.hash = '#btc=on'; location.reload(); });
   await p.waitForLoadState('load');
   await until(p, () => document.querySelectorAll('#ladders [data-btc]').length > 0, null, 120000);
@@ -137,8 +140,8 @@ try {
 
   // signing in with the Ethereum wallet
   await p.click('.bsheet .bm [data-act="unlock"]');
-  await p.waitForSelector('.bsheet.top .opts');
-  const opts = (await text(p, '.bsheet.top .opts')).replace(/\s+/g, ' ');
+  await p.waitForSelector('.bsheet.top .ways');
+  const opts = (await text(p, '.bsheet.top .ways')).replace(/\s+/g, ' ');
   ok(/Ethereum wallet/.test(opts) && /Bitcoin wallet.*None found in this browser/.test(opts) && !/Paste a key|Saved in this browser/.test(opts), 'the sign-in offers the Ethereum wallet, a Bitcoin wallet (none here) and no way that needs a passphrase');
   await p.click('.bsheet.top [data-in="eth"]');
   await until(p, () => !document.querySelector('.bsheet.top') && /Balance/.test(document.querySelector('.bsheet .bm')?.textContent || ''), null, 120000);
@@ -171,7 +174,7 @@ try {
   await until(p, () => document.querySelectorAll('#ladders [data-btc]').length > 0, null, 120000);
   await p.click('#ladders [data-btc="open"]');
   await until(p, () => document.querySelector('.bsheet.wide .bm [data-act="unlock"]'), null, 180000);
-  await p.click('.bsheet .bm [data-act="unlock"]'); await p.waitForSelector('.bsheet.top .opts'); await p.click('.bsheet.top [data-in="eth"]');
+  await p.click('.bsheet .bm [data-act="unlock"]'); await p.waitForSelector('.bsheet.top .ways'); await p.click('.bsheet.top [data-in="eth"]');
   await until(p, () => document.querySelector('.bsheet .who [data-lock]'), null, 120000);
   await p.click('.bsheet .who [data-lock]');
   await until(p, () => document.querySelector('.bsheet.wide .bm [data-act="unlock"]') && !document.querySelector('.bsheet .who [data-lock]'), null, 60000);

@@ -277,6 +277,12 @@ const mk = (board, id, base, quote, partial, side = 'ask') => ({ key: `${board}:
   const wantP = cast('calldata', 'multicall(bytes[])', `[${permitLeg},${checkpoint},${fillTx}]`);
   assert.equal(sellP.data.toLowerCase(), wantP.toLowerCase()); assert.equal(sellP.approval, null);
   ok('with a signed permit the sell leads with it and needs no approval');
+  // a floor from a review is never loosened by a re-read price: the total is at least it, and a lower one changes nothing
+  const bound = buildFill({ plan, side: 'buy', token: TOKEN, account: ME, deadline, slipBps: 50, floor: minBuy + 1000n });
+  assert.equal(bound.minOut, minBuy + 1000n);
+  assert.equal(bound.data.toLowerCase(), snwap(ZERO, E18 + E18 / 2n + E18 / 3n, TOKEN, minBuy + 1000n, fillData(ZERO, TOKEN, legsBuy, deadline)).toLowerCase());
+  assert.equal(buildFill({ plan, side: 'buy', token: TOKEN, account: ME, deadline, slipBps: 50, floor: minBuy - 1n }).data.toLowerCase(), wantBuy.toLowerCase());
+  ok('a floor above the legs\' own floors becomes the whole transaction\'s floor, and a lower one changes nothing');
   assert.throws(() => buildFill({ plan: { fills: [] }, side: 'buy', token: TOKEN, account: ME, deadline }), /nothing to fill/);
   ok('a plan with no fills builds nothing');
 

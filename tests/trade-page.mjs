@@ -168,11 +168,11 @@ try {
   ok(rows.length >= 5 && rows.length <= 7, `the quotes table holds the places that quote: the pools, the split, the private swap and the Bitcoin book (${rows.length} rows)`);
   ok(rows.some((x) => /^Precision pool.*fee 0\.30%/.test(x)) && rows.some((x) => /^Tacit pool.*public swap/.test(x)) && rows.some((x) => /^Both, split.*best/.test(x)), 'the pools and the split are there (the Precision fee as 0.30%), the split tagged best');
   ok(rows.some((x) => /^Tacit pool, private.*estimate.*shielded note/.test(x)), 'the private swap is an estimate, from the same reserves');
-  await until(p, () => !/being checked/.test(document.querySelector('#absent')?.textContent || ''), null, 60000);
+  await until(p, () => !/being checked/.test(document.querySelector('#absent')?.textContent || '') && /zSwap has no TAC orders|no TAC order was found/.test(document.querySelector('#absent')?.textContent || ''), null, 150000);   // the boards are read with the first look and again each minute
   const absent = (await text(p, '#absent')).replace(/\s+/g, ' ');
   ok(/^Not quoting: Uniswap v4's 3 ETH\/TAC pools hold no liquidity/.test(absent), `what holds no TAC is one line, with Uniswap v4's three empty pools in it (${absent.slice(0, 120)})`);
   // zQuoter's scan is heavy for a forked node, which may not answer inside the page's budget: either answer is said.
-  ok(/no Uniswap v2\/v3, Sushi or Curve pool lists TAC|Uniswap v2\/v3, Sushi and Curve did not answer in time/.test(absent) && /zSwap has no TAC orders/.test(absent), 'and so are zQuoter\'s search and the empty zSwap boards');
+  ok(/no Uniswap v2\/v3, Sushi or Curve pool lists TAC|Uniswap v2\/v3, Sushi and Curve did not answer in time/.test(absent) && /zSwap has no TAC orders|no TAC order was found on the zSwap boards that answered/.test(absent), 'and so are zQuoter\'s search and the empty zSwap boards (a fork that answers only some of the board reads says so)');
   ok(rows.some((x) => /^Bitcoin order book.*pay [\d,]+ sats/.test(x)), 'the Bitcoin order book (paid in sats) is a row too');
   ok(/Connect wallet/.test(await text(p, '#go')) && !(await p.$eval('#go', (b) => b.disabled)), 'with a quote and no wallet the button asks to connect one');
 
@@ -207,13 +207,18 @@ try {
   ok((await p.$$eval('#depthchart path.dep-ask', (x) => x.length)) === 1 && (await p.$$eval('#depthchart path.dep-bid', (x) => x.length)) === 1, 'drawn as a depth chart of listings and bids');
   ok(/14 standing bids want [\d,]+ TAC; a sale to one settles when its bidder is online/.test(await text(p, '#depth-note')), 'and the note says how many bids stand and when a sale to one settles');
   await p.click('[data-book="eth"]');
-  ok(/No TAC orders rest on zSwap's boards right now/.test(await text(p, '#ladders')) && !!(await p.$('#ladders a[href^="https://zswap"]')), 'the Ethereum tab says zSwap holds none and where to place one');
+  await until(p, () => /No TAC orders rest on zSwap's boards right now|No TAC orders were found on the boards that answered/.test(document.querySelector('#ladders')?.textContent || ''), null, 150000);
+  ok(/No TAC orders rest on zSwap's boards right now|No TAC orders were found on the boards that answered/.test(await text(p, '#ladders')) && !!(await p.$('#ladders a[href^="https://zswap"]')), 'the Ethereum tab says zSwap holds none and where to place one');
   await p.click('[data-book="btc"]');
   ok(/168 listings hold [\d,]+ TAC for [\d,]+ sats in all/.test(await text(p, '#depth-note')) && !!(await p.$('#depth-note a[href="/tac/#buy"]')), 'with how deep the book is and where to buy');
   const facts = (await text(p, '#facts')).replace(/\s+/g, ' '), more = (await text(p, '#facts-more')).replace(/\s+/g, ' ');
   ok(/21,000,000/.test(await text(p, '#about')) && /ERC-20.*0xA1313e.*TAC minted there/.test(facts) && /2,032 holders/.test(facts) && /Precision pool.*holds [\d.,]+ ETH and [\d,]+ TAC/.test(more), `the facts are live (${facts.slice(0, 120)})`);
   ok(/Uniswap v4.*3 hookless ETH\/TAC pools.*None holds liquidity now/.test(more) && /TacBuyback/.test(more) && !(await p.$eval('details.more:has(#facts-more)', (d) => d.open)), 'Uniswap v4\'s pools and the buyback are named, behind a "more" that starts closed');
 
+  const nav = await p.$eval('.top nav a.opt', (a) => { const c = getComputedStyle(a); return { display: c.display, border: c.borderTopWidth, bg: c.backgroundColor, h: a.getBoundingClientRect().height }; });
+  const col = await p.$eval('#venues th.opt', (a) => { const c = getComputedStyle(a); return { display: c.display, border: c.borderTopWidth }; });
+  ok(nav.display === 'block' && nav.border === '0px' && nav.bg === 'rgba(0, 0, 0, 0)' && nav.h < 40, `the header's links are plain links, not boxes (${JSON.stringify(nav)})`);
+  ok(col.display === 'table-cell' && col.border === '0px', `and a table column that hides on phones keeps its own style (${JSON.stringify(col)})`);
   ok(r.errors.length === 0, `no page errors (${r.errors.slice(0, 3).join(' | ')})`);
   ok(r.blocked.length === 0, `nothing blocked by the page's CSP (${r.blocked.slice(0, 2).join(' | ')})`);
   if (SHOTS) await (await p.$('.grid')).screenshot({ path: join(SHOTS, 'trade-desktop-grid.png') }).catch(() => {});
@@ -389,14 +394,26 @@ try {
     await until(q, (k) => !document.querySelector(`[data-fill="${k}"]`), bidKey, 120000);
     ok(w.walletLog.signs === s1 + 1, 'with the permit signed once, no approval, and the bid gone from the book');
 
-    // a pinned order that cannot take the amount says so instead of trading elsewhere
+    // "Use the best route" lets go of a pinned order
     const dutchKey = await q.$eval('#ladders [data-fill^="dutch:"]', (b) => b.dataset.fill);
     await q.click(`[data-fill="${dutchKey}"]`);
-    await until(q, () => !document.querySelector('#out').classList.contains('ph') && /Filling Dutchboard order/.test(document.querySelector('#pin')?.textContent || ''), null, 240000);
-    await q.fill('#amt', '0.0001');
-    await until(q, () => document.querySelector('#out').classList.contains('ph') || /^\d/.test(document.querySelector('#out').textContent.trim()) && document.querySelector('#amt').value === '0.0001', null, 120000);
+    await until(q, () => /Filling Dutchboard order/.test(document.querySelector('#pin')?.textContent || '') && /Review buy/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
     await q.click('#unpin');
     ok(await q.$eval('#pin', (e) => e.hidden), '"Use the best route" lets go of the pinned order');
+
+    // an order filled by someone else between the review and the confirm stops the trade: nothing is sent
+    await q.click(`[data-fill="${dutchKey}"]`);
+    await until(q, () => /Review buy/.test(document.querySelector('#go')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 240000);
+    await q.click('#go'); await q.waitForSelector('#rv-go');
+    const rival = await fundedWallet(10n * E18, 0n);
+    await sendTx(rival.account, DU, 'fill(uint256,uint128,address,uint256)', [idDu, tac(1000), rival.account, eth(40)], eth(40));
+    const before = w.walletLog.sends.length;
+    if (await q.$('#ack')) await q.check('#ack');
+    await q.click('#rv-go');
+    await until(q, () => /just filled or taken down/.test(document.querySelector('#status')?.textContent || ''), null, 120000);
+    ok(/Nothing was sent/.test(await text(q, '#status')) && w.walletLog.sends.length === before, 'a lot someone else fills after the review stops the trade with nothing sent');
+    await until(q, (k) => !document.querySelector(`[data-fill="${k}"]`) && document.querySelector('#pin').hidden, dutchKey, 120000);
+    ok(true, 'and the filled lot leaves the book and the pin');
     ok(w.errors.length === 0 && w.blocked.length === 0, `no page errors or blocked requests with the boards (${[...w.errors, ...w.blocked].slice(0, 2).join(' | ')})`);
     await w.browser.close();
   }
@@ -440,6 +457,7 @@ try {
   const order = await m.evaluate(() => ['.p-chart', '.p-ticket', '.p-venues', '.p-depth', '.p-info'].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().top)));
   ok(order.every((t, i) => i === 0 || t > order[i - 1]), `the panels stack chart, ticket, venues, book, facts (${order})`);
   ok((await m.$eval('#chart', (e) => e.getBoundingClientRect().width)) > 300, 'the chart takes the phone\'s width');
+  ok(await m.$$eval('.top nav a.opt', (a) => a.every((x) => getComputedStyle(x).display === 'none')), 'and the header\'s extra links are hidden there');
   if (SHOTS) await m.screenshot({ path: join(SHOTS, 'trade-phone.png'), fullPage: true });
   ok(r.errors.length === 0 && r.blocked.length === 0, `and no errors or blocked requests there (${[...r.errors, ...r.blocked].slice(0, 2).join(' | ')})`);
   await r.browser.close();
