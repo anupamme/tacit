@@ -421,9 +421,9 @@ function renderVenues(q) {
 }
 
 // ── Bitcoin from the page ──
-// The Bitcoin tab's ladders can take the visitor into the market module (trade/btc.js: tacit.js's own executors behind a sheet). It is
-// off until it is switched on in this browser with #btc=on (and off again with #btc=off): the first real purchases are the owner's to try.
-const btcOn = () => { try { return localStorage.getItem('tacit-trade-btc') === '1'; } catch { return false; } };
+// The Bitcoin tab's ladders take the visitor into the market module (trade/btc.js: tacit.js's own executors behind a sheet). It can be switched
+// off in one browser with #btc=off (and on again with #btc=on).
+const btcOn = () => { try { return localStorage.getItem('tacit-trade-btc') !== '0'; } catch { return true; } };
 let bitcoin = null;
 function notify(msg, kind = '', ms = 5000) {
   const t = document.createElement('div');

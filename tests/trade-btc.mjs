@@ -104,18 +104,19 @@ const ladderReady = (p) => until(p, () => document.querySelectorAll('#ladders tb
 
 let r;
 try {
-  // the flag: off until switched on in this browser
+  // on by default, and off in one browser with #btc=off
   r = await openPage({ width: 1280, height: 900 }, { hash: '' });
   let p = r.page;
   await ladderReady(p);
-  ok(!(await p.$('#ladders [data-btc]')), 'with the flag off the Bitcoin ladders have no buttons');
+  await until(p, () => document.querySelectorAll('#ladders [data-btc]').length > 0, null, 60000);
+  ok(true, 'the Bitcoin ladders have their buttons with no setting made');
   await p.click('[data-book="eth"]');
   ok(/zSwap's boards could not be read just now/.test(await text(p, '#ladders')), 'when no RPC answers, the Ethereum tab says the boards could not be read rather than that they hold no orders');
   await p.click('[data-book="btc"]');
-  await p.evaluate(() => { location.hash = '#btc=on'; location.reload(); });
+  await p.evaluate(() => { location.hash = '#btc=off'; location.reload(); });
   await p.waitForLoadState('load');
-  await until(p, () => document.querySelectorAll('#ladders [data-btc]').length > 0, null, 120000);
-  ok((await p.evaluate(() => localStorage.getItem('tacit-trade-btc'))) === '1', '#btc=on switches it on in this browser');
+  await ladderReady(p);
+  ok(!(await p.$('#ladders [data-btc]')) && (await p.evaluate(() => localStorage.getItem('tacit-trade-btc'))) === '0', '#btc=off takes them away in this browser');
   await r.browser.close();
 
   r = await openPage({ width: 1280, height: 900 }, { wallet: true });
