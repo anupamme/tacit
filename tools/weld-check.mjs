@@ -4354,7 +4354,8 @@ await step('hxsats', async () => {
 });
 
 // The lander leads to the trade page from the header, from a tile under the card, from the footer and from the TAC bar, and TAC's own
-// links go to its own address (/trade/tac/). At a phone's width the header still holds the link without a sideways scroll.
+// links go to its own address (/trade/tac/). The header also links Pay, between Trade and Classic. At a phone's width the header still
+// holds the links without a sideways scroll.
 await step('tradelinks', async () => {
   for (const [name, viewport] of [['desktop', { width: 1280, height: 900 }], ['phone', { width: 360, height: 740 }]]) {
     const r = await openPage({ account: A0, key: K0, viewport });
@@ -4364,10 +4365,13 @@ await step('tradelinks', async () => {
       await p.waitForSelector('#hx-body .hx-h');
       const seen = await p.evaluate(() => {
         const vis = (s) => { const e = document.querySelector(s); if (!e) return false; const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 && b.left >= 0 && b.right <= window.innerWidth + 1; };
-        return { header: vis('.top-r a.trade[href="/trade/"]'), headerText: document.querySelector('.top-r a.trade')?.textContent, tile: !!document.querySelector('a#trade-tile[href="/trade/"]') && vis('a#trade-tile'), tileText: document.querySelector('#trade-tile b')?.textContent,
-          footer: !!document.querySelector('footer a[href="/trade/"]'), bar: !!document.querySelector('.tacbar a[href="/trade/tac/"]'), scroll: document.documentElement.scrollWidth > window.innerWidth + 1 };
+        const hdr = [...document.querySelectorAll('.top-r > a')].map((a) => `${a.textContent}:${a.getAttribute('href')}`).join(' ');
+        return { header: vis('.top-r a.lead[href="/trade/"]'), headerText: document.querySelector('.top-r a.lead')?.textContent, pay: vis('.top-r a.lead[href="/pay/"]'), order: hdr, tile: !!document.querySelector('a#trade-tile[href="/trade/"]') && vis('a#trade-tile'), tileText: document.querySelector('#trade-tile b')?.textContent,
+          chip: (() => { const l = document.getElementById('wallet-label'); return !!l && l.scrollWidth <= l.clientWidth + 1 && l.clientWidth >= 30; })(), footer: !!document.querySelector('footer a[href="/trade/"]'), bar: !!document.querySelector('.tacbar a[href="/trade/tac/"]'), scroll: document.documentElement.scrollWidth > window.innerWidth + 1 };
       });
       ok(seen.header && seen.headerText === 'Trade', `tradelinks (${name}): the header has a Trade link in view`);
+      ok(seen.pay && seen.order === 'Trade:/trade/ Pay:/pay/ Classic:/classic.html', `tradelinks (${name}): and a Pay link, to the right of Trade and before Classic (${seen.order})`);
+      ok(seen.chip, `tradelinks (${name}): and the account chip still shows its whole label`);
       ok(seen.tile && seen.tileText === 'Trade TAC', `tradelinks (${name}): a Trade TAC tile sits under the card`);
       ok(seen.footer && seen.bar, `tradelinks (${name}): the footer links Trade and the TAC bar links TAC's own address`);
       ok(!seen.scroll, `tradelinks (${name}): and the page does not scroll sideways`);
