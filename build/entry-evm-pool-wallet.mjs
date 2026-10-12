@@ -39,6 +39,8 @@
 //              then w.setArtifacts(...) before proving. Address, balance and sync never need them. Each file is
 //              checked against PIN before use.
 // relay:       a keeper base, …/evm-pool/keeper.   rpc: URL or URLs to read from instead of the provider.
+// chainId:     1, 8453, 4663 or 4326 (MegaETH: the core pool only, no move to or from it with bridgeOut); another chain
+//              with the suite takes deployBlock (and logChunk, the block range of one log read, 5000 by default).
 // store:       { get(k), set(k, v) } to keep the synced (view-level) state across loads.
 
 import { poseidon2 } from 'poseidon-lite/poseidon2';
@@ -53,7 +55,7 @@ import WORKER_SRC from 'evm-pool-worker-source';
 
 export const POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9';
 export const ROUTER = '0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5';
-export const CHAINS = { 1: { deployBlock: 26069245 }, 8453: { deployBlock: 51864014 }, 4663: { deployBlock: 73991661 } };
+export const CHAINS = { 1: { deployBlock: 26069245 }, 8453: { deployBlock: 51864014 }, 4663: { deployBlock: 73991661 }, 4326: { deployBlock: 28397750, logChunk: 100000 } };
 export const PIN = {
   wasm_sha256: '02dd5e84970e5bc629a7a3cd4d7eae5fc9ca05579fa22c9b39b5ea70c8d8a6c1',
   zkey_sha256: '40758061a0786fb0bdc5e5dec4c354bbf85fc106f7412716e25e781af4e79c4b',
@@ -93,7 +95,7 @@ function startProver(art) {
   };
 }
 
-export async function makeEvmPoolWallet({ provider = null, chainId, identityKey, artifacts = null, relay = null, rpc = null, store = null, confirmations = 3, deployBlock = null }) {
+export async function makeEvmPoolWallet({ provider = null, chainId, identityKey, artifacts = null, relay = null, rpc = null, store = null, confirmations = 3, deployBlock = null, logChunk = null }) {
   if (provider && !provider.request) throw new Error('provider must be an EIP-1193 provider');
   if (!provider && !rpc) throw new Error('give a provider, or rpc for a view-only wallet');
   const id = Number(chainId);
@@ -132,7 +134,7 @@ export async function makeEvmPoolWallet({ provider = null, chainId, identityKey,
   const keys = evmPoolKeys(zk, key);
   const w = makeCore({
     zk, keys, keeper: relay, store, signer, prove: async (input) => (await getProver()).prove(input),
-    chain: { chainId: id, pool: POOL, router: ROUTER, rpc: read, deployBlock: deployBlock ?? CHAINS[id]?.deployBlock ?? 0, confirmations },
+    chain: { chainId: id, pool: POOL, router: ROUTER, rpc: read, deployBlock: deployBlock ?? CHAINS[id]?.deployBlock ?? 0, logChunk: logChunk ?? CHAINS[id]?.logChunk, confirmations },
   });
   let last = null;
   const opts = (o = {}) => ({ via: o.via ?? null, maxFee: o.maxFee ?? null, onStep: o.onStep ?? (() => {}) });

@@ -22,7 +22,7 @@ exit/entry (["Moving between V1 and this pool"](#moving-between-v1-and-this-pool
 | [anon.wei.limo](https://anon.wei.limo/) | The reference app: one page that shields, sends privately, withdraws, takes payments at a deposit address, and shields from or withdraws as a token. Also served by name as `anon.wei` ([the reference app](#the-reference-app-anonwei)). | Ethereum, Base, Robinhood Chain |
 | [tacit.finance/pay/eth](https://tacit.finance/pay/eth/), and "On this device" on the [tacit.finance](https://tacit.finance/) front page | The same pool without token swaps: shield, send, withdraw, a deposit address, payment links. | Ethereum, Base, Robinhood Chain and **MegaETH** |
 | [Secret Sats](https://tacit.finance/sats/), ETH tab | The same pool beside the Bitcoin pool: one address (`bp1…`) receives in both. | Ethereum, Base, Robinhood Chain |
-| [The standalone wallet](#standalone-wallet) | The whole wallet as one ES module, for your own app. | Ethereum, Base, Robinhood Chain |
+| [The standalone wallet](#standalone-wallet) | The whole wallet as one ES module, for your own app. | Ethereum, Base, Robinhood Chain and MegaETH |
 | Your own app | The contracts are at the same addresses on every chain they are on ([build one](#megaeth-and-building-an-app-on-another-chain)). | Any chain with the suite |
 
 **MegaETH** has the core: the pool, router, verifier, deposit addresses, a relay and withdraw-and-call. It has no token
@@ -194,7 +194,10 @@ replacement for the mirrors.
 | `transact.wasm` (witness program) | 4,916,992 | 201 | `02dd5e84970e5bc629a7a3cd4d7eae5fc9ca05579fa22c9b39b5ea70c8d8a6c1` | `0xc63e43d159429583A9fb3fF0b5053e4D12415F55` |
 | `transact_vk.json` (verifying key) | 4,761 | 1 | `f3e36ac06ad59428003b90abd80b807180badeb06c3960c50b060ebc59b626b3` | `0x8649Dd8ec5b0DE7de9F6934A13188E2b868B975B` |
 | `pin.json` | 1,501 | 1 | `79ddf12a68239eb9d1ddeaff9518d05ef57fa56e20deea8aae730413c3be78f9` | `0x75578ab320147Af1f8d39e7e3643621Bc57e5bE9` |
-| `tacit-evm-pool-wallet.js` (standalone wallet, as served) | 705,182 | 29 | `cdc59dd5d5c95370a30161dd64637e32590b85290241944184283a05098c15c0` | `0x202fF20B540794CD6f8F54cF80A0Af6170BEaDB4` |
+| `tacit-evm-pool-wallet.js` (standalone wallet, the build before the current one: Ethereum, Base and Robinhood Chain) | 705,182 | 29 | `cdc59dd5d5c95370a30161dd64637e32590b85290241944184283a05098c15c0` | `0x202fF20B540794CD6f8F54cF80A0Af6170BEaDB4` |
+
+The wallet's current build ([Standalone wallet](#standalone-wallet)) is not on Base Sepolia yet; its mirrors are
+tacit.finance and IPFS.
 
 - **How it is stored.** Each file is cut into pieces of up to 24,575 bytes. A piece is the runtime code of its own contract:
   one STOP byte (so it never runs), then the bytes. Pieces and manifests are created through the deterministic CREATE2
@@ -575,11 +578,12 @@ from a Blob) and submission. It checks the ceremony files against their pinned h
 served at `https://tacit.finance/evm-pool/tacit-evm-pool-wallet.js` with `Access-Control-Allow-Origin: *`, as are the
 ceremony files beside it.
 
-Current build: sha256 `cdc59dd5d5c95370a30161dd64637e32590b85290241944184283a05098c15c0`, IPFS
-`bafybeigatwjp4gda4y3hj4zza7mgmk4qsipqs7gcgqipudql7625eefthy` (pinned on Filebase). The build is deterministic from
-the repository: `npm ci` in `build/`, then `node build/build-evm-pool-wallet.mjs` prints this hash from the sources as of
-commit `9ad58d88`. `dapp/evm-pool-wallet.js` has changed since (MegaETH in its relayer tables, among other things), so a
-build from today's sources has a different hash.
+Current build (667,636 bytes): sha256 `384a88220fb78f576e60480439bceb3e91e0fe8a32557f5c01c672390b81f5bc`, IPFS
+`bafybeihtthsjejf4ij3g2yfpkcvhavkvvw6tfryismkrw5c6ij5ifb6u3y` (pinned on Filebase). The build is deterministic from the
+repository: `npm ci` in `build/`, then `node build/build-evm-pool-wallet.mjs` prints the same hash. The build before it,
+which knew only Ethereum, Base and Robinhood Chain, was
+`cdc59dd5d5c95370a30161dd64637e32590b85290241944184283a05098c15c0` (IPFS
+`bafybeigatwjp4gda4y3hj4zza7mgmk4qsipqs7gcgqipudql7625eefthy`).
 
 The wallet keeps its synced state in storage sealed under a key from the wallet's view scalar. It finds history
 through the keeper's feed and checks every batch, from the feed or from a node's logs, against the pool (`rootSize`).
@@ -624,10 +628,11 @@ pool grows: the tree's right edge and the paths of the wallet's own notes.
 
 **Chains and confirmations.** `makeEvmPoolWallet` accepts `confirmations` (default 3 here; `dapp/evm-pool-wallet.js`
 itself defaults to 12): history is kept once it is that many blocks deep. The anon.wei page uses 3 on Ethereum and 10 on
-Base and Robinhood Chain. The bundle knows the deploy blocks of Ethereum, Base and Robinhood Chain and, with a `relay`
-on a real origin, holds a quote to each one's pinned relayer address and fee ceiling. It was built before MegaETH: for
-chain 4326 pass `deployBlock: 28397750`, read through `rpc` and send without a `relay`, or use `dapp/evm-pool-wallet.js`,
-whose tables include MegaETH ([MegaETH](#megaeth-and-building-an-app-on-another-chain)).
+Base and Robinhood Chain. The bundle knows the deploy blocks of Ethereum (1), Base (8453), Robinhood Chain (4663) and
+MegaETH (4326, where it reads logs 100,000 blocks at a time) and, with a `relay` on a real origin, holds a quote to each
+one's pinned relayer address and fee ceiling. For another chain with the suite pass `deployBlock` (and `logChunk`, the
+block range of one log read, 5,000 by default); `bridgeOut` starts from Ethereum and goes to Base or Robinhood Chain only
+([MegaETH](#megaeth-and-building-an-app-on-another-chain)).
 
 ## Moving to an L2
 
@@ -747,8 +752,8 @@ with no relay: it proves and sends everything itself.
 2. The proving key and witness program, from tacit.finance, IPFS or the [Base Sepolia copy](#an-onchain-copy-of-the-proving-files-base-sepolia),
    each checked against its SHA-256 (`pin.json`), and the verifying key hash pinned in `makeGroth16System({ pinnedVkHash })`.
 3. The wallet library: `makeEvmPoolWallet` in `dapp/evm-pool-wallet.js` with `dapp/evm-pool-gateway.js` and
-   `dapp/evm-pool-zk-prover.js`, or [the pinned standalone bundle](#standalone-wallet) (`tacit-evm-pool-wallet.js`, built
-   before MegaETH; see there for its chains). Pass a `signer` for self-sent actions, and a `keeper` URL to relay. Keys
+   `dapp/evm-pool-zk-prover.js`, or [the pinned standalone bundle](#standalone-wallet) (`tacit-evm-pool-wallet.js`, which
+   knows MegaETH). Pass a `signer` for self-sent actions, and a `keeper` URL to relay. Keys
    derive from a wallet signature over the Tacit identity message, so one key opens the same balance on every chain, and
    the deposit address is the same on every chain. For a chain with short blocks, set the chain's `logChunk` (100,000 on
    MegaETH).
