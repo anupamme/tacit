@@ -39,6 +39,9 @@ server = http.createServer((req, res) => {
 const asset = JSON.parse(readFileSync(join(FX, 'tac-asset-2026-10-12.json'), 'utf8')), sales = JSON.parse(readFileSync(join(FX, 'tac-sales-2026-10-12.json'), 'utf8'));
 const soon = Math.floor(Date.now() / 1000) + 7 * 86400;
 sales.sales = sales.sales.map((x) => ({ ...x, expiry: soon, expired: false, seller_pubkey: '02' + 'ab'.repeat(32) }));
+const bids = JSON.parse(readFileSync(join(FX, 'tac-bids-2026-10-12.json'), 'utf8'));              // the 14 standing bids the API listed, their expiry moved forward
+bids.intents = bids.intents.map((x) => ({ ...x, expiry: soon }));
+const apiBody = (url) => (/preauth-sales/.test(url) ? sales : /bid-intents/.test(url) ? bids : asset);
 const RPC_HOSTS = ['ethereum-rpc.publicnode.com', 'eth.drpc.org', '1rpc.io', 'mainnet.gateway.tenderly.co'];
 
 let n = 0, fails = 0;
@@ -93,8 +96,7 @@ async function openPage(viewport, wallet = null, hash = '', path = '/trade/') {
     } catch (e) { await route.fulfill({ status: 502, headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ error: e.message }) }).catch(() => {}); }
   });
   await ctx.route(/^https:\/\/api\.tacit\.finance\/assets\//, (route) => {
-    const body = /preauth-sales/.test(route.request().url()) ? sales : asset;
-    return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
+    return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(apiBody(route.request().url())) });
   });
   const page = await ctx.newPage(), errors = [], blocked = [];
   page.on('pageerror', (e) => errors.push(String(e.message || e)));
@@ -196,13 +198,14 @@ try {
   await until(p, () => /Split:/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 240000);
   const sell = (await text(p, '#route')).replace(/\s+/g, ' ');
   ok(/Split:/.test(sell) && /more ETH than the better pool alone/.test(sell) && /TAC$/.test((await text(p, '#in-unit')).trim()), `selling 12,000 TAC is quoted as a split, paid in ETH (${sell.slice(0, 120)})`);
-  ok(/a sale is a listing at your price/.test((await text(p, '#venues')).replace(/\s+/g, ' ')), 'the Bitcoin row says a sale there is a listing');
+  ok(/Bitcoin order book.*\d+ standing bids · each settles when its bidder is online.*sats for [\d,.]+ of your TAC/.test((await text(p, '#venues')).replace(/\s+/g, ' ')), 'the Bitcoin row says what the standing bids pay for the sale, and that each settles when its bidder is online');
 
   // the order book and the facts
   ok((await p.getAttribute('[data-book="btc"]', 'aria-pressed')) === 'true', 'with zSwap holding no TAC order the order book opens on Bitcoin\'s listings');
   const dep = await p.$$eval('#ladders tbody tr', (d) => d.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
-  ok(dep.length === 8 && /^\$0\.\d+ sats[\d,.]+/.test(dep[0]), `the eight cheapest listings, with their prices (${dep[0]})`);
-  ok((await p.$$eval('#depthchart path.dep-ask', (x) => x.length)) === 1 && !(await p.$('#depthchart path.dep-bid')), 'drawn as a depth chart of asks (the book has no bids)');
+  ok(dep.length === 14 && /^\$0\.\d+ sats[\d,.]+/.test(dep[0]) && /when the bidder is online/.test(dep[13]), `the eight cheapest listings and the six best bids, with their prices (${dep[0]} … ${dep[13]})`);
+  ok((await p.$$eval('#depthchart path.dep-ask', (x) => x.length)) === 1 && (await p.$$eval('#depthchart path.dep-bid', (x) => x.length)) === 1, 'drawn as a depth chart of listings and bids');
+  ok(/14 standing bids want [\d,]+ TAC; a sale to one settles when its bidder is online/.test(await text(p, '#depth-note')), 'and the note says how many bids stand and when a sale to one settles');
   await p.click('[data-book="eth"]');
   ok(/No TAC orders rest on zSwap's boards right now/.test(await text(p, '#ladders')) && !!(await p.$('#ladders a[href^="https://zswap"]')), 'the Ethereum tab says zSwap holds none and where to place one');
   await p.click('[data-book="btc"]');
@@ -420,7 +423,7 @@ try {
   if (SHOTS) {
     const d = await chromium.launch(), dctx = await d.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: 'dark' }), dp = await dctx.newPage();
     for (const h of RPC_HOSTS) await dctx.route(`https://${h}/**`, async (route) => { const x = await fetch(ANVIL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: route.request().postData() }); await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: await x.text() }); });
-    await dctx.route(/^https:\/\/api\.tacit\.finance\/assets\//, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(/preauth-sales/.test(route.request().url()) ? sales : asset) }));
+    await dctx.route(/^https:\/\/api\.tacit\.finance\/assets\//, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(apiBody(route.request().url())) }));
     await dp.goto(`http://127.0.0.1:${WEB}/trade/`);
     await until(dp, () => document.querySelectorAll('#chart .body').length > 5 && document.querySelectorAll('#ladders tbody tr').length > 3, null, 240000);
     await dp.click('[data-lane="cmp"]'); await dp.fill('#amt', '0.5');

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-IPfEmE7MT/sKAxN71XZm1JB0HJir5/Tat3TJcQylKMk=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Cy3Ehv9zKu5ud0MDMUmhTxVH+M/4bGkjY/b3hhdTw/A=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=2f4a1520"></script>
 <title>tacit</title>
@@ -9224,18 +9224,19 @@ async function hxFarms(eth) {
   }
   return out;
 }
-// The Bitcoin order book as the card reads it: the standing asks (whole listings, cheapest first) and the last trade. btc-book.js is
+// The Bitcoin order book as the card reads it: the standing asks (whole listings, cheapest first), the standing bids and the last trade. btc-book.js is
 // the market page's own planner; it loads when a sats row is first asked for.
 const HXB = { at: 0, p: null, v: null };
 function hxBook() {
   if (HXB.v && Date.now() - HXB.at < 60e3) return Promise.resolve(HXB.v);
   return (HXB.p ||= (async () => {
     const api = (path) => fetch(`${API}${path}`, { signal: within(10e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-    const [bb, sales, asset] = await Promise.all([import('/btc-book.js?cb=91371653'), api(`/assets/${TAC_BTC_ID}/preauth-sales?network=mainnet`), api(`/assets/${TAC_BTC_ID}?network=mainnet`), loadTacPrice().catch(() => {})]);
+    const [bb, sales, asset, bidRows] = await Promise.all([import('/btc-book.js?cb=91371653'), api(`/assets/${TAC_BTC_ID}/preauth-sales?network=mainnet`), api(`/assets/${TAC_BTC_ID}?network=mainnet`), api(`/assets/${TAC_BTC_ID}/bid-intents?network=mainnet`), loadTacPrice().catch(() => {})]);
     if (!Array.isArray(sales?.sales)) throw new Error('book unread');
     // The sale rows carry no `kind`; every one here is a standing listing a buyer can take.
-    const book = bb.buildBook({ assetId: TAC_BTC_ID, decimals: 8, listings: sales.sales.map((x) => ({ ...x, kind: 'preauth' })), bids: [] });
-    HXB.v = { bb, book, mark: Number(asset?.mark_price?.unit) || null, last: asset?.last_trade || null };
+    const bidsRead = Array.isArray(bidRows?.intents);                                         // a bid list that could not be read is not the same as no bids
+    const book = bb.buildBook({ assetId: TAC_BTC_ID, decimals: 8, listings: sales.sales.map((x) => ({ ...x, kind: 'preauth' })), bids: bidsRead ? bidRows.intents : [] });
+    HXB.v = { bb, book, bidsRead, mark: Number(asset?.mark_price?.unit) || null, last: asset?.last_trade || null };
     HXB.at = Date.now();
     return HXB.v;
   })().finally(() => { HXB.p = null; }));
@@ -9258,13 +9259,17 @@ async function hxSatsIn(units) {
   return { out: fmt(plan.amount, 8, 2), go: 'Buy TAC on Bitcoin', sats: true,
     line: `${n === 1 ? 'One listing' : `${n} listings`} at ${satsFmt(plan.avgUnit)} sats per TAC, about ${satsFmt(plan.feesEst)} sats of Bitcoin fees on top${plan.leftoverSats ? `; ${satsFmt(plan.leftoverSats)} sats left over, since listings are taken whole` : ''}.${hxLane(plan.avgUnit)}` };
 }
-// TAC to sats: the book holds no standing bids, so a sale is listed at a price and waits for a buyer. What the card can say is where the
-// price stands and what the sale needs: the TAC on Bitcoin (bridged there first when it is on Ethereum).
+// TAC to sats: a sale goes to a standing bid, which settles when its bidder is online, or is listed at a price and waits for a buyer. The
+// card says what the bids pay for the amount and what the sale needs: the TAC on Bitcoin (bridged there first when it is on Ethereum).
 async function hxSatsOut(units) {
-  const { book, mark } = await hxBook();
-  const tac = units ? Number(units) / 1e8 : 0, ref = mark || book.bestAsk;
-  const line = `There are no standing bids on the Bitcoin order book: a sale is listed at your price and waits for a buyer. ${ref ? `The last trade was ${satsFmt(ref)} sats per TAC${book.bestAsk ? `; the cheapest listing asks ${satsFmt(book.bestAsk)}` : ''}.` : ''} TAC held on Ethereum is bridged to Bitcoin first.${hxLane(ref)}`;
-  return { out: tac && ref ? `≈ ${satsFmt(tac * ref)}` : null, go: 'Sell TAC on Bitcoin', sats: true, line, alt: { label: 'Bridge TAC to Bitcoin first', link: 'bridge/out' } };
+  const { bb, book, bidsRead, mark } = await hxBook();
+  const tac = units ? Number(units) / 1e8 : 0, ref = mark || book.bestAsk, nb = book.bids.length;
+  const plan = units ? bb.planSell(book, { sellBase: BigInt(units), includeManual: true }) : null, whole = plan?.fills.length && !plan.leftoverBase;
+  const bids = !bidsRead ? 'The standing bids could not be read just now.'
+    : nb ? `The Bitcoin order book holds ${nb} standing bid${nb === 1 ? '' : 's'}, the best at ${satsFmt(book.bestBid)} sats per TAC.${plan?.fills.length ? ` They pay about ${satsFmt(plan.sats)} sats for ${whole ? 'it' : `${fmt(plan.amount, 8, 2)} of it`}${plan.needsBidder ? ', and a sale to one settles when its bidder is online' : ''}.` : ''} You can also list a sale at your price and wait for a buyer.`
+      : 'The Bitcoin order book holds no standing bids right now: a sale is listed at your price and waits for a buyer.';
+  const line = `${bids} ${ref ? `The last trade was ${satsFmt(ref)} sats per TAC${book.bestAsk ? `; the cheapest listing asks ${satsFmt(book.bestAsk)}` : ''}.` : ''} TAC held on Ethereum is bridged to Bitcoin first.${hxLane(ref)}`;
+  return { out: whole ? `≈ ${satsFmt(plan.sats)}` : tac && ref ? `≈ ${satsFmt(tac * ref)}` : null, go: 'Sell TAC on Bitcoin', sats: true, line, alt: { label: 'Bridge TAC to Bitcoin first', link: 'bridge/out' } };
 }
 // TAC to wallet ETH: the public pools (the best one, or a split across two in one transaction) beside the private Tacit pool, which pays in
 // private tETH. Selling earns no points.

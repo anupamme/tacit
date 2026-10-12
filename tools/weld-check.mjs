@@ -4291,8 +4291,9 @@ await step('hxsell', async () => {
   } finally { await r.browser.close(); await rpc('anvil_stopImpersonatingAccount', [who]); }
 });
 
-// The Swap tab with sats: TAC for sats says there are no bids and what a sale needs (with the bridge offered first), sats for TAC plans
-// the cheapest whole listings on the book, and each hand-off goes to the page that does it (the order book, /tac's Buy).
+// The Swap tab with sats: TAC for sats says what the standing bids pay and what a sale needs (with the bridge offered first; with no bid
+// on the book it says so), sats for TAC plans the cheapest whole listings on the book, and each hand-off goes to the page that does it
+// (the order book, /tac's Buy).
 await step('hxsats', async () => {
   const r = await openPage({ account: A0, key: K0 });
   const p = r.page;
@@ -4300,12 +4301,16 @@ await step('hxsats', async () => {
   // TAC, and a last trade at 150. (The live book moves.)
   const TACID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b', soon = Math.floor(Date.now() / 1000) + 7 * 86400;
   const sale = (n, amount, sats) => ({ asset_id: TACID, sale_id: 'a'.repeat(31) + n, seller_pubkey: '02' + String(n).repeat(64), asset_opening: { amount: String(amount), blinding: '00' }, min_price_sats: sats, expiry: soon, expired: false, created_at: soon - 86400, decimals: 8 });
-  await r.ctx.route(/^https:\/\/api\.tacit\.finance\/assets\//, (route) => {
+  // Two standing bids, each taken whole: 600 TAC at 210 sats a TAC and 400 TAC at 160 (`bidsOn` false answers an empty list).
+  const bid = (n, amount, sats) => ({ asset_id: TACID, bid_id: String(n).repeat(32), buyer_pubkey: '03' + String(n).repeat(64), buyer_address: 'bc1q' + 'x'.repeat(38), amount: String(amount), price_sats: sats, expiry: soon, nonce: '00', created_at: soon - 86400, network: 'mainnet', remaining_amount: String(amount) });
+  const stub = (bidsOn) => (route) => {
     const path = new URL(route.request().url()).pathname;
     return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
       body: JSON.stringify(/preauth-sales$/.test(path) ? { asset_id: TACID, count: 3, sales: [sale(1, 10000000000, 15000), sale(2, 31887755103, 50000), sale(3, 50000000000, 90000)] }
+        : /bid-intents$/.test(path) ? { asset_id: TACID, count: bidsOn ? 2 : 0, intents: bidsOn ? [bid(1, 60000000000, 126000), bid(2, 40000000000, 64000)] : [] }
         : { asset_id: TACID, mark_price: { unit: 150, source: 'last_trade', ts: soon - 3600 }, last_trade: { price_sats: 15000, amount: '10000000000', ts: soon - 3600, fill_count: 1 } }) });
-  });
+  };
+  await r.ctx.route(/^https:\/\/api\.tacit\.finance\/assets\//, stub(true));
   try {
     await p.goto(r.url);
     await p.waitForSelector('#hx-body .hx-h');
@@ -4313,7 +4318,7 @@ await step('hxsats', async () => {
     await p.selectOption('#hx-from', 'tac');
     await p.selectOption('#hx-to', 'sats');
     await p.fill('#hx-amt', '1000');
-    await until(p, () => /no standing bids/.test(document.querySelector('#hx-q')?.textContent || '') && /≈ [\d,]+/.test(document.querySelector('#hx-out')?.textContent || ''), null, 120000).catch(async (e) => {
+    await until(p, () => /standing bid/.test(document.querySelector('#hx-q')?.textContent || '') && /≈ [\d,]+/.test(document.querySelector('#hx-out')?.textContent || ''), null, 120000).catch(async (e) => {
       console.log('     panel:', JSON.stringify(await p.evaluate(() => ['#hx-go', '#hx-out', '#hx-routes', '#hx-q', '#hx-alt'].map((s) => `${s}=${(document.querySelector(s)?.textContent || '').replace(/\s+/g, ' ').slice(0, 200)}`))), 'errors:', r.errors.slice(0, 4));
       console.log('     probe:', JSON.stringify(await p.evaluate(async () => {
         const out = {};
@@ -4325,7 +4330,12 @@ await step('hxsats', async () => {
     });
     ok(await text(p, '#hx-go') === 'Sell TAC on Bitcoin', 'hxsats: TAC for sats offers to sell on Bitcoin');
     const line = (await text(p, '#hx-q')).replace(/\s+/g, ' ');
-    ok(/The last trade was 150 sats per TAC; the cheapest listing asks 150\./.test(line) && /bridged to Bitcoin first/.test(line) && /^≈ 150,000$/.test((await text(p, '#hx-out')).trim()), `hxsats: 1,000 TAC is about 150,000 sats at the last trade, and it says that Ethereum TAC is bridged first (${line.slice(0, 200)})`);
+    ok(/^The Bitcoin order book holds 2 standing bids, the best at 210 sats per TAC\. They pay about 190,000 sats for it, and a sale to one settles when its bidder is online\. You can also list a sale at your price and wait for a buyer\./.test(line) && /The last trade was 150 sats per TAC; the cheapest listing asks 150\./.test(line) && /bridged to Bitcoin first/.test(line) && /^≈ 190,000$/.test((await text(p, '#hx-out')).trim()), `hxsats: 1,000 TAC is about 190,000 sats from the two standing bids (settling when each bidder is online), and it says that Ethereum TAC is bridged first (${line.slice(0, 260)})`);
+    await p.fill('#hx-amt', '3000');
+    await until(p, () => /of it/.test(document.querySelector('#hx-q')?.textContent || ''), null, 60000);
+    ok(/They pay about 190,000 sats for 1,000 of it/.test((await text(p, '#hx-q')).replace(/\s+/g, ' ')) && /^≈ 450,000$/.test((await text(p, '#hx-out')).trim()), 'hxsats: an amount larger than the bids want says how much of it they take, and prices the rest at the last trade');
+    await p.fill('#hx-amt', '1000');
+    await until(p, () => /^≈ 190,000$/.test((document.querySelector('#hx-out')?.textContent || '').trim()), null, 60000);
     ok(!(await p.$eval('#hx-alt', (e) => e.hidden)) && /Bridge TAC to Bitcoin first/.test(await text(p, '#hx-alt')), 'hxsats: and the bridge is offered first');
     ok((await p.$$('#hx-routes [data-hxr]')).length === 0, 'hxsats: there are no route rows to choose between: it is one way');
     await p.click('#hx-flip');
@@ -4351,6 +4361,16 @@ await step('hxsats', async () => {
     ok(true, 'hxsats: Buy TAC on Bitcoin goes to /tac, where the listings are taken');
     if (r.errors.length) { fails++; console.log('FAIL hxsats page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
+  // with no bid on the book
+  const e = await openPage({ account: A0, key: K0 });
+  try {
+    await e.ctx.route(/^https:\/\/api\.tacit\.finance\/assets\//, stub(false));
+    await e.page.goto(e.url);
+    await e.page.waitForSelector('#hx-body .hx-h');
+    await e.page.click('[data-hxm="swap"]'); await e.page.selectOption('#hx-from', 'tac'); await e.page.selectOption('#hx-to', 'sats'); await e.page.fill('#hx-amt', '1000');
+    await until(e.page, () => /standing bids right now/.test(document.querySelector('#hx-q')?.textContent || '') && /≈ [\d,]+/.test(document.querySelector('#hx-out')?.textContent || ''), null, 120000);
+    ok(/holds no standing bids right now: a sale is listed at your price and waits for a buyer/.test(await text(e.page, '#hx-q')) && /^≈ 150,000$/.test((await text(e.page, '#hx-out')).trim()), 'hxsats: with no bid on the book it says so, and prices the sale at the last trade');
+  } finally { await e.browser.close(); }
 });
 
 // The lander leads to the trade page from the header, from a tile under the card, from the footer and from the TAC bar, and TAC's own

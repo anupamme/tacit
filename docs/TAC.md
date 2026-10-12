@@ -11,8 +11,8 @@ server or indexer trusted, the page recomputes it in your browser.
 TAC trades in several places, and [tacit.finance/trade/tac](https://tacit.finance/trade/tac/) prices all of them and quotes the best way to
 trade an amount:
 
-- **The Bitcoin order book**, in sats. It holds listings, taken whole; it holds no standing bids, so a sale is a listing at your
-  price.
+- **The Bitcoin order book**, in sats. It holds listings, taken whole, and standing bids; a sale to a bid settles when its bidder is
+  online, and a sale can also be listed at your price.
 - **The Precision pool** on Ethereum (TAC/ETH, 0.30% fee), the deepest. It records a price tape on chain (5-minute and 4-hour
   candles), read with `eth_call` and no indexer, which is the page's Ethereum chart. It is a chart and not an oracle: it shows executed
   prices, fee included, and one small trade can move a candle's high or low.
