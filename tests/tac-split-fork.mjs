@@ -57,6 +57,15 @@ const withSnapshot = async (fn) => { const snap = await rpc('evm_snapshot'); try
 const pct = (a, b) => (b === 0n ? '-' : `${(Number((a - b) * 1000000n / b) / 10000).toFixed(3)}%`);
 const f = (x, d = 4) => (Number(x) / 1e18).toFixed(d);
 
+// A fork that has just started reads each contract from the upstream node on first use, and a read that fails then looks like a pool
+// that does not answer. The first quotes are made until both pools answer, so a slow start is waited out, not mistaken for a missing venue.
+for (let i = 0; ; i++) {
+  const w = await venues.quoteAll({ dir: 'ETH_TO_TAC', amountIn: E18 / 50n, account: '0x1111111111111111111111111111111111111111', includeZQuoter: false }).catch(() => null);
+  if (w?.precision && w?.tacitAmm) break;
+  if (i >= 12) throw new Error('the fork never answered both pools: ' + JSON.stringify({ precision: !!w?.precision, tacit: !!w?.tacitAmm }));
+  await sleep(4000);
+}
+
 let n = 0;
 const ok = (s) => { console.log('  ok -', s); n++; };
 const rows = [];
