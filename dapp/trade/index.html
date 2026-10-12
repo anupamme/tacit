@@ -220,7 +220,13 @@ input::placeholder { color: var(--mute); opacity: .7; }
 .dep-bid { fill: var(--up); fill-opacity: .14; stroke: var(--up); stroke-opacity: .85; stroke-width: 1.3; }
 .dep-ask.take, .dep-bid.take { fill-opacity: .42; stroke-width: 0; }
 .dep-mid { stroke: var(--mute); stroke-width: 1; stroke-dasharray: 3 3; }
+.p-depth { container-type: inline-size; }
+.lads { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 32px; }
+@container (min-width: 640px) { .lads.two { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.lads.two .table { table-layout: fixed; }
+.lads.two .table th:nth-child(1) { width: 38%; } .lads.two .table th:nth-child(2) { width: 22%; } .lads.two .table th:nth-child(3) { width: 22%; } .lads.two .table th:nth-child(4) { width: 18%; }
 .lad { margin: 14px 0 0; }
+.table.empty thead { display: none; } .table.empty td { border-top: 0; padding: 0 0 4px; }
 .lad h3 { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; margin: 0 0 2px; font: 500 12.5px/1.4 var(--mono); }
 .lad h3 span { font-weight: 400; color: var(--mute); }
 .lad .table td { vertical-align: middle; padding: 8px 8px; }
@@ -304,10 +310,13 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </nav>
   </header>
 
+  <main>
+
   <section class="hero" aria-labelledby="px-h">
     <div>
-      <h1 id="px-h"><span id="px-usd" class="num">TAC</span></h1>
+      <h1 id="px-h"><span class="sr">TAC price </span><span id="px-usd" class="num">TAC</span></h1>
       <div class="sub" id="px-sub"><span class="mute">Reading the pools…</span></div>
+      <noscript><p class="note">Prices, charts and trading on this page need JavaScript.</p></noscript>
     </div>
     <p class="gapnote" id="gapnote"></p>
   </section>
@@ -376,6 +385,8 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </section>
   </div>
 
+  </main>
+
   <footer>
     <span>tacit trade · mainnet</span>
     <nav aria-label="More">
@@ -388,6 +399,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/app.js?cb=ec390201"></script>
+<script type="module" src="/trade/app.js?cb=60fe1018"></script>
 </body>
 </html>

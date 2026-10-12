@@ -133,7 +133,7 @@ try {
   await p.click('[data-range="0"]');
   await p.click('[data-log="1"]'); await until(p, () => document.querySelector('[data-log="1"]').getAttribute('aria-pressed') === 'true');
   const logAxis = await p.$$eval('#chart .axis:not(.mid)', (t) => t.map((x) => x.textContent));
-  ok(logAxis.length >= 3 && logAxis.every((x) => /^\$0\.\d+$/.test(x)) && logAxis.some((x) => /^\$0\.[1-9]00?$|^\$0\.[1-9]$|^\$0\.\d{1,2}0?$/.test(x)), `the log axis names round dollar prices (${logAxis.join(' ')})`);
+  ok(logAxis.length >= 2 && logAxis.every((x) => /^\$0\.\d+$/.test(x)) && logAxis.some((x) => /^\$0\.[1-9]00?$|^\$0\.[1-9]$|^\$0\.\d{1,2}0?$/.test(x)), `the log axis names round dollar prices (${logAxis.join(' ')})`);
   await p.click('[data-log="1"]');
   await p.click('[data-tf="86400"]'); await until(p, () => document.querySelectorAll('#chart .body').length > 5 && document.querySelectorAll('#chart .body').length < 30);
   const c1d = await candles(p);
@@ -198,19 +198,20 @@ try {
   await until(p, () => /Split:/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 240000);
   const sell = (await text(p, '#route')).replace(/\s+/g, ' ');
   ok(/Split:/.test(sell) && /more ETH than the better pool alone/.test(sell) && /TAC$/.test((await text(p, '#in-unit')).trim()), `selling 12,000 TAC is quoted as a split, paid in ETH (${sell.slice(0, 120)})`);
-  ok(/Bitcoin order book.*\d+ standing bids · each settles when its bidder is online.*sats for [\d,.]+ of your TAC/.test((await text(p, '#venues')).replace(/\s+/g, ' ')), 'the Bitcoin row says what the standing bids pay for the sale, and that each settles when its bidder is online');
+  ok(/Bitcoin order book.*\d+ standing bids · .*(settles|settle) when .*bidder.* online.*of your TAC.*sats of Bitcoin fees/.test((await text(p, '#venues')).replace(/\s+/g, ' ')), 'the Bitcoin row says what the standing bids pay for the sale, and that each settles when its bidder is online');
 
   // the order book and the facts
   ok((await p.getAttribute('[data-book="btc"]', 'aria-pressed')) === 'true', 'with zSwap holding no TAC order the order book opens on Bitcoin\'s listings');
   const dep = await p.$$eval('#ladders tbody tr', (d) => d.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
-  ok(dep.length === 14 && /^\$0\.\d+ sats[\d,.]+/.test(dep[0]) && /when the bidder is online/.test(dep[13]), `the eight cheapest listings and the six best bids, with their prices (${dep[0]} … ${dep[13]})`);
+  const hd = (await p.$$eval('#ladders .lad h3', (h) => h.map((x) => x.textContent.replace(/\s+/g, ' ')))).join(' | ');
+  ok(dep.length >= 7 && dep.length <= 14 && /^\$0\.\d+ sats/.test(dep[0]) && /For sale.*Wanted/.test(hd), `listings are one line per price and the bids sit beside them (${dep.length} lines: ${dep[0]} … ${hd.slice(0, 90)})`);
   ok((await p.$$eval('#depthchart path.dep-ask', (x) => x.length)) === 1 && (await p.$$eval('#depthchart path.dep-bid', (x) => x.length)) === 1, 'drawn as a depth chart of listings and bids');
   ok(/14 standing bids want [\d,]+ TAC; a sale to one settles when its bidder is online/.test(await text(p, '#depth-note')), 'and the note says how many bids stand and when a sale to one settles');
   await p.click('[data-book="eth"]');
   await until(p, () => /No TAC orders rest on zSwap's boards right now|No TAC orders were found on the boards that answered/.test(document.querySelector('#ladders')?.textContent || ''), null, 150000);
   ok(/No TAC orders rest on zSwap's boards right now|No TAC orders were found on the boards that answered/.test(await text(p, '#ladders')) && !!(await p.$('#ladders a[href^="https://zswap"]')), 'the Ethereum tab says zSwap holds none and where to place one');
   await p.click('[data-book="btc"]');
-  ok(/168 listings hold [\d,]+ TAC for [\d,]+ sats in all/.test(await text(p, '#depth-note')) && !!(await p.$('#depth-note a[href="/tac/#buy"]')), 'with how deep the book is and where to buy');
+  ok(/168 listings hold [\d,]+ TAC for [\d,]+ sats in all/.test(await text(p, '#depth-note')) && !(await p.$('#depth-note a')), 'with how deep the book is (the buttons beside it do what the old links did)');
   const facts = (await text(p, '#facts')).replace(/\s+/g, ' '), more = (await text(p, '#facts-more')).replace(/\s+/g, ' ');
   ok(/21,000,000/.test(await text(p, '#about')) && /ERC-20.*0xA1313e.*TAC minted there/.test(facts) && /2,032 holders/.test(facts) && /Precision pool.*holds [\d.,]+ ETH and [\d,]+ TAC/.test(more), `the facts are live (${facts.slice(0, 120)})`);
   ok(/Uniswap v4.*3 hookless ETH\/TAC pools.*None holds liquidity now/.test(more) && /TacBuyback/.test(more) && !(await p.$eval('details.more:has(#facts-more)', (d) => d.open)), 'Uniswap v4\'s pools and the buyback are named, behind a "more" that starts closed');
@@ -223,6 +224,7 @@ try {
   ok(r.blocked.length === 0, `nothing blocked by the page's CSP (${r.blocked.slice(0, 2).join(' | ')})`);
   if (SHOTS) await (await p.$('.grid')).screenshot({ path: join(SHOTS, 'trade-desktop-grid.png') }).catch(() => {});
   await r.browser.close();
+  if (process.env.TOP_ONLY) { console.log(fails ? `\n${fails} FAILED, ${n} ok (top only)` : `\n${n} trade-page checks passed (top only)`); done(); process.exit(fails ? 1 : 0); }
 
 
   // ── trading from the page: a wallet in the browser, backed by the fork ──

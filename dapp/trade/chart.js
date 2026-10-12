@@ -68,7 +68,8 @@ export function mountChart(host, onHover = null) {
     // grid and the price axis
     const ticks = useLog ? logTicks(lo, hi) : niceTicks(lo, hi, Math.max(3, Math.round(ph / 56)));
     for (const v of (ticks.length > 1 ? ticks : niceTicks(lo, hi, 4))) {
-      svg.append(el('line', { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), class: 'grid' }), el('text', { x: W - m.r + 6, y: Y(v) + 4, class: 'axis' }, f(v)));
+      svg.append(el('line', { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), class: 'grid' }));
+      if (!tags.some((tg) => Math.abs(Y(tg.y) - Y(v)) < 15)) svg.append(el('text', { x: W - m.r + 6, y: Y(v) + 4, class: 'axis' }, f(v)));         // a price tag covers a label this close to it
     }
     // the time axis: about one label per 110px
     const days = (t1 - t0) > 2 * 86400, step = Math.max(1, Math.ceil((t1 - t0) / (pw / 110)));

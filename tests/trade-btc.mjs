@@ -123,7 +123,7 @@ try {
   p = r.page;
   await until(p, () => document.querySelectorAll('#ladders [data-btc]').length > 0, null, 120000);
   const btns = await p.$$eval('#ladders [data-btc]', (b) => b.map((x) => `${x.dataset.btc}:${x.dataset.i ?? ''}`));
-  ok(btns.filter((x) => x.startsWith('buy')).length === 8 && btns.filter((x) => x.startsWith('sell')).length >= 1 && btns.includes('open:') && btns.includes('list:'), `a Buy on each listing, a Sell on each bid, and Trade on Bitcoin and List a sale (${btns.length} buttons)`);
+  ok(btns.filter((x) => x.startsWith('buy')).length >= 3 && btns.filter((x) => x.startsWith('buy')).length <= 8 && btns.filter((x) => x.startsWith('sell')).length >= 1 && btns.includes('open:') && btns.includes('list:'), `a Buy on each price of listings, a Sell on each price of bids, and Trade on Bitcoin and List a sale (${btns.length} buttons)`);
 
   // the sheet, primed from the second listing
   const firstTwo = await p.$$eval('#ladders .lad:nth-of-type(1) tbody tr', (rows) => rows.slice(0, 2).map((x) => x.cells[1].textContent.replace(/,/g, '')));

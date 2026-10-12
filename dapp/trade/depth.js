@@ -7,7 +7,7 @@
 //   take: { side: 'ask' | 'bid', size } the amount an order would fill, highlighted from the best price outward
 //   onPick(level, side) is called with the order a click lands on.
 
-import { niceTicks } from '/trade/chart.js?cb=e9d552bb';
+import { niceTicks } from '/trade/chart.js?cb=061eeab7';
 import { cumulative } from '/trade/book.js?cb=01035c6e';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -28,17 +28,17 @@ export function mountDepth(host, { onPick = null } = {}) {
     const A = cumulative(asks, 'ask'), B = cumulative(bids, 'bid');
     if (!A.length && !B.length) { host.append(Object.assign(document.createElement('p'), { className: 'chart-empty', textContent: empty })); return; }
     const W = size.w, H = size.h, m = { l: 8, r: 8, t: 10, b: 24 };
-    const prices = [...A.map((s) => s.price), ...B.map((s) => s.price)];
     const bestAsk = A[0]?.price ?? null, bestBid = B[0]?.price ?? null;
     const mid = bestAsk != null && bestBid != null ? (bestAsk + bestBid) / 2 : (bestAsk ?? bestBid);
-    // A side with nothing on it still has room beside the middle, so a lone side does not stretch to the whole width.
-    let lo = Math.min(...prices), hi = Math.max(...prices);
-    if (!B.length) lo = Math.min(lo, mid * 0.9); if (!A.length) hi = Math.max(hi, mid * 1.1);
-    // One order far above the rest would flatten the others: the axis stops at three times the best price, and says so.
-    const capped = A.length && A[A.length - 1].price > (bestAsk * 3) ? bestAsk * 3 : null;
-    if (capped) hi = Math.max(capped, bestBid ?? 0);
-    const span = (hi - lo) || hi * 0.2, pad = span * 0.04; lo -= pad; hi += pad;
-    const maxCum = Math.max(1e-9, ...[...A, ...B].filter((s) => s.price <= hi).map((s) => s.cum));
+    // The window is where an order is worth looking at: around the middle of the book. A listing at three times the price or a bid at a tenth of it
+    // would flatten everything else, so what lies outside is left out of the picture and counted in a line at its corner.
+    let lo = mid * 0.6, hi = mid * 1.6;
+    if (bestAsk != null && bestBid == null) { lo = bestAsk * 0.85; hi = bestAsk * 1.8; }
+    if (bestBid != null && bestAsk == null) { lo = bestBid * 0.55; hi = bestBid * 1.15; }
+    lo = Math.min(lo, bestAsk ?? lo, bestBid ?? lo) * 0.97; hi = Math.max(hi, bestAsk ?? hi, bestBid ?? hi) * 1.03;
+    const inA = A.filter((s) => s.price <= hi), inB = B.filter((s) => s.price >= lo);
+    const far = A.slice(inA.length).reduce((n, s) => n + s.orders.length, 0) + B.slice(inB.length).reduce((n, s) => n + s.orders.length, 0);
+    const maxCum = Math.max(1e-9, ...[...inA, ...inB].map((s) => s.cum));
     const pw = W - m.l - m.r, ph = H - m.t - m.b;
     const X = (p) => m.l + ((Math.min(Math.max(p, lo), hi) - lo) / (hi - lo)) * pw, Y = (c) => m.t + (1 - Math.min(c, maxCum * 1.05) / (maxCum * 1.05)) * ph;
     const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', 'aria-label': label, class: 'chart-svg' });
@@ -46,7 +46,8 @@ export function mountDepth(host, { onPick = null } = {}) {
       svg.append(el('line', { x1: X(v), x2: X(v), y1: m.t, y2: H - m.b, class: 'grid v' }), el('text', { x: X(v), y: H - 6, class: 'axis mid' }, priceFmt(v)));
     }
     svg.append(el('line', { x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b, class: 'grid' }));
-    // each side's staircase as a filled path from the middle outward; the part an amount fills is a second, heavier path over it
+    // each side's staircase as a filled path from the best price outward, to the edge of the window; the part an amount fills is a second,
+    // heavier path over it
     const stairs = (steps, side, upto) => {
       const pts = [];
       let prev = 0;
@@ -59,14 +60,15 @@ export function mountDepth(host, { onPick = null } = {}) {
       }
       if (!pts.length) return null;
       const first = pts[0], last = pts[pts.length - 1];
-      const d = `M${X(first[0])},${Y(0)} ` + pts.map(([p, c]) => `L${X(p)},${Y(c)}`).join(' ') + ` L${X(last[0])},${Y(0)} Z`;
+      const edge = upto != null ? last[0] : (side === 'ask' ? hi : lo);
+      const d = `M${X(first[0])},${Y(0)} ` + pts.map(([p, c]) => `L${X(p)},${Y(c)}`).join(' ') + ` L${X(edge)},${Y(last[1])} L${X(edge)},${Y(0)} Z`;
       return el('path', { d, class: `dep-${side}${upto != null ? ' take' : ''}` });
     };
-    if (A.length) svg.append(stairs(A, 'ask', null));
-    if (B.length) svg.append(stairs(B, 'bid', null));
-    if (take?.size > 0) { const st = take.side === 'bid' ? B : A, f = stairs(st, take.side, take.size); if (f) svg.append(f); }
+    if (inA.length) svg.append(stairs(inA, 'ask', null));
+    if (inB.length) svg.append(stairs(inB, 'bid', null));
+    if (take?.size > 0) { const st = take.side === 'bid' ? inB : inA, f = stairs(st, take.side, take.size); if (f) svg.append(f); }
     if (mid != null) svg.append(el('line', { x1: X(mid), x2: X(mid), y1: m.t, y2: H - m.b, class: 'dep-mid' }));
-    if (capped) svg.append(el('text', { x: W - m.r, y: m.t + 10, class: 'axis', 'text-anchor': 'end' }, `to ${priceFmt(capped)}; dearer listings are not drawn`));
+    if (far) svg.append(el('text', { x: m.l + 4, y: m.t + 10, class: 'axis' }, `${far} more order${far === 1 ? '' : 's'} beyond this range`));
     // hover and click: the order nearest the pointer on the side it is on
     const hit = el('rect', { x: m.l, y: m.t, width: pw, height: ph, fill: 'transparent', style: 'cursor:pointer' });
     const cross = el('line', { y1: m.t, y2: H - m.b, class: 'cv', visibility: 'hidden', style: 'stroke:var(--mute);stroke-dasharray:3 3' });
