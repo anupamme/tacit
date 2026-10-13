@@ -19,6 +19,7 @@ import { planHeaderAdvance } from './lib/header-plan.js';
 import { cbtcLockDemand } from './lib/reflection-demand.js';
 import { tipFor, TIP_HISTORY_BLOCKS, TIP_PERCENTILE } from './lib/gas-tip.js';
 import { tipLadder, sendPatient, raised } from './lib/patient-send.js';
+import { baseFeeWait, headerTimeSec } from './lib/base-fee-wait.js';
 
 const log = (...a) => console.log(`[header ${new Date().toISOString()}]`, ...a);
 const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
@@ -39,6 +40,22 @@ async function headerHex(h) {
   const hdr = await esplora(`/block/${hash}/header`);
   if (!/^[0-9a-fA-F]{160}$/.test(hdr)) throw new Error(`bad header @${h} (${hdr.slice(0, 16)}…)`);
   return hdr;
+}
+// A ready batch holds for a cheaper block, for a bounded time (lib/base-fee-wait.js). HEADER_BASEFEE_WAIT=0 turns it off.
+const BASEFEE_WAIT = process.env.HEADER_BASEFEE_WAIT !== '0';
+const BASEFEE_BLOCKS = Number(process.env.HEADER_BASEFEE_BLOCKS || 1000);
+const BASEFEE_PERCENTILE = Number(process.env.HEADER_BASEFEE_PERCENTILE || 40);
+const BASEFEE_RATIO = Number(process.env.HEADER_BASEFEE_RATIO || 1);
+const BASEFEE_MAX_WAIT_SEC = Number(process.env.HEADER_BASEFEE_MAX_WAIT_MIN || 120) * 60;
+// `readyHeight`: the header whose arrival made this a full batch; its own time says how long the batch has been ready.
+async function baseFeeGate(readyHeight) {
+  const [hist, hdr] = await Promise.all([
+    publicClient.getFeeHistory({ blockCount: BASEFEE_BLOCKS, rewardPercentiles: [50] }),
+    headerHex(readyHeight),
+  ]);
+  const fees = hist.baseFeePerGas || [], nextBase = fees.length ? fees[fees.length - 1] : null, t = headerTimeSec(hdr);
+  const readyAgeSec = t == null ? NaN : Date.now() / 1000 - t;
+  return { ...baseFeeWait({ history: fees.slice(0, -1), nextBase, readyAgeSec, maxWaitSec: BASEFEE_MAX_WAIT_SEC, percentile: BASEFEE_PERCENTILE, ratio: BASEFEE_RATIO }), nextBase, readyAgeSec };
 }
 const relayTip = async () => Number(await publicClient.readContract({ address: HEADER_RELAY, abi: RELAY_ABI, functionName: 'tipHeight' }));
 const relayTipHash = async () => publicClient.readContract({ address: HEADER_RELAY, abi: RELAY_ABI, functionName: 'tip' });
@@ -257,6 +274,17 @@ async function cycle() {
     if (plan.reason === 'gas') log(`gas ${dear.toFixed(3)} gwei is above MAX_GAS_GWEI=${CFG.maxGasGwei} — waiting`);
     else log(`batching: ${plan.pending} of ${CFG.headerMinBatch} headers pending — waiting (tip=${rtip} btc=${btip})`);
     return false;
+  }
+  // Nobody waits on this batch to the minute (a user who does is 'urgent', above), so a ready batch holds for a cheaper block,
+  // for at most HEADER_BASEFEE_MAX_WAIT_MIN. Not when the relay is at its staleness bound or restoring the canonical chain.
+  if (BASEFEE_WAIT && !plan.forced && !urgent && depth === 0) {
+    const gate = await baseFeeGate(base + Math.max(1, CFG.headerMinBatch)).catch((e) => { log(`base-fee check unavailable (${String(e.message).slice(0, 80)}) — not waiting`); return null; });
+    if (gate?.wait) {
+      const g = (w) => (Number(w) / 1e9).toFixed(3);
+      log(`base fee ${g(gate.nextBase)} gwei is above the ${g(gate.ref)} gwei the last ${BASEFEE_BLOCKS} blocks usually paid; the batch has been ready ${Math.round(gate.readyAgeSec / 60)} min, waiting up to ${Math.round(BASEFEE_MAX_WAIT_SEC / 60)} min for a cheaper block`);
+      return false;
+    }
+    if (gate && gate.ref != null) log(`base fee ${(Number(gate.nextBase) / 1e9).toFixed(3)} gwei (${gate.why}; recent norm ${(Number(gate.ref) / 1e9).toFixed(3)} gwei)`);
   }
   if (plan.forced && dear) log(`gas ${dear.toFixed(3)} gwei is above MAX_GAS_GWEI=${CFG.maxGasGwei} but the relay is at its staleness bound — advancing`);
   log(`advancing relay ${plan.from}..${plan.to} (btc=${btip} refl=${refl ?? '?'} lead-cap=${paceCap})`);
