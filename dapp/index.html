@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-6UKECud5rJtOO5rjrRkkXsx8PgV4dGA1LM0+xrYjLQE=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-RWq9Bt1Cv/lWpMQbvnjy4ZgXA032lZ3v93X7ENfD9IQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=2f4a1520"></script>
 <title>tacit</title>
@@ -3380,6 +3380,9 @@ function depositOf(t, d) {
     shown: shownAs(meta?.ticker), sheet: DEPOSIT_SHEET[meta?.ticker] || 'eth' };
 }
 const pendingFor = (sheet) => (S.key && P.scan?.pending || []).filter((p) => p.sheet === sheet && !taken(kDep(p)));
+// ETH just made private is tETH only once the relay settles it: true while a wrap is on its way (seen on chain, or still in this page's activity).
+const tethComing = () => pendingFor('eth').length > 0 || listed().some((x) => !ended(x) && /^Wrap [\d.,]+ ETH into tETH$/.test(x.label || ''));
+const COMING_TETH = 'Your tETH is on its way: the relay settles it, usually within a few minutes.';
 const lockList = (kind) => (kind === 'claim' ? LK.mine : LK.back).filter((l) => !taken(kLock(l)));
 // "20 TAC is waiting to become private." One amount per asset, however many deposits make it up.
 function waitingText(ps) {
@@ -3925,7 +3928,7 @@ function v1Swap(el, status) {
       <div class="lbl"><span>You pay</span><button type="button" id="sw-max">${heldLabel(from, 8, dp, unit)}</button></div>
       ${segSub('swf', from, SWAP_ASSETS.map(chip))}
       <div class="amt"><input id="sw-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${unit} to swap"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-${icon}"/></svg>${unit}</span></div>
-      ${P.scan && !held ? html`<p class="note">No private ${unit} yet. ${from === 'eth' ? html`<button type="button" class="link" id="sw-first">Make ETH private first</button>` : html`<button type="button" class="link" id="sw-first">Pay with tETH</button>`}</p>` : ''}
+      ${P.scan && !held && from === 'eth' && tethComing() ? html`<div class="callout" data-coming><span>${COMING_TETH} The swap is ready once it lands.</span></div>` : P.scan && !held ? html`<p class="note">No private ${unit} yet. ${from === 'eth' ? html`<button type="button" class="link" id="sw-first">Make ETH private first</button>` : html`<button type="button" class="link" id="sw-first">Pay with tETH</button>`}</p>` : ''}
       <button type="button" class="flip" id="sw-flip" aria-label="Pay with ${unitTo} instead"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v17m0 0-4-4m4 4 4-4M16 21V4m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <div class="lbl"><span>You get</span><span>${heldLabel(to, 8, dpTo, unitTo)}</span></div>
       ${segSub('swt', to, SWAP_ASSETS.filter(([k]) => k !== from).map(chip))}
@@ -7802,8 +7805,7 @@ function farmJoin(el, p, status, has) {
   const bA = spendable(kA), bB = spendable(kB);
   // ETH just made private (the card's two steps, say) is tETH only once the relay settles it: while it is on its way the farm says so, rather
   // than ask for it again, and opens with the amount once it lands.
-  const coming = !bA && (pendingFor('eth').length > 0 || listed().some((x) => !ended(x) && /^Wrap [\d.,]+ ETH into tETH$/.test(x.label || '')));
-  const comingNote = coming ? html`<div class="callout" data-coming><span>Your tETH is on its way: the relay settles it, usually within a few minutes. The farm opens with your amount once it lands.</span></div>` : '';
+  const comingNote = !bA && tethComing() ? html`<div class="callout" data-coming><span>${COMING_TETH} The farm opens with your amount once it lands.</span></div>` : '';
   // Where the paired asset is made private. The farm sheet remembers where you came from, so the way back is one tap.
   const getB = { tac: ['tac', 'Make TAC private'], cusd: ['borrow', 'Borrow cUSD'], cbtc: ['borrow', 'Mint cBTC'] }[kB] || ['tac', `Get private ${other}`];
   const goGet = (b) => { if (running('farm')) return; FARM.back = { pid, label: pairName(p.pair), at: Date.now() }; $('#sheet-farm').close(); openLink(b.dataset.joinGet); };

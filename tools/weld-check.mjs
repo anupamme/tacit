@@ -3955,6 +3955,9 @@ await step('farmcoming', async () => {
     await go(p, '#farm/private-0');
     await until(p, () => !!document.querySelector('#sheet-farm[open] [data-coming]'), null, 300000);
     ok(/Your tETH is on its way/.test(await text(p, '#sheet-farm [data-coming]')), `farmcoming: with a wrap settling, the farm says the tETH is on its way (${(await text(p, '#sheet-farm [data-coming]')).trim().slice(0, 90)})`);
+    await go(p, '#private/swap');
+    await until(p, () => !!document.querySelector('#sheet-eth[open] [data-coming]'), null, 300000);
+    ok(/Your tETH is on its way/.test(await text(p, '#sheet-eth [data-coming]')) && !(await p.$('#sw-first')), 'farmcoming: and the private Swap tab says the same, without offering to make ETH private again');
     if (r.errors.length) { fails++; console.log('FAIL farmcoming page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
   const q = await openFarmKey('c0de'.padEnd(64, '7'), { notes: [] });
