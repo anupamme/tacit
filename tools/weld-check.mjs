@@ -72,7 +72,7 @@
 //            way (seeded in tacit.js's journal) show their steps and actions, a burn not yet seen to land is cancelled only after
 //            Ethereum is looked at, starting one sends a bridge-burn job and leaves a record behind when the settle is not seen, and a
 //            send the relay refuses at submit offers the paying account and leaves no record
-//   xbring   the To Bitcoin tab's tETH on Bitcoin: a key's Taproot output holds tETH notes that two real signed cross-out mint reveals
+//   xbring   the To Bitcoin tab's tETH on Bitcoin (also counted on the dashboard and on the card's tETH-on-Bitcoin source): a key's Taproot output holds tETH notes that two real signed cross-out mint reveals
 //            made (one recorded by Bitcoin's proof, one it has not reached), listed on request with the amount the journal knows; the
 //            recorded one is sent back by a burn that is signed and broadcast through ordinary relay, burns the note under its own
 //            ν for tETH with this key as its owner, and shows under Coming back; the TAC Bridge tab does not list it
@@ -2326,6 +2326,17 @@ await step('xbring', async () => {
   const items = await r.page.$$eval('#eth-v1 label.brn', (xs) => xs.map((x) => ({ text: x.textContent.replace(/\s+/g, ' ').trim(), off: x.classList.contains('off') })));
   ok(items.length === 2 && items.some((x) => /0\.004 tETH/.test(x.text) && !x.off) && items.some((x) => /0\.003 tETH/.test(x.text) && x.off && /Waiting for Bitcoin’s proof on Ethereum to reach its block/.test(x.text)),
     `xbring: both notes are found with their amounts; the one the proof has recorded can be chosen, the other says why not (${items.map((x) => x.text).join(' | ')})`);
+  // The dashboard and the landing card read the same notes: what is on Bitcoin, and how much of it can come back now.
+  await r.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+  await until(r.page, () => /on Bitcoin · 2 notes · 1 ready to bring back/.test(document.querySelector('#dash-g')?.textContent || ''), null, 120000)
+    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | dash: ${(await text(r.page, '#dash-g')).replace(/\s+/g, ' ').slice(0, 300)}`); });
+  ok(/0\.007/.test(await r.page.$eval('#dash-g a[href="#private/bitcoin"]', (a) => a.textContent)), `xbring: the dashboard counts the tETH on Bitcoin, 0.007 in 2 notes, 1 ready (${(await r.page.$eval('#dash-g a[href="#private/bitcoin"]', (a) => a.textContent)).replace(/\s+/g, ' ')})`);
+  await r.page.click('[data-hxm="private"]'); await r.page.selectOption('#hx-from', 'tb');
+  await until(r.page, () => /0\.007 tETH on Bitcoin, in 2 notes/.test(document.querySelector('#hx-have')?.textContent || ''), null, 60000);
+  ok(/1 of them can come back now \(0\.004 tETH\)/.test(await text(r.page, '#hx-have')), `xbring: and the card, with tETH on Bitcoin picked, says the same (${(await text(r.page, '#hx-have')).replace(/\s+/g, ' ')})`);
+  await r.page.click('#dash-g a[href="#private/bitcoin"]');
+  await until(r.page, () => document.querySelectorAll('#eth-v1 input[name="xb-note"]').length === 2, null, 120000);
+  ok(true, 'xbring: the dashboard line opens the To Bitcoin tab with the notes');
   // Above the ceiling nothing is offered: the receipt says so, with the cost, and there is no box to tick.
   await until(r.page, () => /fees are high right now/.test(document.querySelector('#xb-rcpt')?.textContent || ''), null, 120000)
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | rcpt: ${(await text(r.page, '#xb-rcpt')).replace(/\s+/g, ' ')}`); });

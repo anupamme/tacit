@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-NSM4lIIm7jL3zPvfXrFapVviO/JwG1csXFRW+RRCh6Q=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-VNMhsnT0pxRe8Ohnc9kiNSR87qvaTEvEg07PeVvMA9c=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=2f4a1520"></script>
 <title>tacit</title>
@@ -8897,6 +8897,12 @@ function dashItems() {
     const on = [];
     for (const c of DEVICE_CHAINS) { const v = big(store.get(`tacit-lite-device-bal-v1:${c.chainId}:${k}`)?.v); if (v != null) { dev = (dev || 0n) + v; if (v > 0n) on.push(c.name); } }
     out.push({ key: 'dev', icon: 'tk-eth', label: 'ETH', dec: 18, max: 5, v: dev, meta: on.length ? `private on ${on.join(', ')}` : 'private', open: 'device', show: dev > 0n });
+    // tETH bridged to Bitcoin, as the To Bitcoin tab lists it: read for a key whose journal shows a bridge, and by anyone who has looked.
+    const xb = xbOf(XA.teth), xbMine = xb.pub === k && xb.notes ? xb.notes.filter((n) => n.amount != null) : null;
+    if (!xbMine && !xb.loading && !xb.err && (xb.asked === k || xoJournaled(k) || xbJournaled(k))) loadBridged(false, XA.teth).then(dashSoon, () => {});
+    if (xbMine) { const v = xbMine.reduce((a, n) => a + BigInt(n.amount), 0n), ready = xbMine.filter(xbReady).length;
+      out.push({ key: 'tethbtc', icon: 'tk-teth', label: 'tETH', dec: 8, max: 6, v, href: '#private/bitcoin', show: v > 0n,
+        meta: `on Bitcoin · ${xbMine.length} note${xbMine.length === 1 ? '' : 's'}${ready < xbMine.length ? ` · ${ready} ready to bring back` : ''}` }); }
   }
   const who = [...new Set([S.wallet, S.acct?.address].filter(Boolean).map((a) => a.toLowerCase()))].join();
   const pubTac = who && TACB.who === who ? TACB.erc : null, privTac = k ? (s ? s.tac.value * E10 : null) : 0n;
@@ -9505,6 +9511,7 @@ function hxPts(pk, eth, outTac = 0) {
 function hxHave() {
   const el = $('#hx-have'), pub = S.key?.pubHex;
   if (!el) return;
+  if (pub && HX.tab === 'private' && HX.sf === 'tb') return hxHaveTb(el, pub);
   if (!pub || HX.mode !== 'btc' || HX.dir !== 'in') { el.hidden = true; return; }
   const b = BR.pub === pub ? BR : null, recs = brRecords(pub), due = recs.filter((r) => brDue(r)).length;
   const notes = (b?.notes || []).filter((n) => n.reason !== 'already bridging'), open = notes.filter((n) => n.eligible), over = notes.filter(brOver).length, other = notes.length - open.length - over;
@@ -9520,6 +9527,22 @@ function hxHave() {
   ].filter(Boolean);
   el.hidden = !main && !lines.length;
   if (!el.hidden) mount(el, html`${main ? html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span>${main}</span></span>` : ''}${lines.map((l) => html`<span class="hx-hv">${l}</span>`)}`);
+}
+// With tETH on Bitcoin picked: what the key holds there, as the To Bitcoin tab reads it. A key that has never bridged is not read until asked.
+function hxHaveTb(el, pub) {
+  const XB = xbOf(XA.teth), b = XB.pub === pub ? XB : null, looked = XB.asked === pub || xoJournaled(pub) || xbJournaled(pub);
+  if (looked && !b?.notes && !XB.loading && !b?.err) loadBridged(false, XA.teth).then(() => paintHxQ(), () => paintHxQ());
+  const notes = (b?.notes || []).filter((n) => n.amount != null), ready = notes.filter(xbReady), sum = (xs) => xs.reduce((a, n) => a + BigInt(n.amount), 0n);
+  const icon = html`<svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg>`;
+  el.hidden = false;
+  mount(el, !looked ? html`<span class="hx-pl">${icon}<span>tETH you bridge to Bitcoin is read from your key.</span><button class="link" type="button" id="hx-tb-look">Look for it</button></span>`
+    : b?.err ? html`<span class="hx-pl">${icon}<span>Your tETH on Bitcoin could not be read just now.</span><button class="link" type="button" id="hx-tb-look">Try again</button></span>`
+    : !b?.notes ? html`<span class="hx-pl">${icon}<span>Reading your tETH on Bitcoin…</span></span>`
+    : notes.length ? html`<span class="hx-pl">${icon}<span><b>${fmt(sum(notes), 8, 6)} tETH</b> on Bitcoin, in ${notes.length} note${notes.length === 1 ? '' : 's'}</span></span>
+        <span class="hx-hv">${ready.length === notes.length ? 'All of it can come back now. Each note comes back whole.' : `${ready.length} of them can come back now (${fmt(sum(ready), 8, 6)} tETH); the To Bitcoin tab says why the others wait.`}</span>`
+    : html`<span class="hx-pl">${icon}<span>No bridged tETH on this key’s Bitcoin address.</span></span>`);
+  const look = $('#hx-tb-look');
+  if (look) look.onclick = () => { XB.asked = pub; XB.err = null; loadBridged(true, XA.teth).then(() => paintHxQ(), () => paintHxQ()); paintHxQ(); };
 }
 // The wallet's scored rows tell the week's multiplier: read once for the account paying (the Points sheet's own reading, kept a minute).
 function hxWantPoints() {
@@ -9751,7 +9774,7 @@ function hxSync() {
   hxNorm();
   if (!['send', 'borrow'].includes(HX.mode) && HX.from === 'ether' && hxHeld() !== HX.held) hxQuoteSoon();
   if (HX.mode === 'btc' && HX.dir === 'out' && HX.from === 'tac' && hxHeldTac() !== HX.heldTac) hxQuoteSoon();         // the private TAC read: it may now be short
-  if (HX.mode === 'btc' && HX.dir === 'in') hxHave();
+  if ((HX.mode === 'btc' && HX.dir === 'in') || (HX.tab === 'private' && HX.sf === 'tb')) hxHave();
 }
 paintHx();
 refreshTape();
