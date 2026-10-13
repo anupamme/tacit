@@ -4,6 +4,7 @@
 // each then costs a probe or two instead of a full search of the chain. Only real reads narrow the search, so the answer is
 // the same exact block a fresh search finds (a replay reproduces it).
 //   readTs(blockNumber: bigint) → timestamp (bigint)
+//   blockAtOrBefore(targetTime, tip, floor = 0) → the last block at or before targetTime, searching from `floor` (a block known to be before it).
 export function makeBlockAtOrBefore(readTs, { keep = 20000 } = {}) {
   const seen = new Map();                                              // block → timestamp
   const ts = async (n) => {
@@ -15,8 +16,9 @@ export function makeBlockAtOrBefore(readTs, { keep = 20000 } = {}) {
     }
     return t;
   };
-  return async function blockAtOrBefore(targetTime, tip) {
-    let lo = 0n, hi = BigInt(tip);
+  // `floor`: the first block worth asking about (a node that prunes old history cannot be probed below it).
+  return async function blockAtOrBefore(targetTime, tip, floor = 0n) {
+    let lo = BigInt(floor), hi = BigInt(tip);
     if (hi <= lo) return hi;
     const target = BigInt(targetTime);
     if (await ts(hi) <= target) return hi;

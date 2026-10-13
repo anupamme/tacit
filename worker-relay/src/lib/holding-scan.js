@@ -35,7 +35,7 @@ export async function scanHoldingChain({ store, client, chainId, pool, deployBlo
     } catch (err) {
       if (rateLimited(err)) { log(`holding scan chain ${chainId}: rate limited at block ${from}, resuming next cycle`); break; }
       if (size > 50) { size = Math.max(50, Math.floor(size / 2)); continue; }
-      log(`holding scan chain ${chainId}: blocks ${from}-${to} failed: ${err?.shortMessage || err?.message || err}`);
+      log(`holding scan chain ${chainId}: blocks ${from}-${to} failed: ${[err?.shortMessage || err?.message, err?.details].filter((x, i, a) => x && a.indexOf(x) === i).join(' · ').slice(0, 300)}`);
       break;
     }
   }

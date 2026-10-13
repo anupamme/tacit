@@ -21,6 +21,8 @@ import { verifyHoldingClaim } from './holding-claims.js';
 import { makeTokenBucket } from './token-bucket.js';
 
 const reply = (status, body) => ({ status, body });
+// What a node's refusal says, in a line: viem's short message alone ("HTTP request failed") hides the answer.
+const why = (e) => [e?.shortMessage || e?.message, e?.details, e?.status ? `HTTP ${e.status}` : null].filter((x, i, a) => x && a.indexOf(x) === i).join(' · ').slice(0, 300);
 const RANDOM_BLOCKS = 32, L1_CONFIRMATIONS = 12, TAIL_SLACK = 256;
 
 class ClaimRefused extends Error {}
@@ -62,7 +64,7 @@ export function createHolding({ store, cfg, clients, hash, groth16, nowSec = () 
       const at = await poolState(client, cursor, cfg.pool);
       if (at.root !== state.root || at.nextIndex !== state.size) mismatch = `the pool reports root ${at.root.toString(16)} with ${at.nextIndex} leaves, the events give ${state.root.toString(16)} with ${state.size}`;
     } catch (err) {
-      if (!(err instanceof HoldingStateError)) { log(`holding chain ${chainId}: cannot check block ${cursor} yet: ${err?.shortMessage || err?.message || err}`); return; }
+      if (!(err instanceof HoldingStateError)) { log(`holding chain ${chainId}: cannot check block ${cursor} yet: ${why(err)}`); return; }
       mismatch = err.message;
     }
     if (mismatch) {
@@ -83,7 +85,7 @@ export function createHolding({ store, cfg, clients, hash, groth16, nowSec = () 
     if (nowSec() < t0 + 900) return null;
     const l1 = clients[1];
     const tip = Number(await l1.getBlockNumber()) - L1_CONFIRMATIONS;
-    const last = Number(await blockAt(1)(t0, tip));
+    const last = Number(await blockAt(1)(t0, tip, tip - 60_000));          // a node need not be probed beyond a week
     const lastBlock = await l1.getBlock({ blockNumber: BigInt(last) });
     if (Number(lastBlock.timestamp) < t0 - 120) return null;                    // Ethereum is behind: the blocks are from before the day was over
     const blocks = await Promise.all(Array.from({ length: RANDOM_BLOCKS }, (_, i) => (i === RANDOM_BLOCKS - 1 ? lastBlock : l1.getBlock({ blockNumber: BigInt(last - (RANDOM_BLOCKS - 1) + i) }))));
@@ -105,7 +107,7 @@ export function createHolding({ store, cfg, clients, hash, groth16, nowSec = () 
     const moment = snapshotTime({ epoch, chainId: chain.chainId, randomHash });
     const client = clients[chain.chainId];
     const tip = Number(await client.getBlockNumber()) - confirmationsOf(chain);
-    const block = Number(await blockAt(chain.chainId)(moment, tip));
+    const block = Number(await blockAt(chain.chainId)(moment, tip, chain.deployBlock));
     if (block === tip && Number((await client.getBlock({ blockNumber: BigInt(tip) })).timestamp) < Number(moment)) return null;     // the chain has not reached the moment
     const verified = store.loadHoldingVerified(chain.chainId);
     if (verified === null || verified < block) return null;                                       // the events are not all read and checked yet
@@ -125,11 +127,11 @@ export function createHolding({ store, cfg, clients, hash, groth16, nowSec = () 
     for (const chain of cfg.chains) {
       try {
         await scan({ store, client: clients[chain.chainId], chainId: chain.chainId, pool: cfg.pool, deployBlock: chain.deployBlock, confirmations: confirmationsOf(chain), span: chain.span ?? 2000, maxSpan: chain.maxSpan ?? chain.span ?? 2000, budgetMs: cfg.budgetMs ?? 15000, log });
-      } catch (err) { log(`holding scan chain ${chain.chainId} failed: ${err?.shortMessage || err?.message || err}`); }
-      try { await verifyThrough(chain); } catch (err) { log(`holding check chain ${chain.chainId} failed: ${err?.message || err}`); }
-      try { await assetOf(chain.chainId); } catch (err) { log(`holding chain ${chain.chainId}: the pool's asset is not readable yet: ${err?.shortMessage || err?.message || err}`); }
+      } catch (err) { log(`holding scan chain ${chain.chainId} failed: ${why(err)}`); }
+      try { await verifyThrough(chain); } catch (err) { log(`holding check chain ${chain.chainId} failed: ${why(err)}`); }
+      try { await assetOf(chain.chainId); } catch (err) { log(`holding chain ${chain.chainId}: the pool's asset is not readable yet: ${why(err)}`); }
       for (const epoch of open()) {
-        try { await draw(epoch, chain); } catch (err) { log(`holding snapshot day ${epoch} chain ${chain.chainId} failed: ${err?.message || err}`); }
+        try { await draw(epoch, chain); } catch (err) { log(`holding snapshot day ${epoch} chain ${chain.chainId} failed: ${why(err)}`); }
       }
     }
   }

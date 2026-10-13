@@ -27,6 +27,15 @@ for (let k = 1; k <= 50; k++) assert.equal(await find(base + BigInt(k * 7), tip)
 assert.ok(reads - before <= 100, `50 nearby searches read ${reads - before} timestamps`);
 console.log(`ok - 50 nearby searches read ${reads - before} timestamps in all, where fresh searches would read ~${50 * 18}`);
 
+// A node that prunes old history is never asked below the floor, and the answer is the same block.
+{
+  const asked = [];
+  const pruned = makeBlockAtOrBefore(async (n) => { asked.push(n); if (n < 100_000n) throw new Error('pruned history unavailable'); return times[Number(n)]; });
+  for (const target of [times[150_000], times[150_000] + 5n, times[199_999] + 9n, times[100_000]]) assert.equal(await pruned(target, tip, 100_000n), naive(target), `target ${target}`);
+  assert.ok(asked.every((n) => n >= 100_000n), `nothing below the floor was read (lowest ${asked.reduce((a, b) => (b < a ? b : a))})`);
+  console.log('ok - a floor keeps the search off history a node has pruned, and finds the same block');
+}
+
 // A lower tip than blocks already read: nothing past it is used.
 assert.equal(await find(times[N - 1], 1000n), 1000n);
 console.log('ok - a search under a lower tip ignores blocks read beyond it');
