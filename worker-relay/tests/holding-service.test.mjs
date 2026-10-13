@@ -181,6 +181,8 @@ try {
   assert.equal(st.epochs[0].closesAt, (fx.epoch + 3) * DAY + 1800);
   const nf = holding.nullifiers(1, fx.epoch);
   assert.equal(nf.status, 200); assert.equal(nf.body.nullifiers.length, 3, 'the spent set a client builds its proof from');
+  assert.deepEqual(nf.body.leaves.map(BigInt), fx0.events.flatMap((e) => [BigInt(e.outLeaf0), BigInt(e.outLeaf1)]), 'and the tree\'s leaves as of the snapshot');
+  assert.equal(nf.body.size, nf.body.leaves.length);
   assert.equal(holding.nullifiers(1, fx.epoch).body, nf.body, 'built once for a snapshot that never changes');
   assert.equal(holding.nullifiers(1, fx.epoch + 5).status, 404);
   console.log('ok - each chain\'s snapshot is drawn once the day is final, from events checked whole against the pool, with the pool\'s own asset');

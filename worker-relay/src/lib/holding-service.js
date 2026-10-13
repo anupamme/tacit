@@ -158,8 +158,9 @@ export function createHolding({ store, cfg, clients, hash, groth16, nowSec = () 
     };
   }
 
-  // What a client needs beyond the note tree its wallet already keeps: the spent set at the snapshot, which anyone can read.
-  // A snapshot never changes, so the answer is built once.
+  // What a client proves against: the note tree's leaves and the spent set as of the snapshot, both public and the same for
+  // everyone, so asking for them says nothing about which note is the asker's. A snapshot never changes, so the answer is
+  // built once.
   const nullifierBodies = new Map();
   function nullifiers(chainId, epoch) {
     if (!cfg.enabled) return reply(404, { error: 'not enabled' });
@@ -167,10 +168,14 @@ export function createHolding({ store, cfg, clients, hash, groth16, nowSec = () 
     if (!snap) return reply(404, { error: 'no snapshot for that day and chain' });
     const key = `${chainId}:${epoch}`;
     if (!nullifierBodies.has(key)) {
-      const nfs = [];
-      for (const e of store.holdingEvents(chainId, snap.block)) for (const nf of [e.nf0, e.nf1]) if (BigInt(nf) !== 0n) nfs.push(nf);
+      const nfs = [], leaves = [];
+      for (const e of store.holdingEvents(chainId, snap.block)) {
+        for (const nf of [e.nf0, e.nf1]) if (BigInt(nf) !== 0n) nfs.push(nf);
+        if (BigInt(e.outLeaf0) !== 0n || BigInt(e.outLeaf1) !== 0n) leaves.push(e.outLeaf0, e.outLeaf1);
+      }
+      if (leaves.length !== snap.size) return reply(500, { error: 'the stored events do not give the snapshot' });
       if (nullifierBodies.size > 16) nullifierBodies.clear();
-      nullifierBodies.set(key, { epoch, chainId, block: snap.block, root: snap.root, nfRoot: snap.nfRoot, nullifiers: nfs });
+      nullifierBodies.set(key, { epoch, chainId, block: snap.block, root: snap.root, nfRoot: snap.nfRoot, size: snap.size, leaves, nullifiers: nfs });
     }
     return reply(200, nullifierBodies.get(key));
   }
