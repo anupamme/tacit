@@ -5,7 +5,7 @@ const TACIT_URL = '/tacit.js?cb=fb194e7e';
 const SECRET_URL = '/sats/secret.js?cb=9574c7ec';
 const MIX_URL = '/sats/mix.js?cb=38644936';
 const ETH_URL = '/sats/eth.js?cb=5037df57';
-const POOL_STATUS = 'https://tacit-btc-pool.onrender.com/btc-pool/status';
+const POOL_STATUS = 'https://tacit-btc-pool-mainnet.onrender.com/btc-pool/status';
 
 // tacit.js reads its network from this shared key once, at import. This page
 // defaults to signet under its own key, writes the shared one just before the
@@ -206,7 +206,9 @@ function parseHash() {
   };
 }
 
-function netPref() { return store.get(NET_PREF) === 'mainnet' ? 'mainnet' : 'signet'; }
+// Signet is switched off (2026-10-13): its pool, relay, faucet, join board and silent-payment index are suspended, so the page
+// is mainnet whatever a visitor chose before. Resume those services and restore the stored choice to bring it back.
+function netPref() { return 'mainnet'; }
 function curNet() { return T ? T.NET.name : netPref(); }
 
 function claimSharedNet() {
@@ -254,7 +256,7 @@ function renderNet() {
   const mp = $('mix-placeholder');
   if (mp) show('mix-steps', net !== 'mainnet');
   if (mp) mp.textContent = net === 'mainnet'
-    ? 'Mixing runs on signet for now. Switch the wallet to signet to try it.'
+    ? 'Mixing was a signet demo, and signet is switched off. It is not available on mainnet.'
     : 'Connect a wallet above to start. Mix turns your sats into a coin with no history.';
 }
 

@@ -334,13 +334,14 @@ footer a { display: inline-block; padding: 12px 0; color: var(--mute); }
 
   <section class="block" id="try" aria-labelledby="try-h">
     <h2 id="try-h">Try it</h2>
+    <p class="note" id="signet-off">Signet testing is switched off, and swapping sats with TAC now lives in the main app: <a href="/">open tacit.finance</a>. This page still works on mainnet.</p>
     <div class="app" id="app">
       <section class="panel" id="wallet" aria-labelledby="wallet-h">
         <div class="panel-head">
           <h2 id="wallet-h">Wallet</h2>
           <div class="seg" id="net" role="group" aria-label="Network">
-            <button type="button" data-net="signet" aria-pressed="true">signet</button>
-            <button type="button" class="mainnet" data-net="mainnet" aria-pressed="false">mainnet</button>
+            <button type="button" data-net="signet" aria-pressed="false" disabled title="Signet is switched off">signet</button>
+            <button type="button" class="mainnet" data-net="mainnet" aria-pressed="true">mainnet</button>
           </div>
         </div>
         <p class="note hidden" id="mainnet-note">Mainnet moves real bitcoin. Sends, silent payments and the shielded pool for TAC and cBTC all work here.</p>
@@ -540,7 +541,7 @@ footer a { display: inline-block; padding: 12px 0; color: var(--mute); }
 
     <h3>The pool right now</h3>
     <div class="live" id="live" aria-live="polite">
-      <div class="kv"><span><i class="dot" id="dot"></i>signet</span><b id="st">connecting…</b></div>
+      <div class="kv"><span><i class="dot" id="dot"></i>mainnet</span><b id="st">connecting…</b></div>
       <div class="kv"><span>height</span><b id="h">—</b></div>
       <div class="kv"><span>notes</span><b id="n">—</b></div>
       <div class="kv"><span>root</span><b id="r">—</b></div>
@@ -594,7 +595,7 @@ footer a { display: inline-block; padding: 12px 0; color: var(--mute); }
     <details><summary>Who can see what?</summary><p>Anyone sees that a pool transaction happened. Only payer and payee know the amount and who paid whom. Silent and shielded addresses give each payment a fresh output only the recipient can find.</p></details>
     <details><summary>Do I need to trust anyone?</summary><p>Bitcoin, the proof system, and the indexer you use — run your own and it is just Bitcoin and the proofs. No one holds the pool: a note moves only with its owner’s proof.</p></details>
     <details><summary>Does proving cost anything?</summary><p>No. Your device proves each shield, payment and withdrawal in seconds, after a one-time download of the prover. You pay the Bitcoin fee, or, on mainnet, the relay’s fee when it posts a payment for you.</p></details>
-    <details><summary>Mainnet or signet?</summary><p>Both. Sends, silent payments and the shielded pool all run on mainnet, where the pool carries TAC and cBTC. A relay posts private payments for a fee in the token paid, so your Bitcoin address does not show as the sender; shielding and withdrawing are posted from your own Bitcoin address and pay its Bitcoin fee. Signet keeps the full demo, with a test cBTC the faucet hands out for signet sats, for trying every step before you move real TAC.</p></details>
+    <details><summary>Mainnet or signet?</summary><p>Mainnet; signet testing is switched off. Sends, silent payments and the shielded pool all run on mainnet, where the pool carries TAC and cBTC. A relay posts private payments for a fee in the token paid, so your Bitcoin address does not show as the sender; shielding and withdrawing are posted from your own Bitcoin address and pay its Bitcoin fee. The signet demo, with a test cBTC from a faucet, has been switched off.</p></details>
   </section>
 
 </main>
@@ -635,6 +636,6 @@ footer a { display: inline-block; padding: 12px 0; color: var(--mute); }
   </form>
 </div>
 <div id="toast-container" aria-live="polite"></div>
-<script type="module" src="/sats/app.js?cb=ecee1b5f"></script>
+<script type="module" src="/sats/app.js?cb=ca549cbf"></script>
 </body>
 </html>
