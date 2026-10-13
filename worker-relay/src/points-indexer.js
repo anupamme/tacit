@@ -1587,7 +1587,7 @@ async function setupHolding(store) {
     store, hash: await loadHash(), groth16: (await import('snarkjs')).groth16, log, clients,
     cfg: {
       enabled: true, rate: CFG.holdingRate, buckets: parseBuckets(CFG.holdingBucketsEth), pool: CFG.evmPoolAddr, vkey: JSON.parse(raw.toString('utf8')), vkSha256: pin,
-      chains: CFG.holdingChains.filter((id) => HOLDING_CHAINS[id] && clients[id]).map((chainId) => ({ chainId, ...HOLDING_CHAINS[chainId] })), budgetMs: 15000,
+      chains: CFG.holdingChains.filter((id) => HOLDING_CHAINS[id] && clients[id]).map((chainId) => ({ chainId, ...HOLDING_CHAINS[chainId], ...(CFG.holdingSpans[chainId] ? { span: CFG.holdingSpans[chainId], maxSpan: CFG.holdingSpans[chainId] } : {}) })), budgetMs: 15000,
     },
   });
   log(`holding reward on: ${CFG.holdingChains.join(', ')}, ${CFG.holdingRate} points per ETH-day`);

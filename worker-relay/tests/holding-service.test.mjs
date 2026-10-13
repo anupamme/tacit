@@ -140,6 +140,20 @@ const bothClients = (over = {}) => ({ 1: fakeClient(1, over[1]), 8453: fakeClien
 // A scan that finds `events(chainId)` already on the chain and reads it all, as far as the chain's cursor.
 const scanOf = (store, events = (chainId) => CHAIN[chainId].sc.events) => async ({ chainId }) => { store.saveHoldingEvents(chainId, events(chainId)); store.saveHoldingCursor(chainId, CHAIN[chainId].cursor); };
 
+{
+  // The key the service checks claims against is the one in the image (src/data, which the Dockerfile copies) and the one the page
+  // is pinned to: the same bytes, so a page and the service can never be proving and checking under different keys.
+  const { createHash } = await import('node:crypto');
+  const mine = readFileSync(new URL('../src/data/holding_vk.json', import.meta.url));
+  const pin = JSON.parse(readFileSync(new URL('../../dapp/evm-pool/holding-pin.json', import.meta.url), 'utf8'));
+  const file = readFileSync(new URL('../../dapp/evm-pool/holding_vk.json', import.meta.url));
+  assert.equal(createHash('sha256').update(mine).digest('hex'), pin.vk_sha256, 'the service\'s copy of the key is the pinned one');
+  assert.deepEqual(mine, file, 'and byte for byte the page\'s');
+  const j = JSON.parse(mine.toString('utf8'));
+  assert.deepEqual([j.protocol, j.curve, j.nPublic], ['groth16', 'bn128', 7]);
+  console.log('ok - the service\'s verification key is the pinned one');
+}
+
 const dir = mkdtempSync(join(tmpdir(), 'holding-'));
 try {
   const store = openStore(join(dir, 'p.db'));
