@@ -4203,7 +4203,7 @@ await step('hxout', async () => {
     await p.selectOption('#hx-from', 'tac');
     await p.fill('#hx-amt', '25');
     await until(p, () => document.querySelector('#hx-out')?.textContent === '21' && /to cut a note of this size/.test(document.querySelector('#hx-q')?.textContent || ''), null, 240000)
-      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | card: ${await body()}`); });
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | q: ${await text(p, '#hx-q').catch(() => '?')} | out: ${await text(p, '#hx-out').catch(() => '?')} | dash: ${(await text(p, '#dash-g').catch(() => '?')).replace(/\s+/g, ' ').slice(0, 200)}`); });
     const line = (await text(p, '#hx-q')).replace(/\s+/g, ' ');
     ok(line === 'Relay fee 4 TAC (8 TAC if its floor has moved), and 2 TAC to cut a note of this size, plus a Bitcoin fee in sats from your Bitcoin address; 20 to 1,000 TAC a bridge while this is new. Usually a few hours, sometimes up to a day.', `hxout: 25 TAC arrives as 21 (the relay's 4 TAC floor, 8 TAC if it has moved), the cut of a note of that size, the limits and the time are said (${line.slice(0, 260)})`);
     await p.click('#hx-go');
@@ -4418,6 +4418,14 @@ await step('hxsell', async () => {
     ok(await text(p, '#hx-go') === 'Sell TAC' && !/…|—/.test(await text(p, '#hx-out')), `hxsell: 12,000 TAC is quoted as a split, paid out as ETH (${(await text(p, '#hx-q')).slice(0, 110)})`);
     const rows = await p.$$eval('#hx-routes [data-hxr]', (b) => b.map((x) => `${x.dataset.hxr}:${x.textContent.replace(/\s+/g, ' ')}`));
     ok(rows.length === 0 || (rows.some((x) => /^public:.*Two public pools.*Precision pool.*Tacit public pool/.test(x)) && rows.some((x) => /^private:.*arrives as tETH/.test(x))), `hxsell: with both ways quoted they are two rows, the public one naming the two pools (${rows.join(' | ').slice(0, 220)})`);
+    const w0 = await text(p, '#hx-to-w');
+    if (rows.length > 1) {
+      await p.click('#hx-routes [data-hxr="private"]');
+      await until(p, () => /private on Ethereum/.test(document.querySelector('#hx-to-w')?.textContent || ''), null, 120000);
+      await p.click('#hx-routes [data-hxr="public"]');
+      await until(p, () => /your wallet/.test(document.querySelector('#hx-to-w')?.textContent || ''), null, 120000);
+    }
+    ok(/your wallet/.test(w0), `hxsell: what you get is said to land where the chosen route sends it (${w0}), and follows the route picked`);
     await p.click('#hx-go');
     await p.waitForSelector('#sell-connect, #sl-amt', { timeout: 60000 });
     if (await p.$('#sell-connect')) await p.click('#sell-connect');
