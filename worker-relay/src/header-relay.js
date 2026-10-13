@@ -18,6 +18,7 @@ import { publicClient, relayWallet, HEADER_RELAY, RELAY_ABI, gasAboveCap } from 
 import { planHeaderAdvance } from './lib/header-plan.js';
 import { cbtcLockDemand } from './lib/reflection-demand.js';
 import { tipFor, TIP_HISTORY_BLOCKS, TIP_PERCENTILE } from './lib/gas-tip.js';
+import { tipLadder, sendPatient, raised } from './lib/patient-send.js';
 
 const log = (...a) => console.log(`[header ${new Date().toISOString()}]`, ...a);
 const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
@@ -123,24 +124,36 @@ const MIN_TIP_WEI = 50_000_000n; // 0.05 gwei: only a fallback now, for when the
 // fixed when gas was dear is the overpayment worth removing here: a batch runs to millions of gas (measured on this
 // relay's own advances, ~177k per header), so the tip is the larger part of its cost and the market reading is what
 // binds. GAS_PER_HEADER only sizes the total floor; the real limit is estimated per send below.
-const MIN_TIP_TOTAL_WEI = BigInt(process.env.HEADER_TIP_MIN_TOTAL_WEI || '20000000000000'); // 0.00002 ETH
+// Headers are in no hurry, so the first offer is the cheap end of what blocks accept (the 10th-percentile tip, never under
+// 0.001 gwei), and it is raised toward the market tip only if nobody takes it within HEADER_TIP_WAIT_MS. The relay's own attests
+// pay no tip at all and land in about 30 s, so a cheap offer is taken; the old offer, the median, was 0.05 gwei on a 0.08 gwei
+// base fee (2026-10-13), 38% of what a 20-header batch paid.
+const MIN_TIP_TOTAL_WEI = BigInt(process.env.HEADER_TIP_MIN_TOTAL_WEI || '0');
 const TIP_CAP_WEI = BigInt(process.env.HEADER_TIP_CAP_WEI || '2000000000'); // 2 gwei
+const PATIENT_PERCENTILE = Number(process.env.HEADER_TIP_PERCENTILE || 10);
+const TIP_FLOOR_RATE_WEI = BigInt(process.env.HEADER_TIP_FLOOR_WEI || '1000000'); // 0.001 gwei
+const TIP_WAIT_MS = Number(process.env.HEADER_TIP_WAIT_MS || 90_000);
 const GAS_PER_HEADER = 180_000n;
 const SETTLE_RESERVE_GAS = CFG.settleFundsGas;   // settle-relay's fee cap: 3x base
 const ATTEST_RESERVE_GAS = CFG.attestGasBudget;  // reflection's fee cap: 2x base
 const eth = (wei) => (Number(wei) / 1e18).toFixed(4);
+// One percentile's column of an eth_feeHistory reward table (each row holds the requested percentiles, in order).
+const rewardColumn = (hist, k) => (hist && Array.isArray(hist.reward) ? hist.reward.map((r) => (Array.isArray(r) ? r[k] : null)) : null);
 async function submitAdvance(from, to) {
   const [blk, feeHist, have] = await Promise.all([
     publicClient.getBlock({ blockTag: 'latest' }),
-    publicClient.getFeeHistory({ blockCount: TIP_HISTORY_BLOCKS, rewardPercentiles: [TIP_PERCENTILE] }).catch(() => null),
+    publicClient.getFeeHistory({ blockCount: TIP_HISTORY_BLOCKS, rewardPercentiles: [PATIENT_PERCENTILE, TIP_PERCENTILE] }).catch(() => null),
     publicClient.getBalance({ address: relayWallet.account.address }),
   ]);
   // The gas here is the batch this run means to send. It can still be cut to fit the wallet below, which only leaves the
   // total floor a shade conservative — at this size the market reading binds anyway.
-  const maxPriorityFeePerGas = tipFor({
-    rewards: feeHist && feeHist.reward, gas: BigInt(Math.max(1, to - from + 1)) * GAS_PER_HEADER,
-    minTotalWei: MIN_TIP_TOTAL_WEI, capWei: TIP_CAP_WEI, fallbackWei: MIN_TIP_WEI,
-  });
+  const gas0 = BigInt(Math.max(1, to - from + 1)) * GAS_PER_HEADER, col = (k) => (rewardColumn(feeHist, k));
+  const market = tipFor({ rewards: col(1), gas: gas0, minTotalWei: MIN_TIP_TOTAL_WEI, capWei: TIP_CAP_WEI, fallbackWei: MIN_TIP_WEI });
+  const cheap = tipFor({ rewards: col(0), gas: gas0, minTotalWei: MIN_TIP_TOTAL_WEI, capWei: TIP_CAP_WEI, fallbackWei: market });
+  // The cheap offer is never over the market and never under the floor rate; with no reading at all both are the old fixed rate.
+  const patient = cheap > market ? market : cheap;
+  const tips = tipLadder({ patient: patient < TIP_FLOOR_RATE_WEI ? TIP_FLOOR_RATE_WEI : patient, market, capWei: TIP_CAP_WEI });
+  const maxPriorityFeePerGas = tips[0];
   const maxFeePerGas = (blk.baseFeePerGas ?? 0n) * 2n + maxPriorityFeePerGas;
   const base = blk.baseFeePerGas ?? 0n;
   const settlesHere = !CFG.settleAddress || CFG.settleAddress.toLowerCase() === relayWallet.account.address.toLowerCase();
@@ -164,10 +177,29 @@ async function submitAdvance(from, to) {
     }
     // Same shared-key nonce race as the reflection attest (see lib/nonce-retry.js). Cheap to lose here — the
     // next cron run is three minutes away — but retrying keeps the relay's pacing steady under load.
-    const txHash = await withNonceRetry('advanceTip', () => relayWallet.writeContract({ ...advanceCall, gas, maxFeePerGas, maxPriorityFeePerGas }), { log });
-    const rcpt = await publicClient.waitForTransactionReceipt({ hash: txHash });
-    if (rcpt.status !== 'success') throw new Error(`advanceTip reverted ${txHash}`);
-    return { txHash, to };
+    let lastFee = maxFeePerGas;
+    const landed = await sendPatient({
+      tips, waitMs: TIP_WAIT_MS, log,
+      // The first offer takes the wallet's next nonce; a raise reuses it, with a fee cap refreshed to the base fee now and at
+      // least the raise a node asks for.
+      send: async ({ tip, nonce }) => {
+        let fee = maxFeePerGas;
+        if (nonce != null) {
+          const b = (await publicClient.getBlock({ blockTag: 'latest' })).baseFeePerGas ?? 0n;
+          fee = b * 2n + tip;
+          if (fee < raised(lastFee)) fee = raised(lastFee);
+        }
+        lastFee = fee;
+        const call = { ...advanceCall, gas, maxFeePerGas: fee, maxPriorityFeePerGas: tip, ...(nonce != null && { nonce }) };
+        return nonce == null ? withNonceRetry('advanceTip', () => relayWallet.writeContract(call), { log }) : relayWallet.writeContract(call);
+      },
+      wait: (hash, ms) => publicClient.waitForTransactionReceipt({ hash, timeout: ms, pollingInterval: 4_000 }).catch((e) => (/timed out|timeout/i.test(String(e?.name || e?.message)) ? null : Promise.reject(e))),
+      nonceOf: async (hash) => { for (let i = 0; ; i++) { try { return (await publicClient.getTransaction({ hash })).nonce; } catch (e) { if (i >= 4) throw e; await new Promise((r) => setTimeout(r, 2_000)); } } },
+      found: async (hashes) => { for (const hash of hashes) { const receipt = await publicClient.getTransactionReceipt({ hash }).catch(() => null); if (receipt) return { hash, receipt }; } return null; },
+    });
+    if (landed.receipt.status !== 'success') throw new Error(`advanceTip reverted ${landed.hash}`);
+    if (landed.raises) log(`  advanceTip landed after ${landed.raises} raise${landed.raises === 1 ? '' : 's'}, at a ${(Number(landed.tip) / 1e9).toFixed(4)} gwei tip`);
+    return { txHash: landed.hash, to };
   }
 }
 
