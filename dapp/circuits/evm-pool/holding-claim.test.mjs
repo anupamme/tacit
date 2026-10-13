@@ -10,6 +10,7 @@ import * as snarkjs from 'snarkjs';
 import { mulB8, L_BJJ, P_FR } from '../../btc-pool-zk.js';
 import { makeEvmPoolZk } from '../../evm-pool-zk.js';
 import { holdingClaimHash, holdingClaimKey, smtRoot, smtExclusion, holdingClaims, proveHoldingClaim, bucketFor } from '../../holding-claim.js';
+import { runHolding } from '../../holding-run.js';
 import { claimHashOf, DEFAULT_BUCKETS_WEI } from '../../../worker-relay/src/lib/holding-epoch.js';
 import { verifyHoldingClaim } from '../../../worker-relay/src/lib/holding-claims.js';
 
@@ -98,5 +99,44 @@ const ETH = 10n ** 18n;
   const elsewhere = await verifyHoldingClaim({ claim: { ...body, claimAddress: '0x' + 'cd'.repeat(20) }, snapshot, buckets: DEFAULT_BUCKETS_WEI, poolAsset: asset, vkey, groth16: snarkjs.groth16 });
   assert.equal(elsewhere.ok, false, 'a proof cannot be redirected to another address');
   console.log('ok - a wallet\'s notes become the claims it is owed, and the service accepts their real proof');
+
+  // The daily round against a stand-in service that checks claims as the real one does: it proves and sends what is owed,
+  // once, and does nothing while the reward is off.
+  const keys = { zkWallet: { a: rnd(L_BJJ) } };
+  const credited = new Map(), posts = [];
+  let enabled = false;
+  const json = (status, body) => ({ ok: status < 300, status, json: async () => body });
+  const fakeFetch = async (url, init) => {
+    const path = url.replace('https://points.test', '');
+    if (path === '/holding') return json(200, enabled
+      ? { enabled: true, buckets: DEFAULT_BUCKETS_WEI.map(String), assets: { [chainId]: String(asset) }, epochs: [{ epoch, chains: [{ chainId, leaves: size, root: String(snapshot.root), nfRoot: String(snapshot.nfRoot) }] }] }
+      : { enabled: false });
+    if (path === `/holding/nullifiers/${chainId}/${epoch}`) return json(200, { ...snapshot, root: String(snapshot.root), nfRoot: String(snapshot.nfRoot), leaves: snapLeaves.map(String), nullifiers: nullifiers.map(String) });
+    if (path === '/holding/claim') {
+      const c = JSON.parse(init.body);
+      posts.push(c);
+      const v = await verifyHoldingClaim({ claim: c, snapshot, buckets: DEFAULT_BUCKETS_WEI, poolAsset: asset, vkey, groth16: snarkjs.groth16 });
+      if (!v.ok) return json(422, { error: v.reason });
+      const fresh = !credited.has(String(v.retNf));
+      credited.set(String(v.retNf), c.claimAddress);
+      return json(200, { credited: fresh, bucketWei: String(v.bucketWei) });
+    }
+    return json(404, {});
+  };
+  const store = new Map(), kv = { get: (k) => store.get(k) ?? null, set: (k, v) => store.set(k, v) };
+  const prove = async (input) => snarkjs.groth16.fullProve(input, WASM, ZKEY);
+  const round = () => runHolding({ api: 'https://points.test', wallets: { [chainId]: { notes: () => mine } }, keys, zk, prove, kv, fetchImpl: fakeFetch });
+  assert.deepEqual(await round(), { enabled: false, sent: [] }, 'off: nothing is read beyond the status, nothing is sent');
+  enabled = true;
+  const r1 = await round();
+  assert.deepEqual(r1.sent.map((x) => [x.status, x.credited, x.bucketWei]), [[200, true, String(ETH)]], JSON.stringify(r1.sent));
+  assert.equal(r1.claimAddress, holdingClaimKey(keys).address);
+  assert.deepEqual([...credited.values()], [holdingClaimKey(keys).address], 'paid to the key\'s own claim address');
+  const r2 = await round();
+  assert.equal(r2.sent.length, 0, 'a day already done is not proven again');
+  assert.equal(posts.length, 1);
+  const empty = await runHolding({ api: 'https://points.test', wallets: { [chainId]: { notes: () => [] } }, keys: { zkWallet: { a: rnd(L_BJJ) } }, zk, prove, kv: { get: () => null, set() {} }, fetchImpl: fakeFetch });
+  assert.equal(empty.sent.length, 0, 'a wallet with no note in the snapshot sends nothing');
+  console.log('ok - the daily round proves and sends what a key is owed once, to its own claim address, and nothing while the reward is off');
 }
 process.exit(0);

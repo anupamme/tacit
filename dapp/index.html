@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-4ACpABG5ZT3+cfP3jzEvAT1kRQUs0KaBcl5r3I3TCFs=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-g/RUDtlSoqAZb8w98Wr2R5Q6ytm7rseMVnTveG2OGII=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=2f4a1520"></script>
 <title>tacit</title>
@@ -4850,9 +4850,48 @@ function deviceSync(fresh = false) {
       DEV.bal = s.balance; DEV.quote = q; DEV.gq = {}; DEV.err = null; DEV.at = Date.now();
       store.set(`tacit-lite-device-bal-v1:${DEV.chain.chainId}:${S.key.pubHex}`, { v: s.balance.toString(), at: Date.now() });
       dashSoon();
+      holdingSoon(W, DEV.chain.chainId);
     }
   }).finally(() => { if (DEV.syncing === p) DEV.syncing = null; });
   return p;
+}
+// The holding reward (holding-run.js): once a day, after this key's pool wallet is read, the notes it held at each open
+// day's snapshot are proven and sent to the points service, paying the key's own claim address. Quiet: nothing is shown,
+// nothing is downloaded unless a claim is owed, and nothing is sent while the service has the reward off.
+const POINTS_DIRECT = 'https://tacit-points.onrender.com';
+const HOLD = {};
+function holdingSoon(W, chainId) {
+  const k = `${S.key?.pubHex}:${chainId}`, day = Math.floor(Date.now() / 864e5);
+  if (!S.key || HOLD[k] === day) return;
+  HOLD[k] = day;
+  (async () => {
+    const [m, h] = await Promise.all([getDeviceMods(), import('/holding-run.js?cb=9072aa85')]);
+    const kv = { get: (x) => { try { return localStorage.getItem(x); } catch { return null; } }, set: (x, v) => { try { localStorage.setItem(x, v); } catch {} } };
+    await h.runHolding({ api: POINTS_DIRECT, wallets: { [chainId]: W }, keys: m.evmPoolKeys(m.zk, walletPriv()), zk: m.zk, kv, prove: async (input) => (await holdingProver())(input) });
+  })().catch(() => {});
+}
+let holdingP = null;
+function holdingProver() {
+  if (holdingP) return holdingP;
+  const made = holdingP = (async () => {
+    const pin = await fetch('/evm-pool/holding-pin.json', { cache: 'no-store' });
+    if (!pin.ok) throw new Error(`holding pin: HTTP ${pin.status}`);
+    const p = await pin.json();
+    const [vkBytes, wasm, zkey] = await Promise.all([artifact(p.vk, p.vk_sha256), artifact(p.wasm, p.wasm_sha256), artifact(p.zkey, p.zkey_sha256)]);
+    const worker = new Worker('/holding-prove-worker.js?cb=21d021aa', { type: 'module' });
+    let id = 0; const waiting = new Map();
+    const fail = (e) => { for (const w of waiting.values()) w.reject(e); waiting.clear(); if (holdingP === made) holdingP = null; worker.terminate(); };
+    worker.onmessage = ({ data }) => { const w = waiting.get(data.id); if (!w) return; waiting.delete(data.id); data.ok ? w.resolve(data) : w.reject(new Error(data.error)); };
+    worker.onerror = (ev) => { ev.preventDefault?.(); fail(new Error('holding prover stopped')); };
+    const call = (msg, ms) => new Promise((resolve, reject) => {
+      const i = ++id, timer = setTimeout(() => fail(new Error('holding proof took too long')), ms);
+      waiting.set(i, { resolve: (v) => { clearTimeout(timer); resolve(v); }, reject: (e) => { clearTimeout(timer); reject(e); } });
+      worker.postMessage({ ...msg, id: i });
+    });
+    await call({ op: 'init', wasm, zkey, vk: JSON.parse(new TextDecoder().decode(vkBytes)) }, 5 * 60e3);
+    return async (input) => { const r = await call({ op: 'prove', input }, 10 * 60e3); return { proof: r.proof, publicSignals: r.publicSignals }; };
+  })().catch((e) => { if (holdingP === made) holdingP = null; throw e; });
+  return made;
 }
 // Your Tacit reads this key's private ETH on every chain, not only the one the device sheet shows: each chain's
 // balance is synced from the key and kept where the sheet keeps it. Secret Sats, the Bitcoin pool, holds this key's
