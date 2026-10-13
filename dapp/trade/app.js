@@ -14,12 +14,13 @@ import {
 import { getConfidentialDeployment } from '/confidential-deployments.js';
 import { buildBook, planBuy, planSell as planBtcSell, ladderLevels } from '/btc-book.js?cb=91371653';
 import { decodeTape, chartBars, invert, ethLaneUsd, btcLaneUsd, candlesFromTrades, closeAt, gap, TAPE_FINE, TAPE_COARSE } from '/trade/tape.js?cb=dfc28dd7';
-import { mountChart } from '/trade/chart.js?cb=061eeab7';
+import { mountChart } from '/trade/chart.js?cb=7d42c308';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
-import { mountDepth } from '/trade/depth.js?cb=019583b6';
+import { mountDepth } from '/trade/depth.js?cb=26634347';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=59e15e51';
+import { mountFarm } from '/trade/farm.js?cb=10117839';
 
 const API = 'https://api.tacit.finance';
 const TAC_BTC_ID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
@@ -67,7 +68,7 @@ const PRIV_TIERS = [30, 5, 100, 1];
 
 // ── the state of the page ──
 const D = { ethUsd: null, btcUsd: null, perEth: null, priv: null, precision: null, ethSupply: null, btc: null, book: null, bidsRead: false, zb: null, zbFailed: false, tape: { fine: [], coarse: [] }, readAt: 0 };
-const S = { side: 'buy', amt: '', book: null, pin: null, lane: 'eth', unit: 'usd', range: 0, log: false, slip: 50, bal: null, review: null, busy: false, tf: { eth: TAPE_COARSE, btc: 86400, cmp: 86400 }, quote: null, seq: 0, zq: null };
+const S = { side: 'buy', amt: '', book: null, pin: null, lane: 'eth', unit: 'usd', range: 0, log: false, slip: 50, bal: null, review: null, busy: false, tf: { eth: TAPE_COARSE, btc: 86400, cmp: 86400 }, kind: 'line', quote: null, seq: 0, zq: null };
 const TF = { eth: [['5m', 300], ['15m', 900], ['1h', 3600], ['4h', 14400], ['1d', 86400]], btc: [['1h', 3600], ['4h', 14400], ['1d', 86400], ['1w', 604800]], cmp: [['4h', 14400], ['1d', 86400]] };
 
 async function loadChain() {
@@ -188,6 +189,11 @@ function renderLanes() {
     { name: 'Bitcoin · last trade', sw: ORANGE, v: btcUsdPerTac(), s: D.btc?.mark ? `${satsFmt(D.btc.mark)} sats` : null, gap: laneGap(btcUsdPerTac()) },
     { name: 'Bitcoin · cheapest ask', sw: ORANGE, v: ask || null, s: D.btc?.ask ? `${satsFmt(D.btc.ask)} sats` : null, gap: laneGap(ask || null) },
   ];
+  // The line that opens them: Ethereum's price and Bitcoin's, with how far apart they sit.
+  const bg = laneGap(btcUsdPerTac());
+  $('#hints-sum').innerHTML = base != null || btcUsdPerTac() != null
+    ? [base != null ? html`<span>Ethereum <b>${usd(base)}</b></span>` : '', btcUsdPerTac() != null ? html`<span>${base != null ? '· ' : ''}Bitcoin <b>${usd(btcUsdPerTac())}</b>${bg != null && Math.abs(bg) >= 0.01 ? ` <span class="${gapClass(bg)}">${pct(bg, 0)}</span>` : ''}</span>` : ''].join('')
+    : 'Prices on each chain';
   $('#lanes').innerHTML = cards.map((c) => {
     const g = c.g ?? (c.gap != null ? `${pct(c.gap)} vs Precision${c.dev && Math.abs(c.gap) >= 0.01 ? ' · apart' : ''}` : c.sub || '');
     const loading = c.v == null && c.s == null && !(D.tape.coarse.length || D.btc);
@@ -208,6 +214,7 @@ function renderControls() {
   $('#tf-seg').innerHTML = TF[S.lane].map(([l, p]) => `<button type="button" data-tf="${p}" aria-pressed="${S.tf[S.lane] === p}">${l}</button>`).join('');
   const native = S.lane === 'btc' ? 'sats' : 'ETH';
   $('#view-seg').innerHTML = RANGES.map(([l, d]) => `<button type="button" data-range="${d}" aria-pressed="${S.range === d}">${l}</button>`).join('')
+    + (S.lane === 'cmp' ? '' : `<button type="button" data-kind="${S.kind === 'line' ? 'candles' : 'line'}" aria-pressed="false" title="Draw the price as ${S.kind === 'line' ? 'candles' : 'a line'}">${S.kind === 'line' ? 'Candles' : 'Line'}</button>`)
     + `<button type="button" data-log="1" aria-pressed="${S.log}" title="A log axis shows moves of the same size the same height">Log</button>`
     + (S.lane === 'cmp' ? '' : `<button type="button" data-unit="${S.unit === 'usd' ? 'native' : 'usd'}" aria-pressed="false" title="Show the price in ${S.unit === 'usd' ? native : 'dollars'}">in ${S.unit === 'usd' ? native : 'USD'}</button>`);
 }
@@ -229,17 +236,17 @@ function renderChart() {
   const ethSpot = unit === 'usd' ? usdOf(priceEth()) : priceEth(), privSpot = unit === 'usd' ? usdOf(priv) : priv;
   const btcSpot = D.btc?.mark ? (unit === 'usd' ? btcUsdPerTac() : D.btc.mark) : null;
   if (lane === 'eth' || lane === 'cmp') {
-    series.push({ id: 'eth', name: 'Precision pool', color: ETHBLUE, kind: lane === 'cmp' ? 'line' : 'candles', bars: ethBars(unit), fmt: priceFmt(unit, 'eth'), volFmt: (v) => `${v.toFixed(3)} ETH` });
+    series.push({ id: 'eth', name: 'Precision pool', color: ETHBLUE, kind: lane === 'cmp' ? 'line' : S.kind, area: lane !== 'cmp', bars: ethBars(unit), fmt: priceFmt(unit, 'eth'), volFmt: (v) => `${v.toFixed(3)} ETH` });
     if (ethSpot != null) tags.push({ y: ethSpot, label: 'Precision', color: ETHBLUE });
     if (deviates && privSpot != null) tags.push({ y: privSpot, label: 'Tacit', color: GREEN });
   }
   if (lane === 'btc' || lane === 'cmp') {
     const t0 = lane === 'cmp' && eth.length ? eth[0].t - tf : 0;
-    series.push({ id: 'btc', name: 'Bitcoin order book', color: ORANGE, kind: lane === 'cmp' ? 'line' : 'candles', bars: btcBars(unit).filter((b) => b.t >= t0), fmt: priceFmt(unit, 'btc'), volFmt: (v) => `${grp(v, 0)} TAC` });
+    series.push({ id: 'btc', name: 'Bitcoin order book', color: ORANGE, kind: lane === 'cmp' ? 'line' : S.kind, area: lane !== 'cmp', bars: btcBars(unit).filter((b) => b.t >= t0), fmt: priceFmt(unit, 'btc'), volFmt: (v) => `${grp(v, 0)} TAC` });
     if (btcSpot != null) tags.push({ y: btcSpot, label: 'Bitcoin', color: ORANGE });
   }
   const names = { eth: 'Precision pool on Ethereum', btc: 'Bitcoin order book', cmp: 'Ethereum and Bitcoin, in dollars' };
-  chart.update({ series, tags, period: tf, log: S.log, label: `TAC price, ${names[lane]}, ${TF[lane].find(([, p]) => p === tf)?.[0]} candles` });
+  chart.update({ series, tags, period: tf, log: S.log, label: `TAC price, ${names[lane]}, ${TF[lane].find(([, p]) => p === tf)?.[0]} ${lane === 'cmp' || S.kind === 'line' ? 'line' : 'candles'}` });
   const sw = (c) => `<i class="sw" style="background:${c}"></i>`;
   if (lane !== 'btc') legend.push(`<span>${sw(ETHBLUE)}Precision pool (Ethereum)${ethSpot != null ? ` · ${priceFmt(unit, 'eth')(ethSpot)}` : ''}</span>`);
   if (lane !== 'eth') legend.push(`<span>${sw(ORANGE)}Bitcoin order book${btcSpot != null ? ` · ${priceFmt(unit, 'btc')(btcSpot)}` : ''}</span>`);
@@ -469,19 +476,48 @@ const btcPxFmt = (v) => (D.btcUsd ? usd(v) : `${satsFmt(v)} sats`);
 const tacFmt = (n) => grp(n, n >= 100 ? 0 : 2);
 const left = (t) => { const d = t - now(); return d <= 0 ? 'now' : d < 3600 ? `${Math.ceil(d / 60)} min` : d < 172800 ? `${Math.round(d / 3600)} h` : `${Math.round(d / 86400)} days`; };
 const ZSWAP_LINK = `<a href="${ZSWAP_HOST}" target="_blank" rel="noopener noreferrer">Place an order on zSwap →</a>`;
-function ethRow(o, taking) {
-  const ask = o.side === 'ask', mine = isMine(o), tac = Number(o.base) / 1e18;
-  const meta = [o.partial ? 'part fills ok' : 'whole only', o.expiry ? `ends in ${left(o.expiry)}` : 'no end', o.board === 'dutch' ? 'price changes with time' : o.board === 'floor' ? 'bid climbs' : ''].filter(Boolean).join(' · ');
-  return `<tr class="${taking ? 'take' : ''}${mine ? ' mine' : ''}"><td><b class="num">${esc(ethPxFmt(ethPx(o.price)))}</b>${D.ethUsd ? `<small>${esc(sig(o.price))} ETH</small>` : ''}</td><td class="r num">${esc(tacFmt(tac))}</td><td class="r num">${esc(fmtUnits(o.quote, 18, 4))}</td>`
-    + `<td class="r opt">${esc(BOARD_NAMES[o.board])}<small>${esc(meta)}</small></td><td class="go">${mine ? '<span class="mute">yours</span>' : `<button class="fillbtn" type="button" data-fill="${esc(o.key)}" aria-label="${ask ? 'Buy' : 'Sell'} ${esc(tacFmt(tac))} TAC at ${esc(ethPxFmt(ethPx(o.price)))} each">Fill</button>`}</td></tr>`;
+// The book as the Bitcoin market draws it: the asks above with the cheapest nearest the middle, the last price and the spread
+// between, the bids below, each row shaded by how much lies between it and the middle. A row is a button that trades up to it.
+const BOOK_ROWS = 8;
+function stackBook({ asks, bids, totalHead, mid }) {
+  const show = (l) => (S.bookAll ? l : l.slice(0, BOOK_ROWS)), a = show(asks), b = show(bids);
+  const cum = (l) => { let t = 0; return l.map((x) => (t += x.depth)); };
+  const ac = cum(a), bc = cum(b), max = Math.max(ac.at(-1) || 0, bc.at(-1) || 0) || 1;
+  const row = (x, side, c) => {
+    const inner = `<span class="p">${esc(x.price)}${x.small ? `<small>${esc(x.small)}</small>` : ''}</span><span class="a">${x.mine ? '<i class="ob-tag">yours</i>' : ''}${esc(x.amount)}</span><span class="t">${esc(x.total)}</span>`;
+    const cls = `ob-row ${side}${x.take ? ' take' : ''}${x.mine ? ' mine' : ''}`, style = `--w:${Math.max(1, Math.round((c / max) * 100))}%`;
+    return x.attrs && !x.mine ? `<button type="button" class="${cls}" style="${style}" title="${esc(x.title)}" aria-label="${esc(x.label)}" ${x.attrs}>${inner}</button>` : `<div class="${cls}" style="${style}" title="${esc(x.title)}">${inner}</div>`;
+  };
+  const hidden = asks.length - a.length + bids.length - b.length;
+  return `<div class="ob"><div class="ob-head"><span>Price</span><span>TAC</span><span>${esc(totalHead)}</span></div>`
+    + `<div class="ob-asks">${a.length ? a.map((x, i) => row(x, 'ask', ac[i])).reverse().join('') : '<div class="ob-empty">No one is selling right now.</div>'}</div>`
+    + `<div class="ob-spread">${mid}</div>`
+    + `<div class="ob-bids">${b.length ? b.map((x, i) => row(x, 'bid', bc[i])).join('') : '<div class="ob-empty">No one is bidding right now.</div>'}</div>`
+    + (hidden > 0 || S.bookAll ? `<button type="button" class="ob-more" data-more="1">${S.bookAll ? 'Show less' : `Full book · ${asks.length} asks, ${bids.length} bids`}</button>` : '') + '</div>';
 }
-function ethLadder(list, ask) {
-  if (!list.length) return '';
+const spreadTxt = (ask, bid) => (ask && bid ? `<span title="Between the cheapest ask and the best bid">spread ${Math.abs((ask - bid) / ask * 100).toFixed(1)}%</span>` : '');
+function ethStack(z) {
   const taking = new Set(S.quote?.board?.ok && routeOf(S.quote) === 'boards' ? S.quote.board.keys : []);
-  const head = `<thead><tr><th>Price</th><th class="r">TAC</th><th class="r">ETH</th><th class="r opt">Order</th><th></th></tr></thead>`, rows = (l) => l.map((o) => ethRow(o, taking.has(o.key))).join('');
-  const first = list.slice(0, 6), rest = list.slice(6);
-  return `<div class="lad"><h3>${ask ? 'For sale' : 'Wanted'} <span>${ask ? 'buy TAC with ETH' : 'sell TAC for ETH'}</span></h3><table class="table">${head}<tbody>${rows(first)}</tbody></table>`
-    + (rest.length ? `<details class="more more-rows"><summary>${rest.length} more</summary><table class="table"><tbody>${rows(rest)}</tbody></table></details>` : '') + `</div>`;
+  const lv = (o) => {
+    const ask = o.side === 'ask', tac = Number(o.base) / 1e18, px = ethPxFmt(ethPx(o.price));
+    const meta = [BOARD_NAMES[o.board], o.partial ? 'part fills ok' : 'whole only', o.expiry ? `ends in ${left(o.expiry)}` : 'no end', o.board === 'dutch' ? 'price changes with time' : o.board === 'floor' ? 'bid climbs' : ''].filter(Boolean).join(' · ');
+    return { price: px, small: D.ethUsd ? `${sig(o.price)} ETH` : '', amount: tacFmt(tac), total: fmtUnits(o.quote, 18, 4), depth: Number(o.quote) / 1e18, mine: isMine(o), take: taking.has(o.key),
+      attrs: `data-fill="${esc(o.key)}"`, title: `${meta}. Click to ${ask ? 'buy' : 'sell'} this order.`, label: `${ask ? 'Buy' : 'Sell'} ${tacFmt(tac)} TAC at ${px} each` };
+  };
+  const ref = priceEth();
+  return stackBook({ asks: z.asks.map(lv), bids: z.bids.map(lv), totalHead: 'ETH',
+    mid: `${ref ? `<span class="ob-last"><b>${esc(ethPxFmt(ethPx(ref)))}</b><em>Precision pool</em></span>` : '<span></span>'}${spreadTxt(z.asks[0]?.price, z.bids[0]?.price)}` });
+}
+function btcStack(b, live) {
+  const lvs = (rows, ask) => ladderLevels(rows, ask ? 'ask' : 'bid').map((l, i) => {
+    const amt = Number(l.amount) / 1e8, px = btcPxFmt(btcPx(l.unit)), ends = ask ? Math.min(...l.rows.map((r) => r.expiry).filter(Boolean)) : 0;
+    const why = ask ? (l.count > 1 ? `${l.count} listings, each taken whole` : 'one listing, taken whole') : l.flag === 'auto' ? 'settles within minutes' : 'settles when the bidder is online';
+    return { price: px, small: [D.btcUsd ? `${satsFmt(l.unit)} sats` : '', l.count > 1 ? `×${l.count}` : ''].filter(Boolean).join(' · '), amount: tacFmt(amt), total: satsFmt(l.sats), depth: l.sats, mine: l.flag === 'mine',
+      attrs: live ? `data-btc="${ask ? 'buy' : 'sell'}" data-i="${i}"` : '', title: `${why}${Number.isFinite(ends) && ends ? ` · ends in ${left(ends)}` : ''}.${live ? ` Click to ${ask ? 'buy' : 'sell'} up to this price.` : ''}`,
+      label: `${ask ? 'Buy up to' : 'Sell up to'} ${tacFmt(amt)} TAC at ${px} each` };
+  });
+  return stackBook({ asks: lvs(b.asks, true), bids: lvs(b.bids, false), totalHead: 'Sats',
+    mid: `${D.btc?.mark ? `<span class="ob-last"><b>${esc(btcPxFmt(btcPx(D.btc.mark)))}</b><em>last trade</em></span>` : '<span></span>'}${spreadTxt(b.bestAsk, b.bestBid)}` });
 }
 function renderBook() {
   const tab = bookTab(), box = $('#ladders'), note = $('#depth-note');
@@ -499,7 +535,7 @@ function renderBook() {
       asks: z.asks.map((o) => ({ price: ethPx(o.price), size: Number(o.base) / 1e18, order: o })), bids: z.bids.map((o) => ({ price: ethPx(o.price), size: Number(o.base) / 1e18, order: o })), take,
       priceFmt: ethPxFmt, sizeFmt: (n) => `${tacFmt(n)} TAC`, label: 'zSwap order book for TAC', empty: 'No TAC orders rest on zSwap\'s boards right now.',
     });
-    box.innerHTML = hasBoardOrders() ? `<div class="lads">${ethLadder(z.asks, true)}${ethLadder(z.bids, false)}</div>` : `<p class="note">${z.answered < BOARD_CALLS ? 'No TAC orders on the boards that answered.' : 'No TAC orders on zSwap\'s boards.'}${missing} ${ZSWAP_LINK}</p>`;
+    box.innerHTML = hasBoardOrders() ? ethStack(z) : `<p class="note">${z.answered < BOARD_CALLS ? 'No TAC orders on the boards that answered.' : 'No TAC orders on zSwap\'s boards.'}${missing} ${ZSWAP_LINK}</p>`;
     note.innerHTML = hasBoardOrders() ? `Orders on zSwap's boards. Fill sets the ticket to that order; otherwise the ticket fills the best orders together when that pays more.${missing} ${ZSWAP_LINK}` : '';
     return;
   }
@@ -511,18 +547,7 @@ function renderBook() {
     priceFmt: btcPxFmt, sizeFmt: (n) => `${tacFmt(n)} TAC`, label: 'Bitcoin order book for TAC', empty: 'No TAC is listed on the Bitcoin order book right now.',
   });
   const live = btcOn();
-  // One line per price (listings at the same price are one level, with how many), as the market page's own book does.
-  const side = (rows, ask) => {
-    const levels = ladderLevels(rows, ask ? 'ask' : 'bid').slice(0, ask ? 8 : 6);
-    if (!levels.length) return '';
-    const sub = ask ? 'listings are taken whole' : rows.some((r) => r.auto) ? 'sell TAC for sats' : 'sell TAC for sats · settles when the bidder is online';
-    return `<div class="lad"><h3>${ask ? 'For sale' : 'Wanted'} <span>${sub}</span></h3><table class="table"><thead><tr><th>Price</th><th class="r">TAC</th><th class="r">Sats</th>${live ? '<th></th>' : ''}</tr></thead><tbody>${levels.map((l, i) => {
-      const amt = Number(l.amount) / 1e8, ends = ask ? Math.min(...l.rows.map((r) => r.expiry).filter(Boolean)) : 0, mine = l.flag === 'mine';
-      const small = [D.btcUsd ? `${satsFmt(l.unit)} sats` : '', l.count > 1 ? `×${l.count}` : '', !ask && l.flag === 'auto' ? 'within minutes' : ''].filter(Boolean).join(' · ');
-      return `<tr${mine ? ' class="mine"' : ''}${Number.isFinite(ends) && ends ? ` title="Ends in ${esc(left(ends))}"` : ''}><td><b class="num">${esc(btcPxFmt(btcPx(l.unit)))}</b>${small ? `<small>${esc(small)}</small>` : ''}</td><td class="r num">${esc(tacFmt(amt))}</td><td class="r num">${esc(satsFmt(l.sats))}</td>${live ? `<td class="go">${mine ? '<span class="mute">yours</span>' : `<button class="fillbtn" type="button" data-btc="${ask ? 'buy' : 'sell'}" data-i="${i}" aria-label="${ask ? 'Buy up to' : 'Sell up to'} ${esc(tacFmt(amt))} TAC at ${esc(btcPxFmt(btcPx(l.unit)))} each">${ask ? 'Buy' : 'Sell'}</button>`}</td>` : ''}</tr>`;
-    }).join('')}</tbody></table></div>`;
-  };
-  box.innerHTML = `<div class="lads two">${side(b.asks, true)}${side(b.bids, false)}</div>` + (live ? `<div class="btc-actions"><button class="fillbtn primary" type="button" data-btc="open">Trade on Bitcoin</button><button class="fillbtn" type="button" data-btc="list">List a sale</button></div>` : '');
+  box.innerHTML = btcStack(b, live) + (live ? `<div class="btc-actions"><button class="fillbtn primary" type="button" data-btc="open">Trade on Bitcoin</button><button class="fillbtn" type="button" data-btc="list">List a sale</button></div>` : '');
   const total = b.asks.reduce((a, r) => a + r.amount, 0n), want = b.bids.reduce((a, r) => a + r.amount, 0n);
   const bidsTxt = !D.bidsRead ? 'Could not read the bids.' : b.bids.length ? `${b.bids.length} bid${b.bids.length === 1 ? '' : 's'} (${grp(Number(want) / 1e8, 0)} TAC) settle when the bidder is online${b.bids.some((r) => r.auto) ? ', some within minutes' : ''}.` : 'No bids.';
   note.innerHTML = b.asks.length ? `${b.asks.length} listings (${grp(Number(total) / 1e8, 0)} TAC), taken whole. ${bidsTxt}${live ? '' : ` <a href="/tac/#buy">Buy on Bitcoin →</a> · <a href="/classic.html#tab=market&aid=${TAC_BTC_ID}&lane=btc">List a sale →</a>`}` : bidsTxt;
@@ -678,7 +703,7 @@ async function connectWallet() {
     await afterConnect();
   } catch (e) { say(esc(e instanceof UserStopped ? 'Not connected.' : (e.message || 'The wallet did not connect.'))); }
 }
-async function afterConnect() { S.review = null; renderChip(); renderBook(); await readBalances(); renderBalance(); renderReview(); if (getAmount()) requote(); else renderGo(); }
+async function afterConnect() { S.review = null; renderChip(); renderBook(); farm.refresh(); await readBalances(); renderBalance(); renderReview(); if (getAmount()) requote(); else renderGo(); }
 
 // ── the wallet chip in the header: connect, or see the account and disconnect ──
 function renderChip() {
@@ -697,13 +722,19 @@ function walletSheet() {
 }
 $('#wallet-chip').addEventListener('click', () => { if (W.account) walletSheet(); else connectWallet(); });
 
+// The Precision pool's farm, beside the ticket: same wallet, same chain reads.
+const farm = mountFarm($('#farm'), {
+  ethCall, batch, rpc, api, wallet, W, connect: () => connectWallet(), fmtUnits, parseUnits, esc, usd, ethUsd: () => D.ethUsd, txLink,
+  onDone: () => { readBalances().then(() => { renderBalance(); renderGo(); }); loadChain().then(paintAll).catch(() => {}); },
+});
+
 // On a phone the ticket is far down the page: a bar at the foot leads to it while it is out of view.
 {
   const stick = $('#stick'), ticket = $('.p-ticket');
   if ('IntersectionObserver' in window) new IntersectionObserver(([e]) => { stick.hidden = e.isIntersecting; }, { rootMargin: '0px 0px -40px 0px' }).observe(ticket);
   $('#stick-go').addEventListener('click', () => ticket.scrollIntoView({ behavior: 'smooth', block: 'start' }));
 }
-wallet.onChange(() => { renderChip(); renderBook(); if (S.busy) return; S.review = null; readBalances().then(() => { renderBalance(); renderReview(); if (getAmount()) requote(); }); });   // a trade in flight keeps the account it was reviewed for: the wallet module refuses to send for another
+wallet.onChange(() => { renderChip(); renderBook(); if (!farm.busy()) farm.refresh(); if (S.busy) return; S.review = null; readBalances().then(() => { renderBalance(); renderReview(); if (getAmount()) requote(); }); });   // a trade in flight keeps the account it was reviewed for: the wallet module refuses to send for another
 
 // The transaction, with the TAC a sale spends made available: a permit signed (no gas) where the route takes one, else an approval sent first.
 async function withTacAccess({ make, buy, permit, from, dl }) {
@@ -835,8 +866,11 @@ $('#side-seg').addEventListener('click', (e) => {
   $('#side-seg').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.side === S.side)));
   requote(); renderQuote(null); renderVenues(null);
 });
+document.addEventListener('click', (e) => { const h = $('#hints'); if (h.open && !h.contains(e.target)) h.open = false; });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#hints').open) { $('#hints').open = false; $('#hints summary').focus(); } });
 $('#book-seg').addEventListener('click', (e) => { const b = e.target.closest('[data-book]'); if (b) { S.book = b.dataset.book; renderBook(); } });
 $('#ladders').addEventListener('click', (e) => {
+  if (e.target.closest('[data-more]')) { S.bookAll = !S.bookAll; renderBook(); return; }
   const f = e.target.closest('[data-fill]'); if (f) { pinOrder(f.dataset.fill); return; }
   const k = e.target.closest('[data-btc]'); if (k) openBitcoin(bookPrime(k.dataset.btc, Number(k.dataset.i)));
 });
@@ -845,10 +879,10 @@ $('#lane-seg').addEventListener('click', (e) => { const b = e.target.closest('[d
 $('.p-chart').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b || b.closest('#lane-seg')) return;
-  if (b.dataset.unit) S.unit = b.dataset.unit; else if (b.dataset.tf) S.tf[S.lane] = Number(b.dataset.tf); else if (b.dataset.range != null) S.range = Number(b.dataset.range); else if (b.dataset.log) S.log = !S.log;
+  if (b.dataset.kind) S.kind = b.dataset.kind; else if (b.dataset.unit) S.unit = b.dataset.unit; else if (b.dataset.tf) S.tf[S.lane] = Number(b.dataset.tf); else if (b.dataset.range != null) S.range = Number(b.dataset.range); else if (b.dataset.log) S.log = !S.log;
   renderChart();
 });
-function paintAll() { renderHead(); renderLanes(); renderChart(); renderBook(); renderPin(); renderAbout(); if (S.quote) renderVenues(S.quote); }
+function paintAll() { renderHead(); renderLanes(); renderChart(); renderBook(); renderPin(); renderAbout(); farm.paint(); if (S.quote) renderVenues(S.quote); }
 renderQuote(null); renderVenues(null); renderControls(); renderAbout(); renderLanes();
 const loads = [loadChain().then(paintAll), loadTapes().then(paintAll), loadBitcoin().then(paintAll), loadBoards().then(paintAll)];
 Promise.allSettled(loads).then((rs) => {
@@ -861,5 +895,5 @@ Promise.allSettled(loads).then((rs) => {
   if (params.get('amount')) { S.amt = params.get('amount'); $('#amt').value = S.amt; requote(); } else keepInHash();
   paintAll();
 });
-setInterval(() => { if (!document.hidden) { loadChain().then(paintAll).catch(() => {}); loadTapes().then(paintAll).catch(() => {}); loadBitcoin().then(paintAll).catch(() => {}); loadBoards().then(paintAll).catch(() => {}); if (S.quote && !S.review && !S.busy && !S.refreshing) requote(true); if (W.account && !S.review && !S.busy) readBalances().then(() => { renderBalance(); renderGo(); }); } }, 60e3);       // a review being read, or a trade being made, is not redrawn under the person
+setInterval(() => { if (!document.hidden) { loadChain().then(paintAll).catch(() => {}); loadTapes().then(paintAll).catch(() => {}); loadBitcoin().then(paintAll).catch(() => {}); loadBoards().then(paintAll).catch(() => {}); if (S.quote && !S.review && !S.busy && !S.refreshing) requote(true); if (W.account && !S.review && !S.busy) readBalances().then(() => { renderBalance(); renderGo(); }); if (!farm.busy()) farm.refresh(); } }, 60e3);       // a review being read, or a trade being made, is not redrawn under the person
 

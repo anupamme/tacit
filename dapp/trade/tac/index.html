@@ -87,7 +87,7 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 @media (max-width: 560px) { .top nav a.opt { display: none; } }
 
 /* what TAC costs, and where */
-.hero { padding: 26px 0 18px; }
+.hero { padding: 26px 0 18px; position: relative; }
 .hero h1 { font: 400 clamp(46px, 8vw, 84px)/.92 var(--serif); letter-spacing: -.025em; margin: 0; }
 .hero h1 em { font-style: italic; }
 .hero .sub { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-top: 12px; color: var(--mute); font-size: 13px; }
@@ -98,8 +98,17 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .gapnote b { color: var(--ink); font-weight: 500; }
 @media (max-width: 820px) { .hero { grid-template-columns: minmax(0, 1fr); } }
 
-/* Where TAC trades, as a quiet strip: no boxes, a hairline above and below and between, the price at reading size with its second unit beside it. */
-.lanes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0 0 18px; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); }
+/* Where TAC trades: one quiet line under the price that opens a dropdown with each place's price and the hints that go with them. */
+.hints { margin-top: 10px; }
+.hints summary { display: inline-flex; align-items: center; gap: 6px; list-style: none; cursor: pointer; font-size: 12px; color: var(--mute); padding: 4px 0; }
+.hints summary::-webkit-details-marker { display: none; }
+.hints summary::after { content: '▾'; font-size: 10px; transition: transform .15s; }
+.hints[open] summary::after { transform: rotate(180deg); }
+.hints summary b { color: var(--ink); font-weight: 500; }
+@media (hover: hover) { .hints summary:hover { color: var(--ink); } }
+.hints-pop { position: absolute; left: 0; top: 100%; z-index: 40; width: min(640px, 100%); margin-top: -10px; padding: 14px 16px; background: var(--card); border: 1px solid var(--hair-2); box-shadow: 0 10px 30px rgba(0, 0, 0, .12); }
+.hints-pop .gapnote { margin: 10px 0 0; }
+.lanes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
 .lane { padding: 11px 14px 10px 0; min-width: 0; }
 .lane + .lane { padding-left: 16px; border-left: 1px solid var(--hair); }
 .lane .k { display: flex; align-items: center; gap: 6px; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--mute); }
@@ -109,17 +118,14 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .lane .g { display: block; margin-top: 1px; font-size: 11px; color: var(--mute); }
 .lane .g.up, .lane .g.down { color: var(--mute); }
 .lane .sk { display: inline-block; height: 1em; width: 6ch; background: var(--skel); border-radius: 2px; }
-@media (max-width: 860px) {
-  .lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .lane:nth-child(odd) { padding-left: 0; border-left: 0; }
-  .lane:nth-child(n+3) { border-top: 1px solid var(--hair); }
-}
+.lane:nth-child(odd) { padding-left: 0; border-left: 0; }
+.lane:nth-child(n+3) { border-top: 1px solid var(--hair); }
 @media (max-width: 560px) { .lane .s { display: block; margin-left: 0; } }
 
 /* the page */
-.grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; grid-template-areas: "chart ticket" "venues ticket" "depth ticket" "info ticket"; grid-template-rows: auto auto auto 1fr; gap: 14px 16px; }
-.p-chart { grid-area: chart; } .p-ticket { grid-area: ticket; position: sticky; top: 14px; align-self: start; } .p-venues { grid-area: venues; } .p-depth { grid-area: depth; } .p-info { grid-area: info; }
-@media (max-width: 980px) { .grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "ticket" "chart" "venues" "depth" "info"; } .p-ticket { position: static; } }
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; grid-template-areas: "chart ticket" "venues farm" "depth farm" "info farm"; grid-template-rows: auto auto auto 1fr; gap: 14px 16px; }
+.p-chart { grid-area: chart; } .p-ticket { grid-area: ticket; align-self: start; } .p-farm { grid-area: farm; align-self: start; } .p-venues { grid-area: venues; } .p-depth { grid-area: depth; } .p-info { grid-area: info; }
+@media (max-width: 980px) { .grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "ticket" "chart" "venues" "farm" "depth" "info"; } }
 .panel { background: var(--card); border: 1px solid var(--hair); padding: 22px; min-width: 0; }
 @media (max-width: 480px) { .panel { padding: 18px 14px; } }
 .eyebrow { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--mute); margin: 0 0 12px; }
@@ -149,6 +155,8 @@ code { font-size: 12px; overflow-wrap: anywhere; }
 .chart .wick.up { stroke: var(--up); } .chart .body.up { fill: var(--up); } .chart .vol.up { fill: var(--up); opacity: .22; }
 .chart .wick.down { stroke: var(--down); } .chart .body.down { fill: var(--down); } .chart .vol.down { fill: var(--down); opacity: .22; }
 .chart .line { fill: none; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+.chart .area { fill-opacity: .08; stroke: none; pointer-events: none; } .chart .line-vol { fill: var(--ink); opacity: .1; }
+.chart .lastdot { stroke: var(--card); stroke-width: 2; }
 .chart .tagline { stroke-width: 1; stroke-dasharray: 3 3; opacity: .8; }
 .chart .tagbox { opacity: .95; } .chart .tagtext { fill: #fff; font-size: 10px; font-weight: 500; }
 .chart .cross line { stroke: var(--mute); stroke-width: 1; stroke-dasharray: 3 3; }
@@ -229,24 +237,35 @@ input::placeholder { color: var(--mute); opacity: .7; }
 .dep-ask.take, .dep-bid.take { fill-opacity: .42; stroke-width: 0; }
 .dep-mid { stroke: var(--mute); stroke-width: 1; stroke-dasharray: 3 3; }
 .p-depth { container-type: inline-size; }
-.lads { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 32px; }
-@container (min-width: 640px) { .lads.two { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.lads.two .table { table-layout: fixed; }
-.lads.two .table th:nth-child(1) { width: 38%; } .lads.two .table th:nth-child(2) { width: 22%; } .lads.two .table th:nth-child(3) { width: 22%; } .lads.two .table th:nth-child(4) { width: 18%; }
-.lad { margin: 14px 0 0; }
+/* The order book, drawn as the Bitcoin market's: asks over the last price over bids, shaded by depth from the middle out. */
+.ob { margin: 14px 0 0; border: 1px solid var(--hair-2); font-variant-numeric: tabular-nums; }
+.ob-head, .ob-row { display: grid; grid-template-columns: 1.15fr 1fr 1fr; gap: 8px; padding: 0 12px; align-items: center; }
+.ob-head { height: 30px; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--mute); border-bottom: 1px solid var(--hair); }
+.ob-head > span:not(:first-child), .ob-row > span:not(:first-child) { text-align: right; }
+.ob-row { position: relative; z-index: 0; width: 100%; min-height: 27px; padding-top: 3px; padding-bottom: 3px; background: none; border: 0; color: var(--ink); font: inherit; font-size: 12px; text-align: left; }
+.ob-row::before { content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: var(--w, 0%); z-index: -1; pointer-events: none; transition: width .25s ease-out; }
+.ob-row.ask::before { background: color-mix(in srgb, var(--down) 10%, transparent); }
+.ob-row.bid::before { background: color-mix(in srgb, var(--up) 10%, transparent); }
+button.ob-row { cursor: pointer; }
+@media (hover: hover) { button.ob-row:hover { background: var(--field); } button.ob-row:hover .p { text-decoration: underline; text-underline-offset: 3px; } }
+button.ob-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+@media (pointer: coarse) { .ob-row { min-height: 36px; } }
+.ob-row .p { font-weight: 500; } .ob-row.ask .p { color: var(--down); } .ob-row.bid .p { color: var(--up); }
+.ob-row .p small { display: inline; margin-left: 6px; font-weight: 400; font-size: 10.5px; color: var(--mute); }
+.ob-row .a, .ob-row .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .ob-row .t { color: var(--mute); }
+.ob-row.mine { opacity: .65; } .ob-row.take { box-shadow: inset 3px 0 0 var(--orange); }
+.ob-tag { font-style: normal; font-size: 9px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--orange); margin-right: 6px; }
+.ob-spread { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; padding: 0 12px; border-top: 1px solid var(--hair-2); border-bottom: 1px solid var(--hair-2); background: var(--field); font-size: 11px; color: var(--mute); }
+.ob-last { display: inline-flex; align-items: baseline; gap: 6px; } .ob-last b { font-size: 15px; font-weight: 500; color: var(--ink); } .ob-last em { font-style: normal; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+.ob-empty { padding: 12px; font-size: 11.5px; color: var(--mute); }
+.ob-more { display: block; width: 100%; height: 32px; background: none; border: 0; border-top: 1px solid var(--hair); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--mute); cursor: pointer; }
+@media (hover: hover) { .ob-more:hover { color: var(--ink); background: var(--field); } }
+@media (max-width: 420px) { .ob-row .p small { display: none; } }
+.hints .up { color: var(--up); } .hints .down { color: var(--down); }
 .table.empty thead { display: none; } .table.empty td { border-top: 0; padding: 0 0 4px; }
-.lad h3 { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; margin: 0 0 2px; font: 500 12.5px/1.4 var(--mono); }
-.lad h3 span { font-weight: 400; color: var(--mute); }
-.lad .table td { vertical-align: middle; padding: 8px 8px; }
-.lad .table th { padding-top: 6px; }
-.lad .table tr.take td { background: color-mix(in srgb, var(--orange) 10%, transparent); }
-.lad .table tr.mine td { opacity: .6; }
-.lad .go { text-align: right; width: 1%; white-space: nowrap; }
 .fillbtn { min-height: 28px; padding: 3px 11px; font-size: 12px; cursor: pointer; background: none; color: var(--ink); border: 1px solid var(--hair-2); text-decoration: none; display: inline-flex; align-items: center; }
 .fillbtn:hover { border-color: var(--ink); background: var(--ink); color: var(--card); }
 @media (pointer: coarse) { .fillbtn { min-height: 36px; } }
-.lad .more-rows { margin: 6px 0 0; }
-@media (max-width: 560px) { .lad .opt { display: none; } }
 /* Bitcoin: the market module in a sheet, and the small dialogs it needs above its own confirmations */
 .btc-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
 .fillbtn.primary { background: var(--ink); color: var(--card); border-color: var(--ink); }
@@ -297,6 +316,18 @@ input::placeholder { color: var(--mute); opacity: .7; }
 .btoast.error { color: var(--paper); background: var(--err); }
 .pin { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; margin: -6px 0 6px; padding: 9px 12px; font-size: 12.5px; background: var(--field); border-left: 2px solid var(--orange); }
 
+.fm-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; margin: 0 0 12px; }
+.fm-stats > div { display: grid; gap: 2px; } .fm-stats .k { font-size: 11px; color: var(--mute); } .fm-stats b { font-weight: 500; font-size: 17px; } .fm-stats .s { font-size: 11.5px; color: var(--mute); }
+.fm-prog { margin: 0 0 4px; } .fm-prog a { color: var(--ink); }
+.fm-pos, .fm-add { border-top: 1px solid var(--hair); margin-top: 14px; padding-top: 14px; }
+.p-farm h3 { font: 400 20px/1.15 var(--serif); margin: 0 0 12px; }
+.fm-how { margin: 0 0 4px; }
+.fm-rcpt { margin: 12px 0 0; padding: 10px 12px; background: var(--field); border: 1px solid var(--hair-2); }
+.fm-rcpt .note { margin: 6px 0 0; }
+.fm-rcpt .ack { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0 0; font-size: 12.5px; cursor: pointer; }
+.fm-rcpt .ack input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--ink); flex: none; }
+.fm-out { display: flex; flex-wrap: wrap; gap: 8px; } .fm-out .seg button { min-height: 30px; padding: 2px 10px; font-size: 12px; }
+.fm-pos .btn { margin-top: 10px; }
 .facts { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
 .facts li { display: grid; grid-template-columns: 150px 1fr; gap: 4px 16px; padding: 11px 0; border-top: 1px solid var(--hair); font-size: 12.5px; }
 .facts li:first-child { border-top: 0; padding-top: 0; }
@@ -327,6 +358,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     <nav aria-label="Pages">
       <a href="/">Home</a>
       <a href="/trade/tac/" aria-current="page">Trade</a>
+      <a href="#farm">Earn</a>
       <a href="/tac/" class="opt">Shielded TAC</a>
       <a href="/pay/" class="opt">Pay</a>
       <a href="/weld/stats/" class="opt">Stats</a>
@@ -341,10 +373,11 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
       <h1 id="px-h"><span class="sr">TAC price </span><span id="px-usd" class="num">TAC</span></h1>
       <div class="sub" id="px-sub"><span class="mute">Reading the pools…</span></div>
       <noscript><p class="note">Prices, charts and trading on this page need JavaScript.</p></noscript>
+      <details class="hints" id="hints"><summary id="hints-sum">Prices on each chain</summary>
+        <div class="hints-pop"><div class="lanes" id="lanes" role="group" aria-label="TAC's price in each place it trades"></div><p class="gapnote" id="gapnote"></p></div>
+      </details>
     </div>
   </section>
-
-  <section class="lanes" id="lanes" aria-label="TAC's price in each place it trades"></section>
 
   <div class="grid">
     <section class="panel p-chart" aria-labelledby="chart-h">
@@ -359,7 +392,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
       </div>
       <div id="chart" role="group" aria-label="Price chart"><p class="chart-empty">Reading the price history…</p></div>
       <div class="chart-foot"><div class="legend" id="legend"></div><div class="view" id="view-seg" role="group" aria-label="View"></div></div>
-      <p class="gapnote" id="gapnote"></p>
       <details class="more"><summary>About this chart</summary><p class="note" id="chart-note"></p></details>
     </section>
 
@@ -381,6 +413,8 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
       <div class="status" id="status" role="status"></div>
       <p class="note" id="tk-note"></p>
     </section>
+
+    <section class="panel p-farm" id="farm" aria-labelledby="fm-h"><noscript><p class="note">The farm needs JavaScript.</p></noscript></section>
 
     <section class="panel p-venues" aria-labelledby="v-h">
       <p class="eyebrow" id="v-h">Quotes</p>
@@ -424,6 +458,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/app.js?cb=77c3e153"></script>
+<script type="module" src="/trade/app.js?cb=32fa9ef3"></script>
 </body>
 </html>

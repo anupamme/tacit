@@ -112,8 +112,8 @@ let r;
 try {
   r = await openPage({ width: 1280, height: 900 });
   const p = r.page;
-  await until(p, () => /^\$/.test(document.querySelector('#px-usd')?.textContent || '') && document.querySelectorAll('#lanes .lane .v').length === 4 && !document.querySelector('#lanes .sk') && document.querySelectorAll('#chart .body').length > 5 && document.querySelectorAll('#ladders tbody tr').length > 3, null, 240000).catch(async (e) => {
-    console.log('     page at the first wait:', JSON.stringify(await p.evaluate(() => ({ url: location.href, px: document.querySelector('#px-usd')?.textContent, lanes: document.querySelectorAll('#lanes .lane .v').length, skeleton: !!document.querySelector('#lanes .sk'), candles: document.querySelectorAll('#chart .body').length, asks: document.querySelectorAll('#ladders tbody tr').length, chart: document.querySelector('#chart')?.textContent.slice(0, 80) }))), 'errors:', r.errors.slice(0, 3), 'blocked:', r.blocked.slice(0, 2));
+  await until(p, () => /^\$/.test(document.querySelector('#px-usd')?.textContent || '') && document.querySelectorAll('#lanes .lane .v').length === 4 && !document.querySelector('#lanes .sk') && !!document.querySelector('#chart .line') && document.querySelectorAll('#ladders .ob-row').length > 3, null, 240000).catch(async (e) => {
+    console.log('     page at the first wait:', JSON.stringify(await p.evaluate(() => ({ url: location.href, px: document.querySelector('#px-usd')?.textContent, lanes: document.querySelectorAll('#lanes .lane .v').length, skeleton: !!document.querySelector('#lanes .sk'), candles: document.querySelectorAll('#chart .body').length, asks: document.querySelectorAll('#ladders .ob-row').length, chart: document.querySelector('#chart')?.textContent.slice(0, 80) }))), 'errors:', r.errors.slice(0, 3), 'blocked:', r.blocked.slice(0, 2));
     throw e;
   });
 
@@ -124,7 +124,9 @@ try {
   ok(lanes.length === 4 && /Precision pool.*\$0\.\d+.*ETH.*the reference/.test(lanes[0]) && /Tacit pool.*\$0\.\d+.*ETH.*vs Precision/.test(lanes[1]) && /Bitcoin · last trade.*\$0\.\d+.*150 sats/.test(lanes[2]) && /Bitcoin · cheapest ask.*\$0\.\d+.*157 sats/.test(lanes[3]), `four prices, each in dollars with ETH or sats and its gap against Precision (${lanes.map((l) => l.slice(0, 60)).join(' | ')})`);
   ok(/TAC costs \d+% (more|less) on Ethereum than on the Bitcoin order book/.test(await text(p, '#gapnote')), `the gap between the two lanes is said in words (${(await text(p, '#gapnote')).slice(0, 110)})`);
 
-  // the chart
+  // the chart: a line by default, as the Bitcoin market draws it, and candles a press away
+  ok(!!(await p.$('#chart .line')) && !!(await p.$('#chart polygon.area')) && !!(await p.$('#chart .lastdot')) && (await candles(p)) === 0 && /Candles/.test(await text(p, '[data-kind]')), 'the Ethereum lane draws the Precision pool\'s price as a shaded line with its last price marked');
+  await p.click('[data-kind="candles"]'); await until(p, () => document.querySelectorAll('#chart .body').length > 5);
   const c4 = await candles(p);
   ok(c4 >= 30 && c4 <= 90, `the Ethereum lane draws the 4-hour tape as candles (${c4})`);
   ok((await p.$$eval('#chart .tagtext', (t) => t.map((x) => x.textContent))).includes('Precision'), 'with the Precision pool\'s price at the edge');
@@ -205,9 +207,10 @@ try {
 
   // the order book and the facts
   ok((await p.getAttribute('[data-book="btc"]', 'aria-pressed')) === 'true', 'with zSwap holding no TAC order the order book opens on Bitcoin\'s listings');
-  const dep = await p.$$eval('#ladders tbody tr', (d) => d.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
-  const hd = (await p.$$eval('#ladders .lad h3', (h) => h.map((x) => x.textContent.replace(/\s+/g, ' ')))).join(' | ');
-  ok(dep.length >= 7 && dep.length <= 14 && /^\$0\.\d+ sats/.test(dep[0]) && /For sale.*Wanted/.test(hd), `listings are one line per price and the bids sit beside them (${dep.length} lines: ${dep[0]} … ${hd.slice(0, 90)})`);
+  const dep = await p.$$eval('#ladders .ob-asks .ob-row', (d) => d.map((x) => x.textContent.replace(/\s+/g, ' ').trim()).reverse()), bidRows = await p.$$eval('#ladders .ob-bids .ob-row', (d) => d.length);
+  const mid = (await text(p, '#ladders .ob-spread')).replace(/\s+/g, ' ');
+  ok(dep.length >= 3 && dep.length <= 8 && bidRows >= 1 && /^\$0\.\d+[\d,.]+ sats/.test(dep[0]) && /last trade/.test(mid) && /spread/.test(mid), `the book stacks the listings over the last price and the bids under it, one line per price (${dep.length} + ${bidRows}: ${dep[0]} | ${mid})`);
+  ok(await p.$eval('#ladders .ob-asks .ob-row:last-child', (e) => parseFloat(getComputedStyle(e, '::before').width) > 0), 'each row is shaded by the depth from the middle out');
   ok((await p.$$eval('#depthchart path.dep-ask', (x) => x.length)) === 1 && (await p.$$eval('#depthchart path.dep-bid', (x) => x.length)) === 1, 'drawn as a depth chart of listings and bids');
   ok(/\d+ bids \([\d,]+ TAC\) settle when the bidder is online/.test(await text(p, '#depth-note')), 'and the note says how many bids stand and when a sale to one settles');
   await p.click('[data-book="eth"]');
@@ -236,7 +239,7 @@ try {
     const me = await fundedWallet(10n * E18, 30000n * E18);
     const w = await openPage({ width: 1280, height: 900 }, me);
     const q = w.page;
-    await until(q, () => document.querySelectorAll('#chart .body').length > 5 && /^\$/.test(document.querySelector('#px-usd')?.textContent || ''), null, 240000);
+    await until(q, () => !!document.querySelector('#chart .line') && /^\$/.test(document.querySelector('#px-usd')?.textContent || ''), null, 240000);
     ok(/Connect wallet/.test(await text(q, '#go')), 'with no wallet connected the button says Connect wallet');
     await q.click('#go');
     await until(q, () => /Balance [\d.,]+ ETH/.test(document.querySelector('#in-bal')?.textContent || ''), null, 60000);
@@ -344,17 +347,18 @@ try {
 
     const w = await openPage({ width: 1280, height: 900 }, me);
     const q = w.page;
-    await until(q, () => document.querySelectorAll('#chart .body').length > 5 && document.querySelector('[data-book="eth"]')?.getAttribute('aria-pressed') === 'true' && document.querySelectorAll('#ladders [data-fill]').length >= 4, null, 240000);
-    const lad = (sel) => q.$$eval(sel, (rows) => rows.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
-    const asks = await lad('#ladders .lad:nth-of-type(1) tbody tr'), bids = await lad('#ladders .lad:nth-of-type(2) tbody tr');
+    await until(q, () => !!document.querySelector('#chart .line') && document.querySelector('[data-book="eth"]')?.getAttribute('aria-pressed') === 'true' && document.querySelectorAll('#ladders [data-fill]').length >= 4, null, 240000);
+    const lad = (sel) => q.$$eval(sel, (rows) => rows.map((x) => `${x.textContent} ${x.title || ''}`.replace(/\s+/g, ' ').trim()));
+    const askRows = () => lad('#ladders .ob-asks .ob-row').then((r) => r.reverse());                 // drawn with the cheapest nearest the middle
+    const asks = await askRows(), bids = await lad('#ladders .ob-bids .ob-row');
     ok(asks.length === 4 && bids.length === 1, `the Ethereum tab opens with orders: ${asks.length} to sell, ${bids.length} to buy (${asks[0].slice(0, 90)})`);
     ok(/^\$0\.\d+.*1,000.*0\.01.*Swapboard v1.*whole only/.test(asks[0]) || /^\$0\.\d+.*1,000.*0\.01.*Swapboard v1/.test(asks.find((x) => /Swapboard v1/.test(x)) || ''), 'each with its price, size, the ETH it takes, the board and what it allows');
     ok(asks.some((x) => /Dutchboard.*price changes with time/.test(x)) && asks.some((x) => /Swapboard v2.*part fills ok/.test(x)) && /Swapboard v2/.test(bids[0]), 'a Dutchboard lot, a partial v2 order and the v2 bid are all there');
     ok((await q.$$eval('#depthchart path.dep-ask', (x) => x.length)) >= 1 && (await q.$$eval('#depthchart path.dep-bid', (x) => x.length)) >= 1, 'and drawn as a depth chart of both sides');
-    ok(!(await lad('#ladders .lad:nth-of-type(1) tbody tr')).some((x) => /yours/.test(x)), 'before a wallet is connected no order is marked as the account\'s');
+    ok(!(await askRows()).some((x) => /yours/.test(x)), 'before a wallet is connected no order is marked as the account\'s');
     await q.click('#go');
-    await until(q, () => /Balance [\d.,]+ ETH/.test(document.querySelector('#in-bal')?.textContent || '') && document.querySelectorAll('#ladders tr.mine').length === 1, null, 60000);
-    ok(/yours/.test(await text(q, '#ladders tr.mine')) && !(await q.$('#ladders tr.mine [data-fill]')), 'once connected, the account\'s own order says yours and has no Fill');
+    await until(q, () => /Balance [\d.,]+ ETH/.test(document.querySelector('#in-bal')?.textContent || '') && document.querySelectorAll('#ladders .ob-row.mine').length === 1, null, 60000);
+    ok(/yours/.test(await text(q, '#ladders .ob-row.mine')) && !(await q.$('#ladders .ob-row.mine[data-fill]')), 'once connected, the account\'s own order says yours and has no Fill');
 
     // the best route: boards that take the amount and pay more than the pools are what the ticket uses
     await q.fill('#amt', '0.03');
@@ -363,11 +367,11 @@ try {
     ok(/Route.*(zSwap orders|Swapboard v1 order|Swapboard v2 order)/.test(auto) && !/Tacit pool|Precision/.test(auto), `0.03 ETH goes to the boards, whose orders are cheaper than the pools (${auto.slice(0, 110)})`);
     const vrows = await lad('#venues tbody tr');
     ok(vrows.some((x) => /^zSwap boards.*this ticket/.test(x)) && vrows.some((x) => /best/.test(x) && /^zSwap boards/.test(x)), 'the quotes table lists zSwap boards as the route and the best');
-    ok((await q.$$eval('#ladders tr.take', (x) => x.length)) >= 1 && (await q.$$eval('#depthchart path.dep-ask.take', (x) => x.length)) === 1, 'and the order book marks the orders the ticket would take, in the ladder and on the chart');
+    ok((await q.$$eval('#ladders .ob-row.take', (x) => x.length)) >= 1 && (await q.$$eval('#depthchart path.dep-ask.take', (x) => x.length)) === 1, 'and the order book marks the orders the ticket would take, in the ladder and on the chart');
     await q.fill('#amt', '');
 
     // Fill on the cheapest order pins it to the ticket
-    const fillKey = await q.$eval('#ladders .lad:nth-of-type(1) tbody tr:not(.mine) [data-fill]', (b) => b.dataset.fill);
+    const fillKey = await q.$$eval('#ladders .ob-asks .ob-row[data-fill]:not(.mine)', (b) => b.at(-1).dataset.fill);
     ok(fillKey === `v1:${idV1}`, `the cheapest order is the Swapboard v1 one (${fillKey})`);
     await q.click(`[data-fill="${fillKey}"]`);
     await until(q, () => !document.querySelector('#out').classList.contains('ph') && /Review buy/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
@@ -385,7 +389,7 @@ try {
     ok((await tacBal(MC3)) === mc0 && await q.$eval('#pin', (e) => e.hidden), 'the filled order has left the book, the pin is gone, and Multicall3 holds nothing');
 
     // a sale into the bid: the permit is signed, then one transaction
-    const bidKey = await q.$eval('#ladders .lad:nth-of-type(2) tbody tr [data-fill]', (b) => b.dataset.fill);
+    const bidKey = await q.$eval('#ladders .ob-bids .ob-row[data-fill]', (b) => b.dataset.fill);
     ok(bidKey === `v2:${idV2 + 1n}`, `the bid is the Swapboard v2 one (${bidKey})`);
     await q.click(`[data-fill="${bidKey}"]`);
     await until(q, () => !document.querySelector('#out').classList.contains('ph') && /Review sell/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
@@ -427,7 +431,7 @@ try {
   // the addresses: TAC's own, and the bare ones people type
   {
     const own = await openPage({ width: 1280, height: 900 }, null, '', '/trade/tac/');
-    await until(own.page, () => /^\$/.test(document.querySelector('#px-usd')?.textContent || '') && document.querySelectorAll('#chart .body').length > 5, null, 240000);
+    await until(own.page, () => /^\$/.test(document.querySelector('#px-usd')?.textContent || '') && !!document.querySelector('#chart .line'), null, 240000);
     ok(own.page.url().endsWith('/trade/tac/') && /tacit trade$/.test(await own.page.title()) && (await own.page.getAttribute('link[rel="canonical"]', 'href')) === 'https://tacit.finance/trade/tac/', '/trade/tac/ is the trade page at its own address, naming itself as its canonical one');
     ok((await own.page.getAttribute('meta[property="og:url"]', 'content')) === 'https://tacit.finance/trade/tac/' && own.errors.length === 0 && own.blocked.length === 0, 'and its shared link says so too, with nothing blocked');
     await own.browser.close();
@@ -447,7 +451,7 @@ try {
     for (const h of RPC_HOSTS) await dctx.route(`https://${h}/**`, async (route) => { const x = await fetch(ANVIL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: route.request().postData() }); await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: await x.text() }); });
     await dctx.route(/^https:\/\/api\.tacit\.finance\/assets\//, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(apiBody(route.request().url())) }));
     await dp.goto(`http://127.0.0.1:${WEB}/trade/`);
-    await until(dp, () => document.querySelectorAll('#chart .body').length > 5 && document.querySelectorAll('#ladders tbody tr').length > 3, null, 240000);
+    await until(dp, () => !!document.querySelector('#chart .line') && document.querySelectorAll('#ladders .ob-row').length > 3, null, 240000);
     await dp.click('[data-lane="cmp"]'); await dp.fill('#amt', '0.5');
     await until(dp, () => !document.querySelector('#out').classList.contains('ph'), null, 120000);
     await dp.screenshot({ path: join(SHOTS, 'trade-dark.png') });
@@ -457,7 +461,7 @@ try {
   // a phone
   r = await openPage({ width: 390, height: 844 });
   const m = r.page;
-  await until(m, () => /^\$/.test(document.querySelector('#px-usd')?.textContent || '') && document.querySelectorAll('#chart .body').length > 5, null, 240000);
+  await until(m, () => /^\$/.test(document.querySelector('#px-usd')?.textContent || '') && !!document.querySelector('#chart .line'), null, 240000);
   ok(await m.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `no sideways scroll at 390px (${await m.evaluate(() => document.documentElement.scrollWidth)})`);
   const order = await m.evaluate(() => ['.p-ticket', '.p-chart', '.p-depth', '.p-info'].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().top)));
   ok(order.every((t, i) => i === 0 || t > order[i - 1]), `the panels stack ticket, chart, book, facts (${order})`);

@@ -33,7 +33,8 @@ export const fmtTime = (t, withDay) => { const d = new Date(t * 1000); return wi
 export const fmtStamp = (t) => { const d = new Date(t * 1000); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())} UTC`; };
 
 // opts: {
-//   series: [{ id, name, color, kind: 'candles' | 'line', bars: [{ t, open, high, low, close, vol }], fmt: (price) => string, unit }],
+//   series: [{ id, name, color, kind: 'candles' | 'line', area, bars: [{ t, open, high, low, close, vol }], fmt: (price) => string, unit }],
+//           a line with `area` is drawn as the market page's is: shaded under it, its volume beneath, a dot on its last price
 //   period: seconds a bar spans (sets candle width),
 //   tags:   [{ y, label, color }]   price marks at the right edge (the same unit as the first series' prices)
 //   label:  the chart's accessible name
@@ -78,7 +79,7 @@ export function mountChart(host, onHover = null) {
       svg.append(el('line', { x1: X(t), x2: X(t), y1: m.t, y2: H - m.b, class: 'grid v' }), el('text', { x: X(t), y: H - 6, class: 'axis mid' }, fmtTime(t, days)));
     }
     // volume under the first series
-    const vmax = Math.max(...series.flatMap((s) => (s.kind === 'candles' ? s.bars : [])).map((b) => b.vol || 0), 0), bw = Math.max(1, Math.min(18, (period / (t1 - t0 || 1)) * pw * 0.7));
+    const vmax = Math.max(...series.flatMap((s) => (s.kind === 'candles' || s.area ? s.bars : [])).map((b) => b.vol || 0), 0), bw = Math.max(1, Math.min(18, (period / (t1 - t0 || 1)) * pw * 0.7));
     for (const s of series) {
       if (s.kind === 'candles') {
         for (const b of s.bars) {
@@ -89,8 +90,14 @@ export function mountChart(host, onHover = null) {
         }
       } else if (s.bars.length) {
         const pts = s.bars.map((b) => `${X(b.t) + (period / (t1 - t0 || 1)) * pw / 2},${Y(b.close)}`);
+        if (s.area) {
+          const half = (period / (t1 - t0 || 1)) * pw / 2, base = H - m.b;
+          if (vmax > 0) for (const b of s.bars) if (b.vol > 0) { const vh = Math.max(1, (b.vol / vmax) * volH); plot.append(el('rect', { x: X(b.t) + half - bw / 2, y: base - vh, width: bw, height: vh, class: 'vol line-vol' })); }
+          plot.append(el('polygon', { points: `${pts[0].split(',')[0]},${base} ${pts.join(' ')} ${pts.at(-1).split(',')[0]},${base}`, class: 'area', style: `fill:${s.color}` }));
+        }
         plot.append(el('polyline', { points: pts.join(' '), class: 'line', style: `stroke:${s.color}` }));
-        if (s.bars.length < 60) for (const p of pts) plot.append(el('circle', { cx: p.split(',')[0], cy: p.split(',')[1], r: 2, style: `fill:${s.color}`, class: 'dot' }));
+        if (s.area) { const [lx, ly] = pts.at(-1).split(','); plot.append(el('circle', { cx: lx, cy: ly, r: 3.5, class: 'lastdot', style: `fill:${s.color}` })); }
+        else if (s.bars.length < 60) for (const p of pts) plot.append(el('circle', { cx: p.split(',')[0], cy: p.split(',')[1], r: 2, style: `fill:${s.color}`, class: 'dot' }));
       }
     }
     svg.append(plot);

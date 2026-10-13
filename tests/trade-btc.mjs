@@ -100,7 +100,7 @@ async function openPage(viewport, { wallet = false, hash = '#btc=on', utxos = []
   await page.goto(`http://127.0.0.1:${WEB}/trade/tac/${hash}`);
   return { browser, page, errors, blocked, seen, walletLog };
 }
-const ladderReady = (p) => until(p, () => document.querySelectorAll('#ladders tbody tr').length >= 8, null, 120000);
+const ladderReady = (p) => until(p, () => document.querySelectorAll('#ladders .ob-row').length >= 4, null, 120000);
 
 let r;
 try {
@@ -126,7 +126,7 @@ try {
   ok(btns.filter((x) => x.startsWith('buy')).length >= 3 && btns.filter((x) => x.startsWith('buy')).length <= 8 && btns.filter((x) => x.startsWith('sell')).length >= 1 && btns.includes('open:') && btns.includes('list:'), `a Buy on each price of listings, a Sell on each price of bids, and Trade on Bitcoin and List a sale (${btns.length} buttons)`);
 
   // the sheet, primed from the second listing
-  const firstTwo = await p.$$eval('#ladders .lad:nth-of-type(1) tbody tr', (rows) => rows.slice(0, 2).map((x) => x.cells[1].textContent.replace(/,/g, '')));
+  const firstTwo = await p.$$eval('#ladders .ob-asks .ob-row', (rows) => rows.reverse().slice(0, 2).map((x) => x.querySelector('.a').textContent.replace(/,/g, '')));
   await p.click('#ladders [data-btc="buy"][data-i="1"]');
   await until(p, () => document.querySelector('.bsheet.wide .bm [data-k]') && document.querySelector('.bsheet.wide .bm input'), null, 180000);
   await until(p, () => /sats\/TAC/.test(document.querySelector('.bsheet .bm')?.textContent || ''), null, 60000);

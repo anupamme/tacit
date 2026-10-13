@@ -1,0 +1,196 @@
+#!/usr/bin/env node
+// The Precision pool's farm on dapp/trade/tac/, in a real browser under the page's own CSP, against an anvil fork of mainnet: the farm's
+// figures and the farming program's stream, a deposit of ETH alone (zapped into the pool and staked in one transaction), of TAC alone
+// (by permit), of both at the pool's ratio, what a deposit would earn before it is made, a claim, and a withdrawal of all of it as ETH.
+//
+//   PLAYWRIGHT=/Users/z/zFi/node_modules/playwright-core node tests/trade-farm.mjs
+import { createRequire } from 'node:module';
+import http from 'node:http';
+import { spawn, execFileSync } from 'node:child_process';
+import { readFileSync, existsSync, statSync, mkdirSync } from 'node:fs';
+import { join, extname } from 'node:path';
+
+const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT || '/Users/z/zFi/node_modules/playwright-core');
+const DAPP = new URL('../dapp/', import.meta.url).pathname, FX = new URL('./fixtures/', import.meta.url).pathname;
+const FORK = process.env.FORK || 'https://mainnet.gateway.tenderly.co', SHOTS = process.env.SHOTS || null;
+const PORT = 21000 + Math.floor(Math.random() * 1000), WEB = PORT + 1, ANVIL = `http://127.0.0.1:${PORT}`;
+if (SHOTS) mkdirSync(SHOTS, { recursive: true });
+
+const anvil = spawn('anvil', ['--port', String(PORT), '--fork-url', FORK, '--chain-id', '1', '--silent', '--no-rate-limit'], { stdio: 'ignore' });
+let server;
+const done = () => { anvil.kill('SIGKILL'); server?.close(); };
+process.on('exit', () => anvil.kill('SIGKILL'));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+for (let i = 0; ; i++) { try { await (await fetch(ANVIL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"jsonrpc":"2.0","id":1,"method":"eth_chainId"}' })).json(); break; } catch { if (i > 120) throw new Error('anvil did not start'); await sleep(500); } }
+
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' };
+server = http.createServer((req, res) => {
+  let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  let f = join(DAPP, p);
+  // As the host does: a directory is served at its address with the slash; without it, or with no file at all, the front page answers and its head script sends the visitor on.
+  if (existsSync(f) && statSync(f).isDirectory()) f = p.endsWith('/') ? join(f, 'index.html') : join(DAPP, 'index.html');
+  if (!existsSync(f) && !extname(p)) f = join(DAPP, 'index.html');            // as the host does: an address with no file of its own is the front page, which sends it on
+  if (!existsSync(f)) { res.writeHead(404); return res.end('not found'); }
+  res.writeHead(200, { 'content-type': TYPES[extname(f)] || 'application/octet-stream' });
+  res.end(readFileSync(f));
+}).listen(WEB);
+
+const asset = JSON.parse(readFileSync(join(FX, 'tac-asset-2026-10-12.json'), 'utf8')), sales = JSON.parse(readFileSync(join(FX, 'tac-sales-2026-10-12.json'), 'utf8'));
+const soon = Math.floor(Date.now() / 1000) + 7 * 86400;
+sales.sales = sales.sales.map((x) => ({ ...x, expiry: soon, expired: false, seller_pubkey: '02' + 'ab'.repeat(32) }));
+const bids = JSON.parse(readFileSync(join(FX, 'tac-bids-2026-10-12.json'), 'utf8'));              // the 14 standing bids the API listed, their expiry moved forward
+bids.intents = bids.intents.map((x) => ({ ...x, expiry: soon }));
+const apiBody = (url) => (/preauth-sales/.test(url) ? sales : /bid-intents/.test(url) ? bids : asset);
+const RPC_HOSTS = ['ethereum-rpc.publicnode.com', 'eth.drpc.org', '1rpc.io', 'mainnet.gateway.tenderly.co'];
+
+let n = 0, fails = 0;
+const ok = (c, s) => { if (c) { n++; console.log('  ok   ' + s); } else { fails++; console.log('FAIL   ' + s); } };
+const text = (page, sel) => page.evaluate((s) => document.querySelector(s)?.textContent || '', sel);
+const until = (page, fn, arg, timeout = 90000) => page.waitForFunction(fn, arg, { timeout });
+
+const cast = (...a) => execFileSync('cast', a, { encoding: 'utf8' }).trim();
+const rpcA = async (method, params = []) => { const j = await (await fetch(ANVIL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json(); if (j.error) throw Object.assign(new Error(j.error.message), { code: j.error.code }); return j.result; };
+const TACADDR = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279', ROUTER = '0x000000000000FB114709235f1ccBFfb925F600e4', MC3 = '0xcA11bde05977b3631167028862bE2a173976CA11';
+const tacBal = async (a) => BigInt(await rpcA('eth_call', [{ to: TACADDR, data: '0x70a08231' + a.slice(2).toLowerCase().padStart(64, '0') }, 'latest']));
+const ethBal = async (a) => BigInt(await rpcA('eth_getBalance', [a, 'latest']));
+
+// A wallet in the page: window.ethereum answers as an EIP-1193 provider, signs TAC's permit with a real key and sends through the fork.
+async function stubWallet(ctx, { account, key, refuseSends = false }) {
+  const log = { sends: [], signs: 0, connects: 0 };
+  await ctx.exposeFunction('__wallet', async (method, params) => {
+    if (method === 'eth_requestAccounts') { log.connects++; return [account]; }
+    if (method === 'eth_accounts') return [account];
+    if (method === 'eth_chainId') { if (log.onChainId) { const f = log.onChainId; log.onChainId = null; await f(); } return '0x1'; }
+    if (method === 'wallet_switchEthereumChain') return null;
+    if (method === 'eth_signTypedData_v4') { log.signs++; return cast('wallet', 'sign', '--private-key', key, '--data', params[1]); }
+    if (method === 'eth_sendTransaction') {
+      if (refuseSends) throw Object.assign(new Error('User rejected the request.'), { code: 4001 });
+      log.sends.push(params[0]);
+      const h = await rpcA('eth_sendTransaction', [{ ...params[0], gas: '0x3d0900' }]);
+      // A forked anvil can leave a send pending with automine on; a block mined by hand takes it in.
+      (async () => { for (let i = 0; i < 40; i++) { await sleep(3000); if (await rpcA('eth_getTransactionReceipt', [h]).catch(() => null)) return; await rpcA('evm_mine', []).catch(() => {}); } })();
+      return h;
+    }
+    throw new Error(`the stub wallet does not do ${method}`);
+  });
+  await ctx.addInitScript(() => { window.__h = {}; window.ethereum = { isStub: true, request: ({ method, params }) => window.__wallet(method, params), on(ev, fn) { window.__h[ev] = fn; }, removeListener() {} }; });
+  return log;
+}
+async function fundedWallet(eth, tac) {
+  const j = JSON.parse(cast('wallet', 'new', '--json'))[0], who = j.address;
+  await rpcA('anvil_setBalance', [who, '0x' + eth.toString(16)]);
+  if (tac) {
+    const slot = cast('keccak', '0x' + who.slice(2).toLowerCase() + '0000000000000000' + '87a211a2');     // Solady's balance slot
+    await rpcA('anvil_setStorageAt', [TACADDR, slot, '0x' + tac.toString(16).padStart(64, '0')]);
+  }
+  await rpcA('anvil_impersonateAccount', [who]);
+  return { account: who, key: j.private_key };
+}
+
+async function openPage(viewport, wallet = null, hash = '', path = '/trade/') {
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({ viewport, colorScheme: 'light' });
+  const walletLog = wallet ? await stubWallet(ctx, wallet) : null;
+  for (const h of RPC_HOSTS) await ctx.route(`https://${h}/**`, async (route) => {
+    try {
+      const r = await fetch(ANVIL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: route.request().postData() });
+      await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: await r.text() });
+    } catch (e) { await route.fulfill({ status: 502, headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ error: e.message }) }).catch(() => {}); }
+  });
+  await ctx.route(/^https:\/\/api\.tacit\.finance\/farm\/program/, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(program) }));
+  await ctx.route(/^https:\/\/api\.tacit\.finance\/assets\//, (route) => {
+    return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(apiBody(route.request().url())) });
+  });
+  const page = await ctx.newPage(), errors = [], blocked = [];
+  page.on('pageerror', (e) => errors.push(String(e.message || e)));
+  page.on('console', (m) => { if (m.type() === 'error') { const t = m.text(); (/Content Security Policy|Refused to/i.test(t) ? blocked : errors).push(t); } });
+  await page.goto(`http://127.0.0.1:${WEB}${path}${hash}`);
+  return { browser, page, errors, blocked, walletLog };
+}
+
+const program = JSON.parse(readFileSync(join(FX, 'farm-program-2026-10-14.json'), 'utf8'));
+const FARM = '0x0000003bF4BA0B21f5e0d35119b337F4d4CF82E0', E18 = 10n ** 18n;
+const staked = async (a) => BigInt(await rpcA('eth_call', [{ to: FARM, data: '0x98807d84' + a.slice(2).toLowerCase().padStart(64, '0') }, 'latest']));
+let r;
+try {
+  const me = await fundedWallet(10n * E18, 30000n * E18);
+  r = await openPage({ width: 1280, height: 900 }, me, '', '/trade/tac/');
+  const p = r.page;
+  await until(p, () => /Staked\s*\$/.test(document.querySelector('#fm-stats')?.textContent || '') && /private farms/.test(document.querySelector('#fm-prog')?.textContent || ''), null, 240000);
+  const stats = (await text(p, '#fm-stats')).replace(/\s+/g, ' ');
+  ok(/APR now\s*[\d,]+%/.test(stats) && /Rewards\s*[\d,]+ TAC a day/.test(stats) && /Staked\s*\$[\d,]+/.test(stats) && /Stream ends\s*\w{3} \d+, \d{4}/.test(stats), `the farm says its APR, its stream in TAC a day, what is staked and when the stream ends (${stats})`);
+  ok(/streams 1,108 TAC a day to 3 private farms/.test(await text(p, '#fm-prog')) && !!(await p.$('#fm-prog a[href="/#farm"]')), 'and the farming program\'s private stream, with the way to it');
+  const box = await p.$eval('#farm', (e) => { const b = e.getBoundingClientRect(), t = document.querySelector('.p-ticket').getBoundingClientRect(); return { right: b.left > t.left - 5, below: b.top >= t.bottom }; });
+  ok(box.right && box.below, `on a wide screen it sits under the ticket (${JSON.stringify(box)})`);
+  ok(/Connect wallet/.test(await text(p, '#fm-go')), 'with no wallet its button connects one');
+  // The page's first reads (the tape, the boards' paged views) go out to the fork's upstream; a block mined meanwhile waits behind them.
+  await until(p, () => !!document.querySelector('#chart .line') && !!document.querySelector('#ladders .ob, #ladders .note'), null, 240000);
+  await sleep(5000);
+
+  // a quote before any wallet: what a deposit of ETH alone earns
+  await p.fill('#fm-amt', '0.5');
+  await until(p, () => /Earns about/.test(document.querySelector('#fm-rcpt')?.textContent || ''), null, 120000);
+  const q = (await text(p, '#fm-rcpt')).replace(/\s+/g, ' ');
+  ok(/Earns about\s*[\d.,]+ TAC a day/.test(q) && /APR on this deposit\s*[\d,]+%/.test(q) && /Share of the farm\s*[\d.]+%/.test(q), `0.5 ETH is quoted: TAC a day, APR, share (${q.slice(0, 160)})`);
+
+  await p.click('#fm-go');
+  await until(p, () => /Farm with ETH/.test(document.querySelector('#fm-go')?.textContent || '') && /Balance/.test(document.querySelector('#fm-emax')?.textContent || ''), null, 120000);
+  ok(true, 'connecting from the farm connects the page\'s wallet and shows the balance');
+  await until(p, () => !document.querySelector('#fm-go').disabled, null, 120000);
+  await p.click('#fm-go');
+  await until(p, () => /Farming\./.test(document.querySelector('#fm-status')?.textContent || '') || document.querySelector('#fm-status .err'), null, 240000);
+  const s1 = await staked(me.account);
+  ok(/Farming\./.test(await text(p, '#fm-status')) && s1 > 0n && r.walletLog.sends.length === 1 && r.walletLog.signs === 0, `ETH alone is zapped and staked in one transaction (${s1} shares, ${r.walletLog.sends.length} sent)`);
+  await until(p, () => /Your stake/.test(document.querySelector('#fm-pos')?.textContent || '') && /Add more/.test(document.querySelector('#fm-add-h')?.textContent || ''), null, 120000);
+  ok(/Earning\s*[\d.,]+ TAC a day/.test((await text(p, '#fm-pos')).replace(/\s+/g, ' ')), 'the stake shows, with what it earns a day');
+
+  // TAC alone, by permit
+  await p.click('[data-fm="tac"]');
+  await p.fill('#fm-tacamt', '2000');
+  await until(p, () => /Earns about/.test(document.querySelector('#fm-rcpt')?.textContent || '') && !document.querySelector('#fm-go').disabled, null, 120000);
+  await p.click('#fm-go');
+  await until(p, () => /Farming\./.test(document.querySelector('#fm-status')?.textContent || '') || document.querySelector('#fm-status .err'), null, 240000);
+  const s2 = await staked(me.account);
+  ok(s2 > s1 && r.walletLog.signs === 1 && r.walletLog.sends.length === 2, `TAC alone goes in by a signed permit, no approval (${s2 - s1} more shares; ${await text(p, '#fm-status')})`.slice(0, 200));
+
+  // both, at the pool's ratio
+  await p.click('[data-fm="pair"]');
+  await p.fill('#fm-amt', '0.1');
+  await until(p, () => Number(document.querySelector('#fm-tacamt').value) > 0 && /Deposit/.test(document.querySelector('#fm-rcpt')?.textContent || '') && !document.querySelector('#fm-go').disabled, null, 120000);
+  ok(Number(await p.inputValue('#fm-tacamt')) > 100, `ETH + TAC fills the TAC at the pool's ratio (${await p.inputValue('#fm-tacamt')} TAC for 0.1 ETH)`);
+  await p.click('#fm-go');
+  await until(p, () => /Farming\./.test(document.querySelector('#fm-status')?.textContent || '') || document.querySelector('#fm-status .err'), null, 240000);
+  const s3 = await staked(me.account);
+  ok(s3 > s2, `both go in together (${s3 - s2} more shares; ${(await text(p, '#fm-status')).slice(0, 80)})`);
+
+  // a day later: claim, then withdraw all as ETH
+  await rpcA('evm_increaseTime', [86400]); await rpcA('evm_mine', []);
+  await p.evaluate(() => document.querySelector('[data-fm="eth"]').click());
+  const t0 = await tacBal(me.account);
+  await until(p, () => !!document.querySelector('#fm-claim'), null, 60000);
+  await p.click('#fm-claim');
+  await until(p, () => /Claimed/.test(document.querySelector('#fm-pos-status')?.textContent || '') || document.querySelector('#fm-pos-status .err'), null, 240000);
+  const got = (await tacBal(me.account)) - t0;
+  ok(got > E18 && /Claimed [\d.,]+ TAC/.test(await text(p, '#fm-pos-status')), `a day's rewards are claimed (${Number(got / 10n ** 16n) / 100} TAC)`);
+  await until(p, () => !!document.querySelector('#fm-exit') && !document.querySelector('#fm-claim')?.hasAttribute('aria-busy'), null, 60000);   // the claim has ended and the stake is drawn again
+  await p.click('[data-as="eth"]');
+  await until(p, () => document.querySelector('[data-as="eth"]')?.getAttribute('aria-pressed') === 'true', null, 30000);
+  await until(p, () => /Withdraw all/.test(document.querySelector('#fm-exit')?.textContent || '') && !document.querySelector('#fm-exit').disabled && /You get about\s*[\d.]+ ETH$/.test(document.querySelector('#fm-out-rcpt')?.textContent.replace(/\s+/g, ' ').split('Plus')[0].trim() || ''), null, 120000);
+  const e0 = await ethBal(me.account);
+  await p.click('#fm-exit');
+  await until(p, () => /Withdrawn/.test(document.querySelector('#fm-pos-status')?.textContent || '') || document.querySelector('#fm-pos-status .err'), null, 240000);
+  ok((await staked(me.account)) === 0n && (await ethBal(me.account)) > e0, `withdrawing all as ETH leaves nothing staked and pays ETH (${(await text(p, '#fm-pos-status')).slice(0, 60)})`);
+  await until(p, () => document.querySelector('#fm-pos').hidden && /Farm TAC\/ETH/.test(document.querySelector('#fm-add-h').textContent), null, 120000);
+  ok(true, 'and the stake leaves the panel');
+  ok(r.errors.length === 0 && r.blocked.length === 0, `no page errors or blocked requests (${[...r.errors, ...r.blocked].slice(0, 3).join(' | ')})`);
+  await r.browser.close();
+
+  // a phone: the farm follows the quotes, inside the width
+  const ph = await openPage({ width: 390, height: 844 }, null, '', '/trade/tac/');
+  await until(ph.page, () => /TAC a day/.test(document.querySelector('#fm-stats')?.textContent || ''), null, 240000);
+  ok(await ph.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1 && document.querySelector('#farm').getBoundingClientRect().right <= innerWidth + 1), 'at a phone width the farm fits with no sideways scroll');
+  await ph.browser.close();
+} catch (e) { fails++; console.log('FAIL   ' + String(e.message || e).split('\n').slice(0, 4).join(' / ')); if (r) { console.log('     errors:', r.errors.slice(0, 3), 'blocked:', r.blocked.slice(0, 3)); console.log('     farm:', await r.page.evaluate(() => ['#fm-status', '#fm-rcpt', '#fm-go', '#fm-pos-status', '#fm-out-rcpt', '#fm-exit', '#fm-as'].map((s) => `${s}=${document.querySelector(s)?.disabled ? '[disabled]' : ''}${document.querySelector(s)?.textContent.replace(/\s+/g, ' ').slice(0, 200)}`).join(' | ')).catch(() => '')); } }
+done();
+console.log(`\n${fails ? `${fails} FAILED, ${n} ok` : `${n} trade-farm checks passed`}`);
+process.exit(fails ? 1 : 0);
