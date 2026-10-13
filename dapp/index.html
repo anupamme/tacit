@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-g1DrJOxBtDyF6UdzSFg7KsaXzjCgA2gHSxHulhSbA3s=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-6IQKnVsd99hedwoMmIed/ml9OpGFBUwNR3jUx6azsfI=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=2f4a1520"></script>
 <title>tacit</title>
@@ -2943,7 +2943,7 @@ function paintStart() {
   $('#start-go').textContent = k ? 'Make ETH private' : 'Get your tacit1 ID';
   $('#start-x').hidden = !k;
 }
-$('#wallet').onclick = () => openSheet('wallet');
+$('#wallet').onclick = () => { openSheet('wallet'); if (!S.key) getUx().catch(() => {}); };      // the scan's modules load while the visitor picks a way in
 // The total in the header takes you to what makes it up.
 $('#hold-tot').onclick = () => $('#dash')?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
 $('#start-go').onclick = () => (S.key ? openLink('private') : openSheet('wallet'));
@@ -4889,7 +4889,7 @@ function loadHeld(force = false) {
   if (HELD.loading) return HELD.loading;
   if (!force && Date.now() - HELD.at < 5 * 60e3) return Promise.resolve();
   const priv = walletPriv(), kv = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
-  const chains = DEVICE_CHAINS.map(async (c) => {
+  const one = async (c) => {
     if (c.chainId === DEV.chain.chainId) return deviceSync();
     const m = await getDeviceMods();
     const W = m.makeEvmPoolWallet({ zk: m.zk, keys: m.evmPoolKeys(m.zk, priv), keeper: c.keeper, store: kv, prove: null,
@@ -4897,7 +4897,17 @@ function loadHeld(force = false) {
     const s = await W.sync();
     if (S.key?.pubHex === pub) { store.set(`tacit-lite-device-bal-v1:${c.chainId}:${pub}`, { v: s.balance.toString(), at: Date.now() }); dashSoon(); }
     if (S.key?.pubHex === pub) holdingSoon(W, c.chainId);
-  });
+  };
+  // Each chain's pool is read by replaying its tree here, which is heavy (Base's most of all). So they wait for the private scan, which fills
+  // most of the dashboard, then run one at a time when the page is idle: chains this key was last seen holding ETH on first, then the rest,
+  // so a balance on a chain this browser has never seen is still found from the key and the chain.
+  const seen = (c) => (big(store.get(`tacit-lite-device-bal-v1:${c.chainId}:${pub}`)?.v) ?? 0n) > 0n;
+  const order = [...DEVICE_CHAINS].sort((a, b) => Number(seen(b)) - Number(seen(a)) || Number(b.chainId === DEV.chain.chainId) - Number(a.chainId === DEV.chain.chainId));
+  const idle = () => new Promise((r) => ('requestIdleCallback' in window ? requestIdleCallback(() => r(), { timeout: 4000 }) : setTimeout(r, 1500)));
+  const chains = [(async () => {
+    await Promise.resolve(P.scanning).catch(() => {});
+    for (const c of order) { if (S.key?.pubHex !== pub) return; await idle(); await one(c).catch(() => {}); }
+  })()];
   const sats = (async () => {
     const X = await import('/sats/secret.js?cb=9574c7ec');
     const notes = (await X.poolNotes(X.poolWalletFor(priv, 'mainnet'))).filter((n) => !n.spent);
@@ -8977,7 +8987,9 @@ async function paintPrivateFeet() {
     }
     setFoot('eth', bits.join(' · '), s.eth.value > 0n || lockList('claim').length ? 'on' : '');
   };
-  scanPrivate().then((s) => { if (!s) return; foot(s); return loadLocks().then(() => foot(s)); }).catch(() => {});
+  // The lock scan does not need the note scan: both start now, and the foot is drawn again when the locks are in.
+  const locks = loadLocks().catch(() => {});
+  scanPrivate().then((s) => { if (!s) return; foot(s); return locks.then(() => foot(s)); }).catch(() => {});
   // The tile names the next step of the lock the sheet would open on, so a returning holder sees what to do before opening it.
   const lockFoot = (rec) => {
     const text = rec.borrowed ? `${fmt(BigInt(rec.borrowed), 8, 2)} cUSD borrowed` : rec.minted ? 'cBTC minted · borrow next' : `${fmt(BigInt(rec.vBtc), 8, 6)} BTC locked${rec.next ? ` · ${rec.next}` : ''}`;
