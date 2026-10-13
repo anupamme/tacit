@@ -30,8 +30,13 @@ export function ipKey(addr) {
   return `${full.slice(0, 4).map((x) => x.replace(/^0+(?=.)/, '')).join(':')}::/64`;
 }
 
-// The right-most forwarded hop is the one the fronting proxy appended; earlier hops are client-supplied.
+// Behind Render the service sits behind Cloudflare and Render's own proxy, so the right-most forwarded hop is one of theirs, not
+// the caller's, and a limiter keyed on it never fills. Cloudflare sets cf-connecting-ip itself, replacing any a caller sends;
+// without it (a direct or internal call) the right-most forwarded hop is the one the fronting proxy appended, and earlier hops
+// are client-supplied.
 export function clientKey(req) {
+  const cf = String(req.headers?.['cf-connecting-ip'] ?? '').trim();
+  if (cf && cf.length <= 45 && /^[0-9a-f:.]+$/i.test(cf)) return ipKey(cf);
   const f = req.headers?.['x-forwarded-for'];
   if (f) { const k = String(f).split(',').pop().trim(); if (k) return ipKey(k); }
   return ipKey(req.socket?.remoteAddress || 'unknown');

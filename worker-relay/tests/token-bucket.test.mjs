@@ -20,4 +20,7 @@ assert.equal(ipKey('2001:db8:1:2:aaaa:bbbb:cccc:dddd'), ipKey('2001:db8:1:2:1::9
 assert.notEqual(ipKey('2001:db8:1:3::1'), ipKey('2001:db8:1:2::1'));
 assert.equal(clientKey({ headers: { 'x-forwarded-for': '1.1.1.1, 198.51.100.7' }, socket: { remoteAddress: '10.0.0.1' } }), '198.51.100.7', 'the hop the proxy added, not one the caller wrote');
 assert.equal(clientKey({ headers: {}, socket: { remoteAddress: '10.0.0.1' } }), '10.0.0.1');
+assert.equal(clientKey({ headers: { 'cf-connecting-ip': '203.0.113.9', 'x-forwarded-for': '1.1.1.1, 203.0.113.9, 172.70.1.2, 10.19.2.3' }, socket: { remoteAddress: '10.0.0.1' } }), '203.0.113.9', 'the caller Cloudflare saw, not a proxy hop that changes between requests');
+assert.equal(clientKey({ headers: { 'cf-connecting-ip': '2001:db8:1:2:aaaa:bbbb:cccc:dddd' }, socket: {} }), ipKey('2001:db8:1:2::1'), 'an IPv6 caller is one /64');
+assert.equal(clientKey({ headers: { 'cf-connecting-ip': 'not an address', 'x-forwarded-for': '1.1.1.1, 198.51.100.7' }, socket: {} }), '198.51.100.7', 'a malformed value is ignored');
 console.log('ok - callers are held to a rate by the hop the proxy saw, an IPv6 subscriber as one');
