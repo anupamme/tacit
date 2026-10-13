@@ -4529,11 +4529,11 @@ await step('tradelinks', async () => {
       const seen = await p.evaluate(() => {
         const vis = (s) => { const e = document.querySelector(s); if (!e) return false; const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 && b.left >= 0 && b.right <= window.innerWidth + 1; };
         const hdr = [...document.querySelectorAll('.top-r > a')].map((a) => `${a.textContent}:${a.getAttribute('href')}`).join(' ');
-        return { header: vis('.top-r a.lead[href="/trade/"]'), headerText: document.querySelector('.top-r a.lead')?.textContent, pay: vis('.top-r a.lead[href="/pay/"]'), order: hdr, tile: !!document.querySelector('#tac a[href="/trade/tac/"]'), tileText: 'Trade TAC',
-          chip: (() => { const l = document.getElementById('wallet-label'); return !!l && l.scrollWidth <= l.clientWidth + 1 && l.clientWidth >= 30; })(), footer: !!document.querySelector('footer a[href="/trade/"]'), bar: !!document.querySelector('footer a[href="/trade/"]'), scroll: document.documentElement.scrollWidth > window.innerWidth + 1 };
+        return { header: vis('.top-r a.lead[href="/trade/tac/"]'), headerText: document.querySelector('.top-r a.lead')?.textContent, pay: vis('.top-r a.lead[href="/pay/"]'), order: hdr, tile: !!document.querySelector('#tac a[href="/trade/tac/"]'), tileText: 'Trade TAC',
+          chip: (() => { const l = document.getElementById('wallet-label'); return !!l && l.scrollWidth <= l.clientWidth + 1 && l.clientWidth >= 30; })(), footer: !!document.querySelector('footer a[href="/trade/tac/"]'), bar: !!document.querySelector('footer a[href="/trade/tac/"]'), scroll: document.documentElement.scrollWidth > window.innerWidth + 1 };
       });
       ok(seen.header && seen.headerText === 'Trade', `tradelinks (${name}): the header has a Trade link in view`);
-      ok(seen.pay && seen.order === 'Trade:/trade/ Pay:/pay/ Stats:/weld/stats/', `tradelinks (${name}): and a Pay link, to the right of Trade and before Stats (${seen.order})`);
+      ok(seen.pay && seen.order === 'Trade:/trade/tac/ Pay:/pay/ Stats:/weld/stats/', `tradelinks (${name}): and a Pay link, to the right of Trade and before Stats (${seen.order})`);
       ok(seen.chip, `tradelinks (${name}): and the account chip still shows its whole label`);
       ok(seen.tile, `tradelinks (${name}): the TAC section links to TAC's own trade page`);
       ok(seen.footer && seen.bar, `tradelinks (${name}): and the footer links Trade`);

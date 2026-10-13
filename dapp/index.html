@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-gjeIf4CuPkzQO+45zy8joFcSDo+t3jeZWE4UN7p86no=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-VgWlBpQxnIEZxuCxbOnTXTmd0R8IUZO/isSLD/PyHxE=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=0cf48a6a"></script>
 <title>tacit</title>
@@ -549,6 +549,19 @@ a.di { color: inherit; text-decoration: none; }
 .tc-do li { display: grid; gap: 3px; }
 .tc-do b { font: 400 22px/1.1 var(--serif); }
 .tc-do span { font-size: 13px; line-height: 1.5; color: var(--mute); }
+.tc-pay { max-width: 640px; margin: 30px 0 0; padding: 20px 0 0; border-top: 1px dashed var(--hair-2); }
+.tc-pay h3 { margin: 0; font: 400 26px/1.15 var(--serif); letter-spacing: -.01em; }
+.tc-pay p { margin: 10px 0 0; font-size: 15px; line-height: 1.6; max-width: 60ch; }
+.tp-flow { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 18px 0 0; padding: 0; border: 1px solid var(--ink); border-radius: 14px; overflow: hidden; }
+.tp-flow li + li { border-left: 1px dotted var(--hair-2); position: relative; }
+.tp-flow li + li::before { content: '→'; position: absolute; left: -9px; top: 50%; transform: translateY(-50%); width: 18px; text-align: center; background: var(--paper); color: var(--mute); font-size: 13px; line-height: 18px; z-index: 1; }
+.tp-flow button, .tp-flow a { display: flex; align-items: center; gap: 10px; width: 100%; height: 100%; padding: 14px 16px; background: none; border: 0; color: var(--ink); text-align: left; text-decoration: none; font: inherit; cursor: pointer; transition: background .15s; }
+.tp-flow button:hover, .tp-flow a:hover { background: var(--hair); }
+.tp-flow .tk { width: 30px; height: 30px; }
+.tp-flow .g { width: 30px; height: 30px; flex: none; padding: 3px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.tp-flow span { display: grid; gap: 2px; min-width: 0; }
+.tp-flow b { font: 400 19px/1.1 var(--serif); }
+.tp-flow small { font-size: 12px; line-height: 1.35; color: var(--mute); }
 .tc-spec { max-width: 62ch; margin: 22px 0 0; font-size: 13px; line-height: 1.6; color: var(--mute); }
 .tc-spec a { color: var(--ink); }
 .tc-links { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 26px; margin-top: 26px; }
@@ -921,6 +934,9 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .tc-facts div { flex-direction: row-reverse; justify-content: space-between; align-items: baseline; padding: 9px 0; border-top: 1px dotted var(--hair-2); }
   .tc-facts div:last-child { border-bottom: 1px dotted var(--hair-2); }
   .tc-do { grid-template-columns: minmax(0, 1fr); }
+  .tp-flow { grid-template-columns: minmax(0, 1fr); }
+  .tp-flow li + li { border-left: 0; border-top: 1px dotted var(--hair-2); }
+  .tp-flow li + li::before { content: '↓'; left: 22px; top: -9px; transform: none; }
   footer nav { grid-template-columns: 1fr 1fr; }
 }
 /* A finger needs the full tap size; a mouse keeps the tighter controls. */
@@ -1014,7 +1030,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   <section class="sx" id="how" aria-labelledby="how-h">
     <div class="sx-h">
       <div><span class="sx-k">How it works</span><h2 id="how-h">One ID.<br><em>Two chains.</em></h2></div>
-      <p>One key holds your private balances on both chains and moves them between the two by zero-knowledge proof, with no federation or multisig. It all recovers from your key, and the pool is one immutable contract.</p>
+      <p>One key holds your private balances on both chains, and zero-knowledge proofs move them between the two, with no federation or multisig. Everything recovers from that key alone, and the Ethereum pool is one immutable contract.</p>
     </div>
     <div class="wd">
       <div class="wd-top">
@@ -1071,12 +1087,21 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
     <div class="tc-t">
       <span class="sx-k">TAC</span>
       <h2 id="tc-h">TAC is private money, <em>born on Bitcoin</em>.</h2>
-      <p class="tc-p">Issued once on Bitcoin and fair-launched by airdrop. Amounts are hidden on Bitcoin, and TAC is private on Ethereum too, through the Tacit pool.</p>
+      <p class="tc-p">Issued once on Bitcoin and fair-launched by airdrop. Its amounts are hidden on Bitcoin, its own shielded pool there hides who holds it, and the Tacit pool keeps it private on Ethereum too.</p>
       <dl class="tc-facts">
         <div><dt>Fixed supply</dt><dd class="num">21,000,000</dd></div>
         <div><dt>Airdrop, eligible wallets</dt><dd class="num">14,000+</dd></div>
         <div><dt>Sale or VC</dt><dd>None</dd></div>
       </dl>
+      <div class="tc-pay" role="group" aria-labelledby="tp-h">
+        <h3 id="tp-h">Private bitcoin payments, today.</h3>
+        <p>Buy TAC with sats, shield it in TAC’s pool on Bitcoin, then sell it for sats paid to any address: yours, or whoever you are paying. Every trade is an atomic swap on TAC’s live order book, and the pool breaks the link between sats in and sats out. In between, you hold TAC.</p>
+        <ol class="tp-flow">
+          <li><button type="button" data-hx="swap:sats:tac"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><span><b>Sats in</b><small>buy TAC, one atomic swap</small></span></button></li>
+          <li><button type="button" data-hx="shield:btc:pool"><svg class="g" aria-hidden="true"><use href="#g-shield"/></svg><span><b>Shielded</b><small>in TAC’s pool on Bitcoin</small></span></button></li>
+          <li><a href="/tac/#withdraw/sats"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><span><b>Sats out</b><small>to any address, unlinked</small></span></a></li>
+        </ol>
+      </div>
       <ul class="tc-do" aria-label="What holding TAC does">
         <li><b>Cheaper exits</b><span>Private exits cost 0.30%, down to 0.15% for holders.</span></li>
         <li><b>More points</b><span>Up to 2× on every points activity, held in an Ethereum wallet.</span></li>
@@ -9833,7 +9858,7 @@ const hxWalletChain = () => (HX.tab === 'private' && HX.sd === 'pay' ? hxChain()
 function hxSubOf(id, k) {
   if (id === 'hx-from' && HX.tab === 'private') return k === 'pp' ? `private, for payments on ${hxChain().name}` : HX_SH[k]?.place || '';
   if (id === 'hx-sa') return { eth: 'private on Ethereum', tac: 'private on Bitcoin, sent from Pay', btc: 'at your Bitcoin address, sent from Pay' }[k] || '';
-  return k === 'ether' ? 'in your wallet' : k === 'sats' ? 'in your Bitcoin wallet' : 'private on Ethereum';
+  return k === 'ether' ? 'in your wallet' : k === 'sats' ? 'in your Bitcoin wallet' : id === 'hx-to' && HX.from === 'sats' ? 'at your Bitcoin address' : 'private on Ethereum';
 }
 // The card's picker: a sheet that rises inside the card over a dim of it, one row per choice with its coin; the dim, the ×, Escape or a press
 // elsewhere close it.
@@ -9965,8 +9990,10 @@ function paintHx() {
     return html`<span class="hx-coin" role="button" tabindex="0" aria-haspopup="dialog" aria-label="${label}: ${u}. Change" data-pk="${id}"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><b>${u}</b><span class="car" aria-hidden="true">▾</span><select id="${id}" tabindex="-1" aria-hidden="true">${grouped ? items.map(([g, l]) => html`<optgroup label="${g}">${l.map(opt)}</optgroup>`) : items.map(opt)}</select></span>`;
   };
   const where = (text, priv, ic = 'eth') => html`<span class="hx-where${priv ? ' priv' : ''}"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg>${text}</span>`;
-  // Where an asset of the Swap and Earn lists sits: ETH in the wallet, sats in the Bitcoin wallet, the rest private on Ethereum.
-  const whereOf = (k) => (k === 'ether' ? where('your wallet', false) : k === 'sats' ? where('your Bitcoin wallet', false, 'btc') : where('private on Ethereum', true));
+  // Where an asset of the Swap and Earn lists sits: ETH in the wallet, sats in the Bitcoin wallet, TAC bought with sats at the Bitcoin
+  // address (Bitcoin's order book pays it there), the rest private on Ethereum.
+  const whereOf = (k, paid) => (k === 'ether' ? where('your wallet', false) : k === 'sats' ? where('your Bitcoin wallet', false, 'btc')
+    : paid === 'sats' ? where('your Bitcoin address', false, 'btc') : where('private on Ethereum', true));
   const field = (lbl, w, main, side = '', sub = '') => html`<div class="hx-f"><div class="hx-fh"><span class="hx-lbl">${lbl}</span>${w}</div><div class="hx-fm">${main}${side}</div>${sub}</div>`;
   const subline = html`<div class="hx-ff"><span class="hx-sub" id="hx-sub"></span><span class="hx-bal" id="hx-bal"></span></div>`;
   const mid = (flip) => html`<div class="hx-mid">${flip ? html`<button type="button" class="flip" id="hx-flip" aria-label="${flip}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v17m0 0-4-4m4 4 4-4M16 21V4m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
@@ -10010,7 +10037,7 @@ function paintHx() {
     if (!tos.some(([k]) => k === HX.to)) { HX.to = tos[0][0]; HX.swp.to = HX.to; }
     body = html`${field('You pay', whereOf(HX.from), amt(`${hxAsset(HX.from)[1]} to swap`), coin('hx-from', 'You pay', froms, HX.from), subline)}
       ${mid(hxValid(HX.to, HX.from) && `Pay with ${hxAsset(HX.to)[1]} instead`)}
-      ${field('You get', whereOf(HX.to), out(), coin('hx-to', 'You get', tos, HX.to))}${tail}`;
+      ${field('You get', whereOf(HX.to, HX.from), out(), coin('hx-to', 'You get', tos, HX.to))}${tail}`;
   } else if (m === 'earn') {
     body = html`${field('You put in', whereOf(HX.from), amt(`${hxAsset(HX.from)[1]} to farm`), coin('hx-from', 'You put in', [HX_ETHER, ['eth', 'tETH', 'teth', 6]], HX.from), subline)}
       ${mid()}${field('You earn', '', out('a day'), coin('hx-to', 'You earn', [['tac', 'TAC', 'tac']], 'tac'))}${tail}
