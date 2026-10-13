@@ -14,6 +14,7 @@ import { secp, sha256, keccak_256, hmac, hexToBytes, bytesToHex, concatBytes } f
 import { makeBtcShieldedPool } from '../../../dapp/btc-shielded-pool.js';
 import { makeBtcWallet } from '../../../dapp/bitcoin-taproot-wallet.js';
 import { parseTx, decodeEnvelopeScript } from './btc-pool-chain.js';
+import { clientKey } from './token-bucket.js';
 import { encodeAggregate, aggregateStatement, AGG_WRAP_PLONK, AGG_WRAP_GROTH16 } from '../../../worker/src/btc-shielded-pool.js';
 
 // RFC 6979 nonces for the ECDSA commit-input signatures.
@@ -262,12 +263,7 @@ export function makeRateLimiter({ perMin = 30, burst = 10, maxClients = 10_000, 
   };
 }
 
-export function clientKey(req) {
-  const f = req.headers?.['x-forwarded-for'];
-  // The right-most hop is the one the fronting proxy appended; earlier hops are client-supplied.
-  if (f) { const k = String(f).split(',').pop().trim(); if (k) return k; }
-  return req.socket?.remoteAddress || 'unknown';
-}
+export { clientKey };
 
 function makeSemaphore(n) {
   let active = 0;

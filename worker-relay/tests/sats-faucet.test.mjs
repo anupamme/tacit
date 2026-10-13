@@ -114,6 +114,7 @@ await test('rejects mainnet, bad checksum, wrong encoding, mixed case and junk',
 await test('client IP is the right-most X-Forwarded-For hop', () => {
   assert.equal(clientIp({ headers: { 'x-forwarded-for': '6.6.6.6, 1.2.3.4' }, socket: {} }), '1.2.3.4');
   assert.equal(clientIp({ headers: {}, socket: { remoteAddress: '9.9.9.9' } }), '9.9.9.9');
+  assert.equal(clientIp({ headers: { 'cf-connecting-ip': '1.2.3.4', 'x-forwarded-for': '6.6.6.6, 1.2.3.4, 172.70.0.1, 10.0.0.2' }, socket: {} }), '1.2.3.4', 'behind Render, the address Cloudflare saw');
 });
 
 // ── drips and limits ──

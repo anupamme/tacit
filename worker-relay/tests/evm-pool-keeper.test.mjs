@@ -350,6 +350,11 @@ await test('HTTP intake: accept, idempotent resubmit, status without the hint, 4
     const codes = [];
     for (let i = 0; i < 6; i++) codes.push((await post('/wrap', makeWrap({ nonce: BigInt(i + 10) }), '3.3.3.3')).status);
     assert.ok(codes.includes(429));
+    // behind Render the right-most forwarded hop is a proxy's and changes per request; the address Cloudflare saw is the caller
+    const viaCf = [];
+    for (let i = 0; i < 6; i++) viaCf.push((await fetch(base + '/wrap', { method: 'POST', headers: { 'content-type': 'application/json', 'cf-connecting-ip': '4.4.4.4', 'x-forwarded-for': `9.9.9.9, 4.4.4.4, 172.70.0.${i}, 10.0.0.1` }, body: JSON.stringify(makeWrap({ nonce: BigInt(i + 30) })) })).status);
+    assert.ok(viaCf.includes(429), 'one caller behind a changing proxy hop is still limited');
+    assert.equal((await fetch(base + '/wrap', { method: 'POST', headers: { 'content-type': 'application/json', 'cf-connecting-ip': '5.5.5.5', 'x-forwarded-for': '9.9.9.9, 5.5.5.5, 172.70.0.9, 10.0.0.1' }, body: JSON.stringify(makeWrap({ nonce: 99n })) })).status, 200, 'another caller is not');
     const info = await (await fetch(`${base}/info`)).json();
     assert.equal(info.keeper, KEEPER);
     assert.ok(logs.every((m) => !m.includes(d.body.hint.outputs[0].npk)));

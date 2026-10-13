@@ -545,6 +545,12 @@ test('rate limit: per-client token bucket on /quote and /submit, keyed by the pr
     assert.equal((await q('1.1.1.1')).status, 200);
     assert.equal((await q('1.1.1.1')).status, 429);
     assert.equal((await q('2.2.2.2')).status, 200);
+    // behind Render the right-most forwarded hop is a proxy's and changes per request; the address Cloudflare saw is the caller
+    const viaCf = (ip) => fetch(base + '/btc-pool/relay/quote', { method: 'POST', headers: { 'cf-connecting-ip': ip, 'x-forwarded-for': `9.9.9.9, ${ip}, 172.70.0.${Math.floor(Math.random() * 250)}, 10.0.0.1` }, body: JSON.stringify({ asset: ASSET }) });
+    assert.equal((await viaCf('4.4.4.4')).status, 200);
+    assert.equal((await viaCf('4.4.4.4')).status, 200);
+    assert.equal((await viaCf('4.4.4.4')).status, 429);
+    assert.equal((await viaCf('5.5.5.5')).status, 200);
     const sub = (ip) => fetch(base + '/btc-pool/relay/submit', { method: 'POST', headers: { 'x-forwarded-for': ip }, body: '{}' });
     assert.equal((await sub('3.3.3.3')).status, 400);
     assert.equal((await sub('3.3.3.3')).status, 400);

@@ -39,6 +39,7 @@ import { createServer } from 'node:http';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { clientKey } from './lib/token-bucket.js';
 import {
   NETWORKS, BUCKETS, STEP, topicId, verifyJoin, verifyMsg, verifyEvidenceSig, makeClose, xonlyOfPriv,
   randomScalar, checkBucket,
@@ -321,16 +322,8 @@ export function memoryTransport(core) {
 
 // ─────────────────────────────────────────────────────────────── HTTP
 
-// Right-most X-Forwarded-For hop: the one the fronting proxy appended, which a client cannot set.
-export function clientIp(req) {
-  const xff = req.headers['x-forwarded-for'];
-  const raw = Array.isArray(xff) ? xff.join(',') : xff;
-  if (raw) {
-    const hops = raw.split(',').map((s) => s.trim()).filter(Boolean);
-    if (hops.length) return hops[hops.length - 1];
-  }
-  return req.socket?.remoteAddress || 'unknown';
-}
+// The caller's address (see lib/token-bucket.js: the address Cloudflare saw, else the proxy-appended forwarded hop).
+export const clientIp = clientKey;
 
 function rateLimiter(perMin, now = () => Date.now()) {
   const buckets = new Map();

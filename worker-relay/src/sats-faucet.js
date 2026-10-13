@@ -41,6 +41,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { clientKey } from './lib/token-bucket.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DAPP = path.resolve(HERE, '../../dapp');
@@ -153,16 +154,8 @@ export function decodeSignetAddress(address) {
   throw bad('only tb1q… and tb1p… addresses are supported');
 }
 
-// Right-most X-Forwarded-For hop: the one the fronting proxy appended, which a client cannot set.
-export function clientIp(req) {
-  const xff = req.headers['x-forwarded-for'];
-  const raw = Array.isArray(xff) ? xff.join(',') : xff;
-  if (raw) {
-    const hops = raw.split(',').map((s) => s.trim()).filter(Boolean);
-    if (hops.length) return hops[hops.length - 1];
-  }
-  return req.socket?.remoteAddress || 'unknown';
-}
+// The caller's address (see lib/token-bucket.js: the address Cloudflare saw, else the proxy-appended forwarded hop).
+export const clientIp = clientKey;
 
 const ipTag = (ip) => createHash('sha256').update('sats-faucet:' + ip).digest('hex').slice(0, 32);
 
