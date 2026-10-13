@@ -140,5 +140,7 @@ export function mountChart(host, onHover = null) {
   const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { const r = host.getBoundingClientRect(); const w = Math.round(r.width), h = Math.round(r.height); if (w !== size.w || h !== size.h) { size = { w, h }; draw(); } }) : null;
   ro?.observe(host);
   const r0 = host.getBoundingClientRect(); size = { w: Math.round(r0.width), h: Math.round(r0.height) };
-  return { update(next) { opts = next; draw(); }, destroy() { ro?.disconnect(); host.replaceChildren(); } };
+  // The page repaints on every read; a chart whose bars, tags and settings are as drawn is left alone, so its tooltip stays open.
+  let sig = '';
+  return { update(next) { const s = JSON.stringify([next, next.series?.map((x) => x.fmt?.(1))]); if (s === sig && opts) return; sig = s; opts = next; draw(); }, destroy() { ro?.disconnect(); host.replaceChildren(); } };
 }

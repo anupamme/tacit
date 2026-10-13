@@ -238,7 +238,7 @@ function pageCacheBust(files, write) {
 // from the first bytes of the HTML. The group after the bar is what the page needs right after it starts, not before:
 // the module's first lines preload it, once what the page waits on has arrived, so the two do not share bandwidth.
 // Generated here so it cannot go stale; --verify-only reports a block that no longer matches.
-const PRELOAD_PAGES = ['index.html', 'pay/index.html', 'pay/eth/index.html'];
+const PRELOAD_PAGES = ['index.html', 'pay/index.html', 'pay/eth/index.html', 'trade/index.html'];
 const STATIC_IMPORT = /(?:^|[\n;}])\s*(?:import|export)\s*(?:[^'"();]*?\sfrom\s*)?(['"])([^'"]+)\1/g;
 const HEAD_BLOCK = /<!-- preload:begin -->[\s\S]*?<!-- preload:end -->/, LATER_BLOCK = /\/\/ preload-later:begin\n[\s\S]*?\/\/ preload-later:end/;
 function preloadBlocks(page) {
@@ -281,7 +281,7 @@ function pagePreloads(write) {
     const before = readFileSync(file, 'utf8');
     const blocks = preloadBlocks(before);
     if (!blocks) continue;
-    if (!LATER_BLOCK.test(before)) throw new Error(`${rel} has no preload-later block`);
+    if (!LATER_BLOCK.test(before) && blocks.later.includes('for (')) throw new Error(`${rel} has no preload-later block`);   // a page with nothing after the bar needs none (the trade page runs no inline script)
     const after = before.replace(HEAD_BLOCK, () => blocks.head).replace(LATER_BLOCK, () => blocks.later);
     if (after !== before) { drift.push(`${rel} modulepreload links do not match the page's imports`); if (write) writeFileSync(file, after); }
   }
@@ -447,7 +447,8 @@ async function main() {
     const payDrift = pageCacheBust(PAY_CB_FILES, true);
     console.log(`• pay page cache-bust: ${payDrift.length ? `${payDrift.length} token(s) updated` : 'unchanged'}`);
     const preDrift = pagePreloads(true);
-    console.log(`• pay page preloads: ${preDrift.length ? 'updated' : 'unchanged'}`);
+    console.log(`• page preloads: ${preDrift.length ? 'updated' : 'unchanged'}`);
+    if (preDrift.length) tradeAssetPages(true);                 // the trade page's copy for each asset carries its preloads too
 
     for (const page of PINNED_PAGES) {
       if (!existsSync(page.file)) continue;

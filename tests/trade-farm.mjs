@@ -155,8 +155,13 @@ try {
 
   // both, at the pool's ratio
   await p.click('[data-fm="pair"]');
+  // Max with both: the largest pair the two balances cover, neither side past its balance, so the button is ready
+  await p.click('#fm-emax');
+  await until(p, () => /Deposit/.test(document.querySelector('#fm-rcpt')?.textContent || '') && Number(document.querySelector('#fm-tacamt').value) > 0, null, 120000);
+  const tacHeld = Number((await tacBal(me.account)) / 10n ** 16n) / 100, maxTac = Number(await p.inputValue('#fm-tacamt'));
+  ok(maxTac <= tacHeld && maxTac > tacHeld * 0.98 && !/Not enough/.test(await text(p, '#fm-rcpt')) && !(await p.$eval('#fm-go', (b) => b.disabled)), `Max with ETH + TAC fills both within the balances and can be pressed (${maxTac} of ${tacHeld} TAC, ${await p.inputValue('#fm-amt')} ETH)`);
   await p.fill('#fm-amt', '0.1');
-  await until(p, () => Number(document.querySelector('#fm-tacamt').value) > 0 && /Deposit/.test(document.querySelector('#fm-rcpt')?.textContent || '') && !document.querySelector('#fm-go').disabled, null, 120000);
+  await until(p, () => Number(document.querySelector('#fm-tacamt').value) > 0 && Number(document.querySelector('#fm-tacamt').value) < 5000 && /Deposit/.test(document.querySelector('#fm-rcpt')?.textContent || '') && !document.querySelector('#fm-go').disabled, null, 120000);
   ok(Number(await p.inputValue('#fm-tacamt')) > 100, `ETH + TAC fills the TAC at the pool's ratio (${await p.inputValue('#fm-tacamt')} TAC for 0.1 ETH)`);
   await p.click('#fm-go');
   await until(p, () => /Farming\./.test(document.querySelector('#fm-status')?.textContent || '') || document.querySelector('#fm-status .err'), null, 240000);
@@ -175,7 +180,8 @@ try {
   await until(p, () => !!document.querySelector('#fm-exit') && !document.querySelector('#fm-claim')?.hasAttribute('aria-busy'), null, 60000);   // the claim has ended and the stake is drawn again
   await p.click('[data-as="eth"]');
   await until(p, () => document.querySelector('[data-as="eth"]')?.getAttribute('aria-pressed') === 'true', null, 30000);
-  await until(p, () => /Withdraw all/.test(document.querySelector('#fm-exit')?.textContent || '') && !document.querySelector('#fm-exit').disabled && /You get about\s*[\d.]+ ETH$/.test(document.querySelector('#fm-out-rcpt')?.textContent.replace(/\s+/g, ' ').split('Plus')[0].trim() || ''), null, 120000);
+  await until(p, () => /Withdraw all/.test(document.querySelector('#fm-exit')?.textContent || '') && /You get about\s*[\d.]+ ETH/.test(document.querySelector('#fm-out-rcpt')?.textContent || ''), null, 120000);
+  if (await p.$('#fm-out-ack')) { ok(await p.$eval('#fm-exit', (b) => b.disabled), 'a withdrawal as one asset with a large swap waits for its box to be ticked'); await p.check('#fm-out-ack'); }
   const e0 = await ethBal(me.account);
   await p.click('#fm-exit');
   await until(p, () => /Withdrawn/.test(document.querySelector('#fm-pos-status')?.textContent || '') || document.querySelector('#fm-pos-status .err'), null, 240000);

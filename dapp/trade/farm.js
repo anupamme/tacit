@@ -21,9 +21,12 @@ const now = () => Math.floor(Date.now() / 1000);
 
 export function mountFarm(host, ctx) {
   const { ethCall, batch, api, wallet, W, connect, fmtUnits: fmt, parseUnits, esc, usd, ethUsd, txLink, onDone } = ctx;
-  const F = { x: null, prog: null, mode: 'eth', outPct: '100', outAs: 'both', q: null, seq: 0, w: null, wseq: 0, busy: false, tick: 0, err: false };
+  const F = { rseq: 0, ackKey: null, x: null, prog: null, mode: 'eth', outPct: '100', outAs: 'both', q: null, seq: 0, w: null, wseq: 0, busy: false, tick: 0, err: false };
   const $ = (s) => host.querySelector(s);
   const plain = (v) => { const n = BigInt(v), b = 10n ** 18n, f = (n % b).toString().padStart(18, '0').replace(/0+$/, ''); return `${n / b}${f ? `.${f}` : ''}`; };
+  // An amount with at least its first two significant digits, so a small stake does not read as 0.
+  const amt = (v, dp) => { let d = dp; const n = BigInt(v); while (n > 0n && d < 12 && fmt(n, 18, d).replace(/[^1-9]/g, '').length < 2) d++; return fmt(n, 18, d); };
+  const share = (num, den) => { if (!den || !num) return '0%'; const bp = Number(num * 1000000n / den) / 10000; return bp > 0 && bp < 0.01 ? 'under 0.01%' : `${bp.toFixed(2)}%`; };
   const cut = (v, dp) => { const u = 10n ** BigInt(18 - dp); return (v / u) * u; };
   const dayFmt = (t) => new Date(t * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   const usdOfEth = (wei) => (ethUsd() ? usd((Number(wei) / 1e18) * ethUsd()) : '');
@@ -56,7 +59,7 @@ export function mountFarm(host, ctx) {
 
   // ── reading the farm ──
   async function read() {
-    const who = W.account;
+    const who = W.account, my = ++F.rseq;
     const calls = [
       { to: POOL, data: SEL.reserve0 }, { to: POOL, data: SEL.reserve1 }, { to: POOL, data: SEL.totalSupply }, { to: POOL, data: SEL.sqrtPrice },
       { to: FARM, data: SEL.totalStaked }, { to: FARM, data: SEL.rewardRate }, { to: FARM, data: SEL.periodFinish }, { to: MC3, data: SEL.timestamp },
@@ -75,7 +78,7 @@ export function mountFarm(host, ctx) {
     x.stakedEth = x.supply ? x.value * Number(x.totalStaked) / Number(x.supply) : 0;
     x.apr = x.live && x.stakedEth > 0 ? Number(x.perDay) * 365 * x.tacEth / x.stakedEth * 100 : null;
     x.mine = x.supply ? { eth: x.staked * x.r0 / x.supply, tac: x.staked * x.r1 / x.supply } : { eth: 0n, tac: 0n };
-    if (W.account !== who) return;                                                 // another account connected meanwhile; its own read follows
+    if (my !== F.rseq || W.account !== who) return;                                // a newer read, or another account's, is the one to keep
     F.x = x; F.err = false;
   }
   const readProgram = () => api('/farm/program?network=mainnet').then((p) => { if (p?.epoch) F.prog = p; });
@@ -107,9 +110,9 @@ export function mountFarm(host, ctx) {
     el.hidden = false; $('#fm-add-h').textContent = 'Add more';
     const day = x.totalStaked ? x.perDay * x.staked / x.totalStaked : 0n, has = x.staked > 0n;
     el.innerHTML = (has ? `<h3>Your stake</h3>
-      <div class="kv"><span>In the farm</span><b>${fmt(x.mine.eth, 18, 4)} ETH + ${fmt(x.mine.tac, 18, 0)} TAC</b></div>
-      <div class="kv"><span>Earning</span><b>${fmt(day, 18, 2)} TAC a day${tacUsd(day) ? ` · ${tacUsd(day)}` : ''}</b></div>
-      <div class="kv"><span>Your share</span><b>${x.totalStaked ? (Number(x.staked * 10000n / x.totalStaked) / 100).toFixed(2) : '0'}%</b></div>
+      <div class="kv"><span>In the farm</span><b>${amt(x.mine.eth, 4)} ETH + ${amt(x.mine.tac, 0)} TAC</b></div>
+      <div class="kv"><span>Earning</span><b>${amt(day, 2)} TAC a day${tacUsd(day) ? ` · ${tacUsd(day)}` : ''}</b></div>
+      <div class="kv"><span>Your share</span><b>${share(x.staked, x.totalStaked)}</b></div>
       <div class="kv"><span>Earned</span><b class="num" id="fm-earned">${fmt(earnedNow(x), 18, 4)} TAC</b></div>
       <button class="btn ghost" type="button" id="fm-claim">Claim TAC</button>
       <div class="lbl"><span>Withdraw</span></div>
@@ -143,12 +146,17 @@ export function mountFarm(host, ctx) {
     const ack = $('#fm-ack');
     go.disabled = !q || q.over || !x || (q.loss >= 15 && !(ack && ack.checked));
   }
+  const up = (v, dp) => { const u = 10n ** BigInt(18 - dp); return ((v + u - 1n) / u) * u; };
+  const mineX = (x) => !!W.account && x?.who === W.account;
+  const spendEth = (x) => (x.bal != null && x.bal > GAS ? x.bal - GAS : 0n);
+  const capTac = (v, x) => (mineX(x) && v > x.tac ? x.tac : v), capEth = (v, x) => (mineX(x) && x.bal != null && v > spendEth(x) ? spendEth(x) : v);
   const tacFor = (wei, x) => (x.r0 > 0n ? (wei * x.r1 + x.r0 - 1n) / x.r0 : 0n);   // TAC at the pool's ratio
   const ethFor = (tac, x) => (x.r1 > 0n ? (tac * x.r0 + x.r1 - 1n) / x.r1 : 0n);
   async function requote(src = null) {
     const my = ++F.seq, x = F.x, m = F.mode;
-    if (m === 'pair' && x && src === ethIn) { const v = parseUnits(ethIn.value); tacIn.value = !ethIn.value ? '' : v != null ? plain(cut(tacFor(v, x), 2) + 10n ** 16n) : tacIn.value; }
-    if (m === 'pair' && x && src === tacIn) { const v = parseUnits(tacIn.value); ethIn.value = !tacIn.value ? '' : v != null ? plain(cut(ethFor(v, x), 6) + 10n ** 12n) : ethIn.value; }
+    // The other side follows at the pool's ratio, rounded up so the pair is whole, but never past what the wallet holds.
+    if (m === 'pair' && x && src === ethIn) { const v = parseUnits(ethIn.value); tacIn.value = !ethIn.value ? '' : v != null ? plain(capTac(up(tacFor(v, x), 2), x)) : tacIn.value; }
+    if (m === 'pair' && x && src === tacIn) { const v = parseUnits(tacIn.value); ethIn.value = !tacIn.value ? '' : v != null ? plain(capEth(up(ethFor(v, x), 6), x)) : ethIn.value; }
     const wei = m !== 'tac' ? parseUnits(ethIn.value) || 0n : 0n, tac = m !== 'eth' ? parseUnits(tacIn.value) || 0n : 0n;
     F.q = null; gate();
     if (!x || (!wei && !tac)) { rc.hidden = true; rc.innerHTML = ''; return; }
@@ -167,38 +175,39 @@ export function mountFarm(host, ctx) {
         loss = ideal > 0 ? Math.max(0, (1 - Number(lp) / ideal) * 100) : 0;
       }
       if (my !== F.seq) return;
-      const share = lp * 10000n / (x.totalStaked + lp), day = x.perDay * lp / (x.totalStaked + lp);
+      const day = x.perDay * lp / (x.totalStaked + lp);
       const inEth = Number(wei) + Number(tac) * x.tacEth, apr = x.live && inEth > 0 ? Number(day) * 365 * x.tacEth / inEth * 100 : null;
       const mine = W.account && x.who === W.account, over = mine && ((x.bal != null && wei > x.bal) || tac > x.tac);
+      const ackKey = `${m}|${wei}|${tac}|${Math.round(loss)}`;
       F.q = { m, wei, tac, lp, loss, over };
       rc.hidden = false;
       rc.innerHTML = `${m === 'pair' ? `<div class="kv"><span>Deposit</span><b>${fmt(wei, 18, 5)} ETH + ${fmt(tac, 18, 2)} TAC</b></div>` : ''}
-        <div class="kv"><span>Earns about</span><b>${fmt(day, 18, 2)} TAC a day${tacUsd(day) ? ` · ${tacUsd(day)}` : ''}</b></div>
+        <div class="kv"><span>Earns about</span><b>${amt(day, 2)} TAC a day${tacUsd(day) ? ` · ${tacUsd(day)}` : ''}</b></div>
         <div class="kv"><span>APR on this deposit</span><b>${aprTxt(apr)}</b></div>
-        <div class="kv"><span>Share of the farm</span><b>${(Number(share) / 100).toFixed(2)}%</b></div>
+        <div class="kv"><span>Share of the farm</span><b>${share(lp, x.totalStaked + lp)}</b></div>
         ${loss >= 0.5 ? `<div class="kv"><span>Price impact of the swap</span><b class="${loss >= 5 ? 'err' : ''}">${loss.toFixed(loss < 10 ? 1 : 0)}%</b></div>` : ''}
         ${x.live ? `<p class="note">At today’s TAC price and stake, while the stream runs to ${dayFmt(x.finish)}. It falls as more joins.</p>` : '<p class="note">The farm is between reward periods: nothing streams until the next one starts.</p>'}
         ${over ? `<p class="note err">Not enough ${(x.bal != null && wei > x.bal) ? 'ETH' : 'TAC'} in this wallet.</p>` : loss >= 5 ? `<p class="note">The swap inside the pool costs a lot at this size. A smaller deposit${m !== 'pair' ? ', or ETH + TAC,' : ''} costs less.</p>` : ''}
-        ${loss >= 15 ? `<label class="ack"><input type="checkbox" id="fm-ack"><span>I accept losing about ${Math.round(loss)}% of this deposit to the swap.</span></label>` : ''}`;
-      $('#fm-ack')?.addEventListener('change', gate);
+        ${loss >= 15 ? `<label class="ack"><input type="checkbox" id="fm-ack"${F.ackKey === ackKey ? ' checked' : ''}><span>I accept losing about ${Math.round(loss)}% of this deposit to the swap.</span></label>` : ''}`;
+      $('#fm-ack')?.addEventListener('change', (e) => { F.ackKey = e.target.checked ? ackKey : null; gate(); });
       gate();
     } catch (e) { if (my === F.seq) { rc.hidden = false; rc.innerHTML = `<p class="note err">${errMsg(e)}</p>`; } }
   }
 
   // The farm's transaction, tested once before the wallet is asked to send it, then waited for.
-  async function send(tx, label, at) {
+  async function send(tx, label, at, from) {
     say(at, 'Testing it first…');
-    await ethCall(FARM, tx.data, 'latest', { from: W.account, value: tx.value ? '0x' + tx.value.toString(16) : undefined }).catch((e) => { throw new Error(e?.revert ? 'This would fail right now, so it was not sent. Try a smaller amount or again soon.' : 'The farm could not be reached to test this. Nothing was sent.'); });
+    await ethCall(FARM, tx.data, 'latest', { from, value: tx.value ? '0x' + tx.value.toString(16) : undefined }).catch((e) => { throw new Error(e?.revert ? 'This would fail right now, so it was not sent. Try a smaller amount or again soon.' : 'The farm could not be reached to test this. Nothing was sent.'); });
     say(at, 'Confirm in your wallet.');
-    const hash = await wallet.sendTx({ to: FARM, data: tx.data, value: tx.value || 0n, from: W.account });
+    const hash = await wallet.sendTx({ to: FARM, data: tx.data, value: tx.value || 0n, from });                 // the wallet refuses if its account has changed since
     say(at, `${label}… ${txLink(hash)}`);
     const r = await wallet.receipt(hash);
     if (r.status !== '0x1') throw new Error(`The transaction failed on chain (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`);
     return { hash, r };
   }
-  const permit = async (token, name, value, dl) => {
-    const nonce = wordAt(await ethCall(token, SEL.nonces + addr(W.account)), 0);
-    const s = await wallet.signPermit({ token, name, spender: FARM, value, deadline: dl, nonce, owner: W.account });
+  const permit = async (token, name, value, dl, from) => {
+    const nonce = wordAt(await ethCall(token, SEL.nonces + addr(from)), 0);
+    const s = await wallet.signPermit({ token, name, spender: FARM, value, deadline: dl, nonce, owner: from });
     return word(s.v) + strip(s.r) + strip(s.s);
   };
   const deadline = () => BigInt((F.x ? F.x.t + (now() - F.x.at) : now()) + 1800);          // on the chain's clock, which a computer's can be off from
@@ -212,17 +221,17 @@ export function mountFarm(host, ctx) {
 
   go.onclick = () => {
     if (!W.account) return connect();
-    const z = F.q, x = F.x;
-    if (!z || z.over || !x) return;
+    const z = F.q, x = F.x, from = W.account;
+    if (!z || z.over || !x || x.who !== from || (z.loss >= 15 && !$('#fm-ack')?.checked)) return;
     run(go, status, async () => {
       const minShares = z.lp * 995n / 1000n, dl = deadline(), tail = word(minShares) + word(dl);
       const needPermit = z.tac > 0n && x.allowance < z.tac;
       if (needPermit) say(status, 'Sign the permit for your TAC in your wallet. It costs no gas.');
-      const sig = needPermit ? await permit(TAC, 'Tacit Token', z.tac, dl) : '';
+      const sig = needPermit ? await permit(TAC, 'Tacit Token', z.tac, dl, from) : '';
       const tx = z.m === 'eth' ? { data: SEL.zapETH + word(0) + tail, value: z.wei }
         : z.m === 'tac' ? { data: (needPermit ? SEL.zapTokenWithPermit : SEL.zapToken) + word(z.tac) + word(0) + tail + sig }
         : { data: (needPermit ? SEL.addAndStakeWithPermit : SEL.addAndStake) + word(z.tac) + tail + sig, value: z.wei };
-      const { hash } = await send(tx, 'Farming', status);
+      const { hash } = await send(tx, 'Farming', status, from);
       ethIn.value = ''; tacIn.value = ''; F.q = null; rc.hidden = true;
       say(status, `<span class="ok">Farming.</span> TAC streams to you every second. ${txLink(hash)}`);
       onDone();
@@ -236,32 +245,35 @@ export function mountFarm(host, ctx) {
     if (b.dataset.pct) { F.outPct = b.dataset.pct; renderPos(); return; }
     if (b.dataset.as) { F.outAs = b.dataset.as; renderPos(); return; }
     const x = F.x;
-    if (b.id === 'fm-emax' && x?.bal != null) {
-      let wei = cut(x.bal > GAS ? x.bal - GAS : 0n, 6);
-      if (F.mode === 'pair' && tacFor(wei, x) > x.tac) wei = cut(ethFor(x.tac, x), 6);
-      ethIn.value = wei > 0n ? plain(wei) : ''; requote(ethIn);
+    // Max: the whole balance of one side; with both, the largest pair the two balances cover, each side within its balance.
+    if ((b.id === 'fm-emax' || b.id === 'fm-tmax') && x && mineX(x)) {
+      if (F.mode !== 'pair') {
+        if (b.id === 'fm-emax' && x.bal != null) { const wei = cut(spendEth(x), 6); ethIn.value = wei > 0n ? plain(wei) : ''; }
+        if (b.id === 'fm-tmax') { const tac = cut(x.tac, 2); tacIn.value = tac > 0n ? plain(tac) : ''; }
+      } else if (x.bal != null) {
+        let wei = cut(spendEth(x), 6), tac = capTac(up(tacFor(wei, x), 2), x);
+        if (tacFor(wei, x) > x.tac) { tac = cut(x.tac, 2); wei = capEth(up(ethFor(tac, x), 6), x); }
+        ethIn.value = wei > 0n ? plain(wei) : ''; tacIn.value = tac > 0n ? plain(tac) : '';
+      }
+      requote();
     }
-    if (b.id === 'fm-tmax' && x) {
-      let tac = cut(x.tac, 2);
-      if (F.mode === 'pair' && x.bal != null && ethFor(tac, x) > (x.bal > GAS ? x.bal - GAS : 0n)) tac = cut(tacFor(x.bal > GAS ? x.bal - GAS : 0n, x), 2);
-      tacIn.value = tac > 0n ? plain(tac) : ''; requote(tacIn);
-    }
-    const ps = () => $('#fm-pos-status');
+    const ps = () => $('#fm-pos-status'), from = W.account;
+    if (['fm-claim', 'fm-stake', 'fm-exit'].includes(b.id) && (!from || x?.who !== from)) return;
     if (b.id === 'fm-claim') run(b, ps(), async () => {
-      const { hash, r } = await send({ data: SEL.claim }, 'Claiming', ps());
+      const { hash, r } = await send({ data: SEL.claim }, 'Claiming', ps(), from);
       const got = (r.logs || []).filter((l) => l.address.toLowerCase() === FARM.toLowerCase() && l.topics[0] === REWARD_PAID).reduce((t, l) => t + BigInt(l.data), 0n);
       say(ps(), `<span class="ok">Claimed${got ? ` ${fmt(got, 18, 2)} TAC` : ''}.</span> ${txLink(hash)}`); onDone();
     });
     if (b.id === 'fm-stake') run(b, ps(), async () => {
-      const dl = deadline(), sig = x.lpAllow < x.lp ? await permit(POOL, 'Precision LP', x.lp, dl) : '';
-      const { hash } = await send({ data: sig ? SEL.stakeWithPermit + word(x.lp) + word(dl) + sig : SEL.stake + word(x.lp) }, 'Staking', ps());
+      const dl = deadline(), sig = x.lpAllow < x.lp ? await permit(POOL, 'Precision LP', x.lp, dl, from) : '';
+      const { hash } = await send({ data: sig ? SEL.stakeWithPermit + word(x.lp) + word(dl) + sig : SEL.stake + word(x.lp) }, 'Staking', ps(), from);
       say(ps(), `<span class="ok">Staked.</span> ${txLink(hash)}`); onDone();
     });
-    if (b.id === 'fm-exit' && F.w) run(b, ps(), async () => {
+    if (b.id === 'fm-exit' && F.w && !(F.w.loss >= 15 && !$('#fm-out-ack')?.checked)) run(b, ps(), async () => {
       const z = F.w, dl = deadline();
-      const sim = await ethCall(FARM, outData(z, 0n, 0n, dl), 'latest', { from: W.account });
+      const sim = await ethCall(FARM, outData(z, 0n, 0n, dl), 'latest', { from });
       const m0 = wordAt(sim, 0) * 995n / 1000n, m1 = z.as === 'both' ? wordAt(sim, 1) * 995n / 1000n : 0n;
-      const { hash } = await send({ data: outData(z, m0, m1, dl) }, 'Withdrawing', ps());
+      const { hash } = await send({ data: outData(z, m0, m1, dl) }, 'Withdrawing', ps(), from);
       say(ps(), `<span class="ok">Withdrawn.</span> ${txLink(hash)}`); onDone();
     });
   });
@@ -275,10 +287,16 @@ export function mountFarm(host, ctx) {
     try {
       const r = await ethCall(FARM, outData({ all, as, shares }, 0n, 0n, deadline()), 'latest', { from: W.account });
       if (my !== F.wseq || !ex?.isConnected) return;
-      F.w = { all, as, shares };
+      const worth = x.value * Number(shares) / Number(x.supply), got = as === 'both' ? null : Number(wordAt(r, 0));      // in ETH wei at the pool's price
+      const loss = got == null || !worth ? 0 : Math.max(0, (1 - got / (as === 'eth' ? worth : worth / x.tacEth)) * 100);
+      F.w = { all, as, shares, loss };
       el.hidden = false;
-      el.innerHTML = `<div class="kv"><span>You get about</span><b>${as === 'both' ? `${fmt(wordAt(r, 0), 18, 5)} ETH + ${fmt(wordAt(r, 1), 18, 2)} TAC` : `${fmt(wordAt(r, 0), 18, as === 'eth' ? 5 : 2)} ${as === 'eth' ? 'ETH' : 'TAC'}`}</b></div>${all && x.earned > 0n ? `<div class="kv"><span>Plus earned</span><b>${fmt(earnedNow(x), 18, 2)} TAC</b></div>` : ''}`;
-      ex.textContent = all ? 'Withdraw all' : `Withdraw ${F.outPct}%`; ex.disabled = F.busy;
+      el.innerHTML = `<div class="kv"><span>You get about</span><b>${as === 'both' ? `${amt(wordAt(r, 0), 5)} ETH + ${amt(wordAt(r, 1), 2)} TAC` : `${amt(wordAt(r, 0), as === 'eth' ? 5 : 2)} ${as === 'eth' ? 'ETH' : 'TAC'}`}</b></div>${all && x.earned > 0n ? `<div class="kv"><span>Plus earned</span><b>${fmt(earnedNow(x), 18, 2)} TAC</b></div>` : ''}`
+        + (loss >= 0.5 ? `<div class="kv"><span>Price impact of the swap</span><b class="${loss >= 5 ? 'err' : ''}">${loss.toFixed(loss < 10 ? 1 : 0)}%</b></div>` : '')
+        + (loss >= 15 ? `<label class="ack"><input type="checkbox" id="fm-out-ack"><span>I accept losing about ${Math.round(loss)}% of this withdrawal to the swap.</span></label>` : '');
+      ex.textContent = all ? 'Withdraw all' : `Withdraw ${F.outPct}%`;
+      const outGate = () => { ex.disabled = F.busy || (loss >= 15 && !$('#fm-out-ack')?.checked); };
+      $('#fm-out-ack')?.addEventListener('change', outGate); outGate();
     } catch { if (my === F.wseq && el) { el.hidden = false; el.innerHTML = '<p class="note err">The withdrawal could not be previewed just now.</p>'; } }
   }
 

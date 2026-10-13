@@ -7,7 +7,7 @@
 //   take: { side: 'ask' | 'bid', size } the amount an order would fill, highlighted from the best price outward
 //   onPick(level, side) is called with the order a click lands on.
 
-import { niceTicks } from '/trade/chart.js?cb=7d42c308';
+import { niceTicks } from '/trade/chart.js?cb=c730b83d';
 import { cumulative } from '/trade/book.js?cb=3324d19b';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -96,5 +96,8 @@ export function mountDepth(host, { onPick = null } = {}) {
   const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { const r = host.getBoundingClientRect(), w = Math.round(r.width), h = Math.round(r.height); if (w !== size.w || h !== size.h) { size = { w, h }; draw(); } }) : null;
   ro?.observe(host);
   const r0 = host.getBoundingClientRect(); size = { w: Math.round(r0.width), h: Math.round(r0.height) };
-  return { update(next) { opts = next; draw(); }, destroy() { ro?.disconnect(); host.replaceChildren(); } };
+  // The page repaints on every read; a book that has not changed is not drawn again (a pointer over it keeps its place).
+  let sig = '';
+  const sigOf = (o) => JSON.stringify([o.asks?.map((x) => [x.price, x.size]), o.bids?.map((x) => [x.price, x.size]), o.take, o.empty, o.label, o.priceFmt?.(1), o.sizeFmt?.(1)]);
+  return { update(next) { const s = sigOf(next); if (s === sig && opts) return; sig = s; opts = next; draw(); }, destroy() { ro?.disconnect(); host.replaceChildren(); } };
 }

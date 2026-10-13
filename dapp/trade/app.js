@@ -14,13 +14,13 @@ import {
 import { getConfidentialDeployment } from '/confidential-deployments.js';
 import { buildBook, planBuy, planSell as planBtcSell, ladderLevels } from '/btc-book.js?cb=91371653';
 import { decodeTape, chartBars, invert, ethLaneUsd, btcLaneUsd, candlesFromTrades, closeAt, gap, TAPE_FINE, TAPE_COARSE } from '/trade/tape.js?cb=dfc28dd7';
-import { mountChart } from '/trade/chart.js?cb=7d42c308';
+import { mountChart } from '/trade/chart.js?cb=c730b83d';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
-import { mountDepth } from '/trade/depth.js?cb=26634347';
+import { mountDepth } from '/trade/depth.js?cb=0bbf4a0d';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=59e15e51';
-import { mountFarm } from '/trade/farm.js?cb=10117839';
+import { mountFarm } from '/trade/farm.js?cb=603f487f';
 
 const API = 'https://api.tacit.finance';
 const TAC_BTC_ID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
@@ -78,10 +78,12 @@ async function loadChain() {
     { to: CHAINLINK.ethUsd, data: '0xfeaf968c' }, { to: CHAINLINK.btcUsd, data: '0xfeaf968c' },
     { to: PRECISION_POOL, data: '0x443cb4bc' }, { to: PRECISION_POOL, data: '0x5a76f25e' }, { to: TAC_ERC20, data: '0x18160ddd' },
     ...PRIV_TIERS.map((fee) => ({ to: pool || TAC_ERC20, data: '0xb5217bb4' + privatePoolId(fee) })),
+    { to: MULTICALL3, data: '0x0f28c97d' },                                                       // the chain's own time, for deadlines
   ];
   const r = await batch(calls), P = 6;
   const fresh = (x) => (x && wordAt(x, 3) > BigInt(now() - 6 * 3600) && wordAt(x, 1) > 0n ? Number(wordAt(x, 1)) / 1e8 : null);   // a feed that has not answered in six hours is not a price
   D.ethUsd = fresh(r[1]); D.btcUsd = fresh(r[2]);
+  const ct = r[P + PRIV_TIERS.length]; if (ct) { D.chainT = Number(wordAt(ct, 0)); D.chainAt = now(); }
   if (r[0]) { const root = Number(wordAt(r[0], 0)) / 1e18; D.perEth = root > 0 ? root * root : null; }
   if (r[3] && r[4]) D.precision = { eth: wordAt(r[3], 0), tac: wordAt(r[4], 0) };
   if (r[5]) D.ethSupply = wordAt(r[5], 0);
@@ -162,6 +164,8 @@ const usdOf = (eth) => (eth != null && D.ethUsd ? eth * D.ethUsd : null);
 const btcUsdPerTac = () => (D.btc?.mark && D.btcUsd ? (D.btc.mark * D.btcUsd) / 1e8 : null);
 const laneGap = (other) => { const base = usdOf(priceEth()); return base && other ? gap(base, other) : null; };
 const gapClass = (g) => (g == null ? '' : Math.abs(g) < 0.01 ? 'mute' : g > 0 ? 'up' : 'down');
+// A deadline on the chain's clock: a computer whose clock is off would otherwise send one that has already passed.
+const chainDeadline = (s) => BigInt((D.chainT ? D.chainT + (now() - D.chainAt) : now()) + s);
 const tacitEth = () => D.priv?.price ?? null;                                                       // ETH per TAC in the Tacit pool's reserves
 
 // ── the head: the price and where it trades ──
@@ -325,7 +329,7 @@ const boardsName = (bd) => (bd.plan.fills.length === 1 ? `${BOARD_NAMES[bd.plan.
 // it (and is dropped if the amount has changed meanwhile). A change the person made clears the ticket first.
 async function requote(quiet = false) {
   const my = ++S.seq, wei = getAmount(), dir = dirOf(), buy = S.side === 'buy';
-  if (!quiet) { S.quote = null; S.review = null; renderReview(); keepInHash(); }
+  if (!quiet) { S.quote = null; S.review = null; renderReview(); keepInHash(); if (!S.busy) { $('#status').textContent = ''; $('#status').dataset.kind = ''; } }
   if (!wei || wei <= 0n) { S.quote = null; renderQuote(null); renderVenues(null); return; }
   if (!quiet) renderQuote({ busy: true });
   if (quiet) S.refreshing = true;
@@ -357,6 +361,13 @@ function keepInHash() {
   if (h !== location.hash) history.replaceState(null, '', location.pathname + location.search + h);
 }
 $('#chips').addEventListener('click', (e) => { const b = e.target.closest('[data-amt]'); if (!b || S.busy) return; S.amt = b.dataset.amt; $('#amt').value = S.amt; S.pin = null; renderPin(); requote(); });
+// What the quote itself says under the ticket. It never replaces what a trade said (why it stopped, what arrived), which stays until the person
+// changes the ticket.
+function quoteSay(t) {
+  const s = $('#status');
+  if (S.busy || (s.dataset.kind === 'trade' && s.textContent)) return;
+  s.textContent = t; s.dataset.kind = t ? 'quote' : '';
+}
 function renderQuote(q) {
   renderChips();
   const buy = S.side === 'buy', outEl = $('#out'), route = $('#route'), go = $('#go');
@@ -365,12 +376,12 @@ function renderQuote(q) {
   $('#out-unit').textContent = buy ? 'TAC' : 'ETH';
   $('#amt').setAttribute('aria-label', buy ? 'ETH to pay' : 'TAC to pay');
   const none = (t) => { outEl.textContent = t; outEl.classList.add('ph'); $('#out-usd').textContent = ''; route.innerHTML = ''; renderGo(); };
-  if (!q) { none('0.00'); if (!S.busy) $('#status').textContent = S.amt && getAmount() == null ? 'Cannot read that amount. Write 1500 or 0.05 (1,500 alone is ambiguous).' : ''; return; }
+  if (!q) { none('0.00'); quoteSay(S.amt && getAmount() == null ? 'Cannot read that amount. Write 1500 or 0.05 (1,500 alone is ambiguous).' : ''); return; }
   if (q.busy) { none('…'); return; }
-  if (q.err) { none('—'); $('#status').textContent = q.err; return; }
-  if (!S.busy) $('#status').textContent = '';
+  if (q.err) { none('—'); quoteSay(q.err); return; }
+  quoteSay('');
   const { rt, wei } = q, via = routeOf(q);
-  if (!via) { none('—'); $('#status').textContent = S.pin ? 'That order cannot fill this amount: it may be taken whole, or it has just been filled.' : 'No pool can fill this right now.'; return; }
+  if (!via) { none('—'); quoteSay(S.pin ? 'That order cannot fill this amount: it may be taken whole, or it has just been filled.' : 'No pool can fill this right now.'); return; }
   let out, perTac, name, note = '', usdIn;
   if (via === 'boards') {
     const bd = q.board;
@@ -519,6 +530,8 @@ function btcStack(b, live) {
   return stackBook({ asks: lvs(b.asks, true), bids: lvs(b.bids, false), totalHead: 'Sats',
     mid: `${D.btc?.mark ? `<span class="ob-last"><b>${esc(btcPxFmt(btcPx(D.btc.mark)))}</b><em>last trade</em></span>` : '<span></span>'}${spreadTxt(b.bestAsk, b.bestBid)}` });
 }
+// Written only when it changed: the minute's refresh leaves a focused row, a hover and the scroll as they were.
+const setHtml = (el, h) => { if (el.__h !== h) { el.__h = h; el.innerHTML = h; } };
 function renderBook() {
   const tab = bookTab(), box = $('#ladders'), note = $('#depth-note');
   $('#book-seg').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.book === tab)));
@@ -526,7 +539,7 @@ function renderBook() {
     const z = D.zb;
     if (!z) {
       depth.update({ asks: [], bids: [], empty: D.zbFailed ? 'Could not read zSwap\'s boards.' : 'Reading zSwap\'s boards…' });
-      box.innerHTML = D.zbFailed ? `<p class="note">Could not read zSwap's boards. ${ZSWAP_LINK}</p>` : ''; note.textContent = ''; return;
+      setHtml(box, D.zbFailed ? `<p class="note">Could not read zSwap's boards. ${ZSWAP_LINK}</p>` : ''); note.textContent = ''; return;
     }
     const missing = z.answered < BOARD_CALLS ? ' Some boards did not answer; orders may be missing.' : '';
     const bd = S.quote?.board, via = routeOf(S.quote);
@@ -535,19 +548,19 @@ function renderBook() {
       asks: z.asks.map((o) => ({ price: ethPx(o.price), size: Number(o.base) / 1e18, order: o })), bids: z.bids.map((o) => ({ price: ethPx(o.price), size: Number(o.base) / 1e18, order: o })), take,
       priceFmt: ethPxFmt, sizeFmt: (n) => `${tacFmt(n)} TAC`, label: 'zSwap order book for TAC', empty: 'No TAC orders rest on zSwap\'s boards right now.',
     });
-    box.innerHTML = hasBoardOrders() ? ethStack(z) : `<p class="note">${z.answered < BOARD_CALLS ? 'No TAC orders on the boards that answered.' : 'No TAC orders on zSwap\'s boards.'}${missing} ${ZSWAP_LINK}</p>`;
+    setHtml(box, hasBoardOrders() ? ethStack(z) : `<p class="note">${z.answered < BOARD_CALLS ? 'No TAC orders on the boards that answered.' : 'No TAC orders on zSwap\'s boards.'}${missing} ${ZSWAP_LINK}</p>`);
     note.innerHTML = hasBoardOrders() ? `Orders on zSwap's boards. Fill sets the ticket to that order; otherwise the ticket fills the best orders together when that pays more.${missing} ${ZSWAP_LINK}` : '';
     return;
   }
   const b = D.book;
-  if (!b) { depth.update({ asks: [], bids: [], empty: 'Reading the Bitcoin order book…' }); box.innerHTML = ''; note.textContent = ''; return; }
+  if (!b) { depth.update({ asks: [], bids: [], empty: 'Reading the Bitcoin order book…' }); setHtml(box, ''); note.textContent = ''; return; }
   const take = S.quote?.book?.plan?.fills?.length && S.side === 'buy' ? { side: 'ask', size: Number(S.quote.book.plan.amount) / 1e8 } : null;
   depth.update({
     asks: b.asks.map((r) => ({ price: btcPx(r.unit), size: Number(r.amount) / 1e8 })), bids: b.bids.map((r) => ({ price: btcPx(r.unit), size: Number(r.amount) / 1e8 })), take,
     priceFmt: btcPxFmt, sizeFmt: (n) => `${tacFmt(n)} TAC`, label: 'Bitcoin order book for TAC', empty: 'No TAC is listed on the Bitcoin order book right now.',
   });
   const live = btcOn();
-  box.innerHTML = btcStack(b, live) + (live ? `<div class="btc-actions"><button class="fillbtn primary" type="button" data-btc="open">Trade on Bitcoin</button><button class="fillbtn" type="button" data-btc="list">List a sale</button></div>` : '');
+  setHtml(box, btcStack(b, live) + (live ? `<div class="btc-actions"><button class="fillbtn primary" type="button" data-btc="open">Trade on Bitcoin</button><button class="fillbtn" type="button" data-btc="list">List a sale</button></div>` : ''));
   const total = b.asks.reduce((a, r) => a + r.amount, 0n), want = b.bids.reduce((a, r) => a + r.amount, 0n);
   const bidsTxt = !D.bidsRead ? 'Could not read the bids.' : b.bids.length ? `${b.bids.length} bid${b.bids.length === 1 ? '' : 's'} (${grp(Number(want) / 1e8, 0)} TAC) settle when the bidder is online${b.bids.some((r) => r.auto) ? ', some within minutes' : ''}.` : 'No bids.';
   note.innerHTML = b.asks.length ? `${b.asks.length} listings (${grp(Number(total) / 1e8, 0)} TAC), taken whole. ${bidsTxt}${live ? '' : ` <a href="/tac/#buy">Buy on Bitcoin →</a> · <a href="/classic.html#tab=market&aid=${TAC_BTC_ID}&lane=btc">List a sale →</a>`}` : bidsTxt;
@@ -618,12 +631,13 @@ const wallet = makeWallet({ rpc, leave: (p) => (p?.isWalletConnect ? WC.disconne
 const W = wallet.state;
 const short = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const plain = (v, dec = 18) => { const n = BigInt(v), b = 10n ** BigInt(dec), f = (n % b).toString().padStart(dec, '0').replace(/0+$/, ''); return `${n / b}${f ? `.${f}` : ''}`; };
-const say = (t) => { $('#status').innerHTML = t; };
+const say = (t) => { const s = $('#status'); s.innerHTML = t; s.dataset.kind = 'trade'; };
 const txLink = (h) => `<a href="https://etherscan.io/tx/${esc(h)}" target="_blank" rel="noopener noreferrer">${esc(h.slice(0, 10))}…↗</a>`;
 async function readBalances() {
-  if (!W.account) { S.bal = null; return; }
-  const [eth, tac] = await Promise.all([rpc('eth_getBalance', [W.account, 'latest']).then((x) => BigInt(x), () => null), ethCall(TAC_ERC20, '0x70a08231' + word(BigInt(W.account))).then((x) => wordAt(x, 0), () => null)]);
-  S.bal = { eth, tac };
+  const who = W.account;
+  if (!who) { S.bal = null; return; }
+  const [eth, tac] = await Promise.all([rpc('eth_getBalance', [who, 'latest']).then((x) => BigInt(x), () => null), ethCall(TAC_ERC20, '0x70a08231' + word(BigInt(who))).then((x) => wordAt(x, 0), () => null)]);
+  if (W.account === who) S.bal = { eth, tac };                                                    // read for an account that has since changed: dropped
 }
 const spendable = () => (S.bal ? (S.side === 'buy' ? S.bal.eth : S.bal.tac) : null);
 function renderBalance() {
@@ -715,7 +729,7 @@ function renderChip() {
 function walletSheet() {
   const o = overlay({ title: 'Wallet', top: true });
   const bal = S.bal ? `<div class="kv"><span>ETH</span><b class="num">${esc(fmtUnits(S.bal.eth ?? 0n, 18, 4))}</b></div><div class="kv"><span>TAC</span><b class="num">${esc(fmtUnits(S.bal.tac ?? 0n, 18, 2))}</b></div>` : '';
-  o.body.innerHTML = `<div class="kv"><span>Connected with</span><b>${esc(W.name)}</b></div><div class="kv"><span>Account</span><b class="addr-s">${esc(W.account)}</b></div>${bal}<div class="bsheet-actions" style="margin-top:14px"><button class="btn ghost" type="button" data-copy>Copy address</button><button class="btn" type="button" data-leave${S.busy ? ' disabled' : ''}>Disconnect</button></div>${S.busy ? '<p class="note">A trade is in progress; disconnect when it ends.</p>' : ''}`;
+  o.body.innerHTML = `<div class="kv"><span>Connected with</span><b>${esc(W.name)}</b></div><div class="kv"><span>Account</span><b class="addr-s">${esc(W.account)}</b></div>${bal}<div class="bsheet-actions" style="margin-top:14px"><button class="btn ghost" type="button" data-copy>Copy address</button><button class="btn" type="button" data-leave${S.busy || farm.busy() ? ' disabled' : ''}>Disconnect</button></div>${S.busy || farm.busy() ? '<p class="note">A trade is in progress; disconnect when it ends.</p>' : ''}`;
   const addr = W.account;
   o.body.querySelector('[data-copy]').onclick = (e) => navigator.clipboard?.writeText(addr).then(() => { e.target.textContent = 'Copied'; }, () => { e.target.textContent = 'Could not copy'; });
   o.body.querySelector('[data-leave]').onclick = async () => { o.close(); await wallet.disconnect(); S.review = null; renderChip(); };
@@ -766,11 +780,11 @@ async function preparePools(P, from) {
   const rt = await venues.route({ dir, amountIn: P.wei, account: from, gasPrice: await gasPrice() });
   if (!rt.single) throw new Error('No pool can fill this right now.');
   const venue = P.rt.single.venue, pick = P.split ? rt.split : (rt.r.ranked || []).find((x) => x.venue === venue);
-  if (!pick) { S.review = null; renderReview(); say('That route is no longer offered. Nothing was sent; review it again.'); requote(); return null; }
-  if (BigInt(pick.amountOut) < P.floor) { S.review = null; renderReview(); say('The price fell below your minimum. Nothing was sent; review it again.'); requote(); return null; }
+  if (!pick) { S.review = null; renderReview(); say('That route is no longer offered. Nothing was sent; review it again.'); requote(true); return null; }
+  if (BigInt(pick.amountOut) < P.floor) { S.review = null; renderReview(); say('The price fell below your minimum. Nothing was sent; review it again.'); requote(true); return null; }
   // The least it will take follows the price now, at the slippage chosen, and is never below what was reviewed.
   const floorFor = (route) => { const f = (BigInt(route.amountOut) * BigInt(10000 - S.slip)) / 10000n; return f > P.floor ? f : P.floor; };
-  const dl = BigInt(now() + 1200);
+  const dl = chainDeadline(1200);
   const prepare = async (route) => {
     const isSplit = !!route.legs, floor = floorFor(route);
     const make = (permit) => (isSplit ? venues.buildSplit({ split: route, account: from, minOut: floor, deadline: dl, permit }) : venues.build({ quote: route, dir, account: from, minOut: floor, deadline: dl, permit }));
@@ -796,13 +810,13 @@ async function prepareBoards(P, from) {
   const book = await readBook({ ethCall, base: TAC_ERC20, now: now() });
   const rows = new Map((buy ? book.asks : book.bids).map((o) => [o.key, o]));
   const orders = P.board.keys.map((k) => rows.get(k));
-  const stop = (why) => { S.review = null; renderReview(); say(why); loadBoards().then(paintAll).catch(() => {}); requote(); return null; };
+  const stop = (why) => { S.review = null; renderReview(); say(why); loadBoards().then(paintAll).catch(() => {}); requote(true); return null; };
   if (orders.some((o) => !o)) return stop('An order you reviewed was just filled or cancelled. Nothing was sent; review it again.');
   const again = (buy ? planBoardBuy : planBoardSell)(orders, P.wei);
   const fine = again.fills.length ? await refineBoards({ ethCall, plan: again }) : null;
   if (!fine) return stop('These orders can no longer be filled together. Nothing was sent; review it again.');
   if (fine.get < P.floor) return stop('The price fell below your minimum. Nothing was sent; review it again.');
-  const dl = BigInt(now() + 1200);
+  const dl = chainDeadline(1200);
   const make = (permit) => buildBoardFill({ plan: fine, side, token: TAC_ERC20, account: from, deadline: dl, slipBps: S.slip, permit, floor: P.floor });      // never below the "at least" that was reviewed
   const tx = await withTacAccess({ make, buy, permit: true, from, dl });
   say('Testing it first…');
@@ -823,7 +837,7 @@ async function sendAndReport(tx, { from, buy }) {
   if (buy) { const T = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', me = '0x' + word(BigInt(from)); got = rc.logs.filter((l) => l.address.toLowerCase() === TAC_ERC20.toLowerCase() && l.topics[0] === T && l.topics[2]?.toLowerCase() === me).reduce((a, l) => a + BigInt(l.data), 0n); }
   await readBalances();
   if (!buy && eth0 != null && S.bal?.eth != null && W.account?.toLowerCase() === from.toLowerCase()) got = S.bal.eth - eth0 + BigInt(rc.gasUsed) * BigInt(rc.effectiveGasPrice || 0);
-  S.review = null; S.quote = null; S.amt = ''; S.pin = null; $('#amt').value = '';
+  S.review = null; S.quote = null; S.amt = ''; S.pin = null; $('#amt').value = ''; keepInHash();
   renderBalance(); renderReview(); renderQuote(null); renderVenues(null); renderPin();
   loadChain().then(paintAll).catch(() => {});                                                  // the pools have moved
   loadBoards().then(paintAll).catch(() => {});                                                 // and the orders that were filled are gone
@@ -843,7 +857,13 @@ async function execute(P) {
     say(`<span class="err">${esc(e instanceof UserStopped ? e.message : String(e.message || e).slice(0, 220))}</span>`);
   } finally { S.busy = false; lockTicket(); renderGo(); }
 }
-$('#go').addEventListener('click', () => { if (!W.account) connectWallet(); else if (routeOf(S.quote) && getAmount()) { S.review = planOf(); renderReview(); say(''); } });
+$('#go').addEventListener('click', () => {
+  if (!W.account) { connectWallet(); return; }
+  const wei = getAmount();
+  if (!wei) return;
+  if (!S.quote || S.quote.wei !== wei || S.quote.dir !== dirOf()) { clearTimeout(amtTimer); requote(); return; }   // pressed while the amount was still being typed: quote it first
+  if (routeOf(S.quote)) { S.review = planOf(); renderReview(); say(''); }
+});
 $('#in-bal').addEventListener('click', () => {
   const have = spendable();
   if (have == null || S.busy) return;
