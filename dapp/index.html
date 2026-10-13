@@ -385,13 +385,23 @@ a.di { color: inherit; text-decoration: none; }
 #pts-lb { scroll-margin-top: 18px; }
 
 /* ── the sections under the hero: one idea each, a big word, a few plain lines ── */
-.sx { padding: 96px 0 0; }
-.sx-h { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px 56px; align-items: end; margin-bottom: 40px; }
+.sx { padding: 80px 0 0; }
+.sx-h { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px 56px; align-items: end; margin-bottom: 32px; }
 .sx-h h2 { font: 400 clamp(44px, 6vw, 76px)/.95 var(--serif); letter-spacing: -.02em; margin: 0; }
 .sx-h h2 em { font-style: italic; }
 .sx-h p { margin: 0; max-width: 44ch; font-size: 16px; color: var(--ink); }
 .sx-k { display: block; margin: 0 0 14px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
-.shell:has(#dash:not([hidden])) .hw { display: none; }
+.shell:has(#dash:not([hidden])) .hs { display: none; }
+/* How to start: three steps in one row under the hero, each a line and a way in. */
+.hs { margin-top: 36px; }
+.hs-l { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); }
+.hs-l li { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 4px 14px; padding: 18px 22px 18px 0; }
+.hs-l li + li { padding-left: 22px; border-left: 1px solid var(--hair-2); }
+.hs-n { grid-row: span 2; font: 400 44px/.9 var(--serif); }
+.hs-t { display: grid; gap: 2px; }
+.hs-t b { font: 400 24px/1.1 var(--serif); }
+.hs-t span { font-size: 13px; color: var(--mute); }
+.hs-l .tl { justify-self: start; padding: 0; color: var(--ink); background: none; border: 0; cursor: pointer; font: inherit; font-size: 13px; font-weight: 500; }
 
 /* One ID, two chains: Bitcoin left, Ethereum right, the key down the middle, one lane for each thing that crosses. */
 .wd { --end: 300px; border: 1px solid var(--ink); background: var(--card); }
@@ -408,7 +418,7 @@ a.di { color: inherit; text-decoration: none; }
 .wd-key::after { content: ''; position: absolute; top: calc(100% + 6px); left: 50%; height: 17px; border-left: 1px dashed var(--ink); opacity: .5; }
 .wd-lanes { position: relative; list-style: none; margin: 0; padding: 0; }
 .wd-lanes::before { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; border-left: 1px dashed var(--ink); opacity: .5; }
-.wd-lane { min-height: 104px; }
+.wd-lane { min-height: 90px; }
 .wd-lane + .wd-lane { border-top: 1px dotted var(--hair-2); }
 .wd-end { display: flex; align-items: center; gap: 16px; height: 100%; padding: 18px 26px; text-align: left; color: inherit; background: none; border: 0; cursor: pointer; transition: background .15s; }
 .wd-end.r { justify-content: flex-end; text-align: right; }
@@ -448,24 +458,6 @@ a.di { color: inherit; text-decoration: none; }
 .kept-h a { font: 400 12px var(--mono); text-transform: none; letter-spacing: 0; color: var(--mute); }
 #kept-v { min-height: 128px; }
 
-/* Three steps: the ID, what you hold made private, then putting it to work. */
-.hw-l { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--ink); }
-.hw-l > li { display: grid; align-content: start; gap: 10px; padding: 22px 26px 6px 0; }
-.hw-l > li + li { padding-left: 26px; border-left: 1px solid var(--hair-2); }
-.hw-n { font: 400 88px/.8 var(--serif); }
-.hw-ic { display: flex; align-items: center; gap: 8px; min-height: 36px; }
-.hw-ic .tk { width: 32px; height: 32px; }
-.hw-l h3 { font: 400 34px/1 var(--serif); margin: 6px 0 0; }
-.hw-l p { margin: 0; max-width: 34ch; color: var(--mute); }
-.hw-l button.tl { justify-self: start; margin-top: 4px; padding: 0; color: var(--ink); background: none; border: 0; cursor: pointer; font: inherit; font-weight: 500; }
-.hw-ways { display: grid; }
-.hw-ways button { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; width: 100%; padding: 8px 0; text-align: left; color: var(--mute); background: none; border: 0; border-top: 1px dotted var(--hair-2); cursor: pointer; transition: color .15s; }
-.hw-ways button:last-child { border-bottom: 1px dotted var(--hair-2); }
-.hw-ways b { font-weight: 500; color: var(--ink); }
-.hw-ways i { font-style: normal; transition: transform .2s var(--spring); }
-@media (hover: hover) { .hw-ways button:hover { color: var(--ink); } .hw-ways button:hover i { transform: translateX(4px); } }
-.hw-l .hw-skip { font-size: 13px; }
-.hw-go { display: flex; flex-wrap: wrap; gap: 4px 18px; }
 
 /* Farm TAC: the two ways in, each with its rate. */
 .fm-y { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--ink); }
@@ -857,10 +849,9 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .wd { --end: 230px; }
   .wd-top { padding: 20px 16px 18px; }
   .wd-end { padding: 16px; }
-  .hw-l { grid-template-columns: minmax(0, 1fr); }
-  .hw-l > li, .hw-l > li + li { padding: 22px 0; border-left: 0; border-top: 1px solid var(--hair-2); }
-  .hw-l > li:first-child { border-top: 0; }
-  .hw-n { font-size: 64px; }
+  .hs-l { grid-template-columns: minmax(0, 1fr); }
+  .hs-l li, .hs-l li + li { padding: 14px 0; border-left: 0; }
+  .hs-l li + li { border-top: 1px solid var(--hair-2); }
   .fm-y { grid-template-columns: minmax(0, 1fr); }
   .fm-way + .fm-way { border-left: 0; border-top: 1px solid var(--ink); }
   .tc { grid-template-columns: minmax(0, 1fr); gap: 4px; }
@@ -994,6 +985,14 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
     <ul class="dash-g" id="dash-g"></ul>
   </section>
 
+  <section class="hs" aria-label="How to start">
+    <ol class="hs-l">
+      <li><span class="hs-n">1</span><span class="hs-t"><b>Get your ID</b><span>With a wallet you have, or a passkey. It sends nothing.</span></span><button class="tl" type="button" data-signin>Sign in →</button></li>
+      <li><span class="hs-n">2</span><span class="hs-t"><b>Make it private</b><span>ETH, BTC or TAC, from wherever it is now.</span></span><button class="tl" type="button" data-hx="shield:ether:defi">Shield →</button></li>
+      <li><span class="hs-n">3</span><span class="hs-t"><b>Put it to work</b><span>Pay anyone, swap, farm TAC, borrow dollars.</span></span><button class="tl" type="button" data-hx="earn:ether:public">Farm TAC →</button></li>
+    </ol>
+  </section>
+
   <section class="sx" id="how" aria-labelledby="how-h">
     <div class="sx-h">
       <div><span class="sx-k">The weld</span><h2 id="how-h">One ID.<br><em>Two chains.</em></h2></div>
@@ -1029,29 +1028,6 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
     </div>
     <p class="wd-n"><span><b>Recovery</b> from your key and the chain, on any device</span><span><b>The pool</b> one immutable contract on Ethereum</span></p>
     <div class="kept" id="kept"><h3 class="kept-h">Bitcoin and Ethereum, in step<a href="/weld/stats/">More on the stats page <span aria-hidden="true">→</span></a></h3><div id="kept-v"></div></div>
-  </section>
-
-  <section class="sx hw" aria-labelledby="hw-h">
-    <div class="sx-h">
-      <div><span class="sx-k">Start</span><h2 id="hw-h">Three steps.</h2></div>
-      <p>Bring ETH, BTC or TAC, or nothing at all. Nothing to install, and nothing to fund before you look around.</p>
-    </div>
-    <ol class="hw-l">
-      <li><span class="hw-n">1</span><span class="hw-ic"><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><h3>Get your ID</h3>
-        <p>Sign in with the Ethereum or Bitcoin wallet you have, or make a passkey here. One tacit1 ID covers both chains, and signing in sends nothing.</p>
-        <button class="tl" type="button" data-signin>Get your tacit1 ID →</button></li>
-      <li><span class="hw-n">2</span><span class="hw-ic"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><h3>Make it private</h3>
-        <p>Start from whatever you hold.</p>
-        <span class="hw-ways">
-          <button type="button" data-hx="shield:ether:defi"><b>ETH</b><span>tETH for DeFi, or private ETH for payments</span><i aria-hidden="true">→</i></button>
-          <button type="button" data-hx="borrow:cbtc"><b>BTC</b><span>cBTC, locked at your own address behind an ETH bond</span><i aria-hidden="true">→</i></button>
-          <button type="button" data-hx="shield:btc:pool"><b>TAC</b><span>private on Bitcoin, or over to Ethereum</span><i aria-hidden="true">→</i></button>
-        </span>
-        <p class="hw-skip">Holding nothing yet? <a href="/pay/">Get paid privately</a> at your tacit1 address.</p></li>
-      <li><span class="hw-n">3</span><span class="hw-ic"><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg></span><h3>Put it to work</h3>
-        <p>Send and get paid, swap, farm TAC, borrow cUSD against your cBTC, and move between Bitcoin and Ethereum. Every move stays private.</p>
-        <span class="hw-go"><button class="tl" type="button" data-hx="earn:ether:public">Farm TAC →</button><button class="tl" type="button" data-hx="borrow:cusd">Borrow cUSD →</button></span></li>
-    </ol>
   </section>
 
   <section class="sx fm" aria-labelledby="fm-h">
