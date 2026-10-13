@@ -458,12 +458,13 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
   // has held at that size, so the feed cannot forge leaves. No nullifier is sent to a node to ask whether it is
   // spent: a spend the feed left out shows when the chain-log scan reaches it, or as a refused spend, which rescans.
   // A feed that withholds a memo or a Received event can hide a note until rescan() reads the chain's logs alone
-  // (a spend that keeps failing does that itself); it cannot move funds. Any failure leaves `saved` as it was, for the chain-log scan to continue from.
+  // (a spend that keeps failing does that itself); it cannot move funds. Each page is kept as soon as it checks, so a
+  // failure, or a page closed partway through a long history, loses only the page being read: the next read, by the
+  // feed or the chain-log scan, continues from the last one kept.
   async function syncFromFeed(safe) {
     boxTopics();
-    let cand = saved;
     for (let pages = 0; pages < 10_000; pages++) {
-      const from = cand.block + 1;
+      const cand = saved, from = cand.block + 1;
       if (from > safe) break;
       const r = await keeperGet(`/events?from=${from}`);
       if (Number(r.chainId) !== Number(chain.chainId) || String(r.pool).toLowerCase() !== chain.pool.toLowerCase()) throw new Error('feed is for another pool');
@@ -482,11 +483,9 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
         const size = BigInt(await view32('rootSize(bytes32)', ['bytes32'], [next.tree.root]));
         if (size !== BigInt(next.tree.size)) throw new Error('feed leaves do not match the pool');
       }
-      cand = next;
+      saved = next;
+      persist();
     }
-    if (cand === saved) return;
-    saved = cand;
-    persist();
   }
 
   // Reads new events: those `confirmations` deep are kept, the rest are re-read next time. With a keeper, confirmed

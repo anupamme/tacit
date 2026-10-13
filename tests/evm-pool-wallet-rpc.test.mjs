@@ -369,4 +369,27 @@ await check('toV1 counts its hour-long deadline from the chain time it is given'
   assert.equal(BigInt('0x' + box.slice(10 + 64 * 6, 10 + 64 * 7)), BigInt(now + 3600), 'the intent\'s deadline is that time plus an hour');
 });
 
+await check('a feed page is kept as soon as it checks, so a feed that fails partway loses only the page it was reading', async () => {
+  const POOLA = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9';
+  const kv = new Map(), store = { get: (k) => kv.get(k) ?? null, set: (k, v) => kv.set(k, v) };
+  const page = { chainId: 8453, pool: POOLA, through: 50, events: [{ kind: 'transact', block: 40, tx: '0x' + '00'.repeat(32), firstIndex: 0,
+    nf0: '0', nf1: '0', outLeaf0: '11', outLeaf1: '12', memo0: '0x', memo1: '0x' }] };
+  const make = (feedUp) => {
+    const asked = [];
+    const rpc = async (m, p) => { if (m === 'eth_getLogs') asked.push(Number(p[0].fromBlock)); return m === 'eth_blockNumber' ? '0x64' : m === 'eth_getLogs' ? [] : '0x' + '2'.padStart(64, '0'); };
+    const w = makeEvmPoolWallet({
+      zk, keys: evmPoolKeys(zk, new Uint8Array(32).fill(5)), prove: null, store, keeper: 'https://k.test',
+      fetchImpl: async (url) => { if (!url.includes('/events?from=1') || !feedUp) throw new Error('feed down'); return { ok: true, status: 200, headers: new Map(), json: async () => page }; },
+      chain: { chainId: 8453, pool: POOLA, router: '0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5', rpc, deployBlock: 1, confirmations: 0 },
+    });
+    return { w, asked };
+  };
+  const a = make(true);
+  await a.w.sync();
+  assert.equal(a.asked[0], 51, 'the chain-log scan starts after the page the feed gave, though the next page failed');
+  const b = make(false);
+  await b.w.sync();
+  assert.deepEqual(b.asked, [], 'and a wallet made again from what was stored has nothing left to read');
+});
+
 console.log(`\n${n} checks passed`);
