@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-VNMhsnT0pxRe8Ohnc9kiNSR87qvaTEvEg07PeVvMA9c=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ZHCNTiEerWC4CyWEHwO507sBUIHXozWT5utw1fqrNCQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=2f4a1520"></script>
 <title>tacit</title>
@@ -280,7 +280,11 @@ a.di { color: inherit; text-decoration: none; }
 .hx-lbl { font: 13px var(--mono); letter-spacing: 0; text-transform: none; color: var(--mute); }
 .hx-where { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; font-size: 12px; color: var(--mute); white-space: nowrap; }
 .hx-where svg { width: 14px; height: 14px; flex: none; }
-.hx-where.priv { padding: 1px 9px 1px 4px; color: var(--ink); border: 1px dashed var(--ink); border-radius: 999px; }
+/* Private is said quietly: a small shield before the words, in the same muted line as a wallet. */
+.hx-where.priv svg { display: none; }
+.hx-where.priv::before { content: ''; width: 9px; height: 10px; flex: none; margin-right: -2px; background: currentColor; opacity: .75;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 10'%3E%3Cpath d='M4.5 0 9 1.6v3C9 7.3 7 9.2 4.5 10 2 9.2 0 7.3 0 4.6v-3z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 10'%3E%3Cpath d='M4.5 0 9 1.6v3C9 7.3 7 9.2 4.5 10 2 9.2 0 7.3 0 4.6v-3z'/%3E%3C/svg%3E") center / contain no-repeat; }
 .hx-fm { display: flex; align-items: center; gap: 12px; min-height: 56px; margin: 2px 0; }
 .hx-amt, .hx-big { flex: 1; min-width: 0; padding: 0; font: 400 44px/1.1 var(--serif); letter-spacing: -.01em; color: var(--ink); background: none; border: 0; border-radius: 0; outline: none; font-variant-numeric: tabular-nums; }
 .hx-big { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -301,7 +305,30 @@ a.di { color: inherit; text-decoration: none; }
   border-radius: 999px; font: 500 14px var(--mono); color: var(--ink); white-space: nowrap; cursor: pointer; transition: border-color .18s, transform .2s var(--spring); }
 .hx-coin .tk { width: 32px; height: 32px; transition: transform .4s var(--spring); }
 .hx-coin .car { font-size: 10px; color: var(--mute); }
-.hx-coin select { position: absolute; inset: 0; width: 100%; opacity: 0; font-size: 16px; cursor: pointer; }
+.hx-coin select { position: absolute; inset: 0; width: 100%; opacity: 0; font-size: 16px; pointer-events: none; }
+.hx-coin:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* The card's picker: a sheet that rises inside the card, one row per choice with its coin and where it sits. */
+.hx-pk { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; border-radius: 17px;
+  background: color-mix(in srgb, var(--paper) 55%, transparent); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); animation: hx-fade .2s ease; }
+@keyframes hx-fade { from { opacity: 0; } }
+.hx-pk-s { display: flex; flex-direction: column; max-height: 86%; background: var(--card); border-top: 1px solid var(--hair-2); border-radius: 16px 16px 0 0; box-shadow: 0 -24px 48px -32px rgba(0,0,0,.5); animation: hx-up .3s var(--ease); }
+.hx-pk-s::before { content: ''; flex: none; width: 36px; height: 4px; margin: 8px auto 0; border-radius: 2px; background: var(--hair-2); }
+@keyframes hx-up { from { transform: translateY(32px); opacity: 0; } }
+.hx-pk-h { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px 8px 18px; }
+.hx-pk-h b { font: italic 400 24px/1 var(--serif); }
+.hx-pk-x { width: 36px; height: 36px; font-size: 20px; color: var(--mute); background: none; border: 0; border-radius: 50%; cursor: pointer; }
+@media (hover: hover) { .hx-pk-x:hover { color: var(--ink); background: var(--field); } }
+.hx-pk-l { overflow: auto; padding: 0 10px 14px; }
+.hx-pk-g { margin: 10px 8px 4px; font-size: 12px; color: var(--mute); }
+.hx-pk-r { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px; text-align: left; color: inherit; background: none; border: 0; border-radius: 12px; cursor: pointer; transition: background .12s; }
+.hx-pk-r .tk { width: 36px; height: 36px; }
+.hx-pk-r > span { flex: 1; display: grid; line-height: 1.3; min-width: 0; }
+.hx-pk-r b { font-weight: 500; }
+.hx-pk-r small { font-size: 12px; color: var(--mute); }
+.hx-pk-r i { flex: none; width: 18px; font-style: normal; text-align: center; }
+.hx-pk-r[aria-current="true"] { background: var(--field); box-shadow: inset 0 0 0 1px var(--hair-2); }
+@media (hover: hover) { .hx-pk-r:hover { background: var(--field); } }
+.hx-pk-r:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
 .hx-coin.one { padding-right: 14px; cursor: default; }
 @media (hover: hover) { .hx-coin:not(.one):hover { border-color: var(--ink); } .hx-coin:not(.one):hover .tk { transform: rotate(-8deg); } }
 .hx-coin:not(.one):active { transform: scale(.97); }
@@ -9553,6 +9580,36 @@ function hxWantPoints() {
 }
 const hxPtsShort = (p) => (p.pts < 1 ? '< 1 point' : `${p.known ? '≈ ' : ''}${ptsFmt(p.pts)}${p.known ? '' : '+'} points`);
 // The parts of the panel a quote changes.
+// Where a choice in one of the card's pickers sits, said under its name.
+function hxSubOf(id, k) {
+  if (id === 'hx-from' && HX.tab === 'private') return k === 'pp' ? `private, for payments on ${hxChain().name}` : HX_SH[k]?.place || '';
+  if (id === 'hx-sa') return { eth: 'private on Ethereum', tac: 'private on Bitcoin, sent from Pay', btc: 'at your Bitcoin address, sent from Pay' }[k] || '';
+  return k === 'ether' ? 'in your wallet' : k === 'sats' ? 'in your Bitcoin wallet' : 'private on Ethereum';
+}
+// The card's picker: a sheet that rises inside the card over a dim of it, one row per choice with its coin; the dim, the ×, Escape or a press
+// elsewhere close it.
+function hxPick(sel, opener) {
+  const card = $('#hx');
+  card.querySelector('.hx-pk')?.remove();
+  const gs = [...sel.querySelectorAll('optgroup')], groups = gs.length ? gs.map((g) => [g.label, [...g.children]]) : [['', [...sel.options]]];
+  const row = (o) => html`<button type="button" class="hx-pk-r" data-v="${o.value}" aria-current="${o.selected}"><svg class="tk" aria-hidden="true"><use href="#tk-${o.dataset.ic}"/></svg><span><b>${o.dataset.u || o.textContent}</b><small>${o.dataset.sub}</small></span><i aria-hidden="true">${o.selected ? '✓' : ''}</i></button>`;
+  const box = document.createElement('div');
+  box.className = 'hx-pk';
+  box.innerHTML = html`<div class="hx-pk-s" role="dialog" aria-label="${opener.getAttribute('aria-label')}"><div class="hx-pk-h"><b>${opener.getAttribute('aria-label').split(':')[0]}</b><button type="button" class="hx-pk-x" aria-label="Close">×</button></div>
+    <div class="hx-pk-l">${groups.map(([g, os]) => html`${g ? html`<div class="hx-pk-g">${g}</div>` : ''}${os.map(row)}`)}</div></div>`.s;
+  card.append(box);
+  const id = sel.id, back = () => $(`[data-pk="${id}"]`)?.focus();
+  const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); back(); } };
+  const away = (e) => { if (!card.contains(e.target)) close(); };                       // a press anywhere else on the page closes it too
+  const close = () => { box.remove(); document.removeEventListener('keydown', onKey, true); document.removeEventListener('pointerdown', away, true); };
+  document.addEventListener('keydown', onKey, true); document.addEventListener('pointerdown', away, true);
+  box.onclick = (e) => {
+    const r = e.target.closest('.hx-pk-r');
+    if (r) { close(); if (sel.value !== r.dataset.v) { sel.value = r.dataset.v; sel.dispatchEvent(new Event('change')); } back(); return; }
+    if (e.target === box || e.target.closest('.hx-pk-x')) { close(); back(); }
+  };
+  (box.querySelector('[aria-current="true"]') || box.querySelector('.hx-pk-r'))?.focus({ preventScroll: true });
+}
 // The parts of the panel a quote changes.
 function paintHxQ() {
   const q = HX.q || {}, out = $('#hx-out');
@@ -9649,10 +9706,13 @@ function paintHx() {
   const head = html`<div class="hx-h" role="tablist" aria-label="What to do" style="--i: ${HX_TABS.findIndex(([k]) => k === HX.tab)}">${HX_TABS.map(tab)}</div>`;
   // A coin and its ticker, with the asset picker laid over them: pressing the coin chooses the asset. One choice is no picker.
   // `grouped` lists are [heading, items] pairs, and an item's fifth part, where it has one, is the name the list shows.
+  // A coin and its ticker. With more than one choice it opens the card's own picker (hxPick: each choice with its coin and where it
+  // sits); the select under it holds the value, and its change is what redraws the card.
   const coin = (id, label, items, cur, grouped) => {
     const all = grouped ? items.flatMap(([, l]) => l) : items, [, u, ic] = all.find(([x]) => x === cur) || all[0];
-    const opt = ([x, u2, , , n]) => html`<option value="${x}"${x === cur ? ' selected' : ''}>${n || u2}</option>`;
-    return html`<label class="hx-coin${all.length < 2 ? ' one' : ''}"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><b>${u}</b>${all.length > 1 ? html`<span class="car" aria-hidden="true">▾</span><select id="${id}" aria-label="${label}">${grouped ? items.map(([g, l]) => html`<optgroup label="${g}">${l.map(opt)}</optgroup>`) : items.map(opt)}</select>` : ''}</label>`;
+    const opt = ([x, u2, ic2, , n]) => html`<option value="${x}" data-u="${u2}" data-ic="${ic2}" data-sub="${hxSubOf(id, x)}"${x === cur ? ' selected' : ''}>${n || u2}</option>`;
+    if (all.length < 2) return html`<span class="hx-coin one"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><b>${u}</b></span>`;
+    return html`<span class="hx-coin" role="button" tabindex="0" aria-haspopup="dialog" aria-label="${label}: ${u}. Change" data-pk="${id}"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><b>${u}</b><span class="car" aria-hidden="true">▾</span><select id="${id}" tabindex="-1" aria-hidden="true">${grouped ? items.map(([g, l]) => html`<optgroup label="${g}">${l.map(opt)}</optgroup>`) : items.map(opt)}</select></span>`;
   };
   const where = (text, priv, ic = 'eth') => html`<span class="hx-where${priv ? ' priv' : ''}"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg>${text}</span>`;
   // Where an asset of the Swap and Earn lists sits: ETH in the wallet, sats in the Bitcoin wallet, the rest private on Ethereum.
@@ -9722,6 +9782,10 @@ function paintHx() {
       <p class="hx-q">${here ? 'Nobody sees how much or to whom.' : 'Same key, same tacit1 address.'}</p>`;
   }
   mount(el, html`${head}<div class="hx-b">${body}</div>`);
+  for (const c of $$('.hx-coin[data-pk]', el)) {
+    c.onclick = (e) => { e.preventDefault(); hxPick($('#' + c.dataset.pk), c); };
+    c.onkeydown = (e) => { if (['Enter', ' ', 'ArrowDown'].includes(e.key)) { e.preventDefault(); hxPick($('#' + c.dataset.pk), c); } };
+  }
   const pickTab = (k, focusIt) => { if (HX.tab === k) return; HX.tab = k; HX.q = null; HX.route = null; paintHx(); if (focusIt) $(`[data-hxm="${k}"]`)?.focus(); };
   for (const b of $$('[data-hxm]', el)) b.onclick = () => pickTab(b.dataset.hxm);
   // The tabs are one stop: the arrow keys, Home and End move among them.
