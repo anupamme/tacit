@@ -439,8 +439,6 @@ a.di { color: inherit; text-decoration: none; }
 @media (hover: hover) { .wd-foot button:hover { background: var(--field); } }
 .wd-foot .tk { width: 28px; height: 28px; }
 .wd-foot b { font-weight: 500; }
-.wd-n { display: flex; flex-wrap: wrap; gap: 6px 28px; margin: 16px 0 0; font-size: 13px; color: var(--mute); }
-.wd-n b { font-weight: 500; color: var(--ink); }
 /* The picture of the two chains: what is passing between them now, and over the last day. No box: a rule and a line. */
 .kept { margin: 34px 0 0; padding: 14px 0 0; border-top: 1px solid var(--hair); }
 .kept-h { display: flex; justify-content: space-between; align-items: baseline; gap: 6px 16px; flex-wrap: wrap; margin: 0 0 10px; font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--mute); }
@@ -977,8 +975,8 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
 
   <section class="sx" id="how" aria-labelledby="how-h">
     <div class="sx-h">
-      <div><span class="sx-k">The weld</span><h2 id="how-h">One ID.<br><em>Two chains.</em></h2></div>
-      <p>One key holds your private balances on both chains. What crosses between them crosses by zero-knowledge proof, with no federation or multisig in the way.</p>
+      <div><span class="sx-k">How it works</span><h2 id="how-h">One ID.<br><em>Two chains.</em></h2></div>
+      <p>One key holds your private balances on both chains and moves them between the two by zero-knowledge proof, with no federation or multisig. It all recovers from your key, and the pool is one immutable contract.</p>
     </div>
     <div class="wd">
       <div class="wd-top">
@@ -1008,7 +1006,6 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
         <button type="button" data-hx="shield:ether:pay"><span><b>Pay pools</b> on Ethereum, Base, Robinhood and MegaETH</span><svg class="tk" aria-hidden="true"><use href="#tk-peth"/></svg></button>
       </div>
     </div>
-    <p class="wd-n"><span><b>Recovery</b> from your key and the chain, on any device</span><span><b>The pool</b> one immutable contract on Ethereum</span></p>
     <div class="kept" id="kept"><h3 class="kept-h">Bitcoin and Ethereum, in step<a href="/weld/stats/">More on the stats page <span aria-hidden="true">→</span></a></h3><div id="kept-v"></div></div>
   </section>
 
