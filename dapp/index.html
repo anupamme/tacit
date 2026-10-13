@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-UKBWcRHQz9x2HnTvYL/u21D2G6Kschhyb4rfG+gqbTU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-lzi24zsYrd83UDOBCuJq7L/GEFcxa4Fa6f8BX6XpBso=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=2f4a1520"></script>
 <title>tacit</title>
@@ -556,6 +556,7 @@ a.di { color: inherit; text-decoration: none; }
 .tc-links .btn { width: auto; min-height: 52px; margin: 0; padding: 0 24px; background: transparent; color: var(--ink); border-color: var(--ink); }
 @media (hover: hover) { .tc-links .btn:hover:not(:disabled) { color: var(--paper); background: var(--ink); } }
 @media (prefers-reduced-motion: reduce) { .tc-eth { opacity: 0; } }
+.rest, .rest *, .rest *::before, .rest *::after { animation-play-state: paused !important; }
 
 footer { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 26px; margin-top: 110px; padding-top: 22px; border-top: 1px solid var(--ink); color: var(--mute); font-size: 13px; }
 /* The links in three short lists under the site's own line, each with its heading. */
@@ -1685,13 +1686,16 @@ function lossOk(box, pct) {
 const lossLine = (pct) => !(pct >= 0.5) ? html`` : html`<div class="kv"><span>Price impact</span><b class="${pct >= 5 ? 'err' : ''}">${pctFmt(pct)}</b></div>`;
 
 // ── chain access ─────────────────────────────────────────────────────────────────────────────────────────
+// These nodes take JSON-RPC as text/plain, a simple request the browser sends without asking first (no OPTIONS round trip); the others
+// refuse that content type and are sent application/json.
+const RPC_PLAIN = /^https:\/\/([a-z0-9-]+\.)*(publicnode\.com|drpc\.org|gateway\.tenderly\.co|mainnet\.base\.org)\//;
 async function rpc(method, params, urls = RPCS) {
   let last;
   const send = method === 'eth_sendRawTransaction';
   for (const [n, url] of urls.entries()) {
     try {
       // A read that hangs gives way to the next host after 15 s; the last host, and a send, get a minute.
-      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: within(send || n === urls.length - 1 ? 60e3 : 15e3) });
+      const r = await fetch(url, { method: 'POST', headers: { 'content-type': RPC_PLAIN.test(url + '/') ? 'text/plain' : 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: within(send || n === urls.length - 1 ? 60e3 : 15e3) });
       const j = await r.json();
       if (j.error) {
         if (j.error.code === 3 || /revert/i.test(j.error.message || '')) throw Object.assign(new Error(j.error.message), { revert: true, data: j.error.data });
@@ -3144,7 +3148,7 @@ function openAsset(key) {
   if (!d.open) d.showModal();
   syncLink();
   // TAC's card says its price once read, the same reading as the TAC sheet's.
-  if (key === 'tac' && !TPX.v) loadTacPrice().then(() => { if (d.open && assetOpen === 'tac' && TPX.v) openAsset('tac'); }).catch(() => {});
+  if (key === 'tac' && !TPX.book) loadTacPrice(false, true).then(() => { if (d.open && assetOpen === 'tac' && TPX.v) openAsset('tac'); }).catch(() => {});
 }
 document.addEventListener('click', (e) => { const b = e.target.closest?.('[data-asset]'); if (b) { e.preventDefault(); openAsset(b.dataset.asset); } });
 
@@ -5619,8 +5623,12 @@ function bestAsk(sales, mark) {
   }).filter((x) => x != null && (!mark || x <= mark * 5));
   return unit.length ? Math.min(...unit) : null;
 }
-function loadTacPrice(force = false) {
-  if (!force && TPX.v && Date.now() - TPX.at < 60e3) return Promise.resolve();
+// The pools' and the engine's figures come from one multicall. The Bitcoin book's (its trade mark and cheapest ask, from the API) are read
+// only with `book`, for the TAC sheet and card that show them; a reading without them keeps the last ones it had.
+function loadTacPrice(force = false, book = false) {
+  if (!force && TPX.v && Date.now() - TPX.at < 60e3 && (!book || TPX.book)) return Promise.resolve();
+  if (TPX.p && book && !TPX.pBook) return TPX.p.then(() => loadTacPrice(force, true));
+  TPX.pBook = TPX.p ? TPX.pBook : book;
   return (TPX.p ||= (async () => {
     const BTC1 = 10n ** 8n, api = (path) => fetch(`${API}${path}`, { signal: within(10e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
     // One multicall for the chain: the Precision pool's price, the engine's BTC price both ways, and what the Tacit AMM's
@@ -5629,21 +5637,21 @@ function loadTacPrice(force = false) {
     const [[sp, wst, usd, ammOut], asset, sales] = await Promise.all([
       multicall([{ to: ADDR.precisionPool, data: SEL.sqrtPrice }, { to: ADDR.engine, data: SEL.wstEthForBtc + word(BTC1) }, { to: ADDR.engine, data: SEL.btcToUsd + word(BTC1) },
         { to: TACIT_AMM, data: SEL.tacitQuote + strip(CETH_POOL_ASSET_ID) + strip(TAC_POOL_ASSET_ID) + word(AMM_FEE) + word(IN) }]),
-      api(`/assets/${TAC_BTC_ID}?network=mainnet`),
-      api(`/assets/${TAC_BTC_ID}/preauth-sales?network=mainnet`),
+      book ? api(`/assets/${TAC_BTC_ID}?network=mainnet`) : null,
+      book ? api(`/assets/${TAC_BTC_ID}/preauth-sales?network=mainnet`) : null,
     ]);
     const amm = ammOut && wordAt(ammOut, 0) > 0n ? { amountIn: IN, amountOut: wordAt(ammOut, 0), feeBps: AMM_FEE } : null;
     const root = sp ? Number(wordAt(sp, 0)) / 1e18 : 0;
     const ethBtc = wst ? await ethCall(ADDR.wsteth, SEL.stEthPerWst + word(wordAt(wst, 0))).then((r) => Number(wordAt(r, 0)) / 1e18, () => null) : null;   // ETH per BTC; unread: no sats or dollars, the ETH price stays
-    const mark = Number(asset?.mark_price?.unit) || null;                                                                       // sats per TAC, from trades
+    const mark = book ? Number(asset?.mark_price?.unit) || null : TPX.v?.mark ?? null;                                          // sats per TAC, from trades
     TPX.v = {
       mid: root > 0 ? 1 / (root * root) : null,                                                                                 // ETH per TAC
       ethBtc, usdBtc: usd ? Number(wordAt(usd, 0)) / 1e8 : null, mark,
-      ask: Array.isArray(sales?.sales) ? bestAsk(sales.sales, mark) : null,
+      ask: book ? (Array.isArray(sales?.sales) ? bestAsk(sales.sales, mark) : null) : TPX.v?.ask ?? null,
       amm: amm?.amountOut > 0n ? (Number(amm.amountIn) * (1 - Number(amm.feeBps) / 1e4)) / Number(amm.amountOut) : null,
     };
-    TPX.at = Date.now();
-  })().finally(() => { TPX.p = null; }));
+    TPX.at = Date.now(); if (book) TPX.book = true;
+  })().finally(() => { TPX.p = null; TPX.pBook = false; }));
 }
 // The private AMM's mid, cETH over cTAC in its pool (both kept at the pool's own 8 decimals); the founded fee tier is the one with reserves.
 function loadPrivateAmm() {
@@ -5704,7 +5712,7 @@ render.tac = () => {
   ({ air: renderAirdrop, buy: renderBuy, sell: renderSell, bridge: renderBridge })[TAB.tac]($(`#${TAB.tac}-body`));
 };
 // The price line reads on its own and paints only itself, so a slow venue never holds up the sheet's own reads.
-load.tac = () => { loadTacPrice().then(paintTacPrice).catch(() => {}); return Promise.all([TAB.tac === 'air' ? loadAirdrop() : TAB.tac === 'bridge' ? (BRM.mode === 'out' ? Promise.resolve() : loadBridge()) : loadPrecision(), loadTacHoldings()]); };
+load.tac = () => { loadTacPrice(false, true).then(paintTacPrice).catch(() => {}); return Promise.all([TAB.tac === 'air' ? loadAirdrop() : TAB.tac === 'bridge' ? (BRM.mode === 'out' ? Promise.resolve() : loadBridge()) : loadPrecision(), loadTacHoldings()]); };
 
 // ── Bridge: TAC on Bitcoin into private TAC on Ethereum ──────────────────────────────────────────────────────
 // tacit.js's own bridge, the one the classic app's Holdings uses: one journal per key in this browser, so a bridge
@@ -9329,11 +9337,16 @@ function takeDraft(mode, input, ok = () => true) {
   HX.draft = null; input.value = d.amt || '';
   if (input.value) input.dispatchEvent(new Event('input'));
 }
-async function hxWrapTip(units) {
-  const r = await fetch(`${API}/confidential/quote?asset=cETH&amountWei=${units * E10}`, { signal: within(20e3) });
-  if (!r.ok) throw new Error(`quote ${r.status}`);
-  return BigInt((await r.json()).recommendedWrapTipWei || 0);
+// The relay's tip for a wrap does not turn on its size, so the card reads it ahead (when the card shows a wrap, or its amount is focused) and keeps
+// it 15 s; the Private sheet's own form asks again for its amount.
+const HXT = { at: 0, v: null, p: null };
+function hxWrapTip(units = 10n ** 7n) {
+  if (HXT.v != null && Date.now() - HXT.at < 15e3) return Promise.resolve(HXT.v);
+  return (HXT.p ||= fetch(`${API}/confidential/quote?asset=cETH&amountWei=${units * E10}`, { signal: within(20e3) })
+    .then(async (r) => { if (!r.ok) throw new Error(`quote ${r.status}`); HXT.v = BigInt((await r.json()).recommendedWrapTipWei || 0); HXT.at = Date.now(); return HXT.v; })
+    .finally(() => { HXT.p = null; }));
 }
+const hxTipFresh = () => HXT.v != null && Date.now() - HXT.at < 15e3;
 async function hxPoolSwap(from, to, units) {
   const t = await getUx();
   const id = (k) => (k === 'cbtc' ? String(t.pool.CBTC_ZK_ASSET_ID) : String(t.assetByTicker[POOL_TK[k]]?.assetId || '')).toLowerCase();
@@ -9495,7 +9508,8 @@ function hxPreset(spec) {
   card.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'center' });
   if (!calm) card.animate([{ outline: '2px solid var(--orange)', outlineOffset: '2px' }, { outline: '2px solid transparent', outlineOffset: '12px' }], { duration: 1100, easing: 'ease-out' });
 }
-const hxQuoteSoon = debounce(() => hxQuote(), 400);
+// A wrap whose tip is in hand answers at once; a quote that reads pools waits for the typing to settle.
+const hxQuoteSoon = (() => { let h; return () => { clearTimeout(h); h = setTimeout(() => hxQuote(), HX.mode === 'private' && hxTipFresh() ? 120 : 400); }; })();
 // The quote for what is on the panel: the amount out, the routes to choose between, the line under the button and the
 // button's words. Drawn by paintHxQ without touching the field being typed in.
 async function hxQuote() {
@@ -9962,6 +9976,7 @@ function paintHx() {
     HX.route = HX.q = null; paintHx();
   });
   $('#hx-amt')?.addEventListener('input', (e) => { HX.amt = e.target.value; hxSub(); hxQuoteSoon(); });
+  if (HX.mode === 'private' || (HX.mode === 'swap' && HX.from === 'ether')) $('#hx-amt')?.addEventListener('focus', () => { hxWrapTip().catch(() => {}); }, { once: true });
   el.onclick = (e) => {
     const b = e.target.closest?.('[data-hxq]');
     if (!b) return;
@@ -9983,6 +9998,8 @@ function hxSync() {
 }
 paintHx();
 refreshTape();
+// What moves on the page (the tape, the bridge lines, the coin) rests while it is off screen, so typing stays smooth.
+if ('IntersectionObserver' in window) { const io = new IntersectionObserver((es) => { for (const e of es) e.target.classList.toggle('rest', !e.isIntersecting); }); for (const el of $$('.tape, .wd, .tc-stage')) io.observe(el); }
 // A button elsewhere on the page that sets the console (data-hx="tab:from:way"), takes it to a section (data-scroll), or signs in (data-signin).
 document.addEventListener('click', (e) => {
   const h = e.target.closest?.('[data-hx]');
