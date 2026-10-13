@@ -1,7 +1,7 @@
 # Holding proof key: setup record
 
 The proving key for `holding.circom` (the holding reward's claims, checked by the points service), made by the project
-itself. Anyone can re-check every step with snarkjs 0.7.6.
+itself. What anyone can re-check with snarkjs 0.7.6 is the final key against the circuit and the public phase-1 file (`snarkjs zkey verify` lists both contributions, ours and the Bitcoin-block seal), the verification key exported from it, and the seal's block hash. The intermediate files (genesis and our contribution) are not published, only their hashes below; that our single contribution's randomness was discarded is a claim about a process, not something the files can show.
 
 1. **Phase 1:** `powersOfTau28_hez_final_16.ptau` (Hermez public ceremony), blake2b pinned in `ceremony-env.sh`.
 2. **Circuit:** `holding.circom` sha256 `79e6eea38345246f1593ea3e3f8a92d69f5da63129ee34828b94db7146774451`, circom 2.2.3.

@@ -4,7 +4,7 @@
 // it wrote. The page keeps the result (still only a cache: every balance is found again from the key and the chain), and
 // its own wallet, made from it, then reads only what came after.
 import { makeEvmPoolZk } from '/evm-pool-zk.js?cb=2f062779';
-import { makeEvmPoolWallet, evmPoolKeys, jsonRpc } from '/evm-pool-wallet.js?cb=e245ecff';
+import { makeEvmPoolWallet, evmPoolKeys, jsonRpc } from '/evm-pool-wallet.js?cb=0b06b9ee';
 import { poseidon2, poseidon3, poseidon4, poseidon5, poseidon7 } from '/vendor/tacit-poseidon.min.js';
 
 const PO = { 2: poseidon2, 3: poseidon3, 4: poseidon4, 5: poseidon5, 7: poseidon7 };

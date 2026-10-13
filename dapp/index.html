@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-4xQLGsiksRqcT9PG+QRMm90iP/UI9iqVw2aryjD/O4U=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-pSjVprp4zquYeczz7KIIQe1ZXlAa8hWHZeSqIoOa0MY=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=0cf48a6a"></script>
 <title>tacit</title>
@@ -4667,7 +4667,7 @@ function xoOut(el, status, a) {
 const DEV = { chain: DEVICE_CHAINS.find((c) => c.chainId === store.get('tacit-lite-device-chain')) || DEVICE_CHAINS[1], mode: 'deposit', dest: 'addr', W: null, bal: null, key: null, quote: null, gq: {}, err: null, self: false };
 const getDeviceMods = lazy(async () => {
   const [zkm, wm, pm, pos] = await Promise.all([
-    import('/evm-pool-zk.js?cb=2f062779'), import('/evm-pool-wallet.js?cb=e245ecff'), import('/evm-pool-zk-prover.js?cb=00ff69c2'), import('/vendor/tacit-poseidon.min.js'),
+    import('/evm-pool-zk.js?cb=2f062779'), import('/evm-pool-wallet.js?cb=0b06b9ee'), import('/evm-pool-zk-prover.js?cb=00ff69c2'), import('/vendor/tacit-poseidon.min.js'),
   ]);
   const PO = { 2: pos.poseidon2, 3: pos.poseidon3, 4: pos.poseidon4, 5: pos.poseidon5, 7: pos.poseidon7 };
   return { zk: zkm.makeEvmPoolZk({ poseidon: (xs) => PO[xs.length](xs) }), ...wm, vkHash: pm.vkHash };
@@ -4744,7 +4744,7 @@ function poolSyncInWorker(c) {
     if (S.key?.pubHex !== pub) return resolve(false);
     let w;
     try {
-      w = PSW.w ||= new Worker('/evm-pool-sync-worker.js?cb=382f77c7', { type: 'module' });
+      w = PSW.w ||= new Worker('/evm-pool-sync-worker.js?cb=262f90e4', { type: 'module' });
       w.onmessage = (e) => { const f = PSW.wait.get(e.data?.id); if (f) { PSW.wait.delete(e.data.id); f(e.data); } };
       w.onerror = () => { for (const f of PSW.wait.values()) f({ ok: false }); PSW.wait.clear(); PSW.w = null; };
     } catch { return resolve(false); }
@@ -4832,80 +4832,117 @@ function deviceSync(fresh = false) {
   return p;
 }
 // The holding reward (holding-run.js): once a day, after this key's pool wallet is read, the notes it held at each open
-// day's snapshot are proven and sent to the points service, paying the account the points sheet shows first. Quiet while
-// the service has the reward off: nothing is shown, downloaded or sent. The Retention section on the points sheet reads what
-// was sent and runs the round on request.
+// day's snapshot are proven and sent to the points service, paying the account the points sheet shows first. It runs only
+// once this browser has been told to (the Retention section's button): until then nothing is fetched, downloaded or sent. The
+// hashing of a pool and the proving run in a worker that is stopped after each round. Nothing is read from the service that
+// the chain can check without checking it: the snapshot's tree must be one the pool had.
 const POINTS_DIRECT = 'https://tacit-points.onrender.com';
-const HOLD = { w: {}, day: {}, status: null, statusAt: 0, running: false, step: '', err: '' };
+const HOLD_CONSENT = 'tacit-holding-consent-v1';
+const HOLD = { byKey: {}, status: null, statusAt: 0, running: false, again: false, step: '', err: '', logRows: null };
 const holdKv = { get: (x) => { try { return localStorage.getItem(x); } catch { return null; } }, set: (x, v) => { try { localStorage.setItem(x, v); } catch {} } };
 const holdPayTo = () => S.acct?.address || S.wallet || null;
-function holdingStatus() {
-  if (HOLD.status && Date.now() - HOLD.statusAt < 5 * 60e3) return Promise.resolve(HOLD.status);
-  return fetch(`${POINTS_DIRECT}/holding`, { signal: within(15e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null)
-    .then((j) => { HOLD.status = j && j.enabled ? j : { enabled: false }; HOLD.statusAt = Date.now(); return HOLD.status; });
+const holdConsented = () => holdKv.get(HOLD_CONSENT) === '1';
+const holdMod = () => import('/holding-run.js?cb=a37f06f7');
+// The service's terms for the reward, cleaned (holding-run.js cleanStatus); { enabled: false } while it is off, and null (not
+// remembered) when it could not be read, so a blip does not stand for five minutes.
+async function holdingStatus() {
+  if (HOLD.status && Date.now() - HOLD.statusAt < 5 * 60e3) return HOLD.status;
+  const j = await fetch(`${POINTS_DIRECT}/holding`, { signal: within(15e3) }).then((r) => (r.ok ? r.text() : null)).then((t) => (t && t.length < 1e6 ? JSON.parse(t) : null)).catch(() => null);
+  if (j === null) return HOLD.status || { enabled: false };
+  HOLD.status = (await holdMod()).cleanStatus(j) || { enabled: false };
+  HOLD.statusAt = Date.now();
+  return HOLD.status;
 }
-async function holdingRound() {
-  const to = holdPayTo();
-  if (!S.key || !to || !Object.keys(HOLD.w).length) return null;
+// The tree a snapshot names must be one the pool held, with that many leaves: read from the chain, not from the service.
+async function holdingCheckRoot({ chainId, root, size }) {
+  const c = DEVICE_CHAINS.find((x) => x.chainId === chainId);
+  if (!c) return false;
+  const rpc = (await getDeviceMods()).jsonRpc(c.rpc), arg = word(BigInt(root));
+  if (BigInt(await rpc('eth_call', [{ to: EVM_POOL, data: '0x8269b1ce' + arg }, 'latest'])) !== 1n) return false;     // everKnownRoot(bytes32)
+  return BigInt(await rpc('eth_call', [{ to: EVM_POOL, data: '0x6449b364' + arg }, 'latest'])) === BigInt(size);       // rootSize(bytes32)
+}
+// The worker: hashing a snapshot and proving, one at a time, stopped when the round ends.
+const HW = { worker: null, id: 0, wait: new Map(), ready: null };
+function hwCall(msg, ms) {
+  if (!HW.worker) {
+    const w = HW.worker = new Worker('/holding-prove-worker.js?cb=d5c67a6e', { type: 'module' });
+    w.onmessage = ({ data }) => { const f = HW.wait.get(data.id); if (!f) return; HW.wait.delete(data.id); data.ok ? f.resolve(data) : f.reject(new Error(data.error)); };
+    w.onerror = (ev) => { ev.preventDefault?.(); hwStop(new Error('The holding prover stopped, likely short of memory.')); };
+  }
+  return new Promise((resolve, reject) => {
+    const id = ++HW.id, timer = setTimeout(() => hwStop(new Error('Proving took too long on this device.')), ms);
+    HW.wait.set(id, { resolve: (v) => { clearTimeout(timer); resolve(v); }, reject: (e) => { clearTimeout(timer); reject(e); } });
+    HW.worker.postMessage({ ...msg, id });
+  });
+}
+function hwStop(err = null) {
+  const w = HW.worker; HW.worker = null; HW.ready = null;
+  for (const f of HW.wait.values()) f.reject(err || new Error('stopped'));
+  HW.wait.clear();
+  try { w?.terminate(); } catch {}
+}
+const hwBuild = async (args) => (await hwCall({ op: 'build', args }, 15 * 60e3)).claims;
+async function hwProve(input) {
+  HW.ready ||= (async () => {
+    const pin = await fetch('/evm-pool/holding-pin.json', { cache: 'no-store' });
+    if (!pin.ok) throw new Error(`The proving files could not be listed (HTTP ${pin.status}).`);
+    const p = await pin.json();
+    // A page whose key is not the service's would prove claims it refuses: say so before a 31 MB download.
+    if (HOLD.status?.vkSha256 && HOLD.status.vkSha256 !== String(p.vk_sha256 || '').toLowerCase()) throw new Error('This page’s proving key is not the one the points service checks against. Reload the page.');
+    const [vkBytes, wasm, zkey] = await Promise.all([artifact(p.vk, p.vk_sha256), artifact(p.wasm, p.wasm_sha256), artifact(p.zkey, p.zkey_sha256)]);
+    await hwCall({ op: 'init', wasm, zkey, vk: JSON.parse(new TextDecoder().decode(vkBytes)) }, 5 * 60e3);
+  })();
+  try { await HW.ready; } catch (e) { HW.ready = null; throw e; }
+  const r = await hwCall({ op: 'prove', input }, 10 * 60e3);
+  return { proof: r.proof, publicSignals: r.publicSignals };
+}
+async function holdingRound({ manual = false } = {}) {
+  const pub = S.key?.pubHex, to = holdPayTo(), slot = pub && HOLD.byKey[pub];
+  if (!pub || !to || !slot || !Object.keys(slot.w).length) return null;
+  if (!manual && !holdConsented()) return null;
   if (HOLD.running) { HOLD.again = true; return null; }
   HOLD.running = true; HOLD.err = ''; HOLD.step = '';
+  const same = () => { if (S.key?.pubHex !== pub) throw new Error('Another key was opened, so this stopped.'); };
   try {
-    const [m, h] = await Promise.all([getDeviceMods(), import('/holding-run.js?cb=4e1adbad')]);
+    const [m, h] = await Promise.all([getDeviceMods(), holdMod()]);
     return await h.runHolding({
-      api: POINTS_DIRECT, wallets: HOLD.w, keys: m.evmPoolKeys(m.zk, walletPriv()), claimAddress: to, zk: m.zk, kv: holdKv,
-      prove: async (input) => (await holdingProver())(input),
+      api: POINTS_DIRECT, wallets: { ...slot.w }, keys: m.evmPoolKeys(m.zk, walletPriv()), claimAddress: to, zk: m.zk, kv: holdKv,
+      build: async (args) => { same(); return hwBuild(args); },
+      prove: async (input) => { same(); return hwProve(input); },
+      checkRoot: holdingCheckRoot,
       onStep: (x) => { HOLD.step = `Proving ${fmt(BigInt(x.bucketWei), 18, 2)} ETH held on ${ptChain(x.chainId)?.name || 'a chain'}, ${dayShort(x.epoch)}`; rerender('pts'); },
     });
   } catch (e) { HOLD.err = String(e?.message || e).slice(0, 160); return null; }
-  finally { HOLD.running = false; HOLD.step = ''; await holdingRows().catch(() => {}); rerender('pts'); if (HOLD.again) { HOLD.again = false; holdingRound(); } }
+  finally { hwStop(); HOLD.running = false; HOLD.step = ''; await holdingRows().catch(() => {}); rerender('pts'); if (HOLD.again) { HOLD.again = false; holdingRound(); } }
 }
 async function holdingRows() {
   const to = holdPayTo();
-  if (!to) { HOLD.logRows = []; return; }
-  const h = await import('/holding-run.js?cb=4e1adbad');
-  HOLD.logRows = h.holdingLog(holdKv, to);
+  HOLD.logRows = to ? (await holdMod()).holdingLog(holdKv, to) : [];
 }
 function holdingRefresh() {
   if (!(S.wallet || S.key)) return;
   holdingStatus().then((st) => st.enabled && holdingRows()).then(() => rerender('pts')).catch(() => {});
 }
+// What the points sheet's button does: the reader agrees, this browser remembers it, the pool is read on every chain and the round runs.
 async function holdingProveNow() {
+  holdKv.set(HOLD_CONSENT, '1');
   HOLD.err = ''; HOLD.step = 'Reading your pool balance…'; rerender('pts');
   try { await loadHeld(true); } catch {}
   HOLD.step = '';
-  const r = await holdingRound();
-  if (r && !r.sent.length && !HOLD.err) { HOLD.err = 'Nothing new to prove right now.'; rerender('pts'); }
+  const r = await holdingRound({ manual: true });
+  if (!r && !HOLD.err) HOLD.err = S.key ? 'Nothing to prove right now.' : 'Open your Tacit key to prove what it holds.';
+  else if (r && !r.sent.length && !r.errors?.length && !HOLD.err) HOLD.err = 'Nothing new to prove right now.';
+  rerender('pts');
 }
 function holdingSoon(W, chainId) {
-  if (!S.key) return;
-  HOLD.w[chainId] = W;
-  const k = `${S.key.pubHex}:${chainId}`, day = Math.floor(Date.now() / 864e5);
-  if (HOLD.day[k] === day) return;
-  HOLD.day[k] = day;
-  holdingStatus().then((st) => { if (st.enabled) return holdingRound(); }).catch(() => {});
-}
-let holdingP = null;
-function holdingProver() {
-  if (holdingP) return holdingP;
-  const made = holdingP = (async () => {
-    const pin = await fetch('/evm-pool/holding-pin.json', { cache: 'no-store' });
-    if (!pin.ok) throw new Error(`holding pin: HTTP ${pin.status}`);
-    const p = await pin.json();
-    const [vkBytes, wasm, zkey] = await Promise.all([artifact(p.vk, p.vk_sha256), artifact(p.wasm, p.wasm_sha256), artifact(p.zkey, p.zkey_sha256)]);
-    const worker = new Worker('/holding-prove-worker.js?cb=21d021aa', { type: 'module' });
-    let id = 0; const waiting = new Map();
-    const fail = (e) => { for (const w of waiting.values()) w.reject(e); waiting.clear(); if (holdingP === made) holdingP = null; worker.terminate(); };
-    worker.onmessage = ({ data }) => { const w = waiting.get(data.id); if (!w) return; waiting.delete(data.id); data.ok ? w.resolve(data) : w.reject(new Error(data.error)); };
-    worker.onerror = (ev) => { ev.preventDefault?.(); fail(new Error('holding prover stopped')); };
-    const call = (msg, ms) => new Promise((resolve, reject) => {
-      const i = ++id, timer = setTimeout(() => fail(new Error('holding proof took too long')), ms);
-      waiting.set(i, { resolve: (v) => { clearTimeout(timer); resolve(v); }, reject: (e) => { clearTimeout(timer); reject(e); } });
-      worker.postMessage({ ...msg, id: i });
-    });
-    await call({ op: 'init', wasm, zkey, vk: JSON.parse(new TextDecoder().decode(vkBytes)) }, 5 * 60e3);
-    return async (input) => { const r = await call({ op: 'prove', input }, 10 * 60e3); return { proof: r.proof, publicSignals: r.publicSignals }; };
-  })().catch((e) => { if (holdingP === made) holdingP = null; throw e; });
-  return made;
+  const pub = S.key?.pubHex;
+  if (!pub) return;
+  const slot = HOLD.byKey[pub] ||= { w: {}, day: {} };
+  slot.w[chainId] = W;
+  if (!holdConsented()) return;
+  const day = Math.floor(Date.now() / 864e5);
+  if (slot.day[chainId] === day) return;
+  holdingStatus().then((st) => { if (st.enabled) { slot.day[chainId] = day; return holdingRound(); } }).catch(() => {});
 }
 // Your Tacit reads this key's private ETH on every chain, not only the one the device sheet shows: each chain's
 // balance is synced from the key and kept where the sheet keeps it. Secret Sats, the Bitcoin pool, holds this key's
@@ -6935,14 +6972,18 @@ function terms() {
 }
 // What the points sheet says about ETH left in the private pools, shown only while the points service has the reward on.
 function retention() {
-  const st = HOLD.status, to = holdPayTo();
-  if (!st?.enabled || !to) return '';
-  const rows = HOLD.logRows;                                      // not read yet: no list and no "nothing yet"
-  return html`<div class="lbl"><span>Retention</span></div>
-    <p class="note">ETH you leave in the private pools earns ${st.rate ? `${st.rate.toLocaleString('en-US')} points per ETH` : 'points'} for each day: at a random moment of the day its size is proven here, on this device, without saying which note is yours.${st.buckets?.length ? ` Sizes: ${listOr(st.buckets.map((b) => fmt(BigInt(b), 18, 2)))} ETH.` : ''} Points go to ${short(to)}.</p>
-    ${rows?.length ? html`<ul class="ptl">${rows.map((x) => html`<li><span class="ptl-w">${x.credited ? `${fmt(BigInt(x.bucketWei), 18, 2)} ETH held` : x.error ? `Not counted: ${x.error}` : `${fmt(BigInt(x.bucketWei), 18, 2)} ETH held, already counted`}<span class="ptl-m">${ptChain(x.chainId)?.name || 'chain'} · ${dayShort(x.epoch)}</span></span><b class="num">${x.credited || x.points ? `+${ptsFmt(x.points)}` : ''}</b></li>`)}</ul>` : rows ? html`<p class="note">Nothing proven yet. The page does this once a day while your pool balance is read, or press below.</p>` : ''}
-    <button class="btn" type="button" id="hold-now" ${HOLD.running ? 'disabled' : ''}>${HOLD.running ? 'Proving…' : 'Prove what I hold now'}</button>
+  try {
+    const st = HOLD.status, to = holdPayTo();
+    if (!st?.enabled || !to) return '';
+    const rows = HOLD.logRows, on = holdConsented(), size = (b) => fmt(b, 18, 2);
+    return html`<div class="lbl"><span>Retention</span></div>
+    <p class="note">ETH you leave in the private pools earns ${st.rate ? `${st.rate.toLocaleString('en-US')} points per ETH` : 'points'} for each day: at a random moment of the day, the size of each note you hold is proven on this device, and the points go to ${short(to)}.${st.buckets.length ? ` Sizes: ${listOr(st.buckets.map(size))} ETH.` : ''}</p>
+    <p class="note">The points service learns which of your accounts holds how many private notes of which sizes each day, and when that stops; it does not learn which notes. The first time, about 31 MB of proving files are downloaded.</p>
+    ${rows?.length ? html`<ul class="ptl">${rows.map((x) => html`<li><span class="ptl-w">${x.credited ? `${size(BigInt(x.bucketWei))} ETH held` : x.error ? `Not counted: ${x.error}` : `${size(BigInt(x.bucketWei))} ETH held, already counted`}<span class="ptl-m">${ptChain(x.chainId)?.name || 'chain'} · ${dayShort(Number(x.epoch) || 0)}</span></span><b class="num">${x.credited || x.points ? `+${ptsFmt(Number(x.points) || 0)}` : ''}</b></li>`)}</ul>` : rows && on ? html`<p class="note">Nothing proven yet. The page does this once a day while your pool balance is read, or press below.</p>` : ''}
+    ${S.key ? html`<button class="btn" type="button" id="hold-now" ${HOLD.running ? 'disabled' : ''}>${HOLD.running ? 'Proving…' : on ? 'Prove what I hold now' : 'Count my private ETH'}</button>
+      ${on ? html`<p class="note">This browser does it by itself once a day. <button class="link" type="button" id="hold-off">Turn that off</button></p>` : ''}` : html`<p class="note">Open your Tacit key to count what it holds in the private pools.</p>`}
     <div class="status" role="status" id="hold-status">${HOLD.step || HOLD.err}</div>`;
+  } catch { return ''; }
 }
 render.pts = () => {
   const el = $('#pts-body'), connected = !!(S.wallet || S.key), on = now() < ptsEnd();
@@ -7014,7 +7055,7 @@ render.pts = () => {
   // Opened by #leaderboard: the board in view, once it is read.
   if (PTS.jump && $('#pts-lb', el)) { PTS.jump = false; $('#pts-lb', el).scrollIntoView({ block: 'start' }); }
   wireConnect('pts-connect', () => rerender('pts'));
-  { const b = $('#hold-now', el); if (b) b.onclick = () => holdingProveNow(); }
+  { const b = $('#hold-now', el); if (b) b.onclick = () => holdingProveNow(); const o = $('#hold-off', el); if (o) o.onclick = () => { holdKv.set(HOLD_CONSENT, '0'); rerender('pts'); }; }
   wireSub(el, 'plv', (v) => { PTS.view = v; rerender('pts'); });
   $$('[data-earn]', el).forEach((b) => b.onclick = () => openLink(b.dataset.earn));
   const q = $('#pl-q', el);

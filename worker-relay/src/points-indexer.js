@@ -1586,7 +1586,7 @@ async function setupHolding(store) {
   const h = createHolding({
     store, hash: await loadHash(), groth16: (await import('snarkjs')).groth16, log, clients,
     cfg: {
-      enabled: true, rate: CFG.holdingRate, buckets: parseBuckets(CFG.holdingBucketsEth), pool: CFG.evmPoolAddr, vkey: JSON.parse(raw.toString('utf8')),
+      enabled: true, rate: CFG.holdingRate, buckets: parseBuckets(CFG.holdingBucketsEth), pool: CFG.evmPoolAddr, vkey: JSON.parse(raw.toString('utf8')), vkSha256: pin,
       chains: CFG.holdingChains.filter((id) => HOLDING_CHAINS[id] && clients[id]).map((chainId) => ({ chainId, ...HOLDING_CHAINS[chainId] })), budgetMs: 15000,
     },
   });

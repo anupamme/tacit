@@ -374,6 +374,16 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
     return a;
   }
 
+  // Notes seen spent, kept three days with the time they were seen and without their keys (withKeys derives those again), at
+  // most a few dozen, newest first, one to a position.
+  const SPENT_KEEP_MS = 3 * 864e5, SPENT_KEEP_MAX = 24;
+  const freshSpent = (list) => (Array.isArray(list) ? list : []).filter((n) => n && Number.isFinite(n.spentAt) && Date.now() - n.spentAt < SPENT_KEEP_MS);
+  function keepSpent(prior, gone) {
+    const now = Date.now(), seen = new Set(), out = [];
+    for (const n of [...gone.map(({ sk, nk, nf, ...bare }) => ({ ...bare, spentAt: now })), ...freshSpent(prior)]) if (!seen.has(n.index)) { seen.add(n.index); out.push(n); }
+    return out.slice(0, SPENT_KEEP_MAX);
+  }
+
   // Appends `transacts` to a copy of `state`, keeping a path for each leaf found to be ours: a memo that opens, or
   // the leaf a Received event of one of our boxes names (the same transaction, so the same batch).
   function absorb(state, transacts, receipts) {
@@ -416,9 +426,12 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
       notes.set(`${r.index}`, withKeys({ index: r.index, leaf: leaf.toString(), v: n.v.toString(), rho: n.rho.toString(), block: r.block, tx: r.tx, kind: 'receive', box: i }));
       if (i >= saved.nextRefund) saved.nextRefund = i + 1;
     }
-    // A spent note is dropped with its path; nullifiers that are not ours are not kept.
-    for (const [k, n] of notes) if (spent.has(n.nf)) { tree.untrack(n.index); notes.delete(k); }
-    return { ...state, tree, notes: [...notes.values()].sort((a, b) => a.index - b.index) };
+    // A spent note is dropped with its path; nullifiers that are not ours are not kept. It is remembered for a few days apart from
+    // the notes (no balance, spend or merge reads that list): a day's holding reward is for the notes held at a snapshot, and
+    // claims open after the day, so a note spent since still has a claim to make.
+    const gone = [];
+    for (const [k, n] of notes) if (spent.has(n.nf)) { tree.untrack(n.index); notes.delete(k); gone.push(n); }
+    return { ...state, tree, notes: [...notes.values()].sort((a, b) => a.index - b.index), recentSpent: keepSpent(state.recentSpent, gone) };
   }
 
   async function logs(address, topics, from, to) {
@@ -817,6 +830,8 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
     sync,
     summary,
     notes: () => unspent(),
+    // The notes held now and those seen spent in the last three days, with their keys: what a holding claim may be made for.
+    holdingNotes: () => [...state().notes, ...freshSpent(state().recentSpent).map(withKeys)],
     // Sets the user's own wallet for self-submitted actions ({ address, send }, as the signer option).
     connect(s) { signer = s; },
     // Forgets the synced state and rebuilds it from chain logs alone (no feed).

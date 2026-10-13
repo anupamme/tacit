@@ -3149,14 +3149,17 @@ await step('ptsview', async () => {
 
 await step('retention', async () => {
   // The points sheet's Retention section: shown only while the points service has the holding reward on, with what this browser
-  // sent for the account, and nothing when it is off.
+  // sent for the account and a plain account of what the service learns; the button counts the reader's holdings only once they
+  // press it, and until then nothing is fetched or sent for them. Nothing at all while the reward is off.
   const t0 = Math.floor(Date.now() / 1000), today = Math.floor(t0 / 86400);
   const log = JSON.stringify([
-    { epoch: today - 1, chainId: 8453, bucketWei: '1000000000000000000', points: 1000, credited: true, status: 200, error: null, at: Date.now() },
-    { epoch: today - 2, chainId: 1, bucketWei: '300000000000000000', points: 300, credited: true, status: 200, error: null, at: Date.now() - 864e5 },
-    { epoch: today - 3, chainId: 1, bucketWei: '100000000000000000', points: 0, credited: false, status: 422, error: 'the proof does not verify', at: Date.now() - 2 * 864e5 }]);
-  for (const on of [true, false]) {
-    const r = await openPage({ account: A0, init: { fn: (a) => { if (!localStorage.getItem(a.k)) localStorage.setItem(a.k, a.v); }, arg: { k: 'tacit-holding-log:' + A0.toLowerCase(), v: log } } });
+    { epoch: today - 1, chainId: 8453, tag: '1', bucketWei: '1000000000000000000', points: 1000, credited: true, status: 200, error: null, at: Date.now() },
+    { epoch: today - 2, chainId: 1, tag: '2', bucketWei: '300000000000000000', points: 300, credited: true, status: 200, error: null, at: Date.now() - 864e5 },
+    { epoch: today - 3, chainId: 1, tag: '3', bucketWei: '100000000000000000', points: 0, credited: false, status: 422, error: 'the proof does not verify', at: Date.now() - 2 * 864e5 },
+    { epoch: today - 4, chainId: 1, tag: '4', points: 5 }]);                                       // a damaged row is skipped, not fatal
+  const holdingBody = (on) => (on ? { enabled: true, rate: 1000, buckets: ['100000000000000000', 'x', '10000000000000000', '1000000000000000000'], assets: {}, epochs: [], vkSha256: 'ab'.repeat(32) } : { enabled: false });
+  const open = async ({ on, key = null, consent = false }) => {
+    const r = await openPage({ account: A0, key, init: { fn: (a) => { if (!localStorage.getItem(a.k)) localStorage.setItem(a.k, a.v); if (a.c) localStorage.setItem('tacit-holding-consent-v1', '1'); }, arg: { k: 'tacit-holding-log:' + A0.toLowerCase(), v: log, c: consent } } });
     await r.ctx.route(/api\.tacit\.finance\/points\/0x/, (route) => json(route, /\/days$/.test(route.request().url())
       ? { address: A0.toLowerCase(), startDay: today - 8, programDays: 90, today, lastSettledDay: today - 1, earnedWei: '0', days: [] }
       : { address: A0.toLowerCase(), points: 10, deposit_count: 0, today: { points: 0, totalPoints: 1000, dayBudgetWei: '1111111111111111111111' }, deposits: [] }));
@@ -3164,26 +3167,59 @@ await step('retention', async () => {
     await r.ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => json(route, /day=today/.test(route.request().url())
       ? { day: today, programDay: 9, programDays: 90, totalPoints: 1000, dayBudgetWei: '1111111111111111111111', taking: 1, rows: [{ address: A0.toLowerCase(), points: 10 }] }
       : [{ address: A0.toLowerCase(), points: 10 }]));
-    await r.ctx.route(/tacit-points\.onrender\.com\/holding/, (route) => json(route, on ? { enabled: true, rate: 1000, buckets: ['10000000000000000', '100000000000000000', '1000000000000000000'], assets: {}, epochs: [] } : { enabled: false }));
-    await r.page.goto(r.url + '#pts');
-    await r.page.click('#pts-connect');
-    await until(r.page, () => !!document.querySelector('#pts-body .pt'), null, 60000);
-    if (on) await until(r.page, () => document.querySelectorAll('#pts-body .ptl li').length >= 3, null, 30000);
-    else await new Promise((res) => setTimeout(res, 1500));
-    const v = await r.page.evaluate(() => ({ body: document.querySelector('#pts-body').textContent.replace(/\s+/g, ' '), btn: !!document.querySelector('#hold-now'), rows: document.querySelectorAll('#pts-body .ptl li').length, wide: document.documentElement.scrollWidth > innerWidth }));
-    if (on) {
-      await shot(r.page, 'retention');
-      ok(/Retention/.test(v.body) && /1,000 points per ETH/.test(v.body) && /Sizes: 0\.01, 0\.1 or 1 ETH/.test(v.body), `retention: the section states the rate and sizes the service gives (${v.body.slice(0, 500)})`);
-      ok(/1 ETH held\s*Base · \d+ \w+\s*\+1,000/.test(v.body) && /0\.3 ETH held\s*Ethereum · \d+ \w+\s*\+300/.test(v.body), 'retention: each day proven is listed with its chain, size and points');
-      ok(/Not counted: the proof does not verify/.test(v.body), 'retention: a refused proof says so');
-      ok(v.btn, 'retention: there is a way to prove now');
+    const asked = [];
+    await r.ctx.route(/tacit-points\.onrender\.com\//, (route) => { asked.push(new URL(route.request().url()).pathname + ' ' + route.request().method()); return json(route, /\/holding$/.test(route.request().url()) ? holdingBody(on) : {}); });
+    if (key) {                                                      // the key is opened by signing in from the pool sheet, then the points sheet is opened in the same page
+      await r.page.goto(r.url + '#device');
+      if (await r.page.$('#eth-dev [data-in="eth"]')) await r.page.click('#eth-dev [data-in="eth"]');
+      await r.page.waitForSelector('[data-dev="send"]', { timeout: 120000 });
+      await r.page.evaluate(() => { location.hash = '#pts'; });
     } else {
-      ok(!/Retention/.test(v.body) && !v.btn, 'retention: nothing is shown while the reward is off');
+      await r.page.goto(r.url + '#pts');
+      await r.page.click('#pts-connect').catch(() => {});
     }
-    ok(!v.wide, `retention: no sideways scroll (${on ? 'on' : 'off'})`);
+    await until(r.page, () => !!document.querySelector('#pts-body .pt'), null, 60000);
+    return { r, asked };
+  };
+  const read = (r) => r.page.evaluate(() => ({ body: document.querySelector('#pts-body').textContent.replace(/\s+/g, ' '), btn: document.querySelector('#hold-now')?.textContent.trim() || null, off: !!document.querySelector('#hold-off'), rows: document.querySelectorAll('#pts-body .ptl li').length, wide: document.documentElement.scrollWidth > innerWidth }));
+
+  // On, with only a wallet connected: what it is, what is shared, what was sent; no button, and a way to get one.
+  { const { r } = await open({ on: true });
+    await until(r.page, () => document.querySelectorAll('#pts-body .ptl li').length >= 3, null, 30000);
+    const v = await read(r);
+    await shot(r.page, 'retention');
+    ok(/Retention/.test(v.body) && /1,000 points per ETH/.test(v.body) && /Sizes: 0\.01, 0\.1 or 1 ETH/.test(v.body), `retention: the section states the rate and the sizes in order, a malformed size dropped (${v.body.slice(0, 400)})`);
+    ok(/learns which of your accounts holds how many private notes of which sizes each day/.test(v.body) && /31 MB/.test(v.body), 'retention: it says what the service learns and what is downloaded');
+    ok(/1 ETH held\s*Base · \d+ \w+\s*\+1,000/.test(v.body) && /0\.3 ETH held\s*Ethereum · \d+ \w+\s*\+300/.test(v.body), 'retention: each day proven is listed with its chain, size and points');
+    ok(/Not counted: the proof does not verify/.test(v.body) && !/NaN|undefined|null/.test(v.body.slice(v.body.indexOf('Retention'), v.body.indexOf('Retention') + 900)), 'retention: a refused proof says so, and a damaged row is skipped without a trace');
+    ok(v.btn === null && /Open your Tacit key to count what it holds/.test(v.body), 'retention: with no Tacit key there is nothing to press, and it says why');
+    ok(!v.wide, 'retention: no sideways scroll');
     if (r.errors.length) { fails++; console.log('FAIL retention page errors: ' + r.errors.slice(0, 3).join(' | ')); }
-    await r.browser.close();
-  }
+    await r.browser.close(); }
+
+  // On, with a Tacit key: counting is the reader's choice, and nothing is sent for them until they make it.
+  { const { r, asked } = await open({ on: true, key: K0 });
+    await until(r.page, () => !!document.querySelector('#hold-now'), null, 30000).catch(async (e) => { console.log('     key page says: ' + (await read(r)).body.slice(0, 700) + ' | asked: ' + asked.join(', ')); throw e; });
+    await new Promise((res) => setTimeout(res, 2500));
+    const v = await read(r);
+    ok(v.btn === 'Count my private ETH' && !v.off, `retention: before the reader agrees the button asks (${v.btn})`);
+    ok(asked.every((x) => /^\/holding GET$/.test(x)), `retention: before that the page only reads the service's terms (${asked.join(', ')})`);
+    await r.browser.close(); }
+  { const { r } = await open({ on: true, key: K0, consent: true });
+    await until(r.page, () => !!document.querySelector('#hold-now'), null, 30000);
+    const v = await read(r);
+    ok(v.btn === 'Prove what I hold now' && v.off && /does it by itself once a day/.test(v.body), `retention: once agreed it says it runs by itself, and can be turned off (${v.btn})`);
+    await r.page.click('#hold-off');
+    await until(r.page, () => document.querySelector('#hold-now')?.textContent.trim() === 'Count my private ETH', null, 15000);
+    ok(true, 'retention: turning it off puts the question back');
+    await r.browser.close(); }
+
+  // Off: nothing.
+  { const { r } = await open({ on: false });
+    await new Promise((res) => setTimeout(res, 1500));
+    const v = await read(r);
+    ok(!/Retention/.test(v.body) && v.btn === null, 'retention: nothing is shown while the reward is off');
+    await r.browser.close(); }
 });
 // Relayed jobs reach the page as tacit:job events; here they are dispatched the way the relay client dispatches them, and
 // /confidential/status answers from `served`, so a reload can find settled a job that had failed. Notification records

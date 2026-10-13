@@ -4,6 +4,7 @@ import { jsonRpc, makeEvmPoolWallet, evmPoolKeys, recipientOf, logFailure, sealN
 import { poolAsset } from '../dapp/evm-pool-zk.js';
 import { makeEvmPoolZk } from '../dapp/evm-pool-zk.js';
 import { poseidon2, poseidon3, poseidon4, poseidon5, poseidon7 } from 'poseidon-lite';
+import { keccak_256 } from '@noble/hashes/sha3';
 
 let n = 0;
 const check = async (name, fn) => { await fn(); n++; console.log(`ok - ${name}`); };
@@ -143,6 +144,54 @@ await check('state saved with every leaf and nullifier loads as a tree of unspen
   assert.ok(now.tree && !now.leaves && !now.spent, 'saved again as a tree, with no leaves or nullifier list');
   assert.deepEqual(Object.keys(now.tree.tracked), ['1'], 'only the unspent note keeps a path');
   assert.equal(now.tree.root, zk.tree(leaves).root.toString());
+});
+
+await check('a note seen spent is kept three days for the holding reward, apart from the balance, and then forgotten', async () => {
+  const POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9';
+  const keys = evmPoolKeys(zk, new Uint8Array(32).fill(9));
+  const asset = poolAsset({ chainId: 8453n, pool: POOL, token: '0x0000000000000000000000000000000000000000' });
+  const self = { V: keys.V, A: keys.A, N: keys.N };
+  const hex = (b) => '0x' + Buffer.from(b).toString('hex');
+  const mine = [5n, 7n].map((v) => { const o = sealNote(zk, { to: self, value: v, asset }); return { ...o, leaf: zk.leafOf(asset, o.v, o.npk, o.rho) }; });
+  const leaves = [11n, mine[0].leaf, 13n, 17n, mine[1].leaf, 19n];
+  const idx = [1, 4];
+  const notes = mine.map((m, k) => { const o = openNote(zk, keys, { memo: m.memo, leaf: m.leaf, asset }); return { index: idx[k], leaf: m.leaf.toString(), v: o.v.toString(), rho: o.rho.toString(), s: hex(o.s), kind: 'memo' }; });
+  const k1 = zk.ownedKeys(keys.zkWallet, Buffer.from(notes[1].s.slice(2), 'hex'));
+  const nf1 = zk.nullifier(k1.nk, mine[1].leaf, 4);
+  const word = (x) => BigInt(x).toString(16).padStart(64, '0');
+  // A Transact that spends the second note and inserts nothing (no leaves, so nothing needs a memo).
+  const spend = { address: POOL, blockNumber: '0x65', transactionHash: '0x' + 'ab'.repeat(32), logIndex: '0x0',
+    topics: ['0x' + Buffer.from(keccak_256(new TextEncoder().encode('Transact(bytes32,bytes32,bytes32,bytes32,uint256,bytes32,address,int256,address,uint256,bytes,bytes)'))).toString('hex'), '0x' + word(nf1), '0x' + word(0)],
+    data: '0x' + [0, 0, 6, 0, 0, 0, 0, 0, 0x140, 0x160, 0, 0].map(word).join('') };
+  const saved = new Map();
+  const skey = `tacit-evm-pool-v1:8453:${POOL.toLowerCase()}:${keys.address}`;
+  saved.set(skey, JSON.stringify({ block: 100, leaves: leaves.map(String), notes, nextRefund: 1 }));
+  const store = { get: (k) => saved.get(k), set: (k, v) => saved.set(k, v) };
+  let spendServed = false;
+  const rpc = async (m, params) => {
+    if (m === 'eth_blockNumber') return '0x65';
+    if (m === 'eth_getLogs') { const t0 = String(params[0].topics?.[0]).toLowerCase(); if (t0 === spend.topics[0] && !spendServed) { spendServed = true; return [spend]; } return []; }
+    return '0x0';
+  };
+  const mk = () => makeEvmPoolWallet({ zk, keys, prove: null, store, chain: { chainId: 8453, pool: POOL, router: '0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5', rpc, deployBlock: 0, confirmations: 0 } });
+  const w = mk();
+  assert.deepEqual(w.holdingNotes().map((x) => x.index).sort(), [1, 4], 'before the spend, both notes are held');
+  const sum = await w.sync();
+  assert.equal(spendServed, true, 'the spend was read');
+  assert.equal(sum.balance, 5n, 'the balance is what is left');
+  assert.deepEqual(w.notes().map((x) => x.index), [1], 'a spend reads only the note still held');
+  const held = w.holdingNotes();
+  assert.deepEqual(held.map((x) => x.index).sort(), [1, 4], 'the holding round still has the note it spent');
+  const gone = held.find((x) => x.index === 4);
+  assert.ok(gone.sk && gone.nk && gone.nf === nf1.toString() && gone.leaf === mine[1].leaf.toString() && gone.v === '7', 'with its keys and value, derived again from the wallet');
+  const at = JSON.parse(openState(keys.v, saved.get(skey)));
+  assert.ok(at.recentSpent.length === 1 && !at.recentSpent[0].sk && !at.recentSpent[0].nk && !at.recentSpent[0].nf, 'saved without its keys');
+  assert.deepEqual(mk().holdingNotes().map((x) => x.index).sort(), [1, 4], 'and still there after a reload');
+  assert.deepEqual(mk().notes().map((x) => x.index), [1], 'the balance after a reload does not see it');
+  // Three days on it is forgotten.
+  at.recentSpent[0].spentAt = Date.now() - 4 * 864e5;
+  saved.set(skey, sealState(keys.v, JSON.stringify(at)));
+  assert.deepEqual(mk().holdingNotes().map((x) => x.index), [1], 'after three days it is no longer offered');
 });
 
 await check('a relayer quote for another chain or pool, an unexpected address, or an excessive fee is refused', async () => {

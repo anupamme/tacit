@@ -10,7 +10,7 @@ import * as snarkjs from 'snarkjs';
 import { mulB8, L_BJJ, P_FR } from '../../btc-pool-zk.js';
 import { makeEvmPoolZk } from '../../evm-pool-zk.js';
 import { holdingClaimHash, holdingClaimKey, smtRoot, smtExclusion, holdingClaims, proveHoldingClaim, bucketFor } from '../../holding-claim.js';
-import { runHolding, holdingLog } from '../../holding-run.js';
+import { runHolding, holdingLog, cleanStatus } from '../../holding-run.js';
 import { claimHashOf, DEFAULT_BUCKETS_WEI } from '../../../worker-relay/src/lib/holding-epoch.js';
 import { verifyHoldingClaim } from '../../../worker-relay/src/lib/holding-claims.js';
 
@@ -105,7 +105,7 @@ const ETH = 10n ** 18n;
   const keys = { zkWallet: { a: rnd(L_BJJ) } };
   const credited = new Map(), posts = [];
   let enabled = false;
-  const json = (status, body) => ({ ok: status < 300, status, json: async () => body });
+  const json = (status, body) => ({ ok: status < 300, status, json: async () => body, text: async () => JSON.stringify(body) });
   const fakeFetch = async (url, init) => {
     const path = url.replace('https://points.test', '');
     if (path === '/holding') return json(200, enabled
@@ -146,6 +146,43 @@ const ETH = 10n ** 18n;
   const steps = [];
   await runHolding({ api: 'https://points.test', wallets: { [chainId]: { notes: () => mine } }, keys, claimAddress: '0x' + 'dd'.repeat(20), zk, prove, kv: { get: () => null, set() {} }, fetchImpl: fakeFetch, onStep: (x) => steps.push(x.step) });
   assert.deepEqual(steps, ['proving'], 'a caller can follow progress');
+  // The service is not trusted for what the chain can say, or for the shape of what it sends.
+  const calls = [];
+  const spy = (inner) => async (url, init) => { calls.push(String(url).replace('https://points.test', '') + (init?.method ? ' ' + init.method : '')); return inner(url, init); };
+  const fresh = () => ({ get: (k) => (fresh.m.get(k) ?? null), set: (k, v) => fresh.m.set(k, v) });
+  const round2 = (over = {}) => { fresh.m = new Map(); calls.length = 0; return runHolding({ api: 'https://points.test', wallets: { [chainId]: { notes: () => mine } }, keys, claimAddress: '0x' + 'a1'.repeat(20), zk, prove, kv: fresh(), fetchImpl: spy(fakeFetch), ...over }); };
+  const bad = await round2({ checkRoot: async ({ chainId: c, root, size: n }) => { assert.deepEqual([c, root, n], [chainId, String(snapshot.root), size]); return false; } });
+  assert.equal(bad.sent.length, 0, 'a tree the pool never had is not used');
+  assert.match(bad.errors[0]?.error || '', /never this pool/);
+  assert.equal(calls.some((c) => c.includes('/holding/claim')), false, 'and nothing is proven or sent');
+  const good = await round2({ checkRoot: async () => true });
+  assert.equal(good.sent.length, 1, 'a tree the pool had is');
+  const lying = await round2({ fetchImpl: async (url, init) => (String(url).includes('/holding/nullifiers') ? json(200, { ...snapshot, root: String(snapshot.root), nfRoot: String(snapshot.nfRoot), leaves: snapLeaves.map(String), nullifiers: nullifiers.map(String), size: size + 1 }) : fakeFetch(url, init)) });
+  assert.match(lying.errors[0]?.error || '', /not the one announced/, 'a body that is not the announced snapshot is refused before any leaf is hashed');
+  const short = await round2({ fetchImpl: async (url, init) => (String(url).includes('/holding/nullifiers') ? json(200, { ...snapshot, root: String(snapshot.root), nfRoot: String(snapshot.nfRoot), leaves: snapLeaves.slice(1).map(String), nullifiers: nullifiers.map(String) }) : fakeFetch(url, init)) });
+  assert.match(short.errors[0]?.error || '', /incomplete/);
+  // A claim the service has answered is not proven again after a later failure; a service error leaves the rest for the next round.
+  const twoNotes = [mine[0] || { index: 1 }, ...mine];
+  const flaky = (() => { let posts = 0; return async (url, init) => (String(url).endsWith('/holding/claim') && ++posts >= 1 ? json(503, { error: 'busy' }) : fakeFetch(url, init)); })();
+  const failed = await round2({ fetchImpl: flaky });
+  assert.deepEqual(failed.sent.map((x) => x.status), [503], 'a 503 is recorded');
+  assert.equal(fresh.m.size, 0, 'and nothing is marked done, so the next round tries again');
+  // Malformed and hostile status bodies.
+  const hostile = [
+    { enabled: true, buckets: ['x', '-1', '5'], assets: { __proto__: '1', '1': '77' }, epochs: [{ epoch: '20800', chains: [{ chainId: '__proto__', leaves: 1, root: '1', nfRoot: '2' }, { chainId: 1, leaves: 4, root: '1', nfRoot: '2' }] }, { epoch: 'x' }, null], rate: -4, vkSha256: 'nope' },
+    { enabled: 'yes' }, null, [], 'x',
+  ].map(cleanStatus);
+  assert.deepEqual(hostile[0].buckets, [5n], 'buckets are decimal and ascending');
+  assert.deepEqual(hostile[0].epochs, [{ epoch: 20800, chains: [{ chainId: 1, leaves: 4, root: '1', nfRoot: '2' }] }], 'a chain id that is not a number is dropped');
+  assert.deepEqual([hostile[0].rate, hostile[0].vkSha256], [0, null]);
+  assert.deepEqual(hostile.slice(1), [null, null, null, null], 'a body that is not enabled, or not an object, is off');
+  const many = cleanStatus({ enabled: true, buckets: Array.from({ length: 50 }, (_, i) => String(i + 1)), epochs: Array.from({ length: 50 }, (_, i) => ({ epoch: 20800 + i, chains: Array.from({ length: 50 }, (_, j) => ({ chainId: j + 1, leaves: 1, root: '1', nfRoot: '1' })) })) });
+  assert.ok(many.buckets.length <= 16 && many.epochs.length <= 6 && many.epochs.every((e) => e.chains.length <= 8), 'sizes are bounded');
+  const proto = await round2({ wallets: Object.create({ [chainId]: { notes: () => mine } }) });
+  assert.equal(proto.sent.length, 0, 'wallets are read as own properties only');
+  await assert.rejects(round2({ fetchImpl: async () => ({ ok: true, status: 200, text: async () => 'x'.repeat(70 * 1024 * 1024) }) }), /too large/, 'a body of tens of megabytes is refused unparsed');
+  console.log('ok - the service is not trusted: a tree the pool never had, a body that is not the announced snapshot, hostile or oversized status, and a service error all stop short of a proof or a mark of done');
+
   const empty = await runHolding({ api: 'https://points.test', wallets: { [chainId]: { notes: () => [] } }, keys: { zkWallet: { a: rnd(L_BJJ) } }, zk, prove, kv: { get: () => null, set() {} }, fetchImpl: fakeFetch });
   assert.equal(empty.sent.length, 0, 'a wallet with no note in the snapshot sends nothing');
   console.log('ok - the daily round proves and sends what a key is owed once, to its own claim address, and nothing while the reward is off');

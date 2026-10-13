@@ -178,6 +178,8 @@ try {
   const st = holding.status();
   assert.equal(st.epochs[0].chains[0].nfRoot, drawnAll[0].nfRoot);
   assert.deepEqual(st.assets, { 1: fx0.poolAsset, 8453: fx1.poolAsset }, 'each pool\'s asset, read from the pool');
+  assert.equal(st.vkSha256, null, 'a key hash is stated only when it is given');
+  assert.equal(mk({ vkSha256: 'ab'.repeat(32) }).status().vkSha256, 'ab'.repeat(32), 'and then the page can compare it with its own');
   assert.equal(st.epochs[0].closesAt, (fx.epoch + 3) * DAY + 1800);
   const nf = holding.nullifiers(1, fx.epoch);
   assert.equal(nf.status, 200); assert.equal(nf.body.nullifiers.length, 3, 'the spent set a client builds its proof from');

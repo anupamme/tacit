@@ -8,7 +8,7 @@
 // is the record of both and its daily snapshot is the backup.
 //
 // cfg: { enabled, rate (points per ETH of bucket per day), buckets (wei, ascending), pool, poolAssets? ({ chainId: asset }, read
-//        from each pool when absent), vkey, delaySecs?, windowDays?, maxPending?, claimsPerMin?, claimBurst?, allClaimsPerMin?,
+//        from each pool when absent), vkey, vkSha256? (the key file's SHA-256, stated in /holding so a page whose key differs does not prove), delaySecs?, windowDays?, maxPending?, claimsPerMin?, claimBurst?, allClaimsPerMin?,
 //        chains: [{ chainId, deployBlock, confirmations?, span?, maxSpan? }] }
 // clients: { [chainId]: viem public client }. hash: Poseidon. groth16: { verify }.
 import { makeBlockAtOrBefore } from './block-at-time.js';
@@ -150,7 +150,7 @@ export function createHolding({ store, cfg, clients, hash, groth16, nowSec = () 
   function status() {
     if (!cfg.enabled) return { enabled: false };
     return {
-      enabled: true, rate: cfg.rate, buckets: cfg.buckets.map(String), assets: Object.fromEntries([...assets].map(([id, a]) => [id, String(a)])),
+      enabled: true, rate: cfg.rate, buckets: cfg.buckets.map(String), vkSha256: cfg.vkSha256 ?? null, assets: Object.fromEntries([...assets].map(([id, a]) => [id, String(a)])),
       epochs: open().map((epoch) => ({
         epoch, closesAt: (epoch + windowDays + 1) * DAY + delaySecs,
         chains: store.holdingSnapshots(epoch).map((s) => ({ chainId: s.chainId, block: s.block, moment: s.moment, root: s.root, nfRoot: s.nfRoot, leaves: s.size, nullifiers: s.nullifiers })),
