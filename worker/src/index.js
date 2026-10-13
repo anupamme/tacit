@@ -1720,14 +1720,31 @@ function refreshStats(env) {
     .finally(() => { _stats.inflight = null; });
   return _stats.inflight;
 }
-async function handleStats(env, cors) {
+// `?view=front`: the same reading without its long per-event series, for the front page, which shows totals and the latest few events
+// only (the stats page keeps the whole). Each series keeps its newest entries; everything else is as /stats gives it. Built once per reading.
+const FRONT_KEEP = 12;
+function frontStatsBody(body) {
+  const j = JSON.parse(body), tail = (xs) => (Array.isArray(xs) ? xs.slice(-FRONT_KEEP) : xs);
+  const trim = (o) => { if (!o || typeof o !== 'object') return o; const out = {}; for (const [k, v] of Object.entries(o)) out[k] = tail(v); return out; };
+  if (j.eth?.series) j.eth.series = { ins: tail(j.eth.series.ins) };
+  if (Array.isArray(j.dev)) j.dev = j.dev.map((d) => (d && d.series ? { ...d, series: { ins: tail(d.series.ins) } } : d));
+  if (j.link?.times) j.link.times = trim(j.link.times);
+  if (j.tac?.times) j.tac.times = trim(j.tac.times);
+  return JSON.stringify(j);
+}
+async function handleStats(env, cors, url) {
   await loadStats(env);
   if (!_stats.body || Date.now() - _stats.at > STATS_TTL_MS) {
     const p = refreshStats(env);
     if (!_stats.body) await p;
   }
   if (!_stats.body) return jsonResponse({ error: 'not read yet' }, 503, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '30' });
-  return new Response(_stats.body, { status: 200, headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60' } });
+  let body = _stats.body;
+  if (url && url.searchParams.get('view') === 'front') {
+    if (_stats.frontOf !== _stats.body) { try { _stats.front = frontStatsBody(_stats.body); _stats.frontOf = _stats.body; } catch { _stats.front = null; } }
+    if (_stats.front) body = _stats.front;
+  }
+  return new Response(body, { status: 200, headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60' } });
 }
 
 // ── /flow: the Bitcoin <-> Ethereum visualizer's feed (see flow-feed.js) ──
@@ -26549,7 +26566,7 @@ async function _routeFetch(req, env, ctx) {
     const cors = corsHeaders(env, req.headers.get('Origin') || '', openOrigin);
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
 
-    if (url.pathname === '/stats' && req.method === 'GET') return handleStats(env, cors);
+    if (url.pathname === '/stats' && req.method === 'GET') return handleStats(env, cors, url);
     if (url.pathname === '/flow' && req.method === 'GET') return handleFlow(env, cors);
 
     if (url.pathname === '/health' && req.method === 'GET') {
