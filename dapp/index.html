@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-RWq9Bt1Cv/lWpMQbvnjy4ZgXA032lZ3v93X7ENfD9IQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-hUZr3Bzy2XrEu/b2/zwiSN2eJI8gBOM82B1ITJlZXOY=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=2f4a1520"></script>
 <title>tacit</title>
@@ -166,6 +166,10 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 .dash-h { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
 .dash-h h2 { font: 400 26px/1 var(--serif); letter-spacing: -.01em; margin: 0; }
 .dash-h span { font-size: 12px; color: var(--mute); text-align: right; }
+.dash-h .dash-worth { margin-right: auto; font-size: 14px; color: var(--mute); text-align: left; }
+.dash-h .dash-worth b { font: 400 26px/1 var(--serif); color: var(--ink); }
+.chip.tot b { font-weight: 500; }
+@media (max-width: 640px) { .chip.tot { display: none; } }
 .dash .callout { margin: 0 0 10px; }
 .dash-g { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); }
 .di { display: flex; flex-direction: column; gap: 3px; width: 100%; min-height: 86px; padding: 12px 14px; text-align: left; cursor: pointer;
@@ -297,6 +301,9 @@ a.di { color: inherit; text-decoration: none; }
 .hx-to::placeholder { color: var(--mute); opacity: .6; }
 .hx-say { font-size: 13px; line-height: 1.5; color: var(--mute); }
 .hx-sub { min-height: 22px; color: var(--mute); }
+.hx-bal button { padding: 0; font: 12px var(--mono); color: var(--mute); background: none; border: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.hx-bal button:disabled { text-decoration: none; cursor: default; }
+@media (hover: hover) { .hx-bal button:not(:disabled):hover { color: var(--ink); } }
 .hx-quick { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 .hx-quick button { padding: 1px 10px; font: 12px var(--mono); color: var(--ink); background: none; border: 1px solid var(--hair-2); border-radius: 999px; cursor: pointer; transition: border-color .15s; }
 @media (hover: hover) { .hx-quick button:hover { border-color: var(--ink); } }
@@ -325,6 +332,8 @@ a.di { color: inherit; text-decoration: none; }
 .hx-pk-r > span { flex: 1; display: grid; line-height: 1.3; min-width: 0; }
 .hx-pk-r b { font-weight: 500; }
 .hx-pk-r small { font-size: 12px; color: var(--mute); }
+.hx-pk-r em { flex: none; font-style: normal; font-size: 13px; color: var(--mute); }
+.hx-pk-r.zero > :not(i) { opacity: .5; }
 .hx-pk-r i { flex: none; width: 18px; font-style: normal; text-align: center; }
 .hx-pk-r[aria-current="true"] { background: var(--field); box-shadow: inset 0 0 0 1px var(--hair-2); }
 @media (hover: hover) { .hx-pk-r:hover { background: var(--field); } }
@@ -961,6 +970,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
       <button class="chip act" id="act" type="button" aria-haspopup="dialog" aria-label="Activity" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="num" id="act-n" hidden></span>
       </button>
+      <button class="chip tot" id="hold-tot" type="button" hidden title="What you hold, private and public, on both chains"><b>$0</b></button>
       <button class="chip" id="wallet" type="button"><span class="dot" id="wallet-dot"></span><span id="wallet-label">Sign in</span></button>
     </div>
   </header>
@@ -995,7 +1005,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   </section>
 
   <section class="dash" id="dash" aria-labelledby="dash-h" hidden>
-    <div class="dash-h"><h2 id="dash-h">Your Tacit</h2><span id="dash-since"></span></div>
+    <div class="dash-h"><h2 id="dash-h">Your Tacit</h2><span class="dash-worth" id="dash-worth"></span><span id="dash-since"></span></div>
     <div id="dash-due"></div>
     <ul class="dash-g" id="dash-g"></ul>
   </section>
@@ -2930,6 +2940,8 @@ function paintStart() {
   $('#start-x').hidden = !k;
 }
 $('#wallet').onclick = () => openSheet('wallet');
+// The total in the header takes you to what makes it up.
+$('#hold-tot').onclick = () => $('#dash')?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
 $('#start-go').onclick = () => (S.key ? openLink('private') : openSheet('wallet'));
 $('#start-x').onclick = () => { store.set(START_OFF, true); paintStart(); };
 const WAL = { mode: 'add', asset: 'eth', chain: 1, all: false };
@@ -3383,6 +3395,11 @@ const pendingFor = (sheet) => (S.key && P.scan?.pending || []).filter((p) => p.s
 // ETH just made private is tETH only once the relay settles it: true while a wrap is on its way (seen on chain, or still in this page's activity).
 const tethComing = () => pendingFor('eth').length > 0 || listed().some((x) => !ended(x) && /^Wrap [\d.,]+ ETH into tETH$/.test(x.label || ''));
 const COMING_TETH = 'Your tETH is on its way: the relay settles it, usually within a few minutes.';
+let comingT = 0;
+function comingPoll(sheet) {
+  if (comingT) return;
+  comingT = setTimeout(() => { comingT = 0; if (!$(`#sheet-${sheet}`)?.open || !tethComing()) return; scanPrivate(true).then(() => rerender(sheet), () => {}).finally(() => comingPoll(sheet)); }, 15e3);
+}
 const lockList = (kind) => (kind === 'claim' ? LK.mine : LK.back).filter((l) => !taken(kLock(l)));
 // "20 TAC is waiting to become private." One amount per asset, however many deposits make it up.
 function waitingText(ps) {
@@ -3928,7 +3945,7 @@ function v1Swap(el, status) {
       <div class="lbl"><span>You pay</span><button type="button" id="sw-max">${heldLabel(from, 8, dp, unit)}</button></div>
       ${segSub('swf', from, SWAP_ASSETS.map(chip))}
       <div class="amt"><input id="sw-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${unit} to swap"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-${icon}"/></svg>${unit}</span></div>
-      ${P.scan && !held && from === 'eth' && tethComing() ? html`<div class="callout" data-coming><span>${COMING_TETH} The swap is ready once it lands.</span></div>` : P.scan && !held ? html`<p class="note">No private ${unit} yet. ${from === 'eth' ? html`<button type="button" class="link" id="sw-first">Make ETH private first</button>` : html`<button type="button" class="link" id="sw-first">Pay with tETH</button>`}</p>` : ''}
+      ${P.scan && !held && from === 'eth' && tethComing() ? (comingPoll('eth'), html`<div class="callout" data-coming><span>${COMING_TETH} The swap is ready once it lands.</span></div>`) : P.scan && !held ? html`<p class="note">No private ${unit} yet. ${from === 'eth' ? html`<button type="button" class="link" id="sw-first">Make ETH private first</button>` : html`<button type="button" class="link" id="sw-first">Pay with tETH</button>`}</p>` : ''}
       <button type="button" class="flip" id="sw-flip" aria-label="Pay with ${unitTo} instead"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v17m0 0-4-4m4 4 4-4M16 21V4m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <div class="lbl"><span>You get</span><span>${heldLabel(to, 8, dpTo, unitTo)}</span></div>
       ${segSub('swt', to, SWAP_ASSETS.filter(([k]) => k !== from).map(chip))}
@@ -7805,6 +7822,7 @@ function farmJoin(el, p, status, has) {
   const bA = spendable(kA), bB = spendable(kB);
   // ETH just made private (the card's two steps, say) is tETH only once the relay settles it: while it is on its way the farm says so, rather
   // than ask for it again, and opens with the amount once it lands.
+  if (!bA && tethComing()) comingPoll('farm');
   const comingNote = !bA && tethComing() ? html`<div class="callout" data-coming><span>${COMING_TETH} The farm opens with your amount once it lands.</span></div>` : '';
   // Where the paired asset is made private. The farm sheet remembers where you came from, so the way back is one tap.
   const getB = { tac: ['tac', 'Make TAC private'], cusd: ['borrow', 'Borrow cUSD'], cbtc: ['borrow', 'Mint cBTC'] }[kB] || ['tac', `Get private ${other}`];
@@ -8939,7 +8957,7 @@ function dashItems() {
   }
   const who = [...new Set([S.wallet, S.acct?.address].filter(Boolean).map((a) => a.toLowerCase()))].join();
   const pubTac = who && TACB.who === who ? TACB.erc : null, privTac = k ? (s ? s.tac.value * E10 : null) : 0n;
-  out.push({ key: 'tac', icon: 'tk-tac', label: 'TAC', dec: 18, max: 2, v: pubTac != null && privTac != null ? pubTac + privTac : null, err: scanErr || (!!who && TACB.who !== who && !!TACB.err), open: 'tac', core: true,
+  out.push({ key: 'tac', icon: 'tk-tac', label: 'TAC', dec: 18, max: 2, v: pubTac != null && privTac != null ? pubTac + privTac : null, priv: privTac, err: scanErr || (!!who && TACB.who !== who && !!TACB.err), open: 'tac', core: true,
     meta: !k ? 'on Ethereum' : pubTac != null && privTac != null ? `${fmt(privTac, 18, 2)} private · ${fmt(pubTac, 18, 2)} public` : '' });
   if (k) {
     const b = BTC.pub === k ? BTC : null, tacB = b?.held.find((a) => a.id === TAC_BTC_ID), lk = LOCKNOTE.pub === k ? LOCKNOTE : null;
@@ -8978,6 +8996,26 @@ function dashItems() {
 }
 // What needs the user now, each a line with the button that does it in its sheet.
 const DASH_DO = { eth: ['private', 'eth', 'v1-finish'], tac: ['tac', 'tac', 'tac-finish'], borrow: ['borrow', 'borrow', 'bw-finish'], claim: ['private', 'eth', 'v1-claim'], back: ['private', 'eth', 'v1-back'], bonds: ['borrow', 'borrow', 'bw-see-bonds'] };
+// What the holdings are worth in dollars, and how much of it is private: from the pools' and the engine's prices (loadTacPrice), each asset
+// at its own. Points are not counted. Null until a price is read.
+const DASH_PX = { teth: 'eth', dev: 'eth', tethbtc: 'eth', tac: 'tac', btc: 'btc', cbtc: 'btc', cusd: 'usd', tacbtc: 'btc', tacusd: 'usd' };
+const DASH_PRIV = new Set(['teth', 'dev', 'tethbtc', 'cbtc', 'cusd']);
+function dashWorth(items) {
+  const v = TPX.v;
+  if (!v?.usdBtc || !v.ethBtc) { if (!TPX.p && S.key) loadTacPrice().then(dashSoon, () => {}); return null; }
+  const usd = { eth: v.usdBtc / v.ethBtc, btc: v.usdBtc, usd: 1, tac: v.mid ? v.mid * v.usdBtc / v.ethBtc : 0 };
+  let all = 0, priv = 0;
+  for (const it of items) {
+    const kind = it.key.startsWith('sats-') ? (it.label === 'TAC' ? 'tac' : 'btc') : DASH_PX[it.key];
+    if (!kind || it.v == null) continue;
+    const n = Number(it.v) / 10 ** it.dec * usd[kind];
+    all += n;
+    if (it.key === 'tac') priv += Number(it.priv ?? 0n) / 1e18 * usd.tac;
+    else if (DASH_PRIV.has(it.key) || it.key.startsWith('sats-')) priv += n;
+  }
+  return { all, priv };
+}
+const usdFmt = (n) => `$${n >= 1000 ? Math.round(n).toLocaleString('en-US') : n.toFixed(2)}`;
 function paintDash() {
   paintStart();                                                   // the first steps follow the same reads
   const id = dashId(), sec = $('#dash');
@@ -9002,6 +9040,9 @@ function paintDash() {
       : html`<li><button class="di" type="button" ${it.asset ? html`data-asset="${it.asset}"` : html`data-dash-open="${it.open}"`}>${body}</button></li>`;
   };
   const items = dashItems().filter((it) => it.core || it.show || Number(base[it.key]?.v || 0) > 0);
+  const worth = k ? dashWorth(items) : null, tot = $('#hold-tot');
+  mount($('#dash-worth'), worth && worth.all > 0 ? html`≈ <b>${usdFmt(worth.all)}</b>${worth.priv > 0 ? html` · ${worth.priv >= worth.all * 0.999 ? 'all private' : `${usdFmt(worth.priv)} private`}` : ''}` : html``);
+  if (tot) { tot.hidden = !(worth && worth.all > 0); if (worth) tot.querySelector('b').textContent = usdFmt(worth.all); }
   const due = [];
   // An exit that has been in line a while, which the paying account can send instead (the same offer as in its receipt).
   if (k) { const stuck = listed().filter((x) => x.self?.exit && selfWork(x)); if (stuck.length) due.push([stuck.length === 1 ? `${stuck[0].label} has been in line for a few minutes. You can send it now from ${your()}, with no relay fee.` : `${stuck.length} withdrawals have been in line for a few minutes. You can send them now from ${your()}, with no relay fee.`, 'act', 'See how']); }
@@ -9586,6 +9627,45 @@ function hxWantPoints() {
 }
 const hxPtsShort = (p) => (p.pts < 1 ? '< 1 point' : `${p.known ? '≈ ' : ''}${ptsFmt(p.pts)}${p.known ? '' : '+'} points`);
 // The parts of the panel a quote changes.
+// What the key holds of each thing the card can take, as [units, decimals, ticker], or null while unread. Wallet ETH is read once a minute
+// (on the chain the way pays from); private balances are the page's own scan; ETH kept for payments is that chain's last reading here.
+const HXW = { at: 0, chain: 0, who: '', v: null, p: null };
+function hxWalletEth() {
+  const c = hxChain(), cid = HX.tab === 'private' && HX.sd === 'pay' ? c.chainId : 1, who = S.address || '';
+  if (!who) return null;
+  if (HXW.who !== who || HXW.chain !== cid || Date.now() - HXW.at > 60e3) {
+    Object.assign(HXW, { who, chain: cid, at: Date.now(), v: HXW.who === who && HXW.chain === cid ? HXW.v : null });
+    HXW.p = (cid === 1 ? ethBalance() : rpc('eth_getBalance', [who, 'latest'], c.rpc).then(BigInt, () => null))
+      .then((v) => { if (HXW.who === who && HXW.chain === cid) { HXW.v = v; hxBalPaint(); } });
+  }
+  return HXW.v;
+}
+function hxHeldOf(k) {
+  if (k === 'ether') { const v = hxWalletEth(); return v == null ? null : [v, 18, 'ETH']; }
+  if (!S.key) return null;
+  if (k === 'pp') { const v = big(store.get(`tacit-lite-device-bal-v1:${hxChain().chainId}:${S.key.pubHex}`)?.v); return v == null ? null : [v, 18, 'ETH']; }
+  if (k === 'btc' && HX.tab === 'borrow') return BTC.pub === S.key.pubHex && BTC.got === 3 ? [BTC.sats, 8, 'BTC'] : null;
+  if (!P.scan || !['eth', 'tac', 'cusd', 'cbtc'].includes(k)) return null;
+  return [spendable(k), 8, { eth: 'tETH', tac: 'TAC', cusd: 'cUSD', cbtc: 'cBTC' }[k]];
+}
+// The amount field's own thing: what the Max button and the balance line read.
+const hxAmtSrc = () => (HX.tab === 'private' ? HX.sf : HX.tab === 'borrow' ? 'btc' : HX.tab === 'send' ? null : HX.from);
+// "1.24 ETH · Max" beside the amount. ETH from a wallet keeps a little back for the gas.
+function hxBalPaint() {
+  const el = $('#hx-bal');
+  if (!el) return;
+  const h = hxHeldOf(hxAmtSrc());
+  if (!h) { mount(el, html``); return; }
+  const [v, dec, u] = h;
+  mount(el, html`<button type="button" id="hx-max" ${v > 0n ? '' : 'disabled'}>${fmt(v, dec, dec === 18 ? 4 : 6)} ${u}${v > 0n ? ' · Max' : ''}</button>`);
+  $('#hx-max').onclick = () => {
+    const keep = dec === 18 ? (hxWalletChain() === 1 ? 2n * 10n ** 15n : 2n * 10n ** 14n) : 0n, left = v > keep ? v - keep : 0n;
+    const units = dec === 18 ? left / 10n ** 10n : left;                         // the card moves 8 decimals
+    HX.amt = units ? plain(units, 8) : ''; const a = $('#hx-amt'); if (a) { a.value = HX.amt; a.focus(); }
+    hxSub(); hxQuoteSoon();
+  };
+}
+const hxWalletChain = () => (HX.tab === 'private' && HX.sd === 'pay' ? hxChain().chainId : 1);
 // Where a choice in one of the card's pickers sits, said under its name.
 function hxSubOf(id, k) {
   if (id === 'hx-from' && HX.tab === 'private') return k === 'pp' ? `private, for payments on ${hxChain().name}` : HX_SH[k]?.place || '';
@@ -9598,7 +9678,8 @@ function hxPick(sel, opener) {
   const card = $('#hx');
   card.querySelector('.hx-pk')?.remove();
   const gs = [...sel.querySelectorAll('optgroup')], groups = gs.length ? gs.map((g) => [g.label, [...g.children]]) : [['', [...sel.options]]];
-  const row = (o) => html`<button type="button" class="hx-pk-r" data-v="${o.value}" aria-current="${o.selected}"><svg class="tk" aria-hidden="true"><use href="#tk-${o.dataset.ic}"/></svg><span><b>${o.dataset.u || o.textContent}</b><small>${o.dataset.sub}</small></span><i aria-hidden="true">${o.selected ? '✓' : ''}</i></button>`;
+  const held = (o) => { const h = sel.id === 'hx-to' ? null : hxHeldOf(o.value); return h ? h : null; };
+  const row = (o) => { const h = held(o); return html`<button type="button" class="hx-pk-r${h && h[0] === 0n ? ' zero' : ''}" data-v="${o.value}" aria-current="${o.selected}"><svg class="tk" aria-hidden="true"><use href="#tk-${o.dataset.ic}"/></svg><span><b>${o.dataset.u || o.textContent}</b><small>${o.dataset.sub}</small></span>${h ? html`<em class="num">${fmt(h[0], h[1], h[1] === 18 ? 4 : 6)}</em>` : ''}<i aria-hidden="true">${o.selected ? '✓' : ''}</i></button>`; };
   const box = document.createElement('div');
   box.className = 'hx-pk';
   box.innerHTML = html`<div class="hx-pk-s" role="dialog" aria-label="${opener.getAttribute('aria-label')}"><div class="hx-pk-h"><b>${opener.getAttribute('aria-label').split(':')[0]}</b><button type="button" class="hx-pk-x" aria-label="Close">×</button></div>
@@ -9724,7 +9805,7 @@ function paintHx() {
   // Where an asset of the Swap and Earn lists sits: ETH in the wallet, sats in the Bitcoin wallet, the rest private on Ethereum.
   const whereOf = (k) => (k === 'ether' ? where('your wallet', false) : k === 'sats' ? where('your Bitcoin wallet', false, 'btc') : where('private on Ethereum', true));
   const field = (lbl, w, main, side = '', sub = '') => html`<div class="hx-f"><div class="hx-fh"><span class="hx-lbl">${lbl}</span>${w}</div><div class="hx-fm">${main}${side}</div>${sub}</div>`;
-  const subline = html`<div class="hx-ff"><span class="hx-sub" id="hx-sub"></span></div>`;
+  const subline = html`<div class="hx-ff"><span class="hx-sub" id="hx-sub"></span><span class="hx-bal" id="hx-bal"></span></div>`;
   const mid = (flip) => html`<div class="hx-mid">${flip ? html`<button type="button" class="flip" id="hx-flip" aria-label="${flip}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v17m0 0-4-4m4 4 4-4M16 21V4m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
     : html`<span class="arr" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4v16m0 0-6-6m6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`}</div>`;
   const amt = (label) => html`<input class="hx-amt" id="hx-amt" inputmode="decimal" placeholder="0" autocomplete="off" aria-label="${label}" value="${HX.amt}">`;
@@ -9836,12 +9917,14 @@ function paintHx() {
   };
   $('#hx-go').onclick = hxGo;
   hxSub();
+  hxBalPaint();
   paintHxQ();
   hxQuote();
 }
 // The private balance read, or read again (a key opened, a wrap landed): a route from ETH may now be one step, or two.
 function hxSync() {
   hxNorm();
+  hxBalPaint();
   if (!['send', 'borrow'].includes(HX.mode) && HX.from === 'ether' && hxHeld() !== HX.held) hxQuoteSoon();
   if (HX.mode === 'btc' && HX.dir === 'out' && HX.from === 'tac' && hxHeldTac() !== HX.heldTac) hxQuoteSoon();         // the private TAC read: it may now be short
   if ((HX.mode === 'btc' && HX.dir === 'in') || (HX.tab === 'private' && HX.sf === 'tb')) hxHave();

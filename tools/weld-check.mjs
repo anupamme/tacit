@@ -12,6 +12,7 @@
 //            unharvested, harvested rewards and unbonded liquidity above the farms, a harvest pointing at its next step
 //   farmsteps joining a private farm with tETH but no TAC opens on tETH alone; both sides says where TAC is made (with a way back
 //            to the farm) or to farm with tETH alone
+//   hxbal   the card's balance line and Max, the picker's balances, and what Your Tacit and the header say it is all worth
 //   farmcoming a private farm opened while a wrap is settling says the tETH is on its way instead of asking for it again
 //   farmzap  one side alone farms: Max takes the whole balance, the quote says what is swapped and what both sides add, and the
 //            press cuts the swap note, swaps it in the farm's pool, cuts what pairs with the return and bonds both
@@ -3944,6 +3945,30 @@ await step('farmpos', async () => {
 });
 // A private farm with a key that holds tETH but no TAC: the form opens on tETH alone; both sides says where TAC is made (going
 // there leaves a way back to this farm, and taking it returns to the same card) or to farm with tETH alone.
+// What the key holds, where it is used: the card's amount line says the balance of what it takes and Max fills it, the coin picker says what each
+// choice holds (a choice with none is quieter), and Your Tacit and the header say what it is all worth, and how much of it is private.
+await step('hxbal', async () => {
+  const r = await openFarmKey('ba1a'.padEnd(64, '6'), { notes: [[FARM_CETH, 10000000n], [FARM_CTAC, 50000000000n]] });
+  const p = r.page;
+  try {
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    await p.click('[data-hxm="swap"]'); await p.selectOption('#hx-from', 'eth');
+    await until(p, () => /0\.1 tETH · Max/.test(document.querySelector('#hx-bal')?.textContent || ''), null, 300000);
+    await p.click('#hx-max');
+    ok(await p.$eval('#hx-amt', (e) => e.value) === '0.1', 'hxbal: the amount line says 0.1 tETH held, and Max fills 0.1');
+    await p.click('[data-pk="hx-from"]'); await p.waitForSelector('.hx-pk-r');
+    const rows = await p.$$eval('.hx-pk-r', (b) => b.map((x) => `${x.dataset.v}:${x.querySelector('em')?.textContent || ''}:${x.classList.contains('zero')}`));
+    ok(rows.includes('eth:0.1:false') && rows.includes('tac:500:false') && rows.includes('cusd:0:true'), `hxbal: the picker says what each choice holds, and a choice with none is quieter (${rows.join(' ')})`);
+    await p.keyboard.press('Escape');
+    await until(p, () => /≈ \$[\d,.]+/.test(document.querySelector('#dash-worth')?.textContent || ''), null, 300000);
+    const worth = (await text(p, '#dash-worth')).replace(/\s+/g, ' ');
+    ok(/private/.test(worth) && !(await p.$eval('#hold-tot', (b) => b.hidden)), `hxbal: Your Tacit and the header say what it is all worth, and how much is private (${worth})`);
+    await p.click('#hold-tot'); await sleep(900);
+    ok(await p.evaluate(() => { const b = document.querySelector('#dash').getBoundingClientRect(); return b.top < innerHeight && b.bottom > 0; }), 'hxbal: the header total takes you to Your Tacit');
+    if (r.errors.length) { fails++; console.log('FAIL hxbal page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
 // A wrap still settling (as the card's two steps leave one): the private farm says the tETH is on its way and does not ask for it again,
 // and with no wrap in flight it asks as before.
 await step('farmcoming', async () => {
