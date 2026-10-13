@@ -391,17 +391,6 @@ a.di { color: inherit; text-decoration: none; }
 .sx-h h2 em { font-style: italic; }
 .sx-h p { margin: 0; max-width: 44ch; font-size: 16px; color: var(--ink); }
 .sx-k { display: block; margin: 0 0 14px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
-.shell:has(#dash:not([hidden])) .hs { display: none; }
-/* How to start: three steps in one row under the hero, each a line and a way in. */
-.hs { margin-top: 36px; }
-.hs-l { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); }
-.hs-l li { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 4px 14px; padding: 18px 22px 18px 0; }
-.hs-l li + li { padding-left: 22px; border-left: 1px solid var(--hair-2); }
-.hs-n { grid-row: span 2; font: 400 44px/.9 var(--serif); }
-.hs-t { display: grid; gap: 2px; }
-.hs-t b { font: 400 24px/1.1 var(--serif); }
-.hs-t span { font-size: 13px; color: var(--mute); }
-.hs-l .tl { justify-self: start; padding: 0; color: var(--ink); background: none; border: 0; cursor: pointer; font: inherit; font-size: 13px; font-weight: 500; }
 
 /* One ID, two chains: Bitcoin left, Ethereum right, the key down the middle, one lane for each thing that crosses. */
 .wd { --end: 300px; border: 1px solid var(--ink); background: var(--card); }
@@ -482,7 +471,7 @@ a.di { color: inherit; text-decoration: none; }
 .boost { padding: 1px 5px; font: 500 10.5px var(--mono); font-style: normal; letter-spacing: .04em; color: var(--ink); background: color-mix(in srgb, var(--orange) 26%, transparent); }
 
 /* TAC: one calm coin; it turns to show Bitcoin on its back, then Ethereum. */
-.tc { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 72px; align-items: start; }
+.tc { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 64px; align-items: start; }
 .tc-stage { position: sticky; top: 96px; margin-top: 34px; height: 280px; display: grid; place-items: center; perspective: 900px; }
 .tc-tilt { transform-style: preserve-3d; animation: tc-bob 7s ease-in-out infinite; }
 @keyframes tc-bob { 0%, 100% { transform: rotateX(8deg) rotateZ(-4deg) translateY(-3px); } 50% { transform: rotateX(8deg) rotateZ(-4deg) translateY(3px); } }
@@ -518,13 +507,16 @@ a.di { color: inherit; text-decoration: none; }
 .tc h2 { font: 400 clamp(34px, 4vw, 52px)/1 var(--serif); letter-spacing: -.02em; max-width: 18ch; margin: 0; }
 .tc h2 em { font-style: italic; }
 .tc-p { font-size: 16px; line-height: 1.65; margin: 20px 0 0; max-width: 56ch; }
-.tc-p.soft { margin-top: 26px; color: var(--mute); }
 .tc-facts { display: flex; flex-wrap: wrap; gap: 14px 44px; margin: 28px 0 0; padding: 0; }
 .tc-facts div { display: flex; flex-direction: column-reverse; gap: 2px; }
 .tc-facts dt { font-size: 12px; color: var(--mute); }
 .tc-facts dd { margin: 0; font: 400 28px/1.1 var(--serif); letter-spacing: -.01em; white-space: nowrap; }
-.tc-hold { max-width: 62ch; margin: 28px 0 0; padding: 16px 0 0; border-top: 1px dashed var(--hair-2); font-size: 13px; line-height: 1.65; color: var(--mute); }
-.tc-hold b { display: block; margin-bottom: 4px; font-size: 11px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--ink); }
+.tc-do { list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 32px; max-width: 640px; margin: 30px 0 0; padding: 20px 0 0; border-top: 1px dashed var(--hair-2); }
+.tc-do li { display: grid; gap: 3px; }
+.tc-do b { font: 400 22px/1.1 var(--serif); }
+.tc-do span { font-size: 13px; line-height: 1.5; color: var(--mute); }
+.tc-spec { max-width: 62ch; margin: 22px 0 0; font-size: 13px; line-height: 1.6; color: var(--mute); }
+.tc-spec a { color: var(--ink); }
 .tc-links { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 26px; margin-top: 26px; }
 .tc-links .tl { font-size: 14px; }
 .tc-links .btn { width: auto; min-height: 52px; margin: 0; padding: 0 24px; background: transparent; color: var(--ink); border-color: var(--ink); }
@@ -849,9 +841,6 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .wd { --end: 230px; }
   .wd-top { padding: 20px 16px 18px; }
   .wd-end { padding: 16px; }
-  .hs-l { grid-template-columns: minmax(0, 1fr); }
-  .hs-l li, .hs-l li + li { padding: 14px 0; border-left: 0; }
-  .hs-l li + li { border-top: 1px solid var(--hair-2); }
   .fm-y { grid-template-columns: minmax(0, 1fr); }
   .fm-way + .fm-way { border-left: 0; border-top: 1px solid var(--ink); }
   .tc { grid-template-columns: minmax(0, 1fr); gap: 4px; }
@@ -896,6 +885,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .tc-facts { flex-direction: column; gap: 0; }
   .tc-facts div { flex-direction: row-reverse; justify-content: space-between; align-items: baseline; padding: 9px 0; border-top: 1px dotted var(--hair-2); }
   .tc-facts div:last-child { border-bottom: 1px dotted var(--hair-2); }
+  .tc-do { grid-template-columns: minmax(0, 1fr); }
   footer nav { grid-template-columns: 1fr 1fr; }
 }
 /* A finger needs the full tap size; a mouse keeps the tighter controls. */
@@ -959,7 +949,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
         <p class="sub">One <b>tacit1</b> ID for both chains. Shield, send, swap, earn and borrow, with amounts and owners hidden.</p>
         <div class="start" id="start" hidden>
           <div class="cta"><button class="btn" type="button" id="start-go">Get your tacit1 ID</button><a class="tl" href="#how" data-scroll="how">How it works ↓</a>
-          <p class="hint"><span data-step="1">With the Ethereum or Bitcoin wallet you have, or a passkey. Signing in sends nothing and costs no gas.</span><span data-step="2">Next, one transaction moves your ETH into the Tacit pool as tETH.</span> <button class="link" type="button" id="start-x" hidden>Hide</button></p></div>
+          <p class="hint"><span data-step="1">With a wallet you have, or a passkey. It sends nothing and costs no gas.</span><span data-step="2">Next, one transaction moves your ETH into the Tacit pool as tETH.</span> <button class="link" type="button" id="start-x" hidden>Hide</button></p></div>
         </div>
       </div>
       <div class="proof-row">
@@ -983,14 +973,6 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
     <div class="dash-h"><h2 id="dash-h">Your Tacit</h2><span id="dash-since"></span></div>
     <div id="dash-due"></div>
     <ul class="dash-g" id="dash-g"></ul>
-  </section>
-
-  <section class="hs" aria-label="How to start">
-    <ol class="hs-l">
-      <li><span class="hs-n">1</span><span class="hs-t"><b>Get your ID</b><span>With a wallet you have, or a passkey. It sends nothing.</span></span><button class="tl" type="button" data-signin>Sign in →</button></li>
-      <li><span class="hs-n">2</span><span class="hs-t"><b>Make it private</b><span>ETH, BTC or TAC, from wherever it is now.</span></span><button class="tl" type="button" data-hx="shield:ether:defi">Shield →</button></li>
-      <li><span class="hs-n">3</span><span class="hs-t"><b>Put it to work</b><span>Pay anyone, swap, farm TAC, borrow dollars.</span></span><button class="tl" type="button" data-hx="earn:ether:public">Farm TAC →</button></li>
-    </ol>
   </section>
 
   <section class="sx" id="how" aria-labelledby="how-h">
@@ -1060,8 +1042,13 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
         <div><dt>Airdrop, eligible wallets</dt><dd class="num">14,000+</dd></div>
         <div><dt>Sale or VC</dt><dd>None</dd></div>
       </dl>
-      <p class="tc-p soft">It is also the standing example of the Tacit spec: a confidential token issued on Bitcoin itself, with no mint key. Anyone can issue another the same way, and TAC gets each protocol improvement first.</p>
-      <p class="tc-hold"><b>Holding TAC</b>Holders pay less to exit privately (0.30% down to 0.15%), earn up to 2× points with TAC in an Ethereum wallet, and vote on how the protocol’s governed parts are run. Relay fees paid in TAC are never sold, and part of the relay’s ETH surplus buys TAC for the reserve.</p>
+      <ul class="tc-do" aria-label="What holding TAC does">
+        <li><b>Cheaper exits</b><span>Private exits cost 0.30%, down to 0.15% for holders.</span></li>
+        <li><b>More points</b><span>Up to 2× on every points activity, held in an Ethereum wallet.</span></li>
+        <li><b>A vote</b><span>On how the protocol’s governed parts are run.</span></li>
+        <li><b>Never sold</b><span>Relay fees paid in TAC go to the reserve, and part of the relay’s ETH surplus buys more.</span></li>
+      </ul>
+      <p class="tc-spec">TAC is the standing example of the <a href="https://github.com/src-company/tacit/blob/main/SPEC.md" rel="noopener">Tacit spec</a>: a confidential token issued on Bitcoin with no mint key. Anyone can issue one the same way.</p>
       <div class="tc-links"><button class="btn" type="button" data-hx="swap:ether:tac">Buy TAC</button><a class="tl" href="/trade/tac/">Price and chart →</a><a class="tl" href="/verify.html">Verify the supply →</a><a class="tl" href="https://github.com/src-company/tacit/blob/main/docs/TAC.md" rel="noopener">About TAC →</a></div>
     </div>
   </section>
