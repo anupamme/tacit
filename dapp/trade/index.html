@@ -118,7 +118,7 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 /* the page */
 .grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; grid-template-areas: "chart ticket" "venues ticket" "depth ticket" "info ticket"; grid-template-rows: auto auto auto 1fr; gap: 14px 16px; }
 .p-chart { grid-area: chart; } .p-ticket { grid-area: ticket; position: sticky; top: 14px; align-self: start; } .p-venues { grid-area: venues; } .p-depth { grid-area: depth; } .p-info { grid-area: info; }
-@media (max-width: 980px) { .grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "chart" "ticket" "venues" "depth" "info"; } .p-ticket { position: static; } }
+@media (max-width: 980px) { .grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "ticket" "chart" "venues" "depth" "info"; } .p-ticket { position: static; } }
 .panel { background: var(--card); border: 1px solid var(--hair); padding: 22px; min-width: 0; }
 @media (max-width: 480px) { .panel { padding: 18px 14px; } }
 .eyebrow { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--mute); margin: 0 0 12px; }
@@ -266,6 +266,12 @@ input::placeholder { color: var(--mute); opacity: .7; }
 .bsheet .bm-after { margin: 0; padding: 4px 16px 18px; }
 .bsheet .x { padding: 4px 8px; font-size: 26px; line-height: 1; cursor: pointer; color: var(--mute); background: none; border: 0; }
 .bsheet .x:hover { color: var(--ink); }
+.chips { display: flex; gap: 6px; margin: 8px 0 0; }
+.chips button { flex: 1; min-height: 30px; padding: 0 6px; font-size: 12px; color: var(--mute); background: none; border: 1px solid var(--hair-2); cursor: pointer; }
+.chips button[aria-pressed="true"] { color: var(--card); background: var(--ink); border-color: var(--ink); }
+@media (hover: hover) { .chips button:not([aria-pressed="true"]):hover { color: var(--ink); border-color: var(--ink); } }
+@media (pointer: coarse) { .chips button { min-height: 38px; } }
+.legend:empty { display: none; }
 .chip { display: inline-flex; align-items: center; gap: 8px; min-height: 34px; margin-left: 4px; padding: 0 12px; font-size: 12.5px; color: var(--ink); background: var(--card); border: 1px solid var(--hair-2); cursor: pointer; }
 .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--hair-2); flex: none; } .chip .dot.on { background: var(--ok); }
 @media (hover: hover) { .chip:hover { border-color: var(--ink); } }
@@ -367,6 +373,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
       <p class="pin" id="pin" hidden></p>
       <div class="lbl"><span id="in-lbl">You pay</span><button class="linkbtn" id="in-bal" type="button" hidden></button></div>
       <div class="amt"><input id="amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="Amount to pay"><span class="u" id="in-unit"><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>ETH</span></div>
+      <div class="chips" id="chips" role="group" aria-label="Quick amounts"></div>
       <div class="lbl"><span>You get about</span><span class="mute" id="out-usd"></span></div>
       <div class="get"><b id="out" class="ph">0.00</b><span id="out-unit">TAC</span></div>
       <div id="route"></div>
@@ -420,6 +427,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/app.js?cb=04651aa5"></script>
+<script type="module" src="/trade/app.js?cb=22029aaa"></script>
 </body>
 </html>

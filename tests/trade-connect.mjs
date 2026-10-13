@@ -137,7 +137,10 @@ try {
   // a phone: nothing to tap in the first screen but the bar at the foot, which leads to the ticket
   r = await openPage({ width: 390, height: 844 }, { phone: true });
   p = r.page;
-  ok(await p.$eval('#stick', (e) => !e.hidden && getComputedStyle(e).display === 'block' && e.getBoundingClientRect().bottom <= window.innerHeight + 1), 'on a phone the bar at the foot shows while the ticket is below');
+  ok(await p.$eval('.p-ticket', (e) => e.getBoundingClientRect().top < window.innerHeight * 0.75) && (await p.$eval('#stick', (e) => e.hidden)), 'on a phone the ticket comes right after the prices, so it is on the first screen and the bar waits');
+  await p.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await until(p, () => !document.querySelector('#stick').hidden, null, 10000);
+  ok(await p.$eval('#stick', (e) => getComputedStyle(e).display === 'block' && e.getBoundingClientRect().bottom <= window.innerHeight + 1), 'further down the bar at the foot leads back to it');
   await p.click('#stick-go');
   await until(p, () => document.querySelector('#stick').hidden, null, 10000);
   ok(await p.$eval('.p-ticket', (e) => { const r = e.getBoundingClientRect(); return r.top < window.innerHeight && r.bottom > 0; }), 'pressing it brings the ticket into view, and the bar goes away');

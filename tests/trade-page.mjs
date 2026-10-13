@@ -119,7 +119,7 @@ try {
 
   const head = (await text(p, '#px-usd')).trim(), sub = (await text(p, '#px-sub')).replace(/\s+/g, ' ');
   ok(/^\$0\.\d{2,}/.test(head), `the head shows TAC's price in dollars (${head})`);
-  ok(/[\d.]+ ETH · [\d,]+ TAC per ETH/.test(sub) && /traded in 24h/.test(sub), `and in ETH, TAC per ETH and the day's volume (${sub.slice(0, 120)})`);
+  ok(/[\d.]+ ETH per TAC/.test(sub) && /traded in 24h/.test(sub), `and in ETH and the day's volume (${sub.slice(0, 120)})`);
   const lanes = await p.$$eval('#lanes .lane', (ls) => ls.map((l) => l.textContent.replace(/\s+/g, ' ').trim()));
   ok(lanes.length === 4 && /Precision pool.*\$0\.\d+.*ETH.*the reference/.test(lanes[0]) && /Tacit pool.*\$0\.\d+.*ETH.*vs Precision/.test(lanes[1]) && /Bitcoin · last trade.*\$0\.\d+.*150 sats/.test(lanes[2]) && /Bitcoin · cheapest ask.*\$0\.\d+.*157 sats/.test(lanes[3]), `four prices, each in dollars with ETH or sats and its gap against Precision (${lanes.map((l) => l.slice(0, 60)).join(' | ')})`);
   ok(/TAC costs \d+% (more|less) on Ethereum than on the Bitcoin order book/.test(await text(p, '#gapnote')), `the gap between the two lanes is said in words (${(await text(p, '#gapnote')).slice(0, 110)})`);
@@ -159,8 +159,12 @@ try {
   if (SHOTS) await p.screenshot({ path: join(SHOTS, 'trade-desktop-top.png') });
 
   // the ticket: a purchase large enough to split
+  ok((await p.$$eval('#chips button', (b) => b.map((x) => x.textContent))).join() === '0.05 ETH,0.25 ETH,1 ETH' && (await p.$eval('.p-venues', (e) => e.hidden)) === true, 'the ticket offers quick amounts, and the quotes panel waits for an amount');
+  await p.click('#chips [data-amt="0.25"]');
+  await until(p, () => !document.querySelector('#out').classList.contains('ph') && document.querySelector('#out').textContent !== '…', null, 240000);
+  ok((await p.inputValue('#amt')) === '0.25' && (await p.getAttribute('#chips [data-amt="0.25"]', 'aria-pressed')) === 'true' && (await p.$eval('.p-venues', (e) => e.hidden)) === false, 'pressing one fills the amount, quotes it and shows the quotes');
   await p.fill('#amt', '2');
-  await until(p, () => /Split:/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 240000);
+  await until(p, () => /Split:/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && Number(document.querySelector('#out').textContent.replace(/,/g, '')) > 5000, null, 240000);
   const route = (await text(p, '#route')).replace(/\s+/g, ' ');
   ok(/Split: \d+% Precision pool, \d+% Tacit pool/.test(route) && /more TAC than the better pool alone/.test(route), `2 ETH is quoted as a split (${route.slice(0, 160)})`);
   ok(/^[\d,]+(\.\d+)?$/.test((await text(p, '#out')).trim()) && Number((await text(p, '#out')).replace(/,/g, '')) > 2 * 3000, `with the TAC it pays (${await text(p, '#out')}: at least 3,000 TAC to the ETH even after the price impact of 2 ETH)`);
@@ -194,7 +198,9 @@ try {
   await p.fill('#amt', '');
 
   // selling
-  await p.click('[data-side="sell"]'); await p.fill('#amt', '12000');
+  await p.click('[data-side="sell"]');
+  ok((await p.$$eval('#chips button', (b) => b.map((x) => x.textContent))).join() === '1,000 TAC,5,000 TAC,20,000 TAC', 'the sell side has quick amounts in TAC');
+  await p.fill('#amt', '12000');
   await until(p, () => /Split:/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 240000);
   const sell = (await text(p, '#route')).replace(/\s+/g, ' ');
   ok(/Split:/.test(sell) && /more ETH than the better pool alone/.test(sell) && /TAC$/.test((await text(p, '#in-unit')).trim()), `selling 12,000 TAC is quoted as a split, paid in ETH (${sell.slice(0, 120)})`);
@@ -206,12 +212,12 @@ try {
   const hd = (await p.$$eval('#ladders .lad h3', (h) => h.map((x) => x.textContent.replace(/\s+/g, ' ')))).join(' | ');
   ok(dep.length >= 7 && dep.length <= 14 && /^\$0\.\d+ sats/.test(dep[0]) && /For sale.*Wanted/.test(hd), `listings are one line per price and the bids sit beside them (${dep.length} lines: ${dep[0]} … ${hd.slice(0, 90)})`);
   ok((await p.$$eval('#depthchart path.dep-ask', (x) => x.length)) === 1 && (await p.$$eval('#depthchart path.dep-bid', (x) => x.length)) === 1, 'drawn as a depth chart of listings and bids');
-  ok(/14 bids want [\d,]+ TAC and settle when the bidder is online/.test(await text(p, '#depth-note')), 'and the note says how many bids stand and when a sale to one settles');
+  ok(/\d+ bids \([\d,]+ TAC\) settle when the bidder is online/.test(await text(p, '#depth-note')), 'and the note says how many bids stand and when a sale to one settles');
   await p.click('[data-book="eth"]');
   await until(p, () => /No TAC orders on zSwap's boards|No TAC orders on the boards that answered/.test(document.querySelector('#ladders')?.textContent || ''), null, 150000);
   ok(/No TAC orders on zSwap's boards|No TAC orders on the boards that answered/.test(await text(p, '#ladders')) && !!(await p.$('#ladders a[href^="https://zswap"]')), 'the Ethereum tab says zSwap holds none and where to place one');
   await p.click('[data-book="btc"]');
-  ok(/168 listings hold [\d,]+ TAC/.test(await text(p, '#depth-note')) && !(await p.$('#depth-note a')), 'with how deep the book is (the buttons beside it do what the old links did)');
+  ok(/\d+ listings \([\d,]+ TAC\), taken whole/.test(await text(p, '#depth-note')) && !(await p.$('#depth-note a')), 'with how deep the book is (the buttons beside it do what the old links did)');
   const facts = (await text(p, '#facts')).replace(/\s+/g, ' '), more = (await text(p, '#facts-more')).replace(/\s+/g, ' ');
   ok(/21,000,000/.test(await text(p, '#about')) && /ERC-20.*0xA1313e.*TAC minted there/.test(facts) && /2,032 holders/.test(facts) && /Precision pool.*holds [\d.,]+ ETH and [\d,]+ TAC/.test(more), `the facts are live (${facts.slice(0, 120)})`);
   ok(/Uniswap v4.*3 hookless ETH\/TAC pools.*None holds liquidity now/.test(more) && /TacBuyback/.test(more) && !(await p.$eval('details.more:has(#facts-more)', (d) => d.open)), 'Uniswap v4\'s pools and the buyback are named, behind a "more" that starts closed');
@@ -456,8 +462,8 @@ try {
   const m = r.page;
   await until(m, () => /^\$/.test(document.querySelector('#px-usd')?.textContent || '') && document.querySelectorAll('#chart .body').length > 5, null, 240000);
   ok(await m.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `no sideways scroll at 390px (${await m.evaluate(() => document.documentElement.scrollWidth)})`);
-  const order = await m.evaluate(() => ['.p-chart', '.p-ticket', '.p-venues', '.p-depth', '.p-info'].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().top)));
-  ok(order.every((t, i) => i === 0 || t > order[i - 1]), `the panels stack chart, ticket, venues, book, facts (${order})`);
+  const order = await m.evaluate(() => ['.p-ticket', '.p-chart', '.p-depth', '.p-info'].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().top)));
+  ok(order.every((t, i) => i === 0 || t > order[i - 1]), `the panels stack ticket, chart, book, facts (${order})`);
   ok((await m.$eval('#chart', (e) => e.getBoundingClientRect().width)) > 300, 'the chart takes the phone\'s width');
   ok(await m.$$eval('.top nav a.opt', (a) => a.every((x) => getComputedStyle(x).display === 'none')), 'and the header\'s extra links are hidden there');
   if (SHOTS) await m.screenshot({ path: join(SHOTS, 'trade-phone.png'), fullPage: true });

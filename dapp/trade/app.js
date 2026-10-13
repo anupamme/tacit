@@ -171,8 +171,8 @@ function renderHead() {
   // The candles that began in the last day: the 4-hour ones, and the 5-minute ones newer than the last of those (it lags by one).
   const vol = D.tape.coarse.filter((b) => b.t >= now() - 86400).reduce((a, b) => a + b.vol, 0) + D.tape.fine.filter((b) => b.t >= (D.tape.coarse.at(-1)?.t ?? 0) + TAPE_COARSE && b.t >= now() - 86400).reduce((a, b) => a + b.vol, 0);
   const bits = [];
-  if (eth != null) bits.push(html`<span><b class="num">${sig(eth)} ETH</b> · ${grp(D.perEth, 0)} TAC per ETH</span>`);
   if (ch != null) bits.push(html`<span class="chg ${ch >= 0 ? 'up' : 'down'}">${pct(ch)} in 24h</span>`);
+  if (eth != null) bits.push(html`<span><b class="num">${sig(eth)} ETH</b> per TAC</span>`);
   if (D.tape.coarse.length) bits.push(html`<span>${vol >= 0.01 ? `${grp(vol, vol < 10 ? 2 : 0)} ETH` : 'under 0.01 ETH'} traded in 24h</span>`);
   $('#px-sub').innerHTML = bits.length ? bits.join('') : '<span class="mute">Reading the pools…</span>';
   const bg = btcUsdPerTac(), g = bg ? gap(bg, px) : null;
@@ -243,7 +243,7 @@ function renderChart() {
   if (lane !== 'btc') legend.push(`<span>${sw(ETHBLUE)}Precision pool (Ethereum)${ethSpot != null ? ` · ${priceFmt(unit, 'eth')(ethSpot)}` : ''}</span>`);
   if (lane !== 'eth') legend.push(`<span>${sw(ORANGE)}Bitcoin order book${btcSpot != null ? ` · ${priceFmt(unit, 'btc')(btcSpot)}` : ''}</span>`);
   if (lane !== 'btc' && priv != null) legend.push(`<span>${sw(GREEN)}Tacit pool · ${priceFmt(unit, 'eth')(privSpot)}${deviates ? `, ${pct(priv / priceEth() - 1)} vs Precision` : ', level with Precision'}</span>`);
-  $('#legend').innerHTML = legend.join('');
+  $('#legend').innerHTML = lane === 'cmp' ? legend.join('') : '';                              // one lane needs no key: the strip above names every price
   const first = D.tape.coarse[0], days = first ? Math.max(1, Math.round((now() - first.t) / 86400)) : 0;
   $('#chart-note').textContent = lane === 'eth'
     ? `Executed prices, fees included, from the Precision pool's on-chain price tape, read without an indexer. A chart, not an oracle: one small trade can move a candle's high or low. The tape holds about a day of 5-minute and six weeks of 4-hour candles; this browser keeps what it has read${first ? ` (${days} days so far)` : ''}.`
@@ -333,7 +333,12 @@ async function requote(quiet = false) {
   } catch (e) { if (my === S.seq && !quiet) { renderQuote({ err: 'The pools could not be read just now.' }); renderVenues(null); } }
   finally { if (quiet) S.refreshing = false; }
 }
+// Quick amounts under the amount box: what the usual sizes would get, one press, no wallet needed.
+const PRESETS = { buy: [['0.05 ETH', '0.05'], ['0.25 ETH', '0.25'], ['1 ETH', '1']], sell: [['1,000 TAC', '1000'], ['5,000 TAC', '5000'], ['20,000 TAC', '20000']] };
+function renderChips() { $('#chips').innerHTML = PRESETS[S.side].map(([l, v]) => `<button type="button" data-amt="${v}" aria-pressed="${S.amt === v}">${l}</button>`).join(''); }
+$('#chips').addEventListener('click', (e) => { const b = e.target.closest('[data-amt]'); if (!b) return; S.amt = b.dataset.amt; $('#amt').value = S.amt; S.pin = null; renderPin(); requote(); });
 function renderQuote(q) {
+  renderChips();
   const buy = S.side === 'buy', outEl = $('#out'), route = $('#route'), go = $('#go');
   $('#in-lbl').textContent = 'You pay';
   $('#in-unit').innerHTML = `<svg class="tk sm" aria-hidden="true"><use href="#tk-${buy ? 'eth' : 'tac'}"/></svg>${buy ? 'ETH' : 'TAC'}`;
@@ -376,7 +381,7 @@ const splitWhat = (sp) => `${splitShare(sp)}% Precision pool, ${100 - splitShare
 function renderVenues(q) {
   const tb = $('#venues tbody'), note = $('#venues-note'), absent = $('#absent'), buy = S.side === 'buy';
   const unit = buy ? 'TAC' : 'ETH', f = (v) => `${fmtUnits(v, 18, buy ? 2 : 6)} ${unit}`;
-  $('#venues').classList.toggle('empty', !q); note.closest('details').hidden = !q;
+  $('#venues').classList.toggle('empty', !q); note.closest('details').hidden = !q; $('.p-venues').hidden = !q;
   if (!q) { tb.innerHTML = `<tr><td colspan="3" class="mute">Enter an amount to compare every pool.</td></tr>`; note.textContent = ''; absent.textContent = ''; return; }
   const { rt } = q, rows = [], via = routeOf(q);
   const add = (r) => rows.push(r);
@@ -516,8 +521,8 @@ function renderBook() {
   };
   box.innerHTML = `<div class="lads two">${side(b.asks, true)}${side(b.bids, false)}</div>` + (live ? `<div class="btc-actions"><button class="fillbtn primary" type="button" data-btc="open">Trade on Bitcoin</button><button class="fillbtn" type="button" data-btc="list">List a sale</button></div>` : '');
   const total = b.asks.reduce((a, r) => a + r.amount, 0n), want = b.bids.reduce((a, r) => a + r.amount, 0n);
-  const bidsTxt = !D.bidsRead ? 'Could not read the bids.' : b.bids.length ? `${b.bids.length} bid${b.bids.length === 1 ? '' : 's'} want${b.bids.length === 1 ? 's' : ''} ${grp(Number(want) / 1e8, 0)} TAC and settle when the bidder is online${b.bids.some((r) => r.auto) ? ' (some within minutes, via a watchtower)' : ''}.` : 'No bids.';
-  note.innerHTML = b.asks.length ? `${b.asks.length} listings hold ${grp(Number(total) / 1e8, 0)} TAC, taken whole. ${bidsTxt} Buying needs sats on a Bitcoin address.${live ? '' : ` <a href="/tac/#buy">Buy on Bitcoin →</a> · <a href="/classic.html#tab=market&aid=${TAC_BTC_ID}&lane=btc">List a sale →</a>`}` : bidsTxt;
+  const bidsTxt = !D.bidsRead ? 'Could not read the bids.' : b.bids.length ? `${b.bids.length} bid${b.bids.length === 1 ? '' : 's'} (${grp(Number(want) / 1e8, 0)} TAC) settle when the bidder is online${b.bids.some((r) => r.auto) ? ', some within minutes' : ''}.` : 'No bids.';
+  note.innerHTML = b.asks.length ? `${b.asks.length} listings (${grp(Number(total) / 1e8, 0)} TAC), taken whole. ${bidsTxt}${live ? '' : ` <a href="/tac/#buy">Buy on Bitcoin →</a> · <a href="/classic.html#tab=market&aid=${TAC_BTC_ID}&lane=btc">List a sale →</a>`}` : bidsTxt;
 }
 // Pinning an order: the ticket takes its side and size, and trades with that order alone.
 function renderPin() {
@@ -537,7 +542,7 @@ function pinOrder(key) {
   $('.p-ticket').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 function renderAbout() {
-  $('#about').innerHTML = `<p><b>TAC</b> is Tacit's token: 21,000,000, issued once on Bitcoin with no mint authority. On Ethereum it is an ERC-20 minted only by Tacit's confidential pool, against TAC proven to have left Bitcoin: one supply, two lanes. <a href="/verify.html">Check the supply →</a></p>`;
+  $('#about').innerHTML = `<p><b>TAC</b> is Tacit's token: 21,000,000, issued once on Bitcoin with no mint authority, and an ERC-20 on Ethereum minted only against TAC that left Bitcoin. One supply, two lanes. <a href="/verify.html">Check the supply →</a></p>`;
   const link = (a, t) => `<a href="${SCAN}${a}" target="_blank" rel="noopener noreferrer">${t || `${a.slice(0, 8)}…${a.slice(-6)}`}</a>`;
   const pool = getConfidentialDeployment('mainnet')?.pool;
   const main = [
