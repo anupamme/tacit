@@ -1618,8 +1618,8 @@ function startHttp(store, evmState) {
       }
       const nfPath = url.pathname.match(/^\/holding\/nullifiers\/(\d+)\/(\d+)$/);
       if (nfPath) {
-        const r = holding ? holding.nullifiers(Number(nfPath[1]), Number(nfPath[2])) : { status: 404, body: { error: 'not enabled' } };
-        res.statusCode = r.status; res.end(JSON.stringify(r.body));
+        const r = holding ? holding.nullifiers(Number(nfPath[1]), Number(nfPath[2]), { client: clientKey(req) }) : { status: 404, body: { error: 'not enabled' } };
+        res.statusCode = r.status; if (r.status === 429) res.setHeader('Retry-After', '30'); res.end(JSON.stringify(r.body));
         return;
       }
       if (url.pathname === '/holding/claim') {

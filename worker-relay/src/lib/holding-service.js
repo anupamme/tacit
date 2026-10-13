@@ -164,8 +164,12 @@ export function createHolding({ store, cfg, clients, hash, groth16, nowSec = () 
   // everyone, so asking for them says nothing about which note is the asker's. A snapshot never changes, so the answer is
   // built once.
   const nullifierBodies = new Map();
-  function nullifiers(chainId, epoch) {
+  // A snapshot is up to a few megabytes and the same for everyone, so a caller is held to a handful of reads and all callers to a rate.
+  const readerOk = makeTokenBucket({ perMin: cfg.readsPerMin ?? 20, burst: cfg.readBurst ?? 8, now: () => nowSec() * 1000 });
+  const readersOk = makeTokenBucket({ perMin: cfg.allReadsPerMin ?? 240, burst: cfg.allReadsPerMin ?? 240, maxKeys: 1, now: () => nowSec() * 1000 });
+  function nullifiers(chainId, epoch, { client = 'unknown' } = {}) {
     if (!cfg.enabled) return reply(404, { error: 'not enabled' });
+    if (!readerOk(client) || !readersOk('all')) return reply(429, { error: 'too many reads, try again shortly' });
     const snap = store.holdingSnapshots(epoch).find((s) => s.chainId === chainId);
     if (!snap) return reply(404, { error: 'no snapshot for that day and chain' });
     const key = `${chainId}:${epoch}`;

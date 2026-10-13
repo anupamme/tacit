@@ -201,6 +201,12 @@ try {
   assert.equal(nf.body.size, nf.body.leaves.length);
   assert.equal(holding.nullifiers(1, fx.epoch).body, nf.body, 'built once for a snapshot that never changes');
   assert.equal(holding.nullifiers(1, fx.epoch + 5).status, 404);
+  // A snapshot is read a handful of times by one caller, and at a rate by all of them.
+  const reads = mk({ readBurst: 3, readsPerMin: 3, allReadsPerMin: 4 }, openStore(join(dir, 'rd.db')));
+  await reads.cycle();
+  assert.deepEqual([1, 2, 3, 4].map(() => reads.nullifiers(1, fx.epoch, { client: 'a' }).status), [200, 200, 200, 429], 'one caller gets its burst, then waits');
+  assert.equal(reads.nullifiers(1, fx.epoch, { client: 'b' }).status, 200, 'another caller is not held by it');
+  assert.equal(reads.nullifiers(1, fx.epoch, { client: 'c' }).status, 429, 'and all callers together are held to a rate');
   console.log('ok - each chain\'s snapshot is drawn once the day is final, from events checked whole against the pool, with the pool\'s own asset');
 
   // The draw depends on every one of the 32 blocks it is made from, and on no block hash.
