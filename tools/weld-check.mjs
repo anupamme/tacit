@@ -747,9 +747,10 @@ await step('devsend', async () => {
   if (await page.$('#eth-dev [data-in="eth"]')) await page.click('#eth-dev [data-in="eth"]');
   await page.waitForSelector('[data-dev="send"]', { timeout: 60000 });
   await page.click('[data-dev="receive"]');
-  await page.waitForSelector('#d-form [data-copy]', { timeout: 120000 });
-  const recv = await page.evaluate(() => ({ bp1: document.querySelector('#d-form [data-copy]')?.dataset.copy, ask: document.querySelector('#d-form a[href^="/pay/eth/#receive"]')?.getAttribute('href') }));
-  ok(/^bp1/.test(recv.bp1 || '') && /^\/pay\/eth\/#receive&chain=\d+$/.test(recv.ask || ''), `devsend: Receive keeps the pool and deposit addresses here, and asks for an amount in tacit pay (${recv.ask})`);
+  // The form waits for the pool's replay (in a worker); when it does not come, the line it is stuck on says so.
+  await page.waitForSelector('#d-form [data-copy]', { timeout: 120000 }).catch(async (e) => { console.log('     d-form says: ' + (await page.evaluate(() => (document.querySelector('#d-form')?.textContent || 'no #d-form').replace(/\s+/g, ' ').slice(0, 300)))); throw e; });
+  const recv = await page.evaluate(() => ({ bp1: document.querySelector('#d-form [data-copy^="bp1"]')?.dataset.copy, tacit: document.querySelector('#d-form [data-copy^="tacit1"]')?.dataset.copy, ask: document.querySelector('#d-form a[href^="/pay/eth/#receive"]')?.getAttribute('href') }));
+  ok(/^bp1/.test(recv.bp1 || '') && /^\/pay\/eth\/#receive&chain=\d+$/.test(recv.ask || ''), `devsend: Receive keeps the pool and deposit addresses here, and asks for an amount in tacit pay (${recv.ask}; pool address ${String(recv.bp1).slice(0, 8)}, Tacit address ${String(recv.tacit).slice(0, 8)})`);
   // Paying from this balance is tacit pay's (tools/pay-check.mjs covers it): the tab opens it on the same chain.
   await page.click('[data-dev="send"]');
   const links = await page.$$eval('#d-form a', (as) => as.map((a) => a.getAttribute('href')));
