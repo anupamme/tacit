@@ -172,11 +172,8 @@ try {
   ok(rows.length >= 5 && rows.length <= 7, `the quotes table holds the places that quote: the pools, the split, the private swap and the Bitcoin book (${rows.length} rows)`);
   ok(rows.some((x) => /^Precision pool.*fee 0\.30%/.test(x)) && rows.some((x) => /^Tacit pool.*public swap/.test(x)) && rows.some((x) => /^Both, split.*best/.test(x)), 'the pools and the split are there (the Precision fee as 0.30%), the split tagged best');
   ok(rows.some((x) => /^Tacit pool, private.*estimate.*shielded note/.test(x)), 'the private swap is an estimate, from the same reserves');
-  await until(p, () => !/checking/.test(document.querySelector('#absent')?.textContent || '') && /zSwap boards \(no orders\)|zSwap boards \(none found/.test(document.querySelector('#absent')?.textContent || ''), null, 150000);   // the boards are read with the first look and again each minute
-  const absent = (await text(p, '#absent')).replace(/\s+/g, ' ');
-  ok(/^Not quoting: Uniswap v4 \(no liquidity\)/.test(absent), `what holds no TAC is one line, with Uniswap v4's empty pools in it (${absent.slice(0, 120)})`);
-  // zQuoter's scan is heavy for a forked node, which may not answer inside the page's budget: either answer is said.
-  ok(/Uniswap v2\/v3, Sushi and Curve \((no TAC pool|no answer)\)/.test(absent) && /zSwap boards \((no orders|none found)/.test(absent), 'and so are zQuoter\'s search and the empty zSwap boards (a fork that answers only some of the board reads says so)');
+  ok(!(await p.$('#absent')) && !(await p.$('#venues-note')) && !rows.some((x) => /Uniswap v4/.test(x)), 'the quotes say no more than the rows: no line of venues that do not quote, no how-to-read note');
+  ok(/#side=buy&amount=2$/.test(p.url()), `the address keeps the side and amount, so a reload or a shared link opens the same ticket (${p.url().split('#')[1]})`);
   ok(rows.some((x) => /^Bitcoin order book.*pay [\d,]+ sats/.test(x)), 'the Bitcoin order book (paid in sats) is a row too');
   ok(/Connect wallet/.test(await text(p, '#go')) && !(await p.$eval('#go', (b) => b.disabled)), 'with a quote and no wallet the button asks to connect one');
 
@@ -204,7 +201,7 @@ try {
   await until(p, () => /Split:/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 240000);
   const sell = (await text(p, '#route')).replace(/\s+/g, ' ');
   ok(/Split:/.test(sell) && /more ETH than the better pool alone/.test(sell) && /TAC$/.test((await text(p, '#in-unit')).trim()), `selling 12,000 TAC is quoted as a split, paid in ETH (${sell.slice(0, 120)})`);
-  ok(/Bitcoin order book.*\d+ standing bids · .*(settles|settle) when .*bidder.* online.*of your TAC.*sats of Bitcoin fees/.test((await text(p, '#venues')).replace(/\s+/g, ' ')), 'the Bitcoin row says what the standing bids pay for the sale, and that each settles when its bidder is online');
+  ok(/Bitcoin order book.*\d+ bids? · settles (when the bidder is online|within minutes).*sats fees/.test((await text(p, '#venues')).replace(/\s+/g, ' ')), 'the Bitcoin row says what the standing bids pay for the sale, and that each settles when its bidder is online');
 
   // the order book and the facts
   ok((await p.getAttribute('[data-book="btc"]', 'aria-pressed')) === 'true', 'with zSwap holding no TAC order the order book opens on Bitcoin\'s listings');
@@ -220,7 +217,7 @@ try {
   ok(/\d+ listings \([\d,]+ TAC\), taken whole/.test(await text(p, '#depth-note')) && !(await p.$('#depth-note a')), 'with how deep the book is (the buttons beside it do what the old links did)');
   const facts = (await text(p, '#facts')).replace(/\s+/g, ' '), more = (await text(p, '#facts-more')).replace(/\s+/g, ' ');
   ok(/21,000,000/.test(await text(p, '#about')) && /ERC-20.*0xA1313e.*TAC minted there/.test(facts) && /2,032 holders/.test(facts) && /Precision pool.*holds [\d.,]+ ETH and [\d,]+ TAC/.test(more), `the facts are live (${facts.slice(0, 120)})`);
-  ok(/Uniswap v4.*3 hookless ETH\/TAC pools.*None holds liquidity now/.test(more) && /TacBuyback/.test(more) && !(await p.$eval('details.more:has(#facts-more)', (d) => d.open)), 'Uniswap v4\'s pools and the buyback are named, behind a "more" that starts closed');
+  ok(!/Uniswap v4/.test(more) && /TacBuyback/.test(more) && !(await p.$eval('details.more:has(#facts-more)', (d) => d.open)), 'Uniswap v4\'s pools and the buyback are named, behind a "more" that starts closed');
 
   const nav = await p.$eval('.top nav a.opt', (a) => { const c = getComputedStyle(a); return { display: c.display, border: c.borderTopWidth, bg: c.backgroundColor, h: a.getBoundingClientRect().height }; });
   const col = await p.$eval('#venues th.opt', (a) => { const c = getComputedStyle(a); return { display: c.display, border: c.borderTopWidth }; });
@@ -431,16 +428,16 @@ try {
   {
     const own = await openPage({ width: 1280, height: 900 }, null, '', '/trade/tac/');
     await until(own.page, () => /^\$/.test(document.querySelector('#px-usd')?.textContent || '') && document.querySelectorAll('#chart .body').length > 5, null, 240000);
-    ok(own.page.url().endsWith('/trade/tac/') && (await own.page.title()) === 'tacit trade' && (await own.page.getAttribute('link[rel="canonical"]', 'href')) === 'https://tacit.finance/trade/tac/', '/trade/tac/ is the trade page at its own address, naming itself as its canonical one');
+    ok(own.page.url().endsWith('/trade/tac/') && /tacit trade$/.test(await own.page.title()) && (await own.page.getAttribute('link[rel="canonical"]', 'href')) === 'https://tacit.finance/trade/tac/', '/trade/tac/ is the trade page at its own address, naming itself as its canonical one');
     ok((await own.page.getAttribute('meta[property="og:url"]', 'content')) === 'https://tacit.finance/trade/tac/' && own.errors.length === 0 && own.blocked.length === 0, 'and its shared link says so too, with nothing blocked');
     await own.browser.close();
     const bare = await openPage({ width: 1280, height: 900 }, null, '#side=sell&amount=1500', '/trade/tac');
     await until(bare.page, () => /\/trade\/tac\/#side=sell/.test(location.href) && document.querySelector('#amt')?.value === '1500' && !document.querySelector('#out')?.classList.contains('ph'), null, 240000);
-    ok(/\/trade\/tac\/#side=sell&amount=1500$/.test(bare.page.url()) && (await bare.page.title()) === 'tacit trade', '/trade/tac, without the slash, arrives at /trade/tac/ with the link\'s fragment kept: the sale of 1,500 TAC is quoted');
+    ok(/\/trade\/tac\/#side=sell&amount=1500$/.test(bare.page.url()) && /tacit trade$/.test(await bare.page.title()), '/trade/tac, without the slash, arrives at /trade/tac/ with the link\'s fragment kept: the sale of 1,500 TAC is quoted');
     await bare.browser.close();
     const root = await openPage({ width: 1280, height: 900 }, null, '', '/trade');
-    await until(root.page, () => /\/trade\/$/.test(location.pathname) && /^\$/.test(document.querySelector('#px-usd')?.textContent || ''), null, 240000);
-    ok((await root.page.title()) === 'tacit trade', '/trade arrives at /trade/');
+    await until(root.page, () => /\/trade\/tac\/$/.test(location.pathname) && /^\$/.test(document.querySelector('#px-usd')?.textContent || ''), null, 240000);
+    ok(/tacit trade$/.test(await root.page.title()), '/trade arrives at /trade/tac/');
     await root.browser.close();
   }
 

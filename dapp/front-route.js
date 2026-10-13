@@ -21,6 +21,7 @@
   try {
     var loc = window.location, path = loc.pathname, q = loc.search, h = loc.hash;
     var seg = ((path.match(/^\/([a-z0-9-]+(?:\/[a-z0-9-]+)?)\/?$/i) || [])[1] || '').toLowerCase();
+    if (seg === 'trade') return away('/trade/tac/' + q + h);                // TAC is the one market the trade page has, at its own address
     if (PAGES.indexOf(seg) !== -1 && !/\/$/.test(path)) return away('/' + seg + '/' + q + h);
     if (seg === 'classic') return away(CLASSIC + q + h);
     if (TABS.indexOf(seg) !== -1) {

@@ -178,8 +178,8 @@ const TAC_CB_FILES = ['tac/sats.js', 'tac/market.js', 'tac/claim.js', 'tac/app.j
 // dapp/trade/ is the TAC trade page: its modules are hashed first (the venues module and the order book it imports are the shared ones the
 // front page uses, so their tokens come out the same), then app.js, then the page that loads it.
 const TRADE_CB_FILES = ['trade/tape.js', 'trade/chart.js', 'trade/book.js', 'trade/depth.js', 'trade/wallet.js', 'trade/sheet.js', 'trade/btc-session.js', 'trade/btc.js', 'trade/app.js', 'trade/index.html'];
-// The trade page has one address for each asset it trades: /trade/ is the TAC market today (it will list assets later), and /trade/tac/ is
-// TAC's own, the one to share. Both are the same page, so /trade/tac/index.html is made from /trade/index.html, differing only in the address
+// The trade page has one address for each asset it trades: /trade/tac/ is TAC's, and /trade/ (which will list assets later) takes that
+// address today. Both are the same page, so /trade/tac/index.html is made from /trade/index.html, differing only in the address
 // the page names as its own, and `--verify-only` fails when it is not what this makes.
 const TRADE_PAGE = 'trade/index.html', TRADE_ASSETS = [['tac', 'trade/tac/index.html']];
 const tradeAssetPage = (slug) => readFileSync(join(DAPP_DIR, TRADE_PAGE), 'utf8').replaceAll('https://tacit.finance/trade/"', `https://tacit.finance/trade/${slug}/"`)

@@ -1,13 +1,15 @@
 // tacit.finance/trade: TAC's price on both chains and the best way to trade it.
 //
 // Ethereum's side is read from the chain with eth_call alone: the Precision pool's own price tape (its candles), the pools'
-// prices, the private pool's reserves, the Uniswap v4 pools that list TAC and every order resting on zSwap's boards (which the ticket
+// prices, the private pool's reserves and every order resting on zSwap's boards (which the ticket
 // can fill: one order, or the best several in one transaction). The Bitcoin side is the order book's trades and listings from the API. The ticket quotes every way to trade an amount and, with a browser wallet, makes the
 // trade: a review of exactly what runs, the route tested once without sending, TAC's permit signed instead of an approval where the
 // route allows it, and a result in plain words. It never holds a key. (TAC on Bitcoin is bought on /tac, which the Bitcoin row names.)
+// TAC is the one market here, and its address is /trade/tac/: /trade/ shows the same page and takes that address, with no reload.
+if (/^\/trade\/(index\.html)?$/.test(location.pathname)) history.replaceState(null, '', `/trade/tac/${location.search}${location.hash}`);
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import {
-  makeEvmTradeVenues, zswapDeepLink, encErc20Approve, PRECISION_POOL, TAC_ERC20, TACIT_AMM, MULTICALL3, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, V4_TAC_POOLS, V4_STATE_VIEW, _internal,
+  makeEvmTradeVenues, zswapDeepLink, encErc20Approve, PRECISION_POOL, TAC_ERC20, TACIT_AMM, MULTICALL3, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, _internal,
 } from '/evm-trade-venues.js?cb=5750d83c';
 import { getConfidentialDeployment } from '/confidential-deployments.js';
 import { buildBook, planBuy, planSell as planBtcSell, ladderLevels } from '/btc-book.js?cb=91371653';
@@ -64,7 +66,7 @@ function privatePoolId(fee) {
 const PRIV_TIERS = [30, 5, 100, 1];
 
 // ── the state of the page ──
-const D = { ethUsd: null, btcUsd: null, perEth: null, priv: null, v4: [], precision: null, ethSupply: null, btc: null, book: null, bidsRead: false, zb: null, zbFailed: false, tape: { fine: [], coarse: [] }, readAt: 0 };
+const D = { ethUsd: null, btcUsd: null, perEth: null, priv: null, precision: null, ethSupply: null, btc: null, book: null, bidsRead: false, zb: null, zbFailed: false, tape: { fine: [], coarse: [] }, readAt: 0 };
 const S = { side: 'buy', amt: '', book: null, pin: null, lane: 'eth', unit: 'usd', range: 0, log: false, slip: 50, bal: null, review: null, busy: false, tf: { eth: TAPE_COARSE, btc: 86400, cmp: 86400 }, quote: null, seq: 0, zq: null };
 const TF = { eth: [['5m', 300], ['15m', 900], ['1h', 3600], ['4h', 14400], ['1d', 86400]], btc: [['1h', 3600], ['4h', 14400], ['1d', 86400], ['1w', 604800]], cmp: [['4h', 14400], ['1d', 86400]] };
 
@@ -75,7 +77,6 @@ async function loadChain() {
     { to: CHAINLINK.ethUsd, data: '0xfeaf968c' }, { to: CHAINLINK.btcUsd, data: '0xfeaf968c' },
     { to: PRECISION_POOL, data: '0x443cb4bc' }, { to: PRECISION_POOL, data: '0x5a76f25e' }, { to: TAC_ERC20, data: '0x18160ddd' },
     ...PRIV_TIERS.map((fee) => ({ to: pool || TAC_ERC20, data: '0xb5217bb4' + privatePoolId(fee) })),
-    ...V4_TAC_POOLS.map((p) => ({ to: V4_STATE_VIEW, data: '0xfa6793d5' + strip(p.id) })),
   ];
   const r = await batch(calls), P = 6;
   const fresh = (x) => (x && wordAt(x, 3) > BigInt(now() - 6 * 3600) && wordAt(x, 1) > 0n ? Number(wordAt(x, 1)) / 1e8 : null);   // a feed that has not answered in six hours is not a price
@@ -89,7 +90,6 @@ async function loadChain() {
     const x = r[P + i];
     if (x && strip(x).length >= 64 * 7 && wordAt(x, 0) !== 0n && wordAt(x, 3) > 0n && wordAt(x, 4) > 0n) { D.priv = { fee, rEth: wordAt(x, 3), rTac: wordAt(x, 4), price: Number(wordAt(x, 3)) / Number(wordAt(x, 4)) }; break; }   // the lower asset id, cETH, is reserve A
   }
-  D.v4 = V4_TAC_POOLS.map((p, i) => ({ ...p, liquidity: r[P + PRIV_TIERS.length + i] ? wordAt(r[P + PRIV_TIERS.length + i], 0) : null }));
 }
 
 // The pool's tape is a ring: the 4-hour one holds about six weeks. This browser keeps the bars it has read, so the chart outlives the ring.
@@ -167,6 +167,7 @@ const tacitEth = () => D.priv?.price ?? null;                                   
 function renderHead() {
   const eth = priceEth(), px = usdOf(eth);
   $('#px-usd').textContent = px != null ? usd(px) : eth != null ? `${sig(eth)} ETH` : 'TAC';
+  document.title = px != null ? `TAC ${usd(px)} · tacit trade` : 'tacit trade';
   const day = D.tape.coarse.length ? closeAt(D.tape.coarse, now() - 86400) : null, ch = day && D.perEth ? day / D.perEth - 1 : null;     // TAC per ETH then and now: TAC's price in ETH moved by then/now − 1
   // The candles that began in the last day: the 4-hour ones, and the 5-minute ones newer than the last of those (it lags by one).
   const vol = D.tape.coarse.filter((b) => b.t >= now() - 86400).reduce((a, b) => a + b.vol, 0) + D.tape.fine.filter((b) => b.t >= (D.tape.coarse.at(-1)?.t ?? 0) + TAPE_COARSE && b.t >= now() - 86400).reduce((a, b) => a + b.vol, 0);
@@ -177,7 +178,7 @@ function renderHead() {
   $('#px-sub').innerHTML = bits.length ? bits.join('') : '<span class="mute">Reading the pools…</span>';
   const bg = btcUsdPerTac(), g = bg ? gap(bg, px) : null;
   $('#gapnote').innerHTML = g != null && Math.abs(g) >= 0.01
-    ? html`TAC costs <b>${pct(g, 0).replace(/^[+−]/, '')} ${g > 0 ? 'more' : 'less'}</b> on Ethereum than on the Bitcoin order book. The bridge between them takes hours to a day, so they can sit apart.`
+    ? html`TAC costs <b>${pct(g, 0).replace(/^[+−]/, '')} ${g > 0 ? 'more' : 'less'}</b> on Ethereum than on the Bitcoin order book.`
     : g != null ? 'TAC costs about the same on Ethereum and on the Bitcoin order book.' : '';
 }
 function renderLanes() {
@@ -246,9 +247,9 @@ function renderChart() {
   $('#legend').innerHTML = lane === 'cmp' ? legend.join('') : '';                              // one lane needs no key: the strip above names every price
   const first = D.tape.coarse[0], days = first ? Math.max(1, Math.round((now() - first.t) / 86400)) : 0;
   $('#chart-note').textContent = lane === 'eth'
-    ? `Executed prices, fees included, from the Precision pool's on-chain price tape, read without an indexer. A chart, not an oracle: one small trade can move a candle's high or low. The tape holds about a day of 5-minute and six weeks of 4-hour candles; this browser keeps what it has read${first ? ` (${days} days so far)` : ''}.`
-    : lane === 'btc' ? `Every trade on the Bitcoin order book since ${D.btc?.firstTrade ? new Date(D.btc.firstTrade * 1000).toISOString().slice(0, 10) : 'it began'}, in sats per TAC${D.btc?.trades?.length ? ` (${D.btc.trades.length} trades)` : ''}. Fills far from the rest are left out.`
-    : 'Both lanes in dollars at today\'s ETH and BTC prices (the tapes have no dollar history), so the lines show how the lanes sit against each other. A lane draws only where it traded.';
+    ? `Executed prices from the Precision pool's on-chain price tape${first ? `, ${days} days kept in this browser` : ''}.`
+    : lane === 'btc' ? `Every trade on the Bitcoin order book since ${D.btc?.firstTrade ? new Date(D.btc.firstTrade * 1000).toISOString().slice(0, 10) : 'it began'}${D.btc?.trades?.length ? ` (${D.btc.trades.length} trades)` : ''}.`
+    : 'Both lanes in dollars at today\'s ETH and BTC prices.';
   renderControls();
 }
 
@@ -317,7 +318,7 @@ const boardsName = (bd) => (bd.plan.fills.length === 1 ? `${BOARD_NAMES[bd.plan.
 // it (and is dropped if the amount has changed meanwhile). A change the person made clears the ticket first.
 async function requote(quiet = false) {
   const my = ++S.seq, wei = getAmount(), dir = dirOf(), buy = S.side === 'buy';
-  if (!quiet) { S.quote = null; S.review = null; renderReview(); }
+  if (!quiet) { S.quote = null; S.review = null; renderReview(); keepInHash(); }
   if (!wei || wei <= 0n) { S.quote = null; renderQuote(null); renderVenues(null); return; }
   if (!quiet) renderQuote({ busy: true });
   if (quiet) S.refreshing = true;
@@ -335,8 +336,20 @@ async function requote(quiet = false) {
 }
 // Quick amounts under the amount box: what the usual sizes would get, one press, no wallet needed.
 const PRESETS = { buy: [['0.05 ETH', '0.05'], ['0.25 ETH', '0.25'], ['1 ETH', '1']], sell: [['1,000 TAC', '1000'], ['5,000 TAC', '5000'], ['20,000 TAC', '20000']] };
-function renderChips() { $('#chips').innerHTML = PRESETS[S.side].map(([l, v]) => `<button type="button" data-amt="${v}" aria-pressed="${S.amt === v}">${l}</button>`).join(''); }
-$('#chips').addEventListener('click', (e) => { const b = e.target.closest('[data-amt]'); if (!b) return; S.amt = b.dataset.amt; $('#amt').value = S.amt; S.pin = null; renderPin(); requote(); });
+function renderChips() { $('#chips').innerHTML = PRESETS[S.side].map(([l, v]) => `<button type="button" data-amt="${v}" aria-pressed="${S.amt === v}"${S.busy ? ' disabled' : ''}>${l}</button>`).join(''); }
+// While a trade is being made the ticket is not changed under it: the amount, the side, the quick amounts and Max wait for it to end.
+function lockTicket() {
+  const b = S.busy;
+  $('#amt').disabled = b; $('#in-bal').disabled = b;
+  document.querySelectorAll('#side-seg button, #chips button').forEach((x) => { x.disabled = b; });
+}
+// The side and amount live in the address, so a reload or a shared link opens the same ticket.
+function keepInHash() {
+  if (!S.ready) return;
+  const h = S.amt ? `#side=${S.side}&amount=${encodeURIComponent(S.amt)}` : S.side === 'sell' ? '#side=sell' : '';
+  if (h !== location.hash) history.replaceState(null, '', location.pathname + location.search + h);
+}
+$('#chips').addEventListener('click', (e) => { const b = e.target.closest('[data-amt]'); if (!b || S.busy) return; S.amt = b.dataset.amt; $('#amt').value = S.amt; S.pin = null; renderPin(); requote(); });
 function renderQuote(q) {
   renderChips();
   const buy = S.side === 'buy', outEl = $('#out'), route = $('#route'), go = $('#go');
@@ -379,10 +392,10 @@ const splitShare = (sp) => Math.round(Number(sp.legs[0].amountIn * 1000n / (sp.l
 const splitWhat = (sp) => `${splitShare(sp)}% Precision pool, ${100 - splitShare(sp)}% Tacit pool`;
 
 function renderVenues(q) {
-  const tb = $('#venues tbody'), note = $('#venues-note'), absent = $('#absent'), buy = S.side === 'buy';
+  const tb = $('#venues tbody'), buy = S.side === 'buy';
   const unit = buy ? 'TAC' : 'ETH', f = (v) => `${fmtUnits(v, 18, buy ? 2 : 6)} ${unit}`;
-  $('#venues').classList.toggle('empty', !q); note.closest('details').hidden = !q; $('.p-venues').hidden = !q;
-  if (!q) { tb.innerHTML = `<tr><td colspan="3" class="mute">Enter an amount to compare every pool.</td></tr>`; note.textContent = ''; absent.textContent = ''; return; }
+  $('#venues').classList.toggle('empty', !q); $('.p-venues').hidden = !q;
+  if (!q) { tb.innerHTML = `<tr><td colspan="3" class="mute">Enter an amount to compare every pool.</td></tr>`; return; }
   const { rt } = q, rows = [], via = routeOf(q);
   const add = (r) => rows.push(r);
   const p = rt.r?.precision, t = rt.r?.tacitAmm;
@@ -391,21 +404,20 @@ function renderVenues(q) {
   add({ name: 'Tacit pool', note: 'public swap · fee 0.30%', out: t?.amountOut, why: t ? null : 'could not quote', runs: runs === 'tacit-amm' });
   if (rt.split) add({ name: 'Both, split', note: splitWhat(rt.split), out: rt.split.amountOut, split: true, runs: runs === 'split' });
   const priv = q.priv;
-  add({ name: 'Tacit pool, private', note: 'a shielded note, before the relay\'s fee', out: priv, why: D.priv ? null : 'not read', priv: true });
-  const v4 = D.v4, funded = v4.filter((x) => x.liquidity && x.liquidity > 0n).length, zqv = q.zq;
-  if (funded) add({ name: 'Uniswap v4', note: `${funded} of ${v4.length} ETH/TAC pools hold liquidity`, why: 'quoted by zQuoter', out: null });
+  add({ name: 'Tacit pool, private', note: 'shielded note, before the relay fee', out: priv, why: D.priv ? null : 'not read', priv: true });
+  const zqv = q.zq;
   if (zqv?.status === 'ok') add({ name: 'Uniswap, Sushi or Curve', note: 'found by zQuoter', out: zqv.amountOut });
   const bz = q.board, zside = D.zb ? (buy ? D.zb.asks : D.zb.bids) : [];
   if (bz?.ok) add({ name: 'zSwap boards', note: `${boardsName(bz)}${bz.full ? '' : ` · takes ${fmtUnits(bz.spent, 18, 4)} ${buy ? 'ETH' : 'TAC'} of your amount`}`, out: bz.out, part: !bz.full, boards: true, runs: runs === 'boards' });
   else if (zside.length) add({ name: 'zSwap boards', note: `${zside.length} resting order${zside.length === 1 ? '' : 's'}`, why: S.pin ? 'the pinned order cannot fill this' : 'none fits this amount', out: null });
   const bk = q.book;
   if (bk) {
-    if (buy) add({ name: 'Bitcoin order book', note: `pay ${satsFmt(bk.sats)} sats instead`, out: bk.out, why: bk.out ? null : 'no listing that small', btc: true });
+    if (buy) add({ name: 'Bitcoin order book', note: `pay ${satsFmt(bk.sats)} sats instead`, out: bk.out, why: bk.out ? null : bk.sats < 546 ? 'too small for Bitcoin' : 'no listing that small', btc: true });
     else if (bk.sell?.fills.length) {
       const sp = bk.sell, manual = sp.fills.filter((f) => !f.bid.auto).length;
       add({ name: 'Bitcoin order book', show: `${satsFmt(bk.sats)} sats`, btc: true,
-        note: `${sp.fills.length} standing bid${sp.fills.length === 1 ? '' : 's'} · ${!manual ? 'a watchtower settles them, usually within minutes' : manual === sp.fills.length ? 'each settles when its bidder is online' : 'some settle when their bidder is online'}${sp.leftoverBase ? ` · for ${fmtUnits(sp.amount * E10, 18, 2)} of your TAC` : ''} · before about ${satsFmt(sp.feesEst)} sats of Bitcoin fees`, out: null });
-    } else add({ name: 'Bitcoin order book', note: bk.bids ? `${bk.bids} standing bids, none takes this amount` : D.bidsRead ? 'no standing bid' : 'the standing bids could not be read', why: `a sale can be listed at your price: about ${satsFmt(bk.sats)} sats at the last trade`, out: null, btc: true });
+        note: `${sp.fills.length} bid${sp.fills.length === 1 ? '' : 's'} · ${!manual ? 'settles within minutes' : 'settles when the bidder is online'}${sp.leftoverBase ? ` · takes ${fmtUnits(sp.amount * E10, 18, 2)} TAC` : ''} · less ~${satsFmt(sp.feesEst)} sats fees`, out: null });
+    } else add({ name: 'Bitcoin order book', note: bk.bids ? 'no bid takes this amount' : D.bidsRead ? 'no bids' : 'bids not read', why: `list it: ~${satsFmt(bk.sats)} sats at the last trade`, out: null, btc: true });
   }
   // The best is among the ways that fill the whole amount in ETH or TAC: the pools, zQuoter's finds and the boards' orders when they take it all.
   const eth = rows.filter((r) => r.out != null && !r.priv && !r.btc && !r.part).map((r) => BigInt(r.out));
@@ -416,15 +428,6 @@ function renderVenues(q) {
     const cell = r.out != null ? `<b class="num">${f(r.out)}</b>` : r.show ? `<b class="num">${esc(r.show)}</b>` : `<span class="mute">${esc(r.why || '')}</span>`;
     return `<tr${isBest ? ' class="best"' : ''}><td><b>${esc(r.name)}</b>${isBest ? '<span class="tag">best</span>' : ''}${r.runs ? '<span class="tag mute">this ticket</span>' : ''}${r.priv ? '<span class="tag mute">estimate</span>' : ''}<small>${esc(r.note || '')}</small></td><td class="r">${cell}</td><td class="r opt num">${delta != null && !isBest ? esc(pct(delta, 1)) : ''}</td></tr>`;
   }).join('');
-  // What holds no TAC quote is one line, not three rows of "none".
-  const none = [];
-  if (!funded) none.push(v4.length ? 'Uniswap v4 (no liquidity)' : 'Uniswap v4 (no pool)');
-  if (zqv == null) none.push('Uniswap v2/v3, Sushi and Curve (checking)');
-  else if (zqv.status === 'no-route') none.push('Uniswap v2/v3, Sushi and Curve (no TAC pool)');
-  else if (zqv.status !== 'ok') none.push('Uniswap v2/v3, Sushi and Curve (no answer)');
-  if (D.zb && !D.zb.asks.length && !D.zb.bids.length) none.push(D.zb.answered < BOARD_CALLS ? 'zSwap boards (none found on those that answered)' : 'zSwap boards (no orders)');
-  absent.textContent = none.length ? `Not quoting: ${none.join('; ')}.` : '';
-  note.textContent = `The ticket runs on the first rows. The Tacit pool is one set of reserves: a public swap uses its AMM contract, a private one spends a shielded note and pays the relay fee ${buy ? 'on top' : 'out of the TAC'}. zSwap's boards are used when they take the whole amount and pay 1% more than the pool the ticket would use, or when you pick an order. ${buy ? 'The Bitcoin row pays in sats, and the TAC arrives on Bitcoin.' : 'The Bitcoin row sells to standing bids (they settle when the bidder is online, some within minutes via a watchtower) or lists at your price.'}`;
 }
 
 // ── Bitcoin from the page ──
@@ -552,9 +555,8 @@ function renderAbout() {
   ];
   const more = [
     ['Precision pool', `${link(PRECISION_POOL)} · TAC/ETH${D.precision ? ` · holds ${fmtUnits(D.precision.eth, 18, 2)} ETH and ${fmtUnits(D.precision.tac, 18, 0)} TAC` : ''}`],
-    ['Tacit pool', `AMM inside Tacit's confidential pool ${pool ? link(pool) : ''} · TAC/tETH, 0.30% fee${D.priv ? ` · ${fmtUnits(D.priv.rEth, 8, 2)} tETH and ${fmtUnits(D.priv.rTac, 8, 0)} TAC` : ''}. One set of reserves: swap through its AMM contract ${link(TACIT_AMM)} (amounts visible) or with shielded notes (who and how much stay hidden).`],
-    ['Uniswap v4', `${D.v4.length} hookless ETH/TAC pools exist, with fees of ${D.v4.map((x) => `${x.fee / 1e4}%`).join(', ')}. ${D.v4.some((x) => x.liquidity > 0n) ? 'Some hold liquidity.' : 'None holds liquidity now.'} zQuoter scans only the standard fee tiers, so this page reads these pools itself.`],
-    ['Buybacks', `${link('0x6919cbEf0e70AFFA02Ae02c86c532A137154f250', 'TacBuyback')} buys TAC for the reserve on the Tacit pool or the Precision pool, whichever quotes better: at most 0.25 ETH, once every 6 hours.`],
+    ['Tacit pool', `${pool ? link(pool) : ''} · TAC/tETH, 0.30% fee${D.priv ? ` · holds ${fmtUnits(D.priv.rEth, 8, 2)} tETH and ${fmtUnits(D.priv.rTac, 8, 0)} TAC` : ''} · public swaps via ${link(TACIT_AMM)}, private ones with shielded notes`],
+    ['Buybacks', `${link('0x6919cbEf0e70AFFA02Ae02c86c532A137154f250', 'TacBuyback')} buys up to 0.25 ETH of TAC every 6 hours`],
     ['More', `<a href="https://github.com/src-company/tacit/blob/main/docs/TAC.md" target="_blank" rel="noopener noreferrer">About TAC</a> · <a href="/#asset/tac">TAC in the app</a> · <a href="/weld/stats/">Stats</a>`],
   ];
   const li = ([k, v]) => `<li><b>${esc(k)}</b><span>${v}</span></li>`;
@@ -801,19 +803,19 @@ async function sendAndReport(tx, { from, buy }) {
 async function execute(P) {
   if (S.busy || !W.account) return;
   const from = W.account;                                                                           // everything below is for this account, and the wallet is asked for no other
-  S.busy = true; $('#rv-go').disabled = true; $('#rv-back').disabled = true;
+  S.busy = true; lockTicket(); $('#rv-go').disabled = true; $('#rv-back').disabled = true;
   try {
     const tx = await (P.via === 'boards' ? prepareBoards(P, from) : preparePools(P, from));
     if (tx) await sendAndReport(tx, { from, buy: P.buy });
   } catch (e) {
     S.review = null; renderReview();
     say(`<span class="err">${esc(e instanceof UserStopped ? e.message : String(e.message || e).slice(0, 220))}</span>`);
-  } finally { S.busy = false; renderGo(); }
+  } finally { S.busy = false; lockTicket(); renderGo(); }
 }
 $('#go').addEventListener('click', () => { if (!W.account) connectWallet(); else if (routeOf(S.quote) && getAmount()) { S.review = planOf(); renderReview(); say(''); } });
 $('#in-bal').addEventListener('click', () => {
   const have = spendable();
-  if (have == null) return;
+  if (have == null || S.busy) return;
   const v = S.side === 'buy' ? (have > 4n * 10n ** 15n ? have - 4n * 10n ** 15n : 0n) : have;      // a purchase keeps 0.004 ETH back for the network fee
   S.amt = plain(v); $('#amt').value = S.amt; requote();
 });
@@ -825,9 +827,10 @@ paintSlip();
 // ── wiring ──
 let amtTimer = 0;
 $('#amt').addEventListener('input', (e) => { S.amt = e.target.value; clearTimeout(amtTimer); amtTimer = setTimeout(requote, 350); });
+$('#amt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('#go').disabled && !$('#go').hidden) $('#go').click(); });   // Enter reviews the quote on the ticket
 $('#side-seg').addEventListener('click', (e) => {
   const b = e.target.closest('[data-side]');
-  if (!b || b.dataset.side === S.side) return;
+  if (!b || b.dataset.side === S.side || S.busy) return;
   S.side = b.dataset.side; S.amt = ''; $('#amt').value = ''; S.review = null; S.pin = null; renderPin(); renderBalance();
   $('#side-seg').querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.side === S.side)));
   requote(); renderQuote(null); renderVenues(null);
@@ -837,7 +840,7 @@ $('#ladders').addEventListener('click', (e) => {
   const f = e.target.closest('[data-fill]'); if (f) { pinOrder(f.dataset.fill); return; }
   const k = e.target.closest('[data-btc]'); if (k) openBitcoin(bookPrime(k.dataset.btc, Number(k.dataset.i)));
 });
-$('#pin').addEventListener('click', (e) => { if (e.target.closest('#unpin')) { S.pin = null; renderPin(); S.review = null; renderReview(); requote(); renderBook(); } });
+$('#pin').addEventListener('click', (e) => { if (e.target.closest('#unpin') && !S.busy) { S.pin = null; renderPin(); S.review = null; renderReview(); requote(); renderBook(); } });
 $('#lane-seg').addEventListener('click', (e) => { const b = e.target.closest('[data-lane]'); if (b) { S.lane = b.dataset.lane; renderChart(); } });
 $('.p-chart').addEventListener('click', (e) => {
   const b = e.target.closest('button');
@@ -854,7 +857,8 @@ Promise.allSettled(loads).then((rs) => {
   const params = new URLSearchParams(location.hash.replace(/^#/, ''));
   if (params.get('btc') === 'on' || params.get('btc') === 'off') { try { localStorage.setItem('tacit-trade-btc', params.get('btc') === 'on' ? '1' : '0'); } catch { /* storage is a convenience */ } renderBook(); }
   if (params.get('side') === 'sell') $('#side-seg [data-side="sell"]').click();                   // a side change clears the amount, so it comes first
-  if (params.get('amount')) { S.amt = params.get('amount'); $('#amt').value = S.amt; requote(); }
+  S.ready = true;
+  if (params.get('amount')) { S.amt = params.get('amount'); $('#amt').value = S.amt; requote(); } else keepInHash();
   paintAll();
 });
 setInterval(() => { if (!document.hidden) { loadChain().then(paintAll).catch(() => {}); loadTapes().then(paintAll).catch(() => {}); loadBitcoin().then(paintAll).catch(() => {}); loadBoards().then(paintAll).catch(() => {}); if (S.quote && !S.review && !S.busy && !S.refreshing) requote(true); if (W.account && !S.review && !S.busy) readBalances().then(() => { renderBalance(); renderGo(); }); } }, 60e3);       // a review being read, or a trade being made, is not redrawn under the person
