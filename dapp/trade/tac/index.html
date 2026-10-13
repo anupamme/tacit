@@ -4,7 +4,7 @@
 <!-- Made from /trade/index.html by `npm run build` (build/build.mjs): edit that file, not this one. -->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://api.coinbase.com https://api.kraken.com https://api.coingecko.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://www.tacitscan.io https://ipfs.filebase.io; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://tacit-api.onrender.com https://api.coinbase.com https://api.kraken.com https://api.coingecko.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://www.tacitscan.io https://ipfs.filebase.io; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
 <meta name="color-scheme" content="light dark">
 <title>tacit trade</title>
 <meta name="description" content="Trade TAC for ETH or sats at the best price across the Precision pool, Tacit's pools, the Bitcoin order book and any other pool that lists it, with its price history on both chains.">
@@ -267,6 +267,15 @@ input::placeholder { color: var(--mute); opacity: .7; }
 .bsheet .bm-after { margin: 0; padding: 4px 16px 18px; }
 .bsheet .x { padding: 4px 8px; font-size: 26px; line-height: 1; cursor: pointer; color: var(--mute); background: none; border: 0; }
 .bsheet .x:hover { color: var(--ink); }
+.chip { display: inline-flex; align-items: center; gap: 8px; min-height: 34px; margin-left: 4px; padding: 0 12px; font-size: 12.5px; color: var(--ink); background: var(--card); border: 1px solid var(--hair-2); cursor: pointer; }
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--hair-2); flex: none; } .chip .dot.on { background: var(--ok); }
+@media (hover: hover) { .chip:hover { border-color: var(--ink); } }
+@media (pointer: coarse) { .chip { min-height: var(--tap); } }
+.wc-qr { margin: 0 auto 14px; width: 224px; padding: 10px; background: #fff; } .wc-qr svg { display: block; width: 100%; height: auto; }
+.addr-s { font-size: 11.5px; overflow-wrap: anywhere; }
+/* On a phone, a bar at the foot leads to the ticket while the ticket is out of view. */
+.stick { display: none; }
+@media (max-width: 980px) { .stick:not([hidden]) { display: block; position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; padding: 10px 16px calc(10px + env(safe-area-inset-bottom)); background: var(--paper); border-top: 1px solid var(--hair-2); } .stick .btn { margin-top: 0; } footer { margin-bottom: 72px; } }
 .bsheet-actions { display: grid; grid-auto-flow: column; gap: 10px; } .bsheet-actions .btn { margin-top: 0; }
 .bsheet .addr { margin: 0 0 14px; padding: 10px 12px; overflow-wrap: anywhere; background: var(--field); border: 1px solid var(--hair); }
 @media (max-width: 560px) { .bsheet { padding: 0; place-items: end center; } .bsheet.wide { place-items: stretch; } .bsheet-in { width: 100%; } }
@@ -317,6 +326,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
       <a href="/tac/" class="opt">Shielded TAC</a>
       <a href="/pay/" class="opt">Pay</a>
       <a href="/weld/stats/" class="opt">Stats</a>
+      <button class="chip" id="wallet-chip" type="button" aria-label="Connect a wallet"><span class="dot" id="wallet-dot"></span><span id="wallet-label">Connect</span></button>
     </nav>
   </header>
 
@@ -397,6 +407,8 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
 
   </main>
 
+  <div class="stick" id="stick" hidden><button class="btn" type="button" id="stick-go">Buy or sell TAC</button></div>
+
   <footer>
     <span>tacit trade · mainnet</span>
     <nav aria-label="More">
@@ -409,6 +421,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/app.js?cb=4ad3b12d"></script>
+<script type="module" src="/trade/app.js?cb=04651aa5"></script>
 </body>
 </html>

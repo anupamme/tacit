@@ -13,9 +13,11 @@ import { getConfidentialDeployment } from '/confidential-deployments.js';
 import { buildBook, planBuy, planSell as planBtcSell, ladderLevels } from '/btc-book.js?cb=91371653';
 import { decodeTape, chartBars, invert, ethLaneUsd, btcLaneUsd, candlesFromTrades, closeAt, gap, TAPE_FINE, TAPE_COARSE } from '/trade/tape.js?cb=dfc28dd7';
 import { mountChart } from '/trade/chart.js?cb=061eeab7';
+import { overlay } from '/trade/sheet.js?cb=84cda8f2';
+import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
 import { mountDepth } from '/trade/depth.js?cb=019583b6';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
-import { makeWallet, UserStopped } from '/trade/wallet.js?cb=5e8bf338';
+import { makeWallet, UserStopped } from '/trade/wallet.js?cb=59e15e51';
 
 const API = 'https://api.tacit.finance';
 const TAC_BTC_ID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
@@ -433,7 +435,7 @@ function notify(msg, kind = '', ms = 5000) {
 }
 async function openBitcoin(prime = null) {
   try {
-    bitcoin ||= (await import('/trade/btc.js?cb=34d11404')).makeBitcoin({ notify, onTraded: () => loadBitcoin().then(paintAll).catch(() => {}) });
+    bitcoin ||= (await import('/trade/btc.js?cb=d5588379')).makeBitcoin({ notify, onTraded: () => loadBitcoin().then(paintAll).catch(() => {}) });
     await bitcoin.open(prime);
   } catch (e) { notify(`The Bitcoin market could not be opened: ${e?.message || e}`, 'error', 9000); }
 }
@@ -556,7 +558,31 @@ function renderAbout() {
 }
 
 // ── the wallet and the trade ──
-const wallet = makeWallet({ rpc });
+// WalletConnect joins the browser wallets in the picker, and is the one wallet offered where the browser has none (a phone): a wallet app signs
+// and sends for this page. The project is zSwap's, shared: an allowlist set on it must name tacit.finance too.
+const WC_PROJECT_ID = '1e8390ef1c1d8a185e035912a1409749';
+const coarse = () => matchMedia('(pointer: coarse)').matches;
+// The pairing link WalletConnect gives: a QR code for a wallet app on a phone, the link to copy, and on a phone a button that opens the app.
+// Closing the sheet cancels the pairing.
+function showPairing({ uri, qrSvg, cancel }) {
+  let over = false;
+  const o = overlay({ title: 'Connect a wallet app', top: true, onClose: () => { if (!over) cancel(); } });
+  o.body.innerHTML = `<p style="margin:0 0 12px">${coarse() ? 'Open your wallet app to connect, or scan the code from another device.' : 'Scan the code with a wallet app on your phone: MetaMask, Rainbow, Trust, Zerion or any WalletConnect wallet.'}</p><div class="wc-qr">${qrSvg}</div><div class="bsheet-actions">${coarse() ? `<a class="btn" href="${esc(uri)}">Open wallet app</a>` : ''}<button class="btn ghost" type="button" data-copy>Copy link</button></div><p class="note">This waits until the wallet app approves. Connecting costs nothing.</p>`;
+  o.body.querySelector('[data-copy]').onclick = (e) => navigator.clipboard?.writeText(uri).then(() => { e.target.textContent = 'Copied'; }, () => { e.target.textContent = 'Could not copy'; });
+  return () => { over = true; o.close(); };
+}
+// A request waiting in the wallet app, where it is approved: on a phone a button opens the app (a browser follows that link only from a tap).
+function showAsk({ name, link }) {
+  const o = overlay({ title: 'Approve in your wallet', top: true });
+  o.body.innerHTML = `<p style="margin:0 0 12px">${coarse() ? `Open ${esc(name)} to approve the request, then come back here.` : `Approve the request in ${esc(name)} on your phone.`}</p>${coarse() && link ? `<div class="bsheet-actions"><a class="btn" href="${esc(link)}"${/^https:/i.test(link) ? ' target="_blank" rel="noopener"' : ''}>Open ${esc(name)}</a></div>` : ''}<p class="note">This closes once the wallet answers.</p>`;
+  return () => o.close();
+}
+const WC = announceWalletConnect({
+  projectId: WC_PROJECT_ID, chains: [1], rpcMap: { 1: RPCS[0] },
+  metadata: { name: 'tacit trade', description: 'Trade TAC at the best price', url: location.origin, icons: [`${location.origin}/tac-logo.png`] },
+  onPair: showPairing, onAsk: showAsk,
+});
+const wallet = makeWallet({ rpc, leave: (p) => (p?.isWalletConnect ? WC.disconnect() : null) });
 const W = wallet.state;
 const short = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const plain = (v, dec = 18) => { const n = BigInt(v), b = 10n ** BigInt(dec), f = (n % b).toString().padStart(dec, '0').replace(/0+$/, ''); return `${n / b}${f ? `.${f}` : ''}`; };
@@ -602,11 +628,6 @@ function renderReview() {
   const box = $('#review');
   if (!S.review) { box.hidden = true; box.innerHTML = ''; renderGo(); return; }
   box.hidden = false; renderGo();
-  if (S.review.pick) {
-    box.className = 'review';
-    box.innerHTML = `<h3>Choose a wallet</h3><div class="picks">${wallet.available().map((w, i) => `<button class="btn ghost" type="button" data-pick="${i}">${esc(w.info?.name || 'Wallet')}</button>`).join('')}</div>`;
-    return;
-  }
   const P = S.review, buy = P.buy, inU = buy ? 'ETH' : 'TAC', outU = buy ? 'TAC' : 'ETH', dp = buy ? 2 : 6;
   const gate = P.impact >= 0.1;
   box.className = 'review';
@@ -632,17 +653,50 @@ function boardLegs(P) {
   const line = (f) => `<div class="kv"><span>${esc(BOARD_NAMES[f.order.board])} #${f.order.id}</span><b>${esc(fmtUnits(buy ? f.get : f.pay, 18, 2))} TAC for ${esc(fmtUnits(buy ? f.pay : f.get, 18, 5))} ETH${f.whole ? '' : ' · part'}</b></div>`;
   return fills.slice(0, 5).map(line).join('') + (fills.length > 5 ? `<div class="kv"><span>and ${fills.length - 5} more</span><b></b></div>` : '');
 }
+// Several wallets (or one and WalletConnect): the person chooses. One: it connects at once.
+function pickWallet(list) {
+  return new Promise((resolve) => {
+    const o = overlay({ title: 'Choose a wallet', top: true, onClose: () => resolve(null) });
+    o.body.innerHTML = `<div class="picker">${list.map((w, i) => `<button class="way" type="button" data-i="${i}"><span class="way-t">${/^data:image\//.test(w.info?.icon || '') ? `<img src="${esc(w.info.icon)}" alt="" width="20" height="20">` : ''}${esc(w.info?.name || 'Wallet')}</span></button>`).join('')}</div>`;
+    o.body.querySelectorAll('[data-i]').forEach((b) => { b.onclick = () => { resolve(Number(b.dataset.i)); o.close(); }; });
+  });
+}
 async function connectWallet() {
   const list = wallet.available();
-  if (!list.length) { say('No wallet was found in this browser. Open this page in one that has a wallet, or trade from the app.'); return; }
+  if (!list.length) { say('No wallet was found in this browser. Open this page in a wallet app\'s browser, or use tacit.finance.'); return; }
   try {
-    if (list.length > 1 && !S.review) { S.review = { pick: true }; renderReview(); return; }
-    await wallet.connect(list[0]);
+    let w = list[0];
+    if (list.length > 1) { const i = await pickWallet(list); if (i == null) return; w = list[i]; }
+    await wallet.connect(w);
     await afterConnect();
-  } catch (e) { say(esc(e instanceof UserStopped ? e.message : (e.message || 'The wallet did not connect.'))); }
+  } catch (e) { say(esc(e instanceof UserStopped ? 'Not connected.' : (e.message || 'The wallet did not connect.'))); }
 }
-async function afterConnect() { S.review = null; await readBalances(); renderBalance(); renderReview(); if (getAmount()) requote(); else renderGo(); }
-wallet.onChange(() => { if (S.busy) return; S.review = null; readBalances().then(() => { renderBalance(); renderReview(); if (getAmount()) requote(); }); });   // a trade in flight keeps the account it was reviewed for: the wallet module refuses to send for another
+async function afterConnect() { S.review = null; renderChip(); renderBook(); await readBalances(); renderBalance(); renderReview(); if (getAmount()) requote(); else renderGo(); }
+
+// ── the wallet chip in the header: connect, or see the account and disconnect ──
+function renderChip() {
+  const on = !!W.account;
+  $('#wallet-dot').classList.toggle('on', on);
+  $('#wallet-label').textContent = on ? short(W.account) : 'Connect';
+  $('#wallet-chip').setAttribute('aria-label', on ? `Wallet ${W.account}` : 'Connect a wallet');
+}
+function walletSheet() {
+  const o = overlay({ title: 'Wallet', top: true });
+  const bal = S.bal ? `<div class="kv"><span>ETH</span><b class="num">${esc(fmtUnits(S.bal.eth ?? 0n, 18, 4))}</b></div><div class="kv"><span>TAC</span><b class="num">${esc(fmtUnits(S.bal.tac ?? 0n, 18, 2))}</b></div>` : '';
+  o.body.innerHTML = `<div class="kv"><span>Connected with</span><b>${esc(W.name)}</b></div><div class="kv"><span>Account</span><b class="addr-s">${esc(W.account)}</b></div>${bal}<div class="bsheet-actions" style="margin-top:14px"><button class="btn ghost" type="button" data-copy>Copy address</button><button class="btn" type="button" data-leave${S.busy ? ' disabled' : ''}>Disconnect</button></div>${S.busy ? '<p class="note">A trade is in progress; disconnect when it ends.</p>' : ''}`;
+  const addr = W.account;
+  o.body.querySelector('[data-copy]').onclick = (e) => navigator.clipboard?.writeText(addr).then(() => { e.target.textContent = 'Copied'; }, () => { e.target.textContent = 'Could not copy'; });
+  o.body.querySelector('[data-leave]').onclick = async () => { o.close(); await wallet.disconnect(); S.review = null; renderChip(); };
+}
+$('#wallet-chip').addEventListener('click', () => { if (W.account) walletSheet(); else connectWallet(); });
+
+// On a phone the ticket is far down the page: a bar at the foot leads to it while it is out of view.
+{
+  const stick = $('#stick'), ticket = $('.p-ticket');
+  if ('IntersectionObserver' in window) new IntersectionObserver(([e]) => { stick.hidden = e.isIntersecting; }, { rootMargin: '0px 0px -40px 0px' }).observe(ticket);
+  $('#stick-go').addEventListener('click', () => ticket.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+}
+wallet.onChange(() => { renderChip(); renderBook(); if (S.busy) return; S.review = null; readBalances().then(() => { renderBalance(); renderReview(); if (getAmount()) requote(); }); });   // a trade in flight keeps the account it was reviewed for: the wallet module refuses to send for another
 
 // The transaction, with the TAC a sale spends made available: a permit signed (no gas) where the route takes one, else an approval sent first.
 async function withTacAccess({ make, buy, permit, from, dl }) {
@@ -752,11 +806,6 @@ async function execute(P) {
   } finally { S.busy = false; renderGo(); }
 }
 $('#go').addEventListener('click', () => { if (!W.account) connectWallet(); else if (routeOf(S.quote) && getAmount()) { S.review = planOf(); renderReview(); say(''); } });
-$('#review').addEventListener('click', async (e) => {
-  const b = e.target.closest('[data-pick]');
-  if (!b) return;
-  try { await wallet.connect(wallet.available()[Number(b.dataset.pick)]); await afterConnect(); } catch (err) { S.review = null; renderReview(); say(esc(err instanceof UserStopped ? err.message : (err.message || 'The wallet did not connect.'))); }
-});
 $('#in-bal').addEventListener('click', () => {
   const have = spendable();
   if (have == null) return;

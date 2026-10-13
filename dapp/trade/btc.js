@@ -3,30 +3,11 @@
 // app supplies around them and a page like this one does not have: signing in, a confirmation, a notice, the sats and TAC the key holds,
 // and where a purchase that stopped halfway is recovered. Nothing here builds or signs a transaction.
 import { makeBtcSession, short, Cancelled } from '/trade/btc-session.js?cb=3463a86d';
+import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
 
 const MARKET_URL = '/btc-market.js?cb=e07ed7ab', CSS_URL = '/trade/btc-market.css?cb=359753e6';
 const TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-// A sheet over the page. The market module's own confirmations are fixed layers at z-index 1005, so this one sits below them and the small
-// dialogs (sign-in, picker, confirm) above them.
-function overlay({ title, wide = false, top = false, onClose = null }) {
-  const root = document.createElement('div');
-  root.className = `bsheet${wide ? ' wide' : ''}${top ? ' top' : ''}`;
-  root.setAttribute('role', 'dialog'); root.setAttribute('aria-modal', 'true'); root.setAttribute('aria-label', title);
-  root.innerHTML = `<div class="bsheet-in"><div class="bsheet-head"><h2 tabindex="-1">${esc(title)}</h2><button class="x" type="button" aria-label="Close">×</button></div><div class="bsheet-body"></div></div>`;
-  document.body.append(root);
-  const prev = document.activeElement, body = root.querySelector('.bsheet-body');
-  let closed = false;
-  const onKey = (e) => { if (e.key === 'Escape' && !document.querySelector('.bm-modal') && !root.nextElementSibling?.classList.contains('bsheet')) { e.stopPropagation(); close(); } };
-  const close = () => { if (closed) return; closed = true; document.removeEventListener('keydown', onKey, true); root.remove(); try { prev?.focus?.(); } catch { /* the opener may be gone */ } onClose?.(); };
-  document.addEventListener('keydown', onKey, true);
-  root.querySelector('.x').onclick = close;
-  root.addEventListener('mousedown', (e) => { if (e.target === root) close(); });
-  setTimeout(() => root.querySelector('h2')?.focus(), 0);
-  return { root, body, close, get closed() { return closed; } };
-}
 
 export function makeBitcoin({ notify = () => {}, onTraded = () => {} } = {}) {
   const session = makeBtcSession();

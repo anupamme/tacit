@@ -5,7 +5,7 @@
 export const MAINNET = '0x1';
 export class UserStopped extends Error { constructor() { super('Cancelled in your wallet. Nothing was sent.'); this.userStopped = true; } }
 
-export function makeWallet({ rpc }) {
+export function makeWallet({ rpc, leave = null }) {
   const found = new Map();
   const W = { prov: null, name: '', account: null, chain: null, listeners: new Set() };
   const emit = () => { for (const f of W.listeners) f(); };
@@ -27,6 +27,14 @@ export function makeWallet({ rpc }) {
     const prov = W.prov, onAccounts = (a) => { if (prov === W.prov) { W.account = a?.[0] ? String(a[0]) : null; emit(); } }, onChain = (c) => { if (prov === W.prov) { W.chain = c; emit(); } };
     prov.on?.('accountsChanged', onAccounts); prov.on?.('chainChanged', onChain);
     off = () => { prov.removeListener?.('accountsChanged', onAccounts); prov.removeListener?.('chainChanged', onChain); };
+    emit();
+  }
+  // Forgets the wallet in this page. `leave(provider)` ends a session that lives elsewhere (a WalletConnect pairing).
+  async function disconnect() {
+    off?.(); off = null;
+    const prov = W.prov;
+    W.prov = null; W.name = ''; W.account = null; W.chain = null;
+    try { await leave?.(prov); } catch { /* the session is gone either way */ }
     emit();
   }
   // What was reviewed was for one account: a wallet whose account has changed since is not asked to send or sign it.
@@ -71,5 +79,5 @@ export function makeWallet({ rpc }) {
       await new Promise((res) => setTimeout(res, every));
     }
   }
-  return { state: W, available, connect, ensureMainnet, sendTx, signPermit, receipt, onChange: (f) => W.listeners.add(f) };
+  return { state: W, available, connect, disconnect, ensureMainnet, sendTx, signPermit, receipt, onChange: (f) => W.listeners.add(f) };
 }

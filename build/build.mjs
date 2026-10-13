@@ -177,7 +177,7 @@ const PAY_CB_FILES = ['pay/index.html', 'pay/eth/index.html'];
 const TAC_CB_FILES = ['tac/sats.js', 'tac/market.js', 'tac/claim.js', 'tac/app.js', 'tac/index.html'];
 // dapp/trade/ is the TAC trade page: its modules are hashed first (the venues module and the order book it imports are the shared ones the
 // front page uses, so their tokens come out the same), then app.js, then the page that loads it.
-const TRADE_CB_FILES = ['trade/tape.js', 'trade/chart.js', 'trade/book.js', 'trade/depth.js', 'trade/wallet.js', 'trade/btc-session.js', 'trade/btc.js', 'trade/app.js', 'trade/index.html'];
+const TRADE_CB_FILES = ['trade/tape.js', 'trade/chart.js', 'trade/book.js', 'trade/depth.js', 'trade/wallet.js', 'trade/sheet.js', 'trade/btc-session.js', 'trade/btc.js', 'trade/app.js', 'trade/index.html'];
 // The trade page has one address for each asset it trades: /trade/ is the TAC market today (it will list assets later), and /trade/tac/ is
 // TAC's own, the one to share. Both are the same page, so /trade/tac/index.html is made from /trade/index.html, differing only in the address
 // the page names as its own, and `--verify-only` fails when it is not what this makes.
