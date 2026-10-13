@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-6IQKnVsd99hedwoMmIed/ml9OpGFBUwNR3jUx6azsfI=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-x9jHsewhYzWn9DMWIP/g3RlfOprZPi30Ox9p+d5HJcY=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=2f4a1520"></script>
 <title>tacit</title>
@@ -4733,6 +4733,33 @@ function prover(onProgress) {
   return made;
 }
 const provingNote = (name, got, total) => sayLive($('#d-status'), html`Getting the proving key once (about 33 MB)<span aria-hidden="true" data-tick>: ${name} ${total ? Math.floor((got / total) * 100) + '%' : ''}</span>`);
+// The pool's tree is replayed in a worker (evm-pool-sync-worker.js), one chain at a time, so the page never stalls on it. What the worker's
+// wallet saved is written here, and the page's own wallet, made from that, then only reads what came after. Without workers it all runs here.
+const PSW = { w: null, n: 0, wait: new Map(), q: Promise.resolve() };
+function poolSyncInWorker(c) {
+  const pub = S.key?.pubHex;
+  if (!pub || typeof Worker !== 'function') return Promise.resolve(false);
+  const run = () => new Promise((resolve) => {
+    if (S.key?.pubHex !== pub) return resolve(false);
+    let w;
+    try {
+      w = PSW.w ||= new Worker('/evm-pool-sync-worker.js?cb=382f77c7', { type: 'module' });
+      w.onmessage = (e) => { const f = PSW.wait.get(e.data?.id); if (f) { PSW.wait.delete(e.data.id); f(e.data); } };
+      w.onerror = () => { for (const f of PSW.wait.values()) f({ ok: false }); PSW.wait.clear(); PSW.w = null; };
+    } catch { return resolve(false); }
+    const id = ++PSW.n, prefix = `tacit-evm-pool-v1:${c.chainId}:`, entries = {};
+    try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k?.startsWith(prefix)) entries[k] = localStorage.getItem(k); } } catch {}
+    PSW.wait.set(id, (m) => {
+      if (m.ok && S.key?.pubHex === pub) for (const [k, v] of Object.entries(m.writes || {})) { try { localStorage.setItem(k, v); } catch {} }
+      resolve(!!m.ok);
+    });
+    let priv;
+    try { priv = walletPriv(); } catch { PSW.wait.delete(id); return resolve(false); }
+    w.postMessage({ id, priv, pool: EVM_POOL, router: EVM_ROUTER, entries,
+      chain: { chainId: c.chainId, keeper: c.keeper, rpc: c.rpc, deployBlock: c.deployBlock, confirmations: c.confirmations, logChunk: c.logChunk } });
+  });
+  return (PSW.q = PSW.q.then(run, run));
+}
 async function deviceWallet() {
   if (DEV.W && DEV.key === S.key.pubHex + DEV.chain.chainId) return DEV.W;
   const m = await getDeviceMods(), c = DEV.chain;
@@ -4791,6 +4818,7 @@ function deviceSync(fresh = false) {
   if (DEV.syncing && !fresh) return DEV.syncing;
   const prev = DEV.syncing || Promise.resolve();
   const p = DEV.syncing = prev.catch(() => {}).then(async () => {
+    if (!(DEV.W && DEV.key === S.key?.pubHex + DEV.chain.chainId)) await poolSyncInWorker(DEV.chain);
     const W = await deviceWallet();
     const [s, q] = await Promise.all([W.sync(), W.quote().catch(() => null)]);
     if (DEV.W === W) {                                                          // not a chain or key switched away from meanwhile
@@ -4891,6 +4919,7 @@ function loadHeld(force = false) {
   const priv = walletPriv(), kv = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
   const one = async (c) => {
     if (c.chainId === DEV.chain.chainId) return deviceSync();
+    await poolSyncInWorker(c);
     const m = await getDeviceMods();
     const W = m.makeEvmPoolWallet({ zk: m.zk, keys: m.evmPoolKeys(m.zk, priv), keeper: c.keeper, store: kv, prove: null,
       chain: { chainId: c.chainId, pool: EVM_POOL, router: EVM_ROUTER, rpc: m.jsonRpc(c.rpc), deployBlock: c.deployBlock, confirmations: c.confirmations, logChunk: c.logChunk } });
