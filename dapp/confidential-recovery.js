@@ -255,7 +255,9 @@ export function makeConfidentialRecovery({ pool, memo, keccak256, secp, hmac, sh
   // toAffine inverts each one, which dominated the bridge-mint search. Falls back per point for any other point shape.
   const FIELD_P = 2n ** 256n - 0x1000003d1n;
   const _fieldInv = (x) => { let a = ((x % FIELD_P) + FIELD_P) % FIELD_P, m = FIELD_P, u = 1n, v = 0n; while (a) { const q = m / a; [a, m] = [m - q * a, a]; [u, v] = [v - q * u, u]; } return ((v % FIELD_P) + FIELD_P) % FIELD_P; };
-  function _toAffineBatch(ps) {
+  // A coordinate's 32 big-endian bytes, written straight into `out` at `off` (no hex string in between).
+function _be32(x, out, off) { for (let j = 31; j >= 0; j--) { out[off + j] = Number(x & 0xffn); x >>= 8n; } }
+function _toAffineBatch(ps) {
     if (!ps.length || ps.some((q) => typeof q.pz !== 'bigint' || q.pz === 0n)) return ps.map((q) => q.toAffine());
     const pre = new Array(ps.length);
     let acc = 1n;
@@ -324,7 +326,7 @@ export function makeConfidentialRecovery({ pool, memo, keccak256, secp, hmac, sh
       const wanted = [...want].map((w) => hexToBytes(w));
       const cands = _toAffineBatch(pts.map(([, Pv]) => Pv.add(Gb))).map((a, k) => {
         const xy = new Uint8Array(64);
-        xy.set(hexToBytes(a.x.toString(16).padStart(64, '0')), 0); xy.set(hexToBytes(a.y.toString(16).padStart(64, '0')), 32);
+        _be32(a.x, xy, 0); _be32(a.y, xy, 32);
         return { v: pts[k][0], x: a.x, y: a.y, xy };
       });
       for (const { asset, idBytes, notes } of owners) {

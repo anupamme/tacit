@@ -352,6 +352,18 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   const _bridgeFound = new Map();
   const _bridgeFastTried = new Set();
   const _bridgeTried = new Set();
+  // The leaves a pass searched without a match are also kept in this browser per key and pass, for the amounts tried then, so a return
+  // visit does not search them again. It is a cache only: a browser without it searches as before, and a new amount starts afresh.
+  const _triedStoreKey = (wk, fast) => `tacit-bridge-tried-v1:${network || activeNetwork()}:${fast ? 'fast' : 'full'}:${wk}`;
+  function _loadTried(wk, fast, sig, into) {
+    if (typeof localStorage === 'undefined') return;
+    try { const o = JSON.parse(localStorage.getItem(_triedStoreKey(wk, fast)) || 'null'); if (o && o.sig === sig) for (const lf of o.leaves || []) into.add(`${wk}:${sig}:${lf}`); } catch {}
+  }
+  function _saveTried(wk, fast, sig, from) {
+    if (typeof localStorage === 'undefined') return;
+    const pre = `${wk}:${sig}:`, leaves = [...from].filter((x) => x.startsWith(pre)).map((x) => x.slice(pre.length)).slice(-6000);
+    try { localStorage.setItem(_triedStoreKey(wk, fast), JSON.stringify({ sig, leaves })); } catch {}
+  }
   // Amounts a bridge-mint search tries besides the round ones, per key: what this browser's bridge journal recorded
   // (burndep-ux; every page on this origin shares it) and amounts added by hand (addBridgeAmountHint). The value is hidden
   // in the minted commitment, so an amount like 1,234.5 TAC is found only once it is tried; a wrong one costs a hash.
@@ -651,6 +663,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
       const wk = lc(id.pubHex);
       const triedSet = fast ? _bridgeFastTried : _bridgeTried;
       const triedKey = (lf) => `${wk}:${amounts.join(',')}:${lf}`;
+      _loadTried(wk, fast, amounts.join(','), triedSet);
       for (const l of unexplained()) {
         const lf = lc(l.leaf);
         const kept = _bridgeFound.get(wk + ':' + lf);
@@ -670,6 +683,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
           for (const n of r.found) { _bridgeFound.set(wk + ':' + lc(n.leaf), n); if (addDerived(n, 'bridge-mint', { burnNullifier: n.burnNullifier })) diag.bridge.found++; }
           // Only transactions the walk fully tried are settled; ones past its cap stay open for the next pass.
           for (const [t, lfs] of todo) if (!r.searched || r.searched.has(t)) for (const lf of lfs) triedSet.add(triedKey(lf));
+          _saveTried(wk, fast, amounts.join(','), triedSet);
         } catch (e) { diag.errors.bridge = String(e && e.message || e); }
       }
     }
