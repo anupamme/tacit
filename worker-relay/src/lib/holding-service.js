@@ -15,7 +15,7 @@ import { makeBlockAtOrBefore } from './block-at-time.js';
 import { poolStateAt, emptyRootOf, HoldingStateError } from './holding-state.js';
 import { scanHoldingChain } from './holding-scan.js';
 import { rootSizeOf, poolState, poolAssetOf } from './evm-pool-snapshot-chain.js';
-import { smtRoot } from './evm-pool-snapshot.js';
+import { smtRootAsync } from './evm-pool-snapshot.js';
 import { claimableEpochs, snapshotTime, randomnessOf, holdingTxHash, DAY, ETH } from './holding-epoch.js';
 import { verifyHoldingClaim } from './holding-claims.js';
 import { makeTokenBucket } from './token-bucket.js';
@@ -116,7 +116,7 @@ export function createHolding({ store, cfg, clients, hash, groth16, nowSec = () 
       const known = await rootSizeOf(client, state.root, cfg.pool);
       if (known !== state.size) throw new Error(`chain ${chain.chainId}: the rebuilt root at block ${block} is not one the pool held with ${state.size} leaves (${known})`);
     }
-    const snap = { epoch, chainId: chain.chainId, block, moment: Number(moment), root: state.root, nfRoot: smtRoot(state.nullifiers, hash), size: state.size, nullifiers: state.nullifiers.length, takenAt: nowSec() };
+    const snap = { epoch, chainId: chain.chainId, block, moment: Number(moment), root: state.root, nfRoot: await smtRootAsync(state.nullifiers, hash), size: state.size, nullifiers: state.nullifiers.length, takenAt: nowSec() };
     store.saveHoldingSnapshot(snap);
     log(`holding: day ${epoch} on chain ${chain.chainId}: snapshot at block ${block}, ${state.size} leaves, ${state.nullifiers.length} nullifiers`);
     return store.holdingSnapshots(epoch).find((s) => s.chainId === chain.chainId);

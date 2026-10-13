@@ -34,6 +34,25 @@ export function smtRoot(keys, hash) {
   return walk(ks, 0);
 }
 
+// The same root, hashed in turns: the event loop is let go every few hundred hashes, so a service that hashes a big pool's spent
+// set (tens of thousands of keys, minutes of work) keeps answering requests meanwhile.
+export async function smtRootAsync(keys, hash, { every = 300 } = {}) {
+  const ks = [...new Set(keys.map(big))];
+  let n = 0;
+  const turn = () => new Promise((r) => setImmediate(r));
+  const walk = async (set, level) => {
+    if (set.length === 0) return 0n;
+    if (set.length === 1) { if (++n % every === 0) await turn(); return hash([set[0], 1n, 1n]); }
+    if (level > 253) throw new PoolHistoryError('two nullifiers agree on every bit');
+    const left = [], right = [];
+    for (const k of set) ((k >> BigInt(level)) & 1n ? right : left).push(k);
+    const a = await walk(left, level + 1), b = await walk(right, level + 1);
+    if (++n % every === 0) await turn();
+    return hash([a, b]);
+  };
+  return walk(ks, 0);
+}
+
 export function buildPoolHistory({ transacts, zk, depth = 32 }) {
   const H = zk.H;
   const events = [...transacts].map((e) => ({

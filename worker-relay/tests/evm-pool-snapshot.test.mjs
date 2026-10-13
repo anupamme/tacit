@@ -99,3 +99,18 @@ const emptyRoot = zk.incTree().root;
   assert.throws(() => bad((e, i) => (i === 4 ? { ...e, nf1: NF[0] } : e)), PoolHistoryError, 'a nullifier spent twice is refused');
   console.log('ok - a history that does not reproduce the pool\'s own roots, skips an index or spends a note twice is refused');
 }
+
+// The root hashed in turns is the same root, and the event loop is let go while it works.
+{
+  const { smtRootAsync } = await import('../src/lib/evm-pool-snapshot.js');
+  const h = (xs) => xs.reduce((a, x, i) => (a * 1000003n + BigInt(x) + BigInt(i)) % (2n ** 61n - 1n), 7n);   // any hash will do for equality
+  for (const n of [0, 1, 2, 7, 300, 2500]) {
+    const keys = Array.from({ length: n }, (_, i) => BigInt(i + 1) * 0x9e3779b97f4a7c15n);
+    assert.equal(await smtRootAsync(keys, h), smtRoot(keys, h), `${n} keys`);
+  }
+  let turns = 0; const t = setInterval(() => { turns++; }, 0);
+  await smtRootAsync(Array.from({ length: 4000 }, (_, i) => BigInt(i + 1) * 0x9e3779b97f4a7c15n), (xs) => { let x = 0n; for (let i = 0; i < 4000; i++) x += BigInt(i); return h(xs) + x * 0n; });
+  clearInterval(t);
+  assert.ok(turns > 5, `the event loop ran ${turns} times while it hashed`);
+  console.log('ok - the root hashed in turns is the same root, and other work runs meanwhile');
+}
