@@ -721,7 +721,9 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   // skip a walk, { btcHistory } (a provider fn, or { anchors, lockOutputs }) and { bridgeAmounts } (extra amounts to try).
   async function balance(scanPriv, opts) {
     const o = opts || {};
-    const events = withSavedMemos(await fetchEvents({ fromBlock: o.fromBlock, toBlock: o.toBlock, include: ['wraps'] }));
+    // `{ positions: true }` also reads the farm's bond events and returns farmPositions from this same scan, as recover() does, so a caller
+    // that wants both does not scan the notes twice.
+    const events = withSavedMemos(await fetchEvents({ fromBlock: o.fromBlock, toBlock: o.toBlock, include: o.positions ? ['wraps', 'bonds'] : ['wraps'] }));
     const st = await _scanNotes({ walletPriv: scanPriv, events, cbtc: o.cbtc !== false, btcHistory: o.btcHistory || null, bridge: o.bridge !== false, bridgeAmounts: o.bridgeAmounts || [] });
     const notes = st.notes;
     const byAsset = {};
@@ -763,6 +765,11 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     // in its commitment, and is found from the note spent to make it (dapp/crossout-notes.js amountFromSpent). Read from the same scan;
     // nothing is stored, and a caller that does not ask gets the result it always did.
     if (o.spent) out.spentNotes = (st.owned || []).filter((n) => st.spent.has(lc(n.nullifier))).map((n) => ({ nullifier: n.nullifier, asset: n.asset, value: n.value }));
+    if (o.positions && cfg.farm && cfg.farm.manager && o.fromBlock == null && o.toBlock == null) {
+      out.diag = { ...st.diag, errors: { ...((st.diag && st.diag.errors) || {}) } };
+      try { out.farmPositions = await farmPositions({ walletPriv: scanPriv, events, _scan: st, _diag: {} }); }
+      catch (e) { out.diag.errors.farm = String((e && e.message) || e); }
+    }
     return out;
   }
 
@@ -2629,13 +2636,30 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   // skipped and the set is returned unchecked.
   const LOCK_COUNT_SLOT = '0x54';
   const LOCK_ROOT_SLOT = '0x55';
+  // A transaction's input never changes, so each is read once a session. And the received and sent lock scans, asked for together, share one
+  // reading of the lock set at the same head instead of each reading it whole.
+  const _txInputs = new Map();
+  let _lockSetAt = null;
   async function scanLockSet(opts = {}) {
     const requested = opts && opts.toBlock;
     const head = requested == null || requested === 'latest'
       ? await headBlock()
       : (typeof requested === 'number' ? requested : parseInt(String(requested), 16));
+    const shared = !(opts && opts.events) && Object.keys(opts || {}).every((k) => k === 'toBlock');
+    if (shared && _lockSetAt && _lockSetAt.head === head) return _lockSetAt.p;
+    const p = _readLockSet(opts, head);
+    if (shared) { _lockSetAt = { head, p }; p.catch(() => { if (_lockSetAt && _lockSetAt.p === p) _lockSetAt = null; }); }
+    return p;
+  }
+  async function _readLockSet(opts, head) {
     const events = (opts && opts.events) || await fetchEvents({ ...opts, toBlock: head });
-    const getTxInput = async (txHash) => { const tx = await rpc('eth_getTransactionByHash', [txHash]); return tx && tx.input; };
+    const getTxInput = async (txHash) => {
+      const k = String(txHash).toLowerCase();
+      if (_txInputs.has(k)) return _txInputs.get(k);
+      const tx = await rpc('eth_getTransactionByHash', [txHash]);
+      if (tx && tx.input) _txInputs.set(k, tx.input);
+      return tx && tx.input;
+    };
     const getLockState = async () => {
       const tag = '0x' + head.toString(16);
       const [count, root] = await Promise.all([
