@@ -20,7 +20,7 @@ import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
 import { mountDepth } from '/trade/depth.js?cb=0bbf4a0d';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=24e3ea08';
-import { mountFarm } from '/trade/farm.js?cb=603f487f';
+import { mountFarm } from '/trade/farm.js?cb=f4397cd9';
 
 const API = 'https://api.tacit.finance';
 const TAC_BTC_ID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
@@ -354,7 +354,7 @@ function renderChips() { $('#chips').innerHTML = PRESETS[S.side].map(([l, v]) =>
 function lockTicket() {
   const b = S.busy;
   $('#amt').disabled = b; $('#in-bal').disabled = b;
-  document.querySelectorAll('#side-seg button, #chips button').forEach((x) => { x.disabled = b; });
+  document.querySelectorAll('#side-seg button, #chips button, #flip').forEach((x) => { x.disabled = b; });
 }
 // The side and amount live in the address, so a reload or a shared link opens the same ticket.
 function keepInHash() {
@@ -411,9 +411,12 @@ function renderQuote(q) {
     ? html`<div class="kv"><span>Route</span><b>Split across two pools${split.gainBps >= 1 ? ` <i class="gain">+${(split.gainBps / 100).toFixed(split.gainBps < 100 ? 2 : 1)}%</i>` : ''}</b></div>
       <div class="splitbar" role="img" aria-label="${esc(splitWhat(split))}"><span style="flex:${splitShare(split)}" class="pp">Precision ${splitShare(split)}%</span><span style="flex:${100 - splitShare(split)}" class="tp">Tacit ${100 - splitShare(split)}%</span></div>`
     : html`<div class="kv"><span>Route</span><b>${esc(name)}</b></div>`)
-    + html`<div class="kv"><span>Price</span><b>${esc(priceTxt)}</b></div>` + (split ? '' : note);
+    + html`<div class="kv"><span>Price</span><b>${esc(priceTxt)}</b></div>` + (split ? '' : note)
+    + (q.priv && via === 'pools' ? html`<p class="privnote">Or privately through the Tacit pool: about ${esc(fmtUnits(q.priv, 18, buy ? 2 : 6))} ${buy ? 'TAC' : 'ETH'} before the relay fee. <a href="${esc(privLink(q))}">Swap privately →</a></p>` : '');
   renderGo();
 }
+// The main page's console set to the private swap of this amount (it makes ETH private first when it has to). Its own flow runs it.
+const privLink = (q) => (q?.priv ? `/#card=${q.buy ? 'swap:ether:tac' : 'swap:tac:ether'}:private&amt=${plain(q.wei / E10 * E10)}` : null);
 const splitShare = (sp) => Math.round(Number(sp.legs[0].amountIn * 1000n / (sp.legs[0].amountIn + sp.legs[1].amountIn)) / 10);
 const splitWhat = (sp) => `${splitShare(sp)}% Precision pool, ${100 - splitShare(sp)}% Tacit pool`;
 
@@ -430,7 +433,7 @@ function renderVenues(q) {
   add({ name: 'Tacit pool', note: 'public swap · fee 0.30%', out: t?.amountOut, why: t ? null : 'could not quote', runs: runs === 'tacit-amm' });
   if (rt.split) add({ name: 'Both, split', note: splitWhat(rt.split), out: rt.split.amountOut, split: true, runs: runs === 'split' });
   const priv = q.priv;
-  add({ name: 'Tacit pool, private', note: 'shielded note, before the relay fee', out: priv, why: D.priv ? null : 'not read', priv: true });
+  add({ name: 'Tacit pool, private', note: 'shielded note, before the relay fee', out: priv, why: D.priv ? null : 'not read', priv: true, link: privLink(q) });
   const zqv = q.zq;
   if (zqv?.status === 'ok') add({ name: 'Uniswap, Sushi or Curve', note: 'found by zQuoter', out: zqv.amountOut });
   const bz = q.board, zside = D.zb ? (buy ? D.zb.asks : D.zb.bids) : [];
@@ -452,7 +455,7 @@ function renderVenues(q) {
     const isBest = best != null && r.out != null && !r.priv && !r.btc && !r.part && BigInt(r.out) === best;
     const delta = r.out != null && best && !r.part && !r.btc ? Number((BigInt(r.out) - best) * 10000n / best) / 10000 : null;
     const cell = r.out != null ? `<b class="num">${f(r.out)}</b>` : r.show ? `<b class="num">${esc(r.show)}</b>` : `<span class="mute">${esc(r.why || '')}</span>`;
-    return `<tr${isBest ? ' class="best"' : ''}><td><b>${esc(r.name)}</b>${isBest ? '<span class="tag">best</span>' : ''}${r.runs ? '<span class="tag mute">this ticket</span>' : ''}${r.priv ? '<span class="tag mute">estimate</span>' : ''}<small>${esc(r.note || '')}</small></td><td class="r">${cell}</td><td class="r opt num">${delta != null && !isBest ? esc(pct(delta, 1)) : ''}</td></tr>`;
+    return `<tr${isBest ? ' class="best"' : ''}><td><b>${esc(r.name)}</b>${isBest ? '<span class="tag">best</span>' : ''}${r.runs ? '<span class="tag mute">this ticket</span>' : ''}${r.priv ? '<span class="tag mute">estimate</span>' : ''}<small>${esc(r.note || '')}${r.link ? ` · <a href="${esc(r.link)}">Swap privately →</a>` : ''}</small></td><td class="r">${cell}</td><td class="r opt num">${delta != null && !isBest ? esc(pct(delta, 1)) : ''}</td></tr>`;
   }).join('');
 }
 
@@ -894,6 +897,13 @@ paintSlip();
 let amtTimer = 0;
 $('#amt').addEventListener('input', (e) => { S.amt = e.target.value; clearTimeout(amtTimer); amtTimer = setTimeout(requote, 350); $('.p-ticket').classList.add('stale'); });
 $('#amt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('#go').disabled && !$('#go').hidden) $('#go').click(); });   // Enter reviews the quote on the ticket
+// The arrows between the two boxes turn the trade around: what this quote gets becomes what the other side pays.
+$('#flip').addEventListener('click', () => {
+  if (S.busy) return;
+  const q = S.quote, via = q && routeOf(q), got = via === 'boards' ? q.board.out : via ? BigInt((q.rt.pick === 'split' ? q.rt.split : q.rt.single).amountOut) : null;
+  $(`#side-seg [data-side="${S.side === 'buy' ? 'sell' : 'buy'}"]`).click();
+  if (got) { const dp = S.side === 'buy' ? 6 : 2, u = 10n ** BigInt(18 - dp); S.amt = plain(got / u * u); $('#amt').value = S.amt; requote(); }
+});
 $('#side-seg').addEventListener('click', (e) => {
   const b = e.target.closest('[data-side]');
   if (!b || b.dataset.side === S.side || S.busy) return;

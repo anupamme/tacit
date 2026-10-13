@@ -96,9 +96,21 @@ export function mountFarm(host, ctx) {
       + cell('Rewards', x.live ? `${fmt(x.perDay, 18, 0)} TAC a day` : 'between periods', x.live ? tacUsd(x.perDay) ? `about ${tacUsd(x.perDay)} a day` : '' : '')
       + cell('Staked', ethUsd() ? usd(x.stakedEth / 1e18 * ethUsd()) : `${(x.stakedEth / 1e18).toFixed(2)} ETH`, x.supply ? `${Math.round(Number(x.totalStaked * 1000n / x.supply)) / 10}% of the pool` : '')
       + cell('Stream ends', x.live ? dayFmt(x.finish) : '—');
+    // The farming program's private farms: shielded pools whose positions say nothing of who holds them. Each opens on the front page,
+    // which signs in with a Tacit wallet and adds from private tETH, the paired asset, or both.
     const p = F.prog, e = p?.epoch;
+    const CETH = '0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34';
+    const pairName = (pair) => { const k = String(pair).split('/').map((y) => (y === 'cETH' ? 'tETH' : y)); if (k[1] === 'tETH') k.reverse(); return k.join(' / '); };
+    const aprOf = (pool) => {
+      const r = pool.reserves || {}, total = Number(r.lpTotalShares || 0);
+      if (String(r.assetA).toLowerCase() !== CETH || !total || !x.tacEth) return null;
+      const bonded = 2 * Number(r.reserveA) / 1e8 * Number(pool.totalShares) / total;            // ETH: the tETH side, twice, for the shares bonded
+      return bonded > 0 ? Number(pool.tacPerDayForPool) * 365 * x.tacEth / bonded * 100 : null;
+    };
     $('#fm-prog').innerHTML = e?.active && p.pools?.length
-      ? `The farming program also streams <b>${Math.round(Number(e.ratePerDayTac)).toLocaleString('en-US')} TAC a day</b> to ${p.pools.length} private farms (shielded tETH with TAC, cBTC or cUSD) until ${dayFmt(e.periodFinish)}. <a href="/#farm">Farm privately →</a>`
+      ? `<div class="fm-ph"><b>Private farms</b><span>${Math.round(Number(e.ratePerDayTac)).toLocaleString('en-US')} TAC a day more, to ${dayFmt(e.periodFinish)}</span></div>`
+        + p.pools.filter((pool) => Number(pool.tacPerDayForPool) > 0).map((pool) => `<a class="fm-pf" href="/#farm/private-${Number(pool.pid)}"><span class="pair">${esc(pairName(pool.pair))}</span><span class="d">${Math.round(Number(pool.tacPerDayForPool)).toLocaleString('en-US')} TAC a day</span><b class="num">${aprTxt(aprOf(pool))}</b><i aria-hidden="true">→</i></a>`).join('')
+        + '<p class="note">Shielded positions: who farms and how much stays private. Opens with your Tacit wallet on the main page.</p>'
       : '';
   }
 

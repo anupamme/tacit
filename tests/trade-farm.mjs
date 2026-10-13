@@ -116,10 +116,11 @@ try {
   const me = await fundedWallet(10n * E18, 30000n * E18);
   r = await openPage({ width: 1280, height: 900 }, me, '', '/trade/tac/');
   const p = r.page;
-  await until(p, () => /Staked\s*\$/.test(document.querySelector('#fm-stats')?.textContent || '') && /private farms/.test(document.querySelector('#fm-prog')?.textContent || ''), null, 240000);
+  await until(p, () => /Staked\s*\$/.test(document.querySelector('#fm-stats')?.textContent || '') && /Private farms/.test(document.querySelector('#fm-prog')?.textContent || ''), null, 240000);
   const stats = (await text(p, '#fm-stats')).replace(/\s+/g, ' ');
   ok(/APR now\s*[\d,]+%/.test(stats) && /Rewards\s*[\d,]+ TAC a day/.test(stats) && /Staked\s*\$[\d,]+/.test(stats) && /Stream ends\s*\w{3} \d+, \d{4}/.test(stats), `the farm says its APR, its stream in TAC a day, what is staked and when the stream ends (${stats})`);
-  ok(/streams 1,108 TAC a day to 3 private farms/.test(await text(p, '#fm-prog')) && !!(await p.$('#fm-prog a[href="/#farm"]')), 'and the farming program\'s private stream, with the way to it');
+  const pf = await p.$$eval('#fm-prog .fm-pf', (a) => a.map((x) => `${x.getAttribute('href')} ${x.textContent.replace(/\s+/g, ' ').trim()}`));
+  ok(/1,108 TAC a day more/.test(await text(p, '#fm-prog')) && pf.length === 3 && /^\/#farm\/private-0 tETH \/ TAC\s*554 TAC a day\s*[\d,]+%/.test(pf[0]) && pf.every((x) => /%/.test(x)), `and the program's private farms, each with its stream, its APR and the way to it (${pf.join(' | ')})`);
   const box = await p.$eval('#farm', (e) => { const b = e.getBoundingClientRect(), t = document.querySelector('.p-ticket').getBoundingClientRect(); return { right: b.left > t.left - 5, below: b.top >= t.bottom }; });
   ok(box.right && box.below, `on a wide screen it sits under the ticket (${JSON.stringify(box)})`);
   ok(/Connect wallet/.test(await text(p, '#fm-go')), 'with no wallet its button connects one');

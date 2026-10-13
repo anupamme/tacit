@@ -174,6 +174,15 @@ try {
   ok(rows.length >= 5 && rows.length <= 7, `the quotes table holds the places that quote: the pools, the split, the private swap and the Bitcoin book (${rows.length} rows)`);
   ok(rows.some((x) => /^Precision pool.*fee 0\.30%/.test(x)) && rows.some((x) => /^Tacit pool.*public swap/.test(x)) && rows.some((x) => /^Both, split.*best/.test(x)), 'the pools and the split are there (the Precision fee as 0.30%), the split tagged best');
   ok(rows.some((x) => /^Tacit pool, private.*estimate.*shielded note/.test(x)), 'the private swap is an estimate, from the same reserves');
+  const privHref = await p.$eval('#venues a[href^="/#card="]', (a) => a.getAttribute('href'));
+  ok(privHref === '/#card=swap:ether:tac:private&amt=2' && /Swap privately/.test(await text(p, '#route')), `and links to the main page's private swap with the amount (${privHref})`);
+  // the arrows turn the trade around, carrying what it gets over as what the other side pays
+  const got2 = (await text(p, '#out')).replace(/,/g, '').trim();
+  await p.click('#flip');
+  await until(p, () => document.querySelector('[data-side="sell"]').getAttribute('aria-pressed') === 'true' && !document.querySelector('#out').classList.contains('ph') && document.querySelector('#out').textContent !== '…', null, 240000);
+  ok(Math.abs(Number(await p.inputValue('#amt')) - Number(got2)) < 0.02 && /ETH/.test(await text(p, '#out-unit')), `the flip sells the ${got2} TAC the purchase would get (${await p.inputValue('#amt')} TAC → ${await text(p, '#out')} ETH)`);
+  await p.click('[data-side="buy"]'); await p.fill('#amt', '2');
+  await until(p, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 240000);
   ok(!(await p.$('#absent')) && !(await p.$('#venues-note')) && !rows.some((x) => /Uniswap v4/.test(x)), 'the quotes say no more than the rows: no line of venues that do not quote, no how-to-read note');
   ok(/#side=buy&amount=2$/.test(p.url()), `the address keeps the side and amount, so a reload or a shared link opens the same ticket (${p.url().split('#')[1]})`);
   ok(rows.some((x) => /^Bitcoin order book.*pay [\d,]+ sats/.test(x)), 'the Bitcoin order book (paid in sats) is a row too');
@@ -427,6 +436,15 @@ try {
     await w.browser.close();
   }
 
+
+  // the main page takes the private swap from the link: the console on Swap, ETH to TAC, the amount in, the address its own again
+  {
+    const fp = await openPage({ width: 1280, height: 900 }, null, '#card=swap:ether:tac:private&amt=0.25', '/');
+    await until(fp.page, () => document.querySelector('#hx-amt')?.value === '0.25', null, 120000).catch(() => {});
+    const st = await fp.page.evaluate(() => ({ amt: document.querySelector('#hx-amt')?.value, tab: document.querySelector('[data-hxm][aria-selected="true"]')?.dataset.hxm, hash: location.hash }));
+    ok(st.amt === '0.25' && st.tab === 'swap' && st.hash === '', `the main page opens its console on the private swap with the amount (${JSON.stringify(st)})`);
+    await fp.browser.close();
+  }
 
   // the addresses: TAC's own, and the bare ones people type
   {

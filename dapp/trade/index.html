@@ -20,7 +20,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /trade/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/trade/app.js?cb=7e2e1c55">
+<link rel="modulepreload" href="/trade/app.js?cb=ee8c28cd">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=bb675102">
 <link rel="modulepreload" href="/confidential-deployments.js">
@@ -34,7 +34,7 @@
 <link rel="modulepreload" href="/trade/book.js?cb=3324d19b">
 <link rel="modulepreload" href="/zboards.js?cb=cba4b156">
 <link rel="modulepreload" href="/trade/wallet.js?cb=24e3ea08">
-<link rel="modulepreload" href="/trade/farm.js?cb=603f487f">
+<link rel="modulepreload" href="/trade/farm.js?cb=f4397cd9">
 <!-- preload:end -->
 <style>
 @font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
@@ -310,6 +310,10 @@ button.ob-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2p
 .bsheet .x { padding: 4px 8px; font-size: 26px; line-height: 1; cursor: pointer; color: var(--mute); background: none; border: 0; }
 .bsheet .x:hover { color: var(--ink); }
 .chips { display: flex; gap: 6px; margin: 8px 0 0; }
+.flipline { display: flex; justify-content: center; margin: 8px 0 -10px; }
+.flip { width: 32px; height: 32px; border: 1px solid var(--hair-2); background: var(--card); color: var(--mute); cursor: pointer; font-size: 15px; line-height: 1; }
+@media (hover: hover) { .flip:hover { color: var(--ink); border-color: var(--ink); } }
+@media (pointer: coarse) { .flip { width: 40px; height: 40px; } }
 .chips button { flex: 1; min-height: 30px; padding: 0 6px; font-size: 12px; color: var(--mute); background: none; border: 1px solid var(--hair-2); cursor: pointer; }
 .chips button[aria-pressed="true"] { color: var(--card); background: var(--ink); border-color: var(--ink); }
 @media (hover: hover) { .chips button:not([aria-pressed="true"]):hover { color: var(--ink); border-color: var(--ink); } }
@@ -343,7 +347,13 @@ button.ob-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2p
 
 .fm-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; margin: 0 0 12px; }
 .fm-stats > div { display: grid; gap: 2px; } .fm-stats .k { font-size: 11px; color: var(--mute); } .fm-stats b { font-weight: 500; font-size: 17px; } .fm-stats .s { font-size: 11.5px; color: var(--mute); }
-.fm-prog { margin: 0 0 4px; } .fm-prog a { color: var(--ink); }
+.fm-prog { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid var(--hair); }
+.fm-ph { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 0 0 6px; font-size: 12px; } .fm-ph span { color: var(--mute); font-size: 11.5px; }
+.fm-pf { display: grid; grid-template-columns: 1fr auto auto 14px; align-items: center; gap: 10px; padding: 9px 2px; border-top: 1px solid var(--hair); color: var(--ink); text-decoration: none; font-size: 12.5px; }
+.fm-pf .d { color: var(--mute); font-size: 11.5px; } .fm-pf b { font-weight: 500; } .fm-pf i { font-style: normal; color: var(--mute); }
+@media (hover: hover) { .fm-pf:hover { background: var(--field); } .fm-pf:hover i { color: var(--ink); } }
+.fm-prog .note { margin: 6px 0 0; font-size: 11.5px; }
+.privnote { margin: 8px 0 0; font-size: 12px; color: var(--mute); } .privnote a { color: var(--ink); }
 .fm-pos, .fm-add { border-top: 1px solid var(--hair); margin-top: 14px; padding-top: 14px; }
 .p-farm h3 { font: 400 20px/1.15 var(--serif); margin: 0 0 12px; }
 .fm-how { margin: 0 0 4px; }
@@ -431,6 +441,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
       <div class="lbl"><span id="in-lbl">You pay</span><button class="linkbtn" id="in-bal" type="button" hidden></button></div>
       <div class="amt"><input id="amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="Amount to pay"><span class="u" id="in-unit"><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>ETH</span></div>
       <div class="chips" id="chips" role="group" aria-label="Quick amounts"></div>
+      <div class="flipline"><button class="flip" id="flip" type="button" aria-label="Turn the trade around" title="Turn the trade around">⇅</button></div>
       <div class="lbl"><span>You get about</span><span class="mute" id="out-usd"></span></div>
       <div class="get"><b id="out" class="ph">0.00</b><span class="u" id="out-unit"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>TAC</span></div>
       <div id="route"></div>
@@ -485,6 +496,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/app.js?cb=7e2e1c55"></script>
+<script type="module" src="/trade/app.js?cb=ee8c28cd"></script>
 </body>
 </html>
