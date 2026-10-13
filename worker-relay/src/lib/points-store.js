@@ -575,6 +575,14 @@ export function openStore(dbPath, { excluded = [] } = {}) {
   function dayActivityPoints(dayStartSec, dayEndSec, { onTime = false } = {}) {
     return (onTime ? onTimeDayActivityStmt : dayActivityStmt).all(dayStartSec, dayEndSec);
   }
+  // The ETH (wei) each address put in for one activity over a day, summed as BigInts: SQLite's integer sum would wrap.
+  const dayAmountsStmt = db.prepare(`SELECT depositor AS address, amount_wei AS wei FROM deposits WHERE activity = ? AND block_time >= ? AND block_time < ?`);
+  const onTimeDayAmountsStmt = db.prepare(`SELECT depositor AS address, amount_wei AS wei FROM deposits WHERE activity = ? AND block_time >= ? AND block_time < ? AND late = 0`);
+  function dayAmountsByAddress(activity, dayStartSec, dayEndSec, { onTime = false } = {}) {
+    const out = new Map();
+    for (const r of (onTime ? onTimeDayAmountsStmt : dayAmountsStmt).all(activity, dayStartSec, dayEndSec)) out.set(r.address, (out.get(r.address) ?? 0n) + BigInt(r.wei || 0));
+    return out;
+  }
   function weekActivityPoints(fromSec, toSec, { onTime = false } = {}) {
     return (onTime ? onTimeWeekActivityStmt : weekActivityStmt).all(fromSec, toSec);
   }
@@ -772,7 +780,7 @@ export function openStore(dbPath, { excluded = [] } = {}) {
 
   return {
     db, recordDeposit, loadCursor, saveCursor, leaderboard, totalFor, depositsFor, countByActivity,
-    dayPointsByAddress, dayActivityPoints, weekActivityPoints, lateDays, creditedWithPrefix, commitDay, saveHoldingEvents, holdingEvents, loadHoldingCursor, saveHoldingCursor, saveHoldingSnapshot, holdingSnapshots, recordHoldingClaim, holdingClaimFor, loadHoldingVerified, saveHoldingVerified, rewindHolding, depositorOfTx, getMeta, setMeta, saveBondRef, bondPairsBefore, bondsToCheck, saveBondCheck, applyDayRewards, applyAdjustment, listAdjustments: () => listAdjustmentsStmt.all(), allRewards, rewardFor,
+    dayPointsByAddress, dayActivityPoints, dayAmountsByAddress, weekActivityPoints, lateDays, creditedWithPrefix, commitDay, saveHoldingEvents, holdingEvents, loadHoldingCursor, saveHoldingCursor, saveHoldingSnapshot, holdingSnapshots, recordHoldingClaim, holdingClaimFor, loadHoldingVerified, saveHoldingVerified, rewindHolding, depositorOfTx, getMeta, setMeta, saveBondRef, bondPairsBefore, bondsToCheck, saveBondCheck, applyDayRewards, applyAdjustment, listAdjustments: () => listAdjustmentsStmt.all(), allRewards, rewardFor,
     savePoolSnapshot, poolSnapshots: (fromDay) => poolSnapshotsStmt.all(fromDay), poolDepositWeiByDay, recent,
     loadSettleState, saveSettleState, savePublishedClaims, claimFor,
     recordPpWithdrawal, hasEarlierPpWithdrawal, loadPpCursor, savePpCursor,

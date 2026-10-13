@@ -3005,7 +3005,7 @@ await step('ptsview', async () => {
     earlyBonus: { max: 3, halfLife: 100 }, tethWrapBoost: 1.25, holder: { tiers: [{ tac: 50, multiplier: 1.1 }, { tac: 500, multiplier: 1.3 }], windowHours: 24 },
     rates: { wrap: 1500, evmpooldeposit: 1000, zswapeth: 1000, cbtcmint: 1000, cbtchold: 500 }, cbtcHoldFromDay: today + 1,
     // A weight in force, a multiplier for the week that starts tomorrow, and a bond rule that does too.
-    weights: [{ fromDay: today - 1, weights: { cbtcmint: 3 } }], engagement: [{ fromDay: today + 1, kindStep: 0.25, returnStep: 0.25, maxKinds: 2, minPoints: 25 }], bondHoldFromDay: today + 1,
+    weights: [{ fromDay: today - 1, weights: { cbtcmint: 3 } }], addressDayCaps: [{ fromDay: today + 1, caps: { evmpooldeposit: '5' } }], engagement: [{ fromDay: today + 1, kindStep: 0.25, returnStep: 0.25, maxKinds: 2, minPoints: 25 }], bondHoldFromDay: today + 1,
     kinds: { wrap: 'private', cbtcmint: 'borrow' } };
   await r.ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => json(route, /day=today/.test(route.request().url())
     ? { day: today, programDay: 9, programDays: 90, program, totalPoints: 1000, dayBudgetWei: '1111111111111111111111', taking: 2, rows: [{ address: A0.toLowerCase(), points: 100 }, { address: hex('2'), points: 50 }] }
@@ -3037,6 +3037,7 @@ await step('ptsview', async () => {
     `ptsview: the early bonus and the holder tiers are the service's (${v.body.slice(-330)})`);
   ok(/Hold 50 public TAC here through a day and what it does next earns 1\.1×/.test(v.body), 'ptsview: the next holder tier is read from the same tiers');
   ok(/1,000 per wstETH once cBTC is minted against it \(from \d+ \w+\) · ×3(?! from)/.test(v.body), 'ptsview: a weight in force shows on its way of earning');
+  ok(/up to 5 ETH a day per address from \d+ \w+/.test(v.body) && /Per address\s*ETH-pool deposit counts up to 5 ETH a day, all chains together from \d+ \w+/.test(v.body), `ptsview: a daily limit per address shows on its way of earning and in the terms (${v.body.slice(0, 300)})`);
   ok(new RegExp(`1,000 per wstETH once cBTC is minted against it \\(from ${dShort(today + 1)}\\) · ×3; 500 a day while a bond on a Bitcoin lock stays posted from ${dShort(today + 1)}`).test(v.body), 'ptsview: the bond\'s mint condition, its daily credit and the day they start show on its way of earning');
   ok(v.days.some((d) => /\+0\s*not counted/.test(d)), `ptsview: a day whose listed points were not counted (a released bond) says so instead of adding them up (${v.days.join(' | ')})`);
   ok(/Kept a cBTC bond posted/.test(v.body) && !v.links.some((h) => h.includes('d'.repeat(64))), 'ptsview: a day\'s bond credit is listed as activity and links to no transaction');

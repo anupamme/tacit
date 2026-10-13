@@ -626,6 +626,8 @@ export const CFG = {
   // day from which a cBTC bond counts only while its escrow is still posted when its day settles. Empty means none.
   pointsCategoryWeights: opt('POINTS_CATEGORY_WEIGHTS', ''),
   pointsEngagement: opt('POINTS_ENGAGEMENT', ''),
+  // The ETH of one activity an address can count in a UTC day, from a day forward (lib/points-engagement.js): "20741:evmpooldeposit=5".
+  pointsAddressDayCaps: opt('POINTS_ADDRESS_DAY_CAPS', ''),
   pointsBondHoldFromDay: num('POINTS_BOND_HOLD_FROM_DAY', 0),
   // Points per wstETH for each further UTC day a cBTC bond on a real Bitcoin lock stays posted (lib/points-bond-hold.js),
   // from the given day. 0 means none.

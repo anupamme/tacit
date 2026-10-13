@@ -4,6 +4,10 @@
 //
 // Weights: "20730:cbtcmint=3,cusdmint=2;20760:off" — from each day, those activities count that many times over; a
 // later entry replaces an earlier one, and "off" ends them.
+// Address caps: "20741:evmpooldeposit=5;20800:off" — from each day, the ETH of that activity an address can count in one UTC day
+// (all chains together); points for ETH past it count for nothing that day (they stay in the address's all-time total). A
+// later entry replaces an earlier one, and "off" ends them. It limits repeating one deposit many times a day, not how much
+// an address can hold, and reads only public deposits.
 // Engagement: "20730:0.25,0.25,2,25;20760:off" — from each day, an address's counted points are multiplied by
 // 1 + kindStep for each other kind of activity it has had in the past 7 days (up to maxKinds of them) + returnStep when
 // it was active on more than one of those days. A kind counts once it has earned minPoints in the week, and a day counts
@@ -54,6 +58,42 @@ export function categoryWeightsForDay(schedule, day) {
   return weights;
 }
 
+const ETH_WEI = 10n ** 18n;
+export function parseAddressDayCaps(raw, log = () => {}) {
+  const out = [];
+  for (const part of entries(raw)) {
+    try {
+      const m = part.match(/^(\d+):(.+)$/);
+      if (!m) throw new Error('expected <day>:<activity>=<ETH>,… or <day>:off');
+      const caps = {};
+      if (m[2].trim().toLowerCase() !== 'off') {
+        for (const kv of m[2].split(',').map((x) => x.trim()).filter(Boolean)) {
+          const [act, v] = kv.split('=').map((x) => x.trim());
+          const n = String(v).match(/^(\d+)(?:\.(\d{1,18}))?$/);
+          if (!/^[a-z0-9_]+$/.test(act || '') || !n) throw new Error(`"${kv}" is not <activity>=<ETH amount>`);
+          const wei = BigInt(n[1]) * ETH_WEI + BigInt((n[2] ?? '').padEnd(18, '0') || '0');
+          if (wei <= 0n) throw new Error(`"${kv}": a limit of nothing is a weight of 0 (POINTS_CATEGORY_WEIGHTS)`);
+          caps[act] = wei;
+        }
+      }
+      out.push({ fromDay: Number(m[1]), caps });
+    } catch (err) {
+      log(`ignoring POINTS_ADDRESS_DAY_CAPS entry "${part}": ${err.message}`);
+    }
+  }
+  return bySchedule(out);
+}
+
+// The ETH limit of each capped activity on `day` ({ activity: wei }, {} when none applies).
+export function addressDayCapsForDay(schedule, day) {
+  let caps = {};
+  for (const e of schedule) if (e.fromDay <= day) caps = e.caps;
+  return caps;
+}
+
+// What share of an address's day of `activity` counts: all of it up to the limit, then the limit's share of it.
+export const capFactor = (totalWei, limitWei) => (limitWei == null || totalWei <= limitWei ? 1 : Number((limitWei * 1_000_000n) / totalWei) / 1e6);
+
 export function parseEngagementSchedule(raw, log = () => {}) {
   const out = [];
   for (const part of entries(raw)) {
@@ -87,14 +127,14 @@ export function engagementFactor(spec, { kinds, activeDays }) {
 }
 
 // A day's counted rows, [{ address, dayPoints, rawPoints, factor, kinds, activeDays }].
-// dayRows: [{ address, activity, points }] for the day; weekRows: [{ address, day, activity, points }] for the 7 days
+// dayRows: [{ address, activity, points, capFactor? }] for the day (capFactor: the share of the points that counts); weekRows: [{ address, day, activity, points }] for the 7 days
 // ending with it. dayPoints is the points the day's pot is split by: each activity's points times its weight, summed,
 // times the address's multiplier. rawPoints is what the activities scored.
 export function countedRows({ dayRows, weekRows = [], weights = {}, spec = null }) {
   const byAddress = new Map();
   for (const r of [...dayRows].sort((a, b) => (a.address < b.address ? -1 : a.address > b.address ? 1 : a.activity < b.activity ? -1 : a.activity > b.activity ? 1 : 0))) {
     const e = byAddress.get(r.address) ?? { counted: 0, raw: 0 };
-    e.counted += r.points * (weights[r.activity] ?? 1);
+    e.counted += r.points * (r.capFactor ?? 1) * (weights[r.activity] ?? 1);
     e.raw += r.points;
     byAddress.set(r.address, e);
   }

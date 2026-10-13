@@ -27,7 +27,7 @@ import { readJson } from './lib/http-json.js';
 import { clientKey } from './lib/token-bucket.js';
 import { makeClient as holdingClient } from './lib/evm-pool-snapshot-chain.js';
 import { decideBondHolds, accrueBondHolds } from './lib/points-bond-hold.js';
-import { parseCategoryWeights, parseEngagementSchedule } from './lib/points-engagement.js';
+import { parseCategoryWeights, parseAddressDayCaps, parseEngagementSchedule } from './lib/points-engagement.js';
 import { dayPot, dayBoard, dayHistory, splitDayBudget } from './lib/points-day-board.js';
 import Database from 'better-sqlite3';
 import { openStore } from './lib/points-store.js';
@@ -164,8 +164,9 @@ const rateCapSchedule = parseRateCapSchedule(CFG.pointsRateCapSchedule, log);
 const ledgerAdjustments = parseAdjustments(CFG.pointsLedgerAdjustments, log);
 const categoryWeights = parseCategoryWeights(CFG.pointsCategoryWeights, log);
 const engagementSchedule = parseEngagementSchedule(CFG.pointsEngagement, log);
+const addressDayCaps = parseAddressDayCaps(CFG.pointsAddressDayCaps, log);
 // The rows each UTC day is split by: settlement and every read of a day go through this one.
-const countedFor = (store, onTime = false) => makeCounted({ store, weightSchedule: categoryWeights, engagementSchedule, bondHoldFromDay: CFG.pointsBondHoldFromDay, onTime });
+const countedFor = (store, onTime = false) => makeCounted({ store, weightSchedule: categoryWeights, engagementSchedule, addressDayCaps, bondHoldFromDay: CFG.pointsBondHoldFromDay, onTime });
 
 const WRAP_EVENT = {
   type: 'event',
@@ -1677,7 +1678,7 @@ function startHttp(store, evmState) {
           const todayDay = Math.floor(Date.now() / 1000 / 86400);
           res.end(JSON.stringify({
             day: todayDay, programDay: todayDay - startDay + 1, programDays: CFG.pointsProgramDays,
-            program: programTerms({ cfg: CFG, dayBudgetWei, rateCapSchedule, tiers: CFG.tacBoostTiers ? parseBoostTiers(CFG.tacBoostTiers) : [], weights: categoryWeights, engagement: engagementSchedule }),
+            program: programTerms({ cfg: CFG, dayBudgetWei, rateCapSchedule, tiers: CFG.tacBoostTiers ? parseBoostTiers(CFG.tacBoostTiers) : [], weights: categoryWeights, engagement: engagementSchedule, addressDayCaps }),
             ...dayBoard(counted.rows(todayDay), { budgetWei: dayBudgetWei(todayDay - startDay), maxWeiPerPoint: rateCapForDay(rateCapSchedule, todayDay), limit }),
           }));
           return;
