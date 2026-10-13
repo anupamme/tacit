@@ -11,3 +11,17 @@ itself. Anyone can re-check every step with snarkjs 0.7.6.
    `639c3a1ff8f886a078c14fc6e0027c023c195bb0214f165a96da545c5f8f6db912c46ee5b2947268803a4e58cbc2b773466bd8c32bd420a5a339f120fec6fb61`.
 5. **Seal:** the hash of Bitcoin block **971234**, announced here at height 971231 before it existed, applied as a snarkjs beacon
    (2^10 iterations) to make the final key.
+
+## Result
+
+- **Seal applied:** Bitcoin block 971234 hash `00000000000000000000beb633ae08def1f2a79d8966d310118fc50700946597`
+  (mempool.space and blockstream.info agree; taken with two blocks on top), `snarkjs zkey beacon … 10`.
+- **Verified:** `snarkjs zkey verify build/holding.r1cs ceremony/pot16.ptau holding_final.zkey` → ZKey Ok (contribution #1
+  ours, contribution #2 the beacon).
+- **Final files** in `dapp/evm-pool/` (listed with their sha256 in `holding-pin.json`): `holding_final.zkey`
+  `dc4c836781cf698314f4f29a9577177e9e6af424519440e1f5b2e115fcd46195`, `holding_vk.json`
+  `eb6ec425be8219e9d217bcd8d0caeb63f2d7b1ede7496460b694ad0b49fdc25f` (the value for the points service's
+  `HOLDING_VKEY_SHA256`), `holding.wasm`.
+
+To re-check: rebuild the circuit with circom 2.2.3, `snarkjs zkey verify` it against the Hermez file and `holding_final.zkey`, and
+compare the beacon line with the block hash above.

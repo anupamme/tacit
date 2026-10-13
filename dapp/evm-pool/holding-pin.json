@@ -1,0 +1,22 @@
+{
+  "note": "holding.circom key: one in-memory contribution, sealed with a Bitcoin block hash. See dapp/circuits/evm-pool/holding-setup.md.",
+  "system": "groth16-bn254",
+  "circuit": "dapp/circuits/evm-pool/holding.circom",
+  "circuit_sha256": "79e6eea38345246f1593ea3e3f8a92d69f5da63129ee34828b94db7146774451",
+  "beacon": {
+    "block_height": 971234,
+    "block_hash": "00000000000000000000beb633ae08def1f2a79d8966d310118fc50700946597",
+    "iterations_exp": 10
+  },
+  "ptau": {
+    "file": "powersOfTau28_hez_final_16.ptau"
+  },
+  "vk": "holding_vk.json",
+  "vk_sha256": "eb6ec425be8219e9d217bcd8d0caeb63f2d7b1ede7496460b694ad0b49fdc25f",
+  "wasm": "holding.wasm",
+  "wasm_sha256": "14538634bc5e4a6f4206730736353eb8e6b552e491d7956fa41e51bbe887454d",
+  "wasm_bytes": 5077184,
+  "zkey": "holding_final.zkey",
+  "zkey_sha256": "dc4c836781cf698314f4f29a9577177e9e6af424519440e1f5b2e115fcd46195",
+  "zkey_bytes": 25989683
+}

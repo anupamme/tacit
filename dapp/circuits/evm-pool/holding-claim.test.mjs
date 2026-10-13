@@ -14,7 +14,7 @@ import { runHolding } from '../../holding-run.js';
 import { claimHashOf, DEFAULT_BUCKETS_WEI } from '../../../worker-relay/src/lib/holding-epoch.js';
 import { verifyHoldingClaim } from '../../../worker-relay/src/lib/holding-claims.js';
 
-const WASM = 'build/holding_js/holding.wasm', ZKEY = 'build/holding_dev.zkey';
+const WASM = process.env.WASM || 'build/holding_js/holding.wasm', ZKEY = process.env.ZKEY || 'build/holding_dev.zkey';
 const P = await buildPoseidon();
 const poseidon = (xs) => P.F.toObject(P(xs.map(BigInt)));
 const zk = makeEvmPoolZk({ poseidon });
@@ -92,7 +92,7 @@ const ETH = 10n ** 18n;
   assert.equal(holdingClaims({ ...args, asset: 778n }).length, 0, 'notes of another chain\'s pool are not claimed');
 
   const body = await proveHoldingClaim({ claim: claims[0], chainId, epoch, claimAddress, wasm: WASM, zkey: ZKEY, snarkjs });
-  const vkey = JSON.parse(fs.readFileSync('build/vk.json', 'utf8'));
+  const vkey = JSON.parse(fs.readFileSync(process.env.VK || 'build/vk.json', 'utf8'));
   const v = await verifyHoldingClaim({ claim: body, snapshot, buckets: DEFAULT_BUCKETS_WEI, poolAsset: asset, vkey, groth16: snarkjs.groth16 });
   assert.equal(v.ok, true, String(v.reason));
   assert.deepEqual([v.bucketWei, v.retNf], [ETH, claims[0].retNf], 'the service credits the size and tag the wallet proved');
