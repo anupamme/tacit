@@ -853,6 +853,9 @@ await step('bonds', async () => {
 const { makeEvmAccount } = await import(new URL('../dapp/evm-account.js', import.meta.url));
 await step('mainbond', async () => {
   const r = await openPage({ account: A0, key: K0 });
+  // The lock sits in Bitcoin block 971295 with the tip at 971306: 15 blocks short of the 26 the reflection needs.
+  await r.ctx.route(/\/tx\/a{64}\/status$/, (route) => json(route, { confirmed: true, block_height: 971295, block_hash: '00'.repeat(32), block_time: 1790000000 }));
+  await r.ctx.route(/\/blocks\/tip\/height$/, (route) => route.fulfill({ status: 200, contentType: 'text/plain', headers: { 'access-control-allow-origin': '*' }, body: '971306' }));
   const root = r.url + 'classic.html', hex = 'bd'.padEnd(64, '5'), pass = 'correct horse battery staple';
   const POOL = '0x000000000Ed1eabD231Be41d93b719056F7febFC', ENGINE = '0x000000003f608BDdF0ca45934003ffb9DbDF70DB';
   const OP = Buffer.from(keccak_256(Buffer.concat([Buffer.from('aa'.repeat(32), 'hex'), Buffer.from([1, 0, 0, 0])]))).toString('hex');
@@ -912,7 +915,7 @@ await step('mainbond', async () => {
     ok(/not minted yet, can come back/.test(bondsTxt) && !!(await r.page.$('#cdp-cbtc-bonds .cbtc-bond-take')), `mainbond: the Borrow tab lists the bond, with a way to take it back (${bondsTxt.slice(0, 140)})`);
     await rowIs(/Bonded\./);
     [s, b] = await row();
-    ok(/Minting opens once the reflection records this lock/.test(s) && b === 'Waiting', `mainbond: then it waits for the reflection (${s} [${b}])`);
+    ok(/Your lock is in Bitcoin block 971295[^]*Minting opens once the reflection records it: about 15 more Bitcoin blocks \(about 2\.5 hours\)/.test(s) && b === 'Waiting', `mainbond: then it waits for the reflection and says where the lock is and how long (${s} [${b}])`);
     // The reflection records the lock (cbtcLockVBtc, declaration slot 123): the row then offers the mint.
     await rpc('anvil_setStorageAt', [POOL, '0x' + Buffer.from(keccak_256(Buffer.from(OP + word(123), 'hex'))).toString('hex'), '0x' + word(20000)]);
     await toTab('market');

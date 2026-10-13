@@ -353,6 +353,20 @@ async function bondFunding(ux, wallet, pr) {
 // engine (escrowSufficient). The bond can be posted first: the engine takes it for any live outpoint and
 // refunds it until a mint. It aims at 1.1x the requirement, so a small price move does not undo it.
 const wei6 = (x) => { const [i, f = ''] = formatUnits(x, 18).split('.'); const d = f.slice(0, 6).replace(/0+$/, ''); return d ? `${i}.${d}` : i; };
+// What a bonded lock waiting on the reflection tells its owner. The reflection records a lock once the relay is 24 Bitcoin blocks
+// past the lock's block (REFLECTION_CONFIRMATIONS), and the relay trails the tip by a block or two, so a lock in block B is recorded
+// when Bitcoin reaches about B + 26, then a proof (a few minutes). `lock` is { height (null while unconfirmed), tip } when the
+// page could read them; without it the line only names where the reflection is.
+export const LOCK_FOLD_DEPTH = 26;
+export function lockWaitText({ attested, lock }) {
+  const seen = Number.isFinite(Number(attested)) && Number(attested) > 0 ? `(it has reached Bitcoin block ${attested})` : '';
+  if (!lock || !Number.isFinite(lock.tip)) return `Bonded. Minting opens once the reflection records this lock${seen ? ' ' + seen : ''}.`;
+  if (lock.height == null) return 'Bonded. Waiting for the lock to confirm on Bitcoin; minting opens about four hours after it does.';
+  const left = Math.max(0, lock.height + LOCK_FOLD_DEPTH - lock.tip);
+  if (left === 0) return `Bonded. Your lock is in Bitcoin block ${lock.height}, deep enough now: the reflection is folding it, usually within a few minutes. Minting opens as soon as it is recorded.`;
+  const mins = left * 10, when = mins < 90 ? `about ${mins} minutes` : `about ${(Math.round(mins / 6) / 10).toString().replace(/\.0$/, '')} hours`;
+  return `Bonded. Your lock is in Bitcoin block ${lock.height}. Minting opens once the reflection records it: about ${left} more Bitcoin block${left === 1 ? '' : 's'} (${when}), then a few minutes for the proof.`;
+}
 async function cbtcLockProgress(ux, rec) {
   const { pool, collateralEngine } = ux.cfg;
   const word = (x) => BigInt(x).toString(16).padStart(64, '0');
@@ -623,8 +637,8 @@ function wireCbtc(wallet, ux, helpers = {}) {
         }
       }
       else if (pr.recorded === 0n) {
-        const h = await at;
-        if (run === refreshing) step(i, `Bonded. Minting opens once the reflection records this lock${h ? ` (it has reached Bitcoin block ${h})` : ''}.`, '', 'Waiting');
+        const [h, loc] = await Promise.all([at, helpers.btcLock ? helpers.btcLock(rec.lockTxid).catch(() => null) : null]);
+        if (run === refreshing) step(i, lockWaitText({ attested: h, lock: loc }), '', 'Waiting');
       } else step(i, 'Recorded and bonded.', 'mint', 'Mint');
     }));
     if (run === refreshing && done.length) {

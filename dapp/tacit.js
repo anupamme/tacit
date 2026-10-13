@@ -47757,6 +47757,11 @@ function _renderCdpTab() {
     isUnlockCancelled,
     // The key's Ethereum wallet, when it came from one (no prompt): its bonds show beside the Tacit account's.
     ethAccount: () => (ethWallet?.state?.address ? '0x' + String(ethWallet.state.address).replace(/^0x/, '') : null),
+    // Where a lock sits on Bitcoin, for the waiting line under a bonded lock: its block (null until it confirms) and the tip.
+    btcLock: async (txid) => {
+      const [st, tip] = await Promise.all([apiJson('/tx/' + txid + '/status'), getTip()]);
+      return { height: st && st.confirmed ? Number(st.block_height) : null, tip };
+    },
     // A call from that wallet, in one prompt: taking back a bond it posted.
     ethSend: async ({ to, data }) => {
       const { provider, address } = await ethWallet.connect();
