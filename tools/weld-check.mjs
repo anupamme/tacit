@@ -12,6 +12,7 @@
 //            unharvested, harvested rewards and unbonded liquidity above the farms, a harvest pointing at its next step
 //   farmsteps joining a private farm with tETH but no TAC opens on tETH alone; both sides says where TAC is made (with a way back
 //            to the farm) or to farm with tETH alone
+//   farmcoming a private farm opened while a wrap is settling says the tETH is on its way instead of asking for it again
 //   farmzap  one side alone farms: Max takes the whole balance, the quote says what is swapped and what both sides add, and the
 //            press cuts the swap note, swaps it in the farm's pool, cuts what pairs with the return and bonds both
 //   farmexit Exit on a private position is one press: harvest what is worth harvesting, unbond giving up what accrued since (a plain
@@ -3943,6 +3944,27 @@ await step('farmpos', async () => {
 });
 // A private farm with a key that holds tETH but no TAC: the form opens on tETH alone; both sides says where TAC is made (going
 // there leaves a way back to this farm, and taking it returns to the same card) or to farm with tETH alone.
+// A wrap still settling (as the card's two steps leave one): the private farm says the tETH is on its way and does not ask for it again,
+// and with no wrap in flight it asks as before.
+await step('farmcoming', async () => {
+  const r = await openFarmKey('c0de'.padEnd(64, '6'), { notes: [] }, undefined, (page) => page.addInitScript(() => {
+    if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1'); localStorage.setItem('tacit-lite-activity-v1', JSON.stringify({ items: [{ id: 'op-wrap-test', kind: 'op', label: 'Wrap 0.05 ETH into tETH', steps: [], status: 'pending', pub: null, dest: null, at: Date.now() }], cleared: 0 })); }
+  }));
+  const p = r.page;
+  try {
+    await go(p, '#farm/private-0');
+    await until(p, () => !!document.querySelector('#sheet-farm[open] [data-coming]'), null, 300000);
+    ok(/Your tETH is on its way/.test(await text(p, '#sheet-farm [data-coming]')), `farmcoming: with a wrap settling, the farm says the tETH is on its way (${(await text(p, '#sheet-farm [data-coming]')).trim().slice(0, 90)})`);
+    if (r.errors.length) { fails++; console.log('FAIL farmcoming page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+  const q = await openFarmKey('c0de'.padEnd(64, '7'), { notes: [] });
+  try {
+    await go(q.page, '#farm/private-0');
+    await until(q.page, () => !!document.querySelector('#sheet-farm[open] [data-join-get]'), null, 300000);
+    ok(!(await q.page.$('#sheet-farm [data-coming]')), 'farmcoming: with nothing settling it asks for private tETH as before');
+  } finally { await q.browser.close(); }
+});
+
 await step('farmsteps', async () => {
   const r = await openFarmKey('57e9'.padEnd(64, '6'), { notes: [[FARM_CETH, 2000000n]], positions: [] });
   const p = r.page;
@@ -4209,6 +4231,11 @@ await step('hxpanel', async () => {
     ok(await form('#pf-amt', '0.05'), 'hxpanel: Earn opens the public farm with the ETH in');
     await press('earn', '0.01', '0', 'Farm privately');
     ok(await form('#sj-a-0', '0.01'), 'hxpanel: a private farm, with tETH held, opens on tETH alone with the amount');
+    // More than the tETH held: the ETH is made private first, and the wrap's sheet names the farm next, which then opens with the same amount.
+    await press('earn', '1', '0', 'Make ETH private');
+    ok(await form('#w-amt', '1') && /Then farm it in/.test(await text(p, '#sheet-eth .farm-back')), `hxpanel: a private farm for more than the tETH held makes the ETH private first, and names the farm next (${(await text(p, '#sheet-eth .farm-back')).trim()})`);
+    await p.click('#sheet-eth .farm-back a');
+    ok(await form('#sj-a-0', '1') && !!(await p.$('#sheet-farm[open]')), 'hxpanel: the second step opens that farm on tETH alone with the same amount');
     // The card's points figure for a wrap is the Private sheet's own: the same number, before and after the hand-off.
     await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
     await p.click('[data-hxm="private"]'); await p.fill('#hx-amt', '0.02');
