@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-g/RUDtlSoqAZb8w98Wr2R5Q6ytm7rseMVnTveG2OGII=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-NSM4lIIm7jL3zPvfXrFapVviO/JwG1csXFRW+RRCh6Q=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=2f4a1520"></script>
 <title>tacit</title>
@@ -62,6 +62,9 @@
   --skel-hi: rgba(26,26,26,.02);
   --bar: #8F8979;
   --route-o: .55;
+  --blue: #627eea;
+  --green: #16a34a;
+  --float: 0 1px 2px rgba(26,26,26,.06), 0 30px 60px -32px rgba(26,26,26,.5);
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --serif: 'Instrument Serif', Georgia, serif;
   --tap: 44px;
@@ -88,6 +91,7 @@
     --skel-hi: rgba(237,229,207,.15);
     --bar: #6F6958;
     --route-o: .8;
+    --float: 0 0 0 1px rgba(237,229,207,.04), 0 34px 70px -30px rgba(0,0,0,.95);
     color-scheme: dark;
   }
 }
@@ -110,7 +114,7 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 .err { color: var(--err); }
 .ok { color: var(--ok); }
 
-.shell { max-width: 780px; margin: 0 auto; padding-bottom: 56px; }
+.shell { max-width: 1120px; margin: 0 auto; padding-bottom: 56px; }
 
 /* ── logos: the on-chain token.list.wei art, solid ring = public ERC-20, dashed ring = shielded note ── */
 .tk { width: 64px; height: 64px; display: block; flex: none; border-radius: 50%; }
@@ -129,7 +133,7 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 .brand b { font: italic 400 30px/1 var(--serif); letter-spacing: -.01em; }
 .brand i { font-style: normal; font-size: 12px; color: var(--mute); text-transform: uppercase; letter-spacing: .12em; }
 .chip { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; min-width: 0; padding: 0 14px; background: var(--card);
-  border: 1px solid var(--hair-2); cursor: pointer; white-space: nowrap; }
+  border: 1px solid var(--ink); cursor: pointer; white-space: nowrap; }
 .chip #wallet-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .chip .narrow { display: none; }
 @media (max-width: 430px) { .chip .wide { display: none; } .chip .narrow { display: inline; } }
@@ -220,144 +224,152 @@ a.di { color: inherit; text-decoration: none; }
 .act-foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px 16px; margin-top: 12px; font-size: 12px; color: var(--mute); }
 
 /* ── hero ── */
-.hero { padding: 64px 0 40px; }
+.hero { padding: 40px 0 28px; }
+.hero-go { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 460px); gap: 24px 56px; align-items: start; }
+.hero-l { min-width: 0; }
 /* The airdrop, while it is open: one line above the headline that opens the claim. */
-.news { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; margin: 0 0 18px; font-size: 12px; color: var(--mute);
-  text-decoration: none; }
+.news { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; margin: 0 0 26px; font-size: 13px; color: var(--mute); text-decoration: none; }
 .news b { font-weight: 500; color: var(--ink); }
 .news .dot { width: 6px; height: 6px; }
 .news .dot:not(.on) { background: var(--orange); }
 .news .go { transition: transform .3s var(--spring); }
 @media (hover: hover) { .news:hover .go { color: var(--ink); transform: translateX(4px); } }
-.hero h1 { font: 400 clamp(42px, 8vw, 72px)/.96 var(--serif); letter-spacing: -.02em; margin: 0 0 22px; }
+.hero h1 { font: 400 clamp(52px, 8.2vw, 104px)/.92 var(--serif); letter-spacing: -.025em; margin: 0 0 26px; }
 .hero h1 em { font-style: italic; }
-.hero p { color: var(--mute); margin: 0; max-width: 54ch; }
+.hero .sub { font-size: 19px; line-height: 1.5; max-width: 30ch; margin: 0; color: var(--ink); }
+.hero .sub b { font-weight: 500; }
+/* A plain text link, as the quiet kind of call to action. */
+.tl { font-weight: 500; text-decoration: underline; text-underline-offset: 4px; }
 
-/* ── in numbers: the pools' own figures under the headline, and beside them what no one holds for you; the rest sit in the tiles they belong to ── */
-.proof-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 26px; margin-top: 34px; padding-top: 16px;
-  border-top: 1px solid var(--hair); }
-.proof { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 26px; font-size: 12px; color: var(--mute); }
+/* ── first steps: a first visit, then an open key until it holds anything private ── */
+.start .cta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; margin-top: 30px; }
+.start .btn { width: auto; min-width: 0; min-height: 52px; margin: 0; padding: 0 24px; font-size: 15px; transition: transform .2s var(--spring), box-shadow .2s, background .15s, color .15s; }
+@media (hover: hover) { .start .btn:hover:not(:disabled) { color: var(--card); background: var(--ink); transform: translate(-2px, -2px); box-shadow: 3px 3px 0 var(--orange); } }
+.start .btn:active:not(:disabled) { transform: none; box-shadow: none; }
+/* Under the button, what it does now: signing in, then making ETH private (paintStart marks the step). */
+.start .hint { flex: 0 0 100%; max-width: 46ch; order: 1; margin: -2px 0 0; font-size: 13px; line-height: 1.55; color: var(--mute); }
+.start [data-step]:not(.now) { display: none; }
+.start .link { padding: 8px 0; margin: -8px 0 -8px 6px; font-size: 12px; }
+
+/* ── in numbers: the pools' own figures, and beside them what no one holds for you ── */
+.proof-row { display: grid; gap: 14px; margin-top: 44px; padding-top: 22px; border-top: 1px dashed var(--hair-2); }
+.proof { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px 34px; color: var(--mute); text-decoration: none; }
+.proof [data-nums] { display: grid; gap: 6px; font-size: 12px; }
+.proof [data-nums][hidden] { display: none; }
+.proof b { font: 400 44px/1 var(--serif); letter-spacing: -.01em; color: var(--ink); }
+.proof b small { margin-left: 6px; font: 12px var(--mono); letter-spacing: 0; color: var(--mute); }
+.proof .go { font-size: 13px; transition: transform .3s var(--spring); }
+@media (hover: hover) { .proof:hover .go { color: var(--ink); transform: translateX(4px); } }
 .trust { font-size: 12px; font-weight: 500; color: var(--ink); }
 .trust::before { content: '✓'; margin-right: 6px; color: var(--green); }
-/* ── the hero's control panel: a swap card beside the intro, as anyone who has swapped knows one. Its tabs name what ETH
-   does here; two fields hold what goes in and what comes out, each with its coin as the picker; where there is more than
-   one way, the ways sit above the button with what each pays. ── */
-.hero-go { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 420px); align-items: start; gap: 24px 40px; }
-.hero-l .start .cta { margin-top: 22px; }
-/* Beside the card, the protocol's totals stand in a column under the intro, each figure large. */
-.hero-l .proof-row { display: grid; justify-content: start; gap: 14px; margin-top: 26px; padding-top: 20px; }
-.hero-l .proof { display: grid; gap: 12px; }
-.hero-l .proof [data-nums] { display: flex; align-items: baseline; gap: 8px; }
-.hero-l .proof [data-nums][hidden] { display: none; }
-.hero-l .proof b { font: 600 26px/1 var(--mono); }
-.hero-l .proof b small { margin: 0 0 0 6px; font-size: 13px; }
-.hero-l .proof .go { font-size: 12px; }
-/* With the card beside it, the sign-in is a plain line: the card's own button signs in where it must. */
-.hero-l .start .btn { flex: none; min-width: 0; min-height: 0; padding: 4px 0; color: var(--ink); background: none; border: 0; text-decoration: underline; text-underline-offset: 4px; }
-.hero-l .start .btn::after { content: ' →'; }
-@media (hover: hover) { .hero-l .start .btn:hover { background: none; text-decoration-thickness: 2px; } }
-.hx { padding: 14px 14px 12px; background: var(--card); border: 1px solid var(--hair); }
-.hx-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin: 0 2px 12px; }
-.hx-h button { padding: 2px 0; background: none; border: 0; cursor: pointer; font: 400 20px/1.1 var(--serif); letter-spacing: -.01em; color: var(--mute); }
-.hx-h button[aria-selected="true"] { color: var(--ink); text-decoration: underline; text-underline-offset: 6px; text-decoration-thickness: 1px; }
-@media (hover: hover) { .hx-h button:hover { color: var(--ink); } }
-.hx-f { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 12px; min-height: 86px; padding: 12px 14px; background: var(--paper); border: 1px solid transparent; transition: border-color .18s; }
-.hx-f:focus-within { border-color: var(--hair-2); }
-.hx-lbl { grid-column: 1 / -1; font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--mute); }
-.hx-amt { width: 100%; min-width: 0; padding: 0; font: 600 28px/1.2 var(--mono); letter-spacing: -.02em; color: var(--ink); background: none; border: 0; border-radius: 0; outline: none; }
-.hx-amt::placeholder { color: var(--mute); opacity: .6; }
-.hx-m { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.hx-big { min-width: 0; overflow: hidden; text-overflow: ellipsis; font: 600 28px/1.2 var(--mono); letter-spacing: -.02em; color: var(--ink); white-space: nowrap; }
-.hx-big.ph { color: var(--mute); opacity: .6; }
-.hx-unit { font: 500 12px var(--mono); color: var(--mute); white-space: nowrap; }
-.hx-word { font: 400 24px/1.2 var(--serif); letter-spacing: -.01em; color: var(--ink); }
+
+/* ── the hero's console: a card that takes a verb, an amount and a way, and hands the rest to the sheet that does it ── */
+.hx { position: relative; min-width: 0; background: var(--card); border: 1px solid var(--hair-2); border-radius: 18px; box-shadow: var(--float); }
+.hx-h { --i: 0; position: relative; display: grid; grid-template-columns: repeat(5, 1fr); padding: 4px 8px 0; border-bottom: 1px solid var(--hair); }
+.hx-h::after { content: ''; position: absolute; bottom: -1px; height: 2px; border-radius: 2px; background: var(--ink); width: calc((100% - 16px) / 5 * .56);
+  left: calc(8px + (100% - 16px) / 5 * (var(--i) + .22)); transition: left .4s var(--spring); }
+.hx-h button { display: grid; justify-items: center; gap: 4px; padding: 12px 0 11px; background: none; border: 0; cursor: pointer; font: italic 400 20px/1 var(--serif); letter-spacing: -.01em; color: var(--mute); transition: color .15s; }
+.hx-h button[aria-selected="true"] { color: var(--ink); }
+@media (hover: hover) { .hx-h button:hover { color: var(--ink); } .hx-h button:hover svg { transform: translateY(-2px); } }
+.hx-h svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; transition: transform .25s var(--spring); }
+.hx-b { padding: 14px 16px 16px; }
+/* A field: what it is on top (with where it sits), the amount and its coin, then a line under. */
+.hx-f { display: block; min-height: 0; padding: 12px 14px 10px; background: var(--field); border: 1px solid var(--hair); border-radius: 12px; transition: border-color .15s; }
+.hx-f:focus-within { border-color: var(--ink); }
+.hx-fh, .hx-ff { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; }
+.hx-lbl { font: 13px var(--mono); letter-spacing: 0; text-transform: none; color: var(--mute); }
+.hx-where { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; font-size: 12px; color: var(--mute); white-space: nowrap; }
+.hx-where svg { width: 14px; height: 14px; flex: none; }
+.hx-where.priv { padding: 1px 9px 1px 4px; color: var(--ink); border: 1px dashed var(--ink); border-radius: 999px; }
+.hx-fm { display: flex; align-items: center; gap: 12px; min-height: 56px; margin: 2px 0; }
+.hx-amt, .hx-big { flex: 1; min-width: 0; padding: 0; font: 400 44px/1.1 var(--serif); letter-spacing: -.01em; color: var(--ink); background: none; border: 0; border-radius: 0; outline: none; font-variant-numeric: tabular-nums; }
+.hx-big { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hx-amt::placeholder { color: var(--hair-2); opacity: 1; }
+.hx-big.ph { color: var(--hair-2); opacity: 1; }
+.hx-m { display: flex; align-items: baseline; gap: 8px; flex: 1; min-width: 0; }
+.hx-unit { font: 12px var(--mono); color: var(--mute); white-space: nowrap; }
+.hx-word { flex: 1; min-width: 0; font: 400 34px/1.15 var(--serif); letter-spacing: -.01em; color: var(--ink); }
+.hx-to { flex: 1; min-width: 0; padding: 8px 0; font: 16px var(--mono); color: var(--ink); background: none; border: 0; border-radius: 0; outline: none; }
+.hx-to::placeholder { color: var(--mute); opacity: .6; }
+.hx-say { font-size: 13px; line-height: 1.5; color: var(--mute); }
+.hx-sub { min-height: 22px; color: var(--mute); }
+.hx-quick { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.hx-quick button { padding: 1px 10px; font: 12px var(--mono); color: var(--ink); background: none; border: 1px solid var(--hair-2); border-radius: 999px; cursor: pointer; transition: border-color .15s; }
+@media (hover: hover) { .hx-quick button:hover { border-color: var(--ink); } }
 /* A coin and its ticker as a pill in the coin's colour, with the asset picker laid over it. */
-.hx-coin { position: relative; display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px 4px 4px; background: var(--card); border: 1px solid color-mix(in srgb, var(--c, var(--ink)) 45%, transparent);
-  border-radius: 999px; font: 600 14px var(--mono); color: var(--ink); white-space: nowrap; cursor: pointer; transition: border-color .18s; }
-.hx-coin .tk { width: 26px; height: 26px; transition: transform .4s var(--spring); }
+.hx-coin { position: relative; display: inline-flex; align-items: center; gap: 8px; flex: none; height: 44px; padding: 0 12px 0 6px; background: var(--card); border: 1px solid var(--hair-2);
+  border-radius: 999px; font: 500 14px var(--mono); color: var(--ink); white-space: nowrap; cursor: pointer; transition: border-color .18s, transform .2s var(--spring); }
+.hx-coin .tk { width: 32px; height: 32px; transition: transform .4s var(--spring); }
 .hx-coin .car { font-size: 10px; color: var(--mute); }
 .hx-coin select { position: absolute; inset: 0; width: 100%; opacity: 0; font-size: 16px; cursor: pointer; }
-.hx-coin.one { padding-right: 12px; cursor: default; }
-@media (hover: hover) { .hx-coin:not(.one):hover { border-color: var(--c, var(--ink)); } .hx-coin:not(.one):hover .tk { transform: rotate(-8deg); } }
+.hx-coin.one { padding-right: 14px; cursor: default; }
+@media (hover: hover) { .hx-coin:not(.one):hover { border-color: var(--ink); } .hx-coin:not(.one):hover .tk { transform: rotate(-8deg); } }
+.hx-coin:not(.one):active { transform: scale(.97); }
 .hx-coin:has(select:focus-visible) { outline: 2px solid var(--ink); outline-offset: 2px; }
 /* Between the two fields: the flip, or an arrow where the pair runs one way only. */
-.hx-mid { position: relative; z-index: 1; height: 6px; }
-.hx .hx-mid .flip, .hx-mid .arr { position: absolute; left: 50%; top: 50%; width: 34px; height: 34px; margin: -17px 0 0 -17px; }
-.hx-mid .arr { display: grid; place-items: center; background: var(--card); border: 1px solid var(--hair); border-radius: 50%; color: var(--mute); }
+.hx-mid { position: relative; z-index: 1; height: 8px; }
+.hx .hx-mid .flip, .hx-mid .arr { position: absolute; left: 50%; top: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px; }
+.hx-mid .arr { display: grid; place-items: center; background: var(--card); border: 1px solid var(--hair-2); border-radius: 50%; color: var(--mute); }
 .hx-mid .arr svg { width: 14px; height: 14px; }
-.hx .hx-mid .flip { background: var(--card); }
-.hx-to { grid-column: 1 / -1; width: 100%; min-width: 0; padding: 2px 0; font: 500 15px var(--mono); color: var(--ink); background: none; border: 0; border-radius: 0; outline: none; }
-.hx-to::placeholder { color: var(--mute); opacity: .7; }
-.hx-say { grid-column: 1 / -1; font-size: 13px; line-height: 1.5; color: var(--mute); }
-.hx .btn { width: 100%; min-height: 50px; margin: 12px 0 0; }
-.hero .hx-q { max-width: none; }
-.hx-q { min-height: 18px; margin: 10px 2px 0; font-size: 12px; line-height: 1.5; color: var(--mute); }
+.hx .hx-mid .flip { padding: 0; background: var(--card); border: 1px solid var(--hair-2); border-radius: 50%; color: var(--ink); cursor: pointer; transition: transform .3s var(--spring), border-color .15s; }
+@media (hover: hover) { .hx .hx-mid .flip:hover { transform: rotate(180deg); border-color: var(--ink); } }
+/* The ways, as rows in one field: what each is for, what it pays, the chosen one marked. */
+.hx-rows { display: block; margin-top: 8px; overflow: hidden; background: var(--field); border: 1px solid var(--hair); border-radius: 12px; }
+.hx-rows[hidden] { display: none; }
+.hx-rows-h { display: flex; justify-content: space-between; align-items: center; gap: 4px 10px; flex-wrap: wrap; padding: 12px 14px 2px; font-size: 12px; }
+.hx-rows button, .hx-rows .hx-r { display: grid; grid-template-columns: minmax(0, 1fr) auto 18px; align-items: center; gap: 12px; width: 100%; padding: 10px 14px 11px; text-align: left; color: inherit; background: none; border: 0; border-top: 1px solid var(--hair); font: inherit; cursor: pointer; transition: background .15s; }
+.hx-rows-h + button, .hx-rows-h + .hx-r { border-top: 0; }
+.hx-rows button:first-child { border-top: 0; }
+.hx-rows .c { grid-template-columns: 34px minmax(0, 1fr) auto 18px; }
+.hx-rows .c .tk { width: 34px; height: 34px; transition: opacity .15s, transform .25s var(--spring); }
+.hx-rows .c[aria-checked="false"] .tk { opacity: .6; }
+@media (hover: hover) { .hx-rows button:hover { background: color-mix(in srgb, var(--hair) 40%, transparent); } .hx-rows .c:hover .tk { transform: scale(1.06); } }
+.hx-rows button:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.hx-rt { display: grid; min-width: 0; line-height: 1.3; }
+.hx-rt b { font: 400 22px/1.1 var(--serif); letter-spacing: -.01em; color: var(--mute); transition: color .15s; }
+.hx-rows [aria-checked="true"] .hx-rt b { color: var(--ink); }
+.hx-rt small { font-size: 12px; color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hx-ra { display: grid; justify-items: end; line-height: 1.3; font-size: 15px; font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--mute); }
+.hx-ra output { font: inherit; }
+.hx-rows [aria-checked="true"] .hx-ra { color: var(--ink); }
+.hx-ra small, .hx-ra em { font: 11px var(--mono); font-style: normal; font-weight: 400; color: var(--mute); text-transform: none; letter-spacing: 0; }
+.hx-ra em { color: var(--ok); }
+.hx-rd { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--hair-2); transition: box-shadow .2s var(--spring), border-color .15s; }
+.hx-rows [aria-checked="true"] .hx-rd { border-color: var(--ink); box-shadow: inset 0 0 0 3.5px var(--field), inset 0 0 0 9px var(--ink); }
+.hx-rows [aria-disabled="true"] > :not(.hx-rt) { opacity: .45; }
+.hx-rows [aria-disabled="true"] .tk, .hx-rows [aria-disabled="true"] .hx-rt b { opacity: .45; }
+/* What the amount typed earns in the points program, and the nudge toward more of it; a held key's TAC on Bitcoin. */
+.hx-pts, .hx-have { display: grid; gap: 3px; margin: 14px 2px 0; padding: 0; border: 0; font-size: 12px; line-height: 1.55; color: var(--mute); }
+.hx-pts[hidden], .hx-have[hidden] { display: none; }
+.hx-have b { font: 500 14px var(--mono); color: var(--ink); }
+.hx-have a { color: var(--ink); }
+.hx-pl { display: flex; align-items: center; gap: 7px; color: var(--ink); }
+.hx-pl .tk { width: 16px; height: 16px; margin-right: 1px; }
+.hx-pl b { font: 500 13px var(--mono); }
+.hx-pl .link { margin-left: auto; padding: 0; font-size: 12px; }
+.hx-pw { color: var(--mute); }
+.hx-pt { color: var(--mute); }
+.hx-pt::before { content: '+ '; font-weight: 600; color: var(--ok); }
+.hx-chain { display: flex; align-items: center; gap: 8px; margin: 12px 2px 0; font-size: 12px; color: var(--mute); }
+.hx-chain[hidden] { display: none; }
+.hx-chain select { font: inherit; color: var(--ink); background: none; border: 0; border-bottom: 1px dashed var(--ink); padding: 0 2px; cursor: pointer; }
+.hx .btn { width: 100%; min-height: 56px; margin: 16px 0 0; border-radius: 12px; font-size: 15px; transition: transform .2s var(--spring), box-shadow .2s, background .15s, color .15s; }
+@media (hover: hover) { .hx .btn:hover:not(:disabled) { color: var(--card); background: var(--ink); transform: translate(-2px, -2px); box-shadow: 3px 3px 0 var(--orange); } }
+.hx .btn:active:not(:disabled) { transform: none; box-shadow: none; }
+.hero .hx-q, .hx-q { min-height: 18px; max-width: none; margin: 10px 2px 0; font-size: 12px; line-height: 1.55; color: var(--mute); }
 .hx-trade { display: inline-block; margin: 8px 2px 0; font-size: 12px; color: var(--mute); text-underline-offset: 3px; }
 @media (hover: hover) { .hx-trade:hover { color: var(--ink); } }
-/* What the amount typed earns in the points program, and the nudge toward more of it. */
-.hx-pts, .hx-have { display: grid; gap: 3px; margin-top: 12px; padding: 9px 12px; border: 1px dashed var(--hair-2); font-size: 12px; line-height: 1.5; color: var(--mute); }
-.hx-pts[hidden], .hx-have[hidden] { display: none; }
-.hx-have b { font: 600 14px var(--mono); color: var(--ink); }
-.hx-have a { color: var(--ink); }
-.hx-pl { display: flex; align-items: center; gap: 6px; color: var(--ink); }
-.hx-pl .tk { width: 16px; height: 16px; margin-right: 1px; }
-.hx-pl b { font: 600 14px var(--mono); }
-.hx-pl .link { margin-left: auto; padding: 0; font-size: 12px; }
-.hx-have .hx-pl { gap: 7px; }
-.hx-pt { color: var(--ink); }
-.hx-pt::before { content: '+ '; font-weight: 600; color: #16a34a; }
-/* Where a pair has more than one way, each way with what it pays: one is picked, the best is marked. */
-.hx-routes { display: grid; margin-top: 10px; }
-.hx-routes[hidden] { display: none; }
-.hx-routes button { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; grid-template-areas: 'dot name out' '. note tag'; align-items: center; gap: 2px 10px; width: 100%; padding: 8px 2px;
-  background: none; border: 0; border-top: 1px solid var(--hair); text-align: left; font: 500 13px var(--mono); color: var(--mute); cursor: pointer; }
-.hx-routes button:first-child { border-top: 0; }
-.hx-routes button::before { content: ''; grid-area: dot; width: 10px; height: 10px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px currentColor; }
-.hx-routes button[aria-checked="true"] { color: var(--ink); }
-.hx-routes button[aria-checked="true"]::before { background: radial-gradient(circle, currentColor 0 2.5px, transparent 3px); }
-.hx-routes b { grid-area: name; font-weight: 600; white-space: nowrap; }
-.hx-routes output { grid-area: out; font-weight: 600; text-align: right; white-space: nowrap; }
-.hx-routes span { grid-area: note; min-width: 0; font-size: 12px; color: var(--mute); }
-.hx-routes em { grid-area: tag; font: 600 10px var(--mono); font-style: normal; text-transform: uppercase; letter-spacing: .06em; color: #16a34a; text-align: right; }
-@media (hover: hover) { .hx-routes button:hover { color: var(--ink); } }
-.hx-routes button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-/* Beside the card the way in leads: the sign-in line comes right after the intro, and the protocol's totals follow it. */
-@media (min-width: 761px) {
-  .hero-l { display: flex; flex-direction: column; }
-  .hero-l .start { order: 1; }
-  .hero-l .proof-row { order: 2; }
-}
-/* A step card with nothing in its foot keeps only the arrow, up beside its heading, rather than stranding it at the bottom of the card. */
-.flow-step .tile-foot:has(> span:nth-child(2):empty) { position: absolute; top: 22px; right: 20px; margin: 0; padding: 0; border: 0; }
-.flow-step .tile-foot:has(> span:nth-child(2):empty) .dot { display: none; }
-/* On a wide screen the page uses more of it. */
-@media (min-width: 1100px) { .shell { max-width: 940px; } }
-/* One column under 760px: the intro, the card, then the sign-in line. */
-@media (max-width: 760px) {
-  .hero-go { grid-template-columns: minmax(0, 1fr); gap: 0; }
-  .hero-l { display: contents; }
-  .hx { order: 1; margin-top: 26px; }
-  .hero-l .start { order: 2; }
-  .hero-l .proof-row { order: 3; }
-}
-/* Tacit Pay, a step from the button: the quickest way in for someone who only wants to pay or be paid. */
-.tiles-2 { display: grid; gap: 10px; margin-top: 22px; }
-.tiles-2 .paytile { margin-top: 0; }
-.paytile { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 6px 16px; margin-top: 22px; padding: 12px 16px;
-  color: inherit; text-decoration: none; background: var(--card); border: 1px solid var(--hair); transition: border-color .18s, transform .25s var(--ease); }
-.paytile .tk { width: 26px; height: 26px; }
-.paytile .pair .tk + .tk { margin-left: -8px; box-shadow: 0 0 0 2px var(--card); }
-.pt-t { display: grid; gap: 1px; min-width: 0; font-size: 12px; line-height: 1.45; color: var(--mute); }
-.pt-t b { font: 400 19px/1.1 var(--serif); color: var(--ink); }
-.pt-go { font-size: 12px; font-weight: 500; white-space: nowrap; color: var(--ink); }
-.pt-go .go { display: inline-block; transition: transform .3s var(--spring); }
-@media (hover: hover) { .paytile:hover { border-color: var(--ink); } .paytile:hover .go { transform: translateX(4px); } .paytile:hover .pair .tk:nth-child(2) { transform: translate(5px, -2px); } .paytile:hover .pair .tk:nth-child(3) { transform: translate(10px, -2px); } }
-.paytile:active { transform: scale(.99); }
-@media (max-width: 640px) { .paytile { grid-template-columns: auto minmax(0, 1fr); } .pt-go { grid-column: 2; } }
-/* ── live: what happened lately, as a tape under the figures. It stops under the pointer and stands still under reduced
-   motion (the tape can then be scrolled by hand). ── */
-.tape { display: flex; align-items: center; gap: 14px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--hair-2); font-size: 12px; color: var(--mute); }
-.tape-l { flex: none; display: inline-flex; align-items: center; gap: 7px; font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .12em; }
+.hx-q .link, .hx-q button { color: var(--ink); }
+.hx-more { display: inline-block; margin: 10px 2px 0; padding: 0; font-size: 12px; color: var(--mute); background: none; border: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+@media (hover: hover) { .hx-more:hover { color: var(--ink); } }
+.hx-gauge { margin: 14px 2px 2px; }
+.hx-gauge-b { position: relative; height: 10px; border-radius: 5px; background: linear-gradient(90deg, var(--err) 0 13%, var(--orange) 13% 25%, var(--ok) 25%); opacity: .85; }
+.hx-gauge-l { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--mute); }
+
+/* ── live: what happened lately, as a tape under the hero. It stops under the pointer and stands still under reduced motion
+   (the tape can then be scrolled by hand). ── */
+.tape { display: flex; align-items: center; gap: 14px; margin-top: 30px; padding: 8px 0; border-top: 1px solid var(--ink); border-bottom: 1px solid var(--ink); font-size: 12px; color: var(--mute); }
+.tape-l { flex: none; display: inline-flex; align-items: center; gap: 7px; font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--ink); }
 .tape-l .dot { animation: pulse 1.6s ease-in-out infinite; }
 .tape-v { flex: 1; min-width: 0; overflow: hidden; -webkit-mask-image: linear-gradient(90deg, transparent, #000 24px, #000 calc(100% - 48px), transparent);
   mask-image: linear-gradient(90deg, transparent, #000 24px, #000 calc(100% - 48px), transparent); }
@@ -370,12 +382,176 @@ a.di { color: inherit; text-decoration: none; }
 .tape-run time::before { content: '· '; }
 @keyframes tape { to { transform: translateX(-50%); } }
 @media (prefers-reduced-motion: reduce) { .tape-v { overflow-x: auto; } }
-.proof b { font: 500 14px var(--mono); letter-spacing: -.02em; color: var(--ink); }
-.proof b small { margin: 0 4px 0 3px; font-size: 12px; font-weight: 400; letter-spacing: 0; color: var(--mute); }
-.proof { text-decoration: none; }
-.proof .go { transition: transform .3s var(--spring); }
-@media (hover: hover) { .proof:hover .go { color: var(--ink); transform: translateX(4px); } }
 #pts-lb { scroll-margin-top: 18px; }
+
+/* ── the sections under the hero: one idea each, a big word, a few plain lines ── */
+.sx { padding: 96px 0 0; }
+.sx-h { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px 56px; align-items: end; margin-bottom: 40px; }
+.sx-h h2 { font: 400 clamp(44px, 6vw, 76px)/.95 var(--serif); letter-spacing: -.02em; margin: 0; }
+.sx-h h2 em { font-style: italic; }
+.sx-h p { margin: 0; max-width: 44ch; font-size: 16px; color: var(--ink); }
+.sx-k { display: block; margin: 0 0 14px; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
+.shell:has(#dash:not([hidden])) .hw { display: none; }
+
+/* One ID, two chains: Bitcoin left, Ethereum right, the key down the middle, one lane for each thing that crosses. */
+.wd { --end: 300px; border: 1px solid var(--ink); background: var(--card); }
+.wd-top, .wd-lane { display: grid; grid-template-columns: var(--end) minmax(0, 1fr) var(--end); align-items: center; }
+.wd-top { padding: 26px 26px 22px; border-bottom: 1px solid var(--ink); }
+.wd-ch { display: flex; align-items: center; gap: 14px; font: 400 clamp(34px, 4.4vw, 52px)/1 var(--serif); letter-spacing: -.01em; }
+.wd-ch .tk { width: 56px; height: 56px; }
+.wd-ch.r { justify-content: flex-end; }
+.wd-key { position: relative; z-index: 1; display: grid; justify-items: center; gap: 8px; text-align: center; background: none; border: 0; cursor: pointer; }
+.wd-key .tk { width: 64px; height: 64px; transition: transform .35s var(--spring); }
+@media (hover: hover) { .wd-key:hover .tk { transform: rotate(-14deg); } }
+.wd-key code { font: 500 14px var(--mono); padding: 3px 10px; border: 1px solid var(--ink); background: var(--field); }
+.wd-key small { max-width: 26ch; font-size: 11px; line-height: 1.4; color: var(--mute); text-wrap: balance; }
+.wd-key::after { content: ''; position: absolute; top: calc(100% + 6px); left: 50%; height: 17px; border-left: 1px dashed var(--ink); opacity: .5; }
+.wd-lanes { position: relative; list-style: none; margin: 0; padding: 0; }
+.wd-lanes::before { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; border-left: 1px dashed var(--ink); opacity: .5; }
+.wd-lane { min-height: 104px; }
+.wd-lane + .wd-lane { border-top: 1px dotted var(--hair-2); }
+.wd-end { display: flex; align-items: center; gap: 16px; height: 100%; padding: 18px 26px; text-align: left; color: inherit; background: none; border: 0; cursor: pointer; transition: background .15s; }
+.wd-end.r { justify-content: flex-end; text-align: right; }
+@media (hover: hover) { .wd-end:hover { background: var(--field); } .wd-end:hover .tk { transform: scale(1.08); } }
+.wd-end .tk { width: 48px; height: 48px; transition: transform .25s var(--spring); }
+.wd-end .pair .tk { width: 44px; height: 44px; }
+.wd-end b { display: block; font: 400 28px/1.05 var(--serif); }
+.wd-end small { display: block; margin-top: 4px; font-size: 12px; line-height: 1.4; color: var(--mute); }
+.wd-wire { position: relative; align-self: stretch; display: grid; place-items: center; padding: 0; color: inherit; background: none; border: 0; cursor: pointer; }
+.wd-wl { position: absolute; left: 4px; right: 4px; top: 50%; height: 2px; margin-top: -1px; }
+.wd-wl.r { color: var(--blue); background: linear-gradient(90deg, transparent, var(--orange) 36px, var(--blue)); }
+.wd-wl.l { color: var(--orange); background: linear-gradient(90deg, var(--orange), var(--blue) calc(100% - 36px), transparent); }
+.wd-wire:has(.wd-wl + .wd-wl) .wd-wl.r { margin-top: -6px; left: 18px; }
+.wd-wire:has(.wd-wl + .wd-wl) .wd-wl.l { margin-top: 4px; right: 18px; }
+.wd-wl::after { content: ''; position: absolute; top: 1px; width: 9px; height: 9px; margin-top: -4.5px; border: solid currentColor; }
+.wd-wl.r::after { right: 1px; border-width: 2px 2px 0 0; transform: rotate(45deg); }
+.wd-wl.l::after { left: 1px; border-width: 0 0 2px 2px; transform: rotate(45deg); }
+.wd-wl::before { content: ''; position: absolute; top: -2px; width: 6px; height: 6px; background: currentColor; opacity: 0; animation: wd-r 2.8s linear infinite; }
+.wd-wl.l::before { animation-name: wd-l; animation-delay: -1.4s; }
+@keyframes wd-r { 0% { left: 0; opacity: 0; } 10%, 82% { opacity: 1; } 94%, 100% { left: calc(100% - 18px); opacity: 0; } }
+@keyframes wd-l { 0% { left: calc(100% - 6px); opacity: 0; } 10%, 82% { opacity: 1; } 94%, 100% { left: 12px; opacity: 0; } }
+.wd-wire:hover .wd-wl::before, .wd-lane:has(.wd-end:hover) .wd-wl::before { animation-duration: 1.2s; }
+.wd-wire:hover .wd-wl.l::before, .wd-lane:has(.wd-end:hover) .wd-wl.l::before { animation-delay: -.6s; }
+.wd-wire span { position: relative; z-index: 1; padding: 3px 9px; font-size: 11px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; background: var(--card); border: 1px solid var(--ink); transition: background .15s, color .15s; }
+.wd-wire:hover span, .wd-lane:has(.wd-end:hover) .wd-wire span { color: var(--card); background: var(--ink); }
+.wd-foot { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--ink); }
+.wd-foot button { display: flex; align-items: center; gap: 12px; padding: 14px 26px; font-size: 13px; text-align: left; color: inherit; background: none; border: 0; cursor: pointer; transition: background .15s; }
+.wd-foot button + button { justify-content: flex-end; text-align: right; border-left: 1px solid var(--hair-2); }
+@media (hover: hover) { .wd-foot button:hover { background: var(--field); } }
+.wd-foot .tk { width: 28px; height: 28px; }
+.wd-foot b { font-weight: 500; }
+.wd-n { display: flex; flex-wrap: wrap; gap: 6px 28px; margin: 16px 0 0; font-size: 13px; color: var(--mute); }
+.wd-n b { font-weight: 500; color: var(--ink); }
+/* The picture of the two chains: what is passing between them now, and over the last day. No box: a rule and a line. */
+.kept { margin: 34px 0 0; padding: 14px 0 0; border-top: 1px solid var(--hair); }
+.kept-h { display: flex; justify-content: space-between; align-items: baseline; gap: 6px 16px; flex-wrap: wrap; margin: 0 0 10px; font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--mute); }
+.kept-h a { font: 400 12px var(--mono); text-transform: none; letter-spacing: 0; color: var(--mute); }
+#kept-v { min-height: 128px; }
+
+/* Three steps: the ID, what you hold made private, then putting it to work. */
+.hw-l { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--ink); }
+.hw-l > li { display: grid; align-content: start; gap: 10px; padding: 22px 26px 6px 0; }
+.hw-l > li + li { padding-left: 26px; border-left: 1px solid var(--hair-2); }
+.hw-n { font: 400 88px/.8 var(--serif); }
+.hw-ic { display: flex; align-items: center; gap: 8px; min-height: 36px; }
+.hw-ic .tk { width: 32px; height: 32px; }
+.hw-l h3 { font: 400 34px/1 var(--serif); margin: 6px 0 0; }
+.hw-l p { margin: 0; max-width: 34ch; color: var(--mute); }
+.hw-l button.tl { justify-self: start; margin-top: 4px; padding: 0; color: var(--ink); background: none; border: 0; cursor: pointer; font: inherit; font-weight: 500; }
+.hw-ways { display: grid; }
+.hw-ways button { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 10px; align-items: baseline; width: 100%; padding: 8px 0; text-align: left; color: var(--mute); background: none; border: 0; border-top: 1px dotted var(--hair-2); cursor: pointer; transition: color .15s; }
+.hw-ways button:last-child { border-bottom: 1px dotted var(--hair-2); }
+.hw-ways b { font-weight: 500; color: var(--ink); }
+.hw-ways i { font-style: normal; transition: transform .2s var(--spring); }
+@media (hover: hover) { .hw-ways button:hover { color: var(--ink); } .hw-ways button:hover i { transform: translateX(4px); } }
+.hw-l .hw-skip { font-size: 13px; }
+.hw-go { display: flex; flex-wrap: wrap; gap: 4px 18px; }
+
+/* Farm TAC: the two ways in, each with its rate. */
+.fm-y { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--ink); }
+.fm-way { display: grid; grid-template-columns: 1fr auto; align-content: start; gap: 6px 20px; padding: 26px; text-align: left; color: inherit; text-decoration: none; background: var(--card); transition: background .15s; }
+.fm-way + .fm-way { border-left: 1px solid var(--ink); }
+@media (hover: hover) { .fm-way:hover { background: var(--field); } .fm-way:hover .go { transform: translateX(4px); } }
+.fm-apr { grid-column: 1; font: 400 clamp(64px, 9vw, 112px)/.85 var(--serif); letter-spacing: -.03em; }
+.fm-apr small { margin-left: 8px; font: 500 14px var(--mono); letter-spacing: .08em; }
+.fm-way .pair { grid-column: 2; grid-row: 1; align-self: start; }
+.fm-way .pair .tk { width: 48px; height: 48px; }
+.fm-way h3 { grid-column: 1 / -1; margin: 14px 0 0; font: 400 30px/1.05 var(--serif); }
+.fm-way p { grid-column: 1 / -1; max-width: 40ch; margin: 0; color: var(--mute); }
+.fm-way .fm-go { grid-column: 1 / -1; margin-top: 12px; font-weight: 500; }
+.fm-way .go { display: inline-block; transition: transform .3s var(--spring); }
+.ptsline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 16px 0; color: inherit; text-decoration: none; border-bottom: 1px solid var(--ink); }
+.ptsline .tk { width: 28px; height: 28px; box-shadow: none; transition: transform .4s var(--spring); }
+.ptsline .fig { display: inline-flex; align-items: baseline; gap: 10px; }
+.ptsline .fig b { font: 400 34px/1 var(--serif); color: var(--ink); }
+.ptsline .you { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; color: var(--mute); }
+.ptsline .go { transition: transform .3s var(--spring); }
+@media (hover: hover) { .ptsline:hover .go { transform: translateX(4px); } .ptsline:hover > .tk { transform: scale(1.18) rotate(90deg); } .ptsline:hover .you { color: var(--ink); } }
+.boost { padding: 1px 5px; font: 500 10.5px var(--mono); font-style: normal; letter-spacing: .04em; color: var(--ink); background: color-mix(in srgb, var(--orange) 26%, transparent); }
+
+/* TAC: one calm coin; it turns to show Bitcoin on its back, then Ethereum. */
+.tc { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 72px; align-items: start; }
+.tc-stage { position: sticky; top: 96px; margin-top: 34px; height: 280px; display: grid; place-items: center; perspective: 900px; }
+.tc-tilt { transform-style: preserve-3d; animation: tc-bob 7s ease-in-out infinite; }
+@keyframes tc-bob { 0%, 100% { transform: rotateX(8deg) rotateZ(-4deg) translateY(-3px); } 50% { transform: rotateX(8deg) rotateZ(-4deg) translateY(3px); } }
+.tc-coin { --t: 14px; --cyc: 14s; position: relative; width: 200px; height: 200px; transform-style: preserve-3d; animation: tc-spin var(--cyc) infinite; }
+@keyframes tc-spin {
+  0%, 14% { transform: rotateY(0deg); animation-timing-function: cubic-bezier(.65, 0, .25, 1); }
+  25%, 39% { transform: rotateY(180deg); animation-timing-function: cubic-bezier(.65, 0, .25, 1); }
+  50%, 64% { transform: rotateY(360deg); animation-timing-function: cubic-bezier(.65, 0, .25, 1); }
+  75%, 89% { transform: rotateY(540deg); animation-timing-function: cubic-bezier(.65, 0, .25, 1); }
+  100% { transform: rotateY(720deg); }
+}
+.tc-edge, .tc-edge i { position: absolute; inset: 0; border-radius: 50%; transform-style: preserve-3d; }
+.tc-face { position: absolute; inset: 0; border-radius: 50%; overflow: hidden; box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 14%, transparent); backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.tc-face svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.tc-front { transform: translateZ(calc(var(--t) / 2 + .5px)); }
+.tc-back { transform: rotateY(180deg) translateZ(calc(var(--t) / 2 + .5px)); }
+/* The back shows Bitcoin on the first turn and Ethereum on the next, swapped while the front faces out. */
+.tc-btc { animation: tc-first var(--cyc) steps(1, end) infinite; }
+.tc-eth { animation: tc-second var(--cyc) steps(1, end) infinite; }
+@keyframes tc-first { 0% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes tc-second { 0% { opacity: 0; } 50% { opacity: 1; } }
+.tc-face::after { content: ''; position: absolute; inset: 0; border-radius: 50%; background: linear-gradient(105deg, transparent 40%, rgba(255, 246, 225, .22) 50%, transparent 60%) 0 0 / 300% 100% no-repeat; animation: tc-sheen var(--cyc) infinite; }
+@keyframes tc-sheen {
+  0%, 14% { background-position: 110% 0; } 25% { background-position: -10% 0; } 25.1%, 39% { background-position: 110% 0; }
+  50% { background-position: -10% 0; } 50.1%, 64% { background-position: 110% 0; } 75% { background-position: -10% 0; }
+  75.1%, 89% { background-position: 110% 0; } 100% { background-position: -10% 0; }
+}
+.tc-shadow { position: absolute; bottom: 24px; width: 170px; height: 18px; border-radius: 50%; background: radial-gradient(closest-side, rgba(0, 0, 0, .22), transparent); animation: tc-shade var(--cyc) infinite; }
+@keyframes tc-shade {
+  0%, 14%, 25%, 39%, 50%, 64%, 75%, 89%, 100% { transform: scaleX(1); opacity: 1; }
+  19.5%, 44.5%, 69.5%, 94.5% { transform: scaleX(.42); opacity: .65; }
+}
+.tc h2 { font: 400 clamp(34px, 4vw, 52px)/1 var(--serif); letter-spacing: -.02em; max-width: 18ch; margin: 0; }
+.tc h2 em { font-style: italic; }
+.tc-p { font-size: 16px; line-height: 1.65; margin: 20px 0 0; max-width: 56ch; }
+.tc-p.soft { margin-top: 26px; color: var(--mute); }
+.tc-facts { display: flex; flex-wrap: wrap; gap: 14px 44px; margin: 28px 0 0; padding: 0; }
+.tc-facts div { display: flex; flex-direction: column-reverse; gap: 2px; }
+.tc-facts dt { font-size: 12px; color: var(--mute); }
+.tc-facts dd { margin: 0; font: 400 28px/1.1 var(--serif); letter-spacing: -.01em; white-space: nowrap; }
+.tc-hold { max-width: 62ch; margin: 28px 0 0; padding: 16px 0 0; border-top: 1px dashed var(--hair-2); font-size: 13px; line-height: 1.65; color: var(--mute); }
+.tc-hold b { display: block; margin-bottom: 4px; font-size: 11px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--ink); }
+.tc-links { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 26px; margin-top: 26px; }
+.tc-links .tl { font-size: 14px; }
+.tc-links .btn { width: auto; min-height: 52px; margin: 0; padding: 0 24px; background: transparent; color: var(--ink); border-color: var(--ink); }
+@media (hover: hover) { .tc-links .btn:hover:not(:disabled) { color: var(--paper); background: var(--ink); } }
+@media (prefers-reduced-motion: reduce) { .tc-eth { opacity: 0; } }
+
+footer { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 26px; margin-top: 110px; padding-top: 22px; border-top: 1px solid var(--ink); color: var(--mute); font-size: 13px; }
+/* The links in three short lists under the site's own line, each with its heading. */
+footer nav { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; }
+footer nav div { display: grid; align-content: start; gap: 6px; }
+footer nav b { font: 500 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--mute); }
+@media (pointer: fine) { footer nav a { padding: 3px 0; } }
+footer a { display: inline-block; padding: 8px 0; color: var(--mute); }
+@media (hover: hover) { footer a:hover { color: var(--ink); } }
+/* The X account, as its mark, at the end of the site's own line. */
+footer .on-x { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; margin: -8px -5px; transition: color .15s, transform .3s var(--spring); }
+footer .on-x svg { width: 16px; height: 16px; }
+@media (hover: hover) { footer .on-x:hover { transform: scale(1.15); } }
+footer .on-x:active { transform: scale(.9); }
 
 
 /* ── TAC's price, where it trades ── */
@@ -400,244 +576,21 @@ a.di { color: inherit; text-decoration: none; }
 .tpx .note { margin: 0; padding: 8px 12px 10px; border-top: 1px solid var(--hair); }
 .tpx thead th { padding: 0; border: 0; }
 
-/* ── first steps: a first visit, then an open key until it holds anything private ── */
-.start .cta { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; margin-top: 30px; }
-.start .btn { width: auto; min-width: 190px; margin: 0; }
-/* Under the button, what it does now: signing in, then making ETH private (paintStart marks the step). */
-.start .hint { flex: 0 0 100%; max-width: none; order: 1; margin-top: -2px; font-size: 13px; line-height: 1.5; }
-.start [data-step]:not(.now) { display: none; }
-.start .link { padding: 8px 0; margin: -8px 0 -8px 6px; font-size: 12px; }
-
-/* ── how it comes together: the eight assets as a route map at the foot of the page. Each lane runs from what you hold to what
-   it becomes in the Tacit pool, with how it gets there beside it; the way between two stops is a link to the sheet that takes it,
-   on a line from one asset's colour to the next. No box: the boxes above are the two steps the page leads with. ── */
-.paths { --lg: 34px; }
-.paths h2 { font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--mute); margin: 0 0 2px; }
-.lanes { list-style: none; margin: 0; padding: 0; }
-.lane { display: grid; grid-template-columns: minmax(0, 1fr) 15rem; align-items: center; gap: 10px 28px; padding: 18px 0; }
-.lane + .lane { border-top: 1px solid var(--hair); }
-/* The last stop of every lane starts in the same column, so the private ends line up. */
-.route { display: grid; grid-template-columns: auto minmax(96px, 1fr) 6.5rem; align-items: start; row-gap: 14px; }
-.route.r3 { grid-template-columns: auto minmax(96px, 1fr) auto minmax(96px, 1fr) 6.5rem; }
-/* A stop: the asset's logo and name, and whether it is held in public or privately. */
-.stn { display: inline-flex; align-items: center; gap: 8px; justify-self: start; padding: 0; text-align: left; color: inherit; background: none; border: 0; }
-button.stn { cursor: pointer; }
-button.stn .tk { transition: transform .12s; }
-.stn .tk { width: var(--lg); height: var(--lg); }
-.nm { display: grid; line-height: 1.25; }
-.nm b { font: 500 13px var(--mono); letter-spacing: -.01em; color: var(--ink); }
-.nm small { font-size: 11px; color: var(--mute); }
-@media (hover: hover) { button.stn:hover b { text-decoration: underline; text-underline-offset: 3px; } }
-/* The way between two stops: a line from one asset's colour to the next, its verb riding on it. */
-.edge { --a: var(--hair-2); --b: var(--hair-2); position: relative; display: flex; align-items: center; justify-content: center; height: var(--lg); margin: 0 6px; }
-.edge::before { content: ''; position: absolute; left: 0; right: 5px; top: 50%; height: 2px; margin-top: -1px; border-radius: 1px;
-  background: linear-gradient(90deg, transparent, var(--ink), transparent) -60% 0 / 34% 100% no-repeat, linear-gradient(90deg, var(--a), var(--b));
-  opacity: var(--route-o); transition: opacity .18s; }
-.edge::after { content: ''; position: absolute; right: 0; top: 50%; margin-top: -4px; border: 4px solid transparent; border-right: 0; border-left: 6px solid var(--b); opacity: .8; }
-.e-eth { --a: #627eea; --b: #627eea; }
-.e-btc { --a: #f7931a; --b: #f7931a; }
-.e-usd { --a: #f7931a; --b: #16a34a; }
-.e-xch { --a: #f7931a; --b: #627eea; }
-.hop { position: relative; z-index: 1; display: inline-block; padding: 0 11px; font-size: 12px; line-height: 26px; white-space: nowrap;
-  color: var(--ink); text-decoration: none; background: var(--card); border: 1px solid var(--hair-2); transition: border-color .15s, background-color .15s, color .15s, transform .12s; }
-.hop::after { content: ''; position: absolute; inset: -8px -4px; }                  /* a finger's reach, past the chip's edge */
-/* A lane under the pointer brightens; its verb inverts and sends a glint along its own line, from what you hold to what it becomes. */
-@media (hover: hover) { .hop:hover { color: var(--card); background: var(--ink); border-color: var(--ink); } .lane:hover .edge::before { opacity: 1; }
-  .edge:has(.hop:hover)::before { animation: flow 1.1s linear infinite; } }
-.hop:focus-visible { color: var(--card); background: var(--ink); border-color: var(--ink); }
-.edge:has(.hop:focus-visible)::before { opacity: 1; animation: flow 1.1s linear infinite; }
-.then { font-size: 12px; line-height: 1.55; color: var(--mute); text-wrap: pretty; }
-.then a { color: var(--ink); }
-/* cBTC and cUSD withdrawn to an address: their public ERC-20s, each hanging under the note it comes from. */
-.tw-l { grid-column: 1 / 3; grid-row: 2; justify-self: end; align-self: center; margin-right: 14px; font-size: 11px; color: var(--mute); text-align: right; }
-.tw-l .narrow { display: none; }
-.twin { --cx: calc(var(--lg) / 2); grid-row: 2; position: relative; }
-.twin.b { grid-column: 3; }
-.twin.u { grid-column: 5; }
-.twin .tk { width: 24px; height: 24px; margin-left: calc((var(--lg) - 24px) / 2); }
-.twin::before { content: ''; position: absolute; left: var(--cx); top: -14px; height: 13px; border-left: 1px dotted var(--mute); opacity: .7; }
-/* The picture of the two chains, under the lanes: what is passing between them now, and over the last day. No box: a rule and a line. */
-.kept { margin: 0 0 22px; padding: 14px 0 0; border-top: 1px solid var(--hair); }
-.kept-h { display: flex; justify-content: space-between; align-items: baseline; gap: 6px 16px; flex-wrap: wrap; margin: 0 0 10px; font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--mute); }
-.kept-h a { font: 400 12px var(--mono); text-transform: none; letter-spacing: 0; color: var(--mute); }
-#kept-v { min-height: 128px; }
-/* What the lanes leave out: the ETH-only pools that take payments on four chains. */
-.paths-n { margin: 0 0 26px; padding: 14px 0 0; font-size: 12px; line-height: 1.55; color: var(--mute); border-top: 1px solid var(--hair); }
-/* Narrower than the shell, a lane's line goes under its route, as on a phone. */
-@media (max-width: 800px) { .lane { grid-template-columns: minmax(0, 1fr); gap: 8px; } }
-
-/* ── what you can do: one tile per action, each the same shape ── */
-/* A verb, one line, the figure that matters for it, then the line that says where you stand. A tile with more than one way
-   in (Pay, Earn TAC) lists them, each its own link above the tile's. */
-.group-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin: 0 0 12px; }
-.group-h h2 { font: 400 26px/1 var(--serif); letter-spacing: -.01em; margin: 0; }
-.group-h p { margin: 0; font-size: 13px; color: var(--mute); }
-.tiles { display: grid; gap: 14px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.tile { position: relative; display: flex; flex-direction: column; gap: 8px; padding: 20px; background: var(--card); border: 1px solid var(--hair);
-  transition: border-color .18s, transform .25s var(--ease), box-shadow .25s var(--ease); }
-@media (hover: hover) { .tile:hover { border-color: var(--ink); transform: translateY(-2px); box-shadow: var(--lift); } }
-.tile:has(.tile-main:focus-visible) { outline: 2px solid var(--ink); outline-offset: 2px; }
-.tile-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-.tile .tk { width: 40px; height: 40px; }
-.tile .pair .tk + .tk { margin-left: -12px; box-shadow: 0 0 0 2px var(--card); }
-.tile h3 { font: 400 28px/1.02 var(--serif); letter-spacing: -.01em; margin: 0; }
-.tile-main { color: inherit; text-decoration: none; }
-.tile-main:focus-visible { outline: none; }
-.tile-main::after { content: ''; position: absolute; inset: 0; }
-.tile p { color: var(--mute); font-size: 13px; line-height: 1.5; margin: 0; }
-.figs { display: grid; gap: 3px; margin-top: 4px; }
-.fig { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; font-size: 12px; color: var(--mute); }
-.fig b { font: 500 17px var(--mono); letter-spacing: -.02em; color: var(--ink); white-space: nowrap; }
-.fig b small { margin-left: 3px; font-size: 12px; font-weight: 400; letter-spacing: 0; color: var(--mute); }
-.tile .row { position: relative; z-index: 1; }
-.tile-foot, .tile .row { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--hair); font-size: 13px; min-width: 0; }
-.tile-foot { margin-top: auto; padding-top: 14px; }
-.tile-foot:has(> span:nth-child(2):empty) { border-top-color: transparent; }
-.tile-foot:has(> span:nth-child(2):empty) .dot { visibility: hidden; }
-.tile-foot span:nth-child(2), .tile .row span:nth-child(3) { min-width: 0; line-height: 1.35; }
-.tile-foot .go, .tile .row .go { margin-left: auto; transition: transform .3s var(--spring); }
-@media (hover: hover) { .tile:has(.tile-main:hover) .tile-foot .go, .tile .row:hover .go { transform: translateX(4px); } }
-.rows { display: grid; margin-top: auto; }
-.tile .row { min-height: 40px; padding: 8px 0; color: inherit; text-decoration: none; }
-.tile .row:last-child { padding-bottom: 0; }
-.tile .row b { font-weight: 500; }
-.tile .row span:nth-child(3) { color: var(--mute); }
-@media (hover: hover) { .tile .row:hover b { text-decoration: underline; } }
-/* Pay, Swap and Borrow, lighter than the two steps above them: no box, a rule over each, each as tall as what it says, its
-   arrow by its name. A foot shows only when it has something to say. */
-.tiles.lite { align-items: start; column-gap: 28px; }
-.tiles.lite .tile { padding: 16px 0 0; background: none; border: 0; border-top: 1px solid var(--hair-2); }
-.tiles.lite h3::after { content: '→'; content: '→' / ''; display: inline-block; margin-left: 10px; font: 400 14px var(--mono); vertical-align: 4px; transition: transform .3s var(--spring); }
-.tiles.lite .tile-foot .go, .tiles.lite .tile-foot:has(> span:nth-child(2):empty) { display: none; }
-@media (hover: hover) { .tiles.lite .tile:hover { border-color: var(--hair-2); transform: none; box-shadow: none; } .tiles.lite .tile:hover h3::after { transform: translateX(4px); } }
-/* Earn on private ETH: the two steps the page leads with, side by side, the second listing each private pool's rate. */
-main > section + section { margin-top: 40px; }
-.flow-b { display: grid; gap: 14px 40px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.flow-step .tile-top { justify-content: flex-start; gap: 12px; }
-/* Step 1 leads into step 2: the route map's line, from ETH's colour to TAC's, across the gap at the height of their logos. */
-.flow-step + .flow-step::before { content: ''; position: absolute; top: 39px; right: calc(100% + 12px); width: 26px; height: 2px; border-radius: 1px;
-  background: linear-gradient(90deg, #627eea, #f7931a); opacity: var(--route-o); }
-.flow-step + .flow-step::after { content: ''; position: absolute; top: 36px; right: calc(100% + 6px); border: 4px solid transparent; border-right: 0;
-  border-left: 6px solid #f7931a; opacity: .8; }
-.flow-n { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 26px; height: 26px; border-radius: 50%;
-  font: 500 12px var(--mono); color: var(--card); background: var(--ink); }
-.pools { position: relative; z-index: 1; list-style: none; display: grid; margin: 4px 0 0; padding: 0; }
-.pools a { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; color: var(--ink); text-decoration: none;
-  border-top: 1px dashed var(--hair-2); }
-.pools b { font: 500 13px var(--mono); }
-@media (hover: hover) { .pools a:hover span { text-decoration: underline; } }
-.facts { position: static; }
-.facts li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; color: var(--mute); border-top: 1px dashed var(--hair-2); }
-.facts b { font-weight: 500; color: var(--ink); text-align: right; }
-/* The public farm, for ETH straight from a wallet: one row under the private steps. */
-.pubfarm { display: grid; grid-template-columns: auto minmax(0, 1fr) auto 14px; align-items: center; gap: 6px 16px; margin-top: 14px; padding: 14px 18px;
-  color: inherit; text-decoration: none; background: var(--card); border: 1px solid var(--hair); transition: border-color .18s; }
-.pubfarm .tk { width: 30px; height: 30px; }
-.pubfarm .pair .tk + .tk { margin-left: -10px; box-shadow: 0 0 0 2px var(--card); }
-.pf-t { display: grid; gap: 2px; min-width: 0; font-size: 13px; color: var(--mute); line-height: 1.45; }
-.pf-t b { font-weight: 500; color: var(--ink); font-size: 13px; }
-.pf-r { display: grid; justify-items: end; gap: 1px; }
-.pf-r b { font: 500 17px var(--mono); letter-spacing: -.02em; white-space: nowrap; }
-.pf-r b small, .pf-r > small { font-size: 12px; font-weight: 400; color: var(--mute); }
-.pf-r b small { margin-left: 3px; }
-.pubfarm .go { transition: transform .3s var(--spring); }
-@media (hover: hover) { .pubfarm:hover { border-color: var(--ink); } .pubfarm:hover .go { transform: translateX(4px); } .pubfarm:hover .pf-t b { text-decoration: underline; } }
-/* Points, on the actions that earn them: a quiet line each, marked when the protocol weights it up (its card then leads its row). */
-.ptchip { display: flex; align-items: flex-start; gap: 7px; margin-top: 2px; font-size: 12px; line-height: 1.45; color: var(--mute); }
-.ptchip .tk { margin-top: 1px; }
-.tile .ptchip .tk, .ptsline .tk { width: 16px; height: 16px; box-shadow: none; }
-.ptchip [data-way], .facts [data-way] { color: var(--ink); font-weight: 500; }
-.boost { padding: 1px 5px; font: 500 10.5px var(--mono); font-style: normal; letter-spacing: .04em; color: var(--ink);
-  background: color-mix(in srgb, var(--orange) 26%, transparent); }
-.ptsline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 14px; padding: 10px 0; font-size: 12px; color: var(--mute);
-  text-decoration: none; border-top: 1px solid var(--hair); }
-.ptsline .fig { display: inline-flex; align-items: baseline; gap: 6px; }
-.ptsline .fig b { font: 500 14px var(--mono); color: var(--ink); }
-.ptsline .you { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; color: var(--ink); }
-.ptsline .go { transition: transform .3s var(--spring); }
-@media (hover: hover) { .ptsline:hover .go { transform: translateX(4px); } .ptsline:hover .you { text-decoration: underline; } }
-
-/* ── how it comes together: the route map (its rules sit with .paths above), then TAC ── */
-.how { margin-top: 44px; padding-top: 22px; border-top: 1px solid var(--hair); }
-/* TAC, in the same plain style as the rows above: what it is, where it came from, and where to check or act on it. */
-.tacbar { margin: 0 0 22px; padding-top: 14px; border-top: 1px solid var(--hair); }
-/* Closed until asked for: the label alone, which opens on the paragraph and its links. */
-.tacbar summary { display: inline-flex; align-items: center; gap: 10px; padding: 6px 0; cursor: pointer; list-style: none;
-  font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .12em; color: var(--mute); }
-.tacbar summary::-webkit-details-marker { display: none; }
-.tacbar summary::after { content: '+'; font-size: 13px; letter-spacing: 0; }
-.tacbar[open] summary::after { content: '−'; }
-.tacbar[open] summary { margin-bottom: 8px; }
-@media (hover: hover) { .tacbar summary:hover { color: var(--ink); } }
-.tacbar p { margin: 0; font-size: 12px; line-height: 1.65; color: var(--mute); text-wrap: pretty; }
-.tacbar p a { color: inherit; }
-.tacbar-ln { display: flex; flex-wrap: wrap; gap: 4px 16px; margin-top: 10px !important; }
-.tacbar-ln a { font-size: 12px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--hair-2); }
-@media (hover: hover) { .tacbar-ln a:hover { color: var(--ink); text-decoration-color: currentColor; } }
-
-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 20px; margin-top: 44px; padding-top: 18px;
-  border-top: 1px solid var(--hair-2); color: var(--mute); font-size: 12px; }
-/* The links in three short lists under the site's own line, each with its heading, instead of one run of ten. */
-footer nav { flex: 1 0 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 14px 24px; margin-top: 10px; }
-footer nav div { display: grid; align-content: start; }
-footer nav b { margin-bottom: 2px; font: 500 10.5px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink); }
-@media (pointer: fine) { footer nav a { padding: 6px 0; } }
-footer a { display: inline-block; padding: 12px 0; color: var(--mute); }
-@media (hover: hover) { footer a:hover { color: var(--ink); } }
-/* The X account, as its mark, at the end of the site's own line: a 24px target whose padding is pulled back, so the mark meets the
-   edge and the line keeps its height. */
-footer .on-x { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; margin: -12px -5px; transition: color .15s, transform .3s var(--spring); }
-footer .on-x svg { width: 14px; height: 14px; }
-@media (hover: hover) { footer .on-x:hover { transform: scale(1.15); } }
-footer .on-x:active { transform: scale(.9); }
-
-/* ── motion: how the front page answers a pointer. Stacked coins fan out over their card; a coin that opens its own card turns
-   once; arrows spring forward; a verb on the map sends a glint along its line; anything that opens something gives a little
-   when pressed. The reduced-motion block at the end stops all of it. ── */
+/* ── motion: how the front page answers a pointer. A coin that is the brand turns once; anything that opens something gives a
+   little when pressed. The reduced-motion block at the end stops all of it. ── */
 @keyframes coin { from { transform: perspective(300px) rotateY(0); } to { transform: perspective(300px) rotateY(360deg); } }
-@keyframes flow { to { background-position: 160% 0, 0 0; } }
 .pair .tk { transition: transform .4s var(--spring); }
 .pair .tk:nth-child(2) { transition-delay: .03s; }
 .pair .tk:nth-child(3) { transition-delay: .06s; }
-.ptsline > .tk, .ptchip > .tk { transition: transform .4s var(--spring); }
-.pubfarm { transition: border-color .18s, transform .25s var(--ease), box-shadow .25s var(--ease); }
-.proof, .ptsline, .news { transition: transform .15s var(--ease); }
 .btn { transition: background .15s, color .15s, transform .1s; }
 .chip { transition: border-color .15s, transform .1s; }
-/* A private pool's row lights under the pointer, a little past its text. */
-.pools a { position: relative; }
-.pools a::before { content: ''; position: absolute; inset: 0 -8px; z-index: -1; background: var(--ink); opacity: 0; transition: opacity .15s; }
-/* The lighter tiles' rule draws itself in ink, from the left. */
-.tiles.lite .tile::before { content: ''; position: absolute; top: -1px; left: 0; right: 0; height: 1px; background: var(--ink); transform: scaleX(0);
-  transform-origin: left; transition: transform .45s var(--ease); }
-.tiles.lite .tile:has(:focus-visible)::before { transform: scaleX(1); }
-.tiles.lite .pair .tk + .tk { box-shadow: 0 0 0 2px var(--paper); }
-/* Step 1's line to step 2 leans toward it. */
-.flow-step + .flow-step::before, .flow-step + .flow-step::after { transition: transform .35s var(--spring), opacity .18s; }
-@media (hover: hover) {
-  :is(.tile, .pubfarm):hover .pair .tk { transform: translateY(-2px); }
-  :is(.tile, .pubfarm):hover .pair .tk:nth-child(2) { transform: translate(7px, -2px); }
-  :is(.tile, .pubfarm):hover .pair .tk:nth-child(3) { transform: translate(14px, -2px); }
-  .brand:hover .tk, .paths button.stn:hover .tk { animation: coin .7s var(--ease); }
-  .pubfarm:hover { transform: translateY(-2px); box-shadow: var(--lift); }
-  .pools a:hover::before { opacity: .06; }
-  :is(.ptsline:hover, .tile:hover .ptchip) > .tk { transform: scale(1.18) rotate(90deg); }
-  .tiles.lite .tile:hover::before { transform: scaleX(1); }
-  .flow-b:hover .flow-step + .flow-step::before { opacity: 1; }
-  .flow-step:hover + .flow-step::before, .flow-step:hover + .flow-step::after { transform: translateX(4px); }
-}
-.paths button.stn:focus-visible .tk { animation: coin .7s var(--ease); }
-/* Pressed: it gives, then the sheet rises. After the hover rules, so a press wins over a lift. */
-.tile:active, .pubfarm:active, .proof:active, .ptsline:active, .news:active { transform: scale(.99); transition-duration: .08s; }
-.tiles.lite .tile:active { transform: scale(.985); }
-.hop:active { transform: scale(.94); }
-.paths button.stn:active .tk { transform: scale(.9); }                /* the coin, not the stop: a stop that shrank could lose the release */
+@media (hover: hover) { .brand:hover .tk { animation: coin .7s var(--ease); } }
+.news:active, .proof:active, .ptsline:active, .fm-way:active { transform: scale(.99); transition-duration: .08s; }
 .btn:active:not(:disabled), .chip:active { transform: scale(.98); }
-.pools a:active::before { opacity: .1; }
 
 /* ── sheets ── */
 dialog.sheet { width: min(560px, calc(100vw - 32px)); max-height: min(90vh, 900px); max-height: min(90dvh, 900px); padding: 0; overflow: auto; overscroll-behavior: contain;
-  color: var(--ink); background: var(--card); border: 1px solid var(--ink); box-shadow: var(--sheet-shadow); }
+  color: var(--ink); background: var(--card); border: 1px solid var(--hair-2); border-radius: 18px; box-shadow: var(--float); }
 dialog.sheet[open] { animation: rise .22s cubic-bezier(.2,.8,.2,1); }
 dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(2px); }
 @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
@@ -875,78 +828,16 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
 .toast a, .toast .link { color: inherit; font-size: inherit; margin-left: 4px; }
 
 @media (max-width: 640px) {
-  .proof .go { display: none; }                          /* the line is the link; its arrow would wrap onto a line of its own */
   .top { gap: 12px; }
   .brand { gap: 8px; }
   .chip { padding: 0 10px; }
   .chip.act { width: 38px; }
-  .hero { padding: 40px 0 28px; }
-  .news .w { display: none; }
-  .start .btn { flex: 1 1 100%; }
-  /* A lane is its route, then its line under it; each stop stands over its name, so three stops and their ways fit a phone. */
-  .paths { --lg: 30px; }
-  .lane { grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 14px 0; }
-  .route, .route.r3 { row-gap: 10px; }
-  .route { grid-template-columns: auto minmax(80px, 1fr) auto; }
-  .route.r3 { grid-template-columns: auto minmax(80px, 1fr) auto minmax(80px, 1fr) auto; }
-  .then { font-size: 12px; line-height: 1.5; }
-  .stn { flex-direction: column; gap: 5px; justify-self: center; text-align: center; }
-  .nm { justify-items: center; line-height: 1.2; }
-  .nm b { font-size: 12px; }
-  .nm small { font-size: 10.5px; }
-  .edge { margin: 0 3px; }
-  .hop { padding: 0 7px; line-height: 24px; }
-  .twin { --cx: 50%; }
-  .twin::before { top: -10px; height: 9px; }
-  .twin .tk { width: 22px; height: 22px; margin-left: 0; }
-  .tw-l { margin-right: 6px; }
-  .tw-l .wide { display: none; }
-  .tw-l .narrow { display: inline; }
-  /* A tile is a row: logo, the verb with its figure, its line, then where you stand. */
-  .tiles { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-  .tile { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "logo title figs" "logo text text" "logo pts pts" "foot foot foot";
-    gap: 4px 14px; padding: 16px; }
-  .tile-top { grid-area: logo; margin: 2px 0 0; align-self: start; }
-  .tile .tk { width: 34px; height: 34px; }
-  .tile .pair .tk + .tk { margin-left: -10px; }
-  .tile h3 { grid-area: title; font-size: 24px; align-self: center; }
-  .tile p { grid-area: text; font-size: 13px; }
-  .figs { grid-area: figs; margin: 0; align-self: center; }
-  .fig { display: grid; justify-items: end; text-align: right; font-size: 11px; line-height: 1.3; }
-  .fig b { font-size: 14px; }
-  .fig > span { max-width: 15ch; }
-  .flow-b { grid-template-columns: minmax(0, 1fr); gap: 24px; }
-  .flow-step { grid-template-areas: "logo title figs" "logo text text" "pools pools pools" "foot foot foot"; }
-  .flow-step .pair { display: none; }
-  /* Stacked, the line runs down from step 1 to step 2's number. */
-  .flow-step + .flow-step::before { top: auto; right: auto; bottom: calc(100% + 8px); left: 28px; width: 2px; height: 10px; background: linear-gradient(180deg, #627eea, #f7931a); }
-  .flow-step + .flow-step::after { top: auto; right: auto; bottom: calc(100% + 2px); left: 25px; border: 4px solid transparent; border-bottom: 0; border-top: 6px solid #f7931a; }
-  .flow-step:hover + .flow-step::before, .flow-step:hover + .flow-step::after { transform: translateY(3px); }
-  .pools { grid-area: pools; margin-top: 8px; }
-  .ptchip { grid-area: pts; }
-  .pubfarm { grid-template-columns: auto minmax(0, 1fr) 14px; padding: 14px 16px; margin-top: 10px; }
-  .pubfarm .pair { align-self: start; }
-  .pf-r { grid-column: 2; grid-row: 2; justify-items: start; }
-  .pubfarm .go { grid-column: 3; grid-row: 1 / span 2; }
-  .ptsline .fig { display: inline-flex; justify-items: start; text-align: left; font-size: 12px; }
-  .ptsline .fig > span { max-width: none; }
-  .ptsline .you { margin-left: 0; }
-  .tile-foot, .rows { grid-area: foot; margin-top: 8px; }
-  .tile-foot { padding-top: 12px; }
-  .tile-foot:has(> span:nth-child(2):empty) { display: none; }
-  dialog.sheet { width: 100vw; max-width: 100vw; margin: auto 0 0; max-height: 92vh; max-height: 92dvh; border-width: 1px 0 0; }
+  dialog.sheet { width: 100vw; max-width: 100vw; margin: auto 0 0; max-height: 92vh; max-height: 92dvh; border-width: 1px 0 0; border-radius: 18px 18px 0 0; }
   .sheet-in { padding: 20px 16px calc(24px + env(safe-area-inset-bottom)); }
   .big { font-size: 46px; }
   .dash { margin: 0 0 28px; }
   .dash-g { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .di-v { font-size: 17px; white-space: normal; overflow-wrap: anywhere; }
-}
-/* The narrowest phones keep the BTC lane's two ways at full size: the stops drop their public/private line. */
-@media (max-width: 340px) {
-  .route.r3 { grid-template-columns: auto minmax(66px, 1fr) auto minmax(66px, 1fr) auto; }
-  .r3 .nm small { display: none; }
-  .r3 .edge { margin: 0 3px; }
-  .r3 .hop { padding: 0 6px; }
 }
 @media (max-width: 400px) {
   .brand .tk { width: 26px; height: 26px; }
@@ -954,13 +845,73 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .top:has(.chip.act:not([hidden])) .brand i { display: none; }
 }
 @media (max-width: 340px) { .brand i { display: none; } }
+/* ── the front page on narrower screens ── */
+@media (max-width: 980px) {
+  .hero { padding-top: 18px; }
+  .hero-go { grid-template-columns: minmax(0, 1fr); gap: 34px; }
+  .hero-l { display: contents; }
+  .hero-t { order: 1; }
+  .hx { order: 2; width: 100%; max-width: 520px; }
+  .proof-row { order: 3; margin-top: 8px; }
+  .sx-h { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .wd { --end: 230px; }
+  .wd-top { padding: 20px 16px 18px; }
+  .wd-end { padding: 16px; }
+  .hw-l { grid-template-columns: minmax(0, 1fr); }
+  .hw-l > li, .hw-l > li + li { padding: 22px 0; border-left: 0; border-top: 1px solid var(--hair-2); }
+  .hw-l > li:first-child { border-top: 0; }
+  .hw-n { font-size: 64px; }
+  .fm-y { grid-template-columns: minmax(0, 1fr); }
+  .fm-way + .fm-way { border-left: 0; border-top: 1px solid var(--ink); }
+  .tc { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .tc-stage { position: relative; top: auto; margin-top: 0; height: 230px; }
+  .tc-coin { width: 170px; height: 170px; }
+  .tc-shadow { width: 140px; bottom: 18px; }
+}
+@media (max-width: 640px) {
+  .hero-t .start { display: none; }
+  .news .w { display: none; }
+  .sub { font-size: 17px; }
+  .proof { gap: 14px 22px; }
+  .proof b { font-size: 34px; }
+  .proof .go { display: none; }
+  .hx-h { padding: 2px 2px 0; }
+  .hx-h button { font-size: 17px; }
+  .hx-b { padding: 12px; }
+  .hx-amt, .hx-big { font-size: 38px; }
+  .tape { margin-top: 22px; }
+  .wd { --end: 1fr; }
+  .wd-top, .wd-lane { grid-template-columns: minmax(0, 1fr) 60px minmax(0, 1fr); }
+  .wd-top { padding: 16px 12px 14px; }
+  .wd-ch { font-size: 26px; gap: 8px; }
+  .wd-ch .tk { width: 32px; height: 32px; }
+  .wd-key .tk { width: 44px; height: 44px; }
+  .wd-key code, .wd-key small, .wd-key::after { display: none; }
+  .wd-end, .wd-end.r { flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px 12px; }
+  .wd-end.r { align-items: flex-end; }
+  .wd-end.r > :last-child { order: -1; }
+  .wd-end .tk { width: 36px; height: 36px; }
+  .wd-end .pair .tk { width: 34px; height: 34px; }
+  .wd-end b { font-size: 22px; }
+  .wd-end small { font-size: 11px; }
+  .wd-wire span { display: none; }
+  .wd-wl { --fade: 45%; }
+  .wd-wl.r { background: linear-gradient(90deg, transparent, var(--orange) 45%, var(--blue)); }
+  .wd-wl.l { background: linear-gradient(90deg, var(--orange), var(--blue) 55%, transparent); }
+  .wd-foot { grid-template-columns: minmax(0, 1fr); }
+  .wd-foot button { padding: 12px; }
+  .wd-foot button + button { justify-content: flex-start; text-align: left; border-left: 0; border-top: 1px dotted var(--hair-2); flex-direction: row-reverse; }
+  .fm-way { padding: 20px 16px; }
+  .tc-facts { flex-direction: column; gap: 0; }
+  .tc-facts div { flex-direction: row-reverse; justify-content: space-between; align-items: baseline; padding: 9px 0; border-top: 1px dotted var(--hair-2); }
+  .tc-facts div:last-child { border-bottom: 1px dotted var(--hair-2); }
+  footer nav { grid-template-columns: 1fr 1fr; }
+}
 /* A finger needs the full tap size; a mouse keeps the tighter controls. */
 @media (pointer: coarse) {
   .chip { min-height: var(--tap); }
   .chip.act { width: var(--tap); }
   .seg.sub button, .callout .btn, .hl-h .btn { min-height: var(--tap); }
-  .paths button.stn { position: relative; }
-  .paths button.stn::after { content: ''; position: absolute; inset: -5px -4px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
@@ -984,6 +935,13 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
     <symbol id="i-key" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="12" cy="16" r="4.3" fill="none" stroke="#f4efe6" stroke-width="2.3"/><path d="M16.3 16H25.5M22.4 16v3.4M25.5 16v2.6" fill="none" stroke="#f7931a" stroke-width="2.3" stroke-linecap="round"/></symbol>
     <symbol id="tk-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#627EEA"/><g fill="#FFF"><path fill-opacity=".602" d="M16.498 4v8.87l7.497 3.35z"/><path d="M16.498 4L9 16.22l7.498-3.35z"/><path fill-opacity=".602" d="M16.498 21.968v6.027L24 17.616z"/><path d="M16.498 27.995v-6.028L9 17.616z"/><path fill-opacity=".2" d="M16.498 20.573l7.497-4.353-7.497-3.348z"/><path fill-opacity=".602" d="M9 16.22l7.498 4.353v-7.701z"/></g></symbol>
     <symbol id="tk-peth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><g fill="#8ea2f0"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
+    <symbol id="c-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path transform="translate(16 16) scale(.74) translate(-16.3 -16.6)" fill="#f7931a" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
+    <symbol id="c-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="#8ea2f0" transform="translate(16 16) scale(1.05) translate(-16.3 -16)"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
+    <symbol id="g-shield" viewBox="0 0 24 24"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8-7.5 9.5-4.3-1.5-7.5-4.9-7.5-9.5V6z"/><path d="M9 12l2.2 2.2L15.5 10"/></symbol>
+    <symbol id="g-swap" viewBox="0 0 24 24"><path d="M4 8h15l-4-4"/><path d="M20 16H5l4 4"/></symbol>
+    <symbol id="g-send" viewBox="0 0 24 24"><path d="M21 3L10.5 13.5"/><path d="M21 3l-6.5 18-4-7.5L3 9.5z"/></symbol>
+    <symbol id="g-earn" viewBox="0 0 24 24"><path d="M12 21v-9"/><path d="M12 12c0-4.4 3.1-7.5 8-7.5 0 4.4-3.1 7.5-8 7.5z"/><path d="M12 14.5c0-3.3-2.4-5.5-7-5.5 0 3.3 2.4 5.5 7 5.5z"/></symbol>
+    <symbol id="g-borrow" viewBox="0 0 24 24"><path d="M3 9.5L12 4l9 5.5"/><path d="M5.5 10v8M10 10v8M14 10v8M18.5 10v8"/><path d="M3 20.5h18"/></symbol>
   </defs>
 </svg>
 
@@ -993,7 +951,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
     <div class="top-r">
       <a class="classic lead" href="/trade/" title="Trade TAC: its price on Ethereum and Bitcoin, and the best route across every pool">Trade</a>
       <a class="classic lead" href="/pay/" title="Tacit Pay: get paid in BTC, TAC or ETH at one private address">Pay</a>
-      <a class="classic" href="/classic.html" title="The classic tacit.finance app: Bitcoin assets, the order book, pools and more">Classic</a>
+      <a class="classic" href="/weld/stats/" title="What has passed through Tacit, and what it holds now">Stats</a>
       <button class="chip act" id="act" type="button" aria-haspopup="dialog" aria-label="Activity" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="num" id="act-n" hidden></span>
       </button>
@@ -1002,43 +960,32 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   </header>
 
   <section class="hero" aria-labelledby="hero-h">
-    <a class="news" id="air-news" href="#airdrop" data-link="airdrop"><span class="dot" data-dot="tac"></span><b>TAC airdrop</b><span data-foot="tac">Is your wallet in it?</span><span class="go"><span class="w">Check yours </span>→</span></a>
-    <h1 id="hero-h">Private DeFi on<br><em>Bitcoin</em> and Ethereum.</h1>
     <div class="hero-go">
     <div class="hero-l">
-    <p>Tacit issues assets on Bitcoin and carries them into a confidential pool on Ethereum by zero-knowledge proof, and back. Amounts and owners stay hidden. Every balance recovers from one key.</p>
-    <div class="proof-row">
-      <a class="proof" href="/weld/stats/" title="All stats">
-        <span data-nums><b class="num"><span data-num="in"><span class="sk" style="--w:5ch"></span></span><small>ETH</small></b>made private</span>
-        <span data-nums><b class="num"><span data-num="tx"><span class="sk" style="--w:4ch"></span></span></b> private transactions</span>
-        <span data-nums><b class="num"><span data-num="pts"><span class="sk" style="--w:3ch"></span></span></b> earning points</span>
-        <span class="go">All stats <span aria-hidden="true">→</span></span>
-      </a>
-      <span class="trust">No custodian or multisig</span>
+      <div class="hero-t">
+        <a class="news" id="air-news" href="#airdrop" data-link="airdrop"><span class="dot" data-dot="tac"></span><b>TAC airdrop</b><span data-foot="tac">Is your wallet in it?</span><span class="go"><span class="w">Check yours </span>→</span></a>
+        <h1 id="hero-h">Private DeFi on<br><em>Bitcoin</em> and Ethereum.</h1>
+        <p class="sub">One <b>tacit1</b> ID for both chains. Shield, send, swap, earn and borrow, with amounts and owners hidden.</p>
+        <div class="start" id="start" hidden>
+          <div class="cta"><button class="btn" type="button" id="start-go">Get your tacit1 ID</button><a class="tl" href="#how" data-scroll="how">How it works ↓</a>
+          <p class="hint"><span data-step="1">With the Ethereum or Bitcoin wallet you have, or a passkey. Signing in sends nothing and costs no gas.</span><span data-step="2">Next, one transaction moves your ETH into the Tacit pool as tETH.</span> <button class="link" type="button" id="start-x" hidden>Hide</button></p></div>
+        </div>
+      </div>
+      <div class="proof-row">
+        <a class="proof" href="/weld/stats/" title="All stats">
+          <span data-nums><b class="num"><span data-num="in"><span class="sk" style="--w:5ch"></span></span></b>ETH made private</span>
+          <span data-nums><b class="num"><span data-num="tx"><span class="sk" style="--w:4ch"></span></span></b>private transactions</span>
+          <span class="go">All stats <span aria-hidden="true">→</span></span>
+        </a>
+        <span class="trust">No custodian or multisig</span>
+      </div>
     </div>
-    <div class="start" id="start" hidden>
-      <div class="cta"><button class="btn" type="button" id="start-go">Get started</button>
-      <p class="hint"><span data-step="1">Sign in with an Ethereum or Bitcoin wallet, or Face ID or Touch ID. It sends nothing and costs no gas.</span><span data-step="2">Next, one transaction moves your ETH into the Tacit pool as tETH.</span> <button class="link" type="button" id="start-x" hidden>Hide</button></p></div>
-    </div>
-    </div>
-    <section class="hx" id="hx" aria-label="Private, swap, earn, Bitcoin or send"><div id="hx-body"></div></section>
-    </div>
-    <div class="tiles-2">
-    <a class="paytile" href="/pay/">
-      <span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span>
-      <span class="pt-t"><b>Tacit Pay</b><span>Get paid in BTC, TAC or ETH at one private address. No gas, nothing to install.</span></span>
-      <span class="pt-go">Get your address <span class="go" aria-hidden="true">→</span></span>
-    </a>
-    <a class="paytile" href="/trade/" id="trade-tile">
-      <span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg></span>
-      <span class="pt-t"><b>Trade TAC</b><span>Its price on Ethereum and Bitcoin, every pool's quote for your amount, and the best route, split across pools when that pays more.</span></span>
-      <span class="pt-go">Open the market <span class="go" aria-hidden="true">→</span></span>
-    </a>
+    <section class="hx" id="hx" aria-label="Shield, swap, send, earn or borrow"><div id="hx-body"></div></section>
     </div>
     <div class="tape" id="tape" role="region" aria-label="Recent activity on Tacit" hidden>
-      <span class="tape-l"><span class="dot live" aria-hidden="true"></span>Live</span>
-      <div class="tape-v"><ul class="tape-run" id="tape-run"></ul></div>
-    </div>
+        <span class="tape-l"><span class="dot live" aria-hidden="true"></span>Live</span>
+        <div class="tape-v"><ul class="tape-run" id="tape-run"></ul></div>
+      </div>
   </section>
 
   <section class="dash" id="dash" aria-labelledby="dash-h" hidden>
@@ -1047,112 +994,100 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
     <ul class="dash-g" id="dash-g"></ul>
   </section>
 
-  <main>
-    <section class="flow" aria-labelledby="flow-h">
-      <div class="group-h"><h2 id="flow-h">Earn on private ETH</h2><p>Make it private, then farm it privately for TAC.</p></div>
-      <div class="flow-b">
-        <article class="tile flow-step">
-          <span class="tile-top"><span class="flow-n" aria-hidden="true">1</span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg></span></span>
-          <h3><a class="tile-main" href="#private" data-link="private">Make ETH private</a></h3>
-          <p>One transaction moves ETH into the Tacit pool as tETH. From then on, nobody sees how much or to whom.</p>
-          <span class="figs"><span class="fig"><b class="num"><span data-way="wrap">1,250</span><small>points</small></b><span>per ETH made private</span></span></span>
-          <ul class="pools facts">
-            <li><span>Back to ETH</span><b>any time, one for one</b></li>
-            <li><span>Recovery</span><b>from your key and the chain</b></li>
-          </ul>
-          <span class="tile-foot"><span class="dot" data-dot="eth"></span><span data-foot="eth"></span><span class="go" aria-hidden="true">→</span></span>
-        </article>
-        <article class="tile flow-step">
-          <span class="tile-top"><span class="flow-n" aria-hidden="true">2</span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span></span>
-          <h3><a class="tile-main" id="flow-farm" href="#farm" data-link="farm">Farm it privately</a></h3>
-          <p>Add tETH to a private pool, alone or with its pair, and earn TAC every second. What you hold stays hidden.</p>
-          <span class="figs"><span class="fig"><b class="num" id="ern-farm-v"><span class="sk" style="--w:4ch"></span></b><span id="ern-farm">a day to private pools</span></span></span>
-          <ul class="pools" id="flow-pools" aria-label="Private pools"></ul>
-          <span class="tile-foot"><span class="dot" data-dot="farm"></span><span data-foot="farm"></span><span class="go" aria-hidden="true">→</span></span>
-        </article>
+  <section class="sx" id="how" aria-labelledby="how-h">
+    <div class="sx-h">
+      <div><span class="sx-k">The weld</span><h2 id="how-h">One ID.<br><em>Two chains.</em></h2></div>
+      <p>One key holds your private balances on both chains. What crosses between them crosses by zero-knowledge proof, with no federation or multisig in the way.</p>
+    </div>
+    <div class="wd">
+      <div class="wd-top">
+        <span class="wd-ch"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg>Bitcoin</span>
+        <button class="wd-key" type="button" data-signin aria-label="Your tacit1 ID: sign in or make one"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><code id="wd-id">tacit1…</code><small>one key, from your wallet or a passkey</small></button>
+        <span class="wd-ch r">Ethereum<svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span>
       </div>
-      <a class="pubfarm" href="#farm/public" data-link="farm/public">
-        <span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span>
-        <span class="pf-t"><b>Or farm in public, in one step</b><span>One transaction from your wallet: about half your ETH is swapped to TAC inside the pool, then both earn TAC every second.</span></span>
-        <span class="pf-r"><b class="num" id="pub-apr"><span class="sk" style="--w:4ch"></span></b><small id="pub-day">TAC/ETH farm</small></span>
-        <span class="go" aria-hidden="true">→</span>
-      </a>
-    </section>
-
-    <section aria-labelledby="g-do">
-      <div class="group-h"><h2 id="g-do">Pay, swap, borrow</h2><p>Privately, from the same key, on Bitcoin and Ethereum.</p></div>
-      <div class="tiles lite">
-      <article class="tile">
-        <span class="tile-top"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span></span>
-        <h3><a class="tile-main" href="/pay/">Pay</a></h3>
-        <p>Send BTC, TAC or ETH to anyone, and get paid in all three at one tacit1 address.</p>
-        <span class="ptchip"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><span><span data-way="evmpooldeposit">1,000</span> points per ETH deposited to pay with</span></span>
-        <span class="tile-foot"><span class="dot" data-dot="btc"></span><span data-foot="btc"></span><span class="go" aria-hidden="true">→</span></span>
-      </article>
-      <article class="tile">
-        <span class="tile-top"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span></span>
-        <h3><a class="tile-main" href="#private/swap" data-link="private/swap">Swap</a></h3>
-        <p>Trade tETH, TAC, cBTC and cUSD inside the pool. Your balances stay private, and nothing says whose trade it is.</p>
-        <span class="tile-foot"><span class="dot"></span><span></span><span class="go" aria-hidden="true">→</span></span>
-      </article>
-      <article class="tile">
-        <span class="tile-top"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg></span></span>
-        <h3><a class="tile-main" href="#borrow" data-link="borrow">Borrow</a></h3>
-        <p>Borrow dollars against your bitcoin. The BTC stays at an address only your key can spend.</p>
-        <span class="ptchip"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><span><span data-way="cbtcmint">1,000</span> points per wstETH bonded<span data-bond-when></span></span></span>
-        <span class="figs"><span class="fig" data-nums><b class="num"><span data-num="cusd"><span class="sk" style="--w:4ch"></span></span><small>cUSD</small></b><span>borrowed on BTC</span></span></span>
-        <span class="tile-foot"><span class="dot" data-dot="borrow"></span><span data-foot="borrow"></span><span class="go" aria-hidden="true">→</span></span>
-      </article>
-      </div>
-      <a class="ptsline" href="#points" data-link="points"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><span class="fig"><b class="num" id="ern-pts-v"><span class="sk" style="--w:5ch"></span></b><span id="ern-pts">points pot today</span></span><span class="you"><span class="dot" data-dot="pts"></span><span data-foot="pts">100,000 TAC over 90 days</span></span><span class="go" aria-hidden="true">→</span></a>
-    </section>
-  </main>
-
-  <section class="how" id="how" aria-labelledby="paths-h">
-    <div class="paths">
-      <h2 id="paths-h">How it comes together</h2>
-      <ol class="lanes">
-        <li class="lane">
-          <span class="route">
-            <span class="stn"><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg><span class="nm"><b>ETH</b><span class="sr">, </span><small>public</small></span></span>
-            <span class="edge e-eth"><a class="hop" href="#private" data-link="private">Make <span class="sr">ETH </span>private</a></span>
-            <button class="stn" type="button" data-asset="teth" aria-haspopup="dialog" title="What tETH is"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><span class="nm"><b>tETH</b><span class="sr">, </span><small>private</small></span></button>
-          </span>
-          <span class="then">A private note, one for one, in one immutable pool on Ethereum.</span>
+      <ol class="wd-lanes">
+        <li class="wd-lane">
+          <button class="wd-end" type="button" data-hx="shield:btc:pool"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span><b>TAC</b><small>shielded on Bitcoin, sells for sats</small></span></button>
+          <button class="wd-wire" type="button" data-hx="shield:btc:eth" aria-label="Bridge TAC between Bitcoin and Ethereum, both ways"><i class="wd-wl r"></i><i class="wd-wl l"></i><span>Bridge</span></button>
+          <button class="wd-end r" type="button" data-hx="swap:eth:tac"><span><b>TAC</b><small>private on Ethereum, swaps and farms</small></span><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></button>
         </li>
-        <li class="lane">
-          <span class="route r3">
-            <span class="stn"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><span class="nm"><b>BTC</b><span class="sr">, </span><small>public</small></span></span>
-            <span class="edge e-btc"><a class="hop" href="#lock" data-link="lock">Lock<span class="sr"> BTC for cBTC</span></a></span>
-            <button class="stn" type="button" data-asset="cbtc" aria-haspopup="dialog" title="What cBTC is"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><span class="nm"><b>cBTC</b><span class="sr">, </span><small>private</small></span></button>
-            <span class="edge e-usd"><a class="hop" href="#borrow" data-link="borrow">Borrow<span class="sr"> cUSD against cBTC</span></a></span>
-            <button class="stn" type="button" data-asset="cusd" aria-haspopup="dialog" title="What cUSD is"><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg><span class="nm"><b>cUSD</b><span class="sr">, </span><small>private</small></span></button>
-            <span class="tw-l"><span class="wide">withdrawn to an address</span><span class="narrow">at an address</span></span>
-            <button class="stn twin b" type="button" data-asset="tacbtc" aria-haspopup="dialog" title="What tacBTC is"><svg class="tk" aria-hidden="true"><use href="#tk-tacbtc"/></svg><span class="nm"><b>tacBTC</b><span class="sr">, </span><small>public</small></span></button>
-            <button class="stn twin u" type="button" data-asset="tacusd" aria-haspopup="dialog" title="What tacUSD is"><svg class="tk" aria-hidden="true"><use href="#tk-tacusd"/></svg><span class="nm"><b>tacUSD</b><span class="sr">, </span><small>public</small></span></button>
-          </span>
-          <span class="then">A wstETH bond worth at least 1.5 times the lock is forfeited if the BTC is spent without redeeming.</span>
+        <li class="wd-lane">
+          <button class="wd-end" type="button" data-hx="borrow:cbtc"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><span><b>BTC</b><small>locked at your own address</small></span></button>
+          <button class="wd-wire" type="button" data-hx="borrow:cbtc" aria-label="Lock BTC to mint cBTC on Ethereum"><i class="wd-wl r"></i><span>Mints</span></button>
+          <button class="wd-end r" type="button" data-hx="borrow:cusd"><span><b>cBTC, cUSD</b><small>private bitcoin, and dollars borrowed on it</small></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg></span></button>
         </li>
-        <li class="lane">
-          <span class="route">
-            <button class="stn" type="button" data-asset="tac" aria-haspopup="dialog" title="What TAC is"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span class="nm"><b>TAC</b><span class="sr">, </span><small>Bitcoin</small></span></button>
-            <span class="edge e-xch"><a class="hop" href="#bridge" data-link="bridge">Bridge<span class="sr"> TAC from Bitcoin to Ethereum</span></a></span>
-            <span class="stn"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span class="nm"><b>TAC</b><span class="sr">, </span><small>Ethereum</small></span></span>
-          </span>
-          <span class="then">A proof of Bitcoin’s own blocks carries it, with no federation or multisig. Or <a href="#buy" data-link="buy">buy it</a> with ETH or sats.</span>
+        <li class="wd-lane">
+          <button class="wd-end" type="button" data-hx="shield:tb:back"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><span><b>tETH</b><small>your ETH, held on Bitcoin</small></span></button>
+          <button class="wd-wire" type="button" data-hx="shield:eth:btc" aria-label="Bridge tETH between Ethereum and Bitcoin, both ways"><i class="wd-wl r"></i><i class="wd-wl l"></i><span>Bridge</span></button>
+          <button class="wd-end r" type="button" data-hx="shield:ether:defi"><span><b>tETH</b><small>private ETH, one for one</small></span><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg></button>
         </li>
       </ol>
-      <div class="kept" id="kept">
-        <h3 class="kept-h">Bitcoin and Ethereum, in step<a href="/weld/stats/">More on the stats page <span aria-hidden="true">→</span></a></h3>
-        <div id="kept-v"></div>
+      <div class="wd-foot">
+        <button type="button" data-hx="swap:sats:tac"><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span><b>Sats for TAC</b> on Bitcoin’s order book</span></button>
+        <button type="button" data-hx="shield:ether:pay"><span><b>Pay pools</b> on Ethereum, Base, Robinhood and MegaETH</span><svg class="tk" aria-hidden="true"><use href="#tk-peth"/></svg></button>
       </div>
-      <p class="paths-n">ETH-only pools on Ethereum, Base, Robinhood Chain and MegaETH take private payments too.</p>
     </div>
-    <details class="tacbar">
-      <summary>TAC · A Privacy Coin on Bitcoin L1</summary>
-      <p>Tacit <a href="https://github.com/src-company/tacit/blob/main/SPEC.md" rel="noopener">protocol</a>’s first asset: 21,000,000 issued once on Bitcoin, no mint key. Transfers hide their amounts, its shielded pool hides who received them, and sats swap into it peer to peer. Airdropped to bootstrap one private currency on both chains (claimable by 5,599 <a href="https://zswap.wei.limo" rel="noopener">zFi</a> shareholder wallets on Bitcoin and 8,652 holders on Ethereum), it keeps spreading through points and farms to grow the anonymity set, and gets each new Tacit protocol improvement first.</p>
-      <p class="tacbar-ln"><a href="/verify.html">Verify supply</a><a href="/tac/">Shielded pool</a><a href="#bridge" data-link="bridge">Bridge</a><a href="https://github.com/src-company/tacit/blob/main/docs/TAC.md#holding-tac" rel="noopener">Holding it</a><a href="#buy" data-link="buy">Buy</a><a href="/trade/tac/">Trade and price chart</a></p>
-    </details>
+    <p class="wd-n"><span><b>Recovery</b> from your key and the chain, on any device</span><span><b>The pool</b> one immutable contract on Ethereum</span></p>
+    <div class="kept" id="kept"><h3 class="kept-h">Bitcoin and Ethereum, in step<a href="/weld/stats/">More on the stats page <span aria-hidden="true">→</span></a></h3><div id="kept-v"></div></div>
+  </section>
+
+  <section class="sx hw" aria-labelledby="hw-h">
+    <div class="sx-h">
+      <div><span class="sx-k">Start</span><h2 id="hw-h">Three steps.</h2></div>
+      <p>Bring ETH, BTC or TAC, or nothing at all. Nothing to install, and nothing to fund before you look around.</p>
+    </div>
+    <ol class="hw-l">
+      <li><span class="hw-n">1</span><span class="hw-ic"><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><h3>Get your ID</h3>
+        <p>Sign in with the Ethereum or Bitcoin wallet you have, or make a passkey here. One tacit1 ID covers both chains, and signing in sends nothing.</p>
+        <button class="tl" type="button" data-signin>Get your tacit1 ID →</button></li>
+      <li><span class="hw-n">2</span><span class="hw-ic"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><h3>Make it private</h3>
+        <p>Start from whatever you hold.</p>
+        <span class="hw-ways">
+          <button type="button" data-hx="shield:ether:defi"><b>ETH</b><span>tETH for DeFi, or private ETH for payments</span><i aria-hidden="true">→</i></button>
+          <button type="button" data-hx="borrow:cbtc"><b>BTC</b><span>cBTC, locked at your own address behind an ETH bond</span><i aria-hidden="true">→</i></button>
+          <button type="button" data-hx="shield:btc:pool"><b>TAC</b><span>private on Bitcoin, or over to Ethereum</span><i aria-hidden="true">→</i></button>
+        </span>
+        <p class="hw-skip">Holding nothing yet? <a href="/pay/">Get paid privately</a> at your tacit1 address.</p></li>
+      <li><span class="hw-n">3</span><span class="hw-ic"><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg></span><h3>Put it to work</h3>
+        <p>Send and get paid, swap, farm TAC, borrow cUSD against your cBTC, and move between Bitcoin and Ethereum. Every move stays private.</p>
+        <span class="hw-go"><button class="tl" type="button" data-hx="earn:ether:public">Farm TAC →</button><button class="tl" type="button" data-hx="borrow:cusd">Borrow cUSD →</button></span></li>
+    </ol>
+  </section>
+
+  <section class="sx fm" aria-labelledby="fm-h">
+    <div class="sx-h">
+      <div><span class="sx-k">Earn</span><h2 id="fm-h">Farm <em>TAC</em>.</h2></div>
+      <p>TAC streams to both farms every second. Claim it, or leave, whenever you like.</p>
+    </div>
+    <div class="fm-y">
+      <a class="fm-way" href="#farm/public" data-link="farm/public"><span class="fm-apr num" id="pub-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span><h3>Public farm, from ETH alone</h3><p>One transaction from your wallet: about half your ETH becomes TAC inside the pool, then both earn. <span id="pub-day">TAC/ETH farm</span></p><span class="fm-go">Farm with ETH <span class="go" aria-hidden="true">→</span></span></a>
+      <a class="fm-way" id="flow-farm" href="#farm" data-link="farm"><span class="fm-apr num" id="priv-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg></span><h3>Private farms, hidden</h3><p>tETH alone or both sides, in private pools. Nobody sees what you hold. <span id="priv-day">Private pools</span></p><span class="fm-go">Farm privately <span class="go" aria-hidden="true">→</span></span></a>
+    </div>
+    <a class="ptsline" href="#points" data-link="points"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><span class="fig"><b class="num" id="ern-pts-v"><span class="sk" style="--w:5ch"></span></b><span id="ern-pts">points pot today</span></span><span class="you"><span class="dot" data-dot="pts"></span><span data-foot="pts">100,000 TAC over 90 days</span><span class="go" aria-hidden="true">→</span></span></a>
+  </section>
+
+  <section class="sx tc" id="tac" aria-labelledby="tc-h">
+    <div class="tc-stage" aria-hidden="true">
+      <div class="tc-tilt"><div class="tc-coin">
+        <div class="tc-edge"><i style="transform:translateZ(-7.00px);background:hsl(38 8% 14%)"></i><i style="transform:translateZ(-6.33px);background:hsl(38 8% 15%)"></i><i style="transform:translateZ(-5.67px);background:hsl(38 8% 16%)"></i><i style="transform:translateZ(-5.00px);background:hsl(38 8% 17%)"></i><i style="transform:translateZ(-4.33px);background:hsl(38 8% 19%)"></i><i style="transform:translateZ(-3.67px);background:hsl(38 8% 21%)"></i><i style="transform:translateZ(-3.00px);background:hsl(38 8% 24%)"></i><i style="transform:translateZ(-2.33px);background:hsl(38 8% 26%)"></i><i style="transform:translateZ(-1.67px);background:hsl(38 8% 29%)"></i><i style="transform:translateZ(-1.00px);background:hsl(38 8% 31%)"></i><i style="transform:translateZ(-0.33px);background:hsl(38 8% 34%)"></i><i style="transform:translateZ(0.33px);background:hsl(38 8% 34%)"></i><i style="transform:translateZ(1.00px);background:hsl(38 8% 31%)"></i><i style="transform:translateZ(1.67px);background:hsl(38 8% 29%)"></i><i style="transform:translateZ(2.33px);background:hsl(38 8% 26%)"></i><i style="transform:translateZ(3.00px);background:hsl(38 8% 24%)"></i><i style="transform:translateZ(3.67px);background:hsl(38 8% 21%)"></i><i style="transform:translateZ(4.33px);background:hsl(38 8% 19%)"></i><i style="transform:translateZ(5.00px);background:hsl(38 8% 17%)"></i><i style="transform:translateZ(5.67px);background:hsl(38 8% 16%)"></i><i style="transform:translateZ(6.33px);background:hsl(38 8% 15%)"></i><i style="transform:translateZ(7.00px);background:hsl(38 8% 14%)"></i></div>
+        <div class="tc-face tc-front"><svg><use href="#tk-tac"/></svg></div>
+        <div class="tc-face tc-back"><svg class="tc-btc"><use href="#c-btc"/></svg><svg class="tc-eth"><use href="#c-eth"/></svg></div>
+      </div></div>
+      <div class="tc-shadow"></div>
+    </div>
+    <div class="tc-t">
+      <span class="sx-k">TAC</span>
+      <h2 id="tc-h">TAC is private money, <em>born on Bitcoin</em>.</h2>
+      <p class="tc-p">Issued once on Bitcoin and fair-launched by airdrop. Amounts are hidden on Bitcoin, and TAC is private on Ethereum too, through the Tacit pool.</p>
+      <dl class="tc-facts">
+        <div><dt>Fixed supply</dt><dd class="num">21,000,000</dd></div>
+        <div><dt>Airdrop, eligible wallets</dt><dd class="num">14,000+</dd></div>
+        <div><dt>Sale or VC</dt><dd>None</dd></div>
+      </dl>
+      <p class="tc-p soft">It is also the standing example of the Tacit spec: a confidential token issued on Bitcoin itself, with no mint key. Anyone can issue another the same way, and TAC gets each protocol improvement first.</p>
+      <p class="tc-hold"><b>Holding TAC</b>Holders pay less to exit privately (0.30% down to 0.15%), earn up to 2× points with TAC in an Ethereum wallet, and vote on how the protocol’s governed parts are run. Relay fees paid in TAC are never sold, and part of the relay’s ETH surplus buys TAC for the reserve.</p>
+      <div class="tc-links"><button class="btn" type="button" data-hx="swap:ether:tac">Buy TAC</button><a class="tl" href="/trade/tac/">Price and chart →</a><a class="tl" href="/verify.html">Verify the supply →</a><a class="tl" href="https://github.com/src-company/tacit/blob/main/docs/TAC.md" rel="noopener">About TAC →</a></div>
+    </div>
   </section>
 
   <footer>
@@ -2978,6 +2913,7 @@ function btcSend(to, sats) {
 function paintWallet() {
   paintStart();
   $('#wallet-dot').className = 'dot' + (S.key ? ' on' : S.address ? ' live' : '');
+  const wid = $('#wd-id'); if (wid) wid.textContent = S.key?.tacit ? short(S.key.tacit, 6) : 'tacit1…';
   mount($('#wallet-label'), S.key ? (S.key.tacit ? chipView(S.key.tacit) : html`Opening…`) : html`${S.address ? short(S.address) : knownWallet() ? 'Open wallet' : 'Sign in'}`);
 }
 // The first steps: shown to someone who has never opened a wallet here, then, with a key open, until it holds anything
@@ -3003,7 +2939,7 @@ function paintStart() {
     li.classList.toggle('done', !!k && n === 1);
     li.classList.toggle('now', k ? n === 2 : n === 1);
   }
-  $('#start-go').textContent = k ? 'Make ETH private' : 'Get started';
+  $('#start-go').textContent = k ? 'Make ETH private' : 'Get your tacit1 ID';
   $('#start-x').hidden = !k;
 }
 $('#wallet').onclick = () => openSheet('wallet');
@@ -5159,6 +5095,7 @@ function renderDevice(el) {
     toEl.addEventListener('input', check);
     $('#d-max').onclick = () => { if (wb != null) { const keep_ = c.chainId === 1 ? 3n * 10n ** 15n : 2n * 10n ** 14n, v = wb > keep_ ? wb - keep_ : 0n; amt.value = v ? plain(v, 18) : ''; amt.dispatchEvent(new Event('input')); } };
     amt.addEventListener('input', check); check();                              // synchronous: no network in this check
+    takeDraft('dep', amt, (d) => d.chain === c.chainId);
     amt.addEventListener('focus', warm, { once: true });
     go.onclick = () => busy(go, async (run) => {
       try {
@@ -6744,30 +6681,25 @@ load.pts = () => loadPoints();
 RETRY.points = () => loadPoints(true).then(() => rerender('pts')).catch(() => {});
 // The Earn figures: what the private pools share a day, what the TAC/ETH farm pays now, and the day's points pot with the time left in it.
 function paintEarn() {
-  const per = (n) => n.toLocaleString('en-US'), prog = FARM.program;
-  // "Farm it privately" leads with the TAC its pools share a day, a figure that holds as deposits grow; each pool's APR is its
-  // own row, the best first, once there is a price to rate them by.
+  const per = (n) => n.toLocaleString('en-US'), prog = FARM.program, apr = (a) => html`${a >= 10000 ? '10,000+' : per(Math.round(a))}%<small>APR</small>`;
+  // The private farms lead with the best pool's own APR, once there is a price to rate them by, and the TAC they share a day, a
+  // figure that holds as deposits grow.
   const day = prog?.epoch?.active ? Math.round(Number(prog.epoch.ratePerDayTac)) : 0, n = prog?.pools?.length || 0;
-  if (day && n) {
-    mount($('#ern-farm-v'), html`${per(day)}<small>TAC</small>`); countUp($('#ern-farm-v'));
-    $('#ern-farm').textContent = `a day across ${n} private pool${n === 1 ? '' : 's'}`;
-  } else if (FARM.top === null || (prog && !prog.epoch?.active)) {
-    $('#ern-farm-v').textContent = '—';
-    $('#ern-farm').textContent = prog && !prog.epoch?.active ? 'farms between reward periods' : 'farms not read yet';
-  }
   const pools = prog?.epoch?.active && FARM.precision?.tacEth ? (prog.pools || []).map((p) => ({ p, apr: shieldedApr(p) })).filter((x) => x.apr != null).sort((a, b) => b.apr - a.apr) : [];
   if (pools.length) {
-    const best = $('#flow-farm');                                                       // the step opens the best private pool, not the farm list's default
+    const best = $('#flow-farm');                                                       // the card opens the best private pool, not the farm list's default
     best.href = `#farm/private-${pools[0].p.pid}`; best.dataset.link = `farm/private-${pools[0].p.pid}`;
-    mount($('#flow-pools'), html`${pools.map(({ p, apr }) => html`<li><a href="#farm/private-${p.pid}" data-link="farm/private-${p.pid}"><span>${pairName(p.pair)}</span><b class="num">${aprShort(apr)}</b></a></li>`)}`);
-  } else if (FARM.top === null || (prog && !prog.epoch?.active)) mount($('#flow-pools'), html``);
+    mount($('#priv-apr'), apr(pools[0].apr)); countUp($('#priv-apr'));
+  } else if (FARM.top === null || (prog && !prog.epoch?.active)) $('#priv-apr').textContent = '—';
+  if (day && n) $('#priv-day').textContent = `${per(day)} TAC a day across ${n} private pool${n === 1 ? '' : 's'}.`;
+  else if (FARM.top === null || (prog && !prog.epoch?.active)) $('#priv-day').textContent = prog && !prog.epoch?.active ? 'Farms between reward periods.' : 'Farms not read yet.';
   // The public TAC/ETH farm, joined with ETH alone in one transaction: its APR and what it pays a day.
   const f = FARM.top;
-  if (f?.apr != null) { mount($('#pub-apr'), html`${f.apr >= 10000 ? '10,000+' : per(Math.round(f.apr))}%<small>APR</small>`); countUp($('#pub-apr')); $('#pub-day').textContent = `TAC/ETH farm · ${per(f.pubDay)} TAC a day`; }
-  else if (f || f === null) { $('#pub-apr').textContent = '—'; $('#pub-day').textContent = f ? (FARM.precision ? 'TAC/ETH farm, between reward periods' : 'TAC/ETH farm not read yet') : 'TAC/ETH farm'; }
+  if (f?.apr != null) { mount($('#pub-apr'), apr(f.apr)); countUp($('#pub-apr')); $('#pub-day').textContent = `${per(f.pubDay)} TAC a day.`; }
+  else if (f || f === null) { $('#pub-apr').textContent = '—'; $('#pub-day').textContent = f ? (FARM.precision ? 'Between reward periods.' : 'Not read yet.') : ''; }
   const on = now() < ptsEnd();
-  mount($('#ern-pts-v'), on ? html`<span data-pgm="pot">${potTac()}</span><small>TAC</small>` : '—');
-  mount($('#ern-pts'), on ? html`points pot today · <span class="num" data-left>${potLeft()}</span> left` : html`points ended ${dayShort(PGM.startDay + PGM.days - 1)}; claims stay open`);
+  mount($('#ern-pts-v'), on ? html`<span data-pgm="pot">${potTac()}</span>` : '—');
+  mount($('#ern-pts'), on ? html`TAC in today’s points pot · <span class="num" data-left>${potLeft()}</span> left` : html`points ended ${dayShort(PGM.startDay + PGM.days - 1)}; claims stay open`);
   if (on) countUp($('#ern-pts-v'));
 }
 function paintPointsFoot() {
@@ -8484,6 +8416,7 @@ render.borrow = () => {
     <div class="blk" id="bw-send" hidden></div>
     <div class="status" role="status" id="bw-status"></div>`);
   const status = $('#bw-status');
+  takeDraft('lock', $('#bw-amt'));
   // Opened by #lock: the amount to lock, in view (and in focus where typing does not raise a keyboard).
   if (LOCK.focus) {
     LOCK.focus = false;
@@ -9222,13 +9155,60 @@ function paintTape(d, rec) {
 }
 const refreshTape = () => Promise.all([readStats().catch(() => null), readRecent()]).then(([d, rec]) => paintTape(d, rec)).catch(() => {});
 
-// ── the hero's control panel: what ETH does here ──────────────────────────────────────────────────────────────
+// ── the hero's console: what ETH, BTC and TAC do here ──────────────────────────────────────────────────────────
 // Five verbs, each quoted from the chain and the relay alone, so it answers before any sign-in. Its button hands the amount
 // to the form that does the work (HX.draft, taken once by that form: takeDraft), which signs in first where it must. A
 // route from ETH into the private pool makes the ETH private first, unless the private tETH already held covers it; the
 // sheet that does that first step offers the second at its top (FARM.back, as a farm's checklist uses it).
-const HX = { mode: 'private', from: 'ether', to: 'tac', route: null, pool: 'precision', dir: 'in', send: 'eth', amt: '', rcpt: '', draft: null, seq: 0, q: null };
-const HX_TABS = [['private', 'Private'], ['swap', 'Swap'], ['earn', 'Earn'], ['btc', 'Bitcoin'], ['send', 'Send']];
+// `tab` is the verb on show. `mode` is what the quote and the hand-off treat it as: Shield is several, by the way chosen in it.
+const HX = { tab: 'private', mode: 'private', from: 'ether', to: 'tac', route: null, pool: 'precision', dir: 'in', send: 'eth', amt: '', rcpt: '', draft: null, seq: 0, q: null,
+  sf: 'ether', sd: 'defi', chain: 1, bm: 'cusd', swp: { from: 'ether', to: 'tac' }, ern: 'ether' };
+const HX_TABS = [['private', 'Shield', 'shield'], ['swap', 'Swap', 'swap'], ['send', 'Send', 'send'], ['earn', 'Earn', 'earn'], ['borrow', 'Borrow', 'borrow']];
+// What Shield moves: each thing a key can hold, and the ways it can go from there, as the rows of its "You get" field.
+// A way's `mode` is how the quote and the hand-off treat it, `rev` the way back, `gate` the setting a Bitcoin leg follows,
+// `eth` that it needs Ethereum itself, `same` that what arrives is what was put in.
+const HX_SH = {
+  ether: { u: 'ETH', ic: 'eth', name: 'ETH', g: 'In your wallets', place: 'your wallet', ways: ['defi', 'pay', 'btc'] },
+  btc: { u: 'TAC', ic: 'tac', name: 'TAC, on Bitcoin', g: 'In your wallets', place: 'your Bitcoin wallet', ways: ['eth', 'pool'] },
+  eth: { u: 'tETH', ic: 'teth', name: 'tETH', g: 'Private', place: 'private on Ethereum', priv: true, ways: ['wallet', 'btc'] },
+  tac: { u: 'TAC', ic: 'tac', name: 'TAC, private', g: 'Private', place: 'private on Ethereum', priv: true, ways: ['btc', 'wallet'] },
+  pp: { u: 'ETH', ic: 'peth', name: 'ETH, for payments', g: 'Private', place: 'private, for payments', priv: true, ways: ['addr', 'defi'] },
+  tb: { u: 'tETH', ic: 'teth', name: 'tETH, on Bitcoin', g: 'On Bitcoin', place: 'on Bitcoin', ways: ['back'] },
+};
+const HX_WAY = {
+  'ether>defi': { t: 'For DeFi', p: 'swap · farm · borrow', ic: 'teth', u: 'tETH', mode: 'private', pr: 'private', same: true, rev: 'eth>wallet' },
+  'ether>pay': { t: 'For payments', p: 'pay anyone · proved on device', ic: 'peth', u: 'ETH', mode: 'pay', pr: 'chain', same: true, rev: 'pp>addr' },
+  'ether>btc': { t: 'On Bitcoin', p: 'two steps · bring it back any time', ic: 'teth', u: 'tETH', mode: 'btc', dir: 'out', gate: 'teth' },
+  'btc>eth': { t: 'On Ethereum', p: 'swap · farm · send', ic: 'tac', u: 'TAC', mode: 'btc', dir: 'in', pr: 'private', rev: 'tac>btc' },
+  'btc>pool': { t: 'On Bitcoin', p: 'shielded · sells for sats', ic: 'tac', u: 'TAC', mode: 'btcpool', pr: 'private' },
+  'eth>wallet': { t: 'Back to ETH', p: 'to your wallet, one for one', ic: 'eth', u: 'ETH', mode: 'unwrap', rev: 'ether>defi' },
+  'eth>btc': { t: 'To Bitcoin', p: 'hold it on Bitcoin, bring it back', ic: 'teth', u: 'tETH', mode: 'btc', dir: 'out', gate: 'teth', rev: 'tb>back' },
+  'tac>btc': { t: 'To Bitcoin', p: 'TAC at your Bitcoin address', ic: 'tac', u: 'TAC', mode: 'btc', dir: 'out', gate: 'tac', rev: 'btc>eth' },
+  'tac>wallet': { t: 'To your wallet', p: 'public TAC on Ethereum', ic: 'tac', u: 'TAC', mode: 'tacpub' },
+  'pp>addr': { t: 'To an address', p: 'public ETH, wherever you name', ic: 'eth', u: 'ETH', mode: 'ppout', rev: 'ether>pay' },
+  'pp>defi': { t: 'Into tETH', p: 'no public stop on the way', ic: 'teth', u: 'tETH', mode: 'ppv1', eth: true },
+  'tb>back': { t: 'Back on Ethereum', p: 'private tETH again', ic: 'teth', u: 'tETH', mode: 'tbback', gate: 'teth', rev: 'eth>btc' },
+};
+// The ways a held thing can go that the page can do now: a Bitcoin leg follows its own setting, and a move into tETH needs Ethereum.
+function hxWays(sf) {
+  return HX_SH[sf].ways.filter((w) => { const x = HX_WAY[`${sf}>${w}`]; return (!x.gate || xoOn(XA[x.gate])) && !(x.eth && HX.chain !== 1); });
+}
+const hxSources = () => Object.keys(HX_SH).filter((k) => hxWays(k).length);
+const hxChain = () => DEVICE_CHAINS.find((c) => c.chainId === HX.chain) || DEVICE_CHAINS[0];
+// What the quote and the hand-off read (HX.mode, dir and from) follows the verb on show and, in Shield, the way chosen.
+function hxNorm() {
+  const t = HX.tab;
+  if (t === 'private') {
+    if (!hxWays(HX.sf).length) HX.sf = 'ether';
+    const ways = hxWays(HX.sf);
+    if (!ways.includes(HX.sd)) HX.sd = ways[0];
+    const w = HX_WAY[`${HX.sf}>${HX.sd}`];
+    HX.mode = w.mode; HX.dir = w.dir || 'in';
+    if (w.mode === 'btc' && w.dir === 'out') HX.from = HX.sf;
+  } else if (t === 'swap') { HX.mode = 'swap'; HX.from = HX.swp.from; HX.to = HX.swp.to; }
+  else if (t === 'earn') { HX.mode = 'earn'; HX.from = HX.ern; }
+  else HX.mode = t;
+}
 const HX_SEND = [['eth', 'tETH', 'teth'], ['tac', 'TAC', 'tac'], ['btc', 'BTC', 'btc']];
 const HX_ETHER = ['ether', 'ETH', 'eth', 6];
 const HX_SATS = ['sats', 'sats', 'btc', 0];
@@ -9350,10 +9330,84 @@ async function hxSellEth(units) {
     line: pub ? (pick.split ? `Split across two pools in one transaction: ${splitGain(pick.split)} more than the best pool alone. Sent to your wallet.` : `1 TAC ≈ ${sig(Number(pick.v) / Number(units * E10))} ETH, sent to your wallet in one transaction.`)
       : `1 TAC ≈ ${sig(Number(priv.plan.amountOut) / Number(units - priv.fee))} tETH · relay fee ${fmt(priv.fee, 8, 6)} TAC${priv.plan.impact >= 1 ? ` · moves the price ${priv.plan.impact.toFixed(1)}%` : ''}. Arrives as private tETH.` };
 }
+// What a held thing is worth, from the Precision pool's price and the engine's BTC price (read by loadTacPrice); '' until they are read.
+const HX_QUICK = { eth: ['0.1', '0.5', '1'], tac: ['500', '1000'], sats: ['50000', '200000'], btc: ['0.005', '0.01'], cusd: ['100', '500'], cbtc: ['0.005', '0.01'] };
+// The amount field's asset, for its quick amounts and its dollar figure: ETH-like, TAC, sats, BTC, cUSD, cBTC.
+function hxAmtKind() {
+  const t = HX.tab;
+  if (t === 'private') return { ether: 'eth', eth: 'eth', pp: 'eth', tb: 'eth', btc: 'tac', tac: 'tac' }[HX.sf];
+  if (t === 'borrow') return 'btc';
+  const f = HX.from;
+  return f === 'ether' || f === 'eth' ? 'eth' : f;
+}
+function hxUsd(kind, n) {
+  const v = TPX.v;
+  if (!v || !(n > 0)) return '';
+  const ethUsd = v.usdBtc && v.ethBtc ? v.usdBtc / v.ethBtc : null;
+  const usd = kind === 'eth' ? ethUsd && n * ethUsd : kind === 'tac' ? ethUsd && v.mid && n * v.mid * ethUsd : kind === 'cusd' ? n : kind === 'btc' || kind === 'cbtc' ? v.usdBtc && n * v.usdBtc : kind === 'sats' ? v.usdBtc && n * v.usdBtc / 1e8 : null;
+  return usd ? (usd >= 100 ? `$${Math.round(usd).toLocaleString('en-US')}` : usd >= 1 ? `$${usd.toFixed(2)}` : `$${usd.toPrecision(2)}`) : '';
+}
+// Under the amount: quick amounts while it is empty, its worth in dollars once it is not.
+function hxSub() {
+  const el = $('#hx-sub');
+  if (!el) return;
+  const kind = hxAmtKind(), n = Number(HX.amt);
+  if (!HX.amt) { const l = HX_QUICK[kind]; mount(el, l ? html`<span class="hx-quick">${l.map((v) => html`<button type="button" data-hxq="${v}">${Number(v).toLocaleString('en-US')}</button>`)}</span>` : html``); return; }
+  if (!TPX.v && !TPX.p) loadTacPrice().then(hxSub, () => {});
+  mount(el, html`${hxUsd(kind, n)}`);
+}
+// A way that is only a hand-off to the sheet that does it, with no figure of its own to quote.
+function hxHandoff(m, units) {
+  const amt = units ? fmt(units, 8, 6) : null, ch = hxChain();
+  if (m === 'pay') return { out: amt, go: 'Deposit privately', pk: ch.points === false ? null : 'dev',
+    line: `Proved on this device, then sent from your wallet: you pay the gas and no relay fee. The deposit shows on ${ch.name}; whose private balance it lands in does not.${ch.points === false ? ` No TAC points on ${ch.name}.` : ''}` };
+  if (m === 'btcpool') return { out: 'Private', go: 'Shield TAC on Bitcoin', line: 'Your TAC on Bitcoin goes into the shielded pool on Bitcoin. It hides who holds it, and it sells for sats on the Bitcoin order book.' };
+  if (m === 'unwrap') return { out: amt, go: 'Turn tETH into ETH', line: 'To your wallet, one for one, less the relay fee, which the next step shows.' };
+  if (m === 'tacpub') return { out: amt, go: 'Make TAC public', line: 'Private TAC becomes ERC-20 TAC in your Ethereum account, ready to sell or send. The next step shows the relay fee.' };
+  if (m === 'ppout') return { out: amt, go: 'Withdraw ETH', line: `From your pool on ${ch.name} to any address, public. A small relay fee, or send it from your wallet for the gas alone.` };
+  if (m === 'ppv1') return { out: amt, go: 'Move ETH into tETH', line: 'Straight into the Tacit pool, with no public stop on the way. A small relay fee, shown in the next step.' };
+  if (m === 'tbback') return { out: 'Your notes', go: 'Bring tETH back', line: 'tETH on your Bitcoin address comes back to Ethereum as private tETH, by proof of Bitcoin. The next step lists what can come.' };
+  return null;
+}
+// What each way of earning pays, as the points sheet states it: a way weighted 0 is not offered.
+function hxBondPts() {
+  const s = scheduled(PGM.weights, utcDay(now())), wt = s?.from ? 1 : s?.e.weights?.cbtcmint ?? 1, rate = PGM.rates.cbtcmint;
+  return rate && wt !== 0 ? `${rateStr(Math.round(rate * wt))} points per wstETH bonded` : '';
+}
+// The loan floor and liquidation line, as governance sets them (the borrow sheet reads the same two numbers).
+const HXR = { p: null, ratio: null, liq: null };
+function hxRatios() {
+  return (HXR.p ||= multicall([{ to: ADDR.engine, data: SEL.cdpRatioBps }, { to: ADDR.engine, data: SEL.liqRatioBps }])
+    .then((r) => { HXR.ratio = r?.[0] ? Number(wordAt(r[0], 0)) / 100 : null; HXR.liq = r?.[1] ? Number(wordAt(r[1], 0)) / 100 : null; }).catch(() => {}));
+}
+async function hxBorrowQuote(units) {
+  await Promise.all([loadTacPrice().catch(() => {}), hxRatios()]);
+  const btc = units ? Number(units) / 1e8 : 0, usd = TPX.v?.usdBtc, floor = HXR.ratio, liq = HXR.liq, pts = hxBondPts();
+  const bond = 'an ETH bond worth at least 1.5× the lock (held as wstETH, refundable)';
+  if (HX.bm === 'cbtc') return { out: btc ? fmt(units, 8, 5) : null, go: 'Lock BTC for cBTC',
+    line: `Lock BTC at an address only your key spends, post ${bond}, and mint the same amount of cBTC, free. Hold it privately, or borrow against it later.${pts ? ` Bonding earns ${pts}.` : ''}` };
+  const max = btc && usd && floor ? btc * usd / (floor / 100) : null;
+  return { out: max ? `≈ ${max >= 100 ? Math.round(max).toLocaleString('en-US') : max.toFixed(2)}` : btc ? '—' : null, go: 'Lock BTC and borrow',
+    line: `Lock BTC at an address only your key spends, post ${bond}, mint cBTC, then borrow dollars against it${max ? ` (up to about ${Math.round(max).toLocaleString('en-US')} cUSD at the ${floor}% floor)` : ''}. Repay any time to reclaim it.${liq ? ` Liquidation starts at ${liq}%.` : ''}${pts ? ` Bonding earns ${pts}.` : ''}` };
+}
+// A button elsewhere on the page ("tab:from:way") sets the console to what it names and brings it into view.
+function hxPreset(spec) {
+  const [tab, a, b] = spec.split(':');
+  HX.q = HX.route = null;
+  if (tab === 'shield') { HX.tab = 'private'; HX.sf = a; HX.sd = b; }
+  else if (tab === 'swap') { HX.tab = 'swap'; HX.swp = { from: a, to: b }; }
+  else if (tab === 'earn') { HX.tab = 'earn'; HX.ern = a === 'eth' ? 'eth' : 'ether'; if (b === 'public') HX.pool = 'precision'; }
+  else { HX.tab = 'borrow'; HX.bm = a === 'cbtc' ? 'cbtc' : 'cusd'; }
+  paintHx();
+  const card = $('#hx'), calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  card.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'center' });
+  if (!calm) card.animate([{ outline: '2px solid var(--orange)', outlineOffset: '2px' }, { outline: '2px solid transparent', outlineOffset: '12px' }], { duration: 1100, easing: 'ease-out' });
+}
 const hxQuoteSoon = debounce(() => hxQuote(), 400);
 // The quote for what is on the panel: the amount out, the routes to choose between, the line under the button and the
 // button's words. Drawn by paintHxQ without touching the field being typed in.
 async function hxQuote() {
+  hxNorm();
   const my = ++HX.seq, units = hxUnits(), m = HX.mode, ethN = units ? Number(units) / 1e8 : 0;
   const done = (q) => { if (my === HX.seq) { HX.q = { eth: ethN, ...q }; paintHxQ(); } };
   HX.held = hxHeld(); HX.heldTac = hxHeldTac();
@@ -9361,7 +9415,10 @@ async function hxQuote() {
   if (m === 'btc' && HX.dir === 'in' && S.key) loadBridge().then(() => paintHxQ(), () => paintHxQ());
   if (m === 'btc' && HX.dir === 'in') return done({ out: 'Private', line: 'Your TAC notes on Bitcoin become private TAC on Ethereum, up to 1,000 TAC a bridge. No relay fee, only a Bitcoin fee in sats; usually a few hours, sometimes up to a day.', go: 'Bridge TAC from Bitcoin' });
   // A figure that is not an amount (or has more decimals than the pool moves) is said so, not shown as an empty field.
+  if (m === 'btcpool' || m === 'tbback') return done(hxHandoff(m, null));                      // whole notes: no amount to read
   if (units === null && /\d/.test(HX.amt)) return done({ out: null, line: 'Enter an amount with up to 8 decimals.' });
+  if (m === 'borrow') return done(await hxBorrowQuote(units).catch(() => ({ out: '—', line: 'The loan terms could not be read just now.' })));
+  { const h = hxHandoff(m, units); if (h) return done(h); }
   HX.q = { ...(HX.q || {}), busy: true }; paintHxQ();
   try {
     if (m === 'private' || (m === 'swap' && HX.from === 'ether' && HX.to === 'eth')) {
@@ -9464,10 +9521,11 @@ function hxWeek(sp, rows, today, kindOf, wt, kind, add) {
 function hxPts(pk, eth, outTac = 0) {
   if (!pk || !(eth > 0)) return null;
   readOutlook();
-  const act = pk === 'wrap' ? 'wrap' : 'zswapeth', rate = pk === 'wrap' ? PGM.rates.wrap ?? ethBase() * PGM.wrapBoost : PGM.rates.zswapeth ?? ethBase();
+  const act = pk === 'wrap' ? 'wrap' : pk === 'dev' ? 'evmpooldeposit' : 'zswapeth', rate = pk === 'wrap' ? PGM.rates.wrap ?? ethBase() * PGM.wrapBoost : pk === 'dev' ? PGM.rates.evmpooldeposit ?? ethBase() : PGM.rates.zswapeth ?? ethBase();
   const today = utcDay(now()), sc = scheduled(PGM.weights, today), wtOf = (a) => (sc && !sc.from ? sc.e.weights[a] ?? 1 : 1), wt = wtOf(act);
   if (!wt) return null;
-  const known = pk === 'wrap' && !!OUT.v1, early = known ? 1 + (PGM.early.max - 1) / (1 + OUT.v1.deposits / PGM.early.half) : 1;
+  const devs = Object.values(OUT.dev), n = pk === 'wrap' ? OUT.v1?.deposits ?? 0 : devs.reduce((a, x) => a + x.deposits, 0);
+  const known = pk === 'wrap' ? !!OUT.v1 : pk === 'dev' && devs.length === DEVICE_CHAINS.filter((c) => c.points !== false).length, early = known ? 1 + (PGM.early.max - 1) / (1 + n / PGM.early.half) : 1;
   const tier = holderTier(S.address), hold = tier.held, pts = eth * rate * wt * early * hold;
   const up = PGM.tiers.filter(([, m]) => m > hold), hit = outTac ? [...up].reverse().find(([min]) => outTac >= min) : null, nx = up[0];
   const tips = [tier.now > hold ? `×${tier.now} on this once your TAC has been held a day.`
@@ -9477,7 +9535,7 @@ function hxPts(pk, eth, outTac = 0) {
   // so a window that reaches past them is not judged). The day's pot is split by points times it.
   const g = scheduled(PGM.engagement, today), sp = g && !g.from ? g.e.spec : null, me = S.address ? PTS.rows?.find((r) => r.addr === String(S.address).toLowerCase()) : null;
   if (sp && me?.read && (me.recent.length < 100 || Math.floor(Number(me.recent.at(-1).block_time) / 86400) <= today - 6))
-    tips.push(hxWeek(sp, me.recent, today, (a) => PGM.kinds[a] ?? a, wtOf, pk === 'wrap' ? 'private' : 'swap', pts).tip);
+    tips.push(hxWeek(sp, me.recent, today, (a) => PGM.kinds[a] ?? a, wtOf, pk === 'zswap' ? 'swap' : 'private', pts).tip);
   const why = [known ? `×${early.toFixed(1)} early` : '', pk === 'wrap' ? `×${PGM.wrapBoost} tETH` : '', wt !== 1 ? `×${wt} now` : '', hold > 1 ? `×${hold} TAC holder` : ''].filter(Boolean).join(' · ');
   return { pts, known, why, tips: tips.filter(Boolean) };
 }
@@ -9512,17 +9570,24 @@ function hxWantPoints() {
 }
 const hxPtsShort = (p) => (p.pts < 1 ? '< 1 point' : `${p.known ? '≈ ' : ''}${ptsFmt(p.pts)}${p.known ? '' : '+'} points`);
 // The parts of the panel a quote changes.
+// The parts of the panel a quote changes.
 function paintHxQ() {
   const q = HX.q || {}, out = $('#hx-out');
   if (!out) return;
+  hxNorm();
   out.textContent = q.busy ? '…' : q.out ?? '0.00';
   out.classList.toggle('ph', !!q.busy || q.out == null || q.out === '—');
+  // Shield's one-for-one ways show what was typed beside their coin.
+  const typed = hxUnits() ? HX.amt : '';
+  for (const e of $$('[data-hxa]')) e.textContent = typed;
+  const chain = $('#hx-chain');
+  if (chain) chain.hidden = !['pay', 'ppout', 'ppv1'].includes(HX.mode);
   const rows = $('#hx-routes');
   if (rows && !q.busy) {
     rows.hidden = !q.rows;
     // A swap's ways differ in what they earn: each says so beside what it pays.
     const earns = (r) => { const p = HX.mode === 'swap' && r.pk ? hxPts(r.pk, r.eth ?? q.eth) : null; return p ? `${r.note} · ${hxPtsShort(p)}` : r.note; };
-    mount(rows, html`${(q.rows || []).map((r) => html`<button type="button" role="radio" aria-checked="${r.k === q.pick}" data-hxr="${r.k}"><b>${r.name}</b><span>${earns(r)}</span><output>${r.show}</output>${r.best ? html`<em>best</em>` : ''}</button>`)}`);
+    mount(rows, html`<div class="hx-rows-h"><span class="hx-lbl">${HX.mode === 'earn' ? 'Where it farms' : 'Route'}</span></div>${(q.rows || []).map((r) => html`<button type="button" role="radio" aria-checked="${r.k === q.pick}" data-hxr="${r.k}"><span class="hx-rt"><b>${r.name}</b><small>${earns(r)}</small></span><span class="hx-ra"><output>${r.show}</output>${r.best ? html`<em>best</em>` : ''}</span><span class="hx-rd" aria-hidden="true"></span></button>`)}`);
     for (const b of $$('[data-hxr]', rows)) b.onclick = () => { if (HX.mode === 'earn') HX.pool = b.dataset.hxr; else HX.route = b.dataset.hxr; hxQuote(); };
   }
   const pts = $('#hx-pts');
@@ -9530,7 +9595,7 @@ function paintHxQ() {
     const p = hxPts(q.pk, q.ethPts ?? q.eth, q.outTac);
     pts.hidden = !p;
     if (p) hxWantPoints();
-    if (p) mount(pts, html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><b>${p.pts < 1 ? '< 1' : `${p.known ? '≈ ' : 'at least '}${ptsFmt(p.pts)}`}</b> TAC points <button class="link" type="button" data-ptsinfo aria-expanded="${PTSINFO}">how?</button></span>
+    if (p) mount(pts, html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><b>${p.pts < 1 ? '< 1' : `${p.known ? '≈ ' : 'at least '}${ptsFmt(p.pts)}`}</b> TAC points <button class="link" type="button" data-ptsinfo aria-expanded="${PTSINFO}">how?</button></span>
       ${p.why ? html`<span class="hx-pw">${p.why}</span>` : ''}${p.tips.map((t) => html`<span class="hx-pt">${t}</span>`)}
       <span class="note mute" data-ptsnote ${PTSINFO ? '' : 'hidden'}>${ptsWhy()}</span>`);
   }
@@ -9553,10 +9618,19 @@ function paintHxQ() {
 // quote does: the panel redraws its points when they do.
 OUT.paint = () => paintHxQ();
 function hxGo() {
-  const units = hxUnits(), amt = HX.amt;
+  hxNorm();
+  const units = hxUnits(), amt = HX.amt, m = HX.mode;
   const wrapFirst = (link, label, then) => { FARM.back = link ? { link, label, at: Date.now(), then } : null; hxDraft({ mode: 'wrap', amt }); openLink('private'); };
-  if (HX.mode === 'private' || (HX.mode === 'swap' && HX.from === 'ether' && HX.to === 'eth')) return wrapFirst();
-  if (HX.mode === 'swap') {
+  if (m === 'private' || (m === 'swap' && HX.from === 'ether' && HX.to === 'eth')) return wrapFirst();
+  // ETH kept private on a chain, proved on this device: the deposit form of that chain takes the amount.
+  if (m === 'pay') { const c = hxChain(); hxDraft({ mode: 'dep', amt, chain: c.chainId }); return openLink(`device/${chainSlug(c)}/deposit`); }
+  if (m === 'btcpool') { location.href = '/tac/'; return; }
+  if (m === 'unwrap') return openLink('private/withdraw');
+  if (m === 'tacpub') return openLink('sell');
+  if (m === 'ppout' || m === 'ppv1') { DEV.dest = m === 'ppv1' ? 'v1' : 'addr'; return openLink(`device/${chainSlug(hxChain())}/withdraw`); }
+  if (m === 'tbback') return openLink('private/bitcoin');
+  if (m === 'borrow') { hxDraft({ mode: 'lock', amt }); return openLink('lock'); }
+  if (m === 'swap') {
     if (HX.from === 'ether' && HX.q?.pick === 'public') { hxDraft({ mode: 'buy', amt }); return openLink('buy'); }
     if (HX.from === 'sats') { location.href = '/tac/#buy'; return; }
     if (HX.to === 'sats') { location.href = TAC_BOOK; return; }
@@ -9565,14 +9639,14 @@ function hxGo() {
     if (hxTwo(units)) return wrapFirst('private/swap', `swap it for ${hxAsset(HX.to)[1]}`, swap);
     swap(); return openLink('private/swap');
   }
-  if (HX.mode === 'earn') {
+  if (m === 'earn') {
     if (HX.pool === 'precision') { hxDraft({ mode: 'farm', amt }); return openLink('farm/public'); }
     const pid = Number(HX.pool), p = FARM.program?.pools?.find((x) => x.pid === pid);
     const join = () => { (FARM.jm ||= {})[pid] = 'a'; hxDraft({ mode: 'join', pid, amt }); };
     if (hxTwo(units)) return wrapFirst(`farm/private-${pid}`, `farm it in ${p ? pairName(p.pair) : 'the pool'}`, join);
     join(); return openLink(`farm/private-${pid}`);
   }
-  if (HX.mode === 'btc') {
+  if (m === 'btc') {
     if (HX.dir === 'in') return openLink('bridge');
     if (HX.from === 'tac') {
       if (HX.q?.needPrivate) return openLink('tac');                       // TAC is made private at the top of its sheet, whichever tab is open
@@ -9586,96 +9660,149 @@ function hxGo() {
 function paintHx() {
   const el = $('#hx-body');
   if (!el) return;
-  const focused = el.contains(document.activeElement) ? document.activeElement.id : '';     // a redraw keeps the control the keyboard was on
-  const outs = hxOut();
-  if (!outs.length) HX.dir = 'in';
-  if (HX.mode === 'swap' && HX.to === HX.from) HX.to = HX.from === 'tac' ? 'eth' : 'tac';
-  if (HX.mode === 'btc' && HX.dir === 'out') { if (!outs.some(([k]) => k === HX.from)) HX.from = outs[0][0]; }
-  else if ((HX.mode === 'btc' || HX.mode === 'earn') && HX.from !== 'ether' && HX.from !== 'eth') HX.from = 'ether';
-  const tab = ([k, label]) => html`<button type="button" role="tab" data-hxm="${k}" aria-selected="${HX.mode === k}" tabindex="${HX.mode === k ? 0 : -1}">${label}</button>`;
+  hxNorm();
+  const act = document.activeElement, focus = el.contains(act) ? { id: act.id, hxd: act.dataset.hxd, hxm: act.dataset.hxm } : null;     // a redraw keeps the control the keyboard was on
+  const tab = ([k, label, ic]) => html`<button type="button" role="tab" data-hxm="${k}" aria-selected="${HX.tab === k}" tabindex="${HX.tab === k ? 0 : -1}"><svg aria-hidden="true"><use href="#g-${ic}"/></svg>${label}</button>`;
+  const head = html`<div class="hx-h" role="tablist" aria-label="What to do" style="--i: ${HX_TABS.findIndex(([k]) => k === HX.tab)}">${HX_TABS.map(tab)}</div>`;
   // A coin and its ticker, with the asset picker laid over them: pressing the coin chooses the asset. One choice is no picker.
-  const coin = (id, label, list, cur) => {
-    const [k, u, ic] = list.find(([x]) => x === cur) || list[0];
-    return html`<label class="hx-coin${list.length < 2 ? ' one' : ''}" style="--c: ${HX_COLOR[k] || 'var(--ink)'}"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><b>${u}</b>${list.length > 1 ? html`<span class="car" aria-hidden="true">▾</span><select id="${id}" aria-label="${label}">${list.map(([x, n]) => html`<option value="${x}"${x === cur ? ' selected' : ''}>${n}</option>`)}</select>` : ''}</label>`;
+  // `grouped` lists are [heading, items] pairs, and an item's fifth part, where it has one, is the name the list shows.
+  const coin = (id, label, items, cur, grouped) => {
+    const all = grouped ? items.flatMap(([, l]) => l) : items, [, u, ic] = all.find(([x]) => x === cur) || all[0];
+    const opt = ([x, u2, , , n]) => html`<option value="${x}"${x === cur ? ' selected' : ''}>${n || u2}</option>`;
+    return html`<label class="hx-coin${all.length < 2 ? ' one' : ''}"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><b>${u}</b>${all.length > 1 ? html`<span class="car" aria-hidden="true">▾</span><select id="${id}" aria-label="${label}">${grouped ? items.map(([g, l]) => html`<optgroup label="${g}">${l.map(opt)}</optgroup>`) : items.map(opt)}</select>` : ''}</label>`;
   };
-  const field = (lbl, main, side = '') => html`<div class="hx-f"><span class="hx-lbl">${lbl}</span>${main}${side}</div>`;
+  const where = (text, priv, ic = 'eth') => html`<span class="hx-where${priv ? ' priv' : ''}"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg>${text}</span>`;
+  // Where an asset of the Swap and Earn lists sits: ETH in the wallet, sats in the Bitcoin wallet, the rest private on Ethereum.
+  const whereOf = (k) => (k === 'ether' ? where('your wallet', false) : k === 'sats' ? where('your Bitcoin wallet', false, 'btc') : where('private on Ethereum', true));
+  const field = (lbl, w, main, side = '', sub = '') => html`<div class="hx-f"><div class="hx-fh"><span class="hx-lbl">${lbl}</span>${w}</div><div class="hx-fm">${main}${side}</div>${sub}</div>`;
+  const subline = html`<div class="hx-ff"><span class="hx-sub" id="hx-sub"></span></div>`;
   const mid = (flip) => html`<div class="hx-mid">${flip ? html`<button type="button" class="flip" id="hx-flip" aria-label="${flip}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v17m0 0-4-4m4 4 4-4M16 21V4m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`
     : html`<span class="arr" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 4v16m0 0-6-6m6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`}</div>`;
-  const amt = (label) => html`<input class="hx-amt" id="hx-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${label}" value="${HX.amt}">`;
+  const amt = (label) => html`<input class="hx-amt" id="hx-amt" inputmode="decimal" placeholder="0" autocomplete="off" aria-label="${label}" value="${HX.amt}">`;
   const out = (unit = '') => html`<span class="hx-m"><output class="hx-big ph" id="hx-out" for="hx-amt">0.00</output>${unit ? html`<span class="hx-unit">${unit}</span>` : ''}</span>`;
-  const head = html`<div class="hx-h" role="tablist" aria-label="What to do">${HX_TABS.map(tab)}</div>`;
-  const go0 = { private: 'Make ETH private', swap: 'Swap privately', earn: 'Farm with ETH', btc: HX.dir === 'in' ? 'Bridge TAC from Bitcoin' : HX.from === 'tac' ? 'Bridge TAC to Bitcoin' : 'Send to Bitcoin' }[HX.mode];
-  const tail = html`<div class="hx-routes" id="hx-routes" role="radiogroup" aria-label="Route" hidden></div>
+  const m = HX.tab, md = HX.mode;
+  const go0 = hxHandoff(md, null)?.go || {
+    private: 'Make ETH private', swap: 'Swap privately', earn: 'Farm with ETH', borrow: HX.bm === 'cbtc' ? 'Lock BTC for cBTC' : 'Lock BTC and borrow',
+    btc: HX.dir === 'in' ? 'Bridge TAC from Bitcoin' : HX.from === 'tac' ? 'Bridge TAC to Bitcoin' : 'Send to Bitcoin',
+  }[md];
+  const tail = html`<div class="hx-rows" id="hx-routes" role="radiogroup" aria-label="Route" hidden></div>
     <div class="hx-pts" id="hx-pts" hidden></div>
     <div class="hx-have" id="hx-have" hidden></div>
+    <label class="hx-chain" id="hx-chain"${['pay', 'ppout', 'ppv1'].includes(md) ? '' : ' hidden'}>On <select id="hx-chain-sel" aria-label="Chain">${DEVICE_CHAINS.map((c) => html`<option value="${c.chainId}"${c.chainId === HX.chain ? ' selected' : ''}>${c.name}</option>`)}</select></label>
     <button class="btn" type="button" id="hx-go">${go0}</button>
     <p class="hx-q" id="hx-q" aria-live="polite"></p>
     <p class="hx-q" id="hx-alt" hidden></p>
     <a class="hx-trade" id="hx-trade" href="/trade/tac/" hidden>TAC's price on both chains, and every pool →</a>`;
-  const ETHER = [HX_ETHER], ETHS = [HX_ETHER, ['eth', 'tETH', 'teth', 6]], TETH = [['eth', 'tETH', 'teth']], TAC = [['tac', 'TAC', 'tac']];
-  const m = HX.mode;
+  let body;
   if (m === 'private') {
-    HX.from = 'ether';
-    mount(el, html`${head}${field('You pay', amt('ETH to make private'), coin('hx-from', 'You pay', ETHER, 'ether'))}${mid()}${field('You get', out(), coin('hx-to', 'You get', TETH, 'eth'))}${tail}`);
+    const src = HX_SH[HX.sf], ways = hxWays(HX.sf), many = ways.length > 1, here = HX_WAY[`${HX.sf}>${HX.sd}`];
+    const entry = (k) => { const s = HX_SH[k]; return [k, s.u, s.ic, 6, s.name]; };
+    const srcs = hxSources(), groups = ['In your wallets', 'Private', 'On Bitcoin'].map((g) => [g, srcs.filter((k) => HX_SH[k].g === g).map(entry)]).filter(([, l]) => l.length);
+    const [rf, rw] = (here.rev || '>').split('>'), revOk = !!(here.rev && HX_SH[rf] && hxWays(rf).includes(rw));
+    const place = HX.sf === 'pp' ? `private, for payments on ${hxChain().name}` : src.place, taken = !!src.priv || HX.sf === 'tb';
+    const way = (w) => {
+      const x = HX_WAY[`${HX.sf}>${w}`], on = w === HX.sd, pr = x.pr === 'chain' ? `on ${hxChain().name}` : x.pr;
+      const inner = html`<svg class="tk" aria-hidden="true"><use href="#tk-${x.ic}"/></svg><span class="hx-rt"><b>${x.t}</b><small>${x.p}</small></span><span class="hx-ra"><span>${on ? html`<output class="ph" id="hx-out" for="hx-amt">0.00</output>` : x.same ? html`<span data-hxa></span>` : ''} ${x.u}</span>${pr ? html`<small>${pr}</small>` : ''}</span>${many ? html`<span class="hx-rd" aria-hidden="true"></span>` : ''}`;
+      return many ? html`<button type="button" role="radio" class="c" aria-checked="${on}" data-hxd="${w}" tabindex="${on ? 0 : -1}">${inner}</button>` : html`<div class="hx-r c one" data-hxd="${w}">${inner}</div>`;
+    };
+    // What is taken from Bitcoin goes in whole notes, picked in the sheet that does it: no amount to type here.
+    const whole = ['btcpool', 'tbback'].includes(HX.mode) || (HX.mode === 'btc' && HX.dir === 'in');
+    body = html`${field(taken ? 'You take out' : 'You put in', where(place, !!src.priv, HX.sf === 'btc' || HX.sf === 'tb' ? 'btc' : 'eth'), whole ? html`<span class="hx-word">Your ${src.u}</span>` : amt(`${src.u} to move`), coin('hx-from', 'You put in', groups, HX.sf, true), whole ? '' : subline)}
+      ${mid(revOk ? 'Reverse' : '')}
+      <div class="hx-rows" id="hx-dest" role="${many ? 'radiogroup' : 'group'}" aria-label="You get"><div class="hx-rows-h"><span class="hx-lbl">You get</span></div>${ways.map(way)}</div>${tail}`;
   } else if (m === 'swap') {
     // Wallet ETH and sats are paired only with TAC (see hxValid); the lists offer what the other side allows.
     const froms = [HX_ETHER, ...SWAP_ASSETS, ...(HX.to === 'tac' || HX.from === 'sats' ? [HX_SATS] : [])];
     const tos = [...SWAP_ASSETS.filter(([k]) => hxValid(HX.from, k)), ...[HX_ETHER, HX_SATS].filter(([k]) => hxValid(HX.from, k))];
-    if (!tos.some(([k]) => k === HX.to)) HX.to = tos[0][0];
-    mount(el, html`${head}${field('You pay', amt(`${hxAsset(HX.from)[1]} to swap`), coin('hx-from', 'You pay', froms, HX.from))}
+    if (!tos.some(([k]) => k === HX.to)) { HX.to = tos[0][0]; HX.swp.to = HX.to; }
+    body = html`${field('You pay', whereOf(HX.from), amt(`${hxAsset(HX.from)[1]} to swap`), coin('hx-from', 'You pay', froms, HX.from), subline)}
       ${mid(hxValid(HX.to, HX.from) && `Pay with ${hxAsset(HX.to)[1]} instead`)}
-      ${field('You get', out(), coin('hx-to', 'You get', tos, HX.to))}${tail}`);
+      ${field('You get', whereOf(HX.to), out(), coin('hx-to', 'You get', tos, HX.to))}${tail}`;
   } else if (m === 'earn') {
-    mount(el, html`${head}${field('You put in', amt(`${hxAsset(HX.from)[1]} to farm`), coin('hx-from', 'You put in', ETHS, HX.from))}${mid()}${field('You earn', out('a day'), coin('hx-to', 'You earn', TAC, 'tac'))}${tail}`);
-  } else if (m === 'btc') {
-    const into = HX.dir === 'in', flip = outs.length > 0 && (into ? `${outs.length > 2 ? 'Send' : outs[0][0] === 'tac' ? 'Bridge TAC' : 'Send tETH'} to Bitcoin instead` : 'Bring TAC from Bitcoin instead');
-    const sent = HX.from === 'tac' ? ['btc', 'TAC', 'tac'] : ['btc', 'tETH', 'teth'];
-    mount(el, html`${head}${into ? field('On Bitcoin', html`<span class="hx-word">Your TAC</span>`, coin('hx-from', 'On Bitcoin', [['btc', 'TAC', 'tac']], 'btc'))
-        : field('You send', amt(`${hxAsset(HX.from)[1]} to send to Bitcoin`), coin('hx-from', 'You send', outs, HX.from))}
-      ${mid(flip)}
-      ${into ? field('On Ethereum', html`<output class="hx-word" id="hx-out">Private</output>`, coin('hx-to', 'On Ethereum', TAC, 'tac'))
-        : field('On Bitcoin', out(), coin('hx-to', 'On Bitcoin', [sent], 'btc'))}${tail}`);
+    body = html`${field('You put in', whereOf(HX.from), amt(`${hxAsset(HX.from)[1]} to farm`), coin('hx-from', 'You put in', [HX_ETHER, ['eth', 'tETH', 'teth', 6]], HX.from), subline)}
+      ${mid()}${field('You earn', '', out('a day'), coin('hx-to', 'You earn', [['tac', 'TAC', 'tac']], 'tac'))}${tail}
+      <a class="hx-more" href="#farm" data-link="farm">Have both sides? Join with both →</a>`;
+  } else if (m === 'borrow') {
+    const ways = [['cusd', 'Borrow cUSD', 'a private dollar, repay any time', 'cusd', 'cUSD'], ['cbtc', 'Mint cBTC only', 'private BTC on Ethereum, free', 'cbtc', 'cBTC']];
+    const way = ([k, t, p, ic, u]) => { const on = HX.bm === k; return html`<button type="button" role="radio" class="c" aria-checked="${on}" data-hxd="${k}" tabindex="${on ? 0 : -1}"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><span class="hx-rt"><b>${t}</b><small>${p}</small></span><span class="hx-ra"><span>${on ? html`<output class="ph" id="hx-out" for="hx-amt">0.00</output>` : ''} ${u}</span><small>private</small></span><span class="hx-rd" aria-hidden="true"></span></button>`; };
+    body = html`${field('You lock', where('your Bitcoin wallet', false, 'btc'), amt('BTC to lock'), coin('hx-from', 'You lock', [['btc', 'BTC', 'btc']], 'btc'), subline)}
+      ${mid()}
+      <div class="hx-rows" id="hx-dest" role="radiogroup" aria-label="You get"><div class="hx-rows-h"><span class="hx-lbl">You get</span></div>${ways.map(way)}</div>${tail}`;
   } else {
     const [, unit] = HX_SEND.find(([k]) => k === HX.send), here = HX.send === 'eth';
-    mount(el, html`${head}${field('Send', html`<input class="hx-amt" id="hx-samt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${unit} to send" value="${here ? HX.amt : ''}"${here ? '' : ' disabled'}>`, coin('hx-sa', 'Asset to send', HX_SEND, HX.send))}
+    body = html`${field('You send', HX.send === 'btc' ? where('your Bitcoin wallet', false, 'btc') : where(HX.send === 'tac' ? 'private on Bitcoin' : 'private on Ethereum', true, HX.send === 'tac' ? 'btc' : 'eth'),
+        html`<input class="hx-amt" id="hx-samt" inputmode="decimal" placeholder="0" autocomplete="off" aria-label="${unit} to send" value="${here ? HX.amt : ''}"${here ? '' : ' disabled'}>`, coin('hx-sa', 'Asset to send', HX_SEND, HX.send))}
       ${mid()}
-      ${field('To', here ? html`<input class="hx-to" id="hx-to" placeholder="tacit1… or name.wei" autocomplete="off" spellcheck="false" autocapitalize="off" aria-label="Recipient" value="${HX.rcpt}">`
+      ${field('To', where('anyone, on either chain', false), here ? html`<input class="hx-to" id="hx-to" placeholder="tacit1… or name.wei" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Recipient" value="${HX.rcpt}">`
         : html`<span class="hx-say">${HX.send === 'btc' ? 'Anyone, as a silent payment' : 'Anyone, through the shielded pool on Bitcoin'}, from Tacit Pay.</span>`)}
       <button class="btn" type="button" id="hx-go">${here ? 'Send privately' : html`Send ${unit} in Pay`}</button>
-      <p class="hx-q">${here ? 'Nobody sees how much or to whom.' : 'Same key, same tacit1 address.'}</p>`);
-    $('#hx-sa').onchange = (e) => { HX.send = e.target.value; paintHx(); };
-    if (here) { $('#hx-to').oninput = (e) => { HX.rcpt = e.target.value.trim(); }; $('#hx-samt').oninput = (e) => { HX.amt = e.target.value; }; }
-    $('#hx-go').onclick = () => {
-      if (!here) { location.href = `/pay/#${HX.send}`; return; }
-      hxDraft({ mode: 'send', to: HX.rcpt, amt: HX.amt }); openLink('private/send');
-    };
+      <p class="hx-q">${here ? 'Nobody sees how much or to whom.' : 'Same key, same tacit1 address.'}</p>`;
   }
-  const pickTab = (k, focus) => { if (HX.mode === k) return; HX.mode = k; HX.q = null; paintHx(); if (focus) $(`[data-hxm="${k}"]`)?.focus(); };
+  mount(el, html`${head}<div class="hx-b">${body}</div>`);
+  const pickTab = (k, focusIt) => { if (HX.tab === k) return; HX.tab = k; HX.q = null; HX.route = null; paintHx(); if (focusIt) $(`[data-hxm="${k}"]`)?.focus(); };
   for (const b of $$('[data-hxm]', el)) b.onclick = () => pickTab(b.dataset.hxm);
   // The tabs are one stop: the arrow keys, Home and End move among them.
   $('.hx-h', el).onkeydown = (e) => {
-    const i = HX_TABS.findIndex(([k]) => k === HX.mode), j = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: HX_TABS.length - 1 }[e.key];
+    const i = HX_TABS.findIndex(([k]) => k === HX.tab), j = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: HX_TABS.length - 1 }[e.key];
     if (j == null) return;
     e.preventDefault(); pickTab(HX_TABS[(j + HX_TABS.length) % HX_TABS.length][0], true);
   };
-  if (focused) { const f = document.getElementById(focused); if (f && f !== document.activeElement) f.focus(); }
-  if (m === 'send') return;
-  $('#hx-from')?.addEventListener('change', (e) => { HX.from = e.target.value; HX.route = HX.q = null; paintHx(); });
-  $('#hx-to')?.addEventListener('change', (e) => { HX.to = e.target.value; HX.route = HX.q = null; paintHx(); });
-  $('#hx-flip')?.addEventListener('click', () => { if (m === 'btc') HX.dir = HX.dir === 'in' ? 'out' : 'in'; else [HX.from, HX.to] = [HX.to, HX.from]; HX.route = HX.q = null; paintHx(); });
-  $('#hx-amt')?.addEventListener('input', (e) => { HX.amt = e.target.value; hxQuoteSoon(); });
+  if (focus) { const f = (focus.id && document.getElementById(focus.id)) || (focus.hxd && $(`[data-hxd="${focus.hxd}"]`, el)) || (focus.hxm && $(`[data-hxm="${focus.hxm}"]`, el)); if (f && f !== document.activeElement) f.focus(); }
+  if (m === 'send') {
+    $('#hx-sa').onchange = (e) => { HX.send = e.target.value; paintHx(); };
+    if (HX.send === 'eth') { $('#hx-to').oninput = (e) => { HX.rcpt = e.target.value.trim(); }; $('#hx-samt').oninput = (e) => { HX.amt = e.target.value; }; }
+    $('#hx-go').onclick = () => {
+      if (HX.send !== 'eth') { location.href = `/pay/#${HX.send}`; return; }
+      hxDraft({ mode: 'send', to: HX.rcpt, amt: HX.amt }); openLink('private/send');
+    };
+    return;
+  }
+  // The ways are one stop too: the arrow keys move the choice among them.
+  const dest = $('#hx-dest', el);
+  const choose = (k) => { if (m === 'borrow') HX.bm = k; else HX.sd = k; HX.route = HX.q = null; paintHx(); $(`[data-hxd="${k}"]`)?.focus(); };
+  for (const b of $$('button[data-hxd]', el)) b.onclick = () => choose(b.dataset.hxd);
+  if (dest) dest.onkeydown = (e) => {
+    const ks = $$('[data-hxd]', dest).map((b) => b.dataset.hxd), i = ks.indexOf(m === 'borrow' ? HX.bm : HX.sd), d = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
+    if (!d || ks.length < 2) return;
+    e.preventDefault(); choose(ks[(i + d + ks.length) % ks.length]);
+  };
+  const setFrom = (v) => { if (m === 'private') { HX.sf = v; HX.sd = null; } else if (m === 'swap') HX.swp.from = v; else if (m === 'earn') HX.ern = v; HX.route = HX.q = null; paintHx(); };
+  $('#hx-from')?.addEventListener('change', (e) => setFrom(e.target.value));
+  $('#hx-to')?.addEventListener('change', (e) => { if (m === 'swap') HX.swp.to = e.target.value; HX.route = HX.q = null; paintHx(); });
+  $('#hx-chain-sel')?.addEventListener('change', (e) => { HX.chain = Number(e.target.value); HX.route = HX.q = null; paintHx(); });
+  $('#hx-flip')?.addEventListener('click', () => {
+    if (m === 'private') { const r = HX_WAY[`${HX.sf}>${HX.sd}`].rev?.split('>'); if (r) { HX.sf = r[0]; HX.sd = r[1]; } }
+    else [HX.swp.from, HX.swp.to] = [HX.swp.to, HX.swp.from];
+    HX.route = HX.q = null; paintHx();
+  });
+  $('#hx-amt')?.addEventListener('input', (e) => { HX.amt = e.target.value; hxSub(); hxQuoteSoon(); });
+  el.onclick = (e) => {
+    const b = e.target.closest?.('[data-hxq]');
+    if (!b) return;
+    HX.amt = b.dataset.hxq; const a = $('#hx-amt'); a.value = HX.amt; hxSub(); hxQuoteSoon(); a.focus();
+  };
   $('#hx-go').onclick = hxGo;
+  hxSub();
   paintHxQ();
   hxQuote();
 }
 // The private balance read, or read again (a key opened, a wrap landed): a route from ETH may now be one step, or two.
 function hxSync() {
-  if (HX.mode !== 'send' && HX.from === 'ether' && hxHeld() !== HX.held) hxQuoteSoon();
+  hxNorm();
+  if (!['send', 'borrow'].includes(HX.mode) && HX.from === 'ether' && hxHeld() !== HX.held) hxQuoteSoon();
   if (HX.mode === 'btc' && HX.dir === 'out' && HX.from === 'tac' && hxHeldTac() !== HX.heldTac) hxQuoteSoon();         // the private TAC read: it may now be short
   if (HX.mode === 'btc' && HX.dir === 'in') hxHave();
 }
 paintHx();
 refreshTape();
+// A button elsewhere on the page that sets the console (data-hx="tab:from:way"), takes it to a section (data-scroll), or signs in (data-signin).
+document.addEventListener('click', (e) => {
+  const h = e.target.closest?.('[data-hx]');
+  if (h) { e.preventDefault(); hxPreset(h.dataset.hx); return; }
+  const sc = e.target.closest?.('[data-scroll]');
+  if (sc) { e.preventDefault(); document.getElementById(sc.dataset.scroll)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); return; }
+  if (e.target.closest?.('[data-signin]')) openSheet('wallet');
+});
 // The picture of the two chains loads when it is about to be seen, with its own small feed; if it cannot, the section is as it was.
 { const k = $('#kept'); if (k && 'IntersectionObserver' in window) { const io = new IntersectionObserver((es) => { if (!es.some((e) => e.isIntersecting)) return; io.disconnect(); import('/weld/flow/viz.js?cb=6c95b6d1').then((m) => m.mountFlow($('#kept-v'), { compact: true })).catch(() => { k.hidden = true; }); }, { rootMargin: '400px' }); io.observe(k); } else if (k) k.hidden = true; }
 setInterval(() => { if (!document.hidden) for (const e of $$('[data-left]')) e.textContent = potLeft(); }, 1000);
