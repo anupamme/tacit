@@ -2632,10 +2632,18 @@ function feeAssetRow(type, op, env = {}) {
     const assetId = feeAssetOf(type, op);
     if (!assetId) return null;
     const want = String(assetId).toLowerCase();
-    const rows = (_CONFIDENTIAL_DEPLOYMENTS?.mainnet?.assets || []).filter((a) => String(a.assetId || '').toLowerCase() === want);
-    const row = rows.find((a) => a.ticker === 'cETH')
+    const assets = _CONFIDENTIAL_DEPLOYMENTS?.mainnet?.assets || [];
+    const rows = assets.filter((a) => String(a.assetId || '').toLowerCase() === want);
+    let row = rows.find((a) => a.ticker === 'cETH')
       || rows.find((a) => USD_PEGGED_FEE_TICKERS.includes(a.ticker))
       || rows.find((a) => a.ticker === 'cBTC' || a.ticker === 'cTAC');
+    // The farm's reward (wTAC) is TAC held in the pool under an asset id of its own, one for one and at its own scale, so a fee
+    // in it is valued as TAC is, at the farm's scale.
+    const farm = _CONFIDENTIAL_DEPLOYMENTS?.mainnet?.farm;
+    if (!row && farm?.rewardAsset && want === String(farm.rewardAsset).toLowerCase()) {
+      const tac = assets.find((a) => a.ticker === 'cTAC');
+      if (tac && farm.unitScale) row = { ...tac, assetId: farm.rewardAsset, unitScale: String(farm.unitScale), decimals: farm.rewardDecimals ?? tac.decimals };
+    }
     return feeAssetForRow(row, env);
   } catch { return null; }
 }

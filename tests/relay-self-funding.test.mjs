@@ -504,6 +504,18 @@ function loadPricer({ env = {}, amm = async () => null } = {}) {
     pricerSrc + '; return buildFeePricer(ENV);');
   return mk(rq.passesFloor, rq.feeAssetOf, rq.totalFee, DEPLOY, async () => '0x3938700', async () => 2570, async () => 80000, env, amm);
 }
+test('the farm reward (wTAC) is valued as TAC is, at its own scale, and unpriced without a TAC reference', async () => {
+  const farm = DEPLOY.mainnet.farm, tac = ASSET('cTAC');
+  const units = '200000000';                                                   // 2 TAC at 1e-8 TAC a unit
+  const pr = loadPricer({ env: TAC_ENV });
+  const w = await pr({ type: 'unwrap', op: { asset: farm.rewardAsset, fee: units } });
+  const t = await pr({ type: 'unwrap', op: { asset: tac.assetId, fee: units } });
+  ok(typeof w.feeUsd === 'number' && w.feeUsd > 0, 'a wTAC fee is priced');
+  ok(Math.abs(w.feeUsd - t.feeUsd) < 1e-12, 'and is worth what the same TAC fee is');
+  ok((await loadPricer({ env: {} })({ type: 'unwrap', op: { asset: farm.rewardAsset, fee: units } })).feeUsd === null, 'with no TAC reference it stays unpriced, never guessed');
+  const other = await pr({ type: 'unwrap', op: { asset: '0x' + '77'.repeat(32), fee: units } });
+  ok(other.feeUsd === null, 'an asset that is neither is still unpriced');
+});
 test('an op with no fee is priced as unpriced (null), not as $0', async () => {
   // $0 made the relay compare zero against cost and refuse every fee-less-by-design op (wrap, cbtcmint, …).
   const pr = loadPricer();

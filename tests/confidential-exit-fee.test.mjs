@@ -58,6 +58,23 @@ test('a TAC exit is quoted the cTAC floor, not zero, and the relay takes it', as
   assert.equal(r.jobId, 'j1');
 });
 
+test('the farm reward (wTAC) exits at TAC\'s fee: the 2 TAC floor, not the ETH floor an unknown asset fell back to', async () => {
+  const relay = stubRelay(TAC_FLOOR);
+  const ux = makeConfidentialPoolUx({ ...deps, fetchImpl: relay.fetchImpl });
+  const rid = ux.cfg.farm.rewardAsset;
+  assert.equal(ux.poolTickerOf(rid), 'cTAC', 'fees take the TAC row');
+  assert.equal(ux.relayFeeEligible(ux.poolTickerOf(rid)), true);
+  assert.equal(ux.tickerOf(rid) === 'TAC' || ux.tickerOf(rid) === 'cTAC', false, 'display does not call it TAC');
+  const wtac = { ...tacNote(ux), asset: rid };
+  const r = await ux.unwrap({ note: wtac, walletPriv, wait: false });
+  assert.equal(relay.fees.length, 1, 'accepted first time at the TAC floor');
+  assert.ok(relay.fees[0] >= TAC_FLOOR, `fee ${relay.fees[0]} covers the 2 TAC floor`);
+  assert.equal(r.jobId, 'j1');
+  // A small reward is not exited below the floor: the fee is a floor, so a note under it cannot be relayed.
+  const small = { ...wtac, value: '100000000' };
+  await assert.rejects(ux.unwrap({ note: small, walletPriv, wait: false }), /./, 'a reward under the floor is refused before anything is sent');
+});
+
 test('a refused fee is quoted once more at twice the floor; refused again, the user gets plain words', async () => {
   const twice = stubRelay(TAC_FLOOR * 2n);
   const ux = makeConfidentialPoolUx({ ...deps, fetchImpl: twice.fetchImpl });

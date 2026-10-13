@@ -819,6 +819,9 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   // prices, as its own quote does; display keeps tickerOf.
   function poolTickerOf(assetIdHex) {
     const id = lc(assetIdHex);
+    // The farm's reward (wTAC) is TAC held in the pool under an asset id of its own, one for one and at the same scale: its
+    // relay fee is TAC's, a floor in TAC and not the percentage of a few units that an unknown asset would fall back to.
+    if (cfg.farm && cfg.farm.rewardAsset && id === lc(cfg.farm.rewardAsset)) return 'cTAC';
     const rows = cfg.assets.filter((x) => (x.assetId && lc(x.assetId) === id) || (x.bitcoinLink && lc(x.bitcoinLink) === id));
     const row = rows.find((x) => RELAY_FEE_ASSETS[x.ticker]) || rows.find((x) => /^c/.test(x.ticker)) || rows[0];
     return row ? row.ticker : null;
