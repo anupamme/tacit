@@ -166,9 +166,9 @@ try {
   await until(p, () => !document.querySelector('#out').classList.contains('ph') && document.querySelector('#out').textContent !== '…', null, 240000);
   ok((await p.inputValue('#amt')) === '0.25' && (await p.getAttribute('#chips [data-amt="0.25"]', 'aria-pressed')) === 'true' && (await p.$eval('.p-venues', (e) => e.hidden)) === false, 'pressing one fills the amount, quotes it and shows the quotes');
   await p.fill('#amt', '2');
-  await until(p, () => /Split:/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && Number(document.querySelector('#out').textContent.replace(/,/g, '')) > 5000, null, 240000);
+  await until(p, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && Number(document.querySelector('#out').textContent.replace(/,/g, '')) > 5000, null, 240000);
   const route = (await text(p, '#route')).replace(/\s+/g, ' ');
-  ok(/Split: \d+% Precision pool, \d+% Tacit pool/.test(route) && /more TAC than the better pool alone/.test(route), `2 ETH is quoted as a split (${route.slice(0, 160)})`);
+  ok(/Split across two pools \+[\d.]+%/.test(route) && /Precision \d+%\s*Tacit \d+%/.test(route) && !!(await p.$('#route .splitbar')), `2 ETH is quoted as a split, drawn as a bar of the two pools with what it gains (${route.slice(0, 160)})`);
   ok(/^[\d,]+(\.\d+)?$/.test((await text(p, '#out')).trim()) && Number((await text(p, '#out')).replace(/,/g, '')) > 2 * 3000, `with the TAC it pays (${await text(p, '#out')}: at least 3,000 TAC to the ETH even after the price impact of 2 ETH)`);
   const rows = await p.$$eval('#venues tbody tr', (t) => t.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
   ok(rows.length >= 5 && rows.length <= 7, `the quotes table holds the places that quote: the pools, the split, the private swap and the Bitcoin book (${rows.length} rows)`);
@@ -181,7 +181,7 @@ try {
 
   // a small purchase is not split, and says why a split would not pay
   await p.fill('#amt', '0.02');
-  await until(p, () => !/Split:/.test(document.querySelector('#route')?.textContent || '') && /Precision pool|Tacit public pool/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 120000);
+  await until(p, () => !/Split across/.test(document.querySelector('#route')?.textContent || '') && /Precision pool|Tacit public pool/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 120000);
   ok(/^Route.*Precision pool/.test((await text(p, '#route')).replace(/\s+/g, ' ')), `0.02 ETH runs on one pool (${(await text(p, '#route')).replace(/\s+/g, ' ').slice(0, 100)})`);
 
   // amounts: a lone comma is a decimal point, as on the front page; 1,500 is ambiguous and not read
@@ -200,9 +200,9 @@ try {
   await p.click('[data-side="sell"]');
   ok((await p.$$eval('#chips button', (b) => b.map((x) => x.textContent))).join() === '1,000 TAC,5,000 TAC,20,000 TAC', 'the sell side has quick amounts in TAC');
   await p.fill('#amt', '12000');
-  await until(p, () => /Split:/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 240000);
+  await until(p, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 240000);
   const sell = (await text(p, '#route')).replace(/\s+/g, ' ');
-  ok(/Split:/.test(sell) && /more ETH than the better pool alone/.test(sell) && /TAC$/.test((await text(p, '#in-unit')).trim()), `selling 12,000 TAC is quoted as a split, paid in ETH (${sell.slice(0, 120)})`);
+  ok(/Split across two pools \+[\d.]+%/.test(sell) && /TAC$/.test((await text(p, '#in-unit')).trim()), `selling 12,000 TAC is quoted as a split, paid in ETH (${sell.slice(0, 120)})`);
   ok(/Bitcoin order book.*\d+ bids? · settles (when the bidder is online|within minutes).*sats fees/.test((await text(p, '#venues')).replace(/\s+/g, ' ')), 'the Bitcoin row says what the standing bids pay for the sale, and that each settles when its bidder is online');
 
   // the order book and the facts
@@ -252,7 +252,7 @@ try {
 
     // a purchase that splits
     await q.fill('#amt', '2');
-    await until(q, () => /Split:/.test(document.querySelector('#route')?.textContent || '') && /Review buy/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
+    await until(q, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && /Review buy/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
     await q.click('#go');
     await q.waitForSelector('#review:not([hidden]) #rv-go');
     const rv = (await text(q, '#review')).replace(/\s+/g, ' ');
@@ -278,7 +278,7 @@ try {
     // a sale that splits: the permit is signed in the wallet, then one transaction
     await q.click('[data-side="sell"]');
     await q.fill('#amt', '12000');
-    await until(q, () => /Split:/.test(document.querySelector('#route')?.textContent || '') && /Review sell/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
+    await until(q, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && /Review sell/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
     await q.click('#go'); await q.waitForSelector('#rv-go');
     ok(await q.$eval('#rv-go', (b) => b.disabled) && /I accept losing about \d+%/.test(await text(q, '#review')), 'a sale that moves the price over 10% waits for the box to be ticked');
     await q.check('#ack'); ok(!(await q.$eval('#rv-go', (b) => b.disabled)), 'ticking it lets the sale be confirmed');

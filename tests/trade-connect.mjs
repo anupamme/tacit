@@ -60,7 +60,11 @@ export function announceWalletConnect({ onPair, onAsk }) {
 }`;
 // A browser wallet that announces itself through EIP-6963.
 const BROWSER_WALLET = `(() => {
-  const provider = { async request({ method }) { if (method === 'eth_requestAccounts') return ['${OTHER}']; if (method === 'eth_chainId') return '0x1'; throw new Error('stub: ' + method); }, on() {}, removeListener() {} };
+  // It allows this site once asked (kept across a reload, as a wallet does), and counts the prompts it shows.
+  const provider = { async request({ method }) {
+    if (method === 'eth_requestAccounts') { window.__prompts = (window.__prompts || 0) + 1; localStorage.setItem('stub-allowed', '1'); return ['${OTHER}']; }
+    if (method === 'eth_accounts') return localStorage.getItem('stub-allowed') ? ['${OTHER}'] : [];
+    if (method === 'eth_chainId') return '0x1'; throw new Error('stub: ' + method); }, on() {}, removeListener() {} };
   const detail = Object.freeze({ info: Object.freeze({ uuid: 'browser-stub', name: 'Test Wallet', icon: '', rdns: 'test.wallet' }), provider });
   const announce = () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail }));
   window.addEventListener('eip6963:requestProvider', announce); announce();
@@ -132,6 +136,13 @@ try {
   await p.click('.bsheet.top .picker .way:has-text("Test Wallet")');
   await until(p, () => document.querySelector('#wallet-dot').classList.contains('on'), null, 10000);
   ok((await chip(p)).label === '0xabcd…abcd' && !(await p.$('.bsheet')), 'choosing one connects it with no pairing sheet');
+  // a reload: the wallet chosen last time is connected again, with no prompt
+  await p.reload(); await p.waitForSelector('#wallet-chip');
+  await until(p, () => document.querySelector('#wallet-dot').classList.contains('on'), null, 10000).catch(() => {});
+  ok((await chip(p)).label === '0xabcd…abcd' && !(await p.evaluate(() => window.__prompts || 0)) && !(await p.$('.bsheet')), `a reload reconnects the same wallet without asking again (${(await chip(p)).label})`);
+  await p.click('#wallet-chip'); await p.click('.bsheet.top [data-leave]');
+  await p.reload(); await p.waitForSelector('#wallet-chip'); await p.waitForTimeout(1200);
+  ok((await chip(p)).label === 'Connect', 'after Disconnect a reload stays disconnected');
   await r.browser.close();
 
   // a phone: nothing to tap in the first screen but the bar at the foot, which leads to the ticket

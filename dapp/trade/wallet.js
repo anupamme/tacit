@@ -18,22 +18,42 @@ export function makeWallet({ rpc, leave = null }) {
 
   // A wallet's listeners are taken off the provider it is leaving, so a wallet left behind cannot change the account of the one in use.
   let off = null;
-  async function connect(w) {
+  // The wallet last connected here, by its EIP-6963 id (or name), so a reload can find it again. Only which wallet: never an account or a key.
+  const KEY = 'tacit-trade-wallet';
+  const idOf = (w) => w.info?.rdns || w.info?.name || 'Browser wallet';
+  const remember = (w) => { try { if (w) localStorage.setItem(KEY, idOf(w)); else localStorage.removeItem(KEY); } catch { /* storage is a convenience */ } };
+  // `silent`: asks only for the accounts the wallet already allows this site (eth_accounts opens no prompt); none → not connected.
+  async function connect(w, { silent = false } = {}) {
     off?.(); off = null;
     W.prov = w.provider; W.name = w.info?.name || 'Wallet';
-    const accounts = await req('eth_requestAccounts');
+    const accounts = await req(silent ? 'eth_accounts' : 'eth_requestAccounts');
+    if (silent && !accounts?.[0]) { W.prov = null; W.name = ''; return false; }
     W.account = accounts?.[0] ? String(accounts[0]) : null;
     W.chain = await req('eth_chainId');
     const prov = W.prov, onAccounts = (a) => { if (prov === W.prov) { W.account = a?.[0] ? String(a[0]) : null; emit(); } }, onChain = (c) => { if (prov === W.prov) { W.chain = c; emit(); } };
     prov.on?.('accountsChanged', onAccounts); prov.on?.('chainChanged', onChain);
     off = () => { prov.removeListener?.('accountsChanged', onAccounts); prov.removeListener?.('chainChanged', onChain); };
+    remember(w);
     emit();
+    return true;
+  }
+  // On load: the wallet connected last time, if it is here and still allows this site. Wallets announce themselves a moment after
+  // the page asks, so this waits briefly for them.
+  async function restore() {
+    let id = null;
+    try { id = localStorage.getItem(KEY); } catch { /* storage is a convenience */ }
+    if (!id) return false;
+    for (let i = 0; i < 6 && !available().some((w) => idOf(w) === id); i++) { dispatchEvent(new Event('eip6963:requestProvider')); await new Promise((r) => setTimeout(r, 100)); }
+    const w = available().find((x) => idOf(x) === id);
+    if (!w) return false;
+    try { return await connect(w, { silent: true }); } catch { W.prov = null; return false; }
   }
   // Forgets the wallet in this page. `leave(provider)` ends a session that lives elsewhere (a WalletConnect pairing).
   async function disconnect() {
     off?.(); off = null;
     const prov = W.prov;
     W.prov = null; W.name = ''; W.account = null; W.chain = null;
+    remember(null);
     try { await leave?.(prov); } catch { /* the session is gone either way */ }
     emit();
   }
@@ -79,5 +99,5 @@ export function makeWallet({ rpc, leave = null }) {
       await new Promise((res) => setTimeout(res, every));
     }
   }
-  return { state: W, available, connect, disconnect, ensureMainnet, sendTx, signPermit, receipt, onChange: (f) => W.listeners.add(f) };
+  return { state: W, available, connect, restore, disconnect, ensureMainnet, sendTx, signPermit, receipt, onChange: (f) => W.listeners.add(f) };
 }

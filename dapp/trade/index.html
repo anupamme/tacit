@@ -20,9 +20,9 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /trade/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/trade/app.js?cb=93258c50">
+<link rel="modulepreload" href="/trade/app.js?cb=7e2e1c55">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
-<link rel="modulepreload" href="/evm-trade-venues.js?cb=5750d83c">
+<link rel="modulepreload" href="/evm-trade-venues.js?cb=bb675102">
 <link rel="modulepreload" href="/confidential-deployments.js">
 <link rel="modulepreload" href="/confidential-deployments.generated.js">
 <link rel="modulepreload" href="/btc-book.js?cb=91371653">
@@ -33,7 +33,7 @@
 <link rel="modulepreload" href="/trade/depth.js?cb=0bbf4a0d">
 <link rel="modulepreload" href="/trade/book.js?cb=3324d19b">
 <link rel="modulepreload" href="/zboards.js?cb=cba4b156">
-<link rel="modulepreload" href="/trade/wallet.js?cb=59e15e51">
+<link rel="modulepreload" href="/trade/wallet.js?cb=24e3ea08">
 <link rel="modulepreload" href="/trade/farm.js?cb=603f487f">
 <!-- preload:end -->
 <style>
@@ -210,10 +210,16 @@ input::placeholder { color: var(--mute); opacity: .7; }
 .get { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 14px 14px; background: var(--field); border: 1px solid var(--hair); }
 .get b { font: 500 24px/1.2 var(--mono); letter-spacing: -.02em; overflow-wrap: anywhere; }
 .get b.ph { color: var(--mute); }
-.get span { color: var(--mute); white-space: nowrap; }
+.get span { color: var(--mute); white-space: nowrap; } .get .u { display: inline-flex; align-items: center; gap: 6px; }
 .kv { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; color: var(--mute); padding: 5px 0; }
 .kv b { font-weight: 400; color: var(--ink); text-align: right; overflow-wrap: anywhere; }
-.splitnote { margin: 10px 0 0; padding: 10px 12px; font-size: 12.5px; background: var(--field); border-left: 2px solid var(--orange); }
+.splitnote { margin: 8px 0 0; font-size: 12px; color: var(--mute); }
+.splitbar { display: flex; gap: 2px; margin: 2px 0 8px; height: 22px; font-size: 10.5px; letter-spacing: .02em; }
+.splitbar span { display: flex; align-items: center; min-width: 0; padding: 0 8px; overflow: hidden; white-space: nowrap; color: #fff; }
+.splitbar .pp { background: var(--eth); } .splitbar .tp { background: #16a34a; }
+.kv b .gain { font-style: normal; color: var(--up); margin-left: 4px; }
+.p-ticket.stale #out, .p-ticket.stale #route, .p-ticket.stale #out-usd { opacity: .45; transition: opacity .15s; }
+.hints .apart { color: var(--mute); }
 .splitnote b { font-weight: 500; }
 .btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 52px; margin-top: 16px; padding: 10px 16px; font-weight: 500; text-decoration: none;
   color: var(--card); background: var(--ink); border: 1px solid var(--ink); cursor: pointer; transition: background .15s, color .15s; }
@@ -310,7 +316,7 @@ button.ob-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2p
 @media (pointer: coarse) { .chips button { min-height: 38px; } }
 .legend:empty { display: none; }
 .chip { display: inline-flex; align-items: center; gap: 8px; min-height: 34px; margin-left: 4px; padding: 0 12px; font-size: 12.5px; color: var(--ink); background: var(--card); border: 1px solid var(--hair-2); cursor: pointer; }
-.chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--hair-2); flex: none; } .chip .dot.on { background: var(--ok); }
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--hair-2); flex: none; } .chip .dot.on { background: var(--ok); } .chip .dot.warn { background: var(--orange); }
 @media (hover: hover) { .chip:hover { border-color: var(--ink); } }
 @media (pointer: coarse) { .chip { min-height: var(--tap); } }
 .wc-qr { margin: 0 auto 14px; width: 224px; padding: 10px; background: #fff; } .wc-qr svg { display: block; width: 100%; height: auto; }
@@ -426,7 +432,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
       <div class="amt"><input id="amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="Amount to pay"><span class="u" id="in-unit"><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>ETH</span></div>
       <div class="chips" id="chips" role="group" aria-label="Quick amounts"></div>
       <div class="lbl"><span>You get about</span><span class="mute" id="out-usd"></span></div>
-      <div class="get"><b id="out" class="ph">0.00</b><span id="out-unit">TAC</span></div>
+      <div class="get"><b id="out" class="ph">0.00</b><span class="u" id="out-unit"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>TAC</span></div>
       <div id="route"></div>
       <div id="review" hidden></div>
       <button class="btn" id="go" type="button">Connect wallet</button>
@@ -479,6 +485,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/app.js?cb=93258c50"></script>
+<script type="module" src="/trade/app.js?cb=7e2e1c55"></script>
 </body>
 </html>

@@ -10,7 +10,7 @@ if (/^\/trade\/(index\.html)?$/.test(location.pathname)) history.replaceState(nu
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import {
   makeEvmTradeVenues, zswapDeepLink, encErc20Approve, PRECISION_POOL, TAC_ERC20, TACIT_AMM, MULTICALL3, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, _internal,
-} from '/evm-trade-venues.js?cb=5750d83c';
+} from '/evm-trade-venues.js?cb=bb675102';
 import { getConfidentialDeployment } from '/confidential-deployments.js';
 import { buildBook, planBuy, planSell as planBtcSell, ladderLevels } from '/btc-book.js?cb=91371653';
 import { decodeTape, chartBars, invert, ethLaneUsd, btcLaneUsd, candlesFromTrades, closeAt, gap, TAPE_FINE, TAPE_COARSE } from '/trade/tape.js?cb=dfc28dd7';
@@ -19,7 +19,7 @@ import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
 import { mountDepth } from '/trade/depth.js?cb=0bbf4a0d';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
-import { makeWallet, UserStopped } from '/trade/wallet.js?cb=59e15e51';
+import { makeWallet, UserStopped } from '/trade/wallet.js?cb=24e3ea08';
 import { mountFarm } from '/trade/farm.js?cb=603f487f';
 
 const API = 'https://api.tacit.finance';
@@ -80,6 +80,7 @@ async function loadChain() {
     ...PRIV_TIERS.map((fee) => ({ to: pool || TAC_ERC20, data: '0xb5217bb4' + privatePoolId(fee) })),
     { to: MULTICALL3, data: '0x0f28c97d' },                                                       // the chain's own time, for deadlines
   ];
+  gasPrice().catch(() => {});                                                                       // kept warm for the ticket's quotes
   const r = await batch(calls), P = 6;
   const fresh = (x) => (x && wordAt(x, 3) > BigInt(now() - 6 * 3600) && wordAt(x, 1) > 0n ? Number(wordAt(x, 1)) / 1e8 : null);   // a feed that has not answered in six hours is not a price
   D.ethUsd = fresh(r[1]); D.btcUsd = fresh(r[2]);
@@ -196,7 +197,7 @@ function renderLanes() {
   // The line that opens them: Ethereum's price and Bitcoin's, with how far apart they sit.
   const bg = laneGap(btcUsdPerTac());
   $('#hints-sum').innerHTML = base != null || btcUsdPerTac() != null
-    ? [base != null ? html`<span>Ethereum <b>${usd(base)}</b></span>` : '', btcUsdPerTac() != null ? html`<span>${base != null ? '· ' : ''}Bitcoin <b>${usd(btcUsdPerTac())}</b>${bg != null && Math.abs(bg) >= 0.01 ? ` <span class="${gapClass(bg)}">${pct(bg, 0)}</span>` : ''}</span>` : ''].join('')
+    ? [base != null ? html`<span>Ethereum <b>${usd(base)}</b></span>` : '', btcUsdPerTac() != null ? html`<span>${base != null ? '· ' : ''}Bitcoin <b>${usd(btcUsdPerTac())}</b></span>` : '', bg != null && Math.abs(bg) >= 0.01 ? html`<span class="apart">· ${Math.round(Math.abs(bg) * 100)}% apart</span>` : ''].join('')
     : 'Prices on each chain';
   $('#lanes').innerHTML = cards.map((c) => {
     const g = c.g ?? (c.gap != null ? `${pct(c.gap)} vs Precision${c.dev && Math.abs(c.gap) >= 0.01 ? ' · apart' : ''}` : c.sub || '');
@@ -335,7 +336,8 @@ async function requote(quiet = false) {
   if (quiet) S.refreshing = true;
   try {
     // The Precision pool's price is read with the quote, so the price impact is measured against the price as it stands now.
-    const [rt, sp, board] = await Promise.all([venues.route({ dir, amountIn: wei, account: W.account || undefined, gasPrice: await gasPrice() }), ethCall(PRECISION_POOL, '0x2af1f249').catch(() => null), boardQuote(dir, wei).catch(() => null)]);
+    // The gas price (warm from the page's own reads) is not waited for before the pools are asked.
+    const [rt, sp, board] = await Promise.all([gasPrice().then((g) => venues.route({ dir, amountIn: wei, account: W.account || undefined, gasPrice: g })), ethCall(PRECISION_POOL, '0x2af1f249').catch(() => null), boardQuote(dir, wei).catch(() => null)]);
     if (my !== S.seq) return;
     if (sp) { const root = Number(wordAt(sp, 0)) / 1e18; if (root > 0) { D.perEth = root * root; renderHead(); renderLanes(); } }
     S.quote = { wei, dir, buy, rt, board, priv: privQuote(dir, wei), book: bookQuote(dir, wei), zq: S.zq?.k === `${dir}:${wei}` ? S.zq.v : null };
@@ -370,10 +372,11 @@ function quoteSay(t) {
 }
 function renderQuote(q) {
   renderChips();
+  if (!q?.busy) $('.p-ticket').classList.remove('stale');
   const buy = S.side === 'buy', outEl = $('#out'), route = $('#route'), go = $('#go');
   $('#in-lbl').textContent = 'You pay';
   $('#in-unit').innerHTML = `<svg class="tk sm" aria-hidden="true"><use href="#tk-${buy ? 'eth' : 'tac'}"/></svg>${buy ? 'ETH' : 'TAC'}`;
-  $('#out-unit').textContent = buy ? 'TAC' : 'ETH';
+  $('#out-unit').innerHTML = `<svg class="tk sm" aria-hidden="true"><use href="#tk-${buy ? 'tac' : 'eth'}"/></svg>${buy ? 'TAC' : 'ETH'}`;
   $('#amt').setAttribute('aria-label', buy ? 'ETH to pay' : 'TAC to pay');
   const none = (t) => { outEl.textContent = t; outEl.classList.add('ph'); $('#out-usd').textContent = ''; route.innerHTML = ''; renderGo(); };
   if (!q) { none('0.00'); quoteSay(S.amt && getAmount() == null ? 'Cannot read that amount. Write 1500 or 0.05 (1,500 alone is ambiguous).' : ''); return; }
@@ -402,8 +405,13 @@ function renderQuote(q) {
   outEl.textContent = fmtUnits(out, 18, buy ? 2 : 6); outEl.classList.remove('ph');
   const usdOut = D.ethUsd ? usd((Number(usdIn) / 1e18) * D.ethUsd) : '';
   $('#out-usd').textContent = usdOut ? `≈ ${usdOut}` : '';
-  const rows = [['Route', name], ['Price', `${usd(usdOf(perTac))} per TAC${D.ethUsd ? '' : ` · ${sig(perTac)} ETH`}`]];
-  route.innerHTML = rows.map(([k, v]) => html`<div class="kv"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('') + note;
+  const priceTxt = `${D.ethUsd ? `${usd(usdOf(perTac))} · ` : ''}${sig(perTac)} ETH per TAC`;
+  const split = via === 'pools' && rt.pick === 'split' ? rt.split : null;
+  route.innerHTML = (split
+    ? html`<div class="kv"><span>Route</span><b>Split across two pools${split.gainBps >= 1 ? ` <i class="gain">+${(split.gainBps / 100).toFixed(split.gainBps < 100 ? 2 : 1)}%</i>` : ''}</b></div>
+      <div class="splitbar" role="img" aria-label="${esc(splitWhat(split))}"><span style="flex:${splitShare(split)}" class="pp">Precision ${splitShare(split)}%</span><span style="flex:${100 - splitShare(split)}" class="tp">Tacit ${100 - splitShare(split)}%</span></div>`
+    : html`<div class="kv"><span>Route</span><b>${esc(name)}</b></div>`)
+    + html`<div class="kv"><span>Price</span><b>${esc(priceTxt)}</b></div>` + (split ? '' : note);
   renderGo();
 }
 const splitShare = (sp) => Math.round(Number(sp.legs[0].amountIn * 1000n / (sp.legs[0].amountIn + sp.legs[1].amountIn)) / 10);
@@ -722,15 +730,19 @@ async function afterConnect() { S.review = null; renderChip(); renderBook(); far
 // ── the wallet chip in the header: connect, or see the account and disconnect ──
 function renderChip() {
   const on = !!W.account;
-  $('#wallet-dot').classList.toggle('on', on);
+  const wrong = on && W.chain && W.chain !== '0x1';                                                // trading switches the wallet to Ethereum itself; the chip says so first
+  $('#wallet-dot').classList.toggle('on', on && !wrong); $('#wallet-dot').classList.toggle('warn', !!wrong);
   $('#wallet-label').textContent = on ? short(W.account) : 'Connect';
-  $('#wallet-chip').setAttribute('aria-label', on ? `Wallet ${W.account}` : 'Connect a wallet');
+  $('#wallet-chip').setAttribute('aria-label', on ? `Wallet ${W.account}${wrong ? ', on another network' : ''}` : 'Connect a wallet');
+  $('#wallet-chip').title = wrong ? 'Your wallet is on another network. It is asked to switch to Ethereum when you trade.' : '';
 }
 function walletSheet() {
   const o = overlay({ title: 'Wallet', top: true });
   const bal = S.bal ? `<div class="kv"><span>ETH</span><b class="num">${esc(fmtUnits(S.bal.eth ?? 0n, 18, 4))}</b></div><div class="kv"><span>TAC</span><b class="num">${esc(fmtUnits(S.bal.tac ?? 0n, 18, 2))}</b></div>` : '';
-  o.body.innerHTML = `<div class="kv"><span>Connected with</span><b>${esc(W.name)}</b></div><div class="kv"><span>Account</span><b class="addr-s">${esc(W.account)}</b></div>${bal}<div class="bsheet-actions" style="margin-top:14px"><button class="btn ghost" type="button" data-copy>Copy address</button><button class="btn" type="button" data-leave${S.busy || farm.busy() ? ' disabled' : ''}>Disconnect</button></div>${S.busy || farm.busy() ? '<p class="note">A trade is in progress; disconnect when it ends.</p>' : ''}`;
+  const wrong = W.chain && W.chain !== '0x1';
+  o.body.innerHTML = `<div class="kv"><span>Connected with</span><b>${esc(W.name)}</b></div><div class="kv"><span>Account</span><b class="addr-s">${esc(W.account)}</b></div>${wrong ? '<div class="kv"><span>Network</span><b>Not Ethereum <button class="linkbtn" type="button" data-switch>Switch</button></b></div>' : ''}${bal}<div class="bsheet-actions" style="margin-top:14px"><button class="btn ghost" type="button" data-copy>Copy address</button><button class="btn" type="button" data-leave${S.busy || farm.busy() ? ' disabled' : ''}>Disconnect</button></div>${S.busy || farm.busy() ? '<p class="note">A trade is in progress; disconnect when it ends.</p>' : ''}`;
   const addr = W.account;
+  o.body.querySelector('[data-switch]')?.addEventListener('click', (e) => { e.target.disabled = true; wallet.ensureMainnet().then(() => { o.close(); renderChip(); }, () => { e.target.disabled = false; }); });
   o.body.querySelector('[data-copy]').onclick = (e) => navigator.clipboard?.writeText(addr).then(() => { e.target.textContent = 'Copied'; }, () => { e.target.textContent = 'Could not copy'; });
   o.body.querySelector('[data-leave]').onclick = async () => { o.close(); await wallet.disconnect(); S.review = null; renderChip(); };
 }
@@ -741,6 +753,9 @@ const farm = mountFarm($('#farm'), {
   ethCall, batch, rpc, api, wallet, W, connect: () => connectWallet(), fmtUnits, parseUnits, esc, usd, ethUsd: () => D.ethUsd, txLink,
   onDone: () => { readBalances().then(() => { renderBalance(); renderGo(); }); loadChain().then(paintAll).catch(() => {}); },
 });
+
+// The wallet connected here last time, back without a prompt when it still allows this site.
+wallet.restore().catch(() => {});                                                                  // connecting reaches the page through onChange, as any account change does
 
 // On a phone the ticket is far down the page: a bar at the foot leads to it while it is out of view.
 {
@@ -877,7 +892,7 @@ paintSlip();
 
 // ── wiring ──
 let amtTimer = 0;
-$('#amt').addEventListener('input', (e) => { S.amt = e.target.value; clearTimeout(amtTimer); amtTimer = setTimeout(requote, 350); });
+$('#amt').addEventListener('input', (e) => { S.amt = e.target.value; clearTimeout(amtTimer); amtTimer = setTimeout(requote, 350); $('.p-ticket').classList.add('stale'); });
 $('#amt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('#go').disabled && !$('#go').hidden) $('#go').click(); });   // Enter reviews the quote on the ticket
 $('#side-seg').addEventListener('click', (e) => {
   const b = e.target.closest('[data-side]');

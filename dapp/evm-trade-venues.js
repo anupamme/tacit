@@ -442,17 +442,19 @@ async function gridOutputs({ ethCall, dir, account, shares, amountIn, feeBps, bl
 // { dir, amountIn, amountOut, gain, gainBps, shareBps, single, legs: [precisionLeg, tacitLeg] }.
 async function quoteSplit({ ethCall, dir, amountIn, account, block = 'latest' }) {
   if (amountIn <= 0n) return null;
-  const [p, t] = await Promise.all([
+  const coarse = [];
+  for (let s = 0n; s <= 10000n; s += SPLIT_COARSE_BPS) coarse.push(s);
+  // The coarse grid goes out with the two single quotes, at the AMM's usual fee tier; it is asked again only when the pool's own tier differs.
+  const [p, t, guess] = await Promise.all([
     quotePrecision({ ethCall, dir, amountIn, account, block }).catch(() => null),
     quoteTacitAmm({ ethCall, dir, amountIn, block }).catch(() => null),
+    gridOutputs({ ethCall, dir, account, shares: coarse, amountIn, feeBps: TACIT_AMM_TIERS[0], block }).catch(() => null),
   ]);
   if (!p || !t) return null;
   const single = p.amountOut >= t.amountOut ? p : t;
   const feeBps = Number(t.feeBps);
-  const coarse = [];
-  for (let s = 0n; s <= 10000n; s += SPLIT_COARSE_BPS) coarse.push(s);
   const best = (rows) => rows.filter((r) => r.total > 0n).reduce((a, b) => (!a || b.total > a.total ? b : a), null);
-  const rows1 = await gridOutputs({ ethCall, dir, account, shares: coarse, amountIn, feeBps, block });
+  const rows1 = guess && feeBps === Number(TACIT_AMM_TIERS[0]) ? guess : await gridOutputs({ ethCall, dir, account, shares: coarse, amountIn, feeBps, block });
   let top = best(rows1);
   if (!top) return null;
   const lo = top.shareBps > SPLIT_COARSE_BPS ? top.shareBps - SPLIT_COARSE_BPS : 0n, hi = top.shareBps + SPLIT_COARSE_BPS < 10000n ? top.shareBps + SPLIT_COARSE_BPS : 10000n;
