@@ -17,11 +17,14 @@ const by = (rows) => Object.fromEntries(rows.map((r) => [r.address, r]));
 const sum = (rows, f = () => true) => rows.filter(f).reduce((s, r) => s + r.dayPoints, 0);
 
 {
-  const s = parseCategoryShareCaps('20741:evmpooldeposit=0.5;20800:evmpooldeposit=0.4,wrap=0.9;20900:off');
+  const s = parseCategoryShareCaps('20741:evmpooldeposit=0.5;20800:evmpooldeposit=0.4;20900:off');
   assert.deepEqual(s.map((e) => e.fromDay), [20741, 20800, 20900]);
   assert.deepEqual(categoryShareCapsForDay(s, 20740), {});
   assert.deepEqual(categoryShareCapsForDay(s, 20741), { evmpooldeposit: 0.5 });
-  assert.deepEqual(categoryShareCapsForDay(s, 20850), { evmpooldeposit: 0.4, wrap: 0.9 }, 'a later entry replaces the earlier one');
+  assert.deepEqual(categoryShareCapsForDay(s, 20850), { evmpooldeposit: 0.4 }, 'a later entry replaces the earlier one');
+  const two = [];
+  assert.deepEqual(parseCategoryShareCaps('20741:evmpooldeposit=0.1,wrap=0.5', (m) => two.push(m)), [], 'two activities in one entry would size each other from unscaled points, so it is refused');
+  assert.match(two[0] || '', /one activity at a time/);
   assert.deepEqual(categoryShareCapsForDay(s, 20900), {}, '"off" ends them');
   const bad = [];
   assert.deepEqual(parseCategoryShareCaps('x;20741:evmpooldeposit=1;20741:evmpooldeposit=0;20741:evmpooldeposit=half;20741:Bad-Name=0.5', (m) => bad.push(m)), []);

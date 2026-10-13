@@ -200,6 +200,8 @@ try {
   assert.deepEqual(nf.body.leaves.map(BigInt), fx0.events.flatMap((e) => [BigInt(e.outLeaf0), BigInt(e.outLeaf1)]), 'and the tree\'s leaves as of the snapshot');
   assert.equal(nf.body.size, nf.body.leaves.length);
   assert.equal(holding.nullifiers(1, fx.epoch).body, nf.body, 'built once for a snapshot that never changes');
+  assert.equal(holding.nullifiers(1, fx.epoch).text, nf.text, 'and serialized once');
+  assert.deepEqual(JSON.parse(nf.text), nf.body, 'to the same body');
   assert.equal(holding.nullifiers(1, fx.epoch + 5).status, 404);
   // A snapshot is read a handful of times by one caller, and at a rate by all of them.
   const reads = mk({ readBurst: 3, readsPerMin: 3, allReadsPerMin: 4 }, openStore(join(dir, 'rd.db')));

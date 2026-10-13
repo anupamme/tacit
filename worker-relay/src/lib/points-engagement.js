@@ -9,7 +9,9 @@
 // later entry replaces an earlier one, and "off" ends them. It limits repeating one deposit many times a day, not how much
 // an address can hold, and reads only public deposits.
 // Share caps: "20741:evmpooldeposit=0.5;20800:off" — from each day, that activity's points together can be at most that share of
-// the day's pot, whoever earns them: when more would be counted, every address's points for it are scaled by the same factor,
+// the day's budget, whoever earns them (the budget is what the pot is before the per-point ceiling trims what is paid, so on a
+// day when few others hold points the activity is paid most of what is paid): when more would be counted, every address's points
+// for it are scaled by the same factor,
 // so the rest of the day is split as it would have been and the capped activity cannot take more than its share however much
 // of it there is. Where the TAC-per-point ceiling is in force that is a budget of points (share x the day's budget / the
 // ceiling); without one, a share of the day's points. Nothing is limited per address or per deposit, so doing more of it
@@ -108,7 +110,9 @@ export function parseCategoryShareCaps(raw, log = () => {}) {
       if (!m) throw new Error('expected <day>:<activity>=<share>,… or <day>:off');
       const caps = {};
       if (m[2].trim().toLowerCase() !== 'off') {
-        for (const kv of m[2].split(',').map((x) => x.trim()).filter(Boolean)) {
+        const kvs = m[2].split(',').map((x) => x.trim()).filter(Boolean);
+        if (kvs.length > 1) throw new Error('one activity at a time: each share would be sized from the other\'s points before it is limited');
+        for (const kv of kvs) {
           const [act, v] = kv.split('=').map((x) => x.trim());
           const share = Number(v);
           if (!/^[a-z0-9_]+$/.test(act || '') || !(share > 0 && share < 1)) throw new Error(`"${kv}" is not <activity>=<a share above 0 and below 1>`);

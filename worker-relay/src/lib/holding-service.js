@@ -181,9 +181,11 @@ export function createHolding({ store, cfg, clients, hash, groth16, nowSec = () 
       }
       if (leaves.length !== snap.size) return reply(500, { error: 'the stored events do not give the snapshot' });
       if (nullifierBodies.size > 16) nullifierBodies.clear();
-      nullifierBodies.set(key, { epoch, chainId, block: snap.block, root: snap.root, nfRoot: snap.nfRoot, size: snap.size, leaves, nullifiers: nfs });
+      const body = { epoch, chainId, block: snap.block, root: snap.root, nfRoot: snap.nfRoot, size: snap.size, leaves, nullifiers: nfs };
+      nullifierBodies.set(key, { body, text: JSON.stringify(body) });                    // serialized once: a snapshot never changes
     }
-    return reply(200, nullifierBodies.get(key));
+    const kept = nullifierBodies.get(key);
+    return { ...reply(200, kept.body), text: kept.text };
   }
 
   // opts.client: whoever is asking, as the caller's rate is counted.
