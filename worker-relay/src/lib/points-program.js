@@ -12,7 +12,7 @@ import { KIND_OF } from './points-engagement.js';
 const BLOCK_SECS = 12;
 const round6 = (x) => Math.round(x * 1e6) / 1e6;
 
-export function programTerms({ cfg, dayBudgetWei, rateCapSchedule = [], tiers = [], weights = [], engagement = [], addressDayCaps = [] }) {
+export function programTerms({ cfg, dayBudgetWei, rateCapSchedule = [], tiers = [], weights = [], engagement = [], addressDayCaps = [], categoryShareCaps = [] }) {
   const startDay = Math.floor(cfg.pointsProgramStartSec / 86400);
   const rates = {
     wrap: round6(cfg.pointsBasePerEth * cfg.tethWrapBoostMultiplier),
@@ -43,6 +43,8 @@ export function programTerms({ cfg, dayBudgetWei, rateCapSchedule = [], tiers = 
     weights: weights.map((e) => ({ fromDay: e.fromDay, weights: e.weights })),
     // The ETH of an activity an address can count in a day, as decimal ETH strings, from each day forward.
     addressDayCaps: addressDayCaps.map((e) => ({ fromDay: e.fromDay, caps: Object.fromEntries(Object.entries(e.caps).map(([a, w]) => [a, `${w / 10n ** 18n}${w % 10n ** 18n ? '.' + String(w % 10n ** 18n).padStart(18, '0').replace(/0+$/, '') : ''}`])) })),
+    // The largest share of a day's pot an activity's points can take together, from each day forward.
+    categoryShareCaps: categoryShareCaps.map((e) => ({ fromDay: e.fromDay, caps: { ...e.caps } })),
     engagement: engagement.map((e) => (e.spec ? { fromDay: e.fromDay, ...e.spec } : { fromDay: e.fromDay, off: true })),
     bondHoldFromDay: cfg.pointsBondHoldFromDay || null,
     cbtcHoldFromDay: cfg.pointsCbtcHoldRate > 0 ? cfg.pointsCbtcHoldFromDay || null : null,

@@ -628,6 +628,8 @@ export const CFG = {
   pointsEngagement: opt('POINTS_ENGAGEMENT', ''),
   // The ETH of one activity an address can count in a UTC day, from a day forward (lib/points-engagement.js): "20741:evmpooldeposit=5".
   pointsAddressDayCaps: opt('POINTS_ADDRESS_DAY_CAPS', ''),
+  // The largest share of a day an activity's points can take together, from a day forward (lib/points-engagement.js): "20741:evmpooldeposit=0.5".
+  pointsCategoryShareCaps: opt('POINTS_CATEGORY_SHARE_CAPS', ''),
   pointsBondHoldFromDay: num('POINTS_BOND_HOLD_FROM_DAY', 0),
   // Points per wstETH for each further UTC day a cBTC bond on a real Bitcoin lock stays posted (lib/points-bond-hold.js),
   // from the given day. 0 means none.

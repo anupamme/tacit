@@ -8,6 +8,12 @@
 // (all chains together); points for ETH past it count for nothing that day (they stay in the address's all-time total). A
 // later entry replaces an earlier one, and "off" ends them. It limits repeating one deposit many times a day, not how much
 // an address can hold, and reads only public deposits.
+// Share caps: "20741:evmpooldeposit=0.5;20800:off" — from each day, that activity's points together can be at most that share of
+// the day's pot, whoever earns them: when more would be counted, every address's points for it are scaled by the same factor,
+// so the rest of the day is split as it would have been and the capped activity cannot take more than its share however much
+// of it there is. Where the TAC-per-point ceiling is in force that is a budget of points (share x the day's budget / the
+// ceiling); without one, a share of the day's points. Nothing is limited per address or per deposit, so doing more of it
+// still earns more of its share.
 // Engagement: "20730:0.25,0.25,2,25;20760:off" — from each day, an address's counted points are multiplied by
 // 1 + kindStep for each other kind of activity it has had in the past 7 days (up to maxKinds of them) + returnStep when
 // it was active on more than one of those days. A kind counts once it has earned minPoints in the week, and a day counts
@@ -94,6 +100,36 @@ export function addressDayCapsForDay(schedule, day) {
 // What share of an address's day of `activity` counts: all of it up to the limit, then the limit's share of it.
 export const capFactor = (totalWei, limitWei) => (limitWei == null || totalWei <= limitWei ? 1 : Number((limitWei * 1_000_000n) / totalWei) / 1e6);
 
+export function parseCategoryShareCaps(raw, log = () => {}) {
+  const out = [];
+  for (const part of entries(raw)) {
+    try {
+      const m = part.match(/^(\d+):(.+)$/);
+      if (!m) throw new Error('expected <day>:<activity>=<share>,… or <day>:off');
+      const caps = {};
+      if (m[2].trim().toLowerCase() !== 'off') {
+        for (const kv of m[2].split(',').map((x) => x.trim()).filter(Boolean)) {
+          const [act, v] = kv.split('=').map((x) => x.trim());
+          const share = Number(v);
+          if (!/^[a-z0-9_]+$/.test(act || '') || !(share > 0 && share < 1)) throw new Error(`"${kv}" is not <activity>=<a share above 0 and below 1>`);
+          caps[act] = share;
+        }
+      }
+      out.push({ fromDay: Number(m[1]), caps });
+    } catch (err) {
+      log(`ignoring POINTS_CATEGORY_SHARE_CAPS entry "${part}": ${err.message}`);
+    }
+  }
+  return bySchedule(out);
+}
+
+// The largest share of a day each capped activity can take ({ activity: share }, {} when none applies).
+export function categoryShareCapsForDay(schedule, day) {
+  let caps = {};
+  for (const e of schedule) if (e.fromDay <= day) caps = e.caps;
+  return caps;
+}
+
 export function parseEngagementSchedule(raw, log = () => {}) {
   const out = [];
   for (const part of entries(raw)) {
@@ -130,11 +166,13 @@ export function engagementFactor(spec, { kinds, activeDays }) {
 // dayRows: [{ address, activity, points, capFactor? }] for the day (capFactor: the share of the points that counts); weekRows: [{ address, day, activity, points }] for the 7 days
 // ending with it. dayPoints is the points the day's pot is split by: each activity's points times its weight, summed,
 // times the address's multiplier. rawPoints is what the activities scored.
-export function countedRows({ dayRows, weekRows = [], weights = {}, spec = null }) {
+export function countedRows({ dayRows, weekRows = [], weights = {}, spec = null, shareCaps = {}, pointCaps = {} }) {
   const byAddress = new Map();
   for (const r of [...dayRows].sort((a, b) => (a.address < b.address ? -1 : a.address > b.address ? 1 : a.activity < b.activity ? -1 : a.activity > b.activity ? 1 : 0))) {
-    const e = byAddress.get(r.address) ?? { counted: 0, raw: 0 };
-    e.counted += r.points * (r.capFactor ?? 1) * (weights[r.activity] ?? 1);
+    const e = byAddress.get(r.address) ?? { counted: 0, raw: 0, by: {} };
+    const c = r.points * (r.capFactor ?? 1) * (weights[r.activity] ?? 1);
+    e.counted += c;
+    e.by[r.activity] = (e.by[r.activity] ?? 0) + c;
     e.raw += r.points;
     byAddress.set(r.address, e);
   }
@@ -149,13 +187,38 @@ export function countedRows({ dayRows, weekRows = [], weights = {}, spec = null 
       week.set(r.address, w);
     }
   }
-  const out = [];
-  for (const [address, e] of byAddress) {
+  // Each address's multiplier first: a share is a share of what the day's pot is split by, which is counted points times it.
+  const factors = new Map();
+  for (const [address] of byAddress) {
     const w = week.get(address);
     const kinds = w ? [...w.kinds.values()].filter((p) => p >= spec.minPoints && p > 0).length : 0;
     const activeDays = w ? [...w.days.values()].filter((p) => p >= spec.minPoints && p > 0).length : 0;
-    const factor = engagementFactor(spec, { kinds, activeDays });
-    out.push({ address, dayPoints: e.counted * factor, rawPoints: e.raw, factor, kinds, activeDays });
+    factors.set(address, { kinds, activeDays, factor: spec ? engagementFactor(spec, { kinds, activeDays }) : 1 });
+  }
+  // A capped activity's points together are scaled down to its share when they would be more; with nothing else counted
+  // there is nothing to share with and they stand.
+  const scale = new Map();
+  for (const activity of Object.keys(shareCaps).sort()) {
+    const share = shareCaps[activity];
+    let cat = 0, rest = 0;
+    for (const [address, e] of byAddress) {
+      const f = factors.get(address).factor, c = (e.by[activity] ?? 0) * (scale.get(address)?.[activity] ?? 1);
+      cat += c * f; rest += (e.counted - (e.by[activity] ?? 0)) * f;
+    }
+    // What the activity may count: the larger of its share of the points (the cap when the others hold many) and, where the
+    // TAC-per-point ceiling is in force, a budget of points (its share of the day's pot over the most a point can pay: the
+    // cap when the others hold few, where the ceiling trims the pot and a share of points would pay it far less). The activity
+    // then earns its share of the pot on a quiet day and on a busy one, and the others are split the rest.
+    const byShare = rest > 0 ? (share / (1 - share)) * rest : 0, budget = pointCaps[activity] ?? 0, limit = Math.max(byShare, budget);
+    const k = cat > 0 && limit > 0 ? Math.min(1, limit / cat) : 1;
+    if (k < 1) for (const [address, e] of byAddress) { const sc = scale.get(address) ?? {}; sc[activity] = (sc[activity] ?? 1) * k; scale.set(address, sc); }
+  }
+  const out = [];
+  for (const [address, e] of byAddress) {
+    const { kinds, activeDays, factor } = factors.get(address);
+    let counted = e.counted;
+    for (const [activity, k] of Object.entries(scale.get(address) ?? {})) counted -= (e.by[activity] ?? 0) * (1 - k);
+    out.push({ address, dayPoints: counted * factor, rawPoints: e.raw, factor, kinds, activeDays });
   }
   return out;
 }
