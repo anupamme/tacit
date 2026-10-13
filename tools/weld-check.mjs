@@ -48,6 +48,7 @@
 //            V1 through a keeper-relayed withdrawToV1 whose note settle is then submitted, and asks to bridge to Base
 //   pts      a listed address claims its points reward; a pasted key's Tacit account registers a .wei name through
 //            zRouter's commit and reveal and publishes its tacit1 address on it
+//   retention the points sheet's Retention section: shown with what this browser proved while the service has the holding reward on, absent while it is off
 //   ptsview  the points sheet from a stubbed service: recent activity in time order across chains grouped by day, each
 //            linked to its chain's explorer, the newest activity's holder boost, rank, claimed so far, today's share and
 //            countdown; the day's pot and rate, the gap to the rank above, the change since an earlier day, the points-per-day
@@ -129,7 +130,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmexit,farmclaim,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,tradelinks,pts,ptsview,activity,receipts,stats,dash,tacdeposit').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmexit,farmclaim,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,tradelinks,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -3141,6 +3142,45 @@ await step('ptsview', async () => {
   ok(!(await n.page.evaluate(() => document.documentElement.scrollWidth > innerWidth)), 'ptsview: no sideways scroll at phone width');
   if (n.errors.length) { fails++; console.log('FAIL ptsview page errors: ' + n.errors.slice(0, 3).join(' | ')); }
   await n.browser.close();
+});
+
+await step('retention', async () => {
+  // The points sheet's Retention section: shown only while the points service has the holding reward on, with what this browser
+  // sent for the account, and nothing when it is off.
+  const t0 = Math.floor(Date.now() / 1000), today = Math.floor(t0 / 86400);
+  const log = JSON.stringify([
+    { epoch: today - 1, chainId: 8453, bucketWei: '1000000000000000000', points: 1000, credited: true, status: 200, error: null, at: Date.now() },
+    { epoch: today - 2, chainId: 1, bucketWei: '300000000000000000', points: 300, credited: true, status: 200, error: null, at: Date.now() - 864e5 },
+    { epoch: today - 3, chainId: 1, bucketWei: '100000000000000000', points: 0, credited: false, status: 422, error: 'the proof does not verify', at: Date.now() - 2 * 864e5 }]);
+  for (const on of [true, false]) {
+    const r = await openPage({ account: A0, init: { fn: (a) => { if (!localStorage.getItem(a.k)) localStorage.setItem(a.k, a.v); }, arg: { k: 'tacit-holding-log:' + A0.toLowerCase(), v: log } } });
+    await r.ctx.route(/api\.tacit\.finance\/points\/0x/, (route) => json(route, /\/days$/.test(route.request().url())
+      ? { address: A0.toLowerCase(), startDay: today - 8, programDays: 90, today, lastSettledDay: today - 1, earnedWei: '0', days: [] }
+      : { address: A0.toLowerCase(), points: 10, deposit_count: 0, today: { points: 0, totalPoints: 1000, dayBudgetWei: '1111111111111111111111' }, deposits: [] }));
+    await r.ctx.route(/api\.tacit\.finance\/claim\/0x/, (route) => json(route, { cumulativeAmount: '0', claimedWei: '0', unclaimedWei: '0', proof: null }));
+    await r.ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => json(route, /day=today/.test(route.request().url())
+      ? { day: today, programDay: 9, programDays: 90, totalPoints: 1000, dayBudgetWei: '1111111111111111111111', taking: 1, rows: [{ address: A0.toLowerCase(), points: 10 }] }
+      : [{ address: A0.toLowerCase(), points: 10 }]));
+    await r.ctx.route(/tacit-points\.onrender\.com\/holding/, (route) => json(route, on ? { enabled: true, rate: 1000, buckets: ['10000000000000000', '100000000000000000', '1000000000000000000'], assets: {}, epochs: [] } : { enabled: false }));
+    await r.page.goto(r.url + '#pts');
+    await r.page.click('#pts-connect');
+    await until(r.page, () => !!document.querySelector('#pts-body .pt'), null, 60000);
+    if (on) await until(r.page, () => document.querySelectorAll('#pts-body .ptl li').length >= 3, null, 30000);
+    else await new Promise((res) => setTimeout(res, 1500));
+    const v = await r.page.evaluate(() => ({ body: document.querySelector('#pts-body').textContent.replace(/\s+/g, ' '), btn: !!document.querySelector('#hold-now'), rows: document.querySelectorAll('#pts-body .ptl li').length, wide: document.documentElement.scrollWidth > innerWidth }));
+    if (on) {
+      await shot(r.page, 'retention');
+      ok(/Retention/.test(v.body) && /1,000 points per ETH/.test(v.body) && /Sizes: 0\.01, 0\.1 or 1 ETH/.test(v.body), `retention: the section states the rate and sizes the service gives (${v.body.slice(0, 500)})`);
+      ok(/1 ETH held\s*Base · \d+ \w+\s*\+1,000/.test(v.body) && /0\.3 ETH held\s*Ethereum · \d+ \w+\s*\+300/.test(v.body), 'retention: each day proven is listed with its chain, size and points');
+      ok(/Not counted: the proof does not verify/.test(v.body), 'retention: a refused proof says so');
+      ok(v.btn, 'retention: there is a way to prove now');
+    } else {
+      ok(!/Retention/.test(v.body) && !v.btn, 'retention: nothing is shown while the reward is off');
+    }
+    ok(!v.wide, `retention: no sideways scroll (${on ? 'on' : 'off'})`);
+    if (r.errors.length) { fails++; console.log('FAIL retention page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+    await r.browser.close();
+  }
 });
 // Relayed jobs reach the page as tacit:job events; here they are dispatched the way the relay client dispatches them, and
 // /confidential/status answers from `served`, so a reload can find settled a job that had failed. Notification records
