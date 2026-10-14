@@ -6,13 +6,13 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://tacit-api.onrender.com https://api.coinbase.com https://api.kraken.com https://api.coingecko.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://www.tacitscan.io https://ipfs.filebase.io; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
 <meta name="color-scheme" content="light dark">
 <title>tacit trade · cBTC</title>
-<meta name="description" content="cBTC is bitcoin locked at an address only its owner's key can spend, minted one for one in the Tacit pool and bonded with ETH. See what backs it, the loans against it, the private pools and farms that hold it, and your own locks.">
+<meta name="description" content="cBTC is bitcoin you lock at your own address and mint 1:1, private on Ethereum. See its backing, loans, pools, farms and your own locks.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="tacit">
 <link rel="canonical" href="https://tacit.finance/trade/cbtc/">
 <meta property="og:url" content="https://tacit.finance/trade/cbtc/">
-<meta property="og:title" content="cBTC · locked bitcoin">
-<meta property="og:description" content="What backs cBTC, the loans against it, and the private pools and farms that hold it.">
+<meta property="og:title" content="cBTC · bitcoin you keep">
+<meta property="og:description" content="cBTC backing, loans, pools and farms.">
 <meta property="og:image" content="https://tacit.finance/tacit-card.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
@@ -20,7 +20,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /trade/cbtc/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/trade/cbtc/app.js?cb=53dd94eb">
+<link rel="modulepreload" href="/trade/cbtc/app.js?cb=72c1185f">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/trade/chart.js?cb=f31c8773">
 <link rel="modulepreload" href="/trade/connect.js?cb=70694562">
@@ -510,18 +510,18 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
   <section class="hero" aria-labelledby="px-h">
     <div>
       <nav class="assets" aria-label="Asset"><a href="/trade/tac/"><svg class="tk xs" aria-hidden="true"><use href="#tk-tac"/></svg>TAC</a><a href="/trade/teth/"><svg class="tk xs" aria-hidden="true"><use href="#tk-teth"/></svg>tETH</a><a href="/trade/cbtc/" aria-current="page"><svg class="tk xs" aria-hidden="true"><use href="#tk-cbtc"/></svg>cBTC</a></nav>
-      <h1 id="px-h"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><span class="sr">Bitcoin's price, which cBTC is locked against: </span><span id="px-usd" class="num">cBTC</span></h1>
+      <h1 id="px-h"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><span class="sr">Bitcoin price: </span><span id="px-usd" class="num">cBTC</span></h1>
       <div class="sub" id="px-sub"><span class="mute">Reading the locks…</span></div>
-      <noscript><p class="note">Prices, the locks and the pools on this page need JavaScript.</p></noscript>
-      <details class="hints" id="hints"><summary id="hints-sum">Where cBTC sits</summary>
-        <div class="hints-pop"><div class="lanes" id="lanes" role="group" aria-label="What a cBTC is worth in each place it sits"></div><p class="gapnote" id="gapnote"></p></div>
+      <noscript><p class="note">This page needs JavaScript.</p></noscript>
+      <details class="hints" id="hints"><summary id="hints-sum">cBTC prices</summary>
+        <div class="hints-pop"><div class="lanes" id="lanes" role="group" aria-label="cBTC price by venue"></div><p class="gapnote" id="gapnote"></p></div>
       </details>
     </div>
   </section>
 
   <div class="grid">
     <section class="panel p-chart" id="backing" aria-labelledby="chart-h">
-      <p class="eyebrow" id="chart-h"><span class="pairtk" id="chart-pair"><svg class="tk sm" aria-hidden="true"><use href="#tk-cbtc"/></svg></span><span id="chart-name">cBTC · the bitcoin locked</span></p>
+      <p class="eyebrow" id="chart-h"><span class="pairtk" id="chart-pair"><svg class="tk sm" aria-hidden="true"><use href="#tk-cbtc"/></svg></span><span id="chart-name">BTC locked</span></p>
       <div class="bar">
         <div class="seg" id="lane-seg" role="group" aria-label="What the chart draws"></div>
         <div class="bar-r"><div class="seg" id="range-seg" role="group" aria-label="How far back"></div></div>
@@ -530,26 +530,26 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
       <div id="chart" role="group" aria-label="History of the locks and the loans"><p class="chart-empty">Reading the history…</p></div>
       <div class="chart-foot"><div class="legend" id="legend"></div><div class="view" id="view-seg" role="group" aria-label="View"></div></div>
       <details class="more"><summary>About this chart</summary><p class="note" id="chart-note"></p></details>
-      <p class="eyebrow cov-h2">What stands behind it</p>
-      <div class="cov" id="cov"><p class="note">Reading the locks and the bonds…</p></div>
+      <p class="eyebrow cov-h2">Backing</p>
+      <div class="cov" id="cov"><p class="note">Reading…</p></div>
       <p class="note" id="cov-note"></p>
     </section>
 
     <div class="side">
     <section class="panel p-ticket" aria-labelledby="tk-h">
-      <p class="eyebrow" id="tk-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-cbtc"/></svg>Locked bitcoin</p>
+      <p class="eyebrow" id="tk-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-cbtc"/></svg>cBTC</p>
       <div class="seg big" id="mode-seg" role="group" aria-label="What to do">
         <button type="button" data-mode="get" aria-pressed="true">Get cBTC</button>
         <button type="button" data-mode="use" aria-pressed="false">Use cBTC</button>
       </div>
       <div id="get">
         <ol class="steps" id="get-steps">
-          <li data-s="todo"><span><b>Lock BTC</b> at an address only your key can spend. It never leaves it.</span></li>
-          <li data-s="todo"><span><b>Post the ETH bond</b>, 1.5× the lock or more, held as wstETH, earning while it bonds the lock.</span></li>
-          <li data-s="todo"><span><b>Mint cBTC</b>, one for one, once Bitcoin's proof on Ethereum has reached the lock.</span></li>
-          <li data-s="todo"><span><b>Borrow cUSD</b> against it, if you like. Repay to reclaim it.</span></li>
+          <li data-s="todo"><span><b>Lock BTC</b> at your own address. It never leaves.</span></li>
+          <li data-s="todo"><span><b>Post an ETH bond</b> of at least 1.5×. It keeps earning as wstETH.</span></li>
+          <li data-s="todo"><span><b>Mint cBTC</b> 1:1, about 4 hours later.</span></li>
+          <li data-s="todo"><span><b>Borrow cUSD</b> against it, if you want.</span></li>
         </ol>
-        <div class="lbl"><span>BTC to lock</span><span class="mute">to size the bond</span></div>
+        <div class="lbl"><span>BTC to lock</span></div>
         <div class="amt"><input id="amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="BTC to lock"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg>BTC</span></div>
         <div class="chips" id="chips" role="group" aria-label="Quick amounts"></div>
         <div id="route"></div>
@@ -573,7 +573,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
 
     <section class="panel p-btc" id="locks" aria-labelledby="b-h">
       <div class="bar">
-        <p class="eyebrow" id="b-h"><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-cbtc"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg></span>cBTC on Bitcoin · the locks</p>
+        <p class="eyebrow" id="b-h"><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-cbtc"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg></span>Locks on Bitcoin</p>
         <span class="mute" id="lk-sum"></span>
       </div>
       <p class="mk-lead" id="lk-lead"></p>
@@ -584,10 +584,10 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
 
     <section class="panel p-depth" aria-labelledby="d-h">
       <div class="bar">
-        <p class="eyebrow" id="d-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-cbtc"/></svg>Private pools that hold cBTC</p>
+        <p class="eyebrow" id="d-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-cbtc"/></svg>Pools</p>
         <span class="mute" id="pl-sum"></span>
       </div>
-      <table class="table" id="pl-table"><thead><tr><th>Pool</th><th class="r">cBTC costs</th><th class="r opt">Skew vs BTC</th><th class="r opt">Depth</th><th class="r">Farm</th></tr></thead><tbody><tr><td colspan="5" class="mute">Reading the pools…</td></tr></tbody></table>
+      <table class="table" id="pl-table"><thead><tr><th>Pool</th><th class="r">Price</th><th class="r opt">vs BTC</th><th class="r opt">Depth</th><th class="r">Farm</th></tr></thead><tbody><tr><td colspan="5" class="mute">Reading the pools…</td></tr></tbody></table>
       <p class="note" id="pl-note"></p>
     </section>
 
@@ -595,7 +595,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
       <p class="eyebrow" id="i-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-cbtc"/></svg>About cBTC</p>
       <div class="prose" id="about"></div>
       <ul class="facts" id="facts"></ul>
-      <details class="more"><summary>The engine, the pool and the contracts</summary><ul class="facts" id="facts-more"></ul></details>
+      <details class="more"><summary>Contracts</summary><ul class="facts" id="facts-more"></ul></details>
     </section>
   </div>
 
@@ -616,6 +616,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/cbtc/app.js?cb=53dd94eb"></script>
+<script type="module" src="/trade/cbtc/app.js?cb=72c1185f"></script>
 </body>
 </html>
