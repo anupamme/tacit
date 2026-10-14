@@ -188,7 +188,7 @@ try {
   const heldTxt = (Number(HELD) / 1e18).toFixed(2);
   ok(/1 tETH = 1 ETH, private/.test(sub) && sub.includes(`${heldTxt} ETH`) && /187 deposits · 64 wallets/.test(sub), `the line under it says what the pool holds and from how many (${sub.slice(0, 90)})`);
   const asset = await p.$$eval('.assets a', (as) => as.map((a) => [a.textContent.trim(), a.getAttribute('href'), a.getAttribute('aria-current')]));
-  ok(asset.length === 2 && asset[0][1] === '/trade/tac/' && asset[1][0] === 'tETH' && asset[1][2] === 'page', 'a switch names the two markets and marks this one');
+  ok(asset.length === 3 && asset[0][1] === '/trade/tac/' && asset[1][0] === 'tETH' && asset[1][2] === 'page' && asset[2][1] === '/trade/cbtc/', 'a switch names the three markets and marks this one');
   const sum = await text(p, '#hints-sum');
   ok(/Wrapped \$2,441/.test(sum) && /in the pools \$\d/.test(sum) && /apart/.test(sum), `the dropdown's line gives the wrapped value and the pools' range (${sum})`);
   await p.click('#hints summary');
@@ -608,7 +608,7 @@ try {
   await r.page.goto(`http://127.0.0.1:${WEB}/trade/tac/`);
   await r.page.waitForSelector('.assets');
   const tac = await r.page.$$eval('.assets a', (as) => as.map((a) => [a.textContent.trim(), a.getAttribute('href'), a.getAttribute('aria-current')]));
-  ok(tac.length === 2 && tac[0][2] === 'page' && tac[1][1] === '/trade/teth/', 'the TAC page carries the same switch, to this one');
+  ok(tac.length === 3 && tac[0][2] === 'page' && tac[1][1] === '/trade/teth/' && tac[2][1] === '/trade/cbtc/', 'the TAC page carries the same switch, to the other two');
   await r.browser.close();
 } catch (e) {
   fails++; console.log('FAIL   ' + (e.stack || e).toString().split('\n').slice(0, 8).join('\n'));

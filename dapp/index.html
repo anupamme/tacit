@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-F77oX32DF2YSEEl9mGEFHQkiyGLwRrLZxsfjdU70qZk=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-khPLvyiWnuNpcLRwru5ZIDY8axd5rTfA0Aalvz0xvao=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
-<script src="/front-route.js?cb=e2c1db1a"></script>
+<script src="/front-route.js?cb=ed3140de"></script>
 <title>tacit — private DeFi on Bitcoin and Ethereum</title>
 <link rel="canonical" href="https://tacit.finance/">
 <meta name="description" content="Private DeFi on Bitcoin and Ethereum. Assets issued on Bitcoin with hidden amounts, a zero-knowledge bridge to a confidential pool on Ethereum, private ETH, TAC, points, farms and dollars borrowed against Bitcoin.">
@@ -5818,16 +5818,17 @@ function loadTacPrice(force = false, book = false) {
     try { paintPxs(); } catch { /* the strip is a nicety; the reading above is what other forms wait on */ }
   })().finally(() => { TPX.p = null; TPX.pBook = false; }));
 }
-// The price strip under the header: TAC, BTC and ETH in dollars, from the one multicall loadTacPrice already makes (the Precision pool's
-// price, and the collateral engine's BTC price both ways), so it costs no request of its own and every dollar on the page agrees. TAC is
-// a link to the trade page. Nothing is drawn until the figures are read.
+// The price strip under the header: TAC, cBTC and tETH in dollars, from the one multicall loadTacPrice already makes (the Precision pool's
+// price, and the collateral engine's BTC price both ways), so it costs no request of its own and every dollar on the page agrees. cBTC is
+// locked bitcoin and tETH is ETH made private, one for one, so their dollars are bitcoin's and ETH's. Each is a link to its trade page.
+// Nothing is drawn until the figures are read.
 function paintPxs() {
   const el = $('#pxs'), v = TPX.v;
   if (!el) return;
   const eth = v?.usdBtc && v.ethBtc ? v.usdBtc / v.ethBtc : null, tac = eth && v.mid ? v.mid * eth : null;
   const usd0 = (x, dp = 0) => `$${x.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp })}`;
-  const item = (id, name, val, link) => (val ? `<${link ? `a href="${link}" title="Trade TAC"` : 'span'} class="px"><svg class="tk" aria-hidden="true"><use href="#tk-${id}"/></svg><b>${name}</b><span class="num">${val}</span></${link ? 'a' : 'span'}>` : '');
-  const out = tac && v.usdBtc && eth ? item('tac', 'TAC', usd0(tac, tac < 1 ? 3 : 2), '/trade/tac/') + item('btc', 'BTC', usd0(v.usdBtc)) + item('eth', 'ETH', usd0(eth)) : '';
+  const item = (id, name, val, link, title) => (val ? `<${link ? `a href="${link}" title="${title}"` : 'span'} class="px"><svg class="tk" aria-hidden="true"><use href="#tk-${id}"/></svg><b>${name}</b><span class="num">${val}</span></${link ? 'a' : 'span'}>` : '');
+  const out = tac && v.usdBtc && eth ? item('tac', 'TAC', usd0(tac, tac < 1 ? 3 : 2), '/trade/tac/', 'Trade TAC') + item('cbtc', 'cBTC', usd0(v.usdBtc), '/trade/cbtc/', 'cBTC: locked bitcoin, what backs it and its pools') + item('teth', 'tETH', usd0(eth), '/trade/teth/', 'tETH: private ETH, its pool and its farms') : '';
   if (el.__h !== out) { el.__h = out; el.innerHTML = out; }                      // written only when it changed
   el.classList.toggle('on', !!out);
 }

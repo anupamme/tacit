@@ -178,7 +178,8 @@ const TAC_CB_FILES = ['tac/sats.js', 'tac/market.js', 'tac/claim.js', 'tac/app.j
 // dapp/trade/ is the TAC trade page: its modules are hashed first (the venues module and the order book it imports are the shared ones the
 // front page uses, so their tokens come out the same), then app.js, then the page that loads it.
 const TRADE_CB_FILES = ['trade/tape.js', 'trade/chart.js', 'trade/book.js', 'trade/depth.js', 'trade/wallet.js', 'trade/sheet.js', 'trade/btc-session.js', 'trade/btc.js', 'trade/farm.js', 'trade/app.js', 'trade/index.html',
-  'trade/util.js', 'trade/key.js', 'trade/connect.js', 'trade/teth/read.js', 'trade/teth/wrap.js', 'trade/teth/market.js', 'trade/teth/app.js', 'trade/teth/index.html'];
+  'trade/util.js', 'trade/poolux.js', 'trade/key.js', 'trade/connect.js', 'trade/teth/read.js', 'trade/teth/wrap.js', 'trade/teth/market.js', 'trade/teth/app.js', 'trade/teth/index.html',
+  'trade/cbtc/read.js', 'trade/cbtc/app.js', 'trade/cbtc/index.html'];
 // The trade page has one address for each asset it trades: /trade/tac/ is TAC's, and /trade/ (which will list assets later) takes that
 // address today. Both are the same page, so /trade/tac/index.html is made from /trade/index.html, differing only in the address
 // the page names as its own, and `--verify-only` fails when it is not what this makes.
@@ -193,18 +194,20 @@ function tradeAssetPages(write) {
   }
   return drift;
 }
-// The tETH page (/trade/teth/) is the same page in another market: it wears the TAC page's stylesheet, between the markers in its own head, so the
-// two cannot drift apart. What only it needs follows the block, in a style of its own.
-const TETH_PAGE = 'trade/teth/index.html', STYLE_BLOCK = /<style>[\s\S]*?<\/style>/, STYLE_MARKS = /(<!-- style:shared:begin -->\n)[\s\S]*?(\n<!-- style:shared:end -->)/;
+// The tETH and cBTC pages (/trade/teth/, /trade/cbtc/) are the same page in other markets: each wears the TAC page's stylesheet, between the markers
+// in its own head, so they cannot drift apart. What only one needs follows the block, in a style of its own.
+const STYLE_PAGES = ['trade/teth/index.html', 'trade/cbtc/index.html'], STYLE_BLOCK = /<style>[\s\S]*?<\/style>/, STYLE_MARKS = /(<!-- style:shared:begin -->\n)[\s\S]*?(\n<!-- style:shared:end -->)/;
 function tethPageStyle(write) {
-  const file = join(DAPP_DIR, TETH_PAGE);
-  if (!existsSync(file)) return [];
-  const want = STYLE_BLOCK.exec(readFileSync(join(DAPP_DIR, TRADE_PAGE), 'utf8'))[0], before = readFileSync(file, 'utf8');
-  if (!STYLE_MARKS.test(before)) throw new Error(`${TETH_PAGE} has no style:shared markers`);
-  const after = before.replace(STYLE_MARKS, (m, a, b) => `${a}${want}${b}`);
-  if (after === before) return [];
-  if (write) writeFileSync(file, after);
-  return [`${TETH_PAGE} does not carry /${TRADE_PAGE}'s styles`];
+  const drift = [];
+  for (const rel of STYLE_PAGES) {
+    const file = join(DAPP_DIR, rel);
+    if (!existsSync(file)) continue;
+    const want = STYLE_BLOCK.exec(readFileSync(join(DAPP_DIR, TRADE_PAGE), 'utf8'))[0], before = readFileSync(file, 'utf8');
+    if (!STYLE_MARKS.test(before)) throw new Error(`${rel} has no style:shared markers`);
+    const after = before.replace(STYLE_MARKS, (m, x, y) => `${x}${want}${y}`);
+    if (after !== before) { drift.push(`${rel} does not carry /${TRADE_PAGE}'s styles`); if (write) writeFileSync(file, after); }
+  }
+  return drift;
 }
 // The Bitcoin market module on the trade page (trade/btc.js) is styled by the classic app's own stylesheet: the slice of classic.html between
 // the market page's markers, with the tokens that slice reads taken from the trade page's, so the two cannot drift apart. The sheet is
@@ -252,7 +255,7 @@ function pageCacheBust(files, write) {
 // from the first bytes of the HTML. The group after the bar is what the page needs right after it starts, not before:
 // the module's first lines preload it, once what the page waits on has arrived, so the two do not share bandwidth.
 // Generated here so it cannot go stale; --verify-only reports a block that no longer matches.
-const PRELOAD_PAGES = ['index.html', 'pay/index.html', 'pay/eth/index.html', 'trade/index.html', 'trade/teth/index.html'];
+const PRELOAD_PAGES = ['index.html', 'pay/index.html', 'pay/eth/index.html', 'trade/index.html', 'trade/teth/index.html', 'trade/cbtc/index.html'];
 const STATIC_IMPORT = /(?:^|[\n;}])\s*(?:import|export)\s*(?:[^'"();]*?\sfrom\s*)?(['"])([^'"]+)\1/g;
 const HEAD_BLOCK = /<!-- preload:begin -->[\s\S]*?<!-- preload:end -->/, LATER_BLOCK = /\/\/ preload-later:begin\n[\s\S]*?\/\/ preload-later:end/;
 function preloadBlocks(page) {

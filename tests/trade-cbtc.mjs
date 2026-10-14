@@ -1,0 +1,277 @@
+#!/usr/bin/env node
+// dapp/trade/cbtc/ in a real browser, under the page's own CSP: what backs cBTC (the locks, the bond, what was minted, what was lent), the engine's
+// price and loan lines, the private pools that hold it with their prices and farms, the ticket that sizes a bond for an amount, and, for a Tacit key
+// opened from a stub Ethereum wallet's real signature, that key's locks, private cBTC and loans. The API's answers are fixtures captured on
+// 2026-10-14/15, the chain's reads (Multicall3 carrying the engine, the pool and the feeds) are answered here, and the pool module and the key's
+// Bitcoin history are stand-ins that record what they are asked: both are tested on their own elsewhere.
+//
+//   PLAYWRIGHT=/Users/z/zFi/node_modules/playwright-core node tests/trade-cbtc.mjs
+import { createRequire } from 'node:module';
+import http from 'node:http';
+import { execFileSync } from 'node:child_process';
+import { readFileSync, existsSync, statSync } from 'node:fs';
+import { join, extname } from 'node:path';
+import { keccak_256 } from '../dapp/vendor/tacit-deps.min.js';
+
+const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT || '/Users/z/zFi/node_modules/playwright-core');
+const DAPP = new URL('../dapp/', import.meta.url).pathname, FX = new URL('./fixtures/', import.meta.url).pathname;
+const WEB = 24100 + Math.floor(Math.random() * 800);
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.wasm': 'application/wasm' };
+const server = http.createServer((req, res) => {
+  const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  let f = join(DAPP, p);
+  if (existsSync(f) && statSync(f).isDirectory()) f = p.endsWith('/') ? join(f, 'index.html') : join(DAPP, 'index.html');
+  if (!existsSync(f) && !extname(p)) f = join(DAPP, 'index.html');
+  if (!existsSync(f)) { res.writeHead(404); return res.end('not found'); }
+  res.writeHead(200, { 'content-type': TYPES[extname(f)] || 'application/octet-stream' });
+  res.end(readFileSync(f));
+}).listen(WEB);
+
+const json = (n) => JSON.parse(readFileSync(join(FX, n), 'utf8'));
+const stats = json('cbtc-stats-2026-10-15.json'), program = json('teth-program-2026-10-14.json');
+const nowS = () => Math.floor(Date.now() / 1000);
+const BTC_USD = 81500, ETH_USD = 2441, WST = 1.2, PER_ETH = 11000, RATIO = 15000, LIQ = 13000;
+const CBTC = '0x62a20d98fc1cd20289621d1315294cb8772f934d822e404b71e1f471cf0679c8', CETH = '0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34';
+const TAC = '0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b', CUSD = '0x8f4490dd3728b0ee904d7a67c11b37ffd463a5c7f08b79810006995ee8a9679d';
+
+let n = 0, fails = 0;
+const ok = (c, s) => { if (c) { n++; console.log('  ok   ' + s); } else { fails++; console.log('FAIL   ' + s); } };
+const text = (page, sel) => page.evaluate((s) => (document.querySelector(s)?.textContent || '').replace(/\s+/g, ' ').trim(), sel);
+const until = (page, fn, arg, timeout = 20000) => page.waitForFunction(fn, arg, { timeout });
+const cast = (...a) => execFileSync('cast', a, { encoding: 'utf8' }).trim();
+
+// ── the chain: Multicall3 carrying the engine, the pool and the feeds ──
+const w32 = (v) => BigInt(v).toString(16).padStart(64, '0');
+const pad = (hex) => hex.padEnd(Math.ceil(hex.length / 64) * 64, '0');
+function aggregate3Result(datas) {
+  const tuples = datas.map((d) => { const h = d ? d.replace(/^0x/, '') : ''; return w32(d ? 1 : 0) + w32(64) + w32(h.length / 2) + pad(h); });
+  let off = datas.length * 32, offs = '';
+  for (const t of tuples) { offs += w32(off); off += t.length / 2; }
+  return '0x' + w32(32) + w32(datas.length) + offs + tuples.join('');
+}
+// aggregate3((address,bool,bytes)[]) calldata → [{ to, data }]
+function decodeAggregate3(hex) {
+  const h = hex.replace(/^0x/, '').slice(8), word = (i) => BigInt('0x' + h.slice(i * 64, i * 64 + 64)), count = Number(word(1)), out = [];
+  for (let i = 0; i < count; i++) {
+    const start = 2 + Number(word(2 + i)) / 32, to = '0x' + h.slice(start * 64 + 24, start * 64 + 64), len = Number(word(start + 3));
+    out.push({ to: to.toLowerCase(), data: '0x' + h.slice((start + 4) * 64, (start + 4) * 64 + len * 2) });
+  }
+  return out;
+}
+const round = (answer) => '0x' + w32(1) + w32(BigInt(Math.round(answer * 1e8))) + w32(nowS()) + w32(nowS()) + w32(1);
+const hexBytes = (h) => Uint8Array.from(h.replace(/^0x/, '').match(/../g).map((x) => parseInt(x, 16)));
+const poolId = (a, b, fee) => { const [lo, hi] = BigInt(a) <= BigInt(b) ? [a, b] : [b, a], u = new Uint8Array(96); u.set(hexBytes(lo), 0); u.set(hexBytes(hi), 32); u.set(hexBytes(w32(fee)), 64); return Buffer.from(keccak_256(u)).toString('hex'); };
+// the pools the chain has (the live ones on 2026-10-14): [assetA, assetB, reserveA, reserveB, lpTotal] at the 30 bp tier, A the lower id
+const POOLS = new Map([[poolId(CBTC, CETH, 30), [CETH, CBTC, 63593972n, 730828n, 6810283n]], [poolId(CBTC, TAC, 30), [CBTC, TAC, 2n, 762494n, 1000n]]]);
+const chain = { lockStates: new Map(), engine: true };                                 // lockStates: outpoint word → { recorded, bonded, minted }
+const SEL = { latest: '0xfeaf968c', sqrt: '0x2af1f249', ratio: '0x4827ecb3', liq: '0x1432d93f', usd: '0xd5901347', wstForBtc: '0x7dd55c2b', perWst: '0xbb2952fc', req: '0x034448ed', pools: '0xb5217bb4',
+  lockV: '0x7cea1c1a', escrowOk: '0x058e18b0', minted: '0xe2c2a40c' };
+function answerCall({ to, data }) {
+  const sel = data.slice(0, 10), arg = (i) => BigInt('0x' + data.slice(10 + i * 64, 10 + (i + 1) * 64));
+  if (sel === SEL.latest) return round(to === '0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419' ? ETH_USD : BTC_USD);
+  if (sel === SEL.sqrt) return '0x' + w32(BigInt(Math.round(Math.sqrt(PER_ETH) * 1e6)) * 10n ** 12n);
+  if (to === '0x000000003f608bddf0ca45934003ffb9dbdf70db' && !chain.engine) return null;
+  if (sel === SEL.ratio) return '0x' + w32(RATIO);
+  if (sel === SEL.liq) return '0x' + w32(LIQ);
+  if (sel === SEL.usd) return '0x' + w32(BigInt(Math.round(BTC_USD * 1e8)) * arg(0) / 10n ** 8n);
+  if (sel === SEL.wstForBtc) return '0x' + w32(BigInt(Math.round(BTC_USD / ETH_USD / WST * 1e12)) * 10n ** 6n * arg(0) / 10n ** 8n);
+  if (sel === SEL.perWst) return '0x' + w32(BigInt(Math.round(WST * 1e9)) * arg(0) / 10n ** 9n);
+  if (sel === SEL.req) return '0x' + w32(BigInt(Math.round(BTC_USD / ETH_USD / WST * 1.5 * 1e9)) * 10n ** 9n * arg(0) / 10n ** 8n);                    // 1.5x, in wstETH wei, for `arg` sats
+  if (sel === SEL.pools) {
+    const p = POOLS.get(data.slice(10, 74));
+    return p ? '0x' + [1n, 0n, 0n, p[2], p[3], 30n, p[4]].map(w32).join('') : '0x' + '0'.repeat(64 * 7);
+  }
+  if ([SEL.lockV, SEL.escrowOk, SEL.minted].includes(sel)) {
+    const s = chain.lockStates.get(data.slice(10, 74)) || { recorded: false, bonded: false, minted: false };
+    return '0x' + w32(sel === SEL.lockV ? (s.recorded ? s.sats : 0n) : sel === SEL.escrowOk ? (s.bonded ? 1n : 0n) : (s.minted ? 1n : 0n));
+  }
+  return null;
+}
+function rpcAnswer(req) {
+  const { id, method, params } = req, res = (result) => ({ jsonrpc: '2.0', id, result }), err = (message, code = -32000) => ({ jsonrpc: '2.0', id, error: { code, message } });
+  if (method === 'eth_call') {
+    if (String(params[0].to).toLowerCase() === '0xca11bde05977b3631167028862be2a173976ca11') return res(aggregate3Result(decodeAggregate3(params[0].data).map(answerCall)));
+    return err('stub: eth_call', 3);
+  }
+  if (method === 'eth_getBalance') return res('0x' + (5n * 10n ** 18n).toString(16));
+  return err(`stub: ${method}`);
+}
+
+// ── the wallet that signs for real (the key opens from its signature) ──
+async function stubWallet(ctx) {
+  const j = JSON.parse(cast('wallet', 'new', '--json'))[0], account = j.address, log = { account, signs: 0, sends: 0 };
+  await ctx.exposeFunction('__wallet', async (method, params) => {
+    if (method === 'eth_requestAccounts' || method === 'eth_accounts') return [account];
+    if (method === 'eth_chainId') return '0x1';
+    if (method === 'eth_getCode') return '0x';
+    if (method === 'personal_sign') { log.signs++; return cast('wallet', 'sign', '--private-key', j.private_key, params[0]); }
+    if (method === 'eth_sendTransaction') { log.sends++; throw Object.assign(new Error('User rejected the request.'), { code: 4001 }); }
+    throw new Error(`the stub wallet does not do ${method}`);
+  });
+  await ctx.addInitScript(() => {
+    const provider = { request: ({ method, params }) => window.__wallet(method, params).catch((e) => { throw Object.assign(new Error(String(e?.message || e).replace(/^.*Error: /, '')), { code: /rejected/i.test(String(e?.message)) ? 4001 : undefined }); }), on() {}, removeListener() {} };
+    const detail = Object.freeze({ info: Object.freeze({ uuid: 'stub-1', name: 'Test Wallet', icon: '', rdns: 'test.wallet' }), provider });
+    const announce = () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail }));
+    window.addEventListener('eip6963:requestProvider', announce); announce();
+  });
+  return log;
+}
+// ── the pool module and the key's Bitcoin history, as stand-ins that record what they are asked ──
+const UX_STUB = `
+const ux = (window.__ux ||= { calls: [], cfg: {} });
+export function setExternalTacHolders() {}
+export function forgetKeys() { ux.forgot = (ux.forgot || 0) + 1; }
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+export function makeConfidentialPoolUx() {
+  return {
+    pool: { outpointKey: (txid, vout) => '0x' + '00'.repeat(31) + vout.toString(16).padStart(2, '0') },
+    async cbtcLockState(txid, vout) { ux.calls.push(['cbtcLockState', vout]); return ux.cfg.states?.[vout] || { spent: false, redeemed: false }; },
+    async recoverCdpPositions(a) { ux.calls.push(['recoverCdpPositions', a.walletPriv.length]); if (ux.cfg.loansFail) throw new Error('cdp read failed'); return { positions: ux.cfg.loans || [] }; },
+    async balance(priv, o) {
+      ux.calls.push(['balance', priv.length, JSON.stringify(o)]); await wait(ux.cfg.balanceMs || 0);
+      const g = (id, v) => (v ? { [id]: { asset: id, value: BigInt(v), notes: [{ value: String(v) }] } } : {});
+      return { byAsset: { ...g(${JSON.stringify(CBTC)}, ux.cfg.cbtc), ...g(${JSON.stringify(CUSD)}, ux.cfg.cusd) }, notes: [], diag: { errors: {} } };
+    },
+  };
+}`;
+const HIST_STUB = `
+export function makeBtcHistoryProvider(o) { return { locks: async (priv) => { (window.__ux ||= { calls: [], cfg: {} }).calls.push(['locks', priv.length, o.hrp]); if (window.__ux.cfg.locksFail) throw new Error('esplora is down'); return window.__ux.cfg.locks || []; } }; }`;
+
+async function openPage(viewport, { wallet = false, scheme = 'light', hash = '' } = {}) {
+  const browser = await chromium.launch(), ctx = await browser.newContext({ viewport, colorScheme: scheme });
+  const log = wallet ? await stubWallet(ctx) : null;
+  const ok200 = (body) => ({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
+  for (const h of ['ethereum-rpc.publicnode.com', 'eth.drpc.org', '1rpc.io', 'mainnet.gateway.tenderly.co']) await ctx.route(`https://${h}/**`, (r) => { const q = JSON.parse(r.request().postData() || '{}'); return r.fulfill(ok200(Array.isArray(q) ? q.map(rpcAnswer) : rpcAnswer(q))); });
+  await ctx.route(/^https:\/\/api\.tacit\.finance\//, (r) => {
+    const u = new URL(r.request().url());
+    if (u.pathname === '/stats') return r.fulfill(chain.stats === 'down' ? { status: 503, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{}' } : ok200(stats));
+    if (u.pathname === '/farm/program') return r.fulfill(ok200(program));
+    return r.fulfill({ status: 404, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{}' });
+  });
+  await ctx.route('**/confidential-pool-ux.js*', (r) => r.fulfill({ status: 200, contentType: 'text/javascript', body: UX_STUB }));
+  await ctx.route('**/confidential-recovery-btc.js*', (r) => r.fulfill({ status: 200, contentType: 'text/javascript', body: HIST_STUB }));
+  await ctx.route('**/walletconnect.js*', (r) => r.fulfill({ status: 200, contentType: 'text/javascript', body: 'export function announceWalletConnect() { return { provider: null, disconnect: async () => {} }; }' }));
+  const page = await ctx.newPage(), errors = [], blocked = [];
+  page.on('pageerror', (e) => errors.push(String(e.message || e)));
+  page.on('console', (m) => { if (m.type() === 'error') { const t = m.text(); if (/Content Security Policy|Refused to/i.test(t)) blocked.push(t); else if (!/Failed to load resource/.test(t)) errors.push(t.slice(0, 200)); } });
+  await page.goto(`http://127.0.0.1:${WEB}/trade/cbtc/${hash}`);
+  await page.waitForSelector('#wallet-chip');
+  return { browser, page, errors, blocked, log };
+}
+const cfg = (page, o) => page.evaluate((x) => { (window.__ux ||= { calls: [], cfg: {} }); Object.assign(window.__ux.cfg, x); }, o);
+const ux = (page) => page.evaluate(() => window.__ux);
+const shot = async (page, name) => { if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/${name}.png`, fullPage: true }); };
+
+const T = { locked: 11390800n, minted: 11312800n, bond: 4979121383955830640n, out: 444386815650n };
+let r, p;
+try {
+  // ── the page on its own: what backs cBTC, the pools, the farms ──
+  r = await openPage({ width: 1280, height: 1000 });
+  p = r.page;
+  await until(p, () => document.querySelector('#px-usd').textContent.startsWith('$') && document.querySelectorAll('#pl-table tbody tr').length === 2 && document.querySelectorAll('.pf').length === 1 && document.querySelector('#cov .cov-row:nth-child(2)'));
+  ok((await text(p, '#px-usd')) === `$${BTC_USD.toLocaleString('en-US')}` && (await p.title()) === `cBTC $${BTC_USD.toLocaleString('en-US')} · tacit trade`, `the headline is the engine's price of bitcoin (${await text(p, '#px-usd')})`);
+  const sub = await text(p, '#px-sub');
+  ok(/1 cBTC = 1 BTC, locked/.test(sub) && /0\.113128 cBTC/.test(sub) && /20 locks · 13 loans open/.test(sub), `the line under it: what is minted, how many locks and loans (${sub})`);
+  const assets = await p.$$eval('.assets a', (a) => a.map((x) => `${x.textContent.trim()}:${x.getAttribute('href')}:${x.getAttribute('aria-current') || ''}`));
+  ok(assets.join() === 'TAC:/trade/tac/:,tETH:/trade/teth/:,cBTC:/trade/cbtc/:page', `the switch names the three markets and marks this one (${assets.join(' ')})`);
+  const rows = await p.$$eval('#cov .cov-row', (rs) => rs.map((x) => ({ h: x.querySelector('.cov-h').textContent.replace(/\s+/g, ' ').trim(), s: x.querySelector('.cov-s').textContent.replace(/\s+/g, ' ').trim(), bar: x.querySelector('.cov-bar i')?.style.width || null, tick: x.querySelector('.cov-bar u')?.style.left || null })));
+  ok(rows.length === 4 && /Bitcoin locked/.test(rows[0].h) && /0\.113908 BTC/.test(rows[0].h), `the locks: the sats locked (${rows[0].h})`);
+  const bondUsd = Number(T.bond) / 1e18 * WST * ETH_USD, lockUsd = Number(T.locked) / 1e8 * BTC_USD, cover = Math.round(bondUsd / lockUsd * 100);
+  ok(rows[1].h.includes(`${cover}% of the locks`) && /4\.98 wstETH/.test(rows[1].s) && rows[1].tick, `the bond covers the locks ${cover}% with the 1.5× line marked (${rows[1].h})`);
+  ok(/0\.113128 of 0\.113908/.test(rows[2].h) && /20 locks minted/.test(rows[2].s) && /0\.00019 BTC/.test(rows[2].s), `what is minted, and the public tacBTC (${rows[2].h} · ${rows[2].s.slice(0, 80)})`);
+  ok(/4,444 out/.test(rows[3].h) && /13 open loans/.test(rows[3].s) && /4,486 borrowed, 41\.89 repaid, 0 liquidated/.test(rows[3].s) && /above 150% and is liquidated below 130%/.test(rows[3].s), `the loans, with the engine's own lines (${rows[3].s.slice(0, 120)})`);
+  const pools = await p.$$eval('#pl-table tbody tr', (rs) => rs.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
+  const perTeth = 730828 / 63593972, tethPerCbtc = 63593972 / 730828, usdCbtc = tethPerCbtc * ETH_USD;
+  ok(/cBTC \/ tETH/.test(pools[0]) && pools[0].includes(`$${Math.round(usdCbtc).toLocaleString('en-US')}`) && /\+1\d\d%/.test(pools[0]) && /222 TAC a day/.test(pools[0]) && /\d+%/.test(pools[0]), `the tETH pool: cBTC's price in it from its reserves, how far that is from bitcoin's, and its farm (${pools[0].slice(0, 130)})`);
+  ok(/cBTC \/ TAC/.test(pools[1]) && /dust/.test(pools[1]) && /not farmed/.test(pools[1]) && !/\$\d/.test(pools[1].split('0.3% fee')[1].split('cBTC costs')[0] || ''), `the TAC pool has next to nothing in it, and is not priced (${pools[1].slice(0, 120)})`);
+  const lanes = await p.$$eval('#lanes .lane', (ls) => ls.map((l) => l.textContent.replace(/\s+/g, ' ').trim()));
+  ok(lanes.length === 3 && /Bitcoin/.test(lanes[0]) && /In the tETH pool/.test(lanes[1]) && /too small to price from/.test(lanes[2]), `the dropdown: bitcoin's price, the tETH pool, and the dust pool unpriced (${lanes.length})`);
+  const farm = await p.$$eval('.pf', (a) => a.map((x) => ({ href: x.getAttribute('href'), t: x.textContent.replace(/\s+/g, ' ').trim() })));
+  const fp = program.pools.find((x) => x.pair === 'cETH/cBTC'), bonded = 2 * 730828 / 1e8 * BTC_USD * Number(fp.totalShares) / Number(fp.reserves.lpTotalShares), wantApr = Number(fp.tacPerDayForPool) * 365 / PER_ETH * ETH_USD / bonded * 100;
+  const gotApr = parseInt(farm[0].t.replace(/,/g, '').match(/(\d+)%/)[1]);
+  ok(farm[0].href === '/#farm/private-2' && Math.abs(gotApr - wantApr) <= Math.max(2, wantApr * 0.01), `the farm opens its own pool and its APR is a year of its TAC over what is bonded: ${gotApr}% (${wantApr.toFixed(1)}%)`);
+  ok(/222 TAC/.test(await text(p, '#fm-stats')), 'the farms\' rewards add up');
+  ok(/no order book on Bitcoin/.test(await text(p, '#lk-lead')) && /20 live locks/.test(await text(p, '#lk-facts')) && /Sign in/.test(await text(p, '#lk-mine')), 'the locks panel says why there is no order book, counts the locks, and offers to show yours');
+  ok(r.errors.length === 0 && r.blocked.length === 0, `no page error and nothing blocked by the CSP (${[...r.errors, ...r.blocked].join(' | ').slice(0, 200)})`);
+  await shot(p, 'cbtc-public');
+  // the ticket: sizing a bond
+  await p.fill('#amt', '0.01');
+  await until(p, () => /ETH bond, at least/.test(document.querySelector('#route').textContent));
+  const route = await text(p, '#route');
+  const needEth = 0.01 * BTC_USD / ETH_USD * 1.5;
+  ok(/You get\s*0\.01 cBTC/.test(route) && route.includes(needEth.toFixed(4).slice(0, 5)) && /Borrow up to\s*about 543 cUSD at the 150% floor/.test(route), `an amount sized: the cBTC, the bond of 1.5× at least (${needEth.toFixed(3)} ETH) and what can be borrowed (${route.slice(0, 160)})`);
+  ok((await p.$eval('#go', (a) => a.getAttribute('href'))) === '/#lock' && /Lock BTC/.test(await text(p, '#go')), 'the button opens the Borrow sheet, where the lock is made');
+  await p.click('#mode-seg [data-mode="use"]');
+  const uses = await p.$$eval('#uses a.use', (a) => a.map((x) => [x.querySelector('b').textContent, x.getAttribute('href')]));
+  ok(uses.map((u) => u[1]).join() === '/#lock,/#private/swap,#farm,/#lock' && /Borrow cUSD/.test(uses[0][0]) && /bitcoin back/.test(uses[3][0]), `use cBTC: borrow, swap, farm and redeem, each a link (${uses.map((u) => u[1]).join(' ')})`);
+  ok(/Sign in/.test(await text(p, '#held')), 'its private balance waits for a key');
+  await r.browser.close();
+
+  // ── a key: its locks, its cBTC and its loans ──
+  r = await openPage({ width: 1280, height: 1000 }, { wallet: true });
+  p = r.page;
+  await until(p, () => document.querySelector('#px-usd').textContent.startsWith('$'));
+  const lockA = { lockTxid: 'ab'.repeat(32), lockVout: 1, vBtc: '5000000', anchor: { txid: 'cd'.repeat(32), vout: 0 }, at: Date.now() }, lockB = { lockTxid: 'ef'.repeat(32), lockVout: 2, vBtc: '1000000', anchor: { txid: '12'.repeat(32), vout: 0 }, at: Date.now() }, lockC = { lockTxid: '34'.repeat(32), lockVout: 3, vBtc: '200000', anchor: { txid: '56'.repeat(32), vout: 0 }, at: Date.now() };
+  const op = (v) => '00'.repeat(31) + v.toString(16).padStart(2, '0');
+  chain.lockStates.set(op(1), { recorded: true, bonded: true, minted: true, sats: 5000000n });
+  chain.lockStates.set(op(2), { recorded: true, bonded: true, minted: false, sats: 1000000n });
+  chain.lockStates.set(op(3), { recorded: false, bonded: false, minted: false, sats: 200000n });
+  await cfg(p, { locks: [lockA, lockB, lockC], cbtc: 4200000, cusd: 123400000000, loans: [{ live: true, debtValue: '90000000000', basket: [{ asset: CBTC, value: '5000000' }] }, { live: false, debtValue: '5', basket: [] }], states: { 3: { spent: true } } });
+  await p.click('#lk-signin');
+  await p.waitForSelector('.bsheet.top [data-in="eth"]');
+  await p.click('.bsheet.top [data-in="eth"]');
+  await until(p, () => document.querySelectorAll('#lk-mine table tbody tr').length === 2, null, 30000);
+  const mine = await p.$$eval('#lk-mine tbody tr', (rs) => rs.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
+  ok(r.log.signs === 2, 'the wallet signed the identity message twice, as a first derivation does');
+  ok(mine.length === 2 && /0\.05 BTC/.test(mine[0]) && /minted/.test(mine[0]) && /0\.01 BTC/.test(mine[1]) && /ready to mint/.test(mine[1]), `the key's live locks, each with its step (${mine.join(' | ')})`);
+  ok(!/0\.002 BTC/.test(mine.join()), 'a lock the pool has retired is not listed');
+  const links = await p.$$eval('#lk-mine tbody a', (a) => a.map((x) => x.getAttribute('href')));
+  ok(links[0] === `https://mempool.space/tx/${lockA.lockTxid}` && links[1].endsWith(lockB.lockTxid), 'each lock links to its transaction');
+  let u = await ux(p);
+  ok(u.calls.some((c) => c[0] === 'locks' && c[1] === 32 && c[2] === 'bc') && u.calls.some((c) => c[0] === 'balance' && /"cbtc":true/.test(c[2])) && u.calls.some((c) => c[0] === 'recoverCdpPositions'), 'the locks come from the key\'s own Bitcoin history (mainnet addresses), the cBTC from a scan that reads it, the loans from the pool module');
+  await p.click('#mode-seg [data-mode="use"]');
+  await until(p, () => /cBTC, private/.test(document.querySelector('#held').textContent));
+  const held = await text(p, '#held');
+  ok(/0\.042 .*cBTC, private/.test(held) && /900 cUSD in 1 loan/.test(held) && /Private cUSD1,234/.test(held), `use cBTC: the key's private cBTC, what it owes in its one live loan, and its cUSD (${held})`);
+  await shot(p, 'cbtc-mine');
+  // a failing read is said, and the others still show
+  await cfg(p, { locksFail: true });
+  await p.click('#lk-re');
+  await until(p, () => /could not be read: esplora is down/.test(document.querySelector('#lk-mine').textContent), null, 20000);
+  ok(/0\.042/.test(await text(p, '#held')) && !/Reading/.test(await text(p, '#lk-mine')), 'a Bitcoin history that cannot be read says so, and the cBTC and loans still show');
+  await p.click('#held-lock').catch(() => {});
+  await p.click('#mode-seg [data-mode="use"]');
+  await p.click('#held-lock').catch(() => {});
+  await until(p, () => !document.querySelector('#held-lock'), null, 5000).catch(() => {});
+  u = await ux(p);
+  ok((u.forgot || 0) >= 1 && /Sign in/.test(await text(p, '#held')) && /Sign in/.test(await text(p, '#lk-mine')), 'Lock drops the key and the pool module\'s copies of it');
+  ok(r.errors.length === 0 && r.blocked.length === 0, `no page error with a key (${[...r.errors, ...r.blocked].join(' | ').slice(0, 160)})`);
+  await r.browser.close();
+
+  // ── what cannot be read ──
+  chain.engine = false; chain.stats = 'down';
+  r = await openPage({ width: 1280, height: 900 });
+  p = r.page;
+  await p.waitForTimeout(2500);
+  ok(!/\$\d/.test(await text(p, '#px-usd')) || /\$81,500/.test(await text(p, '#px-usd')), 'without the engine the headline falls back to the feed\'s price of bitcoin, or waits');
+  ok(/Reading|could not/i.test(await text(p, '#cov')) || (await p.$$eval('#cov .cov-row', (a) => a.length)) === 0, 'with no totals nothing is invented');
+  await r.browser.close();
+  chain.engine = true; chain.stats = null;
+
+  // ── a phone, in the dark ──
+  r = await openPage({ width: 390, height: 800 }, { scheme: 'dark' });
+  p = r.page;
+  await until(p, () => document.querySelectorAll('#pl-table tbody tr').length === 2 && document.querySelector('#cov .cov-row'));
+  ok(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'a phone has no sideways scroll');
+  const order = await p.evaluate(() => ['.p-ticket', '.p-chart', '.p-btc', '.p-farm', '.p-depth', '.p-info'].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().top + scrollY)));
+  ok(order.every((v, i) => i === 0 || v > order[i - 1]), `the ticket first, then what backs it, the locks, the farms, the pools and about (${order.join(' ')})`);
+  await shot(p, 'cbtc-phone');
+  ok(r.errors.length === 0 && r.blocked.length === 0, `no page error on a phone in the dark (${[...r.errors, ...r.blocked].join(' | ').slice(0, 160)})`);
+  await r.browser.close();
+} catch (e) {
+  fails++; console.log('FAIL   ' + (e.stack || e).toString().split('\n').slice(0, 8).join('\n'));
+  try { await r?.browser?.close(); } catch { /* it may be gone */ }
+}
+server.close();
+console.log(`\n${n} passed${fails ? `, ${fails} failed` : ''}`);
+process.exit(fails ? 1 : 0);

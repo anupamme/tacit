@@ -3,22 +3,11 @@
 // recoverable from the key and the chain alone: a deposit whose settle did not finish is found again (`pendingOf`) and finished (`finish`).
 //
 // The pool module (confidential-pool-ux.js) is loaded the first time it is needed. Nothing here holds a key: each step is handed `priv()`.
-import { secp, sha256, keccak_256 } from '/vendor/tacit-deps.min.js';
+import { getUx, forgetUx } from '/trade/poolux.js?cb=cc3e4b0c';
 import { WRAP_TIP, WRAP_WITH_TIP, CETH_ID } from '/trade/teth/read.js?cb=cb8cb803';
 import { strip, word, E10 } from '/trade/util.js?cb=369d2824';
 
-let uxP = null;
-export function getUx() {
-  return (uxP ||= (async () => {
-    const [{ makeConfidentialPoolUx }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=06532c6a'), import('/confidential-deployments.js')]);
-    dep.setActiveNetwork('mainnet');
-    return makeConfidentialPoolUx({ secp, keccak256: keccak_256, sha256, network: 'mainnet' });
-  })().catch((e) => { uxP = null; throw e; }));
-}
-// Dropped when the key is locked, with the copies of it the pool module keeps.
-export async function forgetUx() {
-  try { (await import('/confidential-pool-ux.js?cb=06532c6a')).forgetKeys(); } catch { /* the module was never loaded */ }
-}
+export { getUx, forgetUx };
 
 // The calldata of wrapWithTip(commit, amount, tipTo).
 export const wrapCalldata = ({ commit, wei, to }) => WRAP_WITH_TIP + strip(commit).padStart(64, '0') + word(wei) + strip(to).toLowerCase().padStart(64, '0');

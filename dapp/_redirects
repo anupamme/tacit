@@ -20,6 +20,7 @@
 /trade    /trade/tac/    301
 /trade/tac  /trade/tac/  301
 /trade/teth  /trade/teth/  301
+/trade/cbtc  /trade/cbtc/  301
 /pay      /pay/      301
 /pay/eth  /pay/eth/  301
 /weld/keeper  /weld/keeper/  301
