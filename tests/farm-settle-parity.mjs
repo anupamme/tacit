@@ -19,14 +19,15 @@ const ok = (cond, name) => { console.log(`${cond ? 'ok  ' : 'FAIL'} ${name}`); i
 // Fixed test scalars (the sigma round-trip only needs build/verify to agree on the context).
 const chainBinding = '0x' + 'cb'.repeat(32);
 const controller = '0x' + '11'.repeat(20);
-const owner = '0x' + '0a'.repeat(32);
+const owner = '0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798';       // the generator's x: a real curve point, which buildBondOp now requires
 const lpAsset = '0x' + 'a1'.repeat(32);
 const controllerWord = '0x' + '00'.repeat(12) + controller.replace(/^0x/, '');
 const note = (value, bl) => { const c = pool.commitXY(value, bl); return { ...c, owner, value, blinding: bl }; };
 
 // 1. receipt-leaf / nullifier / new-entry anchors (re-exported from the pool, byte-pinned in farm-js-parity).
 const recFarm = '0x' + '44'.repeat(32), recNonce = '0x' + '01'.repeat(32);
-const recLeaf = farm.farmReceiptLeaf(recFarm, '0x' + '00'.repeat(32), 100, owner, recNonce);
+const anchorOwner = '0x' + '0a'.repeat(32);                                         // the leaf hash does not need a curve point; these two anchors were pinned with this value
+const recLeaf = farm.farmReceiptLeaf(recFarm, '0x' + '00'.repeat(32), 100, anchorOwner, recNonce);
 ok(recLeaf === '0xa9ff21b9e430c69c7f80303340151611064e6eca213160b88a5e9669369ab1ee', 'farmReceiptLeaf anchor');
 ok(farm.farmReceiptNullifier(recLeaf) === '0x66b837df8326854eb7a686829756855557b656a917f5c9bfd09901c7cba832f6', 'farmReceiptNullifier anchor');
 ok(farm.debtAssetId(controller) === '0x' + [...keccak_256(Buffer.concat([Buffer.from('tacit-cdp-debt-v1'), Buffer.from(controller.replace(/^0x/, ''), 'hex')]))].map((x) => x.toString(16).padStart(2, '0')).join(''), 'debtAssetId == keccak(domain‖controller)');
