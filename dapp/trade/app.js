@@ -13,7 +13,7 @@ import {
 } from '/evm-trade-venues.js?cb=bb675102';
 import { getConfidentialDeployment } from '/confidential-deployments.js';
 import { buildBook, planBuy, planSell as planBtcSell, ladderLevels } from '/btc-book.js?cb=91371653';
-import { decodeTape, chartBars, invert, ethLaneUsd, btcLaneUsd, candlesFromTrades, tradePrices, closeAt, gap, TAPE_FINE, TAPE_COARSE } from '/trade/tape.js?cb=dfc28dd7';
+import { decodeTape, chartBars, invert, ethLaneUsd, btcLaneUsd, candlesFromTrades, tradePrices, closeAt, volumeSince, gap, TAPE_FINE, TAPE_COARSE } from '/trade/tape.js?cb=6565501b';
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=f171a0fb';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
@@ -178,8 +178,7 @@ function renderHead() {
   const eth = priceEth(), px = usdOf(eth);
   $('#px-usd').textContent = px != null ? usd(px) : eth != null ? `${sig(eth)} ETH` : 'TAC';
   document.title = px != null ? `TAC ${usd(px)} · tacit trade` : 'tacit trade';
-  // The candles that began in the last day: the 4-hour ones, and the 5-minute ones newer than the last of those (it lags by one).
-  const vol = D.tape.coarse.filter((b) => b.t >= now() - 86400).reduce((a, b) => a + b.vol, 0) + D.tape.fine.filter((b) => b.t >= (D.tape.coarse.at(-1)?.t ?? 0) + TAPE_COARSE && b.t >= now() - 86400).reduce((a, b) => a + b.vol, 0);
+  const vol = volumeSince(D.tape, now() - 86400, now());                                         // the last 24 hours exactly, not the 4-hour buckets that began inside them
   const bits = [];
   // How far TAC's price in ETH has moved over each window: the price then (TAC per ETH, from the tape) against the pool's now.
   const changes = [['1h', 3600], ['6h', 21600], ['24h', 86400], ['7d', 604800]].map(([l, s]) => { const then = priceAgo(s); return then && D.perEth ? [l, then / D.perEth - 1] : null; }).filter(Boolean);

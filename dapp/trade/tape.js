@@ -63,6 +63,17 @@ export function chartBars({ fine = [], coarse = [] }, period) {
   return rollup([...coarse, ...fine.filter((b) => b.t >= lastCoarse)], period);
 }
 
+// ETH traded from `from` to `to` (unix seconds): the 5-minute bars where the tape holds them (they reach back about a day), and the
+// 4-hour bars before them, a bucket that only partly falls in the window counted for its share of the time. A bucket that began
+// before the window is therefore not dropped whole, and the stretch the 5-minute bars cover is never counted twice.
+export function volumeSince({ fine = [], coarse = [] }, from, to) {
+  const f0 = fine.length ? fine[0].t : to;
+  let v = 0;
+  for (const b of fine) if (b.t >= from && b.t < to) v += b.vol;
+  for (const b of coarse) { const a = Math.max(b.t, from), z = Math.min(b.t + TAPE_COARSE, f0, to); if (z > a) v += (b.vol * (z - a)) / TAPE_COARSE; }
+  return v;
+}
+
 // Bars of a tape on the first and last day of what has been read are partial buckets; the chart's span, for its axis.
 export const span = (bars) => (bars.length ? { from: bars[0].t, to: bars[bars.length - 1].t } : null);
 

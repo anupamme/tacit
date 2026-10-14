@@ -4,7 +4,7 @@
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import {
-  TAPE_FINE, TAPE_COARSE, unpackFloat, decodeBar, decodeTape, invert, scale, rollup, chartBars, tradePrices, candlesFromTrades, ethLaneUsd, btcLaneUsd, gap, closeAt,
+  TAPE_FINE, TAPE_COARSE, unpackFloat, decodeBar, decodeTape, invert, scale, rollup, chartBars, tradePrices, candlesFromTrades, ethLaneUsd, btcLaneUsd, gap, closeAt, volumeSince,
 } from '../dapp/trade/tape.js';
 
 let n = 0;
@@ -101,6 +101,17 @@ const coarse = decodeTape(fx.coarse, TAPE_COARSE), fine = decodeTape(fx.fine, TA
   const bars = [{ t: 100, close: 1 }, { t: 200, close: 2 }, { t: 300, close: 3 }];
   assert.equal(closeAt(bars, 250), 2); assert.equal(closeAt(bars, 300), 3); assert.equal(closeAt(bars, 50), null); assert.equal(closeAt(bars, 9999), 3);
   ok('both lanes in dollars at today\'s rates, the gap between them, and the last close at a time');
+}
+
+// ── volume over a window ──
+{
+  const bar = (t, vol) => ({ t, open: 1, high: 1, low: 1, close: 1, vol, n: 1 });
+  const coarse = [bar(0, 4), bar(14400, 8), bar(28800, 12)], fine = [bar(26100, 1), bar(26400, 2), bar(29100, 3)];
+  const want = (4400 / 14400) * 4 + (11700 / 14400) * 8 + 1 + 2 + 3;     // the first buckets by their share of the window, then the 5-minute bars; the last bucket is what the 5-minute bars already hold
+  assert.ok(Math.abs(volumeSince({ coarse, fine }, 10000, 30000) - want) < 1e-9, 'a bucket that began before the window counts for its share, and nothing is counted twice');
+  assert.equal(volumeSince({ coarse, fine: [] }, 0, 28800), 12, 'with no 5-minute bars the whole 4-hour buckets in the window are added');
+  assert.equal(volumeSince({ coarse: [], fine: [] }, 0, 100), 0);
+  ok('volume over a window: the 5-minute bars, then the 4-hour ones by their share, with no bar counted twice');
 }
 
 console.log(`\n${n} trade-tape checks passed`);
