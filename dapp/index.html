@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-vCOAoJmPFHkRdF1gJ5A9TRVrMjz8bcyYBfJwmzZwEl4=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-P5bTsZh//KW304XcZoXYviGK8hVOAkuxDyBRJ18O5Ao=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=248cfddf"></script>
 <title>tacit — private DeFi on Bitcoin and Ethereum</title>
@@ -9771,16 +9771,26 @@ function takeDraft(mode, input, ok = () => true) {
   HX.draft = null; input.value = d.amt || '';
   if (input.value) input.dispatchEvent(new Event('input'));
 }
-// The relay's tip for a wrap does not turn on its size, so the card reads it ahead (when the card shows a wrap, or its amount is focused) and keeps
-// it 15 s; the Private sheet's own form asks again for its amount.
-const HXT = { at: 0, v: null, p: null };
-function hxWrapTip(units = 10n ** 7n) {
-  if (HXT.v != null && Date.now() - HXT.at < 15e3) return Promise.resolve(HXT.v);
-  return (HXT.p ||= fetch(`${API}/confidential/quote?asset=cETH&amountWei=${units * E10}`, { signal: within(20e3) })
-    .then(async (r) => { if (!r.ok) throw new Error(`quote ${r.status}`); HXT.v = BigInt((await r.json()).recommendedWrapTipWei || 0); HXT.at = Date.now(); return HXT.v; })
-    .finally(() => { HXT.p = null; }));
+// The relay's tip for a wrap turns on its size while the amount is small (3% of it, up to a cap that moves with gas), so the card asks for the amount
+// typed and keeps each answer 15 s; the Private sheet's own form asks again for its amount, and the same figure comes back.
+const HXT = { m: new Map(), p: new Map() };                        // amount → { v: tip, at }, and the asks in flight
+function hxWrapTip(units) {
+  const k = String(units), hit = HXT.m.get(k);
+  if (hit && Date.now() - hit.at < 15e3) return Promise.resolve(hit.v);
+  if (HXT.p.has(k)) return HXT.p.get(k);
+  const ask = fetch(`${API}/confidential/quote?asset=cETH&amountWei=${units * E10}`, { signal: within(20e3) })
+    .then(async (r) => {
+      if (!r.ok) throw new Error(`quote ${r.status}`);
+      const v = BigInt((await r.json()).recommendedWrapTipWei || 0);
+      HXT.m.set(k, { v, at: Date.now() });
+      if (HXT.m.size > 24) HXT.m.delete(HXT.m.keys().next().value);
+      return v;
+    })
+    .finally(() => { HXT.p.delete(k); });
+  HXT.p.set(k, ask);
+  return ask;
 }
-const hxTipFresh = () => HXT.v != null && Date.now() - HXT.at < 15e3;
+const hxTipFresh = (units = hxUnits()) => { const hit = units ? HXT.m.get(String(units)) : null; return !!hit && Date.now() - hit.at < 15e3; };
 async function hxPoolSwap(from, to, units) {
   const t = await getUx();
   const id = (k) => (k === 'cbtc' ? String(t.pool.CBTC_ZK_ASSET_ID) : String(t.assetByTicker[POOL_TK[k]]?.assetId || '')).toLowerCase();
@@ -10421,7 +10431,6 @@ function paintHx() {
     HX.route = HX.q = null; paintHx();
   });
   $('#hx-amt')?.addEventListener('input', (e) => { HX.amt = e.target.value; hxSub(); hxQuoteSoon(); });
-  if (HX.mode === 'private' || (HX.mode === 'swap' && HX.from === 'ether')) $('#hx-amt')?.addEventListener('focus', () => { hxWrapTip().catch(() => {}); }, { once: true });
   el.onclick = (e) => {
     const b = e.target.closest?.('[data-hxq]');
     if (!b) return;

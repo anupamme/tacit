@@ -17,6 +17,7 @@
 //   farmzap  one side alone farms: Max takes the whole balance, the quote says what is swapped and what both sides add, and the
 //            press cuts the swap note, swaps it in the farm's pool, cuts what pairs with the return and bonds both
 //   farmqueue a cut still in the relay's queue when the wait runs out says so, says how to carry on, and offers the paying account
+//   hxtip    the card's wrap tip is the relay's for the amount typed (3% of a small one, capped), not one figure read for 0.1 ETH
 //   farmheld  a harvest still in the relay's queue when the wait runs out offers the paying account too
 //   farmreuse a stopped zap's two notes (one of the swapped amount, one that pairs with its return) are spent whole: Max takes both and
 //            nothing is split again
@@ -134,7 +135,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -4302,6 +4303,33 @@ await step('farmqueue', async () => {
     await until(p, () => !!window.__join || /err/.test(document.querySelector('#sf-status-0')?.innerHTML || ''), null, 300000);
     ok(!!(await p.evaluate(() => window.__join)), `farmqueue: and pressing again goes on to the bond (${(await text(p, '#sf-status-0')).replace(/\s+/g, ' ').slice(0, 160)})`);
     if (r.errors.length) { fails++; console.log('FAIL farmqueue page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+// The Shield card's relay tip is the relay's own for the amount typed. It turns on the size while the amount is small (3% of it, up to a
+// cap), so a small wrap is not told the tip a large one pays; and nothing is asked before an amount is typed.
+await step('hxtip', async () => {
+  const r = await openPage({ account: A0, key: K0 });
+  const p = r.page, asked = [];
+  try {
+    await p.route(/\/confidential\/quote\?/, (route) => {
+      const wei = BigInt(new URL(route.request().url()).searchParams.get('amountWei') || '0'), cap = 117222807204416n, tip = wei * 3n / 100n < cap ? wei * 3n / 100n : cap;
+      asked.push(String(wei));
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
+        body: JSON.stringify({ relayFeeEligible: true, recommendedTipRecipient: '0x' + '6c'.repeat(20), recommendedWrapTipWei: String(tip) }) });
+    });
+    await p.goto(r.url);
+    await p.waitForSelector('#hx-amt', { timeout: 120000 });
+    await p.focus('#hx-amt'); await sleep(1500);
+    ok(asked.length === 0, `hxtip: nothing is asked of the relay before an amount is typed (${asked.length})`);
+    await p.fill('#hx-amt', '0.003');
+    await until(p, () => /relay tip of 0\.00009 ETH/.test(document.querySelector('#hx')?.textContent || ''), null, 60000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#hx')).replace(/\s+/g, ' ').slice(-200)}`); });
+    ok(true, 'hxtip: a 0.003 ETH wrap says its tip is 0.00009 ETH (3% of it)');
+    await p.fill('#hx-amt', '0.1');
+    await until(p, () => /relay tip of 0\.000117 ETH/.test(document.querySelector('#hx')?.textContent || ''), null, 60000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#hx')).replace(/\s+/g, ' ').slice(-200)}`); });
+    ok(asked.includes('3000000000000000') && asked.includes('100000000000000000'), `hxtip: and a 0.1 ETH wrap says the capped figure, each amount asked for itself (${asked.join(', ')})`);
+    if (r.errors.length) { fails++; console.log('FAIL hxtip page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 // A harvest or an unbond still in the relay's queue when the wait runs out is offered from the paying account, as a refused one is.
