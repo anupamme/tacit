@@ -7,7 +7,7 @@
 //   take: { side: 'ask' | 'bid', size } the amount an order would fill, highlighted from the best price outward
 //   onPick(level, side) is called with the order a click lands on.
 
-import { niceTicks } from '/trade/chart.js?cb=28af16af';
+import { niceTicks } from '/trade/chart.js?cb=f171a0fb';
 import { cumulative } from '/trade/book.js?cb=3324d19b';
 
 const NS = 'http://www.w3.org/2000/svg';

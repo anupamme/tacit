@@ -30,6 +30,10 @@ export function logTicks(lo, hi) {
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const p2 = (n) => String(n).padStart(2, '0');
 export const fmtTime = (t, withDay) => { const d = new Date(t * 1000); return withDay ? `${d.getUTCDate()} ${MON[d.getUTCMonth()]}` : `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`; };
+// The reader's own clock: an axis in UTC would put a day's tick at someone's mid-afternoon. The zone is named where a time is read out.
+const zoneName = (d) => { try { return new Intl.DateTimeFormat('en-GB', { timeZoneName: 'short' }).formatToParts(d).find((x) => x.type === 'timeZoneName')?.value || ''; } catch { return ''; } };
+export const fmtLocalTime = (t, withDay) => { const d = new Date(t * 1000); return withDay ? `${d.getDate()} ${MON[d.getMonth()]}` : `${p2(d.getHours())}:${p2(d.getMinutes())}`; };
+export const fmtLocalStamp = (t) => { const d = new Date(t * 1000); return `${d.getDate()} ${MON[d.getMonth()]} ${p2(d.getHours())}:${p2(d.getMinutes())} ${zoneName(d)}`.trim(); };
 export const fmtStamp = (t) => { const d = new Date(t * 1000); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())} UTC`; };
 
 // opts: {
@@ -63,7 +67,7 @@ export function mountChart(host, onHover = null) {
     const useLog = log && lo > 0, lg = useLog ? Math.log : (x) => x;
     const X = (t) => m.l + ((t - t0) / (t1 - t0 || 1)) * pw, Y = (v) => m.t + (1 - (lg(Math.max(v, lo * 1e-9)) - lg(lo)) / (lg(hi) - lg(lo) || 1)) * (ph - volH * 0.4);
     const first = series[0], f = first?.fmt || String;
-    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', 'aria-label': label, class: 'chart-svg' });
+    const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', 'aria-label': `${label}. The arrow keys read each bar.`, class: 'chart-svg' });
     svg.append(el('defs', {}, el('clipPath', { id: 'chart-clip' }, el('rect', { x: m.l, y: m.t, width: pw, height: H - m.t }))));
     const plot = el('g', { 'clip-path': 'url(#chart-clip)' }), marks = [];
     // grid and the price axis
@@ -74,9 +78,18 @@ export function mountChart(host, onHover = null) {
     }
     // the time axis: about one label per 110px
     const days = (t1 - t0) > 2 * 86400, step = Math.max(1, Math.ceil((t1 - t0) / (pw / 110)));
-    const unit = days ? 86400 : step < 3600 ? 1800 : 3600, every = Math.max(unit, Math.ceil(step / unit) * unit);
-    for (let t = Math.ceil(t0 / every) * every; t < t1; t += every) {
-      svg.append(el('line', { x1: X(t), x2: X(t), y1: m.t, y2: H - m.b, class: 'grid v' }), el('text', { x: X(t), y: H - 6, class: 'axis mid' }, fmtTime(t, days)));
+    const tick = (t, label) => svg.append(el('line', { x1: X(t), x2: X(t), y1: m.t, y2: H - m.b, class: 'grid v' }), el('text', { x: X(t), y: H - 6, class: 'axis mid' }, label));
+    if (days) {                                                                                       // a tick on each local midnight, every few days when they would crowd
+      const each = Math.max(1, Math.ceil(step / 86400));
+      for (const d = new Date(t0 * 1000); ; d.setDate(d.getDate() + each)) {
+        d.setHours(0, 0, 0, 0);
+        const t = d.getTime() / 1000;
+        if (t >= t1) break;
+        if (t >= t0) tick(t, fmtLocalTime(t, true));
+      }
+    } else {
+      const unit = step < 3600 ? 1800 : 3600, every = Math.max(unit, Math.ceil(step / unit) * unit), off = -new Date(t0 * 1000).getTimezoneOffset() * 60;
+      for (let t = Math.ceil((t0 + off) / every) * every - off; t < t1; t += every) if (t >= t0) tick(t, fmtLocalTime(t, false));
     }
     // volume under the first series
     const vmax = Math.max(...series.flatMap((s) => (s.kind === 'candles' || s.area ? s.bars : [])).map((b) => b.vol || 0), 0), bw = Math.max(1, Math.min(18, (period / (t1 - t0 || 1)) * pw * 0.7));
@@ -127,11 +140,16 @@ export function mountChart(host, onHover = null) {
     const hit = el('rect', { x: m.l, y: m.t, width: pw, height: ph, fill: 'transparent', style: 'cursor:crosshair; touch-action: pan-y' });
     svg.append(hit);
     host.append(svg, tip ||= Object.assign(document.createElement('div'), { className: 'chart-tip', hidden: true }));
+    let cur = null;
     const move = (e) => {
       const r = svg.getBoundingClientRect(), x = e.clientX - r.left, t = t0 + ((x - m.l) / pw) * (t1 - t0);
       const rows = series.map((s) => { let best = null; for (const b of s.bars) if (!best || Math.abs(b.t + period / 2 - t) < Math.abs(best.t + period / 2 - t)) best = b; return best && { s, b: best }; }).filter(Boolean);
-      const near = rows.sort((a, b) => Math.abs(a.b.t - t) - Math.abs(b.b.t - t))[0];
+      show(rows.sort((a, b) => Math.abs(a.b.t - t) - Math.abs(b.b.t - t))[0], rows);
+    };
+    function show(near, rows = null) {
       if (!near) return;
+      cur = near;
+      rows ||= [near];
       const cx = X(near.b.t) + (period / (t1 - t0 || 1)) * pw / 2;
       cross.setAttribute('visibility', 'visible');
       cross.querySelector('.cv').setAttribute('x1', cx); cross.querySelector('.cv').setAttribute('x2', cx);
@@ -143,16 +161,29 @@ export function mountChart(host, onHover = null) {
       tip.replaceChildren(...rows.filter((x) => Math.abs(x.b.t - near.b.t) <= period * 6).map(({ s, b }) => {
         const d = document.createElement('div');
         d.innerHTML = s.kind === 'candles'
-          ? `<b>${s.name}</b> <i>${fmtStamp(b.t)}</i><br>O ${s.fmt(b.open)} · H ${s.fmt(b.high)} · L ${s.fmt(b.low)} · C ${s.fmt(b.close)}${b.vol ? `<br>${s.volFmt ? s.volFmt(b.vol) : b.vol.toLocaleString('en-US', { maximumFractionDigits: 2 })}` : ''}${b.n ? ` · ${b.n} trade${b.n === 1 ? '' : 's'}` : ''}`
-          : `<b>${s.name}</b> <i>${fmtStamp(b.t)}</i><br>${s.fmt(b.close)}`;
+          ? `<b>${s.name}</b> <i>${fmtLocalStamp(b.t)}</i><br>O ${s.fmt(b.open)} · H ${s.fmt(b.high)} · L ${s.fmt(b.low)} · C ${s.fmt(b.close)}${b.vol ? `<br>${s.volFmt ? s.volFmt(b.vol) : b.vol.toLocaleString('en-US', { maximumFractionDigits: 2 })}` : ''}${b.n ? ` · ${b.n} trade${b.n === 1 ? '' : 's'}` : ''}`
+          : `<b>${s.name}</b> <i>${fmtLocalStamp(b.t)}</i><br>${s.fmt(b.close)}`;
         return d;
       }));
       const tw = tip.offsetWidth || 180;
       tip.style.left = `${Math.max(4, Math.min(W - tw - 4, cx + 12))}px`; tip.style.top = `${m.t + 6}px`;
       onHover?.(near);
-    };
-    const leave = () => { cross.setAttribute('visibility', 'hidden'); tip.hidden = true; onHover?.(null); };
+    }
+    const leave = () => { cur = null; cross.setAttribute('visibility', 'hidden'); tip.hidden = true; onHover?.(null); };
     hit.addEventListener('pointermove', move); hit.addEventListener('pointerleave', leave); hit.addEventListener('pointerdown', move);
+    // The arrow keys read the bars one at a time (Home and End, the first and the last); Escape lets go.
+    svg.setAttribute('tabindex', '0');
+    svg.addEventListener('keydown', (e) => {
+      const s = (cur?.s || series[0]), bars = s?.bars || [];
+      if (!bars.length) return;
+      const i = cur ? bars.indexOf(cur.b) : bars.length;
+      const to = e.key === 'ArrowLeft' ? i - 1 : e.key === 'ArrowRight' ? i + 1 : e.key === 'Home' ? 0 : e.key === 'End' ? bars.length - 1 : null;
+      if (e.key === 'Escape') { leave(); return; }
+      if (to == null) return;
+      e.preventDefault();
+      show({ s, b: bars[Math.max(0, Math.min(bars.length - 1, to))] });
+    });
+    svg.addEventListener('blur', leave);
   };
   const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { const r = host.getBoundingClientRect(); const w = Math.round(r.width), h = Math.round(r.height); if (w !== size.w || h !== size.h) { size = { w, h }; draw(); } }) : null;
   ro?.observe(host);

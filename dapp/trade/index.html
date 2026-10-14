@@ -20,17 +20,17 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /trade/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/trade/app.js?cb=e86aefd4">
+<link rel="modulepreload" href="/trade/app.js?cb=97a430eb">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=bb675102">
 <link rel="modulepreload" href="/confidential-deployments.js">
 <link rel="modulepreload" href="/confidential-deployments.generated.js">
 <link rel="modulepreload" href="/btc-book.js?cb=91371653">
 <link rel="modulepreload" href="/trade/tape.js?cb=dfc28dd7">
-<link rel="modulepreload" href="/trade/chart.js?cb=28af16af">
+<link rel="modulepreload" href="/trade/chart.js?cb=f171a0fb">
 <link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
 <link rel="modulepreload" href="/walletconnect.js?cb=31f53606">
-<link rel="modulepreload" href="/trade/depth.js?cb=b3f36944">
+<link rel="modulepreload" href="/trade/depth.js?cb=827635bd">
 <link rel="modulepreload" href="/trade/book.js?cb=3324d19b">
 <link rel="modulepreload" href="/zboards.js?cb=cba4b156">
 <link rel="modulepreload" href="/trade/wallet.js?cb=24e3ea08">
@@ -199,11 +199,16 @@ code { font-size: 12px; overflow-wrap: anywhere; }
 .chart .cross .cd { fill: var(--card); stroke-width: 2; }
 .chart-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; margin: 10px 0 0; }
 .chart-foot .legend { margin: 0; } .chart-foot .view { margin-left: auto; }
-.view { display: flex; flex-wrap: wrap; gap: 2px 4px; font-size: 12px; }
-.view button { background: none; border: 0; padding: 4px 8px; min-height: 28px; cursor: pointer; color: var(--mute); text-underline-offset: 3px; }
-.view button[aria-pressed="true"] { color: var(--ink); text-decoration: underline; }
-@media (hover: hover) { .view button:hover { color: var(--ink); } }
-@media (pointer: coarse) { .view button { min-height: var(--tap); padding: 4px 10px; } }
+.view { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; font-size: 12px; }
+.seg.sm button { min-height: 28px; padding: 2px 11px; font-size: 12px; }
+.view .tg { min-height: 28px; padding: 2px 11px; background: none; border: 1px solid var(--hair-2); cursor: pointer; color: var(--mute); font-size: 12px; }
+.view .tg[aria-pressed="true"] { background: var(--ink); color: var(--card); border-color: var(--ink); }
+@media (hover: hover) { .view .tg:not([aria-pressed="true"]):hover { color: var(--ink); } }
+@media (pointer: coarse) { .view .tg, .seg.sm button { min-height: var(--tap); } }
+.hero .chgs { display: inline-flex; flex-wrap: wrap; gap: 2px 14px; } .hero .chg i { font-style: normal; color: var(--mute); margin-right: 3px; } .hero .chg.mute { color: var(--mute); }
+.trades td small { margin-left: 8px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; } .trades .up { color: var(--up); } .trades .down { color: var(--down); }
+.trades td { padding: 8px 8px; } .trades td.go { text-align: right; width: 1%; } .trades td.go a { color: var(--mute); text-decoration: none; } .trades td.go a:hover { color: var(--ink); }
+.chart:focus-visible, .chart-svg:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .more { margin: 12px 0 0; font-size: 12.5px; }
 .more > summary { cursor: pointer; color: var(--mute); list-style: none; }
 .more > summary::-webkit-details-marker { display: none; }
@@ -482,6 +487,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
         <div class="seg" id="book-seg" role="group" aria-label="Which order book">
           <button type="button" data-book="eth" aria-pressed="true">Ethereum · zSwap</button>
           <button type="button" data-book="btc" aria-pressed="false">Bitcoin</button>
+          <button type="button" data-book="trades" aria-pressed="false">Trades</button>
         </div>
       </div>
       <div class="chart depth-chart" id="depthchart" role="group" aria-label="Order book depth"></div>
@@ -513,6 +519,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/app.js?cb=e86aefd4"></script>
+<script type="module" src="/trade/app.js?cb=97a430eb"></script>
 </body>
 </html>
