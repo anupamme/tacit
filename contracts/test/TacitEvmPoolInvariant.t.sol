@@ -415,9 +415,17 @@ contract PoolHandler is Test {
         uint256 idx = pool.nextIndex();
         (bool ok, bytes memory ret) = _send(t);
         if (ok) return _violate(why);
-        if (want != bytes4(0) && (ret.length < 4 || bytes4(ret) != want)) return _violate(string.concat(why, ": wrong error"));
+        if (want != bytes4(0) && (ret.length < 4 || bytes4(ret) != want)) return _violate(_wrongError(why, ret));
         if (_bal(address(pool)) != bal || pool.root() != root || pool.nextIndex() != idx) return _violate(string.concat(why, ": state moved"));
         rejectedAsExpected++;
+    }
+
+    /// The message names the revert data that came back and the ETH the handler held to send with it, so an empty
+    /// return (a call that never reached the pool) reads differently from another pool error.
+    function _wrongError(string memory why, bytes memory ret) internal view returns (string memory) {
+        return string.concat(
+            why, ": wrong error ", vm.toString(ret), ", handler holds ", vm.toString(address(this).balance), " wei"
+        );
     }
 
     function _bal(address a) internal view returns (uint256) {
