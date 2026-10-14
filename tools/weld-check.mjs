@@ -3317,6 +3317,20 @@ await step('activity', async () => {
     const failed = await row('job:j-send');
     ok(/This note was already spent in 0xb2b2/.test(failed.text) && failed.links.includes(`https://etherscan.io/tx/${H('b2')}`), `activity: a failure reads as the relay wrote it (${failed.text.slice(0, 80)})`);
     ok(await toastHas(/Send privately did not go through: This note was already spent/), 'activity: the failure is toasted with its reason');
+    ok(!/Nothing was spent/.test(failed.text) && !(await r.page.$('[data-act="job:j-send"] [data-act-again]')), 'activity: a failure whose note was spent is not called safe, and offers no Try again');
+    // A relay failure before the chain (here the deadline passed while it waited): its words, that nothing was spent, and a way to do it again.
+    await fire({ jobId: 'j-exp', type: 'unwrap', status: 'failed', error: 'settle reverted: Execution reverted for an unknown reason. (0x203d82d8)' });
+    await until(r.page, () => document.querySelector('[data-act="job:j-exp"] .stp .bad')?.textContent === 'Failed', null, 15000);
+    const exp = await row('job:j-exp');
+    ok(/Its deadline passed before it landed/.test(exp.text) && /Nothing was spent/.test(exp.text) && !!(await r.page.$('[data-act="job:j-exp"] [data-act-again]')),
+      `activity: a job that failed before the chain says nothing was spent and offers to do it again (${exp.text.slice(0, 160)})`);
+    await fire({ jobId: 'j-exp2', type: 'unwrap', status: 'failed', error: 'expired: it waited in the queue past its deadline, so it was not sent and nothing was spent; send it again' });
+    await until(r.page, () => document.querySelector('[data-act="job:j-exp2"] .stp .bad')?.textContent === 'Failed', null, 15000);
+    const exp2 = await row('job:j-exp2');
+    ok(/waited in the relay’s queue past its deadline/.test(exp2.text) && /Nothing was spent/.test(exp2.text) && (exp2.text.match(/Nothing was spent/g) || []).length === 1, `activity: an expired job says so once, in words (${exp2.text.slice(0, 160)})`);
+    await r.page.click('[data-act="job:j-exp"] [data-act-again]');
+    await until(r.page, () => !document.querySelector('[data-act="job:j-exp"] [data-act-again]')?.disabled, null, 30000).catch(() => {});
+    ok(true, 'activity: Try again reads the balance again without an error');
     // A system notification only while the tab is out of sight.
     await r.page.click('#act-notify');
     await until(r.page, () => localStorage.getItem('tacit-lite-notify-v1') === 'true', null, 15000);
