@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-zqK+Y9UwgAw/6ilUJTRlcrcEeLudQ8AaU/Vrst+GJnI=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-VAPRWXLblZSdYrEJd8dCbPojVS6BOmtWlT75SXoOh6Y=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=0cf48a6a"></script>
 <title>tacit — private DeFi on Bitcoin and Ethereum</title>
@@ -1876,6 +1876,14 @@ function runsPrune() {
   for (const r of RUNS) if (![...r.keys].some((k) => holds(r, k)) && !r.live) RUNS.delete(r);
 }
 const freeNotes = (notes) => (notes || []).filter((n) => !taken(kNote(n)));
+// A farm position, held by the one action working on it: harvest, unbond, Exit and Claim rewards are separate buttons, and two at once on a
+// position would prove the second for nothing (it settles against a receipt the first has already moved on).
+const kPos = (pos) => 'p:' + String(pos.receiptLeaf).toLowerCase();
+const takenByOther = (run, key) => { for (const r of RUNS) if (r !== run && r.keys.has(key) && holds(r, key)) return true; return false; };
+function takePosition(run, pos) {
+  if (takenByOther(run, kPos(pos))) throw new Error('This position is already being worked on (a harvest, an unbond or an exit). Follow it in Activity.');
+  run.take(kPos(pos));
+}
 const byValue = (a, b) => (BigInt(a.value) < BigInt(b.value) ? -1 : BigInt(a.value) > BigInt(b.value) ? 1 : 0);
 // A private balance as this page can spend it now, and what of it an action here is still spending.
 const spendable = (k) => freeNotes(P.scan?.[k]?.notes).reduce((a, n) => a + BigInt(n.value), 0n);
@@ -2388,6 +2396,13 @@ function offerSelf(spec, e) {
   spec.keys ||= [...RUNS].filter((r) => r.live && r.sheet === spec.sheet).flatMap((r) => [...r.keys]);
   say(spec.status(), html`<span class="err">${errText(e)}</span>${selfOffer(spec)}`);
   return Object.assign(new Error(errText(e)), { offered: true, said: true });
+}
+// An offer to send something from the paying account, drawn after a message that is not a failure.
+function offerMore(spec, msg) {
+  const id = String(++selfdoSeq);
+  spec.id = id; SELFDO[id] = spec;
+  spec.keys ||= [];
+  say(spec.status(), html`${msg}${selfOffer(spec)}`);
 }
 async function selfDo(run, spec) {
   const status = () => spec.status();
@@ -3384,13 +3399,15 @@ function wireSub(el, name, set) { $$(`[data-${name}]`, el).forEach((b) => b.oncl
 
 // ── Tacit V1 pool: shared module, loaded on first use ────────────────────────────────────────────────────
 const getUx = lazy(async () => {
-  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=7bba726b'), import('/confidential-deployments.js')]);
+  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=06532c6a'), import('/confidential-deployments.js')]);
   dep.setActiveNetwork('mainnet');
   setExternalTacHolders(() => (S.wallet ? [S.wallet] : []));      // public TAC in the connected wallet counts toward the exit-fee tier, as on tacit.finance
   return makeConfidentialPoolUx({ secp, keccak256: keccak_256, sha256, network: 'mainnet' });
 });
 const P = { scan: null, scanning: null, err: null };           // this identity's shielded notes, from ux.balance
-function resetPrivate() { for (const k of Object.keys(FLASH)) delete FLASH[k]; P.scan = null; P.scanning = null; P.err = null; DEV.W = null; DEV.bal = null; DEV.key = null; DEV.quote = null; DEV.gq = {}; DEV.err = null; DEV.self = false; Object.assign(LOCK, { rec: null, state: null, lm: null, bonds: [], list: [], pick: null, found: null, repayOver: null, q: null }); Object.assign(LK, { at: 0, pub: null, mine: [], back: [], scanning: null }); Object.assign(BTC, { pub: null, at: 0, err: null, share: null, sp: null, held: [], got: 0, part: false }); dropTacitKey(); }
+function resetPrivate() { for (const k of Object.keys(FLASH)) delete FLASH[k]; P.scan = null; P.scanning = null; P.err = null; DEV.W = null; DEV.bal = null; DEV.key = null; DEV.quote = null; DEV.gq = {}; DEV.err = null; DEV.self = false; Object.assign(LOCK, { rec: null, state: null, lm: null, bonds: [], list: [], pick: null, found: null, repayOver: null, q: null }); Object.assign(LK, { at: 0, pub: null, mine: [], back: [], scanning: null }); Object.assign(BTC, { pub: null, at: 0, err: null, share: null, sp: null, held: [], got: 0, part: false });
+  try { FARM.positions = null; FARM.wtac = null; FARM.left = null; FARM.jm = null; FARM.paid = null; for (const k of Object.keys(JOIN)) delete JOIN[k]; } catch { /* the farm sheet is not drawn yet */ }
+  dropTacitKey(); }
 // A forced scan starts after any scan already running, so what it returns is newer than the call.
 async function scanPrivate(force = false) {
   if (!S.key) return null;
@@ -3416,7 +3433,7 @@ async function scanPrivate(force = false) {
     });
     P.scan = { at: Date.now(), since, notes: r.notes, eth: of('cETH'), cusd: of('cUSD'), tac: of('cTAC'), cbtc: { id: String(t.pool.CBTC_ZK_ASSET_ID).toLowerCase(), notes: r.notes.filter((n) => String(n.asset).toLowerCase() === String(t.pool.CBTC_ZK_ASSET_ID).toLowerCase()) },
       pending: [...pending.values()].map((d) => depositOf(t, d)), others, spentNotes: r.spentNotes || [], partial: Object.keys(r.diag?.errors || {}).length > 0,
-      farmPositions: Array.isArray(r.farmPositions) && !r.diag?.errors?.farm ? r.farmPositions : null };
+      farmPositions: Array.isArray(r.farmPositions) && !r.diag?.errors?.farm ? r.farmPositions : null, leafCount: r.leafCount ?? null };
     P.err = null;
     runsPrune();
     dashSoon();
@@ -3509,7 +3526,22 @@ const V1 = { mode: 'wrap' };
 // Keeps the private balance no more than a minute old whenever a sheet that shows it opens: free while a scan is
 // already in flight (joins it) or the last one is still fresh (returns it), so every sheet agrees with the others
 // without a wasted read. Every private-balance sheet's `load` calls this, not scanPrivate directly.
-const refreshScan = () => (S.key ? (P.scanning || scanPrivate(Date.now() - (P.scan?.at || 0) > 60e3)) : Promise.resolve(null));
+// The notes are read again when the pool has taken in leaves since the last scan (one cheap read says so), or when the last is ten minutes old
+// (a spend that adds no leaf, an unwrap, shows only in a fresh read). Otherwise what is known stands.
+async function scanIfNew() {
+  if (!S.key) return null;
+  if (P.scanning) return P.scanning;
+  if (!P.scan || P.scan.leafCount == null) return scanPrivate(true);
+  const n = await getUx().then((t) => t.poolLeafCount()).catch(() => null);
+  return n != null && n === P.scan.leafCount ? P.scan : scanPrivate(true);
+}
+const refreshScan = () => {
+  if (!S.key) return Promise.resolve(null);
+  if (P.scanning) return P.scanning;
+  const age = Date.now() - (P.scan?.at || 0);
+  if (!P.scan || age > 10 * 60e3) return scanPrivate(true);
+  return age > 60e3 ? scanIfNew() : Promise.resolve(P.scan);
+};
 render.eth = () => {
   $('#eth-v1').hidden = TAB.eth !== 'v1';
   $('#eth-dev').hidden = TAB.eth !== 'dev';
@@ -3864,7 +3896,10 @@ async function noteFor(run, t, priv, amount, fits, status, k = 'eth') {
   try {
     try { await cut(fee, { waitOpts: stepWait() }); }
     // The relay's floor moved between the quote and the submit: nothing was proved, so ask once more at twice the fee.
-    catch (e0) { if (/fee below the current floor/i.test(e0?.message || '') && sum >= amount + fee * 2n) await cut(fee * 2n, { waitOpts: stepWait() }); else throw e0; }
+    catch (e0) {
+      const fee2 = t.ladderFee(fee * 2n);                                      // the guest takes only a fee of two significant digits: twice a quoted fee can be off that ladder
+      if (/fee below the current floor/i.test(e0?.message || '') && sum >= amount + fee2) await cut(fee2, { waitOpts: stepWait() }); else throw e0;
+    }
   } catch (e) {
     if (!relayRefused(e) || run.away) throw e;
     const line = () => (status.id && document.getElementById(status.id)) || status;
@@ -3873,7 +3908,7 @@ async function noteFor(run, t, priv, amount, fits, status, k = 'eth') {
   }
   // The new note shows in a scan a moment after its settle: look a few times before giving up.
   for (let i = 0; i < 6; i++) {
-    await scanPrivate(true);
+    await scanIfNew();                                                         // read again only when the pool has taken in leaves
     if ((n = take())) return n;
     await sleep(5000);
   }
@@ -7317,9 +7352,20 @@ async function loadPositions() {
   const pub = S.key.pubHex;
   const sc = await refreshScan().catch(() => null);
   if (S.key?.pubHex !== pub) return;
-  if (Array.isArray(sc?.farmPositions)) { FARM.positions = sc.farmPositions; dashSoon(); return; }
-  const t = await getUx(), got = await t.farmPositions({ walletPriv: walletPriv() });
-  if (S.key?.pubHex === pub) { FARM.positions = got; dashSoon(); }
+  if (Array.isArray(sc?.farmPositions)) {
+    FARM.positions = sc.farmPositions;
+    // What a position has earned grows by the second: a scan more than a minute old has the figure of its moment, so each is read again (one call each).
+    if (Date.now() - (sc.at || 0) > 45e3) { try { const fresh = await (await getUx()).refreshFarmPending(sc.farmPositions); if (S.key?.pubHex === pub) FARM.positions = fresh; } catch { /* the scan's figures stand */ } }
+    dashSoon(); return;
+  }
+  // The scan's farm channel failed: the positions are read on their own (a second pass over the events). A failure is not retried at every
+  // repaint, only after half a minute.
+  if (FARM.posFail && Date.now() - FARM.posFail.at < 30e3 && FARM.posFail.pub === pub) throw FARM.posFail.err;
+  try {
+    const got = await (await getUx()).farmPositions({ walletPriv: walletPriv() });
+    FARM.posFail = null;
+    if (S.key?.pubHex === pub) { FARM.positions = got; dashSoon(); }
+  } catch (e) { FARM.posFail = { at: Date.now(), pub, err: e }; throw e; }
 }
 // What the public farm has paid this account so far: every RewardPaid to it since the farm began. With no node able to
 // answer, the figure is left out rather than shown as zero.
@@ -7329,13 +7375,13 @@ async function loadPaid(who, force = false) {
   const logs = await rpc('eth_getLogs', [{ address: ADDR.precisionFarm, topics: [REWARD_PAID, '0x' + who.slice(2).toLowerCase().padStart(64, '0')], fromBlock: '0x' + FARM_FIRST_BLOCK.toString(16), toBlock: 'latest' }], LOG_RPCS);
   if (S.address === who) FARM.paid = { who, at: Date.now(), v: logs.reduce((t, l) => t + BigInt(l.data), 0n) };
 }
-const loadFarms = (force = false) => once(FARM, `${S.address}|${S.key?.pubHex}`, (cur) => readFarms(cur, force), force);   // forced after an action
-async function readFarms(current, force = false) {
+const loadFarms = (force = false, o = {}) => once(FARM, `${S.address}|${S.key?.pubHex}`, (cur) => readFarms(cur, force, o), force);   // forced after an action
+async function readFarms(current, force = false, o = {}) {
   const [pr, pg] = await Promise.allSettled([loadPrecision(), loadProgram(), S.key ? loadPositions() : null, S.key ? scanPrivate() : null,
     S.address ? ((who) => ethCall(WTAC, SEL.balanceOf + addrWord(who)).then((r) => { FARM.wtac = { who, v: wordAt(r, 0) }; }))(S.address) : null]);
   if (!current()) return;
   // What the farm has paid this account is a log search over its whole life, read only for the open sheet that shows it.
-  if (S.address && $('#sheet-farm')?.open) loadPaid(S.address, force).then(() => { if (current()) rerender('farm'); }).catch(() => {});
+  if (S.address && $('#sheet-farm')?.open) loadPaid(S.address, force && !o.private).then(() => { if (current()) rerender('farm'); }).catch(() => {});      // a private action leaves the public farm's log search alone
   FARM.errs = { precision: pr.status === 'rejected' && FARM.precision?.who !== S.address ? pr.reason : null, program: pg.status === 'rejected' && !FARM.program ? pg.reason : null };
   const x = FARM.precision, prog = FARM.program;
   const shielded = prog?.epoch?.active ? Number(prog.epoch.ratePerDayTac) : 0;
@@ -7462,38 +7508,88 @@ const refreshFarm = () => Promise.allSettled([scanPrivate(true), loadPositions()
 const samePos = (pos) => (FARM.positions || []).find((x) => x.receiptLeaf === pos.receiptLeaf) || pos;      // the same position, as last read
 const stepOf = (tell, k, n) => (n > 1 ? (m) => tell(`Step ${k} of ${n} · ${m}`) : tell);
 const isLp = (p) => (n) => String(n.asset).toLowerCase() === String(p.lpAsset).toLowerCase();
-async function stepHarvest(run, pos, tell) {
+// The status line an offer to send from the paying account is drawn on, found again by its id: the card is redrawn under it.
+const statusLine = (status) => () => (status?.id && document.getElementById(status.id)) || status;
+// Harvest and unbond carry no relay fee, so the relay settles them from its day's free settles. When those are used up, or the relay
+// cannot take it, the same op goes out with the relay only proving it and the paying account sending the settle.
+async function stepHarvest(run, pos, tell, status) {
+  takePosition(run, pos);
   tell('The relay is proving your harvest…');
-  await (await getUx()).farmHarvest({ walletPriv: walletPriv(), position: pos, waitOpts: run.wait('Harvest farm rewards', 15 * 60e3) });
+  const t = await getUx(), args = { walletPriv: walletPriv(), position: pos };
+  try { await t.farmHarvest({ ...args, waitOpts: run.wait('Harvest farm rewards', 15 * 60e3) }); }
+  catch (e) {
+    if (!status || !relayRefused(e) || run.away) throw e;
+    throw offerSelf({ label: 'Harvest farm rewards', sheet: 'farm', status: statusLine(status), after: () => loadFarms(true, { private: true }), then: 'Harvested to a wTAC note. Turn it into TAC when you like.',
+      go: (x) => x.t.farmHarvest({ ...args, selfSettle: x.selfSettle, waitOpts: x.waitOpts }) }, e);
+  }
   await refreshFarm();
 }
 // `forfeit`: end the position though some reward is unharvested (what a position earns after its harvest settles, which is
 // more than the dust a plain unbond allows within seconds, since a farm streams every second).
-async function stepUnbond(run, pos, tell, forfeit = false) {
+async function stepUnbond(run, pos, tell, forfeit = false, status = null) {
+  takePosition(run, pos);
   tell('The relay is proving your unbond…');
-  await (await getUx()).farmUnbond({ walletPriv: walletPriv(), position: pos, forfeitPending: forfeit, waitOpts: run.wait('Unbond from a farm', 15 * 60e3) });
+  const t = await getUx(), args = { walletPriv: walletPriv(), position: pos, forfeitPending: forfeit };
+  try { await t.farmUnbond({ ...args, waitOpts: run.wait('Unbond from a farm', 15 * 60e3) }); }
+  catch (e) {
+    if (!status || !relayRefused(e) || run.away) throw e;
+    throw offerSelf({ label: 'Unbond from a farm', sheet: 'farm', status: statusLine(status), after: () => loadFarms(true, { private: true }), then: 'Unbonded. Your liquidity is a private note again.',
+      go: (x) => x.t.farmUnbond({ ...args, selfSettle: x.selfSettle, waitOpts: x.waitOpts }) }, e);
+  }
   await refreshFarm();
 }
-// The wTAC this key holds as notes (and in the paying account) becomes TAC in the paying account.
-async function stepRedeem(run, tell) {
+// A reward is worth turning into TAC when the relay's unwrap fee takes at most half of it, or when it is worth more than the network fee
+// of sending the unwrap from the paying account (no relay fee then). Anything less costs more than it returns, so it is left to grow.
+async function rewardWorth(units, t) {
+  const v = BigInt(units || 0), rid = String(FARM.program?.rewardAsset || '').toLowerCase();
+  if (v <= 0n) return false;
+  try { const q = t.quoteUnwrapFee(v, t.poolTickerOf(rid)); if (q.fee * 2n <= v) return true; } catch { /* no quote: judged by its worth below */ }
+  await loadTacPrice().catch(() => {});
+  const mid = TPX.v?.mid;
+  if (!mid) return false;
+  return Number(v * E10) * mid > Number(await selfGasWei()) * 1.25;               // reward units → TAC wei → ETH wei
+}
+// The wTAC this key holds as notes (and in the paying account) becomes TAC in the paying account. A note the relay would charge more than
+// it is worth to unwrap is offered the self-sent unwrap instead (no relay fee, the paying account pays the network fee) when it is worth that.
+// `run.small` and `run.skipped` say what was left for that offer, and what is worth less than the network fee.
+async function stepRedeem(run, tell, status = null) {
   const t = await getUx(), priv = walletPriv(), to = await payingAccount();
+  if (!P.scan) await scanPrivate().catch(() => {});
+  if (!P.scan) throw new Error('Your notes are still being read. Try again in a moment.');
   const rid = String(FARM.program?.rewardAsset || '').toLowerCase();
   const all = freeNotes(P.scan?.notes).filter((n) => rid && String(n.asset).toLowerCase() === rid);
-  // A reward note is unwrapped by the relay for a fee with a floor, as TAC is; one that is no more than that waits until more is added to it.
+  // A reward note is unwrapped by the relay for a fee with a floor, as TAC is; one that is no more than that cannot be paid for from itself.
   const fee = (n) => { try { return t.quoteUnwrapFee(n.value, t.poolTickerOf(rid)); } catch { return null; } };
-  const mine = all.filter((n) => (fee(n)?.net ?? 1n) > 0n), small = all.length - mine.length, floor = fee(all[0] || { value: 0n })?.fee;
-  if (!mine.length && !(wtacHere() > 0n)) throw new Error(small ? `Your farm rewards are under what the relay charges to unwrap them${floor ? ` (${fmt(floor, 8, 2)} TAC)` : ''}. They wait until there is more.` : 'These rewards are already on their way to TAC. Follow them in Activity.');
-  if (small && mine.length) tell(`${small} reward${small === 1 ? ' is' : 's are'} under the unwrap fee and stay for later.`);
+  const mine = all.filter((n) => (fee(n)?.net ?? 1n) > 0n), smallNotes = all.filter((n) => !mine.includes(n)), floor = fee(all[0] || { value: 0n })?.fee;
+  const worthy = []; for (const n of smallNotes) if (await rewardWorth(n.value, t)) worthy.push(n);
+  run.small = worthy; run.skipped = smallNotes.length - worthy.length;
+  const selfUnwrap = (notes) => async (x) => { let r = null; for (const n of notes) r = await exitGo(n, to, n.value)(x); return r; };
+  const selfSpec = (notes) => ({ label: `Unwrap ${notes.length} reward note${notes.length === 1 ? '' : 's'}`, sheet: 'farm', exit: true, status: statusLine(status), after: () => loadFarms(true, { private: true }),
+    then: 'Unwrapped: the wTAC is in your account. Press Turn into TAC to finish.', go: selfUnwrap(notes) });
+  if (worthy.length) run.smallSpec = selfSpec(worthy);
+  if (!mine.length && !(wtacHere() > 0n)) {
+    if (!smallNotes.length) throw new Error('These rewards are already on their way to TAC. Follow them in Activity.');
+    const why = `Your farm rewards are under what the relay charges to unwrap them${floor ? ` (${fmt(floor, 8, 2)} TAC)` : ''}.`;
+    if (worthy.length && status) throw offerSelf(selfSpec(worthy), new Error(`${why} Sending the unwrap from ${your()} has no relay fee; you pay the network fee.`));
+    throw new Error(`${why} ${worthy.length ? 'They can be unwrapped from your account instead.' : 'They are worth less than the network fee to unwrap, so they stay until there is more to turn.'}`);
+  }
+  if (smallNotes.length && mine.length) tell(`${smallNotes.length} reward${smallNotes.length === 1 ? ' is' : 's are'} under the unwrap fee; ${worthy.length ? 'you can send them yourself afterwards' : 'they stay for later'}.`);
   run.take(...mine.map(kNote));
   for (const [i, n] of mine.entries()) {
     tell(`The relay is unwrapping your rewards${mine.length > 1 ? ` (${i + 1} of ${mine.length})` : ''}…`);
-    await t.farmRedeem({ walletPriv: priv, note: n, to, wait: true, waitOpts: run.wait(`Unwrap ${fmt(BigInt(n.value), 8, 2)} wTAC of farm rewards`, 15 * 60e3) });
+    try { await t.farmRedeem({ walletPriv: priv, note: n, to, wait: true, waitOpts: run.wait(`Unwrap ${fmt(BigInt(n.value), 8, 2)} wTAC of farm rewards`, 15 * 60e3) }); }
+    catch (e) {
+      if (!status || !relayRefused(e) || run.away) throw e;
+      throw offerSelf(selfSpec([n, ...mine.slice(i + 1)]), e);
+    }
   }
   // WrappedTac turns the wTAC ERC20 in the paying account into TAC, one for one: what is there now, whatever its source.
   const wtacNow = async () => wordAt(await ethCall(WTAC, SEL.balanceOf + addrWord(to)), 0);
   let bal = await wtacNow();
   for (let i = 0; !bal && mine.length && i < 10; i++) { await sleep(3000); bal = await wtacNow(); }   // a read behind the chain
   if (!bal && mine.length) throw new Error('The unwrap landed, but the wTAC is not visible yet. Press the button again in a minute; it picks up from here.');
+  // The withdraw is sent from whichever account the wallet holds now: it must still be the one the wTAC is in.
+  if (bal > 0n && (await payingAccount()).toLowerCase() !== to.toLowerCase()) throw new Error('Your wallet account changed while this ran. Switch back to the account that holds the wTAC and press the button again.');
   if (bal > 0n) { const h = await sendTx({ to: WTAC, data: SEL.wtacWithdraw + word(bal) + addrWord(to), label: `Turn ${fmt(bal, 18, 2)} wTAC into TAC` }); tell(html`Turning wTAC into TAC… ${txLink(h)}`); await waitTx(h); }
   return bal;                                                                    // the TAC now in the paying account, ready to farm again
 }
@@ -7519,28 +7615,39 @@ async function stepTakeOut(run, p, notes, tell, status) {
   }
   return true;
 }
-// Claim rewards: harvest every position with a real reward, then turn what is harvested into TAC.
-async function claimRewards(run, tell) {
-  const owed = (FARM.positions || []).filter(unharvested), n = owed.length + 1;
-  for (const [i, pos] of owed.entries()) await stepHarvest(run, samePos(pos), stepOf(tell, i + 1, n));
-  // A harvest's reward note shows in a scan a moment after its settle.
+// Claim rewards: harvest every position whose reward is worth turning into TAC, then turn what is harvested into TAC. What is earned
+// but not worth that yet (the unwrap costs more than it returns) is left to grow: it is not lost, and not harvested into a note that
+// could not be redeemed for less than it holds.
+async function claimRewards(run, tell, status) {
+  const t = await getUx(), earned = (FARM.positions || []).filter(unharvested).filter((pos) => !takenByOther(run, kPos(pos))), owed = [];
+  FARM.left = null;
+  for (const pos of earned) if (await rewardWorth(pos.pendingUnits, t)) owed.push(pos);
+  run.left = earned.length - owed.length;
+  if (run.left) FARM.left = { n: run.left, at: Date.now() };                         // said under the farming notes for a while, whether or not the rest goes through
   const rid = String(FARM.program?.rewardAsset || '').toLowerCase();
+  const have = () => freeNotes(P.scan?.notes).some((x) => rid && String(x.asset).toLowerCase() === rid) || wtacHere() > 0n;
+  if (!owed.length && !have()) throw new Error(earned.length ? 'What your positions have earned is not yet worth turning into TAC: the unwrap costs more than it returns. It keeps growing; Claim rewards takes it once it is.' : 'There is nothing to claim yet.');
+  const n = owed.length + 1;
+  for (const [i, pos] of owed.entries()) await stepHarvest(run, samePos(pos), stepOf(tell, i + 1, n), status);
+  // A harvest's reward note shows in a scan a moment after its settle.
   const seen = () => freeNotes(P.scan?.notes).some((x) => rid && String(x.asset).toLowerCase() === rid);
-  for (let i = 0; owed.length && !seen() && !(wtacHere() > 0n) && i < 6; i++) { await sleep(5000); await scanPrivate(true).catch(() => {}); }
+  for (let i = 0; owed.length && !seen() && !(wtacHere() > 0n) && i < 6; i++) { await sleep(5000); await scanIfNew().catch(() => {}); }
   if (owed.length && !seen() && !(wtacHere() > 0n)) throw new Error('Harvested. The rewards are not showing yet: press Turn into TAC in a minute.');
-  return stepRedeem(run, stepOf(tell, n, n));
+  return stepRedeem(run, stepOf(tell, n, n), status);
 }
 // Exit: harvest what is worth harvesting, end the position, take its liquidity out. 'out' when both assets are private notes
 // again, 'unseen' when the unbond landed but its note is not in the scan yet, 'offered' when the paying account was offered the
-// last send. A reward under the harvest threshold, and what the position earns while these steps run, is given up.
+// last send. A reward not worth turning into TAC, and what the position earns while these steps run, is given up.
 const HARVEST_WORTH = 1000000n;                                                    // 0.01 TAC in reward units
 async function exitPosition(run, p, pos, tell, status) {
-  const harvest = (big(pos.pendingUnits) || 0n) > HARVEST_WORTH, steps = harvest ? 3 : 2;
-  run.harvested = harvest;
+  takePosition(run, pos);
+  const t = await getUx(), pending = big(pos.pendingUnits) || 0n;
+  const harvest = pending > HARVEST_WORTH && await rewardWorth(pending, t), steps = harvest ? 3 : 2;
+  run.harvested = harvest; run.left = harvest ? 0n : pending;
   let k = 0;
-  if (harvest) await stepHarvest(run, samePos(pos), stepOf(tell, ++k, steps));
+  if (harvest) await stepHarvest(run, samePos(pos), stepOf(tell, ++k, steps), status);
   const had = new Set(freeNotes(P.scan?.notes).filter(isLp(p)).map(kNote));
-  await stepUnbond(run, samePos(pos), stepOf(tell, ++k, steps), true);
+  await stepUnbond(run, samePos(pos), stepOf(tell, ++k, steps), true, status);
   const fresh = freeNotes(P.scan?.notes).filter(isLp(p)).filter((x) => !had.has(kNote(x)));
   if (!fresh.length) return 'unseen';
   return (await stepTakeOut(run, p, fresh, stepOf(tell, ++k, steps), status)) ? 'out' : 'offered';
@@ -7564,23 +7671,28 @@ function renderFarmNotes(el) {
       ${inAccount ? html`<div class="kv"><span>wTAC in ${your()}</span><b>${fmt(inAccount, 18, 2)}</b></div>` : ''}
       ${inNotes || inAccount || owed ? html`<button class="btn ghost" type="button" id="fn-redeem">${owed ? 'Claim rewards' : 'Turn into TAC'}</button>
         ${owed && (inNotes || inAccount) ? html`<button class="btn ghost" type="button" id="fn-turn">Turn harvested into TAC</button>` : ''}
-        ${owed ? html`<p class="note">Claim rewards harvests every position that has earned, then turns all of it into TAC in ${your()}. Each step takes a few minutes; if you close the page, press it again to carry on.</p>` : ''}` : ''}
+        ${owed ? html`<p class="note">Claim rewards harvests every position whose reward is worth turning into TAC (the relay charges at least 2 TAC to unwrap each note), then turns all of it into TAC in ${your()}. What is earned but not yet worth it keeps growing. Each step takes a few minutes; if you close the page, press it again to carry on.</p>` : ''}` : ''}
+      ${FARM.left && Date.now() - FARM.left.at < 10 * 60e3 ? html`<p class="note" id="fn-left">${FARM.left.n} earned reward${FARM.left.n === 1 ? ' is' : 's are'} not yet worth turning into TAC (the unwrap costs more than ${FARM.left.n === 1 ? 'it returns' : 'they return'}): ${FARM.left.n === 1 ? 'it keeps' : 'they keep'} growing, and Claim rewards takes ${FARM.left.n === 1 ? 'it' : 'them'} once worth it.</p>` : ''}
       ${lps.map(({ p, notes: ns }) => { const n = ns.reduce((a, x) => a + BigInt(x.value), 0n); return html`<div class="kv"><span>${pairName(p.pair)} liquidity, not bonded</span><b>${lpWorth(p, n) || `${n.toLocaleString('en-US')} shares`}</b></div>
         <button class="btn ghost" type="button" data-lprm="${p.pid}">Take it out as ${pairName(p.pair)}</button>`; })}
       ${inNotes || inAccount || lps.length ? html`<p class="note">wTAC is the farms' reward token, one for one with TAC: it becomes TAC in ${your()}. Liquidity that is not bonded earns nothing; taking it out returns both assets as private notes.</p>` : ''}
       <div class="status" role="status" id="fn-status"></div>
     </div>`);
-  const status = $('#fn-status', el), done = async (msg) => { say(status, html`<span class="ok">${msg}</span>`); await Promise.allSettled([scanPrivate(true), loadFarms(true)]); rerender('farm'); };
+  const status = $('#fn-status', el), done = async (msg) => { say(status, html`<span class="ok">${msg}</span>`); await Promise.allSettled([scanPrivate(true), loadFarms(true, { private: true })]); rerender('farm'); };
   // Claim rewards harvests first; Turn harvested into TAC takes only what is harvested already, without the harvests.
   for (const [id, harvest] of [['#fn-redeem', true], ['#fn-turn', false]]) {
     const rd = $(id, el);
     if (rd) rd.onclick = () => busy(rd, async (run) => {
       try {
         say(status, 'Starting…'); status.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        const got = await (harvest ? claimRewards(run, (m) => say(status, m)) : stepRedeem(run, (m) => say(status, m)));
+        const got = await (harvest ? claimRewards(run, (m) => say(status, m), status) : stepRedeem(run, (m) => say(status, m), status));
         toast('Rewards turned into TAC');
+        // What was left, and why: earned but not worth turning into TAC yet (still growing), and notes under the relay's fee (offered, or worth less than the network fee).
+        const left = [run.skipped ? `${run.skipped} small reward note${run.skipped === 1 ? ' is' : 's are'} worth less than the network fee to unwrap, so ${run.skipped === 1 ? 'it stays' : 'they stay'}.` : ''].filter(Boolean).join(' ');
         // Claimed TAC farms again in one more step: the public farm's add form opens on it.
-        await done(html`Your rewards are TAC in ${your()}.${got > 0n && S.address ? html` <button class="link" type="button" data-fn-farm="${got}">Farm them in the public pool</button>` : ''}`);
+        const msg = html`Your rewards are TAC in ${your()}.${left ? ` ${left}` : ''}${got > 0n && S.address ? html` <button class="link" type="button" data-fn-farm="${got}">Farm them in the public pool</button>` : ''}`;
+        await done(msg);
+        if (run.small?.length) offerMore(run.smallSpec, html`<span class="ok">${msg}</span> ${run.small.length} smaller reward note${run.small.length === 1 ? ' is' : 's are'} under the relay's unwrap fee: `);
       } catch (e) {
         sayErr(status, e);
         // A note may have redeemed before the failure; resync so a retry does not repeat it against an already-spent note.
@@ -7941,6 +8053,7 @@ function renderShielded(el, p) {
     ${mine.map((pos, i) => { const locked = Number(pos.unlockAt || 0) > chainNow(), day = FARM.program.epoch?.active && Number(p.totalShares) ? Number(p.tacPerDayForPool) * Number(pos.shares) / Number(p.totalShares) : 0; return html`
       ${mine.length > 1 ? html`<div class="lbl"><span>Position ${i + 1}</span></div>` : ''}
       <div class="kv"><span>Your position</span><b>${lpWorth(p, pos.shares) || `${Number(pos.shares).toLocaleString('en-US')} shares`}</b></div>
+      ${pos.imported ? html`<p class="note err">An older version of this page opened this position under a random key, not your Tacit key. Its key is kept only as a saved record in this browser: exit it from this browser, and do not clear the browser's data first.</p>` : ''}
       ${sharesEth(p, pos.shares) != null ? html`<div class="kv"><span>Worth</span><b>${aboutEth(sharesEth(p, pos.shares))}${Number(p.totalShares) ? ` · ${sharePct(Number(pos.shares) / Number(p.totalShares))} of the farm` : ''}</b></div>` : ''}
       <div class="kv"><span>Earned</span><b>${pos.pendingTac} TAC${pendingEth(pos) > 0n ? ` (${aboutEth(pendingEth(pos))})` : ''}</b></div>
       ${day ? html`<div class="kv"><span>Earning</span><b>about ${day >= 10 ? Math.round(day).toLocaleString('en-US') : day.toFixed(2)} TAC a day</b></div>` : ''}
@@ -7950,25 +8063,25 @@ function renderShielded(el, p) {
         <div class="row2"><button class="btn ghost" type="button" data-unbond="${i}" ${locked || unharvested(pos) ? 'disabled' : ''}>${locked ? `Unbond from ${dayFmt(Number(pos.unlockAt))}` : 'Unbond'}</button></div>
         ${unharvested(pos) && !locked ? html`<p class="note">Harvest first: unbonding now would give up the ${pos.pendingTac} TAC this position has earned. A farm pays out every second, so a position soon holds a little more after a harvest; Exit gives that up knowingly.</p>` : ''}
       </details>`; })}
-    ${mine.length ? html`<p class="note">Harvest pays what is earned as a wTAC note, which turns into TAC one for one.</p>
+    ${mine.length ? html`<p class="note">Harvest pays what is earned as a wTAC note, which turns into TAC one for one. The relay charges a fee to unwrap each note (at least 2 TAC today), or you can send the unwrap from ${your()} and pay only the network fee, so a harvest suits a reward worth more than that. A harvest pays what was earned when it started: what the position earns in the minutes it takes to prove and settle is not paid.</p>
       <div class="status" role="status" id="sf-act-${p.pid}"></div>` : ''}
     <div id="sj-${p.pid}"></div>`);
   farmJoin($(`#sj-${p.pid}`, box), p, status, mine.length > 0);
   const act = $(`#sf-act-${p.pid}`, box);                          // harvest and unbond report here, under the positions
   $$('[data-harvest]', box).forEach((b) => b.onclick = () => busy(b, async (run) => {
-    try { await stepHarvest(run, mine[Number(b.dataset.harvest)], (m) => say(act, m)); say(act, html`<span class="ok">Harvested to a wTAC note,</span> the farm’s reward token, one for one with TAC. <button class="link" type="button" data-fn-go="redeem">Turn it into TAC</button>`); toast('Harvested'); rerender('farm'); }
+    try { await stepHarvest(run, mine[Number(b.dataset.harvest)], (m) => say(act, m), act); say(act, html`<span class="ok">Harvested to a wTAC note,</span> the farm’s reward token, one for one with TAC. <button class="link" type="button" data-fn-go="redeem">Turn it into TAC</button>`); toast('Harvested'); rerender('farm'); }
     catch (e) { sayErr(act, e); }
   }));
   $$('[data-unbond]', box).forEach((b) => b.onclick = () => busy(b, async (run) => {
     try {
       const pos = mine[Number(b.dataset.unbond)], tell = (m) => say(act, m);
-      try { await stepUnbond(run, pos, tell); }
+      try { await stepUnbond(run, pos, tell, false, act); }
       catch (e0) {
         // A farm streams every second, so a position earns again right after its harvest: under the harvest threshold,
         // that is given up rather than sending the press back to Harvest.
         const u = /farm-unbond: (\d+) reward units/.exec(e0?.message || '');
         if (!u || BigInt(u[1]) > HARVEST_WORTH) throw e0;
-        await stepUnbond(run, samePos(pos), tell, true);
+        await stepUnbond(run, samePos(pos), tell, true, act);
       }
       say(act, html`<span class="ok">Unbonded. Your liquidity is a private note again.</span> <button class="link" type="button" data-fn-go="lp${p.pid}">Take it out as ${pairName(p.pair)}</button>`); toast('Unbonded'); rerender('farm');
     }
@@ -7983,7 +8096,7 @@ function renderShielded(el, p) {
         toast('Out of the farm');
         say(act, run.harvested
           ? html`<span class="ok">Out. Your liquidity is back as private ${pairName(p.pair)} notes, and the rewards are in your wTAC notes.</span> <button class="link" type="button" data-fn-go="redeem">Turn them into TAC</button>`
-          : html`<span class="ok">Out. Your liquidity is back as private ${pairName(p.pair)} notes.</span> Its reward was under 0.01 TAC, so it was left.`);
+          : html`<span class="ok">Out. Your liquidity is back as private ${pairName(p.pair)} notes.</span> ${run.left > HARVEST_WORTH ? `Its reward (${fmt(run.left * E10, 18, 4)} TAC) was worth less than it costs to turn into TAC, so it was left.` : 'Its reward was under 0.01 TAC, so it was left.'}`);
       }
       else if (out === 'unseen') say(act, html`<span class="ok">Unbonded.</span> The liquidity note has not shown up yet. <button class="link" type="button" data-fn-go="lp${p.pid}">Take it out</button> once it does.`);
       await refreshFarm(); rerender('farm');
@@ -8042,7 +8155,7 @@ function farmJoin(el, p, status, has) {
   // ETH just made private (the card's two steps, say) is tETH only once the relay settles it: while it is on its way the farm says so, rather
   // than ask for it again, and opens with the amount once it lands.
   if (!bA && tethComing()) comingPoll('farm');
-  const comingNote = !bA && tethComing() ? html`<div class="callout" data-coming><span>${COMING_TETH} The farm opens with your amount once it lands.</span></div>` : '';
+  const comingNote = html`${!bA && tethComing() ? html`<div class="callout" data-coming><span>${COMING_TETH} The farm opens with your amount once it lands.</span></div>` : ''}${P.scan.partial ? html`<p class="note err">Part of your private balance could not be read just now, so a side may show as none. <button class="link" type="button" data-retry="farm">Read it again</button></p>` : ''}`;
   // Where the paired asset is made private. The farm sheet remembers where you came from, so the way back is one tap.
   const getB = { tac: ['tac', 'Make TAC private'], cusd: ['borrow', 'Borrow cUSD'], cbtc: ['borrow', 'Mint cBTC'] }[kB] || ['tac', `Get private ${other}`];
   const goGet = (b) => { if (running('farm')) return; FARM.back = { pid, label: pairName(p.pair), at: Date.now() }; $('#sheet-farm').close(); openLink(b.dataset.joinGet); };
@@ -8125,8 +8238,10 @@ function farmJoin(el, p, status, has) {
       ${fA || fB ? html`<div class="kv"><span>Relay fee to split your notes</span><b>${[fA ? `${fmt(fA, 8, 6)} tETH` : '', fB ? `${fmt(fB, 8, dpB)} ${other}` : ''].filter(Boolean).join(' + ')}</b></div>` : ''}
       ${gasRow(j)}`);
     rc.hidden = false;
+    const cutFee = fA + (fB ? fB * res.reserveA / res.reserveB : 0n);               // the cuts' fees, in tETH
     if (q.over) warn(rc, `More than your private balance covers${fA || fB ? ' with the relay fee' : ''}. Try Max.`);
     else if (q.gasShort) warn(rc, lowEth());
+    else if (cutFee * 20n >= 2n * a) warn(rc, `The relay’s fees to split your notes are ${pctFmt(Number((cutFee * 1000n) / (2n * a)) / 10)} of this deposit: a larger one, or notes that are already this size, spreads them.`);
     gateOk();
   };
   // One side: what is swapped and what comes back, then what both sides add, at the ratio after the swap.
@@ -8240,8 +8355,9 @@ function farmJoin(el, p, status, has) {
         }
         swapped = true; FARM.jm[pid] = 'pair';                              // from here both sides are held: the form opens on both
         // The swap's note shows in a scan a moment after its settle.
+        // The note that is the swap's own return: the new one closest to what it returned, whatever else arrived meanwhile.
         let nO = null;
-        for (let i = 0; i < 8 && !nO; i++) { await scanPrivate(true).catch(() => {}); nO = freeNotes(P.scan?.[kO]?.notes).filter((n) => !had.has(kNote(n)) && BigInt(n.value) >= z.minOut).sort(byValue).pop() || null; if (!nO) await sleep(5000); }
+        for (let i = 0; i < 8 && !nO; i++) { await scanIfNew().catch(() => {}); nO = freeNotes(P.scan?.[kO]?.notes).filter((n) => !had.has(kNote(n)) && BigInt(n.value) >= z.minOut).sort((x, y) => { const dx = BigInt(x.value) - z.out, dy = BigInt(y.value) - z.out; return (dx < 0n ? -dx : dx) < (dy < 0n ? -dy : dy) ? -1 : 1; })[0] || null; if (!nO) await sleep(5000); }
         if (!nO) throw new Error(`Swapped. The ${unitO} note is not showing yet: it is in your private balance. Press Add and farm in a minute to put both sides in.`);
         run.take(kNote(nO));
         // What pairs with it at the ratio after the swap: a note of that size, or one a little over when spending it whole
@@ -8261,21 +8377,20 @@ function farmJoin(el, p, status, has) {
         nB = await noteFor(run, t, priv, b, (n) => BigInt(n.value) === b, line(), kB);
         tell('The relay is proving your farm entry…');
       }
-      const selfSettle = async (x) => {
-        run.check();
-        tell(`Sending the bond from ${your()}…`);
-        const hash = await sendTx({ to: t.cfg.pool, data: t.settleCalldata(x), label: `Add ${fmt(a, 8, 6)} tETH + ${fmt(b, 8, dpB)} ${other} to the farm` });
-        await waitTx(hash);
-        return { txHash: hash };
-      };
+      // Sent through the same check as every send from the paying account: a bond the pool would refuse is asked about first (nothing is paid),
+      // and its refusal is said in words.
+      const sendBond = settleFrom(t, { label: `Add ${fmt(a, 8, 6)} tETH + ${fmt(b, 8, dpB)} ${other} to the farm`, say: tell });
+      const selfSettle = async (x) => { run.check(); return sendBond(x); };
       const res = await t.lpBond({ walletPriv: priv, controller: FARM.program.manager, aNote: nA, bNote: nB, feeBps: Number(JOIN[pid]?.res?.feeBps ?? p.feeBps ?? 30), selfSettle,
         waitOpts: run.wait(`Add ${pairName(p.pair)} liquidity and farm it`, 20 * 60e3) });
       [aIn, bIn].filter(Boolean).forEach(clearField); delete acked[`sj-ackv-${pid}`];
-      tell(html`<span class="ok">In the farm: TAC is streaming to your private position.</span> ${res?.txHash ? txLink(res.txHash) : ''}`);
+      tell(html`<span class="ok">${FARM.program?.epoch?.active ? 'In the farm: TAC is streaming to your private position.' : 'In the farm. It earns once the next reward period starts.'}</span> ${res?.txHash ? txLink(res.txHash) : ''}`);
       toast('Added to the farm');
       delete JOIN[pid];
-      await Promise.allSettled([scanPrivate(true), loadPositions(), loadFarms(true)]); rerender('farm');
+      await Promise.allSettled([scanPrivate(true), loadPositions(), loadFarms(true, { private: true })]); rerender('farm');
     } catch (e) {
+      // The bond went out and has not confirmed: the notes are spent with it, so pressing again would send a second one that reverts.
+      if (pendingSent(line(), e)) { [aIn, bIn].filter(Boolean).forEach(clearField); run.release(true); return; }
       const why = /off-ratio/.test(e?.message || '') ? 'The pool’s price moved while your notes were cut to size. Press again: the notes are ready and nothing was added.' : errText(e);
       // A one-sided deposit that stopped after its swap holds both sides as private notes: the form, now on both, picks them up.
       // A stop that already says it swapped (the note not showing yet, the ratio moved) is said as it is.

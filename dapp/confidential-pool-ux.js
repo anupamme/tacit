@@ -774,7 +774,8 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     //
     // `errors` is keyed by channel and empty on a clean scan, so `Object.keys(diag.errors).length` is the
     // one test a caller needs before treating a balance as authoritative.
-    const out = { notes, byAsset, poolStats: poolStatsFromEvents(events), diag: st.diag };
+    // `leafCount`: how many leaves the scan indexed, so a caller can tell cheaply (poolLeafCount) whether the pool has taken in more since.
+    const out = { notes, byAsset, poolStats: poolStatsFromEvents(events), diag: st.diag, leafCount: st.leaves.length };
     // On request (`{ spent: true }`): what each note this key has spent held. The amount of a note a cross-out left on Bitcoin is hidden
     // in its commitment, and is found from the note spent to make it (dapp/crossout-notes.js amountFromSpent). Read from the same scan;
     // nothing is stored, and a caller that does not ask gets the result it always did.
@@ -1940,10 +1941,19 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     return { keys, shares, idx, path: tree.rootAndPath(idx).path, root: tree.root(), cur, receiptLeaf: leaf, harvestCount };
   }
 
+  // The pool's leaf count now, one call: what a scan's `leafCount` is compared with to know whether anything was added since.
+  async function poolLeafCount() { return Number(BigInt(await rpc('eth_call', [{ to: cfg.pool, data: '0x0be4f422' }, 'latest']))); }
+  // Positions as the manager holds them now (their reward earned so far, shares, lock), without a scan: one read each. A position the
+  // manager no longer holds live is left out. What a scan finds (a new position, a spent note) is the scan's to find.
+  async function refreshFarmPending(positions) {
+    const prog = farmProgram();
+    const live = await Promise.all((positions || []).map((x) => prog.position(x.receiptLeaf).catch(() => null)));
+    return (positions || []).map((x, i) => (live[i] === null ? x : live[i].live ? { ...x, shares: live[i].shares, unlockAt: live[i].unlockAt, pendingUnits: live[i].pendingUnits, pendingTac: live[i].pendingTac } : null)).filter(Boolean);
+  }
   // Claim yield without unstaking. The reward note opens to (claim − fee); the claim is `claimBps` of what is
   // pending now, read at build time: accrual only grows while the proof is built, so the full pending amount is always
   // claimable, and whatever accrues during proving is not carried over (a harvest re-stamps the position).
-  async function farmHarvest({ walletPriv, position, fee = 0n, claimBps = 10000n, waitOpts } = {}) {
+  async function farmHarvest({ walletPriv, position, fee = 0n, claimBps = 10000n, selfSettle = null, waitOpts } = {}) {
     const farm = _farmCfg();
     fee = BigInt(fee);
     const rc = await _farmReceipt({ walletPriv, position });
@@ -1957,14 +1967,15 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     const r = await defiActions(walletPriv).harvestFarm({
       controller: farm.manager, shares: rc.shares, nonce: rc.keys.nonce, harvestNonce: deriveOutput(walletPriv, rc.receiptLeaf, 'harvestNonce', rc.harvestCount).nk,
       reward, oldIndex: rc.idx, oldPath: rc.path, lpAsset: position.lpAsset, rewardAsset: farm.rewardAsset, rewardNote, rewardNk,
-      fee, spendRoot: rc.root, receiptOwner: rc.keys.owner, receiptOwnerPriv: rc.keys.ownerPriv, waitOpts,
+      fee, spendRoot: rc.root, receiptOwner: rc.keys.owner, receiptOwnerPriv: rc.keys.ownerPriv, selfSettle, waitOpts,
     });
     return { ...r, reward, fee, net: reward - fee };
   }
 
-  // Exit: the receipt is spent and the LP shares come back as a fresh owned note. Self-settled (fee 0): an AMM
-  // LP-share id is not a pool-registered asset, so it cannot pay a relay fee.
-  async function farmUnbond({ walletPriv, position, forfeitPending = false, waitOpts } = {}) {
+  // Exit: the receipt is spent and the LP shares come back as a fresh owned note. It carries no relay fee (fee 0): an AMM
+  // LP-share id is not a pool-registered asset, so it cannot pay one. The relay settles it for free by default; with
+  // `selfSettle` the relay only proves it and the caller's account sends the settle (when the relay's free settles are used up).
+  async function farmUnbond({ walletPriv, position, forfeitPending = false, selfSettle = null, waitOpts } = {}) {
     const farm = _farmCfg();
     const rc = await _farmReceipt({ walletPriv, position });
     if (rc.cur.unlockAt > Math.floor(Date.now() / 1000)) throw new Error(`farm-unbond: locked until ${rc.cur.unlockAt}`);
@@ -1979,7 +1990,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     const releaseNote = { ...pool.commitXY(rc.shares, ub), blinding: ub };
     const r = await defiActions(walletPriv).unbondFarm({
       controller: farm.manager, shares: rc.shares, nonce: rc.keys.nonce, lpAsset: position.lpAsset, oldIndex: rc.idx, oldPath: rc.path,
-      releaseNote, lpNk, fee: 0n, spendRoot: rc.root, receiptOwner: rc.keys.owner, receiptOwnerPriv: rc.keys.ownerPriv, waitOpts,
+      releaseNote, lpNk, fee: 0n, spendRoot: rc.root, receiptOwner: rc.keys.owner, receiptOwnerPriv: rc.keys.ownerPriv, selfSettle, waitOpts,
     });
     return { ...r, shares: rc.shares };
   }
@@ -3327,6 +3338,15 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   // is not merely un-private, it fails to prove. Scale-free by construction, so it holds for any asset's
   // unitScale; a fixed step would not (a 5000-unit step yields 105000, which is three significant digits).
   // Always rounds UP, so laddering never dips the fee below the cost floor it was derived from.
+  // The gas price, read once for the fee quotes that ask in the same moment (a join quotes four fees at once).
+  let _gp = null;
+  const _gasPriceNow = () => {
+    if (_gp && Date.now() - _gp.at < 8e3) return _gp.p;
+    const p = Promise.resolve(rpc('eth_gasPrice', []));
+    _gp = { at: Date.now(), p };
+    p.catch(() => { if (_gp && _gp.p === p) _gp = null; });
+    return p;
+  };
   const _ladderFee = (v) => {
     let x = BigInt(v);
     if (x <= 0n) return 0n;
@@ -3345,7 +3365,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     const pol = RELAY_FEE_ASSETS[ticker];
     const meta = assetByTicker[ticker];
     if (!pol || !meta) return staticFloor;
-    let gwei; try { gwei = BigInt((await rpc('eth_gasPrice', [])) || '0'); } catch { return staticFloor; }
+    let gwei; try { gwei = BigInt((await _gasPriceNow()) || '0'); } catch { return staticFloor; }
     if (gwei <= 0n) return staticFloor;
     // Margin for the gas the settle actually pays, which is not the gas quoted here: minutes pass, and the
     // base fee can climb in that window. A flat multiplier is the wrong shape when gas is cheap — 1.35x of
@@ -3864,7 +3884,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   });
 
   return { cfg, assets: _poolAssets, assetByTicker, account, identity, rpc, ethCall, fetchEvents, balance, poolStatsFromEvents, tickerOf, poolTickerOf,
-    deriveOutput, buildWrap, nextWrapIndex, wrap, submitWrapSettle, buildRouterWrap, routerWrap, routerConfigured, buildWrapTransferOp, wrapAndSend, resumeWrapAndSend, sendPreparedTx, buildTransferOp, transfer, stealthSend, scanStealthLocks, stealthClaim, stealthRefund, stealthLockPosition, crossOut, payInvoice, quoteUnwrapFee, holderFeeBps, setPublicTacHeld, quoteTransferFee, quoteOpFee: gasAwareMinFee, feeUsdFor, relayFeeEligible, buildUnwrap, unwrap, sendUnwrap, addBridgeAmountHint, buildAttestMeta, chainBindingHex,
+    deriveOutput, buildWrap, nextWrapIndex, wrap, submitWrapSettle, buildRouterWrap, routerWrap, routerConfigured, buildWrapTransferOp, wrapAndSend, resumeWrapAndSend, sendPreparedTx, buildTransferOp, transfer, stealthSend, scanStealthLocks, stealthClaim, stealthRefund, stealthLockPosition, crossOut, payInvoice, quoteUnwrapFee, ladderFee: _ladderFee, poolLeafCount, refreshFarmPending, holderFeeBps, setPublicTacHeld, quoteTransferFee, quoteOpFee: gasAwareMinFee, feeUsdFor, relayFeeEligible, buildUnwrap, unwrap, sendUnwrap, addBridgeAmountHint, buildAttestMeta, chainBindingHex,
     settleFromAccount, erc2612Nonce: _erc2612Nonce, waitReceipt: _waitReceipt, poolReserves, poolCurrentRoot, sameRoot, routePoolId, quoteRoute, route, swapBatched, swapBatchPending, swapBatchFlush, lpBondPosition, buildLpBondOp, lpBond, farmProgram, farmBond, farmPositions, importFarmPosition, recover, recoverCdpPositions, scanSentLocks, farmHarvest, farmUnbond, farmRedeem, buildFastlaneExitOp, fastlaneExit, lpAdd, lpRemove, quoteLpAdd, wrapLp, wrapSwap, ensureExactNote, mintCbtc, defiActions, cdp: _cdp, cdpPositionTree, submitSettle, settleCalldata,
     cbtcLockState, syncCbtcLockReservations, cbtcBonds, forgetKeys: forget,
     relay, indexer, evmLog, evmTx, pool, memo, router: _router, stealth: _stealth, bridgeMint: _bridgeMint, bridgeBurn: _bridgeBurn, bridgeBurnToPool, airdrop: _airdrop, tacAirdrop: _tacAirdrop, lockScan: _lockScan };

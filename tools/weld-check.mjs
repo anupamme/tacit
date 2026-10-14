@@ -130,7 +130,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmexit,farmclaim,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -1142,6 +1142,8 @@ await step('farmjoin', async () => {
       const note = (asset, value) => { seq++; return { asset, value: String(value), leafIndex: 910000 + seq, cx: '0x' + seq.toString(16).padStart(64, 'a'), cy: '0x01', owner: '0x02', root: '0x03', path: [] }; };
       let add = [note('${CETH}', 2000000n), note('${CTAC}', 50000000000n)];
       window.__splits = [];
+      let leafSeq = 0;
+      ux.poolLeafCount = async () => 900000 + (++leafSeq);
       ux.balance = async (priv) => {
         const b = await balance(priv);
         b.notes = [...b.notes, ...add];
@@ -3897,6 +3899,24 @@ const FARM_WTAC_ASSET = '0x1097c9e552ae4fce2a8c416b93403953fa445a5f2cdae8ced36d9
 // earning (more than the dust a plain unbond allows, as a farm that streams every second does by the time a harvest settles);
 // an unbond refuses over that dust unless told to give it up, then turns the position into a liquidity note; taking that
 // out gives both assets; redeeming spends a wTAC note. Each call is recorded in window.__farmCalls.
+// The relay refusing what carries no fee, as it does when its day's free settles are used up: harvest, unbond and the reward unwrap fail
+// until the page hands the settle to the paying account (a selfSettle), and then they run as the chain stub would.
+const refuseStub = () => `
+    const refused = () => Object.assign(new Error('relay 429: free relayed settles for today are used up (300/300) — attach a fee above the floor, or prove-mode and settle it yourself'), { code: 'free_budget' });
+    for (const k of ['farmHarvest', 'farmUnbond', 'farmRedeem']) {
+      const real = ux[k];
+      ux[k] = async (a) => {
+        if (!a.selfSettle) { window.__farmCalls.push('refused:' + k); throw refused(); }
+        window.__farmCalls.push('self:' + k);
+        return real({ ...a, selfSettle: undefined });
+      };
+    }
+    ux.sendUnwrap = async (a) => {                                       // the self-sent unwrap of a reward note
+      if (!a.selfSettle) { window.__farmCalls.push('refused:sendUnwrap'); throw refused(); }
+      window.__farmCalls.push('self:unwrap:' + a.note.value);
+      add.splice(add.findIndex((x) => x.cx === a.note.cx), 1);
+      return { txHash: '0x' + 'ee'.repeat(32) };
+    };`;
 const chainStub = () => `
     const DUST = 100000n, REWARD = ${JSON.stringify(FARM_WTAC_ASSET)}, CETH = ${JSON.stringify(FARM_CETH)}, CTAC = ${JSON.stringify(FARM_CTAC)};
     const find = (leaf) => positions.find((x) => x.receiptLeaf === leaf), slow = () => new Promise((r) => setTimeout(r, 700));
@@ -3955,7 +3975,7 @@ const swapStub = () => `
       if (total > amount) add.push(note(notes[0].asset, total - amount));
       return {};
     };`;
-const stubFarmUx = (page, { notes = [], positions = null, chain = false, swap = false }) => page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+const stubFarmUx = (page, { notes = [], positions = null, chain = false, swap = false, refuse = false }) => page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
   import * as real from '/confidential-pool-ux.js?stub=real';
   export * from '/confidential-pool-ux.js?stub=real';
   export function makeConfidentialPoolUx(o) {
@@ -3964,6 +3984,9 @@ const stubFarmUx = (page, { notes = [], positions = null, chain = false, swap = 
     const note = (asset, value) => { seq++; return { asset: asset[0] === '@' ? String(ux.assetByTicker[asset.slice(1)].assetId).toLowerCase() : asset, value: String(value), leafIndex: 910000 + seq, cx: '0x' + seq.toString(16).padStart(64, 'a'), cy: '0x01', owner: '0x02', root: '0x03', path: [] }; };
     const add = ${JSON.stringify(notes.map(([a, v]) => [a, String(v)]))}.map(([a, v]) => note(a, BigInt(v)));      // the chain adds and removes notes here
     window.__farmCalls = [];
+    // The notes this stub adds are what the chain would add: a settle that inserts leaves, so the pool's count grows with each look.
+    let leafSeq = 0;
+    ux.poolLeafCount = async () => 900000 + (++leafSeq);
     ux.balance = async (priv) => {
       const b = await balance(priv);
       b.notes = [...b.notes, ...add];
@@ -3975,6 +3998,7 @@ const stubFarmUx = (page, { notes = [], positions = null, chain = false, swap = 
     ${positions ? `const positions = ${JSON.stringify(positions)}; ux.farmPositions = async () => positions.map((p) => ({ ...p }));
     ${chain ? chainStub() : `ux.farmHarvest = async ({ position }) => { window.__farmCalls.push('harvest:' + position.receiptLeaf); return {}; };
     ux.farmUnbond = async ({ position }) => { window.__farmCalls.push('unbond:' + position.receiptLeaf); return {}; };`}` : ''}
+    ${refuse ? refuseStub() : ''}
     return ux;
   }` }));
 const farmPos = (n, shares, units, tac) => ({ pid: 0, pair: 'TAC/cETH', lpAsset: FARM_LP0, shares: String(shares), receiptLeaf: '0x' + String(n).repeat(64), receiptIndex: n, unlockAt: 0, pendingUnits: String(units), pendingTac: tac });
@@ -3991,6 +4015,61 @@ async function openFarmKey(hex, stub, viewport, setup) {
   return r;
 }
 
+// The relay refuses what carries no fee (its day's free settles are used up): a harvest, an unbond and a reward's unwrap each offer to
+// be sent from the paying account instead, which proves nothing is stuck behind the relay's budget; the offer runs the same call with
+// the settle handed over.
+await step('farmself', async () => {
+  const r = await openFarmKey('5e1f'.padEnd(64, '6'), { notes: [], positions: [farmPos(7, 150000000, 1234560000, '12.3456'), farmPos(9, 20000000, 0, '0')], chain: true, refuse: true });
+  const p = r.page;
+  try {
+    await go(p, '#farm');
+    await p.waitForSelector('[data-harvest="0"]', { timeout: 300000 });
+    await p.click('[data-harvest="0"]');
+    await p.waitForSelector('#sf-act-0 [data-selfdo]', { timeout: 120000 });
+    ok(/free relayed settles|used up|free settles/i.test(await text(p, '#sf-act-0')) && /Send it from/.test(await text(p, '#sf-act-0')), 'farmself: a harvest the relay refuses offers to send it from the paying account');
+    await p.click('#sf-act-0 [data-selfdo]');
+    await until(p, () => /Harvested to a wTAC note/.test(document.querySelector('#sf-act-0')?.textContent || ''), null, 240000);
+    let calls = await p.evaluate(() => window.__farmCalls);
+    ok(calls.includes('refused:farmHarvest') && calls.includes('self:farmHarvest') && calls.includes(`harvest:0x${'7'.repeat(64)}`), `farmself: the offer runs the same harvest with the settle handed over (${calls.join(', ')})`);
+    // the position with nothing pending: unbond is refused the same way
+    await p.waitForSelector('[data-unbond]:not([disabled])', { state: 'attached', timeout: 120000 });
+    await p.evaluate(() => document.querySelectorAll('.lockmore').forEach((d) => { d.open = true; }));
+    const idx = await p.$$eval('[data-unbond]', (b) => b.findIndex((x) => !x.disabled));
+    await p.click(`[data-unbond="${idx}"]`);
+    await p.waitForSelector('#sf-act-0 [data-selfdo]', { timeout: 120000 });
+    await p.click('#sf-act-0 [data-selfdo]');
+    await until(p, () => /Unbonded/.test(document.querySelector('#sf-act-0')?.textContent || ''), null, 240000);
+    calls = await p.evaluate(() => window.__farmCalls);
+    ok(calls.includes('refused:farmUnbond') && calls.includes('self:farmUnbond') && calls.some((c) => c.startsWith('unbond:')), 'farmself: an unbond the relay refuses is offered and sent from the paying account too');
+    // a harvested reward note is unwrapped by the relay for a fee; refused, it is offered as a send from the paying account (no relay fee)
+    await p.waitForSelector('#fn-turn, #fn-redeem', { timeout: 300000 });
+    await p.click('#fn-turn, #fn-redeem');
+    await p.waitForSelector('#fn-status [data-selfdo]', { timeout: 300000 });
+    ok(/no relay fee/.test(await text(p, '#fn-status')) || /Send it from/.test(await text(p, '#fn-status')), 'farmself: a reward note the relay refuses to unwrap is offered as a send from the paying account');
+    await p.click('#fn-status [data-selfdo]');
+    await until(p, () => (window.__farmCalls || []).some((c) => c.startsWith('self:unwrap:')), null, 240000);
+    ok((await p.evaluate(() => window.__farmCalls)).some((c) => /^self:unwrap:\d+$/.test(c)), 'farmself: and the unwrap goes out with the settle handed over, whole note, no relay fee');
+    if (r.errors.length) { fails++; console.log('FAIL farmself page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+// Claim rewards takes only what is worth turning into TAC: a reward the relay's unwrap fee would eat (or that costs more in network
+// fee than it holds) is left to grow rather than harvested into a note that cannot be redeemed for what it holds, and the line says so.
+await step('farmworth', async () => {
+  const r = await openFarmKey('5e1f'.padEnd(64, '7'), { notes: [], positions: [farmPos(7, 150000000, 1234560000, '12.3456'), farmPos(8, 20000000, 150000000, '1.5')], chain: true });
+  const p = r.page;
+  try {
+    await go(p, '#farm');
+    await p.waitForSelector('#fn-redeem', { timeout: 300000 });
+    ok(/at least 2 TAC/.test(await text(p, '#farm-notes')), 'farmworth: Claim rewards says what the relay charges to unwrap a note');
+    await p.click('#fn-redeem');
+    await until(p, () => /Your rewards are TAC|wTAC is not visible yet|not yet worth/.test(document.querySelector('#fn-status')?.textContent || ''), null, 240000);
+    const calls = await p.evaluate(() => window.__farmCalls);
+    ok(calls.filter((c) => c.startsWith('harvest:')).join() === `harvest:0x${'7'.repeat(64)}`, `farmworth: only the position worth turning into TAC is harvested (${calls.join(', ')})`);
+    await p.waitForSelector('#fn-left', { timeout: 120000 });
+    ok(/1 earned reward is not yet worth turning into TAC/.test(await text(p, '#fn-left')) && /keeps growing/.test(await text(p, '#fn-left')), 'farmworth: and the one left says why, and that it keeps growing');
+    if (r.errors.length) { fails++; console.log('FAIL farmworth page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
 // A private farm's card with a key that holds positions: the position leads and the farm's facts close the card, each
 // position is named, unbond waits for a harvest while a real reward is unharvested, what is waiting (harvested rewards,
 // liquidity not bonded) sits above the farms, and what a harvest or unbond leaves points at its next step.
@@ -4173,7 +4252,7 @@ await step('farmclaim', async () => {
   try {
     await go(p, '#farm');
     await p.waitForSelector('#fn-redeem', { timeout: 300000 });
-    ok(/Claim rewards/.test(await text(p, '#fn-redeem')) && /harvests every position that has earned, then turns all of it into TAC/.test(await text(p, '#farm-notes')), 'farmclaim: with rewards unharvested the button says Claim rewards, and what it does');
+    ok(/Claim rewards/.test(await text(p, '#fn-redeem')) && /harvests every position whose reward is worth turning into TAC/.test(await text(p, '#farm-notes')), 'farmclaim: with rewards unharvested the button says Claim rewards, and what it does');
     await p.click('#fn-redeem');
     await until(p, () => /wTAC is not visible yet|Your rewards are TAC/.test(document.querySelector('#fn-status')?.textContent || ''), null, 180000);
     const calls = await p.evaluate(() => window.__farmCalls);

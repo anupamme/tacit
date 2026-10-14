@@ -165,6 +165,44 @@ const freshPositionOwner = () => freshPositionKey().owner;
   ok('unbondFarm / withdrawSavings: released LP-share note memo-sealed');
 }
 
+// harvestFarm and unbondFarm with selfSettle — the way out when the relay's free settles are used up: the relay only proves,
+// the account sends the settle, and it carries exactly the memos the proof committed to (so the reward note and the released
+// LP-share note stay recoverable from the key).
+{
+  for (const kind of ['harvest', 'unbond']) {
+    let proofMemos = null, submitted = null;
+    const proveRelay = {
+      ...relay,
+      settle: async () => { throw new Error(`a self-settled ${kind} must not be relay-settled`); },
+      submitOp: async (spec) => {
+        submitted = spec;
+        const sealedMemos = guard.sealMemosForOutputs({ outputs: spec.outputs, ephRand: spec.ephRand });
+        guard.assertOutputsRecoverable({ leaves: spec.leaves, outputs: spec.outputs, memos: sealedMemos });
+        proofMemos = guard.sealMemosForOutputs({ outputs: spec.outputs, ephRand: spec.ephRand });
+        return { jobId: `p-${kind}`, status: spec.mode === 'prove' ? 'queued' : 'bad-mode', sealedMemos };
+      },
+      waitForProof: async (jobId) => ({ jobId, status: 'proven', publicValues: '0x01', proof: '0x02', memos: proofMemos }),
+      provenMemos: (st, { leaves, outputs }) => { guard.assertOutputsRecoverable({ leaves, outputs, memos: st.memos }); return st.memos; },
+    };
+    const mine = makeConfidentialDefiActions({ pool, cdp, farm, relay: proveRelay, id, chainBindingHex, secp });
+    const key = freshPositionKey(), lpAsset = '0x' + 'dd'.repeat(32), rb = randomScalar();
+    let sent = null;
+    const selfSettle = async (x) => { sent = x; return { txHash: '0x' + 'cd'.repeat(32) }; };
+    let r;
+    if (kind === 'harvest') {
+      const rewardNote = { ...pool.commitXY(45n, rb), blinding: rb };
+      r = await mine.harvestFarm({ controller, shares: 100n, nonce, harvestNonce: '0x' + '85'.repeat(32), reward: 50n, oldIndex: 1, oldPath: pool.zeros, lpAsset, rewardAsset: '0x' + 'ee'.repeat(32), rewardNote, rewardNk: randomScalar(), fee: 5n, spendRoot: '0x' + '22'.repeat(32), receiptOwner: key.owner, receiptOwnerPriv: key.priv, selfSettle });
+    } else {
+      const releaseNote = { ...pool.commitXY(100n, rb), blinding: rb };
+      r = await mine.unbondFarm({ controller, shares: 100n, nonce, lpAsset, oldIndex: 1, oldPath: pool.zeros, releaseNote, lpNk: randomScalar(), fee: 0n, spendRoot: '0x' + '22'.repeat(32), receiptOwner: key.owner, receiptOwnerPriv: key.priv, selfSettle });
+    }
+    assert.equal(submitted.mode, 'prove'); assert.equal(submitted.type, kind === 'harvest' ? 'farmharvest' : 'farmunbond');
+    assert.equal(sent.publicValues, '0x01'); assert.equal(sent.proof, '0x02'); assert.deepEqual(sent.memos, proofMemos); assert.equal(sent.memos.length, 1);
+    assert.equal(r.txHash, '0x' + 'cd'.repeat(32)); assert.equal(r.jobId, `p-${kind}`);
+    ok(`${kind}Farm selfSettle: prove-only, then the account settles the proof with the memos it commits to`);
+  }
+}
+
 // Memo ephemerals are fresh per memo and never the wallet nk; each memo opens to a note whose nk owns its leaf.
 {
   const sealed = [];

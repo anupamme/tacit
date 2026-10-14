@@ -150,6 +150,18 @@ export function makeConfidentialDefiActions({ pool, cdp, farm, relay, id, chainB
   // (roles 'harvest' / 'unbond'), and it also rides the sealed memo, keeping the note recoverable from the wallet
   // key alone.
 
+  // The relay settles by default. With `selfSettle` (an async ({ jobId, publicValues, proof, memos }) → { txHash } that sends the pool's
+  // settle() itself) the relay only proves, and the caller's own account sends it: the way out when the relay refuses a fee-free op
+  // (its day's free settles are used up, it is down). The memos passed are the ones the proof commits to (relay.provenMemos checks them).
+  async function settleVia(spec, selfSettle, waitOpts) {
+    if (!selfSettle) return relay.settle(spec, waitOpts);
+    const job = await relay.submitOp({ ...spec, mode: 'prove' }, waitOpts);
+    const proven = job.status === 'proven' || job.status === 'settled' ? await relay.status(job.jobId) : await relay.waitForProof(job.jobId, waitOpts);
+    if (proven.status === 'settled') return { ...proven, jobId: job.jobId };
+    const memos = typeof relay.provenMemos === 'function' ? relay.provenMemos(proven, spec, job.sealedMemos) : job.sealedMemos;
+    return { jobId: job.jobId, ...(await selfSettle({ jobId: job.jobId, publicValues: proven.publicValues, proof: proven.proof, memos })) };
+  }
+
   // OP_FARM_BOND — lock LP-share notes into a receipt committing (lpAsset, Σshares). Legs are spent.
   // Guest emits exactly ONE leaf: the receipt (main.rs OP_FARM_BOND).
   async function bondFarm({ controller, nonce, lpAsset, legs, spendRoot, receiptOwner, waitOpts }) {
@@ -163,27 +175,27 @@ export function makeConfidentialDefiActions({ pool, cdp, farm, relay, id, chainB
   // OP_FARM_HARVEST — claim yield, keep staked. The receipt is NEITHER consumed NOR re-minted, so the guest
   // emits exactly ONE leaf: the reward note (main.rs: `leaves.push(reward_leaf)`). `nonce` is the position's
   // own (stable) nonce; `harvestNonce` is a fresh per-claim value binding this reward leg.
-  async function harvestFarm({ controller, shares, nonce, harvestNonce, reward, oldIndex, oldPath, lpAsset, rewardAsset, rewardNote, rewardNk, fee = 0n, spendRoot, receiptOwner, receiptOwnerPriv, waitOpts }) {
+  async function harvestFarm({ controller, shares, nonce, harvestNonce, reward, oldIndex, oldPath, lpAsset, rewardAsset, rewardNote, rewardNk, fee = 0n, spendRoot, receiptOwner, receiptOwnerPriv, selfSettle = null, waitOpts }) {
     if (!receiptOwner || !receiptOwnerPriv) throw new Error('harvestFarm: receiptOwner + receiptOwnerPriv (the position\'s fresh key) are required to authorize the harvest');
     if (!rewardNk) throw new Error('harvestFarm: rewardNk (fresh secret for the minted reward note) is required');
     const rewardOwner = pool.nkToOwner(rewardNk);
     const op = farm.buildHarvestOp({ chainBinding: chainBindingHex(), spendRoot, controller, owner: receiptOwner, ownerPriv: receiptOwnerPriv, rewardOwner, shares, nonce, harvestNonce, reward, oldIndex, oldPath, lpAsset, rewardAsset, rewardNote, fee });
     const rewardLeaf = pool.leaf(rewardAsset, op.rewardCx, op.rewardCy, rewardOwner);
     const outputs = [owned({ value: BigInt(reward) - BigInt(fee), blinding: rewardNote.blinding, asset: rewardAsset, cx: op.rewardCx, cy: op.rewardCy, owner: rewardOwner, secret: rewardNk })];
-    return relay.settle({ type: 'farmharvest', op, leaves: [rewardLeaf], outputs, ephRand }, waitOpts);
+    return settleVia({ type: 'farmharvest', op, leaves: [rewardLeaf], outputs, ephRand }, selfSettle, waitOpts);
   }
 
   // OP_FARM_UNBOND — exit: re-mint the released LP-share note (owned, net of fee); the receipt is spent.
   // `stakeAssetRegistered` gates a non-zero fee (an unregistered stake asset cannot pay one — the assembler
   // throws before proving rather than burning the user's gas on a NotRegistered revert).
-  async function unbondFarm({ controller, shares, nonce, lpAsset, oldIndex, oldPath, releaseNote, lpNk, fee = 0n, stakeAssetRegistered = false, spendRoot, receiptOwner, receiptOwnerPriv, waitOpts }) {
+  async function unbondFarm({ controller, shares, nonce, lpAsset, oldIndex, oldPath, releaseNote, lpNk, fee = 0n, stakeAssetRegistered = false, spendRoot, receiptOwner, receiptOwnerPriv, selfSettle = null, waitOpts }) {
     if (!receiptOwner || !receiptOwnerPriv) throw new Error('unbondFarm: receiptOwner + receiptOwnerPriv (the position\'s fresh key) are required to authorize the unbond');
     if (!lpNk) throw new Error('unbondFarm: lpNk (fresh secret for the released LP-share note) is required');
     const lpOwner = pool.nkToOwner(lpNk);
     const op = farm.buildUnbondOp({ chainBinding: chainBindingHex(), spendRoot, controller, owner: receiptOwner, ownerPriv: receiptOwnerPriv, lpOwner, shares, nonce, lpAsset, oldIndex, oldPath, releaseNote, fee, stakeAssetRegistered });
     const releaseLeaf = pool.leaf(lpAsset, releaseNote.cx, releaseNote.cy, lpOwner);
     const outputs = [owned({ value: BigInt(shares) - BigInt(fee), blinding: releaseNote.blinding, asset: lpAsset, cx: releaseNote.cx, cy: releaseNote.cy, owner: lpOwner, secret: lpNk })];
-    return relay.settle({ type: 'farmunbond', op, leaves: [releaseLeaf], outputs, ephRand }, waitOpts);
+    return settleVia({ type: 'farmunbond', op, leaves: [releaseLeaf], outputs, ephRand }, selfSettle, waitOpts);
   }
 
   // TSR (Tacit Savings Rate) = the SAME ops with the CollateralEngine as the controller + cUSD as the asset.
