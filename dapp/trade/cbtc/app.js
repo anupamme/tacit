@@ -9,7 +9,7 @@ import { makeConnect } from '/trade/connect.js?cb=d96dcbf8';
 import { makeKeySession, signInSheet } from '/trade/key.js?cb=57b59475';
 import { getUx, forgetUx } from '/trade/poolux.js?cb=cc3e4b0c';
 import { readRates, readProgram, heldBars, rangesFor, barSize } from '/trade/teth/read.js?cb=e4129bb4';
-import { totalsOf, readEngine, sizeBond, coverage, readPools, poolRows, farmApr, readLocks, readLoans, readHeld, readHistory, positionsIn, lockStep, CBTC_ID, ENGINE, WSTETH } from '/trade/cbtc/read.js?cb=20e0e3dc';
+import { totalsOf, readEngine, sizeBond, coverage, readPools, poolRows, farmApr, readLocks, readLoans, readHeld, readHistory, positionsIn, lockStep, CBTC_ID, ENGINE, WSTETH } from '/trade/cbtc/read.js?cb=0c4c0c3a';
 import { $, esc, api, now, fmtUnits, parseUnits, grp, usd, pct, short, sig } from '/trade/util.js?cb=369d2824';
 
 const SCAN = 'https://etherscan.io/', MEMPOOL = 'https://mempool.space/';
@@ -30,7 +30,7 @@ function renderHead() {
   const px = usdBtc(), T = D.totals;
   $('#px-usd').textContent = px != null ? usd(px) : 'cBTC';
   document.title = px != null ? `cBTC ${usd(px)} · tacit trade` : 'tacit trade · cBTC';
-  const bits = ['<span title="Lock bitcoin, mint cBTC one for one; redeem the lock to get the bitcoin back"><b class="num">1 cBTC</b> = 1 BTC, locked</span>'];
+  const bits = ['<span title="Lock bitcoin and the same amount is minted as cBTC"><b class="num">1 cBTC</b> = 1 BTC, locked</span>'];
   if (T) {
     bits.push(`<span><b class="num">${esc(btcTxt(T.minted))} cBTC</b>${px != null ? ` (${compact(Number(T.minted) / 1e8 * px)})` : ''} minted</span>`);
     bits.push(`<span>${grp(T.locks, 0)} lock${T.locks === 1 ? '' : 's'} · ${grp(T.open, 0)} loan${T.open === 1 ? '' : 's'} open</span>`);
@@ -55,11 +55,11 @@ function renderBacking() {
   const row = (head, val, bar, sub) => `<div class="cov-row"><div class="cov-h"><b>${head}</b><span>${val}</span></div>${bar || ''}<div class="cov-s">${sub}</div></div>`;
   const usdTxt = (sats) => (px != null ? ` · ${compact(Number(sats) / 1e8 * px)}` : '');
   const rows = [row('Bitcoin locked', `${esc(btcTxt(T.locked))} BTC${usdTxt(T.locked)}`, '<div class="cov-bar"><i class="btc" style="width:100%"></i></div>',
-    `${grp(T.locks, 0)} lock${T.locks === 1 ? '' : 's'} on Bitcoin, each at an address only its owner's key can spend.${T.unlocked ? ` ${grp(T.unlocked, 0)} given up.` : ''}${T.redeemed ? ` ${grp(T.redeemed, 0)} redeemed.` : ''}${T.waiting ? ` ${grp(T.waiting, 0)} waiting for Bitcoin's proof.` : ''}`)];
+    `${grp(T.locks, 0)} lock${T.locks === 1 ? '' : 's'} on Bitcoin, each at an address only its owner's key can spend.${T.unlocked ? ` ${grp(T.unlocked, 0)} spent on Bitcoin.` : ''}${T.redeemed ? ` ${grp(T.redeemed, 0)} redeemed.` : ''}${T.waiting ? ` ${grp(T.waiting, 0)} waiting for Bitcoin's proof.` : ''}`)];
   if (cov) {
     const scale = Math.max(2, Math.ceil((cov.ratio || 0) * 4) / 4 + 0.25), w = Math.min(100, (cov.ratio / scale) * 100), tick = (1.5 / scale) * 100, wstTxt = grp(Number(T.bond) / 1e18, 2);
     rows.push(row('ETH bond', `${Math.round(cov.ratio * 100)}% of the locks`, `<div class="cov-bar"><i class="eth" style="width:${w.toFixed(1)}%"></i><u style="left:${tick.toFixed(1)}%" title="1.5×"></u></div>`,
-      `<b>${wstTxt} wstETH</b> (${compact(cov.bondUsd)}) is posted in ${grp(T.bonds, 0)} bond${T.bonds === 1 ? '' : 's'}, refundable. A lock is bonded at 1.5× its value or more (the dashed line); spending the bitcoin without redeeming forfeits the bond.`));
+      `<b>${wstTxt} wstETH</b> (${compact(cov.bondUsd)}) is posted in ${grp(T.bonds, 0)} bond${T.bonds === 1 ? '' : 's'}. A lock is bonded at 1.5× its value or more (the dashed line), which makes spending its bitcoin unprofitable: spend it without redeeming and the bond is forfeited.`));
   } else rows.push(row('ETH bond', `${grp(Number(T.bond) / 1e18, 2)} wstETH`, '', 'In the engine; its dollar value follows the prices.'));
   const mintedPct = T.locked > 0n ? Number(T.minted * 1000n / T.locked) / 10 : null;
   rows.push(row('cBTC minted', `${esc(btcTxt(T.minted))} of ${esc(btcTxt(T.locked))}`, mintedPct != null ? `<div class="cov-bar"><i style="width:${Math.min(100, mintedPct)}%"></i></div>` : '', `${grp(T.mints, 0)} lock${T.mints === 1 ? '' : 's'} minted, one for one. ${T.tacbtc > 0n ? `${esc(grp(Number(T.tacbtc) / 1e18, 5))} BTC of it is withdrawn to a public address as tacBTC.` : ''}`));
@@ -113,7 +113,7 @@ function renderChart() {
   S.view = { bars, unit, range };
   paintRead();
   $('#chart-note').textContent = (S.chart === 'locked'
-    ? 'The sats of every lock still live, counted from when its first bond was posted (so a lock that has been given up or redeemed is not in it).'
+    ? 'The sats of every lock still live, counted from when its first bond was posted (so a lock that was spent on Bitcoin or redeemed is not in it).'
     : 'Loans the engine opened, less those repaid and liquidated, in cUSD.') + ` Read from the collateral engine's own events; the right edge is the total now.${H.exact ? '' : ' The events read do not add up to that total exactly, so the last point is the total.'}`;
 }
 
@@ -136,7 +136,7 @@ function renderRoute() {
   el.innerHTML = `<div class="kv"><span>You get</span><b>${esc(btcTxt(z.sats))} cBTC${px ? ` <span class="mute">· ${compact(Number(z.sats) / 1e8 * px)}</span>` : ''}</b></div>
     <div class="kv"><span>ETH bond, at least</span><b>${esc(ethTxt)} ETH${ethUsd() ? ` <span class="mute">· ${compact(Number(z.eth) / 1e18 * ethUsd())}</span>` : ''}</b></div>
     ${max ? `<div class="kv"><span>Borrow up to</span><b>about ${esc(grp(max, max >= 100 ? 0 : 2))} cUSD <span class="mute">at the ${D.engine.ratio}% floor</span></b></div>` : ''}
-    <p class="note">The bond is held as wstETH and is refundable; it aims 10% above what the engine asks, and the figure moves with prices. Minting waits for Bitcoin's proof on Ethereum to reach the lock, which trails Bitcoin by about 4 hours.</p>`;
+    <p class="note">The bond is held as wstETH and aims 10% above what the engine asks, and the figure moves with prices. Minting waits for Bitcoin's proof on Ethereum to reach the lock, which trails Bitcoin by about 4 hours.</p>`;
 }
 
 // ── the key: sign in for the locks, the cBTC, the loans and the farm positions it holds ──
@@ -171,8 +171,8 @@ function renderMine() { renderLocks(); renderUse(); renderFarm(); renderPools();
 function renderLocks() {
   const T = D.totals, px = usdBtc(), m = mineOk() ? D.mine : null;
   $('#lk-sum').innerHTML = T ? `<b class="num">${esc(btcTxt(T.locked))} BTC</b> locked${px != null ? ` · ${compact(Number(T.locked) / 1e8 * px)}` : ''}` : '';
-  $('#lk-lead').innerHTML = '<b>cBTC has no order book on Bitcoin: the bitcoin itself is there.</b> It sits in a lock, an output only its owner\'s key can spend, and cBTC is minted against it in the pool. Anyone can see a lock\'s address on Bitcoin; what is minted from it, who holds it and where it goes are private.';
-  const lines = T ? [`<li><b>${grp(T.locks, 0)}</b> live lock${T.locks === 1 ? '' : 's'}</li>`, `<li><b>${grp(T.mints, 0)}</b> minted</li>`, T.waiting ? `<li><b>${grp(T.waiting, 0)}</b> waiting for Bitcoin's proof</li>` : '', T.unlocked ? `<li><b>${grp(T.unlocked, 0)}</b> given up</li>` : '', T.redeemed ? `<li><b>${grp(T.redeemed, 0)}</b> redeemed</li>` : ''].filter(Boolean) : [];
+  $('#lk-lead').innerHTML = '<b>cBTC has no order book on Bitcoin: the bitcoin itself is there.</b> It sits in a lock, an output only its owner\'s key can spend, and cBTC is minted against it in the pool. Anyone can see a lock on Bitcoin and that cBTC was minted against it; who holds the cBTC and where it goes are private.';
+  const lines = T ? [`<li><b>${grp(T.locks, 0)}</b> live lock${T.locks === 1 ? '' : 's'}</li>`, `<li><b>${grp(T.mints, 0)}</b> minted</li>`, T.waiting ? `<li><b>${grp(T.waiting, 0)}</b> waiting for Bitcoin's proof</li>` : '', T.unlocked ? `<li><b>${grp(T.unlocked, 0)}</b> spent on Bitcoin</li>` : '', T.redeemed ? `<li><b>${grp(T.redeemed, 0)}</b> redeemed</li>` : ''].filter(Boolean) : [];
   const f = $('#lk-facts'), fh = lines.join('');
   if (f.__h !== fh) { f.__h = fh; f.innerHTML = fh; }
   const box = $('#lk-mine');
@@ -187,7 +187,7 @@ function renderLocks() {
     return `<tr><td>${esc(short(l.lockTxid, 6))}:${l.lockVout}</td><td class="r num">${esc(btcTxt(l.sats))} BTC${px != null ? `<small>${compact(Number(l.sats) / 1e8 * px)}</small>` : ''}</td><td class="st ${l.minted ? 'ok' : 'wait'}">${esc(step)}</td><td class="go"><a href="${MEMPOOL}tx/${esc(l.lockTxid)}" target="_blank" rel="noopener noreferrer" aria-label="Open the lock's transaction">↗</a></td></tr>`;
   }).join('')}</tbody></table><p class="note"><a href="/#lock">Manage your locks on tacit.finance →</a></p>`;
   if (box.__h !== h) { box.__h = h; box.innerHTML = h; }
-  $('#lk-note').textContent = 'A lock is found from your key\'s own Bitcoin history, so one made on another device or on tacit.finance shows here too. Locking, bonding, minting, borrowing and redeeming are steps on tacit.finance\'s Borrow sheet.';
+  $('#lk-note').textContent = 'A lock is found from your key\'s own Bitcoin history, so one made on another device or on tacit.finance shows here too. Locking, bonding, minting and borrowing are steps on tacit.finance\'s Borrow sheet, which also takes a bond back.';
 }
 
 // ── use cBTC ──
@@ -203,7 +203,7 @@ function renderUse() {
   const rows = [['/#lock', 'Borrow cUSD against it', 'Lock, bond, mint, then borrow dollars at the engine\'s floor. Repay to reclaim it.'],
     ['/#private/swap', 'Swap it, privately', D.rows[0]?.per ? `Inside the pools. The ${D.rows[0].other} pool says 1 cBTC = ${sig(D.rows[0].per, 4)} ${D.rows[0].other}.` : 'Inside the pools, privately.'],
     ['#farm', 'Farm TAC with it', 'The farms pair it with tETH, so cBTC alone is enough.', 'scroll'],
-    ['/#lock', 'Get your bitcoin back', 'Redeem a lock to spend the bitcoin again; its bond comes back with it.']];
+    ['/#lock', 'Take a bond back', 'A bond comes back before its lock is minted against, or once the lock is redeemed. Spend the bitcoin any other way and it is forfeited.']];
   $('#uses').innerHTML = rows.map(([href, t, sub, k]) => `<a class="use" href="${esc(href)}"${k === 'scroll' ? ' data-scroll' : ''}><b>${esc(t)}</b><span>${esc(sub)}</span><i aria-hidden="true">→</i></a>`).join('');
   $('#use-note').textContent = 'These open tacit.finance. Sign in there with the same wallet or passkey: it is the same key.';
 }
@@ -244,12 +244,12 @@ function renderFarm() {
 // ── about ──
 function renderAbout() {
   const link = (a, t) => `<a href="${SCAN}address/${a}" target="_blank" rel="noopener noreferrer">${t || `${a.slice(0, 8)}…${a.slice(-6)}`}</a>`;
-  $('#about').innerHTML = `<p><b>cBTC</b> is bitcoin you keep. Lock BTC at an address only your key can spend, post an ETH bond of 1.5× or more behind it, and the same amount is minted as cBTC in the Tacit pool: private, swappable, farmable, and collateral for cUSD. Redeem the lock to get the bitcoin back, and the bond comes back with it.</p>
+  $('#about').innerHTML = `<p><b>cBTC</b> is bitcoin you keep. Lock BTC at an address only your key can spend, post an ETH bond of 1.5× or more behind it, and the same amount is minted as cBTC in the Tacit pool: private, swappable, farmable, and collateral for cUSD. The bond is what keeps a lock honest: spending the locked bitcoin without redeeming it forfeits the bond to the insurance reserve.</p>
     <p>What backs it is public and counted here: each lock on Bitcoin, the bond behind it, what was minted and what was lent. <a href="/weld/stats/">The pool's figures →</a></p>`;
   const main = [
-    ['On Bitcoin', 'Each lock is an output only its owner\'s key can spend, with a refund path that expires. There is no order book for cBTC there: the bitcoin is the asset.'],
+    ['On Bitcoin', 'Each lock is an output only its owner\'s key can spend. There is no order book for cBTC there: the bitcoin is the asset.'],
     ['On Ethereum', `The collateral engine ${link(ENGINE)} prices bitcoin, holds the bonds as wstETH ${link(WSTETH, 'wstETH')} and lends cUSD against cBTC at ${D.engine?.ratio ?? 150}% or more, liquidating below ${D.engine?.liq ?? 130}%.`],
-    ['What it costs', 'Locking costs a Bitcoin fee. The bond is refundable and earns while it bonds the lock. Minting is free. Spending the bitcoin without redeeming forfeits the bond.'],
+    ['What it costs', 'Locking costs a Bitcoin fee. The bond earns while it bonds the lock, and comes back before the lock is minted against or once it is redeemed. Minting is free. Spending the bitcoin any other way forfeits the bond.'],
   ];
   const more = [['The engine', `${link(ENGINE)} · prices bitcoin, holds the bonds, lends cUSD`], ['The pool', `${link('0x000000000Ed1eabD231Be41d93b719056F7febFC')} · cBTC is asset <code>${CBTC_ID.slice(0, 10)}…${CBTC_ID.slice(-6)}</code>`],
     ['More', '<a href="/#lock">Borrow</a> · <a href="/#farm">Farms</a> · <a href="/trade/teth/">tETH</a> · <a href="/weld/stats/">Stats</a>']];

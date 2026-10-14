@@ -21,7 +21,7 @@ const batch = async (calls) => _internal.decAggregate3(await ethCall(MULTICALL3,
 
 // ── the protocol's totals: the stats reading's `btc` part ──
 // Sats locked and how many locks, sats minted against them and how many, the bond (wstETH wei) and how many bonds, the cUSD (8 decimals) borrowed,
-// repaid and still out, loans open, locks given up (`unlocked`) or redeemed, and the public ERC-20s' supplies (18 decimals).
+// repaid and still out, loans open, locks spent on Bitcoin (`unlocked`) or redeemed, and the public ERC-20s' supplies (18 decimals).
 export function totalsOf(j) {
   const b = j?.btc;
   if (!b) return null;
