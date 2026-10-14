@@ -28,7 +28,7 @@ const server = http.createServer((req, res) => {
 }).listen(WEB);
 
 const json = (n) => JSON.parse(readFileSync(join(FX, n), 'utf8'));
-const stats = json('cbtc-stats-2026-10-15.json'), program = json('teth-program-2026-10-14.json');
+const stats = json('cbtc-stats-2026-10-15.json'), program = json('teth-program-2026-10-14.json'), engineLogs = json('cbtc-engine-logs-2026-10-15.json');
 const nowS = () => Math.floor(Date.now() / 1000);
 const BTC_USD = 81500, ETH_USD = 2441, WST = 1.2, PER_ETH = 11000, RATIO = 15000, LIQ = 13000;
 const CBTC = '0x62a20d98fc1cd20289621d1315294cb8772f934d822e404b71e1f471cf0679c8', CETH = '0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34';
@@ -63,9 +63,11 @@ const hexBytes = (h) => Uint8Array.from(h.replace(/^0x/, '').match(/../g).map((x
 const poolId = (a, b, fee) => { const [lo, hi] = BigInt(a) <= BigInt(b) ? [a, b] : [b, a], u = new Uint8Array(96); u.set(hexBytes(lo), 0); u.set(hexBytes(hi), 32); u.set(hexBytes(w32(fee)), 64); return Buffer.from(keccak_256(u)).toString('hex'); };
 // the pools the chain has (the live ones on 2026-10-14): [assetA, assetB, reserveA, reserveB, lpTotal] at the 30 bp tier, A the lower id
 const POOLS = new Map([[poolId(CBTC, CETH, 30), [CETH, CBTC, 63593972n, 730828n, 6810283n]], [poolId(CBTC, TAC, 30), [CBTC, TAC, 2n, 762494n, 1000n]]]);
-const chain = { lockStates: new Map(), engine: true };                                 // lockStates: outpoint word → { recorded, bonded, minted }
+const seenOps = new Map();                                                                     // outpoint → what the pool says of it, in the order they are first asked about: 20 live locks of equal size and one spent on Bitcoin (the pool keeps its sats on record)
+const lockOf = (op) => { if (!seenOps.has(op)) seenOps.set(op, { sats: 569540n, spent: seenOps.size >= 20 }); return seenOps.get(op); };
+const chain = { lockStates: new Map(), engine: true, logs: true };                                 // lockStates: outpoint word → { recorded, bonded, minted }
 const SEL = { latest: '0xfeaf968c', sqrt: '0x2af1f249', ratio: '0x4827ecb3', liq: '0x1432d93f', usd: '0xd5901347', wstForBtc: '0x7dd55c2b', perWst: '0xbb2952fc', req: '0x034448ed', pools: '0xb5217bb4',
-  lockV: '0x7cea1c1a', escrowOk: '0x058e18b0', minted: '0xe2c2a40c' };
+  lockV: '0x7cea1c1a', escrowOk: '0x058e18b0', minted: '0xe2c2a40c', spent: '0x993ed045', redeemed: '0xb5229671' };
 function answerCall({ to, data }) {
   const sel = data.slice(0, 10), arg = (i) => BigInt('0x' + data.slice(10 + i * 64, 10 + (i + 1) * 64));
   if (sel === SEL.latest) return round(to === '0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419' ? ETH_USD : BTC_USD);
@@ -81,8 +83,9 @@ function answerCall({ to, data }) {
     const p = POOLS.get(data.slice(10, 74));
     return p ? '0x' + [1n, 0n, 0n, p[2], p[3], 30n, p[4]].map(w32).join('') : '0x' + '0'.repeat(64 * 7);
   }
+  if (sel === SEL.spent || sel === SEL.redeemed) return '0x' + w32(sel === SEL.spent && lockOf(data.slice(10, 74)).spent && !chain.lockStates.has(data.slice(10, 74)) ? 1n : 0n);
   if ([SEL.lockV, SEL.escrowOk, SEL.minted].includes(sel)) {
-    const s = chain.lockStates.get(data.slice(10, 74)) || { recorded: false, bonded: false, minted: false };
+    const op = data.slice(10, 74), s = chain.lockStates.get(op) || { recorded: true, bonded: true, minted: true, sats: lockOf(op).sats };
     return '0x' + w32(sel === SEL.lockV ? (s.recorded ? s.sats : 0n) : sel === SEL.escrowOk ? (s.bonded ? 1n : 0n) : (s.minted ? 1n : 0n));
   }
   return null;
@@ -94,6 +97,7 @@ function rpcAnswer(req) {
     return err('stub: eth_call', 3);
   }
   if (method === 'eth_getBalance') return res('0x' + (5n * 10n ** 18n).toString(16));
+  if (method === 'eth_getLogs') return chain.logs && String(params[0].address).toLowerCase() === '0x000000003f608bddf0ca45934003ffb9dbdf70db' ? res(engineLogs) : err('stub: no logs');
   return err(`stub: ${method}`);
 }
 
@@ -130,7 +134,7 @@ export function makeConfidentialPoolUx() {
     async balance(priv, o) {
       ux.calls.push(['balance', priv.length, JSON.stringify(o)]); await wait(ux.cfg.balanceMs || 0);
       const g = (id, v) => (v ? { [id]: { asset: id, value: BigInt(v), notes: [{ value: String(v) }] } } : {});
-      return { byAsset: { ...g(${JSON.stringify(CBTC)}, ux.cfg.cbtc), ...g(${JSON.stringify(CUSD)}, ux.cfg.cusd) }, notes: [], diag: { errors: {} } };
+      return { byAsset: { ...g(${JSON.stringify(CBTC)}, ux.cfg.cbtc), ...g(${JSON.stringify(CUSD)}, ux.cfg.cusd) }, notes: [], diag: { errors: {} }, farmPositions: ux.cfg.positions || [] };
     },
   };
 }`;
@@ -168,7 +172,7 @@ try {
   // ── the page on its own: what backs cBTC, the pools, the farms ──
   r = await openPage({ width: 1280, height: 1000 });
   p = r.page;
-  await until(p, () => document.querySelector('#px-usd').textContent.startsWith('$') && document.querySelectorAll('#pl-table tbody tr').length === 2 && document.querySelectorAll('.pf').length === 1 && document.querySelector('#cov .cov-row:nth-child(2)'));
+  await until(p, () => document.querySelector('#px-usd').textContent.startsWith('$') && document.querySelectorAll('#pl-table tbody tr').length === 2 && document.querySelectorAll('.pf').length === 1 && document.querySelector('#cov .cov-row:nth-child(2)') && document.querySelector('#chart .line'));
   ok((await text(p, '#px-usd')) === `$${BTC_USD.toLocaleString('en-US')}` && (await p.title()) === `cBTC $${BTC_USD.toLocaleString('en-US')} · tacit trade`, `the headline is the engine's price of bitcoin (${await text(p, '#px-usd')})`);
   const sub = await text(p, '#px-sub');
   ok(/1 cBTC = 1 BTC, locked/.test(sub) && /0\.113128 cBTC/.test(sub) && /20 locks · 13 loans open/.test(sub), `the line under it: what is minted, how many locks and loans (${sub})`);
@@ -192,6 +196,19 @@ try {
   ok(farm[0].href === '/#farm/private-2' && Math.abs(gotApr - wantApr) <= Math.max(2, wantApr * 0.01), `the farm opens its own pool and its APR is a year of its TAC over what is bonded: ${gotApr}% (${wantApr.toFixed(1)}%)`);
   ok(/222 TAC/.test(await text(p, '#fm-stats')), 'the farms\' rewards add up');
   ok(/no order book on Bitcoin/.test(await text(p, '#lk-lead')) && /20 live locks/.test(await text(p, '#lk-facts')) && /Sign in/.test(await text(p, '#lk-mine')), 'the locks panel says why there is no order book, counts the locks, and offers to show yours');
+  // the history: the locked bitcoin and the cUSD out, from the engine's events
+  const kinds = await p.$$eval('#lane-seg button', (b) => b.map((x) => x.textContent));
+  ok(kinds.join() === 'BTC locked,cUSD out' && /past|all time/.test(await text(p, '#ch-read')), `the chart offers the locked bitcoin and the cUSD out (${kinds.join(' | ')})`);
+  const rd = await text(p, '#ch-read');
+  ok(rd.startsWith('0.1139 BTC') && /all time|past month/.test(rd), `its right edge is what is locked now, and the events add up to it (${rd.slice(0, 80)})`);
+  ok(!/do not add up/.test((await p.$eval('#chart-note', (e) => e.textContent))) && (await p.$$eval('#range-seg button', (b) => b.map((x) => x.textContent))).includes('All'), 'the history says nothing of a mismatch, and offers ranges');
+  await p.click('#view-seg [data-unit="usd"]');
+  ok(/^\$9,\d{3}/.test(await text(p, '#ch-read')), `in dollars at bitcoin's price (${(await text(p, '#ch-read')).slice(0, 40)})`);
+  await p.click('#lane-seg [data-chart="out"]');
+  await until(p, () => /lent against it/.test(document.querySelector('#chart-name').textContent));
+  const rd2 = await text(p, '#ch-read');
+  ok(/^\$4,444/.test(rd2) && !(await p.$('#view-seg button')), `the cUSD out ends on what the engine says is out (${rd2.slice(0, 60)})`);
+  await p.click('#lane-seg [data-chart="locked"]');
   ok(r.errors.length === 0 && r.blocked.length === 0, `no page error and nothing blocked by the CSP (${[...r.errors, ...r.blocked].join(' | ').slice(0, 200)})`);
   await shot(p, 'cbtc-public');
   // the ticket: sizing a bond
@@ -216,7 +233,7 @@ try {
   chain.lockStates.set(op(1), { recorded: true, bonded: true, minted: true, sats: 5000000n });
   chain.lockStates.set(op(2), { recorded: true, bonded: true, minted: false, sats: 1000000n });
   chain.lockStates.set(op(3), { recorded: false, bonded: false, minted: false, sats: 200000n });
-  await cfg(p, { locks: [lockA, lockB, lockC], cbtc: 4200000, cusd: 123400000000, loans: [{ live: true, debtValue: '90000000000', basket: [{ asset: CBTC, value: '5000000' }] }, { live: false, debtValue: '5', basket: [] }], states: { 3: { spent: true } } });
+  await cfg(p, { positions: [{ pid: 2, shares: String(6810283 / 4), pendingTac: '1.5', unlockAt: 0 }], locks: [lockA, lockB, lockC], cbtc: 4200000, cusd: 123400000000, loans: [{ live: true, debtValue: '90000000000', basket: [{ asset: CBTC, value: '5000000' }] }, { live: false, debtValue: '5', basket: [] }], states: { 3: { spent: true } } });
   await p.click('#lk-signin');
   await p.waitForSelector('.bsheet.top [data-in="eth"]');
   await p.click('.bsheet.top [data-in="eth"]');
@@ -233,6 +250,9 @@ try {
   await until(p, () => /cBTC, private/.test(document.querySelector('#held').textContent));
   const held = await text(p, '#held');
   ok(/0\.042 .*cBTC, private/.test(held) && /900 cUSD in 1 loan/.test(held) && /Private cUSD1,234/.test(held), `use cBTC: the key's private cBTC, what it owes in its one live loan, and its cUSD (${held})`);
+  await until(p, () => document.querySelector('.pf .tag'));
+  const mineFarm = await text(p, '.pf .sb.mine');
+  ok(/Yours: 0\.001827 cBTC \+ 0\.159 tETH · 1\.5 TAC earned/.test(mineFarm), `the key's position shows on its farm: what it holds and has earned (${mineFarm})`);
   await shot(p, 'cbtc-mine');
   // a failing read is said, and the others still show
   await cfg(p, { locksFail: true });
@@ -249,6 +269,12 @@ try {
   await r.browser.close();
 
   // ── what cannot be read ──
+  chain.logs = false;
+  r = await openPage({ width: 1280, height: 900 });
+  await until(r.page, () => /could not be read/.test(document.querySelector('#chart').textContent), null, 30000);
+  ok(!(await r.page.$('#chart .line')) && (await r.page.$$eval('#cov .cov-row', (a) => a.length)) === 4, 'a node that does not serve the events leaves the chart saying so, and everything else stands');
+  await r.browser.close();
+  chain.logs = true;
   chain.engine = false; chain.stats = 'down';
   r = await openPage({ width: 1280, height: 900 });
   p = r.page;

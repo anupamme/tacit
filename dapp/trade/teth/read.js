@@ -31,12 +31,13 @@ export function heldHistory(flows, heldNow) {
   return { pts, exact: heldNow == null || sum === heldNow };
 }
 
-// Bars of ETH held, `tf` seconds each, from `since` on: a bar closes at what the pool held at its end, a quiet one holds the figure before it,
+// Bars of what is held (ETH unless `scale` says otherwise: 1e8 for sats or cUSD), `tf` seconds each, from `since` on: a bar closes at what the pool held at its end, a quiet one holds the figure before it,
 // the range opens at what was held then (`seed`), and the last bar closes at the balance now (`spot`). `vol` is the ETH that moved in the bar.
-export function heldBars(pts, { tf, since = 0, spot = null, at = now() }) {
+export function heldBars(pts, { tf, since = 0, spot = null, at = now(), scale = 1e18 }) {
   if (!pts.length) return [];
   const from = Math.floor((since || pts[0].t) / tf) * tf, end = Math.floor(at / tf) * tf;
   if (end < from || (end - from) / tf > 2000) return [];
+  const eth = (x) => Number(x) / scale;                                                        // ETH by default; a series in sats or cUSD says its own scale
   let i = 0, held = 0n;
   while (i < pts.length && pts[i].t < from) held = pts[i++].held;
   const out = [];

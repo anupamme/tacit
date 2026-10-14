@@ -4,17 +4,18 @@
 // API with no wallet and holds no key it was not given. Making cBTC (lock, bond, mint, borrow) is a flow of several steps with Bitcoin and Ethereum
 // transactions, and it is done on tacit.finance's Borrow sheet, which each button here opens; this page sizes the bond for an amount before it does.
 import { sha256 } from '/vendor/tacit-deps.min.js';
+import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=f31c8773';
 import { makeConnect } from '/trade/connect.js?cb=d96dcbf8';
 import { makeKeySession, signInSheet } from '/trade/key.js?cb=57b59475';
 import { getUx, forgetUx } from '/trade/poolux.js?cb=cc3e4b0c';
-import { readRates, readProgram } from '/trade/teth/read.js?cb=cb8cb803';
-import { totalsOf, readEngine, sizeBond, coverage, readPools, poolRows, farmApr, readLocks, readLoans, readHeld, lockStep, CBTC_ID, ENGINE, WSTETH } from '/trade/cbtc/read.js?cb=72d7b081';
+import { readRates, readProgram, heldBars, rangesFor, barSize } from '/trade/teth/read.js?cb=e4129bb4';
+import { totalsOf, readEngine, sizeBond, coverage, readPools, poolRows, farmApr, readLocks, readLoans, readHeld, readHistory, positionsIn, lockStep, CBTC_ID, ENGINE, WSTETH } from '/trade/cbtc/read.js?cb=20e0e3dc';
 import { $, esc, api, now, fmtUnits, parseUnits, grp, usd, pct, short, sig } from '/trade/util.js?cb=369d2824';
 
 const SCAN = 'https://etherscan.io/', MEMPOOL = 'https://mempool.space/';
 const PRESETS = [['0.001 BTC', '0.001'], ['0.01 BTC', '0.01'], ['0.1 BTC', '0.1']];
-const D = { totals: null, engine: null, rates: {}, program: null, pools: null, rows: [], size: null, mine: null };
-const S = { mode: 'get', amt: '', seq: 0 };
+const D = { totals: null, engine: null, rates: {}, program: null, pools: null, rows: [], size: null, mine: null, hist: null, histFailed: false };
+const S = { mode: 'get', amt: '', seq: 0, chart: 'locked', range: null, unit: 'btc' };
 
 const compact = (x) => (x >= 1e6 ? `$${(x / 1e6).toFixed(x >= 1e7 ? 0 : 1)}M` : x >= 1e3 ? `$${(x / 1e3).toFixed(x >= 1e4 ? 0 : 1)}k` : usd(x));
 const btcTxt = (sats) => { const x = Number(sats) / 1e8; return x === 0 ? '0' : x >= 1 ? grp(x, 4) : x >= 0.001 ? x.toFixed(6).replace(/0+$/, '') : x.toFixed(8).replace(/0+$/, ''); };
@@ -50,9 +51,6 @@ function renderLanes() {
 // ── what stands behind it ──
 function renderBacking() {
   const T = D.totals, px = usdBtc(), cov = coverage(T, { ethUsd: ethUsd(), usdBtc: px, wstEth: D.engine?.wstEth });
-  const read = $('#ch-read');
-  const lead = T ? `<div class="l"><span class="px num">${esc(btcTxt(T.minted))} cBTC</span><em>minted${px != null ? ` · ${compact(Number(T.minted) / 1e8 * px)}` : ''}</em></div><div class="r"><span><b>${esc(btcTxt(T.locked))} BTC</b> locked</span><span><b>${grp(T.locks, 0)}</b> lock${T.locks === 1 ? '' : 's'}</span></div>` : '';
-  if (read.__h !== lead) { read.__h = lead; read.innerHTML = lead; }
   if (!T) return;
   const row = (head, val, bar, sub) => `<div class="cov-row"><div class="cov-h"><b>${head}</b><span>${val}</span></div>${bar || ''}<div class="cov-s">${sub}</div></div>`;
   const usdTxt = (sats) => (px != null ? ` · ${compact(Number(sats) / 1e8 * px)}` : '');
@@ -69,6 +67,54 @@ function renderBacking() {
   const html = rows.join('');
   if ($('#cov').__h !== html) { $('#cov').__h = html; $('#cov').innerHTML = html; }
   $('#cov-note').textContent = 'From the pool, the collateral engine and the chain: each lock is found by its bond, and what is minted, lent and repaid is counted from the engine\'s own events.';
+}
+
+// ── the history: the locked bitcoin, and the cUSD lent, over time ──
+const chart = mountChart($('#chart'), (h) => paintRead(h));
+const RANGE_WORDS = { 1: 'past day', 7: 'past week', 30: 'past month', 90: 'past 3 months', 0: 'all time' };
+const KINDS = { locked: 'BTC locked', out: 'cUSD out' };
+const histOf = () => D.hist?.[S.chart] || null;
+const spanDays = () => { const h = histOf(); return h?.pts.length ? (now() - h.pts[0].t) / 86400 : 0; };
+function effRange() { const days = rangesFor(spanDays()).map(([, d]) => d); return days.includes(S.range) ? S.range : days.includes(30) ? 30 : 0; }
+const unitOf = () => (S.chart === 'out' ? 'cusd' : S.unit === 'usd' && usdBtc() ? 'usd' : 'btc');
+const fmtOf = (unit) => (unit === 'btc' ? (v) => `${v < 1 ? v.toFixed(4) : v.toFixed(3)} BTC` : (v) => usd(v));
+function renderControls() {
+  const seg = (label, attr, opts, cur) => `<div class="seg sm" role="group" aria-label="${label}">${opts.map(([v, l]) => `<button type="button" data-${attr}="${v}" aria-pressed="${cur === v}">${l}</button>`).join('')}</div>`;
+  const r = effRange();
+  $('#lane-seg').innerHTML = Object.entries(KINDS).map(([k, l]) => `<button type="button" data-chart="${k}" aria-pressed="${k === S.chart}">${l}</button>`).join('');
+  $('#range-seg').innerHTML = rangesFor(spanDays()).map(([l, d]) => `<button type="button" data-range="${d}" aria-pressed="${r === d}">${l}</button>`).join('');
+  $('#view-seg').innerHTML = S.chart === 'locked' ? seg('Show in', 'unit', [['btc', 'BTC'], ['usd', 'USD']], unitOf()) : '';
+  $('#chart-name').textContent = S.chart === 'locked' ? 'cBTC · the bitcoin locked' : 'cBTC · the cUSD lent against it';
+}
+function paintRead(h = null) {
+  const el = $('#ch-read'), V = S.view;
+  let out = '';
+  if (V?.bars.length) {
+    const { bars, unit, range } = V, b = h?.b || bars.at(-1), first = bars[0].close, f = fmtOf(unit), chg = first > 0.05 * bars.at(-1).close ? b.close / first - 1 : null,   // a move from next to nothing is not a figure worth showing
+      up = chg != null && chg >= 0.0005, down = chg != null && chg <= -0.0005;
+    const closes = bars.map((x) => x.close), lo = Math.min(...closes), hi = Math.max(...closes);
+    const word = h ? `${fmtLocalStamp(b.t)}${b.held ? ' · no change' : ''}` : range ? RANGE_WORDS[range] : `all time · since ${fmtLocalTime(bars[0].t, true)}`;
+    const verb = S.chart === 'locked' ? 'locked or released' : 'lent or repaid';
+    const right = h ? (b.vol > 0 ? `<span><b>${grp(b.vol, 2)}</b> ${S.chart === 'locked' ? 'BTC' : 'cUSD'} ${verb}${b.n ? ` in ${b.n} step${b.n === 1 ? '' : 's'}` : ''}</span>` : '<span>nothing changed in this bar</span>') : `<span>low <b>${f(lo)}</b></span><span>high <b>${f(hi)}</b></span>`;
+    out = `<div class="l"><span class="px num">${f(b.close)}</span>${chg != null ? `<span class="chg ${up ? 'up' : down ? 'down' : 'mute'}">${up ? '▲' : down ? '▼' : ''} ${Math.abs(chg * 100).toFixed(Math.abs(chg) < 0.1 ? 1 : 0)}%</span>` : ''}<em>${esc(word)}</em></div><div class="r">${right}</div>`;
+  }
+  if (el.__h !== out) { el.__h = out; el.innerHTML = out; }
+}
+function renderChart() {
+  const H = histOf();
+  renderControls();
+  if (!H?.pts.length) { chart.update({ series: [], tags: [], period: 3600, label: 'History of the locks and the loans', empty: D.histFailed ? 'The history could not be read just now. Try again in a moment.' : D.hist ? 'Nothing to draw yet.' : 'Reading the history…' }); S.view = null; paintRead(); return; }
+  const span = spanDays(), range = effRange(), tf = barSize(range, span), unit = unitOf(), k = unit === 'usd' ? usdBtc() : 1;
+  const T = D.totals, spot = S.chart === 'locked' ? T?.locked : T?.out;
+  const raw = heldBars(H.pts, { tf, since: range ? now() - range * 86400 : 0, spot: spot ?? null, scale: 1e8 });
+  const bars = raw.map((b) => ({ ...b, open: b.open * k, high: b.high * k, low: b.low * k, close: b.close * k, vol: b.vol }));
+  const color = S.chart === 'locked' ? '#f7931a' : '#16a34a';
+  chart.update({ series: [{ id: S.chart, name: KINDS[S.chart], color, kind: 'line', area: true, bars, fmt: fmtOf(unit), volFmt: (v) => `${grp(v, 2)} ${S.chart === 'locked' ? 'BTC' : 'cUSD'}` }], tags: bars.length ? [{ y: bars.at(-1).close, label: 'Now', color }] : [], empty: 'Nothing to draw for this range yet.', period: tf, label: `${KINDS[S.chart]}, ${range ? RANGE_WORDS[range] : 'all time'}` });
+  S.view = { bars, unit, range };
+  paintRead();
+  $('#chart-note').textContent = (S.chart === 'locked'
+    ? 'The sats of every lock still live, counted from when its first bond was posted (so a lock that has been given up or redeemed is not in it).'
+    : 'Loans the engine opened, less those repaid and liquidated, in cUSD.') + ` Read from the collateral engine's own events; the right edge is the total now.${H.exact ? '' : ' The events read do not add up to that total exactly, so the last point is the total.'}`;
 }
 
 // ── the ticket: size a lock's bond, then do it on tacit.finance ──
@@ -187,9 +233,10 @@ function renderFarm() {
     + cell('Farms', `${rows.length}`, 'pair cBTC · shielded positions')
     + cell('Stream ends', end ? new Date(end * 1000).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
   const icon = (k) => `<svg class="tk sm" aria-hidden="true"><use href="#tk-${k}"/></svg>`, ico = { tETH: 'teth', TAC: 'tac', cUSD: 'cusd' };
+  const mine = mineOk() ? positionsIn(D.rows, D.mine.held?.positions) : new Map(), amt = (x, d) => (x < 0.00001 && x > 0 ? 'under 0.00001' : grp(x, d));
   $('#pools').innerHTML = rows.map((r) => {
-    const apr = farmApr(r, p, { usdBtc: px, ethUsd: ethUsd(), tacEth: D.rates.tacEth }), dust = (r.depthUsd ?? 0) < DUST_USD;
-    return `<a class="pf" href="/#farm/private-${r.farm.pid}"><span class="nm"><span class="pairtk">${icon('cbtc')}${icon(ico[r.other])}</span>${esc(r.name)}</span><span class="rt num">${esc(aprTxt(apr))}<small>${esc(Math.round(r.farm.perDay).toLocaleString('en-US'))} TAC a day</small></span><i aria-hidden="true">→</i><span class="sb">${r.depthUsd == null ? '' : `${dust ? 'under $25' : compact(r.depthUsd)} deep · `}${esc(grp(r.cbtc, r.cbtc < 1 ? 5 : 2))} cBTC + ${esc(grp(r.side, r.side < 1 ? 4 : 2))} ${esc(r.other)} in the pool</span></a>`;
+    const apr = farmApr(r, p, { usdBtc: px, ethUsd: ethUsd(), tacEth: D.rates.tacEth }), dust = (r.depthUsd ?? 0) < DUST_USD, m = mine.get(r.farm.pid);
+    return `<a class="pf" href="/#farm/private-${r.farm.pid}"><span class="nm"><span class="pairtk">${icon('cbtc')}${icon(ico[r.other])}</span>${esc(r.name)}${m ? '<span class="tag">yours</span>' : ''}</span><span class="rt num">${esc(aprTxt(apr))}<small>${esc(Math.round(r.farm.perDay).toLocaleString('en-US'))} TAC a day</small></span><i aria-hidden="true">→</i><span class="sb">${r.depthUsd == null ? '' : `${dust ? 'under $25' : compact(r.depthUsd)} deep · `}${esc(grp(r.cbtc, r.cbtc < 1 ? 5 : 2))} cBTC + ${esc(grp(r.side, r.side < 1 ? 4 : 2))} ${esc(r.other)} in the pool</span>${m ? `<span class="sb mine">Yours: ${esc(amt(m.cbtc, 6))} cBTC + ${esc(amt(m.side, 4))} ${esc(r.other)} · ${esc(grp(m.earned, 2))} TAC earned${m.perDay > 0 ? ` · about ${esc(m.perDay >= 10 ? grp(m.perDay, 0) : m.perDay.toFixed(2))} TAC a day` : ''}</span>` : ''}</a>`;
   }).join('');
   $('#fm-note').innerHTML = `Each farm opens on tacit.finance, which adds from cBTC or the paired asset alone, or from both sides, and harvests or exits. Positions are shielded: who farms and how much stays private.`;
 }
@@ -212,10 +259,11 @@ function renderAbout() {
 }
 
 // ── reading ──
+async function loadHistory() { try { D.hist = await readHistory({ locked: D.totals?.locked ?? null, out: D.totals?.out ?? null }); D.histFailed = false; } catch { D.histFailed = !D.hist; } }
 async function loadTotals() { const j = await api('/stats?network=mainnet&view=front'); const t = totalsOf(j); if (t) D.totals = t; }
 async function loadChain() { const [e, r] = await Promise.allSettled([readEngine(), readRates()]); if (e.status === 'fulfilled') D.engine = e.value; if (r.status === 'fulfilled') D.rates = r.value; }
 async function loadPools() { const [pl, pg] = await Promise.allSettled([readPools(), readProgram()]); if (pl.status === 'fulfilled') D.pools = pl.value; if (pg.status === 'fulfilled' && pg.value?.epoch) D.program = pg.value; if (D.pools) D.rows = poolRows(D.pools, D.program, { ethUsd: ethUsd(), usdBtc: usdBtc(), tacEth: D.rates.tacEth }); }
-function paintAll() { renderHead(); renderLanes(); renderBacking(); renderRoute(); renderLocks(); renderUse(); renderPools(); renderFarm(); renderAbout(); }
+function paintAll() { renderHead(); renderLanes(); renderChart(); renderBacking(); renderRoute(); renderLocks(); renderUse(); renderPools(); renderFarm(); renderAbout(); }
 
 // ── wiring ──
 function setMode(m) {
@@ -230,6 +278,12 @@ let amtTimer = 0;
 $('#amt').addEventListener('input', (e) => { S.amt = e.target.value; clearTimeout(amtTimer); amtTimer = setTimeout(requote, 250); });
 $('#chips').addEventListener('click', (e) => { const b = e.target.closest('[data-amt]'); if (!b) return; S.amt = b.dataset.amt; $('#amt').value = S.amt; requote(); });
 $('#mode-seg').addEventListener('click', (e) => { const b = e.target.closest('[data-mode]'); if (b) setMode(b.dataset.mode); });
+$('#backing').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.chart) { S.chart = b.dataset.chart; S.range = null; } else if (b.dataset.unit) S.unit = b.dataset.unit; else if (b.dataset.range != null) S.range = Number(b.dataset.range); else return;
+  renderChart();
+});
 document.addEventListener('click', (e) => {
   const id = e.target.id;
   if (id === 'signin' || id === 'lk-signin') signIn().then(() => loadMine()).catch(() => {});
@@ -246,11 +300,13 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#hint
   $('#stick-go').addEventListener('click', () => ticket.scrollIntoView({ behavior: 'smooth', block: 'start' }));
 }
 
-renderRoute(); renderAbout(); renderLanes(); renderLocks(); renderUse();
+renderRoute(); renderAbout(); renderLanes(); renderLocks(); renderUse(); renderChart();
 Promise.allSettled([loadTotals().then(() => { renderHead(); renderBacking(); renderLocks(); }), loadChain().then(() => { renderHead(); renderBacking(); return loadPools(); }).then(paintAll)]).then(() => {
+  loadHistory().then(renderChart);                                  // the events are read after the page is up
   const params = new URLSearchParams(location.hash.replace(/^#/, ''));
   if (params.get('mode') === 'use') setMode('use');
   if (params.get('amount')) { S.amt = params.get('amount'); $('#amt').value = S.amt; requote(); }
   paintAll();
 });
-setInterval(() => { if (!document.hidden) { loadTotals().then(paintAll).catch(() => {}); loadChain().then(() => loadPools()).then(paintAll).catch(() => {}); } }, 60e3);
+let tick = 0;
+setInterval(() => { if (!document.hidden) { loadTotals().then(paintAll).catch(() => {}); loadChain().then(() => loadPools()).then(paintAll).catch(() => {}); if (++tick % 5 === 0) loadHistory().then(renderChart); } }, 60e3);
