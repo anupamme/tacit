@@ -3,7 +3,7 @@
 import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=24e3ea08';
 import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
-import { rpc, RPCS, short, $ } from '/trade/util.js?cb=369d2824';
+import { rpc, RPCS, short, $ } from '/trade/util.js?cb=dd68ca48';
 
 // WalletConnect joins the browser wallets in the picker, and is the one wallet offered where the browser has none (a phone): a wallet app signs
 // and sends for this page. The project is zSwap's, shared: an allowlist set on it must name tacit.finance too.

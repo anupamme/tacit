@@ -14,11 +14,12 @@ export const now = () => Math.floor(Date.now() / 1000);
 export const short = (a, n = 4) => (!a ? '' : a.length > 2 * n + 4 ? `${a.slice(0, n + 2)}…${a.slice(-n)}` : a);
 
 // ── reading the chain ──
-export async function rpc(method, params) {
+// `hosts` orders the nodes asked: a read only one of them serves (a wide log range) names it first, so the others do not each refuse it before it.
+export async function rpc(method, params, hosts = RPCS) {
   let last;
-  for (const [n, url] of RPCS.entries()) {
+  for (const [n, url] of hosts.entries()) {
     try {
-      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(n === RPCS.length - 1 ? 30e3 : 12e3) });
+      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(n === hosts.length - 1 ? 30e3 : 12e3) });
       const j = await r.json();
       if (j.error) { if (j.error.code === 3 || /revert/i.test(j.error.message || '')) throw Object.assign(new Error(j.error.message), { revert: true }); last = new Error(j.error.message); continue; }
       return j.result;

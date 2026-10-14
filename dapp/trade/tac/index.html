@@ -107,14 +107,14 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 @media (hover: hover) { .top nav a:hover { color: var(--ink); text-decoration: underline; } }
 @media (max-width: 560px) { .top nav a.opt { display: none; } }
 
-/* the markets the page trades: TAC and tETH, one address each */
-.assets { display: inline-flex; margin: 0 0 12px; border: 1px solid var(--hair-2); font-size: 12.5px; }
-.assets a { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 3px 13px; color: var(--mute); text-decoration: none; }
-.assets a + a { border-left: 1px solid var(--hair-2); }
-.assets a[aria-current="page"] { background: var(--ink); color: var(--card); }
+/* the markets the page trades: TAC, tETH and cBTC, one address each. A quiet pill: the page you are on is a soft chip, not a filled block. */
+.assets { display: inline-flex; gap: 2px; margin: 0 0 12px; padding: 3px; border-radius: 999px; background: color-mix(in srgb, var(--ink) 6%, transparent); font-size: 12.5px; }
+.assets a { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 2px 13px 2px 9px; border-radius: 999px; color: var(--mute); text-decoration: none; transition: background .15s, color .15s; }
+.assets a[aria-current="page"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 14%, transparent); }
 .assets .tk.xs { display: inline-block; }
-@media (hover: hover) { .assets a:not([aria-current="page"]):hover { color: var(--ink); } }
-@media (pointer: coarse) { .assets a { min-height: var(--tap); } }
+@media (hover: hover) { .assets a:not([aria-current="page"]):hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 5%, transparent); } }
+@media (pointer: coarse) { .assets a { min-height: 36px; } }
+
 /* what TAC costs, and where */
 .hero { padding: 26px 0 18px; position: relative; }
 .hero h1 { font: 400 clamp(46px, 8vw, 84px)/.92 var(--serif); letter-spacing: -.025em; margin: 0; display: flex; align-items: center; gap: .2em; }

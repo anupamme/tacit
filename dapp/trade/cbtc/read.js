@@ -4,8 +4,8 @@
 // it, and (with a key open) what that key has in each. The arithmetic is plain functions of what was read, so tests can pin it.
 import { MULTICALL3, TAC_POOL_ASSET_ID, CETH_POOL_ASSET_ID, _internal } from '/evm-trade-venues.js?cb=bb675102';
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
-import { ethCall, rpc, wordAt, word, strip } from '/trade/util.js?cb=369d2824';
-import { POOL, heldHistory } from '/trade/teth/read.js?cb=e4129bb4';
+import { ethCall, rpc, RPCS, wordAt, word, strip } from '/trade/util.js?cb=dd68ca48';
+import { POOL, heldHistory } from '/trade/teth/read.js?cb=bbfd12bd';
 
 export const ENGINE = '0x000000003f608BDdF0ca45934003ffb9DbDF70DB';                 // the collateral engine: prices bitcoin, holds the bonds, lends cUSD
 export const WSTETH = '0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0';
@@ -106,9 +106,9 @@ export function farmApr(row, program, { usdBtc, ethUsd, tacEth }) {
 // counts it (8 decimals). Each is a running sum, so a history that does not end on the stats' own total says so.
 const TOPIC = { posted: '0x0c008a699968f2a24063b7eb14d9239b2430c502fda280245345c78cbc47b7c1', minted: '0x232c7d098ca44092999087e6ee530a2171f95f9ecb1caa363f6dcf448fb7dd57',
   closed: '0xc0ede5b75ee32986e50a2a39fa32dbf5e8eff1c91a46cd127591edebd91b4db9', liquidated: '0x28d08a2db16236ca56b1223ba30ba49824b860a3e7eb8c5a1c1224697aa3ebd1' };
-const FROM_BLOCK = 25998000;
+const FROM_BLOCK = 25998000, ARCHIVE_FIRST = ['https://mainnet.gateway.tenderly.co', ...RPCS];       // of the page's nodes, only the Tenderly gateway serves a range this wide
 export async function readHistory({ locked, out }) {
-  const logs = await rpc('eth_getLogs', [{ address: ENGINE, topics: [Object.values(TOPIC)], fromBlock: '0x' + FROM_BLOCK.toString(16), toBlock: 'latest' }]);
+  const logs = await rpc('eth_getLogs', [{ address: ENGINE, topics: [Object.values(TOPIC)], fromBlock: '0x' + FROM_BLOCK.toString(16), toBlock: 'latest' }], ARCHIVE_FIRST);
   const sorted = logs.map((l) => ({ ...l, b: Number(BigInt(l.blockNumber)), i: Number(BigInt(l.logIndex)), t: l.blockTimestamp ? Number(BigInt(l.blockTimestamp)) : null })).sort((a, b) => a.b - b.b || a.i - b.i);
   if (sorted.some((l) => !l.t)) throw new Error('the node gave no block times');
   const amount = (l) => BigInt(l.data.slice(0, 66));
