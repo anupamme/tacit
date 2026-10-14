@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-3OFYVVygNYPSG6aaEzEREHV8wfD0PNQG42yBWFxtbSM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-vCOAoJmPFHkRdF1gJ5A9TRVrMjz8bcyYBfJwmzZwEl4=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=ed3140de"></script>
 <title>tacit — private DeFi on Bitcoin and Ethereum</title>
@@ -1893,6 +1893,8 @@ const byValue = (a, b) => (BigInt(a.value) < BigInt(b.value) ? -1 : BigInt(a.val
 const spendable = (k) => freeNotes(P.scan?.[k]?.notes).reduce((a, n) => a + BigInt(n.value), 0n);
 const onItsWay = (k) => (P.scan?.[k]?.notes || []).reduce((a, n) => a + BigInt(n.value), 0n) - spendable(k);
 const waitRanOut = (e) => /settle timed out|status polling for job/i.test(e?.message || '');
+// A step the relay will not do just now: it refused it, or it is still in line when the wait ran out. Either way the paying account can send it.
+const heldUp = (e) => relayRefused(e) || waitRanOut(e);
 const jobSaid = (e) => /^(settle|prove) failed:|relay lost the job/i.test(e?.message || '');
 
 // The relay queues the same op under the same id, so the same op sent again (Finish on a wrap whose settle failed) is a
@@ -2400,8 +2402,10 @@ function offerSelf(spec, e) {
   spec.id = id; SELFDO[id] = spec;
   // What the refused action held (its notes, locks or deposits), held again while it is sent from the paying account.
   spec.keys ||= [...RUNS].filter((r) => r.live && r.sheet === spec.sheet).flatMap((r) => [...r.keys]);
-  say(spec.status(), html`<span class="err">${errText(e)}</span>${selfOffer(spec)}`);
-  return Object.assign(new Error(errText(e)), { offered: true, said: true });
+  // A step still in the relay's queue goes through on its own: what is left to do after it is said, and the other way is offered.
+  const msg = waitRanOut(e) ? `Still in the relay’s queue. It goes through on its own${spec.carry ? `: once Activity shows it done, ${spec.carry}` : '; follow it in Activity'}. Or send it yourself.` : errText(e);
+  say(spec.status(), html`<span class="err">${msg}</span>${selfOffer(spec)}`);
+  return Object.assign(new Error(msg), { offered: true, said: true });
 }
 // An offer to send something from the paying account, drawn after a message that is not a failure.
 function offerMore(spec, msg) {
@@ -3883,6 +3887,7 @@ const POOL_TK = { eth: 'cETH', tac: 'cTAC', cbtc: 'cBTC', cusd: 'cUSD' };
 async function noteFor(run, t, priv, amount, fits, status, k = 'eth') {
   if (!P.scan) await scanPrivate();
   if (!P.scan) throw new Error('Your private balance is still loading. Try again in a moment.');
+  await scanIfNew().catch(() => {});                                           // a press after the relay finished a step finds the notes it made, not the ones it spent
   const take = () => { run.check(); const n = freeNotes(P.scan?.[k]?.notes).filter(fits).sort(byValue)[0]; if (n) run.take(kNote(n)); return n; };
   let n = take();
   if (n) return n;
@@ -3908,9 +3913,9 @@ async function noteFor(run, t, priv, amount, fits, status, k = 'eth') {
       if (/fee below the current floor/i.test(e0?.message || '') && sum >= amount + fee2) await cut(fee2, { waitOpts: stepWait() }); else throw e0;
     }
   } catch (e) {
-    if (!relayRefused(e) || run.away) throw e;
+    if (!heldUp(e) || run.away) throw e;
     const line = () => (status.id && document.getElementById(status.id)) || status;
-    throw offerSelf({ label: doing, sheet: run.sheet, then: 'Your note is ready. Press the button again to send it.', status: line,
+    throw offerSelf({ label: doing, sheet: run.sheet, then: 'Your note is ready. Press the button again to send it.', carry: 'press the button again to carry on from there', status: line,
       go: (x) => cut(0n, { selfSettle: x.selfSettle, waitOpts: x.waitOpts }) }, e);
   }
   // The new note shows in a scan a moment after its settle: look a few times before giving up.
@@ -7605,7 +7610,7 @@ async function stepHarvest(run, pos, tell, status) {
   const t = await getUx(), args = { walletPriv: walletPriv(), position: pos };
   try { await t.farmHarvest({ ...args, waitOpts: run.wait('Harvest farm rewards', 15 * 60e3) }); }
   catch (e) {
-    if (!status || !relayRefused(e) || run.away) throw e;
+    if (!status || !heldUp(e) || run.away) throw e;
     throw offerSelf({ label: 'Harvest farm rewards', sheet: 'farm', status: statusLine(status), after: () => loadFarms(true, { private: true }), then: 'Harvested to a wTAC note. Turn it into TAC when you like.',
       go: (x) => x.t.farmHarvest({ ...args, selfSettle: x.selfSettle, waitOpts: x.waitOpts }) }, e);
   }
@@ -7619,7 +7624,7 @@ async function stepUnbond(run, pos, tell, forfeit = false, status = null) {
   const t = await getUx(), args = { walletPriv: walletPriv(), position: pos, forfeitPending: forfeit };
   try { await t.farmUnbond({ ...args, waitOpts: run.wait('Unbond from a farm', 15 * 60e3) }); }
   catch (e) {
-    if (!status || !relayRefused(e) || run.away) throw e;
+    if (!status || !heldUp(e) || run.away) throw e;
     throw offerSelf({ label: 'Unbond from a farm', sheet: 'farm', status: statusLine(status), after: () => loadFarms(true, { private: true }), then: 'Unbonded. Your liquidity is a private note again.',
       go: (x) => x.t.farmUnbond({ ...args, selfSettle: x.selfSettle, waitOpts: x.waitOpts }) }, e);
   }
@@ -8238,6 +8243,16 @@ function zapSize(Z, fr, rIn, rOut, feeBps) {
   const mid = (rOut * y * G) / (rIn * 10000n);                 // the return at the price before the swap, fee taken
   return { x: y + fr, y, out, add: keep < pair ? keep : pair, rIn2, rOut2, impact: mid > 0n ? Math.max(0, (1 - Number(out) / Number(mid)) * 100) : 0 };
 }
+// The same swap for a note already cut to what is swapped (x, the relay's fee for the swap carved from it): what it returns and what
+// pairs with that return after it. Nothing is left to size, as zapSize sizes it from the deposit.
+function cutSwap(x, fr, rIn, rOut, feeBps) {
+  const G = 10000n - BigInt(feeBps), y = x - fr;
+  if (y <= 0n || rIn <= 0n || rOut <= 0n) return null;
+  const out = (rOut * y * G) / (rIn * 10000n + y * G), rIn2 = rIn + y, rOut2 = rOut - out;
+  if (out <= 0n || rOut2 <= 0n) return null;
+  const mid = (rOut * y * G) / (rIn * 10000n);
+  return { x, y, out, pair: out * rIn2 / rOut2, rIn2, rOut2, impact: mid > 0n ? Math.max(0, (1 - Number(out) / Number(mid)) * 100) : 0 };
+}
 function farmJoin(el, p, status, has) {
   const r = p.reserves || {}, kA = kOfAsset(r.assetA), kB = kOfAsset(r.assetB), pid = p.pid;
   const tkB = String(p.pair).split('/').find((x) => x !== 'cETH'), other = shownAs(tkB), dpB = /BTC/.test(tkB) ? 6 : 2;
@@ -8301,6 +8316,30 @@ function farmJoin(el, p, status, has) {
   const aFor = (b, res) => (b * res.reserveA) / res.reserveB;
   const exact = (k, v) => freeNotes(P.scan?.[k]?.notes).some((n) => BigInt(n.value) === v);   // a note already that size is spent as it is
   const feeOf = (j, k) => (k === kA ? j.feeA : j.feeB), swapFeeOf = (j, k) => (k === kA ? j.swapA : j.swapB);
+  // A fresh plan for a deposit of `Zin` of the side held: the note cuts come out of it (one to the amount swapped, one to what pairs
+  // with the return; a deposit that is one note spent whole needs only the first, and a note already of the swap's size needs none).
+  const freshOne = (Zin, fr, rIn, rOut, feeBps, fee) => {
+    const s2 = exact(kS, Zin) ? 0n : fee;
+    let s1 = fee, z = zapSize(Zin - s1 - s2, fr, rIn, rOut, feeBps);
+    if (z && exact(kS, z.x)) { s1 = 0n; z = zapSize(Zin - s2, fr, rIn, rOut, feeBps); }
+    return { z, s1, s2 };
+  };
+  // Notes a stopped zap left cut to its plan: one of exactly what is swapped, and another that pairs with its return, taken the way the
+  // chain takes them (the second may be over by at most its cut fee and 0.4%). Spent whole they need no cut and no relay fee. `Zin`
+  // names the deposit they must add up to; none looks for the pair that holds the most.
+  const reuseOne = (Zin, fr, rIn, rOut, feeBps, fee) => {
+    const notes = freeNotes(P.scan?.[kS]?.notes).map((n) => ({ k: kNote(n), v: BigInt(n.value) }));
+    let best = null;
+    for (const sw of notes) for (const pr of notes) {
+      if (sw.k === pr.k || (Zin != null && sw.v + pr.v !== Zin)) continue;
+      const z = cutSwap(sw.v, fr, rIn, rOut, feeBps);
+      if (!z || z.pair <= 0n) continue;
+      const over = pr.v - z.pair;
+      if (over < 0n || over > fee || over * 10000n > pr.v * 40n) continue;
+      if (!best || pr.v > best.pr.v) best = { z: { ...z, add: pr.v }, sw, pr };
+    }
+    return best;
+  };
   let q = null, seq = 0;
   const reading = () => { mount(rc, html`<p class="note">Reading the pool and the relay’s fees…</p>`); rc.hidden = false; };
   const gateOk = () => { go.disabled = !q || q.over || q.gasShort || !lossOk(ackBox, q.impact || 0); };
@@ -8349,9 +8388,8 @@ function farmJoin(el, p, status, has) {
     const fee = feeOf(j, kS), fr = swapFeeOf(j, kS), held = spendable(kS);
     // The note cuts: one to the amount swapped, one to what pairs with the swap's return. A deposit that is one note spent
     // whole needs only the first: what that cut leaves is the rest.
-    const s2 = exact(kS, Zin) ? 0n : fee;
-    let s1 = fee, z = zapSize(Zin - s1 - s2, fr, rIn, rOut, feeBps);
-    if (z && exact(kS, z.x)) { s1 = 0n; z = zapSize(Zin - s2, fr, rIn, rOut, feeBps); }
+    const reuse = reuseOne(Zin, fr, rIn, rOut, feeBps, fee);
+    const { z, s1, s2 } = reuse ? { z: reuse.z, s1: 0n, s2: 0n } : freshOne(Zin, fr, rIn, rOut, feeBps, fee);
     const eth = await ethBalance();
     if (my !== seq || !go.isConnected) return;
     mount(rc, html``); rc.hidden = false;
@@ -8367,6 +8405,7 @@ function farmJoin(el, p, status, has) {
       ${yieldRows(shares, a)}
       <div class="kv"><span>Relay fee for the swap</span><b>${fmt(fr, 8, dp[kS])} ${unit[kS]}</b></div>
       ${s1 + s2 ? html`<div class="kv"><span>Relay fee to split your notes</span><b>${fmt(s1 + s2, 8, dp[kS])} ${unit[kS]}</b></div>` : ''}
+      ${reuse ? html`<p class="note">Uses the two notes already made for this: nothing is split again.</p>` : ''}
       ${gasRow(j)}`);
     mount(ackBox, lossGate(`sj-ackv-${pid}`, z.impact, 'deposit'));
     wireAck(ackBox, `sj-ackv-${pid}`, z.impact, gateOk);
@@ -8395,7 +8434,13 @@ function farmJoin(el, p, status, has) {
     try {
       const t = await getUx(), j = await joinTerms(t, p), res = j.res;
       const fill = (id, v) => { const i = $(`#${id}`); if (i) { i.value = v > 0n ? plain(v, 8) : ''; i.dispatchEvent(new Event('input')); } };   // the sheet may have been drawn again meanwhile: fill the field on the page now
-      if (single) return fill(`sj-${mode}-${pid}`, spendable(kS));
+      if (single) {
+        // A stopped zap leaves its notes cut to the plan: spending those whole beats cutting the balance again when they hold more.
+        const inA = kS === kA, rIn = inA ? res.reserveA : res.reserveB, rOut = inA ? res.reserveB : res.reserveA, feeBps = Number(res.feeBps ?? p.feeBps ?? 30);
+        const fee = feeOf(j, kS), fr = swapFeeOf(j, kS), whole = spendable(kS);
+        const re = reuseOne(null, fr, rIn, rOut, feeBps, fee), fresh = freshOne(whole, fr, rIn, rOut, feeBps, fee).z;
+        return fill(`sj-${mode}-${pid}`, re && (!fresh || re.z.add > fresh.add) ? re.sw.v + re.pr.v : whole);
+      }
       const room = (k, fee) => { const v = spendable(k); return v > fee ? v - fee : 0n; };
       const fits = (k, v, fee) => v > 0n && (exact(k, v) ? v <= spendable(k) : v + fee <= spendable(k));
       let a = room(kA, j.feeA), b = bFor(a, res);
@@ -8423,7 +8468,7 @@ function farmJoin(el, p, status, has) {
       if (z.kind === 'one') {
         // A note of exactly what is swapped; the swap, in this pool; a note of what pairs with its return at the ratio after
         // it; then the bond. Stopped anywhere, what is held is private notes still, and the form picks them up.
-        if (Date.now() - z.at > 60e3) { tell('The price had gone stale. It is being read again; check it and press once more.'); requote({}); return; }
+        if (Date.now() - z.at > 60e3) { tell('The price had gone stale. It is being read again; check it and press once more.'); await scanIfNew().catch(() => {}); requote({}); return; }
         const unitS = unit[kS], unitO = unit[kO], doing = `Swap ${fmt(z.x, 8, dp[kS])} ${unitS} for ${unitO}`;
         tell(`Step 1 of 4 · Making a note of ${fmt(z.x, 8, dp[kS])} ${unitS} to swap…`);
         const nS = await noteFor(run, t, priv, z.x, (n) => BigInt(n.value) === z.x, line(), kS);
@@ -8444,9 +8489,9 @@ function farmJoin(el, p, status, has) {
             await t.route({ walletPriv: priv, ...args, fee: fr2, waitOpts: run.wait({ step: `Swap for ${unitO}`, doing }, 15 * 60e3) });
           }
         } catch (e) {
-          if (!relayRefused(e) || run.away) throw e;
+          if (!heldUp(e) || run.away) throw e;
           FARM.jm[pid] = 'pair';                                            // once swapped, both sides are held: the form opens on both
-          offerSelf({ label: doing, sheet: 'farm', after: loadFarms, status: line, then: `Swapped. Your ${unitO} is a private note: press Max, then Add and farm, to put both sides in.`,
+          offerSelf({ label: doing, sheet: 'farm', after: loadFarms, status: line, carry: `press Max, then Add and farm, to put both sides in`, then: `Swapped. Your ${unitO} is a private note: press Max, then Add and farm, to put both sides in.`,
             go: (y) => y.t.route({ walletPriv: y.priv, ...args, fee: 0n, selfSettle: y.selfSettle, waitOpts: y.waitOpts }) }, e);
           return;
         }

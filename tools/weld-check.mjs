@@ -16,6 +16,10 @@
 //   farmcoming a private farm opened while a wrap is settling says the tETH is on its way instead of asking for it again
 //   farmzap  one side alone farms: Max takes the whole balance, the quote says what is swapped and what both sides add, and the
 //            press cuts the swap note, swaps it in the farm's pool, cuts what pairs with the return and bonds both
+//   farmqueue a cut still in the relay's queue when the wait runs out says so, says how to carry on, and offers the paying account
+//   farmheld  a harvest still in the relay's queue when the wait runs out offers the paying account too
+//   farmreuse a stopped zap's two notes (one of the swapped amount, one that pairs with its return) are spent whole: Max takes both and
+//            nothing is split again
 //   farmexit Exit on a private position is one press: harvest what is worth harvesting, unbond giving up what accrued since (a plain
 //            unbond refuses it), take the liquidity out, each step named as it runs
 //   farmclaim Claim rewards harvests the positions with a real reward and none holding dust, then unwraps the wTAC
@@ -130,7 +134,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -3929,7 +3933,7 @@ const FARM_WTAC_ASSET = '0x1097c9e552ae4fce2a8c416b93403953fa445a5f2cdae8ced36d9
 // The relay refusing what carries no fee, as it does when its day's free settles are used up: harvest, unbond and the reward unwrap fail
 // until the page hands the settle to the paying account (a selfSettle), and then they run as the chain stub would.
 const refuseStub = () => `
-    const refused = () => Object.assign(new Error('relay 429: free relayed settles for today are used up (300/300) — attach a fee above the floor, or prove-mode and settle it yourself'), { code: 'free_budget' });
+    const refused = () => window.__farmQueue ? new Error('settle timed out after 900s') : Object.assign(new Error('relay 429: free relayed settles for today are used up (300/300) — attach a fee above the floor, or prove-mode and settle it yourself'), { code: 'free_budget' });   // or, with __farmQueue, a wait that ran out in the relay's queue
     for (const k of ['farmHarvest', 'farmUnbond', 'farmRedeem']) {
       const real = ux[k];
       ux[k] = async (a) => {
@@ -3982,19 +3986,34 @@ const chainStub = () => `
 // quote. window.__swapRefuse makes the relay refuse a relayed route, as it does when its free settles are used up.
 const swapStub = () => `
     window.__swapCalls = [];
+    window.__swapQueue = 0;                                             // how many relayed steps wait out the relay's queue (then run the next ones)
+    window.__poolMoves = false;                                         // true: the pool's reserves take the swap in, as the real pool's do
+    const reserves = ux.poolReserves;
+    ux.poolReserves = async (id) => {
+      const r = await reserves(id), m = window.__moved;
+      if (!r || !window.__poolMoves || !m) return r;
+      const has = (x) => BigInt(r.assetA) === BigInt(x) || BigInt(r.assetB) === BigInt(x);
+      if (!has(m.asset) || !has(m.next)) return r;
+      const inIsA = BigInt(r.assetA) === BigInt(m.asset);
+      return { ...r, reserveA: inIsA ? r.reserveA + m.y : r.reserveA - m.out, reserveB: inIsA ? r.reserveB - m.out : r.reserveB + m.y };
+    };
     const wait = () => new Promise((r) => setTimeout(r, 400));
+    const queued = (selfSettle) => { if (window.__swapQueue > 0 && !selfSettle) { window.__swapQueue--; throw new Error('settle timed out after 900s'); } };
     ux.route = async (a) => {
       const q = await ux.quoteRoute({ asset0: a.inNote.asset, amountIn: a.amountIn, path: a.path, fee: a.fee });
       window.__swapCalls.push({ amountIn: String(a.amountIn), noteValue: String(a.inNote.value), fee: String(a.fee), minOut: String(a.minOut), out: String(q.amountOut), path: a.path.map((h) => h.feeBps + ':' + h.assetNext), self: !!a.selfSettle });
       if (window.__swapRefuse && !a.selfSettle) throw new Error('fee below the current floor');
+      queued(a.selfSettle);
       await wait();
+      window.__moved = { next: a.path[0].assetNext, asset: a.inNote.asset, y: BigInt(a.amountIn) - BigInt(a.fee), out: BigInt(q.amountOut) };
       add.splice(add.findIndex((n) => n.cx === a.inNote.cx), 1);
       add.push(note(q.assetFinal, q.amountOut));
       return { txHash: '0x' + 'ab'.repeat(32) };
     };
     ux.lpBond = async (a) => { window.__join = { controller: a.controller, a: a.aNote.value, b: a.bNote.value, aAsset: a.aNote.asset, bAsset: a.bNote.asset, feeBps: a.feeBps, selfSettle: typeof a.selfSettle }; return { txHash: null, dShares: 1n }; };
-    ux.transfer = async ({ notes, amount }) => {
-      window.__swapCalls.push({ split: String(amount) });
+    ux.transfer = async ({ notes, amount, selfSettle }) => {
+      window.__swapCalls.push({ split: String(amount), self: !!selfSettle });
+      queued(selfSettle);
       await wait();
       for (const n of notes) add.splice(add.findIndex((x) => x.cx === n.cx), 1);
       const total = notes.reduce((t, n) => t + BigInt(n.value), 0n);
@@ -4002,7 +4021,7 @@ const swapStub = () => `
       if (total > amount) add.push(note(notes[0].asset, total - amount));
       return {};
     };`;
-const stubFarmUx = (page, { notes = [], positions = null, chain = false, swap = false, refuse = false }) => page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+const stubFarmUx = (page, { notes = [], positions = null, chain = false, swap = false, refuse = false, fees = null }) => page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
   import * as real from '/confidential-pool-ux.js?stub=real';
   export * from '/confidential-pool-ux.js?stub=real';
   export function makeConfidentialPoolUx(o) {
@@ -4021,6 +4040,7 @@ const stubFarmUx = (page, { notes = [], positions = null, chain = false, swap = 
       ${positions ? 'b.farmPositions = positions.map((p) => ({ ...p }));' : ''}       // the page takes positions from the scan when it carries them
       return b;
     };
+    ${fees ? `ux.quoteOpFee = async (tk, k) => BigInt(${JSON.stringify(fees)}[k] ?? 0);` : ''}       // fixed relay fees, so notes can be made to a plan
     ${swap ? swapStub() : ''}
     ${positions ? `const positions = ${JSON.stringify(positions)}; ux.farmPositions = async () => positions.map((p) => ({ ...p }));
     ${chain ? chainStub() : `ux.farmHarvest = async ({ position }) => { window.__farmCalls.push('harvest:' + position.receiptLeaf); return {}; };
@@ -4250,6 +4270,93 @@ await step('farmzap', async () => {
   } finally { await r.browser.close(); }
 });
 
+// A step the relay has not done when the wait runs out is not a dead end: the line says it is in the relay's queue, how to carry on
+// when it is done, and offers to send it from the paying account (what a refused step offers). The cut then goes out with the settle
+// handed over, and pressing again carries the chain on to the bond.
+await step('farmqueue', async () => {
+  const r = await openFarmKey('9c0e'.padEnd(64, '6'), { notes: [[FARM_CETH, 2000000n]], positions: [], swap: true });
+  const p = r.page;
+  try {
+    await go(p, '#farm');
+    await p.waitForSelector('[data-farm="pid0"] > button', { timeout: 120000 });
+    if (!(await p.$('.farm.open[data-farm="pid0"]'))) await p.click('[data-farm="pid0"] > button');
+    await p.waitForSelector('#sj-max-0', { timeout: 300000 });
+    await p.click('#sj-max-0');
+    await until(p, () => /Swaps/.test(document.querySelector('#sj-rcpt-0')?.textContent || '') && !document.querySelector('#sj-go-0').disabled, null, 420000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#sj-rcpt-0')).replace(/\s+/g, ' ')}`); });
+    await p.evaluate(() => { window.__swapQueue = 1; });
+    await p.click('#sj-go-0');
+    await p.waitForSelector('#sf-status-0 [data-selfdo]', { timeout: 240000 });
+    const line = (await text(p, '#sf-status-0')).replace(/\s+/g, ' ');
+    ok(/Still in the relay’s queue/.test(line) && /goes through on its own/.test(line) && /press the button again to carry on/.test(line) && /Send it from/.test(line),
+      `farmqueue: a cut still in the relay's queue says so, how to carry on, and offers the paying account (${line})`);
+    ok(!/don’t send it again/.test(line), 'farmqueue: and does not tell the reader not to send it, when sending it is offered');
+    await shot(p, 'farmqueue');
+    await p.click('#sf-status-0 [data-selfdo]');
+    await until(p, () => /Your note is ready/.test(document.querySelector('#sf-status-0')?.textContent || ''), null, 240000);
+    const calls = await p.evaluate(() => window.__swapCalls), cuts = calls.filter((c) => c.split);
+    ok(cuts.length === 2 && cuts[0].self === false && cuts[1].self === true && cuts[0].split === cuts[1].split, `farmqueue: the offer runs the same cut with the settle handed over (${JSON.stringify(calls)})`);
+    // The note is cut: pressing again carries on from it.
+    await until(p, () => !document.querySelector('#sj-go-0')?.disabled, null, 240000);
+    await p.click('#sj-go-0');
+    await until(p, () => !!window.__join || /err/.test(document.querySelector('#sf-status-0')?.innerHTML || ''), null, 300000);
+    ok(!!(await p.evaluate(() => window.__join)), `farmqueue: and pressing again goes on to the bond (${(await text(p, '#sf-status-0')).replace(/\s+/g, ' ').slice(0, 160)})`);
+    if (r.errors.length) { fails++; console.log('FAIL farmqueue page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+// A harvest or an unbond still in the relay's queue when the wait runs out is offered from the paying account, as a refused one is.
+await step('farmheld', async () => {
+  const r = await openFarmKey('b3d1'.padEnd(64, '6'), { notes: [], positions: [farmPos(7, 150000000, 1234560000, '12.3456')], chain: true, refuse: true });
+  const p = r.page;
+  try {
+    await go(p, '#farm');
+    await p.waitForSelector('[data-harvest="0"]', { timeout: 300000 });
+    await p.evaluate(() => { window.__farmQueue = true; });
+    await p.click('[data-harvest="0"]');
+    await p.waitForSelector('#sf-act-0 [data-selfdo]', { timeout: 120000 });
+    const line = (await text(p, '#sf-act-0')).replace(/\s+/g, ' ');
+    ok(/Still in the relay’s queue/.test(line) && /goes through on its own/.test(line) && /Send it from/.test(line) && !/don’t send it again/.test(line), `farmheld: a harvest still in the relay's queue offers the paying account (${line})`);
+    await p.click('#sf-act-0 [data-selfdo]');
+    await until(p, () => /Harvested to a wTAC note/.test(document.querySelector('#sf-act-0')?.textContent || ''), null, 240000);
+    const calls = await p.evaluate(() => window.__farmCalls);
+    ok(calls.includes('refused:farmHarvest') && calls.includes('self:farmHarvest') && calls.includes(`harvest:0x${'7'.repeat(64)}`), `farmheld: and the offer runs the same harvest with the settle handed over (${calls.join(', ')})`);
+    if (r.errors.length) { fails++; console.log('FAIL farmheld page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+// A zap stopped part-way leaves its notes cut to the plan: one of exactly what is swapped and one that pairs with its return. Max takes
+// both whole, the quote says nothing is split again, and the press swaps the first and bonds the second with no cut at all.
+await step('farmreuse', async () => {
+  const poolId = '0x248497bf6f943cd2b39a04bf5841056c58dfd7ef196188cb4f0ac1fd11dc7c00';
+  const sel = Buffer.from(keccak_256('pools(bytes32)')).toString('hex').slice(0, 8);
+  const w = (await rpc('eth_call', [{ to: '0x000000000Ed1eabD231Be41d93b719056F7febFC', data: '0x' + sel + poolId.slice(2) }, 'latest'])).slice(2);
+  const rA = BigInt('0x' + w.slice(3 * 64, 4 * 64)), rB = BigInt('0x' + w.slice(4 * 64, 5 * 64));
+  const fr = 40000n, fee = 41000n, G = 9970n, x = 1000000n, y = x - fr;                       // the pool's 30 bp fee; the fees the stub fixes
+  const out = rB * y * G / (rA * 10000n + y * G), pair = out * (rA + y) / (rB - out), m = pair + 7n;
+  const r = await openFarmKey('4d2a'.padEnd(64, '6'), { notes: [[FARM_CETH, x], [FARM_CETH, m]], positions: [], swap: true, fees: { transfer: Number(fee), route: Number(fr) } });
+  const p = r.page;
+  try {
+    await go(p, '#farm');
+    await p.waitForSelector('[data-farm="pid0"] > button', { timeout: 120000 });
+    if (!(await p.$('.farm.open[data-farm="pid0"]'))) await p.click('[data-farm="pid0"] > button');
+    await p.waitForSelector('#sj-max-0', { timeout: 300000 });
+    await p.evaluate(() => { window.__poolMoves = true; });             // after the swap the pool's ratio is the one the pair note is sized for
+    await p.click('#sj-max-0');
+    await until(p, () => /Swaps/.test(document.querySelector('#sj-rcpt-0')?.textContent || '') && !document.querySelector('#sj-go-0').disabled, null, 420000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#sj-rcpt-0')).replace(/\s+/g, ' ')}`); });
+    const rc = (await text(p, '#sj-rcpt-0')).replace(/\s+/g, ' '), typed = Math.round(parseFloat(await p.inputValue('#sj-a-0')) * 1e8);
+    ok(typed === Number(x + m) && /Uses the two notes already made/.test(rc) && !/Relay fee to split your notes/.test(rc) && /Relay fee for the swap/.test(rc),
+      `farmreuse: Max takes both notes whole (${typed} of ${x + m}), and the quote says nothing is split again (${rc})`);
+    await shot(p, 'farmreuse');
+    await p.click('#sj-go-0');
+    await until(p, () => !!window.__join || /err/.test(document.querySelector('#sf-status-0')?.innerHTML || ''), null, 240000);
+    const j = await p.evaluate(() => window.__join), calls = await p.evaluate(() => window.__swapCalls);
+    if (!j) throw new Error(`no bond: ${await text(p, '#sf-status-0')} ${JSON.stringify(calls)}`);
+    const sw = calls.find((c) => c.amountIn);
+    ok(calls.filter((c) => c.split).length === 0 && sw && BigInt(sw.amountIn) === x && BigInt(sw.noteValue) === x && BigInt(j.a) === m && BigInt(j.b) === BigInt(sw.out),
+      `farmreuse: no note is cut: the first is swapped whole and the second bonded whole with the swap's return (${JSON.stringify(calls)} ${j.a} ${j.b})`);
+    if (r.errors.length) { fails++; console.log('FAIL farmreuse page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
 // Exit is one press: harvest what is worth harvesting, unbond (giving up what the position earned while the harvest settled,
 // which a plain unbond refuses), take the liquidity out. The steps are named as they run, and what is left is a position gone,
 // both assets as private notes, and the rewards as wTAC.
