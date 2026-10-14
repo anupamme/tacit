@@ -34,6 +34,8 @@ import { makeAbandonedSettles } from './lib/abandoned-settles.js';
 import { quoteRelayFee, provePriceUsd, replenishOnce, drainToSink } from './replenish.js';
 import { replenishDue } from './lib/replenish-schedule.js';
 import { tipFor, TIP_HISTORY_BLOCKS, TIP_PERCENTILE } from './lib/gas-tip.js';
+import { feeCapFor } from './lib/fee-cap.js';
+import { SETTLE_TIP_MIN_TOTAL_WEI, SETTLE_TIP_CAP_WEI, CAP_MULT_MAX, CAP_MULT_MIN, settleFundsNeed } from './lib/settle-fees.js';
 import { safeErr } from './lib/safe-err.js';
 import { encodeFunctionData } from 'viem';
 
@@ -46,8 +48,8 @@ const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
 const TIP_FLOOR_WEI = CFG.settleTipFloorWei;   // only a fallback now: the rate used when the fee history cannot be read
 // The smallest total priority payment worth a builder's attention. A floor on the total rather than on the rate, so a
 // 350k-gas settle stays worth including without a 3.5M-gas batch paying the same rate for it.
-const TIP_MIN_TOTAL_WEI = BigInt(process.env.SETTLE_TIP_MIN_TOTAL_WEI || '20000000000000'); // 0.00002 ETH
-const TIP_CAP_WEI = BigInt(process.env.SETTLE_TIP_CAP_WEI || '2000000000'); // 2 gwei
+const TIP_MIN_TOTAL_WEI = SETTLE_TIP_MIN_TOTAL_WEI;   // 0.00002 ETH, lib/settle-fees.js (the monitor prices a settle with the same figures)
+const TIP_CAP_WEI = SETTLE_TIP_CAP_WEI;               // 2 gwei
 const SUBMIT_ROUNDS = Math.max(1, parseInt(process.env.SETTLE_SUBMIT_ROUNDS || '3', 10));
 const RECEIPT_WAIT_MS = Math.max(30_000, parseInt(process.env.SETTLE_RECEIPT_WAIT_MS || '90000', 10));
 const INCLUSION_POLL_MS = 4_000;
@@ -175,11 +177,12 @@ async function submitCall(base, label, { gasLimit = null, landed = null } = {}) 
   // cap (and nonce/gas) through the settle transport, and a cap taken from a lagging view of the base fee
   // gets the tx rejected outright as unincludable. Base fee can also climb between pricing and inclusion, so
   // cap at 3x the current base fee (refunded — only base plus tip is actually paid).
-  let [blk, nonce, gasEst, feeHist] = await Promise.all([
+  let [blk, nonce, gasEst, feeHist, balance] = await Promise.all([
     publicClient.getBlock({ blockTag: 'latest' }),
     publicClient.getTransactionCount({ address: settleWallet.account.address, blockTag: 'pending' }),
     gasLimit ? null : publicClient.estimateContractGas({ ...base, account: settleWallet.account }).catch(() => null),
     publicClient.getFeeHistory({ blockCount: TIP_HISTORY_BLOCKS, rewardPercentiles: [TIP_PERCENTILE] }).catch(() => null),
+    publicClient.getBalance({ address: settleWallet.account.address }).catch(() => null),
   ]);
   const data = encodeFunctionData({ abi: base.abi, functionName: base.functionName, args: base.args });
   let baseFee = blk.baseFeePerGas ?? 0n;
@@ -191,6 +194,16 @@ async function submitCall(base, label, { gasLimit = null, landed = null } = {}) 
   let tip = tipFor({ rewards: feeHist && feeHist.reward, gas: gasForTip, minTotalWei: TIP_MIN_TOTAL_WEI, capWei: TIP_CAP_WEI, fallbackWei: TIP_FLOOR_WEI });
 
   const call = { ...base, ...(gasLimit ? { gas: gasLimit } : gasEst ? { gas: (gasEst * 12n) / 10n } : {}) };
+  // The fee cap each round sends with: the full multiple of the base fee when the wallet covers it, a lower one when it does
+  // not (lib/fee-cap.js). A node refuses a send whose gas limit times cap the wallet cannot cover, and only base plus tip is
+  // paid, so a wallet short of the full cap settles at the cap it can stand behind instead of holding the queue.
+  let capNoted = false;
+  const capNow = () => {
+    if (balance == null) return baseFee * 3n + tip;          // the balance could not be read: the full cap, as before
+    const c = feeCapFor({ balance, gas: call.gas ?? SETTLE_FUNDS_GAS, base: baseFee, tip, maxMult: CAP_MULT_MAX, minMult: CAP_MULT_MIN });
+    if (c.mult < Number(CAP_MULT_MAX) / 1000 && !capNoted) { capNoted = true; log(`${label} wallet holds ${(Number(balance) / 1e18).toFixed(4)} ETH: fee cap ${c.mult} base fees instead of ${Number(CAP_MULT_MAX) / 1000}`); }
+    return c.maxFee;
+  };
   const endpoints = settleWallets.length ? settleWallets : [{ url: 'default', wallet: settleWallet }];
   // Rotation covers the PRIVATE endpoints only; a public one is appended after them on every round. Rounds
   // advance on non-inclusion, not on refusal, so rotating a public endpoint into the lead would put a
@@ -268,7 +281,7 @@ async function submitCall(base, label, { gasLimit = null, landed = null } = {}) 
     }
     const dead = await wouldRevert();
     if (dead) return settledOrDead(dead);
-    const tx = { ...call, nonce, maxFeePerGas: baseFee * 3n + tip, maxPriorityFeePerGas: tip };
+    const tx = { ...call, nonce, maxFeePerGas: capNow(), maxPriorityFeePerGas: tip };
     // Marked only now: a call refused by the simulation above was never put on the wire, so it must not hold the
     // prover top-up behind a nonce that nothing will ever consume.
     lastBroadcastNonce = Math.max(lastBroadcastNonce, nonce);
@@ -568,7 +581,7 @@ async function fundsShort() {
       publicClient.getBalance({ address: settleWallet.account.address }),
       publicClient.getBlock({ blockTag: 'latest' }),
     ]);
-    have = bal; need = SETTLE_FUNDS_GAS * ((blk.baseFeePerGas ?? 0n) * 3n + TIP_FLOOR_WEI);
+    have = bal; ({ need } = await settleFundsNeed(publicClient, { block: blk }));
   } catch { return false; }
   const eth = (wei) => (Number(wei) / 1e18).toFixed(4);
   if (have >= need) {

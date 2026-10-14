@@ -32,6 +32,7 @@ import { manualRecoveryHint } from './lib/reflection-reconcile.js';
 import { reflectionDriftSeen, crossOutGapSeen } from './lib/worker-client.js';
 import { creditLevel } from './lib/prove-credit.js';
 import { blockSecOf, feedLagSec, feedLagLevel } from './lib/feed-lag.js';
+import { settleFundsNeed } from './lib/settle-fees.js';
 import { publicClient, relayWallet, watchedWallets, ERC20_ABI, PROVE, readPool, readReflectionDigest, HEADER_RELAY, RELAY_ABI } from './lib/chain.js';
 import { safeErr } from './lib/safe-err.js';
 
@@ -103,7 +104,7 @@ async function checkEth() {
     const extra = { address, roles, ethWei: bal.toString() };
 
     if (base !== null && roles.includes('settle')) {
-      const need = CFG.settleFundsGas * (3n * base + CFG.settleTipFloorWei);
+      const { need } = await settleFundsNeed(publicClient);   // the figure the settle relay holds jobs back below (lib/settle-fees.js)
       if (bal < need) await alert('critical', `${who} holds ${formatEther(bal)} ETH, under the ${formatEther(need)} ETH the next settle can cost at today's gas: relayed jobs wait in the queue until it is topped up`, extra);
     }
     if (base !== null && roles.includes('relay')) {
