@@ -130,7 +130,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmexit,farmclaim,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,tradelinks,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmexit,farmclaim,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -4550,6 +4550,32 @@ await step('tradelinks', async () => {
       ok(seen.footer && seen.bar, `tradelinks (${name}): and the footer links Trade`);
       ok(!seen.scroll, `tradelinks (${name}): and the page does not scroll sideways`);
       if (r.errors.length) { fails++; console.log('FAIL tradelinks page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+    } finally { await r.browser.close(); }
+  }
+});
+
+// The price strip under the header: TAC, BTC and ETH, each with its mark and a dollar price read from the one shared multicall. It reserves
+// its row, so the hero does not move when the figures arrive; TAC links to the trade page; at a phone's width it fits.
+await step('pxs', async () => {
+  for (const [name, viewport] of [['desktop', { width: 1280, height: 900 }], ['phone', { width: 360, height: 740 }]]) {
+    const r = await openPage({ account: A0, key: K0, viewport });
+    const p = r.page;
+    try {
+      await p.goto(r.url);
+      await p.waitForSelector('#hx-body .hx-h');
+      const top0 = await p.$eval('.hero', (e) => e.getBoundingClientRect().top);
+      await p.waitForFunction(() => document.querySelector('#pxs.on'), null, { timeout: 120000 });
+      const s = await p.evaluate(() => {
+        const items = [...document.querySelectorAll('#pxs .px')].map((x) => ({ name: x.querySelector('b').textContent, val: Number(x.querySelector('.num').textContent.replace(/[$,]/g, '')), mark: x.querySelector('use').getAttribute('href'), href: x.getAttribute('href') }));
+        return { items, top: document.querySelector('.hero').getBoundingClientRect().top, scroll: document.documentElement.scrollWidth > innerWidth + 1, h: document.querySelector('#pxs').getBoundingClientRect().height };
+      });
+      const [tac, btc, eth] = s.items;
+      ok(s.items.map((x) => x.name).join() === 'TAC,BTC,ETH' && s.items.map((x) => x.mark).join() === '#tk-tac,#tk-btc,#tk-eth', `pxs (${name}): the strip names TAC, BTC and ETH, each with its own mark (${s.items.map((x) => `${x.name} ${x.val}`).join(', ')})`);
+      ok(btc.val > 1000 && eth.val > 100 && btc.val / eth.val > 5 && btc.val / eth.val < 200 && tac.val > 0 && tac.val < eth.val, `pxs (${name}): the dollar prices are sane against one another (BTC ${btc.val}, ETH ${eth.val}, TAC ${tac.val})`);
+      ok(tac.href === '/trade/tac/' && !btc.href && !eth.href, `pxs (${name}): TAC is the one link, to its trade page`);
+      ok(Math.abs(s.top - top0) < 1 && s.h >= 18, `pxs (${name}): the row was already there, so the hero did not move when the prices arrived (${Math.round(s.top - top0)}px)`);
+      ok(!s.scroll, `pxs (${name}): and the page does not scroll sideways`);
+      if (r.errors.length) { fails++; console.log('FAIL pxs page errors: ' + r.errors.slice(0, 3).join(' | ')); }
     } finally { await r.browser.close(); }
   }
 });

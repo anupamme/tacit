@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-XGpMbnu41No6eBn5hgD83oNOBScK6t3cJl4JX7FN5Bw=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-zqK+Y9UwgAw/6ilUJTRlcrcEeLudQ8AaU/Vrst+GJnI=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=0cf48a6a"></script>
 <title>tacit</title>
@@ -145,6 +145,14 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 .top-r { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .top-r .classic { flex: none; display: inline-flex; align-items: center; min-height: 40px; padding: 0 8px; color: var(--mute); font-size: 12px; text-decoration: none; }
 .top-r .classic.lead { color: var(--ink); font-weight: 500; }
+/* The prices under the header: three marks and three figures, quiet. The row keeps its height while empty, so nothing moves when they arrive. */
+.pxs { display: flex; flex-wrap: wrap; gap: 4px 20px; min-height: 20px; margin: -10px 0 8px; font-size: 12px; line-height: 20px; color: var(--mute); opacity: 0; transition: opacity .35s; }
+.pxs.on { opacity: 1; }
+.pxs .px { display: inline-flex; align-items: center; gap: 6px; color: inherit; text-decoration: none; white-space: nowrap; }
+.pxs .tk { width: 14px; height: 14px; }
+.pxs b { font-weight: 500; font-size: 10.5px; letter-spacing: .08em; }
+.pxs .num { color: var(--ink); }
+@media (hover: hover) { .pxs a.px:hover b { color: var(--ink); } .pxs a.px:hover .num { text-decoration: underline; text-underline-offset: 3px; } }
 @media (hover: hover) { .top-r .classic:hover { color: var(--ink); text-decoration: underline; } }
 /* Trade and Pay lead the header; at a phone's width Classic (still in the footer) gives way so the account chip keeps room for its label. */
 @media (max-width: 430px) { .top-r .classic:not(.lead) { display: none; } }
@@ -992,6 +1000,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
       <button class="chip" id="wallet" type="button"><span class="dot" id="wallet-dot"></span><span id="wallet-label">Sign in</span></button>
     </div>
   </header>
+  <div class="pxs" id="pxs" role="group" aria-label="Prices in dollars"></div>
 
   <section class="hero" aria-labelledby="hero-h">
     <div class="hero-go">
@@ -5736,18 +5745,19 @@ function loadTacPrice(force = false, book = false) {
   TPX.pBook = TPX.p ? TPX.pBook : book;
   return (TPX.p ||= (async () => {
     const BTC1 = 10n ** 8n, api = (path) => fetch(`${API}${path}`, { signal: within(10e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-    // One multicall for the chain: the Precision pool's price, the engine's BTC price both ways, and what the Tacit AMM's
-    // founded 30 bps tier pays for a 0.01 ETH buy.
+    // One multicall for the chain, one round trip: the Precision pool's price, the engine's BTC price both ways (the wstETH a bitcoin
+    // costs, and the stETH one wstETH is worth, which meet at ETH per BTC), and what the Tacit AMM's founded 30 bps tier pays for a 0.01 ETH buy.
     const IN = 10n ** 16n, AMM_FEE = 30;
-    const [[sp, wst, usd, ammOut], asset, sales] = await Promise.all([
+    const [[sp, wst, usd, ammOut, rate], asset, sales] = await Promise.all([
       multicall([{ to: ADDR.precisionPool, data: SEL.sqrtPrice }, { to: ADDR.engine, data: SEL.wstEthForBtc + word(BTC1) }, { to: ADDR.engine, data: SEL.btcToUsd + word(BTC1) },
-        { to: TACIT_AMM, data: SEL.tacitQuote + strip(CETH_POOL_ASSET_ID) + strip(TAC_POOL_ASSET_ID) + word(AMM_FEE) + word(IN) }]),
+        { to: TACIT_AMM, data: SEL.tacitQuote + strip(CETH_POOL_ASSET_ID) + strip(TAC_POOL_ASSET_ID) + word(AMM_FEE) + word(IN) },
+        { to: ADDR.wsteth, data: SEL.stEthPerWst + word(10n ** 18n) }]),
       book ? api(`/assets/${TAC_BTC_ID}?network=mainnet`) : null,
       book ? api(`/assets/${TAC_BTC_ID}/preauth-sales?network=mainnet`) : null,
     ]);
     const amm = ammOut && wordAt(ammOut, 0) > 0n ? { amountIn: IN, amountOut: wordAt(ammOut, 0), feeBps: AMM_FEE } : null;
     const root = sp ? Number(wordAt(sp, 0)) / 1e18 : 0;
-    const ethBtc = wst ? await ethCall(ADDR.wsteth, SEL.stEthPerWst + word(wordAt(wst, 0))).then((r) => Number(wordAt(r, 0)) / 1e18, () => null) : null;   // ETH per BTC; unread: no sats or dollars, the ETH price stays
+    const ethBtc = wst && rate ? (Number(wordAt(wst, 0)) / 1e18) * (Number(wordAt(rate, 0)) / 1e18) : null;   // ETH per BTC; unread: no sats or dollars, the ETH price stays
     const mark = book ? Number(asset?.mark_price?.unit) || null : TPX.v?.mark ?? null;                                          // sats per TAC, from trades
     TPX.v = {
       mid: root > 0 ? 1 / (root * root) : null,                                                                                 // ETH per TAC
@@ -5756,7 +5766,21 @@ function loadTacPrice(force = false, book = false) {
       amm: amm?.amountOut > 0n ? (Number(amm.amountIn) * (1 - Number(amm.feeBps) / 1e4)) / Number(amm.amountOut) : null,
     };
     TPX.at = Date.now(); if (book) TPX.book = true;
+    try { paintPxs(); } catch { /* the strip is a nicety; the reading above is what other forms wait on */ }
   })().finally(() => { TPX.p = null; TPX.pBook = false; }));
+}
+// The price strip under the header: TAC, BTC and ETH in dollars, from the one multicall loadTacPrice already makes (the Precision pool's
+// price, and the collateral engine's BTC price both ways), so it costs no request of its own and every dollar on the page agrees. TAC is
+// a link to the trade page. Nothing is drawn until the figures are read.
+function paintPxs() {
+  const el = $('#pxs'), v = TPX.v;
+  if (!el) return;
+  const eth = v?.usdBtc && v.ethBtc ? v.usdBtc / v.ethBtc : null, tac = eth && v.mid ? v.mid * eth : null;
+  const usd0 = (x, dp = 0) => `$${x.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp })}`;
+  const item = (id, name, val, link) => (val ? `<${link ? `a href="${link}" title="Trade TAC"` : 'span'} class="px"><svg class="tk" aria-hidden="true"><use href="#tk-${id}"/></svg><b>${name}</b><span class="num">${val}</span></${link ? 'a' : 'span'}>` : '');
+  const out = tac && v.usdBtc && eth ? item('tac', 'TAC', usd0(tac, tac < 1 ? 3 : 2), '/trade/tac/') + item('btc', 'BTC', usd0(v.usdBtc)) + item('eth', 'ETH', usd0(eth)) : '';
+  if (el.__h !== out) { el.__h = out; el.innerHTML = out; }                      // written only when it changed
+  el.classList.toggle('on', !!out);
 }
 // The private AMM's mid, cETH over cTAC in its pool (both kept at the pool's own 8 decimals); the founded fee tier is the one with reserves.
 function loadPrivateAmm() {
@@ -10141,6 +10165,7 @@ function hxSync() {
 }
 paintHx();
 refreshTape();
+loadTacPrice().catch(() => {});                                                       // the price strip: one multicall, shared with everything that prices TAC
 // What moves on the page (the tape, the bridge lines, the coin) rests while it is off screen, so typing stays smooth.
 if ('IntersectionObserver' in window) { const io = new IntersectionObserver((es) => { for (const e of es) e.target.classList.toggle('rest', !e.isIntersecting); }); for (const el of $$('.tape, .wd, .tc-stage')) io.observe(el); }
 // A button elsewhere on the page that sets the console (data-hx="tab:from:way"), takes it to a section (data-scroll), or signs in (data-signin).
@@ -10178,7 +10203,7 @@ fetch(`${API}/leaderboard?day=today&limit=1`, { signal: within(20e3) }).then((r)
 refreshAll();
 resumeActivity();
 let lastTick = Date.now();
-const tick = () => { lastTick = Date.now(); paintEarn(); refreshTape(); brTick(); xoTick(); if (lastTick - numsAt > NUMS_MS) refreshNums(); for (const n of SHEETS) if ($(`#sheet-${n}`).open && !running(n)) load[n]?.().then(() => rerender(n)).catch(() => {}); };
+const tick = () => { lastTick = Date.now(); paintEarn(); refreshTape(); loadTacPrice().catch(() => {}); brTick(); xoTick(); if (lastTick - numsAt > NUMS_MS) refreshNums(); for (const n of SHEETS) if ($(`#sheet-${n}`).open && !running(n)) load[n]?.().then(() => rerender(n)).catch(() => {}); };
 setInterval(() => { if (!document.hidden) tick(); }, 60e3);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - lastTick > 60e3) tick(); });
 const route = () => {
