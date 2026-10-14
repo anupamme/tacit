@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Tn7XiZM8nsEsfxBCt5DCh/sZInrxQClo/YKzaMWXAVI=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-dwrtGqQ61x0hHpfFLq/MauAEjj8MgJTVpJFj2LMnclU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=ed3140de"></script>
 <title>tacit — private DeFi on Bitcoin and Ethereum</title>
@@ -2639,6 +2639,7 @@ function setKey(k) {
   S.pay = store.get(PAY)?.[pubHex] || null;
   syncAccount(); resetPrivate(); paintWallet(); refreshAll();
   setTimeout(() => brTick(true), 4000);                            // a bridge waiting on this key moves on as soon as it opens
+  setTimeout(() => brPrepTick(true).catch(() => {}), 5000);         // and a note sent to its own address says at once if it can go
   setTimeout(() => xoTick(true), 6000);
   setTimeout(() => xoDiscover(pubHex, true), 25000);                // a burn this browser has no record of is found from the key
   const opened = () => { if (S.key === key) toast(`Opened ${short(key.tacit, 8)}`); };
@@ -6000,11 +6001,15 @@ function loadBridge(force = false) {
       confirmed: !!u.utxo.status?.confirmed || !!(await esplora(`/tx/${u.utxo.txid}/status`).catch(() => null))?.confirmed,
       stealth: !!u.stealthTweakedSk, stealthTweakedSk: u.stealthTweakedSk || null,
     })));
+    // What each note needs first (an older-form or privately received note goes to its own address once), read from the proof's
+    // state so the list says so before a note is picked. Unread, the list is as it was and the pick's own check says it.
+    const forms = await t.bridgeUx().noteForms(notes).catch(() => null);
+    if (forms) for (const n of notes) n.form = forms.get(brId(n)) ?? null;
     // The notes that can go first, larger first.
     return t.bridgeUx().eligibleNotes(notes).sort((a, b) => (b.eligible - a.eligible) || (BigInt(b.amount) > BigInt(a.amount) ? 1 : BigInt(b.amount) < BigInt(a.amount) ? -1 : 0));
   }, pub).then(async (notes) => {
     await refl;
-    if (S.key?.pubHex === pub) Object.assign(BR, { pub, notes, at: Date.now(), err: null });
+    if (S.key?.pubHex === pub) { Object.assign(BR, { pub, notes, at: Date.now(), err: null }); brPrepSweep(pub); }
   }, (e) => { if (S.key?.pubHex === pub) Object.assign(BR, { pub, notes: null, err: e }); }).finally(() => { BR.loading = null; }));
 }
 // Where the proof is against the block the burn is in: the wait a bridge has left, in blocks.
@@ -6080,7 +6085,58 @@ const brNote = (n) => brOver(n) ? html`<div class="brn brsp"><span><b class="num
   <div class="amt"><input id="brsp-${n.txid.slice(0, 8)}-${n.vout}" inputmode="decimal" value="1000" autocomplete="off" aria-label="TAC to split off"><span class="u">TAC</span></div>
   <button class="btn ghost" type="button" data-brsplit="${brId(n)}" data-brsplit-in="brsp-${n.txid.slice(0, 8)}-${n.vout}">Split off</button></div>`
   : html`<label class="pick brn${n.eligible ? '' : ' off'}"><input type="radio" name="br-note" value="${brId(n)}" ${n.eligible ? '' : 'disabled'} ${BR.pick === brId(n) ? 'checked' : ''}>
-  <span><b class="num">${fmt(BigInt(n.amount), 8, 4)} TAC</b>${n.eligible ? '' : html`<small>${brReason(n.reason)}</small>`}</span></label>`;
+  <span><b class="num">${fmt(BigInt(n.amount), 8, 4)} TAC</b>${!n.eligible ? html`<small>${brReason(n.reason)}</small>` : brFirst(n) ? html`<small>${brFirst(n)}</small>` : ''}</span></label>`;
+// A note the bridge takes after one send to this key's own address, in a few words for the list (the pick offers the send).
+const brNeedsSend = (n) => n.form === 'old' || n.form === 'private';
+const brFirst = (n) => (n.form === 'old' ? 'Older note form: pick it to send it to your own address once, then bridge it.'
+  : n.form === 'private' ? 'Received privately: pick it to send it to your own address once, then bridge it.' : '');
+// A note sent to this key's own address to get it ready for the bridge (an older-form, privately received or split note), kept per
+// key in this browser so the tab and the dashboard can say when it can go. Only a reminder: the scan finds the note whatever this holds.
+const BR_PREP = 'tacit-lite-bridge-prep-v1', BR_PREP_DAYS = 14;
+const brPreps = (pub) => (!pub ? [] : (store.get(BR_PREP)?.[pub] || []).filter((p) => p?.txid && Date.now() - (p.at || 0) < BR_PREP_DAYS * 86400e3));
+function brPrepSet(pub, list) { const m = store.get(BR_PREP) || {}; if (list.length) m[pub] = list; else delete m[pub]; store.set(BR_PREP, m); }
+const brPrepAdd = (pub, p) => brPrepSet(pub, [...brPreps(pub).filter((x) => x.txid !== p.txid), p]);
+// sent: not confirmed yet. proof: confirmed, the proof on Ethereum not at its block yet. ready: it can be bridged.
+const brPrepState = (p) => (!p.height ? 'sent' : Number(BR.refl) >= p.height ? 'ready' : 'proof');
+// Done with once a bridge starts from it, or once the scan, with it confirmed, no longer finds a note it made (spent another way).
+function brPrepSweep(pub) {
+  const ps = brPreps(pub);
+  if (!ps.length) return;
+  const recs = brList(pub), notes = BR.pub === pub ? BR.notes : null;
+  const keep = ps.filter((p) => !recs.some((r) => String(r.id || '').startsWith(`${p.txid}:`))
+    && !(notes && p.height && !notes.some((n) => n.txid === p.txid)));
+  if (keep.length !== ps.length) brPrepSet(pub, keep);
+}
+// Each minute: a prep's confirmation height is read until it has one, and the proof's height beside it; one that turns ready is
+// said once, by a toast and the dashboard.
+let brPrepAt = 0;
+async function brPrepTick(first = false) {
+  const pub = S.key?.pubHex, ps = brPreps(pub);
+  if (!ps.length || (!first && Date.now() - brPrepAt < 55e3)) return;
+  brPrepAt = Date.now();
+  let changed = false;
+  for (const p of ps.filter((x) => !x.height)) {
+    const st = await esplora(`/tx/${p.txid}/status`).catch(() => null);
+    if (st?.confirmed && Number.isInteger(st.block_height)) { p.height = st.block_height; changed = true; }
+  }
+  await brProof(true);
+  for (const p of ps) if (brPrepState(p) === 'ready' && !p.told) { p.told = true; changed = true; toast(`${fmt(BigInt(p.amount), 8, 4)} TAC is ready to bridge: open Bridge`); }
+  if (changed && S.key?.pubHex === pub) { brPrepSet(pub, ps); BR.at = 0; rerender('tac'); dashSoon(); }
+}
+function brPrepRow(p) {
+  const st = brPrepState(p), amt = `${fmt(BigInt(p.amount), 8, 4)} TAC`, at = { sent: 0, proof: 1, ready: 3 }[st], num = (n) => n.toLocaleString('en-US');
+  const proof = Number(BR.refl), gap = st === 'proof' && Number.isInteger(proof) && proof > 0 ? ` The proof is at Bitcoin block ${num(proof)}, ${num(p.height - proof)} block${p.height - proof === 1 ? '' : 's'} to go.` : '';
+  const text = st === 'sent' ? 'Sent to your own address. Waiting for its Bitcoin confirmation, usually within the hour.'
+    : st === 'proof' ? `Confirmed in Bitcoin block ${num(p.height)}. It can be bridged once Bitcoin’s proof on Ethereum reaches that block, usually within a few hours.${gap}`
+    : 'Ready. Bridge it picks it below; then check the fee and confirm.';
+  return html`<li class="actr brr">
+    <div class="actr-h"><b class="num">${amt}</b><span>${st === 'ready' ? html`<b class="brdue">Your turn</b> · ` : ''}Sent ${ago(p.at)}</span></div>
+    <ol class="stp">${['Sent', 'Confirmed', 'Ready'].map((l, i) => stepLi(l, i < at ? 'done' : i === at ? 'now' : ''))}</ol>
+    <div class="actr-f">${text}</div>
+    <div class="actr-f brl"><a href="${MEMPOOL}/tx/${p.txid}" target="_blank" rel="noopener">Bitcoin ${short(p.txid, 6)} ↗</a></div>
+    ${st === 'ready' ? html`<div class="brr-a"><button class="btn" type="button" data-brprep="${p.txid}">Bridge it</button></div>` : ''}
+  </li>`;
+}
 // The Bridge tab: TAC on Bitcoin into private TAC on Ethereum, and, where TAC to Bitcoin is on (its setting, or a bridge of it under way),
 // the other way beside it. Without that there is nothing to choose between and the tab is as it was.
 const BRM = { mode: 'in' };
@@ -6101,10 +6157,13 @@ function renderBridgeIn(el) {
   const pub = S.key.pubHex, b = BR.pub === pub ? BR : null;
   if (!b?.notes && !BR.loading && !b?.err) loadBridge().then(() => rerender('tac')).catch(() => {});
   const recs = brRecords(pub), done = brArrived(pub), notes = (b?.notes || []).filter((n) => n.reason !== 'already bridging'), open = notes.filter((n) => n.eligible);
+  const preps = brPreps(pub);
+  if (preps.some((p) => !p.height || brPrepState(p) !== 'ready')) brPrepTick().catch(() => {});
   if (BR.pick && !open.some((n) => brId(n) === BR.pick)) BR.pick = null;
   if (!BR.pick && open.length === 1) BR.pick = brId(open[0]);
   mount(el, html`
     <p class="lede-s">TAC on your Bitcoin address becomes private TAC on Ethereum, with no relay fee: you pay only a Bitcoin fee, in sats. It arrives once Bitcoin’s proof on Ethereum records the burn, usually within a few hours and sometimes up to a day. You can close this page meanwhile: open it again with the same wallet and it finishes. Make public then turns it into ERC20 TAC.</p>
+    ${preps.length ? html`<div class="lbl"><span>Getting ready</span></div><ul class="acts brs">${preps.map(brPrepRow)}</ul>` : ''}
     ${recs.length ? html`<div class="lbl"><span>On the way</span></div><ul class="acts brs">${recs.map(brRow)}</ul>` : ''}
     ${done.length ? html`<div class="lbl"><span>Arrived</span></div><ul class="acts brs">${done.map(brRow)}</ul>` : ''}
     ${recs.length || done.length ? html`<div class="status" role="status" id="br-rstatus"></div>` : ''}
@@ -6151,9 +6210,16 @@ function renderBridgeIn(el) {
         mount(rc, html``); warn(rc, brCheckText(bad));
         // Tracked TAC that arrived privately sits at a one-time address; sent once to this key's own address it can be burned.
         if (bad.name === 'reflected' || bad.name === 'old-leaf') {
-          rc.insertAdjacentHTML('beforeend', html`<button class="btn ghost" type="button" id="br-prep">Send it to my own address</button>`.s);
+          // The send pays a Bitcoin fee from this key's plain sats: with none free, it says so before the press. A read that
+          // failed holds nothing back (the send checks again).
+          const coins = await withKey(async (t) => t.pickSafeCommitSats(await t.getUtxos(t.wallet.address())), pub).catch(() => null);
+          if (my !== seq || !rc.isConnected) return;
+          const none = !!coins && !coins.some((c) => Number(c?.value) > 0);
+          rc.insertAdjacentHTML('beforeend', html`<p class="note">After it confirms, this tab lists it under Getting ready and says when it can go, usually within a few hours. Then bridge it from here as usual.</p>
+            <button class="btn ghost" type="button" id="br-prep" ${none ? 'disabled' : ''}>Send it to my own address</button>`.s);
+          if (none) warn(rc, html`The send pays a small Bitcoin fee, and this key’s Bitcoin address has no BTC free for it. <a href="#bitcoin/receive" data-link="bitcoin/receive">Add bitcoin to it</a>, then pick this note again.`);
           const prep = $('#br-prep', rc);
-          if (prep) prep.onclick = () => busy(prep, (run) => brPrep(run, n));
+          if (prep && !none) prep.onclick = () => busy(prep, (run) => brPrep(run, n));
         }
         return;
       }
@@ -6187,6 +6253,16 @@ function renderBridgeIn(el) {
     if (!v || v > BigInt(T.bridgeUx().BURNDEP_BETA_CAP_RAW)) return say($('#br-status'), html`<span class="err">Enter an amount up to 1,000 TAC.</span>`);
     if (v >= BigInt(n.amount)) return say($('#br-status'), html`<span class="err">Enter less than this note holds.</span>`);
     return brSend(run, n, v, 'Split off');
+  }));
+  // A prep that is ready: its note is picked and checked, as a press on it in the list would.
+  $$('[data-brprep]', el).forEach((x) => x.onclick = () => busy(x, async () => {
+    const p = brPreps(pub).find((y) => y.txid === x.dataset.brprep);
+    const find = () => (BR.notes || []).filter((n) => n.txid === p?.txid && n.eligible).sort((a, b) => (String(a.amount) === p.amount ? -1 : 0) - (String(b.amount) === p.amount ? -1 : 0))[0];
+    if (!find()) await loadBridge(true);
+    const n = find();
+    if (!n) return say($('#br-rstatus') || $('#br-status'), html`<span class="err">That note is not at this key’s Bitcoin address any more. Refresh, then try again.</span>`);
+    BR.pick = brId(n); rerender('tac');
+    $('#br-rcpt')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }));
   if (BR.pick) check();
   go.onclick = () => busy(go, async (run) => {
@@ -6250,8 +6326,10 @@ async function brSend(run, n, amount, verb) {
       return r.revealTxid;
     }, pub);
     actBtc(txid, `${verb} ${amt}${split ? '' : ' to your own address'}`);
+    brPrepAdd(pub, { txid, amount: String(amount), at: Date.now() });
     BR.pick = null; BR.rv = null; BR.at = 0;
-    say(status, html`<span class="ok">✓ ${split ? `${amt} split off to your own address` : `${amt} sent to your own address`}</span> <a href="${MEMPOOL}/tx/${txid}" target="_blank" rel="noopener">${short(txid, 6)} ↗</a>. It can be bridged from here once it confirms and Bitcoin’s proof on Ethereum has seen it, usually within a few hours.`);
+    say(status, html`<span class="ok">✓ ${split ? `${amt} split off to your own address` : `${amt} sent to your own address`}</span> <a href="${MEMPOOL}/tx/${txid}" target="_blank" rel="noopener">${short(txid, 6)} ↗</a>. It can be bridged from here once it confirms and Bitcoin’s proof on Ethereum has seen it, usually within a few hours. It is listed under Getting ready, which says when it can go.`);
+    dashSoon();
     Promise.allSettled([loadBridge(true), loadBtc(true)]).then(() => rerender('tac'));
   } catch (e) { run.fail(status, /insufficient sats|no plain-sats/i.test(String(e?.message)) ? new Error('Not enough BTC for this and its network fee.') : brFail(e)); }
 }
@@ -9409,8 +9487,14 @@ function paintDash() {
     if (low.length) due.push([low.length === 1 ? bondText(low[0]) : `${low.length} bonds are short of what the engine asks for. Top them up, or they can go to the insurance reserve.`, 'bonds', 'Top up']);
     if (take.length) due.push([take.length === 1 ? bondText(take[0]) : `${take.length} bonds, ${fmt(take.reduce((s, n) => s + n.amt, 0n), 18, 5)} wstETH in all, can come back to you.`, 'bonds', 'Take back']);
     if (lost.length) due.push([lost.length === 1 ? bondText(lost[0]) : `${lost.length} locks were spent on Bitcoin before their cBTC was redeemed, so their bonds go to the insurance reserve.`, 'bonds', 'See']);
+    // TAC sent to its own address to get it ready for the bridge: ready names the press; otherwise how long, while nothing else bridges.
+    const preps = brPreps(k), prepsReady = preps.filter((p) => brPrepState(p) === 'ready'), prepAmt = (p) => `${fmt(BigInt(p.amount), 8, 4)} TAC`;
+    if (preps.length) brPrepTick().catch(() => {});
+    if (prepsReady.length) due.push([prepsReady.length === 1 ? `${prepAmt(prepsReady[0])} you sent to your own address is ready to bridge to Ethereum.` : `${prepsReady.length} notes you sent to your own address are ready to bridge to Ethereum.`, 'bridge', 'Bridge']);
+    else if (preps.length) due.push([preps.length === 1 ? `${prepAmt(preps[0])} is getting ready to bridge: it can go once Bitcoin’s proof on Ethereum reaches it, usually within a few hours.`
+      : `${preps.length} notes are getting ready to bridge: they can go once Bitcoin’s proof on Ethereum reaches them, usually within a few hours.`, 'bridge', 'Follow']);
     // Bridges from Bitcoin under way (TAC and tETH): one waiting for its holder names the press; otherwise where it is.
-    const brs = brJournal(k, null).filter((r) => !BR_DONE.includes(r.stage) && r.stage !== 'recovered'), need = brs.filter(brDue);
+    const brs =brJournal(k, null).filter((r) => !BR_DONE.includes(r.stage) && r.stage !== 'recovered'), need = brs.filter(brDue);
     const brLink = (xs) => (xs.every((r) => brTk(r) === 'TAC') ? 'bridge' : 'private/bitcoin'), ofTk = (xs) => (new Set(xs.map(brTk)).size === 1 ? ` of ${brTk(xs[0])}` : '');
     if (need.length) due.push([need.length === 1 ? `Your bridge of ${brAmt(need[0])} to Ethereum is waiting for you: ${brDue(need[0])}.` : `${need.length} bridges${ofTk(need)} to Ethereum are waiting for you.`, brLink(need), 'Open']);
     else if (brs.length) due.push([brs.length === 1 ? `${brAmt(brs[0])} is on its way from Bitcoin to Ethereum, ${brWhere(brs[0])}. It finishes while this page is open with your wallet.`
@@ -9962,6 +10046,8 @@ function hxHave() {
   const lines = [
     recs.length ? `${many(recs.length, 'bridge')} on ${recs.length === 1 ? 'its' : 'their'} way${due ? `: ${due === recs.length ? (due === 1 ? 'it needs' : 'they need') : `${due} need`} you` : ''}.` : '',
     open.length ? `${many(open.length, 'note')} to pick from (${fmt(sum(open), 8, 4)} TAC). Each bridges whole, and is checked first.` : '',
+    open.some(brNeedsSend) ? `${open.filter(brNeedsSend).length === open.length ? (open.length === 1 ? 'It goes' : 'They go') : `${many(open.filter(brNeedsSend).length, 'note')} go${open.filter(brNeedsSend).length === 1 ? 'es' : ''}`} to your own address once first: the Bridge tab does it, then says when it can be bridged.` : '',
+    brPreps(pub).length ? `${many(brPreps(pub).length, 'note')} getting ready to bridge.` : '',
     over ? `${many(over, 'note')} over 1,000 TAC: split ${over === 1 ? 'it' : 'them'} in the Bridge tab first.` : '',
     other > 0 ? `${many(other, 'note')} not ready yet: the Bridge tab says why.` : '',
   ].filter(Boolean);
@@ -10345,7 +10431,7 @@ fetch(`${API}/leaderboard?day=today&limit=1`, { signal: within(20e3) }).then((r)
 refreshAll();
 resumeActivity();
 let lastTick = Date.now();
-const tick = () => { lastTick = Date.now(); paintEarn(); refreshTape(); loadTacPrice().catch(() => {}); brTick(); xoTick(); if (lastTick - numsAt > NUMS_MS) refreshNums(); for (const n of SHEETS) if ($(`#sheet-${n}`).open && !running(n)) load[n]?.().then(() => rerender(n)).catch(() => {}); };
+const tick = () => { lastTick = Date.now(); paintEarn(); refreshTape(); loadTacPrice().catch(() => {}); brTick(); brPrepTick().catch(() => {}); xoTick(); if (lastTick - numsAt > NUMS_MS) refreshNums(); for (const n of SHEETS) if ($(`#sheet-${n}`).open && !running(n)) load[n]?.().then(() => rerender(n)).catch(() => {}); };
 setInterval(() => { if (!document.hidden) tick(); }, 60e3);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - lastTick > 60e3) tick(); });
 const route = () => {

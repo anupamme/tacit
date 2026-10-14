@@ -2075,6 +2075,23 @@ await step('bridge', async () => {
   await r.page.check(`#bridge-body input[value="${N4}:0"]`);
   await until(r.page, () => /older note form/.test(document.querySelector('#br-rcpt')?.textContent || '') && !!document.querySelector('#br-prep'), null, 120000);
   ok(await r.page.isDisabled('#br-go'), 'bridge: a tracked note in an older form is offered a send to the key’s own address, and cannot start a bridge as it is');
+  // The list says so before a pick, and a key with no sats free is told before it presses the send.
+  const listed = (await text(r.page, '#bridge-body .brns')).replace(/\s+/g, ' ');
+  ok(/40(\.0+)? TAC\s*Older note form/.test(listed) && /30(\.0+)? TAC\s*Received privately: pick it/.test(listed) && !/250(\.0+)? TAC\s*(Older|Received)/.test(listed),
+    `bridge: the list names the notes that go to their own address once first, before one is picked (${listed.slice(0, 220)})`);
+  ok(await r.page.isDisabled('#br-prep') && /no BTC free for it/.test(await text(r.page, '#br-rcpt')), 'bridge: with no sats free, the send to its own address is held back and says why before it is pressed');
+  // A note sent to its own address is listed under Getting ready: the proof past its block makes it ready, and Bridge it picks it.
+  await r.page.evaluate(([k, p, n1, n2]) => localStorage.setItem(k, JSON.stringify({ [p]: [
+    { txid: n1, amount: '25000000000', at: Date.now() - 3e6, height: 969990 }, { txid: n2, amount: '150000000000', at: Date.now() - 6e5, height: 970020 }] })),
+  ['tacit-lite-bridge-prep-v1', pub, N1, N2]);
+  await r.page.click('[data-tac-mode="airdrop"], [data-tac-mode="air"]'); await sleep(300); await r.page.click('[data-tac-mode="bridge"]');
+  await until(r.page, () => /Getting ready/.test(document.querySelector('#bridge-body')?.textContent || ''), null, 60000);
+  const prepRows = await r.page.$$eval('#bridge-body .brr', (xs) => xs.map((x) => x.textContent.replace(/\s+/g, ' ').trim()).filter((t) => /^(250|1,500)/.test(t)));
+  ok(prepRows.length === 2 && /Your turn/.test(prepRows[0]) && /Bridge it/.test(prepRows[0]) && /proof is at Bitcoin block 970,000, 20 blocks to go/.test(prepRows[1]) && !/Your turn|Bridge it/.test(prepRows[1]),
+    `bridge: Getting ready lists a ready note with Bridge it and one still waiting for the proof, with the blocks to go (${prepRows.join(' | ').slice(0, 300)})`);
+  await r.page.click('#bridge-body [data-brprep]');
+  await until(r.page, () => !!document.querySelector(`#bridge-body input[value="${'c1'.repeat(32)}:0"]:checked`), null, 60000);
+  ok(true, 'bridge: Bridge it picks the ready note and checks it');
   await r.page.setViewportSize({ width: 360, height: 760 });
   await sleep(300);
   const wide = await r.page.evaluate(() => { const d = document.querySelector('#sheet-tac .sheet-in'); return [d.scrollWidth, d.clientWidth, document.documentElement.scrollWidth, innerWidth]; });

@@ -369,6 +369,25 @@ export function makeBurnDepositUx(deps) {
     return out;
   }
 
+  // ---- noteForms: what each note needs before it can bridge, from one read of the attested state ----
+  // 'ready': tracked, in the form the burn names it by. 'old': tracked, in the older form a send to its own address renews.
+  // 'private': tracked, received privately (the same send makes it bridgeable). null: not tracked, or the proof has not
+  // reached its block (preflight tells these apart). Keyed `${txid}:${vout}`. A hint for listing notes; preflight still decides.
+  async function noteForms(notes) {
+    const r = await reflected();
+    const out = new Map(), zero = '0x' + '00'.repeat(32);
+    for (const n of notes || []) {
+      const id = `${n.txid}:${n.vout}`;
+      if (!r.live.has(outpointOf(n.txid, n.vout))) { out.set(id, null); continue; }
+      if (n.stealthTweakedSk) { out.set(id, 'private'); continue; }
+      if (!r.leaves || n.amount == null || n.blinding == null) { out.set(id, null); continue; }
+      const { cx, cy } = pool.commitXY(BigInt(n.amount), BigInt(n.blinding));
+      const leaf = bridgeMint.sourceLeaf({ sourceClass: 1, asset: withHex(tacAssetId), cx, cy, owner: zero, chainBinding: withHex(chainBindingHex()) });
+      out.set(id, r.leaves.has(lc(leaf)) ? 'ready' : 'old');
+    }
+    return out;
+  }
+
   // ---- preflightHeld: a note this key holds at its own Taproot output, which a cross-out made ----
   // The same checks as the reflected branch of preflight, for a note whose output is P2TR(this key) and whose auth key is that
   // key: it must be confirmed, tracked by the reflection, and in the note tree under the leaf the burn names it by.
@@ -1201,7 +1220,7 @@ export function makeBurnDepositUx(deps) {
   }
 
   return {
-    BURNDEP_BETA_CAP_RAW, assets: ASSETS, assetOf, eligibleNotes, isReserved, pickFunding, bridgeCost, preflight, preflightHeld, recheckBurn, RETURN_FEE_CEILING, start, startReflected, advance, resumeAll, recoverFromTxid, list, abandon,
+    BURNDEP_BETA_CAP_RAW, assets: ASSETS, assetOf, eligibleNotes, isReserved, pickFunding, bridgeCost, noteForms, preflight, preflightHeld, recheckBurn, RETURN_FEE_CEILING, start, startReflected, advance, resumeAll, recoverFromTxid, list, abandon,
     cancelSigned, buildCancel, reclaim, recover, verify, isLive, burnRecorded,
     slipstreamStatus: broadcaster.slipstreamStatus,
     checkTxidStatus,

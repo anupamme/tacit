@@ -677,6 +677,19 @@ let rec;
   ok(pf.ok === false && !!old && old.ok === false, 'preflight refuses a tracked note whose leaf is in an older form, naming the step');
   ok(world.broadcasts.length === 0, 'and broadcasts nothing');
 }
+// noteForms reads the same state for a list of notes: what each needs before it can bridge, with nothing sent.
+{
+  const note = { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING };
+  const other = { ...note, txid: 'ab'.repeat(32) }, id = `${NOTE_TXID}:${NOTE_VOUT}`;
+  const wOld = makeWorld(); wOld.setLive(NOTE_TXID, NOTE_VOUT);
+  const fOld = await makeUx(wOld, makeMemStorage()).noteForms([note, other]);
+  ok(fOld.get(id) === 'old' && fOld.get(`${other.txid}:${NOTE_VOUT}`) === null, 'noteForms names a tracked older-form note old, and an untracked one null');
+  const wNew = makeWorld(); wNew.setReflectedNote({ txid: NOTE_TXID, vout: NOTE_VOUT, value: NOTE_AMOUNT, blinding: NOTE_BLINDING });
+  const uNew = makeUx(wNew, makeMemStorage());
+  ok((await uNew.noteForms([note])).get(id) === 'ready', 'and one in the burn\'s form ready');
+  ok((await uNew.noteForms([{ ...note, stealthTweakedSk: '11'.repeat(32) }])).get(id) === 'private', 'and a privately received tracked note private');
+  ok(wOld.broadcasts.length === 0 && wNew.broadcasts.length === 0, 'noteForms sends nothing');
+}
 // The reflected path end to end: one standard burn of the note itself, then the class-1 mint once it is recorded.
 {
   const world = makeWorld();
