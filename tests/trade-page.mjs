@@ -126,9 +126,22 @@ try {
 
   // the chart: a line by default, as the Bitcoin market draws it, and candles a press away
   ok(!!(await p.$('#chart .line')) && !!(await p.$('#chart polygon.area')) && !!(await p.$('#chart .lastdot')) && (await candles(p)) === 0 && /Candles/.test(await text(p, '[data-kind]')), 'the Ethereum lane draws the Precision pool\'s price as a shaded line with its last price marked');
+  const rd = (await text(p, '#ch-read')).replace(/\s+/g, ' ');
+  ok(/^\$0\.\d{4}.*past month.*low \$0\.\d+.*high \$0\.\d+.*ETH traded/.test(rd), `a line above the chart gives the price, its move over the range, the low, the high and the volume (${rd.slice(0, 120)})`);
+  ok((await p.$$eval('#chart .mark', (m) => m.length)) === 2 && (await p.$eval('#tf-seg', (e) => e.hidden)) === true, 'the high and the low are named on the line, and a line has no candle size to choose');
+  const lineN = await p.$eval('#chart polyline', (l) => l.getAttribute('points').split(' ').length);
+  await p.click('[data-range="1"]'); await until(p, () => document.querySelector('#chart polyline') && document.querySelector('#chart polyline').getAttribute('points').split(' ').length < 120 && /past day/.test(document.querySelector('#ch-read')?.textContent || ''));
+  const dayN = await p.$eval('#chart polyline', (l) => l.getAttribute('points').split(' ').length);
+  ok(dayN >= 20 && dayN <= 100 && dayN < lineN, `1D draws the day at 15 minutes (${dayN} points; 1M ${lineN})`);
+  await p.click('[data-range="30"]'); await until(p, () => /past month/.test(document.querySelector('#ch-read')?.textContent || ''));
+  await p.hover('#chart svg', { position: { x: 300, y: 150 } });
+  await until(p, () => /UTC/.test(document.querySelector('#ch-read')?.textContent || ''), null, 10000);
+  ok(await p.$eval('#chart .cross .cd', (c) => c.getAttribute('visibility') === 'visible') && (await p.$eval('.chart-tip', (e) => e.hidden)) && /^\$0\.\d{4}/.test(await text(p, '#ch-read')), 'a pointer on the line reads the price and time at that bar in the line above, with a dot on the line and no box over it');
+  await p.mouse.move(5, 5); await until(p, () => /past month/.test(document.querySelector('#ch-read')?.textContent || ''), null, 10000);
+  ok((await p.$$eval('#chart .halo', (h) => h.length)) === 1 && (await p.$$eval('.hero h1 svg.tk', (h) => h.length)) === 1 && (await p.$eval('.hero h1 svg.tk', (e) => e.getBoundingClientRect().width)) > 30 && (await p.$$eval('main use[href="#tk-tac"]', (u) => u.length)) >= 7, 'the live price is marked, and the TAC mark sits beside the price and on the page\'s headings');
   await p.click('[data-kind="candles"]'); await until(p, () => document.querySelectorAll('#chart .body').length > 5);
   const c4 = await candles(p);
-  ok(c4 >= 30 && c4 <= 90, `the Ethereum lane draws the 4-hour tape as candles (${c4})`);
+  ok(c4 >= 30 && c4 <= 180, `the Ethereum lane draws the 4-hour tape as candles (${c4})`);
   ok((await p.$$eval('#chart .tagtext', (t) => t.map((x) => x.textContent))).includes('Precision'), 'with the Precision pool\'s price at the edge');
   await p.click('[data-range="7"]'); await until(p, () => document.querySelectorAll('#chart .body').length > 20 && document.querySelectorAll('#chart .body').length < 50);
   ok((await candles(p)) <= 43 && (await candles(p)) >= 30, `7 days of 4-hour candles is at most 42 (${await candles(p)})`);

@@ -14,13 +14,13 @@ import {
 import { getConfidentialDeployment } from '/confidential-deployments.js';
 import { buildBook, planBuy, planSell as planBtcSell, ladderLevels } from '/btc-book.js?cb=91371653';
 import { decodeTape, chartBars, invert, ethLaneUsd, btcLaneUsd, candlesFromTrades, closeAt, gap, TAPE_FINE, TAPE_COARSE } from '/trade/tape.js?cb=dfc28dd7';
-import { mountChart } from '/trade/chart.js?cb=c730b83d';
+import { mountChart, fmtStamp } from '/trade/chart.js?cb=28af16af';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
-import { mountDepth } from '/trade/depth.js?cb=0bbf4a0d';
+import { mountDepth } from '/trade/depth.js?cb=b3f36944';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=24e3ea08';
-import { mountFarm } from '/trade/farm.js?cb=f4397cd9';
+import { mountFarm } from '/trade/farm.js?cb=296c150f';
 
 const API = 'https://api.tacit.finance';
 const TAC_BTC_ID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
@@ -68,7 +68,7 @@ const PRIV_TIERS = [30, 5, 100, 1];
 
 // ── the state of the page ──
 const D = { ethUsd: null, btcUsd: null, perEth: null, priv: null, precision: null, ethSupply: null, btc: null, book: null, bidsRead: false, zb: null, zbFailed: false, tape: { fine: [], coarse: [] }, readAt: 0 };
-const S = { side: 'buy', amt: '', book: null, pin: null, lane: 'eth', unit: 'usd', range: 0, log: false, slip: 50, bal: null, review: null, busy: false, tf: { eth: TAPE_COARSE, btc: 86400, cmp: 86400 }, kind: 'line', quote: null, seq: 0, zq: null };
+const S = { side: 'buy', amt: '', book: null, pin: null, lane: 'eth', unit: 'usd', range: 30, log: false, slip: 50, bal: null, review: null, busy: false, tf: { eth: TAPE_COARSE, btc: 86400, cmp: 86400 }, kind: 'line', quote: null, seq: 0, zq: null };
 const TF = { eth: [['5m', 300], ['15m', 900], ['1h', 3600], ['4h', 14400], ['1d', 86400]], btc: [['1h', 3600], ['4h', 14400], ['1d', 86400], ['1w', 604800]], cmp: [['4h', 14400], ['1d', 86400]] };
 
 async function loadChain() {
@@ -208,32 +208,79 @@ function renderLanes() {
 
 // ── the chart ──
 const chartHost = $('#chart');
-const chart = mountChart(chartHost);
+const chart = mountChart(chartHost, (h) => paintRead(h));
 function priceFmt(unit, lane) {
   if (unit === 'usd') return (v) => usd(v);
   return lane === 'btc' ? (v) => `${satsFmt(v)} sats` : (v) => `${sig(v)} ETH`;
 }
-const RANGES = [['7d', 7], ['30d', 30], ['All', 0]];
+const RANGES = [['1D', 1], ['1W', 7], ['1M', 30], ['All', 0]];
+const RANGE_WORDS = { 1: 'past day', 7: 'past week', 30: 'past month', 0: 'all time' };
+// How wide a bar is. A line takes it from the range (the tape holds 5-minute bars for about a day and 4-hour bars beyond it); candles
+// and the comparison take the person's own choice.
+function tfFor(lane) {
+  if (S.kind === 'candles' || lane === 'cmp') return S.tf[lane];
+  const r = S.range, first = D.tape.coarse[0]?.t;
+  if (lane === 'btc') return r === 1 ? 3600 : r === 7 ? 14400 : 86400;
+  return r === 1 ? 900 : r === 0 && first && now() - first > 90 * 86400 ? 86400 : TAPE_COARSE;
+}
+// A line of closes with no gaps: a bar in which nothing traded holds the price before it (a quiet week is flat, not a slope between
+// two trades), the range starts at the price it opened on (`seed`), and the last point is the price now (`spot`).
+function lineBars(bars, tf, since, seed, spot) {
+  const from = since ? Math.floor(since / tf) * tf : bars[0]?.t;
+  if (from == null || (!bars.length && seed == null)) return bars;
+  const end = Math.floor(now() / tf) * tf;
+  if ((end - from) / tf > 800) return bars;
+  const out = [];
+  let i = 0, prev = seed != null ? { close: seed } : null;
+  for (let t = from; t <= end; t += tf) {
+    while (i < bars.length && bars[i].t < t) i++;
+    if (i < bars.length && bars[i].t === t) { prev = bars[i++]; out.push(prev); }
+    else if (prev) { const c = prev.close; out.push({ t, open: c, high: c, low: c, close: c, vol: 0, n: 0, held: true }); }
+  }
+  if (spot > 0 && out.length) { const l = out.at(-1); out[out.length - 1] = { ...l, close: spot, high: Math.max(l.high, spot), low: l.low > 0 ? Math.min(l.low, spot) : spot, live: true }; }
+  return out;
+}
 function renderControls() {
   $('#lane-seg').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.lane === S.lane)));
-  $('#tf-seg').innerHTML = TF[S.lane].map(([l, p]) => `<button type="button" data-tf="${p}" aria-pressed="${S.tf[S.lane] === p}">${l}</button>`).join('');
+  $('#range-seg').innerHTML = RANGES.map(([l, d]) => `<button type="button" data-range="${d}" aria-pressed="${S.range === d}">${l}</button>`).join('');
+  const sizes = $('#tf-seg'), showSizes = S.kind === 'candles' || S.lane === 'cmp';                // candle sizes only where a size is the person's to choose
+  sizes.hidden = !showSizes;
+  if (showSizes) sizes.innerHTML = TF[S.lane].map(([l, p]) => `<button type="button" data-tf="${p}" aria-pressed="${S.tf[S.lane] === p}">${l}</button>`).join('');
   const native = S.lane === 'btc' ? 'sats' : 'ETH';
-  $('#view-seg').innerHTML = RANGES.map(([l, d]) => `<button type="button" data-range="${d}" aria-pressed="${S.range === d}">${l}</button>`).join('')
-    + (S.lane === 'cmp' ? '' : `<button type="button" data-kind="${S.kind === 'line' ? 'candles' : 'line'}" aria-pressed="false" title="Draw the price as ${S.kind === 'line' ? 'candles' : 'a line'}">${S.kind === 'line' ? 'Candles' : 'Line'}</button>`)
+  $('#view-seg').innerHTML = (S.lane === 'cmp' ? '' : `<button type="button" data-kind="${S.kind === 'line' ? 'candles' : 'line'}" aria-pressed="false" title="Draw the price as ${S.kind === 'line' ? 'candles' : 'a line'}">${S.kind === 'line' ? 'Candles' : 'Line'}</button>`)
     + `<button type="button" data-log="1" aria-pressed="${S.log}" title="A log axis shows moves of the same size the same height">Log</button>`
     + (S.lane === 'cmp' ? '' : `<button type="button" data-unit="${S.unit === 'usd' ? 'native' : 'usd'}" aria-pressed="false" title="Show the price in ${S.unit === 'usd' ? native : 'dollars'}">in ${S.unit === 'usd' ? native : 'USD'}</button>`);
+  const tk = (id) => `<svg class="tk sm" aria-hidden="true"><use href="#tk-${id}"/></svg>`;
+  $('#chart-name').textContent = { eth: 'TAC / ETH · Precision pool', btc: 'TAC / BTC · Bitcoin order book', cmp: 'TAC · Ethereum and Bitcoin' }[S.lane];
+  $('#chart-pair').innerHTML = tk('tac') + (S.lane === 'cmp' ? '' : tk(S.lane === 'btc' ? 'btc' : 'eth'));
+}
+// The line above the chart: the price now (or under the pointer), how far it has moved over the range drawn, and the range's low, high
+// and volume. A pointer over the chart reads the price at that bar and what it is against the start of the range.
+const readPx = (v, unit, lane) => (unit === 'usd' ? `$${v >= 1 ? v.toFixed(2) : v.toFixed(4)}` : lane === 'btc' ? `${satsFmt(v)} sats` : `${sig(v, 4)} ETH`);
+function paintRead(h = null) {
+  const el = $('#ch-read'), V = S.view;
+  let out = '';
+  if (V?.bars.length) {
+    const { bars, unit, lane } = V, b = h?.b || bars.at(-1), first = bars[0].close, chg = b.close / first - 1, up = chg >= 0.0005, down = chg <= -0.0005;
+    const closes = bars.map((x) => x.close), lo = Math.min(...closes), hi = Math.max(...closes), vol = bars.reduce((a, x) => a + (x.vol || 0), 0);
+    out = html`<div class="l"><span class="px num">${readPx(b.close, unit, lane)}</span><span class="chg ${up ? 'up' : down ? 'down' : 'mute'}">${up ? '▲' : down ? '▼' : ''} ${Math.abs(chg * 100).toFixed(Math.abs(chg) < 0.1 ? 1 : 0)}%</span><em>${h ? `${fmtStamp(b.t)}${b.held ? ' · price held, no trades' : ''}` : RANGE_WORDS[S.range]}</em></div>`
+      + html`<div class="r"><span>low <b>${readPx(lo, unit, lane)}</b></span><span>high <b>${readPx(hi, unit, lane)}</b></span>${vol > 0 ? html`<span><b>${lane === 'btc' ? grp(vol, 0) : vol < 10 ? vol.toFixed(2) : grp(vol, 0)}</b> ${lane === 'btc' ? 'TAC' : 'ETH'} traded</span>` : ''}</div>`;
+  }
+  if (el.__h !== out) { el.__h = out; el.innerHTML = out; }
 }
 function renderChart() {
-  const lane = S.lane, tf = S.tf[lane];
+  const lane = S.lane, tf = tfFor(lane);
   const unit = (lane === 'cmp' || (lane === 'eth' && !D.ethUsd) || (lane === 'btc' && !D.btcUsd)) ? (lane === 'cmp' ? 'usd' : 'native') : S.unit;
   if (lane === 'cmp' && !(D.ethUsd && D.btcUsd)) {                                              // the two lanes meet in dollars, which needs both rates
     chart.update({ series: [], tags: [], period: tf, label: 'TAC price, both lanes' });
     $('#legend').innerHTML = ''; $('#chart-note').textContent = D.ethUsd || D.btcUsd ? 'Waiting for the other dollar rate to compare the lanes.' : 'Waiting for the dollar rates to compare the lanes.';
-    renderControls();
+    S.view = null; paintRead(); renderControls();
     return;
   }
   const since = S.range ? now() - S.range * 86400 : 0;                                          // the range limits what is drawn, not what is read
-  const eth = chartBars(D.tape, tf).filter((b) => b.t + tf > since), btc = (D.btc ? candlesFromTrades(D.btc.trades, tf) : []).filter((b) => b.t + tf > since);
+  let eth = chartBars(D.tape, tf).filter((b) => b.t + tf > since), btc = (D.btc ? candlesFromTrades(D.btc.trades, tf) : []).filter((b) => b.t + tf > since);
+  if (lane === 'eth' && S.kind === 'line') eth = lineBars(eth, tf, since, closeAt(chartBars(D.tape, TAPE_COARSE), since), D.perEth);
+  if (lane === 'btc' && S.kind === 'line') btc = lineBars(btc, tf, since, closeAt(candlesFromTrades(D.btc?.trades || [], tf), since), D.btc?.mark || 0);
   const ethBars = (u) => eth.map((b) => (u === 'usd' ? ethLaneUsd(b, D.ethUsd) : invert(b)));
   const btcBars = (u) => btc.map((b) => (u === 'usd' && D.btcUsd ? btcLaneUsd(b, D.btcUsd) : b));
   const series = [], tags = [], legend = [];
@@ -251,7 +298,10 @@ function renderChart() {
     if (btcSpot != null) tags.push({ y: btcSpot, label: 'Bitcoin', color: ORANGE });
   }
   const names = { eth: 'Precision pool on Ethereum', btc: 'Bitcoin order book', cmp: 'Ethereum and Bitcoin, in dollars' };
-  chart.update({ series, tags, period: tf, log: S.log, label: `TAC price, ${names[lane]}, ${TF[lane].find(([, p]) => p === tf)?.[0]} ${lane === 'cmp' || S.kind === 'line' ? 'line' : 'candles'}` });
+  const sizeName = TF[lane].find(([, p]) => p === tf)?.[0] || `${Math.round(tf / 3600)}h`;
+  chart.update({ series, tags, period: tf, log: S.log, label: `TAC price, ${names[lane]}, ${sizeName} ${lane === 'cmp' || S.kind === 'line' ? 'line' : 'candles'}` });
+  S.view = lane === 'cmp' ? null : { bars: series[0].bars, unit, lane };
+  paintRead();
   const sw = (c) => `<i class="sw" style="background:${c}"></i>`;
   if (lane !== 'btc') legend.push(`<span>${sw(ETHBLUE)}Precision pool (Ethereum)${ethSpot != null ? ` · ${priceFmt(unit, 'eth')(ethSpot)}` : ''}</span>`);
   if (lane !== 'eth') legend.push(`<span>${sw(ORANGE)}Bitcoin order book${btcSpot != null ? ` · ${priceFmt(unit, 'btc')(btcSpot)}` : ''}</span>`);
@@ -259,8 +309,8 @@ function renderChart() {
   $('#legend').innerHTML = lane === 'cmp' ? legend.join('') : '';                              // one lane needs no key: the strip above names every price
   const first = D.tape.coarse[0], days = first ? Math.max(1, Math.round((now() - first.t) / 86400)) : 0;
   $('#chart-note').textContent = lane === 'eth'
-    ? `Executed prices from the Precision pool's on-chain price tape${first ? `, ${days} days kept in this browser` : ''}.`
-    : lane === 'btc' ? `Every trade on the Bitcoin order book since ${D.btc?.firstTrade ? new Date(D.btc.firstTrade * 1000).toISOString().slice(0, 10) : 'it began'}${D.btc?.trades?.length ? ` (${D.btc.trades.length} trades)` : ''}.`
+    ? `A line of executed prices (fees included) from the Precision pool's on-chain price tape; a stretch with no trades holds the price before it, and the right edge is the price now. Candles show each period's open, high, low and close. The tape holds about a day of 5-minute and six weeks of 4-hour bars; this browser keeps what it has read${first ? ` (${days} days so far)` : ''}.`
+    : lane === 'btc' ? `Every trade on the Bitcoin order book since ${D.btc?.firstTrade ? new Date(D.btc.firstTrade * 1000).toISOString().slice(0, 10) : 'it began'}${D.btc?.trades?.length ? ` (${D.btc.trades.length} trades)` : ''}; a stretch with no trades holds the price before it.`
     : 'Both lanes in dollars at today\'s ETH and BTC prices.';
   renderControls();
 }
@@ -511,7 +561,7 @@ function stackBook({ asks, bids, totalHead, mid }) {
     return x.attrs && !x.mine ? `<button type="button" class="${cls}" style="${style}" title="${esc(x.title)}" aria-label="${esc(x.label)}" ${x.attrs}>${inner}</button>` : `<div class="${cls}" style="${style}" title="${esc(x.title)}">${inner}</div>`;
   };
   const hidden = asks.length - a.length + bids.length - b.length;
-  return `<div class="ob"><div class="ob-head"><span>Price</span><span>TAC</span><span>${esc(totalHead)}</span></div>`
+  return `<div class="ob"><div class="ob-head"><span>Price</span><span><svg class="tk xs inl" aria-hidden="true"><use href="#tk-tac"/></svg>TAC</span><span>${esc(totalHead)}</span></div>`
     + `<div class="ob-asks">${a.length ? a.map((x, i) => row(x, 'ask', ac[i])).reverse().join('') : '<div class="ob-empty">No one is selling right now.</div>'}</div>`
     + `<div class="ob-spread">${mid}</div>`
     + `<div class="ob-bids">${b.length ? b.map((x, i) => row(x, 'bid', bc[i])).join('') : '<div class="ob-empty">No one is bidding right now.</div>'}</div>`

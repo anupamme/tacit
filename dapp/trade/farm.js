@@ -36,7 +36,7 @@ export function mountFarm(host, ctx) {
   const errMsg = (e) => esc(e?.userStopped ? e.message : String(e?.message || e).slice(0, 220));
 
   host.innerHTML = `
-    <p class="eyebrow" id="fm-h">Earn · Precision pool farm</p>
+    <p class="eyebrow" id="fm-h"><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg></span>Earn · Precision pool farm</p>
     <div class="fm-stats" id="fm-stats"><p class="note">Reading the farm…</p></div>
     <p class="note fm-prog" id="fm-prog"></p>
     <div class="fm-pos" id="fm-pos" hidden></div>
@@ -93,7 +93,7 @@ export function mountFarm(host, ctx) {
     if (!x) { el.innerHTML = `<p class="note">${F.err ? 'The farm could not be read just now.' : 'Reading the farm…'}</p>`; return; }
     const cell = (k, v, s = '') => `<div><span class="k">${k}</span><b class="num">${v}</b>${s ? `<span class="s">${s}</span>` : ''}</div>`;
     el.innerHTML = cell('APR now', aprTxt(x.apr), 'paid in TAC, swap fees on top')
-      + cell('Rewards', x.live ? `${fmt(x.perDay, 18, 0)} TAC a day` : 'between periods', x.live ? tacUsd(x.perDay) ? `about ${tacUsd(x.perDay)} a day` : '' : '')
+      + cell('Rewards', x.live ? `<svg class="tk xs inl" aria-hidden="true"><use href="#tk-tac"/></svg>${fmt(x.perDay, 18, 0)} TAC a day` : 'between periods', x.live ? tacUsd(x.perDay) ? `about ${tacUsd(x.perDay)} a day` : '' : '')
       + cell('Staked', ethUsd() ? usd(x.stakedEth / 1e18 * ethUsd()) : `${(x.stakedEth / 1e18).toFixed(2)} ETH`, x.supply ? `${Math.round(Number(x.totalStaked * 1000n / x.supply)) / 10}% of the pool` : '')
       + cell('Stream ends', x.live ? dayFmt(x.finish) : '—');
     // The farming program's private farms: shielded pools whose positions say nothing of who holds them. Each opens on the front page,

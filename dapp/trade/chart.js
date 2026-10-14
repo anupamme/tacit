@@ -65,7 +65,7 @@ export function mountChart(host, onHover = null) {
     const first = series[0], f = first?.fmt || String;
     const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', 'aria-label': label, class: 'chart-svg' });
     svg.append(el('defs', {}, el('clipPath', { id: 'chart-clip' }, el('rect', { x: m.l, y: m.t, width: pw, height: H - m.t }))));
-    const plot = el('g', { 'clip-path': 'url(#chart-clip)' });
+    const plot = el('g', { 'clip-path': 'url(#chart-clip)' }), marks = [];
     // grid and the price axis
     const ticks = useLog ? logTicks(lo, hi) : niceTicks(lo, hi, Math.max(3, Math.round(ph / 56)));
     for (const v of (ticks.length > 1 ? ticks : niceTicks(lo, hi, 4))) {
@@ -96,11 +96,25 @@ export function mountChart(host, onHover = null) {
           plot.append(el('polygon', { points: `${pts[0].split(',')[0]},${base} ${pts.join(' ')} ${pts.at(-1).split(',')[0]},${base}`, class: 'area', style: `fill:${s.color}` }));
         }
         plot.append(el('polyline', { points: pts.join(' '), class: 'line', style: `stroke:${s.color}` }));
-        if (s.area) { const [lx, ly] = pts.at(-1).split(','); plot.append(el('circle', { cx: lx, cy: ly, r: 3.5, class: 'lastdot', style: `fill:${s.color}` })); }
+        if (s.area) {
+          const [lx, ly] = pts.at(-1).split(',');
+          marks.push(el('circle', { cx: lx, cy: ly, r: 8, class: 'halo', style: `fill:${s.color}` }), el('circle', { cx: lx, cy: ly, r: 3.5, class: 'lastdot', style: `fill:${s.color}` }));       // outside the plot's clip, so the halo is whole at the edge
+          // the highest and lowest close drawn, named at their points (a line of closes, so a dust trade's wick never sets them)
+          if (s.bars.length > 8) {
+            let iHi = 0, iLo = 0;
+            s.bars.forEach((b, i) => { if (b.close > s.bars[iHi].close) iHi = i; if (b.close < s.bars[iLo].close) iLo = i; });
+            for (const [i, kind] of [[iHi, 'hi'], [iLo, 'lo']]) {
+              if (iHi === iLo) break;
+              const [px, py] = pts[i].split(',').map(Number), left = px < W * 0.22, right = px > W - m.r - 70, up = kind === 'hi';
+              marks.push(el('circle', { cx: px, cy: py, r: 2.5, class: 'markdot', style: `stroke:${s.color}` }),
+                el('text', { x: left ? px + 6 : right ? px - 6 : px, y: up ? Math.max(m.t + 10, py - 8) : Math.min(H - m.b - volH - 4, py + 15), class: `mark ${kind}`, 'text-anchor': left ? 'start' : right ? 'end' : 'middle' }, s.fmt(s.bars[i].close)));
+            }
+          }
+        }
         else if (s.bars.length < 60) for (const p of pts) plot.append(el('circle', { cx: p.split(',')[0], cy: p.split(',')[1], r: 2, style: `fill:${s.color}`, class: 'dot' }));
       }
     }
-    svg.append(plot);
+    svg.append(plot, ...marks);
     // price tags at the right edge
     for (const tg of tags) {
       svg.append(el('line', { x1: m.l, x2: W - m.r, y1: Y(tg.y), y2: Y(tg.y), class: 'tagline', style: `stroke:${tg.color}` }),
@@ -108,7 +122,7 @@ export function mountChart(host, onHover = null) {
         el('text', { x: W - m.r + 6, y: Y(tg.y) + 4, class: 'tagtext' }, tg.label));
     }
     // the crosshair
-    const cross = el('g', { class: 'cross', visibility: 'hidden' }, [el('line', { class: 'cv', y1: m.t, y2: H - m.b }), el('line', { class: 'ch', x1: m.l, x2: W - m.r })]);
+    const cross = el('g', { class: 'cross', visibility: 'hidden' }, [el('line', { class: 'cv', y1: m.t, y2: H - m.b }), el('line', { class: 'ch', x1: m.l, x2: W - m.r }), el('circle', { class: 'cd', r: 4.5, visibility: 'hidden' })]);
     svg.append(cross);
     const hit = el('rect', { x: m.l, y: m.t, width: pw, height: ph, fill: 'transparent', style: 'cursor:crosshair; touch-action: pan-y' });
     svg.append(hit);
@@ -122,6 +136,9 @@ export function mountChart(host, onHover = null) {
       cross.setAttribute('visibility', 'visible');
       cross.querySelector('.cv').setAttribute('x1', cx); cross.querySelector('.cv').setAttribute('x2', cx);
       const cy = Y(near.b.close); cross.querySelector('.ch').setAttribute('y1', cy); cross.querySelector('.ch').setAttribute('y2', cy);
+      const dot = cross.querySelector('.cd'), quiet = series.length === 1 && near.s.area && onHover;
+      dot.setAttribute('visibility', quiet ? 'visible' : 'hidden');
+      if (quiet) { dot.setAttribute('cx', cx); dot.setAttribute('cy', cy); dot.style.stroke = near.s.color; onHover(near); tip.hidden = true; return; }
       tip.hidden = false;
       tip.replaceChildren(...rows.filter((x) => Math.abs(x.b.t - near.b.t) <= period * 6).map(({ s, b }) => {
         const d = document.createElement('div');

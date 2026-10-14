@@ -20,21 +20,21 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /trade/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/trade/app.js?cb=ee8c28cd">
+<link rel="modulepreload" href="/trade/app.js?cb=e86aefd4">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=bb675102">
 <link rel="modulepreload" href="/confidential-deployments.js">
 <link rel="modulepreload" href="/confidential-deployments.generated.js">
 <link rel="modulepreload" href="/btc-book.js?cb=91371653">
 <link rel="modulepreload" href="/trade/tape.js?cb=dfc28dd7">
-<link rel="modulepreload" href="/trade/chart.js?cb=c730b83d">
+<link rel="modulepreload" href="/trade/chart.js?cb=28af16af">
 <link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
 <link rel="modulepreload" href="/walletconnect.js?cb=31f53606">
-<link rel="modulepreload" href="/trade/depth.js?cb=0bbf4a0d">
+<link rel="modulepreload" href="/trade/depth.js?cb=b3f36944">
 <link rel="modulepreload" href="/trade/book.js?cb=3324d19b">
 <link rel="modulepreload" href="/zboards.js?cb=cba4b156">
 <link rel="modulepreload" href="/trade/wallet.js?cb=24e3ea08">
-<link rel="modulepreload" href="/trade/farm.js?cb=f4397cd9">
+<link rel="modulepreload" href="/trade/farm.js?cb=296c150f">
 <!-- preload:end -->
 <style>
 @font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
@@ -88,7 +88,10 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .ok { color: var(--ok); }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .tk { width: 28px; height: 28px; display: block; flex: none; border-radius: 50%; }
-.tk.sm { width: 18px; height: 18px; }
+.tk.sm { width: 18px; height: 18px; } .tk.xs { width: 14px; height: 14px; }
+.pairtk { display: inline-flex; flex: none; } .pairtk .tk + .tk { margin-left: -6px; box-shadow: 0 0 0 2px var(--card); }
+.seg button .tk.xs { display: inline-block; vertical-align: -2px; margin-right: 6px; }
+.tk.inl { display: inline-block; vertical-align: -2px; margin-right: 5px; }
 
 .shell { max-width: 1160px; margin: 0 auto; padding-bottom: 56px; }
 
@@ -105,7 +108,8 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 
 /* what TAC costs, and where */
 .hero { padding: 26px 0 18px; position: relative; }
-.hero h1 { font: 400 clamp(46px, 8vw, 84px)/.92 var(--serif); letter-spacing: -.025em; margin: 0; }
+.hero h1 { font: 400 clamp(46px, 8vw, 84px)/.92 var(--serif); letter-spacing: -.025em; margin: 0; display: flex; align-items: center; gap: .2em; }
+.hero h1 .tk { width: .68em; height: .68em; margin-top: .04em; }
 .hero h1 em { font-style: italic; }
 .hero .sub { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-top: 12px; color: var(--mute); font-size: 13px; }
 .hero .sub b { color: var(--ink); font-weight: 500; }
@@ -147,7 +151,7 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 @media (max-width: 980px) { .grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "ticket" "chart" "venues" "farm" "depth" "info"; } .side { display: contents; } .p-ticket { grid-area: ticket; } .p-farm { grid-area: farm; } }
 .panel { background: var(--card); border: 1px solid var(--hair); padding: 22px; min-width: 0; }
 @media (max-width: 480px) { .panel { padding: 18px 14px; } }
-.eyebrow { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--mute); margin: 0 0 12px; }
+.eyebrow { display: flex; align-items: center; gap: 8px; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--mute); margin: 0 0 12px; }
 .h2 { font: 400 30px/1.02 var(--serif); letter-spacing: -.01em; margin: 0 0 14px; }
 .note { font-size: 12.5px; color: var(--mute); margin: 12px 0 0; }
 .note a { color: var(--ink); }
@@ -181,8 +185,20 @@ code { font-size: 12px; overflow-wrap: anywhere; }
 .chart .cross line { stroke: var(--mute); stroke-width: 1; stroke-dasharray: 3 3; }
 .chart-tip { position: absolute; z-index: 2; pointer-events: none; min-width: 170px; max-width: 280px; padding: 8px 10px; font-size: 11.5px; line-height: 1.5; background: var(--paper); border: 1px solid var(--hair-2); box-shadow: var(--lift); }
 .chart-tip i { font-style: normal; color: var(--mute); }
+.bar-r { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: flex-end; }
+.ch-read { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 18px; min-height: 44px; margin: 0 0 6px; }
+.ch-read:empty { display: none; }
+.ch-read .l { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; min-width: 0; }
+.ch-read .px { font: 500 26px/1.15 var(--mono); letter-spacing: -.02em; }
+.ch-read .chg { font-size: 13px; } .ch-read em, .ch-read .when { font-style: normal; font-size: 12px; color: var(--mute); }
+.ch-read .r { font-size: 12px; color: var(--mute); display: flex; flex-wrap: wrap; gap: 2px 14px; } .ch-read .r b { color: var(--ink); font-weight: 500; }
+.chart .halo { opacity: .22; transform-box: fill-box; transform-origin: center; animation: pulse 2.4s ease-out infinite; }
+@keyframes pulse { 0% { transform: scale(.5); opacity: .35; } 100% { transform: scale(1.5); opacity: 0; } }
+.chart .markdot { fill: var(--card); stroke-width: 1.5; }
+.chart .mark { font-size: 10.5px; fill: var(--ink); font-weight: 500; paint-order: stroke; stroke: var(--card); stroke-width: 3px; stroke-linejoin: round; }
+.chart .cross .cd { fill: var(--card); stroke-width: 2; }
 .chart-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; margin: 10px 0 0; }
-.chart-foot .legend { margin: 0; }
+.chart-foot .legend { margin: 0; } .chart-foot .view { margin-left: auto; }
 .view { display: flex; flex-wrap: wrap; gap: 2px 4px; font-size: 12px; }
 .view button { background: none; border: 0; padding: 4px 8px; min-height: 28px; cursor: pointer; color: var(--mute); text-underline-offset: 3px; }
 .view button[aria-pressed="true"] { color: var(--ink); text-decoration: underline; }
@@ -405,7 +421,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
 
   <section class="hero" aria-labelledby="px-h">
     <div>
-      <h1 id="px-h"><span class="sr">TAC price </span><span id="px-usd" class="num">TAC</span></h1>
+      <h1 id="px-h"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span class="sr">TAC price </span><span id="px-usd" class="num">TAC</span></h1>
       <div class="sub" id="px-sub"><span class="mute">Reading the pools…</span></div>
       <noscript><p class="note">Prices, charts and trading on this page need JavaScript.</p></noscript>
       <details class="hints" id="hints"><summary id="hints-sum">Prices on each chain</summary>
@@ -416,15 +432,16 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
 
   <div class="grid">
     <section class="panel p-chart" aria-labelledby="chart-h">
-      <p class="eyebrow" id="chart-h">Price history</p>
+      <p class="eyebrow" id="chart-h"><span class="pairtk" id="chart-pair"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg></span><span id="chart-name">TAC / ETH · Precision pool</span></p>
       <div class="bar">
         <div class="seg" id="lane-seg" role="group" aria-label="Which lane">
-          <button type="button" data-lane="eth" aria-pressed="true">Ethereum</button>
-          <button type="button" data-lane="btc" aria-pressed="false">Bitcoin</button>
+          <button type="button" data-lane="eth" aria-pressed="true"><svg class="tk xs" aria-hidden="true"><use href="#tk-eth"/></svg>Ethereum</button>
+          <button type="button" data-lane="btc" aria-pressed="false"><svg class="tk xs" aria-hidden="true"><use href="#tk-btc"/></svg>Bitcoin</button>
           <button type="button" data-lane="cmp" aria-pressed="false">Compare</button>
         </div>
-        <div class="seg" id="tf-seg" role="group" aria-label="Candle size"></div>
+        <div class="bar-r"><div class="seg" id="range-seg" role="group" aria-label="How far back"></div><div class="seg" id="tf-seg" role="group" aria-label="Candle size" hidden></div></div>
       </div>
+      <div class="ch-read" id="ch-read" aria-live="off"></div>
       <div id="chart" role="group" aria-label="Price chart"><p class="chart-empty">Reading the price history…</p></div>
       <div class="chart-foot"><div class="legend" id="legend"></div><div class="view" id="view-seg" role="group" aria-label="View"></div></div>
       <details class="more"><summary>About this chart</summary><p class="note" id="chart-note"></p></details>
@@ -432,7 +449,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
 
     <div class="side">
     <section class="panel p-ticket" aria-labelledby="tk-h">
-      <p class="eyebrow" id="tk-h">Trade TAC</p>
+      <p class="eyebrow" id="tk-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-tac"/></svg>Trade TAC</p>
       <div class="seg big" id="side-seg" role="group" aria-label="Buy or sell">
         <button type="button" data-side="buy" aria-pressed="true">Buy TAC</button>
         <button type="button" data-side="sell" aria-pressed="false">Sell TAC</button>
@@ -461,7 +478,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
 
     <section class="panel p-depth" aria-labelledby="d-h">
       <div class="bar">
-        <p class="eyebrow" id="d-h">Order books</p>
+        <p class="eyebrow" id="d-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-tac"/></svg>Order books</p>
         <div class="seg" id="book-seg" role="group" aria-label="Which order book">
           <button type="button" data-book="eth" aria-pressed="true">Ethereum · zSwap</button>
           <button type="button" data-book="btc" aria-pressed="false">Bitcoin</button>
@@ -473,7 +490,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </section>
 
     <section class="panel p-info" aria-labelledby="i-h">
-      <p class="eyebrow" id="i-h">About TAC</p>
+      <p class="eyebrow" id="i-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-tac"/></svg>About TAC</p>
       <div class="prose" id="about"></div>
       <ul class="facts" id="facts"></ul>
       <details class="more"><summary>The pools, the buyback and the contracts</summary><ul class="facts" id="facts-more"></ul></details>
@@ -496,6 +513,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/app.js?cb=ee8c28cd"></script>
+<script type="module" src="/trade/app.js?cb=e86aefd4"></script>
 </body>
 </html>
