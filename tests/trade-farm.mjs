@@ -132,7 +132,7 @@ try {
   await p.fill('#fm-amt', '0.5');
   await until(p, () => /Earns about/.test(document.querySelector('#fm-rcpt')?.textContent || ''), null, 120000);
   const q = (await text(p, '#fm-rcpt')).replace(/\s+/g, ' ');
-  ok(/Earns about\s*[\d.,]+ TAC a day/.test(q) && /APR on this deposit\s*[\d,]+%/.test(q) && /Share of the farm\s*[\d.]+%/.test(q), `0.5 ETH is quoted: TAC a day, APR, share (${q.slice(0, 160)})`);
+  ok(/Earns about\s*[\d.,]+ TAC a day/.test(q) && /APR\s*[\d,]+%/.test(q) && /[\d.]+% of the farm/.test(q), `0.5 ETH is quoted: TAC a day, APR, share (${q.slice(0, 160)})`);
 
   await p.click('#fm-go');
   await until(p, () => /Farm with ETH/.test(document.querySelector('#fm-go')?.textContent || '') && /Balance/.test(document.querySelector('#fm-emax')?.textContent || ''), null, 120000);
@@ -143,11 +143,13 @@ try {
   const s1 = await staked(me.account);
   ok(/Farming\./.test(await text(p, '#fm-status')) && s1 > 0n && r.walletLog.sends.length === 1 && r.walletLog.signs === 0, `ETH alone is zapped and staked in one transaction (${s1} shares, ${r.walletLog.sends.length} sent)`);
   await until(p, () => /Your stake/.test(document.querySelector('#fm-pos')?.textContent || '') && /Add more/.test(document.querySelector('#fm-add-h')?.textContent || ''), null, 120000);
+  if (SHOTS) await p.locator('#farm').screenshot({ path: join(SHOTS, 'farm-staked.png') });
   ok(/Earning\s*[\d.,]+ TAC a day/.test((await text(p, '#fm-pos')).replace(/\s+/g, ' ')), 'the stake shows, with what it earns a day');
 
   // TAC alone, by permit
   await p.click('[data-fm="tac"]');
   await p.fill('#fm-tacamt', '2000');
+  if (SHOTS) await p.locator('#farm').screenshot({ path: join(SHOTS, 'farm-quote.png') });
   await until(p, () => /Earns about/.test(document.querySelector('#fm-rcpt')?.textContent || '') && !document.querySelector('#fm-go').disabled, null, 120000);
   await p.click('#fm-go');
   await until(p, () => /Farming\./.test(document.querySelector('#fm-status')?.textContent || '') || document.querySelector('#fm-status .err'), null, 240000);
@@ -179,6 +181,8 @@ try {
   const got = (await tacBal(me.account)) - t0;
   ok(got > E18 && /Claimed [\d.,]+ TAC/.test(await text(p, '#fm-pos-status')), `a day's rewards are claimed (${Number(got / 10n ** 16n) / 100} TAC)`);
   await until(p, () => !!document.querySelector('#fm-exit') && !document.querySelector('#fm-claim')?.hasAttribute('aria-busy'), null, 60000);   // the claim has ended and the stake is drawn again
+  ok(!(await p.$eval('#fm-wd', (d) => d.open)) && !(await p.$eval('#fm-out-rcpt', (d) => d.textContent)), 'the withdrawal stays closed and unread until it is opened');
+  await p.click('#fm-wd > summary');
   await p.click('[data-as="eth"]');
   await until(p, () => document.querySelector('[data-as="eth"]')?.getAttribute('aria-pressed') === 'true', null, 30000);
   await until(p, () => /Withdraw all/.test(document.querySelector('#fm-exit')?.textContent || '') && /You get about\s*[\d.]+ ETH/.test(document.querySelector('#fm-out-rcpt')?.textContent || ''), null, 120000);

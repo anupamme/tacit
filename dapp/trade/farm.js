@@ -21,7 +21,7 @@ const now = () => Math.floor(Date.now() / 1000);
 
 export function mountFarm(host, ctx) {
   const { ethCall, batch, api, wallet, W, connect, fmtUnits: fmt, parseUnits, esc, usd, ethUsd, txLink, onDone } = ctx;
-  const F = { rseq: 0, ackKey: null, x: null, prog: null, mode: 'eth', outPct: '100', outAs: 'both', q: null, seq: 0, w: null, wseq: 0, busy: false, tick: 0, err: false };
+  const F = { wdOpen: false, rseq: 0, ackKey: null, x: null, prog: null, mode: 'eth', outPct: '100', outAs: 'both', q: null, seq: 0, w: null, wseq: 0, busy: false, tick: 0, err: false };
   const $ = (s) => host.querySelector(s);
   const plain = (v) => { const n = BigInt(v), b = 10n ** 18n, f = (n % b).toString().padStart(18, '0').replace(/0+$/, ''); return `${n / b}${f ? `.${f}` : ''}`; };
   // An amount with at least its first two significant digits, so a small stake does not read as 0.
@@ -38,7 +38,6 @@ export function mountFarm(host, ctx) {
   host.innerHTML = `
     <p class="eyebrow" id="fm-h"><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg></span>Earn · Precision pool farm</p>
     <div class="fm-stats" id="fm-stats"><p class="note">Reading the farm…</p></div>
-    <p class="note fm-prog" id="fm-prog"></p>
     <div class="fm-pos" id="fm-pos" hidden></div>
     <div class="status" id="fm-pos-status" role="status"></div>
     <div class="fm-add">
@@ -54,7 +53,8 @@ export function mountFarm(host, ctx) {
         <div class="fm-rcpt" id="fm-rcpt" hidden></div>
         <button class="btn" type="button" id="fm-go">Connect wallet</button>
         <div class="status" id="fm-status" role="status"></div>
-    </div>`;
+    </div>
+    <div class="fm-prog" id="fm-prog"></div>`;
   const ethIn = $('#fm-amt'), tacIn = $('#fm-tacamt'), go = $('#fm-go'), rc = $('#fm-rcpt'), status = $('#fm-status');
 
   // ── reading the farm ──
@@ -108,9 +108,9 @@ export function mountFarm(host, ctx) {
       return bonded > 0 ? Number(pool.tacPerDayForPool) * 365 * x.tacEth / bonded * 100 : null;
     };
     $('#fm-prog').innerHTML = e?.active && p.pools?.length
-      ? `<div class="fm-ph"><b>Private farms</b><span>${Math.round(Number(e.ratePerDayTac)).toLocaleString('en-US')} TAC a day more, to ${dayFmt(e.periodFinish)}</span></div>`
+      ? `<div class="fm-ph" title="Shielded positions: who farms and how much stays private. Each opens with your Tacit wallet on the main page."><b>Private farms</b><span>${Math.round(Number(e.ratePerDayTac)).toLocaleString('en-US')} TAC a day more, to ${dayFmt(e.periodFinish)}</span></div>`
         + p.pools.filter((pool) => Number(pool.tacPerDayForPool) > 0).map((pool) => `<a class="fm-pf" href="/#farm/private-${Number(pool.pid)}"><span class="pair">${esc(pairName(pool.pair))}</span><span class="d">${Math.round(Number(pool.tacPerDayForPool)).toLocaleString('en-US')} TAC a day</span><b class="num">${aprTxt(aprOf(pool))}</b><i aria-hidden="true">→</i></a>`).join('')
-        + '<p class="note">Shielded positions: who farms and how much stays private. Opens with your Tacit wallet on the main page.</p>'
+
       : '';
   }
 
@@ -124,17 +124,18 @@ export function mountFarm(host, ctx) {
     el.innerHTML = (has ? `<h3>Your stake</h3>
       <div class="kv"><span>In the farm</span><b>${amt(x.mine.eth, 4)} ETH + ${amt(x.mine.tac, 0)} TAC</b></div>
       <div class="kv"><span>Earning</span><b>${amt(day, 2)} TAC a day${tacUsd(day) ? ` · ${tacUsd(day)}` : ''}</b></div>
-      <div class="kv"><span>Your share</span><b>${share(x.staked, x.totalStaked)}</b></div>
-      <div class="kv"><span>Earned</span><b class="num" id="fm-earned">${fmt(earnedNow(x), 18, 4)} TAC</b></div>
-      <button class="btn ghost" type="button" id="fm-claim">Claim TAC</button>
-      <div class="lbl"><span>Withdraw</span></div>
+      <div class="kv earned"><span>Earned</span><span class="rt"><b class="num" id="fm-earned">${fmt(earnedNow(x), 18, 4)} TAC</b><button class="btn sm" type="button" id="fm-claim">Claim</button></span></div>
+      <details class="wd" id="fm-wd"${F.wdOpen ? ' open' : ''}><summary>Withdraw</summary>
       <div class="fm-out"><div class="seg" id="fm-pct" role="group" aria-label="How much">${[['25', '25%'], ['50', '50%'], ['100', 'All']].map(([v, l]) => `<button type="button" data-pct="${v}" aria-pressed="${F.outPct === v}">${l}</button>`).join('')}</div>
       <div class="seg" id="fm-as" role="group" aria-label="As">${[['both', 'ETH + TAC'], ['eth', 'ETH'], ['tac', 'TAC']].map(([v, l]) => `<button type="button" data-as="${v}" aria-pressed="${F.outAs === v}">${l}</button>`).join('')}</div></div>
       <div class="fm-rcpt" id="fm-out-rcpt" hidden></div>
-      <button class="btn ghost" type="button" id="fm-exit" disabled>Withdraw</button>` : '')
+      <button class="btn ghost" type="button" id="fm-exit" disabled>Withdraw</button></details>` : '')
       + (x.lp > 0n ? `<div class="kv"><span>LP shares not staked</span><b>${fmt(x.lp, 18, 6)}</b></div><button class="btn ghost" type="button" id="fm-stake">Stake them</button>` : '');
     if (has && x.live) F.tick = setInterval(() => { const e = $('#fm-earned'); if (!e || F.x !== x) return clearInterval(F.tick); e.textContent = `${fmt(earnedNow(x), 18, 4)} TAC`; }, 1000);
-    if (has) previewOut();
+    // The withdrawal is read (a call from the account) only once it is opened, and again each time the stake is drawn while it stays open.
+    const wd = $('#fm-wd');
+    if (wd) wd.addEventListener('toggle', () => { F.wdOpen = wd.open; if (wd.open) previewOut(); });
+    if (has && F.wdOpen) previewOut();
   }
 
   // ── adding ──
@@ -142,7 +143,7 @@ export function mountFarm(host, ctx) {
     const x = F.x, m = F.mode;
     $('#fm-mode').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.fm === m)));
     $('#fm-eth').hidden = m === 'tac'; $('#fm-tac').hidden = m === 'eth';
-    $('#fm-how').textContent = m === 'pair' ? 'Both go in at the pool’s ratio, nothing swapped, then the shares are staked.' : `About half is swapped to ${m === 'eth' ? 'TAC' : 'ETH'} inside the pool, then both go in and the shares are staked. One transaction.`;
+    $('#fm-how').textContent = m === 'pair' ? 'Both go in at the pool’s ratio, then are staked.' : `Half is swapped to ${m === 'eth' ? 'TAC' : 'ETH'} inside the pool, then both are staked: one transaction.`;
     const em = $('#fm-emax'), tm = $('#fm-tmax'), mine = x && W.account && x.who === W.account;
     em.hidden = !(mine && x.bal != null); tm.hidden = !mine;
     if (mine && x.bal != null) em.textContent = `Balance ${fmt(x.bal, 18, 4)} · Max`;
@@ -195,10 +196,9 @@ export function mountFarm(host, ctx) {
       rc.hidden = false;
       rc.innerHTML = `${m === 'pair' ? `<div class="kv"><span>Deposit</span><b>${fmt(wei, 18, 5)} ETH + ${fmt(tac, 18, 2)} TAC</b></div>` : ''}
         <div class="kv"><span>Earns about</span><b>${amt(day, 2)} TAC a day${tacUsd(day) ? ` · ${tacUsd(day)}` : ''}</b></div>
-        <div class="kv"><span>APR on this deposit</span><b>${aprTxt(apr)}</b></div>
-        <div class="kv"><span>Share of the farm</span><b>${share(lp, x.totalStaked + lp)}</b></div>
-        ${loss >= 0.5 ? `<div class="kv"><span>Price impact of the swap</span><b class="${loss >= 5 ? 'err' : ''}">${loss.toFixed(loss < 10 ? 1 : 0)}%</b></div>` : ''}
-        ${x.live ? `<p class="note">At today’s TAC price and stake, while the stream runs to ${dayFmt(x.finish)}. It falls as more joins.</p>` : '<p class="note">The farm is between reward periods: nothing streams until the next one starts.</p>'}
+        <div class="kv"><span>APR</span><b>${aprTxt(apr)}</b></div>
+        ${loss >= 0.5 ? `<div class="kv"><span>Swap price impact</span><b class="${loss >= 5 ? 'err' : ''}">${loss.toFixed(loss < 10 ? 1 : 0)}%</b></div>` : ''}
+        <p class="note">${share(lp, x.totalStaked + lp)} of the farm. ${x.live ? `At today’s price and stake; the APR falls as more joins. Streams to ${dayFmt(x.finish)}.` : 'The farm is between reward periods: nothing streams until the next one.'}</p>
         ${over ? `<p class="note err">Not enough ${(x.bal != null && wei > x.bal) ? 'ETH' : 'TAC'} in this wallet.</p>` : loss >= 5 ? `<p class="note">The swap inside the pool costs a lot at this size. A smaller deposit${m !== 'pair' ? ', or ETH + TAC,' : ''} costs less.</p>` : ''}
         ${loss >= 15 ? `<label class="ack"><input type="checkbox" id="fm-ack"${F.ackKey === ackKey ? ' checked' : ''}><span>I accept losing about ${Math.round(loss)}% of this deposit to the swap.</span></label>` : ''}`;
       $('#fm-ack')?.addEventListener('change', (e) => { F.ackKey = e.target.checked ? ackKey : null; gate(); });
