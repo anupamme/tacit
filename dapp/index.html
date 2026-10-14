@@ -8,12 +8,13 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-zqK+Y9UwgAw/6ilUJTRlcrcEeLudQ8AaU/Vrst+GJnI=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=0cf48a6a"></script>
-<title>tacit</title>
+<title>tacit — private DeFi on Bitcoin and Ethereum</title>
+<link rel="canonical" href="https://tacit.finance/">
 <meta name="description" content="Private DeFi on Bitcoin and Ethereum. Assets issued on Bitcoin with hidden amounts, a zero-knowledge bridge to a confidential pool on Ethereum, private ETH, TAC, points, farms and dollars borrowed against Bitcoin.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="tacit">
 <meta property="og:url" content="https://tacit.finance/">
-<meta property="og:title" content="tacit">
+<meta property="og:title" content="tacit — private DeFi on Bitcoin and Ethereum">
 <meta property="og:description" content="Private DeFi on Bitcoin and Ethereum: private ETH, Bitcoin payments, TAC, points, farms and dollars borrowed against Bitcoin.">
 <meta property="og:image" content="https://tacit.finance/tacit-card.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -110,6 +111,10 @@ button { font: inherit; color: inherit; letter-spacing: inherit; }
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 [hidden] { display: none !important; }
 .num { font-variant-numeric: tabular-nums; }
+.skip { position: absolute; left: 16px; top: -64px; z-index: 100; padding: 10px 16px; background: var(--ink); color: var(--paper); border-radius: 8px; text-decoration: none; font-size: 13px; transition: top .15s; }
+.skip:focus { top: 12px; }
+main { display: block; }
+main:focus { outline: none; }
 .mute { color: var(--mute); }
 .err { color: var(--err); }
 .ok { color: var(--ok); }
@@ -308,13 +313,17 @@ a.di { color: inherit; text-decoration: none; }
 .hx-to { flex: 1; min-width: 0; padding: 8px 0; font: 16px var(--mono); color: var(--ink); background: none; border: 0; border-radius: 0; outline: none; }
 .hx-to::placeholder { color: var(--mute); opacity: .6; }
 .hx-say { font-size: 13px; line-height: 1.5; color: var(--mute); }
-.hx-sub { min-height: 22px; color: var(--mute); }
+.hx-sub { min-height: 28px; color: var(--mute); }
 .hx-bal button { padding: 0; font: 12px var(--mono); color: var(--mute); background: none; border: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .hx-bal button:disabled { text-decoration: none; cursor: default; }
 @media (hover: hover) { .hx-bal button:not(:disabled):hover { color: var(--ink); } }
 .hx-quick { display: inline-flex; flex-wrap: wrap; gap: 6px; }
-.hx-quick button { padding: 1px 10px; font: 12px var(--mono); color: var(--ink); background: none; border: 1px solid var(--hair-2); border-radius: 999px; cursor: pointer; transition: border-color .15s; }
+.hx-quick button { padding: 4px 11px; font: 12px var(--mono); color: var(--ink); background: none; border: 1px solid var(--hair-2); border-radius: 999px; cursor: pointer; transition: border-color .15s; }
 @media (hover: hover) { .hx-quick button:hover { border-color: var(--ink); } }
+@media (pointer: coarse) { .hx-sub { min-height: 38px; } .hx-quick button { padding: 8px 14px; } }
+/* Small links keep their look and get a taller hit area (the box around them, not their size). */
+.pxs .px, .news, .kept-h a, .cta .tl { position: relative; }
+.pxs .px::after, .news::after, .kept-h a::after, .cta .tl::after { content: ''; position: absolute; inset: -7px -4px; }
 /* A coin and its ticker as a pill in the coin's colour, with the asset picker laid over it. */
 .hx-coin { position: relative; display: inline-flex; align-items: center; gap: 8px; flex: none; height: 44px; padding: 0 12px 0 6px; background: var(--card); border: 1px solid var(--hair-2);
   border-radius: 999px; font: 500 14px var(--mono); color: var(--ink); white-space: nowrap; cursor: pointer; transition: border-color .18s, transform .2s var(--spring); }
@@ -961,6 +970,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
 </style>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to content</a>
 <div class="sr" id="live" role="status" aria-live="polite"></div>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
   <defs>
@@ -1002,6 +1012,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   </header>
   <div class="pxs" id="pxs" role="group" aria-label="Prices in dollars"></div>
 
+  <main id="main" tabindex="-1">
   <section class="hero" aria-labelledby="hero-h">
     <div class="hero-go">
     <div class="hero-l">
@@ -1122,6 +1133,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
       <div class="tc-links"><button class="btn" type="button" data-hx="swap:ether:tac">Buy TAC</button><a class="tl" href="/trade/tac/">Price and chart →</a><a class="tl" href="/verify.html">Verify the supply →</a><a class="tl" href="https://github.com/src-company/tacit/blob/main/docs/TAC.md" rel="noopener">About TAC →</a></div>
     </div>
   </section>
+  </main>
 
   <footer>
     <span>tacit.finance · mainnet</span>
