@@ -36,19 +36,21 @@ interface IPoolRegistry {
 ///         first, and an existing entry is used as it is.
 ///
 ///         After deploying, run tools/tac-vault-keeper.mjs with ORACLE set to the two venue oracles it prints: it
-///         records the past hours of intervals at once and every new one after. Both vaults start with a debt ceiling
-///         of 0; the owner raises them. The reserve that absorbs bad debt is SYNTH sent to a vault, and only an absorb
-///         spends it; seed it before raising a ceiling, from a dedicated treasury vault that is never meant to close.
-///         Run without `--broadcast` to simulate.
+///         records the past hours of intervals at once and every new one after. Both vaults start with the largest
+///         debt ceiling: what they lend is held to DEPTH_BPS of the smaller venue's ETH depth over the last hours
+///         (nothing until every interval of that window is recorded), so it grows and shrinks with the pools. The
+///         owner may set a lower ceiling and lift it again. The reserve that absorbs bad debt is SYNTH sent to a
+///         vault, and only an absorb spends it; keep it in step with the debt, from a dedicated treasury vault that is
+///         never meant to close. Run without `--broadcast` to simulate.
 ///
 /// Env:
 ///   OWNER                 (required) the vaults' owner (the ops multisig)
-///   FEE_TO                (default OWNER)   where borrow fees, in SYNTH, go
-///   TAC_SINK              (default OWNER)   where absorbed TAC goes
+///   FEE_TO                (default OWNER)   where borrow fees, in SYNTH, go first (the owner may change it)
+///   TAC_SINK              (default OWNER)   where absorbed TAC goes first (the owner may change it)
 ///   USD_NAME / USD_SYMBOL (default "TAC Dollar" / TACD) the dollar synth's ERC-20 name and symbol
 ///   ETH_NAME / ETH_SYMBOL (default "TAC Ether" / TACE) the ETH synth's ERC-20 name and symbol
-///   USD_CEILING           (default 0)       dollar vault debt cap
-///   ETH_CEILING           (default 0)       ETH vault debt cap
+///   USD_CEILING           (default no limit) dollar vault debt ceiling set by the owner
+///   ETH_CEILING           (default no limit) ETH vault debt ceiling set by the owner
 ///   USD_MIN_DEBT          (default 100e18)  smallest dollar debt
 ///   ETH_MIN_DEBT          (default 0.04e18) smallest ETH debt
 ///   DEPTH_BPS             (default 500)     each vault's total debt at most this share of the pool's ETH depth
@@ -139,7 +141,7 @@ contract DeployTacVault is Script {
         console2.log("ETH pool/router:", o.ethPool, o.ethRouter);
         console2.log("USD zap / ETH zap:", o.usdZap, o.ethZap);
         console2.log(
-            "NEXT: run tools/tac-vault-keeper.mjs with ORACLE=<Precision venue>,<AMM venue>; then raise the ceilings"
+            "NEXT: run tools/tac-vault-keeper.mjs with ORACLE=<Precision venue>,<AMM venue>; lending opens once it has recorded the window"
         );
     }
 
@@ -162,7 +164,7 @@ contract DeployTacVault is Script {
             ownerWindow: vm.envOr("OWNER_WINDOW", uint256(1_200)),
             minDebt: minDebt,
             feedMaxStaleness: vm.envOr("FEED_MAX_STALENESS", uint256(3900)),
-            debtCeiling: vm.envOr(usd ? "USD_CEILING" : "ETH_CEILING", uint256(0)),
+            debtCeiling: vm.envOr(usd ? "USD_CEILING" : "ETH_CEILING", type(uint256).max),
             depthBps: vm.envOr("DEPTH_BPS", uint256(500)),
             redemptionFeeBps: vm.envOr("REDEMPTION_FEE_BPS", uint256(50)),
             borrowFeeBps: vm.envOr("BORROW_FEE_BPS", uint256(100)),

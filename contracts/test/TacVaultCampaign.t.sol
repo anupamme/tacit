@@ -17,7 +17,7 @@ pragma solidity ^0.8.28;
 //     --match-test invariant_noHandlerViolation -vv
 // where 64 is the campaign's `runs`: the counters appear as the message of that run's `afterInvariant`.
 
-import {Test, console2} from "forge-std/Test.sol";
+import {Test} from "forge-std/Test.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {TacVault} from "../src/TacVault.sol";
 import {TacSynth} from "../src/TacSynth.sol";

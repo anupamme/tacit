@@ -61,8 +61,9 @@ interface IERC2612 {
 ///
 ///         Debt. Total debt is held under both the owner's `debtCeiling` and DEPTH_BPS of the venues' ETH depth
 ///         (the smallest the oracle recorded over LIQ_WINDOW, in SYNTH, which needs every interval of the window
-///         recorded: borrowing waits for the keeper to catch up). The cap limits new borrowing only; debt already
-///         open stays when depth falls.
+///         recorded: borrowing waits for the keeper to catch up). The depth share rises and falls with the pools, so
+///         a vault deployed with the largest `debtCeiling` is limited by depth alone; the owner may set a lower
+///         ceiling and raise it again. The cap limits new borrowing only; debt already open stays when depth falls.
 ///
 ///         Liquidation. `liquidate` opens a Dutch auction on a vault below LIQ_RATIO_BPS. A bid repays debt and
 ///         takes TAC worth that debt at the offer view, plus a bonus that grows from zero at the auction's start to
@@ -74,12 +75,12 @@ interface IERC2612 {
 ///         repay, bid or absorb that brings it there ends it); `cancel` ends it then too. After AUCTION_DURATION, a
 ///         vault whose TAC is worth less than its debt at the liquidation view can be `absorb`ed: SYNTH held by this
 ///         contract (the reserve) burns as much of the debt as it covers, and the same share of the TAC goes to
-///         TAC_SINK. Anyone may send SYNTH to the reserve, and only `absorb` spends it, so what is sent stays out
+///         `tacSink`. Anyone may send SYNTH to the reserve, and only `absorb` spends it, so what is sent stays out
 ///         of circulation; seed it from a dedicated vault that is never meant to close.
 ///
 ///         Fees:
-///           - Borrowing adds `borrowFeeBps` of the amount to the debt, minted to FEE_TO. The owner sets the fee up
-///             to MAX_BORROW_FEE_BPS; a borrower caps it with `maxFeeBps`.
+///           - Borrowing adds `borrowFeeBps` of the amount to the debt, minted to `feeTo`. The owner sets the fee up
+///             to MAX_BORROW_FEE_BPS, and `feeTo`; a borrower caps the fee with `maxFeeBps`.
 ///           - `redeem` burns SYNTH against a vault between LIQ_RATIO_BPS and twice that, for its TAC at the
 ///             redemption view, less a fee that stays in the vault: REDEMPTION_FEE_BPS at LIQ_RATIO_BPS, rising to
 ///             four times that at twice LIQ_RATIO_BPS, so redemptions fall on the least collateralised vaults first.
@@ -90,7 +91,8 @@ interface IERC2612 {
 ///         `permitSynth` apply the caller's EIP-2612 permits, so approve, deposit and borrow fit in one
 ///         transaction.
 ///
-///         The owner (transferable) sets only the debt ceiling and the borrow fee. Everything else is immutable.
+///         The owner (transferable) sets the debt ceiling, the borrow fee, and where the borrow fee and the TAC of an
+///         absorb go. Everything else is immutable.
 contract TacVault is Ownable, Multicallable {
     uint256 internal constant BPS = 10_000;
     uint256 internal constant WAD = 1e18;
@@ -117,8 +119,8 @@ contract TacVault is Ownable, Multicallable {
     uint256 public immutable FEED_MAX_STALENESS;
     uint256 public immutable REDEMPTION_FEE_BPS;
     uint256 public immutable DEPTH_BPS;
-    address public immutable TAC_SINK;
-    address public immutable FEE_TO;
+    address public tacSink;
+    address public feeTo;
 
     struct Vault {
         uint256 collateral; // TAC, 18 decimals
@@ -185,6 +187,8 @@ contract TacVault is Ownable, Multicallable {
     event NonceUsed(address indexed owner, uint256 nonce);
     event DebtCeilingSet(uint256 ceiling);
     event BorrowFeeSet(uint256 bps);
+    event FeeToSet(address to);
+    event TacSinkSet(address to);
 
     constructor(Config memory c) {
         if (c.tac.code.length == 0 || c.oracle.code.length == 0 || c.ethUsd.code.length == 0) revert BadConfig();
@@ -216,13 +220,15 @@ contract TacVault is Ownable, Multicallable {
         FEED_MAX_STALENESS = c.feedMaxStaleness;
         REDEMPTION_FEE_BPS = c.redemptionFeeBps;
         DEPTH_BPS = c.depthBps;
-        TAC_SINK = c.tacSink;
-        FEE_TO = c.feeTo;
         _initializeOwner(c.owner);
         debtCeiling = c.debtCeiling;
         borrowFeeBps = c.borrowFeeBps;
+        tacSink = c.tacSink;
+        feeTo = c.feeTo;
         emit DebtCeilingSet(c.debtCeiling);
         emit BorrowFeeSet(c.borrowFeeBps);
+        emit FeeToSet(c.feeTo);
+        emit TacSinkSet(c.tacSink);
     }
 
     // ─────────────── owner ───────────────
@@ -236,6 +242,20 @@ contract TacVault is Ownable, Multicallable {
         if (bps > MAX_BORROW_FEE_BPS) revert BadConfig();
         borrowFeeBps = bps;
         emit BorrowFeeSet(bps);
+    }
+
+    /// Where the borrow fee, in SYNTH, is minted from now on.
+    function setFeeTo(address to) external onlyOwner {
+        if (to == address(0)) revert BadConfig();
+        feeTo = to;
+        emit FeeToSet(to);
+    }
+
+    /// Where the TAC of an `absorb` goes from now on.
+    function setTacSink(address to) external onlyOwner {
+        if (to == address(0)) revert BadConfig();
+        tacSink = to;
+        emit TacSinkSet(to);
     }
 
     // ─────────────── permits ───────────────
@@ -353,7 +373,7 @@ contract TacVault is Ownable, Multicallable {
         totalDebt = total;
         _requireBorrowHealthy(v);
         SYNTH.mint(to, amount);
-        if (fee != 0) SYNTH.mint(FEE_TO, fee);
+        if (fee != 0) SYNTH.mint(feeTo, fee);
         emit Borrowed(owner, to, amount, fee);
     }
 
@@ -465,7 +485,7 @@ contract TacVault is Ownable, Multicallable {
 
     /// After AUCTION_DURATION, burns as much of `owner`'s debt as the reserve (SYNTH held here) covers, leaving zero
     /// or at least MIN_DEBT, on a vault whose TAC is worth less than its debt at the liquidation view, and sends the
-    /// same share of its TAC to TAC_SINK.
+    /// same share of its TAC to `tacSink`.
     function absorb(address owner) external {
         Vault storage v = vaults[owner];
         if (v.auctionStart == 0) revert NoAuction();
@@ -484,7 +504,7 @@ contract TacVault is Ownable, Multicallable {
         _tryEnd(owner, v);
         SYNTH.approve(address(this), amount);
         SYNTH.burnFrom(address(this), amount);
-        SafeTransferLib.safeTransfer(TAC, TAC_SINK, tac);
+        SafeTransferLib.safeTransfer(TAC, tacSink, tac);
         emit Absorbed(owner, amount, tac);
     }
 

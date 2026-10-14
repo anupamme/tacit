@@ -5,11 +5,8 @@ import {Test, console2, Vm} from "forge-std/Test.sol";
 import {DeployTacVault} from "../script/DeployTacVault.s.sol";
 import {TacVault} from "../src/TacVault.sol";
 import {TacSynth} from "../src/TacSynth.sol";
-import {TacBlockOracle} from "../src/TacBlockOracle.sol";
-import {TacAmmOracle} from "../src/TacAmmOracle.sol";
 import {TacPairOracle} from "../src/TacPairOracle.sol";
 import {TacIntervalOracle} from "../src/TacIntervalOracle.sol";
-import {TacVaultZap} from "../src/TacVaultZap.sol";
 
 interface IV1c {
     function registerWrappedAuto(address underlying, bytes32 link) external returns (bytes32);
@@ -120,10 +117,10 @@ contract TacDeployForkTest is Test {
         assertEq(usd.borrowFeeBps(), 100);
         assertEq(usd.MIN_DEBT(), 100e18);
         assertEq(eth.MIN_DEBT(), 0.04e18);
-        assertEq(usd.debtCeiling(), 0);
-        assertEq(eth.debtCeiling(), 0);
-        assertEq(usd.FEE_TO(), OPS);
-        assertEq(usd.TAC_SINK(), OPS);
+        assertEq(usd.debtCeiling(), type(uint256).max);
+        assertEq(eth.debtCeiling(), type(uint256).max);
+        assertEq(usd.feeTo(), OPS);
+        assertEq(usd.tacSink(), OPS);
         assertEq(usd.FEED_MAX_STALENESS(), 3_900);
 
         TacPairOracle pair = TacPairOracle(address(usd.ORACLE()));
@@ -167,7 +164,7 @@ contract TacDeployForkTest is Test {
         (bool ok,) = TAC.call(abi.encodeWithSignature("approve(address,uint256)", address(usd), type(uint256).max));
         assertTrue(ok);
         usd.deposit(100_000e18);
-        vm.expectRevert(); // ceiling 0, and no price
+        vm.expectRevert(); // no price yet
         usd.borrow(100e18, 100);
         vm.stopPrank();
 

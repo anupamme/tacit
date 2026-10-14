@@ -437,6 +437,61 @@ contract TacVaultTest is Test {
         oracle.set(3e12);
     }
 
+    /// The owner moves where the TAC of an absorb goes; the old sink gets none after that.
+    function test_absorbSendsTheTacToTheSinkTheOwnerSet() public {
+        address newSink = address(0x51);
+        vm.prank(OWNER);
+        vault.setTacSink(newSink);
+        assertEq(vault.tacSink(), newSink);
+        _underwater(250e18);
+        _wait(D);
+        uint256 oldSinkBefore = tac.balanceOf(SINK);
+        vault.absorb(alice);
+        assertEq(tac.balanceOf(newSink), COLL);
+        assertEq(tac.balanceOf(SINK), oldSinkBefore);
+    }
+
+    /// The owner moves where the borrow fee is minted; the old address gets none after that.
+    function test_theFeeGoesToTheAddressTheOwnerSet() public {
+        address newFeeTo = address(0xFE2);
+        vm.startPrank(OWNER);
+        vault.setBorrowFee(100);
+        vault.setFeeTo(newFeeTo);
+        vm.stopPrank();
+        assertEq(vault.feeTo(), newFeeTo);
+        vm.startPrank(alice);
+        vault.deposit(COLL);
+        vault.borrow(1_000e18, 100);
+        vm.stopPrank();
+        assertEq(dollar.balanceOf(newFeeTo), 10e18);
+        assertEq(dollar.balanceOf(FEE_TO), 0);
+        assertEq(dollar.totalSupply(), vault.totalDebt());
+    }
+
+    /// Both setters are for the owner alone, refuse the zero address, and say what they set.
+    function test_theFeeAndSinkSettersAreOwnerOnlyAndRefuseZero() public {
+        vm.startPrank(alice);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        vault.setFeeTo(alice);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        vault.setTacSink(alice);
+        vm.stopPrank();
+        vm.startPrank(OWNER);
+        vm.expectRevert(TacVault.BadConfig.selector);
+        vault.setFeeTo(address(0));
+        vm.expectRevert(TacVault.BadConfig.selector);
+        vault.setTacSink(address(0));
+        vm.expectEmit(false, false, false, true);
+        emit TacVault.FeeToSet(bob);
+        vault.setFeeTo(bob);
+        vm.expectEmit(false, false, false, true);
+        emit TacVault.TacSinkSet(bob);
+        vault.setTacSink(bob);
+        vm.stopPrank();
+        assertEq(vault.feeTo(), bob);
+        assertEq(vault.tacSink(), bob);
+    }
+
     function test_absorbSettlesAnUnderwaterAuctionFromTheReserve() public {
         _underwater(250e18);
         vm.expectRevert(TacVault.TooEarly.selector);

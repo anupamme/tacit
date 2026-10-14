@@ -241,7 +241,7 @@ contract TacVaultOwnerProps is TacVaultPropsBase {
         _fund(alice);
     }
 
-    function test_theOwnerCanOnlySetTheFeeTheCeilingAndHandOver() public {
+    function test_theOwnerCanOnlySetTheFeeTheCeilingTheFeeAddressTheSinkAndHandOver() public {
         _open(alice, 100_000e18, 5_000e18);
         (uint256 c0, uint256 d0,) = vault.vaults(alice);
         vm.startPrank(address(0x0123));
@@ -249,6 +249,8 @@ contract TacVaultOwnerProps is TacVaultPropsBase {
         vault.setBorrowFee(500);
         vm.expectRevert(TacVault.BadConfig.selector);
         vault.setBorrowFee(501);
+        vault.setFeeTo(other);
+        vault.setTacSink(other);
         vault.transferOwnership(other);
         vm.stopPrank();
         vm.startPrank(other);
