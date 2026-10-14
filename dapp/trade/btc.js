@@ -1,4 +1,4 @@
-// Trading TAC on Bitcoin from the trade page: the market page's own module (btc-market.js: the order book, the ticket, your orders) with the
+// Trading an asset on Bitcoin from the trade page (TAC's market, and tETH's when it has one): the market page's own module (btc-market.js: the order book, the ticket, your orders) with the
 // executors and the book's data from tacit.js, mounted in a sheet. The module plans and tacit.js settles; this file supplies what the classic
 // app supplies around them and a page like this one does not have: signing in, a confirmation, a notice, the sats and TAC the key holds,
 // and where a purchase that stopped halfway is recovered. Nothing here builds or signs a transaction.
@@ -7,9 +7,12 @@ import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
 
 const MARKET_URL = '/btc-market.js?cb=e07ed7ab', CSS_URL = '/trade/btc-market.css?cb=359753e6';
 const TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
+// The asset a sheet trades: its id, its title, and the line under the market about getting it onto Bitcoin. TAC's, unless the page names another.
+const TAC_ASSET = { id: TAC, title: 'TAC on Bitcoin', after: 'To sell TAC you hold on Ethereum, bridge it to Bitcoin first. <a href="/#bridge">Bridge →</a>' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export function makeBitcoin({ notify = () => {}, onTraded = () => {} } = {}) {
+export function makeBitcoin({ notify = () => {}, onTraded = () => {}, asset = TAC_ASSET } = {}) {
+  const AID = asset.id;
   const session = makeBtcSession();
   let main = null, host = null, ctl = null, meState = null, meTimer = 0, off = null;
 
@@ -112,7 +115,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {} } = {}) {
     const T = session.T, my = session.key;
     const [utxos, holdings] = await Promise.all([T.getUtxos(T.wallet.address()).catch(() => null), T.scanHoldings().catch(() => null)]);
     if (session.key !== my) return;                                                        // the key changed while this was read
-    const h = holdings instanceof Map ? holdings.get(TAC) : null;
+    const h = holdings instanceof Map ? holdings.get(AID) : null;
     meState = {
       pubHex: my.pubHex, h160: T.bytesToHex(T.hash160(T.wallet.pub)), unlocked: true,
       sats: Array.isArray(utxos) ? utxos.reduce((a, u) => a + Number(u.value || 0), 0) : null,
@@ -124,8 +127,8 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {} } = {}) {
   async function buildCtx() {
     const T = session.T;
     if (typeof T._btcMarketCtx !== 'function') throw new Error('the wallet library served to this browser is older than the page: reload in a minute');
-    await T._btcMarketCtx(TAC).loadListings();
-    const base = T._btcMarketCtx(TAC);
+    await T._btcMarketCtx(AID).loadListings();
+    const base = T._btcMarketCtx(AID);
     if (!base.asset()?.ticker || base.asset().ticker === '?') throw new Error('the market data did not load');
     const logo = (h) => (typeof h === 'string' ? h.replace('src="tac-logo.png"', 'src="/tac-logo.png"') : h);      // tacit.js names the logo relative to the classic app's address
     const settled = (fn) => async (...a) => { try { await fn?.(...a); } finally { try { await refreshMe(); ctl?.refresh?.({ soft: true }); } catch { /* the next refresh reads it */ } onTraded(); } };
@@ -164,7 +167,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {} } = {}) {
   // (and maybe opened again) is not mounted into: each step checks that it is still the current one.
   async function open(prime = null) {
     if (main) { if (prime) await primeWhenReady(prime); return; }
-    const mine = overlay({ title: 'TAC on Bitcoin', wide: true, onClose: () => { if (main === mine) destroy(); } });
+    const mine = overlay({ title: asset.title, wide: true, onClose: () => { if (main === mine) destroy(); } });
     main = mine;
     const box = document.createElement('div'); box.className = 'bm-skin'; box.innerHTML = '<p class="note">Loading the Bitcoin market…</p>';
     mine.body.append(box); host = box;
@@ -179,7 +182,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {} } = {}) {
       ctl = market.mountBtcMarket(box, ctx);
       meTimer = setInterval(() => { if (!document.hidden && session.unlocked) refreshMe().then(() => ctl?.refresh?.({ soft: true })).catch(() => {}); }, 45e3);
       off = session.onChange(() => { paintHead(); refreshMe().then(() => ctl?.refresh?.({ soft: true })).catch(() => {}); });
-      box.insertAdjacentHTML('beforeend', '<p class="note bm-after">To sell TAC you hold on Ethereum, bridge it to Bitcoin first. <a href="/#bridge">Bridge →</a></p>');
+      box.insertAdjacentHTML('beforeend', `<p class="note bm-after">${asset.after}</p>`);
       paintHead();
       if (prime) await primeWhenReady(prime);
     } catch (e) {

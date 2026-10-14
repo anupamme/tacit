@@ -14,10 +14,10 @@ import {
 import { getConfidentialDeployment } from '/confidential-deployments.js';
 import { buildBook, planBuy, planSell as planBtcSell, ladderLevels } from '/btc-book.js?cb=91371653';
 import { decodeTape, chartBars, invert, ethLaneUsd, btcLaneUsd, candlesFromTrades, tradePrices, closeAt, volumeSince, gap, TAPE_FINE, TAPE_COARSE } from '/trade/tape.js?cb=6565501b';
-import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=f171a0fb';
+import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=f31c8773';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
-import { mountDepth } from '/trade/depth.js?cb=827635bd';
+import { mountDepth } from '/trade/depth.js?cb=1e8ce418';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=24e3ea08';
 import { mountFarm } from '/trade/farm.js?cb=cac985f6';
@@ -553,7 +553,7 @@ function notify(msg, kind = '', ms = 5000) {
 }
 async function openBitcoin(prime = null) {
   try {
-    bitcoin ||= (await import('/trade/btc.js?cb=679bf719')).makeBitcoin({ notify, onTraded: () => loadBitcoin().then(paintAll).catch(() => {}) });
+    bitcoin ||= (await import('/trade/btc.js?cb=4c730bad')).makeBitcoin({ notify, onTraded: () => loadBitcoin().then(paintAll).catch(() => {}) });
     await bitcoin.open(prime);
   } catch (e) { notify(`The Bitcoin market could not be opened: ${e?.message || e}`, 'error', 9000); }
 }

@@ -42,6 +42,7 @@ export const fmtStamp = (t) => { const d = new Date(t * 1000); return `${d.getUT
 //   period: seconds a bar spans (sets candle width),
 //   tags:   [{ y, label, color }]   price marks at the right edge (the same unit as the first series' prices)
 //   label:  the chart's accessible name
+//   empty:  what is said when there is nothing to draw (default: no trades yet)
 // }
 export function mountChart(host, onHover = null) {
   let opts = null, size = { w: 0, h: 0 }, tip = null;
@@ -51,7 +52,7 @@ export function mountChart(host, onHover = null) {
     const { series = [], period = 3600, tags = [], label = 'Price chart', log = false } = opts, all = series.flatMap((s) => s.bars);
     host.replaceChildren();
     const W = size.w, H = size.h, m = { l: 8, r: 64, t: 10, b: 24 };
-    if (!all.length) { host.append(Object.assign(document.createElement('p'), { className: 'chart-empty', textContent: 'No trades to draw yet.' })); return; }
+    if (!all.length) { host.append(Object.assign(document.createElement('p'), { className: 'chart-empty', textContent: opts.empty || 'No trades to draw yet.' })); return; }
     const t0 = Math.min(...all.map((b) => b.t)), t1 = Math.max(...all.map((b) => b.t)) + period;
     // The axis fits the candles' bodies, with their wicks up to half a body-range beyond: one print far from the rest (the tape's own
     // notes say a small trade can make one) would otherwise squash every other candle. A wick past the axis is clipped; the tooltip

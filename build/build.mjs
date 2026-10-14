@@ -177,7 +177,8 @@ const PAY_CB_FILES = ['pay/index.html', 'pay/eth/index.html'];
 const TAC_CB_FILES = ['tac/sats.js', 'tac/market.js', 'tac/claim.js', 'tac/app.js', 'tac/index.html'];
 // dapp/trade/ is the TAC trade page: its modules are hashed first (the venues module and the order book it imports are the shared ones the
 // front page uses, so their tokens come out the same), then app.js, then the page that loads it.
-const TRADE_CB_FILES = ['trade/tape.js', 'trade/chart.js', 'trade/book.js', 'trade/depth.js', 'trade/wallet.js', 'trade/sheet.js', 'trade/btc-session.js', 'trade/btc.js', 'trade/farm.js', 'trade/app.js', 'trade/index.html'];
+const TRADE_CB_FILES = ['trade/tape.js', 'trade/chart.js', 'trade/book.js', 'trade/depth.js', 'trade/wallet.js', 'trade/sheet.js', 'trade/btc-session.js', 'trade/btc.js', 'trade/farm.js', 'trade/app.js', 'trade/index.html',
+  'trade/util.js', 'trade/key.js', 'trade/connect.js', 'trade/teth/read.js', 'trade/teth/wrap.js', 'trade/teth/market.js', 'trade/teth/app.js', 'trade/teth/index.html'];
 // The trade page has one address for each asset it trades: /trade/tac/ is TAC's, and /trade/ (which will list assets later) takes that
 // address today. Both are the same page, so /trade/tac/index.html is made from /trade/index.html, differing only in the address
 // the page names as its own, and `--verify-only` fails when it is not what this makes.
@@ -191,6 +192,19 @@ function tradeAssetPages(write) {
     if (got !== want) { drift.push(`${rel} is not /${TRADE_PAGE} made for /trade/${slug}/`); if (write) { mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, want); } }
   }
   return drift;
+}
+// The tETH page (/trade/teth/) is the same page in another market: it wears the TAC page's stylesheet, between the markers in its own head, so the
+// two cannot drift apart. What only it needs follows the block, in a style of its own.
+const TETH_PAGE = 'trade/teth/index.html', STYLE_BLOCK = /<style>[\s\S]*?<\/style>/, STYLE_MARKS = /(<!-- style:shared:begin -->\n)[\s\S]*?(\n<!-- style:shared:end -->)/;
+function tethPageStyle(write) {
+  const file = join(DAPP_DIR, TETH_PAGE);
+  if (!existsSync(file)) return [];
+  const want = STYLE_BLOCK.exec(readFileSync(join(DAPP_DIR, TRADE_PAGE), 'utf8'))[0], before = readFileSync(file, 'utf8');
+  if (!STYLE_MARKS.test(before)) throw new Error(`${TETH_PAGE} has no style:shared markers`);
+  const after = before.replace(STYLE_MARKS, (m, a, b) => `${a}${want}${b}`);
+  if (after === before) return [];
+  if (write) writeFileSync(file, after);
+  return [`${TETH_PAGE} does not carry /${TRADE_PAGE}'s styles`];
 }
 // The Bitcoin market module on the trade page (trade/btc.js) is styled by the classic app's own stylesheet: the slice of classic.html between
 // the market page's markers, with the tokens that slice reads taken from the trade page's, so the two cannot drift apart. The sheet is
@@ -238,7 +252,7 @@ function pageCacheBust(files, write) {
 // from the first bytes of the HTML. The group after the bar is what the page needs right after it starts, not before:
 // the module's first lines preload it, once what the page waits on has arrived, so the two do not share bandwidth.
 // Generated here so it cannot go stale; --verify-only reports a block that no longer matches.
-const PRELOAD_PAGES = ['index.html', 'pay/index.html', 'pay/eth/index.html', 'trade/index.html'];
+const PRELOAD_PAGES = ['index.html', 'pay/index.html', 'pay/eth/index.html', 'trade/index.html', 'trade/teth/index.html'];
 const STATIC_IMPORT = /(?:^|[\n;}])\s*(?:import|export)\s*(?:[^'"();]*?\sfrom\s*)?(['"])([^'"]+)\1/g;
 const HEAD_BLOCK = /<!-- preload:begin -->[\s\S]*?<!-- preload:end -->/, LATER_BLOCK = /\/\/ preload-later:begin\n[\s\S]*?\/\/ preload-later:end/;
 function preloadBlocks(page) {
@@ -407,7 +421,7 @@ async function main() {
     if (gotCb !== wantCb) drift.push(`classic.html tacit.js ?cb=${gotCb} but sha256(dapp/tacit.js)=${wantCb}`);
     if (gotPreboot !== wantPreboot) drift.push(`classic.html preboot.js ?cb=${gotPreboot} but sha256(dapp/preboot.js)=${wantPreboot}`);
     if (gotSw !== wantSw) drift.push(`sw.js CACHE_VERSION suffix ${gotSw} but sha256(vendor‖prf-wallet)=${wantSw}`);
-    drift.push(...pageCacheBust(SATS_CB_FILES, false), ...pageCacheBust(WELD_CB_FILES, false), ...pageCacheBust(TAC_CB_FILES, false), ...btcMarketCss(false), ...pageCacheBust(TRADE_CB_FILES, false), ...tradeAssetPages(false), ...pageCacheBust(PAY_CB_FILES, false));
+    drift.push(...pageCacheBust(SATS_CB_FILES, false), ...pageCacheBust(WELD_CB_FILES, false), ...pageCacheBust(TAC_CB_FILES, false), ...btcMarketCss(false), ...tethPageStyle(false), ...pageCacheBust(TRADE_CB_FILES, false), ...tradeAssetPages(false), ...pageCacheBust(PAY_CB_FILES, false));
     drift.push(...pagePreloads(false));
     if (drift.length) {
       console.error('✗ cache-bust tokens or preload links are stale — run `npm run build` and commit the result:');
@@ -440,6 +454,8 @@ async function main() {
     console.log(`• tac page cache-bust: ${tacDrift.length ? `${tacDrift.length} token(s) updated` : 'unchanged'}`);
     const cssDrift = btcMarketCss(true);
     console.log(`• trade page market styles: ${cssDrift.length ? 'updated' : 'unchanged'}`);
+    const styleDrift = tethPageStyle(true);
+    console.log(`• tETH page styles: ${styleDrift.length ? 'updated' : 'unchanged'}`);
     const tradeDrift = pageCacheBust(TRADE_CB_FILES, true);
     console.log(`• trade page cache-bust: ${tradeDrift.length ? `${tradeDrift.length} token(s) updated` : 'unchanged'}`);
     const tradeAssets = tradeAssetPages(true);
@@ -449,6 +465,7 @@ async function main() {
     const preDrift = pagePreloads(true);
     console.log(`• page preloads: ${preDrift.length ? 'updated' : 'unchanged'}`);
     if (preDrift.length) tradeAssetPages(true);                 // the trade page's copy for each asset carries its preloads too
+    if (preDrift.length) pageCacheBust(TRADE_CB_FILES, true);   // and the preloads sit in the head the page's own tokens are read from
 
     for (const page of PINNED_PAGES) {
       if (!existsSync(page.file)) continue;
