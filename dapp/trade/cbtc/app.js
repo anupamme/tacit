@@ -43,12 +43,12 @@ function renderHead() {
 function renderLanes() {
   const px = usdBtc(), rows = D.rows, priced = rows.filter((r) => r.usd != null && (r.depthUsd ?? 0) >= DUST_USD);
   const cards = [{ name: 'Bitcoin', sw: '#f7931a', v: px, s: '1 BTC', g: 'the engine\'s price, which loans use' },
-    ...rows.map((r) => { const dust = (r.depthUsd ?? 0) < DUST_USD; return { name: `In the ${r.other} pool`, sw: r.other === 'TAC' ? '#f7931a' : r.other === 'cUSD' ? '#16a34a' : '#627eea', v: dust ? null : r.usd, s: `${sig(r.per, 3)} ${r.other}`, gap: dust ? null : r.gap, idle: dust, g: dust ? 'too small to price from' : r.gap != null ? `${pct(r.gap)} vs BTC${Math.abs(r.gap) >= 0.01 ? ' · apart' : ''}` : 'reading' }; })];
+    ...rows.map((r) => { const dust = (r.depthUsd ?? 0) < DUST_USD; return { name: `cBTC in the ${r.other} pool`, sw: r.other === 'TAC' ? '#f7931a' : r.other === 'cUSD' ? '#16a34a' : '#627eea', v: dust ? null : r.usd, s: `1 cBTC = ${sig(r.per, 3)} ${r.other}`, gap: dust ? null : r.gap, idle: dust, g: dust ? 'too small to price from' : r.gap != null ? `${Math.abs(r.gap) >= 0.01 ? `${Math.round(Math.abs(r.gap) * 100)}% ${r.gap > 0 ? 'above' : 'below'} bitcoin · skewed` : 'in line with bitcoin'} · holds about ${compact(r.depthUsd)}` : 'reading' }; })];
   const lo = priced.length ? Math.min(...priced.map((r) => r.usd)) : null, hi = priced.length ? Math.max(...priced.map((r) => r.usd)) : null, apart = Math.max(0, ...priced.map((r) => Math.abs(r.gap || 0)));
   $('#hints-sum').innerHTML = px != null
-    ? `<span>Bitcoin <b>${usd(px)}</b></span>${priced.length ? `<span>· in the pools <b>${usd(lo)}${lo === hi ? '' : ` to ${usd(hi)}`}</b></span>` : ''}${apart >= 0.01 ? `<span class="apart">· up to ${Math.round(apart * 100)}% apart</span>` : ''}` : 'Where cBTC sits';
+    ? `<span>Bitcoin <b>${usd(px)}</b></span>${priced.length ? `<span>· 1 cBTC in the ${priced.length === 1 ? 'pool' : 'pools'} <b>${usd(lo)}${lo === hi ? '' : ` to ${usd(hi)}`}</b></span>` : ''}${apart >= 0.01 ? `<span class="apart">· ${priced.length === 1 ? '' : 'up to '}${Math.round(apart * 100)}% skewed</span>` : ''}` : 'Where cBTC sits';
   $('#lanes').innerHTML = cards.map((c) => `<div class="lane"><span class="k"><i class="sw" style="background:${c.sw}"></i>${esc(c.name)}</span><span class="v num">${c.idle ? '—' : c.v == null && c.name !== 'Bitcoin' ? '<i class="sk"></i>' : usd(c.v)}</span><span class="s num">${esc(c.s || '')}</span><span class="g ${c.gap != null && Math.abs(c.gap) >= 0.01 ? 'dev' : ''}">${esc(c.g || '')}</span></div>`).join('');
-  $('#gapnote').textContent = apart >= 0.01 ? 'A private pool prices cBTC by its own reserves, so a small one can sit well away from bitcoin. A swap there settles at that pool\'s price.' : '';
+  $('#gapnote').textContent = apart >= 0.01 ? 'A private pool prices cBTC by its own reserves, so a small one can be skewed well away from bitcoin\'s price. A swap there settles at the pool\'s price, not bitcoin\'s.' : '';
 }
 
 // ── what stands behind it ──
