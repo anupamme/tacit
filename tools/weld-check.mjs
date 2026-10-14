@@ -4646,7 +4646,7 @@ await step('tradelinks', async () => {
   }
 });
 
-// The price strip under the header: TAC, BTC and ETH, each with its mark and a dollar price read from the one shared multicall. It reserves
+// The price strip under the header: TAC, cBTC and tETH, each with its own mark, a link to its trade page and a dollar price read from the one shared multicall. It reserves
 // its row, so the hero does not move when the figures arrive; TAC links to the trade page; at a phone's width it fits.
 await step('pxs', async () => {
   for (const [name, viewport] of [['desktop', { width: 1280, height: 900 }], ['phone', { width: 360, height: 740 }]]) {

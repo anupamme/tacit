@@ -22,6 +22,9 @@ export async function readMarket() {
 }
 // Something to show: a listing, a bid, or a trade.
 export const isActive = (m) => !!m && (m.trades.length > 0 || !!(m.book && (m.book.asks.length > 0 || m.book.bids.length > 0)));
+// 'active': something to show. 'idle': the listings and the bids were both read and there is nothing. 'unread': one of them could not be, and nothing
+// else shows: that is not an empty book, and is not said to be.
+export const bookState = (m) => (!m ? 'none' : isActive(m) ? 'active' : !m.book || !m.bidsRead ? 'unread' : 'idle');
 
 // What a tETH is worth in sats at ETH's price now: the figure a Bitcoin price is held against.
 export const refSats = (ethUsd, btcUsd) => (ethUsd > 0 && btcUsd > 0 ? (ethUsd / btcUsd) * 1e8 : null);
@@ -71,11 +74,12 @@ export function idle(m, { ref }) {
     mid: ref ? `<span class="ob-last"><b>≈ ${esc(satsTxt(ref))} sats</b><em>ETH's price</em></span>` : '<span></span>' });
 }
 
-// What a ladder click should set the market's ticket to: everything cheaper than the row, and the row.
+// What a ladder click should set the market's ticket to: everything cheaper than the row, and the row. The row's index counts the levels as the
+// ladder draws them (one of them may be the visitor's own), so the levels are made from every row and the visitor's own are left out of the sum.
 export function bookPrime(m, kind, i) {
-  const b = m.book, upTo = (rows, side) => ladderLevels(rows, side).slice(0, i + 1).reduce((a, l) => a + l.amount, 0n);
-  if (kind === 'buy') return { side: 'buy', type: 'market', receiveBase: upTo(b.asks.filter((r) => !r.mine), 'ask') };
-  if (kind === 'sell') return { side: 'sell', type: 'market', sellBase: upTo(b.bids.filter((r) => !r.mine), 'bid') };
+  const b = m.book, upTo = (rows, side) => ladderLevels(rows, side).slice(0, i + 1).filter((l) => l.flag !== 'mine').reduce((a, l) => a + l.amount, 0n);
+  if (kind === 'buy') return { side: 'buy', type: 'market', receiveBase: upTo(b.asks, 'ask') };
+  if (kind === 'sell') return { side: 'sell', type: 'market', sellBase: upTo(b.bids, 'bid') };
   if (kind === 'list') return { side: 'sell', type: 'limit' };
   return null;
 }
@@ -83,8 +87,9 @@ export function bookPrime(m, kind, i) {
 // The line in the panel's head: the last price and how far it sits from ETH's, or what the quiet state is waiting for.
 export function summary(m, { ethUsd, btcUsd, ref }) {
   if (!m) return '';
+  if (bookState(m) === 'unread') return '<span>book not read</span>';
   if (!isActive(m)) return '<span>not listed yet</span>';
-  if (!m.mark) return `<span>${m.book?.asks.length || 0} listed · ${m.book?.bids.length || 0} bids</span>`;
+  if (!m.mark) return `<span>${m.book?.asks.length || 0} listed · ${m.book?.bids.length || 0} bid${m.book?.bids.length === 1 ? '' : 's'} · no trades yet</span>`;
   const p = premium(m.mark, ref), word = p == null ? '' : Math.abs(p) < 0.005 ? 'level with ETH' : `${Math.abs(p * 100).toFixed(Math.abs(p) < 0.1 ? 1 : 0)}% ${p < 0 ? 'under' : 'over'} ETH`;
   return `<b class="num">${esc(satsTxt(m.mark))} sats</b>${btcUsd ? ` · ${usd(m.mark * btcUsd / 1e8)}` : ''}${word ? ` · ${word}` : ''}`;
 }

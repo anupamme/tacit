@@ -64,10 +64,10 @@ const poolId = (a, b, fee) => { const [lo, hi] = BigInt(a) <= BigInt(b) ? [a, b]
 // the pools the chain has (the live ones on 2026-10-14): [assetA, assetB, reserveA, reserveB, lpTotal] at the 30 bp tier, A the lower id
 const POOLS = new Map([[poolId(CBTC, CETH, 30), [CETH, CBTC, 63593972n, 730828n, 6810283n]], [poolId(CBTC, TAC, 30), [CBTC, TAC, 2n, 762494n, 1000n]]]);
 const seenOps = new Map();                                                                     // outpoint → what the pool says of it, in the order they are first asked about: 20 live locks of equal size and one spent on Bitcoin (the pool keeps its sats on record)
-const lockOf = (op) => { if (!seenOps.has(op)) seenOps.set(op, { sats: 569540n, spent: seenOps.size >= 20 }); return seenOps.get(op); };
+const lockOf = (op) => { if (!seenOps.has(op)) { const k = seenOps.size; seenOps.set(op, { sats: 569540n, spent: k >= 20, minted: k !== 19, bond: k >= 20 ? 800000000000000n : 240000000000000000n }); } return seenOps.get(op); };
 const chain = { lockStates: new Map(), engine: true, logs: true };                                 // lockStates: outpoint word → { recorded, bonded, minted }
 const SEL = { latest: '0xfeaf968c', sqrt: '0x2af1f249', ratio: '0x4827ecb3', liq: '0x1432d93f', usd: '0xd5901347', wstForBtc: '0x7dd55c2b', perWst: '0xbb2952fc', req: '0x034448ed', pools: '0xb5217bb4',
-  lockV: '0x7cea1c1a', escrowOk: '0x058e18b0', minted: '0xe2c2a40c', spent: '0x993ed045', redeemed: '0xb5229671' };
+  lockV: '0x7cea1c1a', escrowOk: '0x058e18b0', minted: '0xe2c2a40c', spent: '0x993ed045', redeemed: '0xb5229671', escrowTotal: '0xe06e89c9' };
 function answerCall({ to, data }) {
   const sel = data.slice(0, 10), arg = (i) => BigInt('0x' + data.slice(10 + i * 64, 10 + (i + 1) * 64));
   if (sel === SEL.latest) return round(to === '0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419' ? ETH_USD : BTC_USD);
@@ -84,8 +84,9 @@ function answerCall({ to, data }) {
     return p ? '0x' + [1n, 0n, 0n, p[2], p[3], 30n, p[4]].map(w32).join('') : '0x' + '0'.repeat(64 * 7);
   }
   if (sel === SEL.spent || sel === SEL.redeemed) return '0x' + w32(sel === SEL.spent && lockOf(data.slice(10, 74)).spent && !chain.lockStates.has(data.slice(10, 74)) ? 1n : 0n);
+  if (sel === SEL.escrowTotal) return '0x' + w32(lockOf(data.slice(10, 74)).bond);
   if ([SEL.lockV, SEL.escrowOk, SEL.minted].includes(sel)) {
-    const op = data.slice(10, 74), s = chain.lockStates.get(op) || { recorded: true, bonded: true, minted: true, sats: lockOf(op).sats };
+    const op = data.slice(10, 74), s = chain.lockStates.get(op) || { recorded: true, bonded: true, minted: lockOf(op).minted, sats: lockOf(op).sats };
     return '0x' + w32(sel === SEL.lockV ? (s.recorded ? s.sats : 0n) : sel === SEL.escrowOk ? (s.bonded ? 1n : 0n) : (s.minted ? 1n : 0n));
   }
   return null;
@@ -172,17 +173,17 @@ try {
   // ── the page on its own: what backs cBTC, the pools, the farms ──
   r = await openPage({ width: 1280, height: 1000 });
   p = r.page;
-  await until(p, () => document.querySelector('#px-usd').textContent.startsWith('$') && document.querySelectorAll('#pl-table tbody tr').length === 2 && document.querySelectorAll('.pf').length === 1 && document.querySelector('#cov .cov-row:nth-child(2)') && document.querySelector('#chart .line'));
+  await until(p, () => document.querySelector('#px-usd').textContent.startsWith('$') && document.querySelectorAll('#pl-table tbody tr').length === 2 && document.querySelectorAll('.pf').length === 1 && document.querySelector('#cov .cov-row:nth-child(2)') && document.querySelector('#chart .line') && /0\.108213/.test(document.querySelector('#px-sub').textContent));
   ok((await text(p, '#px-usd')) === `$${BTC_USD.toLocaleString('en-US')}` && (await p.title()) === `cBTC $${BTC_USD.toLocaleString('en-US')} · tacit trade`, `the headline is the engine's price of bitcoin (${await text(p, '#px-usd')})`);
   const sub = await text(p, '#px-sub');
-  ok(/1 cBTC = 1 BTC, locked/.test(sub) && /0\.113128 cBTC/.test(sub) && /20 locks · 13 loans open/.test(sub), `the line under it: what is minted, how many locks and loans (${sub})`);
+  ok(/1 cBTC = 1 BTC, locked/.test(sub) && /0\.108213 cBTC/.test(sub) && /20 locks · 13 loans open/.test(sub), `the line under it: what is minted, how many locks and loans (${sub})`);
   const assets = await p.$$eval('.assets a', (a) => a.map((x) => `${x.textContent.trim()}:${x.getAttribute('href')}:${x.getAttribute('aria-current') || ''}`));
   ok(assets.join() === 'TAC:/trade/tac/:,tETH:/trade/teth/:,cBTC:/trade/cbtc/:page', `the switch names the three markets and marks this one (${assets.join(' ')})`);
   const rows = await p.$$eval('#cov .cov-row', (rs) => rs.map((x) => ({ h: x.querySelector('.cov-h').textContent.replace(/\s+/g, ' ').trim(), s: x.querySelector('.cov-s').textContent.replace(/\s+/g, ' ').trim(), bar: x.querySelector('.cov-bar i')?.style.width || null, tick: x.querySelector('.cov-bar u')?.style.left || null })));
   ok(rows.length === 4 && /Bitcoin locked/.test(rows[0].h) && /0\.113908 BTC/.test(rows[0].h), `the locks: the sats locked (${rows[0].h})`);
-  const bondUsd = Number(T.bond) / 1e18 * WST * ETH_USD, lockUsd = Number(T.locked) / 1e8 * BTC_USD, cover = Math.round(bondUsd / lockUsd * 100);
-  ok(rows[1].h.includes(`${cover}% of the locks`) && /4\.98 wstETH/.test(rows[1].s) && rows[1].tick, `the bond covers the locks ${cover}% with the 1.5× line marked (${rows[1].h})`);
-  ok(/0\.113128 of 0\.113908/.test(rows[2].h) && /20 locks minted/.test(rows[2].s) && /0\.00019 BTC/.test(rows[2].s), `what is minted, and the public tacBTC (${rows[2].h} · ${rows[2].s.slice(0, 80)})`);
+  const liveBond = 20 * 0.24, bondUsd = liveBond * WST * ETH_USD, lockUsd = Number(T.locked) / 1e8 * BTC_USD, cover = Math.round(bondUsd / lockUsd * 100);
+  ok(rows[1].h.includes(`${cover}% of the locks`) && /4\.8 wstETH/.test(rows[1].s) && /20 bonds/.test(rows[1].s) && rows[1].tick, `the bond of the LIVE locks covers them ${cover}% with the 1.5× line marked, a spent lock's bond left out (${rows[1].h})`);
+  ok(/0\.108213 of 0\.113908/.test(rows[2].h) && /19 of 20 live locks minted/.test(rows[2].s) && /0\.00019 BTC/.test(rows[2].s), `what is minted of the live locks only (19 of 20), and the public tacBTC (${rows[2].h} · ${rows[2].s.slice(0, 80)})`);
   ok(/4,444 out/.test(rows[3].h) && /13 open loans/.test(rows[3].s) && /4,486 borrowed, 41\.89 repaid, 0 liquidated/.test(rows[3].s) && /above 150% and is liquidated below 130%/.test(rows[3].s), `the loans, with the engine's own lines (${rows[3].s.slice(0, 120)})`);
   const pools = await p.$$eval('#pl-table tbody tr', (rs) => rs.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
   const perTeth = 730828 / 63593972, tethPerCbtc = 63593972 / 730828, usdCbtc = tethPerCbtc * ETH_USD;
@@ -191,9 +192,10 @@ try {
   const lanes = await p.$$eval('#lanes .lane', (ls) => ls.map((l) => l.textContent.replace(/\s+/g, ' ').trim()));
   ok(lanes.length === 3 && /Bitcoin/.test(lanes[0]) && /In the tETH pool/.test(lanes[1]) && /too small to price from/.test(lanes[2]), `the dropdown: bitcoin's price, the tETH pool, and the dust pool unpriced (${lanes.length})`);
   const farm = await p.$$eval('.pf', (a) => a.map((x) => ({ href: x.getAttribute('href'), t: x.textContent.replace(/\s+/g, ' ').trim() })));
-  const fp = program.pools.find((x) => x.pair === 'cETH/cBTC'), bonded = 2 * 730828 / 1e8 * BTC_USD * Number(fp.totalShares) / Number(fp.reserves.lpTotalShares), wantApr = Number(fp.tacPerDayForPool) * 365 / PER_ETH * ETH_USD / bonded * 100;
+  const fp = program.pools.find((x) => x.pair === 'cETH/cBTC'), depthUsd = 2 * 63593972 / 1e8 * ETH_USD, bonded = depthUsd * Number(fp.totalShares) / Number(fp.reserves.lpTotalShares), wantApr = Number(fp.tacPerDayForPool) * 365 / PER_ETH * ETH_USD / bonded * 100;
   const gotApr = parseInt(farm[0].t.replace(/,/g, '').match(/(\d+)%/)[1]);
-  ok(farm[0].href === '/#farm/private-2' && Math.abs(gotApr - wantApr) <= Math.max(2, wantApr * 0.01), `the farm opens its own pool and its APR is a year of its TAC over what is bonded: ${gotApr}% (${wantApr.toFixed(1)}%)`);
+  ok(farm[0].href === '/#farm/private-2' && Math.abs(gotApr - wantApr) <= Math.max(2, wantApr * 0.01), `the farm's APR is the front page's sum (a year of its TAC over twice the tETH side that is bonded), so it reads the same there and here: ${gotApr}% (${wantApr.toFixed(1)}%)`);
+  ok(/\$3\.1k deep/.test(farm[0].t), `and its depth is that figure too (${farm[0].t.slice(-70)})`);
   ok(/222 TAC/.test(await text(p, '#fm-stats')), 'the farms\' rewards add up');
   ok(/no order book on Bitcoin/.test(await text(p, '#lk-lead')) && /20 live locks/.test(await text(p, '#lk-facts')) && /Sign in/.test(await text(p, '#lk-mine')), 'the locks panel says why there is no order book, counts the locks, and offers to show yours');
   // the history: the locked bitcoin and the cUSD out, from the engine's events
@@ -202,6 +204,11 @@ try {
   const rd = await text(p, '#ch-read');
   ok(rd.startsWith('0.1139 BTC') && /all time|past month/.test(rd), `its right edge is what is locked now, and the events add up to it (${rd.slice(0, 80)})`);
   ok(!/do not add up/.test((await p.$eval('#chart-note', (e) => e.textContent))) && (await p.$$eval('#range-seg button', (b) => b.map((x) => x.textContent))).includes('All'), 'the history says nothing of a mismatch, and offers ranges');
+  const box = await (await p.$('#chart svg')).boundingBox();
+  let hover = '';
+  for (let k = 8; k < 90 && !/BTC locked in/.test(hover); k += 2) { await p.mouse.move(box.x + box.width * k / 100, box.y + box.height / 2); await p.waitForTimeout(40); hover = await text(p, '#ch-read'); }
+  ok(/0\.\d{4} BTC locked in \d+ step/.test(hover) && !/\b0 BTC/.test(hover), `a bar's hover reads the bitcoin it locked in the digits a lock needs (${hover.slice(0, 90)})`);
+  await p.mouse.move(5, 5);
   await p.click('#view-seg [data-unit="usd"]');
   ok(/^\$9,\d{3}/.test(await text(p, '#ch-read')), `in dollars at bitcoin's price (${(await text(p, '#ch-read')).slice(0, 40)})`);
   await p.click('#lane-seg [data-chart="out"]');

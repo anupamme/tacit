@@ -559,9 +559,9 @@ async function openBitcoin(prime = null) {
 }
 // What the ticket is set to when a listing or a bid is picked: everything cheaper than it, and it, as the market module's own rows do.
 function bookPrime(kind, i) {
-  const b = D.book, upTo = (rows, side) => ladderLevels(rows, side).slice(0, i + 1).reduce((a, l) => a + l.amount, 0n);
-  if (kind === 'buy') return { side: 'buy', type: 'market', receiveBase: upTo(b.asks.filter((r) => !r.mine), 'ask') };
-  if (kind === 'sell') return { side: 'sell', type: 'market', sellBase: upTo(b.bids.filter((r) => !r.mine), 'bid') };
+  const b = D.book, upTo = (rows, side) => ladderLevels(rows, side).slice(0, i + 1).filter((l) => l.flag !== 'mine').reduce((a, l) => a + l.amount, 0n);   // the row's index counts the ladder's levels, the visitor's own among them
+  if (kind === 'buy') return { side: 'buy', type: 'market', receiveBase: upTo(b.asks, 'ask') };
+  if (kind === 'sell') return { side: 'sell', type: 'market', sellBase: upTo(b.bids, 'bid') };
   if (kind === 'list') return { side: 'sell', type: 'limit' };
   return null;
 }

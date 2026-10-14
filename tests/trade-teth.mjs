@@ -157,8 +157,8 @@ async function openPage(viewport, { wallet = false, reject = false, hash = '', s
     if (!api) return r.fulfill({ status: 503, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"error":"down"}' });
     if (u.pathname === '/stats') return r.fulfill(ok200(u.searchParams.get('view') === 'front' ? front : stats));
     if (u.pathname === '/farm/program') return r.fulfill(ok200(program));
-    if (u.pathname === `/assets/${BTC_ID}`) return r.fulfill(chain.market === 'down' ? { status: 503, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{}' } : ok200(chain.market ? activeMarket().asset : idleAsset));
-    if (u.pathname === `/assets/${BTC_ID}/preauth-sales`) return r.fulfill(ok200(chain.market === 'active' ? activeMarket().sales : { asset_id: BTC_ID, count: 0, sales: [] }));
+    if (u.pathname === `/assets/${BTC_ID}`) return r.fulfill(chain.market === 'down' ? { status: 503, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{}' } : ok200(chain.market === 'active' ? activeMarket().asset : chain.market === 'ask' ? { ...idleAsset, listing_count: 1 } : idleAsset));
+    if (u.pathname === `/assets/${BTC_ID}/preauth-sales`) return r.fulfill(chain.market === 'partial' ? { status: 503, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{}' } : ok200(chain.market === 'active' ? activeMarket().sales : chain.market === 'ask' ? { ...activeMarket().sales, sales: activeMarket().sales.sales.slice(0, 1) } : { asset_id: BTC_ID, count: 0, sales: [] }));
     if (u.pathname === `/assets/${BTC_ID}/bid-intents`) return r.fulfill(ok200(chain.market === 'active' ? activeMarket().bids : { asset_id: BTC_ID, count: 0, intents: [] }));
     if (u.pathname === '/confidential/quote') return r.fulfill(ok200(chain.quote ? chain.quote(quote, u) : quote));
     return r.fulfill({ status: 404, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{}' });
@@ -458,7 +458,7 @@ try {
   ok(!(await p.$('#btc-actions button')) && !(await p.$('#btc-actions a')) && (await p.$eval('#btc-depth', (e) => e.hidden)), 'no way to trade is offered until there is something to trade');
   const facts = await text(p, '#btc-facts');
   ok(/3 holders on Bitcoin · 2 transfers/.test(facts), `what is known of tETH on Bitcoin (${facts})`);
-  ok(/one Bitcoin transaction/.test(await text(p, '#btc-note')) && (await p.$eval('#btc-note a', (a) => a.getAttribute('href'))) === '/#private/bitcoin', 'it says how a listing settles and where tETH comes from');
+  ok(/change hands together in the transaction that takes it/.test(await text(p, '#btc-note')) && (await p.$eval('#btc-note a', (a) => a.getAttribute('href'))) === '/#private/bitcoin', 'it says how a listing settles and where tETH comes from');
   ok((await p.$$eval('#lane-seg button', (b) => b.map((x) => x.textContent))).join() === 'ETH held', 'the chart offers no Bitcoin price while there is none');
   ok(r.errors.length === 0 && r.blocked.length === 0, `no page error (${[...r.errors, ...r.blocked].join(' | ').slice(0, 160)})`);
   await r.browser.close();
@@ -511,6 +511,35 @@ try {
   await until(p, () => /private ETH held/.test(document.querySelector('#chart-name').textContent));
   ok(/ETH/.test(await text(p, '#ch-read')) && (await p.$$eval('#view-seg button', (b) => b.map((x) => x.textContent))).join() === 'ETH,USD', 'and back to the ETH held');
   ok(r.errors.length === 0 && r.blocked.length === 0, `no page error with a book (${[...r.errors, ...r.blocked].join(' | ').slice(0, 160)})`);
+  await r.browser.close();
+  // a book with one listing and no trade: the lane names the ask, not "not listed yet"
+  chain.market = 'ask';
+  r = await openPage({ width: 1280, height: 1000 });
+  p = r.page;
+  await until(p, () => document.querySelectorAll('#btc-ladder .ob-row').length >= 1 && document.querySelector('#px-usd').textContent.startsWith('$'));
+  await p.click('#hints summary');
+  const askLane = (await p.$$eval('#lanes .lane', (ls) => ls.map((l) => l.textContent.replace(/\s+/g, ' ').trim()))).find((l) => /On Bitcoin/.test(l));
+  ok(/cheapest ask · no trades yet/.test(askLane) && /\$/.test(askLane) && !/not listed yet/.test(askLane), `one listing and no trade: the lane gives the cheapest ask (${askLane})`);
+  ok(/1 listed · 0 bids · no trades yet/.test(await text(p, '#btc-sum')) && !/Could not read/.test(await text(p, '#btc-ladder')), `and the head agrees (${await text(p, '#btc-sum')})`);
+  await r.browser.close();
+  // the listings could not be read, the rest could: that is not an empty book
+  chain.market = 'partial';
+  r = await openPage({ width: 1280, height: 900 });
+  p = r.page;
+  await until(p, () => /Could not read the Bitcoin order book just now/.test(document.querySelector('#btc-ladder').textContent) && document.querySelector('#px-usd').textContent.startsWith('$'));
+  await p.click('#hints summary');
+  const partLane = (await p.$$eval('#lanes .lane', (ls) => ls.map((l) => l.textContent.replace(/\s+/g, ' ').trim()))).find((l) => /On Bitcoin/.test(l));
+  ok(!/No tETH is listed/.test(await text(p, '#btc-lead')) && /book not read/.test(await text(p, '#btc-sum')) && /book not read just now/.test(partLane) && !(await p.$('#btc-actions button')), `holders and transfers known but no listings read: it says so and does not call the book empty (${partLane})`);
+  await r.browser.close();
+  // clicking a ladder row with the visitor's own order at the best price primes only what is cheaper than the row, theirs left out
+  r = await openPage({ width: 1280, height: 900 });
+  const prime = await r.page.evaluate(async () => {
+    const m = await import('/trade/teth/market.js');
+    const row = (unit, mine) => ({ unit, amount: 10n ** 8n, sats: unit, mine, instant: true, whole: true });
+    const book = { asks: [row(100, true), row(200, false), row(300, false)], bids: [{ ...row(90, true), auto: false }, { ...row(80, false), auto: false }, { ...row(70, false), auto: false }] };
+    return { buy1: m.bookPrime({ book }, 'buy', 1).receiveBase, buy2: m.bookPrime({ book }, 'buy', 2).receiveBase, sell1: m.bookPrime({ book }, 'sell', 1).sellBase };
+  });
+  ok(prime.buy1 === 10n ** 8n && prime.buy2 === 2n * 10n ** 8n && prime.sell1 === 10n ** 8n, `a click counts the levels the ladder draws: the 200 row primes its own lot, not the next one too (${prime.buy1}, ${prime.buy2}, ${prime.sell1})`);
   await r.browser.close();
   // the book cannot be read
   chain.market = 'down';

@@ -11,7 +11,7 @@ import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, moved
 import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, forgetUx, getUx } from '/trade/teth/wrap.js?cb=0b6c2c41';
 import { mountDepth } from '/trade/depth.js?cb=1e8ce418';
 import { candlesFromTrades, closeAt } from '/trade/tape.js?cb=6565501b';
-import { readMarket, isActive, refSats, premium, satsTxt, ladders, idle, bookPrime, summary, fillBars, BTC_ID } from '/trade/teth/market.js?cb=b42c0223';
+import { readMarket, isActive, bookState, refSats, premium, satsTxt, ladders, idle, bookPrime, summary, fillBars, BTC_ID } from '/trade/teth/market.js?cb=7d844f53';
 import { $, esc, now, rpc, fmtUnits, plain, parseUnits, grp, sig, usd, pct, ago, short, E10, E18 } from '/trade/util.js?cb=dd68ca48';
 
 const ETHBLUE = '#627eea', ORANGE = '#f7931a';
@@ -56,7 +56,10 @@ function renderLanes() {
     ...rows.map((r) => ({ name: `In the ${r.other} pool`, sw: r.other === 'TAC' ? '#f7931a' : r.other === 'cUSD' ? '#16a34a' : '#f7931a', v: r.usd, s: `${sig(r.per, 3)} ${r.other}`, gap: r.gap, g: r.gap != null ? `${pct(r.gap)} vs ETH${Math.abs(r.gap) >= 0.01 ? ' · apart' : ''}` : 'reading' }))];
   const usds = rows.map((r) => r.usd).filter((x) => x != null), apart = Math.max(0, ...rows.map((r) => (r.gap == null ? 0 : Math.abs(r.gap))));
   const m = D.btc, ref = refSats(px, btcUsd());
-  if (m) cards.push(isActive(m) && m.mark ? { name: 'On Bitcoin', sw: ORANGE, v: btcUsd() ? m.mark * btcUsd() / 1e8 : null, s: `${satsTxt(m.mark)} sats`, gap: premium(m.mark, ref), g: ref ? `${pct(premium(m.mark, ref))} vs ETH${Math.abs(premium(m.mark, ref)) >= 0.01 ? ' · apart' : ''}` : 'last trade' }
+  const best = m?.book ? m.book.bestAsk ?? m.book.bestBid : null, bestWord = m?.book?.bestAsk != null ? 'cheapest ask' : 'best bid';
+  if (m) cards.push(bookState(m) === 'unread' ? { name: 'On Bitcoin', sw: ORANGE, v: null, s: '', g: 'book not read just now', idle: true }
+    : isActive(m) && !m.mark && best ? { name: 'On Bitcoin', sw: ORANGE, v: btcUsd() ? best * btcUsd() / 1e8 : null, s: `${satsTxt(best)} sats`, gap: premium(best, ref), g: `${bestWord} · no trades yet` }
+    : isActive(m) && m.mark ? { name: 'On Bitcoin', sw: ORANGE, v: btcUsd() ? m.mark * btcUsd() / 1e8 : null, s: `${satsTxt(m.mark)} sats`, gap: premium(m.mark, ref), g: ref ? `${pct(premium(m.mark, ref))} vs ETH${Math.abs(premium(m.mark, ref)) >= 0.01 ? ' · apart' : ''}` : 'last trade' }
     : { name: 'On Bitcoin', sw: ORANGE, v: null, s: ref ? `ETH is ≈ ${satsTxt(ref)} sats` : '', g: 'not listed yet', idle: true });
   $('#hints-sum').innerHTML = px != null
     ? `<span>Wrapped <b>${usd(px)}</b></span>${usds.length ? `<span>· in the pools <b>${usd(Math.min(...usds))}${Math.min(...usds) === Math.max(...usds) ? '' : ` to ${usd(Math.max(...usds))}`}</b></span>` : ''}${m && isActive(m) && m.mark && btcUsd() ? `<span>· on Bitcoin <b>${usd(m.mark * btcUsd() / 1e8)}</b></span>` : ''}${apart >= 0.01 ? `<span class="apart">· up to ${Math.round(apart * 100)}% apart</span>` : ''}`
@@ -120,7 +123,7 @@ function renderChart() {
       tags: [...(bars.length ? [{ y: bars.at(-1).close, label: 'Bitcoin', color: ORANGE }] : []), ...(eth ? [{ y: eth, label: 'ETH', color: ETHBLUE }] : [])], empty: 'Nothing to draw for this range yet.', period: tf, label: `tETH's price on the Bitcoin order book, ${range ? RANGE_WORDS[range] : 'all time'}` });
     S.view = { bars, unit, range, kind };
     paintRead();
-    $('#chart-note').textContent = `Every trade of tETH on the Bitcoin order book${m.trades.length ? ` (${m.trades.length})` : ''}; a stretch with no trades holds the price before it. The blue mark is ETH's own price, so the gap between them is what Bitcoin pays for tETH over or under ETH.`;
+    $('#chart-note').textContent = `The trades of tETH the Bitcoin order book has recorded${m.trades.length ? ` (${m.trades.length}; a fill far from the rest is left out)` : ''}; a stretch with no trades holds the price before it. The blue mark is ETH's own price, so the gap between them is what Bitcoin pays for tETH over or under ETH.`;
     return;
   }
   const tf = barSize(range, span), k = unit === 'usd' ? ethUsd() : 1;
@@ -148,12 +151,18 @@ function renderBtc() {
     return;
   }
   const lines = [m.holders != null ? `<li><b>${grp(m.holders, 0)}</b> holder${m.holders === 1 ? '' : 's'} on Bitcoin${m.transfers ? ` · ${grp(m.transfers, 0)} transfer${m.transfers === 1 ? '' : 's'}` : ''}</li>` : ''];
+  if (bookState(m) === 'unread') {                                                                  // a listing or a bid list that could not be read is not an empty book
+    lead.textContent = ''; dep.hidden = true; setHtml(acts, ''); note.textContent = '';
+    setHtml(box, '<p class="note">Could not read the Bitcoin order book just now: its listings or its bids did not answer. Try again in a moment.</p>');
+    setHtml(facts, lines.join(''));
+    return;
+  }
   if (!isActive(m)) {
     lead.innerHTML = '<b>No tETH is listed on Bitcoin yet.</b> Its price in sats, its order book and a way to buy and sell it appear here the moment someone lists or bids.';
     dep.hidden = true; setHtml(acts, '');
     setHtml(box, idle(m, { ref }));
     setHtml(facts, lines.join(''));
-    note.innerHTML = 'A listing or a bid there settles in one Bitcoin transaction, the tETH and the sats together. tETH reaches Bitcoin by the bridge: <a href="/#private/bitcoin">Bridge →</a>';
+    note.innerHTML = 'A listing there is a signed sale anyone can take, and a bid a signed offer anyone can fill: the tETH and the sats change hands together in the transaction that takes it. tETH reaches Bitcoin by the bridge: <a href="/#private/bitcoin">Bridge →</a>';
     return;
   }
   lead.textContent = '';
@@ -519,7 +528,12 @@ async function loadWhole() {
 }
 async function loadRates() { D.rates = { ...D.rates, ...(await readRates()) }; }
 async function loadFarms() { const p = await readProgram(); if (p?.epoch) D.program = p; D.rows = poolRows(D.program, D.rates); }
-async function loadMarket() { const m = await readMarket(); if (m) D.btc = m; D.btcFailed = !D.btc; }
+// A read that lost the listings or the bids does not replace a book that had them: it is shown as it was until a read gets both again.
+async function loadMarket() {
+  const m = await readMarket(), was = D.btc;
+  if (m) D.btc = (!m.book || !m.bidsRead) && was?.book && was.bidsRead ? { ...m, book: was.book, bidsRead: true } : m;
+  D.btcFailed = !D.btc;
+}
 async function loadFloor() { try { D.floor = (await wrapQuote(10n ** 17n)).floor; } catch { /* the line says "small" */ } }
 function paintAll() { renderHead(); renderLanes(); renderChart(); renderBtc(); renderFarm(); renderMoves(); renderAbout(); if (S.mode === 'use') renderUse(); renderQuote(); renderGo(); }
 
