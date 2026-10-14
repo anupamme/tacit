@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-dwrtGqQ61x0hHpfFLq/MauAEjj8MgJTVpJFj2LMnclU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-3OFYVVygNYPSG6aaEzEREHV8wfD0PNQG42yBWFxtbSM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=ed3140de"></script>
 <title>tacit — private DeFi on Bitcoin and Ethereum</title>
@@ -1501,7 +1501,9 @@ const REVERTS = {
   'cba3a53b': 'The name’s one-minute wait has not passed yet. Try again shortly.', // CommitmentTooNew()
   'cfef9a95': 'That name’s reservation expired. Register again to renew it.',   // CommitmentTooOld()
   '025dbdd4': 'The name’s price went up. Try again.',                           // InsufficientFee()
-  '203d82d8': 'Its deadline passed before it landed. Try again.',                // Expired()
+  '203d82d8': 'Its deadline passed before it landed. Nothing was spent. Try again.', // Expired()
+  '8a98f245': 'Bitcoin’s proof on Ethereum moved on while this was being proved. Nothing was spent. Try again.', // StaleBitcoinBurnRoot()
+  'b115d857': 'It has already gone through: its note is spent. Check your balance before sending it again.', // NullifierAlreadySpent()
   '797dba54': 'There is nothing to claim yet.',                                  // NothingOwed()
   '646cf558': 'That airdrop has already been claimed.',                          // AlreadyClaimed()
   'f0f25a33': 'The airdrop claim window has closed.',                            // ClaimWindowClosed()
@@ -2146,6 +2148,8 @@ function failText(it) {
   const r = revertText({ message: s });
   if (r) return r;
   if (/possibly still pending/i.test(s)) return `It was sent and may still land: ${(s.match(/0x[0-9a-f]{64}/i) || [''])[0]}`;
+  // The relay failed a job that waited in its queue past the op's own deadline, without proving it (settle-relay skipExpired).
+  if (/^expired:/i.test(s)) return 'It waited in the relay’s queue past its deadline, so it was not sent. Nothing was spent. Try again.';
   if (/^settle reverted/i.test(s)) return 'It was proved, but the pool refused it. Try again.';
   if (/^prove failed/i.test(s)) return 'The relay could not prove it. Try again.';
   if (/^feeGate:/i.test(s)) return 'The relay fee no longer covers it. Try again for a fresh quote.';

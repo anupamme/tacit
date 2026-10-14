@@ -37,6 +37,7 @@ import { tipFor, TIP_HISTORY_BLOCKS, TIP_PERCENTILE } from './lib/gas-tip.js';
 import { feeCapFor } from './lib/fee-cap.js';
 import { SETTLE_TIP_MIN_TOTAL_WEI, SETTLE_TIP_CAP_WEI, CAP_MULT_MAX, CAP_MULT_MIN, settleFundsNeed } from './lib/settle-fees.js';
 import { safeErr } from './lib/safe-err.js';
+import { revertSelector, opExpiry } from './lib/revert-data.js';
 import { encodeFunctionData } from 'viem';
 
 const log = (...a) => console.log(`[settle ${new Date().toISOString()}]`, ...a);
@@ -224,9 +225,14 @@ async function submitCall(base, label, { gasLimit = null, landed = null } = {}) 
 
   // A call that would revert now is never broadcast. The public node is asked, not a private endpoint, and an
   // unreachable node is not a verdict. Returns the revert, or null.
+  // The revert carries its selector when any node will name it (lib/revert-data.js), for the ack's words.
   const wouldRevert = async () => {
     try { await publicClient.call({ account: settleWallet.account, to: base.address, data }); return null; }
-    catch (e) { return isRevert(e) ? e : null; }
+    catch (e) {
+      if (!isRevert(e)) return null;
+      e.revertSelector = await revertSelector(e, { from: settleWallet.account.address, to: base.address, data }, { chainId: CFG.chainId }).catch(() => null);
+      return e;
+    }
   };
   // One of our own broadcasts that landed: its hash, or a thrown revert. Null while none has a receipt.
   const ownReceipt = async () => {
@@ -420,6 +426,19 @@ export async function admitJobs(jobs, gate) {
 // again after its settle landed (an ack lost on the way back) is reported settled with that settle, found by the
 // memos this job sealed, which ride in its calldata. Anything else is failed, naming the transaction that spent
 // the input: a rebuilt request seals fresh memos, so it is never mistaken for the one that landed.
+// A job whose own deadline has passed, or passes before a proof and its settle could land, can only revert with the
+// pool's Expired(): it waited in the queue too long (a settle wallet short of gas holds jobs back). Failed without
+// proving, so no PROVE is spent on it, in words the pages show as they are. Nothing of the holder's was touched, and
+// sending it again builds a fresh deadline.
+const EXPIRY_MARGIN_SECS = 180;
+async function skipExpired(job) {
+  const exp = opExpiry(job);
+  if (!exp || exp > Math.floor(Date.now() / 1000) + EXPIRY_MARGIN_SECS) return false;
+  log(`job ${job.jobId} type=${job.type} not proved: its deadline ${new Date(exp * 1000).toISOString()} has passed or is too close`);
+  await confidentialAck({ jobId: job.jobId, error: 'expired: it waited in the queue past its deadline, so it was not sent and nothing was spent; send it again' });
+  return true;
+}
+
 async function skipConsumed(job) {
   const gone = await consumedInput(job, { client: publicClient, pool: POOL });
   if (!gone) return false;
@@ -624,6 +643,7 @@ async function cycle() {
     return true;
   }
 
+  if (await skipExpired(job)) return true;
   if (mode !== 'preproven' && (await skipConsumed(job) || (mode === 'settle' && await skipUnlanded(job)) || await skipBlockedMint(job))) return true;
 
   log(`job ${jobId} type=${type} mode=${mode} — proving (network groth16). ${gate.reason} [gas ${gasGwei.toFixed(4)} gwei, ETH $${Number(ethPx).toFixed(2)}, PROVE $${Number(provePx).toFixed(4)}]`);
@@ -673,7 +693,9 @@ async function cycle() {
     const pending = Array.isArray(e.broadcastHashes) && e.broadcastHashes.length
       ? ` — broadcast and possibly still pending: ${e.broadcastHashes.join(', ')}`
       : '';
-    await confidentialAck({ jobId, error: `settle reverted: ${safeErr(e, 200 - pending.length)}${pending}`, broadcastHashes: e.broadcastHashes });
+    // The revert's selector, in the "(0x…)" form the pages turn into words (see lib/revert-data.js).
+    const sel = e.revertSelector ? ` (${e.revertSelector})` : '';
+    await confidentialAck({ jobId, error: `settle reverted: ${safeErr(e, 200 - pending.length - sel.length)}${sel}${pending}`, broadcastHashes: e.broadcastHashes });
     abandoned.remember(job, e.broadcastHashes);
     return true;
   }
