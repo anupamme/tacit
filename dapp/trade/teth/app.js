@@ -153,7 +153,7 @@ function renderBtc() {
     dep.hidden = true; setHtml(acts, '');
     setHtml(box, idle(m, { ref }));
     setHtml(facts, lines.join(''));
-    note.innerHTML = 'A listing or a bid there settles in one Bitcoin transaction, the tETH and the sats together. tETH reaches Bitcoin by the bridge: <a href="/#card=shield:eth:btc">Bridge →</a>';
+    note.innerHTML = 'A listing or a bid there settles in one Bitcoin transaction, the tETH and the sats together. tETH reaches Bitcoin by the bridge: <a href="/#private/bitcoin">Bridge →</a>';
     return;
   }
   lead.textContent = '';
@@ -181,7 +181,7 @@ function notify(msg, kind = '', ms = 5000) {
 async function openBitcoin(prime = null) {
   try {
     bitcoin ||= (await import('/trade/btc.js?cb=4c730bad')).makeBitcoin({ notify, onTraded: () => loadMarket().then(paintAll).catch(() => {}),
-      asset: { id: BTC_ID, title: 'tETH on Bitcoin', after: 'tETH you hold on Ethereum comes to Bitcoin by the bridge: <a href="/#card=shield:eth:btc">Bridge →</a>' } });
+      asset: { id: BTC_ID, title: 'tETH on Bitcoin', after: 'tETH you hold on Ethereum comes to Bitcoin by the bridge: <a href="/#private/bitcoin">Bridge →</a>' } });
     await bitcoin.open(prime);
   } catch (e) { notify(`The Bitcoin market could not be opened: ${e?.message || e}`, 'error', 9000); }
 }
@@ -419,9 +419,9 @@ function useLinks() {
     ['/#private/send', 'Send it privately', 'To a Tacit address or a name. The chain does not show how much or to whom.'],
     [`/#card=swap:eth:tac${amt}`, 'Swap it for TAC', tac?.per ? `Inside the pool, privately. The pool says 1 tETH = ${sig(tac.per, 4)} TAC.` : 'Inside the pool, privately.'],
     ['#farm', 'Farm TAC with it', 'The private farms pair it for you, so tETH alone is enough.', 'scroll'],
-    [`/#card=shield:eth:btc${amt}`, 'Bridge it to Bitcoin', 'Held at your own Bitcoin address, and brought back when you ask. 0.01 to 0.5 tETH a bridge, a few hours.'],
+    ['/#private/bitcoin', 'Bridge it to Bitcoin', 'Burn it here, hold it at your own Bitcoin address, bring it back when you ask. 0.01 to 0.5 tETH a bridge, a few hours.'],
     [`/#card=shield:eth:wallet${amt}`, 'Back to ETH', `One for one, to your wallet or any address. The relay's fee is ${fee}.`],
-    ['/#card=shield:tb:back', 'Bring tETH back from Bitcoin', 'What you bridged, returned to Ethereum as private tETH.'],
+    ['/#private/bitcoin', 'Bring tETH back from Bitcoin', 'What you bridged, returned to Ethereum as private tETH. It is the same bridge, on its other side.'],
   ];
 }
 function renderUse() {
@@ -434,7 +434,7 @@ function renderUse() {
   const cur = $('#use-amt')?.value ?? S.useAmt;
   $('#uses').innerHTML = `<div class="lbl"><span>Amount</span><span class="mute">optional</span></div><div class="amt"><input id="use-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="tETH to use" value="${esc(cur)}"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-teth"/></svg>tETH</span></div>`
     + `<div id="use-rows">${useRowsHtml()}</div>`;
-  $('#use-note').textContent = 'These open tacit.finance with your amount filled in. Sign in there with the same wallet or passkey: it is the same key.';
+  $('#use-note').textContent = 'These open tacit.finance. Swap and Back to ETH come with your amount filled in; the bridge asks for its own. Sign in there with the same wallet or passkey: it is the same key.';
 }
 const useRowsHtml = () => useLinks().map(([href, t, sub, kind]) => `<a class="use" href="${esc(href)}"${kind === 'scroll' ? ' data-scroll' : ''}><b>${esc(t)}</b><span>${esc(sub)}</span><i aria-hidden="true">→</i></a>`).join('');
 
@@ -493,7 +493,7 @@ function renderAbout() {
   const fee = D.floor ? fmtUnits(D.floor, 18, 5) : null;
   const main = [
     ['On Ethereum', `${P ? `${esc(grp(toEth(P.held), 2))} ETH is held in ${grp(P.deposits, 0)} deposits${P.wallets ? ` from ${grp(P.wallets, 0)} wallets` : ''} · ` : ''}the pool is ${link(POOL)}`],
-    ['On Bitcoin', 'A bridge burns tETH on Ethereum and the same amount, less the relay fee, arrives at your own Bitcoin address in a few hours, sometimes up to a day. It cannot be undone once it is burned, and it comes back to Ethereum as private tETH once Bitcoin\'s proof there has recorded it. 0.01 to 0.5 tETH a bridge. <a href="/#card=shield:eth:btc">Bridge →</a>'],
+    ['On Bitcoin', 'A bridge burns tETH on Ethereum and the same amount, less the relay fee, arrives at your own Bitcoin address in a few hours, sometimes up to a day. It cannot be undone once it is burned, and it comes back to Ethereum as private tETH once Bitcoin\'s proof there has recorded it. 0.01 to 0.5 tETH a bridge. <a href="/#private/bitcoin">Bridge →</a>'],
     ['What it costs', `Making ETH private pays the relay's tip, shown before you confirm, and the network fee for the transaction${fee ? '. Sending, swapping and taking out cost the relay\'s fee, about ' + esc(fee) + ' ETH at least, and swaps the pool\'s fee' : ''}.`],
   ];
   const pools = D.rows.map((r) => `${esc(r.name)} (${esc(r.depthEth < 0.01 ? 'under 0.01' : grp(r.depthEth, 2))} ETH deep)`).join(' · ');
