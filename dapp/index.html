@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-VAPRWXLblZSdYrEJd8dCbPojVS6BOmtWlT75SXoOh6Y=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-F77oX32DF2YSEEl9mGEFHQkiyGLwRrLZxsfjdU70qZk=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=0cf48a6a"></script>
 <title>tacit — private DeFi on Bitcoin and Ethereum</title>
@@ -514,7 +514,7 @@ a.di { color: inherit; text-decoration: none; }
 .fm-way .go { display: inline-block; transition: transform .3s var(--spring); }
 .ptsline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 16px 0; color: inherit; text-decoration: none; border-bottom: 1px solid var(--ink); }
 .ptsline .tk { width: 28px; height: 28px; box-shadow: none; transition: transform .4s var(--spring); }
-.ptsline .fig { display: inline-flex; align-items: baseline; gap: 10px; }
+.ptsline .fig { display: inline-flex; align-items: baseline; gap: 2px 10px; flex: 1 1 220px; min-width: 0; }
 .ptsline .fig b { font: 400 34px/1 var(--serif); color: var(--ink); }
 .ptsline .you { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; color: var(--mute); }
 .ptsline .go { transition: transform .3s var(--spring); }
@@ -1239,7 +1239,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
       <h2 id="farm-h" tabindex="-1" autofocus>Farm TAC</h2>
       <button class="x" type="button" data-close aria-label="Close">×</button>
     </div>
-    <p class="lede-s">Deposit into a pool and earn TAC every second, and withdraw whenever you like. The public pool takes ETH and TAC from your wallet; the private pools take private tETH or its partner asset, either one alone or both, so what you hold stays hidden.</p>
+    <p class="lede-s">Deposit into a pool and earn TAC every second, and withdraw whenever you like. The public pool takes ETH and TAC from your wallet or Tacit account; the private pools take private tETH or its partner asset, either one alone or both, so what you hold stays hidden.</p>
     <div id="farm-notes"></div>
     <ul class="farms" id="farm-list"></ul>
   </div>
@@ -1680,11 +1680,13 @@ function once(slot, key, read, force = false) {
 }
 // A fetch that gives up after `ms` where the browser can say so.
 const within = (ms) => (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(ms) : undefined);
-const debounce = (f, ms = 250) => { let h; return (...a) => { clearTimeout(h); h = setTimeout(() => f(...a), ms); }; };
+const debounce = (f, ms = 250) => { let h; const d = (...a) => { clearTimeout(h); h = setTimeout(() => f(...a), ms); }; d.cancel = () => clearTimeout(h); return d; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // An edit disables its form's button at once, so a quick click never acts on what was typed before; the debounced
 // check enables it again for what is typed now.
-const onEdit = (inputs, go, check) => { const d = debounce(check); for (const i of inputs) i.oninput = (e) => { go.disabled = true; d(e); }; };
+// It hands back the debounced check, so a fill that runs its own check can cancel one still waiting on a typed event (that
+// check would redo the fill from the field typed in last).
+const onEdit = (inputs, go, check) => { const d = debounce(check); for (const i of inputs) i.oninput = (e) => { go.disabled = true; d(e); }; return d; };
 // An amount that cannot be read (1.2.3, or an ambiguous 1,500) marks its field instead of reading as nothing typed.
 // While typing, a thousands group still being entered is not marked yet; leaving the field marks it.
 for (const ev of ['input', 'change']) document.addEventListener(ev, ({ target: i }) => {
@@ -6927,7 +6929,7 @@ function paintEarn() {
     best.href = `#farm/private-${pools[0].p.pid}`; best.dataset.link = `farm/private-${pools[0].p.pid}`;
     mount($('#priv-apr'), apr(pools[0].apr)); countUp($('#priv-apr'));
   } else if (FARM.top === null || (prog && !prog.epoch?.active)) $('#priv-apr').textContent = '—';
-  if (day && n) $('#priv-day').textContent = `${per(day)} TAC a day across ${n} private pool${n === 1 ? '' : 's'}.`;
+  if (day && n) $('#priv-day').textContent = `${per(day)} TAC a day across ${n} private pool${n === 1 ? '' : 's'}.${pools.length > 1 ? ' The APR is the best pool’s.' : ''}`;
   else if (FARM.top === null || (prog && !prog.epoch?.active)) $('#priv-day').textContent = prog && !prog.epoch?.active ? 'Farms between reward periods.' : 'Farms not read yet.';
   // The public TAC/ETH farm, joined with ETH alone in one transaction: its APR and what it pays a day.
   const f = FARM.top;
@@ -7441,6 +7443,7 @@ render.farm = () => {
   const x = FARM.precision, prog = FARM.program, list = $('#farm-list');
   const mine = (pid) => (FARM.positions || []).filter((p) => Number(p.pid) === pid);
   const live = !!prog?.epoch?.active;                              // shielded farms stream only while a reward period runs
+  if (prog?.pools && FARM.open?.startsWith('pid') && !prog.pools.some((p) => 'pid' + p.pid === FARM.open)) FARM.open = 'precision';   // a link to a pool the program does not have opens the public one
   if (!FARM.touched && FARM.open === 'precision' && x && !(x.staked > 0n) && FARM.positions?.length && !KEPT['pf-amt'] && !KEPT['pf-tac']) FARM.open = 'pid' + FARM.positions[0].pid;
   const rows = [html`
     <li class="farm${FARM.open === 'precision' ? ' open' : ''}" data-farm="precision">
@@ -7802,6 +7805,7 @@ function renderPrecision(el) {
     <div class="lbl"><span>${has ? 'Add more' : 'Farm with'}</span></div>
     ${segSub('pfm', mode, [['eth', 'ETH'], ['tac', 'TAC'], ['pair', 'ETH + TAC']])}
     <p class="note how">${how}</p>
+    <div id="pf-fund"></div>
     ${withEth ? html`
       <div class="lbl"><span>ETH</span><button type="button" id="pf-max">${payName()} ${x.bal == null ? '—' : fmt(x.bal, 18, 4)} ETH</button></div>
       <div class="amt"><input id="pf-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="ETH to deposit"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>ETH</span></div>` : ''}
@@ -7813,6 +7817,7 @@ function renderPrecision(el) {
     <button class="btn" type="button" id="pf-go" disabled>${{ eth: 'Farm with ETH', tac: 'Farm with TAC', pair: 'Farm with ETH + TAC' }[mode]}</button>
     <div class="status" role="status" id="pf-status"></div>
     ${has ? html`<div class="lbl sep"><span>The farm</span></div>${facts}` : ''}`);
+  noEthYet($('#pf-fund'), x.bal, '', 'farm with it');                  // a Tacit account with no ETH says so before anything is typed
   // Each action reports under its own button, where the person pressing it is looking.
   const status = $('#pf-status'), posStatus = $('#pf-pos-status'), lpStatus = $('#pf-lp-status'), outStatus = $('#pf-out-status');
   const only = (at) => { for (const s of [status, posStatus, lpStatus, outStatus]) if (s && s !== at) say(s, ''); };   // the latest action's line is the only one
@@ -7903,18 +7908,25 @@ function renderPrecision(el) {
       gateOk();
     } catch (e2) { if (my === seq) quoteErr(rc, e2); }
   };
-  onEdit([ethIn, tacIn].filter(Boolean), go, requote);
-  const fill = (input, v) => { input.value = v > 0n ? plain(v, 18) : ''; requote({ target: input, fill: true }); };
+  const edit = onEdit([ethIn, tacIn].filter(Boolean), go, requote);
+  const fill = (input, v) => { edit.cancel(); input.value = v > 0n ? plain(v, 18) : ''; requote({ target: input, fill: true }); };
   // The largest balanced deposit both balances cover: all the ETH with its TAC, or all the TAC with its ETH. With no TAC
   // held there is none, and the note above the fields says so.
   const pairMax = () => {
+    edit.cancel();                                                // a check still waiting on a typed amount would size the TAC from the ETH again, past what is held
     let wei = cutTo(spendable, ETH_DP), tac = upTo(tacFor(wei), TAC_DP);
     if (tac > x.tac) { tac = cutTo(x.tac, TAC_DP); wei = upTo(ethFor(tac), ETH_DP); }
     ethIn.value = wei > 0n ? plain(wei, 18) : ''; tacIn.value = tac > 0n ? plain(tac, 18) : '';
     requote({});
   };
-  $('#pf-max')?.addEventListener('click', () => { if (x.bal == null) return say(status, html`<span class="err">Your ETH balance could not be read. Try again in a moment.</span>`); mode === 'pair' ? x.tac > 0n && pairMax() : fill(ethIn, cutTo(spendable, ETH_DP)); });
-  $('#pf-tmax')?.addEventListener('click', () => (mode === 'pair' ? x.tac > 0n && pairMax() : fill(tacIn, cutTo(x.tac, TAC_DP))));
+  // Max keeps GAS for the transaction: with no more than that there is nothing to put in, and saying so beats a field that stays empty.
+  const noRoom = () => say(status, x.bal == null ? html`<span class="err">Your ETH balance could not be read. Try again in a moment.</span>`
+    : html`<span class="err">${payName()} holds ${fmt(x.bal, 18, 4)} ETH, and Max keeps ${fmt(GAS, 18, 3)} ETH of it for gas. Add some ETH, or type a smaller amount.</span>`);
+  $('#pf-max')?.addEventListener('click', () => {
+    if (x.bal == null || (!(spendable > 0n) && (mode !== 'pair' || x.tac > 0n))) return noRoom();
+    mode === 'pair' ? x.tac > 0n && pairMax() : fill(ethIn, cutTo(spendable, ETH_DP));
+  });
+  $('#pf-tmax')?.addEventListener('click', () => (mode === 'pair' ? (x.tac > 0n && (spendable > 0n ? pairMax() : noRoom())) : fill(tacIn, cutTo(x.tac, TAC_DP))));
   if (FARM.fill === 'tac' && tacIn) { FARM.fill = null; $('#pf-tmax').click(); }
   takeDraft('farm', ethIn);
   if (FARM.reinvest && tacIn) {
@@ -8180,6 +8192,7 @@ function farmJoin(el, p, status, has) {
   const how = mode === 'pair'
     ? (both ? 'Both go in at the pool’s ratio, with nothing swapped.'
       : html`You hold no private ${bA ? other : 'tETH'}, and tETH + ${other} takes both. <button class="link" type="button" data-join-get="${bA ? getB[0] : 'private'}">${bA ? getB[1] : 'Make ETH private'}</button>, or <button class="link" type="button" data-join-one="${bA ? 'a' : 'b'}">farm with ${bA ? 'tETH' : other} alone</button>.`)
+    : !(spendable(kS) > 0n) ? html`You hold no private ${unit[kS]}. <button class="link" type="button" data-join-get="${kS === kA ? 'private' : getB[0]}">${kS === kA ? 'Make ETH private' : getB[1]}</button>, or <button class="link" type="button" data-join-one="${kS === kA ? 'b' : 'a'}">farm with ${unit[kO]} alone</button>.`
     : `About half is swapped to ${unit[kO]} inside the pool, then both go into the farm: up to four steps, each a few minutes.`;
   const field = (k, id) => html`
     <div class="lbl"><span>${unit[k]}</span><span>Private ${fmt(spendable(k), 8, dp[k])} ${unit[k]}${inUse(k, 8, dp[k], unit[k])}</span></div>

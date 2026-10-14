@@ -355,6 +355,10 @@ await step('links', async () => {
   await page.waitForSelector('#sheet-pts[open]', { timeout: 60000 });
   await page.goto(url + '#earn');
   await page.waitForSelector('#sheet-farm[open]', { timeout: 60000 });
+  // A link to a private pool the program does not have opens the public pool, and the address bar says so.
+  await page.goto(url + '#farm/private-99');
+  await until(page, () => !!document.querySelector('#sheet-farm li.farm.open[data-farm="precision"]') && location.hash === '#farm', null, 60000);
+  ok(true, 'links: #farm/private-99 (no such pool) opens the public pool');
   const shares = await page.$$eval('dialog.sheet:not(.layer) .sheet-head .x.share', (b) => b.length);
   const sheets = await page.$$eval('dialog.sheet:not(.layer)', (d) => d.length);
   ok(shares === sheets && sheets >= 6, `links: every sheet has a copy-link button (${shares}/${sheets})`);
@@ -1740,6 +1744,12 @@ await step('acct', async () => {
   const shownAddr = await r.page.$eval('#ac-form [data-copy]', (b) => b.dataset.copy);
   ok(shownAddr === want && viaUx === want, `acct: the Tacit account is the key's own, as tacit.finance derives it (${want.slice(0, 10)}…, pool-ux ${viaUx.slice(0, 10)}…)`);
   ok(await r.page.$eval('[data-pay="tacit"]', (b) => b.classList.contains('main')), 'acct: with no wallet connected, the Tacit account pays');
+  // The public farm, opened while the account holds no ETH: it says so before anything is typed, with the way to add some, and Max says why it fills nothing.
+  await go(r.page, '#farm');
+  await r.page.waitForSelector('#pf-fund [data-fund]', { timeout: 60000 }).catch(() => {});
+  ok(!!(await r.page.$('#pf-fund [data-fund]')) && /no ETH/.test(await text(r.page, '#pf-fund')), 'acct: the farm of an account with no ETH says so, with a way to add some');
+  await r.page.click('#pf-max');
+  ok(/Max keeps/.test(await text(r.page, '#pf-status')) && !(await r.page.inputValue('#pf-amt')), `acct: Max with no ETH to spare says why it fills nothing (${await text(r.page, '#pf-status')})`);
   await rpc('anvil_setBalance', [want, '0x' + (10n ** 17n).toString(16)]);             // funded from outside, as an exchange would
 
   await go(r.page, '#buy');
@@ -4165,6 +4175,9 @@ await step('farmsteps', async () => {
     const on = (m) => p.$eval(`#farm-pid0 [data-sjm="${m}"]`, (b) => b.getAttribute('aria-selected') === 'true');
     ok(!(await p.$('#farm-pid0 .steps')) && await on('a') && (await text(p, '#sj-go-0')) === 'Farm with tETH' && /About half is swapped to TAC inside the pool/.test(await text(p, '#farm-pid0 .how')),
       `farmsteps: with tETH and no TAC the form opens on tETH alone and says what is swapped (${(await text(p, '#farm-pid0 .how')).trim()})`);
+    await p.click('#farm-pid0 [data-sjm="b"]');
+    await p.waitForSelector('#farm-pid0 .how [data-join-get="tac"]', { timeout: 30000 });
+    ok(/You hold no private TAC/.test(await text(p, '#farm-pid0 .how')) && /farm with tETH alone/.test(await text(p, '#farm-pid0 .how [data-join-one="a"]')), 'farmsteps: the TAC tab with no TAC says where to get it, or to farm with tETH alone');
     await p.click('#farm-pid0 [data-sjm="pair"]');
     await p.waitForSelector('#farm-pid0 [data-join-get="tac"]', { timeout: 30000 });
     ok(/You hold no private TAC/.test(await text(p, '#farm-pid0 .how')) && !(await p.$('#sj-go-0')) && /farm with tETH alone/.test(await text(p, '#farm-pid0 [data-join-one="a"]')), 'farmsteps: both sides with no TAC says where to get it, or to farm with tETH alone');
