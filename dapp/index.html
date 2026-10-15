@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-+DkHZ5O/nQvjWMaVxLayDmzEQpumLJ/TyPz7o/Ydbnc=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-P00aKCETJjo1fud84gBfbPM0vOFqQ4bXOV899Ydx5GQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=248cfddf"></script>
 <title>tacit — private DeFi on Bitcoin and Ethereum</title>
@@ -6011,7 +6011,13 @@ function brCheckText(s) {
   if (s.name === 'bound') return 'This TAC is held in a note bound to another deployment, which the bridge does not burn.';
   if (s.name === 'source-ownership') return 'This TAC is not at this key’s own Bitcoin address.';
   if (s.name === 'source-confirmed') return 'This TAC is waiting for its Bitcoin confirmation.';
-  if (s.name === 'trace') return `This TAC has passed through too many transfers to bridge (${s.detail}).`;
+  // The check fails by hop count only when it got a count; a rate limit or a failed read has none, and is not the TAC's doing.
+  if (s.name === 'trace' && /hop\(s\) to the etch/.test(s.detail || '')) return `This TAC has passed through too many transfers to bridge (${s.detail}).`;
+  if (s.name === 'trace') {
+    const wait = /retry in ~(\d+)s/.exec(s.detail || '');
+    return wait ? `Bitcoin’s history for this TAC is busy being read just now. Try again in about ${wait[1]} seconds: nothing is wrong with your TAC.`
+      : `Could not read this TAC’s history from Bitcoin just now: ${brErr(s.detail)}. Try again in a moment: nothing is wrong with your TAC.`;
+  }
   return `Could not check this TAC: ${brErr(s.detail || s.name)}`;
 }
 const BR_REASON = { unconfirmed: 'Waiting for its Bitcoin confirmation' };

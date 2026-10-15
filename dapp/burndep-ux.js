@@ -41,6 +41,7 @@ export const RETURN_FEE_CEILING = 100;
 // full 64 (once the migrate has confirmed). Kept as two named constants rather than one reused value, since
 // the two checks apply to different points in the hop count and must not collapse into the same number.
 const MAX_HOPS_SOURCE = 63;
+const TRACE_WAIT_MAX_S = 30;                                  // the longest trace rate limit that is waited out rather than shown
 const MAX_HOPS_BURN_HOME = 64;
 const JOURNAL_PREFIX = 'tacit-burndep-bridge-v1';
 const LEASE_TTL_MS = 30_000;
@@ -108,6 +109,8 @@ export function makeBurnDepositUx(deps) {
     // Optional. The assets a tracked note can be sent back to Ethereum as ([{ assetId, ticker, capRaw }]); left out, TAC alone
     // under BURNDEP_BETA_CAP_RAW. The burn-deposit path below is TAC's own and does not read this.
     assets: assetsIn = null,
+    // Optional. sleep(ms) → Promise: how a rate-limited trace waits its turn (the tests pass one that does not wait).
+    sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   } = deps || {};
   for (const [k, v] of Object.entries({ workerBase, secp, sha256, keccak256, hmac, pool, bridgeMint, chainBindingHex, tacAssetId, chain })) {
     if (v == null) throw new Error(`burndep-ux: deps.${k} required`);
@@ -439,7 +442,14 @@ export function makeBurnDepositUx(deps) {
     // maxDepth is the walk's own budget, shared by both callers of traceNote (the source note in preflight,
     // the burn-home after migrate) — set to the larger of the two limits so neither trace is cut short before
     // the length check below gets a chance to run on the real hop count.
-    const res = await callWorker('POST', '/reflection/burndep/trace', { note: { txid: stripHex(txid), vout }, assetId, maxDepth: MAX_HOPS_BURN_HOME });
+    const ask = () => callWorker('POST', '/reflection/burndep/trace', { note: { txid: stripHex(txid), vout }, assetId, maxDepth: MAX_HOPS_BURN_HOME });
+    // The trace is the one read that is limited per address (a real Bitcoin read per hop), and an address can be shared. A limit
+    // that clears within half a minute is waited out once, so the check goes through instead of failing the person at it.
+    const res = await ask().catch(async (e) => {
+      if (Number(e && e.status) !== 429 || !(e.retryAfter > 0 && e.retryAfter <= TRACE_WAIT_MAX_S)) throw e;
+      await sleep((e.retryAfter + 1) * 1000);
+      return ask();
+    });
     if (!res.ok) throw new Error(res.error || 'trace failed');
     return { bundle: res.bundle, hops: res.hops };
   }
@@ -906,7 +916,8 @@ export function makeBurnDepositUx(deps) {
     if (!res.ok) {
       const j = await res.json().catch(() => null);
       const said = (j && (j.error || j.reason)) || (res.status === 404 ? 'not found' : `the service answered ${res.status}`);
-      throw Object.assign(new Error(`burndep-ux: ${said}`), { status: res.status });
+      const wait = Number(j && j.retryAfter) || Number(res.headers && res.headers.get && res.headers.get('retry-after')) || null;
+      throw Object.assign(new Error(`burndep-ux: ${said}`), { status: res.status, retryAfter: wait });
     }
     return res.json();
   }

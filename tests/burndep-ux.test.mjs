@@ -1539,5 +1539,34 @@ function storageContainsPrivkey(storage, priv) {
   const two = ux.bridgeCost({ path: 'deposit', feeRate: 20, coins: [{ value: 9_000 }, { value: 9_000 }], noteSats: NOTE_SATS });
   ok(!two.ok && two.have === 9_000 && two.need > 9_000, 'the move spends one coin whole, so two coins that only add up are said short');
 }
+// ==== a rate-limited trace is waited out once, and is never reported as a TAC with too many transfers ====
+{
+  const note = { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING };
+  const limitedFor = (retryAfter, times) => {
+    const world = makeWorld(); let left = times, traces = 0; const waits = [];
+    world.setBurnHomeOnChain(NOTE_TXID, realWpkhSpkHexOf(WALLET_PUB)); // preflight's ownership check, as the boundary test above
+    const fetchImpl = async (url, opts) => {
+      if (new URL(url).pathname === '/reflection/burndep/trace') {
+        traces += 1;
+        if (left-- > 0) return { ok: false, status: 429, json: async () => ({ ok: false, error: `too many trace requests — retry in ~${retryAfter}s`, retryAfter }) };
+      }
+      return world.fetchImpl(url, opts);
+    };
+    const ux = makeUx({ ...world, fetchImpl }, makeMemStorage(), { sleep: async (ms) => { waits.push(ms); } });
+    return { ux, waits, traces: () => traces };
+  };
+  const a = limitedFor(21, 1);
+  const pfA = await a.ux.preflight({ note, walletPub: WALLET_PUB });
+  ok(pfA.steps.find((s) => s.name === 'trace')?.ok && a.waits.length === 1 && a.waits[0] === 22_000 && a.traces() === 2,
+    'a trace limit that clears in 21 s is waited out once (22 s) and the check goes through');
+  const b = limitedFor(21, 2);
+  const pfB = await b.ux.preflight({ note, walletPub: WALLET_PUB });
+  const stepB = pfB.steps.find((s) => s.name === 'trace');
+  ok(stepB && !stepB.ok && /retry in ~21s/.test(stepB.detail) && b.waits.length === 1 && b.traces() === 2,
+    'a limit that is still on after the wait fails the check with the limit named, after only one extra request');
+  const c = limitedFor(90, 1);
+  const pfC = await c.ux.preflight({ note, walletPub: WALLET_PUB });
+  ok(!pfC.steps.find((s) => s.name === 'trace')?.ok && c.waits.length === 0 && c.traces() === 1, 'a limit of 90 s is not waited out');
+}
 console.log(failures ? `\n${failures} FAILURES (${n} passed)` : `\nall ${n} burndep-ux checks passed`);
 process.exit(failures ? 1 : 0);
