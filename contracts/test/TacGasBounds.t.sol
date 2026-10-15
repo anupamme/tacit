@@ -98,7 +98,6 @@ contract TacGasBoundsTest is Test {
         c.mintRatioBps = 35_000;
         c.liqRatioBps = 20_000;
         c.liqBonusBps = 2_500;
-        c.liqWindow = 21_600;
         c.auctionDuration = 5_400;
         c.borrowFeeBps = 100;
         c.redemptionFeeBps = 50;
@@ -174,8 +173,6 @@ contract TacGasBoundsTest is Test {
     function test_oracleViewGas() public {
         precision.prices(21_600);
         _rec("Precision venue prices(36 intervals):", 600_000);
-        precision.depth(21_600);
-        _rec("Precision venue depth(36 intervals):", 200_000);
         precision.recovery(21_600);
         _rec("Precision venue recovery(36 intervals):", 600_000);
         amm.prices(21_600);
@@ -186,8 +183,6 @@ contract TacGasBoundsTest is Test {
         _rec("PAIR prices(WINDOW, 18 intervals):", 400_000);
         pair.prices(3_600);
         _rec("PAIR prices(SHORT, 6 intervals):", 100_000);
-        pair.depth(10_800);
-        _rec("PAIR depth(WINDOW):", 200_000);
         pair.recovery(21_600);
         _rec("PAIR recovery(36 intervals):", 1_200_000);
         pair.spot();

@@ -26,43 +26,25 @@ interface IPoolRegistry {
         returns (bool, bytes32, bytes32, uint256 reserveA, uint256 reserveB, uint32, uint256);
 }
 
-/// @notice Deploys, on Ethereum mainnet, an oracle over both TAC/ETH venues (the Precision pool and the confidential
-///         pool's AMM pool) and two TacVaults that share it: one lending a dollar (through the ETH/USD feed) and one
-///         lending ETH (through a FixedFeed). For TAC and each synth it deploys a TacitEvmPool and router (the live
-///         contracts and verifier), and a zap per vault. Last, it registers both synths in the confidential pool and
-///         creates the TAC/USD, TAC/ETH-synth, ETH/ETH-synth, USD/ETH-synth and USD/cUSD pairs there (the last lets
-///         a dollar borrowed against TAC move into cUSD and its pools); anyone may do these first, and an existing
-///         entry is used as it is.
+/// @notice Mainnet deployment: a TacPairOracle over the two TAC/ETH venues (the Precision pool and the confidential
+///         pool's AMM pool), a dollar vault (ETH/USD feed) and an ETH vault (FixedFeed) sharing it, a TacitEvmPool and
+///         router for TAC and each synth, and a zap per vault. Then it registers both synths in the confidential pool
+///         and creates the TAC/USD, TAC/ETH-synth, ETH/ETH-synth, USD/ETH-synth and USD/cUSD pairs; an entry that
+///         already exists is kept. Run without `--broadcast` to simulate.
 ///
-///         After deploying, run tools/tac-vault-keeper.mjs with ORACLE set to the two venue oracles it prints: it
-///         records the past hours of intervals at once and every new one after. Both vaults start with the largest
-///         debt ceiling: what they lend is held to DEPTH_BPS of the smaller venue's ETH depth over the last hours
-///         (nothing until every interval of that window is recorded), so it grows and shrinks with the pools. The
-///         owner may set a lower ceiling and lift it again. The reserve that absorbs bad debt is SYNTH sent to a
-///         vault, and only an absorb spends it; keep it in step with the debt, from a dedicated treasury vault that is
-///         never meant to close. Run without `--broadcast` to simulate.
+///         Next, run tools/tac-vault-keeper.mjs with ORACLE set to the two venue oracles printed; borrowing opens
+///         once every interval of the longest window is recorded.
 ///
-/// Env:
-///   OWNER                 (required) the vaults' owner (the ops multisig)
-///   FEE_TO                (default OWNER)   where borrow fees, in SYNTH, go first (the owner may change it)
-///   TAC_SINK              (default OWNER)   where absorbed TAC goes first (the owner may change it)
-///   USD_NAME / USD_SYMBOL (default "TAC Dollar" / TACD) the dollar synth's ERC-20 name and symbol
-///   ETH_NAME / ETH_SYMBOL (default "TAC Ether" / TACE) the ETH synth's ERC-20 name and symbol
-///   USD_CEILING           (default no limit) dollar vault debt ceiling set by the owner
-///   ETH_CEILING           (default no limit) ETH vault debt ceiling set by the owner
-///   USD_MIN_DEBT          (default 100e18)  smallest dollar debt
-///   ETH_MIN_DEBT          (default 0.04e18) smallest ETH debt
-///   DEPTH_BPS             (default 15)      each vault's total debt at most this share of the pool's ETH depth (both
-///                                           vaults read the same depth, so together they lend twice this share); the
-///                                           owner can raise it later (at most doubling, plus 25, per two days)
-///   BORROW_FEE_BPS        (default 100)     one-time borrow fee, both vaults
-///   MINT_RATIO_BPS        (default 35000), LIQ_RATIO_BPS (default 20000), LIQ_BONUS_BPS (default 4000)
-///   ORACLE_SHORT_WINDOW (7200), ORACLE_WINDOW (21600), ORACLE_MAX_WINDOW (28800) seconds, ORACLE_COVERAGE_BPS (6600):
-///                         the oracle's windows (the longest is at most 127 intervals of 600 s)
-///   LIQ_WINDOW            (default ORACLE_MAX_WINDOW, must equal it), AUCTION_DURATION (default 3600)
-///   OWNER_WINDOW          (default 1800)    seconds an auction is open to its owner alone
-///   REDEMPTION_FEE_BPS    (default 50)
-///   FEED_MAX_STALENESS    (default 3900)
+/// Env (defaults in brackets):
+///   OWNER (required)                         the vaults' owner, the ops multisig
+///   FEE_TO, TAC_SINK [OWNER]                 borrow-fee recipient, absorbed-TAC recipient
+///   USD_NAME, USD_SYMBOL [TAC Dollar, TACD]  ETH_NAME, ETH_SYMBOL [TAC Ether, TACE]
+///   USD_CEILING, ETH_CEILING [no limit]      USD_MIN_DEBT [100e18], ETH_MIN_DEBT [0.04e18]
+///   DEPTH_BPS [15]                           each vault's share of the smaller venue's ETH depth
+///   MINT_RATIO_BPS [35000], LIQ_RATIO_BPS [20000], LIQ_BONUS_BPS [4000]
+///   AUCTION_DURATION [3600], OWNER_WINDOW [1800] seconds
+///   BORROW_FEE_BPS [100], REDEMPTION_FEE_BPS [50], FEED_MAX_STALENESS [3900]
+///   ORACLE_SHORT_WINDOW [7200], ORACLE_WINDOW [21600], ORACLE_MAX_WINDOW [28800] seconds, ORACLE_COVERAGE_BPS [6600]
 contract DeployTacVault is Script {
     address constant POOL = 0x000000000Ed1eabD231Be41d93b719056F7febFC;
     address constant TAC = 0xA1313eb9f3A445606D9583bcAc3ebeB56a858279;
@@ -102,9 +84,7 @@ contract DeployTacVault is Script {
         require(block.chainid == 1, "mainnet only");
         Out memory o;
         vm.startBroadcast();
-        // An interval of 50 blocks (10 minutes); windows of 2 hours, 6 hours (the borrow view's slowest) and 8 hours
-        // (the liquidation window, the longest) unless the environment says otherwise; a window needs two thirds of
-        // its intervals.
+        // Intervals of 50 blocks (10 minutes).
         uint256 shortWindow = vm.envOr("ORACLE_SHORT_WINDOW", uint256(7_200));
         uint256 window = vm.envOr("ORACLE_WINDOW", uint256(21_600));
         uint256 maxWindow = vm.envOr("ORACLE_MAX_WINDOW", uint256(28_800));
@@ -127,7 +107,7 @@ contract DeployTacVault is Script {
         o.usdZap = address(new TacVaultZap(address(o.usd), o.usdRouter));
         o.ethZap = address(new TacVaultZap(address(o.eth), o.ethRouter));
 
-        // Last: registration and pairs are permissionless, so an entry made first by anyone is kept.
+        // Registration and pairs are permissionless; an entry someone made first is kept.
         o.usdAsset = _register(address(o.usd.SYNTH()));
         o.ethAsset = _register(address(o.eth.SYNTH()));
         _pair(TAC_ASSET, o.usdAsset);
@@ -151,9 +131,7 @@ contract DeployTacVault is Script {
         console2.log("USD pool/router:", o.usdPool, o.usdRouter);
         console2.log("ETH pool/router:", o.ethPool, o.ethRouter);
         console2.log("USD zap / ETH zap:", o.usdZap, o.ethZap);
-        console2.log(
-            "NEXT: run tools/tac-vault-keeper.mjs with ORACLE=<Precision venue>,<AMM venue>; lending opens once it has recorded the window"
-        );
+        console2.log("Next: tools/tac-vault-keeper.mjs with ORACLE=<Precision venue>,<AMM venue>");
     }
 
     function _config(address oracle, address feed, string memory tag, uint256 minDebt)
@@ -169,7 +147,6 @@ contract DeployTacVault is Script {
             owner: vm.envAddress("OWNER"),
             mintRatioBps: vm.envOr("MINT_RATIO_BPS", uint256(35_000)),
             liqRatioBps: vm.envOr("LIQ_RATIO_BPS", uint256(20_000)),
-            liqWindow: vm.envOr("LIQ_WINDOW", vm.envOr("ORACLE_MAX_WINDOW", uint256(28_800))),
             liqBonusBps: vm.envOr("LIQ_BONUS_BPS", uint256(4_000)),
             auctionDuration: vm.envOr("AUCTION_DURATION", uint256(3_600)),
             ownerWindow: vm.envOr("OWNER_WINDOW", uint256(1_800)),
@@ -194,7 +171,7 @@ contract DeployTacVault is Script {
     }
 
     function _pool(address asset) internal returns (address pool, address router) {
-        // From their artifacts: the pool and router stay on the compiler the live ones were deployed with.
+        // From artifacts: the pool and router keep the compiler (0.8.36) of the live ones.
         pool = deployCode("TacitEvmPool.sol:TacitEvmPool", abi.encode(VERIFIER, asset));
         router = deployCode(
             "TacitEvmPoolRouter.sol:TacitEvmPoolRouter", abi.encode(pool, ZROUTER, PERMIT2, POOL, POSEIDON4)

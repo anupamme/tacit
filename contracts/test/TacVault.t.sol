@@ -920,7 +920,7 @@ contract TacVaultTest is Test {
         vm.expectRevert(TacVault.BadConfig.selector);
         new TacVault(c);
         c = VaultConfig.defaults(address(tac), address(oracle), address(feed), OWNER);
-        c.liqWindow = 3 hours; // must equal the oracle's longest window
+        c.oracle = address(0xDEAD); // not a contract
         vm.expectRevert(TacVault.BadConfig.selector);
         new TacVault(c);
         c = VaultConfig.defaults(address(tac), address(oracle), address(feed), OWNER);
@@ -936,7 +936,7 @@ contract TacVaultTest is Test {
         vm.expectRevert(TacVault.BadConfig.selector);
         new TacVault(c);
         c = VaultConfig.defaults(address(tac), address(oracle), address(feed), OWNER);
-        c.depthBps = 0;
+        c.depthBps = 1_001;
         vm.expectRevert(TacVault.BadConfig.selector);
         new TacVault(c);
     }

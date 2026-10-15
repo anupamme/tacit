@@ -1148,10 +1148,6 @@ abstract contract TacVaultCampaignBase is Test {
         return false;
     }
 
-    function _liqWindow() internal pure virtual returns (uint256) {
-        return 6 hours;
-    }
-
     function _tag() internal pure virtual returns (string memory) {
         return "usd";
     }
@@ -1184,7 +1180,6 @@ abstract contract TacVaultCampaignBase is Test {
         c.liqBonusBps = 2_500;
         c.auctionDuration = 5_400;
         c.ownerWindow = _ownerWindow();
-        c.liqWindow = _liqWindow();
         c.borrowFeeBps = 100;
         c.redemptionFeeBps = 50;
         c.feedMaxStaleness = 3_900;

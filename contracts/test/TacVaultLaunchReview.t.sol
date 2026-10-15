@@ -271,13 +271,10 @@ contract TacVaultReviewFixesTest is R2Base {
         vm.expectRevert(TacVault.BadConfig.selector);
         vault.executeOracle();
 
-        R2Oracle short = new R2Oracle(600, 600, 600, P, P);
-        vm.prank(OWNER);
-        vault.queueOracle(address(short));
-        _wait(vault.ORACLE_DELAY());
+        R2Oracle short = new R2Oracle(600, 600, 600, P, P); // refused as soon as it is announced
         vm.prank(OWNER);
         vm.expectRevert(TacVault.BadConfig.selector);
-        vault.executeOracle();
+        vault.queueOracle(address(short));
 
         R2Oracle fine = new R2Oracle(30 minutes, 30 minutes, 1 hours, P, P);
         vm.prank(OWNER);
@@ -311,7 +308,6 @@ contract TacVaultLaunchChecksTest is R2Base {
         TacVault.Config memory c = VaultConfig.defaults(address(tac), address(o), address(feed), OWNER);
         c.mintRatioBps = 35_000;
         c.liqRatioBps = 20_000;
-        c.liqWindow = 28_800;
         c.liqBonusBps = 4_000;
         c.auctionDuration = 3_600;
         c.ownerWindow = 1_800;

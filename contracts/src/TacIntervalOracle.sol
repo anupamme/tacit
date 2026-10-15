@@ -5,33 +5,24 @@ import {MerkleTrie} from "./lib/trie/MerkleTrie.sol";
 import {RLPReader} from "./lib/trie/RLPReader.sol";
 
 /// @title TacIntervalOracle
-/// @notice ETH per TAC (1e18-scaled) from one contract's proven storage, as it stood at the end of past blocks.
-///         A venue contract supplies how its state becomes a price and a depth (`_read`) and the live price
-///         (`spot`); this base keeps the intervals and the medians.
+/// @notice ETH per TAC (1e18-scaled) and ETH depth of one venue, proven from its storage at the end of past blocks.
+///         A venue contract defines how two storage slots become a price and a depth (`_read`) and the live price
+///         (`spot`); this base keeps the samples and computes the medians.
 ///
-///         Blocks are grouped in intervals of STEP. Each interval has one sample block, chosen after the interval
-///         by the RANDAO value (`mixHash`) of the block that follows it, so no one knows in advance which block's
-///         end will count. Anyone may `record` an interval by proving the venue at the end of its sample block: both
-///         headers are checked against their hashes (the BLOCKHASH opcode for the last 256 blocks, the EIP-2935
-///         history contract for older ones, up to 8,191 blocks), and the venue's account and two storage slots
-///         against the sample header's state root.
+///         Blocks are grouped into intervals of STEP. An interval's sample block is chosen by the `mixHash` (RANDAO)
+///         of the first block after the interval, so it is not known while the interval runs. Anyone may `record` an
+///         interval with the RLP headers of the sample block and that following block, checked against BLOCKHASH or,
+///         beyond 256 blocks, the EIP-2935 history contract, and with the venue's account and storage proofs against
+///         the sample block's state root.
 ///
-///         `prices(window)` gives the median of the window's intervals twice: `low` is the lower middle value,
-///         counting an interval no one recorded as zero, and `high` the upper middle value, counting it as
-///         unbounded. `depth(window)` is the lower middle ETH depth, likewise, and `depthMin(window)` the smallest
-///         depth, which needs every interval of the window recorded. An interval counts once the block that follows it
-///         is more than GRACE blocks old, so a fresh interval cannot count before anyone could record it. Each
-///         reverts unless at least MIN_COVERAGE_BPS of the window's intervals are recorded. Raising `low` or
-///         lowering `high` means holding the venue's price through more than half of the window's intervals,
-///         however many are recorded. `latest()` is the newest recorded interval's price, `spot()` the venue's
-///         price now.
+///         `prices(window)` returns the lower and upper median of the window's intervals, counting an unrecorded
+///         interval as zero for `low` and as unbounded for `high`, so moving either takes holding the venue's price
+///         through more than half the window. `depthMin(window)` is the smallest depth and needs every interval
+///         recorded. Windows revert unless MIN_COVERAGE_BPS of their intervals are recorded, and an interval counts
+///         only once the block after it is more than GRACE blocks old. `latest()` is the newest recorded price.
 ///
-///         A reorg cannot leave a sample behind: the ring is chain state, and a `record` is valid only on a chain
-///         that contains both headers it proves.
-///
-///         Immutable, with no owner and no settings. It relies on 12-second slots (BLOCK_SECONDS), the post-merge
-///         header layout and Ethereum's Merkle-Patricia state trie; if any of these changes, `record` fails and the
-///         oracle expires within MAX_WINDOW, so vaults priced by it must then be wound down and redeployed.
+///         No owner and no settings. It assumes 12-second slots, the post-merge header layout and the
+///         Merkle-Patricia state trie; if these change, `record` fails and prices lapse within MAX_WINDOW.
 abstract contract TacIntervalOracle {
     uint256 internal constant BPS = 10_000;
     uint256 internal constant BLOCK_SECONDS = 12;
@@ -91,9 +82,8 @@ abstract contract TacIntervalOracle {
     /// ETH per TAC and the ETH depth from the venue's two proven slot values, `a` and `b` as `slots()` orders them.
     function _read(uint256 a, uint256 b) internal view virtual returns (uint256 ethPerTac, uint256 ethDepth);
 
-    /// Records an interval from the RLP headers of its sample block and of the block that follows the interval,
-    /// and `eth_getProof` output for POOL at the sample block: its account proof and the proofs of the two
-    /// storage slots `slots()` names.
+    /// Records an interval from the RLP headers of its sample block and of the first block after the interval, and
+    /// `eth_getProof` output for POOL at the sample block (the account proof and the proofs of `slots()`).
     function record(
         bytes calldata header,
         bytes calldata next,
@@ -141,22 +131,13 @@ abstract contract TacIntervalOracle {
         high = found[points / 2];
     }
 
-    /// The price that decides whether an auction may end: the lower median, as `prices` gives it. A venue pair
-    /// combines these so that both venues have to be held down to block a recovery.
+    /// The lower median, as `prices` gives it. A pair of venues combines it differently from `low`.
     function recovery(uint256 window) external view returns (uint256 low) {
         (low,) = prices(window);
     }
 
-    /// The lower median ETH depth of the venue (wei) over the last `window` seconds, an interval not recorded
-    /// counting as zero.
-    function depth(uint256 window) external view returns (uint256) {
-        (uint256[] memory found, uint256 n, uint256 points) = _collect(window, false);
-        _sort(found, n);
-        return found[(points - 1) / 2 - (points - n)];
-    }
-
-    /// The smallest ETH depth of the venue (wei) over the last `window` seconds, which needs every interval of the
-    /// window recorded: a depth lifted for part of the window, or thin intervals left unrecorded, cannot raise it.
+    /// The smallest ETH depth (wei) over the last `window` seconds. Needs every interval recorded, so neither a
+    /// depth lifted for part of the window nor leaving thin intervals unrecorded raises it.
     function depthMin(uint256 window) external view returns (uint256) {
         (uint256[] memory found, uint256 n, uint256 points) = _collect(window, false);
         if (n != points) revert TooFewSamples();
@@ -208,9 +189,8 @@ abstract contract TacIntervalOracle {
         return (last - grace) / STEP - 1;
     }
 
-    // Decodes a header whose hash matches the chain's for its number. The fields read here must sit where today's
-    // layout puts them: stateRoot (3) and mixHash (13) 32 bytes, nonce (14) 8 bytes. A fork that shifts them is
-    // refused, so a builder-chosen field can never be read as the RANDAO value.
+    // Decodes a header whose hash matches the chain's for its number. stateRoot (3) and mixHash (13) must be 32
+    // bytes and nonce (14) 8 bytes, so a layout change cannot make a builder-chosen field read as the RANDAO value.
     function _header(bytes calldata header) internal view returns (RLPReader.RLPItem[] memory fields) {
         fields = RLPReader.readList(header);
         if (fields.length < 15 || fields[3].length != 33 || fields[13].length != 33 || fields[14].length != 9) {

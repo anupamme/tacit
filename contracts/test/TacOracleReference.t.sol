@@ -104,16 +104,12 @@ contract TacOracleReferenceTest is Test {
             vm.expectRevert(TacIntervalOracle.TooFewSamples.selector);
             o.prices(window);
             vm.expectRevert(TacIntervalOracle.TooFewSamples.selector);
-            o.depth(window);
-            vm.expectRevert(TacIntervalOracle.TooFewSamples.selector);
             o.depthMin(window);
             return;
         }
         (uint256 l, uint256 h) = o.prices(window);
         assertEq(l, low, "low");
         assertEq(h, high, "high");
-        (, uint256 depthLow,) = _ref(rec, dep, cov);
-        assertEq(o.depth(window), depthLow, "depth");
         uint256 smallest = type(uint256).max;
         uint256 count;
         for (uint256 i; i < p; ++i) {
@@ -127,7 +123,6 @@ contract TacOracleReferenceTest is Test {
             o.depthMin(window);
         } else {
             assertEq(o.depthMin(window), smallest, "depthMin");
-            assertLe(o.depthMin(window), o.depth(window));
         }
     }
 
@@ -249,7 +244,6 @@ contract TacOracleReferenceTest is Test {
         TacOracleStub o = _deployed();
         vm.roll(HEAD);
         _fill(o, _newest(10, HEAD), 36, 24, 100e18, 3e18);
-        assertEq(o.depth(21_600), 100e18);
         assertEq(o.depthMin(21_600), 3e18);
     }
 
@@ -262,7 +256,6 @@ contract TacOracleReferenceTest is Test {
         _fill(o, newest, 35, 0, 0, 3e18); // the oldest of the 36 is missing
         vm.expectRevert(TacIntervalOracle.TooFewSamples.selector);
         o.depthMin(21_600);
-        assertEq(o.depth(21_600), 3e18, "the median still has a price on 35 of 36");
         assertEq(o.depthMin(21_000), 3e18, "a window of 35 intervals needs only those");
         o.put(newest - 35, 1000, 3e18);
         assertEq(o.depthMin(21_600), 3e18);
@@ -282,7 +275,6 @@ contract TacOracleReferenceTest is Test {
         for (uint256 i; i < 24; ++i) {
             o.put(newest - i, 1000, 3e18);
         }
-        assertEq(o.depth(21_600), 3e18, "the median counts missing intervals as zero and is unchanged");
         vm.expectRevert(TacIntervalOracle.TooFewSamples.selector);
         o.depthMin(21_600);
         for (uint256 i = 24; i < 36; ++i) {
@@ -389,7 +381,6 @@ contract TacOracleReferenceTest is Test {
             c.put(newest - i, 1000, i == 7 ? 2e18 : 9e18);
         }
         assertEq(pair.depthMin(21_600), 2e18);
-        assertEq(pair.depth(21_600), 5e18);
     }
 
     // ───────────────────────── gas ─────────────────────────

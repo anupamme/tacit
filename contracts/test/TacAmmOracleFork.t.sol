@@ -94,7 +94,6 @@ contract TacAmmOracleForkTest is Test {
         (uint256 low, uint256 high) = amm.prices(1 hours);
         assertApproxEqRel(low, amm.spot(), 0.01e18);
         assertApproxEqRel(high, amm.spot(), 0.01e18);
-        assertGt(amm.depth(1 hours), 1.5e18);
     }
 
     function test_theSlotsAreTheMappingEntrys() public {
@@ -145,13 +144,10 @@ contract TacAmmOracleForkTest is Test {
         _fork();
         TacBlockOracle precision = _recordAll();
         TacPairOracle pair = new TacPairOracle(address(precision), address(amm));
-        assertLe(pair.depth(1 hours), precision.depth(1 hours));
-        assertLe(pair.depth(1 hours), amm.depth(1 hours));
         (uint256 low, uint256 high) = pair.prices(1 hours);
         assertLe(low, high);
 
         TacVault.Config memory c = VaultConfig.defaults(TAC, address(pair), address(new LiveFeed()), address(0x0123));
-        c.liqWindow = 1 hours;
         c.depthBps = 500;
         TacVault vault = new TacVault(c);
         address alice = makeAddr("alice");

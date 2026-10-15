@@ -36,8 +36,8 @@ const TAC = create(art('TacVaultMocks.sol/TestTac'));
 const A = create(art('TacVaultMocks.sol/MockOracle')), B = create(art('TacVaultMocks.sol/MockOracle'));
 const FEED = create(art('TacVaultMocks.sol/LiveFeed'));
 for (const o of [A, B]) send(DEPLOYER, o, 'set(uint256)', String(10n ** 14n));
-const cfg = `(${TAC},${A},${FEED},${OWNER.a},35000,20000,14400,4000,3600,1800,${100n * 10n ** 18n},3900,${(1n << 256n) - 1n},15,50,100,0x00000000000000000000000000000000000000Fe,0x000000000000000000000000000000000000dEaD,TAC Dollar,TACD)`;
-const enc = cast('abi-encode', 'f((address,address,address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,address,address,string,string))', cfg);
+const cfg = `(${TAC},${A},${FEED},${OWNER.a},35000,20000,4000,3600,1800,${100n * 10n ** 18n},3900,${(1n << 256n) - 1n},15,50,100,0x00000000000000000000000000000000000000Fe,0x000000000000000000000000000000000000dEaD,TAC Dollar,TACD)`;
+const enc = cast('abi-encode', 'f((address,address,address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,address,address,string,string))', cfg);
 const VAULT = create(art('TacVault.sol/TacVault') + enc.slice(2));
 
 const keeper = (oracles) => execFileSync('node', [join(REPO, 'tools/tac-vault-keeper.mjs')], {

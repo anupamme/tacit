@@ -81,7 +81,7 @@ contract TacBlockOracleForkTest is Test {
         (uint256 low, uint256 high) = oracle.prices(1 hours);
         assertApproxEqRel(low, oracle.spot(), 0.01e18);
         assertApproxEqRel(high, oracle.spot(), 0.01e18);
-        assertGt(oracle.depth(1 hours), 2.5e18);
+        assertGt(depth, 2.5e18);
     }
 
     /// The sample block is the one the following block's RANDAO value picks.
@@ -148,7 +148,6 @@ contract TacBlockOracleForkTest is Test {
         _fork();
         _recordAll();
         TacVault.Config memory c = VaultConfig.defaults(TAC, address(oracle), address(new LiveFeed()), address(0x0123));
-        c.liqWindow = 1 hours;
         c.depthBps = 500;
         TacVault vault = new TacVault(c);
         address alice = makeAddr("alice");

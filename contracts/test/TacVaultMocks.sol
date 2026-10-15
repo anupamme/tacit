@@ -132,7 +132,6 @@ library VaultConfig {
             owner: owner,
             mintRatioBps: 30_000,
             liqRatioBps: 17_500,
-            liqWindow: 4 hours,
             liqBonusBps: 1_000,
             auctionDuration: 2 hours,
             ownerWindow: 20 minutes,

@@ -26,10 +26,6 @@ contract TacGasTest is TacLaunchFixture {
         g -= gasleft();
         _gas("pair.prices(WINDOW, 18)", g);
         g = gasleft();
-        pair.depth(10_800);
-        g -= gasleft();
-        _gas("pair.depth(WINDOW)", g);
-        g = gasleft();
         pair.depthMin(21_600);
         g -= gasleft();
         _gas("pair.depthMin(MAX_WINDOW)", g);

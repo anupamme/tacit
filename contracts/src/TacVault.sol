@@ -38,93 +38,57 @@ interface IERC2612 {
 }
 
 /// @title TacVault
-/// @notice Borrow SYNTH against TAC. SYNTH is a TacSynth this contract deploys and mints (its owner can name further
-///         minters, see TacSynth, and `lockMinters` there ends that for good); it tracks whatever
-///         `ETH_USD` prices ETH in (a dollar with an ETH/USD feed, ETH itself with a feed fixed at 1.0). Each address
-///         has one vault: deposit TAC, borrow, repay, withdraw. There is no interest.
+/// @notice Borrow SYNTH against TAC. SYNTH is a TacSynth deployed by this vault; priced through an ETH/USD feed it
+///         is a dollar, through FixedFeed it is ETH. One vault per address, no interest.
 ///
-///         Prices. The oracle gives ETH per TAC over a past window as a low and a high median of proven
-///         end-of-block prices (`prices(window)`, `recovery(window)`), the newest of them (`latest()`) and now
-///         (`spot()`); `ETH_USD` converts them. With two TAC venues behind it, each oracle value is the one that takes
-///         moving both venues to move, except that a venue that is not tracking the market (retired, drained, frozen,
-///         or held above it by someone trading) pins the liquidation, recovery, offer and redemption prices while it
-///         stays so. LIQ_WINDOW is the oracle's longest window. Views:
-///           - borrow: the lowest of the low WINDOW and SHORT_WINDOW medians and the current price. Borrowing and
-///             withdrawing must leave the vault at MINT_RATIO_BPS or more.
-///           - liquidation: the higher of the high LIQ_WINDOW and SHORT_WINDOW medians. Below LIQ_RATIO_BPS a
-///             vault can be auctioned.
-///           - recovery: the higher of the LIQ_WINDOW and SHORT_WINDOW recovery prices. At LIQ_RATIO_BPS or more an
+///         The oracle gives ETH per TAC as low and high medians of proven end-of-block prices over past windows
+///         (`prices`), a recovery price, the newest recorded price (`latest`) and the current price (`spot`);
+///         ETH_USD converts them to SYNTH. LIQ_WINDOW is the oracle's longest window. The vault uses four views:
+///           - borrow: min(low WINDOW median, low SHORT_WINDOW median, spot). Borrowing and withdrawing must leave
+///             a vault at MINT_RATIO_BPS or more.
+///           - liquidation: max(high LIQ_WINDOW median, high SHORT_WINDOW median). Below LIQ_RATIO_BPS a vault can
+///             be auctioned.
+///           - recovery: max(recovery over LIQ_WINDOW, recovery over SHORT_WINDOW). At LIQ_RATIO_BPS or more an
 ///             auction ends.
-///           - offer: the higher of the liquidation view and the newest recorded interval's price (with two venues,
-///             the lower venue's: an end-of-block value from one interval, about ten minutes, older if recording
-///             lags, that no single transaction can move); auctions price TAC here.
-///           - redemption: the offer view.
+///           - offer: max(liquidation view, latest). Auctions and redemptions price TAC here.
 ///
-///         Debt. Total debt is held under both the owner's `debtCeiling` and DEPTH_BPS of the venues' ETH depth
-///         (the smallest the oracle recorded over LIQ_WINDOW, in SYNTH, which needs every interval of the window
-///         recorded: borrowing waits for the keeper to catch up). The depth share rises and falls with the pools, so
-///         a vault deployed with the largest `debtCeiling` is limited by depth alone; the owner may set a lower
-///         ceiling and raise it again. The cap limits new borrowing only; debt already open stays when depth falls.
+///         Total debt is capped by `debtCeiling` and by DEPTH_BPS of the venues' smallest ETH depth over LIQ_WINDOW,
+///         so capacity follows the pools' liquidity. The cap limits new borrowing only.
 ///
-///         Liquidation. `liquidate` opens a Dutch auction on a vault below LIQ_RATIO_BPS. A bid repays debt and
-///         takes TAC worth that debt at the offer view, plus a bonus that grows from zero at the auction's start to
-///         LIQ_BONUS_BPS over AUCTION_DURATION (so the first outside bid, after OWNER_WINDOW, already carries the bonus
-///         earned by then); at most the collateral. Bids may repay part of the debt (leaving zero or at least
-///         MIN_DEBT) for the same share of the offer. The owner may bid at any time; others only after OWNER_WINDOW
-///         from the auction's start, while there is an offer price and the vault has not recovered. During an
-///         auction anyone can still deposit or repay, and the auction ends once the vault has recovered (a deposit,
-///         repay, bid or absorb that brings it there ends it); `cancel` ends it then too. After AUCTION_DURATION, a
-///         vault whose TAC is worth less than its debt at the liquidation view can be `absorb`ed: SYNTH held by this
-///         contract (the reserve) burns as much of the debt as it covers, and the same share of the TAC goes to
-///         `tacSink`. Anyone may send SYNTH to the reserve, and only `absorb` spends it, so what is sent stays out
-///         of circulation; seed it from a dedicated vault that is never meant to close.
+///         Liquidation is a Dutch auction: a bid repays debt for TAC worth that debt at the offer view plus a bonus
+///         that rises from zero to LIQ_BONUS_BPS over AUCTION_DURATION, at most the collateral; a partial bid takes
+///         the same share. Only the vault's owner may bid during OWNER_WINDOW. Deposits and repayments continue, and
+///         the auction ends once the vault is back at LIQ_RATIO_BPS at the recovery view. After AUCTION_DURATION a
+///         vault worth less than its debt can be absorbed: SYNTH held by this contract (the reserve) burns its debt
+///         and the same share of its TAC goes to `tacSink`.
 ///
-///         Fees:
-///           - Borrowing adds `borrowFeeBps` of the amount to the debt, minted to `feeTo`. The owner sets the fee up
-///             to MAX_BORROW_FEE_BPS, and `feeTo`; a borrower caps the fee with `maxFeeBps`.
-///           - `redeem` burns SYNTH against a vault between LIQ_RATIO_BPS and twice that, for its TAC at the
-///             redemption view, less a fee that stays in the vault: REDEMPTION_FEE_BPS at LIQ_RATIO_BPS, rising to
-///             four times that at twice LIQ_RATIO_BPS, so redemptions fall on the least collateralised vaults first.
+///         Fees: a one-time borrow fee of `borrowFeeBps`, minted to `feeTo` and capped per call by `maxFeeBps`; and a
+///         redemption fee left in the redeemed vault. `redeem` swaps SYNTH for TAC from a vault between LIQ_RATIO_BPS
+///         and twice that, at REDEMPTION_FEE_BPS rising to four times that across the range.
 ///
-///         Owners need not send transactions: `borrowFor` and `withdrawFor` act on the owner's EIP-712 signature
-///         (or ERC-1271 approval), and anyone may deposit into, repay or bid on any vault, so a vault can be run
-///         from a shielded pool. `multicall` batches calls with the sender preserved, and `permitTac` /
-///         `permitSynth` apply the caller's EIP-2612 permits, so approve, deposit and borrow fit in one
-///         transaction.
+///         `borrowFor` and `withdrawFor` act on the owner's EIP-712 or ERC-1271 signature; anyone may deposit,
+///         repay or bid for any vault.
 ///
-///         Pause. The owner, or the `pauser` the owner names (a key that can do nothing else, for a fast answer to an
-///         alert), can pause `liquidate`, outside bids, `absorb` and `redeem`, so a price held away from the market can
-///         be waited out. A pause lasts at most MAX_PAUSE from its start (a running one can be lengthened up to that),
-///         and the next can start only once as long has passed since it ended as it ran, so liquidations always get
-///         a gap at least as long as the pause before it, and a short pause (a pauser's mistake) holds back the next
-///         one for no longer than it ran. Only the owner lifts a pause early. Renouncing ownership removes the
-///         pauser. Deposits, repays, withdrawals, borrowing, `cancel` and
-///         the vault owner's own bids go on.
-///
-///         Governed terms. The owner (transferable) tunes the vault to the market without a redeployment. At once it
-///         can set the debt ceiling, the borrow fee, the redemption fee, where the borrow fee and the TAC of an
-///         absorb go, the pauser and the pause, and lower the share of depth the vault may lend. Raising that share,
-///         the mint and liquidation ratios, the bonus, the owner window, the auction's length, the minimum debt, and
-///         replacing the oracle are announced first and take effect PARAM_DELAY (the oracle: ORACLE_DELAY) later,
-///         inside fixed rails, so borrowers can repay and withdraw before a change reaches them. `lockParams` and
-///         `lockOracle` end the owner's power over those terms for good. The TAC token, the synth (apart from the
-///         further minters its owner may name, which only `lockMinters` on the synth ends), the ETH feed and the
-///         accounting are immutable. An owner that renounces freezes the synth's minters as they stand.
+///         Owner powers. At once: the debt ceiling, the borrow and redemption fees, `feeTo`, `tacSink`, the pauser,
+///         the pause, and lowering the depth share. After PARAM_DELAY and within fixed limits: raising the depth
+///         share, the ratios, the bonus, the owner window, the auction duration and the minimum debt. After
+///         ORACLE_DELAY: a new oracle. `lockParams` and `lockOracle` end the delayed powers for good. A pause (by the
+///         owner or the pauser) stops `liquidate`, outside bids, `absorb` and `redeem` for at most MAX_PAUSE from its
+///         start, and the next pause waits as long as the last one ran.
 contract TacVault is Ownable, Multicallable {
     uint256 internal constant BPS = 10_000;
     uint256 internal constant WAD = 1e18;
+
     uint256 public constant MAX_BORROW_FEE_BPS = 500;
-    /// The longest one pause lasts, from its start.
-    uint256 public constant MAX_PAUSE = 12 hours;
-    /// The largest share of the venues' depth (in basis points) the vault may be set to lend, and the redemption fee.
-    uint256 public constant MAX_DEPTH_BPS = 1_000;
     uint256 public constant MAX_REDEMPTION_FEE_BPS = 250;
-    /// How long a change to a governed term, or to the oracle, waits between its announcement and its execution, and
-    /// how long after that it may still be executed.
+    uint256 public constant MAX_DEPTH_BPS = 1_000;
+    uint256 public constant MAX_PAUSE = 12 hours;
     uint256 public constant PARAM_DELAY = 2 days;
     uint256 public constant ORACLE_DELAY = 3 days;
+    /// How long a change may still be executed after its delay.
     uint256 public constant QUEUE_EXPIRY = 14 days;
-    // The rails a queued change must stay inside, whatever the vault was deployed with.
+
+    // Limits on the governed terms, at deployment and on every change.
     uint256 internal constant MIN_LIQ_RATIO_BPS = 12_000;
     uint256 internal constant MAX_LIQ_RATIO_BPS = 30_000;
     uint256 internal constant MIN_MARGIN_BPS = 2_000;
@@ -134,7 +98,6 @@ contract TacVault is Ownable, Multicallable {
     uint256 internal constant MAX_OWNER_WINDOW = 1 days;
     uint256 internal constant MIN_AUCTION_DURATION = 30 minutes;
     uint256 internal constant MAX_AUCTION_DURATION = 3 days;
-    // The shortest longest-window a replacement oracle may have (the liquidation and depth window).
     uint256 internal constant MIN_ORACLE_WINDOW = 1 hours;
 
     bytes32 public constant BORROW = keccak256(
@@ -148,10 +111,10 @@ contract TacVault is Ownable, Multicallable {
     ITacVaultFeed public immutable ETH_USD;
     uint256 internal immutable ETH_USD_SCALE;
     uint256 public immutable FEED_MAX_STALENESS;
-    /// The minimum debt the vault was deployed with; a change to it stays within a tenth to a hundred times this.
+    /// The deployed minimum debt; changes stay within a tenth to a hundred times it.
     uint256 public immutable MIN_DEBT_BASE;
 
-    // The terms the owner can change (see "governed terms"); read through the upper-case getters below.
+    // Governed terms, read through the upper-case getters.
     ITacVaultOracle internal _oracle;
     uint256 internal _mintRatioBps;
     uint256 internal _liqRatioBps;
@@ -161,12 +124,10 @@ contract TacVault is Ownable, Multicallable {
     uint256 internal _minDebt;
     uint256 internal _redemptionFeeBps;
     uint256 internal _depthBps;
-    address public tacSink;
-    address public feeTo;
 
     struct Vault {
-        uint256 collateral; // TAC, 18 decimals
-        uint256 debt; // SYNTH, 18 decimals
+        uint256 collateral; // TAC
+        uint256 debt; // SYNTH
         uint256 auctionStart; // 0 when no auction runs
     }
 
@@ -177,7 +138,6 @@ contract TacVault is Ownable, Multicallable {
         address owner;
         uint256 mintRatioBps;
         uint256 liqRatioBps;
-        uint256 liqWindow;
         uint256 liqBonusBps;
         uint256 auctionDuration;
         uint256 ownerWindow;
@@ -193,7 +153,7 @@ contract TacVault is Ownable, Multicallable {
         string symbol;
     }
 
-    /// The terms the owner can change after deployment, slowly (see `queueParam`).
+    /// The terms changed through `queueParam` / `executeParam`.
     enum Param {
         DepthBps,
         MintRatioBps,
@@ -209,25 +169,22 @@ contract TacVault is Ownable, Multicallable {
         uint64 eta;
     }
 
-    mapping(Param => Queued) public queuedParam;
-    /// The oracle announced to replace the current one and when it may take over (zero when none).
-    address public pendingOracle;
-    uint256 public pendingOracleEta;
-    /// Set for good by `lockParams` / `lockOracle`: no further queued change of that kind, ever.
-    bool public paramsLocked;
-    bool public oracleLocked;
-
     mapping(address => Vault) public vaults;
     mapping(address => uint256) public nonces;
     uint256 public totalDebt;
     uint256 public debtCeiling;
     uint256 public borrowFeeBps;
-    /// Until this time `liquidate`, outside bids, `absorb` and `redeem` are refused; the last pause began at
-    /// `pausedFrom`.
-    uint256 public pausedUntil;
-    uint256 public pausedFrom;
-    /// An address besides the owner that may start a pause (and nothing else); none until the owner names one.
+    address public feeTo;
+    address public tacSink;
     address public pauser;
+    uint256 public pausedFrom;
+    uint256 public pausedUntil;
+
+    mapping(Param => Queued) public queuedParam;
+    address public pendingOracle;
+    uint256 public pendingOracleEta;
+    bool public paramsLocked;
+    bool public oracleLocked;
 
     error BadConfig();
     error BadAmount();
@@ -263,14 +220,14 @@ contract TacVault is Ownable, Multicallable {
     event NonceUsed(address indexed owner, uint256 nonce);
     event DebtCeilingSet(uint256 ceiling);
     event BorrowFeeSet(uint256 bps);
+    event RedemptionFeeSet(uint256 bps);
     event FeeToSet(address to);
     event TacSinkSet(address to);
-    event AuctionsPausedUntil(uint256 until);
     event PauserSet(address to);
+    event AuctionsPausedUntil(uint256 until);
     event ParamQueued(Param indexed id, uint256 value, uint256 eta);
     event ParamSet(Param indexed id, uint256 value);
     event ParamCancelled(Param indexed id);
-    event RedemptionFeeSet(uint256 bps);
     event OracleQueued(address indexed oracle, uint256 eta);
     event OracleSet(address indexed oracle);
     event OracleCancelled(address indexed oracle);
@@ -278,47 +235,49 @@ contract TacVault is Ownable, Multicallable {
     event OracleLocked();
 
     constructor(Config memory c) {
-        if (c.tac.code.length == 0 || c.oracle.code.length == 0 || c.ethUsd.code.length == 0) revert BadConfig();
+        if (c.tac.code.length == 0 || c.ethUsd.code.length == 0) revert BadConfig();
         if (c.owner == address(0) || c.tacSink == address(0) || c.feeTo == address(0)) revert BadConfig();
-        if (ITacVaultToken(c.tac).decimals() != 18) revert BadConfig();
-        if (c.liqRatioBps < BPS || c.mintRatioBps <= c.liqRatioBps || c.mintRatioBps > 100_000) revert BadConfig();
-        if (c.liqBonusBps == 0 || BPS + c.liqBonusBps >= c.liqRatioBps) revert BadConfig();
-        if (c.auctionDuration == 0 || c.ownerWindow >= c.auctionDuration) revert BadConfig();
-        if (c.feedMaxStaleness == 0 || c.minDebt == 0) revert BadConfig();
-        if (c.redemptionFeeBps > 250 || c.borrowFeeBps > MAX_BORROW_FEE_BPS) revert BadConfig();
-        if (c.depthBps == 0 || c.depthBps > MAX_DEPTH_BPS) revert BadConfig();
-        // The liquidation, recovery and offer views then all read the same windows and have a price together.
-        if (c.liqWindow != ITacVaultOracle(c.oracle).MAX_WINDOW()) revert BadConfig();
+        if (ITacVaultToken(c.tac).decimals() != 18 || c.feedMaxStaleness == 0 || c.minDebt == 0) revert BadConfig();
+        if (c.redemptionFeeBps > MAX_REDEMPTION_FEE_BPS || c.borrowFeeBps > MAX_BORROW_FEE_BPS) revert BadConfig();
+        _checkWindows(ITacVaultOracle(c.oracle));
         uint8 feedDecimals = ITacVaultFeed(c.ethUsd).decimals();
         if (feedDecimals > 18) revert BadConfig();
 
         TAC = c.tac;
         SYNTH = new TacSynth(c.name, c.symbol);
-        _oracle = ITacVaultOracle(c.oracle);
         ETH_USD = ITacVaultFeed(c.ethUsd);
         ETH_USD_SCALE = 10 ** uint256(feedDecimals);
+        FEED_MAX_STALENESS = c.feedMaxStaleness;
+        MIN_DEBT_BASE = c.minDebt;
+
+        _oracle = ITacVaultOracle(c.oracle);
         _mintRatioBps = c.mintRatioBps;
         _liqRatioBps = c.liqRatioBps;
         _liqBonusBps = c.liqBonusBps;
         _auctionDuration = c.auctionDuration;
         _ownerWindow = c.ownerWindow;
         _minDebt = c.minDebt;
-        FEED_MAX_STALENESS = c.feedMaxStaleness;
-        MIN_DEBT_BASE = c.minDebt;
         _redemptionFeeBps = c.redemptionFeeBps;
         _depthBps = c.depthBps;
+        _validate(Param.DepthBps, c.depthBps);
+        _validate(Param.MintRatioBps, c.mintRatioBps);
+        _validate(Param.LiqRatioBps, c.liqRatioBps);
+        _validate(Param.LiqBonusBps, c.liqBonusBps);
+        _validate(Param.OwnerWindow, c.ownerWindow);
+        _validate(Param.AuctionDuration, c.auctionDuration);
+
         _initializeOwner(c.owner);
         debtCeiling = c.debtCeiling;
         borrowFeeBps = c.borrowFeeBps;
-        tacSink = c.tacSink;
         feeTo = c.feeTo;
+        tacSink = c.tacSink;
         emit DebtCeilingSet(c.debtCeiling);
         emit BorrowFeeSet(c.borrowFeeBps);
         emit FeeToSet(c.feeTo);
         emit TacSinkSet(c.tacSink);
     }
 
-    // ─────────────── owner ───────────────
+    // ─────────────── owner: immediate ───────────────
 
     function setDebtCeiling(uint256 ceiling) external onlyOwner {
         debtCeiling = ceiling;
@@ -331,27 +290,31 @@ contract TacVault is Ownable, Multicallable {
         emit BorrowFeeSet(bps);
     }
 
-    /// Where the borrow fee, in SYNTH, is minted from now on.
+    function setRedemptionFee(uint256 bps) external onlyOwner {
+        if (bps > MAX_REDEMPTION_FEE_BPS) revert BadConfig();
+        _redemptionFeeBps = bps;
+        emit RedemptionFeeSet(bps);
+    }
+
     function setFeeTo(address to) external onlyOwner {
         if (to == address(0)) revert BadConfig();
         feeTo = to;
         emit FeeToSet(to);
     }
 
-    /// Where the TAC of an `absorb` goes from now on.
     function setTacSink(address to) external onlyOwner {
         if (to == address(0)) revert BadConfig();
         tacSink = to;
         emit TacSinkSet(to);
     }
 
-    /// The address that may start a pause besides the owner (zero for none).
+    /// Names an address that may start or lengthen a pause and do nothing else (zero for none).
     function setPauser(address to) external onlyOwner {
         pauser = to;
         emit PauserSet(to);
     }
 
-    /// Renouncing ownership also removes the pauser, which nobody could remove afterwards.
+    /// Also removes the pauser, which no one could remove afterwards.
     function renounceOwnership() public payable override onlyOwner {
         if (pauser != address(0)) {
             pauser = address(0);
@@ -360,9 +323,15 @@ contract TacVault is Ownable, Multicallable {
         super.renounceOwnership();
     }
 
-    /// Pauses `liquidate`, outside bids, `absorb` and `redeem` until `duration` from now. While a pause runs this
-    /// lengthens it, to at most MAX_PAUSE after it began. Otherwise a new pause starts, once as long has passed
-    /// since the last one ended as that one ran.
+    /// Lowers the share of depth the vault may lend. Raising it goes through `queueParam`.
+    function lowerDepthBps(uint256 bps) external onlyOwner {
+        if (bps >= _depthBps) revert BadConfig();
+        _depthBps = bps;
+        emit ParamSet(Param.DepthBps, bps);
+    }
+
+    /// Pauses `liquidate`, outside bids, `absorb` and `redeem` until `duration` from now. A running pause can only
+    /// be lengthened, to at most MAX_PAUSE after it began; a new one waits as long after the last as that one ran.
     function pauseAuctions(uint256 duration) external {
         if (msg.sender != owner() && msg.sender != pauser) revert Unauthorized();
         if (duration == 0 || duration > MAX_PAUSE) revert BadConfig();
@@ -377,32 +346,21 @@ contract TacVault is Ownable, Multicallable {
         emit AuctionsPausedUntil(until);
     }
 
-    /// Ends a running pause now; the wait before the next counts from this moment and is as long as it ran.
+    /// Ends the running pause now.
     function resumeAuctions() external onlyOwner {
         if (block.timestamp >= pausedUntil) revert BadConfig();
         pausedUntil = block.timestamp;
         emit AuctionsPausedUntil(block.timestamp);
     }
 
-    /// Whether `liquidate`, outside bids, `absorb` and `redeem` are paused.
     function paused() public view returns (bool) {
         return block.timestamp < pausedUntil;
     }
 
-    // ─────────────── governed terms ───────────────
-    //
-    // The owner can tune the vault to the market without redeploying it. The terms that decide when a vault can be
-    // liquidated or how much it may borrow (the ratios, the bonus, the owner window, the auction's length, the
-    // minimum debt, a higher depth share) and the oracle are announced and take effect PARAM_DELAY (the oracle:
-    // ORACLE_DELAY) later, inside fixed rails, so borrowers can repay and withdraw first. The rest takes effect at
-    // once: lowering the depth share, the debt ceiling (either way), the borrow fee (which a borrower caps per
-    // borrow), the redemption fee (within its cap), where fees and absorbed TAC go, the pauser and the pause.
-    // `lockParams` and `lockOracle` end the owner's power over the announced terms for good; `lowerDepthBps` still
-    // works after `lockParams`, and then cannot be undone (`setDebtCeiling` is the stop that can). A change applies
-    // to an auction already running at once.
+    // ─────────────── owner: delayed ───────────────
 
-    /// Announces a new value for a governed term; `executeParam` applies it after PARAM_DELAY. Announcing again
-    /// replaces the earlier announcement and restarts the wait.
+    /// Announces a new value for a term, applied by `executeParam` after PARAM_DELAY. Replaces any earlier
+    /// announcement for that term.
     function queueParam(Param id, uint256 value) external onlyOwner {
         if (paramsLocked) revert Locked();
         if (value > type(uint192).max) revert BadConfig();
@@ -412,8 +370,7 @@ contract TacVault is Ownable, Multicallable {
         emit ParamQueued(id, value, eta);
     }
 
-    /// Applies an announced change once its wait is over (and before QUEUE_EXPIRY more has passed). The rails are
-    /// checked again against the terms as they are now.
+    /// Applies an announced value, checked again against the other terms as they are now.
     function executeParam(Param id) external onlyOwner {
         if (paramsLocked) revert Locked();
         Queued memory q = queuedParam[id];
@@ -438,21 +395,8 @@ contract TacVault is Ownable, Multicallable {
         emit ParamCancelled(id);
     }
 
-    /// Lowers the share of the venues' depth the vault may lend, at once. Raising it again is announced
-    /// (`queueParam`), so after `lockParams` a lower share is for good.
-    function lowerDepthBps(uint256 bps) external onlyOwner {
-        if (bps >= _depthBps) revert BadConfig();
-        _depthBps = bps;
-        emit ParamSet(Param.DepthBps, bps);
-    }
-
-    function setRedemptionFee(uint256 bps) external onlyOwner {
-        if (bps > MAX_REDEMPTION_FEE_BPS) revert BadConfig();
-        _redemptionFeeBps = bps;
-        emit RedemptionFeeSet(bps);
-    }
-
-    /// Ends the owner's power to change the governed terms (and cancels what is announced), for good.
+    /// Ends `queueParam` for good and drops what is announced. `lowerDepthBps` still works, and can then no longer
+    /// be undone.
     function lockParams() external onlyOwner {
         paramsLocked = true;
         for (uint256 i; i <= uint256(type(Param).max); ++i) {
@@ -461,47 +405,19 @@ contract TacVault is Ownable, Multicallable {
         emit ParamsLocked();
     }
 
-    // The rails for changing one term, with the others as they are now.
-    function _validate(Param id, uint256 v) internal view {
-        uint256 liq = _liqRatioBps;
-        uint256 mint = _mintRatioBps;
-        uint256 bonus = _liqBonusBps;
-        uint256 ow = _ownerWindow;
-        uint256 ad = _auctionDuration;
-        if (id == Param.DepthBps) {
-            // Up by at most doubling (and a little from nothing) and never past the hard share; down is free.
-            if (v > MAX_DEPTH_BPS || v > 2 * _depthBps + 25) revert BadConfig();
-        } else if (id == Param.MintRatioBps) {
-            if (v > MAX_MINT_RATIO_BPS || v < liq + MIN_MARGIN_BPS) revert BadConfig();
-        } else if (id == Param.LiqRatioBps) {
-            if (v < MIN_LIQ_RATIO_BPS || v > MAX_LIQ_RATIO_BPS || mint < v + MIN_MARGIN_BPS || BPS + bonus >= v) {
-                revert BadConfig();
-            }
-        } else if (id == Param.LiqBonusBps) {
-            if (v == 0 || v > MAX_BONUS_BPS || BPS + v >= liq) revert BadConfig();
-        } else if (id == Param.OwnerWindow) {
-            if (v < MIN_OWNER_WINDOW || v > MAX_OWNER_WINDOW || v >= ad) revert BadConfig();
-        } else if (id == Param.AuctionDuration) {
-            if (v < MIN_AUCTION_DURATION || v > MAX_AUCTION_DURATION || ow >= v) revert BadConfig();
-        } else if (v == 0 || v < MIN_DEBT_BASE / 10 || v > MIN_DEBT_BASE * 100) {
-            revert BadConfig();
-        }
-    }
-
-    /// Announces an oracle to take over from the current one ORACLE_DELAY later. It must have its windows set and,
-    /// when executed, price TAC on every view (its intervals recorded) within a factor of three of the old one's
-    /// medians.
+    /// Announces a new oracle, put in place by `executeOracle` after ORACLE_DELAY.
     function queueOracle(address oracle) external onlyOwner {
         if (oracleLocked) revert Locked();
-        ITacVaultOracle o = ITacVaultOracle(oracle);
-        if (oracle.code.length == 0 || oracle == address(_oracle)) revert BadConfig();
-        uint256 short = o.SHORT_WINDOW();
-        if (short == 0 || o.WINDOW() < short || o.MAX_WINDOW() < o.WINDOW()) revert BadConfig();
+        if (oracle == address(_oracle)) revert BadConfig();
+        _checkWindows(ITacVaultOracle(oracle));
         pendingOracle = oracle;
         pendingOracleEta = block.timestamp + ORACLE_DELAY;
         emit OracleQueued(oracle, pendingOracleEta);
     }
 
+    /// Puts the announced oracle in place if it prices every view the vault reads and its WINDOW high median is
+    /// within a factor of three of the current oracle's WINDOW low or high median. The check catches a wrong
+    /// address or scale; the delay and `lockOracle` are the protection against a deliberately bad oracle.
     function executeOracle() external onlyOwner {
         if (oracleLocked) revert Locked();
         address next = pendingOracle;
@@ -509,21 +425,62 @@ contract TacVault is Ownable, Multicallable {
         if (block.timestamp < pendingOracleEta) revert TooEarly();
         if (block.timestamp > pendingOracleEta + QUEUE_EXPIRY) revert Expired();
         ITacVaultOracle o = ITacVaultOracle(next);
-        uint256 high = _answers(o);
-        if (!_continuous(high)) revert BadConfig();
+        if (!_continuous(_answers(o))) revert BadConfig();
         delete pendingOracle;
         delete pendingOracleEta;
         _oracle = o;
         emit OracleSet(next);
     }
 
-    /// The upper median over the new oracle's WINDOW, having checked that its windows are in order and that it gives
-    /// a price on every view the vault reads (reverting if not).
-    function _answers(ITacVaultOracle o) internal view returns (uint256 high) {
-        uint256 short = o.SHORT_WINDOW();
-        uint256 window = o.WINDOW();
-        uint256 max = o.MAX_WINDOW();
+    function cancelOracle() external onlyOwner {
+        address next = pendingOracle;
+        if (next == address(0)) revert NothingQueued();
+        delete pendingOracle;
+        delete pendingOracleEta;
+        emit OracleCancelled(next);
+    }
+
+    /// Ends `queueOracle` for good and drops what is announced.
+    function lockOracle() external onlyOwner {
+        oracleLocked = true;
+        delete pendingOracle;
+        delete pendingOracleEta;
+        emit OracleLocked();
+    }
+
+    // The limits on term `id` taking value `v`, given the other terms as they are.
+    function _validate(Param id, uint256 v) internal view {
+        if (id == Param.DepthBps) {
+            // At most doubling (plus 25) per change.
+            if (v > MAX_DEPTH_BPS || v > 2 * _depthBps + 25) revert BadConfig();
+        } else if (id == Param.MintRatioBps) {
+            if (v > MAX_MINT_RATIO_BPS || v < _liqRatioBps + MIN_MARGIN_BPS) revert BadConfig();
+        } else if (id == Param.LiqRatioBps) {
+            if (
+                v < MIN_LIQ_RATIO_BPS || v > MAX_LIQ_RATIO_BPS || _mintRatioBps < v + MIN_MARGIN_BPS
+                    || BPS + _liqBonusBps >= v
+            ) revert BadConfig();
+        } else if (id == Param.LiqBonusBps) {
+            if (v == 0 || v > MAX_BONUS_BPS || BPS + v >= _liqRatioBps) revert BadConfig();
+        } else if (id == Param.OwnerWindow) {
+            if (v < MIN_OWNER_WINDOW || v > MAX_OWNER_WINDOW || v >= _auctionDuration) revert BadConfig();
+        } else if (id == Param.AuctionDuration) {
+            if (v < MIN_AUCTION_DURATION || v > MAX_AUCTION_DURATION || _ownerWindow >= v) revert BadConfig();
+        } else if (v == 0 || v < MIN_DEBT_BASE / 10 || v > MIN_DEBT_BASE * 100) {
+            revert BadConfig();
+        }
+    }
+
+    function _checkWindows(ITacVaultOracle o) internal view returns (uint256 short, uint256 window, uint256 max) {
+        if (address(o).code.length == 0) revert BadConfig();
+        (short, window, max) = (o.SHORT_WINDOW(), o.WINDOW(), o.MAX_WINDOW());
         if (short == 0 || window < short || max < window || max < MIN_ORACLE_WINDOW) revert BadConfig();
+    }
+
+    // Reverts unless `o` gives a price on every view the vault reads, with lows not above highs; returns its WINDOW
+    // high median.
+    function _answers(ITacVaultOracle o) internal view returns (uint256 high) {
+        (uint256 short, uint256 window, uint256 max) = _checkWindows(o);
         uint256[3] memory ws = [short, window, max];
         for (uint256 i; i < 3; ++i) {
             (uint256 lo, uint256 hi) = o.prices(ws[i]);
@@ -534,12 +491,9 @@ contract TacVault is Ownable, Multicallable {
         if (o.spot() == 0 || o.latest() == 0 || o.depthMin(max) == 0) revert NoPrice();
     }
 
-    /// Whether `price` is within a factor of three of the current oracle's low or high median over its WINDOW
-    /// (never its spot, which one trade in the same block can move). A median the current oracle does not give
-    /// (it reverts or says zero) is no anchor, so an oracle that has stopped working can be replaced, and so can one
-    /// with a venue frozen far from the market (its high median still follows the market). This catches a wrong
-    /// address or scale, not a deliberate oracle: the announcement's delay and `lockOracle` are what protect
-    /// against that.
+    // Whether `price` is within a factor of three of the current oracle's WINDOW low or high median. Its spot is
+    // not used, since a trade in the same block moves it. A current oracle without medians imposes nothing, so a
+    // broken one can be replaced.
     function _continuous(uint256 price) internal view returns (bool) {
         ITacVaultOracle old = _oracle;
         bool anchored;
@@ -562,25 +516,14 @@ contract TacVault is Ownable, Multicallable {
         return a <= 3 * b && a * 3 >= b;
     }
 
-    function cancelOracle() external onlyOwner {
-        address next = pendingOracle;
-        if (next == address(0)) revert NothingQueued();
-        delete pendingOracle;
-        delete pendingOracleEta;
-        emit OracleCancelled(next);
-    }
+    // ─────────────── governed terms ───────────────
 
-    /// Ends the owner's power to replace the oracle (and cancels what is announced), for good.
-    function lockOracle() external onlyOwner {
-        oracleLocked = true;
-        delete pendingOracle;
-        delete pendingOracleEta;
-        emit OracleLocked();
-    }
-
-    // The terms under their original names.
     function ORACLE() external view returns (ITacVaultOracle) {
         return _oracle;
+    }
+
+    function LIQ_WINDOW() external view returns (uint256) {
+        return _oracle.MAX_WINDOW();
     }
 
     function MINT_RATIO_BPS() external view returns (uint256) {
@@ -589,11 +532,6 @@ contract TacVault is Ownable, Multicallable {
 
     function LIQ_RATIO_BPS() external view returns (uint256) {
         return _liqRatioBps;
-    }
-
-    /// The longest window of the oracle now in place.
-    function LIQ_WINDOW() external view returns (uint256) {
-        return _oracle.MAX_WINDOW();
     }
 
     function LIQ_BONUS_BPS() external view returns (uint256) {
@@ -622,13 +560,13 @@ contract TacVault is Ownable, Multicallable {
 
     // ─────────────── permits ───────────────
 
-    /// Applies the caller's EIP-2612 permit for TAC to this contract. A permit that fails (for example because
-    /// someone already submitted it) is skipped; the call that needs the allowance decides.
+    /// Applies the caller's EIP-2612 permit for TAC to this contract; a failing permit (for example one already
+    /// used) is ignored.
     function permitTac(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
         try IERC2612(TAC).permit(msg.sender, address(this), value, deadline, v, r, s) {} catch {}
     }
 
-    /// As `permitTac`, for the synth this vault mints.
+    /// As `permitTac`, for SYNTH.
     function permitSynth(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
         try IERC2612(address(SYNTH)).permit(msg.sender, address(this), value, deadline, v, r, s) {} catch {}
     }
@@ -639,17 +577,17 @@ contract TacVault is Ownable, Multicallable {
         _deposit(msg.sender, amount);
     }
 
-    /// Adds the caller's TAC to `owner`'s vault (approve this contract first).
+    /// Adds the caller's TAC to `owner`'s vault.
     function depositFor(address owner, uint256 amount) external {
         _deposit(owner, amount);
     }
 
-    /// Withdraws `amount` of the caller's TAC; more than the collateral withdraws all of it.
+    /// Withdraws up to `amount` of the caller's TAC.
     function withdraw(uint256 amount) external {
         _withdraw(msg.sender, amount, msg.sender);
     }
 
-    /// Withdraws `owner`'s TAC to `to` on its signature; more than the collateral withdraws all of it.
+    /// Withdraws up to `amount` of `owner`'s TAC to `to`, on `owner`'s signature.
     function withdrawFor(address owner, uint256 amount, address to, uint256 deadline, bytes calldata sig) external {
         _authorize(
             keccak256(abi.encode(WITHDRAW, owner, amount, to, _useNonce(owner), deadline)), owner, to, deadline, sig
@@ -662,7 +600,7 @@ contract TacVault is Ownable, Multicallable {
         _borrow(msg.sender, amount, maxFeeBps, msg.sender);
     }
 
-    /// Borrows for `owner` on its signature, which also sets the least collateral the vault must hold.
+    /// Borrows for `owner` to `to`, on `owner`'s signature, if the vault holds at least `minCollateral`.
     function borrowFor(
         address owner,
         uint256 amount,
@@ -680,8 +618,8 @@ contract TacVault is Ownable, Multicallable {
         _borrow(owner, amount, maxFeeBps, to);
     }
 
-    /// Repays up to `amount` of `owner`'s debt from the caller's SYNTH (approve this contract first); a larger
-    /// amount repays all of it. The debt left must be zero or at least MIN_DEBT.
+    /// Repays up to `amount` of `owner`'s debt from the caller's SYNTH. The debt left must be zero or at least
+    /// MIN_DEBT.
     function repay(address owner, uint256 amount) external returns (uint256 paid) {
         Vault storage v = vaults[owner];
         paid = FixedPointMathLib.min(amount, v.debt);
@@ -752,7 +690,6 @@ contract TacVault is Ownable, Multicallable {
         );
     }
 
-    /// The EIP-712 digest for a struct hash built as in `borrowFor` / `withdrawFor`.
     function digest(bytes32 structHash) public view returns (bytes32) {
         return keccak256(abi.encodePacked("\x19\x01", domainSeparator(), structHash));
     }
@@ -761,13 +698,13 @@ contract TacVault is Ownable, Multicallable {
         return nonces[owner]++;
     }
 
+    // Accepts the owner's own key even when the owner has code (an EIP-7702 account), otherwise ERC-1271.
     function _authorize(bytes32 structHash, address owner, address to, uint256 deadline, bytes calldata sig)
         internal
         view
     {
         if (block.timestamp > deadline) revert Expired();
         if (to == address(0) || owner == address(0)) revert BadAmount();
-        // The owner's own key signs even when the owner has code (an EIP-7702 account); otherwise ERC-1271.
         bytes32 h = digest(structHash);
         if (
             ECDSA.tryRecoverCalldata(h, sig) != owner
@@ -789,7 +726,7 @@ contract TacVault is Ownable, Multicallable {
         emit AuctionStarted(owner, v.debt, v.collateral);
     }
 
-    /// Ends the auction on `owner`'s vault once it has recovered (see `recovered`).
+    /// Ends the auction on `owner`'s vault if it has recovered.
     function cancel(address owner) external {
         Vault storage v = vaults[owner];
         if (v.auctionStart == 0) revert NoAuction();
@@ -797,8 +734,8 @@ contract TacVault is Ownable, Multicallable {
         _end(owner, v);
     }
 
-    /// The TAC a bid repaying all of `owner`'s debt takes now: that debt in TAC at the offer view, plus the bonus
-    /// earned so far, at most the collateral. Without a price, the collateral (only the owner may bid).
+    /// The TAC a bid for all of `owner`'s debt takes now; without a price, the whole collateral (only the owner
+    /// may bid then).
     function onOffer(address owner) public view returns (uint256 tac) {
         if (vaults[owner].auctionStart == 0) return 0;
         (tac,) = _offer(owner);
@@ -815,10 +752,9 @@ contract TacVault is Ownable, Multicallable {
         } catch {}
     }
 
-    /// Repays up to `amount` of `owner`'s debt from the caller's SYNTH (a larger amount repays all of it) and
-    /// takes the same share of the TAC on offer; the rest stays the owner's. The debt left must be zero or at
-    /// least MIN_DEBT. Others may bid only after OWNER_WINDOW from the auction's start, while there is an offer
-    /// price and the vault has not recovered. `minTac` is the least TAC accepted.
+    /// Repays up to `amount` of `owner`'s debt from the caller's SYNTH for the same share of the TAC on offer,
+    /// at least `minTac`. The debt left must be zero or at least MIN_DEBT. Others than the owner may bid only after
+    /// OWNER_WINDOW, with an offer price, while the vault has not recovered and auctions are not paused.
     function bid(address owner, uint256 amount, uint256 minTac) external returns (uint256 taken) {
         Vault storage v = vaults[owner];
         if (v.auctionStart == 0) revert NoAuction();
@@ -847,9 +783,9 @@ contract TacVault is Ownable, Multicallable {
         emit Liquidated(owner, msg.sender, amount, taken);
     }
 
-    /// After AUCTION_DURATION, burns as much of `owner`'s debt as the reserve (SYNTH held here) covers, leaving zero
-    /// or at least MIN_DEBT, on a vault whose TAC is worth less than its debt at the liquidation view, and sends the
-    /// same share of its TAC to `tacSink`.
+    /// After AUCTION_DURATION, on a vault worth less than its debt at the liquidation view, burns as much of the
+    /// debt as the reserve covers and sends the same share of the TAC to `tacSink`. A partial absorb leaves at least
+    /// MIN_DEBT, so a vault at or under it is absorbed whole or not at all.
     function absorb(address owner) external {
         if (paused()) revert Paused();
         Vault storage v = vaults[owner];
@@ -858,7 +794,6 @@ contract TacVault is Ownable, Multicallable {
         uint256 debt = v.debt;
         if (_value(v.collateral, _liqUsdPerTac()) >= debt) revert Healthy();
         uint256 amount = SYNTH.balanceOf(address(this));
-        // A partial absorb leaves at least the minimum debt, so a vault at or under it is absorbed whole or not at all.
         if (amount < debt) {
             if (debt <= _minDebt) revert BadAmount();
             amount = FixedPointMathLib.min(amount, debt - _minDebt);
@@ -871,7 +806,6 @@ contract TacVault is Ownable, Multicallable {
         v.collateral -= tac;
         totalDebt -= amount;
         _tryEnd(owner, v);
-        SYNTH.approve(address(this), amount);
         SYNTH.burnFrom(address(this), amount);
         SafeTransferLib.safeTransfer(TAC, tacSink, tac);
         emit Absorbed(owner, amount, tac);
@@ -879,10 +813,9 @@ contract TacVault is Ownable, Multicallable {
 
     // ─────────────── redemption ───────────────
 
-    /// Burns `amount` of the caller's SYNTH against `owner`'s debt for that value of its TAC at the redemption
-    /// view, less the redemption fee (see the contract notes), which stays in the vault. The vault must be between
-    /// LIQ_RATIO_BPS and twice that at the liquidation view and not in an auction, and the debt left zero or at
-    /// least MIN_DEBT.
+    /// Burns `amount` of the caller's SYNTH against `owner`'s debt for that value of its TAC at the offer view, less
+    /// the redemption fee, at least `minTac`. The vault must be between LIQ_RATIO_BPS and twice that at the
+    /// liquidation view and not in an auction, and the debt left zero or at least MIN_DEBT.
     function redeem(address owner, uint256 amount, uint256 minTac) external returns (uint256 tac) {
         if (paused()) revert Paused();
         Vault storage v = vaults[owner];
@@ -890,13 +823,11 @@ contract TacVault is Ownable, Multicallable {
         if (amount == 0 || amount > v.debt) revert BadAmount();
         uint256 debt = v.debt - amount;
         if (debt != 0 && debt < _minDebt) revert BadAmount();
-        uint256 liqUsd = _liqUsdPerTac();
-        uint256 ratio = _value(v.collateral, liqUsd) * BPS / v.debt;
+        uint256 ratio = _value(v.collateral, _liqUsdPerTac()) * BPS / v.debt;
         if (ratio < _liqRatioBps) revert StillUnhealthy();
         if (ratio >= 2 * _liqRatioBps) revert Healthy();
-        uint256 usdPerTac = _offerUsdPerTac();
         uint256 fee = _redemptionFeeBps + _redemptionFeeBps * 3 * (ratio - _liqRatioBps) / _liqRatioBps;
-        tac = FixedPointMathLib.fullMulDiv(amount * (BPS - fee) / BPS, WAD, usdPerTac);
+        tac = FixedPointMathLib.fullMulDiv(amount * (BPS - fee) / BPS, WAD, _offerUsdPerTac());
         if (tac < minTac || tac > v.collateral) revert BadAmount();
         v.debt = debt;
         v.collateral -= tac;
@@ -906,14 +837,14 @@ contract TacVault is Ownable, Multicallable {
         emit Redeemed(owner, msg.sender, amount, tac);
     }
 
-    // ─────────────── pricing ───────────────
+    // ─────────────── views ───────────────
 
-    /// SYNTH value (18 decimals) of `tac` TAC at the borrow view (`forBorrow`) or the liquidation view.
+    /// SYNTH value of `tac` TAC at the borrow view (`forBorrow`) or the liquidation view.
     function valueOf(uint256 tac, bool forBorrow) external view returns (uint256) {
         return _value(tac, forBorrow ? _borrowUsdPerTac() : _liqUsdPerTac());
     }
 
-    /// The most total debt the pool's depth allows now (before `debtCeiling`).
+    /// The total debt the venues' depth allows now (before `debtCeiling`).
     function depthCeiling() external view returns (uint256) {
         return _depth() * _depthBps / BPS;
     }
@@ -928,14 +859,13 @@ contract TacVault is Ownable, Multicallable {
         return _offerUsdPerTac();
     }
 
-    /// Whether `owner`'s vault is at or above LIQ_RATIO_BPS at the liquidation view (no auction may start).
+    /// Whether `owner`'s vault is at or above LIQ_RATIO_BPS at the liquidation view.
     function liqHealthyView(address owner) external view returns (bool) {
         Vault storage v = vaults[owner];
         return _value(v.collateral, _liqUsdPerTac()) * BPS >= v.debt * _liqRatioBps;
     }
 
-    /// Whether `owner`'s vault is at or above LIQ_RATIO_BPS at the recovery view: then its auction ends, and
-    /// outsiders may not bid.
+    /// Whether `owner`'s vault is at or above LIQ_RATIO_BPS at the recovery view.
     function recovered(address owner) external view returns (bool) {
         Vault storage v = vaults[owner];
         return _value(v.collateral, _recoveryUsdPerTac()) * BPS >= v.debt * _liqRatioBps;
@@ -949,8 +879,8 @@ contract TacVault is Ownable, Multicallable {
         if (v.debt * _mintRatioBps > _value(v.collateral, _borrowUsdPerTac()) * BPS) revert Undercollateralized();
     }
 
-    // Ends the auction once the vault owes nothing or has recovered; without a price it leaves the auction running
-    // rather than refusing the deposit or repay.
+    // Ends the auction if the vault owes nothing or has recovered. Without a price the auction runs on, so that a
+    // deposit or repayment still goes through.
     function _tryEnd(address owner, Vault storage v) internal {
         if (v.debt == 0) return _end(owner, v);
         try this.recovered(owner) returns (bool ok) {
@@ -963,40 +893,34 @@ contract TacVault is Ownable, Multicallable {
         emit AuctionEnded(owner);
     }
 
-    // SYNTH per TAC (1e18-scaled) at the borrow view.
     function _borrowUsdPerTac() internal view returns (uint256) {
         (uint256 window,) = _oracle.prices(_oracle.WINDOW());
         (uint256 short,) = _oracle.prices(_oracle.SHORT_WINDOW());
         return _inSynth(FixedPointMathLib.min(FixedPointMathLib.min(window, short), _oracle.spot()));
     }
 
-    // SYNTH per TAC (1e18-scaled) at the liquidation view.
     function _liqUsdPerTac() internal view returns (uint256) {
         (, uint256 window) = _oracle.prices(_oracle.MAX_WINDOW());
         (, uint256 short) = _oracle.prices(_oracle.SHORT_WINDOW());
         return _inSynth(FixedPointMathLib.max(window, short));
     }
 
-    // SYNTH per TAC (1e18-scaled) at the offer view: the liquidation view, or the newest recorded interval's price
-    // when that is higher, so a rally the medians have not caught up with cannot sell TAC at a stale price.
-    function _offerUsdPerTac() internal view returns (uint256) {
-        return FixedPointMathLib.max(_liqUsdPerTac(), _inSynth(_oracle.latest()));
-    }
-
-    // The venues' ETH depth in SYNTH: the smallest recorded over the longest window, so depth lifted for part of
-    // the window cannot raise the cap.
-    function _depth() internal view returns (uint256) {
-        return _inSynth(_oracle.depthMin(_oracle.MAX_WINDOW()));
-    }
-
-    // SYNTH per TAC (1e18-scaled) at the recovery view.
     function _recoveryUsdPerTac() internal view returns (uint256) {
         return _inSynth(
             FixedPointMathLib.max(_oracle.recovery(_oracle.MAX_WINDOW()), _oracle.recovery(_oracle.SHORT_WINDOW()))
         );
     }
 
-    // An ETH amount (or ETH per TAC) in SYNTH through ETH_USD, refusing a bad or stale answer.
+    // The latest price lifts the offer when the medians lag a rally, so an auction does not sell TAC below it.
+    function _offerUsdPerTac() internal view returns (uint256) {
+        return FixedPointMathLib.max(_liqUsdPerTac(), _inSynth(_oracle.latest()));
+    }
+
+    function _depth() internal view returns (uint256) {
+        return _inSynth(_oracle.depthMin(_oracle.MAX_WINDOW()));
+    }
+
+    // ETH (or ETH per TAC) in SYNTH, refusing a non-positive or stale feed answer.
     function _inSynth(uint256 eth) internal view returns (uint256) {
         (uint80 roundId, int256 answer,, uint256 updatedAt, uint80 answeredInRound) = ETH_USD.latestRoundData();
         if (answer <= 0) revert BadFeed();

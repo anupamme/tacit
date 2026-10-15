@@ -14,10 +14,10 @@ interface IPrecisionPool {
 }
 
 /// @title TacBlockOracle
-/// @notice The ETH/TAC Precision pool's price and ETH depth at the end of past blocks (see TacIntervalOracle). It
-///         proves the pool's packed reserves (storage slot 0: reserve0 low, reserve1 high) and its LP supply (solady's
-///         total-supply slot). The price is the pool's own: (L·1e18/sqrtPHigh + reserve0) / (L·sqrtPLow/1e18 +
-///         reserve1), with L the LP supply; the depth is the ETH side of that, L·1e18/sqrtPHigh + reserve0.
+/// @notice TacIntervalOracle over the ETH/TAC Precision pool. Proves the packed reserves (slot 0: reserve0 in the
+///         low 128 bits, reserve1 in the high) and the LP supply L (solady's total-supply slot). Price and depth are
+///         the pool's own, with virtual reserves: ETH = L·1e18/sqrtPHigh + reserve0, TAC = L·sqrtPLow/1e18 +
+///         reserve1, price = ETH/TAC, depth = ETH.
 contract TacBlockOracle is TacIntervalOracle {
     uint256 internal constant WAD = 1e18;
     bytes32 internal constant RESERVES_SLOT = bytes32(0);
@@ -45,7 +45,6 @@ contract TacBlockOracle is TacIntervalOracle {
         return (RESERVES_SLOT, SUPPLY_SLOT);
     }
 
-    /// The pool's ETH per TAC now.
     function spot() public view override returns (uint256 ethPerTac) {
         IPrecisionPool p = IPrecisionPool(POOL);
         (ethPerTac,) = _price(p.totalSupply(), p.reserve0(), p.reserve1());
@@ -55,7 +54,6 @@ contract TacBlockOracle is TacIntervalOracle {
         return _price(supply, uint128(reserves), reserves >> 128);
     }
 
-    // ETH reserve over TAC reserve, each with its virtual part; and the ETH reserve.
     function _price(uint256 supply, uint256 r0, uint256 r1) internal view returns (uint256 ethPerTac, uint256 eth) {
         eth = supply * WAD / SQRT_P_HIGH + r0;
         uint256 tac = supply * SQRT_P_LOW / WAD + r1;

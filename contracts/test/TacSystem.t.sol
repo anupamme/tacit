@@ -76,7 +76,7 @@ abstract contract TacSystemBase is Test {
             address(v1), v1.POOL_ID(), v1.ETH_ID(), v1.TAC_ID(), address(tac), 74, STEP, 7_200, 10_800, 21_600, 6_600
         );
         pair = new TacPairOracle(address(precision), address(amm));
-        vault = _vault(21_600);
+        vault = _vault();
         synth = vault.SYNTH();
         vm.roll(HEAD);
         _setSpots(P0, P0);
@@ -90,7 +90,7 @@ abstract contract TacSystemBase is Test {
         }
     }
 
-    function _vault(uint256 liqWindow) internal returns (TacVault) {
+    function _vault() internal returns (TacVault) {
         return new TacVault(
             TacVault.Config({
                 tac: address(tac),
@@ -99,7 +99,6 @@ abstract contract TacSystemBase is Test {
                 owner: OWNER,
                 mintRatioBps: 35_000,
                 liqRatioBps: 20_000,
-                liqWindow: liqWindow,
                 liqBonusBps: 2_500,
                 auctionDuration: 5_400,
                 ownerWindow: 1_200,
@@ -320,7 +319,6 @@ contract TacSystemOwnerTest is TacSystemBase {
             owner: OWNER,
             mintRatioBps: 35_000,
             liqRatioBps: 20_000,
-            liqWindow: 21_600,
             liqBonusBps: 2_500,
             auctionDuration: 5_400,
             ownerWindow: 5_400,
@@ -338,12 +336,6 @@ contract TacSystemOwnerTest is TacSystemBase {
         vm.expectRevert(TacVault.BadConfig.selector);
         new TacVault(c);
         c.ownerWindow = 5_399;
-        new TacVault(c);
-        c.liqWindow = 14_400;
-        vm.expectRevert(TacVault.BadConfig.selector);
-        new TacVault(c);
-        c.liqWindow = 21_600 + 600;
-        vm.expectRevert(TacVault.BadConfig.selector);
         new TacVault(c);
     }
 }
@@ -577,7 +569,6 @@ contract TacSystemDepthCapTest is TacSystemBase {
         _depths(3e18);
         _put(amm, _newest() - 11, P0, 0.3e18);
         assertEq(vault.depthCeiling(), 0.3e18 * ETH_USD * 500 / 10_000);
-        assertEq(pair.depth(21_600), 3e18, "the median ignores the one thin interval");
         vm.startPrank(alice);
         vault.deposit(1_000_000e18);
         vm.expectRevert(TacVault.OverCeiling.selector);
@@ -593,7 +584,6 @@ contract TacSystemDepthCapTest is TacSystemBase {
             _put(amm, _newest() - i, P0, 100e18);
         }
         assertEq(vault.depthCeiling(), 3e18 * ETH_USD * 500 / 10_000);
-        assertEq(pair.depth(10_800), 100e18, "the median of the 3h window follows the lift");
     }
 
     /// The cap limits new borrowing only: open debt stays when depth falls, and repay and withdraw keep working.

@@ -197,8 +197,6 @@ contract TacOracleOfflineTest is Test {
         (low, high) = amm.prices(1 hours);
         assertEq(low, A_LO);
         assertEq(high, A_LO);
-        assertEq(precision.depth(1 hours), D_LO);
-        assertEq(amm.depth(1 hours), AD_LO);
         // the smallest recorded depth over the window: the low level (the window holds both levels)
         assertEq(precision.depthMin(1 hours), D_LO);
         assertEq(amm.depthMin(1 hours), AD_LO);
@@ -206,7 +204,6 @@ contract TacOracleOfflineTest is Test {
         (low, high) = pair.prices(1 hours);
         assertEq(low, A_LO, "the smaller of the two lows");
         assertEq(high, P_LO, "the larger of the two highs");
-        assertEq(pair.depth(1 hours), AD_LO, "the smaller depth");
         assertEq(pair.depthMin(1 hours), AD_LO, "the smaller of the smallest depths");
         assertEq(pair.STEP(), STEP);
         assertEq(pair.recovery(1 hours), P_LO, "the larger low");
@@ -223,7 +220,6 @@ contract TacOracleOfflineTest is Test {
             _recordP(k); // 1047334 .. 1047340: all low
         }
         assertEq(precision.depthMin(1 hours), D_LO);
-        assertEq(precision.depth(1 hours), D_LO);
     }
 
     /// Two venue oracles over the same pool cannot be paired (the real contracts), nor can a venue with itself.
@@ -251,7 +247,6 @@ contract TacOracleOfflineTest is Test {
         assertEq(low, P_LO);
         assertEq(high, P_HI);
         assertEq(precision.recovery(1 hours), P_LO);
-        assertEq(precision.depth(1 hours), D_LO);
         // the medians answer with 10 of 12; the smallest depth needs all 12
         vm.expectRevert(TacIntervalOracle.TooFewSamples.selector);
         precision.depthMin(1 hours);

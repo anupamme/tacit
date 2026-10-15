@@ -31,11 +31,9 @@ interface IConfidentialPoolReserves {
 }
 
 /// @title TacAmmOracle
-/// @notice The price and ETH depth of the confidential pool's ETH/TAC AMM pool at the end of past blocks (see
-///         TacIntervalOracle). The pool's reserves live in the confidential pool's storage: the `pools` mapping at the
-///         slot given at construction (74 on the live pool), whose entry for POOL_ID holds reserveA at offset 3 and
-///         reserveB at offset 4 (reserveA is the ETH asset's, the lower asset id's). Reserves count in value units,
-///         so each is scaled by its asset's unit scale to wei; the price is the ETH reserve over the TAC reserve.
+/// @notice TacIntervalOracle over the confidential pool's ETH/TAC AMM pool. Proves reserveA (ETH) and reserveB
+///         (TAC), at offsets 3 and 4 of POOL_ID's entry in the `pools` mapping (slot 74 on the live pool), scaled from
+///         value units to wei by each asset's unit scale. Price = ETH reserve / TAC reserve, depth = ETH reserve.
 contract TacAmmOracle is TacIntervalOracle {
     uint256 internal constant WAD = 1e18;
 
@@ -79,7 +77,6 @@ contract TacAmmOracle is TacIntervalOracle {
         return (SLOT_A, SLOT_B);
     }
 
-    /// The pool's ETH per TAC now.
     function spot() public view override returns (uint256 ethPerTac) {
         (,,, uint256 reserveA, uint256 reserveB,,) = IConfidentialPoolReserves(POOL).pools(POOL_ID);
         (ethPerTac,) = _read(reserveA, reserveB);

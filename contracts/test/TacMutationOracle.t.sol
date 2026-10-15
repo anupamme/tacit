@@ -362,8 +362,6 @@ contract TacMutationOracleTest is SynthChain {
         vm.expectRevert(TacIntervalOracle.TooFewSamples.selector);
         o.recovery(600);
         vm.expectRevert(TacIntervalOracle.TooFewSamples.selector);
-        o.depth(600);
-        vm.expectRevert(TacIntervalOracle.TooFewSamples.selector);
         o.depthMin(600);
         assertEq(o.latest(), 0);
         (uint256 p, uint256 d) = o.sampleOf(0);
@@ -414,7 +412,6 @@ contract TacMutationOracleTest is SynthChain {
             _putDepth(o, newest - i, 7e13, depth);
         }
         assertEq(o.depthMin(21_600), 1e18, "the smallest, found though it is not the newest");
-        assertEq(o.depth(21_600), 5e18, "the median ignores it");
         // a shorter window that does not reach the smallest
         assertEq(o.depthMin(10_800), 5e18, "18 intervals: 0..17 only");
         assertEq(o.depthMin(3_600), 9e18, "6 intervals, all of them lifted");
@@ -427,7 +424,6 @@ contract TacMutationOracleTest is SynthChain {
         vm.store(address(o), bytes32((newest - 3) % 128), bytes32(0));
         (uint256 low,) = o.prices(21_600);
         assertEq(low, 7e13, "the medians still answer with 35 of 36");
-        assertEq(o.depth(21_600), 5e18);
         vm.expectRevert(TacIntervalOracle.TooFewSamples.selector);
         o.depthMin(21_600);
         // the oldest interval of a shorter window missing

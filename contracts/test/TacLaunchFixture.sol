@@ -59,7 +59,6 @@ abstract contract TacLaunchFixture is Test {
             owner: address(this),
             mintRatioBps: 35_000,
             liqRatioBps: 20_000,
-            liqWindow: 21_600,
             liqBonusBps: 2_500,
             auctionDuration: 5_400,
             ownerWindow: 1_200,

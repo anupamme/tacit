@@ -65,7 +65,7 @@ contract TacPairOracleTest is Test {
     function test_depthIsTheSmallerVenue() public {
         a.setDepth(5e18);
         b.setDepth(2e18);
-        assertEq(pair.depth(3 hours), 2e18);
+        assertEq(pair.depthMin(3 hours), 2e18);
     }
 
     /// A venue without a price leaves the pair without one.

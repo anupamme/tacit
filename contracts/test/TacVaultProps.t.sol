@@ -25,7 +25,6 @@ abstract contract TacVaultPropsBase is Test {
         c.liqBonusBps = 2_500;
         c.auctionDuration = 5_400;
         c.ownerWindow = 1_200;
-        c.liqWindow = 6 hours;
         c.borrowFeeBps = 0;
         c.redemptionFeeBps = 50;
         c.feedMaxStaleness = 3_900;

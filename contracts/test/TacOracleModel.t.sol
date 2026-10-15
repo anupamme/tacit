@@ -167,13 +167,6 @@ contract TacOracleModelTest is Test {
             assertTrue(m.err != OK, "reverted where the model returns");
             assertEq(bytes4(e), m.err, "prices revert reason");
         }
-        try o.depth(window) returns (uint256 d) {
-            assertEq(m.err, OK, "depth returned where the model reverts");
-            assertEq(d, m.depthLow, "depth");
-        } catch (bytes memory e) {
-            assertTrue(m.err != OK, "reverted where the model returns");
-            assertEq(bytes4(e), m.err, "depth revert reason");
-        }
         bytes4 wantMin = m.err != OK ? m.err : m.depthMinErr;
         try o.depthMin(window) returns (uint256 d) {
             assertEq(wantMin, OK, "depthMin returned where the model reverts");
@@ -368,22 +361,6 @@ contract TacOracleModelTest is Test {
                 assertEq(r, lowA > lowB ? lowA : lowB);
             } catch {
                 assertTrue(!(okA && okB));
-            }
-            uint256 dA;
-            uint256 dB;
-            bool dOkA;
-            bool dOkB;
-            try a.depth(w) returns (uint256 d) {
-                (dOkA, dA) = (true, d);
-            } catch {}
-            try b.depth(w) returns (uint256 d) {
-                (dOkB, dB) = (true, d);
-            } catch {}
-            try pair.depth(w) returns (uint256 d) {
-                assertTrue(dOkA && dOkB);
-                assertEq(d, dA < dB ? dA : dB);
-            } catch {
-                assertTrue(!(dOkA && dOkB));
             }
         }
         {

@@ -11,26 +11,20 @@ interface ITacVenueOracle {
     function MAX_WINDOW() external view returns (uint256);
     function prices(uint256 window) external view returns (uint256 low, uint256 high);
     function recovery(uint256 window) external view returns (uint256);
-    function depth(uint256 window) external view returns (uint256);
     function depthMin(uint256 window) external view returns (uint256);
     function latest() external view returns (uint256);
     function spot() external view returns (uint256);
 }
 
 /// @title TacPairOracle
-/// @notice Two venues' prices combined so that a move needs both venues moved. Each view takes the venue value that
-///         is hardest for an attacker to push:
-///           - `prices`: `low` the lower of the venues' lows (raising it takes raising both), `high` the higher of
-///             their highs (lowering it takes lowering both);
-///           - `recovery`: the higher of the venues' lows (holding it down takes holding both down);
-///           - `spot`: the lower of the venues' spots;
-///           - `depth`, `depthMin`: the smaller of the venues' depths; `latest`: the lower of their newest recorded
-///             prices, which a vault floors its offer at, so raising it takes holding both venues up.
-///         A venue with no price (too few intervals recorded) leaves the pair with no price, and a venue that is not
-///         tracking the market (retired, drained, frozen, or held above it by someone trading) keeps pinning the highs
-///         and the recovery price, and through them the liquidation, recovery, offer and redemption prices while it
-///         stays so, so vaults priced by the pair are to be wound down before either venue is retired. The venues must share their interval and windows, and be
-///         over different pools. No owner and no settings.
+/// @notice Two venue oracles over different pools, combined so that moving a view takes moving both venues:
+///           - `prices`: the lower of the lows and the higher of the highs;
+///           - `recovery`: the higher of the lows;
+///           - `spot`, `latest`, `depthMin`: the lower of the two.
+///         A venue without a price leaves the pair without one. A venue that stops tracking the market (retired,
+///         drained, frozen, or held above it) keeps pinning the highs and the recovery price, so vaults priced by the
+///         pair must be wound down, or moved to another oracle, before either venue is retired. The venues must share
+///         their interval and windows. No owner and no settings.
 contract TacPairOracle {
     ITacVenueOracle public immutable A;
     ITacVenueOracle public immutable B;
@@ -69,10 +63,6 @@ contract TacPairOracle {
 
     function recovery(uint256 window) external view returns (uint256) {
         return FixedPointMathLib.max(A.recovery(window), B.recovery(window));
-    }
-
-    function depth(uint256 window) external view returns (uint256) {
-        return FixedPointMathLib.min(A.depth(window), B.depth(window));
     }
 
     function depthMin(uint256 window) external view returns (uint256) {

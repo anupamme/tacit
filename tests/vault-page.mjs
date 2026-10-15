@@ -76,8 +76,8 @@ const TAC = create(art('TacVaultMocks.sol/TestTac')), ORACLE = create(art('TacVa
 const FEED = create(art('TacVaultMocks.sol/LiveFeed')), FIXED = create(art('FixedFeed.sol/FixedFeed'));
 const noLimit = MAXU.toString();
 const makeVault = (feed, name, symbol, minDebt) => {
-  const cfg = `(${TAC},${ORACLE},${feed},${ACC.owner.a},35000,20000,14400,2500,5400,1200,${minDebt},3900,${noLimit},500,50,100,${FEE_TO},${SINK},${name},${symbol})`;
-  const enc = cast('abi-encode', 'f((address,address,address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,address,address,string,string))', cfg);
+  const cfg = `(${TAC},${ORACLE},${feed},${ACC.owner.a},35000,20000,2500,5400,1200,${minDebt},3900,${noLimit},500,50,100,${FEE_TO},${SINK},${name},${symbol})`;
+  const enc = cast('abi-encode', 'f((address,address,address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,address,address,string,string))', cfg);
   return create(art('TacVault.sol/TacVault') + enc.slice(2));
 };
 const USD = makeVault(FEED, 'TAC Dollar', 'TACD', (100n * E18).toString()), ETH = makeVault(FIXED, 'TAC Ether', 'TACE', (E18 / 25n).toString());

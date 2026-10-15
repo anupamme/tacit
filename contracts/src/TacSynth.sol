@@ -8,20 +8,18 @@ interface ISynthOwner {
 }
 
 /// @title TacSynth
-/// @notice The 18-decimal ERC-20 a TacVault lends against TAC (a dollar or ETH, depending on the vault). The vault
-///         that deploys it mints and burns it, always. Its owner (the vault's owner, read live) can name further
-///         minters, so another kind of collateral can lend the same token without a new token: an announced minter
-///         takes effect MINTER_DELAY later, can be removed at once, and `lockMinters` ends the power to add any for
-///         good. No spender is pre-approved.
+/// @notice The ERC-20 a TacVault lends. The vault that deploys it (MINTER) can always mint and burn. The vault's owner
+///         can add further minters after MINTER_DELAY, so other collateral can lend the same token, and remove them at
+///         once; `lockMinters` ends adding for good. No allowance is pre-approved, Permit2 included.
 contract TacSynth is ERC20 {
     uint256 public constant MINTER_DELAY = 3 days;
+    /// How long an announced minter may still be added after its delay.
     uint256 public constant QUEUE_EXPIRY = 14 days;
 
     address public immutable MINTER;
     string internal _name;
     string internal _symbol;
 
-    /// Minters named after deployment.
     mapping(address => bool) public isMinter;
     address public pendingMinter;
     uint256 public pendingMinterEta;
@@ -73,15 +71,13 @@ contract TacSynth is ERC20 {
         _mint(to, amount);
     }
 
-    /// Burns `amount` from `from`, spending the allowance `from` gave the minter.
+    /// Burns `amount` from `from`, spending `from`'s allowance to the caller unless `from` is the caller.
     function burnFrom(address from, uint256 amount) external onlyMinter {
-        _spendAllowance(from, msg.sender, amount);
+        if (from != msg.sender) _spendAllowance(from, msg.sender, amount);
         _burn(from, amount);
     }
 
-    // ─────────────── further minters ───────────────
-
-    /// Announces `minter` (a contract) to be allowed to mint and burn MINTER_DELAY from now.
+    /// Announces `minter` (a contract), added by `executeMinter` after MINTER_DELAY.
     function queueMinter(address minter) external onlyVaultOwner {
         if (mintersLocked) revert Locked();
         if (minter.code.length == 0 || minter == MINTER || isMinter[minter]) revert BadMinter();
@@ -110,14 +106,14 @@ contract TacSynth is ERC20 {
         emit MinterCancelled(minter);
     }
 
-    /// Takes a further minter's rights away at once (the vault that deployed the token keeps its own).
+    /// Removes a further minter at once; MINTER cannot be removed.
     function removeMinter(address minter) external onlyVaultOwner {
         if (!isMinter[minter]) revert BadMinter();
         delete isMinter[minter];
         emit MinterRemoved(minter);
     }
 
-    /// Ends the power to add minters (and cancels the one announced), for good.
+    /// Ends adding minters for good and drops the announced one.
     function lockMinters() external onlyVaultOwner {
         mintersLocked = true;
         delete pendingMinter;

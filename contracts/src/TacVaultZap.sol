@@ -9,8 +9,7 @@ interface IERC2612Zap {
         external;
 }
 
-/// The SYNTH pool's router (a TacitEvmPoolRouter, which stays on the compiler it was deployed with), as the zap
-/// uses it. The structs match the router's field for field.
+/// The part of TacitEvmPoolRouter the zap uses; the structs match the router's.
 interface IZapRouter {
     struct Tx {
         uint256[2] pA;
@@ -57,12 +56,10 @@ interface ITacVaultForZap {
 }
 
 /// @title TacVaultZap
-/// @notice Public TAC to a vault's SYNTH in one transaction. Pulls the caller's TAC, deposits it into `owner`'s
-///         vault and borrows with `owner`'s signature (the owner may be the caller or a key that only signs). The
-///         SYNTH goes to an address (`mint`) or into a deposit box of the SYNTH pool's router, completed in the same
-///         call (`mintShielded`). A deposit box's address fixes the deposit's amount, notes and memos, and the owner
-///         signs that address as the recipient, so whoever submits the signature can only fund the owner's notes.
-///         Holds nothing between transactions. `multicall` with `permitTac` first needs no prior approval.
+/// @notice TAC to SYNTH in one transaction: deposits the caller's TAC into `owner`'s vault and borrows on `owner`'s
+///         signature, either to an address (`mint`) or into a deposit box of the SYNTH pool's router, completed in
+///         the same call (`mintShielded`). The box address commits to the deposit's amount, notes and memos and is
+///         the signed recipient, so a submitter can only fund the owner's notes. Holds nothing between calls.
 contract TacVaultZap is Multicallable {
     ITacVaultForZap public immutable VAULT;
     address public immutable TAC;
@@ -79,13 +76,13 @@ contract TacVaultZap is Multicallable {
         SYNTH_ROUTER = IZapRouter(synthRouter);
     }
 
-    /// Applies the caller's EIP-2612 permit for TAC to this contract; a permit that fails is skipped.
+    /// Applies the caller's EIP-2612 permit for TAC to this contract; a failing permit is ignored.
     function permitTac(uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
         try IERC2612Zap(TAC).permit(msg.sender, address(this), value, deadline, v, r, s) {} catch {}
     }
 
     /// Deposits `tacIn` of the caller's TAC (0 for none) into `owner`'s vault and borrows `amount` to `to`. The
-    /// signature fixes `minCollateral`, so it cannot be used without the deposit it expects.
+    /// signed `minCollateral` ties the signature to the deposit.
     function mint(
         address owner,
         uint256 tacIn,
@@ -101,8 +98,7 @@ contract TacVaultZap is Multicallable {
         VAULT.borrowFor(owner, amount, maxFeeBps, minCollateral, to, deadline, sig);
     }
 
-    /// As `mint`, borrowing `intent.amount` into `intent`'s deposit box (the recipient the owner signs) and
-    /// depositing it into the pool with `t`, the proof for that intent.
+    /// As `mint`, borrowing `intent.amount` into the intent's deposit box and completing the pool deposit with `t`.
     function mintShielded(
         address owner,
         uint256 tacIn,

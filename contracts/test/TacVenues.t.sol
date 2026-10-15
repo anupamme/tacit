@@ -47,7 +47,6 @@ contract TacVenuesTest is Test {
         TacVault.Config memory c = VaultConfig.defaults(address(tac), address(pair), address(feed), OWNER);
         c.mintRatioBps = 35_000;
         c.liqRatioBps = 20_000;
-        c.liqWindow = 6 hours;
         c.liqBonusBps = 2_500;
         c.auctionDuration = 5_400;
         c.ownerWindow = 1_200;
@@ -454,7 +453,6 @@ contract TacVenuesTest is Test {
     function test_theCapFollowsTheSmallestDepthOfTheWindow() public {
         assertEq(vault.depthCeiling(), DEPTH * 4000 * 500 / 10_000);
         _putD(vA, 20, P0, 0.3e18);
-        assertEq(pair.depth(6 hours), DEPTH, "the median does not see it");
         assertEq(pair.depthMin(6 hours), 0.3e18);
         _tick();
         assertEq(vault.depthCeiling(), uint256(0.3e18) * 4000 * 500 / 10_000);
@@ -475,7 +473,6 @@ contract TacVenuesTest is Test {
             _putD(vA, i, P0, 30e18);
             _putD(vB, i, P0, 30e18);
         }
-        assertEq(pair.depth(3 hours), 30e18);
         assertEq(pair.depthMin(6 hours), DEPTH);
         _tick();
         assertEq(vault.depthCeiling(), DEPTH * 4000 * 500 / 10_000);
@@ -569,9 +566,7 @@ contract TacVenuesTest is Test {
                 uint256 rec = pair.recovery(ws[k]);
                 assertLe(rec, high, "recovery <= high");
                 assertGe(rec, low, "recovery >= low");
-                try pair.depthMin(ws[k]) returns (uint256 dmin) {
-                    assertLe(dmin, pair.depth(ws[k]), "depthMin <= median depth");
-                } catch {} // reverts unless every interval is recorded
+                try pair.depthMin(ws[k]) returns (uint256 dmin) {} catch {} // reverts unless every interval is recorded
             } catch {}
         }
         try vault.liquidationPrice() returns (uint256 liq) {

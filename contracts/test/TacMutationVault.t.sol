@@ -179,40 +179,33 @@ contract TacMutationVaultTest is Test {
 
     // ───────────── constructor bounds ─────────────
 
-    function test_ctorMintRatioMustExceedLiquidationRatio() public {
+    /// The mint ratio is at least 20 points over the liquidation ratio and at most 1,000%.
+    function test_ctorMintRatioBounds() public {
         TacVault.Config memory c = _cfg();
-        c.mintRatioBps = c.liqRatioBps; // equal: refused
+        c.mintRatioBps = c.liqRatioBps + 1_999;
         vm.expectRevert(TacVault.BadConfig.selector);
         new TacVault(c);
-        c.mintRatioBps = c.liqRatioBps + 1;
+        c.mintRatioBps = c.liqRatioBps + 2_000;
+        new TacVault(c);
+        c.mintRatioBps = 100_001;
+        vm.expectRevert(TacVault.BadConfig.selector);
+        new TacVault(c);
+        c.mintRatioBps = 100_000;
         new TacVault(c);
     }
 
-    /// LIQ_WINDOW must be exactly the oracle's longest window (the views then all read windows that have a price).
-    function test_ctorLiqWindowMustEqualTheOraclesLongestWindow() public {
-        TacVault.Config memory c = _cfg();
-        c.liqWindow = oracle.MAX_WINDOW();
-        new TacVault(c);
-        c.liqWindow = oracle.MAX_WINDOW() + 1;
-        vm.expectRevert(TacVault.BadConfig.selector);
-        new TacVault(c);
-        c.liqWindow = oracle.MAX_WINDOW() - 1;
-        vm.expectRevert(TacVault.BadConfig.selector);
-        new TacVault(c);
-        c.liqWindow = oracle.WINDOW(); // a shorter window than the longest: refused
-        vm.expectRevert(TacVault.BadConfig.selector);
-        new TacVault(c);
-    }
-
-    /// OWNER_WINDOW must end before the auction does (zero is allowed).
+    /// OWNER_WINDOW is at least ten minutes and ends before the auction does.
     function test_ctorOwnerWindowBounds() public {
         TacVault.Config memory c = _cfg();
         c.ownerWindow = c.auctionDuration - 1;
         TacVault v = new TacVault(c);
         assertEq(v.OWNER_WINDOW(), c.auctionDuration - 1);
-        c.ownerWindow = 0;
+        c.ownerWindow = 10 minutes;
         v = new TacVault(c);
-        assertEq(v.OWNER_WINDOW(), 0);
+        assertEq(v.OWNER_WINDOW(), 10 minutes);
+        c.ownerWindow = 10 minutes - 1;
+        vm.expectRevert(TacVault.BadConfig.selector);
+        new TacVault(c);
         c.ownerWindow = c.auctionDuration;
         vm.expectRevert(TacVault.BadConfig.selector);
         new TacVault(c);
@@ -246,18 +239,24 @@ contract TacMutationVaultTest is Test {
         c.borrowFeeBps = 500;
         new TacVault(c);
         c = _cfg();
-        c.liqRatioBps = 9_999;
+        c.liqRatioBps = 11_999;
         vm.expectRevert(TacVault.BadConfig.selector);
         new TacVault(c);
-        c.liqRatioBps = 10_000;
-        c.liqBonusBps = 1; // BPS + 1 >= liq 10000 is refused
+        c.liqRatioBps = 12_000;
+        new TacVault(c);
+        // The bonus is at most 50% and keeps 100% plus it under the liquidation ratio.
+        c = _cfg();
+        c.liqRatioBps = 14_000;
+        c.liqBonusBps = 4_000; // BPS + bonus == liq ratio: refused
         vm.expectRevert(TacVault.BadConfig.selector);
+        new TacVault(c);
+        c.liqBonusBps = 3_999;
         new TacVault(c);
         c = _cfg();
-        c.liqBonusBps = c.liqRatioBps - 10_000; // BPS + bonus == liq ratio: refused
+        c.liqBonusBps = 5_001;
         vm.expectRevert(TacVault.BadConfig.selector);
         new TacVault(c);
-        c.liqBonusBps = c.liqRatioBps - 10_000 - 1; // one under: allowed
+        c.liqBonusBps = 5_000;
         new TacVault(c);
     }
 
@@ -1186,27 +1185,21 @@ contract TacMutationViewsTest is Test {
         assertEq(pair.depthMin(1 hours), 2e18);
         a.setDepthMin(1 hours, 7e18);
         assertEq(pair.depthMin(1 hours), 5e18);
-        assertEq(pair.depth(1 hours), 9e18, "the median depths are separate");
         b.setDepthMin(1 hours, 0);
         assertEq(pair.depthMin(1 hours), 0);
     }
 
-    function test_pairTakesTheSmallerDepthFromEitherSideAndNeverHidesAZero() public {
+    /// A venue that says zero is not replaced by the other's value.
+    function test_pairNeverHidesAZero() public {
         SplitOracle a = new SplitOracle();
         SplitOracle b = new SplitOracle();
         a.setAll(P, P);
         b.setAll(P, P);
         TacPairOracle pair = _pairWith(a, b);
         a.setFor(1 hours, P, P, P, 2e18);
-        b.setFor(1 hours, P, P, P, 5e18);
-        assertEq(pair.depth(1 hours), 2e18);
-        a.setFor(1 hours, P, P, P, 7e18);
-        assertEq(pair.depth(1 hours), 5e18);
-        // a venue that says zero is not replaced by the other's value
         b.setFor(1 hours, 0, 0, 0, 0);
         (uint256 low, uint256 high) = pair.prices(1 hours);
         assertEq(low, 0);
         assertEq(high, P);
-        assertEq(pair.depth(1 hours), 0);
     }
 }

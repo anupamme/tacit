@@ -28,14 +28,13 @@ abstract contract TacVaultAuctionBase is Test {
     address alice = address(0xA11CE);
     address bob = address(0xB0B);
 
-    function _config(address orc, address fd, uint256 liqWindow) internal view returns (TacVault.Config memory c) {
+    function _config(address orc, address fd) internal view returns (TacVault.Config memory c) {
         c = VaultConfig.defaults(address(tac), orc, fd, address(0x0123));
         c.mintRatioBps = 35_000;
         c.liqRatioBps = 20_000;
         c.liqBonusBps = 2_500;
         c.auctionDuration = 5_400;
         c.ownerWindow = OWNER_WINDOW;
-        c.liqWindow = liqWindow;
         c.borrowFeeBps = 0;
         c.redemptionFeeBps = 50;
         c.feedMaxStaleness = 3_900;
@@ -44,14 +43,14 @@ abstract contract TacVaultAuctionBase is Test {
         c.debtCeiling = 1_000_000e18;
     }
 
-    function _setUp(uint256 liqWindow) internal {
+    function _setUp() internal {
         vm.warp(1_800_000_000);
         tac = new TestTac();
         oracle = new TacVaultCampaignOracle();
         oracle.setDepth(2_000e18);
         feed = new MockFeed();
         feed.set(4000e8);
-        vault = new TacVault(_config(address(oracle), address(feed), liqWindow));
+        vault = new TacVault(_config(address(oracle), address(feed)));
         synth = vault.SYNTH();
         _fund();
     }
@@ -106,7 +105,7 @@ abstract contract TacVaultRealOracleBase is TacVaultAuctionBase {
         vm.store(address(o), bytes32(index % o.RING()), bytes32(index << 208 | price << 104 | depth_));
     }
 
-    function _setUpReal(uint256 liqWindow) internal {
+    function _setUpReal() internal {
         vm.warp(1_800_000_000);
         tac = new TestTac();
         feed = new MockFeed();
@@ -117,7 +116,7 @@ abstract contract TacVaultRealOracleBase is TacVaultAuctionBase {
         b = new TacBlockOracle(address(poolB), address(0xAA), STEP, _shortWindow(), 10_800, 21_600, 6_600);
         pair = new TacPairOracle(address(a), address(b));
         vm.roll(HEAD);
-        vault = new TacVault(_config(address(pair), address(feed), liqWindow));
+        vault = new TacVault(_config(address(pair), address(feed)));
         synth = vault.SYNTH();
         _fund();
     }
@@ -160,33 +159,25 @@ contract TacVaultOfferPrice is TacVaultAuctionBase {
         vault.liquidate(alice);
     }
 
-    function test_theLiquidationWindowMustBeTheOraclesLongest() public {
-        _setUp(6 hours);
-        vm.expectRevert(TacVault.BadConfig.selector);
-        new TacVault(_config(address(oracle), address(feed), 4 hours));
-        vm.expectRevert(TacVault.BadConfig.selector);
-        new TacVault(_config(address(oracle), address(feed), 3 hours)); // the oracle's WINDOW
-        vm.expectRevert(TacVault.BadConfig.selector);
-        new TacVault(_config(address(oracle), address(feed), 7 hours));
-        new TacVault(_config(address(oracle), address(feed), 6 hours));
-    }
-
     function test_theOwnerWindowMustBeShorterThanTheAuction() public {
-        _setUp(6 hours);
-        TacVault.Config memory c = _config(address(oracle), address(feed), 6 hours);
+        _setUp();
+        TacVault.Config memory c = _config(address(oracle), address(feed));
         c.ownerWindow = c.auctionDuration;
         vm.expectRevert(TacVault.BadConfig.selector);
         new TacVault(c);
         c.ownerWindow = c.auctionDuration - 1;
         new TacVault(c);
-        c.ownerWindow = 0; // no window at all is allowed
+        c.ownerWindow = 10 minutes - 1; // the shortest window is ten minutes
+        vm.expectRevert(TacVault.BadConfig.selector);
+        new TacVault(c);
+        c.ownerWindow = 10 minutes;
         new TacVault(c);
     }
 
     /// `recovered` reads no newest-interval price, the offer does: with that price missing the view says the whole
     /// collateral (owner only), an outsider's bid reverts, and the owner's bid takes the pro rata share.
     function test_aNonOwnerBidWithoutAnOfferPriceReverts() public {
-        _setUp(6 hours);
+        _setUp();
         _liquidateAt190();
         _wait(OWNER_WINDOW);
         oracle.setBreaks(64); // latest() reverts
@@ -206,7 +197,7 @@ contract TacVaultOfferPrice is TacVaultAuctionBase {
     }
 
     function test_everyWindowOutageFailsClosedForAnOutsider() public {
-        _setUp(6 hours);
+        _setUp();
         _liquidateAt190();
         _wait(OWNER_WINDOW);
         uint256[3] memory bits = [uint256(1), 8, 64]; // SHORT, MAX (= the liquidation window), newest interval
@@ -223,7 +214,7 @@ contract TacVaultOfferPrice is TacVaultAuctionBase {
 
     /// The current price is read by the borrow view only: its outage stops borrowing and nothing else.
     function test_aSpotOutageStopsBorrowingAndNothingElse() public {
-        _setUp(6 hours);
+        _setUp();
         _open(alice, COLL, DEBT);
         _open(bob, 1_000_000e18, 5_000e18);
         oracle.setBreaks(32);
@@ -244,7 +235,7 @@ contract TacVaultOfferPrice is TacVaultAuctionBase {
 /// window, and with it the liquidation, recovery and offer views, without a price.
 contract TacVaultOfferPriceRealOracle is TacVaultRealOracleBase {
     function test_aThinLongestWindowFailsClosedForAnOutsider() public {
-        _setUpReal(6 hours);
+        _setUpReal();
         uint256 coll = 15_000e18;
         uint256 debt = 1_600e18;
         _record(0, 36, 1e14);
@@ -268,12 +259,6 @@ contract TacVaultOfferPriceRealOracle is TacVaultRealOracleBase {
         vm.prank(alice);
         vault.bid(alice, type(uint256).max, 0); // the owner needs no price
     }
-
-    function test_aLiquidationWindowShortOfTheOraclesLongestIsRefused() public {
-        _setUpReal(6 hours);
-        vm.expectRevert(TacVault.BadConfig.selector);
-        new TacVault(_config(address(pair), address(feed), 4 hours));
-    }
 }
 
 // ───────────────────────────── the offer floor ─────────────────────────────
@@ -289,7 +274,7 @@ contract TacVaultOfferFloorRally is TacVaultAuctionBase {
     }
 
     function test_aRallyRecordedInTheNewestIntervalSellsAtThatPriceNotTheStaleMedian() public {
-        _setUp(6 hours);
+        _setUp();
         _open(alice, COLL, DEBT);
         _open(bob, 1_000_000e18, 5_000e18);
         uint256 p = _priceFor(COLL, DEBT, 19_000);
@@ -313,7 +298,7 @@ contract TacVaultOfferFloorRally is TacVaultAuctionBase {
     /// A vault healthy at the newest price but under the line at the medians can be opened, but not filled in the
     /// same transaction, and a fill costs the owner at most the bonus.
     function test_aVaultHealthyAtTheNewestPriceCostsTheOwnerAtMostTheBonus() public {
-        _setUp(6 hours);
+        _setUp();
         _open(alice, COLL, DEBT);
         _open(bob, 1_000_000e18, 5_000e18);
         uint256 p = _priceFor(COLL, DEBT, 19_000);
@@ -335,7 +320,7 @@ contract TacVaultOfferFloorRally is TacVaultAuctionBase {
 
     /// The owner who holds the debt in SYNTH acts inside his window and keeps every TAC.
     function test_theOwnerInTheWindowKeepsEverything() public {
-        _setUp(6 hours);
+        _setUp();
         _open(alice, COLL, DEBT);
         uint256 p = _priceFor(COLL, DEBT, 19_000);
         oracle.setViews(p, p, 1e14, p, 0);
@@ -356,7 +341,7 @@ contract TacVaultOfferFloor is TacVaultRealOracleBase {
     uint256 p;
 
     function _auction() internal {
-        _setUpReal(6 hours);
+        _setUpReal();
         _record(0, 36, 1e14);
         _open(alice, COLL, DEBT);
         _open(bob, 1_000_000e18, 5_000e18);
@@ -383,7 +368,7 @@ contract TacVaultOfferFloor is TacVaultRealOracleBase {
     }
 
     function test_aCurrentPricePumpDoesNotMoveRedemption() public {
-        _setUpReal(6 hours);
+        _setUpReal();
         _record(0, 36, 1e14);
         _setSpot(poolA, 1e14);
         _setSpot(poolB, 1e14);
@@ -402,7 +387,7 @@ contract TacVaultOfferFloor is TacVaultRealOracleBase {
 
     /// Redemption is priced at the offer view: the TAC per SYNTH of a redemption is that price, less the fee.
     function test_redemptionIsPricedAtTheOfferView() public {
-        _setUpReal(6 hours);
+        _setUpReal();
         _record(0, 36, 1e14);
         _record(0, 5, 2e14); // the newest five intervals recorded higher
         _setSpot(poolA, 1e14);
@@ -460,7 +445,7 @@ contract TacVaultOwnerWindow is TacVaultAuctionBase {
     uint256 constant DEBT = 1_700e18;
 
     function _liquidateAt(uint256 ratioBps) internal {
-        _setUp(6 hours);
+        _setUp();
         _open(alice, COLL, DEBT);
         _open(bob, 1_000_000e18, 5_000e18);
         oracle.setAll(_priceFor(COLL, DEBT, ratioBps), 0);
@@ -487,7 +472,7 @@ contract TacVaultOwnerWindow is TacVaultAuctionBase {
 
     /// Absorb is not gated by the window; it waits for AUCTION_DURATION, which the constructor keeps above it.
     function test_absorbWaitsForTheAuctionNotTheWindow() public {
-        _setUp(6 hours);
+        _setUp();
         _open(alice, 15_000e18, 150e18);
         _open(bob, 1_000_000e18, 5_000e18);
         vm.prank(bob);
@@ -526,10 +511,10 @@ contract TacVaultOwnerWindow is TacVaultAuctionBase {
         assertGt(c, 0);
     }
 
-    function test_aZeroWindowMeansNoWindow() public {
-        _setUp(6 hours);
-        TacVault.Config memory c = _config(address(oracle), address(feed), 6 hours);
-        c.ownerWindow = 0;
+    function test_theShortestOwnerWindowIsTenMinutes() public {
+        _setUp();
+        TacVault.Config memory c = _config(address(oracle), address(feed));
+        c.ownerWindow = 10 minutes;
         vault = new TacVault(c);
         synth = vault.SYNTH();
         _fund();
@@ -537,6 +522,11 @@ contract TacVaultOwnerWindow is TacVaultAuctionBase {
         _open(bob, 1_000_000e18, 5_000e18);
         oracle.setAll(_priceFor(COLL, DEBT, 19_000), 0);
         vault.liquidate(alice);
+        vm.prank(bob);
+        vm.expectRevert(TacVault.OwnerWindow.selector);
+        vault.bid(alice, DEBT / 2, 0);
+        skip(10 minutes);
+        feed.set(4000e8);
         vm.prank(bob);
         vault.bid(alice, DEBT / 2, 0);
     }
@@ -566,7 +556,7 @@ contract TacVaultAuctionEnd is TacVaultAuctionBase {
     uint256 constant DEBT = 1_700e18;
 
     function setUp() public {
-        _setUp(6 hours);
+        _setUp();
     }
 
     /// A partial bid at the offer sells less collateral than the share of debt it repays, so it can lift the vault over
@@ -720,14 +710,13 @@ contract TacVaultAuctionEnd is TacVaultAuctionBase {
 /// window recorded; it limits new borrowing only.
 contract TacVaultDepthCap is TacVaultRealOracleBase {
     function test_theCapIsTheSmallestDepthOfTheWindow() public {
-        _setUpReal(6 hours);
+        _setUpReal();
         _record(0, 36, 1e14);
         _setSpot(poolA, 1e14);
         _setSpot(poolB, 1e14);
         _open(alice, 15_000e18, 1_000e18);
         assertEq(vault.depthCeiling(), 2_000e18 * 4000 * 500 / 10_000, "5% of 2,000 ETH in dollars");
         _venue(poolA, 10, 1e14, 1e18);
-        assertEq(pair.depth(3 hours), 2_000e18, "the median is unmoved");
         assertEq(pair.depthMin(6 hours), 1e18, "the minimum follows the one interval");
         assertEq(vault.depthCeiling(), 1e18 * 4000 * 500 / 10_000);
         vm.startPrank(bob);
@@ -740,7 +729,7 @@ contract TacVaultDepthCap is TacVaultRealOracleBase {
     }
 
     function test_aDepthLiftedForHalfTheWindowDoesNotRaiseTheCap() public {
-        _setUpReal(6 hours);
+        _setUpReal();
         _record(0, 36, 1e14);
         uint256 before = pair.depthMin(6 hours);
         for (uint256 i; i < 20; ++i) {
@@ -748,13 +737,12 @@ contract TacVaultDepthCap is TacVaultRealOracleBase {
             _venue(poolB, i, 1e14, 1e30);
         }
         assertEq(pair.depthMin(6 hours), before);
-        assertGt(pair.depth(3 hours), before, "the median would have risen with it");
     }
 
     /// One unrecorded interval stops new borrowing (TooFewSamples) while prices, liquidation, bids, repay and
     /// withdraw keep working on the 35 recorded.
     function test_oneUnrecordedIntervalStopsNewBorrowingAndNothingElse() public {
-        _setUpReal(6 hours);
+        _setUpReal();
         _record(0, 36, 1e14);
         _setSpot(poolA, 1e14);
         _setSpot(poolB, 1e14);
@@ -777,7 +765,7 @@ contract TacVaultDepthCap is TacVaultRealOracleBase {
     }
 
     function test_twoVenuesOverOnePoolAreRefused() public {
-        _setUpReal(6 hours);
+        _setUpReal();
         TacBlockOracle same =
             new TacBlockOracle(address(poolA), address(0xAA), STEP, _shortWindow(), 10_800, 21_600, 6_600);
         vm.expectRevert(TacPairOracle.BadConfig.selector);
@@ -795,7 +783,7 @@ contract TacVaultBidGas is TacVaultRealOracleBase {
     uint256 fair;
 
     function _prepare() internal {
-        _setUpReal(6 hours);
+        _setUpReal();
         _record(0, 36, 1e14);
         _open(alice, COLL, DEBT);
         _open(bob, 1_000_000e18, 5_000e18);

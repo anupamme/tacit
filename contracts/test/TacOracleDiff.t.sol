@@ -95,16 +95,14 @@ contract TacOracleDiffTest is Test {
         vm.roll(head);
         uint256 points = window / (STEP * 12);
         (uint256[] memory price, uint256[] memory depth) = _fill(head, points, mask, seed, stale);
-        (bool ok, uint256 low, uint256 high, uint256 med, uint256 dmin, bool full) = _reference(price, depth, points);
+        (bool ok, uint256 low, uint256 high,, uint256 dmin, bool full) = _reference(price, depth, points);
         if (ok) {
             (uint256 l, uint256 h) = oracle.prices(window);
             assertEq(l, low, "low");
             assertEq(h, high, "high");
             assertEq(oracle.recovery(window), low, "recovery");
-            assertEq(oracle.depth(window), med, "depth");
             if (full) {
                 assertEq(oracle.depthMin(window), dmin, "depthMin");
-                assertLe(oracle.depthMin(window), oracle.depth(window));
             } else {
                 // strict: one unrecorded interval is enough to refuse it
                 vm.expectRevert(TacIntervalOracle.TooFewSamples.selector);
@@ -114,8 +112,6 @@ contract TacOracleDiffTest is Test {
         } else {
             vm.expectRevert(TacIntervalOracle.TooFewSamples.selector);
             oracle.prices(window);
-            vm.expectRevert(TacIntervalOracle.TooFewSamples.selector);
-            oracle.depth(window);
             vm.expectRevert(TacIntervalOracle.TooFewSamples.selector);
             oracle.recovery(window);
             vm.expectRevert(TacIntervalOracle.TooFewSamples.selector);
@@ -206,11 +202,9 @@ contract TacOracleDiffTest is Test {
         _put(newest - 20, 50, 7);
         assertEq(oracle.depthMin(6 hours), 7);
         assertEq(oracle.depthMin(1 hours), 1_000, "the short window does not reach position 20");
-        assertEq(oracle.depth(6 hours), 1_016, "the median of the same window moves one rank, not to the thin value");
         vm.store(address(oracle), bytes32((newest - 20) % 128), bytes32(0)); // unrecorded: the window is refused
         vm.expectRevert(TacIntervalOracle.TooFewSamples.selector);
         oracle.depthMin(6 hours);
-        assertEq(oracle.depth(6 hours), 1_016, "the median still prices with 35 of 36 (the gap counts as zero)");
         assertEq(oracle.depthMin(1 hours), 1_000, "a window that is complete is not affected");
     }
 }

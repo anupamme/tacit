@@ -2,8 +2,8 @@
 pragma solidity 0.8.37;
 
 /// @title FixedFeed
-/// @notice A price feed that always answers 1.0 (8 decimals), fresh at every block. A TacVault given it in place of
-///         ETH/USD values TAC in ETH, so its SYNTH tracks one ETH.
+/// @notice A feed that always answers 1.0 (8 decimals), fresh every block. A TacVault using it in place of ETH/USD
+///         lends a SYNTH worth one ETH.
 contract FixedFeed {
     function decimals() external pure returns (uint8) {
         return 8;

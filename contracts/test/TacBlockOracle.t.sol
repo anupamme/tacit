@@ -109,7 +109,6 @@ contract TacBlockOracleTest is Test {
         (uint256 low, uint256 high) = oracle.prices(1 hours);
         assertEq(low, P);
         assertEq(high, P);
-        assertEq(oracle.depth(3 hours), 3e18);
     }
 
     /// The live price is the pool's own formula.
