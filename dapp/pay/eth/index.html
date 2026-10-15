@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-qNJIDH9kXMmHCQnXDp16gPO38RirmspKnyVoUEHoO0c=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://ethereum-rpc.publicnode.com https://mainnet.gateway.tenderly.co https://eth.drpc.org https://1rpc.io https://rpc.flashbots.net https://mainnet.base.org https://base.gateway.tenderly.co https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-qEvBhlfaQAZmAl2lAZuoUcscn2QCSCnSSKTE9AqRrYM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://ethereum-rpc.publicnode.com https://mainnet.gateway.tenderly.co https://eth.drpc.org https://1rpc.io https://rpc.flashbots.net https://mainnet.base.org https://base.gateway.tenderly.co https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay</title>
 <meta name="description" content="Private ETH payments on Ethereum, Base, Robinhood Chain and MegaETH. Deposit, pay privately, withdraw any part. Proved on your device, recovered from your key.">
@@ -1250,9 +1250,15 @@ function decodeReceived(log) {
   const { w } = wordsOf(log.data);
   return { kind: 'received', block: Number(BigInt(log.blockNumber)), tx: log.transactionHash, box: '0x' + log.topics[1].slice(26).toLowerCase(), index: Number(w(0)), value: w(1), rho: w(2), fee: w(3) };
 }
+// The public facts a relay's index carries with ?facts=1: what a node would otherwise be asked about each transaction (its
+// recipient, amount, fee, sender, target, a router call's data) and its block's time. `fed` marks them for the check below.
+const feedFacts = (e) => ({
+  ...(e.ext === undefined ? {} : { fed: true, recipient: lc(e.recipient), ext: BigInt(e.ext), fee: BigInt(e.fee) }),
+  ...(e.from ? { from: lc(e.from) } : {}), ...(e.to ? { to: lc(e.to) } : {}), ...(e.input ? { input: lc(e.input) } : {}), ...(e.ts > 0 ? { ts: Number(e.ts) } : {}),
+});
 const fromFeed = (e) => e.kind === 'transact'
-  ? { kind: 'transact', block: e.block, tx: e.tx, nf: [BigInt(e.nf0), BigInt(e.nf1)], outLeaf: [BigInt(e.outLeaf0), BigInt(e.outLeaf1)], firstIndex: Number(e.firstIndex), memo: [hexToBytes(strip(e.memo0 || '0x')), hexToBytes(strip(e.memo1 || '0x'))] }
-  : { kind: 'received', block: e.block, tx: e.tx, box: lc(e.box), index: Number(e.index), value: BigInt(e.value), rho: BigInt(e.rho), fee: BigInt(e.fee) };
+  ? { kind: 'transact', block: e.block, tx: e.tx, nf: [BigInt(e.nf0), BigInt(e.nf1)], outLeaf: [BigInt(e.outLeaf0), BigInt(e.outLeaf1)], firstIndex: Number(e.firstIndex), ...feedFacts(e), memo: [hexToBytes(strip(e.memo0 || '0x')), hexToBytes(strip(e.memo1 || '0x'))] }
+  : { kind: 'received', block: e.block, tx: e.tx, box: lc(e.box), index: Number(e.index), value: BigInt(e.value), rho: BigInt(e.rho), fee: BigInt(e.fee), ...(e.ts > 0 ? { ts: Number(e.ts) } : {}) };
 async function logs(rpc, address, topics, from, to, onStep, onChunk) {
   const out = [];
   let step = 2_000_000, busyTries = 0;
@@ -1466,7 +1472,7 @@ async function scanHistory(c, onStep) {
     try {
       const got = [];
       for (let i = 0; i < 1000; i++) {
-        const r = await keeperJson(c, `/events?from=${from}`);
+        const r = await keeperJson(c, `/events?from=${from}&facts=1`);
         if (Number(r.chainId) !== c.chainId || lc(r.pool) !== lc(POOL)) throw new Error('index for another pool');
         const through = Number(r.through);
         if (through < from) break;
@@ -1538,6 +1544,25 @@ async function scanHistory(c, onStep) {
   // public, which a withdrawal back to that account would tie to it.
   // A read cut short keeps what it got for the next one.
   const deep = (b) => b + c.confirmations <= tip;
+  // Facts the relay's index carried are checked against a node on a few transactions picked at random from the whole pool's
+  // (so the node learns nothing about this key), and one block's time: if any differs, none of the index's facts are used
+  // and every transaction is read from the nodes as before.
+  const fed = ts.filter((t) => t.fed && deep(t.block));
+  if (fed.length) {
+    const probe = [];
+    for (const i of new Set(Array.from({ length: Math.min(6, fed.length) * 3 }, () => Math.floor(Math.random() * fed.length)))) if (probe.length < 6) probe.push(fed[i]);
+    let differs = false;
+    await eachLimit(probe, 3, async (t) => {
+      const rc = await settled(c, rpc, tip, t.block, 'eth_getTransactionReceipt', [t.tx]).catch(() => null);
+      if (!rc) return;
+      const lg = rc.logs?.find((l) => lc(l.address) === lc(POOL) && l.topics[0] === T_TRANSACT && BigInt(l.topics[1]) === t.nf[0] && BigInt(l.topics[2]) === t.nf[1]);
+      const d = lg && decodeTransact(lg);
+      if (!d || lc(d.recipient) !== t.recipient || d.ext !== t.ext || d.fee !== t.fee || (t.from && lc(rc.from) !== t.from) || (t.to && lc(rc.to || '') !== t.to)) differs = true;
+    });
+    const tb = probe.find((t) => t.ts > 0);
+    if (tb) { const blk = await settled(c, rpc, tip, tb.block, 'eth_getBlockByNumber', ['0x' + tb.block.toString(16), false]).catch(() => null); if (blk && Number(BigInt(blk.timestamp)) !== tb.ts) differs = true; }
+    if (differs) for (const e of evs) for (const k of ['fed', 'recipient', 'ext', 'fee', 'from', 'to', 'input', 'ts']) delete e[k];
+  }
   // A read that fails for another wallet's transaction leaves it out; one of this key's own must succeed.
   const unread = ts.filter((t) => t.ext === undefined || (t.ext > 0n && !t.from));
   let nread = 0;
@@ -1608,6 +1633,7 @@ async function scanHistory(c, onStep) {
   }
   // The time of every block with a pool event, this key's or not.
   const time = new Map(Object.entries(P.bt).map(([b, s]) => [Number(b), s]));
+  for (const e of evs) if (e.ts > 0 && !time.has(e.block)) time.set(e.block, e.ts);
   await eachBatched(c, rpc, tip, 'eth_getBlockByNumber', evBlocks.filter((b) => !time.has(b)), 3, (b) => b, (b) => ['0x' + b.toString(16), false], async (b) => { const blk = await settled(c, rpc, tip, b, 'eth_getBlockByNumber', ['0x' + b.toString(16), false]).catch(() => null); if (blk) time.set(b, Number(BigInt(blk.timestamp))); });
   await savePubTx(P, ts, time, deep);
   // A block whose time could not be read has none; it sorts by the time of the nearest block that has one.
