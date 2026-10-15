@@ -128,6 +128,7 @@ fn main() {
         .cycle_limit(cycle_limit)
         .gas_limit(gas_limit)
         .private_stdin(std::env::var("PRIVATE_STDIN").as_deref() == Ok("1"))
+        .whitelist(std::env::var("PROVER_WHITELIST").ok().filter(|s| !s.trim().is_empty()).map(|s| s.split(',').map(|a| a.trim().parse().expect("PROVER_WHITELIST holds 0x addresses")).collect()))
         .run()
         .expect("groth16 proof failed");
     /* client.verify dropped (hangs; prover self-verifies, forge *ProofReal is the gate) */

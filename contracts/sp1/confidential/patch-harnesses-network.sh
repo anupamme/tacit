@@ -45,6 +45,13 @@ s = re.sub(
     r'(\.gas_limit\([^)]*\))(\s*)\.run\(\)',
     r'\1\2.private_stdin(std::env::var("PRIVATE_STDIN").as_deref() == Ok("1"))\2.run()',
     s)
+# 6) PROVER_WHITELIST (comma-separated prover addresses) limits who may take a request. Private stdin is only fetched by
+#    provers that make the signed GetStdinUri call: on 2026-10-15 Succinct's own prover (0xd4fcfce0…a4f5) proved a
+#    private request in 35 s while the provers that win the open auction took them and never delivered.
+s = re.sub(
+    r'(\.private_stdin\(std::env::var\("PRIVATE_STDIN"\)\.as_deref\(\) == Ok\("1"\)\))(\s*)\.run\(\)',
+    r'\1\2.whitelist(std::env::var("PROVER_WHITELIST").ok().filter(|s| !s.trim().is_empty()).map(|s| s.split(\',\').map(|a| a.trim().parse().expect("PROVER_WHITELIST holds 0x addresses")).collect()))\2.run()',
+    s)
 if s != orig:
     open(p, 'w').write(s)
     print("patched", p)

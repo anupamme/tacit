@@ -105,6 +105,7 @@ fn main() {
         .cycle_limit(512_000_000)
         .gas_limit(4_000_000_000)
         .private_stdin(std::env::var("PRIVATE_STDIN").as_deref() == Ok("1"))
+        .whitelist(std::env::var("PROVER_WHITELIST").ok().filter(|s| !s.trim().is_empty()).map(|s| s.split(',').map(|a| a.trim().parse().expect("PROVER_WHITELIST holds 0x addresses")).collect()))
         .run()
         .expect("groth16 proof failed");
     println!("PROVED groth16 batch pv_bytes={}", proof.public_values.as_slice().len());

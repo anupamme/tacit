@@ -79,7 +79,7 @@ fn main() {
     let pk = client.setup(Elf::Static(ELF)).expect("setup failed");
     println!("VKEY={}", pk.verifying_key().bytes32());
     println!("proving groth16 (network)...");
-            let proof = client.prove(&pk, stdin).groth16().cycle_limit(256_000_000).gas_limit(1_000_000_000).private_stdin(std::env::var("PRIVATE_STDIN").as_deref() == Ok("1")).run().expect("groth16 proof failed");
+            let proof = client.prove(&pk, stdin).groth16().cycle_limit(256_000_000).gas_limit(1_000_000_000).private_stdin(std::env::var("PRIVATE_STDIN").as_deref() == Ok("1")).whitelist(std::env::var("PROVER_WHITELIST").ok().filter(|s| !s.trim().is_empty()).map(|s| s.split(',').map(|a| a.trim().parse().expect("PROVER_WHITELIST holds 0x addresses")).collect())).run().expect("groth16 proof failed");
     /* client.verify dropped — prover self-verifies; forge *ProofReal is the on-chain gate */
     assert!(!proof.public_values.as_slice().is_empty(), "EMPTY public values: guest halted before commit (witness rejected); refusing to write a 0-byte artifact");
     println!("PROVED groth16 (NO local verify here — forge *ProofReal is the on-chain gate) pv_bytes={}", proof.public_values.as_slice().len());
