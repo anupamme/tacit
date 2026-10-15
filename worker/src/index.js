@@ -1772,7 +1772,7 @@ async function flowRecord(env) {
 // heartbeat; the chain facts are read at most every five minutes and kept in KV, and the buyback's lifetime totals extend from where the last
 // read stopped. A read that fails leaves the last one in place rather than failing the page.
 const ECON_KEY = 'relay:economics:chain:v1', ECON_TIPS_KEY = 'relay:economics:tips:v1', ECON_TTL_MS = 5 * 60e3, ECON_TIPS_TTL_MS = 6 * 3600e3;
-let _econReading = null, _econTriedAt = 0, _econTipsReading = null, _econTipsTriedAt = 0;
+let _econReading = null, _econTriedAt = 0, _econTipsReading = null, _econTipsTriedAt = 0, _econPrices = { at: 0, v: null };
 async function handleRelayEconomics(env, cors) {
   const kv = env.REGISTRY_KV;
   if (!kv) return jsonResponse({ error: 'no kv' }, 500, cors);
@@ -1796,7 +1796,12 @@ async function handleRelayEconomics(env, cors) {
     _econTipsReading = readTips({ rpc: (method, params) => _ethRpc('mainnet', method, params), addrs: { tipForwarder: env.WRAP_TIP_FORWARDER_ADDR } })
       .then(async (t) => { if (t && t.complete) await kv.put(ECON_TIPS_KEY, JSON.stringify(t)); }).catch(() => {}).finally(() => { _econTipsReading = null; });
   }
-  return jsonResponse(buildEconomics({ ledger: hb && hb.ledger, heartbeatAt: hb && hb.ts, chain, tips }), 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
+  if (Date.now() - _econPrices.at > 5 * 60e3) {
+    const [ethUsd, proveUsd] = await Promise.all([_ethUsdPrice().catch(() => null), _provePriceUsd('mainnet').catch(() => null)]);
+    // Tried at most every five minutes, found or not: a price feed that is down is not asked again for each visitor.
+    _econPrices = { at: Date.now(), v: { ethUsd: ethUsd || (_econPrices.v && _econPrices.v.ethUsd) || null, proveUsd: proveUsd || (_econPrices.v && _econPrices.v.proveUsd) || null } };
+  }
+  return jsonResponse(buildEconomics({ ledger: hb && hb.ledger, heartbeatAt: hb && hb.ts, chain, tips, prices: _econPrices.v }), 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
 }
 
 async function handleFlow(env, cors) {

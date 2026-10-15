@@ -96,6 +96,10 @@ ok(partial.wallets.settle.eth === 0.003 && partial.wallets.relay.eth === 0.012 &
 // ── the response ──
 const resp = buildEconomics({ ledger: s, heartbeatAt: 1_000_000, chain: c, tips, now: 1_000_000 + 60e3 });
 ok(resp.ledger.stale === false && resp.ledger.recent.length === 2 && resp.ledger.week.settled === 14 && !('days' in resp.ledger) && resp.chain.wallets === c.wallets && resp.chain.tips === tips, 'the response carries the recent days, the week, and the chain facts');
+const priced = buildEconomics({ prices: { ethUsd: 2345.678912, proveUsd: 'x' } });
+ok(priced.prices.ethUsd === 2345.6789 && priced.prices.proveUsd === null && buildEconomics({}).prices === null, 'the prices ride along, rounded, and a bad one is null');
+const pubJson = JSON.stringify(resp.ledger);
+ok(!('tac' in resp.ledger.week.feeUsd) && !('other' in resp.ledger.week.feeUsd) && resp.ledger.recent.every((d) => !('tac' in d.feeUsd) && !('other' in d.feeUsd)) && resp.ledger.week.feeUsd.convertible === 14, 'the public response carries no dollar value for fees paid in TAC or in what nothing converts');
 ok(buildEconomics({ ledger: s, heartbeatAt: 1_000_000, now: 1_000_000 + 11 * 60e3 }).ledger.stale === true, 'a ledger whose heartbeat is ten minutes old is marked stale');
 ok(buildEconomics({ ledger: s, now: 5 }).ledger.stale === true && buildEconomics({}).ledger === null, 'no heartbeat time is stale, and no ledger is null');
 

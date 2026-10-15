@@ -141,12 +141,17 @@ export async function readChain({ rpc, prev = null, now = Date.now(), addrs = {}
 }
 
 // ── the response ──
-export function buildEconomics({ ledger = null, heartbeatAt = null, chain = null, tips = null, now = Date.now() } = {}) {
+export function buildEconomics({ ledger = null, heartbeatAt = null, chain = null, tips = null, prices = null, now = Date.now() } = {}) {
   const l = ledger ? { ...ledger, stale: heartbeatAt ? now - heartbeatAt > 10 * 60e3 : true } : null;
   if (l) {
-    l.recent = Object.entries(l.days).sort().map(([date, b]) => ({ date, ...b }));
-    l.week = sumDays(l.days, 7);
+    // The dollar value of a fee paid in TAC (or in a token nothing converts yet) comes from the private price reference, so the public
+    // response carries only what is paid in ETH or in what the sweep converts. Those two stay in the stored books for the operator.
+    const pub = (f) => ({ eth: f.eth, converted: f.converted, ...(f.convertible != null ? { convertible: f.convertible } : {}) });
+    l.recent = Object.entries(l.days).sort().map(([date, b]) => ({ date, ...b, feeUsd: pub(b.feeUsd) }));
+    const wk = sumDays(l.days, 7);
+    l.week = { ...wk, feeUsd: pub(wk.feeUsd) };
     delete l.days;
   }
-  return { updatedAt: new Date(now).toISOString(), ledger: l, chain: chain ? { ...chain, tips } : chain };
+  const px = (x) => (typeof x === 'number' && Number.isFinite(x) && x > 0 ? Math.round(x * 1e4) / 1e4 : null);
+  return { updatedAt: new Date(now).toISOString(), ledger: l, chain: chain ? { ...chain, tips } : chain, prices: prices ? { ethUsd: px(prices.ethUsd), proveUsd: px(prices.proveUsd) } : null };
 }

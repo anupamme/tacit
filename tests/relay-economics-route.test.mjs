@@ -48,6 +48,7 @@ ok(r.status === 200, 'a heartbeat carrying the books is accepted');
 r = await call('/relay/economics'); j = await r.json();
 ok(j.ledger && j.ledger.stale === false && j.ledger.cfg.buybackBps === 1000 && j.ledger.cfg.evil === undefined && j.ledger.junk === undefined, 'its books are served, checked, with unknown fields gone');
 ok(j.ledger.week.settled === 12 && j.ledger.week.feeUsd.convertible === 7 && j.ledger.recent.length === 1 && j.ledger.owedEth === 0.001, 'with the week summed and the recent days listed');
+ok(j.ledger.week.feeUsd.tac === undefined && j.ledger.recent[0].feeUsd.tac === undefined && j.ledger.recent[0].feeUsd.other === undefined, 'and nothing priced from the private TAC reference leaves the API');
 
 const h = await (await call('/prover-health?network=mainnet')).json();
 ok(!JSON.stringify(h).includes('buybackBps') && !JSON.stringify(h).includes('feeUsd'), '/prover-health does not carry the books');
