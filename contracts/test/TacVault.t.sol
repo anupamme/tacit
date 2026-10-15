@@ -548,6 +548,55 @@ contract TacVaultTest is Test {
         vault.resumeAuctions();
     }
 
+    /// A pauser the owner names can start a pause and nothing else: it cannot lift one, change a setting or name a
+    /// pauser, its pauses keep the same bound and cooldown, and the owner can replace or remove it.
+    function test_aPauserCanStartAPauseAndNothingElse() public {
+        address pauser = address(0xBEEF);
+        vm.prank(pauser);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        vault.pauseAuctions(1 hours);
+
+        vm.prank(alice);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        vault.setPauser(pauser);
+        vm.expectEmit(false, false, false, true);
+        emit TacVault.PauserSet(pauser);
+        vm.prank(OWNER);
+        vault.setPauser(pauser);
+        assertEq(vault.pauser(), pauser);
+
+        vm.startPrank(pauser);
+        vm.expectRevert(TacVault.BadConfig.selector);
+        vault.pauseAuctions(12 hours + 1);
+        vault.pauseAuctions(12 hours);
+        assertTrue(vault.paused());
+        // Nothing but the pause: not lifting it, not the settings, not another pauser.
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        vault.resumeAuctions();
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        vault.setDebtCeiling(0);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        vault.setBorrowFee(0);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        vault.setPauser(pauser);
+        vm.stopPrank();
+
+        // The owner lifts it; the cooldown holds for the pauser too.
+        vm.prank(OWNER);
+        vault.resumeAuctions();
+        vm.prank(pauser);
+        vm.expectRevert(TacVault.PauseCooldown.selector);
+        vault.pauseAuctions(1 hours);
+
+        // Removing the pauser ends its power.
+        vm.prank(OWNER);
+        vault.setPauser(address(0));
+        _wait(12 hours);
+        vm.prank(pauser);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        vault.pauseAuctions(1 hours);
+    }
+
     /// With the pause on, an owner who repays or tops up is not affected, and a vault that recovered while it
     /// ran ends its auction.
     function test_aVaultThatRecoversDuringAPauseEndsItsAuction() public {

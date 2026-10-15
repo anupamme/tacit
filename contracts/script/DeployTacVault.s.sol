@@ -58,7 +58,9 @@ interface IPoolRegistry {
 ///                                           vaults read the same depth, so together they lend twice this share)
 ///   BORROW_FEE_BPS        (default 100)     one-time borrow fee, both vaults
 ///   MINT_RATIO_BPS        (default 35000), LIQ_RATIO_BPS (default 20000), LIQ_BONUS_BPS (default 2500)
-///   LIQ_WINDOW            (default 21600, must equal the oracle's longest window), AUCTION_DURATION (default 5400)
+///   ORACLE_SHORT_WINDOW (7200), ORACLE_WINDOW (10800), ORACLE_MAX_WINDOW (21600) seconds, ORACLE_COVERAGE_BPS (6600):
+///                         the oracle's windows (the longest is at most 127 intervals of 600 s)
+///   LIQ_WINDOW            (default ORACLE_MAX_WINDOW, must equal it), AUCTION_DURATION (default 5400)
 ///   OWNER_WINDOW          (default 3600)    seconds an auction is open to its owner alone
 ///   REDEMPTION_FEE_BPS    (default 50)
 ///   FEED_MAX_STALENESS    (default 3900)
@@ -102,11 +104,16 @@ contract DeployTacVault is Script {
         Out memory o;
         vm.startBroadcast();
         // An interval of 50 blocks (10 minutes); windows of 2 hours, 3 hours (the borrow view's slowest) and 6 hours
-        // (the liquidation window, the longest); a window needs two thirds of its intervals.
-        o.precisionOracle = address(new TacBlockOracle(PRECISION, TAC, 50, 7_200, 10_800, 21_600, 6_600));
+        // (the liquidation window, the longest) unless the environment says otherwise; a window needs two thirds of
+        // its intervals.
+        uint256 shortWindow = vm.envOr("ORACLE_SHORT_WINDOW", uint256(7_200));
+        uint256 window = vm.envOr("ORACLE_WINDOW", uint256(10_800));
+        uint256 maxWindow = vm.envOr("ORACLE_MAX_WINDOW", uint256(21_600));
+        uint256 coverage = vm.envOr("ORACLE_COVERAGE_BPS", uint256(6_600));
+        o.precisionOracle = address(new TacBlockOracle(PRECISION, TAC, 50, shortWindow, window, maxWindow, coverage));
         o.ammOracle = address(
             new TacAmmOracle(
-                POOL, TAC_ETH_POOL, ETH_ASSET, TAC_ASSET, TAC, POOLS_SLOT, 50, 7_200, 10_800, 21_600, 6_600
+                POOL, TAC_ETH_POOL, ETH_ASSET, TAC_ASSET, TAC, POOLS_SLOT, 50, shortWindow, window, maxWindow, coverage
             )
         );
         o.oracle = address(new TacPairOracle(o.precisionOracle, o.ammOracle));
@@ -163,7 +170,7 @@ contract DeployTacVault is Script {
             owner: vm.envAddress("OWNER"),
             mintRatioBps: vm.envOr("MINT_RATIO_BPS", uint256(35_000)),
             liqRatioBps: vm.envOr("LIQ_RATIO_BPS", uint256(20_000)),
-            liqWindow: vm.envOr("LIQ_WINDOW", uint256(21_600)),
+            liqWindow: vm.envOr("LIQ_WINDOW", vm.envOr("ORACLE_MAX_WINDOW", uint256(21_600))),
             liqBonusBps: vm.envOr("LIQ_BONUS_BPS", uint256(2_500)),
             auctionDuration: vm.envOr("AUCTION_DURATION", uint256(5_400)),
             ownerWindow: vm.envOr("OWNER_WINDOW", uint256(3_600)),

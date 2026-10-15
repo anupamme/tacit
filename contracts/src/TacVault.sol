@@ -91,12 +91,14 @@ interface IERC2612 {
 ///         `permitSynth` apply the caller's EIP-2612 permits, so approve, deposit and borrow fit in one
 ///         transaction.
 ///
-///         Pause. The owner can pause `liquidate`, outside bids, `absorb` and `redeem` for up to MAX_PAUSE at a time,
-///         and not again until PAUSE_COOLDOWN after the pause ends (or is lifted), so a price held away from the market
-///         can be waited out. Deposits, repays, withdrawals, borrowing, `cancel` and the vault owner's own bids go on.
+///         Pause. The owner, or the `pauser` the owner names (a key that can do nothing else, for a fast answer to an
+///         alert), can pause `liquidate`, outside bids, `absorb` and `redeem` for up to MAX_PAUSE at a time, and not
+///         again until PAUSE_COOLDOWN after the pause ends (or is lifted), so a price held away from the market can
+///         be waited out. Only the owner lifts a pause early. Deposits, repays, withdrawals, borrowing, `cancel` and
+///         the vault owner's own bids go on.
 ///
 ///         The owner (transferable) sets the debt ceiling, the borrow fee, where the borrow fee and the TAC of an
-///         absorb go, and the pause. Everything else is immutable.
+///         absorb go, the pauser, and the pause. Everything else is immutable.
 contract TacVault is Ownable, Multicallable {
     uint256 internal constant BPS = 10_000;
     uint256 internal constant WAD = 1e18;
@@ -165,6 +167,8 @@ contract TacVault is Ownable, Multicallable {
     uint256 public borrowFeeBps;
     /// Until this time `liquidate`, outside bids, `absorb` and `redeem` are refused.
     uint256 public pausedUntil;
+    /// An address besides the owner that may start a pause (and nothing else); none until the owner names one.
+    address public pauser;
 
     error BadConfig();
     error BadAmount();
@@ -201,6 +205,7 @@ contract TacVault is Ownable, Multicallable {
     event FeeToSet(address to);
     event TacSinkSet(address to);
     event AuctionsPausedUntil(uint256 until);
+    event PauserSet(address to);
 
     constructor(Config memory c) {
         if (c.tac.code.length == 0 || c.oracle.code.length == 0 || c.ethUsd.code.length == 0) revert BadConfig();
@@ -270,9 +275,16 @@ contract TacVault is Ownable, Multicallable {
         emit TacSinkSet(to);
     }
 
+    /// The address that may start a pause besides the owner (zero for none).
+    function setPauser(address to) external onlyOwner {
+        pauser = to;
+        emit PauserSet(to);
+    }
+
     /// Pauses `liquidate`, outside bids, `absorb` and `redeem` for `duration` (at most MAX_PAUSE). Not allowed
     /// until PAUSE_COOLDOWN after the previous pause ended, so a pause cannot be renewed or extended back to back.
-    function pauseAuctions(uint256 duration) external onlyOwner {
+    function pauseAuctions(uint256 duration) external {
+        if (msg.sender != owner() && msg.sender != pauser) revert Unauthorized();
         if (duration == 0 || duration > MAX_PAUSE) revert BadConfig();
         if (block.timestamp < pausedUntil + PAUSE_COOLDOWN) revert PauseCooldown();
         pausedUntil = block.timestamp + duration;

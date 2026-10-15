@@ -251,6 +251,7 @@ contract TacVaultOwnerProps is TacVaultPropsBase {
         vault.setBorrowFee(501);
         vault.setFeeTo(other);
         vault.setTacSink(other);
+        vault.setPauser(other);
         vault.pauseAuctions(1 hours);
         vault.resumeAuctions();
         vault.transferOwnership(other);
@@ -322,6 +323,8 @@ contract TacVaultOwnerProps is TacVaultPropsBase {
         vault.pauseAuctions(1 hours);
         vm.expectRevert(Ownable.Unauthorized.selector);
         vault.resumeAuctions();
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        vault.setPauser(other);
         vm.expectRevert(Ownable.Unauthorized.selector);
         vault.transferOwnership(other);
         vm.expectRevert(Ownable.Unauthorized.selector);
