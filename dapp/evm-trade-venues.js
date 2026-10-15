@@ -207,7 +207,9 @@ function encZRouterMulticall(calls) {
   return '0x' + SEL.zMulticall + word(32) + word(n) + head + tail;
 }
 
-async function quotePrecision({ ethCall, dir, amountIn, account, block }) {
+// `trust` ({ pool, feeBps }) is a pool this caller already found routable, at another size: when the best pool for this size is that one
+// the policy check is not asked again (it is a property of the pool, not of the amount), which saves a round trip.
+async function quotePrecision({ ethCall, dir, amountIn, account, block, trust = null }) {
   if (amountIn <= 0n) return null;
   const tokenIn = dir === 'ETH_TO_TAC' ? ZERO_ADDR : TAC_ERC20;
   const tokenOut = dir === 'ETH_TO_TAC' ? TAC_ERC20 : ZERO_ADDR;
@@ -215,6 +217,7 @@ async function quotePrecision({ ethCall, dir, amountIn, account, block }) {
   const [bestRaw] = await batch(ethCall, [{ to: PRECISION_LENS, data: encQuoteBest({ c0, c1, sender: account, tokenIn, amountIn }) }], block);
   const best = decQuoteBest(bestRaw);
   if (!best) return null;
+  if (trust && trust.pool === best.pool) return { venue: VENUES.PRECISION, amountIn, amountOut: best.amountOut, feeBps: trust.feeBps, pool: best.pool, tokenIn, tokenOut };
   const [feeRaw, routableRaw] = await batch(ethCall, [
     { to: PRECISION_LENS, data: encEffFee({ pool: best.pool, sender: account, tokenIn, amountIn }) },
     { to: PRECISION_POLICY, data: encRoutable([best.pool]) },
@@ -440,14 +443,15 @@ async function gridOutputs({ ethCall, dir, account, shares, amountIn, feeBps, bl
 
 // → null when fewer than two venues answer or no split pays more than the best single venue; otherwise
 // { dir, amountIn, amountOut, gain, gainBps, shareBps, single, legs: [precisionLeg, tacitLeg] }.
-async function quoteSplit({ ethCall, dir, amountIn, account, block = 'latest' }) {
+// `singles` ({ precision, tacitAmm }, promises of the two single-venue quotes) lets a caller that has already asked for them share the answers.
+async function quoteSplit({ ethCall, dir, amountIn, account, block = 'latest', singles = null }) {
   if (amountIn <= 0n) return null;
   const coarse = [];
   for (let s = 0n; s <= 10000n; s += SPLIT_COARSE_BPS) coarse.push(s);
   // The coarse grid goes out with the two single quotes, at the AMM's usual fee tier; it is asked again only when the pool's own tier differs.
   const [p, t, guess] = await Promise.all([
-    quotePrecision({ ethCall, dir, amountIn, account, block }).catch(() => null),
-    quoteTacitAmm({ ethCall, dir, amountIn, block }).catch(() => null),
+    singles?.precision ?? quotePrecision({ ethCall, dir, amountIn, account, block }).catch(() => null),
+    singles?.tacitAmm ?? quoteTacitAmm({ ethCall, dir, amountIn, block }).catch(() => null),
     gridOutputs({ ethCall, dir, account, shares: coarse, amountIn, feeBps: TACIT_AMM_TIERS[0], block }).catch(() => null),
   ]);
   if (!p || !t) return null;
@@ -464,7 +468,7 @@ async function quoteSplit({ ethCall, dir, amountIn, account, block = 'latest' })
   if (!top || top.a1 === 0n || top.a2 === 0n) return null;
   // The winning split's two legs, quoted afresh the way a single venue is (pool, fee, policy), not taken from the grid.
   const [l1, l2] = await Promise.all([
-    quotePrecision({ ethCall, dir, amountIn: top.a1, account, block }).catch(() => null),
+    quotePrecision({ ethCall, dir, amountIn: top.a1, account, block, trust: { pool: p.pool, feeBps: p.feeBps } }).catch(() => null),
     quoteTacitAmm({ ethCall, dir, amountIn: top.a2, block }).catch(() => null),
   ]);
   if (!l1 || !l2 || l2.amountIn !== top.a2) return null;
@@ -557,7 +561,9 @@ function withTimeout(promise, ms, onTimeout) {
 export function makeEvmTradeVenues({ ethCall, keccak256 } = {}) {
   if (typeof ethCall !== 'function') throw new Error('makeEvmTradeVenues: ethCall(to, data, block?) required');
 
-  async function quoteAll({ dir, amountIn, account, block = 'latest', includeZQuoter = true, deadline }) {
+  // `includeBoards` / `includeV4` (default on) say whether the resting-order and Uniswap v4 reads are made: a caller that does not show them leaves
+  // them out. `quotes` ({ precision, tacitAmm }, promises) are single-venue quotes the caller already asked for.
+  async function quoteAll({ dir, amountIn, account, block = 'latest', includeZQuoter = true, includeBoards = true, includeV4 = true, quotes = null, deadline }) {
     if (dir !== 'ETH_TO_TAC' && dir !== 'TAC_TO_ETH') throw new Error('dir must be ETH_TO_TAC or TAC_TO_ETH');
     if (typeof amountIn !== 'bigint' || amountIn <= 0n) throw new Error('amountIn must be a positive bigint');
     const dl = deadline ?? BigInt(Math.floor(Date.now() / 1000) + 1800);
@@ -569,10 +575,10 @@ export function makeEvmTradeVenues({ ethCall, keccak256 } = {}) {
         )
       : Promise.resolve(null);
     const [precision, tacitAmm, boards, v4, zquoter] = await Promise.all([
-      quotePrecision({ ethCall, dir, amountIn, account, block }).catch(() => null),
-      quoteTacitAmm({ ethCall, dir, amountIn, block }).catch(() => null),
-      quoteBoards({ ethCall, dir, block }).catch(() => ({ venue: 'boards', restingOrders: 0 })),
-      quoteV4Pools({ ethCall, dir, amountIn, block }).catch(() => []),
+      quotes?.precision ?? quotePrecision({ ethCall, dir, amountIn, account, block }).catch(() => null),
+      quotes?.tacitAmm ?? quoteTacitAmm({ ethCall, dir, amountIn, block }).catch(() => null),
+      includeBoards ? quoteBoards({ ethCall, dir, block }).catch(() => ({ venue: 'boards', restingOrders: 0 })) : null,
+      includeV4 ? quoteV4Pools({ ethCall, dir, amountIn, block }).catch(() => []) : [],
       zquoterPromise,
     ]);
     const ranked = rankQuotes([precision, tacitAmm, zquoter && zquoter.status === 'ok' ? zquoter : null]);
@@ -602,9 +608,13 @@ export function makeEvmTradeVenues({ ethCall, keccak256 } = {}) {
   // stays on Precision unless something else pays over 1% more, a split included. → { r (the quoteAll result), single, split, pick:
   // 'single' | 'split' }, or { single: null } when no pool answers.
   async function route({ dir, amountIn, account, gasPrice = null, block = 'latest', preferPrecision = dir === 'ETH_TO_TAC' }) {
+    // Each single-venue quote is asked once and shared by the ranking and the split search (which used to ask for them again); the resting-order
+    // and Uniswap v4 reads quoteAll can make are left out, as this answer does not carry them.
+    const acct = account || undefined;
+    const singles = { precision: quotePrecision({ ethCall, dir, amountIn, account: acct, block }).catch(() => null), tacitAmm: quoteTacitAmm({ ethCall, dir, amountIn, block }).catch(() => null) };
     const [r, split] = await Promise.all([
-      quoteAll({ dir, amountIn, account: account || undefined, block, includeZQuoter: false }),
-      quoteSplit({ ethCall, dir, amountIn, account: account || undefined, block }).catch(() => null),
+      quoteAll({ dir, amountIn, account: acct, block, includeZQuoter: false, includeBoards: false, includeV4: false, quotes: singles }),
+      quoteSplit({ ethCall, dir, amountIn, account: acct, block, singles }).catch(() => null),
     ]);
     if (!r.best) return { r, single: null, split: null, pick: null };
     const prec = (r.ranked || []).find((x) => x.venue === VENUES.PRECISION);
@@ -619,9 +629,10 @@ export function makeEvmTradeVenues({ ethCall, keccak256 } = {}) {
   // to the single venue (`splitError` says why); leave it off for a TAC-in order whose approval is not yet in place.
   async function plan({ dir, amountIn, account, slippageBps = 50, deadline, permit, estimateGas, gasPrice, minGainBps = 30, verify = false, block = 'latest' }) {
     const dl = deadline ?? BigInt(Math.floor(Date.now() / 1000) + 1800);
+    const singles = { precision: quotePrecision({ ethCall, dir, amountIn, account, block }).catch(() => null), tacitAmm: quoteTacitAmm({ ethCall, dir, amountIn, block }).catch(() => null) };
     const [all, split] = await Promise.all([
-      quoteAll({ dir, amountIn, account, block, includeZQuoter: false, deadline: dl }),
-      quoteSplit({ ethCall, dir, amountIn, account, block }).catch(() => null),
+      quoteAll({ dir, amountIn, account, block, includeZQuoter: false, quotes: singles, deadline: dl }),
+      quoteSplit({ ethCall, dir, amountIn, account, block, singles }).catch(() => null),
     ]);
     const single = all.best ? { quote: all.best, tx: build({ quote: all.best, dir, account, slippageBps, deadline: dl, permit }) } : null;
     const out = { kind: 'single', ...(single || {}), split: null, all };

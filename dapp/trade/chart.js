@@ -1,6 +1,8 @@
 // A small SVG price chart for the TAC trade page: candles or lines on a shared time axis, volume under them, price tags at the
 // right edge, a crosshair with a tooltip. No library (the page's CSP allows only its own scripts). Colours come from the page's
 // CSS variables so light and dark are the page's own.
+import { zone, grp } from '/trade/fmt.js?cb=43646c2e';
+
 
 const NS = 'http://www.w3.org/2000/svg';
 const el = (name, attrs = {}, kids = []) => {
@@ -31,7 +33,7 @@ const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct
 const p2 = (n) => String(n).padStart(2, '0');
 export const fmtTime = (t, withDay) => { const d = new Date(t * 1000); return withDay ? `${d.getUTCDate()} ${MON[d.getUTCMonth()]}` : `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`; };
 // The reader's own clock: an axis in UTC would put a day's tick at someone's mid-afternoon. The zone is named where a time is read out.
-const zoneName = (d) => { try { return new Intl.DateTimeFormat('en-GB', { timeZoneName: 'short' }).formatToParts(d).find((x) => x.type === 'timeZoneName')?.value || ''; } catch { return ''; } };
+const zoneName = zone;
 export const fmtLocalTime = (t, withDay) => { const d = new Date(t * 1000); return withDay ? `${d.getDate()} ${MON[d.getMonth()]}` : `${p2(d.getHours())}:${p2(d.getMinutes())}`; };
 export const fmtLocalStamp = (t) => { const d = new Date(t * 1000); return `${d.getDate()} ${MON[d.getMonth()]} ${p2(d.getHours())}:${p2(d.getMinutes())} ${zoneName(d)}`.trim(); };
 export const fmtStamp = (t) => { const d = new Date(t * 1000); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())} UTC`; };
@@ -162,7 +164,7 @@ export function mountChart(host, onHover = null) {
       tip.replaceChildren(...rows.filter((x) => Math.abs(x.b.t - near.b.t) <= period * 6).map(({ s, b }) => {
         const d = document.createElement('div');
         d.innerHTML = s.kind === 'candles'
-          ? `<b>${s.name}</b> <i>${fmtLocalStamp(b.t)}</i><br>O ${s.fmt(b.open)} · H ${s.fmt(b.high)} · L ${s.fmt(b.low)} · C ${s.fmt(b.close)}${b.vol ? `<br>${s.volFmt ? s.volFmt(b.vol) : b.vol.toLocaleString('en-US', { maximumFractionDigits: 2 })}` : ''}${b.n ? ` · ${b.n} trade${b.n === 1 ? '' : 's'}` : ''}`
+          ? `<b>${s.name}</b> <i>${fmtLocalStamp(b.t)}</i><br>O ${s.fmt(b.open)} · H ${s.fmt(b.high)} · L ${s.fmt(b.low)} · C ${s.fmt(b.close)}${b.vol ? `<br>${s.volFmt ? s.volFmt(b.vol) : grp(b.vol, 2)}` : ''}${b.n ? ` · ${b.n} trade${b.n === 1 ? '' : 's'}` : ''}`
           : `<b>${s.name}</b> <i>${fmtLocalStamp(b.t)}</i><br>${s.fmt(b.close)}`;
         return d;
       }));

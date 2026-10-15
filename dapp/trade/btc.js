@@ -227,10 +227,22 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
       if (main === mine) box.innerHTML = `<p class="err">Could not load the Bitcoin market: ${esc(e?.message || e)}</p>`;
     }
   }
+  // The market redraws itself as the key's balance and orders arrive, which can put the scroll back: the node is brought into view again, for a few seconds, if it has left (it may sit near the bottom of the sheet, where it cannot reach the top).
+  async function bringIntoView(node) {
+    const inView = () => { const r = node.getBoundingClientRect(), s = main?.root.getBoundingClientRect(); return !!s && node.isConnected && r.top >= s.top - 4 && r.bottom <= s.bottom + 4; };
+    for (const wait of [0, 600, 1500, 3500]) {
+      await sleep(wait);
+      if (!main || !node.isConnected) return;
+      if (!inView()) node.scrollIntoView({ block: 'start' });
+    }
+  }
+  // `focus: 'orders'` brings the visitor's own orders into view once the market shows them (they show when the key is open and has any: a visitor who
+  // has to sign in first is waited for, for a minute).
   async function primeWhenReady(opts) {
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0, max = opts.focus === 'orders' ? 400 : 80; i < max; i++) {
       if (!ctl) return;
-      if (ctl.state?.loadedOnce) { ctl.prime(opts); return; }
+      if (opts.focus === 'orders') { const o = host?.querySelector('[data-k="orders"]'); if (o && !o.hidden) { await bringIntoView(o); return; } }
+      else if (ctl.state?.loadedOnce) { ctl.prime(opts); return; }
       await sleep(150);
     }
   }

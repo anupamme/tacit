@@ -3,6 +3,8 @@
 // previews a deposit, the farm zaps ETH or TAC into the pool and stakes the shares in one transaction (TAC by permit where it
 // has no allowance), and a withdrawal comes back as both assets or as one of them. Shielded farms are the front page's; their
 // stream is named here with a link.
+import { day, group } from '/trade/fmt.js?cb=43646c2e';
+
 const POOL = '0x0155358241411dB868BA714aE7c83A27087e3D6E', FARM = '0x0000003bF4BA0B21f5e0d35119b337F4d4CF82E0', LENS = '0x000000956bf20A41C54BaE4a4b6F5C8A166DAB4E';
 const TAC = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279', MC3 = '0xcA11bde05977b3631167028862bE2a173976CA11', ZERO = '0x0000000000000000000000000000000000000000';
 const SEL = {
@@ -28,10 +30,10 @@ export function mountFarm(host, ctx) {
   const amt = (v, dp) => { let d = dp; const n = BigInt(v); while (n > 0n && d < 12 && fmt(n, 18, d).replace(/[^1-9]/g, '').length < 2) d++; return fmt(n, 18, d); };
   const share = (num, den) => { if (!den || !num) return '0%'; const bp = Number(num * 1000000n / den) / 10000; return bp > 0 && bp < 0.01 ? 'under 0.01%' : `${bp.toFixed(2)}%`; };
   const cut = (v, dp) => { const u = 10n ** BigInt(18 - dp); return (v / u) * u; };
-  const dayFmt = (t) => new Date(t * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const dayFmt = day;
   const usdOfEth = (wei) => (ethUsd() ? usd((Number(wei) / 1e18) * ethUsd()) : '');
   const tacUsd = (tac, x = F.x) => (x?.tacEth ? usdOfEth(Number(tac) * x.tacEth) : '');
-  const aprTxt = (a) => (a == null ? '—' : a >= 100000 ? 'over 100,000%' : `${Math.round(a).toLocaleString('en-US')}%`);
+  const aprTxt = (a) => (a == null ? '—' : a >= 100000 ? 'over 100,000%' : `${group(Math.round(a))}%`);
   const say = (el, h) => { if (el) el.innerHTML = h; };
   const errMsg = (e) => esc(e?.userStopped ? e.message : String(e?.message || e).slice(0, 220));
 
@@ -108,8 +110,8 @@ export function mountFarm(host, ctx) {
       return bonded > 0 ? Number(pool.tacPerDayForPool) * 365 * x.tacEth / bonded * 100 : null;
     };
     $('#fm-prog').innerHTML = e?.active && p.pools?.length
-      ? `<div class="fm-ph" title="Shielded positions: who farms and how much stays private. Each opens with your Tacit wallet on the main page."><b>Private farms</b><span>${Math.round(Number(e.ratePerDayTac)).toLocaleString('en-US')} TAC a day more, to ${dayFmt(e.periodFinish)}</span></div>`
-        + p.pools.filter((pool) => Number(pool.tacPerDayForPool) > 0).map((pool) => `<a class="fm-pf" href="/#farm/private-${Number(pool.pid)}"><span class="pair">${esc(pairName(pool.pair))}</span><span class="d">${Math.round(Number(pool.tacPerDayForPool)).toLocaleString('en-US')} TAC a day</span><b class="num">${aprTxt(aprOf(pool))}</b><i aria-hidden="true">→</i></a>`).join('')
+      ? `<div class="fm-ph" title="Shielded positions: who farms and how much stays private. Each opens with your Tacit wallet on the main page."><b>Private farms</b><span>${group(Math.round(Number(e.ratePerDayTac)))} TAC a day more, to ${dayFmt(e.periodFinish)}</span></div>`
+        + p.pools.filter((pool) => Number(pool.tacPerDayForPool) > 0).map((pool) => `<a class="fm-pf" href="/#farm/private-${Number(pool.pid)}"><span class="pair">${esc(pairName(pool.pair))}</span><span class="d">${group(Math.round(Number(pool.tacPerDayForPool)))} TAC a day</span><b class="num">${aprTxt(aprOf(pool))}</b><i aria-hidden="true">→</i></a>`).join('')
 
       : '';
   }

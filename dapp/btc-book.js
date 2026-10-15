@@ -62,6 +62,12 @@ export function parseAmount(text, decimals) {
   return v;
 }
 
+// Each Intl formatter is made once: toLocaleString(locale, options) builds a new one per call, and a ladder formats a number per row per render.
+// They are made when first used, as the first one loads the locale data and a page should not wait for that before its first request.
+const NF = {};
+const NF_INT = { format: (v) => (NF.int ||= new Intl.NumberFormat('en-US')).format(v) };
+const NF_UNIT = [{ format: (v) => (NF.u0 ||= new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 })).format(v) }, { format: (v) => (NF.u1 ||= new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })).format(v) }, { format: (v) => (NF.u2 ||= new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 })).format(v) }];
+
 export function fmtAmount(base, decimals, maxFrac = decimals) {
   const a = toBig(base);
   const neg = a < 0n;
@@ -75,21 +81,21 @@ export function fmtAmount(base, decimals, maxFrac = decimals) {
     decimals = maxFrac;
   }
   const fracStr = decimals > 0 ? frac.toString().padStart(decimals, '0').replace(/0+$/, '') : '';
-  return (neg ? '-' : '') + whole.toLocaleString('en-US') + (fracStr ? '.' + fracStr : '');
+  return (neg ? '-' : '') + NF_INT.format(whole) + (fracStr ? '.' + fracStr : '');
 }
 
 export function fmtUnit(u) {
   if (u == null || !Number.isFinite(u)) return '—';
-  if (u >= 1000) return u.toLocaleString('en-US', { maximumFractionDigits: 0 });
-  if (u >= 10) return u.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  if (u >= 1) return u.toLocaleString('en-US', { maximumFractionDigits: 3 });
+  if (u >= 1000) return NF_UNIT[0].format(u);
+  if (u >= 10) return NF_UNIT[1].format(u);
+  if (u >= 1) return NF_UNIT[2].format(u);
   if (u > 0) return Number(u.toPrecision(3)).toString();
   return '0';
 }
 
 export function fmtSats(n) {
   if (n == null || !Number.isFinite(n)) return '—';
-  return Math.round(n).toLocaleString('en-US');
+  return NF_INT.format(Math.round(n));
 }
 
 // ── normalization ───────────────────────────────────────────────────────────

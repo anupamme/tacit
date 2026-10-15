@@ -45,12 +45,15 @@ function encReturns(rets) {
 const SEL = { quoteBest: '2adaa389', effFee: 'ef66de32', tacitQuote: '3bc1414a' };
 
 function makeEthCall({ failSim = false, tacitDown = false } = {}) {
-  const log = { agg3: 0, sims: 0 };
+  const log = { agg3: 0, sims: 0, batches: [], policy: 0, other: new Set() };
   async function ethCall(to, data, block, opts) {
     if (to.toLowerCase() === ZROUTER.toLowerCase()) { log.sims++; if (failSim) throw new Error('execution reverted: Multicall3: call failed'); return '0x'; }
     if (to.toLowerCase() !== MULTICALL3.toLowerCase()) throw new Error(`unexpected ethCall to ${to}`);
-    log.agg3++;
+    log.agg3++; log.batches.push(0);
     const rets = decodeAggregate3Call(data).map((c) => {
+      log.batches[log.batches.length - 1]++;
+      if (c.to.toLowerCase() === PRECISION_POLICY.toLowerCase()) log.policy++;
+      else if (![PRECISION_LENS, TACIT_AMM].some((a) => a.toLowerCase() === c.to.toLowerCase())) log.other.add(c.to.toLowerCase());
       const sel = c.data.slice(2, 10), arg = (i) => BigInt('0x' + c.data.slice(10 + i * 64, 10 + (i + 1) * 64));
       if (c.to.toLowerCase() === PRECISION_LENS.toLowerCase() && sel === SEL.quoteBest) {
         const dir = arg(3) === 0n ? 'ETH_TO_TAC' : 'TAC_TO_ETH';
@@ -111,6 +114,26 @@ ok('quoteSplit finds the best allocation (within 0.005% of brute force) and legs
   assert.ok(s.gainBps > 0);
 }
 ok('quoteSplit uses a few batched reads, and answers null when a venue is down or nothing is asked');
+
+// ── route(): each venue is asked once, and nothing the answer does not carry ──
+for (const dir of ['ETH_TO_TAC', 'TAC_TO_ETH']) {
+  const { ethCall, log } = makeEthCall();
+  const venues = makeEvmTradeVenues({ ethCall, keccak256 });
+  const amt = dir === 'ETH_TO_TAC' ? 2n * E18 : 5000n * E18;
+  const r = await venues.route({ dir, amountIn: amt, account: A1, gasPrice: 10n ** 9n });
+  assert.equal(r.pick, 'split');
+  // the single quotes (Precision's best pool, then its fee and policy; the AMM's tiers) once for the ranking and the split search together,
+  // the two grids, and the two legs quoted afresh: the Precision leg trusts the pool the single quote found routable
+  assert.deepEqual(log.batches, [1, 4, 40, 2, 16, 1, 4], `the batches a route makes (${JSON.stringify(log.batches)})`);
+  assert.equal(log.policy, 1, 'the pool is checked against the policy once, not for every quote of it');
+  assert.equal(log.other.size, 0, `no resting-order or Uniswap v4 read is made (${[...log.other]})`);
+  assert.equal(r.r.v4.length, 0); assert.equal(r.r.boards, null);
+  // the same answer as the two quotes asked for separately, as quoteAll and quoteSplit are on their own
+  const { ethCall: e2 } = makeEthCall(), v2 = makeEvmTradeVenues({ ethCall: e2, keccak256 });
+  const [all, split] = await Promise.all([v2.quoteAll({ dir, amountIn: amt, account: A1, includeZQuoter: false }), v2.quoteSplit({ dir, amountIn: amt, account: A1 })]);
+  assert.equal(r.split.amountOut, split.amountOut); assert.equal(r.r.best.amountOut, all.best.amountOut); assert.equal(r.split.legs[0].pool, split.legs[0].pool);
+}
+ok('route() asks each venue once (7 reads, not 13), checks the pool\'s policy once, leaves out the boards and Uniswap v4, and answers as quoteAll and quoteSplit do on their own');
 
 // ── buildSplit: byte for byte against cast, nested the way the chain reads it ──
 const DL = 2000000000n;

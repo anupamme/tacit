@@ -196,6 +196,8 @@ try {
   await until(p, () => !document.querySelector('.bsheet.top'), null, 60000);
   await until(p, () => /Your orders\s*3/.test(document.querySelector('.bsheet .bm')?.textContent || ''), null, 60000);
   ok(r.walletLog.signs === signsBefore + 1, `one signature opened it (second time: ${r.walletLog.signs - signsBefore})`);
+  await until(p, () => { const o = document.querySelector('.bsheet [data-k="orders"]'), b = document.querySelector('.bsheet'); if (!o || o.hidden) return false; const a = o.getBoundingClientRect(), c = b.getBoundingClientRect(); return a.top >= c.top - 2 && a.bottom <= c.bottom + 2; }, null, 30000);
+  ok(true, 'and Manage has brought the visitor\'s own orders into view in the market');
   await p.click('.bsheet.wide .x');
   await until(p, () => !document.querySelector('.bsheet'), null, 10000);
   await until(p, () => /^[\d,]+ sats · [\d,.]+ TAC on Bitcoin$/.test((document.querySelector('.mine-bal')?.textContent || '').trim()), null, 60000);

@@ -1,5 +1,8 @@
 // Small helpers the tETH page's modules share: markup, numbers, and the page's reads of the chain and the API.
 
+import { hedgedRpc } from '/trade/rpc.js?cb=eb8f83d1';
+import { grp, sig, group } from '/trade/fmt.js?cb=43646c2e';
+
 export const API = 'https://api.tacit.finance';
 export const RPCS = ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org', 'https://1rpc.io/eth', 'https://mainnet.gateway.tenderly.co'];
 export const E10 = 10n ** 10n, E18 = 10n ** 18n;
@@ -15,30 +18,18 @@ export const short = (a, n = 4) => (!a ? '' : a.length > 2 * n + 4 ? `${a.slice(
 
 // ── reading the chain ──
 // `hosts` orders the nodes asked: a read only one of them serves (a wide log range) names it first, so the others do not each refuse it before it.
-export async function rpc(method, params, hosts = RPCS) {
-  let last;
-  for (const [n, url] of hosts.entries()) {
-    try {
-      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(n === hosts.length - 1 ? 30e3 : 12e3) });
-      const j = await r.json();
-      if (j.error) { if (j.error.code === 3 || /revert/i.test(j.error.message || '')) throw Object.assign(new Error(j.error.message), { revert: true }); last = new Error(j.error.message); continue; }
-      return j.result;
-    } catch (e) { if (e.revert) throw e; last = e; }
-  }
-  throw last || new Error('no RPC answered');
-}
+export const rpc = (method, params, hosts = RPCS) => hedgedRpc(hosts, method, params);
 export const ethCall = (to, data, block = 'latest') => rpc('eth_call', [{ to, data }, block]);
 export const api = (path) => fetch(`${API}${path}`, { signal: AbortSignal.timeout(15e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 
 // ── formatting ──
-export const grp = (n, max = 2) => Number(n).toLocaleString('en-US', { maximumFractionDigits: max });
-export const sig = (x, n = 3) => (x >= 1 ? grp(x, x >= 100 ? 0 : 2) : x.toLocaleString('en-US', { maximumSignificantDigits: n, maximumFractionDigits: 20 }));
+export { grp, sig };
 export const usd = (x) => (x == null || !Number.isFinite(x) ? '—' : x >= 1000 ? `$${grp(x, 0)}` : x >= 1 ? `$${x.toFixed(2)}` : `$${x.toPrecision(3)}`);
 export const pct = (x, d = 1) => (x == null || !Number.isFinite(x) ? '' : `${x >= 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(Math.abs(x) >= 0.095 ? 0 : d)}%`);
 export function fmtUnits(v, dec = 18, max = 4) {
   let n = BigInt(v), neg = n < 0n; if (neg) n = -n;
   const base = 10n ** BigInt(dec), frac = (n % base).toString().padStart(dec, '0').slice(0, max).replace(/0+$/, '');
-  return `${neg ? '−' : ''}${(n / base).toLocaleString('en-US')}${frac ? `.${frac}` : ''}`;
+  return `${neg ? '−' : ''}${group(n / base)}${frac ? `.${frac}` : ''}`;
 }
 // A bigint as plain digits for an input: no grouping, no trailing zeros.
 export const plain = (v, dec = 18) => { const n = BigInt(v), base = 10n ** BigInt(dec), f = (n % base).toString().padStart(dec, '0').replace(/0+$/, ''); return `${n / base}${f ? `.${f}` : ''}`; };

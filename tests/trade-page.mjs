@@ -10,6 +10,7 @@ import http from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
 import { readFileSync, existsSync, statSync, mkdirSync } from 'node:fs';
 import { join, extname } from 'node:path';
+import { readBook } from '../dapp/zboards.js';
 
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT || '/Users/z/zFi/node_modules/playwright-core');
 const DAPP = new URL('../dapp/', import.meta.url).pathname, FX = new URL('./fixtures/', import.meta.url).pathname;
@@ -86,17 +87,22 @@ async function fundedWallet(eth, tac) {
   return { account: who, key: j.private_key };
 }
 
-async function openPage(viewport, wallet = null, hash = '', path = '/trade/') {
+async function openPage(viewport, wallet = null, hash = '', path = '/trade/', { hedge = '0', hangFirst = false } = {}) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport, colorScheme: 'light' });
   const walletLog = wallet ? await stubWallet(ctx, wallet) : null;
+  const seen = { rpc: [], api: [], apiT: [] };
+  await ctx.addInitScript((h) => { try { localStorage.setItem('tacit-trade-hedge-ms', h); } catch { /* storage is a convenience */ } }, hedge);   // a cold fork is slow for every node: a hedge would only multiply its load
   for (const h of RPC_HOSTS) await ctx.route(`https://${h}/**`, async (route) => {
+    if (hangFirst && h === RPC_HOSTS[0]) return new Promise(() => {});                 // a node that never answers
+    try { const j = JSON.parse(route.request().postData() || '{}'); seen.rpc.push({ method: j.method, to: String(j.params?.[0]?.to || '').toLowerCase(), data: String(j.params?.[0]?.data || '') }); } catch { /* not JSON */ }
     try {
       const r = await fetch(ANVIL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: route.request().postData() });
       await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: await r.text() });
     } catch (e) { await route.fulfill({ status: 502, headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ error: e.message }) }).catch(() => {}); }
   });
   await ctx.route(/^https:\/\/api\.tacit\.finance\/assets\//, (route) => {
+    seen.api.push(new URL(route.request().url()).pathname.replace(/^\/assets\/[0-9a-f]{64}/, '')); seen.apiT.push(Date.now());
     return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(apiBody(route.request().url())) });
   });
   const page = await ctx.newPage(), errors = [], blocked = [];
@@ -104,11 +110,15 @@ async function openPage(viewport, wallet = null, hash = '', path = '/trade/') {
   page.on('console', (m) => { if (m.type() === 'error') { const t = m.text(); (/Content Security Policy|Refused to/i.test(t) ? blocked : errors).push(t); } });
   if (walletLog) await page.clock.install();                                   // the wallet pages' timers can be moved on by a test
   await page.goto(`http://127.0.0.1:${WEB}${path}${hash}`);
-  return { browser, page, errors, blocked, walletLog };
+  return { browser, page, errors, blocked, walletLog, seen };
 }
 
 const candles = (page) => page.$$eval('#chart .body', (b) => b.length);
 const lines = (page) => page.$$eval('#chart polyline', (b) => b.length);
+// The fork is cold: reading zSwap's four boards pulls every order's storage from the upstream node one slot at a time, which takes minutes the first
+// time and milliseconds after. The page reads them as it loads, so they are read once here, before any page asks (the pages' own first read
+// otherwise times out, over and over, until the node has finished; an earlier quote used to warm them by accident).
+await readBook({ ethCall: (to, data, block = 'latest') => rpcA('eth_call', [{ to, data }, block]), base: TACADDR, now: Math.floor(Date.now() / 1000) }).catch(() => null);
 let r;
 try {
   r = await openPage({ width: 1280, height: 900 });
@@ -118,6 +128,9 @@ try {
     throw e;
   });
 
+  const burst = r.seen.api.filter((_, i) => r.seen.apiT[i] - r.seen.apiT[0] < 5000), apiOnce = (re) => burst.filter((x) => re.test(x)).length;     // the first reads (a refresh a minute on can fall in a slow start)
+  ok((await p.$$eval('link[rel="preload"][as="fetch"][crossorigin]', (l) => l.length)) === 4 && apiOnce(/preauth-sales/) === 1 && apiOnce(/bid-intents/) === 1 && apiOnce(/^$/) === 1 && apiOnce(/farm/) <= 1, `the page's four API reads start with its HTML and are asked for once (${burst.join(' ')})`);
+  ok(await p.$eval('.chart .halo', (e) => getComputedStyle(e).animationIterationCount) === '4', 'the live dot pulses a few times when the price is drawn, not for as long as the page is open');
   const head = (await text(p, '#px-usd')).trim(), sub = (await text(p, '#px-sub')).replace(/\s+/g, ' ');
   ok(/^\$0\.\d{2,}/.test(head), `the head shows TAC's price in dollars (${head})`);
   ok(/1 TAC = [\d.]+ ETH/.test(sub) && /24h volume [\d.,]+ ETH/.test(sub), `and in ETH and the day's volume, each figure with its name (${sub.slice(0, 120)})`);
@@ -188,6 +201,13 @@ try {
   ok((await p.$$eval('#chips button', (b) => b.map((x) => x.textContent))).join() === '0.05 ETH,0.25 ETH,1 ETH' && (await p.$eval('#cmp', (e) => e.hidden)) === true, 'the ticket offers quick amounts, and the quotes panel waits for an amount');
   await p.click('#chips [data-amt="0.25"]');
   await until(p, () => !document.querySelector('#out').classList.contains('ph') && document.querySelector('#out').textContent !== '…', null, 240000);
+  const ZQ = '0x000000bd2db80567c23e353ca95a251c573cbf9b', zqCalls = () => r.seen.rpc.filter((x) => x.to === ZQ).length;
+  await p.waitForTimeout(1500);
+  ok(zqCalls() === 0, `a quote does not ask zQuoter (the heavy scan of every Uniswap, Sushi and Curve pool) until the comparison is opened (${zqCalls()} calls)`);
+  await p.click('#cmp > summary');
+  await until(p, () => true, null, 1000); await p.waitForTimeout(1500);
+  ok(zqCalls() >= 1, `and opening the comparison asks it for the amount on the ticket (${zqCalls()} calls)`);
+  await p.click('#cmp > summary');
   ok((await p.inputValue('#amt')) === '0.25' && (await p.getAttribute('#chips [data-amt="0.25"]', 'aria-pressed')) === 'true' && (await p.$eval('#cmp', (e) => e.hidden)) === false, 'pressing one fills the amount, quotes it and shows the quotes');
   await p.fill('#amt', '2');
   await until(p, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && Number(document.querySelector('#out').textContent.replace(/,/g, '')) > 5000, null, 240000);
@@ -307,6 +327,20 @@ try {
     // the page refreshes its readings each minute: what is on the ticket, a ticked box included, is left as it is
     await q.clock.fastForward(61000); await q.waitForTimeout(2500);
     ok(await q.$eval('#ack', (c) => c.checked) && !(await q.$eval('#go', (b) => b.disabled)), 'a minute passing (the page\'s own refresh) keeps the ticked box and the button ready');
+    // what a minute's refresh reads: the Bitcoin lists when the book shows them (else every second minute), the 4-hour tape every fifth minute
+    const PP = '0x0155358241411db868ba714ae7c83a27087e3d6e', sales = () => w.seen.api.filter((x) => /preauth-sales/.test(x)).length;
+    const coarse = () => w.seen.rpc.filter((x) => x.to === PP && x.data.startsWith('0x29a65241') && BigInt('0x' + x.data.slice(10, 74)) === 14400n).length;
+    const minute = async () => { await q.clock.fastForward(61000); await q.waitForTimeout(1800); };
+    await q.click('[data-book="btc"]');
+    const s0 = sales(), c0 = coarse();
+    await minute(); await minute();
+    ok(sales() - s0 === 2, `with the Bitcoin book on screen every minute reads its listings (${sales() - s0} in two minutes)`);
+    await q.click('[data-book="trades"]');
+    const s1 = sales();
+    for (let i = 0; i < 4; i++) await minute();
+    ok(sales() - s1 === 2, `with the Trades tab on screen the listings are read every second minute (${sales() - s1} in four)`);
+    ok(coarse() - c0 === 1, `and the 4-hour tape is read once in these six minutes, the 5-minute one each time (${coarse() - c0})`);
+    await q.click('[data-book="btc"]');
     await q.click('[data-slip="100"]');
     ok(await q.$eval('[data-slip="100"]', (b) => b.getAttribute('aria-pressed') === 'true') && (await q.$eval('#ack', (c) => c.checked)), 'slippage is changed in the quote, and the accepted loss stays accepted');
     await q.click('[data-slip="50"]');
@@ -510,6 +544,13 @@ try {
     await d.close();
   }
 
+  // a node that never answers does not hold the page up: the next is asked after the hedge, and the price is on screen long before the first node's timeout
+  await r.browser.close();
+  r = await openPage({ width: 1280, height: 900 }, null, '', '/trade/', { hedge: '1200', hangFirst: true });
+  const tH = Date.now();
+  await until(r.page, () => /^\$0\.\d/.test(document.querySelector('#px-usd')?.textContent || ''), null, 120000);
+  ok(Date.now() - tH < 11000, `with the first node never answering the price is read from the next (${Date.now() - tH} ms, not the 12 s the first node's timeout would cost)`);
+  await r.browser.close();
   // a phone
   r = await openPage({ width: 390, height: 844 });
   const m = r.page;

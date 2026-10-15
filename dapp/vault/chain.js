@@ -1,7 +1,7 @@
 // What the vault page reads from and sends to the chain: Ethereum's public nodes (the same four the trade page asks, one after another),
 // the calls of a vault and its two tokens as Multicall3 batches, and the calldata of what a person does there. Nothing here is kept: every
 // figure comes from the contracts, so a vault is the same from any browser.
-import { _internal, MULTICALL3 } from '/evm-trade-venues.js?cb=bb675102';
+import { _internal, MULTICALL3 } from '/evm-trade-venues.js?cb=1498d6da';
 
 export const RPCS = ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org', 'https://1rpc.io/eth', 'https://mainnet.gateway.tenderly.co'];
 export const WAD = 10n ** 18n;

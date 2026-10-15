@@ -10,17 +10,19 @@ if (/^\/trade\/(index\.html)?$/.test(location.pathname)) history.replaceState(nu
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import {
   makeEvmTradeVenues, zswapDeepLink, encErc20Approve, PRECISION_POOL, TAC_ERC20, TACIT_AMM, MULTICALL3, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, _internal,
-} from '/evm-trade-venues.js?cb=bb675102';
+} from '/evm-trade-venues.js?cb=1498d6da';
 import { getConfidentialDeployment } from '/confidential-deployments.js';
-import { buildBook, planBuy, planSell as planBtcSell, ladderLevels } from '/btc-book.js?cb=91371653';
+import { buildBook, planBuy, planSell as planBtcSell, ladderLevels } from '/btc-book.js?cb=2d11b335';
 import { decodeTape, chartBars, invert, ethLaneUsd, btcLaneUsd, candlesFromTrades, tradePrices, closeAt, volumeSince, gap, TAPE_FINE, TAPE_COARSE } from '/trade/tape.js?cb=6565501b';
-import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=f31c8773';
+import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=e2110e58';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
-import { mountDepth } from '/trade/depth.js?cb=1e8ce418';
+import { mountDepth } from '/trade/depth.js?cb=21a5dc95';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=a6b2910e';
-import { mountFarm } from '/trade/farm.js?cb=cac985f6';
+import { hedgedRpc } from '/trade/rpc.js?cb=eb8f83d1';
+import { mountFarm } from '/trade/farm.js?cb=dbc45277';
+import { grp, sig, group, satsFmt, warm as warmFormatters } from '/trade/fmt.js?cb=43646c2e';
 
 const API = 'https://api.tacit.finance';
 const TAC_BTC_ID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
@@ -40,18 +42,7 @@ const wordAt = (hex, i) => BigInt('0x' + (strip(hex).slice(i * 64, (i + 1) * 64)
 const now = () => Math.floor(Date.now() / 1000);
 
 // ── reading the chain ──
-async function rpc(method, params) {
-  let last;
-  for (const [n, url] of RPCS.entries()) {
-    try {
-      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(n === RPCS.length - 1 ? 30e3 : 12e3) });
-      const j = await r.json();
-      if (j.error) { if (j.error.code === 3 || /revert/i.test(j.error.message || '')) throw Object.assign(new Error(j.error.message), { revert: true }); last = new Error(j.error.message); continue; }
-      return j.result;
-    } catch (e) { if (e.revert) throw e; last = e; }
-  }
-  throw last || new Error('no RPC answered');
-}
+const rpc = (method, params) => hedgedRpc(RPCS, method, params);
 const ethCall = (to, data, block = 'latest', o = {}) => rpc('eth_call', [{ to, data, ...(o.from ? { from: o.from } : {}), ...(o.value ? { value: o.value } : {}), ...(o.gas ? { gas: o.gas } : {}) }, block]);
 const batch = async (calls) => _internal.decAggregate3(await ethCall(MULTICALL3, _internal.encAggregate3(calls)), calls.length);
 const venues = makeEvmTradeVenues({ ethCall, keccak256: keccak_256 });
@@ -102,20 +93,25 @@ const KEPT = 'tacit-trade-tape-v1';
 function keptTape() { try { const v = JSON.parse(localStorage.getItem(KEPT) || 'null'); return v?.v === 1 && v.pool === PRECISION_POOL && Array.isArray(v.coarse) ? v.coarse.filter((b) => b && Number.isFinite(b.t) && b.t % TAPE_COARSE === 0) : []; } catch { return []; } }
 let keptSig = '';
 function keepTape(coarse) { const sig = `${coarse.length}:${coarse.at(-1)?.t}:${coarse.at(-1)?.close}`; if (sig === keptSig) return; keptSig = sig; try { localStorage.setItem(KEPT, JSON.stringify({ v: 1, pool: PRECISION_POOL, coarse: coarse.slice(-1500) })); } catch { /* storage is a convenience */ } }
-async function loadTapes() {
+// The 4-hour tape changes slowly (one bar in four hours, the open one as swaps land): a refresh reads it only when asked (`coarse`), the 5-minute one every time.
+async function loadTapes({ coarse: wantCoarse = true } = {}) {
   const sel = '0x29a65241';
   const words = (r) => { const h = strip(r), n = Number(wordAt(h, 1)); return Array.from({ length: n }, (_, i) => '0x' + h.slice(128 + i * 64, 192 + i * 64)); };
-  const [c, f] = await Promise.all([ethCall(PRECISION_POOL, sel + word(TAPE_COARSE) + word(256)), ethCall(PRECISION_POOL, sel + word(TAPE_FINE) + word(256))]);
-  const coarse = decodeTape(words(c), TAPE_COARSE), fine = decodeTape(words(f), TAPE_FINE);
-  const merged = new Map(keptTape().map((b) => [b.t, b]));
-  for (const b of coarse) merged.set(b.t, b);                                           // what the chain says now wins
-  D.tape = { coarse: [...merged.values()].sort((a, b) => a.t - b.t), fine };
-  keepTape(D.tape.coarse);
+  const [c, f] = await Promise.all([wantCoarse || !D.tape.coarse.length ? ethCall(PRECISION_POOL, sel + word(TAPE_COARSE) + word(256)) : null, ethCall(PRECISION_POOL, sel + word(TAPE_FINE) + word(256))]);
+  const fine = decodeTape(words(f), TAPE_FINE);
+  if (c) {
+    const merged = new Map(keptTape().map((b) => [b.t, b]));
+    for (const b of decodeTape(words(c), TAPE_COARSE)) merged.set(b.t, b);                 // what the chain says now wins
+    D.tape = { coarse: [...merged.values()].sort((a, b) => a.t - b.t), fine };
+    keepTape(D.tape.coarse);
+  } else D.tape = { coarse: D.tape.coarse, fine };
 }
 
-async function loadBitcoin() {
-  const [asset, sales, bidRows] = await Promise.all([api(`/assets/${TAC_BTC_ID}?network=mainnet`), api(`/assets/${TAC_BTC_ID}/preauth-sales?network=mainnet`), api(`/assets/${TAC_BTC_ID}/bid-intents?network=mainnet`)]);
+// `lists` says whether the listings and bids are read as well as the trades (the lists are most of the bytes: a refresh that nothing on screen shows leaves them).
+async function loadBitcoin({ lists = true } = {}) {
+  const [asset, sales, bidRows] = await Promise.all([api(`/assets/${TAC_BTC_ID}?network=mainnet`), lists ? api(`/assets/${TAC_BTC_ID}/preauth-sales?network=mainnet`) : null, lists ? api(`/assets/${TAC_BTC_ID}/bid-intents?network=mainnet`) : null]);
   if (asset) D.btc = { trades: asset.trades || [], mark: Number(asset.mark_price?.unit) || null, last: asset.last_trade || null, change24: asset.price_24h_change_pct, vol24: Number(asset.volume_24h_sats) || 0, holders: asset.holder_count ?? null, firstTrade: asset.price_first_trade_ts || null, tradesCap: asset.trades_cap };
+  if (asset && D.book) { D.btc.ask = D.book.bestAsk; D.btc.bid = D.book.bestBid; }               // a read that left the lists alone keeps what they said
   if (Array.isArray(sales?.sales)) {
     D.bidsRead = Array.isArray(bidRows?.intents);                                              // a bid list that could not be read is not the same as no bids
     D.raw = { listings: sales.sales.map((x) => ({ ...x, kind: 'preauth' })), bids: D.bidsRead ? bidRows.intents : [] };   // the sale rows carry no `kind`
@@ -144,15 +140,12 @@ async function loadBoards() {
 }
 
 // ── formatting ──
-const grp = (n, max = 2) => Number(n).toLocaleString('en-US', { maximumFractionDigits: max });
-const sig = (x, n = 3) => (x >= 1 ? grp(x, x >= 100 ? 0 : 2) : x.toLocaleString('en-US', { maximumSignificantDigits: n, maximumFractionDigits: 20 }));
 const usd = (x) => (x == null || !Number.isFinite(x) ? '—' : x >= 1000 ? `$${grp(x, 0)}` : x >= 1 ? `$${x.toFixed(2)}` : `$${x.toPrecision(3)}`);
-const satsFmt = (n) => (n >= 100 ? Math.round(n).toLocaleString('en-US') : Number(n).toLocaleString('en-US', { maximumFractionDigits: 1 }));
 const pct = (x, d = 1) => (x == null || !Number.isFinite(x) ? '' : `${x >= 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(Math.abs(x) >= 0.095 ? 0 : d)}%`);
 function fmtUnits(v, dec = 18, max = 4) {
   let n = BigInt(v), neg = n < 0n; if (neg) n = -n;
   const base = 10n ** BigInt(dec), frac = (n % base).toString().padStart(dec, '0').slice(0, max).replace(/0+$/, '');
-  return `${neg ? '−' : ''}${(n / base).toLocaleString('en-US')}${frac ? `.${frac}` : ''}`;
+  return `${neg ? '−' : ''}${group(n / base)}${frac ? `.${frac}` : ''}`;
 }
 // An amount as the front page reads it: a comma between digits is a thousands separator only where it plainly is one (1,500.25 or 1,000,000),
 // a lone comma is a decimal point (0,05), and an ambiguous 1,500 is left unread rather than guessed. Anything else with a comma is unread.
@@ -431,10 +424,18 @@ async function requote(quiet = false) {
     S.quote = { wei, dir, buy, rt, board, priv: privQuote(dir, wei), book: bookQuote(dir, wei), zq: S.zq?.k === `${dir}:${wei}` ? S.zq.v : null };
     renderQuote(S.quote); renderVenues(S.quote); renderBook();
     // zQuoter's answer belongs to the amount and direction asked, so it lands on whichever quote is current for them (a refresh that began meanwhile has the same ones).
-    zq(dir, wei).then((v) => { if (S.quote && S.quote.wei === wei && S.quote.dir === dir) { S.quote.zq = v; renderVenues(S.quote); } });
+    if ($('#cmp').open) askZq(S.quote);
   } catch (e) { if (my === S.seq && !quiet) { renderQuote({ err: 'The pools could not be read just now.' }); renderVenues(null); } }
   finally { if (quiet) S.refreshing = false; }
 }
+// zQuoter scans every Uniswap, Sushi and Curve pool in one heavy call, and shows only in the comparison (it has found no route for TAC): it is asked once the
+// comparison is open, for the quote on the ticket. A answer belongs to the amount and direction asked, so it lands on whichever quote is current for them.
+function askZq(q) {
+  if (!q || q.zq) return;
+  const { wei, dir } = q;
+  zq(dir, wei).then((v) => { if (S.quote && S.quote.wei === wei && S.quote.dir === dir) { S.quote.zq = v; renderVenues(S.quote); } });
+}
+$('#cmp').addEventListener('toggle', () => { if ($('#cmp').open) askZq(S.quote); });
 // Quick amounts under the amount box: what the usual sizes would get, one press, no wallet needed.
 const PRESETS = { buy: [['0.05 ETH', '0.05'], ['0.25 ETH', '0.25'], ['1 ETH', '1']], sell: [['1,000 TAC', '1000'], ['5,000 TAC', '5000'], ['20,000 TAC', '20000']] };
 function renderChips() { $('#chips').innerHTML = PRESETS[S.side].map(([l, v]) => `<button type="button" data-amt="${v}" aria-pressed="${S.amt === v}"${S.busy ? ' disabled' : ''}>${l}</button>`).join(''); }
@@ -567,7 +568,7 @@ const pageWallet = () => (W.account && W.prov && !W.prov.isWalletConnect ? { uui
 // Made once: two asks at the same moment (the hover that warms it and the press that uses it) share one module and so one wallet session.
 let bitcoinP = null;
 function getBitcoin() {
-  return (bitcoinP ||= import('/trade/btc.js?cb=b0f73a4b').then((m) => (bitcoin = m.makeBitcoin({
+  return (bitcoinP ||= import('/trade/btc.js?cb=1b8db244').then((m) => (bitcoin = m.makeBitcoin({
     notify, wallet: pageWallet, onChange: () => syncMe(),
     onTraded: (t) => { noteBitcoinTrade(t); loadBitcoin().then(paintAll).catch(() => {}); },
   }))).catch((e) => { bitcoinP = null; throw e; }));
@@ -672,7 +673,7 @@ async function mineAct(act, btn) {
     else if (act === 'fund') bt.fund();
     else if (act === 'lock') bt.lock();
     else if (act === 'list') await openBitcoin(bookPrime('list'));
-    else await openBitcoin();
+    else await openBitcoin(act === 'manage' ? { focus: 'orders' } : null);
   } catch (e) {
     if (!/cancel/i.test(e?.message || '') && !e?.unlockCancelled && e?.name !== 'NotAllowedError' && e?.code !== 4001) notify(String(e?.message || e).slice(0, 200), 'error', 9000);
   } finally { if (b?.el.isConnected) { b.el.disabled = false; b.el.textContent = b.text; } renderBook(); }
@@ -1218,6 +1219,7 @@ $('.p-chart').addEventListener('click', (e) => {
 function paintAll() { renderHead(); renderLanes(); renderChart(); renderBook(); renderPin(); renderAbout(); farm.paint(); if (S.quote) renderVenues(S.quote); }
 renderQuote(null); renderVenues(null); renderControls(); renderAbout(); renderLanes();
 const loads = [loadChain().then(paintAll), loadTapes().then(paintAll), loadBitcoin().then(paintAll), loadBoards().then(paintAll)];
+setTimeout(warmFormatters, 0);                                                                              // the number formatters load their locale data while the reads are out
 Promise.allSettled(loads).then((rs) => {
   D.readAt = now();
   if (rs.every((r) => r.status === 'rejected')) $('#chart').innerHTML = '<p class="chart-empty">The pools could not be read just now. Try again in a moment.</p>';
@@ -1228,5 +1230,20 @@ Promise.allSettled(loads).then((rs) => {
   if (params.get('amount')) { S.amt = params.get('amount'); $('#amt').value = S.amt; requote(); } else keepInHash();
   paintAll();
 });
-setInterval(() => { if (!document.hidden) { loadChain().then(paintAll).catch(() => {}); loadTapes().then(paintAll).catch(() => {}); loadBitcoin().then(paintAll).catch(() => {}); loadBoards().then(paintAll).catch(() => {}); if (S.quote && !S.busy && !S.refreshing) requote(true); if (W.account && !S.busy) readBalances().then(() => { renderBalance(); renderGo(); }); if (!farm.busy()) farm.refresh(); if (bookTab() === 'trades') ensureTrades(true); if (bitcoin?.session.unlocked && !bitcoin.isOpen) bitcoin.refresh().catch(() => {}); } }, 60e3);       // a review being read, or a trade being made, is not redrawn under the person
+// Refreshing: every minute while the page is in view (and at once on coming back to it after a minute), each read when what it feeds is on screen or
+// likely to have changed: the price tapes' 4-hour bars every fifth minute, the Bitcoin lists when the Bitcoin book or Yours shows them (else every second).
+let polls = 0, polledAt = now();
+function poll(back = false) {
+  if (document.hidden) return;
+  const n = ++polls, full = back || n % 5 === 0, lists = back || n % 2 === 0 || ['btc', 'mine'].includes(bookTab());
+  polledAt = now();
+  loadChain().then(paintAll).catch(() => {}); loadTapes({ coarse: full }).then(paintAll).catch(() => {}); loadBitcoin({ lists }).then(paintAll).catch(() => {}); loadBoards().then(paintAll).catch(() => {});
+  if (S.quote && !S.busy && !S.refreshing) requote(true);                                       // a review being read, or a trade being made, is not redrawn under the person
+  if (W.account && !S.busy) readBalances().then(() => { renderBalance(); renderGo(); });
+  if (!farm.busy()) farm.refresh();
+  if (bookTab() === 'trades') ensureTrades(true);
+  if (bitcoin?.session.unlocked && !bitcoin.isOpen) bitcoin.refresh().catch(() => {});
+}
+setInterval(poll, 60e3);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && now() - polledAt >= 60) poll(true); });
 
