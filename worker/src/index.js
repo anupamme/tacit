@@ -102,6 +102,7 @@ import { buildOversight } from './governance-oversight.js';
 import { validateConsumedSource, deriveConsumedSource } from './consumed-source.js';
 import { makeConfidentialPool } from '../../dapp/confidential-pool.js';
 import { opExpiry } from '../../dapp/confidential-relay.js';
+import { sanitizeLedger, readChain, buildEconomics } from './relay-economics.js';
 import { CONFIDENTIAL_DEPLOYMENTS as _CONFIDENTIAL_DEPLOYMENTS } from '../../dapp/confidential-deployments.js';
 import { decodeCrossoutMint, CONFIDENTIAL_POOL_DEPLOYMENTS as _CROSSOUT_POOL_DEPLOYMENTS } from '../../dapp/confidential-crossout-consumer.js';
 import { classifyConfidentialTx, makeBurnDepositKit } from '../../dapp/burn-deposit-bitcoin.js';
@@ -631,7 +632,7 @@ const reverseBytes = b => { const r = new Uint8Array(b); r.reverse(); return r; 
 // caller (curl, another server) could already do. This is what lets a third-party page with no fixed
 // origin (an IPFS/web3-gateway-hosted frontend, e.g.) use the relay directly from a browser instead of
 // needing its own backend proxy or a per-deploy entry in ALLOWED_ORIGINS.
-const OPEN_ORIGIN_PATHS = new Set(['/stats', '/flow', '/bridge/recover', '/reflection/proof', '/confidential/submit', '/confidential/status', '/confidential/quote', '/confidential/index', '/reflection/dump', '/reflection/status', '/reflection/note-witness', '/reflection/burndep', '/reflection/eth-state/covers', '/crossout/minted', '/farm/program', '/farm/health']);
+const OPEN_ORIGIN_PATHS = new Set(['/stats', '/flow', '/relay/economics', '/bridge/recover', '/reflection/proof', '/confidential/submit', '/confidential/status', '/confidential/quote', '/confidential/index', '/reflection/dump', '/reflection/status', '/reflection/note-witness', '/reflection/burndep', '/reflection/eth-state/covers', '/crossout/minted', '/farm/program', '/farm/health']);
 function corsHeaders(env, reqOrigin, openOrigin) {
   const list = (env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
   const allow = openOrigin || list.includes('*') ? '*' : (list.includes(reqOrigin) ? reqOrigin : list[0]);
@@ -714,6 +715,8 @@ async function handleProverHeartbeat(req, env, cors) {
   };
   // The prover network credit in PROVE ("78.24"), when the service reads it: kept, and given only to the relay's own token.
   if (typeof body.prover_credit === 'string' && /^\d{1,12}(\.\d{1,4})?$/.test(body.prover_credit)) rec.prover_credit = body.prover_credit;
+  // The settle relay's own books (worker-relay/src/lib/income-ledger.js), copied field by field: served by /relay/economics, never by /prover-health.
+  if (body.ledger != null) { const l = sanitizeLedger(body.ledger); if (l) rec.ledger = l; }
   // Progress fields (optional). These let /prover-health answer "how far
   // behind is proof coverage", not just "is the prover up": prover_alive only says the loop process exists, not that
   // state is advancing.
@@ -1765,6 +1768,29 @@ async function flowRecord(env) {
     if (next.length !== was.length || next.at(-1)?.t !== was.at(-1)?.t) await env.REGISTRY_KV.put(FLOW_SERIES_KEY, JSON.stringify(next));
   } catch (e) { console.warn(`[flow] history not saved: ${(e && e.message) || e}`); }
 }
+// GET /relay/economics: what the relay earns, spends and gives to the TAC buyback (relay-economics.js). The settle relay's books come from its
+// heartbeat; the chain facts are read at most every five minutes and kept in KV, and the buyback's lifetime totals extend from where the last
+// read stopped. A read that fails leaves the last one in place rather than failing the page.
+const ECON_KEY = 'relay:economics:chain:v1', ECON_TTL_MS = 5 * 60e3;
+let _econReading = null, _econTriedAt = 0;
+async function handleRelayEconomics(env, cors) {
+  const kv = env.REGISTRY_KV;
+  if (!kv) return jsonResponse({ error: 'no kv' }, 500, cors);
+  let hb = null, chain = null;
+  try { hb = JSON.parse((await kv.get(proverHbKey('mainnet', 'settle'))) || 'null'); } catch { hb = null; }
+  try { chain = JSON.parse((await kv.get(ECON_KEY)) || 'null'); } catch { chain = null; }
+  if ((!chain || Date.now() - chain.at > ECON_TTL_MS) && Date.now() - _econTriedAt > 30e3) {
+    _econTriedAt = Date.now();
+    _econReading ||= readChain({
+      rpc: (method, params) => _ethRpc('mainnet', method, params), prev: chain,
+      addrs: { settle: env.SETTLE_ADDRESS, relay: env.RELAY_WALLET_ADDRESS, buyback: env.BUYBACK_ADDR, splitter: env.SPLITTER_ADDR },
+    }).then(async (fresh) => { if (fresh.unread) return null; await kv.put(ECON_KEY, JSON.stringify(fresh)); return fresh; }).catch(() => null).finally(() => { _econReading = null; });
+    const fresh = await _econReading;
+    if (fresh) chain = fresh;
+  }
+  return jsonResponse(buildEconomics({ ledger: hb && hb.ledger, heartbeatAt: hb && hb.ts, chain }), 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
+}
+
 async function handleFlow(env, cors) {
   await loadStats(env);
   if (!_stats.body || Date.now() - _stats.at > STATS_TTL_MS) {
@@ -26584,6 +26610,7 @@ async function _routeFetch(req, env, ctx) {
 
     if (url.pathname === '/stats' && req.method === 'GET') return handleStats(env, cors, url);
     if (url.pathname === '/flow' && req.method === 'GET') return handleFlow(env, cors);
+    if (url.pathname === '/relay/economics' && req.method === 'GET') return handleRelayEconomics(env, cors);
 
     if (url.pathname === '/health' && req.method === 'GET') {
       return new Response(JSON.stringify({ ok: true, ts: Date.now() }), {

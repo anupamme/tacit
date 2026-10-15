@@ -212,6 +212,18 @@ export const CFG = {
   // in bps. 0 = off. Set it only once fee income covers proving with room to spare.
   buybackAddr: opt('BUYBACK_ADDR', ''),
   buybackShareBps: num('BUYBACK_SHARE_BPS', 0),
+  // The standing commitment: this share, in bps, of every ETH or convertible fee the relay EARNS goes to TacBuyback each replenish
+  // pass, surplus or not (BUYBACK_SHARE_BPS above is a share of a surplus, which a relay running near its float never has). 0 = off.
+  // The wallet keeps BUYBACK_KEEP_WEI for its next settles, so a share it cannot spare yet is owed and paid when it can (the owed amount
+  // is capped); a payment under BUYBACK_MIN_SEND_WEI waits so the gas of sending is not a real share of it.
+  buybackIncomeBps: num('BUYBACK_INCOME_BPS', 0),
+  buybackKeepWei: BigInt(opt('BUYBACK_KEEP_WEI', '2000000000000000')),          // 0.002 ETH
+  buybackMinSendWei: BigInt(opt('BUYBACK_MIN_SEND_WEI', '200000000000000')),    // 0.0002 ETH
+  buybackOwedCapWei: BigInt(opt('BUYBACK_OWED_CAP_WEI', '50000000000000000')),  // 0.05 ETH
+  // An EthSplitter (contracts/src/EthSplitter.sol) that wrap tips are sent to: each pass sends it on once it holds SPLITTER_MIN_WEI.
+  // Anyone may call distribute(); this is only so nobody has to. Empty = off.
+  splitterAddr: opt('SPLITTER_ADDR', ''),
+  splitterMinWei: BigInt(opt('SPLITTER_MIN_WEI', '500000000000000')),           // 0.0005 ETH
   // Convert fee income to PROVE and deposit it. On by default; REPLENISH_DEPOSIT_PROVE=0 keeps a pass to gas.
   replenishDepositProve: opt('REPLENISH_DEPOSIT_PROVE', '1') !== '0',
   // Native ETH is only converted to PROVE above this. ETH that arrives as fee income is gas as much as it is

@@ -20,8 +20,8 @@
 // sigmas in the witness. It can only earn the bound fee.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { CFG, OP_GAS, DEFAULT_OP_GAS, OP_PROVE } from './lib/config.js';
-import { confidentialJob, confidentialBatch, confidentialAck, confidentialActivateAck, heartbeat, heartbeatIdle } from './lib/worker-client.js';
+import { CFG, ADDR, OP_GAS, DEFAULT_OP_GAS, OP_PROVE } from './lib/config.js';
+import { confidentialJob, confidentialBatch, confidentialAck, confidentialActivateAck, heartbeat, heartbeatIdle, setHeartbeatLedger } from './lib/worker-client.js';
 import { proveSettle } from './lib/prover.js';
 import { assertMemosMatchProof } from './lib/memo-root.js';
 import { consumedInput, consumedAck, unlandedDeposits, spentInputsOf, noteNullifier } from './lib/spent-precheck.js';
@@ -29,9 +29,10 @@ import { findCarrier, isRevert } from './lib/landed-elsewhere.js';
 import { cbtcMintBlocker } from './lib/cbtc-mint-precheck.js';
 import { cdpBlocker } from './lib/cdp-precheck.js';
 import { settleWallet, settleWallets, publicClient, ethUsdPrice, POOL, POOL_ABI, ROUTER } from './lib/chain.js';
+import { ledger } from './lib/income-ledger.js';
 import { ROUTER_EXIT_ABI, recipeArgs, exitCheck, activationCover } from './lib/exit-activate.js';
 import { makeAbandonedSettles } from './lib/abandoned-settles.js';
-import { quoteRelayFee, provePriceUsd, replenishOnce, drainToSink } from './replenish.js';
+import { quoteRelayFee, provePriceUsd, replenishOnce, drainToSink, feeAssets } from './replenish.js';
 import { replenishDue } from './lib/replenish-schedule.js';
 import { tipFor, TIP_HISTORY_BLOCKS, TIP_PERCENTILE } from './lib/gas-tip.js';
 import { feeCapFor } from './lib/fee-cap.js';
@@ -41,6 +42,16 @@ import { revertSelector, opExpiry } from './lib/revert-data.js';
 import { encodeFunctionData } from 'viem';
 
 const log = (...a) => console.log(`[settle ${new Date().toISOString()}]`, ...a);
+
+// The books (lib/income-ledger.js): a settled job's fee and its share of the settle's gas, read from the receipt. Run after the ack, never
+// awaited by the loop, and it cannot throw into it: a settle is never held up for its own bookkeeping.
+function bookSettled(jobs, txHash) {
+  publicClient.getTransactionReceipt({ hash: txHash })
+    .then((r) => BigInt(r.gasUsed) * BigInt(r.effectiveGasPrice))
+    .catch(() => 0n)
+    .then((cost) => { const each = cost / BigInt(Math.max(1, jobs.length)); for (const j of jobs) ledger.settled(j, { txCostWei: each }); })
+    .catch(() => {});
+}
 const sleep = (s) => new Promise((r) => setTimeout(r, s * 1000));
 
 // Settle submission: a private endpoint accepting a transaction is not the same as a builder including it,
@@ -489,6 +500,7 @@ async function settleOne(j) {
     const txHash = await submitSettle(proof, j.memos || [], `job ${j.jobId}`);
     await confidentialAck({ jobId: j.jobId, txHash });
     log(`settled: job=${j.jobId} tx=${txHash}`);
+    bookSettled([j], txHash);
     await activateRelayedExit(j, txHash);
   } catch (e) {
     log(`job ${j.jobId} failed: ${e.message}`);
@@ -575,6 +587,7 @@ async function batchCycle() {
       const txHash = await submitSettle(proof, memos, `batch(${jobs.length})`);
       for (const id of ids) await confidentialAck({ jobId: id, txHash });
       log(`batch settled: n=${jobs.length} tx=${txHash}`);
+      bookSettled(jobs, txHash);
     } catch (e) {
       log(`batch settle failed, settling members one by one: ${e.message}`);
       for (const j of jobs) await settleOne(j);
@@ -676,6 +689,7 @@ async function cycle() {
       });
     } catch { /* worker reclaims on TTL */ }
     log(`proved-only: job=${jobId}`);
+    ledger.provedOnly();
     return true;
   }
 
@@ -702,6 +716,7 @@ async function cycle() {
 
   log(`settled: job=${jobId} tx=${txHash}`);
   await confidentialAck({ jobId, txHash });
+  bookSettled([job], txHash);
   await activateRelayedExit(job, txHash);
   await heartbeat('settle', `settled ${jobId}`);
   return true;
@@ -760,6 +775,15 @@ async function maybeReplenish() {
 
 async function main() {
   log(`starting — worker=${CFG.workerBase} pool=${POOL} poll=${CFG.settlePollSecs}s timeout=${CFG.settleJobTimeoutSecs}s`);
+  // The books: which fee assets count as converted income, what the standing commitments are set to, and the snapshot every heartbeat carries.
+  try {
+    ledger.configure({ converted: feeAssets(), tac: ADDR.tacToken });
+    ledger.setConfig({
+      buybackBps: CFG.buybackIncomeBps, buybackKeepEth: Number(CFG.buybackKeepWei) / 1e18, buybackMinSendEth: Number(CFG.buybackMinSendWei) / 1e18,
+      buybackSurplusBps: CFG.buybackShareBps, splitter: CFG.splitterAddr || null, buyback: CFG.buybackAddr || null, replenishMin: CFG.replenishIntervalMin,
+    });
+    setHeartbeatLedger(() => ledger.snapshot());
+  } catch (e) { log(`ledger setup failed (settling continues): ${e?.message || e}`); }
   if (CFG.sp1Prover === 'network' && !CFG.networkPrivateKey) {
     throw new Error('SP1_PROVER=network but NETWORK_PRIVATE_KEY unset — cannot prove');
   }

@@ -40,9 +40,9 @@ const abiSrc = chainSrc.slice(chainSrc.indexOf('export const ZQUOTER_ABI'), chai
   .replace('export const ZQUOTER_ABI =', 'return');
 const zQuoterAbi = new Function(abiSrc)();
 
-async function run({ splitKeys = true, opts = { roles: ['settle'] }, feeAssets, balances, tokenBalances, extraEnv = {}, nonceRaceFor = [], badProveQuoteFactor = 0, badEthOutFactor = 0, badGasCostFactor = 0, fn = 'replenishOnce', fnArgs = null }) {
+async function run({ splitKeys = true, opts = { roles: ['settle'] }, feeAssets, balances, tokenBalances, extraEnv = {}, nonceRaceFor = [], badProveQuoteFactor = 0, badEthOutFactor = 0, badGasCostFactor = 0, fn = 'replenishOnce', fnArgs = null, pre = '' }) {
   const stub = await startStub({ balances, tokenBalances, zQuoterAbi, addr: A, nonceRaceFor, badProveQuoteFactor, badEthOutFactor, badGasCostFactor });
-  const script = `const r = await import('${join(ROOT, 'worker-relay/src/replenish.js')}'); await r.${fn}(${JSON.stringify(fnArgs ?? opts)});`;
+  const script = `${pre}\nconst r = await import('${join(ROOT, 'worker-relay/src/replenish.js')}'); await r.${fn}(${JSON.stringify(fnArgs ?? opts)});`;
   const env = {
     PATH: process.env.PATH, WORKER_BASE: 'http://x', BOX_TOKEN: 't', RELAY_KEY: RELAY_PK,
     RPC_URL: stub.url, RPC_URLS_FALLBACK: stub.url, SETTLE_RPC_URL: stub.url, SETTLE_RPC_URLS: stub.url, SETTLE_ALLOW_PUBLIC: '0',
@@ -380,6 +380,53 @@ await test('buyback share: off by default, and nothing is sent without a real su
     balances: { [relay]: ETH(0.09) }, tokenBalances: {},
   });
   ok(ethTo(float.sent, BUYBACK).length === 0, 'took a buyback share out of the gas float');
+});
+
+// ── the standing buyback: a share of what the relay EARNS (the ledger), not of a surplus ──
+const LEDGER = join(ROOT, 'worker-relay/src/lib/income-ledger.js');
+const ZERO = '0x0000000000000000000000000000000000000000', TAC_TOKEN = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279';
+const earned = (usd, asset = ZERO) => `const L = await import('${LEDGER}'); L.ledger.configure({ converted: ['${ZERO}'], tac: '${TAC_TOKEN}' }); L.ledger.settled({ feeUsd: ${usd}, feeAsset: '${asset}' });`;
+const standing = { BUYBACK_ADDR: BUYBACK, BUYBACK_INCOME_BPS: '1000', ETH_PRICE_USD: '2000' };
+
+await test('standing buyback: 10% of the fee income is sent to TacBuyback even with no surplus at all', async () => {
+  // $100 of ETH fees at $2,000 is 0.05 ETH earned; 10% is 0.005. The wallet holds 0.009, under its 0.01 float: there is no surplus, and it still pays.
+  const { sent } = await run({ feeAssets: A.eth, extraEnv: standing, pre: earned(100), balances: { [settle]: ETH(0.009), [relay]: ETH(0.02) }, tokenBalances: {} });
+  const t = ethTo(sent, BUYBACK);
+  ok(t.length === 1 && t[0].from === settle && t[0].value === ETH(0.005), `unexpected buyback transfers: ${show(t)}`);
+});
+
+await test('standing buyback: the wallet keeps what it needs for the next settles, so a thin wallet pays only what it can spare', async () => {
+  const { sent } = await run({ feeAssets: A.eth, extraEnv: standing, pre: earned(100), balances: { [settle]: ETH(0.003), [relay]: ETH(0.02) }, tokenBalances: {} });
+  const t = ethTo(sent, BUYBACK);
+  ok(t.length === 1 && t[0].value === ETH(0.001), `a wallet at 0.003 with 0.002 kept should send 0.001, sent ${show(t)}`);
+  const dry = await run({ feeAssets: A.eth, extraEnv: standing, pre: earned(100), balances: { [settle]: ETH(0.0015), [relay]: ETH(0.02) }, tokenBalances: {} });
+  ok(ethTo(dry.sent, BUYBACK).length === 0, 'a wallet under its keep sent a buyback share');
+});
+
+await test('standing buyback: only fees count; a top-up that lands in the wallet is not income', async () => {
+  const none = await run({ feeAssets: A.eth, extraEnv: standing, balances: { [settle]: ETH(0.5), [relay]: ETH(0.02) }, tokenBalances: {} });
+  ok(ethTo(none.sent, BUYBACK).length === 0, 'took a share of a balance that no fee earned');
+  const tac = await run({ feeAssets: A.eth, extraEnv: standing, pre: earned(100, TAC_TOKEN), balances: { [settle]: ETH(0.5), [relay]: ETH(0.02) }, tokenBalances: {} });
+  ok(ethTo(tac.sent, BUYBACK).length === 0, 'a fee paid in TAC (held, not converted) was counted into the ETH buyback');
+});
+
+await test('standing buyback: off unless BUYBACK_INCOME_BPS is set, and it never runs for the cron that earns nothing', async () => {
+  const off = await run({ feeAssets: A.eth, extraEnv: { BUYBACK_ADDR: BUYBACK, ETH_PRICE_USD: '2000' }, pre: earned(100), balances: { [settle]: ETH(0.5), [relay]: ETH(0.02) }, tokenBalances: {} });
+  ok(ethTo(off.sent, BUYBACK).length === 0, 'sent a share with BUYBACK_INCOME_BPS unset');
+  const cron = await run({ feeAssets: A.eth, opts: { roles: null }, extraEnv: standing, pre: earned(100), balances: { [settle]: ETH(0.5), [relay]: ETH(0.02) }, tokenBalances: {} });
+  ok(ethTo(cron.sent, BUYBACK).length === 0, 'the all-wallets cron paid a share it has no ledger for');
+});
+
+// ── a splitter is sent on ──
+const SPLITTER = '0x00000000000000000000000000000000005911e7', DISTRIBUTE = '0xe4fc6b6d';
+await test('splitter: sent on once it holds the minimum, by the settle wallet, and left alone below it or when unset', async () => {
+  const hit = await run({ feeAssets: A.eth, extraEnv: { SPLITTER_ADDR: SPLITTER }, balances: { [settle]: ETH(0.05), [relay]: ETH(0.02), [SPLITTER]: ETH(0.01) }, tokenBalances: {} });
+  const d = hit.sent.filter((t) => t.to === SPLITTER);
+  ok(d.length === 1 && d[0].data === DISTRIBUTE && d[0].from === settle && d[0].value === 0n, `expected one distribute() from the settle wallet, saw ${show(d)}`);
+  const low = await run({ feeAssets: A.eth, extraEnv: { SPLITTER_ADDR: SPLITTER }, balances: { [settle]: ETH(0.05), [relay]: ETH(0.02), [SPLITTER]: ETH(0.0001) }, tokenBalances: {} });
+  ok(!low.sent.some((t) => t.to === SPLITTER), 'sent on a splitter holding less than the minimum');
+  const off = await run({ feeAssets: A.eth, balances: { [settle]: ETH(0.05), [relay]: ETH(0.02), [SPLITTER]: ETH(0.01) }, tokenBalances: {} });
+  ok(!off.sent.some((t) => t.to === SPLITTER), 'touched a splitter with SPLITTER_ADDR unset');
 });
 
 console.log(`\n${pass} passed, ${fail} failed.`);

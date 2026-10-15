@@ -18,6 +18,8 @@ import { withNonceRetry as _withNonceRetry } from './lib/nonce-retry.js';
 import { proverCredit } from './lib/prover.js';
 import { setProverCredit } from './lib/worker-client.js';
 import { creditText } from './lib/prove-credit.js';
+import { ledger } from './lib/income-ledger.js';
+import { planBuyback, splitterDue } from './lib/income-allocation.js';
 import {
   publicClient, relayWallet, fundedWallets, ethUsdPrice, ERC20_ABI, VAPP_ABI, ZQUOTER_ABI, ZROUTER_ABI,
   PROVE, VAPP, ZQUOTER, ZROUTER,
@@ -88,7 +90,7 @@ const ETH = '0x0000000000000000000000000000000000000000';
 // there is NO unwrap leg: FEE_ASSETS is just the list of underlying tokens we convert to
 // PROVE. address(0) (or "eth") = native ETH. TAC is deliberately omitted — we hold the
 // platform token rather than dump it.
-function feeAssets() {
+export function feeAssets() {
   const raw = process.env.FEE_ASSETS || '';
   return raw.split(',').map((s) => s.trim()).filter(Boolean)
     .map((a) => (/^0x0{40}$/i.test(a) || a.toLowerCase() === 'eth') ? ETH : getAddress(a));
@@ -219,6 +221,7 @@ async function depositProveToVApp(wallet = relayWallet) {
   const rcpt = await publicClient.waitForTransactionReceipt({ hash: h });
   if (rcpt.status !== 'success') throw new Error(`vApp deposit reverted ${h}`);
   log(`vApp deposit ok: tx=${h}`);
+  ledger.deposited(Number(amt / 10n ** 14n) / 1e4);
 }
 
 // Dollar value of an ERC20 fee balance, for the dust floor and the quote sanity check. It must NOT come from
@@ -345,6 +348,55 @@ async function sendBuybackShare(excess, wallet) {
   } catch (e) { log(`  buyback share failed (continuing): ${e.message}`); return 0n; }
 }
 
+const isAddr = (a) => /^0x[0-9a-fA-F]{40}$/.test(String(a || ''));
+const SPLITTER_ABI = [{ type: 'function', name: 'distribute', inputs: [], outputs: [], stateMutability: 'nonpayable' }];
+
+// The standing buyback (CFG.buybackIncomeBps): its share of the fee income the ledger counted since the last pass goes to TacBuyback,
+// from the wallet that earned it, as far as that wallet can spare it; the rest is carried as owed (lib/income-allocation.js). Never throws:
+// a failure hands the income back to the next pass and the settle loop goes on.
+async function payIncomeBuyback(owner, wallet) {
+  const to = CFG.buybackAddr;
+  if (!(CFG.buybackIncomeBps > 0)) return;
+  if (!isAddr(to)) { log('  buyback: BUYBACK_ADDR is not an address — skipping'); return; }
+  const baseUsd = ledger.takeBuybackBase();
+  let plan;
+  try {
+    const [ethUsd, balanceWei] = await Promise.all([ethUsdPrice(), publicClient.getBalance({ address: owner })]);
+    plan = planBuyback({ baseUsd, ethUsd, bps: CFG.buybackIncomeBps, owedWei: ledger.owed(), balanceWei, keepWei: CFG.buybackKeepWei, minSendWei: CFG.buybackMinSendWei, owedCapWei: CFG.buybackOwedCapWei });
+  } catch (e) { ledger.giveBackBase(baseUsd); log(`  buyback: could not price this pass (${e.message}) — income carried`); return; }
+  // Owed is written before anything is sent, so a pass that dies after the send cannot pay the same share twice.
+  ledger.setOwed(plan.owedAfterWei);
+  log(`  buyback: ${(CFG.buybackIncomeBps / 100).toFixed(1)}% of $${baseUsd.toFixed(2)} fee income: ${plan.dueWei} wei due, ${plan.payWei} wei paid, ${plan.owedAfterWei} wei owed (${plan.reason})`);
+  if (plan.payWei === 0n) return;
+  try {
+    const h = await withNonceRetry('buyback income', () => wallet.sendTransaction({ to, value: plan.payWei }));
+    const r = await publicClient.waitForTransactionReceipt({ hash: h });
+    if (r.status !== 'success') throw new Error(`transfer reverted ${h}`);
+    ledger.boughtBack(plan.payWei);
+    log(`  buyback: sent ${plan.payWei} wei ETH -> ${to} (tx ${h})`);
+  } catch (e) {
+    ledger.setOwed(ledger.owed() + plan.payWei > CFG.buybackOwedCapWei ? CFG.buybackOwedCapWei : ledger.owed() + plan.payWei);
+    log(`  buyback send failed — owed again (${e.message})`);
+  }
+}
+
+// Sends a splitter's balance on to its recipients once it holds the minimum (CFG.splitterAddr). Anyone may call distribute(); this is only
+// so nobody has to. A revert (a recipient that refuses ETH) is logged and tried again next pass.
+async function distributeSplitter(wallet) {
+  const to = CFG.splitterAddr;
+  if (!to) return;
+  if (!isAddr(to)) { log('  splitter: SPLITTER_ADDR is not an address — skipping'); return; }
+  try {
+    const bal = await publicClient.getBalance({ address: to });
+    if (!splitterDue(bal, CFG.splitterMinWei)) return;
+    const h = await withNonceRetry('splitter distribute', () => wallet.writeContract({ address: to, abi: SPLITTER_ABI, functionName: 'distribute', args: [] }));
+    const r = await publicClient.waitForTransactionReceipt({ hash: h });
+    if (r.status !== 'success') throw new Error(`distribute reverted ${h}`);
+    ledger.splitterSent();
+    log(`  splitter: sent ${bal} wei on from ${to} (tx ${h})`);
+  } catch (e) { log(`  splitter distribute failed (continuing): ${e.message}`); }
+}
+
 // One replenish pass: turn fee income into the two things the relay burns — ETH gas and PROVE.
 //
 // Two roles matter, and they are not the same wallet:
@@ -389,6 +441,13 @@ export async function replenishOnce({ roles = null, convertToProve = true } = {}
 
   const earners = roles ? fundedWallets.filter((w) => w.roles.some((r) => roles.includes(r))) : fundedWallets;
   if (!earners.length) { log(`no funded wallet holds role ${roles.join('/')} in this service — nothing to do`); return; }
+
+  // The standing commitments first, from the settle wallet (the one that earns the fees): the buyback's share of what was earned, and a
+  // splitter sent on. Only the settle service has a ledger to take from, and each is off unless its setting is on.
+  if (roles && roles.includes('settle')) {
+    const settleEarner = earners.find((w) => w.roles.includes('settle'));
+    if (settleEarner) { await payIncomeBuyback(settleEarner.address, settleEarner.wallet); await distributeSplitter(settleEarner.wallet); }
+  }
 
   // Proving stops outright when the network credit runs out, so a low credit outranks keeping a large ETH float:
   // under the floor, ETH above the gas buffer goes to PROVE this pass (capped), not only ETH above the sweep line.

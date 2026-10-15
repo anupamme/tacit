@@ -190,10 +190,16 @@ let _hbWarned = false;
 // The prover network credit this process last read (PROVE, as text), carried with every heartbeat it sends.
 let _credit = null;
 export const setProverCredit = (text) => { _credit = text; };
+// The books this process keeps (lib/income-ledger.js snapshot), carried with each heartbeat so the API can show them. A function, read at
+// each beat; one that throws is left out rather than costing the beat.
+let _ledger = null;
+export const setHeartbeatLedger = (fn) => { _ledger = fn; };
+const ledgerField = () => { try { const l = _ledger && _ledger(); return l ? { ledger: l } : {}; } catch { return {}; } };
 export async function heartbeat(kind, detail) {
   try {
     const res = await postJson('/prover-heartbeat', {
       ...(_credit ? { prover_credit: _credit } : {}),
+      ...ledgerField(),
       token: CFG.heartbeatToken,
       network: CFG.network,
       kind,
