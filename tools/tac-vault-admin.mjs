@@ -16,8 +16,9 @@
 //             auction min-debt (depth in bps; ratios and bonus in bps; windows in seconds; min-debt in wei)
 //   oracle    queue-oracle <addr> | execute-oracle | cancel-oracle
 //   locks     lock-params | lock-oracle | lock-minters (on the synth)        each ends the owner's power for good; the
-//             three are separate. After lower-depth 0 the way back is 0, 25, 75, 175 ... (one doubling per wait): for an
-//             emergency stop prefer set-ceiling 0.
+//             three are separate, and lock-params also ends lower-depth. After lower-depth 0 the way back is 0, 25, 75,
+//             175 ... (one doubling per wait): for an emergency stop prefer set-ceiling 0. renounce needs the synth to
+//             have no further minter (remove-minter first) and ends every owner power.
 //   synth     queue-minter <addr> | execute-minter | cancel-minter | remove-minter <addr> | lock-minters   (send to the synth)
 
 import { execFileSync } from 'node:child_process';

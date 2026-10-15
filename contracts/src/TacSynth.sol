@@ -21,6 +21,8 @@ contract TacSynth is ERC20 {
     string internal _symbol;
 
     mapping(address => bool) public isMinter;
+    /// Further minters in place now.
+    uint256 public minterCount;
     address public pendingMinter;
     uint256 public pendingMinterEta;
     bool public mintersLocked;
@@ -95,6 +97,7 @@ contract TacSynth is ERC20 {
         delete pendingMinter;
         delete pendingMinterEta;
         isMinter[minter] = true;
+        ++minterCount;
         emit MinterAdded(minter);
     }
 
@@ -110,6 +113,7 @@ contract TacSynth is ERC20 {
     function removeMinter(address minter) external onlyVaultOwner {
         if (!isMinter[minter]) revert BadMinter();
         delete isMinter[minter];
+        --minterCount;
         emit MinterRemoved(minter);
     }
 

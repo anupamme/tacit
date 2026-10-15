@@ -179,6 +179,8 @@ contract TacVault is Ownable, Multicallable {
     address public pauser;
     uint256 public pausedFrom;
     uint256 public pausedUntil;
+    // Seconds spent in pauses that have ended, before the latest one.
+    uint256 internal _pausedBefore;
 
     mapping(Param => Queued) public queuedParam;
     address public pendingOracle;
@@ -207,6 +209,7 @@ contract TacVault is Ownable, Multicallable {
     error PauseCooldown();
     error Locked();
     error NothingQueued();
+    error MintersRemain();
 
     event Deposited(address indexed owner, address indexed payer, uint256 amount);
     event Withdrawn(address indexed owner, address to, uint256 amount);
@@ -314,8 +317,10 @@ contract TacVault is Ownable, Multicallable {
         emit PauserSet(to);
     }
 
-    /// Also removes the pauser, which no one could remove afterwards.
+    /// Ends every owner power, including the synth's: it needs the synth to have no further minter, which no one
+    /// could remove afterwards. Also removes the pauser.
     function renounceOwnership() public payable override onlyOwner {
+        if (SYNTH.minterCount() != 0) revert MintersRemain();
         if (pauser != address(0)) {
             pauser = address(0);
             emit PauserSet(address(0));
@@ -323,8 +328,10 @@ contract TacVault is Ownable, Multicallable {
         super.renounceOwnership();
     }
 
-    /// Lowers the share of depth the vault may lend. Raising it goes through `queueParam`.
+    /// Lowers the share of depth the vault may lend. Raising it goes through `queueParam`. Ends with `lockParams`;
+    /// `setDebtCeiling` is the brake that stays.
     function lowerDepthBps(uint256 bps) external onlyOwner {
+        if (paramsLocked) revert Locked();
         if (bps >= _depthBps) revert BadConfig();
         _depthBps = bps;
         emit ParamSet(Param.DepthBps, bps);
@@ -340,6 +347,7 @@ contract TacVault is Ownable, Multicallable {
             if (until <= pausedUntil || until > pausedFrom + MAX_PAUSE) revert BadConfig();
         } else {
             if (block.timestamp < 2 * pausedUntil - pausedFrom) revert PauseCooldown();
+            _pausedBefore += pausedUntil - pausedFrom;
             pausedFrom = block.timestamp;
         }
         pausedUntil = until;
@@ -355,6 +363,12 @@ contract TacVault is Ownable, Multicallable {
 
     function paused() public view returns (bool) {
         return block.timestamp < pausedUntil;
+    }
+
+    /// The clock auctions run on: the time, less the time spent paused. A pause stops the owner window, the bonus
+    /// and the wait before `absorb`. `vaults(owner).auctionStart` is a reading of it.
+    function auctionTime() public view returns (uint256) {
+        return block.timestamp - _pausedBefore - (FixedPointMathLib.min(block.timestamp, pausedUntil) - pausedFrom);
     }
 
     // ─────────────── owner: delayed ───────────────
@@ -395,8 +409,7 @@ contract TacVault is Ownable, Multicallable {
         emit ParamCancelled(id);
     }
 
-    /// Ends `queueParam` for good and drops what is announced. `lowerDepthBps` still works, and can then no longer
-    /// be undone.
+    /// Ends `queueParam` and `lowerDepthBps` for good and drops what is announced.
     function lockParams() external onlyOwner {
         paramsLocked = true;
         for (uint256 i; i <= uint256(type(Param).max); ++i) {
@@ -722,7 +735,7 @@ contract TacVault is Ownable, Multicallable {
         Vault storage v = vaults[owner];
         if (v.auctionStart != 0) revert InAuction();
         if (v.debt == 0 || _value(v.collateral, _liqUsdPerTac()) * BPS >= v.debt * _liqRatioBps) revert Healthy();
-        v.auctionStart = block.timestamp;
+        v.auctionStart = auctionTime();
         emit AuctionStarted(owner, v.debt, v.collateral);
     }
 
@@ -745,7 +758,7 @@ contract TacVault is Ownable, Multicallable {
         Vault storage v = vaults[owner];
         tac = v.collateral;
         try this.offerPrice() returns (uint256 usdPerTac) {
-            uint256 elapsed = FixedPointMathLib.min(block.timestamp - v.auctionStart, _auctionDuration);
+            uint256 elapsed = FixedPointMathLib.min(auctionTime() - v.auctionStart, _auctionDuration);
             uint256 bonus = _liqBonusBps * elapsed / _auctionDuration;
             tac = FixedPointMathLib.min(tac, FixedPointMathLib.fullMulDiv(v.debt * (BPS + bonus) / BPS, WAD, usdPerTac));
             priced = true;
@@ -761,7 +774,7 @@ contract TacVault is Ownable, Multicallable {
         (uint256 offer, bool priced) = _offer(owner);
         if (msg.sender != owner) {
             if (paused()) revert Paused();
-            if (block.timestamp < v.auctionStart + _ownerWindow) revert OwnerWindow();
+            if (auctionTime() < v.auctionStart + _ownerWindow) revert OwnerWindow();
             if (!priced) revert NoPrice();
             try this.recovered(owner) returns (bool ok) {
                 if (ok) revert Healthy();
@@ -790,7 +803,7 @@ contract TacVault is Ownable, Multicallable {
         if (paused()) revert Paused();
         Vault storage v = vaults[owner];
         if (v.auctionStart == 0) revert NoAuction();
-        if (block.timestamp - v.auctionStart < _auctionDuration) revert TooEarly();
+        if (auctionTime() - v.auctionStart < _auctionDuration) revert TooEarly();
         uint256 debt = v.debt;
         if (_value(v.collateral, _liqUsdPerTac()) >= debt) revert Healthy();
         uint256 amount = SYNTH.balanceOf(address(this));

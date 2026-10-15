@@ -9,6 +9,12 @@ import {TacVault} from "../src/TacVault.sol";
 import {TacVaultZap} from "../src/TacVaultZap.sol";
 import {FixedFeed} from "../src/FixedFeed.sol";
 
+interface IPrecisionReserves {
+    function reserve0() external view returns (uint128);
+    function reserve1() external view returns (uint128);
+    function totalSupply() external view returns (uint256);
+}
+
 interface IPoolRegistry {
     function registerWrappedAuto(address underlying, bytes32 crossChainLink) external returns (bytes32 assetId);
     function createPair(
@@ -97,6 +103,7 @@ contract DeployTacVault is Script {
         );
         o.oracle = address(new TacPairOracle(o.precisionOracle, o.ammOracle));
         _checkReserveSlots(o.ammOracle);
+        _checkPrecisionSlots(o.precisionOracle);
         o.usd = new TacVault(_config(o.oracle, ETH_USD, "USD", vm.envOr("USD_MIN_DEBT", uint256(100e18))));
         o.eth = new TacVault(
             _config(o.oracle, address(new FixedFeed()), "ETH", vm.envOr("ETH_MIN_DEBT", uint256(0.04e18)))
@@ -170,6 +177,15 @@ contract DeployTacVault is Script {
         require(uint256(vm.load(POOL, slotA)) == reserveA && uint256(vm.load(POOL, slotB)) == reserveB, "reserve slots");
     }
 
+    // The slots the Precision oracle proves hold the pool's packed reserves and the LP supply today.
+    function _checkPrecisionSlots(address precisionOracle) internal view {
+        (bytes32 slotReserves, bytes32 slotSupply) = TacBlockOracle(precisionOracle).slots();
+        IPrecisionReserves p = IPrecisionReserves(PRECISION);
+        uint256 packed = uint256(p.reserve0()) | uint256(p.reserve1()) << 128;
+        require(uint256(vm.load(PRECISION, slotReserves)) == packed, "precision reserve slot");
+        require(uint256(vm.load(PRECISION, slotSupply)) == p.totalSupply(), "precision supply slot");
+    }
+
     function _pool(address asset) internal returns (address pool, address router) {
         // From artifacts: the pool and router keep the compiler (0.8.36) of the live ones.
         pool = deployCode("TacitEvmPool.sol:TacitEvmPool", abi.encode(VERIFIER, asset));
@@ -178,13 +194,16 @@ contract DeployTacVault is Script {
         );
     }
 
-    // The confidential pool's id for an external ERC-20, used when the token is already registered.
+    // The confidential pool's id for an external ERC-20. If someone registered it first, the entry must be for this
+    // token with no cross-chain link.
     function _register(address token) internal returns (bytes32 id) {
         try IPoolRegistry(POOL).registerWrappedAuto(token, bytes32(0)) returns (bytes32 got) {
             id = got;
         } catch {
             id = sha256(abi.encodePacked("tacit-evm-token-v1", uint64(block.chainid), token));
         }
+        (bool registered, address underlying,, bytes32 link,,) = IPoolRegistry(POOL).assets(id);
+        require(registered && underlying == token && link == bytes32(0), "synth registration");
     }
 
     function _pair(bytes32 a, bytes32 b) internal {

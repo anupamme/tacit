@@ -482,26 +482,29 @@ contract RevGovernanceTest is RevBase {
         vm.stopPrank();
     }
 
-    /// Renouncing the vault's ownership freezes the synth's minters too: a further minter added before cannot be
-    /// removed afterwards, and a pending one can never be executed or cancelled.
-    function test_renounceFreezesTheMintersWhereTheyAre() public {
-        vm.startPrank(OWNER);
+    /// Renouncing ends the synth's governance too, so it is refused while a further minter is in place (no one could
+    /// remove it afterwards) and allowed once there is none.
+    function test_renounceNeedsTheFurtherMintersGone() public {
         address m1 = address(new RevGasMinter());
-        address m2 = address(new RevGasMinter());
+        vm.startPrank(OWNER);
         dollar.queueMinter(m1);
         vm.stopPrank();
         _wait(dollar.MINTER_DELAY());
         vm.startPrank(OWNER);
         dollar.executeMinter();
-        dollar.queueMinter(m2);
+        assertEq(dollar.minterCount(), 1);
+        vm.expectRevert(TacVault.MintersRemain.selector);
         vault.renounceOwnership();
-        vm.expectRevert(TacSynth.NotOwner.selector);
         dollar.removeMinter(m1);
-        vm.expectRevert(TacSynth.NotOwner.selector);
-        dollar.cancelMinter();
+        assertEq(dollar.minterCount(), 0);
+        // A pending one does not stop it: it could never be executed afterwards.
+        dollar.queueMinter(m1);
+        vault.renounceOwnership();
         vm.stopPrank();
-        assertTrue(dollar.isMinter(m1));
-        assertEq(dollar.pendingMinter(), m2);
+        assertEq(vault.owner(), address(0));
+        vm.expectRevert(TacSynth.NotOwner.selector);
+        dollar.executeMinter();
+        assertFalse(dollar.isMinter(m1));
     }
 }
 

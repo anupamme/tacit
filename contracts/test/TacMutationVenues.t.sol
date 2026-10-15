@@ -215,8 +215,8 @@ contract TacMutationVenuesTest is SynthChain {
         TacBlockOracle e = new TacBlockOracle(address(empty), TAC, 50, 3_600, 10_800, 21_600, 6_600);
         vm.expectRevert(TacIntervalOracle.BadBlock.selector);
         e.spot();
-        // no TAC side at all
-        MockPrecision noTac = new MockPrecision(TAC, 0, 3779257685557097674402, 1, 5e17, 0);
+        // no TAC side at all (the lowest bound the pool allows and no LP supply to speak of)
+        MockPrecision noTac = new MockPrecision(TAC, 1, 3779257685557097674402, 1, 5e17, 0);
         TacBlockOracle n = new TacBlockOracle(address(noTac), TAC, 50, 3_600, 10_800, 21_600, 6_600);
         vm.expectRevert(TacIntervalOracle.BadBlock.selector);
         n.spot();

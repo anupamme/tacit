@@ -39,6 +39,7 @@ contract TacBlockOracle is TacIntervalOracle {
         if (base != address(0) || quote != tac) revert BadConfig();
         SQRT_P_LOW = IPrecisionPool(pool).sqrtPLow();
         SQRT_P_HIGH = IPrecisionPool(pool).sqrtPHigh();
+        if (SQRT_P_LOW == 0 || SQRT_P_HIGH <= SQRT_P_LOW) revert BadConfig();
     }
 
     function slots() public pure override returns (bytes32, bytes32) {

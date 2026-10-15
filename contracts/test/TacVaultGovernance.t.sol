@@ -451,7 +451,8 @@ contract TacVaultGovernanceTest is Test {
 
     // ───────────── the locks ─────────────
 
-    function test_lockParamsEndsTheSlowLaneForGoodAndKeepsTheFastTightening() public {
+    function test_lockParamsEndsTheDelayedChangesAndTheLoweringForGood() public {
+        uint256 depth = vault.DEPTH_BPS();
         _queue(TacVault.Param.DepthBps, 150);
         vm.startPrank(OWNER);
         vm.expectEmit(false, false, false, false);
@@ -465,13 +466,14 @@ contract TacVaultGovernanceTest is Test {
         vm.startPrank(OWNER);
         vm.expectRevert(TacVault.Locked.selector);
         vault.executeParam(TacVault.Param.DepthBps); // what was announced no longer applies
-        // Tightening, the fees, the ceiling and the pause are not locked.
+        vm.expectRevert(TacVault.Locked.selector);
         vault.lowerDepthBps(40);
+        // The fees, the ceiling and the pause are not locked.
         vault.setRedemptionFee(10);
         vault.setDebtCeiling(0);
         vault.pauseAuctions(1 hours);
         vm.stopPrank();
-        assertEq(vault.DEPTH_BPS(), 40);
+        assertEq(vault.DEPTH_BPS(), depth);
     }
 
     // ───────────── replacing the oracle ─────────────

@@ -7,6 +7,9 @@ import {TacVault} from "../src/TacVault.sol";
 import {TacSynth} from "../src/TacSynth.sol";
 import {TacVaultZap, IZapRouter} from "../src/TacVaultZap.sol";
 import {TacPairOracle} from "../src/TacPairOracle.sol";
+import {TacBlockOracle} from "../src/TacBlockOracle.sol";
+import {TacIntervalOracle} from "../src/TacIntervalOracle.sol";
+import {MockPrecision} from "./MockPrecision.sol";
 import {TestTac, MockOracle, MockFeed, VaultConfig} from "./TacVaultMocks.sol";
 
 // ───────────────────────────── mocks ─────────────────────────────
@@ -285,20 +288,132 @@ contract TacVaultReviewFixesTest is R2Base {
         assertEq(vault.LIQ_WINDOW(), 1 hours);
     }
 
-    /// After `lockParams` the depth share can still be lowered at once and never raised again: a `lowerDepthBps(0)`
-    /// after the lock ends lending for good (the ceiling is the stop that can be undone).
-    function test_lowerDepthAfterLockIsForGood() public {
+    /// `lockParams` freezes the depth share both ways, so it cannot be lowered to zero for good afterwards; the
+    /// debt ceiling is the brake that stays.
+    function test_lockParamsFreezesTheDepthShare() public {
+        uint256 depth = vault.DEPTH_BPS();
         vm.startPrank(OWNER);
         vault.lockParams();
+        vm.expectRevert(TacVault.Locked.selector);
         vault.lowerDepthBps(0);
         vm.expectRevert(TacVault.Locked.selector);
         vault.queueParam(TacVault.Param.DepthBps, 25);
+        vault.setDebtCeiling(0);
         vm.stopPrank();
-        assertEq(vault.depthCeiling(), 0);
+        assertEq(vault.DEPTH_BPS(), depth);
+        assertEq(vault.debtCeiling(), 0);
     }
 }
 
 // ───────────────────────────── what holds ─────────────────────────────
+
+// ───────────────────────────── the auction clock ─────────────────────────────
+
+contract TacVaultAuctionClockTest is R2Base {
+    function _liquidated() internal returns (uint256 start) {
+        _open(alice, 15_000e18, 2_000e18);
+        _open(bob, 1_000_000e18, 5_000e18);
+        oracle.set(P * 45 / 100); // alice at 135%
+        vault.liquidate(alice);
+        start = vault.auctionTime();
+    }
+
+    /// A pause stops the bonus and the owner's window: an auction that waited out a pause is where it was.
+    function test_aPauseStopsTheBonusAndTheOwnerWindow() public {
+        uint256 start = _liquidated();
+        _wait(10 minutes);
+        uint256 offer = vault.onOffer(alice);
+        vm.prank(OWNER);
+        vault.pauseAuctions(12 hours);
+        _wait(12 hours);
+        assertFalse(vault.paused());
+        assertEq(vault.auctionTime(), start + 10 minutes);
+        assertEq(vault.onOffer(alice), offer, "no bonus accrued while paused");
+
+        // Ten of the owner's twenty minutes are left.
+        vm.prank(bob);
+        vm.expectRevert(TacVault.OwnerWindow.selector);
+        vault.bid(alice, type(uint256).max, 0);
+        _wait(10 minutes - 1);
+        vm.prank(bob);
+        vm.expectRevert(TacVault.OwnerWindow.selector);
+        vault.bid(alice, type(uint256).max, 0);
+        _wait(1);
+        vm.prank(bob);
+        assertGt(vault.bid(alice, type(uint256).max, 0), 0);
+    }
+
+    /// The wait before `absorb` runs on the same clock.
+    function test_absorbWaitsOnTheAuctionClock() public {
+        _open(alice, 15_000e18, 2_000e18);
+        _open(bob, 1_000_000e18, 5_000e18);
+        vm.prank(bob);
+        dollar.transfer(address(vault), 3_000e18); // the reserve
+        oracle.set(P / 10); // alice's TAC is worth less than her debt
+        vault.liquidate(alice);
+        _wait(1 hours);
+        vm.prank(OWNER);
+        vault.pauseAuctions(12 hours);
+        _wait(12 hours);
+        vm.expectRevert(TacVault.TooEarly.selector);
+        vault.absorb(alice); // an hour of the two has run
+        _wait(1 hours - 1);
+        vm.expectRevert(TacVault.TooEarly.selector);
+        vault.absorb(alice);
+        _wait(1);
+        vault.absorb(alice);
+        (, uint256 debt,) = vault.vaults(alice);
+        assertEq(debt, 0);
+    }
+
+    /// The clock is the time while nothing was paused: continuous at every start, lengthening and early end.
+    function test_theClockOnlyStopsInsideAPause() public {
+        uint256 t0 = vm.getBlockTimestamp();
+        assertEq(vault.auctionTime(), t0);
+        _wait(100);
+        vm.prank(OWNER);
+        vault.pauseAuctions(1 hours);
+        assertEq(vault.auctionTime(), t0 + 100);
+        _wait(30 minutes);
+        assertEq(vault.auctionTime(), t0 + 100);
+        vm.prank(OWNER);
+        vault.pauseAuctions(2 hours); // lengthened
+        _wait(1 hours);
+        assertEq(vault.auctionTime(), t0 + 100);
+        vm.prank(OWNER);
+        vault.resumeAuctions(); // ended early, 90 minutes in
+        assertEq(vault.auctionTime(), t0 + 100);
+        _wait(50);
+        assertEq(vault.auctionTime(), t0 + 150);
+        // The next pause waits as long as the last ran (90 minutes), then stops the clock again.
+        _wait(90 minutes);
+        uint256 before = vault.auctionTime();
+        vm.prank(OWNER);
+        vault.pauseAuctions(1 hours);
+        _wait(1 hours);
+        assertEq(vault.auctionTime(), before);
+        _wait(5);
+        assertEq(vault.auctionTime(), before + 5);
+    }
+}
+
+contract TacVaultOracleSetupTest is R2Base {
+    function _precision(uint256 lo, uint256 hi) internal returns (address) {
+        return address(new MockPrecision(address(tac), lo, hi, 1e21, 1e18, 1e21));
+    }
+
+    /// The Precision oracle refuses a pool whose price bounds would divide by zero or are not ordered.
+    function test_aVenueWithNoUsablePriceRangeIsRefused() public {
+        address zeroLow = _precision(0, 2e18);
+        vm.expectRevert(TacIntervalOracle.BadConfig.selector);
+        new TacBlockOracle(zeroLow, address(tac), 50, 7_200, 21_600, 28_800, 6_600);
+        address flat = _precision(1e18, 1e18);
+        vm.expectRevert(TacIntervalOracle.BadConfig.selector);
+        new TacBlockOracle(flat, address(tac), 50, 7_200, 21_600, 28_800, 6_600);
+        address fine = _precision(0.9e18, 1.1e18);
+        new TacBlockOracle(fine, address(tac), 50, 7_200, 21_600, 28_800, 6_600);
+    }
+}
 
 contract TacVaultLaunchChecksTest is R2Base {
     /// The deploy script's defaults sit inside every governance rail (each can be re-announced as it is), and the
