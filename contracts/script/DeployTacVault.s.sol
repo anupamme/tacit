@@ -2,12 +2,16 @@
 pragma solidity ^0.8.28;
 
 import {Script, console2} from "forge-std/Script.sol";
-import {TacBlockOracle} from "../src/TacBlockOracle.sol";
-import {TacAmmOracle} from "../src/TacAmmOracle.sol";
-import {TacPairOracle} from "../src/TacPairOracle.sol";
 import {TacVault} from "../src/TacVault.sol";
+import {TacAmmOracle} from "../src/TacAmmOracle.sol";
+import {TacBlockOracle} from "../src/TacBlockOracle.sol";
+import {TacPairOracle} from "../src/TacPairOracle.sol";
 import {TacVaultZap} from "../src/TacVaultZap.sol";
-import {FixedFeed} from "../src/FixedFeed.sol";
+import {TacVaultsDeployment as D} from "./TacVaultsDeployment.sol";
+
+interface ICreateX2 {
+    function deployCreate2(bytes32 salt, bytes memory initCode) external payable returns (address newContract);
+}
 
 interface IPrecisionReserves {
     function reserve0() external view returns (uint128);
@@ -32,181 +36,317 @@ interface IPoolRegistry {
         returns (bool, bytes32, bytes32, uint256 reserveA, uint256 reserveB, uint32, uint256);
 }
 
-/// @notice Mainnet deployment: a TacPairOracle over the two TAC/ETH venues (the Precision pool and the confidential
-///         pool's AMM pool), a dollar vault (ETH/USD feed) and an ETH vault (FixedFeed) sharing it, a TacitEvmPool and
-///         router for TAC and each synth, and a zap per vault. Then it registers both synths in the confidential pool
-///         and creates the TAC/USD, TAC/ETH-synth, ETH/ETH-synth, USD/ETH-synth and USD/cUSD pairs; an entry that
-///         already exists is kept. Run without `--broadcast` to simulate.
+/// @notice Anyone's deployment of the TAC vaults on Ethereum mainnet: two venue oracles and their pair, a dollar vault
+///         and an ETH vault, a TacitEvmPool and router for TAC and each synth, and a zap per vault, then both synths'
+///         registration in the confidential pool and five pairs there (TAC/dollar, TAC/ETH-synth, ETH/ETH-synth,
+///         dollar/ETH-synth, dollar/cUSD).
 ///
-///         Next, run tools/tac-vault-keeper.mjs with ORACLE set to the two venue oracles printed; borrowing opens
-///         once every interval of the longest window is recorded.
+///         Each contract is deployed with CreateX.deployCreate2 from a salt tied to no sender, at an address with
+///         leading zero bytes fixed in `TacVaultsDeployment.sol` (made by tools/tac-vaults-plan.mjs). The address is
+///         CREATE2(CreateX, keccak256(salt), keccak256(init code)), so it commits to the init code, constructor
+///         arguments and the owner included: nobody can put different code or a different owner at these addresses,
+///         and the sender has no power over what lands there. The script rebuilds every init code from the compiled
+///         contracts and refuses to send one whose hash or address differs from the plan. A step is skipped if its
+///         contract is already there, so a partial or repeated run is safe, and the registry steps are checked for
+///         their exact terms.
 ///
-/// Env (defaults in brackets):
-///   OWNER (required)                         the vaults' owner, the ops multisig
-///   FEE_TO, TAC_SINK [OWNER]                 borrow-fee recipient, absorbed-TAC recipient
-///   USD_NAME, USD_SYMBOL [TAC Dollar, TACD]  ETH_NAME, ETH_SYMBOL [TAC Ether, TACE]
-///   USD_CEILING, ETH_CEILING [no limit]      USD_MIN_DEBT [100e18], ETH_MIN_DEBT [0.04e18]
-///   DEPTH_BPS [15]                           each vault's share of the smaller venue's ETH depth
-///   MINT_RATIO_BPS [35000], LIQ_RATIO_BPS [20000], LIQ_BONUS_BPS [4000]
-///   AUCTION_DURATION [3600], OWNER_WINDOW [1800] seconds
-///   BORROW_FEE_BPS [100], REDEMPTION_FEE_BPS [50], FEED_MAX_STALENESS [3900]
-///   ORACLE_SHORT_WINDOW [7200], ORACLE_WINDOW [21600], ORACLE_MAX_WINDOW [28800] seconds, ORACLE_COVERAGE_BPS [6600]
+///         The contracts must be built with the project's settings (solc 0.8.37 for the vault family and 0.8.36 for
+///         the pool and router; via-IR, optimizer runs 1, no metadata hash) or the hashes differ and nothing is sent.
+///
+///         forge script script/DeployTacVault.s.sol --rpc-url $RPC --broadcast --account <any funded account>
 contract DeployTacVault is Script {
-    address constant POOL = 0x000000000Ed1eabD231Be41d93b719056F7febFC;
-    address constant TAC = 0xA1313eb9f3A445606D9583bcAc3ebeB56a858279;
-    address constant PRECISION = 0x0155358241411dB868BA714aE7c83A27087e3D6E;
-    // The confidential pool's ETH/TAC AMM pool, and the slot of its `pools` mapping in the confidential pool.
-    bytes32 constant TAC_ETH_POOL = 0x248497bf6f943cd2b39a04bf5841056c58dfd7ef196188cb4f0ac1fd11dc7c00;
-    uint256 constant POOLS_SLOT = 74;
-    address constant ETH_USD = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
-    bytes32 constant ETH_ASSET = 0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34;
-    bytes32 constant TAC_ASSET = 0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b;
-    // The confidential pool's id for cUSD (the CollateralEngine's dollar; its ERC-20 form is tacUSD).
-    bytes32 constant CUSD_ASSET = 0x8f4490dd3728b0ee904d7a67c11b37ffd463a5c7f08b79810006995ee8a9679d;
-    address constant VERIFIER = 0x000000b1c0e84CEc8AdF8278B90c4d6400DfB153;
-    address constant ZROUTER = 0x000000000000FB114709235f1ccBFfb925F600e4;
-    address constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
-    address constant POSEIDON4 = 0x555333f3f677Ca3930Bf7c56ffc75144c51D9767;
-
-    struct Out {
-        address oracle;
-        address precisionOracle;
-        address ammOracle;
-        TacVault usd;
-        TacVault eth;
-        address tacPool;
-        address tacRouter;
-        address usdPool;
-        address usdRouter;
-        address ethPool;
-        address ethRouter;
-        address usdZap;
-        address ethZap;
-        bytes32 usdAsset;
-        bytes32 ethAsset;
+    struct Step {
+        string name;
+        bytes32 salt;
+        bytes32 hash;
+        address expected;
+        bytes initCode;
     }
+
+    uint32 internal constant PAIR_FEE_BPS = 30;
 
     function run() external {
-        require(block.chainid == 1, "mainnet only");
-        Out memory o;
         vm.startBroadcast();
-        // Intervals of 50 blocks (10 minutes).
-        uint256 shortWindow = vm.envOr("ORACLE_SHORT_WINDOW", uint256(7_200));
-        uint256 window = vm.envOr("ORACLE_WINDOW", uint256(21_600));
-        uint256 maxWindow = vm.envOr("ORACLE_MAX_WINDOW", uint256(28_800));
-        uint256 coverage = vm.envOr("ORACLE_COVERAGE_BPS", uint256(6_600));
-        o.precisionOracle = address(new TacBlockOracle(PRECISION, TAC, 50, shortWindow, window, maxWindow, coverage));
-        o.ammOracle = address(
-            new TacAmmOracle(
-                POOL, TAC_ETH_POOL, ETH_ASSET, TAC_ASSET, TAC, POOLS_SLOT, 50, shortWindow, window, maxWindow, coverage
-            )
-        );
-        o.oracle = address(new TacPairOracle(o.precisionOracle, o.ammOracle));
-        _checkReserveSlots(o.ammOracle);
-        _checkPrecisionSlots(o.precisionOracle);
-        o.usd = new TacVault(_config(o.oracle, ETH_USD, "USD", vm.envOr("USD_MIN_DEBT", uint256(100e18))));
-        o.eth = new TacVault(
-            _config(o.oracle, address(new FixedFeed()), "ETH", vm.envOr("ETH_MIN_DEBT", uint256(0.04e18)))
-        );
-        (o.tacPool, o.tacRouter) = _pool(TAC);
-        (o.usdPool, o.usdRouter) = _pool(address(o.usd.SYNTH()));
-        (o.ethPool, o.ethRouter) = _pool(address(o.eth.SYNTH()));
-        o.usdZap = address(new TacVaultZap(address(o.usd), o.usdRouter));
-        o.ethZap = address(new TacVaultZap(address(o.eth), o.ethRouter));
-
-        // Registration and pairs are permissionless; an entry someone made first is kept.
-        o.usdAsset = _register(address(o.usd.SYNTH()));
-        o.ethAsset = _register(address(o.eth.SYNTH()));
-        _pair(TAC_ASSET, o.usdAsset);
-        _pair(TAC_ASSET, o.ethAsset);
-        _pair(ETH_ASSET, o.ethAsset);
-        _pair(o.usdAsset, o.ethAsset);
-        _pair(o.usdAsset, CUSD_ASSET);
+        deployAll();
+        registerAll();
         vm.stopBroadcast();
-        (bool usdRegistered,,,,,) = IPoolRegistry(POOL).assets(o.usdAsset);
-        (bool ethRegistered,,,,,) = IPoolRegistry(POOL).assets(o.ethAsset);
-        require(usdRegistered && ethRegistered, "synth not registered");
-
-        console2.log("TacPairOracle  :", o.oracle);
-        console2.log("Precision venue:", o.precisionOracle);
-        console2.log("AMM venue      :", o.ammOracle);
-        console2.log("USD vault      :", address(o.usd));
-        console2.log("USD synth      :", address(o.usd.SYNTH()));
-        console2.log("ETH vault      :", address(o.eth));
-        console2.log("ETH synth      :", address(o.eth.SYNTH()));
-        console2.log("TAC pool/router:", o.tacPool, o.tacRouter);
-        console2.log("USD pool/router:", o.usdPool, o.usdRouter);
-        console2.log("ETH pool/router:", o.ethPool, o.ethRouter);
-        console2.log("USD zap / ETH zap:", o.usdZap, o.ethZap);
-        console2.log("Next: tools/tac-vault-keeper.mjs with ORACLE=<Precision venue>,<AMM venue>");
+        verifyAll();
+        console2.log("Next: tools/tac-vault-keeper.mjs with ORACLE=%s,%s", D.PRECISION_ORACLE, D.AMM_ORACLE);
     }
 
-    function _config(address oracle, address feed, string memory tag, uint256 minDebt)
+    // ─────────────── the contracts ───────────────
+
+    function deployAll() public {
+        require(block.chainid == 1, "mainnet only");
+        require(D.CREATEX.code.length != 0, "CreateX is not on this chain");
+        Step[14] memory s = steps();
+        for (uint256 i; i < s.length; ++i) {
+            require(
+                keccak256(s[i].initCode) == s[i].hash, string.concat(s[i].name, ": init code differs from the plan")
+            );
+            require(
+                predict(s[i].salt, s[i].hash) == s[i].expected, string.concat(s[i].name, ": salt and address differ")
+            );
+            if (s[i].expected.code.length != 0) {
+                console2.log("already there:", s[i].name, s[i].expected);
+                continue;
+            }
+            address got = ICreateX2(D.CREATEX).deployCreate2(s[i].salt, s[i].initCode);
+            require(got == s[i].expected, string.concat(s[i].name, ": landed elsewhere"));
+            console2.log("deployed:", s[i].name, got);
+        }
+    }
+
+    /// The address CreateX gives `initCodeHash` under `salt`: a salt whose first 20 bytes are neither the sender nor
+    /// zero is hashed once, and the result is the CREATE2 salt.
+    function predict(bytes32 salt, bytes32 initCodeHash) public pure returns (address) {
+        bytes32 guarded = keccak256(abi.encode(salt));
+        return address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), D.CREATEX, guarded, initCodeHash)))));
+    }
+
+    /// Every init code, in the order they must land: later ones take earlier addresses as arguments.
+    function steps() public view returns (Step[14] memory s) {
+        s[0] = _step(
+            "PRECISION_ORACLE",
+            D.SALT_PRECISION_ORACLE,
+            D.HASH_PRECISION_ORACLE,
+            D.PRECISION_ORACLE,
+            "TacBlockOracle.sol:TacBlockOracle",
+            abi.encode(
+                D.PRECISION_POOL,
+                D.TAC,
+                D.ORACLE_STEP,
+                D.ORACLE_SHORT_WINDOW,
+                D.ORACLE_WINDOW,
+                D.ORACLE_MAX_WINDOW,
+                D.ORACLE_COVERAGE_BPS
+            )
+        );
+        s[1] = _step(
+            "AMM_ORACLE",
+            D.SALT_AMM_ORACLE,
+            D.HASH_AMM_ORACLE,
+            D.AMM_ORACLE,
+            "TacAmmOracle.sol:TacAmmOracle",
+            abi.encode(
+                D.CONFIDENTIAL_POOL,
+                D.AMM_POOL_ID,
+                D.ETH_ASSET,
+                D.TAC_ASSET,
+                D.TAC,
+                D.POOLS_SLOT,
+                D.ORACLE_STEP,
+                D.ORACLE_SHORT_WINDOW,
+                D.ORACLE_WINDOW,
+                D.ORACLE_MAX_WINDOW,
+                D.ORACLE_COVERAGE_BPS
+            )
+        );
+        s[2] = _step(
+            "PAIR_ORACLE",
+            D.SALT_PAIR_ORACLE,
+            D.HASH_PAIR_ORACLE,
+            D.PAIR_ORACLE,
+            "TacPairOracle.sol:TacPairOracle",
+            abi.encode(D.PRECISION_ORACLE, D.AMM_ORACLE)
+        );
+        s[3] = _step("ETH_FEED", D.SALT_ETH_FEED, D.HASH_ETH_FEED, D.ETH_FEED, "FixedFeed.sol:FixedFeed", "");
+        s[4] = _step(
+            "USD_VAULT",
+            D.SALT_USD_VAULT,
+            D.HASH_USD_VAULT,
+            D.USD_VAULT,
+            "TacVault.sol:TacVault",
+            abi.encode(_vaultConfig(D.ETH_USD, D.USD_NAME, D.USD_SYMBOL, D.USD_MIN_DEBT))
+        );
+        s[5] = _step(
+            "ETH_VAULT",
+            D.SALT_ETH_VAULT,
+            D.HASH_ETH_VAULT,
+            D.ETH_VAULT,
+            "TacVault.sol:TacVault",
+            abi.encode(_vaultConfig(D.ETH_FEED, D.ETH_NAME, D.ETH_SYMBOL, D.ETH_MIN_DEBT))
+        );
+        s[6] = _pool("TAC_POOL", D.SALT_TAC_POOL, D.HASH_TAC_POOL, D.TAC_POOL, D.TAC);
+        s[7] = _router("TAC_ROUTER", D.SALT_TAC_ROUTER, D.HASH_TAC_ROUTER, D.TAC_ROUTER, D.TAC_POOL);
+        s[8] = _pool("USD_POOL", D.SALT_USD_POOL, D.HASH_USD_POOL, D.USD_POOL, synthOf(D.USD_VAULT));
+        s[9] = _router("USD_ROUTER", D.SALT_USD_ROUTER, D.HASH_USD_ROUTER, D.USD_ROUTER, D.USD_POOL);
+        s[10] = _pool("ETH_POOL", D.SALT_ETH_POOL, D.HASH_ETH_POOL, D.ETH_POOL, synthOf(D.ETH_VAULT));
+        s[11] = _router("ETH_ROUTER", D.SALT_ETH_ROUTER, D.HASH_ETH_ROUTER, D.ETH_ROUTER, D.ETH_POOL);
+        s[12] = _step(
+            "USD_ZAP",
+            D.SALT_USD_ZAP,
+            D.HASH_USD_ZAP,
+            D.USD_ZAP,
+            "TacVaultZap.sol:TacVaultZap",
+            abi.encode(D.USD_VAULT, D.USD_ROUTER)
+        );
+        s[13] = _step(
+            "ETH_ZAP",
+            D.SALT_ETH_ZAP,
+            D.HASH_ETH_ZAP,
+            D.ETH_ZAP,
+            "TacVaultZap.sol:TacVaultZap",
+            abi.encode(D.ETH_VAULT, D.ETH_ROUTER)
+        );
+    }
+
+    /// A vault's synth is the first contract it creates.
+    function synthOf(address vault) public pure returns (address) {
+        return vm.computeCreateAddress(vault, 1);
+    }
+
+    function _step(
+        string memory name,
+        bytes32 salt,
+        bytes32 hash,
+        address expected,
+        string memory artifact,
+        bytes memory args
+    ) internal view returns (Step memory) {
+        return Step(name, salt, hash, expected, abi.encodePacked(vm.getCode(artifact), args));
+    }
+
+    // The pool and router are the live contracts' source, built with the compiler they were deployed with.
+    function _pool(string memory name, bytes32 salt, bytes32 hash, address expected, address asset)
         internal
         view
+        returns (Step memory)
+    {
+        return _step(name, salt, hash, expected, "TacitEvmPool.sol:TacitEvmPool", abi.encode(D.VERIFIER, asset));
+    }
+
+    function _router(string memory name, bytes32 salt, bytes32 hash, address expected, address pool)
+        internal
+        view
+        returns (Step memory)
+    {
+        return _step(
+            name,
+            salt,
+            hash,
+            expected,
+            "TacitEvmPoolRouter.sol:TacitEvmPoolRouter",
+            abi.encode(pool, D.ZROUTER, D.PERMIT2, D.CONFIDENTIAL_POOL, D.POSEIDON4)
+        );
+    }
+
+    function _vaultConfig(address feed, string memory name, string memory symbol, uint256 minDebt)
+        internal
+        pure
         returns (TacVault.Config memory c)
     {
-        bool usd = keccak256(bytes(tag)) == keccak256("USD");
         c = TacVault.Config({
-            tac: TAC,
-            oracle: oracle,
+            tac: D.TAC,
+            oracle: D.PAIR_ORACLE,
             ethUsd: feed,
-            owner: vm.envAddress("OWNER"),
-            mintRatioBps: vm.envOr("MINT_RATIO_BPS", uint256(35_000)),
-            liqRatioBps: vm.envOr("LIQ_RATIO_BPS", uint256(20_000)),
-            liqBonusBps: vm.envOr("LIQ_BONUS_BPS", uint256(4_000)),
-            auctionDuration: vm.envOr("AUCTION_DURATION", uint256(3_600)),
-            ownerWindow: vm.envOr("OWNER_WINDOW", uint256(1_800)),
+            owner: D.OWNER,
+            mintRatioBps: D.MINT_RATIO_BPS,
+            liqRatioBps: D.LIQ_RATIO_BPS,
+            liqBonusBps: D.LIQ_BONUS_BPS,
+            auctionDuration: D.AUCTION_DURATION,
+            ownerWindow: D.OWNER_WINDOW,
             minDebt: minDebt,
-            feedMaxStaleness: vm.envOr("FEED_MAX_STALENESS", uint256(3900)),
-            debtCeiling: vm.envOr(usd ? "USD_CEILING" : "ETH_CEILING", type(uint256).max),
-            depthBps: vm.envOr("DEPTH_BPS", uint256(15)),
-            redemptionFeeBps: vm.envOr("REDEMPTION_FEE_BPS", uint256(50)),
-            borrowFeeBps: vm.envOr("BORROW_FEE_BPS", uint256(100)),
-            feeTo: vm.envOr("FEE_TO", vm.envAddress("OWNER")),
-            tacSink: vm.envOr("TAC_SINK", vm.envAddress("OWNER")),
-            name: vm.envOr(usd ? "USD_NAME" : "ETH_NAME", string(usd ? "TAC Dollar" : "TAC Ether")),
-            symbol: vm.envOr(usd ? "USD_SYMBOL" : "ETH_SYMBOL", string(usd ? "TACD" : "TACE"))
+            feedMaxStaleness: D.FEED_MAX_STALENESS,
+            debtCeiling: D.DEBT_CEILING,
+            depthBps: D.DEPTH_BPS,
+            redemptionFeeBps: D.REDEMPTION_FEE_BPS,
+            borrowFeeBps: D.BORROW_FEE_BPS,
+            feeTo: D.FEE_TO,
+            tacSink: D.TAC_SINK,
+            name: name,
+            symbol: symbol
         });
     }
 
-    // The slots the AMM oracle proves hold the pool's reserves today.
-    function _checkReserveSlots(address ammOracle) internal view {
-        (bytes32 slotA, bytes32 slotB) = TacAmmOracle(ammOracle).slots();
-        (,,, uint256 reserveA, uint256 reserveB,,) = IPoolRegistry(POOL).pools(TAC_ETH_POOL);
-        require(uint256(vm.load(POOL, slotA)) == reserveA && uint256(vm.load(POOL, slotB)) == reserveB, "reserve slots");
+    // ─────────────── the confidential pool ───────────────
+
+    /// Registers both synths and creates the five pairs, each only if it is not already there. Registration and pair
+    /// creation are open to anyone and their terms are fixed by the call (a plain token takes no cross-chain link,
+    /// and a pair's id includes its fee), so an entry made first is the same entry; what is read back is checked.
+    function registerAll() public {
+        bytes32 usd = _register(synthOf(D.USD_VAULT));
+        bytes32 eth = _register(synthOf(D.ETH_VAULT));
+        _pair(D.TAC_ASSET, usd);
+        _pair(D.TAC_ASSET, eth);
+        _pair(D.ETH_ASSET, eth);
+        _pair(usd, eth);
+        _pair(usd, D.CUSD_ASSET);
     }
 
-    // The slots the Precision oracle proves hold the pool's packed reserves and the LP supply today.
-    function _checkPrecisionSlots(address precisionOracle) internal view {
-        (bytes32 slotReserves, bytes32 slotSupply) = TacBlockOracle(precisionOracle).slots();
-        IPrecisionReserves p = IPrecisionReserves(PRECISION);
-        uint256 packed = uint256(p.reserve0()) | uint256(p.reserve1()) << 128;
-        require(uint256(vm.load(PRECISION, slotReserves)) == packed, "precision reserve slot");
-        require(uint256(vm.load(PRECISION, slotSupply)) == p.totalSupply(), "precision supply slot");
+    /// The confidential pool's id for a plain ERC-20.
+    function assetIdOf(address token) public view returns (bytes32) {
+        return sha256(abi.encodePacked("tacit-evm-token-v1", uint64(block.chainid), token));
     }
 
-    function _pool(address asset) internal returns (address pool, address router) {
-        // From artifacts: the pool and router keep the compiler (0.8.36) of the live ones.
-        pool = deployCode("TacitEvmPool.sol:TacitEvmPool", abi.encode(VERIFIER, asset));
-        router = deployCode(
-            "TacitEvmPoolRouter.sol:TacitEvmPoolRouter", abi.encode(pool, ZROUTER, PERMIT2, POOL, POSEIDON4)
+    /// The id of the pair's pool at PAIR_FEE_BPS with no fee skim.
+    function poolIdOf(bytes32 a, bytes32 b) public pure returns (bytes32) {
+        (bytes32 lo, bytes32 hi) = a < b ? (a, b) : (b, a);
+        return keccak256(abi.encode(lo, hi, uint256(PAIR_FEE_BPS)));
+    }
+
+    function _register(address token) internal returns (bytes32 id) {
+        IPoolRegistry registry = IPoolRegistry(D.CONFIDENTIAL_POOL);
+        id = assetIdOf(token);
+        (bool registered,,,,,) = registry.assets(id);
+        if (!registered) require(registry.registerWrappedAuto(token, bytes32(0)) == id, "asset id");
+        (bool found, address underlying, uint256 scale, bytes32 link, bool poolMinted, uint8 decimals) =
+            registry.assets(id);
+        require(
+            found && underlying == token && link == bytes32(0) && !poolMinted && scale == 1e10 && decimals == 18,
+            "synth registration"
         );
     }
 
-    // The confidential pool's id for an external ERC-20. If someone registered it first, the entry must be for this
-    // token with no cross-chain link.
-    function _register(address token) internal returns (bytes32 id) {
-        try IPoolRegistry(POOL).registerWrappedAuto(token, bytes32(0)) returns (bytes32 got) {
-            id = got;
-        } catch {
-            id = sha256(abi.encodePacked("tacit-evm-token-v1", uint64(block.chainid), token));
-        }
-        (bool registered, address underlying,, bytes32 link,,) = IPoolRegistry(POOL).assets(id);
-        require(registered && underlying == token && link == bytes32(0), "synth registration");
+    function _pair(bytes32 a, bytes32 b) internal {
+        IPoolRegistry registry = IPoolRegistry(D.CONFIDENTIAL_POOL);
+        bytes32 id = poolIdOf(a, b);
+        (bool init,,,,,,) = registry.pools(id);
+        if (!init) require(registry.createPair(a, b, PAIR_FEE_BPS, 0, bytes32(0), 0) == id, "pool id");
+        (bool found, bytes32 lo, bytes32 hi,,, uint32 fee,) = registry.pools(id);
+        require(found && fee == PAIR_FEE_BPS && lo == (a < b ? a : b) && hi == (a < b ? b : a), "pair terms");
     }
 
-    function _pair(bytes32 a, bytes32 b) internal {
-        try IPoolRegistry(POOL).createPair(a, b, 30, 0, bytes32(0), 0) {} catch {}
+    // ─────────────── what must be true afterwards ───────────────
+
+    function verifyAll() public view {
+        Step[14] memory s = steps();
+        for (uint256 i; i < s.length; ++i) {
+            require(s[i].expected.code.length != 0, string.concat(s[i].name, ": not deployed"));
+        }
+        TacVault usd = TacVault(D.USD_VAULT);
+        TacVault eth = TacVault(D.ETH_VAULT);
+        require(usd.owner() == D.OWNER && eth.owner() == D.OWNER, "owner");
+        require(usd.TAC() == D.TAC && eth.TAC() == D.TAC, "TAC");
+        require(address(usd.ORACLE()) == D.PAIR_ORACLE && address(eth.ORACLE()) == D.PAIR_ORACLE, "oracle");
+        require(address(usd.ETH_USD()) == D.ETH_USD && address(eth.ETH_USD()) == D.ETH_FEED, "feed");
+        require(address(usd.SYNTH()) == synthOf(D.USD_VAULT) && address(eth.SYNTH()) == synthOf(D.ETH_VAULT), "synth");
+        require(usd.DEPTH_BPS() == D.DEPTH_BPS && eth.DEPTH_BPS() == D.DEPTH_BPS, "depth share");
+        TacPairOracle pair = TacPairOracle(D.PAIR_ORACLE);
+        require(address(pair.A()) == D.PRECISION_ORACLE && address(pair.B()) == D.AMM_ORACLE, "venues");
+        require(address(TacVaultZap(D.USD_ZAP).VAULT()) == D.USD_VAULT, "USD zap vault");
+        require(address(TacVaultZap(D.ETH_ZAP).VAULT()) == D.ETH_VAULT, "ETH zap vault");
+        require(address(TacVaultZap(D.USD_ZAP).SYNTH_ROUTER()) == D.USD_ROUTER, "USD zap router");
+        require(address(TacVaultZap(D.ETH_ZAP).SYNTH_ROUTER()) == D.ETH_ROUTER, "ETH zap router");
+        _checkVenueSlots();
+    }
+
+    // The slots each venue oracle proves hold the live pool's reserves, and the Precision pool's LP supply, today: a
+    // wrong slot would record a plausible but wrong price.
+    function _checkVenueSlots() internal view {
+        (bytes32 slotA, bytes32 slotB) = TacAmmOracle(D.AMM_ORACLE).slots();
+        (,,, uint256 reserveA, uint256 reserveB,,) = IPoolRegistry(D.CONFIDENTIAL_POOL).pools(D.AMM_POOL_ID);
+        require(
+            uint256(vm.load(D.CONFIDENTIAL_POOL, slotA)) == reserveA
+                && uint256(vm.load(D.CONFIDENTIAL_POOL, slotB)) == reserveB,
+            "AMM reserve slots"
+        );
+        (bytes32 slotReserves, bytes32 slotSupply) = TacBlockOracle(D.PRECISION_ORACLE).slots();
+        IPrecisionReserves p = IPrecisionReserves(D.PRECISION_POOL);
+        require(
+            uint256(vm.load(D.PRECISION_POOL, slotReserves)) == uint256(p.reserve0()) | uint256(p.reserve1()) << 128,
+            "Precision reserve slot"
+        );
+        require(uint256(vm.load(D.PRECISION_POOL, slotSupply)) == p.totalSupply(), "Precision supply slot");
     }
 }

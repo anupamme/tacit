@@ -139,7 +139,6 @@ contract TacBlockOracleForkTest is Test {
     /// The deploy script runs end to end.
     function test_theDeployScriptRuns() public {
         _fork();
-        vm.setEnv("OWNER", vm.toString(address(0x006CD14F36F65eCbB29b2519cCBe63A0DC8549F2)));
         new DeployTacVault().run();
     }
 

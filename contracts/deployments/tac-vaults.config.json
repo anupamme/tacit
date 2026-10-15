@@ -1,0 +1,37 @@
+{
+  "factory": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+  "zeroBytes": 3,
+  "owner": "0x006CD14F36F65eCbB29b2519cCBe63A0DC8549F2",
+  "feeTo": null,
+  "tacSink": null,
+  "external": {
+    "tac": "0xA1313eb9f3A445606D9583bcAc3ebeB56a858279",
+    "precisionPool": "0x0155358241411dB868BA714aE7c83A27087e3D6E",
+    "confidentialPool": "0x000000000Ed1eabD231Be41d93b719056F7febFC",
+    "poolsSlot": 74,
+    "ammPoolId": "0x248497bf6f943cd2b39a04bf5841056c58dfd7ef196188cb4f0ac1fd11dc7c00",
+    "ethAsset": "0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34",
+    "tacAsset": "0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b",
+    "cusdAsset": "0x8f4490dd3728b0ee904d7a67c11b37ffd463a5c7f08b79810006995ee8a9679d",
+    "ethUsd": "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419",
+    "verifier": "0x000000b1c0e84CEc8AdF8278B90c4d6400DfB153",
+    "zRouter": "0x000000000000FB114709235f1ccBFfb925F600e4",
+    "permit2": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "poseidon4": "0x555333f3f677Ca3930Bf7c56ffc75144c51D9767"
+  },
+  "oracle": { "step": 50, "shortWindow": 7200, "window": 21600, "maxWindow": 28800, "coverageBps": 6600 },
+  "vault": {
+    "mintRatioBps": 35000,
+    "liqRatioBps": 20000,
+    "liqBonusBps": 4000,
+    "auctionDuration": 3600,
+    "ownerWindow": 1800,
+    "feedMaxStaleness": 3900,
+    "depthBps": 15,
+    "redemptionFeeBps": 50,
+    "borrowFeeBps": 100,
+    "debtCeiling": null
+  },
+  "usd": { "name": "TAC Dollar", "symbol": "TACD", "minDebt": "100000000000000000000" },
+  "eth": { "name": "TAC Ether", "symbol": "TACE", "minDebt": "40000000000000000" }
+}

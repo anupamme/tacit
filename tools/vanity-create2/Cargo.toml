@@ -1,0 +1,14 @@
+[package]
+name = "vanity-create2"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tiny-keccak = { version = "2", features = ["keccak"] }
+rayon = "1"
+getrandom = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
