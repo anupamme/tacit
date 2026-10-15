@@ -183,7 +183,7 @@ function paint() {
   paintAddr(); paintState();
   if (!typing($('#p-edit'))) paintEdit(); else S.editCheck?.();       // what depends on who is connected is updated in place
   if (!typing($('#p-deploy'))) paintDeploy();
-  paintNext(); paintChip();
+  paintNext(); paintChip(); paintRelay();
 }
 function paintAddr() { const i = $('#addr-in'); if (i && document.activeElement !== i) i.value = S.addr || ''; }
 function paintChip() {
@@ -319,6 +319,36 @@ function paintDeploy() {
   check();
 }
 
+// The operator's view of the relay: where each wallet stands and what the standing commitments are set to, from the API's /relay/economics.
+// Balances are shown here and not on the public page (/relay/), which is about flows.
+const RELAY = { j: null };
+const ethFmt = (x) => (x == null ? '–' : x === 0 ? '0' : x < 0.0001 ? x.toPrecision(2) : Number(x).toLocaleString('en-US', { maximumFractionDigits: 4 }));
+function paintRelay() {
+  const el = $('#p-relay'), j = RELAY.j;
+  if (!j || !j.chain) { el.hidden = true; return; }
+  el.hidden = false;
+  const w = j.chain.wallets, l = j.ledger, wk = l && l.week, cfg = (l && l.cfg) || {};
+  const perSettle = wk && wk.settled > 0 && wk.gasEth > 0 ? wk.gasEth / wk.settled : null;
+  const left = (eth) => (perSettle && eth != null ? ` · about ${Math.floor(eth / perSettle)} settles of gas` : '');
+  const row = (k, v) => h('div', { class: 'kv' }, h('span', {}, k), h('b', { class: 'num' }, v));
+  mount(el,
+    h('p', { class: 'eyebrow' }, h('span', {}, 'The relay’s wallets'), h('a', { href: '/relay/' }, 'public page')),
+    h('div', { class: 'rows' },
+      row('Settle wallet', `${ethFmt(w.settle.eth)} ETH${left(w.settle.eth)}`),
+      row('Deployer wallet', `${ethFmt(w.relay.eth)} ETH`),
+      row('PROVE held there', w.relay.prove == null ? '–' : `${ethFmt(w.relay.prove)} PROVE`)),
+    h('div', { class: 'rows' },
+      row('Buyback share of fee income', cfg.buybackBps ? `${cfg.buybackBps / 100}%` : 'off'),
+      row('Settle wallet keeps before paying it', cfg.buybackKeepEth != null ? `${ethFmt(cfg.buybackKeepEth)} ETH` : '–'),
+      row('Owed, to be paid when it can', l ? `${ethFmt(l.owedEth)} ETH` : '–'),
+      row('Splitter sent on by the relay', cfg.splitter ? `${wk ? wk.splitterSends : 0} times this week` : 'not set (SPLITTER_ADDR)')),
+    h('p', { class: 'note' }, l && l.stale ? 'The relay has not reported for a few minutes.' : 'These are set on the settle service (BUYBACK_INCOME_BPS, BUYBACK_KEEP_WEI, BUYBACK_MIN_SEND_WEI, SPLITTER_ADDR, SPLITTER_MIN_WEI) and take effect on its next pass.'));
+}
+async function loadRelay() {
+  try { RELAY.j = await (await fetch(`${API}/relay/economics`, { cache: 'no-store', signal: AbortSignal.timeout(15000) })).json(); } catch { /* the panel stays as it was */ }
+  paintRelay();
+}
+
 function paintNext() {
   const el = $('#p-next'), st = store.get();
   if (!S.addr || !S.shares) { el.hidden = true; return; }
@@ -347,6 +377,7 @@ if (provider()?.on) {
   provider().on('chainChanged', () => paint());
 }
 (async () => {
+  loadRelay(); setInterval(loadRelay, 120000);
   paintChip();
   if (provider()) provider().request({ method: 'eth_accounts' }).then((a) => { if (a[0]) { S.account = lc(a[0]); paint(); } }).catch(() => {});
   const fromHash = location.hash.replace(/^#/, '');

@@ -57,6 +57,8 @@ await ctx.route(/^https:\/\/(ethereum-rpc\.publicnode\.com|eth\.drpc\.org|1rpc\.
   route.fulfill({ status: 200, contentType: 'application/json', headers: CORS, body: await rpcRaw(route.request().postData()) });
 });
 await ctx.route(/^https:\/\/api\.tacit\.finance\/confidential\/quote/, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: CORS, body: JSON.stringify({ ticker: 'cETH', recommendedTipRecipient: quote }) }));
+const ECON = { updatedAt: new Date().toISOString(), ledger: { since: '2026-10-15T00:00:00Z', stale: false, owedEth: 0.0003, cfg: { buybackBps: 1000, buybackKeepEth: 0.002, splitter: null }, recent: [], week: { days: 2, settled: 40, priced: 20, unpriced: 15, proveOnly: 5, gasEth: 0.008, proveIn: 20, buybackEth: 0.001, splitterSends: 0, feeUsd: { eth: 10, converted: 0, convertible: 10 } } }, chain: { head: 1, wallets: { settle: { address: SETTLE, eth: 0.0046 }, relay: { address: DEPLOYER, eth: 0.0123, prove: 31.5 } }, buyback: { complete: true }, tips: null, splitter: null }, prices: null };
+await ctx.route(/^https:\/\/api\.tacit\.finance\/relay\/economics/, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: CORS, body: JSON.stringify(ECON) }));
 const page = await ctx.newPage();
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e.message || e)));
@@ -97,6 +99,9 @@ try {
   ok(owner === A0 && sh0.to.join() === `${DEPLOYER},${SETTLE},${BUYBACK}` && sh0.weight.join() === '63,27,10', 'deploy: on chain the owner is the address typed and the list is 63 / 27 / 10');
   ok(/^Deploy/.test(await text('#p-deploy .eyebrow')) && (await page.$eval('#p-next', (e) => !e.hidden)), 'deploy: the next steps appear');
   ok(/Constructor arguments: 0x/.test(await text('#p-next')), 'deploy: the constructor arguments are shown for Etherscan');
+  await until(() => !document.querySelector('#p-relay').hidden);
+  const relayPanel = await text('#p-relay');
+  ok(/Settle wallet0\.0046 ETH · about 23 settles of gas/.test(relayPanel) && /Deployer wallet0\.0123 ETH/.test(relayPanel) && /PROVE held there31\.5 PROVE/.test(relayPanel) && /Buyback share of fee income10%/.test(relayPanel) && /Owed, to be paid when it can0\.0003 ETH/.test(relayPanel), `relay: the operator sees each wallet, its runway in settles, and the commitments (${relayPanel.slice(0, 110)})`);
   await shot('deployed');
 
   // ── tips arrive ──
