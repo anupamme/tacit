@@ -2839,11 +2839,15 @@ function handleConfidentialQuote(req, env, url, cors) {
   // address. Ops keeps the actual relayer wallet topped up from the multisig; this value is what a tip
   // pays, not what signs settles.
   const recommendedTipRecipient = env.RELAY_TIP_RECIPIENT_ADDR || '0x006CD14F36F65eCbB29b2519cCBe63A0DC8549F2';
+  // A splitter that forwards tips on to the wallets that run the relay and to the buyback (contracts/src/EthSplitter.sol). Tacit's own pages pay it
+  // when it is named here; `recommendedTipRecipient` above stays the ops multisig for every page that pinned it (an integrator's immutable page
+  // pays only that address, and adds no tip at all if the quote names another). The relay counts a tip paid to either as paid.
+  const tipSplitter = /^0x[0-9a-fA-F]{40}$/.test(env.RELAY_TIP_SPLITTER_ADDR || '') ? env.RELAY_TIP_SPLITTER_ADDR : null;
   const policy = QUOTE_RELAY_FEE_ASSETS[ticker];
-  if (!policy) return jsonResponse({ ticker, assetId: asset.assetId, relayFeeEligible: false, recommendedTipRecipient }, 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
+  if (!policy) return jsonResponse({ ticker, assetId: asset.assetId, relayFeeEligible: false, recommendedTipRecipient, tipSplitter }, 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
   const unitScale = BigInt(asset.unitScale || '1');
   const staticFloorUnits = (policy.minUnderlying / unitScale).toString();
-  const out = { ticker, assetId: asset.assetId, relayFeeEligible: true, staticFloorUnits, gasAwareFloorUnits: null, recommendedTipRecipient };
+  const out = { ticker, assetId: asset.assetId, relayFeeEligible: true, staticFloorUnits, gasAwareFloorUnits: null, recommendedTipRecipient, tipSplitter };
   // A live gas-aware floor is published for every asset the gate holds to one — with ONE deliberate exception.
   // cTAC's reference price is private deployment config, and a floor in cTAC units would hand it out: the floor in
   // dollars is public (gas x ETH price), so dollars / units IS the price. cTAC gets the static floor only.
@@ -3045,7 +3049,9 @@ async function wrapTipPaid(env, body) {
   const commit = '0x' + bytesToHex(keccak_256(hexToBytes(cx + cy + owner))), amount = BigInt(op.value) * BigInt(row.unitScale || '1');
   const forwarders = [env.WRAP_TIP_FORWARDER_ADDR || '0x000000D218B03db5837943b0b05DeA2965AE956e', env.WRAP_TOKEN_TIP_FORWARDER_ADDR || '0x0000007b1d93d72f698A861aA86Ac675D6AF7216']
     .filter(Boolean).map((a) => String(a).toLowerCase());
-  const to = '0x' + String(env.RELAY_TIP_RECIPIENT_ADDR || '0x006CD14F36F65eCbB29b2519cCBe63A0DC8549F2').slice(2).toLowerCase().padStart(64, '0');
+  // Either address counts: the ops multisig (what an integrator's pinned page pays) and the splitter (what Tacit's own pages pay).
+  const tos = [env.RELAY_TIP_RECIPIENT_ADDR || '0x006CD14F36F65eCbB29b2519cCBe63A0DC8549F2', env.RELAY_TIP_SPLITTER_ADDR]
+    .filter((a) => /^0x[0-9a-fA-F]{40}$/.test(a || '')).map((a) => '0x' + a.slice(2).toLowerCase().padStart(64, '0'));
   const r = await _ethRpc('mainnet', 'eth_getTransactionReceipt', [tx]).catch(() => null);
   if (!r || r.status !== '0x1') return false;
   let tip = null;
@@ -3053,8 +3059,8 @@ async function wrapTipPaid(env, body) {
     const t = (l.topics || []).map((x) => String(x).toLowerCase()), data = String(l.data || '').slice(2);
     if (!forwarders.includes(String(l.address).toLowerCase()) || data.length < 128) continue;
     // The ETH forwarder wraps only the pool's native asset; the token one names the asset it wrapped.
-    const mine = (t[0] === WRAPPED_WITH_TIP && t[1] === commit && t[2] === to && row.native === true)
-      || (t[0] === WRAPPED_TOKEN_WITH_TIP && t[1] === '0x' + asset && t[2] === commit && t[3] === to);
+    const mine = (t[0] === WRAPPED_WITH_TIP && t[1] === commit && tos.includes(t[2]) && row.native === true)
+      || (t[0] === WRAPPED_TOKEN_WITH_TIP && t[1] === '0x' + asset && t[2] === commit && tos.includes(t[3]));
     if (mine && BigInt('0x' + data.slice(0, 64)) === amount) { tip = BigInt('0x' + data.slice(64, 128)); break; }
   }
   if (tip == null || tip === 0n) return false;

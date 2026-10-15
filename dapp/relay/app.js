@@ -78,7 +78,7 @@ function paintCosts(j) {
 function paintTips(j) {
   const t = j.chain && j.chain.tips, sp = j.chain && j.chain.splitter, el = $('#p-tips');
   // Said as it is set up now: a splitter is only mentioned once there is one.
-  $('#flow-tips').textContent = sp && sp.shares ? 'A wrap’s tip pays for settling it. It goes to a splitter, which sends it on to the wallets that keep Bitcoin’s state current and settle requests, and to the buyback.' : 'A wrap’s tip pays for settling it. It goes to the ops multisig, which funds the relay’s wallets.';
+  $('#flow-tips').textContent = sp && sp.shares ? 'A wrap’s tip pays for settling it. Tacit’s own pages send it to a splitter, which sends it on to the wallets that keep Bitcoin’s state current and settle requests, and to the buyback; a page that pays the ops multisig directly is counted the same.' : 'A wrap’s tip pays for settling it. It goes to the ops multisig, which funds the relay’s wallets.';
   mount(el,
     h('p', { class: 'eyebrow' }, 'Wrap tips, last 30 days'),
     !t ? h('p', { class: 'mute' }, 'Reading…')

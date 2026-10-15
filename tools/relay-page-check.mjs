@@ -75,7 +75,7 @@ ok(/Fees paid in TAC are kept, not sold/.test(tacNote) && !/\$/.test(tacNote), '
   ok(/Fees pay part of all this; the team funds the rest/.test(t), 'costs: says the team funds the rest');
   t = await text('#p-tips');
   ok(/122wraps tipped, 0\.032 ETH/.test(t) && /To Ops multisig0\.031 ETH/.test(t) && /Deployer wallet63%/.test(t) && /Settle wallet27%/.test(t) && /TAC buyback10%/.test(t), `tips: the month's tips, where they went and who the splitter pays (${t.slice(0, 130)})`);
-  ok(/goes to a splitter/.test(await text('#flow-tips')), 'flow: with a splitter set, the tip line names it');
+  ok(/send it to a splitter/.test(await text('#flow-tips')), 'flow: with a splitter set, the tip line names it');
   const all = await page.evaluate(() => document.body.textContent);
   ok(!/0\.003 ETH|0\.001 ETH.*4 PROVE|runway|low on gas|running low/i.test(all) && !/68575b073de49a94e3e3acf6f3a0d6e3b66267c7.*\bETH\b.*held/i.test(all), 'no wallet balance or runway is shown on the public page');
   await shot('full');

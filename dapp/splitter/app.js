@@ -125,7 +125,7 @@ async function load() {
 async function loadExtras() {
   if (!S.addr || !S.shares) return;
   const [quote, logs] = await Promise.all([
-    fetch(`${API}/confidential/quote?asset=cETH`, { cache: 'no-store', signal: AbortSignal.timeout(10000) }).then((r) => r.json()).then((j) => j.recommendedTipRecipient || null).catch(() => null),
+    fetch(`${API}/confidential/quote?asset=cETH`, { cache: 'no-store', signal: AbortSignal.timeout(10000) }).then((r) => r.json()).then((j) => j.tipSplitter || j.recommendedTipRecipient || null).catch(() => null),
     rpc('eth_getLogs', [{ address: S.addr, topics: [TOPIC.distributed], fromBlock: '0x' + Math.max(0, S.block - 100000).toString(16), toBlock: 'latest' }]).catch(() => []),
   ]);
   S.quote = quote;
@@ -222,8 +222,8 @@ function paintState() {
     S.balance > 0n ? h('div', { class: 'rows' }, to.map((a, i) => h('div', { class: 'kv' }, h('span', {}, `→ ${nameOf(a) || short(a)}`), h('b', { class: 'num' }, `${fmtEth(pay[i])} ETH`)))) : null,
     go, out,
     S.quote == null ? null : h('div', { class: `callout ${tipsHere ? 'good' : ''}` }, tipsHere
-      ? h('span', {}, h('b', {}, 'Wrap tips come here.'), ' The relay’s quote names this splitter.')
-      : h('span', {}, h('b', {}, 'Wrap tips do not come here yet.'), ` The relay’s quote still names ${nameOf(S.quote) || short(S.quote, 8)}. Set RELAY_TIP_RECIPIENT_ADDR on the API to ${S.addr} to change that.`)),
+      ? h('span', {}, h('b', {}, 'Tacit’s own pages tip this splitter.'), ' The relay’s quote names it. A page that pinned the ops multisig keeps paying the multisig, and the relay counts both.')
+      : h('span', {}, h('b', {}, 'Tacit’s pages do not tip this splitter yet.'), ` The relay’s quote names ${nameOf(S.quote) || short(S.quote, 8)}. Set RELAY_TIP_SPLITTER_ADDR on the API to ${S.addr} to change that.`)),
     h('div', { class: 'rows' }, to.map((a, i) => h('div', { class: 'who' },
       h('div', { class: 'nm' }, h('b', {}, nameOf(a) || 'Wallet'), h('small', {}, roleOf(a) || a, roleOf(a) ? ` · ${short(a, 6)}` : '')),
       h('div', { class: 'pc num' }, `${percent(weight, i)}%`),
@@ -372,15 +372,15 @@ function paintNext() {
   el.hidden = false;
   const mine = st.args && lc(st.addr) === lc(S.addr);
   const lines = { verify: `forge verify-contract ${S.addr} src/EthSplitter.sol:EthSplitter --chain mainnet --compiler-version 0.8.37 --num-of-optimizations 1 --via-ir --evm-version prague${mine ? ` --constructor-args 0x${st.args}` : ' --constructor-args <the hex from the deploy>'} --watch`,
-    api: `RELAY_TIP_RECIPIENT_ADDR=${S.addr}\nSPLITTER_ADDR=${S.addr}`, settle: `SPLITTER_ADDR=${S.addr}` };
+    api: `RELAY_TIP_SPLITTER_ADDR=${S.addr}\nSPLITTER_ADDR=${S.addr}`, settle: `SPLITTER_ADDR=${S.addr}` };
   const copyBlock = (key, label, text) => h('div', { class: 'cmd' }, h('div', { class: 'cmd-h' }, h('span', { class: 'mute' }, label), h('button', { class: 'linkbtn', type: 'button', onclick: (e) => copy(text, e.target) }, 'copy')), h('pre', {}, text));
   mount(el,
     h('p', { class: 'eyebrow' }, 'Switching the tips over'),
     h('ol', { class: 'steps' },
       h('li', {}, h('b', {}, 'Verify it on Etherscan. '), 'From the repo’s contracts folder, with your Etherscan key in the environment (compiler 0.8.37, optimizer 1 run, via IR, EVM prague):', copyBlock('verify', 'forge', lines.verify)),
-      h('li', {}, h('b', {}, 'Point the tips here. '), 'On the API service on Render set these two, then redeploy it. The relay’s quote then names the splitter, the pages tip it, and the relay counts a tip paid to it. A tip paid to the old address stops counting as paid for the free-settle allowance from that point.', copyBlock('api', 'tacit-api', lines.api)),
+      h('li', {}, h('b', {}, 'Point the tips here. '), 'On the API service on Render set these two. The relay’s quote then names the splitter in a separate field, Tacit’s own pages tip it, and the relay counts a tip paid to it or to the ops multisig as paid. The multisig stays the quote’s recipient, so a page that pinned it keeps working unchanged.', copyBlock('api', 'tacit-api', lines.api)),
       h('li', {}, h('b', {}, 'Let the relay send it on. '), 'On the settle service set this; its next pass (every 30 minutes) sends the splitter on once it holds 0.0005 ETH.', copyBlock('settle', 'tacit-settle', lines.settle)),
-      h('li', {}, h('b', {}, 'Tell the integrators. '), 'Any page that pinned the multisig as the tip recipient will refuse the new address until it is told.')));
+      h('li', {}, h('b', {}, 'Pinned pages. '), 'A page that pays the ops multisig directly (an integrator’s, say) still can: its tips reach the multisig as before, and only a page that reads the new field tips the splitter.')));
 }
 
 // ── start ──

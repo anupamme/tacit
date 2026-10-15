@@ -56,7 +56,7 @@ await ctx.route(/^https:\/\/(ethereum-rpc\.publicnode\.com|eth\.drpc\.org|1rpc\.
   if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: CORS });
   route.fulfill({ status: 200, contentType: 'application/json', headers: CORS, body: await rpcRaw(route.request().postData()) });
 });
-await ctx.route(/^https:\/\/api\.tacit\.finance\/confidential\/quote/, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: CORS, body: JSON.stringify({ ticker: 'cETH', recommendedTipRecipient: quote }) }));
+await ctx.route(/^https:\/\/api\.tacit\.finance\/confidential\/quote/, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: CORS, body: JSON.stringify({ ticker: 'cETH', recommendedTipRecipient: MULTISIG, tipSplitter: quote === MULTISIG ? null : quote }) }));
 const ECON = { updatedAt: new Date().toISOString(), ledger: { since: '2026-10-15T00:00:00Z', stale: false, owedEth: 0.0003, cfg: { buybackBps: 1000, buybackKeepEth: 0.002, splitter: null }, recent: [], week: { days: 2, settled: 40, priced: 20, unpriced: 15, proveOnly: 5, gasEth: 0.008, proveIn: 20, buybackEth: 0.001, splitterSends: 0, feeUsd: { eth: 10, converted: 0, convertible: 10 } } }, chain: { head: 1, wallets: { settle: { address: SETTLE, eth: 0.0046 }, relay: { address: DEPLOYER, eth: 0.0123, prove: 31.5 } }, buyback: { complete: true }, tips: null, splitter: null }, prices: null };
 await ctx.route(/^https:\/\/api\.tacit\.finance\/relay\/economics/, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: CORS, body: JSON.stringify(ECON) }));
 const page = await ctx.newPage();
@@ -103,7 +103,7 @@ try {
   ok(owner === A0 && sh0.to.join() === `${DEPLOYER},${SETTLE},${BUYBACK}` && sh0.weight.join() === '63,27,10', 'deploy: on chain the owner is the address typed and the list is 63 / 27 / 10');
   ok(/^Deploy/.test(await text('#p-deploy .eyebrow')) && (await page.$eval('#p-next', (e) => !e.hidden)), 'deploy: the next steps appear');
   const nextText = await text('#p-next');
-  ok(/forge verify-contract 0x[0-9a-f]{40} src\/EthSplitter\.sol:EthSplitter .*--compiler-version 0\.8\.37 .*--constructor-args 0x/i.test(nextText) && /RELAY_TIP_RECIPIENT_ADDR=0x[0-9a-f]{40}/i.test(nextText) && /SPLITTER_ADDR=0x/.test(nextText), 'deploy: the verify command and the two settings are given with the address and the constructor arguments filled in');
+  ok(/forge verify-contract 0x[0-9a-f]{40} src\/EthSplitter\.sol:EthSplitter .*--compiler-version 0\.8\.37 .*--constructor-args 0x/i.test(nextText) && /RELAY_TIP_SPLITTER_ADDR=0x[0-9a-f]{40}/i.test(nextText) && /SPLITTER_ADDR=0x/.test(nextText), 'deploy: the verify command and the two settings are given with the address and the constructor arguments filled in');
   ok(await page.$eval('#p-deploy', (e) => e.parentElement === document.querySelectorAll('.grid > .col')[1]), 'deploy: once there is a splitter the deploy panel steps aside');
   await until(() => !document.querySelector('#p-relay').hidden);
   const relayPanel = await text('#p-relay');
@@ -116,7 +116,7 @@ try {
   await until(() => /0\.5/.test(document.querySelector('#p-state .room')?.textContent || ''));
   const prev = await text('#p-state');
   ok(/→ Deployer wallet0\.315 ETH/.test(prev) && /→ Settle wallet0\.135 ETH/.test(prev) && /→ TAC buyback0\.05 ETH/.test(prev), 'state: what waits is shown with what each wallet will get (0.315, 0.135 and 0.05)');
-  ok(/Wrap tips do not come here yet/.test(prev) && /Ops multisig/.test(prev), 'state: while the relay quote names the multisig, the page says tips do not come here yet and names the multisig');
+  ok(/do not tip this splitter yet/.test(prev) && /Ops multisig/.test(prev) && /RELAY_TIP_SPLITTER_ADDR/.test(prev), 'state: while the relay quote names no splitter, the page says Tacit\'s pages do not tip it yet, names the multisig, and says which setting to change');
   const d0 = await bal(DEPLOYER), s0 = await bal(SETTLE), b0 = await bal(BUYBACK);
 
   // ── send it on ──
@@ -131,8 +131,8 @@ try {
   // ── the relay quote names the splitter ──
   quote = addr;
   await page.click('#pick button');
-  await until(() => /Wrap tips come here/.test(document.querySelector('#p-state')?.textContent || ''));
-  ok(true, 'state: once the quote names this splitter the page says tips come here');
+  await until(() => /Tacit’s own pages tip this splitter/.test(document.querySelector('#p-state')?.textContent || ''));
+  ok(true, 'state: once the quote names this splitter the page says Tacit\'s own pages tip it');
 
   // ── change the list, nothing waiting ──
   ok((await page.$$('#p-edit .row input')).length === 6, 'edit: three wallets, each with a weight');

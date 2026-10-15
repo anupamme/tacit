@@ -503,12 +503,21 @@ test('a wrap counts as paid only for its own deposit, through our forwarder, to 
   const word = (n) => BigInt(n).toString(16).padStart(64, '0');
   const cost = (await wrapSettleCost({}, '0x3b9aca00', 2500)).tipWei;
   const rcpt = ({ address = FWD, topics = [sig, commit, TO], amount = 10n ** 18n, tip = cost, status = '0x1' } = {}) => ({ status, logs: [{ address, topics, data: '0x' + word(amount) + word(tip) }] });
-  const paid = async (receipt, body = { type: 'wrap', op, depositTx: W('aa') }) => (await loadTipPaid({ receipt })).wrapTipPaid({}, body);
+  const paid = async (receipt, body = { type: 'wrap', op, depositTx: W('aa') }, env = {}) => (await loadTipPaid({ receipt })).wrapTipPaid(env, body);
   ok(await paid(rcpt()) === true, 'a full tip for this deposit counts as paid');
   ok(await paid(rcpt({ tip: (cost + 1n) / 2n })) === true, 'half the cost still counts (gas moves between the quote and the settle)');
   ok(await paid(rcpt({ tip: cost / 3n })) === false, 'a tip under half the cost is still free work');
   ok(await paid(rcpt({ topics: [sig, W('99'), TO] })) === false, "another deposit's tip does not pay for this one");
   ok(await paid(rcpt({ topics: [sig, commit, '0x' + '11'.repeat(32)] })) === false, 'a tip to someone else does not pay us');
+  // The splitter that forwards tips on, named by RELAY_TIP_SPLITTER_ADDR: a tip to it counts, and so does a tip to the ops multisig (a page that
+  // pinned it keeps paying it), while a splitter that is not configured is just someone else.
+  const SPL = '0xf5eBBE5Db610F64D29A0dC5e9534074Af12834F9', SPLW = '0x' + SPL.slice(2).toLowerCase().padStart(64, '0'), withSpl = { RELAY_TIP_SPLITTER_ADDR: SPL };
+  ok(await paid(rcpt({ topics: [sig, commit, SPLW] }), undefined, withSpl) === true, 'a full tip to the splitter counts as paid when the relay names it');
+  ok(await paid(rcpt({ topics: [sig, commit, TO] }), undefined, withSpl) === true, 'a tip to the ops multisig still counts with a splitter named (a pinned page keeps paying it)');
+  ok(await paid(rcpt({ topics: [sig, commit, SPLW] })) === false, 'a tip to a splitter the relay does not name is a tip to someone else');
+  ok(await paid(rcpt({ topics: [sig, commit, SPLW], tip: cost / 3n }), undefined, withSpl) === false, 'and a tip to the splitter under half the cost is still free work');
+  ok(await paid(rcpt({ topics: [sig, commit, '0x' + '11'.repeat(32)] }), undefined, withSpl) === false, 'a third address does not count with the splitter named');
+  ok(await paid(rcpt({ topics: [sig, commit, TO] }), undefined, { RELAY_TIP_SPLITTER_ADDR: 'junk' }) === true && await paid(rcpt({ topics: [sig, commit, SPLW] }), undefined, { RELAY_TIP_SPLITTER_ADDR: 'junk' }) === false, 'a splitter setting that is not an address is ignored');
   ok(await paid(rcpt({ address: '0x' + '22'.repeat(20) })) === false, 'the same event from any other contract is ignored');
   ok(await paid(rcpt({ amount: 10n ** 15n })) === false, 'a tip on a different amount is a different deposit');
   // A small deposit: the quote recommends a tip capped at 3% of it, and that recommended tip must count as paid.
@@ -524,6 +533,11 @@ test('a wrap counts as paid only for its own deposit, through our forwarder, to 
   ok(await paid(rcpt(), { type: 'transfer', op, depositTx: W('aa') }) === false, 'only a wrap can be paid this way');
   ok(await paid(rcpt(), { type: 'wrap', op: { ...op, asset: W('8f') }, depositTx: W('aa') }) === false, 'the ETH forwarder pays only for the native asset');
   ok(await paid(null) === false, 'no receipt, no exemption');
+});
+
+test('Tacit\'s own front page pays the splitter when the quote names one, and the ops address otherwise', async () => {
+  const page = readFileSync(join(ROOT, 'dapp/index.html'), 'utf8');
+  ok(page.includes('to = j.tipSplitter || j.recommendedTipRecipient'), 'the Shield card takes the tip address from tipSplitter first');
 });
 
 test('prove-mode is not counted against the free-relay budget', async () => {

@@ -4349,7 +4349,7 @@ await step('hxtip', async () => {
       const wei = BigInt(new URL(route.request().url()).searchParams.get('amountWei') || '0'), cap = 117222807204416n, tip = wei * 3n / 100n < cap ? wei * 3n / 100n : cap;
       asked.push(String(wei));
       return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
-        body: JSON.stringify({ relayFeeEligible: true, recommendedTipRecipient: '0x' + '6c'.repeat(20), recommendedWrapTipWei: String(tip) }) });
+        body: JSON.stringify({ relayFeeEligible: true, recommendedTipRecipient: '0x' + '6c'.repeat(20), tipSplitter: '0x' + '5e'.repeat(20), recommendedWrapTipWei: String(tip) }) });
     });
     await p.goto(r.url);
     await p.waitForSelector('#hx-amt', { timeout: 120000 });

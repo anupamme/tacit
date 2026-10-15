@@ -120,13 +120,17 @@ export const programEnds = (program) => (program?.epoch?.active ? Number(program
 // to hold it to), a quote with no tip is not a tip of nothing, and one that asks for more than a twentieth of the deposit is refused (the API's
 // own ceiling is 3%).
 export const RELAY_TIP_TO = '0x006CD14F36F65eCbB29b2519cCBe63A0DC8549F2';
+// The splitter that forwards tips on to the wallets that run the relay and to the buyback; the quote names it as `tipSplitter`, and only this
+// address is accepted for it. Anything else the API names is refused, as before.
+export const RELAY_TIP_SPLITTER = '0xf5eBBE5Db610F64D29A0dC5e9534074Af12834F9';
 export const TIP_CEILING_BPS = 500n;
 export async function wrapQuote(wei) {
   const j = await api(`/confidential/quote?asset=cETH&amountWei=${wei}`);
   if (!j) throw new Error('The relay could not quote right now. Try again in a moment.');
   if (!/^\d+$/.test(String(j.recommendedWrapTipWei ?? ''))) throw new Error('The relay did not give a tip for this deposit. Try again in a moment.');
-  const to = j.recommendedTipRecipient, tip = BigInt(j.recommendedWrapTipWei);
-  if (String(to || '').toLowerCase() !== RELAY_TIP_TO.toLowerCase()) throw new Error('The relay named a tip address this page does not know, so nothing will be sent. Try again later, or use tacit.finance.');
+  const to = j.tipSplitter || j.recommendedTipRecipient, tip = BigInt(j.recommendedWrapTipWei);
+  const known = [RELAY_TIP_TO, RELAY_TIP_SPLITTER].find((a) => a.toLowerCase() === String(to || '').toLowerCase());
+  if (!known) throw new Error('The relay named a tip address this page does not know, so nothing will be sent. Try again later, or use tacit.finance.');
   if (tip * 10000n > BigInt(wei) * TIP_CEILING_BPS) throw new Error('The relay asked for more than 5% of this deposit as its tip, so nothing will be sent. A larger deposit pays a smaller share.');
-  return { tip, to: RELAY_TIP_TO, floor: BigInt(j.gasAwareFloorUnits || j.staticFloorUnits || 0) * E10 };
+  return { tip, to: known, floor: BigInt(j.gasAwareFloorUnits || j.staticFloorUnits || 0) * E10 };
 }

@@ -192,7 +192,7 @@ To pay the relay for step 2 in the same transaction, send the deposit through `W
 (`0x000000D218B03db5837943b0b05DeA2965AE956e`, cETH) instead of the pool: `wrapWithTip(bytes32 commit,
 uint256 amount, address tipRecipient)` (`0xfc24c435`) with `value = amount + tip`. It makes the same `pool.wrap`
 call with the same commit and forwards the tip in that call. Take `tip` and `tipRecipient` from
-`GET /confidential/quote?asset=cETH&amountWei=<amount>` (`recommendedWrapTipWei`, `recommendedTipRecipient`);
+`GET /confidential/quote?asset=cETH&amountWei=<amount>` (`recommendedWrapTipWei`, `recommendedTipRecipient`, and `tipSplitter` when there is one: the ops multisig stays the recipient the quote has always named and the relay counts a tip paid to either as paid, so a page that pinned the multisig keeps working; a page that wants its tip to reach the relay's wallets and the buyback pays `tipSplitter`);
 step 2 is unchanged.
 
 `index` selects which deterministic note the wrap creates: `(nk, blinding)` are derived from your key, the

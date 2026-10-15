@@ -52,6 +52,7 @@ const nowS = () => Math.floor(Date.now() / 1000);
 const front = JSON.parse(JSON.stringify(stats)); delete front.eth.series.flows;
 const HELD = BigInt(stats.eth.held.$n);
 const WRAP_TIP = '0x000000D218B03db5837943b0b05DeA2965AE956e', RELAY = quote.recommendedTipRecipient, TIP = BigInt(quote.recommendedWrapTipWei);
+const SPLITTER = '0xf5eBBE5Db610F64D29A0dC5e9534074Af12834F9';
 const ETH_USD = 2441, PER_ETH = 11000, ACCOUNT_BAL = 5n * 10n ** 18n;
 
 let n = 0, fails = 0;
@@ -558,6 +559,7 @@ try {
   const sendsBefore = r.log.sends.length;
   for (const [name, mod, want] of [
     ['a tip address this page does not know', (q) => ({ ...q, recommendedTipRecipient: '0x' + '11'.repeat(20) }), /tip address this page does not know/],
+    ['a splitter this page does not know', (q) => ({ ...q, tipSplitter: '0x' + '22'.repeat(20) }), /tip address this page does not know/],
     ['no tip at all', (q) => { const { recommendedWrapTipWei, ...rest } = q; return rest; }, /did not give a tip/],
     ['a tip of a tenth of the deposit', (q) => ({ ...q, recommendedWrapTipWei: String(10n ** 16n) }), /more than 5% of this deposit/],
   ]) {
@@ -578,6 +580,7 @@ try {
 
   // ── a deposit whose receipt does not come: it is not asked for again, and Check again finishes it ──
   chain.receipt = 'none';
+  chain.quote = (q) => ({ ...q, tipSplitter: SPLITTER });                  // a quote that names the splitter: this deposit's tip goes to it
   r = await openPage({ width: 1280, height: 900 }, { wallet: true });
   p = r.page;
   await until(p, () => document.querySelector('#px-usd').textContent.startsWith('$'));
@@ -594,6 +597,8 @@ try {
   for (let i = 0; i < 6 && !/not confirmed yet/.test(await text(p, '#status')); i++) { await p.clock.fastForward('06:00'); await p.waitForTimeout(400); }
   const slow = await text(p, '#status');
   ok(/not confirmed yet/.test(slow) && /0\.07 ETH deposit was sent/.test(slow) && /no need to send it again/.test(slow) && /Check again/.test(slow), `a deposit that does not confirm is said to be sent, not safe, and not to be sent again (${slow.slice(0, 150)})`);
+  ok(r.log.sends[0].tx.data.toLowerCase().endsWith(SPLITTER.slice(2).toLowerCase().padStart(64, '0')) && !r.log.sends[0].tx.data.toLowerCase().endsWith(RELAY.slice(2).toLowerCase().padStart(64, '0')), 'a quote that names the splitter has the deposit\'s tip sent to it, not to the ops address');
+  chain.quote = null;
   ok(r.log.sends.length === 1 && (await text(p, '#go')) === 'Finish the earlier deposit first' && (await p.inputValue('#amt')) === '', 'the form is cleared and held');
   chain.receipt = 'ok';
   await p.click('#retry');
