@@ -5,10 +5,10 @@
 //
 // It reads the chain and the API with no wallet, as /trade/tac/ does, and holds no key it was not given: the key lives in this visit's memory.
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=e2110e58';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=79211ff3';
-import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=fc9032d3';
-import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=96ae1c5b';
-import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, forgetUx, getUx } from '/trade/teth/wrap.js?cb=94309936';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=98994139';
+import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=add8fb0e';
+import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=e30e5678';
+import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, forgetUx, getUx } from '/trade/teth/wrap.js?cb=35104f89';
 import { mountDepth } from '/trade/depth.js?cb=21a5dc95';
 import { candlesFromTrades, closeAt } from '/trade/tape.js?cb=6565501b';
 import { readMarket, isActive, bookState, refSats, premium, satsTxt, ladders, idle, bookPrime, summary, fillBars, BTC_ID } from '/trade/teth/market.js?cb=cca360ae';

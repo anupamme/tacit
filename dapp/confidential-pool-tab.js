@@ -163,10 +163,15 @@ function wireExit(wallet, ux, notes) {
       if (!note) return;
       const recInput = el('cpool-exit-recipient');
       const recipient = (recInput && recInput.value || '').trim() || undefined;
-      const selfSettle = !!(el('cpool-exit-selfsettle') && el('cpool-exit-selfsettle').checked);
+      // "No fee": the relay only proves the exit, and this key's own Tacit account sends its settle (paying the network fee),
+      // so the whole note reaches the recipient.
+      const noFee = !!(el('cpool-exit-selfsettle') && el('cpool-exit-selfsettle').checked);
+      const selfSettle = noFee
+        ? ({ publicValues, proof, memos, pair }) => ux.settleFromAccount({ settlerPriv: wallet.priv, publicValues, proof, memos, pair })
+        : null;
       const setBtns = (d) => listEl.querySelectorAll('.cpool-exit-one').forEach((b) => { b.disabled = d; });
       setBtns(true);
-      if (statusEl) statusEl.textContent = 'Submitting your exit to the relayer…';
+      if (statusEl) statusEl.textContent = noFee ? 'The relay is proving your exit; your Tacit account then sends it…' : 'Submitting your exit to the relayer…';
       try {
         const r = await ux.unwrap({
           note, walletPriv: wallet.priv, recipient, selfSettle,
@@ -490,10 +495,10 @@ function renderPoolPanel() {
   const exitBody =
     `<input id="cpool-exit-recipient" type="text" placeholder="Recipient address (a fresh one keeps it unlinked; default: your account)">`
     + `<div id="cpool-exit-linknote" class="muted" style="font-size:11px;margin:4px 0;"></div>`
-    + `<label class="check-row" style="margin:8px 0;"><input id="cpool-exit-selfsettle" type="checkbox"> <span>No fee (relayer settles at no charge — for your own exits)</span></label>`
+    + `<label class="check-row" style="margin:8px 0;"><input id="cpool-exit-selfsettle" type="checkbox"> <span>No fee (your Tacit account sends the exit and pays its network fee)</span></label>`
     + `<div id="cpool-exit-list" class="muted" style="font-size:12px;">Unlock + wrap to see your exitable notes.</div>`
     + `<div id="cpool-exit-status" class="muted field-status" style="margin-top:6px;"></div>`
-    + `<div class="muted" style="font-size:11px;margin-top:6px;">Each exit spends one whole note. The relayer settles on-chain so you need no ETH for gas; by default a small fee is taken from your withdrawal. The full value exits to the recipient with no fee when the box settles at no charge.</div>`;
+    + `<div class="muted" style="font-size:11px;margin-top:6px;">Each exit spends one whole note. The relayer settles on-chain so you need no ETH for gas; by default a small fee is taken from your withdrawal. With No fee, the full value exits to the recipient and your Tacit account pays the network fee.</div>`;
 
   const wrapTacBody =
     `<div class="field-row">`

@@ -849,8 +849,9 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   const defiActions = (walletPriv) => makeConfidentialDefiActions({ pool, cdp: _cdp, farm: _farm, relay, id: identity(walletPriv), chainBindingHex, secp, ephRand: freshEph });
   // ③ Mint a cBTC.zk bearer note against a reflection-recorded self-custody lock. outpoint = the lock's
   // 32-byte outpoint (lockTxid‖lockVout), vBtc = locked sats, blinding = the note's recoverable blinding.
-  async function mintCbtc({ walletPriv, outpoint, vBtc, blinding, waitOpts } = {}) {
-    return defiActions(walletPriv).mintCbtc({ outpoint, vBtc: BigInt(vBtc), blinding, waitOpts });
+  // `selfSettle({ jobId, publicValues, proof, memos })` → { txHash }: the relay only proves it and the caller sends the settle.
+  async function mintCbtc({ walletPriv, outpoint, vBtc, blinding, selfSettle = null, waitOpts } = {}) {
+    return defiActions(walletPriv).mintCbtc({ outpoint, vBtc: BigInt(vBtc), blinding, selfSettle, waitOpts });
   }
   // `memo` + `guard` are defined above (shared with the relay chokepoint). Wrap is the reference integration:
   // build outputs[] descriptors → guard.sealMemosForOutputs → guard.assertOutputsRecoverable before submit.
@@ -1014,7 +1015,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
       return relay.verifyEmittedMemos({ jobId: proven.jobId, status: 'settled', ...sent }, [built.leaf], memos);
     }
     const sub = await relay.submitOp({ ...spec, mode: 'settle', depositTx }, waitOpts);
-    const st = sub.status === 'settled' ? { jobId: sub.jobId, ...sub } : await relay.waitForSettle(sub.jobId, waitOpts);
+    const st = sub.status === 'settled' ? { jobId: sub.jobId, ...sub } : await relay.waitForSettle(sub.jobId, waitOpts).catch((e) => { throw _sealedOpen(e, sub.sealedMemos, [built.leaf]); });
     return relay.verifyEmittedMemos(st, [built.leaf], sub.sealedMemos);
   }
 
@@ -1431,7 +1432,9 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   }
 
   // OP_WRAP_LP — add liquidity straight from two pending deposits.
-  async function wrapLp({ walletPriv, aTicker, bTicker, aAmountWei, bAmountWei, feeBps = 30, fee = 0n, deadline = 0n, aIndex = 0, bIndex = 0, selfRelay = false, maxDonationBps, waitOpts } = {}) {
+  // `selfRelay` sends the settle from this key's own Tacit account; `selfSettle({ jobId, publicValues, proof, memos, pair })` → { txHash }
+  // hands it to the caller to send from whichever account it pays with (as _dispatch's). Either way the relay only proves it.
+  async function wrapLp({ walletPriv, aTicker, bTicker, aAmountWei, bAmountWei, feeBps = 30, fee = 0n, deadline = 0n, aIndex = 0, bIndex = 0, selfRelay = false, selfSettle = null, maxDonationBps, waitOpts } = {}) {
     const id = identity(walletPriv);
     let A = _depositLeg({ id, ticker: aTicker, amountWei: aAmountWei, index: aIndex });
     let B = _depositLeg({ id, ticker: bTicker, amountWei: bAmountWei, index: bIndex });
@@ -1492,13 +1495,13 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     const ephRand = freshEph;
     const sealedMemos = guard.sealMemosForOutputs({ outputs, ephRand });
     guard.assertOutputsRecoverable({ leaves: [shareLeaf], outputs, memos: sealedMemos });
-    const r = await _dispatch({ type: 'wraplp', spec: { op, leaves: [shareLeaf], outputs, ephRand }, sealedMemos, selfRelay, walletPriv, waitOpts, pair: sharesPre === 0n ? { assetA, assetB, feeBps } : null });
+    const r = await _dispatch({ type: 'wraplp', spec: { op, leaves: [shareLeaf], outputs, ephRand }, sealedMemos, selfRelay, selfSettle, walletPriv, waitOpts, pair: sharesPre === 0n ? { assetA, assetB, feeBps } : null });
     return { ...r, dShares, pid, lpAsset, assetA, assetB, firstMint: sharesPre === 0n };
   }
 
   // OP_WRAP_SWAP — swap straight from one pending deposit. Fee-switch pools are NOT supported here (the
-  // guest fails closed on a non-zero protocol fee); those route through the ordinary swap path.
-  async function wrapSwap({ walletPriv, fromTicker, toTicker, amountWei, feeBps = 30, minOut = 0n, fee = 0n, deadline = 0n, index = 0, selfRelay = false, waitOpts } = {}) {
+  // guest fails closed on a non-zero protocol fee); those route through the ordinary swap path. `selfRelay` / `selfSettle` as wrapLp's.
+  async function wrapSwap({ walletPriv, fromTicker, toTicker, amountWei, feeBps = 30, minOut = 0n, fee = 0n, deadline = 0n, index = 0, selfRelay = false, selfSettle = null, waitOpts } = {}) {
     const id = identity(walletPriv);
     const D = _depositLeg({ id, ticker: fromTicker, amountWei, index });
     const outMeta = assetByTicker[toTicker];
@@ -1554,7 +1557,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     const ephRand = freshEph;
     const sealedMemos = guard.sealMemosForOutputs({ outputs, ephRand });
     guard.assertOutputsRecoverable({ leaves: [outLeaf], outputs, memos: sealedMemos });
-    const r = await _dispatch({ type: 'wrapswap', spec: { op, leaves: [outLeaf], outputs, ephRand }, sealedMemos, selfRelay, walletPriv, waitOpts });
+    const r = await _dispatch({ type: 'wrapswap', spec: { op, leaves: [outLeaf], outputs, ephRand }, sealedMemos, selfRelay, selfSettle, walletPriv, waitOpts });
     return { ...r, amountOut, pid, assetIn: inAsset, assetOut: outAsset };
   }
 
@@ -1798,7 +1801,8 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
 
   // Bond one whole LP-share note into the manager. The receipt key + nonce are the deterministic position key
   // for (manager, lpAsset, this note's leaf); the note is spent by the bond, so the position is unique.
-  async function farmBond({ walletPriv, controller, lpNote, waitOpts } = {}) {
+  // `selfSettle` (as farmHarvest's): the relay only proves the bond and the caller's account sends the settle.
+  async function farmBond({ walletPriv, controller, lpNote, selfSettle = null, waitOpts } = {}) {
     const farm = _farmCfg();
     if (!lpNote) throw new Error('farm-bond: an LP-share note is required');
     if (controller && String(controller).toLowerCase() !== farm.manager.toLowerCase()) throw new Error('farm-bond: controller is not the configured farm manager');
@@ -1808,7 +1812,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     const anchorLeaf = _noteLeaf(lpNote);
     const { owner, nonce } = lpBondPosition({ walletPriv, controller: farm.manager, lpAsset, anchorLeaf });
     const leg = { cx: lpNote.cx, cy: lpNote.cy, value: String(lpNote.value), index: Number(lpNote.leafIndex), path: lpNote.path, blinding: lpNote.blinding, owner: lpNote.owner, nk: lpNote.secret };
-    const r = await defiActions(walletPriv).bondFarm({ controller: farm.manager, nonce, lpAsset, legs: [leg], spendRoot: lpNote.root, receiptOwner: owner, waitOpts });
+    const r = await defiActions(walletPriv).bondFarm({ controller: farm.manager, nonce, lpAsset, legs: [leg], spendRoot: lpNote.root, receiptOwner: owner, selfSettle, waitOpts });
     const receiptLeaf = pool.farmReceiptLeaf(_farmC32(farm.manager), lpAsset, BigInt(lpNote.value), owner, nonce);
     return { ...r, pid, lpAsset, shares: String(lpNote.value), anchorLeaf, receiptLeaf, receiptOwner: owner };
   }
@@ -1998,11 +2002,12 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   // Farmed reward note → TAC. Step one is the pool's relayed unwrap of the wTAC note to `to` (default: this wallet's
   // derived EVM account); the steps still to do come back as data for a UI to drive: WrappedTac.withdraw turns the
   // wTAC ERC20 into the TAC ERC20 1:1, and a wrap puts that TAC back into the pool as a TAC note.
-  async function farmRedeem({ walletPriv, note, to, feeOpts, wait = false, waitOpts } = {}) {
+  // `selfSettle` (as unwrap's): the relay only proves the unwrap, the caller's account sends it, and there is no relay fee.
+  async function farmRedeem({ walletPriv, note, to, feeOpts, wait = false, selfSettle = null, waitOpts } = {}) {
     const farm = _farmCfg();
     if (!note || String(note.asset).toLowerCase() !== String(farm.rewardAsset).toLowerCase()) throw new Error('farm-redeem: a farm reward (wTAC) note is required');
     const recipient = _evmAddr(to || account(walletPriv).address, 'farm-redeem: recipient');
-    const u = await unwrap({ note, walletPriv, recipient, feeOpts, wait, waitOpts });
+    const u = await unwrap({ note, walletPriv, recipient, feeOpts, wait, selfSettle, waitOpts });
     const wei = BigInt(u.net) * BigInt(farm.unitScale || 10n ** 10n);
     const withdrawData = '0x' + _selector('withdraw(uint256,address)') + _word(wei) + _word(recipient);
     return {
@@ -2043,7 +2048,8 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     wire.fee = Number(op.fee ?? 0n);
     return wire;
   }
-  async function lpAdd({ walletPriv, aNote, bNote, feeBps = 30, fee = 0n, deadline = 0n, selfRelay = false, contributeA = null, contributeB = null, maxDonationBps, waitOpts } = {}) {
+  // `selfRelay` / `selfSettle` as wrapLp's.
+  async function lpAdd({ walletPriv, aNote, bNote, feeBps = 30, fee = 0n, deadline = 0n, selfRelay = false, selfSettle = null, contributeA = null, contributeB = null, maxDonationBps, waitOpts } = {}) {
     if (!aNote || !bNote) throw new Error('lp-add: need an A note and a B note');
     if (BigInt(aNote.asset) === BigInt(bNote.asset)) throw new Error('lp-add: A and B must be different assets');
     [aNote, bNote] = await sameRoot(walletPriv, aNote, bNote);
@@ -2125,7 +2131,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     guard.assertOutputsRecoverable({ leaves: allLeaves, outputs: allOutputs, memos });
 
     const opWire = toLpAddWire(op);
-    const r = await _dispatch({ type: 'lp', spec: { op: opWire, leaves: allLeaves, outputs: allOutputs, ephRand }, sealedMemos: memos, selfRelay, walletPriv, waitOpts, pair: sharesPre === 0n ? { assetA, assetB, feeBps } : null });
+    const r = await _dispatch({ type: 'lp', spec: { op: opWire, leaves: allLeaves, outputs: allOutputs, ephRand }, sealedMemos: memos, selfRelay, selfSettle, walletPriv, waitOpts, pair: sharesPre === 0n ? { assetA, assetB, feeBps } : null });
     return { ...r, dShares: op.dShares, pid, lpAsset, assetA, assetB, firstMint: sharesPre === 0n };
   }
 
@@ -2173,19 +2179,20 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   // Make a note worth EXACTLY `amount` of `asset`, splitting a larger one if needed. OP_LP_ADD consumes whole
   // notes, so a partial contribution has to be sized first — this is the note plumbing behind an ordinary
   // "enter an amount" flow. Returns { note, split } and settles a self-transfer only when it has to.
-  async function ensureExactNote({ walletPriv, asset, amount, notes, onStep, waitOpts } = {}) {
+  // `selfSettle` (as transfer's): the relay only proves the split and the caller's account sends it, so it carries no relay fee.
+  async function ensureExactNote({ walletPriv, asset, amount, notes, onStep, selfSettle = null, waitOpts } = {}) {
     const want = BigInt(amount);
     const mine = (notes || []).filter((n) => String(n.asset).toLowerCase() === String(asset).toLowerCase());
     const exact = mine.find((n) => BigInt(n.value) === want);
     if (exact) return { note: exact, split: false };
     const ticker = poolTickerOf(asset);
-    const splitFee = await gasAwareMinFee(ticker, 'transfer');
-    // The split is itself a relayed transfer, so the source note must cover amount + that fee.
+    const splitFee = selfSettle ? 0n : await gasAwareMinFee(ticker, 'transfer');
+    // A relayed split is itself a relayed transfer, so the source note must cover amount + that fee.
     const src = mine.filter((n) => BigInt(n.value) >= want + splitFee).sort((x, y) => (BigInt(x.value) > BigInt(y.value) ? 1 : -1))[0];
-    if (!src) throw new Error(`lp-add: no single ${ticker} note covers ${want} plus the split fee — consolidate first`);
+    if (!src) throw new Error(`lp-add: no single ${ticker} note covers ${want}${splitFee ? ' plus the split fee' : ''} — consolidate first`);
     onStep?.({ status: 'splitting', asset, ticker, amount: want.toString() });
     const id = identity(walletPriv);
-    await transfer({ walletPriv, notes: [src], recipientPubHex: id.pubHex, amount: want, fee: splitFee, waitOpts });
+    await transfer({ walletPriv, notes: [src], recipientPubHex: id.pubHex, amount: want, fee: splitFee, selfSettle, waitOpts });
     // Re-scan: the exact-sized note only exists once the split settles.
     const { byAsset } = await balance(walletPriv);
     const fresh = (byAsset[String(asset).toLowerCase()]?.notes || []).find((n) => BigInt(n.value) === want);
@@ -2540,9 +2547,10 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     return { op, leaves: outLeaves, outputs, memos, fee, amount: total - fee, asset };
   }
 
-  async function fastlaneExit({ selfRelay = true, waitOpts, ...args } = {}) {
+  // Sent from this key's own Tacit account by default (`selfRelay`); `selfSettle` (as _dispatch's) hands the settle to the caller instead.
+  async function fastlaneExit({ selfRelay = true, selfSettle = null, waitOpts, ...args } = {}) {
     const b = buildFastlaneExitOp(args);
-    return _dispatch({ type: 'fastlane', spec: { op: b.op, leaves: b.leaves, outputs: b.outputs, ephRand: freshEph }, sealedMemos: b.memos, selfRelay, walletPriv: args.walletPriv, waitOpts });
+    return _dispatch({ type: 'fastlane', spec: { op: b.op, leaves: b.leaves, outputs: b.outputs, ephRand: freshEph }, sealedMemos: b.memos, selfRelay, selfSettle, walletPriv: args.walletPriv, waitOpts });
   }
 
   // ── stealth send / claim / refund (non-interactive third-party push, OP_STEALTH_LOCK/CLAIM/REFUND) ──
@@ -2578,7 +2586,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     if (String(recipientPubHex).toLowerCase() === String(id.pubHex).toLowerCase()) {
       throw new Error('stealthSend: recipient is your own address — use transfer() (a plain self-send) instead, it needs no proof round trip and no claim step');
     }
-    const { note } = await ensureExactNote({ walletPriv, asset, amount, notes, waitOpts });
+    const { note } = await ensureExactNote({ walletPriv, asset, amount, notes, selfSettle, waitOpts });
 
     const deadlineB = deadline != null ? BigInt(deadline) : coarseDeadline(90 * 24 * 3600, 3600); // ~90 days, hour-bucketed
     if (deadlineB <= 0n) throw new Error('stealthSend: deadline required');
@@ -3211,6 +3219,17 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
       + word(offPv) + word(offPf) + word(offMemos) + pvBlock + pfBlock + memosBlock;
   }
 
+  // A relayed job the relay proved but has not sent stays `open`, and the wait on it ends with its proof (e.open) so the caller can
+  // send it. That is offered only with the memos sealed here: the relay's copy must match them, the check relay.settle makes on its
+  // own waits, or the error carries nothing to send. `leaves` are the op's note leaves, for the emitted-memo check after the send.
+  function _sealedOpen(e, sealedMemos = [], leaves = []) {
+    if (!e || !e.open) return e;
+    const m = e.open.memos, s = sealedMemos || [];
+    if (Array.isArray(m) && m.length === s.length && m.every((x, i) => String(x).toLowerCase() === String(s[i]).toLowerCase())) e.open = { ...e.open, memos: s, leaves };
+    else { e.open = null; e.code = undefined; }
+    return e;
+  }
+
   // Dispatch a built leaf-bearing op: relay-settle (default) or, when `selfRelay`, box-PROVE (fee-less) and
   // broadcast settle() from the caller's own EOA. Self-relay needs no live relayer (useful when one is down)
   // at the cost of revealing the user's EOA as msg.sender.
@@ -3605,7 +3624,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     const built = buildUnwrap({ note, walletPriv, recipient, feeOpts: { ...feeOpts, minFee } });
     const sub = await relay.submitOp({ type: 'unwrap', op: built.op, memos: [] }, waitOpts); // no new leaf ⇒ no memo
     if (!wait) return { ...built, jobId: sub.jobId, status: sub.status };
-    const st = await waitForExit({ walletPriv, note, jobId: sub.jobId, waitOpts });
+    const st = await waitForExit({ walletPriv, note, jobId: sub.jobId, waitOpts }).catch((e) => { throw _sealedOpen(e, [], []); });
     return { ...built, jobId: sub.jobId, status: st.status, txHash: st.txHash };
   }
 
@@ -3688,7 +3707,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
       }
       return { ...out, jobId: sub.jobId, status: sub.status, memoCheck: { ok: null, reason: 'the settle has not landed yet — call verifyMemos() once it has' }, verifyMemos };
     }
-    const st = await waitForExit({ walletPriv, note, jobId: sub.jobId, waitOpts });
+    const st = await waitForExit({ walletPriv, note, jobId: sub.jobId, waitOpts }).catch((e) => { throw _sealedOpen(e, sub.sealedMemos, [changeLeaf]); });
     // The change note's memo is checked like every other relayed leaf. An exit confirmed from chain state alone
     // carries no tx hash, so the relay's record of the job supplies it when it has one.
     let landed = st;

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-t7QQ6W9fggXnzzzqH5Z3/o4swQA9tWkbSvJ4HD6WA5Q=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-mEsTlt4n272NKr4M/gpi8ca9uyMnzPgsU/ugHA2DIIw=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=248cfddf"></script>
 <title>tacit — private DeFi on Bitcoin and Ethereum</title>
@@ -1568,6 +1568,14 @@ const errText = (e) => {
   if (/no ethereum wallet detected/i.test(m)) return `No Ethereum wallet found in this browser. Open this page in your wallet's own browser, or install MetaMask, Rabby or Rainbow.${isPasskeyAvailable() ? ' Or use a passkey.' : ''}`;
   const r = revertText(e);
   if (r) return r;
+  // The relay's own reason, when it gives one (confidential-relay.js keeps its `code`). Its day's proofs used up is not a refusal the
+  // paying account gets round: a send from it needs a proof from the same relay.
+  if (proveCapped(e)) return 'The relay has made as many proofs as it can for today. Try again after midnight UTC; nothing was spent.';
+  if (relayCode(e) === 'open' || /^settle held: proved/i.test(m)) return proved(e) ? 'It is proved and waiting to be sent: it goes through when a relay sends it, or send it yourself now from Activity.'
+    : 'It is proved and waiting for a relay to send it. It goes through when one does; follow it in Activity.';
+  if (relayCode(e) === 'relay_held') return 'The relay can’t take this one right now.';
+  if (relayCode(e) === 'free_budget') return 'The relay’s free settles for today are used up. They open again at midnight UTC.';
+  if (/^prove failed:/i.test(m) && proofsBusy(m)) return failText({ status: 'failed', err: m });
   if (/insufficient funds/i.test(m)) return 'Not enough ETH for this and its gas.';
   if (/not enough in the pool/i.test(m)) return 'Your private balance does not cover this amount and its fee.';
   if (/does not match the ceremony|verification key does not match/i.test(m)) return 'The proving key did not match its published hash, so it was not used. Reload and try again.';
@@ -1934,8 +1942,18 @@ const byValue = (a, b) => (BigInt(a.value) < BigInt(b.value) ? -1 : BigInt(a.val
 const spendable = (k) => freeNotes(P.scan?.[k]?.notes).reduce((a, n) => a + BigInt(n.value), 0n);
 const onItsWay = (k) => (P.scan?.[k]?.notes || []).reduce((a, n) => a + BigInt(n.value), 0n) - spendable(k);
 const waitRanOut = (e) => /settle timed out|status polling for job/i.test(e?.message || '');
-// A step the relay will not do just now: it refused it, or it is still in line when the wait ran out. Either way the paying account can send it.
-const heldUp = (e) => relayRefused(e) || waitRanOut(e);
+// The relay names why it did not do a step, and confidential-relay.js keeps its word as `code`: relay_held and free_budget are
+// refusals the paying account can send instead; prove_budget is its day's proofs used up, which a send from the account needs as
+// well; open is a step it proved and has not sent, which any account can send as it is (e.open carries the proof, and the memos
+// sealed here). Older answers carry no code, and their words are read instead.
+function relayCode(e) { return typeof e?.code === 'string' ? e.code : ''; }
+function proveCapped(e) { return relayCode(e) === 'prove_budget' || /\bprove_budget\b|prove capacity for today|as many proofs as it can/i.test(String(e?.message || e || '')); }
+function proved(e) { return relayCode(e) === 'open' && !!e?.open?.proof && Array.isArray(e.open.memos); }
+// A proof the relay could not make just now, as against one that cannot be made.
+function proofsBusy(s) { return /ResourceExhausted|insufficient (balance|funds|credits?)|out of credits?/i.test(String(s || '')); }
+// A step the relay will not do just now: it refused it, it is still in line when the wait ran out, or it is proved and nobody has
+// sent it. Either way the paying account can send it.
+const heldUp = (e) => relayRefused(e) || waitRanOut(e) || proved(e);
 const jobSaid = (e) => /^(settle|prove) failed:|relay lost the job/i.test(e?.message || '');
 
 // The relay queues the same op under the same id, so the same op sent again (Finish on a wrap whose settle failed) is a
@@ -1986,8 +2004,10 @@ function handoff(run) {
 // Activity, which follows it to the end, and a job the relay failed already reads as failed; anything else stops its
 // receipt where it is, or, once its own job has settled, is a warning on it.
 function runFail(run, el, e) {
+  noteOpen(e);
   if (!run.away) return sayErr(el, e);
-  if (waitRanOut(e) || jobSaid(e)) return;
+  // A step proved and waiting to be sent goes on in Activity, which offers to send it.
+  if (e?.offered || waitRanOut(e) || jobSaid(e) || relayCode(e) === 'open' || /^settle held: proved/i.test(e?.message || '')) return;
   const op = run.op && actGet(run.op);
   if (op?.status === 'settled') { actPut(run.op, { warn: errText(e) }); toast(html`${op.label}: ${errText(e)}`, true, 12000); return; }
   if (run.op) { actPut(run.op, { stop: errText(e) }); opSync(run.op); }
@@ -2029,9 +2049,11 @@ function opSync(id) {
   else patch = { status: steps.length > 1 || (last?.it && last.it.status !== 'pending') ? 'proving' : 'pending' };
   actPut(id, patch);
 }
-// A status only moves forward, except that a settle or a receipt found later always wins.
-const RANK = { pending: 0, proving: 1, stale: 1, proven: 2, failed: 2, unknown: 2, settled: 3, confirmed: 3 };
-const ahead = (next, cur) => next !== cur && (cur == null || cur === 'unknown' || next === 'settled' || next === 'confirmed' || (RANK[next] ?? -1) > (RANK[cur] ?? -1));
+// A status only moves forward, except that a settle or a receipt found later always wins. A relayed job proved and not sent yet is
+// `open`, and `sending` while a relay has taken it to send; it can go back and forth between the two.
+const RANK = { pending: 0, proving: 1, stale: 1, open: 1.5, sending: 1.5, proven: 2, failed: 2, unknown: 2, settled: 3, confirmed: 3 };
+const OPENISH = ['open', 'sending'];
+const ahead = (next, cur) => next !== cur && (cur == null || cur === 'unknown' || next === 'settled' || next === 'confirmed' || (OPENISH.includes(next) && OPENISH.includes(cur)) || (RANK[next] ?? -1) > (RANK[cur] ?? -1));
 let actSaving = 0;
 const actWrite = () => { clearTimeout(actSaving); actSaving = 0; store.set(ACT_KEY, { items: ACT.items, cleared: ACT.cleared }); };
 const actSave = () => { clearTimeout(actSaving); actSaving = setTimeout(actWrite, 150); };
@@ -2058,8 +2080,9 @@ function actPut(id, patch) {
   }
   if (it.status !== prev) {
     it.up = Date.now();
-    // An outcome found after another was shown (a failure the relay later found settled) has no duration of its own.
-    if (ended(it) && ['failed', 'stale', 'unknown'].includes(prev)) it.flip = true;
+    // An outcome found after another was shown (a failure the relay later found settled) has no duration of its own. One sent from
+    // here after a refusal (`sent`) is not found later: it is done.
+    if (ended(it) && ['failed', 'stale', 'unknown'].includes(prev) && !it.sent) it.flip = true;
     it.end = ended(it) ? it.end || Date.now() : null;
     if (it.status === 'proving') it.prov = true;
     if (it.in) opSync(it.in); else actSaid(it, prev);        // a step speaks through the action it belongs to
@@ -2194,7 +2217,7 @@ function failText(it) {
   // The relay failed a job that waited in its queue past the op's own deadline, without proving it (settle-relay skipExpired).
   if (/^expired:/i.test(s)) return 'It waited in the relay’s queue past its deadline, so it was not sent.';
   if (/^settle reverted/i.test(s)) return 'The relay could not settle it.';
-  if (/^prove failed/i.test(s)) return 'The relay could not prove it.';
+  if (/^prove failed/i.test(s)) return proofsBusy(s) ? 'The relay can’t prove this one right now. Nothing was spent; try again later.' : 'The relay could not prove it.';
   if (/^feeGate:/i.test(s)) return 'The relay fee no longer covers it. Try again for a fresh quote.';
   if (/^released:/i.test(s)) return 'The relay set it aside. Try again.';
   const t = (s.match(/not proved: (.*)$/i)?.[1] || s).replace(/^Error:\s*/, '').slice(0, 240);
@@ -2222,7 +2245,7 @@ function actSaid(it, prev) {
   if (line) say(line, good ? html`<span class="ok">✓ ${it.label}: done.</span>${it.dest ? html` Now at ${it.dest}.` : ''} ${link}` : html`<span class="err">${it.label} did not go through: ${linked(failText(it))}</span>`);
   const shown = !!line && inView;
   if ((it.kind === 'job' || it.kind === 'op') && prev == null && !ended(it)) { if (!(run?.noted && inView)) toast(html`${it.label}: queued for the relay. ${view}`); }
-  else if (good && ['failed', 'stale', 'unknown'].includes(prev)) toast(html`${it.label} went through after all. ${link}`, false, 9000);
+  else if (good && ['failed', 'stale', 'unknown'].includes(prev) && !it.sent) toast(html`${it.label} went through after all. ${link}`, false, 9000);
   else if (good && !mine && !shown) toast(html`${it.label}: done. ${link}`, false, 7000);
   else if (bad && !shown && !(mine && inView)) toast(html`${it.label} did not go through: ${linked(failText(it))} ${view}`, true, 9000);
   if (good || bad) notifyOS(it, good);
@@ -2254,6 +2277,7 @@ const stepLi = (label, cls = '') => html`<li class="${cls}" ${cls === 'now' ? ht
 function jobSteps(j) {
   const s = j.status, st = stepLi;
   if (s === 'failed' || s === 'unknown') return [st('Queued', 'done'), st('Proving', j.prov ? 'done' : ''), st(s === 'failed' ? 'Failed' : 'No record', 'bad')];
+  if (OPENISH.includes(s)) return [st('Queued', 'done'), st('Proved', 'done'), st(s === 'sending' ? 'Sending' : 'Ready to send', 'now')];
   const at = { pending: 0, proving: 1 }[s] ?? 3;
   return ['Queued', 'Proving', s === 'proven' ? 'Proved' : 'Done'].map((l, i) => st(l, i < at ? 'done' : i === at ? 'now' : ''));
 }
@@ -2281,6 +2305,9 @@ const byLine = (j) => (!j.by ? '' : j.by > Date.now() ? ` It has until ${byTime(
 const WAIT_BY = { held: 'In line.', down: 'In line: the relay has been quiet for a few minutes (a long proof, or a restart).', busy: 'In line behind another request.' };
 const jobWhere = (j) => {
   if (j.status === 'proving') return `The relay is proving it, then settling it on Ethereum.${byLine(j)}`;
+  if (j.status === 'open') return `Proved, and waiting for a relay to send it.${byLine(j)}`;
+  if (j.status === 'sending') return `Proved. A relay is sending it.${byLine(j)}`;
+  if (j.status === 'proven') return 'Proved.';
   const why = Date.now() - j.at > 60e3 ? relayWhy() : null;
   return j.by ? `${WAIT_BY[why] || 'Waiting for the relay to pick it up.'}${byLine(j)}` : (why && WAIT_WHY[why]) || 'Waiting for the relay to pick it up.';
 };
@@ -2295,21 +2322,25 @@ function opWhere(it) {
 }
 function actFoot(it) {
   const link = it.hash ? html`<a href="${txUrl(it)}" target="_blank" rel="noopener">${txSite(it)} ↗</a>` : '';
-  if (it.status === 'failed' || it.status === 'unknown') return html`<div class="actr-f err">${linked(failText(it))}</div>${againLine(it)}`;
+  if (it.status === 'failed' || it.status === 'unknown') return html`<div class="actr-f err">${linked(failText(it))}</div>${selfDoLine(it)}${proofHelp(it)}${SELF.has(it.id) ? '' : againLine(it)}`;
   const took = it.end ? clock(it.end - it.at) : '';
-  if (it.kind === 'op' && !ended(it)) return html`<div class="actr-f">${opWhere(it)}</div>${selfLine(it)}`;
+  if (it.kind === 'op' && !ended(it)) return html`<div class="actr-f">${opWhere(it)}</div>${selfLine(it)}${openLine(it)}`;
   // Only the line for the entry's own status is built (a job in line asks the relay's heartbeat why).
   const say_ = {
     pending: () => (it.kind === 'job' ? jobWhere(it)
       : it.kind === 'btc' ? html`Waiting for its first Bitcoin confirmation · ${link}` : html`Waiting for it to land · ${link}`),
     proving: () => jobWhere(it),
+    open: () => jobWhere(it),
+    sending: () => jobWhere(it),
     settled: () => html`${it.flip ? 'Went through after all' : `Done in ${took}`}${link ? ' · ' : ''}${link}`,
-    // A proof lands only with the transaction the page that asked for it sends; a page that stopped waiting never does.
-    proven: () => (JOBS.get(it.id.slice(4))?.run.live ? 'Proved. It lands with the transaction sent from this page.' : 'Proved, but the page that asked for it stopped waiting, so it was never sent. Start it again.'),
+    // A proof lands only with the transaction the page that asked for it sends; a page that stopped waiting never does, and the
+    // proof is then offered to send from here (openLine) when its settle is a plain one.
+    proven: () => (JOBS.get(it.id.slice(4))?.run.live ? 'Proved. It lands with the transaction sent from this page.'
+      : `Proved, but the page that asked for it stopped waiting, so it was never sent.${openOf(it) ? '' : ' Start it again.'}`),
     confirmed: () => html`${it.flip ? 'Confirmed' : `Confirmed in ${took}`} · ${link}`,
     stale: () => html`${it.kind === 'btc' ? 'Not confirmed after three days.' : 'Not seen on chain after half an hour; it may have been dropped or replaced.'} ${link}`,
   }[it.status];
-  return html`<div class="actr-f">${say_ ? say_() : ''}</div>${it.warn ? html`<div class="actr-f err">${it.warn}</div>` : ''}${selfLine(it)}`;
+  return html`<div class="actr-f">${say_ ? say_() : ''}</div>${it.warn ? html`<div class="actr-f err">${it.warn}</div>` : ''}${selfLine(it)}${openLine(it)}`;
 }
 
 // A settle sent from the paying account confirmed: what it was sent for is done, whether or not the relay ever hears of it.
@@ -2354,28 +2385,118 @@ const DASH_OFFERED = new Set();
 setInterval(() => {
   // The dashboard's offer appears once a receipt has waited long enough: drawn again when one first comes due.
   if (S.key) for (const x of listed()) if (x.self?.exit && !ended(x) && !DASH_OFFERED.has(x.id) && selfWork(x)) { DASH_OFFERED.add(x.id); dashSoon(); }
-  if (!$('#sheet-act').open || !S.key) return;
+  if (!$('#sheet-act').open) return;
+  // A proved step comes due to send from here as time passes (a relay that took it some minutes ago and has not sent it).
+  if (listed().some((x) => !OPEN_OFFERED.has(x.id) && !SELF.has(x.id) && openOf(x))) paintAct();
+  if (!S.key) return;
   const due = listed().filter((x) => x.self && !ended(x));
   if (due.length && !P.scan) { if (!P.err && !P.scanning) scanPrivate().then(paintAct).catch(() => {}); return; }
   if (due.some((x) => !OFFERED.has(x.id) && !SELF.has(x.id) && selfWork(x))) paintAct();
 }, 5000);
 // The settle a proof was bought for, sent from the paying account and followed to its receipt. `nest`: the receipt it
-// finishes, which keeps it as a step.
-const settleFrom = (t, { label, nest = null, say: tell }) => async (x) => {
+// finishes, which keeps it as a step. `finishes`: what its receipt finishes, when not that receipt and the job (see finishedBy).
+// `already`: a proof sent as it is (one the relay proved and held), which a relay may have sent meanwhile: a pool that refuses it
+// as spent or done reads as gone through, not as a failure.
+const ALREADY = /b115d857|f7ee2683|c760049c|070d817c|73f11ff4|d590960c|NullifierAlreadySpent|LockAlreadySpent|BurnAlreadyMinted|DepositNotPending|CdpPositionAlreadySpent|HarvestReplayed/i;
+const settleFrom = (t, { label, nest = null, say: tell, finishes = null, already = false }) => async (x) => {
+  if (x.jobId) SEALED.set(x.jobId, x.memos || []);              // the memos this page holds for the proof, should Activity send it later
   tell(`Sending it from ${your()}…`);
   // A settle the pool would refuse costs gas and does nothing, so it is asked about first (a mint that already landed reads as one).
   const data = t.settleCalldata(x), from = payer() === 'tacit' ? S.acct?.address : S.address;
   try { await rpc('eth_call', [{ ...(from ? { from } : {}), to: t.cfg.pool, data }, 'latest']); }
   catch (e) {
     if (/revert|execution|BurnAlreadyMinted/i.test(String(e?.message || e))) {
+      if (already && (ALREADY.test(`${e?.data?.data || e?.data || ''} ${e?.message || ''}`) || (x.jobId && (await t.relay.status(x.jobId).catch(() => null))?.status === 'settled'))) {
+        return { txHash: null, already: true };
+      }
       throw Object.assign(new Error(`Nothing was sent: the pool refuses this as it stands. ${revertText(e) || 'If it already went through, your balance shows it.'}`), { said: true });
     }
   }
-  const hash = await sendTx({ to: t.cfg.pool, data, label, nest, finishes: [nest, x.jobId && 'job:' + x.jobId].filter(Boolean) });
+  const hash = await sendTx({ to: t.cfg.pool, data, label, nest, finishes: finishes || [nest, x.jobId && 'job:' + x.jobId].filter(Boolean) });
   tell(html`Sent ${txLink(hash)}. Waiting for it to land…`);
   await waitTx(hash);
   return { txHash: hash };
 };
+// A step the relay proved and has not sent goes out from the paying account as it is, with no second proof, and the relay is told
+// it landed (it checks the transaction). `o`: { jobId, publicValues, proof, memos }. One a relay sent meanwhile is found done, and
+// is not sent again. → { txHash, already }
+async function sendOpen(t, o, { label, nest = null, say: tell, finishes = null }) {
+  const st = await t.relay.status(o.jobId).catch(() => null);
+  if (st?.status === 'settled') return { txHash: st.txHash || null, already: true };
+  const r = await settleFrom(t, { label, nest, say: tell, finishes, already: true })({ jobId: o.jobId, publicValues: o.publicValues, proof: o.proof, memos: o.memos || [] });
+  if (r.txHash) await t.relay.landed?.(o.jobId, r.txHash);
+  return r;
+}
+// What this page holds for a step the relay proved: the memos it sealed (e.open carries them, already checked against the relay's
+// copy; a proof this page sent itself carries the ones its proof commits to), or null when the relay's copy differs from what was
+// sealed here, which is then never sent from this page. Kept for this visit only: after a reload the relay's copy is used, the same
+// trust a relayed settle gives it.
+const SEALED = new Map();
+function noteOpen(e) {
+  if (e?.open?.jobId) { SEALED.set(e.open.jobId, Array.isArray(e.open.memos) ? e.open.memos : null); return; }
+  const id = String(e?.message || '').match(/^settle held: proved and waiting for a sender \(job ([^)\s]+)\)/)?.[1];
+  if (id) SEALED.set(id, null);
+}
+// Proofs that go on chain inside a router call with their deposits (wrap and send, wrap and add liquidity, wrap and swap, wrap and
+// borrow), not in a plain settle.
+const NOT_PLAIN = new Set(['wraptransfer', 'wraplp', 'wrapswap', 'wrapcdpmint']);
+const sameMemos = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((x, i) => String(x).toLowerCase() === String(b[i]).toLowerCase());
+// A job of this browser the relay proved and nobody has sent: open, or sending for minutes with nothing landed, or proven for a page
+// that stopped waiting before it sent it. It is offered where it is listed: on its own row, or on the receipt it is a step of. Not
+// while the action that queued it is still waiting on it (its own wait ends with the offer), nor while a settle sent from here for it
+// is still on its way.
+function openOf(it) {
+  if (!it || otherKey(it)) return null;
+  const jobs = it.kind === 'op' ? opParts(it).map((x) => x.it) : [it];
+  return jobs.find((j) => {
+    if (!j || j.kind !== 'job' || NOT_PLAIN.has(j.type)) return false;
+    const id = j.id.slice(4), run = JOBS.get(id)?.run;
+    if (SEALED.get(id) === null || (!SEALED.has(id) && run?.live)) return false;
+    if (ACT.items.some((x) => x.kind === 'tx' && !ended(x) && x.finishes?.includes(j.id))) return false;
+    return j.status === 'open' || (j.status === 'sending' && Date.now() - (j.up || j.at) > 5 * 60e3) || (j.status === 'proven' && !run?.live);
+  }) || null;
+}
+const OPEN_OFFERED = new Set();
+function openLine(it) {
+  const j = openOf(it);
+  if (!j) { OPEN_OFFERED.delete(it.id); return ''; }
+  OPEN_OFFERED.add(it.id);
+  if (SELF.has(it.id)) return html`<div class="actr-f">${SELF.get(it.id)}</div>`;
+  const err = it.selfErr ? html`<div class="actr-f err">${it.selfErr}</div>` : '';
+  return html`${err}<div class="actr-f">Proved and ready. <button class="link" type="button" data-sendopen="${it.id}">Send it now from ${your()}</button>:
+    ${j.status === 'proven' ? `${your()} pays the network fee.` : `${your()} pays the network fee, and its relay fee comes back to you. Or leave it: it goes through when a relay sends it.`}</div>`;
+}
+document.addEventListener('click', (e) => { const b = e.target.closest?.('[data-sendopen]'); if (b) sendOpenFrom(b.dataset.sendopen); });
+// Sends a proved step from its row: its proof is read from the relay, its memos are the ones this page sealed when it still holds
+// them (they must match the relay's copy), and the settle goes out from the paying account.
+async function sendOpenFrom(id) {
+  const it = actGet(id), j = it && openOf(it);
+  if (!j || SELF.has(id)) return;
+  const tell = (v) => { SELF.set(id, v); announce(v); paintAct(); };
+  const jobId = j.id.slice(4);
+  actPut(id, { selfErr: '' });
+  tell('Reading its proof from the relay…');
+  try {
+    await payingAccount();
+    await selfGasCheck();
+    const t = await getUx(), st = await t.relay.status(jobId);
+    if (st?.status === 'settled') { actPut(j.id, { status: 'settled', hash: st.txHash || undefined }); return; }
+    if (st?.status === 'failed') { actPut(j.id, { status: 'failed', err: st.error || undefined }); return; }
+    if (![...OPENISH, 'proven'].includes(st?.status) || !st.publicValues || !st.proof) throw Object.assign(new Error('The relay has no proof of it to send right now. Try again in a minute.'), { said: true });
+    if (st.activation || NOT_PLAIN.has(st.type)) throw Object.assign(new Error('This one goes on chain with its deposit, in one transaction from the page that started it. Start it again.'), { said: true });
+    const held = SEALED.get(jobId);
+    if (Array.isArray(held) && Array.isArray(st.memos) && !sameMemos(held, st.memos)) {
+      SEALED.set(jobId, null);
+      throw Object.assign(new Error('What the relay holds for this differs from what this page sealed, so it is not sent from here. It goes through when a relay sends it.'), { said: true });
+    }
+    const memos = Array.isArray(held) ? held : st.memos;
+    if (!Array.isArray(memos)) throw Object.assign(new Error('The relay did not say what this carries, so it is not sent from here. It goes through when a relay sends it.'), { said: true });
+    const r = await sendOpen(t, { jobId, publicValues: st.publicValues, proof: st.proof, memos }, { label: it.label, nest: id, say: tell, finishes: [j.id] });
+    actPut(j.id, { status: 'settled', hash: r.txHash || undefined });
+    toast(r.already ? `${it.label}: it had already gone through` : `${it.label}: sent`);
+  } catch (e) { actPut(id, { selfErr: errText(e) }); }
+  finally { SELF.delete(id); paintAct(); afterActivity(); }
+}
 async function selfFinish(id) {
   const it = actGet(id), w = it && selfWork(it);
   if (!w || SELF.has(id)) return;
@@ -2414,7 +2535,9 @@ async function selfFinish(id) {
 // network fee. `spec`: { label, status() → its status line, sheet, after?, exit?, go({ t, priv, selfSettle, waitOpts }) }, where
 // `go` runs the same call again with the settle handed to the account. An `exit` also pays no relay fee. offerSelf returns
 // the error to throw, flagged so the caller's own failure line leaves the offer in place.
-const relayRefused = (e) => /fee below the current floor|FEE_MOVED|can.t take this one|free relayed settles|relay (5\d\d|429)\b|temporarily unavailable/i.test(`${e?.code || ''} ${e?.message || e || ''}`);
+// A step proved and held (`proved`) is offered too: the account then sends that proof as it is.
+const relayRefused = (e) => !proveCapped(e) && (proved(e) || ['relay_held', 'free_budget'].includes(relayCode(e))
+  || /fee below the current floor|FEE_MOVED|can.t take this one|free relayed settles|relay (5\d\d|429)\b|temporarily unavailable/i.test(`${relayCode(e)} ${e?.message || e || ''}`));
 // An exit again, with the settle handed to the paying account (a whole note and a part of one are the same call).
 const exitGo = (note, to, units) => (x) => x.t.sendUnwrap({ note, walletPriv: x.priv, recipient: to, amount: BigInt(units), waitOpts: x.waitOpts, selfSettle: x.selfSettle });
 // A private send to a Tacit address, and the refund record this browser keeps for it (the sender's way back if it is never
@@ -2444,19 +2567,55 @@ async function selfGasCheck() {
   const need = await selfGasWei(), have = await ethBalance();
   if (have != null && have < need) throw Object.assign(new Error(`Sending it yourself pays the network fee, about ${fmt(need, 18, 4)} ETH, from ${your()} (${short(S.address, 6)}). It holds ${fmt(have, 18, 4)}. Add a little ETH there, then press the button again.`), { said: true });
 }
-const selfOffer = (spec) => html`<div class="actr-f"><button class="link" type="button" data-selfdo="${spec.id}">Send it from ${your()} instead</button>
-  ${spec.exit ? `no relay fee; ${your()} pays the network fee, and its address shows on the withdrawal.` : `${your()} pays the network fee.`}</div>`;
+// A step the relay proved and has not sent (`spec.open`) is sent as it is; any other is proved again for the account to send.
+const selfOffer = (spec) => (spec.open
+  ? html`<div class="actr-f"><button class="link" type="button" data-selfdo="${spec.id}">Send it now from ${your()}</button>:
+    ${your()} pays the network fee, and its relay fee comes back to you. Or leave it: it goes through when a relay sends it.</div>`
+  : html`<div class="actr-f"><button class="link" type="button" data-selfdo="${spec.id}">Send it from ${your()} instead</button>
+    ${spec.exit ? `no relay fee; ${your()} pays the network fee, and its address shows on the withdrawal.` : `${your()} pays the network fee.`}</div>`);
+// `spec.run`: the action that was refused. Once its form has gone to Activity (run.away), the offer is made there instead.
 function offerSelf(spec, e) {
+  noteOpen(e);
+  if (proved(e)) spec.open = e.open;
+  if (spec.run?.away) return offerAway(spec, e);
   const id = String(++selfdoSeq);
   spec.id = id; SELFDO[id] = spec;
   // What the refused action held (its notes, locks or deposits), held again while it is sent from the paying account.
-  spec.keys ||= [...RUNS].filter((r) => r.live && r.sheet === spec.sheet).flatMap((r) => [...r.keys]);
+  spec.keys ||= spec.run ? [...spec.run.keys] : [...RUNS].filter((r) => r.live && r.sheet === spec.sheet).flatMap((r) => [...r.keys]);
   // A step still in the relay's queue goes through on its own: what is left to do after it is said, and the other way is offered.
-  const msg = !waitRanOut(e) ? errText(e)
+  const msg = spec.open ? 'It is proved and ready to send.' : !waitRanOut(e) ? errText(e)
     : spec.exit ? 'Still in the relay’s queue. It goes through if the relay reaches it within its hour; after that it expires and nothing is spent. Follow it in Activity, or send it yourself now.'
     : `Still in the relay’s queue. It goes through on its own${spec.carry ? `: once Activity shows it done, ${spec.carry}` : '; follow it in Activity'}. Or send it yourself.`;
-  say(spec.status(), html`<span class="err">${msg}</span>${selfOffer(spec)}`);
+  say(spec.status(), spec.open ? html`${msg}${selfOffer(spec)}` : html`<span class="err">${msg}</span>${selfOffer(spec)}`);
   return Object.assign(new Error(msg), { offered: true, said: true });
+}
+// After the hand-off, the form is free for the next action and its line may be another's: a refusal of a later step is offered on the
+// action's receipt in Activity (a receipt of its own when the action keeps one per job), pressed there and followed there. A step
+// still in line, or proved and waiting, is already listed there with its own way on.
+function offerAway(spec, e) {
+  const run = spec.run;
+  if (spec.open || waitRanOut(e)) return e;
+  const id = String(++selfdoSeq), msg = errText(e);
+  spec.id = id; SELFDO[id] = spec;
+  spec.keys ||= [...run.keys];
+  if (run.op && actGet(run.op)) { spec.on = run.op; actPut(run.op, { stop: msg, selfdo: id }); opSync(run.op); }
+  else {
+    spec.on = `op:${Date.now().toString(36)}${(++runSeq).toString(36)}`;
+    actPut(spec.on, { kind: 'op', label: spec.label, steps: [], status: 'failed', stop: msg, err: msg, selfdo: id, pub: run.pub, sheet: run.sheet });
+  }
+  return Object.assign(new Error(msg), { offered: true, said: true });
+}
+// The offer on a receipt (offerAway), while this visit holds what it takes.
+function selfDoLine(it) {
+  const spec = it.selfdo && SELFDO[it.selfdo];
+  if (!spec || otherKey(it)) return '';
+  if (SELF.has(it.id)) return html`<div class="actr-f">${SELF.get(it.id)}</div>`;
+  return html`${it.selfErr ? html`<div class="actr-f err">${it.selfErr}</div>` : ''}${selfOffer(spec)}`;
+}
+// A proof the relay could not make just now: a quiet way to help pay for proofs.
+function proofHelp(it) {
+  const errs = it.kind === 'op' ? opParts(it).map((x) => x.it?.err) : [it.err];
+  return errs.some((x) => /^prove failed/i.test(String(x || '')) && proofsBusy(x)) ? html`<div class="actr-f"><a href="/relay/#prove">Help pay for proofs</a></div>` : '';
 }
 // An offer to send something from the paying account, drawn after a message that is not a failure.
 function offerMore(spec, msg) {
@@ -2466,26 +2625,37 @@ function offerMore(spec, msg) {
   say(spec.status(), html`${msg}${selfOffer(spec)}`);
 }
 async function selfDo(run, spec) {
-  const status = () => spec.status();
+  const status = () => spec.status(), on = spec.on;            // `on`: the receipt the offer is on, once the form has gone to Activity
+  const tell = on ? (v) => { SELF.set(on, v); announce(v); paintAct(); } : (v) => run.say(status(), v);
+  if (on) { if (SELF.has(on)) return; tell('Getting it ready…'); actPut(on, { selfErr: '' }); }
   run.label = spec.label;
+  if (on) run.nest = on;                                          // its steps are kept in that receipt
   run.take(...(spec.keys || []));
   try {
     await payingAccount();
     const need = await selfGasWei(), have = await ethBalance();
     if (have != null && have < need) {
+      if (on) throw Object.assign(new Error(`Sending it yourself pays the network fee, about ${fmt(need, 18, 4)} ETH, from ${your()} (${short(S.address, 6)}). It holds ${fmt(have, 18, 4)}. Add a little ETH there, then press the button again.`), { said: true });
       say(status(), html`<span class="err">Sending it yourself pays the network fee, about ${fmt(need, 18, 4)} ETH, from ${your()}. It holds ${fmt(have, 18, 4)}. Send a little ETH to it, then press the button again.</span>
         <div class="kv"><span>Address</span><b class="mono">${short(S.address, 10)}</b><button class="link" type="button" data-selfcopy="${S.address}">copy</button></div>${selfOffer(spec)}`);
       return;
     }
     const t = await getUx(), priv = walletPriv();
-    run.say(status(), 'The relay is proving it for you to send, about a minute…');
-    const selfSettle = settleFrom(t, { label: spec.label, say: (v) => run.say(status(), v) });
-    const r = await spec.go({ t, priv, selfSettle, waitOpts: run.wait(null, 15 * 60e3) });
-    toast(`${spec.label}: done`);
-    say(status(), html`<span class="ok">${spec.then || 'Done.'}</span> ${r?.txHash ? txLink(r.txHash) : ''}`);
+    let r;
+    if (spec.open) r = await sendOpen(t, spec.open, { label: spec.label, nest: on, say: tell, finishes: on ? [on, 'job:' + spec.open.jobId] : null });
+    else {
+      tell('The relay is proving it for you to send, about a minute…');
+      const selfSettle = settleFrom(t, { label: spec.label, nest: on, say: tell });
+      r = await spec.go({ t, priv, selfSettle, waitOpts: run.wait(null, 15 * 60e3) });
+    }
+    // A receipt says its own outcome (actSaid); a sheet's line is said here.
+    if (on) actPut(on, { status: 'settled', hash: r?.txHash || undefined, selfErr: '', sent: true, end: Date.now() });
+    else toast(r?.already ? `${spec.label}: it had already gone through` : `${spec.label}: done`);
+    if (!on) say(status(), html`<span class="ok">${r?.already ? 'It had already gone through.' : spec.then || 'Done.'}</span> ${r?.txHash ? txLink(r.txHash) : ''}`);
     await Promise.allSettled([scanPrivate(true), spec.after ? spec.after() : null]);
     rerender(spec.sheet);
-  } catch (e) { run.fail(status(), e); }
+  } catch (e) { if (on) { noteOpen(e); actPut(on, { selfErr: errText(e) }); } else run.fail(status(), e); }
+  finally { if (on) { SELF.delete(on); paintAct(); } }
 }
 document.addEventListener('click', (e) => {
   const c = e.target.closest?.('[data-selfcopy]');
@@ -3488,7 +3658,7 @@ function wireSub(el, name, set) { $$(`[data-${name}]`, el).forEach((b) => b.oncl
 
 // ── Tacit V1 pool: shared module, loaded on first use ────────────────────────────────────────────────────
 const getUx = lazy(async () => {
-  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=06532c6a'), import('/confidential-deployments.js')]);
+  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=9bb944e3'), import('/confidential-deployments.js')]);
   dep.setActiveNetwork('mainnet');
   setExternalTacHolders(() => (S.wallet ? [S.wallet] : []));      // public TAC in the connected wallet counts toward the exit-fee tier, as on tacit.finance
   return makeConfidentialPoolUx({ secp, keccak256: keccak_256, sha256, network: 'mainnet' });
@@ -3711,9 +3881,10 @@ async function settleLocks(run, kind, status) {
       catch (e0) { if (/fee below the current floor/i.test(e0?.message || '') && fee * 2n < BigInt(due.amount)) await call(fee * 2n, { waitOpts: run.wait(what, 15 * 60e3) }); else throw e0; }
       ok++;
     } catch (e) {
-      if (relayRefused(e) && !run.away) {
+      // Once the rest have gone to Activity, the offer is made there (offerAway).
+      if (relayRefused(e)) {
         const lot = due, tkr = tickerOf(t, lot.asset);
-        offerSelf({ label: `${verb} ${fmt(BigInt(lot.amount), 8, 6)} ${shownAs(tkr)}`, sheet: run.sheet, after: () => loadLocks(true), status: () => $('#' + sid),
+        offerSelf({ run, label: `${verb} ${fmt(BigInt(lot.amount), 8, 6)} ${shownAs(tkr)}`, sheet: run.sheet, after: () => loadLocks(true), status: () => $('#' + sid),
           go: (x) => (kind === 'claim'
             ? x.t.stealthClaim({ walletPriv: x.priv, lockRecord: lot, lockSetRoot: root, fee: 0n, selfSettle: x.selfSettle, waitOpts: x.waitOpts })
             : x.t.stealthRefund({ walletPriv: x.priv, lockRecord: lot, refundPriv: lot.refundPriv, lockSetRoot: root, fee: 0n, selfSettle: x.selfSettle, waitOpts: x.waitOpts })) }, e);
@@ -3992,9 +4163,9 @@ async function noteFor(run, t, priv, amount, fits, status, k = 'eth') {
       if (/fee below the current floor/i.test(e0?.message || '') && sum >= amount + fee2) await cut(fee2, { waitOpts: stepWait() }); else throw e0;
     }
   } catch (e) {
-    if (!heldUp(e) || run.away) throw e;
+    if (!heldUp(e)) throw e;
     const line = () => (status.id && document.getElementById(status.id)) || status;
-    throw offerSelf({ label: doing, sheet: run.sheet, then: 'Your note is ready. Press the button again to send it.', carry: 'press the button again to carry on from there', status: line,
+    throw offerSelf({ run, label: doing, sheet: run.sheet, then: 'Your note is ready. Press the button again to send it.', carry: 'press the button again to carry on from there', status: line,
       go: (x) => cut(0n, { selfSettle: x.selfSettle, waitOpts: x.waitOpts }) }, e);
   }
   // The new note shows in a scan a moment after its settle: look a few times before giving up.
@@ -4071,9 +4242,8 @@ function v1Send(el, status) {
       let r;
       try { r = await lockSend({ ...sendArgs, waitOpts: run.wait(null, 15 * 60e3) }); }
       catch (e) {
-        if (!relayRefused(e) || run.away) throw e;
-        offerSelf({ go: (x) => lockSend({ ...sendArgs, selfSettle: x.selfSettle, waitOpts: x.waitOpts }), label: `Send ${fmt(units, 8, 6)} tETH privately to ${w.name || short(raw, 8)}`, sheet: 'eth', status: () => $('#v1-status') }, e);
-        return;
+        if (!relayRefused(e)) throw e;
+        throw offerSelf({ run, go: (x) => lockSend({ ...sendArgs, selfSettle: x.selfSettle, waitOpts: x.waitOpts }), label: `Send ${fmt(units, 8, 6)} tETH privately to ${w.name || short(raw, 8)}`, sheet: 'eth', status: () => $('#v1-status') }, e);
       }
       await scanPrivate(true).catch(() => {});
       rerender('eth');
@@ -4208,9 +4378,8 @@ function v1Swap(el, status) {
           await t.route({ walletPriv: priv, ...args, path: again.path, fee: fee2, waitOpts: run.wait(null, 15 * 60e3) });
         }
       } catch (e) {
-        if (!relayRefused(e) || run.away) throw e;
-        offerSelf({ go: (y) => y.t.route({ walletPriv: y.priv, ...args, fee: 0n, selfSettle: y.selfSettle, waitOpts: y.waitOpts }), label, sheet: 'eth', status: () => $('#v1-status') }, e);
-        return;
+        if (!relayRefused(e)) throw e;
+        throw offerSelf({ run, go: (y) => y.t.route({ walletPriv: y.priv, ...args, fee: 0n, selfSettle: y.selfSettle, waitOpts: y.waitOpts }), label, sheet: 'eth', status: () => $('#v1-status') }, e);
       }
       await scanPrivate(true).catch(() => {});
       rerender('eth');
@@ -4278,9 +4447,8 @@ function v1Out(el, status) {
       run.say(status, 'The relay is proving your withdrawal…');
       try { await t.sendUnwrap({ note, walletPriv: priv, recipient, amount: x.units, waitOpts: run.wait(null, 15 * 60e3, { exit: { to: recipient, units: String(x.units), note: kNote(note), from: 'eth', sheet: 'eth' } }) }); }
       catch (e) {
-        if (!relayRefused(e) || run.away) throw e;
-        offerSelf({ exit: true, go: exitGo(note, recipient, x.units), label: `Withdraw ${fmt(x.units, 8, 6)} ETH to ${short(raw, 6)}`, sheet: 'eth', status: () => $('#v1-status') }, e);
-        return;
+        if (!relayRefused(e)) throw e;
+        throw offerSelf({ run, exit: true, go: exitGo(note, recipient, x.units), label: `Withdraw ${fmt(x.units, 8, 6)} ETH to ${short(raw, 6)}`, sheet: 'eth', status: () => $('#v1-status') }, e);
       }
       await scanPrivate(true).catch(() => {});
       rerender('eth');
@@ -4805,17 +4973,18 @@ function xoOut(el, status, a) {
         // The relay's floor moved between the quote and the submit: nothing was proved, so ask once more at twice the fee.
         catch (e0) { const up = xoLadder(x.fee * 2n); if (xoFeeShort(e0) && !waitRanOut(e0) && up * 2n < x.units) rec = await startWith({ fee: up, waitOpts: run.wait(null, 15 * 60e3) }); else throw e0; }
       } catch (e) {
+        // A burn the relay proved and holds keeps its intent (it lands whoever sends it, and is looked for on Ethereum): it is offered to
+        // send as it is, here, or in Activity once the form has gone there.
+        if (proved(e)) { offerSelf({ run, label: `Bridge ${amtText} to Bitcoin`, sheet: a.sheet, status: () => $(a.status), then: 'Burned. The Bitcoin step goes on by itself from here.', after: () => xoTick(true) }, e); return; }
         // A wait that ran out is not a refusal: the job may still be proving, so its intent stays and is looked for on Ethereum.
         if (!(relayRefused(e) || xoFeeShort(e)) || waitRanOut(e)) throw e;
         // Refused: the relay's own answer means nothing was proved, and the intent is let go (left, it would keep its row and its note
         // reserved). A gateway's 5xx can stand in front of a submit the relay took, so then the intent stays and the burn is looked
         // for on Ethereum; a second burn of the same note can only fail.
         if (!/relay 5\d\d\b|temporarily unavailable/i.test(String(e?.message || e))) await ux.cancelIntent(pub, note.nullifier).catch(() => {});
-        // Once the form has gone to Activity (the run's first relay job, a split or this burn itself, was queued), the refusal is reported there
-        // and the paying account is not offered.
-        if (run.away) throw e;
-        // Otherwise the same burn goes out from the paying account instead.
-        offerSelf({ label: `Bridge ${amtText} to Bitcoin`, sheet: a.sheet, status: () => $(a.status), then: 'Burned. The Bitcoin step goes on by itself from here.', after: () => xoTick(true),
+        // The same burn goes out from the paying account instead: offered here, or on its receipt in Activity once the form has gone there
+        // (the run's first relay job, a split, was queued).
+        offerSelf({ run, label: `Bridge ${amtText} to Bitcoin`, sheet: a.sheet, status: () => $(a.status), then: 'Burned. The Bitcoin step goes on by itself from here.', after: () => xoTick(true),
           // Sent long after the receipt, so the sats are asked about again before anything is burned.
           go: async (y) => {
             const again = await xoPreflight(ux, pub, [note.nullifier]);
@@ -6049,10 +6218,15 @@ function brProof(force = false) {
     .then((r) => { const h = Number(r?.attestedHeight); if (Number.isInteger(h) && h > 0) Object.assign(BR, { refl: h, reflAt: Date.now() }); return BR.refl; })
     .catch(() => BR.refl).finally(() => { BR.reflP = null; }));
 }
-// The relay would not settle a mint for free (its daily free settles used up, a fee floor, a settle priced over what it carries):
-// sent from the paying account instead, the relay only proves it. Anything else (a busy service, a failed proof, a rate limit)
-// would fail the same way from the account, and a mint whose wait ran out is still in the relay's queue: neither is offered.
-const brRefused = (err) => { const m = String(err?.message || err || ''); return !waitRanOut({ message: m }) && /free relayed settles|fee below|below the (current )?floor|feegate|marginal cost|can.t take this one/i.test(m); };
+// The relay would not settle a mint for free (its daily free settles used up, a fee floor, a settle priced over what it carries), or
+// is holding its settles for now (its own code, or a 429/5xx at the submit): sent from the paying account instead, the relay only
+// proves it. A failed proof, or its day's proofs used up, would fail the same way from the account, and a mint whose wait ran out is
+// still in the relay's queue: neither is offered. A record keeps only the words of its last error, so those are read too.
+const brRefused = (err) => {
+  const m = String(err?.message || err || '');
+  return !proveCapped(err) && !waitRanOut({ message: m }) && (['relay_held', 'free_budget'].includes(relayCode(err))
+    || /free relayed settles|fee below|below the (current )?floor|feegate|marginal cost|can.t take this one|relay (5\d\d|429)\b|temporarily unavailable/i.test(m));
+};
 function brErr(e) {
   const m = String(e?.message || e || '');
   if (/another tab/i.test(m)) return 'This bridge is being moved on in another tab. Wait for it there, or close that tab and try again.';
@@ -6649,8 +6823,9 @@ function renderTacBal(el) {
         run.say(status, `The relay is moving your TAC${worth.length > 1 ? ` (${i + 1} of ${worth.length})` : ''}…`);
         try { await t.unwrap({ note: n, walletPriv: priv, recipient: to, wait: true, waitOpts: run.wait(`Make ${fmt(BigInt(n.value), 8, 2)} TAC public`, 15 * 60e3, { exit: { to, units: String(n.value), note: kNote(n), from: 'tac', sheet: 'tac' } }) }); moved++; }
         catch (e) {
-          if (relayRefused(e) && !run.away) {
-            offerSelf({ exit: true, go: exitGo(n, to, n.value), label: `Make ${fmt(BigInt(n.value), 8, 2)} TAC public`, sheet: 'tac', after: loadTacHoldings, status: () => $('#tac-bal-status') }, e);
+          // Once the first has gone to Activity, a later refusal is offered there (offerAway).
+          if (relayRefused(e)) {
+            offerSelf({ run, exit: true, go: exitGo(n, to, n.value), label: `Make ${fmt(BigInt(n.value), 8, 2)} TAC public`, sheet: 'tac', after: loadTacHoldings, status: () => $('#tac-bal-status') }, e);
             offered = true; break;
           }
           if (!run.away) {
@@ -9129,12 +9304,20 @@ render.borrow = () => {
       const r = m.makeCbtcNoteRecovery({ hmac, sha256, curveOrder: secp.CURVE.n });
       const b = r.deriveCbtcNoteBlinding({ privkey: priv, anchorOutpoint: r.anchorBytes(rec.anchor.txid, rec.anchor.vout), outputIndex: 0 });
       say(status, 'The relay is proving your mint…');
-      const out = await t.mintCbtc({ walletPriv: priv, outpoint: outpointOf(t, rec), vBtc: BigInt(rec.vBtc), blinding: '0x' + b.toString(16).padStart(64, '0'), waitOpts: run.wait(`Mint ${fmt(BigInt(rec.vBtc), 8, 8)} cBTC`, 20 * 60e3) });
+      const label = `Mint ${fmt(BigInt(rec.vBtc), 8, 8)} cBTC`, args = { walletPriv: priv, outpoint: outpointOf(t, rec), vBtc: BigInt(rec.vBtc), blinding: '0x' + b.toString(16).padStart(64, '0') };
+      let out;
+      try { out = await t.mintCbtc({ ...args, waitOpts: run.wait(label, 20 * 60e3) }); }
+      catch (e) {
+        // The relay will not send it just now (or it is proved and held): the mint goes out from the paying account instead.
+        if (!heldUp(e)) throw e;
+        throw offerSelf({ run, label, sheet: 'borrow', status: () => at(3), then: 'cBTC minted.', after: async () => { store.set(key, { ...rec, minted: true }); await settleBorrow(); },
+          go: (x) => x.t.mintCbtc({ ...args, walletPriv: x.priv, selfSettle: x.selfSettle, waitOpts: x.waitOpts }) }, e);
+      }
       store.set(key, { ...rec, minted: out?.txHash || true });
       say(status, html`<span class="ok">cBTC minted.</span> ${out?.txHash ? txLink(out.txHash) : ''}`);
       toast('cBTC minted');
       await settleBorrow();
-    } catch (e) { sayErr(status, /CbtcLockMismatch|afff2f20/i.test(e?.message || '') ? new Error('Not ready yet: the lock is still being proven, or the bond fell short at today\'s price. Try again in a few minutes.') : e); }
+    } catch (e) { sayErr(status, !e?.offered && /CbtcLockMismatch|afff2f20/i.test(e?.message || '') ? new Error('Not ready yet: the lock is still being proven, or the bond fell short at today\'s price. Try again in a few minutes.') : e); }
   });
   const debt = $('#bw-debt'), rcb = $('#bw-rcpt');
   // An empty field borrows the suggested amount, so the receipt shows what that is.
@@ -9179,9 +9362,21 @@ render.borrow = () => {
         return { txHash: hash };
       };
       say(status, 'The relay is proving your loan…');
-      const r = await t.defiActions(priv).openCdp({ controller: c, debtValue, rateSnapshot: rate, fee: 0n, collateral: [leg], spendRoot: n.root, debtBlinding: d.blindingHex, positionOwner, debtNk: d.nk, ...(self ? { selfSettle } : {}), waitOpts: run.wait(`Borrow ${fmt(debtValue, 8, 2)} cUSD`, 20 * 60e3) });
-      await ps.add(priv, { controller: c, debtValue: debtValue.toString(), nonce: '0x' + '0'.repeat(64), keyNonce, positionOwner, rateSnapshot: rate, debtAnchor: anchor, basket: [{ asset: leg.asset, value: String(BigInt(leg.value)) }], openedAt: r?.txHash || null }).catch(() => {});
-      store.set(key, { ...rec, borrowed: debtValue.toString(), borrowedAt: Date.now() });
+      const label = `Borrow ${fmt(debtValue, 8, 2)} cUSD`, args = { controller: c, debtValue, rateSnapshot: rate, fee: 0n, collateral: [leg], spendRoot: n.root, debtBlinding: d.blindingHex, positionOwner, debtNk: d.nk };
+      // What this browser keeps of the loan (a cache: the position is found again from the key and the chain).
+      const kept = async (r) => {
+        await ps.add(priv, { controller: c, debtValue: debtValue.toString(), nonce: '0x' + '0'.repeat(64), keyNonce, positionOwner, rateSnapshot: rate, debtAnchor: anchor, basket: [{ asset: leg.asset, value: String(BigInt(leg.value)) }], openedAt: r?.txHash || null }).catch(() => {});
+        store.set(key, { ...rec, borrowed: debtValue.toString(), borrowedAt: Date.now() });
+      };
+      let r;
+      try { r = await t.defiActions(priv).openCdp({ ...args, ...(self ? { selfSettle } : {}), waitOpts: run.wait(label, 20 * 60e3) }); }
+      catch (e) {
+        // Relayed and refused or held: the loan goes out from the paying account instead (which the points program then credits).
+        if (self || !heldUp(e)) throw e;
+        throw offerSelf({ run, label, sheet: 'borrow', status: () => at(4), then: `Borrowed ${fmt(debtValue, 8, 2)} cUSD.`, after: async () => { await kept(null); await settleBorrow(); },
+          go: (x) => x.t.defiActions(x.priv).openCdp({ ...args, selfSettle: x.selfSettle, waitOpts: x.waitOpts }) }, e);
+      }
+      await kept(r);
       say(status, html`<span class="ok">Borrowed ${fmt(debtValue, 8, 2)} cUSD${self && !sentSelf ? ' through the relay, so it earns no points' : ''}.</span> ${r?.txHash ? txLink(r.txHash) : ''}`);
       toast(`Borrowed ${fmt(debtValue, 8, 2)} cUSD`);
       await settleBorrow();
@@ -9232,17 +9427,27 @@ render.borrow = () => {
       const keys = basket.map((_l, i) => t.deriveOutput(priv, nu, 'cdpRelease', i));
       run.take(...picked.map(kNote));
       say(status, 'The relay is proving your repayment…');
-      const r = await t.defiActions(priv).closeCdp({
+      const label = `Repay ${fmt(debtValue, 8, 2)} cUSD`, args = {
         controller: p.controller, debtValue, rateSnapshot: p.rateSnapshot, positionOwner: p.positionOwner, positionOwnerPriv: ownerPriv,
         basket, positionIndex: index, positionPath: tree.pathFor(index).path, spendRoot: picked[0].root, cdpPositionRoot: tree.root, fee: 0n,
         releaseBlindings: keys.map((k) => k.blindingHex), releaseNks: keys.map((k) => k.nk),
         debtNotes: picked.map((n) => ({ cx: n.cx, cy: n.cy, value: n.value, blinding: n.blinding, leafIndex: n.leafIndex, path: n.path, owner: n.owner, nk: n.secret })),
-        waitOpts: run.wait(`Repay ${fmt(debtValue, 8, 2)} cUSD`, 20 * 60e3),
-      });
-      LOCK.repayOver = null;
-      ps.remove((x) => x.controller === p.controller && (x.positionOwner || '') === (p.positionOwner || '') && x.debtValue === p.debtValue);
-      const cur = store.get(key);
-      if (cur) { const { borrowed, borrowedAt, ...rest } = cur; store.set(key, rest); }
+      };
+      const closed = () => {
+        LOCK.repayOver = null;
+        ps.remove((x) => x.controller === p.controller && (x.positionOwner || '') === (p.positionOwner || '') && x.debtValue === p.debtValue);
+        const cur = store.get(key);
+        if (cur) { const { borrowed, borrowedAt, ...rest } = cur; store.set(key, rest); }
+      };
+      let r;
+      try { r = await t.defiActions(priv).closeCdp({ ...args, waitOpts: run.wait(label, 20 * 60e3) }); }
+      catch (e) {
+        // Refused or held: the repayment goes out from the paying account instead.
+        if (!heldUp(e)) throw e;
+        throw offerSelf({ run, label, sheet: 'borrow', status: () => at(4), then: 'Repaid. Your cBTC is back as a private note.', after: async () => { closed(); await settleBorrow(); },
+          go: (x) => x.t.defiActions(x.priv).closeCdp({ ...args, selfSettle: x.selfSettle, waitOpts: x.waitOpts }) }, e);
+      }
+      closed();
       say(status, html`<span class="ok">Repaid. Your cBTC is back as a private note.</span> ${r?.txHash ? txLink(r.txHash) : ''}`);
       toast('Loan repaid');
       await settleBorrow();
@@ -9376,9 +9581,8 @@ function assetSendForm(el, status, { prefix, sheet, statusId, sources, pick }) {
         run.say(status, `The relay is proving your transfer, which arrives as ${a.out}…`);
         try { r = await t.sendUnwrap({ note, walletPriv: priv, recipient: x.recipient, amount: x.units, waitOpts: run.wait(null, 15 * 60e3, { exit: { to: x.recipient, units: String(x.units), note: kNote(note), from: k, sheet } }) }); }
         catch (e) {
-          if (!relayRefused(e) || run.away) throw e;
-          offerSelf({ exit: true, go: exitGo(note, x.recipient, x.units), label: `Send ${show(x.units)} ${dtk} to ${short(raw, 6)} as ${a.out}`, sheet, after: sheet === 'tac' ? () => loadTacHoldings(true) : () => loadBorrow(true), status: out }, e);
-          return;
+          if (!relayRefused(e)) throw e;
+          throw offerSelf({ run, exit: true, go: exitGo(note, x.recipient, x.units), label: `Send ${show(x.units)} ${dtk} to ${short(raw, 6)} as ${a.out}`, sheet, after: sheet === 'tac' ? () => loadTacHoldings(true) : () => loadBorrow(true), status: out }, e);
         }
       } else {
         const note = await noteFor(run, t, priv, x.units, (n) => BigInt(n.value) === x.units, status, k);          // a lock spends a note of its exact size
@@ -9386,9 +9590,8 @@ function assetSendForm(el, status, { prefix, sheet, statusId, sources, pick }) {
         const sendArgs = { t, priv, note, who: x.who, units: x.units, ticker: a.tk };
         try { r = await lockSend({ ...sendArgs, waitOpts: run.wait(null, 15 * 60e3) }); }
         catch (e) {
-          if (!relayRefused(e) || run.away) throw e;
-          offerSelf({ go: (y) => lockSend({ ...sendArgs, selfSettle: y.selfSettle, waitOpts: y.waitOpts }), label: `Send ${show(x.units)} ${dtk} privately to ${x.who.name || short(raw, 8)}`, sheet, after: sheet === 'tac' ? () => loadTacHoldings(true) : () => loadBorrow(true), status: out }, e);
-          return;
+          if (!relayRefused(e)) throw e;
+          throw offerSelf({ run, go: (y) => lockSend({ ...sendArgs, selfSettle: y.selfSettle, waitOpts: y.waitOpts }), label: `Send ${show(x.units)} ${dtk} privately to ${x.who.name || short(raw, 8)}`, sheet, after: sheet === 'tac' ? () => loadTacHoldings(true) : () => loadBorrow(true), status: out }, e);
         }
       }
       await scanPrivate(true).catch(() => {});

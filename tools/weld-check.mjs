@@ -116,6 +116,12 @@
 //            the sheet saying it was sent and where it goes
 //   tacdeposit  a real 20 TAC deposit whose settle never landed: the TAC sheet and the dashboard offer to finish it,
 //            and Finish submits a wrap job rebuilt with the TAC asset and its own scale
+//   openact  steps the relay proved and nobody sent (open, sending for minutes, proven for a page that closed) are offered in Activity
+//            to send now; the proof goes out as it is (no second proof), the relay is told it landed, and one already sent reads done
+//   openfarm a harvest the relay proves and holds: the sheet offers to send it now, and it goes out with no second proof
+//   heldoff  an exit refused after the form went to Activity (its combine queued first) is offered on its receipt there, and sent
+//   provecap the relay's day of proofs used up is said plainly with nothing offered, also when met while sending it yourself
+//   heldborrow the Borrow sheet's Borrow and Repay, held by the relay, offer to send from the paying account
 //   PLAYWRIGHT=<path to playwright-core> node tools/weld-check.mjs [scenario,…] [fork rpc]   (SHOTS=<dir> saves screenshots)
 
 import { spawn } from 'node:child_process';
@@ -135,7 +141,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -174,6 +180,12 @@ let statusError = 'stubbed in the fork check';
 // for a page that sends the settle itself.
 let proveStub = false;
 const provenJobs = {};
+// `refuseWith`: what a refused submit answers instead of the free-settle refusal ({ code, error }: relay_held, prove_budget …).
+// `refuseTypes`: refuse only submits of these op types (with refuseSubmits counting them). `openNext`: that many settle-mode submits
+// are proved and held as an open job (status `open`, its proof and the memos it was sent with), as the relay holds what it cannot
+// send. `landedPosts`: the page's reports of a settle it sent itself (POST /confidential/landed), which settle an open job here.
+let refuseWith = null, refuseTypes = null, openNext = 0;
+const openJobs = {}, landedPosts = [];
 
 // router.withdrawToV1(tx, intent), encoded as evm-pool-wallet.js encodes it for a self-sent move.
 const { calldata } = await import(new URL('../dapp/evm-pool-gateway.js', import.meta.url));
@@ -208,20 +220,30 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
   // path and the live host are covered: submits and job status are stubbed, reads pass through to the live API.
   const relay = async (route) => {
     const u = new URL(route.request().url());
-    if (u.pathname === '/confidential/submit' && refuseSubmits > 0) {
+    const sub = u.pathname === '/confidential/submit' ? JSON.parse(route.request().postData() || '{}') : null;
+    if (sub && refuseSubmits > 0 && (!refuseTypes || refuseTypes.includes(sub.type))) {
       refuseSubmits--;
-      refused.push(JSON.parse(route.request().postData() || '{}'));
+      refused.push(sub);
+      const why = Array.isArray(refuseWith) ? refuseWith.shift() : refuseWith;          // a list: one answer per refusal, in turn
       return route.fulfill({ status: 429, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
-        body: JSON.stringify({ ok: false, error: 'free relayed settles for today are used up (300/300) — attach a fee above the floor, or prove-mode and settle it yourself', code: 'free_budget' }) });
+        body: JSON.stringify({ ok: false, ...(why || { error: 'free relayed settles for today are used up (300/300) — attach a fee above the floor, or prove-mode and settle it yourself', code: 'free_budget' }) }) });
     }
-    if (u.pathname === '/confidential/submit') {
-      const b = JSON.parse(route.request().postData() || '{}'), jobId = 'stub-' + (submits.push(b));
-      if (proveStub && b.mode === 'prove') provenJobs[jobId] = { memos: b.memos || [] };
+    if (sub) {
+      const jobId = 'stub-' + (submits.push(sub));
+      if (proveStub && sub.mode === 'prove') provenJobs[jobId] = { memos: sub.memos || [] };
+      if (openNext > 0 && (sub.mode || 'settle') === 'settle') { openNext--; openJobs[jobId] = { type: sub.type, memos: sub.memos || [], status: 'open' }; }
       return json(route, { jobId });
     }
+    if (u.pathname === '/confidential/landed') {
+      const b = JSON.parse(route.request().postData() || '{}'), oj = openJobs[b.jobId];
+      landedPosts.push(b);
+      if (oj) Object.assign(oj, { status: 'settled', txHash: b.txHash });
+      return json(route, { ok: true, jobId: b.jobId, status: 'settled', txHash: b.txHash });
+    }
     if (u.pathname === '/confidential/status') {
-      const id = u.searchParams.get('id'), pj = provenJobs[id];
+      const id = u.searchParams.get('id'), pj = provenJobs[id], oj = openJobs[id];
       if (pj) return json(route, { jobId: id, mode: 'prove', status: 'proven', publicValues: '0x' + '01'.repeat(32), proof: '0x' + '02'.repeat(32), memos: pj.memos });
+      if (oj) return json(route, { jobId: id, type: oj.type, mode: 'settle', status: oj.status, txHash: oj.txHash || null, ...(oj.status === 'settled' ? {} : { publicValues: '0x' + '01'.repeat(32), proof: '0x' + '02'.repeat(32), memos: oj.memos }) });
       return json(route, { status: 'failed', error: statusError });
     }
     // A live API that does not answer is the page's to report, as it would be for a user; the run goes on.
@@ -232,7 +254,7 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
       return route.fulfill({ status: 502, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ error: `the live API did not answer: ${e.message}` }) });
     }
   };
-  await ctx.route(/^https:\/\/api\.tacit\.finance\/confidential\/(submit|status)/, relay);
+  await ctx.route(/^https:\/\/api\.tacit\.finance\/confidential\/(submit|status|landed)/, relay);
   await ctx.route(new RegExp(`^http://(127\\.0\\.0\\.1|localhost):${WEB}/(confidential|farm|reflection)/`), relay);
   // Keepers: quotes are canned and the queue is absent (wallets prove against their own tree). A move into V1 is
   // relayed for real, router.withdrawToV1 sent as a keeper would; any other relay is recorded and refused.
@@ -326,6 +348,23 @@ async function acceptLoss(page, goSel, ackSel) {
     await sleep(1500);
   }
 }
+// The pool with settle() answered here and every other call run by its own code (copied to another address and delegated to, so it
+// reads and writes the pool's storage as before): what a settle sent from the page reaches without a real proof. `onSettle`: 'ok'
+// (it succeeds and changes nothing) or a 4-byte error selector it reverts with. Returns what puts the pool's code back.
+const POOL_ADDR = '0x000000000ed1eabd231be41d93b719056f7febfc', SETTLE_SEL = Buffer.from(keccak_256('settle(bytes,bytes,bytes[])')).toString('hex').slice(0, 8);
+async function stubPoolSettle(onSettle = 'ok') {
+  const REAL = '0x' + '5e77'.repeat(10), code = await rpc('eth_getCode', [POOL_ADDR, 'latest']);
+  await rpc('anvil_setCode', [REAL, code]);
+  const h2 = (n) => n.toString(16).padStart(4, '0');
+  const head = (ok, stop) => `600035${'60e01c'}80${'63' + SETTLE_SEL}14${'61' + h2(stop)}5750`          // selector; settle() jumps to `stop`
+    + '366000600037' + '6000600036600073' + REAL.slice(2) + '5af4'                                       // copy the call, delegate it
+    + '3d6000600037'.replace(/37$/, '3e') + `61${h2(ok)}57` + '3d6000fd' + '5b3d6000f3';                   // its answer: revert or return it
+  const len = (x) => x.length / 2, okAt = len(head(0, 0)) - 5, stopAt = len(head(0, 0));
+  const tail = onSettle === 'ok' ? '5b00' : `5b63${onSettle}60e01b60005260046000fd`;
+  await rpc('anvil_setCode', [POOL_ADDR, '0x' + head(okAt, stopAt) + tail]);
+  return () => rpc('anvil_setCode', [POOL_ADDR, code]);
+}
+
 // Chain state, polled, is the check: a toast from an earlier step can still be on screen.
 async function chainUntil(fn, ms = 240000) { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (await fn()) return true; await sleep(1500); } return false; }
 const toastSays = (page, re) => until(page, (r) => new RegExp(r).test(document.querySelector('#toast-container')?.textContent || '') || !!document.querySelector('#farm-precision .status .err'), re.source, 240000);
@@ -4056,7 +4095,14 @@ const swapStub = () => `
       if (total > amount) add.push(note(notes[0].asset, total - amount));
       return {};
     };`;
-const stubFarmUx = (page, { notes = [], positions = null, chain = false, swap = false, refuse = false, fees = null }) => page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+// `held`: a harvest goes to the real relay client (no proof is built here), whose job the stub relay holds open (openNext).
+const heldStub = () => `
+    ux.farmHarvest = async (a) => {
+      window.__farmCalls.push((a.selfSettle ? 'self' : 'relayed') + ':farmHarvest');
+      if (a.selfSettle) throw new Error('proved a second time');
+      return ux.relay.settle({ type: 'farmharvest', op: { stub: 'held' }, memos: [] }, a.waitOpts);
+    };`;
+const stubFarmUx = (page, { notes = [], positions = null, chain = false, swap = false, refuse = false, held = false, fees = null }) => page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
   import * as real from '/confidential-pool-ux.js?stub=real';
   export * from '/confidential-pool-ux.js?stub=real';
   export function makeConfidentialPoolUx(o) {
@@ -4081,6 +4127,7 @@ const stubFarmUx = (page, { notes = [], positions = null, chain = false, swap = 
     ${chain ? chainStub() : `ux.farmHarvest = async ({ position }) => { window.__farmCalls.push('harvest:' + position.receiptLeaf); return {}; };
     ux.farmUnbond = async ({ position }) => { window.__farmCalls.push('unbond:' + position.receiptLeaf); return {}; };`}` : ''}
     ${refuse ? refuseStub() : ''}
+    ${held ? heldStub() : ''}
     return ux;
   }` }));
 const farmPos = (n, shares, units, tac) => ({ pid: 0, pair: 'TAC/cETH', lpAsset: FARM_LP0, shares: String(shares), receiptLeaf: '0x' + String(n).repeat(64), receiptIndex: n, unlockAt: 0, pendingUnits: String(units), pendingTac: tac });
@@ -5095,6 +5142,327 @@ await step('tour', async () => {
   }
   ok(true, `tour: screenshots in ${SHOTS}`);
 });
+// Steps the relay proved and nobody sent, as an earlier visit left them in Activity: a relayed withdrawal it holds open, a split proved for
+// a page that closed before sending it, and one a relay took to send minutes ago. Each offers "Send it now" from the paying account,
+// which reads the proof from the relay and sends settle() as it is (no second proof), then tells the relay it landed. A proof that goes
+// in with its deposit (wrap and send), and a send a relay took a moment ago, are not offered. One a relay sent meanwhile reads as done.
+await step('openact', async () => {
+  const served = {}, PV = '0x' + '01'.repeat(32), PF = '0x' + '02'.repeat(32), M = '0x' + 'ab'.repeat(40);
+  const r = await openPage({ account: A0, key: K0 });
+  await serveStatus(r.ctx, served);
+  const proved = (b) => ({ publicValues: PV, proof: PF, ...b });
+  Object.assign(served, {
+    'o-open': proved({ type: 'unwrap', status: 'open', memos: [] }),
+    'o-prov': proved({ type: 'transfer', mode: 'prove', status: 'proven', memos: [M] }),
+    'o-router': proved({ type: 'wraptransfer', mode: 'prove', status: 'proven', memos: [M] }),
+    'o-slow': proved({ type: 'sendunwrap', status: 'sending', memos: [M] }),
+    'o-new': proved({ type: 'sendunwrap', status: 'sending', memos: [M] }),
+  });
+  const row = async (id) => (await actRows(r.page)).find((x) => x.id === id) || { text: '' };
+  const offered = (id) => r.page.$(`[data-act="${id}"] [data-sendopen]`).then(Boolean);
+  let restore = null;
+  try {
+    await r.page.goto(r.url);
+    await r.page.waitForSelector('#hx-body .hx-h');
+    await r.page.evaluate((t) => localStorage.setItem('tacit-lite-activity-v1', JSON.stringify({ cleared: 0, items: [
+      { id: 'job:o-open', kind: 'job', type: 'unwrap', label: 'Withdraw 0.1 ETH', status: 'pending', at: t - 300e3, up: t - 300e3 },
+      { id: 'job:o-prov', kind: 'job', type: 'transfer', label: 'Split a note', status: 'proven', at: t - 600e3, up: t - 500e3, end: t - 500e3 },
+      { id: 'job:o-router', kind: 'job', type: 'wraptransfer', label: 'Make private and send', status: 'proven', at: t - 700e3, up: t - 650e3, end: t - 650e3 },
+      { id: 'job:o-slow', kind: 'job', type: 'sendunwrap', label: 'Withdraw 0.2 ETH', status: 'sending', at: t - 900e3, up: t - 400e3 },
+      { id: 'job:o-new', kind: 'job', type: 'sendunwrap', label: 'Withdraw 0.3 ETH', status: 'sending', at: t - 120e3, up: t - 30e3 },
+    ] })), Date.now());
+    await r.page.reload();
+    await r.page.waitForSelector('#hx-body .hx-h');
+    await openActivity(r.page);
+    const due = await until(r.page, () => !!document.querySelector('[data-act="job:o-open"] [data-sendopen]'), null, 60000).then(() => true, () => false);
+    const open = await row('job:o-open');
+    ok(due && /Ready to send/.test(open.text) && /Proved and ready/.test(open.text) && /relay fee comes back to you/.test(open.text) && /goes through when a relay sends it/.test(open.text),
+      `openact: a withdrawal the relay proved and holds open offers to send it now (${open.text.slice(0, 200)})`);
+    const prov = await row('job:o-prov');
+    ok(await offered('job:o-prov') && /never sent/.test(prov.text) && !/Start it again/.test(prov.text), `openact: a split proved for a page that closed is offered too (${prov.text.slice(0, 160)})`);
+    const router = await row('job:o-router');
+    ok(!(await offered('job:o-router')) && /Start it again/.test(router.text), `openact: a proof that goes in with its deposit is not offered (${router.text.slice(0, 140)})`);
+    ok(await offered('job:o-slow') && !(await offered('job:o-new')), 'openact: a send a relay took minutes ago is offered, one it took a moment ago is not');
+    ok(!/gas|top.?up|out of|low on|credit/i.test((await actRows(r.page)).map((x) => x.text).join(' ')), 'openact: nothing on the list speaks of the relay\'s funds');
+    // Sent: the pool takes the proof as it is, from the connected wallet, with no second proof asked for.
+    restore = await stubPoolSettle('ok');
+    const s0 = submits.length, w0 = walletTxs.length, l0 = landedPosts.length;
+    await r.page.click('[data-act="job:o-open"] [data-sendopen]');
+    await until(r.page, () => /Done in|Went through/.test(document.querySelector('[data-act="job:o-open"]')?.textContent || '') || !!document.querySelector('[data-act="job:o-open"] .actr-f.err'), null, 180000).catch(() => {});
+    const sent = walletTxs.slice(w0).find((x) => String(x.to).toLowerCase() === POOL_ADDR);
+    ok(sent && sent.from.toLowerCase() === A0 && sent.data.startsWith('0x' + SETTLE_SEL) && sent.data.includes('02'.repeat(32)) && submits.length === s0,
+      `openact: pressed, settle() goes to the pool from the wallet carrying the relay's proof, and nothing is proved again (${(await row('job:o-open')).text.slice(0, 160)})`);
+    const told = landedPosts.slice(l0).find((x) => x.jobId === 'o-open');
+    ok(told && /^0x[0-9a-f]{64}$/i.test(told.txHash) && /Done in|Went through/.test((await row('job:o-open')).text), `openact: the relay is told it landed, and the row reads done (${JSON.stringify(told)})`);
+    await restore(); restore = null;
+    // A relay sent it meanwhile: the pool refuses it as spent, which reads as gone through, not as a failure.
+    restore = await stubPoolSettle('b115d857');
+    const w1 = walletTxs.length;
+    await r.page.click('[data-act="job:o-prov"] [data-sendopen]');
+    await until(r.page, () => /Done in|Went through/.test(document.querySelector('[data-act="job:o-prov"]')?.textContent || '') || !!document.querySelector('[data-act="job:o-prov"] .actr-f.err'), null, 180000).catch(() => {});
+    const again = await row('job:o-prov');
+    ok(/Done in|Went through/.test(again.text) && !/refuses|did not/.test(again.text) && walletTxs.length === w1, `openact: one already sent reads as done, with nothing sent (${again.text.slice(0, 140)})`);
+    if (r.errors.length) { fails++; console.log('FAIL openact page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { if (restore) await restore(); await r.browser.close(); }
+});
+
+// A harvest the relay proves and then holds (it cannot send it just now): the wait ends with the proof, and the sheet offers to send it
+// now from the paying account. Pressed, that proof goes to the pool as it is (no second proof), and the relay is told it landed.
+await step('openfarm', async () => {
+  const r = await openFarmKey('0fe1'.padEnd(64, '6'), { notes: [], positions: [farmPos(7, 150000000, 1234560000, '12.3456')], chain: true, held: true });
+  const p = r.page;
+  let restore = null;
+  try {
+    await go(p, '#farm');
+    await p.waitForSelector('[data-harvest="0"]', { timeout: 300000 });
+    openNext = 1;
+    const s0 = submits.length, l0 = landedPosts.length;
+    await p.click('[data-harvest="0"]');
+    await p.waitForSelector('#sf-act-0 [data-selfdo]', { timeout: 180000 });
+    const line = (await text(p, '#sf-act-0')).replace(/\s+/g, ' ');
+    ok(/proved and ready to send/i.test(line) && /Send it now from/.test(line) && /relay fee comes back to you/.test(line) && /goes through when a relay sends it/.test(line) && !/gas|credit|low on/i.test(line),
+      `openfarm: a harvest proved and held offers to send it now (${line})`);
+    restore = await stubPoolSettle('ok');
+    await p.click('#sf-act-0 [data-selfdo]');
+    await until(p, () => /Harvested to a wTAC note/.test(document.querySelector('#sf-act-0')?.textContent || '') || /class="err"/.test(document.querySelector('#sf-act-0')?.innerHTML || ''), null, 240000).catch(() => {});
+    const calls = await p.evaluate(() => window.__farmCalls), told = landedPosts.slice(l0)[0];
+    const tx = told?.txHash ? await rpc('eth_getTransactionByHash', [told.txHash]) : null;
+    ok(/Harvested to a wTAC note/.test(await text(p, '#sf-act-0')) && calls.join() === 'relayed:farmHarvest' && submits.slice(s0).length === 1 && submits[s0]?.type === 'farmharvest' && !submits[s0]?.mode,
+      `openfarm: pressed, it is sent with no second proof (${calls.join(', ')}; ${submits.slice(s0).map((x) => `${x.type}/${x.mode || 'settle'}`).join(', ')}; ${(await text(p, '#sf-act-0')).replace(/\s+/g, ' ').slice(0, 120)})`);
+    ok(tx && String(tx.to).toLowerCase() === POOL_ADDR && tx.input.startsWith('0x' + SETTLE_SEL) && tx.input.includes('02'.repeat(32)) && told.jobId === `stub-${s0 + 1}`,
+      `openfarm: settle() carries the relay's proof to the pool, and the relay is told it landed (${JSON.stringify(told)})`);
+    if (r.errors.length) { fails++; console.log('FAIL openfarm page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { openNext = 0; if (restore) await restore(); await r.browser.close(); }
+});
+
+// The relay holds settles that expire (relay_held): a withdrawal that needs two notes combined first gets the combine queued (the form goes
+// to Activity then), and its own exit refused. The refusal is offered on the withdrawal's receipt in Activity, and pressed there the exit goes
+// out from the paying account with no relay fee, the receipt following it to the end.
+await step('heldoff', async () => {
+  const PV = '0x' + '01'.repeat(32), PF = '0x' + '02'.repeat(32);
+  const r = await openPage({ account: A0, key: K0, viewport: { width: 390, height: 900 } });
+  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    import * as real from '/confidential-pool-ux.js?stub=real';
+    export * from '/confidential-pool-ux.js?stub=real';
+    export function makeConfidentialPoolUx(o) {
+      const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
+      const ETH = String(ux.assetByTicker.cETH.assetId).toLowerCase();
+      let seq = 0, leaves = 700000;
+      const note = (value) => { const i = ++seq; return { asset: ETH, value: String(value), leaf: '0x' + (0xdef000 + i).toString(16).padStart(64, '0'), leafIndex: 700000 + i, cx: '0x' + String(i).padStart(64, '0'), cy: '0x01', owner: '0x02', root: '0x' + '1'.padStart(64, '0'), path: [] }; };
+      const S = window.__ho = { notes: [note(6000000n), note(6000000n)], spent: new Set(), calls: [] };
+      ux.poolLeafCount = async () => ++leaves;
+      ux.balance = async (priv) => {
+        const b = await balance(priv), add = S.notes.filter((n) => !S.spent.has(n.leaf));
+        b.notes = [...b.notes, ...add];
+        for (const n of add) { const g = b.byAsset[n.asset] ||= { asset: n.asset, value: 0n, notes: [] }; g.notes = [...(g.notes || []), n]; g.value = g.notes.reduce((a, x) => a + BigInt(x.value), 0n); }
+        return b;
+      };
+      ux.quoteOpFee = async () => '100000';
+      const fire = (d) => dispatchEvent(new CustomEvent('tacit:job', { detail: { txHash: null, error: null, at: Date.now(), ...d } }));
+      ux.transfer = async ({ notes, amount, fee, waitOpts }) => {
+        const jobId = 'ho-combine';
+        S.calls.push({ type: 'transfer', fee: String(fee) });
+        waitOpts?.onJob?.(jobId, 'transfer'); fire({ jobId, type: 'transfer', status: 'pending' });
+        await new Promise((res) => setTimeout(res, 1500));
+        for (const n of notes) S.spent.add(n.leaf);
+        S.notes.push(note(amount));
+        const total = notes.reduce((a, n) => a + BigInt(n.value), 0n) - BigInt(amount) - BigInt(fee);
+        if (total > 0n) S.notes.push(note(total));
+        fire({ jobId, type: 'transfer', status: 'settled', txHash: '0x' + 'c1'.repeat(32) });
+        return { jobId, status: 'settled', txHash: '0x' + 'c1'.repeat(32) };
+      };
+      ux.sendUnwrap = async (a) => {
+        S.calls.push({ type: 'sendunwrap', self: typeof a.selfSettle, amount: String(a.amount) });
+        if (!a.selfSettle) throw Object.assign(new Error('relay 429: the relay can’t take this one right now; send it from your own wallet, or try again later'), { code: 'relay_held', httpStatus: 429 });
+        const jobId = 'ho-prove';
+        a.waitOpts?.onJob?.(jobId, 'sendunwrap'); fire({ jobId, type: 'sendunwrap', status: 'pending' });
+        fire({ jobId, type: 'sendunwrap', status: 'proven' });
+        S.spent.add(a.note.leaf);
+        return { jobId, ...(await a.selfSettle({ jobId, publicValues: '${PV}', proof: '${PF}', memos: [] })) };
+      };
+      return ux;
+    }` }));
+  const hx = 'a0ff'.padEnd(64, '5');
+  const acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hx, 'hex'), 'mainnet').address;
+  await rpc('anvil_setBalance', [acct, '0x' + (10n ** 18n).toString(16)]);
+  const ho = () => r.page.evaluate(() => window.__ho?.calls || []);
+  const receipt = async () => (await actRows(r.page)).find((x) => /Withdraw 0\.1 ETH/.test(x.text)) || { text: '', id: '' };
+  let restore = null;
+  try {
+    await r.page.goto(r.url);
+    await r.page.waitForSelector('#hx-body .hx-h');
+    await pasteKey(r.page, hx);
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(r.page, '#private');
+    await r.page.waitForSelector('#sheet-eth[open]');
+    await r.page.click('[data-v1="out"]');
+    await until(r.page, () => /Private 0\.12 tETH/.test(document.querySelector('#o-max')?.textContent || ''), null, 240000);
+    await r.page.fill('#o-to', '0x000000000000000000000000000000000000dEaD');
+    await r.page.fill('#o-amt', '0.1');
+    await until(r.page, () => /Arrives/.test(document.querySelector('#o-rcpt')?.textContent || '') && !document.querySelector('#o-go').disabled, null, 60000);
+    await r.page.click('#o-go');
+    await until(r.page, () => (window.__ho?.calls || []).some((c) => c.type === 'sendunwrap'), null, 120000);
+    await openActivity(r.page);
+    const offered = await until(r.page, () => [...document.querySelectorAll('#act-body .actr')].some((li) => /Withdraw 0\.1 ETH/.test(li.textContent) && li.querySelector('[data-selfdo]')), null, 60000).then(() => true, () => false);
+    const rc = await receipt();
+    ok(offered && rc.id.startsWith('op:') && /can’t take this one right now/.test(rc.text) && /Send it from your Tacit account instead/.test(rc.text) && /no relay fee/.test(rc.text) && !/gas|credit|low on/i.test(rc.text),
+      `heldoff: the exit refused after the combine went to Activity is offered on its receipt there (${rc.text.slice(0, 220)})`);
+    restore = await stubPoolSettle('ok');
+    if (offered) await r.page.click(`[data-act="${rc.id}"] [data-selfdo]`);
+    // Done, or a second error line under the refusal (the self-send's own failure).
+    await until(r.page, (id) => /Done in/.test(document.querySelector(`[data-act="${id}"]`)?.textContent || '') || document.querySelectorAll(`[data-act="${id}"] .actr-f.err`).length > 1, rc.id, 600000).catch(() => {});
+    const calls = await ho(), after = await receipt();
+    ok(calls.filter((c) => c.type === 'sendunwrap').map((c) => c.self).join() === 'undefined,function' && /Done in/.test(after.text),
+      `heldoff: pressed, the same exit goes out from the paying account, and the receipt reads done (${JSON.stringify(calls)}; ${after.text.slice(0, 140)})`);
+    if (r.errors.length) { fails++; console.log('FAIL heldoff page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { if (restore) await restore(); await r.browser.close(); }
+});
+
+// The relay's day of proofs used up (prove_budget) is not a refusal the paying account gets round (sending it needs a proof from the same
+// relay): it is said plainly, with nothing offered. Met while sending from the account, after a refusal that was offered, it says the same.
+await step('provecap', async () => {
+  const r = await openPage({ account: A0, key: K0 });
+  const hex = 'ca9'.padEnd(64, '6');
+  const want = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address;
+  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    import * as real from '/confidential-pool-ux.js?stub=real';
+    export * from '/confidential-pool-ux.js?stub=real';
+    export function makeConfidentialPoolUx(o) {
+      const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
+      ux.balance = async (priv) => {
+        const b = await balance(priv);
+        const hx = typeof priv === 'string' ? priv : '0x' + [...priv].map((x) => x.toString(16).padStart(2, '0')).join('');
+        const w = ux.buildWrap({ walletPriv: hx, amountWei: (5n * 10n ** 17n).toString(), ticker: 'cETH', index: 0 });
+        const note = ux.indexer.recover([{ type: 'LeavesInserted', firstLeafIndex: 0, leaves: [w.leaf], memos: [w.memo] }], hx)[0];
+        b.notes = [...b.notes, note];
+        const g = b.byAsset[note.asset] ||= { asset: note.asset, value: 0n, notes: [] };
+        g.value = BigInt(g.value) + BigInt(note.value); g.notes = [...g.notes, note];
+        return b;
+      };
+      return ux;
+    }` }));
+  const CAP = { code: 'prove_budget', error: 'the relay has made as many proofs as it can for today (prove_budget); try again after midnight UTC' };
+  const HELD = { code: 'relay_held', error: 'the relay can’t take this one right now; send it from your own wallet, or try again later' };
+  const said = () => text(r.page, '#v1-status').then((t) => t.replace(/\s+/g, ' '));
+  try {
+    await r.page.goto(r.url + '#wallet');
+    await r.page.click('#wallet-body [data-in="paste"]');
+    await r.page.fill('#ws-hex', hex);
+    await r.page.click('#wallet-body [data-in="key"]');
+    await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
+    await rpc('anvil_setBalance', [want, '0x' + (10n ** 17n).toString(16)]);
+    await go(r.page, '#eth');
+    await r.page.waitForSelector('[data-v1="out"]', { timeout: 600000 });
+    await r.page.click('[data-v1="out"]');
+    await r.page.fill('#o-to', '0x000000000000000000000000000000000000dEaD');
+    await r.page.fill('#o-amt', '0.1');
+    await until(r.page, () => !document.querySelector('#o-rcpt')?.hidden && !document.querySelector('#o-go')?.disabled, null, QUOTE_WAIT);
+    refuseSubmits = 1; refuseWith = CAP;
+    await r.page.click('#o-go');
+    await until(r.page, () => /as many proofs/.test(document.querySelector('#v1-status')?.textContent || '') || !!document.querySelector('#v1-status [data-selfdo]'), null, QUOTE_WAIT).catch(() => {});
+    ok(/The relay has made as many proofs as it can for today\. Try again after midnight UTC; nothing was spent\./.test(await said()) && !(await r.page.$('#v1-status [data-selfdo]')),
+      `provecap: a withdrawal met by the day's proofs used up says so, and offers nothing (${await said()})`);
+    // Refused for another reason, it is offered; the proof the account then asks for meets the cap, and that is said the same way.
+    await until(r.page, () => !document.querySelector('#o-go')?.disabled && !document.querySelector('#o-go')?.getAttribute('aria-busy'), null, 120000).catch(() => {});
+    refuseSubmits = 2; refuseWith = [HELD, CAP];
+    await r.page.click('#o-go');
+    const offered = await until(r.page, () => !!document.querySelector('#v1-status [data-selfdo]'), null, QUOTE_WAIT).then(() => true, () => false);
+    ok(offered && /can’t take this one right now/.test(await said()), `provecap: a withdrawal the relay holds is offered from the paying account (${await said()})`);
+    if (offered) {
+      const n0 = refused.length;
+      await r.page.click('#v1-status [data-selfdo]');
+      await until(r.page, () => /as many proofs/.test(document.querySelector('#v1-status')?.textContent || ''), null, QUOTE_WAIT).catch(() => {});
+      ok(/as many proofs as it can for today/.test(await said()) && refused.length === n0 + 1 && refused.at(-1)?.mode === 'prove' && !(await r.page.$('#v1-status [data-selfdo]')),
+        `provecap: the proof it then asks for meets the cap, said plainly, with no offer to go round again (${await said()})`);
+    }
+    if (r.errors.length) { fails++; console.log('FAIL provecap page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { refuseSubmits = 0; refuseWith = null; await r.browser.close(); }
+});
+
+// The Borrow sheet when the relay holds settles (relay_held): Borrow and Repay each offer to send it from the paying account, as the other
+// sheets do, and pressed, the same loan call goes out with the settle handed over. The pool module is stubbed with a minted cBTC note, the
+// loan calls the relay refuses until handed a self-settle, and the loan they open (and the cUSD it makes) for Repay to find.
+await step('heldborrow', async () => {
+  const hex = 'b07'.padEnd(64, '6'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex');
+  const acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address;
+  await rpc('anvil_setBalance', [acct, '0x' + (10n ** 18n).toString(16)]);
+  const r = await openPage({ account: A0, key: K0 });
+  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    import * as real from '/confidential-pool-ux.js?stub=real';
+    export * from '/confidential-pool-ux.js?stub=real';
+    export function makeConfidentialPoolUx(o) {
+      const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
+      const CB = String(ux.pool.CBTC_ZK_ASSET_ID).toLowerCase(), USD = String(ux.cdp.debtAssetId(ux.cfg.collateralEngine)).toLowerCase();
+      const h = (n) => '0x' + BigInt(n).toString(16).padStart(64, '0');
+      let seq = 0, leaves = 600000;
+      const note = (asset, value) => { const i = ++seq; return { asset, value: String(value), leaf: h(0xb0b000 + i), leafIndex: 600000 + i, cx: h(0x100 + i), cy: h(2), owner: h(3), secret: h(0x5100 + i), blinding: h(0x7700 + i), root: h(1), path: [] }; };
+      const S = window.__bw = { notes: [note(CB, 20000n)], calls: [], loan: null };
+      ux.poolLeafCount = async () => ++leaves;
+      ux.balance = async (priv, opts) => {
+        const b = await balance(priv, opts);
+        b.notes = [...b.notes, ...S.notes];
+        for (const n of S.notes) { const g = b.byAsset[n.asset] ||= { asset: n.asset, value: 0n, notes: [] }; g.notes = [...(g.notes || []), n]; g.value = g.notes.reduce((a, x) => a + BigInt(x.value), 0n); }
+        return b;
+      };
+      ux.recoverCdpPositions = async () => ({ nextKeyNonce: S.loan ? 1 : 0, positions: S.loan ? [{ controller: S.loan.controller, keyNonce: 0, debtValue: String(S.loan.debtValue), rateSnapshot: S.loan.rateSnapshot,
+        positionOwner: S.loan.positionOwner, nonce: h(0), basket: [{ asset: CB, value: '20000' }], live: true }] : [] });
+      ux.cdpPositionTree = async () => ({ indexOf: () => 0, pathFor: () => ({ path: [] }), root: h(9) });
+      const refuse = () => Object.assign(new Error('relay 429: the relay can’t take this one right now; send it from your own wallet, or try again later'), { code: 'relay_held', httpStatus: 429 });
+      const defi = ux.defiActions;
+      ux.defiActions = (priv) => ({ ...defi(priv),
+        openCdp: async (a) => {
+          S.calls.push({ kind: 'open', self: typeof a.selfSettle, fee: String(a.fee) });
+          if (!a.selfSettle) throw refuse();
+          S.loan = a; S.notes = [note(USD, BigInt(a.debtValue))];
+          return { txHash: h(0xee) };
+        },
+        closeCdp: async (a) => {
+          S.calls.push({ kind: 'close', self: typeof a.selfSettle, fee: String(a.fee) });
+          if (!a.selfSettle) throw refuse();
+          S.loan = null; S.notes = [note(CB, 20000n)];
+          return { txHash: h(0xef) };
+        },
+      });
+      return ux;
+    }` }));
+  const calls = () => r.page.evaluate(() => (window.__bw?.calls || []).map((c) => `${c.kind}:${c.self}`).join(','));
+  const offerIn = () => until(r.page, () => !!document.querySelector('#bw-status [data-selfdo], #bw-s4 [data-selfdo]'), null, QUOTE_WAIT).then(() => true, () => false);
+  try {
+    await r.page.goto(r.url + '#wallet');
+    await r.page.click('#wallet-body [data-in="paste"]');
+    await r.page.fill('#ws-hex', hex);
+    await r.page.click('#wallet-body [data-in="key"]');
+    await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
+    await r.page.evaluate((p) => localStorage.setItem(`tacit-lite-cbtc-v1:${p}`, JSON.stringify({ lockTxid: 'ab'.repeat(32), lockVout: 1, vBtc: '20000',
+      anchor: { txid: 'cd'.repeat(32), vout: 0 }, at: Date.now(), minted: true })), pub);
+    await go(r.page, '#borrow');
+    await r.page.waitForSelector('#bw-borrow', { timeout: 300000 }).catch(async (e) => {
+      throw new Error(`${e.message.split('\n')[0]} | sheet: ${(await r.page.evaluate(() => (document.querySelector('#borrow-body')?.textContent || '').replace(/\s+/g, ' ').slice(0, 300)))} | errors: ${r.errors.slice(0, 2).join(' | ')}`);
+    });
+    await sleep(2000);
+    await r.page.click('#bw-borrow');
+    const offered = await offerIn();
+    ok(offered && /can’t take this one right now/.test(await bwText(r.page)) && /Send it from/.test(await bwText(r.page)), `heldborrow: a loan the relay holds offers to send it from the paying account (${(await bwText(r.page)).replace(/\s+/g, ' ').trim().slice(0, 160)})`);
+    if (offered) {
+      await r.page.click('#bw-status [data-selfdo], #bw-s4 [data-selfdo]');
+      await until(r.page, () => /Borrowed [\d.,]+ cUSD/.test([...document.querySelectorAll('#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4')].map((e) => e.textContent).join(' ')), null, 180000).catch(() => {});
+      ok((await calls()) === 'open:undefined,open:function' && /Borrowed [\d.,]+ cUSD/.test(await bwText(r.page)), `heldborrow: pressed, the same loan goes out with the settle handed over (${await calls()} | ${(await bwText(r.page)).replace(/\s+/g, ' ').trim().slice(0, 120)})`);
+    }
+    // Repay, the same.
+    await r.page.waitForSelector('#bw-repay', { timeout: 300000 });
+    await sleep(2000);
+    await r.page.click('#bw-repay');
+    const offered2 = await offerIn();
+    ok(offered2 && /can’t take this one right now/.test(await bwText(r.page)), `heldborrow: a repayment the relay holds offers the same (${(await bwText(r.page)).replace(/\s+/g, ' ').trim().slice(0, 160)})`);
+    if (offered2) {
+      await r.page.click('#bw-status [data-selfdo], #bw-s4 [data-selfdo]');
+      await until(r.page, () => /Repaid\./.test([...document.querySelectorAll('#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4')].map((e) => e.textContent).join(' ')), null, 180000).catch(() => {});
+      ok((await calls()).endsWith('close:undefined,close:function') && /Repaid\./.test(await bwText(r.page)), `heldborrow: and goes out from the paying account (${await calls()} | ${(await bwText(r.page)).replace(/\s+/g, ' ').trim().slice(0, 120)})`);
+    }
+    if (r.errors.length) { fails++; console.log('FAIL heldborrow page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
 if (ACCT) await ACCT.r.browser.close();
 
 if (main.errors.length) { fails++; console.log('FAIL page errors:\n  ' + main.errors.slice(0, 8).join('\n  ')); }

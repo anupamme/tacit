@@ -63,22 +63,17 @@ export function makeConfidentialDefiActions({ pool, cdp, farm, relay, id, chainB
       // pubkey (recovery), and carries debtNk as `secret` so the borrower can later spend the note.
       outputs = [owned({ value: BigInt(debtValue) - BigInt(fee), blinding: debtBlinding, asset: debtAsset, cx: op.debt.cx, cy: op.debt.cy, owner: debtOwner, secret: debtNk })];
     }
-    const spec = { type: 'cdpmint', op, leaves, outputs, ephRand };
-    if (!selfSettle) return relay.settle(spec, waitOpts);
-    const job = await relay.submitOp({ ...spec, mode: 'prove' }, waitOpts);
-    const proven = job.status === 'proven' || job.status === 'settled' ? await relay.status(job.jobId) : await relay.waitForProof(job.jobId, waitOpts);
-    if (proven.status === 'settled') return { ...proven, jobId: job.jobId };
-    const memos = typeof relay.provenMemos === 'function' ? relay.provenMemos(proven, spec, job.sealedMemos) : job.sealedMemos;
-    return { jobId: job.jobId, ...(await selfSettle({ jobId: job.jobId, publicValues: proven.publicValues, proof: proven.proof, memos })) };
+    return settleVia({ type: 'cdpmint', op, leaves, outputs, ephRand }, selfSettle, waitOpts);
   }
 
   // CDP close — burn the debt notes + release the basket (first leg net of fee). Each released leg is a minted
   // owned note; the burned debt notes are spent (no descriptor). nonce is 0 (matches open).
+  // With `selfSettle` (as openCdp's) the relay only proves the close and the caller's account sends it, with no relay fee.
   // `releaseNks` is one per-note secret per released leg (the CDP tab derives them, role 'cdpRelease') (basket order, asset-sorted — the SAME order
   // buildCdpCloseOp emits `legs` in): each released leg's leaf owner is H(nk), which is what the guest
   // publishes. Reusing positionOwner here would bind the released notes to the position's BIP-340 auth key —
   // a key with no nk preimage — minting collateral back as permanently unspendable notes.
-  async function closeCdp({ controller, debtValue, rateSnapshot, basket, positionIndex, positionPath, spendRoot, cdpPositionRoot, fee = 0n, releaseBlindings, releaseNks, debtNotes, positionOwner, positionOwnerPriv, waitOpts }) {
+  async function closeCdp({ controller, debtValue, rateSnapshot, basket, positionIndex, positionPath, spendRoot, cdpPositionRoot, fee = 0n, releaseBlindings, releaseNks, debtNotes, positionOwner, positionOwnerPriv, selfSettle = null, waitOpts }) {
     // The close is owner-authorized (BIP-340) by the position's FRESH per-position key — the same key whose
     // x-only pubkey is `positionOwner` (open's `positionOwner`). Require it; never fall back to id.owner (the
     // account key would link positions, and only the position key can sign the close the guest verifies).
@@ -88,6 +83,7 @@ export function makeConfidentialDefiActions({ pool, cdp, farm, relay, id, chainB
       throw new Error(`closeCdp: releaseNks (one fresh secret per released leg) is required — got ${Array.isArray(releaseNks) ? releaseNks.length : 0} for ${legCount} leg(s)`);
     }
     const pOwner = positionOwner;
+    if (selfSettle) fee = 0n;                                    // whoever sends a settle is paid its fee: sent by the holder, it carries none
     // Sort to the SAME canonical (asset-ascending) order buildCdpCloseOp uses, so releaseNks[i] lines up with
     // op.legs[i] — the caller supplies them in basket order and the assembler re-sorts internally.
     const order = basket.map((leg, i) => i).sort((a, b) => (BigInt(basket[a].asset) < BigInt(basket[b].asset) ? -1 : (BigInt(basket[a].asset) > BigInt(basket[b].asset) ? 1 : 0)));
@@ -97,7 +93,7 @@ export function makeConfidentialDefiActions({ pool, cdp, farm, relay, id, chainB
     const op = cdp.buildCdpCloseOp({ chainBinding: chainBindingHex(), controller, owner: pOwner, ownerPriv: positionOwnerPriv, debtValue, nonce: ZERO32, rateSnapshot, basket, positionIndex, positionPath, spendRoot, cdpPositionRoot, fee, releaseBlindings: sortedBlindings, releaseOwners, debtNotes });
     const leaves = op.legs.map((leg, i) => pool.leaf(leg.asset, leg.cx, leg.cy, releaseOwners[i]));
     const outputs = op.legs.map((leg, i) => owned({ value: BigInt(leg.value) - (i === 0 ? BigInt(fee) : 0n), blinding: sortedBlindings[i], asset: leg.asset, cx: leg.cx, cy: leg.cy, owner: releaseOwners[i], secret: sortedNks[i] }));
-    return relay.settle({ type: 'cdpclose', op, leaves, outputs, ephRand }, waitOpts);
+    return settleVia({ type: 'cdpclose', op, leaves, outputs, ephRand }, selfSettle, waitOpts);
   }
 
   // CDP liquidate — a KEEPER seizes an undercollateralized position: burn the keeper's cUSD notes (≥ the
@@ -119,22 +115,23 @@ export function makeConfidentialDefiActions({ pool, cdp, farm, relay, id, chainB
   // CDP top-up — add collateral. Appends a new position (separate tree) + spends the added legs ⇒ NO minted note.
   // A top-up REPLACES a live position, so (like close) it is BIP-340 owner-authorized: proving authority over
   // the ADDED collateral is not authority over someone else's position. `positionOwnerPriv` is the matching
-  // private key for `positionOwner` — without it buildCdpTopupOp cannot sign and throws.
-  async function topupCdp({ controller, debtValue, rateSnapshot, oldBasket, addedCollateral, positionIndex, positionPath, spendRoot, cdpPositionRoot, positionOwner, positionOwnerPriv, waitOpts }) {
+  // private key for `positionOwner` — without it buildCdpTopupOp cannot sign and throws. `selfSettle` as openCdp's.
+  async function topupCdp({ controller, debtValue, rateSnapshot, oldBasket, addedCollateral, positionIndex, positionPath, spendRoot, cdpPositionRoot, positionOwner, positionOwnerPriv, selfSettle = null, waitOpts }) {
     // Same model as open/close: the position's FRESH owner (carried forward) is the sole leaf-uniqueness
     // source and both nonces are pinned to 0, so the replacement stays keeper-reconstructable/liquidatable.
     if (!positionOwner || !positionOwnerPriv) throw new Error('topupCdp: positionOwner + positionOwnerPriv (the position\'s fresh key) are required to authorize the top-up');
     const op = cdp.buildCdpTopupOp({ chainBinding: chainBindingHex(), controller, owner: positionOwner, ownerPriv: positionOwnerPriv, debtValue, oldNonce: ZERO32, newNonce: ZERO32, rateSnapshot, oldBasket, addedCollateral, positionIndex, positionPath, spendRoot, cdpPositionRoot });
-    return relay.settle({ type: 'cdptopup', op, leaves: [], outputs: [], ephRand }, waitOpts);
+    return settleVia({ type: 'cdptopup', op, leaves: [], outputs: [], ephRand }, selfSettle, waitOpts);
   }
 
   // cBTC mint — mint the bearer cBTC.zk note against a reflection-recorded self-custody lock. The note is
   // SEED-DERIVED (owner = 0): the recovery scan re-derives `blinding` from priv + the lock's funding anchor
   // (the SAME derivation the Model-B lock-tx must use), so the holder recovers it from the key + chain alone.
-  async function mintCbtc({ outpoint, vBtc, blinding, waitOpts }) {
+  // `selfSettle` as openCdp's: the relay only proves the mint and the caller's account sends it.
+  async function mintCbtc({ outpoint, vBtc, blinding, selfSettle = null, waitOpts }) {
     const op = cdp.buildCbtcMintOp({ chainBinding: chainBindingHex(), outpoint, vBtc, blinding });
     const leaf = pool.leaf(pool.CBTC_ZK_ASSET_ID, op.cx, op.cy, ZERO);
-    return relay.settle({ type: 'cbtcmint', op, leaves: [leaf], outputs: [{ seedDerived: true }], ephRand }, waitOpts);
+    return settleVia({ type: 'cbtcmint', op, leaves: [leaf], outputs: [{ seedDerived: true }], ephRand }, selfSettle, waitOpts);
   }
 
   // ── farms + TSR ── the receipt note is owner-blinded + recovered by the receipt scan ⇒ SEED-DERIVED (no
@@ -164,12 +161,12 @@ export function makeConfidentialDefiActions({ pool, cdp, farm, relay, id, chainB
 
   // OP_FARM_BOND — lock LP-share notes into a receipt committing (lpAsset, Σshares). Legs are spent.
   // Guest emits exactly ONE leaf: the receipt (main.rs OP_FARM_BOND).
-  async function bondFarm({ controller, nonce, lpAsset, legs, spendRoot, receiptOwner, waitOpts }) {
+  async function bondFarm({ controller, nonce, lpAsset, legs, spendRoot, receiptOwner, selfSettle = null, waitOpts }) {
     if (!receiptOwner) throw new Error('bondFarm: receiptOwner (fresh per-position BIP-340 x-only pubkey) is required');
     const op = farm.buildBondOp({ chainBinding: chainBindingHex(), spendRoot, controller, owner: receiptOwner, nonce, lpAsset, legs });
     const shares = legs.reduce((s, l) => s + BigInt(l.value), 0n);
     const receipt = pool.farmReceiptLeaf(controller32(controller), lpAsset, shares, receiptOwner, nonce);
-    return relay.settle({ type: 'farmbond', op, leaves: [receipt], outputs: [{ seedDerived: true }], ephRand }, waitOpts);
+    return settleVia({ type: 'farmbond', op, leaves: [receipt], outputs: [{ seedDerived: true }], ephRand }, selfSettle, waitOpts);
   }
 
   // OP_FARM_HARVEST — claim yield, keep staked. The receipt is NEITHER consumed NOR re-minted, so the guest
