@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // TacVault admin helper: what the owner can change, what is waiting, and the calldata to send from the multisig.
 //
-//   RPC=<endpoint> node tools/tac-vault-admin.mjs status <vault> [<synth>]
+//   RPC=<endpoint> [FROM_BLOCK=<synth deploy block>] node tools/tac-vault-admin.mjs status <vault> [<synth>]
 //   node tools/tac-vault-admin.mjs call <action> [args...]            (prints `data` for the multisig; to = the vault)
 //
 // status: every governed term now, what is announced (with the time it may be executed), the oracle in place and
@@ -107,6 +107,15 @@ function status(vault, synth) {
     const minter = call(synth, 'pendingMinter()(address)');
     const mEta = /^0x0+$/.test(minter) ? 0n : num(call(synth, 'pendingMinterEta()(uint256)'));
     console.log(`\nsynth ${synth}: announced minter ${minter}${mEta ? '   executable ' + state(mEta) : ''}, minters locked ${call(synth, 'mintersLocked()(bool)')}`);
+    // Minters added after deployment, from the synth's events, each checked as it stands now.
+    try {
+      const logs = JSON.parse(cast(['logs', '--from-block', process.env.FROM_BLOCK || 'earliest', '--to-block', 'latest', '--address', synth, 'MinterAdded(address indexed minter)', '--rpc-url', rpc, '--json']));
+      const added = [...new Set(logs.map((l) => '0x' + l.topics[1].slice(26)))];
+      const live = added.filter((m) => cast(['call', synth, 'isMinter(address)(bool)', m, '--rpc-url', rpc]) === 'true');
+      console.log(`  further minters now: ${live.length ? live.join(', ') : 'none'}${added.length > live.length ? ` (${added.length - live.length} added and since removed)` : ''}`);
+    } catch (e) {
+      console.log(`  further minters: could not read the synth's events (${String(e.stderr || e.message).split('\n')[0]}); set FROM_BLOCK to its deploy block`);
+    }
     console.log('  (a further minter can mint without limit: lock-minters on the synth ends that power, lock-params and lock-oracle do not)');
   }
 }

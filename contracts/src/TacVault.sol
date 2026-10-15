@@ -93,9 +93,12 @@ interface IERC2612 {
 ///         transaction.
 ///
 ///         Pause. The owner, or the `pauser` the owner names (a key that can do nothing else, for a fast answer to an
-///         alert), can pause `liquidate`, outside bids, `absorb` and `redeem` for up to MAX_PAUSE at a time, and not
-///         again until PAUSE_COOLDOWN after the pause ends (or is lifted), so a price held away from the market can
-///         be waited out. Only the owner lifts a pause early. Deposits, repays, withdrawals, borrowing, `cancel` and
+///         alert), can pause `liquidate`, outside bids, `absorb` and `redeem`, so a price held away from the market can
+///         be waited out. A pause lasts at most MAX_PAUSE from its start (a running one can be lengthened up to that),
+///         and the next can start only once as long has passed since it ended as it ran, so liquidations always get
+///         a gap at least as long as the pause before it, and a short pause (a pauser's mistake) holds back the next
+///         one for no longer than it ran. Only the owner lifts a pause early. Renouncing ownership removes the
+///         pauser. Deposits, repays, withdrawals, borrowing, `cancel` and
 ///         the vault owner's own bids go on.
 ///
 ///         Governed terms. The owner (transferable) tunes the vault to the market without a redeployment. At once it
@@ -111,9 +114,8 @@ contract TacVault is Ownable, Multicallable {
     uint256 internal constant BPS = 10_000;
     uint256 internal constant WAD = 1e18;
     uint256 public constant MAX_BORROW_FEE_BPS = 500;
-    /// The longest one pause lasts, and the least time between the end of one and the start of the next.
+    /// The longest one pause lasts, from its start.
     uint256 public constant MAX_PAUSE = 12 hours;
-    uint256 public constant PAUSE_COOLDOWN = 12 hours;
     /// The largest share of the venues' depth (in basis points) the vault may be set to lend, and the redemption fee.
     uint256 public constant MAX_DEPTH_BPS = 1_000;
     uint256 public constant MAX_REDEMPTION_FEE_BPS = 250;
@@ -132,6 +134,8 @@ contract TacVault is Ownable, Multicallable {
     uint256 internal constant MAX_OWNER_WINDOW = 1 days;
     uint256 internal constant MIN_AUCTION_DURATION = 30 minutes;
     uint256 internal constant MAX_AUCTION_DURATION = 3 days;
+    // The shortest longest-window a replacement oracle may have (the liquidation and depth window).
+    uint256 internal constant MIN_ORACLE_WINDOW = 1 hours;
 
     bytes32 public constant BORROW = keccak256(
         "Borrow(address owner,uint256 amount,uint256 maxFeeBps,uint256 minCollateral,address to,uint256 nonce,uint256 deadline)"
@@ -218,8 +222,10 @@ contract TacVault is Ownable, Multicallable {
     uint256 public totalDebt;
     uint256 public debtCeiling;
     uint256 public borrowFeeBps;
-    /// Until this time `liquidate`, outside bids, `absorb` and `redeem` are refused.
+    /// Until this time `liquidate`, outside bids, `absorb` and `redeem` are refused; the last pause began at
+    /// `pausedFrom`.
     uint256 public pausedUntil;
+    uint256 public pausedFrom;
     /// An address besides the owner that may start a pause (and nothing else); none until the owner names one.
     address public pauser;
 
@@ -345,17 +351,33 @@ contract TacVault is Ownable, Multicallable {
         emit PauserSet(to);
     }
 
-    /// Pauses `liquidate`, outside bids, `absorb` and `redeem` for `duration` (at most MAX_PAUSE). Not allowed
-    /// until PAUSE_COOLDOWN after the previous pause ended, so a pause cannot be renewed or extended back to back.
+    /// Renouncing ownership also removes the pauser, which nobody could remove afterwards.
+    function renounceOwnership() public payable override onlyOwner {
+        if (pauser != address(0)) {
+            pauser = address(0);
+            emit PauserSet(address(0));
+        }
+        super.renounceOwnership();
+    }
+
+    /// Pauses `liquidate`, outside bids, `absorb` and `redeem` until `duration` from now. While a pause runs this
+    /// lengthens it, to at most MAX_PAUSE after it began. Otherwise a new pause starts, once as long has passed
+    /// since the last one ended as that one ran.
     function pauseAuctions(uint256 duration) external {
         if (msg.sender != owner() && msg.sender != pauser) revert Unauthorized();
         if (duration == 0 || duration > MAX_PAUSE) revert BadConfig();
-        if (block.timestamp < pausedUntil + PAUSE_COOLDOWN) revert PauseCooldown();
-        pausedUntil = block.timestamp + duration;
-        emit AuctionsPausedUntil(pausedUntil);
+        uint256 until = block.timestamp + duration;
+        if (block.timestamp < pausedUntil) {
+            if (until <= pausedUntil || until > pausedFrom + MAX_PAUSE) revert BadConfig();
+        } else {
+            if (block.timestamp < 2 * pausedUntil - pausedFrom) revert PauseCooldown();
+            pausedFrom = block.timestamp;
+        }
+        pausedUntil = until;
+        emit AuctionsPausedUntil(until);
     }
 
-    /// Ends a running pause now; the cooldown counts from this moment.
+    /// Ends a running pause now; the wait before the next counts from this moment and is as long as it ran.
     function resumeAuctions() external onlyOwner {
         if (block.timestamp >= pausedUntil) revert BadConfig();
         pausedUntil = block.timestamp;
@@ -369,11 +391,15 @@ contract TacVault is Ownable, Multicallable {
 
     // ─────────────── governed terms ───────────────
     //
-    // The owner can tune the vault to the market without redeploying it, under three rules: a change that makes the
-    // vault safer for lenders takes effect at once (`lowerDepthBps`, a lower `setDebtCeiling`, the pause); every
-    // other change is announced and takes effect PARAM_DELAY (the oracle: ORACLE_DELAY) later, so borrowers can
-    // repay and withdraw first; and every change stays inside fixed rails. `lockParams` and `lockOracle` end the
-    // owner's power over those terms for good. A change applies to an auction already running at once.
+    // The owner can tune the vault to the market without redeploying it. The terms that decide when a vault can be
+    // liquidated or how much it may borrow (the ratios, the bonus, the owner window, the auction's length, the
+    // minimum debt, a higher depth share) and the oracle are announced and take effect PARAM_DELAY (the oracle:
+    // ORACLE_DELAY) later, inside fixed rails, so borrowers can repay and withdraw first. The rest takes effect at
+    // once: lowering the depth share, the debt ceiling (either way), the borrow fee (which a borrower caps per
+    // borrow), the redemption fee (within its cap), where fees and absorbed TAC go, the pauser and the pause.
+    // `lockParams` and `lockOracle` end the owner's power over the announced terms for good; `lowerDepthBps` still
+    // works after `lockParams`, and then cannot be undone (`setDebtCeiling` is the stop that can). A change applies
+    // to an auction already running at once.
 
     /// Announces a new value for a governed term; `executeParam` applies it after PARAM_DELAY. Announcing again
     /// replaces the earlier announcement and restarts the wait.
@@ -412,7 +438,8 @@ contract TacVault is Ownable, Multicallable {
         emit ParamCancelled(id);
     }
 
-    /// Lowers the share of the venues' depth the vault may lend, at once.
+    /// Lowers the share of the venues' depth the vault may lend, at once. Raising it again is announced
+    /// (`queueParam`), so after `lockParams` a lower share is for good.
     function lowerDepthBps(uint256 bps) external onlyOwner {
         if (bps >= _depthBps) revert BadConfig();
         _depthBps = bps;
@@ -456,13 +483,14 @@ contract TacVault is Ownable, Multicallable {
             if (v < MIN_OWNER_WINDOW || v > MAX_OWNER_WINDOW || v >= ad) revert BadConfig();
         } else if (id == Param.AuctionDuration) {
             if (v < MIN_AUCTION_DURATION || v > MAX_AUCTION_DURATION || ow >= v) revert BadConfig();
-        } else if (v < MIN_DEBT_BASE / 10 || v > MIN_DEBT_BASE * 100) {
+        } else if (v == 0 || v < MIN_DEBT_BASE / 10 || v > MIN_DEBT_BASE * 100) {
             revert BadConfig();
         }
     }
 
     /// Announces an oracle to take over from the current one ORACLE_DELAY later. It must have its windows set and,
-    /// when executed, price TAC right now (its intervals recorded) within a factor of three of something the old one says.
+    /// when executed, price TAC on every view (its intervals recorded) within a factor of three of the old one's
+    /// medians.
     function queueOracle(address oracle) external onlyOwner {
         if (oracleLocked) revert Locked();
         ITacVaultOracle o = ITacVaultOracle(oracle);
@@ -495,30 +523,26 @@ contract TacVault is Ownable, Multicallable {
         uint256 short = o.SHORT_WINDOW();
         uint256 window = o.WINDOW();
         uint256 max = o.MAX_WINDOW();
-        if (short == 0 || window < short || max < window) revert BadConfig();
+        if (short == 0 || window < short || max < window || max < MIN_ORACLE_WINDOW) revert BadConfig();
         uint256[3] memory ws = [short, window, max];
         for (uint256 i; i < 3; ++i) {
             (uint256 lo, uint256 hi) = o.prices(ws[i]);
             if (lo == 0 || hi == 0 || o.recovery(ws[i]) == 0) revert NoPrice();
+            if (lo > hi) revert BadConfig();
             if (i == 1) high = hi;
         }
         if (o.spot() == 0 || o.latest() == 0 || o.depthMin(max) == 0) revert NoPrice();
     }
 
-    /// Whether `price` is within a factor of three of something the current oracle still says: its spot, or its
-    /// low or high median over its WINDOW. What the current oracle does not give (it reverts or says zero) is no
-    /// anchor, so an oracle that has stopped working can be replaced, and so can one with a venue frozen far from
-    /// the market (its high median still follows the market). This catches a wrong address or scale, not a
-    /// deliberate oracle: the announcement's delay and `lockOracle` are what protect against that.
+    /// Whether `price` is within a factor of three of the current oracle's low or high median over its WINDOW
+    /// (never its spot, which one trade in the same block can move). A median the current oracle does not give
+    /// (it reverts or says zero) is no anchor, so an oracle that has stopped working can be replaced, and so can one
+    /// with a venue frozen far from the market (its high median still follows the market). This catches a wrong
+    /// address or scale, not a deliberate oracle: the announcement's delay and `lockOracle` are what protect
+    /// against that.
     function _continuous(uint256 price) internal view returns (bool) {
         ITacVaultOracle old = _oracle;
         bool anchored;
-        try old.spot() returns (uint256 s) {
-            if (s != 0) {
-                anchored = true;
-                if (_within3(price, s)) return true;
-            }
-        } catch {}
         try old.WINDOW() returns (uint256 w) {
             try old.prices(w) returns (uint256 lo, uint256 hi) {
                 if (lo != 0) {

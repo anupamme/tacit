@@ -3,6 +3,7 @@
 // owner announces a new oracle (and that its venues need recording before it takes over), and once it is in place,
 // that the vault now prices from venues this keeper does not record, until it is restarted with them. One-shot runs
 // (ONCE=1); the venue oracles are the vault tests' MockOracle, which the keeper cannot record (it says so and goes on).
+// Then tools/tac-vault-admin.mjs's status of the synth's further minters, added and removed.
 //
 //   VAULT_OUT=<forge out dir> node tests/tac-vault-keeper.mjs
 //
@@ -69,6 +70,20 @@ const stray = alerts(out).find((l) => l.includes('not recorded here'));
 ok(stray && lc(stray).includes(lc(B)), `a keeper that does not record the vault's new venue says so (${stray})`);
 out = keeper([B]);
 ok(!alerts(out).some((l) => /not recorded here|is announced/.test(l)), 'restarted with the new venue, it has nothing to say about the oracle');
+
+// The owner adds a further minter to the synth (any contract will do here) and later removes it: the admin tool
+// lists it while it is in place, and counts it as removed after.
+const SYNTH = cast('call', VAULT, 'SYNTH()(address)', '--rpc-url', ANVIL);
+const admin = () => execFileSync('node', [join(REPO, 'tools/tac-vault-admin.mjs'), 'status', VAULT, SYNTH], { env: { ...process.env, RPC: ANVIL, FROM_BLOCK: '0' }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+ok(/further minters now: none\b/.test(admin()), 'with no further minter the admin tool says none');
+send(OWNER.k, SYNTH, 'queueMinter(address)', A);
+await rpc('evm_increaseTime', [3 * 86400 + 60]); await rpc('evm_mine');
+send(OWNER.k, SYNTH, 'executeMinter()');
+const withOne = admin();
+ok(lc(withOne).includes(`further minters now: ${lc(A)}`), `a further minter in place is listed (${withOne.split('\n').find((l) => /further minters/.test(l))})`);
+send(OWNER.k, SYNTH, 'removeMinter(address)', A);
+const removed = admin();
+ok(/further minters now: none \(1 added and since removed\)/.test(removed), `and once removed it is counted as such (${removed.split('\n').find((l) => /further minters/.test(l))})`);
 
 console.log(fails ? `${fails} failed, ${n} passed` : `${n} checks passed`);
 process.exit(fails ? 1 : 0);

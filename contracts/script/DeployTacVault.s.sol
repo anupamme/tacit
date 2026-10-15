@@ -102,7 +102,7 @@ contract DeployTacVault is Script {
         require(block.chainid == 1, "mainnet only");
         Out memory o;
         vm.startBroadcast();
-        // An interval of 50 blocks (10 minutes); windows of 2 hours, 3 hours (the borrow view's slowest) and 6 hours
+        // An interval of 50 blocks (10 minutes); windows of 2 hours, 6 hours (the borrow view's slowest) and 8 hours
         // (the liquidation window, the longest) unless the environment says otherwise; a window needs two thirds of
         // its intervals.
         uint256 shortWindow = vm.envOr("ORACLE_SHORT_WINDOW", uint256(7_200));

@@ -502,8 +502,8 @@ contract TacVaultTest is Test {
         vault.bid(alice, 100e18, 0);
     }
 
-    /// A pause is for the owner alone, lasts at most MAX_PAUSE, and cannot be renewed or extended until
-    /// PAUSE_COOLDOWN after it ends; lifting it early starts the cooldown at once.
+    /// A pause is for the owner (or its pauser), lasts at most MAX_PAUSE from its start, and the next can start only
+    /// once as long has passed since it ended as it ran; lifting it early starts that wait at once.
     function test_thePauseIsBoundedAndHasACooldown() public {
         vm.prank(alice);
         vm.expectRevert(Ownable.Unauthorized.selector);
@@ -518,8 +518,8 @@ contract TacVaultTest is Test {
         vm.expectEmit(false, false, false, true);
         emit TacVault.AuctionsPausedUntil(block.timestamp + 12 hours);
         vault.pauseAuctions(12 hours);
-        // Not while it runs, not at once when it ends, only after the cooldown.
-        vm.expectRevert(TacVault.PauseCooldown.selector);
+        // Not shortened or renewed while it runs, not at once when it ends, only twelve hours after.
+        vm.expectRevert(TacVault.BadConfig.selector);
         vault.pauseAuctions(1 hours);
         vm.stopPrank();
         _wait(12 hours);
@@ -534,7 +534,8 @@ contract TacVaultTest is Test {
         vm.prank(OWNER);
         vault.pauseAuctions(1 hours);
 
-        // Lifting early: the pause ends now and the cooldown counts from now.
+        // Lifting early: the pause ends now, and the next waits as long as this one ran (20 minutes).
+        _wait(20 minutes);
         vm.startPrank(OWNER);
         vault.resumeAuctions();
         assertFalse(vault.paused());
@@ -543,13 +544,20 @@ contract TacVaultTest is Test {
         vm.expectRevert(TacVault.PauseCooldown.selector);
         vault.pauseAuctions(1 hours);
         vm.stopPrank();
+        _wait(20 minutes - 1);
+        vm.prank(OWNER);
+        vm.expectRevert(TacVault.PauseCooldown.selector);
+        vault.pauseAuctions(1 hours);
+        _wait(1);
+        vm.prank(OWNER);
+        vault.pauseAuctions(1 hours);
         vm.prank(alice);
         vm.expectRevert(Ownable.Unauthorized.selector);
         vault.resumeAuctions();
     }
 
     /// A pauser the owner names can start a pause and nothing else: it cannot lift one, change a setting or name a
-    /// pauser, its pauses keep the same bound and cooldown, and the owner can replace or remove it.
+    /// pauser, its pauses keep the same bound and wait, and the owner can replace or remove it.
     function test_aPauserCanStartAPauseAndNothingElse() public {
         address pauser = address(0xBEEF);
         vm.prank(pauser);
@@ -581,7 +589,8 @@ contract TacVaultTest is Test {
         vault.setPauser(pauser);
         vm.stopPrank();
 
-        // The owner lifts it; the cooldown holds for the pauser too.
+        // The owner lifts it after an hour; the wait (an hour) holds for the pauser too.
+        _wait(1 hours);
         vm.prank(OWNER);
         vault.resumeAuctions();
         vm.prank(pauser);
@@ -592,6 +601,74 @@ contract TacVaultTest is Test {
         vm.prank(OWNER);
         vault.setPauser(address(0));
         _wait(12 hours);
+        vm.prank(pauser);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        vault.pauseAuctions(1 hours);
+    }
+
+    /// A pauser's mistake costs the owner no more than it ran: a one-second pause holds back the owner's for one
+    /// second, not twelve hours.
+    function test_aShortPauseHoldsBackTheNextOnlyAsLongAsItRan() public {
+        address pauser = address(0xBEEF);
+        vm.prank(OWNER);
+        vault.setPauser(pauser);
+        vm.prank(pauser);
+        vault.pauseAuctions(1);
+        _wait(1);
+        assertFalse(vault.paused());
+        vm.prank(OWNER);
+        vm.expectRevert(TacVault.PauseCooldown.selector);
+        vault.pauseAuctions(6 hours);
+        _wait(1);
+        vm.prank(OWNER);
+        vault.pauseAuctions(6 hours);
+        assertTrue(vault.paused());
+    }
+
+    /// A running pause can be lengthened, by the owner or the pauser, to at most MAX_PAUSE after it began, never
+    /// shortened that way; the wait after it is as long as it ran in all.
+    function test_aRunningPauseCanBeLengthenedToTwelveHoursFromItsStart() public {
+        address pauser = address(0xBEEF);
+        vm.prank(OWNER);
+        vault.setPauser(pauser);
+        uint256 start = vm.getBlockTimestamp();
+        vm.prank(pauser);
+        vault.pauseAuctions(1 hours);
+        _wait(30 minutes);
+        vm.startPrank(OWNER);
+        vm.expectRevert(TacVault.BadConfig.selector);
+        vault.pauseAuctions(20 minutes); // not shorter than what runs
+        vm.expectRevert(TacVault.BadConfig.selector);
+        vault.pauseAuctions(11 hours + 30 minutes + 1); // past twelve hours from the start
+        vault.pauseAuctions(11 hours + 30 minutes);
+        vm.stopPrank();
+        assertEq(vault.pausedUntil(), start + 12 hours);
+        assertEq(vault.pausedFrom(), start);
+        _wait(11 hours + 30 minutes);
+        assertFalse(vault.paused());
+        vm.prank(OWNER);
+        vm.expectRevert(TacVault.PauseCooldown.selector);
+        vault.pauseAuctions(1 hours);
+        _wait(12 hours - 1);
+        vm.prank(pauser);
+        vm.expectRevert(TacVault.PauseCooldown.selector);
+        vault.pauseAuctions(1 hours);
+        _wait(1);
+        vm.prank(pauser);
+        vault.pauseAuctions(1 hours);
+    }
+
+    /// Nobody could remove a pauser once the owner renounced, so renouncing removes it.
+    function test_renouncingOwnershipRemovesThePauser() public {
+        address pauser = address(0xBEEF);
+        vm.prank(OWNER);
+        vault.setPauser(pauser);
+        vm.expectEmit(false, false, false, true);
+        emit TacVault.PauserSet(address(0));
+        vm.prank(OWNER);
+        vault.renounceOwnership();
+        assertEq(vault.owner(), address(0));
+        assertEq(vault.pauser(), address(0));
         vm.prank(pauser);
         vm.expectRevert(Ownable.Unauthorized.selector);
         vault.pauseAuctions(1 hours);

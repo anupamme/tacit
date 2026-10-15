@@ -21,8 +21,9 @@
 // but reverts is reported. Anyone can run one.
 //
 // Lines starting ALERT report what an operator may want to act on: an auction opened on a vault (its owner can repay
-// or add TAC until the owner window ends), a venue's price more than 40% away from its own six-hour median, and
-// intervals that could not be recorded. With ALERT_WEBHOOK set, each is also posted there as {"text": "..."}.
+// or add TAC until the owner window ends), a venue's price more than 40% under its longest window's upper median or
+// 60% over its lower one, an oracle the vault's owner has announced or put in place whose venues are not recorded
+// here, and intervals that could not be recorded. With ALERT_WEBHOOK set, each is also posted there as {"text": "..."}.
 //
 // Usage:
 //   KEEPER_ACCOUNT=<cast keystore name> [KEEPER_PASSWORD_FILE=..] RPC=<archive endpoint>
@@ -268,8 +269,8 @@ function submit(due, baseFee) {
   return missed;
 }
 
-// A venue whose price is more than 40% from its own six-hour median is worth a look: the vaults price from medians,
-// so a move this size either holds (and moves the views) or is traded back.
+// A venue whose price is more than 40% under its longest window's upper median, or 60% over its lower one, is worth
+// a look: the vaults price from medians, so a move this size either holds (and moves the views) or is traded back.
 function checkVenues() {
   for (const oracle of ORACLES) {
     const key = `venue:${oracle}`;
@@ -301,6 +302,8 @@ function checkVaultOracles() {
       if (ORACLES.length && stray.length) alertOnce(key, `${vault}: its oracle ${now} prices from ${stray.join(', ')}, not recorded here; restart with ORACLE set to them`);
       else clearAlert(key);
       const next = call(vault, 'pendingOracle()(address)');
+      // An announcement that was cancelled (or carried out) is forgotten, so announcing it again alerts again.
+      for (const k of [...alerted]) if (k.startsWith(`pending-oracle:${vault}:`) && k !== `pending-oracle:${vault}:${next}`) clearAlert(k);
       if (!/^0x0+$/.test(next)) {
         const eta = num(call(vault, 'pendingOracleEta()(uint256)'));
         const venues = venuesOf(next).filter((v) => !known.has(v.toLowerCase()));
