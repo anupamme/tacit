@@ -107,6 +107,17 @@ async function openPage(viewport, { wallet = false, hash = '#btc=on', utxos = []
 }
 const ladderReady = (p) => until(p, () => document.querySelectorAll('#ladders .ob-row').length >= 4, null, 120000);
 
+// The contrast ratio of an element's text against the backgrounds layered behind it (WCAG): small text must reach 4.5.
+const contrast = (page, sel) => page.$eval(sel, (el) => {
+  const px = (s) => { let m = s.match(/rgba?\(([^)]+)\)/); if (m) { const v = m[1].split(/[ ,\/]+/).map(Number); return [v[0], v[1], v[2], v[3] ?? 1]; } m = s.match(/color\(srgb ([^)]+)\)/); if (m) { const v = m[1].split(/[ \/]+/).map(Number); return [v[0] * 255, v[1] * 255, v[2] * 255, v[3] ?? 1]; } return [0, 0, 0, 0]; };
+  const over = (below, above) => { const a = above[3]; return [0, 1, 2].map((i) => above[i] * a + below[i] * (1 - a)).concat(1); };
+  const lum = (c) => { const [r, g, b] = c.slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+  const chain = []; for (let e = el; e; e = e.parentElement) chain.unshift(px(getComputedStyle(e).backgroundColor));
+  let bg = [255, 255, 255, 1]; for (const l of chain) bg = over(bg, l);
+  const fg = over(bg, px(getComputedStyle(el).color)), a = lum(fg), b = lum(bg);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+});
+
 const lc = (x) => String(x).toLowerCase();
 let r;
 try {
@@ -176,12 +187,13 @@ try {
   const mineRows = await p.$$eval('#ladders .ob-row.mine', (x) => x.map((e) => ({ tag: e.querySelector('.ob-tag')?.textContent, btn: e.tagName === 'BUTTON' })));
   ok(mineRows.length >= 1 && mineRows.every((m) => /yours/i.test(m.tag || '') && !m.btn), `the book marks the visitor's own orders as theirs and gives them no buy button (${mineRows.length} rows)`);
   ok(/You have 3 open orders here/.test(await text(p, '#depth-note')), 'and says so under the book (two listings and a bid)');
+  ok((await p.$$eval('#ladders .ob-row.mine', (x) => x.every((e) => getComputedStyle(e).opacity === '1'))) && (await contrast(p, '#ladders .ob-row.mine .ob-tag')) >= 4.5 && (await contrast(p, '#ladders .ob-row.mine .p')) >= 4.4, 'the visitor\'s own rows are marked by a rule and a tag, not dimmed: their text and tag stay readable');
   await p.click('#depth-note [data-goto="mine"]');
   const rows = await p.$$eval('#ladders table.yours:first-of-type tbody tr', (x) => x.map((e) => e.textContent.replace(/\s+/g, ' ').trim()));
   ok(rows.filter((x) => /^Selling/.test(x)).length === 2 && rows.filter((x) => /^Bid/.test(x)).length === 1, `Yours lists the two listings and the bid (${rows.length} rows)`);
   ok(rows.some((x) => /taken whole/.test(x)) && rows.some((x) => /settles while you are online/.test(x)) && rows.every((x) => /\d+ (days|h|min)|Manage/.test(x)), 'each with what it is, its price and when it ends');
   const mineTxt = (await text(p, '#ladders')).replace(/\s+/g, ' ');
-  ok(/Recent here from this browser/.test(mineTxt) && /Bought 1,500 TAC for 262,544 sats/.test(mineTxt) && /Listed 10,000 TAC/.test(mineTxt) && !/Sold 99 TAC/.test(mineTxt), 'what this browser saw the key do is listed, and another account\'s is not');
+  ok(/Recent what this browser saw, and the Precision pool's swaps to your account over the last day/.test(mineTxt) && /Bought 1,500 TAC for 262,544 sats/.test(mineTxt) && /Listed 10,000 TAC/.test(mineTxt) && !/Sold 99 TAC/.test(mineTxt), 'what this browser saw the key do is listed, and another account\'s is not');
   ok(await p.$eval('#ladders table.yours a[href^="https://mempool.space/tx/"]', (a) => a.href.endsWith('ab'.repeat(32))), 'with a link to the transaction');
   ok(/Open it to see what it holds on Bitcoin\./.test(await text(p, '.mine-bal')), 'the balance waits to be opened (nothing was asked of the wallet)');
 

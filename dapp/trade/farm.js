@@ -38,7 +38,7 @@ export function mountFarm(host, ctx) {
   const errMsg = (e) => esc(e?.userStopped ? e.message : String(e?.message || e).slice(0, 220));
 
   host.innerHTML = `
-    <p class="eyebrow" id="fm-h"><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg></span>Earn · Precision pool farm</p>
+    <h2 class="eyebrow" id="fm-h"><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg></span>Earn · Precision pool farm</h2>
     <div class="fm-stats" id="fm-stats"><p class="note">Reading the farm…</p></div>
     <div class="fm-pos" id="fm-pos" hidden></div>
     <div class="status" id="fm-pos-status" role="status"></div>

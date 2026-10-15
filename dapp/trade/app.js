@@ -21,7 +21,7 @@ import { mountDepth } from '/trade/depth.js?cb=21a5dc95';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=a6b2910e';
 import { hedgedRpc } from '/trade/rpc.js?cb=eb8f83d1';
-import { mountFarm } from '/trade/farm.js?cb=dbc45277';
+import { mountFarm } from '/trade/farm.js?cb=e7c9d199';
 import { grp, sig, group, satsFmt, warm as warmFormatters } from '/trade/fmt.js?cb=43646c2e';
 
 const API = 'https://api.tacit.finance';
@@ -58,12 +58,16 @@ function privatePoolId(fee) {
 const PRIV_TIERS = [30, 5, 100, 1];
 
 // ── the state of the page ──
-const D = { ethUsd: null, btcUsd: null, perEth: null, priv: null, precision: null, ethSupply: null, btc: null, book: null, bidsRead: false, zb: null, zbFailed: false, tape: { fine: [], coarse: [] }, readAt: 0 };
+const D = { chainFailed: false, tapeFailed: false, btcFailed: false, bookFailed: false, ethUsd: null, btcUsd: null, perEth: null, priv: null, precision: null, ethSupply: null, btc: null, book: null, bidsRead: false, zb: null, zbFailed: false, tape: { fine: [], coarse: [] }, readAt: 0 };
 const ME = { pub: null, how: '' };                                                               // the visitor's Tacit key on Bitcoin (its public key), and how it is known: 'open' (signed in this visit) or 'record'
 const S = { side: 'buy', amt: '', book: null, pin: null, lane: 'eth', unit: 'usd', range: null, log: false, slip: 50, bal: null, busy: false, tf: { eth: TAPE_COARSE, btc: 86400, cmp: 86400 }, kind: 'line', quote: null, seq: 0, zq: null };
 const TF = { eth: [['5m', 300], ['15m', 900], ['1h', 3600], ['4h', 14400], ['1d', 86400]], btc: [['1h', 3600], ['4h', 14400], ['1d', 86400], ['1w', 604800]], cmp: [['4h', 14400], ['1d', 86400]] };
 
+// A read that failed is remembered: a page that could not read says so, and offers another go, instead of waiting for ever or saying there is no market.
 async function loadChain() {
+  try { await readChain(); D.chainFailed = D.perEth == null; } catch (e) { D.chainFailed = true; throw e; }
+}
+async function readChain() {
   const pool = getConfidentialDeployment('mainnet')?.pool;
   const calls = [
     { to: PRECISION_POOL, data: '0x2af1f249' },
@@ -94,7 +98,10 @@ function keptTape() { try { const v = JSON.parse(localStorage.getItem(KEPT) || '
 let keptSig = '';
 function keepTape(coarse) { const sig = `${coarse.length}:${coarse.at(-1)?.t}:${coarse.at(-1)?.close}`; if (sig === keptSig) return; keptSig = sig; try { localStorage.setItem(KEPT, JSON.stringify({ v: 1, pool: PRECISION_POOL, coarse: coarse.slice(-1500) })); } catch { /* storage is a convenience */ } }
 // The 4-hour tape changes slowly (one bar in four hours, the open one as swaps land): a refresh reads it only when asked (`coarse`), the 5-minute one every time.
-async function loadTapes({ coarse: wantCoarse = true } = {}) {
+async function loadTapes(o = {}) {
+  try { await readTapes(o); D.tapeFailed = false; } catch (e) { D.tapeFailed = true; throw e; }
+}
+async function readTapes({ coarse: wantCoarse = true } = {}) {
   const sel = '0x29a65241';
   const words = (r) => { const h = strip(r), n = Number(wordAt(h, 1)); return Array.from({ length: n }, (_, i) => '0x' + h.slice(128 + i * 64, 192 + i * 64)); };
   const [c, f] = await Promise.all([wantCoarse || !D.tape.coarse.length ? ethCall(PRECISION_POOL, sel + word(TAPE_COARSE) + word(256)) : null, ethCall(PRECISION_POOL, sel + word(TAPE_FINE) + word(256))]);
@@ -111,6 +118,7 @@ async function loadTapes({ coarse: wantCoarse = true } = {}) {
 async function loadBitcoin({ lists = true } = {}) {
   const [asset, sales, bidRows] = await Promise.all([api(`/assets/${TAC_BTC_ID}?network=mainnet`), lists ? api(`/assets/${TAC_BTC_ID}/preauth-sales?network=mainnet`) : null, lists ? api(`/assets/${TAC_BTC_ID}/bid-intents?network=mainnet`) : null]);
   if (asset) D.btc = { trades: asset.trades || [], mark: Number(asset.mark_price?.unit) || null, last: asset.last_trade || null, change24: asset.price_24h_change_pct, vol24: Number(asset.volume_24h_sats) || 0, holders: asset.holder_count ?? null, firstTrade: asset.price_first_trade_ts || null, tradesCap: asset.trades_cap };
+  D.btcFailed = !asset && !D.btc; D.bookFailed = lists && !Array.isArray(sales?.sales) && !D.book;
   if (asset && D.book) { D.btc.ask = D.book.bestAsk; D.btc.bid = D.book.bestBid; }               // a read that left the lists alone keeps what they said
   if (Array.isArray(sales?.sales)) {
     D.bidsRead = Array.isArray(bidRows?.intents);                                              // a bid list that could not be read is not the same as no bids
@@ -188,7 +196,7 @@ function renderHead() {
   if (D.precision && D.ethUsd) st('Liquidity', compact(2 * Number(D.precision.eth) / 1e18 * D.ethUsd), 'Both sides of the Precision pool, in dollars');
   if (px != null) st('FDV', compact(21e6 * px), 'Fully diluted value: all 21,000,000 TAC at this price');
   if (stats.length) bits.push(`<span class="stats">${stats.join(' ')}</span>`);
-  $('#px-sub').innerHTML = bits.length ? bits.join('') : '<span class="mute">Reading the pools…</span>';
+  $('#px-sub').innerHTML = bits.length ? bits.join('') : D.chainFailed ? '<span class="mute">Could not read the pools just now. <button class="linkbtn" type="button" data-retry>Try again</button></span>' : '<span class="mute">Reading the pools…</span>';
   // Bitcoin's last trade says where it last changed hands; its cheapest ask is what a buyer there pays now. Each is set against Ethereum's price.
   const ask = D.btc?.ask && D.btcUsd ? (D.btc.ask * D.btcUsd) / 1e8 : null, gl = laneGap(btcUsdPerTac()), ga = laneGap(ask);
   const side = (v) => (Math.abs(v) < 0.01 ? 0 : Math.sign(v));
@@ -299,6 +307,11 @@ function paintRead(h = null) {
   }
   if (el.__h !== out) { el.__h = out; el.innerHTML = out; }
 }
+// What an empty chart says: that its history could not be read, if that is why it is empty, else that nothing has traded.
+function chartEmpty(lane) {
+  const ethFailed = D.tapeFailed && !D.tape.coarse.length, btcFailed = D.btcFailed && !D.btc;
+  return lane === 'eth' && ethFailed ? 'Could not read the price history just now.' : lane === 'btc' && btcFailed ? 'Could not read the Bitcoin trades just now.' : lane === 'cmp' && (ethFailed || btcFailed) ? 'Could not read the price history just now.' : undefined;
+}
 function renderChart() {
   const lane = S.lane, tf = tfFor(lane);
   const unit = lane === 'cmp' ? 'usd' : effUnit(lane);
@@ -330,7 +343,7 @@ function renderChart() {
   }
   const names = { eth: 'Precision pool on Ethereum', btc: 'Bitcoin order book', cmp: 'Ethereum and Bitcoin, in dollars' };
   const sizeName = TF[lane].find(([, p]) => p === tf)?.[0] || `${Math.round(tf / 3600)}h`;
-  chart.update({ series, tags, period: tf, log: S.log, label: `TAC price, ${names[lane]}, ${sizeName} ${lane === 'cmp' || S.kind === 'line' ? 'line' : 'candles'}` });
+  chart.update({ series, tags, period: tf, log: S.log, label: `TAC price, ${names[lane]}, ${sizeName} ${lane === 'cmp' || S.kind === 'line' ? 'line' : 'candles'}` , empty: chartEmpty(lane) });
   S.view = lane === 'cmp' ? null : { bars: series[0].bars, unit, lane, range };
   paintRead();
   const sw = (c) => `<i class="sw" style="background:${c}"></i>`;
@@ -618,6 +631,13 @@ const ACT_KEY = 'tacit-trade-activity-v1';
 const readActs = () => { try { const v = JSON.parse(localStorage.getItem(ACT_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
 function noteAct(e) { try { localStorage.setItem(ACT_KEY, JSON.stringify([{ t: now(), ...e }, ...readActs()].slice(0, 40))); } catch { /* storage is a convenience */ } }
 const myActs = () => readActs().filter((e) => e.who && (e.who === lc(W.account) || e.who === ME.pub)).slice(0, 8);
+// What the visitor did lately: what this browser saw them do, and the Precision pool's own swaps to their account over the last day (a swap this
+// browser saw is listed once, with its own figures: a split's Precision share is only part of it).
+function myRecent() {
+  const local = myActs(), seen = new Set(local.map((e) => lc(e.tx || '')).filter(Boolean));
+  const chain = W.account ? (D.trades || []).filter((x) => x.to === lc(W.account) && !seen.has(lc(x.tx))).map((x) => ({ t: x.t, lane: 'eth', kind: x.side === 'buy' ? 'bought' : 'sold', tac: x.tac, paid: x.eth, unit: 'eth', tx: x.tx })) : [];
+  return [...local, ...chain].sort((a, b) => b.t - a.t).slice(0, 8);
+}
 // What the Bitcoin market reports when a purchase, a sale or a listing is made: the amount, the transaction, and the orders it filled, from which
 // the price is read in the book as the page has it (left out when the book no longer has them).
 function noteBitcoinTrade({ kind, amount, result, ids }) {
@@ -652,16 +672,17 @@ function mineHtml(orders) {
     : ME.pub ? `Open it to see what it holds on Bitcoin.${how}` : `Open your Tacit wallet to see your Bitcoin orders and what you hold there.${how}`;
   const acts = me ? btn('fund', 'Add sats') + btn('lock', 'Lock') : key ? '' : openBtn;
   const lane = (l) => `<svg class="tk xs inl" aria-hidden="true"><use href="#tk-${l === 'btc' ? 'btc' : 'eth'}"/></svg>`;
-  const ord = orders.length ? `<table class="table trades yours"><thead><tr><th>Order</th><th class="r">TAC</th><th class="r">Price</th><th class="r opt">Ends</th><th></th></tr></thead><tbody>${orders.map((o) =>
+  const ord = orders.length ? `<table class="table trades yours"><thead><tr><th>Order</th><th class="r">TAC</th><th class="r">Price</th><th class="r opt">Ends</th><th><span class="sr">Actions</span></th></tr></thead><tbody>${orders.map((o) =>
     `<tr><td>${lane(o.lane)}${o.side === 'sell' ? 'Selling' : 'Bid'}<small>${esc(o.note)}</small></td><td class="r num">${esc(tacFmt(o.tac))}</td><td class="r num">${esc(o.px)}${o.alt ? `<small>${esc(o.alt)}</small>` : ''}</td><td class="r opt">${o.expiry ? esc(left(o.expiry)) : ''}</td><td class="go">${o.lane === 'btc' ? (btcOn() ? '<button type="button" class="linkbtn" data-mine="manage">Manage</button>' : '') : `<a href="${ZSWAP_HOST}" target="_blank" rel="noopener noreferrer">zSwap ↗</a>`}</td></tr>`).join('')}</tbody></table>`
     : ME.pub ? `<p class="note">No open orders on the Bitcoin book. ${btcOn() ? `<button type="button" class="linkbtn" data-mine="list">List a sale</button>` : ''}</p>` : '';
-  const rec = myActs();
-  const recent = rec.length ? `<p class="mine-h">Recent here <span>from this browser</span></p><table class="table trades yours recent"><tbody>${rec.map((e) => {
+  const rec = myRecent();
+  const recent = rec.length ? `<p class="mine-h">Recent <span>what this browser saw, and the Precision pool's swaps to your account over the last day</span></p><table class="table trades yours recent"><tbody>${rec.map((e) => {
     const pay = e.paid != null ? ` for ${e.unit === 'eth' ? `${grp(e.paid, e.paid < 1 ? 4 : 2)} ETH` : `${satsFmt(e.paid)} sats`}` : '', what = e.kind === 'listed' ? 'Listed' : e.kind === 'sold' ? 'Sold' : 'Bought';
     const href = e.tx ? (e.lane === 'btc' ? `https://mempool.space/tx/${e.tx}` : `https://etherscan.io/tx/${e.tx}`) : '';
     return `<tr><td>${lane(e.lane)}${esc(ago(e.t))}</td><td>${esc(what)} <b>${esc(tacFmt(e.tac))}</b> TAC${esc(pay)}</td><td class="go">${href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer" aria-label="Open the transaction">↗</a>` : ''}</td></tr>`;
   }).join('')}</tbody></table>` : '';
-  return `<div class="mine-head"><div class="mine-who"><b>Your Tacit wallet</b> ${who ? `<span>${esc(who)}</span>` : ''}</div><div class="mine-bal">${bal}</div><div class="mine-acts">${acts}</div></div>${ord}${recent}`;
+  const eth = W.account && S.bal && S.bal.eth != null ? `<div class="mine-eth">${esc(fmtUnits(S.bal.eth, 18, 4))} ETH · ${esc(fmtUnits(S.bal.tac ?? 0n, 18, 2))} TAC on Ethereum</div>` : '';
+  return `<div class="mine-head"><div class="mine-who"><b>Your Tacit wallet</b> ${who ? `<span>${esc(who)}</span>` : ''}</div><div class="mine-bal">${bal}</div><div class="mine-acts">${acts}</div>${eth}</div>${ord}${recent}`;
 }
 async function mineAct(act, btn) {
   const b = btn ? { el: btn, text: btn.textContent } : null;
@@ -703,14 +724,14 @@ async function loadTrades() {
   const logs = await rpc('eth_getLogs', [{ address: PRECISION_POOL, topics: [SWAP_TOPIC], fromBlock: `0x${(n - 6900).toString(16)}`, toBlock: 'latest' }]);
   D.trades = logs.map((l) => {
     const buy = BigInt(l.topics[1]) === 0n, a = wordAt(l.data, 0), b = wordAt(l.data, 1);                  // ETH in is a purchase of TAC
-    return { lane: 'eth', t: ts - (n - Number(BigInt(l.blockNumber))) * 12, side: buy ? 'buy' : 'sell', tac: Number(buy ? b : a) / 1e18, eth: Number(buy ? a : b) / 1e18, tx: l.transactionHash };
+    return { lane: 'eth', t: ts - (n - Number(BigInt(l.blockNumber))) * 12, side: buy ? 'buy' : 'sell', tac: Number(buy ? b : a) / 1e18, eth: Number(buy ? a : b) / 1e18, tx: l.transactionHash, to: `0x${String(l.topics[2] || '').slice(26).toLowerCase()}` };                // the recipient is the event's second indexed topic
   }).filter((x) => x.tac > 0 && x.eth > 0);
   D.tradesAt = now();
 }
 let tradesBusy = false;
 async function ensureTrades(force = false) {
-  if (tradesBusy || (!force && D.tradesAt && now() - D.tradesAt < 50)) return;
-  tradesBusy = true;
+  if (tradesBusy || (!force && !D.tradesStale && D.tradesAt && now() - D.tradesAt < 50)) return;
+  tradesBusy = true; D.tradesTried = now(); D.tradesStale = false;
   try { await loadTrades(); D.tradesErr = false; } catch { D.tradesErr = !D.trades; } finally { tradesBusy = false; }
   renderBook();
 }
@@ -723,9 +744,9 @@ function tradesHtml() {
   if (!rows.length) return '<p class="note">No trades yet.</p>';
   const shown = S.tradesAll ? rows : rows.slice(0, TRADES_ROWS);
   const cell = (x) => (x.lane === 'eth' ? `${fmtUnits(BigInt(Math.round(x.eth * 1e6)) * 10n ** 12n, 18, 4)} ETH` : `${satsFmt(x.sats * x.tac)} sats`);
-  return `<table class="table trades"><thead><tr><th>Time</th><th class="r">TAC</th><th class="r">Price</th><th class="r opt">Paid</th><th></th></tr></thead><tbody>${shown.map((x) => {
+  return `<table class="table trades"><thead><tr><th>Time</th><th class="r">TAC</th><th class="r">Price</th><th class="r opt">Paid</th><th><span class="sr">Transaction</span></th></tr></thead><tbody>${shown.map((x) => {
     const price = x.usd != null ? usd(x.usd) : x.lane === 'eth' ? `${sig(x.eth / x.tac)} ETH` : `${satsFmt(x.sats)} sats`;
-    return `<tr><td title="${esc(`${fmtLocalStamp(x.t)}${x.lane === 'eth' ? ', about' : ''}`)}"><svg class="tk xs inl" aria-hidden="true"><use href="#tk-${x.lane === 'eth' ? 'eth' : 'btc'}"/></svg>${esc(ago(x.t))}${x.side ? `<small class="${x.side === 'buy' ? 'up' : 'down'}">${x.side}</small>` : ''}</td><td class="r num">${esc(tacFmt(x.tac))}</td><td class="r num ${x.side === 'buy' ? 'up' : x.side === 'sell' ? 'down' : ''}">${esc(price)}</td><td class="r opt num">${esc(cell(x))}</td><td class="go">${x.tx ? `<a href="https://etherscan.io/tx/${esc(x.tx)}" target="_blank" rel="noopener noreferrer" aria-label="Open the transaction on Etherscan">↗</a>` : ''}</td></tr>`;
+    return `<tr><td title="${esc(`${fmtLocalStamp(x.t)}${x.lane === 'eth' ? ', about' : ''}`)}"><svg class="tk xs inl" aria-hidden="true"><use href="#tk-${x.lane === 'eth' ? 'eth' : 'btc'}"/></svg>${esc(ago(x.t))}${x.side ? `<small class="${x.side === 'buy' ? 'up' : 'down'}">${x.side}</small>` : ''}${x.to && W.account && x.to === lc(W.account) ? '<small class="you">you</small>' : ''}</td><td class="r num">${esc(tacFmt(x.tac))}</td><td class="r num ${x.side === 'buy' ? 'up' : x.side === 'sell' ? 'down' : ''}">${esc(price)}</td><td class="r opt num">${esc(cell(x))}</td><td class="go">${x.tx ? `<a href="https://etherscan.io/tx/${esc(x.tx)}" target="_blank" rel="noopener noreferrer" aria-label="Open the transaction on Etherscan">↗</a>` : ''}</td></tr>`;
   }).join('')}</tbody></table>${rows.length > TRADES_ROWS ? `<button type="button" class="ob-more" data-more-trades="1">${S.tradesAll ? 'Show fewer' : `Show all ${rows.length} trades`}</button>` : ''}`;
 }
 const TRADES_ROWS = 12;
@@ -797,7 +818,7 @@ function renderBook() {
   $('#book-seg').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.book === tab)));
   $('#depthchart').hidden = tab === 'trades' || tab === 'mine';
   setPeek(tab === 'btc' ? '' : null);
-  if (tab === 'mine') { setHtml(box, mineHtml(orders)); note.textContent = ''; return; }
+  if (tab === 'mine') { if (W.account && (D.tradesStale || ((!D.tradesAt || now() - D.tradesAt > 120) && (!D.tradesTried || now() - D.tradesTried > 60)))) ensureTrades(); setHtml(box, mineHtml(orders)); note.textContent = ''; return; }
   if (tab === 'trades') {
     setHtml(box, tradesHtml());
     note.textContent = 'Swaps in the Precision pool for about the last day, read from its own events (a split counts its Precision share), and every trade on the Bitcoin order book.';
@@ -821,7 +842,7 @@ function renderBook() {
     return;
   }
   const b = D.book;
-  if (!b) { depth.update({ asks: [], bids: [], empty: 'Reading the Bitcoin order book…' }); setHtml(box, ''); note.textContent = ''; return; }
+  if (!b) { setPeek(null); depth.update({ asks: [], bids: [], empty: D.bookFailed ? 'Could not read the Bitcoin order book just now.' : 'Reading the Bitcoin order book…' }); setHtml(box, D.bookFailed ? '<p class="note">Could not read the Bitcoin order book. <button class="linkbtn" type="button" data-retry>Try again</button></p>' : ''); note.textContent = ''; return; }
   const take = S.quote?.book?.plan?.fills?.length && S.side === 'buy' ? { side: 'ask', size: Number(S.quote.book.plan.amount) / 1e8 } : null;
   depth.update({
     asks: b.asks.map((r) => ({ price: btcPx(r.unit), size: Number(r.amount) / 1e8 })), bids: b.bids.map((r) => ({ price: btcPx(r.unit), size: Number(r.amount) / 1e8 })), take,
@@ -1110,6 +1131,7 @@ async function sendAndReport(tx, { from, buy, P }) {
   if (tacOut != null && ethOut != null) noteAct({ who: lc(from), lane: 'eth', kind: buy ? 'bought' : 'sold', tac: Number(tacOut) / 1e18, paid: Number(ethOut) / 1e18, unit: 'eth', tx: hash });
   S.quote = null; S.ack = null; S.amt = ''; S.pin = null; $('#amt').value = ''; keepInHash();
   renderBalance(); renderQuote(null); renderVenues(null); renderPin();
+  D.tradesStale = true; if (['trades', 'mine'].includes(bookTab())) ensureTrades(true);        // and the list of swaps has one more (it is read again the next time it is looked at)
   loadChain().then(paintAll).catch(() => {});                                                  // the pools have moved
   loadBoards().then(paintAll).catch(() => {});                                                 // and the orders that were filled are gone
   say(`<span class="ok">${buy ? 'Bought' : 'Sold'}.</span> ${got != null ? `${buy ? 'Received' : 'Received about'} ${esc(fmtUnits(got, 18, buy ? 2 : 6))} ${buy ? 'TAC' : 'ETH'} · ` : ''}${txLink(hash)}${buy && !tacAdded() ? ' · <button class="linkbtn" type="button" id="add-tac">Add TAC to your wallet</button>' : ''}`);
@@ -1226,7 +1248,7 @@ Promise.allSettled(loads).then((rs) => {
   const params = new URLSearchParams(location.hash.replace(/^#/, ''));
   if (params.get('btc') === 'on' || params.get('btc') === 'off') { try { localStorage.setItem('tacit-trade-btc', params.get('btc') === 'on' ? '1' : '0'); } catch { /* storage is a convenience */ } renderBook(); }
   if (params.get('side') === 'sell') $('#side-seg [data-side="sell"]').click();                   // a side change clears the amount, so it comes first
-  S.ready = true;
+  S.ready = true; retrySoon();
   if (params.get('amount')) { S.amt = params.get('amount'); $('#amt').value = S.amt; requote(); } else keepInHash();
   paintAll();
 });
@@ -1237,7 +1259,7 @@ function poll(back = false) {
   if (document.hidden) return;
   const n = ++polls, full = back || n % 5 === 0, lists = back || n % 2 === 0 || ['btc', 'mine'].includes(bookTab());
   polledAt = now();
-  loadChain().then(paintAll).catch(() => {}); loadTapes({ coarse: full }).then(paintAll).catch(() => {}); loadBitcoin({ lists }).then(paintAll).catch(() => {}); loadBoards().then(paintAll).catch(() => {});
+  for (const read of [loadChain(), loadTapes({ coarse: full }), loadBitcoin({ lists }), loadBoards()]) read.then(paintAll, paintAll);       // a read that failed repaints too, so that the page says so
   if (S.quote && !S.busy && !S.refreshing) requote(true);                                       // a review being read, or a trade being made, is not redrawn under the person
   if (W.account && !S.busy) readBalances().then(() => { renderBalance(); renderGo(); });
   if (!farm.busy()) farm.refresh();
@@ -1245,5 +1267,12 @@ function poll(back = false) {
   if (bitcoin?.session.unlocked && !bitcoin.isOpen) bitcoin.refresh().catch(() => {});
 }
 setInterval(poll, 60e3);
+document.addEventListener('click', (e) => { const b = e.target.closest('[data-retry]'); if (b) { b.disabled = true; b.textContent = 'Trying…'; poll(true); } });
+// A first read that failed is tried again after 5, 10 and 15 seconds, not left for the minute's refresh.
+let sooner = 0;
+function retrySoon() {
+  if (sooner >= 3 || !(D.chainFailed || D.tapeFailed || D.btcFailed || D.bookFailed)) return;
+  setTimeout(() => { sooner++; poll(true); retrySoon(); }, 5000 * (sooner + 1));
+}
 document.addEventListener('visibilitychange', () => { if (!document.hidden && now() - polledAt >= 60) poll(true); });
 

@@ -113,6 +113,17 @@ async function openPage(viewport, wallet = null, hash = '', path = '/trade/', { 
   return { browser, page, errors, blocked, walletLog, seen };
 }
 
+// The contrast ratio of an element's text against the backgrounds layered behind it (WCAG): small text must reach 4.5.
+const contrast = (page, sel) => page.$eval(sel, (el) => {
+  const px = (s) => { let m = s.match(/rgba?\(([^)]+)\)/); if (m) { const v = m[1].split(/[ ,\/]+/).map(Number); return [v[0], v[1], v[2], v[3] ?? 1]; } m = s.match(/color\(srgb ([^)]+)\)/); if (m) { const v = m[1].split(/[ \/]+/).map(Number); return [v[0] * 255, v[1] * 255, v[2] * 255, v[3] ?? 1]; } return [0, 0, 0, 0]; };
+  const over = (below, above) => { const a = above[3]; return [0, 1, 2].map((i) => above[i] * a + below[i] * (1 - a)).concat(1); };
+  const lum = (c) => { const [r, g, b] = c.slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+  const chain = []; for (let e = el; e; e = e.parentElement) chain.unshift(px(getComputedStyle(e).backgroundColor));
+  let bg = [255, 255, 255, 1]; for (const l of chain) bg = over(bg, l);
+  const fg = over(bg, px(getComputedStyle(el).color)), a = lum(fg), b = lum(bg);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+});
+
 const candles = (page) => page.$$eval('#chart .body', (b) => b.length);
 const lines = (page) => page.$$eval('#chart polyline', (b) => b.length);
 // The fork is cold: reading zSwap's four boards pulls every order's storage from the upstream node one slot at a time, which takes minutes the first
@@ -131,6 +142,8 @@ try {
   const burst = r.seen.api.filter((_, i) => r.seen.apiT[i] - r.seen.apiT[0] < 5000), apiOnce = (re) => burst.filter((x) => re.test(x)).length;     // the first reads (a refresh a minute on can fall in a slow start)
   ok((await p.$$eval('link[rel="preload"][as="fetch"][crossorigin]', (l) => l.length)) === 4 && apiOnce(/preauth-sales/) === 1 && apiOnce(/bid-intents/) === 1 && apiOnce(/^$/) === 1 && apiOnce(/farm/) <= 1, `the page's four API reads start with its HTML and are asked for once (${burst.join(' ')})`);
   ok(await p.$eval('.chart .halo', (e) => getComputedStyle(e).animationIterationCount) === '4', 'the live dot pulses a few times when the price is drawn, not for as long as the page is open');
+  ok(!(await p.$('p.eyebrow')) && (await p.$$eval('h2.eyebrow', (h) => h.length)) >= 4 && (await p.$$eval('h1, h2, h3', (h) => h.map((x) => +x.tagName[1]).every((n, i, a) => i === 0 || n - a[i - 1] <= 1))), 'the panels are titled by headings, and the heading levels step down one at a time');
+  ok((await contrast(p, '.assets a:not([aria-current])')) >= 4.5 && (await p.$$eval('footer nav a', (a) => a.every((x) => x.getBoundingClientRect().height >= 23.9))), `the inactive asset links read at 4.5:1 or more on their pill (${(await contrast(p, '.assets a:not([aria-current])')).toFixed(2)}) and the footer links are 24px high`);
   const head = (await text(p, '#px-usd')).trim(), sub = (await text(p, '#px-sub')).replace(/\s+/g, ' ');
   ok(/^\$0\.\d{2,}/.test(head), `the head shows TAC's price in dollars (${head})`);
   ok(/1 TAC = [\d.]+ ETH/.test(sub) && /24h volume [\d.,]+ ETH/.test(sub), `and in ETH and the day's volume, each figure with its name (${sub.slice(0, 120)})`);
@@ -212,6 +225,7 @@ try {
   await p.fill('#amt', '2');
   await until(p, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && Number(document.querySelector('#out').textContent.replace(/,/g, '')) > 5000, null, 240000);
   const route = (await text(p, '#route')).replace(/\s+/g, ' ');
+  ok((await contrast(p, '.splitbar .pp')) >= 4.5 && (await contrast(p, '.splitbar .tp')) >= 4.5, `the split bar's labels read on the colours behind them (${(await contrast(p, '.splitbar .pp')).toFixed(2)}, ${(await contrast(p, '.splitbar .tp')).toFixed(2)})`);
   ok(/Split across two pools \+[\d.]+%/.test(route) && /Precision \d+%\s*Tacit \d+%/.test(route) && !!(await p.$('#route .splitbar')), `2 ETH is quoted as a split, drawn as a bar of the two pools with what it gains (${route.slice(0, 160)})`);
   ok(/^[\d,]+(\.\d+)?$/.test((await text(p, '#out')).trim()) && Number((await text(p, '#out')).replace(/,/g, '')) > 2 * 3000, `with the TAC it pays (${await text(p, '#out')}: at least 3,000 TAC to the ETH even after the price impact of 2 ETH)`);
   const rows = await p.$$eval('#venues tbody tr', (t) => t.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
@@ -234,8 +248,8 @@ try {
 
   // a small purchase is not split, and says why a split would not pay
   await p.fill('#amt', '0.02');
-  await until(p, () => !/Split across/.test(document.querySelector('#route')?.textContent || '') && /Precision pool|Tacit public pool/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 120000);
-  ok(/^Route.*Precision pool/.test((await text(p, '#route')).replace(/\s+/g, ' ')), `0.02 ETH runs on one pool (${(await text(p, '#route')).replace(/\s+/g, ' ').slice(0, 100)})`);
+  await until(p, () => !/Split across/.test(document.querySelector('#route')?.textContent || '') && /Precision pool|Tacit pool/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 120000);
+  ok(/^Route(Precision|Tacit) pool/.test((await text(p, '#route')).replace(/\s+/g, ' ')), `0.02 ETH runs on one pool, whichever pays more today (${(await text(p, '#route')).replace(/\s+/g, ' ').slice(0, 100)})`);
 
   // amounts: a lone comma is a decimal point, as on the front page; 1,500 is ambiguous and not read
   ok(/this ticket/.test((await text(p, '#venues')).replace(/\s+/g, ' ')), 'the venues table says which row the ticket runs');
@@ -356,6 +370,27 @@ try {
     ok(BigInt(await rpcA('eth_getTransactionCount', [me.account, 'latest'])) === n0 + 1n && w.walletLog.sends.length === 1 && w.walletLog.sends[0].to.toLowerCase() === ROUTER.toLowerCase(), 'in one transaction, sent to zRouter');
     ok(e0 - (await ethBal(me.account)) >= 2n * E18 && e0 - (await ethBal(me.account)) < 2n * E18 + E18 / 50n && (await tacBal(MC3)) === mc0 && (await ethBal(ROUTER)) === rt0, 'the ETH spent is the 2 ETH and its gas, and nothing is left in Multicall3 or the router');
     ok(/Balance [\d.,]+ ETH/.test(await text(q, '#in-bal')) && (await q.inputValue('#amt')) === '', 'the balance and the form are refreshed');
+
+    // Yours: the purchase is listed once (what this browser saw, with its figures, and not again from the pool's swap to the same account), with the
+    // balances on Ethereum above it; the Trades tab marks that swap as the visitor's
+    const logs0 = w.seen.rpc.filter((x) => x.method === 'eth_getLogs').length;
+    await q.click('[data-book="mine"]');
+    await until(q, () => /ETH · [\d,.]+ TAC on Ethereum/.test(document.querySelector('.mine-eth')?.textContent || ''), null, 60000);
+    await until(q, () => document.querySelectorAll('#ladders table.yours.recent tbody tr').length >= 1, null, 60000);
+    await q.waitForTimeout(4000);
+    const mrows = await q.$$eval('#ladders table.yours.recent tbody tr', (r) => r.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
+    ok(w.seen.rpc.filter((x) => x.method === 'eth_getLogs').length > logs0 && mrows.length === 1 && /Bought [\d,]+ TAC for 2 ETH/.test(mrows[0]), `Yours reads the pool's swaps for the account and lists the purchase once (${mrows.length} row: ${mrows[0]?.slice(0, 60)})`);
+    ok(/^[\d.]+ ETH · [\d,.]+ TAC on Ethereum$/.test((await text(q, '.mine-eth')).trim()), `with what the wallet holds on Ethereum above it (${(await text(q, '.mine-eth')).trim()})`);
+    await q.click('[data-book="trades"]');
+    await q.waitForSelector('#ladders table.trades small.you', { timeout: 60000 }).catch(() => null);
+    ok((await q.$$('#ladders table.trades small.you')).length >= 1, 'the Trades tab marks the visitor\'s own swap');
+    // a swap this browser never logged (another device, or a cleared browser) is listed from the pool's own record: the Precision share of the split, in ETH
+    await q.evaluate(() => localStorage.removeItem('tacit-trade-activity-v1'));
+    await q.click('[data-book="btc"]'); await q.click('[data-book="mine"]');
+    await until(q, () => document.querySelectorAll('#ladders table.yours.recent tbody tr').length >= 1, null, 60000);
+    const crow = (await q.$$eval('#ladders table.yours.recent tbody tr', (r) => r.map((x) => x.textContent.replace(/\s+/g, ' ').trim())))[0];
+    ok(/Bought [\d,]+ TAC for [\d.]+ ETH/.test(crow) && !/for 2 ETH/.test(crow), `with no record in this browser the purchase is listed from the pool's swap to the account (its Precision share: ${crow.slice(0, 60)})`);
+    await q.click('[data-book="btc"]');
 
     // a sale that splits: the permit is signed in the wallet, then one transaction
     await q.click('[data-side="sell"]');
