@@ -97,7 +97,7 @@ async function sendTx(tx) {
 const walletWords = (e) => (e?.code === 4001 || /user (rejected|denied)/i.test(e?.message || '') ? 'Cancelled in the wallet.' : String(e?.message || e).slice(0, 240));
 
 // ── state ──
-const S = { addr: null, account: null, owner: null, shares: null, balance: 0n, block: 0, recip: [], quote: null, logs: [], err: null, rows: null, dirty: false, deploy: { owner: OPS_MULTISIG, rows: START_ROWS.map((r) => [...r]) } };
+const S = { addr: null, account: null, owner: null, shares: null, balance: 0n, block: 0, recip: [], quote: null, logs: [], err: null, rows: null, dirty: false, deploy: { owner: OPS_MULTISIG, rows: START_ROWS.map((r) => [...r]), ownerOk: false }, gas: null };
 // One status line per panel, made once: a panel drawn again after its transaction lands keeps what the action said.
 const OUT = { state: h('div', { class: 'status', role: 'status' }), edit: h('div', { class: 'status', role: 'status' }), deploy: h('div', { class: 'status', role: 'status' }) };
 const clearOut = () => { for (const o of Object.values(OUT)) say(o, ''); };
@@ -178,8 +178,14 @@ const rowsArgs = (rows) => ({ to: rows.map((r) => r[0]), weight: rows.map((r) =>
 // ── painting ──
 // A form panel is not drawn again under someone typing in it: a refresh in the background (the wallet changing, a read finishing) leaves it
 // alone, and what they typed is already in S.rows / S.deploy.rows for the next draw.
+// With no splitter yet, deploying is the page: its panel leads the left column. Once there is one, it moves to the side.
+function placeDeploy() {
+  const cols = document.querySelectorAll('.grid > .col'), d = $('#p-deploy'), want = S.addr ? cols[1] : cols[0];
+  if (d.parentElement !== want) want.prepend(d);
+}
 const typing = (el) => el.contains(document.activeElement) && /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
 function paint() {
+  placeDeploy();
   paintAddr(); paintState();
   if (!typing($('#p-edit'))) paintEdit(); else S.editCheck?.();       // what depends on who is connected is updated in place
   if (!typing($('#p-deploy'))) paintDeploy();
@@ -283,42 +289,6 @@ function safeBox(rows, out) {
   return box;
 }
 
-function paintDeploy() {
-  const el = $('#p-deploy'), D = S.deploy, out = OUT.deploy, hint = h('p', { class: 'hint err' });
-  const check = () => {
-    const owner = isAddress(D.owner) ? null : 'The owner is not an address.';
-    hint.textContent = owner || rowsProblem(D.rows, null) || ''; go.disabled = !!(owner || rowsProblem(D.rows, null));
-    const { to, weight } = rowsProblem(D.rows, null) ? { to: [], weight: [] } : rowsArgs(D.rows);
-    dataBtn.disabled = !!(owner || rowsProblem(D.rows, null)); dataBtn.dataset.data = dataBtn.disabled ? '' : deployData(SPLITTER_INITCODE, D.owner, to, weight);
-  };
-  const ed = editor(D.rows, { balance: 0n, onChange: (structural) => { if (structural) paintDeploy(); else check(); } });
-  const go = h('button', { class: 'btn', type: 'button' }, 'Deploy from my wallet');
-  const dataBtn = h('button', { class: 'linkbtn', type: 'button', onclick: (e) => copy(e.target.dataset.data, e.target) }, 'copy the deploy data');
-  go.addEventListener('click', () => busy(go, out, async (say_) => {
-    const { to, weight } = rowsArgs(D.rows);
-    say_('Confirm the deploy in your wallet…');
-    const tx = await sendTx({ data: deployData(SPLITTER_INITCODE, D.owner, to, weight) });
-    say_(h('span', {}, 'Sent. ', scan(`tx/${tx}`, short(tx, 8)), ' · waiting for it to be mined…'));
-    const rc = await waitReceipt(tx);
-    if (!isAddress(rc.contractAddress)) throw new Error('The transaction did not create a contract.');
-    S.addr = rc.contractAddress; S.dirty = false; S.rows = null;
-    store.set({ addr: S.addr, args: encDeployArgs(D.owner, to, weight), tx });
-    location.hash = S.addr;
-    say_(h('span', { class: 'ok' }, 'Deployed at ', scan(`address/${S.addr}`, S.addr), '.'));
-    await load();
-  }));
-  mount(el,
-    h('p', { class: 'eyebrow' }, h('span', {}, S.addr ? 'Deploy another' : 'Deploy a splitter')),
-    h('label', { class: 'lbl', for: 'dep-owner' }, 'Owner: can change the list'),
-    h('input', { id: 'dep-owner', class: 'field', type: 'text', value: D.owner, spellcheck: 'false', oninput: (e) => { D.owner = e.target.value.trim(); check(); } }),
-    h('span', { class: 'lbl' }, 'Who is paid, and in what proportion'),
-    ed,
-    h('button', { class: 'linkbtn', type: 'button', disabled: D.rows.length >= MAX_RECIPIENTS, onclick: () => { D.rows.push(['', '1']); paintDeploy(); } }, '+ add a wallet'),
-    h('p', { class: 'note' }, 'The wallet that sends the deploy only pays its gas; the owner is the address above. Check both addresses before sending: the owner is who can later redirect every tip.'),
-    hint, go, h('div', {}, dataBtn), out);
-  check();
-}
-
 // The operator's view of the relay: where each wallet stands and what the standing commitments are set to, from the API's /relay/economics.
 // Balances are shown here and not on the public page (/relay/), which is about flows.
 const RELAY = { j: null };
@@ -349,17 +319,68 @@ async function loadRelay() {
   paintRelay();
 }
 
+const DEPLOY_GAS = 765_000n;                       // measured: 763,688 for the three-wallet list (tools/splitter-fork-check.mjs)
+function paintDeploy() {
+  const el = $('#p-deploy'), D = S.deploy, out = OUT.deploy, hint = h('p', { class: 'hint err' }), fresh = !S.addr;
+  const bad = () => (isAddress(D.owner) ? null : 'The owner is not an address.') || rowsProblem(D.rows, null);
+  const check = () => {
+    const p = bad();
+    hint.textContent = p || ''; go.disabled = !!p || !D.ownerOk; dataBtn.disabled = !!p;
+    if (!p) { const { to, weight } = rowsArgs(D.rows); dataBtn.dataset.data = deployData(SPLITTER_INITCODE, D.owner, to, weight); }
+    ownerName.textContent = isAddress(D.owner) ? (nameOf(D.owner) || 'not a known tacit wallet') : '';
+  };
+  const ed = editor(D.rows, { balance: 0n, onChange: (structural) => { if (structural) paintDeploy(); else check(); } });
+  const go = h('button', { class: 'btn', type: 'button' }, S.account ? 'Deploy' : 'Connect a wallet and deploy');
+  const dataBtn = h('button', { class: 'linkbtn', type: 'button', onclick: (e) => copy(e.target.dataset.data, e.target) }, 'copy the deploy data');
+  const ownerName = h('span', { class: 'mute' });
+  go.addEventListener('click', () => busy(go, out, async (say_) => {
+    const { to, weight } = rowsArgs(D.rows);
+    say_('Confirm the deploy in your wallet…');
+    const tx = await sendTx({ data: deployData(SPLITTER_INITCODE, D.owner, to, weight) });
+    say_(h('span', {}, 'Sent. ', scan(`tx/${tx}`, short(tx, 8)), ' · waiting for it to be mined…'));
+    const rc = await waitReceipt(tx);
+    if (!isAddress(rc.contractAddress)) throw new Error('The transaction did not create a contract.');
+    S.addr = rc.contractAddress; S.dirty = false; S.rows = null; D.ownerOk = false;
+    store.set({ addr: S.addr, args: encDeployArgs(D.owner, to, weight), tx });
+    location.hash = S.addr;
+    say_(h('span', { class: 'ok' }, 'Deployed at ', scan(`address/${S.addr}`, S.addr), '.'));
+    await load();
+  }));
+  const cost = S.gas ? `About ${Number(DEPLOY_GAS).toLocaleString('en-US')} gas to deploy: ${ethFmt(Number(DEPLOY_GAS * S.gas) / 1e18)} ETH at today’s gas.` : `About ${Number(DEPLOY_GAS).toLocaleString('en-US')} gas to deploy.`;
+  mount(el,
+    h('p', { class: 'eyebrow' }, h('span', {}, fresh ? 'Deploy the splitter' : 'Deploy another')),
+    fresh ? h('ul', { class: 'what' },
+      h('li', {}, 'It receives ETH from wrap tips and holds it until someone sends it on: anyone can, in one call.'),
+      h('li', {}, 'It pays the wallets below in the proportions of their weights. 63 / 27 / 10 is the deployer wallet, the settle wallet and the TAC buyback.'),
+      h('li', {}, 'Only the owner can change who is paid and in what proportion, as often as it likes.')) : null,
+    h('label', { class: 'lbl', for: 'dep-owner' }, 'Owner: can change the list, and can hand the contract on'),
+    h('input', { id: 'dep-owner', class: 'field', type: 'text', value: D.owner, spellcheck: 'false', oninput: (e) => { D.owner = e.target.value.trim(); D.ownerOk = false; tick.checked = false; check(); } }),
+    h('p', { class: 'note' }, ownerName),
+    h('span', { class: 'lbl' }, 'Who is paid, and in what proportion'),
+    ed,
+    h('button', { class: 'linkbtn', type: 'button', disabled: D.rows.length >= MAX_RECIPIENTS, onclick: () => { D.rows.push(['', '1']); paintDeploy(); } }, '+ add a wallet'),
+    h('label', { class: 'tick' }, h('input', { type: 'checkbox', id: 'dep-ok', checked: D.ownerOk, onchange: (e) => { D.ownerOk = e.target.checked; check(); } }), h('span', {}, 'The owner address is right. Whoever owns it can redirect every tip, and the wallet that sends the deploy only pays its gas.')),
+    h('p', { class: 'note' }, cost),
+    hint, go, h('div', {}, dataBtn), out);
+  const tick = $('#dep-ok', el);
+  check();
+}
+
 function paintNext() {
   const el = $('#p-next'), st = store.get();
   if (!S.addr || !S.shares) { el.hidden = true; return; }
   el.hidden = false;
+  const mine = st.args && lc(st.addr) === lc(S.addr);
+  const lines = { verify: `forge verify-contract ${S.addr} src/EthSplitter.sol:EthSplitter --chain mainnet --compiler-version 0.8.37 --num-of-optimizations 1 --via-ir --evm-version prague${mine ? ` --constructor-args 0x${st.args}` : ' --constructor-args <the hex from the deploy>'} --watch`,
+    api: `RELAY_TIP_RECIPIENT_ADDR=${S.addr}\nSPLITTER_ADDR=${S.addr}`, settle: `SPLITTER_ADDR=${S.addr}` };
+  const copyBlock = (key, label, text) => h('div', { class: 'cmd' }, h('div', { class: 'cmd-h' }, h('span', { class: 'mute' }, label), h('button', { class: 'linkbtn', type: 'button', onclick: (e) => copy(text, e.target) }, 'copy')), h('pre', {}, text));
   mount(el,
     h('p', { class: 'eyebrow' }, 'Switching the tips over'),
     h('ol', { class: 'steps' },
-      h('li', {}, h('b', {}, 'Verify it on Etherscan. '), 'Compiler 0.8.37, optimizer on with 1 run, via IR, EVM prague, license MIT.', st.args && lc(st.addr) === lc(S.addr) ? h('div', { class: 'mono-wrap mute' }, 'Constructor arguments: 0x', st.args) : null),
-      h('li', {}, h('b', {}, 'Point the tips here. '), 'Set RELAY_TIP_RECIPIENT_ADDR on the API to this address and redeploy it. The quote then names the splitter, the pages tip it, and the relay counts a tip paid to it. A tip paid to the old address stops counting as paid for the free-settle allowance from that point.'),
-      h('li', {}, h('b', {}, 'Tell the integrators. '), 'Any page that pinned the multisig as the tip recipient will refuse the new address until it is told.'),
-      h('li', {}, h('b', {}, 'Send it on. '), 'Anyone can press the button; a keeper can call distribute() on a schedule.')));
+      h('li', {}, h('b', {}, 'Verify it on Etherscan. '), 'From the repo’s contracts folder, with your Etherscan key in the environment (compiler 0.8.37, optimizer 1 run, via IR, EVM prague):', copyBlock('verify', 'forge', lines.verify)),
+      h('li', {}, h('b', {}, 'Point the tips here. '), 'On the API service on Render set these two, then redeploy it. The relay’s quote then names the splitter, the pages tip it, and the relay counts a tip paid to it. A tip paid to the old address stops counting as paid for the free-settle allowance from that point.', copyBlock('api', 'tacit-api', lines.api)),
+      h('li', {}, h('b', {}, 'Let the relay send it on. '), 'On the settle service set this; its next pass (every 30 minutes) sends the splitter on once it holds 0.0005 ETH.', copyBlock('settle', 'tacit-settle', lines.settle)),
+      h('li', {}, h('b', {}, 'Tell the integrators. '), 'Any page that pinned the multisig as the tip recipient will refuse the new address until it is told.')));
 }
 
 // ── start ──
@@ -378,6 +399,7 @@ if (provider()?.on) {
 }
 (async () => {
   loadRelay(); setInterval(loadRelay, 120000);
+  rpc('eth_gasPrice', []).then((g) => { S.gas = BigInt(g); paintDeploy(); }).catch(() => {});
   paintChip();
   if (provider()) provider().request({ method: 'eth_accounts' }).then((a) => { if (a[0]) { S.account = lc(a[0]); paint(); } }).catch(() => {});
   const fromHash = location.hash.replace(/^#/, '');

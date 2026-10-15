@@ -83,10 +83,14 @@ try {
   await page.goto(`${ROOT}/splitter/`);
   await page.waitForSelector('#p-deploy .row');
   ok(await page.$eval('#p-state', (e) => e.hidden) && !(await page.$eval('#p-deploy', (e) => e.hidden)), 'deploy: with no splitter chosen, only the deploy form shows');
+  await shot('start');
   const rows = await page.$$eval('#p-deploy .row input', (els) => els.map((e) => e.value));
   ok(rows[0].toLowerCase() === DEPLOYER && rows[1] === '63' && rows[2].toLowerCase() === SETTLE && rows[3] === '27' && rows[4].toLowerCase() === BUYBACK && rows[5] === '10', `deploy: it starts at 63 / 27 / 10: the deployer wallet, the settle wallet (70 : 30 of the rest) and the TAC buyback (${rows.join(' ')})`);
-  ok(!(await page.$eval('#p-deploy .btn', (b) => b.disabled)) && (await text('#p-deploy .hint')) === '', 'deploy: a valid list can be deployed, with no complaint');
+  ok((await text('#p-deploy .hint')) === '', 'deploy: a valid list has no complaint');
+  ok(await page.$eval('#p-deploy', (e) => e.parentElement === document.querySelectorAll('.grid > .col')[0]), 'deploy: with no splitter yet, the deploy panel leads the page');
+  ok(await page.$eval('#p-deploy .btn', (b) => b.disabled && /Deploy/.test(b.textContent)), 'deploy: the button is off until the owner address is ticked as right');
   await page.fill('#dep-owner', A0);
+  await page.check('#dep-ok');
   await page.click('#wallet-chip');
   await until(() => /f39f/i.test(document.querySelector('#wallet-label').textContent));
   ok(true, 'deploy: the wallet chip shows the connected account');
@@ -98,7 +102,9 @@ try {
   const sh0 = await shares(addr);
   ok(owner === A0 && sh0.to.join() === `${DEPLOYER},${SETTLE},${BUYBACK}` && sh0.weight.join() === '63,27,10', 'deploy: on chain the owner is the address typed and the list is 63 / 27 / 10');
   ok(/^Deploy/.test(await text('#p-deploy .eyebrow')) && (await page.$eval('#p-next', (e) => !e.hidden)), 'deploy: the next steps appear');
-  ok(/Constructor arguments: 0x/.test(await text('#p-next')), 'deploy: the constructor arguments are shown for Etherscan');
+  const nextText = await text('#p-next');
+  ok(/forge verify-contract 0x[0-9a-f]{40} src\/EthSplitter\.sol:EthSplitter .*--compiler-version 0\.8\.37 .*--constructor-args 0x/i.test(nextText) && /RELAY_TIP_RECIPIENT_ADDR=0x[0-9a-f]{40}/i.test(nextText) && /SPLITTER_ADDR=0x/.test(nextText), 'deploy: the verify command and the two settings are given with the address and the constructor arguments filled in');
+  ok(await page.$eval('#p-deploy', (e) => e.parentElement === document.querySelectorAll('.grid > .col')[1]), 'deploy: once there is a splitter the deploy panel steps aside');
   await until(() => !document.querySelector('#p-relay').hidden);
   const relayPanel = await text('#p-relay');
   ok(/Settle wallet0\.0046 ETH · about 23 settles of gas/.test(relayPanel) && /Deployer wallet0\.0123 ETH/.test(relayPanel) && /PROVE held there31\.5 PROVE/.test(relayPanel) && /Buyback share of fee income10%/.test(relayPanel) && /Owed, to be paid when it can0\.0003 ETH/.test(relayPanel), `relay: the operator sees each wallet, its runway in settles, and the commitments (${relayPanel.slice(0, 110)})`);
