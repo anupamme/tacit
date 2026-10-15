@@ -19,7 +19,7 @@ import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
 import { mountDepth } from '/trade/depth.js?cb=1e8ce418';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
-import { makeWallet, UserStopped } from '/trade/wallet.js?cb=7807fdc8';
+import { makeWallet, UserStopped } from '/trade/wallet.js?cb=a6b2910e';
 import { mountFarm } from '/trade/farm.js?cb=cac985f6';
 
 const API = 'https://api.tacit.finance';
@@ -68,6 +68,7 @@ const PRIV_TIERS = [30, 5, 100, 1];
 
 // ── the state of the page ──
 const D = { ethUsd: null, btcUsd: null, perEth: null, priv: null, precision: null, ethSupply: null, btc: null, book: null, bidsRead: false, zb: null, zbFailed: false, tape: { fine: [], coarse: [] }, readAt: 0 };
+const ME = { pub: null, how: '' };                                                               // the visitor's Tacit key on Bitcoin (its public key), and how it is known: 'open' (signed in this visit) or 'record'
 const S = { side: 'buy', amt: '', book: null, pin: null, lane: 'eth', unit: 'usd', range: null, log: false, slip: 50, bal: null, busy: false, tf: { eth: TAPE_COARSE, btc: 86400, cmp: 86400 }, kind: 'line', quote: null, seq: 0, zq: null };
 const TF = { eth: [['5m', 300], ['15m', 900], ['1h', 3600], ['4h', 14400], ['1d', 86400]], btc: [['1h', 3600], ['4h', 14400], ['1d', 86400], ['1w', 604800]], cmp: [['4h', 14400], ['1d', 86400]] };
 
@@ -117,10 +118,16 @@ async function loadBitcoin() {
   if (asset) D.btc = { trades: asset.trades || [], mark: Number(asset.mark_price?.unit) || null, last: asset.last_trade || null, change24: asset.price_24h_change_pct, vol24: Number(asset.volume_24h_sats) || 0, holders: asset.holder_count ?? null, firstTrade: asset.price_first_trade_ts || null, tradesCap: asset.trades_cap };
   if (Array.isArray(sales?.sales)) {
     D.bidsRead = Array.isArray(bidRows?.intents);                                              // a bid list that could not be read is not the same as no bids
-    D.book = buildBook({ assetId: TAC_BTC_ID, decimals: 8, listings: sales.sales.map((x) => ({ ...x, kind: 'preauth' })), bids: D.bidsRead ? bidRows.intents : [] });   // the sale rows carry no `kind`
+    D.raw = { listings: sales.sales.map((x) => ({ ...x, kind: 'preauth' })), bids: D.bidsRead ? bidRows.intents : [] };   // the sale rows carry no `kind`
     D.btc ||= { trades: [], mark: null };
-    D.btc.ask = D.book.bestAsk; D.btc.bid = D.book.bestBid;
+    rebuildBook();
   }
+}
+// The book with the visitor's own orders marked (`mine`) once their key is known: those are shown as theirs and are never offered to them to fill.
+function rebuildBook() {
+  if (!D.raw) return;
+  D.book = buildBook({ assetId: TAC_BTC_ID, decimals: 8, ...D.raw, myPubHex: ME.pub });
+  if (D.btc) { D.btc.ask = D.book.bestAsk; D.btc.bid = D.book.bestBid; }
 }
 
 // zSwap's boards: every order for TAC against ETH (eight view calls). A read that lost a board's answer does not replace one that had it, and
@@ -555,11 +562,43 @@ function notify(msg, kind = '', ms = 5000) {
   $('#live').textContent = msg;
   setTimeout(() => t.remove(), ms);
 }
+// The wallet connected here, when it is a browser wallet that can open the Tacit key (a WalletConnect session cannot).
+const pageWallet = () => (W.account && W.prov && !W.prov.isWalletConnect ? { uuid: W.uuid, address: W.account } : null);
+// Made once: two asks at the same moment (the hover that warms it and the press that uses it) share one module and so one wallet session.
+let bitcoinP = null;
+function getBitcoin() {
+  return (bitcoinP ||= import('/trade/btc.js?cb=b0f73a4b').then((m) => (bitcoin = m.makeBitcoin({
+    notify, wallet: pageWallet, onChange: () => syncMe(),
+    onTraded: (t) => { noteBitcoinTrade(t); loadBitcoin().then(paintAll).catch(() => {}); },
+  }))).catch((e) => { bitcoinP = null; throw e; }));
+}
 async function openBitcoin(prime = null) {
-  try {
-    bitcoin ||= (await import('/trade/btc.js?cb=4c730bad')).makeBitcoin({ notify, onTraded: () => loadBitcoin().then(paintAll).catch(() => {}) });
-    await bitcoin.open(prime);
-  } catch (e) { notify(`The Bitcoin market could not be opened: ${e?.message || e}`, 'error', 9000); }
+  try { await (await getBitcoin()).open(prime); } catch (e) { notify(`The Bitcoin market could not be opened: ${e?.message || e}`, 'error', 9000); }
+}
+// ── whose orders these are ──
+// The Tacit key an Ethereum wallet opens is fixed by its signature, so a browser that opened it once holds its public key: anchored per address by the
+// wallet module, in tacit.finance's own wallet record, and in what each page that opens a key last wrote. Public keys only: none of this can sign.
+const lc = (s) => String(s || '').toLowerCase();
+const PUBKEY = /^0[23][0-9a-f]{64}$/, KNOWN_IDS = ['tacit-trade-id-v1', 'tacit-tac-id-v1', 'tacit-pay-hub-id-v1', 'tacit-lite-id-v1', 'tacit-pay-id-v1'];
+function ethKeyFor(account) {
+  const a = lc(account).replace(/^0x/, ''), json = (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } }, pubs = [];
+  if (!a) return null;
+  try { pubs.push(localStorage.getItem(`tacit-eth-identity-anchor:${a}`)); } catch { /* storage is a convenience */ }
+  const site = json('tacit-eth-identity:mainnet');
+  if (site && lc(site.address).replace(/^0x/, '') === a) pubs.push(site.pubkey);
+  for (const id of KNOWN_IDS) { const r = json(id); if (r?.mode === 'eth' && lc(r.address).replace(/^0x/, '') === a) pubs.push(r.pubHex); }
+  return pubs.map(lc).find((h) => PUBKEY.test(h)) || null;
+}
+// The key open in this visit settles who the visitor is; failing that, the one this browser already opened with the wallet connected here.
+// A key an Ethereum wallet opened is that account's: when another account is connected, it is closed.
+function syncMe() {
+  const k = bitcoin?.session.unlocked ? bitcoin.session.key : null;
+  if (k?.mode === 'eth' && W.account && lc(k.address) !== lc(W.account)) { bitcoin.lock(); return; }
+  const open = k ? lc(k.pubHex) : null, pub = open || ethKeyFor(W.account), how = open ? 'open' : pub ? 'record' : '';
+  if (pub === ME.pub && how === ME.how) { renderBook(); return; }                                // the same visitor: what they hold may have changed
+  ME.pub = pub; ME.how = how; rebuildBook();
+  renderHead(); renderLanes(); renderBook();
+  if (S.quote && !S.busy) requote(true);
 }
 // What the ticket is set to when a listing or a bid is picked: everything cheaper than it, and it, as the market module's own rows do.
 function bookPrime(kind, i) {
@@ -568,6 +607,86 @@ function bookPrime(kind, i) {
   if (kind === 'sell') return { side: 'sell', type: 'market', sellBase: upTo(b.bids, 'bid') };
   if (kind === 'list') return { side: 'sell', type: 'limit' };
   return null;
+}
+
+// ── what the visitor did here ──
+// A short list kept in this browser: the trades and listings made through this page, each with its transaction. It is a record of what this
+// browser saw, not of the account, and says so where it is shown. Public facts only (amounts and transaction ids), under the account's address
+// or its Tacit public key.
+const ACT_KEY = 'tacit-trade-activity-v1';
+const readActs = () => { try { const v = JSON.parse(localStorage.getItem(ACT_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
+function noteAct(e) { try { localStorage.setItem(ACT_KEY, JSON.stringify([{ t: now(), ...e }, ...readActs()].slice(0, 40))); } catch { /* storage is a convenience */ } }
+const myActs = () => readActs().filter((e) => e.who && (e.who === lc(W.account) || e.who === ME.pub)).slice(0, 8);
+// What the Bitcoin market reports when a purchase, a sale or a listing is made: the amount, the transaction, and the orders it filled, from which
+// the price is read in the book as the page has it (left out when the book no longer has them).
+function noteBitcoinTrade({ kind, amount, result, ids }) {
+  const k = bitcoin?.session.key, who = ME.pub || (k ? lc(k.pubHex) : null);
+  if (!who || amount == null) return;
+  const tac = Number(amount) / 1e8, tx = result?.reveal_txid || result?.commit_txid || result?.txid || null, book = D.book;
+  let paid = null;
+  if (kind === 'bought') { const rows = (ids || []).map((id) => book?.asks.find((a) => a.id === id)); if (rows.length && rows.every(Boolean)) paid = rows.reduce((t, a) => t + a.sats, 0); }
+  else if (kind === 'sold') { const bid = book?.bids.find((x) => x.id === (ids || [])[0]); if (bid) paid = Math.round(tac * bid.unit); }
+  noteAct({ who, lane: 'btc', kind, tac, paid, unit: 'sats', tx });
+}
+// Everything of the visitor's that is open: the Bitcoin book's listings and bids (their key is known) and the orders on zSwap's boards (their account is connected).
+function myOrders() {
+  const out = [], b = D.book;
+  if (b && ME.pub) {
+    for (const a of b.asks) if (a.mine) out.push({ lane: 'btc', side: 'sell', tac: Number(a.amount) / 1e8, px: btcPxFmt(btcPx(a.unit)), alt: D.btcUsd ? `${satsFmt(a.unit)} sats` : '', expiry: a.expiry, note: 'taken whole' });
+    for (const x of b.bids) if (x.mine) out.push({ lane: 'btc', side: 'buy', tac: Number(x.amount) / 1e8, px: btcPxFmt(btcPx(x.unit)), alt: D.btcUsd ? `${satsFmt(x.unit)} sats` : '', expiry: x.expiry, note: x.auto ? 'settles on its own' : 'settles while you are online' });
+  }
+  for (const o of [...(D.zb?.asks || []), ...(D.zb?.bids || [])]) if (isMine(o)) out.push({ lane: 'eth', side: o.side === 'ask' ? 'sell' : 'buy', tac: Number(o.base) / 1e18, px: ethPxFmt(ethPx(o.price)), alt: D.ethUsd ? `${sig(o.price)} ETH` : '', expiry: o.expiry || 0, note: `${BOARD_NAMES[o.board]} #${o.id}` });
+  return out;
+}
+const showMine = () => !!(W.account || ME.pub);
+// The "Yours" tab: whose wallet it is and what it holds on Bitcoin (once open), its open orders on both books, and what it did here lately.
+function mineHtml(orders) {
+  const key = bitcoin?.session.unlocked ? bitcoin.session.key : null, me = key ? bitcoin.me : null, here = pageWallet();
+  const who = key ? (key.mode === 'eth' ? `Ethereum ${short(key.address)}` : key.mode === 'passkey' ? `passkey “${key.label || 'Tacit'}”` : `Bitcoin ${short(key.address || '')}`) : W.account ? `Ethereum ${short(W.account)}` : '';
+  const btn = (act, t, cls = '') => `<button type="button" class="fillbtn ${cls}" data-mine="${act}">${esc(t)}</button>`;
+  const openBtn = here ? btn('open', `Open with ${short(here.address)}`, 'primary') : btn('signin', 'Open your Tacit wallet', 'primary');
+  const how = here ? ' It opens with this wallet\'s signature: one, two the first time.' : '';
+  const bal = me ? `${me.sats != null ? esc(satsFmt(me.sats)) : '—'} sats · ${me.assetBase != null ? `${esc(tacFmt(Number(me.assetBase) / 1e8))} TAC on Bitcoin` : 'TAC on Bitcoin still being read'}`
+    : key ? 'Reading what it holds on Bitcoin…'
+    : ME.pub ? `Open it to see what it holds on Bitcoin.${how}` : `Open your Tacit wallet to see your Bitcoin orders and what you hold there.${how}`;
+  const acts = me ? btn('fund', 'Add sats') + btn('lock', 'Lock') : key ? '' : openBtn;
+  const lane = (l) => `<svg class="tk xs inl" aria-hidden="true"><use href="#tk-${l === 'btc' ? 'btc' : 'eth'}"/></svg>`;
+  const ord = orders.length ? `<table class="table trades yours"><thead><tr><th>Order</th><th class="r">TAC</th><th class="r">Price</th><th class="r opt">Ends</th><th></th></tr></thead><tbody>${orders.map((o) =>
+    `<tr><td>${lane(o.lane)}${o.side === 'sell' ? 'Selling' : 'Bid'}<small>${esc(o.note)}</small></td><td class="r num">${esc(tacFmt(o.tac))}</td><td class="r num">${esc(o.px)}${o.alt ? `<small>${esc(o.alt)}</small>` : ''}</td><td class="r opt">${o.expiry ? esc(left(o.expiry)) : ''}</td><td class="go">${o.lane === 'btc' ? (btcOn() ? '<button type="button" class="linkbtn" data-mine="manage">Manage</button>' : '') : `<a href="${ZSWAP_HOST}" target="_blank" rel="noopener noreferrer">zSwap ↗</a>`}</td></tr>`).join('')}</tbody></table>`
+    : ME.pub ? `<p class="note">No open orders on the Bitcoin book. ${btcOn() ? `<button type="button" class="linkbtn" data-mine="list">List a sale</button>` : ''}</p>` : '';
+  const rec = myActs();
+  const recent = rec.length ? `<p class="mine-h">Recent here <span>from this browser</span></p><table class="table trades yours recent"><tbody>${rec.map((e) => {
+    const pay = e.paid != null ? ` for ${e.unit === 'eth' ? `${grp(e.paid, e.paid < 1 ? 4 : 2)} ETH` : `${satsFmt(e.paid)} sats`}` : '', what = e.kind === 'listed' ? 'Listed' : e.kind === 'sold' ? 'Sold' : 'Bought';
+    const href = e.tx ? (e.lane === 'btc' ? `https://mempool.space/tx/${e.tx}` : `https://etherscan.io/tx/${e.tx}`) : '';
+    return `<tr><td>${lane(e.lane)}${esc(ago(e.t))}</td><td>${esc(what)} <b>${esc(tacFmt(e.tac))}</b> TAC${esc(pay)}</td><td class="go">${href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer" aria-label="Open the transaction">↗</a>` : ''}</td></tr>`;
+  }).join('')}</tbody></table>` : '';
+  return `<div class="mine-head"><div class="mine-who"><b>Your Tacit wallet</b> ${who ? `<span>${esc(who)}</span>` : ''}</div><div class="mine-bal">${bal}</div><div class="mine-acts">${acts}</div></div>${ord}${recent}`;
+}
+async function mineAct(act, btn) {
+  const b = btn ? { el: btn, text: btn.textContent } : null;
+  if (b && /^(open|signin)$/.test(act)) { btn.disabled = true; btn.textContent = 'Opening…'; }
+  try {
+    const bt = await getBitcoin();
+    if (act === 'open') await bt.openHere();
+    else if (act === 'signin') await bt.signIn();
+    else if (act === 'fund') bt.fund();
+    else if (act === 'lock') bt.lock();
+    else if (act === 'list') await openBitcoin(bookPrime('list'));
+    else await openBitcoin();
+  } catch (e) {
+    if (!/cancel/i.test(e?.message || '') && !e?.unlockCancelled && e?.name !== 'NotAllowedError' && e?.code !== 4001) notify(String(e?.message || e).slice(0, 200), 'error', 9000);
+  } finally { if (b?.el.isConnected) { b.el.disabled = false; b.el.textContent = b.text; } renderBook(); }
+}
+// What pressing a price on the Bitcoin book would do, said while the pointer is on it: what it costs to take everything up to that price.
+const PEEK_IDLE = 'Press a price to buy or sell up to it.';
+function setPeek(t) { const el = $('#ob-peek'); if (t === null || !btcOn()) { el.hidden = true; return; } el.hidden = false; el.textContent = t || PEEK_IDLE; }
+function peekText(kind, i) {
+  const b = D.book; if (!b) return '';
+  const want = bookPrime(kind, i), buy = kind === 'buy';
+  const p = buy ? planBuy(b, { receiveBase: want.receiveBase }) : planBtcSell(b, { sellBase: want.sellBase, includeManual: true });
+  if (!p.fills.length) return '';
+  const sats = p.sats, avg = p.avgUnit ? btcPxFmt(btcPx(p.avgUnit)) : '';
+  return [`${buy ? 'Buy' : 'Sell'} ${tacFmt(Number(p.amount) / 1e8)} TAC for ${satsFmt(sats)} sats`, D.btcUsd ? `about ${usd(sats / 1e8 * D.btcUsd)}` : '', avg ? `${avg} each` : '', p.fills.length > 1 ? `${p.fills.length} ${buy ? 'listings' : 'bids'}` : ''].filter(Boolean).join(' · ');
 }
 
 // ── the order books and the facts ──
@@ -610,7 +729,7 @@ function tradesHtml() {
 }
 const TRADES_ROWS = 12;
 const hasBoardOrders = () => !!D.zb && (D.zb.asks.length > 0 || D.zb.bids.length > 0);
-const bookTab = () => S.book || (D.zb ? (hasBoardOrders() ? 'eth' : 'btc') : (D.zbFailed ? 'btc' : 'eth'));                   // until a tab is chosen: Ethereum, unless its boards hold nothing
+const bookTab = () => (S.book === 'mine' && !showMine() ? null : S.book) || (D.zb ? (hasBoardOrders() ? 'eth' : 'btc') : (D.zbFailed ? 'btc' : 'eth'));                   // until a tab is chosen: Ethereum, unless its boards hold nothing
 const ethPx = (p) => (D.ethUsd ? p * D.ethUsd : p);
 const ethPxFmt = (v) => (D.ethUsd ? usd(v) : `${sig(v)} ETH`);
 const btcPx = (sats) => (D.btcUsd ? (sats * D.btcUsd) / 1e8 : sats);
@@ -671,9 +790,13 @@ function btcStack(b, live) {
 // Written only when it changed: the minute's refresh leaves a focused row, a hover and the scroll as they were.
 const setHtml = (el, h) => { if (el.__h !== h) { el.__h = h; el.innerHTML = h; } };
 function renderBook() {
+  const orders = myOrders(), mb = $('#book-seg [data-book="mine"]');
+  mb.hidden = !showMine(); setHtml(mb, `Yours${orders.length ? `<i class="n">${orders.length}</i>` : ''}`);
   const tab = bookTab(), box = $('#ladders'), note = $('#depth-note');
   $('#book-seg').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.book === tab)));
-  $('#depthchart').hidden = tab === 'trades';
+  $('#depthchart').hidden = tab === 'trades' || tab === 'mine';
+  setPeek(tab === 'btc' ? '' : null);
+  if (tab === 'mine') { setHtml(box, mineHtml(orders)); note.textContent = ''; return; }
   if (tab === 'trades') {
     setHtml(box, tradesHtml());
     note.textContent = 'Swaps in the Precision pool for about the last day, read from its own events (a split counts its Precision share), and every trade on the Bitcoin order book.';
@@ -707,7 +830,8 @@ function renderBook() {
   setHtml(box, btcStack(b, live) + (live ? `<div class="btc-actions"><button class="fillbtn primary" type="button" data-btc="open">Trade on Bitcoin</button><button class="fillbtn" type="button" data-btc="list">List a sale</button></div>` : ''));
   const total = b.asks.reduce((a, r) => a + r.amount, 0n), want = b.bids.reduce((a, r) => a + r.amount, 0n);
   const bidsTxt = !D.bidsRead ? 'Could not read the bids.' : b.bids.length ? `${b.bids.length} bid${b.bids.length === 1 ? '' : 's'} (${grp(Number(want) / 1e8, 0)} TAC) settle when the bidder is online${b.bids.some((r) => r.auto) ? ', some within minutes' : ''}.` : 'No bids.';
-  note.innerHTML = b.asks.length ? `${b.asks.length} listings (${grp(Number(total) / 1e8, 0)} TAC), taken whole. ${bidsTxt}${live ? '' : ` <a href="/tac/#buy">Buy on Bitcoin →</a> · <a href="/classic.html#tab=market&aid=${TAC_BTC_ID}&lane=btc">List a sale →</a>`}` : bidsTxt;
+  const nMine = orders.filter((o) => o.lane === 'btc').length, yours = nMine ? `<button type="button" class="linkbtn" data-goto="mine">You have ${nMine} open order${nMine === 1 ? '' : 's'} here</button>. ` : '';
+  note.innerHTML = b.asks.length ? `${yours}${b.asks.length} listings (${grp(Number(total) / 1e8, 0)} TAC), taken whole. ${bidsTxt}${live ? '' : ` <a href="/tac/#buy">Buy on Bitcoin →</a> · <a href="/classic.html#tab=market&aid=${TAC_BTC_ID}&lane=btc">List a sale →</a>`}` : bidsTxt;
 }
 // Pinning an order: the ticket takes its side and size, and trades with that order alone.
 function renderPin() {
@@ -846,7 +970,7 @@ async function connectWallet() {
     await afterConnect();
   } catch (e) { say(esc(e instanceof UserStopped ? 'Not connected.' : (e.message || 'The wallet did not connect.'))); }
 }
-async function afterConnect() { renderChip(); renderBook(); farm.refresh(); await readBalances(); renderBalance(); if (getAmount()) requote(); else renderGo(); }
+async function afterConnect() { renderChip(); syncMe(); farm.refresh(); await readBalances(); renderBalance(); if (getAmount()) requote(); else renderGo(); }
 
 // ── the wallet chip in the header: connect, or see the account and disconnect ──
 function renderChip() {
@@ -861,11 +985,19 @@ function walletSheet() {
   const o = overlay({ title: 'Wallet', top: true });
   const bal = S.bal ? `<div class="kv"><span>ETH</span><b class="num">${esc(fmtUnits(S.bal.eth ?? 0n, 18, 4))}</b></div><div class="kv"><span>TAC</span><b class="num">${esc(fmtUnits(S.bal.tac ?? 0n, 18, 2))}</b></div>` : '';
   const wrong = W.chain && W.chain !== '0x1';
-  o.body.innerHTML = `<div class="kv"><span>Connected with</span><b>${esc(W.name)}</b></div><div class="kv"><span>Account</span><b class="addr-s">${esc(W.account)}</b></div>${wrong ? '<div class="kv"><span>Network</span><b>Not Ethereum <button class="linkbtn" type="button" data-switch>Switch</button></b></div>' : ''}${bal}<div class="bsheet-actions" style="margin-top:14px"><button class="btn ghost" type="button" data-copy>Copy address</button><button class="btn" type="button" data-leave${S.busy || farm.busy() ? ' disabled' : ''}>Disconnect</button></div>${S.busy || farm.busy() ? '<p class="note">A trade is in progress; disconnect when it ends.</p>' : ''}`;
+  // The same wallet on Bitcoin: its Tacit key's address and what it holds there when the key is open, else a way to open it.
+  const bk = bitcoin?.session.unlocked ? bitcoin.me : null, btcOpen = !!bitcoin?.session.unlocked;
+  const onBtc = bk ? `<div class="kv"><span>Bitcoin</span><b class="addr-s">${esc(bk.address || '')}</b></div><div class="kv"><span>On Bitcoin</span><b class="num">${bk.sats != null ? esc(satsFmt(bk.sats)) : '—'} sats · ${bk.assetBase != null ? esc(tacFmt(Number(bk.assetBase) / 1e8)) : '…'} TAC <button class="linkbtn" type="button" data-btc-lock>Lock</button></b></div>`
+    : btcOpen ? '<div class="kv"><span>Bitcoin</span><b>Reading…</b></div>'
+    : pageWallet() ? `<div class="kv"><span>Bitcoin</span><b>${ME.pub ? 'Your Tacit wallet' : 'Not open'} <button class="linkbtn" type="button" data-btc-open>${ME.pub ? 'Show balances' : 'Open'}</button></b></div>` : '';
+  o.body.innerHTML = `<div class="kv"><span>Connected with</span><b>${esc(W.name)}</b></div><div class="kv"><span>Account</span><b class="addr-s">${esc(W.account)}</b></div>${wrong ? '<div class="kv"><span>Network</span><b>Not Ethereum <button class="linkbtn" type="button" data-switch>Switch</button></b></div>' : ''}${bal}${onBtc}<div class="bsheet-actions" style="margin-top:14px"><button class="btn ghost" type="button" data-copy>Copy address</button><button class="btn" type="button" data-leave${S.busy || farm.busy() ? ' disabled' : ''}>Disconnect</button></div>${S.busy || farm.busy() ? '<p class="note">A trade is in progress; disconnect when it ends.</p>' : ''}`;
   const addr = W.account;
   o.body.querySelector('[data-switch]')?.addEventListener('click', (e) => { e.target.disabled = true; wallet.ensureMainnet().then(() => { o.close(); renderChip(); }, () => { e.target.disabled = false; }); });
   o.body.querySelector('[data-copy]').onclick = (e) => navigator.clipboard?.writeText(addr).then(() => { e.target.textContent = 'Copied'; }, () => { e.target.textContent = 'Could not copy'; });
-  o.body.querySelector('[data-leave]').onclick = async () => { o.close(); await wallet.disconnect(); renderChip(); renderGo(); };
+  o.body.querySelector('[data-btc-lock]')?.addEventListener('click', () => { bitcoin?.lock(); o.close(); });
+  o.body.querySelector('[data-btc-open]')?.addEventListener('click', (e) => { o.close(); S.book = 'mine'; mineAct('open', null); renderBook(); e.stopPropagation(); });
+  // Leaving closes the Bitcoin key this wallet opened: it is held in memory only, and belongs to the account being left.
+  o.body.querySelector('[data-leave]').onclick = async () => { o.close(); if (bitcoin?.session.unlocked && bitcoin.session.key?.mode === 'eth' && lc(bitcoin.session.key.address) === lc(addr)) bitcoin.lock(); await wallet.disconnect(); renderChip(); syncMe(); renderGo(); };
 }
 $('#wallet-chip').addEventListener('click', () => { if (W.account) walletSheet(); else connectWallet(); });
 
@@ -884,7 +1016,7 @@ wallet.restore().catch(() => {});                                               
   if ('IntersectionObserver' in window) new IntersectionObserver(([e]) => { stick.hidden = e.isIntersecting; }, { rootMargin: '0px 0px -40px 0px' }).observe(ticket);
   $('#stick-go').addEventListener('click', () => ticket.scrollIntoView({ behavior: 'smooth', block: 'start' }));
 }
-wallet.onChange(() => { renderChip(); renderBook(); if (!farm.busy()) farm.refresh(); if (S.busy) return; readBalances().then(() => { renderBalance(); if (getAmount()) requote(); else renderGo(); }); });   // a trade in flight keeps the account it was reviewed for: the wallet module refuses to send for another
+wallet.onChange(() => { renderChip(); syncMe(); if (!farm.busy()) farm.refresh(); if (S.busy) return; readBalances().then(() => { renderBalance(); if (getAmount()) requote(); else renderGo(); }); });   // a trade in flight keeps the account it was reviewed for: the wallet module refuses to send for another
 
 // The transaction, with the TAC a sale spends made available: a permit signed (no gas) where the route takes one, else an approval sent first.
 async function withTacAccess({ make, buy, permit, from, dl }) {
@@ -961,7 +1093,7 @@ async function prepareBoards(P, from) {
 }
 
 // The tested transaction sent, and what arrived said in plain words.
-async function sendAndReport(tx, { from, buy }) {
+async function sendAndReport(tx, { from, buy, P }) {
   say('Confirm the transaction in your wallet.');
   const eth0 = await rpc('eth_getBalance', [from, 'latest']).then((x) => BigInt(x), () => null);      // read now: any approval above has been paid for already
   const hash = await wallet.sendTx({ ...tx, from });
@@ -973,6 +1105,8 @@ async function sendAndReport(tx, { from, buy }) {
   if (buy) { const T = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', me = '0x' + word(BigInt(from)); got = rc.logs.filter((l) => l.address.toLowerCase() === TAC_ERC20.toLowerCase() && l.topics[0] === T && l.topics[2]?.toLowerCase() === me).reduce((a, l) => a + BigInt(l.data), 0n); }
   await readBalances();
   if (!buy && eth0 != null && S.bal?.eth != null && W.account?.toLowerCase() === from.toLowerCase()) got = S.bal.eth - eth0 + BigInt(rc.gasUsed) * BigInt(rc.effectiveGasPrice || 0);
+  const tacOut = buy ? got : P?.wei, ethOut = buy ? P?.wei : got;
+  if (tacOut != null && ethOut != null) noteAct({ who: lc(from), lane: 'eth', kind: buy ? 'bought' : 'sold', tac: Number(tacOut) / 1e18, paid: Number(ethOut) / 1e18, unit: 'eth', tx: hash });
   S.quote = null; S.ack = null; S.amt = ''; S.pin = null; $('#amt').value = ''; keepInHash();
   renderBalance(); renderQuote(null); renderVenues(null); renderPin();
   loadChain().then(paintAll).catch(() => {});                                                  // the pools have moved
@@ -1000,7 +1134,7 @@ async function execute(P) {
   S.busy = true; lockTicket(); renderGo();
   try {
     const tx = await (P.via === 'boards' ? prepareBoards(P, from) : preparePools(P, from));
-    if (tx) await sendAndReport(tx, { from, buy: P.buy });
+    if (tx) await sendAndReport(tx, { from, buy: P.buy, P });
   } catch (e) {
     say(`<span class="err">${esc(e instanceof UserStopped ? e.message : String(e.message || e).slice(0, 220))}</span>`);
   } finally { S.busy = false; lockTicket(); renderGo(); }
@@ -1056,13 +1190,23 @@ $('#side-seg').addEventListener('click', (e) => {
 });
 document.addEventListener('click', (e) => { const h = $('#hints'); if (h.open && !h.contains(e.target)) h.open = false; });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#hints').open) { $('#hints').open = false; $('#hints summary').focus(); } });
+$('#depth-note').addEventListener('click', (e) => { const g = e.target.closest('[data-goto]'); if (g) { S.book = g.dataset.goto; renderBook(); } });
 $('#book-seg').addEventListener('click', (e) => { const b = e.target.closest('[data-book]'); if (b) { S.book = b.dataset.book; renderBook(); if (S.book === 'trades') ensureTrades(); } });
 $('#ladders').addEventListener('click', (e) => {
   if (e.target.closest('[data-more]')) { S.bookAll = !S.bookAll; renderBook(); return; }
   if (e.target.closest('[data-more-trades]')) { S.tradesAll = !S.tradesAll; renderBook(); return; }
   const f = e.target.closest('[data-fill]'); if (f) { pinOrder(f.dataset.fill); return; }
+  const m = e.target.closest('[data-mine]'); if (m) { mineAct(m.dataset.mine, m); return; }
   const k = e.target.closest('[data-btc]'); if (k) openBitcoin(bookPrime(k.dataset.btc, Number(k.dataset.i)));
 });
+// The price under the pointer (or the keyboard's focus) says what taking everything up to it comes to.
+const peekRow = (e) => { const r = e.target.closest?.('[data-btc][data-i]'); setPeek(r ? peekText(r.dataset.btc, Number(r.dataset.i)) : ''); };
+$('#ladders').addEventListener('mouseover', peekRow); $('#ladders').addEventListener('focusin', peekRow);
+$('#ladders').addEventListener('mouseleave', () => setPeek('')); $('#ladders').addEventListener('focusout', () => setPeek(''));
+// The key opens from this wallet's signature and the Bitcoin code is large: it starts loading when the visitor reaches for the button.
+const warm = () => getBitcoin().then((b) => b.session.load()).catch(() => {});
+$('#ladders').addEventListener('mouseover', (e) => { if (e.target.closest?.('[data-mine="open"],[data-mine="signin"]')) warm(); });
+$('#ladders').addEventListener('focusin', (e) => { if (e.target.closest?.('[data-mine="open"],[data-mine="signin"]')) warm(); });
 $('#pin').addEventListener('click', (e) => { if (e.target.closest('#unpin') && !S.busy) { S.pin = null; renderPin(); requote(); renderBook(); } });
 $('#lane-seg').addEventListener('click', (e) => { const b = e.target.closest('[data-lane]'); if (b) { S.lane = b.dataset.lane; renderChart(); } });
 $('.p-chart').addEventListener('click', (e) => {
@@ -1084,5 +1228,5 @@ Promise.allSettled(loads).then((rs) => {
   if (params.get('amount')) { S.amt = params.get('amount'); $('#amt').value = S.amt; requote(); } else keepInHash();
   paintAll();
 });
-setInterval(() => { if (!document.hidden) { loadChain().then(paintAll).catch(() => {}); loadTapes().then(paintAll).catch(() => {}); loadBitcoin().then(paintAll).catch(() => {}); loadBoards().then(paintAll).catch(() => {}); if (S.quote && !S.busy && !S.refreshing) requote(true); if (W.account && !S.busy) readBalances().then(() => { renderBalance(); renderGo(); }); if (!farm.busy()) farm.refresh(); if (bookTab() === 'trades') ensureTrades(true); } }, 60e3);       // a review being read, or a trade being made, is not redrawn under the person
+setInterval(() => { if (!document.hidden) { loadChain().then(paintAll).catch(() => {}); loadTapes().then(paintAll).catch(() => {}); loadBitcoin().then(paintAll).catch(() => {}); loadBoards().then(paintAll).catch(() => {}); if (S.quote && !S.busy && !S.refreshing) requote(true); if (W.account && !S.busy) readBalances().then(() => { renderBalance(); renderGo(); }); if (!farm.busy()) farm.refresh(); if (bookTab() === 'trades') ensureTrades(true); if (bitcoin?.session.unlocked && !bitcoin.isOpen) bitcoin.refresh().catch(() => {}); } }, 60e3);       // a review being read, or a trade being made, is not redrawn under the person
 

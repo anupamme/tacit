@@ -10,7 +10,7 @@ import {
   makeRpc, makeReader, staticCalls, parseStatic, dynamicCalls, parseDynamic, timestampCall, refusal, decString, SEL, wordAt, addrWord,
   encDeposit, encWithdraw, encBorrow, encRepay, encCancel, encApprove, encPermit, encMulticall,
 } from '/vault/chain.js?cb=e0fd9190';
-import { makeWallet, UserStopped } from '/trade/wallet.js?cb=7807fdc8';
+import { makeWallet, UserStopped } from '/trade/wallet.js?cb=a6b2910e';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
 

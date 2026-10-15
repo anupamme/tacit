@@ -5,7 +5,7 @@
 //
 // It reads the chain and the API with no wallet, as /trade/tac/ does, and holds no key it was not given: the key lives in this visit's memory.
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=f31c8773';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=1fec55fa';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=b4f67314';
 import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=0a77ef18';
 import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=bbfd12bd';
 import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, forgetUx, getUx } from '/trade/teth/wrap.js?cb=0b6c2c41';
@@ -189,7 +189,7 @@ function notify(msg, kind = '', ms = 5000) {
 }
 async function openBitcoin(prime = null) {
   try {
-    bitcoin ||= (await import('/trade/btc.js?cb=4c730bad')).makeBitcoin({ notify, onTraded: () => loadMarket().then(paintAll).catch(() => {}),
+    bitcoin ||= (await import('/trade/btc.js?cb=b0f73a4b')).makeBitcoin({ notify, onTraded: () => loadMarket().then(paintAll).catch(() => {}),
       asset: { id: BTC_ID, title: 'tETH on Bitcoin', after: 'tETH you hold on Ethereum comes to Bitcoin by the bridge: <a href="/#private/bitcoin">Bridge →</a>' } });
     await bitcoin.open(prime);
   } catch (e) { notify(`The Bitcoin market could not be opened: ${e?.message || e}`, 'error', 9000); }

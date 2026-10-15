@@ -11,10 +11,14 @@ const TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
 const TAC_ASSET = { id: TAC, title: 'TAC on Bitcoin', after: 'To sell TAC you hold on Ethereum, bridge it to Bitcoin first. <a href="/#bridge">Bridge →</a>' };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export function makeBitcoin({ notify = () => {}, onTraded = () => {}, asset = TAC_ASSET } = {}) {
+// `wallet()` names the Ethereum wallet the page has connected ({ uuid, address }, or null), so opening the Tacit key can use that same wallet
+// without asking again which one. `onChange` hears when the key opens or locks and when the sats and TAC it holds are read again.
+export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange = () => {}, wallet = () => null, asset = TAC_ASSET } = {}) {
   const AID = asset.id;
   const session = makeBtcSession();
   let main = null, host = null, ctl = null, meState = null, meTimer = 0, off = null;
+  const changed = () => { try { onChange(); } catch { /* the page's listener must not break the market */ } };
+  session.onChange(() => { if (!session.unlocked) meState = null; changed(); });
 
   // ── signing in ──
   const via = (k) => ({ eth: `Ethereum ${short(k.address || '')}`, btc: `Bitcoin ${short(k.address || '', 6)}`, passkey: `passkey “${k.label || 'Tacit'}”` })[k?.mode] || 'your wallet';
@@ -30,8 +34,11 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, asset = TA
       const known = session.known(), other = session.other();
       const o = overlay({ title: 'Open your Tacit wallet', top: true, onClose: () => { if (!session.unlocked) reject(new Cancelled()); } });
       const opt = (k, t, m, cls = '') => `<button class="way ${cls}" type="button" data-in="${k}"><span class="way-t">${t}</span><span class="way-m">${m}</span></button>`;
-      const pk = session.passkeyAvailable(), hasBtc = session.btcSeen(), hasEth = session.ethAvailable();
+      const pk = session.passkeyAvailable(), hasBtc = session.btcSeen(), hasEth = session.ethAvailable(), here = wallet();
+      // The wallet connected on this page leads, unless the Tacit wallet it would open is the one offered first anyway.
+      const hereIsKnown = known?.mode === 'eth' && here && String(known.address || '').toLowerCase() === here.address.toLowerCase();
       o.body.innerHTML = `<p class="note" style="margin-top:0">Open your Tacit wallet to trade on Bitcoin. This page never stores the key.</p><div class="ways">
+        ${here && !hereIsKnown ? opt('page', 'Use the wallet connected here', `Ethereum ${esc(short(here.address))}. One signature (two the first time).`, known ? '' : 'main') : ''}
         ${known ? opt('known', 'Continue with your Tacit wallet', `Opens with ${esc(via(known))}, the same key as on tacit.finance.`, 'main') : ''}
         ${other ? opt('other', 'Your other Tacit key', `A different key, opened here before with ${esc(via(other))}.`) : ''}
         ${opt('eth', 'Ethereum wallet', hasEth ? 'Any browser wallet. One signature (two the first time).' : 'Any browser wallet. Not found in this browser.')}
@@ -47,16 +54,29 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, asset = TA
         busy = true; err.hidden = true; b.setAttribute('aria-busy', 'true'); o.body.querySelectorAll('[data-in]').forEach((x) => { x.disabled = true; });
         try {
           const k = b.dataset.in;
-          if (k === 'known') await session.open[known.mode](known, pickWallet);
-          else if (k === 'other') await session.open[other.mode](other, pickWallet);
+          if (k === 'page') await openWithPage();
+          else if (k === 'known') await session.open[known.mode](known, pickFor(known));
+          else if (k === 'other') await session.open[other.mode](other, pickFor(other));
           else if (k === 'new') await session.open.newPasskey();
-          else await session.open[k](undefined, pickWallet);
+          else await session.open[k](undefined, k === 'eth' ? pickFor(null) : pickWallet);
           o.close(); resolve();
         } catch (e) {
           if (!/cancel/i.test(e?.message || '') && e?.name !== 'NotAllowedError' && !e?.unlockCancelled) { err.textContent = e?.message || 'That did not open a wallet.'; err.hidden = false; }
         } finally { busy = false; b.removeAttribute('aria-busy'); o.body.querySelectorAll('[data-in]').forEach((x) => { x.disabled = false; }); }
       }; });
     });
+  }
+  // Which Ethereum wallet signs: the one connected on this page when the key being opened is its account's (or any account's), else the visitor chooses
+  // among the browser's wallets (WalletConnect is announced beside them here, so a choice is always on offer).
+  function pickFor(k) {
+    const here = wallet();
+    return here?.uuid && (!k?.address || String(k.address).toLowerCase() === here.address.toLowerCase()) ? async () => here.uuid : pickWallet;
+  }
+  // The Tacit key from the wallet already connected on this page: its signature, for that account only, with no wallet to choose.
+  function openWithPage() {
+    const here = wallet();
+    if (!here) throw new Error('Connect an Ethereum wallet on this page first.');
+    return session.open.eth({ address: here.address }, pickFor({ address: here.address }));
   }
   // The market module's unlock: a key already open is used as it is.
   // Two asks at once (a double click, or the module and a recovery) share one prompt.
@@ -111,16 +131,34 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, asset = TA
 
   // The sats at the key's address and the TAC it holds, which the module reads synchronously through ctx.me().
   async function refreshMe() {
-    if (!session.unlocked) { meState = null; return; }
+    if (!session.unlocked) { meState = null; changed(); return; }
     const T = session.T, my = session.key;
-    const [utxos, holdings] = await Promise.all([T.getUtxos(T.wallet.address()).catch(() => null), T.scanHoldings().catch(() => null)]);
+    // The sats are read quickly and shown at once; the TAC takes a walk through the key's history and follows. A read that is still
+    // pending keeps what was known before it (a soft refresh does not blank the balance).
+    const holdingsP = T.scanHoldings().catch(() => null);
+    const utxos = await T.getUtxos(T.wallet.address()).catch(() => null);
     if (session.key !== my) return;                                                        // the key changed while this was read
-    const h = holdings instanceof Map ? holdings.get(AID) : null;
+    const kept = meState?.pubHex === my.pubHex ? meState.assetBase : null;
     meState = {
       pubHex: my.pubHex, h160: T.bytesToHex(T.hash160(T.wallet.pub)), unlocked: true,
       sats: Array.isArray(utxos) ? utxos.reduce((a, u) => a + Number(u.value || 0), 0) : null,
-      assetBase: h && typeof h.balance === 'bigint' ? h.balance : (holdings ? 0n : null),
+      assetBase: kept, address: T.wallet.address(),
     };
+    changed();
+    const holdings = await holdingsP;
+    if (session.key !== my || !meState) return;
+    const h = holdings instanceof Map ? holdings.get(AID) : null;
+    meState = { ...meState, assetBase: h && typeof h.balance === 'bigint' ? h.balance : (holdings ? 0n : kept) };
+    changed();
+  }
+  // Opens the key with the page's wallet and reads what it holds, with no sheet: the page's own panels show the result.
+  let opening = null;
+  function openHere() {
+    return (opening ||= (async () => {
+      await session.load();
+      if (!session.unlocked) await openWithPage();
+      await refreshMe();
+    })().finally(() => { opening = null; }));
   }
 
   // The asset's ticker and decimals come with the market data, and the module reads them once when it mounts, so the data is loaded first.
@@ -131,7 +169,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, asset = TA
     const base = T._btcMarketCtx(AID);
     if (!base.asset()?.ticker || base.asset().ticker === '?') throw new Error('the market data did not load');
     const logo = (h) => (typeof h === 'string' ? h.replace('src="tac-logo.png"', 'src="/tac-logo.png"') : h);      // tacit.js names the logo relative to the classic app's address
-    const settled = (fn) => async (...a) => { try { await fn?.(...a); } finally { try { await refreshMe(); ctl?.refresh?.({ soft: true }); } catch { /* the next refresh reads it */ } onTraded(); } };
+    const settled = (fn, kind) => async (...a) => { try { await fn?.(...a); } finally { try { await refreshMe(); ctl?.refresh?.({ soft: true }); } catch { /* the next refresh reads it */ } onTraded({ kind, ...(a[0] || {}) }); } };
     return {
       ...base,
       mountEth: null, initialLane: 'btc', onLane: null,
@@ -143,7 +181,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, asset = TA
       onError: (e) => { recovery(e).catch(() => {}); },
       goBack: () => main?.close(),
       onAct: () => {},
-      after: { bought: settled(base.after.bought), sold: settled(base.after.sold), listed: settled(base.after.listed) },
+      after: { bought: settled(base.after.bought, 'bought'), sold: settled(base.after.sold, 'sold'), listed: settled(base.after.listed, 'listed') },
     };
   }
 
@@ -196,5 +234,10 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, asset = TA
       await sleep(150);
     }
   }
-  return { open, session, recovery, get isOpen() { return !!main; } };
+  return {
+    open, session, recovery, get isOpen() { return !!main; },
+    openHere, refresh: refreshMe, fund: fundDialog, signIn: unlock,
+    get me() { return meState; },
+    lock() { session.lock(); meState = null; ctl?.refresh?.({ soft: true }); changed(); },
+  };
 }

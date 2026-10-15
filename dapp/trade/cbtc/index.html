@@ -20,12 +20,12 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /trade/cbtc/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/trade/cbtc/app.js?cb=251b104e">
+<link rel="modulepreload" href="/trade/cbtc/app.js?cb=8ffc467c">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/trade/chart.js?cb=f31c8773">
-<link rel="modulepreload" href="/trade/connect.js?cb=1fec55fa">
+<link rel="modulepreload" href="/trade/connect.js?cb=b4f67314">
 <link rel="modulepreload" href="/walletconnect.js?cb=31f53606">
-<link rel="modulepreload" href="/trade/wallet.js?cb=7807fdc8">
+<link rel="modulepreload" href="/trade/wallet.js?cb=a6b2910e">
 <link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
 <link rel="modulepreload" href="/trade/util.js?cb=dd68ca48">
 <link rel="modulepreload" href="/trade/key.js?cb=0a77ef18">
@@ -329,6 +329,16 @@ button.ob-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2p
 .ob-spread { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; padding: 0 12px; border-top: 1px solid var(--hair-2); border-bottom: 1px solid var(--hair-2); background: var(--field); font-size: 11px; color: var(--mute); }
 .ob-last { display: inline-flex; align-items: baseline; gap: 6px; } .ob-last b { font-size: 15px; font-weight: 500; color: var(--ink); } .ob-last em { font-style: normal; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
 .ob-empty { padding: 12px; font-size: 11.5px; color: var(--mute); }
+.ob-peek { min-height: 1.7em; margin: 8px 0 0; font-size: 12px; color: var(--mute); }
+@media (max-width: 560px) { .ob-peek { min-height: 3.4em; } }
+.seg button i.n { font-style: normal; margin-left: 6px; opacity: .7; }
+.mine-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: 0 0 12px; padding: 12px 14px; background: var(--field); border: 1px solid var(--hair); }
+.mine-who { display: flex; flex-direction: column; min-width: 0; font-size: 12px; } .mine-who b { font-weight: 500; font-size: 13px; } .mine-who span { color: var(--mute); }
+.mine-bal { flex: 1 1 200px; min-width: 0; font-size: 12.5px; color: var(--mute); } .mine-acts { display: flex; gap: 8px; margin-left: auto; }
+.mine-note { margin: -4px 0 12px; font-size: 11.5px; } .mine-h { margin: 18px 0 4px; font-size: 12px; color: var(--ink); } .mine-h span { color: var(--mute); margin-left: 6px; }
+.yours td small { margin-left: 8px; text-transform: none; letter-spacing: 0; } .yours tbody tr:first-child td { border-top: 0; }
+.yours td.r, .yours td.go, .yours.recent td:first-child { white-space: nowrap; }
+@media (max-width: 560px) { .yours td small { display: block; margin-left: 0; } .yours.recent td { padding-left: 4px; padding-right: 4px; } }
 .ob-more { display: block; width: 100%; height: 32px; background: none; border: 0; border-top: 1px solid var(--hair); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--mute); cursor: pointer; }
 @media (hover: hover) { .ob-more:hover { color: var(--ink); background: var(--field); } }
 @container (max-width: 560px) { .ob-row .p small { display: none; } }
@@ -624,6 +634,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/cbtc/app.js?cb=251b104e"></script>
+<script type="module" src="/trade/cbtc/app.js?cb=8ffc467c"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 // The browser wallet on a trade page: the header chip, the picker, WalletConnect's pairing sheets, and the account sheet with Disconnect. The page
 // says what to show in the account sheet and what to do when the account changes; the wallet itself (sending, signing, receipts) is wallet.js.
 import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
-import { makeWallet, UserStopped } from '/trade/wallet.js?cb=7807fdc8';
+import { makeWallet, UserStopped } from '/trade/wallet.js?cb=a6b2910e';
 import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
 import { rpc, RPCS, short, $ } from '/trade/util.js?cb=dd68ca48';
 

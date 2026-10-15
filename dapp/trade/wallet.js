@@ -7,7 +7,7 @@ export class UserStopped extends Error { constructor() { super('Cancelled in you
 
 export function makeWallet({ rpc, leave = null }) {
   const found = new Map();
-  const W = { prov: null, name: '', account: null, chain: null, listeners: new Set() };
+  const W = { prov: null, name: '', uuid: null, account: null, chain: null, listeners: new Set() };
   const emit = () => { for (const f of W.listeners) f(); };
   addEventListener('eip6963:announceProvider', (e) => { if (e.detail?.provider?.request) found.set(e.detail.info?.uuid || String(found.size), e.detail); });
   dispatchEvent(new Event('eip6963:requestProvider'));
@@ -25,9 +25,9 @@ export function makeWallet({ rpc, leave = null }) {
   // `silent`: asks only for the accounts the wallet already allows this site (eth_accounts opens no prompt); none → not connected.
   async function connect(w, { silent = false } = {}) {
     off?.(); off = null;
-    W.prov = w.provider; W.name = w.info?.name || 'Wallet';
+    W.prov = w.provider; W.name = w.info?.name || 'Wallet'; W.uuid = w.info?.uuid || null;     // the EIP-6963 id: another module can find this same wallet among the announced ones
     const accounts = await req(silent ? 'eth_accounts' : 'eth_requestAccounts');
-    if (silent && !accounts?.[0]) { W.prov = null; W.name = ''; return false; }
+    if (silent && !accounts?.[0]) { W.prov = null; W.name = ''; W.uuid = null; return false; }
     W.account = accounts?.[0] ? String(accounts[0]) : null;
     W.chain = await req('eth_chainId');
     const prov = W.prov, onAccounts = (a) => { if (prov === W.prov) { W.account = a?.[0] ? String(a[0]) : null; emit(); } }, onChain = (c) => { if (prov === W.prov) { W.chain = c; emit(); } };
@@ -52,7 +52,7 @@ export function makeWallet({ rpc, leave = null }) {
   async function disconnect() {
     off?.(); off = null;
     const prov = W.prov;
-    W.prov = null; W.name = ''; W.account = null; W.chain = null;
+    W.prov = null; W.name = ''; W.uuid = null; W.account = null; W.chain = null;
     remember(null);
     try { await leave?.(prov); } catch { /* the session is gone either way */ }
     emit();
