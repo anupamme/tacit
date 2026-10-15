@@ -10,6 +10,8 @@
 //          tx }], poolState(blockNumber) → { root, nextIndex } }
 
 export class LeafSyncError extends Error {}
+// A chunk that is not kept: nothing was stored for it, so the next sync reads it again (no reset).
+export class ChunkNotKept extends Error {}
 
 const str = (x) => (x === undefined || x === null ? null : typeof x === 'bigint' ? x.toString() : String(x));
 const lc = (a) => (a ? String(a).toLowerCase() : null);
@@ -76,6 +78,11 @@ export function makeLeafSync({ store, chain, zk, startBlock = 0n, confirmations 
         const to = from + BigInt(logChunk) - 1n > safe ? safe : from + BigInt(logChunk) - 1n;
         const [txs, recs] = await Promise.all([chain.transactLogs(from, to), chain.receivedLogs ? chain.receivedLogs(from, to) : []]);
         const items = ordered(txs, store.leafCount());
+        // A node that keeps only recent history answers an old range with nothing rather than an error, and a fallback stops at that
+        // answer, so a chunk is kept only when the leaves it leaves the store with are the pool's own count at its last block. A node
+        // that cannot say fails the sync here too. Either way nothing is stored, and the chunk is read again.
+        const held = BigInt((await chain.poolState(to)).nextIndex), have = BigInt(store.leafCount() + items.length);
+        if (have !== held) throw new ChunkNotKept(`blocks ${from}-${to} would leave ${have} leaves, the pool held ${held} at block ${to}; the log node may keep only recent history`);
         const events = [
           ...txs.map((e) => ({ block: e.blockNumber, logIndex: e.logIndex ?? 0, ev: transactEvent(e) })),
           ...recs.map((e) => ({ block: e.blockNumber, logIndex: e.logIndex ?? 0, ev: receivedEvent(e) })),

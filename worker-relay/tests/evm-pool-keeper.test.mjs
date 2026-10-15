@@ -12,7 +12,7 @@ import { depositIntent, receiveRho, receiveKeys, callIntent, callIntentJson, cal
 import { ROUTER_ABI, frontFees, makeKeeperChain } from '../src/lib/evm-pool-keeper-chain.js';
 import { loadKeeperConfig, checkKeeperSigner, parseTokenMap, RELAY_EOA } from '../src/lib/evm-pool-keeper-config.js';
 import { openKeeperStore } from '../src/lib/evm-pool-keeper-store.js';
-import { makeLeafSync, makeFactsSync, LeafSyncError, FACT_KEYS } from '../src/lib/evm-pool-keeper-leaves.js';
+import { makeLeafSync, makeFactsSync, LeafSyncError, ChunkNotKept, FACT_KEYS } from '../src/lib/evm-pool-keeper-leaves.js';
 import { createIntakeHandler, parseDepositSubmission, parseWrapSubmission, parseReceiveSubmission, parseRelaySubmission, ipKey } from '../src/lib/evm-pool-keeper-intake.js';
 import { createKeeper, coverCheck, quoteFee } from '../src/lib/evm-pool-keeper-loop.js';
 import { loadZk } from '../src/lib/evm-pool-keeper-prover.js';
@@ -81,7 +81,12 @@ function mockChain({ log = [] } = {}) {
   c.balanceOf = async (token, holder) => c.balances.get(key(token, holder)) || 0n;
   c.gasPrice = async () => c.gas;
   c.blockNumber = async () => c.block;
-  c.poolState = async () => ({ root: zk.tree(c.leaves).root, nextIndex: BigInt(c.leaves.length) });
+  // The pool's state at `blockNumber` (the head when none is given): the leaves its events up to there inserted.
+  c.poolState = async (blockNumber) => {
+    const at = blockNumber === undefined ? c.block : BigInt(blockNumber);
+    const n = c.events.filter((e) => e.blockNumber <= at && (e.outLeaf0 !== 0n || e.outLeaf1 !== 0n)).length * 2;
+    return { root: zk.tree(c.leaves.slice(0, n)).root, nextIndex: BigInt(n) };
+  };
   c.transactLogs = async (from, to) => c.events.filter((e) => e.blockNumber >= from && e.blockNumber <= to);
   c.foreignTx = () => {
     const firstIndex = BigInt(c.leaves.length);
@@ -439,7 +444,11 @@ function factsChain() {
       recipient: REFUND, extAmount: b % 2n ? 1000n : -500n, relayer: KEEPER, fee: 5n, blockTimestamp: b % 2n ? null : 1_700_000_000n + b });
   }
   c.blockNumber = async () => c.block;
-  c.poolState = async () => ({ root: zk.tree(c.leaves).root, nextIndex: BigInt(c.leaves.length) });
+  c.poolState = async (blockNumber) => {
+    const at = blockNumber === undefined ? c.block : BigInt(blockNumber);
+    const n = c.logs.filter((l) => l.blockNumber <= at).length * 2;
+    return { root: zk.tree(c.leaves.slice(0, n)).root, nextIndex: BigInt(n) };
+  };
   c.transactLogs = async (from, to) => { c.calls.logs++; return c.logs.filter((l) => l.blockNumber >= from && l.blockNumber <= to); };
   c.txFacts = async (hash) => {
     if (c.failTxAt !== null && c.calls.tx++ === c.failTxAt) throw new Error('node down');
@@ -545,6 +554,27 @@ await test('history facts: a node that gives a block time of 0 gives none, and a
   assert.equal(chain.calls.time, 10, 'one block read for each block that had a 0');
   assert.equal(await facts.step(60_000), false);
   assert.equal(chain.calls.time, 10, 'and nothing is read again');
+});
+
+await test('leaf sync keeps no chunk the pool\'s own count at its last block does not confirm, so a node that has no old logs cannot leave a store marked synced and empty', async () => {
+  const chain = factsChain();                                  // 10 blocks (101..110), one transaction each: 20 leaves by block 110
+  const real = chain.transactLogs;
+  chain.transactLogs = async (from, to) => (to < 108n ? [] : real(from, to));   // the node answers an old range with nothing, not an error
+  const store = openKeeperStore(':memory:');
+  const sync = makeLeafSync({ store, chain, zk, startBlock: 101n, confirmations: 2n, logChunk: 4n });
+  await assert.rejects(sync.sync(), ChunkNotKept);
+  assert.equal(store.syncedBlock(), null, 'no progress was marked');
+  assert.equal(store.leafCount(), 0); assert.equal(store.eventsBetween(0, 1e9).length, 0);
+  await assert.rejects(sync.sync(), ChunkNotKept, 'and the next sync asks for the same chunk again');
+  // The same node with its old logs: the store fills, chunk by chunk, each confirmed by the pool's count.
+  chain.transactLogs = real;
+  const s = await sync.sync();
+  assert.equal(s.tree.size, 20); assert.equal(store.leafCount(), 20); assert.equal(store.syncedBlock(), 110);
+  // A node that cannot give the pool's state for an old block fails the sync the same way.
+  const store2 = openKeeperStore(':memory:');
+  const chain2 = factsChain(); chain2.poolState = async (b) => { if (b !== undefined && BigInt(b) < 108n) throw new Error('missing trie node'); return factsChain().poolState(b); };
+  await assert.rejects(makeLeafSync({ store: store2, chain: chain2, zk, startBlock: 101n, confirmations: 2n, logChunk: 4n }).sync(), /missing trie node/);
+  assert.equal(store2.syncedBlock(), null);
 });
 
 // ── loop ──
