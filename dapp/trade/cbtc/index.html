@@ -20,12 +20,12 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /trade/cbtc/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/trade/cbtc/app.js?cb=72c1185f">
+<link rel="modulepreload" href="/trade/cbtc/app.js?cb=251b104e">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/trade/chart.js?cb=f31c8773">
-<link rel="modulepreload" href="/trade/connect.js?cb=70694562">
+<link rel="modulepreload" href="/trade/connect.js?cb=1fec55fa">
 <link rel="modulepreload" href="/walletconnect.js?cb=31f53606">
-<link rel="modulepreload" href="/trade/wallet.js?cb=24e3ea08">
+<link rel="modulepreload" href="/trade/wallet.js?cb=7807fdc8">
 <link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
 <link rel="modulepreload" href="/trade/util.js?cb=dd68ca48">
 <link rel="modulepreload" href="/trade/key.js?cb=0a77ef18">
@@ -107,7 +107,8 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .top nav a { color: var(--mute); text-decoration: none; padding: 8px 0; }
 .top nav a[aria-current="page"] { color: var(--ink); }
 @media (hover: hover) { .top nav a:hover { color: var(--ink); text-decoration: underline; } }
-@media (max-width: 560px) { .top nav a.opt { display: none; } }
+@media (max-width: 760px) { .top nav a.opt { display: none; } }
+@media (max-width: 560px) { .top nav a[href="/"], .top nav a[aria-current="page"] { display: none; } .top nav { flex-wrap: nowrap; align-items: center; gap: 2px 14px; } }
 
 /* the markets the page trades: TAC, tETH and cBTC, one address each. A quiet pill: the page you are on is a soft chip, not a filled block. */
 .assets { display: inline-flex; gap: 2px; margin: 0 0 12px; padding: 3px; border-radius: 999px; background: color-mix(in srgb, var(--ink) 6%, transparent); font-size: 12.5px; }
@@ -158,6 +159,8 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 /* Wide: the ticket and the farm stack in one column beside the rest, with no gap under the ticket. Narrow: one column, the ticket first and the farm after the quotes. */
 .grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; grid-template-areas: "chart side" "depth side" "info side"; grid-template-rows: auto auto 1fr; gap: 14px 16px; }
 .side { grid-area: side; display: grid; gap: 14px; align-content: start; min-width: 0; }
+@media (min-width: 981px) { .grid.side-info { grid-template-areas: "chart side" "depth side"; grid-template-rows: auto 1fr; } .grid.side-info .p-info { grid-area: auto; } .grid.side-info .p-depth { align-self: start; } .side .facts li { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+
 .p-chart { grid-area: chart; } .p-depth { grid-area: depth; } .p-info { grid-area: info; }
 @media (max-width: 980px) { .grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "ticket" "chart" "farm" "depth" "info"; } .side { display: contents; } .p-ticket { grid-area: ticket; } .p-farm { grid-area: farm; } }
 .panel { background: var(--card); border: 1px solid var(--hair); padding: 22px; min-width: 0; }
@@ -216,8 +219,13 @@ code { font-size: 12px; overflow-wrap: anywhere; }
 .view .tg[aria-pressed="true"] { background: var(--ink); color: var(--card); border-color: var(--ink); }
 @media (hover: hover) { .view .tg:not([aria-pressed="true"]):hover { color: var(--ink); } }
 @media (pointer: coarse) { .view .tg, .seg.sm button { min-height: var(--tap); } }
+.hero .sub.tac { gap: 4px 24px; }
+.hero .stats { display: flex; flex-wrap: wrap; gap: 2px 22px; } .hero .stats i { font-style: normal; }
+@media (min-width: 761px) and (max-width: 1060px) { .hero .sub.tac { min-height: 3.6em; } }
+@media (max-width: 760px) { .hero .sub.tac { min-height: 5.3em; } .hero .stats { display: grid; grid-template-columns: repeat(2, auto); justify-content: start; gap: 2px 22px; width: 100%; } .hero .stats .st { white-space: nowrap; } }
+@media (max-width: 374px) { .hero .sub.tac { min-height: 9.2em; } .hero .stats { grid-template-columns: auto; } }
 .hero .chgs { display: inline-flex; flex-wrap: wrap; gap: 2px 14px; } .hero .chg i { font-style: normal; color: var(--mute); margin-right: 3px; } .hero .chg.mute { color: var(--mute); }
-.trades td small { margin-left: 8px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; } .trades .up { color: var(--up); } .trades .down { color: var(--down); }
+.trades td small { display: inline; margin-left: 8px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; } .trades .up { color: var(--up); } .trades .down { color: var(--down); }
 .trades td { padding: 8px 8px; } .trades td.go { text-align: right; width: 1%; } .trades td.go a { color: var(--mute); text-decoration: none; } .trades td.go a:hover { color: var(--ink); }
 .chart:focus-visible, .chart-svg:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .more { margin: 12px 0 0; font-size: 12.5px; }
@@ -323,7 +331,7 @@ button.ob-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2p
 .ob-empty { padding: 12px; font-size: 11.5px; color: var(--mute); }
 .ob-more { display: block; width: 100%; height: 32px; background: none; border: 0; border-top: 1px solid var(--hair); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--mute); cursor: pointer; }
 @media (hover: hover) { .ob-more:hover { color: var(--ink); background: var(--field); } }
-@media (max-width: 420px) { .ob-row .p small { display: none; } }
+@container (max-width: 560px) { .ob-row .p small { display: none; } }
 .hints .up { color: var(--up); } .hints .down { color: var(--down); }
 .table.empty thead { display: none; } .table.empty td { border-top: 0; padding: 0 0 4px; }
 .fillbtn { min-height: 28px; padding: 3px 11px; font-size: 12px; cursor: pointer; background: none; color: var(--ink); border: 1px solid var(--hair-2); text-decoration: none; display: inline-flex; align-items: center; }
@@ -347,7 +355,7 @@ button.ob-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2p
 .bsheet .bm-after { margin: 0; padding: 4px 16px 18px; }
 .bsheet .x { padding: 4px 8px; font-size: 26px; line-height: 1; cursor: pointer; color: var(--mute); background: none; border: 0; }
 .bsheet .x:hover { color: var(--ink); }
-.chips { display: flex; gap: 6px; margin: 8px 0 0; }
+.chips { display: flex; gap: 6px; margin: 8px 0 0; min-height: 30px; }
 .flipline { display: flex; justify-content: center; margin: 8px 0 -10px; }
 .flip { width: 32px; height: 32px; border: 1px solid var(--hair-2); background: var(--card); color: var(--mute); cursor: pointer; font-size: 15px; line-height: 1; }
 @media (hover: hover) { .flip:hover { color: var(--ink); border-color: var(--ink); } }
@@ -355,7 +363,7 @@ button.ob-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2p
 .chips button { flex: 1; min-height: 30px; padding: 0 6px; font-size: 12px; color: var(--mute); background: none; border: 1px solid var(--hair-2); cursor: pointer; }
 .chips button[aria-pressed="true"] { color: var(--card); background: var(--ink); border-color: var(--ink); }
 @media (hover: hover) { .chips button:not([aria-pressed="true"]):hover { color: var(--ink); border-color: var(--ink); } }
-@media (pointer: coarse) { .chips button { min-height: 38px; } }
+@media (pointer: coarse) { .chips { min-height: 38px; } .chips button { min-height: 38px; } }
 .legend:empty { display: none; }
 .chip { display: inline-flex; align-items: center; gap: 8px; min-height: 34px; margin-left: 4px; padding: 0 12px; font-size: 12.5px; color: var(--ink); background: var(--card); border: 1px solid var(--hair-2); cursor: pointer; }
 .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--hair-2); flex: none; } .chip .dot.on { background: var(--ok); } .chip .dot.warn { background: var(--orange); }
@@ -616,6 +624,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/cbtc/app.js?cb=72c1185f"></script>
+<script type="module" src="/trade/cbtc/app.js?cb=251b104e"></script>
 </body>
 </html>

@@ -19,7 +19,7 @@ import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
 import { mountDepth } from '/trade/depth.js?cb=1e8ce418';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
-import { makeWallet, UserStopped } from '/trade/wallet.js?cb=24e3ea08';
+import { makeWallet, UserStopped } from '/trade/wallet.js?cb=7807fdc8';
 import { mountFarm } from '/trade/farm.js?cb=cac985f6';
 
 const API = 'https://api.tacit.finance';
@@ -179,19 +179,22 @@ function renderHead() {
   $('#px-usd').textContent = px != null ? usd(px) : eth != null ? `${sig(eth)} ETH` : 'TAC';
   document.title = px != null ? `TAC ${usd(px)} · tacit trade` : 'tacit trade';
   const vol = volumeSince(D.tape, now() - 86400, now());                                         // the last 24 hours exactly, not the 4-hour buckets that began inside them
-  const bits = [];
+  const bits = [], stats = [], st = (k, v, title = '') => stats.push(html`<span class="st"${title ? ` title="${esc(title)}"` : ''}><i>${k}</i> <b class="num">${v}</b></span>`);
   // How far TAC's price in ETH has moved over each window: the price then (TAC per ETH, from the tape) against the pool's now.
   const changes = [['1h', 3600], ['6h', 21600], ['24h', 86400], ['7d', 604800]].map(([l, s]) => { const then = priceAgo(s); return then && D.perEth ? [l, then / D.perEth - 1] : null; }).filter(Boolean);
-  if (changes.length) bits.push(`<span class="chgs">${changes.map(([l, c]) => `<span class="chg ${c >= 0.0005 ? 'up' : c <= -0.0005 ? 'down' : 'mute'}"><i>${l}</i> ${esc(pct(c))}</span>`).join('')}</span>`);
-  if (eth != null) bits.push(html`<span><b class="num">${sig(eth)} ETH</b> per TAC</span>`);
-  if (D.tape.coarse.length) bits.push(html`<span>${vol >= 0.01 ? `${grp(vol, vol < 10 ? 2 : 0)} ETH` : 'under 0.01 ETH'} traded in 24h</span>`);
-  if (D.precision && D.ethUsd) bits.push(html`<span title="Both sides of the Precision pool, in dollars">${compact(2 * Number(D.precision.eth) / 1e18 * D.ethUsd)} liquidity</span>`);
-  if (px != null) bits.push(html`<span title="Fully diluted value: all 21,000,000 TAC at this price">${compact(21e6 * px)} FDV</span>`);
+  if (changes.length) bits.push(`<span class="chgs">${changes.map(([l, c]) => `<span class="chg ${c >= 0.0005 ? 'up' : c <= -0.0005 ? 'down' : 'mute'}"><i>${l}</i> ${esc(pct(c))}</span>`).join(' ')}</span>`);
+  if (eth != null) st('1 TAC =', `${sig(eth)} ETH`, 'At the Precision pool');
+  if (D.tape.coarse.length) st('24h volume', vol >= 0.01 ? `${grp(vol, vol < 10 ? 2 : 0)} ETH` : 'under 0.01 ETH', `Swaps in the Precision pool over the last 24 hours${D.btc?.vol24 ? `. The Bitcoin order book traded ${grp(D.btc.vol24, 0)} sats` : ''}`);
+  if (D.precision && D.ethUsd) st('Liquidity', compact(2 * Number(D.precision.eth) / 1e18 * D.ethUsd), 'Both sides of the Precision pool, in dollars');
+  if (px != null) st('FDV', compact(21e6 * px), 'Fully diluted value: all 21,000,000 TAC at this price');
+  if (stats.length) bits.push(`<span class="stats">${stats.join(' ')}</span>`);
   $('#px-sub').innerHTML = bits.length ? bits.join('') : '<span class="mute">Reading the pools…</span>';
-  const bg = btcUsdPerTac(), g = bg ? gap(bg, px) : null;
-  $('#gapnote').innerHTML = g != null && Math.abs(g) >= 0.01
-    ? html`TAC costs <b>${pct(g, 0).replace(/^[+−]/, '')} ${g > 0 ? 'more' : 'less'}</b> on Ethereum than on the Bitcoin order book.`
-    : g != null ? 'TAC costs about the same on Ethereum and on the Bitcoin order book.' : '';
+  // Bitcoin's last trade says where it last changed hands; its cheapest ask is what a buyer there pays now. Each is set against Ethereum's price.
+  const ask = D.btc?.ask && D.btcUsd ? (D.btc.ask * D.btcUsd) / 1e8 : null, gl = laneGap(btcUsdPerTac()), ga = laneGap(ask);
+  const side = (v) => (Math.abs(v) < 0.01 ? 0 : Math.sign(v));
+  const rel = (v) => (side(v) === 0 ? 'level with' : html`<b>${Math.round(Math.abs(v) * 100)}% ${v > 0 ? 'above' : 'below'}</b>`);
+  const lastTxt = gl != null ? `the last trade was ${rel(gl)} Ethereum's price` : '', askTxt = ga != null ? `the cheapest ask is ${rel(ga)} ${lastTxt ? 'it' : 'Ethereum\'s price'}` : '';
+  $('#gapnote').innerHTML = lastTxt || askTxt ? `On Bitcoin, ${lastTxt}${lastTxt && askTxt ? (side(gl) === side(ga) ? ', and ' : ', but ') : ''}${askTxt}.` : '';
 }
 function renderLanes() {
   const base = usdOf(priceEth()), ask = D.btc?.ask ? (D.btc.ask * (D.btcUsd || 0)) / 1e8 : null, cards = [
@@ -481,6 +484,7 @@ function renderQuote(q) {
     else if (rt.split) note = `<p class="splitnote mute">A split pays ${gainTxt} more, less than its extra gas.</p>`;
   }
   outEl.textContent = fmtUnits(out, 18, buy ? 2 : 6); outEl.classList.remove('ph');
+  $('#live').textContent = `You get about ${outEl.textContent} ${buy ? 'TAC' : 'ETH'} for ${fmtUnits(wei, 18, 6)} ${buy ? 'ETH' : 'TAC'}.`;
   const usdOut = D.ethUsd ? usd((Number(usdIn) / 1e18) * D.ethUsd) : '';
   $('#out-usd').textContent = usdOut ? `≈ ${usdOut}` : '';
   const priceTxt = `${D.ethUsd ? `${usd(usdOf(perTac))} · ` : ''}${sig(perTac)} ETH per TAC`;
@@ -597,12 +601,14 @@ function tradesHtml() {
   const rows = [...D.trades.map((x) => ({ ...x, usd: D.ethUsd ? x.eth / x.tac * D.ethUsd : null })),
     ...tradePrices(D.btc?.trades || []).slice(-40).map((x) => ({ lane: 'btc', t: x.t, side: null, tac: x.vol, sats: x.price, usd: D.btcUsd ? x.price * D.btcUsd / 1e8 : null }))].sort((a, b) => b.t - a.t).slice(0, 40);
   if (!rows.length) return '<p class="note">No trades yet.</p>';
+  const shown = S.tradesAll ? rows : rows.slice(0, TRADES_ROWS);
   const cell = (x) => (x.lane === 'eth' ? `${fmtUnits(BigInt(Math.round(x.eth * 1e6)) * 10n ** 12n, 18, 4)} ETH` : `${satsFmt(x.sats * x.tac)} sats`);
-  return `<table class="table trades"><thead><tr><th>Time</th><th class="r">TAC</th><th class="r">Price</th><th class="r opt">Paid</th><th></th></tr></thead><tbody>${rows.map((x) => {
+  return `<table class="table trades"><thead><tr><th>Time</th><th class="r">TAC</th><th class="r">Price</th><th class="r opt">Paid</th><th></th></tr></thead><tbody>${shown.map((x) => {
     const price = x.usd != null ? usd(x.usd) : x.lane === 'eth' ? `${sig(x.eth / x.tac)} ETH` : `${satsFmt(x.sats)} sats`;
-    return `<tr><td><svg class="tk xs inl" aria-hidden="true"><use href="#tk-${x.lane === 'eth' ? 'eth' : 'btc'}"/></svg>${esc(ago(x.t))}${x.side ? `<small class="${x.side === 'buy' ? 'up' : 'down'}">${x.side}</small>` : ''}</td><td class="r num">${esc(tacFmt(x.tac))}</td><td class="r num ${x.side === 'buy' ? 'up' : x.side === 'sell' ? 'down' : ''}">${esc(price)}</td><td class="r opt num">${esc(cell(x))}</td><td class="go">${x.tx ? `<a href="https://etherscan.io/tx/${esc(x.tx)}" target="_blank" rel="noopener noreferrer" aria-label="Open the transaction on Etherscan">↗</a>` : ''}</td></tr>`;
-  }).join('')}</tbody></table>`;
+    return `<tr><td title="${esc(`${fmtLocalStamp(x.t)}${x.lane === 'eth' ? ', about' : ''}`)}"><svg class="tk xs inl" aria-hidden="true"><use href="#tk-${x.lane === 'eth' ? 'eth' : 'btc'}"/></svg>${esc(ago(x.t))}${x.side ? `<small class="${x.side === 'buy' ? 'up' : 'down'}">${x.side}</small>` : ''}</td><td class="r num">${esc(tacFmt(x.tac))}</td><td class="r num ${x.side === 'buy' ? 'up' : x.side === 'sell' ? 'down' : ''}">${esc(price)}</td><td class="r opt num">${esc(cell(x))}</td><td class="go">${x.tx ? `<a href="https://etherscan.io/tx/${esc(x.tx)}" target="_blank" rel="noopener noreferrer" aria-label="Open the transaction on Etherscan">↗</a>` : ''}</td></tr>`;
+  }).join('')}</tbody></table>${rows.length > TRADES_ROWS ? `<button type="button" class="ob-more" data-more-trades="1">${S.tradesAll ? 'Show fewer' : `Show all ${rows.length} trades`}</button>` : ''}`;
 }
+const TRADES_ROWS = 12;
 const hasBoardOrders = () => !!D.zb && (D.zb.asks.length > 0 || D.zb.bids.length > 0);
 const bookTab = () => S.book || (D.zb ? (hasBoardOrders() ? 'eth' : 'btc') : (D.zbFailed ? 'btc' : 'eth'));                   // until a tab is chosen: Ethereum, unless its boards hold nothing
 const ethPx = (p) => (D.ethUsd ? p * D.ethUsd : p);
@@ -615,7 +621,7 @@ const ZSWAP_LINK = `<a href="${ZSWAP_HOST}" target="_blank" rel="noopener norefe
 // The book as the Bitcoin market draws it: the asks above with the cheapest nearest the middle, the last price and the spread
 // between, the bids below, each row shaded by how much lies between it and the middle. A row is a button that trades up to it.
 const BOOK_ROWS = 8;
-function stackBook({ asks, bids, totalHead, mid }) {
+function stackBook({ asks, bids, totalHead, mid, levels = false }) {
   const show = (l) => (S.bookAll ? l : l.slice(0, BOOK_ROWS)), a = show(asks), b = show(bids);
   const cum = (l) => { let t = 0; return l.map((x) => (t += x.depth)); };
   const ac = cum(a), bc = cum(b), max = Math.max(ac.at(-1) || 0, bc.at(-1) || 0) || 1;
@@ -629,9 +635,16 @@ function stackBook({ asks, bids, totalHead, mid }) {
     + `<div class="ob-asks">${a.length ? a.map((x, i) => row(x, 'ask', ac[i])).reverse().join('') : '<div class="ob-empty">No one is selling right now.</div>'}</div>`
     + `<div class="ob-spread">${mid}</div>`
     + `<div class="ob-bids">${b.length ? b.map((x, i) => row(x, 'bid', bc[i])).join('') : '<div class="ob-empty">No one is bidding right now.</div>'}</div>`
-    + (hidden > 0 || S.bookAll ? `<button type="button" class="ob-more" data-more="1">${S.bookAll ? 'Show less' : `Full book · ${asks.length} asks, ${bids.length} bids`}</button>` : '') + '</div>';
+    + (hidden > 0 || S.bookAll ? `<button type="button" class="ob-more" data-more="1">${S.bookAll ? 'Show less' : `Full book · ${count(asks.length, levels ? 'ask price' : 'ask')}, ${count(bids.length, levels ? 'bid price' : 'bid')}`}</button>` : '') + '</div>';
 }
-const spreadTxt = (ask, bid) => (ask && bid ? `<span title="Between the cheapest ask and the best bid">spread ${Math.abs((ask - bid) / ask * 100).toFixed(1)}%</span>` : '');
+const count = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+// The gap between the cheapest ask and the best bid. A bid above the cheapest ask is said so, not given as a gap: on the Bitcoin book a bid
+// settles when its bidder is online and a listing is taken whole, so the two can rest above one another.
+const spreadTxt = (ask, bid, why = '') => {
+  if (!ask || !bid) return '';
+  const over = (bid - ask) / ask;
+  return over > 0.0005 ? `<span title="The best bid is above the cheapest ask.${esc(why)}">bids ${over < 0.095 ? (over * 100).toFixed(1) : Math.round(over * 100)}% over asks</span>` : `<span title="Between the cheapest ask and the best bid">spread ${Math.abs(over * 100).toFixed(1)}%</span>`;
+};
 function ethStack(z) {
   const taking = new Set(S.quote?.board?.ok && routeOf(S.quote) === 'boards' ? S.quote.board.keys : []);
   const lv = (o) => {
@@ -648,12 +661,12 @@ function btcStack(b, live) {
   const lvs = (rows, ask) => ladderLevels(rows, ask ? 'ask' : 'bid').map((l, i) => {
     const amt = Number(l.amount) / 1e8, px = btcPxFmt(btcPx(l.unit)), ends = ask ? Math.min(...l.rows.map((r) => r.expiry).filter(Boolean)) : 0;
     const why = ask ? (l.count > 1 ? `${l.count} listings, each taken whole` : 'one listing, taken whole') : l.flag === 'auto' ? 'settles within minutes' : 'settles when the bidder is online';
-    return { price: px, small: [D.btcUsd ? `${satsFmt(l.unit)} sats` : '', l.count > 1 ? `×${l.count}` : ''].filter(Boolean).join(' · '), amount: tacFmt(amt), total: satsFmt(l.sats), depth: l.sats, mine: l.flag === 'mine',
+    return { price: px, small: [D.btcUsd ? `${satsFmt(l.unit)} sats` : '', l.count > 1 ? `${l.count} listings` : ''].filter(Boolean).join(' · '), amount: tacFmt(amt), total: satsFmt(l.sats), depth: l.sats, mine: l.flag === 'mine',
       attrs: live ? `data-btc="${ask ? 'buy' : 'sell'}" data-i="${i}"` : '', title: `${why}${Number.isFinite(ends) && ends ? ` · ends in ${left(ends)}` : ''}.${live ? ` Click to ${ask ? 'buy' : 'sell'} up to this price.` : ''}`,
       label: `${ask ? 'Buy up to' : 'Sell up to'} ${tacFmt(amt)} TAC at ${px} each` };
   });
-  return stackBook({ asks: lvs(b.asks, true), bids: lvs(b.bids, false), totalHead: 'Sats',
-    mid: `${D.btc?.mark ? `<span class="ob-last"><b>${esc(btcPxFmt(btcPx(D.btc.mark)))}</b><em>last trade</em></span>` : '<span></span>'}${spreadTxt(b.bestAsk, b.bestBid)}` });
+  return stackBook({ asks: lvs(b.asks, true), bids: lvs(b.bids, false), totalHead: 'Sats', levels: true,
+    mid: `${D.btc?.mark ? `<span class="ob-last"><b>${esc(btcPxFmt(btcPx(D.btc.mark)))}</b><em>last trade</em></span>` : '<span></span>'}${spreadTxt(b.bestAsk, b.bestBid, ' A bid settles when its bidder is online, and a listing is taken whole.')}` });
 }
 // Written only when it changed: the minute's refresh leaves a focused row, a hover and the scroll as they were.
 const setHtml = (el, h) => { if (el.__h !== h) { el.__h = h; el.innerHTML = h; } };
@@ -716,10 +729,10 @@ function pinOrder(key) {
 function renderAbout() {
   $('#about').innerHTML = `<p><b>TAC</b> is Tacit's token: 21,000,000, issued once on Bitcoin with no mint authority, and an ERC-20 on Ethereum minted only against TAC that left Bitcoin. One supply, two lanes. <a href="/verify.html">Check the supply →</a></p>`;
   const link = (a, t) => `<a href="${SCAN}${a}" target="_blank" rel="noopener noreferrer">${t || `${a.slice(0, 8)}…${a.slice(-6)}`}</a>`;
-  const pool = getConfidentialDeployment('mainnet')?.pool;
+  const pool = getConfidentialDeployment('mainnet')?.pool, vol24Usd = D.btc?.vol24 && D.btcUsd ? (D.btc.vol24 * D.btcUsd) / 1e8 : null;
   const main = [
     ['On Ethereum', `ERC-20 ${link(TAC_ERC20)}${D.ethSupply != null ? ` · ${grp(Number(D.ethSupply) / 1e18, 0)} TAC minted there so far` : ''}`],
-    ['On Bitcoin', `Asset <code>${TAC_BTC_ID.slice(0, 8)}…${TAC_BTC_ID.slice(-6)}</code>${D.btc?.holders ? ` · ${grp(D.btc.holders, 0)} holders` : ''}${D.btc?.vol24 ? ` · ${grp(D.btc.vol24, 0)} sats traded in 24h` : ''}`],
+    ['On Bitcoin', `Asset <code>${TAC_BTC_ID.slice(0, 8)}…${TAC_BTC_ID.slice(-6)}</code>${D.btc?.holders ? ` · ${grp(D.btc.holders, 0)} holders` : ''}${D.btc?.vol24 ? ` · ${grp(D.btc.vol24, 0)} sats${vol24Usd != null ? ` (${vol24Usd < 10 ? usd(vol24Usd) : `$${grp(vol24Usd, 0)}`})` : ''} traded in 24h` : ''}`],
     ['Between them', `<a href="/#bridge">The bridge</a> takes TAC from Bitcoin to Ethereum in hours, sometimes a day.`],
   ];
   const more = [
@@ -964,8 +977,21 @@ async function sendAndReport(tx, { from, buy }) {
   renderBalance(); renderQuote(null); renderVenues(null); renderPin();
   loadChain().then(paintAll).catch(() => {});                                                  // the pools have moved
   loadBoards().then(paintAll).catch(() => {});                                                 // and the orders that were filled are gone
-  say(`<span class="ok">${buy ? 'Bought' : 'Sold'}.</span> ${got != null ? `${buy ? 'Received' : 'Received about'} ${esc(fmtUnits(got, 18, buy ? 2 : 6))} ${buy ? 'TAC' : 'ETH'} · ` : ''}${txLink(hash)}`);
+  say(`<span class="ok">${buy ? 'Bought' : 'Sold'}.</span> ${got != null ? `${buy ? 'Received' : 'Received about'} ${esc(fmtUnits(got, 18, buy ? 2 : 6))} ${buy ? 'TAC' : 'ETH'} · ` : ''}${txLink(hash)}${buy && !tacAdded() ? ' · <button class="linkbtn" type="button" id="add-tac">Add TAC to your wallet</button>' : ''}`);
 }
+
+// A wallet does not list a token it has not been told of: a purchase offers it once, and stops offering when a wallet has taken it.
+const TAC_ADDED = 'tacit-trade-tac-added';
+const tacAdded = () => { try { return localStorage.getItem(TAC_ADDED) === '1'; } catch { return false; } };
+$('#status').addEventListener('click', async (e) => {
+  const b = e.target.closest('#add-tac');
+  if (!b) return;
+  b.disabled = true;
+  if (await wallet.watchAsset({ address: TAC_ERC20, symbol: 'TAC', decimals: 18, image: `${location.origin}/tac-logo.png` })) {
+    try { localStorage.setItem(TAC_ADDED, '1'); } catch { /* storage is a convenience */ }
+    b.replaceWith('Added to your wallet');
+  } else { b.disabled = false; b.textContent = 'Not added. Try again'; }
+});
 
 // The trade: made ready for the pools or the boards (whichever the review named), tested once, and only then sent.
 async function execute(P) {
@@ -1033,6 +1059,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#hint
 $('#book-seg').addEventListener('click', (e) => { const b = e.target.closest('[data-book]'); if (b) { S.book = b.dataset.book; renderBook(); if (S.book === 'trades') ensureTrades(); } });
 $('#ladders').addEventListener('click', (e) => {
   if (e.target.closest('[data-more]')) { S.bookAll = !S.bookAll; renderBook(); return; }
+  if (e.target.closest('[data-more-trades]')) { S.tradesAll = !S.tradesAll; renderBook(); return; }
   const f = e.target.closest('[data-fill]'); if (f) { pinOrder(f.dataset.fill); return; }
   const k = e.target.closest('[data-btc]'); if (k) openBitcoin(bookPrime(k.dataset.btc, Number(k.dataset.i)));
 });

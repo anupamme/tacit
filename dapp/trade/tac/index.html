@@ -21,7 +21,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /trade/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/trade/app.js?cb=1254a72e">
+<link rel="modulepreload" href="/trade/app.js?cb=b7996354">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=bb675102">
 <link rel="modulepreload" href="/confidential-deployments.js">
@@ -34,7 +34,7 @@
 <link rel="modulepreload" href="/trade/depth.js?cb=1e8ce418">
 <link rel="modulepreload" href="/trade/book.js?cb=3324d19b">
 <link rel="modulepreload" href="/zboards.js?cb=cba4b156">
-<link rel="modulepreload" href="/trade/wallet.js?cb=24e3ea08">
+<link rel="modulepreload" href="/trade/wallet.js?cb=7807fdc8">
 <link rel="modulepreload" href="/trade/farm.js?cb=cac985f6">
 <!-- preload:end -->
 <style>
@@ -105,7 +105,8 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .top nav a { color: var(--mute); text-decoration: none; padding: 8px 0; }
 .top nav a[aria-current="page"] { color: var(--ink); }
 @media (hover: hover) { .top nav a:hover { color: var(--ink); text-decoration: underline; } }
-@media (max-width: 560px) { .top nav a.opt { display: none; } }
+@media (max-width: 760px) { .top nav a.opt { display: none; } }
+@media (max-width: 560px) { .top nav a[href="/"], .top nav a[aria-current="page"] { display: none; } .top nav { flex-wrap: nowrap; align-items: center; gap: 2px 14px; } }
 
 /* the markets the page trades: TAC, tETH and cBTC, one address each. A quiet pill: the page you are on is a soft chip, not a filled block. */
 .assets { display: inline-flex; gap: 2px; margin: 0 0 12px; padding: 3px; border-radius: 999px; background: color-mix(in srgb, var(--ink) 6%, transparent); font-size: 12.5px; }
@@ -156,6 +157,8 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 /* Wide: the ticket and the farm stack in one column beside the rest, with no gap under the ticket. Narrow: one column, the ticket first and the farm after the quotes. */
 .grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; grid-template-areas: "chart side" "depth side" "info side"; grid-template-rows: auto auto 1fr; gap: 14px 16px; }
 .side { grid-area: side; display: grid; gap: 14px; align-content: start; min-width: 0; }
+@media (min-width: 981px) { .grid.side-info { grid-template-areas: "chart side" "depth side"; grid-template-rows: auto 1fr; } .grid.side-info .p-info { grid-area: auto; } .grid.side-info .p-depth { align-self: start; } .side .facts li { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+
 .p-chart { grid-area: chart; } .p-depth { grid-area: depth; } .p-info { grid-area: info; }
 @media (max-width: 980px) { .grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "ticket" "chart" "farm" "depth" "info"; } .side { display: contents; } .p-ticket { grid-area: ticket; } .p-farm { grid-area: farm; } }
 .panel { background: var(--card); border: 1px solid var(--hair); padding: 22px; min-width: 0; }
@@ -214,8 +217,13 @@ code { font-size: 12px; overflow-wrap: anywhere; }
 .view .tg[aria-pressed="true"] { background: var(--ink); color: var(--card); border-color: var(--ink); }
 @media (hover: hover) { .view .tg:not([aria-pressed="true"]):hover { color: var(--ink); } }
 @media (pointer: coarse) { .view .tg, .seg.sm button { min-height: var(--tap); } }
+.hero .sub.tac { gap: 4px 24px; }
+.hero .stats { display: flex; flex-wrap: wrap; gap: 2px 22px; } .hero .stats i { font-style: normal; }
+@media (min-width: 761px) and (max-width: 1060px) { .hero .sub.tac { min-height: 3.6em; } }
+@media (max-width: 760px) { .hero .sub.tac { min-height: 5.3em; } .hero .stats { display: grid; grid-template-columns: repeat(2, auto); justify-content: start; gap: 2px 22px; width: 100%; } .hero .stats .st { white-space: nowrap; } }
+@media (max-width: 374px) { .hero .sub.tac { min-height: 9.2em; } .hero .stats { grid-template-columns: auto; } }
 .hero .chgs { display: inline-flex; flex-wrap: wrap; gap: 2px 14px; } .hero .chg i { font-style: normal; color: var(--mute); margin-right: 3px; } .hero .chg.mute { color: var(--mute); }
-.trades td small { margin-left: 8px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; } .trades .up { color: var(--up); } .trades .down { color: var(--down); }
+.trades td small { display: inline; margin-left: 8px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; } .trades .up { color: var(--up); } .trades .down { color: var(--down); }
 .trades td { padding: 8px 8px; } .trades td.go { text-align: right; width: 1%; } .trades td.go a { color: var(--mute); text-decoration: none; } .trades td.go a:hover { color: var(--ink); }
 .chart:focus-visible, .chart-svg:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .more { margin: 12px 0 0; font-size: 12.5px; }
@@ -321,7 +329,7 @@ button.ob-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2p
 .ob-empty { padding: 12px; font-size: 11.5px; color: var(--mute); }
 .ob-more { display: block; width: 100%; height: 32px; background: none; border: 0; border-top: 1px solid var(--hair); font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--mute); cursor: pointer; }
 @media (hover: hover) { .ob-more:hover { color: var(--ink); background: var(--field); } }
-@media (max-width: 420px) { .ob-row .p small { display: none; } }
+@container (max-width: 560px) { .ob-row .p small { display: none; } }
 .hints .up { color: var(--up); } .hints .down { color: var(--down); }
 .table.empty thead { display: none; } .table.empty td { border-top: 0; padding: 0 0 4px; }
 .fillbtn { min-height: 28px; padding: 3px 11px; font-size: 12px; cursor: pointer; background: none; color: var(--ink); border: 1px solid var(--hair-2); text-decoration: none; display: inline-flex; align-items: center; }
@@ -345,7 +353,7 @@ button.ob-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2p
 .bsheet .bm-after { margin: 0; padding: 4px 16px 18px; }
 .bsheet .x { padding: 4px 8px; font-size: 26px; line-height: 1; cursor: pointer; color: var(--mute); background: none; border: 0; }
 .bsheet .x:hover { color: var(--ink); }
-.chips { display: flex; gap: 6px; margin: 8px 0 0; }
+.chips { display: flex; gap: 6px; margin: 8px 0 0; min-height: 30px; }
 .flipline { display: flex; justify-content: center; margin: 8px 0 -10px; }
 .flip { width: 32px; height: 32px; border: 1px solid var(--hair-2); background: var(--card); color: var(--mute); cursor: pointer; font-size: 15px; line-height: 1; }
 @media (hover: hover) { .flip:hover { color: var(--ink); border-color: var(--ink); } }
@@ -353,7 +361,7 @@ button.ob-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2p
 .chips button { flex: 1; min-height: 30px; padding: 0 6px; font-size: 12px; color: var(--mute); background: none; border: 1px solid var(--hair-2); cursor: pointer; }
 .chips button[aria-pressed="true"] { color: var(--card); background: var(--ink); border-color: var(--ink); }
 @media (hover: hover) { .chips button:not([aria-pressed="true"]):hover { color: var(--ink); border-color: var(--ink); } }
-@media (pointer: coarse) { .chips button { min-height: 38px; } }
+@media (pointer: coarse) { .chips { min-height: 38px; } .chips button { min-height: 38px; } }
 .legend:empty { display: none; }
 .chip { display: inline-flex; align-items: center; gap: 8px; min-height: 34px; margin-left: 4px; padding: 0 12px; font-size: 12.5px; color: var(--ink); background: var(--card); border: 1px solid var(--hair-2); cursor: pointer; }
 .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--hair-2); flex: none; } .chip .dot.on { background: var(--ok); } .chip .dot.warn { background: var(--orange); }
@@ -452,7 +460,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     <div>
       <nav class="assets" aria-label="Asset"><a href="/trade/tac/" aria-current="page"><svg class="tk xs" aria-hidden="true"><use href="#tk-tac"/></svg>TAC</a><a href="/trade/teth/"><svg class="tk xs" aria-hidden="true"><use href="#tk-teth"/></svg>tETH</a><a href="/trade/cbtc/"><svg class="tk xs" aria-hidden="true"><use href="#tk-cbtc"/></svg>cBTC</a></nav>
       <h1 id="px-h"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span class="sr">TAC price </span><span id="px-usd" class="num">TAC</span></h1>
-      <div class="sub" id="px-sub"><span class="mute">Reading the pools…</span></div>
+      <div class="sub tac" id="px-sub"><span class="mute">Reading the pools…</span></div>
       <noscript><p class="note">Prices, charts and trading on this page need JavaScript.</p></noscript>
       <details class="hints" id="hints"><summary id="hints-sum">Prices on each chain</summary>
         <div class="hints-pop"><div class="lanes" id="lanes" role="group" aria-label="TAC's price in each place it trades"></div><p class="gapnote" id="gapnote"></p></div>
@@ -460,7 +468,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </div>
   </section>
 
-  <div class="grid">
+  <div class="grid side-info">
     <section class="panel p-chart" aria-labelledby="chart-h">
       <p class="eyebrow" id="chart-h"><span class="pairtk" id="chart-pair"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg></span><span id="chart-name">TAC / ETH · Precision pool</span></p>
       <div class="bar">
@@ -472,7 +480,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
         <div class="bar-r"><div class="seg" id="range-seg" role="group" aria-label="How far back"></div><div class="seg" id="tf-seg" role="group" aria-label="Candle size" hidden></div></div>
       </div>
       <div class="ch-read" id="ch-read" aria-live="off"></div>
-      <div id="chart" role="group" aria-label="Price chart"><p class="chart-empty">Reading the price history…</p></div>
+      <div id="chart" class="chart" role="group" aria-label="Price chart"><p class="chart-empty">Reading the price history…</p></div>
       <div class="chart-foot"><div class="legend" id="legend"></div><div class="view" id="view-seg" role="group" aria-label="View"></div></div>
       <details class="more"><summary>About this chart</summary><p class="note" id="chart-note"></p></details>
     </section>
@@ -501,6 +509,12 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </section>
 
     <section class="panel p-farm" id="farm" aria-labelledby="fm-h"><noscript><p class="note">The farm needs JavaScript.</p></noscript></section>
+    <section class="panel p-info" aria-labelledby="i-h">
+      <p class="eyebrow" id="i-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-tac"/></svg>About TAC</p>
+      <div class="prose" id="about"></div>
+      <ul class="facts" id="facts"></ul>
+      <details class="more"><summary>The pools, the buyback and the contracts</summary><ul class="facts" id="facts-more"></ul></details>
+    </section>
     </div>
 
 
@@ -518,12 +532,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
       <p class="note" id="depth-note"></p>
     </section>
 
-    <section class="panel p-info" aria-labelledby="i-h">
-      <p class="eyebrow" id="i-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-tac"/></svg>About TAC</p>
-      <div class="prose" id="about"></div>
-      <ul class="facts" id="facts"></ul>
-      <details class="more"><summary>The pools, the buyback and the contracts</summary><ul class="facts" id="facts-more"></ul></details>
-    </section>
   </div>
 
   </main>
@@ -543,6 +551,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/app.js?cb=1254a72e"></script>
+<script type="module" src="/trade/app.js?cb=b7996354"></script>
 </body>
 </html>

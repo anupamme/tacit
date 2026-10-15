@@ -89,6 +89,11 @@ export function makeWallet({ rpc, leave = null }) {
     let v = parseInt(h.slice(128, 130), 16); if (v < 27) v += 27;
     return { v, r: '0x' + h.slice(0, 64), s: '0x' + h.slice(64, 128) };
   }
+  // Offers the token to the wallet (EIP-747) so that a purchase shows up in it. A wallet without the call, or a no, is not an error here.
+  async function watchAsset(options) {
+    if (!W.prov) return false;
+    try { return !!(await req('wallet_watchAsset', { type: 'ERC20', options })); } catch { return false; }
+  }
   // Through the page's own RPCs, so a wallet that is slow to report a receipt does not stall the page.
   async function receipt(hash, { timeoutMs = 5 * 60e3, every = 3000 } = {}) {
     const t0 = Date.now();
@@ -99,5 +104,5 @@ export function makeWallet({ rpc, leave = null }) {
       await new Promise((res) => setTimeout(res, every));
     }
   }
-  return { state: W, available, connect, restore, disconnect, ensureMainnet, sendTx, signPermit, receipt, onChange: (f) => W.listeners.add(f) };
+  return { state: W, available, connect, restore, disconnect, ensureMainnet, sendTx, signPermit, receipt, watchAsset, onChange: (f) => W.listeners.add(f) };
 }

@@ -63,6 +63,7 @@ async function stubWallet(ctx, { account, key, refuseSends = false }) {
     if (method === 'eth_accounts') return [account];
     if (method === 'eth_chainId') { if (log.onChainId) { const f = log.onChainId; log.onChainId = null; await f(); } return '0x1'; }
     if (method === 'wallet_switchEthereumChain') return null;
+    if (method === 'wallet_watchAsset') { (log.watched ||= []).push(params); return true; }
     if (method === 'eth_signTypedData_v4') { log.signs++; return cast('wallet', 'sign', '--private-key', key, '--data', params[1]); }
     if (method === 'eth_sendTransaction') {
       if (refuseSends) throw Object.assign(new Error('User rejected the request.'), { code: 4001 });
@@ -119,10 +120,10 @@ try {
 
   const head = (await text(p, '#px-usd')).trim(), sub = (await text(p, '#px-sub')).replace(/\s+/g, ' ');
   ok(/^\$0\.\d{2,}/.test(head), `the head shows TAC's price in dollars (${head})`);
-  ok(/[\d.]+ ETH per TAC/.test(sub) && /traded in 24h/.test(sub), `and in ETH and the day's volume (${sub.slice(0, 120)})`);
+  ok(/1 TAC = [\d.]+ ETH/.test(sub) && /24h volume [\d.,]+ ETH/.test(sub), `and in ETH and the day's volume, each figure with its name (${sub.slice(0, 120)})`);
   const lanes = await p.$$eval('#lanes .lane', (ls) => ls.map((l) => l.textContent.replace(/\s+/g, ' ').trim()));
   ok(lanes.length === 4 && /Precision pool.*\$0\.\d+.*ETH.*the reference/.test(lanes[0]) && /Tacit pool.*\$0\.\d+.*ETH.*vs Precision/.test(lanes[1]) && /Bitcoin · last trade.*\$0\.\d+.*150 sats/.test(lanes[2]) && /Bitcoin · cheapest ask.*\$0\.\d+.*157 sats/.test(lanes[3]), `four prices, each in dollars with ETH or sats and its gap against Precision (${lanes.map((l) => l.slice(0, 60)).join(' | ')})`);
-  ok(/TAC costs \d+% (more|less) on Ethereum than on the Bitcoin order book/.test(await text(p, '#gapnote')), `the gap between the two lanes is said in words (${(await text(p, '#gapnote')).slice(0, 110)})`);
+  ok(/^On Bitcoin, the last trade was (level with|\d+% (above|below)) Ethereum's price(, (and|but) the cheapest ask is (level with|\d+% (above|below)) it)?\.$/.test((await text(p, '#gapnote')).trim()), `Bitcoin's last trade and its cheapest ask are each set against Ethereum's price in words (${(await text(p, '#gapnote')).slice(0, 160)})`);
 
   // the chart: a line by default, as the Bitcoin market draws it, and candles a press away
   ok(!!(await p.$('#chart .line')) && !!(await p.$('#chart polygon.area')) && !!(await p.$('#chart .lastdot')) && (await candles(p)) === 0 && !!(await p.$('[data-kind="candles"]')), 'the Ethereum lane draws the Precision pool\'s price as a shaded line with its last price marked');
@@ -137,7 +138,7 @@ try {
   const offered = await p.$$eval('#range-seg button', (b) => b.map((x) => x.textContent));
   ok(offered.at(-1) === 'All' && offered[0] === '1D' && new Set(offered).size === offered.length, `the ranges offered are the ones that differ for the history there is (${offered.join(' ')})`);
   const sub2 = (await text(p, '#px-sub')).replace(/\s+/g, ' ');
-  ok(/1h\s*[+−]?[\d.]+%/.test(sub2) && /24h\s*[+−]?[\d.]+%/.test(sub2) && /\$[\d.,]+[kM]? liquidity/.test(sub2) && /\$[\d.,]+[kM]? FDV/.test(sub2), `the headline gives the move over 1h, 6h, 24h and 7d, the pool's liquidity and the fully diluted value (${sub2.slice(0, 150)})`);
+  ok(/1h\s*[+−]?[\d.]+%/.test(sub2) && /24h\s*[+−]?[\d.]+%/.test(sub2) && /Liquidity \$[\d.,]+[kM]?/.test(sub2) && /FDV \$[\d.,]+[kM]?/.test(sub2), `the headline gives the move over 1h, 6h, 24h and 7d, the pool's liquidity and the fully diluted value (${sub2.slice(0, 150)})`);
   await p.hover('#chart svg', { position: { x: 300, y: 150 } });
   await until(p, () => /\d{2}:\d{2}/.test(document.querySelector('#ch-read')?.textContent || ''), null, 10000);
   ok(await p.$eval('#chart .cross .cd', (c) => c.getAttribute('visibility') === 'visible') && (await p.$eval('.chart-tip', (e) => e.hidden)) && /^\$0\.\d{4}/.test(await text(p, '#ch-read')), 'a pointer on the line reads the price and time at that bar in the line above, with a dot on the line and no box over it');
@@ -241,7 +242,7 @@ try {
   ok((await p.getAttribute('[data-book="btc"]', 'aria-pressed')) === 'true', 'with zSwap holding no TAC order the order book opens on Bitcoin\'s listings');
   const dep = await p.$$eval('#ladders .ob-asks .ob-row', (d) => d.map((x) => x.textContent.replace(/\s+/g, ' ').trim()).reverse()), bidRows = await p.$$eval('#ladders .ob-bids .ob-row', (d) => d.length);
   const mid = (await text(p, '#ladders .ob-spread')).replace(/\s+/g, ' ');
-  ok(dep.length >= 3 && dep.length <= 8 && bidRows >= 1 && /^\$0\.\d+[\d,.]+ sats/.test(dep[0]) && /last trade/.test(mid) && /spread/.test(mid), `the book stacks the listings over the last price and the bids under it, one line per price (${dep.length} + ${bidRows}: ${dep[0]} | ${mid})`);
+  ok(dep.length >= 3 && dep.length <= 8 && bidRows >= 1 && /^\$0\.\d+[\d,.]+ sats/.test(dep[0]) && /last trade/.test(mid) && /(spread [\d.]+%|bids [\d.]+% over asks)/.test(mid), `the book stacks the listings over the last price and the bids under it, one line per price (${dep.length} + ${bidRows}: ${dep[0]} | ${mid})`);
   ok(await p.$eval('#ladders .ob-asks .ob-row:last-child', (e) => parseFloat(getComputedStyle(e, '::before').width) > 0), 'each row is shaded by the depth from the middle out');
   ok((await p.$$eval('#depthchart path.dep-ask', (x) => x.length)) === 1 && (await p.$$eval('#depthchart path.dep-bid', (x) => x.length)) === 1, 'drawn as a depth chart of listings and bids');
   ok(/\d+ bids \([\d,]+ TAC\) settle when the bidder is online/.test(await text(p, '#depth-note')), 'and the note says how many bids stand and when a sale to one settles');
@@ -249,6 +250,12 @@ try {
   await until(p, () => document.querySelectorAll('#ladders table.trades tbody tr').length >= 3, null, 120000);
   const tr = await p.$$eval('#ladders table.trades tbody tr', (r) => r.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
   ok(tr.length >= 3 && tr.some((x) => /(buy|sell)/.test(x)) && tr.every((x) => /(just now|\d+[mhd] ago)/.test(x)) && !!(await p.$('#ladders table.trades a[href^="https://etherscan.io/tx/"]')) && (await p.$eval('#depthchart', (e) => e.hidden)), `the Trades tab lists the pool's recent swaps with when, side, TAC, price and a link to the transaction (${tr.length} rows: ${tr[0]})`);
+  const rowsAt = await p.$$eval('#ladders table.trades tbody tr', (r) => r.length), moreBtn = await p.$('#ladders [data-more-trades]');
+  ok(rowsAt === 12 && !!moreBtn && /Show all \d+ trades/.test(await moreBtn.textContent()) && (await p.$eval('#ladders table.trades td small', (e) => getComputedStyle(e).display)) === 'inline' && (await p.$eval('#ladders table.trades tbody tr', (e) => e.getBoundingClientRect().height)) < 46, `the Trades tab shows the first dozen on one line each, with the rest a press away (${rowsAt} rows)`);
+  ok((await p.$eval('#ladders table.trades tbody td', (e) => e.title)) !== '', 'and each time carries its date');
+  await moreBtn.click();
+  ok((await p.$$eval('#ladders table.trades tbody tr', (r) => r.length)) > 12 && /Show fewer/.test(await text(p, '#ladders [data-more-trades]')), 'Show all lists every one, and Show fewer folds them again');
+  await p.click('#ladders [data-more-trades]');
   await p.click('[data-book="eth"]');
   await until(p, () => /No TAC orders on zSwap's boards|No TAC orders on the boards that answered/.test(document.querySelector('#ladders')?.textContent || ''), null, 150000);
   ok(/No TAC orders on zSwap's boards|No TAC orders on the boards that answered/.test(await text(p, '#ladders')) && !!(await p.$('#ladders a[href^="https://zswap"]')), 'the Ethereum tab says zSwap holds none and where to place one');
@@ -256,6 +263,8 @@ try {
   ok(/\d+ listings \([\d,]+ TAC\), taken whole/.test(await text(p, '#depth-note')) && !(await p.$('#depth-note a')), 'with how deep the book is (the buttons beside it do what the old links did)');
   const facts = (await text(p, '#facts')).replace(/\s+/g, ' '), more = (await text(p, '#facts-more')).replace(/\s+/g, ' ');
   ok(/21,000,000/.test(await text(p, '#about')) && /ERC-20.*0xA1313e.*TAC minted there/.test(facts) && /2,032 holders/.test(facts) && /Precision pool.*holds [\d.,]+ ETH and [\d,]+ TAC/.test(more), `the facts are live (${facts.slice(0, 120)})`);
+  const lay = await p.evaluate(() => { const r = (s) => document.querySelector(s).getBoundingClientRect(); return { inSide: !!document.querySelector('.side > .p-info'), infoLeft: r('.p-info').left, ticketLeft: r('.p-ticket').left, farmBottom: r('.p-farm').bottom, infoTop: r('.p-info').top, }; });
+  ok(lay.inSide && Math.abs(lay.infoLeft - lay.ticketLeft) < 1 && lay.infoTop >= lay.farmBottom, `on a wide page the facts sit under the farm, in the ticket's column (${JSON.stringify(lay)})`);
   ok(!/Uniswap v4/.test(more) && /TacBuyback/.test(more) && !(await p.$eval('details.more:has(#facts-more)', (d) => d.open)), 'Uniswap v4\'s pools and the buyback are named, behind a "more" that starts closed');
 
   const nav = await p.$eval('.top nav a.opt', (a) => { const c = getComputedStyle(a); return { display: c.display, border: c.borderTopWidth, bg: c.backgroundColor, h: a.getBoundingClientRect().height }; });
@@ -305,6 +314,10 @@ try {
     await q.click('#go');
     await until(q, () => /Bought\./.test(document.querySelector('#status')?.textContent || '') || document.querySelector('#status .err'), null, 300000);
     const got = (await tacBal(me.account)) - t0, floor = Number(floorTxt.replace(/,/g, ''));
+    ok(!!(await q.$('#status #add-tac')), 'a purchase offers TAC to the wallet');
+    await q.click('#add-tac');
+    await until(q, () => /Added to your wallet/.test(document.querySelector('#status')?.textContent || ''), null, 10000);
+    ok(w.walletLog.watched?.[0]?.options?.address === TACADDR && w.walletLog.watched[0].options.symbol === 'TAC' && w.walletLog.watched[0].options.decimals === 18 && (await q.evaluate(() => localStorage.getItem('tacit-trade-tac-added'))) === '1', 'the wallet is asked to list TAC at its address, and the page does not offer it again');
     ok(/Bought\. Received [\d,.]+ TAC/.test(await text(q, '#status')) && Number(got / 10n ** 16n) / 100 >= floor, `2 ETH bought through the split: ${Number(got / 10n ** 16n) / 100} TAC, at least the ${floorTxt} it showed (${(await text(q, '#status')).slice(0, 80)})`);
     ok(BigInt(await rpcA('eth_getTransactionCount', [me.account, 'latest'])) === n0 + 1n && w.walletLog.sends.length === 1 && w.walletLog.sends[0].to.toLowerCase() === ROUTER.toLowerCase(), 'in one transaction, sent to zRouter');
     ok(e0 - (await ethBal(me.account)) >= 2n * E18 && e0 - (await ethBal(me.account)) < 2n * E18 + E18 / 50n && (await tacBal(MC3)) === mc0 && (await ethBal(ROUTER)) === rt0, 'the ETH spent is the 2 ETH and its gas, and nothing is left in Multicall3 or the router');
@@ -506,6 +519,10 @@ try {
   ok(order.every((t, i) => i === 0 || t > order[i - 1]), `the panels stack ticket, chart, book, facts (${order})`);
   ok((await m.$eval('#chart', (e) => e.getBoundingClientRect().width)) > 300, 'the chart takes the phone\'s width');
   ok(await m.$$eval('.top nav a.opt', (a) => a.every((x) => getComputedStyle(x).display === 'none')), 'and the header\'s extra links are hidden there');
+  const hd = await m.evaluate(() => { const r = (s) => document.querySelector(s).getBoundingClientRect(); return { top: r('.top').height, brand: r('.brand').top, chip: r('#wallet-chip').top, earn: getComputedStyle(document.querySelector('.top nav a[href="#farm"]')).display }; });
+  ok(hd.top < 90 && Math.abs(hd.brand - hd.chip) < 30 && hd.earn !== 'none', `the brand, Earn and the wallet chip share one row on a phone (${JSON.stringify(hd)})`);
+  const subh = await m.$eval('#px-sub', (e) => e.getBoundingClientRect().height);
+  ok(subh >= parseFloat(await m.$eval('#px-sub', (e) => getComputedStyle(e).minHeight)) - 1 && (await m.$$eval('#px-sub .st', (a) => a.every((x) => x.getBoundingClientRect().height < 26))), `the headline's figures are one line each, in a block that holds its height (${subh}px)`);
   if (SHOTS) await m.screenshot({ path: join(SHOTS, 'trade-phone.png'), fullPage: true });
   ok(r.errors.length === 0 && r.blocked.length === 0, `and no errors or blocked requests there (${[...r.errors, ...r.blocked].slice(0, 2).join(' | ')})`);
   await r.browser.close();
