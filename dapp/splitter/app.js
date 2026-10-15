@@ -13,12 +13,15 @@ const RPCS = ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org', 'ht
 const OPS_MULTISIG = '0x006CD14F36F65eCbB29b2519cCBe63A0DC8549F2';
 const DEPLOYER = '0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7';
 const SETTLE = '0x7a0F0511E1DcF399C2F7bbe8414b6a0D1ABc4331';
+const BUYBACK = '0x6919cbEf0e70AFFA02Ae02c86c532A137154f250';
 const KNOWN = new Map([
   [OPS_MULTISIG.toLowerCase(), ['Ops multisig', 'owns the pool, the farms and this splitter']],
   [DEPLOYER.toLowerCase(), ['Deployer wallet', 'headers and attests: keeps Bitcoin’s state on Ethereum current']],
   [SETTLE.toLowerCase(), ['Settle wallet', 'settles relayed requests']],
+  [BUYBACK.toLowerCase(), ['TAC buyback', 'turns its ETH into TAC for the reserve, hourly']],
 ]);
-const START_ROWS = [[DEPLOYER, '70'], [SETTLE, '30']];
+// 10% to the buyback, then the other 90% as 70 : 30 between the wallets that run the relay (63 : 27).
+const START_ROWS = [[DEPLOYER, '63'], [SETTLE, '27'], [BUYBACK, '10']];
 const KEY = 'tacit-splitter-v1';
 
 const $ = (s, el = document) => el.querySelector(s);

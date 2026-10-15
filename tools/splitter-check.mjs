@@ -20,6 +20,7 @@ const WEB = 22000 + Math.floor(Math.random() * 2000), CHAIN = 24000 + Math.floor
 const ROOT = `http://127.0.0.1:${WEB}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const A0 = '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266', A1 = '0x70997970c51812dc3a010c7d01b50e0d17dc79c8';
+const BUYBACK = '0x6919cbef0e70affa02ae02c86c532a137154f250';
 const DEPLOYER = '0x68575b073de49a94e3e3acf6f3a0d6e3b66267c7', SETTLE = '0x7a0f0511e1dcf399c2f7bbe8414b6a0d1abc4331', MULTISIG = '0x006cd14f36f65ecbb29b2519ccbe63a0dc8549f2';
 const ETH = 10n ** 18n;
 
@@ -81,7 +82,7 @@ try {
   await page.waitForSelector('#p-deploy .row');
   ok(await page.$eval('#p-state', (e) => e.hidden) && !(await page.$eval('#p-deploy', (e) => e.hidden)), 'deploy: with no splitter chosen, only the deploy form shows');
   const rows = await page.$$eval('#p-deploy .row input', (els) => els.map((e) => e.value));
-  ok(rows[0].toLowerCase() === DEPLOYER && rows[1] === '70' && rows[2].toLowerCase() === SETTLE && rows[3] === '30', `deploy: it starts at 70% to the deployer wallet and 30% to the settle wallet (${rows.join(' ')})`);
+  ok(rows[0].toLowerCase() === DEPLOYER && rows[1] === '63' && rows[2].toLowerCase() === SETTLE && rows[3] === '27' && rows[4].toLowerCase() === BUYBACK && rows[5] === '10', `deploy: it starts at 63 / 27 / 10: the deployer wallet, the settle wallet (70 : 30 of the rest) and the TAC buyback (${rows.join(' ')})`);
   ok(!(await page.$eval('#p-deploy .btn', (b) => b.disabled)) && (await text('#p-deploy .hint')) === '', 'deploy: a valid list can be deployed, with no complaint');
   await page.fill('#dep-owner', A0);
   await page.click('#wallet-chip');
@@ -93,7 +94,7 @@ try {
   ok(/^0x[0-9a-f]{40}$/.test(addr) && (await chain('eth_getCode', [addr, 'latest'])).length > 100, `deploy: a contract is at the address the page then shows (${addr.slice(0, 10)}…)`);
   const owner = decodeAddress(await chain('eth_call', [{ to: addr, data: SEL.owner }, 'latest']));
   const sh0 = await shares(addr);
-  ok(owner === A0 && sh0.to.join() === `${DEPLOYER},${SETTLE}` && sh0.weight.join() === '70,30', 'deploy: on chain the owner is the address typed and the list is 70 / 30');
+  ok(owner === A0 && sh0.to.join() === `${DEPLOYER},${SETTLE},${BUYBACK}` && sh0.weight.join() === '63,27,10', 'deploy: on chain the owner is the address typed and the list is 63 / 27 / 10');
   ok(/^Deploy/.test(await text('#p-deploy .eyebrow')) && (await page.$eval('#p-next', (e) => !e.hidden)), 'deploy: the next steps appear');
   ok(/Constructor arguments: 0x/.test(await text('#p-next')), 'deploy: the constructor arguments are shown for Etherscan');
   await shot('deployed');
@@ -103,14 +104,14 @@ try {
   await page.click('#pick button');
   await until(() => /0\.5/.test(document.querySelector('#p-state .room')?.textContent || ''));
   const prev = await text('#p-state');
-  ok(/→ Deployer wallet0\.35 ETH/.test(prev) && /→ Settle wallet0\.15 ETH/.test(prev), 'state: what waits is shown with what each wallet will get (0.35 and 0.15)');
+  ok(/→ Deployer wallet0\.315 ETH/.test(prev) && /→ Settle wallet0\.135 ETH/.test(prev) && /→ TAC buyback0\.05 ETH/.test(prev), 'state: what waits is shown with what each wallet will get (0.315, 0.135 and 0.05)');
   ok(/Wrap tips do not come here yet/.test(prev) && /Ops multisig/.test(prev), 'state: while the relay quote names the multisig, the page says tips do not come here yet and names the multisig');
-  const d0 = await bal(DEPLOYER), s0 = await bal(SETTLE);
+  const d0 = await bal(DEPLOYER), s0 = await bal(SETTLE), b0 = await bal(BUYBACK);
 
   // ── send it on ──
   await page.click('#p-state .btn');
   await until(() => /Sent on\./.test(document.querySelector('#p-state .status')?.textContent || ''), null, 60000);
-  ok((await bal(DEPLOYER)) - d0 === (ETH * 35n) / 100n && (await bal(SETTLE)) - s0 === (ETH * 15n) / 100n && (await bal(addr)) === 0n, 'send on: the deployer wallet got 0.35 ETH, the settle wallet 0.15 ETH, and nothing is left');
+  ok((await bal(DEPLOYER)) - d0 === (ETH * 315n) / 1000n && (await bal(SETTLE)) - s0 === (ETH * 135n) / 1000n && (await bal(BUYBACK)) - b0 === (ETH * 50n) / 1000n && (await bal(addr)) === 0n, 'send on: the deployer wallet got 0.315 ETH, the settle wallet 0.135 ETH, the buyback 0.05 ETH, and nothing is left');
   await until(() => /^0ETH waiting/.test((document.querySelector('#p-state .room')?.textContent || '').trim()));
   ok((await page.$eval('#p-state .btn', (b) => b.disabled)), 'send on: with nothing waiting the button is off');
   await until(() => document.querySelectorAll('#p-state .log').length >= 1);
@@ -123,8 +124,11 @@ try {
   ok(true, 'state: once the quote names this splitter the page says tips come here');
 
   // ── change the list, nothing waiting ──
+  ok((await page.$$('#p-edit .row input')).length === 6, 'edit: three wallets, each with a weight');
+  await page.click('#p-edit .row:nth-of-type(3) button');                                       // take the buyback out of the list
+  await until(() => document.querySelectorAll('#p-edit .row input').length === 4);
+  ok(true, 'edit: a wallet can be removed from the list');
   const w = await page.$$('#p-edit .row input');
-  ok(w.length === 4, 'edit: two wallets, each with a weight');
   await w[1].fill('1'); await w[3].fill('1');
   await until(() => /50%/.test(document.querySelector('#p-edit .row .pc')?.textContent || ''));
   ok(/Deployer wallet · 50%/.test(await text('#p-edit .row .pc')), 'edit: typing weights updates the share at once');
