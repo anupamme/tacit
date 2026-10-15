@@ -3,7 +3,7 @@
     {
       "id": "tac-vaults",
       "chainId": 1,
-      "opensAt": 1792108244,
+      "opensAt": 1792107129,
       "steps": [
         {
           "id": "01-precision-oracle",
