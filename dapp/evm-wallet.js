@@ -21,14 +21,18 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
   if (typeof window !== 'undefined') {
     window.addEventListener('eip6963:announceProvider', (e) => {
       const d = e.detail; if (!d || !d.info || !d.provider) return;
-      if (!providers.find((p) => p.info.uuid === d.info.uuid)) providers.push(d);
+      if (!providers.find((p) => p.info.uuid === d.info.uuid || p.provider === d.provider)) providers.push(d);
     });
     try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch { /* ignore */ }
   }
   const injected = () => (typeof window !== 'undefined' ? window.ethereum : null);
   const currentProvider = () => selected || injected();
   const available = () => !!currentProvider() || providers.length > 0;
-  function listProviders() { return providers.map((p) => ({ uuid: p.info.uuid, name: p.info.name, icon: p.info.icon, rdns: p.info.rdns })); }
+  // A wallet in this browser itself: WalletConnect is always on offer, and is not one.
+  const hasBrowserWallet = () => !!injected() || providers.some((p) => !p.provider.isWalletConnect);
+  // The browser's own wallets first, a phone's WalletConnect after them.
+  const ordered = () => [...providers].sort((a, b) => !!a.provider.isWalletConnect - !!b.provider.isWalletConnect);
+  function listProviders() { return ordered().map((p) => ({ uuid: p.info.uuid, name: p.info.name, icon: p.info.icon, rdns: p.info.rdns })); }
   function selectProvider(uuid) { const p = providers.find((x) => x.info.uuid === uuid); if (p) selected = p.provider; return !!p; }
   // Forgets the chosen wallet, so the next connect asks again which one when several are installed.
   function deselectProvider() { selected = null; }
@@ -69,7 +73,7 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
         if (!selectProvider(uuid)) throw new Error('selected wallet vanished — reload the page and reconnect');
         provider = selected;
       }
-      else if (providers.length >= 1) { provider = providers[0].provider; selected = provider; }
+      else if (providers.length >= 1) { provider = ordered()[0].provider; selected = provider; }
       else provider = injected();
     }
     if (!provider || typeof provider.request !== 'function') throw new Error('no Ethereum wallet detected — install MetaMask, Rabby, Rainbow, or Coinbase Wallet');
@@ -199,7 +203,7 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
     return provider.request({ method: 'eth_sendTransaction', params: [params] });
   }
 
-  async function chainId() { const p = currentProvider(); if (!p) return null; try { return parseInt(await p.request({ method: 'eth_chainId' }), 16); } catch { return null; } }
+  async function chainId() { const p = currentProvider(); if (!p) return null; try { return Number(await p.request({ method: 'eth_chainId' })); } catch { return null; } }
 
   // EIP-2612 permit signed by the CONNECTED wallet, so tokens held in the user's own wallet can be pulled by
   // the router without first moving them to the derived account. The alternative — send tokens to the derived
@@ -235,5 +239,5 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
     return { v, r: '0x' + h.slice(0, 64), s: '0x' + h.slice(64, 128) };
   }
 
-  return { available, listProviders, selectProvider, deselectProvider, providerLabel, connect, deriveIdentity, signErc2612, fundTx, chainId, derivationMsg };
+  return { available, hasBrowserWallet, listProviders, selectProvider, deselectProvider, providerLabel, connect, deriveIdentity, signErc2612, fundTx, chainId, derivationMsg };
 }

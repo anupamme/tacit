@@ -2,7 +2,7 @@
 // executors and the book's data from tacit.js, mounted in a sheet. The module plans and tacit.js settles; this file supplies what the classic
 // app supplies around them and a page like this one does not have: signing in, a confirmation, a notice, the sats and TAC the key holds,
 // and where a purchase that stopped halfway is recovered. Nothing here builds or signs a transaction.
-import { makeBtcSession, short, Cancelled } from '/trade/btc-session.js?cb=7c122a8d';
+import { makeBtcSession, short, Cancelled } from '/trade/btc-session.js?cb=e831aca9';
 import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
 
 const MARKET_URL = '/btc-market.js?cb=e07ed7ab', CSS_URL = '/trade/btc-market.css?cb=359753e6';
@@ -41,7 +41,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
         ${here && !hereIsKnown ? opt('page', 'Use the wallet connected here', `Ethereum ${esc(short(here.address))}. One signature (two the first time).`, known ? '' : 'main') : ''}
         ${known ? opt('known', 'Continue with your Tacit wallet', `Opens with ${esc(via(known))}, the same key as on tacit.finance.`, 'main') : ''}
         ${other ? opt('other', 'Your other Tacit key', `A different key, opened here before with ${esc(via(other))}.`) : ''}
-        ${opt('eth', 'Ethereum wallet', hasEth ? 'Any browser wallet. One signature (two the first time).' : 'Any browser wallet. Not found in this browser.')}
+        ${opt('eth', 'Ethereum wallet', hasEth ? 'Any browser wallet, or a wallet app through WalletConnect. One signature (two the first time).' : 'Any browser wallet, or a wallet app through WalletConnect.')}
         ${opt('btc', 'Bitcoin wallet', hasBtc ? 'Xverse, Leather or UniSat. One signature (two the first time).' : 'Xverse, Leather or UniSat. Not found in this browser.')}
         ${pk ? opt('passkey', 'Passkey', 'Touch ID, Windows Hello or a security key.') : ''}
         <p class="ways-err" role="alert" hidden></p>

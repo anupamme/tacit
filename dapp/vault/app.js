@@ -10,9 +10,9 @@ import {
   makeRpc, makeReader, staticCalls, parseStatic, dynamicCalls, parseDynamic, timestampCall, refusal, decString, SEL, wordAt, addrWord,
   encDeposit, encWithdraw, encBorrow, encRepay, encCancel, encApprove, encPermit, encMulticall,
 } from '/vault/chain.js?cb=4c85c232';
-import { makeWallet, UserStopped } from '/trade/wallet.js?cb=a6b2910e';
+import { makeWallet, UserStopped } from '/trade/wallet.js?cb=0cba8a63';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
-import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
+import { announceWalletConnect, wcSheets, WC_PROJECT_ID } from '/walletconnect.js?cb=14fe38b6';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -45,24 +45,11 @@ const chainNow = () => (S.chainT ? S.chainT + (now() - S.chainAt) : now());
 const chainDeadline = (s) => BigInt(chainNow() + s);
 
 // ── the wallet ──
-const WC_PROJECT_ID = '1e8390ef1c1d8a185e035912a1409749';
-const coarse = () => matchMedia('(pointer: coarse)').matches;
-function showPairing({ uri, qrSvg, cancel }) {
-  let over = false;
-  const o = overlay({ title: 'Connect a wallet app', top: true, onClose: () => { if (!over) cancel(); } });
-  o.body.innerHTML = `<p style="margin:0 0 12px">${coarse() ? 'Open your wallet app to connect, or scan the code from another device.' : 'Scan the code with a wallet app on your phone: MetaMask, Rainbow, Trust, Zerion or any WalletConnect wallet.'}</p><div class="wc-qr">${qrSvg}</div><div class="bsheet-actions">${coarse() ? `<a class="btn" href="${esc(uri)}">Open wallet app</a>` : ''}<button class="btn ghost" type="button" data-copy>Copy link</button></div><p class="note">This waits until the wallet app approves. Connecting costs nothing.</p>`;
-  o.body.querySelector('[data-copy]').onclick = (e) => navigator.clipboard?.writeText(uri).then(() => { e.target.textContent = 'Copied'; }, () => { e.target.textContent = 'Could not copy'; });
-  return () => { over = true; o.close(); };
-}
-function showAsk({ name, link }) {
-  const o = overlay({ title: 'Approve in your wallet', top: true });
-  o.body.innerHTML = `<p style="margin:0 0 12px">${coarse() ? `Open ${esc(name)} to approve the request, then come back here.` : `Approve the request in ${esc(name)} on your phone.`}</p>${coarse() && link ? `<div class="bsheet-actions"><a class="btn" href="${esc(link)}"${/^https:/i.test(link) ? ' target="_blank" rel="noopener"' : ''}>Open ${esc(name)}</a></div>` : ''}<p class="note">This closes once the wallet answers.</p>`;
-  return () => o.close();
-}
+const sheets = wcSheets((title, onClose) => overlay({ title, top: true, onClose }));
 const WC = announceWalletConnect({
   projectId: WC_PROJECT_ID, chains: [1], rpcMap: { 1: 'https://ethereum-rpc.publicnode.com' },
   metadata: { name: 'tacit borrow', description: 'Borrow against TAC', url: location.origin, icons: [`${location.origin}/tac-logo.png`] },
-  onPair: showPairing, onAsk: showAsk,
+  onPair: sheets.onPair, onAsk: sheets.onAsk,
 });
 const wallet = makeWallet({ rpc, leave: (p) => (p?.isWalletConnect ? WC.disconnect() : null) });
 const W = wallet.state;

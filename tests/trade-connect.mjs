@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Connecting a wallet on dapp/trade/ for someone who arrives straight at it, in a real browser under the page's own CSP: the header chip,
-// the wallet picker, WalletConnect's pairing sheet (its provider is a stand-in that announces itself the way dapp/walletconnect.js does and
-// pairs when the test says so: WalletConnect itself needs a relay and a phone), the account sheet with Disconnect, and on a phone the bar at
+// the wallet picker, WalletConnect's pairing sheet (the page runs the real dapp/walletconnect.js over a stand-in for its bundle, tests/wc-fake.mjs,
+// that pairs when the test says so: WalletConnect itself needs a relay and a phone), the account sheet with Disconnect, and on a phone the bar at
 // the foot that leads to the ticket.
 //
 //   PLAYWRIGHT=/Users/z/zFi/node_modules/playwright-core node tests/trade-connect.mjs
@@ -9,6 +9,7 @@ import { createRequire } from 'node:module';
 import http from 'node:http';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join, extname } from 'node:path';
+import { useWcFake } from './wc-fake.mjs';
 
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT || '/Users/z/zFi/node_modules/playwright-core');
 const DAPP = new URL('../dapp/', import.meta.url).pathname, FX = new URL('./fixtures/', import.meta.url).pathname;
@@ -31,33 +32,6 @@ sales.sales = sales.sales.map((x) => ({ ...x, expiry: soon, expired: false, sell
 bids.intents = bids.intents.map((x) => ({ ...x, expiry: soon }));
 const ACCOUNT = '0x1234567890abcdef1234567890abcdef12345678', OTHER = '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd';
 
-// What dapp/walletconnect.js gives the page: a provider announced through EIP-6963 when the browser has no wallet of its own, whose
-// eth_requestAccounts shows the page's pairing sheet and waits.
-const WC_STUB = `
-export function announceWalletConnect({ onPair, onAsk }) {
-  window.__wc = { cancelled: 0, disconnected: 0, approve: null };
-  const provider = {
-    isWalletConnect: true,
-    async request({ method }) {
-      if (method === 'eth_requestAccounts') {
-        let reject;
-        const done = onPair({ uri: 'wc:stub@2?relay-protocol=irn', qrSvg: '<svg viewBox="0 0 8 8"><rect width="8" height="8"/></svg>', cancel: () => { window.__wc.cancelled++; reject(Object.assign(new Error('Connection cancelled'), { code: 4001 })); } });
-        await new Promise((res, rej) => { reject = rej; window.__wc.approve = () => res(); });
-        done();
-        return ['${ACCOUNT}'];
-      }
-      if (method === 'eth_chainId') return '0x1';
-      if (method === 'eth_accounts') return [];
-      throw new Error('stub: ' + method);
-    },
-    on() { return provider; }, removeListener() { return provider; },
-  };
-  const detail = Object.freeze({ info: Object.freeze({ uuid: 'wc-stub', name: 'WalletConnect', icon: '', rdns: 'com.walletconnect' }), provider });
-  const announce = () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail }));
-  window.addEventListener('eip6963:requestProvider', announce);
-  announce();
-  return { provider, disconnect: async () => { window.__wc.disconnected++; } };
-}`;
 // A browser wallet that announces itself through EIP-6963.
 const BROWSER_WALLET = `(() => {
   // It allows this site once asked (kept across a reload, as a wallet does), and counts the prompts it shows.
@@ -82,14 +56,14 @@ async function openPage(viewport, { browserWallet = false, phone = false } = {})
   const ok200 = (body) => ({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(body) });
   for (const h of ['ethereum-rpc.publicnode.com', 'eth.drpc.org', '1rpc.io', 'mainnet.gateway.tenderly.co']) await ctx.route(`https://${h}/**`, (r) => r.fulfill(ok200({ jsonrpc: '2.0', id: 1, error: { code: -32000, message: 'not served in this test' } })));
   await ctx.route(/^https:\/\/api\.tacit\.finance\//, (r) => { const p = new URL(r.request().url()).pathname; return r.fulfill(ok200(/preauth-sales$/.test(p) ? sales : /bid-intents$/.test(p) ? bids : asset)); });
-  await ctx.route('**/walletconnect.js*', (r) => r.fulfill({ status: 200, contentType: 'text/javascript', body: WC_STUB }));
+  const hits = await useWcFake(ctx, { account: ACCOUNT });
   const page = await ctx.newPage(), errors = [], blocked = [];
   page.on('pageerror', (e) => errors.push(String(e.message || e)));
   page.on('console', (m) => { if (m.type() === 'error') { const t = m.text(); if (/Content Security Policy|Refused to/i.test(t)) blocked.push(t); else if (!/Failed to load resource/.test(t)) errors.push(t); } });
   await page.goto(`http://127.0.0.1:${WEB}/trade/tac/`);
   await page.waitForSelector('#wallet-chip');
   await page.waitForTimeout(800);
-  return { browser, page, errors, blocked };
+  return { browser, page, errors, blocked, hits, ctx };
 }
 const chip = (p) => p.evaluate(() => ({ label: document.querySelector('#wallet-label').textContent, on: document.querySelector('#wallet-dot').classList.contains('on') }));
 
@@ -107,21 +81,45 @@ try {
   ok(/Connect a wallet app/.test(sheet) && /Scan the code with a wallet app on your phone/.test(sheet) && /Copy link/.test(sheet) && !/Open wallet app/.test(sheet), `with no wallet in the browser, Connect opens WalletConnect's pairing sheet with a code to scan (${sheet.slice(0, 90)})`);
   await p.click('.bsheet.top .x');
   await until(p, () => !document.querySelector('.bsheet'), null, 5000);
-  ok((await p.evaluate(() => window.__wc.cancelled)) === 1 && (await chip(p)).label === 'Connect', 'closing the sheet cancels the pairing and nothing is connected');
-  await p.click('#go');
+  ok((await p.evaluate(() => window.__wcfake.cancelled)) === 1 && (await chip(p)).label === 'Connect', 'closing the sheet cancels the pairing and nothing is connected');
+  // two presses on the ticket's button are one pairing, not two
+  const pairs0 = await p.evaluate(() => window.__wcfake.pairs);
+  await p.evaluate(() => { const b = document.querySelector('#go'); b.click(); b.click(); });
   await p.waitForSelector('.bsheet.top .wc-qr');
-  await p.evaluate(() => window.__wc.approve());
+  await p.waitForTimeout(300);
+  ok((await p.evaluate(() => window.__wcfake.pairs)) - pairs0 === 1 && (await p.$$('.bsheet')).length === 1, 'pressing Connect twice joins the pairing under way: one code, one sheet');
+  await p.evaluate(() => window.__wcfake.approve());
   await until(p, () => !document.querySelector('.bsheet') && document.querySelector('#wallet-dot').classList.contains('on'), null, 10000);
   await until(p, () => document.querySelector('#go').textContent === 'Enter an amount', null, 15000).catch(() => {});
   c = await chip(p);
   ok(c.on && c.label === '0x1234…5678' && (await text(p, '#go')) === 'Enter an amount', `the ticket's own button connects too, and the header shows the account (${c.label})`);
+  // WalletConnect answers eth_chainId with a number: the page still sees Ethereum, not another network
+  ok(!(await p.$eval('#wallet-dot', (e) => e.classList.contains('warn'))) && !(await p.$eval('#wallet-chip', (e) => e.title)), 'a wallet app on Ethereum shows as connected, not as on another network');
   await p.click('#wallet-chip');
   await p.waitForSelector('.bsheet.top [data-leave]');
   const acct = (await text(p, '.bsheet.top')).replace(/\s+/g, ' ');
-  ok(/WalletConnect/.test(acct) && acct.includes(ACCOUNT) && /Copy address/.test(acct) && /Disconnect/.test(acct), `the account sheet names the wallet and the account and offers Disconnect (${acct.slice(0, 100)})`);
+  ok(/WalletConnect · Test Phone Wallet/.test(acct) && acct.includes(ACCOUNT) && /Copy address/.test(acct) && /Disconnect/.test(acct) && !/Switch/.test(acct), `the account sheet names the wallet app and the account and offers Disconnect (${acct.slice(0, 100)})`);
+  await p.keyboard.press('Escape');
+  await until(p, () => !document.querySelector('.bsheet'), null, 5000);
+  // a reload: the session is kept, so the wallet app is back with no new code
+  await p.reload(); await p.waitForSelector('#wallet-chip');
+  await until(p, () => document.querySelector('#wallet-dot').classList.contains('on'), null, 15000).catch(() => {});
+  ok((await chip(p)).label === '0x1234…5678' && !(await p.$('.bsheet')) && (await p.evaluate(() => window.__wcfake.pairs)) === 0, 'a reload finds the kept session and reconnects the wallet app with no new pairing');
+  await p.click('#wallet-chip');
+  await p.waitForSelector('.bsheet.top [data-leave]');
   await p.click('.bsheet.top [data-leave]');
   await until(p, () => !document.querySelector('.bsheet') && document.querySelector('#wallet-label').textContent === 'Connect', null, 10000);
-  ok((await p.evaluate(() => window.__wc.disconnected)) === 1 && (await text(p, '#go')) === 'Connect wallet' && !(await chip(p)).on, 'Disconnect ends the WalletConnect session and puts the page back to asking for a wallet');
+  ok((await p.evaluate(() => window.__wcfake.disconnected)) === 1 && (await text(p, '#go')) === 'Connect wallet' && !(await chip(p)).on, 'Disconnect ends the WalletConnect session and puts the page back to asking for a wallet');
+  // with no session kept, a reload does not fetch WalletConnect's bundle at all
+  const fetched = r.hits.bundle;
+  await p.reload(); await p.waitForSelector('#wallet-chip'); await p.waitForTimeout(1500);
+  ok(r.hits.bundle === fetched && (await chip(p)).label === 'Connect', `a reload with no session kept does not download WalletConnect (${r.hits.bundle - fetched} fetches)`);
+  // a code nobody approved runs out: the page says so in words
+  await p.click('#go');
+  await p.waitForSelector('.bsheet.top .wc-qr');
+  await p.evaluate(() => window.__wcfake.reject(new Error('Proposal expired')));
+  await until(p, () => !document.querySelector('.bsheet') && /ran out/.test(document.querySelector('#status').textContent), null, 10000).catch(() => {});
+  ok(/The code ran out before a wallet app approved it/.test(await text(p, '#status')) && !(await chip(p)).on, `an unapproved code that runs out says so (${(await text(p, '#status')).slice(0, 60)})`);
   ok(r.errors.length === 0 && r.blocked.length === 0, `no page errors or blocked requests (${[...r.errors, ...r.blocked].slice(0, 2).join(' | ')})`);
   await r.browser.close();
 
@@ -157,8 +155,10 @@ try {
   ok(await p.$eval('.p-ticket', (e) => { const r = e.getBoundingClientRect(); return r.top < window.innerHeight && r.bottom > 0; }), 'pressing it brings the ticket into view, and the bar goes away');
   await p.click('#go');
   await p.waitForSelector('.bsheet.top .wc-qr');
-  const href = await p.$eval('.bsheet.top a.btn', (a) => a.getAttribute('href'));
-  ok(/^wc:/.test(href) && /Open wallet app/.test(await text(p, '.bsheet.top')), 'on a phone the pairing sheet has a button that opens the wallet app');
+  const links = await p.$$eval('.bsheet.top a.btn', (a) => a.map((x) => [x.textContent.trim(), x.getAttribute('href')]));
+  const apps = links.filter(([, h]) => /^(metamask|rainbow|trust):\/\/wc\?uri=wc%3Afake/.test(h)).map(([t]) => t);
+  ok(apps.join('|') === 'Open MetaMask|Open Rainbow|Open Trust Wallet' && links.some(([t, h]) => t === 'Other wallet app' && /^wc:fake/.test(h)), `on a phone the pairing sheet has buttons that open a wallet app with the pairing link (${links.map(([t]) => t).join(', ')})`);
+  ok(await p.$eval('.bsheet.top .wc-qr', (q) => q.getBoundingClientRect().top > document.querySelector('.bsheet.top a.btn').getBoundingClientRect().top), 'and they come before the code, which is for scanning from another device');
   ok(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'and nothing scrolls sideways');
   await r.browser.close();
 } catch (e) {

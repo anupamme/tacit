@@ -15,7 +15,7 @@ const MARKET_URL = '/tac/market.js?cb=7830ff4d';
 const CLAIM_URL = '/tac/claim.js?cb=0d2f2281';
 const UNIFIED_URL = '/tacit-unified.js?cb=a5b3a042';
 const KNOWN_URL = '/tacit-wallet-known.js?cb=ed4c75b7';
-const EVM_URL = '/evm-wallet.js?cb=1e6da73a';
+const EVM_URL = '/evm-wallet.js?cb=686e1d3f';
 const ID_URL = '/address-id.js?cb=c4fa5a58';
 const DEPS_URL = '/vendor/tacit-deps.min.js';
 const PRF_URL = '/prf-wallet.js';

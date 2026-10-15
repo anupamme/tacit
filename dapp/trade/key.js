@@ -5,7 +5,7 @@
 import { secp, sha256, keccak_256, bytesToHex, hexToBytes } from '/vendor/tacit-deps.min.js';
 import { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPasskeyAvailable } from '/prf-wallet.js';
 import { knownWallets } from '/tacit-wallet-known.js?cb=ed4c75b7';
-import { makeEvmWallet } from '/evm-wallet.js?cb=1e6da73a';
+import { makeEvmWallet } from '/evm-wallet.js?cb=686e1d3f';
 import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
 import { short } from '/trade/util.js?cb=c3dc39b3';
 
@@ -87,7 +87,7 @@ export function signInSheet(session, { pick, why = 'Open your Tacit wallet to ma
     o.body.innerHTML = `<p class="note" style="margin-top:0">${esc(why)}</p><div class="ways">
       ${known ? opt('known', 'Continue with your Tacit wallet', `Opens with ${esc(via(known))}, the same key as on tacit.finance.`, 'main') : ''}
       ${other ? opt('other', 'Your other Tacit key', `A different key, opened here before with ${esc(via(other))}.`) : ''}
-      ${opt('eth', 'Ethereum wallet', hasEth ? 'Any browser wallet. One signature (two the first time).' : 'Any browser wallet. Not found in this browser.')}
+      ${opt('eth', 'Ethereum wallet', hasEth ? 'Any browser wallet, or a wallet app through WalletConnect. One signature (two the first time).' : 'Any browser wallet, or a wallet app through WalletConnect.')}
       ${pk ? opt('passkey', 'Passkey', 'Touch ID, Windows Hello or a security key.') : ''}
       <p class="ways-err" role="alert" hidden></p>
       ${away ? '<p class="note">The wallet open on tacit.finance was opened another way (a Bitcoin wallet or a key saved in the browser). That one opens on <a href="/">tacit.finance</a>.</p>' : ''}

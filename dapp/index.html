@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-p83yeznilFdGgVA5giC+XeKVNrh+s9axT0lkMR3wcp4=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-2IoXrkik1Qd9OFrbeoC9VH7MtNbDxaprnALp/4FAnbc=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -32,9 +32,9 @@
 <link rel="modulepreload" href="/tacit-wallet-known.js?cb=ed4c75b7">
 <link rel="modulepreload" href="/tacit-address.js">
 <link rel="modulepreload" href="/bip352.js">
-<link rel="modulepreload" href="/evm-wallet.js?cb=1e6da73a">
+<link rel="modulepreload" href="/evm-wallet.js?cb=686e1d3f">
 <link rel="modulepreload" href="/identity-message.js">
-<link rel="modulepreload" href="/walletconnect.js?cb=31f53606">
+<link rel="modulepreload" href="/walletconnect.js?cb=14fe38b6">
 <link rel="modulepreload" href="/evm-account.js">
 <link rel="modulepreload" href="/evm-tx.js">
 <link rel="modulepreload" href="/tac-airdrop.js?cb=02ef61b4">
@@ -1362,8 +1362,8 @@ import { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPass
 import { knownWallets } from '/tacit-wallet-known.js?cb=ed4c75b7';
 import { makeTacitAddress } from '/tacit-address.js';
 import { bip352TaggedHash } from '/bip352.js';
-import { makeEvmWallet } from '/evm-wallet.js?cb=1e6da73a';
-import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
+import { makeEvmWallet } from '/evm-wallet.js?cb=686e1d3f';
+import { announceWalletConnect, wcSheets, dialogHost, WC_PROJECT_ID } from '/walletconnect.js?cb=14fe38b6';
 import { makeEvmAccount } from '/evm-account.js';
 import { makeEvmTx } from '/evm-tx.js';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=02ef61b4';
@@ -1575,6 +1575,8 @@ const errText = (e) => {
   if (e?.said) return e.message;                                   // already in words (keptDeposit)
   const m = String(e?.shortMessage || e?.message || e || 'Something went wrong');
   if (e?.code === 4001 || /user (rejected|denied)|rejected the request|denied transaction|no wallet selected/i.test(m)) return 'Cancelled in your wallet.';
+  if (e?.code === -32002 || /already (pending|processing)|request of type .* pending/i.test(m)) return 'Your wallet already has a request open. Answer it there, then try again.';
+  if (/chain.*not approved|does not support 'wallet_switchEthereumChain'/i.test(m)) return 'Your wallet app did not allow that network for this connection. Switch to it in the app, or disconnect and connect again.';
   if (/no ethereum wallet detected/i.test(m)) return `No Ethereum wallet found in this browser. Open this page in your wallet's own browser, or install MetaMask, Rabby or Rainbow.${isPasskeyAvailable() ? ' Or use a passkey.' : ''}`;
   const r = revertText(e);
   if (r) return r;
@@ -2792,44 +2794,17 @@ const render = {}, load = {};
 // account. A Bitcoin wallet funds a lock. None of this changes which wallet tacit.finance opens.
 const evm = makeEvmWallet({ secp, sha256, keccak256: keccak_256, bytesToHex, hexToBytes, prfBytesToScalar, netName: 'mainnet' });
 // WalletConnect joins the browser wallets in the picker: a wallet app on a phone signs and sends for this page.
-// The project is zSwap's, shared: an allowlist set on it must name tacit.finance too.
-const WC_PROJECT_ID = '1e8390ef1c1d8a185e035912a1409749';
 const WC = announceWalletConnect({
   projectId: WC_PROJECT_ID,
   chains: DEVICE_CHAINS.map((c) => c.chainId),
   rpcMap: Object.fromEntries(DEVICE_CHAINS.map((c) => [c.chainId, c.rpc[0]])),
   metadata: { name: 'tacit', description: 'Confidential crosschain DeFi', url: location.origin, icons: [`${location.origin}/tac-logo.png`] },
-  onPair: showPairing,
-  onAsk: showAsk,
+  onPair: (x) => wcSheet.onPair(x),
+  onAsk: (x) => wcSheet.onAsk(x),
 });
-// The pairing link WalletConnect gives: a QR code for a wallet app on a phone, the link to copy, and on a phone a button
-// that opens the wallet app. Closing the sheet cancels the pairing.
-let pairing = null;
-$('#sheet-wc').addEventListener('close', () => { const p = pairing; pairing = null; p?.cancel(); });
-function showPairing({ uri, qrSvg, cancel }) {
-  const d = $('#sheet-wc'), phone = matchMedia('(pointer: coarse)').matches;
-  pairing = { cancel };
-  $('#wc-h').textContent = 'Connect a wallet app';
-  mount($('#wc-body'), html`<p class="lede-s">${phone ? 'Open your wallet app to connect, or scan the code from another device.' : 'Scan the code with a wallet app on your phone: MetaMask, Rainbow, Trust, Zerion or any other WalletConnect wallet.'}</p>
-    <div class="wc-qr">${new Raw(qrSvg)}</div>
-    <div class="row2">${phone ? html`<a class="btn" href="${uri}">Open wallet app</a>` : ''}<button class="btn ghost" type="button" id="wc-copy">Copy link</button></div>
-    <p class="note">The page waits here until the wallet app approves. Signing in costs nothing.</p>`);
-  $('#wc-copy').onclick = () => copy(uri, 'Link copied');
-  if (!d.open) d.showModal();
-  return () => { pairing = null; if (d.open) d.close(); };
-}
-// A request waiting in the wallet app, where it is approved. On a phone the sheet has a button that opens the app: a
-// browser follows that link only from a tap. Closing the sheet leaves the request waiting there.
-function showAsk({ name, link }) {
-  const d = $('#sheet-wc'), phone = matchMedia('(pointer: coarse)').matches;
-  pairing = null;
-  $('#wc-h').textContent = 'Approve in your wallet';
-  mount($('#wc-body'), html`<p class="lede-s">${phone ? `Open ${name} to approve the request, then come back here.` : `Approve the request in ${name} on your phone.`}</p>
-    ${phone && link ? html`<div class="row2"><a class="btn" href="${link}"${/^https:/i.test(link) ? html` target="_blank" rel="noopener"` : ''}>Open ${name}</a></div>` : ''}
-    <p class="note">This closes once the wallet answers.</p>`);
-  if (!d.open) d.showModal();
-  return () => { if (d.open && !pairing) d.close(); };
-}
+// The pairing link WalletConnect gives (a QR code for a wallet app on a phone, the link to copy, and on a phone buttons that open the wallet app) and a
+// request waiting in the wallet app show in the page's sheet. Closing the pairing sheet cancels the pairing.
+const wcSheet = wcSheets(dialogHost({ dialog: $('#sheet-wc'), title: $('#wc-h'), body: $('#wc-body') }));
 // Ends a WalletConnect session from here, so the next sign-in can pair another wallet app or account.
 document.addEventListener('click', (e) => {
   if (!e.target.closest?.('[data-wc-off]') || midAction()) return;
@@ -3114,7 +3089,7 @@ const CHAIN_META = {
 };
 async function ensureChain(id) {
   const want = '0x' + id.toString(16);
-  if (parseInt(await S.provider.request({ method: 'eth_chainId' }), 16) === id) return;
+  if (Number(await S.provider.request({ method: 'eth_chainId' })) === id) return;
   try { await S.provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: want }] }); }
   catch (e) {
     if (e?.code !== 4902 && !/unrecognized|not been added|unknown chain/i.test(e?.message || '')) throw e;
@@ -3122,7 +3097,7 @@ async function ensureChain(id) {
     await S.provider.request({ method: 'wallet_addEthereumChain', params: [{ chainId: want, chainName: m.chainName, nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: m.rpcUrls, blockExplorerUrls: m.blockExplorerUrls }] });
   }
   // Some wallets report a switch they have not made yet; the pools share one address on every chain.
-  if (parseInt(await S.provider.request({ method: 'eth_chainId' }), 16) !== id) throw new Error(`Switch your wallet to ${CHAIN_META[id].chainName}, then try again.`);
+  if (Number(await S.provider.request({ method: 'eth_chainId' })) !== id) throw new Error(`Switch your wallet to ${CHAIN_META[id].chainName}, then try again.`);
 }
 // A public transaction goes out from the paying account: the connected wallet, or the Tacit account signing here. The
 // Activity list follows it to its receipt under `label`.

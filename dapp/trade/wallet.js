@@ -4,6 +4,17 @@
 
 export const MAINNET = '0x1';
 export class UserStopped extends Error { constructor() { super('Cancelled in your wallet. Nothing was sent.'); this.userStopped = true; } }
+// A chain id as 0x hex whatever way the wallet gave it (a number, a decimal string, hex with leading zeros).
+export const hexChain = (c) => { try { return `0x${BigInt(c).toString(16)}`; } catch { return null; } };
+// What a wallet's refusal means to the person. A wallet that says no is the person, not a fault.
+function plain(e) {
+  const m = e?.message || '';
+  if (e?.code === 4001 || /user (rejected|denied)|rejected the request|request rejected|denied (transaction|message)/i.test(m)) return new UserStopped();
+  if (e?.code === -32002 || /already (pending|processing)|request of type .* pending/i.test(m)) return new Error('Your wallet already has a request open. Answer it there, then try again.');
+  if (e?.code === 4100 && !/WalletConnect/.test(m)) return new Error('Your wallet is locked or has not allowed this site. Unlock it and connect again.');
+  if (/chain.*not approved|does not support 'wallet_switchEthereumChain'/i.test(m)) return new Error('Your wallet app did not allow Ethereum for this connection. Disconnect, then connect again.');
+  return e;
+}
 
 export function makeWallet({ rpc, leave = null }) {
   const found = new Map();
@@ -11,9 +22,14 @@ export function makeWallet({ rpc, leave = null }) {
   const emit = () => { for (const f of W.listeners) f(); };
   addEventListener('eip6963:announceProvider', (e) => { if (e.detail?.provider?.request) found.set(e.detail.info?.uuid || String(found.size), e.detail); });
   dispatchEvent(new Event('eip6963:requestProvider'));
-  const available = () => { const l = [...found.values()]; if (!l.length && globalThis.ethereum?.request) l.push({ info: { name: 'Browser wallet' }, provider: globalThis.ethereum }); return l; };
-  // A wallet that says no is the person, not a fault.
-  const wrap = async (p) => { try { return await p; } catch (e) { if (e?.code === 4001 || /user (rejected|denied)|rejected the request/i.test(e?.message || '')) throw new UserStopped(); throw e; } };
+  // The wallets the page can use: the one used last here first, a phone's WalletConnect after the browser's own.
+  const available = () => {
+    const l = [...found.values()];
+    if (!l.length && globalThis.ethereum?.request) l.push({ info: { name: 'Browser wallet' }, provider: globalThis.ethereum });
+    const rank = (w) => (idOf(w) === last ? 0 : w.provider?.isWalletConnect ? 2 : 1);
+    return l.sort((a, b) => rank(a) - rank(b));
+  };
+  const wrap = async (p) => { try { return await p; } catch (e) { throw plain(e); } };
   const req = (method, params) => wrap(W.prov.request({ method, params }));
 
   // A wallet's listeners are taken off the provider it is leaving, so a wallet left behind cannot change the account of the one in use.
@@ -21,7 +37,9 @@ export function makeWallet({ rpc, leave = null }) {
   // The wallet last connected here, by its EIP-6963 id (or name), so a reload can find it again. Only which wallet: never an account or a key.
   const KEY = 'tacit-trade-wallet';
   const idOf = (w) => w.info?.rdns || w.info?.name || 'Browser wallet';
-  const remember = (w) => { try { if (w) localStorage.setItem(KEY, idOf(w)); else localStorage.removeItem(KEY); } catch { /* storage is a convenience */ } };
+  let last = null;
+  try { last = localStorage.getItem(KEY); } catch { /* storage is a convenience */ }
+  const remember = (w) => { last = w ? idOf(w) : null; try { if (w) localStorage.setItem(KEY, last); else localStorage.removeItem(KEY); } catch { /* storage is a convenience */ } };
   // `silent`: asks only for the accounts the wallet already allows this site (eth_accounts opens no prompt); none → not connected.
   async function connect(w, { silent = false } = {}) {
     off?.(); off = null;
@@ -29,8 +47,8 @@ export function makeWallet({ rpc, leave = null }) {
     const accounts = await req(silent ? 'eth_accounts' : 'eth_requestAccounts');
     if (silent && !accounts?.[0]) { W.prov = null; W.name = ''; W.uuid = null; return false; }
     W.account = accounts?.[0] ? String(accounts[0]) : null;
-    W.chain = await req('eth_chainId');
-    const prov = W.prov, onAccounts = (a) => { if (prov === W.prov) { W.account = a?.[0] ? String(a[0]) : null; emit(); } }, onChain = (c) => { if (prov === W.prov) { W.chain = c; emit(); } };
+    W.chain = hexChain(await req('eth_chainId'));
+    const prov = W.prov, onAccounts = (a) => { if (prov === W.prov) { W.account = a?.[0] ? String(a[0]) : null; emit(); } }, onChain = (c) => { if (prov === W.prov) { W.chain = hexChain(c); emit(); } };
     prov.on?.('accountsChanged', onAccounts); prov.on?.('chainChanged', onChain);
     off = () => { prov.removeListener?.('accountsChanged', onAccounts); prov.removeListener?.('chainChanged', onChain); };
     remember(w);
@@ -60,10 +78,10 @@ export function makeWallet({ rpc, leave = null }) {
   // What was reviewed was for one account: a wallet whose account has changed since is not asked to send or sign it.
   const same = (from) => { if (from && String(from).toLowerCase() !== String(W.account || '').toLowerCase()) throw new Error('The wallet\'s account changed. Nothing was sent; review it again.'); };
   async function ensureMainnet() {
-    W.chain = await req('eth_chainId');
+    W.chain = hexChain(await req('eth_chainId'));
     if (W.chain === MAINNET) return;
     await req('wallet_switchEthereumChain', [{ chainId: MAINNET }]);
-    W.chain = await req('eth_chainId');
+    W.chain = hexChain(await req('eth_chainId'));
     if (W.chain !== MAINNET) throw new Error('Switch your wallet to Ethereum mainnet.');
   }
   async function sendTx({ to, data, value = 0n, from = null }) {

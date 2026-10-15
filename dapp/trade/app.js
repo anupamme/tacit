@@ -15,11 +15,9 @@ import { getConfidentialDeployment } from '/confidential-deployments.js';
 import { buildBook, planBuy, planSell as planBtcSell, ladderLevels } from '/btc-book.js?cb=2d11b335';
 import { decodeTape, chartBars, invert, ethLaneUsd, btcLaneUsd, candlesFromTrades, tradePrices, closeAt, volumeSince, gap, TAPE_FINE, TAPE_COARSE } from '/trade/tape.js?cb=6565501b';
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=e2110e58';
-import { overlay } from '/trade/sheet.js?cb=84cda8f2';
-import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
 import { mountDepth } from '/trade/depth.js?cb=21a5dc95';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
-import { makeWallet, UserStopped } from '/trade/wallet.js?cb=a6b2910e';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=60dbb769';
 import { takeEarly } from '/trade/rpc.js?cb=842f58a5';
 import { mountFarm } from '/trade/farm.js?cb=e7c9d199';
 import { grp, sig, group, satsFmt, warm as warmFormatters } from '/trade/fmt.js?cb=43646c2e';
@@ -597,7 +595,7 @@ const pageWallet = () => (W.account && W.prov && !W.prov.isWalletConnect ? { uui
 // Made once: two asks at the same moment (the hover that warms it and the press that uses it) share one module and so one wallet session.
 let bitcoinP = null;
 function getBitcoin() {
-  return (bitcoinP ||= import('/trade/btc.js?cb=1b8db244').then((m) => (bitcoin = m.makeBitcoin({
+  return (bitcoinP ||= import('/trade/btc.js?cb=eade0a9d').then((m) => (bitcoin = m.makeBitcoin({
     notify, wallet: pageWallet, onChange: () => syncMe(),
     onTraded: (t) => { noteBitcoinTrade(t); loadBitcoin().then(paintAll).catch(() => {}); },
   }))).catch((e) => { bitcoinP = null; throw e; }));
@@ -909,32 +907,19 @@ function renderAbout() {
 }
 
 // ── the wallet and the trade ──
-// WalletConnect joins the browser wallets in the picker, and is the one wallet offered where the browser has none (a phone): a wallet app signs
-// and sends for this page. The project is zSwap's, shared: an allowlist set on it must name tacit.finance too.
-const WC_PROJECT_ID = '1e8390ef1c1d8a185e035912a1409749';
-const coarse = () => matchMedia('(pointer: coarse)').matches;
-// The pairing link WalletConnect gives: a QR code for a wallet app on a phone, the link to copy, and on a phone a button that opens the app.
-// Closing the sheet cancels the pairing.
-function showPairing({ uri, qrSvg, cancel }) {
-  let over = false;
-  const o = overlay({ title: 'Connect a wallet app', top: true, onClose: () => { if (!over) cancel(); } });
-  o.body.innerHTML = `<p style="margin:0 0 12px">${coarse() ? 'Open your wallet app to connect, or scan the code from another device.' : 'Scan the code with a wallet app on your phone: MetaMask, Rainbow, Trust, Zerion or any WalletConnect wallet.'}</p><div class="wc-qr">${qrSvg}</div><div class="bsheet-actions">${coarse() ? `<a class="btn" href="${esc(uri)}">Open wallet app</a>` : ''}<button class="btn ghost" type="button" data-copy>Copy link</button></div><p class="note">This waits until the wallet app approves. Connecting costs nothing.</p>`;
-  o.body.querySelector('[data-copy]').onclick = (e) => navigator.clipboard?.writeText(uri).then(() => { e.target.textContent = 'Copied'; }, () => { e.target.textContent = 'Could not copy'; });
-  return () => { over = true; o.close(); };
-}
-// A request waiting in the wallet app, where it is approved: on a phone a button opens the app (a browser follows that link only from a tap).
-function showAsk({ name, link }) {
-  const o = overlay({ title: 'Approve in your wallet', top: true });
-  o.body.innerHTML = `<p style="margin:0 0 12px">${coarse() ? `Open ${esc(name)} to approve the request, then come back here.` : `Approve the request in ${esc(name)} on your phone.`}</p>${coarse() && link ? `<div class="bsheet-actions"><a class="btn" href="${esc(link)}"${/^https:/i.test(link) ? ' target="_blank" rel="noopener"' : ''}>Open ${esc(name)}</a></div>` : ''}<p class="note">This closes once the wallet answers.</p>`;
-  return () => o.close();
-}
-const WC = announceWalletConnect({
-  projectId: WC_PROJECT_ID, chains: [1], rpcMap: { 1: RPCS[0] },
-  metadata: { name: 'tacit trade', description: 'Trade TAC at the best price', url: location.origin, icons: [`${location.origin}/tac-logo.png`] },
-  onPair: showPairing, onAsk: showAsk,
+// The wallet is the trade pages' shared connection (the header chip, the picker, WalletConnect's sheets, the account sheet). This page adds to the account
+// sheet what the wallet holds here and, for a wallet that opened the Tacit key, the same account on Bitcoin. A trade in flight keeps the account it was
+// reviewed for: the wallet module refuses to send for another.
+const connect = makeConnect({
+  describe: 'Trade TAC at the best price',
+  rows: walletRows, wire: wireWalletSheet,
+  busy: () => S.busy || farm.busy(),
+  leave: (addr) => { if (bitcoin?.session.unlocked && bitcoin.session.key?.mode === 'eth' && lc(bitcoin.session.key.address) === lc(addr)) bitcoin.lock(); },   // the Bitcoin key this wallet opened is held in memory only, and belongs to the account being left
+  say: (t) => say(t),
+  onChange: () => { syncMe(); if (!farm.busy()) farm.refresh(); if (S.busy) return; readBalances().then(() => { renderBalance(); if (getAmount()) requote(); else renderGo(); }); },
+  restore: false,
 });
-const wallet = makeWallet({ rpc, leave: (p) => (p?.isWalletConnect ? WC.disconnect() : null) });
-const W = wallet.state;
+const { wallet, W } = connect, connectWallet = connect.connect;
 const short = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const plain = (v, dec = 18) => { const n = BigInt(v), b = 10n ** BigInt(dec), f = (n % b).toString().padStart(dec, '0').replace(/0+$/, ''); return `${n / b}${f ? `.${f}` : ''}`; };
 const say = (t) => { const s = $('#status'); s.innerHTML = t; s.dataset.kind = 'trade'; };
@@ -1000,54 +985,20 @@ function feeHtml(P) {
   const txt = fee == null ? `≈ ${sig(eth)} ETH` : fee < 0.01 ? 'under $0.01' : `≈ $${fee.toFixed(2)}`;
   return html`<div class="kv"><span>Network fee</span><b title="About ${grp(units, 0)} gas at ${sig(Number(D.gasPrice) / 1e9)} gwei, the gas price now">${txt}</b></div>`;
 }
-// Several wallets (or one and WalletConnect): the person chooses. One: it connects at once.
-function pickWallet(list) {
-  return new Promise((resolve) => {
-    const o = overlay({ title: 'Choose a wallet', top: true, onClose: () => resolve(null) });
-    o.body.innerHTML = `<div class="picker">${list.map((w, i) => `<button class="way" type="button" data-i="${i}"><span class="way-t">${/^data:image\//.test(w.info?.icon || '') ? `<img src="${esc(w.info.icon)}" alt="" width="20" height="20">` : ''}${esc(w.info?.name || 'Wallet')}</span></button>`).join('')}</div>`;
-    o.body.querySelectorAll('[data-i]').forEach((b) => { b.onclick = () => { resolve(Number(b.dataset.i)); o.close(); }; });
-  });
-}
-async function connectWallet() {
-  const list = wallet.available();
-  if (!list.length) { say('No wallet was found in this browser. Open this page in a wallet app\'s browser, or use tacit.finance.'); return; }
-  try {
-    let w = list[0];
-    if (list.length > 1) { const i = await pickWallet(list); if (i == null) return; w = list[i]; }
-    await wallet.connect(w);
-    await afterConnect();
-  } catch (e) { say(esc(e instanceof UserStopped ? 'Not connected.' : (e.message || 'The wallet did not connect.'))); }
-}
-async function afterConnect() { renderChip(); syncMe(); farm.refresh(); await readBalances(); renderBalance(); if (getAmount()) requote(); else renderGo(); }
-
-// ── the wallet chip in the header: connect, or see the account and disconnect ──
-function renderChip() {
-  const on = !!W.account;
-  const wrong = on && W.chain && W.chain !== '0x1';                                                // trading switches the wallet to Ethereum itself; the chip says so first
-  $('#wallet-dot').classList.toggle('on', on && !wrong); $('#wallet-dot').classList.toggle('warn', !!wrong);
-  $('#wallet-label').textContent = on ? short(W.account) : 'Connect';
-  $('#wallet-chip').setAttribute('aria-label', on ? `Wallet ${W.account}${wrong ? ', on another network' : ''}` : 'Connect a wallet');
-  $('#wallet-chip').title = wrong ? 'Your wallet is on another network. It is asked to switch to Ethereum when you trade.' : '';
-}
-function walletSheet() {
-  const o = overlay({ title: 'Wallet', top: true });
+// What the account sheet shows beyond the connection: the balances, and the same wallet on Bitcoin (its Tacit key's address and what it holds there when
+// the key is open, else a way to open it).
+function walletRows() {
   const bal = S.bal ? `<div class="kv"><span>ETH</span><b class="num">${esc(fmtUnits(S.bal.eth ?? 0n, 18, 4))}</b></div><div class="kv"><span>TAC</span><b class="num">${esc(fmtUnits(S.bal.tac ?? 0n, 18, 2))}</b></div>` : '';
-  const wrong = W.chain && W.chain !== '0x1';
-  // The same wallet on Bitcoin: its Tacit key's address and what it holds there when the key is open, else a way to open it.
   const bk = bitcoin?.session.unlocked ? bitcoin.me : null, btcOpen = !!bitcoin?.session.unlocked;
   const onBtc = bk ? `<div class="kv"><span>Bitcoin</span><b class="addr-s">${esc(bk.address || '')}</b></div><div class="kv"><span>On Bitcoin</span><b class="num">${bk.sats != null ? esc(satsFmt(bk.sats)) : '—'} sats · ${bk.assetBase != null ? esc(tacFmt(Number(bk.assetBase) / 1e8)) : '…'} TAC <button class="linkbtn" type="button" data-btc-lock>Lock</button></b></div>`
     : btcOpen ? '<div class="kv"><span>Bitcoin</span><b>Reading…</b></div>'
     : pageWallet() ? `<div class="kv"><span>Bitcoin</span><b>${ME.pub ? 'Your Tacit wallet' : 'Not open'} <button class="linkbtn" type="button" data-btc-open>${ME.pub ? 'Show balances' : 'Open'}</button></b></div>` : '';
-  o.body.innerHTML = `<div class="kv"><span>Connected with</span><b>${esc(W.name)}</b></div><div class="kv"><span>Account</span><b class="addr-s">${esc(W.account)}</b></div>${wrong ? '<div class="kv"><span>Network</span><b>Not Ethereum <button class="linkbtn" type="button" data-switch>Switch</button></b></div>' : ''}${bal}${onBtc}<div class="bsheet-actions" style="margin-top:14px"><button class="btn ghost" type="button" data-copy>Copy address</button><button class="btn" type="button" data-leave${S.busy || farm.busy() ? ' disabled' : ''}>Disconnect</button></div>${S.busy || farm.busy() ? '<p class="note">A trade is in progress; disconnect when it ends.</p>' : ''}`;
-  const addr = W.account;
-  o.body.querySelector('[data-switch]')?.addEventListener('click', (e) => { e.target.disabled = true; wallet.ensureMainnet().then(() => { o.close(); renderChip(); }, () => { e.target.disabled = false; }); });
-  o.body.querySelector('[data-copy]').onclick = (e) => navigator.clipboard?.writeText(addr).then(() => { e.target.textContent = 'Copied'; }, () => { e.target.textContent = 'Could not copy'; });
-  o.body.querySelector('[data-btc-lock]')?.addEventListener('click', () => { bitcoin?.lock(); o.close(); });
-  o.body.querySelector('[data-btc-open]')?.addEventListener('click', (e) => { o.close(); S.book = 'mine'; mineAct('open', null); renderBook(); e.stopPropagation(); });
-  // Leaving closes the Bitcoin key this wallet opened: it is held in memory only, and belongs to the account being left.
-  o.body.querySelector('[data-leave]').onclick = async () => { o.close(); if (bitcoin?.session.unlocked && bitcoin.session.key?.mode === 'eth' && lc(bitcoin.session.key.address) === lc(addr)) bitcoin.lock(); await wallet.disconnect(); renderChip(); syncMe(); renderGo(); };
+  return bal + onBtc;
 }
-$('#wallet-chip').addEventListener('click', () => { if (W.account) walletSheet(); else connectWallet(); });
+function wireWalletSheet(root, close) {
+  root.querySelector('[data-btc-lock]')?.addEventListener('click', () => { bitcoin?.lock(); close(); });
+  root.querySelector('[data-btc-open]')?.addEventListener('click', (e) => { close(); S.book = 'mine'; mineAct('open', null); renderBook(); e.stopPropagation(); });
+}
 
 // The Precision pool's farm, beside the ticket: same wallet, same chain reads.
 const farm = mountFarm($('#farm'), {
@@ -1056,7 +1007,7 @@ const farm = mountFarm($('#farm'), {
 });
 
 // The wallet connected here last time, back without a prompt when it still allows this site.
-wallet.restore().catch(() => {});                                                                  // connecting reaches the page through onChange, as any account change does
+connect.restore();                                                                                 // connecting reaches the page through onChange, as any account change does
 
 // On a phone the ticket is far down the page: a bar at the foot leads to it while it is out of view.
 {
@@ -1064,7 +1015,6 @@ wallet.restore().catch(() => {});                                               
   if ('IntersectionObserver' in window) new IntersectionObserver(([e]) => { stick.hidden = e.isIntersecting; }, { rootMargin: '0px 0px -40px 0px' }).observe(ticket);
   $('#stick-go').addEventListener('click', () => ticket.scrollIntoView({ behavior: 'smooth', block: 'start' }));
 }
-wallet.onChange(() => { renderChip(); syncMe(); if (!farm.busy()) farm.refresh(); if (S.busy) return; readBalances().then(() => { renderBalance(); if (getAmount()) requote(); else renderGo(); }); });   // a trade in flight keeps the account it was reviewed for: the wallet module refuses to send for another
 
 // The transaction, with the TAC a sale spends made available: a permit signed (no gas) where the route takes one, else an approval sent first.
 async function withTacAccess({ make, buy, permit, from, dl }) {

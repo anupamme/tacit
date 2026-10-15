@@ -101,7 +101,7 @@ for (const host of ['ethereum-rpc.publicnode.com', 'eth.drpc.org', '1rpc.io', 'm
   const q = JSON.parse(route.request().postData() || '{}');
   route.fulfill({ status: 200, contentType: 'application/json', headers: CORS, body: JSON.stringify(Array.isArray(q) ? q.map(rpcAnswer) : rpcAnswer(q)) });
 });
-await ctx.route('**/walletconnect.js*', (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: 'export function announceWalletConnect() { return { provider: null, disconnect: async () => {} }; }' }));
+await ctx.route('**/walletconnect.js*', (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: 'export const WC_PROJECT_ID = "test"; export function announceWalletConnect() { return { provider: null, disconnect: async () => {} }; } export function wcSheets() { return { onPair() {}, onAsk() {} }; } export function dialogHost() { return () => ({}); }' }));
 // A wallet announced through EIP-6963 that records what it is asked to send.
 const ACCOUNT = '0x1111111111111111111111111111111111111111';
 await ctx.exposeFunction('__wallet', async (method, params) => {

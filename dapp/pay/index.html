@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-oLOGDIIBVGAs1yiKjQvI6v6ecOQEZYeF+rrJlerurww=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-J3w1x56xgdGIfFWs58p2PQSthIkzRUWLVlSTlij4nSs=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay</title>
 <meta name="description" content="Simple, private payments: Bitcoin by silent payment, TAC shielded, ETH on Ethereum, Base, Robinhood Chain and MegaETH. One key and one tacit1 address, every payment made on your device, and your balances rebuild from that key.">
@@ -20,13 +20,14 @@
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- Every module the page loads, one round trip instead of five: build/build.mjs expands these roots to their static imports.; those after the bar are asked for by the module itself, once the first group has arrived. -->
-<!-- preload-roots: /vendor/tacit-deps.min.js /prf-wallet.js /tacit-wallet-known.js /evm-wallet.js /tacit-address.js /bip352.js /address-id.js | /tacit-unified.js /qr.js -->
+<!-- preload-roots: /vendor/tacit-deps.min.js /prf-wallet.js /tacit-wallet-known.js /evm-wallet.js /walletconnect.js /tacit-address.js /bip352.js /address-id.js | /tacit-unified.js /qr.js -->
 <!-- preload:begin -->
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/prf-wallet.js">
 <link rel="modulepreload" href="/tacit-wallet-known.js?cb=ed4c75b7">
-<link rel="modulepreload" href="/evm-wallet.js?cb=1e6da73a">
+<link rel="modulepreload" href="/evm-wallet.js?cb=686e1d3f">
 <link rel="modulepreload" href="/identity-message.js">
+<link rel="modulepreload" href="/walletconnect.js?cb=14fe38b6">
 <link rel="modulepreload" href="/tacit-address.js">
 <link rel="modulepreload" href="/bip352.js">
 <link rel="modulepreload" href="/address-id.js?cb=c4fa5a58">
@@ -370,6 +371,8 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(2px); }
 .picker button { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 14px; background: var(--field); border: 1px solid var(--hair-2); cursor: pointer; text-align: left; }
 @media (hover: hover) { .picker button:hover { border-color: var(--ink); } }
 .picker img { width: 28px; height: 28px; }
+.wc-qr { width: min(264px, 100%); margin: 6px auto 18px; padding: 14px; background: #fff; border: 1px solid var(--hair); }
+.wc-qr svg { display: block; width: 100%; height: auto; }
 dialog.layer { width: min(460px, calc(100vw - 32px)); }
 #pass-modal .pass-hint { font-size: 12px; min-height: 18px; margin-top: 4px; color: var(--mute); }
 #pass-modal .pass-hint.error { color: var(--err); }
@@ -509,6 +512,12 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
     <div id="pick-body"></div>
   </div>
 </dialog>
+<dialog class="sheet" id="sheet-wc" aria-labelledby="wc-h">
+  <div class="sheet-in">
+    <div class="sheet-head"><h2 id="wc-h" tabindex="-1" autofocus>Connect a wallet app</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+    <div id="wc-body"></div>
+  </div>
+</dialog>
 
 <div class="toasts" id="toast-container" popover="manual"></div>
 
@@ -527,9 +536,9 @@ const forwardOld = (h) => {
 };
 if (forwardOld(location.hash)) await new Promise(() => {});
 const [{ secp, keccak_256, sha256, hmac, bytesToHex, hexToBytes, concatBytes }, { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPasskeyAvailable }, { knownWallets },
-  { makeEvmWallet }, { makeTacitAddress }, { bip352TaggedHash }, { addressId }] = await Promise.all([
+  { makeEvmWallet }, { announceWalletConnect, wcSheets, dialogHost, WC_PROJECT_ID }, { makeTacitAddress }, { bip352TaggedHash }, { addressId }] = await Promise.all([
   import('/vendor/tacit-deps.min.js'), import('/prf-wallet.js'), import('/tacit-wallet-known.js?cb=ed4c75b7'),
-  import('/evm-wallet.js?cb=1e6da73a'), import('/tacit-address.js'), import('/bip352.js'), import('/address-id.js?cb=c4fa5a58')]);
+  import('/evm-wallet.js?cb=686e1d3f'), import('/walletconnect.js?cb=14fe38b6'), import('/tacit-address.js'), import('/bip352.js'), import('/address-id.js?cb=c4fa5a58')]);
 
 if (!secp.etc.hmacSha256Sync) secp.etc.hmacSha256Sync = (k, ...m) => hmac(sha256, k, concatBytes(...m));
 // The rest of the page's modules, asked for now that the ones it waited on are here.
@@ -669,6 +678,8 @@ const errText = (e) => {
   if (e?.said) return e.message;                                   // already in words
   const m = String(e?.shortMessage || e?.message || e || 'Something went wrong');
   if (e?.code === 4001 || /user (rejected|denied)|rejected the request|denied transaction|no wallet selected/i.test(m)) return 'Cancelled in your wallet.';
+  if (e?.code === -32002 || /already (pending|processing)|request of type .* pending/i.test(m)) return 'Your wallet already has a request open. Answer it there, then try again.';
+  if (/chain.*not approved|does not support 'wallet_switchEthereumChain'/i.test(m)) return 'Your wallet app did not allow that network for this connection. Switch to it in the app, or disconnect and connect again.';
   if (/no ethereum wallet detected/i.test(m)) return `No Ethereum wallet found in this browser. Open this page in your wallet's own browser, or install MetaMask, Rabby or Rainbow.${isPasskeyAvailable() ? ' Or use a passkey.' : ''}`;
   if (/insufficient sats|no plain-sats|not enough (?:signet )?sats/i.test(m)) return 'Not enough BTC for this and its Bitcoin fee.';
   if (/two notes cannot cover/i.test(m)) return 'One payment spends two of your notes at most. Combine them first, then pay again.';
@@ -843,6 +854,14 @@ function forget() {
   dropTacitKey();
 }
 const evm = makeEvmWallet({ secp, sha256, keccak256: keccak_256, bytesToHex, hexToBytes, prfBytesToScalar, netName: 'mainnet' });
+// WalletConnect joins the browser wallets in the picker, and is the one wallet offered where the browser has none (a phone): a wallet app signs for this page.
+const wcSheet = wcSheets(dialogHost({ dialog: $('#sheet-wc'), title: $('#wc-h'), body: $('#wc-body') }));
+const WC = announceWalletConnect({
+  projectId: WC_PROJECT_ID, chains: [1], rpcMap: { 1: 'https://ethereum-rpc.publicnode.com' },
+  metadata: { name: 'tacit pay', description: 'Private payments', url: location.origin, icons: [`${location.origin}/tac-logo.png`] },
+  onPair: (x) => wcSheet.onPair(x),
+  onAsk: (x) => wcSheet.onAsk(x),
+});
 function pickWallet(list) {
   return new Promise((resolve) => {
     const d = $('#sheet-pick');
@@ -929,7 +948,7 @@ const signInErr = (box, id, e) => { const p = box.querySelector(`#${id}-err`); p
 function signIn(id) {
   const known = knownWallet(), other = otherWallet(), pk = isPasskeyAvailable();
   const saved = known?.mode !== 'local' && isPub(readJson('tacit-wallet-v1:mainnet')?.pub);
-  const hasBtc = btcWalletSeen(), hasEth = evm.available(), bare = pk && !known && !other && !hasBtc && !hasEth;
+  const hasBtc = btcWalletSeen(), hasEth = evm.hasBrowserWallet(), bare = pk && !known && !other && !hasBtc && !hasEth;
   const opt = (k, title, sub, cls = '') => html`<button class="opt ${cls}" type="button" data-in="${k}"><span class="opt-t">${title}</span><span class="opt-m">${sub}</span></button>`;
   return html`<div class="opts" id="${id}-in">
     ${known ? opt('known', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>${known.tacit ? html`Continue as <b>${short(known.tacit, 7)}</b>` : 'Continue with your Tacit wallet'}`, `Opens with ${viaText(known)}, the same key as everywhere on tacit.finance and in the classic app.`, 'main') : ''}
@@ -937,7 +956,7 @@ function signIn(id) {
     ${bare ? opt('new', html`<svg class="tk sm" aria-hidden="true"><use href="#i-key"/></svg>Create a wallet`, 'Touch ID, Face ID or Windows Hello. Nothing to install.', 'main') : ''}
     ${bare ? opt('passkey', html`<svg class="tk sm" aria-hidden="true"><use href="#i-key"/></svg>Open a passkey wallet`, 'One you made before, with a passkey on this device or in your password manager.') : ''}
     ${opt('btc', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg>Bitcoin wallet`, hasBtc || !bare ? 'Xverse, Leather or UniSat. One signature, two the first time.' : 'Xverse, Leather or UniSat. None found in this browser.')}
-    ${opt('eth', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>Ethereum wallet`, hasEth || !bare ? 'MetaMask, Rabby, Rainbow or any browser wallet. One signature, two the first time on this browser.' : 'MetaMask, Rabby, Rainbow or any browser wallet. None found in this browser.')}
+    ${opt('eth', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>Ethereum wallet`, hasEth || !bare ? 'MetaMask, Rabby, Rainbow or any browser wallet, or a wallet app through WalletConnect. One signature, two the first time on this browser.' : 'MetaMask, Rabby, Rainbow or any browser wallet, or a wallet app through WalletConnect.')}
     ${pk && !bare ? opt('passkey', html`<svg class="tk sm" aria-hidden="true"><use href="#i-key"/></svg>Passkey`, 'Touch ID, Windows Hello or a security key.') : ''}
     <p class="opts-err" id="${id}-err" role="alert" hidden></p>
     <p class="more">${pk && !bare ? html`<button class="link" type="button" data-in="new">New passkey wallet</button>` : ''}${saved ? html`<button class="link" type="button" data-in="local">Saved in this browser</button>` : ''}<button class="link" type="button" data-in="paste">Paste a key</button></p>
@@ -2722,11 +2741,17 @@ function renderWalletSheet() {
     <div class="who"><div class="a num">${k.tacit ? short(k.tacit, 12) : '…'}</div><div class="u">Your Tacit address · opened with ${viaText(k)}</div>
       ${k.tacit ? html`<div class="u">ID <b class="num">${addressId(k.tacit)}</b> · a payer sees the same ID</div>` : ''}
       <div class="row2"><button class="btn ghost" type="button" id="w-copy" ${k.tacit ? '' : 'disabled'}>Copy address</button><button class="btn ghost" type="button" id="w-lock">Lock</button></div></div>
+    ${S.provider?.isWalletConnect && S.wallet ? html`<div class="kv"><span>WalletConnect</span><b>${short(S.wallet, 6)} <button class="link" type="button" id="w-wc-off">Disconnect</button></b></div>` : ''}
     ${kept ? html`<p class="more"><button class="link" type="button" id="w-backup">Copy key to back up</button></p>` : ''}
     <p class="note">${kept ? 'This key is kept in this browser only, so clearing the browser’s data loses it. Copy it somewhere private: anyone who has it controls these funds, and pasting it back opens them again.' : k.mode === 'key' ? 'You pasted this key and it is not saved here, so closing the tab forgets it. Keep your own copy somewhere private: anyone who has it controls these funds.' : 'Your wallet or passkey is the only way back to these funds: keep it safe.'} The key stays in this tab; payments to your addresses reach you here, across tacit.finance and in the classic app.</p>`);
   $('#w-copy').onclick = () => k.tacit && copy(k.tacit, 'Address copied');
   $('#w-backup')?.addEventListener('click', () => navigator.clipboard.writeText(k.priv).then(() => toast('Key copied. Keep it somewhere private.'), () => toast('Could not copy the key: the browser refused clipboard access.', true)));
   $('#w-lock').onclick = () => { if (S.sending) return toast('Finish the payment in progress first.', true); lock(); renderWalletSheet(); };
+  // Ends a WalletConnect session from here, so the next sign-in can pair another wallet app or account. The key it opened locks with it.
+  $('#w-wc-off')?.addEventListener('click', () => {
+    if (S.sending) return toast('Finish the payment in progress first.', true);
+    WC.disconnect().finally(() => { if (S.key?.mode === 'eth') lock(); else { evm.deselectProvider(); S.provider = S.wallet = null; paintWallet(); } renderWalletSheet(); });
+  });
 }
 $('#wallet').addEventListener('pointerdown', hintTacit, { once: true, passive: true });
 $('#wallet').onclick = () => { renderWalletSheet(); $('#sheet-wallet').showModal(); };

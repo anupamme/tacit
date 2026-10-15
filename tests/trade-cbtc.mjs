@@ -155,7 +155,7 @@ async function openPage(viewport, { wallet = false, scheme = 'light', hash = '' 
   });
   await ctx.route('**/confidential-pool-ux.js*', (r) => r.fulfill({ status: 200, contentType: 'text/javascript', body: UX_STUB }));
   await ctx.route('**/confidential-recovery-btc.js*', (r) => r.fulfill({ status: 200, contentType: 'text/javascript', body: HIST_STUB }));
-  await ctx.route('**/walletconnect.js*', (r) => r.fulfill({ status: 200, contentType: 'text/javascript', body: 'export function announceWalletConnect() { return { provider: null, disconnect: async () => {} }; }' }));
+  await ctx.route('**/walletconnect.js*', (r) => r.fulfill({ status: 200, contentType: 'text/javascript', body: 'export const WC_PROJECT_ID = "test"; export function announceWalletConnect() { return { provider: null, disconnect: async () => {} }; } export function wcSheets() { return { onPair() {}, onAsk() {} }; } export function dialogHost() { return () => ({}); }' }));
   const page = await ctx.newPage(), errors = [], blocked = [];
   page.on('pageerror', (e) => errors.push(String(e.message || e)));
   page.on('console', (m) => { if (m.type() === 'error') { const t = m.text(); if (/Content Security Policy|Refused to/i.test(t)) blocked.push(t); else if (!/Failed to load resource/.test(t)) errors.push(t.slice(0, 200)); } });

@@ -1,37 +1,25 @@
 // The browser wallet on a trade page: the header chip, the picker, WalletConnect's pairing sheets, and the account sheet with Disconnect. The page
 // says what to show in the account sheet and what to do when the account changes; the wallet itself (sending, signing, receipts) is wallet.js.
-import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
-import { makeWallet, UserStopped } from '/trade/wallet.js?cb=a6b2910e';
+import { announceWalletConnect, wcSheets, WC_PROJECT_ID } from '/walletconnect.js?cb=14fe38b6';
+import { makeWallet, UserStopped } from '/trade/wallet.js?cb=0cba8a63';
 import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
 import { rpc, RPCS, short, $ } from '/trade/util.js?cb=c3dc39b3';
 
 // WalletConnect joins the browser wallets in the picker, and is the one wallet offered where the browser has none (a phone): a wallet app signs
-// and sends for this page. The project is zSwap's, shared: an allowlist set on it must name tacit.finance too.
-const WC_PROJECT_ID = '1e8390ef1c1d8a185e035912a1409749';
-const coarse = () => matchMedia('(pointer: coarse)').matches;
+// and sends for this page.
 
 export { UserStopped };
 
-// `describe`: what the page is, for the wallet app. `rows()`: extra lines for the account sheet (html). `busy()`: an action in progress, which
-// keeps the account from being left. `say(text)`: a notice on the page. `onChange()`: the account or network changed.
-export function makeConnect({ describe, rows = () => '', busy = () => false, say = () => {}, onChange = () => {} }) {
-  function showPairing({ uri, qrSvg, cancel }) {
-    let over = false;
-    const o = overlay({ title: 'Connect a wallet app', top: true, onClose: () => { if (!over) cancel(); } });
-    o.body.innerHTML = `<p style="margin:0 0 12px">${coarse() ? 'Open your wallet app to connect, or scan the code from another device.' : 'Scan the code with a wallet app on your phone: MetaMask, Rainbow, Trust, Zerion or any WalletConnect wallet.'}</p><div class="wc-qr">${qrSvg}</div><div class="bsheet-actions">${coarse() ? `<a class="btn" href="${esc(uri)}">Open wallet app</a>` : ''}<button class="btn ghost" type="button" data-copy>Copy link</button></div><p class="note">This waits until the wallet app approves. Connecting costs nothing.</p>`;
-    o.body.querySelector('[data-copy]').onclick = (e) => navigator.clipboard?.writeText(uri).then(() => { e.target.textContent = 'Copied'; }, () => { e.target.textContent = 'Could not copy'; });
-    return () => { over = true; o.close(); };
-  }
-  // A request waiting in the wallet app, where it is approved: on a phone a button opens the app (a browser follows that link only from a tap).
-  function showAsk({ name, link }) {
-    const o = overlay({ title: 'Approve in your wallet', top: true });
-    o.body.innerHTML = `<p style="margin:0 0 12px">${coarse() ? `Open ${esc(name)} to approve the request, then come back here.` : `Approve the request in ${esc(name)} on your phone.`}</p>${coarse() && link ? `<div class="bsheet-actions"><a class="btn" href="${esc(link)}"${/^https:/i.test(link) ? ' target="_blank" rel="noopener"' : ''}>Open ${esc(name)}</a></div>` : ''}<p class="note">This closes once the wallet answers.</p>`;
-    return () => o.close();
-  }
+// `describe`: what the page is, for the wallet app. `rows()`: extra lines for the account sheet (html), and `wire(root, close)` the handlers of
+// whatever they hold. `busy()`: an action in progress, which keeps the account from being left. `leave(account)`: called as the account is left.
+// `say(text)`: a notice on the page. `onChange()`: the account or network changed. A page that is not ready to hear of a restored wallet
+// at once passes `restore: false` and calls `restore()` when it is.
+export function makeConnect({ describe, rows = () => '', wire = () => {}, leave = () => {}, busy = () => false, say = () => {}, onChange = () => {}, restore = true }) {
+  const sheets = wcSheets((title, onClose) => overlay({ title, top: true, onClose }));
   const WC = announceWalletConnect({
     projectId: WC_PROJECT_ID, chains: [1], rpcMap: { 1: RPCS[0] },
     metadata: { name: 'tacit trade', description: describe, url: location.origin, icons: [`${location.origin}/tac-logo.png`] },
-    onPair: showPairing, onAsk: showAsk,
+    onPair: sheets.onPair, onAsk: sheets.onAsk,
   });
   const wallet = makeWallet({ rpc, leave: (p) => (p?.isWalletConnect ? WC.disconnect() : null) });
   const W = wallet.state;
@@ -63,16 +51,18 @@ export function makeConnect({ describe, rows = () => '', busy = () => false, say
   }
   function accountSheet() {
     const o = overlay({ title: 'Wallet', top: true });
-    const wrong = W.chain && W.chain !== '0x1', stop = busy();
-    o.body.innerHTML = `<div class="kv"><span>Connected with</span><b>${esc(W.name)}</b></div><div class="kv"><span>Account</span><b class="addr-s">${esc(W.account)}</b></div>${wrong ? '<div class="kv"><span>Network</span><b>Not Ethereum <button class="linkbtn" type="button" data-switch>Switch</button></b></div>' : ''}${rows()}<div class="bsheet-actions" style="margin-top:14px"><button class="btn ghost" type="button" data-copy>Copy address</button><button class="btn" type="button" data-leave${stop ? ' disabled' : ''}>Disconnect</button></div>${stop ? '<p class="note">Something is in progress; disconnect when it ends.</p>' : ''}`;
+    const wrong = W.chain && W.chain !== '0x1', stop = busy(), app = W.prov?.peerName?.();
+    o.body.innerHTML = `<div class="kv"><span>Connected with</span><b>${esc(W.name)}${app ? ` · ${esc(app)}` : ''}</b></div><div class="kv"><span>Account</span><b class="addr-s">${esc(W.account)}</b></div>${wrong ? '<div class="kv"><span>Network</span><b>Not Ethereum <button class="linkbtn" type="button" data-switch>Switch</button></b></div>' : ''}${rows()}<div class="bsheet-actions" style="margin-top:14px"><button class="btn ghost" type="button" data-copy>Copy address</button><button class="btn" type="button" data-leave${stop ? ' disabled' : ''}>Disconnect</button></div>${stop ? '<p class="note">Something is in progress; disconnect when it ends.</p>' : ''}`;
     const addr = W.account;
     o.body.querySelector('[data-switch]')?.addEventListener('click', (e) => { e.target.disabled = true; wallet.ensureMainnet().then(() => { o.close(); renderChip(); }, () => { e.target.disabled = false; }); });
     o.body.querySelector('[data-copy]').onclick = (e) => navigator.clipboard?.writeText(addr).then(() => { e.target.textContent = 'Copied'; }, () => { e.target.textContent = 'Could not copy'; });
-    o.body.querySelector('[data-leave]').onclick = async () => { o.close(); await wallet.disconnect(); };       // the wallet's own change event redraws the chip and tells the page
+    wire(o.body, o.close);
+    o.body.querySelector('[data-leave]').onclick = async () => { o.close(); await leave(addr); await wallet.disconnect(); };       // the wallet's own change event redraws the chip and tells the page
   }
   $('#wallet-chip').addEventListener('click', () => { if (W.account) accountSheet(); else connect(); });
   wallet.onChange(() => { renderChip(); onChange(); });
-  wallet.restore().catch(() => {});                                                 // the wallet connected last time, back without a prompt when it still allows this site
+  const restoreLast = () => wallet.restore().catch(() => {});                       // the wallet connected last time, back without a prompt when it still allows this site
+  if (restore) restoreLast();
   renderChip();
-  return { wallet, W, connect, renderChip };
+  return { wallet, W, connect, renderChip, restore: restoreLast };
 }

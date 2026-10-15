@@ -2,7 +2,7 @@
 // account is put into the prover network within a few minutes (under 2 PROVE, at the relay's next half-hourly top-up). A visitor's wallet can send PROVE there, or pay ETH that zRouter swaps to
 // PROVE with the prover account as the recipient, in one transaction. Only the visitor's own balances are read; never the prover account's.
 import { PROVER, PROVE, ZQUOTER, ZROUTER, ETH, PROVE_PER_PROOF, transferData, balanceOfData, buildBestSwapData, decodeBestSwap, strip } from '/relay/abi.js?cb=e137b68f';
-import { UserStopped } from '/trade/wallet.js?cb=a6b2910e';
+import { UserStopped } from '/trade/wallet.js?cb=0cba8a63';
 import { rpc, esc, fmtUnits, parseUnits, plain, grp, short } from '/trade/util.js?cb=c3dc39b3';
 
 const SCAN = 'https://etherscan.io/';
