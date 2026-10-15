@@ -115,11 +115,13 @@ const routeOp = { asset0: 'aa', assetFinal: 'bb', hops: [{ reserveAPre: '1000', 
   const claimed = await q.nextJob();
   assert.strictEqual(claimed.jobId, j.jobId);
   assert.strictEqual(await q.nextJob(), null, 'freshly claimed → not reclaimable yet');
-  t += 11 * 60 * 1000; // advance past CLAIM_TTL_MS (10 min)
+  t += 15 * 60 * 1000; // a proof still inside the relay's own 15-minute limit is not handed to a second prover
+  assert.strictEqual(await q.nextJob(), null, 'a claim inside the relay job timeout is not reclaimable');
+  t += 2 * 60 * 1000; // past CLAIM_TTL_MS (16 min)
   const reclaimed = await q.nextJob();
   assert.strictEqual(reclaimed.jobId, j.jobId, 'after the TTL a crashed claim is reclaimable');
-  t -= 11 * 60 * 1000;
-  ok('a stale (crashed-box) claim is reclaimable after the TTL');
+  t -= 17 * 60 * 1000;
+  ok('a stale (crashed-box) claim is reclaimable after the TTL, and not while the relay may still be proving it');
 }
 
 // ───────────────── 5. ack settles, drains the queue, is idempotent ─────────────────

@@ -9,7 +9,18 @@
 // Trust: the worker never proves and never holds funds — it only queues opaque witnesses + relays a
 // proof the contract independently verifies against PROGRAM_VKEY. A bad witness just fails to prove.
 
-const CLAIM_TTL_MS = 10 * 60 * 1000; // a claimed-but-unfinished job is reclaimable after 10 min (prover crash)
+// A claimed-but-unfinished job is reclaimable after this (prover crash). It outlasts the relay's own per-job limit
+// (SETTLE_JOB_TIMEOUT_SECS, 15 min), so a slow proof is never handed to a second prover while the first still runs.
+const CLAIM_TTL_MS = 16 * 60 * 1000;
+// The open board: a job proved and waiting for any sender. A relay that takes one to send has this long before it
+// goes back on the board; a job nobody sends leaves the board after OPEN_TTL_MS (or at its own deadline).
+const SEND_CLAIM_TTL_MS = 5 * 60 * 1000;
+const OPEN_TTL_MS = 24 * 3600 * 1000;
+const MAX_OPEN_JOBS = 256;
+// Op types whose settle is a plain pool.settle(publicValues, proof, memos) that any account can send. A router-embedded
+// proof (wraptransfer, wraplp, wrapswap, wrapcdpmint) pulls from its sender, and a bridge mint or a fast-lane exit is
+// pinned to a root that moves with the reflection, so those never go on the board.
+export const OPEN_TYPES = ['wrap', 'unwrap', 'transfer', 'swap', 'route', 'lp', 'otc', 'bid', 'bridgeburn', 'cdpmint', 'farmbond', 'farmharvest', 'farmunbond', 'adaptorlock', 'adaptorclaim', 'adaptorrefund', 'cdpclose', 'cdpliquidate', 'cdptopup', 'stealthlock', 'stealthlockbatch', 'stealthclaim', 'stealthrefund', 'sendunwrap', 'lpbond', 'lpremove'];
 // KV has no compare-and-swap (real Cloudflare KV doesn't either, and this queue must stay portable to
 // it — see server/kv-store.mjs), so a plain read-then-write claim races once more than one poller hits
 // the same pending job. CLAIM_VERIFY_DELAY_MS narrows that window from "the whole poll interval" to
@@ -64,7 +75,7 @@ export function makeLock() {
   };
 }
 
-export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee, sleep, lock }) {
+export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee, sleep, lock, verifyPosted, expiryOf }) {
   // storage: { getPending()->id[], putPending(id[]), getJob(id)->job|null, putJob(id, job) }
   // feeGate({ type, op }) -> bool : OPTIONAL profitability gate for the relayed (mode:'settle') flow — reject
   //   a fee below the current gas-priced floor (relay-quote.js `passesFloor`) before burning a prove cycle.
@@ -76,9 +87,19 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
   //   same lock. The pending list is one shared value that every mutation reads, edits and writes back across
   //   awaits, so overlapping requests would otherwise overwrite each other's edit. Callers that build a fresh
   //   settler per request must pass one lock shared by all of them (buildConfidentialSettler does).
+  // verifyPosted({ type, publicValues, proof, memos }) -> { ok, error? } : OPTIONAL, checks a posted proof against the
+  //   chain (a simulated settle) before it goes on the board. Absent ⇒ posted proofs are refused.
+  // expiryOf({ type, op, publicValues }) -> unix seconds (0 = none) : OPTIONAL, when an open job's settle stops being
+  //   valid, so the board drops it then rather than after OPEN_TTL_MS.
   const clock = now || (() => Date.now());
   const exclusive = lock || makeLock();
   const wait = sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  // The board's ids live apart from the pending queue, so a job waiting for a sender costs the relay's claim scan
+  // nothing. A storage without its own list keeps one in memory (tests).
+  let memOpen = [];
+  const getOpen = storage.getOpen ? () => storage.getOpen() : async () => memOpen.slice();
+  const putOpen = storage.putOpen ? (ids) => storage.putOpen(ids) : async (ids) => { memOpen = ids.slice(); };
+  const expiresAt = (j) => { try { const s = expiryOf ? Number(expiryOf({ type: j.type, op: j.op, publicValues: j.publicValues })) : 0; return s > 0 ? s * 1000 : 0; } catch { return 0; } };
 
   // jobId = hash of the witness (type+op[+mode]) → idempotent: resubmitting the same op returns the same job.
   // `settle` uses the id over (type+op); a `prove`-only job for the same op is a DISTINCT id so the two can
@@ -92,7 +113,8 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
   //   'prove'            — the relayer proves but does NOT submit; it acks { publicValues, proof } which the
   //                        dapp embeds into a USER-SENT ConfidentialRouter tx (wrapAndSettle* / zapETHToPayment /
   //                        farm bond). The router pulls from msg.sender, so only the user can send it.
-  async function submitJob({ type, op, memos, mode = 'settle', feeAsset = null, exit = null }) {
+  async function submitJob({ type, op, memos, mode = 'settle', feeAsset = null, exit = null, publicValues = null, proof = null }) {
+    if (mode === 'preproven') return postProven({ type, memos, publicValues, proof });
     if (!type || !op) throw new Error('submitJob: type + op required');
     // Drop a caller-supplied feeUsd FIRST, before anything derives from `op`.
     //
@@ -177,6 +199,116 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
     });
   }
 
+  // A proof made elsewhere (a holder's own prover account) goes straight on the board: there is no witness and nothing to
+  // prove. Its id is taken over its public values, so the same proof posted twice is one job, and verifyPosted
+  // simulates its settle first, so the board carries only proofs the pool would take at the time they were posted.
+  async function postProven({ type, memos, publicValues, proof }) {
+    if (!OPEN_TYPES.includes(type)) throw new Error(`submitJob: a ${type} proof cannot be posted for any sender`);
+    if (typeof verifyPosted !== 'function') throw new Error('submitJob: posted proofs are not taken here');
+    const pv = String(publicValues || '').toLowerCase(), pf = String(proof || '').toLowerCase();
+    const ms = Array.isArray(memos) ? memos.map((m) => String(m).toLowerCase()) : null;
+    if (!pv || !pf || !ms) throw new Error('submitJob: a posted proof needs publicValues, proof and memos');
+    if (JSON.stringify({ pv, pf, ms }).length > MAX_JOB_BYTES) throw new Error(`submitJob: proof + memos exceed ${MAX_JOB_BYTES} bytes`);
+    const id = jobIdOf(type, { publicValues: pv }, 'preproven');
+    const seen = await storage.getJob(id);
+    if (seen && seen.status !== 'failed') return { jobId: id, status: seen.status, deduped: true };
+    const v = await verifyPosted({ type, publicValues: pv, proof: pf, memos: ms });
+    if (!v || !v.ok) throw new Error(`submitJob: the pool would not take this proof now${v && v.error ? ` (${v.error})` : ''}`);
+    return exclusive(async () => {
+      const existing = await storage.getJob(id);
+      if (existing && existing.status !== 'failed') return { jobId: id, status: existing.status, deduped: true };
+      const open = await getOpen();
+      if (open.length >= MAX_OPEN_JOBS) throw new Error('submitJob: the open board is full, retry later');
+      const t = clock();
+      const job = { id, type, op: null, mode: 'preproven', memos: ms, feeUnits: null, feeUsd: null, feeAsset: null, exit: null,
+        status: 'open', createdAt: t, claimedAt: 0, openSince: t, posted: true, txHash: null, error: null, publicValues: pv, proof: pf };
+      job.expiresAt = expiresAt(job);
+      await storage.putJob(id, job);
+      await putOpen([...open.filter((x) => x !== id), id]);
+      return { jobId: id, status: 'open' };
+    });
+  }
+
+  const isOpen = (j) => j.status === 'open' || (j.status === 'sending' && clock() - (j.sendClaimAt || 0) > SEND_CLAIM_TTL_MS);
+  const ranOut = (j) => clock() - (j.openSince || j.createdAt || 0) > OPEN_TTL_MS || (j.expiresAt > 0 && clock() >= j.expiresAt);
+  const openView = (id, j) => ({ jobId: id, type: j.type, status: isOpen(j) ? 'open' : 'sending', posted: !!j.posted,
+    publicValues: j.publicValues, proof: j.proof, memos: j.memos || [], openSince: j.openSince || j.createdAt || 0,
+    expiresAt: j.expiresAt || 0, feeUsd: j.feeUsd ?? null, feeAsset: j.feeAsset || null });
+
+  // The board as anyone reads it, oldest first. A job that ran out (its own deadline, or a day on the board) leaves it as
+  // failed; one settled or failed meanwhile is only dropped from the list.
+  async function openList({ limit = 32 } = {}) {
+    const ids = await getOpen();
+    const out = [], gone = [];
+    for (const id of ids) {
+      const j = await storage.getJob(id);
+      if (!j || !(j.status === 'open' || j.status === 'sending')) { gone.push(id); continue; }
+      if (ranOut(j)) {
+        gone.push(id);
+        await exclusive(async () => {
+          const cur = await storage.getJob(id);
+          if (!cur || !(cur.status === 'open' || cur.status === 'sending') || !ranOut(cur)) return;
+          cur.status = 'failed';
+          cur.error = cur.expiresAt > 0 && clock() >= cur.expiresAt ? 'expired: nobody sent it before its deadline' : 'expired: nobody sent it within a day';
+          await storage.putJob(id, cur);
+        });
+        continue;
+      }
+      if (out.length < limit) out.push(openView(id, j));
+    }
+    if (gone.length) await exclusive(async () => putOpen((await getOpen()).filter((x) => !gone.includes(x))));
+    return out;
+  }
+
+  // A relay takes one open job to send: the one it names, or the oldest it may take. The job reads 'sending' while that
+  // relay has it, and goes back on the board if no ack comes within SEND_CLAIM_TTL_MS. Same claim-nonce narrowing as
+  // nextJob().
+  async function nextOpen({ id = null } = {}) {
+    const ids = id ? [id] : await getOpen();
+    for (const jid of ids) {
+      const claim = await exclusive(async () => {
+        const j = await storage.getJob(jid);
+        if (!j || !isOpen(j) || ranOut(j) || !j.publicValues || !j.proof) return null;
+        const nonce = crypto.randomUUID();
+        j.status = 'sending'; j.sendClaimAt = clock(); j.claimNonce = nonce;
+        await storage.putJob(jid, j);
+        return { j, nonce };
+      });
+      if (!claim) continue;
+      await wait(CLAIM_VERIFY_DELAY_MS);
+      const won = await storage.getJob(jid);
+      if (!won || won.claimNonce !== claim.nonce) continue;
+      const j = claim.j;
+      return { jobId: jid, type: j.type, op: j.op || null, memos: j.memos, mode: 'open', posted: !!j.posted, publicValues: j.publicValues,
+        proof: j.proof, feeAsset: j.feeAsset || null, exit: j.exit || null, feeUnits: j.feeUnits ?? null, feeUsd: j.feeUsd ?? null };
+    }
+    return null;
+  }
+
+  // A settle sent outside the relay (by the holder's own account, or another relayer from the board) closes its job once
+  // verify(job, txHash) has seen it on chain. Only a job whose public values are known can be checked: open, sending, or
+  // proven for its page to send.
+  async function landedJob(jobId, txHash, verify) {
+    const j = await storage.getJob(jobId);
+    if (!j) return { ok: false, reason: 'unknown job' };
+    if (j.status === 'settled') return ackView(j);
+    if (!j.publicValues || !['open', 'sending', 'proven'].includes(j.status)) return { ok: false, reason: `a ${j.status} job is not closed by a transaction` };
+    const v = await verify(j, txHash);
+    if (!v || !v.ok) return { ok: false, reason: (v && v.error) || 'that transaction did not settle this job' };
+    return exclusive(async () => {
+      const cur = await storage.getJob(jobId);
+      if (!cur) return { ok: false, reason: 'unknown job' };
+      if (cur.status === 'settled') return ackView(cur);
+      cur.status = 'settled'; cur.txHash = String(txHash).toLowerCase(); cur.error = null;
+      delete cur.broadcastHashes;
+      await storage.putJob(jobId, cur);
+      await putOpen((await getOpen()).filter((x) => x !== jobId));
+      const pend = await storage.getPending();
+      if (pend.includes(jobId)) await storage.putPending(pend.filter((x) => x !== jobId));
+      return ackView(cur);
+    });
+  }
+
   // The relayer claims the oldest provable job (FIFO). Claiming flips it to 'proving' so a second poller
   // won't double-prove; a stale claim (crashed prover) is reclaimable after CLAIM_TTL_MS.
   //
@@ -189,7 +321,9 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
   // exactly one claimant's nonce survives that wait — the other sees a foreign nonce and backs off to try
   // the next candidate instead of also proving this one.
   // `mode`, when given, takes only jobs of that mode ('prove' or 'settle'), oldest first; others stay queued.
-  async function nextJob({ mode = null } = {}) {
+  // `openable` takes only a relayed job that may go on the board once proved (the relay proves those while it cannot
+  // pay for settles, so a sender can take them).
+  async function nextJob({ mode = null, openable = false } = {}) {
     const pend = await storage.getPending();
     for (const id of pend) {
       // Read-check-write of the job record is one step, so an ack or another claim cannot land between them.
@@ -197,6 +331,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
         const j = await storage.getJob(id);
         if (!j) return null;
         if (mode && (j.mode || 'settle') !== mode) return null;
+        if (openable && ((j.mode || 'settle') !== 'settle' || !OPEN_TYPES.includes(j.type) || j.exit)) return null;
         const claimable = j.status === 'pending' || (j.status === 'proving' && clock() - (j.claimedAt || 0) > CLAIM_TTL_MS);
         if (!claimable) return null;
         const nonce = crypto.randomUUID();
@@ -280,11 +415,25 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
 
   function ackJob(jobId, ack = {}) { return exclusive(() => ackJobLocked(jobId, ack)); }
 
-  async function ackJobLocked(jobId, { txHash, error, publicValues, proof, activateTx, activateError, broadcastHashes, settledBy }) {
+  async function ackJobLocked(jobId, { txHash, error, publicValues, proof, activateTx, activateError, broadcastHashes, settledBy, open, requeue, release }) {
     const j = await storage.getJob(jobId);
     if (!j) return { ok: false, reason: 'unknown job' };
     if (j.status === 'settled' || j.status === 'proven') {
       if (recordActivation(j, activateTx, activateError)) await storage.putJob(jobId, j);
+      return ackView(j);
+    }
+    if (j.status === 'open' || j.status === 'sending') return ackOpenLocked(jobId, j, { txHash, error, settledBy, requeue, release, broadcastHashes });
+    if (open && !error && !settledBy) {
+      // The relay proved a relayed job it cannot send yet. It goes on the board, where any account may send it (the
+      // holder's own included) and is paid its fee; the relay sends it itself once it can. A job that carries an exit
+      // recipe, or whose settle is not a plain pool.settle, stays the relay's.
+      if ((j.mode || 'settle') !== 'settle' || !OPEN_TYPES.includes(j.type) || j.exit || !publicValues || !proof) return { ok: false, reason: 'this job does not go on the open board' };
+      const ids = await getOpen();
+      if (ids.length >= MAX_OPEN_JOBS) return { ok: false, reason: 'the open board is full' };
+      j.status = 'open'; j.publicValues = publicValues; j.proof = proof; j.openSince = clock(); j.expiresAt = expiresAt(j);
+      await storage.putJob(jobId, j);
+      await storage.putPending((await storage.getPending()).filter((x) => x !== jobId));
+      if (!ids.includes(jobId)) await putOpen([...ids, jobId]);
       return ackView(j);
     }
     if (error) {
@@ -317,6 +466,34 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
     return ackView(j);
   }
 
+  // A job on the board closes when it lands (txHash, or settledBy for a copy found on chain), goes back on the board when
+  // the relay that took it chooses not to send it (release), is proved again when its proof no longer fits the chain
+  // and the relay holds its witness (error + requeue), and fails otherwise.
+  async function ackOpenLocked(jobId, j, { txHash, error, settledBy, requeue, release, broadcastHashes }) {
+    const dropOpen = async () => putOpen((await getOpen()).filter((x) => x !== jobId));
+    if (txHash || settledBy) {
+      j.status = 'settled'; j.txHash = String(txHash || settledBy); j.error = null;
+      delete j.broadcastHashes;
+      await storage.putJob(jobId, j);
+      await dropOpen();
+    } else if (release) {
+      j.status = 'open'; j.sendClaimAt = 0;
+      await storage.putJob(jobId, j);
+    } else if (error && requeue && j.op) {
+      j.status = 'pending'; j.publicValues = null; j.proof = null; j.claimedAt = 0; j.openSince = 0; j.error = null;
+      await storage.putJob(jobId, j);
+      await dropOpen();
+      const pend = await storage.getPending();
+      if (!pend.includes(jobId)) { pend.push(jobId); await storage.putPending(pend); }
+    } else if (error) {
+      j.status = 'failed'; j.error = String(error);
+      if (Array.isArray(broadcastHashes) && broadcastHashes.length) j.broadcastHashes = broadcastHashes.slice(0, 8).map((h) => String(h));
+      await storage.putJob(jobId, j);
+      await dropOpen();
+    } else return { ok: false, reason: 'an open job is closed by txHash, settledBy, release or error' };
+    return ackView(j);
+  }
+
   async function jobStatus(jobId) {
     const j = await storage.getJob(jobId);
     if (!j) return null;
@@ -327,9 +504,13 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
     // A proven job's memos are the ones its proof commits to: the settle must carry exactly these, and a page that
     // asks again for the same op (a reload, a second press) sealed different ones. They are sealed to their
     // recipients and go on chain with the settle.
-    return { jobId, type: j.type, mode: j.mode || 'settle', status: j.status, txHash: j.txHash, error: j.error,
+    // A send a relay took and never finished reads open again once its claim lapses.
+    const status = j.status === 'sending' && isOpen(j) ? 'open' : j.status;
+    return { jobId, type: j.type, mode: j.mode || 'settle', status, txHash: j.txHash, error: j.error,
       createdAt: j.createdAt, publicValues: j.publicValues || null, proof: j.proof || null,
-      memos: j.status === 'proven' && Array.isArray(j.memos) ? j.memos : null,
+      // An open job's memos are public for the same reason: any sender needs them, and they go on chain with the settle.
+      memos: (j.status === 'proven' || j.status === 'open' || j.status === 'sending') && Array.isArray(j.memos) ? j.memos : null,
+      ...(j.status === 'open' || j.status === 'sending' ? { openSince: j.openSince || 0, expiresAt: j.expiresAt || 0, posted: !!j.posted } : {}),
       activation: j.exit ? (j.activateTx ? 'done' : j.activateError ? 'failed' : 'pending') : null,
       activateTx: j.activateTx || null, activateError: j.activateError || null,
       // Published deliberately: on a failed settle these are the only handles on a transaction that may
@@ -352,7 +533,9 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
       if (j.status === 'pending') { pending++; oldestPendingMs = Math.max(oldestPendingMs, t - (j.createdAt || t)); }
       else if (j.status === 'proving') { proving++; oldestProvingMs = Math.max(oldestProvingMs, t - (j.claimedAt || t)); }
     }
-    return { pending, proving, oldestPendingSec: Math.round(oldestPendingMs / 1000), oldestProvingSec: Math.round(oldestProvingMs / 1000) };
+    // `open`: proved jobs waiting on the board for a sender (they are not in the pending queue).
+    const open = (await getOpen()).length;
+    return { pending, proving, open, oldestPendingSec: Math.round(oldestPendingMs / 1000), oldestProvingSec: Math.round(oldestProvingMs / 1000) };
   }
 
   async function pendingCount() {
@@ -362,13 +545,13 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
     return n;
   }
 
-  return { submitJob, nextJob, nextBatch, ackJob, jobStatus, pendingCount, queueStats, jobIdOf };
+  return { submitJob, nextJob, nextBatch, ackJob, jobStatus, pendingCount, queueStats, jobIdOf, openList, nextOpen, landedJob };
 }
 
-// KV-backed wiring for the worker runtime. KV keys: cps:pending (id[]), cps:job:<id> (job).
+// KV-backed wiring for the worker runtime. KV keys: cps:pending (id[]), cps:open (id[]), cps:job:<id> (job).
 // The worker builds a settler per request, so the queue lock lives per KV namespace, not per settler.
 const kvLocks = new WeakMap();
-export function buildConfidentialSettler(env, { hash, feeGate, priceFee }) {
+export function buildConfidentialSettler(env, { hash, feeGate, priceFee, verifyPosted, expiryOf }) {
   const KV = env.CONFIDENTIAL_KV || env.REGISTRY_KV;
   if (KV && !kvLocks.has(KV)) kvLocks.set(KV, makeLock());
   const storage = {
@@ -376,6 +559,8 @@ export function buildConfidentialSettler(env, { hash, feeGate, priceFee }) {
     putPending: async (ids) => KV.put('cps:pending', JSON.stringify(ids)),
     getJob: async (id) => { const s = await KV.get('cps:job:' + id); return s ? JSON.parse(s) : null; },
     putJob: async (id, job) => KV.put('cps:job:' + id, JSON.stringify(job)),
+    getOpen: async () => { const s = await KV.get('cps:open'); return s ? JSON.parse(s) : []; },
+    putOpen: async (ids) => KV.put('cps:open', JSON.stringify(ids)),
   };
-  return makeConfidentialSettler({ storage, hash, feeGate, priceFee, lock: kvLocks.get(KV) });
+  return makeConfidentialSettler({ storage, hash, feeGate, priceFee, verifyPosted, expiryOf, lock: kvLocks.get(KV) });
 }

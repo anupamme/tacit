@@ -54,10 +54,18 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     } catch { /* listeners are best effort */ }
   }
 
+  // A refusal keeps the relay's own `code` (relay_held, free_budget, prove_budget …) and `retryAfter`, so a page can
+  // tell "send it yourself" apart from "the relay cannot prove right now" without reading the words.
   async function asJson(res) {
     const text = await res.text();
     let body; try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text }; }
-    if (!res.ok) throw new Error(`relay ${res.status}: ${body.error || text || res.statusText}`);
+    if (!res.ok) {
+      const e = new Error(`relay ${res.status}: ${body.error || text || res.statusText}`);
+      e.httpStatus = res.status;
+      if (body.code) e.code = body.code;
+      if (body.retryAfter != null) e.retryAfter = body.retryAfter;
+      throw e;
+    }
     return body;
   }
 
@@ -176,11 +184,22 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     }
   }
 
-  // Poll until the job settles or fails. onUpdate(state) fires on each status change.
-  async function waitForSettle(jobId, { intervalMs = 4000, timeoutMs = 5 * 60 * 1000, onUpdate, sleep } = {}) {
+  // A relayed job the relay has proved but is not sending yet is `open`: its proof is public (it goes on chain with the
+  // settle anyway) and anyone may send it, the holder included, and whoever sends it is paid its fee. `sending` is an
+  // open job a relay has taken to send. The error carries what a settle() needs, so a page can offer to send it at once.
+  function openError(st) {
+    const e = new Error(`settle held: proved and waiting for a sender (job ${st.jobId}); it can be sent from any account now`);
+    e.code = 'open';
+    e.open = { jobId: st.jobId, type: st.type || jobTypes.get(st.jobId) || null, publicValues: st.publicValues, proof: st.proof, memos: Array.isArray(st.memos) ? st.memos : null };
+    return e;
+  }
+
+  // Poll until the job settles or fails. onUpdate(state) fires on each status change. A job still `open` after
+  // `openGraceMs` (a relay that is sending open jobs takes it within that) throws with code 'open' and the proof.
+  async function waitForSettle(jobId, { intervalMs = 4000, timeoutMs = 5 * 60 * 1000, openGraceMs = 20_000, onUpdate, sleep } = {}) {
     const wait = sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
     const deadline = Date.now() + timeoutMs;
-    let last = null;
+    let last = null, openAt = 0;
     const pollState = {};
     for (;;) {
       const st = await pollStatus(jobId, pollState, { wait, intervalMs });
@@ -188,7 +207,15 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
       if (st.status === 'settled') return st;
       if (st.status === 'failed') throw new Error(`settle failed: ${st.error || 'unknown'}`);
       if (st.status === 'unknown') throw new Error('relay lost the job (worker restart / KV miss)');
-      if (Date.now() > deadline) throw new Error('settle timed out (box offline or backlogged)');
+      if (st.status === 'open' && st.publicValues && st.proof) {
+        if (!openAt) openAt = Date.now();
+        if (Date.now() - openAt >= openGraceMs) throw openError(st);
+      } else openAt = 0;
+      if (Date.now() > deadline) {
+        const e = new Error('settle timed out (box offline or backlogged)');
+        if (st.status === 'open' && st.publicValues && st.proof) { e.code = 'open'; e.open = openError(st).open; }
+        throw e;
+      }
       await wait(intervalMs);
     }
   }
@@ -202,7 +229,20 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     // without one. That made the one client-side defence against memo substitution opt-out, by the very
     // party it defends against. Keep whatever the submit returned, and go ask for the hash if it is missing
     // — the same re-query sendUnwrap already does.
-    let st = s === 'settled' ? { ...sub, jobId, status: 'settled' } : await waitForSettle(jobId, waitOpts);
+    let st;
+    try { st = s === 'settled' ? { ...sub, jobId, status: 'settled' } : await waitForSettle(jobId, waitOpts); }
+    catch (e) {
+      // An open job is sent with the memos the relay holds for it. Those were sealed here: anything else is not offered,
+      // so a page never sends memos it cannot open (the relayed path trusts the relay with them; this one need not).
+      if (e && e.open) {
+        const m = e.open.memos;
+        if (!(Array.isArray(m) && m.length === sealedMemos.length && m.every((x, i) => String(x).toLowerCase() === String(sealedMemos[i]).toLowerCase()))) {
+          e.open = null; e.code = undefined;
+        } else e.open.memos = sealedMemos;
+        if (e.open) e.open.leaves = opSpec.leaves || [];
+      }
+      throw e;
+    }
     if (!st.txHash && st.status === 'settled' && opSpec.leaves && opSpec.leaves.length) {
       try { const rs = await status(jobId); if (rs && rs.txHash) st = { ...st, txHash: rs.txHash }; } catch { /* verifyEmittedMemos reports the gap */ }
     }
@@ -251,5 +291,35 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     return m;
   }
 
-  return { submitOp, status, waitForSettle, settle, waitForProof, prove, provenMemos, verifyEmittedMemos };
+  // A settle sent outside the relay (from the page, by another relayer) is reported so the job reads settled. The API
+  // checks the transaction on chain before it believes it; this never throws.
+  async function landed(jobId, txHash) {
+    try {
+      const res = await f(`${root}/confidential/landed`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jobId, txHash }) });
+      const body = await asJson(res);
+      if (body && body.status) announce({ jobId, status: body.status, txHash: body.txHash || txHash });
+      return body;
+    } catch (e) { return { ok: false, error: String(e && e.message || e) }; }
+  }
+
+  // The open board: jobs proved and waiting for any sender, oldest first, each { jobId, type, publicValues, proof, memos,
+  // openSince, expiresAt, feeUsd, posted }. Whoever sends one is paid the fee its proof binds.
+  async function openJobs({ limit } = {}) {
+    const res = await f(`${root}/confidential/open${limit ? `?limit=${Number(limit)}` : ''}`);
+    return asJson(res);
+  }
+
+  // A proof made elsewhere (the holder's own prover account) goes on the open board for any relayer to send. The API
+  // simulates its settle first and refuses one the pool would not take.
+  async function postProof({ type, publicValues, proof, memos = [] }) {
+    const res = await f(`${root}/confidential/submit`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type, mode: 'preproven', publicValues, proof, memos }),
+    });
+    const body = await asJson(res);
+    if (body && body.jobId) { jobTypes.set(body.jobId, type); announce({ ...body, type }); }
+    return body;
+  }
+
+  return { submitOp, status, waitForSettle, settle, waitForProof, prove, provenMemos, verifyEmittedMemos, landed, openJobs, postProof };
 }

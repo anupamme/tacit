@@ -21,19 +21,20 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { CFG, ADDR, OP_GAS, DEFAULT_OP_GAS, OP_PROVE } from './lib/config.js';
-import { confidentialJob, confidentialBatch, confidentialAck, confidentialActivateAck, heartbeat, heartbeatIdle, setHeartbeatLedger, relayBooks } from './lib/worker-client.js';
+import { confidentialJob, confidentialBatch, confidentialAck, confidentialActivateAck, confidentialOpenList, confidentialOpenJob, heartbeat, heartbeatIdle, setHeartbeatLedger, relayBooks } from './lib/worker-client.js';
 import { proveSettle } from './lib/prover.js';
 import { assertMemosMatchProof } from './lib/memo-root.js';
 import { consumedInput, consumedAck, unlandedDeposits, spentInputsOf, noteNullifier } from './lib/spent-precheck.js';
 import { findCarrier, isRevert } from './lib/landed-elsewhere.js';
 import { cbtcMintBlocker } from './lib/cbtc-mint-precheck.js';
 import { cdpBlocker } from './lib/cdp-precheck.js';
-import { settleWallet, settleWallets, publicClient, ethUsdPrice, POOL, POOL_ABI, ROUTER } from './lib/chain.js';
+import { settleWallet, settleWallets, relayWallet, publicClient, ethUsdPrice, POOL, POOL_ABI, ROUTER } from './lib/chain.js';
 import { ledger } from './lib/income-ledger.js';
 import { makeBooksRestorer } from './lib/ledger-restore.js';
 import { ROUTER_EXIT_ABI, recipeArgs, exitCheck, activationCover } from './lib/exit-activate.js';
 import { makeAbandonedSettles } from './lib/abandoned-settles.js';
-import { quoteRelayFee, provePriceUsd, replenishOnce, drainToSink, feeAssets } from './replenish.js';
+import { quoteRelayFee, provePriceUsd, replenishOnce, drainToSink, feeAssets, depositArrivedProve } from './replenish.js';
+import { openable, pickOpen, STALE_PROOF_SELECTORS } from './lib/open-board.js';
 import { replenishDue } from './lib/replenish-schedule.js';
 import { tipFor, TIP_HISTORY_BLOCKS, TIP_PERCENTILE } from './lib/gas-tip.js';
 import { feeCapFor } from './lib/fee-cap.js';
@@ -625,16 +626,66 @@ async function fundsShort() {
   if (!shortSince) shortSince = Date.now();
   if (Date.now() - shortNotedAt >= 60_000) {
     shortNotedAt = Date.now();
-    log(`settle wallet holds ${eth(have)} ETH, under the ${eth(need)} ETH a settle can cost at today's gas — proving only jobs a page settles itself; the rest wait`);
-    await heartbeat('settle', 'settle: proving only jobs a page settles itself; the rest are held for now');   // public, so no balances
+    log(`settle wallet holds ${eth(have)} ETH, under the ${eth(need)} ETH a settle can cost at today's gas — proving only jobs a page settles itself${CFG.proveWhileShort ? ', and relayed jobs any sender can take from the open board' : '; the rest wait'}`);
+    // Public, so no balances. The API reads "a page settles itself" as the relay holding settles (relayHolds).
+    await heartbeat('settle', CFG.proveWhileShort
+      ? 'settle: proving jobs a page settles itself, and putting relayed ones on the open board for any sender'
+      : 'settle: proving only jobs a page settles itself; the rest are held for now');
   }
+  return true;
+}
+
+// The open board (lib/open-board.js), from the sending side. Once the settle wallet can pay, the jobs it proved while it
+// could not are sent before new work is proved, then any posted proof whose tETH fee covers its settle. The public board
+// is read at most every OPEN_BOARD_POLL_SECS (straight away again after a send, there may be more), and the claim makes
+// sure two relays never send the same job.
+let openReadAt = 0;
+async function openCycle() {
+  if (!CFG.openBoard || Date.now() - openReadAt < CFG.openBoardPollSecs * 1000) return false;
+  openReadAt = Date.now();
+  const jobs = await confidentialOpenList().catch(() => []);
+  if (!jobs.length) return false;
+  const gasPrice = await publicClient.getGasPrice().catch(() => null);
+  const pick = pickOpen(jobs, {
+    settleCostWei: gasPrice == null ? null : DEFAULT_OP_GAS * gasPrice, ethAssetId: CFG.ethAssetId, ethUnitScale: CFG.ethUnitScale,
+  });
+  if (!pick) return false;
+  const job = await confidentialOpenJob(pick.jobId);
+  if (!job?.jobId) return false;
+  openReadAt = 0;
+  const { jobId, type } = job;
+  log(`job ${jobId} type=${type} — sending its proof from the open board${job.posted ? ' (posted by its holder)' : ''}`);
+  await heartbeat('settle', `sending ${jobId} ${type}`);
+  let txHash;
+  try {
+    txHash = await submitSettle({ publicValues: job.publicValues, proof: job.proof }, job.memos || [], `job ${jobId}`);
+  } catch (e) {
+    log(`job ${jobId} open settle failed: ${e.message}`);
+    // A proof pinned to a root that moved is proved again from the witness the API holds; one that cannot be sent at all
+    // fails. Nothing that was broadcast and might still land is dropped: its hashes stay on the record.
+    const requeue = !job.posted && !!job.op && STALE_PROOF_SELECTORS.includes(e.revertSelector || '');
+    const sel = e.revertSelector ? ` (${e.revertSelector})` : '';
+    await confidentialAck({ jobId, error: `settle reverted: ${safeErr(e, 180 - sel.length)}${sel}`, broadcastHashes: e.broadcastHashes, requeue });
+    abandoned.remember(job, e.broadcastHashes);
+    return true;
+  }
+  log(`settled from the open board: job=${jobId} tx=${txHash}`);
+  await confidentialAck({ jobId, txHash });
+  bookSettled([job], txHash);
+  await heartbeat('settle', `settled ${jobId}`);
   return true;
 }
 
 async function cycle() {
   const short = await fundsShort();
+  if (!short && await openCycle()) return true;
   if (!short && await batchCycle()) return true;
-  const job = await confidentialJob(short ? { mode: 'prove' } : {});
+  let job = await confidentialJob(short ? { mode: 'prove' } : {});
+  // While the wallet cannot pay for a settle, a relayed job any account could send is still proved and put on the open
+  // board: its holder's page offers to send it at once, any relayer may send it for its fee, and this relay sends it
+  // itself once it can pay. A job only this relay could finish (an exit to activate, a router-embedded proof) waits.
+  const holding = short && !job?.jobId && CFG.proveWhileShort;
+  if (holding) job = await confidentialJob({ mode: 'settle', openable: true });
   const jobId = job?.jobId;
   if (!jobId) return false; // empty queue
 
@@ -642,7 +693,7 @@ async function cycle() {
   const mode = job.mode || 'settle';
   // A worker that predates the mode filter can hand a settle job over while the wallet is short: it is left
   // claimed and unacked, so it comes back to the queue when the claim lapses, and nothing is spent on it now.
-  if (short && mode !== 'prove') return false;
+  if (short && mode !== 'prove' && !(holding && openable(job))) return false;
   const memos = Array.isArray(job.memos) ? job.memos : [];
   if (!OP_GAS[type] && type !== 'transfer') {
     // unknown-but-provable ops still allowed; gas defaults. Only truly-unknown type fails at prove.
@@ -679,18 +730,12 @@ async function cycle() {
     }
   }
 
-  if (mode === 'prove') {
-    // Prove-only: hand the proof back for a user-sent tx (no on-chain submit here).
-    // The worker's /confidential/ack accepts {publicValues, proof} in prove mode.
-    try {
-      await fetch(`${CFG.workerBase}/confidential/ack`, {
-        method: 'POST',
-        headers: { authorization: `Bearer ${CFG.boxToken}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ jobId, publicValues: proof.publicValues, proof: proof.proof }),
-      });
-    } catch { /* worker reclaims on TTL */ }
-    log(`proved-only: job=${jobId}`);
-    ledger.provedOnly();
+  if (mode === 'prove' || holding) {
+    // Prove-only: hand the proof back for a user-sent tx (no on-chain submit here). A relayed job proved while the wallet
+    // is short goes back with `open`, onto the board.
+    const r = await confidentialAck({ jobId, publicValues: proof.publicValues, proof: proof.proof, open: holding });
+    if (holding) log(`proved and put on the open board: job=${jobId}${r.ok ? '' : ' (the API did not take it; it is proved again when its claim lapses)'}`);
+    else { log(`proved-only: job=${jobId}`); ledger.provedOnly(); }
     return true;
   }
 
@@ -774,6 +819,20 @@ async function maybeReplenish() {
   catch (e) { log(`replenish failed (settling continues): ${e?.message || e}`); }
 }
 
+// PROVE that reaches the prover account between passes (a top-up, or a visitor paying for proofs from /relay/#prove) is
+// deposited within PROVE_WATCH_SECS (replenish.js depositArrivedProve), so proving does not wait out a pass for credit
+// already sent. The prover account is the relay wallet; where it is also the settle wallet the same nonce rule as a pass
+// applies. A read is one balanceOf a minute; a deposit happens only when PROVE has actually arrived.
+let lastProveWatchAt = 0;
+async function maybeDepositArrived() {
+  if (!CFG.replenishInSettle || !CFG.replenishDepositProve || !(CFG.proveWatchSecs > 0)) return;
+  if (Date.now() - lastProveWatchAt < CFG.proveWatchSecs * 1000) return;
+  lastProveWatchAt = Date.now();
+  if (lastBroadcastNonce >= 0 && relayWallet.account.address === settleWallet.account.address) return;
+  try { await depositArrivedProve({ minWei: CFG.proveWatchMinWei }); }
+  catch (e) { log(`deposit of arrived PROVE failed (settling continues): ${e?.message || e}`); }
+}
+
 async function main() {
   log(`starting — worker=${CFG.workerBase} pool=${POOL} poll=${CFG.settlePollSecs}s timeout=${CFG.settleJobTimeoutSecs}s`);
   // The books: which fee assets count as converted income, what the standing commitments are set to, and the snapshot every heartbeat carries.
@@ -820,6 +879,7 @@ async function main() {
       // Between jobs as well as when idle: a steady stream of jobs is when the prover credit drains fastest, and the top-up
       // has to be able to run then (it is awaited here, so it still never overlaps a settle on the same nonce).
       await maybeReplenish();
+      await maybeDepositArrived();
       if (!worked) await sleep(CFG.settlePollSecs);
     } catch (e) {
       log('cycle error (continuing):', e.message);

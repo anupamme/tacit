@@ -1219,6 +1219,9 @@ Base `https://api.tacit.finance`. Everything below is public; nothing needs a ke
 |---|---|
 | `POST /confidential/submit` | `{ type, op, memos, mode?, feeAsset? }` → `{ jobId }`. `mode: 'prove'` returns a proof for you to submit yourself; default `'settle'` has the relay submit it. |
 | `GET /confidential/status?id=` | `pending` → `proving` → `settled` \| `failed` (a `failed` with a non-empty `broadcastHashes` is not final: the settle was broadcast and may still land, and the job is then corrected to `settled`); a `mode: 'prove'` job ends at `proven` and carries the proof (`publicValues`, `proof`) and the `memos` it commits to, which `settle()` must carry exactly: the same op submitted twice is proved once, with the first submit's memos. A prove job whose deposit was settled from elsewhere first reads `settled`, with that transaction |
+| `GET /confidential/open?limit=` | the open board: proofs waiting for any sender, oldest first, `{ pool, jobs: [{ jobId, type, status, posted, publicValues, proof, memos, openSince, expiresAt, feeUsd, feeAsset }] }`. A relayed (`'settle'`) job the relay has proved but is not sending yet reads `open` on `/confidential/status` too, with the same proof and memos (`sending` while a relay has taken it to send). `settle()` is open to any account and pays the fee legs the proof binds to whoever sends it, so the holder can send it at once and any relayer may send it for its fee. See [OPEN-RELAYER.md](./OPEN-RELAYER.md) |
+| `POST /confidential/landed` | `{ jobId, txHash }` → `{ ok, status: 'settled', txHash }`: a settle sent outside the relay closes its job once the API sees that transaction succeed, reach the pool, carry the job's public values, and leave the same settle refused. Open, sending and proven jobs |
+| `POST /confidential/submit` with `mode: 'preproven'` | `{ type, mode: 'preproven', publicValues, proof, memos }` → `{ jobId, status: 'open' }`: a proof you made with your own prover account goes on the board. The API simulates its settle first and refuses one the pool would not take now |
 | `GET /confidential/quote?asset=cETH&amountWei=` | `{ ticker, assetId, relayFeeEligible, staticFloorUnits, gasAwareFloorUnits }` — floors are in the asset's **in-system units**, not wei. `asset` takes a ticker or a `0x` asset id. `recommendedTipRecipient` is always there. `recommendedWrapTipWei` (the tip for a tipped wrap, §5) and `recommendedProveTipWei` come with every asset that has a gas-aware floor (not cTAC), in wei of ETH, and are left out when the gas price cannot be read. For cETH, `amountWei` caps `recommendedWrapTipWei` at 3% of the deposit; without it the tip is what settling costs. |
 | `GET /confidential/index?from=&limit=` | the pool's event stream plus the stealth lock set, in chain order behind one cursor — recover a key's notes and locks without running a scanner |
 | `GET /farm/program?network=mainnet`, `GET /farm/health` | the launch farms' emission schedule and a solvency verdict, read from the manager on chain |
@@ -1228,7 +1231,10 @@ Base `https://api.tacit.finance`. Everything below is public; nothing needs a ke
 
 Submits are rate-limited per IP and the queue is bounded; a rejected submit is backpressure, not failure. Fee-less
 relayed settles share a daily free budget (`429`, code `free_budget`) and prove-only jobs a daily prove budget (`429`,
-code `prove_budget`); past either, attach a fee above the floor or prove and settle locally.
+code `prove_budget`); past either, attach a fee above the floor or prove and settle locally. A relayed settle of an op
+that expires can be refused while the relay is catching up on settles (`429`, code `relay_held`): submit it with
+`mode: 'prove'` and send the settle yourself. Refusals carry `code` in the body; `confidential-relay.js` keeps it on the
+thrown error as `e.code`.
 
 **Request bodies are capped.** An unauthenticated call — every call this guide describes, including
 `/confidential/submit` from a browser — is capped at 1 MiB (`DEFAULT_MAX_ANON_REQUEST_BYTES`); the 32 MiB
@@ -1242,7 +1248,9 @@ its commitment, owner, leaf index, membership path and its per-note nullifier ke
 that note's nullifier); the op's outputs (commitments, owners, range proof), public legs (recipient, value,
 fee, deadline) and the authorization for them, which is an opening sigma or a transfer kernel; and the sealed
 memos. It does not receive your wallet key, your seed or any note's blinding (the op builders return only the
-sigma `(R, z)`).
+sigma `(R, z)`). It asks the Succinct prover network for the proof with that witness as a private input
+(`private_stdin`): the network's executor and the prover that wins the request read it, and it is not published.
+To keep it from the relay as well, prove with your own prover account ([OPEN-RELAYER.md](./OPEN-RELAYER.md)).
 
 **What the relay can do with it.** Spending a note takes `nk` and the note's blinding: the guest checks
 `owner == keccak(nk ‖ dom)`, and a Schnorr proof of knowledge of the blinding over the op's context. That proof

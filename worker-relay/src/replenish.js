@@ -224,6 +224,18 @@ async function depositProveToVApp(wallet = relayWallet) {
   ledger.deposited(Number(amt / 10n ** 14n) / 1e4);
 }
 
+// PROVE that reached the prover account since the last pass (a top-up, or a visitor paying for proofs) goes into the
+// vApp now, once there is at least `minWei` of it: proving can run short of credit well inside a 30-minute pass. The
+// deposit is the same one a pass makes, so nothing here can move anything but PROVE into the prover's own credit.
+// -> true when it deposited.
+export async function depositArrivedProve({ minWei }) {
+  const bal = await erc20Balance(PROVE, relayWallet.account.address);
+  if (bal < minWei) return false;
+  log(`${bal} PROVE arrived at the prover account — depositing it now`);
+  await depositProveToVApp(relayWallet);
+  return true;
+}
+
 // Dollar value of an ERC20 fee balance, for the dust floor and the quote sanity check. It must NOT come from
 // the aggregator: the check exists to catch a bad aggregator quote, so valuing the asset with one would make the
 // guard fail whenever the thing it guards against does.

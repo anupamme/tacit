@@ -74,7 +74,7 @@ await test('the stats carry counts and ages ONLY — nothing about any job\'s co
   const q = mk();
   await q.submitJob({ type: 'swap', op: opN(30) });
   const s = await q.queueStats();
-  ok(JSON.stringify(Object.keys(s).sort()) === JSON.stringify(['oldestPendingSec', 'oldestProvingSec', 'pending', 'proving']), `unexpected fields: ${Object.keys(s)}`);
+  ok(JSON.stringify(Object.keys(s).sort()) === JSON.stringify(['oldestPendingSec', 'oldestProvingSec', 'open', 'pending', 'proving']), `unexpected fields: ${Object.keys(s)}`);
 });
 
 // ── the verdict ──

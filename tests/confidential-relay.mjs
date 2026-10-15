@@ -352,4 +352,75 @@ const swapOp = { reserveAPre: 1000, reserveBPre: 1000, intents: [{ amountIn: 100
   ok('prove() hands back the memos its proof commits to, checked; refuses ones that do not open; keeps the caller\'s when none come back');
 }
 
+// ───────────────── a refusal keeps the relay's code; an open job is offered to the holder with its proof ─────────────────
+{
+  const refusing = async () => ({ ok: false, status: 429, statusText: '429', text: async () => JSON.stringify({ ok: false, error: 'the relay can’t take this one just now', code: 'relay_held', retryAfter: 300 }) });
+  const relay = makeConfidentialRelay({ base: '', fetchImpl: refusing });
+  const e = await relay.submitOp({ type: 'unwrap', op: { v: 1 } }).then(() => null, (x) => x);
+  assert.ok(e, 'refused');
+  assert.strictEqual(e.code, 'relay_held');
+  assert.strictEqual(e.httpStatus, 429);
+  assert.strictEqual(e.retryAfter, 300);
+  assert.match(e.message, /^relay 429: the relay can’t take this one/, 'the words the pages read are unchanged');
+
+  const q = makeConfidentialSettler({ storage: freshStore(), hash });
+  const relay2 = makeConfidentialRelay({ base: '', fetchImpl: mockFetch(q) });
+  const tick = () => new Promise((r) => setImmediate(r));
+  const memos = ['0x' + 'ab'.repeat(40)];
+  const pending = relay2.settle({ type: 'transfer', op: { n: 1 }, memos }, { intervalMs: 0, sleep: tick, openGraceMs: 0 }).then(() => null, (x) => x);
+  let j; while (!(j = await q.nextJob())) await tick();
+  await q.ackJob(j.jobId, { publicValues: '0x' + '01'.repeat(64), proof: '0x' + '02'.repeat(64), open: true });
+  const held = await pending;
+  assert.strictEqual(held.code, 'open');
+  assert.strictEqual(held.open.jobId, j.jobId);
+  assert.strictEqual(held.open.publicValues, '0x' + '01'.repeat(64));
+  assert.deepStrictEqual(held.open.memos, memos, 'the memos this call sealed');
+
+  // memos other than the ones sealed here are not offered to send
+  const swapped = async (url, init) => {
+    const res = await mockFetch(q)(url, init);
+    if (!String(url).includes('/confidential/status')) return res;
+    const body = JSON.parse(await res.text()); if (body.memos) body.memos = ['0x' + 'ee'.repeat(40)];
+    return { ...res, text: async () => JSON.stringify(body) };
+  };
+  const relay3 = makeConfidentialRelay({ base: '', fetchImpl: swapped });
+  const e3 = await relay3.settle({ type: 'transfer', op: { n: 1 }, memos }, { intervalMs: 0, sleep: tick, openGraceMs: 0 }).then(() => null, (x) => x);
+  assert.ok(e3 && e3.open === null && e3.code === undefined, 'no offer to send memos this page did not seal');
+
+  // a job that is still waiting when the wait runs out carries its proof too
+  const e4 = await relay2.waitForSettle(j.jobId, { intervalMs: 0, sleep: tick, openGraceMs: 60_000, timeoutMs: -1 }).then(() => null, (x) => x);
+  assert.match(e4.message, /settle timed out/);
+  assert.strictEqual(e4.code, 'open');
+  ok('a refusal keeps its code; a job the relay proved but holds is offered with its proof, only with the memos sealed here');
+}
+
+// ───────────────── a settle sent outside the relay is reported and the job reads settled ─────────────────
+{
+  const q = makeConfidentialSettler({ storage: freshStore(), hash });
+  const j = await q.submitJob({ type: 'transfer', op: { n: 2 } });
+  await q.nextJob();
+  await q.ackJob(j.jobId, { publicValues: '0x' + '01'.repeat(64), proof: '0x02', open: true });
+  const seen = [];
+  globalThis.dispatchEvent = (ev) => seen.push(ev.detail);
+  globalThis.CustomEvent = class { constructor(type, { detail }) { this.type = type; this.detail = detail; } };
+  const fetchImpl = async (urlStr, opts = {}) => {
+    const url = new URL(urlStr, 'http://relay.test');
+    if (url.pathname === '/confidential/landed') {
+      const b = JSON.parse(opts.body);
+      const r = await q.landedJob(b.jobId, b.txHash, async () => ({ ok: true }));
+      return { ok: r.ok !== false, status: r.ok === false ? 409 : 200, statusText: '', text: async () => JSON.stringify(r) };
+    }
+    return mockFetch(q)(urlStr, opts);
+  };
+  const relay = makeConfidentialRelay({ base: '', fetchImpl });
+  const r = await relay.landed(j.jobId, '0x' + '33'.repeat(32));
+  assert.strictEqual(r.status, 'settled');
+  assert.strictEqual((await relay.status(j.jobId)).status, 'settled');
+  assert.ok(seen.some((d) => d.jobId === j.jobId && d.status === 'settled'), 'announced to the page');
+  const bad = await makeConfidentialRelay({ base: '', fetchImpl: async () => { throw new Error('offline'); } }).landed(j.jobId, '0x' + '33'.repeat(32));
+  assert.strictEqual(bad.ok, false, 'never throws');
+  delete globalThis.dispatchEvent; delete globalThis.CustomEvent;
+  ok('landed() reports a settle sent outside the relay, the job reads settled, and it never throws');
+}
+
 console.log(`\n${n} confidential-relay checks passed.`);

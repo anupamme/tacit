@@ -147,10 +147,22 @@ export async function relayBooks() {
 }
 
 // ── Confidential settle ──
-// `mode` ('prove' | 'settle') asks for jobs of that mode only.
-export async function confidentialJob({ mode = null } = {}) {
+// `mode` ('prove' | 'settle') asks for jobs of that mode only. `openable` (with mode 'settle') asks only for a relayed job
+// that may go on the open board once proved: a plain pool.settle with no exit recipe.
+export async function confidentialJob({ mode = null, openable = false } = {}) {
   // { jobId, type, op, memos:[], mode } | {}
-  return getJson(mode ? `/confidential/job?mode=${mode}` : '/confidential/job');
+  const q = [mode ? `mode=${mode}` : '', openable ? 'openable=1' : ''].filter(Boolean).join('&');
+  return getJson(q ? `/confidential/job?${q}` : '/confidential/job');
+}
+// The open board as anyone reads it: [{ jobId, type, status, posted, publicValues, proof, memos, openSince, expiresAt,
+// feeUsd, feeAsset }], oldest first. An older API without the board answers nothing.
+export async function confidentialOpenList(limit = 32) {
+  const r = await getJson(`/confidential/open?limit=${limit}`);
+  return Array.isArray(r.jobs) ? r.jobs : [];
+}
+// Take one open job off the board to send it ({} when another sender took it first).
+export async function confidentialOpenJob(jobId) {
+  return getJson(`/confidential/job?mode=open&id=${encodeURIComponent(jobId)}`);
 }
 // Claim several jobs that can share one settle. Falls back to a single job when the worker is older (no
 // `jobs` key) so the relay never wedges on a version skew.
@@ -163,9 +175,15 @@ export async function confidentialBatch(max = 8) {
 // claimed until the TTL, is re-served, and is then only resolved if the settle can still be found on chain.
 // postJson does not throw on an error status and no caller reads the result, so a 401/429/500 read exactly
 // like success. Retry the ones worth retrying, and say so loudly when the worker cannot be told at all.
-export async function confidentialAck({ jobId, txHash, error, broadcastHashes }) {
+// `settledBy` (a job found settled by a transaction on chain) is carried as such: the worker closes a job of any mode by
+// it, where a bare txHash on a prove-mode job reads as a proof that never came. `publicValues`+`proof` hand a proof back
+// (a prove-mode job, or with `open` a relayed one put on the board); `requeue` and `release` answer for an open job.
+export async function confidentialAck({ jobId, txHash, error, broadcastHashes, settledBy, publicValues, proof, open, requeue, release }) {
   const body = error
-    ? { jobId, error, ...(broadcastHashes?.length ? { broadcastHashes } : {}) }
+    ? { jobId, error, ...(broadcastHashes?.length ? { broadcastHashes } : {}), ...(requeue ? { requeue: true } : {}) }
+    : settledBy ? { jobId, settledBy, txHash: txHash || settledBy }
+    : publicValues && proof ? { jobId, publicValues, proof, ...(open ? { open: true } : {}) }
+    : release ? { jobId, release: true }
     : { jobId, txHash: txHash || '' };
   let status = 0;
   for (let i = 0; i < 3; i++) {

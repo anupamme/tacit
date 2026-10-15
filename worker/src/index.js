@@ -90,6 +90,7 @@ import { bech32, bech32m } from '@scure/base';
 import { buildScanReflectionAttester } from './reflection-attest.js';
 import { handleFarm } from './farm-program.js';
 import { buildConfidentialSettler } from './confidential-settle.js';
+import { pvDeadline, settleCalldata as openSettleCalldata, carriesPublicValues, checkPostedShape } from './confidential-open.js';
 import { passesFloor, feeAssetOf, floorInFeeUnits, totalFee, decodePoolState, ammUsdPerUnitBest, AMM_PRICE_DEFAULTS } from './relay-quote.js';
 import { makeConfidentialIndex } from './confidential-index.js';
 import { buildFlow, appendSeries, flowPoint } from './flow-feed.js';
@@ -633,7 +634,7 @@ const reverseBytes = b => { const r = new Uint8Array(b); r.reverse(); return r; 
 // caller (curl, another server) could already do. This is what lets a third-party page with no fixed
 // origin (an IPFS/web3-gateway-hosted frontend, e.g.) use the relay directly from a browser instead of
 // needing its own backend proxy or a per-deploy entry in ALLOWED_ORIGINS.
-const OPEN_ORIGIN_PATHS = new Set(['/stats', '/flow', '/relay/economics', '/bridge/recover', '/reflection/proof', '/confidential/submit', '/confidential/status', '/confidential/quote', '/confidential/index', '/reflection/dump', '/reflection/status', '/reflection/note-witness', '/reflection/burndep', '/reflection/eth-state/covers', '/crossout/minted', '/farm/program', '/farm/health']);
+const OPEN_ORIGIN_PATHS = new Set(['/stats', '/flow', '/relay/economics', '/bridge/recover', '/reflection/proof', '/confidential/submit', '/confidential/status', '/confidential/open', '/confidential/landed', '/confidential/quote', '/confidential/index', '/reflection/dump', '/reflection/status', '/reflection/note-witness', '/reflection/burndep', '/reflection/eth-state/covers', '/crossout/minted', '/farm/program', '/farm/health']);
 function corsHeaders(env, reqOrigin, openOrigin) {
   const list = (env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
   const allow = openOrigin || list.includes('*') ? '*' : (list.includes(reqOrigin) ? reqOrigin : list[0]);
@@ -2938,7 +2939,57 @@ function confSettler(env) {
   const kv = env.CONFIDENTIAL_KV || env.REGISTRY_KV;
   if (!kv) return null;
   const hash = (s) => '0x' + [...keccak_256(new TextEncoder().encode(s))].map((b) => b.toString(16).padStart(2, '0')).join('');
-  return buildConfidentialSettler(env, { hash, feeGate: buildRelayFeeGate(env), priceFee: buildFeePricer(env) });
+  return buildConfidentialSettler(env, { hash, feeGate: buildRelayFeeGate(env), priceFee: buildFeePricer(env),
+    verifyPosted: (p) => simulateSettle(env, p), expiryOf: openExpiryOf });
+}
+
+// The open board (worker/src/confidential-open.js): proofs waiting for any sender, whoever sends one paid its fee.
+const confPool = (env) => env.CONFIDENTIAL_POOL_ADDR || _CONFIDENTIAL_DEPLOYMENTS?.mainnet?.pool || null;
+// When an open job's settle stops being valid: the op's own deadline, or the one its public values commit to.
+function openExpiryOf({ type, op, publicValues }) {
+  let pv = 0;
+  try { pv = publicValues ? pvDeadline(publicValues) : 0; } catch { pv = 0; }
+  const xs = [op ? opExpiry(type, op) : 0, pv].filter((x) => x > 0);
+  return xs.length ? Math.min(...xs) : 0;
+}
+// eth_call of settle(publicValues, proof, memos) at the latest block: { ok } when the pool would take it now, { reverted }
+// when it would refuse it, and neither when no node answered. A node that drops revert data still says it reverted.
+async function simulateSettle(env, { publicValues, proof, memos }) {
+  const pool = confPool(env);
+  if (!pool) return { ok: false, error: 'no pool configured' };
+  const data = openSettleCalldata({ publicValues, proof, memos: memos || [] });
+  const call = [{ from: '0x000000000000000000000000000000000000dEaD', to: pool, data }, 'latest'];
+  const rpcs = [env.CONFIDENTIAL_SIM_RPC, 'https://mainnet.gateway.tenderly.co', ..._TETH_ETH_RPCS.mainnet].filter(Boolean);
+  for (const rpc of rpcs) {
+    try {
+      const r = await fetch(rpc, { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: call }), signal: AbortSignal.timeout(10000) });
+      if (!r.ok) continue;
+      const j = await r.json();
+      if (j && typeof j.result === 'string') return { ok: true };
+      const e = j && j.error;
+      if (!e) continue;
+      const d = typeof e.data === 'string' ? e.data : (e.data && typeof e.data.data === 'string' ? e.data.data : '');
+      if (e.code === 3 || /revert/i.test(String(e.message || '')) || /^0x[0-9a-fA-F]{8}/.test(d)) {
+        return { ok: false, reverted: true, error: /^0x[0-9a-fA-F]{8}/.test(d) ? `settle reverts (${d.slice(0, 10)})` : 'settle reverts' };
+      }
+    } catch { /* next node */ }
+  }
+  return { ok: false, error: 'the chain could not be read just now; try again' };
+}
+// A settle sent outside the relay closed this job when: its transaction succeeded, reached the pool, carries the job's
+// public values whole, and the same settle would now be refused (a settled proof cannot settle twice).
+async function openLanded(env, job, txHash) {
+  const pool = String(confPool(env) || '').toLowerCase();
+  const [rc, tx] = await Promise.all([_ethRpc('mainnet', 'eth_getTransactionReceipt', [txHash]), _ethRpc('mainnet', 'eth_getTransactionByHash', [txHash])]);
+  if (!rc || !tx) return { ok: false, error: 'that transaction is not on chain yet' };
+  if (rc.status !== '0x1') return { ok: false, error: 'that transaction reverted' };
+  if (!(rc.logs || []).some((l) => String(l.address || '').toLowerCase() === pool)) return { ok: false, error: 'that transaction did not reach the pool' };
+  if (!carriesPublicValues(tx.input || '', job.publicValues)) return { ok: false, error: 'that transaction does not carry this job’s proof' };
+  const sim = await simulateSettle(env, job);
+  if (sim.ok) return { ok: false, error: 'this proof would still settle, so that transaction did not settle it' };
+  if (!sim.reverted) return { ok: false, error: sim.error };
+  return { ok: true };
 }
 // Default-deny Bearer gate for the prover routes (mirrors checkDebugAuth; constant-time compare).
 function checkConfidentialAuth(req, env) {
@@ -3169,6 +3220,12 @@ async function handleConfidentialSubmit(req, env, cors) {
       : await proveRateLimit(env, ip);
     if (!rl.ok) return jsonResponse({ ok: false, error: `too many submit requests — retry in ~${rl.retryAfter}s`, retryAfter: rl.retryAfter }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': String(rl.retryAfter) });
   }
+  // A proof made elsewhere goes on the open board for any sender; its shape is checked here and its settle simulated
+  // (submitJob → verifyPosted) before it is listed.
+  if (submitMode === 'preproven') {
+    const bad = checkPostedShape(body);
+    if (bad) return jsonResponse({ ok: false, error: bad }, 400, { ...cors, 'Cache-Control': 'no-store' });
+  }
   if (submitMode === 'settle' && await relayHolds(env, body.type, body.op)) {
     return jsonResponse({ ok: false, error: 'the relay can’t take this one just now: it is catching up on settles. Send it from your own account instead; the relay still proves it for you', code: 'relay_held', retryAfter: 300 }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '300' });
   }
@@ -3184,7 +3241,8 @@ async function handleConfidentialSubmit(req, env, cors) {
     if (!b.ok) return jsonResponse({ ok: false, error: `prove capacity for today is used up (${b.used}/${b.cap}) — prove locally instead, or use a relayed settle`, code: 'prove_budget' }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '3600' });
   }
   try {
-    const r = await q.submitJob({ type: body.type, op: body.op, memos: body.memos, mode: body.mode, feeAsset: body.feeAsset, exit: body.exit });
+    const r = await q.submitJob({ type: body.type, op: body.op, memos: body.memos, mode: body.mode, feeAsset: body.feeAsset, exit: body.exit,
+      publicValues: body.publicValues, proof: body.proof });
     // Spend only on a job we actually accepted and will prove — a dedupe hit costs us nothing.
     if (!r.deduped) {
       if (submitMode === 'prove') await spendProveBudget(env).catch(() => {});
@@ -3222,9 +3280,14 @@ async function handleConfidentialJob(req, env, cors) {
     return jsonResponse({ jobs }, 200, { ...cors, 'Cache-Control': 'no-store' });
   }
   // ?mode=prove takes only jobs that want a proof back (the page sends the settle itself); an older relay that
-  // doesn't ask gets the oldest job of any mode, as before.
-  const mode = new URL(req.url).searchParams.get('mode');
-  const job = await q.nextJob(mode === 'prove' || mode === 'settle' ? { mode } : {});
+  // doesn't ask gets the oldest job of any mode, as before. ?mode=open takes a proved job off the board to send it
+  // (&id= names which one).
+  const params = new URL(req.url).searchParams, mode = params.get('mode');
+  if (mode === 'open') {
+    const job = await q.nextOpen({ id: params.get('id') || null });
+    return jsonResponse(job || {}, 200, { ...cors, 'Cache-Control': 'no-store' });
+  }
+  const job = await q.nextJob(mode === 'prove' || mode === 'settle' ? { mode, openable: params.get('openable') === '1' } : {});
   return jsonResponse(job || {}, 200, { ...cors, 'Cache-Control': 'no-store' });
 }
 async function handleConfidentialAck(req, env, cors) {
@@ -3235,8 +3298,36 @@ async function handleConfidentialAck(req, env, cors) {
   try { body = await req.json(); } catch { return jsonResponse({ ok: false, error: 'bad json' }, 400, cors); }
   if (!body.jobId) return jsonResponse({ ok: false, error: 'jobId required' }, 400, cors);
   const r = await q.ackJob(String(body.jobId), { txHash: body.txHash, error: body.error, publicValues: body.publicValues, proof: body.proof,
-    activateTx: body.activateTx, activateError: body.activateError, broadcastHashes: body.broadcastHashes, settledBy: body.settledBy });
+    activateTx: body.activateTx, activateError: body.activateError, broadcastHashes: body.broadcastHashes, settledBy: body.settledBy,
+    open: body.open === true, requeue: body.requeue === true, release: body.release === true });
   return jsonResponse(r, 200, cors);
+}
+// GET /confidential/open?limit= — public. The board: relayed jobs proved and waiting for a sender, and proofs posted for
+// any sender. Each carries what settle() needs; whoever sends one is paid the fee its proof binds.
+async function handleConfidentialOpen(req, env, url, cors) {
+  const q = confSettler(env);
+  if (!q) return jsonResponse({ error: 'confidential settle not configured' }, 404, { ...cors, 'Cache-Control': 'no-store' });
+  const ip = req.headers.get('CF-Connecting-IP') || 'anon';
+  const rl = await proveRateLimit(env, ip, 'open', 30, 2000);
+  if (!rl.ok) return jsonResponse({ ok: false, error: `too many requests — retry in ~${rl.retryAfter}s`, retryAfter: rl.retryAfter }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': String(rl.retryAfter) });
+  const limit = Math.max(1, Math.min(64, Number(url.searchParams.get('limit')) || 32));
+  const jobs = await q.openList({ limit });
+  return jsonResponse({ pool: confPool(env), jobs }, 200, { ...cors, 'Cache-Control': 'no-store' });
+}
+// POST /confidential/landed { jobId, txHash } — public. A settle sent outside the relay (from the holder's own account,
+// or by another relayer from the board) closes its job once the transaction is seen to have settled it.
+async function handleConfidentialLanded(req, env, cors) {
+  const q = confSettler(env);
+  if (!q) return jsonResponse({ error: 'confidential settle not configured' }, 404, { ...cors, 'Cache-Control': 'no-store' });
+  const ip = req.headers.get('CF-Connecting-IP') || 'anon';
+  const rl = await proveRateLimit(env, ip, 'landed', 10, 6000);
+  if (!rl.ok) return jsonResponse({ ok: false, error: `too many requests — retry in ~${rl.retryAfter}s`, retryAfter: rl.retryAfter }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': String(rl.retryAfter) });
+  let body;
+  try { body = await req.json(); } catch { return jsonResponse({ ok: false, error: 'bad json' }, 400, cors); }
+  const jobId = String(body?.jobId || ''), txHash = String(body?.txHash || '');
+  if (!/^0x[0-9a-fA-F]{64}$/.test(jobId) || !/^0x[0-9a-fA-F]{64}$/.test(txHash)) return jsonResponse({ ok: false, error: 'jobId and txHash must be 32-byte hex' }, 400, cors);
+  const r = await q.landedJob(jobId, txHash.toLowerCase(), (job, tx) => openLanded(env, job, tx));
+  return jsonResponse(r.ok === false ? { ok: false, error: r.reason } : { ok: true, status: r.status, txHash: r.txHash }, r.ok === false ? 409 : 200, { ...cors, 'Cache-Control': 'no-store' });
 }
 async function handleConfidentialStatus(env, url, cors) {
   const q = confSettler(env);
@@ -26731,6 +26822,8 @@ async function _routeFetch(req, env, ctx) {
     if (url.pathname === '/confidential/ledger' && req.method === 'GET') return handleConfidentialLedger(req, env, cors);
     if (url.pathname === '/confidential/ack' && req.method === 'POST') return handleConfidentialAck(req, env, cors);
     if (url.pathname === '/confidential/status' && req.method === 'GET') return handleConfidentialStatus(env, url, cors);
+    if (url.pathname === '/confidential/open' && req.method === 'GET') return handleConfidentialOpen(req, env, url, cors);
+    if (url.pathname === '/confidential/landed' && req.method === 'POST') return handleConfidentialLanded(req, env, cors);
     if (url.pathname === '/confidential/quote' && req.method === 'GET') return handleConfidentialQuote(req, env, url, cors);
     if (url.pathname === '/confidential/index' && req.method === 'GET') return handleConfidentialIndex(req, env, url, cors);
 

@@ -122,7 +122,9 @@ test('replenish in the settle loop never overlaps a settle, and is off by defaul
   // jobs, not only once the queue empties: a steady stream of jobs is when the prover credit drains fastest, and
   // an idle-only top-up never gets its turn then (on 2026-10-10 the PROVE sat in the sink through an outage for
   // exactly that reason). Awaited in the loop body, so "between jobs" is still never "during one".
-  ok(/\n\s*await maybeReplenish\(\);\n\s*if \(!worked\) await sleep/.test(settle), 'replenish must be awaited between jobs, before the idle sleep');
+  ok(/\n\s*await maybeReplenish\(\);\n(\s*await maybeDepositArrived\(\);\n)?\s*if \(!worked\) await sleep/.test(settle), 'replenish must be awaited between jobs, before the idle sleep');
+  // PROVE that arrives between passes is deposited from the same place, awaited, so it never overlaps a settle either.
+  ok(/\n\s*await maybeDepositArrived\(\);\n\s*if \(!worked\) await sleep/.test(settle), 'the arrived-PROVE deposit must be awaited between jobs, before the idle sleep');
   ok(!/(?<!await )maybeReplenish\(\);/.test(settle), 'every call must be awaited, so none is left running beside a job');
   ok(/replenishDue\(/.test(settle), 'the schedule decides whether it is due, so calling it every pass stays cheap');
   ok(/opt\('REPLENISH_IN_SETTLE', '0'\) === '1'/.test(config), 'REPLENISH_IN_SETTLE must default off');
@@ -467,6 +469,15 @@ test('an unwrap is turned away when the relay has gone quiet for over ten minute
 test('a prove-mode unwrap is never turned away: the relay proves it and the holder settles it', async () => {
   const { call } = loadSubmit({ health: HELD, submitJob: async () => ({ jobId: 'j', status: 'pending' }) });
   ok((await call({ type: 'unwrap', op: DL, mode: 'prove' })).status === 200, 'prove mode goes through while settles are held');
+});
+test('the note the relay beats while short, open board on or off, is the one the API reads as holding settles', () => {
+  const hold = new RegExp(worker.match(/const RELAY_HOLD_NOTE = \/(.+)\/i;/)[1], 'i');
+  const notes = [...settle.matchAll(/'(settle: proving [^']+)'/g)].map((m) => m[1]);
+  ok(notes.length >= 2, `both notes found, got ${notes.length}`);
+  for (const nt of notes) {
+    ok(hold.test(nt), `the API reads "${nt}" as holding settles`);
+    ok(!/gas|ETH|wallet|funds|balance/i.test(nt), `the public note says nothing of the relay's wallet: ${nt}`);
+  }
 });
 test('what does not expire waits in line while the relay holds settles', async () => {
   const { call } = loadSubmit({ health: HELD, submitJob: async () => ({ jobId: 'j', status: 'pending' }) });

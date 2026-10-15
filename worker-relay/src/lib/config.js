@@ -204,6 +204,17 @@ export const CFG = {
   // RELAY_KEY and the two roles are one wallet. A no-op when they already are.
   replenishDrainToSink: opt('REPLENISH_DRAIN_TO_SINK', '0') === '1',
   replenishIntervalMin: num('REPLENISH_INTERVAL_MIN', 30),
+  // PROVE that reaches the relay wallet between passes (a top-up, or a visitor paying for proofs from /relay/#prove) is
+  // deposited into the vApp within PROVE_WATCH_SECS once it reaches PROVE_WATCH_MIN_WEI, rather than at the next pass.
+  // Smaller amounts wait for the pass, which deposits whatever is there. 0 = off.
+  proveWatchSecs: num('PROVE_WATCH_SECS', 60),
+  proveWatchMinWei: BigInt(opt('PROVE_WATCH_MIN_WEI', '2000000000000000000')), // 2 PROVE
+  // The open board (lib/open-board.js). While the settle wallet cannot pay for a settle, relayed jobs any account could
+  // send are still proved and put on the board (SETTLE_PROVE_WHILE_SHORT); once it can pay, the relay sends open jobs
+  // before proving new work, reading the board at most every OPEN_BOARD_POLL_SECS (OPEN_BOARD=0 turns sending off).
+  proveWhileShort: opt('SETTLE_PROVE_WHILE_SHORT', '1') === '1',
+  openBoard: opt('OPEN_BOARD', '1') === '1',
+  openBoardPollSecs: num('OPEN_BOARD_POLL_SECS', 15),
   // Relay fees paid in cTAC are never sold (TAC is never in FEE_ASSETS), so they pile up on the earning wallet.
   // When set, each replenish pass moves that TAC to this reserve once it reaches tacReserveMinWei. Empty = hold.
   tacReserveAddr: opt('TAC_RESERVE_ADDR', ''),
