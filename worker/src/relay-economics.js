@@ -140,8 +140,17 @@ export async function readChain({ rpc, prev = null, now = Date.now(), addrs = {}
   return out;
 }
 
+// The sponsored-settle allowances for today (UTC): how many the relay has paid for against each limit. A limit that is not set is null.
+export function cleanSponsorship(sp) {
+  if (!sp || typeof sp !== 'object') return null;
+  const one = (x) => ({ used: finite(x && x.used), cap: x && x.cap != null && Number.isFinite(Number(x.cap)) && Number(x.cap) >= 0 ? Math.floor(Number(x.cap)) : null });
+  const out = { day: typeof sp.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(sp.day) ? sp.day : null, total: one(sp.total), classes: {} };
+  for (const k of ['onboard', 'farm', 'wrap', 'other']) out.classes[k] = one(sp.classes && sp.classes[k]);
+  return out;
+}
+
 // ── the response ──
-export function buildEconomics({ ledger = null, heartbeatAt = null, chain = null, tips = null, prices = null, now = Date.now() } = {}) {
+export function buildEconomics({ ledger = null, heartbeatAt = null, chain = null, tips = null, prices = null, sponsorship = null, now = Date.now() } = {}) {
   const l = ledger ? { ...ledger, stale: heartbeatAt ? now - heartbeatAt > 10 * 60e3 : true } : null;
   if (l) {
     // The dollar value of a fee paid in TAC (or in a token nothing converts yet) comes from the private price reference, so the public
@@ -153,5 +162,5 @@ export function buildEconomics({ ledger = null, heartbeatAt = null, chain = null
     delete l.days;
   }
   const px = (x) => (typeof x === 'number' && Number.isFinite(x) && x > 0 ? Math.round(x * 1e4) / 1e4 : null);
-  return { updatedAt: new Date(now).toISOString(), ledger: l, chain: chain ? { ...chain, tips } : chain, prices: prices ? { ethUsd: px(prices.ethUsd), proveUsd: px(prices.proveUsd) } : null };
+  return { updatedAt: new Date(now).toISOString(), ledger: l, chain: chain ? { ...chain, tips } : chain, prices: prices ? { ethUsd: px(prices.ethUsd), proveUsd: px(prices.proveUsd) } : null, sponsorship: cleanSponsorship(sponsorship) };
 }

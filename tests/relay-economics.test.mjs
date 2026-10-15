@@ -2,7 +2,7 @@
 // add up, a log scan never skips a range and calls itself whole, and the chain read builds what the page shows from an injected RPC.
 // Run: node tests/relay-economics.test.mjs
 import { keccak_256 } from '@noble/hashes/sha3';
-import { TOPIC, DEFAULTS, sanitizeLedger, sumDays, scanLogs, readChain, readTips, buildEconomics } from '../worker/src/relay-economics.js';
+import { TOPIC, DEFAULTS, sanitizeLedger, sumDays, scanLogs, readChain, readTips, buildEconomics, cleanSponsorship } from '../worker/src/relay-economics.js';
 import { encSetShares } from '../dapp/splitter/abi.js';
 
 let n = 0, failed = 0;
@@ -102,6 +102,13 @@ const pubJson = JSON.stringify(resp.ledger);
 ok(!('tac' in resp.ledger.week.feeUsd) && !('other' in resp.ledger.week.feeUsd) && resp.ledger.recent.every((d) => !('tac' in d.feeUsd) && !('other' in d.feeUsd)) && resp.ledger.week.feeUsd.convertible === 14, 'the public response carries no dollar value for fees paid in TAC or in what nothing converts');
 ok(buildEconomics({ ledger: s, heartbeatAt: 1_000_000, now: 1_000_000 + 11 * 60e3 }).ledger.stale === true, 'a ledger whose heartbeat is ten minutes old is marked stale');
 ok(buildEconomics({ ledger: s, now: 5 }).ledger.stale === true && buildEconomics({}).ledger === null, 'no heartbeat time is stale, and no ledger is null');
+
+// ── the sponsored-settle allowances ──
+const sp = cleanSponsorship({ day: '2026-10-15', total: { used: 14, cap: 300 }, classes: { onboard: { used: 3, cap: 12 }, farm: { used: 8, cap: 8 }, wrap: { used: 'x', cap: null }, other: { used: -1, cap: 'many' }, evil: { used: 1, cap: 1 } }, junk: 1 });
+ok(sp.total.used === 14 && sp.total.cap === 300 && sp.classes.onboard.cap === 12 && sp.classes.farm.used === 8 && !('evil' in sp.classes) && !('junk' in sp), 'the allowances are copied field by field');
+ok(sp.classes.wrap.used === 0 && sp.classes.wrap.cap === null && sp.classes.other.used === 0 && sp.classes.other.cap === null, 'junk reads as zero used, and a limit that is not a number is no limit');
+ok(cleanSponsorship(null) === null && cleanSponsorship('x') === null && cleanSponsorship({ day: 'today' }).day === null, 'nothing, or a bad day, is null');
+ok(buildEconomics({ sponsorship: sp.total && { day: '2026-10-15', total: { used: 1, cap: 2 }, classes: {} } }).sponsorship.classes.farm.cap === null, 'every class is always present in the response');
 
 console.log(failed ? `\n${failed} FAILED (${n} checks)` : `\nall ${n} relay-economics checks passed`);
 process.exit(failed ? 1 : 0);

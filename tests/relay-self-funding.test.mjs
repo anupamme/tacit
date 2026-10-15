@@ -370,13 +370,13 @@ test('a gate that cannot read gas or ETH price fails OPEN, not closed', async ()
 
 // ── prove-mode: a bounded subsidy, and a budget that junk cannot drain ─────────
 const submitSrc = worker.slice(worker.indexOf('const budgetKey'), worker.indexOf('async function handleConfidentialJob'));
-function loadSubmit({ cap = '3', freeCap = '3', submitJob, kvStore = new Map(), feeOf = () => 0n, tipPaid = async () => false, health = async () => ({ status: 'ok', age_seconds: 5, note: 'settle: idle — queue empty' }), expiryOf = (type, op) => (type === 'unwrap' ? Number(op?.opDeadline || 0) : 0) }) {
+function loadSubmit({ cap = '3', freeCap = '3', env = {}, submitJob, kvStore = new Map(), feeOf = () => 0n, tipPaid = async () => false, health = async () => ({ status: 'ok', age_seconds: 5, note: 'settle: idle — queue empty' }), expiryOf = (type, op) => (type === 'unwrap' ? Number(op?.opDeadline || 0) : 0) }) {
   const kv = { get: async (k) => (kvStore.has(k) ? kvStore.get(k) : null), put: async (k, v) => { kvStore.set(k, v); } };
   const mk = new Function('confSettler', 'proveRateLimit', 'jsonResponse', 'hasVerifiableFee', 'totalFee', 'ctx', 'withKvKeyLock', 'wrapTipPaid', 'readProverKindHealth', 'opExpiry',
     submitSrc + '; return handleConfidentialSubmit;');
   const handler = mk(() => ({ submitJob }), async () => ({ ok: true }), (body, status) => ({ body, status }), () => false, (type, op) => feeOf(type, op), {},
     (_key, fn) => fn(), tipPaid, health, expiryOf);
-  const call = (body) => handler({ json: async () => body, headers: { get: () => '1.2.3.4' } }, { REGISTRY_KV: kv, PROVE_MODE_DAILY_CAP: cap, FREE_RELAY_DAILY_CAP: freeCap }, {});
+  const call = (body) => handler({ json: async () => body, headers: { get: () => '1.2.3.4' } }, { REGISTRY_KV: kv, PROVE_MODE_DAILY_CAP: cap, FREE_RELAY_DAILY_CAP: freeCap, ...env }, {});
   return { call, kvStore };
 }
 
@@ -418,7 +418,7 @@ test('a fee-less relayed op is accepted, and spends the free budget only when ac
   const over = await call({ type: 'cbtcmint', op: {}, mode: 'settle' });
   ok(over.status === 429 && over.body.code === 'free_budget', `the job over the free cap must be refused, got ${over.status}`);
   ok(/attach a fee/.test(over.body.error), 'the refusal must say what to do instead');
-  ok(kvStore.size === 1, 'the free budget and the prove budget must be separate counters');
+  ok(kvStore.size === 2 && [...kvStore.keys()].every((k) => k.startsWith('cps:budget:free')), 'the free budget (its total and its class) and the prove budget must be separate counters');
 });
 
 test('a relayed op that carries a fee never touches the free budget', async () => {
@@ -479,6 +479,55 @@ test('a healthy relay, a missing heartbeat, or an unreadable one queues the unwr
     const { call } = loadSubmit({ ...(health ? { health } : {}), submitJob: async () => ({ jobId: 'j', status: 'pending' }) });
     ok((await call({ type: 'unwrap', op: DL, mode: 'settle' })).status === 200, `${name}: queued`);
   }
+});
+
+// ── sponsored settles are bounded by class: a budget the relay sets, not whatever arrives first ──
+const sponsored = (extra) => { let n = 0; return loadSubmit({ freeCap: '100', feeOf: () => 0n, submitJob: async () => ({ jobId: 'j' + ++n, status: 'pending' }), ...extra }); };
+test('each class has its own daily allowance, and one used up does not touch the others', async () => {
+  const { call } = sponsored({ env: { FREE_RELAY_CAP_FARM: '2', FREE_RELAY_CAP_ONBOARD: '3', FREE_RELAY_CAP_WRAP: '1', FREE_RELAY_CAP_OTHER: '1' } });
+  for (let i = 0; i < 2; i++) ok((await call({ type: 'farmharvest', op: {}, mode: 'settle' })).status === 200, `farm ${i + 1} of 2 is accepted`);
+  const farm = await call({ type: 'farmunbond', op: {}, mode: 'settle' });
+  ok(farm.status === 429 && farm.body.code === 'free_budget' && farm.body.class === 'farm', `the third farm op (an unbond shares the farm class) is refused, got ${farm.status}`);
+  ok(/free relayed settles for today are used up \(2\/2\)/.test(farm.body.error) && /prove-mode and settle it yourself/.test(farm.body.error), 'in the words every page already answers by offering to send it from the holder\'s own account');
+  for (const t of ['bridgemint', 'cbtcmint', 'bridgemint']) ok((await call({ type: t, op: {}, mode: 'settle' })).status === 200, `${t} still has onboarding room after farm is full`);
+  ok((await call({ type: 'bridgemint', op: {}, mode: 'settle' })).status === 429, 'onboarding is refused after its own three');
+  ok((await call({ type: 'wrap', op: {}, mode: 'settle' })).status === 200 && (await call({ type: 'wrap', op: {}, mode: 'settle' })).status === 429, 'an untipped wrap has one, then is refused');
+  ok((await call({ type: 'cdpmint', op: {}, mode: 'settle' })).status === 200 && (await call({ type: 'stealthclaim', op: {}, mode: 'settle' })).status === 429, 'everything else shares "other"');
+});
+test('a class with no allowance set is bounded only by the total, and 0 means none', async () => {
+  const none = sponsored({});
+  for (let i = 0; i < 20; i++) ok((await none.call({ type: 'farmharvest', op: {}, mode: 'settle' })).status === 200, 'no class limit set: accepted');
+  const zero = sponsored({ env: { FREE_RELAY_CAP_FARM: '0' } });
+  const r = await zero.call({ type: 'farmharvest', op: {}, mode: 'settle' });
+  ok(r.status === 429 && r.body.class === 'farm', 'an allowance of 0 refuses every one');
+  const junk = sponsored({ env: { FREE_RELAY_CAP_FARM: 'many' } });
+  ok((await junk.call({ type: 'farmharvest', op: {}, mode: 'settle' })).status === 200, 'a value that is not a number is read as no limit, never as a lockout');
+});
+test('the total still binds, whatever the class allowances add up to', async () => {
+  const { call } = sponsored({ freeCap: '3', env: { FREE_RELAY_CAP_FARM: '10', FREE_RELAY_CAP_ONBOARD: '10' } });
+  for (const t of ['farmharvest', 'farmharvest', 'bridgemint']) await call({ type: t, op: {}, mode: 'settle' });
+  const r = await call({ type: 'bridgemint', op: {}, mode: 'settle' });
+  ok(r.status === 429 && r.body.code === 'free_budget' && r.body.class === undefined, 'the fourth is refused by the total, not by its class');
+});
+test('what is not sponsored never touches a class allowance', async () => {
+  const env = { FREE_RELAY_CAP_WRAP: '1', FREE_RELAY_CAP_FARM: '1' };
+  const tipped = sponsored({ env, tipPaid: async () => true });
+  for (let i = 0; i < 5; i++) ok((await tipped.call({ type: 'wrap', op: {}, mode: 'settle', depositTx: '0x' + 'ab'.repeat(32) })).status === 200, 'a wrap whose deposit paid its tip is accepted past the allowance');
+  ok(tipped.kvStore.size === 0, 'and spends none of it');
+  const prove = sponsored({ env, cap: '50' });
+  for (let i = 0; i < 4; i++) ok((await prove.call({ type: 'farmharvest', op: {}, mode: 'prove' })).status === 200, 'prove mode (the sender settles) is not sponsored settling');
+  const paying = sponsored({ env, feeOf: () => 5000n });
+  for (let i = 0; i < 4; i++) ok((await paying.call({ type: 'farmharvest', op: {}, mode: 'settle' })).status === 200, 'an op that carries a fee is not counted');
+  ok(paying.kvStore.size === 0, 'and spends nothing');
+});
+test('only an accepted, new job spends its class allowance', async () => {
+  const dup = sponsored({ env: { FREE_RELAY_CAP_FARM: '1' }, submitJob: async () => ({ jobId: 'j', status: 'pending', deduped: true }) });
+  for (let i = 0; i < 5; i++) ok((await dup.call({ type: 'farmharvest', op: {}, mode: 'settle' })).status === 200, 'a duplicate costs nothing');
+  const junk = sponsored({ env: { FREE_RELAY_CAP_FARM: '1' }, submitJob: async () => { throw new Error('unknown type'); } });
+  for (let i = 0; i < 5; i++) await junk.call({ type: 'farmharvest', op: {}, mode: 'settle' });
+  ok([...junk.kvStore.keys()].every((k) => Number(junk.kvStore.get(k)) === 0) || junk.kvStore.size === 0, 'a submit that fails validation spends nothing');
+  const real = sponsored({ env: { FREE_RELAY_CAP_FARM: '1' }, kvStore: junk.kvStore });
+  ok((await real.call({ type: 'farmharvest', op: {}, mode: 'settle' })).status === 200, 'so a flood of junk cannot use up the allowance');
 });
 
 // wrapTipPaid reads the deposit's receipt: a WrappedWithTip from a known forwarder, for this op's own deposit, tipping

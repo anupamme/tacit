@@ -26,7 +26,9 @@ globalThis.fetch = async (url, opts) => {
   return res(null);
 };
 
-const env = { REGISTRY_KV: kv(), PROVER_HEARTBEAT_TOKEN: 'tok' };
+const env = { REGISTRY_KV: kv(), PROVER_HEARTBEAT_TOKEN: 'tok', FREE_RELAY_CAP_FARM: '8', FREE_RELAY_CAP_ONBOARD: '12' };
+const today = new Date().toISOString().slice(0, 10);
+env.REGISTRY_KV.m.set(`cps:budget:free:${today}`, '14'); env.REGISTRY_KV.m.set(`cps:budget:free:farm:${today}`, '8'); env.REGISTRY_KV.m.set(`cps:budget:free:onboard:${today}`, '3');
 const call = (path, init) => worker.fetch(new Request(`https://api.tacit.finance${path}`, { headers: { Origin: 'https://tacit.finance' }, ...init }), env, { waitUntil() {} });
 const beat = (extra = {}) => call('/prover-heartbeat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: 'tok', network: 'mainnet', kind: 'settle', prover_alive: true, note: 'settle: idle', ...extra }) });
 
@@ -73,6 +75,12 @@ Date.now = realNow;
 ok(r.status === 200 && rpcCalls > before && j.chain.wallets.settle.eth === 0.01, 'and it is read again, after a short wait, once it answers');
 ok((await call('/relay/economics', { method: 'POST' })).status !== 200, 'it is a read-only route');
 ok(r.headers.get('access-control-allow-origin') === 'https://tacit.finance' || r.headers.get('access-control-allow-origin') === '*', 'it answers the site\'s origin');
+
+r = await call('/relay/economics'); j = await r.json();
+const spo = j.sponsorship;
+ok(spo && spo.day === today && spo.total.used === 14 && spo.total.cap === 300, 'the route reports the day\'s sponsored settles against the total allowance');
+ok(spo.classes.farm.used === 8 && spo.classes.farm.cap === 8 && spo.classes.onboard.used === 3 && spo.classes.onboard.cap === 12, 'and each class against the allowance set for it');
+ok(spo.classes.wrap.used === 0 && spo.classes.wrap.cap === null && spo.classes.other.cap === null, 'a class with no allowance set shows no limit');
 
 globalThis.fetch = realFetch;
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');

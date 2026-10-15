@@ -1801,7 +1801,11 @@ async function handleRelayEconomics(env, cors) {
     // Tried at most every five minutes, found or not: a price feed that is down is not asked again for each visitor.
     _econPrices = { at: Date.now(), v: { ethUsd: ethUsd || (_econPrices.v && _econPrices.v.ethUsd) || null, proveUsd: proveUsd || (_econPrices.v && _econPrices.v.proveUsd) || null } };
   }
-  return jsonResponse(buildEconomics({ ledger: hb && hb.ledger, heartbeatAt: hb && hb.ts, chain, tips, prices: _econPrices.v }), 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
+  // What the relay has paid for today against each allowance (the counters the submit route spends).
+  const bkv = env.CONFIDENTIAL_KV || env.REGISTRY_KV, used = async (name) => { try { return Number((await bkv.get(budgetKey(name))) || 0); } catch { return 0; } };
+  const sponsorship = { day: new Date().toISOString().slice(0, 10), total: { used: await used('free'), cap: Number(env.FREE_RELAY_DAILY_CAP || 300) }, classes: {} };
+  for (const k of FREE_CLASSES) sponsorship.classes[k] = { used: await used(`free:${k}`), cap: freeClassCap(env, k) };
+  return jsonResponse(buildEconomics({ ledger: hb && hb.ledger, heartbeatAt: hb && hb.ts, chain, tips, prices: _econPrices.v, sponsorship }), 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
 }
 
 async function handleFlow(env, cors) {
@@ -3104,6 +3108,22 @@ const spendProveBudget = (env) => spendDailyBudget(env, 'prove');
 // subsidy, and the per-IP bucket bounds one source, not many. Same two rules as the prove budget: spent only on
 // an ACCEPTED, non-deduped job (junk can't drain it), and refusal says what to do instead.
 const freeRelayBudget = (env) => dailyBudget(env, 'free', Number(env.FREE_RELAY_DAILY_CAP || 300));
+// The sponsored settles are bounded by CLASS as well as in total, so what the relay chooses to pay for is a budget it sets and not whatever
+// arrives first: onboarding (a bridge or cBTC mint) is kept apart from farm upkeep (harvest, unbond, bond), untipped wraps, and the rest.
+// FREE_RELAY_CAP_ONBOARD / _FARM / _WRAP / _OTHER set each day's allowance; one that is not set has no class limit (only the total applies),
+// and 0 means none at all. Over its allowance an op is refused in the same words as the total, which every page already answers by offering
+// to send it from the holder's own account (the relay still proves it).
+const FREE_CLASS = { bridgemint: 'onboard', cbtcmint: 'onboard', farmharvest: 'farm', farmunbond: 'farm', farmbond: 'farm', wrap: 'wrap' };
+const FREE_CLASSES = ['onboard', 'farm', 'wrap', 'other'];
+const freeClassOf = (type) => FREE_CLASS[String(type)] || 'other';
+const freeClassCap = (env, cls) => { const raw = env[`FREE_RELAY_CAP_${cls.toUpperCase()}`]; return raw == null || String(raw).trim() === '' || !(Number(raw) >= 0) ? null : Math.floor(Number(raw)); };
+async function freeClassBudget(env, cls) {
+  const cap = freeClassCap(env, cls);
+  if (cap == null) return { ok: true, used: 0, cap: null };
+  const kv = env.CONFIDENTIAL_KV || env.REGISTRY_KV;
+  const used = kv ? Number((await kv.get(budgetKey(`free:${cls}`))) || 0) : 0;
+  return { ok: used < cap, used, cap };
+}
 const isFeeless = (type, op) => { try { return !!op && typeof op === 'object' && totalFee(type, op) === 0n; } catch { return false; } };
 
 // A relayed settle of an op that expires (an unwrap, a swap, a pool add) is not queued while the settle relay is holding settles
@@ -3147,6 +3167,8 @@ async function handleConfidentialSubmit(req, env, cors) {
   if (feeless) {
     const b = await freeRelayBudget(env);
     if (!b.ok) return jsonResponse({ ok: false, error: `free relayed settles for today are used up (${b.used}/${b.cap}) — attach a fee above the floor, or prove-mode and settle it yourself`, code: 'free_budget' }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '3600' });
+    const cls = freeClassOf(body.type), cb = await freeClassBudget(env, cls);
+    if (!cb.ok) return jsonResponse({ ok: false, error: `free relayed settles for today are used up (${cb.used}/${cb.cap}) — attach a fee above the floor, or prove-mode and settle it yourself`, code: 'free_budget', class: cls }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '3600' });
   }
   if (submitMode === 'prove') {
     const b = await proveBudget(env);
@@ -3157,7 +3179,7 @@ async function handleConfidentialSubmit(req, env, cors) {
     // Spend only on a job we actually accepted and will prove — a dedupe hit costs us nothing.
     if (!r.deduped) {
       if (submitMode === 'prove') await spendProveBudget(env).catch(() => {});
-      else if (feeless) await spendDailyBudget(env, 'free').catch(() => {});
+      else if (feeless) { await spendDailyBudget(env, 'free').catch(() => {}); await spendDailyBudget(env, `free:${freeClassOf(body.type)}`).catch(() => {}); }
     }
     return jsonResponse({ ok: true, ...r }, 200, { ...cors, 'Cache-Control': 'no-store' });
   } catch (e) { return jsonResponse({ ok: false, error: String(e && e.message || e) }, 400, cors); }

@@ -42,6 +42,7 @@ const FULL = {
     splitter: { address: '0x' + '5'.repeat(40), ethHeld: 0.0002, shares: [{ to: '0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7', weight: '63', percent: '63' }, { to: '0x7a0F0511E1DcF399C2F7bbe8414b6a0D1ABc4331', weight: '27', percent: '27' }, { to: '0x6919cbEf0e70AFFA02Ae02c86c532A137154f250', weight: '10', percent: '10' }] },
   },
   prices: { ethUsd: 2400, proveUsd: 0.18 },
+  sponsorship: { day: '2026-10-15', total: { used: 20, cap: 300 }, classes: { onboard: { used: 3, cap: 12 }, farm: { used: 8, cap: 8 }, wrap: { used: 2, cap: null }, other: { used: 1, cap: 4 } } },
 };
 let mode = 'full';
 const browser = await chromium.launch();
@@ -73,6 +74,7 @@ ok(/Fees paid in TAC are kept, not sold/.test(tacNote) && !/\$/.test(tacNote), '
   t = await text('#p-costs');
   ok(/Gas paid to settle0\.02 ETH · \$48/.test(t) && /PROVE put into the prover55 PROVE · \$9\.9/.test(t), `costs: gas and PROVE, in ETH and dollars (${t.slice(0, 120)})`);
   ok(/Fees pay part of all this; the team funds the rest/.test(t), 'costs: says the team funds the rest');
+  ok(/Settles the relay pays for today/.test(t) && /Bridge and cBTC mints3 of 12/.test(t) && /Farm harvests and unbonds8 of 8/.test(t) && /Wraps with no tip2 so far/.test(t) && /Other requests with no fee1 of 4/.test(t) && /settled from the sender’s own account/.test(t), `costs: today's sponsored settles against each limit (${t.slice(-330)})`);
   t = await text('#p-tips');
   ok(/122wraps tipped, 0\.032 ETH/.test(t) && /To Ops multisig0\.031 ETH/.test(t) && /Deployer wallet63%/.test(t) && /Settle wallet27%/.test(t) && /TAC buyback10%/.test(t), `tips: the month's tips, where they went and who the splitter pays (${t.slice(0, 130)})`);
   ok(/send it to a splitter/.test(await text('#flow-tips')), 'flow: with a splitter set, the tip line names it');

@@ -63,6 +63,16 @@ function paintFees(j) {
     h('p', { class: 'stale' }, `Counted from ${new Date(l.since).toISOString().slice(0, 16).replace('T', ' ')} UTC${l.stale ? ' (the relay has not reported for a few minutes)' : ''}.`));
 }
 
+const CLASS_WORDS = { onboard: 'Bridge and cBTC mints', farm: 'Farm harvests and unbonds', wrap: 'Wraps with no tip', other: 'Other requests with no fee' };
+function sponsorshipRows(j) {
+  const sp = j.sponsorship;
+  if (!sp) return null;
+  return h('div', {},
+    h('p', { class: 'eyebrow' }, 'Settles the relay pays for today'),
+    h('div', { class: 'rows' }, Object.entries(CLASS_WORDS).map(([k, label]) => { const c = sp.classes[k]; return kv(label, c.cap == null ? `${c.used} so far` : `${c.used} of ${c.cap}`); })),
+    h('p', { class: 'note' }, 'Requests that carry a fee, or a tip with the wrap, are not counted. Past a limit the relay still proves the request, and it is settled from the sender’s own account instead.'));
+}
+
 function paintCosts(j) {
   const l = j.ledger, el = $('#p-costs'), px = j.prices || {};
   if (!l) { mount(el, h('p', { class: 'eyebrow' }, 'What it costs'), h('p', { class: 'mute' }, 'The relay has not reported its books yet.')); return; }
@@ -72,7 +82,8 @@ function paintCosts(j) {
     h('div', { class: 'rows' },
       kv('Gas paid to settle', h('span', {}, `${eth(w.gasEth)} ETH`, gasUsd != null ? h('small', { class: 'mute' }, ` · ${usd(gasUsd)}`) : null)),
       kv('PROVE put into the prover', h('span', {}, `${num(w.proveIn, 1)} PROVE`, proveUsd != null ? h('small', { class: 'mute' }, ` · ${usd(proveUsd)}`) : null))),
-    h('p', { class: 'note' }, 'Keeping Bitcoin’s state current on Ethereum (headers and attests) is paid from the same wallets and is not in these figures. Fees pay part of all this; the team funds the rest.'));
+    h('p', { class: 'note' }, 'Keeping Bitcoin’s state current on Ethereum (headers and attests) is paid from the same wallets and is not in these figures. Fees pay part of all this; the team funds the rest.'),
+    sponsorshipRows(j));
 }
 
 function paintTips(j) {
