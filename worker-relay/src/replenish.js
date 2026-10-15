@@ -231,10 +231,11 @@ async function depositProveToVApp(wallet = relayWallet) {
 // PROVE that reached the prover account since the last pass (a top-up, or a visitor paying for proofs) goes into the
 // vApp now, once there is at least `minWei` of it: proving can run short of credit well inside a 30-minute pass. The
 // deposit is the same one a pass makes, so nothing here can move anything but PROVE into the prover's own credit.
-// The prover account is also the wallet the header and attest crons pay from, so the deposit never takes the gas an
-// attest keeps back (REFLECTION_ATTEST_GAS_BUDGET at twice the base fee, as the header relay reckons it) on top of its own
-// approve and deposit; below that it waits for a funded pass. After a refusal or a failure it is not tried again for
-// DEPOSIT_RETRY_MS. -> true when it deposited.
+// The prover account is also the wallet the header and attest crons pay from. While the credit is healthy (the last
+// reading at least SETTLE_PROVE_WHILE_SHORT_MIN_CREDIT_WEI) the deposit leaves the gas an attest keeps back
+// (REFLECTION_ATTEST_GAS_BUDGET at twice the base fee, as the header relay reckons it) alone; with the credit low or unread
+// the deposit is what lets an attest be proved at all, so it needs only its own approve and deposit, twice over. After a
+// refusal or a failure it is not tried again for DEPOSIT_RETRY_MS. -> true when it deposited.
 const DEPOSIT_GAS = 150_000n;             // an approve and a vApp deposit
 const DEPOSIT_RETRY_MS = 10 * 60_000;
 let depositHeldUntil = 0;
@@ -244,9 +245,11 @@ export async function depositArrivedProve({ minWei, now = Date.now() }) {
   const bal = await erc20Balance(PROVE, owner);
   if (bal < minWei) return false;
   const [eth, blk] = await Promise.all([publicClient.getBalance({ address: owner }), publicClient.getBlock({ blockTag: 'latest' })]);
-  const need = (CFG.attestGasBudget + DEPOSIT_GAS) * ((blk.baseFeePerGas ?? 0n) * 2n + CFG.settleTipFloorWei);
+  const price = (blk.baseFeePerGas ?? 0n) * 2n + CFG.settleTipFloorWei;
+  const healthy = lastCreditWei != null && lastCreditWei >= CFG.proveWhileShortMinCreditWei;
+  const need = healthy ? (CFG.attestGasBudget + DEPOSIT_GAS) * price : DEPOSIT_GAS * price * 2n;
   if (eth < need) {
-    log(`${bal} PROVE arrived at the prover account; its ETH is kept for attests, so the deposit waits for a funded pass`);
+    log(`${bal} PROVE arrived at the prover account; its ETH is short of ${healthy ? 'the attests\' reserve and ' : ''}a deposit, so it waits for a funded pass`);
     depositHeldUntil = now + DEPOSIT_RETRY_MS;
     return false;
   }
