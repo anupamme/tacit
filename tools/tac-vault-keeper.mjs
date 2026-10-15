@@ -373,13 +373,18 @@ function scan(vault) {
     pausedUntil = num(call(vault, 'pausedUntil()(uint256)'));
   } catch {}
   const paused = now < pausedUntil;
+  // Auctions run on a clock that stands still while they are paused; `auctionStart` is a reading of it.
+  let clock = now;
+  try {
+    clock = num(call(vault, 'auctionTime()(uint256)'));
+  } catch {}
   if (paused) log(vault, 'auctions paused until', new Date(Number(pausedUntil) * 1000).toISOString(), ': not liquidating or absorbing');
   for (const owner of list) {
     try {
       const [, debt, start] = call(vault, 'vaults(address)(uint256,uint256,uint256)', owner).split('\n').map(num);
       const key = `auction:${vault}:${owner}`;
       if (start !== 0n) {
-        alertOnce(key, `auction on ${vault} for ${owner}: its owner can repay or add TAC until ${new Date(Number(start + window) * 1000).toISOString()}`);
+        alertOnce(key, `auction on ${vault} for ${owner}: its owner can repay or add TAC until ${new Date((Number(now) + Number(start + window) - Number(clock)) * 1000).toISOString()}`);
       } else {
         clearAlert(key);
       }
@@ -391,7 +396,7 @@ function scan(vault) {
         }
       } else if (simulate(vault, 'cancel(address)', owner).ok) {
         log(vault, 'cancel', owner, act(vault, 'cancel(address)', owner));
-      } else if (now - start >= duration && !paused) {
+      } else if (clock - start >= duration && !paused) {
         if (simulate(vault, 'absorb(address)', owner).ok) log(vault, 'absorb', owner, act(vault, 'absorb(address)', owner));
         else log(vault, owner, 'auction unsold and not absorbable (vault worth its debt, or the reserve is empty)');
       }

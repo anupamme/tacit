@@ -60,7 +60,8 @@ interface IERC2612 {
 ///         the same share. Only the vault's owner may bid during OWNER_WINDOW. Deposits and repayments continue, and
 ///         the auction ends once the vault is back at LIQ_RATIO_BPS at the recovery view. After AUCTION_DURATION a
 ///         vault worth less than its debt can be absorbed: SYNTH held by this contract (the reserve) burns its debt
-///         and the same share of its TAC goes to `tacSink`.
+///         and the same share of its TAC goes to `tacSink`. These times run on `auctionTime()`, which stops while
+///         auctions are paused.
 ///
 ///         Fees: a one-time borrow fee of `borrowFeeBps`, minted to `feeTo` and capped per call by `maxFeeBps`; and a
 ///         redemption fee left in the redeemed vault. `redeem` swaps SYNTH for TAC from a vault between LIQ_RATIO_BPS
@@ -72,9 +73,10 @@ interface IERC2612 {
 ///         Owner powers. At once: the debt ceiling, the borrow and redemption fees, `feeTo`, `tacSink`, the pauser,
 ///         the pause, and lowering the depth share. After PARAM_DELAY and within fixed limits: raising the depth
 ///         share, the ratios, the bonus, the owner window, the auction duration and the minimum debt. After
-///         ORACLE_DELAY: a new oracle. `lockParams` and `lockOracle` end the delayed powers for good. A pause (by the
-///         owner or the pauser) stops `liquidate`, outside bids, `absorb` and `redeem` for at most MAX_PAUSE from its
-///         start, and the next pause waits as long as the last one ran.
+///         ORACLE_DELAY: a new oracle. `lockParams` and `lockOracle` end the delayed powers for good, and `lockParams`
+///         also ends lowering the depth share. A pause (by the owner or the pauser) stops `liquidate`, outside bids,
+///         `absorb` and `redeem`, and the clock the owner window, the bonus and the wait before `absorb` run on, for at
+///         most MAX_PAUSE from its start; the next pause waits as long as the last one ran.
 contract TacVault is Ownable, Multicallable {
     uint256 internal constant BPS = 10_000;
     uint256 internal constant WAD = 1e18;
@@ -128,7 +130,7 @@ contract TacVault is Ownable, Multicallable {
     struct Vault {
         uint256 collateral; // TAC
         uint256 debt; // SYNTH
-        uint256 auctionStart; // 0 when no auction runs
+        uint256 auctionStart; // `auctionTime()` when the auction opened; 0 when none runs
     }
 
     struct Config {
@@ -337,8 +339,9 @@ contract TacVault is Ownable, Multicallable {
         emit ParamSet(Param.DepthBps, bps);
     }
 
-    /// Pauses `liquidate`, outside bids, `absorb` and `redeem` until `duration` from now. A running pause can only
-    /// be lengthened, to at most MAX_PAUSE after it began; a new one waits as long after the last as that one ran.
+    /// Pauses `liquidate`, outside bids, `absorb` and `redeem`, and stops the auction clock, until `duration` from now.
+    /// A running pause can only be lengthened, to at most MAX_PAUSE after it began; a new one waits as long after the
+    /// last as that one ran.
     function pauseAuctions(uint256 duration) external {
         if (msg.sender != owner() && msg.sender != pauser) revert Unauthorized();
         if (duration == 0 || duration > MAX_PAUSE) revert BadConfig();
@@ -380,6 +383,7 @@ contract TacVault is Ownable, Multicallable {
         if (value > type(uint192).max) revert BadConfig();
         _validate(id, value);
         uint256 eta = block.timestamp + PARAM_DELAY;
+        // forge-lint: disable-next-line(unsafe-typecast)
         queuedParam[id] = Queued(uint192(value), uint64(eta));
         emit ParamQueued(id, value, eta);
     }

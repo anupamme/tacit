@@ -3,7 +3,10 @@
 // that puts it at an address with leading zero bytes, and writes what anyone needs to deploy exactly this system.
 //
 //   node tools/tac-vaults-plan.mjs [--out contracts/out] [--config contracts/deployments/tac-vaults.config.json]
-//                                  [--miner tools/vanity-create2/target/release/vanity-create2] [--payload <file>]
+//                                  [--miner tools/vanity-create2/target/release/vanity-create2] [--payload <file>] [--force]
+//
+// A contract whose init code hash is the one already in the manifest keeps its salt and address, so planning again
+// changes nothing unless a contract or a setting changed; --force mines everything afresh.
 //
 // Each contract is deployed with CreateX.deployCreate2(salt, initCode) and a salt tied to the chain (20 zero bytes, then
 // 0x01) but not to a sender, so anyone may send the transactions. The address is
@@ -25,6 +28,8 @@ const OUT = resolve(opt('--out', join(ROOT, 'contracts/out')));
 const CONFIG = resolve(opt('--config', join(ROOT, 'contracts/deployments/tac-vaults.config.json')));
 const MINER = resolve(opt('--miner', join(ROOT, 'tools/vanity-create2/target/release/vanity-create2')));
 const PAYLOAD = opt('--payload', null);
+const FORCE = argv.includes('--force');
+const MANIFEST = join(ROOT, 'contracts/deployments/tac-vaults.json');
 
 const cast = (...a) => execFileSync('cast', a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const cfg = JSON.parse(readFileSync(CONFIG, 'utf8'));
@@ -41,6 +46,8 @@ const encode = (sig, ...args) => cast('abi-encode', sig, ...args.map(String)).re
 const vaultSig = 'f((address,address,address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,address,address,string,string))';
 const vaultArgs = (v, oracle, feed) => `(${X.tac},${oracle},${feed},${owner},${V.mintRatioBps},${V.liqRatioBps},${V.liqBonusBps},${V.auctionDuration},${V.ownerWindow},${v.minDebt},${V.feedMaxStaleness},${V.debtCeiling ?? MAX},${V.depthBps},${V.redemptionFeeBps},${V.borrowFeeBps},${feeTo},${tacSink},${v.name},${v.symbol})`;
 
+let previous = [];
+try { previous = JSON.parse(readFileSync(MANIFEST, 'utf8')).contracts; } catch {}
 const found = new Map(); // name -> { address, salt, ... }
 const steps = [];
 const addr = (n) => found.get(n).address;
@@ -48,7 +55,10 @@ const addr = (n) => found.get(n).address;
 function plan(name, contract, file, argsHex) {
   const initCode = creation(file, contract) + argsHex;
   const initHash = cast('keccak', '0x' + initCode);
-  const raw = execFileSync(MINER, ['mine', '--factory', cfg.factory, '--init-hash', initHash, '--chain-id', '1', '--zeros', String(cfg.zeroBytes), '--tag', name], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
+  const kept = FORCE ? null : previous.find((p) => p.name === name && p.initCodeHash === initHash && p.address.startsWith('0x' + '00'.repeat(cfg.zeroBytes)));
+  const raw = kept ? JSON.stringify({ salt: kept.salt, address: kept.address })
+    : execFileSync(MINER, ['mine', '--factory', cfg.factory, '--init-hash', initHash, '--chain-id', '1', '--zeros', String(cfg.zeroBytes), '--tag', name], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
+  if (kept) console.error(`${name.padEnd(22)} ${kept.address} (kept)`);
   const { salt, address } = JSON.parse(raw);
   const back = execFileSync(MINER, ['address', '--factory', cfg.factory, '--init-hash', initHash, '--chain-id', '1', '--salt', salt], { encoding: 'utf8' }).trim();
   if (back !== address) throw new Error(`${name}: the miner disagrees with itself`);
@@ -91,7 +101,7 @@ const manifest = {
   synths: { USD: synth.USD, ETH: synth.ETH },
   confidentialPool: { assets: ids, pairs },
 };
-writeFileSync(join(ROOT, 'contracts/deployments/tac-vaults.json'), JSON.stringify(manifest, null, 2) + '\n');
+writeFileSync(MANIFEST, JSON.stringify(manifest, null, 2) + '\n');
 
 // The same constants for the deploy script. It rebuilds each init code from the compiled contracts and these values and
 // refuses to send one whose hash or address differs.
@@ -108,7 +118,9 @@ for (const s of steps) {
   L.push(`    bytes32 internal constant SALT_${s.name} = ${s.salt};`, `    bytes32 internal constant HASH_${s.name} = ${s.initCodeHash};`, `    address internal constant ${s.name} = ${s.address};`);
 }
 L.push('}', '');
-writeFileSync(join(ROOT, 'contracts/script/TacVaultsDeployment.sol'), L.join('\n'));
+const LIB = join(ROOT, 'contracts/script/TacVaultsDeployment.sol');
+writeFileSync(LIB, L.join('\n'));
+execFileSync('forge', ['fmt', LIB], { stdio: 'ignore' });
 
 if (PAYLOAD) {
   const iface = ['function deployCreate2(bytes32 salt, bytes initCode) returns (address)'];

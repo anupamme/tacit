@@ -27,6 +27,7 @@ let n = 0, fails = 0;
 const ok = (c, s) => { if (c) { n++; console.log('  ok   ' + s); } else { fails++; console.log('FAIL   ' + s); } };
 const cast = (...a) => execFileSync('cast', a, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const DEPLOYER = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+const DEPLOYER_ADDR = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 const OWNER = { a: '0x70997970C51812dc3A010C7d01b50e0d17dc79C8', k: '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' };
 const art = (f) => JSON.parse(readFileSync(join(OUT, `${f}.json`), 'utf8')).bytecode.object;
 const create = (data) => JSON.parse(cast('send', '--private-key', DEPLOYER, '--rpc-url', ANVIL, '--json', '--create', data)).contractAddress;
@@ -84,6 +85,25 @@ ok(lc(withOne).includes(`further minters now: ${lc(A)}`), `a further minter in p
 send(OWNER.k, SYNTH, 'removeMinter(address)', A);
 const removed = admin();
 ok(/further minters now: none \(1 added and since removed\)/.test(removed), `and once removed it is counted as such (${removed.split('\n').find((l) => /further minters/.test(l))})`);
+
+// An auction and a pause longer than the owner window: auctions run on a clock that stands still while paused, so the
+// owner still has time, and the keeper reports that rather than a wall-clock end already in the past.
+const E18n = 10n ** 18n;
+send(DEPLOYER, TAC, 'mint(address,uint256)', DEPLOYER_ADDR, String(1_000_000n * E18n));
+send(DEPLOYER, TAC, 'approve(address,uint256)', VAULT, String((1n << 256n) - 1n));
+send(DEPLOYER, VAULT, 'deposit(uint256)', String(100_000n * E18n));
+send(DEPLOYER, VAULT, 'borrow(uint256,uint256)', String(5_000n * E18n), '500');
+send(DEPLOYER, B, 'set(uint256)', String(35n * 10n ** 12n)); // TAC loses most of its value: the vault is under 200%
+const chainNow = () => Number(cast('block', 'latest', '--field', 'timestamp', '--rpc-url', ANVIL));
+out = keeper([]);
+ok(/liquidate/.test(out), 'the keeper opens the auction on a vault that is under the liquidation ratio');
+send(OWNER.k, VAULT, 'pauseAuctions(uint256)', '3600');
+await rpc('evm_increaseTime', [3700]); await rpc('evm_mine');
+send(DEPLOYER, B, 'set(uint256)', String(35n * 10n ** 12n)); // keep the venue's answer fresh for the vault's views
+out = keeper([]);
+const line = out.split('\n').find((l) => /its owner can repay or add TAC until/.test(l));
+const end = line && Date.parse(line.split(' until ')[1]) / 1000;
+ok(end && end > chainNow(), `after a pause longer than the owner window the keeper still sees time left for the owner (${line ? line.split(' until ')[1] : 'no line'})`);
 
 console.log(fails ? `${fails} failed, ${n} passed` : `${n} checks passed`);
 process.exit(fails ? 1 : 0);
