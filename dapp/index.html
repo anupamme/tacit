@@ -588,7 +588,29 @@ a.di { color: inherit; text-decoration: none; }
 @media (prefers-reduced-motion: reduce) { .tc-eth { opacity: 0; } }
 .rest, .rest *, .rest *::before, .rest *::after { animation-play-state: paused !important; }
 
-footer { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 26px; margin-top: 110px; padding-top: 22px; border-top: 1px solid var(--ink); color: var(--mute); font-size: 13px; }
+/* Integrations: other apps that read the same names and keys, as two quiet rows under a rule. */
+.ig { padding-top: 72px; }
+.ig-k { display: block; margin: 0 0 14px; font-size: 11px; font-weight: 400; line-height: 1.2; letter-spacing: .14em; text-transform: uppercase; color: var(--mute); }
+.ig-l { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 56px; border-top: 1px solid var(--hair); }
+.ig-l li { border-bottom: 1px solid var(--hair); }
+.ig-l a { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 20px 0; color: inherit; text-decoration: none; }
+.ig-lg { width: 44px; height: 44px; display: block; overflow: hidden; border-radius: 11px; box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 14%, transparent); transition: transform .3s var(--spring); }
+.ig-t { display: grid; gap: 3px; min-width: 0; }
+.ig-n { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 12px; }
+.ig-n b { font: 400 26px/1.1 var(--serif); letter-spacing: -.01em; }
+.ig-n small { font: 400 12px var(--mono); color: var(--mute); transition: color .15s; }
+.ig-d { font-size: 14px; line-height: 1.4; color: var(--mute); text-wrap: balance; }
+@media (prefers-color-scheme: dark) { .ig-lg { filter: brightness(.88); } }
+.ig-go { font-size: 16px; color: var(--mute); transition: transform .3s var(--spring), color .15s; }
+@media (hover: hover) { .ig-l a:hover .ig-go { transform: translate(2px, -2px); color: var(--ink); } .ig-l a:hover .ig-n small { color: var(--ink); } .ig-l a:hover .ig-lg { transform: translateY(-2px); } }
+.ig-l a:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+@media (max-width: 640px) {
+  .ig { padding-top: 56px; }
+  .ig-l { grid-template-columns: minmax(0, 1fr); }
+  .ig-l a { gap: 14px; padding: 18px 0; }
+  .ig-n b { font-size: 24px; }
+}
+footer { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 26px; margin-top: 88px; padding-top: 22px; border-top: 1px solid var(--ink); color: var(--mute); font-size: 13px; }
 /* The links in three short lists under the site's own line, each with its heading. */
 footer nav { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; }
 footer nav div { display: grid; align-content: start; gap: 6px; }
@@ -988,6 +1010,8 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
     <symbol id="tk-peth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><g fill="#8ea2f0"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
     <symbol id="c-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path transform="translate(16 16) scale(.74) translate(-16.3 -16.6)" fill="#f7931a" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
     <symbol id="c-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="#8ea2f0" transform="translate(16 16) scale(1.05) translate(-16.3 -16)"><path fill-opacity=".7" d="M16.3 7v6.6l5.6 2.5z"/><path d="M16.3 7L10.7 16.1l5.6-2.5z"/><path fill-opacity=".7" d="M16.3 20.4v4.5l5.6-7.8z"/><path d="M16.3 24.9v-4.5l-5.6-3.3z"/><path fill-opacity=".35" d="M16.3 19.4l5.6-3.3-5.6-2.5z"/><path fill-opacity=".7" d="M10.7 16.1l5.6 3.3v-5.8z"/></g></symbol>
+    <symbol id="lg-zfi" viewBox="0 0 400 400"><rect width="400" height="400" fill="#000"/><path fill="#fff" d="M-60-20H460V90L80 310H460V420H-60V310L320 90H-60Z"/></symbol>
+    <symbol id="lg-wns" viewBox="0 0 64 64"><rect width="64" height="64" fill="#0A0A0A"/><defs><path id="wns-t" d="M4,4H60"/><path id="wns-r" d="M60,4V60"/><path id="wns-b" d="M60,60H4"/><path id="wns-l" d="M4,60V4"/></defs><g font-family="'Courier New',monospace" font-size="4.2" fill="#2D5FE8" fill-opacity=".6" letter-spacing="-.3"><text><textPath href="#wns-t">//////////////////////////////</textPath></text><text><textPath href="#wns-r">//////////////////////////////</textPath></text><text><textPath href="#wns-b">//////////////////////////////</textPath></text><text><textPath href="#wns-l">//////////////////////////////</textPath></text></g><path d="M16,16V48H22L32,32L42,48H48V16H42V38L32,22L22,38V16Z" fill="#2D5FE8"/></symbol>
     <symbol id="g-shield" viewBox="0 0 24 24"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8-7.5 9.5-4.3-1.5-7.5-4.9-7.5-9.5V6z"/><path d="M9 12l2.2 2.2L15.5 10"/></symbol>
     <symbol id="g-swap" viewBox="0 0 24 24"><path d="M4 8h15l-4-4"/><path d="M20 16H5l4 4"/></symbol>
     <symbol id="g-send" viewBox="0 0 24 24"><path d="M21 3L10.5 13.5"/><path d="M21 3l-6.5 18-4-7.5L3 9.5z"/></symbol>
@@ -1132,6 +1156,22 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
       <p class="tc-spec">TAC is the standing example of the <a href="https://github.com/src-company/tacit/blob/main/SPEC.md" rel="noopener">Tacit spec</a>: a confidential token issued on Bitcoin with no mint key. Anyone can issue one the same way.</p>
       <div class="tc-links"><button class="btn" type="button" data-hx="swap:ether:tac">Buy TAC</button><a class="tl" href="/trade/tac/">Price and chart →</a><a class="tl" href="/vault/">Borrow against TAC →</a><a class="tl" href="/verify.html">Verify the supply →</a><a class="tl" href="https://github.com/src-company/tacit/blob/main/docs/TAC.md" rel="noopener">About TAC →</a></div>
     </div>
+  </section>
+
+  <section class="sx ig" aria-labelledby="ig-h">
+    <h2 class="ig-k" id="ig-h">Integrations</h2>
+    <ul class="ig-l">
+      <li><a href="https://zswap.wei.limo" rel="noopener">
+        <svg class="ig-lg" aria-hidden="true"><use href="#lg-zfi"/></svg>
+        <span class="ig-t"><span class="ig-n"><b>zFi</b><small>zswap.wei.limo</small></span><span class="ig-d">public (legacy) DeFi</span></span>
+        <span class="ig-go" aria-hidden="true">↗</span>
+      </a></li>
+      <li><a href="https://wei.domains" rel="noopener">
+        <svg class="ig-lg" aria-hidden="true"><use href="#lg-wns"/></svg>
+        <span class="ig-t"><span class="ig-n"><b>WNS</b><small>wei.domains</small></span><span class="ig-d">tacit1 readable names under&nbsp;.wei</span></span>
+        <span class="ig-go" aria-hidden="true">↗</span>
+      </a></li>
+    </ul>
   </section>
   </main>
 
