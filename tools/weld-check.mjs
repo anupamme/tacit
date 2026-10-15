@@ -383,7 +383,8 @@ await step('airdrop', async () => {
   await until(r.page, () => /Claimed\./.test(document.querySelector('#air-body')?.textContent || ''));
   await shot(r.page, 'airdrop');
   ok((await tacOf(RECIPIENT)) >= 216176408192580000000000n, 'airdrop: the allocation arrives');
-  ok(/claimed/i.test(await text(r.page, '[data-foot="tac"]')), 'airdrop: the tile says claimed');
+  // The tile re-renders a few milliseconds after the claim's own line does, so it is waited for, not read once.
+  ok(await until(r.page, () => /claimed/i.test(document.querySelector('[data-foot="tac"]')?.textContent || ''), null, 15000).then(() => true, () => false), 'airdrop: the tile says claimed');
   await r.browser.close();
   await rpc('eth_sendTransaction', [{ from: RECIPIENT, to: TAC, data: '0xa9059cbb' + addrWord(A0) + word(1000n * 10n ** 18n) }]);
 });
