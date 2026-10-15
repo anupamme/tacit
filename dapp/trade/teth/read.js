@@ -2,7 +2,7 @@
 // private farms and the prices in the pools that pair tETH (the farming program's reading), the dollar rates (Chainlink) and TAC's price (the
 // Precision pool), and the relay's quote for a wrap. The arithmetic is plain functions of what was read, so tests can pin it.
 import { MULTICALL3, PRECISION_POOL, _internal } from '/evm-trade-venues.js?cb=1498d6da';
-import { api, ethCall, wordAt, now, E10 } from '/trade/util.js?cb=e24c4ef6';
+import { api, ethCall, wordAt, now, E10 } from '/trade/util.js?cb=4cf7cf0f';
 
 export const POOL = '0x000000000Ed1eabD231Be41d93b719056F7febFC';              // the Tacit pool (one contract): it holds the ETH behind every tETH
 export const WRAP_TIP = '0x000000D218B03db5837943b0b05DeA2965AE956e';           // wraps and pays the relay's tip in one transaction
@@ -14,14 +14,14 @@ const big = (x) => BigInt(x != null && typeof x === 'object' && '$n' in x ? x.$n
 const eth = (wei) => Number(wei) / 1e18;
 
 // ── the pool's totals and its ETH history ──
-// `j` is the API's /stats reading (amounts come as { $n: "…" }). The short view (?view=front) has no `flows`; the whole reading has every movement.
+// `j` is the API's /stats reading (amounts come as { $n: "…" }). The short view (?view=front) has no `flows`; the pool's own view (?view=eth, about 6 KB, where the whole reading is 176 KB) has every movement.
 export function poolOf(j) {
   const e = j?.eth;
   if (!e) return null;
   const flows = Array.isArray(e.series?.flows) ? e.series.flows.map(([t, v]) => [Number(t), big(v)]).filter(([t]) => Number.isFinite(t) && t > 0).sort((a, b) => a[0] - b[0]) : null;
   return { held: big(e.held), inWei: big(e.inWei), outWei: big(e.outWei), deposits: Number(e.deposits) || 0, wallets: Number(e.wallets) || 0, lastAt: Number(e.lastAt) || null, flows };
 }
-export const readPool = async (whole = false) => poolOf(await api(`/stats?network=mainnet${whole ? '' : '&view=front'}`));
+export const readPool = async (whole = false) => poolOf(await api(`/stats?network=mainnet&view=${whole ? 'eth' : 'front'}`));
 
 // The ETH the pool has held at the end of each movement: the running sum of the flows. The reading's own total (`held`) is the pool's balance now,
 // so a history that does not end on it (a movement the reading missed) is said not to, and its last point is the balance.

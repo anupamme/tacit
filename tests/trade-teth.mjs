@@ -156,7 +156,7 @@ async function openPage(viewport, { wallet = false, reject = false, hash = '', s
   await ctx.route(/^https:\/\/api\.tacit\.finance\//, (r) => {
     const u = new URL(r.request().url()); seen.push(u.pathname + u.search);
     if (!api) return r.fulfill({ status: 503, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"error":"down"}' });
-    if (u.pathname === '/stats') return r.fulfill(ok200(u.searchParams.get('view') === 'front' ? front : stats));
+    if (u.pathname === '/stats') return r.fulfill(ok200(u.searchParams.get('view') === 'front' ? front : u.searchParams.get('view') === 'eth' ? { eth: stats.eth, at: stats.at, block: stats.block } : stats));
     if (u.pathname === '/farm/program') return r.fulfill(ok200(program));
     if (u.pathname === `/assets/${BTC_ID}`) return r.fulfill(chain.market === 'down' ? { status: 503, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{}' } : ok200(chain.market === 'active' ? activeMarket().asset : chain.market === 'ask' ? { ...idleAsset, listing_count: 1 } : idleAsset));
     if (u.pathname === `/assets/${BTC_ID}/preauth-sales`) return r.fulfill(chain.market === 'partial' ? { status: 503, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{}' } : ok200(chain.market === 'active' ? activeMarket().sales : chain.market === 'ask' ? { ...activeMarket().sales, sales: activeMarket().sales.sales.slice(0, 1) } : { asset_id: BTC_ID, count: 0, sales: [] }));
@@ -234,7 +234,7 @@ try {
   ok(r.errors.length === 0 && r.blocked.length === 0, `no page error and nothing blocked by the CSP (${[...r.errors, ...r.blocked].join(' | ').slice(0, 200)})`);
   // the pool's figures that can be read here
   const calls = r.seen.join(' ');
-  ok(/\/stats\?network=mainnet&view=front/.test(calls) && /\/stats\?network=mainnet$/.test(r.seen.find((x) => /^\/stats\?network=mainnet$/.test(x)) || ''), 'the short reading comes first, the whole one after');
+  ok(/\/stats\?network=mainnet&view=front/.test(calls) && /\/stats\?network=mainnet&view=eth/.test(calls) && !r.seen.some((x) => /^\/stats\?network=mainnet$/.test(x)), 'the short reading for the head and the pool\'s own (~6 KB) for its history, never the whole 176 KB one');
   await p.fill('#amt', '0.5');
   ok((await text(p, '#go')) === 'Connect wallet', 'with no wallet connected the button asks for one');
   await r.browser.close();

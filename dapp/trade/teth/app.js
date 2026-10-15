@@ -5,14 +5,14 @@
 //
 // It reads the chain and the API with no wallet, as /trade/tac/ does, and holds no key it was not given: the key lives in this visit's memory.
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=e2110e58';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=79211ff3';
-import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=fc9032d3';
-import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=96ae1c5b';
-import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, forgetUx, getUx } from '/trade/teth/wrap.js?cb=7b21013b';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=98994139';
+import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=add8fb0e';
+import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=e30e5678';
+import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, forgetUx, getUx } from '/trade/teth/wrap.js?cb=86f5d142';
 import { mountDepth } from '/trade/depth.js?cb=21a5dc95';
 import { candlesFromTrades, closeAt } from '/trade/tape.js?cb=6565501b';
-import { readMarket, isActive, bookState, refSats, premium, satsTxt, ladders, idle, bookPrime, summary, fillBars, BTC_ID } from '/trade/teth/market.js?cb=1ec1214c';
-import { $, esc, now, rpc, fmtUnits, plain, parseUnits, grp, sig, usd, pct, ago, short, E10, E18 } from '/trade/util.js?cb=e24c4ef6';
+import { readMarket, isActive, bookState, refSats, premium, satsTxt, ladders, idle, bookPrime, summary, fillBars, BTC_ID } from '/trade/teth/market.js?cb=cca360ae';
+import { $, esc, now, rpc, fmtUnits, plain, parseUnits, grp, sig, usd, pct, ago, short, E10, E18 } from '/trade/util.js?cb=4cf7cf0f';
 
 const ETHBLUE = '#627eea', ORANGE = '#f7931a';
 const SCAN = 'https://etherscan.io/';
@@ -588,12 +588,15 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#hint
 }
 
 renderChips(); renderQuote(); renderGo(); renderAbout(); renderLanes(); renderBtc();
+// The pool's history is read with the page, not after the farms, the rates and the relay's quote: it is the slowest thing the page waits on and needs none of them.
+const whole = loadWhole().catch(() => {});
+whole.then(() => { S.histFailed = !D.hist; renderChart(); renderMoves(); renderHead(); });
 Promise.allSettled([loadMarket().then(() => { renderBtc(); renderLanes(); renderChart(); }), loadFront().then(renderHead), loadRates().then(() => { renderHead(); renderLanes(); renderQuote(); return loadFarms(); }).then(paintAll), loadFloor().then(() => { renderAbout(); renderUse(); })]).then(() => {
   const params = new URLSearchParams(location.hash.replace(/^#/, ''));
   if (params.get('mode') === 'use') setMode('use');
   S.ready = true;
   if (params.get('amount') && S.mode === 'get') { S.amt = params.get('amount'); $('#amt').value = S.amt; renderChips(); requote(); } else keepInHash();
   paintAll();
-  loadWhole().catch(() => {}).then(() => { S.histFailed = !D.hist; paintAll(); });                 // the whole reading is large: after the page is up
+  whole.then(() => { S.histFailed = !D.hist; paintAll(); });
 });
 setInterval(() => { if (!document.hidden && !S.busy) { loadFront().then(renderHead).catch(() => {}); loadRates().then(() => loadFarms()).then(paintAll).catch(() => {}); loadMarket().then(paintAll).catch(() => {}); if (W.account) readBalances().then(() => { renderBalance(); renderGo(); }).catch(() => {}); } }, 60e3);

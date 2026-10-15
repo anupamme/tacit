@@ -2,7 +2,7 @@
 // dapp/trade/rpc.js: the nodes are asked in order, a slow one is hedged with the next, a failing one is skipped at once, a revert ends the call,
 // and the losers are cancelled. A scripted `fetch` stands in for the nodes; hedgeMs is shortened so it runs in milliseconds.
 import assert from 'node:assert';
-import { hedgedRpc, hedgeDelay } from '../dapp/trade/rpc.js';
+import { hedgedRpc, hedgeDelay, bodyType } from '../dapp/trade/rpc.js';
 
 let n = 0;
 const ok = (s) => { console.log('  ok -', s); n++; };
@@ -10,9 +10,9 @@ const HOSTS = ['https://a', 'https://b', 'https://c'];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // plan: host → { wait: ms before answering, result | error | throws | hang }
 function nodes(plan) {
-  const log = { asked: [], aborted: [] };
+  const log = { asked: [], aborted: [], types: {} };
   const fetchImpl = (url, init) => new Promise((resolve, reject) => {
-    const p = plan[url] || {}, i = log.asked.push(url) - 1;
+    const p = plan[url] || {}, i = log.asked.push(url) - 1; log.types[url] = init.headers['content-type'];
     const abort = () => { log.aborted.push(url); reject(Object.assign(new Error('aborted'), { name: 'AbortError' })); };
     if (init.signal.aborted) return abort();
     init.signal.addEventListener('abort', abort);
@@ -93,5 +93,12 @@ const rpc = (plan, o = {}) => { const x = nodes(plan); return hedgedRpc(HOSTS, '
   const { log } = await rpc({ 'https://a': { hang: true }, 'https://b': { hang: true }, 'https://c': { hang: true } }, { timeoutMs: 60, lastTimeoutMs: 80 }).catch((e) => ({ log: e.log, err: e }));
   assert.equal(log.asked.length, 3); assert.equal(log.aborted.length, 3, 'each hung request times out and is cancelled');
   ok('requests that never answer time out');
+}
+{
+  assert.equal(bodyType('https://ethereum-rpc.publicnode.com'), 'text/plain;charset=UTF-8'); assert.equal(bodyType('https://eth.drpc.org'), 'text/plain;charset=UTF-8'); assert.equal(bodyType('https://mainnet.gateway.tenderly.co'), 'text/plain;charset=UTF-8');
+  assert.equal(bodyType('https://1rpc.io/eth'), 'application/json', 'a node that refuses text/plain is sent JSON'); assert.equal(bodyType('not a url'), 'application/json');
+  const { log } = await rpc({ 'https://a': { throws: 'down' } });
+  assert.equal(log.types['https://a'], 'application/json', 'an unknown node is sent JSON, as before');
+  ok('the nodes that take a plain-text body are sent one (no preflight request); the rest are sent JSON');
 }
 console.log(`\n${n} trade-rpc checks passed`);

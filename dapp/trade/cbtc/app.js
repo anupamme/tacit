@@ -5,12 +5,12 @@
 // transactions, and it is done on tacit.finance's Borrow sheet, which each button here opens; this page sizes the bond for an amount before it does.
 import { sha256 } from '/vendor/tacit-deps.min.js';
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=e2110e58';
-import { makeConnect } from '/trade/connect.js?cb=79211ff3';
-import { makeKeySession, signInSheet } from '/trade/key.js?cb=fc9032d3';
+import { makeConnect } from '/trade/connect.js?cb=98994139';
+import { makeKeySession, signInSheet } from '/trade/key.js?cb=add8fb0e';
 import { getUx, forgetUx } from '/trade/poolux.js?cb=cc3e4b0c';
-import { readRates, readProgram, heldBars, rangesFor, barSize } from '/trade/teth/read.js?cb=96ae1c5b';
-import { totalsOf, readEngine, sizeBond, coverage, readPools, poolRows, farmApr, readLocks, readLoans, readHeld, readHistory, positionsIn, lockStep, CBTC_ID, ENGINE, WSTETH } from '/trade/cbtc/read.js?cb=e8be8ada';
-import { $, esc, api, now, fmtUnits, parseUnits, grp, usd, pct, short, sig } from '/trade/util.js?cb=e24c4ef6';
+import { readRates, readProgram, heldBars, rangesFor, barSize } from '/trade/teth/read.js?cb=e30e5678';
+import { totalsOf, readEngine, sizeBond, coverage, readPools, poolRows, farmApr, readLocks, readLoans, readHeld, readHistory, positionsIn, lockStep, CBTC_ID, ENGINE, WSTETH } from '/trade/cbtc/read.js?cb=060d474c';
+import { $, esc, api, now, fmtUnits, parseUnits, grp, usd, pct, short, sig } from '/trade/util.js?cb=4cf7cf0f';
 
 const SCAN = 'https://etherscan.io/', MEMPOOL = 'https://mempool.space/';
 const PRESETS = [['0.001 BTC', '0.001'], ['0.01 BTC', '0.01'], ['0.1 BTC', '0.1']];
@@ -310,8 +310,9 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#hint
 }
 
 renderRoute(); renderAbout(); renderLanes(); renderLocks(); renderUse(); renderChart();
-Promise.allSettled([loadTotals().then(() => { renderHead(); renderBacking(); renderLocks(); }), loadChain().then(() => { renderHead(); renderBacking(); return loadPools(); }).then(paintAll)]).then(() => {
-  loadHistory().then(paintAll);                                  // the events are read after the page is up
+const totals = loadTotals().then(() => { renderHead(); renderBacking(); renderLocks(); });
+totals.catch(() => {}).then(() => loadHistory()).then(paintAll);          // the events are checked against the totals, so they follow them; the pools and farms need not come first
+Promise.allSettled([totals, loadChain().then(() => { renderHead(); renderBacking(); return loadPools(); }).then(paintAll)]).then(() => {
   const params = new URLSearchParams(location.hash.replace(/^#/, ''));
   if (params.get('mode') === 'use') setMode('use');
   if (params.get('amount')) { S.amt = params.get('amount'); $('#amt').value = S.amt; requote(); }
