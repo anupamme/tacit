@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self' https://api.tacit.finance https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex">
+<title>Tip splitter · tacit</title>
+<meta name="description" content="Wrap tips arrive here and go on to the wallets that run the relay, in the proportions the ops multisig sets.">
+<link rel="canonical" href="https://tacit.finance/splitter/">
+<meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<!-- preload-roots: /splitter/app.js -->
+<!-- preload:begin -->
+<link rel="modulepreload" href="/splitter/app.js?cb=aac4994c">
+<link rel="modulepreload" href="/splitter/abi.js?cb=44661448">
+<link rel="modulepreload" href="/splitter/bytecode.js?cb=6e21588e">
+<!-- preload:end -->
+<style>
+@font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-weight: 500; font-display: swap; src: url('/fonts/ibm-plex-mono-500-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Instrument Serif'; font-weight: 400; font-display: swap; src: url('/fonts/instrument-serif-400-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Instrument Serif'; font-weight: 400; font-style: italic; font-display: swap; src: url('/fonts/instrument-serif-400i-latin.woff2') format('woff2'); }
+
+:root {
+  --paper: #E8E0CC; --card: #F2EBD4; --field: #FAF6EA;
+  --ink: #1A1A1A; --mute: #625C4F;
+  --hair: rgba(26,26,26,.12); --hair-2: rgba(26,26,26,.28);
+  --orange: #f7931a; --ok: #0a7234; --warn: #9a4a00; --err: #b8341d;
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --serif: 'Instrument Serif', Georgia, serif;
+  --tap: 44px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #15130E; --card: #1F1C15; --field: #191711;
+    --ink: #EDE5CF; --mute: #A39B85;
+    --hair: rgba(237,229,207,.12); --hair-2: rgba(237,229,207,.28);
+    --ok: #8fcf9a; --warn: #f7931a; --err: #f08a6c;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); }
+body {
+  font: 14px/1.6 var(--mono); letter-spacing: -.01em; overflow-x: hidden;
+  background-image: radial-gradient(var(--hair) 1px, transparent 1px); background-size: 24px 24px;
+  padding: 0 max(16px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(16px, env(safe-area-inset-left));
+}
+a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover { text-decoration-thickness: 2px; }
+button, input, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+[hidden] { display: none !important; }
+.num { font-variant-numeric: tabular-nums; }
+.mute { color: var(--mute); }
+.err { color: var(--err); }
+.ok { color: var(--ok); }
+.mono-wrap { overflow-wrap: anywhere; }
+
+.shell { max-width: 1060px; margin: 0 auto; padding-bottom: 56px; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 0 8px; }
+.brand { display: inline-flex; align-items: baseline; gap: 10px; text-decoration: none; flex: none; }
+.brand b { font: italic 400 30px/1 var(--serif); letter-spacing: -.01em; }
+.brand i { font-style: normal; font-size: 12px; color: var(--mute); text-transform: uppercase; letter-spacing: .12em; }
+.top nav { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 2px 18px; font-size: 12.5px; }
+.top nav a { color: var(--mute); text-decoration: none; padding: 8px 0; }
+@media (hover: hover) { .top nav a:hover { color: var(--ink); text-decoration: underline; } }
+.chip { display: inline-flex; align-items: center; gap: 8px; min-height: 34px; margin-left: 4px; padding: 0 12px; font-size: 12.5px; background: var(--card); border: 1px solid var(--hair-2); cursor: pointer; }
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--hair-2); flex: none; } .chip .dot.on { background: var(--ok); } .chip .dot.warn { background: var(--orange); }
+@media (hover: hover) { .chip:hover { border-color: var(--ink); } }
+@media (pointer: coarse) { .chip { min-height: var(--tap); } }
+
+.hero { padding: 26px 0 14px; }
+.hero h1 { font: 400 clamp(40px, 7vw, 68px)/.95 var(--serif); letter-spacing: -.025em; margin: 0; }
+.hero h1 em { font-style: italic; }
+.hero .sub { margin: 12px 0 0; color: var(--mute); font-size: 13px; max-width: 66ch; }
+
+.pick { display: flex; gap: 8px; margin: 0 0 14px; max-width: 560px; }
+.pick input { flex: 1; min-width: 0; padding: 8px 10px; font-size: 12.5px; background: var(--field); border: 1px solid var(--hair-2); }
+.pick button { padding: 0 14px; background: none; border: 1px solid var(--hair-2); cursor: pointer; font-size: 12.5px; }
+.pick button:hover { border-color: var(--ink); }
+
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 420px); gap: 14px 16px; align-items: start; }
+.col { display: grid; gap: 14px; min-width: 0; }
+@media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--card); border: 1px solid var(--hair); padding: 22px; min-width: 0; }
+@media (max-width: 480px) { .panel { padding: 18px 14px; } }
+.eyebrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--mute); margin: 0 0 12px; }
+.note { font-size: 12.5px; color: var(--mute); margin: 12px 0 0; }
+.note b { color: var(--ink); font-weight: 500; }
+
+.room { font: 400 clamp(34px, 5vw, 46px)/1.05 var(--serif); letter-spacing: -.02em; margin: 0; }
+.room small { font: 400 15px/1 var(--mono); letter-spacing: 0; color: var(--mute); margin-left: 8px; }
+.kv { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 12.5px; color: var(--mute); padding: 5px 0; }
+.kv b { font-weight: 400; color: var(--ink); text-align: right; overflow-wrap: anywhere; min-width: 0; }
+.rows { margin: 12px 0 0; border-top: 1px solid var(--hair); padding-top: 8px; }
+
+.who { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 2px 14px; align-items: baseline; padding: 9px 0; border-top: 1px solid var(--hair); font-size: 12.5px; }
+.who:first-of-type { border-top: 0; }
+.who .nm { min-width: 0; } .who .nm b { font-weight: 500; } .who .nm small { display: block; color: var(--mute); font-size: 11.5px; overflow-wrap: anywhere; }
+.who .pc { font: 400 20px/1 var(--serif); text-align: right; white-space: nowrap; }
+.who .bal { color: var(--mute); text-align: right; white-space: nowrap; }
+@media (max-width: 480px) { .who { grid-template-columns: minmax(0, 1fr) auto; } .who .bal { grid-column: 1 / -1; text-align: left; } }
+
+.callout { margin: 14px 0 0; padding: 11px 12px; font-size: 12.5px; background: var(--field); border-left: 2px solid var(--warn); }
+.callout.good { border-left-color: var(--ok); }
+.callout b { font-weight: 500; }
+
+.edit { display: grid; gap: 8px; margin: 4px 0 0; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) 84px auto; gap: 8px; align-items: center; }
+.row input { width: 100%; min-width: 0; padding: 9px 10px; font-size: 12.5px; background: var(--field); border: 1px solid var(--hair); border-bottom-color: var(--ink); }
+.row input:focus { border-color: var(--ink); outline: none; }
+.row .pc { grid-column: 1 / -1; font-size: 11.5px; color: var(--mute); margin-top: -4px; overflow-wrap: anywhere; }
+.row button { min-width: 34px; min-height: 34px; background: none; border: 1px solid var(--hair-2); cursor: pointer; color: var(--mute); }
+.row button:hover { color: var(--ink); border-color: var(--ink); }
+.lbl { font-size: 12px; color: var(--mute); margin: 14px 0 6px; display: block; }
+.field { width: 100%; padding: 9px 10px; font-size: 12.5px; background: var(--field); border: 1px solid var(--hair); border-bottom-color: var(--ink); }
+textarea.field { min-height: 120px; resize: vertical; font-size: 11.5px; }
+
+.btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 48px; margin-top: 14px; padding: 10px 16px; font-weight: 500; text-decoration: none; color: var(--card); background: var(--ink); border: 1px solid var(--ink); cursor: pointer; transition: background .15s, color .15s; }
+.btn:hover:not(:disabled) { background: transparent; color: var(--ink); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn.ghost { color: var(--ink); background: transparent; border-color: var(--hair-2); }
+.btn.ghost:hover:not(:disabled) { border-color: var(--ink); }
+.btn[aria-busy="true"] { opacity: .6; cursor: progress; }
+.linkbtn { background: none; border: 0; padding: 0; cursor: pointer; color: var(--mute); text-decoration: underline; text-underline-offset: 3px; font-size: 12px; }
+.linkbtn:hover { color: var(--ink); }
+.status { font-size: 12.5px; margin-top: 12px; overflow-wrap: anywhere; }
+.status:empty { margin-top: 0; }
+.status a { color: var(--ink); }
+.hint { margin: 10px 0 0; font-size: 12.5px; color: var(--mute); } .hint.err { color: var(--err); } .hint:empty { display: none; }
+.log { font-size: 12px; color: var(--mute); display: flex; justify-content: space-between; gap: 12px; padding: 4px 0; }
+.log b { font-weight: 400; color: var(--ink); }
+details { margin-top: 12px; font-size: 12.5px; } summary { cursor: pointer; color: var(--mute); }
+ol.steps { margin: 8px 0 0; padding-left: 20px; font-size: 12.5px; } ol.steps li { margin: 6px 0; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="top">
+    <a class="brand" href="/" aria-label="tacit"><b>tacit</b><i>ops</i></a>
+    <nav aria-label="Pages">
+      <a href="/">Home</a>
+      <a href="/weld/stats/">Stats</a>
+      <button class="chip" id="wallet-chip" type="button" aria-label="Connect a wallet" hidden><span class="dot" id="wallet-dot"></span><span id="wallet-label">Connect</span></button>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1>Tips, <em>split</em></h1>
+      <p class="sub">A wrap's tip pays for settling it. Sent here, it goes on to the wallets that do the work, in the proportions the ops multisig sets. Anyone can send on what has arrived.</p>
+    </section>
+
+    <form class="pick" id="pick" autocomplete="off">
+      <input id="addr-in" type="text" inputmode="text" spellcheck="false" placeholder="Splitter address (0x…)" aria-label="Splitter address">
+      <button type="submit">Open</button>
+    </form>
+
+    <div class="grid">
+      <div class="col">
+        <section class="panel" id="p-state" hidden aria-live="polite"></section>
+        <section class="panel" id="p-edit" hidden></section>
+      </div>
+      <div class="col">
+        <section class="panel" id="p-deploy"></section>
+        <section class="panel" id="p-next" hidden></section>
+      </div>
+    </div>
+  </main>
+</div>
+<script type="module" src="/splitter/app.js?cb=aac4994c"></script>
+</body>
+</html>
