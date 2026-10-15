@@ -38,6 +38,11 @@ const PROVE = getAddress(env('PROVE_TOKEN_ADDR', '0x6BEF15D938d4E72056AC92Ea4bDD
 const API = env('API_BASE', 'https://api.tacit.finance').replace(/\/$/, '');
 const BIN_DIR = path.resolve(env('PROVER_BIN_DIR', path.join(HERE, '..', 'prover', 'bin')));
 const EXPECT_VKEY = env('EXPECT_VKEY', '0x006cd47fd23937a6d247696cace28c22d2c6a8280447e6ac45a3571de232d6e3');
+// The witness goes as a private input, which only provers that fetch it with the signed GetStdinUri call can read; on
+// 2026-10-15 that was Succinct's own prover (the provers that win the open auction took private requests and never
+// delivered). PRIVATE_STDIN=0 sends a public input to any prover; PROVER_WHITELIST names others.
+const PRIVATE_STDIN = env('PRIVATE_STDIN', '1');
+const PROVER_WHITELIST = env('PROVER_WHITELIST', PRIVATE_STDIN === '1' ? '0xd4fcfce0dee91a9895c3ad71a6248d57c287a4f5' : '');
 // Relay op type → its prover binary (the same map as lib/prover.js).
 const BIN = {
   wrap: 'exec-wrap', transfer: 'exec-prove', unwrap: 'exec-unwrap', sendunwrap: 'exec-sendunwrap', swap: 'exec-swap', route: 'exec-route',
@@ -115,7 +120,7 @@ async function prove(file) {
   await writeFile(opFile, JSON.stringify({ ...job.op, memoHashes }));
   console.log(`proving ${job.type} on the Succinct network with ${privateKeyToAccount(key('NETWORK_PRIVATE_KEY')).address}'s credit…`);
   const code = await run(bin, { cwd: dir, extraEnv: {
-    MODE: 'groth16', OP_TYPE: job.type, OP_FILE: opFile, SP1_PROVER: 'network', EXPECT_VKEY,
+    MODE: 'groth16', OP_TYPE: job.type, OP_FILE: opFile, SP1_PROVER: 'network', EXPECT_VKEY, PRIVATE_STDIN, PROVER_WHITELIST,
     NETWORK_PRIVATE_KEY: key('NETWORK_PRIVATE_KEY'), NETWORK_RPC_URL: env('NETWORK_RPC_URL', 'https://rpc.mainnet.succinct.xyz'),
   } });
   const proof = await readProof(dir).catch(() => die(`the prover exited ${code} with no proof`));

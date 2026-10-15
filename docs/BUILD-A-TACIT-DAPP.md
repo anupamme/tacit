@@ -1249,7 +1249,9 @@ that note's nullifier); the op's outputs (commitments, owners, range proof), pub
 fee, deadline) and the authorization for them, which is an opening sigma or a transfer kernel; and the sealed
 memos. It does not receive your wallet key, your seed or any note's blinding (the op builders return only the
 sigma `(R, z)`). It asks the Succinct prover network for the proof with that witness as a private input
-(`private_stdin`): the network's executor and the prover that wins the request read it, and it is not published.
+(`private_stdin`), sent only to Succinct's own prover: the network's executor and that prover read it, and it is not
+published. If that prover does not prove it within three minutes, the relay asks once more with a public input, so a
+request is never held up waiting for it.
 To keep it from the relay as well, prove with your own prover account ([OPEN-RELAYER.md](./OPEN-RELAYER.md)).
 
 **What the relay can do with it.** Spending a note takes `nk` and the note's blinding: the guest checks

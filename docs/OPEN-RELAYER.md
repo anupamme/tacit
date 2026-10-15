@@ -104,8 +104,11 @@ node src/self-prove.js prove job.json --post      # prove, then put it on the op
 - To build them yourself, use
   [`contracts/sp1/confidential/build-all-network.sh`](../contracts/sp1/confidential/build-all-network.sh).
 
-**Who sees the witness.** The network request carries it as a private input (`private_stdin`). Only the
-network's executor and the prover that wins the request can read it; Tacit's relay never sees it.
+**Who sees the witness.** The network request carries it as a private input (`private_stdin`), and `self-prove.js`
+names Succinct's own prover (`0xd4fcfce0…a4f5`) as the only one that may take it (`PROVER_WHITELIST`). Only the
+network's executor and that prover can read the witness; Tacit's relay never sees it. The provers that win the open
+auction take private requests and do not deliver them, so a private request sent to all provers waits out its
+deadline (and still pays the base fee). `PRIVATE_STDIN=0` sends a public input to any prover instead.
 
 ## Paying for the relay's proofs
 
