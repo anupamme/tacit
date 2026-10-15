@@ -18,16 +18,17 @@
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<script src="/trade/early.js?cb=f1e9cc76" async fetchpriority="high"></script>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /trade/app.js -->
 <link rel="preload" as="fetch" href="https://api.tacit.finance/assets/f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b?network=mainnet" crossorigin fetchpriority="low">
-<link rel="preload" as="fetch" href="https://api.tacit.finance/assets/f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b/preauth-sales?network=mainnet" crossorigin fetchpriority="low">
+<link rel="preload" as="fetch" href="https://api.tacit.finance/assets/f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b/preauth-sales?network=mainnet&amp;view=book" crossorigin fetchpriority="low">
 <link rel="preload" as="fetch" href="https://api.tacit.finance/assets/f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b/bid-intents?network=mainnet" crossorigin fetchpriority="low">
 <link rel="preload" as="fetch" href="https://api.tacit.finance/farm/program?network=mainnet" crossorigin fetchpriority="low">
 <!-- preload:begin -->
-<link rel="modulepreload" href="/trade/app.js?cb=a4e5ea58">
+<link rel="modulepreload" href="/trade/app.js?cb=a4b0fc84">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
-<link rel="modulepreload" href="/evm-trade-venues.js?cb=1498d6da">
+<link rel="modulepreload" href="/evm-trade-venues.js?cb=a08631ce">
 <link rel="modulepreload" href="/confidential-deployments.js">
 <link rel="modulepreload" href="/confidential-deployments.generated.js">
 <link rel="modulepreload" href="/btc-book.js?cb=2d11b335">
@@ -40,7 +41,7 @@
 <link rel="modulepreload" href="/trade/book.js?cb=3324d19b">
 <link rel="modulepreload" href="/zboards.js?cb=cba4b156">
 <link rel="modulepreload" href="/trade/wallet.js?cb=a6b2910e">
-<link rel="modulepreload" href="/trade/rpc.js?cb=c85c9f41">
+<link rel="modulepreload" href="/trade/rpc.js?cb=541c4e20">
 <link rel="modulepreload" href="/trade/farm.js?cb=e7c9d199">
 <!-- preload:end -->
 <style>
@@ -262,7 +263,7 @@ input::placeholder { color: var(--mute); opacity: .7; }
 .splitbar span { display: flex; align-items: center; min-width: 0; padding: 0 8px; overflow: hidden; white-space: nowrap; color: #fff; }
 .splitbar .pp { background: #4a63d6; } .splitbar .tp { background: #15803d; }
 .kv b .gain { font-style: normal; color: var(--up); margin-left: 4px; }
-.p-ticket.stale #out, .p-ticket.stale #route, .p-ticket.stale #out-usd { opacity: .45; transition: opacity .15s; }
+.p-ticket.stale #out, .p-ticket.stale #route, .p-ticket.stale #out-usd, .p-ticket.stale #cmp { opacity: .45; transition: opacity .15s; }
 .hints .apart { color: var(--mute); }
 .splitnote b { font-weight: 500; }
 .btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 52px; margin-top: 16px; padding: 10px 16px; font-weight: 500; text-decoration: none;
@@ -571,6 +572,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/app.js?cb=a4e5ea58"></script>
+<script type="module" src="/trade/app.js?cb=a4b0fc84"></script>
 </body>
 </html>

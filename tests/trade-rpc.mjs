@@ -2,7 +2,7 @@
 // dapp/trade/rpc.js: the nodes are asked in order, a slow one is hedged with the next, a failing one is skipped at once, a revert ends the call,
 // and the losers are cancelled. A scripted `fetch` stands in for the nodes; hedgeMs is shortened so it runs in milliseconds.
 import assert from 'node:assert';
-import { hedgedRpc, hedgeDelay, bodyType } from '../dapp/trade/rpc.js';
+import { hedgedRpc, hedgeDelay, bodyType, takeEarly } from '../dapp/trade/rpc.js';
 
 let n = 0;
 const ok = (s) => { console.log('  ok -', s); n++; };
@@ -101,4 +101,27 @@ const rpc = (plan, o = {}) => { const x = nodes(plan); return hedgedRpc(HOSTS, '
   assert.equal(log.types['https://a'], 'application/json', 'an unknown node is sent JSON, as before');
   ok('the nodes that take a plain-text body are sent one (no preflight request); the rest are sent JSON');
 }
+// ── takeEarly: a read the page's head sent to the first node is taken once, by the call that asks for exactly it ──
+{
+  const later = (ms, v, fail) => new Promise((res, rej) => setTimeout(() => (fail ? rej(fail) : res(v)), ms));
+  const calls = [], rpc = (hosts, method, params, o = {}) => { calls.push({ hosts: hosts.join(), method, o: JSON.stringify(o) }); return Promise.resolve(`nodes:${hosts.length}`); };
+  const store = new Map([['eth_call[{"to":"0x1"},"latest"]', later(5, 'early')], ['eth_gasPrice[]', later(5, null, new Error('down'))],
+    ['eth_chainId[]', later(5, null, Object.assign(new Error('execution reverted'), { revert: true }))], ['eth_blockNumber[]', new Promise(() => {})]]);
+  const o = { hedgeMs: 40, store, rpc };
+  assert.equal(await takeEarly(HOSTS, 'eth_call', [{ to: '0x1' }, 'latest'], o), 'early'); assert.equal(calls.length, 0, 'its answer, no node asked');
+  assert.equal(await takeEarly(HOSTS, 'eth_call', [{ to: '0x1' }, 'latest'], o), 'nodes:3', 'once: the next call asks all the nodes');
+  assert.equal(await takeEarly(HOSTS, 'eth_call', [{ to: '0x2' }, 'latest'], o), 'nodes:3', 'another call is not given it');
+  calls.length = 0;
+  assert.equal(await takeEarly(HOSTS, 'eth_gasPrice', [], o), 'nodes:2', 'a failed early read: the other nodes are asked');
+  assert.deepEqual(calls[0], { hosts: 'https://b,https://c', method: 'eth_gasPrice', o: '{}' }, 'as usual, the first (which the head asked) left out');
+  await assert.rejects(takeEarly(HOSTS, 'eth_chainId', [], o), /reverted/, 'a revert is the answer');
+  assert.equal(calls.length, 1, 'a revert is not asked again');
+  const t0 = Date.now();
+  assert.equal(await takeEarly(HOSTS, 'eth_blockNumber', [], o), 'nodes:2');
+  assert.ok(Date.now() - t0 < 300, 'an early read still out after the hedge time: the next node is asked beside it');
+  assert.deepEqual(calls[1], { hosts: 'https://b,https://c', method: 'eth_blockNumber', o: '{"hedgeMs":0}' }, 'and no other unless it fails: never more requests at once than hedgedRpc makes');
+  assert.equal(store.size, 0, 'each is taken once');
+  assert.equal(await takeEarly(HOSTS, 'eth_call', [], { store: undefined, rpc }), 'nodes:3', 'no early reads at all: the nodes');
+}
+ok('a read sent from the head is taken once by the call that asks for exactly it; a failed one falls to the other nodes, a slow one is hedged once (no more requests at once than before), a revert is the answer');
 console.log(`\n${n} trade-rpc checks passed`);

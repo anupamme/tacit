@@ -31,3 +31,19 @@ export function hedgedRpc(hosts, method, params, { hedgeMs = hedgeDelay(), timeo
     launch();
   });
 }
+// hedgedRpc over `hosts`, except that a read the page's head has already sent to the first of them (trade/early.js keeps them in `__tradeEarly`, by method and
+// params) is taken by the first call that asks for exactly it, once. That read stands for the first node: when it fails the rest are asked as usual, and when
+// it is still out after the hedge time the next node is asked beside it, and no other unless that one fails (never more requests at once than hedgedRpc
+// makes). A revert is the contract's answer, so it is the call's.
+export function takeEarly(hosts, method, params, { hedgeMs = hedgeDelay(), store = globalThis.__tradeEarly, rpc = hedgedRpc } = {}) {
+  const k = method + JSON.stringify(params), p = store?.get(k);
+  if (!p) return rpc(hosts, method, params);
+  store.delete(k);
+  return new Promise((resolve, reject) => {
+    let over = false, asked = false, timer = 0;
+    const done = (f, v) => { if (!over) { over = true; clearTimeout(timer); f(v); } };
+    const fall = (slow) => { if (asked || over) return; asked = true; rpc(hosts.slice(1), method, params, slow ? { hedgeMs: 0 } : {}).then((v) => done(resolve, v), (e) => done(reject, e)); };
+    if (hedgeMs > 0) timer = setTimeout(() => fall(true), hedgeMs);
+    p.then((v) => done(resolve, v), (e) => (e?.revert ? done(reject, e) : fall(false)));
+  });
+}

@@ -5,7 +5,7 @@ import { makeConfidentialRelay } from '/confidential-relay.js?cb=e77ed266';
 import { CONFIDENTIAL_DEPLOYMENTS, shownTicker } from '/confidential-deployments.js?cb=a1c99a44';
 import { pvFees, pvDeadline, settleCalldata, typeWords } from '/relay/abi.js?cb=e137b68f';
 import { UserStopped } from '/trade/wallet.js?cb=a6b2910e';
-import { rpc, esc, fmtUnits, short } from '/trade/util.js?cb=4cf7cf0f';
+import { rpc, esc, fmtUnits, short } from '/trade/util.js?cb=9f8675a8';
 
 const API = 'https://api.tacit.finance';
 const SCAN = 'https://etherscan.io/';

@@ -437,7 +437,7 @@ async function gridOutputs({ ethCall, dir, account, shares, amountIn, feeBps, bl
     const p = pt.a1 > 0n ? decQuoteBest(raws[k++]) : null;
     const t = pt.a2 > 0n ? (raws[k] ? decWord(raws[k], 0) : 0n) : 0n; if (pt.a2 > 0n) k++;
     const ok = (pt.a1 === 0n || p) && (pt.a2 === 0n || t > 0n);
-    return { ...pt, o1: p ? p.amountOut : 0n, o2: t, total: ok ? (p ? p.amountOut : 0n) + t : 0n };
+    return { ...pt, o1: p ? p.amountOut : 0n, o2: t, pool: p?.pool ?? null, total: ok ? (p ? p.amountOut : 0n) + t : 0n };
   });
 }
 
@@ -449,13 +449,13 @@ async function quoteSplit({ ethCall, dir, amountIn, account, block = 'latest', s
   const coarse = [];
   for (let s = 0n; s <= 10000n; s += SPLIT_COARSE_BPS) coarse.push(s);
   // The coarse grid goes out with the two single quotes, at the AMM's usual fee tier; it is asked again only when the pool's own tier differs.
-  const [p, t, guess] = await Promise.all([
-    singles?.precision ?? quotePrecision({ ethCall, dir, amountIn, account, block }).catch(() => null),
+  // Precision's single quote is waited for last: its second read (the pool's fee and policy) runs beside the fine grid, which needs only the AMM's tier.
+  const precision = singles?.precision ?? quotePrecision({ ethCall, dir, amountIn, account, block }).catch(() => null);
+  const [t, guess] = await Promise.all([
     singles?.tacitAmm ?? quoteTacitAmm({ ethCall, dir, amountIn, block }).catch(() => null),
     gridOutputs({ ethCall, dir, account, shares: coarse, amountIn, feeBps: TACIT_AMM_TIERS[0], block }).catch(() => null),
   ]);
-  if (!p || !t) return null;
-  const single = p.amountOut >= t.amountOut ? p : t;
+  if (!t) return null;
   const feeBps = Number(t.feeBps);
   const best = (rows) => rows.filter((r) => r.total > 0n).reduce((a, b) => (!a || b.total > a.total ? b : a), null);
   const rows1 = guess && feeBps === Number(TACIT_AMM_TIERS[0]) ? guess : await gridOutputs({ ethCall, dir, account, shares: coarse, amountIn, feeBps, block });
@@ -464,14 +464,17 @@ async function quoteSplit({ ethCall, dir, amountIn, account, block = 'latest', s
   const lo = top.shareBps > SPLIT_COARSE_BPS ? top.shareBps - SPLIT_COARSE_BPS : 0n, hi = top.shareBps + SPLIT_COARSE_BPS < 10000n ? top.shareBps + SPLIT_COARSE_BPS : 10000n;
   const fine = [];
   for (let s = lo; s <= hi; s += SPLIT_FINE_BPS) if (s % SPLIT_COARSE_BPS !== 0n) fine.push(s);
-  if (fine.length) top = best([top, ...(await gridOutputs({ ethCall, dir, account, shares: fine, amountIn, feeBps, block }))]);
+  const [p, rows2] = await Promise.all([precision, fine.length ? gridOutputs({ ethCall, dir, account, shares: fine, amountIn, feeBps, block }) : []]);
+  if (!p) return null;
+  const single = p.amountOut >= t.amountOut ? p : t;
+  top = best([top, ...rows2]);
   if (!top || top.a1 === 0n || top.a2 === 0n) return null;
-  // The winning split's two legs, quoted afresh the way a single venue is (pool, fee, policy), not taken from the grid.
-  const [l1, l2] = await Promise.all([
-    quotePrecision({ ethCall, dir, amountIn: top.a1, account, block, trust: { pool: p.pool, feeBps: p.feeBps } }).catch(() => null),
-    quoteTacitAmm({ ethCall, dir, amountIn: top.a2, block }).catch(() => null),
-  ]);
-  if (!l1 || !l2 || l2.amountIn !== top.a2) return null;
+  // The winning split's two legs come from the grid's own reads (the lens and AMM calls a single quote makes, at the same sizes): the Precision
+  // leg in the pool the single quote found routable (a grid row whose best pool is another is quoted afresh, fee and policy), the AMM leg at the tier the grid read.
+  const l1 = top.pool === p.pool ? { venue: VENUES.PRECISION, amountIn: top.a1, amountOut: top.o1, feeBps: p.feeBps, pool: p.pool, tokenIn: p.tokenIn, tokenOut: p.tokenOut }
+    : await quotePrecision({ ethCall, dir, amountIn: top.a1, account, block }).catch(() => null);
+  const l2 = { venue: VENUES.TACIT_AMM, amountIn: top.a2, dustIn: 0n, amountOut: top.o2, feeBps: t.feeBps, assetIn: t.assetIn, assetOut: t.assetOut };
+  if (!l1) return null;
   const amountOut = l1.amountOut + l2.amountOut, gain = amountOut - single.amountOut;
   if (gain <= 0n) return null;
   return { dir, amountIn, amountOut, gain, gainBps: Number(gain * 10000n / single.amountOut), shareBps: top.shareBps, single: { venue: single.venue, amountOut: single.amountOut },

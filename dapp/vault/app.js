@@ -9,7 +9,7 @@ import * as M from '/vault/math.js?cb=8726aaa5';
 import {
   makeRpc, makeReader, staticCalls, parseStatic, dynamicCalls, parseDynamic, timestampCall, refusal, decString, SEL, wordAt, addrWord,
   encDeposit, encWithdraw, encBorrow, encRepay, encCancel, encApprove, encPermit, encMulticall,
-} from '/vault/chain.js?cb=24ef944b';
+} from '/vault/chain.js?cb=4c85c232';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=a6b2910e';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';

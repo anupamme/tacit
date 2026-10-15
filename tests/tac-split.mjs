@@ -44,12 +44,16 @@ function encReturns(rets) {
 }
 const SEL = { quoteBest: '2adaa389', effFee: 'ef66de32', tacitQuote: '3bc1414a' };
 
-function makeEthCall({ failSim = false, tacitDown = false } = {}) {
-  const log = { agg3: 0, sims: 0, batches: [], policy: 0, other: new Set() };
+// `delayMs` answers each read after that long, so the round a read went out in can be counted (`log.at`); `otherPoolBelow` makes the lens
+// name another pool for amounts under it (a pool that is best only at small sizes).
+const OTHER_POOL = '0x2222222222222222222222222222222222222222';
+function makeEthCall({ failSim = false, tacitDown = false, delayMs = 0, otherPoolBelow = 0n } = {}) {
+  const log = { agg3: 0, sims: 0, batches: [], at: [], policy: 0, other: new Set() };
   async function ethCall(to, data, block, opts) {
     if (to.toLowerCase() === ZROUTER.toLowerCase()) { log.sims++; if (failSim) throw new Error('execution reverted: Multicall3: call failed'); return '0x'; }
     if (to.toLowerCase() !== MULTICALL3.toLowerCase()) throw new Error(`unexpected ethCall to ${to}`);
-    log.agg3++; log.batches.push(0);
+    log.agg3++; log.batches.push(0); log.at.push(Date.now());
+    if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
     const rets = decodeAggregate3Call(data).map((c) => {
       log.batches[log.batches.length - 1]++;
       if (c.to.toLowerCase() === PRECISION_POLICY.toLowerCase()) log.policy++;
@@ -57,7 +61,7 @@ function makeEthCall({ failSim = false, tacitDown = false } = {}) {
       const sel = c.data.slice(2, 10), arg = (i) => BigInt('0x' + c.data.slice(10 + i * 64, 10 + (i + 1) * 64));
       if (c.to.toLowerCase() === PRECISION_LENS.toLowerCase() && sel === SEL.quoteBest) {
         const dir = arg(3) === 0n ? 'ETH_TO_TAC' : 'TAC_TO_ETH';
-        return '0x' + w(BigInt(PRECISION_POOL)) + w(outOf('precision', dir, arg(4)));
+        return '0x' + w(BigInt(arg(4) < otherPoolBelow ? OTHER_POOL : PRECISION_POOL)) + w(outOf('precision', dir, arg(4)));
       }
       if (c.to.toLowerCase() === PRECISION_LENS.toLowerCase() && sel === SEL.effFee) return '0x' + w(30);
       if (c.to.toLowerCase() === PRECISION_POLICY.toLowerCase()) return '0x' + w(32) + w(1) + w(1);
@@ -123,8 +127,8 @@ for (const dir of ['ETH_TO_TAC', 'TAC_TO_ETH']) {
   const r = await venues.route({ dir, amountIn: amt, account: A1, gasPrice: 10n ** 9n });
   assert.equal(r.pick, 'split');
   // the single quotes (Precision's best pool, then its fee and policy; the AMM's tiers) once for the ranking and the split search together,
-  // the two grids, and the two legs quoted afresh: the Precision leg trusts the pool the single quote found routable
-  assert.deepEqual(log.batches, [1, 4, 40, 2, 16, 1, 4], `the batches a route makes (${JSON.stringify(log.batches)})`);
+  // and the two grids; the split's legs are the grid's own reads at the winning sizes, in the pool the single quote found routable
+  assert.deepEqual(log.batches, [1, 4, 40, 2, 16], `the batches a route makes (${JSON.stringify(log.batches)})`);
   assert.equal(log.policy, 1, 'the pool is checked against the policy once, not for every quote of it');
   assert.equal(log.other.size, 0, `no resting-order or Uniswap v4 read is made (${[...log.other]})`);
   assert.equal(r.r.v4.length, 0); assert.equal(r.r.boards, null);
@@ -133,7 +137,29 @@ for (const dir of ['ETH_TO_TAC', 'TAC_TO_ETH']) {
   const [all, split] = await Promise.all([v2.quoteAll({ dir, amountIn: amt, account: A1, includeZQuoter: false }), v2.quoteSplit({ dir, amountIn: amt, account: A1 })]);
   assert.equal(r.split.amountOut, split.amountOut); assert.equal(r.r.best.amountOut, all.best.amountOut); assert.equal(r.split.legs[0].pool, split.legs[0].pool);
 }
-ok('route() asks each venue once (7 reads, not 13), checks the pool\'s policy once, leaves out the boards and Uniswap v4, and answers as quoteAll and quoteSplit do on their own');
+ok('route() asks each venue once (5 reads, not 13), checks the pool\'s policy once, leaves out the boards and Uniswap v4, and answers as quoteAll and quoteSplit do on their own');
+
+// ── route(): two round trips. The pool's fee and policy go out beside the fine grid, not before it, and the legs need no third ──
+for (const dir of ['ETH_TO_TAC', 'TAC_TO_ETH']) {
+  const D = 40, { ethCall, log } = makeEthCall({ delayMs: D });
+  const amt = dir === 'ETH_TO_TAC' ? 2n * E18 : 5000n * E18;
+  const r = await makeEvmTradeVenues({ ethCall, keccak256 }).route({ dir, amountIn: amt, account: A1, gasPrice: 10n ** 9n });
+  assert.equal(r.pick, 'split');
+  const rounds = log.at.map((t) => Math.round((t - log.at[0]) / D));
+  assert.deepEqual(rounds, [0, 0, 0, 1, 1], `the round each read goes out in (${JSON.stringify(rounds)}, batches ${JSON.stringify(log.batches)})`);
+}
+ok('route() answers in two round trips: the single quotes and the coarse grid, then the pool\'s fee and policy beside the fine grid');
+
+// ── a split leg whose size has another best pool is quoted the way a single venue is: that pool's fee and policy are read ──
+{
+  const { ethCall, log } = makeEthCall({ otherPoolBelow: 19n * E18 / 10n });
+  const s = await makeEvmTradeVenues({ ethCall }).quoteSplit({ dir: 'ETH_TO_TAC', amountIn: 2n * E18, account: A1 });
+  assert.ok(s && s.legs[0].amountIn < 19n * E18 / 10n, 'the Precision leg is under the size where the other pool is best');
+  assert.equal(s.legs[0].pool.toLowerCase(), OTHER_POOL, 'the leg names the pool the lens chose at its size');
+  assert.equal(log.policy, 2, 'that pool is checked against the policy too');
+  assert.equal(s.legs[0].amountOut, outOf('precision', 'ETH_TO_TAC', s.legs[0].amountIn));
+}
+ok('a split leg that the lens sends to another pool at its size is quoted afresh, with that pool\'s policy checked')
 
 // ── buildSplit: byte for byte against cast, nested the way the chain reads it ──
 const DL = 2000000000n;

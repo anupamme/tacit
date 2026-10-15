@@ -10,7 +10,7 @@ if (/^\/trade\/(index\.html)?$/.test(location.pathname)) history.replaceState(nu
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import {
   makeEvmTradeVenues, zswapDeepLink, encErc20Approve, PRECISION_POOL, TAC_ERC20, TACIT_AMM, MULTICALL3, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, _internal,
-} from '/evm-trade-venues.js?cb=1498d6da';
+} from '/evm-trade-venues.js?cb=a08631ce';
 import { getConfidentialDeployment } from '/confidential-deployments.js';
 import { buildBook, planBuy, planSell as planBtcSell, ladderLevels } from '/btc-book.js?cb=2d11b335';
 import { decodeTape, chartBars, invert, ethLaneUsd, btcLaneUsd, candlesFromTrades, tradePrices, closeAt, volumeSince, gap, TAPE_FINE, TAPE_COARSE } from '/trade/tape.js?cb=6565501b';
@@ -20,7 +20,7 @@ import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
 import { mountDepth } from '/trade/depth.js?cb=21a5dc95';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=a6b2910e';
-import { hedgedRpc } from '/trade/rpc.js?cb=c85c9f41';
+import { takeEarly } from '/trade/rpc.js?cb=541c4e20';
 import { mountFarm } from '/trade/farm.js?cb=e7c9d199';
 import { grp, sig, group, satsFmt, warm as warmFormatters } from '/trade/fmt.js?cb=43646c2e';
 
@@ -42,7 +42,8 @@ const wordAt = (hex, i) => BigInt('0x' + (strip(hex).slice(i * 64, (i + 1) * 64)
 const now = () => Math.floor(Date.now() / 1000);
 
 // ── reading the chain ──
-const rpc = (method, params) => hedgedRpc(RPCS, method, params);
+// The page's first reads were sent from its head (trade/early.js): a call that asks for one of them exactly takes that answer.
+const rpc = (method, params) => takeEarly(RPCS, method, params);
 const ethCall = (to, data, block = 'latest', o = {}) => rpc('eth_call', [{ to, data, ...(o.from ? { from: o.from } : {}), ...(o.value ? { value: o.value } : {}), ...(o.gas ? { gas: o.gas } : {}) }, block]);
 const batch = async (calls) => _internal.decAggregate3(await ethCall(MULTICALL3, _internal.encAggregate3(calls)), calls.length);
 const venues = makeEvmTradeVenues({ ethCall, keccak256: keccak_256 });
@@ -58,15 +59,16 @@ function privatePoolId(fee) {
 const PRIV_TIERS = [30, 5, 100, 1];
 
 // ── the state of the page ──
-const D = { chainFailed: false, tapeFailed: false, btcFailed: false, bookFailed: false, ethUsd: null, btcUsd: null, perEth: null, priv: null, precision: null, ethSupply: null, btc: null, book: null, bidsRead: false, zb: null, zbFailed: false, tape: { fine: [], coarse: [] }, readAt: 0 };
+const D = { gasPrice: null, chainFailed: false, tapeFailed: false, btcFailed: false, bookFailed: false, ethUsd: null, btcUsd: null, perEth: null, priv: null, precision: null, ethSupply: null, btc: null, book: null, bidsRead: false, zb: null, zbFailed: false, tape: { fine: [], coarse: [] }, readAt: 0 };
 const ME = { pub: null, how: '' };                                                               // the visitor's Tacit key on Bitcoin (its public key), and how it is known: 'open' (signed in this visit) or 'record'
 const S = { side: 'buy', amt: '', book: null, pin: null, lane: 'eth', unit: 'usd', range: null, log: false, slip: 50, bal: null, busy: false, tf: { eth: TAPE_COARSE, btc: 86400, cmp: 86400 }, kind: 'line', quote: null, seq: 0, zq: null };
 const TF = { eth: [['5m', 300], ['15m', 900], ['1h', 3600], ['4h', 14400], ['1d', 86400]], btc: [['1h', 3600], ['4h', 14400], ['1d', 86400], ['1w', 604800]], cmp: [['4h', 14400], ['1d', 86400]] };
 
 // A read that failed is remembered: a page that could not read says so, and offers another go, instead of waiting for ever or saying there is no market.
 async function loadChain() {
-  try { await readChain(); D.chainFailed = D.perEth == null; } catch (e) { D.chainFailed = true; throw e; }
+  try { await readChain(); D.chainFailed = D.perEth == null; } catch (e) { D.chainFailed = true; throw e; } finally { D.chainDone = true; }
 }
+// trade/early.js sends this read first from the head of the page, with the tapes', the boards' and the farm's first: a change to one of them is made there too.
 async function readChain() {
   const pool = getConfidentialDeployment('mainnet')?.pool;
   const calls = [
@@ -115,8 +117,9 @@ async function readTapes({ coarse: wantCoarse = true } = {}) {
 }
 
 // `lists` says whether the listings and bids are read as well as the trades (the lists are most of the bytes: a refresh that nothing on screen shows leaves them).
+// The listings are the book's view of them (`view=book`: price, amount, seller and times, a sixth of the whole list): the Bitcoin market reads them whole when it trades.
 async function loadBitcoin({ lists = true } = {}) {
-  const [asset, sales, bidRows] = await Promise.all([api(`/assets/${TAC_BTC_ID}?network=mainnet`), lists ? api(`/assets/${TAC_BTC_ID}/preauth-sales?network=mainnet`) : null, lists ? api(`/assets/${TAC_BTC_ID}/bid-intents?network=mainnet`) : null]);
+  const [asset, sales, bidRows] = await Promise.all([api(`/assets/${TAC_BTC_ID}?network=mainnet`), lists ? api(`/assets/${TAC_BTC_ID}/preauth-sales?network=mainnet&view=book`) : null, lists ? api(`/assets/${TAC_BTC_ID}/bid-intents?network=mainnet`) : null]);
   if (asset) D.btc = { trades: asset.trades || [], mark: Number(asset.mark_price?.unit) || null, last: asset.last_trade || null, change24: asset.price_24h_change_pct, vol24: Number(asset.volume_24h_sats) || 0, holders: asset.holder_count ?? null, firstTrade: asset.price_first_trade_ts || null, tradesCap: asset.trades_cap };
   D.btcFailed = !asset && !D.btc; D.bookFailed = lists && !Array.isArray(sales?.sales) && !D.book;
   if (asset && D.book) { D.btc.ask = D.book.bestAsk; D.btc.bid = D.book.bestBid; }               // a read that left the lists alone keeps what they said
@@ -313,6 +316,8 @@ function chartEmpty(lane) {
   return lane === 'eth' && ethFailed ? 'Could not read the price history just now.' : lane === 'btc' && btcFailed ? 'Could not read the Bitcoin trades just now.' : lane === 'cmp' && (ethFailed || btcFailed) ? 'Could not read the price history just now.' : undefined;
 }
 function renderChart() {
+  // In dollars the chart waits for the first read of the chain, which has the rates: drawn before it in ETH, its read line is wider and then narrower again.
+  if (S.unit === 'usd' && !D.chainDone) return;
   const lane = S.lane, tf = tfFor(lane);
   const unit = lane === 'cmp' ? 'usd' : effUnit(lane);
   if (lane === 'cmp' && !(D.ethUsd && D.btcUsd)) {                                              // the two lanes meet in dollars, which needs both rates
@@ -362,7 +367,13 @@ function renderChart() {
 // ── the ticket and the venues ──
 const dirOf = () => (S.side === 'buy' ? 'ETH_TO_TAC' : 'TAC_TO_ETH');
 const getAmount = () => parseUnits(S.amt, 18);
-const gasPrice = (() => { let at = 0, v = null; return async () => { if (now() - at < 20) return v; at = now(); v = await rpc('eth_gasPrice', []).then((g) => BigInt(g), () => null); return v; }; })();
+// The gas price, read again after twenty seconds. A quote is not held for it: a price read in the last ten minutes is answered at once while the next is
+// read behind it (it decides only whether a split pays for its extra gas, and what the network fee comes to, which a minute-old price says as well).
+const gasPrice = (() => {
+  let at = 0, p = null;
+  const read = () => (p ||= rpc('eth_gasPrice', []).then((g) => { D.gasPrice = BigInt(g); at = now(); return D.gasPrice; }, () => D.gasPrice).finally(() => { p = null; }));
+  return async () => (D.gasPrice != null && now() - at < 20 ? D.gasPrice : D.gasPrice != null && now() - at < 600 ? (read(), D.gasPrice) : read());
+})();
 // The private pool's answer from its reserves alone (both sides at 8 decimals, the pool's own fee), before the relay's fee.
 function privQuote(dir, wei) {
   if (!D.priv) return null;
@@ -426,7 +437,9 @@ async function requote(quiet = false) {
   const my = ++S.seq, wei = getAmount(), dir = dirOf(), buy = S.side === 'buy';
   if (!quiet) { S.quote = null; keepInHash(); if (!S.busy) { $('#status').textContent = ''; $('#status').dataset.kind = ''; } }
   if (!wei || wei <= 0n) { S.quote = null; renderQuote(null); renderVenues(null); return; }
-  if (!quiet) renderQuote({ busy: true });
+  // A new amount on the same side leaves the last quote's figures where they are, dimmed, until the new ones replace them: the ticket does not empty and
+  // fill again at each change. The button waits for the new quote.
+  if (!quiet) { if (S.shown === S.side) { $('.p-ticket').classList.add('stale'); renderChips(); renderGo(); } else renderQuote({ busy: true }); }
   if (quiet) S.refreshing = true;
   try {
     // The Precision pool's price is read with the quote, so the price impact is measured against the price as it stands now.
@@ -480,7 +493,7 @@ function renderQuote(q) {
   $('#in-unit').innerHTML = `<svg class="tk sm" aria-hidden="true"><use href="#tk-${buy ? 'eth' : 'tac'}"/></svg>${buy ? 'ETH' : 'TAC'}`;
   $('#out-unit').innerHTML = `<svg class="tk sm" aria-hidden="true"><use href="#tk-${buy ? 'tac' : 'eth'}"/></svg>${buy ? 'TAC' : 'ETH'}`;
   $('#amt').setAttribute('aria-label', buy ? 'ETH to pay' : 'TAC to pay');
-  const none = (t) => { outEl.textContent = t; outEl.classList.add('ph'); $('#out-usd').textContent = ''; route.innerHTML = ''; $('#tk-note').textContent = ''; renderGo(); };
+  const none = (t) => { S.shown = null; outEl.textContent = t; outEl.classList.add('ph'); $('#out-usd').textContent = ''; route.innerHTML = ''; $('#tk-note').textContent = ''; renderGo(); };
   if (!q) { none('0.00'); quoteSay(S.amt && getAmount() == null ? 'Cannot read that amount. Write 1500 or 0.05 (1,500 alone is ambiguous).' : ''); return; }
   if (q.busy) { none('…'); return; }
   if (q.err) { none('—'); quoteSay(q.err); return; }
@@ -517,7 +530,10 @@ function renderQuote(q) {
     + html`<div class="kv"><span>Price</span><b>${esc(priceTxt)}</b></div>` + (split ? '' : note)
     + detailsHtml(planOf(q))
     + (q.priv && via === 'pools' ? html`<p class="privnote"><a href="${esc(privLink(q))}">Swap privately through the Tacit pool →</a></p>` : '');
-  $('#tk-note').textContent = `${buy ? 'One transaction' : 'A free permit signature, then one transaction'}, tested before it is sent.${via === 'boards' ? ' If an order is filled first, nothing is sent.' : rt.pick === 'split' ? ' If the split fails its test it goes to one pool.' : ''}`;
+  // A sale through the Tacit pool alone takes an approval of the TAC (once per amount the pool may spend); every other sale takes a permit, signed for free.
+  const approves = !buy && via === 'pools' && rt.pick !== 'split' && rt.single.venue === 'tacit-amm';
+  $('#tk-note').textContent = `${buy ? 'One transaction' : approves ? 'An approval of your TAC for the Tacit pool (the first time), then one transaction' : 'A free permit signature, then one transaction'}, tested before it is sent.${via === 'boards' ? ' If an order is filled first, nothing is sent.' : rt.pick === 'split' ? ' If the split fails its test it goes to one pool.' : ''}`;
+  S.shown = S.side;
   renderGo();
 }
 // The main page's console set to the private swap of this amount (it makes ETH private first when it has to). Its own flow runs it.
@@ -941,7 +957,7 @@ function renderGo() {
   if (!W.account) { go.textContent = 'Connect wallet'; return; }
   if (S.busy) { go.textContent = 'Working…'; go.disabled = true; return; }
   if (!wei) { go.textContent = 'Enter an amount'; go.disabled = true; return; }
-  if (!routeOf(q) || !D.perEth) { go.textContent = 'Reading the pools…'; go.disabled = true; return; }     // the price impact is measured against the Precision pool's price, so it needs it
+  if (!routeOf(q) || !D.perEth) { go.textContent = S.shown && !q ? 'Updating the quote…' : 'Reading the pools…'; go.disabled = true; return; }     // the price impact is measured against the Precision pool's price, so it needs it
   const have = spendable();
   if (have != null && wei > have) { go.textContent = `Not enough ${buy ? 'ETH' : 'TAC'}`; go.disabled = true; return; }
   if (!buy && S.bal && S.bal.eth != null && S.bal.eth < 5n * 10n ** 14n) { go.textContent = 'Needs a little ETH for the network fee'; go.disabled = true; return; }
@@ -970,9 +986,19 @@ const ackKey = (P) => `${P.dir}:${P.wei}:${Math.round(P.impact * 100)}`;
 function detailsHtml(P) {
   const buy = P.buy, outU = buy ? 'TAC' : 'ETH', dp = buy ? 2 : 6, big = P.impact >= 0.1;
   return html`${P.impact >= 0.005 ? `<div class="kv"><span>Price impact</span><b class="${P.impact >= 0.05 ? 'err' : ''}">${(P.impact * 100).toFixed(P.impact < 0.1 ? 1 : 0)}%</b></div>` : ''}
-    <div class="kv"><span>Least you get</span><b>${esc(fmtUnits(P.floor, 18, dp))} ${outU}</b></div>
+    <div class="kv"><span>Least you get</span><b>${esc(fmtUnits(P.floor, 18, dp))} ${outU}</b></div>${feeHtml(P)}
     <div class="slip"><span class="mute">Slippage</span><div class="seg sm" id="slip-seg" role="group" aria-label="Slippage">${[[50, '0.5%'], [100, '1%'], [300, '3%']].map(([v, l]) => `<button type="button" data-slip="${v}" aria-pressed="${S.slip === v}">${l}</button>`).join('')}</div></div>
     ${big ? `<label class="ack"><input type="checkbox" id="ack"${S.ack === ackKey(P) ? ' checked' : ''}><span>I accept losing about ${Math.round(P.impact * 100)}% of this ${buy ? 'purchase' : 'sale'} ${P.via === 'boards' ? 'against the Precision pool\'s price' : 'to price impact. A smaller amount moves it less'}.</span></label>` : ''}`;
+}
+// What the network takes for the trade, at the gas price now. The gas is what each route used: on mainnet in October 2026 for the Precision pool (its swaps
+// through zRouter) and a split (both legs in one transaction), on a fork for the Tacit pool alone. The boards' orders differ by board, so they are not given one.
+const ROUTE_GAS = { precision: [152000, 175000], 'tacit-amm': [131000, 130000], split: [261000, 315000] };     // [buy, sell]
+function feeHtml(P) {
+  const units = (P.via === 'boards' ? null : ROUTE_GAS[P.split ? 'split' : P.rt.single.venue])?.[P.buy ? 0 : 1];
+  if (!units || D.gasPrice == null) return '';
+  const eth = Number(BigInt(units) * D.gasPrice) / 1e18, fee = usdOf(eth);
+  const txt = fee == null ? `≈ ${sig(eth)} ETH` : fee < 0.01 ? 'under $0.01' : `≈ $${fee.toFixed(2)}`;
+  return html`<div class="kv"><span>Network fee</span><b title="About ${grp(units, 0)} gas at ${sig(Number(D.gasPrice) / 1e9)} gwei, the gas price now">${txt}</b></div>`;
 }
 // Several wallets (or one and WalletConnect): the person chooses. One: it connects at once.
 function pickWallet(list) {
@@ -1044,11 +1070,13 @@ wallet.onChange(() => { renderChip(); syncMe(); if (!farm.busy()) farm.refresh()
 async function withTacAccess({ make, buy, permit, from, dl }) {
   let tx = make();
   if (!buy && tx.approval) {
-    const have = wordAt(await ethCall(TAC_ERC20, '0xdd62ed3e' + word(BigInt(from)) + word(BigInt(tx.approval.spender))), 0);
+    // The allowance and, where a permit is signed, the account's permit nonce are read together.
+    const [allowed, nonceRaw] = await Promise.all([ethCall(TAC_ERC20, '0xdd62ed3e' + word(BigInt(from)) + word(BigInt(tx.approval.spender))), permit ? ethCall(TAC_ERC20, '0x7ecebe00' + word(BigInt(from))) : null]);
+    const have = wordAt(allowed, 0);
     if (have < tx.approval.amount) {
       if (permit) {
         say('Sign the permit for your TAC in your wallet. It costs no gas.');
-        const nonce = wordAt(await ethCall(TAC_ERC20, '0x7ecebe00' + word(BigInt(from))), 0);
+        const nonce = wordAt(nonceRaw, 0);
         const sig = await wallet.signPermit({ token: TAC_ERC20, name: 'Tacit Token', spender: tx.approval.spender, value: tx.approval.amount, deadline: dl, nonce, owner: from });
         tx = make({ value: tx.approval.amount, deadline: dl, ...sig });
       } else {
@@ -1117,8 +1145,8 @@ async function prepareBoards(P, from) {
 // The tested transaction sent, and what arrived said in plain words.
 async function sendAndReport(tx, { from, buy, P }) {
   say('Confirm the transaction in your wallet.');
-  const eth0 = await rpc('eth_getBalance', [from, 'latest']).then((x) => BigInt(x), () => null);      // read now: any approval above has been paid for already
-  const hash = await wallet.sendTx({ ...tx, from });
+  const eth0P = rpc('eth_getBalance', [from, 'latest']).then((x) => BigInt(x), () => null);         // read now, while the wallet asks (any approval above has been paid for already)
+  const hash = await wallet.sendTx({ ...tx, from }), eth0 = await eth0P;
   say(`Sent ${txLink(hash)}. Waiting for it to land…`);
   const rc = await wallet.receipt(hash);
   if (rc.status !== '0x1') throw new Error(`The transaction failed on chain (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`);

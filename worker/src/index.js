@@ -95,6 +95,7 @@ import { passesFloor, feeAssetOf, floorInFeeUnits, totalFee, decodePoolState, am
 import { makeConfidentialIndex } from './confidential-index.js';
 import { buildFlow, appendSeries, flowPoint } from './flow-feed.js';
 import { ethStatsBody } from './stats-views.js';
+import { preauthSalesBookBody } from './book-views.js';
 import { buildCrossoutConsumer, crossoutMintLeaf } from './crossout-consumer.js';
 import { buildGovernance } from './governance.js';
 import { makeTacAncestry } from './tac-ancestry.js';
@@ -28918,7 +28919,15 @@ async function _routeFetch(req, env, ctx) {
     // buyer completes settlement alone via ECDH-derived recipient blinding.
     const mps = url.pathname.match(/^\/assets\/([0-9a-f]{64})\/preauth-sales$/);
     if (mps && req.method === 'POST')                          return _mutateAndBustPreauthSales(mps[1], () => handlePreauthSalePost(mps[1], req, env, network, cors));
-    if (mps && req.method === 'GET')                           return _swrServePerAsset(preauthSalesCacheKey(network, mps[1]), PREAUTH_SALES_CACHE_FRESH_MS, PREAUTH_SALES_CACHE_STALE_MS, () => preauthSalesComputeAndCache(env, network, mps[1]));
+    if (mps && req.method === 'GET') {
+      const whole = await _swrServePerAsset(preauthSalesCacheKey(network, mps[1]), PREAUTH_SALES_CACHE_FRESH_MS, PREAUTH_SALES_CACHE_STALE_MS, () => preauthSalesComputeAndCache(env, network, mps[1]));
+      if (url.searchParams.get('view') !== 'book' || whole.status !== 200) return whole;
+      // `?view=book`: what an order book is drawn from, without the signatures and outpoints a buyer reads (worker/src/book-views.js). A body
+      // that is not a list of sales is served whole.
+      const text = await whole.text();
+      let body = text; try { body = preauthSalesBookBody(text); } catch { /* served whole */ }
+      return new Response(body, { status: whole.status, headers: whole.headers });
+    }
     const mps2 = url.pathname.match(/^\/assets\/([0-9a-f]{64})\/preauth-sales\/([0-9a-f]{32})$/);
     if (mps2 && req.method === 'GET')                          return handlePreauthSaleGet(mps2[1], mps2[2], env, network, cors);
     if (mps2 && req.method === 'DELETE')                       return _mutateAndBustPreauthSales(mps2[1], () => handlePreauthSaleDelete(mps2[1], mps2[2], req, env, network, cors));

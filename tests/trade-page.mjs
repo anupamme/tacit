@@ -139,6 +139,8 @@ try {
     throw e;
   });
 
+  const early = await p.evaluate(() => (self.__tradeEarly instanceof Map ? [...self.__tradeEarly.keys()].map((k) => k.slice(0, 120)) : null));
+  ok(Array.isArray(early) && early.length === 0, `the reads the head sends (trade/early.js) are each taken by the call the page makes${early?.length ? `. Not taken: ${early.join(' | ')}. The page asked first for: ${r.seen.rpc.slice(0, 8).map((x) => `${x.method} ${x.to} ${x.data.slice(0, 74)}`).join(' | ')}` : ''}`);
   const burst = r.seen.api.filter((_, i) => r.seen.apiT[i] - r.seen.apiT[0] < 5000), apiOnce = (re) => burst.filter((x) => re.test(x)).length;     // the first reads (a refresh a minute on can fall in a slow start)
   ok((await p.$$eval('link[rel="preload"][as="fetch"][crossorigin]', (l) => l.length)) === 4 && apiOnce(/preauth-sales/) === 1 && apiOnce(/bid-intents/) === 1 && apiOnce(/^$/) === 1 && apiOnce(/farm/) <= 1, `the page's four API reads start with its HTML and are asked for once (${burst.join(' ')})`);
   ok(await p.$eval('.chart .halo', (e) => getComputedStyle(e).animationIterationCount) === '4', 'the live dot pulses a few times when the price is drawn, not for as long as the page is open');
@@ -213,7 +215,7 @@ try {
   // the ticket: a purchase large enough to split
   ok((await p.$$eval('#chips button', (b) => b.map((x) => x.textContent))).join() === '0.05 ETH,0.25 ETH,1 ETH' && (await p.$eval('#cmp', (e) => e.hidden)) === true, 'the ticket offers quick amounts, and the quotes panel waits for an amount');
   await p.click('#chips [data-amt="0.25"]');
-  await until(p, () => !document.querySelector('#out').classList.contains('ph') && document.querySelector('#out').textContent !== '…', null, 240000);
+  await until(p, () => !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale') && document.querySelector('#out').textContent !== '…', null, 240000);
   const ZQ = '0x000000bd2db80567c23e353ca95a251c573cbf9b', zqCalls = () => r.seen.rpc.filter((x) => x.to === ZQ).length;
   await p.waitForTimeout(1500);
   ok(zqCalls() === 0, `a quote does not ask zQuoter (the heavy scan of every Uniswap, Sushi and Curve pool) until the comparison is opened (${zqCalls()} calls)`);
@@ -223,7 +225,7 @@ try {
   await p.click('#cmp > summary');
   ok((await p.inputValue('#amt')) === '0.25' && (await p.getAttribute('#chips [data-amt="0.25"]', 'aria-pressed')) === 'true' && (await p.$eval('#cmp', (e) => e.hidden)) === false, 'pressing one fills the amount, quotes it and shows the quotes');
   await p.fill('#amt', '2');
-  await until(p, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && Number(document.querySelector('#out').textContent.replace(/,/g, '')) > 5000, null, 240000);
+  await until(p, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale') && Number(document.querySelector('#out').textContent.replace(/,/g, '')) > 5000, null, 240000);
   const route = (await text(p, '#route')).replace(/\s+/g, ' ');
   ok((await contrast(p, '.splitbar .pp')) >= 4.5 && (await contrast(p, '.splitbar .tp')) >= 4.5, `the split bar's labels read on the colours behind them (${(await contrast(p, '.splitbar .pp')).toFixed(2)}, ${(await contrast(p, '.splitbar .tp')).toFixed(2)})`);
   ok(/Split across two pools \+[\d.]+%/.test(route) && /Precision \d+%\s*Tacit \d+%/.test(route) && !!(await p.$('#route .splitbar')), `2 ETH is quoted as a split, drawn as a bar of the two pools with what it gains (${route.slice(0, 160)})`);
@@ -237,10 +239,10 @@ try {
   // the arrows turn the trade around, carrying what it gets over as what the other side pays
   const got2 = (await text(p, '#out')).replace(/,/g, '').trim();
   await p.click('#flip');
-  await until(p, () => document.querySelector('[data-side="sell"]').getAttribute('aria-pressed') === 'true' && !document.querySelector('#out').classList.contains('ph') && document.querySelector('#out').textContent !== '…', null, 240000);
+  await until(p, () => document.querySelector('[data-side="sell"]').getAttribute('aria-pressed') === 'true' && !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale') && document.querySelector('#out').textContent !== '…', null, 240000);
   ok(Math.abs(Number(await p.inputValue('#amt')) - Number(got2)) < 0.02 && /ETH/.test(await text(p, '#out-unit')), `the flip sells the ${got2} TAC the purchase would get (${await p.inputValue('#amt')} TAC → ${await text(p, '#out')} ETH)`);
   await p.click('[data-side="buy"]'); await p.fill('#amt', '2');
-  await until(p, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 240000);
+  await until(p, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale'), null, 240000);
   ok(!(await p.$('#absent')) && !(await p.$('#venues-note')) && !rows.some((x) => /Uniswap v4/.test(x)), 'the quotes say no more than the rows: no line of venues that do not quote, no how-to-read note');
   ok(/#side=buy&amount=2$/.test(p.url()), `the address keeps the side and amount, so a reload or a shared link opens the same ticket (${p.url().split('#')[1]})`);
   ok(rows.some((x) => /^Bitcoin order book.*pay [\d,]+ sats/.test(x)), 'the Bitcoin order book (paid in sats) is a row too');
@@ -248,18 +250,20 @@ try {
 
   // a small purchase is not split, and says why a split would not pay
   await p.fill('#amt', '0.02');
-  await until(p, () => !/Split across/.test(document.querySelector('#route')?.textContent || '') && /Precision pool|Tacit pool/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 120000);
+  await until(p, () => !/Split across/.test(document.querySelector('#route')?.textContent || '') && /Precision pool|Tacit pool/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale'), null, 120000);
   ok(/^Route(Precision|Tacit) pool/.test((await text(p, '#route')).replace(/\s+/g, ' ')), `0.02 ETH runs on one pool, whichever pays more today (${(await text(p, '#route')).replace(/\s+/g, ' ').slice(0, 100)})`);
 
   // amounts: a lone comma is a decimal point, as on the front page; 1,500 is ambiguous and not read
   ok(/this ticket/.test((await text(p, '#venues')).replace(/\s+/g, ' ')), 'the venues table says which row the ticket runs');
-  await p.fill('#amt', '0,05'); await until(p, () => !document.querySelector('#out').classList.contains('ph'), null, 120000);
+  await p.fill('#amt', '0,05'); await until(p, () => !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale'), null, 120000);
   const withComma = (await text(p, '#out')).trim();
-  await p.fill('#amt', '0.05'); await until(p, (x) => !document.querySelector('#out').classList.contains('ph') && document.querySelector('#out').textContent.trim() !== '…', null, 120000);
+  await p.evaluate(() => { window.__tk = { emptied: false, stale: false }; new MutationObserver(() => { if (!document.querySelector('#route').textContent.trim() || document.querySelector('#out').textContent === '…') window.__tk.emptied = true; if (document.querySelector('.p-ticket').classList.contains('stale')) window.__tk.stale = true; }).observe(document.querySelector('.p-ticket'), { childList: true, subtree: true, characterData: true, attributes: true }); });
+  await p.fill('#amt', '0.05'); await until(p, (x) => !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale') && document.querySelector('#out').textContent.trim() !== '…', null, 120000);
   ok(withComma === (await text(p, '#out')).trim() && Number(withComma.replace(/,/g, '')) < 2000, `0,05 ETH reads as 0.05 (both quote ${withComma} TAC), not 5`);
+  { const tk = await p.evaluate(() => window.__tk); ok(tk.stale && !tk.emptied, `a new amount leaves the last quote on the ticket, dimmed, until the new one replaces it: the ticket does not empty and fill again (${JSON.stringify(tk)})`); }
   await p.fill('#amt', '1,500'); await until(p, () => /Cannot read that amount/.test(document.querySelector('#status')?.textContent || ''), null, 10000);
   ok(await p.$eval('#out', (e) => e.classList.contains('ph')), 'an ambiguous 1,500 is said to be unreadable, with no quote');
-  await p.fill('#amt', '1,500.25'); await until(p, () => !document.querySelector('#out').classList.contains('ph'), null, 120000);
+  await p.fill('#amt', '1,500.25'); await until(p, () => !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale'), null, 120000);
   ok(true, 'and 1,500.25 reads as one thousand five hundred and a quarter');
   await p.fill('#amt', '');
 
@@ -267,7 +271,7 @@ try {
   await p.click('[data-side="sell"]');
   ok((await p.$$eval('#chips button', (b) => b.map((x) => x.textContent))).join() === '1,000 TAC,5,000 TAC,20,000 TAC', 'the sell side has quick amounts in TAC');
   await p.fill('#amt', '12000');
-  await until(p, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 240000);
+  await until(p, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale'), null, 240000);
   const sell = (await text(p, '#route')).replace(/\s+/g, ' ');
   ok(/Split across two pools \+[\d.]+%/.test(sell) && /TAC$/.test((await text(p, '#in-unit')).trim()), `selling 12,000 TAC is quoted as a split, paid in ETH (${sell.slice(0, 120)})`);
   ok(/Bitcoin order book.*\d+ bids? · settles (when the bidder is online|within minutes).*sats fees/.test((await text(p, '#venues')).replace(/\s+/g, ' ')), 'the Bitcoin row says what the standing bids pay for the sale, and that each settles when its bidder is online');
@@ -330,11 +334,14 @@ try {
     ok(await q.$eval('#go', (b) => b.disabled), 'more ETH than the wallet holds says so and cannot be sent');
 
     // a purchase that splits
+    await q.evaluate(() => { window.__go = new Set(); new MutationObserver(() => window.__go.add(document.querySelector('#go').textContent)).observe(document.querySelector('#go'), { childList: true, characterData: true, subtree: true }); });
     await q.fill('#amt', '2');
     await until(q, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && /Buy TAC/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
+    ok(await q.evaluate(() => window.__go.has('Updating the quote…')), `while a new amount is quoted the button says so and waits (${await q.evaluate(() => [...window.__go].join(' / '))})`);
     if (SHOTS) await q.locator('.p-ticket').screenshot({ path: join(SHOTS, 'ticket-quoted.png') });
     const rv = (await text(q, '#route')).replace(/\s+/g, ' ');
     ok(/Split across two pools/.test(rv) && /Price impact\d+%/.test(rv) && /Least you get[\d,.]+ TAC/.test(rv) && /Slippage/.test(rv) && !!(await q.$('#slip-seg')) && /tested before it is sent/.test(await text(q, '#tk-note')) && !(await q.$('#review')), `the quote itself says the route, the price impact and the least it takes, with slippage in it and no review step (${rv.slice(0, 200)})`);
+    ok(/Network fee(≈ \$\d+\.\d\d|under \$0\.01)/.test(rv) && /gas at [\d.]+ gwei/.test(await q.$eval('#route .kv b[title*="gas at"]', (b) => b.title)), `the quote says what the network takes, at the gas price now (${(rv.match(/Network fee[^S]*/) || [''])[0]})`);
     const floorTxt = (rv.match(/Least you get([\d,.]+) TAC/) || [])[1];
     ok(await q.$eval('#go', (b) => b.disabled) && /I accept losing about \d+%/.test(await text(q, '#route')), 'a purchase that moves the price over 10% waits for the box to be ticked');
     await q.check('#ack');
@@ -420,7 +427,7 @@ try {
 
     // the card's link: the side and the amount both arrive
     const dl = await openPage({ width: 1280, height: 900 }, null, '#side=sell&amount=1500');
-    await until(dl.page, () => document.querySelector('#amt')?.value === '1500' && document.querySelector('[data-side="sell"]').getAttribute('aria-pressed') === 'true' && !document.querySelector('#out').classList.contains('ph'), null, 240000);
+    await until(dl.page, () => document.querySelector('#amt')?.value === '1500' && document.querySelector('[data-side="sell"]').getAttribute('aria-pressed') === 'true' && !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale'), null, 240000);
     ok(/TAC$/.test((await text(dl.page, '#in-unit')).trim()), 'a link to #side=sell&amount=1500 opens the sale with the 1,500 TAC quoted');
     await dl.browser.close();
 
@@ -477,7 +484,7 @@ try {
 
     // the best route: boards that take the amount and pay more than the pools are what the ticket uses
     await q.fill('#amt', '0.03');
-    await until(q, () => /zSwap order|Swapboard v\d order|Dutchboard order/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 240000);
+    await until(q, () => /zSwap order|Swapboard v\d order|Dutchboard order/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale'), null, 240000);
     const auto = (await text(q, '#route')).replace(/\s+/g, ' ');
     ok(/Route.*(zSwap orders|Swapboard v1 order|Swapboard v2 order)/.test(auto) && !/Tacit pool|Precision/.test(auto), `0.03 ETH goes to the boards, whose orders are cheaper than the pools (${auto.slice(0, 110)})`);
     const vrows = await lad('#venues tbody tr');
@@ -489,7 +496,7 @@ try {
     const fillKey = await q.$$eval('#ladders .ob-asks .ob-row[data-fill]:not(.mine)', (b) => b.at(-1).dataset.fill);
     ok(fillKey === `v1:${idV1}`, `the cheapest order is the Swapboard v1 one (${fillKey})`);
     await q.click(`[data-fill="${fillKey}"]`);
-    await until(q, () => /Filling Swapboard v1/.test(document.querySelector('#pin')?.textContent || '') && /^1,000/.test(document.querySelector('#out')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && /Buy TAC/.test(document.querySelector('#go')?.textContent || ''), null, 240000);   // that order's own quote, not the one before it
+    await until(q, () => /Filling Swapboard v1/.test(document.querySelector('#pin')?.textContent || '') && /^1,000/.test(document.querySelector('#out')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale') && /Buy TAC/.test(document.querySelector('#go')?.textContent || ''), null, 240000);   // that order's own quote, not the one before it
     ok(/Filling Swapboard v1 order #\d+/.test(await text(q, '#pin')) && (await q.inputValue('#amt')) === '0.01' && /^1,000/.test((await text(q, '#out')).trim()), `Fill sets the ticket to buy that order whole: 0.01 ETH for ${await text(q, '#out')} TAC`);
     ok(/Route.*Swapboard v1 order #\d+/.test((await text(q, '#route')).replace(/\s+/g, ' ')), 'and the route is that order');
     const rvb = (await text(q, '#route')).replace(/\s+/g, ' ');
@@ -506,7 +513,7 @@ try {
     const bidKey = await q.$eval('#ladders .ob-bids .ob-row[data-fill]', (b) => b.dataset.fill);
     ok(bidKey === `v2:${idV2 + 1n}`, `the bid is the Swapboard v2 one (${bidKey})`);
     await q.click(`[data-fill="${bidKey}"]`);
-    await until(q, () => !document.querySelector('#out').classList.contains('ph') && /Sell TAC/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
+    await until(q, () => !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale') && /Sell TAC/.test(document.querySelector('#go')?.textContent || ''), null, 240000);
     ok((await q.inputValue('#amt')) === '1000' && /Filling Swapboard v2 order/.test(await text(q, '#pin')) && /^0\.015/.test((await text(q, '#out')).trim()), `Fill on a bid sets the ticket to sell 1,000 TAC for ${await text(q, '#out')} ETH`);
     if (await q.$('#ack')) await q.check('#ack');
     const s1 = w.walletLog.signs, tt = await tacBal(me.account), ee = await ethBal(me.account);
@@ -525,7 +532,7 @@ try {
 
     // an order filled by someone else between the quote and the press stops the trade: nothing is sent
     await q.click(`[data-fill="${dutchKey}"]`);
-    await until(q, () => /Buy TAC/.test(document.querySelector('#go')?.textContent || '') && !document.querySelector('#out').classList.contains('ph'), null, 240000);
+    await until(q, () => /Buy TAC/.test(document.querySelector('#go')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale'), null, 240000);
     const rival = await fundedWallet(10n * E18, 0n);
     await sendTx(rival.account, DU, 'fill(uint256,uint128,address,uint256)', [idDu, tac(1000), rival.account, eth(40)], eth(40));
     const before = w.walletLog.sends.length;
@@ -557,7 +564,7 @@ try {
     ok((await own.page.getAttribute('meta[property="og:url"]', 'content')) === 'https://tacit.finance/trade/tac/' && own.errors.length === 0 && own.blocked.length === 0, 'and its shared link says so too, with nothing blocked');
     await own.browser.close();
     const bare = await openPage({ width: 1280, height: 900 }, null, '#side=sell&amount=1500', '/trade/tac');
-    await until(bare.page, () => /\/trade\/tac\/#side=sell/.test(location.href) && document.querySelector('#amt')?.value === '1500' && !document.querySelector('#out')?.classList.contains('ph'), null, 240000);
+    await until(bare.page, () => /\/trade\/tac\/#side=sell/.test(location.href) && document.querySelector('#amt')?.value === '1500' && !document.querySelector('#out')?.classList.contains('ph') && !document.querySelector('.p-ticket')?.classList.contains('stale'), null, 240000);
     ok(/\/trade\/tac\/#side=sell&amount=1500$/.test(bare.page.url()) && /tacit trade$/.test(await bare.page.title()), '/trade/tac, without the slash, arrives at /trade/tac/ with the link\'s fragment kept: the sale of 1,500 TAC is quoted');
     await bare.browser.close();
     const root = await openPage({ width: 1280, height: 900 }, null, '', '/trade');
@@ -574,7 +581,7 @@ try {
     await dp.goto(`http://127.0.0.1:${WEB}/trade/`);
     await until(dp, () => !!document.querySelector('#chart .line') && document.querySelectorAll('#ladders .ob-row').length > 0, null, 240000);   // the earlier checks have filled some of the orders
     await dp.click('[data-lane="cmp"]'); await dp.fill('#amt', '0.5');
-    await until(dp, () => !document.querySelector('#out').classList.contains('ph'), null, 120000);
+    await until(dp, () => !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale'), null, 120000);
     await dp.screenshot({ path: join(SHOTS, 'trade-dark.png') });
     await d.close();
   }
