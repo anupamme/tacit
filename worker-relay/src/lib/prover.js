@@ -12,6 +12,7 @@ import { keccak256 } from 'viem';
 import { CFG } from './config.js';
 import { POOL } from './chain.js';
 import { reflectionEthProofPatient } from './worker-client.js';
+import { privateProvePlan, retryPublic } from './private-prove.js';
 
 function proverEnv(extra = {}) {
   // Env the spawned SP1 binary reads to route to the Succinct network prover.
@@ -291,25 +292,39 @@ export async function proveSettle({ type, op, memos = [], timeoutMs }) {
   await writeFile(opFile, JSON.stringify({ ...op, memoHashes }));
   const cwd = CFG.proverOut;
   await mkdir(cwd, { recursive: true });
-  await rm(path.join(cwd, 'public_values.hex'), { force: true });
-  await rm(path.join(cwd, 'proof_bytes.hex'), { force: true });
 
-  const { code, out } = await run(bin, {
-    // The per-op binary proves its own op from OP_FILE; OP_TYPE is passed for forward-compat with a future
-    // unified dispatcher but ignored by the single-op binaries.
-    env: proverEnv({ MODE: 'groth16', OP_TYPE: type, OP_FILE: opFile }),
-    cwd,
-    timeoutMs,
-    tag: `exec:${type}`,
-    // A batch that cannot prove in this container fails on its own, so its members settle one by one; every other
-    // op keeps a last-resort cap under the container's ceiling.
-    rssLimitKB: type === 'batchtransfer' ? CFG.batchProverRssKB : CFG.settleProverRssKB,
-  });
-  try {
-    const publicValues = await readHex(path.join(cwd, 'public_values.hex'));
-    const proof = await readHex(path.join(cwd, 'proof_bytes.hex'));
-    return { publicValues, proof };
-  } catch (e) {
-    throw new Error(`exec:${type} produced no proof (code=${code}): ${e.message}\n${out.slice(-2000)}`);
+  const attempt = async (extra, ms) => {
+    await rm(path.join(cwd, 'public_values.hex'), { force: true });
+    await rm(path.join(cwd, 'proof_bytes.hex'), { force: true });
+    const { code, out } = await run(bin, {
+      // The per-op binary proves its own op from OP_FILE; OP_TYPE is passed for forward-compat with a future
+      // unified dispatcher but ignored by the single-op binaries.
+      env: proverEnv({ MODE: 'groth16', OP_TYPE: type, OP_FILE: opFile, ...extra }),
+      cwd,
+      timeoutMs: ms,
+      tag: `exec:${type}`,
+      // A batch that cannot prove in this container fails on its own, so its members settle one by one; every other
+      // op keeps a last-resort cap under the container's ceiling.
+      rssLimitKB: type === 'batchtransfer' ? CFG.batchProverRssKB : CFG.settleProverRssKB,
+    });
+    try {
+      const publicValues = await readHex(path.join(cwd, 'public_values.hex'));
+      const proof = await readHex(path.join(cwd, 'proof_bytes.hex'));
+      return { publicValues, proof };
+    } catch (e) {
+      throw new Error(`exec:${type} produced no proof (code=${code}): ${e.message}\n${out.slice(-2000)}`);
+    }
+  };
+  const plan = privateProvePlan(process.env, timeoutMs);
+  if (!plan.fallback) return attempt({}, timeoutMs);
+  // The witness goes as a private input, which only provers that fetch it with the signed GetStdinUri call can read
+  // (PROVER_WHITELIST names them). If none of them proves it in time, it is proved once more with a public input,
+  // so a holder never waits on a prover that is not there; a witness the network could not execute is not sent again.
+  const t0 = Date.now();
+  try { return await attempt({}, plan.privateMs); }
+  catch (e) {
+    if (!retryPublic(e)) throw e;
+    console.log(`[exec:${type}] the private request was not proved (${String(e.message).split('\n')[0].slice(0, 160)}); proving it with a public input`);
+    return attempt({ PRIVATE_STDIN: '0', PROVER_WHITELIST: '' }, Math.max(60_000, timeoutMs - (Date.now() - t0)));
   }
 }
