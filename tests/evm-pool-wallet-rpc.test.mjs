@@ -392,4 +392,76 @@ await check('a feed page is kept as soon as it checks, so a feed that fails part
   assert.deepEqual(b.asked, [], 'and a wallet made again from what was stored has nothing left to read');
 });
 
+await check('a feed read builds the tree a transaction at a time would, in about a hash per leaf, and keeps the same note paths', async () => {
+  const POOLA = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9', ROUTERA = '0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5';
+  const hashes = { two: 0 };
+  const zkc = makeEvmPoolZk({ poseidon: (xs) => { if (xs.length === 2) hashes.two++; return P[xs.length](xs); } });
+  const keys = evmPoolKeys(zkc, new Uint8Array(32).fill(7));
+  const asset = poolAsset({ chainId: 8453n, pool: POOLA, token: '0x0000000000000000000000000000000000000000' });
+  const self = { V: keys.V, A: keys.A, N: keys.N };
+  const hex = (b) => '0x' + Buffer.from(b).toString('hex');
+  const TIP = 200, SPEND_AT = 60;
+  // 120 blocks, one transaction each: every 17th pays this wallet in its first output, block 30 has one output, and
+  // block 60 spends the first paid note and inserts nothing. The same feed is replayed into a tree one append at a time.
+  const events = [], leaves = [], owned = [], ref = zkc.incTree(), sizeOfRoot = new Map([[ref.root, 0]]);
+  let index = 0;
+  for (let b = 1; b <= 120; b++) {
+    const tx = '0x' + b.toString(16).padStart(64, '0');
+    if (b === SPEND_AT) {
+      const k = zkc.ownedKeys(keys.zkWallet, openNote(zkc, keys, { memo: owned[0].memo, leaf: owned[0].leaf, asset }).s);
+      events.push({ kind: 'transact', block: b, tx, firstIndex: index, nf0: String(zkc.nullifier(k.nk, owned[0].leaf, owned[0].index)), nf1: '0', outLeaf0: '0', outLeaf1: '0', memo0: '0x', memo1: '0x' });
+      continue;
+    }
+    let l0 = BigInt(1000 + b), l1 = b === 30 ? 0n : BigInt(5000 + b), memo0 = '0x';
+    if (b % 17 === 0) {
+      const o = sealNote(zkc, { to: self, value: BigInt(b), asset });
+      l0 = zkc.leafOf(asset, o.v, o.npk, o.rho); memo0 = hex(o.memo);
+      owned.push({ index, v: BigInt(b), leaf: l0, memo: o.memo });
+    }
+    events.push({ kind: 'transact', block: b, tx, firstIndex: index, nf0: String(900000 + b), nf1: '0', outLeaf0: String(l0), outLeaf1: String(l1), memo0, memo1: '0x' });
+    leaves.push(l0, l1);
+    ref.append([l0, l1], owned.filter((o) => o.index === index).map((o) => o.index));
+    index += 2; sizeOfRoot.set(ref.root, index);
+  }
+  const kept = owned.slice(1);
+  for (const o of owned.slice(0, 1)) ref.untrack(o.index);
+  // The feed is read in pages of 40 blocks; the node's rootSize is what the pool held after each transaction.
+  const fetchImpl = async (url) => {
+    const from = Number(new URL(url).searchParams.get('from')), through = Math.min(from + 39, TIP);
+    const page = { chainId: 8453, pool: POOLA, through, events: events.filter((e) => e.block >= from && e.block <= through) };
+    return { ok: true, status: 200, headers: new Map(), json: async () => page };
+  };
+  const rpc = async (m, p) => {
+    if (m === 'eth_blockNumber') return '0x' + TIP.toString(16);
+    if (m === 'eth_getLogs') return [];
+    if (m === 'eth_call') return '0x' + BigInt(sizeOfRoot.get(BigInt('0x' + p[0].data.slice(-64))) ?? 0).toString(16).padStart(64, '0');
+    return '0x0';
+  };
+  const kv = new Map();
+  const w = makeEvmPoolWallet({ zk: zkc, keys, prove: null, keeper: 'https://k.test', fetchImpl, store: { get: (k) => kv.get(k) ?? null, set: (k, v) => kv.set(k, v) },
+    chain: { chainId: 8453, pool: POOLA, router: ROUTERA, rpc, deployBlock: 1, confirmations: 0 } });
+  hashes.two = 0;
+  const sum = await w.sync();
+  assert.equal(sum.leaves, leaves.length);
+  assert.equal(sum.balance, kept.reduce((a, o) => a + o.v, 0n), 'the note spent in block 60 is gone and the rest are held');
+  assert.ok(hashes.two < 4 * leaves.length, `${hashes.two} two-input hashes for ${leaves.length} leaves`);
+  const now = JSON.parse(openState(keys.v, [...kv.values()].pop()));
+  assert.equal(now.tree.root, ref.root.toString(), 'the same root as a transaction at a time');
+  assert.equal(now.tree.root, zkc.tree(leaves).root.toString(), 'and as a tree built from all the leaves');
+  assert.deepEqual(Object.keys(now.tree.tracked).map(Number), kept.map((o) => o.index), 'a path for each unspent note only');
+  for (const o of kept) {
+    const path = now.tree.tracked[o.index];
+    assert.deepEqual(path, ref.path(o.index).map(String), `note ${o.index} keeps the path a transaction at a time gives`);
+    let h = o.leaf;
+    for (let d = 0; d < path.length; d++) h = (o.index >> d) & 1 ? P[2]([BigInt(path[d]), h]) : P[2]([h, BigInt(path[d])]);
+    assert.equal(h.toString(), now.tree.root, `note ${o.index}'s path leads to the root`);
+  }
+  // A page whose second transaction skips a pair is not kept: the tree stays empty and the chain-log scan (here empty) has nothing to add.
+  const gap = events.slice(0, 2).map((e, i) => (i ? { ...e, firstIndex: 4 } : e));
+  const w2 = makeEvmPoolWallet({ zk: zkc, keys, prove: null, keeper: 'https://k.test', store: { get: () => null, set: () => {} },
+    fetchImpl: async () => ({ ok: true, status: 200, headers: new Map(), json: async () => ({ chainId: 8453, pool: POOLA, through: TIP, events: gap }) }),
+    chain: { chainId: 8453, pool: POOLA, router: ROUTERA, rpc, deployBlock: 1, confirmations: 0 } });
+  assert.equal((await w2.sync()).leaves, 0, 'a page with a leaf out of order is refused whole');
+});
+
 console.log(`\n${n} checks passed`);

@@ -399,11 +399,13 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
     });
     const found = openNotes(zk, keys, want.map(([i, k]) => ({ memo: transacts[i].memo[k], leaf: transacts[i].outLeaf[k], asset })));
     const opens = new Map(want.map(([i, k], j) => [`${i}:${k}`, found[j]]));
+    // The batch's leaves go into the tree in one append: each call hashes the path to the root, so one call per
+    // transaction costs 32 hashes for every pair, and one for the batch costs about one per leaf.
+    const batch = [], track = [];
     for (const [i, t] of transacts.entries()) {
       for (const nf of t.nf) if (nf !== 0n) spent.add(nf.toString());
       if (t.outLeaf[0] === 0n && t.outLeaf[1] === 0n) continue;
-      if (t.firstIndex !== tree.size) throw new Error(`evm-pool-wallet: leaf ${t.firstIndex} out of order (have ${tree.size})`);
-      const track = [];
+      if (t.firstIndex !== tree.size + batch.length) throw new Error(`evm-pool-wallet: leaf ${t.firstIndex} out of order (have ${tree.size + batch.length})`);
       for (let k = 0; k < 2; k++) {
         const index = t.firstIndex + k;
         leafAt.set(index, t.outLeaf[k]);
@@ -416,8 +418,9 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
           notes.set(`${index}`, withKeys({ index, leaf: t.outLeaf[k].toString(), v: o.v.toString(), rho: o.rho.toString(), s: hex(o.s), block: t.block, tx: t.tx, kind: 'memo' }));
         }
       }
-      tree.append(t.outLeaf, track);
+      batch.push(t.outLeaf[0], t.outLeaf[1]);
     }
+    tree.append(batch, track);
     for (const r of receipts) {
       const i = boxIndex.get(r.box) ?? RECEIVE_INDEX;
       const n = receivedNote(zk, keys.zkWallet, i, r);

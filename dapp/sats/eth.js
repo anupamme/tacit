@@ -6,7 +6,7 @@
 // Link: /sats#eth=<chain id>[&do=send|withdraw] opens this panel on that chain, at that form.
 
 import { makeEvmPoolZk } from '/evm-pool-zk.js?cb=2f062779';
-import { evmPoolKeys, makeEvmPoolWallet, jsonRpc } from '/evm-pool-wallet.js?cb=937aa831';
+import { evmPoolKeys, makeEvmPoolWallet, jsonRpc } from '/evm-pool-wallet.js?cb=9a08137f';
 import { vkHash } from '/evm-pool-zk-prover.js?cb=00ff69c2';
 import { poolRecipient } from '/pool-recipient.js?cb=a9311fc4';
 import { L2_BRIDGES } from '/evm-pool-gateway.js';
@@ -20,7 +20,7 @@ const ARTIFACTS = O.artifacts || '/evm-pool/';
 // keeper: the relay's …/evm-pool/keeper base. deployBlock: where event scans start.
 const CHAINS = O.chains || [
   { chainId: 1, name: 'Ethereum', rpc: ['https://ethereum-rpc.publicnode.com', 'https://mainnet.gateway.tenderly.co', 'https://eth.drpc.org'], explorer: 'https://etherscan.io', keeper: 'https://tacit-evm-pool-keeper.onrender.com/evm-pool/keeper', deployBlock: 26069245, confirmations: 3 },
-  { chainId: 8453, name: 'Base', rpc: ['https://mainnet.base.org', 'https://base.drpc.org'], explorer: 'https://basescan.org', keeper: 'https://tacit-evm-pool-keeper-base.onrender.com/evm-pool/keeper', deployBlock: 51864014, confirmations: 10 },
+  { chainId: 8453, name: 'Base', rpc: ['https://mainnet.base.org', 'https://base.drpc.org', 'https://base.rpc.blxrbdn.com'], explorer: 'https://basescan.org', keeper: 'https://tacit-evm-pool-keeper-base.onrender.com/evm-pool/keeper', deployBlock: 51864014, confirmations: 10 },
   { chainId: 4663, name: 'Robinhood Chain', rpc: ['https://rpc.mainnet.chain.robinhood.com'], explorer: 'https://robinhoodchain.blockscout.com', keeper: 'https://tacit-evm-pool-keeper-robinhood.onrender.com/evm-pool/keeper', deployBlock: 73991661, confirmations: 10 },
 ];
 const CHAIN_PREF = 'tacit-sats-eth-chain-v1';

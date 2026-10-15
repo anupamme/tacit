@@ -1,10 +1,10 @@
 // Brings a key's on-device pool wallet up to date off the page's main thread. Replaying the pool's tree hashes every leaf
-// since the last saved state (Base's history is millions of hashes), which would freeze the page for seconds at a time.
+// since the last saved state (Base's history is tens of thousands of leaves), which would freeze the page for seconds at a time.
 // The page sends the wallet's saved state for one chain; this runs the same wallet code's sync on it and sends back what
 // each state as it is written, so a long history read partway is kept. The page stores them (still only a cache: every
 // balance is found again from the key and the chain), and its own wallet, made from them, then reads only what came after.
 import { makeEvmPoolZk } from '/evm-pool-zk.js?cb=2f062779';
-import { makeEvmPoolWallet, evmPoolKeys, jsonRpc } from '/evm-pool-wallet.js?cb=937aa831';
+import { makeEvmPoolWallet, evmPoolKeys, jsonRpc } from '/evm-pool-wallet.js?cb=9a08137f';
 import { poseidon2, poseidon3, poseidon4, poseidon5, poseidon7 } from '/vendor/tacit-poseidon.min.js';
 
 const PO = { 2: poseidon2, 3: poseidon3, 4: poseidon4, 5: poseidon5, 7: poseidon7 };
