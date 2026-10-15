@@ -370,12 +370,12 @@ test('a gate that cannot read gas or ETH price fails OPEN, not closed', async ()
 
 // ── prove-mode: a bounded subsidy, and a budget that junk cannot drain ─────────
 const submitSrc = worker.slice(worker.indexOf('const budgetKey'), worker.indexOf('async function handleConfidentialJob'));
-function loadSubmit({ cap = '3', freeCap = '3', submitJob, kvStore = new Map(), feeOf = () => 0n, tipPaid = async () => false }) {
+function loadSubmit({ cap = '3', freeCap = '3', submitJob, kvStore = new Map(), feeOf = () => 0n, tipPaid = async () => false, health = async () => ({ status: 'ok', age_seconds: 5, note: 'settle: idle — queue empty' }), expiryOf = (type, op) => (type === 'unwrap' ? Number(op?.opDeadline || 0) : 0) }) {
   const kv = { get: async (k) => (kvStore.has(k) ? kvStore.get(k) : null), put: async (k, v) => { kvStore.set(k, v); } };
-  const mk = new Function('confSettler', 'proveRateLimit', 'jsonResponse', 'hasVerifiableFee', 'totalFee', 'ctx', 'withKvKeyLock', 'wrapTipPaid',
+  const mk = new Function('confSettler', 'proveRateLimit', 'jsonResponse', 'hasVerifiableFee', 'totalFee', 'ctx', 'withKvKeyLock', 'wrapTipPaid', 'readProverKindHealth', 'opExpiry',
     submitSrc + '; return handleConfidentialSubmit;');
   const handler = mk(() => ({ submitJob }), async () => ({ ok: true }), (body, status) => ({ body, status }), () => false, (type, op) => feeOf(type, op), {},
-    (_key, fn) => fn(), tipPaid);
+    (_key, fn) => fn(), tipPaid, health, expiryOf);
   const call = (body) => handler({ json: async () => body, headers: { get: () => '1.2.3.4' } }, { REGISTRY_KV: kv, PROVE_MODE_DAILY_CAP: cap, FREE_RELAY_DAILY_CAP: freeCap }, {});
   return { call, kvStore };
 }
@@ -445,6 +445,40 @@ test('a wrap whose deposit paid its tip stays off the free budget; one that did 
   ok((await call({ type: 'wrap', op: {}, mode: 'settle' })).status === 200, 'an unpaid wrap within the cap is accepted');
   const over = await call({ type: 'wrap', op: {}, mode: 'settle' });
   ok(over.status === 429 && over.body.code === 'free_budget', `an unpaid wrap over the free cap is refused, got ${over.status}`);
+});
+
+// ── a relay that is holding settles or quiet does not queue what would expire in line ──
+const HELD = async () => ({ status: 'ok', age_seconds: 20, note: 'settle: proving only jobs a page settles itself; the rest are held for now' });
+const DL = { opDeadline: Math.floor(Date.now() / 1000) + 3600 };
+test('an unwrap is turned away, in words the pages read as a refusal, while the relay holds settles', async () => {
+  let queued = 0;
+  const { call, kvStore } = loadSubmit({ health: HELD, submitJob: async () => { queued++; return { jobId: 'j', status: 'pending' }; } });
+  const r = await call({ type: 'unwrap', op: DL, mode: 'settle' });
+  ok(r.status === 429 && r.body.code === 'relay_held' && queued === 0, `refused and not queued, got ${r.status}`);
+  ok(/can.t take this one/i.test(r.body.error), 'the words are the ones the pages treat as "the relay cannot take this one"');
+  ok(!/gas|ETH|wallet|funds/i.test(r.body.error), `no word about the relay's wallet: ${r.body.error}`);
+  ok(/your own account/.test(r.body.error), 'it says what to do instead');
+  ok(kvStore.size === 0, 'a refusal spends no budget');
+});
+test('an unwrap is turned away when the relay has gone quiet for over ten minutes', async () => {
+  const { call } = loadSubmit({ health: async () => ({ status: 'down', age_seconds: 900, note: '' }), submitJob: async () => ({ jobId: 'j', status: 'pending' }) });
+  ok((await call({ type: 'unwrap', op: DL, mode: 'settle' })).status === 429, 'a relay quiet for 15 minutes does not take an unwrap that expires in an hour');
+});
+test('a prove-mode unwrap is never turned away: the relay proves it and the holder settles it', async () => {
+  const { call } = loadSubmit({ health: HELD, submitJob: async () => ({ jobId: 'j', status: 'pending' }) });
+  ok((await call({ type: 'unwrap', op: DL, mode: 'prove' })).status === 200, 'prove mode goes through while settles are held');
+});
+test('what does not expire waits in line while the relay holds settles', async () => {
+  const { call } = loadSubmit({ health: HELD, submitJob: async () => ({ jobId: 'j', status: 'pending' }) });
+  ok((await call({ type: 'wrap', op: { deadline: DL.opDeadline }, mode: 'settle' })).status === 200, 'a wrap is queued');
+  ok((await call({ type: 'unwrap', op: {}, mode: 'settle' })).status === 200, 'an unwrap with no deadline is queued');
+});
+test('a healthy relay, a missing heartbeat, or an unreadable one queues the unwrap', async () => {
+  for (const [name, health] of [['healthy', undefined], ['no record yet', async () => ({ status: 'unknown', healthy: false, reasons: [] })], ['unreadable', async () => { throw new Error('kv down'); }],
+    ['stale note, fresh status unknown age', async () => ({ status: 'ok', age_seconds: 900, note: 'settle: proving only jobs a page settles itself; the rest are held for now' })]]) {
+    const { call } = loadSubmit({ ...(health ? { health } : {}), submitJob: async () => ({ jobId: 'j', status: 'pending' }) });
+    ok((await call({ type: 'unwrap', op: DL, mode: 'settle' })).status === 200, `${name}: queued`);
+  }
 });
 
 // wrapTipPaid reads the deposit's receipt: a WrappedWithTip from a known forwarder, for this op's own deposit, tipping

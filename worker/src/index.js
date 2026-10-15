@@ -101,6 +101,7 @@ import { makeBurnDepositTracer } from '../../dapp/burn-deposit-tracer.js';
 import { buildOversight } from './governance-oversight.js';
 import { validateConsumedSource, deriveConsumedSource } from './consumed-source.js';
 import { makeConfidentialPool } from '../../dapp/confidential-pool.js';
+import { opExpiry } from '../../dapp/confidential-relay.js';
 import { CONFIDENTIAL_DEPLOYMENTS as _CONFIDENTIAL_DEPLOYMENTS } from '../../dapp/confidential-deployments.js';
 import { decodeCrossoutMint, CONFIDENTIAL_POOL_DEPLOYMENTS as _CROSSOUT_POOL_DEPLOYMENTS } from '../../dapp/confidential-crossout-consumer.js';
 import { classifyConfidentialTx, makeBurnDepositKit } from '../../dapp/burn-deposit-bitcoin.js';
@@ -3060,6 +3061,18 @@ const spendProveBudget = (env) => spendDailyBudget(env, 'prove');
 const freeRelayBudget = (env) => dailyBudget(env, 'free', Number(env.FREE_RELAY_DAILY_CAP || 300));
 const isFeeless = (type, op) => { try { return !!op && typeof op === 'object' && totalFee(type, op) === 0n; } catch { return false; } };
 
+// A relayed settle of an op that expires (an unwrap, a swap, a pool add) is not queued while the settle relay is holding settles
+// or has gone quiet: it would wait out its own hour in line and fail. It is turned away in the words the pages already read as "the
+// relay cannot take this one" (relayRefused), so they offer to send it from the holder's own account at once, which the relay still
+// proves. What does not expire waits in line as before. Fails open: an unreadable or missing heartbeat queues the job.
+const RELAY_HOLD_NOTE = /a page settles itself|leaving jobs queued/i;
+async function relayHolds(env, type, op) {
+  if (!opExpiry(type, op)) return false;
+  try {
+    const h = await readProverKindHealth(env, 'mainnet', 'settle');
+    return h.status === 'down' || (h.status !== 'unknown' && h.age_seconds <= 600 && RELAY_HOLD_NOTE.test(h.note || ''));
+  } catch { return false; }
+}
 async function handleConfidentialSubmit(req, env, cors) {
   const q = confSettler(env);
   if (!q) return jsonResponse({ error: 'confidential settle not configured' }, 404, { ...cors, 'Cache-Control': 'no-store' });
@@ -3081,6 +3094,9 @@ async function handleConfidentialSubmit(req, env, cors) {
       ? await proveRateLimit(env, ip, 'paid', Number(env.PAID_RL_BURST || 30), Number(env.PAID_RL_REFILL_MS || 10000))
       : await proveRateLimit(env, ip);
     if (!rl.ok) return jsonResponse({ ok: false, error: `too many submit requests — retry in ~${rl.retryAfter}s`, retryAfter: rl.retryAfter }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': String(rl.retryAfter) });
+  }
+  if (submitMode === 'settle' && await relayHolds(env, body.type, body.op)) {
+    return jsonResponse({ ok: false, error: 'the relay can’t take this one just now: it is catching up on settles. Send it from your own account instead; the relay still proves it for you', code: 'relay_held', retryAfter: 300 }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '300' });
   }
   const feeless = submitMode === 'settle' && isFeeless(body.type, body.op) && !(await wrapTipPaid(env, body));
   if (feeless) {
