@@ -58,7 +58,7 @@ function answerCall(to, data) {
   }
   throw new Error('unstubbed selector ' + sel);
 }
-let calls = 0, down = false;
+let calls = 0, down = false, gate = null;   // `gate`: a promise the chain waits on before it answers (a slow node)
 function rpcAnswer(body) {
   calls++;
   if (down) return { status: 500 };
@@ -71,6 +71,7 @@ function rpcAnswer(body) {
   return { body: { jsonrpc: '2.0', id, result } };
 }
 globalThis.fetch = async (url, init) => {
+  if (gate) await gate;
   const r = rpcAnswer(JSON.parse(init.body));
   if (r.status) return new Response('down', { status: r.status });
   return new Response(JSON.stringify(r.body), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -254,6 +255,45 @@ console.log('\nmanager code missing:');
   st = base(); st.treasury = RATE * 90n * BigInt(DAY) + 10n * TAC;
 }
 
+console.log('\na slow chain does not hold a caller who has an answer:');
+{
+  fresh();
+  const first = await get('/farm/program');
+  const perRead = calls;
+  ok('warm the cache (one read is a few calls)', first.status === 200 && perRead > 5);
+  clock += 20_000;
+  let release; gate = new Promise((r) => { release = r; });
+  const base = calls;
+  const raced = await Promise.race([get('/farm/program'), new Promise((r) => setTimeout(() => r('held'), 500))]);
+  ok('an answer past its few seconds is served while the chain is slow', raced !== 'held' && raced.status === 200 && (await raced.json()).stale === false);
+  const more = await Promise.race([Promise.all([get('/farm/program'), get('/farm/program')]), new Promise((r) => setTimeout(() => r('held'), 500))]);
+  ok('so are the callers after it', more !== 'held' && more.every((x) => x.status === 200));
+  release(); gate = null;
+  await new Promise((r) => setTimeout(r, 80));
+  ok('all of them shared one read behind them', calls - base === perRead, `${calls - base} calls for ${perRead} in one read`);
+  const h = await get('/farm/health');
+  ok('health is not served from behind: it is the fresh read', h.status === 200);
+}
+
+console.log('\nthe next answer is read ahead of time while callers ask, and stops when they stop:');
+{
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  env.FARM_WARM_MS = 40; env.FARM_IDLE_MS = 400;                 // the real timer, at test speed
+  try {
+    fresh();
+    await get('/farm/program');
+    const perRead = calls;
+    clock += 60;                                                  // the answer is now older than the timer's interval
+    const before = calls;
+    await sleep(150);
+    ok('a timer reads a fresh answer before the last runs out', calls - before === perRead, `${calls - before} calls for ${perRead} in one read`);
+    clock += 1000;                                                // nobody has asked for longer than the idle limit
+    const idle = calls;
+    await sleep(150);
+    ok('nothing is read once nobody has asked for a while', calls === idle, `${calls - idle} calls`);
+  } finally { delete env.FARM_WARM_MS; delete env.FARM_IDLE_MS; }
+}
+
 console.log('\nRPC failure and stale-if-error:');
 {
   fresh();
@@ -262,7 +302,11 @@ console.log('\nRPC failure and stale-if-error:');
   clock += 20_000; down = true;
   const s = await get('/farm/program');
   const sb = await s.json();
-  ok('an expired entry is served stale on failure', s.status === 200 && sb.stale === true && s.headers.get('X-Farm-Stale') === '1');
+  ok('an expired entry is served at once, while the next read runs behind it', s.status === 200 && sb.stale === false);
+  await new Promise((r) => setTimeout(r, 30));
+  const s2 = await get('/farm/program');
+  const sb2 = await s2.json();
+  ok('and is marked stale once that read has failed', s2.status === 200 && sb2.stale === true && s2.headers.get('X-Farm-Stale') === '1');
   const sh = await (await get('/farm/health')).json();
   ok('health serves stale too', sh.stale === true && sh.status === 'ok');
   clock += 120_000;

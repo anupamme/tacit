@@ -93,6 +93,7 @@ import { buildConfidentialSettler } from './confidential-settle.js';
 import { passesFloor, feeAssetOf, floorInFeeUnits, totalFee, decodePoolState, ammUsdPerUnitBest, AMM_PRICE_DEFAULTS } from './relay-quote.js';
 import { makeConfidentialIndex } from './confidential-index.js';
 import { buildFlow, appendSeries, flowPoint } from './flow-feed.js';
+import { ethStatsBody } from './stats-views.js';
 import { buildCrossoutConsumer, crossoutMintLeaf } from './crossout-consumer.js';
 import { buildGovernance } from './governance.js';
 import { makeTacAncestry } from './tac-ancestry.js';
@@ -1750,6 +1751,11 @@ async function handleStats(env, cors, url) {
   if (url && url.searchParams.get('view') === 'front') {
     if (_stats.frontOf !== _stats.body) { try { _stats.front = frontStatsBody(_stats.body); _stats.frontOf = _stats.body; } catch { _stats.front = null; } }
     if (_stats.front) body = _stats.front;
+  }
+  // `?view=eth`: the pool's ETH reading alone (the tETH page), built once per reading like the front view.
+  else if (url && url.searchParams.get('view') === 'eth') {
+    if (_stats.ethOf !== _stats.body) { try { _stats.eth = ethStatsBody(_stats.body); _stats.ethOf = _stats.body; } catch { _stats.eth = null; } }
+    if (_stats.eth) body = _stats.eth;
   }
   return new Response(body, { status: 200, headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60' } });
 }
