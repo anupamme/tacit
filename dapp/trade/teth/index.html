@@ -6,7 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://tacit-api.onrender.com https://api.coinbase.com https://api.kraken.com https://api.coingecko.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://www.tacitscan.io https://ipfs.filebase.io; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
 <meta name="color-scheme" content="light dark">
 <title>tacit trade · tETH</title>
-<meta name="description" content="tETH is private ETH: put ETH in the Tacit pool and hold, send, swap, farm or bridge it to Bitcoin without the chain showing whose it is. Make ETH private here, see the pool, and the private farms that pair it.">
+<meta name="description" content="tETH is private ETH. Put ETH in the Tacit pool, then hold, send, swap, farm or bridge it to Bitcoin without the chain showing whose it is.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="tacit">
 <link rel="canonical" href="https://tacit.finance/trade/teth/">
@@ -20,7 +20,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /trade/teth/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/trade/teth/app.js?cb=4ef7eeea">
+<link rel="modulepreload" href="/trade/teth/app.js?cb=ec9f7eee">
 <link rel="modulepreload" href="/trade/chart.js?cb=e2110e58">
 <link rel="modulepreload" href="/trade/fmt.js?cb=43646c2e">
 <link rel="modulepreload" href="/trade/connect.js?cb=79211ff3">
@@ -533,7 +533,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
 
   <div class="grid">
     <section class="panel p-chart" aria-labelledby="chart-h">
-      <h2 class="eyebrow" id="chart-h"><span class="pairtk" id="chart-pair"><svg class="tk sm" aria-hidden="true"><use href="#tk-teth"/></svg></span><span id="chart-name">tETH · private ETH held in the pool</span></h2>
+      <h2 class="eyebrow" id="chart-h"><span class="pairtk" id="chart-pair"><svg class="tk sm" aria-hidden="true"><use href="#tk-teth"/></svg></span><span id="chart-name">ETH held in the pool</span></h2>
       <div class="bar">
         <div class="seg" id="lane-seg" role="group" aria-label="What the chart draws">
           <button type="button" data-chart="held" aria-pressed="true">ETH held</button>
@@ -608,7 +608,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
       <h2 class="eyebrow" id="i-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-teth"/></svg>About tETH</h2>
       <div class="prose" id="about"></div>
       <ul class="facts" id="facts"></ul>
-      <details class="more"><summary>The pool, the relay and the contracts</summary><ul class="facts" id="facts-more"></ul></details>
+      <details class="more"><summary>Contracts and pools</summary><ul class="facts" id="facts-more"></ul></details>
     </section>
   </div>
 
@@ -628,6 +628,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/teth/app.js?cb=4ef7eeea"></script>
+<script type="module" src="/trade/teth/app.js?cb=ec9f7eee"></script>
 </body>
 </html>

@@ -191,10 +191,10 @@ try {
   const asset = await p.$$eval('.assets a', (as) => as.map((a) => [a.textContent.trim(), a.getAttribute('href'), a.getAttribute('aria-current')]));
   ok(asset.length === 3 && asset[0][1] === '/trade/tac/' && asset[1][0] === 'tETH' && asset[1][2] === 'page' && asset[2][1] === '/trade/cbtc/', 'a switch names the three markets and marks this one');
   const sum = await text(p, '#hints-sum');
-  ok(/Wrapped \$2,441/.test(sum) && /in the pools \$\d/.test(sum) && /apart/.test(sum), `the dropdown's line gives the wrapped value and the pools' range (${sum})`);
+  ok(/Pool rate \$2,441/.test(sum) && /in private pools \$\d/.test(sum) && /apart/.test(sum), `the dropdown's line gives the wrapped value and the pools' range (${sum})`);
   await p.click('#hints summary');
   const lanes = await p.$$eval('#lanes .lane', (ls) => ls.map((l) => l.textContent.replace(/\s+/g, ' ').trim()));
-  ok(lanes.length === 5 && /Wrapped/.test(lanes[0]) && lanes.some((l) => /On Bitcoin.*not listed yet/.test(l)) && lanes.some((l) => /TAC pool/.test(l)) && lanes.some((l) => /cUSD pool/.test(l)) && lanes.some((l) => /cBTC pool/.test(l)), `one lane for the wrapped rate, one for each pool that pairs tETH and one for Bitcoin, which says it has no listing yet (${lanes.length})`);
+  ok(lanes.length === 5 && /Pool rate/.test(lanes[0]) && lanes.some((l) => /On Bitcoin.*not listed yet/.test(l)) && lanes.some((l) => /TAC pool/.test(l)) && lanes.some((l) => /cUSD pool/.test(l)) && lanes.some((l) => /cBTC pool/.test(l)), `one lane for the wrapped rate, one for each pool that pairs tETH and one for Bitcoin, which says it has no listing yet (${lanes.length})`);
   // each pool's price is its reserves' ratio, checked against the fixture
   const cusd = program.pools.find((x) => x.pair === 'cETH/cUSD'), per = Number(cusd.reserves.reserveB) / Number(cusd.reserves.reserveA);
   ok(lanes.some((l) => /cUSD pool/.test(l) && l.includes(`$${Math.round(per)}`) || l.includes(`$${per.toFixed(2)}`)), `the cUSD pool's price is its reserves' ratio, ${per.toFixed(2)} cUSD a tETH`);
@@ -226,7 +226,7 @@ try {
   const mv = await p.$$eval('#moves tbody tr', (rs) => rs.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
   ok(mv.length === 10 && /ETH (in|out)/.test(mv[0]) && /2 h ago/.test(mv[0]), `the newest ten movements, the newest first (${mv[0]})`);
   ok(/24h .* in, .* out/.test(await text(p, '#mv-sum')), 'a line sums the day and the week');
-  ok((await text(p, '#about')).includes('ETH made private'), 'the about text says what tETH is');
+  ok((await text(p, '#about')).includes('is private ETH'), 'the about text says what tETH is');
   ok(r.errors.length === 0 && r.blocked.length === 0, `no page error and nothing blocked by the CSP (${[...r.errors, ...r.blocked].join(' | ').slice(0, 200)})`);
   // the pool's figures that can be read here
   const calls = r.seen.join(' ');
@@ -309,7 +309,7 @@ try {
   ok(/Ethereum wallet/.test(ways) && /Open your Tacit wallet/.test(ways) && !/Bitcoin wallet/.test(ways), 'the key is offered from an Ethereum wallet or a passkey (no Bitcoin wallet: that is tacit.finance\'s)');
   await p.click('.bsheet.top [data-in="eth"]');
   await until(p, () => !document.querySelector('.bsheet'), null, 15000);
-  await until(p, () => /Preparing your note|Confirm the deposit/.test(document.querySelector('#status').textContent) || document.querySelector('#steps li[data-s="now"]'));
+  await until(p, () => /Preparing the deposit|Confirm the deposit/.test(document.querySelector('#status').textContent) || document.querySelector('#steps li[data-s="now"]'));
   await shot(p, 'steps');
   const steps = await p.$$eval('#steps li', (ls) => ls.map((l) => `${l.dataset.s}:${l.textContent}`));
   ok(steps.length === 5 && /^done:Open your Tacit wallet/.test(steps[0]), `the steps show, the key's already done (${steps.map((x) => x.split(':')[0]).join(' ')})`);
@@ -459,7 +459,7 @@ try {
   ok(!(await p.$('#btc-actions button')) && !(await p.$('#btc-actions a')) && (await p.$eval('#btc-depth', (e) => e.hidden)), 'no way to trade is offered until there is something to trade');
   const facts = await text(p, '#btc-facts');
   ok(/3 holders on Bitcoin · 2 transfers/.test(facts), `what is known of tETH on Bitcoin (${facts})`);
-  ok(/change hands together in the transaction that takes it/.test(await text(p, '#btc-note')) && (await p.$eval('#btc-note a', (a) => a.getAttribute('href'))) === '/#private/bitcoin', 'it says how a listing settles and where tETH comes from');
+  ok(/change hands in the same transaction/.test(await text(p, '#btc-note')) && (await p.$eval('#btc-note a', (a) => a.getAttribute('href'))) === '/#private/bitcoin', 'it says how a listing settles and where tETH comes from');
   ok((await p.$$eval('#lane-seg button', (b) => b.map((x) => x.textContent))).join() === 'ETH held', 'the chart offers no Bitcoin price while there is none');
   ok(r.errors.length === 0 && r.blocked.length === 0, `no page error (${[...r.errors, ...r.blocked].join(' | ').slice(0, 160)})`);
   await r.browser.close();
@@ -499,7 +499,7 @@ try {
   const kindsNow = await p.$$eval('#lane-seg button', (b) => b.map((x) => x.textContent));
   ok(kindsNow.join() === 'ETH held,On Bitcoin', `with trades, the chart offers tETH's price on Bitcoin (${kindsNow.join(' | ')})`);
   await p.click('#lane-seg [data-chart="btc"]');
-  await until(p, () => /price on the Bitcoin order book/.test(document.querySelector('#chart-name').textContent) && document.querySelector('#chart .line'));
+  await until(p, () => /price on Bitcoin/.test(document.querySelector('#chart-name').textContent) && document.querySelector('#chart .line'));
   await shot(p, 'btc-chart');
   const rd = await text(p, '#ch-read');
   ok(/\$/.test(rd) && /vs ETH/.test(rd) && /tETH traded/.test(rd), `the readout gives the price, the move, and how far it sits from ETH (${rd.slice(0, 120)})`);
@@ -509,7 +509,7 @@ try {
   await until(p, () => /sats/.test(document.querySelector('#ch-read').textContent));
   ok(/M sats/.test(await text(p, '#ch-read')), 'the same in sats');
   await p.click('#lane-seg [data-chart="held"]');
-  await until(p, () => /private ETH held/.test(document.querySelector('#chart-name').textContent));
+  await until(p, () => /ETH held in the pool/.test(document.querySelector('#chart-name').textContent));
   ok(/ETH/.test(await text(p, '#ch-read')) && (await p.$$eval('#view-seg button', (b) => b.map((x) => x.textContent))).join() === 'ETH,USD', 'and back to the ETH held');
   ok(r.errors.length === 0 && r.blocked.length === 0, `no page error with a book (${[...r.errors, ...r.blocked].join(' | ').slice(0, 160)})`);
   await r.browser.close();

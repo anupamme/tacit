@@ -48,7 +48,7 @@ function renderLanes() {
   $('#hints-sum').innerHTML = px != null
     ? `<span>Bitcoin <b>${usd(px)}</b></span>${priced.length ? `<span>· cBTC in pools <b>${usd(lo)}${lo === hi ? '' : ` to ${usd(hi)}`}</b></span>` : ''}${apart >= 0.01 ? `<span class="apart">· ${priced.length === 1 ? '' : 'up to '}${Math.round(apart * 100)}% off</span>` : ''}` : 'cBTC prices';
   $('#lanes').innerHTML = cards.map((c) => `<div class="lane"><span class="k"><i class="sw" style="background:${c.sw}"></i>${esc(c.name)}</span><span class="v num">${c.idle ? '—' : c.v == null && c.name !== 'Bitcoin' ? '<i class="sk"></i>' : usd(c.v)}</span><span class="s num">${esc(c.s || '')}</span><span class="g ${c.gap != null && Math.abs(c.gap) >= 0.01 ? 'dev' : ''}">${esc(c.g || '')}</span></div>`).join('');
-  $('#gapnote').textContent = apart >= 0.01 ? 'Each pool prices cBTC from its own reserves, so a small one can drift far from BTC. Swaps settle at the pool price.' : '';
+  $('#gapnote').textContent = apart >= 0.01 ? 'Each pool prices cBTC from its own reserves, so a small one can drift far from BTC. Swaps happen at the pool\'s price.' : '';
 }
 
 // ── what stands behind it ──
@@ -62,7 +62,7 @@ function renderBacking() {
   if (cov) {
     const scale = Math.max(2, Math.ceil((cov.ratio || 0) * 4) / 4 + 0.25), w = Math.min(100, (cov.ratio / scale) * 100), tick = (1.5 / scale) * 100, wstTxt = grp(Number(T.bond) / 1e18, 2);
     rows.push(row('ETH bond', `${Math.round(cov.ratio * 100)}% of locked BTC`, `<div class="cov-bar"><i class="eth" style="width:${w.toFixed(1)}%"></i><u style="left:${tick.toFixed(1)}%" title="1.5×"></u></div>`,
-      `<b>${wstTxt} wstETH</b> (${compact(cov.bondUsd)}) in ${grp(T.bonds, 0)} bond${T.bonds === 1 ? '' : 's'}. Each lock needs at least 1.5× (dashed line). Spend the BTC without redeeming and the bond is lost.`));
+      `<b>${wstTxt} wstETH</b> (${compact(cov.bondUsd)}) in ${grp(T.bonds, 0)} bond${T.bonds === 1 ? '' : 's'}. Each lock needs a bond of at least 1.5× (dashed line). Spend the BTC without redeeming and its bond is lost.`));
   } else rows.push(row('ETH bond', `${grp(Number(T.bond) / 1e18, 2)} wstETH`, '', 'Held by the collateral engine.'));
   const mintedPct = T.locked > 0n ? Number(T.minted * 1000n / T.locked) / 10 : null;
   rows.push(row('cBTC minted', `${esc(btcTxt(T.minted))} of ${esc(btcTxt(T.locked))}`, mintedPct != null ? `<div class="cov-bar"><i style="width:${Math.min(100, mintedPct)}%"></i></div>` : '', `${grp(T.mints, 0)} of ${grp(T.locks, 0)} live lock${T.locks === 1 ? '' : 's'} minted, 1:1.${T.tacbtc > 0n ? ` ${esc(grp(Number(T.tacbtc) / 1e18, 5))} BTC withdrawn as public tacBTC.` : ''}`));
@@ -139,7 +139,7 @@ function renderRoute() {
   el.innerHTML = `<div class="kv"><span>You get</span><b>${esc(btcTxt(z.sats))} cBTC${px ? ` <span class="mute">· ${compact(Number(z.sats) / 1e8 * px)}</span>` : ''}</b></div>
     <div class="kv"><span>ETH bond, at least</span><b>${esc(ethTxt)} ETH${ethUsd() ? ` <span class="mute">· ${compact(Number(z.eth) / 1e18 * ethUsd())}</span>` : ''}</b></div>
     ${max ? `<div class="kv"><span>Borrow up to</span><b>about ${esc(grp(max, max >= 100 ? 0 : 2))} cUSD <span class="mute">at the ${D.engine.ratio}% floor</span></b></div>` : ''}
-    <p class="note">The bond is held as wstETH, 10% above the minimum, and moves with prices. You can mint about 4 hours after the lock confirms.</p>`;
+    <p class="note">The bond is held as wstETH, 10% over the minimum, and its value moves with ETH. Minting opens about 4 hours after the lock confirms.</p>`;
 }
 
 // ── the key: sign in for the locks, the cBTC, the loans and the farm positions it holds ──
@@ -227,7 +227,7 @@ function renderPools() {
   if (tb.__h !== html) { tb.__h = html; tb.innerHTML = html; }
   const dusty = rows.filter((r) => (r.depthUsd ?? 0) < DUST_USD).length;
   $('#pl-sum').textContent = rows.length ? `${rows.length} pool${rows.length === 1 ? '' : 's'}` : '';
-  $('#pl-note').textContent = `Private AMM pools. Swaps are private and settle at the pool price. Farms pay TAC to liquidity providers.${dusty ? ' Dust pools are too small to price.' : ''}`;
+  $('#pl-note').textContent = `Private pools. Swaps are private and happen at the pool's price. Farms pay TAC to liquidity providers.${dusty ? ' Dust pools are too small to price.' : ''}`;
 }
 function renderFarm() {
   const p = D.program, e = p?.epoch, rows = D.rows.filter((r) => r.farm), px = usdBtc();
@@ -252,8 +252,8 @@ function renderFarm() {
 // ── about ──
 function renderAbout() {
   const link = (a, t) => `<a href="${SCAN}address/${a}" target="_blank" rel="noopener noreferrer">${t || `${a.slice(0, 8)}…${a.slice(-6)}`}</a>`;
-  $('#about').innerHTML = `<p><b>cBTC</b> is bitcoin you keep, usable privately on Ethereum. Lock BTC at your own address, post an ETH bond of at least 1.5×, and mint the same amount of cBTC. Swap it, farm it or borrow cUSD against it.</p>
-    <p>If you spend locked BTC without redeeming, you lose the bond. All backing is public. <a href="/weld/stats/">Stats →</a></p>`;
+  $('#about').innerHTML = `<p><b>cBTC</b> is bitcoin you keep, usable privately on Ethereum. Lock BTC at your own address, post an ETH bond of at least 1.5×, and mint the same amount of cBTC. Then swap it, farm it, or borrow cUSD against it.</p>
+    <p>Spend a locked BTC without redeeming and its bond is lost. The backing is all public. <a href="/weld/stats/">Stats →</a></p>`;
   const main = [
     ['On Bitcoin', 'Each lock is spendable only by its owner.'],
     ['On Ethereum', `The collateral engine ${link(ENGINE)} prices BTC, holds bonds as ${link(WSTETH, 'wstETH')} and lends cUSD at ${D.engine?.ratio ?? 150}% collateral. Liquidation below ${D.engine?.liq ?? 130}%.`],
