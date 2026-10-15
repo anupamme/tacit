@@ -104,7 +104,7 @@ fn main() {
         .groth16()
         .cycle_limit(512_000_000)
         .gas_limit(4_000_000_000)
-        .private_stdin(true)
+        .private_stdin(std::env::var("PRIVATE_STDIN").as_deref() == Ok("1"))
         .run()
         .expect("groth16 proof failed");
     println!("PROVED groth16 batch pv_bytes={}", proof.public_values.as_slice().len());

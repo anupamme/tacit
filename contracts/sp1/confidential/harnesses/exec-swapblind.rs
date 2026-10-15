@@ -296,7 +296,7 @@ fn main() {
         .groth16()
         .cycle_limit(16_000_000_000)
         .gas_limit(16_000_000_000)
-        .private_stdin(true)
+        .private_stdin(std::env::var("PRIVATE_STDIN").as_deref() == Ok("1"))
         .run()
         .expect("groth16 proof failed");
     println!(
