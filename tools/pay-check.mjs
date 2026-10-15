@@ -20,7 +20,7 @@
 //          asset's transfer index for payments to the key, says what came of it, and counts the transfers it could not read
 //   firstrun no network: a first visit with no wallet leads with a new passkey wallet, a failed way in is said beside the options, and
 //          every module a page preloads is fetched once
-//   wc     no network: WalletConnect on /pay and /pay/eth over a stand-in for its bundle (tests/wc-fake.mjs): with no wallet in the browser a new wallet still
+//   wc     no network: WalletConnect on /pay, /pay/eth and /tac over a stand-in for its bundle (tests/wc-fake.mjs): with no wallet in the browser a new wallet still
 //          leads and the Ethereum wallet option names WalletConnect, a wallet app opens the key with two signatures (the page says "Approve in your wallet" while each waits),
 //          a reload opens it again through the kept session, Disconnect ends the session and locks the key
 //   saved  no network: the key saved in this browser, behind a passphrase, opens on /pay/ and /pay/eth/ through the passphrase
@@ -530,14 +530,14 @@ try {
   }
 
   if (ONLY.has('wc')) {
-    console.log('WalletConnect (/pay and /pay/eth, no network, a stand-in for its bundle)');
+    console.log('WalletConnect (/pay, /pay/eth and /tac, no network, a stand-in for its bundle)');
     const secp = await import('@noble/secp256k1'), { keccak_256 } = await import('@noble/hashes/sha3'), { hmac } = await import('@noble/hashes/hmac'), { sha256 } = await import('@noble/hashes/sha256');
     const { useWcFake } = await import('../tests/wc-fake.mjs');
     secp.etc.hmacSha256Sync = (k, ...m) => hmac(sha256, k, secp.etc.concatBytes(...m));
     const KEY = Buffer.from('7'.repeat(63) + '1', 'hex'), origin = new URL(URL_).origin;
     const ADDR = '0x' + Buffer.from(keccak_256(secp.getPublicKey(KEY, false).slice(1)).slice(12)).toString('hex');
     const personalSign = (hex) => { const m = Buffer.from(hex.replace(/^0x/, ''), 'hex'); const sg = secp.sign(keccak_256(Buffer.concat([Buffer.from(`\x19Ethereum Signed Message:\n${m.length}`), m])), KEY); return '0x' + sg.toCompactHex() + (27 + sg.recovery).toString(16); };
-    for (const path of ['/pay/', '/pay/eth/']) {
+    for (const { path, chip, sheet } of [{ path: '/pay/', chip: '#wallet', sheet: '#sheet-wallet' }, { path: '/pay/eth/', chip: '#wallet', sheet: '#sheet-wallet' }, { path: '/tac/', chip: '#wallet-chip', sheet: '#connect-sheet' }]) {
       const asked = [], waiting = [];
       const { ctx, p, errors } = await page(browser, { route: async (c) => { await c.route(/^https?:\/\/(?!127\.0\.0\.1)/, (r) => r.abort()); } });
       await useWcFake(ctx, { account: ADDR });
@@ -548,12 +548,12 @@ try {
         return personalSign(params[0]);
       });
       await p.goto(origin + path);
-      await p.waitForSelector('#g-in');
-      await p.click('#wallet'); await p.waitForSelector('#sheet-wallet[open] .opt');
-      const order = await p.$$eval('#sheet-wallet .opt .opt-t', (x) => x.map((e) => e.textContent.trim()));
-      const eth = await p.$eval('#sheet-wallet [data-in="eth"] .opt-m', (e) => e.textContent);
+      await p.waitForSelector(chip);
+      await p.click(chip); await p.waitForSelector(`${sheet}[open] .opt`);
+      const order = await p.$$eval(`${sheet} .opt .opt-t`, (x) => x.map((e) => e.textContent.trim()));
+      const eth = await p.$eval(`${sheet} [data-in="eth"] .opt-m`, (e) => e.textContent);
       ok(order[0] === 'Create a wallet' && /WalletConnect/.test(eth), `${path}: with no wallet in the browser a new wallet still leads, and the Ethereum wallet option names WalletConnect (${order.join(' · ')})`);
-      await p.click('#sheet-wallet [data-in="eth"]');
+      await p.click(`${sheet} [data-in="eth"]`);
       await p.waitForSelector('#sheet-wc[open] .wc-qr svg');
       ok(/Connect a wallet app/.test(await p.textContent('#wc-h')) && /Copy link/.test(await p.textContent('#wc-body')), `${path}: the pairing sheet shows a code and a link to copy`);
       await p.evaluate(() => window.__wcfake.approve());
@@ -561,12 +561,12 @@ try {
       const first = await p.textContent('#wallet-label');
       ok(!(await p.$('#sheet-wc[open]')) && asked.join(' ') === 'personal_sign personal_sign' && waiting.every((t) => t === 'Approve in your wallet'), `${path}: the wallet app opens the key with two signatures, and the page says where to approve (${first.slice(0, 18)}…)`);
       asked.length = 0;
-      await p.reload(); await p.waitForSelector('#g-in');
-      await p.click('#wallet'); await p.waitForSelector('#sheet-wallet[open] [data-in="known"]');
-      await p.click('#sheet-wallet [data-in="known"]');
+      await p.reload(); await p.waitForSelector(chip);
+      await p.click(chip); await p.waitForSelector(`${sheet}[open] [data-in="known"]`);
+      await p.click(`${sheet} [data-in="known"]`);
       await p.waitForFunction(() => /^tacit1/.test(document.querySelector('#wallet-label')?.textContent || ''), null, { timeout: 60e3 });
       ok((await p.textContent('#wallet-label')) === first && (await p.evaluate(() => window.__wcfake.pairs)) === 0 && asked.join(' ') === 'personal_sign', `${path}: a reload opens the same key through the kept session, no new pairing (${asked.join(' ')})`);
-      await p.click('#wallet'); await p.waitForSelector('#w-wc-off');
+      await p.click(chip); await p.waitForSelector('#w-wc-off');
       await p.click('#w-wc-off');
       await p.waitForFunction(() => !/^tacit1/.test(document.querySelector('#wallet-label')?.textContent || ''), null, { timeout: 30e3 });
       ok((await p.evaluate(() => window.__wcfake.disconnected)) === 1, `${path}: Disconnect ends the session and locks the key it opened`);

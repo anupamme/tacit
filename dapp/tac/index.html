@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-api.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://tacit-btc-pool.onrender.com https://tacit-btc-pool-relay.onrender.com https://api.coinbase.com https://api.kraken.com https://api.coingecko.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://tacit-api.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://tacit-btc-pool.onrender.com https://tacit-btc-pool-relay.onrender.com https://api.coinbase.com https://api.kraken.com https://api.coingecko.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit tac</title>
 <meta name="description" content="Shield TAC in a Bitcoin-native pool. Hidden amounts, unlinkable payments, withdraw anywhere.">
@@ -276,6 +276,8 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(2px); }
 .picker button { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 14px; background: var(--field); border: 1px solid var(--hair-2); cursor: pointer; text-align: left; }
 @media (hover: hover) { .picker button:hover { border-color: var(--ink); } }
 .picker img { width: 28px; height: 28px; }
+.wc-qr { width: min(264px, 100%); margin: 6px auto 18px; padding: 14px; background: #fff; border: 1px solid var(--hair); }
+.wc-qr svg { display: block; width: 100%; height: auto; }
 
 @media (max-width: 640px) {
   .top { gap: 12px; }
@@ -478,6 +480,12 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(2px); }
     <div id="pick-body"></div>
   </div>
 </dialog>
+<dialog class="sheet" id="sheet-wc" aria-labelledby="wc-h">
+  <div class="sheet-in">
+    <div class="sheet-head"><h2 id="wc-h" tabindex="-1" autofocus>Connect a wallet app</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+    <div id="wc-body"></div>
+  </div>
+</dialog>
 
 <div class="modal" id="pass-modal">
   <form id="pass-form" role="dialog" aria-modal="true" aria-labelledby="pass-title">
@@ -490,6 +498,6 @@ dialog.sheet::backdrop { background: var(--scrim); backdrop-filter: blur(2px); }
   </form>
 </div>
 <div class="toasts" id="toast-container" popover="manual"></div>
-<script type="module" src="/tac/app.js?cb=11dab269"></script>
+<script type="module" src="/tac/app.js?cb=0a96270c"></script>
 </body>
 </html>

@@ -9,6 +9,7 @@
 //   announceWalletConnect({ projectId, chains, rpcMap, metadata, onPair, onAsk }) → { provider, disconnect }
 //   wcSheets(open) → { onPair, onAsk }        open(title, onClose) → { body, close }
 //   dialogHost({ dialog, title, body }) → open    for a page that keeps its sheets in a <dialog>
+//   overlayHost() → open                          for a page with no sheets of its own: a <dialog> that brings its own look
 
 // The project is zSwap's, shared: an allowlist set on it must name tacit.finance too.
 export const WC_PROJECT_ID = '1e8390ef1c1d8a185e035912a1409749';
@@ -97,6 +98,7 @@ export function announceWalletConnect({ projectId, chains, rpcMap, metadata, onP
     removeListener(ev, fn) { listeners.get(ev)?.delete(fn); wc?.p.removeListener(ev, fn); return provider; },
     // The wallet app the session is with, by the name it gave; '' before a session.
     peerName: () => (wc?.p.session ? peer(wc.p).name : ''),
+    endSession: () => disconnect(),
   };
   // Ends the session in the wallet app too, and reads to the page as the wallet locking. Nothing to do when WalletConnect
   // was never used here.
@@ -159,5 +161,37 @@ export function dialogHost({ dialog, title, body }) {
     dialog.addEventListener('close', () => { if (use === mine) onClose?.(); }, { once: true });
     if (!dialog.open) dialog.showModal();
     return { body, close: () => { if (use === mine && dialog.open) dialog.close(); } };
+  };
+}
+
+// A <dialog> that brings its own look, for a page with none of its own (it takes the page's text and background colours). Its content is the same as any other host's.
+const OVERLAY_CSS = `.wcx { width: min(460px, calc(100vw - 32px)); max-height: 90vh; padding: 22px 22px 26px; overflow: auto; color: CanvasText; background: Canvas; border: 1px solid currentColor; font: 14px/1.5 system-ui, sans-serif; }
+.wcx::backdrop { background: rgba(0,0,0,.45); }
+.wcx .wcx-head { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; }
+.wcx h2 { margin: 0; font-size: 22px; font-weight: 500; }
+.wcx h2:focus { outline: none; }
+.wcx .wcx-x { margin-left: auto; width: 40px; height: 40px; font-size: 22px; line-height: 1; color: inherit; background: none; border: 1px solid transparent; cursor: pointer; }
+.wcx .lede-s, .wcx .note { margin: 0 0 12px; font-size: 13px; opacity: .75; }
+.wcx .wc-qr { width: min(264px, 100%); margin: 6px auto 16px; padding: 14px; background: #fff; border: 1px solid #0003; }
+.wcx .wc-qr svg { display: block; width: 100%; height: auto; }
+.wcx .btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 48px; padding: 8px 14px; box-sizing: border-box; font: inherit; color: Canvas; background: CanvasText; border: 1px solid CanvasText; text-decoration: none; cursor: pointer; }
+.wcx .btn.ghost { color: CanvasText; background: transparent; }
+@media (max-width: 560px) { .wcx { width: 100vw; max-width: 100vw; margin: auto 0 0; max-height: 92vh; border-width: 1px 0 0; } }`;
+export function overlayHost() {
+  let open = null;
+  return (text, onClose) => {
+    if (!open) {
+      const dialog = document.createElement('dialog');
+      dialog.className = 'wcx';
+      dialog.setAttribute('aria-labelledby', 'wcx-h');
+      if (!document.getElementById('wcx-style')) document.head.append(Object.assign(document.createElement('style'), { id: 'wcx-style', textContent: OVERLAY_CSS }));
+      dialog.innerHTML = `<div class="wcx-head"><h2 id="wcx-h" tabindex="-1"></h2><button class="wcx-x" type="button" aria-label="Close">×</button></div><div class="wcx-body"></div>`;
+      const title = dialog.querySelector('h2'), body = dialog.querySelector('.wcx-body');
+      dialog.querySelector('.wcx-x').onclick = () => dialog.close();
+      dialog.addEventListener('mousedown', (e) => { if (e.target === dialog) dialog.close(); });
+      document.body.append(dialog);
+      open = dialogHost({ dialog, title, body });
+    }
+    return open(text, onClose);
   };
 }

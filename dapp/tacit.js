@@ -1599,11 +1599,12 @@ const ethWallet = {
   derivationMsg: _ethDerivationMsg,
 
   available() {
-    return !!_ethProvider();
+    return !!_ethProvider() || _walletConnectOffered();
   },
 
   async connect() {
     try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch {}
+    await _ensureWalletConnect();
     let provider = _ethSelectedProvider;
     if (!provider) {
       if (_ethProviders.length >= 2) {
@@ -1754,7 +1755,7 @@ const ethWallet = {
     if (!provider?.on || provider._tacitIdAccountsBound) return;
     provider._tacitIdAccountsBound = true;
     provider.on('accountsChanged', (accounts) => {
-      if (wallet.mode !== 'eth') return;
+      if (wallet.mode !== 'eth' || !this.state) return;
       const cur = (Array.isArray(accounts) && accounts.length)
         ? String(accounts[0]).toLowerCase().replace(/^0x/, '') : null;
       if (cur === boundAddr) return;
@@ -1793,7 +1794,12 @@ const ethWallet = {
   disconnect() {
     this.state = null;
     try { localStorage.removeItem(_identityKey(ETH_WALLET_KEY)); } catch {}
+    // A wallet app's session ends with it, so the next connection can pair another app or account.
+    if (_ethSelectedProvider?.isWalletConnect) { const p = _ethSelectedProvider; _ethSelectedProvider = null; p.endSession?.(); }
   },
+
+  // The wallet connected for this page: the one chosen in the chooser, else the browser's.
+  provider() { return _ethProvider(); },
 
   lock() {
     const prevPub = _openPubHex();
@@ -58037,6 +58043,26 @@ try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch {}
 function _ethProvider() {
   return _ethSelectedProvider || window.ethereum || null;
 }
+// WalletConnect joins the wallets the chooser lists, so a wallet app on a phone can sign for this page. Its module loads on the first connection and
+// announces itself the way a browser wallet does, unless the page already announced one. A script with no screen (a test) is left as it is.
+let _wcReady = null;
+const _walletConnectOffered = () => typeof matchMedia === 'function';
+function _ensureWalletConnect() {
+  if (_ethSelectedProvider || !_walletConnectOffered()) return Promise.resolve();
+  return (_wcReady ||= (async () => {
+    try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch {}
+    if (_ethProviders.some((p) => p.info.rdns === 'com.walletconnect')) return;
+    const m = await import('./walletconnect.js');
+    const sheets = m.wcSheets(m.overlayHost());
+    m.announceWalletConnect({
+      projectId: m.WC_PROJECT_ID, chains: [1, 8453, 4663, 4326],
+      rpcMap: { 1: 'https://ethereum-rpc.publicnode.com', 8453: 'https://mainnet.base.org', 4663: 'https://rpc.mainnet.chain.robinhood.com', 4326: 'https://mainnet.megaeth.com/rpc' },
+      metadata: { name: 'tacit', description: 'Confidential crosschain DeFi', url: location.origin, icons: [`${location.origin}/tac-logo.png`] },
+      onPair: sheets.onPair, onAsk: sheets.onAsk,
+    });
+    try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch {}
+  })().catch(() => { _wcReady = null; }));
+}
 function _ethProviderLabel() {
   if (_ethSelectedProvider) {
     const announced = _ethProviders.find(p => p.provider === _ethSelectedProvider);
@@ -58140,6 +58166,7 @@ async function _claimConnectMetaMask() {
   // ignores its own announce-on-load contract only re-announces on this
   // request. Idempotent (existing entries dedupe by uuid).
   try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch {}
+  await _ensureWalletConnect();
 
   let provider = _ethSelectedProvider;
   if (!provider) {

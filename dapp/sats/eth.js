@@ -1,6 +1,6 @@
 // ETH panel of the Secret Sats page: the EVM pool (docs/EVM-POOL.md) on Ethereum, Base and Robinhood Chain, under the
 // same Tacit key as the sats side. mount(el, ctx) renders into el.
-//   ctx = { wallet, network, ensureKey, errMsg, onWallet, switchNet, hold, toast }
+//   ctx = { wallet, network, ensureKey, errMsg, onWallet, switchNet, hold, toast, ethProvider }   ethProvider(): the Ethereum wallet connected on the page, if any
 // Proofs run in a worker on this device and a relay submits them, so no gas and no funded address are needed.
 // The proving key is the ceremony's: /evm-pool/pin.json names it and its files by SHA-256.
 // Link: /sats#eth=<chain id>[&do=send|withdraw] opens this panel on that chain, at that form.
@@ -277,7 +277,7 @@ export async function mount(root, ctx) {
 
   // A browser wallet (EIP-1193) on this chain, as the pool wallet's signer.
   async function browserSigner() {
-    const eth = globalThis.ethereum;
+    const eth = ctx.ethProvider?.() || globalThis.ethereum;
     if (!eth?.request) throw new Error('No browser wallet found.');
     const [from] = await eth.request({ method: 'eth_requestAccounts' });
     const want = '0x' + chain.chainId.toString(16);
@@ -301,7 +301,7 @@ export async function mount(root, ctx) {
     else if (min) p.textContent = `At today's gas price, send at least ${fmtEth(min)} at a time.`;
     p.hidden = !p.textContent;
     const collect = root.querySelector('#eth-collect');
-    if (collect) collect.hidden = !(held > 0n && (stuck || !chain.keeper) && globalThis.ethereum?.request);
+    if (collect) collect.hidden = !(held > 0n && (stuck || !chain.keeper) && (ctx.ethProvider?.() || globalThis.ethereum)?.request);
     const fee = root.querySelector('#eth-fee');
     if (fee) { fee.textContent = q?.fee ? `The relay's fee is ${fmtEth(BigInt(q.fee))} now, taken from your private balance.` : ''; fee.hidden = !fee.textContent; }
   }

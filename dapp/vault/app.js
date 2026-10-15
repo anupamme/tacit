@@ -12,7 +12,7 @@ import {
 } from '/vault/chain.js?cb=4c85c232';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=0cba8a63';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
-import { announceWalletConnect, wcSheets, WC_PROJECT_ID } from '/walletconnect.js?cb=14fe38b6';
+import { announceWalletConnect, wcSheets, WC_PROJECT_ID } from '/walletconnect.js?cb=b3b540fa';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

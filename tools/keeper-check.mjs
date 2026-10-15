@@ -9,6 +9,8 @@
 //   race     the minute's refresh runs while a submitted proof is still confirming: the proof lands as landed, not as an error
 //   ancestry a reflection more than 2,016 blocks behind: advanceReflectionAncestry() is run first, sent with the node's
 //            gas estimate, and a reverted receipt reads as reverted
+//   wc       no wallet in the browser: WalletConnect is the one on offer (a stand-in for its bundle, tests/wc-fake.mjs); a wallet app
+//            pairs, sends the proof with no request to switch networks, and Disconnect puts the page back to asking
 // Nothing reaches a live service.
 //   PLAYWRIGHT=<path to playwright-core> node tools/keeper-check.mjs [scenario,…]
 import { createServer } from 'node:http';
@@ -17,6 +19,7 @@ import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join, normalize, extname, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { useWcFake } from '../tests/wc-fake.mjs';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_modules/playwright-core');
@@ -27,7 +30,7 @@ const WALLET = '0x1c0aa8ccd568d90d61659f060d1bfb1e6f855a20';
 const DIGEST = '0x' + 'aa'.repeat(32);
 const NEXT = '0x' + 'bb'.repeat(32);
 const PV = '0x' + 'ab'.repeat(1120), PROOF = '0x' + 'cd'.repeat(260);
-const want = (process.argv[2] || 'ready,spent,none,refused,chain,race,ancestry').split(',');
+const want = (process.argv[2] || 'ready,spent,none,refused,chain,race,ancestry,wc').split(',');
 
 const TYPES = { '.js': 'text/javascript', '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.wasm': 'application/wasm' };
 const server = createServer((req, res) => {
@@ -44,14 +47,25 @@ const ok = (c, m, extra = '') => { console.log(`${c ? 'ok  ' : 'FAIL'} ${m}${ext
 const hex = (n) => '0x' + n.toString(16);
 const word = (n) => '0x' + BigInt(n).toString(16).padStart(64, '0');
 
-async function run(name, { proof, simulateRevert = null, chain = '0x1', attested = 970100, receipt = '0x1', slowReceipt = 0, clock = false }) {
+async function run(name, { proof, simulateRevert = null, chain = '0x1', attested = 970100, receipt = '0x1', slowReceipt = 0, clock = false, wc = false }) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 900, height: 1000 } });
   const calls = [];
   const st = { digest: DIGEST, polls: 0 };
   // A sent proof moves the pool's digest on, as landing it would.
   await ctx.exposeBinding('__sent', (_src, data) => { if (String(data).startsWith('0x0b36171c')) st.digest = NEXT; });
-  await ctx.addInitScript(({ WALLET, chain }) => {
+  const wcAsked = [];
+  if (wc) {
+    // No wallet in the browser: the wallet app answers through WalletConnect's stand-in.
+    await useWcFake(ctx, { account: WALLET });
+    await ctx.exposeFunction('__wcRequest', async (method, params) => {
+      wcAsked.push({ method, params });
+      if (method === 'eth_sendTransaction') { await __sentNode(params[0].data); return '0x' + 'ee'.repeat(32); }
+      return undefined;
+    });
+  }
+  const __sentNode = async (data) => { if (String(data).startsWith('0x0b36171c')) st.digest = NEXT; };
+  if (!wc) await ctx.addInitScript(({ WALLET, chain }) => {
     window.__txs = [];
     window.ethereum = {
       isMetaMask: true,
@@ -108,7 +122,7 @@ async function run(name, { proof, simulateRevert = null, chain = '0x1', attested
   page.on('pageerror', (e) => { console.log('     page error:', e.message); });
   await page.goto(`http://127.0.0.1:${WEB}/weld/keeper/`);
   await page.waitForFunction(() => !/Reading the latest proof/.test(document.querySelector('#proof-box')?.textContent || 'Reading'), null, { timeout: 15000 });
-  return { browser, page, calls };
+  return { browser, page, calls, wcAsked };
 }
 
 const rec = (over = {}) => ({ priorDigest: DIGEST, newDigest: NEXT, attestedTo: 970110, publicValues: PV, proof: PROOF, at: Date.now() - 4 * 60000, ...over });
@@ -128,6 +142,29 @@ if (want.includes('ready')) {
   ok(BigInt(txs[0].gas) === (524288n * 125n) / 100n, 'with gas from the node’s estimate plus a quarter', txs[0].gas);
   ok(calls.some((c) => c.m === 'eth_call' && c.params[0].from && c.params[0].data.startsWith('0x0b36171c')), 'it ran the call against the pool first');
   ok(/Landed/.test(await page.textContent('#proof-status')) && /970,110/.test(await page.textContent('#proof-status')), 'and says which block Bitcoin is attested to');
+  await browser.close();
+}
+if (want.includes('wc')) {
+  console.log('== wc');
+  const { browser, page, wcAsked } = await run('wc', { proof: rec(), wc: true });
+  ok(/Connect/.test(await page.textContent('#wallet-label')), 'with no wallet in the browser the chip asks to connect');
+  await page.click('#wallet');
+  await page.waitForSelector('#sheet-wc[open] .wc-qr svg', { timeout: 15000 });
+  ok(/Connect a wallet app/.test(await page.textContent('#wc-h')), 'it opens WalletConnect’s pairing sheet');
+  await page.evaluate(() => window.__wcfake.approve());
+  await page.waitForFunction((w) => document.querySelector('#wallet-label')?.textContent === w, `${WALLET.slice(0, 6)}…${WALLET.slice(-4)}`, { timeout: 15000 });
+  ok(!(await page.$('#sheet-wc[open]')), 'the wallet app connects and the sheet goes');
+  await page.click('#btn-proof');
+  await page.waitForFunction(() => /Landed/.test(document.querySelector('#proof-status')?.textContent || ''), null, { timeout: 15000 });
+  const sent = wcAsked.filter((r) => r.method === 'eth_sendTransaction');
+  ok(sent.length === 1 && sent[0].params[0].to.toLowerCase() === POOL.toLowerCase() && sent[0].params[0].from.toLowerCase() === WALLET, 'the proof goes to the pool from the wallet app’s account');
+  ok(!wcAsked.some((r) => r.method === 'wallet_switchEthereumChain'), 'the wallet app on Ethereum is not asked to switch to it');
+  await page.click('#wallet');
+  await page.waitForSelector('#sheet-wc[open] [data-off]');
+  ok(/WalletConnect · Test Phone Wallet/.test(await page.textContent('#wc-body')), 'the chip opens the account sheet, naming the wallet app');
+  await page.click('#sheet-wc [data-off]');
+  await page.waitForFunction(() => /Connect/.test(document.querySelector('#wallet-label')?.textContent || '') && !/0x/.test(document.querySelector('#wallet-label')?.textContent || ''), null, { timeout: 15000 });
+  ok((await page.evaluate(() => window.__wcfake.disconnected)) === 1, 'Disconnect ends the session and puts the page back to asking for a wallet');
   await browser.close();
 }
 if (want.includes('spent')) {

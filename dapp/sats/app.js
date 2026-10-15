@@ -1,10 +1,10 @@
 // Secret Sats page. The landing copy is static; everything that touches a key
 // or the chain comes from ../tacit.js, imported only once the user connects.
 
-const TACIT_URL = '/tacit.js?cb=a79191ae';
+const TACIT_URL = '/tacit.js?cb=74cf5d12';
 const SECRET_URL = '/sats/secret.js?cb=9574c7ec';
 const MIX_URL = '/sats/mix.js?cb=38644936';
-const ETH_URL = '/sats/eth.js?cb=6981e358';
+const ETH_URL = '/sats/eth.js?cb=b8477669';
 const POOL_STATUS = 'https://tacit-btc-pool-mainnet.onrender.com/btc-pool/status';
 
 // tacit.js reads its network from this shared key once, at import. This page
@@ -1434,7 +1434,7 @@ async function mountEth() {
   ph.remove();
   try {
     await mod.mount($('eth-root'), {
-      wallet: T.wallet, network: T.NET.name, ensureKey, errMsg, switchNet, hold, toast,
+      wallet: T.wallet, network: T.NET.name, ensureKey, errMsg, switchNet, hold, toast, ethProvider: () => T.ethWallet.provider(),
       onWallet(fn) { listeners.add(fn); return () => listeners.delete(fn); },
     });
   } catch (e) { log('Private ETH failed to load: ' + errMsg(e), 'error'); }

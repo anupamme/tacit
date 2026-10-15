@@ -8,7 +8,7 @@
 // then the sender needs no BTC at all and pays the relay inside the pool. Shields and exits always fund
 // their own carrier, by design, so those need a little BTC in the wallet.
 
-const TACIT_URL = '/tacit.js?cb=a79191ae';        // tokens rewritten by build/build.mjs (TAC_CB_FILES)
+const TACIT_URL = '/tacit.js?cb=74cf5d12';        // tokens rewritten by build/build.mjs (TAC_CB_FILES)
 const SECRET_URL = '/sats/secret.js?cb=9574c7ec';
 const SATS_URL = '/tac/sats.js?cb=ef891ee9';
 const MARKET_URL = '/tac/market.js?cb=7830ff4d';
@@ -16,6 +16,7 @@ const CLAIM_URL = '/tac/claim.js?cb=0d2f2281';
 const UNIFIED_URL = '/tacit-unified.js?cb=a5b3a042';
 const KNOWN_URL = '/tacit-wallet-known.js?cb=ed4c75b7';
 const EVM_URL = '/evm-wallet.js?cb=686e1d3f';
+const WC_URL = '/walletconnect.js?cb=b3b540fa';
 const ID_URL = '/address-id.js?cb=c4fa5a58';
 const DEPS_URL = '/vendor/tacit-deps.min.js';
 const PRF_URL = '/prf-wallet.js';
@@ -32,6 +33,8 @@ let prf = null;        // dapp/prf-wallet.js
 let K = null;          // dapp/tacit-wallet-known.js
 let ID = null;         // dapp/address-id.js
 let evm = null;        // dapp/evm-wallet.js, for opening a key with an Ethereum wallet's signature
+let WC = null;         // dapp/walletconnect.js: a wallet app on a phone signs for this page
+let ethProvider = null; // the wallet that opened the key, when an Ethereum wallet did
 let poolWallet = null;
 let tacitAddress = null;   // the unified tacit1… address of the open key: null until its module has loaded, false if it could not
 let pub = { loading: false, notes: [], decimals: 8 };
@@ -115,6 +118,8 @@ const errText = (e) => {
   if (e?.said) return e.message;
   const m = String(e?.shortMessage || e?.message || e || 'Something went wrong');
   if (e?.code === 4001 || /user (rejected|denied)|rejected the request|denied transaction|no wallet selected/i.test(m)) return 'Cancelled in your wallet.';
+  if (e?.code === -32002 || /already (pending|processing)|request of type .* pending/i.test(m)) return 'Your wallet already has a request open. Answer it there, then try again.';
+  if (/chain.*not approved|does not support 'wallet_switchEthereumChain'/i.test(m)) return 'Your wallet app did not allow that network for this connection. Switch to it in the app, or disconnect and connect again.';
   if (e?.unlockCancelled || e?.name === 'NotAllowedError') return 'Cancelled.';         // the passphrase or passkey prompt was closed
   if (/no ethereum wallet detected/i.test(m)) return `No Ethereum wallet found in this browser. Open this page in your wallet's own browser, or install MetaMask, Rabby or Rainbow.${prf?.isPasskeyAvailable?.() ? ' Or use a passkey.' : ''}`;
   if (/insufficient sats|no plain-sats|not enough (?:signet )?sats/i.test(m)) return 'Not enough BTC at your Bitcoin address for this and its network fee.';
@@ -275,9 +280,15 @@ function loadTacit() {
   return (tacitP ||= (async () => {
     pinNetwork();
     globalThis.__TACIT_NO_INIT__ = true;
-    const [t, , d, p, k, e] = await Promise.all([import(TACIT_URL), loadSecret(), import(DEPS_URL), import(PRF_URL), import(KNOWN_URL), import(EVM_URL)]);
+    const [t, , d, p, k, e, w] = await Promise.all([import(TACIT_URL), loadSecret(), import(DEPS_URL), import(PRF_URL), import(KNOWN_URL), import(EVM_URL), import(WC_URL)]);
     T = t; D = d; prf = p; K = k;
     evm = e.makeEvmWallet({ secp: d.secp, sha256: d.sha256, keccak256: d.keccak_256, bytesToHex: d.bytesToHex, hexToBytes: d.hexToBytes, prfBytesToScalar: p.prfBytesToScalar, netName: 'mainnet' });
+    const sheets = w.wcSheets(w.dialogHost({ dialog: $('sheet-wc'), title: $('wc-h'), body: $('wc-body') }));
+    WC = w.announceWalletConnect({
+      projectId: w.WC_PROJECT_ID, chains: [1], rpcMap: { 1: 'https://ethereum-rpc.publicnode.com' },
+      metadata: { name: 'tacit', description: 'Shielded TAC', url: location.origin, icons: [`${location.origin}/tac-logo.png`] },
+      onPair: sheets.onPair, onAsk: sheets.onAsk,
+    });
     import(ID_URL).then((m) => { ID = m; }, () => {});
     return T;
   })().catch((e) => { tacitP = null; throw e; }));
@@ -358,6 +369,7 @@ function pickWallet(list) {
 const open = {
   async eth(k) {
     const id = await evm.deriveIdentity({ pick: pickWallet, expect: k?.address });
+    ethProvider = id.provider;
     await setKey({ mode: 'eth', priv: id.priv, pubHex: k?.pubHex || id.pubHex, address: '0x' + lc(id.address).replace(/^0x/, '') });
   },
   async passkey(k) {
@@ -429,7 +441,7 @@ const signInErr = (box, id, e) => { const p = box.querySelector(`#${id}-err`); p
 function signIn(id) {
   const known = knownWallet(), other = otherWallet(), pk = prf.isPasskeyAvailable();
   const saved = known?.mode !== 'local' && isPub(readJson('tacit-wallet-v1:mainnet')?.pub);
-  const hasBtc = btcWalletSeen(), hasEth = evm.available(), bare = pk && !known && !other && !hasBtc && !hasEth;
+  const hasBtc = btcWalletSeen(), hasEth = evm.hasBrowserWallet(), bare = pk && !known && !other && !hasBtc && !hasEth;
   const opt = (k, title, sub, cls = '') => html`<button class="opt ${cls}" type="button" data-in="${k}"><span class="opt-t">${title}</span><span class="opt-m">${sub}</span></button>`;
   return html`<div class="opts" id="${id}-in">
     ${known ? opt('known', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>Continue with your Tacit wallet`, `Opens with ${viaText(known)}, the same key as on tacit.finance.`, 'main') : ''}
@@ -437,7 +449,7 @@ function signIn(id) {
     ${bare ? opt('new', html`<svg class="tk sm" aria-hidden="true"><use href="#i-key"/></svg>Create a wallet`, 'Touch ID, Face ID or Windows Hello. Nothing to install.', 'main') : ''}
     ${bare ? opt('passkey', html`<svg class="tk sm" aria-hidden="true"><use href="#i-key"/></svg>Open a passkey wallet`, 'One you made before, with a passkey on this device or in your password manager.') : ''}
     ${opt('btc', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg>Bitcoin wallet`, hasBtc || !bare ? 'Xverse, Leather or UniSat. One signature, two the first time.' : 'Xverse, Leather or UniSat. None found in this browser.')}
-    ${opt('eth', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>Ethereum wallet`, hasEth || !bare ? 'MetaMask, Rabby, Rainbow or any browser wallet. One signature, two the first time on this browser.' : 'MetaMask, Rabby, Rainbow or any browser wallet. None found in this browser.')}
+    ${opt('eth', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>Ethereum wallet`, hasEth || !bare ? 'MetaMask, Rabby, Rainbow or any browser wallet, or a wallet app through WalletConnect. One signature, two the first time on this browser.' : 'MetaMask, Rabby, Rainbow or any browser wallet, or a wallet app through WalletConnect.')}
     ${pk && !bare ? opt('passkey', html`<svg class="tk sm" aria-hidden="true"><use href="#i-key"/></svg>Passkey`, 'Touch ID, Windows Hello or a security key.') : ''}
     <p class="opts-err" id="${id}-err" role="alert" hidden></p>
     <p class="more">${pk && !bare ? html`<button class="link" type="button" data-in="new">New passkey wallet</button>` : ''}${saved ? html`<button class="link" type="button" data-in="local">Saved in this browser</button>` : ''}<button class="link" type="button" data-in="paste">Paste a key</button></p>
@@ -484,6 +496,7 @@ function renderWalletSheet() {
     <div class="who"><div class="a num">${a ? short(a, 12) : tacitAddress === false ? short(poolWallet?.addressString || '', 12) : '…'}</div><div class="u">${a || tacitAddress !== false ? 'Your Tacit address' : 'Your pool address'} · opened with ${viaText(k)}</div>
       ${a && ID ? html`<div class="u">ID <b class="num">${ID.addressId(a)}</b> · a payer sees the same ID</div>` : ''}
       <div class="row2"><button class="btn ghost" type="button" id="w-copy" ${a ? '' : 'disabled'}>Copy address</button><button class="btn ghost" type="button" id="w-lock">Lock</button></div></div>
+    ${k.mode === 'eth' && ethProvider?.isWalletConnect ? html`<div class="kv"><span>WalletConnect</span><b>${short(k.address, 6)} <button class="link" type="button" id="w-wc-off">Disconnect</button></b></div>` : ''}
     ${kept ? html`<p class="more"><button class="link" type="button" id="w-backup">Copy key to back up</button></p>` : ''}
     <p class="note">${kept ? 'This key is kept in this browser only, so clearing the browser’s data loses it. Copy it somewhere private: anyone who has it controls these funds, and pasting it back opens them again.' : k.mode === 'key' ? 'You pasted this key and it is not saved here, so closing the tab forgets it. Keep your own copy somewhere private: anyone who has it controls these funds.' : 'Your wallet or passkey is the only way back to these funds: keep it safe.'} The key stays in this tab; payments to your addresses reach you here and on tacit.finance.</p>`);
   $('w-copy').onclick = () => a && navigator.clipboard.writeText(a).then(() => toast('Address copied'), () => toast(`Could not copy: ${a}`, true));
@@ -492,6 +505,11 @@ function renderWalletSheet() {
     navigator.clipboard.writeText(D.bytesToHex(T.wallet.priv)).then(() => toast('Key copied. Keep it somewhere private.'), () => toast('Could not copy the key: the browser refused clipboard access.', true));
   });
   $('w-lock').onclick = () => { if (busyId) return toast('Finish the action in progress first.', true); lock(); renderWalletSheet(); };
+  // Ends a WalletConnect session from here, so the next sign-in can pair another wallet app or account. The key it opened locks with it.
+  $('w-wc-off')?.addEventListener('click', () => {
+    if (busyId) return toast('Finish the action in progress first.', true);
+    WC.disconnect().finally(() => { if (unlocked() && key?.mode === 'eth') lock(); renderWalletSheet(); });
+  });
 }
 function openWallet() {
   renderWalletSheet();
@@ -576,6 +594,7 @@ function lock() {
   forget();
   writeJson(TAC_ID, null);
   evm?.deselectProvider();
+  ethProvider = null;
   paintReceive();
   paintWallet(); renderBalances(); renderShieldPicker();
   window.dispatchEvent(new Event('tac:wallet'));

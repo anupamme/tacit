@@ -7,7 +7,7 @@
      data stats does, plus an injected wallet to sign advanceTip(bytes) — permissionless on chain
      (contracts/src/lib/BitcoinLightRelay.sol:253) — so anyone can push the header relay forward and pay their
      own gas, instead of waiting on Tacit's own cron. No Tacit key touches this page. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Cdu0fwifis5JVaGH9BxE6WIOJPK+UieFG7hUPzKkkgk=' 'wasm-unsafe-eval'; connect-src https://api.tacit.finance https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-0F9HZQxnZdGeKBIzULhMEyfUFwcxe/1EW5MVMrAb4rM=' 'wasm-unsafe-eval'; connect-src wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
@@ -142,6 +142,23 @@ h2 .tk { width: 24px; height: 24px; }
 .btn[aria-busy="true"]::after { content: ''; width: 12px; height: 12px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .link { background: none; border: 0; padding: 6px 2px; margin: -6px -2px; cursor: pointer; color: var(--mute); text-decoration: underline; text-underline-offset: 3px; font-size: inherit; }
+/* ── the wallet app's pairing sheet ── */
+dialog.sheet { width: min(480px, calc(100vw - 32px)); max-height: min(90vh, 900px); padding: 0; overflow: auto; color: var(--ink); background: var(--card); border: 1px solid var(--ink); box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+dialog.sheet[open] { animation: rise .22s cubic-bezier(.2,.8,.2,1); }
+dialog.sheet::backdrop { background: rgba(0,0,0,.45); backdrop-filter: blur(2px); }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+.sheet-in { padding: 24px 24px 28px; }
+.sheet-head { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; }
+.sheet-head h2 { font: 400 30px/1 var(--serif); letter-spacing: -.01em; margin: 0; }
+.sheet-head h2:focus { outline: none; }
+.x { margin-left: auto; width: var(--tap); height: var(--tap); display: grid; place-items: center; font-size: 22px; line-height: 1; background: none; border: 1px solid transparent; cursor: pointer; color: var(--mute); }
+.lede-s { color: var(--mute); font-size: 13px; margin: 0 0 14px; }
+.note { font-size: 12.5px; color: var(--mute); margin: 12px 0 0; }
+.wc-qr { width: min(264px, 100%); margin: 6px auto 18px; padding: 14px; background: #fff; border: 1px solid var(--hair); }
+.wc-qr svg { display: block; width: 100%; height: auto; }
+.kv { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; color: var(--mute); padding: 5px 0; }
+.kv b { font-weight: 400; color: var(--ink); text-align: right; overflow-wrap: anywhere; }
+@media (max-width: 560px) { dialog.sheet { width: 100vw; max-width: 100vw; margin: auto 0 0; max-height: 92vh; border-width: 1px 0 0; } .sheet-in { padding: 20px 16px calc(24px + env(safe-area-inset-bottom)); } }
 @media (hover: hover) { .link:hover { color: var(--ink); } }
 
 .status { font-size: 12.5px; min-height: 20px; margin-top: 12px; overflow-wrap: anywhere; }
@@ -272,10 +289,18 @@ footer a { display: inline-block; padding: 12px 0; color: var(--mute); }
   </footer>
 </div>
 
+<dialog class="sheet" id="sheet-wc" aria-labelledby="wc-h">
+  <div class="sheet-in">
+    <div class="sheet-head"><h2 id="wc-h" tabindex="-1" autofocus>Connect a wallet app</h2><button class="x" type="button" data-close aria-label="Close">×</button></div>
+    <div id="wc-body"></div>
+  </div>
+</dialog>
+
 <div id="toast-container" class="toasts" popover="manual"></div>
 
 <script type="module">
 import { makeEvmWallet } from '/evm-wallet.js?cb=686e1d3f';
+import { announceWalletConnect, wcSheets, dialogHost, WC_PROJECT_ID } from '/walletconnect.js?cb=b3b540fa';
 import { makeHeaderRelayAdvance } from '/header-relay-advance.js?cb=62741b39';
 
 const $ = (s, el = document) => el.querySelector(s);
@@ -310,6 +335,8 @@ function toast(msg, bad = false, ms = bad ? 7000 : 4200) {
 const errText = (e) => {
   const m = String(e?.message || e || 'Something went wrong');
   if (e?.code === 4001 || /user (rejected|denied)/i.test(m)) return 'Cancelled in your wallet.';
+  if (e?.code === -32002 || /already (pending|processing)|request of type .* pending/i.test(m)) return 'Your wallet already has a request open. Answer it there, then try again.';
+  if (/chain.*not approved|does not support 'wallet_switchEthereumChain'/i.test(m)) return 'Your wallet app did not allow Ethereum for this connection. Disconnect, then connect again.';
   if (/insufficient funds/i.test(m)) return 'Not enough ETH in that wallet for this and its gas.';
   if (/no Ethereum wallet detected/i.test(m)) return 'No Ethereum wallet in this browser. Open this page in your wallet’s browser, or add a wallet extension such as MetaMask or Rabby.';
   if (/does not match the canonical chain/i.test(m)) return 'The relay’s newest block is not the block the explorer has at that height (a reorg, or an explorer running behind). Tacit’s header relay returns it to Bitcoin’s main chain on its next run. Nothing was sent.';
@@ -330,6 +357,13 @@ async function busy(btn, fn) {
 // ── wallet: a bare injected-wallet connection, nothing Tacit-specific — anyone's wallet pays its own gas ──────
 const evm = makeEvmWallet({});
 const RPC = 'https://ethereum-rpc.publicnode.com';
+// WalletConnect joins the browser's wallets, and is the one wallet used where the browser has none (a phone): a wallet app pays the gas.
+const wcOpen = dialogHost({ dialog: $('#sheet-wc'), title: $('#wc-h'), body: $('#wc-body') }), wcSheet = wcSheets(wcOpen);
+const WC = announceWalletConnect({
+  projectId: WC_PROJECT_ID, chains: [1], rpcMap: { 1: RPC },
+  metadata: { name: 'tacit ops', description: 'Keeper actions anyone can send', url: location.origin, icons: [`${location.origin}/tac-logo.png`] },
+  onPair: (x) => wcSheet.onPair(x), onAsk: (x) => wcSheet.onAsk(x),
+});
 const S = { provider: null, address: null };
 const TX_HASH = /^0x[0-9a-f]{64}$/i;
 
@@ -342,7 +376,7 @@ async function rpc(method, params) {
 // Every wallet knows Ethereum, so this only asks for the switch, then reads the chain back: some wallets report a
 // switch they have not made yet.
 async function ensureMainnet() {
-  const onMainnet = async () => parseInt(await S.provider.request({ method: 'eth_chainId' }), 16) === 1;
+  const onMainnet = async () => Number(await S.provider.request({ method: 'eth_chainId' })) === 1;
   if (await onMainnet()) return;
   await S.provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x1' }] });
   if (!(await onMainnet())) throw new Error('Switch your wallet to Ethereum, then try again.');
@@ -626,7 +660,14 @@ async function doSubmitProof() {
   refresh().catch(() => {}); refreshProof().catch(() => {});
 }
 
-$('#wallet').addEventListener('click', (e) => busy(e.currentTarget, connect));
+// A wallet app connected through WalletConnect is left from here: the next connection can pair another app or account.
+function walletSheet() {
+  const o = wcOpen('Wallet'), app = S.provider?.peerName?.();
+  o.body.innerHTML = `<div class="kv"><span>Connected with</span><b>WalletConnect${app ? ` · ${esc(app)}` : ''}</b></div><div class="kv"><span>Account</span><b>${esc(S.address)}</b></div><button class="btn ghost" type="button" data-off>Disconnect</button>`;
+  o.body.querySelector('[data-off]').onclick = async () => { o.close(); S.provider = S.address = null; evm.deselectProvider(); paintWallet(); await WC.disconnect(); };
+}
+$('#wallet').addEventListener('click', (e) => (S.provider?.isWalletConnect && S.address ? walletSheet() : busy(e.currentTarget, connect)));
+document.querySelectorAll('[data-close]').forEach((b) => { b.onclick = () => b.closest('dialog').close(); });
 $('#btn-advance').addEventListener('click', (e) => busy(e.currentTarget, doAdvance));
 $('#btn-ancestry').addEventListener('click', (e) => busy(e.currentTarget, doAncestry));
 $('#btn-proof').addEventListener('click', (e) => busy(e.currentTarget, doSubmitProof));

@@ -2,7 +2,7 @@
 // executors and the book's data from tacit.js, mounted in a sheet. The module plans and tacit.js settles; this file supplies what the classic
 // app supplies around them and a page like this one does not have: signing in, a confirmation, a notice, the sats and TAC the key holds,
 // and where a purchase that stopped halfway is recovered. Nothing here builds or signs a transaction.
-import { makeBtcSession, short, Cancelled } from '/trade/btc-session.js?cb=e831aca9';
+import { makeBtcSession, short, Cancelled } from '/trade/btc-session.js?cb=cada7ab4';
 import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
 
 const MARKET_URL = '/btc-market.js?cb=e07ed7ab', CSS_URL = '/trade/btc-market.css?cb=359753e6';

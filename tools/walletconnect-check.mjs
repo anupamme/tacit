@@ -1,8 +1,10 @@
 // Checks WalletConnect (v2) end to end over its real relay, on every page that connects a wallet. A wallet in Node, holding a test key, pairs with the
 // link a page shows and answers what the page asks it.
-//   · the front page, /pay and /pay/eth: the wallet approves the session and answers personal_sign, and the page opens the Tacit wallet that signature
+//   · the front page, /pay, /pay/eth and /tac: the wallet approves the session and answers personal_sign, and the page opens the Tacit wallet that signature
 //     derives, saying "Approve in your wallet" while each request waits. After a reload the kept session opens the same wallet with no new pairing;
 //     Disconnect ends the session in the wallet app, and the next sign-in pairs afresh.
+//   · /tac, the keeper page and Secret Sats: a wallet app opens the key (/tac, /sats; /sats and the classic app share tacit.js's Ethereum wallet, whose
+//     disconnect ends the session) or pays for a keeper action (the keeper page, which names the wallet app and leaves it on Disconnect).
 //   · /trade/tac/, /trade/teth/ and /trade/cbtc/: the header shows the wallet app's account as connected (on Ethereum, not "another network"), a reload
 //     brings it back with no new pairing, and Disconnect ends the session in the wallet app.
 //   · the trade pages' wallet layer (trade/wallet.js over the real adapter): the network reads as 0x1, the page never asks the wallet to switch to it,
@@ -96,40 +98,70 @@ const label = (pg, sel = '#wallet-label') => pg.evaluate((s) => document.querySe
 
 try {
   // ── the front page, /pay and /pay/eth: a wallet app opens the Tacit key ──
-  for (const [name, path, copy] of [['front page', '/#wallet', '#sheet-wc'], ['/pay', '/pay/', '#sheet-wc'], ['/pay/eth', '/pay/eth/', '#sheet-wc']]) {
+  for (const [name, path, copy, chip, sheet] of [['front page', '/#wallet', '#sheet-wc', '#wallet', '#sheet-wallet'], ['/pay', '/pay/', '#sheet-wc', '#wallet', '#sheet-wallet'], ['/pay/eth', '/pay/eth/', '#sheet-wc', '#wallet', '#sheet-wallet'], ['/tac', '/tac/', '#sheet-wc', '#wallet-chip', '#connect-sheet']]) {
     page = await newPage();
     const URL_ = `${ORIGIN}${path}`;
     asked.length = 0; waiting.length = 0;
     await page.goto(URL_, { waitUntil: 'domcontentloaded' });
-    if (name !== 'front page') await page.click('#wallet');
-    await page.click('#sheet-wallet [data-in="eth"]');
+    if (name !== 'front page') await page.click(chip);
+    await page.click(`${sheet} [data-in="eth"]`);
     const uri = await pairFrom(page, copy);
     ok(/^wc:[0-9a-f]{64}@2\?/.test(uri || ''), `${name}: the page shows a QR and copies its wc: link`);
     await tacitLabel(page);
     const first = await label(page);
     ok(/^tacit1/.test(first) && !(await page.$('#sheet-wc[open]')), `${name}: the wallet opens (${first.slice(0, 24)}…), the pairing sheet goes`);
-    ok(asked.join(' ') === `proposal:${name === 'front page' ? 'tacit' : 'tacit pay'} personal_sign personal_sign`, `${name}: the wallet app was asked: ${asked.join(' → ')}`);
+    ok(asked.join(' ') === `proposal:${name === 'front page' || name === '/tac' ? 'tacit' : 'tacit pay'} personal_sign personal_sign`, `${name}: the wallet app was asked: ${asked.join(' → ')}`);
     ok(waiting.length === 2 && waiting.every((t) => t === 'Approve in your wallet'), `${name}: while each request waits, the page says so (${waiting.join(' | ')})`);
 
     asked.length = 0;
     await page.goto('about:blank');
     await page.goto(URL_, { waitUntil: 'domcontentloaded' });
-    if (name !== 'front page') await page.click('#wallet');
-    await page.click('#sheet-wallet [data-in="known"]');
+    if (name !== 'front page') await page.click(chip);
+    await page.click(`${sheet} [data-in="known"]`);
     await tacitLabel(page);
     ok((await label(page)) === first && !(await page.$('#sheet-wc[open]')) && asked.join(' ') === 'personal_sign', `${name}: after a reload the kept session opens the same wallet, no pairing (asked: ${asked.join(' → ')})`);
 
     const before = ended.length;
-    await page.click('#wallet');
-    await page.waitForSelector(name === 'front page' ? '#sheet-wallet[open] [data-wc-off]' : '#sheet-wallet[open] #w-wc-off', { timeout: 15000 });
-    await page.click(name === 'front page' ? '#sheet-wallet [data-wc-off]' : '#sheet-wallet #w-wc-off');
+    await page.click(chip);
+    await page.waitForSelector(name === 'front page' ? '#sheet-wallet[open] [data-wc-off]' : `${sheet}[open] #w-wc-off`, { timeout: 15000 });
+    await page.click(name === 'front page' ? '#sheet-wallet [data-wc-off]' : `${sheet} #w-wc-off`);
     await page.waitForFunction(() => !/^tacit1/.test(document.querySelector('#wallet-label')?.textContent || ''), null, { timeout: 30000 }).catch(() => {});
     ok(await waitEnded(before + 1) && !/^tacit1/.test(await label(page)), `${name}: Disconnect ends the session in the wallet app and the key opened with it locks (${await label(page)})`);
-    await page.click('#sheet-wallet [data-in="eth"]').catch(async () => { await page.click('#wallet'); await page.click('#sheet-wallet [data-in="eth"]'); });
+    await page.click(`${sheet} [data-in="eth"]`).catch(async () => { await page.click(chip); await page.click(`${sheet} [data-in="eth"]`); });
     await page.waitForSelector('#sheet-wc[open] .wc-qr svg', { timeout: 30000 }).catch(() => {});
     ok(!!(await page.$('#sheet-wc[open] .wc-qr svg')), `${name}: after Disconnect, WalletConnect pairs afresh: another wallet app or account can sign in`);
     await page.context().close();
   }
+
+  // ── the keeper page: a wallet app pays for a keeper action, and Disconnect leaves it ──
+  page = await newPage();
+  asked.length = 0;
+  await page.goto(`${ORIGIN}/weld/keeper/`, { waitUntil: 'domcontentloaded' });
+  await page.click('#wallet');
+  await pairFrom(page, '#sheet-wc');
+  await page.waitForFunction(() => /^0x/.test(document.querySelector('#wallet-label')?.textContent || ''), null, { timeout: 60000 }).catch(() => {});
+  ok((await label(page)) === `${ADDR.slice(0, 6)}…${ADDR.slice(-4)}` && !(await page.$('#sheet-wc[open]')), `the keeper page: the wallet app connects and the sheet goes (${await label(page)})`);
+  await page.click('#wallet');
+  await page.waitForSelector('#sheet-wc[open] [data-off]');
+  ok(/WalletConnect · walletconnect-check/.test(await label(page, '#wc-body')), 'the keeper page: the chip names the wallet app');
+  { const before = ended.length; await page.click('#sheet-wc [data-off]'); const gone = await waitEnded(before + 1); await page.waitForFunction(() => !/^0x/.test(document.querySelector('#wallet-label')?.textContent || ''), null, { timeout: 30000 }).catch(() => {}); ok(gone && !/^0x/.test(await label(page)), `the keeper page: Disconnect ends the session in the wallet app and the page asks to connect again (ended ${ended.length - before}, chip ${await label(page)})`); }
+  await page.context().close();
+
+  // ── Secret Sats (tacit.js's Ethereum wallet, as the classic app uses it): a wallet app opens the key ──
+  page = await newPage();
+  asked.length = 0;
+  await page.goto(`${ORIGIN}/sats/`, { waitUntil: 'domcontentloaded' });
+  await page.click('#btn-eth');
+  await page.waitForSelector('dialog.wcx[open] .wc-qr svg', { timeout: 60000 });
+  await page.evaluate(() => { navigator.clipboard.writeText = async (t) => { window.__copied = t; }; });
+  await page.click('dialog.wcx[open] [data-copy]');
+  await wallet.core.pairing.pair({ uri: await page.evaluate(() => window.__copied) });
+  await page.waitForFunction(() => !/^(Sign in|Open wallet)$/.test(document.querySelector('#chip-label')?.textContent || 'Sign in'), null, { timeout: 120000 }).catch(() => {});
+  ok(asked.join(' ') === 'proposal:tacit personal_sign personal_sign' && !(await page.$('dialog.wcx[open]')), `Secret Sats: the wallet app opens the key with two signatures (${asked.join(' → ')})`);
+  { const before = ended.length, url = readFileSync(join(DAPP, 'sats/app.js'), 'utf8').match(/const TACIT_URL = '([^']+)'/)[1];
+    await page.evaluate(async (u) => { (await import(u)).ethWallet.disconnect(); }, url);
+    ok(await waitEnded(before + 1), 'Secret Sats: ending the Ethereum wallet ends the session in the wallet app'); }
+  await page.context().close();
 
   // ── the trade pages: a wallet app connects, and the header says so ──
   for (const path of ['/trade/tac/', '/trade/teth/', '/trade/cbtc/']) {
