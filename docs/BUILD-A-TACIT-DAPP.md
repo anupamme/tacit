@@ -1068,8 +1068,14 @@ to exactly the given destination, and signs the conservation kernel with the imp
 the ladder and a burn the reflection has not folded yet. The op is posted to `POST /confidential/submit` as
 type `bridgemint`, with the same shape as `contracts/sp1/confidential/harnesses/exec-bridgemint.rs`;
 `buildBridgeMintOp` returns it without submitting, for a caller that proves elsewhere. The mint proves against
-the burn root the pool holds at settle time, so a mint built just before a newer reflection lands is refused
-as stale; rebuild it from a fresh dump and resubmit.
+the burn root the pool holds at settle time, so a mint built just before a newer reflection lands is stale.
+The relay looks at the op before it takes it: the burn id, the destination leaf and the burn set's path must
+reach a root, and that root must be the one the pool holds. `POST /confidential/submit` answers `stale_root`
+(409) for a mint built on an older root, and `not_a_burn` (400) for one that is not the mint of a recorded burn
+to the destination that burn pinned. `bridgeMint` builds the mint again from a fresh dump on `stale_root` (three
+tries); a caller that builds its own op does the same. A mint with no fee spends one of the day's free relayed
+settles (`free_budget` when they are used up, after which it can be sent from the holder's own account), and one
+burn takes at most four of them a day.
 
 The TAC round trip linked above is a real, fully independent-verified example of exactly this: an Ethereum
 crossOut, its Bitcoin-side re-mint, a Bitcoin-side return burn, and the mint back on Ethereum — four

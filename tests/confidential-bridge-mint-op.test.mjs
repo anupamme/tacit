@@ -264,4 +264,31 @@ const built = bm.buildBridgeMintOp({ chainBinding: CHAIN_BINDING, asset: ASSET, 
   ok('bridgeMint with selfSettle has the relay prove only, hands the proof to the caller, and never settles an unproved mint');
 }
 
+// ── a mint the relay turns back as built on an older burn set is built again from the newest state, then goes ──
+{
+  const S2 = reflectedState({ sourceClass: 2, burnValue: 1_500_000n, fee: 0n });
+  const dumps = [];
+  const fetchImpl = async (url) => { dumps.push(String(url)); return new Response(JSON.stringify({ snapshot: S2.snapshot, attestedHeight: 7 }), { status: 200 }); };
+  const specs = [];
+  const mk = (failures, code) => {
+    let left = failures;
+    return { settle: async (spec) => { specs.push(spec); if (left-- > 0) throw Object.assign(new Error('relay 409: moved on'), { code }); return { status: 'settled', jobId: 'j1', txHash: '0x' + 'ee'.repeat(32) }; } };
+  };
+  const args = { chainBinding: CHAIN_BINDING, asset: ASSET, spentTxid: SPENT_TXID, spentVout: SPENT_VOUT, burned: S2.burned, dest: S2.dest, recovery: { seedDerived: true }, staleDelayMs: 1 };
+  const client = makeConfidentialBridgeMint({ pool, ct, relay: mk(1, 'stale_root'), fetchImpl, relayBase: 'https://relay.test' });
+  const r = await client.bridgeMint({ ...args, snapshot: S2.snapshot });
+  assert.strictEqual(r.status, 'settled');
+  assert.strictEqual(specs.length, 2, 'the mint is submitted again once');
+  assert.strictEqual(dumps.length, 1, 'from a newer state read for it (the first try used the one it was given)');
+  assert.notStrictEqual(specs[0].op.kernel.z, specs[1].op.kernel.z, 'a new op, not the same bytes sent again');
+  // Any other refusal, and a stale one that stays stale, is thrown rather than looped on.
+  specs.length = 0;
+  await assert.rejects(makeConfidentialBridgeMint({ pool, ct, relay: mk(1, 'free_budget'), fetchImpl, relayBase: 'https://relay.test' }).bridgeMint({ ...args, snapshot: S2.snapshot }), /moved on/);
+  assert.strictEqual(specs.length, 1, 'another refusal is not retried');
+  specs.length = 0;
+  await assert.rejects(makeConfidentialBridgeMint({ pool, ct, relay: mk(9, 'stale_root'), fetchImpl, relayBase: 'https://relay.test' }).bridgeMint({ ...args, snapshot: S2.snapshot }), /moved on/);
+  assert.strictEqual(specs.length, 3, 'a mint that stays stale is tried three times, then thrown');
+  ok('a stale-root refusal rebuilds the mint from the newest state; any other refusal, and a mint that stays stale, is thrown');
+}
+
 console.log(`\n${n}/${n} confidential-bridge-mint-op checks passed`);

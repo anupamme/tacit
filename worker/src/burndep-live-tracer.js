@@ -127,6 +127,14 @@ export function makeLiveBurnDepositTracer({ env, apiText, apiRawBytes, network, 
     return rec;
   }
 
+  // A cxfer record's atomic-settlement asset-input count (null for an ordinary transfer). Read from the transaction itself
+  // rather than carried on the record, so records cached before this was tracked classify the same as new ones.
+  function assetInputCountOf(rec) {
+    if (rec.assetInputCount !== undefined) return rec.assetInputCount;
+    const d = rec.tx ? classifyConfidentialTx(rec.tx) : null;
+    return d && d.type === 'cxfer' && d.assetInputCount != null ? d.assetInputCount : null;
+  }
+
   async function classifyInput(prevTxidDisplay, prevVout) {
     const rec = await resolveShallow(prevTxidDisplay);
     if (rec.kind === 'cxfer') {
@@ -168,20 +176,44 @@ export function makeLiveBurnDepositTracer({ env, apiText, apiRawBytes, network, 
     // Resolve THIS hop's own inputs — one hop back each, via classifyInput (which itself only ever calls
     // resolveShallow, never recurses further) — so a lineage's total depth is still driven by the outer BFS
     // loop in traceBurnDepositProvenance, one hop per iteration, exactly where maxDepth is enforced.
-    const classified = await Promise.all(rec.vins.map((v) => classifyInput(v.txid, v.vout)));
-    // Funding inputs (assembler's `inputSkip`) are, by construction, the LEADING ones. A 'funding'
-    // classification after a real one is not a shape this reveal pattern produces, so it's treated as an
-    // anomaly rather than silently included or silently dropped.
-    let inputSkip = 0;
-    while (inputSkip < classified.length && classified[inputSkip].kind === 'funding') inputSkip++;
-    for (let i = inputSkip; i < classified.length; i++) {
-      if (classified[i].kind === 'funding') {
-        throw new Error(`burndep-live-tracer: ${txidDisplay} has a non-confidential input at index ${i}, `
-          + `after a confidential one at a lower index — funding inputs are expected to be leading only`);
+    // Which of this tx's vins are confidential asset inputs (the ones the kernel covers, and so the ones the guest
+    // is handed commitments for), and how many leading vins are skipped (`inputSkip`, witnessed to the guest):
+    //  - an atomic settlement (T_AXFER / T_AXFER_BPP, what a taker of a Bitcoin order-book listing signs) lays its vins
+    //    out as [the taker's commit, the seller's asset input(s), the taker's sats...]: the kernel covers exactly
+    //    vin[1..1+asset_input_count], the skip is 1, and everything after the asset inputs is the taker's own funding
+    //    (cxfer-core burn_deposit.rs: "atomic settlement asset inputs are not vin[1..1+count]");
+    //  - any other cxfer takes every vin after its LEADING non-confidential ones (a P2WPKH-homed note's reveal needs one
+    //    funding input to commit its envelope; a P2TR-homed note's own address is the commit and needs none). A funding
+    //    input after a confidential one is not a shape the guest accepts there, so it is refused rather than guessed at.
+    const axferCount = assetInputCountOf(rec);
+    let inputSkip, assetVins, classified;
+    if (axferCount != null) {
+      if (1 + axferCount > rec.vins.length) {
+        throw new Error(`burndep-live-tracer: ${txidDisplay} is an atomic settlement naming ${axferCount} asset input(s) but has only ${rec.vins.length} input(s)`);
       }
+      inputSkip = 1;
+      assetVins = rec.vins.slice(1, 1 + axferCount);
+      classified = await Promise.all(assetVins.map((v) => classifyInput(v.txid, v.vout)));
+      classified.forEach((c, i) => {
+        if (c.kind === 'funding') {
+          throw new Error(`burndep-live-tracer: ${txidDisplay} is an atomic settlement whose asset input ${i + 1} (${assetVins[i].txid}:${assetVins[i].vout}) is not a confidential note`);
+        }
+      });
+    } else {
+      const all = await Promise.all(rec.vins.map((v) => classifyInput(v.txid, v.vout)));
+      inputSkip = 0;
+      while (inputSkip < all.length && all[inputSkip].kind === 'funding') inputSkip++;
+      for (let i = inputSkip; i < all.length; i++) {
+        if (all[i].kind === 'funding') {
+          throw new Error(`burndep-live-tracer: ${txidDisplay} has a non-confidential input at index ${i}, `
+            + `after a confidential one at a lower index — funding inputs are expected to be leading only`);
+        }
+      }
+      assetVins = rec.vins.slice(inputSkip);
+      classified = all.slice(inputSkip);
     }
-    const inputs = rec.vins.slice(inputSkip).map((v, i) => ({
-      prevTxid: withHexPrefix(v.txid), prevVout: v.vout, commitment: classified[inputSkip + i].commitment,
+    const inputs = assetVins.map((v, i) => ({
+      prevTxid: withHexPrefix(v.txid), prevVout: v.vout, commitment: classified[i].commitment,
     }));
     // Seed every one of THIS tx's own REAL inputs into `seen` so the tracer's next hop (which will call
     // getCxferByOutput with outpointKey(inp.prevTxid, inp.prevVout), computed inside burn-deposit-tracer.js
@@ -252,20 +284,27 @@ export async function traceBurnDepositProvenance({ env, apiText, apiRawBytes, ne
   const graph = new Map();
   const queue = [noteOutpoint];
   const queued = new Set(queue);
+  // `maxDepth` bounds the HOPS (distinct transfers) in the lineage, the thing the registration door caps at 64. The walk visits outpoints,
+  // and a transfer that spends several outputs of one earlier transaction (a split put back together) is several outpoints for one hop,
+  // so counting visits instead would refuse a note of about 45 hops as "too deep" under a limit of 64. The visits get a bound of their own.
+  const MAX_VISITS = 4096;
+  const hops = new Set();
   let steps = 0;
   while (queue.length) {
-    if (++steps > maxDepth) throw new Error('burn-deposit trace: provenance exceeded maxDepth (' + maxDepth + ')');
+    if (++steps > MAX_VISITS) throw new Error('burn-deposit trace: provenance exceeded ' + MAX_VISITS + ' outpoints');
     const op = queue.shift();
     if (leafSet.has(op) || graph.has(op)) continue;
     const cx = await live.getCxferByOutput(op);
     graph.set(op, cx || null);
     if (cx) {
+      hops.add(cx.txid);
+      if (hops.size > maxDepth) throw new Error('burn-deposit trace: provenance exceeded maxDepth (' + maxDepth + ')');
       for (const inp of cx.inputs) {
         const inOp = outpointKey(inp.prevTxid, inp.prevVout);
         if (!leafSet.has(inOp) && !queued.has(inOp)) { queue.push(inOp); queued.add(inOp); }
       }
     }
   }
-  const cxfers = await trace({ getCxferByOutput: (op) => graph.get(op) || null, noteOutpoint, leafOutpoints, maxDepth });
+  const cxfers = await trace({ getCxferByOutput: (op) => graph.get(op) || null, noteOutpoint, leafOutpoints, maxDepth: MAX_VISITS });
   return { cxfers, live }; // `live` exposed so a caller can inspect its tx/block caches (e.g. for a local re-verify) without re-fetching
 }

@@ -100,6 +100,7 @@ import { buildCrossoutConsumer, crossoutMintLeaf } from './crossout-consumer.js'
 import { buildGovernance } from './governance.js';
 import { makeTacAncestry } from './tac-ancestry.js';
 import { traceBurnDepositProvenance } from './burndep-live-tracer.js';
+import { admitBridgeMint, BURN_ROOT_SLOT } from './bridgemint-admit.js';
 import { makeBurnDepositTracer } from '../../dapp/burn-deposit-tracer.js';
 import { buildOversight } from './governance-oversight.js';
 import { validateConsumedSource, deriveConsumedSource } from './consumed-source.js';
@@ -3201,6 +3202,30 @@ async function relayHolds(env, type, op) {
     return h.status === 'down' || (h.status !== 'unknown' && h.age_seconds <= 600 && RELAY_HOLD_NOTE.test(h.note || ''));
   } catch { return false; }
 }
+// The burn root the pool holds (knownBitcoinBurnRoot, storage slot 80), which every bridge mint must be built on. Read from Ethereum at
+// most every five seconds; a read that fails is null, which holds nothing back.
+const _burnRoot = { at: 0, v: null };
+async function poolBurnRoot(pool, fresh = false) {
+  if (!fresh && Date.now() - _burnRoot.at < 5000) return _burnRoot.v;
+  const v = await _ethGetStorageAt('mainnet', pool, BURN_ROOT_SLOT);
+  _burnRoot.v = typeof v === 'string' && /^0x[0-9a-fA-F]{64}$/.test(v) && !/^0x0+$/.test(v) ? v.toLowerCase() : null;
+  _burnRoot.at = Date.now();
+  return _burnRoot.v;
+}
+let _admitPool = null;
+// A bridge mint is taken only when it is the mint of a recorded burn (worker/src/bridgemint-admit.js), so junk cannot use up the day's
+// free settles or its proofs. Only on the mainnet pool, whose root is read here; elsewhere nothing is checked. A root that was read a few
+// seconds ago and no longer matches is read again before the mint is called stale.
+async function admitBridgeMintOp(env, op) {
+  const pool = confPool(env), main = _CONFIDENTIAL_DEPLOYMENTS?.mainnet?.pool;
+  if (!pool || !main || String(pool).toLowerCase() !== String(main).toLowerCase()) return { ok: true };
+  _admitPool ||= makeConfidentialPool({ secp, keccak256: keccak_256, sha256 });
+  let r = admitBridgeMint({ pool: _admitPool, op, knownRoot: await poolBurnRoot(pool) });
+  if (!r.ok && r.code === 'stale_root') r = admitBridgeMint({ pool: _admitPool, op, knownRoot: await poolBurnRoot(pool, true) });
+  return r;
+}
+// One burn's free settles a day: a mint that was refused and rebuilt is a new op, so the same burn may take a few, not the day's allowance.
+const BRIDGEMINT_FREE_PER_BURN = 4;
 async function handleConfidentialSubmit(req, env, cors) {
   const q = confSettler(env);
   if (!q) return jsonResponse({ error: 'confidential settle not configured' }, 404, { ...cors, 'Cache-Control': 'no-store' });
@@ -3232,7 +3257,19 @@ async function handleConfidentialSubmit(req, env, cors) {
   if (submitMode === 'settle' && await relayHolds(env, body.type, body.op)) {
     return jsonResponse({ ok: false, error: 'the relay can’t take this one just now: it is catching up on settles. Send it from your own account instead; the relay still proves it for you', code: 'relay_held', retryAfter: 300 }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '300' });
   }
+  // A bridge mint is the mint of a recorded burn, built on the burn set the pool holds, or it is not taken (it would cost a proof and a
+  // free settle to find that out).
+  let mintBurn = null;
+  if (body.type === 'bridgemint' && (submitMode === 'settle' || submitMode === 'prove')) {
+    const adm = await admitBridgeMintOp(env, body.op);
+    if (!adm.ok) return jsonResponse({ ok: false, error: adm.error, code: adm.code }, adm.status || 400, { ...cors, 'Cache-Control': 'no-store' });
+    mintBurn = adm.burnId ? String(adm.burnId).toLowerCase() : null;
+  }
   const feeless = submitMode === 'settle' && isFeeless(body.type, body.op) && !(await wrapTipPaid(env, body));
+  if (feeless && mintBurn) {
+    const bb = await dailyBudget(env, `bridgemint:${mintBurn}`, BRIDGEMINT_FREE_PER_BURN);
+    if (!bb.ok) return jsonResponse({ ok: false, error: `this burn has used its free relayed settles for today (${bb.used}/${bb.cap}): send it from your own account, which the relay still proves for you`, code: 'free_budget', class: 'burn' }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '3600' });
+  }
   if (feeless) {
     const b = await freeRelayBudget(env);
     if (!b.ok) return jsonResponse({ ok: false, error: `free relayed settles for today are used up (${b.used}/${b.cap}) — attach a fee above the floor, or prove-mode and settle it yourself`, code: 'free_budget' }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '3600' });
@@ -3249,7 +3286,7 @@ async function handleConfidentialSubmit(req, env, cors) {
     // Spend only on a job we actually accepted and will prove — a dedupe hit costs us nothing.
     if (!r.deduped) {
       if (submitMode === 'prove') await spendProveBudget(env).catch(() => {});
-      else if (feeless) { await spendDailyBudget(env, 'free').catch(() => {}); await spendDailyBudget(env, `free:${freeClassOf(body.type)}`).catch(() => {}); }
+      else if (feeless) { await spendDailyBudget(env, 'free').catch(() => {}); await spendDailyBudget(env, `free:${freeClassOf(body.type)}`).catch(() => {}); if (mintBurn) await spendDailyBudget(env, `bridgemint:${mintBurn}`).catch(() => {}); }
     }
     return jsonResponse({ ok: true, ...r }, 200, { ...cors, 'Cache-Control': 'no-store' });
   } catch (e) { return jsonResponse({ ok: false, error: String(e && e.message || e) }, 400, cors); }

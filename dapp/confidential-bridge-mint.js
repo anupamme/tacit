@@ -208,24 +208,33 @@ export function makeConfidentialBridgeMint({ pool, ct, relay = null, fetchImpl =
   // should seal a memo.
   // `selfSettle({ jobId, publicValues, proof, memos })` → { txHash }: the relay only proves, and the caller sends settle()
   // from its own account and pays that gas (no relay fee). The proof is still built by the relay.
-  async function bridgeMint({ network = 'mainnet', snapshot = null, recovery, ephRand, waitOpts, selfSettle = null, ...args }) {
+  async function bridgeMint({ network = 'mainnet', snapshot = null, recovery, ephRand, waitOpts, selfSettle = null, staleDelayMs = 4000, ...args }) {
     if (!relay) throw new Error('bridge-mint: no relay wired');
     if (!recovery || (!recovery.seedDerived && recovery.ownerPub == null)) {
       throw new Error('bridge-mint: pass recovery { ownerPub, secret } or { seedDerived: true } so the minted note stays recoverable');
     }
-    const snap = snapshot || await fetchReflectionSnapshot({ network });
-    const built = buildBridgeMintOp({ ...args, snapshot: snap });
-    const output = recovery.seedDerived
-      ? { seedDerived: true }
-      : { ownerPub: recovery.ownerPub, value: String(args.dest.value), blinding: hex32(args.dest.blinding), secret: recovery.secret == null ? 0 : recovery.secret,
-          asset: built.op.asset, owner: args.dest.owner, cx: built.op.output.cx, cy: built.op.output.cy };
-    const spec = { type: 'bridgemint', op: built.op, leaves: [built.destLeaf], outputs: [output], ephRand: ephRand || freshScalar };
-    if (!selfSettle) return { ...(await relay.settle(spec, waitOpts)), ...built };
-    const proven = await relay.prove(spec, waitOpts);
-    if (proven.status === 'settled') return { ...proven, ...built };
-    if (proven.status !== 'proven') throw new Error(`bridge-mint: the relay could not prove this mint (${proven.error || proven.status})`);
-    const sent = await selfSettle({ jobId: proven.jobId, publicValues: proven.publicValues, proof: proven.proof, memos: proven.memos || [] });
-    return { jobId: proven.jobId, ...sent, ...built };
+    // The relay turns a mint away as 'stale_root' when the burn set it was built on is not the one the pool holds (a newer proof landed while
+    // it was built): it is built again from the newest state, which costs nothing, instead of being proved for a settle that would revert.
+    for (let attempt = 0; ; attempt++) {
+      const snap = snapshot && attempt === 0 ? snapshot : await fetchReflectionSnapshot({ network });
+      const built = buildBridgeMintOp({ ...args, snapshot: snap });
+      const output = recovery.seedDerived
+        ? { seedDerived: true }
+        : { ownerPub: recovery.ownerPub, value: String(args.dest.value), blinding: hex32(args.dest.blinding), secret: recovery.secret == null ? 0 : recovery.secret,
+            asset: built.op.asset, owner: args.dest.owner, cx: built.op.output.cx, cy: built.op.output.cy };
+      const spec = { type: 'bridgemint', op: built.op, leaves: [built.destLeaf], outputs: [output], ephRand: ephRand || freshScalar };
+      try {
+        if (!selfSettle) return { ...(await relay.settle(spec, waitOpts)), ...built };
+        const proven = await relay.prove(spec, waitOpts);
+        if (proven.status === 'settled') return { ...proven, ...built };
+        if (proven.status !== 'proven') throw new Error(`bridge-mint: the relay could not prove this mint (${proven.error || proven.status})`);
+        const sent = await selfSettle({ jobId: proven.jobId, publicValues: proven.publicValues, proof: proven.proof, memos: proven.memos || [] });
+        return { jobId: proven.jobId, ...sent, ...built };
+      } catch (e) {
+        if (!(e && e.code === 'stale_root') || attempt >= 2) throw e;
+        await new Promise((r) => setTimeout(r, staleDelayMs * (attempt + 1)));
+      }
+    }
   }
 
   return { sourceLeaf, buildBridgeBurnEnvelope, buildBridgeMintOp, fetchReflectionSnapshot, bridgeMint, feeIsQuantized, ladderFee, destValueFor, txidInternal };
