@@ -102,7 +102,7 @@ import { buildOversight } from './governance-oversight.js';
 import { validateConsumedSource, deriveConsumedSource } from './consumed-source.js';
 import { makeConfidentialPool } from '../../dapp/confidential-pool.js';
 import { opExpiry } from '../../dapp/confidential-relay.js';
-import { sanitizeLedger, readChain, readTips, buildEconomics } from './relay-economics.js';
+import { sanitizeLedger, sanitizeBooks, readChain, readTips, buildEconomics } from './relay-economics.js';
 import { CONFIDENTIAL_DEPLOYMENTS as _CONFIDENTIAL_DEPLOYMENTS } from '../../dapp/confidential-deployments.js';
 import { decodeCrossoutMint, CONFIDENTIAL_POOL_DEPLOYMENTS as _CROSSOUT_POOL_DEPLOYMENTS } from '../../dapp/confidential-crossout-consumer.js';
 import { classifyConfidentialTx, makeBurnDepositKit } from '../../dapp/burn-deposit-bitcoin.js';
@@ -685,6 +685,7 @@ async function handlePointsProxy(pathname, search, cors) {
 // relay would read as "healthy" for as long as reflection kept beating, and vice versa.
 const PROVER_KINDS = ['settle', 'reflection', 'eth-state'];
 const proverHbKey = (network, kind) => `prover:heartbeat:${network}:${kind}`;
+const relayBooksKey = (network) => `relay:books:v1:${network}`;
 const PROVER_HB_STALE_MS = 10 * 60 * 1000;        // >10m with no heartbeat ⇒ that service is down
 const PROVER_HB_MIN_GAS_WEI = 2000000000000000n;  // 0.002 ETH floor before the gas key needs a top-up
 
@@ -717,6 +718,8 @@ async function handleProverHeartbeat(req, env, cors) {
   if (typeof body.prover_credit === 'string' && /^\d{1,12}(\.\d{1,4})?$/.test(body.prover_credit)) rec.prover_credit = body.prover_credit;
   // The settle relay's own books (worker-relay/src/lib/income-ledger.js), copied field by field: served by /relay/economics, never by /prover-health.
   if (body.ledger != null) { const l = sanitizeLedger(body.ledger); if (l) rec.ledger = l; }
+  // The same books in full, kept apart for the relay to take back after a restart (GET /confidential/ledger). Only the settle relay's own.
+  if (kind === 'settle' && body.ledger != null) { const b = sanitizeBooks(body.ledger); if (b) await env.REGISTRY_KV.put(relayBooksKey(network), JSON.stringify(b)).catch(() => {}); }
   // Progress fields (optional). These let /prover-health answer "how far
   // behind is proof coverage", not just "is the prover up": prover_alive only says the loop process exists, not that
   // state is advancing.
@@ -3191,6 +3194,15 @@ async function handleConfidentialQueue(req, env, cors) {
   if (!q) return jsonResponse({ error: 'confidential settle not configured' }, 404, { ...cors, 'Cache-Control': 'no-store' });
   if (!checkConfidentialAuth(req, env)) return jsonResponse({ error: 'not found' }, 404, cors);
   return jsonResponse(await q.queueStats(), 200, { ...cors, 'Cache-Control': 'no-store' });
+}
+// GET /confidential/ledger — box-token gated. The settle relay's own books as it last posted them, for it to take back when it restarts
+// (a restart would otherwise begin the books again and forget what the buyback is owed). {} when nothing has been posted.
+async function handleConfidentialLedger(req, env, cors) {
+  if (!checkConfidentialAuth(req, env)) return jsonResponse({ error: 'not found' }, 404, cors);
+  const network = new URL(req.url).searchParams.get('network') || 'mainnet';
+  let books = null;
+  try { books = JSON.parse((await env.REGISTRY_KV.get(relayBooksKey(network))) || 'null'); } catch { books = null; }
+  return jsonResponse(books ? { ledger: books } : {}, 200, { ...cors, 'Cache-Control': 'no-store' });
 }
 async function handleConfidentialJob(req, env, cors) {
   const q = confSettler(env);
@@ -26710,6 +26722,7 @@ async function _routeFetch(req, env, ctx) {
     if (url.pathname === '/confidential/submit' && req.method === 'POST') return handleConfidentialSubmit(req, env, cors);
     if (url.pathname === '/confidential/job' && req.method === 'GET') return handleConfidentialJob(req, env, cors);
     if (url.pathname === '/confidential/queue' && req.method === 'GET') return handleConfidentialQueue(req, env, cors);
+    if (url.pathname === '/confidential/ledger' && req.method === 'GET') return handleConfidentialLedger(req, env, cors);
     if (url.pathname === '/confidential/ack' && req.method === 'POST') return handleConfidentialAck(req, env, cors);
     if (url.pathname === '/confidential/status' && req.method === 'GET') return handleConfidentialStatus(env, url, cors);
     if (url.pathname === '/confidential/quote' && req.method === 'GET') return handleConfidentialQuote(req, env, url, cors);

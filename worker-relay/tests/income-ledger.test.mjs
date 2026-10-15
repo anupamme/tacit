@@ -105,3 +105,48 @@ test('nothing it is handed can make it throw', () => {
   assert.doesNotThrow(() => { l.settled({ feeUsd: 'x', feeAsset: {} }, { txCostWei: 'junk' }); l.deposited('x'); l.boughtBack('x'); l.setConfig(null); });
   assert.doesNotThrow(() => l.snapshot());
 });
+
+test('a restart takes the last process\'s books back: days added, owed and pending carried, the first start kept', () => {
+  const before = makeLedger({ ...opts, now: () => T0 });
+  before.settled({ feeUsd: 0.7, feeAsset: ETH }, { txCostWei: 100_000_000_000_000n });
+  before.provedOnly(); before.deposited(10); before.boughtBack(1_000_000_000_000_000n); before.setOwed(123_456_789_012_345_678n);
+  const snap = JSON.parse(JSON.stringify(before.snapshot()));
+  assert.equal(snap.owedWei, '123456789012345678');
+  assert.equal(snap.pendingUsd, 0.7);
+
+  const after = makeLedger({ ...opts, now: () => T0 + 3600e3 });
+  after.settled({ feeUsd: 0.5, feeAsset: USDC });                       // counted before the books came back
+  assert.equal(after.restore(snap), true);
+  const d = after.snapshot().days['2026-10-15'];
+  assert.equal(d.settled, 2); assert.equal(d.priced, 2); assert.equal(d.proveOnly, 1); assert.equal(d.proveIn, 10);
+  assert.deepEqual(d.feeUsd, { eth: 0.7, converted: 0.5, tac: 0, other: 0 });
+  assert.equal(d.gasEth, 0.0001); assert.equal(d.buybackEth, 0.001);
+  assert.equal(after.owed(), 123_456_789_012_345_678n, 'the exact amount owed');
+  assert.ok(Math.abs(after.peekBuybackBase() - 1.2) < 1e-9, 'income not yet taxed is still to be taxed');
+  assert.equal(after.snapshot().since, snap.since, 'counted from the first start, not the restart');
+});
+
+test('the books come back once, and a snapshot that is not books changes nothing', () => {
+  const snap = { since: new Date(T0 - 86400e3).toISOString(), owedWei: '5', pendingUsd: 1, days: { '2026-10-14': { settled: 3, feeUsd: { eth: 1 } } } };
+  const k = makeLedger({ ...opts, now: () => T0 });
+  for (const bad of [null, undefined, 'x', 7, []]) assert.equal(k.restore(bad), false);
+  assert.equal(k.restore(snap), true);
+  assert.equal(k.restore(snap), false, 'a second call adds nothing');
+  assert.equal(k.snapshot().days['2026-10-14'].settled, 3);
+  assert.equal(k.owed(), 5n);
+});
+
+test('restored days beyond the keep window are dropped, and odd fields are read as zero', () => {
+  const l = makeLedger({ ...opts, now: () => T0, keepDays: 2 });
+  const days = {};
+  for (let i = 1; i <= 5; i++) days[`2026-10-0${i}`] = { settled: i };
+  days['not-a-day'] = { settled: 99 };
+  days['2026-10-09'] = { settled: 'many', feeUsd: { eth: -3, converted: 'x' }, gasEth: NaN };
+  l.restore({ since: 'junk', owedWei: '-1', pendingUsd: 'x', days });
+  const out = l.snapshot();
+  assert.deepEqual(Object.keys(out.days), ['2026-10-05', '2026-10-09']);
+  assert.equal(out.days['2026-10-09'].settled, 0);
+  assert.equal(out.days['2026-10-09'].gasEth, 0);
+  assert.equal(l.owed(), 0n);
+  assert.equal(out.since, new Date(T0).toISOString(), 'a start that does not parse is ignored');
+});

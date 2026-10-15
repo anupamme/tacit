@@ -30,20 +30,21 @@ const blank = () => ({
 });
 
 export function makeLedger({ now = () => Date.now(), keepDays = 8, converted = [], tac = null } = {}) {
-  const since = now();
+  let since = now(), restored = false;
   const days = new Map();
   let pendingUsd = 0, owedWei = 0n, cfg = {};
   const bucket = (t = now()) => {
     const k = day(t);
     if (!days.has(k)) {
       days.set(k, blank());
-      for (const old of [...days.keys()].sort().slice(0, -keepDays)) days.delete(old);
+      prune();
     }
     return days.get(k);
   };
   const num = (x) => (Number.isFinite(Number(x)) && Number(x) > 0 ? Number(x) : 0);
   const eth = (wei) => Number(BigInt(wei) / 10n ** 9n) / 1e9;
   const safe = (fn) => (...a) => { try { return fn(...a); } catch { return undefined; } };
+  const prune = () => { for (const old of [...days.keys()].sort().slice(0, -keepDays)) days.delete(old); };
 
   return {
     // Which ERC-20s count as converted, and which is TAC: set once the process knows its configuration.
@@ -77,11 +78,39 @@ export function makeLedger({ now = () => Date.now(), keepDays = 8, converted = [
     setOwed: safe((wei) => { owedWei = BigInt(wei) < 0n ? 0n : BigInt(wei); }),
     setConfig: safe((c) => { cfg = { ...c }; }),
 
+    // The books a previous process of this relay posted (snapshot() shape, read back from the API), added to this one's. Once only, and
+    // all or nothing: a snapshot that does not parse changes nothing. What this process counted before the call is kept, so it may run late.
+    restore: safe((snap) => {
+      if (restored || !snap || typeof snap !== 'object' || Array.isArray(snap)) return false;
+      const add = {};
+      for (const [k, b] of Object.entries(snap.days && typeof snap.days === 'object' ? snap.days : {})) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(k) || !b || typeof b !== 'object') continue;
+        const r = blank();
+        for (const f of Object.keys(r)) if (f !== 'feeUsd') r[f] = num(b[f]);
+        for (const f of Object.keys(r.feeUsd)) r.feeUsd[f] = num(b.feeUsd && b.feeUsd[f]);
+        add[k] = r;
+      }
+      const owed = /^\d{1,30}$/.test(String(snap.owedWei ?? '')) ? BigInt(snap.owedWei) : 0n, pending = num(snap.pendingUsd), from = Date.parse(snap.since);
+      restored = true;
+      for (const [k, r] of Object.entries(add)) {
+        if (!days.has(k)) days.set(k, blank());
+        const b = days.get(k);
+        for (const f of Object.keys(r)) if (f !== 'feeUsd') b[f] += r[f];
+        for (const f of Object.keys(r.feeUsd)) b.feeUsd[f] += r.feeUsd[f];
+      }
+      prune();
+      owedWei += owed; pendingUsd += pending;
+      if (Number.isFinite(from) && from < since) since = from;
+      return true;
+    }),
+
     // A plain object for the heartbeat: whole numbers and short decimals only, newest day last.
     snapshot: () => ({
       since: new Date(since).toISOString(),
       cfg,
       owedEth: eth(owedWei),
+      owedWei: owedWei.toString(),            // exact, for a restart to take back; owedEth is for people
+      pendingUsd: Math.round(pendingUsd * 1e4) / 1e4,
       days: Object.fromEntries([...days.entries()].sort().map(([k, b]) => [k, {
         ...b, feeUsd: Object.fromEntries(Object.entries(b.feeUsd).map(([x, v]) => [x, Math.round(v * 100) / 100])),
         gasEth: Math.round(b.gasEth * 1e6) / 1e6, proveIn: Math.round(b.proveIn * 100) / 100, buybackEth: Math.round(b.buybackEth * 1e6) / 1e6,

@@ -46,6 +46,17 @@ export function sanitizeLedger(l) {
   return out;
 }
 
+// What the relay takes back when it restarts: the same books, with the exact buyback owed and the income not yet taxed. Never served to
+// the public (buildEconomics does not see it); a separate key, so a heartbeat that leaves the ledger out cannot erase it.
+export function sanitizeBooks(l) {
+  const out = sanitizeLedger(l);
+  if (!out) return null;
+  // A relay from before the exact figure was posted only has owedEth; it is good to a billionth of an ETH, which is all the carry needs.
+  out.owedWei = /^\d{1,30}$/.test(String(l.owedWei ?? '')) ? String(l.owedWei) : l.owedWei == null && out.owedEth > 0 ? String(BigInt(Math.round(out.owedEth * 1e9)) * 10n ** 9n) : '0';
+  out.pendingUsd = finite(l.pendingUsd);
+  return out;
+}
+
 export function sumDays(days, last = 7) {
   const keys = Object.keys(days || {}).sort().slice(-last);
   const t = { days: keys.length, settled: 0, priced: 0, unpriced: 0, proveOnly: 0, gasEth: 0, proveIn: 0, buybackEth: 0, splitterSends: 0, feeUsd: { eth: 0, converted: 0, tac: 0, other: 0 } };

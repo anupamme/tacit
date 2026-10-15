@@ -21,7 +21,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { CFG, ADDR, OP_GAS, DEFAULT_OP_GAS, OP_PROVE } from './lib/config.js';
-import { confidentialJob, confidentialBatch, confidentialAck, confidentialActivateAck, heartbeat, heartbeatIdle, setHeartbeatLedger } from './lib/worker-client.js';
+import { confidentialJob, confidentialBatch, confidentialAck, confidentialActivateAck, heartbeat, heartbeatIdle, setHeartbeatLedger, relayBooks } from './lib/worker-client.js';
 import { proveSettle } from './lib/prover.js';
 import { assertMemosMatchProof } from './lib/memo-root.js';
 import { consumedInput, consumedAck, unlandedDeposits, spentInputsOf, noteNullifier } from './lib/spent-precheck.js';
@@ -30,6 +30,7 @@ import { cbtcMintBlocker } from './lib/cbtc-mint-precheck.js';
 import { cdpBlocker } from './lib/cdp-precheck.js';
 import { settleWallet, settleWallets, publicClient, ethUsdPrice, POOL, POOL_ABI, ROUTER } from './lib/chain.js';
 import { ledger } from './lib/income-ledger.js';
+import { makeBooksRestorer } from './lib/ledger-restore.js';
 import { ROUTER_EXIT_ABI, recipeArgs, exitCheck, activationCover } from './lib/exit-activate.js';
 import { makeAbandonedSettles } from './lib/abandoned-settles.js';
 import { quoteRelayFee, provePriceUsd, replenishOnce, drainToSink, feeAssets } from './replenish.js';
@@ -782,7 +783,10 @@ async function main() {
       buybackBps: CFG.buybackIncomeBps, buybackKeepEth: Number(CFG.buybackKeepWei) / 1e18, buybackMinSendEth: Number(CFG.buybackMinSendWei) / 1e18,
       buybackSurplusBps: CFG.buybackShareBps, splitter: CFG.splitterAddr || null, buyback: CFG.buybackAddr || null, replenishMin: CFG.replenishIntervalMin,
     });
-    setHeartbeatLedger(() => ledger.snapshot());
+    // The books a restart would lose are taken back from the API first; until it has answered, no heartbeat carries the ledger.
+    const books = makeBooksRestorer({ ledger, fetchBooks: relayBooks, log });
+    setHeartbeatLedger(() => (books.ready() ? ledger.snapshot() : null));
+    await books.start();
   } catch (e) { log(`ledger setup failed (settling continues): ${e?.message || e}`); }
   if (CFG.sp1Prover === 'network' && !CFG.networkPrivateKey) {
     throw new Error('SP1_PROVER=network but NETWORK_PRIVATE_KEY unset — cannot prove');

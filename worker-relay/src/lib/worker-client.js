@@ -135,6 +135,17 @@ export async function reflectionEthStatePublish(body) {
   return { ok: res.ok, status: res.status, body: json };
 }
 
+// The books this relay last posted, for it to take back after a restart. null = the worker could not be asked (so try again later);
+// {} = it has none stored; { ledger } = the books. Unlike getJson, a refusal is not read as "nothing there".
+export async function relayBooks() {
+  try {
+    const res = await fetch(`${CFG.workerBase}/confidential/ledger?network=${encodeURIComponent(CFG.network)}`, { headers: auth(), signal: AbortSignal.timeout(8000) });
+    if (res.status === 404) return {};                 // a worker from before this route: nothing to take back
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
 // ── Confidential settle ──
 // `mode` ('prove' | 'settle') asks for jobs of that mode only.
 export async function confidentialJob({ mode = null } = {}) {

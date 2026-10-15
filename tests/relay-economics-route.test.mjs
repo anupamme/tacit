@@ -26,7 +26,8 @@ globalThis.fetch = async (url, opts) => {
   return res(null);
 };
 
-const env = { REGISTRY_KV: kv(), PROVER_HEARTBEAT_TOKEN: 'tok', FREE_RELAY_CAP_FARM: '8', FREE_RELAY_CAP_ONBOARD: '12' };
+const BOX = 'box-token-0123456789abcdef';
+const env = { REGISTRY_KV: kv(), PROVER_HEARTBEAT_TOKEN: 'tok', CONFIDENTIAL_BOX_TOKEN: BOX, FREE_RELAY_CAP_FARM: '8', FREE_RELAY_CAP_ONBOARD: '12' };
 const today = new Date().toISOString().slice(0, 10);
 env.REGISTRY_KV.m.set(`cps:budget:free:${today}`, '14'); env.REGISTRY_KV.m.set(`cps:budget:free:farm:${today}`, '8'); env.REGISTRY_KV.m.set(`cps:budget:free:onboard:${today}`, '3');
 const call = (path, init) => worker.fetch(new Request(`https://api.tacit.finance${path}`, { headers: { Origin: 'https://tacit.finance' }, ...init }), env, { waitUntil() {} });
@@ -81,6 +82,29 @@ const spo = j.sponsorship;
 ok(spo && spo.day === today && spo.total.used === 14 && spo.total.cap === 300, 'the route reports the day\'s sponsored settles against the total allowance');
 ok(spo.classes.farm.used === 8 && spo.classes.farm.cap === 8 && spo.classes.onboard.used === 3 && spo.classes.onboard.cap === 12, 'and each class against the allowance set for it');
 ok(spo.classes.wrap.used === 0 && spo.classes.wrap.cap === null && spo.classes.other.cap === null, 'a class with no allowance set shows no limit');
+
+// The books a restarted relay takes back: kept apart from the heartbeat record, never public, and not erased by a beat that leaves the ledger out.
+const asBox = (path) => call(path, { headers: { Authorization: `Bearer ${BOX}`, Origin: 'https://tacit.finance' } });
+r = await beat({ ledger: { ...ledger, owedWei: '1234567890123456', pendingUsd: 2.5 } });
+ok((await call('/confidential/ledger')).status === 404, 'the books are not served without the relay\'s token');
+r = await asBox('/confidential/ledger'); j = await r.json();
+ok(r.status === 200 && j.ledger && j.ledger.owedWei === '1234567890123456' && j.ledger.pendingUsd === 2.5 && j.ledger.days[today].settled === 12 && j.ledger.junk === undefined, 'with the token, the last books come back, checked, with the exact owed and the income not yet taxed');
+ok(j.ledger.days[today].feeUsd.tac === 2, 'and the operator\'s own figures (TAC fees) are in them');
+r = await beat({}); // a beat that leaves the ledger out (the relay has not taken its books back yet)
+r = await asBox('/confidential/ledger'); j = await r.json();
+ok(j.ledger && j.ledger.owedWei === '1234567890123456', 'a beat with no ledger leaves the stored books alone');
+r = await beat({ ledger: { ...ledger, owedWei: 'not a number', pendingUsd: -4 } });
+r = await asBox('/confidential/ledger'); j = await r.json();
+ok(j.ledger.owedWei === '0' && j.ledger.pendingUsd === 0, 'an owed or pending figure that is not a plain number is read as nothing');
+r = await call('/relay/economics'); j = await r.json();
+ok(j.ledger && j.ledger.owedWei === undefined && j.ledger.pendingUsd === undefined, 'and neither reaches the public page');
+ok(!JSON.stringify(await (await call('/prover-health?network=mainnet')).json()).includes('owedWei'), 'or /prover-health');
+r = await beat({ ledger: { ...ledger, owedEth: 0.0123 } });   // posted by a relay from before the exact figure
+r = await asBox('/confidential/ledger'); j = await r.json();
+ok(j.ledger.owedWei === '12300000000000000', 'a relay that only posted owedEth has it taken back as wei');
+const reflect = await beat({ kind: 'reflection', ledger: { ...ledger, owedWei: '999' } });
+r = await asBox('/confidential/ledger'); j = await r.json();
+ok(j.ledger.owedWei === '12300000000000000', 'only the settle relay\'s beat writes the books');
 
 globalThis.fetch = realFetch;
 console.log(fails ? `\n${fails} FAILED` : '\nall passed');
