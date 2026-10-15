@@ -13,14 +13,16 @@
 // (SETTLE_JOB_TIMEOUT_SECS, 15 min), so a slow proof is never handed to a second prover while the first still runs.
 const CLAIM_TTL_MS = 16 * 60 * 1000;
 // The open board: a job proved and waiting for any sender. A relay that takes one to send has this long before it
-// goes back on the board; a job nobody sends leaves the board after OPEN_TTL_MS (or at its own deadline).
+// goes back on the board. A relayed job stays until its own deadline (its holder asked the relay to send it, and the relay
+// does once it can); a posted proof leaves after OPEN_TTL_MS if nobody sent it.
 const SEND_CLAIM_TTL_MS = 5 * 60 * 1000;
 const OPEN_TTL_MS = 24 * 3600 * 1000;
 const MAX_OPEN_JOBS = 256;
 // Op types whose settle is a plain pool.settle(publicValues, proof, memos) that any account can send. A router-embedded
-// proof (wraptransfer, wraplp, wrapswap, wrapcdpmint) pulls from its sender, and a bridge mint or a fast-lane exit is
-// pinned to a root that moves with the reflection, so those never go on the board.
-export const OPEN_TYPES = ['wrap', 'unwrap', 'transfer', 'swap', 'route', 'lp', 'otc', 'bid', 'bridgeburn', 'cdpmint', 'farmbond', 'farmharvest', 'farmunbond', 'adaptorlock', 'adaptorclaim', 'adaptorrefund', 'cdpclose', 'cdpliquidate', 'cdptopup', 'stealthlock', 'stealthlockbatch', 'stealthclaim', 'stealthrefund', 'sendunwrap', 'lpbond', 'lpremove'];
+// proof (wraptransfer, wraplp, wrapswap, wrapcdpmint) pulls from its sender, a bridge mint or a fast-lane exit is pinned to
+// a root that moves with the reflection, and an adaptor lock, claim or refund is one leg of a swap whose other leg keys off
+// when it lands (a claim's public values carry the completed kernel s), so none of those go on the board.
+export const OPEN_TYPES = ['wrap', 'unwrap', 'transfer', 'swap', 'route', 'lp', 'otc', 'bid', 'bridgeburn', 'cdpmint', 'farmbond', 'farmharvest', 'farmunbond', 'cdpclose', 'cdpliquidate', 'cdptopup', 'stealthlock', 'stealthlockbatch', 'stealthclaim', 'stealthrefund', 'sendunwrap', 'lpbond', 'lpremove'];
 // KV has no compare-and-swap (real Cloudflare KV doesn't either, and this queue must stay portable to
 // it — see server/kv-store.mjs), so a plain read-then-write claim races once more than one poller hits
 // the same pending job. CLAIM_VERIFY_DELAY_MS narrows that window from "the whole poll interval" to
@@ -230,7 +232,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
   }
 
   const isOpen = (j) => j.status === 'open' || (j.status === 'sending' && clock() - (j.sendClaimAt || 0) > SEND_CLAIM_TTL_MS);
-  const ranOut = (j) => clock() - (j.openSince || j.createdAt || 0) > OPEN_TTL_MS || (j.expiresAt > 0 && clock() >= j.expiresAt);
+  const ranOut = (j) => (j.posted && clock() - (j.openSince || j.createdAt || 0) > OPEN_TTL_MS) || (j.expiresAt > 0 && clock() >= j.expiresAt);
   const openView = (id, j) => ({ jobId: id, type: j.type, status: isOpen(j) ? 'open' : 'sending', posted: !!j.posted,
     publicValues: j.publicValues, proof: j.proof, memos: j.memos || [], openSince: j.openSince || j.createdAt || 0,
     expiresAt: j.expiresAt || 0, feeUsd: j.feeUsd ?? null, feeAsset: j.feeAsset || null });
@@ -302,7 +304,17 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
       cur.status = 'settled'; cur.txHash = String(txHash).toLowerCase(); cur.error = null;
       delete cur.broadcastHashes;
       await storage.putJob(jobId, cur);
-      await putOpen((await getOpen()).filter((x) => x !== jobId));
+      // The same proof can sit on the board twice (relayed, and posted by its holder): one landing settles both.
+      const ids = await getOpen(), closed = [jobId], pv = String(cur.publicValues).toLowerCase();
+      for (const id of ids) {
+        if (id === jobId) continue;
+        const o = await storage.getJob(id);
+        if (!o || !(o.status === 'open' || o.status === 'sending') || String(o.publicValues || '').toLowerCase() !== pv) continue;
+        o.status = 'settled'; o.txHash = cur.txHash; o.error = null;
+        await storage.putJob(id, o);
+        closed.push(id);
+      }
+      await putOpen(ids.filter((x) => !closed.includes(x)));
       const pend = await storage.getPending();
       if (pend.includes(jobId)) await storage.putPending(pend.filter((x) => x !== jobId));
       return ackView(cur);

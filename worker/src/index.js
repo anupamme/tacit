@@ -2970,8 +2970,10 @@ async function simulateSettle(env, { publicValues, proof, memos }) {
       const e = j && j.error;
       if (!e) continue;
       const d = typeof e.data === 'string' ? e.data : (e.data && typeof e.data.data === 'string' ? e.data.data : '');
+      // `definite`: the node said so in a way a rate limit or a node fault cannot (a revert code, or revert data). A word in
+      // the message alone is enough to refuse a posted proof, never to close a job.
       if (e.code === 3 || /revert/i.test(String(e.message || '')) || /^0x[0-9a-fA-F]{8}/.test(d)) {
-        return { ok: false, reverted: true, error: /^0x[0-9a-fA-F]{8}/.test(d) ? `settle reverts (${d.slice(0, 10)})` : 'settle reverts' };
+        return { ok: false, reverted: true, definite: e.code === 3 || /^0x[0-9a-fA-F]{8}/.test(d), error: /^0x[0-9a-fA-F]{8}/.test(d) ? `settle reverts (${d.slice(0, 10)})` : 'settle reverts' };
       }
     } catch { /* next node */ }
   }
@@ -2988,7 +2990,7 @@ async function openLanded(env, job, txHash) {
   if (!carriesPublicValues(tx.input || '', job.publicValues)) return { ok: false, error: 'that transaction does not carry this job’s proof' };
   const sim = await simulateSettle(env, job);
   if (sim.ok) return { ok: false, error: 'this proof would still settle, so that transaction did not settle it' };
-  if (!sim.reverted) return { ok: false, error: sim.error };
+  if (!sim.reverted || !sim.definite) return { ok: false, error: sim.error || 'the chain could not be read just now; try again' };
   return { ok: true };
 }
 // Default-deny Bearer gate for the prover routes (mirrors checkDebugAuth; constant-time compare).
@@ -3302,6 +3304,7 @@ async function handleConfidentialAck(req, env, cors) {
     open: body.open === true, requeue: body.requeue === true, release: body.release === true });
   return jsonResponse(r, 200, cors);
 }
+let _openCache = null;
 // GET /confidential/open?limit= — public. The board: relayed jobs proved and waiting for a sender, and proofs posted for
 // any sender. Each carries what settle() needs; whoever sends one is paid the fee its proof binds.
 async function handleConfidentialOpen(req, env, url, cors) {
@@ -3311,8 +3314,9 @@ async function handleConfidentialOpen(req, env, url, cors) {
   const rl = await proveRateLimit(env, ip, 'open', 30, 2000);
   if (!rl.ok) return jsonResponse({ ok: false, error: `too many requests — retry in ~${rl.retryAfter}s`, retryAfter: rl.retryAfter }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': String(rl.retryAfter) });
   const limit = Math.max(1, Math.min(64, Number(url.searchParams.get('limit')) || 32));
-  const jobs = await q.openList({ limit });
-  return jsonResponse({ pool: confPool(env), jobs }, 200, { ...cors, 'Cache-Control': 'no-store' });
+  // Each read walks the board's records, so one list is shared for a few seconds rather than read again per request.
+  if (!_openCache || Date.now() - _openCache.at > 5000) _openCache = { at: Date.now(), jobs: await q.openList({ limit: 64 }) };
+  return jsonResponse({ pool: confPool(env), jobs: _openCache.jobs.slice(0, limit) }, 200, { ...cors, 'Cache-Control': 'no-store' });
 }
 // POST /confidential/landed { jobId, txHash } — public. A settle sent outside the relay (from the holder's own account,
 // or by another relayer from the board) closes its job once the transaction is seen to have settled it.

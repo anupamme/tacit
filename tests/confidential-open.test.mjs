@@ -84,6 +84,7 @@ test('a job with an exit recipe, a prove-mode job, or a router-embedded type sta
   await q.nextJob();
   assert.equal((await q.ackJob(w.jobId, { publicValues: PV, proof: PROOF, open: true })).ok, false);
   assert.ok(!OPEN_TYPES.includes('bridgemint') && !OPEN_TYPES.includes('fastlane'), 'root-pinned proofs never go on the board');
+  assert.ok(!OPEN_TYPES.some((t) => t.startsWith('adaptor')), 'an adaptor-swap leg is never published before it lands');
   assert.equal((await q.openList()).length, 0);
 });
 
@@ -172,8 +173,8 @@ test('a reported landing closes the job only when the check passes, and a proven
   assert.equal((await q.landedJob(pending.jobId, '0x' + '44'.repeat(32), async () => ({ ok: true }))).ok, false, 'a job with no proof yet is not closed this way');
 });
 
-test('a job leaves the board as failed at its own deadline, or after a day nobody sent it', async () => {
-  const { q, clock } = setup({ expiryOf: ({ op }) => (op && op.deadline) || 0 });
+test('a job leaves the board as failed at its own deadline; a posted proof also after a day, a relayed one does not', async () => {
+  const { q, clock } = setup({ expiryOf: ({ op }) => (op && op.deadline) || 0, verifyPosted: async () => ({ ok: true }) });
   const by = Math.floor(clock.t / 1000) + 600;
   const j = await q.submitJob({ type: 'transfer', op: { ...transferOp, deadline: by }, memos: MEMOS });
   await q.nextJob();
@@ -181,12 +182,28 @@ test('a job leaves the board as failed at its own deadline, or after a day nobod
   const k = await q.submitJob({ type: 'transfer', op: { ...transferOp, n: 2 }, memos: MEMOS });
   await q.nextJob();
   await q.ackJob(k.jobId, { publicValues: PV, proof: PROOF, open: true });
-  assert.equal((await q.openList()).length, 2);
+  const p = await q.submitJob({ type: 'transfer', mode: 'preproven', publicValues: '0x' + 'cd'.repeat(64), proof: PROOF, memos: [] });
+  assert.equal((await q.openList()).length, 3);
   clock.t += 601 * 1000;
   assert.equal(await q.nextOpen({ id: j.jobId }), null, 'a job past its deadline is not taken to send');
-  assert.equal((await q.openList()).length, 1);
+  assert.equal((await q.openList()).length, 2);
   assert.match((await q.jobStatus(j.jobId)).error, /before its deadline/);
   clock.t += 24 * 3600 * 1000;
+  const left = await q.openList();
+  assert.deepEqual(left.map((x) => x.jobId), [k.jobId], 'the relayed job with no deadline stays for the relay to send');
+  assert.match((await q.jobStatus(p.jobId)).error, /within a day/);
+});
+
+test('one landing closes every job on the board that carries the same proof', async () => {
+  const { q } = setup({ verifyPosted: async () => ({ ok: true }) });
+  const j = await q.submitJob({ type: 'transfer', op: transferOp, memos: MEMOS });
+  await q.nextJob();
+  await q.ackJob(j.jobId, { publicValues: PV, proof: PROOF, open: true });
+  const p = await q.submitJob({ type: 'transfer', mode: 'preproven', publicValues: PV, proof: PROOF, memos: MEMOS });
+  assert.notEqual(p.jobId, j.jobId);
+  assert.equal((await q.openList()).length, 2);
+  await q.landedJob(p.jobId, '0x' + '55'.repeat(32), async () => ({ ok: true }));
   assert.equal((await q.openList()).length, 0);
-  assert.match((await q.jobStatus(k.jobId)).error, /within a day/);
+  assert.equal((await q.jobStatus(j.jobId)).status, 'settled');
+  assert.equal((await q.jobStatus(j.jobId)).txHash, '0x' + '55'.repeat(32));
 });

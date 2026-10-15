@@ -205,6 +205,10 @@ async function fireSwap(quoted, wallet = relayWallet) {
   return h;
 }
 
+// The prover credit the last pass read (PROVE wei) and when, for the settle loop's choices between passes; null before the first.
+let lastCreditWei = null, lastCreditAt = 0;
+export const lastProverCredit = () => (lastCreditWei == null ? null : { wei: lastCreditWei, at: lastCreditAt });
+
 // Deposits the wallet's PROVE into the vApp. DEPOSIT_AMOUNT_WEI caps how much goes in (default: the
 // whole balance, the sweep-loop behaviour) — a bounded deposit keeps the rest of the treasury out of
 // the prover account when topping up for one known job.
@@ -227,12 +231,28 @@ async function depositProveToVApp(wallet = relayWallet) {
 // PROVE that reached the prover account since the last pass (a top-up, or a visitor paying for proofs) goes into the
 // vApp now, once there is at least `minWei` of it: proving can run short of credit well inside a 30-minute pass. The
 // deposit is the same one a pass makes, so nothing here can move anything but PROVE into the prover's own credit.
-// -> true when it deposited.
-export async function depositArrivedProve({ minWei }) {
-  const bal = await erc20Balance(PROVE, relayWallet.account.address);
+// The prover account is also the wallet the header and attest crons pay from, so the deposit never takes the gas an
+// attest keeps back (REFLECTION_ATTEST_GAS_BUDGET at twice the base fee, as the header relay reckons it) on top of its own
+// approve and deposit; below that it waits for a funded pass. After a refusal or a failure it is not tried again for
+// DEPOSIT_RETRY_MS. -> true when it deposited.
+const DEPOSIT_GAS = 150_000n;             // an approve and a vApp deposit
+const DEPOSIT_RETRY_MS = 10 * 60_000;
+let depositHeldUntil = 0;
+export async function depositArrivedProve({ minWei, now = Date.now() }) {
+  if (now < depositHeldUntil) return false;
+  const owner = relayWallet.account.address;
+  const bal = await erc20Balance(PROVE, owner);
   if (bal < minWei) return false;
+  const [eth, blk] = await Promise.all([publicClient.getBalance({ address: owner }), publicClient.getBlock({ blockTag: 'latest' })]);
+  const need = (CFG.attestGasBudget + DEPOSIT_GAS) * ((blk.baseFeePerGas ?? 0n) * 2n + CFG.settleTipFloorWei);
+  if (eth < need) {
+    log(`${bal} PROVE arrived at the prover account; its ETH is kept for attests, so the deposit waits for a funded pass`);
+    depositHeldUntil = now + DEPOSIT_RETRY_MS;
+    return false;
+  }
   log(`${bal} PROVE arrived at the prover account — depositing it now`);
-  await depositProveToVApp(relayWallet);
+  try { await depositProveToVApp(relayWallet); }
+  catch (e) { depositHeldUntil = Date.now() + DEPOSIT_RETRY_MS; throw e; }
   return true;
 }
 
@@ -465,7 +485,7 @@ export async function replenishOnce({ roles = null, convertToProve = true } = {}
   // under the floor, ETH above the gas buffer goes to PROVE this pass (capped), not only ETH above the sweep line.
   const credit = convertToProve ? await proverCredit() : null;
   const creditLow = credit != null && credit < CFG.proveCreditFloorWei;
-  if (credit != null) setProverCredit(creditText(credit));
+  if (credit != null) { setProverCredit(creditText(credit)); lastCreditWei = credit; lastCreditAt = Date.now(); }
   if (credit != null) log(`prover credit ${(Number(credit) / 1e18).toFixed(2)} PROVE${creditLow ? ` — under the ${(Number(CFG.proveCreditFloorWei) / 1e18).toFixed(0)} PROVE floor, buying from ETH above the gas buffer` : ''}`);
 
   for (const { address: owner, wallet, roles: held } of earners) {

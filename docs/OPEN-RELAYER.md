@@ -20,7 +20,7 @@ A proof lands on the board in one of two ways:
 
 | route | |
 |---|---|
-| `GET /confidential/open?limit=` | `{ pool, jobs }`, oldest first. Each job has `{ jobId, type, status, posted, publicValues, proof, memos, openSince, expiresAt, feeUsd, feeAsset }`. `status` is `open`, or `sending` while a relay has taken the job to send; a send that never finishes goes back to `open` after five minutes. `expiresAt` is in ms (0 means none). |
+| `GET /confidential/open?limit=` | `{ pool, jobs }`, oldest first (the list can be up to five seconds old). Each job has `{ jobId, type, status, posted, publicValues, proof, memos, openSince, expiresAt, feeUsd, feeAsset }`. `status` is `open`, or `sending` while a relay has taken the job to send; a send that never finishes goes back to `open` after five minutes. `expiresAt` is in ms (0 means none). |
 | `POST /confidential/landed` | `{ jobId, txHash }`. Closes the job once the API sees that the transaction succeeded, reached the pool, carries the job's public values, and that the same settle would now be refused. |
 | `POST /confidential/submit` | `{ type, mode: 'preproven', publicValues, proof, memos }` posts your own proof. Its settle is simulated first, and a proof the pool would refuse now is turned away. The same public values posted twice are one job. |
 | `GET /confidential/status?id=` | One job's status. An open job carries the same proof and memos as on the board. |
@@ -30,8 +30,10 @@ A proof lands on the board in one of two ways:
 - **Never listed:**
   - router-embedded proofs: `wraptransfer`, `wraplp`, `wrapswap`, `wrapcdpmint`;
   - proofs pinned to a root that moves with the reflection: `bridgemint`, `cbtcmint`, `fastlane`;
+  - adaptor-swap legs (`adaptorlock`, `adaptorclaim`, `adaptorrefund`): when one lands is part of the swap;
   - exits that carry an L2 recipe for the relay to activate.
-- **Leaving the board:** a job is dropped at its own deadline, or after a day if nobody sent it.
+- **Leaving the board:** a relayed job stays until its own deadline. A posted proof also leaves after a day if
+  nobody sent it. A landing closes every job on the board that carries the same proof.
 
 **Reading a job's fee.** `publicValues` is `abi.encode(PublicValues)` of the struct in
 [`ConfidentialPool.sol`](../contracts/src/ConfidentialPool.sol).

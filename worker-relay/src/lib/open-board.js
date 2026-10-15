@@ -5,9 +5,9 @@
 // covers the settle. Pure, so the choices are unit-tested (worker-relay/tests/open-board.test.mjs).
 
 // Kept equal to worker/src/confidential-settle.js OPEN_TYPES (a test pins the two together): the op types whose settle
-// is a plain pool.settle(publicValues, proof, memos). A router-embedded proof pulls from its sender, and a bridge mint or
-// a fast-lane exit is pinned to a root that moves with the reflection.
-export const OPEN_TYPES = ['wrap', 'unwrap', 'transfer', 'swap', 'route', 'lp', 'otc', 'bid', 'bridgeburn', 'cdpmint', 'farmbond', 'farmharvest', 'farmunbond', 'adaptorlock', 'adaptorclaim', 'adaptorrefund', 'cdpclose', 'cdpliquidate', 'cdptopup', 'stealthlock', 'stealthlockbatch', 'stealthclaim', 'stealthrefund', 'sendunwrap', 'lpbond', 'lpremove'];
+// is a plain pool.settle(publicValues, proof, memos). A router-embedded proof pulls from its sender, a bridge mint or a
+// fast-lane exit is pinned to a root that moves with the reflection, and an adaptor leg's landing is part of a swap.
+export const OPEN_TYPES = ['wrap', 'unwrap', 'transfer', 'swap', 'route', 'lp', 'otc', 'bid', 'bridgeburn', 'cdpmint', 'farmbond', 'farmharvest', 'farmunbond', 'cdpclose', 'cdpliquidate', 'cdptopup', 'stealthlock', 'stealthlockbatch', 'stealthclaim', 'stealthrefund', 'sendunwrap', 'lpbond', 'lpremove'];
 
 // Reverts that mean the proof no longer fits the chain rather than the op being wrong: proved again from the witness.
 export const STALE_PROOF_SELECTORS = ['0x8a98f245' /* StaleBitcoinBurnRoot */, '0xb14b466c' /* StaleBitcoinSpentRoot */, '0xe677decb' /* StaleReflectionDigest */];

@@ -33,8 +33,8 @@ import { ledger } from './lib/income-ledger.js';
 import { makeBooksRestorer } from './lib/ledger-restore.js';
 import { ROUTER_EXIT_ABI, recipeArgs, exitCheck, activationCover } from './lib/exit-activate.js';
 import { makeAbandonedSettles } from './lib/abandoned-settles.js';
-import { quoteRelayFee, provePriceUsd, replenishOnce, drainToSink, feeAssets, depositArrivedProve } from './replenish.js';
-import { openable, pickOpen, STALE_PROOF_SELECTORS } from './lib/open-board.js';
+import { quoteRelayFee, provePriceUsd, replenishOnce, drainToSink, feeAssets, depositArrivedProve, lastProverCredit } from './replenish.js';
+import { openable, pickOpen, ethFeeWei, STALE_PROOF_SELECTORS } from './lib/open-board.js';
 import { replenishDue } from './lib/replenish-schedule.js';
 import { tipFor, TIP_HISTORY_BLOCKS, TIP_PERCENTILE } from './lib/gas-tip.js';
 import { feeCapFor } from './lib/fee-cap.js';
@@ -671,6 +671,12 @@ async function openCycle() {
   }
   log(`settled from the open board: job=${jobId} tx=${txHash}`);
   await confidentialAck({ jobId, txHash });
+  // A posted proof carries no fee the API priced; its tETH legs are what this settle earned, at today's ETH price.
+  if (job.posted && job.feeUsd == null) {
+    const wei = ethFeeWei(job.publicValues, { ethAssetId: CFG.ethAssetId, ethUnitScale: CFG.ethUnitScale });
+    const ethUsd = wei > 0n ? await ethUsdPrice().catch(() => null) : null;
+    if (wei > 0n && ethUsd) Object.assign(job, { feeUsd: (Number(wei) / 1e18) * Number(ethUsd), feeAsset: '0x0000000000000000000000000000000000000000' });
+  }
   bookSettled([job], txHash);
   await heartbeat('settle', `settled ${jobId}`);
   return true;
@@ -683,8 +689,10 @@ async function cycle() {
   let job = await confidentialJob(short ? { mode: 'prove' } : {});
   // While the wallet cannot pay for a settle, a relayed job any account could send is still proved and put on the open
   // board: its holder's page offers to send it at once, any relayer may send it for its fee, and this relay sends it
-  // itself once it can pay. A job only this relay could finish (an exit to activate, a router-embedded proof) waits.
-  const holding = short && !job?.jobId && CFG.proveWhileShort;
+  // itself once it can pay. A job only this relay could finish (an exit to activate, a router-embedded proof) waits, and so
+  // does everything while the credit has nothing to spare: a board proof is bought before anyone sends it.
+  const credit = lastProverCredit();
+  const holding = short && !job?.jobId && CFG.proveWhileShort && !!credit && credit.wei >= CFG.proveWhileShortMinCreditWei;
   if (holding) job = await confidentialJob({ mode: 'settle', openable: true });
   const jobId = job?.jobId;
   if (!jobId) return false; // empty queue
@@ -735,7 +743,8 @@ async function cycle() {
     // is short goes back with `open`, onto the board.
     const r = await confidentialAck({ jobId, publicValues: proof.publicValues, proof: proof.proof, open: holding });
     if (holding) log(`proved and put on the open board: job=${jobId}${r.ok ? '' : ' (the API did not take it; it is proved again when its claim lapses)'}`);
-    else { log(`proved-only: job=${jobId}`); ledger.provedOnly(); }
+    else log(`proved-only: job=${jobId}`);
+    ledger.provedOnly();                                              // a proof paid for with no settle of the relay's own (yet)
     return true;
   }
 
