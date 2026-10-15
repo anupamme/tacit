@@ -30,6 +30,7 @@ contract TacDeployForkTest is Test {
     address constant OPS = 0x006CD14F36F65eCbB29b2519cCBe63A0DC8549F2;
     bytes32 constant ETH_ASSET = 0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34;
     bytes32 constant TAC_ASSET = 0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b;
+    bytes32 constant CUSD_ASSET = 0x8f4490dd3728b0ee904d7a67c11b37ffd463a5c7f08b79810006995ee8a9679d;
     bytes32 constant TAC_ETH_POOL = 0x248497bf6f943cd2b39a04bf5841056c58dfd7ef196188cb4f0ac1fd11dc7c00;
     bytes32 constant ASSET_REGISTERED = keccak256("AssetRegistered(bytes32,address,uint256,string,string,uint8)");
 
@@ -70,10 +71,14 @@ contract TacDeployForkTest is Test {
         IChainlinkC feed = IChainlinkC(0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419);
         assertEq(feed.decimals(), 8);
         assertEq(keccak256(bytes(feed.description())), keccak256("ETH / USD"));
+        // cUSD is registered in the pool under the id the script pairs the dollar synth with.
+        (bool cusdRegistered, address cusdToken,,,,) = IV1c(V1).assets(CUSD_ASSET);
+        assertTrue(cusdRegistered, "cUSD is registered");
+        assertEq(cusdToken, 0x23cACFFAc2674514A6d4F6cD420B4cc2aC921564, "its ERC-20 form is tacUSD");
     }
 
     /// Runs the deploy script on the fork (nothing leaves the test) and checks what it leaves: the vaults' settings,
-    /// the shared pair oracle and its venues, both synths registered and the four pairs initialised, and a vault
+    /// the shared pair oracle and its venues, both synths registered and the five pairs initialised, and a vault
     /// that cannot lend before the oracle has recorded anything.
     function test_theDeployScriptLeavesTheVaultsOraclesSynthsAndPairsWired() public {
         if (!_fork()) return;
@@ -136,7 +141,7 @@ contract TacDeployForkTest is Test {
         assertEq(a.POOL(), 0x0155358241411dB868BA714aE7c83A27087e3D6E);
         assertEq(b.POOL(), V1);
 
-        // Both synths are registered with the right underlying and scale, and the four pairs exist.
+        // Both synths are registered with the right underlying and scale, and the five pairs exist.
         for (uint256 i; i < 2; ++i) {
             (bool reg, address under, uint256 scale,,, uint8 dec) = IV1c(V1).assets(ids[i]);
             assertTrue(reg);
@@ -146,9 +151,14 @@ contract TacDeployForkTest is Test {
         }
         bytes32 usdId = ids[0];
         bytes32 ethId = ids[1];
-        bytes32[4] memory want =
-            [_poolId(TAC_ASSET, usdId), _poolId(TAC_ASSET, ethId), _poolId(ETH_ASSET, ethId), _poolId(usdId, ethId)];
-        for (uint256 i; i < 4; ++i) {
+        bytes32[5] memory want = [
+            _poolId(TAC_ASSET, usdId),
+            _poolId(TAC_ASSET, ethId),
+            _poolId(ETH_ASSET, ethId),
+            _poolId(usdId, ethId),
+            _poolId(usdId, CUSD_ASSET)
+        ];
+        for (uint256 i; i < 5; ++i) {
             (bool init,,,,,,) = IV1c(V1).pools(want[i]);
             assertTrue(init, "pair created");
         }

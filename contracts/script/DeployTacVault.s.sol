@@ -32,8 +32,9 @@ interface IPoolRegistry {
 ///         pool's AMM pool) and two TacVaults that share it: one lending a dollar (through the ETH/USD feed) and one
 ///         lending ETH (through a FixedFeed). For TAC and each synth it deploys a TacitEvmPool and router (the live
 ///         contracts and verifier), and a zap per vault. Last, it registers both synths in the confidential pool and
-///         creates the TAC/USD, TAC/ETH-synth, ETH/ETH-synth and USD/ETH-synth pairs there; anyone may do these
-///         first, and an existing entry is used as it is.
+///         creates the TAC/USD, TAC/ETH-synth, ETH/ETH-synth, USD/ETH-synth and USD/cUSD pairs there (the last lets
+///         a dollar borrowed against TAC move into cUSD and its pools); anyone may do these first, and an existing
+///         entry is used as it is.
 ///
 ///         After deploying, run tools/tac-vault-keeper.mjs with ORACLE set to the two venue oracles it prints: it
 ///         records the past hours of intervals at once and every new one after. Both vaults start with the largest
@@ -70,6 +71,8 @@ contract DeployTacVault is Script {
     address constant ETH_USD = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
     bytes32 constant ETH_ASSET = 0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34;
     bytes32 constant TAC_ASSET = 0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b;
+    // The confidential pool's id for cUSD (the CollateralEngine's dollar; its ERC-20 form is tacUSD).
+    bytes32 constant CUSD_ASSET = 0x8f4490dd3728b0ee904d7a67c11b37ffd463a5c7f08b79810006995ee8a9679d;
     address constant VERIFIER = 0x000000b1c0e84CEc8AdF8278B90c4d6400DfB153;
     address constant ZROUTER = 0x000000000000FB114709235f1ccBFfb925F600e4;
     address constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
@@ -124,6 +127,7 @@ contract DeployTacVault is Script {
         _pair(TAC_ASSET, o.ethAsset);
         _pair(ETH_ASSET, o.ethAsset);
         _pair(o.usdAsset, o.ethAsset);
+        _pair(o.usdAsset, CUSD_ASSET);
         vm.stopBroadcast();
         (bool usdRegistered,,,,,) = IPoolRegistry(POOL).assets(o.usdAsset);
         (bool ethRegistered,,,,,) = IPoolRegistry(POOL).assets(o.ethAsset);
