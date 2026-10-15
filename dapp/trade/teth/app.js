@@ -5,14 +5,14 @@
 //
 // It reads the chain and the API with no wallet, as /trade/tac/ does, and holds no key it was not given: the key lives in this visit's memory.
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=e2110e58';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=07faf2e5';
-import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=93b6f42f';
-import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=b748d14e';
-import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, forgetUx, getUx } from '/trade/teth/wrap.js?cb=66af8774';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=29090a37';
+import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=2e4367bc';
+import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=41fec7c6';
+import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, forgetUx, getUx } from '/trade/teth/wrap.js?cb=408eadf2';
 import { mountDepth } from '/trade/depth.js?cb=21a5dc95';
 import { candlesFromTrades, closeAt } from '/trade/tape.js?cb=6565501b';
-import { readMarket, isActive, bookState, refSats, premium, satsTxt, ladders, idle, bookPrime, summary, fillBars, BTC_ID } from '/trade/teth/market.js?cb=334702d2';
-import { $, esc, now, rpc, fmtUnits, plain, parseUnits, grp, sig, usd, pct, ago, short, E10, E18 } from '/trade/util.js?cb=9f8675a8';
+import { readMarket, isActive, bookState, refSats, premium, satsTxt, ladders, idle, bookPrime, summary, fillBars, BTC_ID } from '/trade/teth/market.js?cb=3ff5bcec';
+import { $, esc, now, rpc, fmtUnits, plain, parseUnits, grp, sig, usd, pct, ago, short, E10, E18 } from '/trade/util.js?cb=c3dc39b3';
 
 const ETHBLUE = '#627eea', ORANGE = '#f7931a';
 const SCAN = 'https://etherscan.io/';

@@ -4,8 +4,8 @@
 //
 // The pool module (confidential-pool-ux.js) is loaded the first time it is needed. Nothing here holds a key: each step is handed `priv()`.
 import { getUx, forgetUx } from '/trade/poolux.js?cb=0c532ca8';
-import { WRAP_TIP, WRAP_WITH_TIP, CETH_ID, POOL } from '/trade/teth/read.js?cb=b748d14e';
-import { strip, word, rpc, ethCall, E10 } from '/trade/util.js?cb=9f8675a8';
+import { WRAP_TIP, WRAP_WITH_TIP, CETH_ID, POOL } from '/trade/teth/read.js?cb=41fec7c6';
+import { strip, word, rpc, ethCall, E10 } from '/trade/util.js?cb=c3dc39b3';
 
 export { getUx, forgetUx };
 

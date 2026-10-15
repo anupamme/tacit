@@ -31,7 +31,7 @@ export function hedgedRpc(hosts, method, params, { hedgeMs = hedgeDelay(), timeo
     launch();
   });
 }
-// hedgedRpc over `hosts`, except that a read the page's head has already sent to the first of them (trade/early.js keeps them in `__tradeEarly`, by method and
+// hedgedRpc over `hosts`, except that a read the page's head has already sent to the first of them (the inline script in trade/index.html keeps them in `__tradeEarly`, by method and
 // params) is taken by the first call that asks for exactly it, once. That read stands for the first node: when it fails the rest are asked as usual, and when
 // it is still out after the hedge time the next node is asked beside it, and no other unless that one fails (never more requests at once than hedgedRpc
 // makes). A revert is the contract's answer, so it is the call's.

@@ -140,7 +140,7 @@ try {
   });
 
   const early = await p.evaluate(() => (self.__tradeEarly instanceof Map ? [...self.__tradeEarly.keys()].map((k) => k.slice(0, 120)) : null));
-  ok(Array.isArray(early) && early.length === 0, `the reads the head sends (trade/early.js) are each taken by the call the page makes${early?.length ? `. Not taken: ${early.join(' | ')}. The page asked first for: ${r.seen.rpc.slice(0, 8).map((x) => `${x.method} ${x.to} ${x.data.slice(0, 74)}`).join(' | ')}` : ''}`);
+  ok(Array.isArray(early) && early.length === 0, `the reads the head sends (its inline script) are each taken by the call the page makes${early?.length ? `. Not taken: ${early.join(' | ')}. The page asked first for: ${r.seen.rpc.slice(0, 8).map((x) => `${x.method} ${x.to} ${x.data.slice(0, 74)}`).join(' | ')}` : ''}`);
   const burst = r.seen.api.filter((_, i) => r.seen.apiT[i] - r.seen.apiT[0] < 5000), apiOnce = (re) => burst.filter((x) => re.test(x)).length;     // the first reads (a refresh a minute on can fall in a slow start)
   ok((await p.$$eval('link[rel="preload"][as="fetch"][crossorigin]', (l) => l.length)) === 4 && apiOnce(/preauth-sales/) === 1 && apiOnce(/bid-intents/) === 1 && apiOnce(/^$/) === 1 && apiOnce(/farm/) <= 1, `the page's four API reads start with its HTML and are asked for once (${burst.join(' ')})`);
   ok(await p.$eval('.chart .halo', (e) => getComputedStyle(e).animationIterationCount) === '4', 'the live dot pulses a few times when the price is drawn, not for as long as the page is open');

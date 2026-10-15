@@ -361,6 +361,8 @@ const PINNED_PAGES = [
   { name: 'weld/keeper/index.html', file: WELD_KEEPER_HTML, re: /script-src 'self' '(sha256-[A-Za-z0-9+/=]+)'/, put: (d) => `script-src 'self' '${d}'` },
   { name: 'pay/index.html', file: PAY_HTML, re: /script-src 'self' '(sha256-[A-Za-z0-9+/=]+)'/, put: (d) => `script-src 'self' '${d}'` },
   { name: 'pay/eth/index.html', file: PAY_ETH_HTML, re: /script-src 'self' '(sha256-[A-Za-z0-9+/=]+)'/, put: (d) => `script-src 'self' '${d}'` },
+  // the trade page's first chain reads run inline in its head (one classic script beside its modules), in /trade/ and in each asset's copy of it
+  ...['trade/index.html', ...TRADE_ASSETS.map(([, rel]) => rel)].map((rel) => ({ name: rel, file: join(DAPP_DIR, rel), script: INLINE_CLASSIC, re: /script-src 'self' '(sha256-[A-Za-z0-9+/=]+)'/, put: (d) => `script-src 'self' '${d}'` })),
   { name: 'ceremony/index.html', file: CEREMONY_HTML, script: INLINE_CLASSIC, ...HASH_ONLY },
   { name: 'secret-sats/index.html', file: SECRET_SATS_HTML, script: INLINE_CLASSIC, ...HASH_ONLY },
   { name: 'tacit-v1/index.html', file: TACIT_V1_HTML, script: INLINE_CLASSIC, ...HASH_ONLY },

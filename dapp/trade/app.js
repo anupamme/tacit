@@ -20,7 +20,7 @@ import { announceWalletConnect } from '/walletconnect.js?cb=31f53606';
 import { mountDepth } from '/trade/depth.js?cb=21a5dc95';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=a6b2910e';
-import { takeEarly } from '/trade/rpc.js?cb=541c4e20';
+import { takeEarly } from '/trade/rpc.js?cb=842f58a5';
 import { mountFarm } from '/trade/farm.js?cb=e7c9d199';
 import { grp, sig, group, satsFmt, warm as warmFormatters } from '/trade/fmt.js?cb=43646c2e';
 
@@ -42,7 +42,7 @@ const wordAt = (hex, i) => BigInt('0x' + (strip(hex).slice(i * 64, (i + 1) * 64)
 const now = () => Math.floor(Date.now() / 1000);
 
 // ── reading the chain ──
-// The page's first reads were sent from its head (trade/early.js): a call that asks for one of them exactly takes that answer.
+// The page's first reads were sent from its head (the inline script in trade/index.html): a call that asks for one of them exactly takes that answer.
 const rpc = (method, params) => takeEarly(RPCS, method, params);
 const ethCall = (to, data, block = 'latest', o = {}) => rpc('eth_call', [{ to, data, ...(o.from ? { from: o.from } : {}), ...(o.value ? { value: o.value } : {}), ...(o.gas ? { gas: o.gas } : {}) }, block]);
 const batch = async (calls) => _internal.decAggregate3(await ethCall(MULTICALL3, _internal.encAggregate3(calls)), calls.length);
@@ -68,7 +68,7 @@ const TF = { eth: [['5m', 300], ['15m', 900], ['1h', 3600], ['4h', 14400], ['1d'
 async function loadChain() {
   try { await readChain(); D.chainFailed = D.perEth == null; } catch (e) { D.chainFailed = true; throw e; } finally { D.chainDone = true; }
 }
-// trade/early.js sends this read first from the head of the page, with the tapes', the boards' and the farm's first: a change to one of them is made there too.
+// The head of trade/index.html sends this read first, with the tapes', the boards' and the farm's first: a change to one of them is made there too.
 async function readChain() {
   const pool = getConfidentialDeployment('mainnet')?.pool;
   const calls = [

@@ -4,8 +4,8 @@
 // it, and (with a key open) what that key has in each. The arithmetic is plain functions of what was read, so tests can pin it.
 import { MULTICALL3, TAC_POOL_ASSET_ID, CETH_POOL_ASSET_ID, _internal } from '/evm-trade-venues.js?cb=a08631ce';
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
-import { ethCall, rpc, wordAt, word, strip } from '/trade/util.js?cb=9f8675a8';
-import { POOL, heldHistory } from '/trade/teth/read.js?cb=b748d14e';
+import { ethCall, rpc, wordAt, word, strip } from '/trade/util.js?cb=c3dc39b3';
+import { POOL, heldHistory } from '/trade/teth/read.js?cb=41fec7c6';
 
 export const ENGINE = '0x000000003f608BDdF0ca45934003ffb9DbDF70DB';                 // the collateral engine: prices bitcoin, holds the bonds, lends cUSD
 export const WSTETH = '0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0';
