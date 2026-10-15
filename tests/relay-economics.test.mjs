@@ -2,7 +2,7 @@
 // add up, a log scan never skips a range and calls itself whole, and the chain read builds what the page shows from an injected RPC.
 // Run: node tests/relay-economics.test.mjs
 import { keccak_256 } from '@noble/hashes/sha3';
-import { TOPIC, DEFAULTS, sanitizeLedger, sumDays, scanLogs, readChain, buildEconomics } from '../worker/src/relay-economics.js';
+import { TOPIC, DEFAULTS, sanitizeLedger, sumDays, scanLogs, readChain, readTips, buildEconomics } from '../worker/src/relay-economics.js';
 import { encSetShares } from '../dapp/splitter/abi.js';
 
 let n = 0, failed = 0;
@@ -35,9 +35,11 @@ let calls = [];
 const goodRpc = async (m, p) => { calls.push(p[0].fromBlock); return logsAt(parseInt(p[0].fromBlock, 16)); };
 let r = await scanLogs(goodRpc, {}, 100, 350, 100);
 ok(r.complete && r.scanned === 350 && r.logs.length === 3 && calls.join() === '0x64,0xc8,0x12c', 'a scan covers every range once, oldest first');
-let k = 0;
-r = await scanLogs(async (m, p) => (++k === 2 ? null : logsAt(parseInt(p[0].fromBlock, 16))), {}, 100, 350, 100);
-ok(!r.complete && r.scanned === 199 && r.logs.length === 1, 'a range that fails stops the scan there, and says how far it got');
+r = await scanLogs(async (m, p) => (parseInt(p[0].fromBlock, 16) <= 250 && parseInt(p[0].toBlock, 16) >= 250 ? null : logsAt(parseInt(p[0].fromBlock, 16))), {}, 100, 350, 100, 40);
+ok(!r.complete && r.scanned >= 199 && r.scanned < 250 && r.logs.length >= 1, `a range that keeps failing stops the scan before it, and says how far it got (${r.scanned})`);
+let wide = 0;
+r = await scanLogs(async (m, p) => { const a = parseInt(p[0].fromBlock, 16), b = parseInt(p[0].toBlock, 16); if (b - a + 1 > 30) { wide++; return null; } return [{ blockNumber: '0x' + a.toString(16), data: '0x', topics: [] }]; }, {}, 100, 259, 160, 10);
+ok(r.complete && r.scanned === 259 && r.logs.map((l) => parseInt(l.blockNumber, 16)).join() === '100,120,140,160,180,200,220,240' && wide === 7, `a range the nodes refuse as too wide is split in halves until they take it (${wide} refusals, ${r.logs.length} pieces, in order)`);
 r = await scanLogs(goodRpc, {}, 500, 400, 100);
 ok(r.complete && r.logs.length === 0 && r.scanned === 499, 'nothing to scan is complete');
 
@@ -65,7 +67,9 @@ let rpc = fakeRpc({ bought: [buyLog(26_080_411, 1234000000000000n, 5n * E)], tip
 let c = await readChain({ rpc, now: 1_000, addrs: {} });
 ok(c.wallets.settle.eth === 0.003 && c.wallets.relay.eth === 0.012 && c.wallets.relay.prove === 25, 'the two wallets and the relay wallet\'s PROVE are read');
 ok(c.buyback.buys === 1 && c.buyback.ethSpent === 0.001234 && c.buyback.tacBought === 5 && c.buyback.ethHeld === 0.01 && c.buyback.complete && c.buyback.lastBuyBlock === 26_080_411, 'the buyback\'s buys are summed from its events');
-ok(c.tips.wraps === 3 && c.tips.eth === 0.0006 && c.tips.byRecipient[0].eth === 0.0005 && c.tips.complete, 'the thirty days of tips are counted and grouped by who got them');
+const tips = await readTips({ rpc, now: 1_000 });
+ok(tips.wraps === 3 && tips.eth === 0.0006 && tips.byRecipient[0].eth === 0.0005 && tips.complete, 'the thirty days of tips are counted and grouped by who got them');
+ok(!('tips' in c), 'the chain read does not wait for the tips');
 ok(c.splitter === null, 'with no splitter configured there is none');
 
 // a failed scan keeps what was read, a later one carries on from there, and totals are never counted twice
@@ -76,9 +80,10 @@ const again = await readChain({ rpc: later(26_500_000), prev: c, now: 3_000 });
 ok(again.buyback.buys === 2 && again.buyback.complete && again.buyback.scanned === 26_500_000 && again.buyback.lastBuyBlock === 26_450_000, 'a scan continues from the last block it reached and adds to the totals');
 const noNew = await readChain({ rpc: later(26_500_000), prev: again, now: 4_000 });
 ok(noNew.buyback.buys === 2 && noNew.buyback.scanned === 26_500_000, 'nothing already counted is counted again');
-ok(again.tips === c.tips, 'the tip total is kept for hours instead of read each time');
-const refreshed = await readChain({ rpc, prev: c, now: 1_000 + 7 * 3600e3 });
-ok(refreshed.tips !== c.tips && refreshed.tips.wraps === 3, 'and read again once it is old');
+const noTips = await readTips({ rpc: async () => null });
+ok(noTips === null, 'tips that cannot be read are null, not zero');
+const partialTips = await readTips({ rpc: async (m, p) => (m === 'eth_getLogs' ? null : fakeRpc()(m, p)) });
+ok(partialTips.complete === false, 'tips read only in part say so');
 
 rpc = async (m, p) => { const r = await fakeRpc()(m, p); return r === 'SHARES' ? sharesRet : r; };
 const withSplitter = await readChain({ rpc, addrs: { splitter: SPL } });
@@ -89,8 +94,8 @@ const partial = await readChain({ rpc: async (m, p) => (m === 'eth_getBalance' ?
 ok(partial.wallets.settle.eth === 0.003 && partial.wallets.relay.eth === 0.012 && partial.buyback.ethHeld === 0.01 && partial.unread === false, 'a figure that could not be read keeps the last one that could');
 
 // ── the response ──
-const resp = buildEconomics({ ledger: s, heartbeatAt: 1_000_000, chain: c, now: 1_000_000 + 60e3 });
-ok(resp.ledger.stale === false && resp.ledger.recent.length === 2 && resp.ledger.week.settled === 14 && !('days' in resp.ledger) && resp.chain === c, 'the response carries the recent days, the week, and the chain facts');
+const resp = buildEconomics({ ledger: s, heartbeatAt: 1_000_000, chain: c, tips, now: 1_000_000 + 60e3 });
+ok(resp.ledger.stale === false && resp.ledger.recent.length === 2 && resp.ledger.week.settled === 14 && !('days' in resp.ledger) && resp.chain.wallets === c.wallets && resp.chain.tips === tips, 'the response carries the recent days, the week, and the chain facts');
 ok(buildEconomics({ ledger: s, heartbeatAt: 1_000_000, now: 1_000_000 + 11 * 60e3 }).ledger.stale === true, 'a ledger whose heartbeat is ten minutes old is marked stale');
 ok(buildEconomics({ ledger: s, now: 5 }).ledger.stale === true && buildEconomics({}).ledger === null, 'no heartbeat time is stale, and no ledger is null');
 

@@ -38,7 +38,10 @@ const ledger = {
 let r = await call('/relay/economics');
 let j = await r.json();
 ok(r.status === 200 && j.ledger === null && j.chain && j.chain.wallets.settle.eth === 0.01, 'with no heartbeat yet the page still gets the chain facts, and a null ledger');
-ok(j.chain.wallets.relay.prove === 25 && j.chain.buyback.complete === true && j.chain.tips && j.chain.tips.wraps === 0, 'the relay wallet\'s PROVE, the buyback and the tips are in the chain facts');
+ok(j.chain.wallets.relay.prove === 25 && j.chain.buyback.complete === true && j.chain.tips === null, 'the relay wallet\'s PROVE and the buyback are in the chain facts, and the tips, read in the background, are not there yet');
+await new Promise((x) => setTimeout(x, 150));
+r = await call('/relay/economics'); j = await r.json();
+ok(j.chain.tips && j.chain.tips.wraps === 0 && j.chain.tips.complete === true, 'a moment later the thirty days of tips are');
 
 r = await beat({ ledger });
 ok(r.status === 200, 'a heartbeat carrying the books is accepted');

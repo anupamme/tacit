@@ -62,25 +62,45 @@ export function sumDays(days, last = 7) {
 }
 
 // ── chain reads ──
-// getLogs over [from, to] in `step`-block ranges, oldest first. A range that fails stops the scan there: `to` is how far it got, so the
-// caller never skips a range and calls the result whole.
-export async function scanLogs(rpc, filter, from, to, step) {
+// getLogs over [from, to] in `step`-block ranges, oldest first. A range the nodes refuse (the public ones limit how wide, and how old, a
+// range may be) is split in two and each half tried, down to `minStep` blocks; one that still fails stops the scan there. `scanned` is how
+// far it got, so the caller never skips a range and calls the result whole.
+async function scanRange(rpc, filter, a, b, minStep) {
+  const r = await rpc('eth_getLogs', [{ ...filter, fromBlock: '0x' + a.toString(16), toBlock: '0x' + b.toString(16) }]);
+  if (Array.isArray(r)) return { logs: r, scanned: b, complete: true };
+  if (b - a + 1 <= minStep) return { logs: [], scanned: a - 1, complete: false };
+  const mid = a + Math.floor((b - a) / 2), left = await scanRange(rpc, filter, a, mid, minStep);
+  if (!left.complete) return left;
+  const right = await scanRange(rpc, filter, mid + 1, b, minStep);
+  return { logs: [...left.logs, ...right.logs], scanned: right.scanned, complete: right.complete };
+}
+export async function scanLogs(rpc, filter, from, to, step, minStep = 2000) {
   const logs = [];
   let at = from - 1;
   for (let a = from; a <= to; a += step) {
-    const b = Math.min(a + step - 1, to);
-    const r = await rpc('eth_getLogs', [{ ...filter, fromBlock: '0x' + a.toString(16), toBlock: '0x' + b.toString(16) }]);
-    if (!Array.isArray(r)) return { logs, scanned: at, complete: false };
-    logs.push(...r); at = b;
+    const r = await scanRange(rpc, filter, a, Math.min(a + step - 1, to), minStep);
+    logs.push(...r.logs); at = r.scanned;
+    if (!r.complete) return { logs, scanned: at, complete: false };
   }
   return { logs, scanned: at, complete: true };
 }
 const balanceOf = async (rpc, addr) => { const r = await rpc('eth_getBalance', [addr, 'latest']); return r == null ? null : eth(BigInt(r)); };
 const proveOf = async (rpc, token, addr) => { const r = await rpc('eth_call', [{ to: token, data: SEL.balanceOf + word(addr) }, 'latest']); return r == null || r === '0x' ? null : Number(BigInt(r) / 10n ** 14n) / 1e4; };
 
-// `prev` is the last result (kept in KV): the buyback's lifetime totals extend from where the last scan stopped, and the tip total is only
-// re-read every `tipsEveryMs`. `addrs` overrides the defaults.
-export async function readChain({ rpc, prev = null, now = Date.now(), addrs = {}, tipsEveryMs = 6 * 3600e3 } = {}) {
+// Wrap tips of the last thirty days through the tip forwarder: how many, how much, and where they went. Slow (several wide scans against
+// nodes that limit them), so the route runs it in the background and keeps the answer for hours.
+export async function readTips({ rpc, now = Date.now(), addrs = {} } = {}) {
+  const A = { ...DEFAULTS, ...Object.fromEntries(Object.entries(addrs).filter(([, v]) => v)) };
+  const head = await rpc('eth_blockNumber', []);
+  if (head == null) return null;
+  const headN = hexNum(head), s = await scanLogs(rpc, { address: A.tipForwarder, topics: [TOPIC.wrappedWithTip] }, Math.max(0, headN - 30 * 7200), headN, 25_000);
+  const byTo = {}; let wei = 0n;
+  for (const l of s.logs) { const tip = BigInt('0x' + String(l.data).replace(/^0x/, '').slice(64, 128)), to = '0x' + String(l.topics[2]).slice(26).toLowerCase(); wei += tip; byTo[to] = (byTo[to] || 0n) + tip; }
+  return { at: now, days: 30, wraps: s.logs.length, eth: eth(wei), byRecipient: Object.entries(byTo).sort((x, y) => Number(y[1] - x[1])).slice(0, 4).map(([to, v]) => ({ to, eth: eth(v) })), complete: s.complete };
+}
+
+// `prev` is the last result (kept in KV): the buyback's lifetime totals extend from where the last scan stopped. `addrs` overrides the defaults.
+export async function readChain({ rpc, prev = null, now = Date.now(), addrs = {} } = {}) {
   const A = { ...DEFAULTS, ...Object.fromEntries(Object.entries(addrs).filter(([, v]) => v)) };
   const head = await rpc('eth_blockNumber', []);
   const headN = head == null ? null : hexNum(head);
@@ -110,16 +130,6 @@ export async function readChain({ rpc, prev = null, now = Date.now(), addrs = {}
   bb.ethSpent = Math.round(bb.ethSpent * 1e9) / 1e9; bb.tacBought = Math.round(bb.tacBought * 1e4) / 1e4;
   out.buyback = bb;
 
-  // Wrap tips of the last thirty days through the tip forwarder: how many, how much, and where they went.
-  const pt = prev && prev.tips;
-  if (pt && pt.complete && now - pt.at < tipsEveryMs) out.tips = pt;
-  else if (headN != null) {
-    const from = Math.max(0, headN - 30 * 7200), s = await scanLogs(rpc, { address: A.tipForwarder, topics: [TOPIC.wrappedWithTip] }, from, headN, 50_000);
-    const byTo = {}; let wei = 0n;
-    for (const l of s.logs) { const tip = BigInt('0x' + String(l.data).replace(/^0x/, '').slice(64, 128)), to = '0x' + String(l.topics[2]).slice(26).toLowerCase(); wei += tip; byTo[to] = (byTo[to] || 0n) + tip; }
-    out.tips = { at: now, days: 30, wraps: s.logs.length, eth: eth(wei), byRecipient: Object.entries(byTo).sort((x, y) => Number(y[1] - x[1])).slice(0, 4).map(([to, v]) => ({ to, eth: eth(v) })), complete: s.complete };
-  } else out.tips = pt || null;
-
   // A splitter, if one is configured: what it holds and who it pays.
   if (isAddr(A.splitter)) {
     const [held, sh] = await Promise.all([balanceOf(rpc, A.splitter), rpc('eth_call', [{ to: A.splitter, data: SEL.shares }, 'latest'])]);
@@ -131,12 +141,12 @@ export async function readChain({ rpc, prev = null, now = Date.now(), addrs = {}
 }
 
 // ── the response ──
-export function buildEconomics({ ledger = null, heartbeatAt = null, chain = null, now = Date.now() } = {}) {
+export function buildEconomics({ ledger = null, heartbeatAt = null, chain = null, tips = null, now = Date.now() } = {}) {
   const l = ledger ? { ...ledger, stale: heartbeatAt ? now - heartbeatAt > 10 * 60e3 : true } : null;
   if (l) {
     l.recent = Object.entries(l.days).sort().map(([date, b]) => ({ date, ...b }));
     l.week = sumDays(l.days, 7);
     delete l.days;
   }
-  return { updatedAt: new Date(now).toISOString(), ledger: l, chain };
+  return { updatedAt: new Date(now).toISOString(), ledger: l, chain: chain ? { ...chain, tips } : chain };
 }

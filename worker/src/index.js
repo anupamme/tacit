@@ -102,7 +102,7 @@ import { buildOversight } from './governance-oversight.js';
 import { validateConsumedSource, deriveConsumedSource } from './consumed-source.js';
 import { makeConfidentialPool } from '../../dapp/confidential-pool.js';
 import { opExpiry } from '../../dapp/confidential-relay.js';
-import { sanitizeLedger, readChain, buildEconomics } from './relay-economics.js';
+import { sanitizeLedger, readChain, readTips, buildEconomics } from './relay-economics.js';
 import { CONFIDENTIAL_DEPLOYMENTS as _CONFIDENTIAL_DEPLOYMENTS } from '../../dapp/confidential-deployments.js';
 import { decodeCrossoutMint, CONFIDENTIAL_POOL_DEPLOYMENTS as _CROSSOUT_POOL_DEPLOYMENTS } from '../../dapp/confidential-crossout-consumer.js';
 import { classifyConfidentialTx, makeBurnDepositKit } from '../../dapp/burn-deposit-bitcoin.js';
@@ -1771,8 +1771,8 @@ async function flowRecord(env) {
 // GET /relay/economics: what the relay earns, spends and gives to the TAC buyback (relay-economics.js). The settle relay's books come from its
 // heartbeat; the chain facts are read at most every five minutes and kept in KV, and the buyback's lifetime totals extend from where the last
 // read stopped. A read that fails leaves the last one in place rather than failing the page.
-const ECON_KEY = 'relay:economics:chain:v1', ECON_TTL_MS = 5 * 60e3;
-let _econReading = null, _econTriedAt = 0;
+const ECON_KEY = 'relay:economics:chain:v1', ECON_TIPS_KEY = 'relay:economics:tips:v1', ECON_TTL_MS = 5 * 60e3, ECON_TIPS_TTL_MS = 6 * 3600e3;
+let _econReading = null, _econTriedAt = 0, _econTipsReading = null, _econTipsTriedAt = 0;
 async function handleRelayEconomics(env, cors) {
   const kv = env.REGISTRY_KV;
   if (!kv) return jsonResponse({ error: 'no kv' }, 500, cors);
@@ -1788,7 +1788,15 @@ async function handleRelayEconomics(env, cors) {
     const fresh = await _econReading;
     if (fresh) chain = fresh;
   }
-  return jsonResponse(buildEconomics({ ledger: hb && hb.ledger, heartbeatAt: hb && hb.ts, chain }), 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
+  // The thirty days of tips are slow to read: kept for hours, refreshed in the background, never waited for.
+  let tips = null;
+  try { tips = JSON.parse((await kv.get(ECON_TIPS_KEY)) || 'null'); } catch { tips = null; }
+  if ((!tips || Date.now() - tips.at > ECON_TIPS_TTL_MS) && !_econTipsReading && Date.now() - _econTipsTriedAt > 5 * 60e3) {
+    _econTipsTriedAt = Date.now();
+    _econTipsReading = readTips({ rpc: (method, params) => _ethRpc('mainnet', method, params), addrs: { tipForwarder: env.WRAP_TIP_FORWARDER_ADDR } })
+      .then(async (t) => { if (t && t.complete) await kv.put(ECON_TIPS_KEY, JSON.stringify(t)); }).catch(() => {}).finally(() => { _econTipsReading = null; });
+  }
+  return jsonResponse(buildEconomics({ ledger: hb && hb.ledger, heartbeatAt: hb && hb.ts, chain, tips }), 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
 }
 
 async function handleFlow(env, cors) {
