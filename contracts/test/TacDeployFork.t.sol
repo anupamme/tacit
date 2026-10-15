@@ -113,11 +113,12 @@ contract TacDeployForkTest is Test {
         assertEq(usd.LIQ_RATIO_BPS(), 20_000);
         assertEq(usd.LIQ_BONUS_BPS(), 2_500);
         assertEq(usd.AUCTION_DURATION(), 5_400);
-        assertEq(usd.OWNER_WINDOW(), 1_200);
-        assertEq(eth.OWNER_WINDOW(), 1_200);
+        assertEq(usd.OWNER_WINDOW(), 3_600);
+        assertEq(eth.OWNER_WINDOW(), 3_600);
         assertEq(usd.LIQ_WINDOW(), 21_600);
         assertEq(usd.LIQ_WINDOW(), _oracleMaxWindow(usd), "the liquidation window is the oracle's longest");
-        assertEq(usd.DEPTH_BPS(), 500);
+        assertEq(usd.DEPTH_BPS(), 250);
+        assertEq(eth.DEPTH_BPS(), 250);
         assertEq(usd.REDEMPTION_FEE_BPS(), 50);
         assertEq(usd.borrowFeeBps(), 100);
         assertEq(usd.MIN_DEBT(), 100e18);

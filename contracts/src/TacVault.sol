@@ -45,9 +45,9 @@ interface IERC2612 {
 ///         Prices. The oracle gives ETH per TAC over a past window as a low and a high median of proven
 ///         end-of-block prices (`prices(window)`, `recovery(window)`), the newest of them (`latest()`) and now
 ///         (`spot()`); `ETH_USD` converts them. With two TAC venues behind it, each oracle value is the one that takes
-///         moving both venues to move, except that a venue that has stopped tracking the market (retired, drained or
-///         frozen) pins the liquidation, recovery, offer and redemption prices. LIQ_WINDOW is the oracle's longest
-///         window. Views:
+///         moving both venues to move, except that a venue that is not tracking the market (retired, drained, frozen,
+///         or held above it by someone trading) pins the liquidation, recovery, offer and redemption prices while it
+///         stays so. LIQ_WINDOW is the oracle's longest window. Views:
 ///           - borrow: the lowest of the low WINDOW and SHORT_WINDOW medians and the current price. Borrowing and
 ///             withdrawing must leave the vault at MINT_RATIO_BPS or more.
 ///           - liquidation: the higher of the high LIQ_WINDOW and SHORT_WINDOW medians. Below LIQ_RATIO_BPS a

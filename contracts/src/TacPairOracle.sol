@@ -26,10 +26,10 @@ interface ITacVenueOracle {
 ///           - `spot`: the lower of the venues' spots;
 ///           - `depth`, `depthMin`: the smaller of the venues' depths; `latest`: the lower of their newest recorded
 ///             prices, which a vault floors its offer at, so raising it takes holding both venues up.
-///         A venue with no price (too few intervals recorded) leaves the pair with no price, and a venue that has
-///         stopped tracking the market (retired, drained or frozen) keeps pinning the highs and the recovery price, and
-///         through them the liquidation, recovery, offer and redemption prices, so vaults priced by the pair are to
-///         be wound down before either venue is retired. The venues must share their interval and windows, and be
+///         A venue with no price (too few intervals recorded) leaves the pair with no price, and a venue that is not
+///         tracking the market (retired, drained, frozen, or held above it by someone trading) keeps pinning the highs
+///         and the recovery price, and through them the liquidation, recovery, offer and redemption prices while it
+///         stays so, so vaults priced by the pair are to be wound down before either venue is retired. The venues must share their interval and windows, and be
 ///         over different pools. No owner and no settings.
 contract TacPairOracle {
     ITacVenueOracle public immutable A;

@@ -4,23 +4,32 @@
 // With ORACLE set (one or more venue oracles, comma separated), it records their intervals: every interval within
 // an oracle's longest window that is not yet recorded (so a first run fills the history at once), each proven at its
 // sample block, which the following block's mixHash picks. RPC must serve `eth_getProof` for blocks as old as the
-// longest window (an archive endpoint); the keeper checks this at start and exits if not. Records are skipped while
-// the base fee is above MAX_GWEI; anyone can fill an interval later, for about 21 hours.
+// longest window (an archive endpoint); the keeper checks this at start and exits if not. When both venues need the
+// same interval it records them in one transaction (through Multicall3, when the chain has it), and it looks at the
+// newest intervals every RECORD_POLL_SECONDS (a full sweep of the window every FULL_SWEEP_SECONDS), because a record
+// that lands more than GRACE blocks after its interval ends pauses borrowing. Records pay at most MAX_GWEI, and at
+// most URGENT_MAX_GWEI once a needed interval is URGENT_AFTER_BLOCKS old; above the cap they are skipped and anyone
+// can fill the interval later, for about 21 hours.
 //
 // With VAULTS set, it reads each vault's borrowers from its Borrowed events (in chunks, remembering them) and:
 //   - calls `liquidate` on a vault with debt that is below the liquidation line, and `cancel` on an auction whose
 //     vault has recovered;
 //   - once an auction has run AUCTION_DURATION, calls `absorb` when it can, and otherwise reports the vault.
 //
-// Every call is simulated first and sent only if it would succeed, with a gas limit 30% above the estimate. Records
-// pay at most MAX_GWEI per gas; vault actions pay at most ACTION_MAX_GWEI, since a liquidation must not wait out
-// a gas spike. A transaction that mines but reverts is reported. Anyone can run one.
+// Every call is simulated first and sent only if it would succeed, with a gas limit 30% above the estimate. Vault
+// actions pay at most ACTION_MAX_GWEI, since a liquidation must not wait out a gas spike. A transaction that mines
+// but reverts is reported. Anyone can run one.
+//
+// Lines starting ALERT report what an operator may want to act on: an auction opened on a vault (its owner can repay
+// or add TAC until the owner window ends), a venue's price more than 40% away from its own six-hour median, and
+// intervals that could not be recorded. With ALERT_WEBHOOK set, each is also posted there as {"text": "..."}.
 //
 // Usage:
 //   KEEPER_ACCOUNT=<cast keystore name> [KEEPER_PASSWORD_FILE=..] RPC=<archive endpoint>
 //   [ORACLE=0xvenue1,0xvenue2] [VAULTS=0xusd,0xeth FROM_BLOCK=<vault deploy block>] [SEND_RPC=https://...]
-//   [MAX_GWEI=1] [RECORD_TIP_GWEI=0.001] [ACTION_MAX_GWEI=100] [ACTION_TIP_GWEI=0.1] [SCAN_SECONDS=60]
-//   [LOG_CHUNK=5000] [ONCE=1]
+//   [MAX_GWEI=1] [RECORD_TIP_GWEI=0.001] [URGENT_MAX_GWEI=25] [URGENT_TIP_GWEI=0.1] [URGENT_AFTER_BLOCKS=5]
+//   [ACTION_MAX_GWEI=100] [ACTION_TIP_GWEI=0.1] [RECORD_POLL_SECONDS=12] [FULL_SWEEP_SECONDS=300] [SCAN_SECONDS=60]
+//   [LOG_CHUNK=5000] [ALERT_WEBHOOK=https://...] [ONCE=1]
 //   node tools/tac-vault-keeper.mjs
 // KEEPER_PRIV=0x.. works too, but the key is then visible to every local process in the command line of each send.
 
@@ -41,7 +50,14 @@ const RECORD_CAP = gwei(process.env.MAX_GWEI || 1);
 const RECORD_TIP = gwei(process.env.RECORD_TIP_GWEI || 0.001);
 const ACTION_CAP = gwei(process.env.ACTION_MAX_GWEI || 100);
 const ACTION_TIP = gwei(process.env.ACTION_TIP_GWEI || 0.1);
+const URGENT_CAP = gwei(process.env.URGENT_MAX_GWEI || 25);
+const URGENT_TIP = gwei(process.env.URGENT_TIP_GWEI || 0.1);
+const URGENT_AFTER = BigInt(process.env.URGENT_AFTER_BLOCKS || 5);
+const RECORD_POLL = Number(process.env.RECORD_POLL_SECONDS || 12);
+const FULL_SWEEP = Number(process.env.FULL_SWEEP_SECONDS || 300);
 const SCAN_SECONDS = Number(process.env.SCAN_SECONDS || 60);
+const ALERT_WEBHOOK = process.env.ALERT_WEBHOOK;
+const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11';
 const MAX_CHUNK = BigInt(process.env.LOG_CHUNK || 5000);
 let logChunk = MAX_CHUNK;
 const ONCE = process.env.ONCE === '1';
@@ -52,6 +68,19 @@ const call = (to, sig, ...a) => cast(['call', to, sig, ...a, '--rpc-url', RPC]);
 const errLine = (e) => String(e.stderr || e.message).split('\n')[0];
 const log = (...m) => console.log(new Date().toISOString(), ...m);
 const head = () => num(cast(['block-number', '--rpc-url', RPC]));
+
+// Reports something an operator may act on: a log line, and a POST to ALERT_WEBHOOK when set. Each key alerts once
+// until it is cleared.
+const alerted = new Set();
+function alertOnce(key, msg) {
+  if (alerted.has(key)) return;
+  alerted.add(key);
+  log('ALERT', msg);
+  if (!ALERT_WEBHOOK) return;
+  fetch(ALERT_WEBHOOK, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: `tac-vault-keeper: ${msg}` }) })
+    .catch((e) => log('alert webhook failed:', String(e.message || e)));
+}
+const clearAlert = (key) => alerted.delete(key);
 
 // A cast keystore account keeps the key out of the process list; KEEPER_PRIV passes it as an argument.
 const signer = KEEPER_ACCOUNT
@@ -102,68 +131,159 @@ const recorded = (oracle, k) => {
 // Each venue oracle: the contract whose storage it proves, the two slots, its interval and how many to keep.
 const configs = new Map();
 
-function sampleAll() {
-  const baseFee = num(cast(['base-fee', '--rpc-url', RPC]));
-  if (baseFee > RECORD_CAP) return log('base fee', String(baseFee), 'above MAX_GWEI: not recording');
-  for (const oracle of ORACLES) sample(oracle);
-}
-
-function sample(oracle) {
+function readConfig(oracle) {
+  if (configs.has(oracle)) return true;
   try {
-    if (!configs.has(oracle)) {
-      const step = num(call(oracle, 'STEP()(uint256)'));
-      const [slotA, slotB] = call(oracle, 'slots()(bytes32,bytes32)').split('\n');
-      configs.set(oracle, {
-        pool: call(oracle, 'POOL()(address)'),
-        slots: [slotA, slotB],
-        step,
-        intervals: num(call(oracle, 'MAX_WINDOW()(uint256)')) / (step * 12n) + 2n,
-      });
-    }
+    const step = num(call(oracle, 'STEP()(uint256)'));
+    const [slotA, slotB] = call(oracle, 'slots()(bytes32,bytes32)').split('\n');
+    configs.set(oracle, {
+      pool: call(oracle, 'POOL()(address)'),
+      slots: [slotA, slotB],
+      step,
+      intervals: num(call(oracle, 'MAX_WINDOW()(uint256)')) / (step * 12n) + 2n,
+    });
+    return true;
   } catch (e) {
     log(oracle, 'oracle read failed:', errLine(e));
-    return;
+    return false;
   }
-  const { pool, slots, step, intervals } = configs.get(oracle);
-  // The newest interval whose following block exists.
-  const latest = (head() - 1n) / step - 1n;
-  let missed = 0;
-  // Newest first, so a long outage is repaired from the intervals every window needs most.
-  for (let k = latest; k > latest - intervals; k--) {
-    if (k < 0n) continue;
+}
+
+// Records to the venues' oracles go through Multicall3 when two are due together and the chain has it.
+let hasMulticall;
+function multicall() {
+  if (hasMulticall === undefined) {
     try {
-      if (recorded(oracle, k)) continue;
-      const next = (k + 1n) * step;
-      const mix = BigInt(cast(['block', String(next), '--field', 'mixHash', '--rpc-url', RPC]));
-      const n = k * step + (mix % step);
-      const p = JSON.parse(cast(['proof', pool, ...slots, '-B', String(n), '--rpc-url', RPC]));
-      const list = (a) => `[${a.join(',')}]`;
-      const args = [
-        cast(['block', String(n), '--raw', '--rpc-url', RPC]),
-        cast(['block', String(next), '--raw', '--rpc-url', RPC]),
-        list(p.accountProof),
-        list(p.storageProof[0].proof),
-        list(p.storageProof[1].proof),
-      ];
-      const sig = 'record(bytes,bytes,bytes[],bytes[],bytes[])';
-      const sim = simulate(oracle, sig, ...args);
-      if (!sim.ok) {
-        // Another keeper recorded it first.
-        if (sim.reason.includes(alreadyRecorded)) continue;
-        ++missed;
-        log(oracle, 'record', String(k), 'would fail:', sim.reason);
-        continue;
-      }
-      log(oracle, 'record', String(k), String(n), send(oracle, sig, args, RECORD_CAP, RECORD_TIP));
-    } catch (e) {
-      // Another keeper recorded it between the simulation and the estimate, or its transaction landed first and
-      // ours mined and reverted.
-      if (errLine(e).includes(alreadyRecorded) || recorded(oracle, k)) continue;
-      ++missed;
-      log(oracle, 'record', String(k), 'failed:', errLine(e));
+      hasMulticall = cast(['code', MULTICALL3, '--rpc-url', RPC]).length > 2;
+    } catch {
+      hasMulticall = false;
     }
   }
-  if (missed) log(oracle, 'INTERVALS NOT RECORDED:', missed);
+  return hasMulticall;
+}
+
+const RECORD_SIG = 'record(bytes,bytes,bytes[],bytes[],bytes[])';
+let lastFull = 0;
+
+// The arguments of `record` for interval k of an oracle: its sample block is picked by the next block's mixHash.
+function buildRecord(oracle, c, k, top) {
+  const next = (k + 1n) * c.step;
+  const mix = BigInt(cast(['block', String(next), '--field', 'mixHash', '--rpc-url', RPC]));
+  const n = k * c.step + (mix % c.step);
+  const p = JSON.parse(cast(['proof', c.pool, ...c.slots, '-B', String(n), '--rpc-url', RPC]));
+  const list = (a) => `[${a.join(',')}]`;
+  const args = [
+    cast(['block', String(n), '--raw', '--rpc-url', RPC]),
+    cast(['block', String(next), '--raw', '--rpc-url', RPC]),
+    list(p.accountProof),
+    list(p.storageProof[0].proof),
+    list(p.storageProof[1].proof),
+  ];
+  return { oracle, k, n, args, age: top - next };
+}
+
+// Looks at the newest intervals of every oracle (all of those a window needs once in FULL_SWEEP seconds) and records
+// what is missing, newest first, so a long outage is repaired from the intervals every window needs most.
+function sampleAll() {
+  const full = Date.now() - lastFull >= FULL_SWEEP * 1000;
+  for (const oracle of ORACLES) if (!readConfig(oracle)) return;
+  const top = head();
+  const baseFee = num(cast(['base-fee', '--rpc-url', RPC]));
+  const depth = full ? Math.max(...ORACLES.map((o) => Number(configs.get(o).intervals))) : 3;
+  let missed = 0;
+  for (let i = 0; i < depth; i++) {
+    const due = [];
+    for (const oracle of ORACLES) {
+      const c = configs.get(oracle);
+      if (BigInt(i) >= c.intervals) continue;
+      // The newest interval whose following block exists, then i back.
+      const k = (top - 1n) / c.step - 1n - BigInt(i);
+      if (k < 0n) continue;
+      try {
+        if (recorded(oracle, k)) continue;
+        due.push(buildRecord(oracle, c, k, top));
+      } catch (e) {
+        ++missed;
+        log(oracle, 'record', String(k), 'failed:', errLine(e));
+      }
+    }
+    if (due.length) missed += submit(due, baseFee);
+  }
+  if (full) lastFull = Date.now();
+  if (missed) alertOnce('missed', `${missed} interval(s) could not be recorded; borrowing and liquidation wait for them`);
+  else clearAlert('missed');
+}
+
+// Sends the due records: one transaction when more than one is due and Multicall3 exists, else one each. Returns how
+// many were not recorded.
+function submit(due, baseFee) {
+  // An interval that is already older than URGENT_AFTER blocks is nearly late: pay up to the urgent cap for it.
+  const urgent = due.some((d) => d.age >= URGENT_AFTER);
+  const cap = urgent ? URGENT_CAP : RECORD_CAP;
+  const tip = urgent ? URGENT_TIP : RECORD_TIP;
+  if (baseFee > cap) {
+    log('base fee', String(baseFee), urgent ? 'above URGENT_MAX_GWEI' : 'above MAX_GWEI', ': not recording');
+    return urgent ? due.length : 0;
+  }
+  let missed = 0;
+  const ready = [];
+  for (const d of due) {
+    const sim = simulate(d.oracle, RECORD_SIG, ...d.args);
+    if (sim.ok) ready.push(d);
+    // Another keeper recorded it first.
+    else if (!sim.reason.includes(alreadyRecorded)) {
+      ++missed;
+      log(d.oracle, 'record', String(d.k), 'would fail:', sim.reason);
+    }
+  }
+  if (!ready.length) return missed;
+  // One at a time: the fallback when a batch is not possible or fails.
+  const each = (list) => {
+    for (const d of list) {
+      try {
+        log(d.oracle, 'record', String(d.k), String(d.n), send(d.oracle, RECORD_SIG, d.args, cap, tip));
+      } catch (e) {
+        // Another keeper recorded it between the simulation and the estimate, or its transaction landed first and
+        // ours mined and reverted.
+        if (errLine(e).includes(alreadyRecorded) || recorded(d.oracle, d.k)) continue;
+        ++missed;
+        log(d.oracle, 'record', String(d.k), 'failed:', errLine(e));
+      }
+    }
+  };
+  if (ready.length > 1 && multicall()) {
+    // Every call must succeed (allowFailure false): the gas estimate then covers all of them, and a batch that
+    // loses a race to another keeper reverts whole and is sent again one at a time.
+    try {
+      const calls = ready.map((d) => `(${d.oracle},false,${cast(['calldata', RECORD_SIG, ...d.args])})`);
+      const hash = send(MULTICALL3, 'aggregate3((address,bool,bytes)[])', [`[${calls.join(',')}]`], cap, tip);
+      for (const d of ready) log(d.oracle, 'record', String(d.k), String(d.n), hash);
+    } catch (e) {
+      log('batch failed, recording one at a time:', errLine(e));
+      each(ready.filter((d) => !recorded(d.oracle, d.k)));
+    }
+  } else {
+    each(ready);
+  }
+  return missed;
+}
+
+// A venue whose price is more than 40% from its own six-hour median is worth a look: the vaults price from medians,
+// so a move this size either holds (and moves the views) or is traded back.
+function checkVenues() {
+  for (const oracle of ORACLES) {
+    const key = `venue:${oracle}`;
+    try {
+      const max = num(call(oracle, 'MAX_WINDOW()(uint256)'));
+      const [low, high] = call(oracle, 'prices(uint256)(uint256,uint256)', String(max)).split('\n').map(num);
+      const spot = num(call(oracle, 'spot()(uint256)'));
+      if (spot * 100n < high * 60n) alertOnce(key, `${oracle}: price is more than 40% below its ${max / 3600n}-hour median`);
+      else if (spot * 100n > low * 160n) alertOnce(key, `${oracle}: price is more than 60% above its ${max / 3600n}-hour median`);
+      else clearAlert(key);
+    } catch {
+      // Too few intervals recorded for a median: nothing to compare with.
+    }
+  }
 }
 
 // Per vault: borrowers seen in Borrowed(address indexed owner, address to, uint256 amount, uint256 fee) and the
@@ -214,13 +334,24 @@ function scan(vault) {
     return;
   }
   const now = num(cast(['block', 'latest', '--field', 'timestamp', '--rpc-url', RPC]));
+  let window = 0n;
+  try {
+    window = num(call(vault, 'OWNER_WINDOW()(uint256)'));
+  } catch {}
   for (const owner of list) {
     try {
       const [, debt, start] = call(vault, 'vaults(address)(uint256,uint256,uint256)', owner).split('\n').map(num);
+      const key = `auction:${vault}:${owner}`;
+      if (start !== 0n) {
+        alertOnce(key, `auction on ${vault} for ${owner}: its owner can repay or add TAC until ${new Date(Number(start + window) * 1000).toISOString()}`);
+      } else {
+        clearAlert(key);
+      }
       if (debt === 0n) continue;
       if (start === 0n) {
         if (call(vault, 'liqHealthyView(address)(bool)', owner) === 'false' && simulate(vault, 'liquidate(address)', owner).ok) {
           log(vault, 'liquidate', owner, act(vault, 'liquidate(address)', owner));
+          alertOnce(key, `auction on ${vault} for ${owner}: its owner can repay or add TAC for ${window} seconds`);
         }
       } else if (simulate(vault, 'cancel(address)', owner).ok) {
         log(vault, 'cancel', owner, act(vault, 'cancel(address)', owner));
@@ -247,11 +378,16 @@ async function main() {
       process.exit(2);
     }
   }
+  let lastScan = 0;
   for (;;) {
     if (ORACLES.length) sampleAll();
-    for (const v of VAULTS) scan(v);
+    if (Date.now() - lastScan >= SCAN_SECONDS * 1000 || ONCE) {
+      for (const v of VAULTS) scan(v);
+      checkVenues();
+      lastScan = Date.now();
+    }
     if (ONCE) return;
-    await new Promise((r) => setTimeout(r, SCAN_SECONDS * 1000));
+    await new Promise((r) => setTimeout(r, RECORD_POLL * 1000));
   }
 }
 
