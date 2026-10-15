@@ -23,6 +23,18 @@
 // the receipt cannot be read). A mismatch fails the settle call with the sealed memos attached, so the caller
 // can keep the openings the chain no longer carries.
 
+// The op types whose own `deadline` the pool turns into its Expired() gate: a settle after it reverts, so a job still in the
+// relay's queue past it can only fail, with nothing spent. Others carry a deadline that means something else (a lock's refund
+// time, valid only AFTER it). Kept equal to worker-relay/src/lib/revert-data.js EXPIRY_TYPES (a test pins that).
+export const EXPIRY_TYPES = ['unwrap', 'sendunwrap', 'swap', 'swap_var', 'swap_route', 'route', 'wrapswap', 'wraplp',
+  'lpadd', 'lp_add', 'lpbond', 'lp_bond', 'lpremove', 'lp_remove', 'stealthclaim'];
+// When a queued op expires, in unix seconds; 0 when it never does.
+export function opExpiry(type, op) {
+  if (!EXPIRY_TYPES.includes(String(type))) return 0;
+  const v = Number(op && (op.opDeadline ?? op.deadline) || 0);
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
 export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemos, saveMismatchedMemos } = {}) {
   const f = fetchImpl || (typeof fetch !== 'undefined' ? fetch : null);
   if (!f) throw new Error('confidential-relay: no fetch available');
@@ -32,11 +44,12 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
   // queued and at every status change, with detail { jobId, type, status, txHash, error, at }. Nothing here
   // waits on a listener, and a listener that throws never reaches the op.
   const jobTypes = new Map();
+  const jobBy = new Map();                                       // jobId -> when it expires, in ms (only for an op that does)
   function announce(st) {
     try {
       if (!st || !st.jobId || typeof globalThis.dispatchEvent !== 'function' || typeof CustomEvent !== 'function') return;
       const detail = { jobId: st.jobId, type: st.type || jobTypes.get(st.jobId) || null, status: st.status || 'unknown',
-        txHash: st.txHash || null, error: st.error || null, at: Date.now() };
+        txHash: st.txHash || null, error: st.error || null, at: Date.now(), ...(jobBy.get(st.jobId) ? { by: jobBy.get(st.jobId) } : {}) };
       globalThis.dispatchEvent(new CustomEvent('tacit:job', { detail }));
     } catch { /* listeners are best effort */ }
   }
@@ -106,6 +119,7 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     const body = await asJson(res);
     if (body && body.jobId) {
       jobTypes.set(body.jobId, type);
+      const by = opExpiry(type, op) * 1000; if (by) jobBy.set(body.jobId, by);
       if (onJob) { try { onJob(body.jobId, type); } catch { /* best-effort */ } }
       announce({ ...body, type, status: body.status || 'pending' });
     }

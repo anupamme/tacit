@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-P00aKCETJjo1fud84gBfbPM0vOFqQ4bXOV899Ydx5GQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-hlM7M4lJ4wHsLIN6LHPG2/SCzuTYpSo8SfdPAfs4rDs=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <script src="/front-route.js?cb=248cfddf"></script>
 <title>tacit — private DeFi on Bitcoin and Ethereum</title>
@@ -2040,8 +2040,8 @@ addEventListener('tacit:job', ({ detail: d }) => {
     SESS.add(id);
     if (!j) OWN.set(id, busySheet());
     actPut(id, { kind: 'job', type: d.type || null, label: j?.label || JOB_LABEL[d.type] || 'Relayed action', in: j?.in || undefined, pub: j ? j.run.pub : undefined, sheet: (j ? j.run.sheet : OWN.get(id)) || undefined,
-      status: d.status, hash: d.txHash || null, err: d.error || null, self: (!j?.in && j?.self) || undefined });
-  } else actPut(id, { status: d.status, hash: d.txHash || undefined, err: d.error || undefined });
+      status: d.status, hash: d.txHash || null, err: d.error || null, self: (!j?.in && j?.self) || undefined, by: d.by || undefined });
+  } else actPut(id, { status: d.status, hash: d.txHash || undefined, err: d.error || undefined, by: d.by || undefined });
   followJob(id);
 });
 
@@ -2234,8 +2234,16 @@ function actSteps(it) {
   return [st(first, s === 'pending' ? 'now' : 'done'), st('Confirmed', s === 'confirmed' ? 'done' : '')];
 }
 // Where a relayed job is: in line (and, past a minute, why), or being proved.
-const jobWhere = (j) => (j.status === 'proving' ? 'The relay is proving it, then settling it on Ethereum.'
-  : (Date.now() - j.at > 60e3 && WAIT_WHY[relayWhy()]) || 'Waiting for the relay to pick it up.');
+// A request that expires (an unwrap, a swap, a pool add) is told by when: past it the pool refuses it, nothing is spent, and it is sent again.
+const byTime = (ms) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const byLine = (j) => (!j.by ? '' : j.by > Date.now() ? ` It has until ${byTime(j.by)} to go through: past that it expires, nothing is spent, and you send it again.`
+  : ' Its time has run out: it will show as expired, nothing is spent, and you send it again.');
+const WAIT_BY = { held: 'In line.', down: 'In line: the relay has been quiet for a few minutes (a long proof, or a restart).', busy: 'In line behind another request.' };
+const jobWhere = (j) => {
+  if (j.status === 'proving') return `The relay is proving it, then settling it on Ethereum.${byLine(j)}`;
+  const why = Date.now() - j.at > 60e3 ? relayWhy() : null;
+  return j.by ? `${WAIT_BY[why] || 'Waiting for the relay to pick it up.'}${byLine(j)}` : (why && WAIT_WHY[why]) || 'Waiting for the relay to pick it up.';
+};
 // An action's receipt in progress says what it is doing now: a step taken first, the pause between steps, or its own job.
 function opWhere(it) {
   const parts = opParts(it), cur = parts.at(-1);
@@ -2404,7 +2412,9 @@ function offerSelf(spec, e) {
   // What the refused action held (its notes, locks or deposits), held again while it is sent from the paying account.
   spec.keys ||= [...RUNS].filter((r) => r.live && r.sheet === spec.sheet).flatMap((r) => [...r.keys]);
   // A step still in the relay's queue goes through on its own: what is left to do after it is said, and the other way is offered.
-  const msg = waitRanOut(e) ? `Still in the relay’s queue. It goes through on its own${spec.carry ? `: once Activity shows it done, ${spec.carry}` : '; follow it in Activity'}. Or send it yourself.` : errText(e);
+  const msg = !waitRanOut(e) ? errText(e)
+    : spec.exit ? 'Still in the relay’s queue. It goes through if the relay reaches it within its hour; after that it expires and nothing is spent. Follow it in Activity, or send it yourself now.'
+    : `Still in the relay’s queue. It goes through on its own${spec.carry ? `: once Activity shows it done, ${spec.carry}` : '; follow it in Activity'}. Or send it yourself.`;
   say(spec.status(), html`<span class="err">${msg}</span>${selfOffer(spec)}`);
   return Object.assign(new Error(msg), { offered: true, said: true });
 }
@@ -2492,11 +2502,13 @@ function openAct() { renderAct(); const d = $('#sheet-act'); if (!d.open) d.show
 // A relayed action that failed before anything reached the chain spent nothing: its row says so, and Try again reads the balance
 // afresh (what the action held is free again) and opens the sheet it was started from, to do it again. Not offered when a
 // broadcast may still land, when it already went through, or when part of it did (those rows say what to do instead).
+const LEGACY_SHEET = [[/^Make .* TAC public$/, 'tac'], [/^Withdraw .* ETH to /, 'eth'], [/^Withdraw .* cUSD as tacUSD$/, 'borrow']];
 function againLine(it) {
   if (it.status !== 'failed' || (it.kind !== 'job' && it.kind !== 'op') || otherKey(it)) return '';
   const s = String(it.err || '');
   if (/possibly still pending|already spent|already (gone|went) through|b115d857|deposit is safe|first part went through|already settled/i.test(s)) return '';
-  const sheet = it.sheet && $(`#sheet-${it.sheet}`) ? it.sheet : null;
+  const own = it.sheet || LEGACY_SHEET.find(([re]) => re.test(String(it.label || '')))?.[1];
+  const sheet = own && $(`#sheet-${own}`) ? own : null;
   return html`${/nothing was spent/i.test(failText(it)) ? '' : html`<div class="actr-f">Nothing was spent: it is still in your private balance.</div>`}
     <div class="brr-a"><button class="btn ghost" type="button" data-act-again="${sheet || ''}">${sheet ? 'Try again' : 'Read my balance again'}</button></div>`;
 }
@@ -2504,10 +2516,14 @@ document.addEventListener('click', (e) => {
   const b = e.target.closest?.('[data-act-again]');
   if (!b) return;
   busy(b, async () => {
-    if (S.key) await scanPrivate(true).catch(() => {});
-    paintPrivateFeet(); for (const n of ['eth', 'tac', 'borrow']) rerender(n);
-    const sheet = b.dataset.actAgain;
-    if (sheet) { $('#sheet-act')?.close(); openSheet(sheet); }
+    // A full read of the private balance takes a while: the button says so, and takes its words back if it is still there.
+    const label = b.textContent; b.textContent = 'Reading your balance…';
+    try {
+      if (S.key) await scanPrivate(true).catch(() => {});
+      paintPrivateFeet(); for (const n of ['eth', 'tac', 'borrow']) rerender(n);
+      const sheet = b.dataset.actAgain;
+      if (sheet) { $('#sheet-act')?.close(); openSheet(sheet); }
+    } finally { if (b.isConnected) b.textContent = label; }
   });
 });
 $('#act').onclick = openAct;

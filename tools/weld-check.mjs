@@ -3403,6 +3403,26 @@ await step('activity', async () => {
     served['j-wait'] = { type: 'transfer', status: 'settled', txHash: H('b8') };
     await until(r.page, () => /Done in/.test(document.querySelector('[data-act="job:j-wait"]')?.textContent || ''), null, 30000).catch(() => {});
     ok(/Done in/.test((await row('job:j-wait')).text), 'activity: and it reads done once the relay settles it');
+    // A request that expires says by when and does not promise it goes through on its own; a failed card made before entries kept
+    // their sheet is still sent back to the one its label names.
+    served['j-by'] = { type: 'unwrap', status: 'pending' };
+    served['j-leg'] = { type: 'unwrap', status: 'failed', error: 'settle reverted: Execution reverted for an unknown reason.' };
+    await sleep(600);
+    await r.page.evaluate(() => {
+      const k = 'tacit-lite-activity-v1', s = JSON.parse(localStorage.getItem(k)), t = Date.now();
+      s.items.unshift({ id: 'job:j-by', kind: 'job', type: 'unwrap', label: 'Make 1,000 TAC public', status: 'pending', at: t - 90e3, up: t - 90e3, by: t + 40 * 60e3 });
+      s.items.unshift({ id: 'job:j-leg', kind: 'job', type: 'unwrap', label: 'Make 1,000 TAC public', status: 'failed', err: 'settle reverted: Execution reverted for an unknown reason.', at: t - 3 * 3600e3, up: t - 2 * 3600e3, end: t - 2 * 3600e3 });
+      localStorage.setItem(k, JSON.stringify(s));
+    });
+    await r.page.reload();
+    await r.page.waitForSelector('#hx-body .hx-h');
+    await openActivity(r.page);
+    const byOk = await until(r.page, () => /It has until \d{1,2}:\d{2}/.test(document.querySelector('[data-act="job:j-by"]')?.textContent || ''), null, 20000).then(() => true, () => false);
+    const by = await row('job:j-by');
+    ok(byOk && /In line\./.test(by.text) && /nothing is spent/.test(by.text) && !/goes through on its own|keeps its place/.test(by.text) && !/gas|top/i.test(by.text),
+      `activity: an unwrap in line says by when it expires, that nothing is spent, and does not promise it goes through on its own (${by.text.slice(0, 190)})`);
+    const leg = await r.page.$eval('[data-act="job:j-leg"] [data-act-again]', (b) => [b.dataset.actAgain, b.textContent.trim()]).catch(() => null);
+    ok(!!leg && leg[0] === 'tac' && leg[1] === 'Try again', `activity: a failed Make public made before entries kept their sheet offers Try again on the TAC sheet (${JSON.stringify(leg)})`);
     // The list is this browser's: with another key open, an entry the first key made says so; one made with no key does not.
     // A pasted key is not kept across the reloads above, so a key is locked first only if one is open.
     await r.page.evaluate(() => { location.hash = ''; location.hash = '#wallet'; });

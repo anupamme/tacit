@@ -279,6 +279,37 @@ const swapOp = { reserveAPre: 1000, reserveBPre: 1000, intents: [{ amountIn: 100
   ok('onJob names a queued job to its caller before the job is announced, once, for settles and proofs');
 }
 
+// An op that expires says when, on the event its page follows it by: its own deadline, in ms, for the types the pool gates with
+// Expired(), and nothing for the rest (a lock's deadline is a refund time, valid only after it).
+{
+  const { opExpiry, EXPIRY_TYPES } = await import('../dapp/confidential-relay.js');
+  const { opExpiry: relayExpiry } = await import('../worker-relay/src/lib/revert-data.js');
+  assert.strictEqual(opExpiry('unwrap', { opDeadline: 1_800_000_000n }), 1_800_000_000, 'a BigInt deadline reads');
+  assert.strictEqual(opExpiry('unwrap', { deadline: '1800000600' }), 1_800_000_600, 'a string deadline reads');
+  assert.strictEqual(opExpiry('unwrap', { opDeadline: 0 }), 0, 'no deadline is no expiry');
+  assert.strictEqual(opExpiry('wrap', { deadline: 1_800_000_000 }), 0, 'a type outside the list never expires');
+  assert.strictEqual(opExpiry('lock', { deadline: 1_800_000_000 }), 0, 'a lock deadline is a refund time, not an expiry');
+  // The page and the relay read the same types and the same field, so what the page says is when the relay fails it.
+  for (const type of [...EXPIRY_TYPES, 'wrap', 'lock', 'transfer', 'bridgemint']) {
+    for (const op of [{ opDeadline: 1_800_000_000 }, { deadline: 1_800_000_000 }, { opDeadline: 5, deadline: 9 }, {}]) {
+      assert.strictEqual(opExpiry(type, op), relayExpiry({ type, op }), `page and relay agree on ${type} ${JSON.stringify(op)}`);
+    }
+  }
+  const events = [], was = globalThis.dispatchEvent;
+  globalThis.dispatchEvent = (e) => { if (e.type === 'tacit:job') events.push(e.detail); return true; };
+  try {
+    const q = makeConfidentialSettler({ storage: freshStore(), hash });
+    const relay = makeConfidentialRelay({ base: '', fetchImpl: mockFetch(q) });
+    const dl = Math.floor(Date.now() / 1000) + 3600;
+    const a = await relay.submitOp({ type: 'swap', op: { ...swapOp, opDeadline: dl }, memos: [] });
+    const b = await relay.submitOp({ type: 'swap', op: { ...swapOp, opDeadline: 0, deadline: 0 }, memos: [] }).catch(() => null);
+    const first = events.find((d) => d.jobId === a.jobId);
+    assert.strictEqual(first.by, dl * 1000, `the event carries when it expires (${JSON.stringify(first)})`);
+    if (b) assert.ok(!('by' in events.find((d) => d.jobId === b.jobId)), 'an op with no deadline carries no time');
+  } finally { globalThis.dispatchEvent = was; }
+  ok('an op that expires carries its deadline on the job event; the page and the relay read the same types and field');
+}
+
 // ───────────────── the memos a proof commits to ─────────────────
 // The same op asked for twice is proved once, with its first memos: prove() hands those back once the guard has
 // checked them, refuses memos that do not check out, and leaves the caller's own when the relay returns none.
