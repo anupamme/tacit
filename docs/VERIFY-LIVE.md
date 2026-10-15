@@ -99,3 +99,28 @@ the protocol's risk appetite, only to make the setting visible.
 A green run means: the bytecode on mainnet is this repository's bytecode, it is wired to the addresses and
 keys this repository publishes, and the state it is in is internally consistent right now. That is the whole
 claim.
+
+## The device pools
+
+`tools/evm-pool-solvency.mjs` does the same kind of check for the native-ETH `TacitEvmPool` on each chain it is
+deployed on (Ethereum, Base, Robinhood Chain, MegaETH). Unlike the escrow pool, this pool's whole public boundary
+is in its events: every deposit and withdrawal states its amount, and every relayer fee is paid out of the pool,
+so the ETH it holds can be checked against them exactly.
+
+```sh
+node tools/evm-pool-solvency.mjs                    # reads each chain's whole history
+node tools/evm-pool-solvency.mjs --state run.json   # keeps the running sums; the next run reads only what came after
+```
+
+It reads the pool's `Transact` events through a block a few behind the head and checks, at that same block, that:
+
+- the pool's balance equals deposits, less withdrawals, less relayer fees. ETH sent to the contract directly can
+  only raise the balance, so a balance above that is printed as a note and a balance below it fails;
+- withdrawals and fees together do not exceed deposits;
+- every event's first leaf is where the tree stood, and the last leaf is where `nextIndex()` says the tree ends;
+- the last event's root is the pool's `root()`.
+
+It exits 0 when every chain was read and every check passed, 1 when a check failed, and 2 when a chain could not be
+read. The first full run takes about 400 log calls (most of them on Base); with `--state` a repeat run takes about
+20. This is a consistency check on public data and does not prove the proof system sound: it is the alarm that a
+flaw in it would trip. `tests/evm-pool-solvency.test.mjs` holds each check to a case that passes and one that fails.
