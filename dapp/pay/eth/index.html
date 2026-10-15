@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Hw2l/1uGrL8h2fGdjrBmII8x5Ods9NEjUeB1P454Bog=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://ethereum-rpc.publicnode.com https://mainnet.gateway.tenderly.co https://eth.drpc.org https://1rpc.io https://rpc.flashbots.net https://mainnet.base.org https://base.gateway.tenderly.co https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-qNJIDH9kXMmHCQnXDp16gPO38RirmspKnyVoUEHoO0c=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://ethereum-rpc.publicnode.com https://mainnet.gateway.tenderly.co https://eth.drpc.org https://1rpc.io https://rpc.flashbots.net https://mainnet.base.org https://base.gateway.tenderly.co https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay</title>
 <meta name="description" content="Private ETH payments on Ethereum, Base, Robinhood Chain and MegaETH. Deposit, pay privately, withdraw any part. Proved on your device, recovered from your key.">
@@ -522,7 +522,7 @@ import { qrSvg as qrMarkup } from '/qr.js?cb=926d16be';
 if (!secp.etc.hmacSha256Sync) secp.etc.hmacSha256Sync = (k, ...m) => hmac(sha256, k, concatBytes(...m));
 // The rest of the page's modules, asked for now that the ones it waited on are here.
 // preload-later:begin
-for (const u of ["/evm-pool-zk.js","/btc-pool-zk.js","/amm-bjj.js","/evm-pool-wallet.js?cb=9a08137f","/btc-shielded-pool.js","/vendor/tacit-poseidon.min.js","/btc-pool-zk-boundary.js","/amm-sigma.js","/bulletproofs.js","/bulletproofs-plus.js","/evm-pool-scan.js","/evm-pool-gateway.js","/evm-pool-zk-prover.js?cb=00ff69c2"]) document.head.append(Object.assign(document.createElement('link'), { rel: 'modulepreload', href: u }));
+for (const u of ["/evm-pool-zk.js","/btc-pool-zk.js","/amm-bjj.js","/evm-pool-wallet.js?cb=64c4b8e1","/btc-shielded-pool.js","/vendor/tacit-poseidon.min.js","/btc-pool-zk-boundary.js","/amm-sigma.js","/bulletproofs.js","/bulletproofs-plus.js","/evm-pool-scan.js","/evm-pool-gateway.js","/evm-pool-zk-prover.js?cb=00ff69c2"]) document.head.append(Object.assign(document.createElement('link'), { rel: 'modulepreload', href: u }));
 // preload-later:end
 
 // ── config ───────────────────────────────────────────────────────────────────────────────────────────────
@@ -761,7 +761,7 @@ function sayLive(el, view) {
 // ── pool modules, loaded once, right after the page ──────────────────────────────────────────────────────
 const mods = lazy(async () => {
   const [zkm, wm, gw, pm, pos] = await Promise.all([
-    import('/evm-pool-zk.js'), import('/evm-pool-wallet.js?cb=9a08137f'), import('/evm-pool-gateway.js'),
+    import('/evm-pool-zk.js'), import('/evm-pool-wallet.js?cb=64c4b8e1'), import('/evm-pool-gateway.js'),
     import('/evm-pool-zk-prover.js?cb=00ff69c2'), import('/vendor/tacit-poseidon.min.js'),
   ]);
   const PO = { 2: pos.poseidon2, 3: pos.poseidon3, 4: pos.poseidon4, 5: pos.poseidon5, 7: pos.poseidon7 };
@@ -1411,21 +1411,48 @@ async function settled(c, rpc, tip, at, method, params) {
   if (SETTLED.has(key)) return SETTLED.get(key);
   let r;
   for (let i = 0; ; i++) {
-    try { r = await rpc(method, params); break; } catch (e) { if (i === 2) throw e; await sleep(i ? 2000 : 600); }
+    try { r = await rpc(method, params, { found: at + c.confirmations <= tip }); break; } catch (e) { if (i === 2) throw e; await sleep(i ? 2000 : 600); }
   }
   if (r != null && at + c.confirmations <= tip) { if (SETTLED.size >= 4000) SETTLED.delete(SETTLED.keys().next().value); SETTLED.set(key, r); }
   return r;
 }
+// A history read asks a node about every transaction and block alike, which on a busy pool is tens of thousands of calls, so
+// they go out as batches where a node takes them: the answers are put in the cache `settled` reads, a part at a time (the cache
+// holds a few thousand), and `settled` then finds them. A node that refuses batches, or a call it answers with an error, leaves
+// that call to `settled`, which asks for it alone as before.
+const HISTORY_PART = 400;
+async function eachBatched(c, rpc, tip, method, items, n, at, params, fn) {
+  const key = (x) => `${c.chainId}:${method}:${params(x)[0]}`, size = method === 'eth_getBlockByNumber' ? 40 : 100;
+  for (let i = 0; i < items.length; i += HISTORY_PART) {
+    const part = items.slice(i, i + HISTORY_PART);
+    const todo = rpc.batch ? part.filter((x) => at(x) + c.confirmations <= tip && !SETTLED.has(key(x))) : [];
+    const groups = [];
+    for (let j = 0; j < todo.length; j += size) groups.push(todo.slice(j, j + size));
+    await eachLimit(groups, 3, async (g) => {
+      const out = await rpc.batch(g.map((x) => ({ method, params: params(x) }))).catch(() => null);
+      out?.forEach((r, k) => { if (r != null && !(r instanceof Error)) SETTLED.set(key(g[k]), r); });
+    });
+    await eachLimit(part, n, fn);
+  }
+}
 // Public facts about the pool's transactions on a chain, by hash: the event's recipient, amount and fee, the sender, and a
-// router call's data; and the time of each block with a pool event. Only settled ones are kept.
-const pubTx = (c) => { const k = `tacit-pay-pooltx-v1:${c.chainId}:${lc(POOL)}`, v = readJson(k); return { k, tx: v?.tx || {}, bt: v?.bt || {} }; };
-function savePubTx(P, ts, time, deep) {
+// router call's data; and the time of each block with a pool event. Only settled ones are kept. They are the pool's whole
+// history on a chain, which on a busy one is more than localStorage holds (about 5 MB), so they are kept in IndexedDB, and in
+// localStorage where that is not there; what an earlier visit left in localStorage is read once and moved.
+const idb = lazy(() => new Promise((res) => {
+  try { const q = indexedDB.open('tacit-pay', 1); q.onupgradeneeded = () => q.result.createObjectStore('kv'); q.onsuccess = () => res(q.result); q.onerror = q.onblocked = () => res(null); } catch { res(null); }
+}));
+const idbGet = async (k) => { const db = await idb().catch(() => null); return db && new Promise((res) => { try { const r = db.transaction('kv').objectStore('kv').get(k); r.onsuccess = () => res(r.result); r.onerror = () => res(undefined); } catch { res(undefined); } }); };
+const idbPut = async (k, v) => { const db = await idb().catch(() => null); return !!db && new Promise((res) => { try { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(v, k); t.oncomplete = () => res(true); t.onerror = t.onabort = () => res(false); } catch { res(false); } }); };
+const pubTx = async (c) => { const k = `tacit-pay-pooltx-v1:${c.chainId}:${lc(POOL)}`, v = (await idbGet(k)) ?? readJson(k); return { k, tx: v?.tx || {}, bt: v?.bt || {} }; };
+async function savePubTx(P, ts, time, deep) {
   for (const t of ts) {
     if (!deep(t.block) || t.ext === undefined) continue;
     P.tx[t.tx] = { r: t.recipient, e: t.ext.toString(), f: (t.fee ?? 0n).toString(), fr: t.from, to: t.to, in: t.input };
   }
   for (const [b, s] of time) if (deep(b)) P.bt[b] = s;
-  writeJson(P.k, { tx: P.tx, bt: P.bt });
+  const v = { tx: P.tx, bt: P.bt };
+  if (await idbPut(P.k, v)) writeJson(P.k, null); else writeJson(P.k, v);
 }
 async function scanHistory(c, onStep) {
   const m = await mods(), keys = S.keys, rpc = await rpcOn(c), boxes = await boxMap();
@@ -1502,7 +1529,7 @@ async function scanHistory(c, onStep) {
   // What a node is asked about the pool's transactions is asked about every one of them alike, never only this key's
   // own, so the node learns nothing about which are this key's. The answers are public and fixed once settled, so they
   // are kept between visits and each transaction is read once.
-  const P = pubTx(c);
+  const P = await pubTx(c);
   for (const t of ts) {
     const s = P.tx[t.tx];
     if (s) Object.assign(t, { recipient: s.r, ext: BigInt(s.e), fee: BigInt(s.f), from: s.fr, to: s.to, input: s.in });
@@ -1515,23 +1542,23 @@ async function scanHistory(c, onStep) {
   const unread = ts.filter((t) => t.ext === undefined || (t.ext > 0n && !t.from));
   let nread = 0;
   onStep?.(1, { read: 0, of: unread.length });
-  await eachLimit(unread, 6, async (t) => {
+  await eachBatched(c, rpc, tip, 'eth_getTransactionReceipt', unread, 6, (t) => t.block, (t) => [t.tx], async (t) => {
     const need = t.ext === undefined && byTx.has(t.tx);
     const rc = await settled(c, rpc, tip, t.block, 'eth_getTransactionReceipt', [t.tx]).catch((e) => { if (need) throw e; return null; });
     const lg = rc?.logs?.find((l) => lc(l.address) === lc(POOL) && l.topics[0] === T_TRANSACT && BigInt(l.topics[1]) === t.nf[0] && BigInt(l.topics[2]) === t.nf[1]);
     if (lg) { const d = decodeTransact(lg); Object.assign(t, { recipient: d.recipient, ext: d.ext, fee: d.fee }); }
     if (rc?.from) t.from = lc(rc.from);
     onStep?.(1, { read: ++nread, of: unread.length });
-  }).catch((e) => { savePubTx(P, ts, new Map(), deep); throw e; });
+  }).catch(async (e) => { await savePubTx(P, ts, new Map(), deep); throw e; });
   // A withdrawal that ran calls (a bridge move, a swap) names its refund box in its calldata, public from then on, so
   // that box is never handed out as a payment link's address; a canonical bridge in it makes the row a move.
   // This key's own withdrawals must be read: a refund box named in one is never handed out as a link's address.
-  await eachLimit(ts.filter((t) => (t.ext ?? 0n) < 0n && t.to === undefined), 3, async (t) => {
+  await eachBatched(c, rpc, tip, 'eth_getTransactionByHash', ts.filter((t) => (t.ext ?? 0n) < 0n && t.to === undefined), 3, (t) => t.block, (t) => [t.tx], async (t) => {
     const tx = await settled(c, rpc, tip, t.block, 'eth_getTransactionByHash', [t.tx]).catch((e) => { if (byTx.get(t.tx)?.ins.length) throw e; return null; });
     if (!tx) return;
     t.to = lc(tx.to || '');
     if (t.to === lc(ROUTER)) t.input = lc(tx.input);
-  }).catch((e) => { savePubTx(P, ts, new Map(), deep); throw e; });
+  }).catch(async (e) => { await savePubTx(P, ts, new Map(), deep); throw e; });
   for (const x of byTx.values()) {
     if (!x.ins.length || !x.t.input) continue;
     for (const [addr, b] of boxes) if (b.i > 0 && x.t.input.includes(strip(addr))) x.t.refund = Math.max(x.t.refund ?? 0, b.i);
@@ -1581,8 +1608,8 @@ async function scanHistory(c, onStep) {
   }
   // The time of every block with a pool event, this key's or not.
   const time = new Map(Object.entries(P.bt).map(([b, s]) => [Number(b), s]));
-  await eachLimit(evBlocks.filter((b) => !time.has(b)), 3, async (b) => { const blk = await settled(c, rpc, tip, b, 'eth_getBlockByNumber', ['0x' + b.toString(16), false]).catch(() => null); if (blk) time.set(b, Number(BigInt(blk.timestamp))); });
-  savePubTx(P, ts, time, deep);
+  await eachBatched(c, rpc, tip, 'eth_getBlockByNumber', evBlocks.filter((b) => !time.has(b)), 3, (b) => b, (b) => ['0x' + b.toString(16), false], async (b) => { const blk = await settled(c, rpc, tip, b, 'eth_getBlockByNumber', ['0x' + b.toString(16), false]).catch(() => null); if (blk) time.set(b, Number(BigInt(blk.timestamp))); });
+  await savePubTx(P, ts, time, deep);
   // A block whose time could not be read has none; it sorts by the time of the nearest block that has one.
   const known = [...time.keys()];
   for (const r of rows) {

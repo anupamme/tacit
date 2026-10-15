@@ -198,14 +198,17 @@ const RECEIVED_TOPIC = hex(keccak_256(te.encode('Received(address,uint256,uint25
 export function jsonRpc(urls, fetchImpl = globalThis.fetch.bind(globalThis), { timeoutMs = 25_000 } = {}) {
   const list = Array.isArray(urls) ? urls : [urls];
   let id = 0, first = 0;
-  return async (method, params = []) => {
-    const all = [];
+  // `{ found: true }` for a record that is known to exist (a transaction in a deep block): a node that answers null for it does
+  // not have it (one that keeps recent history only does), so the next is asked, and null comes back only when none has it.
+  const single = async (method, params = [], { found = false } = {}) => {
+    const all = []; let none = false;
     for (let k = 0; k < list.length; k++) {
       const at = (first + k) % list.length, url = list[at];
       try {
         const r = await fetchImpl(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params }), signal: AbortSignal.timeout?.(timeoutMs) });
         const j = await r.json();
         if (j.error) throw Object.assign(new Error(j.error.message || 'rpc error'), { rpc: j.error });
+        if (found && j.result == null) { none = true; continue; }
         first = at;
         return j.result;
       } catch (e) {
@@ -213,8 +216,36 @@ export function jsonRpc(urls, fetchImpl = globalThis.fetch.bind(globalThis), { t
         all.push(e);
       }
     }
+    if (none) return null;
     throw Object.assign(all[all.length - 1] || new Error('no rpc url'), { all });
   };
+  // `calls` ([{ method, params }]) in one request, → the results in order: a result, null, or an Error for a call the node
+  // answered with one. The nodes are tried as above; one that answers a batch with anything but an array is not asked again,
+  // and one that answers every call with an error counts as failed. Throws when no node takes it, and the caller asks one at a time.
+  const noBatch = new Set();
+  single.batch = async (calls) => {
+    const all = [];
+    for (let k = 0; k < list.length; k++) {
+      const at = (first + k) % list.length, url = list[at];
+      if (noBatch.has(url)) continue;
+      try {
+        const base = id; id += calls.length;
+        const r = await fetchImpl(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(calls.map((c, i) => ({ jsonrpc: '2.0', id: base + i + 1, method: c.method, params: c.params ?? [] }))), signal: AbortSignal.timeout?.(timeoutMs) });
+        const j = await r.json();
+        if (!Array.isArray(j)) { noBatch.add(url); throw new Error(j?.error?.message || 'the node does not take batches'); }
+        const byId = new Map(j.map((x) => [x.id, x]));
+        const out = calls.map((_, i) => {
+          const x = byId.get(base + i + 1);
+          return !x ? new Error('no answer') : x.error ? Object.assign(new Error(x.error.message || 'rpc error'), { rpc: x.error }) : x.result;
+        });
+        if (calls.length && out.every((x) => x instanceof Error)) throw out[0];
+        first = at;
+        return out;
+      } catch (e) { all.push(e); }
+    }
+    throw Object.assign(all[all.length - 1] || new Error('no node takes batches'), { all });
+  };
+  return single;
 }
 
 // The text of an RPC error and of every node's error behind it, data included, for reading block limits.

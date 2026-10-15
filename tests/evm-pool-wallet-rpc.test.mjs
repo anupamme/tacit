@@ -464,4 +464,63 @@ await check('a feed read builds the tree a transaction at a time would, in about
   assert.equal((await w2.sync()).leaves, 0, 'a page with a leaf out of order is refused whole');
 });
 
+await check('a batch goes to one node in one request and comes back in order, with null and per-call errors kept apart', async () => {
+  const seen = [];
+  const f = async (url, init) => {
+    const body = JSON.parse(init.body); seen.push([url, Array.isArray(body) ? body.length : 1]);
+    const answers = body.map((x) => (x.params[0] === 'bad' ? { jsonrpc: '2.0', id: x.id, error: { code: -32000, message: 'limit' } } : { jsonrpc: '2.0', id: x.id, result: x.params[0] === 'none' ? null : `${x.method}:${x.params[0]}` }));
+    return { json: async () => answers.reverse() };                              // a node may answer in any order
+  };
+  const rpc = jsonRpc(['a', 'b'], f);
+  const out = await rpc.batch([{ method: 'm', params: ['1'] }, { method: 'm', params: ['none'] }, { method: 'm', params: ['bad'] }, { method: 'k', params: ['4'] }]);
+  assert.deepEqual(seen, [['a', 4]], 'one request, to the first node');
+  assert.equal(out[0], 'm:1'); assert.equal(out[1], null); assert.ok(out[2] instanceof Error && out[2].rpc.code === -32000); assert.equal(out[3], 'k:4');
+});
+
+await check('a node that refuses batches is passed over, and not asked again by the next one', async () => {
+  const seen = [];
+  const f = async (url, init) => {
+    const body = JSON.parse(init.body); seen.push([url, Array.isArray(body)]);
+    if (url === 'nobatch' && Array.isArray(body)) return { json: async () => ({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'batch requests are not allowed' } }) };
+    const one = (x) => ({ jsonrpc: '2.0', id: x.id, result: x.params[0] });
+    return { json: async () => (Array.isArray(body) ? body.map(one) : one(body)) };
+  };
+  const rpc = jsonRpc(['nobatch', 'ok'], f);
+  assert.deepEqual(await rpc.batch([{ method: 'm', params: ['x'] }]), ['x']);
+  assert.deepEqual(await rpc.batch([{ method: 'm', params: ['y'] }]), ['y']);
+  assert.deepEqual(seen.map((x) => x.join(':')), ['nobatch:true', 'ok:true', 'ok:true'], 'the refusing node was asked once');
+  assert.equal(await rpc('m', ['z']), 'z', 'a call alone still works, from the node that took the batch');
+});
+
+await check('a node that answers every call of a batch with an error counts as failed, and when no node takes it the batch throws', async () => {
+  const f = async (url, init) => {
+    const body = JSON.parse(init.body);
+    return { json: async () => body.map((x) => (url === 'busy' || url === 'worse' ? { jsonrpc: '2.0', id: x.id, error: { code: 429, message: 'request limit reached' } } : { jsonrpc: '2.0', id: x.id, result: 1 })) };
+  };
+  assert.deepEqual(await jsonRpc(['busy', 'fine'], f).batch([{ method: 'm' }, { method: 'm' }]), [1, 1]);
+  await assert.rejects(jsonRpc(['busy', 'worse'], f).batch([{ method: 'm' }]), (e) => e.all.length === 2);
+  await assert.rejects(jsonRpc(['down'], async () => { throw new Error('fetch failed'); }).batch([{ method: 'm' }]), /fetch failed/);
+});
+
+await check('a record known to exist is asked of the next node when one answers null, and null comes back only when none has it', async () => {
+  const asked = [];
+  const f = async (url, init) => {
+    const x = JSON.parse(init.body); asked.push(url);
+    if (url === 'down') throw new Error('fetch failed');
+    return { json: async () => ({ jsonrpc: '2.0', id: x.id, result: url === 'recent' ? null : url === 'full' ? { tx: x.params[0] } : null }) };
+  };
+  const rpc = jsonRpc(['recent', 'full'], f);
+  assert.equal(await rpc('eth_getTransactionReceipt', ['0xa']), null, 'without the option a null is the answer, as before');
+  assert.deepEqual(asked, ['recent']);
+  asked.length = 0;
+  assert.deepEqual(await rpc('eth_getTransactionReceipt', ['0xa'], { found: true }), { tx: '0xa' });
+  assert.deepEqual(asked, ['recent', 'full']);
+  asked.length = 0;
+  assert.deepEqual(await rpc('eth_getTransactionReceipt', ['0xb'], { found: true }), { tx: '0xb' });
+  assert.deepEqual(asked, ['full'], 'the next call starts at the node that had it');
+  assert.equal(await jsonRpc(['recent', 'recent2'], f)('eth_getTransactionReceipt', ['0xa'], { found: true }), null, 'null when no node has it');
+  assert.equal(await jsonRpc(['down', 'recent'], f)('eth_getTransactionReceipt', ['0xa'], { found: true }), null, 'a node that is down and one that has none is still null');
+  await assert.rejects(jsonRpc(['down'], f)('eth_getTransactionReceipt', ['0xa'], { found: true }), /fetch failed/, 'but every node failing is an error, not a null');
+});
+
 console.log(`\n${n} checks passed`);
