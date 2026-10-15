@@ -5,9 +5,10 @@
 //   node tools/tac-vaults-plan.mjs [--out contracts/out] [--config contracts/deployments/tac-vaults.config.json]
 //                                  [--miner tools/vanity-create2/target/release/vanity-create2] [--payload <file>]
 //
-// Each contract is deployed with CreateX.deployCreate2(salt, initCode) and a salt that is not tied to a sender, so anyone
-// may send the transactions. The address is CREATE2(CreateX, keccak256(salt), keccak256(initCode)): it commits to the
-// init code, constructor arguments included, so only this exact system can land at these addresses. Later contracts take
+// Each contract is deployed with CreateX.deployCreate2(salt, initCode) and a salt tied to the chain (20 zero bytes, then
+// 0x01) but not to a sender, so anyone may send the transactions. The address is
+// CREATE2(CreateX, keccak256(abi.encode(chainId, salt)), keccak256(initCode)): it commits to the init code, constructor
+// arguments included, so only this exact system can land at these addresses, and only on this chain. Later contracts take
 // earlier addresses as arguments, so they are mined in order, and a change to the config or the code mines again.
 //
 // Writes contracts/deployments/tac-vaults.json (the manifest), contracts/script/TacVaultsDeployment.sol (the same
@@ -47,9 +48,9 @@ const addr = (n) => found.get(n).address;
 function plan(name, contract, file, argsHex) {
   const initCode = creation(file, contract) + argsHex;
   const initHash = cast('keccak', '0x' + initCode);
-  const raw = execFileSync(MINER, ['mine', '--factory', cfg.factory, '--init-hash', initHash, '--zeros', String(cfg.zeroBytes), '--tag', name], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
+  const raw = execFileSync(MINER, ['mine', '--factory', cfg.factory, '--init-hash', initHash, '--chain-id', '1', '--zeros', String(cfg.zeroBytes), '--tag', name], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
   const { salt, address } = JSON.parse(raw);
-  const back = execFileSync(MINER, ['address', '--factory', cfg.factory, '--init-hash', initHash, '--salt', salt], { encoding: 'utf8' }).trim();
+  const back = execFileSync(MINER, ['address', '--factory', cfg.factory, '--init-hash', initHash, '--chain-id', '1', '--salt', salt], { encoding: 'utf8' }).trim();
   if (back !== address) throw new Error(`${name}: the miner disagrees with itself`);
   const row = { name, contract, address, salt, initCodeHash: initHash, constructorArgs: '0x' + argsHex, initCode };
   found.set(name, row);

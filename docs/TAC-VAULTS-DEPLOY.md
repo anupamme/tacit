@@ -7,13 +7,14 @@ chooses is whether to pay the gas.
 ## How it is fixed
 
 Each contract goes through CreateX (`0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed`) with `deployCreate2(salt, initCode)`.
-The salt is tied to no sender, so any account can send it, and the address is
+The salt is tied to no sender, so any account can send it, but to this chain (it starts with 20 zero bytes and the
+flag `0x01`, which CreateX hashes with the chain id). The address is
 
-    CREATE2(CreateX, keccak256(salt), keccak256(initCode))
+    CREATE2(CreateX, keccak256(abi.encode(chainId, salt)), keccak256(initCode))
 
 Because the init code carries the constructor arguments, a different owner, parameter or contract gives a different
-hash and so a different address. Different code cannot take a planned address, and a planned address cannot be taken
-by anything but its own code. (CREATE3 would not give this: its address ignores the init code, so anyone could land
+hash and so a different address. Different code cannot take a planned address, a planned address cannot be taken
+by anything but its own code, and no one can take the same addresses on another chain. (CREATE3 would not give this: its address ignores the init code, so anyone could land
 other code there first.) Each address begins with three zero bytes, found by `tools/vanity-create2`.
 
 Later contracts take earlier addresses as arguments, so they are fixed in order: the two venue oracles, their pair, the
@@ -68,6 +69,7 @@ It mines the addresses in order (about a minute) and rewrites the manifest and t
 - Send the deployment, or part of it, in any order the contracts' constructors allow: the result is the same.
 - Land the right code early: harmless, that is the plan.
 - Land different code or a different owner under any planned salt: it lands at another address.
+- Deploy the plan on another chain at the same addresses: the salts are bound to chain 1, so they land elsewhere.
 - Register a synth or create a pair in the confidential pool first: a plain token's asset id comes from the token alone and
   takes no cross-chain link, and a pair's id includes its fee, so the entry is the one the script needs, and the script
   reads the terms back.

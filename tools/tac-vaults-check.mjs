@@ -26,11 +26,11 @@ payload.deployments.forEach((t, i) => {
   const [salt, initCode] = cast('calldata-decode', 'deployCreate2(bytes32,bytes)', t.data).split('\n');
   const hash = cast('keccak', initCode);
   check(hash === t.initCodeHash, `${t.name}: init code hash`);
-  const guarded = cast('keccak', salt); // keccak256(abi.encode(salt)) for a 32-byte salt
+  const guarded = cast('keccak', '0x' + '00'.repeat(31) + '01' + salt.slice(2)); // keccak256(abi.encode(chainId 1, salt))
   const create2 = '0x' + cast('keccak', '0xff' + CREATEX.slice(2) + guarded.slice(2) + hash.slice(2)).slice(26);
   check(lc(create2) === lc(t.expectedAddress), `${t.name}: CREATE2 address`);
   check(t.expectedAddress.slice(0, 8) === '0x000000', `${t.name}: three zero bytes`);
-  check(!lc(salt).startsWith('0x' + '00'.repeat(20)), `${t.name}: the salt's first 20 bytes are not zero`);
+  check(lc(salt).startsWith('0x' + '00'.repeat(20) + '01'), `${t.name}: the salt is bound to the chain (20 zero bytes, then 0x01)`);
   const m = manifest?.contracts.find((c) => c.name === t.name);
   if (manifest) check(m && lc(m.address) === lc(t.expectedAddress) && m.salt === salt && m.initCodeHash === hash, `${t.name}: manifest agrees`);
 });

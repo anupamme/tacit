@@ -230,6 +230,20 @@ contract TacDeployForkTest is Test {
         assertGt(s[4].expected.code.length, 0);
     }
 
+    /// The planned salts are bound to mainnet: the same salt and code give another address on another chain.
+    function test_thePlannedSaltsAreBoundToMainnet() public {
+        if (!_fork()) return;
+        DeployTacVault script = new DeployTacVault();
+        DeployTacVault.Step[14] memory s = script.steps();
+        for (uint256 i; i < s.length; ++i) {
+            assertEq(script.predict(s[i].salt, s[i].hash), s[i].expected);
+        }
+        vm.chainId(8453);
+        for (uint256 i; i < s.length; ++i) {
+            assertTrue(script.predict(s[i].salt, s[i].hash) != s[i].expected, s[i].name);
+        }
+    }
+
     function _vaultConfigOf(address owner_) internal pure returns (TacVault.Config memory c) {
         c = TacVault.Config({
             tac: D.TAC,

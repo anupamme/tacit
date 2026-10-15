@@ -41,11 +41,12 @@ interface IPoolRegistry {
 ///         registration in the confidential pool and five pairs there (TAC/dollar, TAC/ETH-synth, ETH/ETH-synth,
 ///         dollar/ETH-synth, dollar/cUSD).
 ///
-///         Each contract is deployed with CreateX.deployCreate2 from a salt tied to no sender, at an address with
-///         leading zero bytes fixed in `TacVaultsDeployment.sol` (made by tools/tac-vaults-plan.mjs). The address is
-///         CREATE2(CreateX, keccak256(salt), keccak256(init code)), so it commits to the init code, constructor
-///         arguments and the owner included: nobody can put different code or a different owner at these addresses,
-///         and the sender has no power over what lands there. The script rebuilds every init code from the compiled
+///         Each contract is deployed with CreateX.deployCreate2 from a salt tied to no sender and to this chain, at an
+///         address with leading zero bytes fixed in `TacVaultsDeployment.sol` (made by tools/tac-vaults-plan.mjs).
+///         The address is CREATE2(CreateX, keccak256(abi.encode(chainId, salt)), keccak256(init code)), so it commits
+///         to the init code, constructor arguments and the owner included: nobody can put different code or a
+///         different owner at these addresses, nobody can take them on another chain, and the sender has no power
+///         over what lands there. The script rebuilds every init code from the compiled
 ///         contracts and refuses to send one whose hash or address differs from the plan. A step is skipped if its
 ///         contract is already there, so a partial or repeated run is safe, and the registry steps are checked for
 ///         their exact terms.
@@ -97,10 +98,11 @@ contract DeployTacVault is Script {
         }
     }
 
-    /// The address CreateX gives `initCodeHash` under `salt`: a salt whose first 20 bytes are neither the sender nor
-    /// zero is hashed once, and the result is the CREATE2 salt.
-    function predict(bytes32 salt, bytes32 initCodeHash) public pure returns (address) {
-        bytes32 guarded = keccak256(abi.encode(salt));
+    /// The address CreateX gives `initCodeHash` under `salt`. A salt that starts with 20 zero bytes and the flag 0x01
+    /// is bound to the chain: CreateX hashes it with the chain id, and the result is the CREATE2 salt.
+    function predict(bytes32 salt, bytes32 initCodeHash) public view returns (address) {
+        require(bytes20(salt) == bytes20(0) && uint8(salt[20]) == 1, "salt form");
+        bytes32 guarded = keccak256(abi.encode(block.chainid, salt));
         return address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), D.CREATEX, guarded, initCodeHash)))));
     }
 
