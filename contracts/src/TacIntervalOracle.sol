@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.36;
+pragma solidity 0.8.37;
 
 import {MerkleTrie} from "./lib/trie/MerkleTrie.sol";
 import {RLPReader} from "./lib/trie/RLPReader.sol";

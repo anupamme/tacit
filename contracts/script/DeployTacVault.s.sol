@@ -8,8 +8,6 @@ import {TacPairOracle} from "../src/TacPairOracle.sol";
 import {TacVault} from "../src/TacVault.sol";
 import {TacVaultZap} from "../src/TacVaultZap.sol";
 import {FixedFeed} from "../src/FixedFeed.sol";
-import {TacitEvmPool} from "../src/TacitEvmPool.sol";
-import {TacitEvmPoolRouter} from "../src/TacitEvmPoolRouter.sol";
 
 interface IPoolRegistry {
     function registerWrappedAuto(address underlying, bytes32 crossChainLink) external returns (bytes32 assetId);
@@ -54,7 +52,7 @@ interface IPoolRegistry {
 ///   ETH_CEILING           (default no limit) ETH vault debt ceiling set by the owner
 ///   USD_MIN_DEBT          (default 100e18)  smallest dollar debt
 ///   ETH_MIN_DEBT          (default 0.04e18) smallest ETH debt
-///   DEPTH_BPS             (default 20)      each vault's total debt at most this share of the pool's ETH depth (both
+///   DEPTH_BPS             (default 15)      each vault's total debt at most this share of the pool's ETH depth (both
 ///                                           vaults read the same depth, so together they lend twice this share); the
 ///                                           owner can raise it later (at most doubling, plus 25, per two days)
 ///   BORROW_FEE_BPS        (default 100)     one-time borrow fee, both vaults
@@ -178,7 +176,7 @@ contract DeployTacVault is Script {
             minDebt: minDebt,
             feedMaxStaleness: vm.envOr("FEED_MAX_STALENESS", uint256(3900)),
             debtCeiling: vm.envOr(usd ? "USD_CEILING" : "ETH_CEILING", type(uint256).max),
-            depthBps: vm.envOr("DEPTH_BPS", uint256(20)),
+            depthBps: vm.envOr("DEPTH_BPS", uint256(15)),
             redemptionFeeBps: vm.envOr("REDEMPTION_FEE_BPS", uint256(50)),
             borrowFeeBps: vm.envOr("BORROW_FEE_BPS", uint256(100)),
             feeTo: vm.envOr("FEE_TO", vm.envAddress("OWNER")),
@@ -196,8 +194,11 @@ contract DeployTacVault is Script {
     }
 
     function _pool(address asset) internal returns (address pool, address router) {
-        pool = address(new TacitEvmPool(VERIFIER, asset));
-        router = address(new TacitEvmPoolRouter(pool, ZROUTER, PERMIT2, POOL, POSEIDON4));
+        // From their artifacts: the pool and router stay on the compiler the live ones were deployed with.
+        pool = deployCode("TacitEvmPool.sol:TacitEvmPool", abi.encode(VERIFIER, asset));
+        router = deployCode(
+            "TacitEvmPoolRouter.sol:TacitEvmPoolRouter", abi.encode(pool, ZROUTER, PERMIT2, POOL, POSEIDON4)
+        );
     }
 
     // The confidential pool's id for an external ERC-20, used when the token is already registered.

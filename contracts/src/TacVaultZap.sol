@@ -1,13 +1,44 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.36;
+pragma solidity 0.8.37;
 
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {TacitEvmPoolRouter} from "./TacitEvmPoolRouter.sol";
 import {Multicallable} from "solady/utils/Multicallable.sol";
 
 interface IERC2612Zap {
     function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
         external;
+}
+
+/// The SYNTH pool's router (a TacitEvmPoolRouter, which stays on the compiler it was deployed with), as the zap
+/// uses it. The structs match the router's field for field.
+interface IZapRouter {
+    struct Tx {
+        uint256[2] pA;
+        uint256[2][2] pB;
+        uint256[2] pC;
+        uint256[11] publicInputs;
+        address recipient;
+        int256 extAmount;
+        address relayer;
+        uint256 fee;
+        bytes memo0;
+        bytes memo1;
+    }
+
+    struct DepositIntent {
+        uint256 amount;
+        uint256 outLeaf0;
+        uint256 outLeaf1;
+        bytes32 memo0Hash;
+        bytes32 memo1Hash;
+        address refund;
+        uint64 deadline;
+        uint256 nonce;
+    }
+
+    function ASSET() external view returns (address);
+    function depositBoxOf(DepositIntent calldata intent) external view returns (address);
+    function completeDeposit(DepositIntent calldata intent, Tx calldata t) external;
 }
 
 interface ITacVaultForZap {
@@ -35,7 +66,7 @@ interface ITacVaultForZap {
 contract TacVaultZap is Multicallable {
     ITacVaultForZap public immutable VAULT;
     address public immutable TAC;
-    TacitEvmPoolRouter public immutable SYNTH_ROUTER;
+    IZapRouter public immutable SYNTH_ROUTER;
 
     error BadConfig();
     error BadRecipient();
@@ -44,8 +75,8 @@ contract TacVaultZap is Multicallable {
         if (vault.code.length == 0 || synthRouter.code.length == 0) revert BadConfig();
         VAULT = ITacVaultForZap(vault);
         TAC = ITacVaultForZap(vault).TAC();
-        if (TacitEvmPoolRouter(payable(synthRouter)).ASSET() != ITacVaultForZap(vault).SYNTH()) revert BadConfig();
-        SYNTH_ROUTER = TacitEvmPoolRouter(payable(synthRouter));
+        if (IZapRouter(synthRouter).ASSET() != ITacVaultForZap(vault).SYNTH()) revert BadConfig();
+        SYNTH_ROUTER = IZapRouter(synthRouter);
     }
 
     /// Applies the caller's EIP-2612 permit for TAC to this contract; a permit that fails is skipped.
@@ -79,8 +110,8 @@ contract TacVaultZap is Multicallable {
         uint256 minCollateral,
         uint256 deadline,
         bytes calldata sig,
-        TacitEvmPoolRouter.DepositIntent calldata intent,
-        TacitEvmPoolRouter.Tx calldata t
+        IZapRouter.DepositIntent calldata intent,
+        IZapRouter.Tx calldata t
     ) external {
         _deposit(owner, tacIn);
         VAULT.borrowFor(

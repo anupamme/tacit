@@ -2,8 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {TacitEvmPool} from "../src/TacitEvmPool.sol";
-import {TacitEvmPoolRouter} from "../src/TacitEvmPoolRouter.sol";
+import {IEvmPool, IEvmPoolRouter, IZapRouter} from "./EvmPoolFace.sol";
 import {TacVault} from "../src/TacVault.sol";
 import {TacSynth} from "../src/TacSynth.sol";
 import {TacVaultZap} from "../src/TacVaultZap.sol";
@@ -20,7 +19,7 @@ contract AcceptAllVerifier {
     }
 }
 
-/// The vault driven from shielded pools and from public TAC in one transaction: TacitEvmPool and its router are
+/// The vault driven from shielded pools and from public TAC in one transaction: IEvmPool and its router are
 /// the deployed contracts, unchanged; only the Groth16 verifier is replaced.
 contract TacVaultShieldedTest is Test {
     uint256 constant FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
@@ -30,10 +29,10 @@ contract TacVaultShieldedTest is Test {
     TestTac tac;
     TacVault vault;
     TacSynth dollar;
-    TacitEvmPool tacPool;
-    TacitEvmPoolRouter tacRouter;
-    TacitEvmPool dollarPool;
-    TacitEvmPoolRouter dollarRouter;
+    IEvmPool tacPool;
+    IEvmPoolRouter tacRouter;
+    IEvmPool dollarPool;
+    IEvmPoolRouter dollarRouter;
     TacVaultZap zap;
     uint256 ownerKey = 0xA11CE;
     address owner;
@@ -53,10 +52,20 @@ contract TacVaultShieldedTest is Test {
         dollar = vault.SYNTH();
 
         address verifier = address(new AcceptAllVerifier());
-        tacPool = new TacitEvmPool(verifier, address(tac));
-        tacRouter = new TacitEvmPoolRouter(address(tacPool), address(0), address(0), address(0), address(0));
-        dollarPool = new TacitEvmPool(verifier, address(dollar));
-        dollarRouter = new TacitEvmPoolRouter(address(dollarPool), address(0), address(0), address(0), address(0));
+        tacPool = IEvmPool(deployCode("TacitEvmPool.sol:TacitEvmPool", abi.encode(verifier, address(tac))));
+        tacRouter = IEvmPoolRouter(
+            deployCode(
+                "TacitEvmPoolRouter.sol:TacitEvmPoolRouter",
+                abi.encode(address(tacPool), address(0), address(0), address(0), address(0))
+            )
+        );
+        dollarPool = IEvmPool(deployCode("TacitEvmPool.sol:TacitEvmPool", abi.encode(verifier, address(dollar))));
+        dollarRouter = IEvmPoolRouter(
+            deployCode(
+                "TacitEvmPoolRouter.sol:TacitEvmPoolRouter",
+                abi.encode(address(dollarPool), address(0), address(0), address(0), address(0))
+            )
+        );
         zap = new TacVaultZap(address(vault), address(dollarRouter));
 
         // Alice shields 100,000 public TAC.
@@ -70,14 +79,14 @@ contract TacVaultShieldedTest is Test {
     // ───────────── building transactions (the proof itself is accepted) ─────────────
 
     function _tx(
-        TacitEvmPool pool,
+        IEvmPool pool,
         address recipient,
         int256 extAmount,
         address rel,
         uint256 fee,
         uint256 out0,
         uint256 out1
-    ) internal returns (TacitEvmPoolRouter.Tx memory t) {
+    ) internal returns (IZapRouter.Tx memory t) {
         (bytes32 root, uint256 size) = pool.head();
         t.recipient = recipient;
         t.extAmount = extAmount;
@@ -101,7 +110,7 @@ contract TacVaultShieldedTest is Test {
         t.publicInputs[10] = out1;
     }
 
-    function _transact(TacitEvmPool pool, TacitEvmPoolRouter.Tx memory t) internal {
+    function _transact(IEvmPool pool, IZapRouter.Tx memory t) internal {
         pool.transact(t.pA, t.pB, t.pC, t.publicInputs, t.recipient, t.extAmount, t.relayer, t.fee, t.memo0, t.memo1);
     }
 
@@ -122,8 +131,8 @@ contract TacVaultShieldedTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _intent(uint256 amount, uint256 leaf) internal view returns (TacitEvmPoolRouter.DepositIntent memory) {
-        return TacitEvmPoolRouter.DepositIntent({
+    function _intent(uint256 amount, uint256 leaf) internal view returns (IZapRouter.DepositIntent memory) {
+        return IZapRouter.DepositIntent({
             amount: amount,
             outLeaf0: leaf,
             outLeaf1: 0,
@@ -138,19 +147,19 @@ contract TacVaultShieldedTest is Test {
     function _call(address token, uint256 amount, bytes memory data)
         internal
         view
-        returns (TacitEvmPoolRouter.Call memory)
+        returns (IEvmPoolRouter.Call memory)
     {
-        return TacitEvmPoolRouter.Call({
+        return IEvmPoolRouter.Call({
             target: address(vault), value: 0, token: token, amount: amount, push: false, data: data
         });
     }
 
-    function _callIntent(TacitEvmPoolRouter.Call[] memory calls, uint256 nonce)
+    function _callIntent(IEvmPoolRouter.Call[] memory calls, uint256 nonce)
         internal
         view
-        returns (TacitEvmPoolRouter.CallIntent memory)
+        returns (IEvmPoolRouter.CallIntent memory)
     {
-        return TacitEvmPoolRouter.CallIntent({
+        return IEvmPoolRouter.CallIntent({
             calls: calls,
             outTokens: new address[](0),
             minOuts: new uint256[](0),
@@ -164,9 +173,9 @@ contract TacVaultShieldedTest is Test {
     // ───────────── shielded TAC in, shielded dollars out ─────────────
 
     function _open() internal {
-        TacitEvmPoolRouter.DepositIntent memory box = _intent(DEBT, 21);
+        IZapRouter.DepositIntent memory box = _intent(DEBT, 21);
         address dollarBox = dollarRouter.depositBoxOf(box);
-        TacitEvmPoolRouter.Call[] memory calls = new TacitEvmPoolRouter.Call[](2);
+        IEvmPoolRouter.Call[] memory calls = new IEvmPoolRouter.Call[](2);
         calls[0] = _call(address(tac), COLL, abi.encodeCall(TacVault.depositFor, (owner, COLL)));
         calls[1] = _call(
             address(0),
@@ -176,9 +185,8 @@ contract TacVaultShieldedTest is Test {
                 (owner, DEBT, uint256(0), COLL, dollarBox, block.timestamp + 1 hours, _signBorrow(DEBT, dollarBox))
             )
         );
-        TacitEvmPoolRouter.CallIntent memory intent = _callIntent(calls, 1);
-        TacitEvmPoolRouter.Tx memory t =
-            _tx(tacPool, tacRouter.callEscrowOf(intent), -int256(COLL), relayer, 10e18, 12, 0);
+        IEvmPoolRouter.CallIntent memory intent = _callIntent(calls, 1);
+        IZapRouter.Tx memory t = _tx(tacPool, tacRouter.callEscrowOf(intent), -int256(COLL), relayer, 10e18, 12, 0);
         vm.prank(relayer);
         tacRouter.withdrawAndCall(t, intent);
         assertEq(dollar.balanceOf(dollarBox), DEBT, "dollars waiting in the deposit box");
@@ -198,10 +206,10 @@ contract TacVaultShieldedTest is Test {
     /// Shielded TAC to a shielded dollar note in ONE transaction: the escrow's last call completes the dollar
     /// pool's deposit box that the borrow has just filled.
     function test_shieldedTacToShieldedDollarsInOneTransaction() public {
-        TacitEvmPoolRouter.DepositIntent memory box = _intent(DEBT, 21);
+        IZapRouter.DepositIntent memory box = _intent(DEBT, 21);
         address dollarBox = dollarRouter.depositBoxOf(box);
-        TacitEvmPoolRouter.Tx memory deposit = _tx(dollarPool, address(0), int256(DEBT), address(0), 0, 21, 0);
-        TacitEvmPoolRouter.Call[] memory calls = new TacitEvmPoolRouter.Call[](3);
+        IZapRouter.Tx memory deposit = _tx(dollarPool, address(0), int256(DEBT), address(0), 0, 21, 0);
+        IEvmPoolRouter.Call[] memory calls = new IEvmPoolRouter.Call[](3);
         calls[0] = _call(address(tac), COLL, abi.encodeCall(TacVault.depositFor, (owner, COLL)));
         calls[1] = _call(
             address(0),
@@ -211,17 +219,16 @@ contract TacVaultShieldedTest is Test {
                 (owner, DEBT, uint256(0), COLL, dollarBox, block.timestamp + 1 hours, _signBorrow(DEBT, dollarBox))
             )
         );
-        calls[2] = TacitEvmPoolRouter.Call({
+        calls[2] = IEvmPoolRouter.Call({
             target: address(dollarRouter),
             value: 0,
             token: address(0),
             amount: 0,
             push: false,
-            data: abi.encodeCall(TacitEvmPoolRouter.completeDeposit, (box, deposit))
+            data: abi.encodeCall(IZapRouter.completeDeposit, (box, deposit))
         });
-        TacitEvmPoolRouter.CallIntent memory intent = _callIntent(calls, 1);
-        TacitEvmPoolRouter.Tx memory t =
-            _tx(tacPool, tacRouter.callEscrowOf(intent), -int256(COLL), relayer, 10e18, 12, 0);
+        IEvmPoolRouter.CallIntent memory intent = _callIntent(calls, 1);
+        IZapRouter.Tx memory t = _tx(tacPool, tacRouter.callEscrowOf(intent), -int256(COLL), relayer, 10e18, 12, 0);
         vm.prank(relayer);
         tacRouter.withdrawAndCall(t, intent);
         assertEq(dollar.balanceOf(dollarBox), 0, "the box is emptied");
@@ -233,9 +240,9 @@ contract TacVaultShieldedTest is Test {
 
     function test_closeFromShieldedDollarsBackIntoShieldedTac() public {
         _open();
-        TacitEvmPoolRouter.DepositIntent memory tacBox = _intent(COLL, 31);
+        IZapRouter.DepositIntent memory tacBox = _intent(COLL, 31);
         address tacBoxAddr = tacRouter.depositBoxOf(tacBox);
-        TacitEvmPoolRouter.Call[] memory calls = new TacitEvmPoolRouter.Call[](2);
+        IEvmPoolRouter.Call[] memory calls = new IEvmPoolRouter.Call[](2);
         calls[0] = _call(address(dollar), DEBT, abi.encodeCall(TacVault.repay, (owner, DEBT)));
         calls[1] = _call(
             address(0),
@@ -245,7 +252,7 @@ contract TacVaultShieldedTest is Test {
                 (owner, COLL, tacBoxAddr, block.timestamp + 1 hours, _signWithdraw(COLL, tacBoxAddr))
             )
         );
-        TacitEvmPoolRouter.CallIntent memory intent = _callIntent(calls, 2);
+        IEvmPoolRouter.CallIntent memory intent = _callIntent(calls, 2);
         dollarRouter.withdrawAndCall(
             _tx(dollarPool, dollarRouter.callEscrowOf(intent), -int256(DEBT), address(0), 0, 22, 0), intent
         );
@@ -284,9 +291,9 @@ contract TacVaultShieldedTest is Test {
         address payer = vm.addr(payerKey);
         tac.mint(payer, COLL);
         (uint8 v, bytes32 r, bytes32 s_, uint256 dl) = _permit(payerKey, address(zap), COLL);
-        TacitEvmPoolRouter.DepositIntent memory intent = _intent(DEBT, 51);
+        IZapRouter.DepositIntent memory intent = _intent(DEBT, 51);
         bytes memory sig = _signBorrow(DEBT, dollarRouter.depositBoxOf(intent));
-        TacitEvmPoolRouter.Tx memory t = _tx(dollarPool, address(0), int256(DEBT), address(0), 0, 51, 0);
+        IZapRouter.Tx memory t = _tx(dollarPool, address(0), int256(DEBT), address(0), 0, 51, 0);
         bytes[] memory calls = new bytes[](2);
         calls[0] = abi.encodeCall(TacVaultZap.permitTac, (COLL, dl, v, r, s_));
         calls[1] =
@@ -320,9 +327,9 @@ contract TacVaultShieldedTest is Test {
     function test_publicTacToAShieldedDollarNoteInOneTransaction() public {
         address payer = address(0xCA11);
         tac.mint(payer, COLL);
-        TacitEvmPoolRouter.DepositIntent memory intent = _intent(DEBT, 41);
+        IZapRouter.DepositIntent memory intent = _intent(DEBT, 41);
         bytes memory sig = _signBorrow(DEBT, dollarRouter.depositBoxOf(intent));
-        TacitEvmPoolRouter.Tx memory t = _tx(dollarPool, address(0), int256(DEBT), address(0), 0, 41, 0);
+        IZapRouter.Tx memory t = _tx(dollarPool, address(0), int256(DEBT), address(0), 0, 41, 0);
         vm.startPrank(payer);
         tac.approve(address(zap), COLL);
         zap.mintShielded(owner, COLL, 0, COLL, block.timestamp + 1 hours, sig, intent, t);
@@ -355,26 +362,25 @@ contract TacVaultShieldedTest is Test {
         vm.prank(alice);
         vault.depositFor(owner, COLL);
 
-        TacitEvmPoolRouter.DepositIntent memory intent = _intent(DEBT, 41);
+        IZapRouter.DepositIntent memory intent = _intent(DEBT, 41);
         bytes memory sig = _signBorrow(DEBT, dollarRouter.depositBoxOf(intent));
 
         // Another intent (another note, another refund) has a different box: the signature fails.
-        TacitEvmPoolRouter.DepositIntent memory evil = _intent(DEBT, 666);
+        IZapRouter.DepositIntent memory evil = _intent(DEBT, 666);
         evil.refund = address(0xBAD);
-        TacitEvmPoolRouter.Tx memory evilTx =
-            _tx(dollarPool, address(0), int256(DEBT), address(0xBAD), DEBT - 1, 666, 0);
+        IZapRouter.Tx memory evilTx = _tx(dollarPool, address(0), int256(DEBT), address(0xBAD), DEBT - 1, 666, 0);
         vm.prank(address(0xBAD));
         vm.expectRevert(TacVault.BadSignature.selector);
         zap.mintShielded(owner, 0, 0, COLL, block.timestamp + 1 hours, sig, evil, evilTx);
 
         // The owner's intent with a different proof (paying a relayer fee) does not match the intent.
-        TacitEvmPoolRouter.Tx memory feeTx = _tx(dollarPool, address(0), int256(DEBT), address(0xBAD), DEBT - 1, 666, 0);
+        IZapRouter.Tx memory feeTx = _tx(dollarPool, address(0), int256(DEBT), address(0xBAD), DEBT - 1, 666, 0);
         vm.prank(address(0xBAD));
-        vm.expectRevert(TacitEvmPoolRouter.BadIntent.selector);
+        vm.expectRevert(IEvmPoolRouter.BadIntent.selector);
         zap.mintShielded(owner, 0, 0, COLL, block.timestamp + 1 hours, sig, intent, feeTx);
 
         // Run as signed, by anyone, the dollars land only in the owner's note.
-        TacitEvmPoolRouter.Tx memory t = _tx(dollarPool, address(0), int256(DEBT), address(0), 0, 41, 0);
+        IZapRouter.Tx memory t = _tx(dollarPool, address(0), int256(DEBT), address(0), 0, 41, 0);
         vm.prank(address(0xBAD));
         zap.mintShielded(owner, 0, 0, COLL, block.timestamp + 1 hours, sig, intent, t);
         assertEq(dollar.balanceOf(address(dollarPool)), DEBT);

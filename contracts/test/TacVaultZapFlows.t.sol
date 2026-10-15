@@ -2,8 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {TacitEvmPool} from "../src/TacitEvmPool.sol";
-import {TacitEvmPoolRouter} from "../src/TacitEvmPoolRouter.sol";
+import {IEvmPool, IEvmPoolRouter, IZapRouter} from "./EvmPoolFace.sol";
 import {TacVault} from "../src/TacVault.sol";
 import {TacSynth} from "../src/TacSynth.sol";
 import {TacVaultZap} from "../src/TacVaultZap.sol";
@@ -21,7 +20,7 @@ contract TacVaultZapFlowsVerifier {
 }
 
 /// The zap and the SYNTH pool's deposit boxes with other parties in the picture: who can complete a box, where an
-/// unfinished box refunds, and what the zap keeps. TacitEvmPool and its router are the deployed contracts, unchanged;
+/// unfinished box refunds, and what the zap keeps. IEvmPool and its router are the deployed contracts, unchanged;
 /// only the Groth16 verifier is replaced.
 contract TacVaultZapFlows is Test {
     uint256 constant FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
@@ -31,8 +30,8 @@ contract TacVaultZapFlows is Test {
     TestTac tac;
     TacVault vault;
     TacSynth dollar;
-    TacitEvmPool dollarPool;
-    TacitEvmPoolRouter dollarRouter;
+    IEvmPool dollarPool;
+    IEvmPoolRouter dollarRouter;
     TacVaultZap zap;
     uint256 ownerKey = 0xA11CE;
     address owner;
@@ -51,8 +50,13 @@ contract TacVaultZapFlows is Test {
         vault = new TacVault(VaultConfig.defaults(address(tac), address(oracle), address(feed), address(0x0123)));
         dollar = vault.SYNTH();
         address verifier = address(new TacVaultZapFlowsVerifier());
-        dollarPool = new TacitEvmPool(verifier, address(dollar));
-        dollarRouter = new TacitEvmPoolRouter(address(dollarPool), address(0), address(0), address(0), address(0));
+        dollarPool = IEvmPool(deployCode("TacitEvmPool.sol:TacitEvmPool", abi.encode(verifier, address(dollar))));
+        dollarRouter = IEvmPoolRouter(
+            deployCode(
+                "TacitEvmPoolRouter.sol:TacitEvmPoolRouter",
+                abi.encode(address(dollarPool), address(0), address(0), address(0), address(0))
+            )
+        );
         zap = new TacVaultZap(address(vault), address(dollarRouter));
     }
 
@@ -60,7 +64,7 @@ contract TacVaultZapFlows is Test {
 
     function _tx(int256 extAmount, address rel, uint256 fee, uint256 out0, uint256 out1)
         internal
-        returns (TacitEvmPoolRouter.Tx memory t)
+        returns (IZapRouter.Tx memory t)
     {
         (bytes32 root, uint256 size) = dollarPool.head();
         t.recipient = address(0);
@@ -104,8 +108,8 @@ contract TacVaultZapFlows is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _intent(uint256 amount, uint256 leaf) internal view returns (TacitEvmPoolRouter.DepositIntent memory) {
-        return TacitEvmPoolRouter.DepositIntent({
+    function _intent(uint256 amount, uint256 leaf) internal view returns (IZapRouter.DepositIntent memory) {
+        return IZapRouter.DepositIntent({
             amount: amount,
             outLeaf0: leaf,
             outLeaf1: 0,
@@ -132,7 +136,7 @@ contract TacVaultZapFlows is Test {
     /// funds only the owner's notes.
     function test_aBorrowSubmittedAheadOfTheZapStillFundsOnlyTheOwnersNotes() public {
         _giveOwnerCollateral(COLL);
-        TacitEvmPoolRouter.DepositIntent memory intent = _intent(DEBT, 41);
+        IZapRouter.DepositIntent memory intent = _intent(DEBT, 41);
         address box = dollarRouter.depositBoxOf(intent);
         bytes memory sig = _signBorrow(DEBT, box, COLL);
         uint256 dl = block.timestamp + 1 hours;
@@ -144,7 +148,7 @@ contract TacVaultZapFlows is Test {
 
         address payer = address(0xCA11);
         tac.mint(payer, COLL);
-        TacitEvmPoolRouter.Tx memory t = _tx(int256(DEBT), address(0), 0, 41, 0);
+        IZapRouter.Tx memory t = _tx(int256(DEBT), address(0), 0, 41, 0);
         vm.startPrank(payer);
         tac.approve(address(zap), COLL);
         vm.expectRevert(TacVault.BadSignature.selector);
@@ -163,14 +167,14 @@ contract TacVaultZapFlows is Test {
     /// in the intent the owner signed, and to no other.
     function test_anUnfinishedBoxRefundsToTheSignedAddressAfterTheDeadline() public {
         _giveOwnerCollateral(COLL);
-        TacitEvmPoolRouter.DepositIntent memory intent = _intent(DEBT, 42);
+        IZapRouter.DepositIntent memory intent = _intent(DEBT, 42);
         address box = dollarRouter.depositBoxOf(intent);
         bytes memory sig = _signBorrow(DEBT, box, COLL);
         vm.prank(stranger);
         vault.borrowFor(owner, DEBT, 0, COLL, box, block.timestamp + 1 hours, sig);
 
         vm.prank(stranger);
-        vm.expectRevert(TacitEvmPoolRouter.NotExpired.selector);
+        vm.expectRevert(IEvmPoolRouter.NotExpired.selector);
         dollarRouter.reclaimDeposit(intent, address(dollar));
 
         skip(1 days + 1);
@@ -180,10 +184,10 @@ contract TacVaultZapFlows is Test {
         assertEq(dollar.balanceOf(stranger), 0);
 
         // an intent with another refund is another box with nothing in it
-        TacitEvmPoolRouter.DepositIntent memory other = intent;
+        IZapRouter.DepositIntent memory other = intent;
         other.refund = stranger;
         vm.prank(stranger);
-        vm.expectRevert(TacitEvmPoolRouter.NothingToReclaim.selector);
+        vm.expectRevert(IEvmPoolRouter.NothingToReclaim.selector);
         dollarRouter.reclaimDeposit(other, address(dollar));
     }
 

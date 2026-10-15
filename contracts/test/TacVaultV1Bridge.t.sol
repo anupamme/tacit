@@ -2,8 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {TacitEvmPool} from "../src/TacitEvmPool.sol";
-import {TacitEvmPoolRouter} from "../src/TacitEvmPoolRouter.sol";
+import {IEvmPool, IEvmPoolRouter, IZapRouter} from "./EvmPoolFace.sol";
 import {TacVault} from "../src/TacVault.sol";
 import {TacSynth} from "../src/TacSynth.sol";
 import {MockOracle, MockFeed, VaultConfig} from "./TacVaultMocks.sol";
@@ -32,10 +31,10 @@ contract TacVaultV1BridgeTest is Test {
     uint256 constant COLL = 15_000e18;
     uint256 constant DEBT = 2_000e18;
 
-    TacitEvmPool tacPool;
-    TacitEvmPoolRouter tacRouter;
-    TacitEvmPool usdPool;
-    TacitEvmPoolRouter usdRouter;
+    IEvmPool tacPool;
+    IEvmPoolRouter tacRouter;
+    IEvmPool usdPool;
+    IEvmPoolRouter usdRouter;
     TacVault vault;
     TacSynth usd;
     address alice = makeAddr("alice");
@@ -51,8 +50,13 @@ contract TacVaultV1BridgeTest is Test {
         else vm.createSelectFork(url, blockNumber);
         owner = vm.addr(ownerKey);
         address verifier = address(new AcceptAllVerifier());
-        tacPool = new TacitEvmPool(verifier, TAC);
-        tacRouter = new TacitEvmPoolRouter(address(tacPool), address(0), address(0), V1, address(0));
+        tacPool = IEvmPool(deployCode("TacitEvmPool.sol:TacitEvmPool", abi.encode(verifier, TAC)));
+        tacRouter = IEvmPoolRouter(
+            deployCode(
+                "TacitEvmPoolRouter.sol:TacitEvmPoolRouter",
+                abi.encode(address(tacPool), address(0), address(0), V1, address(0))
+            )
+        );
 
         MockOracle oracle = new MockOracle();
         oracle.set(1e14); // 0.40 USD per TAC at 4000 USD per ETH
@@ -60,8 +64,13 @@ contract TacVaultV1BridgeTest is Test {
         feed.set(4000e8);
         vault = new TacVault(VaultConfig.defaults(TAC, address(oracle), address(feed), address(0x0123)));
         usd = vault.SYNTH();
-        usdPool = new TacitEvmPool(verifier, address(usd));
-        usdRouter = new TacitEvmPoolRouter(address(usdPool), address(0), address(0), V1, address(0));
+        usdPool = IEvmPool(deployCode("TacitEvmPool.sol:TacitEvmPool", abi.encode(verifier, address(usd))));
+        usdRouter = IEvmPoolRouter(
+            deployCode(
+                "TacitEvmPoolRouter.sol:TacitEvmPoolRouter",
+                abi.encode(address(usdPool), address(0), address(0), V1, address(0))
+            )
+        );
 
         deal(TAC, alice, 100_000e18);
         vm.startPrank(alice);
@@ -70,9 +79,9 @@ contract TacVaultV1BridgeTest is Test {
         vm.stopPrank();
     }
 
-    function _tx(TacitEvmPool pool, address recipient, int256 extAmount, address rel, uint256 fee, uint256 out0)
+    function _tx(IEvmPool pool, address recipient, int256 extAmount, address rel, uint256 fee, uint256 out0)
         internal
-        returns (TacitEvmPoolRouter.Tx memory t)
+        returns (IZapRouter.Tx memory t)
     {
         (bytes32 root, uint256 size) = pool.head();
         t.recipient = recipient;
@@ -96,12 +105,12 @@ contract TacVaultV1BridgeTest is Test {
         t.publicInputs[9] = out0;
     }
 
-    function _transact(TacitEvmPool pool, TacitEvmPoolRouter.Tx memory t) internal {
+    function _transact(IEvmPool pool, IZapRouter.Tx memory t) internal {
         pool.transact(t.pA, t.pB, t.pC, t.publicInputs, t.recipient, t.extAmount, t.relayer, t.fee, t.memo0, t.memo1);
     }
 
-    function _wrapIntent(bytes32 assetId, uint256 amount) internal view returns (TacitEvmPoolRouter.WrapIntent memory) {
-        return TacitEvmPoolRouter.WrapIntent({
+    function _wrapIntent(bytes32 assetId, uint256 amount) internal view returns (IEvmPoolRouter.WrapIntent memory) {
+        return IEvmPoolRouter.WrapIntent({
             assetId: assetId,
             amount: amount,
             tip: 0,
@@ -118,8 +127,8 @@ contract TacVaultV1BridgeTest is Test {
     function test_shieldedTacIntoV1InOneTransaction() public {
         _fork();
         uint256 supplyBefore = IErc20Supply(TAC).totalSupply();
-        TacitEvmPoolRouter.WrapIntent memory intent = _wrapIntent(TAC_ASSET, 1_000e18);
-        TacitEvmPoolRouter.Tx memory t = _tx(tacPool, tacRouter.wrapBoxOf(intent), -int256(1_000e18), address(0), 0, 0);
+        IEvmPoolRouter.WrapIntent memory intent = _wrapIntent(TAC_ASSET, 1_000e18);
+        IZapRouter.Tx memory t = _tx(tacPool, tacRouter.wrapBoxOf(intent), -int256(1_000e18), address(0), 0, 0);
         tacRouter.withdrawToV1(t, intent);
         assertEq(supplyBefore - IErc20Supply(TAC).totalSupply(), 1_000e18, "V1 took the TAC into a pending deposit");
         assertEq(IErc20Supply(TAC).balanceOf(tacRouter.wrapBoxOf(intent)), 0);
@@ -129,7 +138,7 @@ contract TacVaultV1BridgeTest is Test {
     /// only signs and borrows dollars into the dollar pool's deposit box, completed into a shielded note.
     function test_v1TacExitOpensAVaultAndMintsShieldedDollars() public {
         _fork();
-        TacitEvmPoolRouter.DepositIntent memory box = TacitEvmPoolRouter.DepositIntent({
+        IZapRouter.DepositIntent memory box = IZapRouter.DepositIntent({
             amount: DEBT,
             outLeaf0: 21,
             outLeaf1: 0,
@@ -144,8 +153,8 @@ contract TacVaultV1BridgeTest is Test {
         bytes32 sh = keccak256(abi.encode(vault.BORROW(), owner, DEBT, uint256(0), COLL, usdBox, uint256(0), dl));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, vault.digest(sh));
 
-        TacitEvmPoolRouter.Call[] memory calls = new TacitEvmPoolRouter.Call[](2);
-        calls[0] = TacitEvmPoolRouter.Call({
+        IEvmPoolRouter.Call[] memory calls = new IEvmPoolRouter.Call[](2);
+        calls[0] = IEvmPoolRouter.Call({
             target: address(vault),
             value: 0,
             token: TAC,
@@ -153,7 +162,7 @@ contract TacVaultV1BridgeTest is Test {
             push: false,
             data: abi.encodeCall(TacVault.depositFor, (owner, COLL))
         });
-        calls[1] = TacitEvmPoolRouter.Call({
+        calls[1] = IEvmPoolRouter.Call({
             target: address(vault),
             value: 0,
             token: address(0),
@@ -163,7 +172,7 @@ contract TacVaultV1BridgeTest is Test {
                 TacVault.borrowFor, (owner, DEBT, uint256(0), COLL, usdBox, dl, abi.encodePacked(r, s, v))
             )
         });
-        TacitEvmPoolRouter.CallIntent memory intent = TacitEvmPoolRouter.CallIntent({
+        IEvmPoolRouter.CallIntent memory intent = IEvmPoolRouter.CallIntent({
             calls: calls,
             outTokens: new address[](0),
             minOuts: new uint256[](0),
@@ -202,7 +211,7 @@ contract TacVaultV1BridgeTest is Test {
         _transact(usdPool, _tx(usdPool, address(0), int256(DEBT), address(0), 0, 31));
         vm.stopPrank();
 
-        TacitEvmPoolRouter.WrapIntent memory intent = _wrapIntent(usdAsset, 500e18);
+        IEvmPoolRouter.WrapIntent memory intent = _wrapIntent(usdAsset, 500e18);
         usdRouter.withdrawToV1(_tx(usdPool, usdRouter.wrapBoxOf(intent), -int256(500e18), address(0), 0, 0), intent);
         assertEq(usd.balanceOf(V1), 500e18, "V1 escrows the dollars for the note");
     }

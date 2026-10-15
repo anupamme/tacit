@@ -10,6 +10,8 @@
 // call: builds calldata with foundry's `cast calldata`; nothing is sent. Actions, with their speed:
 //   at once   set-ceiling <wei> | set-borrow-fee <bps> | set-redemption-fee <bps> | lower-depth <bps> | pause <seconds>
 //             | resume | set-fee-to <addr> | set-tac-sink <addr> | set-pauser <addr>
+//             (a pause is at most 12 h and the next can start only 12 h after it ends; in a genuine crash a pause
+//             only delays liquidations, so prefer 3-6 h unless a price is clearly being held away from the market)
 //   announce  queue <term> <value> | execute <term> | cancel <term>       terms: depth mint liq bonus owner-window
 //             auction min-debt (depth in bps; ratios and bonus in bps; windows in seconds; min-debt in wei)
 //   oracle    queue-oracle <addr> | execute-oracle | cancel-oracle
