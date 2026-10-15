@@ -12,8 +12,8 @@
 // can fill the interval later, for about 21 hours.
 //
 // With VAULTS set, it reads each vault's borrowers from its Borrowed events (in chunks, remembering them) and:
-//   - calls `liquidate` on a vault with debt that is below the liquidation line, and `cancel` on an auction whose
-//     vault has recovered;
+//   - calls `liquidate` on a vault with debt that is below the liquidation line (not while the owner has paused
+//     auctions), and `cancel` on an auction whose vault has recovered;
 //   - once an auction has run AUCTION_DURATION, calls `absorb` when it can, and otherwise reports the vault.
 //
 // Every call is simulated first and sent only if it would succeed, with a gas limit 30% above the estimate. Vault
@@ -338,6 +338,13 @@ function scan(vault) {
   try {
     window = num(call(vault, 'OWNER_WINDOW()(uint256)'));
   } catch {}
+  // While the owner has paused auctions, `liquidate` and `absorb` are refused; `cancel` is not.
+  let pausedUntil = 0n;
+  try {
+    pausedUntil = num(call(vault, 'pausedUntil()(uint256)'));
+  } catch {}
+  const paused = now < pausedUntil;
+  if (paused) log(vault, 'auctions paused until', new Date(Number(pausedUntil) * 1000).toISOString(), ': not liquidating or absorbing');
   for (const owner of list) {
     try {
       const [, debt, start] = call(vault, 'vaults(address)(uint256,uint256,uint256)', owner).split('\n').map(num);
@@ -349,13 +356,13 @@ function scan(vault) {
       }
       if (debt === 0n) continue;
       if (start === 0n) {
-        if (call(vault, 'liqHealthyView(address)(bool)', owner) === 'false' && simulate(vault, 'liquidate(address)', owner).ok) {
+        if (!paused && call(vault, 'liqHealthyView(address)(bool)', owner) === 'false' && simulate(vault, 'liquidate(address)', owner).ok) {
           log(vault, 'liquidate', owner, act(vault, 'liquidate(address)', owner));
           alertOnce(key, `auction on ${vault} for ${owner}: its owner can repay or add TAC for ${window} seconds`);
         }
       } else if (simulate(vault, 'cancel(address)', owner).ok) {
         log(vault, 'cancel', owner, act(vault, 'cancel(address)', owner));
-      } else if (now - start >= duration) {
+      } else if (now - start >= duration && !paused) {
         if (simulate(vault, 'absorb(address)', owner).ok) log(vault, 'absorb', owner, act(vault, 'absorb(address)', owner));
         else log(vault, owner, 'auction unsold and not absorbable (vault worth its debt, or the reserve is empty)');
       }

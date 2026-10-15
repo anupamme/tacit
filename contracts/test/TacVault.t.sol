@@ -437,6 +437,130 @@ contract TacVaultTest is Test {
         oracle.set(3e12);
     }
 
+    // ───────────── pause ─────────────
+
+    /// A pause refuses `liquidate`, outside bids, `absorb` and `redeem`, and nothing that lets an owner or a
+    /// borrower act: deposit, repay, withdraw, borrow, `cancel` and the owner's own bid all go on.
+    function test_aPauseRefusesLiquidationOutsideBidsAbsorbAndRedemption() public {
+        _open(alice, COLL, MAX_DEBT);
+        _open(bob, 1_000_000e18, 5_000e18);
+        vm.prank(OWNER);
+        vault.pauseAuctions(6 hours);
+        assertTrue(vault.paused());
+
+        oracle.set(CRASH);
+        vm.expectRevert(TacVault.Paused.selector);
+        vault.liquidate(alice);
+        // Redemption (a vault between the lines) is refused too.
+        oracle.set(P);
+        vm.prank(bob);
+        vm.expectRevert(TacVault.Paused.selector);
+        vault.redeem(alice, 100e18, 0);
+
+        // The pause ends by itself; the same calls then work.
+        _wait(6 hours);
+        assertFalse(vault.paused());
+        oracle.set(CRASH);
+        vault.liquidate(alice);
+    }
+
+    function test_aRunningAuctionKeepsItsOwnerAndRefusesOutsideBidsAndAbsorbWhilePaused() public {
+        _underwater(250e18);
+        _wait(vault.OWNER_WINDOW());
+        vm.prank(OWNER);
+        vault.pauseAuctions(12 hours);
+        // An outsider cannot bid, and after AUCTION_DURATION nobody can absorb.
+        vm.prank(bob);
+        vm.expectRevert(TacVault.Paused.selector);
+        vault.bid(alice, type(uint256).max, 0);
+        _wait(D);
+        vm.expectRevert(TacVault.Paused.selector);
+        vault.absorb(alice);
+        // The vault's owner may still bid and repay, and anyone may top up.
+        vm.startPrank(alice);
+        dollar.approve(address(vault), type(uint256).max);
+        vm.stopPrank();
+        (, uint256 debt,) = _v(alice);
+        vm.prank(bob);
+        dollar.transfer(alice, debt);
+        vm.prank(alice);
+        vault.repay(alice, type(uint256).max);
+        (uint256 coll, uint256 owed, uint256 start) = _v(alice);
+        assertEq(owed, 0);
+        assertEq(start, 0, "the auction ended with the debt");
+        vm.prank(alice);
+        vault.withdraw(coll);
+    }
+
+    function test_theOwnerCanBidOnItsOwnVaultDuringAPause() public {
+        _crashAndLiquidate();
+        vm.prank(OWNER);
+        vault.pauseAuctions(12 hours);
+        vm.prank(alice);
+        dollar.approve(address(vault), type(uint256).max);
+        vm.prank(alice);
+        vault.bid(alice, 100e18, 0);
+    }
+
+    /// A pause is for the owner alone, lasts at most MAX_PAUSE, and cannot be renewed or extended until
+    /// PAUSE_COOLDOWN after it ends; lifting it early starts the cooldown at once.
+    function test_thePauseIsBoundedAndHasACooldown() public {
+        vm.prank(alice);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        vault.pauseAuctions(1 hours);
+
+        vm.startPrank(OWNER);
+        vm.expectRevert(TacVault.BadConfig.selector);
+        vault.pauseAuctions(0);
+        vm.expectRevert(TacVault.BadConfig.selector);
+        vault.pauseAuctions(12 hours + 1);
+
+        vm.expectEmit(false, false, false, true);
+        emit TacVault.AuctionsPausedUntil(block.timestamp + 12 hours);
+        vault.pauseAuctions(12 hours);
+        // Not while it runs, not at once when it ends, only after the cooldown.
+        vm.expectRevert(TacVault.PauseCooldown.selector);
+        vault.pauseAuctions(1 hours);
+        vm.stopPrank();
+        _wait(12 hours);
+        vm.prank(OWNER);
+        vm.expectRevert(TacVault.PauseCooldown.selector);
+        vault.pauseAuctions(1 hours);
+        _wait(12 hours - 1);
+        vm.prank(OWNER);
+        vm.expectRevert(TacVault.PauseCooldown.selector);
+        vault.pauseAuctions(1 hours);
+        _wait(1);
+        vm.prank(OWNER);
+        vault.pauseAuctions(1 hours);
+
+        // Lifting early: the pause ends now and the cooldown counts from now.
+        vm.startPrank(OWNER);
+        vault.resumeAuctions();
+        assertFalse(vault.paused());
+        vm.expectRevert(TacVault.BadConfig.selector);
+        vault.resumeAuctions();
+        vm.expectRevert(TacVault.PauseCooldown.selector);
+        vault.pauseAuctions(1 hours);
+        vm.stopPrank();
+        vm.prank(alice);
+        vm.expectRevert(Ownable.Unauthorized.selector);
+        vault.resumeAuctions();
+    }
+
+    /// With the pause on, an owner who repays or tops up is not affected, and a vault that recovered while it
+    /// ran ends its auction.
+    function test_aVaultThatRecoversDuringAPauseEndsItsAuction() public {
+        _crashAndLiquidate();
+        vm.prank(OWNER);
+        vault.pauseAuctions(12 hours);
+        oracle.set(P);
+        _wait(1 hours);
+        vault.cancel(alice);
+        (,, uint256 start) = _v(alice);
+        assertEq(start, 0);
+    }
+
     /// The owner moves where the TAC of an absorb goes; the old sink gets none after that.
     function test_absorbSendsTheTacToTheSinkTheOwnerSet() public {
         address newSink = address(0x51);

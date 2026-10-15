@@ -91,12 +91,19 @@ interface IERC2612 {
 ///         `permitSynth` apply the caller's EIP-2612 permits, so approve, deposit and borrow fit in one
 ///         transaction.
 ///
-///         The owner (transferable) sets the debt ceiling, the borrow fee, and where the borrow fee and the TAC of an
-///         absorb go. Everything else is immutable.
+///         Pause. The owner can pause `liquidate`, outside bids, `absorb` and `redeem` for up to MAX_PAUSE at a time,
+///         and not again until PAUSE_COOLDOWN after the pause ends (or is lifted), so a price held away from the market
+///         can be waited out. Deposits, repays, withdrawals, borrowing, `cancel` and the vault owner's own bids go on.
+///
+///         The owner (transferable) sets the debt ceiling, the borrow fee, where the borrow fee and the TAC of an
+///         absorb go, and the pause. Everything else is immutable.
 contract TacVault is Ownable, Multicallable {
     uint256 internal constant BPS = 10_000;
     uint256 internal constant WAD = 1e18;
     uint256 public constant MAX_BORROW_FEE_BPS = 500;
+    /// The longest one pause lasts, and the least time between the end of one and the start of the next.
+    uint256 public constant MAX_PAUSE = 12 hours;
+    uint256 public constant PAUSE_COOLDOWN = 12 hours;
 
     bytes32 public constant BORROW = keccak256(
         "Borrow(address owner,uint256 amount,uint256 maxFeeBps,uint256 minCollateral,address to,uint256 nonce,uint256 deadline)"
@@ -156,6 +163,8 @@ contract TacVault is Ownable, Multicallable {
     uint256 public totalDebt;
     uint256 public debtCeiling;
     uint256 public borrowFeeBps;
+    /// Until this time `liquidate`, outside bids, `absorb` and `redeem` are refused.
+    uint256 public pausedUntil;
 
     error BadConfig();
     error BadAmount();
@@ -174,6 +183,8 @@ contract TacVault is Ownable, Multicallable {
     error TooLittleCollateral();
     error NoPrice();
     error OwnerWindow();
+    error Paused();
+    error PauseCooldown();
 
     event Deposited(address indexed owner, address indexed payer, uint256 amount);
     event Withdrawn(address indexed owner, address to, uint256 amount);
@@ -189,6 +200,7 @@ contract TacVault is Ownable, Multicallable {
     event BorrowFeeSet(uint256 bps);
     event FeeToSet(address to);
     event TacSinkSet(address to);
+    event AuctionsPausedUntil(uint256 until);
 
     constructor(Config memory c) {
         if (c.tac.code.length == 0 || c.oracle.code.length == 0 || c.ethUsd.code.length == 0) revert BadConfig();
@@ -256,6 +268,27 @@ contract TacVault is Ownable, Multicallable {
         if (to == address(0)) revert BadConfig();
         tacSink = to;
         emit TacSinkSet(to);
+    }
+
+    /// Pauses `liquidate`, outside bids, `absorb` and `redeem` for `duration` (at most MAX_PAUSE). Not allowed
+    /// until PAUSE_COOLDOWN after the previous pause ended, so a pause cannot be renewed or extended back to back.
+    function pauseAuctions(uint256 duration) external onlyOwner {
+        if (duration == 0 || duration > MAX_PAUSE) revert BadConfig();
+        if (block.timestamp < pausedUntil + PAUSE_COOLDOWN) revert PauseCooldown();
+        pausedUntil = block.timestamp + duration;
+        emit AuctionsPausedUntil(pausedUntil);
+    }
+
+    /// Ends a running pause now; the cooldown counts from this moment.
+    function resumeAuctions() external onlyOwner {
+        if (block.timestamp >= pausedUntil) revert BadConfig();
+        pausedUntil = block.timestamp;
+        emit AuctionsPausedUntil(block.timestamp);
+    }
+
+    /// Whether `liquidate`, outside bids, `absorb` and `redeem` are paused.
+    function paused() public view returns (bool) {
+        return block.timestamp < pausedUntil;
     }
 
     // ─────────────── permits ───────────────
@@ -419,6 +452,7 @@ contract TacVault is Ownable, Multicallable {
 
     /// Opens an auction on `owner`'s vault if it is below LIQ_RATIO_BPS at the liquidation view.
     function liquidate(address owner) external {
+        if (paused()) revert Paused();
         Vault storage v = vaults[owner];
         if (v.auctionStart != 0) revert InAuction();
         if (v.debt == 0 || _value(v.collateral, _liqUsdPerTac()) * BPS >= v.debt * LIQ_RATIO_BPS) revert Healthy();
@@ -461,6 +495,7 @@ contract TacVault is Ownable, Multicallable {
         if (v.auctionStart == 0) revert NoAuction();
         (uint256 offer, bool priced) = _offer(owner);
         if (msg.sender != owner) {
+            if (paused()) revert Paused();
             if (block.timestamp < v.auctionStart + OWNER_WINDOW) revert OwnerWindow();
             if (!priced) revert NoPrice();
             try this.recovered(owner) returns (bool ok) {
@@ -487,6 +522,7 @@ contract TacVault is Ownable, Multicallable {
     /// or at least MIN_DEBT, on a vault whose TAC is worth less than its debt at the liquidation view, and sends the
     /// same share of its TAC to `tacSink`.
     function absorb(address owner) external {
+        if (paused()) revert Paused();
         Vault storage v = vaults[owner];
         if (v.auctionStart == 0) revert NoAuction();
         if (block.timestamp - v.auctionStart < AUCTION_DURATION) revert TooEarly();
@@ -515,6 +551,7 @@ contract TacVault is Ownable, Multicallable {
     /// LIQ_RATIO_BPS and twice that at the liquidation view and not in an auction, and the debt left zero or at
     /// least MIN_DEBT.
     function redeem(address owner, uint256 amount, uint256 minTac) external returns (uint256 tac) {
+        if (paused()) revert Paused();
         Vault storage v = vaults[owner];
         if (v.auctionStart != 0) revert InAuction();
         if (amount == 0 || amount > v.debt) revert BadAmount();
