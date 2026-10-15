@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-qEvBhlfaQAZmAl2lAZuoUcscn2QCSCnSSKTE9AqRrYM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://ethereum-rpc.publicnode.com https://mainnet.gateway.tenderly.co https://eth.drpc.org https://1rpc.io https://rpc.flashbots.net https://mainnet.base.org https://base.gateway.tenderly.co https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-4hr4oPHt4A3ZTZXZAt6VL6RS7QxTmh9mO7Houc8Aj1M=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://ethereum-rpc.publicnode.com https://mainnet.gateway.tenderly.co https://eth.drpc.org https://1rpc.io https://rpc.flashbots.net https://mainnet.base.org https://base.gateway.tenderly.co https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay</title>
 <meta name="description" content="Private ETH payments on Ethereum, Base, Robinhood Chain and MegaETH. Deposit, pay privately, withdraw any part. Proved on your device, recovered from your key.">
@@ -170,6 +170,16 @@ body.in .hero p, body.in .facts, body.in .hero .more { display: none; }
 .seg.sub button + button { border-color: var(--hair); }
 
 .bal { display: flex; align-items: center; gap: 14px; padding: 14px 0; margin-bottom: 16px; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); }
+/* Empty until its first reading is drawn: it holds the height it settles at, so the cards below do not move. */
+#bal:empty { min-height: 79px; }
+@media (max-width: 430px) { #bal:empty { min-height: 99px; } }
+#chains:empty { min-height: 49px; }
+#poolstat:empty { min-height: 36px; }
+@media (max-width: 430px) { #chains:empty { min-height: 63px; } #poolstat:empty { min-height: 54px; } }
+@media (max-width: 360px) { #chains:empty { min-height: 77px; } }
+#form:empty { min-height: 457px; }
+@media (max-width: 430px) { #form:empty { min-height: 495px; } }
+@media (max-width: 390px) { #form:empty { min-height: 534px; } }
 .bal .v { font: 500 30px/1.1 var(--mono); letter-spacing: -.02em; }
 .bal .u { color: var(--mute); font-size: 12.5px; }
 .poolstat { margin: -6px 0 16px; font-size: 12px; line-height: 1.5; color: var(--mute); min-height: 3em; }
@@ -1822,7 +1832,7 @@ function readPub() {
   }
   // What has passed through each pool, from the relay's tally of its public deposits (one read for every chain).
   if (TALLY.p || (TALLY.at && Date.now() - TALLY.at < 300e3)) return;
-  TALLY.p = fetch('https://api.tacit.finance/stats?network=mainnet').then((r) => r.json()).then((d) => {
+  TALLY.p = fetch('https://api.tacit.finance/stats?network=mainnet&view=front').then((r) => r.json()).then((d) => {
     const n = (x) => BigInt(x?.$n ?? x ?? 0);
     for (const x of d.dev || []) if (x.dep != null) TALLY[x.chain] = { in: n(x.dep), deposits: Number(x.nd) || 0 };   // a chain it could not read is unknown, not empty
   }).catch(() => {}).finally(() => { TALLY.p = null; TALLY.at = Date.now(); paintBal(); FORM.check?.(); });

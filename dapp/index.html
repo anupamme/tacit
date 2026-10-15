@@ -282,6 +282,12 @@ a.di { color: inherit; text-decoration: none; }
 
 /* ── the hero's console: a card that takes a verb, an amount and a way, and hands the rest to the sheet that does it ── */
 .hx { position: relative; min-width: 0; background: var(--card); border: 1px solid var(--hair-2); border-radius: 18px; box-shadow: var(--float); }
+/* The card is filled by script, so until it is, it holds the height it settles at (measured at each width): what is below it does not move when it appears. */
+.hx:has(#hx-body:empty) { min-height: 588px; }
+@media (max-width: 767px) { .hx:has(#hx-body:empty) { min-height: 577px; } }
+@media (max-width: 430px) { .hx:has(#hx-body:empty) { min-height: 608px; } }
+@media (max-width: 390px) { .hx:has(#hx-body:empty) { min-height: 642px; } }
+@media (max-width: 360px) { .hx:has(#hx-body:empty) { min-height: 673px; } }
 .hx-h { --i: 0; position: relative; display: grid; grid-template-columns: repeat(5, 1fr); padding: 4px 8px 0; border-bottom: 1px solid var(--hair); }
 .hx-h::after { content: ''; position: absolute; bottom: -1px; height: 2px; border-radius: 2px; background: var(--ink); width: calc((100% - 16px) / 5 * .56);
   left: calc(8px + (100% - 16px) / 5 * (var(--i) + .22)); transition: left .4s var(--spring); }
