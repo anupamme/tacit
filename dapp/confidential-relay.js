@@ -94,6 +94,30 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
   // `depositTx` (a wrap): the deposit's transaction, whose tip the relay reads so a paid wrap is not counted as free work.
   async function submitOp({ type, op, leaves = [], outputs = null, ephRand, memos = null, mode, feeAsset = null, lockMemos = null, depositTx = null } = {}, waitOpts) {
     const onJob = waitOpts && waitOpts.onJob;
+    const sealedMemos = sealFor({ leaves, outputs, ephRand, memos, lockMemos });
+    // Some op builders (confidential-lp.js, confidential-route.js) leave numeric fields — amounts, reserves —
+    // as native BigInt rather than pre-stringifying like buildTransferOp/buildUnwrap do, since those values
+    // stay BigInt through the builder's own arithmetic and self-verify. JSON has no BigInt literal, so this is
+    // the one place that must bridge it: stringify every BigInt at the wire boundary rather than pushing
+    // `.toString()` onto each builder and risking a mismatch with call sites that still expect BigInt back.
+    const bigintSafe = (_, v) => typeof v === 'bigint' ? v.toString() : v;
+    const res = await f(`${root}/confidential/submit`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ type, op, memos: sealedMemos, ...(mode ? { mode } : {}), ...(feeAsset ? { feeAsset } : {}), ...(depositTx ? { depositTx } : {}) }, bigintSafe),
+    });
+    const body = await asJson(res);
+    if (body && body.jobId) {
+      jobTypes.set(body.jobId, type);
+      const by = opExpiry(type, op) * 1000; if (by) jobBy.set(body.jobId, by);
+      if (onJob) { try { onJob(body.jobId, type); } catch { /* best-effort */ } }
+      announce({ ...body, type, status: body.status || 'pending' });
+    }
+    return { ...body, sealedMemos };
+  }
+
+  // The memos an op ships with, sealed and checked as described above submitOp. Shared by a relay job and a proof made
+  // with the holder's own prover account, so neither can ship a memo the guard did not see.
+  function sealFor({ leaves = [], outputs = null, ephRand, memos = null, lockMemos = null } = {}) {
     let sealedMemos;
     if (lockMemos != null) {
       sealedMemos = lockMemos;
@@ -114,24 +138,7 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
         throw new Error('confidential-relay: pass `outputs` (recovery descriptors) for any op that creates leaves — raw memos bypass the recovery guard');
       }
     }
-    // Some op builders (confidential-lp.js, confidential-route.js) leave numeric fields — amounts, reserves —
-    // as native BigInt rather than pre-stringifying like buildTransferOp/buildUnwrap do, since those values
-    // stay BigInt through the builder's own arithmetic and self-verify. JSON has no BigInt literal, so this is
-    // the one place that must bridge it: stringify every BigInt at the wire boundary rather than pushing
-    // `.toString()` onto each builder and risking a mismatch with call sites that still expect BigInt back.
-    const bigintSafe = (_, v) => typeof v === 'bigint' ? v.toString() : v;
-    const res = await f(`${root}/confidential/submit`, {
-      method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type, op, memos: sealedMemos, ...(mode ? { mode } : {}), ...(feeAsset ? { feeAsset } : {}), ...(depositTx ? { depositTx } : {}) }, bigintSafe),
-    });
-    const body = await asJson(res);
-    if (body && body.jobId) {
-      jobTypes.set(body.jobId, type);
-      const by = opExpiry(type, op) * 1000; if (by) jobBy.set(body.jobId, by);
-      if (onJob) { try { onJob(body.jobId, type); } catch { /* best-effort */ } }
-      announce({ ...body, type, status: body.status || 'pending' });
-    }
-    return { ...body, sealedMemos };
+    return sealedMemos;
   }
 
   // Compare what the settle emitted with what was sealed (see checkEmittedMemos above). Only note leaves carry a
@@ -165,6 +172,7 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
   }
 
   async function status(jobId) {
+    if (OWN_ID.test(String(jobId))) return ownJobs.get(jobId) || { jobId, status: 'unknown' };
     const res = await f(`${root}/confidential/status?id=${encodeURIComponent(jobId)}`);
     if (res.status === 404) return { jobId, status: 'unknown' };
     return asJson(res);
@@ -275,6 +283,7 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
   // A proven result carries `memos`: the ones its proof commits to, which settle() must carry exactly (see
   // provenMemos).
   async function prove(opSpec, waitOpts = {}) {
+    if (ownProver) return proveOwn(opSpec, waitOpts);
     const r = await submitOp({ ...opSpec, mode: 'prove' }, waitOpts);
     const st = r.status === 'proven' || r.status === 'settled' ? { jobId: r.jobId, ...(await status(r.jobId)) } : await waitForProof(r.jobId, waitOpts);
     return st.status === 'proven' ? { ...st, memos: provenMemos(st, opSpec, r.sealedMemos) } : st;
@@ -294,6 +303,11 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
   // A settle sent outside the relay (from the page, by another relayer) is reported so the job reads settled. The API
   // checks the transaction on chain before it believes it; this never throws.
   async function landed(jobId, txHash) {
+    if (OWN_ID.test(String(jobId))) {                              // a proof the holder made: there is no relay job to close
+      const j = ownJobs.get(jobId);
+      if (j) { ownJobs.set(jobId, { ...j, status: 'settled', txHash }); announce({ ...j, status: 'settled', txHash }); }
+      return { ok: true, status: 'settled', txHash };
+    }
     try {
       const res = await f(`${root}/confidential/landed`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jobId, txHash }) });
       const body = await asJson(res);
@@ -321,5 +335,43 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     return body;
   }
 
-  return { submitOp, status, waitForSettle, settle, waitForProof, prove, provenMemos, verifyEmittedMemos, landed, openJobs, postProof };
+  // ── Proving with the holder's own prover account ──
+  // `useProver(fn)` makes every prove() go to `fn({ type, op, memos, onUpdate })` → { requestId, publicValues, proof }: the
+  // holder's own account on the prover network pays for the proof, and nothing about the op reaches the relay. The memos are
+  // sealed and checked here exactly as for a relay job (sealFor). The result reads like a relay's proven job, under the id
+  // 'spn:<requestId>', and `onJob` fires once the network has the request. useProver(null) goes back to the relay. A
+  // relayed settle() is not affected: a page that proves on its own account also sends the settle itself (selfSettle).
+  let ownProver = null;
+  const OWN_ID = /^spn:/;
+  const ownJobs = new Map();                                       // 'spn:<requestId>' -> its last state, for status()
+  function useProver(fn) { ownProver = typeof fn === 'function' ? fn : null; }
+  async function proveOwn({ type, op, ...spec }, waitOpts = {}) {
+    const sealedMemos = sealFor(spec);
+    let jobId = null;
+    const onUpdate = (u = {}) => {
+      if (!jobId && u.requestId) {
+        jobId = 'spn:' + u.requestId;
+        jobTypes.set(jobId, type);
+        if (waitOpts.onJob) { try { waitOpts.onJob(jobId, type); } catch { /* best-effort */ } }
+      }
+      if (!jobId) return;
+      const st = { jobId, type, status: u.status || 'proving', stage: u.stage || null, error: u.error || null };
+      ownJobs.set(jobId, st);
+      announce(st);
+      if (waitOpts.onUpdate) { try { waitOpts.onUpdate(st); } catch { /* best-effort */ } }
+    };
+    try {
+      const r = await ownProver({ type, op, memos: sealedMemos, onUpdate });
+      if (!jobId) onUpdate({ requestId: r.requestId });
+      const st = { jobId, type, status: 'proven', publicValues: r.publicValues, proof: r.proof, memos: sealedMemos, own: true };
+      ownJobs.set(jobId, st);
+      announce(st);
+      return st;
+    } catch (e) {
+      if (jobId) { const st = { jobId, type, status: 'failed', error: String(e && e.message || e) }; ownJobs.set(jobId, st); announce(st); }
+      throw e;
+    }
+  }
+
+  return { submitOp, status, waitForSettle, settle, waitForProof, prove, provenMemos, verifyEmittedMemos, landed, openJobs, postProof, useProver, ownProving: () => !!ownProver };
 }

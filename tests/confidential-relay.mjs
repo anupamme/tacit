@@ -423,4 +423,35 @@ const swapOp = { reserveAPre: 1000, reserveBPre: 1000, intents: [{ amountIn: 100
   ok('landed() reports a settle sent outside the relay, the job reads settled, and it never throws');
 }
 
+// ───────────────── proving with the holder's own prover account: nothing reaches the relay ─────────────────
+{
+  const calls = [];
+  const relay = makeConfidentialRelay({ base: '', fetchImpl: async (url) => { calls.push(String(url)); throw new Error('the relay must not be asked'); } });
+  const seen = [];
+  relay.useProver(async ({ type, op, memos, onUpdate }) => {
+    seen.push({ type, op, memos });
+    onUpdate({ requestId: '0xabc', status: 'proving', stage: 'requested' });
+    return { requestId: '0xabc', publicValues: '0x' + '01'.repeat(64), proof: '0x02' };
+  });
+  assert.ok(relay.ownProving());
+  const jobs = [];
+  const r = await relay.prove({ type: 'unwrap', op: { v: 1 }, memos: [] }, { onJob: (id) => jobs.push(id) });
+  assert.strictEqual(r.status, 'proven');
+  assert.strictEqual(r.jobId, 'spn:0xabc');
+  assert.strictEqual(r.publicValues, '0x' + '01'.repeat(64));
+  assert.deepStrictEqual(jobs, ['spn:0xabc'], 'onJob names the network request');
+  assert.deepStrictEqual(seen, [{ type: 'unwrap', op: { v: 1 }, memos: [] }]);
+  assert.strictEqual((await relay.status('spn:0xabc')).status, 'proven');
+  assert.strictEqual((await relay.landed('spn:0xabc', '0x' + '33'.repeat(32))).status, 'settled');
+  assert.strictEqual((await relay.status('spn:0xabc')).status, 'settled');
+  assert.deepStrictEqual(calls, [], 'no request went to the relay');
+  // memos are sealed and checked as for a relay job: raw leaf memos without outputs are refused before the prover is asked
+  const guarded = makeConfidentialRelay({ base: '', fetchImpl: async () => { throw new Error('no'); }, guard: { sealMemosForOutputs: () => [], assertOutputsRecoverable: () => {} } });
+  guarded.useProver(async () => { throw new Error('must not be reached'); });
+  await assert.rejects(guarded.prove({ type: 'transfer', op: {}, memos: ['0x' + 'aa'.repeat(40)] }), /raw memos bypass the recovery guard/);
+  relay.useProver(null);
+  assert.ok(!relay.ownProving());
+  ok('useProver: prove() goes to the holder\'s own prover with the memos sealed here, reads as a proven job, and never asks the relay');
+}
+
 console.log(`\n${n} confidential-relay checks passed.`);
