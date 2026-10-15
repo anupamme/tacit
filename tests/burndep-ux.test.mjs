@@ -775,6 +775,38 @@ let rec;
   ok(r.stage === 'reclaim-sent' && world.broadcasts.length === before + 2, 'reclaim builds and sends the move back to the wallet (commit and reveal)');
   ok(classifyConfidentialTx(withHex(r.reclaim.revealHex))?.type === 'cxfer', 'the move back is an ordinary confidential transfer');
 }
+// A move back is journalled before its commit goes out (it cannot be rebuilt, and its commit takes the whole funding coin), and a commit
+// Bitcoin certainly refused takes the record back to where it was.
+{
+  const world = makeWorld();
+  const ux = makeUx(world, makeMemStorage());
+  let r = await ux.start({ note: { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING }, walletPriv: WALLET_PRIV, fundingUtxo: { txid: FUND_TXID_1, vout: 0, value: 30_000 }, feeRate: BASE_RATE });
+  r = await ux.advance(r.walletPub, r.id);
+  world.setMigrateConfirmed(true);
+  r = await ux.advance(r.walletPub, r.id);
+  world.setLive(r.burnHome.txid, 0);
+  r = await ux.advance(r.walletPub, r.id);
+  world.setBurnHomeOnChain(r.burnHome.txid, r.burnHome.spk);
+  const sendFn = world.chain.broadcastWithRetry;
+  let atFirstSend = null;
+  world.chain.broadcastWithRetry = async (hex) => { if (!atFirstSend) atFirstSend = ux.list(r.walletPub).find((x) => x.id === r.id)?.stage; return sendFn(hex); };
+  const moved = await ux.reclaim({ rec: r, walletPriv: WALLET_PRIV });
+  ok(atFirstSend === 'reclaim-sent' && moved.reclaim.commitHex && moved.reclaim.revealHex, 'the move back is on the record, with both transactions, before its commit is sent');
+  const world2 = makeWorld();
+  const ux2 = makeUx(world2, makeMemStorage());
+  let r2 = await ux2.start({ note: { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING }, walletPriv: WALLET_PRIV, fundingUtxo: { txid: FUND_TXID_1, vout: 0, value: 30_000 }, feeRate: BASE_RATE });
+  r2 = await ux2.advance(r2.walletPub, r2.id);
+  world2.setMigrateConfirmed(true);
+  r2 = await ux2.advance(r2.walletPub, r2.id);
+  world2.setLive(r2.burnHome.txid, 0);
+  r2 = await ux2.advance(r2.walletPub, r2.id);
+  world2.setBurnHomeOnChain(r2.burnHome.txid, r2.burnHome.spk);
+  world2.setMigrateConfirmed(false); // from here Bitcoin does not know the move back's transactions
+  world2.chain.broadcastWithRetry = async () => { throw new Error('bad-txns-inputs-missingorspent'); };
+  await assert.rejects(() => ux2.reclaim({ rec: r2, walletPriv: WALLET_PRIV }), /missingorspent/, 'a commit Bitcoin refuses is thrown');
+  const after = ux2.list(r2.walletPub).find((x) => x.id === r2.id);
+  ok(after.stage === 'stopped' && !after.reclaim, 'and the record is back where it was, with no move back pending');
+}
 // A burn signed before the check is held back while its burn-home is tracked.
 {
   const world = makeWorld();
@@ -928,6 +960,23 @@ let rec;
   const done = makeUx(world, makeMemStorage(), { openNote: ownerOpens, nullifierSpent: async () => true });
   const doneRec = await done.recoverFromTxid(orig.burn.txid, WALLET_PRIV);
   ok(doneRec.stage === 'minted', 'a bridge the pool has already minted is found complete');
+  // The key's own recent transactions find it, with no txid typed: a transaction that is no burn is looked at once, and one the journal
+  // already holds is not looked at again.
+  const disc = makeUx(world, makeMemStorage(), { openNote: ownerOpens, nullifierSpent: async () => false });
+  const plain = { txid: NOTE_TXID, status: { confirmed: true }, vin: [{ txid: orig.burn.commitTxid, vout: 0 }, { txid: NOTE_TXID, vout: 1 }] };
+  const burnTx = { txid: orig.burn.txid, status: { confirmed: true }, vin: [{ txid: orig.burn.commitTxid, vout: 0 }, { txid: NOTE_TXID, vout: NOTE_VOUT }] };
+  const one = { txid: 'cd'.repeat(32), status: { confirmed: true }, vin: [{ txid: 'ef'.repeat(32), vout: 0 }] };
+  const unconfirmed = { txid: 'ab'.repeat(32), status: { confirmed: false }, vin: burnTx.vin };
+  const wpkhFirst = { txid: 'ba'.repeat(32), status: { confirmed: true }, vin: [{ txid: orig.burn.commitTxid, vout: 0, prevout: { scriptpubkey_type: 'v0_p2wpkh' } }, { txid: NOTE_TXID, vout: 1 }] };
+  const d1 = await disc.discover({ walletPriv: WALLET_PRIV, txs: [unconfirmed, one, wpkhFirst, plain, burnTx] });
+  ok(d1.found.length === 1 && d1.found[0].id === rebuilt.id && d1.found[0].stage === 'rburn-mined' && disc.list(rebuilt.walletPub).length === 1, 'discover finds a one-step bridge among the key\'s recent transactions and journals it');
+  ok(d1.tried.includes(orig.burn.txid) && !d1.tried.includes(one.txid) && !d1.tried.includes(unconfirmed.txid) && !d1.tried.includes(wpkhFirst.txid), 'a transaction that cannot be a burn (one input, no Taproot commit first) or is not confirmed yet is not read, and so is not counted as looked at');
+  const dLimit = await makeUx(world, makeMemStorage(), { openNote: ownerOpens, nullifierSpent: async () => false }).discover({ walletPriv: WALLET_PRIV, txs: [plain, burnTx], limit: 1 });
+  ok(dLimit.tried.length === 1, 'it reads at most `limit` transactions a time and leaves the rest for the next');
+  const d2 = await disc.discover({ walletPriv: WALLET_PRIV, txs: [burnTx, plain], skip: d1.tried });
+  ok(d2.found.length === 0 && d2.tried.length === 0 && disc.list(rebuilt.walletPub).length === 1, 'asked again, it finds nothing new and does not read what it has seen');
+  const dStranger = await makeUx(world, makeMemStorage(), { openNote: async () => null }).discover({ walletPriv: other, txs: [burnTx] });
+  ok(dStranger.found.length === 0, 'a key whose note this was not finds nothing');
   // A burn-deposit is not this kind: it still wants its amount.
   const dep = makeUx(world, makeMemStorage(), { openNote: ownerOpens });
   msg = null; try { await dep.recoverFromTxid('ab'.repeat(32), WALLET_PRIV); } catch (e) { msg = e.message; }
@@ -1538,6 +1587,31 @@ function storageContainsPrivkey(storage, priv) {
   ok(!short.ok && short.need > 6_000, `two small coins short of a one-step burn at 20 sat/vB are said short (${short.need} needed)`);
   const two = ux.bridgeCost({ path: 'deposit', feeRate: 20, coins: [{ value: 9_000 }, { value: 9_000 }], noteSats: NOTE_SATS });
   ok(!two.ok && two.have === 9_000 && two.need > 9_000, 'the move spends one coin whole, so two coins that only add up are said short');
+  // A coin that pays the move and nothing more leaves the burn after it unfunded.
+  const moveOnly = ux.bridgeCost({ path: 'deposit', feeRate: 20, coins: [], noteSats: NOTE_SATS });
+  const justMove = ux.bridgeCost({ path: 'deposit', feeRate: 20, coins: [{ value: moveOnly.need - moveOnly.later }], noteSats: NOTE_SATS });
+  const both = ux.bridgeCost({ path: 'deposit', feeRate: 20, coins: [{ value: moveOnly.need }], noteSats: NOTE_SATS });
+  ok(moveOnly.later > 0 && !justMove.ok && both.ok, `a coin that covers the move but not the burn after it (${moveOnly.need - moveOnly.later} sats) is said short; one that covers both (${moveOnly.need}) is not`);
+}
+// ==== a burn sent on its own never pays the miner more than the holder was quoted: over the limit nothing is signed, the record says so,
+// and a burn the holder presses (no limit) goes ====
+{
+  const world = makeWorld();
+  const ux = makeUx(world, makeMemStorage());
+  let r = await ux.start({
+    note: { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING },
+    walletPriv: WALLET_PRIV, fundingUtxo: { txid: FUND_TXID_1, vout: 0, value: 30_000 }, feeRate: BASE_RATE,
+  });
+  r = await ux.advance(r.walletPub, r.id);
+  world.setMigrateConfirmed(true);
+  r = await ux.advance(r.walletPub, r.id);
+  r = await ux.advance(r.walletPub, r.id);
+  ok(r.stage === 'traced', 'sanity: the move is confirmed and traced');
+  world.setBurnHomeOnChain(r.burnHome.txid, r.burnHome.spk);
+  r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV, maxFeeRate: 0.5 });
+  ok(r.stage === 'traced' && !r.burn && r.feeWait && r.feeWait.max === 0.5 && r.feeWait.rate > 0.5 && !r.lastError, `a miner rate over the limit signs nothing and says so on the record without an error (${JSON.stringify(r.feeWait)})`);
+  r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV, maxFeeRate: 10 });
+  ok(r.stage === 'burn-signed' && r.feeWait == null && r.burn && r.burn.hex, 'a rate under the limit signs the burn and clears the note');
 }
 // ==== a rate-limited trace is waited out once, and is never reported as a TAC with too many transfers ====
 {

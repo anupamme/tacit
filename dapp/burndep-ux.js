@@ -235,14 +235,21 @@ export function makeBurnDepositUx(deps) {
   }
   // true: the attested state records this burn (its destination as a burn, or its pending record). false: the
   // reflection has passed the burn's block without recording it, so it is not mintable. null: not reached yet.
+  // The leaf of the Ethereum note a bridge mints (lower case), which the burn pinned: the one-step path journals it on the envelope, the
+  // burn-deposit path derives it from its destination's opening. null while a record has neither. This is what finds the minted note
+  // among the key's private notes.
+  function destLeaf(rec) {
+    let leaf = rec && rec.envelope && rec.envelope.destLeaf;
+    if (!leaf && rec && rec.dest && rec.dest.value != null && rec.dest.blinding != null) {
+      const { cx, cy } = pool.commitXY(BigInt(rec.dest.value), BigInt(rec.dest.blinding));
+      leaf = pool.leaf(withHex((rec.source && rec.source.assetId) || tacAssetId), cx, cy, rec.dest.owner);
+    }
+    return leaf ? lc(leaf) : null;
+  }
   async function burnRecorded(rec) {
     const r = await reflected(true);
-    let destLeaf = rec.envelope && rec.envelope.destLeaf;
-    if (!destLeaf && rec.dest) {
-      const { cx, cy } = pool.commitXY(BigInt(rec.dest.value), BigInt(rec.dest.blinding));
-      destLeaf = pool.leaf(withHex(tacAssetId), cx, cy, rec.dest.owner);
-    }
-    if (destLeaf && r.dests.has(lc(destLeaf))) return true;
+    const leaf = destLeaf(rec);
+    if (leaf && r.dests.has(leaf)) return true;
     if (r.pending.has(outpointOf(rec.burnHome.txid, 0))) return true;
     const st = await checkTxidStatus(rec.burn.txid);
     const h = Number(st && st.burnBlockHeight);
@@ -439,10 +446,10 @@ export function makeBurnDepositUx(deps) {
   }
 
   async function traceNote({ txid, vout, assetId }) {
-    // maxDepth is the walk's own budget, shared by both callers of traceNote (the source note in preflight,
-    // the burn-home after migrate) — set to the larger of the two limits so neither trace is cut short before
-    // the length check below gets a chance to run on the real hop count.
-    const ask = () => callWorker('POST', '/reflection/burndep/trace', { note: { txid: stripHex(txid), vout }, assetId, maxDepth: MAX_HOPS_BURN_HOME });
+    // maxDepth is the walk's own budget in hops, shared by both callers of traceNote (the source note in preflight, the
+    // burn-home after migrate). It is set past the larger of the two limits so a lineage over a limit is counted and refused
+    // by the length checks that name it ("N hops, max 63"), not cut short by the walk as a trace that failed.
+    const ask = () => callWorker('POST', '/reflection/burndep/trace', { note: { txid: stripHex(txid), vout }, assetId, maxDepth: MAX_HOPS_BURN_HOME + 32 });
     // The trace is the one read that is limited per address (a real Bitcoin read per hop), and an address can be shared. A limit
     // that clears within half a minute is waited out once, so the check goes through instead of failing the person at it.
     const res = await ask().catch(async (e) => {
@@ -458,7 +465,7 @@ export function makeBurnDepositUx(deps) {
   // and its gate match what signing then needs. Sizes: a P2WPKH input 68 vB; a commit 85 vB plus 68 per input; the one-step
   // reveal 228 vB (218 for a note at the key's Taproot output); the move's reveal 415 vB; the two-step burn about 270 vB;
   // every transaction at least 500 sats. The one-step commit takes coins largest first, as many as it needs; the move takes one
-  // coin whole, so for it the largest coin is what counts. → { fee, need, ok, have, later? } (sats; `later`: the burn's own fee).
+  // coin whole, so for it the largest coin is what counts, and it must cover the burn after it as well. → { fee, need, ok, have, later? } (sats; `later`: the burn's own fee).
   function bridgeCost({ path, feeRate, coins = [], noteSats = 546, p2tr = false } = {}) {
     const r = Number(feeRate), DUST = 546, feeFor = (vb) => Math.max(500, Math.ceil(vb * r)), commitVb = (n) => 85 + 68 * n;
     const vals = (coins || []).map((c) => Number(c && c.value)).filter((v) => v > 0).sort((a, b) => b - a);
@@ -469,8 +476,11 @@ export function makeBurnDepositUx(deps) {
       const need = commitValue + commitFee;
       return { fee: commitFee + revealFee, need, ok: n > 0 && total >= need, have: total };
     }
-    const fee = feeFor(commitVb(1)) + feeFor(415), need = fee + DUST - Number(noteSats);
-    return { fee, need, ok: (vals[0] || 0) >= need, have: vals[0] || 0, later: feeFor(270) };
+    // The burn that follows is paid from what the move returns, so the one coin the move takes must cover that fee too: a coin that
+    // pays only the move leaves the burn with no sats, which stops it at 'Burn it' until the holder adds some.
+    // The builder also needs its commit to carry at least dust (the coin pays the commit's fee and that), whatever the note's sats.
+    const commitFee = feeFor(commitVb(1)), fee = commitFee + feeFor(415), later = feeFor(270), need = Math.max(fee + DUST - Number(noteSats), DUST + commitFee) + later;
+    return { fee, need, ok: (vals[0] || 0) >= need, have: vals[0] || 0, later };
   }
 
   // Picks one confirmed, safe-to-spend UTXO from `address` — chain.pickSafeCommitSats does the actual
@@ -480,8 +490,10 @@ export function makeBurnDepositUx(deps) {
   // until the reveal confirms: the smallest coin that covers `need` sats is chosen, the largest when none does.
   function pickFunding(utxos, need = 0) {
     const list = (Array.isArray(utxos) ? utxos : [utxos]).filter(Boolean);
-    const cover = list.filter((u) => Number(u.value) >= need).sort((a, b) => Number(a.value) - Number(b.value));
-    return cover[0] || list.slice().sort((a, b) => Number(b.value) - Number(a.value))[0] || null;
+    // A coin Bitcoin has not confirmed yet comes last: its parent can still be replaced, which would take the pair funded from it too.
+    const unconfirmed = (u) => (u.status && u.status.confirmed === false ? 1 : 0);
+    const cover = list.filter((u) => Number(u.value) >= need).sort((a, b) => unconfirmed(a) - unconfirmed(b) || Number(a.value) - Number(b.value));
+    return cover[0] || list.slice().sort((a, b) => unconfirmed(a) - unconfirmed(b) || Number(b.value) - Number(a.value))[0] || null;
   }
   async function pickFundingUtxo(address, need = 0) {
     const utxos = await chain.getUtxos(address);
@@ -587,6 +599,9 @@ export function makeBurnDepositUx(deps) {
   // onProgress({ phase, ... }): best-effort, fire-and-forget UI feedback for a step that can take real time
   // (today only the mint, which fetches a multi-MB snapshot and waits on real network proving — everything
   // else here is a broadcast or a single small request, over before a progress indicator would even paint).
+  // maxFeeRate (sat/vB, optional): the most a burn may pay the miner. The 'traced' stage signs the burn at the miner's rate then; over
+  // the limit it signs nothing and leaves `feeWait` on the record (the rate and the limit), for a caller that burns on its own and
+  // would otherwise spend more than the holder was quoted. A burn pressed by the holder passes no limit.
   // selfSettle({ jobId, publicValues, proof, memos }) → { txHash }: at the mint, the relay proves and the caller sends the
   // settle itself and pays its gas, for a relay that will not take the mint (a fee floor, a spent free budget, load).
   const inFlight = new Set();                                  // bridges this page is moving on now
@@ -594,7 +609,7 @@ export function makeBurnDepositUx(deps) {
   // network) is thrown to the caller but not kept on the record: the stage simply waits, and is not shown as failing.
   const WAITS = new Set(['migrate-sent', 'migrate-confirmed', 'burn-submitted', 'registered', 'rburn-sent', 'rburn-mined', 'recovering', 'reclaim-sent']);
   const passing = (e) => { const st = Number(e && e.status); return st === 429 || st >= 500 || /failed to fetch|networkerror|load failed|timed? ?out|aborted/i.test(String((e && e.message) || e)); };
-  async function advance(walletPub, id, { walletPriv = null, onProgress = null, selfSettle = null } = {}) {
+  async function advance(walletPub, id, { walletPriv = null, onProgress = null, selfSettle = null, maxFeeRate = null } = {}) {
     const rec = getRecord(walletPub, id);
     if (!rec) throw new Error(`burndep-ux: no bridge record for ${id}`);
     // A key that is not the bridge's would sign or seal its steps as another key.
@@ -613,7 +628,7 @@ export function makeBurnDepositUx(deps) {
       at = cur;
       const fn = STAGE_ADVANCE[cur.stage];
       if (!fn) return cur; // terminal ('minted') or unknown — nothing to do
-      const result = await fn(cur, { walletPriv, onProgress, selfSettle });
+      const result = await fn(cur, { walletPriv, onProgress, selfSettle, maxFeeRate });
       return cur.lastError ? putRecord({ ...result, lastError: null, errorCount: 0 }) : result;
     } catch (e) {
       // Only a record still where this call found it takes the error: one that another page moved on keeps what it reached.
@@ -650,7 +665,7 @@ export function makeBurnDepositUx(deps) {
       // while it waits for its burn. The burn itself checks once more before it is signed, and again before it is sent.
       return putRecord({ ...rec, stage: 'traced', bundle, hops: traced.hops, homeChecked: true });
     },
-    traced: async (rec, { walletPriv }) => {
+    traced: async (rec, { walletPriv, maxFeeRate }) => {
       const tracked = await isLive(rec.burnHome.txid, 0, { fresh: true });
       if (tracked === true) return putRecord({ ...rec, stage: 'stopped', stoppedAt: now(), stoppedWhy: 'tracked' });
       if (tracked === null) return rec; // waits for the reflection to reach the move's block
@@ -667,6 +682,10 @@ export function makeBurnDepositUx(deps) {
 
       const rates = await broadcaster.slipstreamRates();
       const feeRate = Math.max(Number(rates.effective_rate), Number(rates.submit_fee_rate), 1) * 1.1;
+      if (maxFeeRate != null && feeRate > Number(maxFeeRate)) {
+        // Not an error: the burn waits for the miner's rate to fall, and the record says so until it does (or the holder presses Burn it).
+        return putRecord({ ...rec, feeWait: { rate: feeRate, max: Number(maxFeeRate), at: now() } });
+      }
       const dest = deriveDest(walletPriv, burnHome, rec.burnHome.txid, rec.source.amount);
       const target = withHex(chainBindingHex());
       const { cx: destCx, cy: destCy } = pool.commitXY(dest.value, dest.blinding);
@@ -681,7 +700,7 @@ export function makeBurnDepositUx(deps) {
       if (!check.ok || !check.admitted) throw new Error(`burndep-ux: the burn would not be admitted yet: ${(check && check.reason) || (check && check.error) || 'unknown'}`);
 
       return putRecord({
-        ...rec, stage: 'burn-signed',
+        ...rec, stage: 'burn-signed', feeWait: null,
         burn: { hex: built.revealHex, txid: built.revealTxid, feeRate: built.feeRate, fee: built.fee, fundingUtxo },
         envelope, dest,
       });
@@ -1073,6 +1092,33 @@ export function makeBurnDepositUx(deps) {
     return putRecord(rec);
   }
 
+  // The one-step bridges this key started that this browser's journal does not hold (started on another device, or the browser's storage
+  // was cleared), found from the key's own recent Bitcoin transactions (`txs`, as an explorer lists them for its address, newest first)
+  // and rebuilt as recoverFromTxid rebuilds one: from the burn and the key alone, no amount asked for. A transaction is looked at once
+  // (`tried` says which, for the caller to keep); one that failed for a moment is not counted, so it is looked at again. A burn-deposit
+  // needs its amount and is not found this way. → { found: [record], tried: [txid] }
+  async function discover({ walletPriv, txs = [], skip = [], limit = 20 } = {}) {
+    if (!walletPriv) throw new Error('burndep-ux: discover needs the wallet key');
+    const walletPub = secp.getPublicKey(walletPriv, true);
+    const have = new Set(loadAll(walletPub).map((r) => r && r.burn && r.burn.txid).filter(Boolean).map(lc));
+    const skipped = new Set(skip.map(lc)), found = [], tried = [];
+    for (const tx of txs) {
+      if (tried.length >= limit) break;                                  // the rest are looked at next time
+      const id = tx && tx.txid ? lc(stripHex(tx.txid)) : null;
+      if (!id || have.has(id) || skipped.has(id)) continue;
+      // A burn is a confirmed transaction with an envelope commit (a Taproot output, spent first) and the burned note as inputs.
+      if (!tx.status || !tx.status.confirmed || !Array.isArray(tx.vin) || tx.vin.length < 2) continue;
+      const first = tx.vin[0] && tx.vin[0].prevout;
+      if (first && first.scriptpubkey_type && first.scriptpubkey_type !== 'v1_p2tr') continue;
+      try {
+        const rec = await recoverReflectedBurn(id, walletPriv);
+        if (rec) found.push(rec);
+        tried.push(id);
+      } catch (e) { if (!passing(e)) tried.push(id); }
+    }
+    return { found, tried };
+  }
+
   async function recoverFromTxid(burnTxidDisplay, walletPriv, { amount } = {}) {
     const reflectedBridge = await recoverReflectedBurn(burnTxidDisplay, walletPriv);
     if (reflectedBridge) return reflectedBridge;
@@ -1182,8 +1228,14 @@ export function makeBurnDepositUx(deps) {
   // still be mined first: 'reclaim-sent' then takes the bridge on from the burn.
   async function reclaim({ rec, walletPriv, feeRate = null } = {}) {
     const built = await buildCancel({ rec, walletPriv, feeRate });
-    await chain.broadcastWithRetry(built.commitHex);
+    // Journalled before the commit goes out. The move back cannot be rebuilt (its range proof is random) and its commit takes the whole
+    // funding coin into one output, so a commit Bitcoin took with no record of its reveal would leave that coin locked. A commit
+    // Bitcoin certainly does not have after a refusal takes the record back; any other answer keeps it, and 'reclaim-sent' sends again.
     const sent = putRecord({ ...rec, stage: 'reclaim-sent', reclaimFrom: rec.stage, reclaim: { commitTxid: built.commitTxid, txid: built.revealTxid, commitHex: built.commitHex, revealHex: built.revealHex }, reclaimSentAt: now(), lastError: null, errorCount: 0 });
+    try { await chain.broadcastWithRetry(built.commitHex); }
+    catch (e) {
+      if ((await chainTxState(built.commitTxid)) === 'absent') { putRecord(rec); throw e; }
+    }
     await chain.broadcastWithRetry(built.revealHex).catch(() => {});
     return sent;
   }
@@ -1231,8 +1283,10 @@ export function makeBurnDepositUx(deps) {
   }
 
   return {
-    BURNDEP_BETA_CAP_RAW, assets: ASSETS, assetOf, eligibleNotes, isReserved, pickFunding, bridgeCost, noteForms, preflight, preflightHeld, recheckBurn, RETURN_FEE_CEILING, start, startReflected, advance, resumeAll, recoverFromTxid, list, abandon,
-    cancelSigned, buildCancel, reclaim, recover, verify, isLive, burnRecorded,
+    BURNDEP_BETA_CAP_RAW, assets: ASSETS, assetOf, eligibleNotes, isReserved, pickFunding, bridgeCost, noteForms, preflight, preflightHeld, recheckBurn, RETURN_FEE_CEILING, start, startReflected, advance, resumeAll, recoverFromTxid, discover, list, abandon,
+    cancelSigned, buildCancel, reclaim, recover, verify, isLive, burnRecorded, destLeaf,
+    // Bitcoin's priority fee rate now (sat/vB), as the builders price a move or a one-step burn.
+    quoteRate: () => chain.getFeeRate('priority'),
     slipstreamStatus: broadcaster.slipstreamStatus,
     checkTxidStatus,
   };

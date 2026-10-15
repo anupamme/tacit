@@ -141,7 +141,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -2081,6 +2081,14 @@ await step('bridge', async () => {
   await r.page.click('[data-tac-mode="airdrop"], [data-tac-mode="air"]'); await sleep(300); await r.page.click('[data-tac-mode="bridge"]');
   await until(r.page, () => /short of the/.test(document.querySelector('#br-rcpt')?.textContent || ''), null, 60000);
   ok(dumps === before, `bridge: redrawing the sheet does not run the check, or read the reflection state, again (${before} → ${dumps})`);
+  // The receipt offers public TAC on arrival, off unless asked for (a one-step bridge has no burn to send for the holder), and it stays as set across a redraw.
+  const opt = await r.page.$$eval('#br-rcpt .pick', (xs) => xs.map((x) => [x.querySelector('input')?.id, x.querySelector('input')?.checked, x.textContent.replace(/\s+/g, ' ').trim().slice(0, 90)]));
+  ok(opt.length === 1 && opt[0][0] === 'br-public' && opt[0][1] === false && /Make it public TAC when it arrives, in your Tacit account/.test(opt[0][2]), `bridge: a one-step receipt offers public TAC on arrival, unticked, and nothing to send for the holder (${JSON.stringify(opt)})`);
+  await r.page.check('#br-public');
+  await r.page.click('[data-tac-mode="airdrop"], [data-tac-mode="air"]'); await sleep(300); await r.page.click('[data-tac-mode="bridge"]');
+  await until(r.page, () => !!document.querySelector('#br-public'), null, 60000);
+  ok(await r.page.isChecked('#br-public'), 'bridge: the public-TAC choice is still ticked after the sheet is drawn again');
+  await r.page.uncheck('#br-public');
   await r.page.check('#br-ack').catch(() => {});
   ok(/has 0(\.0+)? BTC free for fees, short of the [\d,]+ sats this needs/.test(await text(r.page, '#br-rcpt')) && await r.page.isDisabled('#br-go'), `bridge: a key with no sats for the fee cannot start it, and is told what it needs (${(await text(r.page, '#br-rcpt')).replace(/\s+/g, ' ').slice(-140)})`);
   const rows = await r.page.$$eval('#bridge-body .brr', (xs) => xs.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
@@ -2137,6 +2145,15 @@ await step('bridge', async () => {
   await r.page.click('#bridge-body [data-brprep]');
   await until(r.page, () => !!document.querySelector(`#bridge-body input[value="${'c1'.repeat(32)}:0"]:checked`), null, 60000);
   ok(true, 'bridge: Bridge it picks the ready note and checks it');
+  // A note that asked to be bridged once ready is bridged by the page itself; with no sats free for the fee it is held, says why on its row,
+  // and is then the holder's turn like any other ready note.
+  await r.page.evaluate(([k, p, n1]) => localStorage.setItem(k, JSON.stringify({ [p]: [{ txid: n1, amount: '25000000000', at: Date.now() - 3e6, height: 969990, plan: { auto: { maxFee: 3000 } } }] })),
+    ['tacit-lite-bridge-prep-v1', pub, N1]);
+  await r.page.evaluate(() => { document.querySelector('#bridge-body [data-brprep]')?.scrollIntoView(); });
+  await r.page.click('[data-tac-mode="airdrop"], [data-tac-mode="air"]'); await sleep(300); await r.page.click('[data-tac-mode="bridge"]');
+  await until(r.page, () => /was not bridged for you/.test(document.querySelector('#bridge-body')?.textContent || ''), null, 240000);
+  const heldRow = (await r.page.$$eval('#bridge-body .brr', (xs) => xs.map((x) => x.textContent.replace(/\s+/g, ' ').trim()).filter((t) => /^250/.test(t)))).join(' | ');
+  ok(/too few sats free for the fee/.test(heldRow) && /Your turn/.test(heldRow) && /Bridge it/.test(heldRow), `bridge: a note that asked to be bridged when ready, with no sats free, is held, says why, and is the holder's turn (${heldRow.slice(0, 260)})`);
   await r.page.setViewportSize({ width: 360, height: 760 });
   await sleep(300);
   const wide = await r.page.evaluate(() => { const d = document.querySelector('#sheet-tac .sheet-in'); return [d.scrollWidth, d.clientWidth, document.documentElement.scrollWidth, innerWidth]; });
@@ -2144,6 +2161,71 @@ await step('bridge', async () => {
   ok(wide[0] <= wide[1] + 1 && wide[2] <= wide[3] + 1, `bridge: no sideways scroll at phone width (${wide})`);
   if (r.errors.length) { fails++; console.log('FAIL bridge page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   await r.browser.close();
+});
+
+// An arrived bridge's TAC made public: one whose holder asked for it is made public by the page on its own (to the address chosen), and
+// one that did not asks for the press, on its row, and sends to the paying account. The pool module is stubbed to hold two private TAC
+// notes, whose leaves the two bridge records name as the notes they minted.
+await step('bridgepub', async () => {
+  const r = await openPage({ account: A0, key: K0 });
+  const hex = 'b9b1'.padEnd(64, '7'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex');
+  const DEAD = '0x000000000000000000000000000000000000dEaD', TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
+  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    import * as real from '/confidential-pool-ux.js?stub=real';
+    export * from '/confidential-pool-ux.js?stub=real';
+    export function makeConfidentialPoolUx(o) {
+      const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
+      ux.balance = async (priv) => {
+        const b = await balance(priv);
+        const hx = typeof priv === 'string' ? priv : '0x' + [...priv].map((x) => x.toString(16).padStart(2, '0')).join('');
+        const ws = [0, 1].map((index) => ux.buildWrap({ walletPriv: hx, amountWei: (30n * 10n ** 18n).toString(), ticker: 'cTAC', index }));
+        // One event holds both leaves, as a settle that inserts two would: a recovery needs the tree from leaf 0.
+        const found = ux.indexer.recover([{ type: 'LeavesInserted', firstLeafIndex: 0, leaves: ws.map((w) => w.leaf), memos: ws.map((w) => w.memo) }], hx);
+        if (found.length !== 2) throw new Error('stub notes not recovered');
+        for (const note of found) {
+          b.notes = [...b.notes, note];
+          const g = b.byAsset[note.asset] ||= { asset: note.asset, value: 0n, notes: [] };
+          g.value = BigInt(g.value) + BigInt(note.value); g.notes = [...g.notes, note];
+        }
+        globalThis.__pubLeaves = ws.map((w) => String(w.leaf).toLowerCase());
+        return b;
+      };
+      return ux;
+    }` }));
+  try {
+    await r.page.goto(r.url + '#wallet');
+    await r.page.click('#wallet-body [data-in="paste"]');
+    await r.page.fill('#ws-hex', hex);
+    await r.page.click('#wallet-body [data-in="key"]');
+    await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
+    await r.page.evaluate(() => { location.hash = ''; location.hash = '#tac'; });
+    await until(r.page, () => (globalThis.__pubLeaves || []).length === 2, null, QUOTE_WAIT);
+    const [leafA, leafB] = await r.page.evaluate(() => globalThis.__pubLeaves);
+    // Two arrived bridges: the first asked for public TAC at DEAD, the second asked for nothing.
+    const rec = (id, leaf) => ({ id: `${id}:0`, network: 'mainnet', walletPub: pub, path: 'reflected', stage: 'minted', createdAt: Date.now() - 9e6, mintedAt: Date.now() - 36e5, mintedTxHash: '0x' + 'ab'.repeat(32),
+      source: { txid: id, vout: 0, sats: 546, assetId: '0x' + TAC, amount: { __big: '3000000000' }, blinding: { __big: '777' } }, envelope: { destLeaf: leaf } });
+    const A = 'a1'.repeat(32), B = 'a2'.repeat(32);
+    await r.page.evaluate(([k, v, pk, pv]) => { localStorage.setItem(k, v); localStorage.setItem(pk, pv); },
+      [`tacit-burndep-bridge-v1:mainnet:${pub}`, JSON.stringify([rec(A, leafA), rec(B, leafB)]), 'tacit-lite-bridge-plan-v1', JSON.stringify({ [pub]: { [`${A}:0`]: { at: Date.now() - 36e5, publicTo: DEAD } } })]);
+    const n0 = submits.length;
+    // The page's own tick (every couple of minutes while the key is open) makes the first public, to the address it chose, once its note
+    // is found by the leaf the burn pinned.
+    for (let i = 0; i < 90 && !submits.slice(n0).some((x) => x.type === 'unwrap'); i++) await sleep(4000);
+    const first = submits.slice(n0).find((x) => x.type === 'unwrap');
+    ok(first && String(first.op.recipient).toLowerCase() === DEAD.toLowerCase(), `bridgepub: an arrived bridge whose holder asked for public TAC is made public to the address chosen (${first ? first.op.recipient : 'no submit'})`);
+    // The other asks for the press, on its row.
+    await r.page.evaluate(() => { location.hash = ''; location.hash = '#bridge'; });
+    const sel = `#bridge-body [data-bract="public"][data-brid="${B}:0"]`;
+    await until(r.page, (s) => !!document.querySelector(s), sel, 240000);
+    ok((await r.page.$$(sel)).length === 1, `bridgepub: the arrived bridge that asked for nothing offers Make public now, once (${(await r.page.$$eval('#bridge-body .brr', (xs) => xs.map((x) => x.textContent.replace(/\s+/g, ' ').trim().slice(0, 100)))).join(' | ')})`);
+    const n1 = submits.length;
+    await r.page.click(sel);
+    for (let i = 0; i < 90 && submits.length === n1; i++) await sleep(4000);
+    const second = submits.slice(n1).find((x) => x.type === 'unwrap');
+    ok(second && /^0x[0-9a-fA-F]{40}$/.test(String(second.op.recipient)) && String(second.op.recipient).toLowerCase() !== DEAD.toLowerCase(), `bridgepub: its press sends the exit to the paying account (${second ? second.op.recipient : 'no submit'})`);
+    ok(submits.slice(n0).filter((x) => x.type === 'unwrap').length === 2, 'bridgepub: each note is exited once, not again on the next tick');
+    if (r.errors.length) { fails++; console.log('FAIL bridgepub page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
 });
 
 // The tETH sheet's To Bitcoin tab (see the header). The pool module is stubbed to hold tETH notes; Bitcoin and the proof answer
