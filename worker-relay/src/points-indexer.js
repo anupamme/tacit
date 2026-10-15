@@ -6,6 +6,7 @@
 // only for now — this serves a leaderboard/lookup API; it does not mint or gate anything on-chain.
 
 import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
 import { createWalletClient, http, decodeEventLog, keccak256, toBytes, formatEther } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { CFG, ADDR } from './lib/config.js';
@@ -24,6 +25,9 @@ import { createHolding } from './lib/holding-service.js';
 import { parseBuckets } from './lib/holding-epoch.js';
 import { loadHash } from './lib/poseidon-hash.js';
 import { readJson } from './lib/http-json.js';
+import { createTasks } from './lib/points-tasks-service.js';
+import { checkJob } from './lib/points-tasks.js';
+import { quoteTacForEth } from './lib/tac-quote.js';
 import { clientKey } from './lib/token-bucket.js';
 import { makeClient as holdingClient } from './lib/evm-pool-snapshot-chain.js';
 import { decideBondHolds, accrueBondHolds } from './lib/points-bond-hold.js';
@@ -1354,6 +1358,11 @@ async function scannersCoveredThrough(store, evmState) {
 // Whether the distributor holds enough TAC for the days still to publish (lib/points-funding.js), read at most once a
 // minute. null when it is not configured or the chain cannot be read, so a failed read never looks like "funded".
 let fundingCache = { at: 0, value: null };
+// A UTC day's budget in wei, 0 outside the program (the funding report and the task credits both count the days still to pay).
+const budgetForDay = (day) => {
+  const startDay = Math.floor(CFG.pointsProgramStartSec / 86400);
+  return day >= startDay && day < startDay + CFG.pointsProgramDays ? dayBudgetWei(day - startDay) : 0n;
+};
 async function readFunding(state, ledgerWei) {
   if (!ADDR.pointsDistributor || !CFG.pointsProgramStartSec) return null;
   if (Date.now() - fundingCache.at < 60_000) return fundingCache.value;
@@ -1364,8 +1373,7 @@ async function readFunding(state, ledgerWei) {
       publicClient.readContract({ address: ADDR.pointsDistributor, abi: DISTRIBUTOR_ABI, functionName: 'totalClaimed' }),
     ]);
     const startDay = Math.floor(CFG.pointsProgramStartSec / 86400);
-    const budgetFor = (day) => (day >= startDay && day < startDay + CFG.pointsProgramDays ? dayBudgetWei(day - startDay) : 0n);
-    const s = fundingStatus({ heldWei: held, claimedWei: claimed, ledgerWei, budgetFor, nextDay: (state?.lastSettledDay ?? startDay - 1) + 1, graceSecs: CFG.pointsSettleGraceSecs });
+    const s = fundingStatus({ heldWei: held, claimedWei: claimed, ledgerWei, budgetFor: budgetForDay, nextDay: (state?.lastSettledDay ?? startDay - 1) + 1, graceSecs: CFG.pointsSettleGraceSecs });
     value = {
       distributor: ADDR.pointsDistributor, heldWei: String(held), claimedWei: String(claimed), fundedWei: String(s.fundedWei),
       ledgerWei: String(s.ledgerWei), headroomWei: String(s.headroomWei), shortfallWei: String(s.shortfallWei),
@@ -1668,6 +1676,17 @@ function startHttp(store, evmState) {
         }));
         return;
       }
+      if (url.pathname === '/tasks') {
+        res.setHeader('Cache-Control', 'public, max-age=15');
+        res.end(JSON.stringify(tasks ? tasks.view({ address: /^0x[0-9a-fA-F]{40}$/.test(url.searchParams.get('address') ?? '') ? url.searchParams.get('address') : null }) : { enabled: false }));
+        return;
+      }
+      if (url.pathname === '/tasks/claim') {
+        if (req.method !== 'POST') { res.statusCode = 405; res.end(JSON.stringify({ error: 'POST the transaction hashes' })); return; }
+        const r = tasks ? await tasks.claim(await readJson(req), { client: clientKey(req) }) : { status: 404, body: { error: 'not enabled' } };
+        res.statusCode = r.status; if (r.status === 429) res.setHeader('Retry-After', '30'); res.end(JSON.stringify(r.body));
+        return;
+      }
       if (url.pathname === '/leaderboard') {
         const limit = Math.min(Number(url.searchParams.get('limit')) || 100, 500);
         // ?day=today ranks the UTC day so far instead of the whole program, with the pot those points split, and the
@@ -1811,6 +1830,28 @@ function startHttp(store, evmState) {
   server.listen(CFG.pointsHttpPort, () => log(`http listening on :${CFG.pointsHttpPort}`));
 }
 
+// Task rewards (lib/points-tasks-service.js): off unless POINTS_TASKS_BUDGET_WEI and POINTS_TASKS_END_SEC are set. The jobs are
+// the file beside the service's other libraries, checked at start so a bad one stops the service rather than pays wrongly.
+let tasks = null;
+function setupTasks(store) {
+  if (CFG.pointsTasksBudgetWei <= 0n || !CFG.pointsTasksEndSec || !CFG.pointsProgramStartSec) return null;
+  const jobs = JSON.parse(readFileSync(new URL('./lib/points-tasks-jobs.json', import.meta.url), 'utf8')).jobs.map(checkJob);
+  const t = createTasks({
+    store, jobs, client: publicClient, quote: (amountIn) => quoteTacForEth(publicClient, amountIn), log,
+    cfg: { budgetWei: CFG.pointsTasksBudgetWei, endSec: CFG.pointsTasksEndSec, tipBps: CFG.pointsTasksTipBps, floorWei: CFG.pointsTasksFloorWei, capWei: CFG.pointsTasksCapWei, reserveDays: CFG.pointsTasksReserveDays },
+    budgetFor: budgetForDay, graceSecs: CFG.pointsSettleGraceSecs,
+    fundingInputs: async () => {
+      const state = store.loadSettleState();
+      const ledger = store.allRewards().reduce((n, r) => n + BigInt(r.cumulativeWei), 0n);
+      const f = await readFunding(state, ledger);
+      const startDay = Math.floor(CFG.pointsProgramStartSec / 86400);
+      return f && { heldWei: BigInt(f.heldWei), claimedWei: BigInt(f.claimedWei), nextDay: (state?.lastSettledDay ?? startDay - 1) + 1 };
+    },
+  });
+  log(`task rewards on: ${t.enabled ? `${jobs.length} job(s), budget ${formatTac(CFG.pointsTasksBudgetWei)} TAC, until ${new Date(CFG.pointsTasksEndSec * 1000).toISOString()}` : 'no jobs'}`);
+  return t;
+}
+
 async function main() {
   if (!CFG.pointsStartBlock) throw new Error('missing required env POINTS_START_BLOCK');
   const store = openStore(CFG.pointsDbPath, { excluded: CFG.evmPoolPointsExclude });
@@ -1846,6 +1887,7 @@ async function main() {
   }
   const evmState = openEvmPoolPointsState(store.db);
   try { holding = await setupHolding(store); } catch (err) { log('holding reward not started:', err?.message || err); holding = null; }
+  tasks = setupTasks(store);
   startHttp(store, evmState);
 
   for (;;) {
@@ -1918,6 +1960,7 @@ async function main() {
     } catch (err) {
       log('pool snapshot cycle failed:', err?.message || err);
     }
+    if (tasks) await tasks.cycle();
     try {
       await settleCycle(store, () => scannersCoveredThrough(store, evmState));
     } catch (err) {

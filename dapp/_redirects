@@ -22,6 +22,7 @@
 /trade/teth  /trade/teth/  301
 /trade/cbtc  /trade/cbtc/  301
 /vault    /vault/    301
+/tasks    /tasks/    301
 /splitter  /splitter/  301
 /relay  /relay/  301
 /pay      /pay/      301

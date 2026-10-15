@@ -171,6 +171,31 @@ export function openStore(dbPath, { excluded = [] } = {}) {
       applied_at INTEGER NOT NULL
     );
 
+    -- Task rewards (lib/points-tasks.js): the price quotes sampled for them, and each step claimed with the reward fixed when
+    -- it was verified. A claim is 'pending' until the credit is applied (the tasks budget and the distributor's funding
+    -- allow it), then 'credited', which is when it becomes a reward_adjustments row of the same id.
+    CREATE TABLE IF NOT EXISTS task_quotes (
+      t           INTEGER PRIMARY KEY,
+      venue       TEXT NOT NULL,
+      tac_per_eth TEXT NOT NULL,
+      gas_price   TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS task_claims (
+      id           TEXT PRIMARY KEY,
+      job          TEXT NOT NULL,
+      step         TEXT NOT NULL,
+      address      TEXT NOT NULL,
+      tx_hash      TEXT NOT NULL,
+      block_number INTEGER NOT NULL,
+      block_time   INTEGER NOT NULL,
+      wei          TEXT NOT NULL,
+      quote        TEXT NOT NULL,
+      status       TEXT NOT NULL,
+      created_at   INTEGER NOT NULL,
+      credited_at  INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS task_claims_address ON task_claims (address);
+
     -- Which UTC day-epochs (floor(unixSec/86400)) have been folded into reward_ledger, and the last root this
     -- process successfully got onto PointsDistributor. A day can be settled locally (advancing
     -- last_settled_day) well before its reward is actually claimable on-chain — see settleCycle's comment on
@@ -530,6 +555,36 @@ export function openStore(dbPath, { excluded = [] } = {}) {
   const lateDays = () => lateDaysStmt.all();
   // What the adjustments whose id starts with `prefix` have credited so far, summed as a BigInt.
   const creditedWithPrefix = (prefix) => creditedWithPrefixStmt.all(prefix.replace(/[\\%_]/g, (c) => '\\' + c) + '%').reduce((s, r) => s + BigInt(r.wei), 0n);
+
+  // ── task rewards (lib/points-tasks.js) ──
+  const insertTaskQuoteStmt = db.prepare(`INSERT OR REPLACE INTO task_quotes (t, venue, tac_per_eth, gas_price) VALUES (@t, @venue, @tacPerEth, @gasPrice)`);
+  const pruneTaskQuotesStmt = db.prepare(`DELETE FROM task_quotes WHERE t < ?`);
+  const taskQuotesStmt = db.prepare(`SELECT t, venue, tac_per_eth AS tacPerEth, gas_price AS gasPrice FROM task_quotes WHERE t >= ? AND t <= ? ORDER BY t`);
+  const latestTaskQuoteStmt = db.prepare(`SELECT t, venue, tac_per_eth AS tacPerEth, gas_price AS gasPrice FROM task_quotes ORDER BY t DESC LIMIT 1`);
+  // One sample per second at most; samples older than `keepFromSec` are dropped.
+  const saveTaskQuote = (q, keepFromSec) => { insertTaskQuoteStmt.run({ t: q.t, venue: q.venue, tacPerEth: String(q.tacPerEth), gasPrice: String(q.gasPrice) }); pruneTaskQuotesStmt.run(keepFromSec); };
+  const taskQuotes = (fromSec, toSec) => taskQuotesStmt.all(fromSec, toSec);
+  const latestTaskQuote = () => latestTaskQuoteStmt.get() ?? null;
+
+  const taskClaimCols = `id, job, step, address, tx_hash AS txHash, block_number AS blockNumber, block_time AS blockTime, wei, quote, status, created_at AS createdAt, credited_at AS creditedAt`;
+  const insertTaskClaimStmt = db.prepare(`INSERT OR IGNORE INTO task_claims (id, job, step, address, tx_hash, block_number, block_time, wei, quote, status, created_at) VALUES (@id, @job, @step, @address, @txHash, @blockNumber, @blockTime, @wei, @quote, 'pending', @createdAt)`);
+  const taskClaimStmt = db.prepare(`SELECT ${taskClaimCols} FROM task_claims WHERE id = ?`);
+  const taskClaimsStmt = db.prepare(`SELECT ${taskClaimCols} FROM task_claims ORDER BY block_time, id`);
+  const pendingTaskClaimsStmt = db.prepare(`SELECT ${taskClaimCols} FROM task_claims WHERE status = 'pending' ORDER BY block_time, id`);
+  const creditTaskClaimStmt = db.prepare(`UPDATE task_claims SET status = 'credited', credited_at = ? WHERE id = ? AND status = 'pending'`);
+  // Records a verified claim once per id; false when the step was already claimed. `wei` is fixed here and never recomputed.
+  const saveTaskClaim = (c) => insertTaskClaimStmt.run({ ...c, address: c.address.toLowerCase(), wei: String(c.wei), quote: JSON.stringify(c.quote), createdAt: Math.floor(Date.now() / 1000) }).changes > 0;
+  const rowOf = (r) => (r ? { ...r, wei: BigInt(r.wei), quote: JSON.parse(r.quote) } : null);
+  const taskClaim = (id) => rowOf(taskClaimStmt.get(id));
+  const taskClaims = () => taskClaimsStmt.all().map(rowOf);
+  const pendingTaskClaims = () => pendingTaskClaimsStmt.all().map(rowOf);
+  // Credits a pending claim to the ledger, for the amount it was recorded with, and marks it credited, together.
+  const creditTaskClaim = db.transaction((id) => {
+    const c = taskClaimStmt.get(id);
+    if (!c || c.status !== 'pending') return false;
+    applyAdjustment({ id, address: c.address, wei: BigInt(c.wei) });
+    return creditTaskClaimStmt.run(Math.floor(Date.now() / 1000), id).changes > 0;
+  });
   const commitDayTx = db.transaction((deltas, state) => {
     if (deltas && deltas.size) applyDayRewards(deltas);
     saveSettleState(state);
@@ -780,7 +835,7 @@ export function openStore(dbPath, { excluded = [] } = {}) {
 
   return {
     db, recordDeposit, loadCursor, saveCursor, leaderboard, totalFor, depositsFor, countByActivity,
-    dayPointsByAddress, dayActivityPoints, dayAmountsByAddress, weekActivityPoints, lateDays, creditedWithPrefix, commitDay, saveHoldingEvents, holdingEvents, loadHoldingCursor, saveHoldingCursor, saveHoldingSnapshot, holdingSnapshots, recordHoldingClaim, holdingClaimFor, loadHoldingVerified, saveHoldingVerified, rewindHolding, depositorOfTx, getMeta, setMeta, saveBondRef, bondPairsBefore, bondsToCheck, saveBondCheck, applyDayRewards, applyAdjustment, listAdjustments: () => listAdjustmentsStmt.all(), allRewards, rewardFor,
+    dayPointsByAddress, dayActivityPoints, dayAmountsByAddress, weekActivityPoints, lateDays, creditedWithPrefix, saveTaskQuote, taskQuotes, latestTaskQuote, saveTaskClaim, taskClaim, taskClaims, pendingTaskClaims, creditTaskClaim, commitDay, saveHoldingEvents, holdingEvents, loadHoldingCursor, saveHoldingCursor, saveHoldingSnapshot, holdingSnapshots, recordHoldingClaim, holdingClaimFor, loadHoldingVerified, saveHoldingVerified, rewindHolding, depositorOfTx, getMeta, setMeta, saveBondRef, bondPairsBefore, bondsToCheck, saveBondCheck, applyDayRewards, applyAdjustment, listAdjustments: () => listAdjustmentsStmt.all(), allRewards, rewardFor,
     savePoolSnapshot, poolSnapshots: (fromDay) => poolSnapshotsStmt.all(fromDay), poolDepositWeiByDay, recent,
     loadSettleState, saveSettleState, savePublishedClaims, claimFor,
     recordPpWithdrawal, hasEarlierPpWithdrawal, loadPpCursor, savePpCursor,

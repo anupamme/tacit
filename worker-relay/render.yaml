@@ -398,6 +398,14 @@ services:
         value: "0x000000C918e44A3a443937fA7594eA4f7C95D6b9"
       - key: POINTS_ROOT_SETTER_KEY         # secret — set in the Render dashboard
         sync: false
+      # Task rewards (docs/TASKS.md): TAC for doing a listed job's step, credited as ledger adjustments beside the daily pot.
+      # Off while the budget is 0. The budget is the most that can ever be credited (raise it with each top-up of the
+      # distributor); the end is UTC seconds and must come before the distributor's ROOT_UPDATE_DEADLINE. Tip, floor, cap and
+      # the reserve days (POINTS_TASKS_TIP_BPS, _FLOOR_WEI, _CAP_WEI, _RESERVE_DAYS) have defaults in lib/config.js.
+      - key: POINTS_TASKS_BUDGET_WEI
+        value: "0"
+      - key: POINTS_TASKS_END_SEC
+        value: "0"
 
   # Always-on web service: Bitcoin-native shielded pool replay (src/btc-pool-indexer.js). Replays 0x6C/0x6D
   # envelopes from raw blocks and serves roots, Merkle paths, the note feed, nullifier and exit status.

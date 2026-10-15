@@ -681,6 +681,17 @@ export const CFG = {
   // One-off add-only ledger credits as a JSON array of { id, address, wei } (lib/points-adjustments.js). Each id is
   // applied once; empty means none.
   pointsLedgerAdjustments: opt('POINTS_LEDGER_ADJUSTMENTS', ''),
+  // Task rewards (lib/points-tasks.js): TAC for doing a listed job's step, credited as ledger adjustments outside the daily pot.
+  // Off unless the budget (the most that can ever be credited, in wei; raise it with each top-up of the distributor) and the end
+  // time (UTC seconds; no later than the distributor's root deadline) are both set. A step pays its gas at a slow-mode price in
+  // TAC at the deepest venue, times (1 + tip), and a job pays at least its floor and at most its cap (wei). Credits wait while
+  // the distributor's funding would cover fewer than the reserve days of the regular pot.
+  pointsTasksBudgetWei: BigInt(opt('POINTS_TASKS_BUDGET_WEI', '0')),
+  pointsTasksEndSec: num('POINTS_TASKS_END_SEC', 0),
+  pointsTasksTipBps: BigInt(opt('POINTS_TASKS_TIP_BPS', '10000')),
+  pointsTasksFloorWei: BigInt(opt('POINTS_TASKS_FLOOR_WEI', '150000000000000000000')),
+  pointsTasksCapWei: BigInt(opt('POINTS_TASKS_CAP_WEI', '2500000000000000000000')),
+  pointsTasksReserveDays: num('POINTS_TASKS_RESERVE_DAYS', 2),
   // Where the balance monitor reads the points service's /rewards funding report.
   pointsApiBase: opt('POINTS_API_BASE', 'https://tacit-points.onrender.com'),
   pointsSettleMaxWaitSecs: num('POINTS_SETTLE_MAX_WAIT_SECS', 21600),

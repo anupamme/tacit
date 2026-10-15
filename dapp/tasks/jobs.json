@@ -1,0 +1,276 @@
+{
+  "jobs": [
+    {
+      "id": "tac-vaults",
+      "chainId": 1,
+      "opensAt": 1792108244,
+      "steps": [
+        {
+          "id": "01-precision-oracle",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 2169000,
+          "expected": "0x0000002C48F347Fc4245226b71457E6bC85A5724",
+          "salt": "0x000000000000000000000000000000000000000001000100e34fb9c210bbe397",
+          "initCodeHash": "0xb4457b22c6882b4a41bc1e77c4eee1812c7f1b74e53b7932dd68db3b0ff7bb39",
+          "name": "PRECISION_ORACLE",
+          "label": "Price oracle for the Precision venue",
+          "contract": "TacBlockOracle"
+        },
+        {
+          "id": "02-amm-oracle",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 2188000,
+          "expected": "0x000000cD99De6AD4079F9e327c2A61eD58AB8551",
+          "salt": "0x0000000000000000000000000000000000000000010003003f4489b0fa10231a",
+          "initCodeHash": "0x4b70afc38d2780958735c06a2d3e54d33597e52a52535c7fb4f7f5e0e4540d43",
+          "name": "AMM_ORACLE",
+          "label": "Price oracle for the Tacit AMM",
+          "contract": "TacAmmOracle"
+        },
+        {
+          "id": "03-pair-oracle",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 528000,
+          "expected": "0x000000cE58D7d49319252DaFB0ABdB3F02101271",
+          "salt": "0x000000000000000000000000000000000000000001000600aebd19203e16d001",
+          "initCodeHash": "0xcc5770d9e2ae97b07e243ab742640b22a9cb230c16565862fe2a03377b287242",
+          "name": "PAIR_ORACLE",
+          "label": "Oracle that combines the two",
+          "contract": "TacPairOracle"
+        },
+        {
+          "id": "04-eth-feed",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 86000,
+          "expected": "0x0000005891f244187a4F00ab6CA25bbCD5b742ef",
+          "salt": "0x00000000000000000000000000000000000000000100040097538bb0857bf091",
+          "initCodeHash": "0xb77fa8b9b35d92fede754f1d603a36b0fc7e9aefdf2738aab0c3fac90da5651f",
+          "name": "ETH_FEED",
+          "label": "Fixed ETH price feed",
+          "contract": "FixedFeed"
+        },
+        {
+          "id": "05-usd-vault",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 5392000,
+          "expected": "0x00000087ac9ed3E1Bd443E00FBe18B4EdcAEeb1F",
+          "salt": "0x0000000000000000000000000000000000000000010006004905ad49f41c28e7",
+          "initCodeHash": "0xdd4bf961a2b658acfdb7d5f99100897b01f0fd002221bcade346057786f89116",
+          "name": "USD_VAULT",
+          "label": "TAC-collateral vault that lends TACD (a dollar)",
+          "contract": "TacVault"
+        },
+        {
+          "id": "06-eth-vault",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 5387000,
+          "expected": "0x00000047bFC8cF504967049D9Cf9E1FD9651ED80",
+          "salt": "0x000000000000000000000000000000000000000001000000819ff922fa59a597",
+          "initCodeHash": "0x296460591d9cdffc0b44d53e430e36e3eb8bfaf7e8b7fbee274e455fb5b8cec2",
+          "name": "ETH_VAULT",
+          "label": "TAC-collateral vault that lends TACE (ether)",
+          "contract": "TacVault"
+        },
+        {
+          "id": "07-tac-pool",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 832000,
+          "expected": "0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe",
+          "salt": "0x0000000000000000000000000000000000000000010002009e547ecfc8c25acf",
+          "initCodeHash": "0x68a0d4470a94c14908bf8d39640bbbf3d162170e4d13b701ca4950c262d4e0e6",
+          "name": "TAC_POOL",
+          "label": "EVM pool for TAC",
+          "contract": "TacitEvmPool"
+        },
+        {
+          "id": "08-tac-router",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 3607000,
+          "expected": "0x000000fA029Eaf69840C1490Bf9AA6C094794D5a",
+          "salt": "0x00000000000000000000000000000000000000000100000099043b1ce2547e2d",
+          "initCodeHash": "0x3f00ebf57de7a9e0332b26782fb5f47f1336471784affa8434231fbf126c80a2",
+          "name": "TAC_ROUTER",
+          "label": "Router for the TAC pool",
+          "contract": "TacitEvmPoolRouter"
+        },
+        {
+          "id": "09-usd-pool",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 832000,
+          "expected": "0x0000007bDb91d1aa0b5D3106Fd1c44C784b33DBA",
+          "salt": "0x0000000000000000000000000000000000000000010000001725ec8f0f39c0d0",
+          "initCodeHash": "0xfb76535e0509b07f2b5f226066281ee810b1cfc31217bd8c8106e5508c5622cf",
+          "name": "USD_POOL",
+          "label": "EVM pool for TACD",
+          "contract": "TacitEvmPool"
+        },
+        {
+          "id": "10-usd-router",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 3607000,
+          "expected": "0x000000e96fcFf90F220fa65F8b82C6114Cd1Cc30",
+          "salt": "0x000000000000000000000000000000000000000001000600273645b8618deb5e",
+          "initCodeHash": "0x59b61b665c1cb31ec6522bd8906f5986c4ffb7040fd57a07a3784f0682723b67",
+          "name": "USD_ROUTER",
+          "label": "Router for the TACD pool",
+          "contract": "TacitEvmPoolRouter"
+        },
+        {
+          "id": "11-eth-pool",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 832000,
+          "expected": "0x00000091974fB81e7eBA4cF2Cb24869c00a9A1a1",
+          "salt": "0x0000000000000000000000000000000000000000010001005c921c3a04dd7d6f",
+          "initCodeHash": "0x7b1ee840162b6b86531e5ec7c597cc5a8f8ff94010ca97671c701df078bc242b",
+          "name": "ETH_POOL",
+          "label": "EVM pool for TACE",
+          "contract": "TacitEvmPool"
+        },
+        {
+          "id": "12-eth-router",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 3607000,
+          "expected": "0x000000e66C32bEC739180A5eDeeB40A8225c5223",
+          "salt": "0x000000000000000000000000000000000000000001000300b21ad9353481726c",
+          "initCodeHash": "0x68669834ee6579aef77ca6035b7e775c9c920ad6c134c2219b39f745852a8f56",
+          "name": "ETH_ROUTER",
+          "label": "Router for the TACE pool",
+          "contract": "TacitEvmPoolRouter"
+        },
+        {
+          "id": "13-usd-zap",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 640000,
+          "expected": "0x000000ED49e117f472Ca16aEd7B1a8F07E6D3936",
+          "salt": "0x000000000000000000000000000000000000000001000300f0db031d496b0f40",
+          "initCodeHash": "0x375f3d133c33fce02dc005fef6f6dc760b05b8b29732f79d982d4b7725b22500",
+          "name": "USD_ZAP",
+          "label": "Zap into the TACD vault",
+          "contract": "TacVaultZap"
+        },
+        {
+          "id": "14-eth-zap",
+          "kind": "createx",
+          "to": "0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed",
+          "gas": 640000,
+          "expected": "0x0000006f0f1d16D2B27050b48D442927b2Edce0c",
+          "salt": "0x00000000000000000000000000000000000000000100070091265b0438433bb1",
+          "initCodeHash": "0x038373ae957cf75bd0dd32fb90be85add9a06e91a7e79815d9ec5b43a6ec1185",
+          "name": "ETH_ZAP",
+          "label": "Zap into the TACE vault",
+          "contract": "TacVaultZap"
+        },
+        {
+          "id": "15-register-usd",
+          "kind": "register",
+          "to": "0x000000000Ed1eabD231Be41d93b719056F7febFC",
+          "gas": 84000,
+          "asset": "0x9cb6a17c0a61a40fa936296e9ec2b428e2a3b7c70cdb76ed25c6937124a3cc11",
+          "dataHash": "0xe2551d4ca4497dc9ebd0dbc6fe1e1abf2388a00d87b27484a2c5233a67b64ec4",
+          "name": "REGISTER_USD",
+          "label": "Register TACD in the confidential pool"
+        },
+        {
+          "id": "16-register-eth",
+          "kind": "register",
+          "to": "0x000000000Ed1eabD231Be41d93b719056F7febFC",
+          "gas": 84000,
+          "asset": "0xda4acdbe7c276dd82c39c3fd470aa1d18d562504b678cfa5a8144c8afddd5db4",
+          "dataHash": "0x7e4c8ba144a7e961a81c22b285b465423a71d71be4c654686cbe596dc48da320",
+          "name": "REGISTER_ETH",
+          "label": "Register TACE in the confidential pool"
+        },
+        {
+          "id": "17-pair-1",
+          "kind": "pair",
+          "to": "0x000000000Ed1eabD231Be41d93b719056F7febFC",
+          "gas": 129000,
+          "dataHash": "0xc6ef28e989aa119c599fbf56f5ff8e79a7f823b4a3379c6f179593aa615a0209",
+          "poolId": "0x844de00c599270a83c9e576c9ca25fad67601f7e716f92900507f5c51369e20c",
+          "name": "PAIR_1",
+          "label": "Create the TAC / TACD pair"
+        },
+        {
+          "id": "18-pair-2",
+          "kind": "pair",
+          "to": "0x000000000Ed1eabD231Be41d93b719056F7febFC",
+          "gas": 129000,
+          "dataHash": "0x385dcfecc7d4fb9bc91e5006ed41304fa69ed609ecd5e058532fee30d99df40a",
+          "poolId": "0xa221956d85cd16ff319d1ff353e0da19a2e761defcbc22a02f2823edcd4bb99b",
+          "name": "PAIR_2",
+          "label": "Create the TAC / TACE pair"
+        },
+        {
+          "id": "19-pair-3",
+          "kind": "pair",
+          "to": "0x000000000Ed1eabD231Be41d93b719056F7febFC",
+          "gas": 129000,
+          "dataHash": "0x3406d1f24bd0051053c32a5589f43acd9998cb9f783b79f0db2f9e4dd6b29737",
+          "poolId": "0x6c8eaef35c676601d4a42a227570289ff6c400e06f927ea25e37bf0c1041e6a4",
+          "name": "PAIR_3",
+          "label": "Create the ETH / TACE pair"
+        },
+        {
+          "id": "20-pair-4",
+          "kind": "pair",
+          "to": "0x000000000Ed1eabD231Be41d93b719056F7febFC",
+          "gas": 129000,
+          "dataHash": "0x9a7c7e8d6ed6a9033f6234d833ad3a1c37aa4eed86978a5db980a3c3b94e0e11",
+          "poolId": "0x2117d95d2c02a878932c900b68128f574ea4969abec97838a055cc7ccd794706",
+          "name": "PAIR_4",
+          "label": "Create the TACD / TACE pair"
+        },
+        {
+          "id": "21-pair-5",
+          "kind": "pair",
+          "to": "0x000000000Ed1eabD231Be41d93b719056F7febFC",
+          "gas": 129000,
+          "dataHash": "0x42e3e01eaedc34c5c0990893f2c4a704b43644026c69b9636120f06eb9c33c2b",
+          "poolId": "0x9e8e3ec6498ae7eb32b37ebe291b69b371ab0411c753431f36317e0705c66e8b",
+          "name": "PAIR_5",
+          "label": "Create the TACD / cUSD pair"
+        }
+      ],
+      "title": "Deploy the TAC vault package",
+      "tagline": "Put the TAC vaults on Ethereum, in 21 transactions, from any wallet.",
+      "about": [
+        {
+          "h": "What it is",
+          "p": "TAC vaults let someone deposit TAC and borrow TAC Dollar (TACD) or TAC Ether (TACE) against it, with no interest and one fee when they borrow. Each vault prices TAC from two public venues, Precision's TAC/ETH band and the Tacit AMM, over an eight-hour window, and lends a small share of what those venues hold."
+        },
+        {
+          "h": "What gets deployed",
+          "p": "Fourteen contracts: two price oracles and one that combines them, a fixed ETH price feed, the two vaults (each creates its own token), a pool and router for TAC and for each token in the EVM pool, and a zap into each vault. Then seven calls to the confidential pool register the two tokens and create five trading pairs."
+        },
+        {
+          "h": "Who controls it",
+          "p": "The Tacit ops multisig (0x006C…49F2) owns both vaults and receives their fees. It can change a vault's terms, its oracle or its token's minters only after an announced wait of two to three days and within fixed limits, can pause liquidations and redemptions for up to twelve hours at a time, and can lock each of these powers for good. The audit report below covers the contracts and these powers."
+        },
+        {
+          "h": "Who can send it",
+          "p": "Anyone. Each address is worked out in advance (CREATE2 through CreateX) from the exact code, its settings and its owner, so the sender cannot change what lands there, and a step already on the chain is skipped."
+        }
+      ],
+      "links": [
+        {
+          "label": "LeftClaw audit report",
+          "href": "https://bafkreia5dlfgcnxsp2mdbwkvtpovg3ob7dizqgcjeulgx5uopahzh2tpeq.ipfs.community.bgipfs.com/"
+        }
+      ],
+      "payloadUrl": "/tasks/tac-vaults-payload.json"
+    }
+  ]
+}
