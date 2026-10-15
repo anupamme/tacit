@@ -61,6 +61,12 @@ contract TacVaultCampaignOracle {
         breaks = b;
     }
 
+    /// The state of `o`, for an oracle that takes over from it.
+    function copyFrom(TacVaultCampaignOracle o) external {
+        (base, shortP, maxP, cur, lastSample) = (o.base(), o.shortP(), o.maxP(), o.cur(), o.lastSample());
+        (spreadBps, ethDepth, breaks) = (o.spreadBps(), o.ethDepth(), o.breaks());
+    }
+
     function setDepth(uint256 d) external {
         ethDepth = d;
     }
@@ -378,6 +384,171 @@ contract TacVaultCampaignHandler is Test {
             _fail(7, 0, 0);
         } catch {}
         _hit("ownerAbuse");
+    }
+
+    // ───────────── the owner changes the vault's terms and oracle ─────────────
+
+    uint256 internal constant GOV_RAIL_MIN_LIQ = 12_000;
+    uint256 internal constant GOV_RAIL_MAX_LIQ = 30_000;
+    mapping(address => uint256) public exemptDebt; // a debt left under a minimum debt that was raised
+
+    function _termNow(TacVault.Param id) internal view returns (uint256) {
+        if (id == TacVault.Param.DepthBps) return vault.DEPTH_BPS();
+        if (id == TacVault.Param.MintRatioBps) return vault.MINT_RATIO_BPS();
+        if (id == TacVault.Param.LiqRatioBps) return vault.LIQ_RATIO_BPS();
+        if (id == TacVault.Param.LiqBonusBps) return vault.LIQ_BONUS_BPS();
+        if (id == TacVault.Param.OwnerWindow) return vault.OWNER_WINDOW();
+        if (id == TacVault.Param.AuctionDuration) return vault.AUCTION_DURATION();
+        return vault.MIN_DEBT();
+    }
+
+    function _govValue(TacVault.Param id, uint256 raw) internal view returns (uint256) {
+        // A third of the picks stay near the term as it is, so that changes that pass the rails are common.
+        if (raw % 3 == 0) return _termNow(id) * (70 + (raw >> 16) % 71) / 100;
+        if (id == TacVault.Param.DepthBps) return (raw >> 8) % 1_101;
+        if (id == TacVault.Param.MintRatioBps) return 10_000 + (raw >> 8) % 95_000;
+        if (id == TacVault.Param.LiqRatioBps) return 11_000 + (raw >> 8) % 20_000;
+        if (id == TacVault.Param.LiqBonusBps) return (raw >> 8) % 5_200;
+        if (id == TacVault.Param.OwnerWindow) return (raw >> 8) % 90_000;
+        if (id == TacVault.Param.AuctionDuration) return (raw >> 8) % 270_000;
+        uint256 base = vault.MIN_DEBT_BASE();
+        return base / 20 + (raw >> 8) % (base * 110);
+    }
+
+    // The rails the new value of `id` must be inside, with the other terms as they are and the old depth share `pre`.
+    function _railsOk(TacVault.Param id, uint256 v, uint256 pre) internal view returns (bool) {
+        uint256 liq = vault.LIQ_RATIO_BPS();
+        uint256 mint = vault.MINT_RATIO_BPS();
+        uint256 bonus = vault.LIQ_BONUS_BPS();
+        uint256 ow = vault.OWNER_WINDOW();
+        uint256 ad = vault.AUCTION_DURATION();
+        if (id == TacVault.Param.DepthBps) return v <= vault.MAX_DEPTH_BPS() && v <= 2 * pre + 25;
+        if (id == TacVault.Param.MintRatioBps) return v <= 100_000 && v >= liq + 2_000;
+        if (id == TacVault.Param.LiqRatioBps) {
+            return v >= GOV_RAIL_MIN_LIQ && v <= GOV_RAIL_MAX_LIQ && mint >= v + 2_000 && 10_000 + bonus < v;
+        }
+        if (id == TacVault.Param.LiqBonusBps) return v != 0 && v <= 5_000 && 10_000 + v < liq;
+        if (id == TacVault.Param.OwnerWindow) return v >= 10 minutes && v <= 1 days && v < ad;
+        if (id == TacVault.Param.AuctionDuration) return v >= 30 minutes && v <= 3 days && ow < v;
+        return v >= vault.MIN_DEBT_BASE() / 10 && v <= vault.MIN_DEBT_BASE() * 100;
+    }
+
+    /// Announce, wait, apply: a term moves only at the end of its wait, only inside the rails, and moves nobody's
+    /// vault. An announcement that is cancelled, or let lapse, does not apply.
+    function govTerm(uint256 sel, uint256 raw, uint256 mode) external {
+        TacVault.Param id = TacVault.Param(sel % 7);
+        uint256 v = _govValue(id, raw);
+        uint256[9] memory snap = _snap();
+        uint256 pre = _termNow(id);
+        vm.prank(OWNER);
+        try vault.queueParam(id, v) {}
+        catch {
+            _hit("govTerm_refused");
+            return;
+        }
+        if (_termNow(id) != pre) _fail(40, uint256(id), pre);
+        vm.prank(OWNER);
+        try vault.executeParam(id) {
+            _fail(41, uint256(id), v);
+        } catch {}
+        uint256 m = mode % 3;
+        if (m == 0) {
+            vm.prank(OWNER);
+            vault.cancelParam(id);
+            skip(vault.PARAM_DELAY());
+            if (!fixedFeed) feed.set(feed.answer());
+            vm.prank(OWNER);
+            try vault.executeParam(id) {
+                _fail(42, uint256(id), v);
+            } catch {}
+            _hit("govTerm_cancelled");
+            return;
+        }
+        skip(m == 1 ? vault.PARAM_DELAY() : vault.PARAM_DELAY() + vault.QUEUE_EXPIRY() + 1);
+        if (!fixedFeed) feed.set(feed.answer());
+        vm.prank(OWNER);
+        try vault.executeParam(id) {
+            if (m != 1) _fail(43, uint256(id), v);
+            if (_termNow(id) != v) _fail(44, uint256(id), v);
+            if (!_railsOk(id, v, pre)) _fail(45, uint256(id), v);
+            if (id == TacVault.Param.MinDebt) {
+                for (uint256 i; i < 3; ++i) {
+                    (, uint256 d,) = _vault(users[i]);
+                    exemptDebt[users[i]] = d != 0 && d < v ? d : 0;
+                }
+            }
+            _hit("govTerm_applied");
+        } catch {
+            if (_termNow(id) != pre) _fail(46, uint256(id), pre);
+            _hit(m == 1 ? "govTerm_not_applied" : "govTerm_lapsed");
+        }
+        uint256[9] memory post = _snap();
+        for (uint256 i; i < 9; ++i) {
+            if (post[i] != snap[i]) _fail(47, i, snap[i]);
+        }
+    }
+
+    function govLowerDepth(uint256 raw) external {
+        uint256 cur = vault.DEPTH_BPS();
+        vm.prank(OWNER);
+        try vault.lowerDepthBps(cur + raw % 5) {
+            _fail(48, cur, raw);
+        } catch {}
+        if (cur == 0) return;
+        uint256 to = raw % cur;
+        vm.prank(OWNER);
+        vault.lowerDepthBps(to);
+        if (vault.DEPTH_BPS() != to) _fail(49, to, cur);
+        _hit("govLowerDepth");
+    }
+
+    function govRedemptionFee(uint256 raw) external {
+        uint256 bps = raw % 300;
+        vm.prank(OWNER);
+        try vault.setRedemptionFee(bps) {
+            if (bps > vault.MAX_REDEMPTION_FEE_BPS() || vault.REDEMPTION_FEE_BPS() != bps) _fail(50, bps, 0);
+            _hit("govFee_ok");
+        } catch {
+            if (bps <= vault.MAX_REDEMPTION_FEE_BPS()) _fail(51, bps, 0);
+            _hit("govFee_refused");
+        }
+    }
+
+    /// The oracle is replaced by one with the same state: only after its wait, and only if it prices every view.
+    function govOracle(uint256 mode) external {
+        TacVaultCampaignOracle n = new TacVaultCampaignOracle();
+        n.copyFrom(oracle);
+        address old = address(vault.ORACLE());
+        vm.prank(OWNER);
+        try vault.queueOracle(address(n)) {}
+        catch {
+            _hit("govOracle_refused");
+            return;
+        }
+        if (address(vault.ORACLE()) != old) _fail(52, 0, 0);
+        vm.prank(OWNER);
+        try vault.executeOracle() {
+            _fail(53, 0, 0);
+        } catch {}
+        if (mode % 3 == 0) {
+            vm.prank(OWNER);
+            vault.cancelOracle();
+            _hit("govOracle_cancelled");
+            return;
+        }
+        skip(vault.ORACLE_DELAY());
+        if (!fixedFeed) feed.set(feed.answer());
+        vm.prank(OWNER);
+        try vault.executeOracle() {
+            if (address(vault.ORACLE()) != address(n)) _fail(54, 0, 0);
+            oracle = n; // the price moves that follow go to the oracle in place
+            _hit("govOracle_applied");
+        } catch {
+            if (address(vault.ORACLE()) != old) _fail(55, 0, 0);
+            vm.prank(OWNER);
+            vault.cancelOracle();
+            _hit("govOracle_not_applied");
+        }
     }
 
     // ───────────── borrower actions ─────────────
@@ -1025,7 +1196,7 @@ abstract contract TacVaultCampaignBase is Test {
         handler = new TacVaultCampaignHandler(vault, tac, oracle, feedAddr, eth, _tag());
         handler.seed();
 
-        bytes4[] memory sels = new bytes4[](41);
+        bytes4[] memory sels = new bytes4[](47);
         uint256 i;
         sels[i++] = TacVaultCampaignHandler.movePrice.selector;
         sels[i++] = TacVaultCampaignHandler.crashPrice.selector;
@@ -1068,6 +1239,12 @@ abstract contract TacVaultCampaignBase is Test {
         sels[i++] = TacVaultCampaignHandler.warpWindow.selector;
         sels[i++] = TacVaultCampaignHandler.warpWindow.selector; // weighted
         sels[i++] = TacVaultCampaignHandler.warpWindow.selector; // weighted
+        sels[i++] = TacVaultCampaignHandler.govTerm.selector;
+        sels[i++] = TacVaultCampaignHandler.govTerm.selector; // weighted
+        sels[i++] = TacVaultCampaignHandler.govTerm.selector; // weighted
+        sels[i++] = TacVaultCampaignHandler.govLowerDepth.selector;
+        sels[i++] = TacVaultCampaignHandler.govRedemptionFee.selector;
+        sels[i++] = TacVaultCampaignHandler.govOracle.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: sels}));
         targetContract(address(handler));
     }
@@ -1082,6 +1259,20 @@ abstract contract TacVaultCampaignBase is Test {
 
     function invariant_noHandlerViolation() public view {
         assertEq(handler.violation(), 0, "a handler expectation failed (see violationData)");
+    }
+
+    /// Whatever the owner did, the terms still fit together as at deployment, and the oracle in place is the one the
+    /// handler moves.
+    function invariant_termsKeepTheirCrossConstraints() public view {
+        uint256 liq = vault.LIQ_RATIO_BPS();
+        uint256 mint = vault.MINT_RATIO_BPS();
+        assertTrue(liq >= 10_000 && mint > liq && mint <= 100_000, "ratios");
+        assertTrue(vault.LIQ_BONUS_BPS() != 0 && 10_000 + vault.LIQ_BONUS_BPS() < liq, "bonus");
+        assertTrue(vault.AUCTION_DURATION() != 0 && vault.OWNER_WINDOW() < vault.AUCTION_DURATION(), "times");
+        assertTrue(vault.MIN_DEBT() != 0, "minimum debt");
+        assertLe(vault.DEPTH_BPS(), vault.MAX_DEPTH_BPS());
+        assertLe(vault.REDEMPTION_FEE_BPS(), vault.MAX_REDEMPTION_FEE_BPS());
+        assertEq(address(vault.ORACLE()), address(handler.oracle()));
     }
 
     function invariant_synthSupplyEqualsTotalDebt() public view {
@@ -1117,7 +1308,7 @@ abstract contract TacVaultCampaignBase is Test {
         for (uint256 i; i < 3; ++i) {
             address u = handler.users(i);
             (uint256 c, uint256 d, uint256 s) = vault.vaults(u);
-            assertTrue(d == 0 || d >= minD, "dust debt");
+            assertTrue(d == 0 || d >= minD || d == handler.exemptDebt(u), "dust debt");
             assertTrue(d == 0 || c != 0, "debt without collateral");
             if (s != 0) {
                 assertTrue(d != 0, "auction without debt");

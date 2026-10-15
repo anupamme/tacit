@@ -139,7 +139,7 @@ library VaultConfig {
             minDebt: 100e18,
             feedMaxStaleness: 1 hours,
             debtCeiling: 10_000e18,
-            depthBps: 10_000,
+            depthBps: 1_000,
             redemptionFeeBps: 50,
             borrowFeeBps: 0,
             feeTo: address(0xFEE),

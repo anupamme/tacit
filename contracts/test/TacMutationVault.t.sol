@@ -297,7 +297,7 @@ contract TacMutationVaultTest is Test {
         vm.stopPrank();
         vm.prank(OWNER);
         vault.setDebtCeiling(type(uint128).max);
-        oracle.setDepth(1e18); // 4,000 USD of ETH depth at depthBps 10,000
+        oracle.setDepth(10e18); // 40,000 USD of ETH depth at depthBps 1,000: a cap of 4,000
         vm.prank(alice);
         vault.borrow(3_500e18, 0); // total 4,000 == the cap: allowed
         vm.prank(alice);
@@ -946,9 +946,9 @@ contract TacMutationViewsTest is Test {
         // the median depth over WINDOW and the smallest depth over WINDOW are tiny: neither is read
         oracle.setFor(1 hours, P, P, P, 1e18);
         oracle.setFor(10 minutes, P, P, P, 1e18);
-        // the smallest depth over the longest window: 1 ETH, 4,000 dollars; its median is huge (ignored)
+        // the smallest depth over the longest window: 10 ETH, 40,000 dollars, lent at 10%; its median is huge (ignored)
         oracle.setFor(4 hours, P, P, P, 1e30);
-        oracle.setDepthMin(4 hours, 1e18);
+        oracle.setDepthMin(4 hours, 10e18);
         vm.startPrank(alice);
         vault.deposit(10_000_000e18);
         vm.expectRevert(TacVault.OverCeiling.selector);

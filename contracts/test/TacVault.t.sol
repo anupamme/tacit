@@ -122,7 +122,7 @@ contract TacVaultTest is Test {
 
     /// Total debt stays under DEPTH_BPS of the pool's ETH depth, in dollars.
     function test_debtIsCappedByThePoolsDepth() public {
-        oracle.setDepth(1e18); // 1 ETH of depth is 4,000 dollars
+        oracle.setDepth(10e18); // 10 ETH of depth is 40,000 dollars; the vault lends 10% of it
         vm.startPrank(alice);
         vault.deposit(1_000_000e18);
         vm.expectRevert(TacVault.OverCeiling.selector);

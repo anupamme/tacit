@@ -286,6 +286,32 @@ function checkVenues() {
   }
 }
 
+// A vault whose owner swaps the oracle (announced ORACLE_DELAY ahead) prices from venues this keeper may not be
+// recording: its ORACLE env names the venues, and a new pair needs its own intervals recorded or its prices lapse.
+function checkVaultOracles() {
+  const known = new Set(ORACLES.map((o) => o.toLowerCase()));
+  for (const vault of VAULTS) {
+    try {
+      const venuesOf = (oracle) => {
+        try { return [call(oracle, 'A()(address)'), call(oracle, 'B()(address)')]; } catch { return [oracle]; }
+      };
+      const now = call(vault, 'ORACLE()(address)');
+      const stray = venuesOf(now).filter((v) => !known.has(v.toLowerCase()));
+      const key = `oracle:${vault}:${now}`;
+      if (ORACLES.length && stray.length) alertOnce(key, `${vault}: its oracle ${now} prices from ${stray.join(', ')}, not recorded here; restart with ORACLE set to them`);
+      else clearAlert(key);
+      const next = call(vault, 'pendingOracle()(address)');
+      if (!/^0x0+$/.test(next)) {
+        const eta = num(call(vault, 'pendingOracleEta()(uint256)'));
+        const venues = venuesOf(next).filter((v) => !known.has(v.toLowerCase()));
+        alertOnce(`pending-oracle:${vault}:${next}`, `${vault}: oracle ${next} is announced from ${new Date(Number(eta) * 1000).toISOString()}${venues.length ? `; record ${venues.join(', ')} before then` : ''}`);
+      }
+    } catch (e) {
+      log(vault, 'oracle check failed:', errLine(e));
+    }
+  }
+}
+
 // Per vault: borrowers seen in Borrowed(address indexed owner, address to, uint256 amount, uint256 fee) and the
 // next block to read. Only a real borrow of at least MIN_DEBT puts an owner here.
 const seen = new Map(VAULTS.map((v) => [v, { owners: new Set(), next: BigInt(process.env.FROM_BLOCK || 0) }]));
@@ -391,6 +417,7 @@ async function main() {
     if (Date.now() - lastScan >= SCAN_SECONDS * 1000 || ONCE) {
       for (const v of VAULTS) scan(v);
       checkVenues();
+      checkVaultOracles();
       lastScan = Date.now();
     }
     if (ONCE) return;

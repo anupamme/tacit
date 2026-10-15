@@ -54,14 +54,15 @@ interface IPoolRegistry {
 ///   ETH_CEILING           (default no limit) ETH vault debt ceiling set by the owner
 ///   USD_MIN_DEBT          (default 100e18)  smallest dollar debt
 ///   ETH_MIN_DEBT          (default 0.04e18) smallest ETH debt
-///   DEPTH_BPS             (default 250)     each vault's total debt at most this share of the pool's ETH depth (both
-///                                           vaults read the same depth, so together they lend twice this share)
+///   DEPTH_BPS             (default 20)      each vault's total debt at most this share of the pool's ETH depth (both
+///                                           vaults read the same depth, so together they lend twice this share); the
+///                                           owner can raise it later (at most doubling, plus 25, per two days)
 ///   BORROW_FEE_BPS        (default 100)     one-time borrow fee, both vaults
-///   MINT_RATIO_BPS        (default 35000), LIQ_RATIO_BPS (default 20000), LIQ_BONUS_BPS (default 2500)
-///   ORACLE_SHORT_WINDOW (7200), ORACLE_WINDOW (10800), ORACLE_MAX_WINDOW (21600) seconds, ORACLE_COVERAGE_BPS (6600):
+///   MINT_RATIO_BPS        (default 35000), LIQ_RATIO_BPS (default 20000), LIQ_BONUS_BPS (default 4000)
+///   ORACLE_SHORT_WINDOW (7200), ORACLE_WINDOW (21600), ORACLE_MAX_WINDOW (28800) seconds, ORACLE_COVERAGE_BPS (6600):
 ///                         the oracle's windows (the longest is at most 127 intervals of 600 s)
-///   LIQ_WINDOW            (default ORACLE_MAX_WINDOW, must equal it), AUCTION_DURATION (default 5400)
-///   OWNER_WINDOW          (default 3600)    seconds an auction is open to its owner alone
+///   LIQ_WINDOW            (default ORACLE_MAX_WINDOW, must equal it), AUCTION_DURATION (default 3600)
+///   OWNER_WINDOW          (default 1800)    seconds an auction is open to its owner alone
 ///   REDEMPTION_FEE_BPS    (default 50)
 ///   FEED_MAX_STALENESS    (default 3900)
 contract DeployTacVault is Script {
@@ -107,8 +108,8 @@ contract DeployTacVault is Script {
         // (the liquidation window, the longest) unless the environment says otherwise; a window needs two thirds of
         // its intervals.
         uint256 shortWindow = vm.envOr("ORACLE_SHORT_WINDOW", uint256(7_200));
-        uint256 window = vm.envOr("ORACLE_WINDOW", uint256(10_800));
-        uint256 maxWindow = vm.envOr("ORACLE_MAX_WINDOW", uint256(21_600));
+        uint256 window = vm.envOr("ORACLE_WINDOW", uint256(21_600));
+        uint256 maxWindow = vm.envOr("ORACLE_MAX_WINDOW", uint256(28_800));
         uint256 coverage = vm.envOr("ORACLE_COVERAGE_BPS", uint256(6_600));
         o.precisionOracle = address(new TacBlockOracle(PRECISION, TAC, 50, shortWindow, window, maxWindow, coverage));
         o.ammOracle = address(
@@ -170,14 +171,14 @@ contract DeployTacVault is Script {
             owner: vm.envAddress("OWNER"),
             mintRatioBps: vm.envOr("MINT_RATIO_BPS", uint256(35_000)),
             liqRatioBps: vm.envOr("LIQ_RATIO_BPS", uint256(20_000)),
-            liqWindow: vm.envOr("LIQ_WINDOW", vm.envOr("ORACLE_MAX_WINDOW", uint256(21_600))),
-            liqBonusBps: vm.envOr("LIQ_BONUS_BPS", uint256(2_500)),
-            auctionDuration: vm.envOr("AUCTION_DURATION", uint256(5_400)),
-            ownerWindow: vm.envOr("OWNER_WINDOW", uint256(3_600)),
+            liqWindow: vm.envOr("LIQ_WINDOW", vm.envOr("ORACLE_MAX_WINDOW", uint256(28_800))),
+            liqBonusBps: vm.envOr("LIQ_BONUS_BPS", uint256(4_000)),
+            auctionDuration: vm.envOr("AUCTION_DURATION", uint256(3_600)),
+            ownerWindow: vm.envOr("OWNER_WINDOW", uint256(1_800)),
             minDebt: minDebt,
             feedMaxStaleness: vm.envOr("FEED_MAX_STALENESS", uint256(3900)),
             debtCeiling: vm.envOr(usd ? "USD_CEILING" : "ETH_CEILING", type(uint256).max),
-            depthBps: vm.envOr("DEPTH_BPS", uint256(250)),
+            depthBps: vm.envOr("DEPTH_BPS", uint256(20)),
             redemptionFeeBps: vm.envOr("REDEMPTION_FEE_BPS", uint256(50)),
             borrowFeeBps: vm.envOr("BORROW_FEE_BPS", uint256(100)),
             feeTo: vm.envOr("FEE_TO", vm.envAddress("OWNER")),
