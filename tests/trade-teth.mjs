@@ -75,15 +75,28 @@ function aggregate3Result(datas) {
 const round = (answer) => '0x' + w32(1) + w32(BigInt(Math.round(answer * 1e8))) + w32(nowS()) + w32(nowS()) + w32(1);
 const sqrtWord = '0x' + w32(BigInt(Math.round(Math.sqrt(PER_ETH) * 1e6)) * 10n ** 12n);
 const sent = [];                                                                       // what the stub wallet was asked to send, in order
-const chain = { rates: true, receipt: 'ok', quote: null, market: null };                            // `quote`: replaces the API's quote for a test
+const chain = { rates: true, receipt: 'ok', quote: null, market: null, settleSim: 'ok', deposit: 'waiting' };    // `quote`: replaces the API's quote for a test
+const POOL = '0x000000000Ed1eabD231Be41d93b719056F7febFC';
+const events = [];                                                                     // the settle's eth_call and the wallet's sends, in the order they came
+const GAS_PRICE = 2n * 10n ** 9n;
 function rpcAnswer(req) {
   const { id, method, params } = req;
   const res = (result) => ({ jsonrpc: '2.0', id, result }), err = (message, code = -32000) => ({ jsonrpc: '2.0', id, error: { code, message } });
   if (method === 'eth_call') {
     if (!chain.rates) return err('stub: no rates');
     if (String(params[0].to).toLowerCase() === '0xca11bde05977b3631167028862be2a173976ca11') return res(aggregate3Result([round(ETH_USD), round(83000), sqrtWord]));
+    if (String(params[0].to).toLowerCase() === POOL.toLowerCase()) {
+      const data = String(params[0].data);
+      if (data.startsWith('0x7da9874f')) return res('0x' + w32(chain.deposit === 'consumed' ? 2 : 1));      // depositStatus(id)
+      if (data.startsWith('0x717fd7f2')) {                                                                   // settle(), tried before it is sent
+        events.push(['sim', { from: params[0].from, data }]);
+        if (chain.settleSim === 'revert') { chain.deposit = 'consumed'; return err('execution reverted', 3); }
+        return res('0x');
+      }
+    }
     return err('stub: eth_call', 3);
   }
+  if (method === 'eth_gasPrice') return res('0x' + GAS_PRICE.toString(16));
   if (method === 'eth_getBalance') return res('0x' + ACCOUNT_BAL.toString(16));
   if (method === 'eth_getTransactionReceipt') { const t = sent.find((x) => x.hash === params[0]); return res(t && chain.receipt !== 'none' ? { status: chain.receipt === 'ok' ? '0x1' : '0x0', logs: [], gasUsed: '0x5208', effectiveGasPrice: '0x1' } : null); }
   if (method === 'eth_blockNumber') return res('0x1000000');
@@ -102,7 +115,7 @@ async function stubWallet(ctx, { reject = false } = {}) {
     if (method === 'personal_sign') { log.signs++; return cast('wallet', 'sign', '--private-key', j.private_key, params[0]); }
     if (method === 'eth_sendTransaction') {
       if (log.reject) throw Object.assign(new Error('User rejected the request.'), { code: 4001 });
-      const hash = '0x' + (sent.length + 1).toString(16).padStart(64, 'a'); sent.push({ hash, tx: params[0] }); return hash;
+      const hash = '0x' + (sent.length + 1).toString(16).padStart(64, 'a'); sent.push({ hash, tx: params[0] }); events.push(['send', params[0]]); return hash;
     }
     throw new Error(`the stub wallet does not do ${method}`);
   });
@@ -121,15 +134,56 @@ const ux = (window.__ux ||= { calls: [], cfg: {} });
 export function setExternalTacHolders() {}
 export function forgetKeys() { ux.forgot = (ux.forgot || 0) + 1; }
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const PV = '0x' + '20'.padStart(64, '0') + 'ab'.repeat(96), PROOF = '0x' + 'cd'.repeat(48);
+const strip = (h) => String(h).replace(/^0x/, '');
+const refusal = (c) => Object.assign(new Error(c === 'free_budget' ? 'relay 429: free relayed settles for today are used up (40/40) — attach a fee above the floor, or prove-mode and settle it yourself'
+  : c === 'relay_held' ? 'relay 429: the relay can’t take this one just now: it is catching up on settles. Send it from your own account instead; the relay still proves it for you'
+  : 'relay 429: prove capacity for today is used up (9/9) — prove locally instead, or use a relayed settle'), { code: c, httpStatus: 429, retryAfter: 300 });
+const openOf = (jobId, memos) => ({ jobId, type: 'wrap', publicValues: PV, proof: PROOF, memos });
 export function makeConfidentialPoolUx() {
   return {
     async nextWrapIndex(a) { ux.calls.push(['nextWrapIndex', a.ticker, a.walletPriv.length]); await wait(ux.cfg.indexMs || 0); if (ux.cfg.indexFails) throw new Error('nextWrapIndex: could not read this asset\\'s wrap deposits (stub); retry'); return ux.cfg.index ?? 7; },
-    buildWrap(a) { ux.calls.push(['buildWrap', String(a.amountWei), a.ticker, a.index]); return { commit: '0x' + 'ab'.repeat(32), index: a.index, leaf: 'leaf' + a.index, wrapOp: {}, outputs: [], memos: [] }; },
+    buildWrap(a) {
+      ux.calls.push(['buildWrap', String(a.amountWei), a.ticker, a.index]);
+      ux.builds = (ux.builds || 0) + 1;
+      return { commit: '0x' + 'ab'.repeat(32), index: a.index, leaf: 'leaf' + a.index, depositId: '0x' + a.index.toString(16).padStart(64, '0'), wrapOp: {}, outputs: [], memos: ['0x' + 'ee'.repeat(40) + ux.builds.toString(16).padStart(2, '0')] };
+    },
     async submitWrapSettle(a) {
-      ux.calls.push(['submitWrapSettle', a.built.index, a.depositTx || null, a.waitOpts?.timeoutMs]);
+      ux.calls.push(['submitWrapSettle', a.built.index, a.depositTx || null, a.waitOpts?.timeoutMs, a.selfSettle ? 'self' : 'relay']);
       await wait(ux.cfg.settleMs || 0);
-      if (ux.cfg.settleFails > 0) { ux.cfg.settleFails--; throw new Error('settle timed out (box offline or backlogged)'); }
+      const jobId = 'job-' + (ux.jobs = (ux.jobs || 0) + 1);
+      if (a.selfSettle) {
+        if (ux.cfg.proveRefuse) { ux.cfg.proveRefuse = false; throw refusal('prove_budget'); }
+        const sent = await a.selfSettle({ jobId, publicValues: PV, proof: PROOF, memos: a.built.memos });
+        return { jobId, status: 'settled', ...sent };
+      }
+      if (ux.cfg.settleRefuse) { const c = ux.cfg.settleRefuse; ux.cfg.settleRefuse = null; throw refusal(c); }
+      a.waitOpts?.onJob?.(jobId, 'wrap');
+      if (ux.cfg.settleOpen) { ux.cfg.settleOpen = false; throw Object.assign(new Error('settle held: proved and waiting for a sender (job ' + jobId + '); it can be sent from any account now'), { code: 'open', open: openOf(jobId, a.built.memos) }); }
+      // an open job whose memos the relay kept from an earlier send of the same deposit: the pool module drops the proof, as its memos are not this call's
+      if (ux.cfg.settleOpenElse) { ux.cfg.settleOpenElse = false; ux.lastMemos = ['0x' + 'dd'.repeat(41)]; throw new Error('settle held: proved and waiting for a sender (job ' + jobId + '); it can be sent from any account now'); }
+      if (ux.cfg.settleFails > 0) { ux.cfg.settleFails--; ux.lastMemos = a.built.memos; throw new Error('settle timed out (box offline or backlogged)'); }
       return { status: 'settled' };
+    },
+    settleCalldata(p) {
+      const data = '0x717fd7f2' + strip(p.publicValues) + strip(p.proof) + p.memos.map(strip).join('');
+      ux.calls.push(['settleCalldata', data, p.memos.length]);
+      return data;
+    },
+    relay: {
+      async waitForSettle(jobId, o) {
+        ux.calls.push(['waitForSettle', jobId, o.openGraceMs]);
+        if (ux.cfg.waitOpen) { ux.cfg.waitOpen = false; throw Object.assign(new Error('settle held'), { code: 'open', open: openOf(jobId, ux.lastMemos) }); }
+        return { jobId, status: 'settled', txHash: '0x' + 'bb'.repeat(32) };
+      },
+      provenMemos(st, o, sealed) {
+        ux.calls.push(['provenMemos', st.memos.length, sealed.length]);
+        if (st.memos.length === sealed.length && st.memos.every((x, i) => x === sealed[i])) return sealed;
+        if (ux.cfg.memosOpen) return st.memos;
+        throw new Error('a memo does not open to this note');
+      },
+      async landed(jobId, txHash) { ux.calls.push(['landed', jobId, txHash]); return { ok: true, status: 'settled', txHash }; },
+      async verifyEmittedMemos(st) { ux.calls.push(['verifyEmittedMemos', st.jobId, st.txHash]); return st; },
     },
     async balance(priv, o) {
       ux.calls.push(['balance', priv.length, JSON.stringify(o)]);
@@ -444,6 +498,117 @@ try {
   u = await ux(p);
   const lastBuild = [...u.calls].reverse().find((c) => c[0] === 'buildWrap'), lastSub = [...u.calls].reverse().find((c) => c[0] === 'submitWrapSettle');
   ok(lastBuild[1] === String(10000000n * 10n ** 10n) && lastBuild[3] === 3 && lastSub[1] === 3 && lastSub[2] === '0x' + 'cd'.repeat(32), 'Finish rebuilds the note at its own index and amount, and gives the relay its deposit');
+  // ── the relay refuses the settle: the deposit is finished from the wallet, which sends the relay's proof itself ──
+  const deposit = async (amt) => {
+    await p.fill('#amt', amt);
+    await until(p, () => document.querySelector('#go').textContent === 'Make ETH private' && !document.querySelector('#go').disabled);
+    await p.click('#go');
+  };
+  const lastCall = (u2, name) => [...u2.calls].reverse().find((c) => c[0] === name);
+  const count = (u2, name, f = () => true) => u2.calls.filter((c) => c[0] === name && f(c)).length;
+  const fee = (GAS_PRICE * 593000n).toString().padStart(19, '0'), feeTxt = `0.${fee.slice(1, 6).replace(/0+$/, '')}`;
+  await cfg(p, { settleRefuse: 'free_budget' });
+  events.length = 0;
+  await deposit('0.05');
+  await until(p, () => document.querySelector('#self'), null, 20000);
+  await until(p, () => /about 0\.\d+ ETH/.test(document.querySelector('#status').textContent), null, 10000);
+  let sst = await text(p, '#status');
+  ok(/free settles for today are used up/.test(sst) && sst.includes(`Finish it from your wallet: Test Wallet pays the network fee (about ${feeTxt} ETH).`) && /ask the relay again/.test(sst) && /no need to send it again/.test(sst), `a refused settle offers to finish from the wallet, and says what the network fee is (${sst.slice(0, 260)})`);
+  ok(!/low on|out of gas|running low|no gas/i.test(sst), 'nothing says the relay is short of anything');
+  ok((await text(p, '#go')) === 'Finish the earlier deposit first', 'the ticket waits for the deposit to be finished');
+  const depositHash = r.log.sends.at(-1).hash;
+  await p.click('#self');
+  await until(p, () => /Done\./.test(document.querySelector('#status').textContent), null, 20000);
+  u = await ux(p);
+  const stx = r.log.sends.at(-1).tx, cd = lastCall(u, 'settleCalldata');
+  ok(stx.to.toLowerCase() === POOL.toLowerCase() && stx.data === cd[1] && cd[1].startsWith('0x717fd7f2') && !stx.value && stx.from.toLowerCase() === r.log.account.toLowerCase(), 'the wallet sends settle(publicValues, proof, memos) to the pool, with no value, from the connected account');
+  const ord = events.map((x) => x[0]);
+  ok(ord.join() === 'send,sim,send' && events[1][1].data === stx.data && events[1][1].from.toLowerCase() === r.log.account.toLowerCase(), `the settle is tried with eth_call from the wallet's account before the wallet is asked (${ord.join()})`);
+  const selfSub = lastCall(u, 'submitWrapSettle');
+  ok(selfSub[4] === 'self' && selfSub[2] === depositHash, 'with no proof held, the relay is asked to prove only, for the same deposit');
+  const ld = lastCall(u, 'landed');
+  ok(ld && ld[2] === r.log.sends.at(-1).hash && /^job-\d+$/.test(ld[1]), `the API is told the job landed, with the settle's hash (${ld && ld.slice(1).join(' ')})`);
+  ok(/tETH is private now/.test(await text(p, '#status')) && /Settled from your wallet/.test(await text(p, '#status')) && (await text(p, '#go')) === 'Enter an amount', 'it says it is done, and the ticket is free again');
+
+  // a job the relay proved and holds for a sender: the wallet sends that proof, and nothing is proved again
+  await cfg(p, { settleOpen: true });
+  await deposit('0.06');
+  await until(p, () => document.querySelector('#self'), null, 20000);
+  sst = await text(p, '#status');
+  ok(/proved and waiting to be sent/.test(sst) && /Finish it from your wallet/.test(sst), `an open job says its note is proved and offers the wallet (${sst.slice(0, 120)})`);
+  let before2 = await ux(p);
+  const selfSubs = count(before2, 'submitWrapSettle', (c) => c[4] === 'self'), waits = count(before2, 'waitForSettle');
+  await p.click('#self');
+  await until(p, () => /Done\./.test(document.querySelector('#status').textContent), null, 20000);
+  u = await ux(p);
+  ok(count(u, 'submitWrapSettle', (c) => c[4] === 'self') === selfSubs && count(u, 'waitForSettle') === waits, 'the proof the relay holds is sent at once: no new proof, no wait');
+  ok(r.log.sends.at(-1).tx.to.toLowerCase() === POOL.toLowerCase() && r.log.sends.at(-1).tx.data === lastCall(u, 'settleCalldata')[1] && lastCall(u, 'settleCalldata')[1].includes('ab'.repeat(96)), 'the wallet sends that proof to the pool');
+  ok(lastCall(u, 'provenMemos') && lastCall(u, 'landed')[1] === `job-${u.jobs}` && lastCall(u, 'verifyEmittedMemos')[2] === r.log.sends.at(-1).hash, 'its memos are checked against the note first, the job is reported landed, and the emitted memos are checked');
+
+  // a relay sent it meanwhile: the try reverts, the pool says the deposit is consumed, and nothing is sent
+  await cfg(p, { settleOpen: true });
+  chain.settleSim = 'revert';
+  await deposit('0.07');
+  await until(p, () => document.querySelector('#self'), null, 20000);
+  const sendsNow = r.log.sends.length;
+  await p.click('#self');
+  await until(p, () => /Done\./.test(document.querySelector('#status').textContent), null, 20000);
+  ok(r.log.sends.length === sendsNow && !/Settled from your wallet/.test(await text(p, '#status')), 'a settle that would revert because the deposit is already consumed is done, with nothing sent');
+  chain.settleSim = 'ok'; chain.deposit = 'waiting';
+
+  // the wait ran out: the relay's job is waited on until it is proved, then sent from the wallet
+  await cfg(p, { settleFails: 1, waitOpen: true });
+  await deposit('0.08');
+  await until(p, () => document.querySelector('#self'), null, 20000);
+  ok(/still working on it/.test(await text(p, '#status')), 'a wait that ran out offers the wallet too');
+  await p.click('#self');
+  await until(p, () => /Done\./.test(document.querySelector('#status').textContent), null, 20000);
+  u = await ux(p);
+  const wf = lastCall(u, 'waitForSettle');
+  ok(wf[1] === `job-${u.jobs}` && wf[2] === 0 && lastCall(u, 'landed')[1] === wf[1] && r.log.sends.at(-1).tx.to.toLowerCase() === POOL.toLowerCase(), `the same job is waited on (no grace once it is open) and its proof sent (${wf.join(' ')})`);
+
+  // no proofs left today: said plainly, and the wallet is not offered (it needs the relay's proof too)
+  await cfg(p, { settleRefuse: 'prove_budget' });
+  await deposit('0.09');
+  await until(p, () => document.querySelector('#retry'), null, 20000);
+  sst = await text(p, '#status');
+  ok(/as many proofs as it can for today; try again after midnight UTC\. Your deposit is safe and waits to be finished\./.test(sst) && !(await p.$('#self')), `a relay with no proofs left says so and offers no wallet finish (${sst.slice(0, 160)})`);
+  await p.click('#retry');
+  await until(p, () => /Done\./.test(document.querySelector('#status').textContent), null, 20000);
+
+  // a waiting deposit the relay will not take: Finish offers the wallet, which finishes it
+  await cfg(p, { pending: [{ index: 5, asset: '0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34', value: 3000000, txHash: '0x' + 'c5'.repeat(32) }], settleRefuse: 'relay_held' });
+  await p.click('#mode-seg [data-mode="use"]'); await p.click('#held-re');
+  await until(p, () => document.querySelector('#finish'), null, 20000);
+  await p.click('#mode-seg [data-mode="get"]');
+  await p.click('#finish');
+  await until(p, () => document.querySelector('#self-pending'), null, 20000);
+  sst = await text(p, '#status');
+  ok(/catching up on settles and did not take this one/.test(sst) && /Finish from your wallet: Test Wallet pays the network fee/.test(sst), `a refused Finish offers the wallet (${sst.slice(0, 160)})`);
+  await cfg(p, { pending: [] });
+  const pendSends = r.log.sends.length;
+  await p.click('#self-pending');
+  await until(p, () => /They are private now/.test(document.querySelector('#status').textContent), null, 20000);
+  u = await ux(p);
+  ok(r.log.sends.length === pendSends + 1 && r.log.sends.at(-1).tx.to.toLowerCase() === POOL.toLowerCase() && lastCall(u, 'submitWrapSettle')[2] === '0x' + 'c5'.repeat(32) && lastCall(u, 'submitWrapSettle')[4] === 'self' && lastCall(u, 'buildWrap')[3] === 5, 'the waiting deposit is rebuilt from the key and settled from the wallet');
+
+  // a waiting deposit the relay proved earlier, with the memos it was first sent with: Finish's rebuilt note has others, so no proof comes back
+  // with the refusal; the wallet waits on the job, checks the relay's memos open to the note, and sends the proof with them
+  await cfg(p, { pending: [{ index: 6, asset: '0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34', value: 4000000, txHash: '0x' + 'c6'.repeat(32) }], settleOpenElse: true, waitOpen: true, memosOpen: true });
+  await p.click('#mode-seg [data-mode="use"]'); await p.click('#held-re');
+  await until(p, () => document.querySelector('#finish'), null, 20000);
+  await p.click('#mode-seg [data-mode="get"]');
+  await p.click('#finish');
+  await until(p, () => document.querySelector('#self-pending'), null, 20000);
+  ok(/proved and waiting to be sent/.test(await text(p, '#status')), `a held job without its proof still offers the wallet (${(await text(p, '#status')).slice(0, 100)})`);
+  await cfg(p, { pending: [] });
+  await p.click('#self-pending');
+  await until(p, () => /They are private now/.test(document.querySelector('#status').textContent), null, 20000);
+  u = await ux(p);
+  const heldJob = lastCall(u, 'waitForSettle');
+  ok(heldJob[2] === 0 && lastCall(u, 'landed')[1] === heldJob[1] && r.log.sends.at(-1).tx.data.includes('dd'.repeat(41)) && count(u, 'submitWrapSettle', (c) => c[2] === '0x' + 'c6'.repeat(32) && c[4] === 'self') === 0, 'the job Finish asked for is waited on, and its proof sent with the relay\'s memos once they open to the note; nothing is proved again');
+  await cfg(p, { memosOpen: false });
+
   // locking forgets the key
   await p.click('#mode-seg [data-mode="use"]'); await p.click('#held-lock');
   await until(p, () => document.querySelector('#signin') && window.__ux.forgot >= 1);

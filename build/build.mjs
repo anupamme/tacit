@@ -184,8 +184,9 @@ const TRADE_CB_FILES = ['trade/tape.js', 'trade/chart.js', 'trade/book.js', 'tra
 const VAULT_CB_FILES = ['vault/math.js', 'vault/deployments.js', 'vault/chain.js', 'vault/app.js', 'vault/index.html'];
 // dapp/splitter/ is the tip splitter page: its encodings and the contract's creation code first, then app.js, then the page.
 const SPLITTER_CB_FILES = ['splitter/abi.js', 'splitter/bytecode.js', 'splitter/app.js', 'splitter/index.html'];
-// dapp/relay/ is the public page on what the relay earns and spends and what the buyback has bought: app.js, then the page.
-const RELAY_CB_FILES = ['relay/app.js', 'relay/index.html'];
+// dapp/relay/ is the public page on what the relay earns and spends and what the buyback has bought, the settles it holds for any sender, and
+// paying for its proofs: the encodings first, then the open board and the proofs panel, then app.js, then the page.
+const RELAY_CB_FILES = ['relay/abi.js', 'relay/open.js', 'relay/prove.js', 'relay/app.js', 'relay/index.html'];
 // The trade page has one address for each asset it trades: /trade/tac/ is TAC's, and /trade/ (which will list assets later) takes that
 // address today. Both are the same page, so /trade/tac/index.html is made from /trade/index.html, differing only in the address
 // the page names as its own, and `--verify-only` fails when it is not what this makes.

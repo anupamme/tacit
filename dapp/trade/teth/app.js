@@ -5,10 +5,10 @@
 //
 // It reads the chain and the API with no wallet, as /trade/tac/ does, and holds no key it was not given: the key lives in this visit's memory.
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=e2110e58';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=98994139';
-import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=add8fb0e';
-import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=e30e5678';
-import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, forgetUx, getUx } from '/trade/teth/wrap.js?cb=86f5d142';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=79211ff3';
+import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=fc9032d3';
+import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=96ae1c5b';
+import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, forgetUx, getUx } from '/trade/teth/wrap.js?cb=94309936';
 import { mountDepth } from '/trade/depth.js?cb=21a5dc95';
 import { candlesFromTrades, closeAt } from '/trade/tape.js?cb=6565501b';
 import { readMarket, isActive, bookState, refSats, premium, satsTxt, ladders, idle, bookPrime, summary, fillBars, BTC_ID } from '/trade/teth/market.js?cb=cca360ae';
@@ -22,7 +22,7 @@ const PRESETS = [['0.01 ETH', '0.01'], ['0.05 ETH', '0.05'], ['0.25 ETH', '0.25'
 // ── the state of the page ──
 const D = { pool: null, hist: null, rates: {}, program: null, rows: [], floor: null, held: null, bal: null, btc: null, btcFailed: false };
 let amtTimer = 0;
-const S = { mode: 'get', amt: '', useAmt: '', quote: null, seq: 0, busy: false, range: null, unit: 'eth', chart: 'held', bunit: 'usd', btcAll: false, stuck: null, steps: null, ready: false };
+const S = { mode: 'get', amt: '', useAmt: '', quote: null, seq: 0, busy: false, range: null, unit: 'eth', chart: 'held', bunit: 'usd', btcAll: false, stuck: null, left: null, cost: null, steps: null, ready: false };
 
 const tn = (s) => esc(s).replace(/\b(tETH|cBTC|cUSD)\b/g, '<span class="tn">$1</span>');   // a token's own spelling inside an uppercase label
 const compact = (x) => (x >= 1e6 ? `$${(x / 1e6).toFixed(x >= 1e7 ? 0 : 1)}M` : x >= 1e3 ? `$${(x / 1e3).toFixed(x >= 1e4 ? 0 : 1)}k` : usd(x));
@@ -296,7 +296,7 @@ function pickProvider(list) {
 }
 const signIn = () => signInSheet(key, { pick: pickProvider });
 function lockKey() {
-  key.lock(); forgetUx(); D.held = null; heldP = null; S.stuck = null; S.askedPending = null;                    // what a retry holds (the note's secrets) goes with the key
+  key.lock(); forgetUx(); D.held = null; heldP = null; S.stuck = null; S.left = null; S.askedPending = null;       // what a retry holds (the note's secrets) goes with the key
   paintSteps(null); say(''); renderTicketAll(); renderFarm();
 }
 key.onChange(() => { renderGo(); renderUse(); renderFarm(); renderQuote(); renderWaiting(); if (key.unlocked && D.held?.pub !== key.key.pubHex) loadHeld(); });   // a key just opened is read at once: what it already holds, and any deposit waiting
@@ -378,15 +378,35 @@ function fail(e, at, q) {
   const dep = e?.deposit;
   paintSteps(at, { failed: true });
   if (dep) {
-    S.stuck = { ...dep, wei: q.wei };
+    S.stuck = { ...dep, wei: q.wei, open: e.open || null, self: !!dep.landed && selfable(e) };
     S.amt = ''; $('#amt').value = ''; S.quote = null; S.seq++; renderQuote(); renderChips(); keepInHash();
     say(stuckText(e, S.stuck));
+    if (S.stuck.self) fillCost();
     if (key.unlocked) setTimeout(() => { if (key.unlocked) loadHeld(true); }, dep.landed ? 0 : 20000);
     return;
   }
   say(esc(relayWords(e)), true);
 }
-const stuckText = (e, st) => `<span class="err">${esc(relayWords(e))}</span><br>${st.landed ? `Your ${esc(fmtUnits(st.wei, 18, 6))} ETH is in the Tacit pool, but it is not private yet.` : `Your ${esc(fmtUnits(st.wei, 18, 6))} ETH deposit was sent ${txLink(st.hash)} but is not confirmed yet.`} There is no need to send it again: <button class="linkbtn" type="button" id="retry">${st.landed ? 'Finish it now' : 'Check again'}</button>, or ${st.landed ? 'finish' : 'once it lands, finish'} it on tacit.finance's Private ETH tab with the same key.`;
+const stuckText = (e, st) => `<span class="err">${esc(relayWords(e))}</span><br>${st.landed ? `Your ${esc(fmtUnits(st.wei, 18, 6))} ETH is in the Tacit pool, but it is not private yet.` : `Your ${esc(fmtUnits(st.wei, 18, 6))} ETH deposit was sent ${txLink(st.hash)} but is not confirmed yet.`} ${st.landed && st.self
+  ? `There is no need to send it again. ${selfOffer('Finish it from your wallet', 'self')} Or <button class="linkbtn" type="button" id="retry">ask the relay again</button>, or finish it later on tacit.finance's Private ETH tab with the same key.`
+  : `There is no need to send it again: <button class="linkbtn" type="button" id="retry">${st.landed ? 'Finish it now' : 'Check again'}</button>, or ${st.landed ? 'finish' : 'once it lands, finish'} it on tacit.finance's Private ETH tab with the same key.`}`;
+// Finishing from the wallet: settle() is open to any account, so the connected wallet can send the relay's proof itself and pay the network fee.
+// The fee is said before it is asked for: a wrap's settle gas at the price now, filled in once read.
+const walletName = () => (W.account && W.name ? W.name : 'Your wallet');
+const costTxt = () => (S.cost ? ` (about ${fmtUnits(S.cost, 18, 5)} ETH)` : '');
+const selfOffer = (label, id) => `<button class="linkbtn" type="button" id="${id}">${esc(label)}</button>: ${esc(walletName())} pays the network fee<span class="self-cost">${esc(costTxt())}</span>.`;
+function fillCost() { settleCost().then((c) => { if (c) S.cost = c; for (const el of document.querySelectorAll('.self-cost')) el.textContent = costTxt(); }); }
+const SELF_STEPS = [['proving', 'The relay proves your note'], ['check', 'The settle is checked before it is sent'], ['confirm', 'Confirm the settle in your wallet'], ['landing', 'It lands on Ethereum']];
+function selfSteps(set) {
+  return (k, hash) => {
+    const at = k === 'sent' ? 'landing' : k;
+    set(at); paintSteps(at);
+    if (k === 'proving') say('Waiting for the relay\'s proof of your note…');
+    else if (k === 'check') say('Checking the settle before it is sent…');
+    else if (k === 'confirm') say(`Confirm the settle in your wallet. ${esc(walletName())} pays the network fee${esc(costTxt())}.`);
+    else if (k === 'sent') say(`Settle sent ${txLink(hash)}. Waiting for it to land…`);
+  };
+}
 async function retry() {
   const st = S.stuck;
   if (!st || S.busy) return;
@@ -403,7 +423,31 @@ async function retry() {
     S.stuck = null; paintSteps(null, { all: true });
     say(`<span class="ok">Done.</span> ${esc(fmtUnits(st.wei, 18, 8))} tETH is private now.`);
     loadHeldUntil((h) => !(h.pending || []).length);
-  } catch (e) { paintSteps(st.landed ? 'proving' : 'landing', { failed: true }); say(stuckText(e, st)); }
+  } catch (e) {
+    if (st.landed) { st.open = e.open || null; st.jobId = e.deposit?.jobId || st.jobId || null; st.self = selfable(e); }
+    paintSteps(st.landed ? 'proving' : 'landing', { failed: true }); say(stuckText(e, st));
+    if (st.self) fillCost();
+  }
+  finally { S.busy = false; lockTicket(); renderGo(); }
+}
+// The relay's proof, sent from the connected wallet: the job it holds if it has proved it, or a proof asked for now.
+async function runSelf() {
+  const st = S.stuck;
+  if (!st?.landed || S.busy) return;
+  if (!W.account && !(await connect.connect())) return;
+  S.busy = true; S.steps = SELF_STEPS; lockTicket(); renderGo();
+  let at = 'proving';
+  try {
+    const r = await selfFinish({ built: st.built, hash: st.hash, jobId: st.jobId || null, open: st.open, wallet, from: W.account, say: selfSteps((k) => { at = k; }) });
+    S.stuck = null; paintSteps(null, { all: true });
+    say(`<span class="ok">Done.</span> ${esc(fmtUnits(st.wei, 18, 8))} tETH is private now.${r.txHash && !r.already ? ` Settled from your wallet ${txLink(r.txHash)}.` : ''}`);
+    loadHeldUntil((h) => !(h.pending || []).length);
+  } catch (e) {
+    if (e?.open) st.open = e.open;
+    if (e?.code === 'prove_budget') st.self = false;
+    if (e instanceof UserStopped || e?.userStopped) paintSteps(null); else paintSteps(at, { failed: true });
+    say(stuckText(e, st));
+  }
   finally { S.busy = false; lockTicket(); renderGo(); }
 }
 async function runFinish() {
@@ -411,14 +455,36 @@ async function runFinish() {
   const p = D.held?.pending || [];
   if (!p.length) return;
   S.busy = true; S.steps = [['proving', 'The relay finishes it, about a minute']]; lockTicket(); renderGo(); renderWaiting(); say(''); paintSteps('proving');
-  const kept = 'It is still in the Tacit pool: press Finish again, or finish it on tacit.finance\'s Private ETH tab with the same key. There is no need to send it again.';
   try {
-    const { done, err } = await finish({ priv: () => key.priv(), pending: p });
+    const { done, err, left } = await finish({ priv: () => key.priv(), pending: p });
     paintSteps(null);
-    if (err) say(`${done ? `${done} settled; another did not: ` : ''}${esc(relayWords(err))} ${kept}`, true);
+    S.left = left.length ? left : null;
+    if (err) finishFailed(done, err);
     else say('<span class="ok">Done.</span> They are private now.');
-  } catch (e) { paintSteps(null); say(`${esc(relayWords(e))} ${kept}`, true); }
+  } catch (e) { paintSteps(null); say(`${esc(relayWords(e))} ${KEPT}`, true); }
   finally { S.busy = false; lockTicket(); renderGo(); await loadHeldUntil((h) => !(h.pending || []).length); }
+}
+const KEPT = 'It is still in the Tacit pool: press Finish again, or finish it on tacit.finance\'s Private ETH tab with the same key. There is no need to send it again.';
+// A refusal the wallet can end keeps the offer; after a try from the wallet it stays unless the relay has no proofs left today.
+function finishFailed(done, err, fromWallet = false) {
+  if (S.left && !(fromWallet ? err?.code !== 'prove_budget' : selfable(err))) S.left = null;
+  say(`<span class="err">${done ? `${done} settled; another did not: ` : ''}${esc(relayWords(err))} ${KEPT}</span>${S.left ? ` ${selfOffer('Finish from your wallet', 'self-pending')}` : ''}`);
+  if (S.left) fillCost();
+}
+// What Finish left, settled from the connected wallet: each deposit rebuilt from the key, with the relay's proof of it sent by the wallet.
+async function runSelfPending() {
+  const left = S.left;
+  if (!left?.length || S.busy || !key.unlocked) return;
+  if (!W.account && !(await connect.connect())) return;
+  S.busy = true; S.steps = SELF_STEPS; lockTicket(); renderGo(); renderWaiting();
+  let at = 'proving';
+  try {
+    const { done, err, left: still } = await finish({ priv: () => key.priv(), pending: left, self: { wallet, from: W.account }, say: selfSteps((k) => { at = k; }) });
+    S.left = still.length ? still : null;
+    if (err) { if (err instanceof UserStopped || err?.userStopped) paintSteps(null); else paintSteps(at, { failed: true }); finishFailed(done, err, true); }
+    else { paintSteps(null, { all: true }); say('<span class="ok">Done.</span> They are private now.'); }
+  } catch (e) { paintSteps(null); say(`${esc(relayWords(e))} ${KEPT}`, true); }
+  finally { S.busy = false; lockTicket(); renderGo(); renderWaiting(); await loadHeldUntil((h) => !(h.pending || []).length); }
 }
 
 // ── use tETH: where it goes next, each a link that opens it ready on tacit.finance ──
@@ -553,6 +619,8 @@ $('#go').addEventListener('click', () => { say(''); press(); });
 $('#mode-seg').addEventListener('click', (e) => { const b = e.target.closest('[data-mode]'); if (b && !S.busy) setMode(b.dataset.mode); });
 $('#status').addEventListener('click', (e) => {
   if (e.target.id === 'retry') retry();
+  else if (e.target.id === 'self') runSelf();
+  else if (e.target.id === 'self-pending') runSelfPending();
   const g = e.target.closest('[data-mode-go]'); if (g) { e.preventDefault(); setMode(g.dataset.modeGo); }
 });
 $('#waiting').addEventListener('click', (e) => { if (e.target.id === 'finish') runFinish(); });

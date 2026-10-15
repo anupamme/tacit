@@ -1,10 +1,16 @@
 // The relay page: what the relay earned and spent over the last days, how much of its fee income went to the TAC buyback, what the buyback
 // has bought, and where wrap tips went. One read of the API's /relay/economics; nothing is kept in the browser. Wallet balances are not
 // shown here: this page is about flows, and the operator's own page (/splitter/) is where balances are watched.
+//
+// Two things a visitor can do with a wallet: send a settle the relay has proved and holds for a sender (#open, open.js), and pay for proofs by
+// sending PROVE, or ETH swapped to PROVE, to the prover account (#prove, prove.js). Only the visitor's own balances are read for those.
+import { makeConnect } from '/trade/connect.js?cb=79211ff3';
+import { mountOpen } from '/relay/open.js?cb=c99a6d4c';
+import { mountProve } from '/relay/prove.js?cb=5edd5a20';
 
 const API = 'https://api.tacit.finance';
 const SPLITTER_LABELS = new Map([
-  ['0x68575b073de49a94e3e3acf6f3a0d6e3b66267c7', 'Deployer wallet'],
+  ['0x68575b073de49a94e3e3acf6f3a0d6e3b66267c7', 'Prover account'],
   ['0x7a0f0511e1dcf399c2f7bbe8414b6a0d1abc4331', 'Settle wallet'],
   ['0x6919cbef0e70affa02ae02c86c532a137154f250', 'TAC buyback'],
   ['0x006cd14f36f65ecbb29b2519ccbe63a0dc8549f2', 'Ops multisig'],
@@ -111,3 +117,19 @@ async function load() {
 }
 load();
 setInterval(load, 120000);
+
+// ── the wallet, and what it can do here ──
+// The wallet's notices go to the status line of the panel last used.
+let sayTo = '#open-status', board = null, prove = null;
+const sayIn = (sel) => (html, err = false) => { sayTo = sel; const s = $(sel); if (s) s.innerHTML = !html ? '' : err ? `<span class="err">${html}</span>` : html; };
+const connect = makeConnect({
+  describe: 'Send proved settles, and pay for proofs',
+  busy: () => !!(board?.busy() || prove?.busy()),
+  say: (html, err) => sayIn(sayTo)(html, err),
+  onChange: () => { board?.render(); prove?.onAccount(); },
+});
+const { wallet, W } = connect;
+board = mountOpen({ el: $('#open'), wallet, W, connect, say: sayIn('#open-status') });
+prove = mountProve({ el: $('#prove'), wallet, W, connect, say: sayIn('#pv-status') });
+// /relay/#open and /relay/#prove: the panel is brought into view again once the board above it has its rows.
+if (/^#(open|prove)$/.test(location.hash)) board.ready.then(() => $(location.hash)?.scrollIntoView({ block: 'start' }));

@@ -3,17 +3,31 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self' https://api.tacit.finance; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
 <meta name="color-scheme" content="light dark">
 <title>Relay and buyback · tacit</title>
-<meta name="description" content="What the relay earns, what it spends keeping settles and the bridge running, and the tenth of its fee income that buys TAC.">
+<meta name="description" content="What the relay earns, what it spends keeping settles and the bridge running, and the tenth of its fee income that buys TAC. Send a settle it has proved, or pay for its proofs.">
 <link rel="canonical" href="https://tacit.finance/relay/">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /relay/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/relay/app.js?cb=b9f17f89">
+<link rel="modulepreload" href="/relay/app.js?cb=f74823a4">
+<link rel="modulepreload" href="/trade/connect.js?cb=79211ff3">
+<link rel="modulepreload" href="/walletconnect.js?cb=31f53606">
+<link rel="modulepreload" href="/trade/wallet.js?cb=a6b2910e">
+<link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
+<link rel="modulepreload" href="/trade/util.js?cb=e24c4ef6">
+<link rel="modulepreload" href="/trade/rpc.js?cb=eb8f83d1">
+<link rel="modulepreload" href="/trade/fmt.js?cb=43646c2e">
+<link rel="modulepreload" href="/relay/open.js?cb=c99a6d4c">
+<link rel="modulepreload" href="/confidential-relay.js?cb=e77ed266">
+<link rel="modulepreload" href="/confidential-deployments.js?cb=a1c99a44">
+<link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
+<link rel="modulepreload" href="/confidential-deployments.generated.js">
+<link rel="modulepreload" href="/relay/abi.js?cb=e137b68f">
+<link rel="modulepreload" href="/relay/prove.js?cb=5edd5a20">
 <!-- preload:end -->
 <style>
 @font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
@@ -29,6 +43,7 @@
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
   --serif: 'Instrument Serif', Georgia, serif;
   --tap: 44px;
+  --scrim: rgba(26,26,26,.36); --sheet-shadow: 0 40px 90px -40px rgba(0,0,0,.6);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -37,6 +52,7 @@
     --ink: #EDE5CF; --mute: #A39B85;
     --hair: rgba(237,229,207,.12); --hair-2: rgba(237,229,207,.28);
     --ok: #8fcf9a; --warn: #f7931a; --err: #f08a6c;
+    --scrim: rgba(0,0,0,.6);
     color-scheme: dark;
   }
 }
@@ -146,6 +162,49 @@ th:first-child, td:first-child { text-align: left; padding-left: 0; }
 .scroll { overflow-x: auto; }
 .flow { margin: 0; padding-left: 18px; font-size: 12.5px; } .flow li { margin: 7px 0; }
 .stale { font-size: 11.5px; color: var(--mute); margin: 8px 0 0; }
+
+/* the open board and paying for proofs */
+.panel[id] { scroll-margin-top: 12px; }
+.lead { margin: 0; font-size: 13px; }
+.calm { margin: 4px 0 0; font: 400 22px/1.2 var(--serif); color: var(--mute); }
+.job { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px 14px; align-items: center; padding: 10px 0; border-top: 1px solid var(--hair); font-size: 12.5px; }
+.job:first-child { border-top: 0; }
+.job .jt { min-width: 0; } .job .jt b { font-weight: 500; } .job .jt small, .job .jf small { display: block; color: var(--mute); font-size: 11.5px; }
+.job .jf { text-align: right; overflow-wrap: anywhere; }
+.job .jx { font-size: 12px; }
+.tag { display: inline-block; margin-left: 8px; padding: 0 6px; font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--mute); border: 1px solid var(--hair-2); vertical-align: 1px; }
+.btn.sm { width: auto; min-height: 36px; margin-top: 0; padding: 6px 14px; font-size: 12.5px; }
+@media (pointer: coarse) { .btn.sm { min-height: var(--tap); } }
+@media (max-width: 480px) { .job { grid-template-columns: minmax(0, 1fr) auto; } .job .jf { grid-column: 1 / -1; grid-row: 2; text-align: left; } }
+.seg { display: inline-flex; margin: 14px 0 0; border: 1px solid var(--hair-2); }
+.seg button { min-height: 34px; padding: 0 14px; font-size: 12.5px; background: none; border: 0; cursor: pointer; color: var(--mute); }
+.seg button + button { border-left: 1px solid var(--hair-2); }
+.seg button[aria-pressed="true"] { color: var(--card); background: var(--ink); }
+.seg button:disabled { cursor: not-allowed; }
+.lbl2 { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin: 14px 0 6px; font-size: 12px; color: var(--mute); }
+.amt { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--field); border: 1px solid var(--hair); border-bottom-color: var(--ink); }
+.amt input { flex: 1; min-width: 0; padding: 4px 0; font-size: 20px; background: none; border: 0; outline: none; }
+.amt .u { font-size: 12.5px; color: var(--mute); }
+.addr { font-size: 11.5px; overflow-wrap: anywhere; }
+#pv-quote:empty { display: none; }
+
+/* sheets: the wallet picker, the pairing code, the wallet */
+.bsheet { position: fixed; inset: 0; z-index: 900; display: grid; grid-template-columns: minmax(0, 1fr); place-items: start center; padding: 16px; overflow: auto; overflow-x: hidden; overscroll-behavior: contain; background: var(--scrim); backdrop-filter: blur(2px); }
+.bsheet.top { z-index: 1100; place-items: center; }
+.bsheet-in { min-width: 0; width: min(520px, 100%); padding: 22px 22px 24px; color: var(--ink); background: var(--card); border: 1px solid var(--ink); box-shadow: var(--sheet-shadow); }
+.bsheet-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
+.bsheet-head h2 { font: 400 28px/1 var(--serif); letter-spacing: -.01em; margin: 0 auto 0 0; }
+.bsheet-head h2:focus { outline: none; }
+.bsheet .x { padding: 4px 8px; font-size: 26px; line-height: 1; cursor: pointer; color: var(--mute); background: none; border: 0; }
+.bsheet .x:hover { color: var(--ink); }
+.bsheet-actions { display: grid; grid-auto-flow: column; gap: 10px; } .bsheet-actions .btn { margin-top: 0; }
+.wc-qr { margin: 0 auto 14px; width: 224px; padding: 10px; background: #fff; } .wc-qr svg { display: block; width: 100%; height: auto; }
+.addr-s { font-size: 11.5px; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .bsheet { padding: 0; place-items: end center; } .bsheet-in { width: 100%; } }
+.picker { display: grid; gap: 8px; }
+.way { display: grid; gap: 3px; width: 100%; padding: 12px 14px; text-align: left; cursor: pointer; background: var(--field); border: 1px solid var(--hair-2); transition: border-color .15s; }
+@media (hover: hover) { .way:hover:not(:disabled) { border-color: var(--ink); } }
+.way-t { display: flex; align-items: center; gap: 10px; font-weight: 500; }
 </style>
 </head>
 <body>
@@ -157,13 +216,16 @@ th:first-child, td:first-child { text-align: left; padding-left: 0; }
       <a href="/">Home</a>
       <a href="/trade/tac/">Trade</a>
       <a href="/weld/stats/">Stats</a>
+      <a href="#open">Waiting</a>
+      <a href="#prove">Pay for proofs</a>
+      <button class="chip" id="wallet-chip" type="button" aria-label="Connect a wallet"><span class="dot" id="wallet-dot"></span><span id="wallet-label">Connect</span></button>
     </nav>
   </header>
 
   <main>
     <section class="hero">
       <h1>The relay, <em>in the open</em></h1>
-      <p class="sub">The relay proves and settles what people send through it, and keeps Bitcoin’s state on Ethereum current for everyone. Here is what it earns, what that costs, and the tenth of its fee income that buys TAC.</p>
+      <p class="sub">The relay proves and settles what people send through it, and keeps Bitcoin’s state on Ethereum current for everyone. Here is what it earns, what that costs, and the tenth of its fee income that buys TAC. Below: settles it has proved that anyone can send, and how to pay for its proofs.</p>
     </section>
 
     <div class="grid">
@@ -185,8 +247,28 @@ th:first-child, td:first-child { text-align: left; padding-left: 0; }
         </section>
       </div>
     </div>
+
+    <div class="grid" style="margin-top:14px">
+      <section class="panel" id="open" aria-labelledby="open-h">
+        <p class="eyebrow"><span id="open-h">Proved, waiting for a sender</span><button class="linkbtn" id="open-re" type="button">refresh</button></p>
+        <div id="open-list" aria-live="polite"><p class="mute">Reading…</p></div>
+        <div class="status" id="open-status" role="status"></div>
+        <p class="note">Anyone can send these. Each is a settle the relay has proved; the pool’s settle is open to every account, and whoever sends one is paid the fee its proof binds, in the asset it names. Your wallet pays the network fee, and each is tried first, so one already sent is not sent again. To send them as they come, <a href="https://github.com/src-company/tacit/blob/main/docs/OPEN-RELAYER.md" target="_blank" rel="noopener">run a relayer</a>.</p>
+      </section>
+      <section class="panel" id="prove" aria-labelledby="prove-h">
+        <p class="eyebrow"><span id="prove-h">Pay for proofs</span><a href="https://etherscan.io/address/0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7" target="_blank" rel="noopener">prover account</a></p>
+        <p class="lead">Every proof the relay makes is paid in PROVE, the token of Succinct’s prover network, from one prover account. PROVE sent to that account is put to work within a few minutes, or at the next half-hourly top-up when it is under 2 PROVE. About 0.4 PROVE pays for one proof.</p>
+        <div class="seg" role="group" aria-label="Pay with"><button type="button" data-pay="prove" aria-pressed="true">Send PROVE</button><button type="button" data-pay="eth" aria-pressed="false">Pay with ETH</button></div>
+        <div class="lbl2"><label for="pv-amt" id="pv-lbl">PROVE to send</label><span><span id="pv-bal"></span> <button class="linkbtn" id="pv-max" type="button" hidden>Max</button></span></div>
+        <div class="amt"><input id="pv-amt" inputmode="decimal" placeholder="0.0" autocomplete="off" aria-describedby="pv-quote"><span class="u" id="pv-unit">PROVE</span></div>
+        <div class="rows" id="pv-quote"></div>
+        <button class="btn" id="pv-go" type="button">Connect wallet</button>
+        <div class="status" id="pv-status" role="status"></div>
+        <p class="note">The prover account is <span class="addr">0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7</span>. PROVE goes to it in one transfer. With ETH, one transaction swaps it to PROVE through zRouter and sends the PROVE straight there, with the least it may buy set before you confirm.</p>
+      </section>
+    </div>
   </main>
 </div>
-<script type="module" src="/relay/app.js?cb=b9f17f89"></script>
+<script type="module" src="/relay/app.js?cb=f74823a4"></script>
 </body>
 </html>

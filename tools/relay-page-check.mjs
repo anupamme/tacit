@@ -1,9 +1,14 @@
 // Checks the relay page (dapp/relay/) in a real browser with the API's /relay/economics stubbed: the buyback's totals and the commitment, the
 // fee table, the costs, the tips and the splitter's shares; then the states with no books yet, an API that fails, and a phone.
+// Then what a visitor's wallet can do there, with the API's /confidential/open and /confidential/landed, the chain's reads and a stub
+// EIP-6963 wallet answered by the test: the open board lists each job with the fee read from its proof's public values, Send it tries the
+// settle with eth_call and then sends it to the pool and reports it landed, and paying for proofs sends PROVE to the prover account or pays
+// ETH through zQuoter's swap to zRouter with the prover account as the recipient.
 //
 //   PLAYWRIGHT=<path to playwright-core> node tools/relay-page-check.mjs   (SHOTS=<dir> saves screenshots)
 
 import { createServer } from 'node:http';
+import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { extname, join, normalize } from 'node:path';
@@ -44,10 +49,73 @@ const FULL = {
   prices: { ethUsd: 2400, proveUsd: 0.18 },
   sponsorship: { day: '2026-10-15', total: { used: 20, cap: 300 }, classes: { onboard: { used: 3, cap: 12 }, farm: { used: 8, cap: 8 }, wrap: { used: 2, cap: null }, other: { used: 1, cap: 4 } } },
 };
+// ── the open board: a proof's public values, made as the pool encodes them (word 0 the tuple's offset, `fees` an offset at word 8, `deadline` word 16) ──
+const w32 = (v) => BigInt(v).toString(16).padStart(64, '0');
+const POOL = '0x000000000Ed1eabD231Be41d93b719056F7febFC', PROVER = '0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7', PROVE = '0x6BEF15D938d4E72056AC92Ea4bDD0D76B1C4ad29';
+const ZQUOTER = '0x000000bd2DB80567c23E353ca95a251c573cBf9B', ZROUTER = '0x000000000000FB114709235f1ccBFfb925F600e4';
+const CETH = '0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34', TAC = '0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
+function pvOf(fees, deadline = 0) {
+  const heads = Array(40).fill(0n);
+  heads[7] = 40n * 32n; heads[15] = BigInt(deadline);
+  return '0x' + w32(32) + heads.map(w32).join('') + w32(fees.length) + fees.map(([id, v]) => id.slice(2) + w32(v)).join('');
+}
+const cast = (...a) => execFileSync('cast', a, { encoding: 'utf8' }).trim();
+const nowMs = Date.now();
+const JOBS = [
+  { jobId: 'j-wrap', type: 'wrap', status: 'open', posted: false, publicValues: pvOf([[CETH, 20486n]]), proof: '0x' + 'cd'.repeat(260), memos: ['0x' + 'ee'.repeat(40)], openSince: nowMs - 4 * 60e3, expiresAt: 0, feeUsd: 0.5, feeAsset: 'cETH' },
+  { jobId: 'j-unwrap', type: 'unwrap', status: 'open', posted: true, publicValues: pvOf([[TAC, 150000000n]], Math.floor(nowMs / 1000) + 3600), proof: '0x' + 'ab'.repeat(260), memos: [], openSince: nowMs - 30e3, expiresAt: nowMs + 3600e3, feeUsd: null, feeAsset: 'TAC' },
+  { jobId: 'j-sending', type: 'swap', status: 'sending', posted: false, publicValues: pvOf([[CETH, 30000n]]), proof: '0x' + 'ab'.repeat(260), memos: ['0x' + 'aa'.repeat(40)], openSince: nowMs - 90 * 60e3, expiresAt: 0, feeUsd: 0.7, feeAsset: 'cETH' },
+  { jobId: 'j-free', type: 'farmharvest', status: 'open', posted: false, publicValues: pvOf([]), proof: '0x' + 'ab'.repeat(260), memos: ['0x' + 'bb'.repeat(40)], openSince: nowMs - 2 * 60e3, expiresAt: 0, feeUsd: null, feeAsset: null },
+];
+const PROVE_BAL = 25n * 10n ** 18n, ETH_BAL = 15n * 10n ** 17n;
+const SWAP_CALL = '0xfeedface' + PROVER.slice(2).toLowerCase().padStart(64, '0') + w32(10n ** 17n);
+const QUOTE = cast('abi-encode', 'f((uint8,uint256,uint256,uint256),bytes,uint256,uint256)', '(1,30,100000000000000000,250000000000000000000)', SWAP_CALL, '247500000000000000000', '100000000000000000');
+const events = [], landed = [], quoted = [];
+let boardMode = 'jobs';
+function rpcAnswer({ id, method, params }) {
+  const res = (result) => ({ jsonrpc: '2.0', id, result }), err = (message, code = -32000) => ({ jsonrpc: '2.0', id, error: { code, message } });
+  if (method === 'eth_call') {
+    const to = String(params[0].to).toLowerCase(), data = String(params[0].data);
+    if (to === PROVE.toLowerCase() && data.startsWith('0x70a08231')) return res('0x' + w32(PROVE_BAL));
+    if (to === ZQUOTER.toLowerCase()) { quoted.push(data); return res(QUOTE); }
+    events.push(['sim', params[0]]);
+    return res('0x');
+  }
+  if (method === 'eth_getBalance') return res('0x' + ETH_BAL.toString(16));
+  if (method === 'eth_getTransactionReceipt') return res(events.some((e) => e[0] === 'send' && e[2] === params[0]) ? { status: '0x1', logs: [] } : null);
+  if (method === 'eth_chainId') return res('0x1');
+  if (method === 'eth_blockNumber') return res('0x1000000');
+  return err(`stub: ${method}`);
+}
+
 let mode = 'full';
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport: { width: 1100, height: 1000 } });
 const CORS = { 'access-control-allow-origin': '*' };
+await ctx.route('https://api.tacit.finance/confidential/open*', (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: CORS, body: JSON.stringify({ pool: POOL, jobs: boardMode === 'jobs' ? JOBS : [] }) }));
+await ctx.route('https://api.tacit.finance/confidential/landed', (route) => {
+  const b = JSON.parse(route.request().postData() || '{}'); landed.push(b);
+  route.fulfill({ status: 200, contentType: 'application/json', headers: CORS, body: JSON.stringify({ ok: true, status: 'settled', txHash: b.txHash }) });
+});
+for (const host of ['ethereum-rpc.publicnode.com', 'eth.drpc.org', '1rpc.io', 'mainnet.gateway.tenderly.co']) await ctx.route(`https://${host}/**`, (route) => {
+  const q = JSON.parse(route.request().postData() || '{}');
+  route.fulfill({ status: 200, contentType: 'application/json', headers: CORS, body: JSON.stringify(Array.isArray(q) ? q.map(rpcAnswer) : rpcAnswer(q)) });
+});
+await ctx.route('**/walletconnect.js*', (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: 'export function announceWalletConnect() { return { provider: null, disconnect: async () => {} }; }' }));
+// A wallet announced through EIP-6963 that records what it is asked to send.
+const ACCOUNT = '0x1111111111111111111111111111111111111111';
+await ctx.exposeFunction('__wallet', async (method, params) => {
+  if (method === 'eth_requestAccounts' || method === 'eth_accounts') return [ACCOUNT];
+  if (method === 'eth_chainId') return '0x1';
+  if (method === 'eth_sendTransaction') { const hash = '0x' + (events.length + 1).toString(16).padStart(64, 'a'); events.push(['send', params[0], hash]); return hash; }
+  throw new Error(`the stub wallet does not do ${method}`);
+});
+await ctx.addInitScript(() => {
+  const provider = { request: ({ method, params }) => window.__wallet(method, params), on() {}, removeListener() {} };
+  const detail = Object.freeze({ info: Object.freeze({ uuid: 'stub-1', name: 'Test Wallet', icon: '', rdns: 'test.wallet' }), provider });
+  const announce = () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail }));
+  window.addEventListener('eip6963:requestProvider', announce); announce();
+});
 await ctx.route('https://api.tacit.finance/relay/economics', (route) => {
   if (mode === 'down') return route.fulfill({ status: 503, headers: CORS, body: 'down' });
   const body = mode === 'empty' ? { updatedAt: new Date().toISOString(), ledger: null, chain: { ...FULL.chain, tips: null, splitter: null, buyback: { ...FULL.chain.buyback, buys: 1, tacBought: 19.93, ethSpent: 0.00123, complete: false } }, prices: null } : FULL;
@@ -76,7 +144,7 @@ ok(/Fees paid in TAC are kept, not sold/.test(tacNote) && !/\$/.test(tacNote), '
   ok(/Fees pay part of all this; the team funds the rest/.test(t), 'costs: says the team funds the rest');
   ok(/Settles the relay pays for today/.test(t) && /Bridge and cBTC mints3 of 12/.test(t) && /Farm harvests and unbonds8 of 8/.test(t) && /Wraps with no tip2 so far/.test(t) && /Other requests with no fee1 of 4/.test(t) && /settled from the sender’s own account/.test(t), `costs: today's sponsored settles against each limit (${t.slice(-330)})`);
   t = await text('#p-tips');
-  ok(/122wraps tipped, 0\.032 ETH/.test(t) && /To Ops multisig0\.031 ETH/.test(t) && /Deployer wallet63%/.test(t) && /Settle wallet27%/.test(t) && /TAC buyback10%/.test(t), `tips: the month's tips, where they went and who the splitter pays (${t.slice(0, 130)})`);
+  ok(/122wraps tipped, 0\.032 ETH/.test(t) && /To Ops multisig0\.031 ETH/.test(t) && /Prover account63%/.test(t) && /Settle wallet27%/.test(t) && /TAC buyback10%/.test(t), `tips: the month's tips, where they went and who the splitter pays (${t.slice(0, 130)})`);
   ok(/send it to a splitter/.test(await text('#flow-tips')), 'flow: with a splitter set, the tip line names it');
   const all = await page.evaluate(() => document.body.textContent);
   ok(!/0\.003 ETH|0\.001 ETH.*4 PROVE|runway|low on gas|running low/i.test(all) && !/68575b073de49a94e3e3acf6f3a0d6e3b66267c7.*\bETH\b.*held/i.test(all), 'no wallet balance or runway is shown on the public page');
@@ -94,11 +162,71 @@ ok(/Fees paid in TAC are kept, not sold/.test(tacNote) && !/\$/.test(tacNote), '
   await page.waitForFunction(() => /Could not read the relay/.test(document.querySelector('#p-buyback')?.textContent || ''), null, { timeout: 15000 });
   ok(true, 'an API that fails is said plainly, on every panel');
 
+  // ── the open board ──
+  mode = 'full';
+  await page.goto('about:blank');
+  await page.goto(`${ROOT}/relay/#open`);
+  await page.waitForFunction(() => document.querySelectorAll('#open-list .job').length === 4 && /TAC bought/.test(document.querySelector('#p-buyback')?.textContent || ''), null, { timeout: 15000 });
+  const rows = await page.$$eval('#open-list .job', (els) => els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()));
+  ok(/Making a deposit private/.test(rows[0]) && /0\.00020486 tETH/.test(rows[0]) && /≈ \$0\.50/.test(rows[0]) && /waiting 4 min · no deadline/.test(rows[0]) && /Send it/.test(rows[0]), `board: a wrap, its fee read from its proof as tETH, its age and no deadline (${rows[0]})`);
+  ok(/A withdrawal/.test(rows[1]) && /posted/.test(rows[1]) && /1\.5 TAC/.test(rows[1]) && /expires in 60 min/.test(rows[1]), `board: a posted withdrawal paying TAC, with its expiry (${rows[1]})`);
+  ok(/being sent/.test(rows[2]) && !(await page.$('#open-list [data-send="j-sending"]')), 'board: a job a relayer is sending offers no button');
+  ok(/A farm harvest/.test(rows[3]) && /no fee/.test(rows[3]), 'board: a job whose proof binds no fee says so');
+  ok(await page.evaluate(() => { const r = document.querySelector('#open').getBoundingClientRect(); return r.top < innerHeight && r.bottom > 0; }), '/relay/#open brings the board into view');
+  const boardNote = await text('#open .note');
+  ok(/Anyone can send these/.test(boardNote) && /paid the fee its proof binds/.test(boardNote) && (await page.$eval('#open .note a', (a) => a.href)).endsWith('/docs/OPEN-RELAYER.md'), 'board: says anyone can send them and who is paid, and links how to run a relayer');
+  await shot('board');
+  events.length = 0;
+  await page.click('#open-list [data-send="j-wrap"]');
+  await page.waitForFunction(() => /Sent\./.test(document.querySelector('#open-status')?.textContent || ''), null, { timeout: 20000 });
+  const want = cast('calldata', 'settle(bytes,bytes,bytes[])', JOBS[0].publicValues, JOBS[0].proof, `[${JOBS[0].memos.join(',')}]`);
+  const sim = events.find((e) => e[0] === 'sim'), sentTx = events.find((e) => e[0] === 'send');
+  ok(events.map((e) => e[0]).join() === 'sim,send', `Send it: the settle is tried with eth_call before the wallet is asked (${events.map((e) => e[0]).join()})`);
+  ok(sim && sim[1].to.toLowerCase() === POOL.toLowerCase() && sim[1].data === want && sim[1].from.toLowerCase() === ACCOUNT, 'Send it: the eth_call is settle(publicValues, proof, memos) to the pool, from the wallet');
+  ok(sentTx && sentTx[1].to.toLowerCase() === POOL.toLowerCase() && sentTx[1].data === want && !sentTx[1].value && sentTx[1].from.toLowerCase() === ACCOUNT, 'Send it: the wallet sends the same call to the pool, with no value');
+  ok(landed.length === 1 && landed[0].jobId === 'j-wrap' && landed[0].txHash === sentTx[2], `Send it: /confidential/landed is told the job and the hash (${JSON.stringify(landed[0])})`);
+  ok(/Its fee, 0\.00020486 tETH, went to 0x1111…1111/.test(await text('#open-status')), `Send it: it says the fee went to the sender (${await text('#open-status')})`);
+
+  // ── paying for proofs ──
+  await page.waitForFunction(() => /Balance 25 PROVE/.test(document.querySelector('#pv-bal')?.textContent || ''), null, { timeout: 15000 });
+  let pv = await text('#prove');
+  ok(/paid in PROVE/.test(pv) && /within a few minutes/.test(pv) && /About 0\.4 PROVE pays for one proof/.test(pv), 'prove: says what PROVE pays for, how soon it is used, and what one proof costs');
+  await page.click('#pv-max');
+  ok((await page.inputValue('#pv-amt')) === '25' && /Pays forabout 62 proofs/.test(await text('#pv-quote')), `prove: Max takes the wallet's PROVE, and it says how many proofs that pays for (${await text('#pv-quote')})`);
+  events.length = 0;
+  await page.click('#pv-go');
+  await page.waitForFunction(() => /Landed\./.test(document.querySelector('#pv-status')?.textContent || ''), null, { timeout: 20000 });
+  const tsend = events.find((e) => e[0] === 'send'), tsim = events.find((e) => e[0] === 'sim');
+  const wantTransfer = cast('calldata', 'transfer(address,uint256)', PROVER, PROVE_BAL.toString());
+  ok(tsim && tsend && events.indexOf(tsim) < events.indexOf(tsend) && tsend[1].to.toLowerCase() === PROVE.toLowerCase() && tsend[1].data === wantTransfer && !tsend[1].value, 'prove: Send PROVE is a transfer of the amount to the prover account, tried first');
+  ok(/It reaches the prover within a few minutes/.test(await text('#pv-status')) && (await page.$('#pv-status a[href*="etherscan.io/tx/"]')), 'prove: after sending, the transaction and when it reaches the prover');
+  await page.click('[data-pay="eth"]');
+  await page.fill('#pv-amt', '0.1');
+  await page.waitForFunction(() => /At least/.test(document.querySelector('#pv-quote')?.textContent || ''), null, { timeout: 15000 });
+  const q = quoted.at(-1).slice(10), wordAt = (i) => q.slice(i * 64, i * 64 + 64);
+  ok(quoted.at(-1).startsWith('0xe7798987') && BigInt('0x' + wordAt(0)) === BigInt(PROVER) && BigInt('0x' + wordAt(1)) === 0n && BigInt('0x' + wordAt(2)) === 0n && BigInt('0x' + wordAt(3)) === BigInt(PROVE) && BigInt('0x' + wordAt(4)) === 10n ** 17n && BigInt('0x' + wordAt(5)) === 100n, 'prove: zQuoter is asked for ETH to PROVE, exact in, 1% slippage, with the prover account as the recipient');
+  const qt = await text('#pv-quote');
+  ok(/You get about250 PROVE/.test(qt) && /At least247\.5 PROVE · 1% slippage guard/.test(qt) && /about 625 proofs/.test(qt), `prove: the quote shows what it buys and the least it may (${qt})`);
+  events.length = 0;
+  await page.click('#pv-go');
+  await page.waitForFunction(() => /Landed\./.test(document.querySelector('#pv-status')?.textContent || ''), null, { timeout: 20000 });
+  const esend = events.find((e) => e[0] === 'send'), esim = events.find((e) => e[0] === 'sim');
+  ok(esim && esend && events.indexOf(esim) < events.indexOf(esend) && esend[1].to.toLowerCase() === ZROUTER.toLowerCase() && esend[1].data === SWAP_CALL && BigInt(esend[1].value) === 10n ** 17n && BigInt(esim[1].value) === 10n ** 17n, 'prove: Pay with ETH sends zQuoter\'s call to zRouter with the ETH, tried first');
+  const all2 = await page.evaluate(() => document.body.textContent);
+  ok(!/runway|low on gas|running low|out of gas|credit left/i.test(all2), 'nothing on the page speaks of the relay\'s balances or runway');
+  await shot('prove');
+
+  boardMode = 'empty';
+  await page.click('#open-re');
+  await page.waitForFunction(() => /Nothing is waiting\./.test(document.querySelector('#open-list')?.textContent || ''), null, { timeout: 15000 });
+  ok(true, 'board: an empty board is calm');
+  boardMode = 'jobs';
+
   mode = 'full';
   await page.setViewportSize({ width: 390, height: 900 });
   await page.reload();
-  await page.waitForFunction(() => /TAC bought/.test(document.querySelector('#p-buyback')?.textContent || ''), null, { timeout: 15000 });
-  ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'phone: no sideways scroll');
+  await page.waitForFunction(() => /TAC bought/.test(document.querySelector('#p-buyback')?.textContent || '') && document.querySelectorAll('#open-list .job').length === 4, null, { timeout: 15000 });
+  ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'phone: no sideways scroll, with the board and the proofs panel');
   await shot('phone');
   ok(errors.length === 0, `no page errors (${errors.slice(0, 2).join(' | ')})`);
 } catch (e) { fails++; console.log('FAIL', e.message.split('\n')[0]); await shot('failure').catch(() => {}); }
