@@ -522,6 +522,12 @@ export function createIntakeHandler({
         const { events, through, factsThrough } = leafSync.eventsFrom(Number(from), EVENTS_PAGE, { facts });
         return send(200, { chainId: chain.chainId, pool: chain.pool, router: chain.router, from: Number(from), through, ...(facts ? { factsThrough } : {}), events });
       }
+      if (p === `${PREFIX}/totals` && req.method === 'GET') {
+        if (!leafSync?.totals) return send(404, { error: 'no totals' });
+        if (!readLimited(clientKey(req))) throw new IntakeError(429, 'rate limited');
+        const t = leafSync.totals();
+        return t ? send(200, { chainId: chain.chainId, pool: chain.pool, ...t }) : send(503, { error: 'the stored history does not have every amount yet' });
+      }
       if (p === `${PREFIX}/head` && req.method === 'GET') {
         if (!readLimited(clientKey(req))) throw new IntakeError(429, 'rate limited');
         return send(200, { chainId: chain.chainId, pool: chain.pool, ...(await headNow()) });

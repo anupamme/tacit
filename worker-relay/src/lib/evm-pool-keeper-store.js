@@ -54,6 +54,8 @@ export function openKeeperStore(dbPath) {
     insEvent: db.prepare('INSERT OR REPLACE INTO events (block, log_index, ev) VALUES (?, ?, ?)'),
     eventsFrom: db.prepare('SELECT block, ev FROM events WHERE block >= ? ORDER BY block, log_index LIMIT ?'),
     eventsBetween: db.prepare('SELECT block, log_index, ev FROM events WHERE block >= ? AND block <= ? ORDER BY block, log_index'),
+    transactsThrough: db.prepare("SELECT json_extract(ev, '$.ext') AS ext, json_extract(ev, '$.fee') AS fee FROM events WHERE block <= ? AND json_extract(ev, '$.kind') = 'transact'"),
+    leavesThrough: db.prepare('SELECT COUNT(*) AS n FROM leaves WHERE block <= ?'),
     updEvent: db.prepare('UPDATE events SET ev = ? WHERE block = ? AND log_index = ?'),
     clearEvents: db.prepare('DELETE FROM events'),
   };
@@ -124,6 +126,9 @@ export function openKeeperStore(dbPath) {
     syncedBlock: () => { const v = st.getMeta.get('synced_block')?.v; return v === undefined ? null : Number(v); },
     // Stored events in blocks a..b, in chain order. → [{ block, logIndex, ev }]
     eventsBetween: (a, b) => st.eventsBetween.all(Number(a), Number(b)).map((r) => ({ block: r.block, logIndex: r.log_index, ev: JSON.parse(r.ev) })),
+    // The amount and fee (decimal text, or null before they are filled in) of each stored Transact event through `block`, and the leaves through it.
+    transactsThrough: (block) => st.transactsThrough.all(Number(block)),
+    leafCountThrough: (block) => st.leavesThrough.get(Number(block)).n,
     // Rewrites stored events in place (same block and log index) and, with a key, moves a progress mark, atomically.
     updateEvents: db.transaction((rows, key = null, value = null) => {
       for (const r of rows) st.updEvent.run(JSON.stringify(r.ev), Number(r.block), Number(r.logIndex));

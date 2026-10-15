@@ -129,7 +129,27 @@ export function makeLeafSync({ store, chain, zk, startBlock = 0n, confirmations 
     return a === null || b === null ? Number(startBlock) - 1 : Math.min(Number(a), Number(b));
   }
 
-  return { sync, eventsFrom, invalidate: reset };
+  // What the pool's confirmed Transact events say went in and out, for a monitor to hold against the pool's balance: deposits,
+  // withdrawals and relayer fees in wei, and the leaves, through the synced block (null before anything is synced, or while an
+  // event stored before amounts were kept still lacks its own). Kept for 30 s, since a read goes through every stored event.
+  let memo = null;
+  function totals() {
+    const through = store.syncedBlock();
+    if (through === null) return null;
+    if (memo && memo.through === through && Date.now() - memo.at < 30_000) return memo.value;
+    let dep = 0n, wd = 0n, fee = 0n, events = 0;
+    for (const r of store.transactsThrough(through)) {
+      if (r.ext === null || r.ext === undefined || r.fee === null || r.fee === undefined) return null;
+      const x = BigInt(r.ext);
+      if (x > 0n) dep += x; else wd -= x;
+      fee += BigInt(r.fee); events++;
+    }
+    const value = { through, events, deposits: dep.toString(), withdrawals: wd.toString(), fees: fee.toString(), leaves: store.leafCountThrough(through) };
+    memo = { through, at: Date.now(), value };
+    return value;
+  }
+
+  return { sync, eventsFrom, totals, invalidate: reset };
 }
 
 // Fills in the stored events' facts, behind the leaf sync and apart from it, so a slow or failing node here never holds up

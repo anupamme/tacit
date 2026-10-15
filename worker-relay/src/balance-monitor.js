@@ -33,6 +33,7 @@ import { reflectionDriftSeen, crossOutGapSeen } from './lib/worker-client.js';
 import { creditLevel } from './lib/prove-credit.js';
 import { blockSecOf, feedLagSec, feedLagLevel } from './lib/feed-lag.js';
 import { settleFundsNeed } from './lib/settle-fees.js';
+import { poolBooks } from './lib/evm-pool-solvency.js';
 import { publicClient, relayWallet, watchedWallets, ERC20_ABI, PROVE, readPool, readReflectionDigest, HEADER_RELAY, RELAY_ABI } from './lib/chain.js';
 import { safeErr } from './lib/safe-err.js';
 
@@ -440,6 +441,7 @@ const EVM_POOL_KEEPERS_DEFAULT = [
 // The keeper's own gas figures (evm-pool-keeper-config.js defaults, unless the entry gives `relayGas` and `gasCap`): an
 // ordinary relay's budget, sent with 30% on the estimate, and the cap on any one transaction.
 const KEEPER_RELAY_GAS = 450_000n, KEEPER_GAS_CAP = 1_500_000n;
+const EVM_POOL_ADDR = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9';   // the same address on every chain
 async function keeperRpc(urls, method, params = []) {
   let last;
   for (const url of urls) {
@@ -511,6 +513,16 @@ async function checkEvmPoolKeepers() {
         }
       }
     } catch (e) { log(`${who} history feed check failed: ${safeErr(e)}`); }
+    // The pool's own books: what its Transact events say went in and out (the keeper's /totals), held against the ETH it holds at the
+    // same block. A balance under the net, or outflows above inflows, is what a flaw in the proof system would look like, so it pages;
+    // a keeper that has no totals yet, or a node without the block's state, is only logged.
+    try {
+      const books = await poolBooks({ keeper: k.keeper, pool: k.pool ?? EVM_POOL_ADDR, rpc: (m, p) => keeperRpc(k.rpc, m, p) });
+      log(`${who} pool books: ${books.level} — ${books.why}`);
+      if (books.level === 'critical' || books.level === 'warning') {
+        await alert(books.level, `The ETH pool on ${k.name}: its events and its balance disagree: ${books.why}. Run tools/evm-pool-solvency.mjs --chain ${k.chainId} to check it from the chain's own logs`, { chainId: k.chainId, through: books.totals?.through, deposits: books.totals?.deposits, withdrawals: books.totals?.withdrawals, fees: books.totals?.fees, balance: books.chain?.balance });
+      }
+    } catch (e) { log(`${who} pool books check failed: ${safeErr(e)}`); }
   }));
 }
 
