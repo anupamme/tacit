@@ -20,7 +20,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /trade/cbtc/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/trade/cbtc/app.js?cb=7fd29326">
+<link rel="modulepreload" href="/trade/cbtc/app.js?cb=8f8fd8bc">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/trade/chart.js?cb=e2110e58">
 <link rel="modulepreload" href="/trade/fmt.js?cb=43646c2e">
@@ -483,6 +483,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
 .lane .g.dev { color: var(--warn); }
 .moves td.in { color: var(--up); } .moves td.out { color: var(--down); }
 .p-depth .table td:first-child { color: var(--mute); white-space: nowrap; }
+.tn { text-transform: none; }
 
 /* cBTC: what backs it, as bars against the line that matters, and the locks as a table */
 .cov { display: grid; gap: 18px; margin: 6px 0 0; }
@@ -586,7 +587,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
     </section>
 
     <section class="panel p-farm" id="farm" aria-labelledby="fm-h">
-      <h2 class="eyebrow" id="fm-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-cbtc"/></svg>Earn with cBTC</h2>
+      <h2 class="eyebrow" id="fm-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-cbtc"/></svg>Earn with <span class="tn">cBTC</span></h2>
       <div class="fm-stats" id="fm-stats"><p class="note">Reading the farms…</p></div>
       <div id="pools"></div>
       <p class="note" id="fm-note"></p>
@@ -614,7 +615,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
     </section>
 
     <section class="panel p-info" aria-labelledby="i-h">
-      <h2 class="eyebrow" id="i-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-cbtc"/></svg>About cBTC</h2>
+      <h2 class="eyebrow" id="i-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-cbtc"/></svg>About <span class="tn">cBTC</span></h2>
       <div class="prose" id="about"></div>
       <ul class="facts" id="facts"></ul>
       <details class="more"><summary>Contracts</summary><ul class="facts" id="facts-more"></ul></details>
@@ -638,6 +639,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/cbtc/app.js?cb=7fd29326"></script>
+<script type="module" src="/trade/cbtc/app.js?cb=8f8fd8bc"></script>
 </body>
 </html>

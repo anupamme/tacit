@@ -177,6 +177,10 @@ try {
   ok((await text(p, '#px-usd')) === `$${BTC_USD.toLocaleString('en-US')}` && (await p.title()) === `cBTC $${BTC_USD.toLocaleString('en-US')} · tacit trade`, `the headline is the engine's price of bitcoin (${await text(p, '#px-usd')})`);
   const sub = await text(p, '#px-sub');
   ok(/1 cBTC = 1 BTC, locked/.test(sub) && /0\.108213 cBTC/.test(sub) && /20 locks · 13 loans open/.test(sub), `the line under it: what is minted, how many locks and loans (${sub})`);
+  await p.evaluate(() => { document.querySelector('#hints').open = true; });                   // the lanes sit in a closed dropdown, whose text is not drawn
+  const heads = await p.$$eval('#fm-h, #i-h, #lanes .lane .k', (els) => els.map((e) => e.innerText));
+  await p.evaluate(() => { document.querySelector('#hints').open = false; });
+  ok(heads.some((h) => /cBTC/.test(h)) && !heads.some((h) => /CBTC|TETH|CUSD/.test(h)), `the label capitals leave the tokens' own spelling alone (${heads.join(' | ').replace(/\n/g, ' ')})`);
   const assets = await p.$$eval('.assets a', (a) => a.map((x) => `${x.textContent.trim()}:${x.getAttribute('href')}:${x.getAttribute('aria-current') || ''}`));
   ok(assets.join() === 'TAC:/trade/tac/:,tETH:/trade/teth/:,cBTC:/trade/cbtc/:page', `the switch names the three markets and marks this one (${assets.join(' ')})`);
   const rows = await p.$$eval('#cov .cov-row', (rs) => rs.map((x) => ({ h: x.querySelector('.cov-h').textContent.replace(/\s+/g, ' ').trim(), s: x.querySelector('.cov-s').textContent.replace(/\s+/g, ' ').trim(), bar: x.querySelector('.cov-bar i')?.style.width || null, tick: x.querySelector('.cov-bar u')?.style.left || null })));

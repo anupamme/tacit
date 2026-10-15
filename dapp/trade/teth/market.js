@@ -46,7 +46,7 @@ export function stackBook({ asks, bids, totalHead, mid, all = false, emptyAsk = 
     return x.attrs && !x.mine ? `<button type="button" class="${cls}" style="${style}" title="${esc(x.title)}" aria-label="${esc(x.label)}" ${x.attrs}>${inner}</button>` : `<div class="${cls}" style="${style}" title="${esc(x.title)}">${inner}</div>`;
   };
   const hidden = asks.length - a.length + bids.length - b.length;
-  return `<div class="ob${ghost ? ' ghost' : ''}"><div class="ob-head"><span>Price</span><span><svg class="tk xs inl" aria-hidden="true"><use href="#tk-teth"/></svg>tETH</span><span>${esc(totalHead)}</span></div>`
+  return `<div class="ob${ghost ? ' ghost' : ''}"><div class="ob-head"><span>Price</span><span><svg class="tk xs inl" aria-hidden="true"><use href="#tk-teth"/></svg><span class="tn">tETH</span></span><span>${esc(totalHead)}</span></div>`
     + `<div class="ob-asks">${a.length ? a.map((x, i) => row(x, 'ask', ac[i])).reverse().join('') : `<div class="ob-empty">${esc(emptyAsk)}</div>`}</div>`
     + `<div class="ob-spread">${mid}</div>`
     + `<div class="ob-bids">${b.length ? b.map((x, i) => row(x, 'bid', bc[i])).join('') : `<div class="ob-empty">${esc(emptyBid)}</div>`}</div>`

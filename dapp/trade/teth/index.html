@@ -20,7 +20,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /trade/teth/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/trade/teth/app.js?cb=ec9f7eee">
+<link rel="modulepreload" href="/trade/teth/app.js?cb=97764c14">
 <link rel="modulepreload" href="/trade/chart.js?cb=e2110e58">
 <link rel="modulepreload" href="/trade/fmt.js?cb=43646c2e">
 <link rel="modulepreload" href="/trade/connect.js?cb=79211ff3">
@@ -42,7 +42,7 @@
 <link rel="modulepreload" href="/trade/depth.js?cb=21a5dc95">
 <link rel="modulepreload" href="/trade/book.js?cb=3324d19b">
 <link rel="modulepreload" href="/trade/tape.js?cb=6565501b">
-<link rel="modulepreload" href="/trade/teth/market.js?cb=61f664e9">
+<link rel="modulepreload" href="/trade/teth/market.js?cb=1ec1214c">
 <link rel="modulepreload" href="/btc-book.js?cb=2d11b335">
 <!-- preload:end -->
 <!-- style:shared:begin -->
@@ -488,6 +488,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
 .lane .g.dev { color: var(--warn); }
 .moves td.in { color: var(--up); } .moves td.out { color: var(--down); }
 .p-depth .table td:first-child { color: var(--mute); white-space: nowrap; }
+.tn { text-transform: none; }
 </style>
 </head>
 <body>
@@ -575,7 +576,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
     </section>
 
     <section class="panel p-farm" id="farm" aria-labelledby="fm-h">
-      <h2 class="eyebrow" id="fm-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-teth"/></svg>Earn with tETH</h2>
+      <h2 class="eyebrow" id="fm-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-teth"/></svg>Earn with <span class="tn">tETH</span></h2>
       <div class="fm-stats" id="fm-stats"><p class="note">Reading the farms…</p></div>
       <div id="pools"></div>
       <p class="note" id="fm-note"></p>
@@ -584,7 +585,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
 
     <section class="panel p-btc" id="btc" aria-labelledby="b-h">
       <div class="bar">
-        <h2 class="eyebrow" id="b-h"><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg></span>tETH on Bitcoin</h2>
+        <h2 class="eyebrow" id="b-h"><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg></span><span class="tn">tETH</span> on Bitcoin</h2>
         <span class="mute" id="btc-sum"></span>
       </div>
       <p class="mk-lead" id="btc-lead"></p>
@@ -605,7 +606,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
     </section>
 
     <section class="panel p-info" aria-labelledby="i-h">
-      <h2 class="eyebrow" id="i-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-teth"/></svg>About tETH</h2>
+      <h2 class="eyebrow" id="i-h"><svg class="tk xs" aria-hidden="true"><use href="#tk-teth"/></svg>About <span class="tn">tETH</span></h2>
       <div class="prose" id="about"></div>
       <ul class="facts" id="facts"></ul>
       <details class="more"><summary>Contracts and pools</summary><ul class="facts" id="facts-more"></ul></details>
@@ -628,6 +629,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/teth/app.js?cb=ec9f7eee"></script>
+<script type="module" src="/trade/teth/app.js?cb=97764c14"></script>
 </body>
 </html>

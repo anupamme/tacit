@@ -227,6 +227,10 @@ try {
   ok(mv.length === 10 && /ETH (in|out)/.test(mv[0]) && /2 h ago/.test(mv[0]), `the newest ten movements, the newest first (${mv[0]})`);
   ok(/24h .* in, .* out/.test(await text(p, '#mv-sum')), 'a line sums the day and the week');
   ok((await text(p, '#about')).includes('is private ETH'), 'the about text says what tETH is');
+  await p.evaluate(() => { document.querySelector('#hints').open = true; });                   // the lanes sit in a closed dropdown, whose text is not drawn
+  const heads = await p.$$eval('#fm-h, #b-h, #i-h, #lanes .lane .k', (els) => els.map((e) => e.innerText));
+  await p.evaluate(() => { document.querySelector('#hints').open = false; });
+  ok(heads.some((h) => /tETH/.test(h)) && !heads.some((h) => /TETH/.test(h)), `the label capitals leave the token's own spelling alone (${heads.join(' | ').replace(/\n/g, ' ')})`);
   ok(r.errors.length === 0 && r.blocked.length === 0, `no page error and nothing blocked by the CSP (${[...r.errors, ...r.blocked].join(' | ').slice(0, 200)})`);
   // the pool's figures that can be read here
   const calls = r.seen.join(' ');

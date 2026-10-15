@@ -11,7 +11,7 @@ import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, moved
 import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, forgetUx, getUx } from '/trade/teth/wrap.js?cb=7b21013b';
 import { mountDepth } from '/trade/depth.js?cb=21a5dc95';
 import { candlesFromTrades, closeAt } from '/trade/tape.js?cb=6565501b';
-import { readMarket, isActive, bookState, refSats, premium, satsTxt, ladders, idle, bookPrime, summary, fillBars, BTC_ID } from '/trade/teth/market.js?cb=61f664e9';
+import { readMarket, isActive, bookState, refSats, premium, satsTxt, ladders, idle, bookPrime, summary, fillBars, BTC_ID } from '/trade/teth/market.js?cb=1ec1214c';
 import { $, esc, now, rpc, fmtUnits, plain, parseUnits, grp, sig, usd, pct, ago, short, E10, E18 } from '/trade/util.js?cb=e24c4ef6';
 
 const ETHBLUE = '#627eea', ORANGE = '#f7931a';
@@ -24,6 +24,7 @@ const D = { pool: null, hist: null, rates: {}, program: null, rows: [], floor: n
 let amtTimer = 0;
 const S = { mode: 'get', amt: '', useAmt: '', quote: null, seq: 0, busy: false, range: null, unit: 'eth', chart: 'held', bunit: 'usd', btcAll: false, stuck: null, steps: null, ready: false };
 
+const tn = (s) => esc(s).replace(/\b(tETH|cBTC|cUSD)\b/g, '<span class="tn">$1</span>');   // a token's own spelling inside an uppercase label
 const compact = (x) => (x >= 1e6 ? `$${(x / 1e6).toFixed(x >= 1e7 ? 0 : 1)}M` : x >= 1e3 ? `$${(x / 1e3).toFixed(x >= 1e4 ? 0 : 1)}k` : usd(x));
 const ethUsd = () => D.rates.ethUsd, btcUsd = () => D.rates.btcUsd;
 const toEth = (wei) => Number(wei) / 1e18;
@@ -64,7 +65,7 @@ function renderLanes() {
   $('#hints-sum').innerHTML = px != null
     ? `<span>Pool rate <b>${usd(px)}</b></span>${usds.length ? `<span>· in private pools <b>${usd(Math.min(...usds))}${Math.min(...usds) === Math.max(...usds) ? '' : ` to ${usd(Math.max(...usds))}`}</b></span>` : ''}${m && isActive(m) && m.mark && btcUsd() ? `<span>· on Bitcoin <b>${usd(m.mark * btcUsd() / 1e8)}</b></span>` : ''}${apart >= 0.01 ? `<span class="apart">· up to ${Math.round(apart * 100)}% apart</span>` : ''}`
     : 'Where tETH sits';
-  $('#lanes').innerHTML = cards.map((c) => `<div class="lane"><span class="k"><i class="sw" style="background:${c.sw}"></i>${esc(c.name)}</span><span class="v num">${c.idle ? '—' : c.v == null && c.name !== 'Pool rate' ? '<i class="sk"></i>' : usd(c.v)}</span><span class="s num">${esc(c.s || '')}</span><span class="g ${c.gap != null && Math.abs(c.gap) >= 0.01 ? 'dev' : ''}">${esc(c.g || '')}</span></div>`).join('');
+  $('#lanes').innerHTML = cards.map((c) => `<div class="lane"><span class="k"><i class="sw" style="background:${c.sw}"></i>${tn(c.name)}</span><span class="v num">${c.idle ? '—' : c.v == null && c.name !== 'Pool rate' ? '<i class="sk"></i>' : usd(c.v)}</span><span class="s num">${esc(c.s || '')}</span><span class="g ${c.gap != null && Math.abs(c.gap) >= 0.01 ? 'dev' : ''}">${esc(c.g || '')}</span></div>`).join('');
   $('#gapnote').textContent = apart >= 0.01 ? 'A private pool prices tETH from its own reserves, so a small one can sit well away from ETH. Swaps there happen at that pool\'s price.' : '';
 }
 
@@ -88,7 +89,7 @@ function renderControls() {
   $('#range-seg').innerHTML = rangesFor(spanDays()).map(([l, d]) => `<button type="button" data-range="${d}" aria-pressed="${r === d}">${l}</button>`).join('');
   $('#view-seg').innerHTML = kind === 'btc' ? seg('Show in', 'unit', [['usd', 'USD'], ['sats', 'sats']], unitOf()) : seg('Show in', 'unit', [['eth', 'ETH'], ['usd', 'USD']], unitOf());
   const icon = (id) => `<svg class="tk sm" aria-hidden="true"><use href="#tk-${id}"/></svg>`;
-  $('#chart-name').textContent = kind === 'btc' ? 'tETH price on Bitcoin' : 'ETH held in the pool';
+  $('#chart-name').innerHTML = kind === 'btc' ? tn('tETH price on Bitcoin') : 'ETH held in the pool';
   $('#chart-pair').innerHTML = icon('teth') + (kind === 'btc' ? icon('btc') : '');
 }
 function paintRead(h = null) {
@@ -468,7 +469,7 @@ function renderFarm() {
   const cell = (k, v, s = '') => `<div><span class="k">${k}</span><b class="num">${v}</b>${s ? `<span class="s">${s}</span>` : ''}</div>`;
   $('#fm-stats').innerHTML = cell('Best APR now', aprs.length ? aprTxt(Math.max(...aprs)) : '—', 'paid in TAC, swap fees on top')
     + cell('Rewards', `<svg class="tk xs inl" aria-hidden="true"><use href="#tk-tac"/></svg>${Math.round(day).toLocaleString('en-US')} TAC`, `a day${tacUsd ? ` · about ${usd(day * tacUsd)}` : ''}`)
-    + cell('Farms', `${rows.length}`, 'pair tETH · private positions')
+    + cell('Farms', `${rows.length}`, 'positions are private')
     + cell('Stream ends', end ? new Date(end * 1000).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
   const icon = (k) => `<svg class="tk sm" aria-hidden="true"><use href="#tk-${k}"/></svg>`;
   const mine = key.unlocked && D.held?.pub === key.key.pubHex ? positionsIn(rows, D.held.positions) : new Map();
@@ -501,9 +502,9 @@ function renderAbout() {
     <p>Send it, swap it for TAC, farm with it, or bridge it to your own Bitcoin address and back. <a href="/weld/stats/">The pool's figures →</a></p>`;
   const fee = D.floor ? fmtUnits(D.floor, 18, 5) : null;
   const main = [
-    ['On Ethereum', `${P ? `${esc(grp(toEth(P.held), 2))} ETH is held in ${grp(P.deposits, 0)} deposits${P.wallets ? ` from ${grp(P.wallets, 0)} wallets` : ''} · ` : ''}the pool is ${link(POOL)}`],
+    ['On Ethereum', `The pool ${link(POOL)} holds the ETH behind every tETH. Its balance and each deposit and withdrawal are public; who owns what is not.`],
     ['On Bitcoin', 'The bridge burns tETH on Ethereum, and the same amount, less the relay fee, arrives at your own Bitcoin address in a few hours, sometimes up to a day. A burn cannot be undone. The tETH returns to Ethereum, private, once Bitcoin\'s proof is recorded there. 0.01 to 0.5 tETH a bridge. <a href="/#private/bitcoin">Bridge →</a>'],
-    ['What it costs', `Making ETH private costs the relay's tip (shown before you confirm) and the network fee${fee ? '. Sending, swapping and taking out cost the relay\'s fee, at least about ' + esc(fee) + ' ETH, and swaps also pay the pool\'s fee' : ''}.`],
+    ['What it costs', `Making ETH private costs the relay's tip, shown before you confirm, and the network fee${fee ? '. Sending, swapping and taking out cost the relay\'s fee (at least about ' + esc(fee) + ' ETH); swaps also pay the pool\'s fee' : ''}.`],
   ];
   const pools = D.rows.map((r) => `${esc(r.name)} (${esc(r.depthEth < 0.01 ? 'under 0.01' : grp(r.depthEth, 2))} ETH deep)`).join(' · ');
   const more = [

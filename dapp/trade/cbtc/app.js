@@ -20,6 +20,7 @@ const D = { totals: null, engine: null, rates: {}, program: null, pools: null, r
 const tot = () => (D.totals ? { ...D.totals, ...(D.live || {}) } : null);
 const S = { mode: 'get', amt: '', seq: 0, chart: 'locked', range: null, unit: 'btc' };
 
+const tn = (s) => esc(s).replace(/\b(tETH|cBTC|cUSD)\b/g, '<span class="tn">$1</span>');   // a token's own spelling inside an uppercase label
 const compact = (x) => (x >= 1e6 ? `$${(x / 1e6).toFixed(x >= 1e7 ? 0 : 1)}M` : x >= 1e3 ? `$${(x / 1e3).toFixed(x >= 1e4 ? 0 : 1)}k` : usd(x));
 const btcTxt = (sats) => { const x = Number(sats) / 1e8; return x === 0 ? '0' : x >= 1 ? grp(x, 4) : x >= 0.001 ? x.toFixed(6).replace(/0+$/, '') : x.toFixed(8).replace(/0+$/, ''); };
 const usdBtc = () => D.engine?.usdBtc ?? D.rates.btcUsd ?? null;                         // the price the loans are made at, else the feed's
@@ -47,7 +48,7 @@ function renderLanes() {
   const lo = priced.length ? Math.min(...priced.map((r) => r.usd)) : null, hi = priced.length ? Math.max(...priced.map((r) => r.usd)) : null, apart = Math.max(0, ...priced.map((r) => Math.abs(r.gap || 0)));
   $('#hints-sum').innerHTML = px != null
     ? `<span>Bitcoin <b>${usd(px)}</b></span>${priced.length ? `<span>· cBTC in pools <b>${usd(lo)}${lo === hi ? '' : ` to ${usd(hi)}`}</b></span>` : ''}${apart >= 0.01 ? `<span class="apart">· ${priced.length === 1 ? '' : 'up to '}${Math.round(apart * 100)}% off</span>` : ''}` : 'cBTC prices';
-  $('#lanes').innerHTML = cards.map((c) => `<div class="lane"><span class="k"><i class="sw" style="background:${c.sw}"></i>${esc(c.name)}</span><span class="v num">${c.idle ? '—' : c.v == null && c.name !== 'Bitcoin' ? '<i class="sk"></i>' : usd(c.v)}</span><span class="s num">${esc(c.s || '')}</span><span class="g ${c.gap != null && Math.abs(c.gap) >= 0.01 ? 'dev' : ''}">${esc(c.g || '')}</span></div>`).join('');
+  $('#lanes').innerHTML = cards.map((c) => `<div class="lane"><span class="k"><i class="sw" style="background:${c.sw}"></i>${tn(c.name)}</span><span class="v num">${c.idle ? '—' : c.v == null && c.name !== 'Bitcoin' ? '<i class="sk"></i>' : usd(c.v)}</span><span class="s num">${esc(c.s || '')}</span><span class="g ${c.gap != null && Math.abs(c.gap) >= 0.01 ? 'dev' : ''}">${esc(c.g || '')}</span></div>`).join('');
   $('#gapnote').textContent = apart >= 0.01 ? 'Each pool prices cBTC from its own reserves, so a small one can drift far from BTC. Swaps happen at the pool\'s price.' : '';
 }
 
@@ -87,7 +88,7 @@ function renderControls() {
   $('#lane-seg').innerHTML = Object.entries(KINDS).map(([k, l]) => `<button type="button" data-chart="${k}" aria-pressed="${k === S.chart}">${l}</button>`).join('');
   $('#range-seg').innerHTML = rangesFor(spanDays()).map(([l, d]) => `<button type="button" data-range="${d}" aria-pressed="${r === d}">${l}</button>`).join('');
   $('#view-seg').innerHTML = S.chart === 'locked' ? seg('Show in', 'unit', [['btc', 'BTC'], ['usd', 'USD']], unitOf()) : '';
-  $('#chart-name').textContent = S.chart === 'locked' ? 'BTC locked' : 'cUSD lent';
+  $('#chart-name').innerHTML = S.chart === 'locked' ? 'BTC locked' : tn('cUSD lent');
 }
 function paintRead(h = null) {
   const el = $('#ch-read'), V = S.view;
@@ -195,7 +196,7 @@ function renderLocks() {
     return `<tr><td>${esc(short(l.lockTxid, 6))}:${l.lockVout}</td><td class="r num">${esc(btcTxt(l.sats))} BTC${px != null ? `<small>${compact(Number(l.sats) / 1e8 * px)}</small>` : ''}</td><td class="st ${l.minted ? 'ok' : 'wait'}">${esc(step)}</td><td class="go"><a href="${MEMPOOL}tx/${esc(l.lockTxid)}" target="_blank" rel="noopener noreferrer" aria-label="Open the lock's transaction">↗</a></td></tr>`;
   }).join('')}</tbody></table><p class="note"><a href="/#lock">Manage your locks on tacit.finance →</a></p>`;
   if (box.__h !== h) { box.__h = h; box.innerHTML = h; }
-  $('#lk-note').textContent = 'Locks made on any device show here. Lock, bond, mint and borrow on tacit.finance.';
+  $('#lk-note').textContent = 'Lock, bond, mint and borrow on tacit.finance. Your locks from any device show here once you sign in.';
 }
 
 // ── use cBTC ──
@@ -238,7 +239,7 @@ function renderFarm() {
   const cell = (k, v, s = '') => `<div><span class="k">${k}</span><b class="num">${v}</b>${s ? `<span class="s">${s}</span>` : ''}</div>`;
   $('#fm-stats').innerHTML = cell('APR', aprs.length ? aprTxt(Math.max(...aprs)) : '—', 'in TAC, plus swap fees')
     + cell('Rewards', `<svg class="tk xs inl" aria-hidden="true"><use href="#tk-tac"/></svg>${Math.round(day).toLocaleString('en-US')} TAC`, `a day${tacUsd ? ` · about ${usd(day * tacUsd)}` : ''}`)
-    + cell('Farms', `${rows.length}`, 'private positions')
+    + cell('Farms', `${rows.length}`, 'positions are private')
     + cell('Stream ends', end ? new Date(end * 1000).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
   const icon = (k) => `<svg class="tk sm" aria-hidden="true"><use href="#tk-${k}"/></svg>`, ico = { tETH: 'teth', TAC: 'tac', cUSD: 'cusd' };
   const mine = mineOk() ? positionsIn(D.rows, D.mine.held?.positions) : new Map(), amt = (x, d) => (x < 0.00001 && x > 0 ? 'under 0.00001' : grp(x, d));
