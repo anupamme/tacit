@@ -220,8 +220,10 @@ export function jsonRpc(urls, fetchImpl = globalThis.fetch.bind(globalThis), { t
     throw Object.assign(all[all.length - 1] || new Error('no rpc url'), { all });
   };
   // `calls` ([{ method, params }]) in one request, → the results in order: a result, null, or an Error for a call the node
-  // answered with one. The nodes are tried as above; one that answers a batch with anything but an array is not asked again,
-  // and one that answers every call with an error counts as failed. Throws when no node takes it, and the caller asks one at a time.
+  // answered with one. The nodes are tried as above; one that refuses batches as such (Invalid Request, Method not found, an
+  // error that speaks of batches, or one answer for the lot) is not asked again, one that answers with anything else but an
+  // array (busy, rate limited, failing) is passed over this time only, and one that answers every call with an error counts
+  // as failed. Throws when no node takes it, and the caller asks one at a time.
   const noBatch = new Set();
   single.batch = async (calls) => {
     const all = [];
@@ -232,7 +234,12 @@ export function jsonRpc(urls, fetchImpl = globalThis.fetch.bind(globalThis), { t
         const base = id; id += calls.length;
         const r = await fetchImpl(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(calls.map((c, i) => ({ jsonrpc: '2.0', id: base + i + 1, method: c.method, params: c.params ?? [] }))), signal: AbortSignal.timeout?.(timeoutMs) });
         const j = await r.json();
-        if (!Array.isArray(j)) { noBatch.add(url); throw new Error(j?.error?.message || 'the node does not take batches'); }
+        if (!Array.isArray(j)) {
+          const err = j?.error, why = String(err?.message || j?.message || ''), status = r.status ?? 200;
+          const busy = status === 429 || status >= 500 || /\brate\b|rate.?limit|\blimit|too many/i.test(why);
+          if (!busy && (err?.code === -32600 || err?.code === -32601 || (status === 200 && (!err || /batch/i.test(why))))) noBatch.add(url);
+          throw Object.assign(new Error(why || 'the node did not answer the batch'), err ? { rpc: err } : {});
+        }
         const byId = new Map(j.map((x) => [x.id, x]));
         const out = calls.map((_, i) => {
           const x = byId.get(base + i + 1);
@@ -366,10 +373,19 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
   // Receive boxes watched: box 0 (the public receive address) and the refund boxes of call intents, indices 1 up
   // to REFUND_GAP past the next unused one, so a wallet restored from its seed alone still finds every refund.
   const boxIndex = new Map();
-  const boxTopics = () => {
-    for (let i = 0; i < saved.nextRefund + REFUND_GAP; i++) if (![...boxIndex.values()].includes(i)) boxIndex.set(topicOf(boxOf(i)), i);
-    return [...boxIndex.keys()];
-  };
+  const boxTopics = () => { for (let i = boxIndex.size; i < saved.nextRefund + REFUND_GAP; i++) boxIndex.set(topicOf(boxOf(i)), i); };
+  // This wallet's receipts among `all`, the Received events of one read (a feed page, or a chain-log read). A box found
+  // used moves the next unused one past it, and with it the boxes watched, so they are matched again until that stops:
+  // a run of paid boxes longer than the gap is found in one read.
+  function ours(all) {
+    for (;;) {
+      boxTopics();
+      const mine = all.filter((r) => boxIndex.has(r.box));
+      const next = mine.reduce((a, r) => Math.max(a, boxIndex.get(r.box) + 1), saved.nextRefund);
+      if (next === saved.nextRefund) return mine;
+      saved.nextRefund = next;
+    }
+  }
 
   // Spend and nullifier keys of a stored note, from the wallet keys: never stored.
   function withKeys(n) {
@@ -406,19 +422,31 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
   }
 
   // Notes seen spent, kept three days with the time they were seen and without their keys (withKeys derives those again), at
-  // most a few dozen, newest first, one to a position.
+  // most a few dozen, newest first (by the block that spent them), one to a position. A state rebuilt from the chain keeps
+  // its list, the block it had read through (spentSeen) and the notes it held (held): a spend at or before that block of a
+  // note it did not hold was seen then or is long past, so it is not taken as one seen now.
   const SPENT_KEEP_MS = 3 * 864e5, SPENT_KEEP_MAX = 24;
   const freshSpent = (list) => (Array.isArray(list) ? list : []).filter((n) => n && Number.isFinite(n.spentAt) && Date.now() - n.spentAt < SPENT_KEEP_MS);
-  function keepSpent(prior, gone) {
-    const now = Date.now(), seen = new Set(), out = [];
-    for (const n of [...gone.map(({ sk, nk, nf, ...bare }) => ({ ...bare, spentAt: now })), ...freshSpent(prior)]) if (!seen.has(n.index)) { seen.add(n.index); out.push(n); }
+  function keepSpent(state, gone) {
+    const now = Date.now(), seen = new Set(), out = [], held = new Set(state.held);
+    const fresh = gone.filter((n) => state.spentSeen == null || n.spentBlock > state.spentSeen || held.has(n.index)).sort((a, b) => b.spentBlock - a.spentBlock || b.index - a.index);
+    for (const n of [...fresh.map(({ sk, nk, nf, ...bare }) => ({ ...bare, spentAt: now })), ...freshSpent(state.recentSpent)]) if (!seen.has(n.index)) { seen.add(n.index); out.push(n); }
     return out.slice(0, SPENT_KEEP_MAX);
   }
+  // A blank state to rebuild from the chain, keeping what its logs do not say: the attempt numbers, the next unused box, and
+  // what keepSpent reads (a rebuild that has not yet read as far as the state before it keeps that state's).
+  const rebuilt = () => {
+    const behind = saved.block < saved.spentSeen;
+    return {
+      ...blank(), attempts: saved.attempts, nextRefund: saved.nextRefund, recentSpent: saved.recentSpent,
+      spentSeen: behind ? saved.spentSeen : saved.block, held: [...(behind ? saved.held ?? [] : []), ...saved.notes.map((n) => n.index)],
+    };
+  };
 
   // Appends `transacts` to a copy of `state`, keeping a path for each leaf found to be ours: a memo that opens, or
   // the leaf a Received event of one of our boxes names (the same transaction, so the same batch).
   function absorb(state, transacts, receipts) {
-    const spent = new Set();
+    const spent = new Map(); // nullifier → the block of the Transact that spent it
     const notes = new Map(state.notes.map((n) => [noteKey(n), n]));
     const tree = state.tree.clone();
     const received = new Map(receipts.map((r) => [r.index, r]));
@@ -434,7 +462,7 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
     // transaction costs 32 hashes for every pair, and one for the batch costs about one per leaf.
     const batch = [], track = [];
     for (const [i, t] of transacts.entries()) {
-      for (const nf of t.nf) if (nf !== 0n) spent.add(nf.toString());
+      for (const nf of t.nf) if (nf !== 0n) spent.set(nf.toString(), t.block);
       if (t.outLeaf[0] === 0n && t.outLeaf[1] === 0n) continue;
       if (t.firstIndex !== tree.size + batch.length) throw new Error(`evm-pool-wallet: leaf ${t.firstIndex} out of order (have ${tree.size + batch.length})`);
       for (let k = 0; k < 2; k++) {
@@ -458,14 +486,13 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
       const leaf = leafAt.get(r.index) ?? -1n;
       if (leaf < 0n || n.v === 0n || zk.leafOf(asset, n.v, receiveKeys(zk, keys.zkWallet, i).npk, n.rho) !== leaf) { tree.untrack(r.index); continue; }
       notes.set(`${r.index}`, withKeys({ index: r.index, leaf: leaf.toString(), v: n.v.toString(), rho: n.rho.toString(), block: r.block, tx: r.tx, kind: 'receive', box: i }));
-      if (i >= saved.nextRefund) saved.nextRefund = i + 1;
     }
     // A spent note is dropped with its path; nullifiers that are not ours are not kept. It is remembered for a few days apart from
     // the notes (no balance, spend or merge reads that list): a day's holding reward is for the notes held at a snapshot, and
     // claims open after the day, so a note spent since still has a claim to make.
     const gone = [];
-    for (const [k, n] of notes) if (spent.has(n.nf)) { tree.untrack(n.index); notes.delete(k); gone.push(n); }
-    return { ...state, tree, notes: [...notes.values()].sort((a, b) => a.index - b.index), recentSpent: keepSpent(state.recentSpent, gone) };
+    for (const [k, n] of notes) if (spent.has(n.nf)) { tree.untrack(n.index); notes.delete(k); gone.push({ ...n, spentBlock: spent.get(n.nf) }); }
+    return { ...state, tree, notes: [...notes.values()].sort((a, b) => a.index - b.index), recentSpent: keepSpent(state, gone) };
   }
 
   async function logs(address, topics, from, to) {
@@ -496,7 +523,6 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
   // failure, or a page closed partway through a long history, loses only the page being read: the next read, by the
   // feed or the chain-log scan, continues from the last one kept.
   async function syncFromFeed(safe) {
-    boxTopics();
     for (let pages = 0; pages < 10_000; pages++) {
       const cand = saved, from = cand.block + 1;
       if (from > safe) break;
@@ -509,8 +535,8 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
         nf: [BigInt(e.nf0), BigInt(e.nf1)], outLeaf: [BigInt(e.outLeaf0), BigInt(e.outLeaf1)], firstIndex: Number(e.firstIndex),
         memo: [unhex(e.memo0), unhex(e.memo1)], block: e.block, tx: e.tx,
       })).sort((a, b) => a.block - b.block || a.firstIndex - b.firstIndex);
-      const rs = evs.filter((e) => e.kind === 'received' && boxIndex.has(topicOf(e.box))).map((e) => ({
-        box: topicOf(e.box), n: BigInt(e.n), index: Number(e.index), value: BigInt(e.value), rho: BigInt(e.rho), fee: BigInt(e.fee), block: e.block, tx: e.tx,
+      const rs = ours(evs.filter((e) => e.kind === 'received').map((e) => ({ ...e, box: topicOf(e.box) }))).map((e) => ({
+        box: e.box, n: BigInt(e.n), index: Number(e.index), value: BigInt(e.value), rho: BigInt(e.rho), fee: BigInt(e.fee), block: e.block, tx: e.tx,
       }));
       const next = { ...absorb(cand, ts, rs), block: through };
       if (next.tree.size !== cand.tree.size) {
@@ -539,8 +565,7 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
       // A gap in the unconfirmed tail alone is a node a block behind, not a tree missing leaves: the next read sees it whole.
       if (e?.tail || !/ out of order /.test(e?.message || '') || Date.now() - healedAt < 600_000) throw e;
       healedAt = Date.now();
-      const keep = { attempts: saved.attempts, nextRefund: saved.nextRefund };
-      saved = { ...blank(), ...keep }; view = null; persist();
+      saved = rebuilt(); view = null; persist();
       const f = feed; feed = false;
       try { return await readNew(); } finally { feed = f; }
     }
@@ -551,15 +576,13 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
     if (keeper && feed && saved.block < safe) await syncFromFeed(safe).catch(() => {});
     const from = saved.block + 1;
     if (from > tip) return summary();
-    boxTopics();
-    // Every Received event of the router is read and ours picked out here, so the node is not told which boxes are
-    // one wallet's.
-    const [tlogs, rlogs] = await Promise.all([
-      logs(chain.pool, [TRANSACT_TOPIC], from, tip),
-      logs(chain.router, [RECEIVED_TOPIC], from, tip),
-    ]);
-    const ts = tlogs.map(decodeTransact).sort((a, b) => a.block - b.block || a.firstIndex - b.firstIndex);
-    const rs = rlogs.map(decodeReceived).filter((r) => boxIndex.has(r.box));
+    // The pool's Transact and the router's Received events come in one query per range, so a node that answers short
+    // of it leaves out both events of a sweep or neither. Every Received event of the router is read and ours picked
+    // out here, so the node is not told which boxes are one wallet's.
+    const got = await logs([chain.pool, chain.router], [[TRANSACT_TOPIC, RECEIVED_TOPIC]], from, tip);
+    const of = (l, address, t) => String(l.address).toLowerCase() === address.toLowerCase() && String(l.topics?.[0]).toLowerCase() === t;
+    const ts = got.filter((l) => of(l, chain.pool, TRANSACT_TOPIC)).map(decodeTransact).sort((a, b) => a.block - b.block || a.firstIndex - b.firstIndex);
+    const rs = ours(got.filter((l) => of(l, chain.router, RECEIVED_TOPIC)).map(decodeReceived));
     if (safe >= from) {
       const next = { ...absorb(saved, ts.filter((t) => t.block <= safe), rs.filter((r) => r.block <= safe)), block: safe };
       if (next.tree.size !== saved.tree.size) {
@@ -797,8 +820,7 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
   // Forgets the synced state and rebuilds it from chain logs alone (no feed).
   async function rescanFromChain() {
     await reading.catch(() => {});
-    const keep = { attempts: saved.attempts, nextRefund: saved.nextRefund };
-    saved = { ...blank(), ...keep }; view = null; persist();
+    saved = rebuilt(); view = null; persist();
     const f = feed; feed = false;
     try { return await sync(); } finally { feed = f; }
   }

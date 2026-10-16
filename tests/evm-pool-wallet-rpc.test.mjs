@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { jsonRpc, makeEvmPoolWallet, evmPoolKeys, recipientOf, logFailure, sealNote, openNote, paymentKey, sealState, openState, mergePlan } from '../dapp/evm-pool-wallet.js';
 import { poolAsset } from '../dapp/evm-pool-zk.js';
 import { makeEvmPoolZk } from '../dapp/evm-pool-zk.js';
+import { receiveKeys, receiveBoxAddress, RECEIVE_FEE_BPS } from '../dapp/evm-pool-gateway.js';
 import { poseidon2, poseidon3, poseidon4, poseidon5, poseidon7 } from 'poseidon-lite';
 import { keccak_256 } from '@noble/hashes/sha3';
 
@@ -10,6 +11,62 @@ let n = 0;
 const check = async (name, fn) => { await fn(); n++; console.log(`ok - ${name}`); };
 const P = { 2: poseidon2, 3: poseidon3, 4: poseidon4, 5: poseidon5, 7: poseidon7 };
 const zk = makeEvmPoolZk({ poseidon: (xs) => P[xs.length](xs) });
+
+// A pool on chain 8453 kept as chain logs and as the keeper feed's events, one transaction a block. Its leaves go into a
+// reference tree, whose root at each size is what rootSize answers.
+const POOLF = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9', ROUTERF = '0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5';
+const ASSETF = poolAsset({ chainId: 8453n, pool: POOLF, token: '0x0000000000000000000000000000000000000000' });
+const topic = (sig) => '0x' + Buffer.from(keccak_256(new TextEncoder().encode(sig))).toString('hex');
+const T_TRANSACT = topic('Transact(bytes32,bytes32,bytes32,bytes32,uint256,bytes32,address,int256,address,uint256,bytes,bytes)');
+const T_RECEIVED = topic('Received(address,uint256,uint256,uint256,uint256,uint256)');
+const w64 = (x) => BigInt.asUintN(256, BigInt(x)).toString(16).padStart(64, '0');
+function fakePool() {
+  const tree = zk.incTree(), sizeOf = new Map([[tree.root, 0]]), logs = [], events = [];
+  let block = 0;
+  const pool = {
+    logs, events, sizeOf, get tip() { return block; }, set tip(b) { block = b; },
+    // The next block's transaction: spends `nf`, inserts the two leaves `out` (or none) with their memos.
+    transact({ nf = [0n, 0n], out = null, memo = [null, null] } = {}) {
+      block++;
+      const firstIndex = tree.size, [o0, o1] = out ?? [0n, 0n], tx = '0x' + w64(block);
+      if (out) { tree.append(out.map(BigInt)); sizeOf.set(tree.root, tree.size); }
+      const m = memo.map((x) => Buffer.from(x ?? []).toString('hex')), pad = (h) => h + '0'.repeat((64 - (h.length % 64)) % 64);
+      const body0 = w64(m[0].length / 2) + pad(m[0]);
+      logs.push({ address: POOLF, blockNumber: '0x' + block.toString(16), transactionHash: tx, logIndex: '0x0', topics: [T_TRANSACT, '0x' + w64(nf[0]), '0x' + w64(nf[1])],
+        data: '0x' + [o0, o1, firstIndex, 0, 0, 0, 0, 0, 320, 320 + body0.length / 2].map(w64).join('') + body0 + w64(m[1].length / 2) + pad(m[1]) });
+      events.push({ kind: 'transact', block, tx, firstIndex, nf0: String(nf[0]), nf1: String(nf[1]), outLeaf0: String(o0), outLeaf1: String(o1), memo0: '0x' + m[0], memo1: '0x' + m[1] });
+      return { block, firstIndex, tx };
+    },
+    // The next block's sweep of receive box `i` of `keys` into a note of `value`: its Transact and the router's Received.
+    sweep(keys, i, value, rho = 77n + BigInt(i)) {
+      const { npk } = receiveKeys(zk, keys.zkWallet, i), box = receiveBoxAddress(npk, RECEIVE_FEE_BPS, ROUTERF);
+      const t = pool.transact({ out: [zk.leafOf(ASSETF, value, npk, rho), 0n] });
+      logs.push({ address: ROUTERF, blockNumber: '0x' + t.block.toString(16), transactionHash: t.tx, logIndex: '0x1', topics: [T_RECEIVED, '0x' + w64(BigInt(box)), '0x' + w64(0)],
+        data: '0x' + [t.firstIndex, value, rho, 3].map(w64).join('') });
+      events.push({ kind: 'received', block: t.block, tx: t.tx, box: box.toLowerCase(), n: '0', index: t.firstIndex, value: String(value), rho: String(rho), fee: '3' });
+      return t;
+    },
+  };
+  return pool;
+}
+// A node over `pool`: eth_getLogs by address and first topic (each one or a list) within the range, every filter kept in
+// `seen`; rootSize from the pool's roots.
+const nodeOf = (pool, seen = []) => async (m, p) => {
+  if (m === 'eth_blockNumber') return '0x' + pool.tip.toString(16);
+  if (m === 'eth_getLogs') {
+    const f = p[0], at = [f.address].flat().map((a) => a.toLowerCase()), t0 = [f.topics?.[0] ?? []].flat().map((t) => t.toLowerCase());
+    seen.push(f);
+    return pool.logs.filter((l) => at.includes(l.address.toLowerCase()) && (!t0.length || t0.includes(l.topics[0]))
+      && Number(l.blockNumber) >= Number(f.fromBlock) && Number(l.blockNumber) <= Number(f.toBlock));
+  }
+  if (m === 'eth_call') return '0x' + w64(pool.sizeOf.get(BigInt('0x' + p[0].data.slice(-64))) ?? 0);
+  return '0x0';
+};
+// The keeper's /events over `pool`, `page` blocks at a time.
+const feedOf = (pool, page = Infinity) => async (url) => {
+  const from = Number(new URL(url).searchParams.get('from')), through = Math.min(pool.tip, from + page - 1);
+  return { ok: true, status: 200, headers: new Map(), json: async () => ({ chainId: 8453, pool: POOLF, through, events: pool.events.filter((e) => e.block >= from && e.block <= through) }) };
+};
 
 // Fake nodes: `limit` is the widest eth_getLogs range served; `err(range)` shapes the refusal like the real node.
 const TIP = 10_000;
@@ -74,8 +131,8 @@ await check('the scan takes the widest limit a node names (in message or data) a
     });
     await w.sync();
     const served = calls.filter(([u, m]) => m === 'eth_getLogs' && SPEC[u].limit >= want).length;
-    // Two log streams (pool and router), each ceil(10001 / want) chunks served by that node, plus its refusals.
-    assert.ok(served >= 2 * Math.ceil((TIP + 1) / want) && served < 2 * Math.ceil((TIP + 1) / want) + 12, `${urls}: ${served} calls for a ${want}-block step`);
+    // One log stream (the pool's and the router's events together), ceil(10001 / want) chunks served by that node, plus its refusals.
+    assert.ok(served >= Math.ceil((TIP + 1) / want) && served < Math.ceil((TIP + 1) / want) + 6, `${urls}: ${served} calls for a ${want}-block step`);
   }
 });
 
@@ -114,7 +171,7 @@ await check('a scan through a rate-limited node beside one that refuses every ra
     await w.sync();
   } finally { clearInterval(alive); }
   const windows = calls.filter(([u, m]) => u === 'base' && m === 'eth_getLogs').length;
-  assert.ok(windows < 3 * 2 * Math.ceil((TIP + 1) / 2000) + 6, `${windows} base windows for two 10,001-block streams at 2,000 blocks`);
+  assert.ok(windows < 3 * Math.ceil((TIP + 1) / 2000) + 6, `${windows} base windows for a 10,001-block stream at 2,000 blocks`);
 });
 
 await check('state saved with every leaf and nullifier loads as a tree of unspent notes only', async () => {
@@ -170,7 +227,7 @@ await check('a note seen spent is kept three days for the holding reward, apart 
   let spendServed = false;
   const rpc = async (m, params) => {
     if (m === 'eth_blockNumber') return '0x65';
-    if (m === 'eth_getLogs') { const t0 = String(params[0].topics?.[0]).toLowerCase(); if (t0 === spend.topics[0] && !spendServed) { spendServed = true; return [spend]; } return []; }
+    if (m === 'eth_getLogs') { const t0 = [params[0].topics?.[0]].flat().map((t) => String(t).toLowerCase()); if (t0.includes(spend.topics[0]) && !spendServed) { spendServed = true; return [spend]; } return []; }
     return '0x0';
   };
   const mk = () => makeEvmPoolWallet({ zk, keys, prove: null, store, chain: { chainId: 8453, pool: POOL, router: '0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5', rpc, deployBlock: 0, confirmations: 0 } });
@@ -237,7 +294,7 @@ await check('the router log read names no receive box, so a node does not see wh
   const rpc = async (m, params) => { if (m === 'eth_getLogs') seen.push(params[0]); return m === 'eth_blockNumber' ? '0x64' : []; };
   const w = makeEvmPoolWallet({ zk, keys: evmPoolKeys(zk, new Uint8Array(32).fill(5)), prove: null, store: null, chain: { chainId: 8453, pool: POOLA, router: ROUTERA, rpc, deployBlock: 0, confirmations: 0 } });
   await w.sync();
-  const router = seen.filter((f) => f.address === ROUTERA);
+  const router = seen.filter((f) => [f.address].flat().includes(ROUTERA));
   assert.ok(router.length > 0);
   for (const f of router) assert.equal(f.topics.length, 1, 'only the event signature');
 });
@@ -521,6 +578,114 @@ await check('a record known to exist is asked of the next node when one answers 
   assert.equal(await jsonRpc(['recent', 'recent2'], f)('eth_getTransactionReceipt', ['0xa'], { found: true }), null, 'null when no node has it');
   assert.equal(await jsonRpc(['down', 'recent'], f)('eth_getTransactionReceipt', ['0xa'], { found: true }), null, 'a node that is down and one that has none is still null');
   await assert.rejects(jsonRpc(['down'], f)('eth_getTransactionReceipt', ['0xa'], { found: true }), /fetch failed/, 'but every node failing is an error, not a null');
+});
+
+await check('a busy or failing node\'s answer to a batch passes it over that once; only a refusal of batches as such is remembered', async () => {
+  const err = (error) => ({ jsonrpc: '2.0', id: null, error });
+  const replies = [
+    ['busy', 429, err({ code: 429, message: 'Too Many Requests' }), true],
+    ['down', 503, err({ code: -32603, message: 'upstream unavailable' }), true],
+    ['limited', 200, err({ code: -32005, message: 'daily request count exceeded, request rate limited' }), true],
+    ['gateway', 200, { message: 'Too many requests, slow down' }, true],
+    ['invalid', 200, err({ code: -32600, message: 'Invalid Request' }), false],
+    ['nomethod', 400, err({ code: -32601, message: 'the method  does not exist/is not available' }), false],
+    ['words', 200, err({ code: -32000, message: 'batch requests are not supported' }), false],
+    ['lone', 200, { jsonrpc: '2.0', id: 1, result: '0x1' }, false],
+  ];
+  for (const [name, status, reply, again] of replies) {
+    const asked = [];
+    // `name` answers its first batch with `reply` and later ones in full; the other node answers the first batch only.
+    const f = async (url, init) => {
+      const body = JSON.parse(init.body);
+      asked.push(url);
+      if (url === name && asked.filter((u) => u === name).length === 1) return { status, json: async () => reply };
+      if (url !== name && asked.filter((u) => u !== name).length > 1) throw new Error('fetch failed');
+      return { status: 200, json: async () => body.map((x) => ({ jsonrpc: '2.0', id: x.id, result: url })) };
+    };
+    const rpc = jsonRpc([name, 'other'], f);
+    assert.deepEqual(await rpc.batch([{ method: 'm' }]), ['other'], name);
+    if (again) assert.deepEqual(await rpc.batch([{ method: 'm' }]), [name], `${name}: asked again`);
+    else await assert.rejects(rpc.batch([{ method: 'm' }]), /fetch failed/, `${name}: not asked again`);
+    assert.equal(asked.filter((u) => u === name).length, again ? 2 : 1, name);
+  }
+});
+
+await check('the notes seen spent are the newest spends, by the block that spent them, and a rebuild keeps when each was seen', async () => {
+  const keys = evmPoolKeys(zk, new Uint8Array(32).fill(13)), self = { V: keys.V, A: keys.A, N: keys.N };
+  const pool = fakePool();
+  const mine = [];
+  const pay = () => {
+    const o = sealNote(zk, { to: self, value: 1000n + BigInt(mine.length), asset: ASSETF });
+    const { firstIndex } = pool.transact({ out: [o.leaf, 11n], memo: [o.memo, null] });
+    mine.push({ index: firstIndex, nf: zk.nullifier(openNote(zk, keys, { memo: o.memo, leaf: o.leaf, asset: ASSETF }).nk, o.leaf, firstIndex) });
+  };
+  for (let i = 0; i < 30; i++) pay();
+  // Spent in pairs swapped (1, 0, 3, 2, …), so the order of the spends is neither the notes' order nor its reverse.
+  const order = mine.map((_, i) => i ^ 1);
+  for (const i of order) pool.transact({ nf: [mine[i].nf, 0n] });
+  // One more note, whose spend the feed the wallet first reads leaves out.
+  pay();
+  pool.transact({ nf: [mine[30].nf, 0n] });
+  const kv = new Map(), store = { get: (k) => kv.get(k) ?? null, set: (k, v) => kv.set(k, v) };
+  const feed = async (url) => {
+    const from = Number(new URL(url).searchParams.get('from'));
+    return { ok: true, status: 200, headers: new Map(), json: async () => ({ chainId: 8453, pool: POOLF, through: pool.tip, events: pool.events.filter((e) => e.block >= from && e.nf0 !== String(mine[30].nf)) }) };
+  };
+  const mk = () => makeEvmPoolWallet({ zk, keys, prove: null, store, keeper: 'https://k.test', fetchImpl: feed, chain: { chainId: 8453, pool: POOLF, router: ROUTERF, rpc: nodeOf(pool), deployBlock: 1, confirmations: 0 } });
+  const w = mk();
+  assert.equal((await w.sync()).notes, 1, 'it holds the note whose spend it was not shown');
+  const newest = [...order].reverse().slice(0, 24).map((i) => mine[i].index);
+  assert.deepEqual(w.holdingNotes().slice(1).map((x) => x.index), newest, 'the 24 spent last, the last first');
+  // An hour on, after one more note was paid and spent, the state is rebuilt from the chain's logs.
+  const skey = [...kv.keys()][0], at = JSON.parse(openState(keys.v, kv.get(skey))), hourAgo = Date.now() - 3600e3;
+  for (const x of at.recentSpent) x.spentAt = hourAgo;
+  kv.set(skey, sealState(keys.v, JSON.stringify(at)));
+  pay();
+  pool.transact({ nf: [mine[31].nf, 0n] });
+  const again = mk();
+  assert.equal((await again.rescan()).balance, 0n);
+  const held = again.holdingNotes();
+  assert.deepEqual(held.map((x) => x.index), [mine[31].index, mine[30].index, ...newest.slice(0, 22)], 'the spends seen now first, then those seen before');
+  assert.ok(held.slice(0, 2).every((x) => Date.now() - x.spentAt < 60e3), 'a spend after the old state, and one of a note it held, are seen now');
+  assert.ok(held.slice(2).every((x) => x.spentAt === hourAgo), 'the earlier ones keep the time they were seen, and no long-past spend is new');
+});
+
+await check('a wallet restored from its seed alone finds payments to thirty one-time addresses in a row, from chain logs and from the feed', async () => {
+  const keys = evmPoolKeys(zk, new Uint8Array(32).fill(11));
+  const pool = fakePool();
+  let want = 0n;
+  for (let i = 1; i <= 30; i++) { pool.sweep(keys, i, 1000n * BigInt(i)); want += 1000n * BigInt(i); }
+  pool.tip += 5;
+  for (const [how, opts] of [['chain logs', {}], ['the feed in one page', { keeper: 'https://k.test', fetchImpl: feedOf(pool) }], ['the feed ten blocks a page', { keeper: 'https://k.test', fetchImpl: feedOf(pool, 10) }]]) {
+    const seen = [];
+    const w = makeEvmPoolWallet({ zk, keys, prove: null, store: null, ...opts, chain: { chainId: 8453, pool: POOLF, router: ROUTERF, rpc: nodeOf(pool, seen), deployBlock: 1, confirmations: 0 } });
+    const s = await w.sync();
+    assert.equal(s.notes, 30, `${how}: a note from every box`);
+    assert.equal(s.balance, want, how);
+    if (opts.keeper) assert.equal(seen.length, 0, `${how}: read from the feed, with no chain logs left to read`);
+    assert.equal(w.watchThrough(30), false, `${how}: box 30 lay inside what was read`);
+  }
+});
+
+await check('a sweep\'s Transact and Received come from one log query, so a node a block behind cannot split them', async () => {
+  const keys = evmPoolKeys(zk, new Uint8Array(32).fill(12));
+  const pool = fakePool();
+  pool.transact({ out: [5n, 6n] });
+  pool.sweep(keys, 0, 4242n);
+  // Calls go in turn to a node at the tip and one a block behind, which answers a range past its head up to its head.
+  const seen = [], inner = nodeOf(pool, seen);
+  let calls = 0;
+  const rpc = async (m, p) => {
+    if (m === 'eth_getLogs' && calls++ % 2) return (await inner(m, p)).filter((l) => Number(l.blockNumber) < pool.tip);
+    return inner(m, p);
+  };
+  const w = makeEvmPoolWallet({ zk, keys, prove: null, store: null, chain: { chainId: 8453, pool: POOLF, router: ROUTERF, rpc, deployBlock: 1, confirmations: 0 } });
+  assert.equal((await w.sync()).balance, 4242n, 'the sweep\'s note is found');
+  assert.ok(seen.length > 0);
+  for (const f of seen) {
+    assert.deepEqual(f.address.map((a) => a.toLowerCase()), [POOLF.toLowerCase(), ROUTERF.toLowerCase()], 'the pool and the router in one query');
+    assert.deepEqual(f.topics, [[T_TRANSACT, T_RECEIVED]], 'either event, and no receive box named');
+  }
 });
 
 console.log(`\n${n} checks passed`);
