@@ -165,6 +165,8 @@ main:focus { outline: none; }
 @media (hover: hover) { .top-r .classic:hover { color: var(--ink); text-decoration: underline; } }
 /* Trade and Pay lead the header; at a phone's width Classic (still in the footer) gives way so the account chip keeps room for its label. */
 @media (max-width: 430px) { .top-r .classic:not(.lead) { display: none; } }
+/* Build waits for the room a wider screen gives; on a phone it is in the footer. */
+@media (max-width: 640px) { .top-r .classic.roomy { display: none; } }
 .chip.act { position: relative; flex: none; justify-content: center; width: 40px; padding: 0; color: var(--mute); }
 .chip.act svg { width: 18px; height: 18px; flex: none; }
 .chip.act.busy { color: var(--warn); }
@@ -1081,6 +1083,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
       <a class="classic lead" href="/trade/tac/" title="Trade TAC: its price on Ethereum and Bitcoin, and the best route across every pool">Trade</a>
       <a class="classic lead" href="/pay/" title="Tacit Pay: get paid in BTC, TAC or ETH at one private address">Pay</a>
       <a class="classic" href="/tasks/" title="Jobs that pay TAC, starting with putting the TAC vaults on Ethereum">Tasks</a>
+      <a class="classic roomy" href="/build/" title="Build on Tacit: every path, the API, the addresses and the mainnet proof">Build</a>
       <a class="classic" href="/weld/stats/" title="What has passed through Tacit, and what it holds now">Stats</a>
       <button class="chip act" id="act" type="button" aria-haspopup="dialog" aria-label="Activity" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="num" id="act-n" hidden></span>
@@ -1244,7 +1247,7 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
         <a href="/tacit-v1.pdf">Whitepaper</a>
         <a href="https://github.com/src-company/tacit/blob/main/SPEC.md" rel="noopener">Spec</a>
         <a href="https://github.com/src-company/tacit/blob/main/SECURITY.md" rel="noopener">Security</a>
-        <a href="https://github.com/src-company/tacit/blob/main/docs/BUILD-A-TACIT-DAPP.md" rel="noopener">Build on Tacit</a>
+        <a href="/build/">Build on Tacit</a>
         <a href="https://etherscan.io/address/0x000000000Ed1eabD231Be41d93b719056F7febFC" rel="noopener">Pool contract</a>
       </div>
       <div><b>Community</b>

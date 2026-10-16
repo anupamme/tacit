@@ -30,7 +30,8 @@ or attestor set signs a bridge message.
 - **Contracts:** [`docs/DEPLOYMENTS.md`](./docs/DEPLOYMENTS.md), mainnet addresses and verifying keys
 - **Verify it yourself:** [`docs/VERIFY-LIVE.md`](./docs/VERIFY-LIVE.md), `node tools/verify-live.mjs` checks the
   live deployment against this repository
-- **Build on it:** [`docs/BUILD-A-TACIT-DAPP.md`](./docs/BUILD-A-TACIT-DAPP.md) for the confidential pool (DeFi,
+- **Build on it:** [tacit.finance/build](https://tacit.finance/build/) maps every path on one page;
+  [`docs/BUILD-A-TACIT-DAPP.md`](./docs/BUILD-A-TACIT-DAPP.md) for the confidential pool (DeFi,
   farms, the Bitcoin bridge); [`docs/EVM-POOL.md`](./docs/EVM-POOL.md) for private ETH on Ethereum, Base,
   Robinhood Chain and MegaETH
 - **Security:** [`SECURITY.md`](./SECURITY.md) for reporting issues and the bug bounty; [`audit/AUDITS.md`](./audit/AUDITS.md) — full review history. The v1 release's agentic audits:

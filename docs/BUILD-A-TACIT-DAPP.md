@@ -4,7 +4,8 @@ The smallest dapp that works against the live confidential pool, and the shape t
 needs a build step, a framework or a backend. A starting skeleton is
 [`dapp-template/index.html`](./dapp-template/index.html): open it in a browser and it runs.
 
-The protocol itself is in [`SPEC.md`](../SPEC.md); addresses are in [`DEPLOYMENTS.md`](./DEPLOYMENTS.md).
+The protocol itself is in [`SPEC.md`](../SPEC.md); addresses are in [`DEPLOYMENTS.md`](./DEPLOYMENTS.md). Every path on one page,
+with its rules, the relay API, the addresses and the mainnet transactions behind each: [tacit.finance/build](https://tacit.finance/build/).
 
 **Only want private ETH payments, on Ethereum, Base, Robinhood Chain and MegaETH?** That is a separate, smaller pool —
 one fixed Groth16 circuit, proved on the user's own device, no SP1, no relay witness — with its own guide:
