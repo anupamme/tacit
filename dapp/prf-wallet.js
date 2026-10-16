@@ -74,8 +74,16 @@ export async function prfRegister(label) {
   if (!cred) throw new Error('creation cancelled');
   const credentialId = toB64(cred.rawId);
   const prfOut = cred.getClientExtensionResults()?.prf;
-  if (!prfOut?.results?.first) throw new Error('PRF not supported by this authenticator');
-  const raw = prfOut.results.first;
+  // Many authenticators evaluate PRF only at sign-in: registration reports { enabled: true } with no output. The new
+  // passkey then signs in once more for it. Only an authenticator that reports enabled: false, or that gives no
+  // output at that sign-in either, is refused.
+  const raw = prfOut?.results?.first || (prfOut?.enabled === false ? null : (await prfEval(credentialId)).raw);
+  if (!raw) throw new Error('PRF not supported by this authenticator');
+  return keyOf(credentialId, raw);
+}
+
+// The key a passkey's PRF output gives, with the passkey's id.
+function keyOf(credentialId, raw) {
   const priv = prfBytesToScalar(raw instanceof Uint8Array ? raw : new Uint8Array(raw));
   const pub = secp.getPublicKey(priv, true);
   return { credentialId, priv, pub, pubHex: bytesToHex(pub) };
@@ -100,6 +108,14 @@ export function prfTryRestore() {
 }
 
 export async function prfLogin({ credentialId }) {
+  const { gotId, raw } = await prfEval(credentialId);
+  if (!raw) throw new Error('PRF result not returned');
+  return keyOf(gotId, raw);
+}
+
+// A sign-in with the passkey `credentialId` (any passkey of this site when it is not given): the id of the passkey
+// used and its PRF output, null when the authenticator gave none.
+async function prfEval(credentialId) {
   const rpId = window.location.hostname;
   const rawId = credentialId ? fromB64(credentialId) : undefined;
   // Single-credential branch uses `eval` (not `evalByCredential`): with one
@@ -144,9 +160,5 @@ export async function prfLogin({ credentialId }) {
   if (!results && prfExt.resultsByCredential) {
     results = (credentialId && prfExt.resultsByCredential[credentialId]) || prfExt.resultsByCredential[gotId];
   }
-  if (!results?.first) throw new Error('PRF result not returned');
-  const raw = results.first;
-  const priv = prfBytesToScalar(raw instanceof Uint8Array ? raw : new Uint8Array(raw));
-  const pub = secp.getPublicKey(priv, true);
-  return { credentialId: gotId, priv, pub, pubHex: bytesToHex(pub) };
+  return { gotId, raw: results?.first || null };
 }

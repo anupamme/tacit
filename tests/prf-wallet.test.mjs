@@ -308,17 +308,48 @@ await (async () => {
     });
   });
 
-  // ---- prfRegister rejects when authenticator never returns PRF ----
+  // ---- an authenticator that evaluates PRF only at sign-in ----
+  // Registration reports { enabled: true } (or no prf at all) and no output: the new passkey signs in once more, by its
+  // own id, and that sign-in's output is the key.
+  for (const shape of [{ enabled: true }, undefined]) {
+    const asked = [];
+    await withMockedCredentials({
+      create: async () => makeFakeCred({ rawIdStr: 'late-prf', prfShape: shape }),
+      get: async ({ publicKey }) => {
+        asked.push(publicKey.allowCredentials.map((c) => Buffer.from(c.id).toString('utf8')));
+        return makeFakeCred({ rawIdStr: 'late-prf', prfShape: { results: { first: FIXED_PRF } } });
+      },
+    }, async () => {
+      let r, err;
+      try { r = await prfRegister('carol'); } catch (e) { err = e; }
+      test(`register with ${shape ? '{ enabled: true }' : 'no prf result'} takes the key from one sign-in with the new passkey`, () => {
+        if (err) { console.log('     err:', err.message); return false; }
+        return asked.length === 1 && asked[0].join() === 'late-prf'
+          && r.credentialId === strToB64Url('late-prf')
+          && bytesToHex(r.priv) === bytesToHex(registered.priv) && r.pubHex === registered.pubHex;
+      });
+    });
+  }
+
+  // ---- prfRegister refuses an authenticator that gives no PRF output at sign-in either ----
   await withMockedCredentials({
-    create: async () => makeFakeCred({
-      rawIdStr: 'no-prf',
-      prfShape: { enabled: true }, // no results — current behavior throws
-    }),
-    get: async () => null,
+    create: async () => makeFakeCred({ rawIdStr: 'no-prf', prfShape: { enabled: true } }),
+    get: async () => makeFakeCred({ rawIdStr: 'no-prf', prfShape: { enabled: true } }),
   }, async () => {
-    let threw = false;
-    try { await prfRegister('bob'); } catch { threw = true; }
-    test('register throws when PRF output absent (sentinels future fix)', () => threw);
+    let err = null;
+    try { await prfRegister('bob'); } catch (e) { err = e; }
+    test('register throws when the sign-in after it gives no PRF output either', () => /PRF not supported/.test(err?.message || ''));
+  });
+
+  // ---- prfRegister refuses at once an authenticator that reports no PRF ----
+  let gets = 0;
+  await withMockedCredentials({
+    create: async () => makeFakeCred({ rawIdStr: 'off-prf', prfShape: { enabled: false } }),
+    get: async () => { gets++; return null; },
+  }, async () => {
+    let err = null;
+    try { await prfRegister('dave'); } catch (e) { err = e; }
+    test('register with { enabled: false } throws without asking for a sign-in', () => /PRF not supported/.test(err?.message || '') && gets === 0);
   });
 
   // ---- prfLogin rejects when no credential returned ----
