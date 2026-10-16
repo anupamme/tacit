@@ -182,9 +182,8 @@ export async function makeKeeperChain({ cfg, account, log = () => {} }) {
     v1: getAddress(v1),
 
     blockNumber: () => pub.getBlockNumber(),
-    blockTime: async (n) => Number((await pub.getBlock({ blockNumber: BigInt(n) })).timestamp),
     hasCode: async (address) => { const c = await pub.getCode({ address }); return !!c && c !== '0x'; },
-    // The catch-up registry: the newest point's count, and when a count was posted (0 for one never posted).
+    // The catch-up registry: the newest point's count, and the time a count was posted (0 for one never posted).
     pointLatest: async () => Number(await read(cfg.pointsAddress, CHECKPOINTS_ABI, 'latest')),
     pointPostedAt: async (size) => Number(await read(cfg.pointsAddress, CHECKPOINTS_ABI, 'postedAt', [BigInt(size)])),
     knownRoot: async (root) => read(cfg.pool, POOL_ABI, 'everKnownRoot', [b32(root)]),

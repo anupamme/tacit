@@ -1,8 +1,8 @@
 // The catch-up registry's admin page (contracts/script/deploy-checkpoints.mjs) end to end on anvil forks of Ethereum and
-// Base: the anon.wei steward (impersonated on the forks) connects through a scripted EIP-6963 wallet, deploys the registry
-// through the real CreateX with the committed salt at its fixed address on each chain, prepares a point from the relay's
-// index (served here cut off below each fork's head, so the index and the fork agree), posts it, and finds the same point
-// refused as posted already; another wallet is told it is not the deployer. Nothing is sent to a real chain.
+// Base: an ordinary account connects through a scripted EIP-6963 wallet, deploys the registry through the real CreateX
+// (CREATE2 under the committed open salt, so any wallet may) at its fixed address on each chain, prepares a point from the
+// relay's index (served here cut off below each fork's head, so the index and the fork agree), posts it, and finds the same
+// point refused as posted already; a second account's dry run lands at the same address. Nothing is sent to a real chain.
 // Usage: node tests/checkpoints-admin.test.mjs     (anvil on PATH, playwright-core installed; FORK_1 / FORK_8453 to fork
 // from other nodes; the registry's build under the checkpoints profile)
 import { spawn } from 'node:child_process';
@@ -19,12 +19,12 @@ const ok = (c, m, x = '') => { console.log(`${c ? 'ok' : 'not ok'} - ${m}${x ? '
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const kids = [];
 process.on('exit', () => kids.forEach((k) => k.kill('SIGKILL')));
-const ACCT = '0x1C0Aa8cCD568d90d61659F060D1bFb1e6f855A20';              // the steward, the deployer the committed salt is bound to
-const OTHER = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
-const ADDR = '0x00000000182cc07949efad43bac79a25e6a9413b';
+const ACCT = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';              // any account: the salt is open
+const OTHER = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
+const ADDR = '0x00000000c3267616ed5e0daa6f6490d109d6844d';
 const CHAINS = [
-  { id: 1, fork: process.env.FORK_1 || 'https://ethereum-rpc.publicnode.com', relay: 'https://tacit-evm-pool-keeper.onrender.com/evm-pool/keeper' },
-  { id: 8453, fork: process.env.FORK_8453 || 'https://base.gateway.tenderly.co', relay: 'https://tacit-evm-pool-keeper-base.onrender.com/evm-pool/keeper' },
+  { id: 1, fork: process.env.FORK_1 || 'https://ethereum-rpc.publicnode.com', relay: 'https://tacit-evm-pool-keepers.onrender.com/1/evm-pool/keeper' },
+  { id: 8453, fork: process.env.FORK_8453 || 'https://base.gateway.tenderly.co', relay: 'https://tacit-evm-pool-keepers.onrender.com/8453/evm-pool/keeper' },
 ];
 const port = () => new Promise((r) => { const s = net.createServer().listen(0, () => { const p = s.address().port; s.close(() => r(p)); }); });
 const rpcAt = async (url, method, params = []) => { const j = await (await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json(); if (j.error) throw new Error(j.error.message); return j.result; };
@@ -86,18 +86,18 @@ await page.addInitScript(({ forks, acct }) => {
   announce();
 }, { forks: Object.fromEntries(CHAINS.map((c) => [c.id, c.url])), acct: ACCT });
 
-// Another wallet is not the deployer: the server says so, and nothing could land at the address from it.
+// The salt is open: another account's dry run lands at the same address, and with no wallet the page asks for one.
 for (const c of CHAINS) {
   const s = await (await fetch(`http://127.0.0.1:${adminPort}/api/state?chain=${c.id}&from=${OTHER}`)).json();
-  ok(s.dryRun === 'wrong-wallet' && s.deployed === false, `chain ${c.id}: a wallet that is not the deployer is told so`, s.dryRun);
+  ok(s.dryRun === 'lands' && s.deployed === false, `chain ${c.id}: any account's dry run lands at the address`, s.dryRun);
   const none = await (await fetch(`http://127.0.0.1:${adminPort}/api/state?chain=${c.id}`)).json();
-  ok(none.dryRun === 'connect', `chain ${c.id}: with no wallet the page asks for the deployer`);
+  ok(none.dryRun === 'connect', `chain ${c.id}: with no wallet the page asks for one`);
 }
 await page.goto(`http://127.0.0.1:${adminPort}/`);
 const status = (id) => page.locator(`#r${id} .st`).innerText();
 const waitStatus = async (id, re, ms = 300_000) => { await page.waitForFunction(([id, src]) => new RegExp(src).test(document.querySelector(`#r${id} .st`)?.textContent || ''), [id, re.source], { timeout: ms }); return status(id); };
 
-ok(await page.locator('#banner').innerText() === '', 'no banner: the deployer is the one whose address the page and keepers name');
+ok(await page.locator('#banner').innerText() === '', 'no banner: this build is the one whose address the page and keepers name');
 // A wallet that already has this site connected is picked up without a prompt; otherwise the button connects it.
 await sleep(600);
 if (await page.locator('#conn').isEnabled()) await page.click('#conn');
@@ -105,7 +105,7 @@ await page.waitForFunction((a) => document.querySelector('#who')?.textContent.in
 ok(true, 'the wallet connects through EIP-6963');
 await page.waitForFunction((ids) => ids.every((id) => /dry run lands/.test(document.querySelector(`#r${id}`)?.textContent || '')), CHAINS.map((c) => c.id), { timeout: 120_000 })
   .catch(async (e) => { for (const c of CHAINS) console.log(`# row ${c.id}: ${(await page.locator(`#r${c.id}`).innerText()).replace(/\s+/g, ' ')}`); throw e; });
-ok(true, 'every chain reads as not deployed, with a dry run from the deployer that lands at the address');
+ok(true, 'every chain reads as not deployed, with a dry run that lands at the address');
 
 for (const c of CHAINS) {
   await page.click(`[data-deploy="${c.id}"]`);

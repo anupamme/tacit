@@ -29,7 +29,7 @@ contract TacitEvmPoolCheckpoints {
     struct Point {
         uint64 blockNumber; // the tree had this count at the end of this block, as posted
         uint64 prev; // the newest point when this one was posted, 0 for the first
-        uint64 postedAt; // the block of the post
+        uint64 postedAt; // the time of the post (block.timestamp), 0 for a size never posted
         bytes32[32] filled;
     }
 
@@ -38,7 +38,8 @@ contract TacitEvmPoolCheckpoints {
     event Posted(uint256 indexed size, uint256 blockNumber, address indexed by);
 
     error NotEven();
-    error NotYet();
+    /// The block named does not fit a uint64.
+    error BadBlock();
     error Known();
     /// The pool held the root at another count (it reverts itself for a root it never held).
     error NotHeld();
@@ -97,16 +98,19 @@ contract TacitEvmPoolCheckpoints {
     }
 
     /// @notice Posts the edge of the tree at `size` leaves, which it had at the end of `blockNumber`. Kept only if the pool
-    ///         held the root this edge folds to at that count; one post per count, the first to land.
+    ///         held the root this edge folds to at that count; one post per count, the first to land. The block number is
+    ///         the poster's word and is not checked here (a contract cannot tell the pool's chain's block numbers from its
+    ///         own: on an Arbitrum chain `block.number` is the parent chain's); a wallet that uses a point checks it against
+    ///         the events after it.
     function post(uint256 size, uint256 blockNumber, bytes32[32] calldata filled) external {
         if (size == 0 || size & 1 == 1) revert NotEven();
-        if (blockNumber >= block.number) revert NotYet();
+        if (blockNumber > type(uint64).max) revert BadBlock();
         if (_points[size].postedAt != 0) revert Known();
         if (POOL.rootSize(_root(size, filled)) != size) revert NotHeld();
         Point storage p = _points[size];
         p.blockNumber = uint64(blockNumber);
         p.prev = uint64(latest);
-        p.postedAt = uint64(block.number);
+        p.postedAt = uint64(block.timestamp);
         p.filled = filled;
         if (size > latest) latest = size;
         emit Posted(size, blockNumber, msg.sender);
@@ -119,7 +123,7 @@ contract TacitEvmPoolCheckpoints {
         return (p.blockNumber, p.prev, p.filled);
     }
 
-    /// @notice The block a point was posted in, 0 for a count never posted.
+    /// @notice The time a point was posted (its block's timestamp), 0 for a count never posted.
     function postedAt(uint256 size) external view returns (uint256) {
         return _points[size].postedAt;
     }

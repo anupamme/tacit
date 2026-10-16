@@ -181,6 +181,7 @@ contract TacitEvmPoolCheckpointsTest is Test {
         pool = new RootsMock();
         cp = new TacitEvmPoolCheckpoints(ITacitEvmPoolRoots(address(pool)));
         vm.roll(1000);
+        vm.warp(1_700_000_000);
     }
 
     function testZerosFoldToThePoolsEmptyRoot() public {
@@ -240,8 +241,8 @@ contract TacitEvmPoolCheckpointsTest is Test {
         cp.post(s + 1, 900, f);
         vm.expectRevert(TacitEvmPoolCheckpoints.NotEven.selector);
         cp.post(0, 900, f);
-        vm.expectRevert(TacitEvmPoolCheckpoints.NotYet.selector);
-        cp.post(s, 1000, f);
+        vm.expectRevert(TacitEvmPoolCheckpoints.BadBlock.selector);
+        cp.post(s, uint256(type(uint64).max) + 1, f);
 
         vm.expectEmit(true, true, false, true);
         emit TacitEvmPoolCheckpoints.Posted(s, 900, address(this));
@@ -250,11 +251,20 @@ contract TacitEvmPoolCheckpointsTest is Test {
         (uint256 b, uint256 prev, bytes32[32] memory got) = cp.pointAt(s);
         assertEq(b, 900);
         assertEq(prev, 0);
-        assertEq(cp.postedAt(s), 1000);
+        assertEq(cp.postedAt(s), 1_700_000_000);
         for (uint256 i; i < 32; ++i) assertEq(got[i], f[i]);
 
         vm.expectRevert(TacitEvmPoolCheckpoints.Known.selector);
         cp.post(s, 901, f);
+    }
+
+    /// On an Arbitrum chain `block.number` is the parent chain's, far below the chain's own block numbers the poster names.
+    function testABlockNumberAheadOfThisChainsIsAccepted() public {
+        (uint256 s, bytes32[32] memory f, bytes32 r) = kat1();
+        pool.hold(r, s);
+        cp.post(s, 90_000_000, f);
+        (uint256 b,,) = cp.pointAt(s);
+        assertEq(b, 90_000_000);
     }
 
     function testLatestAndTheChainBack() public {

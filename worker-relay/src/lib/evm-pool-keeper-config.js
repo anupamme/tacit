@@ -9,9 +9,9 @@ import { privateSettleUrl } from './private-settle-url.js';
 import { RECEIVE_FEE_BPS } from '../../../dapp/evm-pool-gateway.js';
 
 const ETH = '0x0000000000000000000000000000000000000000';
-// The catch-up registry, the same address on every chain the pool is on: CreateX CREATE3 with a salt bound to the steward
-// (contracts/script/deploy-checkpoints.mjs), so the address does not depend on the registry's code.
-export const CHECKPOINTS = '0x00000000182CC07949EFaD43BAc79A25e6A9413B';
+// The catch-up registry, the same address on every chain the pool is on: CreateX CREATE2 under a salt anyone may use
+// (contracts/script/deploy-checkpoints.mjs), so the address is fixed by the registry's init code and any account may deploy it.
+export const CHECKPOINTS = '0x00000000C3267616ED5E0DAA6F6490D109d6844D';
 // The shared relay EOA. A keeper key that derives to it is refused outright.
 export const RELAY_EOA = '0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7';
 const BUILD = new URL('../../../dapp/circuits/evm-pool/build/', import.meta.url).pathname;

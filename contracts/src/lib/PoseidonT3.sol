@@ -12,7 +12,8 @@ library PoseidonT3 {
   // See here for a simplified implementation: https://github.com/vimwitch/poseidon-solidity/blob/e57becdabb65d99fdc586fe1e1e09e7108202d53/contracts/Poseidon.sol#L40
   // Inspired by: https://github.com/iden3/circomlibjs/blob/v0.0.8/src/poseidon_slow.js
   // Inlined into its callers (an internal function): the inputs are read through the array's pointer and the hash is
-  // the named return, where the published library reads calldata at 0x80 and returns from the call frame.
+  // the named return, where the published library reads the ABI-decoded array copied to memory at 0x80 and returns from
+  // its call frame.
   function hash(uint[2] memory inp) internal pure returns (uint out) {
     assembly {
       let F := 21888242871839275222246405745257275088548364400416034343698204186575808495617

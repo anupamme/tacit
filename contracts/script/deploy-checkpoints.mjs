@@ -2,15 +2,13 @@
 // The catch-up registry's admin page, on localhost: deploys TacitEvmPoolCheckpoints from a browser wallet on each chain the
 // pool is on, shows what each chain holds, and posts a point from the wallet.
 //
-// Deploy: CreateX's CREATE3 (deployCreate3) with one salt bound to one deployer (the salt starts with the deployer's
-// address and has 0x00 as its 21st byte, so CreateX guards it as keccak256(pad32(deployer) ‖ salt)): the registry lands at
-// the same address on every chain, whatever its code, and only that deployer can land it there (anyone else with the same
-// salt lands somewhere unrelated). So the address can be named in the anon.wei page, the keepers and the docs before the
-// registry is deployed anywhere, and the contract can still change until the first deploy; a chain that has the code
-// keeps it. The page reads the code on chain and says whether it is this checkout's build.
-// The salt comes from checkpoints-salts.json for the deployer (DEPLOYER, default the anon.wei steward) or is mined here
-// with create3-vanity (ZEROS leading zero bytes, default 4, about three minutes) and saved there. Each deploy is dry-run
-// from the connected wallet first and sent only if it lands at the address.
+// Deploy: CreateX's CREATE2 (deployCreate2) under one salt that anyone may use (20 zero bytes and the flag 0x00, so CreateX guards
+// it as keccak256(salt) alone: no deployer and no chain id is mixed in). The registry lands at the same address on every chain,
+// and since the address is CREATE2's it is fixed by the init code: nothing but this exact code can ever be there, so any wallet
+// may deploy it and a task may pay for it. A changed build has another address, so another salt is mined for it (the salts are
+// kept by init code hash in checkpoints-salts.json); the page says when this build's address differs from the one the anon.wei
+// page, the keepers and the docs name. The page reads the code on chain and says whether it is this checkout's build. Each deploy
+// is dry-run from the connected wallet first and sent only if it lands at the address.
 //
 // Post: the server rebuilds the pool's tree from the relay's event index (or the chain's logs, where the relay is down
 // or RELAY_<chainId>= is empty), takes its edge at the index's confirmed block, and offers it only once the pool holds
@@ -36,19 +34,15 @@ net.setDefaultAutoSelectFamily?.(false);
 const DIR = new URL('../', import.meta.url).pathname;
 const POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9';
 const CREATEX = '0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed';
-// keccak256 of CreateX's CREATE3 proxy init code, 0x67363d3d37363d34f03d5260086018f3.
-const PROXY_INIT_HASH = '0x21c35dbe1b344a2488cf3321d6ce542f8e9f305544ff09e4993a62319a497c1f';
-// The anon.wei steward, who signs deployNext: the deployer the salt is bound to unless DEPLOYER says another.
-const STEWARD = '0x1C0Aa8cCD568d90d61659F060D1bFb1e6f855A20';
-// The address the anon.wei page, the keepers and the docs name (the steward's salt). Another deployer lands elsewhere:
-// the page says so.
-const NAMED = '0x00000000182cc07949efad43bac79a25e6a9413b';
-const keeper = (sub) => `https://tacit-evm-pool-keeper${sub}.onrender.com/evm-pool/keeper`;
+// The address the anon.wei page, the keepers and the docs name (this build's open salt). Another build lands elsewhere: the page
+// says so.
+const NAMED = '0x00000000c3267616ed5e0daa6f6490d109d6844d';
+const keeper = (chainId) => `https://tacit-evm-pool-keepers.onrender.com/${chainId}/evm-pool/keeper`;
 let CHAINS = [
-  { id: 1, name: 'Ethereum', rpc: ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org', 'https://mainnet.gateway.tenderly.co'], explorer: 'https://etherscan.io', relay: keeper(''), deployBlock: 26069245, logStep: 50_000 },
-  { id: 8453, name: 'Base', rpc: ['https://mainnet.base.org', 'https://base.gateway.tenderly.co', 'https://base.drpc.org'], explorer: 'https://basescan.org', relay: keeper('-base'), deployBlock: 51864014, logStep: 500 },
-  { id: 4663, name: 'Robinhood Chain', rpc: ['https://rpc.mainnet.chain.robinhood.com', 'https://robinhood.drpc.org'], explorer: 'https://robinhoodchain.blockscout.com', relay: keeper('-robinhood'), deployBlock: 73991661, logStep: 1_000_000 },
-  { id: 4326, name: 'MegaETH', rpc: ['https://mainnet.megaeth.com/rpc', 'https://megaeth.drpc.org'], explorer: 'https://mega.etherscan.io', relay: keeper('-megaeth'), deployBlock: 28397750, logStep: 100_000 },
+  { id: 1, name: 'Ethereum', rpc: ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org', 'https://mainnet.gateway.tenderly.co'], explorer: 'https://etherscan.io', relay: keeper(1), deployBlock: 26069245, logStep: 50_000 },
+  { id: 8453, name: 'Base', rpc: ['https://mainnet.base.org', 'https://base.gateway.tenderly.co', 'https://base.drpc.org'], explorer: 'https://basescan.org', relay: keeper(8453), deployBlock: 51864014, logStep: 500 },
+  { id: 4663, name: 'Robinhood Chain', rpc: ['https://rpc.mainnet.chain.robinhood.com', 'https://robinhood.drpc.org'], explorer: 'https://robinhoodchain.blockscout.com', relay: keeper(4663), deployBlock: 73991661, logStep: 1_000_000 },
+  { id: 4326, name: 'MegaETH', rpc: ['https://mainnet.megaeth.com/rpc', 'https://megaeth.drpc.org'], explorer: 'https://mega.etherscan.io', relay: keeper(4326), deployBlock: 28397750, logStep: 100_000 },
 ];
 for (const c of CHAINS) {
   if (process.env['RPC_' + c.id]) c.rpc = [process.env['RPC_' + c.id]];
@@ -79,39 +73,34 @@ const RUNTIME = (() => {
   for (const refs of Object.values(art.deployedBytecode.immutableReferences || {})) for (const { start, length } of refs) r = r.slice(0, 2 * start) + word(POOL).slice(64 - 2 * length) + r.slice(2 * (start + length));
   return r;
 })();
-const DEPLOYER = checksum(process.env.DEPLOYER || STEWARD);
 const SALTS_FILE = process.env.SALTS_FILE || new URL('./checkpoints-salts.json', import.meta.url).pathname;
 let salts = {};
 try { salts = JSON.parse(readFileSync(SALTS_FILE, 'utf8')); } catch {}
-// CreateX's CREATE3 address of a deployer's salt: the proxy it creates by CREATE2 under the guarded salt, then that
-// proxy's first contract.
-const addressOf = (deployer, salt) => {
-  const guarded = keccak('0x' + word(deployer) + salt.slice(2));
-  const proxy = keccak('0xff' + CREATEX.slice(2) + guarded.slice(2) + PROXY_INIT_HASH.slice(2)).slice(-40);
-  return checksum('0x' + keccak('0xd694' + proxy + '01').slice(-40));
-};
-if (keccak('0x67363d3d37363d34f03d5260086018f3') !== PROXY_INIT_HASH) throw new Error('PROXY_INIT_HASH is not the hash of the CREATE3 proxy init code');
-const key = DEPLOYER.toLowerCase();
+// CreateX's CREATE2 address under an open salt: the salt is guarded as its own hash, and the address is CREATE2's over that,
+// CreateX and the init code's hash.
+const INIT_HASH = keccak(INIT);
+const addressOf = (salt) => checksum('0x' + keccak('0xff' + CREATEX.slice(2) + keccak(salt).slice(2) + INIT_HASH.slice(2)).slice(-40));
+const key = INIT_HASH;
 if (!salts[key]) {
   const zeros = Number(process.env.ZEROS ?? 4);
-  console.log(`No salt for ${DEPLOYER} yet: mining one for ${zeros} leading zero bytes with create3-vanity (each extra zero byte takes about 256 times as long)…`);
+  console.log(`No salt for init code ${INIT_HASH.slice(0, 14)}… yet: mining one for ${zeros} leading zero bytes with create3-vanity create2 (each extra zero byte takes about 256 times as long; four take about 20 minutes)…`);
   const bin = new URL('./create3-vanity/target/release/create3-vanity', import.meta.url).pathname;
   try {
     try { readFileSync(bin); } catch { execFileSync('cargo', ['build', '--release', '--offline', '--manifest-path', new URL('./create3-vanity/Cargo.toml', import.meta.url).pathname], { stdio: 'inherit' }); }
-    const out = execFileSync(bin, [DEPLOYER, CREATEX, String(zeros)], { encoding: 'utf8', timeout: 3_600_000 });
+    const out = execFileSync(bin, ['create2', CREATEX, INIT_HASH, String(zeros)], { encoding: 'utf8', timeout: 7_200_000 });
     const m = /salt (0x[0-9a-f]{64}) guarded (0x[0-9a-f]{64}) address (0x[0-9a-f]{40})/.exec(out);
     if (!m) throw new Error(out.slice(-300));
-    if (addressOf(DEPLOYER, m[1]).toLowerCase() !== m[3]) throw new Error('the miner and this script disagree on the address');
-    salts[key] = { salt: m[1], address: addressOf(DEPLOYER, m[1]) };
+    if (addressOf(m[1]).toLowerCase() !== m[3]) throw new Error('the miner and this script disagree on the address');
+    salts[key] = { salt: m[1], address: addressOf(m[1]) };
   } catch (e) { console.error(`Could not mine a salt: ${String(e.message).slice(0, 300)}`); process.exit(1); }
   writeFileSync(SALTS_FILE, JSON.stringify(salts, null, 2) + '\n');
 }
-const { salt: SALT } = salts[key], ADDR = addressOf(DEPLOYER, SALT);
+const { salt: SALT } = salts[key], ADDR = addressOf(SALT);
 if (salts[key].address.toLowerCase() !== ADDR.toLowerCase()) { console.error(`${SALTS_FILE} names ${salts[key].address} for this salt, which lands at ${ADDR}`); process.exit(1); }
-if (SALT.slice(0, 42).toLowerCase() !== DEPLOYER.toLowerCase() || SALT.slice(42, 44) !== '00') { console.error('The salt does not start with the deployer and 0x00, so CreateX would not guard it for the deployer.'); process.exit(1); }
-// deployCreate3(bytes32 salt, bytes initCode)
+if (!/^0x0{40}00[0-9a-f]{22}$/i.test(SALT)) { console.error('The salt does not start with 20 zero bytes and 0x00, so CreateX would not guard it as its own hash.'); process.exit(1); }
+// deployCreate2(bytes32 salt, bytes initCode)
 const initLen = (INIT.length - 2) / 2;
-const DEPLOY_DATA = sel('deployCreate3(bytes32,bytes)') + SALT.slice(2) + word(64) + word(initLen) + INIT.slice(2) + '00'.repeat((32 - (initLen % 32)) % 32);
+const DEPLOY_DATA = sel('deployCreate2(bytes32,bytes)') + SALT.slice(2) + word(64) + word(initLen) + INIT.slice(2) + '00'.repeat((32 - (initLen % 32)) % 32);
 
 // ── reads ──
 async function rpc(c, method, params = []) {
@@ -132,7 +121,7 @@ async function rpc(c, method, params = []) {
 }
 const call = (c, to, data, tag = 'latest', from) => rpc(c, 'eth_call', [{ to, data, ...(from ? { from } : {}) }, tag]);
 const num = (h) => (h && h !== '0x' ? BigInt(h) : 0n);
-const REVERTS = Object.fromEntries(['NotEven()', 'NotYet()', 'Known()', 'NotHeld()', 'UnknownMembershipRoot()'].map((s) => [sel(s), s.slice(0, -2)]));
+const REVERTS = Object.fromEntries(['NotEven()', 'BadBlock()', 'Known()', 'NotHeld()', 'UnknownMembershipRoot()'].map((s) => [sel(s), s.slice(0, -2)]));
 const why = (e) => { const d = String(e?.data?.data ?? e?.data ?? ''); return REVERTS[d.slice(0, 10)] || String(e?.message || e).slice(0, 200); };
 
 async function state(c, from) {
@@ -154,8 +143,6 @@ async function state(c, from) {
     out.problem = 'CreateX is not on this chain at ' + CREATEX;
   } else if (!from) {
     out.dryRun = 'connect';
-  } else if (from.toLowerCase() !== DEPLOYER.toLowerCase()) {
-    out.dryRun = 'wrong-wallet';
   } else {
     try {
       const lands = await call(c, CREATEX, DEPLOY_DATA, 'latest', from);
@@ -206,12 +193,13 @@ async function fromRelay(c, job) {
   return { ts: ts.filter((t) => t.leaves[0] || t.leaves[1]).sort((x, y) => x.firstIndex - y.firstIndex), through };
 }
 async function computePoint(c, job) {
-  const head = Number(num(await rpc(c, 'eth_blockNumber')));
   let ts, through, source;
   if (c.relay) {
     try { ({ ts, through } = await fromRelay(c, job)); source = 'the relay’s index'; }
     catch (e) { job.note = `the relay could not be read (${String(e.message).slice(0, 80)}); reading the chain instead`; }
   }
+  // The head is read after the relay (which can take a while to page), so a relay that is only a little ahead is not ahead.
+  const head = Number(num(await rpc(c, 'eth_blockNumber')));
   if (!ts) { through = head - 32; ts = await logsBetween(c, c.deployBlock, through, job); source = 'the chain’s logs'; }
   if (through > head) throw new Error(`the relay is ahead of this node (block ${through} > ${head}); try again shortly`);
   const tree = zk.incTree(), leaves = [];
@@ -232,13 +220,14 @@ async function computePoint(c, job) {
   // and the pool still has `size` leaves.
   job.note = 'checking the blocks after it';
   const after = await logsBetween(c, through + 1, head, null);
-  if (after.length ? after[0].firstIndex !== size : Number(num(await call(c, POOL, sel('nextIndex()')))) !== size) throw new Error('the events after this block do not start where it ends; try again shortly');
+  if (after.length ? after[0].firstIndex !== size : Number(num(await call(c, POOL, sel('nextIndex()'), '0x' + head.toString(16)))) !== size) throw new Error('the events after this block do not start where it ends; try again shortly');
   const data = sel('post(uint256,uint256,bytes32[32])') + word(size) + word(through) + filled.map((f) => f.slice(2)).join('');
   return { size, block: through, root: '0x' + word(tree.root), source, data };
 }
 function pointJob(c, fresh) {
   let job = jobs.get(c.id);
-  if (job && !fresh && (job.state === 'reading' || Date.now() - job.at < 60_000)) return job;
+  if (job?.state === 'reading') return job;
+  if (job && !fresh && Date.now() - job.at < 60_000) return job;
   job = { state: 'reading', note: 'starting', at: Date.now() };
   jobs.set(c.id, job);
   computePoint(c, job).then((p) => Object.assign(job, { state: 'ready', point: p, at: Date.now() }), (e) => Object.assign(job, { state: 'failed', err: String(e.message || e).slice(0, 300), at: Date.now() }));
@@ -257,15 +246,19 @@ async function dryPost(c, data, from) {
 }
 
 // ── the page ──
-const page = readFileSync(new URL('./deploy-checkpoints.html', import.meta.url), 'utf8').replace('/*CONFIG*/null', JSON.stringify({
-  address: ADDR, named: NAMED, createx: CREATEX, deployer: DEPLOYER, pool: POOL, salt: SALT, initBytes: initLen, runtimeBytes: RUNTIME.length / 2, deployData: DEPLOY_DATA,
+const page = readFileSync(new URL('./deploy-checkpoints.html', import.meta.url), 'utf8').replace('/*CONFIG*/null', () => JSON.stringify({
+  address: ADDR, named: NAMED, createx: CREATEX, pool: POOL, salt: SALT, initBytes: initLen, runtimeBytes: RUNTIME.length / 2, deployData: DEPLOY_DATA,
   chains: CHAINS.map(({ id, name, rpc: r, explorer }) => ({ id, name, rpc: r[0], explorer })),
 }));
 const send = (res, status, body) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); };
 const isAddr = (a) => /^0x[0-9a-fA-F]{40}$/.test(a || '');
-http.createServer(async (req, res) => {
-  const u = new URL(req.url, 'http://x'), c = chainOf(u.searchParams.get('chain')), from = isAddr(u.searchParams.get('from')) ? u.searchParams.get('from') : undefined;
+const server = http.createServer(async (req, res) => {
   try {
+    // Only this machine's own browser tab: a page on another site cannot drive this server (a request it can send blind
+    // names another site, and DNS rebinding changes the Host it is answered under).
+    const port = server.address().port;
+    if (!['127.0.0.1:' + port, 'localhost:' + port].includes(req.headers.host || '') || (req.headers['sec-fetch-site'] || 'none') === 'cross-site') return send(res, 403, { error: 'not for this page' });
+    const u = new URL(req.url, 'http://x'), c = chainOf(u.searchParams.get('chain')), from = isAddr(u.searchParams.get('from')) ? u.searchParams.get('from') : undefined;
     if (u.pathname === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' }); return res.end(page); }
     if (!c) return send(res, 404, { error: 'no such chain' });
     if (u.pathname === '/api/state') return send(res, 200, await state(c, from));
@@ -275,14 +268,17 @@ http.createServer(async (req, res) => {
       return send(res, 200, { state: 'ready', point: job.point, dry: from ? await dryPost(c, job.point.data, from) : null });
     }
     if (u.pathname === '/api/receipt') {
-      const r = await rpc(c, 'eth_getTransactionReceipt', [u.searchParams.get('hash')]);
+      const hash = u.searchParams.get('hash') || '';
+      if (!/^0x[0-9a-fA-F]{64}$/.test(hash)) return send(res, 400, { error: 'not a transaction hash' });
+      const r = await rpc(c, 'eth_getTransactionReceipt', [hash]);
       return send(res, 200, r ? { status: r.status, gasUsed: String(num(r.gasUsed)), block: Number(num(r.blockNumber)) } : { status: null });
     }
     return send(res, 404, { error: 'not found' });
   } catch (e) { return send(res, 502, { error: String(e.message || e).slice(0, 300) }); }
-}).listen(Number(process.argv[2] || 8796), '127.0.0.1', function () {
+});
+server.listen(Number(process.argv[2] || 8796), '127.0.0.1', function () {
   console.log(`Catch-up registry admin: http://127.0.0.1:${this.address().port}`);
   console.log(`  registry ${ADDR}${ADDR.toLowerCase() === NAMED.toLowerCase() ? '' : `  (NOT the ${NAMED} the page and keepers name)`}`);
-  console.log(`  CREATE3 through CreateX ${CREATEX}, deployer ${DEPLOYER}, salt ${SALT}, init code ${initLen} bytes`);
+  console.log(`  CREATE2 through CreateX ${CREATEX}, open salt ${SALT}, init code ${initLen} bytes (${INIT_HASH})`);
   console.log(`  chains: ${CHAINS.map((c) => c.name).join(', ')}`);
 });

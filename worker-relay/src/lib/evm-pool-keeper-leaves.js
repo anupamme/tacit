@@ -106,7 +106,7 @@ export function makeLeafSync({ store, chain, zk, startBlock = 0n, confirmations 
       if (BigInt(tree.size) > BigInt(nextIndex)) reset();
       throw new LeafSyncError(`have ${tree.size} leaves, pool holds ${nextIndex} at block ${head}`);
     }
-    return { tree, root: BigInt(root), nextIndex: BigInt(nextIndex), head, confirmed: { tree: base, block: synced() } };
+    return { tree, root: BigInt(root), nextIndex: BigInt(nextIndex), head, confirmed: { tree: base.clone(), block: synced() } };
   }
 
   // Stored events from `fromBlock` on, whole blocks only, at most about `limit`. → { events, through }: every event
@@ -150,7 +150,15 @@ export function makeLeafSync({ store, chain, zk, startBlock = 0n, confirmations 
     return value;
   }
 
-  return { sync, eventsFrom, totals, invalidate: reset };
+  // The confirmed tree's right edge at its count and the block it is read through: a catch-up point, as the keeper last read the
+  // pool, for a person to post from their own wallet. null before the first sync, or at an odd count (a spend fills both of its
+  // outputs, so the pool's count is even).
+  function point() {
+    if (!base || !base.size || base.size % 2) return null;
+    return { size: Number(base.size), block: Number(synced()), filled: base.toJSON().filled.map((x) => `0x${BigInt(x).toString(16).padStart(64, '0')}`) };
+  }
+
+  return { sync, eventsFrom, totals, point, invalidate: reset };
 }
 
 // Fills in the stored events' facts, behind the leaf sync and apart from it, so a slow or failing node here never holds up

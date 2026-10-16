@@ -400,6 +400,39 @@ await test('an IPv6 client is keyed by its /64; IPv4 and mapped addresses by the
 
 // ── leaf sync ──
 
+await test('the leaf sync names the confirmed tree\'s edge as a catch-up point, and /point serves it with the call that posts it', async () => {
+  const store = openKeeperStore(':memory:');
+  const chain = mockChain();
+  const sync = makeLeafSync({ store, chain, zk, startBlock: 0n, confirmations: 2n, logChunk: 3n });
+  assert.equal(sync.point(), null, 'nothing before the first sync');
+  for (let i = 0; i < 5; i++) chain.foreignTx();
+  await sync.sync();
+  const pt = sync.point();
+  assert.equal(pt.size, 6, 'the persisted leaves, not the tail');
+  assert.equal(pt.block, Number(chain.block) - 2);
+  assert.equal(pt.filled.length, 32);
+  assert.ok(pt.filled.every((x) => /^0x[0-9a-f]{64}$/.test(x)));
+  const tree = zk.incTree(); tree.append(chain.leaves.slice(0, 6));
+  assert.deepEqual(pt.filled, tree.toJSON().filled.map((x) => `0x${BigInt(x).toString(16).padStart(64, '0')}`), 'the edge of the tree over those leaves');
+  const REG = '0x00000000C3267616ED5E0DAA6F6490D109d6844D', cfg = mkCfg();
+  const handler = createIntakeHandler({ store, chain, zk, leafSync: sync, assetField, cfg: { ...cfg, pointsAddress: REG }, now: () => T0 });
+  const server = createServer(handler);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  try {
+    const url = `http://127.0.0.1:${server.address().port}/evm-pool/keeper/point`;
+    const r = await fetch(url);
+    assert.equal(r.status, 200);
+    const j = await r.json();
+    assert.equal(j.registry, REG);
+    assert.equal(j.size, 6);
+    assert.equal(j.data.slice(0, 10), '0x' + viemKeccak(toHex('post(uint256,uint256,bytes32[32])')).slice(2, 10), 'the post call');
+    assert.equal(j.data.length, 2 + 8 + 64 * 34, 'the size, the block and the 32 edge words');
+    const off = createServer(createIntakeHandler({ store, chain, zk, leafSync: sync, assetField, cfg: { ...cfg, pointsAddress: null }, now: () => T0 }));
+    await new Promise((r2) => off.listen(0, '127.0.0.1', r2));
+    try { assert.equal((await fetch(`http://127.0.0.1:${off.address().port}/evm-pool/keeper/point`)).status, 404, 'no registry named: no point to post'); } finally { off.close(); }
+  } finally { server.close(); }
+});
+
 await test('leaf sync persists confirmed leaves and events, re-reads the tail, and resets on a dropped block', async () => {
   const store = openKeeperStore(':memory:');
   const chain = mockChain();
@@ -427,6 +460,7 @@ await test('leaf sync persists confirmed leaves and events, re-reads the tail, a
   await assert.rejects(sync.sync(), LeafSyncError);
   assert.equal(store.leafCount(), 0);
   assert.equal(sync.eventsFrom(0, 100).events.length, 0, 'events reset with the leaves');
+  assert.equal(sync.point(), null, 'no point once the store is reset');
   s = await sync.sync();
   assert.equal(s.tree.size, 4);
   assert.equal(s.tree.root, zk.tree(chain.leaves).root);

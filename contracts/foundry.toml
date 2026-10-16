@@ -1,4 +1,5 @@
 [profile.default]
+skip = ["src/checkpoints/**", "test/checkpoints/**"]
 src = "src"
 out = "out"
 libs = ["lib"]
@@ -25,7 +26,9 @@ fs_permissions = [{ access = "read", path = "./test/fixtures" }, { access = "rea
 # The catch-up registry (TacitEvmPoolCheckpoints, src/checkpoints) ships from this profile: the Poseidon it inlines is
 # 29 KB of code under via-IR and 16 KB without, so it is built without, at the launch line's 200 runs, into its own out.
 #   FOUNDRY_PROFILE=checkpoints forge build && FOUNDRY_PROFILE=checkpoints forge test
+# (The default profile does not build it: under via-IR it is 31.8 KB, over EIP-170.)
 [profile.checkpoints]
+skip = []
 src = "src/checkpoints"
 test = "test/checkpoints"
 script = "script/checkpoints"

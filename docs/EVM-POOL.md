@@ -45,14 +45,15 @@ these addresses). On any other chain, treat code at these addresses as unrelated
 | Zap (`TacitEvmPoolZap`, shields a token in one transaction; not on MegaETH) | `0x0000008EbBF2323f95c4fBc18254f3D65C53998c` |
 
 The catch-up registry (`TacitEvmPoolCheckpoints`, see Catch-up points under Keys and recovery) is deployed through CreateX's
-CREATE3 with a salt bound to the anon.wei steward (`0x1C0Aa8cCD568d90d61659F060D1bFb1e6f855A20`): the address follows from
-that deployer and salt alone, not from the registry's code, and only the steward can land it there. It is deployed and
-funded from a wallet on the localhost admin page `contracts/script/deploy-checkpoints.mjs`, which also shows each chain's
-newest point and posts one; built under the `checkpoints` foundry profile (no via-IR, 200 runs).
+CREATE2 under one salt anyone may use (20 zero bytes and the flag `0x00`, which CreateX guards as `keccak256(salt)` alone, so
+no deployer and no chain id is mixed in): it lands at the same address on every chain, and the address is fixed by the registry's
+init code (19,163 bytes, hash `0x0a66d640…1031`, built under the `checkpoints` foundry profile: no via-IR, 200 runs, no metadata
+hash), so nothing but that exact code can ever be there and any account may deploy it. It is deployed on Ethereum, Base, Robinhood
+Chain and MegaETH by the `anon-wei-4` job on tacit.finance/tasks, or by hand from the localhost admin page
+`contracts/script/deploy-checkpoints.mjs`, which also shows each chain's newest point and posts one. It is not deployed on any chain
+yet; this section lists the chains once it is.
 
-| Contract | Address |
-|---|---|
-| Catch-up registry (`TacitEvmPoolCheckpoints`) | `0x00000000182CC07949EFaD43BAc79A25e6A9413B` |
+| Catch-up registry (`TacitEvmPoolCheckpoints`) | `0x00000000C3267616ED5E0DAA6F6490D109d6844D` |
 
 PoseidonT5 is the standard deterministic deployment (poseidon-solidity, CREATE2 proxy
 `0x4e59b44847b379578588920cA78FbF26c0B4956C`); the deploy script lands it first on chains that lack it. The zap goes
@@ -568,6 +569,12 @@ kept only if the tree it builds is one the pool has held at that size (`rootSize
 hide a note (by withholding its memo or `Received` event, or by listing its nullifier as spent) or a spend of one;
 `rescan()` rebuilds from chain logs alone, and a spend that keeps failing runs it.
 
+**Catch-up point.** `GET /evm-pool/keeper/point` → `{ chainId, pool, registry, size, block, filled, data }`: the keeper's confirmed
+tree's right edge at its count and the block it is read through, with `data`, the call that posts it to the registry
+(`post(size, blockNumber, filled)`), for anyone to send from their own wallet (the /tasks job's first-point steps do). The registry
+keeps a post only if the pool held its root at that count, so a wrong point reverts and costs its sender only a failed estimate.
+`404` when the keeper names no registry, `503` before it has read the pool.
+
 A `409` with `stale: true` means another transaction landed first: rebuild against the new root and prove again
 (the owner's signature does not change). A `400` carrying `needFee` means gas moved; re-quote. Deposits are not
 relayed, since a deposit is paid by whoever sends it.
@@ -598,18 +605,22 @@ the tree had that count. Anyone who has read the pool that far can post one to t
 a wallet can take the newest (`latest()`, `pointAt(size)`), check it the same way, continue the tree from it, and prove
 spends of any note inserted after it at once.
 
-The block number is the poster's word. A wallet checks it by reading the events after it, which must start at the
-point's count (an earlier block only costs reading events already in the edge; a later one leaves a gap the wallet sees
-as an insertion out of order, or as a count short of the pool's, and it passes that point over for the one posted before
-it, `prev`). Nothing older than the point is lost: the wallet reads the history behind it in the background, from the
-pool's first block, into a second state that takes the first one's place once both are read through the same block with
-the same root; until then, older notes are not shown, and no one-time address is issued (the next index follows the last
-one used, which that history holds).
+The block number is the poster's word: the registry holds it only to a size that fits, since some chains' `block.number`
+is their parent chain's and cannot be compared with the post. A wallet takes it as the place to start reading, and checks
+it. It must lie between the pool's first block and the newest block the wallet trusts; where its node serves a state that
+old, the pool must not already have held more leaves than the point's count at that block (a block later than the real one
+would leave a gap, and the wallet passes that point over for the one posted before it, `prev`); and an earlier block only
+costs reading events the edge already holds. The events after the point must then begin at its count, which the wallet
+checks again as it reads; if they do not, it drops the point and reads from the pool's first block. Nothing older than the
+point is lost: the wallet reads the history behind it in the background, from the pool's first block, into a second state
+that takes the first one's place once both are read through the same block with the same root; until then, older notes are
+not shown, and no one-time address is issued (the next index follows the last one used, which that history holds).
 
 Posting costs gas and nothing else (about 1.7M gas: 32 Poseidon hashes and the edge in storage). anon.wei offers it
 under Activity → Catch-up points to a wallet that has read the whole history; the keepers post one on each chain when the
-pool has grown by `EVM_POOL_KEEPER_POINTS_EVERY` leaves, or a day has passed, since the last. One post per count, the
-first to land.
+pool has grown by `EVM_POOL_KEEPER_POINTS_EVERY` leaves (default 2,000), or a day (`EVM_POOL_KEEPER_POINTS_MAX_AGE_SECS`,
+default 86,400) has passed with at least a tenth of that growth, since the newest point; `EVM_POOL_KEEPER_POINTS_GAS`
+(default 2,500,000) sizes the post and `EVM_POOL_KEEPER_POINTS=0` turns posting off. One post per count, the first to land.
 
 ## Standalone wallet
 

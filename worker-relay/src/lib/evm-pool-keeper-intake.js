@@ -11,12 +11,15 @@
 //                                  an unreserved relay proven against `tail` takes the next slot
 //   GET  /evm-pool/keeper/events?from=<block>   confirmed pool Transact and router Received events, whole blocks
 //                                  from..through; a wallet checks what it builds from them against the pool
+//   GET  /evm-pool/keeper/point    the confirmed tree's edge as a catch-up point, with the call data that posts it to the
+//                                  registry: anyone may send it from their own wallet (the registry keeps it only if the pool
+//                                  held its root, so a wrong point reverts and costs the sender nothing but the failed estimate)
 //   POST /evm-pool/keeper/relay    { tx, call?, wrap? }: submit a user's own proven withdrawal or transfer that pays
 //                                  this keeper, straight to the pool, or with a call intent (withdrawAndCall) or a
 //                                  wrap intent (withdrawToV1) through the router
 // Request bodies are capped before parsing. Hints are never echoed back or logged.
 
-import { getAddress, isAddress } from 'viem';
+import { getAddress, isAddress, encodeFunctionData, parseAbi } from 'viem';
 import { depositIntent, callIntent, callEscrowAddress } from '../../../dapp/evm-pool-gateway.js';
 import { P_FR } from '../../../dapp/btc-pool-zk.js';
 import { ETH } from './evm-pool-keeper-config.js';
@@ -26,6 +29,7 @@ import { revertName as defaultRevertName } from './evm-pool-keeper-chain.js';
 import { safeErr } from './safe-err.js';
 import { ipKey, clientKey } from './token-bucket.js';
 
+const POST_ABI = parseAbi(['function post(uint256 size, uint256 blockNumber, bytes32[32] filled)']);
 const VMAX = 1n << 120n;
 const U256 = 1n << 256n;
 const ZERO32 = '0x' + '0'.repeat(64);
@@ -527,6 +531,14 @@ export function createIntakeHandler({
         if (!readLimited(clientKey(req))) throw new IntakeError(429, 'rate limited');
         const t = leafSync.totals();
         return t ? send(200, { chainId: chain.chainId, pool: chain.pool, ...t }) : send(503, { error: 'the stored history does not have every amount yet' });
+      }
+      if (p === `${PREFIX}/point` && req.method === 'GET') {
+        if (!leafSync?.point || !cfg.pointsAddress) return send(404, { error: 'no catch-up registry' });
+        if (!readLimited(clientKey(req))) throw new IntakeError(429, 'rate limited');
+        const pt = leafSync.point();
+        if (!pt) return send(503, { error: 'the stored history has not been read yet' });
+        const data = encodeFunctionData({ abi: POST_ABI, functionName: 'post', args: [BigInt(pt.size), BigInt(pt.block), pt.filled] });
+        return send(200, { chainId: chain.chainId, pool: chain.pool, registry: getAddress(cfg.pointsAddress), ...pt, data });
       }
       if (p === `${PREFIX}/head` && req.method === 'GET') {
         if (!readLimited(clientKey(req))) throw new IntakeError(429, 'rate limited');
