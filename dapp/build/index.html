@@ -308,7 +308,7 @@ await tacit.unwrap({ note: notes[0], walletPriv, recipient: '0x…' });</code></
     <li><b>Record the wrap index.</b> <code>tacit.wrap</code> takes the next unused index. If the settle step fails, <code>buildWrap</code> with the same index rebuilds the same deposit; the escrow has no deadline, and wrapping again would deposit twice.</li>
     <li><b>One transaction.</b> <code>wrapAndSend</code> wraps and settles together and splits the deposit into an amount and change. To pay the relay inside a plain deposit, send it through <code>WrapTipForwarder</code> with the tip <code>GET /confidential/quote</code> recommends.</li>
     <li><b>Paying someone else.</b> <code>stealthSend</code> locks to a one-time key derived from their <code>tacit1…</code> address, and they claim it. The sender can refund after the lock's deadline, about 90 days by default. A <code>.wei</code>, <code>.gwei</code> or <code>.eth</code> name can carry that address in its <code>finance.tacit</code> text record; <code>confidential-names.js</code> resolves and publishes it.</li>
-    <li><b>Exiting.</b> <code>unwrap</code> pays a whole note out; <code>sendUnwrap</code> pays an exact amount and keeps the change hidden. Confirm an exit by the recipient's balance or the settle receipt, not by the relay's status.</li>
+    <li><b>Exiting.</b> <code>unwrap</code> pays a whole note out; <code>sendUnwrap</code> pays an exact amount and keeps the change hidden. Confirm an exit by the recipient's balance or the settle receipt, not by the relay's status. The pool has no <code>withdraw()</code> and no <code>receive()</code>: an exit is the <code>unwrap</code> op, a proof that <code>settle</code> applies, so a direct call or a plain transfer to the pool address reverts and moves nothing.</li>
   </ul>
 
   <h3>Exiting straight to Base or Robinhood Chain</h3>
@@ -534,7 +534,7 @@ const out = await client.readContract({ address: AMM, abi, functionName: 'quoteS
     <tr><td><code>GET /crossout/minted</code></td><td>Whether a cross-out mint was credited.</td></tr>
     <tr><td><code>GET /farm/program</code>, <code>/farm/health</code></td><td>The farms' schedule and a solvency verdict, read from chain.</td></tr>
   </table></div>
-  <p>Submits are rate-limited per IP. Free settles share a daily budget (<code>429 free_budget</code>) and prove-only jobs a daily prove budget (<code>429 prove_budget</code>); past either, attach a fee or prove with your own account. Requests are capped at 1 MiB.</p>
+  <p>Submits are rate-limited per IP. Free settles share a daily budget (<code>429 free_budget</code>) and prove-only jobs a daily prove budget (<code>429 prove_budget</code>); past either, attach a fee or prove with your own account. While the relay keeps its prover credit for the bridge, a free prove-only job is refused (<code>503 prove_reserved</code>, with a <code>hint</code> naming the way on); exits are held last, and a relayed settle is not affected. Requests are capped at 1 MiB.</p>
 </section>
 
 <!-- ─────────────── Proving ─────────────── -->

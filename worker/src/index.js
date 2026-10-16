@@ -3400,9 +3400,15 @@ async function handleConfidentialSubmit(req, env, cors) {
   const paidProve = submitMode === 'prove' && body.type === 'wrap' && await wrapTipPaid(env, body);
   if (submitMode === 'prove' && !paidProve) {
     const minCredit = Number(env.PROVE_MODE_MIN_CREDIT || 40);
+    // A holder leaving the pool asks for less than one who deposits or sends: the exits (unwrap, sendunwrap) keep their free proofs
+    // down to a lower floor, PROVE_MODE_EXIT_MIN_CREDIT (20 by default, about one attest's worth of credit), under the same daily
+    // budgets below. A wrap or a send still stops at the full reserve, so a loop that must wrap again to go on stops there. The relay
+    // holds a queued job to the same two figures (worker-relay/src/lib/prove-floor.js).
+    const exitMin = Number(env.PROVE_MODE_EXIT_MIN_CREDIT === undefined || env.PROVE_MODE_EXIT_MIN_CREDIT === '' ? 20 : env.PROVE_MODE_EXIT_MIN_CREDIT);
+    const floor = ['unwrap', 'sendunwrap'].includes(body.type) && Number.isFinite(exitMin) ? Math.min(minCredit, Math.max(0, exitMin)) : minCredit;
     // `hint` names the way on for a page that does not read the words: 'relay' (a relayed settle, which carries a fee), 'tip' (a wrap
     // whose deposit tips the relay is paid work), 'self-prove' (the holder's own prover credit).
-    if (relay && relay.credit != null && minCredit > 0 && relay.credit < minCredit) {
+    if (relay && relay.credit != null && floor > 0 && relay.credit < floor) {
       return jsonResponse({ ok: false, error: 'the relay is keeping its proving credit for the bridge right now — send it through the relay instead (it carries a fee), prove it with your own prover account, or try again later', code: 'prove_reserved', hint: body.type === 'wrap' ? 'tip' : 'relay', retryAfter: 600 }, 503, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '600' });
     }
     const b = await proveBudget(env);

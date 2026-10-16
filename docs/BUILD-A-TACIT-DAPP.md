@@ -294,6 +294,9 @@ await tacit.stealthSend({ walletPriv, notes, recipientPubHex, amount: 5_000_000n
 
 To pay a plain 0x address an exact amount out of a larger note, with the rest kept as hidden change, use `tacit.sendUnwrap`; the pattern, fees and privacy limits are in [`PRIVATE-PAYOUT.md`](./PRIVATE-PAYOUT.md).
 
+The pool has no `withdraw()` and no `receive()`: an exit is the `unwrap` op, a proof that `ConfidentialPool.settle` applies (the relay sends
+it, or you do). A direct call to the pool, or a plain ETH transfer to its address, reverts and moves nothing.
+
 **Paying someone else, and what the receiver needs.**
 - **Address.** `recipientPubHex` is the receiver's static spend pubkey, the confidential account's public key. A 0x address does not work:
   it is a hash of a pubkey, so a sender cannot derive the pubkey from it, and the pool has no registry from a 0x address to a pubkey.
@@ -1247,7 +1250,10 @@ code `prove_budget`); past either, attach a fee above the floor or prove and set
 that expires can be refused while the relay is catching up on settles (`429`, code `relay_held`): submit it with
 `mode: 'prove'` and send the settle yourself. While the relay is paused or down, a `mode: 'prove'` job, and a relayed
 settle of an op that expires, are refused (`503`, code `relay_paused`, with `Retry-After`): prove it with your own prover
-account ([OPEN-RELAYER.md](./OPEN-RELAYER.md)), or try again later. Other relayed settles still wait in line. Refusals
+account ([OPEN-RELAYER.md](./OPEN-RELAYER.md)), or try again later. Other relayed settles still wait in line. While the relay
+keeps its prover credit for the bridge, a free `mode: 'prove'` job is refused (`503`, code `prove_reserved`, with a `hint`: `relay` to send it
+as a relayed settle that carries a fee, `tip` to tip the wrap's deposit); the exits (`unwrap`, `sendunwrap`) are held last, at a lower
+floor, and a relayed settle is not affected. Refusals
 carry `code` and `retryAfter` in the body; `confidential-relay.js` keeps them on the thrown error as `e.code`,
 `e.retryAfter` and `e.httpStatus`.
 

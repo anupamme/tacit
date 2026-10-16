@@ -420,13 +420,37 @@ test('junk submissions cannot drain the prove budget', async () => {
   ok(real.status === 200, 'a real job must still be accepted after a flood of junk');
 });
 
+test('the exits keep their free proofs down to a lower floor than a wrap or a send', async () => {
+  const health = (credit) => async () => ({ status: 'ok', age_seconds: 5, note: 'settle: idle — queue empty', prover_credit: credit });
+  const job = (credit, env) => loadSubmit({ cap: '50', env, submitJob: async () => ({ jobId: 'e', status: 'pending' }), health: health(credit) });
+  const at25 = job('25');
+  ok((await at25.call({ type: 'unwrap', op: {}, mode: 'prove' })).status === 200, 'at 25 PROVE a free unwrap is proved (floor 20)');
+  ok((await at25.call({ type: 'sendunwrap', op: {}, mode: 'prove' })).status === 200, 'and so is a send-and-unwrap');
+  const wrap = await at25.call({ type: 'wrap', op: {}, mode: 'prove' });
+  ok(wrap.status === 503 && wrap.body.code === 'prove_reserved', `a wrap still stops at the full reserve, got ${wrap.status} ${wrap.body.code}`);
+  const send = await at25.call({ type: 'transfer', op: {}, mode: 'prove' });
+  ok(send.status === 503 && send.body.code === 'prove_reserved', `and so does a send, got ${send.status} ${send.body.code}`);
+  const at15 = await job('15').call({ type: 'unwrap', op: {}, mode: 'prove' });
+  ok(at15.status === 503 && at15.body.code === 'prove_reserved' && at15.body.hint === 'relay', `under the exit floor an unwrap is held and pointed at the relay, got ${at15.status} ${at15.body.code}`);
+  ok((await job('15', { PROVE_MODE_EXIT_MIN_CREDIT: '10' }).call({ type: 'unwrap', op: {}, mode: 'prove' })).status === 200, 'PROVE_MODE_EXIT_MIN_CREDIT sets the exit floor');
+  ok((await job('25', { PROVE_MODE_EXIT_MIN_CREDIT: '30' }).call({ type: 'unwrap', op: {}, mode: 'prove' })).body.code === 'prove_reserved', 'a floor above the credit holds it');
+  ok((await job('25', { PROVE_MODE_EXIT_MIN_CREDIT: '' }).call({ type: 'unwrap', op: {}, mode: 'prove' })).status === 200, 'an empty setting is read as unset, not as zero');
+  ok((await job('25', { PROVE_MODE_EXIT_MIN_CREDIT: 'junk' }).call({ type: 'unwrap', op: {}, mode: 'prove' })).body.code === 'prove_reserved', 'a setting that is not a number leaves the exits on the full reserve');
+  ok((await job('25', { PROVE_MODE_EXIT_MIN_CREDIT: '60' }).call({ type: 'unwrap', op: {}, mode: 'prove' })).body.code === 'prove_reserved', 'the exit floor is never above the full reserve');
+  ok((await job('1', { PROVE_MODE_MIN_CREDIT: '0' }).call({ type: 'unwrap', op: {}, mode: 'prove' })).status === 200, 'PROVE_MODE_MIN_CREDIT=0 still turns the whole reserve off');
+  const capped = loadSubmit({ cap: '1', submitJob: async () => ({ jobId: 'c', status: 'pending' }), health: health('25') });
+  await capped.call({ type: 'unwrap', op: {}, mode: 'prove' });
+  const over = await capped.call({ type: 'unwrap', op: {}, mode: 'prove' });
+  ok(over.status === 429 && over.body.code === 'prove_budget', `an exit is still bounded by the daily budget, got ${over.status} ${over.body.code}`);
+});
+
 test('a free prove-only job is turned away while the credit is kept for the bridge; a tipped wrap is paid work and passes', async () => {
   let n = 0;
   const health = (credit) => async () => ({ status: 'ok', age_seconds: 5, note: 'settle: idle — queue empty', prover_credit: credit });
   const low = loadSubmit({ cap: '50', submitJob: async () => ({ jobId: 'j' + ++n, status: 'pending' }), health: health('21.86') });
-  const r = await low.call({ type: 'unwrap', op: {}, mode: 'prove' });
+  const r = await low.call({ type: 'transfer', op: {}, mode: 'prove' });
   ok(r.status === 503 && r.body.code === 'prove_reserved' && r.headers['Retry-After'] === '600', `under 40 PROVE a free proof is refused, got ${r.status} ${r.body.code}`);
-  ok(r.body.hint === 'relay', 'an unwrap is pointed at a relayed settle');
+  ok(r.body.hint === 'relay', 'a send is pointed at a relayed settle');
   ok((await low.call({ type: 'wrap', op: {}, mode: 'prove' })).body.hint === 'tip', 'a wrap is pointed at tipping its deposit');
   ok(/through the relay instead/.test(r.body.error) && !/\d+ PROVE|balance|gas/.test(r.body.error), 'the refusal says what to do and nothing about balances');
   ok(low.kvStore.size === 0, 'a refusal spent budget');
@@ -437,7 +461,7 @@ test('a free prove-only job is turned away while the credit is kept for the brid
   const fine = loadSubmit({ cap: '50', submitJob: async () => ({ jobId: 'k', status: 'pending' }), health: health('45') });
   ok((await fine.call({ type: 'unwrap', op: {}, mode: 'prove' })).status === 200, 'at 45 PROVE a free proof is taken');
   const custom = loadSubmit({ cap: '50', env: { PROVE_MODE_MIN_CREDIT: '50' }, submitJob: async () => ({ jobId: 'k', status: 'pending' }), health: health('45') });
-  ok((await custom.call({ type: 'unwrap', op: {}, mode: 'prove' })).body.code === 'prove_reserved', 'PROVE_MODE_MIN_CREDIT sets the reserve');
+  ok((await custom.call({ type: 'transfer', op: {}, mode: 'prove' })).body.code === 'prove_reserved', 'PROVE_MODE_MIN_CREDIT sets the reserve');
   const off = loadSubmit({ cap: '50', env: { PROVE_MODE_MIN_CREDIT: '0' }, submitJob: async () => ({ jobId: 'k', status: 'pending' }), health: health('1') });
   ok((await off.call({ type: 'unwrap', op: {}, mode: 'prove' })).status === 200, 'PROVE_MODE_MIN_CREDIT=0 turns the reserve off');
   const unread = loadSubmit({ cap: '50', submitJob: async () => ({ jobId: 'k', status: 'pending' }), health: async () => ({ status: 'ok', age_seconds: 5, note: 'settle: idle — queue empty' }) });

@@ -267,6 +267,9 @@ export const CFG = {
   // much: under it the credit is kept for the bridge's attests and for paid work. The API turns such jobs away at submit on the same
   // figure (PROVE_MODE_MIN_CREDIT); this is the backstop for jobs already queued.
   freeProveMinCreditWei: BigInt(opt('FREE_PROVE_MIN_CREDIT_WEI', '40000000000000000000')), // 40 PROVE
+  // The same, for the exits (unwrap, sendunwrap): a holder getting their own funds out is the last thing the reserve stops
+  // (PROVE_MODE_EXIT_MIN_CREDIT on the API).
+  freeProveExitMinCreditWei: BigInt(opt('FREE_PROVE_EXIT_MIN_CREDIT_WEI', '20000000000000000000')), // 20 PROVE
   // Share of the relay's genuine ETH surplus (what would otherwise be converted to PROVE) sent to TacBuyback,
   // in bps. 0 = off. Set it only once fee income covers proving with room to spare.
   buybackAddr: opt('BUYBACK_ADDR', ''),

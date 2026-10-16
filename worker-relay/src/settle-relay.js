@@ -36,6 +36,7 @@ import { makeBooksRestorer } from './lib/ledger-restore.js';
 import { ROUTER_EXIT_ABI, recipeArgs, exitCheck, activationCover } from './lib/exit-activate.js';
 import { makeAbandonedSettles } from './lib/abandoned-settles.js';
 import { quoteRelayFee, provePriceUsd, replenishOnce, drainToSink, feeAssets, depositArrivedProve, lastProverCredit, readProverCredit } from './replenish.js';
+import { proveFloorWei } from './lib/prove-floor.js';
 import { openable, pickOpen, ethFeeWei, STALE_PROOF_SELECTORS } from './lib/open-board.js';
 import { boardProving, standingNote, creditShort, makeProvePause } from './lib/prove-pause.js';
 import { replenishDue } from './lib/replenish-schedule.js';
@@ -797,7 +798,7 @@ async function openCycle() {
 export const FREE_PROVE_HELD = 'the relay is keeping its proving credit for the bridge right now: send it through the relay instead (it carries a fee), or try again later';
 // The last credit reading if it is recent, else a fresh one, at most every two minutes; an unreadable credit holds nothing back.
 let freeProveReadAt = 0;
-async function freeProveAllowed() {
+async function freeProveAllowed(type) {
   let c = lastProverCredit();
   if (!c || Date.now() - c.at > 10 * 60_000) {
     if (Date.now() - freeProveReadAt >= 120_000) {
@@ -806,7 +807,7 @@ async function freeProveAllowed() {
       c = lastProverCredit();
     }
   }
-  return !c || c.wei == null || BigInt(c.wei) >= CFG.freeProveMinCreditWei;
+  return !c || c.wei == null || BigInt(c.wei) >= proveFloorWei(type, { reserveWei: CFG.freeProveMinCreditWei, exitWei: CFG.freeProveExitMinCreditWei });
 }
 
 async function cycle() {
@@ -846,8 +847,8 @@ async function cycle() {
   // A free prove-only job (the holder sends the settle, the relay pays only the proof) is proved only while the credit holds what the
   // bridge's attests and paid work need (FREE_PROVE_MIN_CREDIT_WEI). The API turns such jobs away at submit on the same figure; this is
   // the backstop for one already queued. A wrap whose deposit tipped the relay is paid work and is proved whatever the credit.
-  if (mode === 'prove' && !job.paid && !(await freeProveAllowed())) {
-    log(`job ${jobId} type=${type} prove-only held: the credit is under ${(Number(CFG.freeProveMinCreditWei) / 1e18).toFixed(0)} PROVE, kept for the bridge and paid work`);
+  if (mode === 'prove' && !job.paid && !(await freeProveAllowed(type))) {
+    log(`job ${jobId} type=${type} prove-only held: the credit is under ${(Number(proveFloorWei(type, { reserveWei: CFG.freeProveMinCreditWei, exitWei: CFG.freeProveExitMinCreditWei })) / 1e18).toFixed(0)} PROVE, kept for the bridge and paid work`);
     await confidentialAck({ jobId, error: FREE_PROVE_HELD });
     return true;
   }
