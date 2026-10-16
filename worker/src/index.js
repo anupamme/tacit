@@ -3474,7 +3474,7 @@ async function handleConfidentialAck(req, env, cors) {
   let body;
   try { body = await req.json(); } catch { return jsonResponse({ ok: false, error: 'bad json' }, 400, cors); }
   if (!body.jobId) return jsonResponse({ ok: false, error: 'jobId required' }, 400, cors);
-  const r = await q.ackJob(String(body.jobId), { txHash: body.txHash, error: body.error, publicValues: body.publicValues, proof: body.proof,
+  const r = await q.ackJob(String(body.jobId), { txHash: body.txHash, error: body.error, publicValues: body.publicValues, proof: body.proof, lane: body.lane,
     activateTx: body.activateTx, activateError: body.activateError, broadcastHashes: body.broadcastHashes, settledBy: body.settledBy,
     open: body.open === true, requeue: body.requeue === true, release: body.release === true });
   return jsonResponse(r, 200, cors);

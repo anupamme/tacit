@@ -55,7 +55,7 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     try {
       if (!st || !st.jobId || typeof globalThis.dispatchEvent !== 'function' || typeof CustomEvent !== 'function') return;
       const detail = { jobId: st.jobId, type: st.type || jobTypes.get(st.jobId) || null, status: st.status || 'unknown',
-        txHash: st.txHash || null, error: st.error || null, at: Date.now(), ...(jobBy.get(st.jobId) ? { by: jobBy.get(st.jobId) } : {}) };
+        txHash: st.txHash || null, error: st.error || null, lane: st.lane || null, at: Date.now(), ...(jobBy.get(st.jobId) ? { by: jobBy.get(st.jobId) } : {}) };
       globalThis.dispatchEvent(new CustomEvent('tacit:job', { detail }));
     } catch { /* listeners are best effort */ }
   }

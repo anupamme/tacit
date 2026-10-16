@@ -334,8 +334,13 @@ export async function proveMixed({ items, timeoutMs }) {
   if (first.proof) return { ...first.proof, numOps: built.numOps };
   stdinProver ||= makeStdinProver({ key: CFG.networkPrivateKey, rpc: CFG.networkRpcUrl, env: process.env });
   const tag = `[prover ${new Date().toISOString()}] mixed(${items.length})`;
-  return stdinProver.proveBatch({ items, timeoutMs: Math.max(60_000, timeoutMs - first.spentMs), onUpdate: (u) => console.log(`${tag} ${u.requestId ? u.requestId.slice(0, 10) + ' ' : ''}${u.status}/${u.stage}${u.public ? ' (public input)' : ''}`) });
+  const r = await stdinProver.proveBatch({ items, timeoutMs: Math.max(60_000, timeoutMs - first.spentMs), onUpdate: (u) => console.log(`${tag} ${u.requestId ? u.requestId.slice(0, 10) + ' ' : ''}${u.status}/${u.stage}${u.public ? ' (public input)' : ''}`) });
+  return { ...r, lane: r.private === false ? 'network-public' : 'network-private' };
 }
+// Where a proof was made, carried on the settle's ack so a page can say so: 'board' (Tacit's own machine; the input never
+// left Tacit), 'network-private' (the prover network, input readable only by the whitelisted prover) or 'network-public'
+// (the prover network, input readable by anyone).
+const laned = (p, lane) => ({ ...p, lane });
 
 export async function proveSettle({ type, op, memos = [], timeoutMs }) {
   // Resolve `type` to its binary before anything touches the filesystem. `type` originates in the worker's
@@ -396,16 +401,16 @@ export async function proveSettle({ type, op, memos = [], timeoutMs }) {
     }
   };
   const plan = privateProvePlan(process.env, timeoutMs);
-  if (!plan.fallback) return attempt({}, timeoutMs);
+  if (!plan.fallback) return laned(await attempt({}, timeoutMs), process.env.PRIVATE_STDIN === '1' ? 'network-private' : 'network-public');
   // The witness goes as a private input, which only provers that fetch it with the signed GetStdinUri call can read
   // (PROVER_WHITELIST names them). If none of them proves it in time, it is proved once more with a public input,
   // so a holder never waits on a prover that is not there; a witness the network could not execute is not sent again.
   const asPublic = { PRIVATE_STDIN: '0', PROVER_WHITELIST: '' };
   // While the network refuses private inputs, the attempt is not made: the refusal was answered minutes ago and costs a
   // binary start and a round trip each time.
-  if (privateOff()) return attempt(asPublic, timeoutMs);
+  if (privateOff()) return laned(await attempt(asPublic, timeoutMs), 'network-public');
   const t0 = Date.now();
-  try { return await attempt({}, plan.privateMs); }
+  try { return laned(await attempt({}, plan.privateMs), 'network-private'); }
   catch (e) {
     if (!retryPublic(e)) throw e;
     if (privateRefused(e)) {
@@ -414,6 +419,6 @@ export async function proveSettle({ type, op, memos = [], timeoutMs }) {
     } else {
       console.log(`[exec:${type}] the private request was not proved (${String(e.message).split('\n')[0].slice(0, 160)}); proving it with a public input`);
     }
-    return attempt(asPublic, Math.max(60_000, timeoutMs - (Date.now() - t0)));
+    return laned(await attempt(asPublic, Math.max(60_000, timeoutMs - (Date.now() - t0))), 'network-public');
   }
 }

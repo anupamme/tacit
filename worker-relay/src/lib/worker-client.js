@@ -205,13 +205,13 @@ export async function confidentialBatch(max = 8, { mixed = false } = {}) {
 // `settledBy` (a job found settled by a transaction on chain) is carried as such: the worker closes a job of any mode by
 // it, where a bare txHash on a prove-mode job reads as a proof that never came. `publicValues`+`proof` hand a proof back
 // (a prove-mode job, or with `open` a relayed one put on the board); `requeue` and `release` answer for an open job.
-export async function confidentialAck({ jobId, txHash, error, broadcastHashes, settledBy, publicValues, proof, open, requeue, release }) {
+export async function confidentialAck({ jobId, txHash, error, broadcastHashes, settledBy, publicValues, proof, open, requeue, release, lane }) {
   const body = error
     ? { jobId, error, ...(broadcastHashes?.length ? { broadcastHashes } : {}), ...(requeue ? { requeue: true } : {}) }
     : settledBy ? { jobId, settledBy, txHash: txHash || settledBy }
     : publicValues && proof ? { jobId, publicValues, proof, ...(open ? { open: true } : {}) }
     : release ? { jobId, release: true }
-    : { jobId, txHash: txHash || '' };
+    : { jobId, txHash: txHash || '', ...(lane ? { lane } : {}) };
   let status = 0;
   for (let i = 0; i < 3; i++) {
     try {

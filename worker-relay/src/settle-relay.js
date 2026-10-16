@@ -511,7 +511,7 @@ async function settleOne(j) {
     const proof = await beating(`proving ${j.jobId} ${j.type}`, () => proveSettle({ type: j.type, op: j.op, memos: j.memos || [], timeoutMs: CFG.settleJobTimeoutSecs * 1000 }))
       .catch(async (e) => { await pauseOn(e); throw e; });
     const txHash = await submitSettle(proof, j.memos || [], `job ${j.jobId}`);
-    await confidentialAck({ jobId: j.jobId, txHash });
+    await confidentialAck({ jobId: j.jobId, txHash, lane: proof.lane });
     log(`settled: job=${j.jobId} tx=${txHash}`);
     bookSettled([j], txHash);
     await activateRelayedExit(j, txHash);
@@ -632,7 +632,7 @@ async function batchCycle() {
     }
     try {
       const txHash = await submitSettle(proof, memos, `batch(${jobs.length})`);
-      for (const id of ids) await confidentialAck({ jobId: id, txHash });
+      for (const id of ids) await confidentialAck({ jobId: id, txHash, lane: proof.lane });
       log(`batch settled: n=${jobs.length} tx=${txHash}`);
       bookSettled(jobs, txHash);
     } catch (e) {
@@ -668,7 +668,7 @@ async function settleMixed(jobs) {
   }
   try {
     const txHash = await submitSettle(proof, memos, `batch(${jobs.length})`);
-    for (const id of ids) await confidentialAck({ jobId: id, txHash });
+    for (const id of ids) await confidentialAck({ jobId: id, txHash, lane: proof.lane });
     log(`mixed batch settled: n=${jobs.length} tx=${txHash}${proof.private === false ? ' (public input)' : ''}`);
     bookSettled(jobs, txHash);
   } catch (e) {
@@ -918,8 +918,8 @@ async function cycle() {
     return true;
   }
 
-  log(`settled: job=${jobId} tx=${txHash}`);
-  await confidentialAck({ jobId, txHash });
+  log(`settled: job=${jobId} tx=${txHash}${proof.lane ? ` (${proof.lane})` : ''}`);
+  await confidentialAck({ jobId, txHash, lane: proof.lane });
   bookSettled([job], txHash);
   await activateRelayedExit(job, txHash);
   await beat(`settled ${jobId}`);

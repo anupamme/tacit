@@ -445,7 +445,11 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
 
   function ackJob(jobId, ack = {}) { return exclusive(() => ackJobLocked(jobId, ack)); }
 
-  async function ackJobLocked(jobId, { txHash, error, publicValues, proof, activateTx, activateError, broadcastHashes, settledBy, open, requeue, release }) {
+  // `lane`: where the settle's proof was made, as the relay reports it ('board': Tacit's own machine, the input never left
+  // Tacit; 'network-private' or 'network-public': the prover network, with the input readable by the whitelisted prover
+  // only or by anyone). Kept on the job so a page can say so.
+  const LANES = ['board', 'network-private', 'network-public'];
+  async function ackJobLocked(jobId, { txHash, error, publicValues, proof, activateTx, activateError, broadcastHashes, settledBy, open, requeue, release, lane }) {
     const j = await storage.getJob(jobId);
     if (!j) return { ok: false, reason: 'unknown job' };
     if (j.status === 'settled' || j.status === 'proven') {
@@ -486,6 +490,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
       else { j.status = 'proven'; j.publicValues = publicValues; j.proof = proof; }
     } else {
       j.status = 'settled'; j.txHash = txHash || null;
+      if (LANES.includes(lane)) j.lane = lane;
       delete j.broadcastHashes; // resolved: the one that landed is j.txHash
       recordActivation(j, activateTx, activateError);
     }
@@ -536,7 +541,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
     // recipients and go on chain with the settle.
     // A send a relay took and never finished reads open again once its claim lapses.
     const status = j.status === 'sending' && isOpen(j) ? 'open' : j.status;
-    return { jobId, type: j.type, mode: j.mode || 'settle', status, txHash: j.txHash, error: j.error,
+    return { jobId, type: j.type, mode: j.mode || 'settle', status, txHash: j.txHash, error: j.error, lane: j.lane || null,
       createdAt: j.createdAt, publicValues: j.publicValues || null, proof: j.proof || null,
       // An open job's memos are public for the same reason: any sender needs them, and they go on chain with the settle.
       memos: (j.status === 'proven' || j.status === 'open' || j.status === 'sending') && Array.isArray(j.memos) ? j.memos : null,

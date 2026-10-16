@@ -262,4 +262,19 @@ const routeOp = { asset0: 'aa', assetFinal: 'bb', hops: [{ reserveAPre: '1000', 
   ok('nextBatch: the plain batch is still transfers that share a spend root');
 }
 
+// ───────────────── 14. a settle's ack carries where its proof was made; the status reports it; junk is dropped ─────────────────
+{
+  const q = makeConfidentialSettler({ storage: freshStore(), hash, now, sleep: instantSleep });
+  const a = await q.submitJob({ type: 'transfer', op: { chainBinding: '0xcb', spendRoot: '0xr', fee: 0, n: 'a' } });
+  await q.nextJob();
+  await q.ackJob(a.jobId, { txHash: '0xtx1', lane: 'board' });
+  assert.strictEqual((await q.jobStatus(a.jobId)).lane, 'board');
+  const b = await q.submitJob({ type: 'transfer', op: { chainBinding: '0xcb', spendRoot: '0xr', fee: 0, n: 'b' } });
+  await q.nextJob();
+  await q.ackJob(b.jobId, { txHash: '0xtx2', lane: 'somewhere-else' });
+  const sb = await q.jobStatus(b.jobId);
+  assert.strictEqual(sb.status, 'settled'); assert.strictEqual(sb.lane, null, 'an unknown lane is not kept');
+  ok('ack: the proof\'s lane (board / network-private / network-public) rides on the settled job\'s status');
+}
+
 console.log(`\n${n} confidential-settle checks passed.`);
