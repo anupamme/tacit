@@ -27,7 +27,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { formatEther, formatUnits } from 'viem';
-import { CFG, OP_GAS, MAINTENANCE_RUNS_PER_DAY } from './lib/config.js';
+import { CFG, OP_GAS } from './lib/config.js';
 import { burnGasPerDay, runwayDays } from './lib/runway.js';
 import { queueVerdict } from './lib/queue-health.js';
 import { makeRpc, checkFarm, FARM_MANAGER_MAINNET } from './lib/farm-health.js';
@@ -36,7 +36,7 @@ import { manualRecoveryHint } from './lib/reflection-reconcile.js';
 import { reflectionDriftSeen, crossOutGapSeen } from './lib/worker-client.js';
 import { creditLevel } from './lib/prove-credit.js';
 import { blockSecOf, feedLagSec, feedLagLevel } from './lib/feed-lag.js';
-import { settleFundsNeed } from './lib/settle-fees.js';
+import { settleFundsNeed, treasuryFloors } from './lib/settle-fees.js';
 import { poolBooks } from './lib/evm-pool-solvency.js';
 import { readTacSupply } from './lib/tac-supply.js';
 import { scanLagVerdict } from './lib/scan-lag.js';
@@ -61,7 +61,8 @@ async function alert(level, msg, extra = {}) {
 }
 
 async function checkProve() {
-  const owner = relayWallet.account.address;
+  const owner = relayWallet ? relayWallet.account.address : CFG.relayAddress;
+  if (!owner) { log('no relay wallet to watch: set RELAY_ADDRESS (or RELAY_KEY)'); return; }
   const bal = await publicClient.readContract({ address: PROVE, abi: ERC20_ABI, functionName: 'balanceOf', args: [owner] });
   const dec = await publicClient.readContract({ address: PROVE, abi: ERC20_ABI, functionName: 'decimals' }).catch(() => 18);
   const whole = Number(formatUnits(bal, dec));
@@ -101,6 +102,10 @@ async function checkEth() {
     ]);
   } catch (e) { log(`base fee read failed, next-transaction costs unavailable: ${e?.message || e}`); }
 
+  // The floors the treasury pass keeps each wallet at (lib/settle-fees.js treasuryFloors): under one is the warning, since it means the
+  // pass could not keep up, not a constant from before the pass existed.
+  let floors = null;
+  try { floors = await treasuryFloors(publicClient); } catch (e) { log(`treasury floors unavailable: ${e?.message || e}`); }
   for (const { address, roles } of watchedWallets) {
     const bal = await publicClient.getBalance({ address });
     const who = `${address} (${roles.join('+')})`;
@@ -117,20 +122,20 @@ async function checkEth() {
       if (bal < need) await alert('critical', `${who} holds ${formatEther(bal)} ETH, under the ${formatEther(need)} ETH it needs to keep an attest back and still send headers: Bitcoin headers and attests stop until it is topped up`, extra);
     }
 
-    // Runway in DAYS of the wallet's burn at the live gas price, from the roles it carries:
-    //   burn = (maintenance runs/day x maintenance gas)   if it carries the relay role
-    //        + (expected ops/day x settle gas)            if it carries the settle role
-    // Only a wallet that settles is warned on it. The relay role's burn follows its own gas cap, not the live price.
+    // Runway in DAYS of the wallet's burn at the live gas price, from the roles it carries, as the treasury pass reckons it:
+    //   burn = (RELAY_BURN_GAS_PER_DAY, the measured headers and attests)   if it carries the relay role
+    //        + (expected ops/day x settle gas)                                if it carries the settle role
     let runway = null;
-    const burn = { roles, maintenanceRunsPerDay: MAINTENANCE_RUNS_PER_DAY, expectedOpsPerDay: CFG.expectedOpsPerDay, gas: OP_GAS };
+    const burn = { roles, relayBurnGasPerDay: CFG.relayBurnGasPerDay, expectedOpsPerDay: CFG.expectedOpsPerDay, gas: OP_GAS };
     const burnGas = burnGasPerDay(burn);
     if (gasPrice && burnGas * gasPrice > 0n) {
       runway = runwayDays({ balanceWei: bal, gasPriceWei: gasPrice, ...burn });
       log(`  runway = ${runway.toFixed(1)} days of burn (${(Number(burnGas * gasPrice) / 1e18).toFixed(5)} ETH/day) @ ${formatUnits(gasPrice, 9)} gwei`);
     }
-    const short = roles.includes('settle') && runway !== null && runway < CFG.runwayDaysWarn, low = bal < CFG.ethGasBufferWei;
+    const floor = floors ? (roles.includes('settle') ? floors.settleFloor : 0n) + (roles.includes('relay') ? floors.relayFloor : 0n) : null;
+    const short = runway !== null && runway < CFG.runwayDaysWarn, low = floor !== null && bal < floor;
     if (short || low) {
-      await alert('warning', `${who} holds ${formatEther(bal)} ETH${short ? `, about ${runway.toFixed(1)} days at ${CFG.expectedOpsPerDay} settles a day and ${formatUnits(gasPrice, 9)} gwei` : ''}${low ? `, under the ${formatEther(CFG.ethGasBufferWei)} ETH buffer` : ''}: top it up soon`, { ...extra, runwayDays: runway });
+      await alert('warning', `${who} holds ${formatEther(bal)} ETH${short ? `, about ${runway.toFixed(1)} days of its burn at ${formatUnits(gasPrice, 9)} gwei` : ''}${low ? `, under the ${formatEther(floor)} ETH floor the treasury pass keeps` : ''}: the pass has not kept up; check the settle wallet's income and the relay's books`, { ...extra, runwayDays: runway });
     }
   }
 }

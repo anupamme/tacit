@@ -28,3 +28,18 @@ export async function settleFundsNeed(client, { block } = {}) {
   const base = blk.baseFeePerGas ?? 0n, tip = await settleTipNow(client);
   return { need: fundsNeed({ gas: CFG.settleFundsGas, base, tip, minMult: CAP_MULT_MIN }), base, tip };
 }
+
+// The treasury's floors (lib/treasury-plan.js), reckoned here so the replenish pass that keeps them and the monitor that warns on them
+// cannot disagree: the settle wallet keeps SETTLE_FLOOR_SETTLES settles' worth at the live base fee, the relay wallet RELAY_FLOOR_CYCLES
+// cycles of an attest and a full header batch. An explicit SETTLE_FLOOR_WEI / RELAY_FLOOR_WEI wins.
+export const GAS_PER_HEADER = 180_000n;
+export function relayCycleNeed({ base, tip }) {
+  return (CFG.attestGasBudget + BigInt(CFG.headerMaxBatch) * GAS_PER_HEADER) * (BigInt(base) * 2n + BigInt(tip));
+}
+export const settleFloorFor = (need) => (CFG.settleFloorWei > 0n ? CFG.settleFloorWei : BigInt(need) * BigInt(Math.max(1, Math.round(CFG.settleFloorSettles))));
+export const relayFloorFor = (cycle) => (CFG.relayFloorWei > 0n ? CFG.relayFloorWei : BigInt(cycle) * BigInt(Math.max(1, Math.round(CFG.relayFloorCycles))));
+// → { settleFloor, relayFloor, need, base, tip } at the live base fee.
+export async function treasuryFloors(client) {
+  const funds = await settleFundsNeed(client);
+  return { settleFloor: settleFloorFor(funds.need), relayFloor: relayFloorFor(relayCycleNeed(funds)), ...funds };
+}

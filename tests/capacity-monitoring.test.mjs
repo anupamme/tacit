@@ -99,7 +99,7 @@ test('gas pages only when a wallet can no longer do its job', () => {
   ok(!/runwayDaysCritical/.test(block) && !/alert\('critical', `\$\{who\} ETH/.test(block), 'runway and the buffer must not page');
   const settle = readFileSync(join(ROOT, 'worker-relay/src/settle-relay.js'), 'utf8'), folder = readFileSync(join(ROOT, 'worker-relay/src/reflection-folder.js'), 'utf8');
   ok(/const SETTLE_FUNDS_GAS = CFG\.settleFundsGas;/.test(settle) && /const TIP_FLOOR_WEI = CFG\.settleTipFloorWei;/.test(settle), 'the settle relay and the monitor must price a settle alike');
-  ok(/import \{[^}]*settleFundsNeed[^}]*\} from '\.\/lib\/settle-fees\.js'/.test(settle) && /import \{ settleFundsNeed \} from '\.\/lib\/settle-fees\.js'/.test(monitor) && /need \} = await settleFundsNeed\(publicClient, \{ block: blk \}\)/.test(settle), 'the settle relay and the monitor reckon the funds a settle needs from one function');
+  ok(/import \{[^}]*settleFundsNeed[^}]*\} from '\.\/lib\/settle-fees\.js'/.test(settle) && /import \{[^}]*settleFundsNeed[^}]*\} from '\.\/lib\/settle-fees\.js'/.test(monitor) && /need \} = await settleFundsNeed\(publicClient, \{ block: blk \}\)/.test(settle), 'the settle relay and the monitor reckon the funds a settle needs from one function');
   ok(/const ATTEST_GAS_BUDGET = CFG\.attestGasBudget;/.test(folder), 'the reflection and the monitor must price an attest alike');
 });
 

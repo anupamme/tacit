@@ -263,6 +263,8 @@ export function clientForChain(chainId, rpcUrl) {
 
 export const watchedWallets = (() => {
   const out = fundedWallets.map((w) => ({ address: w.address, roles: [...w.roles] }));
+  // A keyless watcher (the monitor) names the relay wallet by address.
+  if (CFG.relayAddress && /^0x[0-9a-fA-F]{40}$/.test(CFG.relayAddress) && !out.some((w) => w.roles.includes('relay'))) out.push({ address: getAddress(CFG.relayAddress), roles: ['relay'] });
   const declared = CFG.settleAddress;
   if (!declared) return out;
   const addr = getAddress(declared);

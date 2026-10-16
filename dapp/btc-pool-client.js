@@ -9,7 +9,7 @@ import { makeHalo2System } from './btc-pool-halo2-prover.js';
 import { defaultAnchor } from './btc-shielded-pool.js';
 import { poseidon2 } from './vendor/tacit-poseidon.min.js';
 
-export const POOL_API = String(globalThis.__TACIT_BTC_POOL_API__ || 'https://tacit-btc-pool.onrender.com').replace(/\/$/, '');
+export const POOL_API = String(globalThis.__TACIT_BTC_POOL_API__ || 'https://tacit-btc-pool-mainnet.onrender.com').replace(/\/$/, '');
 const CACHE_NAME = 'tacit-btc-pool-artifacts-v1';
 
 const hex = (b) => Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(2, '0')).join('');

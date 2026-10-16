@@ -21,7 +21,7 @@ import { creditText } from './lib/prove-credit.js';
 import { ledger } from './lib/income-ledger.js';
 import { planBuyback, splitterDue } from './lib/income-allocation.js';
 import { planTreasury, daysText } from './lib/treasury-plan.js';
-import { settleFundsNeed } from './lib/settle-fees.js';
+import { treasuryFloors } from './lib/settle-fees.js';
 import {
   publicClient, relayWallet, fundedWallets, ethUsdPrice, ERC20_ABI, VAPP_ABI, ZQUOTER_ABI, ZROUTER_ABI,
   PROVE, VAPP, ZQUOTER, ZROUTER,
@@ -460,11 +460,11 @@ async function runTreasury(earner, sink, { credit, convertToProve }) {
   const owner = earner.address, mover = earner.publicWallet || earner.wallet, sinkAddr = sink.account.address;
   const toSink = owner.toLowerCase() !== sinkAddr.toLowerCase();
   try {
-    const [settleWei, relayWei, gasPrice, funds, ethUsd] = await Promise.all([
+    const [settleWei, relayWei, gasPrice, floors, ethUsd] = await Promise.all([
       publicClient.getBalance({ address: owner }),
       toSink ? publicClient.getBalance({ address: sinkAddr }) : 0n,
       publicClient.getGasPrice(),
-      settleFundsNeed(publicClient),
+      treasuryFloors(publicClient),
       ethUsdPrice().catch(() => null),
     ]);
     const books = ledger.burnPerDay();
@@ -472,9 +472,7 @@ async function runTreasury(earner, sink, { credit, convertToProve }) {
     const settleBurn = perDayWei(books.gasEthPerDay) ?? OP_GAS.transfer * BigInt(Math.max(1, Math.round(CFG.expectedOpsPerDay))) * gasPrice;
     const relayBurn = CFG.relayBurnGasPerDay * gasPrice;
     const proveBurn = books.provePerDay != null && books.provePerDay > 0 ? BigInt(Math.round(books.provePerDay * 1e4)) * 10n ** 14n : BigInt(Math.round(CFG.proveBurnPerDayDefault * 1e4)) * 10n ** 14n;
-    const settleFloor = CFG.settleFloorWei > 0n ? CFG.settleFloorWei : funds.need * BigInt(Math.max(1, Math.round(CFG.settleFloorSettles)));
-    const cycle = (CFG.attestGasBudget + BigInt(CFG.headerMaxBatch) * 180_000n) * (funds.base * 2n + funds.tip);
-    const relayFloor = CFG.relayFloorWei > 0n ? CFG.relayFloorWei : cycle * BigInt(Math.max(1, Math.round(CFG.relayFloorCycles)));
+    const { settleFloor, relayFloor } = floors;
     // PROVE per ETH at a swap of the size a pass would make, from the same quoter the swap goes through.
     let proveWeiPerEth = null;
     if (convertToProve) {

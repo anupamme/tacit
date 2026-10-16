@@ -94,6 +94,9 @@ export function loadKeeperConfig(env = process.env) {
     factsConcurrency: int(env, 'EVM_POOL_KEEPER_FACTS_CONCURRENCY', 4),
     // The nodes the history facts are read from, tried one at a time for old logs (see makeKeeperChain); else the read nodes.
     factsRpcUrls: list(str(env, 'EVM_POOL_FACTS_RPC_URLS')),
+    // The nodes the pool's and router's logs are read from (the leaf sync), when the read fallbacks include nodes that refuse log ranges
+    // (a chain's only public alternatives often do); else the read nodes.
+    logRpcUrls: list(str(env, 'EVM_POOL_LOG_RPC_URLS')),
     maxBackoffSecs: int(env, 'EVM_POOL_KEEPER_MAX_BACKOFF_SECS', 900),
     maxChecksPerTick: int(env, 'EVM_POOL_KEEPER_MAX_CHECKS_PER_TICK', 200),
     minFees,

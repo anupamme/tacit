@@ -319,6 +319,8 @@ export const CFG = {
   // key (the monitor). SETTLE_KEY is set on the settle service alone, so anywhere else it silently falls
   // back to RELAY_KEY and the two wallets would collapse into one.
   settleAddress: opt('SETTLE_ADDRESS', ''),
+  // PUBLIC address of the relay wallet, for a service that watches it without holding RELAY_KEY (the monitor).
+  relayAddress: opt('RELAY_ADDRESS', ''),
 
   // Idle poll intervals (seconds).
   reflectionPollSecs: num('REFLECTION_POLL_SECS', 30),
@@ -467,7 +469,9 @@ export const CFG = {
   attestGasBudget: BigInt(opt('REFLECTION_ATTEST_GAS_BUDGET', '700000')),
   // Days a wallet with the settle role lasts at EXPECTED_OPS_PER_DAY and the live gas price: a warning below this. It
   // says when to top up, not that anything has stopped (the monitor pages only on a settle it cannot pay).
-  runwayDaysWarn: num('RUNWAY_DAYS_WARN', 7),
+  // Under this many days of a wallet's burn the monitor warns: the treasury pass keeps TREASURY_TARGET_DAYS, so a wallet this short means
+  // the pass could not keep up.
+  runwayDaysWarn: num('RUNWAY_DAYS_WARN', 1.5),
   // Settle-queue health (see lib/queue-health.js). A relayed job is normally picked up in seconds, so a pending job
   // this old means the settle service is down or stuck and a user is waiting.
   queuePendingWarnSec: num('QUEUE_PENDING_WARN_SEC', 300),

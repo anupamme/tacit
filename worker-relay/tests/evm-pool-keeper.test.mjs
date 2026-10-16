@@ -1125,3 +1125,10 @@ await test('a keeper that cannot front a send says so on /quote and /relay (503)
 });
 
 console.log(`\n${n} passed`);
+
+test('the nodes that serve logs can be named apart from the read fallbacks', () => {
+  const c = loadKeeperConfig({ ...baseEnv, EVM_POOL_RPC_URL: 'https://a', EVM_POOL_RPC_URLS_FALLBACK: 'https://b', EVM_POOL_LOG_RPC_URLS: 'https://a' });
+  assert.deepEqual(c.rpcUrls, ['https://a', 'https://b']);
+  assert.deepEqual(c.logRpcUrls, ['https://a']);
+  assert.deepEqual(loadKeeperConfig(baseEnv).logRpcUrls, []);
+});

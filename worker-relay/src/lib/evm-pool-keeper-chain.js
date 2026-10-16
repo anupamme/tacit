@@ -117,6 +117,8 @@ export async function makeKeeperChain({ cfg, account, log = () => {} }) {
   const factsUrls = cfg.factsRpcUrls?.length ? cfg.factsRpcUrls : cfg.rpcUrls;
   const factsPub = factsUrls.length > 1 ? createPublicClient({ transport: fallback(factsUrls.map((u) => http(u))) }) : createPublicClient({ transport: http(factsUrls[0]) });
   const factsEach = factsUrls.map((u) => createPublicClient({ transport: http(u) }));
+  const logUrls = cfg.logRpcUrls?.length ? cfg.logRpcUrls : null;
+  const logPub = logUrls ? (logUrls.length > 1 ? createPublicClient({ transport: fallback(logUrls.map((u) => http(u))) }) : createPublicClient({ transport: http(logUrls[0]) })) : pub;
   const chainId = await pub.getChainId();
   if (cfg.chainId && chainId !== cfg.chainId) throw new Error(`RPC is on chain ${chainId}, EVM_POOL_CHAIN_ID is ${cfg.chainId}`);
   const viemChain = defineChain({ id: chainId, name: `chain-${chainId}`, nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: [cfg.rpcUrls[0]] } } });
@@ -192,11 +194,11 @@ export async function makeKeeperChain({ cfg, account, log = () => {} }) {
       throw last;
     },
     async transactLogs(fromBlock, toBlock) {
-      const logs = await pub.getLogs({ address: cfg.pool, event: POOL_ABI.find((x) => x.type === 'event'), fromBlock, toBlock, strict: true });
+      const logs = await logPub.getLogs({ address: cfg.pool, event: POOL_ABI.find((x) => x.type === 'event'), fromBlock, toBlock, strict: true });
       return transactOf(logs);
     },
     async receivedLogs(fromBlock, toBlock) {
-      const logs = await pub.getLogs({ address: cfg.router, event: RECEIVED_EVENT, fromBlock, toBlock, strict: true });
+      const logs = await logPub.getLogs({ address: cfg.router, event: RECEIVED_EVENT, fromBlock, toBlock, strict: true });
       return logs.map((l) => ({
         box: l.args.box, n: l.args.n, index: l.args.index, value: l.args.value, rho: l.args.rho, fee: l.args.fee,
         blockNumber: l.blockNumber, logIndex: l.logIndex, tx: l.transactionHash, blockTimestamp: l.blockTimestamp ?? null,
