@@ -18,6 +18,10 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
   // ── EIP-6963 multi-provider discovery (every 6963 wallet also injects window.ethereum as fallback) ──
   const providers = []; // [{ info:{uuid,name,icon,rdns}, provider }]
   let selected = null;
+  // The wallet in use: the one the last connect or sign-in succeeded with. Only its account changes reach the page; a
+  // wallet connected before and since left is not heard.
+  let active = null;
+  const heard = new WeakSet();                           // wallets whose account changes this instance listens for
   if (typeof window !== 'undefined') {
     window.addEventListener('eip6963:announceProvider', (e) => {
       const d = e.detail; if (!d || !d.info || !d.provider) return;
@@ -34,7 +38,8 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
   const ordered = () => [...providers].sort((a, b) => !!a.provider.isWalletConnect - !!b.provider.isWalletConnect);
   function listProviders() { return ordered().map((p) => ({ uuid: p.info.uuid, name: p.info.name, icon: p.info.icon, rdns: p.info.rdns })); }
   function selectProvider(uuid) { const p = providers.find((x) => x.info.uuid === uuid); if (p) selected = p.provider; return !!p; }
-  // Forgets the chosen wallet, so the next connect asks again which one when several are installed.
+  // Forgets the chosen wallet, so the next connect asks again which one when several are installed. The wallet in use is
+  // still heard until another connects, since a page may go on paying from it.
   function deselectProvider() { selected = null; }
   function providerLabel() { const a = providers.find((p) => p.provider === currentProvider()); return a?.info?.name || 'Ethereum wallet'; }
 
@@ -58,40 +63,55 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
     return code.length > 2 && !/^0x0+$/i.test(code);
   }
 
-  // Connect the EOA. When >1 wallet is announced, `pick(list)` chooses one (return its uuid); else the sole
-  // provider or window.ethereum is used.
-  async function connect({ pick } = {}) {
+  // The connected account of the wallet chosen before, else of the one `pick(list)` chooses when >1 wallet is announced
+  // (return its uuid), else of the sole provider or window.ethereum. `chosen` is a wallet chosen here; it is kept only by use().
+  async function reach({ pick } = {}) {
     if (typeof window !== 'undefined') { try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch { /* ignore */ } }
     // Some wallets answer the announce request on a later tick — give them a moment before treating the
     // provider list as final, or a co-installed wallet silently drops out of the picker.
     await new Promise((r) => setTimeout(r, 120));
-    let provider = selected;
+    let provider = selected, chosen = null;
     if (!provider) {
       if (providers.length >= 2 && typeof pick === 'function') {
         const uuid = await pick(listProviders());
         if (!uuid) throw Object.assign(new Error('Wallet choice cancelled'), { code: 4001 });
-        if (!selectProvider(uuid)) throw new Error('selected wallet vanished — reload the page and reconnect');
-        provider = selected;
+        chosen = providers.find((x) => x.info.uuid === uuid)?.provider;
+        if (!chosen) throw new Error('selected wallet vanished — reload the page and reconnect');
       }
-      else if (providers.length >= 1) { provider = ordered()[0].provider; selected = provider; }
-      else provider = injected();
+      else if (providers.length >= 1) chosen = ordered()[0].provider;
+      provider = chosen || injected();
     }
     if (!provider || typeof provider.request !== 'function') throw new Error('no Ethereum wallet detected — install MetaMask, Rabby, Rainbow, or Coinbase Wallet');
     const accounts = await provider.request({ method: 'eth_requestAccounts' });
     if (!Array.isArray(accounts) || !accounts.length) throw new Error('no accounts returned');
     const addr = String(accounts[0]).toLowerCase().replace(/^0x/, '');
     if (!/^[0-9a-f]{40}$/.test(addr)) throw new Error('wallet returned malformed address');
-    // Funding and identity both bind to the connected account, so a wallet-side account switch must be
-    // loud — the app listens for this and warns that the derived identity no longer matches.
-    if (!provider.__tacitAcctWired) {
-      provider.__tacitAcctWired = true;
-      try {
-        provider.on?.('accountsChanged', (accs) => {
-          try { window.dispatchEvent(new CustomEvent('tacit:evm-accounts', { detail: { accounts: accs || [], provider } })); } catch { /* ignore */ }
-        });
-      } catch { /* provider without event support */ }
-    }
-    return { provider, address: addr };
+    return { provider, address: addr, chosen };
+  }
+  // A connect or sign-in that succeeded keeps the wallet it chose, so the next one goes straight to it, and makes it the
+  // wallet in use. One that failed keeps nothing: after a wallet refused, a WalletConnect pairing closed or a signature
+  // declined, the next attempt asks again which wallet, while a wallet chosen before stays chosen. Funding and identity
+  // both bind to the connected account, so a wallet-side account switch must be loud — the app listens for this and
+  // warns that the derived identity no longer matches.
+  function use({ provider, chosen }) {
+    if (chosen) selected = chosen;
+    active = provider;
+    if (heard.has(provider)) return;
+    heard.add(provider);
+    try {
+      provider.on?.('accountsChanged', (accs) => {
+        if (provider !== active) return;
+        try { window.dispatchEvent(new CustomEvent('tacit:evm-accounts', { detail: { accounts: accs || [], provider } })); } catch { /* ignore */ }
+      });
+    } catch { /* provider without event support */ }
+  }
+
+  // Connect the EOA. When >1 wallet is announced, `pick(list)` chooses one (return its uuid); else the sole
+  // provider or window.ethereum is used.
+  async function connect({ pick } = {}) {
+    const c = await reach({ pick });
+    use(c);
+    return { provider: c.provider, address: c.address };
   }
 
   // Derive the deterministic tacit1 identity from a personal_sign over the domain message. Returns
@@ -117,7 +137,7 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
   }
 
   async function deriveIdentity({ pick, expect } = {}) {
-    const { provider, address } = await connect({ pick });
+    const c = await reach({ pick }), { provider, address } = c;
     const want = expect && String(expect).toLowerCase().replace(/^0x/, '');
     if (want && address !== want) throw new Error(`Switch your wallet to 0x${want.slice(0, 4)}…${want.slice(-4)}, the account this Tacit wallet was opened with.`);
     let code = '0x'; try { code = await provider.request({ method: 'eth_getCode', params: ['0x' + address, 'latest'] }); } catch { /* treat as EOA */ }
@@ -190,6 +210,7 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
         + 'or clear this account\u2019s anchor if you are certain you want the new derivation.');
     }
     if (!prior) writeAnchor(address, pubHex);
+    use(c);
     return { priv: privHex, pubHex, address, provider, label: providerLabel() };
   }
 
