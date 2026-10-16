@@ -279,4 +279,33 @@ const freshPositionOwner = () => freshPositionKey().owner;
   ok('minted notes require their own fresh nk');
 }
 
+// proveWrapCdpMint — prove-only: the debt note is the only minted leaf and is recoverable from its memo, the router's deposit commit comes
+// back with the proof, and a proof that did not come back is an error, not a loan.
+{
+  let seen = null, answer = 'proven';
+  const proveRelay = { ...relay, settle: async () => { throw new Error('a wrap-and-borrow is proved only: the router settles it'); },
+    prove: async (spec) => {
+      seen = spec;
+      const memos = guard.sealMemosForOutputs({ outputs: spec.outputs, ephRand: spec.ephRand });
+      guard.assertOutputsRecoverable({ leaves: spec.leaves, outputs: spec.outputs, memos });   // ← the lost-funds tripwire
+      return { status: answer, jobId: 'p1', publicValues: '0x01', proof: '0x02', memos };
+    } };
+  const act = makeConfidentialDefiActions({ pool, cdp, farm, relay: proveRelay, id, chainBindingHex, secp });
+  const pk = freshPositionKey(), args = { controller, debtValue: 1000n, rateSnapshot, deposits: [{ asset: assetA, value: 2000n }], debtBlinding: randomScalar(), positionOwner: pk.owner, debtNk: randomScalar() };
+  const r = await act.proveWrapCdpMint(args);
+  assert.equal(seen.type, 'wrapcdpmint'); assert.equal(seen.leaves.length, 1); assert.equal(seen.outputs.length, 1);
+  assert.equal(seen.op.commits, undefined, 'the router commits are not part of the witness');
+  assert.equal(seen.op.legs.length, 1); assert.equal(seen.op.legs[0].value, '2000');
+  assert.equal(r.commits.length, 1);
+  assert.equal(r.commits[0], pool.depositCommit(seen.op.legs[0].cx, seen.op.legs[0].cy, pk.owner), 'the commit the router wraps under is owner-pinned to the position owner');
+  assert.equal(r.memos.length, 1); assert.equal(r.publicValues, '0x01'); assert.equal(r.proof, '0x02');
+  const again = await act.proveWrapCdpMint({ ...args, positionOwner: freshPositionOwner(), debtBlinding: randomScalar() });
+  assert.notEqual(again.commits[0], r.commits[0], 'each deposit has a blinding of its own: no two commits repeat');
+  await assert.rejects(() => act.proveWrapCdpMint({ ...args, positionOwner: null }), /positionOwner/, 'a fresh position owner is required');
+  await assert.rejects(() => act.proveWrapCdpMint({ ...args, debtNk: null }), /debtNk/, 'the debt note needs its own fresh nk');
+  answer = 'failed';
+  await assert.rejects(() => act.proveWrapCdpMint(args), /Nothing was sent/, 'a proof that did not come back is refused before anything is sent');
+  ok('proveWrapCdpMint: prove-only, one recoverable debt note, an owner-pinned commit back for the router, and no loan without a proof');
+}
+
 console.log(`confidential-defi-actions: all ${n} checks passed`);

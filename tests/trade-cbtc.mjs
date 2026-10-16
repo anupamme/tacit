@@ -235,7 +235,7 @@ try {
   ok((await p.$eval('#go', (a) => a.getAttribute('href'))) === '/#lock' && /Lock BTC/.test(await text(p, '#go')), 'the button opens the Borrow sheet, where the lock is made');
   await p.click('#mode-seg [data-mode="use"]');
   const uses = await p.$$eval('#uses a.use', (a) => a.map((x) => [x.querySelector('b').textContent, x.getAttribute('href')]));
-  ok(uses.map((u) => u[1]).join() === '/#lock,/#private/swap,#farm,/#lock' && /Borrow cUSD/.test(uses[0][0]) && /bond back/.test(uses[3][0]), `use cBTC: borrow, swap, farm and take a bond back, each a link (${uses.map((u) => u[1]).join(' ')})`);
+  ok(uses.map((u) => u[1]).join() === '/#borrow,/#private/swap,#farm,/#lock' && /Borrow cUSD/.test(uses[0][0]) && /bond back/.test(uses[3][0]), `use cBTC: borrow, swap, farm and take a bond back, each a link (${uses.map((u) => u[1]).join(' ')})`);
   ok(/Sign in/.test(await text(p, '#held')), 'its private balance waits for a key');
   await r.browser.close();
 

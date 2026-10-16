@@ -159,4 +159,49 @@ const note = (asset, value, leafIndex) => { const blinding = randomScalar(); ret
   ok('buildCdpTopupOp: added collateral opening verifies against the old-position context, wire carries owner+nk');
 }
 
+// ── OP_WRAP_CDP_MINT: the deposit-collateral open (public tacBTC → cUSD in one settle) ──
+{
+  const { stdinFor } = await import('../dapp/sp1-stdin.js');
+  const cBTC = '0x62a20d98fc1cd20289621d1315294cb8772f934d822e404b71e1f471cf0679c8';
+  const debtValue = 1000n, value = 5000n, nonce0 = '0x' + '00'.repeat(32), rate = '0x' + (10n ** 27n).toString(16).padStart(64, '0');
+  const debtBlinding = randomScalar(), collBlinding = randomScalar();
+  const debtOwner = pool.nkToOwner(randomScalar());
+  const op = cdp.buildWrapCdpMintOp({ chainBinding, controller, owner, debtOwner, debtValue, nonce: nonce0, rateSnapshot: rate, deposits: [{ asset: cBTC, value, blinding: collBlinding }], debtBlinding });
+  const leg = op.legs[0];
+
+  // The deposit is owner-pinned to the POSITION owner, and the router wrap carries its commit.
+  assert.equal(op.depositIds[0], pool.depositId(cBTC, value, leg.cx, leg.cy, owner), 'the deposit id is (asset, value, commit under the position owner)');
+  assert.equal(op.commits[0], pool.depositCommit(leg.cx, leg.cy, owner), 'the router commit is keccak(Cx ‖ Cy ‖ position owner)');
+  // The collateral authorization is the CDP-specific one (never the plain wrap intent), as the guest rebuilds it.
+  const ctx = pool.intentContext('tacit-wrap-cdp-mint-collateral-v1', chainBinding, cBTC, op.depositIds[0],
+    [[leg.cx, leg.cy, owner], [controllerWord, nonce0, owner], [rate, nonce0, owner], [op.debt.cx, op.debt.cy, debtOwner]], [value, debtValue, 0n, 1n]);
+  assert.equal(pool.verifyOpeningSigma(leg.cx, leg.cy, value, leg.sigR, leg.sigZ, ctx), true, 'the deposit opens under the wrap-cdp-mint context');
+  const plain = pool.intentContext('tacit-wrap-intent-v1', chainBinding, cBTC, op.depositIds[0], [[leg.cx, leg.cy, owner]], [value]);
+  assert.equal(pool.verifyOpeningSigma(leg.cx, leg.cy, value, leg.sigR, leg.sigZ, plain), false, 'a plain wrap authorization is not this one (and this one is not a plain wrap)');
+  const other = pool.intentContext('tacit-wrap-cdp-mint-collateral-v1', chainBinding, cBTC, op.depositIds[0],
+    [[leg.cx, leg.cy, owner], [controllerWord, nonce0, owner], [rate, nonce0, owner], [op.debt.cx, op.debt.cy, owner]], [value, debtValue, 0n, 1n]);
+  assert.equal(pool.verifyOpeningSigma(leg.cx, leg.cy, value, leg.sigR, leg.sigZ, other), false, 'it binds the debt destination: another debt owner does not verify');
+  // The debt note opens to the net, exactly as OP_CDP_MINT's.
+  const debtCtx = pool.intentContext('tacit-cdp-mint-debt-v1', chainBinding, cdp.debtAssetId(controller), nonce0,
+    [[op.debt.cx, op.debt.cy, debtOwner], [controllerWord, nonce0, owner], [rate, nonce0, owner]], [debtValue, 0n]);
+  assert.equal(pool.verifyOpeningSigma(op.debt.cx, op.debt.cy, debtValue, op.debt.sigR, op.debt.sigZ, debtCtx), true, 'the debt note opens to the debt under the CDP debt context');
+  assert.equal(op.legs.length, 1); assert.equal(op.fee, '0'); assert.equal(op.nonce, nonce0);
+  ok('buildWrapCdpMintOp: the deposit and the debt note open under the contexts the guest rebuilds');
+
+  // The program input the prover reads takes it, in the shape its harness reads.
+  const withMemo = { ...op, memoHashes: ['0x' + 'c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470'] };
+  assert.ok(stdinFor('wrapcdpmint', withMemo).length > 200, 'the page builds a program input from it');
+  ok('buildWrapCdpMintOp: its witness is accepted by the prover-input writer (sp1-stdin wrapcdpmint)');
+
+  // What the builder refuses.
+  const base = { chainBinding, controller, owner, debtOwner, debtValue, nonce: nonce0, rateSnapshot: rate, deposits: [{ asset: cBTC, value, blinding: collBlinding }], debtBlinding };
+  assert.throws(() => cdp.buildWrapCdpMintOp({ ...base, debtValue: 0n }), /mints a debt note/, 'no debt: a plain wrap is the op for a deposit alone');
+  assert.throws(() => cdp.buildWrapCdpMintOp({ ...base, nonce: '0x' + '01'.repeat(32) }), /nonce must be 0/, 'a position nonce other than 0 would not be keeper-liquidatable');
+  assert.throws(() => cdp.buildWrapCdpMintOp({ ...base, deposits: [] }), /at least one deposit/);
+  assert.throws(() => cdp.buildWrapCdpMintOp({ ...base, deposits: [base.deposits[0], base.deposits[0]] }), /one deposit per asset/, 'a basket is strictly asset-sorted');
+  assert.throws(() => cdp.buildWrapCdpMintOp({ ...base, deposits: [{ asset: cBTC, value: 0n, blinding: collBlinding }] }), /zero value/);
+  assert.throws(() => cdp.buildWrapCdpMintOp({ ...base, fee: 30n }), /nonzero fee/, 'a fee short of the recorded debt needs an explicit acknowledgment');
+  ok('buildWrapCdpMintOp: refuses no debt, a nonzero nonce, no deposit, a repeated asset, a zero deposit and an unacknowledged fee');
+}
+
 console.log(`confidential-cdp-op: all ${n} checks passed`);

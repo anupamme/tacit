@@ -219,6 +219,52 @@ export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
     return op;
   };
 
+  // OP_WRAP_CDP_MINT op-assembler (op 30) — open a CDP straight from public deposits: each collateral leg is a
+  // pending PUBLIC deposit (no tree note, so no membership path, nullifier or change), consumed in the same settle
+  // that mints the debt note. The deposit is made by ConfidentialRouter.wrapAndMintCusd* in the same transaction, with
+  // `depositCommit(cx, cy, owner)` as its commit, so a deposit is owner-pinned to the POSITION owner and its value is
+  // exactly what the wrap escrowed. Each leg's authorization is op- and CDP-specific (`tacit-wrap-cdp-mint-collateral-v1`),
+  // never the plain wrap intent, so a depositor's wrap opening cannot be replayed to lock the deposit into another CDP;
+  // it binds the controller, the position nonce (0), the rate snapshot, the exact debt destination, the fee and the
+  // basket size. The debt-note sigma and the CdpMint are byte-identical to OP_CDP_MINT's, so the controller prices it
+  // the same. Mirrors tests/gen-confidential-wrapcdpmint-fixture.mjs and the guest arm in main.rs.
+  // `deposits` are { asset, value, blinding }: the in-system value (cBTC: sats) and the blinding of the deposit's commitment.
+  const buildWrapCdpMintOp = ({ chainBinding, controller, owner, debtOwner, debtValue, nonce, rateSnapshot, fee = 0n, deposits = [], debtBlinding, acknowledgeFeeShortfall = false }) => {
+    if (!pool) throw new Error('buildWrapCdpMintOp requires the confidential-pool helper');
+    if (BigInt(debtValue) <= 0n) throw new Error('buildWrapCdpMintOp: a wrap-and-borrow mints a debt note (use a plain wrap for a deposit alone)');
+    if (!debtOwner) throw new Error('buildWrapCdpMintOp: debtOwner (H of the debt note\'s secret) is required');
+    if (BigInt(nonce) !== 0n) throw new Error('buildWrapCdpMintOp: the position nonce must be 0 (keeper-liquidatable)');
+    if (!deposits.length) throw new Error('buildWrapCdpMintOp: at least one deposit');
+    if (BigInt(fee) > 0n && !acknowledgeFeeShortfall) {
+      throw new Error('buildWrapCdpMintOp: a nonzero fee mints the debt note short of the recorded debtValue — the position becomes unclosable at face value. Pass acknowledgeFeeShortfall: true to proceed anyway, or mint fee-free.');
+    }
+    const legsSorted = [...deposits].sort((a, b) => (BigInt(a.asset) < BigInt(b.asset) ? -1 : (BigInt(a.asset) > BigInt(b.asset) ? 1 : 0)));
+    for (let i = 0; i < legsSorted.length; i++) {
+      if (BigInt(legsSorted[i].value) <= 0n) throw new Error('buildWrapCdpMintOp: a deposit of zero value');
+      if (i > 0 && BigInt(legsSorted[i].asset) === BigInt(legsSorted[i - 1].asset)) throw new Error('buildWrapCdpMintOp: one deposit per asset (the basket is strictly asset-sorted)');
+    }
+    // The debt commitment first: every collateral sigma binds it and the fee, so the depositor authorizes the exact destination of the loan.
+    const net = BigInt(debtValue) - BigInt(fee);
+    const debtC = pool.commitXY(net, debtBlinding);
+    const legs = legsSorted.map((d) => {
+      const value = BigInt(d.value), { cx, cy } = pool.commitXY(value, d.blinding);
+      const depositId = pool.depositId(d.asset, value, cx, cy, owner);
+      const sig = sigma('tacit-wrap-cdp-mint-collateral-v1', chainBinding, d.asset, depositId, { cx, cy, owner, value, blinding: d.blinding },
+        [value, BigInt(debtValue), BigInt(fee), BigInt(legsSorted.length)], 'wrap',
+        [[controllerWord(controller), nonce, owner], [rateSnapshot, nonce, owner], [debtC.cx, debtC.cy, debtOwner]]);
+      return { asset: d.asset, value: String(value), cx, cy, sigR: sig.sigR, sigZ: sig.sigZ, depositId, commit: pool.depositCommit(cx, cy, owner) };
+    });
+    const dsig = cdpMintDebtSigma({ chainBinding, controller, nonce, owner, note: { cx: debtC.cx, cy: debtC.cy, value: net, owner: debtOwner, blinding: debtBlinding }, debtValue, fee, rateSnapshot });
+    return {
+      chainBinding, controller, owner, debtValue: String(BigInt(debtValue)), nonce, rateSnapshot, fee: String(BigInt(fee)),
+      debt: { cx: debtC.cx, cy: debtC.cy, debtOwner, sigR: dsig.sigR, sigZ: dsig.sigZ },
+      legs: legs.map(({ asset, value, cx, cy, sigR, sigZ }) => ({ asset, value, cx, cy, sigR, sigZ })),
+      depositIds: legs.map((l) => l.depositId),
+      // The commits the router wrap carries, in leg order (not part of the witness).
+      commits: legs.map((l) => l.commit),
+    };
+  };
+
   // OP_CDP_CLOSE op-assembler — close a CDP: burn the exact debt notes and re-mint the collateral basket to the
   // owner, carving an OPTIONAL relay fee from the FIRST released leg (it opens to value − fee; the basket
   // membership + the controller use the GROSS value). The released legs reproduce the position's canonical
@@ -361,7 +407,7 @@ export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
     debtAssetId, basketLeg, basketRoot, positionLeaf, positionNullifier, cbtcMintCommitment,
     cdpMintCollateralSigma, cdpMintDebtSigma, cdpCloseReleaseSigma, cdpCloseDebtSigma,
     cdpLiquidateDebtSigma, cdpTopupCollateralSigma, cbtcMintSigma,
-    buildCdpMintOp, buildCdpCloseOp, buildCdpLiquidateOp, buildCbtcMintOp, buildCdpTopupOp,
+    buildCdpMintOp, buildWrapCdpMintOp, buildCdpCloseOp, buildCdpLiquidateOp, buildCbtcMintOp, buildCdpTopupOp,
     CDP_EVENT_TOPIC0,
   };
 }

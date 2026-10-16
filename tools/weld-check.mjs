@@ -128,6 +128,10 @@
 //   heldoff  an exit refused after the form went to Activity (its combine queued first) is offered on its receipt there, and sent
 //   provecap the relay's day of proofs used up is said plainly with nothing offered, also when met while sending it yourself
 //   heldborrow the Borrow sheet's Borrow and Repay, held by the relay, offer to send from the paying account
+//   holdborrow cBTC the key holds that no lock of its own made: the sheet leads with a borrow form on its notes (ratio presets, what it is
+//           liquidated at, a note cut to size when no note matches), its loans listed with Repay, the lock steps folded under it
+//   holdpublic tacBTC held in public by the paying account is offered as the collateral: the relay is asked to prove the deposit-collateral open for
+//           that amount, the approval is signed, and the router call is asked of the pool before it would be sent
 //   selffund  #prove-self: the Tacit account as prover account and its credit; PROVE added from the wallet (a transfer to the Tacit account,
 //            then permitAndDeposit with a permit that account signs, taken by the real vApp on the fork); the switch and each sheet's note
 //   selfprove with the switch on, a withdrawal and a swap are proved on the holder's credit (no submit to the relay) and settled from the
@@ -154,7 +158,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxteth,hxborrow,hxborrowback,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxteth,hxborrow,hxborrowback,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -5673,6 +5677,159 @@ await step('heldborrow', async () => {
     }
     if (r.errors.length) { fails++; console.log('FAIL heldborrow page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
+});
+
+// The Borrow sheet for cBTC the key holds that no lock of its own made (sent, bridged, bought): it leads with a borrow form on the private notes it
+// finds, sized by ratio presets, with what the loan is liquidated at; the lock steps fold under it. The pool module is stubbed with two cBTC notes,
+// the loan calls (recording what they were handed), the position the loan makes, and the self-send that cuts a note to size.
+await step('holdborrow', async () => {
+  const hex = 'b0d1'.padEnd(64, '5'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex');
+  const r = await openPage({ account: A0, key: K0 });
+  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    import * as real from '/confidential-pool-ux.js?stub=real';
+    export * from '/confidential-pool-ux.js?stub=real';
+    export function makeConfidentialPoolUx(o) {
+      const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
+      const CB = String(ux.pool.CBTC_ZK_ASSET_ID).toLowerCase(), USD = String(ux.cdp.debtAssetId(ux.cfg.collateralEngine)).toLowerCase();
+      const h = (n) => '0x' + BigInt(n).toString(16).padStart(64, '0');
+      let seq = 0, leaves = 700000;
+      const note = (asset, value) => { const i = ++seq; return { asset, value: String(value), leaf: h(0xc0b000 + i), leafIndex: 700000 + i, cx: h(0x100 + i), cy: h(2), owner: h(3), secret: h(0x5100 + i), blinding: h(0x7700 + i), root: h(1), path: [] }; };
+      const S = window.__hb = { notes: [note(CB, 30000n), note(CB, 20000n)], calls: [], loans: [] };
+      ux.poolLeafCount = async () => ++leaves;
+      ux.quoteOpFee = async () => 100n;
+      ux.balance = async (priv, opts) => {
+        const b = await balance(priv, opts);
+        b.notes = [...b.notes, ...S.notes];
+        for (const n of S.notes) { const g = b.byAsset[n.asset] ||= { asset: n.asset, value: 0n, notes: [] }; g.notes = [...(g.notes || []), n]; g.value = g.notes.reduce((a, x) => a + BigInt(x.value), 0n); }
+        return b;
+      };
+      ux.recoverCdpPositions = async () => ({ nextKeyNonce: S.loans.length, positions: S.loans.map((l, i) => ({ controller: l.controller, keyNonce: i, debtValue: String(l.debtValue), rateSnapshot: l.rateSnapshot,
+        positionOwner: l.positionOwner, nonce: h(0), basket: [{ asset: CB, value: String(l.collateral[0].value) }], live: true })) });
+      ux.cdpPositionTree = async () => ({ indexOf: () => 0, pathFor: () => ({ path: [] }), root: h(9) });
+      ux.transfer = async (a) => {
+        S.calls.push({ kind: 'cut', amount: String(a.amount), fee: String(a.fee), from: a.notes.map((n) => String(n.value)).join('+') });
+        const sum = a.notes.reduce((t, n) => t + BigInt(n.value), 0n), gone = new Set(a.notes.map((n) => n.leaf));
+        S.notes = [...S.notes.filter((n) => !gone.has(n.leaf)), note(CB, BigInt(a.amount)), ...(sum - BigInt(a.amount) - BigInt(a.fee) > 0n ? [note(CB, sum - BigInt(a.amount) - BigInt(a.fee))] : [])];
+        return { txHash: h(0xd1) };
+      };
+      const defi = ux.defiActions;
+      ux.defiActions = (priv) => ({ ...defi(priv),
+        openCdp: async (a) => {
+          S.calls.push({ kind: 'open', value: String(a.collateral[0].value), debt: String(a.debtValue), fee: String(a.fee), owner: a.positionOwner });
+          S.loans.push(a); S.notes = S.notes.filter((n) => n.leafIndex !== a.collateral[0].leafIndex); S.notes.push(note(USD, BigInt(a.debtValue)));
+          return { txHash: h(0xee) };
+        },
+        closeCdp: async (a) => {
+          S.calls.push({ kind: 'close', debt: String(a.debtValue) });
+          const l = S.loans.shift();
+          S.notes = [...S.notes.filter((n) => n.asset !== USD), note(CB, BigInt(l.collateral[0].value))];
+          return { txHash: h(0xef) };
+        },
+      });
+      return ux;
+    }` }));
+  const calls = () => r.page.evaluate(() => (window.__hb?.calls || []).map((c) => c.kind + (c.value ? ':' + c.value : '') + (c.amount ? ':' + c.amount : '')).join(','));
+  const sheet = () => r.page.evaluate(() => (document.querySelector('#borrow-body')?.textContent || '').replace(/\s+/g, ' '));
+  try {
+    await r.page.goto(r.url + '#wallet');
+    await r.page.click('#wallet-body [data-in="paste"]');
+    await r.page.fill('#ws-hex', hex);
+    await r.page.click('#wallet-body [data-in="key"]');
+    await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
+    // The card's Borrow tab would ask for BTC to lock first: with cBTC already held it says so and points at the sheet.
+    await r.page.evaluate(() => { location.hash = ''; });
+    await r.page.click('[data-hxm="borrow"]');
+    await r.page.waitForSelector('#hx-bw-hold:not([hidden])', { timeout: 240000 }).catch(() => {});
+    ok(/You hold 0\.0005 cBTC\. Borrow against it/.test(await text(r.page, '#hx-bw-hold')) && (await r.page.$eval('#hx-bw-hold a', (a) => a.getAttribute('href'))) === '#borrow', `holdborrow: the card's Borrow tab says the key holds cBTC and points at the sheet (${(await text(r.page, '#hx-bw-hold')).trim()})`);
+    await go(r.page, '#borrow');
+    await r.page.waitForSelector('#bw-hold #bw-borrow', { timeout: 300000 }).catch(async (e) => {
+      throw new Error(`${e.message.split('\n')[0]} | sheet: ${(await sheet()).slice(0, 300)} | errors: ${r.errors.slice(0, 2).join(' | ')}`);
+    });
+    await until(r.page, () => !document.querySelector('#bw-rcpt')?.hidden, null, 60000).catch(() => {});
+    const b0 = await sheet();
+    ok(/Borrow cUSD\s*Private 0\.0005 cBTC/.test(b0), `holdborrow: with no lock of its own, the sheet leads with what the key holds (${b0.slice(0, 80)})`);
+    ok(!(await r.page.$('details.lockmore[open] > summary')) && /Get cBTC from BTC/.test(b0) && (await r.page.$$('#borrow-body ol.steps > li')).length === 3, 'holdborrow: the lock steps fold under it, with no fourth step');
+    const rc0 = await text(r.page, '#bw-rcpt');
+    ok(/You borrow/.test(rc0) && /Collateral ratio\s*200%/.test(rc0.replace(/\s+/g, ' ')) && /Liquidated below\s*\$[\d,]+ a bitcoin/.test(rc0.replace(/\s+/g, ' ')), `holdborrow: an empty amount borrows at 200%, and says what it is liquidated at (${rc0.replace(/\s+/g, ' ').trim()})`);
+    ok(await r.page.$eval('[data-bh-ratio="200"]', (x) => x.getAttribute('aria-selected')) === 'true', 'holdborrow: the 200% preset reads as chosen');
+    await r.page.click('[data-bh-ratio="250"]');
+    const rc1 = (await text(r.page, '#bw-rcpt')).replace(/\s+/g, ' ');
+    ok(/Collateral ratio\s*250%/.test(rc1) && (await r.page.$eval('#bw-debt', (x) => x.value)) !== '', `holdborrow: a preset sets the cUSD to borrow (${rc1.trim()})`);
+    // A note of another size is cut first, and the receipt says so; an amount no note covers says so too.
+    await r.page.evaluate(() => { document.querySelector('#bw-hold details.lockmore').open = true; });
+    await r.page.fill('#bh-coll', '0.00025');
+    ok(/A note of exactly 0\.00025 cBTC is cut first/.test(await text(r.page, '#bw-rcpt')), 'holdborrow: an amount no note matches says a note is cut first');
+    await r.page.fill('#bh-coll', '0.001');
+    ok(/You hold 0\.0005 cBTC privately/.test(await text(r.page, '#bw-rcpt')), 'holdborrow: more than the key holds is said');
+    await r.page.fill('#bh-coll', '');
+    // Borrow at the 200% default against the largest note: no lock record is made for cBTC no lock produced.
+    await r.page.fill('#bw-debt', '');
+    await r.page.click('#bw-borrow');
+    await until(r.page, () => /Borrowed [\d.,]+ cUSD/.test([...document.querySelectorAll('#bw-status, #bw-s4')].map((e) => e.textContent).join(' ')), null, 180000).catch(() => {});
+    ok((await calls()) === 'open:30000' && /Borrowed [\d.,]+ cUSD/.test(await bwText(r.page)), `holdborrow: the loan is opened against the largest note (${await calls()} | ${(await bwText(r.page)).replace(/\s+/g, ' ').trim().slice(0, 100)})`);
+    ok(!(await r.page.evaluate((p) => localStorage.getItem(`tacit-lite-cbtc-v1:${p}`), pub)), 'holdborrow: no lock record is written for cBTC no lock made');
+    await r.page.waitForSelector('#bw-repay', { timeout: 300000 });
+    const b1 = await sheet();
+    ok(/Your loans\s*\d[\d.,]* cUSD against 0\.0003 cBTC/.test(b1) && /Liquidated below\s*\$[\d,]+ a bitcoin/.test(b1), `holdborrow: the loan is listed with its collateral and liquidation price (${(b1.match(/Your loans.{0,120}/) || [''])[0]})`);
+    // The 0.0002 note left is cut to size when a smaller amount is asked for (the single note is more than 0.00015).
+    await r.page.evaluate(() => { document.querySelector('#bw-hold details.lockmore').open = true; });
+    await r.page.fill('#bh-coll', '0.00015');
+    await r.page.fill('#bw-debt', '3');
+    await r.page.click('#bw-borrow');
+    await until(r.page, () => (window.__hb?.calls || []).filter((c) => c.kind === 'open').length === 2, null, 240000).catch(() => {});
+    const cs = await r.page.evaluate(() => window.__hb.calls.map((c) => c.kind + (c.amount ? ':' + c.amount + ':' + c.from : '') + (c.value ? ':' + c.value : '')).join(','));
+    ok(/cut:15000:20000,open:15000$/.test(cs), `holdborrow: an amount no note matches is cut to size first, then borrowed against (${cs})`);
+    // Repay the first loan.
+    await r.page.waitForSelector('#bw-repay', { timeout: 300000 });
+    await sleep(2000);
+    await r.page.click('#bw-repay');
+    await until(r.page, () => /Repaid\./.test([...document.querySelectorAll('#bw-status, #bw-s4')].map((e) => e.textContent).join(' ')), null, 180000).catch(() => {});
+    ok((await calls()).endsWith('close') && /Repaid\./.test(await bwText(r.page)), `holdborrow: a loan is repaid from its row (${await calls()} | ${(await bwText(r.page)).replace(/\s+/g, ' ').trim().slice(0, 80)})`);
+    if (r.errors.length) { fails++; console.log('FAIL holdborrow page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// tacBTC held in public by the paying account is borrowed against in one transaction: the borrow form offers it, the relay is asked to prove the
+// deposit-collateral open (OP_WRAP_CDP_MINT) for exactly that amount, the account signs the tacBTC approval, and the router call is asked of the
+// pool before it is sent. The relay's proof here is a stand-in, so the pool refuses the call and nothing is sent: the check is the page's side of it.
+await step('holdpublic', async () => {
+  const hex = 'b0d2'.padEnd(64, '8');
+  const acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address;
+  const TACBTC = '0xdf1d99148bEb7a9AFf1d95C49B3d22b7ed90D696';
+  // solady's balance slot: keccak(owner (20 bytes) ‖ 8 zero bytes ‖ 0x87a211a2)
+  const balSlot = (owner) => '0x' + Buffer.from(keccak_256(Buffer.concat([Buffer.from(owner.slice(2).toLowerCase(), 'hex'), Buffer.alloc(8), Buffer.from('87a211a2', 'hex')]))).toString('hex');
+  await rpc('anvil_setBalance', [acct, '0x' + (10n ** 18n).toString(16)]);
+  await rpc('anvil_setStorageAt', [TACBTC, balSlot(acct), '0x' + word(30000n * 10n ** 10n)]);
+  ok(BigInt(await rpc('eth_call', [{ to: TACBTC, data: '0x70a08231' + addrWord(acct) }, 'latest'])) === 30000n * 10n ** 10n, 'holdpublic: the account holds 0.0003 tacBTC on the fork');
+  const r = await openPage({ account: A0, key: K0 });
+  const n0 = submits.length, tx0 = walletTxs.length;
+  try {
+    proveStub = true;
+    await r.page.goto(r.url + '#wallet');
+    await r.page.click('#wallet-body [data-in="paste"]');
+    await r.page.fill('#ws-hex', hex);
+    await r.page.click('#wallet-body [data-in="key"]');
+    await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
+    await go(r.page, '#borrow');
+    await r.page.waitForSelector('#bw-hold #bw-borrow', { timeout: 300000 }).catch(async (e) => {
+      throw new Error(`${e.message.split('\n')[0]} | sheet: ${(await r.page.evaluate(() => (document.querySelector('#borrow-body')?.textContent || '').replace(/\s+/g, ' ').slice(0, 300)))} | errors: ${r.errors.slice(0, 2).join(' | ')}`);
+    });
+    await until(r.page, () => !document.querySelector('#bw-rcpt')?.hidden, null, 60000).catch(() => {});
+    const b0 = await r.page.evaluate(() => (document.querySelector('#bw-hold')?.textContent || '').replace(/\s+/g, ' '));
+    const rc = (await text(r.page, '#bw-rcpt')).replace(/\s+/g, ' ');
+    ok(/0\.0003 tacBTC in your Tacit account/.test(b0) && !(await r.page.$('#bw-pts')), `holdpublic: the form offers the tacBTC the account holds (${b0.slice(0, 90)})`);
+    ok(/Collateral ratio\s*200%/.test(rc) && /One transaction from your Tacit account/.test(rc), `holdpublic: it sizes at 200% and says it is one transaction (${rc.trim().slice(0, 150)})`);
+    await r.page.click('#bw-borrow');
+    await until(r.page, () => /Nothing was sent|could not|reverted/i.test([...document.querySelectorAll('#bw-status, #bw-s4')].map((e) => e.textContent).join(' ')), null, 240000).catch(() => {});
+    const said = await bwText(r.page);
+    const job = submits.slice(n0).find((x) => x.type === 'wrapcdpmint');
+    ok(!!job && job.mode === 'prove', `holdpublic: the relay is asked to prove a wrapcdpmint, prove-only (${job ? job.type + ' ' + job.mode : 'none'})`);
+    ok(job && job.op.legs.length === 1 && job.op.legs[0].value === '30000' && /^0x[0-9a-f]{64}$/.test(job.op.owner) && job.op.fee === '0' && BigInt(job.op.nonce) === 0n && job.op.depositIds.length === 1,
+      `holdpublic: its op deposits all 30000 sats under a fresh position owner, fee-free, nonce 0 (${job ? JSON.stringify({ v: job.op.legs[0].value, fee: job.op.fee }) : ''})`);
+    ok(/Nothing was sent: the pool refuses this as it stands/.test(said) && walletTxs.length === tx0, `holdpublic: the router call is asked of the pool first, and nothing is sent when it refuses (${said.replace(/\s+/g, ' ').trim().slice(0, 140)})`);
+    ok(BigInt(await rpc('eth_call', [{ to: TACBTC, data: '0x70a08231' + addrWord(acct) }, 'latest'])) === 30000n * 10n ** 10n, 'holdpublic: the tacBTC is where it was');
+    if (r.errors.length) { fails++; console.log('FAIL holdpublic page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { proveStub = false; await r.browser.close(); }
 });
 
 // ── proving with your own credit ──

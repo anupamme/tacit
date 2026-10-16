@@ -7,7 +7,7 @@ import { sha256 } from '/vendor/tacit-deps.min.js';
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=97813823';
 import { makeConnect } from '/trade/connect.js?cb=b9f00573';
 import { makeKeySession, signInSheet } from '/trade/key.js?cb=ad559513';
-import { getUx, forgetUx } from '/trade/poolux.js?cb=0c532ca8';
+import { getUx, forgetUx } from '/trade/poolux.js?cb=156a1ba1';
 import { readRates, readProgram, heldBars, rangesFor, barSize } from '/trade/teth/read.js?cb=34fe5a19';
 import { totalsOf, readEngine, sizeBond, coverage, readPools, poolRows, farmApr, readLocks, readLoans, readHeld, readHistory, positionsIn, lockStep, CBTC_ID, ENGINE, WSTETH } from '/trade/cbtc/read.js?cb=2caa1c53';
 import { $, esc, api, now, fmtUnits, parseUnits, grp, usd, pct, short, sig } from '/trade/util.js?cb=c3dc39b3';
@@ -209,7 +209,7 @@ function renderUse() {
     : `<div class="held"><span><b class="num">${esc(btcTxt(h.cbtc.value))}</b> <span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-cbtc"/></svg>cBTC, private</span></span><button class="linkbtn" type="button" id="lk-re">refresh</button><button class="linkbtn" type="button" id="held-lock">Lock</button></div>
       ${owed != null ? `<div class="kv"><span>Borrowed against it</span><b>${loans.length ? `${esc(cusdTxt(owed))} cUSD in ${loans.length} loan${loans.length === 1 ? '' : 's'}` : 'nothing'}</b></div>` : m.errs.loans ? '<p class="note err">Your loans could not be read just now.</p>' : ''}
       ${h.cusd.value > 0n ? `<div class="kv"><span>Private cUSD</span><b>${esc(cusdTxt(h.cusd.value))}</b></div>` : ''}${h.partial ? '<p class="note err">Part of your balance could not be read. Refresh to try again.</p>' : ''}`;
-  const rows = [['/#lock', 'Borrow cUSD', 'Borrow dollars against your cBTC. Repay to unlock it.'],
+  const rows = [['/#borrow', 'Borrow cUSD', 'Borrow dollars against your cBTC. Repay to unlock it.'],
     ['/#private/swap', 'Swap privately', (() => { const r = D.rows.find((x) => (x.depthUsd ?? 0) >= DUST_USD); return r?.per ? `${r.other} pool: 1 cBTC = ${sig(r.per, 4)} ${r.other}, ${compact(r.depthUsd)} deep.` : 'In the private pools.'; })()],
     ['#farm', 'Earn TAC', 'Join a farm with cBTC alone.', 'scroll'],
     ['/#lock', 'Take a bond back', 'Before minting, or after you redeem. Spending the BTC any other way forfeits it.']];

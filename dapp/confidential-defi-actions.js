@@ -66,6 +66,27 @@ export function makeConfidentialDefiActions({ pool, cdp, farm, relay, id, chainB
     return settleVia({ type: 'cdpmint', op, leaves, outputs, ephRand }, selfSettle, waitOpts);
   }
 
+  // CDP open from PUBLIC deposits (OP_WRAP_CDP_MINT, op 30) — prove-only. The collateral is a deposit the caller makes in the same
+  // transaction that settles this proof (ConfidentialRouter.wrapAndMintCusd*), so the relay never sends it: it proves the op and
+  // hands back `publicValues`, `proof` and the `memos` that proof commits to (the router call must carry exactly those), with the
+  // `commits` the router's wrap takes, one per deposit in order. `deposits` are { asset, value } (value in the pool's units, cBTC:
+  // sats); each deposit's blinding is fresh and kept nowhere, since the deposit is consumed by the settle that makes the position.
+  // The debt note is recoverable as OP_CDP_MINT's is: its keys derive from `debtAnchor` (see the CDP position store) and its memo is
+  // sealed to the borrower. `positionOwner` and `debtNk` are required as for openCdp. Fee-free: the caller pays the transaction.
+  async function proveWrapCdpMint({ controller, debtValue, rateSnapshot, deposits, debtBlinding, positionOwner, debtNk, waitOpts }) {
+    if (!positionOwner) throw new Error('wrapCdpMint: positionOwner (fresh per-position owner) is required');
+    if (!debtNk) throw new Error('wrapCdpMint: debtNk (fresh secret for the minted debt note) is required');
+    const debtOwner = pool.nkToOwner(debtNk);
+    const withBlinding = deposits.map((d) => ({ ...d, blinding: d.blinding ?? '0x' + randomScalar().toString(16).padStart(64, '0') }));
+    const { commits, ...op } = cdp.buildWrapCdpMintOp({ chainBinding: chainBindingHex(), controller, owner: positionOwner, debtOwner, debtValue, nonce: ZERO32, rateSnapshot, fee: 0n, deposits: withBlinding, debtBlinding });
+    const debtAsset = cdp.debtAssetId(controller);
+    const leaves = [pool.leaf(debtAsset, op.debt.cx, op.debt.cy, debtOwner)];
+    const outputs = [owned({ value: BigInt(debtValue), blinding: debtBlinding, asset: debtAsset, cx: op.debt.cx, cy: op.debt.cy, owner: debtOwner, secret: debtNk })];
+    const proven = await relay.prove({ type: 'wrapcdpmint', op, leaves, outputs, ephRand }, waitOpts);
+    if (proven.status !== 'proven' || !proven.publicValues || !proven.proof) throw new Error(`The proof did not come back (${proven.status || 'no answer'}). Nothing was sent.`);
+    return { ...proven, op, commits };
+  }
+
   // CDP close — burn the debt notes + release the basket (first leg net of fee). Each released leg is a minted
   // owned note; the burned debt notes are spent (no descriptor). nonce is 0 (matches open).
   // With `selfSettle` (as openCdp's) the relay only proves the close and the caller's account sends it, with no relay fee.
@@ -205,5 +226,5 @@ export function makeConfidentialDefiActions({ pool, cdp, farm, relay, id, chainB
   const harvestSavings = (p) => harvestFarm(p);
   const withdrawSavings = (p) => unbondFarm(p);
 
-  return { openCdp, closeCdp, liquidateCdp, topupCdp, mintCbtc, bondFarm, harvestFarm, unbondFarm, save, harvestSavings, withdrawSavings };
+  return { openCdp, proveWrapCdpMint, closeCdp, liquidateCdp, topupCdp, mintCbtc, bondFarm, harvestFarm, unbondFarm, save, harvestSavings, withdrawSavings };
 }

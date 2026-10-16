@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Dg0PgDWJv/GJ5jJ5t+QZEnKe8SKwYc7XCrCWGBSLSLE=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-PMGldFOeSiHeDKKVNFc+7Dgw5E6qkzN83hVci2UdA8M=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -3544,11 +3544,11 @@ function permitFromTacit({ token, name, version, owner, spender, value, nonce, d
   return { v: 27 + sig.recovery, r: '0x' + sig.r.toString(16).padStart(64, '0'), s: '0x' + sig.s.toString(16).padStart(64, '0') };
 }
 // A permit from the paying account over TAC ('Tacit Token') or Precision LP shares ('Precision LP'), both version 1.
-async function permitSig({ token, name, spender, value, deadline, status }) {
+async function permitSig({ token, name, spender, value, deadline, status, what }) {
   const owner = await payingAccount(), nonce = wordAt(await ethCall(token, '7ecebe00' + addrWord(owner)), 0);
   const permit = { token, name, version: '1', owner, spender, value, nonce, deadline };
   if (payer() === 'tacit') return permitFromTacit(permit);
-  say(status, `Sign the ${name === 'Tacit Token' ? 'TAC' : /^Wrapped liquid staked/.test(name) ? 'wstETH' : 'LP'} approval in your wallet…`);
+  say(status, `Sign the ${what || (name === 'Tacit Token' ? 'TAC' : /^Wrapped liquid staked/.test(name) ? 'wstETH' : 'LP')} approval in your wallet…`);
   await ensureChain(1);
   return evm.signErc2612({ ...permit, provider: S.provider });          // the wallet this page connected, even after a Lock
 }
@@ -4275,7 +4275,7 @@ function wireSub(el, name, set) { $$(`[data-${name}]`, el).forEach((b) => b.oncl
 
 // ── Tacit V1 pool: shared module, loaded on first use ────────────────────────────────────────────────────
 const getUx = lazy(async () => {
-  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=9bb944e3'), import('/confidential-deployments.js')]);
+  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=62c636f8'), import('/confidential-deployments.js')]);
   dep.setActiveNetwork('mainnet');
   setExternalTacHolders(() => (S.wallet ? [S.wallet] : []));      // public TAC in the connected wallet counts toward the exit-fee tier, as on tacit.finance
   const ux = makeConfidentialPoolUx({ secp, keccak256: keccak_256, sha256, network: 'mainnet' });
@@ -9693,6 +9693,22 @@ function farmJoin(el, p, status, has) {
 // ── borrow on Bitcoin: lock → bond → mint cBTC → borrow cUSD ─────────────────────────────────────────────
 // The lock record holds no secret: the cBTC note's blinding re-derives from the key and the lock's funding anchor.
 const LOCK = { rec: null, state: null, lm: null, bonds: [], list: [], pick: null, found: null, repayOver: null, q: null, focus: false };
+// Every loan this key has, found from the key and the chain and not from a lock record, so cBTC that came any other way (sent, bridged,
+// bought) is borrowed against and repaid just the same. Read at most every 20 seconds unless asked fresh; whoever asks while a read is under
+// way shares it. null when the read failed: that says nothing about whether there is a loan.
+const LOANS = { pub: null, at: 0, p: null, v: null };
+// Which cBTC the borrow form draws on when the key has both: its private notes, or tacBTC held in public by the paying account.
+const BSRC = { src: null };
+function cdpLoans(t, priv, fresh = false) {
+  const pub = S.key?.pubHex;
+  if (LOANS.pub !== pub) Object.assign(LOANS, { pub, at: 0, p: null, v: null });
+  if (LOANS.p) return fresh ? LOANS.p.then(() => cdpLoans(t, priv, true)) : LOANS.p;
+  if (!fresh && LOANS.v && Date.now() - LOANS.at < 20e3) return Promise.resolve(LOANS.v);
+  const p = LOANS.p = t.recoverCdpPositions({ walletPriv: priv })
+    .then((v) => { if (LOANS.pub === pub) Object.assign(LOANS, { v, at: Date.now() }); return v; }, () => null)
+    .finally(() => { if (LOANS.p === p) LOANS.p = null; });
+  return p;
+}
 const lockKey = () => `tacit-lite-cbtc-v1:${S.key.pubHex}`;
 const outpointOf = (t, rec) => t.pool.outpointKey('0x' + rec.lockTxid.match(/../g).reverse().join(''), rec.lockVout);
 const getLockMod = lazy(async () => {
@@ -9850,10 +9866,13 @@ async function readBorrow(fresh, current) {
   lmP.catch(() => {});
   // The key's Bitcoin address is known before the rest is read: the card shows it at once, where the BTC to lock goes.
   lmP.then((lm) => { if (same()) { LOCK.addr = { pub, a: lm.wallet.address() }; dashSoon(); } }, () => {});
+  // The key's private notes and loans are read beside, for the cBTC it holds that no lock of its own made.
+  const scanP = (fresh ? scanIfNew() : refreshScan()).catch(() => {}), loansP = cdpLoans(t, priv, fresh);
   const sideP = Promise.all([
     lmP.then((lm) => esplora(`/address/${lm.wallet.address()}/utxo`)).catch(() => null), esplora('/blocks/tip/height').catch(() => null),
     fetch(`${API}/reflection/status?network=mainnet`, { signal: within(20e3) }).then((r) => r.json()).catch(() => null),
-    multicall([{ to: ADDR.engine, data: SEL.cdpRatioBps }, { to: ADDR.engine, data: SEL.liqRatioBps }]).catch(() => null),    // the loan floor and liquidation line, as governance sets them
+    // the loan floor and liquidation line, as governance sets them, and what a bitcoin is worth to the engine
+    multicall([{ to: ADDR.engine, data: SEL.cdpRatioBps }, { to: ADDR.engine, data: SEL.liqRatioBps }, { to: ADDR.engine, data: SEL.btcToUsd + word(10n ** 8n) }]).catch(() => null),
   ]);
   // The record is a cache of the lock the sheet follows. Every live lock comes back from the key's own history (another
   // device, cleared storage, or one made on tacit.finance); a fresh lock the history does not show yet stays until the
@@ -9888,7 +9907,7 @@ async function readBorrow(fresh, current) {
   const usable = utxos && utxos.filter((u) => u.value > 546 && !held.has(`${u.txid}:${u.vout}`.toLowerCase()));
   const pending = (usable || []).filter((u) => !u.status?.confirmed);
   const st = { rec, addr, sats: usable ? usable.reduce((s, u) => s + BigInt(u.value), 0n) : null, pendingSats: pending.reduce((s, u) => s + BigInt(u.value), 0n), unconfirmed: pending.map((u) => `${u.txid}:${u.vout}`.toLowerCase()), tip, refl, needEth: 0n, payEth: 0n, needWst: 0n, have: 0n, usd: 0n,
-    ratio: lr?.[0] ? wordAt(lr[0], 0) : 15000n, liq: lr?.[1] ? wordAt(lr[1], 0) : 13000n };
+    ratio: lr?.[0] ? wordAt(lr[0], 0) : 15000n, liq: lr?.[1] ? wordAt(lr[1], 0) : 13000n, px: lr?.[2] ? wordAt(lr[2], 0) : null };
   if (rec) {
     const op = outpointOf(t, rec);
     const [lockStatus, calls] = await Promise.all([
@@ -9922,8 +9941,9 @@ async function readBorrow(fresh, current) {
       gap && S.address ? ethCall(ADDR.wsteth, SEL.balanceOf + addrWord(S.address)).then((r) => wordAt(r, 0), () => null) : null]);
     if (st.minted) {
       // The loan comes from the key too: a live position this key opened with this lock's cBTC as collateral.
-      const [, cdp] = await Promise.all([(fresh ? scanPrivate(true) : P.scanning || scanPrivate(Date.now() - (P.scan?.at || 0) > 60e3)).catch(() => {}), t.recoverCdpPositions({ walletPriv: priv }).catch(() => null)]);
+      const [, cdp] = await Promise.all([(fresh ? scanPrivate(true) : P.scanning || scanPrivate(Date.now() - (P.scan?.at || 0) > 60e3)).catch(() => {}), loansP]);
       if (!same()) return;
+      st.loans = cdp;
       st.cbtc = (P.scan?.cbtc.notes || []).find((n) => BigInt(n.value) === BigInt(rec.vBtc)) || null;
       st.cusd = P.scan?.cusd || null;
       const cbtcId = String(t.pool.CBTC_ZK_ASSET_ID).toLowerCase();
@@ -9940,6 +9960,12 @@ async function readBorrow(fresh, current) {
     }
   }
   if (!same()) return;
+  // The key's loans, whatever lock (if any) its cBTC came from: null when they could not be read, undefined until read. After an action they are
+  // waited for; otherwise the lock steps are drawn at once and the sheet and the card draw again when the private notes and loans are in.
+  if (st.loans === undefined) {
+    if (fresh) { st.loans = (await Promise.all([scanP, loansP]))[1]; if (!same()) return; }
+    else Promise.all([scanP, loansP]).then(([, loans]) => { if (LOCK.state !== st) return; st.loans = loans; rerender('borrow'); hxBwUpdate(); dashSoon(); });
+  }
   st.at = Date.now();
   LOCK.rec = st.rec; LOCK.state = st;
   // The dashboard names the lock's next step from this fuller reading too, so a step taken here shows there at once.
@@ -9967,6 +9993,17 @@ function bondFunds() {
       .finally(() => { BF.reading = null; });
   }
   return BF.for === who ? BF : null;
+}
+// The next position key of this wallet against the engine, found from the chain (never a silent 0), and the store that keeps what the
+// browser knows of its loans: { ps, keyNonce, positionOwner }.
+async function freshPosition(t, priv, c, where) {
+  const { derivePositionOwnerPriv } = await import('/confidential-recovery.js');
+  const { makeCdpPositionStore } = await import('/confidential-secret-store.js');
+  const ps = makeCdpPositionStore({ sha256, hmac, secp, curveOrder: secp.CURVE.n });
+  say(where(), 'Finding your next position key…');
+  const ownerOf = (i) => '0x' + bytesToHex(secp.getPublicKey(hexToBytes(strip(derivePositionOwnerPriv({ hmac, sha256, curveOrder: secp.CURVE.n }, priv, c, i))), true).slice(1));
+  const keyNonce = await nextKeyNonce(t, priv, c, ps, ownerOf);
+  return { ps, keyNonce, positionOwner: ownerOf(keyNonce) };
 }
 // The Borrow steps, shared by the Borrow sheet and the card's Borrow tab: each reads the borrow state as it is when pressed (LOCK.state), says
 // how it goes on `where()` (the status line of whichever drew the button, found again after a redraw), and reads the state again when done.
@@ -10072,8 +10109,9 @@ const BWX = {
       await settleBorrow();
     } catch (e) { sayErr(where(), !e?.offered && /CbtcLockMismatch|afff2f20/i.test(e?.message || '') ? new Error('Not ready yet: the lock is still being proven, or the bond fell short at today\'s price. Try again in a few minutes.') : e); }
   },
+  // The followed lock's cBTC note, borrowed against.
   async borrow(run, where, debtValue, self) {
-    const st = LOCK.state, rec = st?.rec;
+    const st = LOCK.state;
     try {
       if (!debtValue) throw new Error('Enter how much cUSD to borrow.');
       if (!st.usd) throw new Error('The BTC price could not be read, so the loan cannot be sized yet. Try again in a few minutes.');
@@ -10082,13 +10120,79 @@ const BWX = {
       if (!n) throw new Error('Your cBTC note is not visible yet. Refresh in a moment.');
       if (taken(kNote(n))) throw new Error('Your cBTC is in an action still going through. Borrow once it is done.');
       run.take(kNote(n));
+      await BWX.open(run, where, { n, debtValue, self });
+    } catch (e) { sayErr(where(), e); }
+  },
+  // cBTC the key holds, whatever made it: `sats` of it go in, from a note of exactly that (cut from the notes held when none is).
+  async borrowHeld(run, where, { sats, debtValue, self }) {
+    const st = LOCK.state;
+    try {
+      if (!sats) throw new Error('Enter how much cBTC to put up.');
+      if (!debtValue) throw new Error('Enter how much cUSD to borrow.');
+      if (!st.px) throw new Error('The BTC price could not be read, so the loan cannot be sized yet. Try again in a few minutes.');
+      const t = await getUx(), usd = wordAt(await t.ethCall(ADDR.engine, '0x' + SEL.btcToUsd + word(sats)), 0);
+      if (debtValue * st.ratio > usd * 10000n) throw new Error(`That is below the ${Number(st.ratio) / 100}% floor. Borrow less, or put up more cBTC.`);
+      let n = freeNotes(P.scan?.cbtc?.notes).sort(byValue).find((x) => BigInt(x.value) === sats);
+      if (n) run.take(kNote(n));
+      else n = await noteFor(run, t, walletPriv(), sats, (x) => BigInt(x.value) === sats, where(), 'cbtc');
+      await BWX.open(run, where, { n, debtValue, self });
+    } catch (e) { sayErr(where(), e); }
+  },
+  // tacBTC the paying account holds in public, deposited and borrowed against in one transaction. The relay only proves the loan; the
+  // account signs an approval for the tacBTC and sends ConfidentialRouter.wrapAndMintCusd, which takes the tacBTC, makes the deposit and
+  // settles that proof, so the deposit and the loan land together or not at all. Nothing is sent when the pool would refuse it.
+  async borrowPublic(run, where, { sats, debtValue }) {
+    const st = LOCK.state;
+    try {
+      if (!sats) throw new Error('Enter how much tacBTC to put up.');
+      if (!debtValue) throw new Error('Enter how much cUSD to borrow.');
+      if (!st.px) throw new Error('The BTC price could not be read, so the loan cannot be sized yet. Try again in a few minutes.');
+      const t = await getUx(), priv = walletPriv(), c = t.cfg.collateralEngine, amount = sats * 10n ** 10n;
+      if (!t.cfg.router) throw new Error('The router that takes a deposit and a loan in one transaction is not set up for this pool.');
+      const usd = wordAt(await t.ethCall(ADDR.engine, '0x' + SEL.btcToUsd + word(sats)), 0);
+      if (debtValue * st.ratio > usd * 10000n) throw new Error(`That is below the ${Number(st.ratio) / 100}% floor. Borrow less, or put up more tacBTC.`);
+      CSEND.pubAt = 0;
+      const held = (await readPublicTac())?.cbtc ?? 0n;
+      if (held < amount) throw new Error(`${your().replace(/^./, (x) => x.toUpperCase())} holds ${fmt(held, 18, 8)} tacBTC, less than the ${fmt(amount, 18, 8)} asked for.`);
+      const { ps, keyNonce, positionOwner } = await freshPosition(t, priv, c, where);
+      const dk = t.deriveOutput(priv, positionOwner, 'cdpDebt', 0);                       // the debt note re-derives from the position's owner key, which the store keeps as debtAnchor
+      const rate = String(await t.ethCall(c, '0x' + SEL.rate)).toLowerCase(), asset = String(t.pool.CBTC_ZK_ASSET_ID).toLowerCase();
+      const label = `Borrow ${fmt(debtValue, 8, 2)} cUSD against ${fmt(sats, 8, 8)} tacBTC`;
+      const args = { controller: c, debtValue, rateSnapshot: rate, deposits: [{ asset, value: sats }], debtBlinding: dk.blindingHex, positionOwner, debtNk: dk.nk };
+      const send = async (prove, tell) => {
+        const p = await prove();
+        const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+        const sig = await permitSig({ token: ADDR.tacbtc, name: 'Tacit Token', what: 'tacBTC', spender: t.cfg.router, value: amount, deadline, status: where() });
+        const call = t.wrapAndMintCusdCall({ token: ADDR.tacbtc, amount, commit: p.commits[0], deadline, v: sig.v, r: sig.r, s: sig.s, publicValues: p.publicValues, proof: p.proof, memos: p.memos });
+        // A call the pool would refuse costs gas and does nothing, so it is asked about first.
+        const from = payer() === 'tacit' ? S.acct?.address : S.address;
+        try { await rpc('eth_call', [{ ...(from ? { from } : {}), to: call.to, data: call.data }, 'latest']); }
+        catch (e) { throw Object.assign(new Error(`Nothing was sent: the pool refuses this as it stands. ${revertText(e) || ''}`.trim()), { said: true }); }
+        tell(`Confirm the loan in ${your()}…`);
+        const hash = await sendTx({ to: call.to, data: call.data, value: 0n, label });
+        tell(html`Sent ${txLink(hash)}. Waiting for it to land…`);
+        await waitTx(hash);
+        t.relay?.landed?.(p.jobId, hash)?.catch?.(() => {});                              // the relay reads its job as settled
+        await ps.add(priv, { controller: c, debtValue: debtValue.toString(), nonce: '0x' + '0'.repeat(64), keyNonce, positionOwner, rateSnapshot: rate, debtAnchor: positionOwner, basket: [{ asset, value: String(sats) }], openedAt: hash }).catch(() => {});
+        return { txHash: hash };
+      };
+      const tell = (v) => say(where(), v);
+      say(where(), 'The relay is proving your loan…');
+      const r = await proveOr({ run, types: ['wrapcdpmint'], label, sheet: 'borrow', status: where, quiet: true,
+        go: (x) => send(() => x.t.defiActions(x.priv).proveWrapCdpMint({ ...args, waitOpts: x.waitOpts }), tell),
+        relayed: () => send(() => t.defiActions(priv).proveWrapCdpMint({ ...args, waitOpts: run.wait(label, 20 * 60e3) }), tell),
+        after: async () => { await settleBorrow(); } });
+      say(where(), html`<span class="ok">Borrowed ${fmt(debtValue, 8, 2)} cUSD.</span> ${r?.txHash ? txLink(r.txHash) : ''}`);
+      toast(`Borrowed ${fmt(debtValue, 8, 2)} cUSD`);
+      await settleBorrow();
+    } catch (e) { txFail(run, where(), e); }
+  },
+  // The loan itself, against a note this run holds.
+  async open(run, where, { n, debtValue, self }) {
+    {
+      const rec = LOCK.state?.rec;
       const t = await getUx(), priv = walletPriv(), key = lockKey(), c = t.cfg.collateralEngine;
-      const { derivePositionOwnerPriv } = await import('/confidential-recovery.js');
-      const { makeCdpPositionStore } = await import('/confidential-secret-store.js');
-      const ps = makeCdpPositionStore({ sha256, hmac, secp, curveOrder: secp.CURVE.n });
-      say(where(), 'Finding your next position key…');
-      const ownerOf = (i) => '0x' + bytesToHex(secp.getPublicKey(hexToBytes(strip(derivePositionOwnerPriv({ hmac, sha256, curveOrder: secp.CURVE.n }, priv, c, i))), true).slice(1));
-      const keyNonce = await nextKeyNonce(t, priv, c, ps, ownerOf), positionOwner = ownerOf(keyNonce);
+      const { ps, keyNonce, positionOwner } = await freshPosition(t, priv, c, where);
       const leg = { asset: n.asset, cx: n.cx, cy: n.cy, value: n.value, blinding: n.blinding, leafIndex: n.leafIndex, path: n.path, owner: n.owner, nk: n.secret };
       const anchor = t.pool.nativeNu(leg.owner, leg.nk, t.pool.leaf(leg.asset, leg.cx, leg.cy, leg.owner));
       const d = t.deriveOutput(priv, anchor, 'cdpDebt', 0);
@@ -10107,7 +10211,7 @@ const BWX = {
       // What this browser keeps of the loan (a cache: the position is found again from the key and the chain).
       const kept = async (r) => {
         await ps.add(priv, { controller: c, debtValue: debtValue.toString(), nonce: '0x' + '0'.repeat(64), keyNonce, positionOwner, rateSnapshot: rate, debtAnchor: anchor, basket: [{ asset: leg.asset, value: String(BigInt(leg.value)) }], openedAt: r?.txHash || null }).catch(() => {});
-        store.set(key, { ...rec, borrowed: debtValue.toString(), borrowedAt: Date.now() });
+        if (rec && BigInt(rec.vBtc) === BigInt(leg.value)) store.set(key, { ...rec, borrowed: debtValue.toString(), borrowedAt: Date.now() });   // the followed lock's own cBTC
       };
       // Relayed and refused or held, the loan goes out from the paying account instead (which the points program then credits); ticked, it
       // goes out from there in any case.
@@ -10119,12 +10223,13 @@ const BWX = {
       say(where(), html`<span class="ok">Borrowed ${fmt(debtValue, 8, 2)} cUSD${self && !sentSelf ? ' through the relay, so it earns no points' : ''}.</span> ${r?.txHash ? txLink(r.txHash) : ''}`);
       toast(`Borrowed ${fmt(debtValue, 8, 2)} cUSD`);
       await settleBorrow();
-    } catch (e) { sayErr(where(), e); }
+    }
   },
-  async repay(run, where, btn) {
+  // A loan repaid: the followed lock's by default, else the one named.
+  async repay(run, where, btn, pos) {
     const st = LOCK.state, rec = st?.rec;
     try {
-      const p = st.pos;
+      const p = pos || st.pos;
       if (!p) throw new Error('The loan is not visible on chain yet. Try again in a minute.');
       const t = await getUx(), priv = walletPriv(), key = lockKey(), cdp = t.cdp, debtValue = BigInt(p.debtValue);
       const { makeCdpPositionStore } = await import('/confidential-secret-store.js');
@@ -10172,8 +10277,8 @@ const BWX = {
       const closed = () => {
         LOCK.repayOver = null;
         ps.remove((x) => x.controller === p.controller && (x.positionOwner || '') === (p.positionOwner || '') && x.debtValue === p.debtValue);
-        const cur = store.get(key);
-        if (cur) { const { borrowed, borrowedAt, ...rest } = cur; store.set(key, rest); }
+        const cur = store.get(key), own = (p.basket || []).some((l) => cur && BigInt(l.value) === BigInt(cur.vBtc));   // the followed lock's own loan, not another's
+        if (cur && own) { const { borrowed, borrowedAt, ...rest } = cur; store.set(key, rest); }
       };
       // Refused or held, the repayment goes out from the paying account instead.
       const r = await proveOr({ run, types: ['cdpclose'], held: true, label, sheet: 'borrow', status: where, then: 'Repaid. Your cBTC is back as a private note.', after: async () => { closed(); await settleBorrow(); },
@@ -10224,9 +10329,47 @@ render.borrow = () => {
             <div class="status" role="status" id="bw-s1"></div>
             <p class="note">Xverse, Leather or UniSat send it in one popup, or pay the address from anywhere. Locking waits for one confirmation.</p>
             ${lag != null ? html`<p class="note">Minting waits for Bitcoin's proof on Ethereum to reach the lock's block, which trails Bitcoin by at least 24 blocks (about 4 hours). It is at block ${attested.toLocaleString('en-US')}, ${lag.toLocaleString('en-US')} behind Bitcoin${lag > 36 ? ' and catching up' : ''}. Until it is minted, its bond can be taken back.</p>` : ''}`;
+  // What the key can borrow against now, whatever lock its cBTC came from: its free private cBTC notes, and the loans it has. When it has
+  // either, they lead the sheet and the lock steps (to get more cBTC) fold under them.
+  const cbtcId = P.scan?.cbtc?.id, notes = cbtcId ? freeNotes(P.scan.cbtc.notes).sort(byValue) : [];
+  const heldSats = notes.reduce((a, n) => a + BigInt(n.value), 0n), top = notes.at(-1);
+  const loans = cbtcId ? (st.loans?.positions || []).filter((p) => p.live !== false && (p.basket || []).some((l) => String(l.asset).toLowerCase() === cbtcId)) : [];
+  // tacBTC the paying account holds in public (read by Send below, which draws this sheet again when it is there): borrowed against in one transaction.
+  const payee = payer() === 'tacit' ? S.acct?.address : S.address;
+  const pubSats = payee && CSEND.pubFor === payee && CSEND.pub ? CSEND.pub.cbtc / 10n ** 10n : 0n;
+  const holdOn = heldSats > 0n || pubSats > 0n || loans.length > 0;
+  const src = heldSats > 0n && (BSRC.src !== 'pub' || pubSats === 0n) ? 'priv' : pubSats > 0n ? 'pub' : null;
+  const avail = src === 'pub' ? pubSats : heldSats, dflt = src === 'pub' ? pubSats : top ? BigInt(top.value) : 0n;   // a loan takes one private note: the largest unless an amount is typed
+  const usdOf = (sats) => (st.px ? sats * st.px / 10n ** 8n : 0n);
+  const loanRow = (p, i) => {
+    const sats = BigInt(p.basket.find((l) => String(l.asset).toLowerCase() === cbtcId).value), debt = BigInt(p.debtValue), usd = usdOf(sats);
+    const ratio = usd && debt ? Number(usd * 10000n / debt) / 100 : null, liqAt = debt && sats ? Number(debt) * Number(st.liq) / (1e4 * Number(sats)) : null;
+    return html`<div class="kv"><span>${fmt(debt, 8, 2)} cUSD against ${fmt(sats, 8, 8)} cBTC</span><b class="${ratio == null ? '' : ratio < Number(st.ratio) / 100 ? 'err' : ratio < 175 ? 'warn' : ''}">${ratio == null ? '' : `${Math.round(ratio)}%`}</b></div>
+      ${liqAt ? html`<div class="kv"><span>Liquidated below</span><b>$${Math.round(liqAt).toLocaleString('en-US')} a bitcoin</b></div>` : ''}
+      <button class="btn ghost" type="button" ${i === 0 ? new Raw('id="bw-repay" ') : ''}data-repay="${i}">${LOCK.repayOver ? 'Repay anyway' : 'Repay'}</button>`;
+  };
+  const cusdHeld = P.scan?.cusd, cusdNote = cusdHeld ? freeNotes(cusdHeld.notes).sort(byValue).at(-1) : null;
+  const holdBlock = !holdOn ? '' : html`<div class="blk" id="bw-hold">
+    ${src ? html`
+      <div class="lbl"><span>Borrow cUSD</span>${heldSats > 0n && pubSats > 0n
+        ? html`<span><button type="button" data-bh-src="priv" aria-pressed="${src === 'priv'}">Private ${fmt(heldSats, 8, 8)} cBTC</button> · <button type="button" data-bh-src="pub" aria-pressed="${src === 'pub'}">${fmt(pubSats, 8, 8)} tacBTC</button></span>`
+        : html`<span>${src === 'pub' ? html`${fmt(pubSats, 8, 8)} tacBTC in ${your()}` : html`Private ${fmt(heldSats, 8, 8)} cBTC`}</span>`}</div>
+      <div class="amt act"><input id="bw-debt" inputmode="decimal" placeholder="${st.px ? plain(usdOf(dflt) / 2n / 10n ** 6n * 10n ** 6n, 8) : '0'}" autocomplete="off" aria-label="cUSD to borrow"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-cusd"/></svg>cUSD</span></div>
+      <div class="seg sub" role="group" aria-label="Collateral ratio">${[250, 200, 175].map((r) => html`<button type="button" data-bh-ratio="${r}">${r}%</button>`)}</div>
+      <div class="rcpt" id="bw-rcpt" hidden></div>
+      <details class="lockmore"><summary>Put up a different amount</summary><div class="amt"><input id="bh-coll" inputmode="decimal" placeholder="${plain(dflt, 8)}" autocomplete="off" aria-label="${src === 'pub' ? 'tacBTC' : 'cBTC'} to put up"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-${src === 'pub' ? 'tacbtc' : 'cbtc'}"/></svg>${src === 'pub' ? 'tacBTC' : 'cBTC'}</span></div></details>
+      ${src === 'priv' ? html`<label class="pick"><input type="checkbox" id="bw-pts"><span>Send the loan from ${your()} to earn points. It pays the gas and is linked to the loan.</span></label>` : ''}
+      <button class="btn" type="button" id="bw-borrow">Borrow cUSD</button>` : ''}
+    ${st.loans === null ? html`<p class="note err">Your loans could not be read just now. <button class="link" type="button" data-retry="loan">Try again</button></p>` : ''}
+    ${loans.length ? html`<div class="lbl"><span>Your loans</span></div>${loans.map(loanRow)}
+      <p class="note">Repaying burns the cUSD you hold privately and returns the cBTC as a private note. tacUSD withdrawn to an account turns back into cUSD under Send in the <a href="/classic.html#tab=csend" target="_blank" rel="noopener">classic app</a>.</p>` : ''}
+    ${cusdNote ? html`<div class="kv"><span>Private cUSD</span><b>${fmt(cusdHeld.value, 8, 2)}</b></div><button class="btn ghost" type="button" id="bw-out">Withdraw ${fmt(BigInt(cusdNote.value), 8, 2)} as tacUSD</button>` : ''}
+    <div class="status" role="status" id="bw-s4"></div>
+  </div>`;
   mount(el, html`
-    ${s1 ? '' : intro}${depositCallout('borrow', 'bw-finish')}
-    <ol class="steps">
+    ${s1 || holdOn ? '' : intro}${depositCallout('borrow', 'bw-finish')}
+    ${holdBlock}
+    ${holdOn ? new Raw(`<details class="lockmore"${(s1 && !s3) || LOCK.focus ? ' open' : ''}><summary>Get cBTC from BTC</summary>`) : ''}<ol class="steps">
       <li class="${stepCls(s1, !s1)}">
         <span class="n">${s1 ? '✓' : '1'}</span>
         <div>
@@ -10257,7 +10400,7 @@ render.borrow = () => {
           ${s2 && !s3 ? html`<button class="btn" type="button" id="bw-mint" ${st.reflected ? '' : 'disabled'}>Mint cBTC</button><div class="status" role="status" id="bw-s3"></div>` : ''}
         </div>
       </li>
-      <li class="${stepCls(s4, s3 && !s4)}">
+      ${holdOn ? '' : html`<li class="${stepCls(s4, s3 && !s4)}">
         <span class="n">${s4 ? '✓' : '4'}</span>
         <div>
           <h3>Borrow cUSD</h3>
@@ -10273,8 +10416,8 @@ render.borrow = () => {
             <div class="status" role="status" id="bw-s4"></div>
             <p class="note">Repaying burns ${fmt(st.borrowed, 8, 2)} cUSD you hold privately and returns the cBTC as a private note. tacUSD withdrawn to an account turns back into cUSD under Send in the <a href="/classic.html#tab=csend" target="_blank" rel="noopener">classic app</a>, whose <a href="/classic.html#tab=cdp" target="_blank" rel="noopener">CDP tab</a> can close this loan too.</p>` : ''}
         </div>
-      </li>
-    </ol>
+      </li>`}
+    </ol>${holdOn ? new Raw('</details>') : ''}
     ${LOCK.list.length > 1 ? html`<div class="blk">
       <div class="lbl"><span>Your locks</span></div>
       ${LOCK.list.map((l) => html`<div class="kv"><span>${fmt(BigInt(l.vBtc), 8, 8)} BTC · <a href="${MEMPOOL}/tx/${l.lockTxid}" target="_blank" rel="noopener">${short(l.lockTxid, 6)} ↗</a></span>
@@ -10352,7 +10495,7 @@ render.borrow = () => {
   if (mint) mint.onclick = () => busy(mint, (run) => { only(at(3)); return BWX.mint(run, () => at(3)); });
   const debt = $('#bw-debt'), rcb = $('#bw-rcpt');
   // An empty field borrows the suggested amount, so the receipt shows what that is.
-  if (debt) (debt.oninput = () => {
+  if (debt && !holdOn) (debt.oninput = () => {
     const v = parseUnits(debt.value || debt.placeholder, 8);
     if (!v || !st.usd) { rcb.hidden = true; return; }
     const ratio = Number(st.usd * 10000n / v) / 100;
@@ -10360,17 +10503,58 @@ render.borrow = () => {
     rcb.hidden = false;
   })();
   const borrow = $('#bw-borrow');
-  if (borrow) borrow.onclick = () => busy(borrow, (run) => { only(at(4)); return BWX.borrow(run, () => at(4), parseUnits(debt.value || debt.placeholder, 8), !!$('#bw-pts')?.checked); });
+  if (borrow && !holdOn) borrow.onclick = () => busy(borrow, (run) => { only(at(4)); return BWX.borrow(run, () => at(4), parseUnits(debt.value || debt.placeholder, 8), !!$('#bw-pts')?.checked); });
   // Repay and close: burn private cUSD covering the debt and take the cBTC back, the same close tacit.finance's CDP tab
   // builds: the position found from the key, its one-time owner key re-derived, fresh keys for the returned note.
   const repay = $('#bw-repay');
-  if (repay) repay.onclick = () => busy(repay, (run) => { only(at(4)); return BWX.repay(run, () => at(4), repay); });
+  if (repay && !holdOn) repay.onclick = () => busy(repay, (run) => { only(at(4)); return BWX.repay(run, () => at(4), repay); });
+  // The cBTC the key holds and the loans it has, whatever lock made the cBTC: the cUSD to borrow, against how much cBTC, and each loan's repayment.
+  if (holdOn) {
+    for (const b of $$('[data-repay]', el)) b.onclick = () => busy(b, (run) => { only(at(4)); return BWX.repay(run, () => at(4), b, loans[Number(b.dataset.repay)]); });
+    for (const b of $$('[data-bh-src]', el)) b.onclick = () => { BSRC.src = b.dataset.bhSrc; rerender('borrow'); };
+    if (src && debt && borrow) {
+      const coll = $('#bh-coll'), pub = src === 'pub';
+      // The cBTC put up: what is typed, else the largest note (a loan takes one note) or all the tacBTC held.
+      const putUp = () => { const v = (coll.value || '').trim(); return v ? parseUnits(v, 8) : dflt; };
+      const paint = () => {
+        const sats = putUp();
+        if (coll.value.trim() && tooFine(rcb, coll.value, sats, 8)) return;
+        if (!sats || !st.px) { rcb.hidden = true; return; }
+        const usd = usdOf(sats);
+        debt.placeholder = plain(usd / 2n / 10n ** 6n * 10n ** 6n, 8);                       // an empty field borrows half the value, a 200% ratio
+        const v = parseUnits(debt.value || debt.placeholder, 8);
+        if (!v) { rcb.hidden = true; return; }
+        const ratio = Number(usd * 10000n / v) / 100, liqAt = Number(v) * Number(st.liq) / (1e4 * Number(sats));
+        for (const b of $$('[data-bh-ratio]', el)) b.setAttribute('aria-selected', String(Math.abs(ratio - Number(b.dataset.bhRatio)) < 0.6));
+        mount(rcb, html`<div class="kv"><span>You borrow</span><b>${fmt(v, 8, 2)} cUSD</b></div>
+          <div class="kv"><span>Collateral ratio</span><b class="${ratio < Number(st.ratio) / 100 ? 'err' : ratio < 175 ? 'warn' : ''}">${Math.round(ratio)}%</b></div>
+          <div class="kv"><span>Liquidated below</span><b>$${Math.round(liqAt).toLocaleString('en-US')} a bitcoin</b></div>
+          ${sats > avail ? html`<p class="note err">You hold ${fmt(avail, 8, 8)} ${pub ? 'tacBTC' : 'cBTC privately'}.</p>`
+            : pub ? html`<p class="note">One transaction from ${your()}: you sign an approval for the tacBTC, and the loan lands with the deposit.</p>`
+            : notes.some((n) => BigInt(n.value) === sats) ? '' : html`<p class="note">A note of exactly ${fmt(sats, 8, 8)} cBTC is cut first, which takes a few minutes and a small relay fee in cBTC.</p>`}`);
+        rcb.hidden = false;
+      };
+      debt.oninput = paint; coll.oninput = paint;
+      for (const b of $$('[data-bh-ratio]', el)) b.onclick = () => {
+        const sats = putUp();
+        if (!sats || !st.px) return;
+        debt.value = plain(usdOf(sats) * 100n / BigInt(b.dataset.bhRatio) / 10n ** 6n * 10n ** 6n, 8);
+        paint();
+      };
+      paint();
+      borrow.onclick = () => busy(borrow, (run) => {
+        only(at(4));
+        const a = { sats: putUp(), debtValue: parseUnits(debt.value || debt.placeholder, 8) };
+        return pub ? BWX.borrowPublic(run, () => at(4), a) : BWX.borrowHeld(run, () => at(4), { ...a, self: !!$('#bw-pts')?.checked });
+      });
+    }
+  }
   const out = $('#bw-out');
   if (out) out.onclick = () => busy(out, async (run) => {
     const status = at(4); only(status);
     try {
       const t = await getUx(), priv = walletPriv(), to = await payingAccount();
-      const note = freeNotes(st.cusd.notes).sort(byValue).at(-1);
+      const note = freeNotes((P.scan?.cusd || st.cusd).notes).sort(byValue).at(-1);
       if (!note) throw new Error('Your cUSD is in an action still going through. Try again once it is done.');
       run.take(kNote(note));
       say(status, 'The relay is proving your withdrawal…');
@@ -11209,6 +11393,14 @@ function hxBwLoad(force = false) {
   hxPad().catch(() => {});                                                           // the lock's fees, which its quote reads
   loadBorrow(force).then(() => { HX.bwErr = null; }, (e) => { HX.bwErr = e; }).finally(() => { HX.bwLoading = false; hxBwUpdate(); });
 }
+// A key that already holds cBTC to borrow against is told so where the lock step would otherwise ask for BTC first.
+function hxBwHold() {
+  const el = $('#hx-bw-hold');
+  if (!el) return;
+  const k = S.key ? spendable('cbtc') : 0n;
+  el.hidden = !(k > 0n);
+  if (k > 0n) mount(el, html`<a class="link" href="#borrow" data-link="borrow">You hold ${fmt(k, 8, 8)} cBTC. Borrow against it →</a>`);
+}
 // The face the tab shows: a lock to follow, or the lock step (no lock yet, or Lock more).
 const hxBwMode = () => (S.key && LOCK.state?.rec && !HX.bwMore ? 'track' : 'lock');
 // The borrow state changed (read again, a step done): the tracker is drawn again in place (only where it changed), the lock step quoted
@@ -11220,7 +11412,7 @@ function hxBwUpdate() {
   if (S.key) hxBwLoad();
   if (HX.bwFace !== hxBwMode()) return paintHx();
   if (HX.bwFace === 'track') return hxBwPaint();
-  hxBalPaint(); hxHave();
+  hxBalPaint(); hxHave(); hxBwHold();
   if (LOCK.state?.at !== HX.bwAt) { HX.bwAt = LOCK.state?.at; hxQuoteSoon(); }
 }
 // A step this key already sent that is still on its way (a bond transaction not yet mined; a mint, loan or repayment the relay is still
@@ -11920,7 +12112,7 @@ function paintHx() {
     body = html`${field('You lock', where(S.key ? 'from your Bitcoin address' : 'your Bitcoin wallet', false, 'btc'), amt('BTC to lock'), coin('hx-from', 'You lock', [['btc', 'BTC', 'btc']], 'btc'), subline)}
       ${mid()}
       <div class="hx-rows" id="hx-dest" role="radiogroup" aria-label="You get"><div class="hx-rows-h"><span class="hx-lbl">You get</span></div>${ways.map(way)}</div>${tail}
-      ${S.key ? html`<p class="hx-q" id="hx-bw-s" aria-live="polite"></p>${HX.bwMore && LOCK.state?.rec ? html`<p class="hx-bw-f"><button class="link" type="button" id="hx-bw-back">Back to your lock</button></p>` : ''}` : ''}`;
+      ${S.key ? html`<p class="hx-bw-f" id="hx-bw-hold" hidden></p><p class="hx-q" id="hx-bw-s" aria-live="polite"></p>${HX.bwMore && LOCK.state?.rec ? html`<p class="hx-bw-f"><button class="link" type="button" id="hx-bw-back">Back to your lock</button></p>` : ''}` : ''}`;
   } else {
     const [, unit] = HX_SEND.find(([k]) => k === HX.send), here = HX.send === 'eth';
     body = html`${field('You send', HX.send === 'btc' ? where('your Bitcoin wallet', false, 'btc') : where(HX.send === 'tac' ? 'private on Bitcoin' : 'private on Ethereum', true, HX.send === 'tac' ? 'btc' : 'eth'),
@@ -11933,6 +12125,7 @@ function paintHx() {
       <p class="hx-q" id="hx-q" aria-live="polite">${here ? 'Nobody sees how much or to whom.' : 'Same key, same tacit1 address.'}</p>`;
   }
   mount(el, html`${head}<div class="hx-b" id="hx-panel" role="tabpanel" aria-labelledby="hx-tab-${m}">${body}</div>`);
+  if (m === 'borrow') hxBwHold();
   for (const c of $$('.hx-coin[data-pk]', el)) {
     c.onclick = (e) => { e.preventDefault(); hxPick($('#' + c.dataset.pk), c); };
     c.onkeydown = (e) => { if (['Enter', ' ', 'ArrowDown'].includes(e.key)) { e.preventDefault(); hxPick($('#' + c.dataset.pk), c); } };
