@@ -150,8 +150,13 @@ export function makeConfidentialDefiActions({ pool, cdp, farm, relay, id, chainB
   // The relay settles by default. With `selfSettle` (an async ({ jobId, publicValues, proof, memos }) → { txHash } that sends the pool's
   // settle() itself) the relay only proves, and the caller's own account sends it: the way out when the relay refuses a fee-free op
   // (its day's free settles are used up, it is down). The memos passed are the ones the proof commits to (relay.provenMemos checks them).
+  // When the page proves on the holder's own prover account (relay.useProver), relay.prove makes the proof there and the relay is not asked.
   async function settleVia(spec, selfSettle, waitOpts) {
     if (!selfSettle) return relay.settle(spec, waitOpts);
+    if (relay.ownProving?.()) {
+      const own = await relay.prove(spec, waitOpts);
+      return { jobId: own.jobId, ...(await selfSettle({ jobId: own.jobId, publicValues: own.publicValues, proof: own.proof, memos: own.memos })) };
+    }
     const job = await relay.submitOp({ ...spec, mode: 'prove' }, waitOpts);
     const proven = job.status === 'proven' || job.status === 'settled' ? await relay.status(job.jobId) : await relay.waitForProof(job.jobId, waitOpts);
     if (proven.status === 'settled') return { ...proven, jobId: job.jobId };

@@ -13,7 +13,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /relay/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/relay/app.js?cb=794e03e5">
+<link rel="modulepreload" href="/relay/app.js?cb=056739a0">
 <link rel="modulepreload" href="/trade/connect.js?cb=f4bd67db">
 <link rel="modulepreload" href="/walletconnect.js?cb=b3b540fa">
 <link rel="modulepreload" href="/trade/wallet.js?cb=0cba8a63">
@@ -21,8 +21,8 @@
 <link rel="modulepreload" href="/trade/util.js?cb=c3dc39b3">
 <link rel="modulepreload" href="/trade/rpc.js?cb=842f58a5">
 <link rel="modulepreload" href="/trade/fmt.js?cb=43646c2e">
-<link rel="modulepreload" href="/relay/open.js?cb=fbf107b7">
-<link rel="modulepreload" href="/confidential-relay.js?cb=e77ed266">
+<link rel="modulepreload" href="/relay/open.js?cb=c8754554">
+<link rel="modulepreload" href="/confidential-relay.js?cb=9da66792">
 <link rel="modulepreload" href="/confidential-deployments.js?cb=a1c99a44">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/confidential-deployments.generated.js">
@@ -265,10 +265,11 @@ th:first-child, td:first-child { text-align: left; padding-left: 0; }
         <button class="btn" id="pv-go" type="button">Connect wallet</button>
         <div class="status" id="pv-status" role="status"></div>
         <p class="note">The prover account is <span class="addr">0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7</span>. PROVE goes to it in one transfer. With ETH, one transaction swaps it to PROVE through zRouter and sends the PROVE straight there, with the least it may buy set before you confirm.</p>
+        <p class="note" id="prove-self">Prove your own actions with your own PROVE, privately: your Tacit account pays Succinct’s prover for its own proofs and sends each one itself, so the relay neither proves nor sends them. <a href="/#prove-self">Set it up on tacit.finance →</a></p>
       </section>
     </div>
   </main>
 </div>
-<script type="module" src="/relay/app.js?cb=794e03e5"></script>
+<script type="module" src="/relay/app.js?cb=056739a0"></script>
 </body>
 </html>

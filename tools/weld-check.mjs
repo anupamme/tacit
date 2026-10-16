@@ -122,6 +122,13 @@
 //   heldoff  an exit refused after the form went to Activity (its combine queued first) is offered on its receipt there, and sent
 //   provecap the relay's day of proofs used up is said plainly with nothing offered, also when met while sending it yourself
 //   heldborrow the Borrow sheet's Borrow and Repay, held by the relay, offer to send from the paying account
+//   selffund  #prove-self: the Tacit account as prover account and its credit; PROVE added from the wallet (a transfer to the Tacit account,
+//            then permitAndDeposit with a permit that account signs, taken by the real vApp on the fork); the switch and each sheet's note
+//   selfprove with the switch on, a withdrawal and a swap are proved on the holder's credit (no submit to the relay) and settled from the
+//            wallet, Activity naming its steps; too little credit, a request not taken, an op it cannot prove, and a pool that moved
+//   relaystate what the relay says of itself (GET /confidential/relay) at the press: paused offers proving it yourself (and the line, for
+//            an op that does not expire) with nothing submitted; held sends it from the paying account; an Activity exit while paused
+//   relayfail a relayed job whose proof failed ("settle failed: prove failed: …") offers proving it yourself
 //   PLAYWRIGHT=<path to playwright-core> node tools/weld-check.mjs [scenario,…] [fork rpc]   (SHOTS=<dir> saves screenshots)
 
 import { spawn } from 'node:child_process';
@@ -141,7 +148,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,selffund,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -185,6 +192,8 @@ const provenJobs = {};
 // are proved and held as an open job (status `open`, its proof and the memos it was sent with), as the relay holds what it cannot
 // send. `landedPosts`: the page's reports of a settle it sent itself (POST /confidential/landed), which settle an open job here.
 let refuseWith = null, refuseTypes = null, openNext = 0;
+// What GET /confidential/relay says of the relay: 'ok' unless a scenario sets 'held', 'paused', 'down' or 'busy' (null: the route is missing).
+let relayStateNow = 'ok';
 const openJobs = {}, landedPosts = [];
 
 // router.withdrawToV1(tx, intent), encoded as evm-pool-wallet.js encodes it for a self-sent move.
@@ -234,6 +243,10 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
       if (openNext > 0 && (sub.mode || 'settle') === 'settle') { openNext--; openJobs[jobId] = { type: sub.type, memos: sub.memos || [], status: 'open' }; }
       return json(route, { jobId });
     }
+    if (u.pathname === '/confidential/relay') {
+      if (!relayStateNow) return route.fulfill({ status: 404, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"error":"not found"}' });
+      return json(route, { state: relayStateNow, proving: relayStateNow !== 'paused' && relayStateNow !== 'down', settling: relayStateNow === 'ok' || relayStateNow === 'busy', board: false, ageSeconds: 5 });
+    }
     if (u.pathname === '/confidential/landed') {
       const b = JSON.parse(route.request().postData() || '{}'), oj = openJobs[b.jobId];
       landedPosts.push(b);
@@ -254,7 +267,7 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
       return route.fulfill({ status: 502, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ error: `the live API did not answer: ${e.message}` }) });
     }
   };
-  await ctx.route(/^https:\/\/api\.tacit\.finance\/confidential\/(submit|status|landed)/, relay);
+  await ctx.route(/^https:\/\/api\.tacit\.finance\/confidential\/(submit|status|landed|relay)/, relay);
   await ctx.route(new RegExp(`^http://(127\\.0\\.0\\.1|localhost):${WEB}/(confidential|farm|reflection)/`), relay);
   // Keepers: quotes are canned and the queue is absent (wallets prove against their own tree). A move into V1 is
   // relayed for real, router.withdrawToV1 sent as a keeper would; any other relay is recorded and refused.
@@ -3507,6 +3520,7 @@ await step('activity', async () => {
     await shot(r.page, 'activity-phone');
     // A job still in line after a minute says it keeps its place. The relay's heartbeat says why it is holding settles;
     // the page does not repeat that, and a job it cannot finish itself (a transfer) offers nothing more.
+    await r.ctx.route(/\/confidential\/relay$/, (route) => json(route, { state: 'held', proving: true, settling: false, board: false, ageSeconds: 20 }));
     await r.ctx.route(/\/prover-health\?/, (route) => json(route, { services: { settle: { healthy: true, age_seconds: 20,
       note: 'settle: settle wallet holds 0.0010 ETH, under the 0.0031 ETH a settle can cost at today’s gas — proving only jobs a page settles itself; the rest wait until it is topped up' } } }));
     served['j-wait'] = { type: 'transfer', status: 'pending' };
@@ -5544,6 +5558,389 @@ await step('heldborrow', async () => {
     }
     if (r.errors.length) { fails++; console.log('FAIL heldborrow page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
+});
+
+// ── proving with your own credit ──
+// The page's own self-prover.js runs, with the two modules it builds on stood in for: the program input (sp1-stdin.js) and Succinct's
+// network (succinct-net.js), whose credit, delay and answer window.__spn sets. Nothing reaches the network.
+const PROVE_TKN = '0x6bef15d938d4e72056ac92ea4bdd0d76b1c4ad29', VAPP_ADDR = '0x5ad5bc4b18f7c173dce17a57682cb0dc8788951f';
+const SPN_INIT = (cfg) => { window.__spn = Object.assign({ credit: '0', notProved: false, delay: 3000, requests: [], inputs: [], types: null }, cfg || {}); };
+const SP_TYPES = ['wrap', 'unwrap', 'sendunwrap', 'transfer', 'route', 'stealthlock', 'stealthclaim', 'stealthrefund', 'lpremove', 'lpbond', 'bridgeburn', 'bridgemint', 'bridgestealthmint',
+  'farmbond', 'farmharvest', 'farmunbond', 'cdpmint', 'cdpclose', 'cdptopup', 'cbtcmint'];
+const stubSelfProver = (page) => Promise.all([
+  page.route(/\/sp1-stdin\.js/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    const all = ${JSON.stringify(SP_TYPES)};
+    export const SELF_PROVE_TYPES = (window.__spn && window.__spn.types) || all;
+    export const LIMITS = Object.fromEntries(all.map((t) => [t, { cycleLimit: 1000000n, gasLimit: 1000000n }]));
+    export const stdinFor = (type, op) => { window.__spn.inputs.push({ type, memos: (op.memoHashes || []).length }); return new Uint8Array([1, 2, 3]); };
+    export const zstdFrame = (b) => b;` })),
+  page.route(/\/succinct-net\.js/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    export function makeSuccinctNetwork() {
+      const S = () => window.__spn, wait = (ms) => new Promise((r) => setTimeout(r, ms));
+      return {
+        balance: async () => BigInt(S().credit),
+        needWei: async () => 450000000000000000n,
+        requestProof: async ({ priv }) => { const requestId = '0x' + String(S().requests.length + 1).padStart(64, 'a'); S().requests.push({ requestId, signed: /^0x[0-9a-f]{64}$/.test(priv) }); return { requestId }; },
+        waitProof: async (id, { onUpdate } = {}) => {
+          await wait(800); if (onUpdate) onUpdate({ status: 'assigned' });
+          await wait(S().delay);
+          if (S().notProved) throw Object.assign(new Error('the request was not proved in time'), { code: 'not_proved' });
+          if (onUpdate) onUpdate({ status: 'proved' });
+          return { publicValues: '0x' + '01'.repeat(32), proof: '0x' + '02'.repeat(32) };
+        },
+      };
+    }` })),
+]);
+
+// Adding PROVE from the wallet: the wallet sends the PROVE the Tacit account lacks, then the vApp's permitAndDeposit with a permit the
+// Tacit account signs in the page, which the real vApp on the fork takes (the Tacit account spends no ETH). Then the switch, and its note.
+await step('selffund', async () => {
+  const hex = '5e1f0'.padEnd(64, '7'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex');
+  const acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address.toLowerCase();
+  const r = await openPage({ account: A0, key: K0, init: { fn: SPN_INIT } });
+  await stubSelfProver(r.page);
+  const proveOf = async (a) => BigInt(await rpc('eth_call', [{ to: PROVE_TKN, data: '0x70a08231' + addrWord(a) }, 'latest']));
+  // Five PROVE for the wallet, from what the vApp holds, on the fork.
+  await rpc('anvil_impersonateAccount', [VAPP_ADDR]); await rpc('anvil_setBalance', [VAPP_ADDR, '0x' + (10n ** 18n).toString(16)]);
+  await rpc('eth_sendTransaction', [{ from: VAPP_ADDR, to: PROVE_TKN, data: '0xa9059cbb' + addrWord(A0) + word(5n * 10n ** 18n) }]);
+  await rpc('anvil_stopImpersonatingAccount', [VAPP_ADDR]);
+  try {
+    await r.page.goto(r.url);
+    await r.page.waitForSelector('#hx-body .hx-h');
+    await pasteKey(r.page, hex);
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(r.page, '#prove-self');
+    await r.page.waitForSelector('#sheet-prove[open] #sp-credit', { timeout: 60000 });
+    await until(r.page, () => /^0 PROVE/.test(document.querySelector('#sp-credit')?.textContent || ''), null, 60000).catch(() => {});
+    const body = () => r.page.evaluate(() => (document.querySelector('#prove-body')?.textContent || '').replace(/\s+/g, ' '));
+    const b0 = await body();
+    ok(/Your prover account/.test(b0) && b0.toLowerCase().includes(acct.slice(0, 8)) && /Prover credit\s*0 PROVE/.test(b0) && /about 0 proofs/.test(b0) && /shows here a few minutes after it lands/.test(b0) && /Add PROVE/.test(b0) && /Prove my actions with my own credit/.test(b0),
+      `selffund: #prove-self opens the sheet: the Tacit account as prover account, its credit, what it pays for, the way to add PROVE, the switch (${b0.slice(260, 760)})`);
+    ok(await r.page.evaluate(() => location.hash) === '#prove-self', 'selffund: and keeps its link');
+    await r.page.click('#sp-go');                                                     // Connect wallet
+    await until(r.page, () => /Add PROVE/.test(document.querySelector('#sp-go')?.textContent || ''), null, 60000);
+    await r.page.fill('#sp-amt', '1');
+    await until(r.page, () => !document.querySelector('#sp-go').disabled, null, 30000);
+    const w0 = walletTxs.length, a0 = await proveOf(acct);
+    await r.page.click('#sp-go');
+    await until(r.page, () => /Added|class="err"/.test(document.querySelector('#sp-status')?.innerHTML || ''), null, 300000).catch(() => {});
+    const said = await text(r.page, '#sp-status'), sent = walletTxs.slice(w0);
+    ok(/Added 1 PROVE/.test(said) && /a few minutes after it lands/.test(said), `selffund: from the wallet, PROVE is added (${said.slice(0, 160)})`);
+    const t1 = sent.find((x) => String(x.to).toLowerCase() === PROVE_TKN), t2 = sent.find((x) => String(x.to).toLowerCase() === VAPP_ADDR);
+    ok(a0 === 0n && t1 && t1.from.toLowerCase() === A0 && t1.data === '0xa9059cbb' + addrWord(acct) + word(10n ** 18n), `selffund: the wallet first sends the PROVE to the Tacit account (${t1?.data?.slice(0, 80)})`);
+    // permitAndDeposit(from, amount, deadline, v, r, s): its permit recovers to the Tacit account, over PROVE's own domain.
+    const d = (t2?.data || '').slice(10), wd = (i) => d.slice(i * 64, i * 64 + 64);
+    let signer = null;
+    if (t2) {
+      const dom = (await rpc('eth_call', [{ to: PROVE_TKN, data: '0x3644e515' }, 'latest'])).slice(2);
+      const k = (b) => Buffer.from(keccak_256(b));
+      const typeHash = k(Buffer.from('Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)'));
+      const struct = k(Buffer.from(typeHash.toString('hex') + wd(0) + addrWord(VAPP_ADDR) + wd(1) + word(0) + wd(2), 'hex'));
+      const digest = k(Buffer.from('1901' + dom + struct.toString('hex'), 'hex'));
+      const sig = secp.Signature.fromCompact(wd(4) + wd(5)).addRecoveryBit(Number(BigInt('0x' + wd(3))) - 27);
+      const pk = sig.recoverPublicKey(digest).toRawBytes(false);
+      signer = '0x' + k(pk.slice(1)).subarray(12).toString('hex');
+    }
+    const vapp0 = await proveOf(VAPP_ADDR);
+    ok(t2 && t2.from.toLowerCase() === A0 && t2.data.startsWith('0x58981c7e') && '0x' + wd(0).slice(24) === acct && BigInt('0x' + wd(1)) === 10n ** 18n && signer === acct,
+      `selffund: then the wallet sends permitAndDeposit for the Tacit account, its permit signed by that account (${signer})`);
+    ok((await proveOf(acct)) === 0n, `selffund: the vApp on the fork takes it: the PROVE has left the Tacit account for its credit (${await proveOf(acct)} left)`);
+    // The credit, once the network counts it, and what it pays for.
+    await r.page.evaluate(() => { window.__spn.credit = String(2n * 10n ** 18n); });
+    await r.page.evaluate(() => { location.hash = ''; location.hash = '#prove-self'; });
+    await until(r.page, () => /^2 PROVE/.test(document.querySelector('#sp-credit')?.textContent || ''), null, 60000).catch(() => {});
+    ok(/^2 PROVE/.test(await text(r.page, '#sp-credit')) && /about 4 proofs/.test(await text(r.page, '#sp-proofs')), `selffund: the credit and about how many proofs it pays for (${await text(r.page, '#sp-credit')} · ${await text(r.page, '#sp-proofs')})`);
+    // The switch: a preference for this key, and each private sheet says so.
+    await r.page.click('#sp-on');
+    await until(r.page, (p) => localStorage.getItem('tacit-lite-prove-self-v1:' + p) === 'true', pub, 15000).catch(() => {});
+    ok(await r.page.evaluate((p) => localStorage.getItem('tacit-lite-prove-self-v1:' + p) === 'true', pub), 'selffund: the switch is kept for this key');
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((x) => x.close()));
+    await go(r.page, '#private');
+    await r.page.waitForSelector('#sheet-eth[open] .sp-note', { timeout: 30000 }).catch(() => {});
+    const note = await text(r.page, '#sheet-eth .sp-note');
+    ok(/Proved with your own credit \(about 0\.4 PROVE\) and sent from your wallet/.test(note), `selffund: a private sheet says how its actions are proved and sent (${note})`);
+    if (r.errors.length) { fails++; console.log('FAIL selffund page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// With the switch on, a withdrawal and a swap are proved on the holder's own credit (no submit reaches the relay) and their settles go from the
+// paying account; Activity says so. Short credit says what is needed with Add PROVE; a request Succinct's prover did not take offers Try again
+// or the relay; an op the credit cannot prove from here goes to the relay with a note; a pool that moved while it was proved says to re-quote.
+await step('selfprove', async () => {
+  const hex = '5e1f1'.padEnd(64, '8'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex');
+  const r = await openPage({ account: A0, key: K0, init: { fn: SPN_INIT, arg: { credit: '0', delay: 4000, types: SP_TYPES.filter((x) => x !== 'stealthlock') } } });
+  await stubSelfProver(r.page);
+  // Private tETH notes of the key's own (wraps it never made, recovered as its scan would), one for each case below.
+  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    import * as real from '/confidential-pool-ux.js?stub=real';
+    export * from '/confidential-pool-ux.js?stub=real';
+    export function makeConfidentialPoolUx(o) {
+      const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
+      let made = null;
+      ux.balance = async (priv, opts) => {
+        const b = await balance(priv, opts);
+        const hx = typeof priv === 'string' ? priv : '0x' + [...priv].map((x) => x.toString(16).padStart(2, '0')).join('');
+        made ||= [['5', 0], ['6', 1], ['50', 2], ['40', 3], ['30', 4], ['20', 5]].map(([cents, index]) => {
+          const w = ux.buildWrap({ walletPriv: hx, amountWei: (BigInt(cents) * 10n ** 16n).toString(), ticker: 'cETH', index });
+          return ux.indexer.recover([{ type: 'LeavesInserted', firstLeafIndex: 0, leaves: [w.leaf], memos: [w.memo] }], hx)[0];
+        });
+        b.notes = [...b.notes, ...made];
+        for (const n of made) { const g = b.byAsset[n.asset] ||= { asset: n.asset, value: 0n, notes: [] }; g.value = BigInt(g.value) + BigInt(n.value); g.notes = [...g.notes, n]; }
+        return b;
+      };
+      ux.quoteOpFee = async () => '100000';
+      return ux;
+    }` }));
+  const spn = () => r.page.evaluate(() => window.__spn);
+  const said = () => text(r.page, '#v1-status').then((t) => t.replace(/\s+/g, ' '));
+  const idle = () => until(r.page, () => !document.querySelector('#sheet-eth [aria-busy="true"]'), null, 600000);
+  // A tab holds still while an action in the sheet still runs (its balance read after it): pressed again until it moves.
+  const tab = async (m) => {
+    await idle();
+    for (let i = 0; i < 300; i++) {
+      if (await r.page.$eval(`[data-v1="${m}"]`, (b) => b.getAttribute('aria-selected') === 'true').catch(() => false)) return;
+      await r.page.click(`[data-v1="${m}"]`).catch(() => {});
+      await sleep(2000);
+    }
+    throw new Error(`the ${m} tab did not open`);
+  };
+  const withdraw = async (amt) => {
+    await tab('out');
+    await r.page.fill('#o-to', '0x000000000000000000000000000000000000dEaD');
+    await r.page.fill('#o-amt', amt);
+    await until(r.page, () => !document.querySelector('#o-rcpt')?.hidden && !document.querySelector('#o-go')?.disabled, null, QUOTE_WAIT);
+    await r.page.click('#o-go');
+  };
+  const swap = async (amt) => {
+    await tab('swap');
+    await r.page.fill('#sw-amt', amt);
+    await until(r.page, () => !document.querySelector('#sw-go').disabled || !!document.querySelector('#sw-ack input'), null, QUOTE_WAIT);
+    if (await r.page.$('#sw-ack input[type="checkbox"]')) await r.page.check('#sw-ack input[type="checkbox"]');
+    else if (await r.page.$('#sw-ack input')) await r.page.fill('#sw-ack input', (await text(r.page, '#sw-ack b')).trim());
+    await until(r.page, () => !document.querySelector('#sw-go').disabled, null, 60000);
+    await r.page.click('#sw-go');
+  };
+  const settles = (from) => walletTxs.slice(from).filter((x) => String(x.to).toLowerCase() === POOL_ADDR && x.data.startsWith('0x' + SETTLE_SEL));
+  let restore = null;
+  try {
+    await r.page.goto(r.url);
+    await r.page.waitForSelector('#hx-body .hx-h');
+    await pasteKey(r.page, hex);
+    await r.page.evaluate((p) => localStorage.setItem('tacit-lite-prove-self-v1:' + p, 'true'), pub);
+    // The wallet pays, so what the page sends is seen here.
+    await toWallet(r.page);
+    await r.page.waitForSelector('[data-pay="wallet"]');
+    await r.page.click('[data-pay="wallet"]');
+    await until(r.page, () => document.querySelector('[data-pay="wallet"]')?.classList.contains('main'));
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(r.page, '#private');
+    await r.page.waitForSelector('[data-v1="out"]', { timeout: 600000 });
+    await until(r.page, () => /Private 1\.51 tETH/.test(document.querySelector('#sheet-eth')?.textContent || ''), null, 600000).catch(() => {});
+
+    // (c) No credit yet: what it is and what this needs, with Add PROVE, which opens the sheet with the withdrawal waiting.
+    await withdraw('0.4');
+    await until(r.page, () => /Your prover credit is/.test(document.querySelector('#v1-status')?.textContent || ''), null, 300000).catch(() => {});
+    ok(/Your prover credit is 0 PROVE; this needs 0\.45 on hand\./.test(await said()) && !!(await r.page.$('#v1-status [data-prove-add]')) && /Let the relay prove this one/.test(await said()),
+      `selfprove: with too little credit it says what it is and what this needs, with Add PROVE (${await said()})`);
+    await r.page.click('#v1-status [data-prove-add]');
+    await r.page.waitForSelector('#sheet-prove[open]', { timeout: 30000 });
+    ok(/Waiting to go on: Withdraw 0\.4 ETH/.test(await text(r.page, '#prove-body')), 'selfprove: Add PROVE opens the sheet with the withdrawal waiting to go on');
+    await r.page.evaluate(() => document.querySelector('#sheet-prove').close());
+
+    // (b) Credit enough: a whole-note withdrawal is proved on it, step by step on the sheet, and settled from the wallet; nothing reaches the relay.
+    await r.page.evaluate(() => { window.__spn.credit = String(10n ** 19n); });
+    restore = await stubPoolSettle('ok');
+    const s0 = submits.length, w0 = walletTxs.length, q0 = (await spn()).requests.length;
+    await withdraw('0.5');
+    const stage = await until(r.page, () => /A prover took it/.test(document.querySelector('#v1-status')?.textContent || ''), null, 300000).then(() => true, () => false);
+    await until(r.page, () => /Done\./.test(document.querySelector('#v1-status')?.textContent || '') || /class="err"/.test(document.querySelector('#v1-status')?.innerHTML || ''), null, 300000).catch(() => {});
+    const one = settles(w0);
+    ok(stage && /Done\./.test(await said()) && submits.length === s0 && (await spn()).requests.length === q0 + 1 && one.length === 1 && one[0].from.toLowerCase() === A0 && one[0].data.includes('02'.repeat(32)),
+      `selfprove: a withdrawal is proved on the holder's credit (no submit to the relay) and settled from the wallet (${await said()}; submits ${submits.length - s0}, requests ${(await spn()).requests.length - q0}, settles ${one.length})`);
+    await openActivity(r.page);
+    const row = (await actRows(r.page)).find((x) => x.id.startsWith('op:') && /Withdraw 0\.5 ETH/.test(x.text)) || { text: '' };
+    ok(/AskedSuccinctProvingProvedSent/.test(row.text.replace(/\s/g, '')) && /Done in .*proved with your own credit/.test(row.text), `selfprove: Activity shows its steps and that it was proved with your own credit (${row.text.slice(0, 160)})`);
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(r.page, '#private');
+    await r.page.waitForSelector('[data-v1="swap"]', { timeout: 60000 });
+
+    // (b) A swap, the same: one route over a whole note, proved on the credit, settled from the wallet.
+    const s1 = submits.length, w1 = walletTxs.length;
+    await swap('0.05');
+    await until(r.page, () => /Done\./.test(document.querySelector('#v1-status')?.textContent || '') || /class="err"/.test(document.querySelector('#v1-status')?.innerHTML || ''), null, 300000).catch(() => {});
+    ok(/Done\./.test(await said()) && submits.length === s1 && settles(w1).length === 1, `selfprove: a swap is proved on the credit and settled from the wallet, nothing to the relay (${await said()})`);
+    await restore(); restore = null;
+
+    // (f) The pool moved while the swap was proved: the pool refuses it before anything is sent, and says to quote again.
+    restore = await stubPoolSettle('29b3c833');
+    const w2 = walletTxs.length;
+    await swap('0.06');
+    await until(r.page, () => /pool moved|class="err"/.test(document.querySelector('#v1-status')?.innerHTML || ''), null, 300000).catch(() => {});
+    ok(/Nothing was sent\. The pool moved while it was being proved; press again for a fresh quote\./.test(await said()) && settles(w2).length === 0, `selfprove: a pool that moved while it was proved says to quote again, with nothing sent (${await said()})`);
+    await restore(); restore = null;
+
+    // (d) Succinct's prover did not take it: Try again, or let the relay prove this one, which then goes out from the wallet.
+    await r.page.evaluate(() => { window.__spn.notProved = true; });
+    await withdraw('0.3');
+    await until(r.page, () => /did not take it in time/.test(document.querySelector('#v1-status')?.textContent || ''), null, 300000).catch(() => {});
+    const np = await said();
+    ok(/Succinct’s prover did not take it in time\. Nothing was sent; the network kept its base fee \(about 0\.39 PROVE\)\./.test(np) && /Try again/.test(np) && /Let the relay prove this one/.test(np), `selfprove: a request Succinct's prover did not take offers Try again or the relay (${np})`);
+    proveStub = true; restore = await stubPoolSettle('ok');
+    const s3 = submits.length, w3 = walletTxs.length;
+    await r.page.click('#v1-status [data-selfdo]:last-of-type');
+    // The offer's own line reads as an error until the relay's proof is sent: wait for the outcome.
+    await until(r.page, () => /Done\./.test(document.querySelector('#v1-status')?.textContent || ''), null, 300000).catch(() => {});
+    const asked = submits.slice(s3);
+    ok(asked.length === 1 && asked[0].type === 'unwrap' && asked[0].mode === 'prove' && settles(w3).length === 1 && /Done\./.test(await said()), `selfprove: the relay proves that one, and it goes out from the wallet (${asked.map((x) => `${x.type}/${x.mode}`).join(', ')}; ${await said()})`);
+    await restore(); restore = null; proveStub = false;
+    await r.page.evaluate(() => { window.__spn.notProved = false; });
+
+    // (e) A private send: the credit cannot prove that op from here, so the relay takes it, with a note.
+    await tab('send');
+    await r.page.fill('#s-to', tacit1('abd'.padEnd(64, '9')));
+    await r.page.fill('#s-amt', '0.2');
+    await until(r.page, () => /They get about/.test(document.querySelector('#s-rcpt')?.textContent || '') && !document.querySelector('#s-go').disabled, null, QUOTE_WAIT);
+    const s4 = submits.length;
+    await r.page.click('#s-go');
+    await until(r.page, () => /can’t prove this one from here yet/.test(document.querySelector('#toast-container')?.textContent || ''), null, 120000).catch(() => {});
+    await chainUntil(async () => submits.length > s4, 120000);
+    ok(/Your own credit can’t prove this one from here yet, so Tacit’s relay proves it\./.test(await text(r.page, '#toast-container')) && submits.slice(s4).some((x) => x.type === 'stealthlock' && !x.mode),
+      `selfprove: an op the credit cannot prove goes to the relay, with a note (${submits.slice(s4).map((x) => `${x.type}/${x.mode || 'settle'}`).join(', ')})`);
+    if (r.errors.length) { fails++; console.log('FAIL selfprove page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { proveStub = false; if (restore) await restore(); await r.browser.close(); }
+});
+
+// What the relay says of itself decides how an action goes before anything is handed to it. Paused: nothing is submitted, and the sheet offers
+// proving it yourself, and keeping it in line for an op that does not expire. Held: the wallet sends it (the relay proves it). In Activity, an
+// exit in line while the relay is paused says why and offers proving it yourself.
+await step('relaystate', async () => {
+  const r = await openPage({ account: A0, key: K0 });
+  const hex = 'ce1a'.padEnd(64, '6');
+  const want = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address;
+  await r.page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+    import * as real from '/confidential-pool-ux.js?stub=real';
+    export * from '/confidential-pool-ux.js?stub=real';
+    export function makeConfidentialPoolUx(o) {
+      const ux = real.makeConfidentialPoolUx(o), balance = ux.balance;
+      let made = null;
+      ux.balance = async (priv, opts) => {
+        const b = await balance(priv, opts);
+        const hx = typeof priv === 'string' ? priv : '0x' + [...priv].map((x) => x.toString(16).padStart(2, '0')).join('');
+        made ||= [['50', 0], ['30', 1]].map(([cents, index]) => {
+          const w = ux.buildWrap({ walletPriv: hx, amountWei: (BigInt(cents) * 10n ** 16n).toString(), ticker: 'cETH', index });
+          return ux.indexer.recover([{ type: 'LeavesInserted', firstLeafIndex: 0, leaves: [w.leaf], memos: [w.memo] }], hx)[0];
+        });
+        const n = made[0]; window.__stubKey = 'n:' + String(n.leaf || n.nullifier || (n.cx + ':' + n.cy)).toLowerCase();
+        b.notes = [...b.notes, ...made];
+        for (const x of made) { const g = b.byAsset[x.asset] ||= { asset: x.asset, value: 0n, notes: [] }; g.value = BigInt(g.value) + BigInt(x.value); g.notes = [...g.notes, x]; }
+        return b;
+      };
+      ux.quoteOpFee = async () => '100000';
+      return ux;
+    }` }));
+  const said = () => text(r.page, '#v1-status').then((t) => t.replace(/\s+/g, ' '));
+  const idle = () => until(r.page, () => !document.querySelector('#sheet-eth [aria-busy="true"]'), null, 600000);
+  // A tab holds still while an action in the sheet still runs (its balance read after it): pressed again until it moves.
+  const tab = async (m) => {
+    await idle();
+    for (let i = 0; i < 300; i++) {
+      if (await r.page.$eval(`[data-v1="${m}"]`, (b) => b.getAttribute('aria-selected') === 'true').catch(() => false)) return;
+      await r.page.click(`[data-v1="${m}"]`).catch(() => {});
+      await sleep(2000);
+    }
+    throw new Error(`the ${m} tab did not open`);
+  };
+  const withdraw = async (amt) => {
+    await tab('out');
+    await r.page.fill('#o-to', '0x000000000000000000000000000000000000dEaD');
+    await r.page.fill('#o-amt', amt);
+    await until(r.page, () => !document.querySelector('#o-rcpt')?.hidden && !document.querySelector('#o-go')?.disabled, null, QUOTE_WAIT);
+    await r.page.click('#o-go');
+  };
+  let restore = null;
+  try {
+    await r.page.goto(r.url);
+    await r.page.waitForSelector('#hx-body .hx-h');
+    await pasteKey(r.page, hex);
+    await rpc('anvil_setBalance', [want, '0x' + (10n ** 17n).toString(16)]);
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(r.page, '#private');
+    await r.page.waitForSelector('[data-v1="out"]', { timeout: 600000 });
+    await until(r.page, () => /Private 0\.8 tETH/.test(document.querySelector('#sheet-eth')?.textContent || ''), null, 600000).catch(() => {});
+
+    // Paused at the press: a withdrawal (which expires) is not handed over; proving it yourself is offered, keeping it in line is not.
+    relayStateNow = 'paused';
+    const s0 = submits.length;
+    await withdraw('0.1');
+    await until(r.page, () => /isn’t proving right now/.test(document.querySelector('#v1-status')?.textContent || ''), null, 300000).catch(() => {});
+    ok(/The relay isn’t proving right now, so nothing was sent to it\./.test(await said()) && !!(await r.page.$('#v1-status [data-prove-add]')) && !(await r.page.$('#v1-status [data-keepline]')) && submits.length === s0,
+      `relaystate: paused at the press, a withdrawal offers proving it yourself, not the line, and nothing is submitted (${await said()})`);
+    // A private send does not expire: it can wait its turn in line, and pressed, goes to the relay.
+    await tab('send');
+    await r.page.fill('#s-to', tacit1('abd'.padEnd(64, '5')));
+    await r.page.fill('#s-amt', '0.3');
+    await until(r.page, () => /They get about/.test(document.querySelector('#s-rcpt')?.textContent || '') && !document.querySelector('#s-go').disabled, null, QUOTE_WAIT);
+    await r.page.click('#s-go');
+    await until(r.page, () => !!document.querySelector('#v1-status [data-keepline]'), null, 300000).catch(() => {});
+    ok(!!(await r.page.$('#v1-status [data-keepline]')) && !!(await r.page.$('#v1-status [data-prove-add]')) && submits.length === s0, `relaystate: a private send offers both, with nothing submitted yet (${await said()})`);
+    if (await r.page.$('#v1-status [data-keepline]')) {
+      await r.page.click('#v1-status [data-keepline]');
+      await chainUntil(async () => submits.length > s0, 120000);
+      ok(submits.slice(s0).some((x) => x.type === 'stealthlock' && !x.mode), `relaystate: Keep it in line hands it to the relay (${submits.slice(s0).map((x) => x.type).join(', ')})`);
+    }
+    // Held at the press: the withdrawal goes out from the paying account, the relay proving it.
+    relayStateNow = 'held';
+    await sleep(16000);                                                          // the page reads the relay's state at most every 15 seconds
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(r.page, '#private');
+    await r.page.waitForSelector('[data-v1="out"]', { timeout: 60000 });
+    await withdraw('0.5');
+    await until(r.page, () => /can’t send this one right now/.test(document.querySelector('#v1-status')?.textContent || ''), null, 300000).catch(() => {});
+    const held = await said();
+    ok(/The relay can’t send this one right now\./.test(held) && /Send it from your Tacit account: the relay proves it, and your Tacit account pays the network fee/.test(held) && !/Keep it in line/.test(held),
+      `relaystate: held at the press, the withdrawal is offered from the paying account, the relay proving it (${held})`);
+    proveStub = true; restore = await stubPoolSettle('ok');
+    const s1 = submits.length;
+    if (await r.page.$('#v1-status [data-selfdo]')) await r.page.click('#v1-status [data-selfdo]');
+    await until(r.page, () => /Done\./.test(document.querySelector('#v1-status')?.textContent || ''), null, 300000).catch(() => {});
+    ok(/Done\./.test(await said()) && submits.slice(s1).some((x) => x.type === 'unwrap' && x.mode === 'prove'), `relaystate: and it goes out, proved by the relay (${submits.slice(s1).map((x) => `${x.type}/${x.mode || 'settle'}`).join(', ')}; ${await said()})`);
+    await restore(); restore = null; proveStub = false;
+
+    // Activity: an exit in line while the relay is paused says why, and offers proving it yourself.
+    relayStateNow = 'paused';
+    await r.ctx.route(/\/confidential\/status\?id=rs-exit/, (route) => json(route, { jobId: 'rs-exit', type: 'unwrap', mode: 'settle', status: 'pending', txHash: null, error: null, createdAt: Date.now() }));
+    await r.page.evaluate(() => {
+      const k = 'tacit-lite-activity-v1', s = JSON.parse(localStorage.getItem(k) || '{"items":[]}'), t = Date.now();
+      s.items.unshift({ id: 'job:rs-exit', kind: 'job', type: 'unwrap', label: 'Withdraw 0.5 ETH', status: 'pending', at: t - 120e3, up: t - 120e3,
+        self: { exit: { to: '0x000000000000000000000000000000000000dEaD', units: '50000000', note: window.__stubKey, from: 'eth', sheet: 'eth' } } });
+      dispatchEvent(new StorageEvent('storage', { key: k, newValue: JSON.stringify(s) }));
+    });
+    await openActivity(r.page);
+    const rowText = () => r.page.evaluate(() => (document.querySelector('[data-act="job:rs-exit"]')?.textContent || '').replace(/\s+/g, ' '));
+    await until(r.page, () => /isn’t proving right now/.test(document.querySelector('[data-act="job:rs-exit"]')?.textContent || '') && !!document.querySelector('[data-act="job:rs-exit"] [data-prove-open]'), null, 90000).catch(() => {});
+    const row = await rowText();
+    ok(/In line: the relay isn’t proving right now\. It keeps its place and goes through once it is\./.test(row) && !!(await r.page.$('[data-act="job:rs-exit"] [data-prove-open]')) && !/gas|credit is low|out of/i.test(row),
+      `relaystate: an exit in line while the relay is paused says why and offers proving it yourself (${row.slice(0, 260)})`);
+    if (r.errors.length) { fails++; console.log('FAIL relaystate page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { relayStateNow = 'ok'; proveStub = false; if (restore) await restore(); await r.browser.close(); }
+});
+
+// A relayed harvest whose proof the relay could not make (it reaches the page as "settle failed: prove failed: …"): the sheet says so in plain
+// words and offers proving it yourself.
+await step('relayfail', async () => {
+  const r = await openFarmKey('0fe2'.padEnd(64, '6'), { notes: [], positions: [farmPos(7, 150000000, 1234560000, '12.3456')], chain: true, held: true });
+  const p = r.page, was = statusError;
+  try {
+    statusError = 'prove failed: insufficient balance';
+    await go(p, '#farm');
+    await p.waitForSelector('[data-harvest="0"]', { timeout: 300000 });
+    await p.click('[data-harvest="0"]');
+    await until(p, () => !!document.querySelector('#sf-act-0 [data-prove-add]'), null, 180000).catch(() => {});
+    const line = (await text(p, '#sf-act-0')).replace(/\s+/g, ' ');
+    ok(!!(await p.$('#sf-act-0 [data-prove-add]')) && /can’t prove this one right now/.test(line) && /Prove it yourself/.test(line) && !/insufficient|balance|credit is low/i.test(line),
+      `relayfail: a relayed job whose proof failed offers proving it yourself, in plain words (${line})`);
+    if (r.errors.length) { fails++; console.log('FAIL relayfail page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { statusError = was; await r.browser.close(); }
 });
 
 if (ACCT) await ACCT.r.browser.close();

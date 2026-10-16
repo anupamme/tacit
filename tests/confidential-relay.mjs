@@ -8,7 +8,7 @@
 
 import { keccak_256 } from '../node_modules/@noble/hashes/sha3.js';
 import { makeConfidentialSettler } from '../worker/src/confidential-settle.js';
-import { makeConfidentialRelay } from '../dapp/confidential-relay.js';
+import { makeConfidentialRelay, relayCanProve } from '../dapp/confidential-relay.js';
 import assert from 'node:assert';
 
 const hash = (s) => '0x' + Buffer.from(keccak_256(new TextEncoder().encode(s))).toString('hex');
@@ -452,6 +452,96 @@ const swapOp = { reserveAPre: 1000, reserveBPre: 1000, intents: [{ amountIn: 100
   relay.useProver(null);
   assert.ok(!relay.ownProving());
   ok('useProver: prove() goes to the holder\'s own prover with the memos sealed here, reads as a proven job, and never asks the relay');
+}
+
+// ───────────────── the prover is chosen per call: viaRelay goes to the relay, and a call never re-reads the slot ─────────────────
+{
+  const q = makeConfidentialSettler({ storage: freshStore(), hash });
+  const tick = () => new Promise((r) => setImmediate(r));
+  const submitted = [];
+  const fetchImpl = async (url, init) => { if (String(url).includes('/confidential/submit')) submitted.push(JSON.parse(init.body)); return mockFetch(q)(url, init); };
+  const relay = makeConfidentialRelay({ base: '', fetchImpl });
+  let ownCalls = 0;
+  relay.useProver(async () => { ownCalls++; return { requestId: '0xdef', publicValues: '0x' + '05'.repeat(64), proof: '0x06' }; });
+  const opts = { intervalMs: 0, sleep: tick };
+  const viaRelay = relay.prove({ type: 'unwrap', op: { v: 7 }, memos: [] }, { ...opts, viaRelay: true });
+  let j; while (!(j = await q.nextJob({ mode: 'prove' }))) await tick();
+  await q.ackJob(j.jobId, { publicValues: '0x' + '07'.repeat(64), proof: '0x08' });
+  const r1 = await viaRelay;
+  assert.strictEqual(r1.status, 'proven');
+  assert.strictEqual(r1.publicValues, '0x' + '07'.repeat(64), 'proved by the relay');
+  assert.strictEqual(ownCalls, 0, 'viaRelay never reaches the own prover');
+  assert.strictEqual(submitted.length, 1);
+  assert.strictEqual(submitted[0].mode, 'prove');
+  assert.ok(relay.ownProving(), 'ownProving() still reports the slot');
+  const r2 = await relay.prove({ type: 'unwrap', op: { v: 8 }, memos: [] }, {});
+  assert.strictEqual(r2.jobId, 'spn:0xdef');
+  assert.strictEqual(ownCalls, 1, 'without viaRelay the own prover takes it');
+  assert.strictEqual(submitted.length, 1, 'and nothing more reached the relay');
+
+  // A call that chose the own prover keeps it when the slot is cleared while it runs (another action switching to the relay).
+  let release;
+  const relay2 = makeConfidentialRelay({ base: '', fetchImpl: async () => { throw new Error('the relay must not be asked'); } });
+  relay2.useProver(async ({ onUpdate }) => { onUpdate({ requestId: '0xaaa' }); await new Promise((r) => { release = r; }); return { requestId: '0xaaa', publicValues: '0x01', proof: '0x02' }; });
+  const running = relay2.prove({ type: 'unwrap', op: { v: 9 }, memos: [] }, {});
+  while (!release) await tick();
+  relay2.useProver(null);
+  release();
+  assert.strictEqual((await running).jobId, 'spn:0xaaa', 'finished on the prover it chose');
+  ok('prove() chooses its prover per call: viaRelay goes to the relay, otherwise the own prover, and clearing the slot mid-call changes nothing');
+}
+
+// ───────────────── where the relay stands: state(), relayCanProve, and the relay_paused refusal ─────────────────
+{
+  let reads = 0, answer = { state: 'held', proving: true, settling: false, board: true, ageSeconds: 12 };
+  const fetchImpl = async (urlStr) => {
+    const url = new URL(urlStr, 'http://relay.test');
+    if (url.pathname !== '/confidential/relay') throw new Error(`unexpected ${url.pathname}`);
+    reads++;
+    if (answer instanceof Error) throw answer;
+    if (answer === 503) return { ok: false, status: 503, statusText: '503', text: async () => JSON.stringify({ ok: false, error: 'unreadable' }) };
+    return { ok: true, status: 200, statusText: '200', text: async () => JSON.stringify(answer) };
+  };
+  const realNow = Date.now; let now = 1_000_000; Date.now = () => now;
+  try {
+    const relay = makeConfidentialRelay({ base: 'https://api.test/', fetchImpl });
+    assert.deepStrictEqual(await relay.state(), { state: 'held', proving: true, settling: false, board: true }, 'the four fields, nothing about age or why');
+    answer = { state: 'paused', proving: false, settling: false, board: false };
+    now += 14_000;
+    assert.strictEqual((await relay.state()).state, 'held', 'read again only after 15 seconds');
+    assert.strictEqual(reads, 1);
+    now += 1_000;
+    assert.strictEqual((await relay.state()).state, 'paused');
+    assert.strictEqual(reads, 2);
+    now += 20_000;
+    const [a, b] = await Promise.all([relay.state(), relay.state()]);
+    assert.strictEqual(reads, 3, 'two callers at once share one read');
+    assert.deepStrictEqual(a, b);
+    answer = new Error('offline'); now += 20_000;
+    assert.strictEqual(await relay.state(), null, 'unreadable: null, never a throw');
+    answer = 503; now += 20_000;
+    assert.strictEqual(await relay.state(), null, 'an API without the route, or a 503: null');
+    answer = { nonsense: true }; now += 20_000;
+    assert.strictEqual(await relay.state(), null, 'an answer with no state: null');
+  } finally { Date.now = realNow; }
+
+  assert.strictEqual(relayCanProve({ state: 'paused' }), false);
+  assert.strictEqual(relayCanProve({ state: 'down' }), false);
+  for (const s of ['ok', 'busy', 'held']) assert.strictEqual(relayCanProve({ state: s }), true, s);
+  assert.strictEqual(relayCanProve(null), true, 'an unread state is no reason to go another way');
+  assert.strictEqual(relayCanProve(undefined), true);
+
+  const paused = async () => ({ ok: false, status: 503, statusText: '503', text: async () => JSON.stringify({ ok: false, error: 'the relay isn’t proving right now — prove it with your own prover account, or try again later', code: 'relay_paused', retryAfter: 300 }) });
+  const e = await makeConfidentialRelay({ base: '', fetchImpl: paused }).prove({ type: 'unwrap', op: { v: 1 }, memos: [] }).then(() => null, (x) => x);
+  assert.ok(e, 'refused');
+  assert.strictEqual(e.code, 'relay_paused');
+  assert.strictEqual(e.httpStatus, 503);
+  assert.strictEqual(e.retryAfter, 300);
+
+  const accepted = async () => ({ ok: true, status: 200, statusText: '200', text: async () => JSON.stringify({ ok: true, jobId: '0x' + '11'.repeat(32), status: 'pending', relay: 'held' }) });
+  const sub = await makeConfidentialRelay({ base: '', fetchImpl: accepted }).submitOp({ type: 'unwrap', op: { v: 1 }, memos: [], mode: 'prove' });
+  assert.strictEqual(sub.relay, 'held', 'the submit answer keeps where the relay stood');
+  ok('state() reads where the relay stands every 15 s at most and never throws; relayCanProve; relay_paused keeps its code, status and retryAfter; a submit keeps `relay`');
 }
 
 console.log(`\n${n} confidential-relay checks passed.`);

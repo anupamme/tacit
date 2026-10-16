@@ -191,6 +191,7 @@ ok(/Fees paid in TAC are kept, not sold/.test(tacNote) && !/\$/.test(tacNote), '
   await page.waitForFunction(() => /Balance 25 PROVE/.test(document.querySelector('#pv-bal')?.textContent || ''), null, { timeout: 15000 });
   let pv = await text('#prove');
   ok(/paid in PROVE/.test(pv) && /within a few minutes/.test(pv) && /About 0\.4 PROVE pays for one proof/.test(pv), 'prove: says what PROVE pays for, how soon it is used, and what one proof costs');
+  ok(/Prove your own actions with your own PROVE, privately/.test(await text('#prove-self')) && (await page.$eval('#prove-self a', (a) => a.getAttribute('href'))) === '/#prove-self', 'prove: one line points holders to proving their own actions, at /#prove-self');
   await page.click('#pv-max');
   ok((await page.inputValue('#pv-amt')) === '25' && /Pays forabout 62 proofs/.test(await text('#pv-quote')), `prove: Max takes the wallet's PROVE, and it says how many proofs that pays for (${await text('#pv-quote')})`);
   events.length = 0;

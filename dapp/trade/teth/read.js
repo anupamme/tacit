@@ -132,5 +132,7 @@ export async function wrapQuote(wei) {
   const known = [RELAY_TIP_TO, RELAY_TIP_SPLITTER].find((a) => a.toLowerCase() === String(to || '').toLowerCase());
   if (!known) throw new Error('The relay named a tip address this page does not know, so nothing will be sent. Try again later, or use tacit.finance.');
   if (tip * 10000n > BigInt(wei) * TIP_CEILING_BPS) throw new Error('The relay asked for more than 5% of this deposit as its tip, so nothing will be sent. A larger deposit pays a smaller share.');
-  return { tip, to: known, floor: BigInt(j.gasAwareFloorUnits || j.staticFloorUnits || 0) * E10 };
+  // What the relay asks for a proof alone (the wallet then sends the settle): never more than the full tip, which it stands in for.
+  const proveTip = /^\d+$/.test(String(j.recommendedProveTipWei ?? '')) && BigInt(j.recommendedProveTipWei) <= tip ? BigInt(j.recommendedProveTipWei) : tip;
+  return { tip, proveTip, to: known, floor: BigInt(j.gasAwareFloorUnits || j.staticFloorUnits || 0) * E10 };
 }

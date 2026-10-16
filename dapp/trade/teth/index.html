@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://tacit-api.onrender.com https://api.coinbase.com https://api.kraken.com https://api.coingecko.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://www.tacitscan.io https://ipfs.filebase.io; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://tacit-api.onrender.com https://api.coinbase.com https://api.kraken.com https://api.coingecko.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://www.tacitscan.io https://ipfs.filebase.io; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
 <meta name="color-scheme" content="light dark">
 <title>tacit trade · tETH</title>
 <meta name="description" content="tETH is private ETH. Put ETH in the Tacit pool, then hold, send, swap, farm or bridge it to Bitcoin without the chain showing whose it is.">
@@ -25,7 +25,7 @@
 <link rel="preload" as="fetch" href="https://api.tacit.finance/farm/program?network=mainnet" crossorigin fetchpriority="low">
 <!-- preload-roots: /trade/teth/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/trade/teth/app.js?cb=5392476e">
+<link rel="modulepreload" href="/trade/teth/app.js?cb=998c5f6c">
 <link rel="modulepreload" href="/trade/chart.js?cb=e2110e58">
 <link rel="modulepreload" href="/trade/fmt.js?cb=43646c2e">
 <link rel="modulepreload" href="/trade/connect.js?cb=f4bd67db">
@@ -40,10 +40,12 @@
 <link rel="modulepreload" href="/tacit-wallet-known.js?cb=ed4c75b7">
 <link rel="modulepreload" href="/evm-wallet.js?cb=686e1d3f">
 <link rel="modulepreload" href="/identity-message.js">
-<link rel="modulepreload" href="/trade/teth/read.js?cb=41fec7c6">
+<link rel="modulepreload" href="/trade/teth/read.js?cb=34fe5a19">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=a08631ce">
-<link rel="modulepreload" href="/trade/teth/wrap.js?cb=408eadf2">
+<link rel="modulepreload" href="/trade/teth/wrap.js?cb=05b98b4c">
 <link rel="modulepreload" href="/trade/poolux.js?cb=0c532ca8">
+<link rel="modulepreload" href="/trade/teth/prover.js?cb=127589c2">
+<link rel="modulepreload" href="/relay/abi.js?cb=e137b68f">
 <link rel="modulepreload" href="/trade/depth.js?cb=21a5dc95">
 <link rel="modulepreload" href="/trade/book.js?cb=3324d19b">
 <link rel="modulepreload" href="/trade/tape.js?cb=6565501b">
@@ -494,6 +496,12 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
 .moves td.in { color: var(--up); } .moves td.out { color: var(--down); }
 .p-depth .table td:first-child { color: var(--mute); white-space: nowrap; }
 .tn { text-transform: none; }
+#prover-line .kv { border-top: 1px dashed var(--hair); margin-top: 6px; padding-top: 8px; } #prover-line .kv > span { flex: none; white-space: nowrap; }
+#prover-line .warn, .note.warn { color: var(--warn); }
+.ps-switch { display: flex; align-items: center; gap: 10px; margin: 14px 0 4px; padding: 10px 12px; font-size: 13px; background: var(--field); border: 1px solid var(--hair-2); cursor: pointer; }
+.ps-switch input { width: 18px; height: 18px; margin: 0; accent-color: var(--ink); flex: none; }
+.ps-h { margin: 18px 0 8px; font: 400 11px/1.4 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--mute); }
+#ps-quote:empty { display: none; }
 </style>
 </head>
 <body>
@@ -569,6 +577,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
         <div class="lbl"><span>You get, private</span><span class="mute" id="out-usd"></span></div>
         <div class="get"><b id="out" class="ph">0.00</b><span class="u" id="out-unit"><svg class="tk sm" aria-hidden="true"><use href="#tk-teth"/></svg>tETH</span></div>
         <div id="route"></div>
+        <div id="prover-line"></div>
         <button class="btn" id="go" type="button">Connect wallet</button>
         <ol class="steps" id="steps" hidden></ol>
         <div class="status" id="status" role="status"></div>
@@ -635,6 +644,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/teth/app.js?cb=5392476e"></script>
+<script type="module" src="/trade/teth/app.js?cb=998c5f6c"></script>
 </body>
 </html>

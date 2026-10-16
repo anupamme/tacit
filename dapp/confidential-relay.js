@@ -35,6 +35,12 @@ export function opExpiry(type, op) {
   return Number.isFinite(v) && v > 0 ? v : 0;
 }
 
+// Whether the relay is proving, from relay.state(): false only when it says it is paused or down. An unread state (null) is
+// not a reason to send a job another way.
+export function relayCanProve(st) {
+  return !(st && (st.state === 'paused' || st.state === 'down'));
+}
+
 export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemos, saveMismatchedMemos } = {}) {
   const f = fetchImpl || (typeof fetch !== 'undefined' ? fetch : null);
   if (!f) throw new Error('confidential-relay: no fetch available');
@@ -54,8 +60,9 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     } catch { /* listeners are best effort */ }
   }
 
-  // A refusal keeps the relay's own `code` (relay_held, free_budget, prove_budget …) and `retryAfter`, so a page can
-  // tell "send it yourself" apart from "the relay cannot prove right now" without reading the words.
+  // A refusal keeps the relay's own `code` (relay_held, relay_paused, free_budget, prove_budget …) and `retryAfter`, so a page
+  // can tell "send it yourself" (relay_held) apart from "the relay isn't proving right now" (relay_paused, a 503: prove it with
+  // the holder's own prover account) without reading the words.
   async function asJson(res) {
     const text = await res.text();
     let body; try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text }; }
@@ -67,6 +74,29 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
       throw e;
     }
     return body;
+  }
+
+  // Where the relay stands (GET /confidential/relay): { state, proving, settling, board }, with state one of 'ok', 'busy',
+  // 'held' (proving, not sending relayed settles; `board` when it puts them on the open board), 'paused' or 'down'. Read at
+  // most every 15 seconds; null when it cannot be read. Never throws.
+  let stateAt = 0, stateLast = null, stateReading = null;
+  async function state() {
+    if (stateReading) return stateReading;
+    if (stateAt && Date.now() - stateAt < 15_000) return stateLast;
+    stateReading = (async () => {
+      try {
+        const res = await f(`${root}/confidential/relay`);
+        if (!res.ok) return null;
+        const b = JSON.parse(await res.text());
+        if (!b || typeof b.state !== 'string') return null;
+        return { state: b.state, proving: !!b.proving, settling: !!b.settling, board: !!b.board };
+      } catch { return null; }
+    })();
+    try {
+      stateLast = await stateReading;
+      stateAt = Date.now();
+      return stateLast;
+    } finally { stateReading = null; }
   }
 
   // Enqueue a confidential op. type ∈ {unwrap, transfer, swap, lp, otc, route, bid}; op = the fixture-shaped
@@ -92,6 +122,8 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
   // `onJob(jobId, type)` (from the caller's waitOpts) fires the moment the relay accepts the job, before `tacit:job`
   // announces it, so a caller can tell its own jobs from any other the page sends meanwhile.
   // `depositTx` (a wrap): the deposit's transaction, whose tip the relay reads so a paid wrap is not counted as free work.
+  // The answer carries `relay`, the relay's state when it took the job (as state() reads it), so a page knows at once that the
+  // job waits on a relay that is holding settles ('held'), paused or down.
   async function submitOp({ type, op, leaves = [], outputs = null, ephRand, memos = null, mode, feeAsset = null, lockMemos = null, depositTx = null } = {}, waitOpts) {
     const onJob = waitOpts && waitOpts.onJob;
     const sealedMemos = sealFor({ leaves, outputs, ephRand, memos, lockMemos });
@@ -282,8 +314,12 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
   // then leaves the jobId recoverable instead of orphaning the in-flight proof.
   // A proven result carries `memos`: the ones its proof commits to, which settle() must carry exactly (see
   // provenMemos).
+  // The prover is chosen once, per call: `waitOpts.viaRelay` sends this one to the relay whatever useProver holds, and
+  // otherwise the holder's own prover (if set) takes it. A call never reads the shared slot again, so a page that switches
+  // the slot for one action cannot send another action's witness to the relay mid-flight.
   async function prove(opSpec, waitOpts = {}) {
-    if (ownProver) return proveOwn(opSpec, waitOpts);
+    const own = waitOpts && waitOpts.viaRelay ? null : ownProver;
+    if (own) return proveOwn(own, opSpec, waitOpts);
     const r = await submitOp({ ...opSpec, mode: 'prove' }, waitOpts);
     const st = r.status === 'proven' || r.status === 'settled' ? { jobId: r.jobId, ...(await status(r.jobId)) } : await waitForProof(r.jobId, waitOpts);
     return st.status === 'proven' ? { ...st, memos: provenMemos(st, opSpec, r.sealedMemos) } : st;
@@ -336,7 +372,8 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
   }
 
   // ── Proving with the holder's own prover account ──
-  // `useProver(fn)` makes every prove() go to `fn({ type, op, memos, onUpdate })` → { requestId, publicValues, proof }: the
+  // `useProver(fn)` makes every prove() go to `fn({ type, op, memos, onUpdate })` → { requestId, publicValues, proof } (one
+  // whose waitOpts carry `viaRelay: true` still goes to the relay): the
   // holder's own account on the prover network pays for the proof, and nothing about the op reaches the relay. The memos are
   // sealed and checked here exactly as for a relay job (sealFor). The result reads like a relay's proven job, under the id
   // 'spn:<requestId>', and `onJob` fires once the network has the request. useProver(null) goes back to the relay. A
@@ -345,7 +382,7 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
   const OWN_ID = /^spn:/;
   const ownJobs = new Map();                                       // 'spn:<requestId>' -> its last state, for status()
   function useProver(fn) { ownProver = typeof fn === 'function' ? fn : null; }
-  async function proveOwn({ type, op, ...spec }, waitOpts = {}) {
+  async function proveOwn(own, { type, op, ...spec }, waitOpts = {}) {
     const sealedMemos = sealFor(spec);
     let jobId = null;
     const onUpdate = (u = {}) => {
@@ -354,14 +391,19 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
         jobTypes.set(jobId, type);
         if (waitOpts.onJob) { try { waitOpts.onJob(jobId, type); } catch { /* best-effort */ } }
       }
-      if (!jobId) return;
+      // Before the network names the request (the input is still being prepared and sent) there is no job to announce,
+      // but the caller's own progress line still hears it.
+      if (!jobId) {
+        if (waitOpts.onUpdate) { try { waitOpts.onUpdate({ jobId: null, type, status: u.status || 'proving', stage: u.stage || null }); } catch { /* best-effort */ } }
+        return;
+      }
       const st = { jobId, type, status: u.status || 'proving', stage: u.stage || null, error: u.error || null };
       ownJobs.set(jobId, st);
       announce(st);
       if (waitOpts.onUpdate) { try { waitOpts.onUpdate(st); } catch { /* best-effort */ } }
     };
     try {
-      const r = await ownProver({ type, op, memos: sealedMemos, onUpdate });
+      const r = await own({ type, op, memos: sealedMemos, onUpdate });
       if (!jobId) onUpdate({ requestId: r.requestId });
       const st = { jobId, type, status: 'proven', publicValues: r.publicValues, proof: r.proof, memos: sealedMemos, own: true };
       ownJobs.set(jobId, st);
@@ -373,5 +415,5 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     }
   }
 
-  return { submitOp, status, waitForSettle, settle, waitForProof, prove, provenMemos, verifyEmittedMemos, landed, openJobs, postProof, useProver, ownProving: () => !!ownProver };
+  return { submitOp, status, state, waitForSettle, settle, waitForProof, prove, provenMemos, verifyEmittedMemos, landed, openJobs, postProof, useProver, ownProving: () => !!ownProver };
 }

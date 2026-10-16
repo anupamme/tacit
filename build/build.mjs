@@ -178,7 +178,7 @@ const TAC_CB_FILES = ['tac/sats.js', 'tac/market.js', 'tac/claim.js', 'tac/app.j
 // dapp/trade/ is the TAC trade page: its modules are hashed first (the venues module and the order book it imports are the shared ones the
 // front page uses, so their tokens come out the same), then app.js, then the page that loads it.
 const TRADE_CB_FILES = ['trade/tape.js', 'trade/chart.js', 'trade/book.js', 'trade/depth.js', 'trade/wallet.js', 'trade/sheet.js', 'trade/btc-session.js', 'trade/btc.js', 'trade/farm.js', 'trade/app.js', 'trade/index.html',
-  'trade/util.js', 'trade/poolux.js', 'trade/key.js', 'trade/connect.js', 'trade/teth/read.js', 'trade/teth/wrap.js', 'trade/teth/market.js', 'trade/teth/app.js', 'trade/teth/index.html',
+  'trade/util.js', 'trade/poolux.js', 'trade/key.js', 'trade/connect.js', 'trade/teth/read.js', 'trade/teth/wrap.js', 'trade/teth/prover.js', 'trade/teth/market.js', 'trade/teth/app.js', 'trade/teth/index.html',
   'trade/cbtc/read.js', 'trade/cbtc/app.js', 'trade/cbtc/index.html'];
 // dapp/vault/ is the borrow page: the same walk, leaves first (its arithmetic, its chain reads and its addresses), then app.js, then the page.
 const VAULT_CB_FILES = ['vault/math.js', 'vault/deployments.js', 'vault/chain.js', 'vault/app.js', 'vault/index.html'];

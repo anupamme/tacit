@@ -203,6 +203,42 @@ const freshPositionOwner = () => freshPositionKey().owner;
   }
 }
 
+// With the holder's own prover set (relay.useProver), a self-settled farm or CDP op is proved there through relay.prove: the relay's
+// submit is never called, and the settle carries the proof and the memos the own proof committed to.
+{
+  for (const kind of ['bond', 'harvest']) {
+    let proved = null, sent = null;
+    const ownRelay = {
+      ...relay,
+      ownProving: () => true,
+      settle: async () => { throw new Error('an own-proved op is not relay-settled'); },
+      submitOp: async () => { throw new Error('an own-proved op is not submitted to the relay'); },
+      prove: async (spec) => {
+        const memos = guard.sealMemosForOutputs({ outputs: spec.outputs, ephRand: spec.ephRand });
+        guard.assertOutputsRecoverable({ leaves: spec.leaves, outputs: spec.outputs, memos });
+        proved = { type: spec.type, memos };
+        return { jobId: `spn:${kind}`, status: 'proven', publicValues: '0x0a', proof: '0x0b', memos, own: true };
+      },
+    };
+    const mine = makeConfidentialDefiActions({ pool, cdp, farm, relay: ownRelay, id, chainBindingHex, secp });
+    const key = freshPositionKey(), lpAsset = '0x' + 'dd'.repeat(32), rb = randomScalar();
+    const selfSettle = async (x) => { sent = x; return { txHash: '0x' + 'ef'.repeat(32) }; };
+    let r;
+    if (kind === 'bond') {
+      const legNk = randomScalar();
+      const leg = { asset: lpAsset, ...pool.commitXY(100n, rb), value: 100n, blinding: rb, index: 0, path: pool.zeros, owner: pool.nkToOwner(legNk), nk: legNk };
+      r = await mine.bondFarm({ controller, nonce, lpAsset, legs: [leg], spendRoot: '0x' + '22'.repeat(32), receiptOwner: key.owner, selfSettle });
+    } else {
+      const rewardNote = { ...pool.commitXY(45n, rb), blinding: rb };
+      r = await mine.harvestFarm({ controller, shares: 100n, nonce, harvestNonce: '0x' + '86'.repeat(32), reward: 50n, oldIndex: 1, oldPath: pool.zeros, lpAsset, rewardAsset: '0x' + 'ee'.repeat(32), rewardNote, rewardNk: randomScalar(), fee: 5n, spendRoot: '0x' + '22'.repeat(32), receiptOwner: key.owner, receiptOwnerPriv: key.priv, selfSettle });
+    }
+    assert.equal(proved.type, kind === 'bond' ? 'farmbond' : 'farmharvest');
+    assert.equal(sent.publicValues, '0x0a'); assert.equal(sent.proof, '0x0b'); assert.deepEqual(sent.memos, proved.memos);
+    assert.equal(r.txHash, '0x' + 'ef'.repeat(32)); assert.equal(r.jobId, `spn:${kind}`);
+    ok(`${kind}Farm with the holder's own prover: proved through relay.prove, never submitted to the relay, settled from the account`);
+  }
+}
+
 // Memo ephemerals are fresh per memo and never the wallet nk; each memo opens to a note whose nk owns its leaf.
 {
   const sealed = [];
