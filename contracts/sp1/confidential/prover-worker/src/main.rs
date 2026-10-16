@@ -8,6 +8,8 @@
 // Env: BOARD_URL, WORKER_TOKEN (the bearer the API knows this worker by), WORKER_NAME (for the log), CLASSES
 // ("private,public"; the API gives only what the token allows), POLL_MS (default 3000), EXPECT_VKEY (the pool's PROGRAM_VKEY;
 // the worker refuses to start on another), WARM=0 to skip the warm-up proof at start.
+// BENCH=<dir>: no board; every `*.bin` in the directory (a bincode SP1Stdin, as tests/fixtures/sp1-stdin holds them) is
+// proved BENCH_RUNS times (default 3) and the times are printed, cold first. This is how a machine is measured.
 //
 // The prover client and the proving key are built once: the cost of a proof on a warm GPU is the proof, not the start-up.
 
@@ -42,8 +44,9 @@ fn env_or(k: &str, d: &str) -> String {
 }
 
 fn main() {
+    let bench = std::env::var("BENCH").ok();
     let base = env_or("BOARD_URL", "https://api.tacit.finance").trim_end_matches('/').to_string();
-    let token = std::env::var("WORKER_TOKEN").expect("WORKER_TOKEN is the bearer the API knows this worker by");
+    let token = if bench.is_some() { String::new() } else { std::env::var("WORKER_TOKEN").expect("WORKER_TOKEN is the bearer the API knows this worker by") };
     let name = env_or("WORKER_NAME", "worker");
     let classes: Vec<String> = env_or("CLASSES", "private,public").split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
     let poll = Duration::from_millis(env_or("POLL_MS", "3000").parse().expect("POLL_MS"));
@@ -61,6 +64,23 @@ fn main() {
             expect.trim().trim_start_matches("0x").to_lowercase(),
             "EXPECT_VKEY mismatch: this guest is not the pool's program"
         );
+    }
+    if let Some(dir) = bench {
+        let runs: usize = env_or("BENCH_RUNS", "3").parse().expect("BENCH_RUNS");
+        let mut files: Vec<_> = std::fs::read_dir(&dir).expect("BENCH dir").filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.extension().map(|x| x == "bin").unwrap_or(false)).collect();
+        files.sort();
+        for f in files {
+            let bytes = std::fs::read(&f).expect("read");
+            let stdin: SP1Stdin = match bincode::deserialize(&bytes) { Ok(s) => s, Err(e) => { println!("BENCH {} skipped: {e}", f.display()); continue; } };
+            for i in 0..runs {
+                let t = Instant::now();
+                match client.prove(&pk, stdin.clone()).groth16().cycle_limit(512_000_000).run() {
+                    Ok(p) => println!("BENCH {} run {} {:.1} s pv={} proof={}", f.file_name().unwrap().to_string_lossy(), i + 1, t.elapsed().as_secs_f64(), p.public_values.as_slice().len(), p.bytes().len()),
+                    Err(e) => println!("BENCH {} run {} FAILED after {:.1} s: {e}", f.file_name().unwrap().to_string_lossy(), i + 1, t.elapsed().as_secs_f64()),
+                }
+            }
+        }
+        return;
     }
     if env_or("WARM", "1") == "1" {
         // A first proof builds the recursion and wrap provers and loads the Groth16 artifacts; done now, not on a user's job.

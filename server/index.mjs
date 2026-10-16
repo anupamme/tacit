@@ -80,6 +80,10 @@ env.memGuard = memGuard;
 if (process.env.DATABASE_URL) {
   const { runReflectionJob } = await import('./reflection-job-thread.mjs');
   env.assembleReflectionJobOffThread = runReflectionJob;
+  // The burn-deposit pre-flight check verifies a whole lineage in JavaScript; on this thread a deep one held every
+  // request and the health check for over a minute (2026-10-16).
+  const { runBurnDepositCheck } = await import('./burndep-check-thread.mjs');
+  env.burnDepositCheckOffThread = runBurnDepositCheck;
 }
 
 const port = Number(process.env.PORT) || 8787;

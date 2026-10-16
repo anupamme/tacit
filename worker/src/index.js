@@ -2402,18 +2402,28 @@ async function handleBurnDepositCheck(req, env, url, cors) {
   const network = url.searchParams.get('network') === 'signet' ? 'signet' : 'mainnet';
   let body;
   try { body = await req.json(); } catch { return jsonResponse({ ok: false, error: 'bad json' }, 400, cors); }
+  // The check verifies every hop of the note's lineage (range proofs, kernels, the header chain) in plain JavaScript: tens
+  // of seconds of CPU for a deep lineage, which on this thread holds every other request and the health check with it.
+  // The server runs it on a worker thread (env.burnDepositCheckOffThread, server/burndep-check-thread.mjs); without one
+  // (tests, the in-memory driver) it runs here.
+  const out = env.burnDepositCheckOffThread ? await env.burnDepositCheckOffThread(network, body) : await burnDepositCheckOutcome(env, network, body);
+  const headers = { ...cors, 'Cache-Control': 'no-store', ...(out.retryAfter ? { 'Retry-After': String(out.retryAfter) } : {}) };
+  return jsonResponse(out.body, out.status, headers);
+}
+// The check itself: → { status, body }, with nothing of the request or the response in it, so a worker thread can run it.
+export async function burnDepositCheckOutcome(env, network, body) {
   const bundle = body && body.bundle;
-  if (!bundle || typeof bundle !== 'object') return jsonResponse({ ok: false, error: 'missing bundle object' }, 400, cors);
+  if (!bundle || typeof bundle !== 'object') return { status: 400, body: { ok: false, error: 'missing bundle object' } };
   const burned = bundle.burned;
   const HEX32 = /^(0x)?[0-9a-fA-F]{64}$/;
   if (!burned || !HEX32.test(String(burned.cx || '')) || !HEX32.test(String(burned.cy || ''))) {
-    return jsonResponse({ ok: false, error: "bundle.burned {cx, cy} (32-byte hex) required — the note's own opening" }, 400, cors);
+    return { status: 400, body: { ok: false, error: "bundle.burned {cx, cy} (32-byte hex) required — the note's own opening" } };
   }
   const burnedCx = withHex(burned.cx), burnedCy = withHex(burned.cy);
   const burnTxHexIn = body.burnTxHex ? String(body.burnTxHex) : null;
   const noteIn = body.note;
   if (!!burnTxHexIn === !!noteIn) {
-    return jsonResponse({ ok: false, error: 'pass exactly one of burnTxHex (a real burn tx) or note {txid, vout} (a pre-flight probe)' }, 400, cors);
+    return { status: 400, body: { ok: false, error: 'pass exactly one of burnTxHex (a real burn tx) or note {txid, vout} (a pre-flight probe)' } };
   }
 
   const deps = { secp, keccak256: keccak_256, sha256 };
@@ -2422,21 +2432,21 @@ async function handleBurnDepositCheck(req, env, url, cors) {
 
   let burnTxHex, envAsset, envNu;
   if (burnTxHexIn) {
-    if (!/^(0x)?[0-9a-fA-F]+$/.test(burnTxHexIn)) return jsonResponse({ ok: false, error: 'burnTxHex must be hex' }, 400, cors);
+    if (!/^(0x)?[0-9a-fA-F]+$/.test(burnTxHexIn)) return { status: 400, body: { ok: false, error: 'burnTxHex must be hex' } };
     burnTxHex = withHex(burnTxHexIn);
     let decode;
     try { decode = classifyConfidentialTx(burnTxHex); } catch { decode = null; }
-    if (!decode || decode.type !== 'burn') return jsonResponse({ ok: false, error: 'burnTxHex does not classify as a 0x2B burn envelope' }, 400, cors);
+    if (!decode || decode.type !== 'burn') return { status: 400, body: { ok: false, error: 'burnTxHex does not classify as a 0x2B burn envelope' } };
     envAsset = decode.assetId;
     envNu = decode.nullifier;
   } else {
     const noteTxid = String((noteIn && noteIn.txid) || '').replace(/^0x/, '').toLowerCase();
     const noteVout = Number(noteIn && noteIn.vout);
     if (!/^[0-9a-f]{64}$/.test(noteTxid) || !Number.isInteger(noteVout) || noteVout < 0) {
-      return jsonResponse({ ok: false, error: 'note.{txid,vout} required (32-byte display-hex txid, non-negative integer vout)' }, 400, cors);
+      return { status: 400, body: { ok: false, error: 'note.{txid,vout} required (32-byte display-hex txid, non-negative integer vout)' } };
     }
     const assetIdHex = String(body.assetId || '').replace(/^0x/, '').toLowerCase();
-    if (!/^[0-9a-f]{64}$/.test(assetIdHex)) return jsonResponse({ ok: false, error: 'assetId required (32-byte hex) alongside note' }, 400, cors);
+    if (!/^[0-9a-f]{64}$/.test(assetIdHex)) return { status: 400, body: { ok: false, error: 'assetId required (32-byte hex) alongside note' } };
     envAsset = '0x' + assetIdHex;
     burnTxHex = buildProbeBurnTxHex(noteTxid, noteVout);
     const leaf = kit.burnDepositLeaf(envAsset, burnedCx, burnedCy, withHex(revHex(noteTxid)), noteVout);
@@ -2445,7 +2455,7 @@ async function handleBurnDepositCheck(req, env, url, cors) {
 
   const snap = await getReflectionSnapshotForStatus(env, network);
   const anchorHeight = snap && Number.isInteger(snap.attestedHeight) ? snap.attestedHeight : null;
-  if (anchorHeight == null) return jsonResponse({ ok: false, error: 'no reflection state available yet to check against' }, 409, cors);
+  if (anchorHeight == null) return { status: 409, body: { ok: false, error: 'no reflection state available yet to check against' } };
 
   const admission = makeBurndepAdmission({ env, api: apiText, apiRawBytes, network, kit, deps });
   let enriched, withHeaders;
@@ -2453,7 +2463,7 @@ async function handleBurnDepositCheck(req, env, url, cors) {
     enriched = await admission.enrichBurnDeposit(bundle);
     withHeaders = await admission.buildOrExtendProvHeaders(enriched, anchorHeight);
   } catch (e) {
-    return jsonResponse({ ok: false, error: `bundle enrichment failed: ${e && e.message || e}` }, 502, { ...cors, 'Cache-Control': 'no-store' });
+    return { status: 502, body: { ok: false, error: `bundle enrichment failed: ${e && e.message || e}` } };
   }
   const provHeaders = Array.isArray(withHeaders.provHeaders) ? withHeaders.provHeaders : [];
   const hops = (withHeaders.cxfers || []).length;
@@ -2478,12 +2488,12 @@ async function handleBurnDepositCheck(req, env, url, cors) {
   try {
     verdict = admission.admit({ burnTxHex, envAsset, envNu, blobHex, provHeaders, burnedCx, burnedCy, batchPrevHash });
   } catch (e) {
-    return jsonResponse({ ok: true, network, admitted: false, reason: `admission check threw: ${e && e.message || e}`, hops, headerChainLength: provHeaders.length, anchorHeight }, 200, { ...cors, 'Cache-Control': 'no-store' });
+    return { status: 200, body: { ok: true, network, admitted: false, reason: `admission check threw: ${e && e.message || e}`, hops, headerChainLength: provHeaders.length, anchorHeight } };
   }
-  return jsonResponse({
+  return { status: 200, body: {
     ok: true, network, admitted: !!verdict.admitted, reason: verdict.reason,
     hops, headerChainLength: provHeaders.length, anchorHeight,
-  }, 200, { ...cors, 'Cache-Control': 'no-store' });
+  } };
 }
 
 // Auto-completes pending burn-deposits from pure on-chain data — the same two steps a holder would run
