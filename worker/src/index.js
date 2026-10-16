@@ -15492,12 +15492,19 @@ const crossoutTxKey = (network, txid) => `crossout-tx:${network}:${String(txid).
 // whose vout-0 leaf the pool recorded for its claim. Where the deployment names its cross-out slots that is read
 // from the pools' own storage (cc.mintStatus), so a claim no pool holds is rejected at once and only a pool that
 // cannot be read, or a cross-out not yet finalized, holds the scan; elsewhere it is the consumer's logged record.
-// A later tx never replaces an earlier one; an earlier one replaces a later one. Returns { status, leaf }.
+// A later tx never replaces an earlier one; an earlier one replaces a later one. A tx once recorded minted stays
+// minted: finalized storage never drops a leaf, so a later read that fails or lags cannot demote it. Returns
+// { status, leaf }.
 async function recordCrossoutMint(env, network, cc, { cm, txidHex, tx, height, txIndex }) {
   const leaf = crossoutMintLeaf(keccak_256, { ...cm, destScriptPubKey: tx?.vout?.[0]?.scriptpubkey });
-  const onChain = leaf && cc.mintStatus ? await cc.mintStatus(cm.claimId, leaf) : null;
-  const recorded = leaf && onChain == null ? await cc.consumer.getRecorded(network, cm.claimId) : null;
-  const status = !leaf ? 'rejected'
+  const key = crossoutMintedKey(network, cm.assetId, cm.claimId);
+  const prev = await env.REGISTRY_KV.get(key, 'json').catch(() => null);
+  const same = prev && String(prev.txid).toLowerCase() === txidHex;
+  const settled = same && prev.status === 'minted';
+  const onChain = !settled && leaf && cc.mintStatus ? await cc.mintStatus(cm.claimId, leaf) : null;
+  const recorded = !settled && leaf && onChain == null ? await cc.consumer.getRecorded(network, cm.claimId) : null;
+  const status = settled ? 'minted'
+    : !leaf ? 'rejected'
     : onChain != null ? (onChain === 'pending' ? 'pending-reflection' : onChain)
     : !recorded ? 'pending-reflection'
     : String(recorded.destCommitment).toLowerCase() !== String(leaf).toLowerCase() ? 'rejected'
@@ -15505,11 +15512,8 @@ async function recordCrossoutMint(env, network, cc, { cm, txidHex, tx, height, t
   if (status === 'minted' && recorded && recorded.status !== 'consumed') await cc.consumer.bindBitcoinOutput({ network, claimId: cm.claimId, outputLeaf: leaf }).catch(() => null);
   const txKey = crossoutTxKey(network, txidHex);
   if ((await env.REGISTRY_KV.get(txKey).catch(() => null)) !== status) await env.REGISTRY_KV.put(txKey, status);
-  const key = crossoutMintedKey(network, cm.assetId, cm.claimId);
-  const prev = await env.REGISTRY_KV.get(key, 'json').catch(() => null);
   const earlier = !prev || !Number.isInteger(prev.height) || !Number.isInteger(prev.txIndex)
     || height < prev.height || (height === prev.height && txIndex < prev.txIndex);
-  const same = prev && String(prev.txid).toLowerCase() === txidHex;
   let write;
   if (!prev) write = true;
   else if (same) write = prev.status !== status || prev.height !== height || prev.txIndex !== txIndex;

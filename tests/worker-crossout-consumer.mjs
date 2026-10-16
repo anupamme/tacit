@@ -159,7 +159,10 @@ const u256 = (v) => BigInt(v).toString(16).padStart(64, '0');
   verdict = 'pending';
   const r4 = await recordCrossoutMint(env, 'mainnet', cc, { cm: { ...cm, claimId: b32('claimS') }, txidHex: 'dd'.repeat(32), tx, height: 210, txIndex: 0 });
   assert.strictEqual(r4.status, 'pending-reflection', 'not yet finalized: the scan holds');
-  ok('recordCrossoutMint takes the storage verdict and keeps the earliest minting tx per claim');
+  const r5 = await recordCrossoutMint(env, 'mainnet', cc, { cm, txidHex: 'aa'.repeat(32), tx, height: 190, txIndex: 1 });
+  assert.strictEqual(r5.status, 'minted', 'a recorded mint stays minted when a later read cannot see finalized state');
+  assert.strictEqual(JSON.parse(map.get(key)).status, 'minted', 'and its record is not demoted');
+  ok('recordCrossoutMint takes the storage verdict, keeps the earliest minting tx per claim, and never demotes a recorded mint');
 
   // GET /crossout/minted: a tx that is not its claim's record is decided by its own verdict.
   const { handleCrossoutMinted } = await import('../worker/src/index.js');
