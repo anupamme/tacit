@@ -20391,8 +20391,8 @@ function _triggerStealthAutoScanInBackground(holdings) {
     .map(([aid]) => aid);
   // Microtask-defer the walk so the calling scanHoldings response settles
   // first; the holdings render lands immediately, the background scan hums
-  // after.
-  (async () => {
+  // after. The promise is returned for a caller that wants to wait for it.
+  return (async () => {
     const pill = document.getElementById('stealth-scan-status');
     const showPill = (text) => { if (pill) { pill.style.display = ''; pill.textContent = text; } };
     const hidePill = () => { if (pill) { pill.style.display = 'none'; pill.textContent = ''; } };
@@ -20498,17 +20498,24 @@ function _triggerStealthAutoScanInBackground(holdings) {
             // Filter to txids whose asset_id is in our candidate set, then
             // trial-derive each. ~1 round-trip + per-tx ECDH cost instead
             // of N round-trips.
-            const filtered = entries.filter(e => e && typeof e.txid === 'string' && allowed.has(String(e.aid || '').toLowerCase()));
+            // A transfer ruled out in the last 24 h (the record the per-asset walk keeps) is not read again.
+            const filtered = entries.filter(e => e && typeof e.txid === 'string' && allowed.has(String(e.aid || '').toLowerCase())
+              && !isStealthTxidSeen(String(e.aid).toLowerCase(), e.txid));
             showPill(`scanning shielded · discover 0/${filtered.length}`);
             let i = 0;
-            for (const e of filtered) {
-              i++;
-              try {
-                const creds = await discoverStealthFromTxid(e.txid, { merge: true });
-                totalFound += creds.length;
-              } catch { failureCount++; }
-              attempts++;
-              showPill(`scanning shielded · discover ${i}/${filtered.length}`);
+            // A few at a time, as the per-asset walk reads them.
+            for (let w = 0; w < filtered.length; w += _STEALTH_AUTO_SCAN_DISCOVER_CONCURRENCY) {
+              await Promise.all(filtered.slice(w, w + _STEALTH_AUTO_SCAN_DISCOVER_CONCURRENCY).map(async (e) => {
+                let clean = false;
+                try {
+                  const creds = await discoverStealthFromTxid(e.txid, { merge: true });
+                  totalFound += creds.length;
+                  clean = true;
+                } catch (err) { if (err?.notShielded) clean = true; else failureCount++; }
+                if (clean) markStealthTxidSeen(String(e.aid).toLowerCase(), e.txid);
+                attempts++; i++;
+                showPill(`scanning shielded · discover ${i}/${filtered.length}`);
+              }));
             }
             globalIndexUsed = true;
           }
@@ -79791,7 +79798,7 @@ export {
   _burndepUxSingleton as bridgeUx, _crossoutUxSingleton as crossoutUx, _crossoutNotesSingleton as crossoutNotes, pickSafeCommitSats,
   discoverStealthFromTxid, scanAssetForStealthReceipts,
   recordStealthCredit, getStealthCredit, loadStealthCredits, removeStealthCredit,
-  markStealthTxidSeen, isStealthTxidSeen,
+  markStealthTxidSeen, isStealthTxidSeen, _triggerStealthAutoScanInBackground,
   markStealthActivityLogged, isStealthActivityLogged,
   // primitives — exported so console-driven debug
   // sessions can step through each math layer (classify → aggregate → ECDH
