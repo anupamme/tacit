@@ -63,6 +63,15 @@ export function chartBars({ fine = [], coarse = [] }, period) {
   return rollup([...coarse, ...fine.filter((b) => b.t >= lastCoarse)], period);
 }
 
+// A pool's price moves only when it trades, so a period opens where the one before it closed: each bar's open becomes the close before it
+// (its high and low widened to take that in) instead of its own first trade, whose price includes that trade's impact. The first bar keeps its own.
+export function continuous(bars) {
+  return bars.map((b, i) => {
+    const o = i ? bars[i - 1].close : b.open;
+    return o === b.open ? b : { ...b, open: o, high: Math.max(b.high, o), low: b.low > 0 ? Math.min(b.low, o) : o };
+  });
+}
+
 // ETH traded from `from` to `to` (unix seconds): the 5-minute bars where the tape holds them (they reach back about a day), and the
 // 4-hour bars before them, a bucket that only partly falls in the window counted for its share of the time. A bucket that began
 // before the window is therefore not dropped whole, and the stretch the 5-minute bars cover is never counted twice.

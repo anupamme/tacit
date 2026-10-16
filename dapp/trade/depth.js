@@ -2,13 +2,14 @@
 // asks climbing to the right of the middle and bids to the left, with the part an amount would fill drawn heavier. SVG only (the page's
 // CSP allows no library). Both order books use it: the Bitcoin book's listings and zSwap's boards on Ethereum.
 //
-// update({ asks, bids, take, priceFmt, sizeFmt, label }):
+// update({ asks, bids, take, priceFmt, sizeFmt, valueFmt, label }):
 //   asks / bids: [{ price, size, ...anything }] one entry per order or per level, `size` in TAC (a number), `price` in whatever unit the axis is in
 //   take: { side: 'ask' | 'bid', size } the amount an order would fill, highlighted from the best price outward
+//   valueFmt: a total in the price's unit (what the orders up to a price come to; default priceFmt)
 //   onPick(level, side) is called with the order a click lands on.
 
-import { niceTicks } from '/trade/chart.js?cb=e2110e58';
-import { cumulative } from '/trade/book.js?cb=3324d19b';
+import { niceTicks } from '/trade/chart.js?cb=63bbd8a9';
+import { cumulative } from '/trade/book.js?cb=577d1f94';
 
 const NS = 'http://www.w3.org/2000/svg';
 const el = (name, attrs = {}, kids = []) => {
@@ -23,7 +24,7 @@ export function mountDepth(host, { onPick = null } = {}) {
   host.classList.add('depth-chart');
   const draw = () => {
     if (!opts || !size.w) return;
-    const { asks = [], bids = [], take = null, priceFmt = String, sizeFmt = String, label = 'Order book', empty = 'No orders.' } = opts;
+    const { asks = [], bids = [], take = null, priceFmt = String, sizeFmt = String, valueFmt = priceFmt, label = 'Order book', empty = 'No orders.' } = opts;
     host.replaceChildren();
     const A = cumulative(asks, 'ask'), B = cumulative(bids, 'bid');
     if (!A.length && !B.length) { host.append(Object.assign(document.createElement('p'), { className: 'chart-empty', textContent: empty })); return; }
@@ -85,8 +86,10 @@ export function mountDepth(host, { onPick = null } = {}) {
       const n = nearest(e);
       if (!n) return;
       cross.setAttribute('x1', X(n.step.price)); cross.setAttribute('x2', X(n.step.price)); cross.setAttribute('visibility', 'visible');
+      // What a taker gets by going this far into the book: everything from the best price to this one, what it comes to and its average price.
       tip.hidden = false;
-      tip.innerHTML = `<b>${n.side === 'ask' ? 'Sell' : 'Buy'} ${sizeFmt(n.step.size)}</b> at ${priceFmt(n.step.price)}<br><i>${sizeFmt(n.step.cum)} in all up to here${n.step.orders.length > 1 ? ` · ${n.step.orders.length} orders` : ''}</i>`;
+      const s = n.step, ask = n.side === 'ask', count = (ask ? A : B).slice(0, (ask ? A : B).indexOf(s) + 1).reduce((k, x) => k + x.orders.length, 0);
+      tip.innerHTML = `<b>${ask ? 'Buy' : 'Sell'} ${sizeFmt(s.cum)}</b> ${ask ? 'up' : 'down'} to ${priceFmt(s.price)}${count > 1 ? ` · ${count} orders` : ''}<br><i>${valueFmt(s.value)} in all · average ${priceFmt(s.value / s.cum)}</i>`;
       const tw = tip.offsetWidth || 180;
       tip.style.left = `${Math.max(4, Math.min(W - tw - 4, X(n.step.price) + 10))}px`; tip.style.top = `${m.t + 6}px`;
     });

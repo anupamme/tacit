@@ -4,8 +4,9 @@
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
 import {
-  TAPE_FINE, TAPE_COARSE, unpackFloat, decodeBar, decodeTape, invert, scale, rollup, chartBars, tradePrices, candlesFromTrades, ethLaneUsd, btcLaneUsd, gap, closeAt, volumeSince,
+  TAPE_FINE, TAPE_COARSE, unpackFloat, decodeBar, decodeTape, invert, scale, rollup, chartBars, continuous, tradePrices, candlesFromTrades, ethLaneUsd, btcLaneUsd, gap, closeAt, volumeSince,
 } from '../dapp/trade/tape.js';
+import { cumulative } from '../dapp/trade/book.js';
 
 let n = 0;
 const ok = (s) => { console.log('  ok -', s); n++; };
@@ -77,6 +78,32 @@ const coarse = decodeTape(fx.coarse, TAPE_COARSE), fine = decodeTape(fx.fine, TA
   assert.equal(four.at(-1).t, Math.floor(fine.at(-1).t / TAPE_COARSE) * TAPE_COARSE);
   if (fine.at(-1).t >= lastCoarseEnd) assert.ok(four.at(-1).t >= lastCoarseEnd, 'the live edge is covered by the 5-minute bars the 4-hour tape has not folded yet');
   ok('inversion, roll-ups (every trade kept, open/close/extremes right) and the merge of the two tapes at the live edge');
+}
+
+// ── candles of a pool: each opens where the one before closed ──
+{
+  const c = continuous(coarse);
+  assert.equal(c.length, coarse.length);
+  assert.deepEqual(c[0], coarse[0], 'the first bar keeps its own open');
+  for (let i = 1; i < c.length; i++) {
+    const b = c[i], was = coarse[i];
+    assert.equal(b.open, coarse[i - 1].close, 'each bar opens at the close before it');
+    assert.ok(b.close === was.close && b.vol === was.vol && b.n === was.n && b.t === was.t, 'its close, volume, trades and time are its own');
+    assert.ok(b.high >= Math.max(was.high, b.open) && b.low <= Math.min(was.low, b.open) && b.low > 0, 'its high and low take in the open');
+  }
+  const gaps = coarse.filter((b, i) => i && b.open !== coarse[i - 1].close).length;
+  assert.ok(gaps > 10, `the tape's own opens leave gaps between candles (${gaps}), which the continuous candles close`);
+  assert.deepEqual(continuous([]), []);
+  ok(`continuous candles from the real tape: each opens at the close before it (closing ${gaps} gaps), the rest of each bar its own`);
+}
+
+// ── the order book's staircase ──
+{
+  const steps = cumulative([{ price: 0.2, size: 10 }, { price: 0.1, size: 5 }, { price: 0.2, size: 5 }, { price: 0.3, size: 1 }, { price: 0, size: 9 }], 'ask');
+  assert.deepEqual(steps.map((x) => [x.price, x.size, x.cum, x.orders.length]), [[0.1, 5, 5, 1], [0.2, 15, 20, 2], [0.3, 1, 21, 1]], 'asks from the cheapest, one step a price, a zero price left out');
+  assert.ok(Math.abs(steps[1].value - (5 * 0.1 + 15 * 0.2)) < 1e-12 && Math.abs(steps[2].value / steps[2].cum - (0.5 + 3 + 0.3) / 21) < 1e-12, 'each step carries what every order up to it comes to, so its average price');
+  assert.deepEqual(cumulative([{ price: 0.1, size: 1 }, { price: 0.3, size: 2 }], 'bid').map((x) => x.price), [0.3, 0.1], 'bids from the dearest');
+  ok('the order book as a staircase: sizes and values added up from the best price outward');
 }
 
 // ── the Bitcoin lane ──

@@ -38,20 +38,31 @@ export const fmtLocalTime = (t, withDay) => { const d = new Date(t * 1000); retu
 export const fmtLocalStamp = (t) => { const d = new Date(t * 1000); return `${d.getDate()} ${MON[d.getMonth()]} ${p2(d.getHours())}:${p2(d.getMinutes())} ${zoneName(d)}`.trim(); };
 export const fmtStamp = (t) => { const d = new Date(t * 1000); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())} UTC`; };
 
+// The bar whose middle is nearest `t`, in bars sorted by time.
+function nearestBar(bars, t, period) {
+  let lo = 0, hi = bars.length - 1;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (bars[mid].t + period / 2 < t) lo = mid + 1; else hi = mid; }
+  const a = bars[lo], b = bars[lo - 1];
+  return b && Math.abs(b.t + period / 2 - t) <= Math.abs(a.t + period / 2 - t) ? b : a;
+}
+
 // opts: {
 //   series: [{ id, name, color, kind: 'candles' | 'line', area, bars: [{ t, open, high, low, close, vol }], fmt: (price) => string, unit }],
 //           a line with `area` is drawn as the market page's is: shaded under it, its volume beneath, a dot on its last price
+//           tickFmt: (step) => (price) => string, the price axis's labels for ticks `step` apart (default: fmt)
 //   period: seconds a bar spans (sets candle width),
 //   tags:   [{ y, label, color }]   price marks at the right edge (the same unit as the first series' prices)
 //   label:  the chart's accessible name
 //   empty:  what is said when there is nothing to draw (default: no trades yet)
+//   minSpan: the least the price axis spans, as a share of the price (a price that barely moves is drawn flat, not as a cliff)
+//   readout: the page reads the bar under the pointer itself (`onHover` gets each series' bar there), so no box is drawn over the chart
 // }
 export function mountChart(host, onHover = null) {
   let opts = null, size = { w: 0, h: 0 }, tip = null;
   host.classList.add('chart');
   const draw = () => {
     if (!opts || !size.w) return;
-    const { series = [], period = 3600, tags = [], label = 'Price chart', log = false } = opts, all = series.flatMap((s) => s.bars);
+    const { series = [], period = 3600, tags = [], label = 'Price chart', log = false, minSpan = 0, readout = false } = opts, all = series.flatMap((s) => s.bars);
     host.replaceChildren();
     const W = size.w, H = size.h, m = { l: 8, r: 64, t: 10, b: 24 };
     if (!all.length) { host.append(Object.assign(document.createElement('p'), { className: 'chart-empty', textContent: opts.empty || 'No trades to draw yet.' })); return; }
@@ -65,6 +76,7 @@ export function mountChart(host, onHover = null) {
     const room = (hi - lo || hi * 0.1) * 0.5;
     lo = Math.max(Math.min(...ranged.map((b) => b.low ?? b.close)), lo - room); hi = Math.min(Math.max(...ranged.map((b) => b.high ?? b.close)), hi + room);
     for (const tg of tags) { lo = Math.min(lo, tg.y); hi = Math.max(hi, tg.y); }
+    if (minSpan > 0 && hi - lo < ((hi + lo) / 2) * minSpan) { const c = (hi + lo) / 2, h = (c * minSpan) / 2; lo = Math.max(0, c - h); hi = c + h; }
     if (log && lo > 0) { const k = (hi / lo) ** 0.04; lo /= k; hi *= k; } else { const pad = (hi - lo || hi * 0.1) * 0.06; lo = Math.max(0, lo - pad); hi += pad; }
     const pw = W - m.l - m.r, ph = H - m.t - m.b, volH = ph * 0.16;
     const useLog = log && lo > 0, lg = useLog ? Math.log : (x) => x;
@@ -74,10 +86,13 @@ export function mountChart(host, onHover = null) {
     svg.append(el('defs', {}, el('clipPath', { id: 'chart-clip' }, el('rect', { x: m.l, y: m.t, width: pw, height: H - m.t }))));
     const plot = el('g', { 'clip-path': 'url(#chart-clip)' }), marks = [];
     // grid and the price axis
-    const ticks = useLog ? logTicks(lo, hi) : niceTicks(lo, hi, Math.max(3, Math.round(ph / 56)));
-    for (const v of (ticks.length > 1 ? ticks : niceTicks(lo, hi, 4))) {
+    const ticks0 = useLog ? logTicks(lo, hi) : niceTicks(lo, hi, Math.max(3, Math.round(ph / 56))), ticks = ticks0.length > 1 ? ticks0 : niceTicks(lo, hi, 4);
+    const pstep = ticks.length > 1 ? ticks[1] - ticks[0] : 0, even = !useLog && pstep > 0;
+    const tickF = even && first?.tickFmt ? first.tickFmt(pstep) : f;                                  // even steps are labelled to the places the step needs
+    const pointF = (s) => (even && s.tickFmt ? s.tickFmt(pstep / 10) : s.fmt || f);                   // a price read off the axis: a place finer than its labels
+    for (const v of ticks) {
       svg.append(el('line', { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), class: 'grid' }));
-      if (!tags.some((tg) => Math.abs(Y(tg.y) - Y(v)) < 15)) svg.append(el('text', { x: W - m.r + 6, y: Y(v) + 4, class: 'axis' }, f(v)));         // a price tag covers a label this close to it
+      if (!tags.some((tg) => Math.abs(Y(tg.y) - Y(v)) < 15)) svg.append(el('text', { x: W - m.r + 6, y: Y(v) + 4, class: 'axis' }, tickF(v)));         // a price tag covers a label this close to it
     }
     // the time axis: about one label per 110px
     const days = (t1 - t0) > 2 * 86400, step = Math.max(1, Math.ceil((t1 - t0) / (pw / 110)));
@@ -115,12 +130,12 @@ export function mountChart(host, onHover = null) {
         if (s.area) {
           const [lx, ly] = pts.at(-1).split(',');
           marks.push(el('circle', { cx: lx, cy: ly, r: 8, class: 'halo', style: `fill:${s.color}` }), el('circle', { cx: lx, cy: ly, r: 3.5, class: 'lastdot', style: `fill:${s.color}` }));       // outside the plot's clip, so the halo is whole at the edge
-          // the highest and lowest close drawn, named at their points (a line of closes, so a dust trade's wick never sets them)
+          // the highest and lowest close drawn, named at their points (a line of closes, so a dust trade's wick never sets them), when they read differently
           if (s.bars.length > 8) {
             let iHi = 0, iLo = 0;
             s.bars.forEach((b, i) => { if (b.close > s.bars[iHi].close) iHi = i; if (b.close < s.bars[iLo].close) iLo = i; });
             for (const [i, kind] of [[iHi, 'hi'], [iLo, 'lo']]) {
-              if (iHi === iLo) break;
+              if (iHi === iLo || s.fmt(s.bars[iHi].close) === s.fmt(s.bars[iLo].close)) break;
               const [px, py] = pts[i].split(',').map(Number), left = px < W * 0.22, right = px > W - m.r - 70, up = kind === 'hi';
               marks.push(el('circle', { cx: px, cy: py, r: 2.5, class: 'markdot', style: `stroke:${s.color}` }),
                 el('text', { x: left ? px + 6 : right ? px - 6 : px, y: up ? Math.max(m.t + 10, py - 8) : Math.min(H - m.b - volH - 4, py + 15), class: `mark ${kind}`, 'text-anchor': left ? 'start' : right ? 'end' : 'middle' }, s.fmt(s.bars[i].close)));
@@ -131,14 +146,20 @@ export function mountChart(host, onHover = null) {
       }
     }
     svg.append(plot, ...marks);
-    // price tags at the right edge
+    // price tags at the right edge, each box as wide as its label
+    const boxW = (text) => Math.max(m.r - 4, String(text).length * 6 + 8);
     for (const tg of tags) {
+      const w = boxW(tg.label);
       svg.append(el('line', { x1: m.l, x2: W - m.r, y1: Y(tg.y), y2: Y(tg.y), class: 'tagline', style: `stroke:${tg.color}` }),
-        el('rect', { x: W - m.r + 2, y: Y(tg.y) - 8, width: m.r - 4, height: 16, class: 'tagbox', style: `fill:${tg.color}` }),
-        el('text', { x: W - m.r + 6, y: Y(tg.y) + 4, class: 'tagtext' }, tg.label));
+        el('rect', { x: W - w - 2, y: Y(tg.y) - 8, width: w, height: 16, class: 'tagbox', style: `fill:${tg.color}` }),
+        el('text', { x: W - w + 2, y: Y(tg.y) + 4, class: 'tagtext' }, tg.label));
     }
-    // the crosshair
-    const cross = el('g', { class: 'cross', visibility: 'hidden' }, [el('line', { class: 'cv', y1: m.t, y2: H - m.b }), el('line', { class: 'ch', x1: m.l, x2: W - m.r }), el('circle', { class: 'cd', r: 4.5, visibility: 'hidden' })]);
+    // the crosshair: its lines, a dot on each line it crosses, and its price and time on the axes
+    const half = (period / (t1 - t0 || 1)) * pw / 2;
+    const Yv = (y) => { const k = 1 - (y - m.t) / (ph - volH * 0.4), L = lg(lo) + k * (lg(hi) - lg(lo)); return Math.max(0, useLog ? Math.exp(L) : L); };
+    const dots = series.map(() => el('circle', { class: 'cd', r: 4.5, visibility: 'hidden' }));
+    const yl = el('rect', { class: 'clab', height: 16 }), yt = el('text', { class: 'clabt' }), xl = el('rect', { class: 'clab', height: 17 }), xt = el('text', { class: 'clabt', 'text-anchor': 'middle' });
+    const cross = el('g', { class: 'cross', visibility: 'hidden' }, [el('line', { class: 'cv', y1: m.t, y2: H - m.b }), el('line', { class: 'ch', x1: m.l, x2: W - m.r }), ...dots, yl, yt, xl, xt]);
     svg.append(cross);
     const hit = el('rect', { x: m.l, y: m.t, width: pw, height: ph, fill: 'transparent', style: 'cursor:crosshair; touch-action: pan-y' });
     svg.append(hit);
@@ -146,20 +167,31 @@ export function mountChart(host, onHover = null) {
     let cur = null;
     const move = (e) => {
       const r = svg.getBoundingClientRect(), x = e.clientX - r.left, t = t0 + ((x - m.l) / pw) * (t1 - t0);
-      const rows = series.map((s) => { let best = null; for (const b of s.bars) if (!best || Math.abs(b.t + period / 2 - t) < Math.abs(best.t + period / 2 - t)) best = b; return best && { s, b: best }; }).filter(Boolean);
-      show(rows.sort((a, b) => Math.abs(a.b.t - t) - Math.abs(b.b.t - t))[0], rows);
+      const rows = series.map((s) => (s.bars.length ? { s, b: nearestBar(s.bars, t, period) } : null)).filter(Boolean);
+      show([...rows].sort((a, b) => Math.abs(a.b.t - t) - Math.abs(b.b.t - t))[0], rows, e.clientY - r.top);
     };
-    function show(near, rows = null) {
+    // `py`: where the pointer is. Over candles the level line follows it (a price can be read anywhere); over a line it sits on the bar's price.
+    function show(near, rows = null, py = null) {
       if (!near) return;
       cur = near;
-      rows ||= [near];
-      const cx = X(near.b.t) + (period / (t1 - t0 || 1)) * pw / 2;
+      rows ||= series.map((s) => (s === near.s ? near : s.bars.length ? { s, b: nearestBar(s.bars, near.b.t + period / 2, period) } : null)).filter(Boolean);
+      const cx = X(near.b.t) + half, candle = near.s.kind === 'candles';
       cross.setAttribute('visibility', 'visible');
       cross.querySelector('.cv').setAttribute('x1', cx); cross.querySelector('.cv').setAttribute('x2', cx);
-      const cy = Y(near.b.close); cross.querySelector('.ch').setAttribute('y1', cy); cross.querySelector('.ch').setAttribute('y2', cy);
-      const dot = cross.querySelector('.cd'), quiet = series.length === 1 && near.s.area && onHover;
-      dot.setAttribute('visibility', quiet ? 'visible' : 'hidden');
-      if (quiet) { dot.setAttribute('cx', cx); dot.setAttribute('cy', cy); dot.style.stroke = near.s.color; onHover(near); tip.hidden = true; return; }
+      const cy = candle && py != null ? Math.max(m.t, Math.min(H - m.b, py)) : Y(near.b.close);
+      cross.querySelector('.ch').setAttribute('y1', cy); cross.querySelector('.ch').setAttribute('y2', cy);
+      const ytxt = pointF(near.s)(candle && py != null ? Yv(cy) : near.b.close), yw = boxW(ytxt);
+      yl.setAttribute('x', W - yw - 2); yl.setAttribute('y', cy - 8); yl.setAttribute('width', yw); yt.setAttribute('x', W - yw + 2); yt.setAttribute('y', cy + 4); yt.textContent = ytxt;
+      const d = new Date(near.b.t * 1000), xtxt = period >= 86400 ? fmtLocalTime(near.b.t, true) : `${d.getDate()} ${MON[d.getMonth()]} ${p2(d.getHours())}:${p2(d.getMinutes())}`, xw = xtxt.length * 6 + 12;
+      const xx = Math.max(m.l, Math.min(W - m.r - xw, cx - xw / 2));
+      xl.setAttribute('x', xx); xl.setAttribute('y', H - m.b + 3); xl.setAttribute('width', xw); xt.setAttribute('x', xx + xw / 2); xt.setAttribute('y', H - 7); xt.textContent = xtxt;
+      const quiet = onHover && (readout || (series.length === 1 && near.s.area));
+      series.forEach((s, i) => {
+        const row = quiet && s.kind !== 'candles' ? rows.find((x) => x.s === s) : null;
+        dots[i].setAttribute('visibility', row ? 'visible' : 'hidden');
+        if (row) { dots[i].setAttribute('cx', X(row.b.t) + half); dots[i].setAttribute('cy', Y(row.b.close)); dots[i].style.stroke = s.color; }
+      });
+      if (quiet) { onHover(near, rows); tip.hidden = true; return; }
       tip.hidden = false;
       tip.replaceChildren(...rows.filter((x) => Math.abs(x.b.t - near.b.t) <= period * 6).map(({ s, b }) => {
         const d = document.createElement('div');
@@ -170,9 +202,9 @@ export function mountChart(host, onHover = null) {
       }));
       const tw = tip.offsetWidth || 180;
       tip.style.left = `${Math.max(4, Math.min(W - tw - 4, cx + 12))}px`; tip.style.top = `${m.t + 6}px`;
-      onHover?.(near);
+      onHover?.(near, rows);
     }
-    const leave = () => { cur = null; cross.setAttribute('visibility', 'hidden'); tip.hidden = true; onHover?.(null); };
+    const leave = () => { cur = null; cross.setAttribute('visibility', 'hidden'); for (const d of dots) d.setAttribute('visibility', 'hidden'); tip.hidden = true; onHover?.(null); };   // each dot too: one set visible would stay visible inside the hidden group
     hit.addEventListener('pointermove', move); hit.addEventListener('pointerleave', leave); hit.addEventListener('pointerdown', move);
     // The arrow keys read the bars one at a time (Home and End, the first and the last); Escape lets go.
     svg.setAttribute('tabindex', '0');

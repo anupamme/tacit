@@ -170,7 +170,10 @@ try {
   await p.hover('#chart svg', { position: { x: 300, y: 150 } });
   await until(p, () => /\d{2}:\d{2}/.test(document.querySelector('#ch-read')?.textContent || ''), null, 10000);
   ok(await p.$eval('#chart .cross .cd', (c) => c.getAttribute('visibility') === 'visible') && (await p.$eval('.chart-tip', (e) => e.hidden)) && /^\$0\.\d{4}/.test(await text(p, '#ch-read')), 'a pointer on the line reads the price and time at that bar in the line above, with a dot on the line and no box over it');
+  const axisRead = await p.$$eval('#chart .cross .clabt', (t) => t.map((x) => x.textContent));
+  ok(axisRead.length === 2 && /^\$0\.\d+$/.test(axisRead[0]) && /^\d+ \w{3}( \d{2}:\d{2})?$/.test(axisRead[1]), `and its price and time sit on the axes (${axisRead.join(' | ')})`);
   await p.mouse.move(5, 5); await until(p, () => /all time/.test(document.querySelector('#ch-read')?.textContent || ''), null, 10000);
+  ok((await p.$$eval('#chart .cross .cd[visibility="visible"]', (d) => d.length)) === 0, 'and the pointer leaving the chart takes the dot with it');
   // the keys read the chart too: an arrow steps through the bars, Escape lets go
   await p.focus('#chart svg'); await p.keyboard.press('ArrowLeft'); await p.keyboard.press('ArrowLeft');
   await until(p, () => /\d{2}:\d{2}/.test(document.querySelector('#ch-read')?.textContent || ''), null, 10000);
@@ -181,7 +184,17 @@ try {
   await p.click('[data-kind="candles"]'); await until(p, () => document.querySelectorAll('#chart .body').length > 5);
   const c4 = await candles(p);
   ok(c4 >= 30 && c4 <= 180, `the Ethereum lane draws the 4-hour tape as candles (${c4})`);
-  ok((await p.$$eval('#chart .tagtext', (t) => t.map((x) => x.textContent))).includes('Precision'), 'with the Precision pool\'s price at the edge');
+  const nowRead = (await text(p, '#ch-read .px')).trim();
+  ok((await p.$$eval('#chart .tagtext', (t) => t.map((x) => x.textContent))).includes(nowRead), `with the Precision pool's price now at the edge, as the line above reads it (${nowRead})`);
+  // the move over a range is the same in candles as on the line, and the past day's is the head's 24h move
+  const moveOf = async () => { const t = (await text(p, '#ch-read .chg')).trim(); const v = parseFloat(t.replace(/[^\d.]/g, '')); return /▼/.test(t) ? -v : v; };
+  await p.click('[data-range="1"]'); await until(p, () => /past day/.test(document.querySelector('#ch-read')?.textContent || ''));
+  const dayCandles = await moveOf();
+  await p.click('[data-kind="line"]'); await until(p, () => !!document.querySelector('#chart .line') && /past day/.test(document.querySelector('#ch-read')?.textContent || ''));
+  const dayLine = await moveOf(), head24 = (await text(p, '#px-sub')).replace(/\s+/g, ' ').match(/24h ([+−])([\d.]+)%/);
+  const headMove = head24 ? (head24[1] === '−' ? -1 : 1) * parseFloat(head24[2]) : NaN;
+  ok(dayCandles === dayLine && Math.abs(dayLine - headMove) < 1e-9, `the past day moved the same in candles (${dayCandles}%), on the line (${dayLine}%) and in the head's 24h (${headMove}%)`);
+  await p.click('[data-kind="candles"]'); await p.click('[data-range="0"]'); await until(p, () => /all time/.test(document.querySelector('#ch-read')?.textContent || '') && document.querySelectorAll('#chart .body').length > 5);
   await p.click('[data-range="7"]'); await until(p, () => document.querySelectorAll('#chart .body').length > 20 && document.querySelectorAll('#chart .body').length < 50);
   ok((await candles(p)) <= 43 && (await candles(p)) >= 30, `7 days of 4-hour candles is at most 42 (${await candles(p)})`);
   await p.click('[data-range="0"]');
@@ -192,8 +205,16 @@ try {
   await p.click('[data-tf="86400"]'); await until(p, () => document.querySelectorAll('#chart .body').length > 5 && document.querySelectorAll('#chart .body').length < 30);
   const c1d = await candles(p);
   ok(c1d < c4 && c1d >= 15, `a day's candles are fewer than 4 hours' (${c1d} against ${c4})`);
-  await p.click('[data-tf="3600"]'); await until(p, () => document.querySelectorAll('#chart .body').length > 0);
-  ok((await candles(p)) > 0 && (await candles(p)) <= 21, `an hour's candles come from the 5-minute tape, about a day back (${await candles(p)})`);
+  const allSizes = await p.$$eval('#tf-seg button', (b) => b.map((x) => x.textContent));
+  ok(allSizes.includes('1d') && !allSizes.some((x) => /m$|^1h$/.test(x)), `a range of weeks offers no candle finer than the 4-hour tape holds that far back (${allSizes.join(' ')})`);
+  await p.click('[data-range="1"]'); await until(p, () => [...document.querySelectorAll('#tf-seg button')].map((x) => x.textContent).join() === '5m,15m,1h');
+  await p.click('[data-tf="3600"]'); await until(p, () => document.querySelector('[data-tf="3600"]')?.getAttribute('aria-pressed') === 'true');
+  ok((await candles(p)) > 0 && (await candles(p)) <= 25, `the past day offers 5-minute to 1-hour candles, from the 5-minute tape (${await candles(p)} hourly)`);
+  await p.hover('#chart svg', { position: { x: 300, y: 120 } });
+  await until(p, () => /O \$0\.\d+.*H \$0\.\d+.*L \$0\.\d+/.test(document.querySelector('#ch-read')?.textContent.replace(/\s+/g, ' ') || ''), null, 10000).catch(() => {});
+  ok(/O \$0\.\d+.*H \$0\.\d+.*L \$0\.\d+/.test((await text(p, '#ch-read')).replace(/\s+/g, ' ')) && (await p.$eval('.chart-tip', (e) => e.hidden)), `a pointer on a candle reads its open, high, low and close in the line above (${(await text(p, '#ch-read')).replace(/\s+/g, ' ').slice(0, 100)})`);
+  await p.mouse.move(5, 5);
+  await p.click('[data-range="0"]');
   await p.click('[data-unit="native"]'); await until(p, () => /ETH/.test(document.querySelector('#chart .axis')?.textContent || ''));
   ok(/ETH/.test(await p.$eval('#chart .axis', (e) => e.textContent)), 'the price can be shown in ETH instead of dollars');
   await p.click('[data-unit="usd"]');
@@ -205,9 +226,10 @@ try {
   ok((await lines(p)) === 2 && !(await p.$('#chart .body')), 'Compare draws the two lanes as lines in dollars');
   ok(/Both lanes in dollars at today's ETH and BTC prices/.test(await text(p, '#chart-note')), 'and says they are at today\'s rates');
   ok(/Precision pool \(Ethereum\).*Bitcoin order book.*Tacit pool/.test((await text(p, '#legend')).replace(/\s+/g, ' ')), 'the legend names the lanes and the Tacit pool\'s place against Precision');
+  ok(/^[+−]\d[\d.]*% Bitcoin against Ethereum · now Ethereum \$0\.\d{4} Bitcoin \$0\.\d{4}$/.test((await text(p, '#ch-read')).replace(/\s+/g, ' ').trim()), `above the chart, how far Bitcoin sits from Ethereum now, and both prices (${(await text(p, '#ch-read')).replace(/\s+/g, ' ').trim()})`);
   await p.hover('#chart svg', { position: { x: 400, y: 150 } });
-  await until(p, () => !document.querySelector('.chart-tip')?.hidden, null, 5000).catch(() => {});
-  ok(/\d{2}:\d{2}/.test(await text(p, '.chart-tip')), 'hovering the chart shows the time and prices');
+  await until(p, () => /\d{2}:\d{2}/.test(document.querySelector('#ch-read')?.textContent || ''), null, 5000).catch(() => {});
+  ok(/Bitcoin against Ethereum · \d+ \w{3} \d{2}:\d{2}/.test(await text(p, '#ch-read')) && (await p.$$eval('#chart .cross .cd[visibility="visible"]', (d) => d.length)) === 2, 'hovering reads the two prices and their gap at that time, with a dot on each line');
   await p.click('[data-lane="eth"]');
   ok(await p.evaluate(() => { const e = document.querySelector('[data-lane="eth"]'), c = getComputedStyle(e); return e.matches(':hover') && c.color !== c.backgroundColor; }), 'the chosen lane stays readable with the pointer on it');
   if (SHOTS) await p.screenshot({ path: join(SHOTS, 'trade-desktop-top.png') });
@@ -283,6 +305,12 @@ try {
   ok(dep.length >= 3 && dep.length <= 8 && bidRows >= 1 && /^\$0\.\d+[\d,.]+ sats/.test(dep[0]) && /last trade/.test(mid) && /(spread [\d.]+%|bids [\d.]+% over asks)/.test(mid), `the book stacks the listings over the last price and the bids under it, one line per price (${dep.length} + ${bidRows}: ${dep[0]} | ${mid})`);
   ok(await p.$eval('#ladders .ob-asks .ob-row:last-child', (e) => parseFloat(getComputedStyle(e, '::before').width) > 0), 'each row is shaded by the depth from the middle out');
   ok((await p.$$eval('#depthchart path.dep-ask', (x) => x.length)) === 1 && (await p.$$eval('#depthchart path.dep-bid', (x) => x.length)) === 1, 'drawn as a depth chart of listings and bids');
+  const dbox = await (await p.$('#depthchart svg')).boundingBox();
+  await p.hover('#depthchart svg', { position: { x: dbox.width * 0.85, y: dbox.height / 2 } });      // scrolled into view first
+  await until(p, () => !document.querySelector('#depthchart .chart-tip')?.hidden, null, 5000).catch(() => {});
+  const dtip = (await p.$eval('#depthchart .chart-tip', (e) => e.innerText)).replace(/\s+/g, ' ').trim();
+  ok(/^Buy [\d,.]+ TAC up to \$0\.\d+( · \d+ orders)? \$[\d,.]+ in all · average \$0\.\d+$/.test(dtip), `a pointer on the asks reads what buying up to that price takes: the TAC, what it comes to and its average price (${dtip})`);
+  await p.mouse.move(5, 5);
   ok(/\d+ bids \([\d,]+ TAC\) settle when the bidder is online/.test(await text(p, '#depth-note')), 'and the note says how many bids stand and when a sale to one settles');
   await p.click('[data-book="trades"]');
   await until(p, () => document.querySelectorAll('#ladders table.trades tbody tr').length >= 3, null, 120000);
