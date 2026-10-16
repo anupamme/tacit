@@ -178,10 +178,11 @@ export const CFG = {
   // Public submission, tried only after every private endpoint refused. Off unless SETTLE_ALLOW_PUBLIC=1: in
   // the public mempool the settle is copied for its fee, and our own transaction lands as a revert.
   settleAllowPublic: opt('SETTLE_ALLOW_PUBLIC', '0') === '1',
-  // Max transfers to batch into one settle. Gas is per-settle, so members split it; proving is per-op and
-  // does not amortize, so the win flattens out — and a bigger batch means a longer proof and more ops lost
-  // together if it fails. 1 disables batching.
-  settleBatchMax: num('SETTLE_BATCH_MAX', 8),
+  // Most ops to put in one settle. Gas is per settle, so members split it, and so is the proof: the prover's fixed work
+  // (recursion, wrap, Groth16, or the network's base fee) is paid once per proof, and a proof's shard holds about 16.7M
+  // cycles, some 35 ordinary ops, so up to there the batch costs what one op costs. The ceiling is only how many ops are
+  // lost together when a proof fails (they then settle one by one). 1 disables batching.
+  settleBatchMax: num('SETTLE_BATCH_MAX', 16),
   // Ops of different types in one settle too (every type the open board takes), proved from one program input built here
   // and requested from the network directly (lib/stdin-prover.js) rather than through a per-op binary. Off until it has
   // settled a real batch; the transfer-only batch above does not depend on it.

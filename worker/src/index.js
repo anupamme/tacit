@@ -3413,7 +3413,7 @@ async function handleConfidentialJob(req, env, cors) {
   // &mixed=1 lets ops of different types share it (the relay proves them from one program input).
   const want = Number(new URL(req.url).searchParams.get('batch') || 0);
   if (want > 1) {
-    const jobs = await q.nextBatch({ max: Math.min(want, 16), mixed: new URL(req.url).searchParams.get('mixed') === '1' });
+    const jobs = await q.nextBatch({ max: Math.min(want, 32), mixed: new URL(req.url).searchParams.get('mixed') === '1' });
     return jsonResponse({ jobs }, 200, { ...cors, 'Cache-Control': 'no-store' });
   }
   // ?mode=prove takes only jobs that want a proof back (the page sends the settle itself); an older relay that

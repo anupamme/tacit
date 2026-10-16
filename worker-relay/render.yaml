@@ -202,10 +202,10 @@ services:
       - key: SETTLE_POLL_SECS
         value: "3"
       # Ceiling, not a target: the relay batches whatever is already queued and never waits to fill, so a
-      # lone op still settles immediately on the single-op path. Gas is charged per settle, so batch members
-      # split it (proving is per-op and does not amortize). 1 disables batching.
+      # lone op still settles immediately on the single-op path. Gas is charged per settle and the proof's fixed
+      # work once per proof (a shard holds ~35 ordinary ops), so batch members split both. 1 disables batching.
       - key: SETTLE_BATCH_MAX
-        value: "8"
+        value: "16"
       # Ops of different types in one settle too (every type the open board takes), proved from one program input the
       # relay builds and requests from the network itself (lib/stdin-prover.js): the request's fixed cost is split across
       # the batch. Off until a live batch has settled; the transfer-only batch above does not depend on it.
