@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Checkpoints admin</title>
+<style>
+:root{--bg:#f7f6f2;--card:#fffdf8;--fg:#1d1c1a;--mut:#6b675f;--line:#dcd8cf;--ok:#1f7a4d;--bad:#a8322d;--warn:#8a5a00;--btn:#1d1c1a;--btnfg:#f7f6f2}
+@media (prefers-color-scheme:dark){:root{--bg:#141413;--card:#1c1b19;--fg:#ecebe6;--mut:#9a968c;--line:#33312d;--ok:#5cc28f;--bad:#e2786f;--warn:#e0b25a;--btn:#ecebe6;--btnfg:#141413}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 ui-sans-serif,system-ui,sans-serif}
+main{max-width:760px;margin:0 auto;padding:32px 16px 64px}
+h1{font-size:20px;margin:0 0 4px}
+p{margin:0 0 12px;color:var(--mut)}
+code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all}
+a{color:inherit}
+.top{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:16px 0}
+.banner{border:1px solid var(--warn);color:var(--warn);border-radius:10px;padding:10px 14px;margin:12px 0}
+.row{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin:12px 0}
+.head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.head b{font-size:16px}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:2px 14px;margin:10px 0;font-size:14px}
+.kv span:nth-child(odd){color:var(--mut)}
+.st{font-size:14px;color:var(--mut);margin:8px 0 0}
+.st:empty{display:none}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+button{background:var(--btn);color:var(--btnfg);border:0;border-radius:8px;padding:9px 14px;font:inherit;cursor:pointer;min-height:40px}
+button.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
+button:disabled{opacity:.35;cursor:default}
+.meta{font-size:13px;color:var(--mut)}
+.meta code{font-size:12px}
+</style>
+</head>
+<body>
+<main>
+<h1>Catch-up registry</h1>
+<p>Deploys <code>TacitEvmPoolCheckpoints</code> from your wallet on each chain the pool is on, and posts a catch-up point. Every action is dry-run on the chain first; your wallet signs, this page holds no key.</p>
+<div id="banner"></div>
+<div class="top"><button id="conn">Connect wallet</button><span class="meta" id="who"></span></div>
+<div id="rows"></div>
+<p class="meta" id="build"></p>
+</main>
+<script>
+const CFG = /*CONFIG*/null;
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const group = (n) => Number(n).toLocaleString('en-US');
+const eth = (wei, d = 6) => { const v = Number(BigInt(wei)) / 1e18; return v === 0 ? '0' : v < 10 ** -d ? v.toExponential(2) : v.toFixed(d).replace(/\.?0+$/, ''); };
+const short = (a) => a.slice(0, 8) + '…' + a.slice(-6);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const api = async (path) => { const r = await fetch(path); const j = await r.json().catch(() => ({ error: `server answered ${r.status}` })); if (!r.ok || j.error) throw new Error(j.error || `server answered ${r.status}`); return j; };
+
+// ── the wallet (EIP-6963, or window.ethereum) ──
+const wallets = [];
+window.addEventListener('eip6963:announceProvider', (e) => { if (e.detail?.provider && !wallets.some((w) => w.info.uuid === e.detail.info.uuid)) wallets.push(e.detail); });
+window.dispatchEvent(new Event('eip6963:requestProvider'));
+let prov = null, acct = null;
+async function connect() {
+  if (acct) return acct;
+  window.dispatchEvent(new Event('eip6963:requestProvider')); await sleep(150);
+  const list = wallets.length ? wallets : window.ethereum ? [{ info: { name: 'Browser wallet' }, provider: window.ethereum }] : [];
+  if (!list.length) throw new Error('No wallet found in this browser.');
+  const w = list.length > 1 ? await pick(list) : list[0];
+  prov = w.provider;
+  acct = (await prov.request({ method: 'eth_requestAccounts' }))[0];
+  prov.on?.('accountsChanged', (a) => { acct = a?.[0] || null; showWho(w); refreshAll(); });
+  showWho(w); refreshAll();
+  return acct;
+}
+const showWho = (w) => { $('#who').innerHTML = acct ? `Connected <code>${esc(acct)}</code> · ${esc(w.info.name)}` : ''; $('#conn').textContent = acct ? 'Connected' : 'Connect wallet'; $('#conn').disabled = !!acct; };
+function pick(list) {
+  return new Promise((resolve) => {
+    $('#who').innerHTML = 'Pick a wallet: ' + list.map((w, i) => `<button class="ghost" data-w="${i}">${esc(w.info.name)}</button>`).join(' ');
+    document.querySelectorAll('[data-w]').forEach((b) => (b.onclick = () => resolve(list[Number(b.dataset.w)])));
+  });
+}
+async function onChain(c) {
+  const now = async () => Number(await prov.request({ method: 'eth_chainId' }));
+  if (await now() === c.id) return;
+  const id = '0x' + c.id.toString(16);
+  try { await prov.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: id }] }); }
+  catch (e) {
+    if (e.code !== 4902 && !/unrecogni|not been added|unknown chain|try adding/i.test(e.message || '')) throw e;
+    await prov.request({ method: 'wallet_addEthereumChain', params: [{ chainId: id, chainName: c.name, nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: [c.rpc], blockExplorerUrls: [c.explorer] }] });
+  }
+  if (await now() !== c.id) throw new Error(`Switch your wallet to ${c.name}, then try again.`);
+}
+// Sends from the wallet on chain `c` and waits for the receipt. → the receipt.
+async function sendTx(c, tx, say) {
+  await onChain(c);
+  say(`Confirm in your wallet on ${esc(c.name)}…`);
+  const hash = await prov.request({ method: 'eth_sendTransaction', params: [{ from: acct, ...tx, chainId: '0x' + c.id.toString(16) }] });
+  const link = `<a target="_blank" rel="noopener" href="${esc(c.explorer)}/tx/${esc(hash)}">${esc(short(hash))}</a>`;
+  for (let i = 0; i < 300; i++) {
+    say(`Sent ${link}, waiting for the block…`);
+    const r = await api(`/api/receipt?chain=${c.id}&hash=${hash}`).catch(() => ({ status: null }));
+    if (r.status) { if (r.status !== '0x1') throw new Error(`It reverted on chain: ${link}`); return { ...r, link }; }
+    await sleep(2000);
+  }
+  throw new Error(`No receipt after ten minutes for ${link}; check the explorer.`);
+}
+const gasHex = (g) => (g ? '0x' + (BigInt(g) * 5n / 4n).toString(16) : undefined);
+
+// ── a row per chain ──
+const S = {};
+function row(c) {
+  const st = S[c.id] || {}, s = st.s, p = st.point;
+  const cost = (gas) => (gas && s?.gasPrice ? ` · about ${eth(BigInt(gas) * BigInt(s.gasPrice))} ETH at ${(Number(s.gasPrice) / 1e9).toPrecision(2)} gwei` : '');
+  const kv = [];
+  if (s) {
+    kv.push(['Registry', s.deployed ? (s.wired ? `<span class="ok">deployed</span>, ${group(s.codeBytes)} bytes, wired to the pool · <a target="_blank" rel="noopener" href="${esc(c.explorer)}/address/${CFG.address}">explorer</a>` : '<span class="bad">code there, but not wired to this pool</span>') : s.problem ? `<span class="bad">${esc(s.problem)}</span>` : s.dryRun === 'lands' ? `not deployed · the dry run lands at the address${cost(s.deployGas)}${s.deployGas ? ` (${group(s.deployGas)} gas)` : ''}` : `<span class="bad">not deployed · dry run ${esc(s.dryRun)}</span>`]);
+    if (s.poolLeaves != null) kv.push(['Pool', `${group(s.poolLeaves)} leaves at block ${group(s.head)}`]);
+    if (s.deployed) kv.push(['Newest point', s.latest ? `${group(s.latest.size)} leaves, block ${group(s.latest.block)} · ${group(s.poolLeaves - s.latest.size)} leaves behind the pool` : 'none yet']);
+    if (s.balance != null) kv.push(['Your wallet', `${eth(s.balance)} ETH`]);
+  }
+  if (p) kv.push(['Point ready', `${group(p.size)} leaves, block ${group(p.block)}, from ${esc(p.source)}${st.dry?.ok ? cost(st.dry.gas) : ''}`]);
+  const canPost = s?.deployed && s.wired && acct && !st.busy;
+  return `<div class="row" id="r${c.id}"><div class="head"><b>${esc(c.name)}</b><span class="meta">chain ${c.id}</span></div>
+    ${s ? `<div class="kv">${kv.map(([k, v]) => `<span>${k}</span><span>${v}</span>`).join('')}</div>` : ''}
+    <div class="st ${st.cls || ''}">${st.msg || (s ? '' : 'Reading…')}</div>
+    <div class="btns"><button data-deploy="${c.id}" ${s && !s.deployed && s.dryRun === 'lands' && !st.busy ? '' : 'disabled'}>Deploy on ${esc(c.name)}</button>
+    <button class="ghost" data-post="${c.id}" ${canPost ? '' : 'disabled'}>${p && st.dry?.ok ? `Post the point (${group(p.size)} leaves)` : 'Prepare a point'}</button>
+    <button class="ghost" data-refresh="${c.id}" ${st.busy ? 'disabled' : ''}>Refresh</button></div></div>`;
+}
+const draw = (c) => { const el = $('#r' + c.id), html = row(c); if (el) el.outerHTML = html; else $('#rows').insertAdjacentHTML('beforeend', html); wire(); };
+const say = (c, msg, cls = '') => { S[c.id] = { ...S[c.id], msg, cls }; draw(c); };
+async function refresh(c) {
+  try { S[c.id] = { ...S[c.id], s: await api(`/api/state?chain=${c.id}${acct ? `&from=${acct}` : ''}`) }; }
+  catch (e) { S[c.id] = { ...S[c.id], msg: `Could not read ${esc(c.name)}: ${esc(e.message)}`, cls: 'bad' }; }
+  draw(c);
+}
+const refreshAll = () => CFG.chains.forEach((c) => refresh(c));
+async function busy(c, fn) {
+  if (S[c.id]?.busy) return;
+  S[c.id] = { ...S[c.id], busy: true, msg: '', cls: '' }; draw(c);
+  try { await fn(); }
+  catch (e) { S[c.id] = { ...S[c.id], msg: esc(e?.message || e), cls: 'bad' }; }
+  finally { S[c.id] = { ...S[c.id], busy: false }; await refresh(c); }
+}
+function deploy(c) {
+  return busy(c, async () => {
+    await connect();
+    await refresh(c);
+    const s = S[c.id].s;
+    if (s.deployed) return say(c, 'Already deployed.', 'ok');
+    if (s.dryRun !== 'lands') throw new Error(`The dry run does not land at the address (${s.dryRun}), so nothing was sent.`);
+    const r = await sendTx(c, { to: CFG.proxy, data: CFG.deployData, value: '0x0', gas: gasHex(s.deployGas) }, (m) => say(c, m));
+    S[c.id].msg = `Deployed ${r.link} · ${group(r.gasUsed)} gas`; S[c.id].cls = 'ok';
+  });
+}
+function post(c) {
+  return busy(c, async () => {
+    await connect();
+    const st = S[c.id];
+    // First press: the point is worked out and dry-run; second press: it is sent.
+    if (!(st.point && st.dry?.ok && Date.now() - st.pointAt < 120_000)) {
+      for (let i = 0; ; i++) {
+        const j = await api(`/api/point?chain=${c.id}&from=${acct}${i === 0 && st.point ? '&fresh' : ''}`);
+        if (j.state === 'failed') throw new Error(`No point: ${j.err}`);
+        if (j.state === 'ready') {
+          Object.assign(S[c.id], { point: j.point, dry: j.dry, pointAt: Date.now() });
+          if (!j.dry?.ok) throw new Error(j.dry?.why === 'Known' ? `A point at ${group(j.point.size)} leaves is posted already.` : `The registry would refuse it (${j.dry?.why}), so nothing was sent.`);
+          return say(c, `The pool holds this edge’s root at ${group(j.point.size)} leaves, and the blocks after ${group(j.point.block)} start where it ends. Press again to post it.`, 'ok');
+        }
+        say(c, `Working out the point: ${esc(j.note)}…`);
+        await sleep(1500);
+      }
+    }
+    const r = await sendTx(c, { to: CFG.address, data: st.point.data, value: '0x0', gas: gasHex(st.dry.gas) }, (m) => say(c, m));
+    Object.assign(S[c.id], { point: null, dry: null, msg: `Posted ${r.link} · ${group(r.gasUsed)} gas`, cls: 'ok' });
+  });
+}
+function wire() {
+  document.querySelectorAll('[data-deploy]').forEach((b) => (b.onclick = () => deploy(CFG.chains.find((c) => c.id === Number(b.dataset.deploy)))));
+  document.querySelectorAll('[data-post]').forEach((b) => (b.onclick = () => post(CFG.chains.find((c) => c.id === Number(b.dataset.post)))));
+  document.querySelectorAll('[data-refresh]').forEach((b) => (b.onclick = () => { const c = CFG.chains.find((x) => x.id === Number(b.dataset.refresh)); S[c.id] = { ...S[c.id], msg: '', cls: '' }; refresh(c); }));
+}
+
+$('#conn').onclick = () => connect().catch((e) => { $('#who').innerHTML = `<span class="bad">${esc(e.message)}</span>`; });
+if (CFG.address.toLowerCase() !== CFG.named.toLowerCase()) $('#banner').innerHTML = `<div class="banner">This build lands at <code>${esc(CFG.address)}</code>, not at <code>${esc(CFG.named)}</code>, the address the anon.wei page, the keepers and the docs name. Deploy only if you will update them to this one.</div>`;
+$('#build').innerHTML = `Registry <code>${esc(CFG.address)}</code> · init code ${group(CFG.initBytes)} bytes (runtime ${group(CFG.runtimeBytes)}), hash <code>${esc(CFG.initHash)}</code> · salt <code>${esc(CFG.salt)}</code> through the CREATE2 proxy <code>${esc(CFG.proxy)}</code> · pool <code>${esc(CFG.pool)}</code>`;
+CFG.chains.forEach((c) => draw(c));
+refreshAll();
+// A wallet already connected here is picked up without a prompt.
+setTimeout(async () => { const w = wallets[0] || (window.ethereum && { info: { name: 'Browser wallet' }, provider: window.ethereum }); if (!w) return; const a = await w.provider.request({ method: 'eth_accounts' }).catch(() => []); if (a?.[0]) { prov = w.provider; acct = a[0]; showWho(w); refreshAll(); } }, 300);
+</script>
+</body>
+</html>
