@@ -85,6 +85,9 @@ proposals at `/governance/proposals`.
 
 ## Integrating the ERC-20
 
+A checklist for listing it (quoting, routing, prices, metadata) is in the
+[integrator playbook](./INTEGRATOR-PLAYBOOK.md#3c-listing-the-tac-erc-20).
+
 - **Identity.** TAC on Ethereum is [`0xA1313eb9f3A445606D9583bcAc3ebeB56a858279`](https://etherscan.io/address/0xA1313eb9f3A445606D9583bcAc3ebeB56a858279).
   Its `MINTER()` is the confidential pool
   [`0x000000000Ed1eabD231Be41d93b719056F7febFC`](https://etherscan.io/address/0x000000000Ed1eabD231Be41d93b719056F7febFC),

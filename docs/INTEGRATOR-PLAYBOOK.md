@@ -168,6 +168,43 @@ For a wallet, an aggregator or a swap front-end that wants to show a user's TAC 
 
 ---
 
+## 3c. Listing the TAC ERC-20
+
+For a DEX, an aggregator, a lending market, a wallet or a market-data site adding TAC on Ethereum. What TAC is and where it trades are in
+[`TAC.md`](./TAC.md#integrating-the-erc-20); this is what to get right.
+
+- **Identify it by address.** TAC is [`0xA1313eb9f3A445606D9583bcAc3ebeB56a858279`](https://etherscan.io/address/0xA1313eb9f3A445606D9583bcAc3ebeB56a858279), symbol `TAC`, 18 decimals.
+  Every token the pool mints is named `Tacit Token`, so never match on the name. Three reads confirm it: `MINTER()` is the pool
+  `0x000000000Ed1eabD231Be41d93b719056F7febFC`, `ASSET_ID()` is `0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b`,
+  and the pool's `canonicalTokenFor(ASSET_ID)` returns the token.
+- **The supply is 21,000,000, fixed on Bitcoin.** Only the pool can mint the ERC-20, and only against TAC that came from Bitcoin, so
+  `totalSupply()` is the part public on Ethereum right now, never more than the etch. It moves both ways with use: it rises when TAC leaves the
+  pool (an exit, or a public swap paid out in TAC) and falls when TAC goes back in (a wrap, or a public swap paid with TAC). For a market-data
+  site, the maximum supply is 21,000,000. [verify.html](https://tacit.finance/verify.html) checks the etch, the token's code and wiring, the
+  supply bound and wTAC's backing from the reader's own browser.
+- **Amounts.** Transfers take any amount. The pool and TacitPublicAmm take only whole multiples of `1e10` (TAC has 8 decimals on Bitcoin)
+  and revert `AmountNotAligned` on anything else, so round down to `1e10` before quoting.
+- **Nothing non-standard.** No transfer fee, rebasing, hooks, pause, blacklist or owner. EIP-2612 `permit` uses the name `Tacit Token` and
+  version `1`. The canonical Permit2 (`0x000000000022D473030F116dDEE9F6B43aC78BA3`) holds a standing maximum allowance from every holder:
+  `allowance(holder, Permit2)` reads `2^256 − 1` with no approval, and a Permit2 flow needs no approval transaction.
+- **Metadata and logo.** `contractURI()` (EIP-7572) returns the token's metadata JSON on IPFS. Its hash is bound into the asset id at the
+  etch, so it cannot be changed. The logo is [tacit.finance/brand/logo.svg](https://tacit.finance/brand/logo.svg).
+- **Quote and route.** TAC/ETH trades on the Precision pool (0.30%) and on the Tacit pool through TacitPublicAmm
+  [`0x00000000E36C7EC997CC59DCda9E03673B448119`](https://etherscan.io/address/0x00000000E36C7EC997CC59DCda9E03673B448119).
+  `quoteSwap(assetIn, assetOut, 30, amountIn)` returns exactly what `swapPublic(assetIn, assetOut, 30, amountIn, minAmountOut, deadline, to)`
+  pays. The asset ids are TAC's `ASSET_ID` and ETH's `0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34`; ETH goes in as
+  `msg.value`, and TAC going in needs an `approve` to TacitPublicAmm. [`dapp/evm-trade-venues.js`](../dapp/evm-trade-venues.js) has the
+  addresses, quotes and calldata for every venue ([`TAC.md`](./TAC.md#trading-tac)).
+- **A pool's spot price is not an oracle.** One trade can move either pool. Collateral needs a price that is costly to move, such as a
+  time-weighted average over enough liquidity.
+- **wTAC is a separate token.** [`0x2018139a8FDd3666855BE3315C7683b4D6aB7AEf`](https://etherscan.io/address/0x2018139a8FDd3666855BE3315C7683b4D6aB7AEf)
+  wraps TAC one for one to escrow farm rewards. List TAC, not wTAC.
+- **Watch `successor()`.** It reads zero today. If the lineage steward deploys a successor pool, that pool mints its own canonical TAC at
+  another address. This token keeps working and can still be wrapped into this pool and crossed to Bitcoin, so tell users which TAC they
+  hold. See [Lineage](./DEPLOYMENTS.md#lineage).
+
+---
+
 ## 4. Trustless checklist
 
 | check | how |
