@@ -38,6 +38,8 @@ const posted = (p) => assert.rejects(p, /SELF_POST/);
 const declined = (p, msg) => assert.rejects(p, (e) => e.relayDeclined === true && e.said === true && e.message === msg);
 const NO_RELAY = 'The relay isn’t taking payments right now. Nothing was sent.';
 const SLOW = 'The relay hasn’t posted it yet and may still. Nothing else was sent; check your balance before paying again.';
+// Still queued when it timed out: its notes are set aside for half an hour.
+const SLOW_HELD = 'The relay hasn’t posted it yet and may still. Nothing else was sent; the TAC it would spend is set aside for half an hour, so it is not paid twice.';
 
 // (a) The relay cannot quote: no fee listed, or the quote fails.
 stub({ fee: null }); await posted(pay());
@@ -72,7 +74,7 @@ assert.deepEqual(log.asks, []); assert.equal(log.posts, 0);
 // (b) The relay has not posted it after its sixty polls.
 stub({ status: () => ({ state: 'queued' }) }); await posted(pay());
 assert.equal(log.statuses, 60); assert.equal(log.posts, 1, 'no askSelf: posted from the Bitcoin address, as before');
-stub({ status: () => ({ state: 'queued' }) }); await declined(pay({ askSelf: asker(false) }), SLOW);
+stub({ status: () => ({ state: 'queued' }) }); await declined(pay({ askSelf: asker(false) }), SLOW_HELD);
 assert.deepEqual(log.asks, [['relay-slow', true]]);
 assert.equal(log.posts, 0, 'a no posts nothing');
 assert.equal(log.proofs, 1, 'the relayed proof only');
@@ -105,7 +107,7 @@ assert.equal(aborted, true, 'the question is told it is over'); assert.equal(log
 
 // An answer ends the watch on the relay.
 stub({ status: () => ({ state: 'queued' }) });
-await declined(pay({ askSelf: asker((why, d) => new Promise((res) => realTimeout(() => res(false), 20))) }), SLOW);
+await declined(pay({ askSelf: asker((why, d) => new Promise((res) => realTimeout(() => res(false), 20))) }), SLOW_HELD);
 const polls = log.statuses;
 await new Promise((r) => realTimeout(r, 50));
 assert.ok(log.statuses <= polls + 1, 'no polling after the answer');

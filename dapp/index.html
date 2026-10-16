@@ -5914,7 +5914,7 @@ function loadHeld(force = false) {
     for (const c of order) { if (S.key?.pubHex !== pub) return; await idle(); await one(c).catch(() => {}); }
   })()];
   const sats = (async () => {
-    const X = await import('/sats/secret.js?cb=9574c7ec');
+    const X = await import('/sats/secret.js?cb=f61870bb');
     const notes = (await X.poolNotes(X.poolWalletFor(priv, 'mainnet'))).filter((n) => !n.spent);
     const held = X.livePoolAssets().map((a) => ({ ...a, value: notes.filter((n) => strip(n.asset).toLowerCase() === a.id).reduce((t, n) => t + BigInt(n.value), 0n) }));
     if (S.key?.pubHex === pub) { HELD.sats = held; HELD.satsErr = false; dashSoon(); }

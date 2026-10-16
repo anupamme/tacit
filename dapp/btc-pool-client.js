@@ -181,12 +181,27 @@ export function makePoolClient({ api = POOL_API, relayApi = null, base = '/btc-p
     return map;
   }
 
+  // The feed's notes that open under `wallet` (pool.scan's results). Each leaf is tried once per wallet object and the
+  // answer kept: the feed only grows, so a later read tries just the leaves it has not seen, and one whose leaf changed
+  // under the same index. Every leaf is still tried alike; a long first read yields to the page between batches.
+  const scanned = new WeakMap();
+  async function scanMine(pool, wallet, feed) {
+    let memo = scanned.get(wallet);
+    if (!memo) scanned.set(wallet, (memo = new Map()));
+    const todo = feed.filter((f) => memo.get(f.leafIndex)?.leaf !== f.leaf);
+    for (let i = 0; i < todo.length; i += 16) {
+      if (i) await new Promise((r) => setTimeout(r, 0));
+      const batch = todo.slice(i, i + 16), found = new Map(pool.scan(wallet, batch).map((x) => [x.leafIndex, x]));
+      for (const f of batch) memo.set(f.leafIndex, { leaf: f.leaf, x: found.get(f.leafIndex) || null });
+    }
+    return feed.map((f) => memo.get(f.leafIndex).x).filter(Boolean);
+  }
   // A wallet's notes from the feed, each with its height, txid and spent flag. Spent flags come from the whole list of
   // the pool's nullifiers, so no request names a note of this wallet's; a replay without the list is asked note by note.
   async function walletNotes(pool, wallet, { notes = null } = {}) {
     const feed = notes || await feedNow();
     const byIndex = new Map(feed.map((n) => [n.leafIndex, n]));
-    const mine = pool.scan(wallet, feed).map((x) => ({ ...x, height: byIndex.get(x.leafIndex).height, txid: byIndex.get(x.leafIndex).txid }));
+    const mine = (await scanMine(pool, wallet, feed)).map((x) => ({ ...x, height: byIndex.get(x.leafIndex).height, txid: byIndex.get(x.leafIndex).txid }));
     const list = mine.some((x) => x.nf) ? await spentList() : null;
     for (const x of mine) if (x.nf) x.spent = list ? list.has(strip(x.nf)) : (await nullifier(x.nf)).spent === true;
     return mine;
@@ -239,5 +254,5 @@ export function makePoolClient({ api = POOL_API, relayApi = null, base = '/btc-p
   const submit = (body) => getJson(`${rApi}/btc-pool/relay/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const relayStatus = (id) => getJson(`${rApi}/btc-pool/relay/status/${id}`);
 
-  return { pin, system, artifactBytes, artifactsCached, status, allNotes, path, nullifier, exit, walletNotes, anchorAndPaths, relayInfo, quote, submit, relayStatus, api };
+  return { pin, system, artifactBytes, artifactsCached, status, allNotes, path, nullifier, exit, walletNotes, scanMine, anchorAndPaths, relayInfo, quote, submit, relayStatus, api };
 }

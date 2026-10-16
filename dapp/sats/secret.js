@@ -198,9 +198,26 @@ export async function broadcastCarrier(tacit, { payload, inputs = [], outputs, f
   revealTx.inputs[0].witness = tacit.signTaprootScriptPathInput(revealTx, prevouts, envelopeScript, cb);
   const revealTxid = tacit.txid(revealTx);
 
-  await tacit.broadcast(bytesToHex(tacit.serializeTx(commitTx)));
-  await tacit.broadcastWithRetry(bytesToHex(tacit.serializeTx(revealTx)));
+  // Until the reveal is accepted, the commit's output can be spent only with its envelope: the record tacit.js's commit
+  // recovery reads (recoverPreauthCommit, and the classic app's Holdings) is kept before the commit goes out, and dropped
+  // once the reveal is in. A reveal Bitcoin refuses throws with the commit's txid, so a page can offer the sats back.
+  const kept = typeof tacit.recordPreauthTakePending === 'function';
+  if (kept) tacit.recordPreauthTakePending(commitTxid, { envelope_script_hex: bytesToHex(envelopeScript), control_block_hex: bytesToHex(cb), commit_value: commitValue, reveal_txid: revealTxid, ticker: 'sats' });
+  try { await tacit.broadcast(bytesToHex(tacit.serializeTx(commitTx))); }
+  catch (e) { if (kept) forgetCommit(tacit, commitTxid); throw e; }
+  try { await tacit.broadcastWithRetry(bytesToHex(tacit.serializeTx(revealTx))); }
+  catch (e) {
+    throw Object.assign(new Error(`Bitcoin refused the transaction that finishes this, so it did not go through. The ${commitValue.toLocaleString('en-US')} sats set aside for it wait in its first transaction, and can be returned to your Bitcoin address (also from the classic app’s Holdings).`), { said: true, commitTxid, stranded: commitValue, cause: e });
+  }
+  if (kept) forgetCommit(tacit, commitTxid);
   return { commitTxid, revealTxid, revealFee, commitFee };
+}
+// Drops a commit's recovery record once its reveal is in (tacit.js keeps them under this key per network).
+function forgetCommit(tacit, commitTxid) {
+  try {
+    const k = `tacit-preauth-take-pending-v1:${tacit.NET?.name || 'mainnet'}`, all = JSON.parse(localStorage.getItem(k) || 'null');
+    if (all && commitTxid in all) { delete all[commitTxid]; localStorage.setItem(k, JSON.stringify(all)); }
+  } catch {}
 }
 
 // Step 2: shield a transparent note the wallet holds (P2WPKH to wallet.pub) into poolWallet's address.
@@ -239,6 +256,9 @@ export async function buyAndShield(tacit, { status, sale, poolWallet, say = () =
     recipientAddress: poolWallet.addressString, network: poolWallet.network,
   });
   const { payload } = await proveHere(sh, say);
+  // The proof takes a while: a lot bought by someone else meanwhile is not paid for again.
+  const sp = await esplora(tacit, `/tx/${lot.txid}/outspend/${lot.vout}`).catch(() => null);
+  if (sp?.spent) throw Object.assign(new Error('That lot was just bought by someone else. Nothing was sent; pick another.'), { said: true });
   say('buying into the pool…');
   const r = await broadcastCarrier(tacit, {
     payload, feeTier,
@@ -302,34 +322,39 @@ export async function poolNotes(poolWallet, asset) {
 // so a second spend made in between never picks them again; and each spend's change, shown as settling until the
 // change note is read back, with an exit's amount, shown as on its way out until the spend's notes are. Kept six hours.
 const PENDING_KEY = 'tacit-pool-pending-v1', PENDING_MS = 6 * 3600e3;
+// A payment the relay may still post either lands or is dropped well within this (its quote lasts ten minutes).
+const MAY_STILL_MS = 30 * 60e3;
 const nfKey = (nf) => String(nf).replace(/^0x/, '').toLowerCase();
 function pendingRead() {
   let v = null;
   try { v = typeof localStorage === 'undefined' ? null : JSON.parse(localStorage.getItem(PENDING_KEY) || 'null'); } catch {}
   const out = { spent: {}, change: {} }, now = Date.now();
-  for (const [k, x] of Object.entries(v?.spent || {})) if (now - x.at < PENDING_MS) out.spent[k] = x;
+  for (const [k, x] of Object.entries(v?.spent || {})) if (now < (x.until ?? x.at + PENDING_MS)) out.spent[k] = x;
   for (const [k, x] of Object.entries(v?.change || {})) if (now - x.at < PENDING_MS) out.change[k] = x;
   return out;
 }
 // Change is marked with the wallet it belongs to, so another key opened in this browser does not count it as its own.
 const ownerTag = (poolWallet) => (poolWallet?.addressString ? String(poolWallet.addressString).slice(-16) : null);
-function pendingMark(notes, txid, change, asset, out = 0n, owner = null) {
+// `pay`: the exit pays someone (a sale key's listing), not this wallet's own address. `hold` (ms): notes a relay may still
+// post are set aside for that long only, with no change recorded, so a second payment does not pick them meanwhile.
+function pendingMark(notes, txid, change, asset, out = 0n, owner = null, { pay = false, hold = null } = {}) {
   const p = pendingRead(), at = Date.now();
-  for (const n of notes) if (n.nf) p.spent[nfKey(n.nf)] = { at, txid };
-  if (txid && (change > 0n || out > 0n)) p.change[txid] = { at, v: change.toString(), ...(out > 0n ? { out: out.toString() } : {}), asset: String(asset).replace(/^0x/, '').toLowerCase(), ...(owner ? { owner } : {}) };
+  for (const n of notes) if (n.nf) p.spent[nfKey(n.nf)] = { at, txid, ...(hold ? { until: at + hold } : {}) };
+  if (txid && (change > 0n || out > 0n)) p.change[txid] = { at, v: change.toString(), ...(out > 0n ? { [pay ? 'pay' : 'out']: out.toString() } : {}), asset: String(asset).replace(/^0x/, '').toLowerCase(), ...(owner ? { owner } : {}) };
   try { if (typeof localStorage !== 'undefined') localStorage.setItem(PENDING_KEY, JSON.stringify(p)); } catch {}
 }
-// The notes of `notes` this browser has not spent, how much of `asset` is settling as change not yet read back, and how
-// much is leaving by an exit the replay has not counted yet. With `poolWallet`, only that wallet's change counts.
+// The notes of `notes` this browser has not spent, how much of `asset` is settling as change not yet read back, how much
+// is leaving by an exit to this wallet's address and how much by one that pays someone, while the replay has not counted
+// them yet. With `poolWallet`, only that wallet's change counts.
 export function pendingView(notes, asset, poolWallet = null) {
   const p = pendingRead(), seen = new Set(notes.map((n) => n.txid)), owner = ownerTag(poolWallet);
   const live = notes.filter((n) => !n.spent && !(n.nf && p.spent[nfKey(n.nf)]));
-  let settling = 0n, leaving = 0n;
+  let settling = 0n, leaving = 0n, paying = 0n;
   for (const [txid, c] of Object.entries(p.change)) {
     if (seen.has(txid) || (asset && !eqAsset(c.asset, asset)) || (owner && c.owner && c.owner !== owner)) continue;
-    settling += BigInt(c.v); leaving += BigInt(c.out || 0);
+    settling += BigInt(c.v); leaving += BigInt(c.out || 0); paying += BigInt(c.pay || 0);
   }
-  return { live, settling, leaving };
+  return { live, settling, leaving, paying };
 }
 // A relayer that refused a payment because its notes are already being spent: posting it again would only conflict.
 const spentElsewhere = (m) => /nullifier|conflict|replayed|already spent|double/i.test(String(m || ''));
@@ -392,7 +417,7 @@ export async function payPrivately(tacit, { poolWallet, to, amount, asset, ancho
     // the same spend again without a bind and pay for the carrier itself. The rebuild is given the same
     // notes (selecting again for the smaller need could pick others), so it publishes the same nullifiers — if the relayer does eventually post its copy, only
     // whichever lands first is accepted and the other is rejected by the pool. The money cannot go twice.
-    const relayed = (carrier) => { pendingMark(a.notes, carrier, a.total - pay - BigInt(q.fee), asset, 0n, ownerTag(poolWallet)); return { revealTxid: carrier, relayed: true, anchor: a.hAnchor, amount: pay }; };
+    const relayed = (carrier) => { pendingMark(a.notes, carrier, a.total - pay - BigInt(q.fee), asset, 0n, ownerTag(poolWallet)); return { revealTxid: carrier, relayed: true, anchor: a.hAnchor, amount: pay, fee: BigInt(q.fee) }; };
     // The relay counts a payment confirmed once the pool holds its spend, whichever carrier took it there.
     const landed = (stt) => stt?.carrier || (stt?.state === 'confirmed' ? stt.carrier || null : undefined);
     let reason = null, sub = null, timedOut = false;
@@ -430,7 +455,12 @@ export async function payPrivately(tacit, { poolWallet, to, amount, asset, ancho
     const asked = (async () => ({ ok: !!(await askSelf('relay-slow', { timedOut, signal: ctl.signal })) }))();
     const got = await (watch ? Promise.race([asked, watch]) : asked).finally(() => ctl.abort());
     if (got.landed) return relayed(got.carrier);
-    if (!got.ok) throw relayDeclined('The relay hasn’t posted it yet and may still. Nothing else was sent; check your balance before paying again.');
+    if (!got.ok) {
+      if (!timedOut) throw relayDeclined('The relay hasn’t posted it yet and may still. Nothing else was sent; check your balance before paying again.');
+      // Still queued at the relay: its notes are set aside while it may post them.
+      pendingMark(a.notes, null, 0n, asset, 0n, ownerTag(poolWallet), { hold: MAY_STILL_MS });
+      throw relayDeclined('The relay hasn’t posted it yet and may still. Nothing else was sent; the TAC it would spend is set aside for half an hour, so it is not paid twice.');
+    }
     say('Posting it from your Bitcoin address…');
     return payPrivately(tacit, { poolWallet, to, amount, asset, anchor: a.hAnchor, noRelay: true, say, inputs: a.notes, deductFee });
   }
@@ -893,10 +923,10 @@ export async function exitToSaleKey(tacit, { poolWallet, amount, asset, key, anc
   if (!q || !Number.isInteger(q.exitVout)) throw relayDeclined(NOT_NOW);
   const fee = BigInt(q.fee);
   if (fee > (maxFee ?? (BigInt(listed) * 5n) / 4n)) throw Object.assign(new Error('The relay’s fee changed.'), { feeMoved: fee });
-  saleHold(poolWallet, key.counter);
   say('finding your notes…');
   const a = await prepare(poolWallet, assetHex, amount + fee, anchor, inputs);
   if (a.wait) return { wait: a.wait, tip: a.tip };
+  saleHold(poolWallet, key.counter);                                // reserved once a take-out to it can be posted
   // The fee note, the change and zero-value padding to three outputs (an exit leaves it to the caller), the last two
   // to the wallet's internal address so what stays shielded does not show as sent.
   const self = { address: poolWallet.internalAddress, network: poolWallet.network };
@@ -929,7 +959,7 @@ export async function exitToSaleKey(tacit, { poolWallet, amount, asset, key, anc
     const st = await client.relayStatus(sub.id).catch(() => null);
     const carrier = st?.carrier || (st?.state === 'confirmed' ? null : undefined);
     if (carrier !== undefined) {
-      pendingMark(a.notes, carrier, a.total - amount - fee, assetHex, amount, ownerTag(poolWallet));
+      pendingMark(a.notes, carrier, a.total - amount - fee, assetHex, amount, ownerTag(poolWallet), { pay: true });
       if (carrier) tacit.recordOpening?.(carrier, exitVout, assetHex, amount, BigInt(built.exit.blinding));
       return { revealTxid: carrier, exitVout, amount, fee };
     }
@@ -940,6 +970,7 @@ export async function exitToSaleKey(tacit, { poolWallet, amount, asset, key, anc
     say('Waiting for the relay’s batch…');
     await new Promise((r) => setTimeout(r, 5000));
   }
+  pendingMark(a.notes, null, 0n, assetHex, 0n, ownerTag(poolWallet), { hold: MAY_STILL_MS });
   throw relayDeclined('The relay hasn’t posted it yet and may still. Nothing else was sent; once it posts, the TAC shows here, ready to list.');
 }
 
@@ -992,16 +1023,17 @@ export async function buyFee(tacit, tier = 'priority') {
 }
 
 // Listings of `asset` on Bitcoin's market to buy straight into the pool (buyAndShield): unexpired for at least `minLeft`
-// seconds, not this wallet's own, within `budget` sats when one is given, cheapest per unit first. Each is the record the
-// API lists, with `unit` (sats per whole token) added. A lot is bought whole.
-export async function lotsToBuy(tacit, { asset = TAC_ASSET_MAINNET, network = 'mainnet', budget = null, limit = 3, minLeft = 900, decimals = 8 } = {}) {
+// seconds, not this wallet's own (its key, or a seller key in `exclude`, such as its sale keys), within `budget` sats when
+// one is given, cheapest per unit first. Each is the record the API lists, with `unit` (sats per whole token) added. A lot
+// is bought whole.
+export async function lotsToBuy(tacit, { asset = TAC_ASSET_MAINNET, network = 'mainnet', budget = null, limit = 3, minLeft = 900, decimals = 8, exclude = null } = {}) {
   const assetHex = String(asset).replace(/^0x/, '').toLowerCase();
   const book = await fetch(`${WORKER_BASE}/assets/${assetHex}/preauth-sales?network=${network === 'mainnet' ? 'mainnet' : 'signet'}`, { cache: 'no-store', signal: AbortSignal.timeout?.(20_000) })
     .then((r) => (r.ok ? r.json() : null)).catch(() => null);
   if (!book) return null;
   const now = Date.now() / 1000, mine = tacit?.wallet?.pub ? bytesToHex(tacit.wallet.pub) : null, one = 10 ** decimals;
   const live = (book.sales || [])
-    .filter((s) => !s.expired && Number(s.expiry) > now + minLeft && s.seller_pubkey !== mine && /^\d+$/.test(String(s.asset_opening?.amount)) && BigInt(s.asset_opening.amount) > 0n)
+    .filter((s) => !s.expired && Number(s.expiry) > now + minLeft && s.seller_pubkey !== mine && !exclude?.has(strip0x(s.seller_pubkey)) && /^\d+$/.test(String(s.asset_opening?.amount)) && BigInt(s.asset_opening.amount) > 0n)
     .map((s) => ({ ...s, unit: Number(s.min_price_sats) / (Number(s.asset_opening.amount) / one) }))
     .sort((a, b) => a.unit - b.unit || Number(a.min_price_sats) - Number(b.min_price_sats));
   const within = budget == null ? live : live.filter((s) => Number(s.min_price_sats) <= Number(budget));
