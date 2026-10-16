@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mainnet.base.org https://base.gateway.tenderly.co https://base-rpc.publicnode.com https://base.drpc.org https://rpc.mainnet.chain.robinhood.com https://robinhood.drpc.org https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keepers.onrender.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
 <meta name="color-scheme" content="light dark">
 <title>tacit tasks</title>
 <meta name="description" content="Small jobs anyone can do from their own wallet, paid in TAC.">
@@ -28,7 +28,7 @@
 <link rel="modulepreload" href="/trade/util.js?cb=c3dc39b3">
 <link rel="modulepreload" href="/trade/rpc.js?cb=842f58a5">
 <link rel="modulepreload" href="/trade/fmt.js?cb=43646c2e">
-<link rel="modulepreload" href="/tasks/verify.js?cb=25dba64d">
+<link rel="modulepreload" href="/tasks/verify.js?cb=b8174dad">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <!-- preload:end -->
 <style>
@@ -189,6 +189,7 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .chip-s.open::before { background: var(--orange); }
 .chip-s.unknown { color: var(--mute); border-style: dashed; }
 .step .by { grid-column: 2 / -1; font-size: 11.5px; color: var(--mute); }
+.step .one { grid-column: 2 / -1; justify-self: start; font-size: 11.5px; }
 .step .by a { color: var(--mute); }
 .step.is-done .what b, .step.is-done .n { color: var(--mute); }
 @media (max-width: 560px) { .step { grid-template-columns: 22px minmax(0, 1fr); } .chip-s, .step .paid { grid-column: 2; justify-self: start; margin-top: 4px; text-align: left; } }
@@ -211,7 +212,8 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .paste { margin-top: 16px; display: grid; gap: 8px; }
 .paste .lbl { display: grid; gap: 6px; margin: 0; font-size: 12px; color: var(--mute); }
 textarea { width: 100%; resize: vertical; padding: 10px 12px; font: 12px/1.5 var(--mono); color: var(--ink); background: var(--card); border: 1px solid var(--hair); border-bottom-color: var(--ink); }
-textarea:focus { outline: none; border-color: var(--ink); }
+textarea:focus, .paste select:focus { outline: none; border-color: var(--ink); }
+.paste select { width: 100%; padding: 10px 12px; font: 12px/1.5 var(--mono); color: var(--ink); background: var(--card); border: 1px solid var(--hair); border-bottom-color: var(--ink); border-radius: 0; }
 .linkbtn { background: none; border: 0; padding: 0; cursor: pointer; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; font-size: inherit; }
 .hint { margin: 12px 0 0; font-size: 12.5px; color: var(--mute); }
 .hint:empty { display: none; }

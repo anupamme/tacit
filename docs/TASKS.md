@@ -16,6 +16,11 @@ kept between the step's share of the job's floor and its share of the job's cap 
   every two minutes. A step is priced at the lower of the sample nearest its block (within two hours) and the median of the six
   hours before it, so a dump of TAC or a gap in the samples never raises a reward.
 - **Tip, floor, cap** default to 100%, 150 TAC and 2,500 TAC per job (`POINTS_TASKS_TIP_BPS`, `_FLOOR_WEI`, `_CAP_WEI`).
+- **A step's own least and most.** A step may name `minWei` and `maxWei`, which replace its share of the job's floor and cap. A step on
+  a chain where gas costs next to nothing still takes the time of whoever sends it (switch chain, send, name the transaction), so it
+  pays its least however cheap the gas; its most keeps a spike from paying more than the work is worth. The anon.wei job
+  (`anon-wei-4`) uses 8 to 80 TAC per page chunk, 12 to 80 for the registry on Ethereum, 15 to 40 for it on each other chain and 25 to 60
+  for a first point.
 
 ## How a step is credited
 
@@ -25,7 +30,11 @@ kept between the step's share of the job's floor and its share of the job's cap 
      commits to the init code, constructor arguments and owner, so nothing else can be there);
    - a registration in the confidential pool: the pool's `AssetRegistered` event for the planned asset;
    - a pair: a top-level call to the pool with exactly the planned call data (`createPair` reverts when the pair exists, so a
-     call that succeeded made it).
+     call that succeeded made it);
+   - a deployment under an open salt (`"bound": false`, a salt of 20 zero bytes and the flag `0x00`, which CreateX guards as
+     `keccak256(salt)` alone): the same log, with that salt, for an address that is the same on every chain and fixed by the init code;
+   - a point posted to the catch-up registry (`"kind": "post"`): the registry's own `Posted` event for a count of at least the
+     step's `minSize`, so an early, trivial point is not the step.
 3. The reward is fixed then, for the account that **sent** the transaction (`tx.from`; nobody can name another account).
    It is recorded as a pending claim, once per step.
 4. Each cycle a pending claim becomes a ledger adjustment (`task:<job>:<step>`), when
@@ -39,6 +48,16 @@ kept between the step's share of the job's floor and its share of the job's cap 
 The daily split reads only that day's counted points, its budget and the rate ceiling, never the ledger, so task credits change
 nobody's daily share.
 
+## Steps on other chains
+
+A job's steps may be on other chains than Ethereum (a step names its `chainId`; a job's own is the default). The service reads each
+claim on the chain the claim names (`POST /tasks/claim` takes `{ "txHashes": […], "chainId": 8453 }`; Ethereum when it is left out),
+prices its gas from that chain's own block (with its own slow-price floor, a thousand wei, not Ethereum's 0.01 gwei) in the TAC price
+of Ethereum, and waits `POINTS_TASKS_MIN_AGE_SECS` (default 120) after the block as well as twelve confirmations, since a chain with
+quick blocks is not final in twelve of them. Nodes: `POINTS_TASKS_RPC_8453`, `_4663`, `_4326` (default the service's Base and Robinhood
+nodes and MegaETH's public ones; a comma list is tried in order). A job on a chain with no node refuses to start the service, and a node
+that answers for another chain than the one it serves credits nothing.
+
 ## Turning it on
 
 Set `POINTS_TASKS_BUDGET_WEI` (what was topped up for tasks, in wei) and `POINTS_TASKS_END_SEC` on `tacit-points`, then deploy it.
@@ -50,13 +69,19 @@ the end must come before it.
 
 ## Adding or changing a job
 
-`worker-relay/scripts/tasks-jobs.mjs` builds the three files from a deployment payload and its manifest:
+`worker-relay/scripts/tasks-jobs.mjs` builds the three files from a deployment payload and its manifest (a builder replaces its own
+job by id and leaves the others):
 
     worker-relay/src/lib/points-tasks-jobs.json   what the service verifies and prices
     dapp/tasks/jobs.json                          the same steps plus the page's copy (edit the COPY object in the script)
     dapp/tasks/tac-vaults-payload.json            the transactions a visitor sends
 
     node worker-relay/scripts/tasks-jobs.mjs --payload payload.json --manifest tac-vaults.json --rpc <anvil fork> --opens <unix secs>
+
+`worker-relay/scripts/tasks-gen4.mjs` builds the `anon-wei-4` job (the page's chunks on Ethereum, the catch-up registry on four chains,
+the first points on two) from the page build's `out/` and the registry's init code and open salt; it reads each step's gas from the
+chain's own node with `eth_estimateGas` (nothing is sent). The page fetches a point from the chain's keeper when it is sent
+(`GET /<chainId>/evm-pool/keeper/point`) and checks its shape against the plan.
 
 A change to the contracts changes the addresses: rebuild the files, run the tests and `npm run build`.
 

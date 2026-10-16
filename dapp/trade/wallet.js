@@ -84,9 +84,26 @@ export function makeWallet({ rpc, leave = null }) {
     W.chain = hexChain(await req('eth_chainId'));
     if (W.chain !== MAINNET) throw new Error('Switch your wallet to Ethereum mainnet.');
   }
-  async function sendTx({ to, data, value = 0n, from = null }) {
+  // Another chain than Ethereum (a job's step on Base, say): switched to, or added first when the wallet has never seen it, from
+  // `chain` = { id, name, rpc: [url], explorer }.
+  async function ensureChain(chain) {
+    const want = hexChain(chain.id);
+    W.chain = hexChain(await req('eth_chainId'));
+    if (W.chain === want) return;
+    try { await req('wallet_switchEthereumChain', [{ chainId: want }]); }
+    catch (e) {
+      if (!(e?.code === 4902 || /unrecogni[sz]ed|not been added|unknown chain|try adding/i.test(e?.message || ''))) throw e;
+      await req('wallet_addEthereumChain', [{ chainId: want, chainName: chain.name, nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: chain.rpc, blockExplorerUrls: [chain.explorer] }]);
+      // Some wallets switch to a chain they have just added; the rest are asked to.
+      if (hexChain(await req('eth_chainId')) !== want) await req('wallet_switchEthereumChain', [{ chainId: want }]);
+    }
+    W.chain = hexChain(await req('eth_chainId'));
+    if (W.chain !== want) throw new Error(`Switch your wallet to ${chain.name}, then try again.`);
+  }
+  // `chain` (see ensureChain) sends it on that chain; without it, on Ethereum.
+  async function sendTx({ to, data, value = 0n, from = null, chain = null }) {
     same(from);
-    await ensureMainnet();
+    if (chain && hexChain(chain.id) !== MAINNET) await ensureChain(chain); else await ensureMainnet();
     same(from);
     return req('eth_sendTransaction', [{ from: from || W.account, to, data, ...(value ? { value: '0x' + BigInt(value).toString(16) } : {}) }]);
   }
@@ -113,14 +130,14 @@ export function makeWallet({ rpc, leave = null }) {
     try { return !!(await req('wallet_watchAsset', { type: 'ERC20', options })); } catch { return false; }
   }
   // Through the page's own RPCs, so a wallet that is slow to report a receipt does not stall the page.
-  async function receipt(hash, { timeoutMs = 5 * 60e3, every = 3000 } = {}) {
+  async function receipt(hash, { timeoutMs = 5 * 60e3, every = 3000, read = rpc, where = 'Etherscan' } = {}) {
     const t0 = Date.now();
     for (;;) {
-      const r = await rpc('eth_getTransactionReceipt', [hash]).catch(() => null);
+      const r = await read('eth_getTransactionReceipt', [hash]).catch(() => null);
       if (r) return r;
-      if (Date.now() - t0 > timeoutMs) throw new Error('Sent, but not confirmed yet. Check it on Etherscan before trying again.');
+      if (Date.now() - t0 > timeoutMs) throw new Error(`Sent, but not confirmed yet. Check it on ${where} before trying again.`);
       await new Promise((res) => setTimeout(res, every));
     }
   }
-  return { state: W, available, connect, restore, disconnect, ensureMainnet, sendTx, signPermit, receipt, watchAsset, onChange: (f) => W.listeners.add(f) };
+  return { state: W, available, connect, restore, disconnect, ensureMainnet, ensureChain, sendTx, signPermit, receipt, watchAsset, onChange: (f) => W.listeners.add(f) };
 }

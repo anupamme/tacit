@@ -14,11 +14,21 @@ export const CREATEX = '0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed';
 const topic = (sig) => keccak256(toBytes(sig));
 export const CONTRACT_CREATION = topic('ContractCreation(address,bytes32)');
 export const ASSET_REGISTERED = topic('AssetRegistered(bytes32,address,uint256,string,string,uint8)');
+// The catch-up registry's own event for a point it kept: Posted(size, blockNumber, by), with the size indexed.
+export const POSTED = topic('Posted(uint256,uint256,address)');
 
 // The salt CreateX uses for a salt that starts with 20 zero bytes and the flag 0x01 (the chain-bound form the package uses).
 export const guardedSalt = (chainId, salt) => keccak256(encodeAbiParameters([{ type: 'uint256' }, { type: 'bytes32' }], [BigInt(chainId), salt]));
 
+// The salt CreateX uses for a salt that starts with 20 zero bytes and the flag 0x00 (the form that names the same address on every
+// chain: no deployer and no chain id is mixed in, so the init code alone fixes what lands there).
+export const unboundSalt = (salt) => keccak256(salt);
+
 const lower = (s) => String(s).toLowerCase();
+
+// The chain a step is on (its own, else its job's) and the salt CreateX guards its deployment under there.
+export const stepChain = (job, step) => step.chainId ?? job.chainId;
+export const saltOf = (chainId, step) => (step.bound === false ? unboundSalt(step.salt) : guardedSalt(chainId, step.salt));
 
 // ── the price of gas at a block ──
 
@@ -68,12 +78,14 @@ export function tacPerEthAt(quotes, t, { maxAgeSecs = 7200, windowSecs = 21600 }
 
 // TAC (wei) for a step of `gas` units: the gas at `gasPriceWei`, in TAC at `tacPerEth`, times (1 + tipBps/10000), at least
 // the step's share (by gas) of the job's floor and at most its share of the job's cap, rounded down to 0.01 TAC.
-export function stepReward({ gas, jobGas, gasPriceWei, tacPerEth, tipBps = 10_000n, floorWei, capWei }) {
+// A step may name its own least and most (`minWei`, `maxWei`): a step on a chain where gas costs next to nothing still takes the
+// effort of a person to send, and pays that least; one that names none takes its share of the job's floor and cap.
+export function stepReward({ gas, jobGas, gasPriceWei, tacPerEth, tipBps = 10_000n, floorWei, capWei, minWei = null, maxWei = null }) {
   const g = BigInt(gas), jg = BigInt(jobGas);
   if (g <= 0n || jg < g) throw new Error('a step is part of its job, with gas of its own');
   const cost = (g * BigInt(gasPriceWei) * BigInt(tacPerEth)) / WAD;
   let wei = (cost * (10_000n + BigInt(tipBps))) / 10_000n;
-  const lo = (BigInt(floorWei) * g) / jg, hi = (BigInt(capWei) * g) / jg;
+  const lo = minWei != null ? BigInt(minWei) : (BigInt(floorWei) * g) / jg, hi = maxWei != null ? BigInt(maxWei) : (BigInt(capWei) * g) / jg;
   if (wei < lo) wei = lo;
   if (wei > hi) wei = hi;
   return wei - (wei % (WAD / 100n));
@@ -86,14 +98,15 @@ export function stepReward({ gas, jobGas, gasPriceWei, tacPerEth, tipBps = 10_00
 // code, so nothing else can be there); a registration by the pool's own event for the planned asset; a pair, which emits no
 // event, by a top-level call to the pool with exactly the planned call data (it reverts when the pair exists, so a call that
 // succeeded made it).
-export function stepsCompleted(job, tx, receipt) {
+export function stepsCompleted(job, tx, receipt, chainId = job.chainId) {
   if (receipt.status !== 'success') return [];
   const out = [];
   const logs = receipt.logs ?? [];
   for (const step of job.steps) {
+    if (stepChain(job, step) !== chainId) continue;
     if (step.kind === 'createx') {
       const want = pad(step.expected, { size: 32 }).toLowerCase();
-      const salt = guardedSalt(job.chainId, step.salt);
+      const salt = saltOf(chainId, step);
       const hit = logs.find((l) => lower(l.address) === lower(CREATEX) && l.topics?.[0] === CONTRACT_CREATION
         && lower(l.topics[1]) === want && lower(l.topics[2] ?? '') === lower(salt));
       if (hit) out.push({ step, proof: { log: hit.logIndex } });
@@ -102,6 +115,11 @@ export function stepsCompleted(job, tx, receipt) {
       if (hit) out.push({ step, proof: { log: hit.logIndex } });
     } else if (step.kind === 'pair') {
       if (tx.to && lower(tx.to) === lower(step.to) && keccak256(tx.input) === step.dataHash) out.push({ step, proof: { call: true } });
+    } else if (step.kind === 'post') {
+      // The registry keeps a point only when the pool held its root, and says so in this event: one for a count of at least
+      // `minSize` (a point near the pool's head, not a trivial early one) is the step.
+      const hit = logs.find((l) => lower(l.address) === lower(step.to) && l.topics?.[0] === POSTED && l.topics[1] && BigInt(l.topics[1]) >= BigInt(step.minSize));
+      if (hit) out.push({ step, proof: { log: hit.logIndex } });
     }
   }
   return out;
@@ -111,14 +129,18 @@ export function stepsCompleted(job, tx, receipt) {
 export function checkJob(job) {
   const hex = (v, n) => typeof v === 'string' && new RegExp(`^0x[0-9a-fA-F]{${n}}$`).test(v);
   if (!/^[a-z0-9-]{1,40}$/.test(job.id ?? '') || !Number.isInteger(job.chainId)) throw new Error('job needs an id and a chain');
+  const wei = (v) => typeof v === 'string' && /^[0-9]{1,30}$/.test(v);
   if (!Array.isArray(job.steps) || !job.steps.length) throw new Error(`${job.id}: no steps`);
   const seen = new Set();
   for (const s of job.steps) {
     if (!/^[a-z0-9-]{1,40}$/.test(s.id ?? '') || seen.has(s.id)) throw new Error(`${job.id}: step id ${s.id}`);
     seen.add(s.id);
     if (!Number.isInteger(s.gas) || s.gas <= 0) throw new Error(`${job.id}/${s.id}: gas`);
+    if (s.chainId != null && !(Number.isInteger(s.chainId) && s.chainId > 0)) throw new Error(`${job.id}/${s.id}: chainId`);
+    if ((s.minWei != null && !wei(s.minWei)) || (s.maxWei != null && !wei(s.maxWei)) || (s.minWei != null && s.maxWei != null && BigInt(s.minWei) > BigInt(s.maxWei))) throw new Error(`${job.id}/${s.id}: minWei and maxWei`);
     if (!hex(s.to, 40)) throw new Error(`${job.id}/${s.id}: to`);
-    if (s.kind === 'createx') { if (!hex(s.expected, 40) || !hex(s.salt, 64) || !hex(s.initCodeHash, 64)) throw new Error(`${job.id}/${s.id}: createx fields`); }
+    if (s.kind === 'createx') { if (!hex(s.expected, 40) || !hex(s.salt, 64) || !hex(s.initCodeHash, 64) || (s.bound != null && typeof s.bound !== 'boolean')) throw new Error(`${job.id}/${s.id}: createx fields`); }
+    else if (s.kind === 'post') { if (!Number.isInteger(s.minSize) || s.minSize < 2) throw new Error(`${job.id}/${s.id}: minSize`); }
     else if (s.kind === 'register') { if (!hex(s.asset, 64)) throw new Error(`${job.id}/${s.id}: asset`); }
     else if (s.kind === 'pair') { if (!hex(s.dataHash, 64)) throw new Error(`${job.id}/${s.id}: dataHash`); }
     else throw new Error(`${job.id}/${s.id}: kind ${s.kind}`);

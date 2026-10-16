@@ -224,8 +224,8 @@ try {
     const pj = page.jobs.find((j) => j.id === sj.id);
     assert.ok(pj, `${sj.id} is on the page`);
     assert.equal(pj.opensAt, sj.opensAt);
-    assert.deepEqual(pj.steps.map(({ id, kind, to, gas, expected, salt, initCodeHash, asset, dataHash, poolId }) => ({ id, kind, to, gas, expected, salt, initCodeHash, asset, dataHash, poolId })),
-      sj.steps.map(({ id, kind, to, gas, expected, salt, initCodeHash, asset, dataHash, poolId }) => ({ id, kind, to, gas, expected, salt, initCodeHash, asset, dataHash, poolId })), 'the page and the service state the same steps');
+    assert.deepEqual(pj.steps.map(({ id, chainId, kind, to, gas, expected, salt, bound, initCodeHash, asset, dataHash, poolId, minSize, minWei, maxWei }) => ({ id, chainId, kind, to, gas, expected, salt, bound, initCodeHash, asset, dataHash, poolId, minSize, minWei, maxWei })),
+      sj.steps.map(({ id, chainId, kind, to, gas, expected, salt, bound, initCodeHash, asset, dataHash, poolId, minSize, minWei, maxWei }) => ({ id, chainId, kind, to, gas, expected, salt, bound, initCodeHash, asset, dataHash, poolId, minSize, minWei, maxWei })), 'the page and the service state the same steps');
   }
   console.log('ok - the service and the page state the same steps');
 } finally {

@@ -754,6 +754,14 @@ export const CFG = {
   pointsTasksFloorWei: BigInt(opt('POINTS_TASKS_FLOOR_WEI', '150000000000000000000')),
   pointsTasksCapWei: BigInt(opt('POINTS_TASKS_CAP_WEI', '2500000000000000000000')),
   pointsTasksReserveDays: num('POINTS_TASKS_RESERVE_DAYS', 2),
+  // The nodes the tasks service reads a job's steps from on other chains than Ethereum (a comma list is tried in order), and how long a
+  // block there must have aged before a step in it is final: a chain with quick blocks is not final in twelve of them.
+  pointsTasksRpc: {
+    8453: opt('POINTS_TASKS_RPC_8453', opt('BASE_RPC_URL', 'https://mainnet.base.org')),
+    4663: opt('POINTS_TASKS_RPC_4663', opt('ROBINHOOD_RPC_URL', 'https://rpc.mainnet.chain.robinhood.com')),
+    4326: opt('POINTS_TASKS_RPC_4326', 'https://mainnet.megaeth.com/rpc,https://megaeth.drpc.org'),
+  },
+  pointsTasksMinAgeSecs: num('POINTS_TASKS_MIN_AGE_SECS', 120),
   // Where the balance monitor reads the points service's /rewards funding report.
   pointsApiBase: opt('POINTS_API_BASE', 'https://tacit-points.onrender.com'),
   pointsSettleMaxWaitSecs: num('POINTS_SETTLE_MAX_WAIT_SECS', 21600),

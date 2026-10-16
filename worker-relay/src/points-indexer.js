@@ -26,7 +26,7 @@ import { parseBuckets } from './lib/holding-epoch.js';
 import { loadHash } from './lib/poseidon-hash.js';
 import { readJson } from './lib/http-json.js';
 import { createTasks } from './lib/points-tasks-service.js';
-import { checkJob } from './lib/points-tasks.js';
+import { checkJob, stepChain } from './lib/points-tasks.js';
 import { quoteTacForEth } from './lib/tac-quote.js';
 import { clientKey } from './lib/token-bucket.js';
 import { makeClient as holdingClient } from './lib/evm-pool-snapshot-chain.js';
@@ -1836,9 +1836,18 @@ let tasks = null;
 function setupTasks(store) {
   if (CFG.pointsTasksBudgetWei <= 0n || !CFG.pointsTasksEndSec || !CFG.pointsProgramStartSec) return null;
   const jobs = JSON.parse(readFileSync(new URL('./lib/points-tasks-jobs.json', import.meta.url), 'utf8')).jobs.map(checkJob);
+  // A client and a rule for each other chain a job has steps on. Their gas is priced in wei of their own (the slow price's floor
+  // is a thousand wei, not Ethereum's 0.01 gwei: a chain's fee is its base fee, and the step's own least pays for the effort).
+  const chainIds = [...new Set(jobs.flatMap((j) => j.steps.map((st) => stepChain(j, st))))].filter((id) => id !== 1);
+  const clients = {}, chains = {};
+  for (const id of chainIds) {
+    if (!CFG.pointsTasksRpc[id]) throw new Error(`a task job has steps on chain ${id}, which has no node set (POINTS_TASKS_RPC_${id})`);
+    clients[id] = clientForChain(id, CFG.pointsTasksRpc[id]);
+    chains[id] = { confirmations: 12, minAgeSecs: CFG.pointsTasksMinAgeSecs, gas: { floor: 1000n, cap: 2_000_000_000n } };
+  }
   const t = createTasks({
-    store, jobs, client: publicClient, quote: (amountIn) => quoteTacForEth(publicClient, amountIn), log,
-    cfg: { budgetWei: CFG.pointsTasksBudgetWei, endSec: CFG.pointsTasksEndSec, tipBps: CFG.pointsTasksTipBps, floorWei: CFG.pointsTasksFloorWei, capWei: CFG.pointsTasksCapWei, reserveDays: CFG.pointsTasksReserveDays },
+    store, jobs, client: publicClient, clients, quote: (amountIn) => quoteTacForEth(publicClient, amountIn), log,
+    cfg: { budgetWei: CFG.pointsTasksBudgetWei, endSec: CFG.pointsTasksEndSec, tipBps: CFG.pointsTasksTipBps, floorWei: CFG.pointsTasksFloorWei, capWei: CFG.pointsTasksCapWei, reserveDays: CFG.pointsTasksReserveDays, chains },
     budgetFor: budgetForDay, graceSecs: CFG.pointsSettleGraceSecs,
     fundingInputs: async () => {
       const state = store.loadSettleState();

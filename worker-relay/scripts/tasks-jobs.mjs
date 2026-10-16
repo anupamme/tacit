@@ -14,6 +14,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { keccak256, encodeAbiParameters } from 'viem';
+import { writeJobs } from './tasks-merge.mjs';
 
 const arg = (k, d = null) => { const i = process.argv.indexOf(`--${k}`); return i > 0 ? process.argv[i + 1] : d; };
 const root = fileURLToPath(new URL('../../', import.meta.url));
@@ -103,7 +104,7 @@ for (const s of steps) if (!gasOf.get(s.id)) throw new Error(`no gas for ${s.id}
 
 const kept = (s) => ({ id: s.id, kind: s.kind, to: s.to, gas: gasOf.get(s.id), ...(s.kind === 'createx' ? { expected: s.expected, salt: s.salt, initCodeHash: s.initCodeHash } : s.kind === 'register' ? { asset: s.asset, dataHash: s.dataHash } : { dataHash: s.dataHash, poolId: s.poolId }) });
 const job = { id: 'tac-vaults', chainId: payload.chainId, opensAt, steps: steps.map(kept) };
-writeFileSync(SERVICE_OUT, `${JSON.stringify({ jobs: [job] }, null, 2)}\n`);
-writeFileSync(PAGE_OUT, `${JSON.stringify({ jobs: [{ ...job, ...COPY, steps: steps.map((s) => ({ ...kept(s), name: s.name, label: s.label, ...(s.contract ? { contract: s.contract } : {}) })) }] }, null, 2)}\n`);
+writeJobs(SERVICE_OUT, job);
+writeJobs(PAGE_OUT, { ...job, ...COPY, steps: steps.map((s) => ({ ...kept(s), name: s.name, label: s.label, ...(s.contract ? { contract: s.contract } : {}) })) });
 writeFileSync(PAYLOAD_OUT, `${JSON.stringify({ chainId: payload.chainId, factory: payload.factory, steps: steps.map((s) => ({ id: s.id, to: s.to, data: s.data, value: '0x0' })) })}\n`);
 console.log(`${steps.length} steps, ${steps.reduce((n, s) => n + gasOf.get(s.id), 0)} gas; opens ${opensAt || 'never (closed)'}`);

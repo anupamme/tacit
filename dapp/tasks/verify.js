@@ -12,6 +12,12 @@ const same = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
 
 // The salt CreateX hashes with the chain id when a salt begins with 20 zero bytes and the flag 0x01.
 export const guardedSalt = (chainId, salt) => keccak(word(chainId) + strip(salt));
+// The salt CreateX hashes alone when a salt begins with 20 zero bytes and the flag 0x00: the same address on every chain.
+export const unboundSalt = (salt) => keccak(strip(salt));
+// The chain a step is on, and the salt CreateX guards its deployment under there.
+export const stepChain = (job, step) => step.chainId ?? job.chainId;
+export const saltOf = (chainId, step) => (step.bound === false ? unboundSalt(step.salt) : guardedSalt(chainId, step.salt));
+const POST = `0x${bytesToHex(keccak_256(new TextEncoder().encode('post(uint256,uint256,bytes32[32])'))).slice(0, 8)}`;   // the registry's post call
 export const create2 = (factory, guarded, initCodeHash) => `0x${strip(keccak(`ff${strip(factory)}${strip(guarded)}${strip(initCodeHash)}`)).slice(24)}`;
 
 // → { salt, initCode } from deployCreate2 call data, or null when it is anything else.
@@ -35,7 +41,13 @@ export function checkStep(job, step, tx) {
     if (!same(d.salt, step.salt)) bad.push('uses another salt');
     const hash = keccak(d.initCode);
     if (!same(hash, step.initCodeHash)) bad.push('deploys other code than the plan');
-    if (!same(create2(CREATEX, guardedSalt(job.chainId, d.salt), hash), step.expected)) bad.push('would not land at the planned address');
+    if (!same(create2(CREATEX, saltOf(stepChain(job, step), { bound: step.bound, salt: d.salt }), hash), step.expected)) bad.push('would not land at the planned address');
+  } else if (step.kind === 'post') {
+    // A point is read when it is sent (the pool's tree edge now), so only its shape is the plan's: the registry's post call with a
+    // count of at least the step's least, a block, and the 32 words of the edge. The registry keeps it only if the pool held its root.
+    const h = strip(tx.data || '');
+    if (`0x${h.slice(0, 8)}` !== POST || h.length !== 8 + 64 * 34) bad.push('is not a post call to the registry');
+    else if (BigInt(`0x${h.slice(8, 72)}`) < BigInt(step.minSize)) bad.push('posts a point earlier than the plan asks for');
   } else if (!same(keccak(tx.data), step.dataHash)) bad.push('calls with other data than the plan');
   return bad;
 }
@@ -44,11 +56,13 @@ export function checkStep(job, step, tx) {
 export function checkPayload(job, payload) {
   const problems = [];
   if (payload.chainId !== job.chainId || !same(payload.factory, CREATEX)) problems.push({ step: '*', bad: ['is for another chain or factory'] });
+  for (const [i, step] of job.steps.entries()) if (payload.steps[i] && (payload.steps[i].chainId ?? job.chainId) !== stepChain(job, step)) problems.push({ step: step.id, bad: ['is for another chain'] });
   if (payload.steps.length !== job.steps.length) problems.push({ step: '*', bad: ['has another number of steps'] });
   for (const [i, step] of job.steps.entries()) {
     const tx = payload.steps[i];
     if (!tx || tx.id !== step.id) { problems.push({ step: step.id, bad: ['is not at its place in the payload'] }); continue; }
-    const bad = checkStep(job, step, tx);
+    // A point has no data in the payload (it is read when sent): checkStep sees it then.
+    const bad = step.kind === 'post' ? (tx.dynamic === 'point' && same(tx.to, step.to) ? [] : ['is not the registry point call']) : checkStep(job, step, tx);
     if (bad.length) problems.push({ step: step.id, bad });
   }
   return { ok: problems.length === 0, problems };
