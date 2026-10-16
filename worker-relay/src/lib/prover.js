@@ -387,6 +387,7 @@ export async function proveSettle({ type, op, memos = [], timeoutMs }) {
       // op keeps a last-resort cap under the container's ceiling.
       rssLimitKB: type === 'batchtransfer' ? CFG.batchProverRssKB : CFG.settleProverRssKB,
     });
+    await rm(opFile, { force: true }); // the witness is not left on disk once the binary has read it
     try {
       const publicValues = await readHex(path.join(cwd, 'public_values.hex'));
       const proof = await readHex(path.join(cwd, 'proof_bytes.hex'));

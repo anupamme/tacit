@@ -277,4 +277,20 @@ const routeOp = { asset0: 'aa', assetFinal: 'bb', hops: [{ reserveAPre: '1000', 
   ok('ack: the proof\'s lane (board / network-private / network-public) rides on the settled job\'s status');
 }
 
+// ───────────────── 15. a settled job keeps no witness: the op is dropped from its record ─────────────────
+{
+  const store = freshStore();
+  const q = makeConfidentialSettler({ storage: store, hash, now, sleep: instantSleep });
+  const a = await q.submitJob({ type: 'transfer', op: { chainBinding: '0xcb', spendRoot: '0xr', fee: 0, secret: 'witness' } });
+  await q.nextJob();
+  assert.ok((await store.getJob(a.jobId)).op, 'a claimed job carries its op');
+  await q.ackJob(a.jobId, { txHash: '0xtx' });
+  const rec = await store.getJob(a.jobId);
+  assert.strictEqual(rec.status, 'settled'); assert.strictEqual(rec.op, undefined, 'the witness is gone once settled');
+  assert.strictEqual((await q.jobStatus(a.jobId)).txHash, '0xtx');
+  const b = await q.submitJob({ type: 'transfer', op: { chainBinding: '0xcb', spendRoot: '0xr', fee: 0, secret: 'witness' } });
+  assert.strictEqual(b.jobId, a.jobId, 'and the same op still dedupes to the same job by id');
+  ok('a settled job drops its op (the witness); its id, memos and transaction stay');
+}
+
 console.log(`\n${n} confidential-settle checks passed.`);

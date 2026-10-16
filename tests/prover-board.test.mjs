@@ -72,6 +72,24 @@ test('a lapsed lease re-opens the job for the next claim; a cancelled job takes 
   await assert.rejects(b.post({ class: 'public', stdin, cycleLimit: 1, gasLimit: 1, deadline: now() / 1000 - 10 }), /deadline/);
 });
 
+test('the input leaves the record the moment a job ends, and the record leaves storage once it leaves the list', async () => {
+  const st = store();
+  const deleted = [];
+  st.deleteJob = async (id) => { deleted.push(id); };
+  const b = makeProverBoard({ storage: st, now });
+  const { jobId } = await b.post({ class: 'public', stdin, cycleLimit: 1e6, gasLimit: 1e8, deadline: now() / 1000 + 600 });
+  await b.claim({ worker: guest, classes: ['public'] });
+  assert.equal((await st.getJob(jobId)).stdin, stdin, 'claimed: the worker still needs it');
+  await b.result({ worker: guest, jobId, publicValues: '0x' + '11'.repeat(64), proof: '0x' + '22'.repeat(100) });
+  assert.equal((await st.getJob(jobId)).stdin, null, 'proved: dropped');
+  const c = await b.post({ class: 'public', stdin: Buffer.from('two').toString('base64'), cycleLimit: 1, gasLimit: 1, deadline: now() / 1000 + 600 });
+  await b.cancel({ jobId: c.jobId });
+  assert.equal((await st.getJob(c.jobId)).stdin, null, 'cancelled: dropped');
+  t += PROVER_BOARD.keepMs + 1;
+  await b.summary(); await b.post({ class: 'public', stdin: Buffer.from('three').toString('base64'), cycleLimit: 1, gasLimit: 1, deadline: now() / 1000 + 600 });
+  assert.ok(deleted.includes(jobId) && deleted.includes(c.jobId), 'kept long enough, then deleted from storage');
+});
+
 test('routes: box token for posting and reading, worker tokens for claiming and answering, the summary open to any page', async () => {
   const kv = () => { const m = new Map(); return { async get(k) { return m.has(k) ? m.get(k) : null; }, async put(k, v) { m.set(k, String(v)); }, async delete(k) { m.delete(k); } }; };
   const env = { REGISTRY_KV: kv(), CONFIDENTIAL_BOX_TOKEN: 'box-token-box-token-box', PROVER_WORKER_TOKENS: 'gpu1:worker-token-worker-tok:private+public,alice:alice-token-alice-token' };

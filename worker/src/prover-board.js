@@ -54,7 +54,9 @@ function makeLock() {
   return (fn) => { const p = tail.then(fn, fn); tail = p.then(() => {}, () => {}); return p; };
 }
 
-// storage: { getPending()->id[], putPending(id[]), getJob(id)->job|null, putJob(id, job), getWorkers()->{}, putWorkers({}) }
+// The input is a user's witness: it stays on a record only while a worker may still need it (queued or claimed) and is
+// dropped the moment the job is over, and a record leaves storage when it leaves the list.
+// storage: { getPending()->id[], putPending(id[]), getJob(id)->job|null, putJob(id, job), deleteJob?(id), getWorkers()->{}, putWorkers({}) }
 export function makeProverBoard({ storage, hash, now, lock } = {}) {
   if (!storage) throw new Error('prover-board: storage is required');
   const clock = now || (() => Date.now());
@@ -69,13 +71,15 @@ export function makeProverBoard({ storage, hash, now, lock } = {}) {
       const j = await storage.getJob(jid);
       if (!j) continue;
       if (j.status === 'queued' || j.status === 'claimed') {
-        if (j.deadline && clock() > j.deadline * 1000) { j.status = 'expired'; j.endedAt = clock(); await storage.putJob(jid, j); }
+        if (j.deadline && clock() > j.deadline * 1000) { j.status = 'expired'; over(j); await storage.putJob(jid, j); }
         else if (j.status === 'claimed' && clock() > j.leaseUntil) { j.status = 'queued'; j.worker = null; j.leaseUntil = 0; j.lapsed = (j.lapsed || 0) + 1; await storage.putJob(jid, j); }
       }
       if (['queued', 'claimed'].includes(j.status) || clock() - (j.endedAt || 0) < PROVER_BOARD.keepMs) keep.push(jid);
+      else if (storage.deleteJob) await storage.deleteJob(jid);
     }
     return keep;
   }
+  const over = (j) => { j.stdin = null; j.endedAt = clock(); };
 
   // The relay posts work. The same input posted twice is one job (its id is the hash of what the worker proves).
   async function post({ class: cls, program = 'confidential', stdin, cycleLimit, gasLimit, deadline, label = null } = {}) {
@@ -117,7 +121,7 @@ export function makeProverBoard({ storage, hash, now, lock } = {}) {
       if (!j) return { ok: false, error: 'no such job' };
       if (!['queued', 'claimed', 'proved'].includes(j.status)) return { ok: true, status: j.status };
       if (reason === 'bad' && j.worker) await bump(j.worker, 'bad');
-      j.status = 'cancelled'; j.endedAt = clock(); j.cancelReason = reason;
+      j.status = 'cancelled'; over(j); j.cancelReason = reason;
       await storage.putJob(j.id, j);
       return { ok: true, status: 'cancelled' };
     });
@@ -160,14 +164,14 @@ export function makeProverBoard({ storage, hash, now, lock } = {}) {
       if (!j) return { ok: false, error: 'no such job' };
       if (j.status !== 'claimed' || j.worker !== worker.name) return { ok: false, error: j.status === 'claimed' ? 'claimed by another worker' : `job is ${j.status}` };
       if (error != null) {
-        j.status = 'failed'; j.error = String(error).slice(0, 300); j.endedAt = clock();
+        j.status = 'failed'; j.error = String(error).slice(0, 300); over(j);
         await storage.putJob(j.id, j);
         await bump(worker.name, 'failed');
         return { ok: true, status: 'failed' };
       }
       if (!isHex(publicValues) || publicValues.length < 2 + 64 * 2 || publicValues.length > 2 + 2 * 65536) return { ok: false, error: 'publicValues must be the hex of the proof\'s public values' };
       if (!isHex(proof) || proof.length < 2 + 2 * 4 || proof.length > 2 + 2 * 4096) return { ok: false, error: 'proof must be the hex of the groth16 proof bytes' };
-      j.status = 'proved'; j.publicValues = publicValues.toLowerCase(); j.proof = proof.toLowerCase(); j.endedAt = clock();
+      j.status = 'proved'; j.publicValues = publicValues.toLowerCase(); j.proof = proof.toLowerCase(); over(j);
       await storage.putJob(j.id, j);
       await bump(worker.name, 'proved');
       return { ok: true, status: 'proved' };
@@ -203,6 +207,7 @@ export function buildProverBoard(env, { hash } = {}) {
     putPending: async (ids) => KV.put('pb:pending', JSON.stringify(ids)),
     getJob: async (id) => { const s = await KV.get('pb:job:' + id); return s ? JSON.parse(s) : null; },
     putJob: async (id, job) => KV.put('pb:job:' + id, JSON.stringify(job)),
+    deleteJob: async (id) => KV.delete('pb:job:' + id),
     getWorkers: async () => { const s = await KV.get('pb:workers'); return s ? JSON.parse(s) : {}; },
     putWorkers: async (ws) => KV.put('pb:workers', JSON.stringify(ws)),
   };

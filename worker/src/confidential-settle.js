@@ -481,6 +481,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
         j.broadcastHashes = broadcastHashes.slice(0, 8).map((h) => String(h));
       }
     } else if (settledBy) {
+      delete j.op;
       // What the job consumes was consumed by a settle found on chain (a deposit settled from elsewhere, by the page
       // itself or another settler): the job is done by that transaction, whichever mode it was asked in.
       j.status = 'settled'; j.txHash = String(settledBy);
@@ -492,6 +493,8 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
       j.status = 'settled'; j.txHash = txHash || null;
       if (LANES.includes(lane)) j.lane = lane;
       delete j.broadcastHashes; // resolved: the one that landed is j.txHash
+      // The op is the user's witness; a settled job has no further use for it (its id, memos and transaction stay).
+      delete j.op;
       recordActivation(j, activateTx, activateError);
     }
     await storage.putJob(jobId, j);
@@ -507,7 +510,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
   async function ackOpenLocked(jobId, j, { txHash, error, settledBy, requeue, release, broadcastHashes }) {
     const dropOpen = async () => putOpen((await getOpen()).filter((x) => x !== jobId));
     if (txHash || settledBy) {
-      j.status = 'settled'; j.txHash = String(txHash || settledBy); j.error = null;
+      j.status = 'settled'; j.txHash = String(txHash || settledBy); j.error = null; delete j.op;
       delete j.broadcastHashes;
       await storage.putJob(jobId, j);
       await dropOpen();
