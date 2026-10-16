@@ -9,7 +9,6 @@
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venues.js?cb=a08631ce';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=b9f00573';
-import { mountFarm } from '/trade/farm.js?cb=e7c9d199';
 import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18 } from '/trade/util.js?cb=c3dc39b3';
 import * as R from '/swap/route.js?cb=9a5d9c69';
 
@@ -298,15 +297,19 @@ function paintQuote() {
   const m = q && !q.busy ? vsMarket(q, r) : null;
   $('#get-usd').innerHTML = vo != null ? `≈ ${usd(vo)}${m != null && Math.abs(m) >= 0.0005 ? ` <span class="${m <= BAD ? 'warn' : m > 0.02 ? 'ok' : 'mute'}">(${m > 0 ? '+' : '−'}${Math.abs(m * 100).toFixed(Math.abs(m) >= 0.1 ? 0 : 2)}%)</span>` : ''}` : '';
   // The routes, when there is a choice.
-  const list = rowsFor(q);
-  rows.hidden = !(list.length > 1 && !q.busy);
-  if (!rows.hidden) {
+  // While a quote is read the last one stays, dimmed, so the card keeps its height; the first one is drawn as placeholders of the same height.
+  const busy = !!q?.busy, first = busy && !r;
+  rows.classList.toggle('stale', busy); rc.classList.toggle('stale', busy);
+  const list = first && kind === 'tac' ? [{ k: 'precision', name: 'Precision pool' }, { k: 'tacit-amm', name: 'Tacit pool' }, { k: 'split', name: 'Both pools' }] : rowsFor(q);
+  rows.hidden = !(list.length > 1);
+  if (first && !rows.hidden) rows.innerHTML = `<div class="rows-h"><span>Route</span><span>${esc(get.sym)} out</span></div>${list.map((x) => `<button type="button" role="radio" aria-checked="false" disabled><span class="rt"><b>${esc(x.name)}</b></span><span class="ra"><span>…</span></span><span class="rd" aria-hidden="true"></span></button>`).join('')}`;
+  else if (!rows.hidden) {
     const top = list.reduce((a, b) => (b.out > a.out ? b : a));
     rows.innerHTML = `<div class="rows-h"><span>Route</span><span>${esc(get.sym)} out</span></div>${list.map((x) => `<button type="button" role="radio" aria-checked="${x.k === r?.k}" data-route="${esc(x.k)}"><span class="rt"><b>${esc(x.name)}</b>${x.note ? `<small>${x.note}</small>` : ''}</span><span class="ra"><span>${esc(tidy(amtFmt(x.out, get.dec)))}</span>${x === top && list.length > 1 ? '<em>best</em>' : x.out < top.out ? `<small>−${(Number(top.out - x.out) * 100 / Number(top.out)).toFixed(2)}%</small>` : ''}</span><span class="rd" aria-hidden="true"></span></button>`).join('')}`;
   }
   // The receipt.
-  const lines = [];
-  if (r && !q.busy) {
+  const lines = first ? (kind === 'private' ? ['Price', 'Price impact', 'Relay fee'] : ['Price', 'At least', 'Price impact', 'Network fee']).map((k) => [k, '…']) : [];
+  if (r) {
     const inAmt = Number(q.wei) / 10 ** pay.dec, outAmt = Number(r.out) / 10 ** get.dec;
     if (inAmt > 0 && outAmt > 0) lines.push(['Price', outAmt >= inAmt ? `1 ${pay.sym} = ${sig(outAmt / inAmt)} ${get.sym}` : `1 ${get.sym} = ${sig(inAmt / outAmt)} ${pay.sym}`]);
     if (!r.priv) lines.push(['At least', `${tidy(amtFmt((r.out * BigInt(10000 - S.slip)) / 10000n, get.dec))} ${get.sym}`]);
@@ -321,7 +324,7 @@ function paintQuote() {
   rc.innerHTML = lines.map(([k, v, c]) => `<div><dt>${esc(k)}</dt><dd class="${c || ''}">${esc(v)}</dd></div>`).join('');
   // A buy far under the market is acknowledged first.
   const gate = r && !q.busy && m != null && m <= GATE && !r.priv;
-  if (gate) {
+  if (busy) { /* the acceptance stays as it is until the new quote is in */ } else if (gate) {
     const alt = S.get === lc(R.CUSD) ? ' <a href="/vault/">Borrow cUSD at $1</a>.' : S.get === lc(R.CBTC) ? ' <a href="/#card=borrow:cbtc:mint">Mint cBTC 1:1</a>.' : '';
     if (!ackbox.querySelector('input') || ackbox.dataset.k !== `${S.pay}>${S.get}`) {
       ackbox.dataset.k = `${S.pay}>${S.get}`;
@@ -592,7 +595,7 @@ function paintEarn() {
   $('#farm').hidden = f.k !== 'precision';
   $('#privfarm').hidden = f.k === 'precision';
   if (f.k === 'precision' && !farmUi) {
-    farmUi = mountFarm($('#farm'), { ethCall, batch, rpc, api, wallet, W, connect: () => connect.connect(), fmtUnits, parseUnits, esc, usd, ethUsd: () => S.px.ethUsd, txLink, onDone: () => readBalances().then(paintSides) });
+    farmUi = import('/trade/farm.js?cb=e7c9d199').then(({ mountFarm }) => mountFarm($('#farm'), { ethCall, batch, rpc, api, wallet, W, connect: () => connect.connect(), fmtUnits, parseUnits, esc, usd, ethUsd: () => S.px.ethUsd, txLink, onDone: () => readBalances().then(paintSides) }));
   }
   if (f.k !== 'precision') {
     $('#privfarm').innerHTML = `<a class="go priv" href="/#card=earn:ether:private">Farm ${esc(f.name)} privately →</a>`;
@@ -604,11 +607,11 @@ function farmIt() {
   S.tab = 'earn'; S.farm = 'precision'; paint(); paintEarn(); keepUrl();
   if (!S.farms) readFarms().then(paintEarn, paintEarn);
   const host = $('#farm');
-  setTimeout(() => {
+  Promise.resolve(farmUi).then(() => {
     host.querySelector('[data-fm="tac"]')?.click();
     const i = host.querySelector('#fm-tacamt');
     if (i && got) { i.value = plain(got); i.dispatchEvent(new Event('input', { bubbles: true })); i.focus(); }
-  }, 50);
+  });
 }
 
 // ── the address bar: /swap/?from=USDC&to=TAC&amt=100 (and &private), #earn ──
@@ -640,6 +643,8 @@ $('#slip').addEventListener('click', (e) => { const b = e.target.closest('[data-
 $('#amt').addEventListener('input', (e) => { S.amt = e.target.value.trim(); S.max = false; S.note = ''; fitSize(e.target); keepUrl(); paintSides(); requote(); });
 $('#amt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('#go').disabled) $('#go').click(); });
 $('#pay-coin').addEventListener('click', () => openPicker('pay'));
+// The token list is read only by someone who may open the picker: on the way to the coin.
+for (const ev of ['pointerenter', 'focus', 'touchstart']) $('#pay-coin').addEventListener(ev, () => { loadList(); }, { once: true, passive: true });
 $('#get-coin').addEventListener('click', () => openPicker('get'));
 $('#flip').addEventListener('click', () => {
   if (!kindOf(S.get, S.pay)) return;
@@ -691,5 +696,4 @@ if (S.tab === 'swap' && matchMedia('(pointer: fine)').matches && !location.hash)
 if (S.tab === 'earn') { paintEarn(); }
 readPrices().then(() => { paint(); if (S.amt) requote(true); if (S.tab === 'earn') readFarms().then(paintEarn, paintEarn); }).catch(() => { if (S.amt) requote(true); });
 gasPrice();
-setTimeout(() => loadList(), 4000);
-setInterval(() => { if (document.hidden) return; readPrices().catch(() => {}); if (S.q && !S.busy && !S.q.busy && now() - (S.q.at || 0) > 25 && kindOf(S.pay, S.get) !== 'private') requote(true); }, 30e3);
+setInterval(() => { if (document.hidden) return; readPrices().catch(() => {}); if (S.q && !S.busy && !S.q.busy && now() - (S.q.at || 0) > (S.q.kind === 'any' ? 55 : 25) && kindOf(S.pay, S.get) !== 'private') requote(true); }, 30e3);   // zQuoter's scan is heavy: a minute between
