@@ -6,6 +6,8 @@
 //   EVM_POOL_<KNOB>_<chainId>                a chain's own value of any keeper knob (EVM_POOL_RPC_URL_8453, EVM_POOL_KEEPER_PRIV_8453,
 //                                            EVM_POOL_START_BLOCK_8453 …); without one, the plain EVM_POOL_<KNOB> applies to every chain
 //   EVM_POOL_KEEPER_DB_<chainId>             the chain's store (default <EVM_POOL_KEEPER_DB dir>/keeper-<chainId>.db)
+//   EVM_POOL_SEED_FEED_<chainId>             another keeper's feed base (…/evm-pool/keeper) an empty store is seeded from, root-checked
+//   EVM_POOL_SEED_RESET_<chainId>=1          empty a part-replayed store first (one time; unset after)
 //
 // HTTP, on PORT: /<chainId>/evm-pool/keeper/* and /<chainId>/health are that chain's routes, exactly as its own service served them at
 // /evm-pool/keeper/* and /health; the unprefixed routes are the first chain's, so a page built for one keeper still works. GET /health
@@ -22,6 +24,7 @@ import { makeLeafSync, makeFactsSync } from './lib/evm-pool-keeper-leaves.js';
 import { makePipeline } from './lib/evm-pool-keeper-pipeline.js';
 import { makeKeeperProver, loadZk } from './lib/evm-pool-keeper-prover.js';
 import { createIntakeHandler } from './lib/evm-pool-keeper-intake.js';
+import { seedFromFeed } from './lib/evm-pool-keeper-seed.js';
 import { createKeeper } from './lib/evm-pool-keeper-loop.js';
 import { safeErr } from './lib/safe-err.js';
 
@@ -96,6 +99,12 @@ async function main() {
     if (!provers.has(pk)) provers.set(pk, serialProver(await makeKeeperProver(cfg)));
     const prover = provers.get(pk);
     const store = openKeeperStore(cfg.dbPath);
+    // An empty store (a new instance, a replaced disk) is seeded from another keeper's feed when one is named, checked against the pool's
+    // root; EVM_POOL_SEED_RESET=1 empties a store part-way through a log replay first. Else, or on any failure, the log replay runs as before.
+    if (env.EVM_POOL_SEED_FEED) {
+      try { await seedFromFeed({ store, chain, zk, feedUrl: env.EVM_POOL_SEED_FEED, startBlock: cfg.startBlock, reset: env.EVM_POOL_SEED_RESET === '1', log: clog }); }
+      catch (e) { clog(`seed from ${env.EVM_POOL_SEED_FEED} not taken: ${safeErr(e)}`); }
+    }
     const leafSync = makeLeafSync({ store, chain, zk, startBlock: cfg.startBlock, confirmations: cfg.confirmations, logChunk: cfg.logChunk, log: clog });
     const pipeline = cfg.pipeline ? makePipeline({ chain, verify: prover.verify, assetField, baseTree: () => leafSync.sync(), maxDepth: cfg.pipelineDepth, log: clog }) : null;
     const keeper = createKeeper({ store, chain, prover, zk, assetField, leafSync, pipeline, cfg, log: clog });
