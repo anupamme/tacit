@@ -105,6 +105,10 @@ fn main() {
     let result_url = format!("{base}/prover/result");
     let auth = format!("Bearer {token}");
     let mut quiet = 0u32;
+    // A GPU server that died (the client then reports a lost connection) or a run of failed jobs is not something this
+    // process can mend: it exits, and the loop around it starts a fresh worker and server. Three in a row, so one bad
+    // input does not restart a healthy worker.
+    let mut failed_in_a_row = 0u32;
     loop {
         if reload_due() {
             let _ = std::fs::remove_file(&reload_flag);
@@ -157,6 +161,8 @@ fn main() {
                 serde_json::json!({ "jobId": job.job_id, "error": e.chars().take(300).collect::<String>() })
             }
         };
+        let transport_dead = matches!(&outcome, Err(e) if e.contains("early eof") || e.contains("Could not connect") || e.contains("Connection reset") || e.contains("Broken pipe"));
+        failed_in_a_row = if outcome.is_ok() { 0 } else { failed_in_a_row + 1 };
         // The answer is worth a few tries: the proof is made, and a lost answer would send the relay to the network for nothing.
         for attempt in 0..5 {
             match agent.post(&result_url).set("Authorization", &auth).send_json(body.clone()) {
@@ -166,6 +172,10 @@ fn main() {
                     std::thread::sleep(Duration::from_secs(3));
                 }
             }
+        }
+        if transport_dead || failed_in_a_row >= 3 {
+            println!("[{name}] {}; exiting so the loop starts a fresh worker and GPU server", if transport_dead { "the GPU server is gone".to_string() } else { format!("{failed_in_a_row} jobs failed in a row") });
+            std::process::exit(2);
         }
     }
 }

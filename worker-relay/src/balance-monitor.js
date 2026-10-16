@@ -593,6 +593,10 @@ async function checkProverBoard() {
   }
   const bad = s.workers.filter((w) => Number(w.bad) > 0);
   if (bad.length) await alert('warning', `prover board: ${bad.map((w) => `${w.name} ${w.bad} refused proof(s)`).join(', ')} — a proof the pool would not settle; check that box's guest and server versions`, { workers: s.workers });
+  // A worker failing a good share of what it takes (a GPU server that keeps dying, inputs it cannot read): the jobs
+  // still land, after a wait, on the prover network, but the box is not earning its keep.
+  const failing = s.workers.filter((w) => Number(w.failed) >= 3 && Number(w.failed) * 2 >= Number(w.proved));
+  if (failing.length) await alert('warning', `prover board: ${failing.map((w) => `${w.name} failed ${w.failed} of ${Number(w.failed) + Number(w.proved)} jobs`).join(', ')} — jobs then wait out the board before the prover network takes them; check the worker's log`, { workers: s.workers });
   log(`prover board: ${live.map((w) => `${w.name} seen ${w.lastSeenSeconds}s ago, proved ${w.proved}`).join('; ')}; queued ${s.queued}, claimed ${s.claimed}`);
 }
 
