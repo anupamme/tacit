@@ -4,7 +4,7 @@
 import { makeConfidentialRelay } from '/confidential-relay.js?cb=23f5b70a';
 import { CONFIDENTIAL_DEPLOYMENTS, shownTicker } from '/confidential-deployments.js?cb=de357fe5';
 import { pvFees, pvDeadline, settleCalldata, typeWords } from '/relay/abi.js?cb=abf8bf2b';
-import { UserStopped } from '/trade/wallet.js?cb=0cba8a63';
+import { UserStopped } from '/trade/wallet.js?cb=991d3a20';
 import { rpc, esc, fmtUnits, short } from '/trade/util.js?cb=c3dc39b3';
 
 const API = 'https://api.tacit.finance';

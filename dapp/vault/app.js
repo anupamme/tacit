@@ -11,7 +11,7 @@ import {
   encDeposit, encWithdraw, encBorrow, encRepay, encCancel, encApprove, encPermit, encMulticall,
 } from '/vault/chain.js?cb=6423299e';
 import { makeFeed, RECORD_GAS, encBatch, MULTICALL3 } from '/vault/feed.js?cb=dc2d28c9';
-import { makeWallet, UserStopped } from '/trade/wallet.js?cb=0cba8a63';
+import { makeWallet, UserStopped } from '/trade/wallet.js?cb=991d3a20';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { announceWalletConnect, wcSheets, WC_PROJECT_ID } from '/walletconnect.js?cb=92886522';
 

@@ -5,7 +5,7 @@
 // on the service except the reward: the deployment is the same from any browser.
 //
 // Open jobs are shown in full; a job that is done is a tile with its result, and opens to what it did when it is clicked.
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=b9f00573';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=47bedb13';
 import { esc } from '/trade/sheet.js?cb=84cda8f2';
 import { rpc, RPCS, $, short, fmtUnits } from '/trade/util.js?cb=c3dc39b3';
 import { checkPayload, checkStep } from '/tasks/verify.js?cb=b8174dad';
