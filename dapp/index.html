@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-dkLwiCPQy8AUDYnqzkrkPu3kFzUCsMmVq64n60BnbSk=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-bdPwhzV6/JmNhASJ8qnXvEL0JHmY60CmRqpZe5xSzZg=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -1885,12 +1885,38 @@ async function multicall(calls) {
     return '0x' + out.slice(64 * (b + 1), 64 * (b + 1) + len * 2);
   });
 }
-async function esplora(path) {
-  let last;
-  for (const base of ESPLORA) {
-    try { const r = await fetch(base + path, { signal: within(20e3) }); if (r.ok) return await r.json(); last = new Error(`${r.status}`); } catch (e) { last = e; }
-  }
-  throw new Error(`Bitcoin explorers are unreachable (${last?.message || 'network'})`);
+// The explorers in turn. One that has not answered in 2.5 s is raced by the next (the first answer wins), and one that failed to answer
+// (a timeout, a refused connection, a rate limit or a server error) goes to the back for a minute, so while it is down every read goes
+// straight to one that works. A plain "not found" is an answer: the next explorer is asked (it may have seen a newer transaction), and
+// nobody is sent to the back for it.
+const ESPLORA_COOL = new Map(), ESPLORA_ORDER = [...ESPLORA];
+// The explorers by health, sorted in place: the lock finder's history reader walks this same list (btcHistory).
+function esploraOrder() {
+  const now = Date.now(), down = (b) => (ESPLORA_COOL.get(b) || 0) > now;
+  ESPLORA_ORDER.sort((a, b) => down(a) - down(b) || ESPLORA.indexOf(a) - ESPLORA.indexOf(b));
+  return ESPLORA_ORDER;
+}
+const esploraDown = (base) => { ESPLORA_COOL.set(base, Date.now() + 60e3); esploraOrder(); };
+function esplora(path) {
+  const order = [...esploraOrder()];
+  return new Promise((resolve, reject) => {
+    let i = 0, open = 0, done = false, last = null;
+    const next = () => {
+      if (done) return;
+      if (i >= order.length) { if (!open) reject(new Error(`Bitcoin explorers are unreachable (${last?.message || 'network'})`)); return; }
+      const base = order[i++], slow = setTimeout(next, 2500);
+      open++;
+      fetch(base + path, { signal: within(20e3) })
+        .then(async (r) => { if (!r.ok) throw Object.assign(new Error(`${r.status}`), { down: r.status === 429 || r.status >= 500 }); return r.json().catch(() => { throw Object.assign(new Error('not JSON'), { down: false }); }); })
+        .then((j) => { if (!done) { done = true; resolve(j); } }, (e) => {
+          last = e;
+          if (e.down !== false) esploraDown(base);
+          open--; clearTimeout(slow); next();
+        })
+        .finally(() => clearTimeout(slow));
+    };
+    next();
+  });
 }
 
 // One receipt watch per transaction, shared by the action that sent it and the Activity list: the receipt, or null
@@ -9638,12 +9664,14 @@ const lockId = (l) => `${l.lockTxid}:${l.lockVout}`;
 const btcHistory = lazy(async () => {
   const { makeBtcHistoryProvider } = await import('/confidential-recovery-btc.js');
   const seen = new Map();
+  // An explorer that does not answer (or is rate limiting) goes to the back of the shared list for a minute, as in esplora().
+  const down = (url) => { const b = ESPLORA.find((x) => url.startsWith(x)); if (b) esploraDown(b); };
   const fetchImpl = (url, opts) => {
     for (const [u, x] of seen) if (Date.now() - x.at > 20e3) seen.delete(u);
-    if (!seen.has(url)) seen.set(url, { at: Date.now(), p: fetch(url, opts).then((r) => { if (!r.ok) seen.delete(url); return r; }, (e) => { seen.delete(url); throw e; }) });
+    if (!seen.has(url)) seen.set(url, { at: Date.now(), p: fetch(url, opts).then((r) => { if (!r.ok) { seen.delete(url); if (r.status === 429 || r.status >= 500) down(url); } return r; }, (e) => { seen.delete(url); down(url); throw e; }) });
     return seen.get(url).p.then((r) => r.clone());
   };
-  return { h: makeBtcHistoryProvider({ sha256, hrp: 'bc', fetchImpl }), forget: () => seen.clear() };
+  return { h: makeBtcHistoryProvider({ sha256, hrp: 'bc', fetchImpl, bases: esploraOrder(), timeoutMs: 6000 }), forget: () => seen.clear() };
 });
 async function findLocks(t, priv = walletPriv(), fresh = false) {
   const pub = S.key?.pubHex, f = LOCK.found;
@@ -9772,6 +9800,8 @@ async function readBorrow(fresh, current) {
   // Bitcoin's tip, how far Bitcoin's proof on Ethereum has reached, and the engine's loan lines.
   const lmP = LOCK.lm ? Promise.resolve(LOCK.lm) : lockMint([], priv);
   lmP.catch(() => {});
+  // The key's Bitcoin address is known before the rest is read: the card shows it at once, where the BTC to lock goes.
+  lmP.then((lm) => { if (same()) { LOCK.addr = { pub, a: lm.wallet.address() }; dashSoon(); } }, () => {});
   const sideP = Promise.all([
     lmP.then((lm) => esplora(`/address/${lm.wallet.address()}/utxo`)).catch(() => null), esplora('/blocks/tip/height').catch(() => null),
     fetch(`${API}/reflection/status?network=mainnet`, { signal: within(20e3) }).then((r) => r.json()).catch(() => null),
@@ -9861,11 +9891,12 @@ async function readBorrow(fresh, current) {
       if ((cdp != null || free) && JSON.stringify(cached) !== JSON.stringify(rec)) { store.set(key, cached); st.rec = rec = cached; }
     }
   }
-  await bondsP;
   if (!same()) return;
   st.at = Date.now();
   LOCK.rec = st.rec; LOCK.state = st;
   dashSoon();
+  // The bonds are read beside and draw their own block when they are in (loadBonds): the steps are shown without waiting for them.
+  await bondsP;
 }
 load.borrow = () => Promise.all([loadBorrow(), refreshScan()]);
 // The paying account's wstETH covers what the bond still needs: it can be posted as it is, by a permit.
@@ -11124,6 +11155,7 @@ function hxBwLoad(force = false) {
   if (!S.key || HX.bwLoading) return;
   if (!force && LOCK.state && Date.now() - (LOCK.state.at || 0) < 60e3) return;
   HX.bwLoading = true;
+  hxPad().catch(() => {});                                                           // the lock's fees, which its quote reads
   loadBorrow(force).then(() => { HX.bwErr = null; }, (e) => { HX.bwErr = e; }).finally(() => { HX.bwLoading = false; hxBwUpdate(); });
 }
 // The face the tab shows: a lock to follow, or the lock step (no lock yet, or Lock more).
@@ -11442,7 +11474,7 @@ function hxHave() {
   if (!el) return;
   if (pub && HX.tab === 'private' && HX.sf === 'tb') return hxHaveTb(el, pub);
   if (pub && P.scan && ((HX.tab === 'private' && HX.sf === 'ether') || (HX.tab === 'send' && HX.send === 'eth'))) return hxHaveTeth(el);
-  if (pub && HX.tab === 'borrow') return hxHaveAddr(el, LOCK.state?.addr);
+  if (pub && HX.tab === 'borrow') return hxHaveAddr(el, LOCK.state?.addr || (LOCK.addr?.pub === pub ? LOCK.addr.a : null));
   el.__h = '';                                                                       // what is drawn below is not the tETH line
   if (!pub || HX.mode !== 'btc' || HX.dir !== 'in') { el.hidden = true; return; }
   const b = BR.pub === pub ? BR : null, recs = brRecords(pub), due = recs.filter((r) => brDue(r)).length;
