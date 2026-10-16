@@ -15,14 +15,15 @@ export async function seedFromFeed({ store, chain, zk, feedUrl, startBlock = 0n,
   }
   const base = String(feedUrl).replace(/\/$/, '');
   const events = [];
-  let from = Number(startBlock) || 0, through = null;
+  let from = Number(startBlock) || 0, through = null, factsThrough = null;
   for (let page = 0; page < maxPages; page++) {
-    const r = await fetchImpl(`${base}/events?from=${from}`);
+    const r = await fetchImpl(`${base}/events?from=${from}&facts=1`);   // with each event's public facts, so no backfill is owed for them
     if (!r.ok) throw new Error(`feed ${base}: ${r.status}`);
     const j = await r.json();
     if (Number(j.chainId) !== Number(chain.chainId) || lc(j.pool) !== lc(chain.pool)) throw new Error(`feed ${base} is for chain ${j.chainId} pool ${j.pool}, not this keeper's`);
     if (!Array.isArray(j.events) || !Number.isInteger(j.through)) throw new Error(`feed ${base}: malformed page`);
     through = j.through;
+    if (Number.isInteger(j.factsThrough)) factsThrough = j.factsThrough;
     if (!j.events.length) break;
     events.push(...j.events);
     from = j.through + 1;
@@ -46,6 +47,14 @@ export async function seedFromFeed({ store, chain, zk, feedUrl, startBlock = 0n,
   const byBlock = new Map();
   const rows = events.map((ev) => { const n = (byBlock.get(ev.block) || 0); byBlock.set(ev.block, n + 1); return { block: ev.block, logIndex: n, ev }; });
   store.appendLeaves(items, through, rows);
-  log(`seeded ${items.length} leaves and ${rows.length} events through block ${through} from ${base}, root checked against the pool`);
-  return { seeded: true, leaves: items.length, events: rows.length, through };
+  // The facts the feed carried are the feed's own backfill up to its factsThrough (lib/evm-pool-keeper-leaves.js makeFactsSync): this
+  // store's facts loop starts after that mark, not from the start block.
+  const factsDone = factsThrough == null ? null : Math.min(factsThrough, through);
+  if (factsDone != null && factsDone >= Number(startBlock) - 1) {
+    store.setMeta('facts_v', '2');
+    store.setMeta('facts_logs_block', String(factsDone));
+    store.setMeta('facts_block', String(factsDone));
+  }
+  log(`seeded ${items.length} leaves and ${rows.length} events through block ${through}${factsDone != null ? ` with facts through ${factsDone}` : ''} from ${base}, root checked against the pool`);
+  return { seeded: true, leaves: items.length, events: rows.length, through, factsThrough: factsDone };
 }

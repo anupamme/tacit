@@ -12,12 +12,13 @@ const POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9';
 const leaves = [11n, 22n, 33n, 44n, 55n, 66n];
 const tx = (i, block) => ({ kind: 'transact', block, tx: null, firstIndex: i * 2, nf0: '1', nf1: '2', outLeaf0: String(leaves[i * 2]), outLeaf1: String(leaves[i * 2 + 1]), memo0: '0x', memo1: '0x' });
 const pages = [
-  { chainId: 8453, pool: POOL, from: 100, through: 150, events: [tx(0, 120), { kind: 'received', block: 121, box: '0xabc', n: '1', index: 0, value: '5', rho: '7', fee: '1' }, tx(1, 140)] },
-  { chainId: 8453, pool: POOL, from: 151, through: 200, events: [tx(2, 180)] },
-  { chainId: 8453, pool: POOL, from: 201, through: 230, events: [] },
+  { chainId: 8453, pool: POOL, from: 100, through: 150, factsThrough: 210, events: [{ ...tx(0, 120), recipient: '0xaa', ext: '5', relayer: '0xbb', fee: '1', ts: 1700 }, { kind: 'received', block: 121, box: '0xabc', n: '1', index: 0, value: '5', rho: '7', fee: '1' }, tx(1, 140)] },
+  { chainId: 8453, pool: POOL, from: 151, through: 200, factsThrough: 210, events: [tx(2, 180)] },
+  { chainId: 8453, pool: POOL, from: 201, through: 230, factsThrough: 210, events: [] },
 ];
 const feed = (ps = pages) => async (url) => {
-  const from = Number(new URL(url).searchParams.get('from'));
+  const u = new URL(url); const from = Number(u.searchParams.get('from'));
+  assert.equal(u.searchParams.get('facts'), '1', 'the feed is asked with its facts');
   const p = ps.find((x) => x.from === from) || { chainId: 8453, pool: POOL, from, through: from - 1, events: [] };
   return { ok: true, json: async () => p };
 };
@@ -27,8 +28,10 @@ const chain = (state) => ({ chainId: 8453, pool: POOL, poolState: async (block) 
 test('a feed whose leaves match the pool seeds the store through the feed\'s last block, events in order', async () => {
   const store = openKeeperStore(':memory:');
   const r = await seedFromFeed({ store, chain: chain(rootOf(leaves)), zk, feedUrl: 'https://old/evm-pool/keeper/', startBlock: 100n, fetchImpl: feed() });
-  assert.deepEqual(r, { seeded: true, leaves: 6, events: 4, through: 230 });
+  assert.deepEqual(r, { seeded: true, leaves: 6, events: 4, through: 230, factsThrough: 210 });
   assert.equal(store.leafCount(), 6); assert.equal(store.syncedBlock(), 230);
+  assert.equal(store.getMeta('facts_logs_block'), '210'); assert.equal(store.getMeta('facts_block'), '210'); assert.equal(store.getMeta('facts_v'), '2');
+  assert.equal(store.eventsBetween(120, 120)[0].ev.ext, '5', 'the facts the feed carried are kept');
   assert.deepEqual(store.leaves().map(String), leaves.map(String));
   const ev = store.eventsBetween(0, 1000);
   assert.deepEqual(ev.map((e) => [e.block, e.logIndex, e.ev.kind]), [[120, 0, 'transact'], [121, 0, 'received'], [140, 0, 'transact'], [180, 0, 'transact']]);
@@ -41,6 +44,7 @@ test('a feed whose leaves match the pool seeds the store through the feed\'s las
   assert.equal(kept.seeded, false); assert.equal(partial.leafCount(), 2);
   const reset = await seedFromFeed({ store: partial, chain: chain(rootOf(leaves)), zk, feedUrl: 'https://old', startBlock: 100n, reset: true, fetchImpl: feed() });
   assert.equal(reset.seeded, true); assert.equal(partial.leafCount(), 6); assert.equal(partial.syncedBlock(), 230);
+  assert.equal(partial.getMeta('facts_logs_block'), '210');
 });
 
 test('a feed that does not match the pool seeds nothing', async () => {
