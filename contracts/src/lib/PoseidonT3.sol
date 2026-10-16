@@ -11,7 +11,9 @@ library PoseidonT3 {
 
   // See here for a simplified implementation: https://github.com/vimwitch/poseidon-solidity/blob/e57becdabb65d99fdc586fe1e1e09e7108202d53/contracts/Poseidon.sol#L40
   // Inspired by: https://github.com/iden3/circomlibjs/blob/v0.0.8/src/poseidon_slow.js
-  function hash(uint[2] memory) public pure returns (uint) {
+  // Inlined into its callers (an internal function): the inputs are read through the array's pointer and the hash is
+  // the named return, where the published library reads calldata at 0x80 and returns from the call frame.
+  function hash(uint[2] memory inp) internal pure returns (uint out) {
     assembly {
       let F := 21888242871839275222246405745257275088548364400416034343698204186575808495617
       let M20 := 0x2b90bba00fca0589f617e7dcbfe82e0df706ab640ceb247b791a93b74e36736d
@@ -19,8 +21,8 @@ library PoseidonT3 {
       let M22 := 0x19a3fc0a56702bf417ba7fee3802593fa644470307043f7773279cd71d25d5e0
 
       // load the inputs from memory
-      let state1 := add(mod(mload(0x80), F), 0x00f1445235f2148c5986587169fc1bcd887b08d4d00868df5696fff40956e864)
-      let state2 := add(mod(mload(0xa0), F), 0x08dff3487e8ac99e1f29a058d0fa80b930c728730b7ab36ce879f3890ecf73f5)
+      let state1 := add(mod(mload(inp), F), 0x00f1445235f2148c5986587169fc1bcd887b08d4d00868df5696fff40956e864)
+      let state2 := add(mod(mload(add(inp, 0x20)), F), 0x08dff3487e8ac99e1f29a058d0fa80b930c728730b7ab36ce879f3890ecf73f5)
       let scratch0 := mulmod(state1, state1, F)
       state1 := mulmod(mulmod(scratch0, scratch0, F), state1, F)
       scratch0 := mulmod(state2, state2, F)
@@ -383,9 +385,7 @@ library PoseidonT3 {
       scratch0 := mulmod(state2, state2, F)
       state2 := mulmod(mulmod(scratch0, scratch0, F), state2, F)
 
-      mstore(0x0, mod(add(add(mulmod(state0, M00, F), mulmod(state1, M10, F)), mulmod(state2, M20, F)), F))
-
-      return(0, 0x20)
+      out := mod(add(add(mulmod(state0, M00, F), mulmod(state1, M10, F)), mulmod(state2, M20, F)), F)
     }
   }
 }

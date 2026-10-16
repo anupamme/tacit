@@ -9,6 +9,8 @@ import { privateSettleUrl } from './private-settle-url.js';
 import { RECEIVE_FEE_BPS } from '../../../dapp/evm-pool-gateway.js';
 
 const ETH = '0x0000000000000000000000000000000000000000';
+// The catch-up registry, the same address on every chain the pool is on (contracts/script/deploy-checkpoints.mjs).
+export const CHECKPOINTS = '0x000000CDfeda8512b8DcD8642765A5Fa43b6Ab4b';
 // The shared relay EOA. A keeper key that derives to it is refused outright.
 export const RELAY_EOA = '0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7';
 const BUILD = new URL('../../../dapp/circuits/evm-pool/build/', import.meta.url).pathname;
@@ -89,6 +91,13 @@ export function loadKeeperConfig(env = process.env) {
     pollSecs: int(env, 'EVM_POOL_KEEPER_POLL_SECS', 15),
     // How often the stored history behind /events is brought up to date when no proof needs it.
     historySecs: int(env, 'EVM_POOL_KEEPER_HISTORY_SECS', 60),
+    // Catch-up points (TacitEvmPoolCheckpoints): the keeper posts the tree's edge when the pool has grown by this many
+    // leaves, or this long has passed, since the newest point; off with EVM_POOL_KEEPER_POINTS=0, or on a chain where the
+    // registry has no code. A post is simulated first and costs gas only; one per count, the first to land.
+    pointsAddress: (() => { const v = str(env, 'EVM_POOL_KEEPER_POINTS', CHECKPOINTS); return v === '0' || !isAddress(v) ? null : getAddress(v); })(),
+    pointsEvery: int(env, 'EVM_POOL_KEEPER_POINTS_EVERY', 2000),
+    pointsMaxAgeSecs: int(env, 'EVM_POOL_KEEPER_POINTS_MAX_AGE_SECS', 86400),
+    pointsGas: big(env, 'EVM_POOL_KEEPER_POINTS_GAS', 2500000n),
     // The public facts /events?facts=1 serves are filled in by a loop of their own; 0 turns it off.
     facts: str(env, 'EVM_POOL_KEEPER_FACTS', '1') !== '0',
     factsConcurrency: int(env, 'EVM_POOL_KEEPER_FACTS_CONCURRENCY', 4),

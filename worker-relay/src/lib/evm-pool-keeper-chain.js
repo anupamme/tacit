@@ -71,6 +71,13 @@ export const ROUTER_ABI = [
   ...ERRORS,
 ];
 const RECEIVED_EVENT = parseAbi(['event Received(address indexed box, uint256 indexed n, uint256 index, uint256 value, uint256 rho, uint256 fee)'])[0];
+// The catch-up registry: the tree's edge at a count, kept only if the pool held its root (TacitEvmPoolCheckpoints).
+const CHECKPOINTS_ABI = parseAbi([
+  'function latest() view returns (uint256)',
+  'function pointAt(uint256 size) view returns (uint256 blockNumber, uint256 prev, bytes32[32] filled)',
+  'function postedAt(uint256 size) view returns (uint256)',
+  'function post(uint256 size, uint256 blockNumber, bytes32[32] filled)',
+]);
 const POOL_ABI = [
   fn('transact', [
     { type: 'uint256[2]' }, { type: 'uint256[2][2]' }, { type: 'uint256[2]' }, { type: 'uint256[11]' }, { type: 'address' },
@@ -133,7 +140,9 @@ export async function makeKeeperChain({ cfg, account, log = () => {} }) {
   // `functionName` on the router, or `pool.transact` (a relayed user transaction) on the pool.
   const target = (functionName) => (functionName === 'pool.transact'
     ? { address: cfg.pool, abi: POOL_ABI, functionName: 'transact' }
-    : { address: cfg.router, abi: ROUTER_ABI, functionName });
+    : functionName === 'checkpoints.post'
+      ? { address: cfg.pointsAddress, abi: CHECKPOINTS_ABI, functionName: 'post' }
+      : { address: cfg.router, abi: ROUTER_ABI, functionName });
   // One signer, one nonce: the loop and relay requests send through this queue one at a time.
   let sending = Promise.resolve();
   const serial = (f) => { const run = sending.then(f, f); sending = run.catch(() => {}); return run; };
@@ -173,6 +182,11 @@ export async function makeKeeperChain({ cfg, account, log = () => {} }) {
     v1: getAddress(v1),
 
     blockNumber: () => pub.getBlockNumber(),
+    blockTime: async (n) => Number((await pub.getBlock({ blockNumber: BigInt(n) })).timestamp),
+    hasCode: async (address) => { const c = await pub.getCode({ address }); return !!c && c !== '0x'; },
+    // The catch-up registry: the newest point's count, and when a count was posted (0 for one never posted).
+    pointLatest: async () => Number(await read(cfg.pointsAddress, CHECKPOINTS_ABI, 'latest')),
+    pointPostedAt: async (size) => Number(await read(cfg.pointsAddress, CHECKPOINTS_ABI, 'postedAt', [BigInt(size)])),
     knownRoot: async (root) => read(cfg.pool, POOL_ABI, 'everKnownRoot', [b32(root)]),
     spent: async (nfs) => read(cfg.pool, POOL_ABI, 'isSpent', [nfs.map(b32)]),
     async poolState(blockNumber) {

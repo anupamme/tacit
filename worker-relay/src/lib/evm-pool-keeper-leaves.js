@@ -68,7 +68,8 @@ export function makeLeafSync({ store, chain, zk, startBlock = 0n, confirmations 
     base = null;
   }
 
-  // Returns { tree, root, nextIndex, head }: an incTree over every leaf the pool holds at `head`, and its root there.
+  // Returns { tree, root, nextIndex, head, confirmed }: an incTree over every leaf the pool holds at `head`, and its root
+  // there; `confirmed` is the tree over the persisted leaves alone and the block they are read through.
   async function sync() {
     const head = BigInt(await chain.blockNumber());
     const safe = head - BigInt(confirmations);
@@ -105,7 +106,7 @@ export function makeLeafSync({ store, chain, zk, startBlock = 0n, confirmations 
       if (BigInt(tree.size) > BigInt(nextIndex)) reset();
       throw new LeafSyncError(`have ${tree.size} leaves, pool holds ${nextIndex} at block ${head}`);
     }
-    return { tree, root: BigInt(root), nextIndex: BigInt(nextIndex), head };
+    return { tree, root: BigInt(root), nextIndex: BigInt(nextIndex), head, confirmed: { tree: base, block: synced() } };
   }
 
   // Stored events from `fromBlock` on, whole blocks only, at most about `limit`. → { events, through }: every event

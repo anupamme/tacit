@@ -21,3 +21,14 @@ extra_output = ["storageLayout"]
 fs_permissions = [{ access = "read", path = "./test/fixtures" }, { access = "read", path = "./sp1/elf-vkey-pin.json" }, { access = "read", path = "./sp1/confidential/elf-vkey-pin.json" }, { access = "read", path = "./sp1/confidential/fixtures" }, { access = "read-write", path = "./deployments" }]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
+
+# The catch-up registry (TacitEvmPoolCheckpoints, src/checkpoints) ships from this profile: the Poseidon it inlines is
+# 29 KB of code under via-IR and 16 KB without, so it is built without, at the launch line's 200 runs, into its own out.
+#   FOUNDRY_PROFILE=checkpoints forge build && FOUNDRY_PROFILE=checkpoints forge test
+[profile.checkpoints]
+src = "src/checkpoints"
+test = "test/checkpoints"
+script = "script/checkpoints"
+out = "out/checkpoints"
+via_ir = false
+optimizer_runs = 200

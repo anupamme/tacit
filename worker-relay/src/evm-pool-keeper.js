@@ -20,6 +20,7 @@ import { makePipeline } from './lib/evm-pool-keeper-pipeline.js';
 import { makeKeeperProver, loadZk } from './lib/evm-pool-keeper-prover.js';
 import { createIntakeHandler } from './lib/evm-pool-keeper-intake.js';
 import { createKeeper } from './lib/evm-pool-keeper-loop.js';
+import { makePointPoster } from './lib/evm-pool-keeper-points.js';
 import { safeErr } from './lib/safe-err.js';
 
 const log = (...a) => console.log(`[evm-pool-keeper ${new Date().toISOString()}]`, ...a);
@@ -41,6 +42,7 @@ async function main() {
   const leafSync = makeLeafSync({ store, chain, zk, startBlock: cfg.startBlock, confirmations: cfg.confirmations, logChunk: cfg.logChunk, log });
   const pipeline = cfg.pipeline ? makePipeline({ chain, verify: prover.verify, assetField, baseTree: () => leafSync.sync(), maxDepth: cfg.pipelineDepth, log }) : null;
   const keeper = createKeeper({ store, chain, prover, zk, assetField, leafSync, pipeline, cfg, log });
+  const poster = makePointPoster({ chain, cfg, log });
 
   const assetKey = chain.asset.toLowerCase();
   if (!cfg.minFees.has(assetKey) && !cfg.rates.has(assetKey)) log(`warning: no EVM_POOL_KEEPER_MIN_FEES or _TOKEN_RATES entry for the pool asset ${assetKey}; deposits will be skipped`);
@@ -69,7 +71,7 @@ async function main() {
     // Keeps the stored history (the /events feed) current when there is nothing to prove.
     if (Date.now() - lastHistory >= cfg.historySecs * 1000) {
       lastHistory = Date.now();
-      try { await leafSync.sync(); } catch (e) { log(`history sync: ${safeErr(e)}`); }
+      try { await poster.maybePost(await leafSync.sync()); } catch (e) { log(`history sync: ${safeErr(e)}`); }
     }
     await sleep(cfg.pollSecs * 1000);
   }

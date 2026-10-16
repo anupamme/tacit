@@ -44,6 +44,14 @@ these addresses). On any other chain, treat code at these addresses as unrelated
 | PoseidonT5 (four-input Poseidon, used by receive boxes) | `0x555333f3f677Ca3930Bf7c56ffc75144c51D9767` |
 | Zap (`TacitEvmPoolZap`, shields a token in one transaction; not on MegaETH) | `0x0000008EbBF2323f95c4fBc18254f3D65C53998c` |
 
+The catch-up registry (`TacitEvmPoolCheckpoints`) is deployed the same way (`contracts/script/deploy-checkpoints.mjs`, built
+under the `checkpoints` foundry profile: no via-IR, 200 runs; init code hash `0x1defca95…b41209`, salt `0x28e79676…9644d0`),
+so code at its address on any chain is this contract. What it is for is under Keys and recovery, Catch-up points.
+
+| Contract | Address |
+|---|---|
+| Catch-up registry (`TacitEvmPoolCheckpoints`) | `0x000000CDfeda8512b8DcD8642765A5Fa43b6Ab4b` |
+
 PoseidonT5 is the standard deterministic deployment (poseidon-solidity, CREATE2 proxy
 `0x4e59b44847b379578588920cA78FbF26c0B4956C`); the deploy script lands it first on chains that lack it. The zap goes
 through the same proxy with a fixed salt, so its address follows from its code and constructor arguments (the pool,
@@ -572,6 +580,34 @@ the Secret Sats address, every receive box), so balances rebuild from the key an
 A wallet stores view-level state only: the tree's right edge, the paths of its notes, and each note's position, value and
 shared secret. Spending keys are derived when needed and never stored. The anon.wei page seals that state under a key
 derived from the view key.
+
+### Catch-up points
+
+The pool keeps no leaves: its tree is proven in-circuit, and the contract holds only the root and, for every root it has
+held, the leaf count it had then (`rootSize`). A wallet rebuilds the tree from the pool's `Transact` events, which on a
+busy chain is the slow part of opening a key on a new device: every event since the pool's first block, then a Poseidon
+hash per leaf and a curve multiplication per memo.
+
+A catch-up point cuts the first part out. It is the tree's right edge at a leaf count (the 32 filled subtrees of an
+incremental Merkle tree, from which the root at that count follows with 32 hashes) together with the block at whose end
+the tree had that count. Anyone who has read the pool that far can post one to the registry (`TacitEvmPoolCheckpoints`,
+`post(size, blockNumber, filled)`); the registry folds the edge to its root and keeps the post only if the pool's
+`rootSize(root)` equals `size`. So every point in the registry is one the pool itself vouches for, whoever posted it, and
+a wallet can take the newest (`latest()`, `pointAt(size)`), check it the same way, continue the tree from it, and prove
+spends of any note inserted after it at once.
+
+The block number is the poster's word. A wallet checks it by reading the events after it, which must start at the
+point's count (an earlier block only costs reading events already in the edge; a later one leaves a gap the wallet sees
+as an insertion out of order, or as a count short of the pool's, and it passes that point over for the one posted before
+it, `prev`). Nothing older than the point is lost: the wallet reads the history behind it in the background, from the
+pool's first block, into a second state that takes the first one's place once both are read through the same block with
+the same root; until then, older notes are not shown, and no one-time address is issued (the next index follows the last
+one used, which that history holds).
+
+Posting costs gas and nothing else (about 1.7M gas: 32 Poseidon hashes and the edge in storage). anon.wei offers it
+under Activity → Catch-up points to a wallet that has read the whole history; the keepers post one on each chain when the
+pool has grown by `EVM_POOL_KEEPER_POINTS_EVERY` leaves, or a day has passed, since the last. One post per count, the
+first to land.
 
 ## Standalone wallet
 
