@@ -421,12 +421,18 @@ async function main() {
   }
   let lastScan = 0;
   for (;;) {
-    if (ORACLES.length) sampleAll();
-    if (Date.now() - lastScan >= SCAN_SECONDS * 1000 || ONCE) {
-      for (const v of VAULTS) scan(v);
-      checkVenues();
-      checkVaultOracles();
-      lastScan = Date.now();
+    // A node that drops one request (a reset connection, a rate limit) must not end the keeper: that cycle is skipped and the next one tries again.
+    try {
+      if (ORACLES.length) sampleAll();
+      if (Date.now() - lastScan >= SCAN_SECONDS * 1000 || ONCE) {
+        for (const v of VAULTS) scan(v);
+        checkVenues();
+        checkVaultOracles();
+        lastScan = Date.now();
+      }
+    } catch (e) {
+      if (ONCE) throw e;
+      log('cycle failed, trying again in', String(RECORD_POLL), 's:', errLine(e));
     }
     if (ONCE) return;
     await new Promise((r) => setTimeout(r, RECORD_POLL * 1000));
