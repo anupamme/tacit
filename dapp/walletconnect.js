@@ -21,6 +21,25 @@ const ASKS = new Set(['personal_sign', 'eth_sign', 'eth_signTypedData', 'eth_sig
 const rejected = (message) => Object.assign(new Error(message), { code: 4001 });
 // A chain id the way a wallet extension gives it: 0x-prefixed hex. The provider answers eth_chainId with a number, which a page that compares it with '0x1' (or reads it as hex) takes for another network.
 const hexChain = (c) => `0x${BigInt(c).toString(16)}`;
+// Whether the session holds a chain (its id in hex, as wallet_switchEthereumChain gives it): the provider switches to such a chain
+// itself, with nothing for the wallet app to approve. A chain is held when the session's eip155 namespace names it or holds an
+// account on it.
+function holds(session, chainId) {
+  if (typeof chainId !== 'string') return false;
+  const want = `eip155:${parseInt(chainId, 16)}`;
+  return Object.entries(session?.namespaces || {}).some(([k, ns]) => /^eip155(:|$)/.test(k)
+    && [...(ns.chains || []), ...(ns.accounts || []).map((a) => String(a).split(':').slice(0, 2).join(':'))].includes(want));
+}
+// The bundle and the provider's start may take this long before a connect says WalletConnect did not load.
+const LOAD_MS = 20_000;
+const NOT_LOADED = 'WalletConnect did not load. Check your connection and try again.';
+const within = (work, ms) => {
+  let t;
+  return Promise.race([work, new Promise((_, reject) => { t = setTimeout(() => reject(new Error(NOT_LOADED)), ms); })]).finally(() => clearTimeout(t));
+};
+// Deletes the pairings waiting for a wallet app, so a code shown for one can no longer be approved into a session. The bundle's
+// own abortPairingAttempt does nothing.
+const dropPairings = (p) => { (async () => p.signer?.cleanupPendingPairings?.({ deletePairings: true }))().catch(() => {}); };
 
 // Whether this browser keeps a session, known without loading the bundle: its expiry (unix seconds) when it does, 0 when it does not. A browser that has
 // never noted it (a session made before this was kept) is asked once.
@@ -33,8 +52,10 @@ const kept = {
 export function announceWalletConnect({ projectId, chains, rpcMap, metadata, onPair, onAsk }) {
   const listeners = new Map();                                    // event → handlers, kept until the provider exists
   let wc = null, loading = null, pairing = null;
-  const load = () => (wc ? Promise.resolve(wc) : (loading ||= (async () => {
-    const { EthereumProvider, qrcode } = await import(BUNDLE).catch(() => { throw new Error('WalletConnect did not load. Check your connection and try again.'); });
+  // The bundle loads and the provider starts once. A call waits for them at most LOAD_MS, so a stalled network is said in
+  // words rather than leaving Connect pressed; a start that outlasts the wait carries on, and the next call waits for it.
+  const start = () => (loading ||= (async () => {
+    const { EthereumProvider, qrcode } = await import(BUNDLE).catch(() => { throw new Error(NOT_LOADED); });
     const p = await EthereumProvider.init({ projectId, optionalChains: chains, rpcMap, metadata, showQrModal: false, telemetryEnabled: false });
     for (const [ev, fns] of listeners) for (const fn of fns) p.on(ev, fn);
     // A session ended from the wallet app reads to the page as the wallet locking.
@@ -42,11 +63,12 @@ export function announceWalletConnect({ projectId, chains, rpcMap, metadata, onP
     kept.set(p.session?.expiry || 0);
     wc = { p, qrcode };
     return wc;
-  })().catch((e) => { loading = null; throw e; })));
+  })().catch((e) => { loading = null; throw e; }));
+  const load = () => (wc ? Promise.resolve(wc) : within(start(), LOAD_MS));
 
   async function pair({ p, qrcode }) {
     let cancel, done = null;
-    const cancelled = new Promise((_, reject) => { cancel = () => { try { p.signer?.abortPairingAttempt?.(); } catch { /* already ended */ } reject(rejected('Connection cancelled')); }; });
+    const cancelled = new Promise((_, reject) => { cancel = () => { dropPairings(p); reject(rejected('Connection cancelled')); }; });
     cancelled.catch(() => {});
     const shown = (uri) => {
       const q = qrcode(0, 'M');
@@ -90,7 +112,7 @@ export function announceWalletConnect({ projectId, chains, rpcMap, metadata, onP
       }
       if (method === 'eth_requestAccounts') return w.p.accounts;
       if (method === 'eth_chainId') return hexChain(await w.p.request(args));
-      if (!ASKS.has(method)) return w.p.request(args);
+      if (!ASKS.has(method) || (method === 'wallet_switchEthereumChain' && holds(w.p.session, args.params?.[0]?.chainId))) return w.p.request(args);
       const p = peer(w.p), done = onAsk?.({ name: p.name || 'your wallet app', link: p.link }) || null;
       try { return await w.p.request(args); } finally { done?.(); }
     },
@@ -138,9 +160,12 @@ export function wcSheets(open) {
       const on = phone();
       // On a phone the apps come first: the code is for scanning from another device.
       const apps = on ? `<div style="display:grid;gap:8px;margin:0 0 14px">${appLinks(uri).map((a) => `<a class="btn" style="margin:0" href="${esc(a.href)}">Open ${esc(a.name)}</a>`).join('')}<a class="btn ghost" style="margin:0" href="${esc(uri)}">Other wallet app</a></div>` : '';
-      const qr = `<div class="wc-qr">${qrSvg}</div>`;
-      o.body.innerHTML = `${lede(on ? 'Open your wallet app to connect, or scan the code from another device.' : 'Scan the code with a wallet app on your phone: MetaMask, Rainbow, Trust, Zerion or any WalletConnect wallet.')}${on ? apps + qr : qr}<button class="btn ghost" type="button" style="margin-top:0" data-copy>Copy link</button><p class="note">This waits until the wallet app approves. Connecting costs nothing, and the code works for a few minutes.</p>`;
-      o.body.querySelector('[data-copy]').onclick = (e) => navigator.clipboard?.writeText(uri).then(() => { e.target.textContent = 'Copied'; }, () => { e.target.textContent = 'Could not copy'; });
+      const qr = `<div class="wc-qr" role="img" aria-label="QR code of the WalletConnect link">${qrSvg}</div>`;
+      // Copy link's result is also put in a status line only a screen reader reads, since the button's new label is not read out.
+      o.body.innerHTML = `${lede(on ? 'Open your wallet app to connect, or scan the code from another device.' : 'Scan the code with a wallet app on your phone: MetaMask, Rainbow, Trust, Zerion or any WalletConnect wallet.')}${on ? apps + qr : qr}<button class="btn ghost" type="button" style="margin-top:0" data-copy>Copy link</button><span role="status" aria-live="polite" data-copied style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap"></span><p class="note">This waits until the wallet app approves. Connecting costs nothing, and the code works for a few minutes.</p>`;
+      const copy = o.body.querySelector('[data-copy]'), said = o.body.querySelector('[data-copied]');
+      const tell = (label, words) => { copy.textContent = label; said.textContent = words; };
+      copy.onclick = () => navigator.clipboard?.writeText(uri).then(() => tell('Copied', 'Link copied'), () => tell('Could not copy', 'Could not copy the link'));
       return () => { over = true; o.close(); };
     },
     onAsk({ name, link }) {

@@ -82,6 +82,10 @@ try {
   await p.click('.bsheet.top .x');
   await until(p, () => !document.querySelector('.bsheet'), null, 5000);
   ok((await p.evaluate(() => window.__wcfake.cancelled)) === 1 && (await chip(p)).label === 'Connect', 'closing the sheet cancels the pairing and nothing is connected');
+  // the code was scanned before the sheet closed and the wallet app approves it after: the pairing is gone, so no session opens
+  await p.evaluate(() => window.__wcfake.approve());
+  await p.waitForTimeout(300);
+  ok(!(await p.evaluate(() => localStorage.getItem('fake-wc-session'))) && (await chip(p)).label === 'Connect', 'a code approved in the wallet app after the sheet closed opens no session');
   // two presses on the ticket's button are one pairing, not two
   const pairs0 = await p.evaluate(() => window.__wcfake.pairs);
   await p.evaluate(() => { const b = document.querySelector('#go'); b.click(); b.click(); });
