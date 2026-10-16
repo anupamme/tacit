@@ -170,10 +170,13 @@ function card(job) {
 const about = (job) => `<div class="abouts">${job.about.map((x) => `<div class="sec"><h3>${esc(x.h)}</h3><p>${esc(x.p)}</p></div>`).join('')}</div>`;
 const links = (job) => `<div class="links">${job.links.map((l) => link(l.href, `${esc(l.label)} ↗`)).join('')}</div>`;
 
+// Where a contract's source can be read: verified on Etherscan and on Sourcify.
+const verifiedOn = (addr) => ` · source on ${link(`${ETHERSCAN}/address/${addr}#code`, 'Etherscan ↗')} ${link(`https://repo.sourcify.dev/1/${addr}`, 'Sourcify ↗')}`;
+
 function doneRow(job, s, i) {
   const c = apiJob(job)?.steps.find((x) => x.id === s.id)?.claim;
   const where = s.kind === 'createx' ? link(`${ETHERSCAN}/address/${s.expected}`, esc(s.expected)) : 'Call to the confidential pool';
-  const proof = s.kind === 'createx' && job.verified ? ` · ${link(`${ETHERSCAN}/address/${s.expected}#code`, 'source verified ↗')}` : '';
+  const proof = s.kind === 'createx' && job.verified ? verifiedOn(s.expected) : '';
   return `<li class="step is-done">
     <span class="n num">${i + 1}</span>
     <span class="what"><b>${esc(s.label)}</b><small>${where}${proof}${c ? ` · ${link(`${ETHERSCAN}/tx/${c.txHash}`, 'transaction ↗')}` : ''}</small></span>
@@ -197,7 +200,7 @@ function doneBody(job, res) {
     <p class="grp-h"><span>Contracts</span><span>${deploys.length}</span></p>
     <ol class="steps">${deploys.map(([s, i]) => doneRow(job, s, i)).join('')}</ol>
     ${job.created?.length ? `<p class="grp-h"><span>Made by the vaults</span><span>${job.created.length}</span></p>
-    <ul class="steps">${job.created.map((x) => `<li class="step is-done"><span class="n"></span><span class="what"><b>${esc(x.label)}</b><small>${link(`${ETHERSCAN}/address/${x.address}`, esc(x.address))}${job.verified ? ` · ${link(`${ETHERSCAN}/address/${x.address}#code`, 'source verified ↗')}` : ''}</small></span><span class="paid"></span></li>`).join('')}</ul>` : ''}
+    <ul class="steps">${job.created.map((x) => `<li class="step is-done"><span class="n"></span><span class="what"><b>${esc(x.label)}</b><small>${link(`${ETHERSCAN}/address/${x.address}`, esc(x.address))}${job.verified ? verifiedOn(x.address) : ''}</small></span><span class="paid"></span></li>`).join('')}</ul>` : ''}
     <p class="grp-h"><span>Confidential pool</span><span>${calls.length}</span></p>
     <ol class="steps">${calls.map(([s, i]) => doneRow(job, s, i)).join('')}</ol>`;
 }
