@@ -12,7 +12,7 @@ import { keccak256 } from 'viem';
 import { CFG } from './config.js';
 import { POOL, POOL_ABI, publicClient, settleWallet } from './chain.js';
 import { reflectionEthProofPatient } from './worker-client.js';
-import { privateProvePlan, retryPublic } from './private-prove.js';
+import { privateProvePlan, retryPublic, privateRefused, rememberRefusal, privateOff } from './private-prove.js';
 import { CREDIT_SHORT } from './prove-pause.js';
 import { makeStdinProver, batchInput } from './stdin-prover.js';
 import { makeBoardProver } from './board-prover.js';
@@ -390,11 +390,20 @@ export async function proveSettle({ type, op, memos = [], timeoutMs }) {
   // The witness goes as a private input, which only provers that fetch it with the signed GetStdinUri call can read
   // (PROVER_WHITELIST names them). If none of them proves it in time, it is proved once more with a public input,
   // so a holder never waits on a prover that is not there; a witness the network could not execute is not sent again.
+  const asPublic = { PRIVATE_STDIN: '0', PROVER_WHITELIST: '' };
+  // While the network refuses private inputs, the attempt is not made: the refusal was answered minutes ago and costs a
+  // binary start and a round trip each time.
+  if (privateOff()) return attempt(asPublic, timeoutMs);
   const t0 = Date.now();
   try { return await attempt({}, plan.privateMs); }
   catch (e) {
     if (!retryPublic(e)) throw e;
-    console.log(`[exec:${type}] the private request was not proved (${String(e.message).split('\n')[0].slice(0, 160)}); proving it with a public input`);
-    return attempt({ PRIVATE_STDIN: '0', PROVER_WHITELIST: '' }, Math.max(60_000, timeoutMs - (Date.now() - t0)));
+    if (privateRefused(e)) {
+      rememberRefusal();
+      console.log(`[exec:${type}] the network refuses private inputs; the next ten minutes of requests go with public inputs at once`);
+    } else {
+      console.log(`[exec:${type}] the private request was not proved (${String(e.message).split('\n')[0].slice(0, 160)}); proving it with a public input`);
+    }
+    return attempt(asPublic, Math.max(60_000, timeoutMs - (Date.now() - t0)));
   }
 }

@@ -2,7 +2,7 @@
 // time, then one public attempt only when no prover proved it; never a public retry of a witness that cannot execute.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { privateProvePlan, retryPublic } from '../src/lib/private-prove.js';
+import { privateProvePlan, retryPublic, privateRefused, rememberRefusal, privateOff, PRIVATE_OFF_MS } from '../src/lib/private-prove.js';
 
 test('a public input is one attempt with the whole time; so is a private one with the fallback off', () => {
   assert.deepEqual(privateProvePlan({}, 900_000), { fallback: false });
@@ -24,4 +24,13 @@ test('only a request no prover proved is tried again in public', () => {
   assert.ok(!retryPublic(new Error('exec:wrap produced no proof (code=101): …request is unexecutable')));
   assert.ok(!retryPublic(new Error('VKEY DRIFT: derived … != pinned')));
   assert.ok(!retryPublic(new Error('Execution failed: exceeded cycle limit')));
+});
+
+test('the network\'s refusal of private inputs is recognised and remembered for ten minutes', () => {
+  assert.equal(privateRefused(new Error('exec:wrap produced no proof (code=101): ENOENT\nthread main panicked: groth16 proof failed: status: PermissionDenied, message: "private stdin is not enabled on this network"')), true);
+  assert.equal(privateRefused(new Error('exec:wrap produced no proof (code=101): the request expired')), false);
+  assert.equal(privateOff(1_000_000), false);
+  rememberRefusal(1_000_000);
+  assert.equal(privateOff(1_000_000 + PRIVATE_OFF_MS - 1), true);
+  assert.equal(privateOff(1_000_000 + PRIVATE_OFF_MS), false);
 });

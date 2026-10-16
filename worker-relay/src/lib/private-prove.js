@@ -10,6 +10,15 @@ export function privateProvePlan(env, timeoutMs) {
   const cap = Number(env.PRIVATE_ATTEMPT_MS) > 0 ? Number(env.PRIVATE_ATTEMPT_MS) : 6 * 60_000;
   return { fallback: true, privateMs: Math.max(60_000, Math.min(cap, Math.floor(timeoutMs * 0.6))) };
 }
+// The network's refusal of every private input (PERMISSION_DENIED "private stdin is not enabled on this network"; nothing
+// is created or charged). It is remembered for ten minutes, so the jobs after it go public at once instead of each
+// spending a binary start and a refused request first (about half a minute per job).
+export const PRIVATE_OFF_MS = 10 * 60_000;
+export const privateRefused = (e) => /private stdin is not enabled/i.test(String(e && e.message || e));
+let privateOffAt = 0;
+export const rememberRefusal = (now = Date.now()) => { privateOffAt = now; };
+export const privateOff = (now = Date.now()) => now - privateOffAt < PRIVATE_OFF_MS;
+
 // A private attempt is worth repeating in public only when no prover proved it (none bid, the one that won never
 // delivered, it timed out here); one the network could not execute fails the same way in public, and so does one the
 // prover account could not pay for (marked `creditShort` by lib/prover.js).
