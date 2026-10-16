@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-fJv8abcMALkL/ne940XlTduiMufjp/Xj2lr2rB4lGv0=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-TmMkzJXaBb6CYnSNoWaxHc+KraEoAcfdYTGRMHusA1w=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -11368,7 +11368,7 @@ function hxPreset(spec, amt, inCard = false) {
     if (tab === 'shield') { HX.tab = 'private'; HX.sf = a; HX.sd = b; }
     else if (tab === 'swap') { HX.tab = 'swap'; HX.swp = { from: a, to: b }; }
     else if (tab === 'send') { HX.tab = 'send'; HX.send = a; }
-    else if (tab === 'earn') { HX.tab = 'earn'; HX.ern = a === 'eth' ? 'eth' : 'ether'; if (b === 'public') HX.pool = 'precision'; }
+    else if (tab === 'earn') { HX.tab = 'earn'; HX.ern = a === 'eth' ? 'eth' : 'ether'; if (b === 'public') HX.pool = 'precision'; else if (/^p\d{1,3}$/.test(b)) HX.pool = b.slice(1); }   // p<id>: that private farm (the swap page's links)
     else { HX.tab = 'borrow'; HX.bm = a === 'cbtc' ? 'cbtc' : 'cusd'; }
   });
   if (amt != null) HX.amt = amt;
@@ -12062,7 +12062,7 @@ const route = () => {
   const h = location.hash.slice(1), pay = h.match(/^(sp|st)=([0-9a-fA-F]{64})/);
   // A link from another page that sets the console (the trade page's private routes): #card=swap:ether:tac:private&amt=0.25, where the
   // fourth part is the route to take and the amount is optional. Taken once; the address goes back to the page's own.
-  const card = h.match(/^card=([a-z]+:[a-z]+:[a-z]+)(?::(public|private))?(?:&amt=(\d{0,12}(?:\.\d{1,18})?))?$/);
+  const card = h.match(/^card=([a-z]+:[a-z]+:[a-z]+\d{0,3})(?::(public|private))?(?:&amt=(\d{0,12}(?:\.\d{1,18})?))?$/);
   if (card) { history.replaceState(null, '', location.pathname + location.search); hxPreset(card[1], card[3] || ''); if (card[2]) { HX.route = card[2]; hxQuote(); } return; }
   if (pay) { BTC.mode = 'receive'; BTC.check = { kind: pay[1], txid: pay[2].toLowerCase() }; openSheet('btc'); }
   else if (h) openLink(h);

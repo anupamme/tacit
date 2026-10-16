@@ -204,6 +204,13 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await page.click('[data-farm-it]');
   await until(page, () => !document.querySelector('#p-earn').hidden && document.querySelector('#fm-tacamt') && document.querySelector('#fm-tacamt').value !== '');
   ok(true, 'Farm it opens the Precision farm on TAC, with the amount bought');
+  // and the farm takes it: TAC's permit signed, zapped and staked in one transaction
+  await until(page, () => /Farm with TAC/.test(document.querySelector('#fm-go')?.textContent || '') && !document.querySelector('#fm-go').disabled, null, 60000);
+  const tf0 = await bal(TAC, w.account);
+  await page.click('#fm-go');
+  await until(page, () => /Farming\./.test(document.querySelector('#fm-status')?.textContent || ''), null, 180000);
+  const tf1 = await bal(TAC, w.account);
+  ok(tf1 < tf0, `the bought TAC is farmed from the swap page: ${Number(tf0 - tf1) / 1e18} TAC zapped and staked`);
   await until(page, () => document.querySelectorAll('#farms [data-farm]').length >= 2, null, 60000).catch(() => {});
   ok((await page.$$('#farms [data-farm]')).length >= 2, 'Earn lists the Precision farm and the private farms');
   await shot(page, 'wallet-earn');
@@ -212,13 +219,13 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await page.click('#tab-swap');
   await pick(page, 'pay', 'TAC');
   ok((await page.textContent('#get-coin')).includes('ETH'), 'TAC sells for ETH');
-  await typeAmt(page, '200');
+  await typeAmt(page, '50');
   await quoted(page);
   const e0 = BigInt(await rpcA('eth_getBalance', [w.account, 'latest'])), t3 = await bal(TAC, w.account);
   await page.click('#go');
   await until(page, () => /Done/.test(document.querySelector('#q').textContent), null, 180000);
   const t4 = await bal(TAC, w.account);
-  ok(t3 - t4 === 200n * 10n ** 18n, 'TAC → ETH spent exactly 200 TAC');
+  ok(t3 - t4 === 50n * 10n ** 18n, 'TAC → ETH spent exactly 50 TAC');
   ok(walletLog.sends.every((s) => !/^0x095ea7b3/.test(s.data)) || walletLog.typed.length >= 2, `sales sign rather than approve where they can (${walletLog.sends.length} sends, ${walletLog.signs} signatures)`);
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   ok(!blocked.length, `nothing blocked by the CSP${blocked.length ? ': ' + blocked.slice(0, 3).join(' | ') : ''}`);

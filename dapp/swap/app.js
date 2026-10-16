@@ -75,7 +75,6 @@ const tokenOf = (k) => (k === 'teth' ? TETH : listed().find((t) => t.addr === k)
 const isEth = (k) => k === lc(R.ZERO);
 const tacitKey = (k) => R.tacitToken(k);
 const KEY = { [lc(R.ZERO)]: 'ether', teth: 'eth', [lc(R.TAC)]: 'tac', [lc(R.CUSD)]: 'cusd', [lc(R.CBTC)]: 'cbtc' };
-const TICK = { teth: 'cETH', [lc(R.ZERO)]: 'cETH', [lc(R.TAC)]: 'cTAC', [lc(R.CUSD)]: 'cUSD', [lc(R.CBTC)]: 'cBTC' };
 const POOLID = (k) => (k === 'teth' ? CETH_ID : R.POOL_ID[Object.keys(R.POOL_ID).find((a) => lc(a) === k)]);
 
 // What a pair is, where it arrives: 'tac' (ETH ⇄ TAC, the venues), 'amm' (ETH ⇄ cUSD/cBTC), 'any' (a token → TAC), 'private', or null.
@@ -219,25 +218,35 @@ async function quote(my, wei) {
     const hop = q.hop ? `${q.hop.name}${q.hop.feeBps ? ` ${Number(q.hop.feeBps) / 100}%` : ''}` : null;
     return done({ rows: [{ k: 'any', name: hop ? `${hop} → Precision` : 'Precision pool', note: '', out: q.tacOut, any: q, gas: GAS.any, best: true }] });
   }
-  // Private: the pool's own price for the route the console takes (through tETH), less the relay's fee in what is paid.
+  // Private: priced exactly as the front page's console prices it (its hxPoolSwap: the relay's route fee from pool-ux, then the best tier at each
+  // stop through tETH), with the same module the console then loads, so the figure handed over is the figure it shows.
   const units = parseUnits(S.amt, 8);
   if (!units) return done({ rows: [], why: 'Enter an amount with at most 8 decimal places.' });
-  const shield = isEth(S.pay) && S.get === 'teth';
-  const feeTick = TICK[S.pay];
-  const qf = await api(`/confidential/quote?asset=${feeTick}`);
-  const floor = qf ? [qf.staticFloorUnits, qf.gasAwareFloorUnits].filter((x) => x != null).map(BigInt).reduce((a, b) => (b > a ? b : a), 0n) : null;
-  const from = isEth(S.pay) ? 'teth' : S.pay, stops = from === 'teth' || S.get === 'teth' ? [S.get] : ['teth', S.get];
-  const fee = shield || floor == null ? null : stops.length > 1 ? twoDigits((floor * 14n) / 10n) : floor;
-  if (shield) return done({ rows: [{ k: 'private', name: 'Made private', note: '', out: units * E10, best: true, priv: true }], fee: null });
-  if (fee != null && units <= fee * 2n) return done({ rows: [], why: `Swap more than ${fmtUnits(fee * 2n, 8, 6)} ${esc(pay.sym)}: the relay's fee is about ${fmtUnits(fee, 8, 6)}.` });
-  let cur = from, amt = (units - (fee ?? 0n)) * E10;
+  if (isEth(S.pay) && S.get === 'teth') return done({ rows: [{ k: 'private', name: 'Made private', note: '', out: units * E10, best: true, priv: true }], fee: null });
+  const t = await getUx(), from = isEth(S.pay) ? 'eth' : PK[S.pay], to = PK[S.get];
+  const id = (k) => (k === 'cbtc' ? String(t.pool.CBTC_ZK_ASSET_ID) : String(t.assetByTicker[POOL_TK[k]]?.assetId || '')).toLowerCase();
+  const stops = from === 'eth' || to === 'eth' ? [to] : ['eth', to];
+  const f0 = BigInt(await t.quoteOpFee(POOL_TK[from], 'route')), fee = stops.length > 1 ? twoDigits((f0 * 14n) / 10n) : f0;
+  if (units <= fee * 2n) return done({ rows: [], why: `Swap more than ${fmtUnits(fee * 2n, 8, 6)} ${esc(pay.sym)}: the relay's fee is ${fmtUnits(fee, 8, 6)}.` });
+  let cur = id(from), amt = units - fee;
   for (const k of stops) {
-    const q = await R.quoteAmm({ ethCall, tokenIn: cur === 'teth' ? R.ZERO : cur, tokenOut: k === 'teth' ? R.ZERO : k, amountIn: amt });
-    if (!q) return done({ rows: [], why: 'The Tacit pool has no price for this pair right now.' });
-    cur = k; amt = q.amountOut;
+    const next = id(k);
+    const tiers = await Promise.all([30, 5, 100, 1].map((feeBps) => t.quoteRoute({ asset0: cur, amountIn: amt, path: [{ assetNext: next, feeBps }] }).then((r) => (r && r.amountOut > 0n ? r.amountOut : null), () => null)));
+    const best = tiers.filter(Boolean).reduce((a, c) => (c > a ? c : a), 0n);
+    if (!best) return done({ rows: [], why: 'The Tacit pool has no price for this pair right now.' });
+    cur = next; amt = best;
   }
-  return done({ rows: [{ k: 'private', name: 'Tacit pool', note: '', out: amt, best: true, priv: true }], fee, feeTick });
+  return done({ rows: [{ k: 'private', name: 'Tacit pool', note: '', out: amt * E10, best: true, priv: true }], fee, feeTick: from });
 }
+// The private pool's module, loaded the first time a private swap is priced (the console loads the same file next, from the cache).
+const PK = { teth: 'eth', [lc(R.TAC)]: 'tac', [lc(R.CUSD)]: 'cusd', [lc(R.CBTC)]: 'cbtc' };
+const POOL_TK = { eth: 'cETH', tac: 'cTAC', cbtc: 'cBTC', cusd: 'cUSD' };
+let uxP = null;
+const getUx = () => (uxP ||= (async () => {
+  const [{ makeConfidentialPoolUx }, dep, d] = await Promise.all([import('/confidential-pool-ux.js?cb=9bb944e3'), import('/confidential-deployments.js'), import('/vendor/tacit-deps.min.js')]);
+  dep.setActiveNetwork('mainnet');
+  return makeConfidentialPoolUx({ secp: d.secp, keccak256: d.keccak_256, sha256: d.sha256, network: 'mainnet' });
+})().catch((e) => { uxP = null; throw e; }));
 const twoDigits = (v) => { if (v <= 0n) return 0n; const d = BigInt(String(v).length); if (d <= 2n) return v; const m = 10n ** (d - 2n); return ((v + m - 1n) / m) * m; };
 
 // How the pick compares with the market: the dollar value out over the dollar value in (fees and price impact included).
@@ -317,7 +326,7 @@ function paintQuote() {
     const tacSide = S.pay === lc(R.TAC) || S.get === lc(R.TAC);                  // TAC's market is these pools: what shows is the price the trade moves
     if (m != null && tacSide) lines.push(['Price impact', `${(Math.max(0, -m) * 100).toFixed(2)}%`, m <= GATE ? 'warn' : '']);
     else if (m != null) lines.push(['Against the market', m <= BAD ? `${(Math.abs(m) * 100).toFixed(1)}% below` : m >= 0.02 ? `${(m * 100).toFixed(1)}% above` : `${m >= 0 ? '+' : '−'}${(Math.abs(m) * 100).toFixed(2)}%`, m <= BAD ? 'warn' : m >= 0.02 ? 'ok' : '']);
-    if (r.priv && q.fee != null) lines.push(['Relay fee', `about ${fmtUnits(q.fee, 8, 6)} ${S.pay === lc(R.ZERO) || S.pay === 'teth' ? 'tETH' : pay.sym}`]);
+    if (r.priv && q.fee != null) lines.push(['Relay fee', `${fmtUnits(q.fee, 8, 6)} ${S.pay === lc(R.ZERO) || S.pay === 'teth' ? 'tETH' : pay.sym}`]);
     if (!r.priv && r.gas && S.gasPrice && S.px.ethUsd) { const f = Number(r.gas * S.gasPrice) / 1e18 * S.px.ethUsd; lines.push(['Network fee', `about ${f < 1 ? `$${f.toFixed(2)}` : usd(f)}`]); }
   }
   rc.hidden = !lines.length;
@@ -598,7 +607,7 @@ function paintEarn() {
     farmUi = import('/trade/farm.js?cb=e7c9d199').then(({ mountFarm }) => mountFarm($('#farm'), { ethCall, batch, rpc, api, wallet, W, connect: () => connect.connect(), fmtUnits, parseUnits, esc, usd, ethUsd: () => S.px.ethUsd, txLink, onDone: () => readBalances().then(paintSides) }));
   }
   if (f.k !== 'precision') {
-    $('#privfarm').innerHTML = `<a class="go priv" href="/#card=earn:ether:private">Farm ${esc(f.name)} privately →</a>`;
+    $('#privfarm').innerHTML = `<a class="go priv" href="/#card=earn:ether:p${f.pid}">Farm ${esc(f.name)} privately →</a>`;
   }
 }
 // After a purchase of TAC: the Precision farm opened on TAC, with what was bought.
