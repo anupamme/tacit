@@ -12,7 +12,7 @@
 
 import { CFG } from './lib/config.js';
 import { makeLaneSchedule } from './lib/lane-schedule.js';
-import { heartbeat } from './lib/worker-client.js';
+import { heartbeat, heartbeatIdle } from './lib/worker-client.js';
 import { safeErr } from './lib/safe-err.js';
 import { ethStateCycle, ethStateReset } from './eth-state-sidecar.js';
 import { reflectionCycle } from './reflection-folder.js';
@@ -26,8 +26,9 @@ async function main() {
   if (CFG.runMode === 'cron') throw new Error('bitcoin-lane.js is an always-on worker; RUN_MODE=cron is for the single-stage files');
   if (CFG.sp1Prover === 'network' && !CFG.networkPrivateKey) throw new Error('SP1_PROVER=network but NETWORK_PRIVATE_KEY unset — cannot prove');
   const stages = [];
-  if (on('LANE_ETH_STATE')) { await ethStateReset(); stages.push({ name: 'eth-state', everySecs: CFG.ethStatePollSecs, run: ethStateCycle }); }
-  if (on('LANE_REFLECTION')) stages.push({ name: 'reflection', everySecs: CFG.reflectionPollSecs, run: reflectionCycle });
+  // A stage that found nothing beats its own idle note, as its single-service loop did, or /prover-health reads it as down after ten quiet minutes.
+  if (on('LANE_ETH_STATE')) { await ethStateReset(); stages.push({ name: 'eth-state', everySecs: CFG.ethStatePollSecs, run: ethStateCycle, idle: () => heartbeatIdle('eth-state', 'idle — no candidate to produce yet') }); }
+  if (on('LANE_REFLECTION')) stages.push({ name: 'reflection', everySecs: CFG.reflectionPollSecs, run: reflectionCycle, idle: () => heartbeatIdle('reflection', 'caught up') });
   if (on('LANE_HEADERS')) stages.push({ name: 'header', everySecs: Number(process.env.HEADER_EVERY_SECS || 180), run: headerCycle });
   if (!stages.length) throw new Error('every stage is off (LANE_ETH_STATE, LANE_REFLECTION, LANE_HEADERS)');
   log(`starting — stages ${stages.map((s) => `${s.name} every ${s.everySecs}s`).join(', ')}; worker=${CFG.workerBase} network=${CFG.network}`);

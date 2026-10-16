@@ -145,7 +145,8 @@ services:
     # Since 2026-10-16 the whole Bitcoin lane (src/bitcoin-lane.js): this eth-state producer, the reflection folder that was the
     # tacit-reflection cron, and the header feeder that was the tacit-header cron, run in turn in this one process. Standard (2 GB)
     # holds the lane's peak because the three never prove at once: an eth_prove or a bitcoin_prove child is over a gigabyte, and one
-    # runs at a time. Each stage can be switched off (LANE_* = 0) while its own file runs elsewhere.
+    # runs at a time. Each stage can be switched off (LANE_* = 0) while its own file runs elsewhere. The lane beats each stage's
+    # idle note to /prover-health (eth-state, reflection) as the single services did.
     dockerCommand: node src/bitcoin-lane.js
     autoDeploy: false
     disk:

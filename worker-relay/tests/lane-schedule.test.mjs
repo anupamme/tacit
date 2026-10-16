@@ -51,3 +51,13 @@ test('a failing stage backs off by itself; the others keep their pace; a success
   for (let i = 0; i < 4; i++) { await capped.round(); c.tick(600); }
   assert.ok(seen.some((m) => /x: cycle error.*next attempt in 600s/.test(m)), 'the backoff is capped');
 });
+
+test('a stage that found nothing calls its idle hook; one that worked or threw does not', async () => {
+  const c = clock();
+  const idles = [];
+  let work = true, boom = false;
+  const s = makeLaneSchedule([{ name: 'r', everySecs: 30, run: async () => { if (boom) throw new Error('x'); return work; }, idle: async () => { idles.push(c.now()); } }], { now: c.now });
+  await s.round(); assert.equal(idles.length, 0, 'worked: no idle beat');
+  work = false; await s.round(); assert.equal(idles.length, 1, 'found nothing: idle beat');
+  boom = true; c.tick(30); await s.round(); assert.equal(idles.length, 1, 'threw: no idle beat');
+});

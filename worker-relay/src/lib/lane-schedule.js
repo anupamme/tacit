@@ -2,7 +2,8 @@
 // feeder in turn, never two at once, so their proofs (each a child process of over a gigabyte) and their sends from the one relay key
 // are serialised by construction. Pure, so the order and the pacing are tested without a chain (tests/lane-schedule.test.mjs).
 //
-//   stages: [{ name, run: () => Promise<boolean worked>, everySecs }], in the order they go
+//   stages: [{ name, run: () => Promise<boolean worked>, everySecs, idle?: () => Promise }], in the order they go
+//   `idle` is called after a run that found nothing to do (the stage's own idle heartbeat, which its single-service loop used to send).
 //   A stage runs when its interval has passed since its last run; one that worked runs again at once next round (it is catching up).
 //   A stage that threw backs off: its interval doubles each consecutive failure, up to `maxBackoffSecs`, and one success resets it.
 //   A round that did no work sleeps `idleSecs`.
@@ -29,6 +30,7 @@ export function makeLaneSchedule(stages, { now = Date.now, idleSecs = 30, maxBac
           if (s.failures) log(`${s.name}: recovered after ${s.failures} failure(s)`);
           s.failures = 0;
           if (w) worked = true;
+          else if (s.idle) { try { await s.idle(); } catch {} }
         } catch (e) {
           s.worked = false;
           s.failures++;
