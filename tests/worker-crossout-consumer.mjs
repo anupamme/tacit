@@ -160,6 +160,22 @@ const u256 = (v) => BigInt(v).toString(16).padStart(64, '0');
   const r4 = await recordCrossoutMint(env, 'mainnet', cc, { cm: { ...cm, claimId: b32('claimS') }, txidHex: 'dd'.repeat(32), tx, height: 210, txIndex: 0 });
   assert.strictEqual(r4.status, 'pending-reflection', 'not yet finalized: the scan holds');
   ok('recordCrossoutMint takes the storage verdict and keeps the earliest minting tx per claim');
+
+  // GET /crossout/minted: a tx that is not its claim's record is decided by its own verdict.
+  const { handleCrossoutMinted } = await import('../worker/src/index.js');
+  const minted = async (txid, claim) => (await handleCrossoutMinted(new URL(`https://api.test/crossout/minted?network=mainnet&asset=${strip(cm.assetId)}&claim=${strip(claim)}&txid=${txid}`), env, {})).json();
+  let m = await minted('aa'.repeat(32), cm.claimId);
+  assert.deepStrictEqual([m.minted, m.status], [true, 'minted'], 'the record\'s tx is the minted one');
+  m = await minted('cc'.repeat(32), cm.claimId);
+  assert.deepStrictEqual([m.decided, m.minted], [true, false], 'a rejected attempt at a minted claim is decided at once');
+  m = await minted('dd'.repeat(32), b32('claimS'));
+  assert.deepStrictEqual([m.decided, m.minted], [false, false], 'a mint awaiting finality stays undecided');
+  const claimT = b32('claimT');
+  await recordCrossoutMint(env, 'mainnet', cc, { cm: { ...cm, claimId: claimT }, txidHex: 'ee'.repeat(32), tx: { vout: [{ scriptpubkey: '0014' + '11'.repeat(20) }] }, height: 300, txIndex: 0 });
+  await recordCrossoutMint(env, 'mainnet', cc, { cm: { ...cm, claimId: claimT }, txidHex: 'ff'.repeat(32), tx: { vout: [{ scriptpubkey: '5120' + '22'.repeat(32) }] }, height: 301, txIndex: 0 });
+  m = await minted('ff'.repeat(32), claimT);
+  assert.deepStrictEqual([m.decided, m.minted, m.status], [true, false, 'rejected'], 'a second rejected attempt, behind the claim\'s first, is decided too');
+  ok('/crossout/minted decides every rejected attempt at a claim, not only the one the claim records');
 }
 
-console.log(`\n${n}/5 worker cross-out consumer (factory + leaf-parity + storage verdict) checks passed`);
+console.log(`\n${n}/6 worker cross-out consumer (factory + leaf-parity + storage verdict + minted status) checks passed`);

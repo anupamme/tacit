@@ -15485,6 +15485,8 @@ async function handleAssetHint(req, env, network, cors, ctx) {
 
 const crossoutMintedKey = (network, assetId, claimId) =>
   `crossout-minted:${network}:${String(assetId).toLowerCase()}:${String(claimId).toLowerCase()}`;
+// Each mint tx's own verdict, which is what decides a tx that is not its claim's record (a later attempt at a claim).
+const crossoutTxKey = (network, txid) => `crossout-tx:${network}:${String(txid).toLowerCase()}`;
 
 // One record per claim: the confirmed T_CROSSOUT_MINT earliest in chain order (height, then block position)
 // whose vout-0 leaf the pool recorded for its claim. Where the deployment names its cross-out slots that is read
@@ -15501,6 +15503,8 @@ async function recordCrossoutMint(env, network, cc, { cm, txidHex, tx, height, t
     : String(recorded.destCommitment).toLowerCase() !== String(leaf).toLowerCase() ? 'rejected'
     : 'minted';
   if (status === 'minted' && recorded && recorded.status !== 'consumed') await cc.consumer.bindBitcoinOutput({ network, claimId: cm.claimId, outputLeaf: leaf }).catch(() => null);
+  const txKey = crossoutTxKey(network, txidHex);
+  if ((await env.REGISTRY_KV.get(txKey).catch(() => null)) !== status) await env.REGISTRY_KV.put(txKey, status);
   const key = crossoutMintedKey(network, cm.assetId, cm.claimId);
   const prev = await env.REGISTRY_KV.get(key, 'json').catch(() => null);
   const earlier = !prev || !Number.isInteger(prev.height) || !Number.isInteger(prev.txIndex)
@@ -15523,7 +15527,8 @@ async function recordCrossoutMint(env, network, cc, { cm, txidHex, tx, height, t
 // GET /crossout/minted?network=&asset=0x..&claim=0x..&txid=<hex>
 // Mint status of one T_CROSSOUT_MINT outpoint (txid:0). `minted` is true only for the tx recorded for the
 // claim. `decided` is true once the block scan has passed the recorded mint (and this tx) by the credit depth,
-// so no earlier mint for the claim can still be recorded; a rejected record for this tx is decided at once.
+// so no earlier mint for the claim can still be recorded; a rejected tx is decided at once, whether or not it is
+// the claim's record.
 async function handleCrossoutMinted(url, env, cors) {
   if (!env.REGISTRY_KV) return jsonResponse({ error: 'no kv' }, 500, cors);
   const network = url.searchParams.get('network') === 'signet' ? 'signet' : 'mainnet';
@@ -15539,6 +15544,7 @@ async function handleCrossoutMinted(url, env, cors) {
     minted = recTxid === txid && Number(rec.vout) === 0;
     decided = scannedPast(rec.height);
   } else if (rec && rec.status === 'rejected' && recTxid === txid) decided = true;
+  if (!decided && recTxid !== txid && (await env.REGISTRY_KV.get(crossoutTxKey(network, txid))) === 'rejected') decided = true;
   return jsonResponse({
     network, txid, vout: 0, decided, minted, status: rec ? rec.status : null,
     mintedTxid: rec && rec.status === 'minted' ? recTxid : null,
@@ -26538,7 +26544,7 @@ export {
   // ordering, and reorg re-confirm de-dup against an in-memory KV stub.
   loadCreditedDclaims,
   putDropReclaim, dropDepositorXonly,
-  recordCrossoutMint,
+  recordCrossoutMint, handleCrossoutMinted,
   // Commitment-opening gate applied by the cron + hint indexers (issue #31
   // Problem #3). Exported so tests can pin the valid / mismatch / malformed-
   // point cases without reaching into the cron's block loop. `pedersenCommit`
