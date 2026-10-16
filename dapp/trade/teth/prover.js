@@ -9,7 +9,7 @@
 //
 // self-prover.js is loaded the first time it is needed. Nothing here keeps a key: each use derives the account from the page's `priv()`.
 import { secp, keccak_256, sha256, hmac, concatBytes } from '/vendor/tacit-deps.min.js';
-import { buildBestSwapData, decodeBestSwap, ETH, ZQUOTER, ZROUTER } from '/relay/abi.js?cb=e137b68f';
+import { quoteEthToProve, ethForProve, ZROUTER } from '/relay/abi.js?cb=abf8bf2b';
 import { rpc, ethCall, strip, word, now } from '/trade/util.js?cb=c3dc39b3';
 
 // The permit is signed synchronously, which noble's secp256k1 does once it is given an HMAC (as tacit.js and the sats page give it).
@@ -100,17 +100,12 @@ export async function fundFromWallet({ prover, wallet, from, amountWei, say = ()
 }
 
 // zQuoter's route from `wei` of ETH to PROVE, built for the Tacit account as the recipient, with a 1% guard on what it buys. Checked before it is
-// shown: it spends exactly what was asked, pays the Tacit account, and guards a least amount out.
-export const SLIPPAGE_BPS = 100n;
-export async function quoteEth({ prover, wei }) {
-  const data = buildBestSwapData({ to: prover.address, tokenIn: ETH, tokenOut: prover.sp.PROVE_TOKEN, amount: wei, slippageBps: SLIPPAGE_BPS, deadline: BigInt(now() + 600) });
-  let q;
-  try { q = decodeBestSwap(await rpc('eth_call', [{ to: ZQUOTER, data, gas: '0x5f5e100' }, 'latest'])); }
-  catch (e) { throw new Error(e?.revert ? 'No route from ETH to PROVE was found just now. Try again in a moment, or add PROVE from your wallet.' : 'Could not read a quote just now.'); }
-  if (!q || q.amountOut <= 0n) throw new Error('No route from ETH to PROVE was found just now. Try again in a moment, or add PROVE from your wallet.');
-  if (q.msgValue !== wei || !strip(q.callData).toLowerCase().includes(strip(prover.address).toLowerCase()) || q.amountLimit <= 0n || q.amountLimit > q.amountOut) throw new Error('The quote did not match what was asked, so nothing will be sent.');
-  return { wei, ...q, at: Date.now() };
-}
+// shown: it spends exactly what was asked, pays the Tacit account, and guards a least amount out (relay/abi.js holds the checks every page shares).
+const readCall = ({ to, data, gas }) => rpc('eth_call', [{ to, data, gas }, 'latest']);
+const NO_ROUTE = 'No route from ETH to PROVE was found just now. Try again in a moment, or add PROVE from your wallet.';
+export const quoteEth = ({ prover, wei }) => quoteEthToProve({ call: readCall, to: prover.address, wei, noRoute: NO_ROUTE });
+// The same quote for the ETH that buys at least `want` PROVE, with a little over so the least the swap may buy still covers it.
+export const quoteEthFor = ({ prover, want }) => ethForProve({ call: readCall, to: prover.address, want, noRoute: NO_ROUTE });
 // ETH swapped to PROVE for the Tacit account, then all the PROVE it holds deposited into its credit. → { hashes, deposited }
 export async function fundWithEth({ prover, wallet, from, quote, say = () => {} }) {
   say('swap');

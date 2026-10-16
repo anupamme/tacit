@@ -87,7 +87,17 @@ const prove = { acct: 0n, wallet: 10n * E18N, deposited: 0n };
 // zQuoter's answer for ETH to PROVE (0.1 ETH buys 250 PROVE, at least 247.5), its call carrying the Tacit account as the recipient.
 const ZQUOTER = '0x000000bd2DB80567c23E353ca95a251c573cBf9B', ZROUTER = '0x000000000000FB114709235f1ccBFfb925F600e4';
 const SWAP_CALL = '0xfeedface' + ACCT.address.slice(2).toLowerCase().padStart(64, '0') + (10n ** 17n).toString(16).padStart(64, '0');
-const SWAP_QUOTE = execFileSync('cast', ['abi-encode', 'f((uint8,uint256,uint256,uint256),bytes,uint256,uint256)', '(1,30,100000000000000000,250000000000000000000)', SWAP_CALL, '247500000000000000000', '100000000000000000'], { encoding: 'utf8' }).trim();
+// The stubbed zQuoter: a constant price of 2500 PROVE per ETH and the 1% guard, answering exact-in asks (what a quote is) and exact-out asks (what
+// sizing is) in the layout of the real call. A 0.1 ETH ask buys 250 PROVE, at least 247.5.
+const PRICE = 2500n, w64 = (v) => BigInt(v).toString(16).padStart(64, '0');
+function swapQuote(data) {
+  const d = String(data).slice(10), f = (k) => BigInt('0x' + d.slice(k * 64, k * 64 + 64));
+  const exactOut = f(1) === 1n, amount = f(4), slip = f(5);
+  const amountIn = exactOut ? (amount + PRICE - 1n) / PRICE : amount, amountOut = exactOut ? amount : amount * PRICE;
+  const limit = exactOut ? amountIn * (10000n + slip) / 10000n : amountOut * (10000n - slip) / 10000n, msgValue = exactOut ? limit : amount;
+  const bytes = SWAP_CALL.slice(2);
+  return '0x' + w64(1) + w64(30) + w64(amountIn) + w64(amountOut) + w64(7 * 32) + w64(limit) + w64(msgValue) + w64(bytes.length / 2) + bytes.padEnd(Math.ceil(bytes.length / 64) * 64, '0');
+}
 const quoted = [];
 const events = [];                                                                     // the settle's eth_call and the wallet's sends, in the order they came
 const GAS_PRICE = 2n * 10n ** 9n;
@@ -113,7 +123,7 @@ function rpcAnswer(req) {
       if (data === '0x3644e515') return res(DOMAIN_SEP);                                        // DOMAIN_SEPARATOR()
       if (data.startsWith('0xa9059cbb')) { events.push(['sim', { from: params[0].from, to: params[0].to, data }]); return res('0x' + w32(1)); }
     }
-    if (String(params[0].to).toLowerCase() === ZQUOTER.toLowerCase()) { quoted.push(String(params[0].data)); return res(SWAP_QUOTE); }
+    if (String(params[0].to).toLowerCase() === ZQUOTER.toLowerCase()) { quoted.push(String(params[0].data)); return res(swapQuote(params[0].data)); }
     if (String(params[0].to).toLowerCase() === ZROUTER.toLowerCase()) { events.push(['sim', { from: params[0].from, to: params[0].to, data: String(params[0].data), value: params[0].value }]); return res('0x'); }
     if (String(params[0].to).toLowerCase() === VAPP.toLowerCase()) { events.push(['sim', { from: params[0].from, to: params[0].to, data: String(params[0].data) }]); return res('0x'); }
     return err('stub: eth_call', 3);
@@ -782,7 +792,20 @@ try {
   await until(p, () => /Added\./.test(document.querySelector('#ps-status')?.textContent || ''), null, 20000);
   const ethTx = r.log.sends.slice(ethFrom).map((x) => x.tx);
   ok(ethTx.length === 2 && ethTx[0].to.toLowerCase() === ZROUTER.toLowerCase() && ethTx[0].data === SWAP_CALL && BigInt(ethTx[0].value) === 10n ** 17n && ethTx[1].to.toLowerCase() === VAPP.toLowerCase() && BigInt('0x' + ethTx[1].data.slice(74, 138)) === 250n * E18N, 'the wallet sends the swap to zRouter with the ETH, then the deposit of all the PROVE it bought');
+  // The quick sizes: the ETH that makes the credit enough for N proofs, from the quoter's price (2 PROVE held, 0.45 needed on hand, 0.4 spent a proof).
+  const sizes = await text(p, '#ps-size');
+  ok(/^Add enough for 5 proofs · 20 proofs$/.test(sizes), `the sheet offers the sizes the credit does not already cover (${sizes})`);
+  for (const [n, want] of [[5, 205n * 10n ** 16n - 2n * E18N], [20, 805n * 10n ** 16n - 2n * E18N]]) {
+    const at = quoted.length;
+    await p.click(`#ps-size [data-ps-size="${n}"]`);
+    await until(p, (k) => new RegExp(`then covers\\s*about ${k} proofs`).test(document.querySelector('#ps-quote')?.textContent || ''), n, 15000);
+    const asks = quoted.slice(at).map((d) => ({ exactOut: BigInt('0x' + d.slice(10 + 64, 10 + 128)) === 1n, amount: BigInt('0x' + d.slice(10 + 4 * 64, 10 + 5 * 64)) }));
+    const eth = await p.inputValue('#ps-amt'), box = await text(p, '#ps-quote');
+    ok(asks[0]?.exactOut && asks[0].amount === want && asks.slice(1).every((a) => !a.exactOut), `${n} proofs: zQuoter is asked what ${Number(want) / 1e18} PROVE costs, then for the swap itself (${asks.length} asks)`);
+    ok(Number(eth) > 0 && new RegExp(`then covers\\s*about ${n} proofs`).test(box) && (await text(p, '#ps-go')) === 'Swap and add', `${n} proofs: the ETH is filled in (${eth}) and the quote says ${box.slice(0, 120)}`);
+  }
   await p.click('.bsheet [data-ps-mode="prove"]');
+  ok(await p.evaluate(() => document.querySelector('#ps-size').hidden), 'the sizes belong to the ETH route only');
 
   // the switch on: the deposit carries no tip, the proof comes from the holder's own credit, and the wallet sends the settle; nothing reaches the relay
   await p.check('#ps-on');

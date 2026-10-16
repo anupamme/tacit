@@ -152,7 +152,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxteth,hxborrow,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,selffund,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxteth,hxborrow,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -5739,6 +5739,49 @@ await step('selffund', async () => {
     const note = await text(r.page, '#sheet-eth .sp-note');
     ok(/Proved with your own credit \(about 0\.4 PROVE\) and sent from your wallet/.test(note), `selffund: a private sheet says how its actions are proved and sent (${note})`);
     if (r.errors.length) { fails++; console.log('FAIL selffund page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// Adding PROVE with ETH: a wallet that holds ETH and no PROVE starts on the ETH route; a quick size works the ETH out from zQuoter's price, so
+// the credit is enough for that many proofs; pressing it swaps through zRouter to the Tacit account at the quoted price (the ETH typed is the ETH
+// spent) and the real vApp on the fork takes the deposit.
+await step('selfeth', async () => {
+  const hex = '5e1f2'.padEnd(64, '9');
+  const acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address.toLowerCase();
+  const r = await openPage({ account: A0, key: K0, init: { fn: SPN_INIT } });
+  await stubSelfProver(r.page);
+  const proveOf = async (a) => BigInt(await rpc('eth_call', [{ to: PROVE_TKN, data: '0x70a08231' + addrWord(a) }, 'latest']));
+  const held = await proveOf(A0);                                                     // an earlier scenario may have left the wallet some
+  if (held > 0n) await rpc('eth_sendTransaction', [{ from: A0, to: PROVE_TKN, data: '0xa9059cbb' + addrWord('0x000000000000000000000000000000000000dead') + word(held) }]);
+  try {
+    await r.page.goto(r.url);
+    await r.page.waitForSelector('#hx-body .hx-h');
+    await pasteKey(r.page, hex);
+    await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await go(r.page, '#prove-self');
+    await r.page.waitForSelector('#sheet-prove[open] #sp-credit', { timeout: 60000 });
+    await r.page.click('#sp-go');                                                     // Connect wallet
+    await until(r.page, () => document.querySelector('[data-sps="eth"][aria-selected="true"]'), null, 60000).catch(() => {});
+    ok(await r.page.evaluate(() => !!document.querySelector('[data-sps="eth"][aria-selected="true"]')), 'selfeth: a wallet with ETH and no PROVE starts on the ETH route');
+    const sizes = await text(r.page, '.sp-size');
+    ok(/Add enough for 1 proof · 5 proofs · 20 proofs/.test(sizes), `selfeth: quick sizes are offered (${sizes})`);
+    await r.page.click('[data-sp-size="5"]');
+    await until(r.page, () => /Your credit then covers/.test(document.querySelector('#sp-rcpt')?.textContent || '') && !document.querySelector('#sp-go').disabled, null, 120000).catch(() => {});
+    const ethTyped = await r.page.inputValue('#sp-amt'), rcpt = await text(r.page, '#sp-rcpt');
+    const covers = Number((/then covers\s*about (\d+) proofs/.exec(rcpt) || [])[1] || 0), least = Number((/At least\s*([\d.]+) PROVE/.exec(rcpt) || [])[1] || 0);
+    ok(Number(ethTyped) > 0 && covers >= 5 && covers <= 6 && least >= 2.05, `selfeth: 5 proofs works the ETH out (${ethTyped} ETH: ${rcpt})`);
+    const w0 = walletTxs.length;
+    await r.page.click('#sp-go');
+    await until(r.page, () => /Added|class="err"/.test(document.querySelector('#sp-status')?.innerHTML || ''), null, 300000).catch(() => {});
+    const said = await text(r.page, '#sp-status'), sent = walletTxs.slice(w0);
+    const swap = sent.find((x) => String(x.to).toLowerCase() === ZROUTER.toLowerCase()), dep = sent.find((x) => String(x.to).toLowerCase() === VAPP_ADDR);
+    ok(/Added [\d.]+ PROVE/.test(said), `selfeth: the PROVE is added (${said.slice(0, 160)})`);
+    const weiOf = (v) => { const [i, f = ''] = String(v).split('.'); return BigInt(i + (f + '0'.repeat(18)).slice(0, 18)); };
+    ok(swap && BigInt(swap.value) === weiOf(ethTyped), `selfeth: the swap spends the ETH shown, through zRouter (${swap?.value})`);
+    const d = (dep?.data || '').slice(10), wd = (i) => d.slice(i * 64, i * 64 + 64);
+    ok(dep && dep.data.startsWith('0x58981c7e') && '0x' + wd(0).slice(24) === acct && BigInt('0x' + wd(1)) >= 205n * 10n ** 16n && (await proveOf(acct)) === 0n,
+      `selfeth: and the vApp takes what it bought for the Tacit account (${dep ? BigInt('0x' + wd(1)) : 'no deposit'}; ${await proveOf(acct)} left in the account)`);
+    if (r.errors.length) { fails++; console.log('FAIL selfeth page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 

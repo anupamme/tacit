@@ -1,12 +1,11 @@
 // Paying for proofs: every proof the relay makes is paid in PROVE from one prover account (the Succinct network requester), and PROVE sent to that
 // account is put into the prover network within a few minutes (under 2 PROVE, at the relay's next half-hourly top-up). A visitor's wallet can send PROVE there, or pay ETH that zRouter swaps to
 // PROVE with the prover account as the recipient, in one transaction. Only the visitor's own balances are read; never the prover account's.
-import { PROVER, PROVE, ZQUOTER, ZROUTER, ETH, PROVE_PER_PROOF, transferData, balanceOfData, buildBestSwapData, decodeBestSwap, strip } from '/relay/abi.js?cb=e137b68f';
+import { PROVER, PROVE, ZROUTER, PROVE_PER_PROOF, SLIPPAGE_BPS, transferData, balanceOfData, quoteEthToProve } from '/relay/abi.js?cb=abf8bf2b';
 import { UserStopped } from '/trade/wallet.js?cb=0cba8a63';
 import { rpc, esc, fmtUnits, parseUnits, plain, grp, short } from '/trade/util.js?cb=c3dc39b3';
 
 const SCAN = 'https://etherscan.io/';
-const SLIPPAGE_BPS = 100n;                                                         // the least the swap may buy: 1% under its quote
 const QUOTE_TTL = 60e3;                                                            // a quote older than this is read again before it is sent
 const proofs = (wei) => Math.floor(Number(wei) / 1e18 / PROVE_PER_PROOF);
 const link = (h) => `<a href="${SCAN}tx/${esc(h)}" target="_blank" rel="noopener noreferrer">${esc(h.slice(0, 10))}…↗</a>`;
@@ -35,12 +34,9 @@ export function mountProve({ el, wallet, W, connect, say }) {
     if (P.mode !== 'eth' || !wei) { P.quote = null; render(); return; }
     P.quote = { wei, loading: true }; render();
     try {
-      const data = buildBestSwapData({ to: PROVER, tokenIn: ETH, tokenOut: PROVE, amount: wei, slippageBps: SLIPPAGE_BPS, deadline: BigInt(Math.floor(Date.now() / 1000) + 600) });
-      const q = decodeBestSwap(await rpc('eth_call', [{ to: ZQUOTER, data, gas: '0x5f5e100' }, 'latest']));
+      const q = await quoteEthToProve({ call: ({ to, data, gas }) => rpc('eth_call', [{ to, data, gas }, 'latest']), to: PROVER, wei, noRoute: 'No route from ETH to PROVE was found just now. Try again in a moment, or send PROVE.' });
       if (my !== P.seq) return;
-      if (!q || q.amountOut <= 0n) throw new Error('No route from ETH to PROVE was found just now. Try again in a moment, or send PROVE.');
-      if (q.msgValue !== wei || !strip(q.callData).includes(strip(PROVER)) || q.amountLimit <= 0n || q.amountLimit > q.amountOut) throw new Error('The quote did not match what was asked, so nothing will be sent.');
-      P.quote = { wei, ...q, at: Date.now() };
+      P.quote = q;
     } catch (e) {
       if (my !== P.seq) return;
       P.quote = { wei, err: e?.revert ? 'No route from ETH to PROVE was found just now. Try again in a moment, or send PROVE.' : (e?.message || 'Could not read a quote just now.') };

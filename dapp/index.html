@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-1VeDrjdBNLRUV80w0ZtPwfe3e5CWOSDez1VeS1sZlkA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-dkLwiCPQy8AUDYnqzkrkPu3kFzUCsMmVq64n60BnbSk=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -871,6 +871,8 @@ a.btn { text-decoration: none; white-space: nowrap; }
 .farm-back a { color: var(--ink); }
 .sp-note { margin: -6px 0 14px; font-size: 13px; color: var(--mute); }
 .sp-note a { color: var(--ink); }
+.sp-size { margin: 8px 0 0; font-size: 13px; color: var(--mute); }
+.sp-size .link { margin: 0 2px; }
 #sheet-eth:has([data-eth-mode="dev"][aria-selected="true"]) .sp-note { display: none; }
 .steps .kv { padding: 3px 0; }
 .opts { display: grid; gap: 8px; margin-top: 4px; }
@@ -3713,6 +3715,9 @@ function spRead(force = false) {
 // A request needs `need` on hand (the prover's needWei for an op) and spends about PROVE_PER_PROOF: the credit pays for one once it covers
 // that, and one more for each PROVE_PER_PROOF beyond it.
 const proofsFor = (wei, need = SP.need ?? BigInt(Math.round(perProof() * 1e18))) => (BigInt(wei || 0n) >= need ? 1 + Math.floor(Number(BigInt(wei) - need) / 1e18 / perProof()) : 0);
+const proofsWord = (n) => `${n} proof${n === 1 ? '' : 's'}`;
+// The PROVE that makes the credit enough for `n` proofs: what a first request needs on hand, and PROVE_PER_PROOF for each one after it.
+const proveFor = (n) => { const per = BigInt(Math.round(perProof() * 1e18)); return (SP.need ?? per) + BigInt(n - 1) * per; };
 // The figures on the open sheet, in place, so a refresh never touches what is being typed.
 function paintProve() {
   const set = (id, v) => { const e = $('#' + id); if (e) e.textContent = v; };
@@ -3722,6 +3727,10 @@ function paintProve() {
   set('sp-eth', SP.acctEth == null ? '—' : `${fmt(SP.acctEth, 18, 4)} ETH`);
   const hb = $('#sp-hold');
   if (hb) { hb.textContent = SP.src === 'acct' ? (SP.held == null ? '' : `Tacit account ${proveFmt(SP.held, 4)} PROVE`) : SP.src === 'eth' ? (SP.wEth == null ? '' : `Wallet ${fmt(SP.wEth, 18, 4)} ETH`) : (SP.wProve == null ? '' : `Wallet ${proveFmt(SP.wProve, 4)} PROVE`); }
+  // The quick sizes follow the credit as it is read: a size it already covers goes, one it no longer covers comes back.
+  if (SP.src === 'eth' && ($('#prove-body .sp-size')?.dataset.sizes ?? '') !== sizesNow().join(',') && !$('#prove-body [aria-busy="true"]')) { reProve(); return; }
+  // A wallet that holds ETH and no PROVE starts on the ETH route, unless a way was chosen or an amount typed.
+  if (!SP.srcChosen && SP.src === 'prove' && SP.wProve === 0n && SP.wEth > 0n && !$('#sp-amt')?.value && !$('#prove-body [aria-busy="true"]')) { SP.src = 'eth'; reProve(); return; }
   // PROVE the account holds can go in from it: offered once it shows, unless something here is under way.
   if (SP.src !== 'acct' && SP.held > 0n && !$('[data-sps="acct"]') && !$('#prove-body [aria-busy="true"]')) reProve();
   const then = $('#sp-then');
@@ -3729,6 +3738,14 @@ function paintProve() {
 }
 // Drawn again in place: what is typed and the status line stay.
 const reProve = () => keep($('#sheet-prove'), renderProve);
+// Quick sizes for the ETH route: the ETH that makes the credit enough for 1, 5 or 20 proofs, worked out from zQuoter's price. Only the sizes the
+// credit does not already cover are offered.
+const SIZES = [1, 5, 20];
+const sizesNow = () => SIZES.filter((n) => proveFor(n) > (SP.credit ?? 0n));
+function sizeRow() {
+  const sizes = sizesNow();
+  return sizes.length ? html`<p class="sp-size" data-sizes="${sizes.join(',')}">Add enough for ${sizes.map((n, i) => html`${i ? ' · ' : ''}<button class="link" type="button" data-sp-size="${n}">${proofsWord(n)}</button>`)}</p>` : '';
+}
 function renderProve() {
   const el = $('#prove-body');
   if (!S.key) {                                                   // opened, the sheet goes on to its steps
@@ -3752,6 +3769,7 @@ function renderProve() {
         ${segSub('sps', src, [['prove', 'PROVE from wallet'], ['eth', 'ETH from wallet'], ...(SP.held > 0n ? [['acct', 'PROVE in Tacit account']] : [])])}
         <div class="lbl"><span>${src === 'eth' ? 'ETH to pay' : 'PROVE to add'}</span><button type="button" id="sp-max"><span id="sp-hold"></span></button></div>
         <div class="amt"><input id="sp-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${unit} to ${src === 'eth' ? 'pay' : 'add'}"><span class="u">${unit}</span></div>
+        ${src === 'eth' ? sizeRow() : ''}
         <div class="rcpt" id="sp-rcpt" hidden></div>
         <button class="btn" type="button" id="sp-go" ${src !== 'acct' && !S.wallet ? '' : 'disabled'}>${src !== 'acct' && !S.wallet ? 'Connect wallet' : 'Add PROVE'}</button>
         <div class="status" role="status" id="sp-status"></div></div></li>
@@ -3762,9 +3780,19 @@ function renderProve() {
         ${SP.then ? html`<div class="callout"><span>Waiting to go on: ${SP.then.label}.</span><button class="btn ghost" type="button" id="sp-then" ${on ? '' : 'disabled'}>Go on</button></div>` : ''}</div></li>
     </ol>`);
   $$('[data-copy]', el).forEach((b) => b.onclick = () => copy(b.dataset.copy));
-  wireSub(el, 'sps', (v) => { SP.src = v; SP.q = null; reProve(); });
+  wireSub(el, 'sps', (v) => { SP.src = v; SP.srcChosen = true; SP.q = null; reProve(); });
   const amt = $('#sp-amt'), go = $('#sp-go'), rc = $('#sp-rcpt'), status = $('#sp-status');
   let seq = 0;
+  // A quick size fills the ETH to pay; the quote below it is then the same one a typed amount gets.
+  $$('[data-sp-size]', el).forEach((b) => b.onclick = () => busy(b, async () => {
+    try {
+      const add = proveFor(Number(b.dataset.spSize)) - (SP.credit ?? 0n);
+      if (add <= 0n) return;
+      mount(rc, html`<div class="kv"><span>You get</span><b><span class="sk" style="--w:7ch"></span></b></div>`); rc.hidden = false;
+      const q = await (await spAbi()).ethForProve({ call: spCall, to: S.acct.address, want: add });
+      amt.value = plain(q.wei, 18); amt.dispatchEvent(new Event('input'));
+    } catch (e) { quoteErr(rc, e); }
+  }));
   $('#sp-max').onclick = () => {
     const v = src === 'acct' ? SP.held : src === 'prove' ? SP.wProve : SP.wEth != null ? (SP.wEth > 3n * 10n ** 15n ? SP.wEth - 3n * 10n ** 15n : 0n) : null;
     if (v != null) { amt.value = v ? plain(v, 18) : ''; amt.dispatchEvent(new Event('input')); }
@@ -3781,12 +3809,12 @@ function renderProve() {
         if (my !== seq || !amt.isConnected) return;
         SP.q = q;
         mount(rc, html`<div class="kv"><span>You get about</span><b>${proveFmt(q.amountOut)} PROVE</b></div><div class="kv"><span>At least</span><b>${proveFmt(q.amountLimit)} PROVE · 1% slippage guard</b></div>
-          <div class="kv"><span>Enough for</span><b>about ${proofsFor(q.amountLimit)} proofs</b></div>`);
+          <div class="kv"><span>Your credit then covers</span><b>about ${proofsWord(proofsFor((SP.credit ?? 0n) + q.amountLimit))}</b></div>`);
         go.disabled = false;
       } catch (e) { if (my === seq) quoteErr(rc, e); }
       return;
     }
-    mount(rc, html`<div class="kv"><span>Enough for</span><b>about ${proofsFor(wei)} proof${proofsFor(wei) === 1 ? '' : 's'}</b></div>
+    mount(rc, html`<div class="kv"><span>Your credit then covers</span><b>about ${proofsWord(proofsFor((SP.credit ?? 0n) + wei))}</b></div>
       <div class="kv"><span>${src === 'acct' ? 'From' : 'Paid by'}</span><b>${src === 'acct' ? 'your Tacit account, two transactions' : 'your wallet; your Tacit account signs the deposit here'}</b></div>`);
     rc.hidden = false;
     go.disabled = false;
@@ -3820,17 +3848,12 @@ function renderProve() {
   };
   paintProve();
 }
-// zQuoter's best route from ETH to PROVE for the Tacit account, checked before it is shown or sent: it spends exactly what was asked,
-// pays the Tacit account, and guards a least amount out.
+// zQuoter's best route from ETH to PROVE for the Tacit account, checked before it is shown or sent (relay/abi.js holds the checks every page shares).
+const spAbi = () => import('/relay/abi.js?cb=abf8bf2b');
+const spCall = ({ to, data, gas }) => rpc('eth_call', [{ to, data, gas }, 'latest']);
 async function spQuote(wei) {
-  const abi = await import('/relay/abi.js?cb=e137b68f'), who = S.acct.address;
-  const data = abi.buildBestSwapData({ to: who, tokenIn: abi.ETH, tokenOut: abi.PROVE, amount: wei, slippageBps: 100n, deadline: BigInt(Math.floor(Date.now() / 1000) + 600) });
-  let q;
-  try { q = abi.decodeBestSwap(await rpc('eth_call', [{ to: abi.ZQUOTER, data, gas: '0x5f5e100' }, 'latest'])); }
-  catch (e) { throw e?.revert ? new Error('No route from ETH to PROVE was found just now. Try again in a moment, or add PROVE.') : e; }
-  if (!q || q.amountOut <= 0n) throw new Error('No route from ETH to PROVE was found just now. Try again in a moment, or add PROVE.');
-  if (q.msgValue !== wei || !abi.strip(q.callData).includes(abi.strip(who)) || q.amountLimit <= 0n || q.amountLimit > q.amountOut) throw new Error('The quote did not match what was asked, so nothing will be sent.');
-  return { ...q, wei, at: Date.now(), router: abi.ZROUTER };
+  const abi = await spAbi();
+  return abi.quoteEthToProve({ call: spCall, to: S.acct.address, wei });
 }
 // Each send here is asked about first, from the account that sends it: a call the chain would refuse is never put to a wallet.
 async function spSend(tx) {

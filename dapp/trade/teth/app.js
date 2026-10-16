@@ -9,7 +9,7 @@ import { makeConnect, UserStopped } from '/trade/connect.js?cb=f4bd67db';
 import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=a32579e6';
 import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=34fe5a19';
 import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, proveOwn, ownWords, ownable, relayState, relayStopped, forgetUx, getUx } from '/trade/teth/wrap.js?cb=05b98b4c';
-import { ownPref, setOwnPref, proverFor, readCredit, proofsFor, fundFromWallet, quoteEth, fundWithEth, loadSelfProver, tokenBalance } from '/trade/teth/prover.js?cb=127589c2';
+import { ownPref, setOwnPref, proverFor, readCredit, proofsFor, fundFromWallet, quoteEth, quoteEthFor, fundWithEth, loadSelfProver, tokenBalance } from '/trade/teth/prover.js?cb=8ee9f4e5';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { mountDepth } from '/trade/depth.js?cb=21a5dc95';
 import { candlesFromTrades, closeAt } from '/trade/tape.js?cb=6565501b';
@@ -739,6 +739,7 @@ function openProverSheet() {
     <div class="seg" id="ps-mode" role="group" aria-label="Add from"><button type="button" data-ps-mode="prove" aria-pressed="true">PROVE in your wallet</button><button type="button" data-ps-mode="eth" aria-pressed="false">Pay with ETH</button></div>
     <div class="lbl"><span id="ps-lbl">PROVE to add</span><button class="linkbtn" type="button" id="ps-bal" hidden></button></div>
     <div class="amt"><input id="ps-amt" inputmode="decimal" autocomplete="off" aria-label="Amount to add" value="${esc(O.f.amt)}"><span class="u" id="ps-unit">PROVE</span></div>
+    <p class="ps-size" id="ps-size" hidden></p>
     <div id="ps-quote"></div>
     <button class="btn" type="button" id="ps-go">Add PROVE</button>
     <div class="status" id="ps-status" role="status"></div>
@@ -746,6 +747,8 @@ function openProverSheet() {
   o.body.addEventListener('click', (e) => {
     const m = e.target.closest('[data-ps-mode]');
     if (m && !S.busy && m.dataset.psMode !== O.f.mode) { O.f.mode = m.dataset.psMode; O.f.amt = m.dataset.psMode === 'eth' ? '' : '2'; o.body.querySelector('#ps-amt').value = O.f.amt; O.f.quote = null; O.f.msg = ''; renderSheet(); return; }
+    const z = e.target.closest('[data-ps-size]');
+    if (z) { if (!S.busy && O.f.mode === 'eth') sizeFill(Number(z.dataset.psSize)); return; }
     if (e.target.id === 'ps-signin') signIn().then(() => { refreshCredit(); readWalletProve(); }).catch(() => {});
     else if (e.target.id === 'ps-bal' && O.f.mode === 'prove' && O.f.wprove) { O.f.amt = plain(O.f.wprove); o.body.querySelector('#ps-amt').value = O.f.amt; renderSheet(); }
     else if (e.target.id === 'ps-go') runFund();
@@ -772,6 +775,28 @@ async function readWalletProve() {
   const who = W.account;
   if (!who) { O.f.wprove = null; return; }
   try { const sp = await loadSelfProver(); const v = await tokenBalance(sp, who); if (W.account === who) { O.f.wprove = v; renderSheet(); } } catch { /* the balance line stays empty */ }
+}
+// Quick sizes for the ETH route: the ETH that makes the credit enough for 1, 5 or 20 proofs, worked out from zQuoter's price. Only the sizes the
+// credit does not already cover are offered. A first request needs `need` on hand and each one after it spends about PROVE_PER_PROOF.
+const SIZES = [1, 5, 20];
+const proveFor = (sp, need, n) => { const per = BigInt(Math.round((sp?.PROVE_PER_PROOF || 0.4) * 1e18)); return (need ?? per) + BigInt(n - 1) * per; };
+const proofsWord = (n) => `${grp(n, 0)} proof${n === 1 ? '' : 's'}`;
+function sizeButtons(sp) {
+  const have = O.credit ?? 0n, sizes = SIZES.filter((n) => proveFor(sp, O.need, n) > have);
+  return sizes.length ? `Add enough for ${sizes.map((n) => `<button type="button" class="linkbtn" data-ps-size="${n}">${proofsWord(n)}</button>`).join(' · ')}` : '';
+}
+async function sizeFill(n) {
+  const my = ++O.f.seq;
+  psSay('Working out the ETH…');
+  try {
+    const prover = await ensureProver(), add = proveFor(prover.sp, O.need, n) - (O.credit ?? 0n);
+    if (add <= 0n) { if (my === O.f.seq) psSay(''); return; }
+    const q = await quoteEthFor({ prover, want: add });
+    if (my !== O.f.seq) return;
+    O.f.amt = plain(q.wei, 18); O.f.quote = q; O.f.msg = '';
+    O.sheet.body.querySelector('#ps-amt').value = O.f.amt;
+  } catch (e) { if (my === O.f.seq) O.f.msg = `<span class="err">${esc(e.message || 'Could not read a quote just now.')}</span>`; }
+  renderSheet();
 }
 async function requoteEth() {
   const wei = psAmt(), my = ++O.f.seq;
@@ -808,12 +833,15 @@ function renderSheet() {
   const bal = eth ? spendable() : O.f.wprove;
   $s('#ps-bal').hidden = bal == null;
   $s('#ps-bal').textContent = bal == null ? '' : eth ? `Wallet ${fmtUnits(bal, 18, 4)} ETH` : `Wallet ${fmtP(bal, 4)} PROVE · Max`;
+  const sizes = eth && sp && key.unlocked ? sizeButtons(sp) : '';
+  $s('#ps-size').hidden = !sizes; $s('#ps-size').innerHTML = sizes;
+  $s('#ps-size').querySelectorAll('button').forEach((x) => { x.disabled = S.busy; });
   const q = O.f.quote, box = $s('#ps-quote');
   if (!eth) box.innerHTML = wei && O.held > 0n && lack < wei ? `<p class="note">Your Tacit account already holds ${esc(fmtP(O.held))} PROVE, so ${lack ? `your wallet sends ${esc(fmtP(lack, 4))} and then the deposit` : 'your wallet sends only the deposit'}.</p>` : '';
   else if (!wei) box.innerHTML = '';
   else if (!q || q.loading || q.wei !== wei) box.innerHTML = kv('You get', '<span class="mute">reading…</span>');
   else if (q.err) box.innerHTML = `<p class="note err">${esc(q.err)}</p>`;
-  else box.innerHTML = kv('You get about', `${esc(fmtP(q.amountOut))} PROVE`) + kv('At least', `${esc(fmtP(q.amountLimit))} PROVE · 1% slippage guard`) + kv('Enough for', `about ${grp(proofsFor(sp, q.amountOut, O.need), 0)} proofs`);
+  else box.innerHTML = kv('You get about', `${esc(fmtP(q.amountOut))} PROVE`) + kv('At least', `${esc(fmtP(q.amountLimit))} PROVE · 1% slippage guard`) + kv('Your credit then covers', `about ${proofsWord(proofsFor(sp, (O.credit ?? 0n) + q.amountLimit, O.need))}`);
   const go = $s('#ps-go');
   go.disabled = false;
   if (!key.unlocked) { go.textContent = 'Open your Tacit wallet first'; go.disabled = true; }

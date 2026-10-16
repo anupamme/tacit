@@ -56,8 +56,8 @@ export const balanceOfData = (who) => BALANCE_OF + addr(who);
 // ── zQuoter ──
 // buildBestSwap(to, exactOut, tokenIn, tokenOut, swapAmount, slippageBps, deadline) → (Quote{source,feeBps,amountIn,amountOut}, bytes callData,
 // uint256 amountLimit, uint256 msgValue): the call to send to zRouter, with `to` as the recipient of what it buys and amountLimit the least it may.
-export const buildBestSwapData = ({ to, tokenIn, tokenOut, amount, slippageBps, deadline }) =>
-  '0x' + BUILD_BEST_SWAP.slice(2) + addr(to) + word(0) + addr(tokenIn) + addr(tokenOut) + word(amount) + word(slippageBps) + word(deadline);
+export const buildBestSwapData = ({ to, tokenIn, tokenOut, amount, slippageBps, deadline, exactOut = false }) =>
+  '0x' + BUILD_BEST_SWAP.slice(2) + addr(to) + word(exactOut ? 1 : 0) + addr(tokenIn) + addr(tokenOut) + word(amount) + word(slippageBps) + word(deadline);
 export function decodeBestSwap(raw) {
   const h = strip(raw);
   if (h.length < 7 * 64) return null;
@@ -65,6 +65,48 @@ export function decodeBestSwap(raw) {
   const callData = '0x' + h.slice((o + 1) * 64, (o + 1) * 64 + len * 2);
   if (callData.length !== 2 + len * 2) return null;
   return { amountIn, amountOut, callData, amountLimit: at(h, 5), msgValue: at(h, 6) };
+}
+
+// ── ETH to PROVE ──
+// The swap every page offers for adding PROVE: ETH in, PROVE out to `to`. `call({ to, data, gas })` is an eth_call returning hex (a revert
+// carries `.revert`), so each page reads through its own nodes.
+export const SLIPPAGE_BPS = 100n;                                                       // the least a swap may buy: 1% under its quote
+const QUOTE_GAS = '0x5f5e100';
+const NO_ROUTE = 'No route from ETH to PROVE was found just now. Try again in a moment, or add PROVE.';
+const deadlineIn = (secs) => BigInt(Math.floor(Date.now() / 1000) + secs);
+// zQuoter's best route from `wei` of ETH to PROVE for the recipient `to`, checked before it is shown or sent: it spends exactly what was asked,
+// pays `to`, and guards a least amount out. → { wei, amountIn, amountOut, amountLimit, msgValue, callData, at, router }
+export async function quoteEthToProve({ call, to, wei, slippageBps = SLIPPAGE_BPS, noRoute = NO_ROUTE }) {
+  wei = BigInt(wei);
+  const data = buildBestSwapData({ to, tokenIn: ETH, tokenOut: PROVE, amount: wei, slippageBps, deadline: deadlineIn(600) });
+  let q;
+  try { q = decodeBestSwap(await call({ to: ZQUOTER, data, gas: QUOTE_GAS })); }
+  catch (e) { throw new Error(e?.revert ? noRoute : 'Could not read a quote just now.'); }
+  if (!q || q.amountOut <= 0n) throw new Error(noRoute);
+  if (q.msgValue !== wei || !strip(q.callData).includes(strip(to)) || q.amountLimit <= 0n || q.amountLimit > q.amountOut) throw new Error('The quote did not match what was asked, so nothing will be sent.');
+  return { wei, ...q, at: Date.now(), router: ZROUTER };
+}
+// The ETH to pay so that a swap buys at least `want` PROVE (its guard included), for the same quote quoteEthToProve gives. zQuoter prices `want`
+// out first, for sizing only: sent as it is, an exact-out swap spends all of its maximum (the price plus the guard) and refunds none of it. The ETH
+// is then quoted in, `headroomBps` over that price, so the least the swap may buy still covers `want` and the extra stays in the account as PROVE.
+// Rounded up to a millionth of an ETH; a price that moves between the two reads is followed for up to two more.
+const STEP = 10n ** 12n;
+const roundUp = (v) => ((v + STEP - 1n) / STEP) * STEP;
+export async function ethForProve({ call, to, want, headroomBps = 150n, slippageBps = SLIPPAGE_BPS, noRoute = NO_ROUTE }) {
+  want = BigInt(want);
+  if (want <= 0n) throw new Error('Enter how much PROVE to add.');
+  const data = buildBestSwapData({ to, tokenIn: ETH, tokenOut: PROVE, amount: want, slippageBps, deadline: deadlineIn(600), exactOut: true });
+  let size;
+  try { size = decodeBestSwap(await call({ to: ZQUOTER, data, gas: QUOTE_GAS })); }
+  catch (e) { throw new Error(e?.revert ? noRoute : 'Could not read a quote just now.'); }
+  if (!size || size.amountOut !== want || size.amountIn <= 0n) throw new Error(noRoute);
+  let wei = roundUp(size.amountIn * (10000n + BigInt(headroomBps)) / 10000n);
+  for (let i = 0; i < 3; i++) {
+    const q = await quoteEthToProve({ call, to, wei, slippageBps, noRoute });
+    if (q.amountLimit >= want) return q;
+    wei = roundUp(wei * want * 1005n / (q.amountLimit * 1000n));
+  }
+  throw new Error('The price moved while this was worked out. Try again.');
 }
 
 // ── what a job is, in words ──
