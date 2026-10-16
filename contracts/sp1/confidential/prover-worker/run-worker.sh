@@ -12,6 +12,8 @@ export HOME=/root
 SERVER=/workspace/sp1-gpu-server-icicle-ts
 restore() {
   mkdir -p /root/.sp1/bin /workspace/.sp1/circuits
+  # The ICICLE libraries the server links (built once, kept on the volume) go back under /usr/local/lib after a restart.
+  if [ -d /workspace/icicle-lib ] && [ ! -e /usr/local/lib/libicicle_device.so ]; then cp -a /workspace/icicle-lib/. /usr/local/lib/ && echo "[run-worker] ICICLE libraries restored"; fi
   if [ -x "$SERVER" ] && ! cmp -s "$SERVER" /root/.sp1/bin/sp1-gpu-server; then cp -a "$SERVER" /root/.sp1/bin/sp1-gpu-server.new && mv -f /root/.sp1/bin/sp1-gpu-server.new /root/.sp1/bin/sp1-gpu-server; fi
   if [ ! -d /root/.sp1/circuits ] && [ -n "$(ls -A /workspace/.sp1/circuits 2>/dev/null)" ]; then echo "[run-worker] restoring circuit artifacts from /workspace"; cp -a /workspace/.sp1/circuits /root/.sp1/; fi
 }
