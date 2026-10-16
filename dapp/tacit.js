@@ -17597,16 +17597,28 @@ function _clearEthereumStateCaches() {
   _boundSpentCache.clear();
   _reflectedHeightCache.height = null;
 }
+// The Bitcoin height the pool's reflection has attested: its attestedReflectionTip() looked up in the header relay
+// (blockHeight(bytes32)), read from Ethereum; the API's figure only where the deployment names no relay. Null when
+// neither answers.
+const _selector = (sig) => '0x' + bytesToHex(keccak_256(new TextEncoder().encode(sig))).slice(0, 8);
 async function _reflectedHeight() {
   if (_reflectedHeightCache.height != null && Date.now() - _reflectedHeightCache.at < BOUND_CHECK_TTL_MS) return _reflectedHeightCache.height;
-  if (!WORKER_BASE) return null;
+  const dep = CROSSLANE_DEPLOYMENTS[currentNetworkName()] || {};
+  let height = null;
   try {
-    const r = await fetch(`${WORKER_BASE}/reflection/status?network=${encodeURIComponent(NET.name)}`);
-    const j = r.ok ? await r.json() : null;
-    if (!Number.isInteger(j?.attestedHeight)) return null;
-    Object.assign(_reflectedHeightCache, { height: j.attestedHeight, at: Date.now() });
-    return j.attestedHeight;
+    if (dep.pool && dep.headerRelay) {
+      const tip = String(await _ethRpcCall('eth_call', [{ to: dep.pool, data: _selector('attestedReflectionTip()') }, 'latest']));
+      if (!/^0x[0-9a-fA-F]{64}$/.test(tip)) return null;
+      const h = Number(BigInt(await _ethRpcCall('eth_call', [{ to: dep.headerRelay, data: _selector('blockHeight(bytes32)') + tip.slice(2) }, 'latest'])));
+      height = h > 0 ? h : null;
+    } else if (WORKER_BASE) {
+      const r = await fetch(`${WORKER_BASE}/reflection/status?network=${encodeURIComponent(NET.name)}`);
+      const j = r.ok ? await r.json() : null;
+      height = Number.isInteger(j?.attestedHeight) ? j.attestedHeight : null;
+    }
   } catch { return null; }
+  if (height != null) Object.assign(_reflectedHeightCache, { height, at: Date.now() });
+  return height;
 }
 // Null unless tx spends a bound output the reflection has not passed yet; then the reason to mark its outputs with.
 // A bound input already found invalid is left to the opcode's own parent check.
@@ -18925,8 +18937,11 @@ async function _validateOutpointSingle(txidHex, vout, validatedSet, fetchTx, met
       // after confirmation past expiry should promote it.
       return false;
     }
-    if (_strictValidation && !(dropMeta.list_complete === true && _strictDecided(dropMeta.scanned_height, expiry))) {
+    // The remainder is final once the worker has scanned past expiry to the credit depth; until then a late claim
+    // could still count, so the reclaim waits.
+    if (!(dropMeta.list_complete === true && _strictDecided(dropMeta.scanned_height, expiry))) {
       _strictUnavailable(`T_DROP reclaim ${txidHex}: claim count not final`);
+      return false;
     }
     // 4. cap_amount equality: declared MUST equal drop.cap_amount - (claim_count * per_claim).
     //    The worker's remaining_amount field is exactly this.
@@ -29480,6 +29495,18 @@ async function buildAndBroadcastTDClaim({
     if (drop.scanned_height > drop.expiry_height) {
       throw new Error(`drop expired at block ${drop.expiry_height} (chain is at ${drop.scanned_height}) — claims are no longer credited`);
     }
+  }
+  // Funding gate. A claim is credited only against a drop whose reveal spent valid notes of its asset opening to its
+  // cap (_dropFundingFailure), so a claim on any other drop would spend real fees for nothing.
+  {
+    const parentTx = await getTx(dropRevealTxid);
+    let parentEnv = null;
+    try { parentEnv = decodeEnvelopeScript(hexToBytes(parentTx?.vin?.[0]?.witness?.[1] || '')); } catch { parentEnv = null; }
+    const parent = parentEnv && parentEnv.opcode === T_DROP ? decodeCDropPayload(parentEnv.payload) : null;
+    if (!parent || parent.kind !== 'cdrop') throw new Error('parent tx is not a T_DROP');
+    const fail = await _dropFundingFailure(parentTx, parent, new Map(_getPersistedValidatedTrue()), _sharedFetchTx, null, null, null, new Map());
+    if (fail === _REASON_FETCH_FAILED) throw new Error('could not check this drop on Bitcoin just now — try again in a minute');
+    if (fail) throw new Error('this drop is not funded with the notes it pays out, so its claims are never credited');
   }
 
   // Witness shape gate.

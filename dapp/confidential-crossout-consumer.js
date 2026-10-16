@@ -16,14 +16,16 @@
 // DeployV1Suite manifest. A network whose pool is null is inert (the factory returns null rather than a live
 // consumer scanning a nonexistent pool every cron tick).
 // `crossOutSlots` names the pool's storage slots for its cross-out log (the ones the eth-reflection guest proves):
-// with them the consumer checks each logged cross-out against the pool's own storage before recording it.
+// with them the consumer checks each logged cross-out against the pool's own storage before recording it, and a
+// cross-out mint is judged from that storage. `crossOutPoolsRetired` lists retired pools whose recorded cross-outs,
+// at the same slots, still back notes on Bitcoin.
 export const CONFIDENTIAL_POOL_DEPLOYMENTS = {
   signet:  { pool: '0x000000003eD19c48531bd397F66800004F8A18c2', deployBlock: 11175726 },
   mainnet: { pool: '0x000000000Ed1eabD231Be41d93b719056F7febFC', deployBlock: 25998736, headerRelay: '0x20A6ddc2C6E620c6248B5A34E85996516FDd19D0',
-    crossOutSlots: { commitment: 77, count: 171 } },
+    crossOutSlots: { commitment: 77, count: 171 }, crossOutPoolsRetired: ['0x0000000098A73197B3255aD9db1ed8544410f5Ba'] },
 };
 
-// `poolState` (optional): { commitmentOf(network, pool, claimId) → bytes32 hex, countAt(network, pool, block) → number },
+// `poolState` (optional): { commitmentOf(network, pool, claimId, block?) → bytes32 hex, countAt(network, pool, block) → number },
 // each null when it cannot be read. With it, a logged cross-out is recorded only when the pool's crossOutCommitment
 // holds the same destCommitment, and where the pool's crossOutCount can be read at both ends of a range it must have
 // grown by exactly the number of cross-outs logged in it; anything it cannot confirm leaves the cursor put.
@@ -183,7 +185,7 @@ export function makePoolStateReader({ fetchFn, rpcsForNetwork, keccak256, slots,
     return null;
   }
   return {
-    commitmentOf: (network, pool, claimId) => storageAt(network, pool, mapSlot(claimId, slots.commitment), 'latest'),
+    commitmentOf: (network, pool, claimId, block = 'latest') => storageAt(network, pool, mapSlot(claimId, slots.commitment), block),
     countAt: async (network, pool, block) => {
       const v = await storageAt(network, pool, '0x' + word(slots.count), block);
       return v == null ? null : Number(BigInt(v));

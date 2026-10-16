@@ -15487,16 +15487,20 @@ const crossoutMintedKey = (network, assetId, claimId) =>
   `crossout-minted:${network}:${String(assetId).toLowerCase()}:${String(claimId).toLowerCase()}`;
 
 // One record per claim: the confirmed T_CROSSOUT_MINT earliest in chain order (height, then block position)
-// whose vout-0 leaf equals the recorded cross-out's destCommitment, which is the one the reflection fold takes.
+// whose vout-0 leaf the pool recorded for its claim. Where the deployment names its cross-out slots that is read
+// from the pools' own storage (cc.mintStatus), so a claim no pool holds is rejected at once and only a pool that
+// cannot be read, or a cross-out not yet finalized, holds the scan; elsewhere it is the consumer's logged record.
 // A later tx never replaces an earlier one; an earlier one replaces a later one. Returns { status, leaf }.
 async function recordCrossoutMint(env, network, cc, { cm, txidHex, tx, height, txIndex }) {
   const leaf = crossoutMintLeaf(keccak_256, { ...cm, destScriptPubKey: tx?.vout?.[0]?.scriptpubkey });
-  const recorded = leaf ? await cc.consumer.getRecorded(network, cm.claimId) : null;
+  const onChain = leaf && cc.mintStatus ? await cc.mintStatus(cm.claimId, leaf) : null;
+  const recorded = leaf && onChain == null ? await cc.consumer.getRecorded(network, cm.claimId) : null;
   const status = !leaf ? 'rejected'
+    : onChain != null ? (onChain === 'pending' ? 'pending-reflection' : onChain)
     : !recorded ? 'pending-reflection'
     : String(recorded.destCommitment).toLowerCase() !== String(leaf).toLowerCase() ? 'rejected'
     : 'minted';
-  if (status === 'minted' && recorded.status !== 'consumed') await cc.consumer.bindBitcoinOutput({ network, claimId: cm.claimId, outputLeaf: leaf }).catch(() => null);
+  if (status === 'minted' && recorded && recorded.status !== 'consumed') await cc.consumer.bindBitcoinOutput({ network, claimId: cm.claimId, outputLeaf: leaf }).catch(() => null);
   const key = crossoutMintedKey(network, cm.assetId, cm.claimId);
   const prev = await env.REGISTRY_KV.get(key, 'json').catch(() => null);
   const earlier = !prev || !Number.isInteger(prev.height) || !Number.isInteger(prev.txIndex)
@@ -26262,16 +26266,11 @@ async function scanForEtches(env, network) {
           _stallReason = `crossout mint ${tx.txid}: ${String(e?.message || e)}`;
           break;
         }
-        // Gen5 keeps the fold itself simple: it decides crossOut membership once, against whichever eth-side
-        // record the scan sees at the moment it reaches this block, with no later retry (unlike burn-deposit's
-        // own pending list, which is a heavier mechanism this generation deliberately doesn't carry yet). The
-        // eth-side record is normally already in place well before its Bitcoin-side reveal even exists, since
-        // the reveal needs the claim's own fields to build — so this is specifically for the sidecar lagging
-        // the claim's own indexing, not the ordinary case. Holding the cursor here, the same posture as the
-        // page-read stall just below, gives that sidecar room to catch up before this block's fold becomes
-        // permanent, so the common lag case clears on its own on a later tick rather than needing anyone to
-        // notice a missed claim after the fact. `/crossout/minted` already reports this same pending status
-        // publicly per-claim, so anyone can watch a specific crossOut's own progress independent of this.
+        // The mint is decided once, when the scan reaches its block. It holds the cursor only while its answer
+        // is not yet final: the pool's cross-out for the claim is in its latest state but not yet finalized, or
+        // a pool cannot be read (or, where no storage slots are named, the consumer has not logged the claim).
+        // A claim no pool holds is rejected at once, so no mint can hold the scan by naming a claim that does
+        // not exist. `/crossout/minted` reports the same status publicly per claim.
         if (rc && rc.status === 'pending-reflection') {
           _stallReason = `crossout mint ${tx.txid} claim ${cm.claimId}: eth-side record not yet visible`;
           break;
@@ -26539,6 +26538,7 @@ export {
   // ordering, and reorg re-confirm de-dup against an in-memory KV stub.
   loadCreditedDclaims,
   putDropReclaim, dropDepositorXonly,
+  recordCrossoutMint,
   // Commitment-opening gate applied by the cron + hint indexers (issue #31
   // Problem #3). Exported so tests can pin the valid / mismatch / malformed-
   // point cases without reaching into the cron's block loop. `pedersenCommit`

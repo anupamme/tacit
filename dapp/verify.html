@@ -11,9 +11,10 @@
      script executes here. build/build.mjs recomputes the hash on every build
      (npm run build:verify fails on drift), so editing the script cannot silently
      leave a stale pin behind. Fonts are same-origin static files, not a third-party
-     CDN. connect-src is limited to public Bitcoin explorers + IPFS gateways.
+     CDN. connect-src is limited to public Bitcoin explorers, IPFS gateways and public
+     Ethereum nodes.
      No third-party script, no analytics. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-vtBC+O7NGBCFjxmz4ZK/yTqnTlFAnQls7bO0JKKuCvo='; style-src 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src https://mempool.space https://blockstream.info https://gateway.pinata.cloud https://ipfs.filebase.io https://ipfs.orbitor.dev https://ipfs.io https://dweb.link; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-gRRb0VRFppCsaXk5rogUp+CVPuQvh/mKYKN4I6m2J2E='; style-src 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src https://mempool.space https://blockstream.info https://gateway.pinata.cloud https://ipfs.filebase.io https://ipfs.orbitor.dev https://ipfs.io https://dweb.link https://ethereum-rpc.publicnode.com https://rpc.mevblocker.io https://eth.drpc.org; base-uri 'none'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
@@ -146,7 +147,7 @@ footer a:hover { color: var(--ink); }
 
   <section class="hero">
     <h1>Verify TAC, <em>yourself</em>.</h1>
-    <p>From Bitcoin and IPFS, in your browser. No server, no indexer trusted &mdash; this page recomputes everything below on its own.</p>
+    <p>From Bitcoin, IPFS and Ethereum, in your browser. No Tacit server or indexer is asked &mdash; this page recomputes everything below on its own.</p>
   </section>
 
   <div class="idcard">
@@ -167,6 +168,28 @@ footer a:hover { color: var(--ink); }
     (3) the published opening verifies the on-chain <b>Pedersen commitment</b> to exactly 21,000,000.
     The Bitcoin tx comes from a public explorer but isn&rsquo;t trusted: the asset id is recomputed locally and the IPFS blob is checked against its own content hash (the CID).
   </p>
+
+  <div class="section" id="eth">
+    <h2>TAC on Ethereum</h2>
+    <p>
+      TAC&rsquo;s public ERC-20 is minted only by the confidential pool, from TAC proven to have left Bitcoin, and
+      burned when it is wrapped back in. These checks read Ethereum directly: every value must come back the same
+      from two public nodes.
+    </p>
+    <div class="idcard">
+      <div class="kv"><span>ERC-20</span><b id="ethtoken"></b></div>
+      <div class="kv"><span>pool</span><b id="ethpool"></b></div>
+    </div>
+    <ol class="steps" id="erows"></ol>
+    <div id="everdict" class="verdict run" role="status" aria-live="polite">Waiting for the Bitcoin checks&hellip;</div>
+    <p class="note">
+      What this proves: the token&rsquo;s code is the build in the repository (its deploy-time constants aside), its
+      only minter is the pool, it is bound to this etch, the pool pays one TAC note unit as 10<sup>10</sup> token units
+      and lists no second asset over it, the supply is within the 21,000,000 etched, and wTAC holds one TAC for every
+      wTAC. The pool&rsquo;s own code and keys are checked by
+      <a href="https://github.com/src-company/tacit/blob/main/tools/verify-live.mjs" rel="noopener">tools/verify-live.mjs</a>.
+    </p>
+  </div>
 
   <div class="section">
     <h2>Beyond supply: conservation in circulation</h2>
@@ -215,8 +238,20 @@ const BTC_APIS = ['https://mempool.space/api', 'https://blockstream.info/api'];
 // browser reports every failure as a CORS block), w3s.link (a redirect with no CORS) and *.inbrowser.link
 // (403) cannot serve a page fetch and are not listed. fetchVerifiedIpfs still tries every gateway listed
 // regardless of order, this just reaches a working one faster on the common case.
+// TAC's Ethereum face. The token's runtime is compared, with its seven deploy-time constants zeroed, against the
+// SHA-256 of contracts/src/CanonicalBridgedERC20.sol's build (tests/verify-page-pins.test.mjs keeps the pin honest).
+const ETH_RPCS = ['https://ethereum-rpc.publicnode.com', 'https://rpc.mevblocker.io', 'https://eth.drpc.org'];
+const TAC_TOKEN = '0xa1313eb9f3a445606d9583bcac3ebeb56a858279';
+const TAC_POOL = '0x000000000ed1eabd231be41d93b719056f7febfc';
+const WTAC = '0x2018139a8fdd3666855be3315c7683b4d6ab7aef';
+const TOKEN_CODE_SHA256 = '696f42582094a2e333e860c18b8d3d838fbb5694a73fdf1d65a28f26e85f2131';
+const TOKEN_IMMUTABLES = [[244, 32], [941, 32], [1112, 32], [1511, 32], [1577, 32], [1891, 32], [2583, 32]];
+const SEL = { minter: 'fe6d8124', assetId: '9ceb21ae', decimals: '313ce567', totalSupply: '18160ddd', balanceOf: '70a08231', canonicalTokenFor: '0f65304b', assets: '9fda5b66', wtacTac: '19f68523' };
 const IPFS_GATEWAYS = ['https://gateway.pinata.cloud/ipfs/{cid}', 'https://ipfs.filebase.io/ipfs/{cid}', 'https://ipfs.orbitor.dev/ipfs/{cid}', 'https://ipfs.io/ipfs/{cid}', 'https://dweb.link/ipfs/{cid}'];
 document.getElementById('aid').textContent = TAC_ASSET_ID;
+document.getElementById('ethtoken').textContent = TAC_TOKEN;
+document.getElementById('ethpool').textContent = TAC_POOL;
+if (!IS_CANONICAL) document.getElementById('eth').hidden = true;
 document.getElementById('txid').textContent = ETCH_TXID;
 if (!IS_CANONICAL) {
   const b = document.createElement('div');
@@ -332,6 +367,28 @@ async function fetchVerifiedIpfs(cid) {
   console.error('IPFS gateway failures:\n  ' + errors.join('\n  '));
   throw new Error(`all ${IPFS_GATEWAYS.length} IPFS gateways failed to serve this CID (see console for detail) — re-run (public gateways are flaky)`);
 }
+// One Ethereum read, answered the same by two public nodes (or the first to repeat another's answer).
+async function ethRead(method, params) {
+  const seen = new Map(), errors = [];
+  for (const url of ETH_RPCS) {
+    try {
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 10000);
+      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: ctl.signal });
+      clearTimeout(t);
+      const j = await r.json();
+      if (typeof j.result !== 'string') { errors.push(`${url}: ${j.error?.message || 'no result'}`); continue; }
+      const v = j.result.toLowerCase(), n = (seen.get(v) || 0) + 1;
+      seen.set(v, n);
+      if (n >= 2) return v;
+    } catch (e) { errors.push(`${url}: ${e.message}`); }
+  }
+  throw new Error(`no two Ethereum nodes agreed on ${method}${errors.length ? ` (${errors.join('; ')})` : ''}`);
+}
+const word = (hex) => hex.replace(/^0x/, '').padStart(64, '0');
+const ethCall = (to, data) => ethRead('eth_call', [{ to, data: '0x' + data }, 'latest']);
+const asAddr = (r) => '0x' + r.slice(-40);
+const slot32 = (r, i) => r.slice(2 + i * 64, 66 + i * 64);
+
 async function fetchTx(txid) {
   for (const api of BTC_APIS) { try { const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 10000); const r = await fetch(`${api}/tx/${txid}`, { signal: ctl.signal }); clearTimeout(t); if (r.ok) return await r.json(); } catch {} }
   throw new Error('all Bitcoin explorers unreachable (CORS or offline)');
@@ -339,12 +396,12 @@ async function fetchTx(txid) {
 
 // ───────────────────────── UI plumbing ─────────────────────────
 const rowsEl = document.getElementById('rows'), verdictEl = document.getElementById('verdict');
-let anyFail = false, stepN = 0;
-function row(label) {
-  stepN += 1;
+const erowsEl = document.getElementById('erows'), everdictEl = document.getElementById('everdict');
+let anyFail = false;
+function row(label, list = rowsEl) {
   const el = document.createElement('li'); el.className = 'step run';
-  el.innerHTML = `<span class="n">${stepN}</span><div><h3>${label}</h3><div class="d"></div></div>`;
-  rowsEl.appendChild(el); return el;
+  el.innerHTML = `<span class="n">${list.children.length + 1}</span><div><h3>${label}</h3><div class="d"></div></div>`;
+  list.appendChild(el); return el;
 }
 function settle(el, pass, extra = '') {
   el.className = 'step ' + (pass ? 'pass' : 'fail');
@@ -354,7 +411,7 @@ function settle(el, pass, extra = '') {
 }
 
 async function run() {
-  rowsEl.innerHTML = ''; anyFail = false; stepN = 0;
+  rowsEl.innerHTML = ''; anyFail = false;
   verdictEl.className = 'verdict run'; verdictEl.textContent = 'Running checks…';
   try {
     let r;
@@ -402,6 +459,54 @@ async function run() {
   } catch (e) {
     verdictEl.className = 'verdict bad'; verdictEl.textContent = '✗ could not complete: ' + e.message;
   }
+  if (IS_CANONICAL) await runEthereum();
+}
+
+async function runEthereum() {
+  erowsEl.innerHTML = ''; const before = anyFail; anyFail = false;
+  everdictEl.className = 'verdict run'; everdictEl.textContent = 'Reading Ethereum…';
+  try {
+    let r = row('the ERC-20’s code is the build in the repository', erowsEl);
+    const code = fromHex((await ethRead('eth_getCode', [TAC_TOKEN, 'latest'])).replace(/^0x/, ''));
+    for (const [start, len] of TOKEN_IMMUTABLES) code.fill(0, start, start + len);
+    settle(r, toHex(await sha256(code)) === TOKEN_CODE_SHA256, `${code.length} bytes, deploy-time constants set aside`);
+
+    r = row('its only minter is the confidential pool', erowsEl);
+    settle(r, asAddr(await ethCall(TAC_TOKEN, SEL.minter)) === TAC_POOL);
+
+    r = row('it is bound to this etch’s asset id, at 18 decimals', erowsEl);
+    const boundId = (await ethCall(TAC_TOKEN, SEL.assetId)).replace(/^0x/, '');
+    const decimals = BigInt(await ethCall(TAC_TOKEN, SEL.decimals));
+    settle(r, boundId === TAC_ASSET_ID && decimals === 18n);
+
+    r = row('the pool names it as TAC’s token', erowsEl);
+    settle(r, asAddr(await ethCall(TAC_POOL, SEL.canonicalTokenFor + word(TAC_ASSET_ID))) === TAC_TOKEN);
+
+    r = row('the pool mints it from TAC notes, one note unit as 10¹⁰ token units', erowsEl);
+    const rec = await ethCall(TAC_POOL, SEL.assets + word(TAC_ASSET_ID));
+    settle(r, BigInt('0x' + slot32(rec, 0)) === 1n && '0x' + slot32(rec, 1).slice(24) === TAC_TOKEN
+      && BigInt('0x' + slot32(rec, 2)) === 10n ** 10n && slot32(rec, 3) === TAC_ASSET_ID && BigInt('0x' + slot32(rec, 4)) === 1n);
+
+    r = row('the pool lists no second asset over the token', erowsEl);
+    const localId = toHex(await sha256(cat(enc.encode('tacit-evm-token-v1'), fromHex('0000000000000001'), fromHex(TAC_TOKEN.slice(2)))));
+    settle(r, BigInt('0x' + slot32(await ethCall(TAC_POOL, SEL.assets + localId), 0)) === 0n, `its local id ${localId.slice(0, 16)}… is unregistered`);
+
+    r = row('the supply is within the 21,000,000 etched on Bitcoin', erowsEl);
+    const supply = BigInt(await ethCall(TAC_TOKEN, SEL.totalSupply));
+    settle(r, supply <= 21000000n * 10n ** 18n, `${(supply / 10n ** 18n).toLocaleString('en-US')} TAC in public circulation`);
+
+    r = row('wTAC holds one TAC for every wTAC', erowsEl);
+    const wtacToken = asAddr(await ethCall(WTAC, SEL.wtacTac));
+    const wSupply = BigInt(await ethCall(WTAC, SEL.totalSupply));
+    const wBacking = BigInt(await ethCall(TAC_TOKEN, SEL.balanceOf + word(WTAC)));
+    settle(r, wtacToken === TAC_TOKEN && wBacking >= wSupply, `${(wBacking / 10n ** 18n).toLocaleString('en-US')} TAC held for ${(wSupply / 10n ** 18n).toLocaleString('en-US')} wTAC`);
+
+    if (anyFail) { everdictEl.className = 'verdict bad'; everdictEl.textContent = '✗ an Ethereum check FAILED'; }
+    else { everdictEl.className = 'verdict ok'; everdictEl.textContent = '✓ TAC’s ERC-20 is minted only by the pool, bound to this etch, and within its 21,000,000 supply'; }
+  } catch (e) {
+    everdictEl.className = 'verdict bad'; everdictEl.textContent = '✗ could not complete: ' + e.message;
+  }
+  anyFail = anyFail || before;
 }
 document.getElementById('rerun').addEventListener('click', run);
 run();

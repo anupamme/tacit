@@ -258,8 +258,8 @@ This is checked recursively over the ancestry DAG ([`validateOutpoint`](./dapp/t
 only while its bound nullifier is unspent in that pool, since the fast lane (§6.3) can spend it there while the
 Bitcoin output stays unspent. A transaction spending one is final only once that pool's reflection has passed
 its block, after which the fast lane refuses the note; until then its outputs are pending. A `T_CROSSOUT_MINT`
-output is a Tacit UTXO when it is the first mint for its claim and the pool's `crossOutCommitment[claim_id]`
-holds its note leaf.
+output is a Tacit UTXO when it is the first mint for its claim and `crossOutCommitment[claim_id]`, in the pool
+or a retired pool of its lineage (§8), holds its note leaf in finalized state.
 
 - **Failure is local.** If an op fails validation, none of its outputs are Tacit UTXOs. Its inputs are
   still spent on Bitcoin, so their value is destroyed.

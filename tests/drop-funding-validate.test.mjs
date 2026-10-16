@@ -199,6 +199,12 @@ console.log('\nT_DROP reclaim:');
   const r4 = await verdict(first);
   ok('a reclaim the worker has not recorded is not credited yet', r4.v === false, JSON.stringify(r4));
 
+  meta.reclaimed = { reclaim_txid: first };
+  meta.scanned_height = d.expiry + 1;
+  const r4b = await verdict(first);
+  ok('a reclaim waits until the claim count past expiry is final', r4b.v === false, JSON.stringify(r4b));
+  meta.scanned_height = 200;
+
   const plain = plainOutput();
   const unfunded = drop({ assetId: note.assetId, cap: 1000n, per: 100n, inputs: [plain], kernelKey: randomScalar() });
   const r5tx = reclaim(unfunded);

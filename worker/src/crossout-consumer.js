@@ -64,6 +64,23 @@ export function buildCrossoutConsumer(env, { network, keccak256, rpcsForNetwork,
     : null;
   const consumer = makeCrossoutConsumer({ ethGetLogs, kvGet, kvPut, evmLog, confirmations, poolState });
 
+  // A cross-out mint's standing, read from the pools' own crossOutCommitment storage (this pool, then the retired ones
+  // whose cross-outs still back notes on Bitcoin), each value as two RPCs report it: 'minted' when a pool's finalized
+  // state holds the mint's leaf for its claim; 'pending' when only a pool's latest state does (finality is minutes
+  // away) or a pool cannot be read; else 'rejected'. null when this network names no slots to read.
+  async function mintStatus(claimId, leaf) {
+    if (!poolState) return null;
+    const lc = (h) => String(h).toLowerCase();
+    let pending = false;
+    for (const pool of [deployment.pool, ...(deployment.crossOutPoolsRetired || [])]) {
+      const final = await poolState.commitmentOf(network, pool, claimId, 'finalized');
+      if (final != null && lc(final) === lc(leaf)) return 'minted';
+      const latest = final == null ? null : await poolState.commitmentOf(network, pool, claimId, 'latest');
+      if (final == null || latest == null || lc(latest) === lc(leaf)) pending = true;
+    }
+    return pending ? 'pending' : 'rejected';
+  }
+
   // Current Ethereum block height via eth_blockNumber over the RPC fallback list. Null on total
   // failure (the caller then does not scan — the cursor stays put, the range is retried next tick).
   async function ethTip() {
@@ -88,5 +105,5 @@ export function buildCrossoutConsumer(env, { network, keccak256, rpcsForNetwork,
     return consumer.scan({ network, pool: deployment.pool, tipHeight, fromBlock });
   }
 
-  return { consumer, deployment, scanOnce, ethTip };
+  return { consumer, deployment, scanOnce, ethTip, mintStatus };
 }

@@ -3,7 +3,8 @@
 //   - A T_CXFER_BOUND output homed to this deployment is credited only while its bound nullifier is unspent in the
 //     pool (the fast lane can move it to Ethereum while the Bitcoin output stays unspent); an unreadable pool leaves
 //     it pending; an output bound to another deployment is not read at all.
-//   - A transfer out of a bound output is pending until the reflection has passed its block, then final.
+//   - A transfer out of a bound output is pending until the reflection has passed its block, then final; the
+//     attested height is read from Ethereum (the pool's attested tip, looked up in the header relay).
 //   - A T_CROSSOUT_MINT note is credited only when the pool's crossOutCommitment[claimId] holds its leaf.
 //   - A purchase reads every transaction of the lot from two sources and refuses when they differ, and a bound
 //     output is re-checked rather than reused from an earlier walk.
@@ -60,6 +61,12 @@ globalThis.fetch = async (url, opts = {}) => {
     if (E.ethDown) throw new TypeError('Failed to fetch');
     const req = JSON.parse(opts.body);
     if (req.method === 'eth_getStorageAt') return json({ jsonrpc: '2.0', id: req.id, result: E.storage.get(String(req.params[1]).toLowerCase()) || '0x' + '00'.repeat(32) });
+    if (req.method === 'eth_call') {
+      const { to, data } = req.params[0];
+      if (String(to).toLowerCase() === E.pool && data === E.sel.tip) return json({ jsonrpc: '2.0', id: req.id, result: E.tipHash });
+      if (String(to).toLowerCase() === E.relay && data === E.sel.height + E.tipHash.slice(2)) return json({ jsonrpc: '2.0', id: req.id, result: '0x' + BigInt(E.reflected).toString(16).padStart(64, '0') });
+      return json({ jsonrpc: '2.0', id: req.id, result: '0x' + '00'.repeat(32) });
+    }
     if (req.method === 'eth_chainId') return json({ jsonrpc: '2.0', id: req.id, result: '0x1' });
     return json({ jsonrpc: '2.0', id: req.id, error: { message: 'unsupported' } });
   }
@@ -96,6 +103,10 @@ const p2tr = () => '5120' + bytesToHex(secp.getPublicKey(randomBytes(32), true).
 const slotOf = (keyHex, slot) => '0x' + bytesToHex(keccak_256(hexToBytes(String(keyHex).replace(/^0x/, '').padStart(64, '0') + slot.toString(16).padStart(64, '0'))));
 
 const dep = CONFIDENTIAL_DEPLOYMENTS.signet;
+// The attested height comes from the pool's attestedReflectionTip() and the header relay's blockHeight(bytes32).
+dep.headerRelay = '0x' + '2e'.repeat(20);
+const sel = (sig) => '0x' + bytesToHex(keccak_256(new TextEncoder().encode(sig))).slice(0, 8);
+Object.assign(E, { pool: dep.pool.toLowerCase(), relay: dep.headerRelay, tipHash: '0x' + 'ab'.repeat(32), sel: { tip: sel('attestedReflectionTip()'), height: sel('blockHeight(bytes32)') } });
 const BINDING = '0x' + bytesToHex(keccak_256(hexToBytes(BigInt(dep.chainId).toString(16).padStart(64, '0') + dep.pool.replace(/^0x/, '').toLowerCase())));
 
 function etch(amount) {

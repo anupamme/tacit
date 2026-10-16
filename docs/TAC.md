@@ -3,8 +3,8 @@
 TAC is Tacit's native token. It was issued once on Bitcoin with a fixed supply of 21,000,000 and no mint
 authority. On Ethereum it is an ERC-20 that only the confidential pool can mint, from TAC proven to have left
 Bitcoin ([SPEC §7.3](../SPEC.md#73-tac), [deployment details](./DEPLOYMENTS.md#tac)). Verify the fixed supply
-yourself, from Bitcoin and IPFS, at [tacit.finance/verify.html](https://tacit.finance/verify.html) — no
-server or indexer trusted, the page recomputes it in your browser.
+and the ERC-20 yourself at [tacit.finance/verify.html](https://tacit.finance/verify.html): the page reads
+Bitcoin, IPFS and Ethereum in your browser and recomputes every check, with no Tacit server or indexer asked.
 
 ## Trading TAC
 
@@ -97,8 +97,9 @@ proposals at `/governance/proposals`.
   pays a swap out of TAC already in the pool's reserve, and it burns TAC when TAC is wrapped back in. Every
   TAC in the pool came from Bitcoin, through a bridge burn the pool pays once or a fast-lane spend of a
   reflected note ([SPEC §6.3](../SPEC.md#63-two-ways-bitcoin-value-reaches-ethereum)), so the ERC-20 supply
-  stays within the 21,000,000 etched. `node tools/verify-live.mjs` checks the token's code, its wiring to the pool and the
-  etch, and the supply ([what it checks](./VERIFY-LIVE.md)).
+  stays within the 21,000,000 etched. [verify.html](https://tacit.finance/verify.html) checks the token's code,
+  its wiring to the pool and the etch, its supply and wTAC's backing from your browser; `node tools/verify-live.mjs`
+  checks the same and the pool's own code and keys ([what it checks](./VERIFY-LIVE.md)).
 - **Behaviour.** A standard ERC-20: no transfer fee, rebasing, hooks, pause, blacklist or owner. It supports
   EIP-2612 `permit` (name `Tacit Token`, version `1`), and the canonical Permit2 contract holds a standing
   maximum allowance from every holder, so Permit2 signatures need no approval transaction.
