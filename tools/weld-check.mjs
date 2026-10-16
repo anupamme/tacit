@@ -13,6 +13,8 @@
 //   farmsteps joining a private farm with tETH but no TAC opens on tETH alone; both sides says where TAC is made (with a way back
 //            to the farm) or to farm with tETH alone
 //   hxbal   the card's balance line and Max, the picker's balances, and what Your Tacit and the header say it is all worth
+//   hxteth  a key holding private tETH: Shield says so with Send, Swap and Back to ETH a press away; Back to ETH and Send quote their relay
+//           fees as their forms will (Max keeping the fee that combines notes), and each hands its form the amount
 //   farmcoming a private farm opened while a wrap is settling says the tETH is on its way instead of asking for it again
 //   farmzap  one side alone farms: Max takes the whole balance, the quote says what is swapped and what both sides add, and the
 //            press cuts the swap note, swaps it in the farm's pool, cuts what pairs with the return and bonds both
@@ -148,7 +150,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,selffund,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxteth,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,selffund,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -4353,6 +4355,44 @@ await step('hxbal', async () => {
     await p.click('#hold-tot'); await sleep(900);
     ok(await p.evaluate(() => { const b = document.querySelector('#dash').getBoundingClientRect(); return b.top < innerHeight && b.bottom > 0; }), 'hxbal: the header total takes you to Your Tacit');
     if (r.errors.length) { fails++; console.log('FAIL hxbal page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+await step('hxteth', async () => {
+  const r = await openFarmKey('7e7e'.padEnd(64, '6'), { notes: [[FARM_CETH, 15000000n], [FARM_CETH, 10000000n]] });
+  const p = r.page, line = async () => (await text(p, '#hx-q')).replace(/\s+/g, ' ').trim();
+  const lander = () => p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+  try {
+    await lander();
+    await p.click('[data-hxm="private"]');
+    await until(p, () => /You hold 0\.25 tETH privately/.test(document.querySelector('#hx-have')?.textContent || ''), null, 300000);
+    ok(await p.$$eval('#hx-have [data-hxin]', (b) => b.map((x) => x.dataset.hxin).join()) === 'send:eth,swap:eth:tac,shield:eth:wallet', 'hxteth: Shield says the tETH held, with Send, Swap and Back to ETH a press away');
+    await p.click('[data-hxin="shield:eth:wallet"]');
+    ok(await p.$eval('#hx-from', (e) => e.value) === 'eth' && (await p.evaluate(() => document.activeElement?.id)) === 'hx-amt', 'hxteth: Back to ETH sets the card to taking tETH out, with the keyboard in the amount');
+    await p.fill('#hx-amt', '0.1');
+    await until(p, () => /^Relay fee [\d.]+ ETH, out of it\. To your wallet or any address you name next\.$/.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
+    const fee = Number((await line()).match(/Relay fee ([\d.]+) ETH/)[1]), out = Number(await text(p, '#hx-out'));
+    ok(fee > 0 && Math.abs(out - (0.1 - fee)) < 1e-9, `hxteth: 0.1 tETH back to ETH pays out 0.1 less the relay fee (${out} = 0.1 - ${fee})`);
+    await p.click('#hx-max');
+    await until(p, () => /to combine notes first/.test(document.querySelector('#hx-q')?.textContent || ''), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
+    const combine = Number((await line()).match(/and ([\d.]+) tETH from your balance to combine notes/)[1]), max = Number(await p.inputValue('#hx-amt'));
+    ok(combine > 0 && Math.abs(max + combine - 0.25) < 1e-9, `hxteth: Max over two notes keeps the relay fee that combines them (${max} + ${combine} = 0.25)`);
+    await p.click('#hx-go');
+    await until(p, (v) => document.querySelector('#sheet-eth[open] #o-amt')?.value === v, String(max), 120000);
+    ok(true, 'hxteth: Turn tETH into ETH opens the Withdraw form with that amount');
+    await lander();
+    await p.click('[data-hxm="send"]');
+    await p.fill('#hx-amt', '0.1');
+    await until(p, () => /^They get about [\d.]+ tETH: their claim's relay fee comes out of it\. Nobody sees how much or to whom\.$/.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
+    ok(/0\.25 tETH · Max/.test(await text(p, '#hx-bal')), `hxteth: Send says what the recipient gets (a 0.1 note is held, so nothing is cut), with the balance and Max (${await line()})`);
+    await p.fill('#hx-rcpt', 'name.wei');
+    await p.click('#hx-go');
+    await until(p, () => document.querySelector('#sheet-eth[open] #s-amt')?.value === '0.1' && document.querySelector('#s-to')?.value === 'name.wei', null, 120000);
+    ok(true, 'hxteth: Send privately opens the Send form with the amount and the recipient');
+    if (r.errors.length) { fails++; console.log('FAIL hxteth page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 
