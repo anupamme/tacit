@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-l9ZlC87x+od9zV7Tr+dM/V+H99WBDZlrmbxwsb+qoYs=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-FZiXFIXYa6VpI3per09HvhhqWrHx4UBsLh8xq4kyhVg=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay</title>
 <meta name="description" content="Simple, private payments: Bitcoin by silent payment, TAC shielded, ETH on Ethereum, Base, Robinhood Chain and MegaETH. One key and one tacit1 address, every payment made on your device, and your balances rebuild from that key.">
@@ -25,9 +25,9 @@
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/prf-wallet.js">
 <link rel="modulepreload" href="/tacit-wallet-known.js?cb=ed4c75b7">
-<link rel="modulepreload" href="/evm-wallet.js?cb=686e1d3f">
+<link rel="modulepreload" href="/evm-wallet.js?cb=12c7dccd">
 <link rel="modulepreload" href="/identity-message.js">
-<link rel="modulepreload" href="/walletconnect.js?cb=b3b540fa">
+<link rel="modulepreload" href="/walletconnect.js?cb=92886522">
 <link rel="modulepreload" href="/tacit-address.js">
 <link rel="modulepreload" href="/bip352.js">
 <link rel="modulepreload" href="/address-id.js?cb=c4fa5a58">
@@ -541,7 +541,7 @@ if (forwardOld(location.hash)) await new Promise(() => {});
 const [{ secp, keccak_256, sha256, hmac, bytesToHex, hexToBytes, concatBytes }, { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPasskeyAvailable }, { knownWallets },
   { makeEvmWallet }, { announceWalletConnect, wcSheets, dialogHost, WC_PROJECT_ID }, { makeTacitAddress }, { bip352TaggedHash }, { addressId }] = await Promise.all([
   import('/vendor/tacit-deps.min.js'), import('/prf-wallet.js'), import('/tacit-wallet-known.js?cb=ed4c75b7'),
-  import('/evm-wallet.js?cb=686e1d3f'), import('/walletconnect.js?cb=b3b540fa'), import('/tacit-address.js'), import('/bip352.js'), import('/address-id.js?cb=c4fa5a58')]);
+  import('/evm-wallet.js?cb=12c7dccd'), import('/walletconnect.js?cb=92886522'), import('/tacit-address.js'), import('/bip352.js'), import('/address-id.js?cb=c4fa5a58')]);
 
 if (!secp.etc.hmacSha256Sync) secp.etc.hmacSha256Sync = (k, ...m) => hmac(sha256, k, concatBytes(...m));
 // The rest of the page's modules, asked for now that the ones it waited on are here.
@@ -1671,7 +1671,7 @@ const poolWallet = () => (TAC.pw && TAC.pub === S.key?.pubHex ? TAC.pw : TAC.ear
 // recipient's scan key, and each Bitcoin read opens the hints sealed to this key's, so payments from Tacit apps show up
 // without a link. The service cannot tell who a hint is for.
 const SP_HINTS = 'https://tacit-btc-pool-relay-mainnet.onrender.com', HINT_AT = 'tacit-sp-hints-v1:';
-const getHints = lazy(() => import('/sp-hints.js?cb=22dae973'));
+const getHints = lazy(() => import('/sp-hints.js?cb=956f3dbb'));
 // → whether the hint was posted (tried twice). One that was not is kept in this browser and posted again from pollHints
 // for a day.
 const HINT_OUT = 'tacit-sp-hints-out-v1', HINT_KEEP = 86400e3;

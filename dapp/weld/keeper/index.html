@@ -7,7 +7,7 @@
      data stats does, plus an injected wallet to sign advanceTip(bytes) — permissionless on chain
      (contracts/src/lib/BitcoinLightRelay.sol:253) — so anyone can push the header relay forward and pay their
      own gas, instead of waiting on Tacit's own cron. No Tacit key touches this page. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-0F9HZQxnZdGeKBIzULhMEyfUFwcxe/1EW5MVMrAb4rM=' 'wasm-unsafe-eval'; connect-src wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-GDkO4QArZT03Rep0cDXkU5I4S7Nux/yWwmYLxFFhOeQ=' 'wasm-unsafe-eval'; connect-src wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
@@ -299,8 +299,8 @@ footer a { display: inline-block; padding: 12px 0; color: var(--mute); }
 <div id="toast-container" class="toasts" popover="manual"></div>
 
 <script type="module">
-import { makeEvmWallet } from '/evm-wallet.js?cb=686e1d3f';
-import { announceWalletConnect, wcSheets, dialogHost, WC_PROJECT_ID } from '/walletconnect.js?cb=b3b540fa';
+import { makeEvmWallet } from '/evm-wallet.js?cb=12c7dccd';
+import { announceWalletConnect, wcSheets, dialogHost, WC_PROJECT_ID } from '/walletconnect.js?cb=92886522';
 import { makeHeaderRelayAdvance } from '/header-relay-advance.js?cb=62741b39';
 
 const $ = (s, el = document) => el.querySelector(s);
