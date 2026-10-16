@@ -5,7 +5,7 @@
 //
 // It reads the chain and the API with no wallet, as /trade/tac/ does, and holds no key it was not given: the key lives in this visit's memory.
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=97813823';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=47bedb13';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=a8cdf0f7';
 import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=ad559513';
 import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=34fe5a19';
 import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, proveOwn, ownWords, ownable, relayState, relayStopped, forgetUx, getUx } from '/trade/teth/wrap.js?cb=a7488be7';
