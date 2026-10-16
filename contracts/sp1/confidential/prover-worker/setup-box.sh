@@ -16,4 +16,8 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 cd "$(dirname "$0")"
 cargo build --release
 echo "built: $(pwd)/target/release/tacit-prover-worker"
+# A rented pod sees the host's cores but may use a few (its cgroup quota); threads past the quota only thrash. Export these
+# (the SDK's sp1-gpu-server child inherits them) when running the worker:
+Q=$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us 2>/dev/null || echo -1); P=$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us 2>/dev/null || echo 100000)
+[ "$Q" -gt 0 ] && echo "cores: quota $(( (Q + P - 1) / P )) of $(nproc) seen — run with GOMAXPROCS=$(( (Q + P - 1) / P )) RAYON_NUM_THREADS=$(( (Q + P - 1) / P ))"
 echo "run:   BOARD_URL=https://api.tacit.finance WORKER_TOKEN=… WORKER_NAME=… EXPECT_VKEY=<the pool's PROGRAM_VKEY> ./target/release/tacit-prover-worker"
