@@ -20,6 +20,8 @@ import { setProverCredit } from './lib/worker-client.js';
 import { creditText } from './lib/prove-credit.js';
 import { ledger } from './lib/income-ledger.js';
 import { planBuyback, splitterDue } from './lib/income-allocation.js';
+import { planTreasury, daysText } from './lib/treasury-plan.js';
+import { settleFundsNeed } from './lib/settle-fees.js';
 import {
   publicClient, relayWallet, fundedWallets, ethUsdPrice, ERC20_ABI, VAPP_ABI, ZQUOTER_ABI, ZROUTER_ABI,
   PROVE, VAPP, ZQUOTER, ZROUTER,
@@ -351,8 +353,15 @@ export async function drainToSink({ roles = ['settle'] } = {}) {
   return { moved };
 }
 
-// Move collected TAC off the hot wallets to the reserve. Separate from the fee-asset sweep so it runs even in
-// manual top-up mode, and never swaps: TAC is held, not sold.
+// Move the fee tokens the relay holds rather than sells (TAC, and RESERVE_ASSETS: tacUSD, tacBTC) off the hot wallets to the reserve,
+// each once it reaches its own minimum. Separate from the fee-asset sweep so it runs even in manual top-up mode, and never swaps: a token
+// named in FEE_ASSETS is converted by the sweep instead and is left out here.
+export function heldAssets() {
+  const converted = new Set(feeAssets().map((a) => a.toLowerCase()));
+  const list = [{ token: ADDR.tacToken, minWei: CFG.tacReserveMinWei, name: 'TAC' }, ...CFG.reserveAssets.map((r) => ({ ...r, name: r.token.slice(0, 10) }))];
+  return list.filter((r) => /^0x[0-9a-fA-F]{40}$/.test(r.token) && !converted.has(r.token.toLowerCase()))
+    .filter((r, i, a) => a.findIndex((x) => x.token.toLowerCase() === r.token.toLowerCase()) === i);
+}
 export async function sweepTacToReserve(wallets = fundedWallets) {
   const reserve = CFG.tacReserveAddr;
   if (!reserve) return [];
@@ -360,15 +369,17 @@ export async function sweepTacToReserve(wallets = fundedWallets) {
   const moved = [];
   for (const { address: owner, wallet } of wallets) {
     if (owner.toLowerCase() === reserve.toLowerCase()) continue;
-    try {
-      const bal = await erc20Balance(ADDR.tacToken, owner);
-      if (bal < CFG.tacReserveMinWei) continue;
-      const h = await withNonceRetry('tac reserve', () => wallet.writeContract({ address: ADDR.tacToken, abi: ERC20_ABI, functionName: 'transfer', args: [reserve, bal] }));
-      const r = await publicClient.waitForTransactionReceipt({ hash: h });
-      if (r.status !== 'success') throw new Error(`transfer reverted ${h}`);
-      log(`  moved ${bal} TAC from ${owner} to the reserve ${reserve}`);
-      moved.push({ owner, amount: bal });
-    } catch (e) { log(`  TAC reserve sweep from ${owner} failed (continuing): ${e.message}`); }
+    for (const { token, minWei, name } of heldAssets()) {
+      try {
+        const bal = await erc20Balance(token, owner);
+        if (bal === 0n || bal < minWei) continue;
+        const h = await withNonceRetry(`${name} reserve`, () => wallet.writeContract({ address: token, abi: ERC20_ABI, functionName: 'transfer', args: [reserve, bal] }));
+        const r = await publicClient.waitForTransactionReceipt({ hash: h });
+        if (r.status !== 'success') throw new Error(`transfer reverted ${h}`);
+        log(`  moved ${bal} ${name} from ${owner} to the reserve ${reserve}`);
+        moved.push({ owner, token, amount: bal });
+      } catch (e) { log(`  ${name} reserve sweep from ${owner} failed (continuing): ${e.message}`); }
+    }
   }
   return moved;
 }
@@ -439,6 +450,74 @@ async function distributeSplitter(wallet) {
   } catch (e) { log(`  splitter distribute failed (continuing): ${e.message}`); }
 }
 
+// The treasury pass (lib/treasury-plan.js). Reads what the settle wallet, the relay wallet and the prover's credit hold and burn, plans
+// where the settle wallet's spare ETH goes, and moves it: a plain transfer to the relay wallet, a swap to PROVE delivered to the sink.
+// Burns come from the books where they have a day or more, else from the gas model and the measured defaults; floors from today's gas.
+// Nothing here throws into the pass: a treasury that cannot be read is logged and left for the next pass.
+async function runTreasury(earner, sink, { credit, convertToProve }) {
+  const owner = earner.address, wallet = earner.wallet, sinkAddr = sink.account.address;
+  const toSink = owner.toLowerCase() !== sinkAddr.toLowerCase();
+  try {
+    const [settleWei, relayWei, gasPrice, funds, ethUsd] = await Promise.all([
+      publicClient.getBalance({ address: owner }),
+      toSink ? publicClient.getBalance({ address: sinkAddr }) : 0n,
+      publicClient.getGasPrice(),
+      settleFundsNeed(publicClient),
+      ethUsdPrice().catch(() => null),
+    ]);
+    const books = ledger.burnPerDay();
+    const perDayWei = (eth) => (eth != null && eth > 0 ? BigInt(Math.round(eth * 1e9)) * 10n ** 9n : null);
+    const settleBurn = perDayWei(books.gasEthPerDay) ?? OP_GAS.transfer * BigInt(Math.max(1, Math.round(CFG.expectedOpsPerDay))) * gasPrice;
+    const relayBurn = CFG.relayBurnGasPerDay * gasPrice;
+    const proveBurn = books.provePerDay != null && books.provePerDay > 0 ? BigInt(Math.round(books.provePerDay * 1e4)) * 10n ** 14n : BigInt(Math.round(CFG.proveBurnPerDayDefault * 1e4)) * 10n ** 14n;
+    const settleFloor = CFG.settleFloorWei > 0n ? CFG.settleFloorWei : funds.need * BigInt(Math.max(1, Math.round(CFG.settleFloorSettles)));
+    const cycle = (CFG.attestGasBudget + BigInt(CFG.headerMaxBatch) * 180_000n) * (funds.base * 2n + funds.tip);
+    const relayFloor = CFG.relayFloorWei > 0n ? CFG.relayFloorWei : cycle * BigInt(Math.max(1, Math.round(CFG.relayFloorCycles)));
+    // PROVE per ETH at a swap of the size a pass would make, from the same quoter the swap goes through.
+    let proveWeiPerEth = null;
+    if (convertToProve) {
+      try { const q = await quote(ETH, PROVE, CFG.treasuryMinSwapWei, sinkAddr); if (q?.amountOut > 0n) proveWeiPerEth = (q.amountOut * 10n ** 18n) / CFG.treasuryMinSwapWei; } catch {}
+    }
+    const plan = planTreasury({
+      settle: { wei: settleWei, burnPerDayWei: toSink ? settleBurn : settleBurn + relayBurn, floorWei: toSink ? settleFloor : settleFloor + relayFloor },
+      relay: toSink ? { wei: relayWei, burnPerDayWei: relayBurn, floorWei: relayFloor } : { wei: 0n, burnPerDayWei: 0n, floorWei: 0n },
+      prove: { wei: credit ?? 0n, burnPerDayWei: credit == null ? 0n : proveBurn, floorWei: CFG.proveCreditFloorWei },
+      targetDays: CFG.treasuryTargetDays, minMoveWei: CFG.treasuryMinMoveWei, minSwapWei: CFG.treasuryMinSwapWei, maxSwapWei: CFG.proveTopUpMaxWei,
+      proveWeiPerEth: credit == null ? null : proveWeiPerEth,
+    });
+    const d = (x) => daysText(x);
+    log(`  treasury: settle ${d(plan.runway.settleDays)} d, relay ${d(plan.runway.relayDays)} d, credit ${d(plan.runway.proveDays)} d of burn`
+      + ` (floors ${settleFloor} / ${relayFloor} wei, burns ${settleBurn} / ${relayBurn} wei/day, ${(Number(proveBurn) / 1e18).toFixed(1)} PROVE/day${books.days ? `, ${books.days} day(s) of books` : ', no books yet'})`
+      + ` -> relay wallet +${plan.toRelayWei} wei, PROVE +${plan.toProveWei} wei of ETH; after: ${d(plan.after.settleDays)} / ${d(plan.after.relayDays)} / ${d(plan.after.proveDays)} d`);
+    for (const n of plan.notes) log(`  treasury: ${n}`);
+    let sentRelay = 0n, sentProve = 0n;
+    if (plan.toRelayWei > 0n && toSink) {
+      try {
+        const h = await withNonceRetry('relay wallet gas', () => wallet.sendTransaction({ to: sinkAddr, value: plan.toRelayWei }));
+        const r = await publicClient.waitForTransactionReceipt({ hash: h });
+        if (r.status !== 'success') throw new Error(`transfer reverted ${h}`);
+        sentRelay = plan.toRelayWei;
+        log(`  treasury: sent ${plan.toRelayWei} wei ETH -> relay wallet ${sinkAddr} (tx ${h})`);
+      } catch (e) { log(`  treasury: relay wallet transfer failed (continuing): ${e.message}`); }
+    }
+    if (plan.toProveWei > 0n && convertToProve) {
+      try {
+        const q = await quote(ETH, PROVE, plan.toProveWei, sinkAddr); // PROVE lands on the sink, which deposits it
+        if (ethUsd && !(await provePlausible(q, (Number(plan.toProveWei) / 1e18) * ethUsd, ethUsd, 'ETH->PROVE'))) throw new Error('implausible quote');
+        log(`  treasury: ${plan.toProveWei} wei ETH -> ~${q.amountOut} PROVE (to sink)`);
+        await fireSwap(q, wallet);
+        sentProve = plan.toProveWei;
+      } catch (e) { log(`  treasury: PROVE purchase failed (continuing): ${e.message}`); }
+    }
+    ledger.setRunway({
+      settleDays: plan.runway.settleDays, relayDays: plan.runway.relayDays, proveDays: plan.runway.proveDays, levelDays: plan.levelDays,
+      toRelayEth: Number(sentRelay) / 1e18, toProveEth: Number(sentProve) / 1e18,
+      settleEth: Number(settleWei) / 1e18, relayEth: Number(relayWei) / 1e18, credit: credit == null ? null : Number(credit) / 1e18,
+      burn: { settleEthPerDay: Number(settleBurn) / 1e18, relayEthPerDay: Number(relayBurn) / 1e18, provePerDay: Number(proveBurn) / 1e18, fromBooks: !!books.days },
+    });
+  } catch (e) { log(`  treasury: could not be planned this pass (${e.message})`); }
+}
+
 // One replenish pass: turn fee income into the two things the relay burns — ETH gas and PROVE.
 //
 // Two roles matter, and they are not the same wallet:
@@ -494,8 +573,14 @@ export async function replenishOnce({ roles = null, convertToProve = true } = {}
   // Proving stops outright when the network credit runs out, so a low credit outranks keeping a large ETH float:
   // under the floor, ETH above the gas buffer goes to PROVE this pass (capped), not only ETH above the sweep line.
   const credit = convertToProve ? await readProverCredit() : null;
-  const creditLow = credit != null && credit < CFG.proveCreditFloorWei;
-  if (credit != null) log(`prover credit ${(Number(credit) / 1e18).toFixed(2)} PROVE${creditLow ? ` — under the ${(Number(CFG.proveCreditFloorWei) / 1e18).toFixed(0)} PROVE floor, buying from ETH above the gas buffer` : ''}`);
+  if (credit != null) log(`prover credit ${(Number(credit) / 1e18).toFixed(2)} PROVE`);
+
+  // Where the fee ETH goes (lib/treasury-plan.js): the settle wallet feeds the relay wallet (headers, attests, deposits) and the prover's
+  // credit by runway, shortest first, keeping what its own next settles need. Only the settle service has the books and the settle key.
+  if (roles && roles.includes('settle')) {
+    const settleEarner = earners.find((w) => w.roles.includes('settle'));
+    if (settleEarner) await runTreasury(settleEarner, sink, { credit, convertToProve });
+  }
 
   for (const { address: owner, wallet, roles: held } of earners) {
     const toSink = owner.toLowerCase() !== sinkAddr.toLowerCase();
@@ -508,31 +593,14 @@ export async function replenishOnce({ roles = null, convertToProve = true } = {}
     for (const asset of assets) {
       try {
         if (asset === ETH) {
-          const ethBal = await publicClient.getBalance({ address: owner });
-          let surplus = ethBal > buffer ? ethBal - buffer : 0n;
-          // Feed the sink's gas first, by a plain transfer — the sink earns nothing and would otherwise
-          // drain to zero while the earner sat on a surplus.
-          if (toSink && surplus > 0n) {
-            const sinkBal = await publicClient.getBalance({ address: sinkAddr });
-            if (sinkBal < buffer) {
-              const send = (buffer - sinkBal) < surplus ? (buffer - sinkBal) : surplus;
-              log(`  sink gas: sending ${send} wei ETH -> ${sinkAddr}`);
-              const h = await wallet.sendTransaction({ to: sinkAddr, value: send });
-              const r = await publicClient.waitForTransactionReceipt({ hash: h });
-              if (r.status !== 'success') throw new Error(`sink gas transfer reverted ${h}`);
-              surplus -= send;
-            }
-          }
           if (!convertToProve) continue;
-          // Only genuine excess becomes PROVE. Above the gas buffer is not enough on its own: a manual
-          // top-up sits there too, and it is gas by intent. Convert what exceeds ETH_SWEEP_ABOVE_WEI.
+          // Gas for both wallets and PROVE by runway were settled by the treasury pass above. What is left is only converted past
+          // ETH_SWEEP_ABOVE_WEI: a manual top-up sits in the wallet too, and it is gas by intent, so only genuine excess goes.
           const remaining = await publicClient.getBalance({ address: owner });
-          const keep = creditLow ? buffer : CFG.ethSweepAboveWei > buffer ? CFG.ethSweepAboveWei : buffer;
-          let excess = remaining > keep ? remaining - keep : 0n;
-          if (creditLow && excess > CFG.proveTopUpMaxWei) excess = CFG.proveTopUpMaxWei;
+          const keep = CFG.ethSweepAboveWei > buffer ? CFG.ethSweepAboveWei : buffer;
+          const excess = remaining > keep ? remaining - keep : 0n;
           if (excess < MIN_ETH_SWEEP) { log(`  ETH ${remaining} within the gas float (<= ${keep} + dust) — keeping as gas`); continue; }
-          // Credit short: all of it buys PROVE; the buyback share comes out of genuine surplus only.
-          const toProve = creditLow ? excess : excess - await sendBuybackShare(excess, wallet);
+          const toProve = excess - await sendBuybackShare(excess, wallet);
           if (toProve < MIN_ETH_SWEEP) continue;
           const q = await quote(ETH, PROVE, toProve, sinkAddr); // PROVE lands on the sink, which deposits it
           const ethUsd = await ethUsdPrice();

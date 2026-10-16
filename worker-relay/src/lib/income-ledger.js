@@ -8,12 +8,16 @@
 //
 // Nothing here throws or waits: it is called from the settle path and must never be the reason a settle does not go out.
 
+import { burnFromBooks } from './treasury-plan.js';
+
 export const ETH = '0x0000000000000000000000000000000000000000';
 const lc = (a) => String(a || '').toLowerCase();
 const day = (t) => new Date(t).toISOString().slice(0, 10);
 
-// What kind of fee a job paid, by the address of its fee asset. 'converted' = an ERC-20 the sweep turns into ETH or PROVE (FEE_ASSETS);
-// 'tac' = held, and moved to the reserve; 'other' = paid but nothing converts it yet (tacUSD, wTAC, cBTC).
+// What kind of fee a job paid, by the address of the token its fee leg pays out in. 'converted' = an ERC-20 the sweep turns into ETH or
+// PROVE (FEE_ASSETS); 'tac' = held, and moved to the reserve; 'other' = paid but nothing converts it yet (tacUSD, tacBTC: held and
+// moved to the reserve as TAC is). The API names the token (`feeToken`, from the fee leg's own asset row); `feeAsset` is what a
+// submitter said, read only when the API did not say.
 export function classifyFeeAsset(feeAsset, { converted = [], tac = null } = {}) {
   if (feeAsset == null || feeAsset === '') return 'none';
   const a = lc(feeAsset);
@@ -32,7 +36,7 @@ const blank = () => ({
 export function makeLedger({ now = () => Date.now(), keepDays = 8, converted = [], tac = null } = {}) {
   let since = now(), restored = false;
   const days = new Map();
-  let pendingUsd = 0, owedWei = 0n, cfg = {};
+  let pendingUsd = 0, owedWei = 0n, cfg = {}, runway = null;
   const bucket = (t = now()) => {
     const k = day(t);
     if (!days.has(k)) {
@@ -51,7 +55,7 @@ export function makeLedger({ now = () => Date.now(), keepDays = 8, converted = [
     configure: safe((o = {}) => { if (Array.isArray(o.converted)) converted = o.converted; if (o.tac !== undefined) tac = o.tac; }),
     // A job the relay settled on chain: its fee, and its share of the settle's gas (wei).
     settled: safe((job, { txCostWei = 0n } = {}) => {
-      const b = bucket(), usd = num(job?.feeUsd), kind = classifyFeeAsset(job?.feeAsset, { converted, tac });
+      const b = bucket(), usd = num(job?.feeUsd), kind = classifyFeeAsset(job?.feeToken ?? job?.feeAsset, { converted, tac });
       b.settled++;
       if (job?.feeUsd == null || !(usd > 0)) b.unpriced++;
       else {
@@ -77,6 +81,11 @@ export function makeLedger({ now = () => Date.now(), keepDays = 8, converted = [
     owed: () => owedWei,
     setOwed: safe((wei) => { owedWei = BigInt(wei) < 0n ? 0n : BigInt(wei); }),
     setConfig: safe((c) => { cfg = { ...c }; }),
+    // Where the treasury stands after a replenish pass (lib/treasury-plan.js): days of runway per wallet and for the credit, and what
+    // the pass moved. Posted with the heartbeat for the operator's panel only; the public economics never carry it.
+    setRunway: safe((r) => { runway = r && typeof r === 'object' ? { ...r, at: new Date(now()).toISOString() } : null; }),
+    // What the books say the relay burns a day, from the days it has: settle gas (ETH), PROVE put in, settles. Null before any day.
+    burnPerDay: () => burnFromBooks(Object.fromEntries(days), { now: now() }),
 
     // The books a previous process of this relay posted (snapshot() shape, read back from the API), added to this one's. Once only, and
     // all or nothing: a snapshot that does not parse changes nothing. What this process counted before the call is kept, so it may run late.
@@ -108,6 +117,7 @@ export function makeLedger({ now = () => Date.now(), keepDays = 8, converted = [
     snapshot: () => ({
       since: new Date(since).toISOString(),
       cfg,
+      ...(runway ? { runway } : {}),
       owedEth: eth(owedWei),
       owedWei: owedWei.toString(),            // exact, for a restart to take back; owedEth is for people
       pendingUsd: Math.round(pendingUsd * 1e4) / 1e4,

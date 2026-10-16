@@ -103,7 +103,12 @@ await test('split keys: the RELAY wallet, not the settle wallet, deposits to the
   ok(approve > -1 && approve < deposit, 'the sink must approve PROVE to the vApp before depositing');
 });
 
-await test('split keys: native ETH is forwarded to the sink, and only genuine excess becomes PROVE', async () => {
+// The treasury pass (worker-relay/src/lib/treasury-plan.js) at the stub's gas: 0.06 gwei, base 0.05 gwei, tip 0.001 gwei. With no books
+// the burns are the model's: the settle wallet 600k x 20 settles = 0.00072 ETH a day, the relay wallet 36M gas = 0.00216 ETH a day; the
+// relay wallet's three-day target is 0.00648 ETH.
+const RELAY_TARGET = 3n * 36_000_000n * 60_000_000n;
+
+await test('split keys: native ETH feeds the relay wallet to its target by runway, and only genuine excess becomes PROVE', async () => {
   const { sent } = await run({
     feeAssets: A.eth, extraEnv: { ETH_SWEEP_ABOVE_WEI: String(ETH(0.02)) },
     balances: { [settle]: ETH(0.05), [relay]: ETH(0.002) },
@@ -111,11 +116,70 @@ await test('split keys: native ETH is forwarded to the sink, and only genuine ex
   });
   const xfer = sent.find((t) => t.from === settle && t.to === relay && t.value > 0n);
   ok(xfer, 'the earner never sent ETH to the sink');
-  ok(xfer.value === ETH(0.008), `expected to top the sink up to the buffer (0.008), sent ${Number(xfer.value) / 1e18}`);
+  ok(xfer.value === RELAY_TARGET - ETH(0.002), `expected the relay wallet brought to three days of its burn (${Number(RELAY_TARGET - ETH(0.002)) / 1e18}), sent ${Number(xfer.value) / 1e18}`);
   const prove = swaps(sent).find((x) => !x.exactOut && x.recipient === relay);
   ok(prove, 'the excess over the sweep threshold was not converted to PROVE for the sink');
-  // 0.05 - 0.008 forwarded = 0.042 left; only what exceeds the 0.02 float is converted.
-  ok(prove.value === ETH(0.042) - ETH(0.02), `should convert only the excess over the float (0.022), converted ${Number(prove.value) / 1e18}`);
+  // what is left after the relay wallet, over the 0.02 float, is converted.
+  ok(prove.value === ETH(0.05) - xfer.value - ETH(0.02), `should convert only the excess over the float, converted ${Number(prove.value) / 1e18}`);
+});
+
+await test('treasury: a relay wallet that is short is fed even while the settle wallet is under the old 0.03 ETH float', async () => {
+  // The wallets as they stood on 2026-10-16: nothing used to flow, because the settle wallet never held more than the float.
+  const { sent } = await run({ feeAssets: A.eth, balances: { [settle]: ETH(0.0146), [relay]: ETH(0.00066) }, tokenBalances: {} });
+  const xfer = sent.find((t) => t.from === settle && t.to === relay && t.value > 0n);
+  ok(xfer, 'the relay wallet was left short');
+  ok(xfer.value === RELAY_TARGET - ETH(0.00066), `expected ${Number(RELAY_TARGET - ETH(0.00066)) / 1e18} ETH, sent ${Number(xfer.value) / 1e18}`);
+  ok(swaps(sent).length === 0, 'nothing should be swapped: the credit is unread and the ETH is under the sweep line');
+});
+
+await test('treasury: nothing moves from a settle wallet at its floor, and a relay wallet at its target gets nothing', async () => {
+  const thin = await run({ feeAssets: A.eth, balances: { [settle]: ETH(0.0003), [relay]: 0n }, tokenBalances: {} });
+  ok(!thin.sent.some((t) => t.from === settle && t.to === relay && t.value > 0n), 'a settle wallet at its floor gave gas away');
+  const fine = await run({ feeAssets: A.eth, balances: { [settle]: ETH(0.05), [relay]: RELAY_TARGET }, tokenBalances: {} });
+  ok(!fine.sent.some((t) => t.from === settle && t.to === relay && t.value > 0n), 'a relay wallet at its target was fed');
+});
+
+// A fake exec-balance beside EXEC_BIN reports the credit replenish reads (lib/prover.js proverCredit), so the PROVE purchase is exercised.
+import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+const fakeCredit = (prove) => {
+  const dir = mkdtempSync(join(tmpdir(), 'tacit-credit-'));
+  writeFileSync(join(dir, 'exec-balance'), `#!/bin/sh\necho BALANCE=${BigInt(prove) * 10n ** 18n}\n`);
+  chmodSync(join(dir, 'exec-balance'), 0o755);
+  return { EXEC_BIN: join(dir, 'exec'), PROVER_OUT: join(dir, 'out') };
+};
+
+await test('treasury: PROVE is bought from the settle wallet when the credit is the shortest runway, capped per pass', async () => {
+  // 10 PROVE against the default 90 a day is hours of credit; three days is 270, so 260 PROVE are due: at the stub's prices that is
+  // 0.035 ETH, capped at the 0.02 ETH a pass may spend. The relay wallet has three weeks and gets nothing.
+  const { sent, log: stdout } = await run({ feeAssets: A.eth, extraEnv: fakeCredit(10), balances: { [settle]: ETH(0.1), [relay]: ETH(0.05) }, tokenBalances: {} });
+  const buys = swaps(sent).filter((x) => !x.exactOut && x.recipient === relay && x.signer === settle);
+  ok(buys.length === 1, `expected one ETH->PROVE swap for the sink, got ${show(buys)}\n${stdout}`);
+  ok(buys[0].value === ETH(0.02), `expected the 0.02 ETH cap, swapped ${Number(buys[0].value) / 1e18}`);
+  ok(!sent.some((t) => t.from === settle && t.to === relay && t.value > 0n), 'the relay wallet was fed though it has weeks of gas');
+  ok(/treasury: .*credit 0\.1 d/.test(stdout), 'the pass does not say where the credit stands');
+  const rich = await run({ feeAssets: A.eth, extraEnv: fakeCredit(500), balances: { [settle]: ETH(0.1), [relay]: ETH(0.05) }, tokenBalances: {} });
+  ok(swaps(rich.sent).filter((x) => !x.exactOut).length === 0, 'PROVE was bought with five days of credit on hand');
+});
+
+await test('reserve: tacUSD and tacBTC are moved to the reserve like TAC, each past its own minimum, never swapped', async () => {
+  const TACUSD = '0x23cacffac2674514a6d4f6cd420b4cc2ac921564', TACBTC = '0xdf1d99148beb7a9aff1d95c49b3d22b7ed90d696', RESERVE = '0x006cd14f36f65ecbb29b2519ccbe63a0dc8549f2';
+  const xfers = (sent, token) => sent.filter((t) => t.to === token && t.data.startsWith('0xa9059cbb')).map((t) => ({ signer: t.from, to: '0x' + t.data.slice(34, 74), amount: BigInt('0x' + t.data.slice(74, 138)) }));
+  const { sent } = await run({
+    feeAssets: A.usdc, extraEnv: { TAC_RESERVE_ADDR: RESERVE },
+    balances: { [settle]: ETH(0.02), [relay]: ETH(0.02) },
+    tokenBalances: { [TACUSD]: { [settle]: 15_300_000_000_000_000_000n }, [TACBTC]: { [settle]: 206_300_000_000_000n } },
+  });
+  const u = xfers(sent, TACUSD), b = xfers(sent, TACBTC);
+  ok(u.length === 1 && u[0].signer === settle && u[0].to === RESERVE && u[0].amount === 15_300_000_000_000_000_000n, `tacUSD: ${show(u)}`);
+  ok(b.length === 1 && b[0].to === RESERVE && b[0].amount === 206_300_000_000_000n, `tacBTC: ${show(b)}`);
+  ok(!sent.some((t) => (t.to === TACUSD || t.to === TACBTC) && !t.data.startsWith('0xa9059cbb')), 'a held token was approved or swapped');
+  const dust = await run({
+    feeAssets: A.usdc, extraEnv: { TAC_RESERVE_ADDR: RESERVE },
+    balances: { [settle]: ETH(0.02), [relay]: ETH(0.02) },
+    tokenBalances: { [TACUSD]: { [settle]: 4n * 10n ** 18n }, [TACBTC]: { [settle]: 5_000_000_000_000n } },
+  });
+  ok(xfers(dust.sent, TACUSD).length === 0 && xfers(dust.sent, TACBTC).length === 0, 'dust under the minimums was swept');
 });
 
 await test('an operator top-up is NOT swept into PROVE by default', async () => {

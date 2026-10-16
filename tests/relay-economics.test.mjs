@@ -108,6 +108,12 @@ const sp = cleanSponsorship({ day: '2026-10-15', total: { used: 14, cap: 300 }, 
 ok(sp.total.used === 14 && sp.total.cap === 300 && sp.classes.onboard.cap === 12 && sp.classes.farm.used === 8 && !('evil' in sp.classes) && !('junk' in sp), 'the allowances are copied field by field');
 ok(sp.classes.wrap.used === 0 && sp.classes.wrap.cap === null && sp.classes.other.used === 0 && sp.classes.other.cap === null, 'junk reads as zero used, and a limit that is not a number is no limit');
 ok(cleanSponsorship(null) === null && cleanSponsorship('x') === null && cleanSponsorship({ day: 'today' }).day === null, 'nothing, or a bad day, is null');
+{
+  const p = cleanSponsorship({ day: '2026-10-16', total: { used: 1, cap: 2 }, classes: {}, prove: { used: 41, cap: 150, perClient: 20, secret: 1 } }).prove;
+  ok(p.used === 41 && p.cap === 150 && p.perClient === 20 && p.secret === undefined, `the prove-only allowance is passed through, nothing else: ${JSON.stringify(p)}`);
+  const none = cleanSponsorship({ day: '2026-10-16', total: { used: 1, cap: 2 }, classes: {} }).prove;
+  ok(none.used === 0 && none.cap === null && none.perClient === null, 'an older API without the figure still answers');
+}
 ok(buildEconomics({ sponsorship: sp.total && { day: '2026-10-15', total: { used: 1, cap: 2 }, classes: {} } }).sponsorship.classes.farm.cap === null, 'every class is always present in the response');
 
 console.log(failed ? `\n${failed} FAILED (${n} checks)` : `\nall ${n} relay-economics checks passed`);

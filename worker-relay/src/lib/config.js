@@ -236,6 +236,31 @@ export const CFG = {
   // When set, each replenish pass moves that TAC to this reserve once it reaches tacReserveMinWei. Empty = hold.
   tacReserveAddr: opt('TAC_RESERVE_ADDR', ''),
   tacReserveMinWei: BigInt(opt('TAC_RESERVE_MIN_WEI', '100000000000000000000')), // 100 TAC
+  // Other fee tokens the relay holds rather than sells, moved to the same reserve once they reach their minimum: "<erc20>:<min wei>,…".
+  // No public venue quotes tacUSD or tacBTC for ETH (zQuoter finds no route, 2026-10-16), so they are kept where the TAC is kept; a
+  // token that gains a route is converted instead by naming it in FEE_ASSETS, which wins over this list.
+  reserveAssets: opt('RESERVE_ASSETS', '0x23cACFFAc2674514A6d4F6cD420B4cc2aC921564:5000000000000000000,0xdf1d99148bEb7a9AFf1d95C49B3d22b7ed90D696:10000000000000')
+    .split(',').map((e) => e.trim()).filter(Boolean).map((e) => { const [a, m] = e.split(':'); return { token: a.trim(), minWei: BigInt((m || '0').trim() || '0') }; }),
+
+  // ── Treasury (lib/treasury-plan.js): where fee ETH goes each pass ──
+  // Each wallet and the prover's credit is kept to `treasuryTargetDays` of its measured burn where the settle wallet's income allows, the
+  // shortest runway first. The settle wallet keeps enough for `settleFloorSettles` settles at today's gas, the relay wallet enough for
+  // `relayFloorCycles` of an attest and a header batch, before either gives anything.
+  treasuryTargetDays: num('TREASURY_TARGET_DAYS', 3),
+  settleFloorSettles: num('SETTLE_FLOOR_SETTLES', 6),
+  settleFloorWei: BigInt(opt('SETTLE_FLOOR_WEI', '0')),                    // 0 = from settleFloorSettles at live gas
+  relayFloorCycles: num('RELAY_FLOOR_CYCLES', 2),
+  relayFloorWei: BigInt(opt('RELAY_FLOOR_WEI', '0')),                      // 0 = from relayFloorCycles at live gas
+  // The relay wallet's gas a day when the books cannot say (headers and attests): 36M gas, the 2026-10-09..16 measurement.
+  relayBurnGasPerDay: BigInt(opt('RELAY_BURN_GAS_PER_DAY', '36000000')),
+  // PROVE a day when the books cannot say yet (the 2026-10-09..16 measurement: 86).
+  proveBurnPerDayDefault: num('PROVE_BURN_PER_DAY', 90),
+  treasuryMinMoveWei: BigInt(opt('TREASURY_MIN_MOVE_WEI', '500000000000000')),   // 0.0005 ETH: a transfer's gas is a sliver of it
+  treasuryMinSwapWei: BigInt(opt('TREASURY_MIN_SWAP_WEI', '2000000000000000')),  // 0.002 ETH: a swap's gas is a sliver of it
+  // A free prove-only job (the holder sends the settle; the relay pays only the proof) is proved only while the credit holds this
+  // much: under it the credit is kept for the bridge's attests and for paid work. The API turns such jobs away at submit on the same
+  // figure (PROVE_MODE_MIN_CREDIT); this is the backstop for jobs already queued.
+  freeProveMinCreditWei: BigInt(opt('FREE_PROVE_MIN_CREDIT_WEI', '40000000000000000000')), // 40 PROVE
   // Share of the relay's genuine ETH surplus (what would otherwise be converted to PROVE) sent to TacBuyback,
   // in bps. 0 = off. Set it only once fee income covers proving with room to spare.
   buybackAddr: opt('BUYBACK_ADDR', ''),
@@ -418,7 +443,7 @@ export const CFG = {
   // Prover credit the replenish loop keeps on the network. Under the floor, ETH above the gas buffer (not only above
   // ETH_SWEEP_ABOVE_WEI) turns into PROVE, at most PROVE_TOPUP_MAX_WEI of it a pass, so proving never stops for want of
   // credit while the wallet can still pay gas.
-  proveCreditFloorWei: BigInt(opt('PROVE_CREDIT_FLOOR_WEI', '100000000000000000000')), // 100 PROVE
+  proveCreditFloorWei: BigInt(opt('PROVE_CREDIT_FLOOR_WEI', '60000000000000000000')), // 60 PROVE: the reflection holds ~16-30 for each of its proofs
   proveTopUpMaxWei: BigInt(opt('PROVE_TOPUP_MAX_WEI', '20000000000000000')), // 0.02 ETH
   // The monitor's prover-credit alerts, in whole PROVE (lib/prove-credit.js): a warning to top up, and a critical about
   // two proofs from zero.

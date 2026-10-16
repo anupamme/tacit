@@ -150,3 +150,29 @@ test('restored days beyond the keep window are dropped, and odd fields are read 
   assert.equal(l.owed(), 0n);
   assert.equal(out.since, new Date(T0).toISOString(), 'a start that does not parse is ignored');
 });
+
+test('the token the API names decides the kind; what a submitter said is read only without it', () => {
+  const l = makeLedger({ ...opts, now: () => T0 });
+  l.settled({ feeUsd: 1, feeToken: ETH, feeAsset: TACUSD });        // an ETH fee leg, whatever the submitter wrote
+  l.settled({ feeUsd: 2, feeToken: TAC, feeAsset: null });
+  l.settled({ feeUsd: 4, feeAsset: USDC });                        // an older API: the submitter's word stands
+  l.settled({ feeUsd: 8, feeToken: null, feeAsset: null });        // priced, token unknown: counted, not in the base
+  const d = l.snapshot().days['2026-10-15'];
+  assert.deepEqual(d.feeUsd, { eth: 1, converted: 4, tac: 2, other: 8 });
+  assert.ok(Math.abs(l.peekBuybackBase() - 5) < 1e-9);
+});
+
+test('the books give a burn a day and carry the treasury runway for the operator', () => {
+  const l = makeLedger({ ...opts, now: () => T0 });
+  assert.equal(l.burnPerDay().gasEthPerDay, null, 'nothing before a day');
+  l.settled({ feeUsd: 1, feeToken: ETH }, { txCostWei: 2_000_000_000_000_000n });
+  l.deposited(12);
+  const b = l.burnPerDay();
+  assert.ok(b.gasEthPerDay > 0 && b.provePerDay > 0 && b.settlesPerDay > 0, JSON.stringify(b));
+  assert.equal(l.snapshot().runway, undefined, 'no runway until a pass reports one');
+  l.setRunway({ settleDays: 1.5, relayDays: 2, proveDays: 0.4, toRelayEth: 0.001, toProveEth: 0 });
+  const r = l.snapshot().runway;
+  assert.equal(r.settleDays, 1.5); assert.equal(r.proveDays, 0.4); assert.ok(/^2026-10-15T/.test(r.at));
+  l.setRunway('junk');
+  assert.equal(l.snapshot().runway, undefined);
+});

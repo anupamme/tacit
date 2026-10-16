@@ -115,7 +115,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
   //   'prove'            — the relayer proves but does NOT submit; it acks { publicValues, proof } which the
   //                        dapp embeds into a USER-SENT ConfidentialRouter tx (wrapAndSettle* / zapETHToPayment /
   //                        farm bond). The router pulls from msg.sender, so only the user can send it.
-  async function submitJob({ type, op, memos, mode = 'settle', feeAsset = null, exit = null, publicValues = null, proof = null }) {
+  async function submitJob({ type, op, memos, mode = 'settle', feeAsset = null, exit = null, publicValues = null, proof = null, paid = false }) {
     if (mode === 'preproven') return postProven({ type, memos, publicValues, proof });
     if (!type || !op) throw new Error('submitJob: type + op required');
     // Drop a caller-supplied feeUsd FIRST, before anything derives from `op`.
@@ -159,6 +159,11 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
       // relay treats as unpaid work rather than as free permission.
       feeUnits: priced?.feeUnits ?? null,
       feeUsd: priced?.feeUsd ?? null,
+      // The public token the fee leg pays out in, from the asset row the pricer resolved (null = unpriced or unknown): what the
+      // relay's books count the fee by.
+      feeToken: priced?.feeToken ?? null,
+      // A prove-only wrap whose deposit tipped the relay: paid work, proved whatever the credit (the relay reads it).
+      ...(paid === true ? { paid: true } : {}),
       // feeAsset: the public ERC20/ETH address of this op's relay FeePayment (native ETH = the zero
       // address / null). The relayer needs it for the relaySettle path so TacitRelayer forwards the right
       // token to the ops fee recipient; the direct-settle path ignores it (fee → msg.sender in-kind).

@@ -75,8 +75,9 @@ function sponsorshipRows(j) {
   if (!sp) return null;
   return h('div', {},
     h('p', { class: 'eyebrow' }, 'Settles the relay pays for today'),
-    h('div', { class: 'rows' }, Object.entries(CLASS_WORDS).map(([k, label]) => { const c = sp.classes[k]; return kv(label, c.cap == null ? `${c.used} so far` : `${c.used} of ${c.cap}`); })),
-    h('p', { class: 'note' }, 'Requests that carry a fee, or a tip with the wrap, are not counted. Past a limit the relay still proves the request, and it is settled from the sender’s own account instead.'));
+    h('div', { class: 'rows' }, Object.entries(CLASS_WORDS).map(([k, label]) => { const c = sp.classes[k]; return kv(label, c.cap == null ? `${c.used} so far` : `${c.used} of ${c.cap}`); }),
+      sp.prove ? kv('Proofs for requests the sender settles', sp.prove.cap == null ? `${sp.prove.used} so far` : `${sp.prove.used} of ${sp.prove.cap}${sp.prove.perClient ? `, up to ${sp.prove.perClient} per sender` : ''}`) : null),
+    h('p', { class: 'note' }, 'Requests that carry a fee, or a tip with the wrap, are not counted. Past a limit the relay still proves the request, and it is settled from the sender’s own account instead; past the proofs’ limit a request goes through the relay with a fee, or is proved locally.'));
 }
 
 function paintCosts(j) {

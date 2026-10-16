@@ -773,6 +773,23 @@ async function openCycle() {
   return true;
 }
 
+// What a free prove-only job is told when the credit is kept back. Public (the job's status carries it), so it says what to do and
+// nothing about balances.
+export const FREE_PROVE_HELD = 'the relay is keeping its proving credit for the bridge right now: send it through the relay instead (it carries a fee), or try again later';
+// The last credit reading if it is recent, else a fresh one, at most every two minutes; an unreadable credit holds nothing back.
+let freeProveReadAt = 0;
+async function freeProveAllowed() {
+  let c = lastProverCredit();
+  if (!c || Date.now() - c.at > 10 * 60_000) {
+    if (Date.now() - freeProveReadAt >= 120_000) {
+      freeProveReadAt = Date.now();
+      try { await readProverCredit(); } catch {}
+      c = lastProverCredit();
+    }
+  }
+  return !c || c.wei == null || BigInt(c.wei) >= CFG.freeProveMinCreditWei;
+}
+
 async function cycle() {
   const short = await fundsShort();
   const paused = await pause.check();
@@ -801,6 +818,15 @@ async function cycle() {
   const memos = Array.isArray(job.memos) ? job.memos : [];
   if (!OP_GAS[type] && type !== 'transfer') {
     // unknown-but-provable ops still allowed; gas defaults. Only truly-unknown type fails at prove.
+  }
+
+  // A free prove-only job (the holder sends the settle, the relay pays only the proof) is proved only while the credit holds what the
+  // bridge's attests and paid work need (FREE_PROVE_MIN_CREDIT_WEI). The API turns such jobs away at submit on the same figure; this is
+  // the backstop for one already queued. A wrap whose deposit tipped the relay is paid work and is proved whatever the credit.
+  if (mode === 'prove' && !job.paid && !(await freeProveAllowed())) {
+    log(`job ${jobId} type=${type} prove-only held: the credit is under ${(Number(CFG.freeProveMinCreditWei) / 1e18).toFixed(0)} PROVE, kept for the bridge and paid work`);
+    await confidentialAck({ jobId, error: FREE_PROVE_HELD });
+    return true;
   }
 
   const [gasGwei, ethPx] = await Promise.all([liveGasGwei(), ethUsdPrice()]);

@@ -68,9 +68,15 @@ test('replenish sweeps every earner, and the sink is the relay wallet', () => {
   const loop = loopOf();
   ok(loop.length > 0, 'earner loop not found');
   ok(!/relayWallet\./.test(loop), 'the earner loop references relayWallet directly');
-  for (const call of ['maxPreApprove(assets, wallet, false)', 'fireSwap(q, wallet)', 'wallet.sendTransaction']) {
+  for (const call of ['maxPreApprove(assets, wallet, false)', 'fireSwap(q, wallet)']) {
     ok(loop.includes(call), `earner loop does not sign with the earner's own wallet: ${call}`);
   }
+  // The treasury pass moves the settle wallet's ETH (lib/treasury-plan.js) and signs with that wallet's own handle too.
+  const treasury = replenish.slice(replenish.indexOf('async function runTreasury'), replenish.indexOf('// One replenish pass'));
+  ok(treasury.length > 0, 'treasury pass not found');
+  ok(/wallet\.sendTransaction\(\{ to: sinkAddr, value: plan\.toRelayWei \}\)/.test(treasury), 'the relay wallet is not fed from the settle wallet by its own handle');
+  ok(/fireSwap\(q, wallet\)/.test(treasury), 'the PROVE purchase is not signed by the settle wallet');
+  ok(!/relayWallet\./.test(treasury), 'the treasury pass references relayWallet directly');
 });
 
 test('gas is bought before PROVE', () => {
@@ -104,7 +110,9 @@ test('only the sink deposits to the vApp, once, after every earner has delivered
 test('the sink gets its own gas, since it earns nothing', () => {
   const loop = loopOf();
   ok(/gasLegs\.push\(\[sinkAddr, 'sink'\]\)/.test(loop), 'no exact-out gas leg for the sink');
-  ok(/to: sinkAddr, value: send/.test(loop), 'native ETH surplus is not forwarded to the sink');
+  // Native ETH reaches the sink through the treasury pass, by runway (lib/treasury-plan.js), not by a fixed float.
+  ok(/await runTreasury\(settleEarner, sink, \{ credit, convertToProve \}\)/.test(replenish), 'the treasury pass is not run for the settle earner');
+  ok(/planTreasury\(\{/.test(replenish) && /relay: toSink \? \{ wei: relayWei, burnPerDayWei: relayBurn, floorWei: relayFloor \}/.test(replenish), 'the relay wallet is not a taker in the plan');
   ok(/toSink/.test(loop), 'the sink legs must only apply when earner and sink differ');
 });
 
@@ -370,6 +378,15 @@ test('a gate that cannot read gas or ETH price fails OPEN, not closed', async ()
   ok(await noEth({ type: 'transfer', op: transfer(cUsd, 1) }) === true, 'no ETH price must fail open for a USD fee');
 });
 
+test('a priced job names the public token its fee pays out in, and the job keeps it for the relay\'s books', () => {
+  ok(/out\.feeToken = feeTokenOf\(p\);/.test(worker), 'the pricer does not name the fee token');
+  ok(/cETH: '0x0000000000000000000000000000000000000000'/.test(worker) && /cUSD: '0x23cACFFAc2674514A6d4F6cD420B4cc2aC921564'/.test(worker) && /cBTC: '0xdf1d99148bEb7a9AFf1d95C49B3d22b7ed90D696'/.test(worker) && /cTAC: '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279'/.test(worker), 'the ticker -> token table is incomplete');
+  const settleSrc = readFileSync(join(__dirname, '../worker/src/confidential-settle.js'), 'utf8');
+  ok(/feeToken: priced\?\.feeToken \?\? null,/.test(settleSrc), 'submitJob does not keep the fee token');
+  ok(/\.\.\.\(paid === true \? \{ paid: true \} : \{\}\)/.test(settleSrc), 'submitJob does not keep the paid mark');
+  ok(/paid: paidProve \|\| undefined/.test(worker), 'the submit route does not pass the paid mark');
+});
+
 // ── prove-mode: a bounded subsidy, and a budget that junk cannot drain ─────────
 const submitSrc = worker.slice(worker.indexOf('const budgetKey'), worker.indexOf('async function handleConfidentialJob'));
 function loadSubmit({ cap = '3', freeCap = '3', env = {}, submitJob, kvStore = new Map(), feeOf = () => 0n, tipPaid = async () => false, health = async () => ({ status: 'ok', age_seconds: 5, note: 'settle: idle — queue empty' }), expiryOf = (type, op) => (type === 'unwrap' ? Number(op?.opDeadline || 0) : 0) }) {
@@ -400,6 +417,41 @@ test('junk submissions cannot drain the prove budget', async () => {
   ok([...kvStore.values()].every((v) => Number(v) === 0) || kvStore.size === 0, `failed submits spent the budget: ${[...kvStore.entries()]}`);
   const real = await loadSubmit({ cap: '3', submitJob: async () => ({ jobId: 'j', status: 'pending' }), kvStore }).call({ type: 'transfer', op: {}, mode: 'prove' });
   ok(real.status === 200, 'a real job must still be accepted after a flood of junk');
+});
+
+test('a free prove-only job is turned away while the credit is kept for the bridge; a tipped wrap is paid work and passes', async () => {
+  let n = 0;
+  const health = (credit) => async () => ({ status: 'ok', age_seconds: 5, note: 'settle: idle — queue empty', prover_credit: credit });
+  const low = loadSubmit({ cap: '50', submitJob: async () => ({ jobId: 'j' + ++n, status: 'pending' }), health: health('21.86') });
+  const r = await low.call({ type: 'unwrap', op: {}, mode: 'prove' });
+  ok(r.status === 503 && r.body.code === 'prove_reserved' && r.headers['Retry-After'] === '600', `under 40 PROVE a free proof is refused, got ${r.status} ${r.body.code}`);
+  ok(/through the relay instead/.test(r.body.error) && !/\d+ PROVE|balance|gas/.test(r.body.error), 'the refusal says what to do and nothing about balances');
+  ok(low.kvStore.size === 0, 'a refusal spent budget');
+  const settle = await low.call({ type: 'unwrap', op: {}, mode: 'settle' });
+  ok(settle.status === 200, `a relayed settle is not held by the reserve, got ${settle.status} ${settle.body.code}`);
+  const paid = await loadSubmit({ cap: '50', submitJob: async () => ({ jobId: 'w', status: 'pending' }), health: health('5'), tipPaid: async () => true }).call({ type: 'wrap', op: {}, mode: 'prove', depositTx: '0x' + 'ab'.repeat(32) });
+  ok(paid.status === 200, `a wrap whose deposit tipped is proved whatever the credit, got ${paid.status} ${paid.body.code}`);
+  const fine = loadSubmit({ cap: '50', submitJob: async () => ({ jobId: 'k', status: 'pending' }), health: health('45') });
+  ok((await fine.call({ type: 'unwrap', op: {}, mode: 'prove' })).status === 200, 'at 45 PROVE a free proof is taken');
+  const custom = loadSubmit({ cap: '50', env: { PROVE_MODE_MIN_CREDIT: '50' }, submitJob: async () => ({ jobId: 'k', status: 'pending' }), health: health('45') });
+  ok((await custom.call({ type: 'unwrap', op: {}, mode: 'prove' })).body.code === 'prove_reserved', 'PROVE_MODE_MIN_CREDIT sets the reserve');
+  const off = loadSubmit({ cap: '50', env: { PROVE_MODE_MIN_CREDIT: '0' }, submitJob: async () => ({ jobId: 'k', status: 'pending' }), health: health('1') });
+  ok((await off.call({ type: 'unwrap', op: {}, mode: 'prove' })).status === 200, 'PROVE_MODE_MIN_CREDIT=0 turns the reserve off');
+  const unread = loadSubmit({ cap: '50', submitJob: async () => ({ jobId: 'k', status: 'pending' }), health: async () => ({ status: 'ok', age_seconds: 5, note: 'settle: idle — queue empty' }) });
+  ok((await unread.call({ type: 'unwrap', op: {}, mode: 'prove' })).status === 200, 'an unread credit holds nothing back');
+});
+
+test('one client gets its own share of the day\'s free proofs; a tipped wrap spends none of it', async () => {
+  let n = 0;
+  const { call, kvStore } = loadSubmit({ cap: '50', env: { PROVE_MODE_CLIENT_DAILY_CAP: '2' }, submitJob: async () => ({ jobId: 'j' + ++n, status: 'pending' }) });
+  ok((await call({ type: 'unwrap', op: {}, mode: 'prove' })).status === 200 && (await call({ type: 'unwrap', op: {}, mode: 'prove' })).status === 200, 'two within the client cap');
+  const third = await call({ type: 'unwrap', op: {}, mode: 'prove' });
+  ok(third.status === 429 && third.body.code === 'prove_budget' && third.body.class === 'client' && /2\/2/.test(third.body.error), `the third from one client is refused, got ${third.status} ${JSON.stringify(third.body)}`);
+  ok([...kvStore.keys()].some((k) => k.startsWith('cps:budget:prove:1.2.3.4:')), 'the client counter is keyed by its address');
+  ok(Number(kvStore.get([...kvStore.keys()].find((k) => /^cps:budget:prove:\d{4}/.test(k)))) === 2, 'the global counter counts the two accepted');
+  const paid = loadSubmit({ cap: '50', env: { PROVE_MODE_CLIENT_DAILY_CAP: '1' }, submitJob: async () => ({ jobId: 'w', status: 'pending' }), tipPaid: async () => true });
+  for (let i = 0; i < 3; i++) ok((await paid.call({ type: 'wrap', op: {}, mode: 'prove', depositTx: '0x' + 'ab'.repeat(32) })).status === 200, 'a tipped wrap is never counted');
+  ok(paid.kvStore.size === 0, 'a tipped wrap spent budget');
 });
 
 test('a deduped submit does not spend the budget', async () => {

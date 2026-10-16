@@ -1819,6 +1819,7 @@ async function handleRelayEconomics(env, cors) {
   const bkv = env.CONFIDENTIAL_KV || env.REGISTRY_KV, used = async (name) => { try { return Number((await bkv.get(budgetKey(name))) || 0); } catch { return 0; } };
   const sponsorship = { day: new Date().toISOString().slice(0, 10), total: { used: await used('free'), cap: Number(env.FREE_RELAY_DAILY_CAP || 300) }, classes: {} };
   for (const k of FREE_CLASSES) sponsorship.classes[k] = { used: await used(`free:${k}`), cap: freeClassCap(env, k) };
+  sponsorship.prove = { used: await used('prove'), cap: Number(env.PROVE_MODE_DAILY_CAP || 150), perClient: Number(env.PROVE_MODE_CLIENT_DAILY_CAP || 20) };
   return jsonResponse(buildEconomics({ ledger: hb && hb.ledger, heartbeatAt: hb && hb.ts, chain, tips, prices: _econPrices.v, sponsorship }), 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
 }
 
@@ -2790,6 +2791,18 @@ function hasVerifiableFee(type, op, env = {}) {
 // `ammFeeAsset` values the fee through a deep enough public AMM pool against one of those. Everything else
 // returns feeUsd: null, which the relay reads as "unpaid work" and logs, rather than as permission to relay
 // for free.
+// The public ERC-20 a fee leg pays out in (the pool's `_payout` delivers the underlying, never a note), by the asset row's ticker: the
+// settle relay's books count a fee by this address (worker-relay/src/lib/income-ledger.js). The zero address is native ETH.
+const FEE_TOKEN_BY_TICKER = {
+  cETH: '0x0000000000000000000000000000000000000000',
+  cTAC: '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279', TAC: '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279',
+  cUSD: '0x23cACFFAc2674514A6d4F6cD420B4cc2aC921564', cBTC: '0xdf1d99148bEb7a9AFf1d95C49B3d22b7ed90D696',
+  cUSDC: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', cUSDT: '0xdAC17F958D2ee523a2206206994597C13D831ec7', cwstETH: '0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0',
+};
+function feeTokenOf(p) {
+  const t = p && p.row && p.row.ticker;
+  return (t && FEE_TOKEN_BY_TICKER[t]) || null;
+}
 function buildFeePricer(env) {
   return async ({ type, op }) => {
     let units;
@@ -2799,9 +2812,10 @@ function buildFeePricer(env) {
     // zero against cost and refuse every one of them. Unpriced is the honest value: the relay logs it as
     // subsidised work, and the daily free-relay budget below is what bounds it.
     if (!units || units <= 0n) return { feeUnits: '0', feeUsd: null };
-    const out = { feeUnits: units.toString(), feeUsd: null };
+    const out = { feeUnits: units.toString(), feeUsd: null, feeToken: null };
     const p = feeAssetRow(type, op, env) || ammFeeAsset(type, op, env);
     if (!p) return out; // carried a fee, can't price it
+    out.feeToken = feeTokenOf(p);
     if (p.kind === 'eth') {
       const ethUsd = await _ethUsdPrice().catch(() => null);
       if (!ethUsd) return out;
@@ -3178,8 +3192,11 @@ async function spendDailyBudget(env, name) {
     await kv.put(key, String(used + 1), { expirationTtl: 172800 });
   });
 }
-const proveBudget = (env) => dailyBudget(env, 'prove', Number(env.PROVE_MODE_DAILY_CAP || 400));
+const proveBudget = (env) => dailyBudget(env, 'prove', Number(env.PROVE_MODE_DAILY_CAP || 150));
 const spendProveBudget = (env) => spendDailyBudget(env, 'prove');
+// One client's share of the day's relay-paid proofs, by its address as the proxy reports it; 'anon' (no address) is bounded by the
+// global cap alone.
+const proveClientBudget = (env, ip) => (!ip || ip === 'anon' ? Promise.resolve({ ok: true, used: 0, cap: 0 }) : dailyBudget(env, `prove:${ip}`, Number(env.PROVE_MODE_CLIENT_DAILY_CAP || 20)));
 // Relayed ops that carry NO fee at all (fee-less by design: wrap, cbtcmint …, or a zero-fee bridgemint) are a deliberate
 // subsidy, and the per-IP bucket bounds one source, not many. Same two rules as the prove budget: spent only on
 // an ACCEPTED, non-deduped job (junk can't drain it), and refusal says what to do instead.
@@ -3219,9 +3236,12 @@ const RELAY_PROVING = new Set(['ok', 'busy', 'held']);
 const RELAY_SETTLING = new Set(['ok', 'busy']);
 async function relayState(env) {
   let h;
-  try { h = await readProverKindHealth(env, 'mainnet', 'settle'); } catch { return null; }
+  try { h = await readProverKindHealth(env, 'mainnet', 'settle', true); } catch { return null; }
   const note = String(h.note || '');
-  const at = (state, board = false) => ({ state, board, ageSeconds: Number.isFinite(h.age_seconds) ? h.age_seconds : null });
+  // The credit the relay last reported (whole PROVE), for the submit route's reserve on free prove-only jobs; the public relay route
+  // never passes it on.
+  const credit = typeof h.prover_credit === 'string' && /^\d{1,12}(\.\d{1,4})?$/.test(h.prover_credit) ? Number(h.prover_credit) : null;
+  const at = (state, board = false) => ({ state, board, credit, ageSeconds: Number.isFinite(h.age_seconds) ? h.age_seconds : null });
   if (h.status === 'unknown' || h.status === 'down' || h.status === 'process_down') return at('down');
   if (RELAY_PAUSE_NOTE.test(note)) return at('paused');
   if (h.status === 'low_gas' || RELAY_HOLD_NOTE.test(note)) return at('held', RELAY_BOARD_NOTE.test(note));
@@ -3372,16 +3392,28 @@ async function handleConfidentialSubmit(req, env, cors) {
     const cls = freeClassOf(body.type), cb = await freeClassBudget(env, cls);
     if (!cb.ok) return jsonResponse({ ok: false, error: `free relayed settles for today are used up (${cb.used}/${cb.cap}) — attach a fee above the floor, or prove-mode and settle it yourself`, code: 'free_budget', class: cls }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '3600' });
   }
-  if (submitMode === 'prove') {
+  // A prove-only job spends the relay's PROVE and can carry no fee (the holder sends the settle, so a fee bound into the op pays the
+  // holder). A wrap whose deposit tipped the relay is paid work and passes; the rest is the relay's gift, bounded three ways: the
+  // credit is kept for the bridge's attests and paid work under PROVE_MODE_MIN_CREDIT, one client gets PROVE_MODE_CLIENT_DAILY_CAP a day,
+  // and all of them PROVE_MODE_DAILY_CAP. The refusal says what to do instead: a relayed settle carries a fee, and local proving is free.
+  const clientIp = req.headers.get('CF-Connecting-IP') || 'anon';
+  const paidProve = submitMode === 'prove' && body.type === 'wrap' && await wrapTipPaid(env, body);
+  if (submitMode === 'prove' && !paidProve) {
+    const minCredit = Number(env.PROVE_MODE_MIN_CREDIT || 40);
+    if (relay && relay.credit != null && minCredit > 0 && relay.credit < minCredit) {
+      return jsonResponse({ ok: false, error: 'the relay is keeping its proving credit for the bridge right now — send it through the relay instead (it carries a fee), prove it with your own prover account, or try again later', code: 'prove_reserved', retryAfter: 600 }, 503, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '600' });
+    }
     const b = await proveBudget(env);
     if (!b.ok) return jsonResponse({ ok: false, error: `prove capacity for today is used up (${b.used}/${b.cap}) — prove locally instead, or use a relayed settle`, code: 'prove_budget' }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '3600' });
+    const cb = await proveClientBudget(env, clientIp);
+    if (!cb.ok) return jsonResponse({ ok: false, error: `your share of relay-paid proofs for today is used up (${cb.used}/${cb.cap}) — send it through the relay instead (it carries a fee), prove locally, or try again tomorrow`, code: 'prove_budget', class: 'client' }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '3600' });
   }
   try {
     const r = await q.submitJob({ type: body.type, op: body.op, memos: body.memos, mode: body.mode, feeAsset: body.feeAsset, exit: body.exit,
-      publicValues: body.publicValues, proof: body.proof });
+      publicValues: body.publicValues, proof: body.proof, paid: paidProve || undefined });
     // Spend only on a job we actually accepted and will prove — a dedupe hit costs us nothing.
     if (!r.deduped) {
-      if (submitMode === 'prove') await spendProveBudget(env).catch(() => {});
+      if (submitMode === 'prove' && !paidProve) { await spendProveBudget(env).catch(() => {}); await spendDailyBudget(env, `prove:${clientIp}`).catch(() => {}); }
       else if (feeless) { await spendDailyBudget(env, 'free').catch(() => {}); await spendDailyBudget(env, `free:${freeClassOf(body.type)}`).catch(() => {}); if (mintBurn) await spendDailyBudget(env, `bridgemint:${mintBurn}`).catch(() => {}); }
     }
     return jsonResponse({ ok: true, ...r, ...(relay ? { relay: relay.state } : {}) }, 200, { ...cors, 'Cache-Control': 'no-store' });
