@@ -79,47 +79,6 @@ envVarGroups:
         sync: false
 
 services:
-  # Cron ($ = runtime only): incremental Bitcoin-state reflection attester. A 5-min cron keeps
-  # pace with Bitcoin's ~10-min blocks (lag ≪ the ~60-min maturity window) — no always-on worker
-  # needed. RUN_MODE=cron drains pending batches then exits. Switch type→worker for zero-lag.
-  # RETIRED 2026-10-16: the reflection folder runs inside tacit-eth-state (src/bitcoin-lane.js), the moment its eth-state fuel
-  # is there instead of at the next five-minute mark, and never at the same time as an eth_prove. The cron stays declared so
-  # the blueprint keeps its record, scheduled once a year and running nothing. To run the folder alone again: schedule
-  # "*/5 * * * *", dockerCommand `node src/reflection-folder.js`, and LANE_REFLECTION=0 on tacit-eth-state.
-  - type: cron
-    name: tacit-reflection
-    runtime: docker
-    rootDir: worker-relay
-    dockerfilePath: ./Dockerfile
-    plan: starter
-    schedule: "0 0 1 1 *"
-    dockerCommand: 'echo tacit-reflection is retired - the reflection folder runs inside tacit-eth-state'
-    autoDeploy: false
-    envVars:
-      - fromGroup: tacit-relay-shared
-      - key: RUN_MODE
-        value: cron
-
-  # Cron: BitcoinLightRelay header feeder — submits BTC headers (advanceTip) so the relay confirms blocks
-  # ahead of reflection. No proving; just fetch headers + one on-chain tx. Paced to stay ≤ HEADER_RELAY_LEAD
-  # ahead of reflection's attested height (maturity-window constraint).
-  # RETIRED 2026-10-16: the header feeder runs inside tacit-eth-state (src/bitcoin-lane.js) every HEADER_EVERY_SECS, with no
-  # container start per run. To run it alone again: schedule "*/3 * * * *", dockerCommand `node src/header-relay.js`, and
-  # LANE_HEADERS=0 on tacit-eth-state.
-  - type: cron
-    name: tacit-header
-    runtime: docker
-    rootDir: worker-relay
-    dockerfilePath: ./Dockerfile
-    plan: starter
-    schedule: "0 0 1 1 *"
-    dockerCommand: 'echo tacit-header is retired - the header feeder runs inside tacit-eth-state'
-    autoDeploy: false
-    envVars:
-      - fromGroup: tacit-relay-shared
-      - key: RUN_MODE
-        value: cron
-
   # Always-on worker: Mode-B eth-state producer (src/eth-state-sidecar.js). Publishes the eth-side
   # crossOut/consumed candidate tacit-reflection's ethBundleSource needs for every Mode-B attest — see
   # that file's header comment for why this must track "is a candidate currently live," not
@@ -317,23 +276,8 @@ services:
       - key: SETTLE_RPC_URLS
         value: "https://rpc.flashbots.net,https://rpc.mevblocker.io"
 
-  # Inert. Replenish runs inside tacit-settle, in the loop's idle time (REPLENISH_IN_SETTLE), because that is
-  # where the fee income lands and it serialises with settles on the one relayer key's nonce. Kept defined, inert
-  # and suspended so a blueprint sync cannot start a second replenisher on the same wallet's nonces. Do not point
-  # this at src/replenish.js.
-  - type: cron
-    name: tacit-replenish
-    runtime: docker
-    rootDir: worker-relay
-    dockerfilePath: ./Dockerfile
-    plan: starter
-    schedule: "0 0 1 1 *"
-    dockerCommand: 'echo tacit-replenish is retired - replenish runs inside tacit-settle'
-    autoDeploy: false
-    envVars:
-      - fromGroup: tacit-relay-shared
-
-  # Cron: balance + reflection-lag pager.
+  # Cron: balance + reflection-lag pager. It only reads, so it is DELIBERATELY NOT in tacit-relay-shared (which carries RELAY_KEY and
+  # the prover key): it names the wallets it watches by address and holds only the tokens it needs to read the API.
   - type: cron
     name: tacit-monitor
     runtime: docker
@@ -344,9 +288,48 @@ services:
     dockerCommand: node src/balance-monitor.js
     autoDeploy: false
     envVars:
-      - fromGroup: tacit-relay-shared
-      - key: ETH_GAS_BUFFER_WEI
-        value: "30000000000000000"
+      - key: WORKER_BASE
+        value: https://api.tacit.finance
+      - key: NETWORK
+        value: mainnet
+      - key: CHAIN_ID
+        value: "1"
+      - key: POOL_ADDR
+        value: "0x000000000Ed1eabD231Be41d93b719056F7febFC"
+      - key: HEADER_RELAY_ADDR
+        value: "0x20A6ddc2C6E620c6248B5A34E85996516FDd19D0"
+      - key: VAPP_DEPOSIT_ADDR
+        value: "0x5Ad5Bc4B18f7c173DcE17A57682Cb0Dc8788951F"
+      - key: PROVE_TOKEN_ADDR
+        value: "0x6BEF15D938d4E72056AC92Ea4bDD0D76B1C4ad29"
+      - key: ZQUOTER_ADDR
+        value: "0x000000bd2DB80567c23E353ca95a251c573cBf9B"
+      - key: ZROUTER_ADDR
+        value: "0x000000000000FB114709235f1ccBFfb925F600e4"
+      - key: REFLECTION_GENESIS_HEIGHT
+        value: "964471"
+      - key: ETH_STATE_PENDING_STALE_SECS
+        value: "5400"
+      - key: MAX_GAS_GWEI
+        value: "5"
+      - key: MIN_FLOOR_USD
+        value: "0.5"
+      - key: OPS_MARGIN
+        value: "0.12"
+      - key: BPS_CAP
+        value: "30"
+      # The wallets it watches, by address: the settle wallet and the relay wallet (headers, attests, the prover account).
+      - key: SETTLE_ADDRESS
+        value: "0x7a0F0511E1DcF399C2F7bbe8414b6a0D1ABc4331"
+      - key: RELAY_ADDRESS
+        value: "0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7"
+      # ── Secrets (set in dashboard): the read endpoint and the API tokens; no signing key ──
+      - key: RPC_URL
+        sync: false
+      - key: BOX_TOKEN
+        sync: false
+      - key: PROVER_HEARTBEAT_TOKEN
+        sync: false
       # Healthy steady state is ~HEADER_RELAY_LEAD (144) plus a few blocks of batch cadence, so this sits above it.
       - key: REFLECTION_LAG_ALERT_BLOCKS
         value: "200"

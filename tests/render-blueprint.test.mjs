@@ -37,13 +37,17 @@ const svc = (n) => relay.services.find((s) => s.name === n);
 const envKeys = (s) => (s.envVars || []).map((e) => e.key).filter(Boolean);
 
 test('every service the relay depends on is declared', () => {
-  for (const n of ['tacit-settle', 'tacit-header', 'tacit-reflection', 'tacit-eth-state', 'tacit-monitor']) ok(svc(n), `${n} is missing`);
+  for (const n of ['tacit-settle', 'tacit-eth-state', 'tacit-monitor']) ok(svc(n), `${n} is missing`);
 });
 
-test('one signing key: SETTLE_KEY is not declared anywhere', () => {
-  // A second key splits fee income from the account that funds proving (the network prover account).
+test('no signing key is declared for a service that only reads', () => {
+  // SETTLE_KEY is set on tacit-settle in the dashboard, never in the blueprint; the monitor is outside the shared group (which carries
+  // RELAY_KEY and the prover key) and names the two wallets it watches by address.
   for (const s of relay.services) ok(!envKeys(s).includes('SETTLE_KEY'), `${s.name} declares SETTLE_KEY`);
-  ok(!envKeys(svc('tacit-monitor')).includes('SETTLE_ADDRESS'), 'the monitor still watches a second, retired wallet');
+  const mon = svc('tacit-monitor');
+  ok(!(mon.envVars || []).some((e) => e.fromGroup === 'tacit-relay-shared'), 'the monitor is in the shared key group');
+  for (const k of ['SETTLE_ADDRESS', 'RELAY_ADDRESS', 'BOX_TOKEN', 'PROVER_HEARTBEAT_TOKEN', 'RPC_URL']) ok(envKeys(mon).includes(k), `the monitor does not declare ${k}`);
+  for (const k of ['RELAY_KEY', 'NETWORK_PRIVATE_KEY']) ok(!envKeys(mon).includes(k), `the monitor declares ${k}`);
 });
 
 test('replenish runs inside tacit-settle, and the old cron is inert', () => {
@@ -51,7 +55,7 @@ test('replenish runs inside tacit-settle, and the old cron is inert', () => {
   for (const k of ['REPLENISH_IN_SETTLE', 'REPLENISH_INTERVAL_MIN', 'FEE_ASSETS']) ok(settle.includes(k), `tacit-settle does not declare ${k}`);
   // A resumed cron running replenish.js would be a SECOND replenisher racing settle for the same wallet's nonces.
   const cron = svc('tacit-replenish');
-  if (cron) ok(!/replenish\.js/.test(cron.dockerCommand || ''), 'tacit-replenish would run replenish.js again');
+  ok(!cron, 'tacit-replenish is declared again');
 });
 
 test('the Bitcoin lane is one worker: tacit-eth-state runs it, and the reflection and header crons are inert', () => {
@@ -60,12 +64,9 @@ test('the Bitcoin lane is one worker: tacit-eth-state runs it, and the reflectio
   const keys = envKeys(lane);
   for (const k of ['LANE_ETH_STATE', 'LANE_REFLECTION', 'LANE_HEADERS', 'HEADER_EVERY_SECS', 'HEADER_MAX_GAS_GWEI', 'HEADER_RELAY_LEAD', 'HEADER_RELAY_MIN_BATCH', 'REFLECT_CYCLE_LIMIT', 'REFLECT_GAS_LIMIT']) ok(keys.includes(k), `tacit-eth-state does not declare ${k}`);
   ok(!keys.includes('RUN_MODE'), 'the lane is an always-on worker, not a cron run');
-  // A cron still running its file beside the lane would prove the same batch twice and race the lane for the relay key's nonces.
-  for (const [n, file] of [['tacit-reflection', 'reflection-folder.js'], ['tacit-header', 'header-relay.js']]) {
-    const c = svc(n);
-    ok(!new RegExp(file.replace('.', '\\.')).test(c.dockerCommand || ''), `${n} would run ${file} beside the lane`);
-    ok(c.schedule === '0 0 1 1 *', `${n} is still scheduled`);
-  }
+  // A cron still running its file beside the lane would prove the same batch twice and race the lane for the relay key's nonces: the
+  // reflection, header and replenish crons are gone from the blueprint (deleted on Render 2026-10-16).
+  for (const n of ['tacit-reflection', 'tacit-header', 'tacit-replenish']) ok(!svc(n), `${n} is declared again`);
 });
 
 test('settlement keeps its private-submission safety', () => {
