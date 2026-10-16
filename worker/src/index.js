@@ -3291,7 +3291,7 @@ async function handleProverBoard(req, env, url, cors) {
     try {
       if (url.pathname === '/prover/claim') {
         const want = Array.isArray(b.classes) && b.classes.length ? b.classes.filter((c) => worker.classes.includes(c)) : worker.classes;
-        const job = await board.claim({ worker, classes: want });
+        const job = await board.claim({ worker, classes: want, pubkey: typeof b.pubkey === 'string' ? b.pubkey : null });
         return jsonResponse(job ? { job } : {}, 200, nostore);
       }
       return jsonResponse(await board.result({ worker, jobId: b.jobId, publicValues: b.publicValues ?? null, proof: b.proof ?? null, error: b.error ?? null }), 200, nostore);
@@ -3342,6 +3342,29 @@ async function handleConfidentialSubmit(req, env, cors) {
   // The flag only chooses WHICH bucket applies. Fee-paying relayed submits get their own, more generous
   // allowance (they are paying for the work); prove-only and unflagged submits keep the strict one.
   const submitMode = body.mode || 'settle';
+  // A sealed job (worker/src/confidential-settle.js) carries no op to read: it is metered on the strict bucket, refused while the relay
+  // is not proving or the worker it is sealed to has not polled the board lately, and otherwise queued as it is. Its fee is read from
+  // the proof by the relay, so none of the fee-based doors below apply.
+  if (submitMode === 'sealed') {
+    const ip = req.headers.get('CF-Connecting-IP') || 'anon';
+    const rl = await proveRateLimit(env, ip);
+    if (!rl.ok) return jsonResponse({ ok: false, error: `too many submit requests — retry in ~${rl.retryAfter}s`, retryAfter: rl.retryAfter }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': String(rl.retryAfter) });
+    const relay = await relayState(env);
+    if (relay && (relay.state === 'paused' || relay.state === 'down')) {
+      return jsonResponse({ ok: false, error: 'the relay isn’t proving right now — send it unsealed with your own prover account, or try again later', code: 'relay_paused', retryAfter: 300 }, 503, { ...cors, 'Cache-Control': 'no-store' });
+    }
+    const board = buildProverBoard(env, { hash: boardHash });
+    const sum = board ? await board.summary().catch(() => null) : null;
+    const to = body.sealed && typeof body.sealed === 'object' ? String(body.sealed.worker || '') : '';
+    const w = sum && sum.workers.find((x) => x.name === to);
+    if (!w || Number(w.lastSeenSeconds) > 60) {
+      return jsonResponse({ ok: false, error: `the prover machine this is sealed to (${to || 'none named'}) is not taking jobs right now — try again in a few minutes, or send it unsealed`, code: 'sealed_unavailable', retryAfter: 120 }, 503, { ...cors, 'Cache-Control': 'no-store' });
+    }
+    try {
+      const r = await q.submitJob({ type: body.type, memos: body.memos, mode: 'sealed', feeAsset: body.feeAsset, sealed: body.sealed });
+      return jsonResponse({ ok: true, ...r, ...(relay ? { relay: relay.state } : {}) }, 200, { ...cors, 'Cache-Control': 'no-store' });
+    } catch (e) { return jsonResponse({ ok: false, error: String(e.message || e) }, 400, { ...cors, 'Cache-Control': 'no-store' }); }
+  }
   // "Paying" means the gate can actually VERIFY a fee: a cETH fee leg above zero, which buildRelayFeeGate
   // then holds to the gas-priced floor. Anything it cannot price — zero-fee ops, or a fee in any other
   // asset — passes that gate ungated, so it must stay on the strict bucket.
@@ -3418,7 +3441,7 @@ async function handleConfidentialSubmit(req, env, cors) {
   }
   try {
     const r = await q.submitJob({ type: body.type, op: body.op, memos: body.memos, mode: body.mode, feeAsset: body.feeAsset, exit: body.exit,
-      publicValues: body.publicValues, proof: body.proof, paid: paidProve || undefined });
+      publicValues: body.publicValues, proof: body.proof, paid: paidProve || undefined, sealed: body.sealed });
     // Spend only on a job we actually accepted and will prove — a dedupe hit costs us nothing.
     if (!r.deduped) {
       if (submitMode === 'prove' && !paidProve) { await spendProveBudget(env).catch(() => {}); await spendDailyBudget(env, `prove:${clientIp}`).catch(() => {}); }

@@ -18,8 +18,11 @@
 
 use std::time::{Duration, Instant};
 
+use aes_gcm::{aead::{Aead, KeyInit, Payload}, Aes256Gcm, Nonce};
 use base64::Engine;
+use k256::{ecdh::diffie_hellman, elliptic_curve::sec1::ToEncodedPoint, PublicKey, SecretKey};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use sp1_sdk::{
     blocking::{ProveRequest, Prover, ProverClient},
     Elf, HashableKey, ProvingKey, SP1Stdin,
@@ -35,18 +38,73 @@ struct Claim {
 struct Job {
     #[serde(rename = "jobId")]
     job_id: String,
-    stdin: String,
+    stdin: Option<String>,
+    sealed: Option<Sealed>,
     #[serde(rename = "cycleLimit")]
     cycle_limit: Option<f64>,
     deadline: Option<f64>,
     label: Option<String>,
 }
 
+// An input the page encrypted to this worker alone (dapp/sealed-input.js): `epk` the page's one-time secp256k1 public key
+// (33 bytes, hex), `iv` 12 bytes and `ct` the AES-256-GCM ciphertext with its tag (base64). The key is
+// SHA-256("tacit-sealed-input-v1" ‖ ECDH x-coordinate ‖ this worker's public key ‖ epk); the plaintext is the bincode
+// SP1Stdin. Nothing but this worker's key opens it: the API and the relay only ever hold the ciphertext.
+#[derive(Deserialize)]
+struct Sealed {
+    epk: String,
+    iv: String,
+    ct: String,
+}
+const SEALED_DOMAIN: &[u8] = b"tacit-sealed-input-v1";
+
 fn env_or(k: &str, d: &str) -> String {
     std::env::var(k).unwrap_or_else(|_| d.to_string())
 }
 
+// This worker's long-lived key, kept at WORKER_KEY_FILE (default /workspace/worker.key, 32 bytes hex) and made on first use.
+fn worker_key() -> SecretKey {
+    let path = env_or("WORKER_KEY_FILE", "/workspace/worker.key");
+    if let Ok(h) = std::fs::read_to_string(&path) {
+        let b = hex::decode(h.trim().trim_start_matches("0x")).expect("WORKER_KEY_FILE holds hex");
+        return SecretKey::from_slice(&b).expect("WORKER_KEY_FILE holds a secp256k1 key");
+    }
+    let sk = SecretKey::random(&mut rand::thread_rng());
+    std::fs::write(&path, hex::encode(sk.to_bytes())).expect("write WORKER_KEY_FILE");
+    #[cfg(unix)]
+    { use std::os::unix::fs::PermissionsExt; let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)); }
+    sk
+}
+
+fn unseal(sk: &SecretKey, my_pub: &[u8], s: &Sealed) -> Result<Vec<u8>, String> {
+    let epk_bytes = hex::decode(s.epk.trim_start_matches("0x")).map_err(|e| format!("sealed.epk is not hex: {e}"))?;
+    let epk = PublicKey::from_sec1_bytes(&epk_bytes).map_err(|e| format!("sealed.epk is not a secp256k1 point: {e}"))?;
+    let shared = diffie_hellman(sk.to_nonzero_scalar(), epk.as_affine());
+    let mut h = Sha256::new();
+    h.update(SEALED_DOMAIN);
+    h.update(shared.raw_secret_bytes());
+    h.update(my_pub);
+    h.update(&epk_bytes);
+    let key = h.finalize();
+    let iv = base64::engine::general_purpose::STANDARD.decode(&s.iv).map_err(|e| format!("sealed.iv is not base64: {e}"))?;
+    let ct = base64::engine::general_purpose::STANDARD.decode(&s.ct).map_err(|e| format!("sealed.ct is not base64: {e}"))?;
+    if iv.len() != 12 { return Err("sealed.iv must be 12 bytes".into()); }
+    let cipher = Aes256Gcm::new_from_slice(&key).map_err(|e| e.to_string())?;
+    cipher.decrypt(Nonce::from_slice(&iv), Payload { msg: &ct, aad: SEALED_DOMAIN }).map_err(|_| "the sealed input does not open with this worker's key".to_string())
+}
+
 fn main() {
+    // UNSEAL_TEST=<file>: open a sealed input ({ epk, iv, ct } as JSON) with this worker's key, print the SHA-256 of what is
+    // inside, and exit: how the page's sealing (dapp/sealed-input.js) is checked against this side without a GPU.
+    if let Ok(path) = std::env::var("UNSEAL_TEST") {
+        let sk = worker_key();
+        let my_pub = sk.public_key().to_encoded_point(true).as_bytes().to_vec();
+        let s: Sealed = serde_json::from_str(&std::fs::read_to_string(&path).expect("read UNSEAL_TEST")).expect("UNSEAL_TEST is { epk, iv, ct }");
+        match unseal(&sk, &my_pub, &s) {
+            Ok(pt) => { println!("UNSEAL_OK bytes={} sha256={}", pt.len(), hex::encode(Sha256::digest(&pt))); return; }
+            Err(e) => { println!("UNSEAL_FAILED {e}"); std::process::exit(1); }
+        }
+    }
     let bench = std::env::var("BENCH").ok();
     let base = env_or("BOARD_URL", "https://api.tacit.finance").trim_end_matches('/').to_string();
     let token = if bench.is_some() { String::new() } else { std::env::var("WORKER_TOKEN").expect("WORKER_TOKEN is the bearer the API knows this worker by") };
@@ -104,6 +162,10 @@ fn main() {
     let claim_url = format!("{base}/prover/claim");
     let result_url = format!("{base}/prover/result");
     let auth = format!("Bearer {token}");
+    let sk = worker_key();
+    let my_pub = sk.public_key().to_encoded_point(true).as_bytes().to_vec();
+    let my_pub_hex = format!("0x{}", hex::encode(&my_pub));
+    println!("[{name}] sealed inputs may be encrypted to {my_pub_hex}");
     let mut quiet = 0u32;
     // A GPU server that died (the client then reports a lost connection) or a run of failed jobs is not something this
     // process can mend: it exits, and the loop around it starts a fresh worker and server. Three in a row, so one bad
@@ -118,7 +180,7 @@ fn main() {
         let claimed: Result<Claim, String> = agent
             .post(&claim_url)
             .set("Authorization", &auth)
-            .send_json(serde_json::json!({ "worker": name, "classes": classes }))
+            .send_json(serde_json::json!({ "worker": name, "classes": classes, "pubkey": my_pub_hex }))
             .map_err(|e| e.to_string())
             .and_then(|r| r.into_json::<Claim>().map_err(|e| e.to_string()));
         let job = match claimed {
@@ -141,7 +203,11 @@ fn main() {
         let t = Instant::now();
         // The job: its input decoded, proved as groth16 within its cycle limit → (public values, proof bytes as settle() takes them).
         let outcome: Result<(Vec<u8>, Vec<u8>), String> = (|| {
-            let bytes = base64::engine::general_purpose::STANDARD.decode(&job.stdin).map_err(|e| format!("stdin is not base64: {e}"))?;
+            let bytes = match (&job.sealed, &job.stdin) {
+                (Some(s), _) => unseal(&sk, &my_pub, s)?,
+                (None, Some(b)) => base64::engine::general_purpose::STANDARD.decode(b).map_err(|e| format!("stdin is not base64: {e}"))?,
+                (None, None) => return Err("the job carries neither stdin nor a sealed input".to_string()),
+            };
             let stdin: SP1Stdin = bincode::deserialize(&bytes).map_err(|e| format!("stdin is not a bincode SP1Stdin: {e}"))?;
             if let Some(dl) = job.deadline {
                 let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);

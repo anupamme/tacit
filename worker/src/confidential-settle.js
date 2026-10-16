@@ -115,8 +115,22 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
   //   'prove'            — the relayer proves but does NOT submit; it acks { publicValues, proof } which the
   //                        dapp embeds into a USER-SENT ConfidentialRouter tx (wrapAndSettle* / zapETHToPayment /
   //                        farm bond). The router pulls from msg.sender, so only the user can send it.
-  async function submitJob({ type, op, memos, mode = 'settle', feeAsset = null, exit = null, publicValues = null, proof = null, paid = false }) {
+  // `mode: 'sealed'`: the page sends no op, only the program input it built encrypted to one prover-board worker's key
+  // (dapp/sealed-input.js, `sealed: { worker, epk, iv, ct }`) and the memos. The job is a relayed settle whose witness
+  // the API and the relay never read: the relay hands the ciphertext to that worker, checks the proof against the pool
+  // and the memos, prices the fee from the proof's own fee legs, and sends. No other prover can take it, so while that
+  // worker is away the job fails rather than going elsewhere.
+  const SEALED_SHAPE = (x) => x && typeof x === 'object' && typeof x.worker === 'string' && /^[A-Za-z0-9_.-]{1,40}$/.test(x.worker)
+    && typeof x.epk === 'string' && /^0x0[23][0-9a-fA-F]{64}$/.test(x.epk) && typeof x.iv === 'string' && /^[A-Za-z0-9+/]+={0,2}$/.test(x.iv) && x.iv.length === 16
+    && typeof x.ct === 'string' && /^[A-Za-z0-9+/]+={0,2}$/.test(x.ct) && x.ct.length >= 24 && x.ct.length <= 1_400_000;
+  async function submitJob({ type, op, memos, mode = 'settle', feeAsset = null, exit = null, publicValues = null, proof = null, paid = false, sealed = null }) {
     if (mode === 'preproven') return postProven({ type, memos, publicValues, proof });
+    if (mode === 'sealed') {
+      if (!type || !SEALED_SHAPE(sealed)) throw new Error('submitJob: a sealed job needs type + sealed { worker, epk, iv, ct }');
+      if (!OPEN_TYPES.includes(type)) throw new Error(`submitJob: a ${type} cannot be sent sealed (its settle is not a plain pool.settle)`);
+      if (exit != null) throw new Error('submitJob: a sealed job cannot carry an exit recipe');
+      return submitSealed({ type, sealed, memos: memos || [], feeAsset });
+    }
     if (!type || !op) throw new Error('submitJob: type + op required');
     // Drop a caller-supplied feeUsd FIRST, before anything derives from `op`.
     //
@@ -340,6 +354,23 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
   // `mode`, when given, takes only jobs of that mode ('prove' or 'settle'), oldest first; others stay queued.
   // `openable` takes only a relayed job that may go on the board once proved (the relay proves those while it cannot
   // pay for settles, so a sender can take them).
+  async function submitSealed({ type, sealed, memos, feeAsset }) {
+    const id = hash(JSON.stringify({ type, sealed: sealed.ct }));
+    return exclusive(async () => {
+      const seen = await storage.getJob(id);
+      if (seen && seen.status !== 'failed') return { jobId: id, status: seen.status, deduped: true };
+      const job = {
+        id, type, op: null, mode: 'settle', sealed: { worker: sealed.worker, epk: sealed.epk, iv: sealed.iv, ct: sealed.ct }, memos,
+        feeUnits: null, feeUsd: null, feeToken: null, feeAsset: feeAsset || null, exit: null, activateTx: null, activateError: null,
+        status: 'pending', createdAt: clock(), claimedAt: 0, txHash: null, error: null,
+      };
+      await storage.putJob(id, job);
+      const pend = await storage.getPending();
+      if (!pend.includes(id)) { pend.push(id); await storage.putPending(pend); }
+      return { jobId: id, status: 'pending' };
+    });
+  }
+
   async function nextJob({ mode = null, openable = false } = {}) {
     const pend = await storage.getPending();
     for (const id of pend) {
@@ -364,7 +395,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
       // `mode` tells the relayer whether to submit on-chain ('settle') or just return the proof ('prove').
       // feeUnits/feeUsd are the worker-DERIVED fee (see submitJob). They must ride along or the relay's
       // profitability gate sees undefined and treats every job as unpaid work.
-      return { jobId: id, type: j.type, op: j.op, memos: j.memos, mode: j.mode || 'settle', feeAsset: j.feeAsset || null, exit: j.exit || null, feeUnits: j.feeUnits ?? null, feeUsd: j.feeUsd ?? null };
+      return { jobId: id, type: j.type, op: j.op, sealed: j.sealed || null, memos: j.memos, mode: j.mode || 'settle', feeAsset: j.feeAsset || null, exit: j.exit || null, feeUnits: j.feeUnits ?? null, feeUsd: j.feeUsd ?? null };
     }
     return null;
   }
@@ -494,7 +525,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
       if (LANES.includes(lane)) j.lane = lane;
       delete j.broadcastHashes; // resolved: the one that landed is j.txHash
       // The op is the user's witness; a settled job has no further use for it (its id, memos and transaction stay).
-      delete j.op;
+      delete j.op; if (j.sealed) j.sealed = { worker: j.sealed.worker };
       recordActivation(j, activateTx, activateError);
     }
     await storage.putJob(jobId, j);
@@ -544,7 +575,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
     // recipients and go on chain with the settle.
     // A send a relay took and never finished reads open again once its claim lapses.
     const status = j.status === 'sending' && isOpen(j) ? 'open' : j.status;
-    return { jobId, type: j.type, mode: j.mode || 'settle', status, txHash: j.txHash, error: j.error, lane: j.lane || null,
+    return { jobId, type: j.type, mode: j.mode || 'settle', status, txHash: j.txHash, error: j.error, lane: j.lane || null, sealed: !!j.sealed,
       createdAt: j.createdAt, publicValues: j.publicValues || null, proof: j.proof || null,
       // An open job's memos are public for the same reason: any sender needs them, and they go on chain with the settle.
       memos: (j.status === 'proven' || j.status === 'open' || j.status === 'sending') && Array.isArray(j.memos) ? j.memos : null,

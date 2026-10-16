@@ -55,7 +55,7 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     try {
       if (!st || !st.jobId || typeof globalThis.dispatchEvent !== 'function' || typeof CustomEvent !== 'function') return;
       const detail = { jobId: st.jobId, type: st.type || jobTypes.get(st.jobId) || null, status: st.status || 'unknown',
-        txHash: st.txHash || null, error: st.error || null, lane: st.lane || null, at: Date.now(), ...(jobBy.get(st.jobId) ? { by: jobBy.get(st.jobId) } : {}) };
+        txHash: st.txHash || null, error: st.error || null, lane: st.lane || null, sealed: !!st.sealed, at: Date.now(), ...(jobBy.get(st.jobId) ? { by: jobBy.get(st.jobId) } : {}) };
       globalThis.dispatchEvent(new CustomEvent('tacit:job', { detail }));
     } catch { /* listeners are best effort */ }
   }
@@ -135,9 +135,15 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     // the one place that must bridge it: stringify every BigInt at the wire boundary rather than pushing
     // `.toString()` onto each builder and risking a mismatch with call sites that still expect BigInt back.
     const bigintSafe = (_, v) => typeof v === 'bigint' ? v.toString() : v;
+    // Sealed (useSealer): a relayed settle whose op never reaches the relay; the sealer encrypts the program input to one
+    // prover-board worker and only that ciphertext and the memos are sent. A prove-only call, a call the caller sends to the
+    // relay on purpose (viaRelay), a wrap (its fee is the deposit's tip, read from `depositTx`) or an exit are sent as they always were.
+    const sealedIn = sealer && !mode && !depositTx && !(waitOpts && waitOpts.viaRelay) ? await sealer({ type, op, memos: sealedMemos }) : null;
     const res = await f(`${root}/confidential/submit`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ type, op, memos: sealedMemos, ...(mode ? { mode } : {}), ...(feeAsset ? { feeAsset } : {}), ...(depositTx ? { depositTx } : {}) }, bigintSafe),
+      body: JSON.stringify(sealedIn
+        ? { type, mode: 'sealed', sealed: sealedIn, memos: sealedMemos, ...(feeAsset ? { feeAsset } : {}) }
+        : { type, op, memos: sealedMemos, ...(mode ? { mode } : {}), ...(feeAsset ? { feeAsset } : {}), ...(depositTx ? { depositTx } : {}) }, bigintSafe),
     });
     const body = await asJson(res);
     if (body && body.jobId) {
@@ -381,6 +387,10 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
   // 'spn:<requestId>', and `onJob` fires once the network has the request. useProver(null) goes back to the relay. A
   // relayed settle() is not affected: a page that proves on its own account also sends the settle itself (selfSettle).
   let ownProver = null;
+  // `useSealer(fn)`: every relayed settle's input is sealed by `fn({ type, op, memos })` → { worker, epk, iv, ct } (dapp/sealed-input.js)
+  // before it goes, so the relay holds only ciphertext; useSealer(null) sends ops in the clear again.
+  let sealer = null;
+  function useSealer(fn) { sealer = typeof fn === 'function' ? fn : null; }
   const OWN_ID = /^spn:/;
   const ownJobs = new Map();                                       // 'spn:<requestId>' -> its last state, for status()
   function useProver(fn) { ownProver = typeof fn === 'function' ? fn : null; }
@@ -418,5 +428,5 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     }
   }
 
-  return { submitOp, status, state, waitForSettle, settle, waitForProof, prove, provenMemos, verifyEmittedMemos, landed, openJobs, postProof, useProver, ownProving: () => !!ownProver };
+  return { submitOp, status, state, waitForSettle, settle, waitForProof, prove, provenMemos, verifyEmittedMemos, landed, openJobs, postProof, useProver, ownProving: () => !!ownProver, useSealer, sealing: () => !!sealer };
 }

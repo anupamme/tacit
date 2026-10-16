@@ -28,7 +28,7 @@ function mockFetch(q) {
     const reply = (status, obj) => ({ ok: status >= 200 && status < 300, status, statusText: String(status), text: async () => JSON.stringify(obj) });
     if (url.pathname === '/confidential/submit' && opts.method === 'POST') {
       const b = JSON.parse(opts.body);
-      try { return reply(200, { ok: true, ...(await q.submitJob({ type: b.type, op: b.op, memos: b.memos, mode: b.mode })) }); }
+      try { return reply(200, { ok: true, ...(await q.submitJob({ type: b.type, op: b.op, memos: b.memos, mode: b.mode, sealed: b.sealed })) }); }
       catch (e) { return reply(400, { error: String(e.message) }); }
     }
     if (url.pathname === '/confidential/status') {
@@ -553,6 +553,47 @@ const swapOp = { reserveAPre: 1000, reserveBPre: 1000, intents: [{ amountIn: 100
   const sub = await makeConfidentialRelay({ base: '', fetchImpl: accepted }).submitOp({ type: 'unwrap', op: { v: 1 }, memos: [], mode: 'prove' });
   assert.strictEqual(sub.relay, 'held', 'the submit answer keeps where the relay stood');
   ok('state() reads where the relay stands every 15 s at most and never throws; relayCanProve; relay_paused keeps its code, status and retryAfter; a submit keeps `relay`');
+}
+
+// ───────────────── sealed: with a sealer set, a relayed settle sends ciphertext and memos, never the op ─────────────────
+{
+  const q = makeConfidentialSettler({ storage: freshStore(), hash, now: () => Date.now(), sleep: async () => {} });
+  const bodies = [];
+  const f = mockFetch(q);
+  const spy = async (u, o) => { if (o && o.body) bodies.push(JSON.parse(o.body)); return f(u, o); };
+  const relay = makeConfidentialRelay({ base: '', fetchImpl: spy });
+  const sealedBox = { worker: 'tacit-a5000', epk: '0x02' + 'ab'.repeat(32), iv: 'AAAAAAAAAAAAAAAA', ct: 'QUJD'.repeat(10) };
+  const seen = [];
+  assert.strictEqual(relay.sealing(), false);
+  relay.useSealer(async (x) => { seen.push(x); return sealedBox; });
+  assert.strictEqual(relay.sealing(), true);
+  const op = { chainBinding: '0xcb', spendRoot: '0xr', fee: 1, secret: 'witness' };
+  const r = await relay.submitOp({ type: 'transfer', op, memos: ['0x01'] });
+  assert.strictEqual(r.status, 'pending');
+  assert.strictEqual(seen.length, 1); assert.strictEqual(seen[0].type, 'transfer'); assert.strictEqual(seen[0].op, op); assert.deepStrictEqual(seen[0].memos, ['0x01']);
+  assert.deepStrictEqual(bodies[0], { type: 'transfer', mode: 'sealed', sealed: sealedBox, memos: ['0x01'] }, 'the op is not in the body');
+  const st = await relay.status(r.jobId);
+  assert.strictEqual(st.sealed, true);
+  const job = await q.nextJob();
+  assert.strictEqual(job.op, null); assert.deepStrictEqual(job.sealed, sealedBox);
+  // a prove-only call, a call sent to the relay on purpose and a wrap with its deposit go unsealed
+  await relay.submitOp({ type: 'transfer', op, memos: ['0x02'], mode: 'prove' });
+  assert.strictEqual(bodies[1].mode, 'prove'); assert.ok(bodies[1].op);
+  await relay.submitOp({ type: 'transfer', op: { ...op, secret: 'w2' }, memos: ['0x03'] }, { viaRelay: true });
+  assert.strictEqual(bodies[2].mode, undefined); assert.ok(bodies[2].op);
+  await relay.submitOp({ type: 'transfer', op: { ...op, secret: 'w3' }, memos: ['0x04'], depositTx: '0xdep' });
+  assert.ok(bodies[3].op); assert.strictEqual(bodies[3].depositTx, '0xdep');
+  assert.strictEqual(seen.length, 1, 'the sealer was asked once');
+  // a sealer that answers null sends the op as usual; a sealer that throws stops the submit with its error, nothing sent
+  relay.useSealer(async () => null);
+  await relay.submitOp({ type: 'transfer', op: { ...op, secret: 'w4' }, memos: ['0x05'] });
+  assert.ok(bodies[4].op); assert.strictEqual(bodies[4].mode, undefined);
+  relay.useSealer(async () => { throw Object.assign(new Error('machine away'), { code: 'sealed_unavailable' }); });
+  await assert.rejects(() => relay.submitOp({ type: 'transfer', op: { ...op, secret: 'w5' }, memos: ['0x06'] }), (e) => e.code === 'sealed_unavailable');
+  assert.strictEqual(bodies.length, 5, 'nothing was sent');
+  relay.useSealer(null);
+  assert.strictEqual(relay.sealing(), false);
+  ok('useSealer: a relayed settle goes as { type, mode: sealed, sealed, memos } without the op; prove, viaRelay and a wrap go unsealed; null sends as usual; a throw sends nothing');
 }
 
 console.log(`\n${n} confidential-relay checks passed.`);

@@ -23,7 +23,7 @@
 import { CFG, ADDR, OP_GAS, DEFAULT_OP_GAS, OP_PROVE } from './lib/config.js';
 import { confidentialJob, confidentialBatch, confidentialAck, confidentialActivateAck, confidentialOpenList, confidentialOpenJob, confidentialQueue, heartbeat, heartbeatIdle, setHeartbeatLedger, relayBooks } from './lib/worker-client.js';
 import { makeBatchWindow } from './lib/batch-window.js';
-import { proveSettle, proveMixed } from './lib/prover.js';
+import { proveSettle, proveMixed, proveSealed } from './lib/prover.js';
 import { notExecuted } from './lib/stdin-prover.js';
 import { assertMemosMatchProof } from './lib/memo-root.js';
 import { consumedInput, consumedAck, unlandedDeposits, spentInputsOf, noteNullifier } from './lib/spent-precheck.js';
@@ -680,6 +680,58 @@ async function settleMixed(jobs) {
   return true;
 }
 
+// A job sealed to one board worker (its witness never readable here): proved there or failed with the reason; the fee it
+// binds is read from the proof's own ETH legs and held to the same floor as any relayed op; then sent as any settle.
+async function settleSealed(job, memos) {
+  const { jobId, type } = job;
+  log(`job ${jobId} type=${type} sealed to ${job.sealed.worker} — proving on the board`);
+  await beat(`proving ${jobId} ${type} (sealed)`);
+  let proof;
+  try {
+    proof = await beating(`proving ${jobId} ${type} (sealed)`, () => proveSealed({ type, sealed: job.sealed, memos, timeoutMs: CFG.settleJobTimeoutSecs * 1000 }));
+  } catch (e) {
+    log(`job ${jobId} sealed prove failed: ${e.message}`);
+    await confidentialAck({ jobId, error: e.code === 'sealed_unavailable' || e.code === 'sealed_unsupported' ? e.message : `prove failed: ${safeErr(e)}` });
+    return true;
+  }
+  const [gasGwei, ethPx] = await Promise.all([liveGasGwei(), ethUsdPrice()]);
+  const provePx = await provePriceUsd(ethPx);
+  let feeUsd = null;
+  try {
+    const wei = ethFeeWei(proof.publicValues, { ethAssetId: CFG.ethAssetId, ethUnitScale: CFG.ethUnitScale });
+    if (wei > 0n && ethPx) feeUsd = (Number(wei) / 1e18) * Number(ethPx);
+  } catch { feeUsd = null; }
+  // A sealed op's fee can only be read from its proof, and only an ETH leg is priced here: without one the relay would be
+  // settling blind for free, which the open free-settle budget cannot meter, so it is refused rather than subsidised.
+  if (feeUsd == null) {
+    log(`job ${jobId} type=${type} (sealed) carries no ETH fee leg the relay can read from its proof`);
+    await confidentialAck({ jobId, error: 'a sealed action must bind its relay fee in ETH, which the relay reads from the proof; nothing was sent — send it with an ETH fee, or unsealed' });
+    return true;
+  }
+  const gate = await feeGate({ ...job, feeUsd }, gasGwei, provePx, ethPx);
+  if (!gate.ok) {
+    log(`job ${jobId} type=${type} (sealed) rejected by feeGate: ${gate.reason}`);
+    await confidentialAck({ jobId, error: `feeGate: ${gate.publicReason || gate.reason}` });
+    return true;
+  }
+  let txHash;
+  try {
+    txHash = await submitSettle(proof, memos, `job ${jobId}`);
+  } catch (e) {
+    log(`job ${jobId} (sealed) settle failed: ${e.message}`);
+    const pending = Array.isArray(e.broadcastHashes) && e.broadcastHashes.length ? ` — broadcast and possibly still pending: ${e.broadcastHashes.join(', ')}` : '';
+    const sel = e.revertSelector ? ` (${e.revertSelector})` : '';
+    await confidentialAck({ jobId, error: `settle reverted: ${safeErr(e, 200 - pending.length - sel.length)}${sel}${pending}`, broadcastHashes: e.broadcastHashes });
+    abandoned.remember(job, e.broadcastHashes);
+    return true;
+  }
+  log(`settled: job=${jobId} tx=${txHash} (board, sealed)`);
+  await confidentialAck({ jobId, txHash, lane: 'board' });
+  bookSettled([job], txHash);
+  await beat(`settled ${jobId}`);
+  return true;
+}
+
 // A settle is paid from the settle wallet after its proof is bought, and a node refuses a send whose worst-case fee
 // the wallet cannot cover, so while the wallet is short every job it settles would be proved and then failed. Those
 // jobs wait as queued until it is funded again, and nothing is spent on a proof that cannot land. A job that asks
@@ -842,6 +894,9 @@ async function cycle() {
   // claimed and unacked, so it comes back to the queue when the claim lapses, and nothing is spent on it now.
   if (short && mode !== 'prove' && !(holding && openable(job))) return false;
   const memos = Array.isArray(job.memos) ? job.memos : [];
+  // A sealed job carries no op the checks below could read: it is proved on the board (or not at all), then checked and priced
+  // from the proof itself.
+  if (job.sealed && mode === 'settle') return settleSealed(job, memos);
   if (!OP_GAS[type] && type !== 'transfer') {
     // unknown-but-provable ops still allowed; gas defaults. Only truly-unknown type fails at prove.
   }

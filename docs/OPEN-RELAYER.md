@@ -153,13 +153,26 @@ proves in time goes to the network as before, so a worker that stops only stops 
 
 | route | |
 |---|---|
-| `GET /prover/board` | `{ queued, claimed, proved, failed, workers: [{ name, proved, failed, bad, lastSeenSeconds }], lease }`, for anyone. No inputs, no proofs. |
+| `GET /prover/board` | `{ queued, claimed, proved, failed, workers: [{ name, proved, failed, bad, lastSeenSeconds, pubkey? }], lease }`, for anyone. No inputs, no proofs. `pubkey` is the compressed secp256k1 key a worker takes sealed inputs under (below). |
 | `POST /prover/claim` | Worker token. `{ worker, classes }` → `{ job: { jobId, program, stdin, cycleLimit, gasLimit, deadline, leaseUntil, label } }`, or `{}`. `stdin` is base64 of the bincode `SP1Stdin`. The claim is a lease (five minutes); a worker that goes quiet loses the job to the next claim. |
 | `POST /prover/result` | Worker token. `{ jobId, publicValues, proof }` (hex; `proof` as `settle()` takes it) or `{ jobId, error }`. |
 
 **Who may prove what.** The API knows each worker by a bearer token (`PROVER_WORKER_TOKENS`, `name:token[:classes]`).
 The `private` class carries a user's witness, so it goes only to workers Tacit runs or has named for it; the `public` class
 is work whose input is public anyway. A proof the pool refuses counts against its worker and the job goes on to the network.
+
+**Sealed inputs.** A page can keep an op from the relay and the API altogether: it builds the program input itself
+(`dapp/sp1-stdin.js`, the same bytes the relay would build), encrypts it to one worker's `pubkey` from the board
+(`dapp/sealed-input.js`: secp256k1 ECDH with a one-time key, SHA-256 over the domain `tacit-sealed-input-v1`, the shared
+x-coordinate and both keys, then AES-256-GCM with that domain as the associated data) and posts
+`POST /confidential/submit` `{ type, mode: 'sealed', sealed: { worker, epk, iv, ct }, memos }`. The API queues the
+ciphertext for that worker only; the relay offers it on the board, and the worker opens it with its key
+(`prover-worker/src/main.rs`, `unseal`; the key lives in `WORKER_KEY_FILE`, made on first start and sent with each claim).
+Nothing else reads the op: the relay prices the fee from the proof's tETH legs (a sealed op must pay its relay fee in
+tETH, or it is refused) and simulates the settle as for any proof. A sealed job is never sent to the prover network: while
+the worker it is sealed to has not polled in a minute the submit is refused (`503`, code `sealed_unavailable`), and one
+the worker fails is failed, so the page sends it again or unsealed. The site offers this under *Prove it yourself → Seal
+my actions to Tacit's prover machine*; a settled sealed job reads `sealed: true` on its status.
 
 **Running a worker.** [`contracts/sp1/confidential/prover-worker/`](../contracts/sp1/confidential/prover-worker/) is the
 worker: one binary that builds the CUDA prover and the proving key once, warms the Groth16 stages at start, then claims,

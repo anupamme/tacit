@@ -293,4 +293,35 @@ const routeOp = { asset0: 'aa', assetFinal: 'bb', hops: [{ reserveAPre: '1000', 
   ok('a settled job drops its op (the witness); its id, memos and transaction stay');
 }
 
+// ───────────────── 16. a sealed job: no op, the ciphertext for one worker, the fee read later from its proof ─────────────────
+{
+  const store = freshStore();
+  const q = makeConfidentialSettler({ storage: store, hash, now, sleep: instantSleep });
+  const sealed = { worker: 'tacit-a5000', epk: '0x02' + 'ab'.repeat(32), iv: 'AAAAAAAAAAAAAAAA', ct: 'QUJD'.repeat(10) };
+  const a = await q.submitJob({ type: 'transfer', mode: 'sealed', sealed, memos: ['0x01'] });
+  assert.strictEqual(a.status, 'pending');
+  const again = await q.submitJob({ type: 'transfer', mode: 'sealed', sealed: { ...sealed, epk: '0x03' + 'cd'.repeat(32) }, memos: ['0x01'] });
+  assert.strictEqual(again.jobId, a.jobId, 'the same ciphertext is one job'); assert.ok(again.deduped);
+  await assert.rejects(() => q.submitJob({ type: 'transfer', mode: 'sealed', sealed: { ...sealed, ct: 'short' } }), /sealed \{ worker, epk, iv, ct \}/);
+  await assert.rejects(() => q.submitJob({ type: 'bridgemint', mode: 'sealed', sealed, memos: [] }), /cannot be sent sealed/);
+  await assert.rejects(() => q.submitJob({ type: 'transfer', mode: 'sealed', sealed, memos: [], exit: { to: '0x1' } }), /exit recipe/);
+  const st = await q.jobStatus(a.jobId);
+  assert.strictEqual(st.sealed, true); assert.strictEqual(st.mode, 'settle');
+  const job = await q.nextJob();
+  assert.strictEqual(job.jobId, a.jobId); assert.strictEqual(job.op, null); assert.deepStrictEqual(job.sealed, sealed);
+  assert.strictEqual(job.feeUsd, null, 'no fee is known before the proof');
+  await q.ackJob(a.jobId, { txHash: '0xtx', lane: 'board' });
+  const rec = await store.getJob(a.jobId);
+  assert.strictEqual(rec.status, 'settled'); assert.deepStrictEqual(rec.sealed, { worker: 'tacit-a5000' }, 'the ciphertext is dropped once settled');
+  const done = await q.jobStatus(a.jobId);
+  assert.strictEqual(done.sealed, true); assert.strictEqual(done.lane, 'board'); assert.strictEqual(done.txHash, '0xtx');
+  const b = await q.submitJob({ type: 'transfer', mode: 'sealed', sealed: { ...sealed, ct: 'REVG'.repeat(10) }, memos: [] });
+  await q.nextJob();
+  await q.ackJob(b.jobId, { error: 'the sealed prover is not available right now' });
+  assert.strictEqual((await q.jobStatus(b.jobId)).status, 'failed');
+  const c = await q.submitJob({ type: 'transfer', mode: 'sealed', sealed: { ...sealed, ct: 'REVG'.repeat(10) }, memos: [] });
+  assert.strictEqual(c.jobId, b.jobId); assert.strictEqual(c.status, 'pending', 'a failed sealed job can be sent again');
+  ok('sealed: queued without an op, deduped by ciphertext, handed to the relay as sealed, ciphertext dropped once settled, resendable once failed');
+}
+
 console.log(`\n${n} confidential-settle checks passed.`);

@@ -323,6 +323,25 @@ async function viaBoard({ stdin, cycleLimit, gasLimit, label, memos, timeoutMs }
   }
 }
 
+// A job whose input the page sealed to one board worker (worker/src/confidential-settle.js `mode: 'sealed'`): the relay
+// holds only the ciphertext, so this lane is the only one; a board that misses fails the job with a reason the page can
+// show, and nothing is spent. → { publicValues, proof, lane: 'board', worker }
+export async function proveSealed({ type, sealed, memos = [], timeoutMs }) {
+  const lane = boardLane();
+  const unavailable = (why) => Object.assign(new Error(`the sealed prover is not available right now (${why}); nothing was spent — send it again in a few minutes, or send it unsealed`), { code: 'sealed_unavailable' });
+  if (!lane) throw unavailable('the board is off');
+  const limits = LIMITS[type];
+  if (!limits) throw Object.assign(new Error(`a ${type} cannot be proved sealed`), { code: 'sealed_unsupported' });
+  try {
+    const r = await lane.prove({ sealed, ...limits, cls: 'private', label: `sealed ${type}`, memos, timeoutMs });
+    boardLog(`sealed ${type}: proved on the board by ${r.worker}`);
+    return { publicValues: r.publicValues, proof: r.proof, lane: 'board', worker: r.worker };
+  } catch (e) {
+    if (e.code !== 'board_miss') throw e;
+    throw unavailable(e.reason || e.message);
+  }
+}
+
 // Several ops of different types in ONE proof, from one program input built here and requested from the network directly
 // (lib/stdin-prover.js): the per-op binaries above prove one op each, and exec-batchtransfer transfers only. `items` are
 // [{ type, op, memos }] in settle order. → { publicValues, proof, requestId, private, numOps }

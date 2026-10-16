@@ -79,24 +79,31 @@ export function makeProverBoard({ storage, hash, now, lock } = {}) {
     }
     return keep;
   }
-  const over = (j) => { j.stdin = null; j.endedAt = clock(); };
+  const over = (j) => { j.stdin = null; j.sealed = null; j.endedAt = clock(); };
 
-  // The relay posts work. The same input posted twice is one job (its id is the hash of what the worker proves).
-  async function post({ class: cls, program = 'confidential', stdin, cycleLimit, gasLimit, deadline, label = null } = {}) {
+  // The relay posts work. The same input posted twice is one job (its id is the hash of what the worker proves). A job
+  // carries either `stdin` (the input, for any worker of its class) or `sealed` (dapp/sealed-input.js: the input encrypted
+  // to one named worker's key, which only that worker is offered; the board itself cannot read it).
+  async function post({ class: cls, program = 'confidential', stdin, sealed, cycleLimit, gasLimit, deadline, label = null } = {}) {
     if (!PROVER_BOARD.classes.includes(cls)) throw new Error(`class must be one of ${PROVER_BOARD.classes.join(', ')}`);
     if (!PROVER_BOARD.programs.includes(program)) throw new Error(`program must be one of ${PROVER_BOARD.programs.join(', ')}`);
-    if (typeof stdin !== 'string' || !stdin || !B64.test(stdin) || b64len(stdin) > PROVER_BOARD.maxStdinBytes) throw new Error(`stdin must be base64 of at most ${PROVER_BOARD.maxStdinBytes} bytes`);
+    const sealedOk = sealed && typeof sealed === 'object' && typeof sealed.worker === 'string' && /^[A-Za-z0-9_.-]{1,40}$/.test(sealed.worker)
+      && typeof sealed.epk === 'string' && /^0x0[23][0-9a-fA-F]{64}$/.test(sealed.epk) && typeof sealed.iv === 'string' && B64.test(sealed.iv) && b64len(sealed.iv) === 12
+      && typeof sealed.ct === 'string' && B64.test(sealed.ct) && b64len(sealed.ct) > 16 && b64len(sealed.ct) <= PROVER_BOARD.maxStdinBytes + 16;
+    if (sealed != null && !sealedOk) throw new Error('sealed must be { worker, epk (compressed secp256k1 hex), iv (12 bytes base64), ct (base64) }');
+    if (!sealedOk && (typeof stdin !== 'string' || !stdin || !B64.test(stdin) || b64len(stdin) > PROVER_BOARD.maxStdinBytes)) throw new Error(`stdin must be base64 of at most ${PROVER_BOARD.maxStdinBytes} bytes`);
     const cyc = Number(cycleLimit), gas = Number(gasLimit), dl = Number(deadline);
     if (!Number.isFinite(cyc) || cyc <= 0 || !Number.isFinite(gas) || gas <= 0) throw new Error('cycleLimit and gasLimit must be positive');
     if (!Number.isFinite(dl) || dl * 1000 <= clock()) throw new Error('deadline must be a unix time in the future');
     if (label != null && (typeof label !== 'string' || label.length > 80)) throw new Error('label must be a short string');
     return exclusive(async () => {
       const pend = await sweep(await storage.getPending());
-      const jobId = id(`${program}|${cls}|${stdin}`);
+      const jobId = id(`${program}|${cls}|${sealedOk ? `sealed:${sealed.ct}` : stdin}`);
       const have = await storage.getJob(jobId);
       if (have && ['queued', 'claimed'].includes(have.status)) return { jobId, status: have.status, deduped: true };
       if (pend.filter((x) => x !== jobId).length >= PROVER_BOARD.maxPending) throw Object.assign(new Error('the board is full'), { code: 'full' });
-      const job = { id: jobId, class: cls, program, stdin, cycleLimit: cyc, gasLimit: gas, deadline: dl, label, status: 'queued', postedAt: clock(),
+      const job = { id: jobId, class: cls, program, stdin: sealedOk ? null : stdin, sealed: sealedOk ? { worker: sealed.worker, epk: sealed.epk, iv: sealed.iv, ct: sealed.ct } : null,
+        cycleLimit: cyc, gasLimit: gas, deadline: dl, label, status: 'queued', postedAt: clock(),
         worker: null, leaseUntil: 0, claimedAt: 0, endedAt: 0, publicValues: null, proof: null, error: null, lapsed: 0 };
       await storage.putJob(jobId, job);
       await storage.putPending([...pend.filter((x) => x !== jobId), jobId]);
@@ -109,7 +116,7 @@ export function makeProverBoard({ storage, hash, now, lock } = {}) {
     const j = await storage.getJob(String(jobId || ''));
     if (!j) return null;
     const live = j.status === 'claimed' && clock() > j.leaseUntil ? 'queued' : j.status === 'queued' && j.deadline && clock() > j.deadline * 1000 ? 'expired' : j.status;
-    return { jobId: j.id, class: j.class, program: j.program, status: live, worker: live === 'claimed' ? j.worker : j.status === 'proved' || j.status === 'failed' ? j.worker : null,
+    return { jobId: j.id, class: j.class, program: j.program, status: live, sealedTo: j.sealed ? j.sealed.worker : null, worker: live === 'claimed' ? j.worker : j.status === 'proved' || j.status === 'failed' ? j.worker : null,
       postedAt: j.postedAt, claimedAt: j.claimedAt || null, endedAt: j.endedAt || null, publicValues: j.publicValues, proof: j.proof, error: j.error, lapsed: j.lapsed || 0 };
   }
 
@@ -127,19 +134,21 @@ export function makeProverBoard({ storage, hash, now, lock } = {}) {
     });
   }
 
-  async function bump(name, field) {
+  async function bump(name, field, pubkey = null) {
     const ws = await workers();
     const w = ws[name] || (ws[name] = { proved: 0, failed: 0, bad: 0, lapsed: 0, lastSeen: 0, firstSeen: clock() });
     if (field) w[field] = (w[field] || 0) + 1;
+    if (pubkey && /^0x0[23][0-9a-fA-F]{64}$/.test(pubkey)) w.pubkey = pubkey.toLowerCase();
     w.lastSeen = clock();
     await storage.putWorkers(ws);
   }
 
   // A worker takes the oldest job of a class it may prove, and holds it for the lease. `{}` when there is nothing.
-  async function claim({ worker, classes } = {}) {
+  // `pubkey`: the key inputs may be sealed to (prover-worker/src/main.rs), shown on the summary.
+  async function claim({ worker, classes, pubkey = null } = {}) {
     if (!worker || !Array.isArray(classes) || !classes.length) throw new Error('worker and classes are required');
     return exclusive(async () => {
-      await bump(worker.name, null);
+      await bump(worker.name, null, pubkey);
       const pend = await sweep(await storage.getPending());
       await storage.putPending(pend);
       let open = 0;
@@ -148,9 +157,10 @@ export function makeProverBoard({ storage, hash, now, lock } = {}) {
       for (const jid of pend) {
         const j = await storage.getJob(jid);
         if (!j || j.status !== 'queued' || !classes.includes(j.class) || !worker.classes.includes(j.class)) continue;
+        if (j.sealed && j.sealed.worker !== worker.name) continue; // sealed to another worker: not even offered
         j.status = 'claimed'; j.worker = worker.name; j.claimedAt = clock(); j.leaseUntil = clock() + PROVER_BOARD.leaseMs;
         await storage.putJob(jid, j);
-        return { jobId: j.id, class: j.class, program: j.program, stdin: j.stdin, cycleLimit: j.cycleLimit, gasLimit: j.gasLimit, deadline: j.deadline, leaseUntil: j.leaseUntil, label: j.label };
+        return { jobId: j.id, class: j.class, program: j.program, stdin: j.stdin, sealed: j.sealed ? { epk: j.sealed.epk, iv: j.sealed.iv, ct: j.sealed.ct } : null, cycleLimit: j.cycleLimit, gasLimit: j.gasLimit, deadline: j.deadline, leaseUntil: j.leaseUntil, label: j.label };
       }
       return null;
     });
@@ -189,7 +199,7 @@ export function makeProverBoard({ storage, hash, now, lock } = {}) {
       if (counts[live] != null) counts[live]++;
     }
     const ws = await workers();
-    const list = Object.entries(ws).map(([name, w]) => ({ name, proved: w.proved || 0, failed: w.failed || 0, bad: w.bad || 0, lastSeenSeconds: w.lastSeen ? Math.max(0, Math.floor((clock() - w.lastSeen) / 1000)) : null }))
+    const list = Object.entries(ws).map(([name, w]) => ({ name, proved: w.proved || 0, failed: w.failed || 0, bad: w.bad || 0, lastSeenSeconds: w.lastSeen ? Math.max(0, Math.floor((clock() - w.lastSeen) / 1000)) : null, pubkey: w.pubkey || null }))
       .sort((a, b) => b.proved - a.proved || a.name.localeCompare(b.name));
     return { ...counts, workers: list, lease: PROVER_BOARD.leaseMs / 1000 };
   }

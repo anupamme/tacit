@@ -9,16 +9,19 @@ export function makeBoardProver({ post, status, cancel, verify, alive = null, wa
   const wait = sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const miss = (reason, extra = {}) => Object.assign(new Error(`prover board: ${reason}`), { code: 'board_miss', reason, ...extra });
 
-  // `stdin`: bincode SP1Stdin bytes. `cls`: 'private' for a user's witness. `memos`: what the settle will carry, so the proof's
+  // `stdin`: bincode SP1Stdin bytes, or `sealed`: { worker, epk, iv, ct } (the input encrypted to that worker; the board
+  // offers it to no one else). `cls`: 'private' for a user's witness. `memos`: what the settle will carry, so the proof's
   // memo root is checked. → { publicValues, proof, worker, jobId }, or an error with code 'board_miss'.
-  async function prove({ stdin, cycleLimit, gasLimit, cls = 'private', label = null, memos = [], timeoutMs = waitMs } = {}) {
-    if (!(stdin instanceof Uint8Array) || !stdin.length) throw new Error('prover board: stdin must be the input bytes');
+  async function prove({ stdin = null, sealed = null, cycleLimit, gasLimit, cls = 'private', label = null, memos = [], timeoutMs = waitMs } = {}) {
+    if (sealed == null && (!(stdin instanceof Uint8Array) || !stdin.length)) throw new Error('prover board: stdin must be the input bytes');
+    if (sealed != null && (typeof sealed !== 'object' || typeof sealed.worker !== 'string' || typeof sealed.ct !== 'string')) throw new Error('prover board: sealed must be { worker, epk, iv, ct }');
     // No worker has polled lately: the job would only sit out the wait, so it goes straight to the next lane.
     if (alive && !(await Promise.resolve(alive()).catch(() => true))) throw miss('no worker has been seen lately');
     const budget = Math.min(waitMs, timeoutMs);
     const t0 = now();
     // The job's deadline sits a minute past this wait: a worker that answers just late is not paid for by the network too.
-    const posted = await post({ class: cls, program: 'confidential', stdin: Buffer.from(stdin).toString('base64'), cycleLimit: Number(cycleLimit), gasLimit: Number(gasLimit),
+    const input = sealed != null ? { sealed } : { stdin: Buffer.from(stdin).toString('base64') };
+    const posted = await post({ class: cls, program: 'confidential', ...input, cycleLimit: Number(cycleLimit), gasLimit: Number(gasLimit),
       deadline: Math.floor(now() / 1000) + Math.ceil(budget / 1000) + 60, label }).catch((e) => ({ ok: false, error: String(e && e.message || e) }));
     if (!posted || !posted.ok || !posted.jobId) throw miss(`not posted: ${(posted && posted.error) || 'no answer from the API'}`);
     const { jobId } = posted;

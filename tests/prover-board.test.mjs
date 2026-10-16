@@ -90,6 +90,24 @@ test('the input leaves the record the moment a job ends, and the record leaves s
   assert.ok(deleted.includes(jobId) && deleted.includes(c.jobId), 'kept long enough, then deleted from storage');
 });
 
+test('a sealed job is offered only to the worker it is sealed to; keys ride on the summary; the sealed input leaves the record when the job ends', async () => {
+  const st = store();
+  const b = makeProverBoard({ storage: st, now });
+  const pub = '0x02' + 'ab'.repeat(32);
+  await b.claim({ worker: tacit, classes: ['private'], pubkey: pub });            // nothing queued, but the key is now known
+  assert.equal((await b.summary()).workers.find((w) => w.name === 'tacit-a5000').pubkey, pub);
+  const sealed = { worker: 'tacit-a5000', epk: '0x03' + 'cd'.repeat(32), iv: Buffer.alloc(12, 1).toString('base64'), ct: Buffer.alloc(40, 2).toString('base64') };
+  const { jobId } = await b.post({ class: 'private', sealed, cycleLimit: 1e6, gasLimit: 1e8, deadline: now() / 1000 + 600 });
+  assert.equal((await b.status(jobId)).sealedTo, 'tacit-a5000');
+  assert.equal(await b.claim({ worker: { name: 'other', classes: ['private'] }, classes: ['private'] }), null, 'another private worker is not offered it');
+  const job = await b.claim({ worker: tacit, classes: ['private'] });
+  assert.equal(job.jobId, jobId); assert.equal(job.stdin, null); assert.deepEqual(job.sealed, { epk: sealed.epk, iv: sealed.iv, ct: sealed.ct }, 'the worker gets the ciphertext, not the name');
+  await b.result({ worker: tacit, jobId, publicValues: '0x' + '11'.repeat(64), proof: '0x' + '22'.repeat(100) });
+  assert.equal((await st.getJob(jobId)).sealed, null, 'dropped once proved');
+  await assert.rejects(b.post({ class: 'private', sealed: { ...sealed, epk: '0x04' + 'cd'.repeat(32) }, cycleLimit: 1, gasLimit: 1, deadline: now() / 1000 + 600 }), /sealed must be/);
+  await assert.rejects(b.post({ class: 'private', cycleLimit: 1, gasLimit: 1, deadline: now() / 1000 + 600 }), /stdin must be/);
+});
+
 test('routes: box token for posting and reading, worker tokens for claiming and answering, the summary open to any page', async () => {
   const kv = () => { const m = new Map(); return { async get(k) { return m.has(k) ? m.get(k) : null; }, async put(k, v) { m.set(k, String(v)); }, async delete(k) { m.delete(k); } }; };
   const env = { REGISTRY_KV: kv(), CONFIDENTIAL_BOX_TOKEN: 'box-token-box-token-box', PROVER_WORKER_TOKENS: 'gpu1:worker-token-worker-tok:private+public,alice:alice-token-alice-token' };

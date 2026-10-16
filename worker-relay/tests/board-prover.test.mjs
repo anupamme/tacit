@@ -36,6 +36,17 @@ test('posts the input with its class and limits, follows the job, verifies the p
   assert.equal(calls.cancel.length, 0);
 });
 
+test('a sealed input is posted as it came, with no stdin, and proved like any other', async () => {
+  const { api, calls } = fakeBoard({ script: [{ status: 'claimed', worker: 'tacit-a5000' }, { status: 'proved', worker: 'tacit-a5000', publicValues: PV, proof: PROOF }] });
+  const sealed = { worker: 'tacit-a5000', epk: '0x02' + 'ab'.repeat(32), iv: 'AAAAAAAAAAAAAAAA', ct: 'QUJD'.repeat(10) };
+  const r = await makeBoardProver(api).prove({ sealed, cycleLimit: 1n, gasLimit: 1n, label: 'sealed transfer', memos: ['0x01'] });
+  assert.equal(r.worker, 'tacit-a5000'); assert.equal(r.publicValues, PV);
+  assert.equal(calls.post.length, 1);
+  assert.deepEqual(calls.post[0].sealed, sealed); assert.equal(calls.post[0].stdin, undefined);
+  await assert.rejects(makeBoardProver(api).prove({ sealed: { worker: 'x' }, cycleLimit: 1n, gasLimit: 1n }), /sealed must be/);
+  await assert.rejects(makeBoardProver(api).prove({ cycleLimit: 1n, gasLimit: 1n }), /stdin must be/);
+});
+
 test('a proof the pool refuses is cancelled as bad and misses; a failed, expired or unposted job misses', async () => {
   let f = fakeBoard({ script: [{ status: 'proved', worker: 'eve', publicValues: PV, proof: PROOF }], verifyOk: false });
   await assert.rejects(makeBoardProver(f.api).prove({ stdin, cycleLimit: 1, gasLimit: 1 }), (e) => e.code === 'board_miss' && /did not pass/.test(e.message) && e.worker === 'eve');

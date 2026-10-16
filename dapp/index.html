@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-mGoN3JEH7UkEFKxUOHeYT/IXcxudeQ9kOopb+X9wLKs=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-fJv8abcMALkL/ne940XlTduiMufjp/Xj2lr2rB4lGv0=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -2477,7 +2477,7 @@ function actFoot(it) {
     proving: () => jobWhere(it),
     open: () => jobWhere(it),
     sending: () => jobWhere(it),
-    settled: () => html`${it.flip ? 'Went through after all' : `Done in ${took}`}${ownJob(it.id) || it.own ? `, proved with your own credit${it.inPub ? ' (public input)' : ''}` : LANE_SAID[it.lane] || ''}${link ? ' · ' : ''}${link}`,
+    settled: () => html`${it.flip ? 'Went through after all' : `Done in ${took}`}${ownJob(it.id) || it.own ? `, proved with your own credit${it.inPub ? ' (public input)' : ''}` : it.sealed ? ', sealed to Tacit’s prover machine and proved there' : LANE_SAID[it.lane] || ''}${link ? ' · ' : ''}${link}`,
     // A proof lands only with the transaction the page that asked for it sends; a page that stopped waiting never does, and the
     // proof is then offered to send from here (openLine) when its settle is a plain one.
     proven: () => (ownJob(it.id) ? jobWhere(it) : JOBS.get(it.id.slice(4))?.run.live ? 'Proved. It lands with the transaction sent from this page.'
@@ -2842,10 +2842,39 @@ document.addEventListener('click', (e) => {
 // from the start: its op goes to Succinct's prover as a private input (Tacit's relay never sees it), is proved on that credit, and its
 // settle goes out from the paying account. The switch is a preference per key, kept in this browser; no balance depends on it.
 // Loaded only once the sheet opens or the switch is on.
-const SP = { prover: null, who: null, mod: null, credit: null, need: null, creditAt: 0, reading: null, ux: null, then: null, note: 0, src: 'prove', q: null };
+const SP = { prover: null, who: null, mod: null, credit: null, need: null, creditAt: 0, reading: null, ux: null, then: null, note: 0, sealNote: 0, src: 'prove', q: null };
 const spMod = lazy(() => import('/self-prover.js?cb=66f1b014').then((m) => (SP.mod = m)));
 const SP_PREF = 'tacit-lite-prove-self-v1:';
 const spOn = () => !!S.key && store.get(SP_PREF + S.key.pubHex) === true;
+// Sealed: the program input is built and encrypted here to the key of Tacit's prover machine (sp1-stdin.js, sealed-input.js), so
+// the relay and the API hold only the ciphertext and the proof that comes back; the machine alone reads the action. A preference
+// per key. While that machine is away the action is not sent (it says so), and with own-credit proving on nothing reaches the relay.
+const SP_SEAL = 'tacit-lite-seal-v1:';
+const sealOn = () => !!S.key && store.get(SP_SEAL + S.key.pubHex) === true;
+const sealMods = lazy(() => Promise.all([import('/sp1-stdin.js?cb=7c201927'), import('/sealed-input.js?cb=3a04fe3d')]));
+async function sealOp({ type, op, memos }) {
+  const [sp, si] = await sealMods();
+  let board = null;
+  try { board = await (await fetch(`${API}/prover/board`, { cache: 'no-store' })).json(); } catch {}
+  const w = si.pickWorker(board);
+  if (!w) throw Object.assign(new Error('Tacit’s prover machine isn’t taking sealed actions right now, so nothing was sent. Try again in a minute, or turn sealing off.'), { code: 'sealed_unavailable' });
+  // The relay prices a sealed action's fee from the proof alone, and only a fee in tETH: one paid in another asset is sent as usual, said once.
+  if (!feeInEth(type, op)) { if (Date.now() - SP.sealNote > 5000) { SP.sealNote = Date.now(); toast('This one pays its relay fee in another asset than tETH, which only the relay can price, so it is not sealed.'); } return null; }
+  const memoHashes = (memos || []).map((m) => '0x' + bytesToHex(keccak_256(hexToBytes(strip(m)))));
+  const sealed = await si.sealTo({ secp, pubkey: w.pubkey, stdin: sp.stdinFor(type, { ...op, memoHashes }) });
+  return { worker: w.name, ...sealed };
+}
+// Does every relay fee leg of this op come in tETH? The same reading of each op as the relay's quote (worker/src/relay-quote.js feeAssetOf).
+function feeInEth(type, op) {
+  const eth = (a) => String(a || '').toLowerCase() === CETH_ID;
+  switch (type) {
+    case 'transfer': case 'unwrap': case 'sendunwrap': case 'bridgeburn': return eth(op.asset);
+    case 'lp': case 'lpremove': case 'lpbond': return eth(op.assetA);
+    case 'route': return eth(op.asset0);
+    case 'swap': return Array.isArray(op.intents) && op.intents.length > 0 && op.intents.every((it) => eth(Number(it.direction) === 0 ? op.assetA : op.assetB)); // the fee is on the side spent
+    default: return false;
+  }
+}
 const OWN_JOB = /^spn:/;
 const ownJob = (id) => /^(job:)?spn:/.test(String(id || ''));
 const proveFmt = (wei, dp = 2) => fmt(BigInt(wei || 0), 18, dp);
@@ -2869,6 +2898,7 @@ function spApply() {
   if (!r?.useProver) return;
   const p = spOn() && SP.prover && SP.who === S.acct?.address ? SP.prover : null;
   r.useProver(p ? p.prove : null);
+  if (r.useSealer) r.useSealer(sealOn() && !p ? sealOp : null);
   if (spOn() && !p) spProver().then((x) => { if (x) spApply(); }, () => {});
 }
 const VIA_RELAY = { viaRelay: true };
@@ -3782,7 +3812,7 @@ function renderProve() {
     mount(el, html`<p class="gate-p">Open your Tacit wallet first: its Tacit account is your prover account, and its credit pays for your proofs.</p>${signIn(el.id)}`);
     return wireSignIn(el, el.id, () => openProve());
   }
-  const a = S.acct, on = spOn(), src = SP.src === 'acct' && !(SP.held > 0n) ? 'prove' : SP.src;
+  const a = S.acct, on = spOn(), seal = sealOn(), src = SP.src === 'acct' && !(SP.held > 0n) ? 'prove' : SP.src;
   SP.src = src;
   const credit = SP.credit, short_ = credit != null && proofsFor(credit) === 0;
   const unit = src === 'eth' ? 'ETH' : 'PROVE';
@@ -3807,6 +3837,10 @@ function renderProve() {
         <label class="pick"><input type="checkbox" id="sp-on" ${on ? 'checked' : ''}><span>Prove my actions with my own credit</span></label>
         <p class="note">${on ? `On: each private action is proved with your own credit (about ${perProof()} PROVE) and sent from ${your()}. An action your credit can’t prove from here yet goes through Tacit’s relay, and says so.`
           : 'Off: Tacit’s relay proves your actions. Turn this on to prove them yourself.'}</p>
+        <label class="pick"><input type="checkbox" id="sp-seal" ${seal ? 'checked' : ''} ${on ? 'disabled' : ''}><span>Seal my actions to Tacit’s prover machine</span></label>
+        <p class="note">${on ? 'Not needed while your own credit proves: nothing of yours reaches the relay.'
+          : seal ? 'On: each action is encrypted here to the key of the machine that proves it, so Tacit’s relay and API hold only the ciphertext. While that machine is away, an action waits for you to try again.'
+          : 'Off: the relay reads each action to prove it, on Tacit’s machine or the prover network. Turn this on and only the machine that proves it can read an action that pays its relay fee in tETH.'}</p>
         ${SP.then ? html`<div class="callout"><span>Waiting to go on: ${SP.then.label}.</span><button class="btn ghost" type="button" id="sp-then" ${on ? '' : 'disabled'}>Go on</button></div>` : ''}</div></li>
     </ol>`);
   $$('[data-copy]', el).forEach((b) => b.onclick = () => copy(b.dataset.copy));
@@ -3866,6 +3900,12 @@ function renderProve() {
     store.set(SP_PREF + S.key.pubHex, e.target.checked ? true : null);
     spApply(); paintSp(); reProve();
     toast(e.target.checked ? 'Your private actions are proved with your own credit now.' : 'Tacit’s relay proves your actions again.');
+  };
+  $('#sp-seal').onchange = (e) => {
+    if (midAction()) { e.target.checked = !e.target.checked; return; }
+    store.set(SP_SEAL + S.key.pubHex, e.target.checked ? true : null);
+    spApply(); paintSp();
+    toast(e.target.checked ? 'Your actions are sealed to Tacit’s prover machine now; only it can read them.' : 'Tacit’s relay reads your actions again to prove them.');
   };
   const then = $('#sp-then');
   if (then) then.onclick = () => {
