@@ -5056,8 +5056,8 @@ await step('hxsats', async () => {
   } finally { await e.browser.close(); }
 });
 
-// The lander leads to the trade page from the header (the links every page has: Swap, Trade, Pay and Borrow, then a menu with the rest, which on a phone
-// holds them all) and from a tile under the card, and TAC's own links go to its own address (/trade/tac/). The header still holds them without a sideways scroll.
+// The lander leads to the assets from the header (the links every page has: Assets, Swap, Pay and Borrow, then a menu with the rest, which on a phone
+// holds them all) and to the trade page from a tile under the card, and TAC's own links go to its own address (/trade/tac/). The header still holds them without a sideways scroll.
 await step('tradelinks', async () => {
   for (const [name, viewport] of [['desktop', { width: 1280, height: 900 }], ['phone', { width: 360, height: 740 }]]) {
     const r = await openPage({ account: A0, key: K0, viewport });
@@ -5068,16 +5068,16 @@ await step('tradelinks', async () => {
       const seen = await p.evaluate(() => {
         const vis = (s) => { const e = document.querySelector(s); if (!e) return false; const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 && b.left >= 0 && b.right <= window.innerWidth + 1; };
         const list = (s) => [...document.querySelectorAll(s)].map((a) => `${a.textContent.trim()}:${a.getAttribute('href')}`).join(' ');
-        return { trade: vis('.sn > a[href="/trade/tac/"]'), menu: vis('.sn .sm > summary'), order: list('.sn > a'), more: list('.sm-p a:not(.pr)'), all: list('.sm-p a'), tile: !!document.querySelector('#tac a[href="/trade/tac/"]'),
+        return { assets: vis('.sn > a[href="/assets/"]'), menu: vis('.sn .sm > summary'), order: list('.sn > a'), more: list('.sm-p a:not(.pr)'), all: list('.sm-p a'), tile: !!document.querySelector('#tac a[href="/trade/tac/"]'),
           chip: (() => { const l = document.getElementById('wallet-label'); return !!l && l.scrollWidth <= l.clientWidth + 1 && l.clientWidth >= 30; })(), foot: [...document.querySelectorAll('footer.sf nav a')].map((a) => a.getAttribute('aria-label')).join(', '),
           scroll: document.documentElement.scrollWidth > window.innerWidth + 1 };
       });
       ok(seen.menu, `tradelinks (${name}): the header has its menu in view`);
-      if (name === 'desktop') ok(seen.trade && seen.order === 'Swap:/swap/ Trade:/trade/tac/ Pay:/pay/ Borrow:/vault/', `tradelinks (${name}): and Swap, Trade, Pay and Borrow beside it (${seen.order})`);
-      else ok(!seen.trade && seen.all.startsWith('Swap:/swap/ Trade:/trade/tac/ Pay:/pay/ Borrow:/vault/ '), `tradelinks (${name}): the menu holds them all, Trade second (${seen.all})`);
+      if (name === 'desktop') ok(seen.assets && seen.order === 'Assets:/assets/ Swap:/swap/ Pay:/pay/ Borrow:/vault/', `tradelinks (${name}): and Assets, Swap, Pay and Borrow beside it (${seen.order})`);
+      else ok(!seen.assets && seen.all.startsWith('Assets:/assets/ Swap:/swap/ Pay:/pay/ Borrow:/vault/ '), `tradelinks (${name}): the menu holds them all, Assets first (${seen.all})`);
       ok(seen.more === 'Shielded TAC:/tac/ Tasks:/tasks/ Build:/build/ Stats:/weld/stats/ Community ops:/weld/keeper/ Classic app:/classic.html', `tradelinks (${name}): and, under the menu, the rest of the pages (${seen.more})`);
       await p.click('.sn .sm > summary');
-      ok(await p.evaluate(() => [...document.querySelectorAll('.sm-p a[href="/trade/tac/"]')].some((a) => a.getBoundingClientRect().width > 0)) === (name === 'phone'), `tradelinks (${name}): the menu lists Trade only where the header has not`);
+      ok(await p.evaluate(() => [...document.querySelectorAll('.sm-p a[href="/assets/"]')].some((a) => a.getBoundingClientRect().width > 0)) === (name === 'phone'), `tradelinks (${name}): the menu lists Assets only where the header has not`);
       await p.keyboard.press('Escape');
       ok(!(await p.$eval('.sm', (d) => d.open)), `tradelinks (${name}): and Escape shuts it`);
       ok(seen.chip, `tradelinks (${name}): and the account chip still shows its whole label`);

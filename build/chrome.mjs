@@ -15,7 +15,7 @@ import { join } from 'node:path';
 
 // page → which link is the page it is ('' for none); a page not listed here does not wear the chrome
 export const CHROME_PAGES = {
-  'index.html': '', 'swap/index.html': 'swap', 'trade/index.html': 'trade', 'trade/teth/index.html': 'trade', 'trade/cbtc/index.html': 'trade',
+  'index.html': '', 'swap/index.html': 'swap', 'assets/index.html': 'assets', 'trade/index.html': 'assets', 'trade/teth/index.html': 'assets', 'trade/cbtc/index.html': 'assets',
   'vault/index.html': 'borrow', 'pay/index.html': 'pay', 'pay/eth/index.html': 'pay', 'tac/index.html': 'tac', 'tasks/index.html': 'tasks',
   'build/index.html': 'build', 'weld/stats/index.html': 'stats', 'weld/keeper/index.html': 'community', 'relay/index.html': '',
   'splitter/index.html': '', 'sats/index.html': '',
@@ -25,7 +25,7 @@ export const CHROME_PAGES = {
 // (its badge, the llama paler, as the logo has it), the GitHub and X glyphs are theirs
 const G = {
   swap: '<path d="M4 8h15l-4-4"/><path d="M20 16H5l4 4"/>',
-  trade: '<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>',
+  assets: '<circle cx="12" cy="12" r="8.5"/><path d="M9 11.4h5.6"/><path d="M12.3 7.2l-.9 7.4q-.15 1.7 1.7 1.7h.9"/>',
   pay: '<path d="M21 3L10.5 13.5"/><path d="M21 3l-6.5 18-4-7.5L3 9.5z"/>',
   borrow: '<path d="M3 9.5L12 4l9 5.5"/><path d="M5.5 10v8M10 10v8M14 10v8M18.5 10v8"/><path d="M3 20.5h18"/>',
   more: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.7"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.7"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.7"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.7"/>',
@@ -45,8 +45,8 @@ const G = {
 const FILLED = new Set(['github', 'x', 'llama']);
 const svg = (k) => `<svg viewBox="0 0 24 24"${FILLED.has(k) ? ' class="fill"' : ''} aria-hidden="true">${G[k]}</svg>`;
 
-// the four places most people come for, always in the header (icons below ~880px, a menu entry on a phone); the rest are in the menu
-const MAIN = [['swap', '/swap/', 'Swap'], ['trade', '/trade/tac/', 'Trade'], ['pay', '/pay/', 'Pay'], ['borrow', '/vault/', 'Borrow']];
+// the places most people come for, always in the header (icons below ~900px, a menu entry on a phone): the assets, then what is done with them; the rest are in the menu
+const MAIN = [['assets', '/assets/', 'Assets'], ['swap', '/swap/', 'Swap'], ['pay', '/pay/', 'Pay'], ['borrow', '/vault/', 'Borrow']];
 const MORE = [['tac', '/tac/', 'Shielded TAC'], ['tasks', '/tasks/', 'Tasks'], ['build', '/build/', 'Build'], ['stats', '/weld/stats/', 'Stats'], ['community', '/weld/keeper/', 'Community ops'], ['classic', '/classic.html', 'Classic app']];
 
 const here = (key, k) => (key === k ? ' aria-current="page"' : '');
