@@ -21,11 +21,11 @@ export const CHROME_PAGES = {
   'splitter/index.html': '', 'sats/index.html': '',
 };
 
-// 24×24 line drawings, the lander's tabs' hand; drawn by chrome.css (stroke, round caps) unless a glyph is .fill. The llama is DefiLlama's mark in one colour
+// 24×24 line drawings, the lander's tabs' hand; drawn by chrome.css (stroke, round caps) unless a glyph is .fill. The assets glyph is the TAC logo's t in its ring, at the logo's proportions (slanted stem, wide high bar, foot sweeping right). The llama is DefiLlama's mark in one colour
 // (its badge, the llama paler, as the logo has it), the GitHub and X glyphs are theirs
 const G = {
   swap: '<path d="M4 8h15l-4-4"/><path d="M20 16H5l4 4"/>',
-  assets: '<circle cx="12" cy="12" r="8.5"/><path d="M9 11.4h5.6"/><path d="M12.3 7.2l-.9 7.4q-.15 1.7 1.7 1.7h.9"/>',
+  assets: '<circle cx="12" cy="12" r="8.5"/><path d="M8.1 9.3h7.2"/><path d="M13 6.1L10 16.3Q10 17.9 13.3 17.2"/>',
   pay: '<path d="M21 3L10.5 13.5"/><path d="M21 3l-6.5 18-4-7.5L3 9.5z"/>',
   borrow: '<path d="M3 9.5L12 4l9 5.5"/><path d="M5.5 10v8M10 10v8M14 10v8M18.5 10v8"/><path d="M3 20.5h18"/>',
   more: '<rect x="4" y="4" width="6.5" height="6.5" rx="1.7"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.7"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.7"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.7"/>',
