@@ -988,8 +988,8 @@ try {
         catch (e) { text = JSON.stringify({ jsonrpc: '2.0', id: JSON.parse(body || '{}').id ?? 1, error: { code: -32000, message: `fork: ${e.message}` } }); }
         await r.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: text }).catch(() => {});
       });
-      await ctx.route(/tacit-evm-pool-keeper(-robinhood)?\.onrender\.com/, (r) => r.fulfill({ status: 503, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"error":"stubbed"}' }));
-      await ctx.route(/tacit-evm-pool-keeper-base\.onrender\.com/, async (r) => {
+      await ctx.route(/tacit-evm-pool-keepers\.onrender\.com\/(1|4663)\//, (r) => r.fulfill({ status: 503, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"error":"stubbed"}' }));
+      await ctx.route(/tacit-evm-pool-keepers\.onrender\.com\/8453\//, async (r) => {
         const u = new URL(r.request().url()), req = r.request();
         try {
           const res = await fetch(`http://127.0.0.1:${KPORT}${u.pathname}${u.search}`, { method: req.method(), headers: { 'content-type': 'application/json' }, body: req.method() === 'GET' ? undefined : req.postData() });

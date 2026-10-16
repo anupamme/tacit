@@ -20,9 +20,9 @@ const { evmPoolKeys, makeEvmPoolWallet, jsonRpc } = await import('../dapp/evm-po
 const [depS, baseS, rhS] = process.argv.slice(2);
 const POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9', ROUTER = '0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5';
 const CH = {
-  1: { rpc: 'https://ethereum-rpc.publicnode.com', keeper: 'https://tacit-evm-pool-keeper.onrender.com/evm-pool/keeper', deployBlock: 26069245 },
-  8453: { rpc: 'https://mainnet.base.org', keeper: 'https://tacit-evm-pool-keeper-base.onrender.com/evm-pool/keeper', deployBlock: 51864014 },
-  4663: { rpc: 'https://rpc.mainnet.chain.robinhood.com', keeper: 'https://tacit-evm-pool-keeper-robinhood.onrender.com/evm-pool/keeper', deployBlock: 73991661 },
+  1: { rpc: 'https://ethereum-rpc.publicnode.com', keeper: 'https://tacit-evm-pool-keepers.onrender.com/1/evm-pool/keeper', deployBlock: 26069245 },
+  8453: { rpc: 'https://mainnet.base.org', keeper: 'https://tacit-evm-pool-keepers.onrender.com/8453/evm-pool/keeper', deployBlock: 51864014 },
+  4663: { rpc: 'https://rpc.mainnet.chain.robinhood.com', keeper: 'https://tacit-evm-pool-keepers.onrender.com/4663/evm-pool/keeper', deployBlock: 73991661 },
 };
 const ART = new URL('../dapp/evm-pool/', import.meta.url).pathname;
 const wasm = readFileSync(ART + 'transact.wasm'), zkey = readFileSync(ART + 'transact_final.zkey');
