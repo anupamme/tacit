@@ -173,7 +173,7 @@ try {
   ok(/Pools' depth\s*5,000,000 TACD.*2,000 TACE/.test(more) && /Share of depth lent\s*5%\s*5%/.test(more) && /Borrow \/ liquidate at\s*350% · 200%\s*350% · 200%/.test(more) && /TAC deposited\s*0 TAC\s*0 TAC/.test(more), 'and give the pools\' depth, the share of it lent, the TAC deposited and the ratios');
   ok(/TAC price\s*\$0\.25\s*0\.0001 ETH/.test(more) && /ETH\/USD price\s*\d+ (min|s|h)[^—]*—/.test(more) && (await text(p, '#board [data-more]')) === 'Fewer figures', 'the TAC price now in each vault\'s token, and how old the dollar feed is (TAC Ether has none)');
   ok(await p.evaluate(() => localStorage.getItem('tacit-vault-more')) === '1', 'the choice is kept in this browser');
-  ok(/^Borrowing open/.test(await p.title()) && /read (just now|\d+ s ago)/.test(await text(p, '#board .eyebrow')) && !!(await p.$('#board [data-refresh]')), 'the tab\'s title says borrowing is open, and the board says when it was read, with a Refresh');
+  ok(await p.title() === 'tacit vault · TAC' && /read (just now|\d+ s ago)/.test(await text(p, '#board .eyebrow')) && !!(await p.$('#board [data-refresh]')), 'the tab\'s title is the page\'s name, and the board says when it was read, with a Refresh');
   ok((await p.$$eval('#pick button', (b) => b.map((x) => x.textContent))).join('|') === 'TAC DollarTACD|TAC EtherTACE', 'two vaults to pick: TAC Dollar and TAC Ether');
   ok(/Connect a wallet to see your vault/.test(await text(p, '#pos')) && /Connect wallet/.test(await text(p, '#go')), 'with no wallet the position asks for one and the button connects');
   ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
@@ -188,7 +188,7 @@ try {
   r = await openPage();
   await until(r.page, () => /Prices cannot be read right now/.test(document.querySelector('#board')?.textContent || ''));
   const pb = await text(r.page, '#board');
-  ok(/Borrowing is not open yet/.test(pb) && /Borrowing\s*Not open.*Not open/.test(pb) && /Room to borrow\s*—\s*—/.test(pb) && !/error|revert/i.test(pb) && /^Borrowing not open yet/.test(await r.page.title()), 'with no price the board says borrowing is not open and that prices cannot be read, calmly, with no room shown');
+  ok(/Borrowing is not open yet/.test(pb) && /Borrowing\s*Not open.*Not open/.test(pb) && /Room to borrow\s*—\s*—/.test(pb) && !/error|revert/i.test(pb), 'with no price the board says borrowing is not open and that prices cannot be read, calmly, with no room shown');
   ok(r.errors.length === 0, 'and logs no error');
   await shot(r.page, 'paused');
   await closeAll(r);
@@ -200,7 +200,7 @@ try {
   await until(r.page, () => /under the smallest debt/.test(document.querySelector('#board')?.textContent || ''));
   const tb = await text(r.page, '#board');
   ok(/Borrowing is not open yet/.test(tb) && /Room to borrow\s*62\.5 TACD\s*0\.025 TACE/.test(tb) && /TAC Dollar: Room \(62\.5 TACD\) is under the smallest debt \(100 TACD\)/.test(tb) && /TAC Ether: Room \(0\.025 TACE\) is under the smallest debt \(0\.04 TACE\)/.test(tb), `a room under the smallest debt is said with both figures, and the vault is not open (${tb.slice(0, 160)})`);
-  ok(/^Borrowing not open yet/.test(await r.page.title()) && (await r.page.$eval('#board .needs a[href="/trade/tac/#farm"]', (a) => a.textContent)) === 'Add liquidity', 'the tab says so too, and the way to more room is the TAC pools');
+  ok((await r.page.$eval('#board .needs a[href="/trade/tac/#farm"]', (a) => a.textContent)) === 'Add liquidity' && await r.page.title() === 'tacit vault · TAC', 'the way to more room is the TAC pools, and the tab\'s title stays the page\'s name');
   // an announced change to the share of depth lent opens it: the board says what the room becomes and from when
   send('owner', USD, 'queueParam(uint8,uint256)', '0', '1000'); send('owner', ETH, 'queueParam(uint8,uint256)', '0', '1000');
   await r.page.reload();
