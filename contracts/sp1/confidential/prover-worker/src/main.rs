@@ -10,6 +10,9 @@
 // the worker refuses to start on another), WARM=0 to skip the warm-up proof at start.
 // BENCH=<dir>: no board; every `*.bin` in the directory (a bincode SP1Stdin, as tests/fixtures/sp1-stdin holds them) is
 // proved BENCH_RUNS times (default 3) and the times are printed, cold first. This is how a machine is measured.
+// RELOAD_FLAG (default /workspace/worker.reload): when that file exists and no job is in hand, the worker removes it and
+// exits 0, so the loop around it starts a fresh worker (and GPU server) with whatever binary and env are now in place,
+// never in the middle of a proof.
 //
 // The prover client and the proving key are built once: the cost of a proof on a warm GPU is the proof, not the start-up.
 
@@ -96,11 +99,18 @@ fn main() {
         }
     }
 
+    let reload_flag = env_or("RELOAD_FLAG", "/workspace/worker.reload");
+    let reload_due = || std::path::Path::new(&reload_flag).exists();
     let claim_url = format!("{base}/prover/claim");
     let result_url = format!("{base}/prover/result");
     let auth = format!("Bearer {token}");
     let mut quiet = 0u32;
     loop {
+        if reload_due() {
+            let _ = std::fs::remove_file(&reload_flag);
+            println!("[{name}] reload asked for; exiting between jobs");
+            return;
+        }
         let claimed: Result<Claim, String> = agent
             .post(&claim_url)
             .set("Authorization", &auth)
