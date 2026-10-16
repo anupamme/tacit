@@ -31,7 +31,7 @@ const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT || '/
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 const PROJECT = /WC_PROJECT_ID = '([0-9a-f]{32})'/.exec(readFileSync(join(DAPP, 'walletconnect.js'), 'utf8'))?.[1];
 if (!PROJECT) throw new Error('no WC_PROJECT_ID in dapp/walletconnect.js');
-const TYPES = { '.js': 'text/javascript', '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' };
+const TYPES = { '.js': 'text/javascript', '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' };
 const server = createServer((r, res) => {
   const p = decodeURIComponent(new URL(r.url, 'http://x').pathname);
   let f = normalize(join(DAPP, p));

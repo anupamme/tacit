@@ -172,7 +172,7 @@ const rpc = async (method, params = []) => {
 };
 for (let i = 0; ; i++) { try { await rpc('eth_chainId'); break; } catch { if (i > 120) throw new Error('anvil did not start'); await sleep(500); } }
 
-const TYPES = { '.js': 'text/javascript', '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.zkey': 'application/octet-stream' };
+const TYPES = { '.js': 'text/javascript', '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.css': 'text/css', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2', '.zkey': 'application/octet-stream' };
 const server = createServer((req, res) => {
   let f = normalize(join(DAPP, decodeURIComponent(new URL(req.url, 'http://x').pathname)));
   if (!f.startsWith(DAPP)) { res.writeHead(403); return res.end(); }
@@ -5056,9 +5056,8 @@ await step('hxsats', async () => {
   } finally { await e.browser.close(); }
 });
 
-// The lander leads to the trade page from the header, from a tile under the card, from the footer and from the TAC bar, and TAC's own
-// links go to its own address (/trade/tac/). The header also links Pay, between Trade and Classic. At a phone's width the header still
-// holds the links without a sideways scroll.
+// The lander leads to the trade page from the header (the links every page has: Swap, Trade, Pay and Borrow, then a menu with the rest, which on a phone
+// holds them all) and from a tile under the card, and TAC's own links go to its own address (/trade/tac/). The header still holds them without a sideways scroll.
 await step('tradelinks', async () => {
   for (const [name, viewport] of [['desktop', { width: 1280, height: 900 }], ['phone', { width: 360, height: 740 }]]) {
     const r = await openPage({ account: A0, key: K0, viewport });
@@ -5068,15 +5067,22 @@ await step('tradelinks', async () => {
       await p.waitForSelector('#hx-body .hx-h');
       const seen = await p.evaluate(() => {
         const vis = (s) => { const e = document.querySelector(s); if (!e) return false; const b = e.getBoundingClientRect(); return b.width > 0 && b.height > 0 && b.left >= 0 && b.right <= window.innerWidth + 1; };
-        const hdr = [...document.querySelectorAll('.top-r > a')].map((a) => `${a.textContent}:${a.getAttribute('href')}`).join(' ');
-        return { header: vis('.top-r a.lead[href="/trade/tac/"]'), headerText: document.querySelector('.top-r a.lead')?.textContent, pay: vis('.top-r a.lead[href="/pay/"]'), order: hdr, tile: !!document.querySelector('#tac a[href="/trade/tac/"]'), tileText: 'Trade TAC',
-          chip: (() => { const l = document.getElementById('wallet-label'); return !!l && l.scrollWidth <= l.clientWidth + 1 && l.clientWidth >= 30; })(), footer: !!document.querySelector('footer a[href="/trade/tac/"]'), bar: !!document.querySelector('footer a[href="/trade/tac/"]'), scroll: document.documentElement.scrollWidth > window.innerWidth + 1 };
+        const list = (s) => [...document.querySelectorAll(s)].map((a) => `${a.textContent.trim()}:${a.getAttribute('href')}`).join(' ');
+        return { trade: vis('.sn > a[href="/trade/tac/"]'), menu: vis('.sn .sm > summary'), order: list('.sn > a'), more: list('.sm-p a:not(.pr)'), all: list('.sm-p a'), tile: !!document.querySelector('#tac a[href="/trade/tac/"]'),
+          chip: (() => { const l = document.getElementById('wallet-label'); return !!l && l.scrollWidth <= l.clientWidth + 1 && l.clientWidth >= 30; })(), foot: [...document.querySelectorAll('footer.sf nav a')].map((a) => a.getAttribute('aria-label')).join(', '),
+          scroll: document.documentElement.scrollWidth > window.innerWidth + 1 };
       });
-      ok(seen.header && seen.headerText === 'Trade', `tradelinks (${name}): the header has a Trade link in view`);
-      ok(seen.pay && seen.order === 'Trade:/trade/tac/ Pay:/pay/ Tasks:/tasks/ Stats:/weld/stats/', `tradelinks (${name}): and a Pay link, to the right of Trade, then Tasks and Stats (${seen.order})`);
+      ok(seen.menu, `tradelinks (${name}): the header has its menu in view`);
+      if (name === 'desktop') ok(seen.trade && seen.order === 'Swap:/swap/ Trade:/trade/tac/ Pay:/pay/ Borrow:/vault/', `tradelinks (${name}): and Swap, Trade, Pay and Borrow beside it (${seen.order})`);
+      else ok(!seen.trade && seen.all.startsWith('Swap:/swap/ Trade:/trade/tac/ Pay:/pay/ Borrow:/vault/ '), `tradelinks (${name}): the menu holds them all, Trade second (${seen.all})`);
+      ok(seen.more === 'Shielded TAC:/tac/ Tasks:/tasks/ Build:/build/ Stats:/weld/stats/ Community ops:/weld/keeper/ Classic app:/classic.html', `tradelinks (${name}): and, under the menu, the rest of the pages (${seen.more})`);
+      await p.click('.sn .sm > summary');
+      ok(await p.evaluate(() => [...document.querySelectorAll('.sm-p a[href="/trade/tac/"]')].some((a) => a.getBoundingClientRect().width > 0)) === (name === 'phone'), `tradelinks (${name}): the menu lists Trade only where the header has not`);
+      await p.keyboard.press('Escape');
+      ok(!(await p.$eval('.sm', (d) => d.open)), `tradelinks (${name}): and Escape shuts it`);
       ok(seen.chip, `tradelinks (${name}): and the account chip still shows its whole label`);
       ok(seen.tile, `tradelinks (${name}): the TAC section links to TAC's own trade page`);
-      ok(seen.footer && seen.bar, `tradelinks (${name}): and the footer links Trade`);
+      ok(seen.foot === 'Whitepaper, Security, Source, Pool contract, DefiLlama, @tacitfi on X', `tradelinks (${name}): and the footer is icons for the places outside the app (${seen.foot})`);
       ok(!seen.scroll, `tradelinks (${name}): and the page does not scroll sideways`);
       if (r.errors.length) { fails++; console.log('FAIL tradelinks page errors: ' + r.errors.slice(0, 3).join(' | ')); }
     } finally { await r.browser.close(); }

@@ -151,9 +151,6 @@ main:focus { outline: none; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--hair-2); flex: none; }
 .dot.on { background: var(--ok); }
 .dot.live { background: var(--orange); }
-.top-r { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.top-r .classic { flex: none; display: inline-flex; align-items: center; min-height: 40px; padding: 0 8px; color: var(--mute); font-size: 12px; text-decoration: none; }
-.top-r .classic.lead { color: var(--ink); font-weight: 500; }
 /* The prices under the header: three marks and three figures, quiet. The row keeps its height while empty, so nothing moves when they arrive. */
 .pxs { display: flex; flex-wrap: wrap; gap: 4px 20px; min-height: 20px; margin: -10px 0 8px; font-size: 12px; line-height: 20px; color: var(--mute); opacity: 0; transition: opacity .35s; }
 .pxs.on { opacity: 1; }
@@ -162,11 +159,6 @@ main:focus { outline: none; }
 .pxs b { font-weight: 500; font-size: 10.5px; letter-spacing: .08em; }
 .pxs .num { color: var(--ink); }
 @media (hover: hover) { .pxs a.px:hover b { color: var(--ink); } .pxs a.px:hover .num { text-decoration: underline; text-underline-offset: 3px; } }
-@media (hover: hover) { .top-r .classic:hover { color: var(--ink); text-decoration: underline; } }
-/* Trade and Pay lead the header; at a phone's width Classic (still in the footer) gives way so the account chip keeps room for its label. */
-@media (max-width: 430px) { .top-r .classic:not(.lead) { display: none; } }
-/* Build waits for the room a wider screen gives; on a phone it is in the footer. */
-@media (max-width: 640px) { .top-r .classic.roomy { display: none; } }
 .chip.act { position: relative; flex: none; justify-content: center; width: 40px; padding: 0; color: var(--mute); }
 .chip.act svg { width: 18px; height: 18px; flex: none; }
 .chip.act.busy { color: var(--warn); }
@@ -661,19 +653,6 @@ a.di { color: inherit; text-decoration: none; }
   .ig-l a { gap: 14px; padding: 18px 0; }
   .ig-n b { font-size: 24px; }
 }
-footer { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 26px; margin-top: 88px; padding-top: 22px; border-top: 1px solid var(--ink); color: var(--mute); font-size: 13px; }
-/* The links in three short lists under the site's own line, each with its heading. */
-footer nav { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; }
-footer nav div { display: grid; align-content: start; gap: 6px; }
-footer nav b { font: 500 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--mute); }
-@media (pointer: fine) { footer nav a { padding: 3px 0; } }
-footer a { display: inline-block; padding: 8px 0; color: var(--mute); }
-@media (hover: hover) { footer a:hover { color: var(--ink); } }
-/* The X account, as its mark, at the end of the site's own line. */
-footer .on-x { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; margin: -8px -5px; transition: color .15s, transform .3s var(--spring); }
-footer .on-x svg { width: 16px; height: 16px; }
-@media (hover: hover) { footer .on-x:hover { transform: scale(1.15); } }
-footer .on-x:active { transform: scale(.9); }
 
 
 /* ── TAC's price, where it trades ── */
@@ -1033,7 +1012,6 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .tp-flow { grid-template-columns: minmax(0, 1fr); }
   .tp-flow li + li { border-left: 0; border-top: 1px dotted var(--hair-2); }
   .tp-flow li + li::before { content: '↓'; left: 22px; top: -9px; transform: none; }
-  footer nav { grid-template-columns: 1fr 1fr; }
 }
 /* A finger needs the full tap size; a mouse keeps the tighter controls. */
 @media (pointer: coarse) {
@@ -1046,6 +1024,10 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   .sk { background: var(--skel); }
 }
 </style>
+<!-- chrome:head:begin -->
+<link rel="stylesheet" href="/chrome.css?cb=cf0bc2d5">
+<script src="/chrome.js?cb=7e28cf35" defer></script>
+<!-- chrome:head:end -->
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -1080,11 +1062,30 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   <header class="top">
     <a class="brand" href="/" aria-label="tacit v1"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><b>tacit</b><i>v1</i></a>
     <div class="top-r">
-      <a class="classic lead" href="/trade/tac/" title="Trade TAC: its price on Ethereum and Bitcoin, and the best route across every pool">Trade</a>
-      <a class="classic lead" href="/pay/" title="Tacit Pay: get paid in BTC, TAC or ETH at one private address">Pay</a>
-      <a class="classic" href="/tasks/" title="Jobs that pay TAC, starting with putting the TAC vaults on Ethereum">Tasks</a>
-      <a class="classic roomy" href="/build/" title="Build on Tacit: every path, the API, the addresses and the mainnet proof">Build</a>
-      <a class="classic" href="/weld/stats/" title="What has passed through Tacit, and what it holds now">Stats</a>
+      <!-- chrome:nav:begin -->
+      <nav class="sn" aria-label="Pages">
+          <a href="/swap/" title="Swap"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h15l-4-4"/><path d="M20 16H5l4 4"/></svg><span>Swap</span></a>
+          <a href="/trade/tac/" title="Trade"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg><span>Trade</span></a>
+          <a href="/pay/" title="Pay"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 3L10.5 13.5"/><path d="M21 3l-6.5 18-4-7.5L3 9.5z"/></svg><span>Pay</span></a>
+          <a href="/vault/" title="Borrow"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9.5L12 4l9 5.5"/><path d="M5.5 10v8M10 10v8M14 10v8M18.5 10v8"/><path d="M3 20.5h18"/></svg><span>Borrow</span></a>
+          <details class="sm">
+            <summary aria-label="More pages" title="More"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6.5" height="6.5" rx="1.7"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.7"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.7"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.7"/></svg></summary>
+            <div class="sm-p">
+            <a class="pr" href="/swap/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h15l-4-4"/><path d="M20 16H5l4 4"/></svg>Swap</a>
+            <a class="pr" href="/trade/tac/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>Trade</a>
+            <a class="pr" href="/pay/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 3L10.5 13.5"/><path d="M21 3l-6.5 18-4-7.5L3 9.5z"/></svg>Pay</a>
+            <a class="pr" href="/vault/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9.5L12 4l9 5.5"/><path d="M5.5 10v8M10 10v8M14 10v8M18.5 10v8"/><path d="M3 20.5h18"/></svg>Borrow</a>
+            <hr class="pr">
+            <a href="/tac/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8-7.5 9.5-4.3-1.5-7.5-4.9-7.5-9.5V6z"/><path d="M9 12l2.2 2.2L15.5 10"/></svg>Shielded TAC</a>
+            <a href="/tasks/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/></svg>Tasks</a>
+            <a href="/build/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7l-5 5 5 5"/><path d="M16 7l5 5-5 5"/><path d="M14 4l-4 16"/></svg>Build</a>
+            <a href="/weld/stats/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20v-6"/><path d="M12 20V5"/><path d="M19 20v-10"/></svg>Stats</a>
+            <a href="/weld/keeper/"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16.5 5.3a3 3 0 0 1 0 5.6"/><path d="M18 14.2c1.8.7 3 2.6 3 5.8"/></svg>Community ops</a>
+            <a href="/classic.html"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M3 9h18"/></svg>Classic app</a>
+            </div>
+          </details>
+        </nav>
+      <!-- chrome:nav:end -->
       <button class="chip act" id="act" type="button" aria-haspopup="dialog" aria-label="Activity" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h4l3-7 4 14 3-7h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="num" id="act-n" hidden></span>
       </button>
@@ -1233,29 +1234,19 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
   </section>
   </main>
 
-  <footer>
+  <!-- chrome:foot:begin -->
+  <footer class="sf">
     <span>tacit.finance · mainnet</span>
-    <a class="on-x" href="https://x.com/tacitfi" rel="noopener" aria-label="Tacit on X" title="@tacitfi on X"><svg aria-hidden="true"><use href="#i-x"/></svg></a>
-    <nav aria-label="More">
-      <div><b>Use</b>
-        <a href="/trade/tac/">Trade</a>
-        <a href="/vault/">Borrow</a>
-        <a href="/weld/stats/">Stats</a>
-        <a href="/classic.html">Classic app</a>
-      </div>
-      <div><b>Learn</b>
-        <a href="/tacit-v1.pdf">Whitepaper</a>
-        <a href="https://github.com/src-company/tacit/blob/main/SPEC.md" rel="noopener">Spec</a>
-        <a href="https://github.com/src-company/tacit/blob/main/SECURITY.md" rel="noopener">Security</a>
-        <a href="/build/">Build on Tacit</a>
-        <a href="https://etherscan.io/address/0x000000000Ed1eabD231Be41d93b719056F7febFC" rel="noopener">Pool contract</a>
-      </div>
-      <div><b>Community</b>
-        <a href="/weld/keeper/">Community ops</a>
-        <a href="https://defillama.com/protocol/tacit" rel="noopener">DefiLlama</a>
-      </div>
+    <nav aria-label="Elsewhere">
+      <a href="/tacit-v1.pdf" title="Whitepaper" aria-label="Whitepaper"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></a>
+      <a href="https://github.com/src-company/tacit/blob/main/SECURITY.md" title="Security" aria-label="Security" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></a>
+      <a href="https://github.com/src-company/tacit" title="Source" aria-label="Source" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" class="fill" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></a>
+      <a href="https://etherscan.io/address/0x000000000Ed1eabD231Be41d93b719056F7febFC" title="Pool contract" aria-label="Pool contract" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5"/><path d="M12 12v9"/></svg></a>
+      <a href="https://defillama.com/protocol/tacit" title="DefiLlama" aria-label="DefiLlama" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21.2 15.9A10 10 0 1 1 8 2.8"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg></a>
+      <a href="https://x.com/tacitfi" title="@tacitfi on X" aria-label="@tacitfi on X" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 24 24" class="fill" aria-hidden="true"><path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/></svg></a>
     </nav>
   </footer>
+  <!-- chrome:foot:end -->
 </div>
 
 <!-- ── wallet ── -->

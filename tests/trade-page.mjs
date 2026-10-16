@@ -348,9 +348,9 @@ try {
   ok(lay.inSide && Math.abs(lay.infoLeft - lay.ticketLeft) < 1 && lay.infoTop >= lay.farmBottom, `on a wide page the facts sit under the farm, in the ticket's column (${JSON.stringify(lay)})`);
   ok(!/Uniswap v4/.test(more) && /TacBuyback/.test(more) && !(await p.$eval('details.more:has(#facts-more)', (d) => d.open)), 'Uniswap v4\'s pools and the buyback are named, behind a "more" that starts closed');
 
-  const nav = await p.$eval('.top nav a.opt', (a) => { const c = getComputedStyle(a); return { display: c.display, border: c.borderTopWidth, bg: c.backgroundColor, h: a.getBoundingClientRect().height }; });
+  const nav = await p.$eval('.sn > a:not([aria-current])', (a) => { const c = getComputedStyle(a); return { display: c.display, border: c.borderTopWidth, bg: c.backgroundColor, h: a.getBoundingClientRect().height }; });
   const col = await p.$eval('#venues th.opt', (a) => { const c = getComputedStyle(a); return { display: c.display, border: c.borderTopWidth }; });
-  ok(nav.display === 'block' && nav.border === '0px' && nav.bg === 'rgba(0, 0, 0, 0)' && nav.h < 40, `the header's links are plain links, not boxes (${JSON.stringify(nav)})`);
+  ok(nav.display === 'flex' && nav.border === '0px' && nav.bg === 'rgba(0, 0, 0, 0)' && nav.h <= 40, `the header's links are plain links, not boxes (${JSON.stringify(nav)})`);
   ok(col.display === 'table-cell' && col.border === '0px', `and a table column that hides on phones keeps its own style (${JSON.stringify(col)})`);
   ok(r.errors.length === 0, `no page errors (${r.errors.slice(0, 3).join(' | ')})`);
   ok(r.blocked.length === 0, `nothing blocked by the page's CSP (${r.blocked.slice(0, 2).join(' | ')})`);
@@ -648,9 +648,9 @@ try {
   const order = await m.evaluate(() => ['.p-ticket', '.p-chart', '.p-depth', '.p-info'].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().top)));
   ok(order.every((t, i) => i === 0 || t > order[i - 1]), `the panels stack ticket, chart, book, facts (${order})`);
   ok((await m.$eval('#chart', (e) => e.getBoundingClientRect().width)) > 300, 'the chart takes the phone\'s width');
-  ok(await m.$$eval('.top nav a.opt', (a) => a.every((x) => getComputedStyle(x).display === 'none')), 'and the header\'s extra links are hidden there');
-  const hd = await m.evaluate(() => { const r = (s) => document.querySelector(s).getBoundingClientRect(); return { top: r('.top').height, brand: r('.brand').top, chip: r('#wallet-chip').top, earn: getComputedStyle(document.querySelector('.top nav a[href="#farm"]')).display }; });
-  ok(hd.top < 90 && Math.abs(hd.brand - hd.chip) < 30 && hd.earn !== 'none', `the brand, Earn and the wallet chip share one row on a phone (${JSON.stringify(hd)})`);
+  ok(await m.$$eval('.sn > a', (a) => a.every((x) => getComputedStyle(x).display === 'none')) && (await m.$$eval('.sm-p a.pr', (a) => a.length)) === 4, 'and the header\'s page links are in its menu there');
+  const hd = await m.evaluate(() => { const r = (s) => document.querySelector(s).getBoundingClientRect(); return { top: r('.top').height, brand: r('.brand').top, chip: r('#wallet-chip').top, menu: r('.sn summary').width }; });
+  ok(hd.top < 90 && Math.abs(hd.brand - hd.chip) < 30 && hd.menu > 30, `the brand, the menu and the wallet chip share one row on a phone (${JSON.stringify(hd)})`);
   const subh = await m.$eval('#px-sub', (e) => e.getBoundingClientRect().height);
   ok(subh >= parseFloat(await m.$eval('#px-sub', (e) => getComputedStyle(e).minHeight)) - 1 && (await m.$$eval('#px-sub .st', (a) => a.every((x) => x.getBoundingClientRect().height < 26))), `the headline's figures are one line each, in a block that holds its height (${subh}px)`);
   if (SHOTS) await m.screenshot({ path: join(SHOTS, 'trade-phone.png'), fullPage: true });

@@ -16,7 +16,7 @@ const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_modules/playwright-core');
 const DAPP = join(dirname(fileURLToPath(import.meta.url)), '..', 'dapp');
 const WEB = 8990 + Math.floor(Math.random() * 90);
-const TYPES = { '.js': 'text/javascript', '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' };
+const TYPES = { '.js': 'text/javascript', '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' };
 const server = createServer((req, res) => {
   let f = normalize(join(DAPP, decodeURIComponent(new URL(req.url, 'http://x').pathname)));
   if (!f.startsWith(DAPP)) { res.writeHead(403); return res.end(); }

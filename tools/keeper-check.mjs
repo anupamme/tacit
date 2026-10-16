@@ -32,7 +32,7 @@ const NEXT = '0x' + 'bb'.repeat(32);
 const PV = '0x' + 'ab'.repeat(1120), PROOF = '0x' + 'cd'.repeat(260);
 const want = (process.argv[2] || 'ready,spent,none,refused,chain,race,ancestry,wc').split(',');
 
-const TYPES = { '.js': 'text/javascript', '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.wasm': 'application/wasm' };
+const TYPES = { '.js': 'text/javascript', '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.css': 'text/css', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.wasm': 'application/wasm' };
 const server = createServer((req, res) => {
   let f = normalize(join(DAPP, decodeURIComponent(new URL(req.url, 'http://x').pathname)));
   if (!f.startsWith(DAPP)) { res.writeHead(403); return res.end(); }

@@ -20,6 +20,7 @@ import { createHash } from 'node:crypto';
 import { brotliCompressSync, brotliDecompressSync, constants as zlibConst } from 'node:zlib';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CHROME_PAGES, chromePage } from './chrome.mjs';
 
 const HERE       = dirname(fileURLToPath(import.meta.url));
 const ROOT       = resolve(HERE, '..');                     // /Users/z/tacit
@@ -243,6 +244,18 @@ ${classic.slice(a, b).trim()}
   if (write) writeFileSync(file, want);
   return [`${BTC_CSS} is not the market page's styles from classic.html`];
 }
+// The header's page links, the footer and the links to their stylesheet and script (dapp/chrome.css, chrome.js) are made once, in build/chrome.mjs, and stamped
+// between each page's chrome markers, so no page can carry an older set. The trade page's copy for each asset is made from /trade/ afterwards.
+function siteChrome(write) {
+  const drift = [];
+  for (const rel of Object.keys(CHROME_PAGES)) {
+    const file = join(DAPP_DIR, rel);
+    if (!existsSync(file)) continue;
+    const before = readFileSync(file, 'utf8'), after = chromePage(before, rel, DAPP_DIR);
+    if (after !== before) { drift.push(`${rel} does not carry the shared header links and footer`); if (write) writeFileSync(file, after); }
+  }
+  return drift;
+}
 function pageCacheBust(files, write) {
   const drift = [];
   for (const rel of files) {
@@ -439,7 +452,7 @@ async function main() {
     if (gotCb !== wantCb) drift.push(`classic.html tacit.js ?cb=${gotCb} but sha256(dapp/tacit.js)=${wantCb}`);
     if (gotPreboot !== wantPreboot) drift.push(`classic.html preboot.js ?cb=${gotPreboot} but sha256(dapp/preboot.js)=${wantPreboot}`);
     if (gotSw !== wantSw) drift.push(`sw.js CACHE_VERSION suffix ${gotSw} but sha256(vendor‖prf-wallet)=${wantSw}`);
-    drift.push(...pageCacheBust(SATS_CB_FILES, false), ...pageCacheBust(WELD_CB_FILES, false), ...pageCacheBust(TAC_CB_FILES, false), ...btcMarketCss(false), ...tethPageStyle(false), ...pageCacheBust(TRADE_CB_FILES, false), ...tradeAssetPages(false), ...pageCacheBust(VAULT_CB_FILES, false), ...pageCacheBust(TASKS_CB_FILES, false), ...pageCacheBust(BUILD_CB_FILES, false), ...pageCacheBust(SWAP_CB_FILES, false), ...pageCacheBust(SPLITTER_CB_FILES, false), ...pageCacheBust(RELAY_CB_FILES, false), ...pageCacheBust(PAY_CB_FILES, false));
+    drift.push(...siteChrome(false), ...pageCacheBust(SATS_CB_FILES, false), ...pageCacheBust(WELD_CB_FILES, false), ...pageCacheBust(TAC_CB_FILES, false), ...btcMarketCss(false), ...tethPageStyle(false), ...pageCacheBust(TRADE_CB_FILES, false), ...tradeAssetPages(false), ...pageCacheBust(VAULT_CB_FILES, false), ...pageCacheBust(TASKS_CB_FILES, false), ...pageCacheBust(BUILD_CB_FILES, false), ...pageCacheBust(SWAP_CB_FILES, false), ...pageCacheBust(SPLITTER_CB_FILES, false), ...pageCacheBust(RELAY_CB_FILES, false), ...pageCacheBust(PAY_CB_FILES, false));
     drift.push(...pagePreloads(false));
     if (drift.length) {
       console.error('✗ cache-bust tokens or preload links are stale — run `npm run build` and commit the result:');
@@ -464,6 +477,8 @@ async function main() {
     cb = updateCacheBust(html, appJs, preboot);
     console.log(`• Cache-bust token: ?cb=${cb.token}${cb.changed ? ' (updated)' : ' (unchanged)'} · preboot ?cb=${cb.prebootToken}`);
     if (cb.changed) html = readFileSync(HTML);
+    const chromeDrift = siteChrome(true);
+    console.log(`• header links and footer: ${chromeDrift.length ? `${chromeDrift.length} page(s) updated` : 'unchanged'}`);
     const satsDrift = pageCacheBust(SATS_CB_FILES, true);
     console.log(`• sats page cache-bust: ${satsDrift.length ? `${satsDrift.length} token(s) updated` : 'unchanged'}`);
     const weldDrift = pageCacheBust(WELD_CB_FILES, true);

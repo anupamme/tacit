@@ -10,6 +10,10 @@ Dev-time tooling for the dapp in `../dapp/`. It is not part of the pinned dapp.
   - `tacit-satsconnect.min.js` (sats-connect), lazy-loaded, from `entry-satsconnect.mjs`
 - rewrites the `?cb=` cache-bust tokens for `tacit.js` and `preboot.js` in `../dapp/classic.html`
   (a short sha256 prefix of each file)
+- stamps the header's page links, the footer and the links to `dapp/chrome.css` and `dapp/chrome.js` between the
+  `<!-- chrome:nav|foot|head:begin -->` markers of every page listed in `chrome.mjs`; change a link or an icon in
+  `build/chrome.mjs` and the build rewrites every page (`npm run verify` fails on a page that differs). A new page
+  adds the three marker pairs and its name to `CHROME_PAGES`
 - writes a brotli-q11 copy of `tacit.js` to `build/out/tacit.js.br` for the API's `/tacit.js`
   edge route, and prints the `wrangler kv key put` command that uploads it
 - prints SHA-384 integrity hashes for every bundle, `tacit.js` and `index.html`
