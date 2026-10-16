@@ -31,11 +31,15 @@ export const addrWord = (a) => strip(a).toLowerCase().padStart(64, '0');
 export const wordAt = (hex, i) => BigInt('0x' + (strip(hex).slice(i * 64, (i + 1) * 64) || '0'));
 const addrAt = (hex, i) => '0x' + strip(hex).slice(i * 64 + 24, (i + 1) * 64);
 
+// The governed terms the owner can announce a change to, in the contract's order (depth, mint, liquidation, bonus, owner window, auction, minimum debt).
+export const TERM_IDS = [0, 1, 2, 3, 4, 5, 6];
+// How long after its time an announcement can still be carried out.
+export const QUEUE_EXPIRY = 14 * 86400;
 export const SEL = {
   TAC: '0x19f68523', SYNTH: '0xe1eddde3', MINT_RATIO_BPS: '0x347bbf43', LIQ_RATIO_BPS: '0x3473b38c', OWNER_WINDOW: '0x89c90a65', AUCTION_DURATION: '0xa271e525',
   MIN_DEBT: '0xa1034103', REDEMPTION_FEE_BPS: '0xcc1d2090', DEPTH_BPS: '0x418be017',
   totalDebt: '0xfc7b9c18', debtCeiling: '0xe1c84ea4', depthCeiling: '0x16275096', borrowFeeBps: '0xb76b0aa7', valueOf: '0x195168b6', liquidationPrice: '0xb6fc2d5f', offerPrice: '0x3bf19e29',
-  vaults: '0xa622ee7c', recovered: '0x0015aa6c', onOffer: '0x6a76229f',
+  vaults: '0xa622ee7c', recovered: '0x0015aa6c', onOffer: '0x6a76229f', pausedUntil: '0xda748b10', auctionTime: '0x155f586d', queuedParam: '0x01641934', pendingOracleEta: '0xf1c99189', pendingMinterEta: '0x294ac4e2',
   deposit: '0xb6b55f25', withdraw: '0x2e1a7d4d', borrow: '0x0ecbcdab', repay: '0x22867d78', cancel: '0x4c33fe94', permitTac: '0x1de38e64', permitSynth: '0xba8c86f1', multicall: '0xac9650d8',
   balanceOf: '0x70a08231', allowance: '0xdd62ed3e', approve: '0x095ea7b3', nonces: '0x7ecebe00', name: '0x06fdde03', symbol: '0x95d89b41', timestamp: '0x0f28c97d',
 };
@@ -93,7 +97,8 @@ export function dynamicCalls(V, who) {
   const v = V.addr;
   return [
     ['totalDebt', v, SEL.totalDebt], ['debtCeiling', v, SEL.debtCeiling], ['depthCeiling', v, SEL.depthCeiling], ['feeBps', v, SEL.borrowFeeBps],
-    ['pB', v, SEL.valueOf + word(WAD) + word(1)], ['pL', v, SEL.liquidationPrice], ['pO', v, SEL.offerPrice], ['symbol', V.synth, SEL.symbol],
+    ['pB', v, SEL.valueOf + word(WAD) + word(1)], ['pL', v, SEL.liquidationPrice], ['pO', v, SEL.offerPrice], ['symbol', V.synth, SEL.symbol], ['pausedUntil', v, SEL.pausedUntil], ['auctionTime', v, SEL.auctionTime],
+    ...TERM_IDS.map((id) => ['q' + id, v, SEL.queuedParam + word(id)]), ['oracleEta', v, SEL.pendingOracleEta], ['minterEta', V.synth, SEL.pendingMinterEta],
     ...(who ? [
       ['vault', v, SEL.vaults + addrWord(who)], ['recovered', v, SEL.recovered + addrWord(who)], ['onOffer', v, SEL.onOffer + addrWord(who)],
       ['tacBal', V.tac, SEL.balanceOf + addrWord(who)], ['tacAllow', V.tac, SEL.allowance + addrWord(who) + addrWord(v)],
@@ -103,7 +108,12 @@ export function dynamicCalls(V, who) {
 }
 export function parseDynamic(V, who, res) {
   const r = nameOf(dynamicCalls(V, who), res);
-  const out = { totalDebt: U(r.totalDebt), debtCeiling: U(r.debtCeiling), depthCeiling: U(r.depthCeiling), feeBps: U(r.feeBps), pB: U(r.pB), pL: U(r.pL), pO: U(r.pO), symbol: decString(r.symbol) };
+  const out = { totalDebt: U(r.totalDebt), debtCeiling: U(r.debtCeiling), depthCeiling: U(r.depthCeiling), feeBps: U(r.feeBps), pB: U(r.pB), pL: U(r.pL), pO: U(r.pO), symbol: decString(r.symbol), pausedUntil: U(r.pausedUntil), auctionTime: r.auctionTime ? Number(wordAt(r.auctionTime, 0)) : null };
+  // The changes the owner has announced and not yet made: [{ id, value, eta }], and the time a new oracle may be put in (0 for none).
+  out.announced = TERM_IDS.map((id) => (r['q' + id] ? { id, value: wordAt(r['q' + id], 0), eta: Number(wordAt(r['q' + id], 1)) } : null)).filter((a) => a && a.eta > 0);
+  out.oracleEta = r.oracleEta ? Number(wordAt(r.oracleEta, 0)) : 0;
+  // The time another contract the owner has named may start minting the synth (0 for none).
+  out.minterEta = r.minterEta ? Number(wordAt(r.minterEta, 0)) : 0;
   if (who) {
     out.me = r.vault ? { collateral: wordAt(r.vault, 0), debt: wordAt(r.vault, 1), auctionStart: Number(wordAt(r.vault, 2)) } : null;
     out.recovered = r.recovered == null ? null : wordAt(r.recovered, 0) === 1n;

@@ -157,5 +157,13 @@ export function parseUnits(text, dec = 18) {
   if (f.length > dec) return null;
   return BigInt(w || '0') * 10n ** BigInt(dec) + BigInt((f + '0'.repeat(dec)).slice(0, dec) || '0');
 }
+// A length of time in words: "2 days 3 h", "5 h 20 min", "12 min".
+export const span = (s) => {
+  s = Math.max(0, Math.round(Number(s)));
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  if (d) return `${d} day${d > 1 ? 's' : ''}${h ? ` ${h} h` : ''}`;
+  if (h) return `${h} h${m ? ` ${m} min` : ''}`;
+  return `${Math.max(1, m)} min`;
+};
 // A countdown, m:ss.
 export const clock = (s) => { s = Math.max(0, Math.ceil(Number(s))); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };

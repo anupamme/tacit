@@ -4,12 +4,13 @@
 // contract's own (math.js): what it shows as the room to borrow, the limit for this account, the amount to add to reach 400% and the price a vault is
 // liquidated at are the numbers the contract will test, rounded the safe way. A person's vault is the chain's, not this browser's: nothing about it
 // is kept here, so the same account shows the same vault anywhere. The wallet never gives up a key; each action is tested once with eth_call before it is sent.
-import { DEPLOYMENTS } from '/vault/deployments.js?cb=5ea12fed';
-import * as M from '/vault/math.js?cb=8726aaa5';
+import { DEPLOYMENTS } from '/vault/deployments.js?cb=174de1c7';
+import * as M from '/vault/math.js?cb=ac1ed53e';
 import {
-  makeRpc, makeReader, staticCalls, parseStatic, dynamicCalls, parseDynamic, timestampCall, refusal, decString, SEL, wordAt, addrWord,
+  makeRpc, makeReader, staticCalls, parseStatic, dynamicCalls, parseDynamic, timestampCall, refusal, decString, SEL, wordAt, addrWord, QUEUE_EXPIRY,
   encDeposit, encWithdraw, encBorrow, encRepay, encCancel, encApprove, encPermit, encMulticall,
-} from '/vault/chain.js?cb=4c85c232';
+} from '/vault/chain.js?cb=f91a5f6f';
+import { makeFeed, RECORD_GAS, encBatch, MULTICALL3 } from '/vault/feed.js?cb=f0f5d534';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=0cba8a63';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { announceWalletConnect, wcSheets, WC_PROJECT_ID } from '/walletconnect.js?cb=b3b540fa';
@@ -108,12 +109,15 @@ async function load() {
   }
   const live = VS.filter((v) => v.s);
   for (const v of live) { v.tac = v.s.tac; v.synth = v.s.synth; }
-  const calls = [timestampCall(), ...live.flatMap((v) => dynamicCalls(v, who0))];
+  // The terms (the ratios, the owner window, the share of depth) can be changed by the owner, so they are read again each time.
+  const nS = staticCalls('0x').length;
+  const calls = [timestampCall(), ...live.flatMap((v) => staticCalls(v.addr)), ...live.flatMap((v) => dynamicCalls(v, who0))];
   const res = await batch(calls);
   if (my !== S.seq || who0 !== who()) return;                                                       // the account changed while this was read
   const ts = res[0] ? Number(wordAt(res[0], 0)) : 0;
   if (ts) { S.chainT = ts; S.chainAt = now(); }
-  let i = 1;
+  live.forEach((v, k) => { const s = parseStatic(res.slice(1 + k * nS, 1 + (k + 1) * nS)); if (s && s.tac === v.tac && s.synth === v.synth) v.s = s; });
+  let i = 1 + live.length * nS;
   for (const v of live) { const n = dynamicCalls(v, who0).length; v.d = parseDynamic(v, who0, res.slice(i, i + n)); v.d.who = who0; i += n; }
   S.loaded = VS.some((v) => v.d); S.failed = !S.loaded;
 }
@@ -131,6 +135,8 @@ function derive(V) {
   const x = { V, s, d, k, me, room, sym: /^[A-Za-z0-9]{2,12}$/.test(d.symbol || '') ? d.symbol : k.sym, safe: 2n * s.liq };
   x.paused = d.pB == null || room == null || d.feeBps == null;                                       // borrowing needs a price, the depth and the fee
   x.auction = me.auctionStart !== 0;
+  x.pauseEnd = d.pausedUntil != null ? Number(d.pausedUntil) : 0;
+  x.auctionsPaused = x.pauseEnd > chainNow();                                                        // the owner has paused liquidations, outside bids and redemptions
   x.value = d.pL != null ? M.valueOf(me.collateral, d.pL) : null;
   x.zone = d.pL != null ? M.zoneOf({ collateral: me.collateral, debt: me.debt, price: d.pL, liq: s.liq }) : null;
   x.ratio = x.value != null && me.debt > 0n ? M.ratioBps(x.value, me.debt) : null;
@@ -163,12 +169,13 @@ function renderCap() {
   if (!x) { setHtml(el, `<p class="eyebrow" id="cap-h">Room to borrow now</p><p class="room off">${S.failed ? '—' : '…'}</p>${S.failed ? '<p class="paused">The vaults could not be read just now. Try again in a moment.</p>' : ''}`); return; }
   const head = `<p class="eyebrow" id="cap-h">${esc(x.k.name)} · room to borrow now</p>`;
   if (x.paused) {
-    setHtml(el, `${head}<p class="room off">—</p><p class="paused">Lending is paused until prices are recorded. You can still add TAC and repay.</p>${x.d.totalDebt != null ? `<div class="rows"><div class="kv"><span>Borrowed so far</span><b class="num">${esc(syn(x, x.d.totalDebt))} ${esc(x.sym)}</b></div></div>` : ''}`);
+    setHtml(el, `${head}<p class="room off">—</p><p class="paused">Lending is paused until prices are recorded. You can still add TAC and repay.</p>${x.d.totalDebt != null ? `<div class="rows"><div class="kv"><span>Borrowed so far</span><b class="num">${esc(syn(x, x.d.totalDebt))} ${esc(x.sym)}</b></div></div>` : ''}${x.auctionsPaused ? pauseBox(x) : ''}${changesBox(x)}`);
     return;
   }
   setHtml(el, `${head}<p class="room num">${esc(syn(x, x.room))}<small>${esc(x.sym)}</small></p>
     <div class="rows"><div class="kv"><span>Borrowed so far</span><b class="num">${esc(syn(x, x.d.totalDebt))} ${esc(x.sym)}</b></div><div class="kv"><span>Fee when you borrow</span><b class="num">${esc(feeText(x.d.feeBps))}</b></div></div>
-    <p class="note">Room grows as liquidity is added to the TAC pools. <a href="/trade/tac/#farm">Add liquidity</a></p>`);
+    ${x.room < x.s.minDebt ? `<p class="paused">A vault's debt starts at ${esc(syn(x, x.s.minDebt))} ${esc(x.sym)}, which is more than the room there is now, so no one can borrow yet.</p>` : ''}
+    <p class="note">Room grows as liquidity is added to the TAC pools. <a href="/trade/tac/#farm">Add liquidity</a></p>${x.auctionsPaused ? pauseBox(x) : ''}${changesBox(x)}`);
 }
 
 // ── a person's vault ──
@@ -189,9 +196,34 @@ function zoneLine(x) {
   if (x.zone === 'redemption') return `From ${pctOf(x.s.liq)} to ${pctOf(x.safe)}, a holder of ${esc(x.sym)} can swap it for your TAC at its price, less a ${feeText(x.s.redemptionFee)} to ${feeText(x.s.redemptionFee * 4n)} fee. Your debt falls by the same amount.`;
   return `From ${pctOf(x.safe)} up, nothing can be redeemed or sold against this vault.`;
 }
+function pauseBox(x) {
+  return `<div class="callout"><span class="t"><b>Auctions are paused.</b> Nobody can start an auction, bid on one for someone else or redeem for <b data-cd="${x.pauseEnd}">${M.clock(x.pauseEnd - chainNow())}</b>. Repaying, adding TAC and withdrawing work as usual.</span></div>`;
+}
+// What the owner has announced and not yet made. A change takes effect from the time shown, so a borrower who does not want it can repay or
+// withdraw before then.
+const TERM_NAMES = ['share of pool depth lent', 'borrowing line', 'liquidation ratio', 'bid bonus', "owner's bidding window", 'auction length', 'smallest debt'];
+function termText(x, id, v) {
+  if (id === 0) return `${Number(v) / 100}% of the pools' depth`;
+  if (id === 1 || id === 2) return pctOf(v);
+  if (id === 3) return feeText(v);
+  if (id === 4 || id === 5) return M.span(Number(v));
+  return `${syn(x, v)} ${x.sym}`;
+}
+function changesBox(x) {
+  const now = chainNow(), live = (eta) => eta > 0 && eta + QUEUE_EXPIRY > now;
+  const when = (eta) => (eta > now ? `in ${M.span(eta - now)}` : 'now');
+  const lines = (x.d.announced || []).filter((a) => live(a.eta)).map((a) => `${TERM_NAMES[a.id]} to ${termText(x, a.id, a.value)}: can take effect ${when(a.eta)}`);
+  if (live(x.d.oracleEta)) lines.push(`the price source: can be replaced ${when(x.d.oracleEta)}`);
+  if (live(x.d.minterEta)) lines.push(`another contract allowed to mint ${esc(x.sym)}: can be added ${when(x.d.minterEta)}`);
+  if (!lines.length) return '';
+  return `<div class="callout"><span class="t"><b>The owner has announced a change.</b> Repay or withdraw before it if you do not want it.${lines.map((l) => `<span class="sub">${l}</span>`).join('')}</span></div>`;
+}
+// The clock auctions run on (`auctionStart` is a reading of it): the chain's time less the time spent paused, so it stands still while
+// auctions are paused. From the reading in `d` it runs on from the later of the reading and the end of the pause.
+const auctionNow = (d) => (d.auctionTime == null ? chainNow() : d.auctionTime + Math.max(0, chainNow() - Math.max(S.chainT, Number(d.pausedUntil || 0))));
 function auctionBox(x) {
-  const left = x.me.auctionStart + x.s.ownerWindow - chainNow();
-  const owner = left > 0 ? `Only the owner can bid for <b data-cd="${x.me.auctionStart + x.s.ownerWindow}">${M.clock(left)}</b>, then anyone.` : 'Anyone can bid now.';
+  const left = x.me.auctionStart + x.s.ownerWindow - auctionNow(x.d);
+  const owner = x.auctionsPaused ? `Bids from others are paused for <b data-cd="${x.pauseEnd}">${M.clock(x.pauseEnd - chainNow())}</b>; the owner can still bid.` : left > 0 ? `Only the owner can bid for <b data-cd="${chainNow() + left}">${M.clock(left)}</b>, then anyone.` : 'Anyone can bid now.';
   const offer = x.d.pO != null ? `<span class="sub">The offer is ${esc(priceText(x, x.d.pO, 'down'))} per TAC${x.d.onOffer != null ? `; a bid for all the debt takes ${esc(tac(x.d.onOffer))} TAC` : ''}.</span>` : '';
   const way = x.d.recovered ? 'The vault has recovered: ending the auction restores borrowing and withdrawing.' : 'Repay, or add TAC, to end it. It ends once the vault is back above ' + pctOf(x.s.liq) + '.';
   return `<div class="callout red"><span class="t"><b>An auction is running.</b> ${owner}${offer}<span class="sub">${way}</span></span>${x.d.recovered && canAct() ? '<button class="pillbtn" type="button" data-cancel>End the auction</button>' : ''}</div>`;
@@ -432,7 +464,70 @@ function renderAll() {
   $('#soon').hidden = live; $('#app').hidden = !live; $('#wallet-chip').hidden = !live;
   $('#sub').hidden = !live;
   if (!live) return;
-  renderChip(); renderPick(); renderCap(); renderPos(); renderTicket();
+  renderChip(); renderPick(); renderCap(); renderPos(); renderFeed(); renderTicket();
+}
+
+// ── the price feed ──
+// Lending needs every ten-minute price of the last eight hours from both venues. When they have not been recorded (a keeper stopped, or none runs), anyone can
+// record them from here: the page builds each record from an archive node and sends them ten at a time through Multicall3, each batch tested first.
+const feed = makeFeed({ rpc, proofRpc: makeRpc(['https://eth.drpc.org']) });
+const F = { state: null, busy: false, note: '', bad: false, gas: null, at: 0 };
+const VENUE = ['Precision pool', 'Tacit AMM'];
+const setFeed = (note, bad = false) => { F.note = note; F.bad = bad; const el = $('#feed-status'); if (el) { el.innerHTML = note; el.className = `status${bad ? ' err' : ''}`; } };
+async function loadFeed() {
+  const V = cur();
+  if (!V || F.busy) return;
+  try { F.state = await feed.read(V.addr); F.at = now(); } catch (e) { console.warn('price feed read:', e?.message || e); }
+  try { F.gas = BigInt(await rpc('eth_gasPrice', [])); } catch { /* the cost line is only a convenience */ }
+  renderFeed();
+}
+function renderFeed() {
+  const el = $('#feed'), st = F.state;
+  if (!VS.length || !st) { el.hidden = true; return; }
+  el.hidden = false;
+  const cost = F.gas != null && st.missing ? ` about ${(Number(BigInt(st.missing * RECORD_GAS) * F.gas) / 1e18).toFixed(4)} ETH at ${(Number(F.gas) / 1e9).toFixed(2)} gwei,` : '';
+  const rows = st.venues.map((v, i) => `<div class="kv"><span>${esc(VENUE[i] || `Venue ${i + 1}`)}</span><b class="num">${v.counted} of ${v.points}${v.missing.length > v.points - v.counted ? ` · ${v.missing.length - (v.points - v.counted)} newer to add` : ''}</b></div>`).join('');
+  setHtml(el, `<p class="eyebrow" id="feed-h"><span>Price feed</span><span class="who">${st.ready ? 'up to date' : `${st.missing} to record`}</span></p>
+    <div class="rows flat">${rows}</div>
+    <p class="note">Lending needs every ten-minute price of the last eight hours from both venues. Anyone can record the ones missing:${cost} paid by whoever sends it, and a keeper does it when one is running.</p>
+    <button class="btn" id="feed-go" type="button"${st.missing && !F.busy ? '' : ' disabled'}>${F.busy ? 'Recording…' : !st.missing ? 'Up to date' : W.account ? `Record ${st.missing} price${st.missing === 1 ? '' : 's'}` : 'Connect wallet'}</button>
+    <div class="status${F.bad ? ' err' : ''}" id="feed-status" role="status">${F.note}</div>`);
+  $('#feed-go').onclick = pokeFeed;
+}
+async function pokeFeed() {
+  if (F.busy) return;
+  if (!W.account) { await connectWallet(); return; }
+  F.busy = true; renderFeed();
+  try {
+    for (let round = 1; round <= 12; round++) {
+      const V = cur(), st = await feed.read(V.addr);
+      F.state = st;
+      if (!st.missing) break;
+      const part = feed.nextBatch(st);
+      setFeed(`Building ${part.length} record${part.length === 1 ? '' : 's'} (batch ${round})…`);
+      const recs = await feed.build(part);
+      const data = encBatch(recs.map((r) => ({ to: r.to, data: r.data })));
+      const sim = await simulate(MULTICALL3, data, W.account);
+      if (!sim.ok) {
+        // One of them may have been recorded by someone else in the meantime: find which, and carry on without them.
+        const each = await Promise.all(recs.map((r) => simulate(r.to, r.data, W.account)));
+        const bad = each.find((r) => !r.ok && !String(r.e?.data || '').startsWith('0x103b4afe'));
+        if (bad) throw new Error(`A record would fail on the chain (${String(bad.e?.message || 'refused').slice(0, 120)}). Nothing was sent.`);
+        setFeed('Someone else is recording too; reading again…');
+        continue;
+      }
+      setFeed(`Confirm batch ${round} in your wallet (${part.length} record${part.length === 1 ? '' : 's'}).`);
+      const hash = await wallet.sendTx({ to: MULTICALL3, data, from: W.account });
+      setFeed(`Sent ${txLink(hash)}. Waiting for it to land…`);
+      const rc = await wallet.receipt(hash);
+      if (rc.status !== '0x1') throw new Error('The batch failed on the chain. Nothing more was sent.');
+    }
+    F.busy = false; await loadFeed();
+    setFeed(F.state?.ready ? 'The price feed is up to date.' : 'Recorded what could be. Some newer intervals still need adding: record again.');
+  } catch (e) {
+    F.busy = false;
+    setFeed(errText(e), !(e instanceof UserStopped));
+  } finally { F.busy = false; await loadFeed(); refresh(); }
 }
 
 // ── the address bar ──
@@ -480,7 +575,8 @@ setInterval(() => {
   els.forEach((el) => { const left = Number(el.dataset.cd) - chainNow(); el.textContent = M.clock(left); if (left <= 0 && !S.busy) renderPos(); });
 }, 1000);
 setInterval(() => { if (!document.hidden && !S.busy) refresh(); }, 30e3);
+setInterval(() => { if (!document.hidden && !S.busy && !F.busy) loadFeed(); }, 60e3);
 
 readHash();
 renderAll();
-if (VS.length) refresh();
+if (VS.length) { refresh(); loadFeed(); }
