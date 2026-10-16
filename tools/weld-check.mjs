@@ -3224,6 +3224,38 @@ await step('pts', async () => {
   if (w.errors.length) { fails++; console.log('FAIL pts page errors: ' + w.errors.slice(0, 3).join(' | ')); }
   await w.browser.close();
 });
+// A points claim made through the page by an address the service owes TAC, with the service's real proof against the fork's distributor;
+// then again with the proof it read spoiled until the press (a list replaced since it was read), when the page reads the address again and
+// claims. Needs an address with TAC to claim: PTS_ACCOUNT=0x… node tools/weld-check.mjs ptsclaim
+await step('ptsclaim', async () => {
+  const who = process.env.PTS_ACCOUNT;
+  if (!/^0x[0-9a-fA-F]{40}$/.test(who || '')) { ok(true, 'ptsclaim: set PTS_ACCOUNT to an address that is owed points to run this'); return; }
+  await rpc('anvil_impersonateAccount', [who]);
+  await rpc('anvil_setBalance', [who, '0x' + (10n ** 18n).toString(16)]);
+  for (const stale of [false, true]) {
+    const snap = await rpc('evm_snapshot');
+    const r = await openPage({ account: who });
+    let spoil = stale, spoiled = 0;
+    await r.ctx.route(/api\.tacit\.finance\/claim\/0x/, async (route) => {
+      if (!spoil) return route.continue();
+      const res = await route.fetch(), body = await res.json();
+      if (body.proof?.length) { spoiled++; const h = body.proof[0]; body.proof[0] = h.slice(0, -1) + (h.endsWith('0') ? '1' : '0'); }
+      return route.fulfill({ response: res, json: body });
+    });
+    await r.page.goto(r.url + '#pts');
+    await r.page.click('#pts-connect');
+    await until(r.page, () => !!document.querySelector('#pts-body [data-claim]'), null, 120000);
+    const before = await tacOf(who);
+    spoil = false;
+    await r.page.click('#pts-body [data-claim]');
+    await until(r.page, () => /Claimed|err/.test(document.querySelector('#pts-status')?.innerHTML || ''), null, 120000);
+    const said = await text(r.page, '#pts-status');
+    ok(/Claimed/.test(said) && (await tacOf(who)) > before && (!stale || spoiled > 0), `ptsclaim: ${stale ? `a claim list replaced before the press is read again and claimed (${spoiled} spoiled read${spoiled === 1 ? '' : 's'})` : 'a points reward claims to its own address'} (${said})`);
+    if (r.errors.length) { fails++; console.log('FAIL ptsclaim page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+    await r.browser.close();
+    await rpc('evm_revert', [snap]);
+  }
+});
 // The points sheet from a stubbed service: activity across chains in time order (Base's larger block numbers do not put
 // an older Base deposit first), the holder boost of the newest, the rank, what was claimed, and today's countdown; the day's
 // pot, the all-time and today's boards, the gap to the next rank, what changed since an earlier day, and the points-per-day
