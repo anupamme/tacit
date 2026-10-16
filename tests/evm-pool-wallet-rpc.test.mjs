@@ -24,7 +24,7 @@ function fakePool() {
   const tree = zk.incTree(), sizeOf = new Map([[tree.root, 0]]), logs = [], events = [];
   let block = 0;
   const pool = {
-    logs, events, sizeOf, get tip() { return block; }, set tip(b) { block = b; },
+    logs, events, sizeOf, get tip() { return block; }, set tip(b) { block = b; }, get root() { return tree.root; }, get size() { return tree.size; },
     // The next block's transaction: spends `nf`, inserts the two leaves `out` (or none) with their memos.
     transact({ nf = [0n, 0n], out = null, memo = [null, null] } = {}) {
       block++;
@@ -50,7 +50,7 @@ function fakePool() {
   return pool;
 }
 // A node over `pool`: eth_getLogs by address and first topic (each one or a list) within the range, every filter kept in
-// `seen`; rootSize from the pool's roots.
+// `seen`; rootSize from the pool's roots; a receipt with the logs of its transaction.
 const nodeOf = (pool, seen = []) => async (m, p) => {
   if (m === 'eth_blockNumber') return '0x' + pool.tip.toString(16);
   if (m === 'eth_getLogs') {
@@ -60,6 +60,7 @@ const nodeOf = (pool, seen = []) => async (m, p) => {
       && Number(l.blockNumber) >= Number(f.fromBlock) && Number(l.blockNumber) <= Number(f.toBlock));
   }
   if (m === 'eth_call') return '0x' + w64(pool.sizeOf.get(BigInt('0x' + p[0].data.slice(-64))) ?? 0);
+  if (m === 'eth_getTransactionReceipt') { const l = pool.logs.filter((x) => x.transactionHash === p[0]); return l.length ? { status: '0x1', logs: l } : null; }
   return '0x0';
 };
 // The keeper's /events over `pool`, `page` blocks at a time.
@@ -686,6 +687,181 @@ await check('a sweep\'s Transact and Received come from one log query, so a node
     assert.deepEqual(f.address.map((a) => a.toLowerCase()), [POOLF.toLowerCase(), ROUTERF.toLowerCase()], 'the pool and the router in one query');
     assert.deepEqual(f.topics, [[T_TRANSACT, T_RECEIVED]], 'either event, and no receive box named');
   }
+});
+
+// Runs `fn` with timers that fire at once and a clock that moves on by each wait; → every wait asked for, in ms.
+async function quickly(fn) {
+  const set = globalThis.setTimeout, now = Date.now, delays = [];
+  let skew = 0;
+  globalThis.setTimeout = (f, ms = 0, ...a) => { delays.push(ms); skew += ms; return set(f, 0, ...a); };
+  Date.now = () => now() + skew;
+  try { await fn(); } finally { globalThis.setTimeout = set; Date.now = now; }
+  return delays;
+}
+
+// A wallet holding one note of 0.01 ETH on a fake pool, relayed by a stub keeper: s.reserve(n, body) and s.relay(n, body)
+// give its answers to the n-th call ([status, body]); s.spend() lands a spend of the note; s.spendAfter(k) lands it at
+// the k-th read of the chain's tip from now. s.ready() is the wallet's first sync; s.rescans counts the reads from the
+// deploy block after it.
+const RELAYER = '0xfA2afbaB631C7Eda7CeA6AE1440605C504E322Ec';
+function spender(seed) {
+  const keys = evmPoolKeys(zk, new Uint8Array(32).fill(seed)), self = { V: keys.V, A: keys.A, N: keys.N };
+  const pool = fakePool();
+  const o = sealNote(zk, { to: self, value: 10n ** 16n, asset: ASSETF });
+  const { firstIndex } = pool.transact({ out: [o.leaf, 21n], memo: [o.memo, null] });
+  const nf = zk.nullifier(openNote(zk, keys, { memo: o.memo, leaf: o.leaf, asset: ASSETF }).nk, o.leaf, firstIndex);
+  const seen = [], inner = nodeOf(pool, seen);
+  let proofs = 0, after = 0, base = 0;
+  const fromStart = () => seen.filter((f) => Number(f.fromBlock) === 1).length;
+  const s = {
+    pool, nf, asked: [], feed: null, keeperHeaders: () => null,
+    reserve: () => [404, { error: 'this keeper does not queue' }],
+    relay: () => [500, { error: 'internal error' }],
+    quote: () => [200, { chainId: 8453, pool: POOLF, relayer: RELAYER, fee: '1000000000000' }],
+    spend: () => pool.transact({ nf: [nf, 0n] }),
+    spendAfter: (k) => { after = k; },
+    get proofs() { return proofs; },
+    get rescans() { return fromStart() - base; },
+    ready: async () => { const sum = await s.w.sync(); base = fromStart(); return sum; },
+    count: (path) => s.asked.filter((p) => p === path).length,
+  };
+  const rpc = async (m, p) => { if (m === 'eth_blockNumber' && after && !--after) s.spend(); return inner(m, p); };
+  const fetchImpl = async (url, init) => {
+    const path = url.slice('https://k.test'.length).split('?')[0];
+    s.asked.push(path);
+    const [status, body] = path === '/quote' ? s.quote(s.count(path)) : path === '/reserve' ? s.reserve(s.count(path), JSON.parse(init.body))
+      : path === '/relay' ? s.relay(s.count(path), JSON.parse(init.body)) : path === '/cancel' ? [200, { ok: true }]
+        : path === '/events' && s.feed ? [200, s.feed(Number(new URL(url).searchParams.get('from')))] : [404, { error: 'not found' }];
+    return { ok: status === 200, status, headers: { get: (h) => s.keeperHeaders(h) }, json: async () => body };
+  };
+  s.make = () => (s.w = makeEvmPoolWallet({
+    zk, keys, keeper: 'https://k.test', fetchImpl, feed: !!s.feed, store: null,
+    prove: async () => { proofs++; return { proof: { pi_a: ['1', '2'], pi_b: [['1', '2'], ['3', '4']], pi_c: ['1', '2'] }, publicSignals: Array(11).fill('0') }; },
+    chain: { chainId: 8453, pool: POOLF, router: ROUTERF, rpc, deployBlock: 1, confirmations: 0, relayer: RELAYER },
+  }));
+  return s;
+}
+const TO = '0x' + '22'.repeat(20);
+const slotOf = (pool) => [200, { id: 'a'.repeat(24), root: String(pool.root), size: String(pool.size), pending: [], oldRoot: String(pool.root), start: String(pool.size) }];
+const isSpent = (e) => e.said === true && e.message === 'Those funds were already spent. Check Activity.';
+
+await check('a note the relay already queues a spend of: nothing is proved, and once that spend lands the wallet says the funds were spent', async () => {
+  const s = spender(21);
+  s.reserve = () => { s.spendAfter(3); return [409, { error: 'a note in this spend is already queued', stale: true }]; };
+  s.make();
+  await s.ready();
+  await quickly(() => assert.rejects(s.w.withdraw({ to: TO, amount: 10n ** 15n, via: 'relay' }), isSpent));
+  assert.equal(s.proofs, 0, 'nothing proved');
+  assert.equal(s.count('/relay'), 0);
+  assert.equal(s.rescans, 0, 'no rebuild from the chain');
+  assert.equal((await s.w.sync()).balance, 0n);
+});
+
+await check('a queued spend that never lands (a reservation that lapses) is waited out, and the spend then goes through', async () => {
+  const s = spender(22);
+  // The keeper holds an unfulfilled reservation 90 s, then drops it.
+  let since = null;
+  s.reserve = () => { since ??= Date.now(); return Date.now() - since < 90_000 ? [409, { error: 'a note in this spend is already queued', stale: true }] : slotOf(s.pool); };
+  s.relay = () => [200, { txHash: s.spend().tx }];
+  s.make();
+  await s.ready();
+  let h;
+  const waits = await quickly(async () => { h = await s.w.withdraw({ to: TO, amount: 10n ** 15n, via: 'relay' }); });
+  assert.match(h, /^0x[0-9a-f]{64}$/);
+  assert.equal(s.count('/reserve'), 2);
+  assert.equal(s.proofs, 1, 'proved once, after the wait');
+  assert.ok(waits.reduce((a, b) => a + b, 0) >= 90_000, 'waited past the time a reservation is held');
+});
+
+await check('a note the relay finds spent on chain: nothing is proved, the wallet says so, and only a wallet that cannot see that spend rebuilds', async () => {
+  const s = spender(23);
+  s.reserve = () => { s.spend(); return [400, { error: 'a note in this spend is already spent' }]; };
+  s.make();
+  await s.ready();
+  await quickly(() => assert.rejects(s.w.withdraw({ to: TO, amount: 10n ** 15n, via: 'relay' }), isSpent));
+  assert.equal(s.proofs, 0);
+  assert.equal(s.rescans, 0, 'it saw the spend: no rebuild');
+  // A feed that left the spend out: the wallet still holds the note after waiting, so it rebuilds from the chain's logs.
+  const t = spender(24);
+  t.spend();
+  t.feed = (from) => ({ chainId: 8453, pool: POOLF, through: t.pool.tip, events: t.pool.events.filter((e) => e.block >= from && e.nf0 !== String(t.nf)) });
+  t.reserve = () => [400, { error: 'a note in this spend is already spent' }];
+  t.make();
+  assert.equal((await t.ready()).balance, 10n ** 16n, 'the feed shows the note unspent');
+  await quickly(() => assert.rejects(t.w.withdraw({ to: TO, amount: 10n ** 15n, via: 'relay' }), isSpent));
+  assert.equal(t.proofs, 0);
+  assert.equal(t.rescans, 1, 'rebuilt once from the chain');
+  assert.equal(t.w.summary().balance, 0n, 'and the spent note is gone');
+});
+
+await check('a relay that answers AlreadyNullified, or that it is relaying this spend already, is final: one proof, and the wallet says why', async () => {
+  const s = spender(25);
+  s.relay = () => { s.spend(); return [409, { error: 'AlreadyNullified: re-prove against the pool\'s current root', stale: true }]; };
+  s.make();
+  await s.ready();
+  await quickly(() => assert.rejects(s.w.withdraw({ to: TO, amount: 10n ** 15n, via: 'relay' }), isSpent));
+  assert.deepEqual([s.proofs, s.count('/relay'), s.rescans], [1, 1, 0]);
+  const t = spender(26);
+  t.relay = () => { t.spendAfter(3); return [409, { error: 'this spend is already being relayed', stale: true }]; };
+  t.make();
+  await t.ready();
+  await quickly(() => assert.rejects(t.w.withdraw({ to: TO, amount: 'max', via: 'relay' }), isSpent));
+  assert.deepEqual([t.proofs, t.count('/relay'), t.rescans], [1, 1, 0]);
+  // Relayed already, and not landed while the wallet waited: it says the spend is on its way, and proves nothing more.
+  const u = spender(27);
+  u.relay = () => [409, { error: 'this spend is already being relayed', stale: true }];
+  u.make();
+  await u.ready();
+  await quickly(() => assert.rejects(u.w.withdraw({ to: TO, amount: 'max', via: 'relay' }), (e) => e.said && /already on its way/.test(e.message)));
+  assert.deepEqual([u.proofs, u.count('/relay'), u.rescans], [1, 1, 0]);
+});
+
+await check('the wallet rebuilds from the chain after rounds the pool\'s tree refused, and not after rounds the relay was busy', async () => {
+  const s = spender(28);
+  s.reserve = () => slotOf(s.pool);
+  s.relay = () => [409, { error: 'StaleRoot: re-prove against the pool\'s current root', stale: true }];
+  s.make();
+  await s.ready();
+  await quickly(() => assert.rejects(s.w.withdraw({ to: TO, amount: 10n ** 15n, via: 'relay' }), /the pool kept moving/));
+  assert.equal(s.proofs, 8);
+  assert.equal(s.count('/cancel'), 8, 'each refused round gives its slot back');
+  assert.equal(s.rescans, 1);
+  const t = spender(29);
+  t.relay = () => [429, { error: 'rate limited' }];
+  t.make();
+  await t.ready();
+  await quickly(() => assert.rejects(t.w.withdraw({ to: TO, amount: 10n ** 15n, via: 'relay' }), /the pool kept moving/));
+  assert.equal(t.proofs, 8);
+  assert.equal(t.rescans, 0, 'rate limits are no reason to rebuild');
+});
+
+await check('a relay that refuses a proven spend for its fee says what the fee is now, as a quote above the fee shown does', async () => {
+  const s = spender(30);
+  s.reserve = () => slotOf(s.pool);
+  s.relay = () => [400, { error: 'fee too low: the fee does not cover the gas', needFee: '7000000000000' }];
+  s.make();
+  await s.ready();
+  await assert.rejects(s.w.withdraw({ to: TO, amount: 10n ** 15n, via: 'relay' }), (e) => e.feeMoved === 7_000_000_000_000n && /fee went up/.test(e.message));
+  assert.equal(s.proofs, 1);
+  assert.equal(s.count('/cancel'), 1, 'its slot is given back');
+});
+
+await check('a busy relay is asked again after the Retry-After it gives, about ten seconds when a page cannot read it, a few times at most', async () => {
+  for (const [header, lo, hi] of [[null, 5_000, 15_000], ['2', 1_000, 3_000], ['3600', 15_000, 45_000]]) {
+    const s = spender(31);
+    s.quote = (n) => (n <= 2 ? [429, { error: 'rate limited' }] : [200, { chainId: 8453, pool: POOLF, relayer: RELAYER, fee: '1000000000000' }]);
+    s.keeperHeaders = (h) => (h.toLowerCase() === 'retry-after' ? header : null);
+    s.make();
+    const waits = await quickly(() => s.w.quote());
+    assert.equal(waits.length, 2, `Retry-After ${header}`);
+    for (const d of waits) assert.ok(d >= lo && d <= hi, `Retry-After ${header}: waited ${d} ms`);
+  }
+  const s = spender(32);
+  s.quote = () => [429, { error: 'rate limited' }];
+  s.make();
+  const waits = await quickly(() => assert.rejects(s.w.quote(), /rate limited/));
+  assert.equal(waits.length, 4);
+  assert.ok(waits.reduce((a, b) => a + b, 0) <= 60_000, 'gives up within a minute');
 });
 
 console.log(`\n${n} checks passed`);

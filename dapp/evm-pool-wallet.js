@@ -519,9 +519,9 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
   // has held at that size, so the feed cannot forge leaves. No nullifier is sent to a node to ask whether it is
   // spent: a spend the feed left out shows when the chain-log scan reaches it, or as a refused spend, which rescans.
   // A feed that withholds a memo or a Received event can hide a note until rescan() reads the chain's logs alone
-  // (a spend that keeps failing does that itself); it cannot move funds. Each page is kept as soon as it checks, so a
-  // failure, or a page closed partway through a long history, loses only the page being read: the next read, by the
-  // feed or the chain-log scan, continues from the last one kept.
+  // (a spend refused for this wallet's state does that itself); it cannot move funds. Each page is kept as soon as it
+  // checks, so a failure, or a page closed partway through a long history, loses only the page being read: the next
+  // read, by the feed or the chain-log scan, continues from the last one kept.
   async function syncFromFeed(safe) {
     for (let pages = 0; pages < 10_000; pages++) {
       const cand = saved, from = cand.block + 1;
@@ -607,14 +607,16 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
 
   // ── spending ──
 
-  // A busy keeper answers 429 with Retry-After: wait and ask again a few times. A keeper that never answers gives up
+  // A busy keeper answers 429 with Retry-After (10 s from this keeper), which a page on another origin cannot read: wait
+  // what it says, 10 s when unread, at most 30 s, and ask again up to four times. A keeper that never answers gives up
   // in time (a relay may wait on the chain; everything else answers fast), so no read or action waits on it forever.
   async function keeperFetch(path, init = {}) {
     if (!keeper) throw new Error('no relayer is configured for this chain');
     for (let i = 0; ; i++) {
       const r = await fetchImpl(`${keeper}${path}`, { ...init, signal: init.signal || AbortSignal.timeout?.(path === '/relay' ? 180_000 : 30_000) });
       if (r.status !== 429 || i >= 4) return r;
-      await new Promise((ok) => setTimeout(ok, (Number(r.headers?.get?.('retry-after')) || 3) * 1000 * (0.5 + Math.random())));
+      const after = Number(r.headers?.get?.('retry-after'));
+      await sleep(Math.min(after > 0 ? after : 10, 30) * 1000 * (0.5 + Math.random()));
     }
   }
   const realOrigin = !!globalThis.location?.hostname && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(globalThis.location.hostname);
@@ -705,14 +707,17 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
 
   // A slot in the keeper's queue for a transaction inserting `sealed`'s leaves and spending `ins`, and the tree to
   // prove it against: this wallet's, plus the leaves queued ahead of the slot. Many wallets prove at once, each in
-  // its own slot. → { id, tree }, 'stale' (a spend is queued already: wait), 'tail' (the keeper has paused this
-  // connection's reservations: prove against the queue's tail and send without one), or null (prove without a slot).
+  // its own slot. → { id, tree }, 'queued' (a spend of these notes is in the queue already), 'spent' (the pool has
+  // them spent), 'stale' (refused for the queue's state: try again), 'tail' (the keeper has paused this connection's
+  // reservations: prove against the queue's tail and send without one), or null (prove without a slot).
   async function reserveSlot(sealed, ins) {
     const leaf = (k) => String(sealed[k] ? sealed[k].leaf : 0n);
     let r;
     try {
       const res = await keeperPost('/reserve', { outLeaf0: leaf(0), outLeaf1: leaf(1), nfs: ins.map((n) => n.nf) });
-      if (res.status === 409) return 'stale';
+      const why = String(res.body?.error || '');
+      if (res.status === 409) return /already queued/.test(why) ? 'queued' : 'stale';
+      if (res.status === 400 && /already spent/.test(why)) return 'spent';
       if (res.status === 403) return 'tail';
       if (res.status !== 200) return null;
       r = res.body;
@@ -747,10 +752,24 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
     return true;
   }
 
+  // Notes already spent (from this key elsewhere, or by an earlier try of this spend), said in words.
+  const spentAlready = () => Object.assign(new Error('Those funds were already spent. Check Activity.'), { said: true });
+  const holds = (ins) => ins.every((n) => state().notes.some((m) => m.nf === n.nf));
+  // Waits up to `ms` for this wallet to read `ins` spent. → whether it did.
+  const seenSpent = (ins, ms) => waitFor(() => !holds(ins), ms).then(() => true, () => false);
+  // The pool has `ins` spent, as the relay found: once this wallet reads that spend too, it says so. One that still holds
+  // them after a minute read a history without that spend (a feed that left it out), so it rebuilds from the chain's logs.
+  async function spentOnChain(ins, onStep) {
+    onStep('reading the pool again');
+    if (!(await seenSpent(ins, 60_000))) await rescanFromChain().catch(() => {});
+    return spentAlready();
+  }
+
   // One transaction: spends `ins`, creates `outs` ([{ to, value } | null] × 2) and moves `extAmount` across the pool
   // boundary (> 0 in from the signer, < 0 out to `recipient`). With a relayer's quote `q` the relayer submits it
   // for q.fee, proven to follow what the relayer has queued; without, the signer does and pays the gas. Waits for
-  // it to be mined and proves again when another transaction lands first. → tx hash.
+  // it to be mined and proves again when another transaction lands first. A spend whose notes are spent already, or
+  // that the relay holds or is sending already, is not proved again: it ends with that said. → tx hash.
   // selfCall(tx) → { to, data }: what the signer submits, when not pool.transact (withdrawToV1).
   async function transact({ ins, outs, extAmount = 0n, recipient = ZERO, q = null, extra = {}, selfCall = null, onStep = () => {} }) {
     // A spend's outputs take one-time keys the sender can derive again (paymentKey); a deposit's are random.
@@ -762,11 +781,21 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
     const inputs = [...ins.map(asInput), ...Array(2 - ins.length).fill({ dummy: true })];
     const inserts = sealed.some(Boolean);
     const simulated = !!(extra.call || extra.wrap);
+    let treeRefused = false;
     for (let round = 0; round < 8; round++) {
       if (round) { onStep('someone else got in first, proving again'); await jitter(round); await sync(); }
+      if (!holds(ins)) throw spentAlready();
       let tree = state().tree, slot = null;
       if (q && inserts && !simulated) {
         const r = await reserveSlot(sealed, ins);
+        if (r === 'spent') throw await spentOnChain(ins, onStep);
+        // A spend of these notes waits in the relay's queue: from this key elsewhere, or the reservation of an earlier try,
+        // which the keeper drops 90 s after it was made. Once it lands the funds are spent; else reserve again.
+        if (r === 'queued') {
+          onStep('a spend of these funds is queued already; waiting for it');
+          if (await seenSpent(ins, 120_000)) throw spentAlready();
+          continue;
+        }
         if (r === 'stale') continue;
         if (r === 'tail') tree = (await queueTail(false)) || tree;
         else if (r) { slot = r.id; tree = r.tree; }
@@ -790,14 +819,26 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
         // A gateway's own timeout or error (502-504, 520-524) says nothing of whether the relay sent it: the same as no answer.
         // The relay's own refusals come with its JSON error (a 503 when it cannot front the gas or is full) and send nothing.
         if (((r.status >= 502 && r.status <= 504) || (r.status >= 520 && r.status <= 524)) && !r.body?.error) throw unanswered();
-        if (r.status === 409 && r.body.stale) continue;
-        if (r.status === 429) { if (slot) await releaseSlot(slot); await sleep(5000); continue; }
-        if (r.status !== 200 || !r.body.txHash) { if (slot) await releaseSlot(slot); throw new Error(r.body.error || `relayer returned ${r.status}`); }
+        if (r.status !== 200 || !r.body.txHash) {
+          if (slot) await releaseSlot(slot);
+          const why = String(r.body?.error || '');
+          // Final: the pool has the notes spent, or the relay is sending this spend already (it lands, or is on its way).
+          if (/AlreadyNullified|already spent/.test(why)) throw await spentOnChain(ins, onStep);
+          if (/already being relayed/.test(why)) {
+            onStep('a spend of these funds is on its way already; waiting for it');
+            throw (await seenSpent(ins, 120_000)) ? spentAlready()
+              : Object.assign(new Error('A spend of these funds is already on its way. Check Activity before sending again.'), { said: true });
+          }
+          if (r.status === 409 && r.body.stale) { if (/StaleRoot|WrongInsertionIndex|unknown membership root/i.test(why)) treeRefused = true; continue; }
+          if (r.status === 429) { await sleep(5000); continue; }
+          if (/^\d+$/.test(String(r.body?.needFee ?? ''))) throw feeWentUp(r.body.needFee);
+          throw new Error(why || `relayer returned ${r.status}`);
+        }
         h = r.body.txHash;
       } else {
         const c = selfCall ? selfCall(tx) : { to: chain.pool, data: transactData(tx) };
         h = await sendSelf(c.to, c.data, extAmount > 0n ? extAmount : 0n, onStep);
-        if (!h) continue;
+        if (!h) { treeRefused = true; continue; }
       }
       for (const n of ins) pending.add(n.nf);
       onStep('waiting for it to be mined');
@@ -812,8 +853,9 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
       }
       for (const n of ins) pending.delete(n.nf);
     }
-    // No round landed: rebuild the state from the chain, so a note a feed wrongly showed as unspent is dropped.
-    await rescanFromChain().catch(() => {});
+    // No round landed. When the pool refused the tree a round was proved against (a stale or unknown root, a wrong
+    // insertion index), the state is rebuilt from the chain's logs alone; a queue or a busy relay is no reason to.
+    if (treeRefused) await rescanFromChain().catch(() => {});
     throw new Error('the pool kept moving; try again');
   }
 
@@ -825,10 +867,12 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
     try { return await sync(); } finally { feed = f; }
   }
 
-  // A quote above `maxFee`, the most the caller showed for it, is refused so the spend never costs more than shown.
+  // A quote above `maxFee`, the most the caller showed for it, is refused so the spend never costs more than shown. The
+  // error carries the fee now (feeMoved), as does a relay's refusal of a proven spend whose fee no longer covers its gas.
+  const feeWentUp = (fee) => Object.assign(new Error('The relay fee went up since it was shown. Check the new fee and try again.'), { feeMoved: BigInt(fee) });
   function withinFee(q, maxFee) {
     if (maxFee == null || BigInt(q.fee) <= BigInt(maxFee)) return q;
-    throw Object.assign(new Error('The relay fee went up since it was shown. Check the new fee and try again.'), { feeMoved: BigInt(q.fee) });
+    throw feeWentUp(q.fee);
   }
   // The relayer's quote for a spend, or null when the signer submits it.
   async function quoteFor(via, gas = null, maxFee = null) {
