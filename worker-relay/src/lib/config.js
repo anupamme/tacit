@@ -216,6 +216,11 @@ export const CFG = {
   // A board proof is paid for before anyone sends it, so it is made only while the last credit reading has this much to spare
   // (the reflection holds about 16 PROVE for each of its proofs, and the holders' own prove-mode jobs come first).
   proveWhileShortMinCreditWei: BigInt(opt('SETTLE_PROVE_WHILE_SHORT_MIN_CREDIT_WEI', '40000000000000000000')), // 40 PROVE
+  // A proof request the prover account cannot pay for pauses proving (lib/prove-pause.js): no job is claimed, and the credit
+  // is read again at most every SETTLE_PROVE_PAUSE_RECHECK_SECS until it covers a request. A request at the exec binaries'
+  // 1B gas limit needs about 1.01 PROVE on hand.
+  settleProveMinCreditWei: BigInt(opt('SETTLE_PROVE_MIN_CREDIT_WEI', '1100000000000000000')), // 1.1 PROVE
+  settleProvePauseRecheckSecs: num('SETTLE_PROVE_PAUSE_RECHECK_SECS', 120),
   openBoard: opt('OPEN_BOARD', '1') === '1',
   openBoardPollSecs: num('OPEN_BOARD_POLL_SECS', 15),
   // Relay fees paid in cTAC are never sold (TAC is never in FEE_ASSETS), so they pile up on the earning wallet.

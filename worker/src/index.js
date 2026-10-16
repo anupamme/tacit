@@ -112,6 +112,7 @@ import { decodeCrossoutMint, CONFIDENTIAL_POOL_DEPLOYMENTS as _CROSSOUT_POOL_DEP
 import { classifyConfidentialTx, makeBurnDepositKit } from '../../dapp/burn-deposit-bitcoin.js';
 import { makeScanReflectionIndexer } from '../../dapp/confidential-reflection-scan-indexer.js';
 import { makeBurndepAdmission, HEADER_CHUNK as BURNDEP_HEADER_CHUNK } from './burndep-admission.js';
+import { handleProverUpload, handleProverDownload, PROVER_PROXY_PATHS } from './prover-proxy.js';
 import { SWAP_BATCH_VK } from '../../dapp/confidential-swapbatch-vk.js';
 import { bpRangeVerify, bpClassicProofLen } from '../../dapp/bulletproofs.js';
 import { makeBridgeRecover } from '../../dapp/bridge-recover.js';
@@ -636,7 +637,7 @@ const reverseBytes = b => { const r = new Uint8Array(b); r.reverse(); return r; 
 // caller (curl, another server) could already do. This is what lets a third-party page with no fixed
 // origin (an IPFS/web3-gateway-hosted frontend, e.g.) use the relay directly from a browser instead of
 // needing its own backend proxy or a per-deploy entry in ALLOWED_ORIGINS.
-const OPEN_ORIGIN_PATHS = new Set(['/stats', '/flow', '/relay/economics', '/bridge/recover', '/reflection/proof', '/confidential/submit', '/confidential/status', '/confidential/open', '/confidential/landed', '/confidential/quote', '/confidential/index', '/reflection/dump', '/reflection/status', '/reflection/note-witness', '/reflection/burndep', '/reflection/eth-state/covers', '/crossout/minted', '/farm/program', '/farm/health']);
+const OPEN_ORIGIN_PATHS = new Set(['/stats', '/flow', '/relay/economics', '/bridge/recover', '/reflection/proof', '/confidential/submit', '/confidential/status', '/confidential/open', '/confidential/landed', '/confidential/quote', '/confidential/index', '/confidential/relay', '/reflection/dump', '/reflection/status', '/reflection/note-witness', '/reflection/burndep', '/reflection/eth-state/covers', '/crossout/minted', '/farm/program', '/farm/health', '/prover/upload', '/prover/download']);
 function corsHeaders(env, reqOrigin, openOrigin) {
   const list = (env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
   const allow = openOrigin || list.includes('*') ? '*' : (list.includes(reqOrigin) ? reqOrigin : list[0]);
@@ -3190,17 +3191,51 @@ async function freeClassBudget(env, cls) {
 }
 const isFeeless = (type, op) => { try { return !!op && typeof op === 'object' && totalFee(type, op) === 0n; } catch { return false; } };
 
-// A relayed settle of an op that expires (an unwrap, a swap, a pool add) is not queued while the settle relay is holding settles
-// or has gone quiet: it would wait out its own hour in line and fail. It is turned away in the words the pages already read as "the
-// relay cannot take this one" (relayRefused), so they offer to send it from the holder's own account at once, which the relay still
-// proves. What does not expire waits in line as before. Fails open: an unreadable or missing heartbeat queues the job.
+// Where the settle relay stands, in the one word the pages steer by. Read from its heartbeat and the standing notes it beats
+// (worker-relay/src/lib/prove-pause.js), never from a balance:
+//   down    no heartbeat for ten minutes, its loop process gone, or none ever recorded: nothing is proved or sent
+//   paused  it is not proving at all for now, and queued jobs keep their place
+//   held    it proves, but does not send relayed settles (a settle wallet under its gas floor reads the same); `board` when it
+//           puts relayed jobs on the open board for any sender
+//   busy    it is proving a job
+//   ok      otherwise
+// -> { state, board, ageSeconds }, or null when the heartbeat cannot be read, and then every caller goes on as before.
+const RELAY_PAUSE_NOTE = /not proving/i;
 const RELAY_HOLD_NOTE = /a page settles itself|leaving jobs queued/i;
-async function relayHolds(env, type, op) {
-  if (!opExpiry(type, op)) return false;
-  try {
-    const h = await readProverKindHealth(env, 'mainnet', 'settle');
-    return h.status === 'down' || (h.status !== 'unknown' && h.age_seconds <= 600 && RELAY_HOLD_NOTE.test(h.note || ''));
-  } catch { return false; }
+const RELAY_BOARD_NOTE = /on the open board/i;
+const RELAY_BUSY_NOTE = /settle: proving /i;
+const RELAY_PROVING = new Set(['ok', 'busy', 'held']);
+const RELAY_SETTLING = new Set(['ok', 'busy']);
+async function relayState(env) {
+  let h;
+  try { h = await readProverKindHealth(env, 'mainnet', 'settle'); } catch { return null; }
+  const note = String(h.note || '');
+  const at = (state, board = false) => ({ state, board, ageSeconds: Number.isFinite(h.age_seconds) ? h.age_seconds : null });
+  if (h.status === 'unknown' || h.status === 'down' || h.status === 'process_down') return at('down');
+  if (RELAY_PAUSE_NOTE.test(note)) return at('paused');
+  if (h.status === 'low_gas' || RELAY_HOLD_NOTE.test(note)) return at('held', RELAY_BOARD_NOTE.test(note));
+  if (RELAY_BUSY_NOTE.test(note)) return at('busy');
+  return at('ok');
+}
+// A relayed settle of an op that expires (an unwrap, a swap, a pool add) is not queued while the settle relay is not sending
+// relayed settles (held, paused or down): it would wait out its own hour in line and fail. A held relay turns it away in the words
+// the pages already read as "the relay cannot take this one" (relayRefused), so they offer to send it from the holder's own
+// account at once, which the relay still proves. What does not expire waits in line as before. Fails open: an unreadable
+// heartbeat (st null) queues the job.
+function relayHolds(st, type, op) {
+  return !!st && !RELAY_SETTLING.has(st.state) && !!opExpiry(type, op);
+}
+// GET /confidential/relay — public. Where the settle relay stands, for a page to choose its route before it sends and to
+// follow while it waits: { state, proving, settling, board, ageSeconds }. `proving`: it proves jobs (ok, busy, held);
+// `settling`: it sends relayed settles (ok, busy); `board`: held, and putting relayed jobs on the open board for any sender.
+// Nothing about why: no balance, note or reason.
+async function handleConfidentialRelay(env, cors) {
+  const st = await relayState(env);
+  if (!st) return jsonResponse({ ok: false, error: 'the relay’s state cannot be read just now' }, 503, { ...cors, 'Cache-Control': 'no-store' });
+  return jsonResponse({
+    state: st.state, proving: RELAY_PROVING.has(st.state), settling: RELAY_SETTLING.has(st.state),
+    board: st.state === 'held' && st.board, ageSeconds: st.ageSeconds,
+  }, 200, { ...cors, 'Cache-Control': 'max-age=10' });
 }
 // The burn root the pool holds (knownBitcoinBurnRoot, storage slot 80), which every bridge mint must be built on. Read from Ethereum at
 // most every five seconds; a read that fails is null, which holds nothing back.
@@ -3254,7 +3289,18 @@ async function handleConfidentialSubmit(req, env, cors) {
     const bad = checkPostedShape(body);
     if (bad) return jsonResponse({ ok: false, error: bad }, 400, { ...cors, 'Cache-Control': 'no-store' });
   }
-  if (submitMode === 'settle' && await relayHolds(env, body.type, body.op)) {
+  // Where the relay stands, read once: it decides the refusals below and rides on the answer (`relay`), so a page knows at once
+  // that a job it queued waits on a relay that is holding settles, paused or down.
+  const relay = await relayState(env);
+  // A relay that is not proving at all would never prove a prove-only job, and a relayed settle of an op that expires would run
+  // out its time in the queue. Both are turned away before anything is queued or budgeted, saying what to do instead, so the
+  // page waiting on them does not sit out its timeout. Everything else waits in line as before; a proof made elsewhere needs
+  // no proving and is not affected.
+  if (relay && (relay.state === 'paused' || relay.state === 'down')
+    && (submitMode === 'prove' || (submitMode === 'settle' && opExpiry(body.type, body.op)))) {
+    return jsonResponse({ ok: false, error: 'the relay isn’t proving right now — prove it with your own prover account, or try again later', code: 'relay_paused', retryAfter: 300 }, 503, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '300' });
+  }
+  if (submitMode === 'settle' && relayHolds(relay, body.type, body.op)) {
     return jsonResponse({ ok: false, error: 'the relay can’t take this one just now: it is catching up on settles. Send it from your own account instead; the relay still proves it for you', code: 'relay_held', retryAfter: 300 }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '300' });
   }
   // A bridge mint is the mint of a recorded burn, built on the burn set the pool holds, or it is not taken (it would cost a proof and a
@@ -3288,7 +3334,7 @@ async function handleConfidentialSubmit(req, env, cors) {
       if (submitMode === 'prove') await spendProveBudget(env).catch(() => {});
       else if (feeless) { await spendDailyBudget(env, 'free').catch(() => {}); await spendDailyBudget(env, `free:${freeClassOf(body.type)}`).catch(() => {}); if (mintBurn) await spendDailyBudget(env, `bridgemint:${mintBurn}`).catch(() => {}); }
     }
-    return jsonResponse({ ok: true, ...r }, 200, { ...cors, 'Cache-Control': 'no-store' });
+    return jsonResponse({ ok: true, ...r, ...(relay ? { relay: relay.state } : {}) }, 200, { ...cors, 'Cache-Control': 'no-store' });
   } catch (e) { return jsonResponse({ ok: false, error: String(e && e.message || e) }, 400, cors); }
 }
 // GET /confidential/queue — box-token gated. Counts and ages only, never job contents: it exists so the monitor can
@@ -26798,6 +26844,15 @@ async function _routeFetch(req, env, ctx) {
     const openOrigin = OPEN_ORIGIN_PATHS.has(url.pathname)
       || url.pathname === '/leaderboard' || url.pathname === '/recent' || url.pathname.startsWith('/points/') || url.pathname.startsWith('/claim/');
     const cors = corsHeaders(env, req.headers.get('Origin') || '', openOrigin);
+    // A page proving with its holder's own prover account passes its program input and the finished proof through here
+    // (the network's artifact store sends no CORS headers). These answer their own preflight, which names X-Artifact-Url.
+    if (PROVER_PROXY_PATHS.has(url.pathname)) {
+      if (req.method === 'POST') {
+        const rl = await proveRateLimit(env, req.headers.get('CF-Connecting-IP') || 'anon', 'spn-io', Number(env.SPN_IO_RL_BURST || 12), Number(env.SPN_IO_RL_REFILL_MS || 20000));
+        if (!rl.ok) return jsonResponse({ ok: false, error: `too many requests — retry in ~${rl.retryAfter}s`, retryAfter: rl.retryAfter }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': String(rl.retryAfter) });
+      }
+      return url.pathname === '/prover/upload' ? handleProverUpload(req, env, cors) : handleProverDownload(req, env, cors);
+    }
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
 
     if (url.pathname === '/stats' && req.method === 'GET') return handleStats(env, cors, url);
@@ -26868,6 +26923,7 @@ async function _routeFetch(req, env, ctx) {
     if (url.pathname === '/confidential/landed' && req.method === 'POST') return handleConfidentialLanded(req, env, cors);
     if (url.pathname === '/confidential/quote' && req.method === 'GET') return handleConfidentialQuote(req, env, url, cors);
     if (url.pathname === '/confidential/index' && req.method === 'GET') return handleConfidentialIndex(req, env, url, cors);
+    if (url.pathname === '/confidential/relay' && req.method === 'GET') return handleConfidentialRelay(env, cors);
 
     if (url.pathname === '/pin' && req.method === 'POST')      return handlePin(req, env, cors);
     if (url.pathname === '/pin-json' && req.method === 'POST') return handlePinJson(req, env, cors);

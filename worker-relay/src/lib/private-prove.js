@@ -11,8 +11,10 @@ export function privateProvePlan(env, timeoutMs) {
   return { fallback: true, privateMs: Math.max(60_000, Math.min(cap, Math.floor(timeoutMs * 0.6))) };
 }
 // A private attempt is worth repeating in public only when no prover proved it (none bid, the one that won never
-// delivered, it timed out here); one the network could not execute fails the same way in public.
+// delivered, it timed out here); one the network could not execute fails the same way in public, and so does one the
+// prover account could not pay for (marked `creditShort` by lib/prover.js).
 export function retryPublic(e) {
+  if (e && e.creditShort === true) return false;
   const m = String(e && e.message || e);
   return !/unexecutable|execution failed|failed to execute|exceeded cycle limit|VKEY DRIFT|EXPECT_VKEY mismatch/i.test(m);
 }

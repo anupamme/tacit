@@ -374,10 +374,10 @@ test('a gate that cannot read gas or ETH price fails OPEN, not closed', async ()
 const submitSrc = worker.slice(worker.indexOf('const budgetKey'), worker.indexOf('async function handleConfidentialJob'));
 function loadSubmit({ cap = '3', freeCap = '3', env = {}, submitJob, kvStore = new Map(), feeOf = () => 0n, tipPaid = async () => false, health = async () => ({ status: 'ok', age_seconds: 5, note: 'settle: idle — queue empty' }), expiryOf = (type, op) => (type === 'unwrap' ? Number(op?.opDeadline || 0) : 0) }) {
   const kv = { get: async (k) => (kvStore.has(k) ? kvStore.get(k) : null), put: async (k, v) => { kvStore.set(k, v); } };
-  const mk = new Function('confSettler', 'proveRateLimit', 'jsonResponse', 'hasVerifiableFee', 'totalFee', 'ctx', 'withKvKeyLock', 'wrapTipPaid', 'readProverKindHealth', 'opExpiry',
+  const mk = new Function('confSettler', 'proveRateLimit', 'jsonResponse', 'hasVerifiableFee', 'totalFee', 'ctx', 'withKvKeyLock', 'wrapTipPaid', 'readProverKindHealth', 'opExpiry', 'checkPostedShape',
     submitSrc + '; return handleConfidentialSubmit;');
-  const handler = mk(() => ({ submitJob }), async () => ({ ok: true }), (body, status) => ({ body, status }), () => false, (type, op) => feeOf(type, op), {},
-    (_key, fn) => fn(), tipPaid, health, expiryOf);
+  const handler = mk(() => ({ submitJob }), async () => ({ ok: true }), (body, status, headers) => ({ body, status, headers }), () => false, (type, op) => feeOf(type, op), {},
+    (_key, fn) => fn(), tipPaid, health, expiryOf, () => null);
   const call = (body) => handler({ json: async () => body, headers: { get: () => '1.2.3.4' } }, { REGISTRY_KV: kv, PROVE_MODE_DAILY_CAP: cap, FREE_RELAY_DAILY_CAP: freeCap, ...env }, {});
   return { call, kvStore };
 }
@@ -464,31 +464,78 @@ test('an unwrap is turned away, in words the pages read as a refusal, while the 
 });
 test('an unwrap is turned away when the relay has gone quiet for over ten minutes', async () => {
   const { call } = loadSubmit({ health: async () => ({ status: 'down', age_seconds: 900, note: '' }), submitJob: async () => ({ jobId: 'j', status: 'pending' }) });
-  ok((await call({ type: 'unwrap', op: DL, mode: 'settle' })).status === 429, 'a relay quiet for 15 minutes does not take an unwrap that expires in an hour');
+  const r = await call({ type: 'unwrap', op: DL, mode: 'settle' });
+  ok(r.status === 503 && r.body.code === 'relay_paused', `a relay quiet for 15 minutes does not take an unwrap that expires in an hour, got ${r.status} ${r.body.code}`);
 });
-test('a prove-mode unwrap is never turned away: the relay proves it and the holder settles it', async () => {
+test('a prove-mode unwrap is never turned away while settles are held: the relay proves it and the holder settles it', async () => {
   const { call } = loadSubmit({ health: HELD, submitJob: async () => ({ jobId: 'j', status: 'pending' }) });
-  ok((await call({ type: 'unwrap', op: DL, mode: 'prove' })).status === 200, 'prove mode goes through while settles are held');
+  const r = await call({ type: 'unwrap', op: DL, mode: 'prove' });
+  ok(r.status === 200 && r.body.relay === 'held', `prove mode goes through while settles are held, and the answer says held (${r.status} ${r.body.relay})`);
 });
-test('the note the relay beats while short, open board on or off, is the one the API reads as holding settles', () => {
+test('the notes the relay beats while short, open board on or off, are the ones the API reads as holding settles', async () => {
+  const { NOTE_HELD, NOTE_HELD_BOARD, NOTE_PAUSED } = await import(join(ROOT, 'worker-relay/src/lib/prove-pause.js'));
   const hold = new RegExp(worker.match(/const RELAY_HOLD_NOTE = \/(.+)\/i;/)[1], 'i');
-  const notes = [...settle.matchAll(/'(settle: proving [^']+)'/g)].map((m) => m[1]);
-  ok(notes.length >= 2, `both notes found, got ${notes.length}`);
-  for (const nt of notes) {
-    ok(hold.test(nt), `the API reads "${nt}" as holding settles`);
-    ok(!/gas|ETH|wallet|funds|balance/i.test(nt), `the public note says nothing of the relay's wallet: ${nt}`);
-  }
+  const board = new RegExp(worker.match(/const RELAY_BOARD_NOTE = \/(.+)\/i;/)[1], 'i');
+  for (const nt of [NOTE_HELD, NOTE_HELD_BOARD]) ok(hold.test(nt), `the API reads "${nt}" as holding settles`);
+  ok(board.test(NOTE_HELD_BOARD) && !board.test(NOTE_HELD), 'only the board note reads as the board on');
+  for (const nt of [NOTE_HELD, NOTE_HELD_BOARD, NOTE_PAUSED]) ok(!/gas|ETH|wallet|funds|balance|credit/i.test(nt), `the public note says nothing of the relay's wallet or credit: ${nt}`);
+  ok(/standingNote\(\{ paused, short, board \}\)/.test(settle) && /const board = short && boardOn\(\);/.test(settle), 'the settle loop beats the note its own board decision chooses');
 });
 test('what does not expire waits in line while the relay holds settles', async () => {
   const { call } = loadSubmit({ health: HELD, submitJob: async () => ({ jobId: 'j', status: 'pending' }) });
   ok((await call({ type: 'wrap', op: { deadline: DL.opDeadline }, mode: 'settle' })).status === 200, 'a wrap is queued');
   ok((await call({ type: 'unwrap', op: {}, mode: 'settle' })).status === 200, 'an unwrap with no deadline is queued');
 });
-test('a healthy relay, a missing heartbeat, or an unreadable one queues the unwrap', async () => {
-  for (const [name, health] of [['healthy', undefined], ['no record yet', async () => ({ status: 'unknown', healthy: false, reasons: [] })], ['unreadable', async () => { throw new Error('kv down'); }],
-    ['stale note, fresh status unknown age', async () => ({ status: 'ok', age_seconds: 900, note: 'settle: proving only jobs a page settles itself; the rest are held for now' })]]) {
+test('a healthy relay or an unreadable heartbeat queues the unwrap', async () => {
+  for (const [name, health, relay] of [['healthy', undefined, 'ok'], ['unreadable', async () => { throw new Error('kv down'); }, undefined]]) {
     const { call } = loadSubmit({ ...(health ? { health } : {}), submitJob: async () => ({ jobId: 'j', status: 'pending' }) });
-    ok((await call({ type: 'unwrap', op: DL, mode: 'settle' })).status === 200, `${name}: queued`);
+    const r = await call({ type: 'unwrap', op: DL, mode: 'settle' });
+    ok(r.status === 200 && r.body.relay === relay, `${name}: queued, relay ${r.body.relay}`);
+  }
+});
+test('a settle wallet under its gas floor holds expiring settles like the held note does', async () => {
+  const { call } = loadSubmit({ health: async () => ({ status: 'low_gas', age_seconds: 30, note: 'settle: idle — queue empty' }), submitJob: async () => ({ jobId: 'j', status: 'pending' }) });
+  const r = await call({ type: 'unwrap', op: DL, mode: 'settle' });
+  ok(r.status === 429 && r.body.code === 'relay_held', `low gas: relay_held, got ${r.status} ${r.body.code}`);
+  const p = await call({ type: 'unwrap', op: DL, mode: 'prove' });
+  ok(p.status === 200 && p.body.relay === 'held', 'and it still proves');
+});
+
+// ── a relay that is not proving turns away what nobody would prove ──
+const PAUSED = async () => ({ status: 'ok', age_seconds: 20, note: 'settle: settle: not proving for now; jobs keep their place' });
+const NO_RECORD = async () => ({ status: 'unknown', healthy: false, reasons: ['no heartbeat recorded yet'] });
+const DOWN = async () => ({ status: 'down', age_seconds: 900, note: 'settle: proving 0xabc unwrap' });
+const PROC_DOWN = async () => ({ status: 'process_down', age_seconds: 30, note: '' });
+test('a prove-only job is refused while the relay is paused or down, saying what to do instead', async () => {
+  for (const [name, health] of [['paused', PAUSED], ['down', DOWN], ['process down', PROC_DOWN], ['no heartbeat ever', NO_RECORD]]) {
+    let queued = 0;
+    const { call, kvStore } = loadSubmit({ health, submitJob: async () => { queued++; return { jobId: 'j', status: 'pending' }; } });
+    const r = await call({ type: 'transfer', op: {}, mode: 'prove' });
+    ok(r.status === 503 && r.body.code === 'relay_paused' && r.body.ok === false && r.body.retryAfter === 300 && r.headers['Retry-After'] === '300', `${name}: 503 relay_paused with Retry-After, got ${r.status} ${r.body.code}`);
+    ok(queued === 0 && kvStore.size === 0, `${name}: not queued, and no budget spent`);
+    ok(/isn.t proving right now/.test(r.body.error) && /your own prover account/.test(r.body.error), `${name}: the words say what to do`);
+    ok(!/gas|ETH|wallet|funds|balance|credit/i.test(r.body.error) && !/PROVE/.test(r.body.error), `${name}: nothing about the relay's wallet or credit: ${r.body.error}`);
+  }
+});
+test('an expiring relayed settle is refused while the relay is paused; one that does not expire waits, told the state', async () => {
+  const { call } = loadSubmit({ health: PAUSED, submitJob: async () => ({ jobId: 'j', status: 'pending' }) });
+  const r = await call({ type: 'unwrap', op: DL, mode: 'settle' });
+  ok(r.status === 503 && r.body.code === 'relay_paused', `an unwrap with an hour to run is refused, got ${r.status} ${r.body.code}`);
+  const w = await call({ type: 'wrap', op: {}, mode: 'settle' });
+  ok(w.status === 200 && w.body.relay === 'paused', `a wrap is queued and the answer says paused (${w.status} ${w.body.relay})`);
+  const d = await loadSubmit({ health: DOWN, submitJob: async () => ({ jobId: 'j', status: 'pending' }) }).call({ type: 'transfer', op: {}, mode: 'settle' });
+  ok(d.status === 200 && d.body.relay === 'down', 'a relayed transfer waits in line while the relay is down, and the answer says so');
+});
+test('a proof made elsewhere goes on the board whatever the relay is doing', async () => {
+  const { call } = loadSubmit({ health: PAUSED, submitJob: async () => ({ jobId: 'j', status: 'open' }) });
+  const r = await call({ type: 'unwrap', mode: 'preproven', publicValues: '0x01', proof: '0x02', memos: [] });
+  ok(r.status === 200 && r.body.status === 'open', `preproven accepted while paused, got ${r.status}`);
+});
+test('every accepted answer says where the relay stands', async () => {
+  for (const [health, want] of [[undefined, 'ok'], [async () => ({ status: 'ok', age_seconds: 3, note: 'settle: proving 0xabc swap' }), 'busy'], [HELD, 'held']]) {
+    const { call } = loadSubmit({ ...(health ? { health } : {}), submitJob: async () => ({ jobId: 'j', status: 'pending' }) });
+    const r = await call({ type: 'transfer', op: {}, mode: 'settle' });
+    ok(r.status === 200 && r.body.relay === want, `relay ${want}, got ${r.body.relay}`);
   }
 });
 

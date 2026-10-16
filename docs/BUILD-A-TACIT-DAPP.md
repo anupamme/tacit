@@ -1223,7 +1223,8 @@ Base `https://api.tacit.finance`. Everything below is public; nothing needs a ke
 
 | endpoint | |
 |---|---|
-| `POST /confidential/submit` | `{ type, op, memos, mode?, feeAsset? }` → `{ jobId }`. `mode: 'prove'` returns a proof for you to submit yourself; default `'settle'` has the relay submit it. |
+| `POST /confidential/submit` | `{ type, op, memos, mode?, feeAsset? }` → `{ jobId, relay }`. `mode: 'prove'` returns a proof for you to submit yourself; default `'settle'` has the relay submit it. `relay` is the relay's state when it took the job (as `GET /confidential/relay` reads it), so a job waiting on a held, paused or down relay is known at once |
+| `GET /confidential/relay` | `{ state, proving, settling, board, ageSeconds }`: where the relay stands, read from its heartbeat. `state` is `ok`, `busy` (proving a job), `held` (proving, but not sending relayed settles; `board` when it puts them on the open board for any sender), `paused` (not proving for now; queued jobs keep their place) or `down` (no heartbeat for ten minutes). `proving` is true for ok, busy and held; `settling` for ok and busy. It carries no reason. Cached for ten seconds; `relay.state()` in `confidential-relay.js` reads it, and `relayCanProve(st)` is false only for paused and down |
 | `GET /confidential/status?id=` | `pending` → `proving` → `settled` \| `failed` (a `failed` with a non-empty `broadcastHashes` is not final: the settle was broadcast and may still land, and the job is then corrected to `settled`); a `mode: 'prove'` job ends at `proven` and carries the proof (`publicValues`, `proof`) and the `memos` it commits to, which `settle()` must carry exactly: the same op submitted twice is proved once, with the first submit's memos. A prove job whose deposit was settled from elsewhere first reads `settled`, with that transaction |
 | `GET /confidential/open?limit=` | the open board: proofs waiting for any sender, oldest first, `{ pool, jobs: [{ jobId, type, status, posted, publicValues, proof, memos, openSince, expiresAt, feeUsd, feeAsset }] }`. A relayed (`'settle'`) job the relay has proved but is not sending yet reads `open` on `/confidential/status` too, with the same proof and memos (`sending` while a relay has taken it to send). `settle()` is open to any account and pays the fee legs the proof binds to whoever sends it, so the holder can send it at once and any relayer may send it for its fee. See [OPEN-RELAYER.md](./OPEN-RELAYER.md) |
 | `POST /confidential/landed` | `{ jobId, txHash }` → `{ ok, status: 'settled', txHash }`: a settle sent outside the relay closes its job once the API sees that transaction succeed, reach the pool, carry the job's public values, and leave the same settle refused. Open, sending and proven jobs |
@@ -1234,17 +1235,22 @@ Base `https://api.tacit.finance`. Everything below is public; nothing needs a ke
 | `GET /reflection/status?network=mainnet` | `{ attestedHeight, tipHeight, lagBlocks, confirmations, … }` — how far reflection has folded Bitcoin; a cBTC mint waits for its lock's block |
 | `GET /points/:address`, `GET /claim/:address`, `GET /leaderboard` | the points program: an address's points and today's share, its claim (`cumulativeAmount` and `proof` for `PointsDistributor.claim`), and the ranking |
 | `GET /health` | liveness |
+| `POST /prover/upload`, `POST /prover/download` | for a page proving with its holder's own prover account: the Succinct network's artifact store sends no CORS headers, so the program input goes up (body: the bytes, header `X-Artifact-Url`: the presigned URL `CreateArtifact` returned, under `stdins/` or `private-stdins/`) and the finished proof comes back (body `{ "url" }`, under `proofs/`) through these. They reach only the store's own hosts and keep nothing. `dapp/succinct-net.js` uses them when given `proxyBase`; from Node, go straight to the store |
 
 Submits are rate-limited per IP and the queue is bounded; a rejected submit is backpressure, not failure. Fee-less
 relayed settles share a daily free budget (`429`, code `free_budget`) and prove-only jobs a daily prove budget (`429`,
 code `prove_budget`); past either, attach a fee above the floor or prove and settle locally. A relayed settle of an op
 that expires can be refused while the relay is catching up on settles (`429`, code `relay_held`): submit it with
-`mode: 'prove'` and send the settle yourself. Refusals carry `code` in the body; `confidential-relay.js` keeps it on the
-thrown error as `e.code`.
+`mode: 'prove'` and send the settle yourself. While the relay is paused or down, a `mode: 'prove'` job, and a relayed
+settle of an op that expires, are refused (`503`, code `relay_paused`, with `Retry-After`): prove it with your own prover
+account ([OPEN-RELAYER.md](./OPEN-RELAYER.md)), or try again later. Other relayed settles still wait in line. Refusals
+carry `code` and `retryAfter` in the body; `confidential-relay.js` keeps them on the thrown error as `e.code`,
+`e.retryAfter` and `e.httpStatus`.
 
 **Request bodies are capped.** An unauthenticated call — every call this guide describes, including
 `/confidential/submit` from a browser — is capped at 1 MiB (`DEFAULT_MAX_ANON_REQUEST_BYTES`); the 32 MiB
-`MAX_REQUEST_BYTES` ceiling applies only to internal relay/prover traffic carrying the box token. Over the cap
+`MAX_REQUEST_BYTES` ceiling applies only to internal relay/prover traffic carrying the box token (`/prover/upload`
+takes up to 2 MiB). Over the cap
 you get a `413` — on the declared `Content-Length` before the body is read, or mid-stream for a chunked body.
 Every real op is far below either number; if you hit one, you are almost certainly sending something you did
 not mean to.
@@ -1258,7 +1264,9 @@ sigma `(R, z)`). It asks the Succinct prover network for the proof with that wit
 (`private_stdin`), sent only to Succinct's own prover: the network's executor and that prover read it, and it is not
 published. If that prover does not prove it within three minutes, the relay asks once more with a public input, so a
 request is never held up waiting for it.
-To keep it from the relay as well, prove with your own prover account ([OPEN-RELAYER.md](./OPEN-RELAYER.md)).
+To keep it from the relay as well, prove with your own prover account ([OPEN-RELAYER.md](./OPEN-RELAYER.md)): in a
+page, `relay.useProver(makeSelfProver({ … }).prove)` (`dapp/self-prover.js`) sends every proof the pool module asks
+for to the network from the holder's Tacit account instead, and the page sends the settle.
 
 **What the relay can do with it.** Spending a note takes `nk` and the note's blinding: the guest checks
 `owner == keccak(nk ‖ dom)`, and a Schnorr proof of knowledge of the blinding over the op's context. That proof

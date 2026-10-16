@@ -208,6 +208,13 @@ async function fireSwap(quoted, wallet = relayWallet) {
 // The prover credit the last pass read (PROVE wei) and when, for the settle loop's choices between passes; null before the first.
 let lastCreditWei = null, lastCreditAt = 0;
 export const lastProverCredit = () => (lastCreditWei == null ? null : { wei: lastCreditWei, at: lastCreditAt });
+// Read the prover credit now. A reading is kept as the last one and carried with the heartbeat, so a pass and the settle
+// loop's proving pause (lib/prove-pause.js) leave the same figure for the open board's gate and the monitor. -> PROVE wei, or null.
+export async function readProverCredit() {
+  const credit = await proverCredit();
+  if (credit != null) { setProverCredit(creditText(credit)); lastCreditWei = credit; lastCreditAt = Date.now(); }
+  return credit;
+}
 
 // Deposits the wallet's PROVE into the vApp. DEPOSIT_AMOUNT_WEI caps how much goes in (default: the
 // whole balance, the sweep-loop behaviour) — a bounded deposit keeps the rest of the treasury out of
@@ -486,9 +493,8 @@ export async function replenishOnce({ roles = null, convertToProve = true } = {}
 
   // Proving stops outright when the network credit runs out, so a low credit outranks keeping a large ETH float:
   // under the floor, ETH above the gas buffer goes to PROVE this pass (capped), not only ETH above the sweep line.
-  const credit = convertToProve ? await proverCredit() : null;
+  const credit = convertToProve ? await readProverCredit() : null;
   const creditLow = credit != null && credit < CFG.proveCreditFloorWei;
-  if (credit != null) { setProverCredit(creditText(credit)); lastCreditWei = credit; lastCreditAt = Date.now(); }
   if (credit != null) log(`prover credit ${(Number(credit) / 1e18).toFixed(2)} PROVE${creditLow ? ` — under the ${(Number(CFG.proveCreditFloorWei) / 1e18).toFixed(0)} PROVE floor, buying from ETH above the gas buffer` : ''}`);
 
   for (const { address: owner, wallet, roles: held } of earners) {

@@ -13,6 +13,7 @@ import { CFG } from './config.js';
 import { POOL } from './chain.js';
 import { reflectionEthProofPatient } from './worker-client.js';
 import { privateProvePlan, retryPublic } from './private-prove.js';
+import { CREDIT_SHORT } from './prove-pause.js';
 
 function proverEnv(extra = {}) {
   // Env the spawned SP1 binary reads to route to the Succinct network prover.
@@ -296,7 +297,7 @@ export async function proveSettle({ type, op, memos = [], timeoutMs }) {
   const attempt = async (extra, ms) => {
     await rm(path.join(cwd, 'public_values.hex'), { force: true });
     await rm(path.join(cwd, 'proof_bytes.hex'), { force: true });
-    const { code, out } = await run(bin, {
+    const { code, out, err } = await run(bin, {
       // The per-op binary proves its own op from OP_FILE; OP_TYPE is passed for forward-compat with a future
       // unified dispatcher but ignored by the single-op binaries.
       env: proverEnv({ MODE: 'groth16', OP_TYPE: type, OP_FILE: opFile, ...extra }),
@@ -312,7 +313,12 @@ export async function proveSettle({ type, op, memos = [], timeoutMs }) {
       const proof = await readHex(path.join(cwd, 'proof_bytes.hex'));
       return { publicValues, proof };
     } catch (e) {
-      throw new Error(`exec:${type} produced no proof (code=${code}): ${e.message}\n${out.slice(-2000)}`);
+      const fail = new Error(`exec:${type} produced no proof (code=${code}): ${e.message}\n${out.slice(-2000)}`);
+      // A request the prover account cannot pay for is refused by the network, and the binary panics with that refusal on
+      // stderr. It is marked rather than copied into the message, which reaches the job's public status; the settle loop
+      // pauses proving on it (lib/prove-pause.js).
+      if (CREDIT_SHORT.test(err) || CREDIT_SHORT.test(out)) fail.creditShort = true;
+      throw fail;
     }
   };
   const plan = privateProvePlan(process.env, timeoutMs);

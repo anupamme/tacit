@@ -101,6 +101,9 @@ const STRIPPED_HEADERS = new Set(['cf-connecting-ip', 'x-tacit-proxy-key', 'x-ta
 export const DEFAULT_MAX_REQUEST_BYTES = 32 * 1024 * 1024;
 export const DEFAULT_MAX_ANON_REQUEST_BYTES = 1024 * 1024;
 const UPLOAD_PATH = /^\/(pin|pin-airdrop-snapshot|ceremony\/[0-9a-f]{64}\/contribute|ceremony\/init)(\?|$)/i;
+// A page's program input on its way to the prover network (worker/src/prover-proxy.js caps it at the same 2 MiB).
+const PROVER_UPLOAD_PATH = /^\/prover\/upload(\?|$)/i;
+export const PROVER_UPLOAD_MAX_BYTES = 2 * 1024 * 1024;
 
 function sizeEnv(env, key, dflt) {
   const raw = Number(env?.[key] ?? process.env[key]);
@@ -118,6 +121,7 @@ function carriesBoxToken(nodeReq, env) {
 export function maxRequestBytes(env, nodeReq) {
   const full = sizeEnv(env, 'MAX_REQUEST_BYTES', DEFAULT_MAX_REQUEST_BYTES);
   if (!nodeReq || UPLOAD_PATH.test(nodeReq.url || '') || carriesBoxToken(nodeReq, env)) return full;
+  if (PROVER_UPLOAD_PATH.test(nodeReq.url || '')) return Math.min(full, PROVER_UPLOAD_MAX_BYTES);
   return Math.min(full, sizeEnv(env, 'MAX_ANON_REQUEST_BYTES', DEFAULT_MAX_ANON_REQUEST_BYTES));
 }
 

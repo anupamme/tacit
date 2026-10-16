@@ -110,6 +110,36 @@ network's executor and that prover can read the witness; Tacit's relay never see
 auction take private requests and do not deliver them, so a private request sent to all provers waits out its
 deadline (and still pays the base fee). `PRIVATE_STDIN=0` sends a public input to any prover instead.
 
+### From the site
+
+[tacit.finance/#prove-self](https://tacit.finance/#prove-self) and the tETH page prove in the browser, with no
+binaries:
+
+- **The account.** Your Tacit account (the Ethereum account your Tacit key derives) is the requester. Its credit pays,
+  and it signs each request itself.
+- **Funding.**
+  - **PROVE from your connected wallet:** the wallet sends PROVE to the Tacit account (only what it lacks). It then sends
+    the vApp's `permitAndDeposit` with a permit the Tacit account signs.
+  - **ETH:** the wallet pays ETH that zRouter swaps to PROVE for the Tacit account, then the same deposit follows.
+- **Cost.** A request needs about 0.46 PROVE on hand (0.58 for liquidity ops, which may use more gas) and spends about
+  0.39.
+- **Privacy.** Every request is private and goes to Succinct's own prover only, as above. If it is not proved by its
+  deadline, nothing is sent, and the network keeps its base fee.
+- **The settle** is sent from your connected wallet.
+- **The proxy.** The network's artifact store sends no CORS headers, so the page's input goes up through
+  `POST /prover/upload` and the finished proof comes back through `POST /prover/download` on the API. Both forward bytes
+  to the store's own hosts and keep nothing.
+
+The same modules work in any page or in Node:
+
+- [`dapp/sp1-stdin.js`](../dapp/sp1-stdin.js) builds the program input for every op a page sends, byte for byte as the
+  `exec-<op>` harnesses do.
+- [`dapp/succinct-net.js`](../dapp/succinct-net.js) is the network client.
+- [`dapp/self-prover.js`](../dapp/self-prover.js) joins them into the `prove` that `relay.useProver` takes, and builds
+  the funding transactions.
+- From Node, pass `proxyBase: null` (the input goes straight to the store) and an HTTP/2 `transport`. The network's RPC
+  refuses HTTP/1.1.
+
 ## Paying for the relay's proofs
 
 Every proof Tacit's relay makes is paid in PROVE from its prover account,

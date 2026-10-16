@@ -33,8 +33,9 @@ import { ledger } from './lib/income-ledger.js';
 import { makeBooksRestorer } from './lib/ledger-restore.js';
 import { ROUTER_EXIT_ABI, recipeArgs, exitCheck, activationCover } from './lib/exit-activate.js';
 import { makeAbandonedSettles } from './lib/abandoned-settles.js';
-import { quoteRelayFee, provePriceUsd, replenishOnce, drainToSink, feeAssets, depositArrivedProve, lastProverCredit } from './replenish.js';
+import { quoteRelayFee, provePriceUsd, replenishOnce, drainToSink, feeAssets, depositArrivedProve, lastProverCredit, readProverCredit } from './replenish.js';
 import { openable, pickOpen, ethFeeWei, STALE_PROOF_SELECTORS } from './lib/open-board.js';
+import { boardProving, standingNote, creditShort, makeProvePause } from './lib/prove-pause.js';
 import { replenishDue } from './lib/replenish-schedule.js';
 import { tipFor, TIP_HISTORY_BLOCKS, TIP_PERCENTILE } from './lib/gas-tip.js';
 import { feeCapFor } from './lib/fee-cap.js';
@@ -494,11 +495,18 @@ async function skipBlockedMint(job) {
   return true;
 }
 
-// Prove and settle one claimed job on the ordinary single-op path, carrying it to a terminal ack either way.
+// Prove and settle one claimed job on the ordinary single-op path, carrying it to a terminal ack either way. A job already
+// claimed when proving paused (a batch member) is failed without being proved, in the words the pages read as "send it
+// another way".
 async function settleOne(j) {
+  if (pause.paused()) {
+    await confidentialAck({ jobId: j.jobId, error: 'prove failed: the relay isn’t proving right now; nothing was spent. Prove it with your own prover account, or send it again later' });
+    return;
+  }
   if (await skipConsumed(j)) return;
   try {
-    const proof = await proveSettle({ type: j.type, op: j.op, memos: j.memos || [], timeoutMs: CFG.settleJobTimeoutSecs * 1000 });
+    const proof = await beating(`proving ${j.jobId} ${j.type}`, () => proveSettle({ type: j.type, op: j.op, memos: j.memos || [], timeoutMs: CFG.settleJobTimeoutSecs * 1000 }))
+      .catch(async (e) => { await pauseOn(e); throw e; });
     const txHash = await submitSettle(proof, j.memos || [], `job ${j.jobId}`);
     await confidentialAck({ jobId: j.jobId, txHash });
     log(`settled: job=${j.jobId} tx=${txHash}`);
@@ -577,10 +585,12 @@ async function batchCycle() {
     const memos = jobs.flatMap((j) => (Array.isArray(j.memos) ? j.memos : []));
     let proof;
     try {
-      proof = await proveSettle({ type: 'batchtransfer', op, memos, timeoutMs: CFG.settleJobTimeoutSecs * 1000 });
+      proof = await beating(`proving a batch of ${jobs.length}`, () => proveSettle({ type: 'batchtransfer', op, memos, timeoutMs: CFG.settleJobTimeoutSecs * 1000 }));
     } catch (e) {
       // A batch proof covers every member, so one member that cannot prove fails it; settle each member alone
-      // instead, so only that member fails.
+      // instead, so only that member fails. A batch the prover account could not pay for pauses proving, and its members
+      // are then failed without being proved (settleOne).
+      await pauseOn(e);
       log(`batch prove failed, settling members one by one: ${e.message}`);
       for (const j of jobs) await settleOne(j);
       return true;
@@ -626,13 +636,46 @@ async function fundsShort() {
   if (!shortSince) shortSince = Date.now();
   if (Date.now() - shortNotedAt >= 60_000) {
     shortNotedAt = Date.now();
-    log(`settle wallet holds ${eth(have)} ETH, under the ${eth(need)} ETH a settle can cost at today's gas — proving only jobs a page settles itself${CFG.proveWhileShort ? ', and relayed jobs any sender can take from the open board' : '; the rest wait'}`);
-    // Public, so no balances. The API reads "a page settles itself" as the relay holding settles (relayHolds).
-    await heartbeat('settle', CFG.proveWhileShort
-      ? 'settle: proving jobs a page settles itself, and putting relayed ones on the open board for any sender'
-      : 'settle: proving only jobs a page settles itself; the rest are held for now');
+    log(`settle wallet holds ${eth(have)} ETH, under the ${eth(need)} ETH a settle can cost at today's gas — proving only jobs a page settles itself${boardOn() ? ', and relayed jobs any sender can take from the open board' : '; the rest wait'}`);
   }
   return true;
+}
+
+// While the wallet is short, relayed jobs any account could send are proved for the open board only with the board on and the
+// last credit reading at or over its floor (lib/prove-pause.js boardProving), and the heartbeat says so only then.
+const boardOn = () => boardProving({ enabled: CFG.proveWhileShort, credit: lastProverCredit(), minWei: CFG.proveWhileShortMinCreditWei });
+
+// Proving pauses when a proof request is refused for want of credit (lib/prove-pause.js): no job is claimed, so each keeps
+// its place, and the credit is read again at most every SETTLE_PROVE_PAUSE_RECHECK_SECS until it covers a request. Sending
+// proofs from the open board costs gas, not PROVE, and carries on.
+const pause = makeProvePause({
+  readCredit: readProverCredit, minWei: CFG.settleProveMinCreditWei, everyMs: CFG.settleProvePauseRecheckSecs * 1000, log,
+});
+// A proof request the prover account could not pay for starts the pause, and the paused note goes out at once, before the
+// job's failure is acked, so a page that reads the failure finds the relay paused.
+async function pauseOn(e) {
+  if (!creditShort(e) || !pause.enter(String(e && e.message || e).split('\n')[0].slice(0, 160))) return;
+  await standWith(standingNote({ paused: true }));
+}
+
+// What the heartbeat says. While the relay is short or paused it beats that standing note (lib/prove-pause.js), public and
+// without balances: when it changes, and every minute while it holds. A job's own beat carries it too, so a job proved or
+// sent meanwhile never makes the relay look as if it were taking everything. The API reads the notes (relayState).
+let standing = null, standingAt = 0;
+async function standWith(note) {
+  const was = standing;
+  standing = note;
+  if (!note) { if (was) await heartbeat('settle', 'taking jobs again'); return; }
+  if (note === was && Date.now() - standingAt < 60_000) return;
+  standingAt = Date.now();
+  await heartbeat('settle', note);
+}
+const beat = (detail) => heartbeat('settle', standing || detail);
+// A prove can run past the API's ten quiet minutes (a private request waits up to six before its public retry), and a relay
+// that has gone quiet reads as down to the pages, so the beat goes out again every few minutes until the proof is back.
+async function beating(detail, fn) {
+  const t = setInterval(() => { beat(detail); }, 4 * 60_000);
+  try { return await fn(); } finally { clearInterval(t); }
 }
 
 // The open board (lib/open-board.js), from the sending side. Once the settle wallet can pay, the jobs it proved while it
@@ -655,7 +698,7 @@ async function openCycle() {
   openReadAt = 0;
   const { jobId, type } = job;
   log(`job ${jobId} type=${type} — sending its proof from the open board${job.posted ? ' (posted by its holder)' : ''}`);
-  await heartbeat('settle', `sending ${jobId} ${type}`);
+  await beat(`sending ${jobId} ${type}`);
   let txHash;
   try {
     txHash = await submitSettle({ publicValues: job.publicValues, proof: job.proof }, job.memos || [], `job ${jobId}`);
@@ -678,21 +721,26 @@ async function openCycle() {
     if (wei > 0n && ethUsd) Object.assign(job, { feeUsd: (Number(wei) / 1e18) * Number(ethUsd), feeAsset: '0x0000000000000000000000000000000000000000' });
   }
   bookSettled([job], txHash);
-  await heartbeat('settle', `settled ${jobId}`);
+  await beat(`settled ${jobId}`);
   return true;
 }
 
 async function cycle() {
   const short = await fundsShort();
+  const paused = await pause.check();
+  const board = short && boardOn();
+  await standWith(standingNote({ paused, short, board }));
+  // Sending a proof from the open board costs gas, not PROVE, so it carries on while proving is paused.
   if (!short && await openCycle()) return true;
+  // Paused: nothing is claimed, so every job keeps its place in the queue until the credit covers a request.
+  if (paused) return false;
   if (!short && await batchCycle()) return true;
   let job = await confidentialJob(short ? { mode: 'prove' } : {});
   // While the wallet cannot pay for a settle, a relayed job any account could send is still proved and put on the open
   // board: its holder's page offers to send it at once, any relayer may send it for its fee, and this relay sends it
   // itself once it can pay. A job only this relay could finish (an exit to activate, a router-embedded proof) waits, and so
   // does everything while the credit has nothing to spare: a board proof is bought before anyone sends it.
-  const credit = lastProverCredit();
-  const holding = short && !job?.jobId && CFG.proveWhileShort && !!credit && credit.wei >= CFG.proveWhileShortMinCreditWei;
+  const holding = short && !job?.jobId && board;
   if (holding) job = await confidentialJob({ mode: 'settle', openable: true });
   const jobId = job?.jobId;
   if (!jobId) return false; // empty queue
@@ -720,7 +768,7 @@ async function cycle() {
   if (mode !== 'preproven' && (await skipConsumed(job) || (mode === 'settle' && await skipUnlanded(job)) || await skipBlockedMint(job))) return true;
 
   log(`job ${jobId} type=${type} mode=${mode} — proving (network groth16). ${gate.reason} [gas ${gasGwei.toFixed(4)} gwei, ETH $${Number(ethPx).toFixed(2)}, PROVE $${Number(provePx).toFixed(4)}]`);
-  await heartbeat('settle', `proving ${jobId} ${type}`);
+  await beat(`proving ${jobId} ${type}`);
 
   let proof;
   if (mode === 'preproven' && job.publicValues && job.proof) {
@@ -730,9 +778,12 @@ async function cycle() {
     log(`job ${jobId} type=${type} preproven — settling supplied proof (no relay prove)`);
   } else {
     try {
-      proof = await proveSettle({ type, op: job.op, memos, timeoutMs: CFG.settleJobTimeoutSecs * 1000 });
+      proof = await beating(`proving ${jobId} ${type}`, () => proveSettle({ type, op: job.op, memos, timeoutMs: CFG.settleJobTimeoutSecs * 1000 }));
     } catch (e) {
       log(`job ${jobId} prove failed/timeout: ${e.message}`);
+      // A request the prover account could not pay for pauses proving first; the job is failed as any other, so the page
+      // waiting on it offers to prove it another way.
+      await pauseOn(e);
       await confidentialAck({ jobId, error: `prove failed: ${safeErr(e)}` });
       return true; // acked failed → FIFO advances, no wedge
     }
@@ -773,7 +824,7 @@ async function cycle() {
   await confidentialAck({ jobId, txHash });
   bookSettled([job], txHash);
   await activateRelayedExit(job, txHash);
-  await heartbeat('settle', `settled ${jobId}`);
+  await beat(`settled ${jobId}`);
   return true;
 }
 
@@ -868,7 +919,7 @@ async function main() {
       let worked;
       try { worked = await cycle(); }
       catch (e) { log('cycle error — exiting cron run:', e.message); await heartbeat('settle', `error ${safeErr(e)}`); break; }
-      if (!worked) { log('queue drained — cron run done'); await heartbeat('settle', 'queue drained'); break; }
+      if (!worked) { log('queue drained — cron run done'); await beat('queue drained'); break; }
     }
     return;
   }
@@ -883,8 +934,9 @@ async function main() {
       const worked = await cycle();
       // An empty queue is the common case, not an error — but it must still beat, or /prover-health
       // goes stale (and "down") after 10 quiet minutes on a perfectly healthy relay. heartbeat() itself
-      // only fires on real activity (proving/settled/error), so idle time needs its own signal.
-      if (!worked) { if (!shortSince) await heartbeatIdle('settle', 'idle — queue empty'); await abandoned.sweep(); }
+      // only fires on real activity (proving/settled/error), so idle time needs its own signal. While the relay is short or
+      // paused, its standing note is the signal (standWith), and an idle beat would hide it.
+      if (!worked) { if (!standing) await heartbeatIdle('settle', 'idle — queue empty'); await abandoned.sweep(); }
       // Between jobs as well as when idle: a steady stream of jobs is when the prover credit drains fastest, and the top-up
       // has to be able to run then (it is awaited here, so it still never overlaps a settle on the same nonce).
       await maybeReplenish();
