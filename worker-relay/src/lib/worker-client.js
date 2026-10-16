@@ -181,6 +181,24 @@ export async function boardStatus(jobId) {
   return r && r.status ? r : null;
 }
 // The board's public summary: { queued, claimed, proved, failed, workers: [{ name, lastSeenSeconds, … }] }, or null.
+// The API's public quote for an asset (GET /confidential/quote): its ticker and the floor a relay fee in it must clear, gas-aware when the
+// API can price the asset and static otherwise (cTAC, whose reference price is private). Read at most once a minute per asset.
+const _quotes = new Map();
+export async function quoteAsset(assetId) {
+  const key = String(assetId || '').toLowerCase();
+  const had = _quotes.get(key);
+  if (had && Date.now() - had.at < 60_000) return had.v;
+  let v = null;
+  try {
+    const res = await fetch(`${CFG.workerBase}/confidential/quote?asset=${encodeURIComponent(key)}`);
+    if (res.ok) {
+      const j = await res.json();
+      if (j && j.relayFeeEligible && (j.gasAwareFloorUnits || j.staticFloorUnits)) v = { ticker: j.ticker, floorUnits: BigInt(j.gasAwareFloorUnits || j.staticFloorUnits), gasAware: !!j.gasAwareFloorUnits };
+    }
+  } catch { v = null; }
+  _quotes.set(key, { at: Date.now(), v });
+  return v;
+}
 export async function boardSummary() {
   try {
     const res = await fetch(`${CFG.workerBase}/prover/board`);

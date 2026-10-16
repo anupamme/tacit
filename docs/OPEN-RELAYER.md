@@ -168,8 +168,10 @@ x-coordinate and both keys, then AES-256-GCM with that domain as the associated 
 `POST /confidential/submit` `{ type, mode: 'sealed', sealed: { worker, epk, iv, ct }, memos }`. The API queues the
 ciphertext for that worker only; the relay offers it on the board, and the worker opens it with its key
 (`prover-worker/src/main.rs`, `unseal`; the key lives in `WORKER_KEY_FILE`, made on first start and sent with each claim).
-Nothing else reads the op: the relay prices the fee from the proof's tETH legs (a sealed op must pay its relay fee in
-tETH, or it is refused) and simulates the settle as for any proof. A sealed job is never sent to the prover network: while
+Nothing else reads the op: the relay reads the fee from the proof's own legs and holds each to the floor this API publishes
+for its asset (`GET /confidential/quote`; tETH, TAC, cUSD and cBTC are priced, so a sealed op must pay its relay fee in one of
+them, or it is refused), and simulates the settle as for any proof. An op that carries no fee by design (a private send's
+lock) is sealed too and metered on the relay's free-settle budgets by its type at submit, as in the clear. A sealed job is never sent to the prover network: while
 the worker it is sealed to has not polled in a minute the submit is refused (`503`, code `sealed_unavailable`), and one
 the worker fails is failed, so the page sends it again or unsealed. The site offers this under *Prove it yourself → Seal
 my actions to Tacit's prover machine*; a settled sealed job reads `sealed: true` on its status.

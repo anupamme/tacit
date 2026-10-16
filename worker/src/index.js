@@ -91,7 +91,7 @@ import { buildScanReflectionAttester } from './reflection-attest.js';
 import { handleFarm } from './farm-program.js';
 import { buildConfidentialSettler } from './confidential-settle.js';
 import { pvDeadline, settleCalldata as openSettleCalldata, carriesPublicValues, checkPostedShape } from './confidential-open.js';
-import { passesFloor, feeAssetOf, floorInFeeUnits, totalFee, decodePoolState, ammUsdPerUnitBest, AMM_PRICE_DEFAULTS } from './relay-quote.js';
+import { passesFloor, feeAssetOf, floorInFeeUnits, totalFee, decodePoolState, ammUsdPerUnitBest, AMM_PRICE_DEFAULTS, FEELESS_TYPES } from './relay-quote.js';
 import { makeConfidentialIndex } from './confidential-index.js';
 import { buildFlow, appendSeries, flowPoint } from './flow-feed.js';
 import { ethStatsBody } from './stats-views.js';
@@ -3203,11 +3203,13 @@ const proveClientBudget = (env, ip) => (!ip || ip === 'anon' ? Promise.resolve({
 const freeRelayBudget = (env) => dailyBudget(env, 'free', Number(env.FREE_RELAY_DAILY_CAP || 300));
 // The sponsored settles are bounded by CLASS as well as in total, so what the relay chooses to pay for is a budget it sets and not whatever
 // arrives first: onboarding (a bridge or cBTC mint) is kept apart from farm upkeep (harvest, unbond, bond), untipped wraps, and the rest.
-// FREE_RELAY_CAP_ONBOARD / _FARM / _WRAP / _OTHER set each day's allowance; one that is not set has no class limit (only the total applies),
+// FREE_RELAY_CAP_ONBOARD / _FARM / _WRAP / _SEND / _OTHER set each day's allowance; one that is not set has no class limit (only the total applies),
 // and 0 means none at all. Over its allowance an op is refused in the same words as the total, which every page already answers by offering
 // to send it from the holder's own account (the relay still proves it).
-const FREE_CLASS = { bridgemint: 'onboard', cbtcmint: 'onboard', farmharvest: 'farm', farmunbond: 'farm', farmbond: 'farm', wrap: 'wrap' };
-const FREE_CLASSES = ['onboard', 'farm', 'wrap', 'other'];
+// A private send's lock (stealthlock) carries no fee leg by design: its relay fee was paid by the cut that made its note, so it has a
+// class of its own (FREE_RELAY_CAP_SEND) and the day's merges, pool adds and the rest cannot use up the sends.
+const FREE_CLASS = { bridgemint: 'onboard', cbtcmint: 'onboard', farmharvest: 'farm', farmunbond: 'farm', farmbond: 'farm', wrap: 'wrap', stealthlock: 'send', stealthlockbatch: 'send' };
+const FREE_CLASSES = ['onboard', 'farm', 'wrap', 'send', 'other'];
 const freeClassOf = (type) => FREE_CLASS[String(type)] || 'other';
 const freeClassCap = (env, cls) => { const raw = env[`FREE_RELAY_CAP_${cls.toUpperCase()}`]; return raw == null || String(raw).trim() === '' || !(Number(raw) >= 0) ? null : Math.floor(Number(raw)); };
 async function freeClassBudget(env, cls) {
@@ -3375,8 +3377,18 @@ async function handleConfidentialSubmit(req, env, cors) {
     if (!w || Number(w.lastSeenSeconds) > 60) {
       return jsonResponse({ ok: false, error: `the prover machine this is sealed to (${to || 'none named'}) is not taking jobs right now — try again in a few minutes, or send it unsealed`, code: 'sealed_unavailable', retryAfter: 120 }, 503, { ...cors, 'Cache-Control': 'no-store' });
     }
+    // A sealed op of a type that carries no relay fee by design (a private send's lock, say) is the relay's gift as in the clear, so it
+    // is metered on the same free-settle budgets, by its type; every other sealed op binds a fee the relay reads from the proof.
+    const sealedFree = FEELESS_TYPES.includes(body.type);
+    if (sealedFree) {
+      const b = await freeRelayBudget(env);
+      if (!b.ok) return jsonResponse({ ok: false, error: `free relayed settles for today are used up (${b.used}/${b.cap}) — attach a fee above the floor, or prove-mode and settle it yourself`, code: 'free_budget' }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '3600' });
+      const cls = freeClassOf(body.type), cb = await freeClassBudget(env, cls);
+      if (!cb.ok) return jsonResponse({ ok: false, error: `free relayed settles for today are used up (${cb.used}/${cb.cap}) — attach a fee above the floor, or prove-mode and settle it yourself`, code: 'free_budget', class: cls }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '3600' });
+    }
     try {
       const r = await q.submitJob({ type: body.type, memos: body.memos, mode: 'sealed', feeAsset: body.feeAsset, sealed: body.sealed });
+      if (sealedFree && !r.deduped) { await spendDailyBudget(env, 'free').catch(() => {}); await spendDailyBudget(env, `free:${freeClassOf(body.type)}`).catch(() => {}); }
       return jsonResponse({ ok: true, ...r, ...(relay ? { relay: relay.state } : {}) }, 200, { ...cors, 'Cache-Control': 'no-store' });
     } catch (e) { return jsonResponse({ ok: false, error: String(e.message || e) }, 400, { ...cors, 'Cache-Control': 'no-store' }); }
   }

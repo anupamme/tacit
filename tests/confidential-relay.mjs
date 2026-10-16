@@ -591,6 +591,16 @@ const swapOp = { reserveAPre: 1000, reserveBPre: 1000, intents: [{ amountIn: 100
   relay.useSealer(async () => { throw Object.assign(new Error('machine away'), { code: 'sealed_unavailable' }); });
   await assert.rejects(() => relay.submitOp({ type: 'transfer', op: { ...op, secret: 'w5' }, memos: ['0x06'] }), (e) => e.code === 'sealed_unavailable');
   assert.strictEqual(bodies.length, 5, 'nothing was sent');
+  // the same op sent again is the job this client already made for it: no second sealing, no second job; a failed one is sent again
+  let sealings = 0;
+  relay.useSealer(async () => { sealings++; return { ...sealedBox, ct: 'QUJD'.repeat(10 + sealings) }; });
+  const first = await relay.submitOp({ type: 'transfer', op: { ...op, secret: 'w6' }, memos: ['0x07'] });
+  const again = await relay.submitOp({ type: 'transfer', op: { ...op, secret: 'w6' }, memos: ['0x07'] });
+  assert.strictEqual(again.jobId, first.jobId); assert.ok(again.deduped); assert.strictEqual(sealings, 1, 'sealed once');
+  await q.nextJob(); await q.nextJob(); await q.nextJob();                      // claim what is queued so the sealed job can be acked
+  await q.ackJob(first.jobId, { error: 'the sealed prover is not available right now' });
+  const third = await relay.submitOp({ type: 'transfer', op: { ...op, secret: 'w6' }, memos: ['0x07'] });
+  assert.notStrictEqual(third.jobId, first.jobId); assert.strictEqual(sealings, 2, 'a failed sealed job is sealed and sent again');
   relay.useSealer(null);
   assert.strictEqual(relay.sealing(), false);
   ok('useSealer: a relayed settle goes as { type, mode: sealed, sealed, memos } without the op; prove, viaRelay and a wrap go unsealed; null sends as usual; a throw sends nothing');

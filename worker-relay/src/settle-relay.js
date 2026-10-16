@@ -21,7 +21,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { CFG, ADDR, OP_GAS, DEFAULT_OP_GAS, OP_PROVE } from './lib/config.js';
-import { confidentialJob, confidentialBatch, confidentialAck, confidentialActivateAck, confidentialOpenList, confidentialOpenJob, confidentialQueue, heartbeat, heartbeatIdle, setHeartbeatLedger, relayBooks } from './lib/worker-client.js';
+import { confidentialJob, confidentialBatch, confidentialAck, confidentialActivateAck, confidentialOpenList, confidentialOpenJob, confidentialQueue, heartbeat, heartbeatIdle, setHeartbeatLedger, relayBooks, quoteAsset } from './lib/worker-client.js';
 import { makeBatchWindow } from './lib/batch-window.js';
 import { proveSettle, proveMixed, proveSealed, boardAlive } from './lib/prover.js';
 import { notExecuted } from './lib/stdin-prover.js';
@@ -37,7 +37,7 @@ import { ROUTER_EXIT_ABI, recipeArgs, exitCheck, activationCover } from './lib/e
 import { makeAbandonedSettles } from './lib/abandoned-settles.js';
 import { quoteRelayFee, provePriceUsd, replenishOnce, drainToSink, feeAssets, depositArrivedProve, lastProverCredit, readProverCredit } from './replenish.js';
 import { proveFloorWei } from './lib/prove-floor.js';
-import { openable, pickOpen, ethFeeWei, STALE_PROOF_SELECTORS } from './lib/open-board.js';
+import { openable, pickOpen, ethFeeWei, STALE_PROOF_SELECTORS, pvFees } from './lib/open-board.js';
 import { boardProving, standingNote, creditShort, makeProvePause } from './lib/prove-pause.js';
 import { replenishDue } from './lib/replenish-schedule.js';
 import { tipFor, TIP_HISTORY_BLOCKS, TIP_PERCENTILE } from './lib/gas-tip.js';
@@ -680,8 +680,29 @@ async function settleMixed(jobs) {
   return true;
 }
 
+// The ops whose witness carries no relay fee by design (value-locking, on-ramps, a committed destination): the same list as
+// worker/src/relay-quote.js feeLegsOf, kept equal by a test. Sealed, they are the relay's gift as in the clear, metered by the API on
+// its free-settle budgets by type at submit; every other sealed op must bind a fee the proof shows.
+export const SEALED_FEELESS = ['wrap', 'cbtcmint', 'farmbond', 'adaptorlock', 'adaptorclaim', 'cdptopup', 'stealthlock', 'bridgestealthmint'];
+// What a sealed proof pays the relay, read from its public values: each fee leg against the API's published floor for its asset
+// (worker-client.js quoteAsset; the same floor the pages quote). → { ok, feeUsd, feeToken, legs, reason }.
+async function sealedFee(publicValues, ethPx) {
+  let legs;
+  try { legs = pvFees(publicValues); } catch (e) { return { ok: false, feeUsd: null, feeToken: null, legs: [], reason: `fee legs unreadable: ${e.message}` }; }
+  if (!legs.length) return { ok: false, feeUsd: null, feeToken: null, legs, reason: 'no fee leg' };
+  let ok = false, feeUsd = null, feeToken = null;
+  const said = [];
+  for (const leg of legs) {
+    const q = await quoteAsset(leg.assetId);
+    if (!q) { said.push(`${leg.assetId.slice(0, 10)}…: not priced`); continue; }
+    said.push(`${leg.value} ${q.ticker} (floor ${q.floorUnits})`);
+    if (leg.value >= q.floorUnits) { ok = true; feeToken ||= q.ticker; }
+    if (q.ticker === 'cETH' && ethPx) feeUsd = (feeUsd || 0) + (Number(leg.value * BigInt(CFG.ethUnitScale)) / 1e18) * Number(ethPx);
+  }
+  return { ok, feeUsd, feeToken, legs, reason: said.join(', ') };
+}
 // A job sealed to one board worker (its witness never readable here): proved there or failed with the reason; the fee it
-// binds is read from the proof's own ETH legs and held to the same floor as any relayed op; then sent as any settle.
+// binds is read from the proof's own legs and held to the API's floor for each asset; then sent as any settle.
 async function settleSealed(job, memos) {
   const { jobId, type } = job;
   log(`job ${jobId} type=${type} sealed to ${job.sealed.worker} — proving on the board`);
@@ -694,26 +715,20 @@ async function settleSealed(job, memos) {
     await confidentialAck({ jobId, error: e.code === 'sealed_unavailable' || e.code === 'sealed_unsupported' ? e.message : `prove failed: ${safeErr(e)}` });
     return true;
   }
-  const [gasGwei, ethPx] = await Promise.all([liveGasGwei(), ethUsdPrice()]);
-  const provePx = await provePriceUsd(ethPx);
-  let feeUsd = null;
-  try {
-    const wei = ethFeeWei(proof.publicValues, { ethAssetId: CFG.ethAssetId, ethUnitScale: CFG.ethUnitScale });
-    if (wei > 0n && ethPx) feeUsd = (Number(wei) / 1e18) * Number(ethPx);
-  } catch { feeUsd = null; }
-  // A sealed op's fee can only be read from its proof, and only an ETH leg is priced here: without one the relay would be
-  // settling blind for free, which the open free-settle budget cannot meter, so it is refused rather than subsidised.
-  if (feeUsd == null) {
-    log(`job ${jobId} type=${type} (sealed) carries no ETH fee leg the relay can read from its proof`);
-    await confidentialAck({ jobId, error: 'a sealed action must bind its relay fee in ETH, which the relay reads from the proof; nothing was sent — send it with an ETH fee, or unsealed' });
+  const ethPx = await ethUsdPrice().catch(() => null);
+  // A sealed op's fee can only be read from its proof: each leg is held to the API's floor for its asset (gas-aware where the asset
+  // is priced, static for cTAC), the same floor the page quoted it. An op with no fee by design is the relay's gift, as in the clear,
+  // metered by the API at submit; any other sealed op without a leg at the floor is refused rather than subsidised blind.
+  const fee = await sealedFee(proof.publicValues, ethPx);
+  if (!fee.ok && !SEALED_FEELESS.includes(type)) {
+    log(`job ${jobId} type=${type} (sealed) carries no relay fee at the floor: ${fee.reason}`);
+    await confidentialAck({ jobId, error: `a sealed action must bind a relay fee at the floor in an asset the relay prices (${fee.reason}); nothing was sent — send it with such a fee, or unsealed` });
     return true;
   }
-  const gate = await feeGate({ ...job, feeUsd }, gasGwei, provePx, ethPx);
-  if (!gate.ok) {
-    log(`job ${jobId} type=${type} (sealed) rejected by feeGate: ${gate.reason}`);
-    await confidentialAck({ jobId, error: `feeGate: ${gate.publicReason || gate.reason}` });
-    return true;
-  }
+  if (!fee.ok) log(`UNPAID: job type=${type} (sealed) carries no fee leg — relaying at our own expense`);
+  else log(`job ${jobId} type=${type} (sealed) fee ${fee.reason}`);
+  if (fee.feeUsd != null) job = { ...job, feeUsd: fee.feeUsd, feeToken: fee.feeToken };
+  else if (fee.feeToken) job = { ...job, feeToken: fee.feeToken };
   let txHash;
   try {
     txHash = await submitSettle(proof, memos, `job ${jobId}`);

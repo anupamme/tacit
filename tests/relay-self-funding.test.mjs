@@ -393,9 +393,9 @@ const submitSrc = worker.slice(worker.indexOf('const budgetKey'), worker.indexOf
 function loadSubmit({ cap = '3', freeCap = '3', env = {}, submitJob, jobStatus = async () => null, boardWorkers = [], kvStore = new Map(), feeOf = () => 0n, tipPaid = async () => false, health = async () => ({ status: 'ok', age_seconds: 5, note: 'settle: idle — queue empty' }), expiryOf = (type, op) => (type === 'unwrap' ? Number(op?.opDeadline || 0) : 0) }) {
   const kv = { get: async (k) => (kvStore.has(k) ? kvStore.get(k) : null), put: async (k, v) => { kvStore.set(k, v); } };
   // confPool: no pool named, so a bridge mint's admission (checked against the mainnet pool's burn root only) passes as it does off mainnet.
-  const mk = new Function('confSettler', 'buildProverBoard', 'proveRateLimit', 'jsonResponse', 'hasVerifiableFee', 'totalFee', 'ctx', 'withKvKeyLock', 'wrapTipPaid', 'readProverKindHealth', 'opExpiry', 'checkPostedShape', 'confPool', '_CONFIDENTIAL_DEPLOYMENTS',
+  const mk = new Function('confSettler', 'buildProverBoard', 'FEELESS_TYPES', 'proveRateLimit', 'jsonResponse', 'hasVerifiableFee', 'totalFee', 'ctx', 'withKvKeyLock', 'wrapTipPaid', 'readProverKindHealth', 'opExpiry', 'checkPostedShape', 'confPool', '_CONFIDENTIAL_DEPLOYMENTS',
     submitSrc + '; return handleConfidentialSubmit;');
-  const handler = mk(() => ({ submitJob, jobIdOf: (type, op, mode) => `${mode}:${type}:${JSON.stringify(op)}`, jobStatus }), () => ({ summary: async () => ({ workers: boardWorkers }) }), async () => ({ ok: true }), (body, status, headers) => ({ body, status, headers }), () => false, (type, op) => feeOf(type, op), {},
+  const handler = mk(() => ({ submitJob, jobIdOf: (type, op, mode) => `${mode}:${type}:${JSON.stringify(op)}`, jobStatus }), () => ({ summary: async () => ({ workers: boardWorkers }) }), rq.FEELESS_TYPES, async () => ({ ok: true }), (body, status, headers) => ({ body, status, headers }), () => false, (type, op) => feeOf(type, op), {},
     (_key, fn) => fn(), tipPaid, health, expiryOf, () => null, () => null, {});
   const call = (body) => handler({ json: async () => body, headers: { get: () => '1.2.3.4' } }, { REGISTRY_KV: kv, PROVE_MODE_DAILY_CAP: cap, FREE_RELAY_DAILY_CAP: freeCap, ...env }, {});
   return { call, kvStore };
@@ -416,6 +416,30 @@ test('while a prover-board worker is proving, a free prove-only job passes the c
   const quiet = loadSubmit({ cap: '3', submitJob: async () => ({ jobId: 'q', status: 'pending' }), health: low, boardWorkers: [{ name: 'tacit-a5000', lastSeenSeconds: 400 }] });
   const d = await quiet.call({ type: 'transfer', op: { a: 4 }, mode: 'prove' });
   ok(d.status === 503 && d.body.code === 'prove_reserved', `with no worker seen lately the reserve holds, got ${d.status} ${d.body.code}`);
+});
+
+test('a sealed op with no fee by design is metered on the free budgets by its type; a sealed op that binds a fee is not', async () => {
+  const sealed = { worker: 'tacit-a5000', epk: '0x02' + 'ab'.repeat(32), iv: 'AAAAAAAAAAAAAAAA', ct: 'QUJD'.repeat(10) };
+  let n = 0;
+  const { call, kvStore } = loadSubmit({ freeCap: '9', env: { FREE_RELAY_CAP_SEND: '1' }, submitJob: async ({ mode }) => ({ jobId: `${mode}${++n}`, status: 'pending' }), boardWorkers: [{ name: 'tacit-a5000', lastSeenSeconds: 2 }] });
+  const a = await call({ type: 'stealthlock', mode: 'sealed', sealed, memos: [] });
+  ok(a.status === 200 && a.body.jobId === 'sealed1', `a sealed lock within the send allowance is queued, got ${a.status} ${a.body.code}`);
+  ok([...kvStore.keys()].some((k) => k.includes('free:send')), 'and counted on the send class');
+  const b = await call({ type: 'stealthlock', mode: 'sealed', sealed: { ...sealed, ct: 'REVG'.repeat(10) }, memos: [] });
+  ok(b.status === 429 && b.body.code === 'free_budget' && b.body.class === 'send', `the second lock meets the send allowance, got ${b.status} ${b.body.code}`);
+  const c = await call({ type: 'transfer', mode: 'sealed', sealed: { ...sealed, ct: 'SEVE'.repeat(10) }, memos: [] });
+  ok(c.status === 200, `a sealed transfer binds its fee in the proof and is not metered here, got ${c.status} ${c.body.code}`);
+  const away = loadSubmit({ submitJob: async () => ({ jobId: 'x', status: 'pending' }), boardWorkers: [{ name: 'tacit-a5000', lastSeenSeconds: 300 }] });
+  const d = await away.call({ type: 'transfer', mode: 'sealed', sealed, memos: [] });
+  ok(d.status === 503 && d.body.code === 'sealed_unavailable', `a worker not seen in a minute refuses the sealed job, got ${d.status} ${d.body.code}`);
+});
+
+test('the relay and the API keep one list of the ops that carry no relay fee by design', () => {
+  const rqList = JSON.stringify(rq.FEELESS_TYPES);
+  const m = /export const SEALED_FEELESS = (\[[^\]]*\]);/.exec(settle);
+  ok(m, 'settle-relay.js names SEALED_FEELESS');
+  ok(JSON.stringify(eval(m[1])) === rqList, `SEALED_FEELESS ${m[1]} differs from relay-quote.js FEELESS_TYPES ${rqList}`);
+  ok(/stealthlock: 'send', stealthlockbatch: 'send'/.test(worker), 'a private send\'s lock has its own free class');
 });
 
 test('an op the queue already holds is answered with its job before any gate', async () => {

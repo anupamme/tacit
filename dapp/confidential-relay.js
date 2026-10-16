@@ -138,7 +138,22 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     // Sealed (useSealer): a relayed settle whose op never reaches the relay; the sealer encrypts the program input to one
     // prover-board worker and only that ciphertext and the memos are sent. A prove-only call, a call the caller sends to the
     // relay on purpose (viaRelay), a wrap (its fee is the deposit's tip, read from `depositTx`) or an exit are sent as they always were.
-    const sealedIn = sealer && !mode && !depositTx && !(waitOpts && waitOpts.viaRelay) ? await sealer({ type, op, memos: sealedMemos }) : null;
+    const sealing = sealer && !mode && !depositTx && !(waitOpts && waitOpts.viaRelay);
+    // A sealed job's id is the ciphertext's, and every sealing is fresh, so the same op sent twice (a second press, a wait that ran
+    // out) would be two jobs and two proofs: the job this client already made for the op is answered from memory instead, as the
+    // relay answers an op it holds in the clear. A job that failed is forgotten, so the op can be sent again.
+    const opKey = sealing ? JSON.stringify({ type, op }, bigintSafe) : null;
+    if (opKey && sealedJobs.has(opKey)) {
+      const jobId = sealedJobs.get(opKey);
+      let st = null;
+      try { st = await status(jobId); } catch { st = null; }
+      if (st && st.status && st.status !== 'failed' && st.status !== 'unknown') {
+        if (onJob) { try { onJob(jobId, type); } catch { /* best-effort */ } }
+        return { ok: true, jobId, status: st.status, deduped: true, sealedMemos };
+      }
+      sealedJobs.delete(opKey);
+    }
+    const sealedIn = sealing ? await sealer({ type, op, memos: sealedMemos }) : null;
     const res = await f(`${root}/confidential/submit`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify(sealedIn
@@ -147,6 +162,7 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     });
     const body = await asJson(res);
     if (body && body.jobId) {
+      if (opKey) sealedJobs.set(opKey, body.jobId);
       jobTypes.set(body.jobId, type);
       const by = opExpiry(type, op) * 1000; if (by) jobBy.set(body.jobId, by);
       if (onJob) { try { onJob(body.jobId, type); } catch { /* best-effort */ } }
@@ -390,6 +406,7 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
   // `useSealer(fn)`: every relayed settle's input is sealed by `fn({ type, op, memos })` → { worker, epk, iv, ct } (dapp/sealed-input.js)
   // before it goes, so the relay holds only ciphertext; useSealer(null) sends ops in the clear again.
   let sealer = null;
+  const sealedJobs = new Map();                                        // op (type + op JSON) → the sealed job this client made for it
   function useSealer(fn) { sealer = typeof fn === 'function' ? fn : null; }
   const OWN_ID = /^spn:/;
   const ownJobs = new Map();                                       // 'spn:<requestId>' -> its last state, for status()

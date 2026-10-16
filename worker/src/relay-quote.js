@@ -44,6 +44,9 @@ export function isProfitable({ feeOffered, gasPriceWei, weiPerFeeUnit, effects =
 // Extract the declared relay-fee legs from an op witness, per type — used to gate at submit/claim time BEFORE
 // spending a prove cycle. Returns [{ value }] (asset omitted where the witness doesn't carry it; the relayer
 // maps each op's natural fee asset). The fee-less-by-design ops return [].
+// The ops whose witness carries no relay fee by design (value-locking / on-ramp / pre-committed destination / t-reveal). The relay
+// keeps the same list for sealed jobs (worker-relay/src/settle-relay.js SEALED_FEELESS), pinned equal by a test.
+export const FEELESS_TYPES = ['wrap', 'cbtcmint', 'farmbond', 'adaptorlock', 'adaptorclaim', 'cdptopup', 'stealthlock', 'bridgestealthmint'];
 export function feeLegsOf(type, op) {
   const v = (x) => BigInt(x ?? 0n);
   switch (type) {
@@ -51,7 +54,7 @@ export function feeLegsOf(type, op) {
       return (op.intents || []).map((it) => ({ value: v(it.fee) })).filter((x) => x.value > 0n);
     case 'otc':
       return [{ value: v(op.feeA) }, { value: v(op.feeB) }].filter((x) => x.value > 0n);
-    // fee-less by design (value-locking / on-ramp / pre-committed destination / t-reveal)
+    // fee-less by design (FEELESS_TYPES above)
     case 'wrap': case 'cbtcmint': case 'farmbond':
     case 'adaptorlock': case 'adaptorclaim': case 'cdptopup': case 'stealthlock':
     case 'bridgestealthmint':

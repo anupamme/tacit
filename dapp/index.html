@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-dDTLZpf2fXwWwO9NoGjQ7L2yi82v6hU8mF9J1mrLPqo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Dg0PgDWJv/GJ5jJ5t+QZEnKe8SKwYc7XCrCWGBSLSLE=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -2858,20 +2858,24 @@ async function sealOp({ type, op, memos }) {
   try { board = await (await fetch(`${API}/prover/board`, { cache: 'no-store' })).json(); } catch {}
   const w = si.pickWorker(board);
   if (!w) throw Object.assign(new Error('Tacit’s prover machine isn’t taking sealed actions right now, so nothing was sent. Try again in a minute, or turn sealing off.'), { code: 'sealed_unavailable' });
-  // The relay prices a sealed action's fee from the proof alone, and only a fee in tETH: one paid in another asset is sent as usual, said once.
-  if (!feeInEth(type, op)) { if (Date.now() - SP.sealNote > 5000) { SP.sealNote = Date.now(); toast('This one pays its relay fee in another asset than tETH, which only the relay can price, so it is not sealed.'); } return null; }
+  // The relay reads a sealed action's fee from the proof alone and prices the pool's four assets; one paying in anything else (a farm's
+  // fee is in its pool's shares) is sent as usual, said once. A lock carries no fee by design and is sealed as it is.
+  if (!sealable(type, op, await getUx())) { if (Date.now() - SP.sealNote > 5000) { SP.sealNote = Date.now(); toast('This one pays its relay fee in an asset the prover machine can’t price, so it is sent unsealed.'); } return null; }
   const memoHashes = (memos || []).map((m) => '0x' + bytesToHex(keccak_256(hexToBytes(strip(m)))));
   const sealed = await si.sealTo({ secp, pubkey: w.pubkey, stdin: sp.stdinFor(type, { ...op, memoHashes }) });
   return { worker: w.name, ...sealed };
 }
-// Does every relay fee leg of this op come in tETH? The same reading of each op as the relay's quote (worker/src/relay-quote.js feeAssetOf).
-function feeInEth(type, op) {
-  const eth = (a) => String(a || '').toLowerCase() === CETH_ID;
+// Can the relay read this op's relay fee from its proof: no fee by design (a lock), or every fee leg in one of the pool's four assets
+// (tETH, TAC, cUSD, cBTC), read as the relay's quote reads each op (worker/src/relay-quote.js feeAssetOf, feeLegsOf).
+function sealable(type, op, t) {
+  const ids = new Set(['cETH', 'cTAC', 'cUSD', 'cBTC'].map((k) => String(t?.assetByTicker?.[k]?.assetId || (k === 'cETH' ? CETH_ID : '')).toLowerCase()).filter(Boolean));
+  const priced = (a) => ids.has(String(a || '').toLowerCase());
   switch (type) {
-    case 'transfer': case 'unwrap': case 'sendunwrap': case 'bridgeburn': case 'stealthclaim': return eth(op.asset); // a claim's fee comes from the lock's asset
-    case 'lp': case 'lpremove': case 'lpbond': return eth(op.assetA);
-    case 'route': return eth(op.asset0);
-    case 'swap': return Array.isArray(op.intents) && op.intents.length > 0 && op.intents.every((it) => eth(Number(it.direction) === 0 ? op.assetA : op.assetB)); // the fee is on the side spent
+    case 'stealthlock': case 'stealthlockbatch': return true;                 // no fee leg by design: the cut that made its note paid
+    case 'transfer': case 'unwrap': case 'sendunwrap': case 'bridgeburn': case 'stealthclaim': return priced(op.asset); // a claim's fee comes from the lock's asset
+    case 'lp': case 'lpremove': case 'lpbond': return priced(op.assetA);
+    case 'route': return priced(op.asset0);
+    case 'swap': return Array.isArray(op.intents) && op.intents.length > 0 && op.intents.every((it) => priced(Number(it.direction) === 0 ? op.assetA : op.assetB)); // the fee is on the side spent
     default: return false;
   }
 }
@@ -3840,7 +3844,7 @@ function renderProve() {
         <label class="pick"><input type="checkbox" id="sp-seal" ${seal ? 'checked' : ''} ${on ? 'disabled' : ''}><span>Seal my actions to Tacit’s prover machine</span></label>
         <p class="note">${on ? 'Not needed while your own credit proves: nothing of yours reaches the relay.'
           : seal ? 'On: each action is encrypted here to the key of the machine that proves it, so Tacit’s relay and API hold only the ciphertext. While that machine is away, an action waits for you to try again.'
-          : 'Off: the relay reads each action to prove it, on Tacit’s machine or the prover network. Turn this on and only the machine that proves it can read an action that pays its relay fee in tETH.'}</p>
+          : 'Off: the relay reads each action to prove it, on Tacit’s machine or the prover network. Turn this on and only the machine that proves it can read your sends, swaps and pool moves.'}</p>
         ${SP.then ? html`<div class="callout"><span>Waiting to go on: ${SP.then.label}.</span><button class="btn ghost" type="button" id="sp-then" ${on ? '' : 'disabled'}>Go on</button></div>` : ''}</div></li>
     </ol>`);
   $$('[data-copy]', el).forEach((b) => b.onclick = () => copy(b.dataset.copy));
