@@ -172,7 +172,7 @@ async function quote(my, wei) {
     if (!rt.single) return done({ rows: [], why: 'No pool can fill this right now.' });
     const rows = [];
     const ranked = rt.r.ranked || [];
-    for (const v of ranked) rows.push({ k: v.venue, name: v.venue === 'precision' ? 'Precision pool' : 'Tacit pool', note: v.venue === 'precision' ? 'TAC/ETH, the deepest pool' : 'the public door, same reserves as the private', out: BigInt(v.amountOut), venue: v, gas: dir === 'ETH_TO_TAC' ? GAS.tac : GAS.tacSell });
+    for (const v of ranked) rows.push({ k: v.venue, name: v.venue === 'precision' ? 'Precision pool' : 'Tacit pool', note: v.venue === 'precision' ? 'TAC/ETH, the deepest pool' : 'the public side of the private pool', out: BigInt(v.amountOut), venue: v, gas: dir === 'ETH_TO_TAC' ? GAS.tac : GAS.tacSell });
     if (rt.split) { const sh = Math.round(Number(rt.split.legs[0].amountIn * 1000n / (rt.split.legs[0].amountIn + rt.split.legs[1].amountIn)) / 10); rows.push({ k: 'split', name: 'Both pools', note: `${sh}% Precision, ${100 - sh}% Tacit, in one transaction`, out: BigInt(rt.split.amountOut), split: rt.split, gas: GAS.split }); }
     const best = rt.pick === 'split' ? rows.find((r) => r.k === 'split') : rows.find((r) => r.k === rt.single.venue);
     if (best) best.best = true;
@@ -496,7 +496,7 @@ function openPicker(side) {
     return `<button type="button" class="pk-r${ok ? '' : ' off'}" data-k="${esc(k)}" aria-current="${k === cur}">${coin(t)}<span><b>${esc(t.sym)}</b><small>${esc(S.mode === 'private' ? (isEth(k) ? 'in your wallet, made private first' : 'private balance') : t.custom ? `${t.addr.slice(0, 8)}…${t.addr.slice(-6)}` : t.name)}</small></span><em>${bal ? esc(amtFmt(bal, t.dec)) : ''}</em></button>`;
   };
   const groups = side === 'pay' && S.mode !== 'private'
-    ? [['Tacit', keys.filter((k) => isEth(k) || tacitKey(k))], ['Any token, swapped for TAC', keys.filter((k) => !isEth(k) && !tacitKey(k))]]
+    ? [['ETH and Tacit\'s tokens', keys.filter((k) => isEth(k) || tacitKey(k))], ['Any token, swapped for TAC', keys.filter((k) => !isEth(k) && !tacitKey(k))]]
     : [[null, keys]];
   pk.innerHTML = `<div class="pk-s" role="dialog" aria-modal="true" aria-label="${side === 'pay' ? 'Pay with' : 'Get'}"><div class="pk-h"><b>${side === 'pay' ? 'Pay with' : 'Get'}</b><button type="button" class="pk-x" aria-label="Close">×</button></div>${side === 'pay' && S.mode !== 'private' ? '<input class="pk-q" id="pk-q" placeholder="Search, or paste a token address" autocomplete="off" spellcheck="false" aria-label="Search tokens or paste an address">' : ''}<div class="pk-l" id="pk-l">${groups.map(([g, ks]) => `${g ? `<p class="pk-g">${esc(g)}</p>` : ''}${ks.map(row).join('')}`).join('')}<p class="pk-n" id="pk-n">${side === 'get' && S.mode !== 'private' ? 'TAC from any token. cUSD and cBTC with ETH, from the Tacit pool.' : ''}</p></div></div>`;
   pk.hidden = false;

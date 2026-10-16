@@ -125,6 +125,9 @@ button, input { font: inherit; color: inherit; letter-spacing: inherit; }
 .points li::before { content: ''; width: 7px; height: 7px; margin: 7px 0 0 4px; border-radius: 50%; background: var(--orange); }
 .points li:nth-child(2)::before { background: var(--eth); } .points li:nth-child(3)::before { background: transparent; border: 1.5px dashed var(--ink); width: 8px; height: 8px; }
 .points b { color: var(--ink); font-weight: 500; }
+.howlink { display: inline-flex; align-items: center; gap: 8px; margin: 26px 0 0; font-size: 13px; color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--hair-2); padding-bottom: 2px; }
+@media (hover: hover) { .howlink:hover { border-color: var(--ink); } }
+@media (max-width: 900px) { .howlink { display: none; } }
 @media (max-width: 900px) { .hero { order: 0; } .sw { order: 1; } .points { display: none; } .hero .lede { margin-top: 12px; } }
 
 /* the card: the front page's console, two verbs */
@@ -226,7 +229,7 @@ button, input { font: inherit; color: inherit; letter-spacing: inherit; }
 .pk-g { margin: 10px 8px 4px; font-size: 12px; color: var(--mute); }
 .pk-r { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px; text-align: left; color: inherit; background: none; border: 0; border-radius: 12px; cursor: pointer; transition: background .12s; }
 .pk-r .tk { width: 34px; height: 34px; }
-.pk-r > span { flex: 1; display: grid; line-height: 1.3; min-width: 0; }
+.pk-r > span:not(.tk) { flex: 1; display: grid; line-height: 1.3; min-width: 0; }
 .pk-r b { font-weight: 500; } .pk-r small { font-size: 12px; color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pk-r em { flex: none; font-style: normal; font-size: 13px; color: var(--mute); font-variant-numeric: tabular-nums; }
 .pk-r[aria-current="true"] { background: var(--field); box-shadow: inset 0 0 0 1px var(--hair-2); }
@@ -249,10 +252,11 @@ button, input { font: inherit; color: inherit; letter-spacing: inherit; }
 .farm-host h3 { font: 400 20px/1.15 var(--serif); margin: 0 0 12px; }
 .farm-host .note { font-size: 12.5px; color: var(--mute); margin: 12px 0 0; } .farm-host .note a { color: var(--ink); }
 .seg { display: inline-grid; grid-auto-flow: column; grid-auto-columns: minmax(0, auto); border: 1px solid var(--hair-2); border-radius: 10px; overflow: hidden; }
-.seg button { min-height: 34px; padding: 4px 13px; background: none; border: 0; cursor: pointer; color: var(--mute); font-size: 12.5px; }
+.seg button { min-height: 34px; padding: 4px 13px; background: none; border: 0; cursor: pointer; color: var(--mute); font: 12.5px var(--mono); }
 .seg button + button { border-left: 1px solid var(--hair-2); }
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--card); }
 .seg.big { display: grid; grid-auto-columns: minmax(0, 1fr); margin-bottom: 14px; } .seg.big button { min-height: 40px; font-size: 13px; }
+.farm-host #fm-h { display: none; }                                   /* the farm's row above names it */
 @media (pointer: coarse) { .seg button { min-height: var(--tap); } }
 .lbl { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--mute); margin: 14px 0 6px; }
 .farm-host .amt { display: flex; align-items: center; background: var(--field); border: 1px solid var(--hair); border-radius: 12px; font: inherit; }
@@ -334,10 +338,11 @@ button, input { font: inherit; color: inherit; letter-spacing: inherit; }
   .doors { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .door { min-height: 84px; align-content: center; justify-items: start; padding: 10px 0 10px 40px; text-align: left; }
   .door::before { left: 22px; right: auto; top: 0; bottom: 0; width: 2px; height: auto; margin: 0; }
-  .door.priv::before { border-top: 0; border-left: 2px dashed var(--c); width: 0; }
+  .door.priv::before { border-top: 0; border-left: 2px dashed var(--c); width: 0; height: auto; }
   .door::after { left: 18px; right: auto; top: auto; margin: 0; }
   .door.pub::after { bottom: 2px; transform: rotate(135deg); } .door.priv::after { top: 2px; left: 18px; transform: rotate(-45deg); }
-  .door span, .door small { transform: none; margin: 0; max-width: none; }
+  .door span, .door small { transform: none; margin: 0; max-width: none; background: none; }
+  .door span { padding: 0; }
 }
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
 .card { padding: 18px 18px 16px; background: var(--card); border: 1px solid var(--hair); border-radius: 14px; }
@@ -401,6 +406,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
         <li><span><b>Any token.</b> zQuoter finds the best pool for your token against WETH, and the same transaction buys the TAC with it.</span></li>
         <li><span><b>Or private.</b> Swap TAC, tETH, cUSD and cBTC inside the pool with a proof made on your device; nothing says whose swap it is.</span></li>
       </ul>
+      <a class="howlink" href="#how">How the Tacit pool works ↓</a>
       <noscript><p class="lede">Swapping on this page needs JavaScript. The pools' addresses are listed below.</p></noscript>
     </section>
 
