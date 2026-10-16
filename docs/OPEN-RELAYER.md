@@ -123,8 +123,10 @@ binaries:
   - **ETH:** the wallet pays ETH that zRouter swaps to PROVE for the Tacit account, then the same deposit follows.
 - **Cost.** A request needs about 0.46 PROVE on hand (0.58 for liquidity ops, which may use more gas) and spends about
   0.39.
-- **Privacy.** Every request is private and goes to Succinct's own prover only, as above. If it is not proved by its
-  deadline, nothing is sent, and the network keeps its base fee.
+- **Privacy.** A request is private and goes to Succinct's own prover only, as above. If it is not proved by its
+  deadline, nothing is sent, and the network keeps its base fee. While the network refuses private inputs
+  (`PERMISSION_DENIED`, which costs nothing), the request goes with a public input instead, open to any prover, and the
+  page says so as it goes and on the result. `makeSelfProver({ input: 'private' })` keeps it private only.
 - **The settle** is sent from your connected wallet.
 - **The proxy.** The network's artifact store sends no CORS headers, so the page's input goes up through
   `POST /prover/upload` and the finished proof comes back through `POST /prover/download` on the API. Both forward bytes

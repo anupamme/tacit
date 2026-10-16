@@ -533,3 +533,77 @@ test('self-prover: one request at a time per account, the request id on every la
     fetchImpl: async (url, init) => (new URL(url).pathname === '/prover/download' ? new Response('{}', { status: 400 }) : fake.fetchImpl(url, init)), proxyBase: 'https://api.example' });
   await assert.rejects(sp2.prove({ type: 'wrap', op, memos: ['0x01'] }), (e) => e.requestId === fixture.requestId);
 });
+
+// ── while the network refuses private inputs ──
+
+// The fake network refusing every private input as mainnet did from 2026-10-15 22:11 UTC, and handing out stdins/ artifacts for public ones.
+function privateOffNetwork(statuses = [{ fulfillmentStatus: 3, executionStatus: 2 }]) {
+  const fake = fakeNetwork({ statuses });
+  const asked = [];
+  const transport = async (url, init) => {
+    const method = url.split('/').pop();
+    const msg = grpcUnframe(new Uint8Array(init.body)).messages[0] || new Uint8Array(0);
+    if (method === 'CreateArtifact' && decodeMessage('CreateArtifactRequest', msg).artifactType === 2) {
+      fake.seen.push({ method, msg });
+      return replyOf('CreateArtifactResponse', { artifactUri: 's3://spn-artifacts-mainnet/stdins/artifact_01pub', artifactPresignedUrl: `${S3}/stdins/artifact_01pub?X-Amz-Signature=00` });
+    }
+    if (method === 'RequestProof') {
+      const b = decodeMessage('RequestProofRequest', msg).body;
+      asked.push(b);
+      if (b.stdinPrivate) return new Response(null, { status: 200, headers: { 'grpc-status': '7', 'grpc-message': encodeURIComponent('private stdin is not enabled on this network') } });
+    }
+    return fake.transport(url, init);
+  };
+  return { ...fake, transport, asked };
+}
+
+test('a refused private input goes public (auto): nothing was created for the refusal, and the next request goes public at once', async () => {
+  const off = privateOffNetwork();
+  const net = makeSuccinctNetwork({ transport: off.transport, fetchImpl: off.fetchImpl, proxyBase: 'https://api.example', ...crypto });
+  let told = 0;
+  const r = await net.requestProof({ priv: KEY, stdinZstd: zstdLike, cycleLimit: 1, gasLimit: 100_000_000, input: 'auto', onPublic: () => { told++; } });
+  assert.equal(r.private, false);
+  assert.equal(r.requestId, fixture.requestId);
+  assert.equal(told, 1);
+  assert.deepEqual(off.asked.map((b) => b.stdinPrivate), [true, false]);
+  assert.equal(off.asked[1].stdinUri, 's3://spn-artifacts-mainnet/stdins/artifact_01pub');
+  assert.deepEqual(off.asked[1].whitelist, []);                                        // public: any prover may take it
+  assert.deepEqual(off.uploads.map((u) => new URL(u.url).pathname), ['/private-stdins/artifact_01abc', '/stdins/artifact_01pub']);
+  assert.equal(net.privateOff(), true);
+
+  const again = await net.requestProof({ priv: KEY, stdinZstd: zstdLike, cycleLimit: 1, gasLimit: 100_000_000, input: 'auto' });
+  assert.equal(again.private, false);
+  assert.deepEqual(off.asked.map((b) => b.stdinPrivate), [true, false, false]);           // no second refused attempt
+});
+
+test('private only: a network refusing private inputs throws private_off and sends no public request', async () => {
+  const off = privateOffNetwork();
+  const net = makeSuccinctNetwork({ transport: off.transport, fetchImpl: off.fetchImpl, proxyBase: 'https://api.example', ...crypto });
+  await assert.rejects(net.requestProof({ priv: KEY, stdinZstd: zstdLike, cycleLimit: 1, gasLimit: 1 }), (e) => e.code === 'private_off' && e.grpcStatus === 7);
+  assert.deepEqual(off.asked.map((b) => b.stdinPrivate), [true]);
+  assert.equal(off.uploads.length, 1);
+  await assert.rejects(net.requestProof({ priv: KEY, stdinZstd: zstdLike, cycleLimit: 1, gasLimit: 1, input: 'public' }), /input must be/);
+});
+
+test('a credit too low for the request is final: no lookup for a request that was never made', async () => {
+  const short = fakeNetwork({ grpcError: { method: 'RequestProof', status: 8, message: 'insufficient balance 0.0573 PROVE for request cost 0.3941 PROVE' } });
+  const net = makeSuccinctNetwork({ ...short, proxyBase: 'https://api.example', ...crypto });
+  const t0 = Date.now();
+  await assert.rejects(net.requestProof({ priv: KEY, stdinZstd: zstdLike, cycleLimit: 1, gasLimit: 1 }), /insufficient balance/);
+  assert.ok(!short.seen.some((s) => s.method === 'GetFilteredProofRequests'));
+  assert.ok(Date.now() - t0 < 1500);
+});
+
+test('self-prover: with private inputs refused, the proof goes public, every step after says so, and the result says private: false', async () => {
+  const { makeSelfProver } = await import('../dapp/self-prover.js');
+  const op = JSON.parse(readFileSync(new URL('./fixtures/sp1-stdin/wrap.op.json', import.meta.url)));
+  const off = privateOffNetwork();
+  const sp = makeSelfProver({ priv: () => KEY, address: addressOf(crypto, KEY), ...crypto, transport: off.transport, fetchImpl: off.fetchImpl, proxyBase: 'https://api.example' });
+  const steps = [];
+  const r = await sp.prove({ type: 'wrap', op, memos: ['0x01'], onUpdate: (u) => steps.push(`${u.stage}${u.public ? ':public' : ''}`) });
+  assert.equal(r.private, false);
+  assert.deepEqual(steps, ['uploading', 'uploading:public', 'requested:public', 'proved:public']);
+  assert.equal(sp.privateOff(), true);
+  const strict = makeSelfProver({ priv: () => KEY, address: addressOf(crypto, KEY), ...crypto, transport: privateOffNetwork().transport, fetchImpl: off.fetchImpl, proxyBase: 'https://api.example', input: 'private' });
+  await assert.rejects(strict.prove({ type: 'wrap', op, memos: ['0x01'] }), (e) => e.code === 'private_off');
+});

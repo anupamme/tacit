@@ -5673,7 +5673,7 @@ await step('heldborrow', async () => {
 // The page's own self-prover.js runs, with the two modules it builds on stood in for: the program input (sp1-stdin.js) and Succinct's
 // network (succinct-net.js), whose credit, delay and answer window.__spn sets. Nothing reaches the network.
 const PROVE_TKN = '0x6bef15d938d4e72056ac92ea4bdd0d76b1c4ad29', VAPP_ADDR = '0x5ad5bc4b18f7c173dce17a57682cb0dc8788951f';
-const SPN_INIT = (cfg) => { window.__spn = Object.assign({ credit: '0', notProved: false, delay: 3000, requests: [], inputs: [], types: null }, cfg || {}); };
+const SPN_INIT = (cfg) => { window.__spn = Object.assign({ credit: '0', notProved: false, delay: 3000, requests: [], inputs: [], types: null, privateOff: false }, cfg || {}); };
 const SP_TYPES = ['wrap', 'unwrap', 'sendunwrap', 'transfer', 'route', 'stealthlock', 'stealthclaim', 'stealthrefund', 'lpremove', 'lpbond', 'bridgeburn', 'bridgemint', 'bridgestealthmint',
   'farmbond', 'farmharvest', 'farmunbond', 'cdpmint', 'cdpclose', 'cdptopup', 'cbtcmint'];
 const stubSelfProver = (page) => Promise.all([
@@ -5689,7 +5689,16 @@ const stubSelfProver = (page) => Promise.all([
       return {
         balance: async () => BigInt(S().credit),
         needWei: async () => 450000000000000000n,
-        requestProof: async ({ priv }) => { const requestId = '0x' + String(S().requests.length + 1).padStart(64, 'a'); S().requests.push({ requestId, signed: /^0x[0-9a-f]{64}$/.test(priv) }); return { requestId }; },
+        // privateOff: the network refusing private inputs, as mainnet did from 2026-10-15 22:11 UTC ('auto' then goes public).
+        requestProof: async ({ priv, input = 'private', onPublic }) => {
+          if (S().privateOff && input !== 'auto') throw Object.assign(new Error('succinct RequestProof: PERMISSION_DENIED - private stdin is not enabled on this network'), { code: 'private_off', grpcStatus: 7 });
+          const isPrivate = !S().privateOff;
+          if (!isPrivate && onPublic) { onPublic(); await wait(300); }                  // an upload and a request take a moment
+          const requestId = '0x' + String(S().requests.length + 1).padStart(64, 'a');
+          S().requests.push({ requestId, signed: /^0x[0-9a-f]{64}$/.test(priv), private: isPrivate, input });
+          return { requestId, private: isPrivate };
+        },
+        privateOff: () => !!S().privateOff,
         waitProof: async (id, { onUpdate } = {}) => {
           await wait(800); if (onUpdate) onUpdate({ status: 'assigned' });
           await wait(S().delay);
@@ -5911,7 +5920,7 @@ await step('selfprove', async () => {
       `selfprove: a withdrawal is proved on the holder's credit (no submit to the relay) and settled from the wallet (${await said()}; submits ${submits.length - s0}, requests ${(await spn()).requests.length - q0}, settles ${one.length})`);
     await openActivity(r.page);
     const row = (await actRows(r.page)).find((x) => x.id.startsWith('op:') && /Withdraw 0\.5 ETH/.test(x.text)) || { text: '' };
-    ok(/AskedSuccinctProvingProvedSent/.test(row.text.replace(/\s/g, '')) && /Done in .*proved with your own credit/.test(row.text), `selfprove: Activity shows its steps and that it was proved with your own credit (${row.text.slice(0, 160)})`);
+    ok(/AskedSuccinctProvingProvedSent/.test(row.text.replace(/\s/g, '')) && /Done in .*proved with your own credit/.test(row.text) && !/public input/.test(row.text), `selfprove: Activity shows its steps and that it was proved with your own credit, privately (${row.text.slice(0, 160)})`);
     await r.page.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
     await go(r.page, '#private');
     await r.page.waitForSelector('[data-v1="swap"]', { timeout: 60000 });
@@ -5921,6 +5930,23 @@ await step('selfprove', async () => {
     await swap('0.05');
     await until(r.page, () => /Done\./.test(document.querySelector('#v1-status')?.textContent || '') || /class="err"/.test(document.querySelector('#v1-status')?.innerHTML || ''), null, 300000).catch(() => {});
     ok(/Done\./.test(await said()) && submits.length === s1 && settles(w1).length === 1, `selfprove: a swap is proved on the credit and settled from the wallet, nothing to the relay (${await said()})`);
+
+    // (b2) Succinct's network refusing private inputs: a withdrawal goes with a public input, the sheet says so as it goes, Activity marks
+    // it, and it still settles from the wallet with nothing sent to the relay.
+    await r.page.evaluate(() => { window.__spn.privateOff = true; });
+    const sP = submits.length, wP = walletTxs.length, qP = (await spn()).requests.length;
+    const sawPublic = r.page.waitForFunction(() => /goes with a public input, which anyone can read/.test(document.querySelector('#v1-status')?.textContent || ''), null, { timeout: 120000, polling: 100 }).then(() => true, () => false);
+    await withdraw('0.2');
+    await until(r.page, () => /Done\./.test(document.querySelector('#v1-status')?.textContent || '') || /class="err"/.test(document.querySelector('#v1-status')?.innerHTML || ''), null, 300000).catch(() => {});
+    const pubReqs = (await spn()).requests.slice(qP);
+    ok(await sawPublic && /Done\./.test(await said()) && submits.length === sP && settles(wP).length === 1 && pubReqs.length === 1 && pubReqs[0].private === false && pubReqs[0].input === 'auto',
+      `selfprove: with private inputs refused, a withdrawal goes with a public input, says so, and still settles from the wallet (${await said()}; ${JSON.stringify(pubReqs.map((x) => ({ private: x.private, input: x.input })))})`);
+    await openActivity(r.page);
+    const pubRow = (await actRows(r.page)).find((x) => x.id.startsWith('op:') && /Withdraw 0\.2 ETH/.test(x.text)) || { text: '' };
+    ok(/proved with your own credit \(public input\)/.test(pubRow.text), `selfprove: Activity marks it as proved with a public input (${pubRow.text.slice(0, 160)})`);
+    await r.page.evaluate(() => { window.__spn.privateOff = false; document.querySelectorAll('dialog[open]').forEach((d) => d.close()); });
+    await go(r.page, '#private');
+    await r.page.waitForSelector('[data-v1="swap"]', { timeout: 60000 });
     await restore(); restore = null;
 
     // (f) The pool moved while the swap was proved: the pool refuses it before anything is sent, and says to quote again.

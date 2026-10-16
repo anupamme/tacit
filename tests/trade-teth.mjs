@@ -198,7 +198,7 @@ export function makeConfidentialPoolUx() {
       if (a.selfSettle) {
         // relay.prove with useProver set: the holder's own prover makes the proof, as confidential-relay.js's proveOwn hands it the op
         if (ux.own) {
-          const r = await ux.own({ type: 'wrap', op: a.built.wrapOp, memos: a.built.memos, onUpdate: (u) => { if (u.requestId) a.waitOpts?.onUpdate?.({ jobId: 'spn:' + u.requestId, status: u.status, stage: u.stage }); } });
+          const r = await ux.own({ type: 'wrap', op: a.built.wrapOp, memos: a.built.memos, onUpdate: (u) => a.waitOpts?.onUpdate?.({ jobId: u.requestId ? 'spn:' + u.requestId : null, status: u.status, stage: u.stage, ...(u.public ? { inputPublic: true } : {}) }) });
           const sent = await a.selfSettle({ jobId: 'spn:' + r.requestId, publicValues: r.publicValues, proof: r.proof, memos: a.built.memos });
           return { jobId: 'spn:' + r.requestId, status: 'settled', ...sent };
         }
@@ -272,7 +272,12 @@ function makeSuccinctNetwork() {
       return BigInt(c ?? '0');
     },
     async needWei({ gasLimit }) { return 450000000000000000n; },
-    async requestProof({ priv, stdinZstd, gasLimit }) { spn.calls.push(['request', priv, stdinZstd.length, String(gasLimit)]); return { requestId: '0x' + 'ab'.repeat(32) }; },
+    // cfg.privateOff: the network refusing private inputs, as mainnet did from 2026-10-15 22:11 UTC; 'auto' then goes with a public one.
+    async requestProof({ priv, stdinZstd, gasLimit, input = 'private', onPublic }) {
+      if (spn.cfg.privateOff && input === 'auto') { onPublic?.(); await new Promise((r) => setTimeout(r, 300)); spn.calls.push(['request', priv, stdinZstd.length, String(gasLimit), 'public']); return { requestId: '0x' + 'ab'.repeat(32), private: false }; }
+      spn.calls.push(['request', priv, stdinZstd.length, String(gasLimit)]); return { requestId: '0x' + 'ab'.repeat(32), private: true };
+    },
+    privateOff() { return !!spn.cfg.privateOff; },
     async waitProof(id, { onUpdate } = {}) {
       onUpdate?.({ status: 'assigned' });
       await new Promise((r) => setTimeout(r, spn.cfg.proveMs ?? 300));
@@ -833,8 +838,22 @@ try {
   u = await ux(p);
   const ups = u.calls.filter((c) => c[0] === 'useProver').slice(-2).map((c) => c[1]);
   ok(ups.join() === 'true,false', 'the holder\'s prover is set for this proof only, then put back');
-  ok(midSteps.join('|').includes('Prepare the private input|Succinct\'s prover proves it, about half a minute|Confirm the settle in your wallet|The settle lands on Ethereum'), `the steps say what happens in plain words (${midSteps.join(' · ')})`);
+  ok(midSteps.join('|').includes('Prepare the input for Succinct\'s prover|Succinct\'s prover proves it, about half a minute|Confirm the settle in your wallet|The settle lands on Ethereum'), `the steps say what happens in plain words (${midSteps.join(' · ')})`);
   ok(/Proved with your own credit and settled from your wallet/.test(await text(p, '#status')), 'it says it was proved with your own credit and settled from your wallet');
+
+  // Succinct's network refusing private inputs: the proof goes with a public input, the steps say so as it goes and at the end, and the wallet
+  // still sends the settle
+  await spnCfg(p, { privateOff: true, proveMs: 600 });
+  const pubFrom = r.log.sends.length;
+  await p.fill('#amt', '0.04');
+  await until(p, () => document.querySelector('#go').textContent === 'Make ETH private' && !document.querySelector('#go').disabled, null, 10000);
+  const sawPub = p.waitForFunction(() => /goes with a public input, which anyone can read/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 30000, polling: 50 }).then(() => true, () => false);
+  await p.click('#go');
+  await until(p, () => /Done\./.test(document.querySelector('#status').textContent), null, 30000);
+  const pubReq = (await p.evaluate(() => window.__spn)).calls.filter((c) => c[0] === 'request').at(-1);
+  ok(await sawPub && pubReq?.[4] === 'public' && r.log.sends.slice(pubFrom).length === 2, `with private inputs refused, the proof goes with a public input and the steps say so (${JSON.stringify(pubReq?.slice(2))})`);
+  ok(/Proved with your own credit \(its input went public: Succinct's network was not taking private inputs\) and settled from your wallet/.test(await text(p, '#status')), `and the result says so (${(await text(p, '#status')).slice(0, 200)})`);
+  await spnCfg(p, { privateOff: false });
 
   // too little credit, read before the deposit: nothing is sent
   await spnCfg(p, { credit: String(10n ** 17n) });

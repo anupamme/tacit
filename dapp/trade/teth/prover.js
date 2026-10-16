@@ -17,7 +17,7 @@ if (!secp.etc.hmacSha256Sync) secp.etc.hmacSha256Sync = (k, ...m) => hmac(sha256
 
 let modP = null;
 export function loadSelfProver() {
-  return (modP ||= import('/self-prover.js?cb=834922f4').catch((e) => {
+  return (modP ||= import('/self-prover.js?cb=c35ec5e9').catch((e) => {
     modP = null;
     throw Object.assign(new Error('Proving from this page could not load just now. Try again in a moment.'), { code: 'unavailable', cause: e });
   }));

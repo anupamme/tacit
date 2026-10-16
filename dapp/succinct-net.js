@@ -12,8 +12,10 @@
 //   3. RequestProof with stdin_private = true and the prover whitelist, signed with EIP-191 over the encoded body.
 //   4. Poll GetProofRequestStatus until FULFILLED, UNFULFILLABLE or past the deadline; download the proof artifact and
 //      decode it into the (publicValues, proof) pair settle() takes.
-// There is no public-input path: an input sent here is only ever a private artifact, read by the network's executor and
-// the whitelisted prover through the signed GetStdinUri call.
+// An input is a private artifact by default, read by the network's executor and the whitelisted prover through the signed
+// GetStdinUri call. With `input: 'auto'`, while the network refuses private inputs (PERMISSION_DENIED "private stdin is not
+// enabled"; a refused request is not created and costs nothing), the request goes with a public input instead: a stdins/
+// artifact anyone can download, open to every prover.
 //
 // Transport. The RPC speaks gRPC-web (application/grpc-web+proto) and answers browsers over HTTP/2 with CORS for the
 // page's origin. It refuses HTTP/1.1, so Node callers pass `transport` (a fetch-shaped HTTP/2 client; see
@@ -44,7 +46,6 @@ export const SPN = Object.freeze({
 // serves the same objects for reading.
 export const ARTIFACT_S3_HOST = 'spn-artifacts-mainnet.s3.us-east-2.amazonaws.com';
 export const ARTIFACT_HOSTS = Object.freeze([ARTIFACT_S3_HOST, 'artifacts.mainnet.succinct.xyz']);
-const PRIVATE_STDIN_PATH = /^\/private-stdins\/[A-Za-z0-9_-]{1,200}$/;
 
 export const ARTIFACT_TYPE = Object.freeze({ PROGRAM: 1, STDIN: 2, PROOF: 3, PRIVATE_STDIN: 7 });
 export const FULFILLMENT_STATUS = Object.freeze(['UNSPECIFIED', 'REQUESTED', 'ASSIGNED', 'FULFILLED', 'UNFULFILLABLE', 'REVERTED', 'EXPIRED']);
@@ -290,14 +291,18 @@ export function decodeProofArtifact(buf) {
 // gas, at most 4 hours.
 export const timeoutForGas = (gasLimit) => Math.min(Math.max(300, Math.floor(Number(gasLimit) / 2_000_000)), 14_400);
 
-function checkPrivateStdinUrl(raw) {
+// The presigned upload URL CreateArtifact returned, held to one object under the prefix asked for (`private-stdins` or `stdins`).
+function checkStdinUrl(raw, prefix) {
   let u;
   try { u = new URL(raw); } catch { throw new Error('succinct-net: the network returned a malformed upload URL'); }
-  if (u.protocol !== 'https:' || u.hostname !== ARTIFACT_S3_HOST || u.port || u.username || u.password || !PRIVATE_STDIN_PATH.test(u.pathname)) {
-    throw new Error('succinct-net: the network did not return a private-stdins upload URL; nothing was sent');
+  if (u.protocol !== 'https:' || u.hostname !== ARTIFACT_S3_HOST || u.port || u.username || u.password || !new RegExp(`^/${prefix}/[A-Za-z0-9_-]{1,200}$`).test(u.pathname)) {
+    throw new Error(`succinct-net: the network did not return a ${prefix} upload URL; nothing was sent`);
   }
   return u.toString();
 }
+// The network's refusal of every private input: nothing is created, so nothing is charged.
+const privateRefused = (e) => !!e && e.grpcStatus === 7 && /private stdin is not enabled/i.test(String(e.grpcMessage || e.message || ''));
+const PRIVATE_OFF_MS = 10 * 60e3;                                  // how long a refusal is remembered before private is asked for again
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ARTIFACT_TIMEOUT_MS = 60_000;                               // an input upload or a proof download, through the proxy or not
@@ -427,32 +432,53 @@ export function makeSuccinctNetwork({ transport, fetchImpl, rpc = SPN.rpc, proxy
     }
   }
 
-  // Ask for a groth16 proof of the guest over a private input. `priv` is the requesting account's key (hex or bytes); it
-  // signs here and is not kept. `stdinZstd` is zstd(bincode(SP1Stdin)). Only provers on `whitelist` may take it.
-  async function requestProof({ priv, stdinZstd, cycleLimit, gasLimit, whitelist = SPN.provers, timeoutSecs } = {}) {
+  // Ask for a groth16 proof of the guest. `priv` is the requesting account's key (hex or bytes); it signs here and is not
+  // kept. `stdinZstd` is zstd(bincode(SP1Stdin)). `input`: 'private' (only provers on `whitelist` may take it; a network that
+  // refuses private inputs throws code 'private_off') or 'auto' (the same, and while the network refuses private inputs, a
+  // public input open to every prover; `onPublic()` is told before it is sent). The refusal is remembered for ten minutes, so
+  // the requests after it go public without asking again. → { requestId, txHash, deadline, address, private }
+  let privateOffAt = 0;
+  const privateOff = () => Date.now() - privateOffAt < PRIVATE_OFF_MS;
+  async function requestProof({ priv, stdinZstd, cycleLimit, gasLimit, whitelist = SPN.provers, timeoutSecs, input = 'private', onPublic = null } = {}) {
     need();
     const key = asBytes(priv, 32);
-    const input = stdinZstd instanceof Uint8Array ? stdinZstd : null;
-    if (!input || input.length < 4 || input[0] !== 0x28 || input[1] !== 0xb5 || input[2] !== 0x2f || input[3] !== 0xfd) {
+    const bytes = stdinZstd instanceof Uint8Array ? stdinZstd : null;
+    if (!bytes || bytes.length < 4 || bytes[0] !== 0x28 || bytes[1] !== 0xb5 || bytes[2] !== 0x2f || bytes[3] !== 0xfd) {
       throw new Error('succinct-net: stdinZstd must be a zstd frame');
     }
+    if (input !== 'private' && input !== 'auto') throw new Error("succinct-net: input must be 'private' or 'auto'");
     const cycles = posInt(cycleLimit, 'cycleLimit'), gas = posInt(gasLimit, 'gasLimit');
     const provers = Array.isArray(whitelist) ? whitelist.map((a) => asBytes(a, 20)) : [];
     // An empty list opens the auction to every prover, and those that win a private request without reading it let it
     // expire at the requester's cost: refuse it rather than send one.
     if (!provers.length) throw new Error('succinct-net: a private request needs a prover whitelist');
     const address = addressOf({ secp, keccak256 }, key);
+    const once = (isPrivate) => requestOnce({ key, address, bytes, cycles, gas, provers: isPrivate ? provers : [], isPrivate, timeoutSecs });
+    if (input === 'private' || !privateOff()) {
+      try { return { ...(await once(true)), private: true }; }
+      catch (e) {
+        if (!privateRefused(e)) throw e;
+        privateOffAt = Date.now();
+        if (input === 'private') throw Object.assign(e, { code: 'private_off' });
+      }
+    }
+    if (onPublic) { try { onPublic(); } catch { /* the caller's display only */ } }
+    return { ...(await once(false)), private: false };
+  }
 
+  // One request: its input uploaded as a private or a public artifact, then RequestProof signed over the body.
+  async function requestOnce({ key, address, bytes, cycles, gas, provers, isPrivate, timeoutSecs }) {
+    const prefix = isPrivate ? 'private-stdins' : 'stdins';
     const art = await call('artifact.ArtifactStore', 'CreateArtifact', 'CreateArtifactRequest', 'CreateArtifactResponse', {
       signature: signPersonal({ secp, keccak256 }, key, 'create_artifact', 54),
-      artifactType: ARTIFACT_TYPE.PRIVATE_STDIN,
+      artifactType: isPrivate ? ARTIFACT_TYPE.PRIVATE_STDIN : ARTIFACT_TYPE.STDIN,
     });
-    // The request names the artifact by its s3:// URI; the upload goes to the presigned URL. Both must be the same
-    // private-stdins/ object, or the input is not sent at all.
-    const putUrl = checkPrivateStdinUrl(art.artifactPresignedUrl);
-    const named = /^s3:\/\/spn-artifacts-mainnet(\/private-stdins\/[A-Za-z0-9_-]{1,200})$/.exec(art.artifactUri);
-    if (!named || named[1] !== new URL(putUrl).pathname) throw new Error('succinct-net: the network did not name a private-stdins artifact; nothing was sent');
-    await putArtifact(putUrl, input);
+    // The request names the artifact by its s3:// URI; the upload goes to the presigned URL. Both must be the same object
+    // under the prefix asked for, or the input is not sent at all.
+    const putUrl = checkStdinUrl(art.artifactPresignedUrl, prefix);
+    const named = new RegExp(`^s3://spn-artifacts-mainnet(/${prefix}/[A-Za-z0-9_-]{1,200})$`).exec(art.artifactUri);
+    if (!named || named[1] !== new URL(putUrl).pathname) throw new Error(`succinct-net: the network did not name a ${prefix} artifact; nothing was sent`);
+    await putArtifact(putUrl, bytes);
 
     const [p, n] = await Promise.all([
       params({ fresh: true }),
@@ -479,7 +505,7 @@ export function makeSuccinctNetwork({ transport, fetchImpl, rpc = SPN.rpc, proxy
       maxPricePerPgu: p.maxPricePerPgu,
       variant: 0,                                                  // TransactionVariant.REQUEST_VARIANT
       treasury: p.treasury,
-      stdinPrivate: true,
+      stdinPrivate: isPrivate,
     };
     const signature = signPersonal({ secp, keccak256 }, key, encodeMessage('RequestProofRequestBody', body));
     let r;
@@ -488,7 +514,8 @@ export function makeSuccinctNetwork({ transport, fetchImpl, rpc = SPN.rpc, proxy
     } catch (e) {
       // A refusal the network answered is final. A lost answer (the connection dropped, a gateway failed, the wait ran out)
       // may hide a request the network took and will charge for, so it is looked for by its input before it counts as not sent.
-      if (e.grpcStatus != null && !e.retryable) throw e;
+      // A credit too low for the request comes back as RESOURCE_EXHAUSTED, which is final too.
+      if (e.grpcStatus != null && (!e.retryable || /insufficient balance/i.test(String(e.grpcMessage || '')))) throw e;
       const found = await findByInput(address, art.artifactUri);
       if (found) return { requestId: found, txHash: null, deadline, address };
       throw e;
@@ -598,5 +625,5 @@ export function makeSuccinctNetwork({ transport, fetchImpl, rpc = SPN.rpc, proxy
     }
   }
 
-  return { balance, needWei, params, program, requestProof, status, details, waitProof, findByInput };
+  return { balance, needWei, params, program, requestProof, status, details, waitProof, findByInput, privateOff };
 }

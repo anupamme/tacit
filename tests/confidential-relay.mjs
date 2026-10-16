@@ -449,6 +449,17 @@ const swapOp = { reserveAPre: 1000, reserveBPre: 1000, intents: [{ amountIn: 100
   const guarded = makeConfidentialRelay({ base: '', fetchImpl: async () => { throw new Error('no'); }, guard: { sealMemosForOutputs: () => [], assertOutputsRecoverable: () => {} } });
   guarded.useProver(async () => { throw new Error('must not be reached'); });
   await assert.rejects(guarded.prove({ type: 'transfer', op: {}, memos: ['0x' + 'aa'.repeat(40)] }), /raw memos bypass the recovery guard/);
+  // A proof whose input went public (the network refusing private inputs) says so on each step and on its result, for the page to say.
+  const said = [];
+  relay.useProver(async ({ onUpdate }) => {
+    onUpdate({ status: 'proving', stage: 'uploading', public: true });
+    onUpdate({ requestId: '0xpub', status: 'proving', stage: 'requested', public: true });
+    return { requestId: '0xpub', publicValues: '0x' + '01'.repeat(64), proof: '0x02', private: false };
+  });
+  const rp = await relay.prove({ type: 'unwrap', op: { v: 2 }, memos: [] }, { onUpdate: (st) => said.push(`${st.jobId}:${st.stage}:${!!st.inputPublic}`) });
+  assert.deepStrictEqual(said, ['null:uploading:true', 'spn:0xpub:requested:true']);
+  assert.strictEqual(rp.inputPublic, true);
+  assert.strictEqual((await relay.status('spn:0xpub')).inputPublic, true);
   relay.useProver(null);
   assert.ok(!relay.ownProving());
   ok('useProver: prove() goes to the holder\'s own prover with the memos sealed here, reads as a proven job, and never asks the relay');

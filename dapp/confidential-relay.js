@@ -394,10 +394,11 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
       // Before the network names the request (the input is still being prepared and sent) there is no job to announce,
       // but the caller's own progress line still hears it.
       if (!jobId) {
-        if (waitOpts.onUpdate) { try { waitOpts.onUpdate({ jobId: null, type, status: u.status || 'proving', stage: u.stage || null }); } catch { /* best-effort */ } }
+        if (waitOpts.onUpdate) { try { waitOpts.onUpdate({ jobId: null, type, status: u.status || 'proving', stage: u.stage || null, ...(u.public ? { inputPublic: true } : {}) }); } catch { /* best-effort */ } }
         return;
       }
-      const st = { jobId, type, status: u.status || 'proving', stage: u.stage || null, error: u.error || null };
+      // `inputPublic`: the network was refusing private inputs, so this proof's input went as a public one (self-prover.js).
+      const st = { jobId, type, status: u.status || 'proving', stage: u.stage || null, error: u.error || null, ...(u.public ? { inputPublic: true } : {}) };
       ownJobs.set(jobId, st);
       announce(st);
       if (waitOpts.onUpdate) { try { waitOpts.onUpdate(st); } catch { /* best-effort */ } }
@@ -405,7 +406,7 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     try {
       const r = await own({ type, op, memos: sealedMemos, onUpdate });
       if (!jobId) onUpdate({ requestId: r.requestId });
-      const st = { jobId, type, status: 'proven', publicValues: r.publicValues, proof: r.proof, memos: sealedMemos, own: true };
+      const st = { jobId, type, status: 'proven', publicValues: r.publicValues, proof: r.proof, memos: sealedMemos, own: true, ...(r.private === false ? { inputPublic: true } : {}) };
       ownJobs.set(jobId, st);
       announce(st);
       return st;

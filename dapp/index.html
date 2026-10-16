@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-YT/nzBQpKSlMnL2LGNVwCbzb3g1Veqyg37X41PskDLM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-B1+zdrWMwZu/1TRzP+6OqjxGJwRB0/LEqZ7UQAOIzbc=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -2276,7 +2276,13 @@ function spStale(id) {
   const it = actGet(id);
   if (it && !ended(it) && !JOBS.get(id.slice(4)) && Date.now() - (it.up || it.at) > 30 * 60e3) actPut(id, { status: 'failed', err: 'The page that asked for it closed before it was sent, so nothing was sent. Start it again.' });
 }
-const spStage = (st) => { if (OWN_JOB.test(st?.jobId || '') && st.stage && actGet('job:' + st.jobId)) actPut('job:' + st.jobId, { stage: st.stage }); };
+// `inPub`: the proof went with a public input (on the job, and on the action it is a step of); not `pub`, which is the key an item is for.
+const spStage = (st) => {
+  const j = OWN_JOB.test(st?.jobId || '') && st.stage ? actGet('job:' + st.jobId) : null;
+  if (!j) return;
+  actPut(j.id, { stage: st.stage, ...(st.inputPublic ? { inPub: true } : {}) });
+  if (st.inputPublic && j.in && actGet(j.in)) actPut(j.in, { inPub: true });
+};
 function followJob(id) {
   if (ownJob(id)) return spStale(id);
   if (FOLLOW.has(id)) return;
@@ -2453,7 +2459,7 @@ const byLine = (j) => (!j.by ? '' : j.by > Date.now() ? ` It has until ${byTime(
 const WAIT_BY = { held: 'In line.', paused: 'In line: the relay isn’t proving right now.', down: 'In line: the relay has been quiet for a few minutes (a long proof, or a restart).', busy: 'In line behind another request.' };
 const jobWhere = (j) => {
   if (ownJob(j.id)) return j.status === 'proven' ? (JOBS.get(j.id.slice(4))?.run.live ? `Proved with your own credit. Sending it from ${your()}…`
-    : SEALED.has(j.id.slice(4)) ? 'Proved with your own credit, but its settle was not sent.' : 'Proved, but the page that asked for it closed before sending it. Start it again.') : spSaid(j.stage, j.status);
+    : SEALED.has(j.id.slice(4)) ? 'Proved with your own credit, but its settle was not sent.' : 'Proved, but the page that asked for it closed before sending it. Start it again.') : spSaid(j.stage, j.status, !!j.inPub);
   if (j.status === 'proving') return `The relay is proving it, then settling it on Ethereum.${byLine(j)}`;
   if (j.status === 'open') return `Proved, and waiting for a relay to send it.${byLine(j)}`;
   if (j.status === 'sending') return `Proved. A relay is sending it.${byLine(j)}`;
@@ -2482,7 +2488,7 @@ function actFoot(it) {
     proving: () => jobWhere(it),
     open: () => jobWhere(it),
     sending: () => jobWhere(it),
-    settled: () => html`${it.flip ? 'Went through after all' : `Done in ${took}`}${ownJob(it.id) || it.own ? ', proved with your own credit' : ''}${link ? ' · ' : ''}${link}`,
+    settled: () => html`${it.flip ? 'Went through after all' : `Done in ${took}`}${ownJob(it.id) || it.own ? `, proved with your own credit${it.inPub ? ' (public input)' : ''}` : ''}${link ? ' · ' : ''}${link}`,
     // A proof lands only with the transaction the page that asked for it sends; a page that stopped waiting never does, and the
     // proof is then offered to send from here (openLine) when its settle is a plain one.
     proven: () => (ownJob(it.id) ? jobWhere(it) : JOBS.get(it.id.slice(4))?.run.live ? 'Proved. It lands with the transaction sent from this page.'
@@ -2815,7 +2821,7 @@ async function selfDo(run, spec) {
     let r;
     if (spec.open) r = await sendOpen(t, spec.open, { label: spec.label, nest: on, say: tell, finishes: on ? [on, 'job:' + spec.open.jobId] : null });
     else {
-      tell(own ? spSaid('uploading') : 'The relay is proving it for you to send, about a minute…');
+      tell(own ? spSaid('uploading', null, spPublicNow()) : 'The relay is proving it for you to send, about a minute…');
       const selfSettle = settleFrom(t, { label: spec.label, nest: on, say: tell });
       if (own) { await spProver(); spApply(); }
       r = await spec.go({ t, priv, selfSettle, waitOpts: spTell({ ...run.wait(null, 15 * 60e3), ...(own ? {} : VIA_RELAY) }, tell) });
@@ -2848,7 +2854,7 @@ document.addEventListener('click', (e) => {
 // settle goes out from the paying account. The switch is a preference per key, kept in this browser; no balance depends on it.
 // Loaded only once the sheet opens or the switch is on.
 const SP = { prover: null, who: null, mod: null, credit: null, need: null, creditAt: 0, reading: null, ux: null, then: null, note: 0, src: 'prove', q: null };
-const spMod = lazy(() => import('/self-prover.js?cb=834922f4').then((m) => (SP.mod = m)));
+const spMod = lazy(() => import('/self-prover.js?cb=c35ec5e9').then((m) => (SP.mod = m)));
 const SP_PREF = 'tacit-lite-prove-self-v1:';
 const spOn = () => !!S.key && store.get(SP_PREF + S.key.pubHex) === true;
 const OWN_JOB = /^spn:/;
@@ -2930,7 +2936,7 @@ async function selfNow(spec) {
   await payingAccount();
   await selfGasCheck();
   const t = await getUx(), priv = walletPriv();
-  tell(spSaid('uploading'));
+  tell(spSaid('uploading', null, spPublicNow()));
   const w = spec.wait ? spec.wait() : run.wait(null, 15 * 60e3);
   // The settle is a step of the action's receipt once it has one (its first job made it), so Activity lists the action once.
   const selfSettle = (x) => settleFrom(t, { label: spec.label, say: tell, nest: run.op && actGet(run.op) ? run.op : null })(x);
@@ -2943,8 +2949,13 @@ async function selfNow(spec) {
 }
 // What Succinct's prover is doing with a proof the holder asked for, in words: on the sheet as it goes, and on its Activity row.
 const SP_STAGE = { uploading: 'Preparing the private input for Succinct’s prover…', requested: 'Asked Succinct’s prover…', assigned: 'A prover took it, about half a minute…', proved: 'Proved.' };
-const spSaid = (stage, status) => (status === 'proven' ? 'Proved.' : SP_STAGE[stage] || 'Succinct’s prover is on it…');
-const spTell = (w, tell) => ({ ...w, onUpdate: (st) => { w.onUpdate?.(st); if (OWN_JOB.test(st?.jobId || '')) tell(spSaid(st.stage, st.status)); } });
+// While Succinct's network refuses private inputs, a proof goes with a public input (self-prover.js): said when it is chosen, marked after.
+const SP_PUBLIC = 'Succinct’s network isn’t taking private inputs right now, so this one goes with a public input, which anyone can read…';
+const spSaid = (stage, status, pub = false) => (pub && stage === 'uploading' && status !== 'proven' ? SP_PUBLIC
+  : `${status === 'proven' ? 'Proved.' : SP_STAGE[stage] || 'Succinct’s prover is on it…'}${pub ? ' (public input)' : ''}`);
+const spPublicNow = () => !!SP.prover?.privateOff?.();
+// A step before the network names the request (no job yet) is the holder's own prover's too: relay jobs always have one.
+const spTell = (w, tell) => ({ ...w, onUpdate: (st) => { w.onUpdate?.(st); if (OWN_JOB.test(st?.jobId || '') || (st && st.jobId === null && st.stage)) tell(spSaid(st.stage, st.status, !!st.inputPublic)); } });
 // The holder's prover could not take it: credit short of what a request needs on hand, or Succinct's prover not taking it in time.
 const proverSaid = (e) => e?.code === 'prover_credit' || e?.code === 'not_proved' || e?.code === 'prover_load';
 // The relay could not make the proof (its day's proofs used up, a proof it failed): proving it yourself is the way on.
@@ -3787,7 +3798,7 @@ function renderProve() {
   const credit = SP.credit, short_ = credit != null && proofsFor(credit) === 0;
   const unit = src === 'eth' ? 'ETH' : 'PROVE';
   mount(el, html`
-    <p class="lede-s">Your private actions can be proved on Succinct’s prover network with your own credit instead of by Tacit’s relay. Its private details go to Succinct’s own prover as a private input, passing through Tacit’s API without being kept. Each costs about ${perProof()} PROVE, and is sent from ${your()}, which pays its network fee.</p>
+    <p class="lede-s">Your private actions can be proved on Succinct’s prover network with your own credit instead of by Tacit’s relay. Its private details go to Succinct’s own prover as a private input, passing through Tacit’s API without being kept. While Succinct’s network isn’t taking private inputs, they go as a public input instead, which anyone can read, and the action says so. Each costs about ${perProof()} PROVE, and is sent from ${your()}, which pays its network fee.</p>
     <ol class="steps">
       <li class="step done"><span class="n">1</span><div><h3>Your prover account</h3>
         <div class="kv"><span>Tacit account</span><b class="mono">${short(a.address, 8)}</b><button class="link" type="button" data-copy="${a.address}">copy</button></div>
@@ -4341,7 +4352,7 @@ async function finishDeposits(run, sheet, status, { self = false } = {}) {
     for (const p of ps) {
       if (run.switched()) { miss(new Error('Another Tacit key was opened, so the rest stopped.')); break; }
       const what = `${fmt(p.value, p.dec, 6)} ${p.shown}`;
-      run.say(status, own ? spSaid('uploading') : self ? `The relay is proving a ${what} deposit for ${your()} to send, about a minute…` : `Making a ${what} deposit private…`);
+      run.say(status, own ? spSaid('uploading', null, spPublicNow()) : self ? `The relay is proving a ${what} deposit for ${your()} to send, about a minute…` : `Making a ${what} deposit private…`);
       const built = t.buildWrap({ walletPriv: priv, amountWei: (p.value * p.scale).toString(), ticker: p.ticker, index: p.index });
       try {
         const tell = (v) => run.say(status, v);

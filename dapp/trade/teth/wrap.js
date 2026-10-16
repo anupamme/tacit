@@ -193,7 +193,7 @@ export async function selfFinish({ t = null, built, hash = null, jobId = null, o
   const w = ux.relay.ownProving?.() ? null : watchRelay((rs) => relayStopped(rs) && !rs.proving, false);
   const watched = (p) => { if (!w) return p; w.start(); return w.race(p); };
   // `viaRelay`: this call's proof is the relay's, whatever prover the relay client was given.
-  const waitOpts = { timeoutMs: 15 * 60e3, intervalMs: 4000, onUpdate: (st) => { if (st?.stage) say('stage', st.stage); }, ...(w ? { sleep: w.sleep, viaRelay: true } : {}) };
+  const waitOpts = { timeoutMs: 15 * 60e3, intervalMs: 4000, onUpdate: (st) => { if (st?.stage) say('stage', st.inputPublic ? `${st.stage}:public` : st.stage); }, ...(w ? { sleep: w.sleep, viaRelay: true } : {}) };
   let mine = null;                                                                  // the settle this wallet sent, once it has landed
   async function send({ jobId: id, publicValues, proof, memos }) {
     if (w?.why) throw w.why;                                                        // the page has stopped waiting: the wallet is not asked

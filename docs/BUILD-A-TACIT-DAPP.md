@@ -1262,8 +1262,8 @@ fee, deadline) and the authorization for them, which is an opening sigma or a tr
 memos. It does not receive your wallet key, your seed or any note's blinding (the op builders return only the
 sigma `(R, z)`). It asks the Succinct prover network for the proof with that witness as a private input
 (`private_stdin`), sent only to Succinct's own prover: the network's executor and that prover read it, and it is not
-published. If that prover does not prove it within three minutes, the relay asks once more with a public input, so a
-request is never held up waiting for it.
+published. If that prover does not prove it within three minutes, or the network refuses private inputs, the relay asks
+once more with a public input, so a request is never held up waiting for it.
 To keep it from the relay as well, prove with your own prover account ([OPEN-RELAYER.md](./OPEN-RELAYER.md)): in a
 page, `relay.useProver(makeSelfProver({ … }).prove)` (`dapp/self-prover.js`) sends every proof the pool module asks
 for to the network from the holder's Tacit account instead, and the page sends the settle.

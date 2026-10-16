@@ -8,8 +8,8 @@ import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=e211
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=f4bd67db';
 import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=a32579e6';
 import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=34fe5a19';
-import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, proveOwn, ownWords, ownable, relayState, relayStopped, forgetUx, getUx } from '/trade/teth/wrap.js?cb=05b98b4c';
-import { ownPref, setOwnPref, proverFor, readCredit, proofsFor, fundFromWallet, quoteEth, quoteEthFor, fundWithEth, loadSelfProver, tokenBalance } from '/trade/teth/prover.js?cb=8ee9f4e5';
+import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, proveOwn, ownWords, ownable, relayState, relayStopped, forgetUx, getUx } from '/trade/teth/wrap.js?cb=e5e662b7';
+import { ownPref, setOwnPref, proverFor, readCredit, proofsFor, fundFromWallet, quoteEth, quoteEthFor, fundWithEth, loadSelfProver, tokenBalance } from '/trade/teth/prover.js?cb=9fb05cc6';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { mountDepth } from '/trade/depth.js?cb=21a5dc95';
 import { candlesFromTrades, closeAt } from '/trade/tape.js?cb=6565501b';
@@ -295,7 +295,7 @@ function renderGo() {
 // The steps of a deposit, as they happen. `now` names the one running; those before it are done.
 const STEPS = [['key', 'Open your Tacit wallet'], ['prepare', 'Prepare the deposit, about half a minute'], ['confirm', 'Confirm the deposit in your wallet'], ['landing', 'The deposit lands on Ethereum'], ['proving', 'The relay finishes it, about a minute']];
 // Proved with the holder's own credit: the deposit, then the private input, Succinct's prover, and the settle from the wallet.
-const OWN_STEPS = [...STEPS.slice(0, 4), ['input', 'Prepare the private input'], ['asked', 'Succinct\'s prover proves it, about half a minute'], ['settle', 'Confirm the settle in your wallet'], ['settling', 'The settle lands on Ethereum']];
+const OWN_STEPS = [...STEPS.slice(0, 4), ['input', 'Prepare the input for Succinct\'s prover'], ['asked', 'Succinct\'s prover proves it, about half a minute'], ['settle', 'Confirm the settle in your wallet'], ['settling', 'The settle lands on Ethereum']];
 const OWN_FINISH = OWN_STEPS.slice(4);
 // The relay proves it and the wallet sends the settle, for a relay that is not sending settles just now.
 const HELD_STEPS = [...STEPS.slice(0, 4), ['proving', 'The relay proves your note'], ['check', 'The settle is checked before it is sent'], ['settle', 'Confirm the settle in your wallet'], ['settling', 'The settle lands on Ethereum']];
@@ -425,7 +425,7 @@ async function press({ anyway = false } = {}) {
     await wrapEth({ priv: () => key.priv(), wei: q.wei, tip: q.tip, to: q.to, from, wallet, say: step, own: prover, self: held });
     S.ownOnce = null;
     paintSteps(null, { all: true });
-    say(`<span class="ok">Done.</span> ${esc(fmtUnits(q.wei, 18, 8))} tETH is private now, in your balance and ready to send, swap, farm or bridge.${q.own && settled ? ` Proved with your own credit and settled from your wallet ${txLink(settled)}.` : held && settled ? ` Settled from your wallet ${txLink(settled)}.` : ''} <a href="#" data-mode-go="use">What next →</a>`);
+    say(`<span class="ok">Done.</span> ${esc(fmtUnits(q.wei, 18, 8))} tETH is private now, in your balance and ready to send, swap, farm or bridge.${q.own && settled ? ` Proved with your own credit${S.pubInput ? ' (its input went public: Succinct\'s network was not taking private inputs)' : ''} and settled from your wallet ${txLink(settled)}.` : held && settled ? ` Settled from your wallet ${txLink(settled)}.` : ''} <a href="#" data-mode-go="use">What next →</a>`);
     S.amt = ''; $('#amt').value = ''; S.quote = null; S.seq++; renderQuote(); keepInHash();
     const before = D.held?.pub === key.key.pubHex ? D.held.value ?? null : null;
     loadHeldUntil((h) => (before != null ? (h.value ?? 0n) >= before + q.wei / E10 : !(h.pending || []).length));
@@ -569,7 +569,7 @@ async function runOwn() {
     const prover = await ensureProver();
     await proveOwn({ built: st.built, hash: st.hash, wallet, from: W.account, prover, say: ownSteps((k) => { at = k; }, (h) => { settled = h; }) });
     S.stuck = null; paintSteps(null, { all: true });
-    say(`<span class="ok">Done.</span> ${esc(fmtUnits(st.wei, 18, 8))} tETH is private now.${settled ? ` Proved with your own credit and settled from your wallet ${txLink(settled)}.` : ''}`);
+    say(`<span class="ok">Done.</span> ${esc(fmtUnits(st.wei, 18, 8))} tETH is private now.${settled ? ` Proved with your own credit${S.pubInput ? ' (its input went public: Succinct\'s network was not taking private inputs)' : ''} and settled from your wallet ${txLink(settled)}.` : ''}`);
     loadHeldUntil((h) => !(h.pending || []).length);
   } catch (e) {
     st.own = true; st.self = false;
@@ -709,14 +709,21 @@ function pollCredit(before) {
 }
 // The progress of a proof of the holder's own, in the steps of OWN_STEPS. `set(at)` follows the step; `onSettle(hash)` gets the settle's hash.
 function ownSteps(set, onSettle = () => {}) {
+  S.pubInput = false;                                                         // this run's proof went with a public input
   return (k, d) => {
-    const at = { prepare: 'prepare', confirm: 'confirm', sent: 'landing', proving: 'input', input: 'input', stage: d === 'proved' ? 'settle' : 'asked', 'settle-check': 'settle', 'settle-confirm': 'settle', 'settle-sent': 'settling' }[k];
+    const at = { prepare: 'prepare', confirm: 'confirm', sent: 'landing', proving: 'input', input: 'input', stage: String(d || '').split(':')[0] === 'proved' ? 'settle' : 'asked', 'settle-check': 'settle', 'settle-confirm': 'settle', 'settle-sent': 'settling' }[k];
     if (at) { set(at); paintSteps(at); }
     if (k === 'prepare') say('Preparing the deposit, about half a minute…');
     else if (k === 'confirm') say('Confirm the deposit in your wallet.');
     else if (k === 'sent') say(`Deposit sent ${txLink(d)}. Waiting for it to land…`);
     else if (k === 'proving' || k === 'input') say('Preparing the private input…');
-    else if (k === 'stage') say(d === 'requested' ? 'Asked Succinct\'s prover. It proves it in about half a minute…' : d === 'assigned' ? 'Succinct\'s prover is proving it…' : d === 'proved' ? 'Proved.' : 'Preparing the private input…');
+    else if (k === 'stage') {
+      // 'stage:public': Succinct's network was refusing private inputs, so the input went as a public one (self-prover.js).
+      const [s, pub] = String(d || '').split(':');
+      if (pub) S.pubInput = true;
+      if (pub && s === 'uploading') say('Succinct\'s network isn\'t taking private inputs right now, so this one goes with a public input, which anyone can read…');
+      else say(`${s === 'requested' ? 'Asked Succinct\'s prover. It proves it in about half a minute…' : s === 'assigned' ? 'Succinct\'s prover is proving it…' : s === 'proved' ? 'Proved.' : 'Preparing the private input…'}${pub ? ' (public input)' : ''}`);
+    }
     else if (k === 'settle-check') say('Proved. Checking the settle before it is sent…');
     else if (k === 'settle-confirm') say(`Proved. Confirm the settle in your wallet. ${esc(walletName())} pays the network fee${esc(costTxt())}.`);
     else if (k === 'settle-sent') { onSettle(d); say(`Settle sent ${txLink(d)}. Waiting for it to land…`); }
@@ -732,7 +739,7 @@ function openProverSheet() {
   if (O.sheet && !O.sheet.closed) return;
   const o = overlay({ title: 'Prove it yourself', top: true, onClose: () => { O.sheet = null; } });
   O.sheet = o; O.f.msg = '';
-  o.body.innerHTML = `<p class="note" style="margin-top:0">Your Tacit account can pay for its own proofs with PROVE credit on Succinct's prover network. The deposit's private details go to Succinct's own prover as a private input, passing through Tacit's API without being kept. Your wallet sends the settle and pays its network fee, and the deposit carries no relay tip.</p>
+  o.body.innerHTML = `<p class="note" style="margin-top:0">Your Tacit account can pay for its own proofs with PROVE credit on Succinct's prover network. The deposit's private details go to Succinct's own prover as a private input, passing through Tacit's API without being kept. While Succinct's network isn't taking private inputs, they go as a public input instead, which anyone can read, and the steps say so. Your wallet sends the settle and pays its network fee, and the deposit carries no relay tip.</p>
     <div id="ps-acct"></div>
     <label class="ps-switch"><input type="checkbox" id="ps-on"><span>Prove with my own credit</span></label>
     <h3 class="ps-h">Add PROVE</h3>

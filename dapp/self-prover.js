@@ -5,7 +5,9 @@
 // request itself. Nothing about the op goes to Tacit's relay. The program input is built here (sp1-stdin.js) and requested
 // as a private input (succinct-net.js) that only Succinct's own prover may take: the provers that win the open auction do
 // not fetch a private input and let such a request expire (it still pays the network's base fee), while Succinct's proves it
-// in about half a minute. So only the network's executor and that prover read it. The network's artifact store takes no
+// in about half a minute. So only the network's executor and that prover read it. While the network refuses private inputs
+// (it did from 2026-10-15 22:11 UTC), the request goes with a public input instead (`input: 'auto'`, the default here): the
+// refusal costs nothing, and each update and the result say `public` so a page can say so. The network's artifact store takes no
 // uploads from a browser, so the input and the finished proof pass through tacit-api's two byte-forwarding routes
 // (/prover/upload, /prover/download), which keep nothing.
 //
@@ -34,7 +36,9 @@ const addrWord = (a) => String(a).replace(/^0x/, '').toLowerCase().padStart(64, 
 // priv: () => the Tacit account's private key (0x-hex), read at each use so a locked page never holds it here.
 // address: that account's address. secp, keccak256: as the pool UX gets them. proxyBase: tacit-api (null: straight to the store, from Node).
 // transport: an HTTP/2 fetch for the network's RPC outside a browser (succinct-net.js). gasLimit: a lower cap on a request's gas than GAS_LIMIT.
-export function makeSelfProver({ priv, address, secp, keccak256, fetchImpl, transport, proxyBase = 'https://api.tacit.finance', rpc, gasLimit = GAS_LIMIT } = {}) {
+// input: 'auto' (private, or public while the network refuses private inputs) or 'private' (private only: such a refusal throws
+// code 'private_off').
+export function makeSelfProver({ priv, address, secp, keccak256, fetchImpl, transport, proxyBase = 'https://api.tacit.finance', rpc, gasLimit = GAS_LIMIT, input = 'auto' } = {}) {
   if (typeof priv !== 'function') throw new Error('self-prover: priv must be a function returning the account key');
   const net = makeSuccinctNetwork({ fetchImpl, transport, proxyBase, secp, keccak256, ...(rpc ? { rpc } : {}) });
   const supports = (type) => SELF_PROVE_TYPES.includes(type);
@@ -54,36 +58,40 @@ export function makeSelfProver({ priv, address, secp, keccak256, fetchImpl, tran
 
   // relay.useProver's contract: { type, op, memos, onUpdate } → { requestId, publicValues, proof }. The guest commits to
   // keccak256 of each memo, in order, as the relay's own prover feeds it.
+  // `public: true` rides on every update once the request goes with a public input, and the result says `private`.
   async function prove({ type, op, memos = [], onUpdate = () => {} }) {
     const tell = once(onUpdate);
     const { cycleLimit, gasLimit } = limits(type);
     const memoHashes = memos.map((m) => hex(keccak256(unhex(m))));
     const stdin = stdinFor(type, { ...op, memoHashes });
-    const { requestId, deadline } = await inLane(async () => {
+    const r = await inLane(async () => {
       const [have, need] = await Promise.all([net.balance(address), net.needWei({ gasLimit })]);
       if (have < need) {
         const e = new Error(`your prover credit is ${fmt(have)} PROVE; this proof needs ${fmt(need)} PROVE on hand`);
         e.code = 'prover_credit'; e.have = have; e.need = need;
         throw e;
       }
-      tell({ status: 'proving', stage: 'uploading' });
-      return net.requestProof({ priv: priv(), stdinZstd: zstdFrame(stdin), cycleLimit, gasLimit });
+      const pub = input === 'auto' && net.privateOff();
+      tell({ status: 'proving', stage: 'uploading', ...(pub ? { public: true } : {}) });
+      return net.requestProof({ priv: priv(), stdinZstd: zstdFrame(stdin), cycleLimit, gasLimit, input,
+        onPublic: () => tell({ status: 'proving', stage: 'uploading', public: true }) });
     });
-    tell({ requestId, status: 'proving', stage: 'requested' });
-    return follow(requestId, tell, deadline);
+    const pub = r.private === false;
+    tell({ requestId: r.requestId, status: 'proving', stage: 'requested', ...(pub ? { public: true } : {}) });
+    return { ...(await follow(r.requestId, tell, r.deadline, pub)), private: !pub };
   }
 
   // A request already made (and paid for), followed to its proof again: after a page lost its wait, it picks the proof up
   // rather than asking for another. Its memos must be the ones it was first proved with.
-  const resume = (requestId, { onUpdate = () => {} } = {}) => follow(requestId, once(onUpdate), null);
+  const resume = (requestId, { onUpdate = () => {} } = {}) => follow(requestId, once(onUpdate), null, false);
 
   // Waits until the request's own deadline and two minutes past (the network may fulfil it up to then); a request with no
   // known deadline, the network's longest. Every error past this point carries the request's id: it is paid for, and
   // `resume` can still reach its proof unless the network says it will not deliver it (`not_proved`).
-  async function follow(requestId, tell, deadline) {
+  async function follow(requestId, tell, deadline, pub) {
     const timeoutMs = deadline ? Math.max(60e3, deadline * 1000 - Date.now() + 120e3) : 30 * 60e3;
     try {
-      const out = await net.waitProof(requestId, { timeoutMs, onUpdate: (u) => tell({ requestId, status: u.status === 'failed' ? 'failed' : 'proving', stage: u.status }) });
+      const out = await net.waitProof(requestId, { timeoutMs, onUpdate: (u) => tell({ requestId, status: u.status === 'failed' ? 'failed' : 'proving', stage: u.status, ...(pub ? { public: true } : {}) }) });
       return { requestId, publicValues: out.publicValues, proof: out.proof };
     } catch (e) {
       if (e && typeof e === 'object' && !e.requestId) e.requestId = requestId;
@@ -91,12 +99,13 @@ export function makeSelfProver({ priv, address, secp, keccak256, fetchImpl, tran
     }
   }
 
-  return { address, supports, needWei, balance: () => net.balance(address), prove, resume };
+  // privateOff(): the network refused a private input in the last ten minutes, so the next proof goes public at once.
+  return { address, supports, needWei, balance: () => net.balance(address), prove, resume, privateOff: () => net.privateOff() };
 }
 
 const fmt = (wei) => (Number(wei) / 1e18).toFixed(2);
 // Each stage once: the network's status repeats at every poll.
-const once = (fn) => { let said = null; return (u) => { const k = `${u.status}/${u.stage}`; if (k !== said) { said = k; fn(u); } }; };
+const once = (fn) => { let said = null; return (u) => { const k = `${u.status}/${u.stage}/${!!u.public}`; if (k !== said) { said = k; fn(u); } }; };
 
 // ── funding the account's network credit ──
 // From the account itself: approve the vApp for `amountWei` of PROVE, then deposit it (two transactions, its own gas).
