@@ -3810,6 +3810,34 @@ function dclaimLeafPrefix(network, dropId) {
 // Per-drop cap-progress snapshot, mirroring petchProgressKey. Lets read
 // endpoints return cumulative_claimed + remaining without an O(N) KV.list
 // over the dclaim namespace.
+function dropReclaimKey(network, dropId)  { return network === 'signet' ? `drop-reclaim:${dropId}` : `drop-reclaim:${network}:${dropId}`; }
+// The depositor of a drop is the key of its first funding input (vin[1], P2WPKH): x-only hex, or null.
+function dropDepositorXonly(tx) {
+  const w = tx?.vin?.[1]?.witness?.[1];
+  return typeof w === 'string' && /^0[23][0-9a-f]{64}$/i.test(w) ? w.slice(2).toLowerCase() : null;
+}
+// A drop is reclaimed once. The record names the first confirmed reclaim whose envelope is signed under the
+// depositor's key (an unconfirmed one holds the place until a confirmed one arrives; same-block ties go to the
+// lower txid), which is the one reclaim the dapp credits. Returns whether this reclaim is the recorded one.
+async function putDropReclaim(env, network, meta, signingPubXonly) {
+  const drop = await env.REGISTRY_KV.get(dropKey(network, meta.reclaim_drop_id), 'json');
+  if (!drop || drop.kind !== 'drop') return false;
+  let depositor = drop.depositor_xonly || null;
+  if (!depositor) {
+    try { depositor = dropDepositorXonly(await apiJson(env, `/tx/${drop.drop_reveal_txid}`, {}, network)); } catch { depositor = null; }
+  }
+  const signer = signingPubXonly ? bytesToHex(signingPubXonly).replace(/^0x/, '').toLowerCase() : null;
+  if (!depositor || signer !== depositor) return false;
+  const key = dropReclaimKey(network, meta.reclaim_drop_id);
+  const prior = await env.REGISTRY_KV.get(key, 'json');
+  if (prior && prior.reclaim_txid !== meta.reclaim_txid) {
+    const ph = Number(prior.reclaim_at_height) || 0, mh = Number(meta.reclaim_at_height) || 0;
+    const priorFirst = ph > 0 && (mh === 0 || ph < mh || (ph === mh && prior.reclaim_txid < meta.reclaim_txid));
+    if (priorFirst || (ph === 0 && mh === 0)) return false;
+  }
+  await env.REGISTRY_KV.put(key, JSON.stringify(meta));
+  return true;
+}
 function dropProgressKey(network, dropId) {
   return network === 'signet' ? `drop_progress:${dropId}` : `drop_progress:${network}:${dropId}`;
 }
@@ -12165,7 +12193,7 @@ function decodeEnvelopeScript(script) {
   let p = 0;
   if (script[p] !== 32) return null; p += 1;
   if (p + 32 > script.length) return null;
-  p += 32; // signing pubkey
+  const signingPubXonly = script.slice(p, p + 32); p += 32;
   if (p + 1 > script.length || script[p] !== 0xac) return null; p += 1; // OP_CHECKSIG
   if (p + 2 > script.length || script[p] !== 0x00 || script[p + 1] !== 0x63) return null; p += 2; // OP_FALSE OP_IF
   const pushes = [];
@@ -12198,7 +12226,7 @@ function decodeEnvelopeScript(script) {
   if (pushes[1].length !== 1 || pushes[1][0] !== 0x01) return null;
   const payload = concatBytes(...pushes.slice(2));
   if (payload.length < 1) return null;
-  return { opcode: payload[0], payload };
+  return { opcode: payload[0], payload, signingPubXonly };
 }
 
 // Worker only does length-validation; rangeproof verification stays client-side.
@@ -15897,8 +15925,8 @@ async function loadCanonicalPmints(env, network, assetIdHex, tipHeight, capAmoun
 // credit them — inflating the supply-locked dropped asset.
 // Returns { credited_txids, list_complete, resolvable }. `resolvable` is false
 // when the cap can't be computed (missing meta/tip) or the scan exceeds its
-// guard; callers should degrade to optimistic credit (the worker-unreachable
-// posture) rather than assert an incomplete set.
+// guard; callers answer 503 rather than assert an incomplete set, and the
+// dapp keeps the claim pending until the set resolves.
 const DCLAIM_CREDIT_PAGE_GUARD = 64;   // 64k canonical keys before degrading
 async function loadCreditedDclaims(env, network, dropId, tipHeight, capAmountStr, perClaimStr) {
   let maxClaims = null;
@@ -26096,6 +26124,7 @@ async function scanForEtches(env, network) {
             ticker: cd.ticker,
             decimals: cd.decimals,
             asset_input_count: cd.asset_input_count,
+            depositor_xonly: dropDepositorXonly(tx),
             drop_at_height: h,
             drop_at: tx.status?.block_time || Math.floor(Date.now() / 1000),
             kind: 'drop',
@@ -26108,11 +26137,10 @@ async function scanForEtches(env, network) {
           await env.REGISTRY_KV.put(dropKey(network, dropId), JSON.stringify(meta));
           found++;
         } else if (cd.kind === 'cdrop-reclaim') {
-          // Reclaim shape: record under the original drop's progress for
-          // discoverability. The reclaim's own UTXO credit is gated on a
-          // future scanDrops pass that knows the canonical cumulative
-          // claim count at reclaim's depth-3 acceptance. Recording the
-          // event here is informational only.
+          // Reclaim shape: the record names the drop's one creditable reclaim
+          // (putDropReclaim). The dapp credits only that txid, after checking
+          // the declared remainder, the depositor's signatures and the drop's
+          // funding itself.
           const meta = {
             kind: 'drop-reclaim',
             reclaim_drop_id: cd.reclaim_drop_id,
@@ -26125,11 +26153,7 @@ async function scanForEtches(env, network) {
             reclaim_at: tx.status?.block_time || Math.floor(Date.now() / 1000),
             network,
           };
-          const reclaimKey = network === 'signet'
-            ? `drop-reclaim:${cd.reclaim_drop_id}`
-            : `drop-reclaim:${network}:${cd.reclaim_drop_id}`;
-          await env.REGISTRY_KV.put(reclaimKey, JSON.stringify(meta));
-          found++;
+          if (await putDropReclaim(env, network, meta, decoded.signingPubXonly)) found++;
         }
       } else if (decoded.opcode === T_DCLAIM) {
         // Permissionless claim event against a T_DROP parent.
@@ -26514,6 +26538,7 @@ export {
   // Exported so the drop-dclaim test can pin depth-gating, cap-overflow
   // ordering, and reorg re-confirm de-dup against an in-memory KV stub.
   loadCreditedDclaims,
+  putDropReclaim, dropDepositorXonly,
   // Commitment-opening gate applied by the cron + hint indexers (issue #31
   // Problem #3). Exported so tests can pin the valid / mismatch / malformed-
   // point cases without reaching into the cron's block loop. `pedersenCommit`
@@ -28405,10 +28430,7 @@ async function _routeFetch(req, env, ctx) {
       v.list_complete = listComplete;
       // Read before the claim scan, so every claim at or below it at depth ≥ 3 is counted.
       v.scanned_height = Number.isInteger(dropTip) && Number.isInteger(scannedHeight) ? Math.min(scannedHeight, dropTip) : null;
-      const reclaimKey = network === 'signet'
-        ? `drop-reclaim:${dropId}`
-        : `drop-reclaim:${network}:${dropId}`;
-      const reclaim = await env.REGISTRY_KV.get(reclaimKey, 'json');
+      const reclaim = await env.REGISTRY_KV.get(dropReclaimKey(network, dropId), 'json');
       if (reclaim) v.reclaimed = reclaim;
       return jsonResponse(v, 200, cors);
     }
@@ -28432,7 +28454,7 @@ async function _routeFetch(req, env, ctx) {
         // depth ≥ 3 + cap-overflow ordering + txid de-dup (see
         // loadCreditedDclaims). When the cap can't be resolved (drop record or
         // tip unavailable, or the scan exceeds its guard) we 503 so the dapp
-        // degrades to optimistic credit (its worker-unreachable posture) rather
+        // keeps the claim pending (its worker-unreachable posture) rather
         // than asserting an unfiltered or empty set.
         const drop = await env.REGISTRY_KV.get(dropKey(network, dropId), 'json');
         const tip = await fetchTipHeight(env, network);
@@ -28535,6 +28557,7 @@ async function _routeFetch(req, env, ctx) {
             ticker: cd.ticker,
             decimals: cd.decimals,
             asset_input_count: cd.asset_input_count,
+            depositor_xonly: dropDepositorXonly(tx),
             drop_at_height: h,
             drop_at: tx.status?.block_time || Math.floor(Date.now() / 1000),
             kind: 'drop',
@@ -28547,12 +28570,11 @@ async function _routeFetch(req, env, ctx) {
           await env.REGISTRY_KV.put(hintKey, String(hintPrior + 1), { expirationTtl: 90000 });
           return jsonResponse({ ok: true, drop_id: dropId, kind: 'drop' }, 200, cors);
         } else {
-          // Reclaim variant. Write the same drop-reclaim KV
-          // record the cron writes, so /drops-onchain/:drop_id surfaces it
+          // Reclaim variant. Write the same drop-reclaim KV record the cron
+          // writes (putDropReclaim), so /drops-onchain/:drop_id surfaces it
           // immediately. The dapp validator independently re-checks the cap
-          // equality + reclaim_sig against the live drop record, so a hinted
-          // reclaim cannot change supply — the record's existence is informational, soundness lives in the
-          // dapp's validator against the worker's authoritative drop_id state.
+          // equality, the depositor's signatures and the drop's funding, and
+          // credits only the reclaim this record names.
           const reclaimMeta = {
             kind: 'drop-reclaim',
             reclaim_drop_id: cd.reclaim_drop_id,
@@ -28566,10 +28588,9 @@ async function _routeFetch(req, env, ctx) {
             hinted: true,
             network,
           };
-          const reclaimKey = network === 'signet'
-            ? `drop-reclaim:${cd.reclaim_drop_id}`
-            : `drop-reclaim:${network}:${cd.reclaim_drop_id}`;
-          await env.REGISTRY_KV.put(reclaimKey, JSON.stringify(reclaimMeta));
+          if (!(await putDropReclaim(env, network, reclaimMeta, decoded.signingPubXonly))) {
+            return jsonResponse({ error: 'not the first reclaim signed by this drop\'s depositor' }, 400, cors);
+          }
           await env.REGISTRY_KV.put(hintKey, String(hintPrior + 1), { expirationTtl: 90000 });
           return jsonResponse({ ok: true, reclaim_drop_id: cd.reclaim_drop_id, kind: 'drop-reclaim' }, 200, cors);
         }

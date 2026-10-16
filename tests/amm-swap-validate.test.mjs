@@ -6,7 +6,7 @@
 //   - a swap whose vin[1] is not a note committing to c_in, or is a note of another asset, is not credited;
 //   - an input that cannot be fetched is transient (fetch-failed), never invalid;
 //   - T_PROTOCOL_FEE_CLAIM / LP outputs follow /amm/op-accepted: absent endpoint, records that predate
-//     since_height and unreachable workers credit as before; a final missing record is invalid.
+//     since_height credit as before; an unreachable worker leaves them pending; a final missing record is invalid.
 //
 // Run: node tests/amm-swap-validate.test.mjs
 
@@ -164,6 +164,12 @@ console.log('T_SWAP_VAR:');
   const r7 = await verdict(unaccepted, 1);
   ok('a swap the worker has not accepted is not credited', r7.v === false, JSON.stringify(r7));
 
+  // The worker cannot be reached: the receipt waits for it.
+  W.down = true;
+  const r7b = await verdict(txid, 1);
+  W.down = false;
+  ok('an unreachable worker leaves an honest receipt pending, not credited', r7b.v === false && r7b.reason === 'fetch-failed', JSON.stringify(r7b));
+
   // The pool list does not name the swap's pool: the input asset cannot be compared.
   const unlisted = poolFor(input.assetIdHex, OTHER);
   const lone = etch(1_000_000n);
@@ -238,9 +244,11 @@ console.log('\nT_PROTOCOL_FEE_CLAIM / op-accepted:');
   const n2 = await verdict(t, 0);
   ok('not recorded, not yet scanned to depth: fetch-failed', n2.v === false && n2.reason === 'fetch-failed', JSON.stringify(n2));
   W.opAccepted = () => ({ status: 503, body: { error: 'busy' } });
-  ok('worker error: credited outside strict validation', (await verdict(t, 0)).v === true);
+  const e1 = await verdict(t, 0);
+  ok('worker error: pending, not credited', e1.v === false && e1.reason === 'fetch-failed', JSON.stringify(e1));
   W.down = true;
-  ok('worker unreachable: credited outside strict validation', (await verdict(t, 0)).v === true);
+  const e2 = await verdict(t, 0);
+  ok('worker unreachable: pending, not credited', e2.v === false && e2.reason === 'fetch-failed', JSON.stringify(e2));
   W.down = false;
 
   const strict = async () => {

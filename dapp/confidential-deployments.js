@@ -231,6 +231,8 @@ export const CONFIDENTIAL_DEPLOYMENTS = {
     cbtcEscrowHelper: '0x000000008eCD09f922C9FbbDD9ACA5aE8F0beBfA', // bound to the collateralEngine the sync sets
     // The first helper: new bonds go to the one above, but it still hands each depositor back what it took for them.
     cbtcEscrowHelpersRetired: ['0x00000000689c71e690e5842df088af97f9d4f71b'],
+    // Retired pools whose recorded cross-outs (crossOutCommitment, the same slot as this pool's) back notes on Bitcoin.
+    crossOutPoolsRetired: ['0x0000000098A73197B3255aD9db1ed8544410f5Ba'],
     farmControllers: MAINNET_FARM_CONTROLLERS,
     farm: MAINNET_FARM,
     assetFactory: null,

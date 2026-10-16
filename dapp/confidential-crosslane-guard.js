@@ -20,8 +20,11 @@
 // the query can see is closed; the sub-confirmation instant is covered by the §10
 // provisional-yield ("Bitcoin arbitrates, the fast lane yields") — step 2.
 //
-// Enforcement points: the worker indexer-of-record (security) and the dapp pre-spend
-// check (UX). When the EVM pool is not wired (`poolAddress` falsy) the guard is a
+// Enforcement points: every validator that credits a Bitcoin note (dapp/tacit.js
+// validateOutpoint reads the bound nullifier of each T_CXFER_BOUND output homed to the
+// deployment, the only notes the fast lane takes, and holds a transfer out of one until
+// the reflection has passed it) and the dapp pre-spend check here (UX: a blocked spend
+// costs no fee). When the EVM pool is not wired (`poolAddress` falsy) the guard is a
 // no-op, so pure-Bitcoin operation is unchanged. Mainnet always has a pool wired;
 // the no-op branch is for test and other networks.
 //

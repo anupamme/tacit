@@ -15,12 +15,19 @@
 // worker TETH_GENERATIONS. tools/sync-deployment-config.mjs writes pool (+ deployBlock) per network from the
 // DeployV1Suite manifest. A network whose pool is null is inert (the factory returns null rather than a live
 // consumer scanning a nonexistent pool every cron tick).
+// `crossOutSlots` names the pool's storage slots for its cross-out log (the ones the eth-reflection guest proves):
+// with them the consumer checks each logged cross-out against the pool's own storage before recording it.
 export const CONFIDENTIAL_POOL_DEPLOYMENTS = {
   signet:  { pool: '0x000000003eD19c48531bd397F66800004F8A18c2', deployBlock: 11175726 },
-  mainnet: { pool: '0x000000000Ed1eabD231Be41d93b719056F7febFC', deployBlock: 25998736, headerRelay: '0x20A6ddc2C6E620c6248B5A34E85996516FDd19D0' },
+  mainnet: { pool: '0x000000000Ed1eabD231Be41d93b719056F7febFC', deployBlock: 25998736, headerRelay: '0x20A6ddc2C6E620c6248B5A34E85996516FDd19D0',
+    crossOutSlots: { commitment: 77, count: 171 } },
 };
 
-export function makeCrossoutConsumer({ ethGetLogs, kvGet, kvPut, evmLog, confirmations = 36, maxRange = 5000 }) {
+// `poolState` (optional): { commitmentOf(network, pool, claimId) → bytes32 hex, countAt(network, pool, block) → number },
+// each null when it cannot be read. With it, a logged cross-out is recorded only when the pool's crossOutCommitment
+// holds the same destCommitment, and where the pool's crossOutCount can be read at both ends of a range it must have
+// grown by exactly the number of cross-outs logged in it; anything it cannot confirm leaves the cursor put.
+export function makeCrossoutConsumer({ ethGetLogs, kvGet, kvPut, evmLog, confirmations = 36, maxRange = 5000, poolState = null }) {
   const DEST_BITCOIN = 1; // destChain selector (1=bitcoin, 2=ethereum) — only Bitcoin-destined crossOuts mint a Bitcoin note
   const TOPIC0 = evmLog.TOPIC0.CrossOutRecorded;
   const lc = (h) => String(h).toLowerCase();
@@ -42,11 +49,25 @@ export function makeCrossoutConsumer({ ethGetLogs, kvGet, kvPut, evmLog, confirm
     if (logs == null) {
       return { ...base, toBlock, scanned: 0, recorded: 0, advancedCursorTo: null, rpcFailed: true };
     }
-    let recorded = 0;
+    const events = [];
     for (const log of logs) {
       let ev;
       try { ev = evmLog.decodeLog(log); } catch { continue; } // a single malformed log can't stall the cursor forever
       if (!ev || ev.type !== 'CrossOutRecorded' || ev.destChain !== DEST_BITCOIN) continue;
+      events.push({ ev, log });
+    }
+    if (poolState) {
+      const unconfirmed = (reason) => ({ ...base, toBlock, scanned: logs.length, recorded: 0, advancedCursorTo: null, unconfirmed: reason });
+      const [before, after] = await Promise.all([poolState.countAt(network, pool, fromBlock - 1), poolState.countAt(network, pool, toBlock)]);
+      if (before != null && after != null && after - before !== events.length) return unconfirmed('log-count-mismatch');
+      for (const { ev } of events) {
+        const onChain = await poolState.commitmentOf(network, pool, ev.claimId);
+        if (onChain == null) return unconfirmed('commitment-unreadable');
+        if (lc(onChain) !== lc(ev.destCommitment)) return unconfirmed('commitment-mismatch');
+      }
+    }
+    let recorded = 0;
+    for (const { ev, log } of events) {
       const key = recKey(network, ev.claimId);
       if (await kvGet(key)) continue; // dedup — already recorded
       await kvPut(key, JSON.stringify({
@@ -132,6 +153,42 @@ export function decodeCrossoutMint(payload) {
   if (!u || u.length !== 161 || u[0] !== T_CROSSOUT_MINT) return null;
   const at = (i) => _toHex(u.subarray(i, i + 32));
   return { assetId: at(1), claimId: at(33), cx: at(65), cy: at(97), owner: at(129) };
+}
+
+// Pool storage read the way the consumer's poolState needs it: a slot holds the value at least two of the configured
+// RPCs report (all of them when fewer are configured), else null. `slots` = { commitment, count } declaration slots.
+export function makePoolStateReader({ fetchFn, rpcsForNetwork, keccak256, slots, timeoutMs = 8000 }) {
+  const word = (n) => BigInt(n).toString(16).padStart(64, '0');
+  const bytes = (hex) => Uint8Array.from(hex.match(/../g).map((x) => parseInt(x, 16)));
+  const mapSlot = (key, slot) => _toHex(keccak256(bytes(String(key).replace(/^0x/, '').padStart(64, '0') + word(slot))));
+  async function storageAt(network, address, slot, block) {
+    const rpcs = rpcsForNetwork(network) || [];
+    const quorum = Math.min(2, rpcs.length);
+    if (!quorum) return null;
+    const tag = typeof block === 'number' ? '0x' + block.toString(16) : block;
+    const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_getStorageAt', params: [address, slot, tag] });
+    const seen = new Map();
+    for (const rpc of rpcs) {
+      try {
+        const r = await fetchFn(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: AbortSignal.timeout(timeoutMs) });
+        if (!r.ok) continue;
+        const j = await r.json();
+        if (!j || typeof j.result !== 'string' || !/^0x[0-9a-fA-F]{1,64}$/.test(j.result)) continue;
+        const v = '0x' + j.result.slice(2).toLowerCase().padStart(64, '0');
+        const n = (seen.get(v) || 0) + 1;
+        seen.set(v, n);
+        if (n >= quorum) return v;
+      } catch {}
+    }
+    return null;
+  }
+  return {
+    commitmentOf: (network, pool, claimId) => storageAt(network, pool, mapSlot(claimId, slots.commitment), 'latest'),
+    countAt: async (network, pool, block) => {
+      const v = await storageAt(network, pool, '0x' + word(slots.count), block);
+      return v == null ? null : Number(BigInt(v));
+    },
+  };
 }
 
 // The eth_getLogs reader the worker wires — fetch + the per-network RPC fallback list (the worker passes

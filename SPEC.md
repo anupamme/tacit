@@ -254,6 +254,13 @@ at it. Pool spends may ride inputs other than `vin[0]`, so the rule looks at eve
 
 This is checked recursively over the ancestry DAG ([`validateOutpoint`](./dapp/tacit.js)).
 
+**Notes that can leave for Ethereum.** A `T_CXFER_BOUND` output homed to a pool deployment is a Tacit UTXO
+only while its bound nullifier is unspent in that pool, since the fast lane (§6.3) can spend it there while the
+Bitcoin output stays unspent. A transaction spending one is final only once that pool's reflection has passed
+its block, after which the fast lane refuses the note; until then its outputs are pending. A `T_CROSSOUT_MINT`
+output is a Tacit UTXO when it is the first mint for its claim and the pool's `crossOutCommitment[claim_id]`
+holds its note leaf.
+
 - **Failure is local.** If an op fails validation, none of its outputs are Tacit UTXOs. Its inputs are
   still spent on Bitcoin, so their value is destroyed.
 - **Unknown or reserved opcodes** create no Tacit state. Any Tacit inputs they spend are consumed.
@@ -262,6 +269,9 @@ This is checked recursively over the ancestry DAG ([`validateOutpoint`](./dapp/t
   in `(height, tx_index)` order.
 - **Depth.** Fair-launch mints, drop claims and mixer deposits credit at 3 confirmations. AMM and farm
   state applies as blocks are scanned. The indexer rewinds on reorgs up to 6 blocks.
+- **Indexer-ordered credit.** An output whose credit rests on that ordered state (fair-launch caps, drop
+  claims, AMM, farm and cross-out mint outputs) is credited only once the indexer answers for it. Until then
+  it is pending, never credited.
 
 The Bitcoin reflection guest (§6.2) is a second, independent implementation of these rules for every op
 it folds. It skips, and never panics on, any envelope it cannot fold.
@@ -369,7 +379,7 @@ These stay in the validator so existing UTXOs keep their meaning. New flows use 
 | Bytes | Ops |
 |---|---|
 | 0x29 / 0x2A | `T_DEPOSIT` / `T_WITHDRAW`: fixed-denomination mixer over the ceremony's `withdraw.circom` |
-| 0x2B / 0x2C | `T_DROP` / `T_DCLAIM`: Bitcoin-side claim pools. Current distributions use Ethereum Merkle distributors. |
+| 0x2B / 0x2C | `T_DROP` / `T_DCLAIM`: Bitcoin-side claim pools. A drop pays its claims and one reclaim out of the notes its reveal spends, which must be valid notes of its asset opening to its cap under its kernel; the reclaim credited is the first, signed under the depositor's key. Current distributions use Ethereum Merkle distributors. |
 | 0x37 / 0x3D | `T_AXFER_VAR` / `_BPP`: variable-amount atomic trade. Builders are off; reflection does not fold it. |
 | 0x38 | `T_WRAPPER_ATTEST`: an issuer-signed reserves and supply attestation for a wrapper asset. The first confirmed attestation wins per (asset, issuer, height). |
 | 0x43–0x47 | cBTC.zk slots (`T_SLOT_MINT/BURN/ROTATE/SPLIT/MERGE`): BTC locked at a key derived from a mixer leaf |

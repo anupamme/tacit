@@ -1455,7 +1455,7 @@ test('dapp validateOutpoint: T_CXFER_BOUND validates like T_CXFER and resolves a
   assert.match(store.db.prepare('SELECT reason FROM envelopes').get().reason, /not a valid note/);
 });
 
-test('dapp validateOutpoint: T_CROSSOUT_MINT is a note only when the mint record names this tx; unknown is unavailable', async () => {
+test('dapp validateOutpoint: T_CROSSOUT_MINT is a note only when the mint record names this tx and the pool recorded its cross-out; unknown is unavailable', async () => {
   const p2tr = (b) => Uint8Array.of(0x51, 0x20, ...new Uint8Array(32).fill(b));
   const rM = scalar('co-r');
   const { cx, cy } = pointXY(pedersen(12n, rM));
@@ -1472,7 +1472,18 @@ test('dapp validateOutpoint: T_CROSSOUT_MINT is a note only when the mint record
     [undecided.txid, { decided: false, minted: false }],
   ]);
   const seen = [];
-  const hook = (url) => {
+  // The pool's crossOutCommitment[claim] (slot 77) holds btc_note_leaf(asset, Cx, Cy, vout-0 key) for the claims it recorded.
+  const recorded = new Map();
+  const record = (t, key = new Uint8Array(32).fill(0x77)) =>
+    recorded.set('0x' + bytesToHex(keccak(claim(t), b32(77))), '0x' + bytesToHex(keccak(ASSET, cx, cy, key, te('tacit-btc-note-v1'))));
+  for (const t of ['ok', 'other', 'undecided', 'rej']) record(t);
+  let ethDown = false;
+  const hook = (url, init) => {
+    if (init?.method === 'POST' && String(init.body || '').includes('eth_getStorageAt')) {
+      if (ethDown) return Promise.reject(new TypeError('Failed to fetch'));
+      const req = JSON.parse(init.body);
+      return jsonRes({ jsonrpc: '2.0', id: req.id, result: recorded.get(String(req.params[1]).toLowerCase()) || '0x' + '00'.repeat(32) });
+    }
     if (!url.includes('/crossout/minted?')) return null;
     const q = new URL(url).searchParams;
     seen.push(q.get('txid'));
@@ -1485,6 +1496,16 @@ test('dapp validateOutpoint: T_CROSSOUT_MINT is a note only when the mint record
   await withFetch(hook, async () => {
     assert.deepEqual(await validate(f, minted.txid, 0), { ok: true, reason: undefined });
     assert.deepEqual(await validate(f, minted.txid, 1), { ok: false, reason: 'invalid' }, 'only vout 0');
+    // The worker names the mint, but the pool holds no cross-out for its claim, or cannot be read.
+    const unrecorded = mintTx('unrecorded');
+    status.set(unrecorded.txid, { decided: true, minted: true });
+    const f2 = fetchFrom(unrecorded);
+    assert.deepEqual(await validate(f2, unrecorded.txid, 0), { ok: false, reason: 'invalid' }, 'no cross-out in the pool');
+    record('unrecorded');
+    ethDown = true;
+    assert.deepEqual(await validate(f2, unrecorded.txid, 0), { ok: false, reason: 'fetch-failed' }, 'pool unreadable');
+    ethDown = false;
+    assert.deepEqual(await validate(f2, unrecorded.txid, 0), { ok: true, reason: undefined }, 'recorded cross-out');
     assert.deepEqual(await validate(f, other.txid, 0), { ok: false, reason: 'invalid' }, 'claim minted at another tx');
     assert.deepEqual(await validate(f, rejected.txid, 0), { ok: false, reason: 'invalid' });
     assert.deepEqual(await validate(f, undecided.txid, 0), { ok: false, reason: 'fetch-failed' });

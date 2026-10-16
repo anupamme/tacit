@@ -17177,11 +17177,10 @@ async function waitForTxVisible(commitTxidHex, { maxMs = 60000, initialMs = 1500
 // scan session. The spec's confirmation-depth rule requires the indexer to
 // canonical-order T_PMINT events at depth ≥ 3 before crediting them
 // against the cap; the dapp delegates that ordering to the worker
-// and just checks set membership here. If the worker is unreachable we
-// degrade to optimistic acceptance (structural invariants only) — this
-// matches the spec's posture that the worker is operational, not trust-
-// bearing for non-cap-bound envelopes. Without the worker the dapp cannot
-// enforce cap-overflow rejection on T_PMINT inputs to ancestry walks.
+// and just checks set membership here. An output whose credit rests on a
+// worker record (a mint against a cap, a claim, an AMM or farm output) is
+// credited only once the worker answers; while it cannot, the output is
+// pending and the next scan retries it.
 // Strict validation, set by a replay that must reach the same verdict on every run. While set, worker-derived
 // answers are fetched fresh per resolution, never credited optimistically, and an answer that is unavailable,
 // pending or not yet final throws instead of returning false. Only a decided negative rejects. The dapp never
@@ -17189,10 +17188,11 @@ async function waitForTxVisible(commitTxidHex, { maxMs = 60000, initialMs = 1500
 let _strictValidation = null; // { failures: string[] } while set
 const STRICT_DECIDED_DEPTH = 3;
 // Outpoints a caller has already proved, reused by later checks this session (tools and tests that bring their own
-// validated fixtures).
+// validated fixtures). A purchase reuses these, and nothing else a scan proved.
+const _callerProved = new Set();
 function rememberValidated(keys) {
   const proved = _getPersistedValidatedTrue();
-  for (const k of keys) proved.set(String(k).toLowerCase(), true);
+  for (const k of keys) { proved.set(String(k).toLowerCase(), true); _callerProved.add(String(k).toLowerCase()); }
 }
 function setStrictValidation(ctx) {
   _strictValidation = ctx || null;
@@ -17207,6 +17207,7 @@ function clearValidatorCaches() {
   _crossoutMintedCache.clear();
   _btcPoolExitCache.clear();
   _btcPoolExitMatched.clear();
+  _clearEthereumStateCaches();
 }
 class ValidationUnavailableError extends Error {
   constructor(msg) { super(msg); this.name = 'ValidationUnavailableError'; this.unavailable = true; }
@@ -17327,7 +17328,7 @@ async function _fetchDclaimCredited(dropIdHex) {
     // missing from the set, so legitimate claims past the first page would
     // be rejected as "not credited" by the validator below. PAGE_GUARD caps
     // total bandwidth at 16 × 10000 = 160k credited claims — far past any
-    // realistic drop — before we degrade to optimistic credit.
+    // realistic drop; past it the set is incomplete and claims stay pending.
     const credited = new Set();
     let cursor = null;
     let truncated = false;
@@ -17358,11 +17359,10 @@ async function _fetchDclaimCredited(dropIdHex) {
     const entry = {
       credited,
       // `truncated` is true ONLY if we hit PAGE_GUARD before the worker
-      // reported list_complete. In that case the credited set is incomplete
-      // and the consumer must NOT treat "not in set" as definitive — it
-      // falls back to optimistic credit, same as the workerAvailable=false
-      // path. For a drop that fits in one page (the common case), this is
-      // false and the credited set is authoritative.
+      // reported list_complete. In that case the credited set is incomplete,
+      // so "not in set" is not definitive and the claim stays pending, as it
+      // does when the worker is unavailable. For a drop that fits in one page
+      // (the common case), this is false and the credited set is authoritative.
       truncated: truncated && pages >= PAGE_GUARD,
       scannedHeight,
       workerAvailable: true,
@@ -17384,10 +17384,9 @@ const AMM_SWAP_ACCEPTED_TTL_MS = 30 * 1000;
 // the pool's real pre-state reserves, which this validator can't reconstruct
 // from local UTXO ancestry. The worker enforces every gate and
 // records accepted swap txids; the holdings validator gates receipt credit on
-// that set. Offline → { accepted: null, workerAvailable: false } → optimistic
-// credit, matching the T_PMINT / T_DCLAIM posture (run against a live worker on
-// mainnet). A forged swap (valid bulletproof, fabricated reserves) is never in
-// the set, so it stays uncredited.
+// that set. Offline → { accepted: null, workerAvailable: false } → pending,
+// matching the T_PMINT / T_DCLAIM posture. A forged swap (valid bulletproof,
+// fabricated reserves) is never in the set, so it stays uncredited.
 async function _fetchSwapAccepted(txidHex) {
   const c = _ammSwapAcceptedCache.get(txidHex);
   if (c && (Date.now() - c.fetchedAt) < AMM_SWAP_ACCEPTED_TTL_MS) return c;
@@ -17460,11 +17459,11 @@ async function _fetchAmmOpAccepted(txidHex) {
   }
 }
 // Null when the op's outputs may be credited, else the reason to mark them with. Mirrors the T_SWAP_VAR gate:
-// an unreachable worker credits outside strict validation, and a missing record is final once the worker has
-// scanned the op's block to the credit depth.
+// an unreachable worker leaves the outputs pending, and a missing record is final once the worker has scanned
+// the op's block to the credit depth.
 async function _ammOpAcceptedFailure(txidHex, tx, label) {
   const acc = await _fetchAmmOpAccepted(txidHex);
-  if (!acc.workerAvailable) { _strictUnavailable(`${label} ${txidHex}: acceptance unavailable`); return null; }
+  if (!acc.workerAvailable) { _strictUnavailable(`${label} ${txidHex}: acceptance unavailable`); return _REASON_FETCH_FAILED; }
   if (acc.accepted || !acc.recordSet || !Number.isInteger(acc.sinceHeight)) return null;
   const h = _confirmedHeight(tx);
   if (Number.isFinite(h) && h < acc.sinceHeight) return null;
@@ -17530,10 +17529,101 @@ async function _farmMintNote(env, txidHex, vout, tx) {
   } catch { return { reason: _REASON_INVALID }; }
 }
 
+// A drop holds exactly the notes its reveal spent: vin[1..1+asset_input_count] are validated notes of the drop's
+// asset, and its kernel signs Σ C_in − cap·H, so those notes open to cap in total. Claims and the reclaim are paid
+// from that cap, so they are credited only against a drop that passes. Null when it does, else the reason to mark
+// a claim or reclaim with.
+async function _dropFundingFailure(dropTx, drop, validatedSet, fetchTx, metadataOut, rpBatch, pmintStatusOut, validatedReasons) {
+  const aic = drop.assetInputCount;
+  if (!dropTx?.vin || dropTx.vin.length < 1 + aic) return _REASON_INVALID;
+  const inputs = dropTx.vin.slice(1, 1 + aic).map(v => ({ txid: v.txid, vout: v.vout }));
+  const assetHex = bytesToHex(drop.assetId);
+  let excess = secp.ProjectivePoint.ZERO;
+  for (const inp of inputs) {
+    const key = `${inp.txid}:${inp.vout}`;
+    if (await validateOutpoint(inp.txid, inp.vout, validatedSet, fetchTx, 0, metadataOut, rpBatch, pmintStatusOut, validatedReasons) !== true) {
+      return validatedReasons?.get(key) === _REASON_FETCH_FAILED ? _REASON_FETCH_FAILED : _REASON_INVALID;
+    }
+    const parent = await fetchTx(inp.txid);
+    if (!parent) return _REASON_FETCH_FAILED;
+    const parentEnv = _txOutputEnvelope(parent);
+    const pd = parentEnv ? await getParentEnvelopeData(parentEnv, inp.vout, inp.txid) : null;
+    if (!pd || pd.assetIdHex !== assetHex) return _REASON_INVALID;
+    try { excess = excess.add(bytesToPoint(pd.commitment)); } catch { return _REASON_INVALID; }
+  }
+  try { excess = excess.add(safeMult(H, drop.capAmount).negate()); } catch { return _REASON_INVALID; }
+  if (excess.equals(secp.ProjectivePoint.ZERO)) return _REASON_INVALID;
+  const msg = dropKernelMsg({
+    assetId: drop.assetId, capAmount: drop.capAmount, perClaim: drop.perClaim, merkleRoot: drop.merkleRoot,
+    expiryHeight: drop.expiryHeight, assetInputCount: aic, assetInputs: inputs,
+  });
+  return verifySchnorr(drop.kernelSig, msg, excess.toRawBytes(true).slice(1)) ? null : _REASON_INVALID;
+}
+
+// A T_CXFER_BOUND output homed to this deployment can be spent on Ethereum through the fast lane (the pool nullifies
+// its bound leaf) while the Bitcoin output stays unspent; its value is then on Ethereum. So such an output is credited
+// only while its nullifier is unspent there, and a Bitcoin transfer out of one is final only once the reflection has
+// passed the transfer's block, after which the fast lane refuses the note. Until then that transfer's outputs are
+// pending. Bound outputs are re-checked on every walk rather than kept as proven.
+const _boundOutpointKeys = new Set(); // "txid:vout" of bound outputs homed to this deployment
+const _boundSpentCache = new Map();   // ν → { spent, at }
+const BOUND_CHECK_TTL_MS = 60 * 1000;
+let _leafKit = null;
+const _leafKitOf = () => (_leafKit = _leafKit || makeConfidentialPool({ secp, keccak256: keccak_256, sha256 }));
+async function _evmNullifierSpentCached(pool, nu) {
+  const c = _boundSpentCache.get(nu);
+  if (c && (c.spent || Date.now() - c.at < BOUND_CHECK_TTL_MS)) return c.spent;
+  const spent = await makeCrossLaneGuard({ keccak256: keccak_256 })
+    .evmNullifierSpent((a, slot, tag) => _ethRpcCall('eth_getStorageAt', [a, slot, tag || 'latest']), pool, nu);
+  _boundSpentCache.set(nu, { spent, at: Date.now() });
+  return spent;
+}
+// Output j of a T_CXFER_BOUND whose kernel verified: null when it may be credited, else the reason to mark it with.
+async function _boundOutputFailure(tx, dec, j, outKey) {
+  const binding = _confidentialChainBinding();
+  const pool = (CROSSLANE_DEPLOYMENTS[currentNetworkName()] || {}).pool;
+  if (!binding || !pool || '0x' + bytesToHex(dec.targetChainBinding) !== binding.toLowerCase()) return null;
+  _boundOutpointKeys.add(outKey);
+  const kit = _leafKitOf();
+  const C = bytesToPoint(dec.outputs[j].commitment).toAffine();
+  const hex32 = (x) => '0x' + x.toString(16).padStart(64, '0');
+  const auth = kit.p2trXonly(tx.vout?.[j]?.scriptpubkey || '') || '0x' + '00'.repeat(32);
+  const nu = kit.nullifier(kit.btcNoteLeafBound('0x' + bytesToHex(dec.assetId), hex32(C.x), hex32(C.y), auth, binding));
+  try { return (await _evmNullifierSpentCached(pool, nu)) ? _REASON_INVALID : null; }
+  catch { _strictUnavailable(`T_CXFER_BOUND ${outKey}: Ethereum nullifier unreadable`); return _REASON_FETCH_FAILED; }
+}
+const _reflectedHeightCache = { height: null, at: 0 };
+function _clearEthereumStateCaches() {
+  _boundSpentCache.clear();
+  _reflectedHeightCache.height = null;
+}
+async function _reflectedHeight() {
+  if (_reflectedHeightCache.height != null && Date.now() - _reflectedHeightCache.at < BOUND_CHECK_TTL_MS) return _reflectedHeightCache.height;
+  if (!WORKER_BASE) return null;
+  try {
+    const r = await fetch(`${WORKER_BASE}/reflection/status?network=${encodeURIComponent(NET.name)}`);
+    const j = r.ok ? await r.json() : null;
+    if (!Number.isInteger(j?.attestedHeight)) return null;
+    Object.assign(_reflectedHeightCache, { height: j.attestedHeight, at: Date.now() });
+    return j.attestedHeight;
+  } catch { return null; }
+}
+// Null unless tx spends a bound output the reflection has not passed yet; then the reason to mark its outputs with.
+// A bound input already found invalid is left to the opcode's own parent check.
+async function _boundSpendPending(tx, label, validatedSet) {
+  const bound = tx.vin.slice(1).map(v => `${v.txid}:${v.vout}`).filter(k => _boundOutpointKeys.has(k));
+  if (!bound.length || bound.some(k => validatedSet.get(k) === false)) return null;
+  const h = _confirmedHeight(tx);
+  const reflected = await _reflectedHeight();
+  if (Number.isFinite(h) && Number.isInteger(reflected) && reflected >= h) return null;
+  _strictUnavailable(`${label}: spends a bound note the reflection has not passed`);
+  return _REASON_FETCH_FAILED;
+}
+
 // A swap spends its asset input at vin[1]: a validated note that commits to the envelope's c_in, of the asset
 // the swap sells. Null when it does, else the reason to mark the swap's outputs with. A parent that cannot be
-// fetched or resolved is transient. With no asset to compare (pool list unavailable) the asset check is skipped
-// outside strict validation, as the swap gate credits an unreachable worker.
+// fetched or resolved is transient. With no asset to compare (the pool list does not name the pool) the asset
+// check is left to the worker's acceptance, which the swap gate requires outside strict validation.
 async function _swapInputFailure(tx, cInSecp, assetInHex, validatedSet, validatedReasons, fetchTx, label) {
   const inp = tx.vin[1];
   if (!inp) return _REASON_INVALID;
@@ -17697,6 +17787,30 @@ function _crossoutCommitment(d) {
     return P.toRawBytes(true);
   } catch { return null; }
 }
+// Whether an Ethereum pool recorded this mint's note: crossOutCommitment[claimId] (declaration slot 77, the slot the
+// eth-reflection guest proves) holds btc_note_leaf(asset, Cx, Cy, vout-0 key) in the deployment's pool or one it
+// succeeded. True / false, or null when a pool could not be read.
+const CROSSOUT_COMMITMENT_SLOT = 77;
+const _crossoutOnChainSeen = new Set();
+async function _crossoutRecordedOnChain(d, tx) {
+  const dep = CROSSLANE_DEPLOYMENTS[currentNetworkName()] || {};
+  const pools = [dep.pool, ...(dep.crossOutPoolsRetired || [])].filter(Boolean);
+  const auth = '0x' + String(tx.vout?.[0]?.scriptpubkey || '').toLowerCase().slice(4);
+  const leaf = String(_leafKitOf().btcNoteLeaf('0x' + bytesToHex(d.asset), '0x' + bytesToHex(d.cx), '0x' + bytesToHex(d.cy), auth)).toLowerCase().replace(/^0x/, '');
+  const seen = `${bytesToHex(d.claimId)}:${leaf}`;
+  if (_crossoutOnChainSeen.has(seen)) return true;
+  const slotKey = new Uint8Array(32); slotKey[31] = CROSSOUT_COMMITMENT_SLOT;
+  const slot = '0x' + bytesToHex(keccak_256(concatBytes(d.claimId, slotKey)));
+  let unread = false;
+  for (const pool of pools) {
+    try {
+      const v = String(await _ethRpcCall('eth_getStorageAt', [pool, slot, 'latest'])).toLowerCase().replace(/^0x/, '');
+      if (!/^[0-9a-f]{1,64}$/.test(v)) { unread = true; continue; }
+      if (v.padStart(64, '0') === leaf) { _crossoutOnChainSeen.add(seen); return true; }
+    } catch { unread = true; }
+  }
+  return unread ? null : false;
+}
 // → { minted: bool, decided: bool }. Only decided answers are cached.
 async function _fetchCrossoutMinted(assetHex, claimHex, txidHex) {
   const k = `${assetHex}:${claimHex}:${txidHex}`;
@@ -17729,7 +17843,13 @@ async function _crossoutMintNote(env, txidHex, vout, tx = null) {
   if (_strictValidation) return { note: null, available: true };
   const st = await _fetchCrossoutMinted(bytesToHex(d.asset), bytesToHex(d.claimId), txidHex);
   if (!st.decided) return { note: null, available: false };
-  return { note: st.minted ? { assetIdHex: bytesToHex(d.asset), commitment } : null, available: true };
+  if (!st.minted) return { note: null, available: true };
+  // The worker names the one mint per claim; the cross-out itself is read from the pool.
+  if (tx) {
+    const onChain = await _crossoutRecordedOnChain(d, tx);
+    if (onChain !== true) return { note: null, available: onChain === false };
+  }
+  return { note: { assetIdHex: bytesToHex(d.asset), commitment }, available: true };
 }
 
 // pmintStatusOut (optional, last positional) is a Map<"txid:vout", 'pending' | 'invalid'>
@@ -17975,6 +18095,8 @@ async function _validateOutpointSingle(txidHex, vout, validatedSet, fetchTx, met
   let env;
   try { env = decodeEnvelopeScript(hexToBytes(wit[1])); } catch { env = null; }
   if (!env) { _markInvalid(validatedSet, validatedReasons, key, _REASON_INVALID); return false; }
+  const boundPending = await _boundSpendPending(tx, key, validatedSet);
+  if (boundPending) { _markInvalid(validatedSet, validatedReasons, key, boundPending); return false; }
 
   // Helper: mark all sibling outputs of this tx with a result. When marking
   // invalid, also stamp the failure reason so the scan-level renderer can
@@ -18422,7 +18544,7 @@ async function _validateOutpointSingle(txidHex, vout, validatedSet, fetchTx, met
     //   4. confirmed_height is in [effective_start, effective_end]
     //   5. pedersenCommit(amount, blinding) == declared commitment
     //   6. cap-credit: this T_PMINT must appear in the worker's credited set
-    //      at depth ≥ 3 (degraded to optimistic if worker unavailable —
+    //      at depth ≥ 3 (pending while the worker is unavailable —
     //      see _fetchPmintCredited)
     //   7. vout must be 0
     //
@@ -18488,7 +18610,7 @@ async function _validateOutpointSingle(txidHex, vout, validatedSet, fetchTx, met
       onchain = bytesToPoint(dec.commitment);
     } catch { tagInvalid(); validatedSet.set(key, false); return false; }
     if (!claimed.equals(onchain)) { tagInvalid(); validatedSet.set(key, false); return false; }
-    // Cap-credit check (worker-aided; degrades to optimistic when worker is
+    // Cap-credit check (worker-aided; pending while the worker is
     // unreachable). T_PMINT is reorg-sensitive, so the worker provides
     // canonically-ordered credit at depth ≥ 3.
     //
@@ -18588,10 +18710,8 @@ async function _validateOutpointSingle(txidHex, vout, validatedSet, fetchTx, met
         tagPending(); validatedSet.set(key, false); return false;
       }
     }
-    // Worker unavailable: degrade optimistically. We can't enforce cap
-    // correctness without canonical chain ordering, so accept the mint on
-    // structural invariants alone: running without the worker gives weaker
-    // cap-overflow guarantees than running with it.
+    // Cap correctness needs the worker's canonical ordering, so a mint it cannot answer for is pending.
+    if (!credit.workerAvailable) { tagPending(); validatedSet.set(key, false); return false; }
     if (metadataOut) {
       const aidHex = bytesToHex(dec.assetId);
       if (!metadataOut.has(aidHex)) {
@@ -18849,7 +18969,23 @@ async function _validateOutpointSingle(txidHex, vout, validatedSet, fetchTx, met
     if (!verifySchnorr(dec.reclaimSig, reclaimMsg, depositorXonly)) {
       validatedSet.set(key, false); return false;
     }
-    // 6. Surface asset metadata so downstream scanHoldings renders the
+    // 6. The reclaim's envelope sits in a tapscript under the depositor's key, so the depositor's signature covers
+    //    this transaction's outputs.
+    if (!env.signingPubXonly || bytesToHex(env.signingPubXonly) !== bytesToHex(depositorXonly)) {
+      validatedSet.set(key, false); return false;
+    }
+    // 7. A drop is reclaimed once: the worker records the first depositor-signed reclaim it confirms.
+    const firstReclaim = String(dropMeta.reclaimed?.reclaim_txid || '').toLowerCase();
+    if (!firstReclaim) { _strictUnavailable(`T_DROP reclaim ${txidHex}: reclaim record unavailable`); return false; }
+    if (firstReclaim !== txidHex) { validatedSet.set(key, false); return false; }
+    // 8. The drop was funded with the cap it pays from.
+    let dropEnv;
+    try { dropEnv = decodeEnvelopeScript(hexToBytes(dropTx.vin[0].witness[1])); } catch { dropEnv = null; }
+    const drop = dropEnv && dropEnv.opcode === T_DROP ? decodeCDropPayload(dropEnv.payload) : null;
+    if (!drop || drop.kind !== 'cdrop') { validatedSet.set(key, false); return false; }
+    const fundingFail = await _dropFundingFailure(dropTx, drop, validatedSet, fetchTx, metadataOut, rpBatch, pmintStatusOut, validatedReasons);
+    if (fundingFail) { _markInvalid(validatedSet, validatedReasons, key, fundingFail); return false; }
+    // 9. Surface asset metadata so downstream scanHoldings renders the
     //    reclaimed UTXO without an extra ancestor walk.
     if (metadataOut) {
       const aidHex = reclaimAssetIdHex;
@@ -18990,31 +19126,27 @@ async function _validateOutpointSingle(txidHex, vout, validatedSet, fetchTx, met
       // Open drop: witness MUST be empty per the spec.
       if (dec.witness) { validatedSet.set(key, false); return false; }
     }
-    // CAP-CREDIT GATE. Credit only the claim in the worker's canonical
-    // credited set (one per nullifier). Same posture as T_PMINT (see
-    // _fetchPmintCredited above): when the worker is unreachable the claim
-    // is credited optimistically, without the one-per-nullifier guarantee.
+    // The drop was funded with the cap its claims are paid from.
+    const fundingFail = await _dropFundingFailure(dropTx, drop, validatedSet, fetchTx, metadataOut, rpBatch, pmintStatusOut, validatedReasons);
+    if (fundingFail) { _markInvalid(validatedSet, validatedReasons, key, fundingFail); return false; }
+    // CAP-CREDIT GATE. Credit only a claim in the worker's canonical credited
+    // set (one per nullifier, at most cap / per_claim of them). Until the
+    // worker answers with the complete set the claim is pending: retried by
+    // the next scan, never credited without it.
     const dropIdHex = bytesToHex(dropIdFromRevealTxid(dropTxidHex));
     const credit = await _fetchDclaimCredited(dropIdHex);
     if (_strictValidation) {
       if (!credit.workerAvailable || !credit.credited || credit.truncated) _strictUnavailable(`T_DCLAIM ${txidHex}: credit index unavailable`);
       if (!credit.credited.has(txidHex) && !_strictDecided(credit.scannedHeight, _confirmedHeight(tx))) _strictUnavailable(`T_DCLAIM ${txidHex}: credit not decided`);
     }
-    if (credit.workerAvailable && credit.credited && !credit.truncated) {
-      // The credited set is fully paginated and authoritative. A txid not in
-      // the set is either a rewrap (cron's nullifier check dropped it) OR a
-      // fresh claim the cron hasn't indexed yet. Tag pending so a re-scan can
-      // promote it after the next cron tick; meanwhile, refuse to credit
-      // — this is the load-bearing supply-correctness check.
-      //
-      // When `truncated` is true we hit PAGE_GUARD inside
-      // _fetchDclaimCredited and the set is incomplete; fall through to
-      // optimistic credit (same posture as workerAvailable=false) rather
-      // than false-rejecting legitimate claims past the page horizon.
-      if (!credit.credited.has(txidHex)) {
-        validatedSet.set(key, false);
-        return false;
-      }
+    if (!credit.workerAvailable || !credit.credited || credit.truncated) {
+      _markInvalid(validatedSet, validatedReasons, key, _REASON_FETCH_FAILED);
+      return false;
+    }
+    // A txid not in the set is a rewrap (the nullifier check dropped it), past the cap, or not indexed yet.
+    if (!credit.credited.has(txidHex)) {
+      validatedSet.set(key, false);
+      return false;
     }
     // Surface drop's asset metadata so scanHoldings renders the card without
     // an extra ancestor walk. Mirrors the T_PMINT branch above.
@@ -19182,12 +19314,12 @@ async function _validateOutpointSingle(txidHex, vout, validatedSet, fetchTx, met
     if (inFail) { _markInvalid(validatedSet, validatedReasons, key, inFail); return false; }
     // Receipt + change are virtual mints; the bulletproof only bounds their
     // range, not that delta_out follows the curve at the pool's real reserves.
-    // Gate credit on the worker's accepted-swap set (offline → optimistic).
+    // Gate credit on the worker's accepted-swap set (pending while it is unreachable).
     const accSv = await _fetchSwapAccepted(txidHex);
     if (_strictValidation && !(accSv.workerAvailable && (accSv.accepted || _strictDecided(accSv.scannedHeight, _confirmedHeight(tx))))) {
       _strictUnavailable(`T_SWAP_VAR ${txidHex}: acceptance not decided`);
     }
-    if (accSv.workerAvailable && !accSv.accepted) {
+    if (!(accSv.workerAvailable && accSv.accepted)) {
       _markInvalid(validatedSet, validatedReasons, key, _REASON_FETCH_FAILED);
       return false;
     }
@@ -19214,12 +19346,12 @@ async function _validateOutpointSingle(txidHex, vout, validatedSet, fetchTx, met
       validatedSet, validatedReasons, fetchTx, `T_SWAP_ROUTE ${txidHex}`);
     if (inFailR) { _markInvalid(validatedSet, validatedReasons, key, inFailR); return false; }
     // Virtual mint — gate credit on the worker's accepted-swap set, same as
-    // T_SWAP_VAR above (offline → optimistic).
+    // T_SWAP_VAR above (pending while it is unreachable).
     const accSr = await _fetchSwapAccepted(txidHex);
     if (_strictValidation && !(accSr.workerAvailable && (accSr.accepted || _strictDecided(accSr.scannedHeight, _confirmedHeight(tx))))) {
       _strictUnavailable(`T_SWAP_ROUTE ${txidHex}: acceptance not decided`);
     }
-    if (accSr.workerAvailable && !accSr.accepted) {
+    if (!(accSr.workerAvailable && accSr.accepted)) {
       _markInvalid(validatedSet, validatedReasons, key, _REASON_FETCH_FAILED);
       return false;
     }
@@ -19345,7 +19477,12 @@ async function _validateOutpointSingle(txidHex, vout, validatedSet, fetchTx, met
     const msg = computeKernelMsg(dec.assetId, inputOutpoints, dec.outputs.map(o => o.commitment), 0n);
     const kernelOk = verifySchnorr(dec.kernelSig, msg, EPrime.toRawBytes(true).slice(1));
     markAll(N, kernelOk);
-    return kernelOk;
+    if (!kernelOk) return false;
+    for (let j = 0; j < N; j++) {
+      const outFail = await _boundOutputFailure(tx, dec, j, `${txidHex}:${j}`);
+      if (outFail) _markInvalid(validatedSet, validatedReasons, `${txidHex}:${j}`, outFail);
+    }
+    return validatedSet.get(key) === true;
   }
 
   if (env.opcode === T_CROSSOUT_MINT) {
@@ -19384,15 +19521,49 @@ async function definingCommitmentForOutpoint(txidHex, vout) {
   return pd; // { assetIdHex, commitment(bytes) }
 }
 
+// Transaction reads for a purchase: each tx is taken from the app's usual source and from a public explorer directly
+// (NET.api2, then NET.api), and used only when every field validation reads agrees — inputs with their witnesses,
+// outputs, confirmation height — so no single source stands in for Bitcoin where sats are about to move.
+const _txFieldsOf = (t) => JSON.stringify({
+  vin: (t.vin || []).map((i) => [String(i.txid).toLowerCase(), i.vout, (i.witness || []).map((w) => String(w).toLowerCase())]),
+  vout: (t.vout || []).map((o) => [String(o.scriptpubkey).toLowerCase(), Number(o.value)]),
+  height: t.status?.confirmed ? Number(t.status.block_height) : null,
+});
+async function _explorerTx(id) {
+  for (const base of [NET.api2, NET.api].filter(Boolean)) {
+    try {
+      const r = await fetch(`${base}/tx/${id}`, { signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined });
+      if (r.ok) return await r.json();
+    } catch { /* next explorer */ }
+  }
+  return null;
+}
+const _crossCheckedTxs = new Map(); // confirmed txs both sources agreed on, reused by later purchases
+function _crossCheckedFetcher() {
+  const memo = new Map();
+  return (id) => {
+    if (_crossCheckedTxs.has(id)) return Promise.resolve(_crossCheckedTxs.get(id));
+    if (!memo.has(id)) {
+      memo.set(id, Promise.all([_sharedFetchTx(id), _explorerTx(id)]).then(([a, b]) => {
+        if (!a || !b || _txFieldsOf(a) !== _txFieldsOf(b)) return null;
+        if (a.status?.confirmed) _crossCheckedTxs.set(id, a);
+        return a;
+      }, () => null));
+    }
+    return memo.get(id);
+  };
+}
+
 // A counterparty's lot is paid for only once its outpoint validates the way Holdings credits a note: its whole
-// ancestry, every kernel and range proof, not just the envelope that defines it. Ancestors already proved this session
-// are reused. A walk that could not finish refuses as well; either way nothing has been sent.
+// ancestry, every kernel and range proof, not just the envelope that defines it, each transaction read from two
+// sources. A walk that could not finish refuses as well; either way nothing has been sent.
 async function requireValidatedLot(txidHex, vout, label = "the seller's lot") {
   const txid = String(txidHex).toLowerCase(), v = Number(vout), key = `${txid}:${v}`;
   const proved = _getPersistedValidatedTrue();
-  const set = new Map(proved), reasons = new Map();
+  const set = new Map([..._callerProved].map((k) => [k, true])), reasons = new Map();
+  _clearEthereumStateCaches();
   let ok;
-  try { ok = await validateOutpoint(txid, v, set, _sharedFetchTx, 0, null, null, null, reasons); }
+  try { ok = await validateOutpoint(txid, v, set, _crossCheckedFetcher(), 0, null, null, null, reasons); }
   catch (e) { throw new Error(`could not verify ${label} on Bitcoin, so nothing was sent (${e?.message || e})`); }
   if (ok === true) { for (const [k, val] of set) if (val === true) proved.set(k, true); return; }
   throw new Error(reasons.get(key) === _REASON_FETCH_FAILED
@@ -20115,9 +20286,13 @@ function _testSetScanHoldingsOverride(fn) { _scanHoldingsOverride = fn; }
 // reorg would invalidate the localStorage tx cache too, and the user's
 // next ↻ Rescan after a reload re-walks from chain).
 const _persistedValidatedTrue = new Map(); // NET.name -> Map<"txid:vout", true>
+// Bound outputs are never kept: their validity can change when the note moves to Ethereum.
+class _ProvedOutpoints extends Map {
+  set(k, v) { return _boundOutpointKeys.has(k) ? this : super.set(k, v); }
+}
 function _getPersistedValidatedTrue() {
   let m = _persistedValidatedTrue.get(NET.name);
-  if (!m) { m = new Map(); _persistedValidatedTrue.set(NET.name, m); }
+  if (!m) { m = new _ProvedOutpoints(); _persistedValidatedTrue.set(NET.name, m); }
   return m;
 }
 let _holdingsInFlight = null;
@@ -30167,8 +30342,8 @@ async function buildAndBroadcastCXferMulti({ assetIdHex, recipients, forceUtxos 
   // Cross-lane reverse gate. When the confidential pool is configured, refuse to spend on
   // Bitcoin a note already spent on Ethereum — reflection is one-directional, so its value
   // moved to the Ethereum side and honoring the Bitcoin spend would
-  // duplicate it. Checked here (before the commit broadcast) so a blocked spend costs no fee. The
-  // worker indexer-of-record is the authoritative enforcement; this is the client-side guard.
+  // duplicate it. Checked here (before the commit broadcast) so a blocked spend costs no fee; every
+  // receiver's validateOutpoint enforces the same rule on bound outputs.
   // Inert when no pool is configured (CROSSLANE_DEPLOYMENTS[net].pool null).
   {
     const _xlPool = (CROSSLANE_DEPLOYMENTS[currentNetworkName()] || {}).pool;
@@ -79611,7 +79786,7 @@ export {
   // Authoritative spend validator — exported so the mixer signet e2e can assert
   // a confirmed T_WITHDRAW is creditable (runs the full gate chain incl. the
   // owner-conflict re-verify) without depending on scanHoldings' address-scan timing.
-  validateOutpoint,
+  validateOutpoint, requireValidatedLot,
   // (asset, commitment) of a validated outpoint, and the pool-exit cache; used by the shielded-pool replay.
   getParentEnvelopeData, clearBtcPoolExitCache, _txOutputEnvelope as txOutputEnvelope,
   setStrictValidation, clearValidatorCaches, ValidationUnavailableError, rememberValidated,

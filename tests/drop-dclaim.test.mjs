@@ -11,7 +11,7 @@
 //
 // Run: `node drop-dclaim.test.mjs`
 
-import { loadCreditedDclaims, PMINT_CONFIRMATION_DEPTH } from '../worker/src/index.js';
+import { loadCreditedDclaims, PMINT_CONFIRMATION_DEPTH, putDropReclaim, dropDepositorXonly } from '../worker/src/index.js';
 
 let pass = 0, fail = 0;
 function test(label, fn) {
@@ -45,7 +45,11 @@ function makeKvStub(initial = {}) {
         cursor: list_complete ? undefined : String(nextIdx),
       };
     },
-    async get(name) { return data.has(name) ? data.get(name) : null; },
+    async get(name, type) {
+      if (!data.has(name)) return null;
+      return type === 'json' ? JSON.parse(data.get(name)) : data.get(name);
+    },
+    async put(name, v) { data.set(name, v); },
   };
 }
 
@@ -113,13 +117,53 @@ await test('reorg re-confirm de-dups (one txid → one cap slot)', async () => {
     && r.credited_txids.includes(tx('b'));
 });
 
-// Unresolvable: tip unavailable → degrade (resolvable=false, empty set) so the
-// dapp falls back to optimistic credit rather than false-rejecting everything.
+// Unresolvable: tip unavailable → resolvable=false (the endpoint answers 503 and
+// the dapp keeps the claim pending) rather than asserting an empty set.
 await test('null tip → resolvable=false (degrade, do not assert a set)', async () => {
   const env = { REGISTRY_KV: makeKvStub() };
   env.REGISTRY_KV.set(dclaimKey(DROP, 100, 0, tx('a')), { kind: 'dclaim' });
   const r = await loadCreditedDclaims(env, 'signet', DROP, null, '300', '100');
   return r.resolvable === false && r.credited_txids.length === 0;
+});
+
+console.log('\nT_DROP reclaim record (one per drop, the depositor\'s first confirmed):');
+
+const DEPOSITOR = '02' + 'ab'.repeat(32);
+const xonly = (h) => Uint8Array.from(Buffer.from(h, 'hex'));
+const reclaimEnv = () => {
+  const env = { REGISTRY_KV: makeKvStub() };
+  env.REGISTRY_KV.set(`drop:${DROP}`, { kind: 'drop', drop_reveal_txid: tx('f'), depositor_xonly: 'ab'.repeat(32) });
+  return env;
+};
+const reclaimMeta = (txid, h) => ({ kind: 'drop-reclaim', reclaim_drop_id: DROP, reclaim_txid: txid, reclaim_at_height: h });
+const recorded = async (env) => (await env.REGISTRY_KV.get(`drop-reclaim:${DROP}`, 'json'))?.reclaim_txid || null;
+
+await test('the depositor is the key of the drop\'s first funding input', () =>
+  dropDepositorXonly({ vin: [{}, { witness: ['30', DEPOSITOR] }] }) === 'ab'.repeat(32)
+  && dropDepositorXonly({ vin: [{}, { witness: ['30', '00'] }] }) === null);
+await test('a reclaim not signed under the depositor key is not recorded', async () => {
+  const env = reclaimEnv();
+  const okWrite = await putDropReclaim(env, 'signet', reclaimMeta(tx('1'), 200), xonly('cd'.repeat(32)));
+  return okWrite === false && (await recorded(env)) === null;
+});
+await test('the depositor\'s first confirmed reclaim is recorded, a later one is not', async () => {
+  const env = reclaimEnv();
+  const first = await putDropReclaim(env, 'signet', reclaimMeta(tx('1'), 200), xonly('ab'.repeat(32)));
+  const later = await putDropReclaim(env, 'signet', reclaimMeta(tx('2'), 205), xonly('ab'.repeat(32)));
+  return first === true && later === false && (await recorded(env)) === tx('1');
+});
+await test('an earlier confirmed reclaim replaces a later one (scan order)', async () => {
+  const env = reclaimEnv();
+  await putDropReclaim(env, 'signet', reclaimMeta(tx('2'), 205), xonly('ab'.repeat(32)));
+  const earlier = await putDropReclaim(env, 'signet', reclaimMeta(tx('1'), 200), xonly('ab'.repeat(32)));
+  return earlier === true && (await recorded(env)) === tx('1');
+});
+await test('an unconfirmed reclaim never displaces a confirmed one, and yields to one', async () => {
+  const env = reclaimEnv();
+  const pending = await putDropReclaim(env, 'signet', reclaimMeta(tx('3'), 0), xonly('ab'.repeat(32)));
+  const confirmedOne = await putDropReclaim(env, 'signet', reclaimMeta(tx('4'), 210), xonly('ab'.repeat(32)));
+  const pendingAgain = await putDropReclaim(env, 'signet', reclaimMeta(tx('5'), 0), xonly('ab'.repeat(32)));
+  return pending === true && confirmedOne === true && pendingAgain === false && (await recorded(env)) === tx('4');
 });
 
 console.log(`\n${pass} passed, ${fail} failed.`);

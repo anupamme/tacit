@@ -4,12 +4,10 @@
 // RPC fallback list, and the CrossOutRecorded decoder. Mirrors the reflection attester's
 // dependency-injected factory shape so it is testable + runtime-agnostic.
 //
-// Trust posture (Mode B): the worker is INDEXER/UX ONLY, never authoritative. The authority for a
-// minted Bitcoin note is the reflection prover's recursive cross-out fold (the eth-reflection guest).
-// scanOnce() records CrossOutRecorded as a liveness/UX accelerator; bindBitcoinOutput marks a hinted
-// T_CROSSOUT_MINT 'minted' fast, but a note the worker hasn't bound is still 'pending-reflection' and
-// becomes real when the reflection proof folds it. The worker cannot inflate or mislead — anyone
-// re-derives from the reflected roots.
+// Trust posture (Mode B): the authority for a minted Bitcoin note is the reflection prover's recursive
+// cross-out fold (the eth-reflection guest). Wallets credit a T_CROSSOUT_MINT once the worker marks it
+// 'minted', so scanOnce() records a CrossOutRecorded only after the pool's own crossOutCommitment storage,
+// read from two RPCs, holds the same destCommitment; a single node's log answer is never enough.
 //
 // A network whose CONFIDENTIAL_POOL_DEPLOYMENTS[network].pool is null is inert: the factory returns null
 // and the cron/dispatch are no-ops with zero hot-path cost.
@@ -17,6 +15,7 @@
 import {
   makeCrossoutConsumer,
   makeEthGetLogs,
+  makePoolStateReader,
   CONFIDENTIAL_POOL_DEPLOYMENTS,
 } from '../../dapp/confidential-crossout-consumer.js';
 import { makeConfidentialEvmLog } from '../../dapp/confidential-evm-log.js';
@@ -60,7 +59,10 @@ export function buildCrossoutConsumer(env, { network, keccak256, rpcsForNetwork,
   const kvPut = (k, v) => env.REGISTRY_KV.put(k, v);
   const ethGetLogs = makeEthGetLogs({ fetchFn, rpcsForNetwork });
   const evmLog = makeConfidentialEvmLog({ keccak256 });
-  const consumer = makeCrossoutConsumer({ ethGetLogs, kvGet, kvPut, evmLog, confirmations });
+  const poolState = deployment.crossOutSlots
+    ? makePoolStateReader({ fetchFn, rpcsForNetwork, keccak256, slots: deployment.crossOutSlots })
+    : null;
+  const consumer = makeCrossoutConsumer({ ethGetLogs, kvGet, kvPut, evmLog, confirmations, poolState });
 
   // Current Ethereum block height via eth_blockNumber over the RPC fallback list. Null on total
   // failure (the caller then does not scan — the cursor stays put, the range is retried next tick).

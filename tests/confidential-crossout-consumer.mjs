@@ -13,7 +13,7 @@ import * as secp from '../node_modules/@noble/secp256k1/index.js';
 import { createHash } from 'node:crypto';
 import { makeConfidentialEvmLog } from '../dapp/confidential-evm-log.js';
 import { makeConfidentialPool } from '../dapp/confidential-pool.js';
-import { makeCrossoutConsumer, encodeCrossoutMint, decodeCrossoutMint, T_CROSSOUT_MINT } from '../dapp/confidential-crossout-consumer.js';
+import { makeCrossoutConsumer, makePoolStateReader, encodeCrossoutMint, decodeCrossoutMint, T_CROSSOUT_MINT } from '../dapp/confidential-crossout-consumer.js';
 import assert from 'node:assert';
 
 const keccak256 = (b) => keccak_256(b);
@@ -152,4 +152,62 @@ function harness(logs = LOGS) {
   ok('T_CROSSOUT_MINT envelope: encode → decode → recompute leaf → bind (the dapp↔worker handshake)');
 }
 
-console.log(`\n${n}/7 cross-out consumer (read + bind + wire) checks passed`);
+// ── 8. with the pool's storage: a logged crossOut is recorded only when crossOutCommitment holds it ──
+{
+  const onChain = new Map([[CLAIM_A.toLowerCase(), b32('destA')], [CLAIM_C.toLowerCase(), b32('destC')]]);
+  const counts = (block) => (block >= 199 ? 2 : block >= 100 ? 1 : 0);   // A at 100, C at 199 (B is Ethereum-bound, never logged as Bitcoin)
+  const run = async (poolState, tipHeight = 300) => {
+    const kv = new Map();
+    const consumer = makeCrossoutConsumer({
+      ethGetLogs: async (net, p, from, to, t0) => LOGS.filter((l) => l.blockNumber >= from && l.blockNumber <= to && l.topics[0] === t0),
+      kvGet: async (k) => (kv.has(k) ? kv.get(k) : null), kvPut: async (k, v) => { kv.set(k, v); }, evmLog, confirmations: 36, poolState,
+    });
+    return { r: await consumer.scan({ network: NET, pool: POOL, tipHeight, fromBlock: 0 }), consumer };
+  };
+  const honest = { commitmentOf: async (_n, _p, c) => onChain.get(String(c).toLowerCase()) || ZERO32, countAt: async (_n, _p, b) => counts(b) };
+  const a = await run(honest);
+  assert.strictEqual(a.r.recorded, 2, 'both Bitcoin-destined crossOuts the pool holds are recorded');
+  assert.ok(await a.consumer.getRecorded(NET, CLAIM_C), 'C recorded');
+
+  const forgedLog = { ...honest, commitmentOf: async (_n, _p, c) => (String(c).toLowerCase() === CLAIM_C.toLowerCase() ? b32('other') : honest.commitmentOf(_n, _p, c)) };
+  const f = await run(forgedLog);
+  assert.strictEqual(f.r.unconfirmed, 'commitment-mismatch', 'a log the pool storage does not back stops the scan');
+  assert.strictEqual(f.r.advancedCursorTo, null, 'and the cursor stays put');
+  assert.strictEqual(await f.consumer.getRecorded(NET, CLAIM_A), null, 'nothing from that range is recorded');
+
+  const unreadable = { ...honest, commitmentOf: async () => null };
+  const u = await run(unreadable);
+  assert.strictEqual(u.r.unconfirmed, 'commitment-unreadable', 'an unreadable pool stops the scan');
+  assert.strictEqual(u.r.advancedCursorTo, null, 'cursor put on unreadable storage');
+
+  const missing = { ...honest, countAt: async (_n, _p, b) => (b >= 100 ? 3 : 0) };
+  const m = await run(missing);
+  assert.strictEqual(m.r.unconfirmed, 'log-count-mismatch', 'a range whose logs miss a crossOut the pool counted stops the scan');
+
+  const noHistory = { ...honest, countAt: async () => null };
+  const nh = await run(noHistory);
+  assert.strictEqual(nh.r.recorded, 2, 'when historical counts cannot be read the commitment check alone decides');
+  ok('pool storage: a crossOut is recorded only when crossOutCommitment holds it, and a range missing one does not advance');
+}
+
+// ── 9. makePoolStateReader: a slot's value stands only when two RPCs report it ──
+{
+  const slots = { commitment: 77, count: 171 };
+  const answers = { a: '0x' + 'aa'.repeat(32), b: '0x' + 'aa'.repeat(32), c: '0x' + 'bb'.repeat(32) };
+  const fetchFn = (order) => async (rpc) => ({ ok: true, json: async () => ({ result: answers[order.shift()] ?? null }) });
+  const reader = (order, rpcs) => makePoolStateReader({ fetchFn: fetchFn(order), rpcsForNetwork: () => rpcs, keccak256, slots });
+  assert.strictEqual(await reader(['a', 'b'], ['r1', 'r2']).commitmentOf(NET, POOL, CLAIM_A), answers.a, 'two agreeing RPCs → value');
+  assert.strictEqual(await reader(['a', 'c'], ['r1', 'r2']).commitmentOf(NET, POOL, CLAIM_A), null, 'two disagreeing RPCs → null');
+  assert.strictEqual(await reader(['c', 'a', 'b'], ['r1', 'r2', 'r3']).commitmentOf(NET, POOL, CLAIM_A), answers.a, 'a third RPC can settle it');
+  assert.strictEqual(await reader(['a'], ['r1']).commitmentOf(NET, POOL, CLAIM_A), answers.a, 'one configured RPC is its own quorum');
+  const cnt = makePoolStateReader({ fetchFn: async () => ({ ok: true, json: async () => ({ result: '0x9' }) }), rpcsForNetwork: () => ['r1', 'r2'], keccak256, slots });
+  assert.strictEqual(await cnt.countAt(NET, POOL, 100), 9, 'countAt decodes the count');
+  // The mapping slot is keccak(claimId ‖ uint256(77)), as cast index bytes32 <claimId> 77.
+  let asked = null;
+  const spy = makePoolStateReader({ fetchFn: async (_r, o) => { asked = JSON.parse(o.body).params[1]; return { ok: true, json: async () => ({ result: '0x0' }) }; }, rpcsForNetwork: () => ['r1'], keccak256, slots });
+  await spy.commitmentOf(NET, POOL, '0xa105d6f942871865847e48b6e628397bb00bff17b276da9c69fd8c79d16b386c');
+  assert.strictEqual(asked, '0x' + Buffer.from(keccak256(Buffer.from('a105d6f942871865847e48b6e628397bb00bff17b276da9c69fd8c79d16b386c' + u256(77), 'hex'))).toString('hex'), 'commitment slot = keccak(claimId ‖ 77)');
+  ok('makePoolStateReader: a storage value stands only when two RPCs agree; slots match the pool layout');
+}
+
+console.log(`\n${n}/9 cross-out consumer (read + bind + wire + pool storage) checks passed`);
