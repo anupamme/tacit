@@ -228,4 +228,38 @@ const routeOp = { asset0: 'aa', assetFinal: 'bb', hops: [{ reserveAPre: '1000', 
   ok('nextBatch: race-narrowing applies per-batch with a single shared wait, not per-job');
 }
 
+// ───────────────── 12. nextBatch({ mixed }) claims any board-eligible type whose roots agree; the plain batch stays transfer-only ─────────────────
+{
+  const store = freshStore();
+  const q = makeConfidentialSettler({ storage: store, hash, now, sleep: instantSleep });
+  const cb = '0xcb', root = '0xr1';
+  const wrap = await q.submitJob({ type: 'wrap', op: { chainBinding: cb, value: '1' } });                       // no roots of its own
+  const xfer = await q.submitJob({ type: 'transfer', op: { chainBinding: cb, spendRoot: root, fee: 0 } });
+  const cdp = await q.submitJob({ type: 'cdpclose', op: { chainBinding: cb, spendRoot: root, cdpPositionRoot: '0xp1' } });
+  const other = await q.submitJob({ type: 'transfer', op: { chainBinding: cb, spendRoot: '0xr2', fee: 1 } });    // another spend root
+  const cdp2 = await q.submitJob({ type: 'cdptopup', op: { chainBinding: cb, spendRoot: root, cdpPositionRoot: '0xp2' } }); // another position root
+  const exit = await q.submitJob({ type: 'unwrap', op: { chainBinding: cb, spendRoot: root } });
+  { const rec = await store.getJob(exit.jobId); rec.exit = { exitedAsset: '0x' + '11'.repeat(32) }; await store.putJob(exit.jobId, rec); } // a relayed exit, activated after its own settle
+  const embedded = await q.submitJob({ type: 'wraptransfer', op: { chainBinding: cb, spendRoot: root } });        // not a plain pool.settle
+  const proveOnly = await q.submitJob({ type: 'unwrap', op: { chainBinding: cb, spendRoot: root, value: '2' }, mode: 'prove' });
+  const picked = await q.nextBatch({ max: 8, mixed: true });
+  assert.deepEqual(picked.map((j) => j.jobId), [wrap.jobId, xfer.jobId, cdp.jobId], 'the wrap, the transfer and the close share roots; the rest wait');
+  assert.deepEqual(picked.map((j) => j.type), ['wrap', 'transfer', 'cdpclose']);
+  for (const left of [other, cdp2, exit, embedded, proveOnly]) assert.strictEqual((await store.getJob(left.jobId)).status, 'pending', `${left.jobId} is left in the queue`);
+  // The next mixed round takes what agrees with the first job it reaches.
+  const next = await q.nextBatch({ max: 8, mixed: true });
+  assert.deepEqual(next.map((j) => j.jobId), [other.jobId], 'the other spend root leads its own batch; nothing else agrees with it');
+  ok('nextBatch mixed: board-eligible types with agreeing roots travel together; exits, embedded proofs and prove-only jobs do not');
+}
+{
+  const q = makeConfidentialSettler({ storage: freshStore(), hash, now, sleep: instantSleep });
+  await q.submitJob({ type: 'wrap', op: { chainBinding: '0xcb', value: '1' } });
+  const t1 = await q.submitJob({ type: 'transfer', op: { chainBinding: '0xcb', spendRoot: '0xr', fee: 0 } });
+  const t2 = await q.submitJob({ type: 'transfer', op: { chainBinding: '0xcb', spendRoot: '0xr', fee: 1 } });
+  await q.submitJob({ type: 'cdpclose', op: { chainBinding: '0xcb', spendRoot: '0xr', cdpPositionRoot: '0xp' } });
+  const picked = await q.nextBatch({ max: 8 });
+  assert.deepEqual(picked.map((j) => j.jobId), [t1.jobId, t2.jobId], 'without mixed: transfers only, as the transfer batch binary expects');
+  ok('nextBatch: the plain batch is still transfers that share a spend root');
+}
+
 console.log(`\n${n} confidential-settle checks passed.`);

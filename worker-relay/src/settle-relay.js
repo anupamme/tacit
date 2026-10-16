@@ -22,7 +22,8 @@
 
 import { CFG, ADDR, OP_GAS, DEFAULT_OP_GAS, OP_PROVE } from './lib/config.js';
 import { confidentialJob, confidentialBatch, confidentialAck, confidentialActivateAck, confidentialOpenList, confidentialOpenJob, heartbeat, heartbeatIdle, setHeartbeatLedger, relayBooks } from './lib/worker-client.js';
-import { proveSettle } from './lib/prover.js';
+import { proveSettle, proveMixed } from './lib/prover.js';
+import { notExecuted } from './lib/stdin-prover.js';
 import { assertMemosMatchProof } from './lib/memo-root.js';
 import { consumedInput, consumedAck, unlandedDeposits, spentInputsOf, noteNullifier } from './lib/spent-precheck.js';
 import { findCarrier, isRevert } from './lib/landed-elsewhere.js';
@@ -524,9 +525,16 @@ async function settleOne(j) {
   }
 }
 
+// Ops of different types share a settle when SETTLE_BATCH_MIXED=1 (lib/prover.js proveMixed). A batch the network could
+// not execute means the joined input was wrong for the guest, and asking the same way again would cost a request per
+// cycle, so mixed batching rests for a while after one and says so.
+const MIXED_REST_MS = 30 * 60_000;
+let mixedRestUntil = 0;
+const mixedOn = () => CFG.settleBatchMixed && !!CFG.networkPrivateKey && Date.now() >= mixedRestUntil;
+
 async function batchCycle() {
   if (CFG.settleBatchMax <= 1) return false;
-  let jobs = await confidentialBatch(CFG.settleBatchMax);
+  let jobs = await confidentialBatch(CFG.settleBatchMax, { mixed: mixedOn() });
   if (!jobs.length) return false;
 
   // Gate every member exactly as the single-job path does. Refused members are acked individually — one underpaying member must not sink the others — and the rest carry on. The gate
@@ -539,8 +547,14 @@ async function batchCycle() {
     await confidentialAck({ jobId: job.jobId, error: `feeGate: ${verdict.publicReason || verdict.reason}` });
   }
   if (!admitted.length) return true; // we did work (refusing), so the loop should poll again immediately
+  // The single path's checks that fail a job without a proof: a member they would fail would only fail the batch's settle.
+  // (Transfers are checked for a consumed input, as before; the other types a mixed batch takes have their own.)
   jobs = [];
-  for (const j of admitted) if (!(await skipConsumed(j))) jobs.push(j);
+  for (const j of admitted) {
+    if (await skipExpired(j) || await skipConsumed(j)) continue;
+    if (j.type !== 'transfer' && (await skipUnlanded(j) || await skipBlockedMint(j))) continue;
+    jobs.push(j);
+  }
   // Two members spending the same note can never prove together (the second is a double spend); in practice it is a
   // user retrying a send that looked stuck. The first stays in the batch, and the rest settle on their own once the
   // batch is done, where they resolve against what the first one did.
@@ -571,6 +585,7 @@ async function batchCycle() {
     // released back rather than failed — the ordinary single-op path settles them correctly.
     const wrongType = jobs.filter((j) => j.type !== 'transfer');
     if (wrongType.length) {
+      if (mixedOn()) return await settleMixed(jobs);
       log(`REFUSING to batch: ${wrongType.length} non-transfer job(s) claimed (${[...new Set(wrongType.map((j) => j.type))].join(', ')}) — batchtransfer folds transfers only`);
       for (const id of ids) await confidentialAck({ jobId: id, error: 'released: non-transfer job claimed into a transfer batch' });
       return true;
@@ -608,6 +623,39 @@ async function batchCycle() {
   } finally {
     for (const j of later) await settleOne(j);
   }
+}
+
+// Several claimed ops of different types in one proof and one settle. Their memos go with the settle in op order, as the
+// proof commits to them. A proof that fails leaves each member to settle on its own (settleOne, with its own credit check:
+// a request over several ops needs more credit on hand than one over a single op, so a batch the account could not cover
+// is not a reason to pause); a settle that fails does the same.
+async function settleMixed(jobs) {
+  const ids = jobs.map((j) => j.jobId);
+  const memos = jobs.flatMap((j) => (Array.isArray(j.memos) ? j.memos : []));
+  log(`batching ${jobs.length} ops (${jobs.map((j) => j.type).join(', ')}) into one settle: ${ids.map((i) => i.slice(0, 10)).join(' ')}`);
+  let proof;
+  try {
+    proof = await beating(`proving a batch of ${jobs.length}`, () => proveMixed({ items: jobs.map((j) => ({ type: j.type, op: j.op, memos: j.memos || [] })), timeoutMs: CFG.settleJobTimeoutSecs * 1000 }));
+  } catch (e) {
+    if (notExecuted(e)) {
+      mixedRestUntil = Date.now() + MIXED_REST_MS;
+      log(`MIXED BATCH NOT EXECUTED by the network (${e.message}); ops of different types settle on their own for the next ${MIXED_REST_MS / 60_000} minutes`);
+    } else {
+      log(`mixed batch prove failed, settling members one by one: ${e.message}`);
+    }
+    for (const j of jobs) await settleOne(j);
+    return true;
+  }
+  try {
+    const txHash = await submitSettle(proof, memos, `batch(${jobs.length})`);
+    for (const id of ids) await confidentialAck({ jobId: id, txHash });
+    log(`mixed batch settled: n=${jobs.length} tx=${txHash}${proof.private === false ? ' (public input)' : ''}`);
+    bookSettled(jobs, txHash);
+  } catch (e) {
+    log(`mixed batch settle failed, settling members one by one: ${e.message}`);
+    for (const j of jobs) await settleOne(j);
+  }
+  return true;
 }
 
 // A settle is paid from the settle wallet after its proof is bought, and a node refuses a send whose worst-case fee

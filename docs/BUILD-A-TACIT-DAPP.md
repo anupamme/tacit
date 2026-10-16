@@ -326,7 +326,9 @@ To pay a plain 0x address an exact amount out of a larger note, with the rest ke
 - **Discovery cost.** A fresh restore walks the lock events from the pool's deploy block. `/confidential/index` speeds it up, and is not required.
 
 Fees: by default the relay proves *and* submits, and the fee must clear its gas-priced floor
-(`tacit.quoteOpFee(...)`, or `GET /confidential/quote?asset=cETH`). `selfRelay: true` with `fee: 0n` has the
+(`tacit.quoteOpFee(...)`, or `GET /confidential/quote?asset=cETH`). Ops queued at the same time may share one
+proof and one settle transaction (the guest proves several ops against one set of roots); each op's fee legs
+and memos are its own, and `GET /confidential/status?id=` reports the shared transaction for every member. `selfRelay: true` with `fee: 0n` has the
 relay prove while **you** submit and pay gas. The relay still receives the witness; what you avoid is the fee
 and the relay's address on the transaction. To keep the witness to yourself, prove the op yourself with its
 harness in [`contracts/sp1/confidential/harnesses/`](../contracts/sp1/confidential/harnesses/)

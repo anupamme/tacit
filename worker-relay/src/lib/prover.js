@@ -14,6 +14,7 @@ import { POOL } from './chain.js';
 import { reflectionEthProofPatient } from './worker-client.js';
 import { privateProvePlan, retryPublic } from './private-prove.js';
 import { CREDIT_SHORT } from './prove-pause.js';
+import { makeStdinProver } from './stdin-prover.js';
 
 function proverEnv(extra = {}) {
   // Env the spawned SP1 binary reads to route to the Succinct network prover.
@@ -271,6 +272,17 @@ export async function proverCredit({ timeoutMs = 30_000 } = {}) {
     const m = /BALANCE=(\d+)/.exec(out);
     return code === 0 && m ? BigInt(m[1]) : null;
   } catch { return null; }
+}
+
+// Several ops of different types in ONE proof, from one program input built here and requested from the network directly
+// (lib/stdin-prover.js): the per-op binaries above prove one op each, and exec-batchtransfer transfers only. `items` are
+// [{ type, op, memos }] in settle order. → { publicValues, proof, requestId, private, numOps }
+let stdinProver = null;
+export async function proveMixed({ items, timeoutMs }) {
+  if (!CFG.networkPrivateKey) throw new Error('proveMixed: NETWORK_PRIVATE_KEY is not set');
+  stdinProver ||= makeStdinProver({ key: CFG.networkPrivateKey, rpc: CFG.networkRpcUrl, env: process.env });
+  const tag = `[prover ${new Date().toISOString()}] mixed(${items.length})`;
+  return stdinProver.proveBatch({ items, timeoutMs, onUpdate: (u) => console.log(`${tag} ${u.requestId ? u.requestId.slice(0, 10) + ' ' : ''}${u.status}/${u.stage}${u.public ? ' (public input)' : ''}`) });
 }
 
 export async function proveSettle({ type, op, memos = [], timeoutMs }) {

@@ -3360,9 +3360,10 @@ async function handleConfidentialJob(req, env, cors) {
   if (!checkConfidentialAuth(req, env)) return jsonResponse({ error: 'not found' }, 404, cors);
   // ?batch=N asks for up to N jobs that can share one settle; the single-job shape is unchanged for callers
   // that don't ask, so an older relay keeps working against a newer worker.
+  // &mixed=1 lets ops of different types share it (the relay proves them from one program input).
   const want = Number(new URL(req.url).searchParams.get('batch') || 0);
   if (want > 1) {
-    const jobs = await q.nextBatch({ max: Math.min(want, 16) });
+    const jobs = await q.nextBatch({ max: Math.min(want, 16), mixed: new URL(req.url).searchParams.get('mixed') === '1' });
     return jsonResponse({ jobs }, 200, { ...cors, 'Cache-Control': 'no-store' });
   }
   // ?mode=prove takes only jobs that want a proof back (the page sends the settle itself); an older relay that

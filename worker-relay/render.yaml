@@ -206,6 +206,11 @@ services:
       # split it (proving is per-op and does not amortize). 1 disables batching.
       - key: SETTLE_BATCH_MAX
         value: "8"
+      # Ops of different types in one settle too (every type the open board takes), proved from one program input the
+      # relay builds and requests from the network itself (lib/stdin-prover.js): the request's fixed cost is split across
+      # the batch. Off until a live batch has settled; the transfer-only batch above does not depend on it.
+      - key: SETTLE_BATCH_MIXED
+        value: "0"
       # Ordered PRIVATE submission endpoints. A settle pays its bound fee to msg.sender, so it is kept out of
       # the public mempool; several endpoints mean one refusing a valid tx does not discard a paid proof.
       - key: SETTLE_RPC_URLS

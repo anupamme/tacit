@@ -166,8 +166,9 @@ export async function confidentialOpenJob(jobId) {
 }
 // Claim several jobs that can share one settle. Falls back to a single job when the worker is older (no
 // `jobs` key) so the relay never wedges on a version skew.
-export async function confidentialBatch(max = 8) {
-  const r = await getJson(`/confidential/job?batch=${max}`);
+// `mixed`: ops of different types too (the relay proves those from one program input; lib/prover.js proveMixed).
+export async function confidentialBatch(max = 8, { mixed = false } = {}) {
+  const r = await getJson(`/confidential/job?batch=${max}${mixed ? '&mixed=1' : ''}`);
   if (r && Array.isArray(r.jobs)) return r.jobs;
   return r && r.jobId ? [r] : [];
 }

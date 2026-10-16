@@ -38,7 +38,7 @@ const addrWord = (a) => String(a).replace(/^0x/, '').toLowerCase().padStart(64, 
 // transport: an HTTP/2 fetch for the network's RPC outside a browser (succinct-net.js). gasLimit: a lower cap on a request's gas than GAS_LIMIT.
 // input: 'auto' (private, or public while the network refuses private inputs) or 'private' (private only: such a refusal throws
 // code 'private_off').
-export function makeSelfProver({ priv, address, secp, keccak256, fetchImpl, transport, proxyBase = 'https://api.tacit.finance', rpc, gasLimit = GAS_LIMIT, input = 'auto' } = {}) {
+export function makeSelfProver({ priv, address, secp, keccak256, fetchImpl, transport, proxyBase = 'https://api.tacit.finance', rpc, gasLimit = GAS_LIMIT, input = 'auto', whitelist } = {}) {
   if (typeof priv !== 'function') throw new Error('self-prover: priv must be a function returning the account key');
   const net = makeSuccinctNetwork({ fetchImpl, transport, proxyBase, secp, keccak256, ...(rpc ? { rpc } : {}) });
   const supports = (type) => SELF_PROVE_TYPES.includes(type);
@@ -60,10 +60,15 @@ export function makeSelfProver({ priv, address, secp, keccak256, fetchImpl, tran
   // keccak256 of each memo, in order, as the relay's own prover feeds it.
   // `public: true` rides on every update once the request goes with a public input, and the result says `private`.
   async function prove({ type, op, memos = [], onUpdate = () => {} }) {
-    const tell = once(onUpdate);
     const { cycleLimit, gasLimit } = limits(type);
     const memoHashes = memos.map((m) => hex(keccak256(unhex(m))));
-    const stdin = stdinFor(type, { ...op, memoHashes });
+    return proveStdin({ stdin: stdinFor(type, { ...op, memoHashes }), cycleLimit, gasLimit, onUpdate });
+  }
+
+  // The same for a program input already built (batchStdin joins several ops into one; the relay proves those), with the
+  // request's own limits, and `timeoutSecs` as the request's deadline when the caller has one.
+  async function proveStdin({ stdin, cycleLimit, gasLimit, timeoutSecs, onUpdate = () => {} }) {
+    const tell = once(onUpdate);
     const r = await inLane(async () => {
       const [have, need] = await Promise.all([net.balance(address), net.needWei({ gasLimit })]);
       if (have < need) {
@@ -71,9 +76,9 @@ export function makeSelfProver({ priv, address, secp, keccak256, fetchImpl, tran
         e.code = 'prover_credit'; e.have = have; e.need = need;
         throw e;
       }
-      const pub = input === 'auto' && net.privateOff();
+      const pub = input === 'public' || (input === 'auto' && net.privateOff());
       tell({ status: 'proving', stage: 'uploading', ...(pub ? { public: true } : {}) });
-      return net.requestProof({ priv: priv(), stdinZstd: zstdFrame(stdin), cycleLimit, gasLimit, input,
+      return net.requestProof({ priv: priv(), stdinZstd: zstdFrame(stdin), cycleLimit, gasLimit, input, timeoutSecs, ...(whitelist ? { whitelist } : {}),
         onPublic: () => tell({ status: 'proving', stage: 'uploading', public: true }) });
     });
     const pub = r.private === false;
@@ -100,7 +105,7 @@ export function makeSelfProver({ priv, address, secp, keccak256, fetchImpl, tran
   }
 
   // privateOff(): the network refused a private input in the last ten minutes, so the next proof goes public at once.
-  return { address, supports, needWei, balance: () => net.balance(address), prove, resume, privateOff: () => net.privateOff() };
+  return { address, supports, needWei, balance: () => net.balance(address), prove, proveStdin, resume, privateOff: () => net.privateOff() };
 }
 
 const fmt = (wei) => (Number(wei) / 1e18).toFixed(2);

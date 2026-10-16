@@ -582,7 +582,12 @@ test('private only: a network refusing private inputs throws private_off and sen
   await assert.rejects(net.requestProof({ priv: KEY, stdinZstd: zstdLike, cycleLimit: 1, gasLimit: 1 }), (e) => e.code === 'private_off' && e.grpcStatus === 7);
   assert.deepEqual(off.asked.map((b) => b.stdinPrivate), [true]);
   assert.equal(off.uploads.length, 1);
-  await assert.rejects(net.requestProof({ priv: KEY, stdinZstd: zstdLike, cycleLimit: 1, gasLimit: 1, input: 'public' }), /input must be/);
+  await assert.rejects(net.requestProof({ priv: KEY, stdinZstd: zstdLike, cycleLimit: 1, gasLimit: 1, input: 'both' }), /input must be/);
+  // 'public' asks for a public input from the start, with no whitelist needed: the relay's own requests while private inputs are off.
+  const pub = await net.requestProof({ priv: KEY, stdinZstd: zstdLike, cycleLimit: 1, gasLimit: 1, input: 'public', whitelist: [] });
+  assert.equal(pub.private, false);
+  assert.deepEqual(off.asked.map((b) => b.stdinPrivate), [true, false]);
+  assert.deepEqual(off.asked[1].whitelist, []);
 });
 
 test('a credit too low for the request is final: no lookup for a request that was never made', async () => {

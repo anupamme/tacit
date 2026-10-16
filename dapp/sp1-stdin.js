@@ -865,6 +865,63 @@ export function stdinFor(type, op) {
   return encode(w.entries);
 }
 
+// Several ops in one program input, as exec-mixed.rs and exec-batchtransfer.rs write it: the header once, the number of
+// ops, every op's body in the order given, then every op's memo hashes in that same order. The guest proves each op
+// against the header's roots, so two ops that name different values for the same root cannot share an input; an op that
+// leaves a root at zero takes whatever root the others carry. `items` is [{ type, op }], each op with its own
+// `memoHashes`. → { stdin, numOps, roots }: the input, how many ops the guest reads, and the header's six roots.
+export function batchStdin(items) {
+  if (!Array.isArray(items) || !items.length) throw new Error('sp1-stdin: a batch needs at least one op');
+  const roots = Array.from({ length: HEADER_ROOTS }, () => null);
+  const bodies = [], memoEntries = [];
+  let numOps = 0;
+  items.forEach((it, i) => {
+    const type = it && it.type;
+    if (!own.call(BUILD, type)) throw new Error(`sp1-stdin: no program input for op type ${JSON.stringify(type)} (batch item ${i})`);
+    if (!isObj(it.op)) throw new Error(`sp1-stdin ${type}: op must be an object (batch item ${i})`);
+    const f = JSON.parse(JSON.stringify(it.op, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)));
+    const r = reader(type);
+    const F = r.at(f);
+    const w = writer();
+    BUILD[type](w, F, r);
+    const e = w.entries;
+    // Every builder starts with the six roots (a 32-byte Vec<u8> each) and the u32 count of the ops its body holds.
+    if (e.length < HEADER_ROOTS + 1 || e.slice(0, HEADER_ROOTS).some((x) => x.length !== 8 + 32) || e[HEADER_ROOTS].length !== 4) {
+      throw new Error(`sp1-stdin ${type}: its input does not start with the batch header`);
+    }
+    for (let k = 0; k < HEADER_ROOTS; k++) {
+      const root = e[k].subarray(8);
+      if (root.every((b) => b === 0)) continue;
+      if (roots[k] === null) roots[k] = root;
+      else if (!same(roots[k], root)) throw Object.assign(new Error(`sp1-stdin: ${type} (batch item ${i}) names another ${ROOT_NAMES[k]} than the ops before it`), { code: 'roots' });
+    }
+    numOps += new DataView(e[HEADER_ROOTS].buffer, e[HEADER_ROOTS].byteOffset, 4).getUint32(0, true);
+    bodies.push(...e.slice(HEADER_ROOTS + 1));
+    const wm = writer();
+    memos(wm, F, r);
+    memoEntries.push(...wm.entries);
+  });
+  const h = writer();
+  for (const root of roots) h.b(root || Z32);
+  h.u32(numOps);
+  return { stdin: encode([...h.entries, ...bodies, ...memoEntries]), numOps, roots: roots.map((x) => (x ? toHex(x) : null)) };
+}
+const HEADER_ROOTS = 6;
+const ROOT_NAMES = ['chainBinding', 'spendRoot', 'bitcoinSpentRoot', 'bitcoinBurnRoot', 'lockSetRoot', 'cdpPositionRoot'];
+const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+const toHex = (b) => '0x' + Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+
+// The cycle and gas limits for a request over several ops: each op's own, added up.
+export function batchLimits(types) {
+  let cycleLimit = 0n, gasLimit = 0n;
+  for (const t of types) {
+    const l = LIMITS[t];
+    if (!l) throw new Error(`sp1-stdin: no limits for op type ${JSON.stringify(t)}`);
+    cycleLimit += l.cycleLimit; gasLimit += l.gasLimit;
+  }
+  return { cycleLimit, gasLimit };
+}
+
 // A zstd frame (RFC 8878) holding `bytes` uncompressed: the magic number, a frame header with Single_Segment set and the
 // content size, the content in raw blocks of at most 128 KiB with the last flagged, and no checksum.
 export function zstdFrame(bytes) {

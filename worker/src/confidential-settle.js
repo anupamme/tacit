@@ -364,22 +364,30 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
     return null;
   }
 
-  // Claim up to `max` settle-mode jobs that can share ONE settle. The guest proves a batch against a single
-  // spendRoot, so only jobs already carrying the same root (and chain binding) can travel together — true for
-  // anything queued between two settles. Batching splits the settle's gas across its members and stops each
-  // settle transaction from being a one-user event. FIFO order is preserved; a job that doesn't fit the
-  // batch's root is simply left for the next round rather than reordered around.
+  // Claim up to `max` settle-mode jobs that can share ONE settle. The guest proves a batch against one header of
+  // roots, so only jobs whose roots agree (and the same chain binding) can travel together — true for anything
+  // queued between two settles. Batching splits the settle's gas across its members and stops each settle
+  // transaction from being a one-user event. FIFO order is preserved; a job that doesn't fit the batch's roots is
+  // simply left for the next round rather than reordered around.
   // Job types that can share one settle. This is NOT a tuning knob: the relay proves a claimed batch as
   // `batchtransfer`, a transfer-specific guest op, so anything added here without a matching guest batch
   // type would be folded by a circuit that does not understand it. Swaps have their own answer — intent
   // batching through OP_SWAP, which amortises the PROOF rather than the gas — and it lives in the dapp
   // coordinator, not here. The relay re-checks this at the point it builds the op.
   const BATCHABLE_TYPES = ['transfer'];
+  // `mixed`: every op whose settle is a plain pool.settle may share one (OPEN_TYPES: the same rule as the open board),
+  // proved by the relay from one program input over all of them (dapp/sp1-stdin.js batchStdin). Each root an op names
+  // must equal what the batch already carries; a root an op leaves out (a wrap has none) fits any batch. A relayed exit
+  // stays on its own, since its activation follows its own settle.
+  const ROOTS = ['spendRoot', 'bitcoinSpentRoot', 'bitcoinBurnRoot', 'lockSetRoot', 'cdpPositionRoot'];
+  const isZero = (v) => !v || /^(0x)?0*$/.test(String(v));
 
-  async function nextBatch({ max = 8, types = BATCHABLE_TYPES } = {}) {
+  async function nextBatch({ max = 8, types = BATCHABLE_TYPES, mixed = false } = {}) {
+    if (mixed) types = OPEN_TYPES;
     const pend = await storage.getPending();
     const claimed = []; // { id, j, nonce } — verified in one shared wait below, not per-job
-    let root = null, binding = null;
+    let binding = null;
+    const roots = {};
     for (const id of pend) {
       if (claimed.length >= max) break;
       const c = await exclusive(async () => {
@@ -389,10 +397,15 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
         if (!claimable) return null;
         if ((j.mode || 'settle') !== 'settle') return null; // prove-only jobs are user-sent, never batched
         if (!types.includes(j.type)) return null;
-        const r = j.op && j.op.spendRoot, b = j.op && j.op.chainBinding;
-        if (!r || !b) return null;
-        if (root === null) { root = r; binding = b; }
-        else if (r !== root || b !== binding) return null;
+        if (mixed && j.exit) return null;
+        const op = j.op || {}, b = op.chainBinding;
+        if (!b || (!mixed && isZero(op.spendRoot))) return null;
+        if (binding === null) binding = b;
+        else if (b !== binding) return null;
+        const named = ROOTS.filter((k) => !isZero(op[k]));
+        if (!mixed && named.some((k) => k !== 'spendRoot')) return null;
+        if (named.some((k) => roots[k] !== undefined && String(roots[k]).toLowerCase() !== String(op[k]).toLowerCase())) return null;
+        for (const k of named) roots[k] = op[k];
         const nonce = crypto.randomUUID();
         j.status = 'proving'; j.claimedAt = clock(); j.claimNonce = nonce;
         await storage.putJob(id, j);

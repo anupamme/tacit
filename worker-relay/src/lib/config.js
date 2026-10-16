@@ -182,6 +182,10 @@ export const CFG = {
   // does not amortize, so the win flattens out — and a bigger batch means a longer proof and more ops lost
   // together if it fails. 1 disables batching.
   settleBatchMax: num('SETTLE_BATCH_MAX', 8),
+  // Ops of different types in one settle too (every type the open board takes), proved from one program input built here
+  // and requested from the network directly (lib/stdin-prover.js) rather than through a per-op binary. Off until it has
+  // settled a real batch; the transfer-only batch above does not depend on it.
+  settleBatchMixed: opt('SETTLE_BATCH_MIXED', '0') === '1',
   // Resident-memory caps for a settle's prover child, in KB (lib/prover.js run). The container's ceiling is 2 GiB
   // and the service itself needs some of it; a batch is held tighter, since a batch that cannot prove here just
   // settles its members one at a time.

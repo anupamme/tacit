@@ -237,3 +237,53 @@ test('shapes a harness cannot read are refused; defaults it applies are kept', (
     assertSame(stdinFor(type, o), ref, name);
   }
 });
+
+// ── several ops in one input (batchStdin), as exec-mixed.rs writes a transfer and an unwrap ──
+import { batchStdin, batchLimits } from '../dapp/sp1-stdin.js';
+
+const list = (b) => entries(b).out;
+const body = (type, op) => list(stdinFor(type, op)).slice(7); // past the six roots and the count (an op with no memo hashes)
+const memoless = (op) => ({ ...op, memoHashes: [] });
+
+test('batchStdin: the header once, the count, each op\'s body in order, then every op\'s memo hashes in order', () => {
+  const T = load('transfer'), U = load('unwrap');
+  const opT = { ...T.op, memoHashes: ['0x' + '11'.repeat(32), '0x' + '22'.repeat(32)] };
+  const opU = { ...U.op, memoHashes: ['0x' + '33'.repeat(32)] };
+  const { stdin, numOps, roots } = batchStdin([{ type: 'transfer', op: { ...opT, spendRoot: opU.spendRoot } }, { type: 'unwrap', op: opU }]);
+  const e = list(stdin);
+  const single = (type, op) => list(stdinFor(type, op));
+  const eT = single('transfer', { ...opT, spendRoot: opU.spendRoot, memoHashes: [] }), eU = single('unwrap', { ...opU, memoHashes: [] });
+  assert.equal(numOps, 2);
+  assert.deepEqual(e.slice(0, 6), eU.slice(0, 6), 'the header is the one both ops carry');
+  assert.equal(e[6], '02000000', 'num_ops = 2');
+  const bT = eT.slice(7), bU = eU.slice(7);
+  assert.deepEqual(e.slice(7, 7 + bT.length), bT, 'the transfer body comes first');
+  assert.deepEqual(e.slice(7 + bT.length, 7 + bT.length + bU.length), bU, 'then the unwrap body');
+  const tail = e.slice(7 + bT.length + bU.length);
+  assert.deepEqual(tail, opT.memoHashes.concat(opU.memoHashes).map((h) => '2000000000000000' + h.slice(2)), 'then the memo hashes, transfer\'s first');
+  assert.equal(roots[1], opU.spendRoot.toLowerCase());
+  assert.equal(roots[2], null);
+});
+
+test('batchStdin: a wrap (no roots of its own) joins a transfer under the transfer\'s root; two different spend roots cannot share an input', () => {
+  const W = load('wrap'), T = load('transfer');
+  const { stdin, numOps, roots } = batchStdin([{ type: 'wrap', op: memoless(W.op) }, { type: 'transfer', op: memoless(T.op) }]);
+  const e = list(stdin);
+  assert.equal(numOps, 2);
+  assert.equal(roots[1], T.op.spendRoot.toLowerCase(), 'the header takes the transfer\'s spend root');
+  assert.equal(e[6], '02000000');
+  assert.deepEqual(e.slice(7, 7 + body('wrap', memoless(W.op)).length), body('wrap', memoless(W.op)));
+  const other = { ...memoless(T.op), spendRoot: '0x' + 'ab'.repeat(32) };
+  assert.throws(() => batchStdin([{ type: 'transfer', op: memoless(T.op) }, { type: 'transfer', op: other }]), /another spendRoot/);
+});
+
+test('batchStdin: a stealth lock batch counts each of its locks; the limits add up', () => {
+  const B = load('stealthlockbatch');
+  const { numOps } = batchStdin([{ type: 'stealthlockbatch', op: memoless(B.op) }, { type: 'wrap', op: memoless(load('wrap').op) }]);
+  assert.equal(numOps, B.op.ops.length + 1);
+  const l = batchLimits(['transfer', 'lp', 'wrap']);
+  assert.equal(l.cycleLimit, LIMITS.transfer.cycleLimit + LIMITS.lp.cycleLimit + LIMITS.wrap.cycleLimit);
+  assert.equal(l.gasLimit, LIMITS.transfer.gasLimit + LIMITS.lp.gasLimit + LIMITS.wrap.gasLimit);
+  assert.throws(() => batchStdin([]), /at least one op/);
+  assert.throws(() => batchStdin([{ type: 'nope', op: {} }]), /no program input/);
+});

@@ -434,9 +434,10 @@ export function makeSuccinctNetwork({ transport, fetchImpl, rpc = SPN.rpc, proxy
 
   // Ask for a groth16 proof of the guest. `priv` is the requesting account's key (hex or bytes); it signs here and is not
   // kept. `stdinZstd` is zstd(bincode(SP1Stdin)). `input`: 'private' (only provers on `whitelist` may take it; a network that
-  // refuses private inputs throws code 'private_off') or 'auto' (the same, and while the network refuses private inputs, a
-  // public input open to every prover; `onPublic()` is told before it is sent). The refusal is remembered for ten minutes, so
-  // the requests after it go public without asking again. → { requestId, txHash, deadline, address, private }
+  // refuses private inputs throws code 'private_off'), 'auto' (the same, and while the network refuses private inputs, a
+  // public input open to every prover; `onPublic()` is told before it is sent) or 'public' (a public input from the start).
+  // The refusal is remembered for ten minutes, so the requests after it go public without asking again.
+  // → { requestId, txHash, deadline, address, private }
   let privateOffAt = 0;
   const privateOff = () => Date.now() - privateOffAt < PRIVATE_OFF_MS;
   async function requestProof({ priv, stdinZstd, cycleLimit, gasLimit, whitelist = SPN.provers, timeoutSecs, input = 'private', onPublic = null } = {}) {
@@ -446,15 +447,15 @@ export function makeSuccinctNetwork({ transport, fetchImpl, rpc = SPN.rpc, proxy
     if (!bytes || bytes.length < 4 || bytes[0] !== 0x28 || bytes[1] !== 0xb5 || bytes[2] !== 0x2f || bytes[3] !== 0xfd) {
       throw new Error('succinct-net: stdinZstd must be a zstd frame');
     }
-    if (input !== 'private' && input !== 'auto') throw new Error("succinct-net: input must be 'private' or 'auto'");
+    if (input !== 'private' && input !== 'auto' && input !== 'public') throw new Error("succinct-net: input must be 'private', 'auto' or 'public'");
     const cycles = posInt(cycleLimit, 'cycleLimit'), gas = posInt(gasLimit, 'gasLimit');
     const provers = Array.isArray(whitelist) ? whitelist.map((a) => asBytes(a, 20)) : [];
     // An empty list opens the auction to every prover, and those that win a private request without reading it let it
     // expire at the requester's cost: refuse it rather than send one.
-    if (!provers.length) throw new Error('succinct-net: a private request needs a prover whitelist');
+    if (!provers.length && input !== 'public') throw new Error('succinct-net: a private request needs a prover whitelist');
     const address = addressOf({ secp, keccak256 }, key);
     const once = (isPrivate) => requestOnce({ key, address, bytes, cycles, gas, provers: isPrivate ? provers : [], isPrivate, timeoutSecs });
-    if (input === 'private' || !privateOff()) {
+    if (input === 'private' || (input === 'auto' && !privateOff())) {
       try { return { ...(await once(true)), private: true }; }
       catch (e) {
         if (!privateRefused(e)) throw e;
