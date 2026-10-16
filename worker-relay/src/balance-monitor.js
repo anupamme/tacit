@@ -9,6 +9,7 @@
 //     wait in the queue, or the relay wallet cannot keep an attest back and still send headers, so the Bitcoin headers
 //     and attests stop; a settle wallet with under N days of runway, or any wallet under the buffer (warnings)
 //   * reflection lag (relay tip - attested Bitcoin height) > N blocks
+//   * the API's Bitcoin block scan trailing the chain tip (BTC_SCAN_LAG_WARN_BLOCKS / _CRITICAL_BLOCKS) — lib/scan-lag.js
 //   * reflection snapshot size > warn threshold — the one cumulative resource
 //   * reflection stalled: no successful attest for REFLECTION_STALL_HOURS with blocks waiting, or the API's cursor
 //     off the pool's digest on two consecutive runs (a lost ack) — lib/reflection-stall.js
@@ -38,6 +39,7 @@ import { blockSecOf, feedLagSec, feedLagLevel } from './lib/feed-lag.js';
 import { settleFundsNeed } from './lib/settle-fees.js';
 import { poolBooks } from './lib/evm-pool-solvency.js';
 import { readTacSupply } from './lib/tac-supply.js';
+import { scanLagVerdict } from './lib/scan-lag.js';
 import { publicClient, relayWallet, watchedWallets, ERC20_ABI, PROVE, readPool, readReflectionDigest, HEADER_RELAY, RELAY_ABI, POOL } from './lib/chain.js';
 import { safeErr } from './lib/safe-err.js';
 
@@ -429,6 +431,26 @@ async function checkCrossOutFold() {
     { onchain, folded, baseline, gap, attestedHeight, gapSinceHours: Number(hours.toFixed(1)) });
 }
 
+// The API's Bitcoin block scan, read as wallets read it (the scanned_height an answer from it carries), against the
+// chain tip from public explorers.
+async function checkBitcoinScan() {
+  let scanned = null, tip = null;
+  try {
+    const r = await fetch(`${CFG.workerBase}/amm/swap-accepted?network=${encodeURIComponent(CFG.network)}&txid=${'0'.repeat(64)}`, { signal: AbortSignal.timeout(15_000) });
+    if (r.ok) scanned = (await r.json()).scanned_height;
+  } catch { /* unknown below */ }
+  const explorers = CFG.network === 'mainnet' ? ['https://mempool.space/api', 'https://blockstream.info/api'] : ['https://mempool.space/signet/api', 'https://blockstream.info/signet/api'];
+  for (const base of explorers) {
+    try {
+      const r = await fetch(`${base}/blocks/tip/height`, { signal: AbortSignal.timeout(10_000) });
+      if (r.ok) { tip = Number(await r.text()); break; }
+    } catch { /* next explorer */ }
+  }
+  const v = scanLagVerdict(Number.isInteger(scanned) ? scanned : null, Number.isInteger(tip) ? tip : null, { warn: CFG.btcScanLagWarnBlocks, critical: CFG.btcScanLagCriticalBlocks });
+  if (v.level === 'ok' || v.level === 'unknown') { log(`bitcoin scan: ${v.why}`); return; }
+  await alert(v.level, `${v.why}: wallets keep the outputs whose credit rests on it pending until it moves`, { scanned, tip, lag: v.lag });
+}
+
 // Mainnet only: the pool-minted tokens beside TAC (tacBTC, tacUSD), the wTAC wrapper, and a retired TAC token with the
 // supply it ended at.
 const TAC_SUPPLY_WATCH = {
@@ -549,7 +571,7 @@ async function checkEvmPoolKeepers() {
 
 async function main() {
   log(`monitor run — worker=${CFG.workerBase} relay=${relayWallet ? relayWallet.account.address : '(no key on this service — watching by address)'}`);
-  const results = await Promise.allSettled([checkProve(), checkEth(), checkReflectionLag(), checkProverKinds(), checkSnapshotCapacity(), checkFarmHealth(), checkPointsFunding(), checkReflectionStall(), checkQueue(), checkEthStatePending(), checkCrossOutFold(), checkEvmPoolKeepers(), checkTacSupply()]);
+  const results = await Promise.allSettled([checkProve(), checkEth(), checkReflectionLag(), checkProverKinds(), checkSnapshotCapacity(), checkFarmHealth(), checkPointsFunding(), checkReflectionStall(), checkQueue(), checkEthStatePending(), checkCrossOutFold(), checkEvmPoolKeepers(), checkTacSupply(), checkBitcoinScan()]);
   for (const r of results) if (r.status === 'rejected') log('check threw:', r.reason?.message || r.reason);
   log(`monitor done — ${criticals} critical${criticals === 1 ? '' : 's'}`);
   // Exit non-zero so the cron run is marked failed even with no webhook configured. A check that THREW is

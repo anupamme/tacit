@@ -415,6 +415,9 @@ export const CFG = {
   // two proofs from zero.
   proveCreditWarn: num('PROVE_CREDIT_WARN', 20),
   proveCreditCritical: num('PROVE_CREDIT_CRITICAL', 5),
+  // Blocks the API's Bitcoin block scan may trail the chain tip before the monitor warns, and pages (lib/scan-lag.js).
+  btcScanLagWarnBlocks: num('BTC_SCAN_LAG_WARN_BLOCKS', 6),
+  btcScanLagCriticalBlocks: num('BTC_SCAN_LAG_CRITICAL_BLOCKS', 36),
   // What each wallet's next transaction can cost, as the services that send them reckon it before sending. A settle:
   // SETTLE_FUNDS_GAS at 3x the base fee plus the settle tip floor (the settle relay leaves jobs queued below it). An
   // attest: REFLECTION_ATTEST_GAS_BUDGET at 2x the base fee plus the tip (the reflection waits below it). The header
