@@ -42,7 +42,7 @@ nobody's daily share.
 ## Turning it on
 
 Set `POINTS_TASKS_BUDGET_WEI` (what was topped up for tasks, in wei) and `POINTS_TASKS_END_SEC` on `tacit-points`, then deploy it.
-Both unset (or the budget 0) leaves `/tasks` answering `{ "enabled": false }` and the page closed. A job also needs an
+Set them in the Render dashboard only: `render.yaml` lists the two keys with `sync: false`, because a blueprint sync (any push that touches that file) writes the file's values back to the service, and a value there switched tasks off once. Both unset (or the budget 0) leaves `/tasks` answering `{ "enabled": false }` and the page closed. A job also needs an
 `opensAt` in its job files: a step mined before it is never credited, and a job with none is closed.
 
 After a top-up for tasks, raise the budget by the same amount. The root-setter's deadline is on chain (`ROOT_UPDATE_DEADLINE`);

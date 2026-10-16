@@ -397,13 +397,15 @@ services:
       - key: POINTS_ROOT_SETTER_KEY         # secret — set in the Render dashboard
         sync: false
       # Task rewards (docs/TASKS.md): TAC for doing a listed job's step, credited as ledger adjustments beside the daily pot.
-      # Off while the budget is 0. The budget is the most that can ever be credited (raise it with each top-up of the
+      # Off while the budget is unset or 0. The budget is the most that can ever be credited (raise it with each top-up of the
       # distributor); the end is UTC seconds and must come before the distributor's ROOT_UPDATE_DEADLINE. Tip, floor, cap and
       # the reserve days (POINTS_TASKS_TIP_BPS, _FLOOR_WEI, _CAP_WEI, _RESERVE_DAYS) have defaults in lib/config.js.
+      # Both are set in the Render dashboard, never here: a blueprint sync (any push that touches this file) writes every value listed
+      # in it back to the service, so a value here would switch tasks off again (it did, 2026-10-16).
       - key: POINTS_TASKS_BUDGET_WEI
-        value: "0"
+        sync: false
       - key: POINTS_TASKS_END_SEC
-        value: "0"
+        sync: false
 
   # Always-on web service: Bitcoin-native shielded pool replay (src/btc-pool-indexer.js). Replays 0x6C/0x6D
   # envelopes from raw blocks and serves roots, Merkle paths, the note feed, nullifier and exit status.
