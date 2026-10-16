@@ -29,6 +29,7 @@ import { createTasks } from './lib/points-tasks-service.js';
 import { checkJob, stepChain } from './lib/points-tasks.js';
 import { quoteTacForEth } from './lib/tac-quote.js';
 import { clientKey } from './lib/token-bucket.js';
+import { mayPublishRoot } from './lib/points-publish-gate.js';
 import { makeClient as holdingClient } from './lib/evm-pool-snapshot-chain.js';
 import { decideBondHolds, accrueBondHolds } from './lib/points-bond-hold.js';
 import { parseCategoryWeights, parseAddressDayCaps, parseCategoryShareCaps, parseEngagementSchedule } from './lib/points-engagement.js';
@@ -1327,6 +1328,7 @@ export function buildRewardTree(rewards) {
 const scanOkAt = {};
 let lastGateLogSec = 0;
 let lastFundingAlertSec = 0;
+const rootPublished = { atSec: 0, throughDay: -Infinity };   // this process's last publish: when, and the last settled day it covered
 const PAGED_SCANNERS = () => ['pp', 'ce', 'pm', ...(CFG.weinameEnabled ? ['weiname'] : [])];
 async function ran(name, fn) {
   const startedAt = Math.floor(Date.now() / 1000);
@@ -1511,6 +1513,8 @@ export async function settleCycle(store, coverage = null) {
   if (!rewards.length) return;
   const tree = buildRewardTree(rewards);
   if (tree.root === state.publishedRoot) return; // nothing new since the last successful publish
+  // A change to history that is already published (a task credit, a late credit) waits for the interval, so a run of them is one root.
+  if (!mayPublishRoot({ nowSec, lastPublishSec: rootPublished.atSec, minIntervalSecs: CFG.pointsRootMinIntervalSecs, settledDay: state.lastSettledDay, publishedThroughDay: rootPublished.throughDay })) return;
 
   const totalWei = BigInt(tree.totalWei);
   const [balance, totalClaimed] = await Promise.all([
@@ -1570,6 +1574,8 @@ export async function settleCycle(store, coverage = null) {
 
   store.savePublishedClaims(tree.claims);
   store.saveSettleState({ ...state, publishedRoot: tree.root, publishedTotalWei: tree.totalWei });
+  rootPublished.atSec = Math.floor(Date.now() / 1000);
+  rootPublished.throughDay = state.lastSettledDay;
   log(`published points root ${tree.root} (${formatTac(totalWei)} TAC across ${tree.count} addresses), tx ${hash}`);
 }
 

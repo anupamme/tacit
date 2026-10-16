@@ -765,6 +765,9 @@ export const CFG = {
   // Where the balance monitor reads the points service's /rewards funding report.
   pointsApiBase: opt('POINTS_API_BASE', 'https://tacit-points.onrender.com'),
   pointsSettleMaxWaitSecs: num('POINTS_SETTLE_MAX_WAIT_SECS', 21600),
+  // A newly settled day is published at once; a later change to the same history (task credits, late credits, adjustments)
+  // waits until this long after the last publish, so a run of them is one root (lib/points-publish-gate.js).
+  pointsRootMinIntervalSecs: num('POINTS_ROOT_MIN_INTERVAL_SECS', 1800),
   // Hot wallet that calls updateRoot daily. Deliberately its own key, not RELAY_KEY/SETTLE_KEY — see
   // PointsDistributor.sol's header: a leak only exposes whatever is currently funded into the distributor,
   // and keeping it separate from the higher-value relay/settle keys keeps that bound meaningful.
