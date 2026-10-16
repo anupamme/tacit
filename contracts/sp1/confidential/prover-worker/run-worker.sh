@@ -7,6 +7,7 @@
 # otherwise fetch again are kept there and put back: the GPU server built with the Groth16 CUDA feature (the SDK would
 # download the stock one, which proves Groth16 on the CPU) and the 8 GB Groth16 circuit artifacts.
 set -u
+ulimit -c 0   # the SDK's client aborts in a destructor on exit (harmless); no core files for it
 cd /workspace/tacit/contracts/sp1/confidential/prover-worker
 export HOME=/root
 SERVER=/workspace/sp1-gpu-server-icicle-ts
