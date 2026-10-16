@@ -21,7 +21,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { CFG, ADDR, OP_GAS, DEFAULT_OP_GAS, OP_PROVE } from './lib/config.js';
-import { confidentialJob, confidentialBatch, confidentialAck, confidentialActivateAck, confidentialOpenList, confidentialOpenJob, heartbeat, heartbeatIdle, setHeartbeatLedger, relayBooks } from './lib/worker-client.js';
+import { confidentialJob, confidentialBatch, confidentialAck, confidentialActivateAck, confidentialOpenList, confidentialOpenJob, confidentialQueue, heartbeat, heartbeatIdle, setHeartbeatLedger, relayBooks } from './lib/worker-client.js';
+import { makeBatchWindow } from './lib/batch-window.js';
 import { proveSettle, proveMixed } from './lib/prover.js';
 import { notExecuted } from './lib/stdin-prover.js';
 import { assertMemosMatchProof } from './lib/memo-root.js';
@@ -532,10 +533,28 @@ const MIXED_REST_MS = 30 * 60_000;
 let mixedRestUntil = 0;
 const mixedOn = () => CFG.settleBatchMixed && !!CFG.networkPrivateKey && Date.now() >= mixedRestUntil;
 
+// A lone op waits a little for company when the arrival rate says company is coming (lib/batch-window.js): the ops then
+// share one proof and one settle. The wait is the time until the oldest queued op has waited the expected gap, at most
+// SETTLE_BATCH_WAIT_MAX_SECS; prove-only jobs are never held (they are not batched).
+const batchWindow = makeBatchWindow({ maxWaitMs: CFG.settleBatchWaitMaxSecs * 1000 });
+let gatherNotedAt = 0;
+async function gatherWait() {
+  if (CFG.settleBatchMax <= 1 || CFG.settleBatchWaitMaxSecs <= 0) return 0;
+  const q = await confidentialQueue().catch(() => null);
+  if (!q) return 0;
+  const ms = batchWindow.wait({ pending: q.pending, oldestPendingSec: q.oldestPendingSec, batchMax: CFG.settleBatchMax });
+  if (ms > 0 && Date.now() - gatherNotedAt > 30_000) {
+    gatherNotedAt = Date.now();
+    log(`holding ${q.pending} queued op${q.pending === 1 ? '' : 's'} up to ${Math.round(ms / 1000)} s for company (${batchWindow.ratePerHour().toFixed(0)} jobs/h)`);
+  }
+  return ms;
+}
+
 async function batchCycle() {
   if (CFG.settleBatchMax <= 1) return false;
   let jobs = await confidentialBatch(CFG.settleBatchMax, { mixed: mixedOn() });
   if (!jobs.length) return false;
+  for (const j of jobs) batchWindow.seen(j.jobId);
 
   // Gate every member exactly as the single-job path does. Refused members are acked individually — one underpaying member must not sink the others — and the rest carry on. The gate
   // holds each to its own marginal cost; a batch splits the gas, so this is conservative, never permissive.
@@ -799,8 +818,11 @@ async function cycle() {
   if (!short && await openCycle()) return true;
   // Paused: nothing is claimed, so every job keeps its place in the queue until the credit covers a request.
   if (paused) return false;
-  if (!short && await batchCycle()) return true;
-  let job = await confidentialJob(short ? { mode: 'prove' } : {});
+  // Gathering: the queued settle jobs are left a moment for company; only prove-only jobs are taken meanwhile.
+  const gather = short ? 0 : await gatherWait();
+  if (!short && !gather && await batchCycle()) return true;
+  let job = await confidentialJob(short || gather ? { mode: 'prove' } : {});
+  if (gather && !job?.jobId) { await sleep(Math.min(gather / 1000, CFG.settlePollSecs)); return true; }
   // While the wallet cannot pay for a settle, a relayed job any account could send is still proved and put on the open
   // board: its holder's page offers to send it at once, any relayer may send it for its fee, and this relay sends it
   // itself once it can pay. A job only this relay could finish (an exit to activate, a router-embedded proof) waits, and so
@@ -809,6 +831,7 @@ async function cycle() {
   if (holding) job = await confidentialJob({ mode: 'settle', openable: true });
   const jobId = job?.jobId;
   if (!jobId) return false; // empty queue
+  batchWindow.seen(jobId);
 
   const type = job.type;
   const mode = job.mode || 'settle';

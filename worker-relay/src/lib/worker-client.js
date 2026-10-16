@@ -166,6 +166,11 @@ export async function confidentialOpenJob(jobId) {
 }
 // Claim several jobs that can share one settle. Falls back to a single job when the worker is older (no
 // `jobs` key) so the relay never wedges on a version skew.
+// The settle queue as the API sees it: { pending, proving, open, oldestPendingSec, oldestProvingSec }, or null.
+export async function confidentialQueue() {
+  const r = await getJson('/confidential/queue');
+  return r && typeof r.pending === 'number' ? r : null;
+}
 // The prover board (worker/src/prover-board.js): a job posted for a worker to prove, read, and given up.
 export async function boardPost(body) {
   const r = await postJson('/prover/jobs', body, { timeoutMs: 20_000 });

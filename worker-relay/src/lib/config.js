@@ -190,6 +190,9 @@ export const CFG = {
   // and requested from the network directly (lib/stdin-prover.js) rather than through a per-op binary. Off until it has
   // settled a real batch; the transfer-only batch above does not depend on it.
   settleBatchMixed: opt('SETTLE_BATCH_MIXED', '0') === '1',
+  // The longest a lone op is held for company (lib/batch-window.js): held only while jobs have been arriving faster than
+  // this, so a quiet hour holds nobody. 0 disables the wait.
+  settleBatchWaitMaxSecs: num('SETTLE_BATCH_WAIT_MAX_SECS', 90),
   // Tacit's prover board first (lib/board-prover.js): a settle proof is offered to the workers that pull from the API's
   // /prover/* routes for PROVER_BOARD_WAIT_SECS before it goes to the prover network as before. Off until a worker runs.
   proverBoard: opt('PROVER_BOARD', '0') === '1',

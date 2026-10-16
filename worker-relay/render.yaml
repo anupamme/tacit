@@ -248,9 +248,14 @@ services:
         value: "16"
       # Ops of different types in one settle too (every type the open board takes), proved from one program input the
       # relay builds and requests from the network itself (lib/stdin-prover.js): the request's fixed cost is split across
-      # the batch. Off until a live batch has settled; the transfer-only batch above does not depend on it.
+      # the batch. A batch the network could not execute rests this for half an hour and its members settle alone.
       - key: SETTLE_BATCH_MIXED
-        value: "0"
+        value: "1"
+      # A lone op waits for company at most this long, and only while jobs have been arriving faster than that (the wait is the
+      # expected gap to the next job, less what the op already waited; two queued halve it). Shared proof and gas, and company
+      # in the settle. 0 disables the wait.
+      - key: SETTLE_BATCH_WAIT_MAX_SECS
+        value: "90"
       # Tacit's prover board first (lib/board-prover.js): a settle proof is offered to the workers pulling from the API's
       # /prover/* routes (worker/src/prover-board.js, tokens in the API's PROVER_WORKER_TOKENS) for PROVER_BOARD_WAIT_SECS,
       # then goes to the prover network as before. Off until a worker runs.
