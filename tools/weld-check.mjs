@@ -4634,12 +4634,14 @@ await step('hxout', async () => {
     ok(true, 'hxout: the button opens the TAC sheet on its To Bitcoin side, with the amount in the form');
     // Outside what a bridge takes: no figure is promised, and the limits are said.
     await lander();
-    for (const v of ['5', '5000']) {
+    // Each amount's own answer (the card shows a quote still out as coming, never the last amount's): 5,000 is also more than the 62 held.
+    const limits = 'A bridge takes 20 to 1,000 TAC while this is new.';
+    for (const [v, said] of [['5', limits], ['5000', `You hold 62 private TAC, less than this: make TAC private first. ${limits}`]]) {
       await p.fill('#hx-amt', v);
-      await until(p, () => document.querySelector('#hx-out')?.textContent === '—' && /^A bridge takes 20 to 1,000 TAC while this is new\.$/.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 240000)
+      await until(p, (x) => document.querySelector('#hx-out')?.textContent === '—' && (document.querySelector('#hx-q')?.textContent || '').trim() === x, said, 240000)
         .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | at ${v}: ${await body()}`); });
     }
-    ok(true, 'hxout: 5 TAC and 5,000 TAC are not quoted, and the limits are said');
+    ok(true, 'hxout: 5 TAC and 5,000 TAC are not quoted, and the limits are said (5,000 TAC also says what is held)');
     // 61 of the 62 held, with no note exactly that size: the 2 TAC to cut one cannot also come out of what is left, as the sheet will say.
     await p.fill('#hx-amt', '61');
     await until(p, () => document.querySelector('#hx-out')?.textContent === '—' && /^The most you can use is 60 TAC: the relay fee to cut a note of this size comes out of it\.$/.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 240000)
@@ -4831,7 +4833,7 @@ await step('hxsell', async () => {
     ok(await p.$$eval('#hx-to option', (o) => o.map((x) => x.value).join()) === 'eth,cusd,cbtc,ether,sats', 'hxsell: paying TAC, the lists offer tETH, cUSD, cBTC, wallet ETH and sats');
     ok(await p.$$eval('#hx-from option', (o) => o.map((x) => x.value).join()) === 'ether,eth,tac,cusd,cbtc', 'hxsell: and sats is not a thing to pay while the other side is ETH');
     await p.fill('#hx-amt', '1');
-    await until(p, () => document.querySelector('#hx-out') && !document.querySelector('#hx-out').classList.contains('ph') && /ETH, sent to your wallet in one transaction|tETH/.test(document.querySelector('#hx-q')?.textContent || ''), null, 300000);
+    await until(p, () => document.querySelector('#hx-out') && !document.querySelector('#hx-out').classList.contains('ph') && /Sells the TAC in your wallet|tETH/.test(document.querySelector('#hx-q')?.textContent || ''), null, 300000);
     ok(/^Sell TAC$|^Swap privately$/.test(await text(p, '#hx-go')), `hxsell: 1 TAC is quoted with a button that sells it (${await text(p, '#hx-go')})`);
     ok(await p.$eval('#hx-trade', (a) => !a.hidden && a.getAttribute('href') === '/trade/tac/#side=sell&amount=1'), 'hxsell: and the way to the trade page carries the side and the amount');
     ok(!/Split across/.test(await text(p, '#hx-q')), 'hxsell: one TAC is not split');
@@ -4966,7 +4968,7 @@ await step('tradelinks', async () => {
           chip: (() => { const l = document.getElementById('wallet-label'); return !!l && l.scrollWidth <= l.clientWidth + 1 && l.clientWidth >= 30; })(), footer: !!document.querySelector('footer a[href="/trade/tac/"]'), bar: !!document.querySelector('footer a[href="/trade/tac/"]'), scroll: document.documentElement.scrollWidth > window.innerWidth + 1 };
       });
       ok(seen.header && seen.headerText === 'Trade', `tradelinks (${name}): the header has a Trade link in view`);
-      ok(seen.pay && seen.order === 'Trade:/trade/tac/ Pay:/pay/ Stats:/weld/stats/', `tradelinks (${name}): and a Pay link, to the right of Trade and before Stats (${seen.order})`);
+      ok(seen.pay && seen.order === 'Trade:/trade/tac/ Pay:/pay/ Tasks:/tasks/ Stats:/weld/stats/', `tradelinks (${name}): and a Pay link, to the right of Trade, then Tasks and Stats (${seen.order})`);
       ok(seen.chip, `tradelinks (${name}): and the account chip still shows its whole label`);
       ok(seen.tile, `tradelinks (${name}): the TAC section links to TAC's own trade page`);
       ok(seen.footer && seen.bar, `tradelinks (${name}): and the footer links Trade`);
