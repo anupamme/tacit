@@ -1254,7 +1254,11 @@ settle of an op that expires, are refused (`503`, code `relay_paused`, with `Ret
 account ([OPEN-RELAYER.md](./OPEN-RELAYER.md)), or try again later. Other relayed settles still wait in line. While the relay
 keeps its prover credit for the bridge, a free `mode: 'prove'` job is refused (`503`, code `prove_reserved`, with a `hint`: `relay` to send it
 as a relayed settle that carries a fee, `tip` to tip the wrap's deposit); the exits (`unwrap`, `sendunwrap`) are held last, at a lower
-floor, and a relayed settle is not affected. Refusals
+floor, and a relayed settle is not affected. While a machine on the relay's prover board is proving (a worker seen on
+`GET /prover/board` in the last half minute), a free `mode: 'prove'` job spends no credit, so neither the reserve nor the credit
+budgets apply to it: only the board's own allowance for the day does (`429`, code `prove_budget`, when that is used up). An op the
+queue already holds is answered with its job before any of these gates (`deduped: true` and its `status`), so asking again for
+a job that went through never meets a refusal. Refusals
 carry `code` and `retryAfter` in the body; `confidential-relay.js` keeps them on the thrown error as `e.code`,
 `e.retryAfter` and `e.httpStatus`.
 

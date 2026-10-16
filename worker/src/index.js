@@ -3331,6 +3331,21 @@ async function admitBridgeMintOp(env, op) {
 }
 // One burn's free settles a day: a mint that was refused and rebuilt is a new op, so the same burn may take a few, not the day's allowance.
 const BRIDGEMINT_FREE_PER_BURN = 4;
+// Is a prover-board worker proving now: one that polled or claimed in the last half minute (what GET /prover/board shows as
+// lastSeenSeconds), read at most every ten seconds. A proof made there costs the relay no prover credit, so the reserve and the
+// credit budgets on free prove-only jobs do not apply while it is; the relay offers every proof to the board first.
+let _boardLive = { at: 0, v: false };
+async function boardLive(env) {
+  if (Date.now() - _boardLive.at < 10_000) return _boardLive.v;
+  let v = false;
+  try {
+    const board = buildProverBoard(env, { hash: boardHash });
+    const s = board ? await board.summary() : null;
+    v = !!s && Array.isArray(s.workers) && s.workers.some((w) => Number(w.lastSeenSeconds) <= 30);
+  } catch { v = false; }
+  _boardLive = { at: Date.now(), v };
+  return v;
+}
 async function handleConfidentialSubmit(req, env, cors) {
   const q = confSettler(env);
   if (!q) return jsonResponse({ error: 'confidential settle not configured' }, 404, { ...cors, 'Cache-Control': 'no-store' });
@@ -3385,6 +3400,19 @@ async function handleConfidentialSubmit(req, env, cors) {
   // Where the relay stands, read once: it decides the refusals below and rides on the answer (`relay`), so a page knows at once
   // that a job it queued waits on a relay that is holding settles, paused or down.
   const relay = await relayState(env);
+  // An op this queue already holds is answered with its job before any gate below: a page that asks again (its wait ran out, a
+  // reload, a second press) finds the job it has, and a job that went through is never refused after the fact by the day's
+  // budgets or the relay's state. The id is taken over the op as the queue hashes it (confidential-settle.js jobIdOf: without a
+  // caller's feeUsd); a failed job is not in the way of a new try.
+  if ((submitMode === 'settle' || submitMode === 'prove') && body.type && body.op && typeof body.op === 'object'
+    && typeof q.jobIdOf === 'function' && typeof q.jobStatus === 'function') {
+    if ('feeUsd' in body.op) delete body.op.feeUsd;
+    let had = null;
+    try { had = await q.jobStatus(q.jobIdOf(body.type, body.op, submitMode)); } catch { had = null; }
+    if (had && had.status && had.status !== 'failed') {
+      return jsonResponse({ ok: true, jobId: had.jobId, status: had.status, deduped: true, ...(relay ? { relay: relay.state } : {}) }, 200, { ...cors, 'Cache-Control': 'no-store' });
+    }
+  }
   // A relay that is not proving at all would never prove a prove-only job, and a relayed settle of an op that expires would run
   // out its time in the queue. Both are turned away before anything is queued or budgeted, saying what to do instead, so the
   // page waiting on them does not sit out its timeout. Everything else waits in line as before; a proof made elsewhere needs
@@ -3421,7 +3449,15 @@ async function handleConfidentialSubmit(req, env, cors) {
   // and all of them PROVE_MODE_DAILY_CAP. The refusal says what to do instead: a relayed settle carries a fee, and local proving is free.
   const clientIp = req.headers.get('CF-Connecting-IP') || 'anon';
   const paidProve = submitMode === 'prove' && body.type === 'wrap' && await wrapTipPaid(env, body);
-  if (submitMode === 'prove' && !paidProve) {
+  // Proved on the prover board, a free prove-only job spends no credit: while a board worker is proving, the reserve and the credit
+  // budgets below do not apply, and only the board's own allowance for the day bounds it (PROVE_MODE_BOARD_DAILY_CAP, 600 by
+  // default: a worker's day). A board that goes quiet mid-job sends that one to the network, which the relay's own floor still holds.
+  const onBoard = submitMode === 'prove' && !paidProve && await boardLive(env);
+  if (onBoard) {
+    const bb = await dailyBudget(env, 'prove:board', Number(env.PROVE_MODE_BOARD_DAILY_CAP || 600));
+    if (!bb.ok) return jsonResponse({ ok: false, error: `prove capacity for today is used up (${bb.used}/${bb.cap}) — prove locally instead, or use a relayed settle`, code: 'prove_budget', hint: body.type === 'wrap' ? 'tip' : 'relay' }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '3600' });
+  }
+  if (submitMode === 'prove' && !paidProve && !onBoard) {
     const minCredit = Number(env.PROVE_MODE_MIN_CREDIT || 40);
     // A holder leaving the pool asks for less than one who deposits or sends: the exits (unwrap, sendunwrap) keep their free proofs
     // down to a lower floor, PROVE_MODE_EXIT_MIN_CREDIT (20 by default, about one attest's worth of credit), under the same daily
@@ -3444,7 +3480,8 @@ async function handleConfidentialSubmit(req, env, cors) {
       publicValues: body.publicValues, proof: body.proof, paid: paidProve || undefined, sealed: body.sealed });
     // Spend only on a job we actually accepted and will prove — a dedupe hit costs us nothing.
     if (!r.deduped) {
-      if (submitMode === 'prove' && !paidProve) { await spendProveBudget(env).catch(() => {}); await spendDailyBudget(env, `prove:${clientIp}`).catch(() => {}); }
+      if (onBoard) await spendDailyBudget(env, 'prove:board').catch(() => {});
+      else if (submitMode === 'prove' && !paidProve) { await spendProveBudget(env).catch(() => {}); await spendDailyBudget(env, `prove:${clientIp}`).catch(() => {}); }
       else if (feeless) { await spendDailyBudget(env, 'free').catch(() => {}); await spendDailyBudget(env, `free:${freeClassOf(body.type)}`).catch(() => {}); if (mintBurn) await spendDailyBudget(env, `bridgemint:${mintBurn}`).catch(() => {}); }
     }
     return jsonResponse({ ok: true, ...r, ...(relay ? { relay: relay.state } : {}) }, 200, { ...cors, 'Cache-Control': 'no-store' });

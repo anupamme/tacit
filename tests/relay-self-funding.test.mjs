@@ -390,16 +390,47 @@ test('a priced job names the public token its fee pays out in, and the job keeps
 
 // ── prove-mode: a bounded subsidy, and a budget that junk cannot drain ─────────
 const submitSrc = worker.slice(worker.indexOf('const budgetKey'), worker.indexOf('async function handleConfidentialJob'));
-function loadSubmit({ cap = '3', freeCap = '3', env = {}, submitJob, kvStore = new Map(), feeOf = () => 0n, tipPaid = async () => false, health = async () => ({ status: 'ok', age_seconds: 5, note: 'settle: idle — queue empty' }), expiryOf = (type, op) => (type === 'unwrap' ? Number(op?.opDeadline || 0) : 0) }) {
+function loadSubmit({ cap = '3', freeCap = '3', env = {}, submitJob, jobStatus = async () => null, boardWorkers = [], kvStore = new Map(), feeOf = () => 0n, tipPaid = async () => false, health = async () => ({ status: 'ok', age_seconds: 5, note: 'settle: idle — queue empty' }), expiryOf = (type, op) => (type === 'unwrap' ? Number(op?.opDeadline || 0) : 0) }) {
   const kv = { get: async (k) => (kvStore.has(k) ? kvStore.get(k) : null), put: async (k, v) => { kvStore.set(k, v); } };
   // confPool: no pool named, so a bridge mint's admission (checked against the mainnet pool's burn root only) passes as it does off mainnet.
-  const mk = new Function('confSettler', 'proveRateLimit', 'jsonResponse', 'hasVerifiableFee', 'totalFee', 'ctx', 'withKvKeyLock', 'wrapTipPaid', 'readProverKindHealth', 'opExpiry', 'checkPostedShape', 'confPool', '_CONFIDENTIAL_DEPLOYMENTS',
+  const mk = new Function('confSettler', 'buildProverBoard', 'proveRateLimit', 'jsonResponse', 'hasVerifiableFee', 'totalFee', 'ctx', 'withKvKeyLock', 'wrapTipPaid', 'readProverKindHealth', 'opExpiry', 'checkPostedShape', 'confPool', '_CONFIDENTIAL_DEPLOYMENTS',
     submitSrc + '; return handleConfidentialSubmit;');
-  const handler = mk(() => ({ submitJob }), async () => ({ ok: true }), (body, status, headers) => ({ body, status, headers }), () => false, (type, op) => feeOf(type, op), {},
+  const handler = mk(() => ({ submitJob, jobIdOf: (type, op, mode) => `${mode}:${type}:${JSON.stringify(op)}`, jobStatus }), () => ({ summary: async () => ({ workers: boardWorkers }) }), async () => ({ ok: true }), (body, status, headers) => ({ body, status, headers }), () => false, (type, op) => feeOf(type, op), {},
     (_key, fn) => fn(), tipPaid, health, expiryOf, () => null, () => null, {});
   const call = (body) => handler({ json: async () => body, headers: { get: () => '1.2.3.4' } }, { REGISTRY_KV: kv, PROVE_MODE_DAILY_CAP: cap, FREE_RELAY_DAILY_CAP: freeCap, ...env }, {});
   return { call, kvStore };
 }
+
+test('while a prover-board worker is proving, a free prove-only job passes the credit reserve and the credit budgets, on the board\'s own cap', async () => {
+  let n = 0;
+  const low = async () => ({ status: 'ok', age_seconds: 5, note: 'settle: idle', prover_credit: '12' });
+  const { call, kvStore } = loadSubmit({ cap: '1', submitJob: async () => ({ jobId: 'j' + ++n, status: 'pending' }), health: low, boardWorkers: [{ name: 'tacit-a5000', lastSeenSeconds: 3 }], env: { PROVE_MODE_BOARD_DAILY_CAP: '2' } });
+  const a = await call({ type: 'transfer', op: { a: 1 }, mode: 'prove' });
+  ok(a.status === 200, `a send under the reserve is proved on the board, got ${a.status} ${a.body.code}`);
+  const b = await call({ type: 'wrap', op: { a: 2 }, mode: 'prove' });
+  ok(b.status === 200, `so is a wrap, past the global prove cap of 1, got ${b.status} ${b.body.code}`);
+  const c = await call({ type: 'transfer', op: { a: 3 }, mode: 'prove' });
+  ok(c.status === 429 && c.body.code === 'prove_budget', `the board's own day cap still bounds it, got ${c.status} ${c.body.code}`);
+  ok([...kvStore.keys()].some((k) => k.includes('prove:board')) && ![...kvStore.keys()].some((k) => /:prove$|:prove:1\.2\.3\.4$/.test(k)), 'the board jobs are counted on the board\'s budget, not the credit budgets');
+  // the same worker gone quiet: the reserve applies again
+  const quiet = loadSubmit({ cap: '3', submitJob: async () => ({ jobId: 'q', status: 'pending' }), health: low, boardWorkers: [{ name: 'tacit-a5000', lastSeenSeconds: 400 }] });
+  const d = await quiet.call({ type: 'transfer', op: { a: 4 }, mode: 'prove' });
+  ok(d.status === 503 && d.body.code === 'prove_reserved', `with no worker seen lately the reserve holds, got ${d.status} ${d.body.code}`);
+});
+
+test('an op the queue already holds is answered with its job before any gate', async () => {
+  const jobs = { 'settle:transfer:{"a":1}': { jobId: 'had1', status: 'settled', txHash: '0xtx' }, 'prove:transfer:{"a":2}': { jobId: 'had2', status: 'proving' }, 'settle:transfer:{"a":3}': { jobId: 'old', status: 'failed' } };
+  let submitted = 0;
+  const paused = async () => ({ status: 'ok', age_seconds: 5, note: 'settle: paused — relay paused by operator', prover_credit: '1' });
+  const { call } = loadSubmit({ cap: '0', freeCap: '0', submitJob: async () => ({ jobId: 'new' + ++submitted, status: 'pending' }), jobStatus: async (id) => jobs[id] || null, health: paused });
+  const a = await call({ type: 'transfer', op: { a: 1, feeUsd: 9 }, memos: [] });
+  ok(a.status === 200 && a.body.jobId === 'had1' && a.body.status === 'settled' && a.body.deduped === true, `a settled job is found again, without its feeUsd, got ${a.status} ${JSON.stringify(a.body)}`);
+  const b = await call({ type: 'transfer', op: { a: 2 }, mode: 'prove' });
+  ok(b.status === 200 && b.body.jobId === 'had2' && b.body.status === 'proving', `a proving prove-only job is found again past a paused relay and an empty budget, got ${b.status} ${b.body.code}`);
+  const c = await call({ type: 'transfer', op: { a: 3 }, mode: 'prove' });
+  ok(c.status !== 200 || c.body.jobId !== 'old', 'a failed job is not in the way of a new try');
+  ok(submitted === 0, 'nothing was queued for a job already held');
+});
 
 test('prove-mode is bounded by a global daily budget', async () => {
   let n = 0;

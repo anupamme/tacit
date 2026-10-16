@@ -290,7 +290,7 @@ function boardLane() {
 // Whether a worker has polled the board in the last half minute (the worker polls every few seconds), read at most every
 // ten seconds; an unreadable summary counts as alive, since the post itself then answers.
 let aliveAt = 0, aliveWas = true;
-async function boardAlive() {
+export async function boardAlive() {
   if (Date.now() - aliveAt < 10_000) return aliveWas;
   const s = await boardSummary();
   aliveAt = Date.now();

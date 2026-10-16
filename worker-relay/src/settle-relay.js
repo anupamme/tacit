@@ -23,7 +23,7 @@
 import { CFG, ADDR, OP_GAS, DEFAULT_OP_GAS, OP_PROVE } from './lib/config.js';
 import { confidentialJob, confidentialBatch, confidentialAck, confidentialActivateAck, confidentialOpenList, confidentialOpenJob, confidentialQueue, heartbeat, heartbeatIdle, setHeartbeatLedger, relayBooks } from './lib/worker-client.js';
 import { makeBatchWindow } from './lib/batch-window.js';
-import { proveSettle, proveMixed, proveSealed } from './lib/prover.js';
+import { proveSettle, proveMixed, proveSealed, boardAlive } from './lib/prover.js';
 import { notExecuted } from './lib/stdin-prover.js';
 import { assertMemosMatchProof } from './lib/memo-root.js';
 import { consumedInput, consumedAck, unlandedDeposits, spentInputsOf, noteNullifier } from './lib/spent-precheck.js';
@@ -853,6 +853,9 @@ export const FREE_PROVE_HELD = 'the relay is keeping its proving credit for the 
 // The last credit reading if it is recent, else a fresh one, at most every two minutes; an unreadable credit holds nothing back.
 let freeProveReadAt = 0;
 async function freeProveAllowed(type) {
+  // Offered to a prover-board worker that is proving now, the job costs no credit, so the reserve has nothing to keep (the API lets
+  // such a job through on the same reading; a board that misses sends it to the network, one proof past the floor at worst).
+  if (await boardAlive().catch(() => false)) return true;
   let c = lastProverCredit();
   if (!c || Date.now() - c.at > 10 * 60_000) {
     if (Date.now() - freeProveReadAt >= 120_000) {
