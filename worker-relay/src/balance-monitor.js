@@ -476,10 +476,10 @@ async function checkTacSupply() {
 // a fourfold base-fee rise, or cannot front its largest transaction (the gas cap, e.g. a bridge move) with the full
 // headroom it sends with. EVM_POOL_KEEPERS=off skips the check; a JSON list replaces the defaults.
 const EVM_POOL_KEEPERS_DEFAULT = [
-  { chainId: 1, name: 'Ethereum', keeper: 'https://tacit-evm-pool-keeper.onrender.com/evm-pool/keeper', address: '0x7c9f8aE4e48Cbb2727F95b6477a1cf92bCFc43D0', rpc: ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org', 'https://mainnet.gateway.tenderly.co'], minTipWei: '50000000' },
-  { chainId: 8453, name: 'Base', keeper: 'https://tacit-evm-pool-keeper-base.onrender.com/evm-pool/keeper', address: '0xfA2afbaB631C7Eda7CeA6AE1440605C504E322Ec', rpc: ['https://mainnet.base.org', 'https://base.drpc.org', 'https://base.rpc.blxrbdn.com'] },
-  { chainId: 4663, name: 'Robinhood Chain', keeper: 'https://tacit-evm-pool-keeper-robinhood.onrender.com/evm-pool/keeper', address: '0xc1F8DAc6BC910A5A794b4795b5F9997e0E8A5Fad', rpc: ['https://rpc.mainnet.chain.robinhood.com'] },
-  { chainId: 4326, name: 'MegaETH', keeper: 'https://tacit-evm-pool-keeper-megaeth.onrender.com/evm-pool/keeper', address: '0x69e4ea1992561Ce129713899244209Fd955E7D89', rpc: ['https://mainnet.megaeth.com/rpc'], relayGas: 900_000, gasCap: 3_000_000 },
+  { chainId: 1, name: 'Ethereum', keeper: 'https://tacit-evm-pool-keepers.onrender.com/1/evm-pool/keeper', address: '0x7c9f8aE4e48Cbb2727F95b6477a1cf92bCFc43D0', rpc: ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org', 'https://mainnet.gateway.tenderly.co'], minTipWei: '50000000' },
+  { chainId: 8453, name: 'Base', keeper: 'https://tacit-evm-pool-keepers.onrender.com/8453/evm-pool/keeper', address: '0xfA2afbaB631C7Eda7CeA6AE1440605C504E322Ec', rpc: ['https://mainnet.base.org', 'https://base.drpc.org', 'https://base.rpc.blxrbdn.com'] },
+  { chainId: 4663, name: 'Robinhood Chain', keeper: 'https://tacit-evm-pool-keepers.onrender.com/4663/evm-pool/keeper', address: '0xc1F8DAc6BC910A5A794b4795b5F9997e0E8A5Fad', rpc: ['https://rpc.mainnet.chain.robinhood.com'] },
+  { chainId: 4326, name: 'MegaETH', keeper: 'https://tacit-evm-pool-keepers.onrender.com/4326/evm-pool/keeper', address: '0x69e4ea1992561Ce129713899244209Fd955E7D89', rpc: ['https://mainnet.megaeth.com/rpc'], relayGas: 900_000, gasCap: 3_000_000 },
 ];
 // The keeper's own gas figures (evm-pool-keeper-config.js defaults, unless the entry gives `relayGas` and `gasCap`): an
 // ordinary relay's budget, sent with 30% on the estimate, and the cap on any one transaction.

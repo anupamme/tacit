@@ -1156,7 +1156,7 @@ const w = await makeEvmPoolWallet({
   chainId: 1,
   identityKey,                    // the wallet's 32-byte Tacit identity key
   artifacts: { wasm, zkey, vk },  // transact.wasm, transact_final.zkey, transact_vk.json — or an async loader
-  relay: 'https://tacit-evm-pool-keeper.onrender.com/evm-pool/keeper',  // optional; omit to prove + send from `provider` alone
+  relay: 'https://tacit-evm-pool-keepers.onrender.com/1/evm-pool/keeper',  // optional; omit to prove + send from `provider` alone
 });
 
 await w.sync();                             // { balance, notes, leaves, block }
@@ -1305,7 +1305,7 @@ client submits the intent; the keeper does not scan for one on its own.
 | `GET /evm-pool/keeper/events?from=<block>` | confirmed `Transact`/`Received` events, for syncing history without a log scanner |
 | `POST /evm-pool/keeper/relay` | `{ tx, call?, wrap? }` — submits a proven transfer, withdrawal, `withdrawAndCall` or `withdrawToV1` |
 
-Live at `https://tacit-evm-pool-keeper.onrender.com/evm-pool/keeper` (Ethereum), `…-base.onrender.com` (Base),
+Live at `https://tacit-evm-pool-keepers.onrender.com/1/evm-pool/keeper` (Ethereum), `…-base.onrender.com` (Base),
 `…-robinhood.onrender.com` (Robinhood Chain) and `…-megaeth.onrender.com` (MegaETH) — full URLs in
 [`contracts/deployments/evm-pool.json`](../contracts/deployments/evm-pool.json).
 

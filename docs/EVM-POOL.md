@@ -722,7 +722,7 @@ adaptation from this guide, the live page and the check tool.
 The pool, router, verifier and PoseidonT5 are live on MegaETH (chain 4326) at the addresses above, deployed on 5 October
 2026 (pool deploy block 28,397,750; transactions in [`contracts/deployments/evm-pool.json`](../contracts/deployments/evm-pool.json)).
 The code is the same as on the other chains: the verifier and PoseidonT5 are byte-identical, and the pool and router differ
-only in their immutables. A relay runs at `https://tacit-evm-pool-keeper-megaeth.onrender.com/evm-pool/keeper`.
+only in their immutables. A relay runs at `https://tacit-evm-pool-keepers.onrender.com/4326/evm-pool/keeper`.
 
 **Where it is supported.** tacit.finance lists MegaETH on its pay page ([`/pay/eth/`](https://tacit.finance/pay/eth/)) and
 in the front page's "On this device" sheet: shield, send, withdraw, a deposit address, payment links and the relay, with
