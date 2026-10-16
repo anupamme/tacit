@@ -37,7 +37,7 @@ const TETH = { sym: 'tETH', name: 'Ether, private', addr: 'teth', dec: 18, icon:
 const CUSTOM_KEY = 'tacit-swap-tokens-v1';
 const S = {
   tab: 'swap', mode: 'wallet', pay: lc(R.ZERO), get: lc(R.TAC), amt: '', slip: 50, pick: null, q: null, seq: 0, busy: false, ack: false, max: false,
-  custom: [], bal: {}, px: {}, gasPrice: null, chainT: 0, chainAt: 0, farm: 'precision', farms: null, farmPx: null, thenEarn: false, lastBuy: null,
+  custom: [], bal: {}, px: {}, gasPrice: null, chainT: 0, chainAt: 0, farm: 'precision', farms: null, lastBuy: null, note: '', ackKey: '',
 };
 try { S.custom = (JSON.parse(localStorage.getItem(CUSTOM_KEY) || '[]') || []).filter((t) => /^0x[0-9a-f]{40}$/.test(t?.addr) && Number.isInteger(t.dec)).slice(0, 20); } catch { /* storage is a convenience */ }
 const listed = () => [...R.TOKENS.map((t) => ({ ...t, addr: lc(t.addr) })), ...S.custom];
@@ -128,7 +128,8 @@ async function readBalances() {
 
 // ── the wallet ──
 const live = (t) => { $('#live').textContent = t; };
-const say = (h, cls = '') => { const q = $('#q'); q.className = `q${cls ? ` ${cls}` : ''}`; q.innerHTML = h; };
+// `stick`: the notice stays under the button until the amount, the pair or the mode changes (a later quote does not wipe it).
+const say = (h, cls = '', stick = false) => { if (stick) S.note = { h, cls }; const q = $('#q'); q.className = `q${cls ? ` ${cls}` : ''}`; q.innerHTML = h; };
 const connect = makeConnect({
   describe: 'Swap into Tacit\'s tokens and farm them.',
   busy: () => S.busy,
@@ -162,7 +163,7 @@ function requote(now_ = false) {
 }
 async function quote(my, wei) {
   const kind = kindOf(S.pay, S.get), pay = tokenOf(S.pay), get = tokenOf(S.get);
-  const done = (q) => { if (my !== S.seq) return; S.q = { ...q, kind, wei, at: now() }; if (!picked(S.q) || !S.q.rows?.some((r) => r.k === S.pick)) S.pick = S.q.rows?.find((r) => r.best)?.k || S.q.rows?.[0]?.k || null; S.ack = false; paint(); };
+  const done = (q) => { if (my !== S.seq) return; S.q = { ...q, kind, wei, at: now() }; if (!picked(S.q) || !S.q.rows?.some((r) => r.k === S.pick)) S.pick = S.q.rows?.find((r) => r.best)?.k || S.q.rows?.[0]?.k || null; const ak = `${S.pay}>${S.get}:${S.amt}:${S.pick}`; if (ak !== S.ackKey) { S.ack = false; S.ackKey = ak; } paint(); };
   if (!kind) return done({ none: true });
   const account = W.account || undefined;
   if (kind === 'tac') {
@@ -306,7 +307,7 @@ function paintQuote() {
   // The button and the line under it.
   const [label, can, cls] = button(q, r, kind, gate);
   go.textContent = label; go.disabled = !can; go.className = `go${cls ? ` ${cls}` : ''}`;
-  if (!S.busy) say(lineFor(q, r, kind));
+  if (!S.busy) { if (S.note) say(S.note.h, S.note.cls); else say(lineFor(q, r, kind)); }
 }
 // How the token will be spent, by what it supports and what the account has allowed.
 function spendHow(r) {
@@ -349,7 +350,9 @@ function lineFor(q, r, kind) {
 // ── doing it ──
 async function go() {
   const kind = kindOf(S.pay, S.get), r = picked();
-  if (!r || S.busy) return;
+  if (S.busy) return;
+  if (!r) { if (S.q?.err) requote(true); return; }
+  S.note = '';
   if (kind === 'private') { location.href = privateLink(); return; }
   if (!W.account) { await connect.connect(); return; }
   const from = W.account, P = { kind, r, wei: S.q.wei, floor: (r.out * BigInt(10000 - S.slip)) / 10000n, pay: S.pay, get: S.get };
@@ -369,12 +372,12 @@ async function go() {
     const g = tokenOf(P.get);
     S.lastBuy = P.get === lc(R.TAC) && got ? got : null;
     S.amt = ''; S.q = null; S.busy = false; paint();
-    say(`Done ${txLink(h)}: ${got != null && got > 0n ? `${tidy(amtFmt(got, g.dec))} ${esc(g.sym)} in your wallet` : `${esc(g.sym)} sent to your wallet`}.${!isEth(P.get) ? ` <button type="button" class="link" data-watch>Add ${esc(g.sym)} to your wallet</button>` : ''}${S.lastBuy ? ` · <button type="button" class="link" data-farm-it>Farm it</button>` : ''}`, 'ok');
+    say(`Done ${txLink(h)}: ${isEth(P.get) ? `about ${tidy(amtFmt(P.r.out, g.dec))} ETH to your wallet` : got != null && got > 0n ? `${tidy(amtFmt(got, g.dec))} ${esc(g.sym)} in your wallet` : `${esc(g.sym)} sent to your wallet`}.${!isEth(P.get) ? ` <button type="button" class="link" data-watch="${esc(g.addr)}">Add ${esc(g.sym)} to your wallet</button>` : ''}${S.lastBuy ? ` · <button type="button" class="link" data-farm-it>Farm it</button>` : ''}`, 'ok', true);
     live('Swap done');
     readBalances().then(() => paintSides());
   } catch (e) {
     S.busy = false; paintQuote();
-    say(e instanceof UserStopped || e?.userStopped ? 'Cancelled in your wallet. Nothing was sent.' : `<span class="err">${e?.message?.includes('<a ') ? e.message : esc(e?.message || String(e)).slice(0, 300)}</span>`);
+    say(e instanceof UserStopped || e?.userStopped ? 'Cancelled in your wallet. Nothing was sent.' : `<span class="err">${e?.message?.includes('<a ') ? e.message : esc(e?.message || String(e)).slice(0, 300)}</span>`, '', true);
   } finally { S.busy = false; }
 }
 const balanceNow = async (k, who) => (isEth(k) ? BigInt(await rpc('eth_getBalance', [who, 'latest'])) : wordAt(await ethCall(k, '0x70a08231' + addrWord(who)), 0));
@@ -383,13 +386,13 @@ const balanceNow = async (k, who) => (isEth(k) ? BigInt(await rpc('eth_getBalanc
 async function prepare(P, from) {
   const floorFor = (out) => { const f = (out * BigInt(10000 - S.slip)) / 10000n; return f > P.floor ? f : P.floor; };
   const dl = chainDeadline(1200);
-  const moved = () => { say('The price moved below the least you accept. Nothing was sent; the quote above is the new one.'); S.busy = false; requote(true); return null; };
+  const moved = () => { say('The price moved below the least you accept. Nothing was sent; the quote above is the new one.', '', true); S.busy = false; requote(true); return null; };
   let tx;
   if (P.kind === 'tac') {
     const dir = isEth(P.pay) ? 'ETH_TO_TAC' : 'TAC_TO_ETH';
     const rt = await venues.route({ dir, amountIn: P.wei, account: from, gasPrice: await gasPrice() });
     const pick = P.r.split ? rt.split : (rt.r.ranked || []).find((v) => v.venue === P.r.venue.venue);
-    if (!pick) { say('That route is no longer offered. Nothing was sent; press again for the new quote.'); S.busy = false; requote(true); return null; }
+    if (!pick) { say('That route is no longer offered. Nothing was sent; press again for the new quote.', '', true); S.busy = false; requote(true); return null; }
     if (BigInt(pick.amountOut) < P.floor) return moved();
     const floor = floorFor(BigInt(pick.amountOut)), isSplit = !!P.r.split;
     const make = (permit) => (isSplit ? venues.buildSplit({ split: pick, account: from, minOut: floor, deadline: dl, permit }) : venues.build({ quote: pick, dir, account: from, minOut: floor, deadline: dl, permit }));
@@ -533,16 +536,18 @@ function openPicker(side) {
   setTimeout(() => (qEl || pk.querySelector('[aria-current="true"]') || pk.querySelector('.pk-r'))?.focus(), 0);
 }
 const defaultFor = (k) => (isEth(k) ? lc(R.TAC) : tacitKey(k) ? lc(R.ZERO) : lc(R.TAC));
+// An amount is typed in one asset: whatever changes the asset paid (a choice, the side that follows it, the mode) clears it, rather than
+// read 500 USDC as 500 ETH.
+function keepAmt(change) { const was = S.pay; change(); if (S.pay !== was) { S.amt = ''; S.max = false; } S.note = ''; }
 function choose(side, k) {
-  const was = tokenOf(S.pay)?.dec;
-  if (side === 'pay') { S.pay = k; fit('pay'); } else { S.get = k; fit('get'); }
-  if (tokenOf(S.pay)?.dec !== was || side === 'pay') { S.amt = side === 'pay' ? '' : S.amt; S.max = false; }
+  keepAmt(() => { if (side === 'pay') { S.pay = k; fit('pay'); } else { S.get = k; fit('get'); } });
   S.q = null; S.pick = null; keepUrl(); paint(); requote(true);
 }
 
 // ── Earn ──
 let farmUi = null;
 async function readFarms() {
+  if (!S.px.perEth) await readPrices().catch(() => {});                          // the APRs are priced in ETH at the Precision pool
   const [prog, r] = await Promise.all([
     api('/farm/program?network=mainnet'),
     batch([{ to: PRECISION_POOL, data: '0x443cb4bc' }, { to: PRECISION_POOL, data: '0x5a76f25e' }, { to: PRECISION_POOL, data: '0x18160ddd' }, { to: FARM, data: '0x817b1cd2' }, { to: FARM, data: '0x7b0a47ee' }, { to: FARM, data: '0xebe2b12b' }]).catch(() => []),
@@ -615,34 +620,34 @@ function readUrl() {
 // ── the controls ──
 function slipPaint() { $('#slip').innerHTML = [10, 50, 100, 300].map((b) => `<button type="button" data-slip="${b}" aria-pressed="${S.slip === b}">${b / 100}%</button>`).join(''); }
 $('#slip').addEventListener('click', (e) => { const b = e.target.closest('[data-slip]'); if (!b) return; S.slip = Number(b.dataset.slip); slipPaint(); if (S.q) requote(true); else paintQuote(); });
-$('#amt').addEventListener('input', (e) => { S.amt = e.target.value.trim(); S.max = false; fitSize(e.target); keepUrl(); paintSides(); requote(); });
+$('#amt').addEventListener('input', (e) => { S.amt = e.target.value.trim(); S.max = false; S.note = ''; fitSize(e.target); keepUrl(); paintSides(); requote(); });
 $('#amt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('#go').disabled) $('#go').click(); });
 $('#pay-coin').addEventListener('click', () => openPicker('pay'));
 $('#get-coin').addEventListener('click', () => openPicker('get'));
 $('#flip').addEventListener('click', () => {
   if (!kindOf(S.get, S.pay)) return;
   const r = picked(), out = r && !S.q?.busy ? tidy(plain(r.out, tokenOf(S.get).dec)) : '';
-  [S.pay, S.get] = [S.get, S.pay];
+  [S.pay, S.get] = [S.get, S.pay]; S.note = '';
   S.amt = out ? tidy(out.replace(/(\.\d{8})\d+$/, '$1')) : S.amt; S.q = null; S.pick = null; keepUrl(); paint(); requote(true);
 });
 $('#go').addEventListener('click', go);
-$('#rows').addEventListener('click', (e) => { const b = e.target.closest('[data-route]'); if (!b) return; S.pick = b.dataset.route; S.ack = false; paintQuote(); });
+$('#rows').addEventListener('click', (e) => { const b = e.target.closest('[data-route]'); if (!b) return; S.pick = b.dataset.route; S.ack = false; S.ackKey = `${S.pay}>${S.get}:${S.amt}:${S.pick}`; paintQuote(); });
 $('#p-swap').addEventListener('click', (e) => {
   const q = e.target.closest('[data-quick]');
-  if (q) { S.amt = q.dataset.quick; keepUrl(); paintSides(); requote(true); return; }
+  if (q) { S.amt = q.dataset.quick; S.note = ''; keepUrl(); paintSides(); requote(true); return; }
   if (e.target.closest('#max')) {
     const t = tokenOf(S.pay), bal = S.bal[S.pay];
     if (bal == null) return;
     const keep = isEth(S.pay) ? (S.gasPrice || 3n * 10n ** 9n) * 400000n : 0n, v = bal > keep ? bal - keep : 0n;
-    S.amt = tidy(plain(v, t.dec)); S.max = true; keepUrl(); paintSides(); requote(true); return;
+    S.amt = tidy(plain(v, t.dec)); S.max = true; S.note = ''; keepUrl(); paintSides(); requote(true); return;
   }
   const m = e.target.closest('[data-mode-go]');
   if (m) { setMode(m.dataset.modeGo); return; }
-  if (e.target.closest('[data-watch]')) { const t = tokenOf(S.get === lc(R.ZERO) ? S.pay : S.get) || tokenOf(lc(R.TAC)); wallet.watchAsset({ address: t.addr, symbol: t.sym, decimals: t.dec }); return; }
+  if (e.target.closest('[data-watch]')) { const t = tokenOf(e.target.closest('[data-watch]').dataset.watch); if (t) wallet.watchAsset({ address: t.addr, symbol: t.sym, decimals: t.dec }); return; }
   if (e.target.closest('[data-farm-it]')) farmIt();
 });
 $('#ackbox').addEventListener('change', (e) => { if (e.target.id === 'ack') { S.ack = e.target.checked; paintQuote(); } });
-function setMode(m) { if (S.mode === m) return; S.mode = m; fit('pay'); if (!kindOf(S.pay, S.get)) fit('get'); S.q = null; S.pick = null; keepUrl(); paint(); requote(true); }
+function setMode(m) { if (S.mode === m) return; keepAmt(() => { S.mode = m; fit('pay'); if (!kindOf(S.pay, S.get)) fit('get'); }); S.q = null; S.pick = null; keepUrl(); paint(); requote(true); }
 document.querySelector('.mode').addEventListener('click', (e) => { const b = e.target.closest('[data-mode]'); if (b) setMode(b.dataset.mode); });
 function setTab(t) { if (S.tab === t) return; S.tab = t; keepUrl(); paint(); if (t === 'earn') { paintEarn(); if (!S.farms) readFarms().then(paintEarn, paintEarn); } }
 $('#tab-swap').addEventListener('click', () => setTab('swap'));
@@ -651,7 +656,7 @@ $('.sw-h').addEventListener('keydown', (e) => { if (e.key === 'ArrowRight' || e.
 $('#farms').addEventListener('click', (e) => { const b = e.target.closest('[data-farm]'); if (!b) return; S.farm = b.dataset.farm; paintEarn(); });
 $('#any-first').addEventListener('click', () => {
   S.tab = 'swap'; S.mode = 'wallet'; S.get = lc(R.TAC); if (isEth(S.pay) || tacitKey(S.pay)) S.pay = lc(R.TOKENS.find((t) => t.sym === 'USDC').addr);
-  S.thenEarn = true; S.amt = ''; S.q = null; keepUrl(); paint(); $('#amt').focus();
+  S.amt = ''; S.q = null; keepUrl(); paint(); $('#amt').focus();
 });
 addEventListener('hashchange', () => setTab(location.hash === '#earn' ? 'earn' : 'swap'));
 

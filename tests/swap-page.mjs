@@ -122,12 +122,22 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   ok(/Uniswap|Curve|Sushi|zAMM/.test(await page.textContent('#q')), 'the line names the pool zQuoter found');
   await shot(page, 'desktop-usdc-tac');
 
-  // cUSD from the Tacit pool, priced far from a dollar: accepted first.
-  await pick(page, 'pay', 'ETH');
+  // Choosing cUSD while paying USDC puts ETH on the pay side: the 500 typed in USDC is not kept as 500 ETH.
   await pick(page, 'get', 'cUSD');
+  ok((await page.textContent('#pay-coin')).includes('ETH') && (await page.inputValue('#amt')) === '', 'a pay side that follows a choice clears the amount typed in the old asset');
+
+  // cUSD from the Tacit pool, priced far from a dollar: accepted first.
   await typeAmt(page, '0.05');
   await quoted(page);
   const gated = await page.isVisible('#ack');
+  if (gated) {
+    await page.check('#ack');
+    await page.evaluate(() => document.querySelector('#slip [data-slip="50"]').click());          // a refresh of the same quote
+    await quoted(page);
+    ok(await page.isChecked('#ack'), 'the acceptance holds across a refresh of the same quote');
+    await typeAmt(page, '0.06'); await quoted(page);
+    ok(!(await page.isChecked('#ack')), 'a new amount asks for it again');
+  }
   ok(gated ? /under/.test(await page.textContent('#ackbox')) : true, `cUSD: ${gated ? 'a price far under the market is gated' : 'priced near the market, no gate'}`);
   if (gated) {
     ok(/Borrow cUSD at a dollar/.test(await page.textContent('#ackbox')), 'the gate offers the vault');
