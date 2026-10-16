@@ -709,6 +709,8 @@ readUrl();
 }
 slipPaint();
 paint();
+// A page that opens on a token from the list shows its logo: the list is read now rather than on the way to the picker.
+if ([S.pay, S.get].some((k) => { const t = tokenOf(k); return t && !SPRITE.has(t.icon) && !LOGO[k]; })) loadList();
 if (S.tab === 'swap' && matchMedia('(pointer: fine)').matches && !location.hash) $('#amt').focus({ preventScroll: true });
 if (S.tab === 'earn') { paintEarn(); }
 readPrices().then(() => { paint(); if (S.amt) requote(true); if (S.tab === 'earn') readFarms().then(paintEarn, paintEarn); }).catch(() => { if (S.amt) requote(true); });
