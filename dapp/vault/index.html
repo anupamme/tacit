@@ -20,7 +20,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /vault/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/vault/app.js?cb=7ef2fa97">
+<link rel="modulepreload" href="/vault/app.js?cb=1ae19355">
 <link rel="modulepreload" href="/vault/deployments.js?cb=174de1c7">
 <link rel="modulepreload" href="/vault/math.js?cb=ac1ed53e">
 <link rel="modulepreload" href="/vault/chain.js?cb=f91a5f6f">
@@ -106,6 +106,13 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .hero h1 .tk { width: .62em; height: .62em; margin-top: .04em; }
 .hero h1 em { font-style: italic; }
 .hero .sub { margin: 12px 0 0; color: var(--mute); font-size: 13px; max-width: 64ch; }
+.how { margin: 12px 0 0; max-width: 74ch; font-size: 12.5px; }
+.how summary { width: max-content; cursor: pointer; list-style: none; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.how summary::-webkit-details-marker { display: none; }
+.how summary::after { content: ' ↓'; } .how[open] summary::after { content: ' ↑'; }
+.how ol { margin: 10px 0 0; padding: 0 0 0 18px; display: grid; gap: 6px; color: var(--mute); }
+.how ol b { color: var(--ink); font-weight: 500; }
+.how p { margin: 8px 0 0; color: var(--mute); }
 
 /* the page */
 .pick { margin: 0 0 14px; max-width: 460px; }
@@ -176,6 +183,7 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 /* top-up and auction callouts */
 .callout { margin: 14px 0 0; padding: 11px 12px; font-size: 12.5px; background: var(--field); border-left: 2px solid var(--amber); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
 .callout.red { border-left-color: var(--red); }
+.callout.soft { border-left-color: var(--ok); }
 .callout .t { min-width: 0; flex: 1 1 180px; } .callout b { font-weight: 500; }
 .callout .sub { display: block; margin-top: 2px; font-size: 11.5px; color: var(--mute); }
 .pillbtn { min-height: 30px; padding: 3px 12px; font-size: 12px; cursor: pointer; background: none; color: var(--ink); border: 1px solid var(--hair-2); white-space: nowrap; }
@@ -265,6 +273,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
   <section class="hero" aria-labelledby="h">
     <h1 id="h"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span>Borrow against <em>TAC</em></span></h1>
     <p class="sub" id="sub">Deposit TAC, borrow TAC Dollar or TAC Ether against it. No interest, one fee when you borrow.</p>
+    <details class="how" id="how" hidden><summary>How borrowing works</summary><div id="how-body"><p>Reading the vault's terms…</p></div></details>
     <noscript><p class="note">This page needs JavaScript.</p></noscript>
   </section>
 
@@ -310,6 +319,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </nav>
   </footer>
 </div>
-<script type="module" src="/vault/app.js?cb=7ef2fa97"></script>
+<script type="module" src="/vault/app.js?cb=1ae19355"></script>
 </body>
 </html>

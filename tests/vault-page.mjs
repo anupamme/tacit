@@ -108,9 +108,11 @@ async function stubWallet(ctx, { who, noTyped = false }) {
   return log;
 }
 const hashFor = (extra = '') => `#vusd=${USD}&veth=${ETH}${extra}`;
-async function openPage({ viewport = { width: 1280, height: 900 }, who = null, noTyped = false, hash = hashFor(), host = '127.0.0.1', scheme = 'light', args = [] } = {}) {
+// `bare`: the page served with a deployments module that names no vault, as it was before the vaults existed (the opens-soon state).
+async function openPage({ viewport = { width: 1280, height: 900 }, who = null, noTyped = false, hash = hashFor(), host = '127.0.0.1', scheme = 'light', args = [], bare = false } = {}) {
   const browser = await chromium.launch({ args });
   const ctx = await browser.newContext({ viewport, colorScheme: scheme });
+  if (bare) await ctx.route('**/vault/deployments.js*', (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: 'export const DEPLOYMENTS = Object.freeze({ chainId: 1, vaults: Object.freeze([]) });' }));
   const walletLog = who ? await stubWallet(ctx, { who, noTyped }) : null;
   for (const h of RPC_HOSTS) await ctx.route(`https://${h}/**`, async (route) => {
     try {
@@ -136,8 +138,11 @@ const tab = async (p, t) => { await p.click(`#acts [data-t="${t}"]`); await slee
 
 let r, r2;
 try {
-  // ── as deployed: no addresses, so the page opens soon; an address in the bar is ignored away from this computer ──
-  r = await openPage({ hash: '' });
+  // ── as deployed: the two mainnet vaults ──
+  const { DEPLOYMENTS } = await import(new URL('../dapp/vault/deployments.js', import.meta.url).href);
+  ok(DEPLOYMENTS.chainId === 1 && DEPLOYMENTS.vaults.map((v) => v.key).join() === 'usd,eth' && DEPLOYMENTS.vaults.every((v) => /^0x0{6}[0-9a-fA-F]{34}$/.test(v.vault)), `the page names the dollar and the ETH vault on mainnet (${DEPLOYMENTS.vaults.map((v) => v.vault).join(', ')})`);
+  // ── with no addresses the page opens soon; an address in the bar is ignored away from this computer ──
+  r = await openPage({ hash: '', bare: true });
   await until(r.page, () => !document.querySelector('#soon').hidden);
   const soon = await text(r.page, '#soon');
   ok(/Opens soon/.test(soon) && /TAC Dollar \(TACD\)/.test(soon) && /TAC Ether \(TACE\)/.test(soon) && (soon.match(/\./g) || []).length <= 3, `with no addresses the page says it opens soon, in two sentences (${soon.slice(0, 120)}…)`);
@@ -145,7 +150,7 @@ try {
   ok(r.errors.length === 0 && r.blocked.length === 0, `with nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
   await shot(r.page, 'soon');
   await closeAll(r);
-  r = await openPage({ host: 'vault.localhost' });
+  r = await openPage({ host: 'vault.localhost', bare: true });
   await sleep(1500);
   ok(!(await r.page.$eval('#soon', (e) => e.hidden)) && await r.page.$eval('#app', (e) => e.hidden), 'vault addresses in the address bar are ignored away from this computer: the page still opens soon');
   await closeAll(r);
@@ -378,7 +383,18 @@ try {
   await r.page.reload();
   await until(r.page, () => /announced a change/.test(document.querySelector('#cap')?.textContent || ''), null, 30000);
   const an = await text(r.page, '#cap');
-  ok(/liquidation ratio to 150%: can take effect in (2 days|1 day \d+ h)/.test(an) && /Repay or withdraw before it if you do not want it/.test(an), `an announced change is shown with its term, value and wait (${an.replace(/\s+/g, ' ').slice(-170)})`);
+  // Liquidating later is easier for a borrower, so the notice says nothing is needed of them; it carries the wait and the date it lands.
+  ok(/liquidation ratio to 150%: can take effect in (2 days|1 day \d+ h), on \d+ \w+ \d+:\d+ UTC/.test(an) && /only makes borrowing easier/.test(an) && !/Repay or withdraw before it/.test(an), `an announced change is shown with its term, value, wait and date (${an.replace(/\s+/g, ' ').slice(-170)})`);
+  // One that tightens is the one to act ahead of: a higher borrowing line means less can be borrowed against the same TAC.
+  send('owner', USD, 'queueParam(uint8,uint256)', '1', '40000');                                          // the borrowing line to 400%
+  await r.page.reload();
+  await until(r.page, () => /borrowing line to 400%/.test(document.querySelector('#cap')?.textContent || ''), null, 30000);
+  const tight = await text(r.page, '#cap');
+  ok(/Repay or withdraw before it if you do not want it/.test(tight) && /liquidation ratio to 150%/.test(tight), `a tightening change warns, alongside the easier one (${tight.replace(/\s+/g, ' ').slice(-170)})`);
+  send('owner', USD, 'cancelParam(uint8)', '1');
+  await r.page.reload();
+  await until(r.page, () => !/borrowing line to 400%/.test(document.querySelector('#cap')?.textContent || ''), null, 30000);
+  ok(/only makes borrowing easier/.test(await text(r.page, '#cap')), 'and the warning goes with it when it is cancelled');
   // the owner's tool (tools/tac-vault-admin.mjs, or VAULT_ADMIN) reads the same announcement from the chain, and builds the calldata that makes it
   const ADMIN = process.env.VAULT_ADMIN || join(REPO, 'tools/tac-vault-admin.mjs');
   if (existsSync(ADMIN)) {
