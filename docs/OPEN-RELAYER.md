@@ -169,8 +169,11 @@ cd contracts/sp1/confidential/prover-worker
 BOARD_URL=https://api.tacit.finance WORKER_TOKEN=… WORKER_NAME=gpu1 EXPECT_VKEY=<the pool's PROGRAM_VKEY> ./target/release/tacit-prover-worker
 ```
 
-It needs Linux x86-64, CUDA 12, a GPU with 24 GB of memory, 16 or more CPU cores and 64 GB of RAM (the Groth16 step runs
-on the CPU), and about 10 GB of disk for the Groth16 artifacts the SDK fetches on the first proof.
+It needs Linux x86-64, CUDA 12, a GPU with 24 GB of memory, 8 or more CPU cores and 50 GB of RAM, and about 10 GB of disk
+for the Groth16 artifacts the SDK fetches on the first proof. `run-worker.sh` in the same directory keeps the worker
+running on a rented pod (restart on a crash, GPU leftovers cleaned, thread counts from the pod's CPU quota, the server
+and artifacts put back after a container restart) and `restart-worker.sh` restarts it; Tacit's own worker proves an
+ordinary op in about 35 s on a $0.27/h RTX A5000 with the GPU server built for Groth16 on the GPU (see `sp1-gpu/`).
 
 ## Paying for the relay's proofs
 
