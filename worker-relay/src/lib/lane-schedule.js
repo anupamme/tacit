@@ -10,6 +10,7 @@
 
 export function makeLaneSchedule(stages, { now = Date.now, idleSecs = 30, maxBackoffSecs = 1800, log = () => {} } = {}) {
   const st = stages.map((s) => ({ ...s, lastAt: 0, failures: 0, worked: false }));
+  let running = null;   // the stage in hand, for a liveness beat from outside while a long stage runs
   const due = (s, t) => {
     const every = s.failures > 0 ? Math.min(maxBackoffSecs, (s.everySecs || idleSecs) * 2 ** Math.min(s.failures, 12)) : (s.worked ? 0 : s.everySecs || 0);
     return t - s.lastAt >= every * 1000;
@@ -24,6 +25,7 @@ export function makeLaneSchedule(stages, { now = Date.now, idleSecs = 30, maxBac
         if (!due(s, t)) continue;
         s.lastAt = t;
         ran.push(s.name);
+        running = s.name;
         try {
           const w = await s.run();
           s.worked = !!w;
@@ -36,10 +38,11 @@ export function makeLaneSchedule(stages, { now = Date.now, idleSecs = 30, maxBac
           s.failures++;
           const wait = Math.min(maxBackoffSecs, (s.everySecs || idleSecs) * 2 ** Math.min(s.failures, 12));
           log(`${s.name}: cycle error (continuing): ${e?.message || e} — ${s.failures} consecutive failure(s), next attempt in ${wait}s`);
-        }
+        } finally { running = null; }
       }
       return { worked, ran, sleepSecs: worked ? 0 : idleSecs };
     },
+    running: () => running,
     state: () => st.map((s) => ({ name: s.name, lastAt: s.lastAt, failures: s.failures, worked: s.worked })),
   };
 }

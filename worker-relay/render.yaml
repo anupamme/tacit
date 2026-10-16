@@ -129,6 +129,11 @@ services:
         value: "1"
       - key: LANE_IDLE_SECS
         value: "30"
+      # A proof child that hangs holds its lane: these bound it. A real eth_prove takes about a minute, a bitcoin_prove about five.
+      - key: ETH_PROVE_TIMEOUT_SECS
+        value: "900"
+      - key: REFLECTION_PROVE_TIMEOUT_SECS
+        value: "1200"
       # The reflection folder, as its cron ran it (its cycle and gas limits; the group's MAX_GAS_GWEI=5 holds its attests back only in a
       # real spike). It polls every REFLECTION_POLL_SECS when caught up and goes again at once after a landed batch.
       - key: REFLECT_CYCLE_LIMIT

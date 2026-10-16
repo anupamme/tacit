@@ -61,3 +61,14 @@ test('a stage that found nothing calls its idle hook; one that worked or threw d
   work = false; await s.round(); assert.equal(idles.length, 1, 'found nothing: idle beat');
   boom = true; c.tick(30); await s.round(); assert.equal(idles.length, 1, 'threw: no idle beat');
 });
+
+test('the stage in hand is named while it runs, and nothing after', async () => {
+  let release; const gate = new Promise((r) => { release = r; });
+  const s = makeLaneSchedule([{ name: 'r', everySecs: 1, run: async () => { await gate; return false; } }]);
+  assert.equal(s.running(), null);
+  const p = s.round();
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(s.running(), 'r');
+  release(); await p;
+  assert.equal(s.running(), null);
+});
