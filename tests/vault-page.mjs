@@ -166,9 +166,13 @@ try {
   const p = r.page;
   await until(p, () => /250,000\s*TACD/.test(document.querySelector('#board')?.textContent || ''));
   const cap = await text(p, '#board');
-  ok(/Borrowing is open on both vaults/.test(cap) && /Room to borrow\s*250,000 TACD\s*100 TACE/.test(cap) && /Borrowed so far\s*0 TACD\s*0 TACE/.test(cap) && /Fee to borrow\s*1%\s*1%/.test(cap), `the status board says both are open, with the room (the depth's 5% less the debt) for each: ${cap.slice(0, 200)}`);
-  ok(/Smallest debt\s*100 TACD\s*0\.04 TACE/.test(cap) && /Pools' depth\s*5,000,000 TACD.*2,000 TACE/.test(cap) && /Share of depth lent\s*5%\s*5%/.test(cap) && /Borrow · liquidation\s*350% · 200%.*350% · 200%/.test(cap), 'with the smallest debt, the pools\' depth and the share of it lent, and the ratios');
-  ok(/TAC price\s*\$0\.25.*0\.0001 ETH/.test(cap) && /ETH\/USD price\s*\d+ (min|s|h)/.test(cap) && /not needed: priced in ETH/.test(cap), 'the TAC price now in each vault\'s token, and how old the dollar feed is (TAC Ether has no dollar feed)');
+  ok(/Borrowing is open on both vaults/.test(cap) && /Room to borrow\s*250,000 TACD\s*100 TACE/.test(cap) && /Borrowed so far\s*0 TACD\s*0 TACE/.test(cap) && /Fee\s*1%\s*1%/.test(cap) && /Smallest debt\s*100 TACD\s*0\.04 TACE/.test(cap), `the status board says both are open, with the room (the depth's 5% less the debt), the smallest debt, the fee and what is borrowed: ${cap.slice(0, 200)}`);
+  ok(!/Pools' depth|TAC price|Collateral ratio/.test(cap) && (await text(p, '#board [data-more]')) === 'More figures', 'the further figures wait behind More figures');
+  await p.click('#board [data-more]');
+  const more = await text(p, '#board');
+  ok(/Pools' depth\s*5,000,000 TACD.*2,000 TACE/.test(more) && /Share of depth lent\s*5%\s*5%/.test(more) && /Borrow \/ liquidate at\s*350% · 200%\s*350% · 200%/.test(more) && /TAC deposited\s*0 TAC\s*0 TAC/.test(more), 'and give the pools\' depth, the share of it lent, the TAC deposited and the ratios');
+  ok(/TAC price\s*\$0\.25\s*0\.0001 ETH/.test(more) && /ETH\/USD price\s*\d+ (min|s|h)[^—]*—/.test(more) && (await text(p, '#board [data-more]')) === 'Fewer figures', 'the TAC price now in each vault\'s token, and how old the dollar feed is (TAC Ether has none)');
+  ok(await p.evaluate(() => localStorage.getItem('tacit-vault-more')) === '1', 'the choice is kept in this browser');
   ok(/^Borrowing open/.test(await p.title()) && /read (just now|\d+ s ago)/.test(await text(p, '#board .eyebrow')) && !!(await p.$('#board [data-refresh]')), 'the tab\'s title says borrowing is open, and the board says when it was read, with a Refresh');
   ok((await p.$$eval('#pick button', (b) => b.map((x) => x.textContent))).join('|') === 'TAC DollarTACD|TAC EtherTACE', 'two vaults to pick: TAC Dollar and TAC Ether');
   ok(/Connect a wallet to see your vault/.test(await text(p, '#pos')) && /Connect wallet/.test(await text(p, '#go')), 'with no wallet the position asks for one and the button connects');
@@ -195,14 +199,14 @@ try {
   r = await openPage();
   await until(r.page, () => /under the smallest debt/.test(document.querySelector('#board')?.textContent || ''));
   const tb = await text(r.page, '#board');
-  ok(/Borrowing is not open yet/.test(tb) && /Room to borrow\s*62\.5 TACD\s*0\.025 TACE/.test(tb) && /The room to borrow \(62\.5 TACD\) is under the smallest debt \(100 TACD\)/.test(tb) && /\(0\.025 TACE\) is under the smallest debt \(0\.04 TACE\)/.test(tb), `a room under the smallest debt is said with both figures, and the vault is not open (${tb.slice(0, 160)})`);
+  ok(/Borrowing is not open yet/.test(tb) && /Room to borrow\s*62\.5 TACD\s*0\.025 TACE/.test(tb) && /TAC Dollar: Room \(62\.5 TACD\) is under the smallest debt \(100 TACD\)/.test(tb) && /TAC Ether: Room \(0\.025 TACE\) is under the smallest debt \(0\.04 TACE\)/.test(tb), `a room under the smallest debt is said with both figures, and the vault is not open (${tb.slice(0, 160)})`);
   ok(/^Borrowing not open yet/.test(await r.page.title()) && (await r.page.$eval('#board .needs a[href="/trade/tac/#farm"]', (a) => a.textContent)) === 'Add liquidity', 'the tab says so too, and the way to more room is the TAC pools');
   // an announced change to the share of depth lent opens it: the board says what the room becomes and from when
   send('owner', USD, 'queueParam(uint8,uint256)', '0', '1000'); send('owner', ETH, 'queueParam(uint8,uint256)', '0', '1000');
   await r.page.reload();
-  await until(r.page, () => /which opens borrowing from/.test(document.querySelector('#board')?.textContent || ''), null, 30000);
+  await until(r.page, () => /borrowing opens from/.test(document.querySelector('#board')?.textContent || ''), null, 30000);
   const ta = await text(r.page, '#board');
-  ok(/makes the room 125 TACD against a smallest debt of 100 TACD, which opens borrowing from \d+ \w+ \d+:\d+ UTC/.test(ta) && /makes the room 0\.05 TACE against a smallest debt of 0\.04 TACE, which opens borrowing from/.test(ta), `an announced change that opens it says the room it makes and from when (${ta.replace(/\s+/g, ' ').slice(120, 330)})`);
+  ok(/The announced change makes the room 125 TACD \(smallest debt 100 TACD\): borrowing opens from \d+ \w+ \d+:\d+ UTC/.test(ta) && /makes the room 0\.05 TACE \(smallest debt 0\.04 TACE\): borrowing opens from/.test(ta), `an announced change that opens it says the room it makes and from when (${ta.replace(/\s+/g, ' ').slice(120, 330)})`);
   send('owner', USD, 'cancelParam(uint8)', '0'); send('owner', ETH, 'cancelParam(uint8)', '0');
   send('deployer', ORACLE, 'setDepth(uint256)', String(2000n * E18));
   await closeAll(r);
@@ -235,7 +239,7 @@ try {
   await typed(u, '8000');
   ok(/You can borrow up to 7,072\.\d\d TACD now/.test(await text(u, '#hint')) && await u.$eval('#go', (b) => b.disabled), 'over the limit it says how much is allowed instead of failing late');
   await typed(u, '50');
-  ok(/A vault's debt starts at 100 TACD\. Borrow at least 99(\.0\d)? TACD/.test(await text(u, '#hint')) && await u.$eval('#go', (b) => b.disabled), 'under the minimum debt it says what to borrow at least');
+  ok(/Smallest debt is 100 TACD: borrow at least 99(\.0\d)?\./.test(await text(u, '#hint')) && await u.$eval('#go', (b) => b.disabled), 'under the minimum debt it says what to borrow at least');
   await typed(u, '3000');
   W.sends.length = 0;
   await u.click('#go');
@@ -264,7 +268,7 @@ try {
   await u.reload(); await until(u, () => /Ratio\s*247%/.test(document.querySelector('#pos')?.textContent || ''));
   const pos2 = await text(u, '#pos');
   const need = (4n * 3030n * E18 - 7500n * E18) * E18 / (P0 * 3n / 10n * 2500n);                           // (4 × debt − value) / price, the formula, in TAC
-  ok(/Redemption/.test(pos2) && /a holder of TACD can swap it for your TAC at its price, less a 0\.5% to 2% fee/.test(pos2), 'between 200% and 400% the page says what redemption is');
+  ok(/Redemption/.test(pos2) && /Open to redemption: a TACD holder can swap it for your TAC at its price, and your debt falls by as much/.test(pos2), 'between 200% and 400% the page says what redemption is');
   const topText = await text(u, '#pos .callout');
   const topFill = await u.$eval('#pos [data-fill]', (b) => b.dataset.fill);
   ok(/Add 61,600 TAC to reach 400%/.test(topText) && BigInt(cast('to-wei', topFill)) >= need && BigInt(cast('to-wei', topFill)) - need < E18 / 50n, `the top-up prompt says how much TAC reaches 400% (${topText}); the fill is the formula's figure rounded up to a cent (${topFill} vs ${need})`);
@@ -383,40 +387,41 @@ try {
   // ── a pause: the owner stops liquidations, outside bids and redemptions for a while ──
   send('owner', USD, 'pauseAuctions(uint256)', '7200');
   r = await openPage({});
-  await until(r.page, () => /Auctions are paused/.test(document.querySelector('#board')?.textContent || ''), null, 30000);
+  await until(r.page, () => /Auctions paused/.test(document.querySelector('#board')?.textContent || ''), null, 30000);
   const pz = await text(r.page, '#board');
-  ok(/Auctions are paused on TAC Dollar\./.test(pz) && /for \d{1,3}:\d\d\./.test(pz) && /Repaying, adding TAC and withdrawing work as usual/.test(pz), `a pause is said, with its countdown and what still works (${pz.slice(0, 160).replace(/\s+/g, ' ')})`);
+  ok(/Auctions paused on TAC Dollar for \d{1,3}:\d\d:/.test(pz) && /no liquidations, outside bids or redemptions/.test(pz) && /Everything else works/.test(pz), `a pause is said, with its countdown and what still works (${pz.slice(0, 160).replace(/\s+/g, ' ')})`);
   await closeAll(r);
   send('owner', USD, 'resumeAuctions()');
   r = await openPage({});
   await until(r.page, () => /Room to borrow/.test(document.querySelector('#board')?.textContent || ''), null, 30000);
   await sleep(1500);
-  ok(!/Auctions are paused/.test(await text(r.page, '#board')), 'when the owner lifts the pause the notice is gone');
+  ok(!/Auctions paused/.test(await text(r.page, '#board')), 'when the owner lifts the pause the notice is gone');
   await closeAll(r);
 
   // ── the owner changes a term, slowly: the page follows it ──
   r = await openPage({ hash: hashFor(`&a=${ACC.user.a}`) });
   await until(r.page, () => /Collateral/.test(document.querySelector('#pos')?.textContent || ''));
   const bar0 = await text(r.page, '#pos');
+  await r.page.click('#board [data-more]');
   const held = await text(r.page, '#board');
-  ok(/TAC deposited\s*[1-9][\d,.]* TAC\s*0 TAC/.test(held) && /TAC backing the debt\s*\d+%/.test(held) && /Borrowed so far\s*[1-9][\d,.]* TACD/.test(held), `once an account has borrowed, the board shows the TAC deposited, the debt and the ratio the TAC backs it at (${held.replace(/\s+/g, ' ').slice(200, 420)})`);
+  ok(/TAC deposited\s*[1-9][\d,.]* TAC\s*0 TAC/.test(held) && /Collateral ratio\s*\d+%/.test(held) && /Borrowed so far\s*[1-9][\d,.]* TACD/.test(held), `once an account has borrowed, the board shows the TAC deposited, the debt and the ratio the TAC backs it at (${held.replace(/\s+/g, ' ').slice(200, 420)})`);
   ok(/200%/.test(bar0) && /400%/.test(bar0) && !/300%/.test(bar0.replace(/350%/g, '')), 'the bar is drawn with the 200% line and the 400% line');
   send('owner', USD, 'queueParam(uint8,uint256)', '2', '15000');                                          // the liquidation ratio to 150%
   await r.page.reload();
-  await until(r.page, () => /announced a change/.test(document.querySelector('#board')?.textContent || ''), null, 30000);
+  await until(r.page, () => /Changes announced by the owner/.test(document.querySelector('#board')?.textContent || ''), null, 30000);
   const an = await text(r.page, '#board');
   // Liquidating later is easier for a borrower, so the notice says nothing is needed of them; it carries the wait and the date it lands.
-  ok(/liquidation ratio to 150%: can take effect in (2 days|1 day \d+ h), on \d+ \w+ \d+:\d+ UTC/.test(an) && /only makes borrowing easier/.test(an) && !/Repay or withdraw before it/.test(an), `an announced change is shown with its term, value, wait and date (${an.replace(/\s+/g, ' ').slice(-170)})`);
+  ok(/Liquidation ratio → 150% · from \d+ \w+ \d+:\d+ UTC \(in (2 days|1 day \d+ h)\)/.test(an) && /They make borrowing easier; nothing to do/.test(an) && !/repay or withdraw/.test(an), `an announced change is shown with its term, value, wait and date (${an.replace(/\s+/g, ' ').slice(-170)})`);
   // One that tightens is the one to act ahead of: a higher borrowing line means less can be borrowed against the same TAC.
   send('owner', USD, 'queueParam(uint8,uint256)', '1', '40000');                                          // the borrowing line to 400%
   await r.page.reload();
-  await until(r.page, () => /borrowing line to 400%/.test(document.querySelector('#board')?.textContent || ''), null, 30000);
+  await until(r.page, () => /Borrowing line → 400%/.test(document.querySelector('#board')?.textContent || ''), null, 30000);
   const tight = await text(r.page, '#board');
-  ok(/Repay or withdraw before it if you do not want it/.test(tight) && /liquidation ratio to 150%/.test(tight), `a tightening change warns, alongside the easier one (${tight.replace(/\s+/g, ' ').slice(-170)})`);
+  ok(/They tighten borrowing: repay or withdraw before then/.test(tight) && /Liquidation ratio → 150%/.test(tight), `a tightening change warns, alongside the easier one (${tight.replace(/\s+/g, ' ').slice(-170)})`);
   send('owner', USD, 'cancelParam(uint8)', '1');
   await r.page.reload();
-  await until(r.page, () => !/borrowing line to 400%/.test(document.querySelector('#board')?.textContent || ''), null, 30000);
-  ok(/only makes borrowing easier/.test(await text(r.page, '#board')), 'and the warning goes with it when it is cancelled');
+  await until(r.page, () => !/Borrowing line → 400%/.test(document.querySelector('#board')?.textContent || ''), null, 30000);
+  ok(/They make borrowing easier/.test(await text(r.page, '#board')), 'and the warning goes with it when it is cancelled');
   // the owner's tool (tools/tac-vault-admin.mjs, or VAULT_ADMIN) reads the same announcement from the chain, and builds the calldata that makes it
   const ADMIN = process.env.VAULT_ADMIN || join(REPO, 'tools/tac-vault-admin.mjs');
   if (existsSync(ADMIN)) {
@@ -427,15 +432,15 @@ try {
   // a further synth minter the owner names is shown the same way, and goes when it is cancelled
   send('owner', SYN.usd, 'queueMinter(address)', TAC);
   await r.page.reload();
-  await until(r.page, () => /another contract allowed to mint/.test(document.querySelector('#board')?.textContent || ''), null, 30000);
-  ok(/another contract allowed to mint TACD: can be added in (3 days|2 days \d+ h)/.test(await text(r.page, '#board')), 'an announced synth minter is shown with its wait');
+  await until(r.page, () => /Another contract may mint/.test(document.querySelector('#board')?.textContent || ''), null, 30000);
+  ok(/Another contract may mint TACD · from \d+ \w+ \d+:\d+ UTC \(in (3 days|2 days \d+ h)\)/.test(await text(r.page, '#board')), 'an announced synth minter is shown with its wait');
   send('owner', SYN.usd, 'cancelMinter()');
   await rpcA('evm_increaseTime', [2 * 86400 + 60]); await rpcA('evm_mine', []);
   send('owner', USD, 'executeParam(uint8)', '2');
   await r.page.reload();
   await until(r.page, () => /Collateral/.test(document.querySelector('#pos')?.textContent || ''), null, 30000);
   const bar1 = await text(r.page, '#pos');
-  ok(!/announced a change/.test(await text(r.page, '#board')), 'once the change is made the notice is gone');
+  ok(!/Changes announced by the owner/.test(await text(r.page, '#board')), 'once the change is made the notice is gone');
   ok(/150%/.test(bar1) && /300%/.test(bar1) && !/400%/.test(bar1), `the lines follow the new liquidation ratio: 150% and 300% (${bar1.replace(/\s+/g, ' ').slice(0, 120)})`);
   await closeAll(r);
 

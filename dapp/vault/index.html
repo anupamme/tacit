@@ -20,7 +20,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /vault/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/vault/app.js?cb=f858bbec">
+<link rel="modulepreload" href="/vault/app.js?cb=726c5565">
 <link rel="modulepreload" href="/vault/deployments.js?cb=174de1c7">
 <link rel="modulepreload" href="/vault/math.js?cb=ac1ed53e">
 <link rel="modulepreload" href="/vault/chain.js?cb=6423299e">
@@ -158,6 +158,7 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .st { display: inline-flex; align-items: center; gap: 7px; }
 .verdict.off { color: var(--ink); }
 .pick-l { margin: 0 0 8px; font-size: 12px; color: var(--mute); }
+.more { display: block; margin: 12px 0 0; }
 .kv { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 12.5px; color: var(--mute); padding: 5px 0; }
 .kv b { font-weight: 400; color: var(--ink); text-align: right; overflow-wrap: anywhere; }
 .kv b small { display: block; font-size: 11.5px; color: var(--mute); }
@@ -290,14 +291,14 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
 
   <section class="hero" aria-labelledby="h">
     <h1 id="h"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span>Borrow against <em>TAC</em></span></h1>
-    <p class="sub" id="sub">Deposit TAC, borrow TAC Dollar or TAC Ether against it. No interest, one fee when you borrow.</p>
+    <p class="sub" id="sub">Borrow TAC Dollar or TAC Ether against your TAC. No interest, one fee.</p>
     <details class="how" id="how" hidden><summary>How borrowing works</summary><div id="how-body"><p>Reading the vault's terms…</p></div></details>
     <noscript><p class="note">This page needs JavaScript.</p></noscript>
   </section>
 
   <section class="panel" id="soon" hidden aria-labelledby="soon-h">
     <p class="eyebrow" id="soon-h">Opens soon</p>
-    <p class="empty soon-t">Deposit TAC and borrow TAC Dollar (TACD) or TAC Ether (TACE) against it, with no interest and a single fee when you borrow. This page shows your vault, how much you can borrow and how safe it is, and is where you deposit, borrow, repay and withdraw.</p>
+    <p class="empty soon-t">Deposit TAC and borrow TAC Dollar (TACD) or TAC Ether (TACE) against it. No interest, one fee when you borrow.</p>
     <p class="note"><a href="/trade/tac/">Trade TAC</a></p>
   </section>
 
@@ -305,7 +306,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     <div class="grid">
       <div class="col">
         <section class="panel board" id="board" aria-labelledby="board-h"></section>
-        <div id="pick-w"><p class="pick-l">Deposit, borrow, repay or withdraw in</p><div class="seg big pick" id="pick" role="group" aria-label="Which vault"></div></div>
+        <div id="pick-w"><p class="pick-l">Vault</p><div class="seg big pick" id="pick" role="group" aria-label="Which vault"></div></div>
         <section class="panel" id="pos" aria-labelledby="pos-h"></section>
         <section class="panel" id="feed" aria-labelledby="feed-h" hidden></section>
       </div>
@@ -337,6 +338,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </nav>
   </footer>
 </div>
-<script type="module" src="/vault/app.js?cb=f858bbec"></script>
+<script type="module" src="/vault/app.js?cb=726c5565"></script>
 </body>
 </html>

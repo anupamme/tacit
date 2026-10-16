@@ -37,7 +37,9 @@ const VS = (() => {
   return list.map((v) => ({ ...v, s: null, d: null }));
 })();
 
-const S = { v: VS[0]?.key, t: 'deposit', amt: '', view: null, busy: false, seq: 0, chainT: 0, chainAt: 0, loaded: false, failed: false };
+const S = { v: VS[0]?.key, t: 'deposit', amt: '', view: null, busy: false, seq: 0, chainT: 0, chainAt: 0, loaded: false, failed: false, more: false };
+const MORE_KEY = 'tacit-vault-more';                                                                // whether the board shows its further figures, kept in this browser
+try { S.more = localStorage.getItem(MORE_KEY) === '1'; } catch { /* storage is a convenience */ }
 const rpc = makeRpc();
 const { ethCall, batch } = makeReader(rpc);
 const cur = () => VS.find((v) => v.key === S.v) || null;
@@ -190,46 +192,47 @@ function afterAnnounced(x) {
 }
 // Can this vault be borrowed from, and if not, why and what changes it.
 function statusOf(x) {
-  const f = feedOf(x.V), name = x.k.name;
+  const f = feedOf(x.V);
   if (x.paused) {
-    if (x.stale) return { state: 'paused', short: 'ETH/USD price old', why: `The ETH/USD price is ${M.span(x.feedAge)} old, and lending needs one under ${M.span(x.s.staleness)}.`, next: 'It clears when the feed posts its next price.' };
-    if (f && !f.ready) return { state: 'paused', short: 'prices not recorded', why: `${f.missing} price${f.missing === 1 ? '' : 's'} of the two venues ${f.missing === 1 ? 'is' : 'are'} not recorded: lending needs every ten-minute price of the last eight hours.`, next: 'Anyone can record them, <a href="#feed" data-tofeed>below</a>.' };
-    if (!f && !F.tried) return { state: 'paused', short: 'checking prices', why: 'Checking which prices are recorded…', next: '' };
+    if (x.stale) return { state: 'paused', short: 'ETH/USD price old', why: `The ETH/USD price is ${M.span(x.feedAge)} old; lending needs one under ${M.span(x.s.staleness)}.`, next: 'It clears with the feed\'s next update.' };
+    if (f && !f.ready) return { state: 'paused', short: 'prices not recorded', why: `Lending waits for ${f.missing} price${f.missing === 1 ? '' : 's'} to be recorded.`, next: 'Anyone can record them, <a href="#feed" data-tofeed>below</a>.' };
+    if (!f && !F.tried) return { state: 'paused', short: 'checking prices', why: 'Checking prices…', next: '' };
     return { state: 'paused', short: 'prices unreadable', why: 'Prices cannot be read right now.', next: '' };
   }
   if (x.room < x.s.minDebt) {
-    const ceil = x.d.debtCeiling, sym = x.sym;
+    const ceil = x.d.debtCeiling, g = (v) => `${syn(x, v)} ${x.sym}`;
     if (x.ownerCap && ceil === 0n) return { state: 'thin', short: 'switched off', why: 'The owner has switched lending off.', next: '' };
-    if (x.ownerCap) return { state: 'thin', short: 'cap reached', why: `The owner caps lending at ${syn(x, ceil)} ${sym}; ${syn(x, x.room)} ${sym} is left, under the smallest debt of ${syn(x, x.s.minDebt)} ${sym}.`, next: '' };
-    const after = afterAnnounced(x), why = x.room === 0n ? `All the room (${syn(x, x.cap)} ${sym}) is borrowed.` : `The room to borrow (${syn(x, x.room)} ${sym}) is under the smallest debt (${syn(x, x.s.minDebt)} ${sym}).`;
-    if (after && after.room >= after.minDebt && after.room > 0n) return { state: 'thin', short: 'room under the minimum', why, next: `The owner's announced change makes the room ${syn(x, after.room)} ${sym} against a smallest debt of ${syn(x, after.minDebt)} ${sym}, which opens borrowing from ${onDay(after.eta)}.` };
-    return { state: 'thin', short: 'room under the minimum', why, next: 'Room grows as liquidity is added to the TAC pools. <a href="/trade/tac/#farm">Add liquidity</a>' };
+    if (x.ownerCap) return { state: 'thin', short: 'cap reached', why: `The owner caps lending at ${g(ceil)}; ${g(x.room)} is left, under the smallest debt (${g(x.s.minDebt)}).`, next: '' };
+    const after = afterAnnounced(x), why = x.room === 0n ? `All ${g(x.cap)} is borrowed.` : `Room (${g(x.room)}) is under the smallest debt (${g(x.s.minDebt)}).`;
+    if (after && after.room >= after.minDebt && after.room > 0n) return { state: 'thin', short: 'room too small', why, next: `The announced change makes the room ${g(after.room)} (smallest debt ${g(after.minDebt)}): borrowing opens from ${onDay(after.eta)}.` };
+    return { state: 'thin', short: 'room too small', why, next: 'More liquidity in the TAC pools adds room. <a href="/trade/tac/#farm">Add liquidity</a>' };
   }
   return { state: 'open', short: '', why: '', next: '' };
 }
 function boardRows(xs) {
   const cell = (fn) => xs.map((x) => `<td class="num">${fn(x)}</td>`).join('');
   const dash = '—';
+  // [label, what a vault shows, whether it waits behind "More figures"]
   const rows = [
-    ['Borrowing', (x) => { const st = x.status; return `<span class="st s-${st.state}"><i class="sd"></i>${st.state === 'open' ? 'Open' : 'Not open'}</span>${st.short ? `<small>${esc(st.short)}</small>` : ''}`; }],
+    ['Borrowing', (x) => { const st = x.status; return `<span class="st s-${st.state}"><i class="sd"></i>${st.state === 'open' ? 'Open' : 'Not open'}</span>${st.short && !x.hideShort ? `<small>${esc(st.short)}</small>` : ''}`; }],
     ['Room to borrow', (x) => (x.room != null ? `<b>${esc(syn(x, x.room))}</b> ${esc(x.sym)}` : dash)],
     ['Smallest debt', (x) => `${esc(syn(x, x.s.minDebt))} ${esc(x.sym)}`],
-    ['Fee to borrow', (x) => (x.d.feeBps != null ? esc(feeText(x.d.feeBps)) : dash)],
+    ['Fee', (x) => (x.d.feeBps != null ? esc(feeText(x.d.feeBps)) : dash)],
     ['Borrowed so far', (x) => (x.d.totalDebt != null ? `${esc(syn(x, x.d.totalDebt))} ${esc(x.sym)}` : dash)],
-    ['TAC deposited', (x) => (x.d.held != null ? `${esc(tac(x.d.held))} TAC` : dash)],
-    ['TAC backing the debt', (x) => (x.backing != null ? `${esc(pctOf(x.backing))}<small>at the liquidation price</small>` : dash)],
+    ['TAC deposited', (x) => (x.d.held != null ? `${esc(tac(x.d.held))} TAC` : dash), true],
+    ['Collateral ratio', (x) => (x.backing != null ? esc(pctOf(x.backing)) : dash), true],
     ['Pools\' depth', (x) => {
       const f = feedOf(x.V), d = x.d;
       if (d.depthCeiling != null && x.s.depthBps > 0n) return `${esc(syn(x, d.depthCeiling * 10000n / x.s.depthBps))} ${esc(x.sym)}<small>lowest in 8 h</small>`;
       if (f?.depth != null && d.feed && d.feed.answer > 0n) return `${esc(syn(x, f.depth * d.feed.answer / 10n ** BigInt(d.feed.decimals)))} ${esc(x.sym)}<small>lowest so far</small>`;
       return dash;
-    }],
-    ['Share of depth lent', (x) => `${esc(String(Number(x.s.depthBps) / 100))}%`],
-    ['TAC price', (x) => (x.px != null ? `${esc(priceText(x, x.px, 'down'))}<small>the lower venue, now</small>` : dash)],
-    ['Borrow · liquidation', (x) => `${esc(pctOf(x.s.mint))} · ${esc(pctOf(x.s.liq))}<small>ratios</small>`],
+    }, true],
+    ['Share of depth lent', (x) => `${esc(String(Number(x.s.depthBps) / 100))}%`, true],
+    ['TAC price', (x) => (x.px != null ? esc(priceText(x, x.px, 'down')) : dash), true],
+    ...(xs.some((x) => x.feedAge != null) ? [['ETH/USD price', (x) => (x.feedAge != null ? `<span class="${x.stale ? 'z-liquidation' : ''}">${esc(M.span(x.feedAge))} old</span><small>${x.stale ? 'too old to lend' : `limit ${esc(M.span(x.s.staleness))}`}</small>` : dash), true]] : []),
+    ['Borrow / liquidate at', (x) => `${esc(pctOf(x.s.mint))} · ${esc(pctOf(x.s.liq))}`, true],
   ];
-  if (xs.some((x) => x.feedAge != null)) rows.splice(10, 0, ['ETH/USD price', (x) => (x.feedAge != null ? `<span class="${x.stale ? 'z-liquidation' : ''}">${esc(M.span(x.feedAge))} old</span><small>${x.stale ? 'too old to lend' : `limit ${esc(M.span(x.s.staleness))}`}</small>` : '<small>not needed: priced in ETH</small>')]);
-  return rows.map(([label, fn]) => `<tr><th scope="row">${esc(label)}</th>${cell(fn)}</tr>`).join('');
+  return rows.filter((r) => S.more || !r[2]).map(([label, fn]) => `<tr><th scope="row">${esc(label)}</th>${cell(fn)}</tr>`).join('');
 }
 function renderBoard() {
   const el = $('#board'), xs = VS.map((v) => derive(v)).filter(Boolean);
@@ -239,13 +242,16 @@ function renderBoard() {
   const open = xs.filter((x) => x.status.state === 'open');
   const verdict = open.length === xs.length ? (xs.length > 1 ? 'Borrowing is open on both vaults' : `Borrowing is open on ${xs[0].k.name}`) : open.length ? `Borrowing is open on ${open.map((x) => x.k.name).join(' and ')}` : 'Borrowing is not open yet';
   document.title = `${open.length ? 'Borrowing open' : 'Borrowing not open yet'} · tacit borrow`;
-  // What each closed vault needs, said once when both need the same.
+  // What each closed vault needs, said once (and without a name) when every vault needs the same.
   const need = GROUP(xs.filter((x) => x.status.state !== 'open').map((x) => [x, { why: x.status.why, next: x.status.next }]));
-  const needs = need.map((g) => `<li><b>${esc(g.names.join(' and '))}:</b>${g.t.why ? ` ${g.t.why}` : ''}${g.t.next ? ` ${g.t.next}` : ''}</li>`).join('');
-  const notices = xs.map((x) => `${x.auctionsPaused ? pauseBox(x, xs.length > 1) : ''}${changesBox(x, xs.length > 1)}`).join('');
+  const shared = need.length === 1 && need[0].names.length === xs.length;                         // one reason for every vault is said once, above the table
+  for (const x of xs) x.hideShort = shared;
+  const needs = need.map((g) => `<li>${g.names.length === xs.length ? '' : `<b>${esc(g.names.join(' and '))}:</b> `}${g.t.why}${g.t.next ? ` ${g.t.next}` : ''}</li>`).join('');
+  const notices = xs.filter((x) => x.auctionsPaused).map((x) => pauseBox(x, xs.length > 1)).join('') + changesNotice(xs);
   setHtml(el, `${head}<p class="verdict ${open.length ? 'on' : 'off'}"><i class="sd"></i><span>${esc(verdict)}</span></p>
     ${needs ? `<ul class="needs">${needs}</ul>` : ''}
     <div class="bt-wrap"><table class="bt"><thead><tr><td></td>${xs.map((x) => `<th scope="col">${esc(x.k.name)}<small>${esc(x.sym)}</small></th>`).join('')}</tr></thead><tbody>${boardRows(xs)}</tbody></table></div>
+    <button class="linkbtn more" type="button" data-more aria-expanded="${!!S.more}">${S.more ? 'Fewer figures' : 'More figures'}</button>
     ${notices}`);
 }
 const agoText = (s) => (s < 5 ? 'just now' : s < 60 ? `${Math.round(s)} s ago` : `${M.span(s)} ago`);
@@ -256,15 +262,15 @@ function renderHow() {
   el.hidden = !VS.length;
   const V = cur(), x = V && derive(V);
   if (!x) return;
-  const sym = esc(x.sym), fee = x.d.feeBps != null ? `one fee of ${feeText(x.d.feeBps)} when you borrow` : 'one fee when you borrow';
+  const sym = esc(x.sym), fee = x.d.feeBps != null ? `${feeText(x.d.feeBps)} fee to borrow` : 'One fee to borrow', redeem = `${feeText(x.s.redemptionFee)}–${feeText(x.s.redemptionFee * 4n)}`;
   setHtml($('#how-body'), `<ol>
-    <li><b>Deposit TAC, borrow ${sym}.</b> You can borrow while your TAC is worth at least ${pctOf(x.s.mint)} of what you owe. There is ${fee} and no interest.</li>
-    <li><b>Prices are taken over hours.</b> Borrowing uses the lowest of the pools' recent median prices and the price now; liquidation uses the higher medians, so a brief drop alone does not set it off.</li>
-    <li><b>Under ${pctOf(x.s.liq)} a vault can be auctioned.</b> A bid repays debt for TAC at the vault's price plus a bonus that grows over ${esc(M.span(x.s.auctionDuration))}. For the first ${esc(M.span(x.s.ownerWindow))} only the vault's owner can bid, and repaying or adding TAC until it is back over ${pctOf(x.s.liq)} ends the auction.</li>
-    <li><b>From ${pctOf(x.s.liq)} to ${pctOf(x.safe)}, ${sym} can be redeemed against a vault.</b> A holder swaps ${sym} for its TAC at the vault's price, less a ${feeText(x.s.redemptionFee)} to ${feeText(x.s.redemptionFee * 4n)} fee, and the vault's debt falls by as much.</li>
-    <li><b>Repay any time,</b> all or part (what is left must be nothing or at least ${esc(syn(x, x.s.minDebt))} ${sym}), and take your TAC back.</li>
+    <li><b>Deposit TAC, borrow ${sym}.</b> Up to your TAC's value over ${pctOf(x.s.mint)}. ${fee}, no interest.</li>
+    <li><b>Prices move slowly.</b> They come from the TAC pools over hours, so a brief dip does not liquidate you.</li>
+    <li><b>Under ${pctOf(x.s.liq)}, a vault can be auctioned.</b> Bids repay its debt for its TAC at a bonus that grows over ${esc(M.span(x.s.auctionDuration))}; only the owner can bid for the first ${esc(M.span(x.s.ownerWindow))}. Repaying or adding TAC ends it.</li>
+    <li><b>${pctOf(x.s.liq)} to ${pctOf(x.safe)}, it can be redeemed against.</b> A ${sym} holder swaps it for the vault's TAC at its price (${redeem} fee), which lowers the debt.</li>
+    <li><b>Repay any time.</b> The debt left must be zero or at least ${esc(syn(x, x.s.minDebt))} ${sym}.</li>
   </ol>
-  <p>Every figure here is read from the vault. Its owner can lower the cap, set the fees (up to 5% to borrow, 2.5% to redeem) and pause auctions for up to 12 hours at once; any other change waits two to three days and is announced on this page first.</p>`);
+  <p>The owner can lower the cap, set fees (up to 5% to borrow, 2.5% to redeem) and pause auctions for up to 12 hours. Other changes are announced here 2 to 3 days ahead.</p>`);
 }
 
 // ── a person's vault ──
@@ -281,19 +287,17 @@ function healthBar(x) {
     <div class="hb-key">${['liquidation', 'redemption', 'safe'].map((k) => `<span class="${x.zone === k ? 'on' : ''}"><i class="${k}"></i>${zoneName[k]}</span>`).join('')}</div></div>`;
 }
 function zoneLine(x) {
-  if (x.zone === 'liquidation') return `Under ${pctOf(x.s.liq)}: this vault can be sold in an auction.`;
-  if (x.zone === 'redemption') return `From ${pctOf(x.s.liq)} to ${pctOf(x.safe)}, a holder of ${esc(x.sym)} can swap it for your TAC at its price, less a ${feeText(x.s.redemptionFee)} to ${feeText(x.s.redemptionFee * 4n)} fee. Your debt falls by the same amount.`;
-  return `From ${pctOf(x.safe)} up, nothing can be redeemed or sold against this vault.`;
+  if (x.zone === 'liquidation') return `Under ${pctOf(x.s.liq)}: this vault can be auctioned.`;
+  if (x.zone === 'redemption') return `Open to redemption: a ${esc(x.sym)} holder can swap it for your TAC at its price, and your debt falls by as much.`;
+  return 'Safe: nothing can be redeemed or auctioned against this vault.';
 }
 function pauseBox(x, named = false) {
-  return `<div class="callout"><span class="t"><b>Auctions are paused${named ? ` on ${esc(x.k.name)}` : ''}.</b> Nobody can start an auction, bid on one for someone else or redeem for <b data-cd="${x.pauseEnd}">${M.clock(x.pauseEnd - chainNow())}</b>. Repaying, adding TAC and withdrawing work as usual.</span></div>`;
+  return `<div class="callout"><span class="t"><b>Auctions paused${named ? ` on ${esc(x.k.name)}` : ''}</b> for <b data-cd="${x.pauseEnd}">${M.clock(x.pauseEnd - chainNow())}</b>: no liquidations, outside bids or redemptions. Everything else works.</span></div>`;
 }
-// What the owner has announced and not yet made. A change takes effect from the time shown, so a borrower who does not want it can repay or
-// withdraw before then.
-const TERM_NAMES = ["share of the pools' depth lent", 'borrowing line', 'liquidation ratio', 'bid bonus', "owner's bidding window", 'auction length', 'smallest debt'];
-// Which way a term's change falls for someone borrowing: 1 where a larger number is the easier one, -1 where a smaller one is. An announced
-// change that only makes borrowing easier (more room, a smaller debt to start, a later liquidation, a smaller bonus taken from it) needs no
-// warning; one that tightens is what a borrower may want to repay or withdraw ahead of.
+// What the owner has announced and not yet made, in one notice for every vault. Only a change that tightens is one to act ahead of; a new price
+// source or minter is neither way, so it counts as one.
+const TERM_NAMES = ['Share of depth lent', 'Borrowing line', 'Liquidation ratio', 'Bid bonus', "Owner's bidding window", 'Auction length', 'Smallest debt'];
+// Which way a term's change falls for someone borrowing: 1 where a larger number is the easier one, -1 where a smaller one is, 0 where neither is.
 const EASIER_WHEN_LARGER = [1, -1, -1, -1, 1, 0, -1];
 // What each term is now, in the same units as an announcement; null where the page does not read it, which counts as a change to act on.
 const CURRENT_TERM = [(x) => x.s.depthBps, (x) => x.s.mint, (x) => x.s.liq, () => null, (x) => x.s.ownerWindow, (x) => x.s.auctionDuration, (x) => x.s.minDebt];
@@ -304,23 +308,23 @@ function termText(x, id, v) {
   if (id === 4 || id === 5) return M.span(Number(v));
   return `${syn(x, v)} ${x.sym}`;
 }
-function changesBox(x, named = false) {
-  const now = chainNow(), live = (eta) => eta > 0 && eta + QUEUE_EXPIRY > now;
-  const when = (eta) => (eta > now ? `in ${M.span(eta - now)}, on ${onDay(eta)}` : 'now');
-  const announced = (x.d.announced || []).filter((a) => live(a.eta));
-  const lines = announced.map((a) => `${TERM_NAMES[a.id]} to ${termText(x, a.id, a.value)}: can take effect ${when(a.eta)}`);
-  if (live(x.d.oracleEta)) lines.push(`the price source: can be replaced ${when(x.d.oracleEta)}`);
-  if (live(x.d.minterEta)) lines.push(`another contract allowed to mint ${esc(x.sym)}: can be added ${when(x.d.minterEta)}`);
+function changesNotice(xs) {
+  const now = chainNow(), live = (eta) => eta > 0 && eta + QUEUE_EXPIRY > now, many = xs.length > 1;
+  const when = (eta) => (eta > now ? `from ${onDay(eta)} (in ${M.span(eta - now)})` : 'can be made now');
+  const lines = [];
+  let tightens = false;
+  for (const x of xs) {
+    const pre = many ? `${esc(x.k.name)}: ` : '';
+    for (const a of (x.d.announced || []).filter((q) => live(q.eta))) {
+      lines.push(`${pre}${TERM_NAMES[a.id]} → ${termText(x, a.id, a.value)} · ${when(a.eta)}`);
+      const dir = EASIER_WHEN_LARGER[a.id], was = CURRENT_TERM[a.id]?.(x);
+      if (was == null || !dir || dir * (BigInt(a.value) > BigInt(was) ? 1 : BigInt(a.value) < BigInt(was) ? -1 : 0) < 0) tightens = true;
+    }
+    if (live(x.d.oracleEta)) { lines.push(`${pre}New price source · ${when(x.d.oracleEta)}`); tightens = true; }
+    if (live(x.d.minterEta)) { lines.push(`${pre}Another contract may mint ${esc(x.sym)} · ${when(x.d.minterEta)}`); tightens = true; }
+  }
   if (!lines.length) return '';
-  // Only a term that tightens is one to act ahead of, and a new price source or minter is neither way.
-  const tightens = announced.some((a) => {
-    const dir = EASIER_WHEN_LARGER[a.id], was = CURRENT_TERM[a.id]?.(x);
-    return was == null || !dir ? true : dir * (BigInt(a.value) > BigInt(was) ? 1 : BigInt(a.value) < BigInt(was) ? -1 : 0) < 0;
-  }) || live(x.d.oracleEta) || live(x.d.minterEta);
-  const to = named ? ` to ${esc(x.k.name)}` : '';
-  const head = tightens
-    ? `<b>The owner has announced a change${to}.</b> Repay or withdraw before it if you do not want it.`
-    : `<b>The owner has announced a change${to}.</b> It only makes borrowing easier; nothing is needed from you.`;
+  const head = tightens ? '<b>Changes announced by the owner.</b> They tighten borrowing: repay or withdraw before then if you would rather not take them.' : '<b>Changes announced by the owner.</b> They make borrowing easier; nothing to do.';
   return `<div class="callout${tightens ? '' : ' soft'}"><span class="t">${head}${lines.map((l) => `<span class="sub">${l}</span>`).join('')}</span></div>`;
 }
 
@@ -396,11 +400,11 @@ function planOf() {
     P.cta = `Borrow ${sym}`;
     if (!c.ok) {
       P.err = true;
-      if (c.why === 'min') P.hint = `A vault's debt starts at ${syn(x, x.s.minDebt)} ${sym}. Borrow at least ${syn(x, M.ceilTo(c.least, x.k.dp))} ${sym}.`;
+      if (c.why === 'min') P.hint = `Smallest debt is ${syn(x, x.s.minDebt)} ${sym}: borrow at least ${syn(x, M.ceilTo(c.least, x.k.dp))}.`;
       else if (c.why === 'own') {
         const add = M.addToBorrow({ collateral: m.collateral, owe: c.owe, pB: d.pB, mint: x.s.mint });
         P.hint = `You can borrow up to ${syn(x, c.limit)} ${sym} now${add > 0n ? `, or ${fill(add)} to borrow this` : ''}.`;
-      } else P.hint = `The market has room for ${syn(x, c.limit)} ${sym} right now.`;
+      } else P.hint = `Only ${syn(x, c.limit)} ${sym} is left to borrow.`;
       return P;
     }
     P.ok = true; P.amount = amt; P.feeBps = d.feeBps;
@@ -595,16 +599,17 @@ async function loadFeed() {
 }
 function renderFeed() {
   const el = $('#feed'), st = feedOf(cur());
-  if (!VS.length || !st) { el.hidden = true; return; }
+  if (!VS.length || !st || (st.ready && !F.busy && !F.note)) { el.hidden = true; return; }       // up to date, nothing to say: the board already says lending is open
   el.hidden = false;
-  const cost = F.gas != null && st.missing ? ` about ${(Number(BigInt(st.missing * RECORD_GAS) * F.gas) / 1e18).toFixed(4)} ETH at ${(Number(F.gas) / 1e9).toFixed(2)} gwei,` : '';
-  const rows = st.venues.map((v, i) => `<div class="kv"><span>${esc(VENUE[i] || `Venue ${i + 1}`)}</span><b class="num">${v.counted} of ${v.points}${v.missing.length > v.points - v.counted ? ` · ${v.missing.length - (v.points - v.counted)} newer to add` : ''}</b></div>`).join('');
+  const cost = F.gas != null && st.missing ? `, for about ${(Number(BigInt(st.missing * RECORD_GAS) * F.gas) / 1e18).toFixed(4)} ETH` : '';
+  const rows = st.venues.map((v, i) => `<div class="kv"><span>${esc(VENUE[i] || `Venue ${i + 1}`)}</span><b class="num">${v.counted} of ${v.points}</b></div>`).join('');
   setHtml(el, `<p class="eyebrow" id="feed-h"><span>Price feed</span><span class="who">${st.ready ? 'up to date' : `${st.missing} to record`}</span></p>
     <div class="rows flat">${rows}</div>
-    <p class="note">Lending needs every ten-minute price of the last eight hours from both venues. Anyone can record the ones missing:${cost} paid by whoever sends it, and a keeper does it when one is running.</p>
-    <button class="btn" id="feed-go" type="button"${st.missing && !F.busy ? '' : ' disabled'}>${F.busy ? 'Recording…' : !st.missing ? 'Up to date' : W.account ? `Record ${st.missing} price${st.missing === 1 ? '' : 's'}` : 'Connect wallet'}</button>
+    ${st.missing ? `<p class="note">Anyone can record the ${st.missing} missing price${st.missing === 1 ? '' : 's'}${cost}.</p>
+    <button class="btn" id="feed-go" type="button"${F.busy ? ' disabled' : ''}>${F.busy ? 'Recording…' : W.account ? `Record ${st.missing} price${st.missing === 1 ? '' : 's'}` : 'Connect wallet'}</button>` : ''}
     <div class="status${F.bad ? ' err' : ''}" id="feed-status" role="status">${F.note}</div>`);
-  $('#feed-go').onclick = pokeFeed;
+  const go = $('#feed-go');
+  if (go) go.onclick = pokeFeed;
 }
 async function pokeFeed() {
   if (F.busy) return;
@@ -671,6 +676,7 @@ $('#go').addEventListener('click', () => run());
 document.addEventListener('click', (e) => {
   const f = e.target.closest('[data-fill]');
   if (f && !S.busy) { S.t = 'deposit'; S.amt = f.dataset.fill; $('#amt').value = S.amt; say('', ''); keepInHash(); renderTicket(); $('#ticket').scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); return; }
+  if (e.target.closest('[data-more]')) { S.more = !S.more; try { localStorage.setItem(MORE_KEY, S.more ? '1' : '0'); } catch { /* storage is a convenience */ } renderBoard(); return; }
   if (e.target.closest('[data-refresh]')) { if (!S.busy) { refresh(); loadFeed(); } return; }
   const feedLink = e.target.closest('[data-tofeed]');
   if (feedLink) { e.preventDefault(); $('#feed')?.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }   // the hash carries the page's own state, so this scrolls rather than links
