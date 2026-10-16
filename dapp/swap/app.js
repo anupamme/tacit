@@ -250,9 +250,12 @@ const getUx = () => (uxP ||= (async () => {
 const twoDigits = (v) => { if (v <= 0n) return 0n; const d = BigInt(String(v).length); if (d <= 2n) return v; const m = 10n ** (d - 2n); return ((v + m - 1n) / m) * m; };
 
 // How the pick compares with the market: the dollar value out over the dollar value in (fees and price impact included).
+// An any-token swap spends what its WETH leg needs, not all that was typed (the margin stays in the wallet): that is what is priced, and a token
+// with no dollar price of its own is worth the WETH it buys.
+const spentOf = (q, r) => (r?.any ? r.any.spend : q.wei);
 function vsMarket(q = S.q, r = picked(q)) {
   if (!q || !r) return null;
-  const vin = usdOf(S.pay === 'teth' ? lc(R.ZERO) : S.pay, q.wei), vout = usdOf(S.get === 'teth' ? lc(R.ZERO) : S.get, r.out);
+  const vin = usdOf(S.pay === 'teth' ? lc(R.ZERO) : S.pay, spentOf(q, r)) ?? (r.any ? usdOf(lc(R.ZERO), r.any.weth) : null), vout = usdOf(S.get === 'teth' ? lc(R.ZERO) : S.get, r.out);
   return vin && vout ? vout / vin - 1 : null;
 }
 const BAD = -0.03, GATE = -0.1;
@@ -319,7 +322,7 @@ function paintQuote() {
   // The receipt.
   const lines = first ? (kind === 'private' ? ['Price', 'Price impact', 'Relay fee'] : ['Price', 'At least', 'Price impact', 'Network fee']).map((k) => [k, '…']) : [];
   if (r) {
-    const inAmt = Number(q.wei) / 10 ** pay.dec, outAmt = Number(r.out) / 10 ** get.dec;
+    const inAmt = Number(spentOf(q, r)) / 10 ** pay.dec, outAmt = Number(r.out) / 10 ** get.dec;
     if (inAmt > 0 && outAmt > 0) lines.push(['Price', outAmt >= inAmt ? `1 ${pay.sym} = ${sig(outAmt / inAmt)} ${get.sym}` : `1 ${get.sym} = ${sig(inAmt / outAmt)} ${pay.sym}`]);
     if (!r.priv) lines.push(['At least', `${tidy(amtFmt((r.out * BigInt(10000 - S.slip)) / 10000n, get.dec))} ${get.sym}`]);
     if (r.any?.hop) lines.push(['Route', r.name]);
@@ -360,6 +363,7 @@ function button(q, r, kind, gate) {
   if (!W.account) return ['Connect wallet', true];
   const bal = S.bal[S.pay], wei = q.wei;
   if (bal != null && wei > bal) return [`Not enough ${pay.sym}`, false];
+  if (bal != null && isEth(S.pay) && S.gasPrice && wei + r.gas * S.gasPrice > bal) return ['Leave some ETH for the network fee', false];
   if (gate && !S.ack) return ['Accept the price above to swap', false];
   return [isEth(S.get) ? `Sell ${pay.sym}` : isEth(S.pay) || kind === 'any' ? `Buy ${get.sym}` : `Swap ${pay.sym} for ${get.sym}`, true];
 }
@@ -394,7 +398,7 @@ async function go() {
     if (rc.status !== '0x1') throw new Error(`The transaction failed on chain ${txLink(h)}. Nothing was swapped.`);
     const after = await balanceNow(P.get, from).catch(() => null), got = before != null && after != null ? after - before : null;
     const g = tokenOf(P.get);
-    S.lastBuy = P.get === lc(R.TAC) && got ? got : null;
+    S.lastBuy = P.get === lc(R.TAC) && got > 0n ? got : null;
     S.amt = ''; S.q = null; S.busy = false; paint();
     say(`Done ${txLink(h)}: ${isEth(P.get) ? `about ${tidy(amtFmt(P.r.out, g.dec))} ETH to your wallet` : got != null && got > 0n ? `${tidy(amtFmt(got, g.dec))} ${esc(g.sym)} in your wallet` : `${esc(g.sym)} sent to your wallet`}.${!isEth(P.get) ? ` <button type="button" class="link" data-watch="${esc(g.addr)}">Add ${esc(g.sym)} to your wallet</button>` : ''}${S.lastBuy ? ` · <button type="button" class="link" data-farm-it>Farm it</button>` : ''}`, 'ok', true);
     live('Swap done');
@@ -642,7 +646,7 @@ function readUrl() {
   if (f) S.pay = f; if (t) S.get = t;
   if (!kindOf(S.pay, S.get)) fit(t ? 'get' : 'pay');
   const a = p.get('amt');
-  if (a && parseUnits(a, tokenOf(S.pay).dec)) S.amt = a;
+  if (a && (f || !p.get('from')) && parseUnits(a, tokenOf(S.pay).dec)) S.amt = a;     // an amount is in the token named, so it waits for that token
   if (location.hash === '#earn') S.tab = 'earn';
 }
 
@@ -689,6 +693,10 @@ addEventListener('hashchange', () => setTab(location.hash === '#earn' ? 'earn' :
 
 // ── start ──
 readUrl();
+{
+  const q = new URLSearchParams(location.search), named = [q.get('from'), q.get('to')].filter((v) => v && !/^0x/i.test(v));
+  if (named.some((v) => !listed().some((t) => lc(t.sym) === lc(v)) && lc(v) !== 'teth')) loadList().then(() => { const was = S.pay; readUrl(); if (S.pay !== was) { S.q = null; paint(); if (S.amt) requote(true); } });
+}
 {
   const f = new URLSearchParams(location.search).get('from');
   if (/^0x[0-9a-fA-F]{40}$/.test(f || '') && !tokenOf(lc(f))) R.readToken({ ethCall, keccak256: keccak_256, address: lc(f) }).then((t) => {

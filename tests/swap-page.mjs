@@ -177,6 +177,10 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await until(page, () => /Balance/.test(document.querySelector('#pay-side').textContent));
   ok(true, 'the wallet connects and its balance shows');
 
+  // Paying all the ETH held leaves nothing for the network fee: the button says so instead of failing its test.
+  { const all = BigInt(await rpcA('eth_getBalance', [w.account, 'latest'])), whole = all / 10n ** 18n, frac = (all % 10n ** 18n).toString().padStart(18, '0').replace(/0+$/, '');
+    await typeAmt(page, `${whole}${frac ? '.' + frac : ''}`); await quoted(page);
+    ok((await page.textContent('#go')) === 'Leave some ETH for the network fee', `the whole ETH balance leaves room for gas (${await page.textContent('#go')})`); }
   // ETH → TAC
   await typeAmt(page, '0.2');
   await quoted(page);
@@ -230,6 +234,17 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   ok(!blocked.length, `nothing blocked by the CSP${blocked.length ? ': ' + blocked.slice(0, 3).join(' | ') : ''}`);
   void e0;
+  await browser.close();
+}
+
+// ── a shared link naming a token from the onchain list waits for the list, and keeps its amount in that token ──
+{
+  const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { path: '/swap/?from=LUSD&amt=100' });
+  await until(page, () => /LUSD/.test(document.querySelector('#pay-coin')?.textContent || ''), null, 90000);
+  ok((await page.inputValue('#amt')) === '100' && (await page.textContent('#get-coin')).includes('TAC'), 'a link to pay 100 LUSD opens on 100 LUSD → TAC');
+  await quoted(page);
+  ok(/Price impact/.test(await page.textContent('#rcpt')), 'a token with no dollar price of its own still shows its price impact (through the WETH it buys)');
+  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 2).join(' | ') : ''}`);
   await browser.close();
 }
 
