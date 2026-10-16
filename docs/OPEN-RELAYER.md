@@ -164,7 +164,8 @@ worker: one binary that builds the CUDA prover and the proving key once, warms t
 proves and answers one job at a time.
 
 ```sh
-cd contracts/sp1/confidential/prover-worker && cargo build --release
+contracts/sp1/confidential/prover-worker/setup-box.sh      # as root on a fresh box: the toolchain, then cargo build --release
+cd contracts/sp1/confidential/prover-worker
 BOARD_URL=https://api.tacit.finance WORKER_TOKEN=… WORKER_NAME=gpu1 EXPECT_VKEY=<the pool's PROGRAM_VKEY> ./target/release/tacit-prover-worker
 ```
 
