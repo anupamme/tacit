@@ -37,16 +37,23 @@ const LABEL = {
 
 // What the page says about the job, in neutral terms. Edit it here and run this script again.
 const COPY = {
-  title: 'Deploy the TAC vault package',
-  tagline: 'Put the TAC vaults on Ethereum, in 21 transactions, from any wallet.',
+  title: 'Deploy the TAC vaults',
+  tagline: 'Put the TAC vaults on Ethereum: 21 transactions, from any wallet.',
   about: [
-    { h: 'What it is', p: 'TAC vaults let someone deposit TAC and borrow TAC Dollar (TACD) or TAC Ether (TACE) against it, with no interest and one fee when they borrow. Each vault prices TAC from two public venues, Precision\'s TAC/ETH band and the Tacit AMM, over an eight-hour window, and lends a small share of what those venues hold.' },
-    { h: 'What gets deployed', p: 'Fourteen contracts: two price oracles and one that combines them, a fixed ETH price feed, the two vaults (each creates its own token), a pool and router for TAC and for each token in the EVM pool, and a zap into each vault. Then seven calls to the confidential pool register the two tokens and create five trading pairs.' },
-    { h: 'Who controls it', p: 'The Tacit ops multisig (0x006C…49F2) owns both vaults and receives their fees. It can change a vault\'s terms, its oracle or its token\'s minters only after an announced wait of two to three days and within fixed limits, can pause liquidations and redemptions for up to twelve hours at a time, and can lock each of these powers for good. The audit report below covers the contracts and these powers.' },
-    { h: 'Who can send it', p: 'Anyone. Each address is worked out in advance (CREATE2 through CreateX) from the exact code, its settings and its owner, so the sender cannot change what lands there, and a step already on the chain is skipped.' },
+    { h: 'What it does', p: 'Lets people deposit TAC and borrow TAC Dollar (TACD) or TAC Ether (TACE) against it. No interest, and one fee when you borrow.' },
+    { h: 'What gets deployed', p: 'Fourteen contracts: three price oracles, a fixed ETH feed, the two vaults, a pool and router for TAC, TACD and TACE, and a zap into each vault. Then seven calls to the confidential pool register the two tokens and create five trading pairs.' },
+    { h: 'Who controls it', p: 'The Tacit ops multisig (0x006C…49F2) owns both vaults and receives their fees. It can change terms, the oracle or the minters only after an announced wait of two to three days and within fixed limits, and can pause liquidations and redemptions for up to twelve hours at a time.' },
+    { h: 'Who can send it', p: 'Anyone. Each address is fixed in advance from the exact code, its settings and its owner, so the sender cannot change what lands there.' },
   ],
   links: [
     { label: 'LeftClaw audit report', href: 'https://bafkreia5dlfgcnxsp2mdbwkvtpovg3ob7dizqgcjeulgx5uopahzh2tpeq.ipfs.community.bgipfs.com/' },
+  ],
+  // Set once every contract's source is verified on Etherscan, which the page then says and links.
+  verified: true,
+  // What the job's contracts created in turn: the vaults make their own tokens.
+  created: [
+    { label: 'TACD token', address: manifest.synths.USD },
+    { label: 'TACE token', address: manifest.synths.ETH },
   ],
   payloadUrl: '/tasks/tac-vaults-payload.json',
 };

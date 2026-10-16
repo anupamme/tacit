@@ -1,6 +1,6 @@
 // The task rewards against a real mainnet fork (an anvil fork, FORK_RPC=http://127.0.0.1:8546): the TAC vault package's twenty-one
 // steps are sent, some by one account and some by another, and the service claims and credits each to the account that sent it.
-//   anvil --fork-url <mainnet rpc> --port 8546 --chain-id 1 &
+//   anvil --fork-url <archive mainnet rpc> --fork-block-number 26201023 --port 8546 --chain-id 1 &   (a block before the live deployment, whose addresses now hold code)
 //   FORK_RPC=http://127.0.0.1:8546 PAYLOAD=<dapp/tasks/tac-vaults-payload.json> node worker-relay/tests/points-tasks-fork.test.mjs
 // Without FORK_RPC it does nothing, so it can sit with the other tests.
 
@@ -101,7 +101,7 @@ try {
   const view = tasks.view();
   assert.equal(view.budget.creditedWei, String(owed));
   console.log('ok - credited once to the sender of each step; failures, transfers and unknown hashes name no step');
-  console.log(`  job gas ${jobGas(job)}; a ${view.jobs[0].steps.length}-step view estimate: ${view.jobs[0].estimateWei === null ? 'no fresh quote' : Number(view.jobs[0].estimateWei) / 1e18} TAC`);
+  console.log(`  job gas ${jobGas(job)}; a ${view.jobs[0].steps.length}-step view estimate: ${view.jobs[0].estimateWei === null ? 'no fresh quote' : `${Number(view.jobs[0].estimateWei) / 1e18} TAC`}`);
 } finally {
   await rpc('evm_revert', [snap]).catch(() => {});
   rmSync(dir, { recursive: true, force: true });

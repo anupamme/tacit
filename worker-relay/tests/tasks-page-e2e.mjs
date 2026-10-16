@@ -1,6 +1,6 @@
 // The /tasks page in a real browser, against an anvil mainnet fork: the page's own code sends the TAC vault package's twenty-one steps through a
 // wallet (a stand-in that signs as an unlocked fork account), and the points service's own code (not a copy of it) verifies and credits each one.
-//   anvil --fork-url <mainnet rpc> --port 8546 --chain-id 1 &
+//   anvil --fork-url <archive mainnet rpc> --fork-block-number 26201023 --port 8546 --chain-id 1 &   (a block before the live deployment, whose addresses now hold code)
 //   FORK_RPC=http://127.0.0.1:8546 node worker-relay/tests/tasks-page-e2e.mjs
 // Nothing leaves the machine except the fork's own reads of mainnet.
 import assert from 'node:assert/strict';
@@ -38,7 +38,7 @@ try {
   const serviceJob = checkJob({ ...JSON.parse(readFileSync(new URL('../src/lib/points-tasks-jobs.json', import.meta.url), 'utf8')).jobs[0], opensAt: 1 });
   const store = openStore(join(dir, 'points.db'));
   const client = createPublicClient({ chain: mainnet, transport: http(FORK) });
-  const now = Math.floor(Date.now() / 1000);
+  const now = Number((await client.getBlock()).timestamp);                // the fork's own clock, which an old fork block keeps
   for (const dt of [-7200, -3600, -600, 0, 600]) store.saveTaskQuote({ t: now + dt, venue: 'precision', tacPerEth: 10_000n * TAC, gasPrice: 66_000_000n }, 0);
   const tasks = createTasks({
     store, jobs: [serviceJob], client, log: () => {}, quote: async (a) => [{ venue: 'precision', amountIn: a, amountOut: a * 10_000n }],
@@ -56,7 +56,7 @@ try {
     const req = route.request(), url = new URL(req.url());
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
     if (url.pathname === '/tasks') return route.fulfill(json(tasks.view({ address: url.searchParams.get('address') })));
-    if (url.pathname === '/tasks/claim') { const r = await tasks.claim(JSON.parse(req.postData()), { client: 'page' }); return route.fulfill(json(r.body, r.status)); }
+    if (url.pathname === '/tasks/claim') { const r = await tasks.claim(JSON.parse(req.postData()), { client: 'page' }); if (process.env.DEBUG) console.log('claim', r.status, JSON.stringify(r.body).slice(0, 300)); return route.fulfill(json(r.body, r.status)); }
     return route.fulfill(json({ error: 'not here' }, 404));
   });
   for (const host of ['https://ethereum-rpc.publicnode.com/**', 'https://eth.drpc.org/**', 'https://1rpc.io/**', 'https://mainnet.gateway.tenderly.co/**']) {
@@ -94,79 +94,94 @@ try {
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|net::ERR/.test(m.text())) errors.push(m.text()); });
   const text = () => page.locator('main').innerText();
+  const GO = '[data-go]', STATUS = '.status', JOBS = '#jobs';
+  const shots = async (name, full = true) => {                              // pictures, when asked for with SHOTS=<dir>
+    if (!process.env.SHOTS) return;
+    await page.waitForTimeout(1200);
+    for (const [kind, scheme, vp] of [['light', 'light', [1280, 900]], ['dark', 'dark', [1280, 900]], ['mobile', 'light', [390, 844]]]) {
+      await page.emulateMedia({ colorScheme: scheme }); await page.setViewportSize({ width: vp[0], height: vp[1] });
+      await page.screenshot({ path: `${process.env.SHOTS}/${name}-${kind}.png`, fullPage: full && kind !== 'mobile' });
+    }
+    await page.emulateMedia({ colorScheme: 'light' }); await page.setViewportSize({ width: 1280, height: 900 });
+  };
+  const connectIfNeeded = async () => {
+    if (/Send (all|the remaining) \d+ steps/.test(await page.locator(GO).innerText())) return;      // the wallet stays connected across a reload when it allows the site
+    await page.locator(GO).click();
+    await page.waitForTimeout(600);
+    if (await page.locator('.picker .way').count()) await page.locator('.picker .way', { hasText: 'Test wallet' }).click();
+    await page.waitForFunction(() => /Send all 21 steps/.test(document.querySelector('[data-go]')?.textContent || ''), null, { timeout: 15000 });
+  };
 
   // 1. The job exists but its rewards are not open: the page says so and sends nothing.
   await page.goto(`${SITE}/tasks/`);
-  await page.waitForSelector('.tile');
+  await page.waitForSelector('.job-head');
   assert.match(await text(), /Opens soon/);
-  assert.equal(await page.locator('#go').isDisabled(), true, 'nothing is sent while the job is closed');
-  assert.match(await page.locator('#job').innerText(), /0 of 21 on the chain/);
+  assert.equal(await page.locator(GO).isDisabled(), true, 'nothing is sent while the job is closed');
+  assert.match(await page.locator(JOBS).innerText(), /0 of 21 on the chain/);
   console.log('ok - a job that is not open shows as closed and cannot be sent');
 
   // 2. Open, but the transactions are not the plan's: the page refuses to send anything.
   jobsOpen = true; tamper = true;
   const before = await rpc('eth_blockNumber');
   await page.reload();
-  await page.waitForSelector('.tile');
+  await page.waitForSelector('.job-head');
   await page.waitForFunction(() => /Open/.test(document.querySelector('.pill')?.textContent || ''));
-  await page.locator('#go').click();
-  await page.waitForTimeout(600);
-  if (await page.locator('.picker .way').count()) await page.locator('.picker .way', { hasText: 'Test wallet' }).click();
-  await page.waitForFunction(() => /Send all 21 steps/.test(document.querySelector('#go')?.textContent || ''), null, { timeout: 15000 });
-  await page.locator('#go').click();
-  await page.waitForFunction(() => /does not match the plan/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 30000 });
+  await connectIfNeeded();
+  await page.locator(GO).click();
+  await page.waitForFunction(() => /does not match the plan/.test(document.querySelector('.status')?.textContent || ''), null, { timeout: 30000 });
   assert.equal(await rpc('eth_blockNumber'), before, 'nothing was sent');
-  assert.match(await page.locator('#job').innerText(), /deploys other code than the plan/);
+  assert.match(await page.locator(JOBS).innerText(), /deploys other code than the plan/);
   console.log('ok - a payload that differs from the plan by one digit is refused before anything is sent');
 
   // 3. The real payload: the page connects the wallet and sends every step.
   tamper = false;
   await page.reload();
-  if (process.env.SHOTS) {                                                 // pictures of the open page, before anything is sent
-    await page.waitForSelector('.tile');
-    await page.waitForFunction(() => /Open/.test(document.querySelector('.pill')?.textContent || ''));
-    await page.waitForTimeout(1500);
-    for (const [name, scheme, vp] of [['light', 'light', [1280, 900]], ['dark', 'dark', [1280, 900]], ['mobile', 'light', [390, 844]]]) {
-      await page.emulateMedia({ colorScheme: scheme }); await page.setViewportSize({ width: vp[0], height: vp[1] });
-      await page.screenshot({ path: `${process.env.SHOTS}/open-${name}.png`, fullPage: name !== 'mobile' });
-    }
-    await page.emulateMedia({ colorScheme: 'light' }); await page.setViewportSize({ width: 1280, height: 900 });
-  }
-  await page.waitForSelector('.tile');
+  await page.waitForSelector('.job-head');
   await page.waitForFunction(() => /Open/.test(document.querySelector('.pill')?.textContent || ''));
-  assert.match(await page.locator('#job').innerText(), /Send all 21 steps|Connect wallet/);
-  if (!/Send all 21 steps/.test(await page.locator('#go').innerText())) {                 // the wallet stays connected across the reload when it allows the site
-    await page.locator('#go').click();
-    await page.waitForTimeout(600);
-    if (await page.locator('.picker .way').count()) await page.locator('.picker .way', { hasText: 'Test wallet' }).click();
-    await page.waitForFunction(() => /Send all 21 steps/.test(document.querySelector('#go')?.textContent || ''), null, { timeout: 15000 });
-  }
-  await page.locator('#go').click();                                       // send
-  await page.waitForFunction(() => /Everything is sent/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 240000 });
-  const afterSend = await page.locator('#job').innerText();
-  assert.match(afterSend, /21 of 21 on the chain/);
+  await shots('open');
+  await connectIfNeeded();
+  await page.locator(GO).click();                                           // send
+  await page.waitForFunction(() => /Everything is sent/.test(document.querySelector('.status')?.textContent || ''), null, { timeout: 240000 });
+  const afterSend = await page.locator(JOBS).innerText();
+  assert.match(afterSend, /21 of 21 steps on the chain/);
   assert.match(afterSend, /Everything is sent/);
   console.log('ok - the page verified the plan and sent all 21 steps through the wallet');
 
   // 4. Twelve confirmations later the page names the steps to the service, which credits them on its next cycle.
   await rpc('anvil_mine', ['0x14']);
   await page.reload();
-  await page.waitForSelector('.tile');
-  await page.waitForFunction(() => document.querySelector('#job')?.innerText.includes('21 of 21 on the chain'));
+  await page.waitForSelector('.job-head');
+  await page.waitForFunction(() => document.querySelector('#jobs')?.innerText.includes('21 of 21 steps on the chain'));
   await page.waitForTimeout(2500);
-  const queued = store.pendingTaskClaims().length;
-  assert.equal(queued, 21, 'all 21 steps are recorded as claims');
+  assert.equal(store.pendingTaskClaims().length, 21, 'all 21 steps are recorded as claims');
   await tasks.cycle();
   const credited = store.creditedWithPrefix('task:');
   assert.ok(credited > 0n && store.rewardFor(account) === String(credited), 'the sender is credited for every step');
+
+  // 5. A job that is done is a tile with its result; its details open when it is clicked.
   await page.reload();
-  await page.waitForSelector('.tile');
-  await page.waitForFunction(() => (document.querySelector('#job')?.innerText.match(/Credited/g) || []).length >= 21, null, { timeout: 30000 });
-  assert.match(await page.locator('#job').innerText(), /Credited/);
-  console.log(`ok - the service credited ${Number(credited) / 1e18} TAC to the sender, and the page shows all 21 steps credited`);
+  await page.waitForSelector('.job-head');
+  await page.waitForFunction(() => /Done/.test(document.querySelector('.pill')?.textContent || '') && /149\.94/.test(document.querySelector('.job-fig')?.textContent || ''), null, { timeout: 30000 });
+  const tile = await page.locator('.job-head').innerText();
+  assert.match(tile, /149\.94\s*TAC/);
+  assert.equal(await page.locator('.job-head').getAttribute('aria-expanded'), 'false', 'a done job starts closed');
+  assert.equal(await page.locator('.job-body').isVisible(), false);
+  assert.match(await text(), /No open jobs right now/);
+  assert.match(await page.locator('#stats').innerText(), /1 of 1\s+job done/);
+  await shots('done-closed', false);
+  await page.locator('.job-head').click();
+  assert.equal(await page.locator('.job-head').getAttribute('aria-expanded'), 'true');
+  const opened = await page.locator('.job-body').innerText();
+  assert.match(opened, /Sent by/);
+  const txLinks = await page.locator('.job-body a[href*="/tx/"]').evaluateAll((as) => as.map((a) => a.href));
+  assert.equal(new Set(txLinks).size, 21, `every step links to its own transaction: ${txLinks.length} links, ${new Set(txLinks).size} distinct`);
+  const paid = await page.locator('.job-body .step .paid').evaluateAll((els) => els.map((e) => e.textContent.trim()).filter(Boolean));
+  assert.equal(paid.length, 21, 'every step shows what it paid');
+  assert.equal(await page.locator(GO).count(), 0, 'a done job has nothing left to send');
+  await shots('done-open');
+  console.log(`ok - the service credited ${Number(credited) / 1e18} TAC to the sender; the done job is a tile that opens to what it made`);
 
   assert.deepEqual(errors, [], `no page errors: ${errors.join(' | ')}`);
-  await page.screenshot({ path: process.env.SHOT || join(dir, 'tasks.png'), fullPage: true });
   console.log('ok - no errors on the page');
 } finally {
   await browser?.close().catch(() => {});

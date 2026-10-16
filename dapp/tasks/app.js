@@ -3,6 +3,8 @@
 // open from the visitor's wallet, and names each one to the points service, which reads it from the chain, prices it from the gas
 // of its own block and the TAC price around it, and credits the account that sent it. Nothing the page reads or sends depends
 // on the service except the reward: the deployment is the same from any browser.
+//
+// Open jobs are shown in full; a job that is done is a tile with its result, and opens to what it did when it is clicked.
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=f4bd67db';
 import { esc } from '/trade/sheet.js?cb=84cda8f2';
 import { rpc, $, short, fmtUnits } from '/trade/util.js?cb=c3dc39b3';
@@ -11,26 +13,30 @@ import { checkPayload, checkStep } from '/tasks/verify.js?cb=25dba64d';
 const POINTS = 'https://tacit-points.onrender.com';
 const ETHERSCAN = 'https://etherscan.io';
 const STORE = 'tacit.tasks.v1';
-const HASH = /^0x[0-9a-fA-F]{64}$/;
 const tac = (wei, max = 2) => (wei == null ? '—' : fmtUnits(BigInt(wei), 18, max));
 // A whole number of TAC, rounded to the nearest (the figures a person reads at a glance).
 const tacR = (wei) => (wei == null ? '—' : fmtUnits(BigInt(wei) + 5n * 10n ** 17n, 18, 0));
+const day = (t) => new Date(t * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+const hhmm = (t) => new Date(t * 1000).toISOString().slice(11, 16);
+const link = (href, text) => `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${text}</a>`;
 
-const S = { jobs: [], api: null, done: {}, payload: {}, verdict: {}, running: false, hashes: {}, mine: [], jobId: null };
+const S = { jobs: [], api: null, done: {}, loaded: false, payload: {}, verdict: {}, running: null, hashes: {}, expanded: new Map() };
 
 // ── what the browser remembers: the transactions this visitor sent or named, until the service has answered for each ──
 const remembered = () => { try { return JSON.parse(localStorage.getItem(STORE)) || {}; } catch { return {}; } };
 const remember = (o) => { try { localStorage.setItem(STORE, JSON.stringify(o)); } catch { /* private window: the page works without it */ } };
 S.hashes = remembered();
 
-// ── the wallet ──
-// The notice under the ticket. It is kept, because the panel is drawn again whenever something it shows changes.
-let notice = { text: '', bad: false };
-const say = (text, bad = false) => { notice = { text, bad }; paintNotice(); };
-const paintNotice = () => { const el = $('#status'); if (el) { el.className = `status${notice.bad ? ' err' : ''}`; el.innerHTML = notice.text; } };
+// ── the notice under a job's ticket. It is kept, because the cards are drawn again whenever something they show changes. ──
+let notice = { id: null, text: '', bad: false };
+const say = (text, bad = false, id = S.running || firstOpen()?.id) => { notice = { id, text, bad }; paintNotice(); };
+const paintNotice = () => document.querySelectorAll('.status').forEach((el) => {
+  const mine = el.dataset.for === notice.id;
+  el.className = `status${mine && notice.bad ? ' err' : ''}`; el.innerHTML = mine ? notice.text : '';
+});
 const conn = makeConnect({
   describe: 'Tasks: do a listed job from your wallet and earn TAC', say: (t, b) => say(t, b),
-  busy: () => S.running, onChange: () => { renderAll(); loadApi(); },
+  busy: () => !!S.running, onChange: () => renderAll(),
 });
 const W = conn.W;
 $('#wallet-chip').hidden = false;
@@ -38,7 +44,6 @@ $('#wallet-chip').hidden = false;
 // ── reading ──
 const get = (url) => fetch(url, { signal: AbortSignal.timeout(15e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 const call = (to, data) => rpc('eth_call', [{ to, data }, 'latest']);
-const ZERO = `0x${'0'.repeat(64)}`;
 const flagged = (r) => String(r).slice(2, 66) === `${'0'.repeat(63)}1`;
 
 // Whether each step is already on the chain: code at a deployment's address, the asset or the pool in the confidential pool's registry.
@@ -54,37 +59,38 @@ async function readDone(job) {
   return out;
 }
 async function loadApi() {
-  S.api = await get(`${POINTS}/tasks${W.account ? `?address=${W.account}` : ''}`);
+  S.api = await get(`${POINTS}/tasks`);
   renderAll();
 }
 async function refresh() {
-  const job = current();
-  if (job && !S.running) S.done = await readDone(job);
+  const fresh = await Promise.all(S.jobs.filter((j) => S.running !== j.id).map(async (j) => [j.id, await readDone(j)]));
+  for (const [id, d] of fresh) S.done[id] = d;
+  S.loaded = true;
   renderAll();
 }
 
-const current = () => S.jobs.find((j) => j.id === S.jobId) || S.jobs[0] || null;
-const apiJob = (job) => S.api?.enabled ? S.api.jobs?.find((j) => j.id === job.id) : null;
+const apiJob = (job) => (S.api?.enabled ? S.api.jobs?.find((j) => j.id === job.id) : null);
 const isOpen = (job) => !!(S.api?.enabled && job.opensAt && Date.now() / 1000 >= job.opensAt);
+const onChain = (job, s) => S.done[job.id]?.[s.id];
+const doneCount = (job) => job.steps.filter((s) => onChain(job, s)).length;
+const isDone = (job) => doneCount(job) === job.steps.length;
+const stateOf = (job) => (isDone(job) ? 'done' : !S.api ? 'offline' : !isOpen(job) ? 'soon' : 'open');
+const PILL = { done: ['Done', 'ok'], open: ['Open', 'ok'], soon: ['Opens soon', 'mute'], offline: ['Rewards offline', 'mute'] };
+const firstOpen = () => S.jobs.find((j) => stateOf(j) !== 'done');
+// Open jobs show in full; a job that is done shows its tile and opens when clicked (what the visitor chose stays as chosen).
+const isExpanded = (job) => (S.expanded.has(job.id) ? S.expanded.get(job.id) : stateOf(job) !== 'done');
 
-// ── drawing ──
-const when = (t) => new Date(t * 1000).toUTCString().replace(/ GMT$/, ' UTC').replace(/^\w+, /, '');
-function renderAll() {
-  renderTiles();
-  const typed = $('#hashes')?.value ?? '';
-  renderJob();
-  if (typed && $('#hashes')) $('#hashes').value = typed;
-  paintNotice();
+// What a job has paid so far, from the service's claims: the TAC, who got it, and when the steps landed.
+function resultOf(job) {
+  const mine = (S.api?.claims ?? []).filter((c) => c.job === job.id);
+  const times = mine.map((c) => c.blockTime).sort((a, b) => a - b);
+  return {
+    total: mine.reduce((x, c) => x + BigInt(c.wei), 0n), count: mine.length,
+    senders: [...new Set(mine.map((c) => c.address))], first: times[0], last: times.at(-1),
+  };
 }
 
-const doneOf = (job) => job.steps.filter((s) => S.done[s.id]).length;
-function pill(job) {
-  if (doneOf(job) === job.steps.length) return ['All done', 'ok'];
-  if (!S.api) return ['Rewards offline', 'mute'];
-  if (!isOpen(job)) return ['Opens soon', 'mute'];
-  return ['Open', 'ok'];
-}
-// What the job pays now, from the gas of its steps at the service's latest slow-mode gas price and TAC price: the gas, with the tip, held to the job's floor and cap.
+// What a job pays now, from the gas of its steps at the service's latest slow-mode gas price and TAC price: the gas, with the tip, held to the job's floor and cap.
 function economics(job) {
   const q = S.api?.quote, t = S.api?.terms;
   if (!S.api?.enabled || !q?.fresh || !q.tacPerEthWei || !t) return null;
@@ -94,30 +100,133 @@ function economics(job) {
   const pays = tipped < floor ? floor : tipped > cap ? cap : tipped;
   return { gas, eth, plain, tipped, floor, cap, pays, by: tipped < floor ? 'floor' : tipped > cap ? 'cap' : 'gas' };
 }
-function renderTiles() {
-  const cur = current();
-  $('#tiles').innerHTML = S.jobs.map((j) => {
-    const [label, cls] = pill(j), n = doneOf(j), eco = economics(j), on = j.id === cur?.id;
-    return `<button class="tile${on ? ' on' : ''}" type="button" data-job="${esc(j.id)}" aria-pressed="${on}">
-      <span class="tile-top"><b>${esc(j.title)}</b><span class="pill ${cls}">${label}</span></span>
-      <span class="tile-sub">${esc(j.tagline)}</span>
-      <span class="tile-fig"><span class="big num">${eco ? `≈ ${tacR(eco.pays)}<small>TAC</small>` : '—'}</span><span class="cap">${eco ? 'for the whole job, at today\'s gas' : 'shown when rewards are open'}</span></span>
-      <span class="bar" role="img" aria-label="${n} of ${j.steps.length} steps on the chain"><i style="width:${(100 * n) / j.steps.length}%"></i></span>
-      <span class="tile-foot"><span>${n} of ${j.steps.length} steps on the chain</span><span>${(job_gas(j) / 1e6).toFixed(1)}M gas</span></span>
-    </button>`;
-  }).join('');
-  $('#tiles').querySelectorAll('[data-job]').forEach((b) => { b.onclick = () => { S.jobId = b.dataset.job; history.replaceState(null, '', `#${S.jobId}`); refresh(); }; });
-}
-const job_gas = (j) => j.steps.reduce((n, s) => n + s.gas, 0);
 
-function renderRewards(job) {
+// ── drawing ──
+function renderAll() {
+  renderStats();
+  const typed = Object.fromEntries([...document.querySelectorAll('.paste textarea')].map((t) => [t.dataset.for, t.value]));
+  renderJobs();
+  for (const t of document.querySelectorAll('.paste textarea')) if (typed[t.dataset.for]) t.value = typed[t.dataset.for];
+  paintNotice();
+}
+
+function renderStats() {
+  const a = S.api, el = $('#stats');
+  if (!a?.enabled || !S.loaded) { el.hidden = true; return; }
+  const done = S.jobs.filter(isDone).length;
+  el.hidden = false;
+  el.innerHTML = `
+    <div><b class="num">${tac(a.budget.creditedWei)}</b><span>TAC paid so far</span></div>
+    <div><b class="num">${tacR(a.budget.remainingWei)}</b><span>TAC left in the budget</span></div>
+    <div><b class="num">${done} of ${S.jobs.length}</b><span>${S.jobs.length === 1 ? 'job' : 'jobs'} done</span></div>`;
+}
+
+function renderJobs() {
+  const root = $('#jobs');
+  if (!S.jobs.length) return;
+  if (!S.loaded) { root.innerHTML = '<p class="none">Reading the chain…</p>'; return; }
+  const open = S.jobs.filter((j) => stateOf(j) !== 'done'), done = S.jobs.filter(isDone);
+  root.innerHTML = `
+    <h2 class="sec-h">Open jobs <span class="num">${open.length}</span></h2>
+    ${open.length ? open.map(card).join('') : '<p class="none">No open jobs right now. The next one will show up here.</p>'}
+    ${done.length ? `<h2 class="sec-h">Done <span class="num">${done.length}</span></h2>${done.map(card).join('')}` : ''}`;
+  root.querySelectorAll('[data-toggle]').forEach((b) => {
+    b.onclick = () => {
+      const job = S.jobs.find((j) => j.id === b.dataset.toggle);
+      S.expanded.set(job.id, !isExpanded(job));
+      history.replaceState(null, '', S.expanded.get(job.id) ? `#${job.id}` : location.pathname);
+      renderAll();
+    };
+  });
+  root.querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => go(S.jobs.find((j) => j.id === b.dataset.go)); });
+  root.querySelectorAll('[data-verify]').forEach((b) => { b.onclick = () => verify(S.jobs.find((j) => j.id === b.dataset.verify), true); });
+  root.querySelectorAll('.paste').forEach((f) => { f.onsubmit = (e) => { e.preventDefault(); paste(f); }; });
+  gasNote();
+}
+
+function card(job) {
+  const st = stateOf(job), exp = isExpanded(job), [label, cls] = PILL[st];
+  const n = doneCount(job), total = job.steps.length, eco = economics(job), res = resultOf(job);
+  let fig = '—', cap = 'shown when rewards open', foot = `${(job.steps.reduce((x, s) => x + s.gas, 0) / 1e6).toFixed(1)}M gas`;
+  if (st === 'done') {
+    fig = res.count ? `${tac(res.total)}<small>TAC</small>` : '—';
+    const waiting = Object.values(S.hashes).filter((v) => v.state === 'pending').length;
+    cap = res.count ? `paid to ${res.senders.map((a) => short(a)).join(', ')}` : waiting ? 'waiting for twelve confirmations' : 'deployed outside the rewards';
+    foot = res.last ? `Done ${day(res.last)}` : 'Done';
+  } else if (eco) { fig = `≈ ${tacR(eco.pays)}<small>TAC</small>`; cap = 'for the whole job, at today\'s gas'; }
+  return `<article class="job ${st}${exp ? ' is-open' : ''}" id="${esc(job.id)}">
+    <button class="job-head" type="button" data-toggle="${esc(job.id)}" aria-expanded="${exp}" aria-controls="body-${esc(job.id)}">
+      <span class="job-top"><b>${esc(job.title)}</b><span class="pill ${cls}">${label}</span></span>
+      <span class="job-sub">${esc(job.tagline)}</span>
+      <span class="job-fig"><span class="big num">${fig}</span><span class="cap">${cap}</span></span>
+      <span class="bar" role="img" aria-label="${n} of ${total} steps on the chain"><i style="width:${(100 * n) / total}%"></i></span>
+      <span class="job-foot"><span>${n} of ${total} steps on the chain</span><span>${foot}</span></span>
+    </button>
+    <div class="job-body" id="body-${esc(job.id)}"${exp ? '' : ' hidden'}>${exp ? (st === 'done' ? doneBody(job, res) : openBody(job)) : ''}</div>
+  </article>`;
+}
+
+// ── a job that is done: what it was and what it made ──
+const about = (job) => `<div class="abouts">${job.about.map((x) => `<div class="sec"><h3>${esc(x.h)}</h3><p>${esc(x.p)}</p></div>`).join('')}</div>`;
+const links = (job) => `<div class="links">${job.links.map((l) => link(l.href, `${esc(l.label)} ↗`)).join('')}</div>`;
+
+function doneRow(job, s, i) {
+  const c = apiJob(job)?.steps.find((x) => x.id === s.id)?.claim;
+  const where = s.kind === 'createx' ? link(`${ETHERSCAN}/address/${s.expected}`, esc(s.expected)) : 'Call to the confidential pool';
+  const proof = s.kind === 'createx' && job.verified ? ` · ${link(`${ETHERSCAN}/address/${s.expected}#code`, 'source verified ↗')}` : '';
+  return `<li class="step is-done">
+    <span class="n num">${i + 1}</span>
+    <span class="what"><b>${esc(s.label)}</b><small>${where}${proof}${c ? ` · ${link(`${ETHERSCAN}/tx/${c.txHash}`, 'transaction ↗')}` : ''}</small></span>
+    <span class="paid num">${c ? `${tac(c.wei)} TAC` : '—'}</span>
+  </li>`;
+}
+
+function doneBody(job, res) {
+  const deploys = job.steps.map((s, i) => [s, i]).filter(([s]) => s.kind === 'createx'), calls = job.steps.map((s, i) => [s, i]).filter(([s]) => s.kind !== 'createx');
+  const by = res.senders.length ? res.senders.map((a) => link(`${ETHERSCAN}/address/${a}`, esc(short(a, 6)))).join(', ') : '—';
+  const span = res.first ? (day(res.first) === day(res.last) ? `${day(res.first)}, ${hhmm(res.first)} to ${hhmm(res.last)} UTC` : `${day(res.first)} to ${day(res.last)}`) : '—';
+  return `
+    <div class="status" role="status" data-for="${esc(job.id)}"></div>
+    <div class="result">
+      <div class="kv"><span>Sent by</span><b>${by}</b></div>
+      <div class="kv"><span>When</span><b>${span}</b></div>
+      <div class="kv"><span>Paid</span><b class="num">${res.count ? `${tac(res.total)} TAC` : '—'}</b></div>
+    </div>
+    ${about(job)}
+    ${links(job)}
+    <p class="grp-h"><span>Contracts</span><span>${deploys.length}</span></p>
+    <ol class="steps">${deploys.map(([s, i]) => doneRow(job, s, i)).join('')}</ol>
+    ${job.created?.length ? `<p class="grp-h"><span>Made by the vaults</span><span>${job.created.length}</span></p>
+    <ul class="steps">${job.created.map((x) => `<li class="step is-done"><span class="n"></span><span class="what"><b>${esc(x.label)}</b><small>${link(`${ETHERSCAN}/address/${x.address}`, esc(x.address))}${job.verified ? ` · ${link(`${ETHERSCAN}/address/${x.address}#code`, 'source verified ↗')}` : ''}</small></span><span class="paid"></span></li>`).join('')}</ul>` : ''}
+    <p class="grp-h"><span>Confidential pool</span><span>${calls.length}</span></p>
+    <ol class="steps">${calls.map(([s, i]) => doneRow(job, s, i)).join('')}</ol>`;
+}
+
+// ── a job that is open (or about to be): the whole page of it ──
+const chipFor = (c, done) => (c ? (c.state === 'credited' ? ['credited', 'Credited'] : ['claimed', 'Claimed']) : done ? ['deployed', 'On the chain'] : done === null ? ['unknown', 'Unknown'] : ['open', 'Open']);
+function stepRow(job, s, i) {
+  const aj = apiJob(job)?.steps.find((x) => x.id === s.id);
+  const done = onChain(job, s), c = aj?.claim;
+  const [cls, label] = chipFor(c, done);
+  const est = !done && aj?.estimateWei != null ? ` · ≈ ${tac(aj.estimateWei)} TAC` : '';
+  const bad = S.verdict[job.id]?.problems.find((p) => p.step === s.id);
+  const addr = s.kind === 'createx' ? link(`${ETHERSCAN}/address/${s.expected}`, esc(s.expected)) : 'Call to the confidential pool';
+  return `<li class="step${done ? ' is-done' : ''}">
+    <span class="n num">${i + 1}</span>
+    <span class="what"><b>${esc(s.label)}</b><small>${addr}${bad ? ` <span class="err">· ${esc(bad.bad.join('; '))}</span>` : ''}</small></span>
+    <span class="chip-s ${cls}">${label}${est}</span>
+    ${c ? `<span class="by">${c.state === 'credited' ? 'Credited' : 'Claimed'} to ${link(`${ETHERSCAN}/address/${c.address}`, esc(short(c.address)))} · ${tac(c.wei)} TAC</span>` : ''}
+  </li>`;
+}
+
+function rewardsPanel(job) {
   const a = S.api, eco = economics(job);
   const how = `<ol class="how">
-    <li><span><b>Connect and send.</b> The page checks each transaction against the plan first, then your wallet signs it.</span></li>
-    <li><span><b>Twelve confirmations.</b> The service reads the step from the chain and fixes its reward from the gas price of its block.</span></li>
-    <li><span><b>Paid with your daily rewards.</b> It is credited to the account that sent the step and claimed from the <a href="/#points">rewards page</a>.</span></li>
+    <li><span><b>Send.</b> The page checks each transaction against the plan, then your wallet signs it.</span></li>
+    <li><span><b>Twelve blocks later,</b> the service reads the step from the chain and fixes its reward.</span></li>
+    <li><span><b>Get paid.</b> It is credited to the account that sent the step and claimed with the daily rewards, on the ${link('/#points', 'rewards page')}.</span></li>
   </ol>`;
-  if (!a) return `<p class="eyebrow">Rewards</p>${how}<p class="note">The rewards service did not answer. The steps can still be read; ask again in a moment for what they pay.</p>`;
+  if (!a) return `<p class="eyebrow">Rewards</p>${how}<p class="note">The rewards service did not answer. The steps can still be read; try again in a moment.</p>`;
   if (!a.enabled) return `<p class="eyebrow">Rewards</p>${how}<p class="note">Rewards are not switched on yet. Nothing sent now is paid for later.</p>`;
   const left = BigInt(a.budget.remainingWei);
   return `<p class="eyebrow"><span>Rewards</span><span class="who">${a.quote?.fresh ? 'live' : 'price not fresh'}</span></p>
@@ -128,101 +237,96 @@ function renderRewards(job) {
       <div class="l"><span>Floor · cap for the job</span><b class="num">${tac(eco.floor, 0)} · ${tac(eco.cap, 0)} TAC</b></div>
       <div class="l tot"><span>${eco.by === 'floor' ? 'Pays the floor' : eco.by === 'cap' ? 'Pays the cap' : 'Pays'}</span><b class="num">${tac(eco.pays)} TAC</b></div>
     </div>` : ''}
-    <p class="note">Each step takes its share by gas, fixed from the gas price of the block it lands in. Gas is priced slow-mode, in TAC at the ${a.quote ? esc(a.quote.venue) : 'deepest'} venue's price${a.quote?.tacPerEthWei ? ` (${tac(a.quote.tacPerEthWei, 0)} TAC per ETH)` : ''}.</p>
+    <p class="note">Gas is priced at a slow-mode rate, in TAC at the ${a.quote ? esc(a.quote.venue) : 'deepest'} venue's price${a.quote?.tacPerEthWei ? ` (${tac(a.quote.tacPerEthWei, 0)} TAC per ETH)` : ''}. Each step takes its share by gas.</p>
     ${how}
-    <div class="rows"><div class="kv"><span>Task budget left</span><b class="num">${tac(left, 0)} of ${tac(a.budget.totalWei, 0)} TAC</b></div><div class="kv"><span>Open until</span><b>${esc(when(a.endSec))}</b></div></div>`;
+    <div class="rows"><div class="kv"><span>Budget left</span><b class="num">${tac(left, 0)} of ${tac(a.budget.totalWei, 0)} TAC</b></div><div class="kv"><span>Open until</span><b>${esc(day(a.endSec))}</b></div></div>`;
 }
 
-const chipFor = (c, done) => (c ? (c.state === 'credited' ? ['credited', 'Credited'] : ['claimed', 'Claimed']) : done ? ['deployed', 'On the chain'] : done === null ? ['unknown', 'Unknown'] : ['open', 'Open']);
-function stepRow(job, s, i) {
-  const aj = apiJob(job)?.steps.find((x) => x.id === s.id);
-  const done = S.done[s.id], c = aj?.claim;
-  const [cls, label] = chipFor(c, done);
-  const est = !done && aj?.estimateWei != null ? ` · ≈ ${tac(aj.estimateWei)} TAC` : '';
-  const bad = S.verdict[job.id]?.problems.find((p) => p.step === s.id);
-  const addr = s.kind === 'createx' ? `<a href="${ETHERSCAN}/address/${esc(s.expected)}" target="_blank" rel="noopener noreferrer">${esc(s.expected)}</a>` : 'Call to the confidential pool';
-  return `<li class="step${done ? ' is-done' : ''}">
-    <span class="n num">${i + 1}</span>
-    <span class="what"><b>${esc(s.label)}</b><small>${addr}${bad ? ` <span class="err">· ${esc(bad.bad.join('; '))}</span>` : ''}</small></span>
-    <span class="chip-s ${cls}">${label}${est}</span>
-    ${c ? `<span class="by">${c.state === 'credited' ? 'Credited' : 'Claimed'} to <a href="${ETHERSCAN}/address/${esc(c.address)}" target="_blank" rel="noopener noreferrer">${esc(short(c.address))}</a> · ${tac(c.wei)} TAC</span>` : ''}
-  </li>`;
-}
-
-function renderJob() {
-  const job = current(), el = $('#job');
-  if (!job) { el.hidden = true; return; }
-  el.hidden = false;
-  const todo = job.steps.filter((s) => !S.done[s.id]);
-  const aj = apiJob(job), open = isOpen(job), n = doneOf(job);
+function openBody(job) {
+  const todo = job.steps.filter((s) => !onChain(job, s));
+  const aj = apiJob(job), open = isOpen(job), n = doneCount(job), eco = economics(job);
   const gas = todo.reduce((x, s) => x + s.gas, 0);
-  const verdict = S.verdict[job.id];
+  const verdict = S.verdict[job.id], busy = S.running === job.id;
   const deploys = job.steps.map((s, i) => [s, i]).filter(([s]) => s.kind === 'createx'), calls = job.steps.map((s, i) => [s, i]).filter(([s]) => s.kind !== 'createx');
-  const eco = economics(job);
-  const payNow = !open || !aj ? null : todo.length === job.steps.length && eco ? eco.pays : todo.reduce((x, s) => x + BigInt(aj.steps.find((y) => y.id === s.id)?.estimateWei ?? 0), 0n);
-  el.innerHTML = `
+  // What the steps left pay now: the job's own figure when none is done, else the sum of the steps' estimates (none shown when one is missing).
+  const est = todo.map((s) => aj?.steps.find((y) => y.id === s.id)?.estimateWei);
+  const payNow = !open || !aj || !todo.length ? null : todo.length === job.steps.length && eco ? eco.pays : est.every((e) => e != null) ? est.reduce((x, e) => x + BigInt(e), 0n) : null;
+  const hint = !S.api ? 'The rewards service did not answer, so sending is paused: a step sent now might not be paid.'
+    : !open ? 'Rewards for this job are not open yet, so the steps are not sent from here.'
+    : todo.length ? 'Most wallets let you pick a slower speed: it costs you less than it pays.' : 'Everything in this job is on the chain.';
+  return `
     <div class="grid">
       <div class="col">
-        <section class="panel p-about" aria-labelledby="j-h">
-          <p class="eyebrow" id="j-h">The job</p>
-          <h2 class="jt">${esc(job.title)}</h2>
-          ${job.about.map((x) => `<div class="sec"><h3>${esc(x.h)}</h3><p>${esc(x.p)}</p></div>`).join('')}
-          <div class="links">${job.links.map((l) => `<a href="${esc(l.href)}" target="_blank" rel="noopener noreferrer">${esc(l.label)} ↗</a>`).join('')}<a href="${esc(job.payloadUrl)}" target="_blank" rel="noopener noreferrer">The transactions (JSON) ↗</a></div>
+        <section class="panel p-about" aria-label="About the job">
+          <p class="eyebrow">About</p>
+          ${about(job)}
+          ${links(job)}
         </section>
-        <section class="panel p-steps" aria-labelledby="s-h">
-          <p class="eyebrow" id="s-h"><span>Steps, in order</span><span class="who">${n} of ${job.steps.length} on the chain</span></p>
-          <div class="meter"><span class="bar" role="img" aria-label="${n} of ${job.steps.length} steps on the chain"><i style="width:${(100 * n) / job.steps.length}%"></i></span></div>
-          <p class="grp-h"><span>Contracts</span><span>${deploys.filter(([s]) => S.done[s.id]).length} of ${deploys.length}</span></p>
+        <section class="panel p-steps" aria-label="Steps">
+          <p class="eyebrow"><span>Steps, in order</span><span class="who">${n} of ${job.steps.length} on the chain</span></p>
+          <p class="grp-h"><span>Contracts</span><span>${deploys.filter(([s]) => onChain(job, s)).length} of ${deploys.length}</span></p>
           <ol class="steps">${deploys.map(([s, i]) => stepRow(job, s, i)).join('')}</ol>
-          <p class="grp-h"><span>Confidential pool</span><span>${calls.filter(([s]) => S.done[s.id]).length} of ${calls.length}</span></p>
+          <p class="grp-h"><span>Confidential pool</span><span>${calls.filter(([s]) => onChain(job, s)).length} of ${calls.length}</span></p>
           <ol class="steps">${calls.map(([s, i]) => stepRow(job, s, i)).join('')}</ol>
-          <p class="note">${verdict ? (verdict.ok ? '<span class="ok">Checked in your browser: every transaction is the plan\'s, with the same code, salt, settings and address the job names.</span>' : '<span class="err">A transaction does not match the plan; nothing will be sent.</span>') : 'Before anything is sent, this page checks each transaction against the plan in your browser.'} <button class="linkbtn" type="button" id="verify">Check now</button></p>
+          <p class="note">${verdict ? (verdict.ok ? '<span class="ok">Checked in your browser: every transaction is the plan\'s, with the same code, salt, settings and address the job names.</span>' : '<span class="err">A transaction does not match the plan; nothing will be sent.</span>') : 'Before anything is sent, this page checks each transaction against the plan in your browser.'} <button class="linkbtn" type="button" data-verify="${esc(job.id)}">Check now</button> · ${link(job.payloadUrl, 'The transactions (JSON) ↗')}</p>
         </section>
       </div>
       <div class="col">
-        <section class="panel p-ticket" aria-labelledby="t-h">
-          <p class="eyebrow" id="t-h">Do it</p>
+        <section class="panel p-ticket" aria-label="Do it">
+          <p class="eyebrow">Do it</p>
           <div class="rows flat">
             <div class="kv"><span>Steps left</span><b class="num">${todo.length} of ${job.steps.length}</b></div>
-            <div class="kv"><span>Gas for them</span><b class="num">${(gas / 1e6).toFixed(1)}M<small id="gasnote"></small></b></div>
+            <div class="kv"><span>Gas for them</span><b class="num">${(gas / 1e6).toFixed(1)}M<small class="gasnote"></small></b></div>
             <div class="kv"><span>Pays, about</span><b class="num">${payNow != null ? `${tacR(payNow)} TAC` : '—'}</b></div>
           </div>
-          <p class="hint">${!S.api ? 'The rewards service did not answer, so sending is paused: a step sent now might not be paid.' : !open ? 'Rewards for this job are not open yet, so the steps are not sent from here. They stay open to anyone later.' : todo.length ? 'Most wallets let you pick a slower speed: it costs you less than it pays.' : 'Everything in this job is on the chain.'}</p>
-          <button class="btn" id="go" type="button" ${!todo.length || !open || S.running ? 'disabled' : ''}>${S.running ? 'Sending…' : !W.account ? 'Connect wallet' : todo.length ? `Send ${todo.length === job.steps.length ? 'all' : 'the remaining'} ${todo.length} steps` : 'Done'}</button>
-          <div class="status" id="status" role="status"></div>
+          <p class="hint">${hint}</p>
+          <button class="btn" type="button" data-go="${esc(job.id)}" ${!todo.length || !open || busy ? 'disabled' : ''}>${busy ? 'Sending…' : !W.account ? 'Connect wallet' : todo.length ? `Send ${todo.length === job.steps.length ? 'all' : 'the remaining'} ${todo.length} steps` : 'Done'}</button>
+          <div class="status" role="status" data-for="${esc(job.id)}"></div>
         </section>
-        <section class="panel p-rewards" aria-labelledby="r-h">${renderRewards(job).replace('<p class="eyebrow"', '<p class="eyebrow" id="r-h"')}</section>
-        <section class="panel p-mine" aria-labelledby="m-h">
-          <p class="eyebrow" id="m-h">Your steps</p>
-          ${renderMine(job)}
-          <form id="paste" class="paste" autocomplete="off">
-            <label class="lbl" for="hashes"><span>Sent a step yourself? Name its transaction</span></label>
-            <textarea id="hashes" rows="2" spellcheck="false" placeholder="0x… (one or more transaction hashes)"></textarea>
+        <section class="panel p-rewards" aria-label="Rewards">${rewardsPanel(job)}</section>
+        <section class="panel p-mine" aria-label="Your steps">
+          <p class="eyebrow">Your steps</p>
+          ${mineList(job)}
+          <form class="paste" autocomplete="off" data-for="${esc(job.id)}">
+            <label class="lbl"><span>Sent a step yourself? Name its transaction</span>
+              <textarea rows="2" spellcheck="false" data-for="${esc(job.id)}" placeholder="0x… (one or more transaction hashes)"></textarea></label>
             <button class="btn ghost" type="submit">Claim</button>
           </form>
         </section>
       </div>
     </div>`;
-  el.querySelector('#go').onclick = go;
-  el.querySelector('#verify').onclick = () => verify(job, true);
-  el.querySelector('#paste').onsubmit = (e) => { e.preventDefault(); const found = [...new Set(el.querySelector('#hashes').value.match(/0x[0-9a-fA-F]{64}/g) || [])]; if (!found.length) { say('No transaction hash found there.', true); return; } found.forEach((h) => track(h)); el.querySelector('#hashes').value = ''; say(`Naming ${found.length} transaction${found.length > 1 ? 's' : ''} to the rewards service…`); settle(); };
-  gasNote(gas);
 }
 
-function renderMine(job) {
-  const a = S.api?.claims ?? [];
-  const mine = a.filter((c) => c.job === job.id);
+function mineList(job) {
+  const mine = (S.api?.claims ?? []).filter((c) => c.job === job.id && W.account && c.address.toLowerCase() === W.account.toLowerCase());
   const waiting = Object.entries(S.hashes).filter(([, v]) => v.state === 'pending');
   if (!mine.length && !waiting.length) return `<p class="empty">${W.account ? 'None yet.' : 'Connect a wallet to see the steps credited to it.'}</p>`;
   const label = (id) => job.steps.find((s) => s.id === id)?.label ?? id;
   const total = mine.reduce((x, c) => x + BigInt(c.wei), 0n);
-  return `<ul class="mine">${mine.map((c) => `<li><span>${esc(label(c.step))}</span><span class="num">${tac(c.wei)} TAC · ${c.state === 'credited' ? 'credited' : 'waiting for the budget'}</span></li>`).join('')}${waiting.map(([h, v]) => `<li><a href="${ETHERSCAN}/tx/${esc(h)}" target="_blank" rel="noopener noreferrer">${esc(short(h, 6))}</a><span>${esc(v.note || 'waiting for confirmations')}</span></li>`).join('')}</ul>${mine.length ? `<div class="rows"><div class="kv"><span>Yours so far</span><b class="num">${tac(total)} TAC</b></div></div>` : ''}`;
+  return `<ul class="mine">${mine.map((c) => `<li><span>${esc(label(c.step))}</span><span class="num">${tac(c.wei)} TAC · ${c.state === 'credited' ? 'credited' : 'waiting for the budget'}</span></li>`).join('')}${waiting.map(([h, v]) => `<li>${link(`${ETHERSCAN}/tx/${h}`, esc(short(h, 6)))}<span>${esc(v.note || 'waiting for confirmations')}</span></li>`).join('')}</ul>${mine.length ? `<div class="rows"><div class="kv"><span>Yours so far</span><b class="num">${tac(total)} TAC</b></div></div>` : ''}`;
 }
 
-async function gasNote(gas) {
+function paste(form) {
+  const area = form.querySelector('textarea');
+  const found = [...new Set(area.value.match(/0x[0-9a-fA-F]{64}/g) || [])];
+  if (!found.length) { say('No transaction hash found there.', true, form.dataset.for); return; }
+  found.forEach((h) => track(h));
+  area.value = '';
+  say(`Naming ${found.length} transaction${found.length > 1 ? 's' : ''} to the rewards service…`, false, form.dataset.for);
+  settle();
+}
+
+async function gasNote() {
+  const els = document.querySelectorAll('.gasnote');
+  if (!els.length) return;
   try {
     const p = BigInt(await rpc('eth_gasPrice', []));
-    const el = $('#gasnote'); if (el) el.textContent = `≈ ${(Number(BigInt(gas) * p) / 1e18).toFixed(4)} ETH at ${(Number(p) / 1e9).toFixed(3)} gwei`;
+    for (const el of els) {
+      const job = S.jobs.find((j) => j.id === el.closest('article')?.id);
+      if (!job) continue;
+      const gas = job.steps.filter((s) => !onChain(job, s)).reduce((x, s) => x + s.gas, 0);
+      el.textContent = `≈ ${(Number(BigInt(gas) * p) / 1e18).toFixed(4)} ETH at ${(Number(p) / 1e9).toFixed(3)} gwei`;
+    }
   } catch { /* the note is only a convenience */ }
 }
 
@@ -240,38 +344,37 @@ async function verify(job, show = false) {
     S.verdict[job.id] = checkPayload(job, await loadPayload(job));
   } catch (e) { S.verdict[job.id] = { ok: false, problems: [{ step: '*', bad: [e.message] }] }; }
   renderAll();
-  if (show && S.verdict[job.id].ok) say('Every transaction matches the plan: the same code, salts, settings and addresses the job names.');
+  if (show && S.verdict[job.id].ok) say('Every transaction matches the plan: the same code, salts, settings and addresses the job names.', false, job.id);
   return S.verdict[job.id].ok;
 }
 
 // ── sending ──
-async function go() {
-  const job = current();
+async function go(job) {
   if (!job || S.running) return;
   if (!W.account) { await conn.connect(); return; }
-  S.running = true; renderAll();
+  S.running = job.id; S.expanded.set(job.id, true); renderAll();
   try {
     if (!(await verify(job))) { say('A transaction does not match the plan, so nothing was sent.', true); return; }
     const payload = S.payload[job.id];
     for (const [i, s] of job.steps.entries()) {
-      S.done = await readDone(job);
-      if (S.done[s.id]) continue;
+      S.done[job.id] = await readDone(job);
+      if (S.done[job.id][s.id]) continue;
       const tx = payload.steps[i];
       if (checkStep(job, s, tx).length) throw new Error('A transaction no longer matches the plan.');
       say(`Step ${i + 1} of ${job.steps.length}: ${esc(s.label)}. Confirm it in your wallet.`);
       const hash = await conn.wallet.sendTx({ to: tx.to, data: tx.data, value: 0n, from: W.account });
-      say(`Step ${i + 1} sent: <a href="${ETHERSCAN}/tx/${esc(hash)}" target="_blank" rel="noopener noreferrer">${esc(short(hash, 6))}</a>. Waiting for it to land…`);
+      say(`Step ${i + 1} sent: ${link(`${ETHERSCAN}/tx/${hash}`, esc(short(hash, 6)))}. Waiting for it to land…`);
       const rc = await conn.wallet.receipt(hash);
       if (rc.status !== '0x1') throw new Error(`Step ${i + 1} failed on the chain. Nothing more was sent.`);
       track(hash);
       renderAll();
     }
-    S.done = await readDone(job);
+    S.done[job.id] = await readDone(job);
     renderAll();
     say('Everything is sent. Each step is named to the rewards service once it has twelve confirmations.');
   } catch (e) {
     say(esc(e instanceof UserStopped ? 'Stopped. Send again to carry on from where it left off.' : (e.message || 'The wallet did not send it.')), !(e instanceof UserStopped));
-  } finally { S.running = false; S.done = await readDone(job).catch(() => S.done); renderAll(); settle(); }
+  } finally { const id = S.running; S.running = null; S.done[id] = await readDone(job).catch(() => S.done[id]); renderAll(); settle(); }
 }
 
 // ── naming steps to the service ──
@@ -306,9 +409,10 @@ async function settle() {
 // ── start ──
 async function start() {
   const file = await get('/tasks/jobs.json');
-  if (!file?.jobs?.length) { $('#tiles').innerHTML = '<p class="empty">The jobs could not be loaded.</p>'; return; }
+  if (!file?.jobs?.length) { $('#jobs').innerHTML = '<p class="none">The jobs could not be loaded.</p>'; return; }
   S.jobs = file.jobs;
-  S.jobId = location.hash.slice(1) || S.jobs[0].id;
+  const wanted = location.hash.slice(1);
+  if (S.jobs.some((j) => j.id === wanted)) S.expanded.set(wanted, true);          // a link to a job opens it
   renderAll();
   await Promise.all([loadApi(), refresh()]);
   setInterval(() => { if (!document.hidden && !S.running) { refresh(); loadApi(); } }, 30e3);
