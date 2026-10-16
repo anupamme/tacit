@@ -166,6 +166,18 @@ export async function confidentialOpenJob(jobId) {
 }
 // Claim several jobs that can share one settle. Falls back to a single job when the worker is older (no
 // `jobs` key) so the relay never wedges on a version skew.
+// The prover board (worker/src/prover-board.js): a job posted for a worker to prove, read, and given up.
+export async function boardPost(body) {
+  const r = await postJson('/prover/jobs', body, { timeoutMs: 20_000 });
+  try { return await r.json(); } catch { return { ok: false, error: `HTTP ${r.status}` }; }
+}
+export async function boardStatus(jobId) {
+  const r = await getJson(`/prover/jobs?id=${encodeURIComponent(jobId)}`);
+  return r && r.status ? r : null;
+}
+export async function boardCancel(jobId, reason) {
+  try { await postJson('/prover/jobs/cancel', { jobId, reason }, { timeoutMs: 10_000 }); } catch { /* the job expires on its own */ }
+}
 // `mixed`: ops of different types too (the relay proves those from one program input; lib/prover.js proveMixed).
 export async function confidentialBatch(max = 8, { mixed = false } = {}) {
   const r = await getJson(`/confidential/job?batch=${max}${mixed ? '&mixed=1' : ''}`);

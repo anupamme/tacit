@@ -186,6 +186,10 @@ export const CFG = {
   // and requested from the network directly (lib/stdin-prover.js) rather than through a per-op binary. Off until it has
   // settled a real batch; the transfer-only batch above does not depend on it.
   settleBatchMixed: opt('SETTLE_BATCH_MIXED', '0') === '1',
+  // Tacit's prover board first (lib/board-prover.js): a settle proof is offered to the workers that pull from the API's
+  // /prover/* routes for PROVER_BOARD_WAIT_SECS before it goes to the prover network as before. Off until a worker runs.
+  proverBoard: opt('PROVER_BOARD', '0') === '1',
+  proverBoardWaitSecs: num('PROVER_BOARD_WAIT_SECS', 240),
   // Resident-memory caps for a settle's prover child, in KB (lib/prover.js run). The container's ceiling is 2 GiB
   // and the service itself needs some of it; a batch is held tighter, since a batch that cannot prove here just
   // settles its members one at a time.

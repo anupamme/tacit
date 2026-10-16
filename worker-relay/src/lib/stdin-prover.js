@@ -31,6 +31,14 @@ export function inputPolicy(env) {
 export const notExecuted = (e) => !!e && ((e.code === 'not_proved' && (/unexecutable/i.test(String(e.reason || '')) || (e.network && e.network.executionStatus === 3)))
   || e.code === 'proof_mismatch');
 
+// The input over `items` ([{ type, op, memos }]) with each op's memo hashes, and the request's limits: what a worker proves and
+// what the network is asked for.
+export function batchInput(items) {
+  const withHashes = items.map(({ type, op, memos = [] }) => ({ type, op: { ...op, memoHashes: memos.map((m) => hex(keccak_256(unhex(m)))) } }));
+  const { stdin, numOps } = batchStdin(withHashes);
+  return { stdin, numOps, ...batchLimits(items.map((i) => i.type)) };
+}
+
 // `key`: the prover account's key. `prover` may stand in for the network client in a test.
 export function makeStdinProver({ key, rpc, env = process.env, transport = null, prover = null } = {}) {
   if (!key) throw new Error('stdin-prover: the prover account key is missing');
@@ -44,9 +52,7 @@ export function makeStdinProver({ key, rpc, env = process.env, transport = null,
   // `timeoutMs` bounds the whole prove: the request's deadline is set three minutes inside it, and the wait runs to the
   // deadline and two minutes past. → { publicValues, proof, requestId, private, numOps }
   async function proveBatch({ items, timeoutMs = 15 * 60_000, onUpdate = () => {} }) {
-    const withHashes = items.map(({ type, op, memos = [] }) => ({ type, op: { ...op, memoHashes: memos.map((m) => hex(keccak_256(unhex(m)))) } }));
-    const { stdin, numOps } = batchStdin(withHashes);
-    const { cycleLimit, gasLimit } = batchLimits(items.map((i) => i.type));
+    const { stdin, numOps, cycleLimit, gasLimit } = batchInput(items);
     const timeoutSecs = Math.max(300, Math.floor(timeoutMs / 1000) - 180);
     try {
       const r = await p.proveStdin({ stdin, cycleLimit, gasLimit, timeoutSecs, onUpdate });

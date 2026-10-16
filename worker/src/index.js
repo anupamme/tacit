@@ -113,6 +113,7 @@ import { classifyConfidentialTx, makeBurnDepositKit } from '../../dapp/burn-depo
 import { makeScanReflectionIndexer } from '../../dapp/confidential-reflection-scan-indexer.js';
 import { makeBurndepAdmission, HEADER_CHUNK as BURNDEP_HEADER_CHUNK } from './burndep-admission.js';
 import { handleProverUpload, handleProverDownload, PROVER_PROXY_PATHS } from './prover-proxy.js';
+import { buildProverBoard, workerOf } from './prover-board.js';
 import { SWAP_BATCH_VK } from '../../dapp/confidential-swapbatch-vk.js';
 import { bpRangeVerify, bpClassicProofLen } from '../../dapp/bulletproofs.js';
 import { makeBridgeRecover } from '../../dapp/bridge-recover.js';
@@ -637,7 +638,7 @@ const reverseBytes = b => { const r = new Uint8Array(b); r.reverse(); return r; 
 // caller (curl, another server) could already do. This is what lets a third-party page with no fixed
 // origin (an IPFS/web3-gateway-hosted frontend, e.g.) use the relay directly from a browser instead of
 // needing its own backend proxy or a per-deploy entry in ALLOWED_ORIGINS.
-const OPEN_ORIGIN_PATHS = new Set(['/stats', '/flow', '/relay/economics', '/bridge/recover', '/reflection/proof', '/confidential/submit', '/confidential/status', '/confidential/open', '/confidential/landed', '/confidential/quote', '/confidential/index', '/confidential/relay', '/reflection/dump', '/reflection/status', '/reflection/note-witness', '/reflection/burndep', '/reflection/eth-state/covers', '/crossout/minted', '/farm/program', '/farm/health', '/prover/upload', '/prover/download']);
+const OPEN_ORIGIN_PATHS = new Set(['/stats', '/flow', '/relay/economics', '/bridge/recover', '/reflection/proof', '/confidential/submit', '/confidential/status', '/confidential/open', '/confidential/landed', '/confidential/quote', '/confidential/index', '/confidential/relay', '/reflection/dump', '/reflection/status', '/reflection/note-witness', '/reflection/burndep', '/reflection/eth-state/covers', '/crossout/minted', '/farm/program', '/farm/health', '/prover/upload', '/prover/download', '/prover/board']);
 function corsHeaders(env, reqOrigin, openOrigin) {
   const list = (env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
   const allow = openOrigin || list.includes('*') ? '*' : (list.includes(reqOrigin) ? reqOrigin : list[0]);
@@ -3229,6 +3230,45 @@ function relayHolds(st, type, op) {
 // follow while it waits: { state, proving, settling, board, ageSeconds }. `proving`: it proves jobs (ok, busy, held);
 // `settling`: it sends relayed settles (ok, busy); `board`: held, and putting relayed jobs on the open board for any sender.
 // Nothing about why: no balance, note or reason.
+const boardHash = (s) => '0x' + [...keccak_256(new TextEncoder().encode(s))].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 32);
+async function handleProverBoard(req, env, url, cors) {
+  const nostore = { ...cors, 'Cache-Control': 'no-store' };
+  if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+  const board = buildProverBoard(env, { hash: boardHash });
+  if (!board) return jsonResponse({ error: 'not found' }, 404, cors);
+  const body = async () => { try { return await req.json(); } catch { return null; } };
+  if (url.pathname === '/prover/board' && req.method === 'GET') return jsonResponse(await board.summary(), 200, { ...cors, 'Cache-Control': 'max-age=10' });
+  if (url.pathname === '/prover/jobs' || url.pathname === '/prover/jobs/cancel') {
+    if (!checkConfidentialAuth(req, env)) return jsonResponse({ error: 'not found' }, 404, cors);
+    if (url.pathname === '/prover/jobs' && req.method === 'GET') {
+      const st = await board.status(url.searchParams.get('id') || '');
+      return st ? jsonResponse(st, 200, nostore) : jsonResponse({ error: 'no such job' }, 404, nostore);
+    }
+    if (req.method !== 'POST') return jsonResponse({ error: 'method' }, 405, nostore);
+    const b = await body();
+    if (!b) return jsonResponse({ ok: false, error: 'bad json' }, 400, nostore);
+    try {
+      if (url.pathname === '/prover/jobs/cancel') return jsonResponse(await board.cancel({ jobId: b.jobId, reason: b.reason ?? null }), 200, nostore);
+      return jsonResponse({ ok: true, ...(await board.post(b)) }, 200, nostore);
+    } catch (e) { return jsonResponse({ ok: false, error: String(e.message || e), code: e.code || null }, e.code === 'full' ? 503 : 400, nostore); }
+  }
+  if (url.pathname === '/prover/claim' || url.pathname === '/prover/result') {
+    const worker = workerOf(req.headers.get('Authorization'), env.PROVER_WORKER_TOKENS);
+    if (!worker) return jsonResponse({ error: 'not found' }, 404, cors);
+    if (req.method !== 'POST') return jsonResponse({ error: 'method' }, 405, nostore);
+    const b = await body();
+    if (!b) return jsonResponse({ ok: false, error: 'bad json' }, 400, nostore);
+    try {
+      if (url.pathname === '/prover/claim') {
+        const want = Array.isArray(b.classes) && b.classes.length ? b.classes.filter((c) => worker.classes.includes(c)) : worker.classes;
+        const job = await board.claim({ worker, classes: want });
+        return jsonResponse(job ? { job } : {}, 200, nostore);
+      }
+      return jsonResponse(await board.result({ worker, jobId: b.jobId, publicValues: b.publicValues ?? null, proof: b.proof ?? null, error: b.error ?? null }), 200, nostore);
+    } catch (e) { return jsonResponse({ ok: false, error: String(e.message || e) }, 400, nostore); }
+  }
+  return jsonResponse({ error: 'not found' }, 404, cors);
+}
 async function handleConfidentialRelay(env, cors) {
   const st = await relayState(env);
   if (!st) return jsonResponse({ ok: false, error: 'the relay’s state cannot be read just now' }, 503, { ...cors, 'Cache-Control': 'no-store' });
@@ -26882,6 +26922,9 @@ async function _routeFetch(req, env, ctx) {
     const cors = corsHeaders(env, req.headers.get('Origin') || '', openOrigin);
     // A page proving with its holder's own prover account passes its program input and the finished proof through here
     // (the network's artifact store sends no CORS headers). These answer their own preflight, which names X-Artifact-Url.
+    // The prover board (worker/src/prover-board.js): the relay posts, reads and cancels jobs with the box token; workers claim and
+    // answer with their own tokens (PROVER_WORKER_TOKENS); anyone reads the summary.
+    if (url.pathname.startsWith('/prover/') && !PROVER_PROXY_PATHS.has(url.pathname)) return handleProverBoard(req, env, url, cors);
     if (PROVER_PROXY_PATHS.has(url.pathname)) {
       if (req.method === 'POST') {
         const rl = await proveRateLimit(env, req.headers.get('CF-Connecting-IP') || 'anon', 'spn-io', Number(env.SPN_IO_RL_BURST || 12), Number(env.SPN_IO_RL_REFILL_MS || 20000));

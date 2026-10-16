@@ -142,6 +142,35 @@ The same modules work in any page or in Node:
 - From Node, pass `proxyBase: null` (the input goes straight to the store) and an HTTP/2 `transport`. The network's RPC
   refuses HTTP/1.1.
 
+## Proving for the relay
+
+The relay can offer each settle proof to its own prover board before it asks the prover network: a machine with a
+24 GB-class NVIDIA GPU pulls the program input, proves it with the pinned guest and posts the proof back, and the relay
+checks the proof against the pool (the same simulated settle it runs before sending) before it uses it. A job nobody
+proves in time goes to the network as before, so a worker that stops only stops helping.
+
+| route | |
+|---|---|
+| `GET /prover/board` | `{ queued, claimed, proved, failed, workers: [{ name, proved, failed, bad, lastSeenSeconds }], lease }`, for anyone. No inputs, no proofs. |
+| `POST /prover/claim` | Worker token. `{ worker, classes }` → `{ job: { jobId, program, stdin, cycleLimit, gasLimit, deadline, leaseUntil, label } }`, or `{}`. `stdin` is base64 of the bincode `SP1Stdin`. The claim is a lease (five minutes); a worker that goes quiet loses the job to the next claim. |
+| `POST /prover/result` | Worker token. `{ jobId, publicValues, proof }` (hex; `proof` as `settle()` takes it) or `{ jobId, error }`. |
+
+**Who may prove what.** The API knows each worker by a bearer token (`PROVER_WORKER_TOKENS`, `name:token[:classes]`).
+The `private` class carries a user's witness, so it goes only to workers Tacit runs or has named for it; the `public` class
+is work whose input is public anyway. A proof the pool refuses counts against its worker and the job goes on to the network.
+
+**Running a worker.** [`contracts/sp1/confidential/prover-worker/`](../contracts/sp1/confidential/prover-worker/) is the
+worker: one binary that builds the CUDA prover and the proving key once, warms the Groth16 stages at start, then claims,
+proves and answers one job at a time.
+
+```sh
+cd contracts/sp1/confidential/prover-worker && cargo build --release
+BOARD_URL=https://api.tacit.finance WORKER_TOKEN=… WORKER_NAME=gpu1 EXPECT_VKEY=<the pool's PROGRAM_VKEY> ./target/release/tacit-prover-worker
+```
+
+It needs Linux x86-64, CUDA 12, a GPU with 24 GB of memory, 16 or more CPU cores and 64 GB of RAM (the Groth16 step runs
+on the CPU), and about 10 GB of disk for the Groth16 artifacts the SDK fetches on the first proof.
+
 ## Paying for the relay's proofs
 
 Every proof Tacit's relay makes is paid in PROVE from its prover account,

@@ -10,11 +10,15 @@ import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { keccak256 } from 'viem';
 import { CFG } from './config.js';
-import { POOL } from './chain.js';
+import { POOL, POOL_ABI, publicClient, settleWallet } from './chain.js';
 import { reflectionEthProofPatient } from './worker-client.js';
 import { privateProvePlan, retryPublic } from './private-prove.js';
 import { CREDIT_SHORT } from './prove-pause.js';
-import { makeStdinProver } from './stdin-prover.js';
+import { makeStdinProver, batchInput } from './stdin-prover.js';
+import { makeBoardProver } from './board-prover.js';
+import { boardPost, boardStatus, boardCancel } from './worker-client.js';
+import { stdinFor, SELF_PROVE_TYPES, LIMITS } from './spn/sp1-stdin.js';
+import { assertMemosMatchProof } from './memo-root.js';
 
 function proverEnv(extra = {}) {
   // Env the spawned SP1 binary reads to route to the Succinct network prover.
@@ -274,15 +278,53 @@ export async function proverCredit({ timeoutMs = 30_000 } = {}) {
   } catch { return null; }
 }
 
+// Tacit's prover board, tried before the network when PROVER_BOARD=1 (lib/board-prover.js). A proof from it is taken only
+// when the pool would settle it now with these memos: the same simulation the settle itself runs, from the settle wallet.
+let board = null;
+const boardLog = (m) => console.log(`[prover ${new Date().toISOString()}] ${m}`);
+function boardLane() {
+  if (!CFG.proverBoard) return null;
+  board ||= makeBoardProver({ post: boardPost, status: boardStatus, cancel: boardCancel, verify: verifySettle, waitMs: CFG.proverBoardWaitSecs * 1000, log: boardLog });
+  return board;
+}
+async function verifySettle({ publicValues, proof, memos }) {
+  try {
+    assertMemosMatchProof(publicValues, memos);
+    await publicClient.estimateContractGas({ address: POOL, abi: POOL_ABI, functionName: 'settle', args: [publicValues, proof, memos], account: settleWallet.account });
+    return true;
+  } catch (e) {
+    boardLog(`a board proof did not pass the settle check: ${String(e && e.shortMessage || e && e.message || e).slice(0, 200)}`);
+    return false;
+  }
+}
+// The board lane for `stdin`, or null when it missed; the time it took comes off `timeoutMs` for the lane after it.
+async function viaBoard({ stdin, cycleLimit, gasLimit, label, memos, timeoutMs }) {
+  const lane = boardLane();
+  if (!lane) return { proof: null, spentMs: 0 };
+  const t0 = Date.now();
+  try {
+    const r = await lane.prove({ stdin, cycleLimit, gasLimit, cls: 'private', label, memos, timeoutMs });
+    boardLog(`${label}: proved on the board by ${r.worker} in ${Math.round((Date.now() - t0) / 1000)} s`);
+    return { proof: { publicValues: r.publicValues, proof: r.proof, lane: 'board', worker: r.worker }, spentMs: Date.now() - t0 };
+  } catch (e) {
+    if (e.code !== 'board_miss') throw e;
+    boardLog(`${label}: ${e.message}; going to the network`);
+    return { proof: null, spentMs: Date.now() - t0 };
+  }
+}
+
 // Several ops of different types in ONE proof, from one program input built here and requested from the network directly
 // (lib/stdin-prover.js): the per-op binaries above prove one op each, and exec-batchtransfer transfers only. `items` are
 // [{ type, op, memos }] in settle order. → { publicValues, proof, requestId, private, numOps }
 let stdinProver = null;
 export async function proveMixed({ items, timeoutMs }) {
   if (!CFG.networkPrivateKey) throw new Error('proveMixed: NETWORK_PRIVATE_KEY is not set');
+  const built = batchInput(items);
+  const first = await viaBoard({ ...built, label: `mixed(${items.length})`, memos: items.flatMap((i) => i.memos || []), timeoutMs });
+  if (first.proof) return { ...first.proof, numOps: built.numOps };
   stdinProver ||= makeStdinProver({ key: CFG.networkPrivateKey, rpc: CFG.networkRpcUrl, env: process.env });
   const tag = `[prover ${new Date().toISOString()}] mixed(${items.length})`;
-  return stdinProver.proveBatch({ items, timeoutMs, onUpdate: (u) => console.log(`${tag} ${u.requestId ? u.requestId.slice(0, 10) + ' ' : ''}${u.status}/${u.stage}${u.public ? ' (public input)' : ''}`) });
+  return stdinProver.proveBatch({ items, timeoutMs: Math.max(60_000, timeoutMs - first.spentMs), onUpdate: (u) => console.log(`${tag} ${u.requestId ? u.requestId.slice(0, 10) + ' ' : ''}${u.status}/${u.stage}${u.public ? ' (public input)' : ''}`) });
 }
 
 export async function proveSettle({ type, op, memos = [], timeoutMs }) {
@@ -302,6 +344,16 @@ export async function proveSettle({ type, op, memos = [], timeoutMs }) {
   // concatenation of every op's memos in the SAME order the ops are written — otherwise memoRoot is computed
   // over a different ordering than settle() supplies and the contract rejects it.
   const memoHashes = (memos || []).map((m) => keccak256(m.startsWith('0x') ? m : `0x${m}`));
+  // The board first, for every op whose input is built here (the page modules build it byte for byte as the binary would).
+  if (CFG.proverBoard && SELF_PROVE_TYPES.includes(type)) {
+    let stdin = null;
+    try { stdin = stdinFor(type, { ...op, memoHashes }); } catch (e) { console.log(`[prover] ${type}: no board input (${e.message}); the binary proves it`); }
+    if (stdin) {
+      const first = await viaBoard({ stdin, ...LIMITS[type], label: type, memos: memos || [], timeoutMs });
+      if (first.proof) return first.proof;
+      timeoutMs = Math.max(60_000, timeoutMs - first.spentMs);
+    }
+  }
   await writeFile(opFile, JSON.stringify({ ...op, memoHashes }));
   const cwd = CFG.proverOut;
   await mkdir(cwd, { recursive: true });

@@ -1,0 +1,28 @@
+# Tacit's prover worker: pulls settle proofs from the API's prover board (worker/src/prover-board.js) and proves them on this
+# machine's GPU with the pinned guest, keeping the prover warm between jobs. One binary, one GPU, one proof at a time.
+#
+#   cargo build --release                       # CUDA: needs a 24 GB-class NVIDIA GPU, CUDA 12 and sp1-gpu-server (the SDK fetches it)
+#   BOARD_URL=https://api.tacit.finance WORKER_TOKEN=… WORKER_NAME=gpu1 EXPECT_VKEY=0x… ./target/release/tacit-prover-worker
+#
+# The guest ELF is include_bytes!'d from ../elf/cxfer-guest and pinned by build.rs, as the exec-* harnesses do.
+[package]
+name = "tacit-prover-worker"
+version = "0.1.0"
+edition = "2021"
+[workspace]
+
+[[bin]]
+name = "tacit-prover-worker"
+path = "src/main.rs"
+
+[dependencies]
+sp1-sdk = { version = "=6.2.3", features = ["blocking", "cuda"] }
+bincode = "1"
+hex = "0.4"
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ureq = { version = "2", features = ["json"] }
+
+[profile.release]
+opt-level = 3
