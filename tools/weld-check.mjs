@@ -15,6 +15,8 @@
 //   hxbal   the card's balance line and Max, the picker's balances, and what Your Tacit and the header say it is all worth
 //   hxborrow the card's Borrow tab with a key open: the lock it follows step by step with what the key holds, and the bond posted from
 //           the card with wstETH already held (a permit and the post in one transaction), after which the lock waits to mint
+//   hxborrowback a return visit with a bond still on its way (in Activity): the Borrow tab says so in place of its button, and the
+//           dashboard's cBTC opens that tab
 //   hxteth  a key holding private tETH: Shield says so with Send, Swap and Back to ETH a press away; Back to ETH and Send quote their relay
 //           fees as their forms will (Max keeping the fee that combines notes), and each hands its form the amount
 //   farmcoming a private farm opened while a wrap is settling says the tETH is on its way instead of asking for it again
@@ -152,7 +154,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxteth,hxborrow,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxteth,hxborrow,hxborrowback,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -898,6 +900,34 @@ await step('hxborrow', async () => {
     await until(p, () => /✓\s*Lock\s*✓\s*Bond\s*3\s*Mint/.test(document.querySelector('#hx-bw')?.textContent || ''), null, 300000);
     ok(/Waiting for/.test(await card()), `hxborrow: with the bond in, the lock waits to mint, and says for what (${(await card()).match(/Waiting for[^.]*\./)?.[0] || ''})`);
     if (r.errors.length) { fails++; console.log('FAIL hxborrow page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+await step('hxborrowback', async () => {
+  const r = await openPage({ account: A0, key: K0 });
+  const p = r.page, hash = '0x' + 'be'.repeat(32);
+  // As the page left it: the bond's transaction sent and not yet landed (a hash no node knows, so it stays on its way).
+  await p.addInitScript((h) => { if (!sessionStorage.getItem('seeded')) { sessionStorage.setItem('seeded', '1'); localStorage.setItem('tacit-lite-activity-v1', JSON.stringify({ items: [{ id: `tx:1:${h}`, kind: 'tx', label: 'Post the bond for 0.0002 BTC', chain: 1, hash: h, status: 'pending', at: Date.now() }] })); } }, hash);
+  try {
+    await p.goto(r.url + '#borrow');
+    await p.waitForSelector('#bw-lock, #borrow-body [data-in="eth"]', { timeout: 60000 });
+    if (await p.$('#borrow-body [data-in="eth"]')) { await p.click('#borrow-body [data-in="eth"]'); await p.waitForSelector('#bw-lock', { timeout: 120000 }); }
+    const pub = await p.evaluate(() => localStorage.getItem(Object.keys(localStorage).find((k) => k.startsWith('tacit-eth-identity-anchor:'))));
+    await p.evaluate((x) => localStorage.setItem(`tacit-lite-cbtc-v1:${x}`, JSON.stringify({ lockTxid: 'cf'.repeat(32), lockVout: 1, vBtc: '20000', anchor: { txid: 'c0'.repeat(32), vout: 0 }, at: Date.now() })), pub);
+    await p.evaluate(() => { location.hash = ''; location.hash = '#borrow'; });
+    await p.waitForSelector('#bw-bond, #bw-topup', { timeout: 120000 });
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    await p.click('[data-hxm="borrow"]');
+    await until(p, () => /Your bond is on its way/.test(document.querySelector('#hx-bw')?.textContent || ''), null, 300000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#hx-bw').catch(() => '?')).replace(/\s+/g, ' ').slice(0, 200)}`); });
+    ok(!(await p.$('#hx-bw [data-hxbw^="bond"], #hx-bw [data-hxbw="topup"]')) && !!(await p.$('#hx-bw [data-act-open]')), 'hxborrowback: a bond still on its way is said in place of its button, with the way to follow it');
+    ok(!(await p.$('[data-hxm="borrow"][data-due]')), `hxborrowback: and the tab does not call for it (${await p.$eval('#hx-bw', (e) => e.textContent.replace(/\s+/g, ' ').slice(0, 160))})`);
+    await p.click('[data-hxm="private"]');
+    await until(p, () => !!document.querySelector('#dash [data-dash-open="borrow"]'), null, 120000);
+    await p.click('#dash [data-dash-open="borrow"]');
+    await until(p, () => document.querySelector('[data-hxm="borrow"]')?.getAttribute('aria-selected') === 'true' && !!document.querySelector('#hx-bw'), null, 60000);
+    ok(!(await p.$('dialog.sheet[open]')), "hxborrowback: the dashboard's cBTC opens the card's Borrow tab, where the lock is followed");
+    if (r.errors.length) { fails++; console.log('FAIL hxborrowback page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 
