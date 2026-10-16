@@ -21,7 +21,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /swap/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/swap/app.js?cb=2cf7360a">
+<link rel="modulepreload" href="/swap/app.js?cb=2c162bf1">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=a08631ce">
 <link rel="modulepreload" href="/trade/connect.js?cb=b9f00573">
@@ -90,6 +90,7 @@ button, input { font: inherit; color: inherit; letter-spacing: inherit; }
 .tk { width: 28px; height: 28px; display: block; flex: none; border-radius: 50%; }
 .tk.sm { width: 18px; height: 18px; } .tk.xs { width: 14px; height: 14px; }
 .tk.inl { display: inline-block; vertical-align: -3px; margin-right: 5px; }
+img.tk { object-fit: contain; }
 .tk.letter { display: grid; place-items: center; font: 500 13px/1 var(--mono); color: #fff; background: var(--c, #8F8979); }
 .pairtk { display: inline-flex; flex: none; } .pairtk .tk + .tk { margin-left: -6px; box-shadow: 0 0 0 2px var(--card); }
 .shell { max-width: 1120px; margin: 0 auto; padding-bottom: 56px; }
@@ -113,6 +114,7 @@ button, input { font: inherit; color: inherit; letter-spacing: inherit; }
 /* the page: a short hero beside the card on a wide screen, the card first on a narrow one */
 .stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 470px); gap: 28px 56px; align-items: start; padding: 34px 0 10px; }
 @media (max-width: 900px) { .stage { grid-template-columns: minmax(0, 1fr); padding-top: 18px; } }
+@media (min-width: 901px) { .hero { align-self: center; padding-bottom: 60px; } }
 .hero h1 { font: 400 clamp(48px, 7.4vw, 88px)/.92 var(--serif); letter-spacing: -.025em; margin: 0; }
 .hero h1 em { font-style: italic; }
 .hero .lede { margin: 18px 0 0; max-width: 46ch; font-size: 14px; line-height: 1.65; color: var(--mute); text-wrap: pretty; }
@@ -120,15 +122,7 @@ button, input { font: inherit; color: inherit; letter-spacing: inherit; }
 .pxs { display: flex; flex-wrap: wrap; gap: 4px 18px; min-height: 22px; margin: 18px 0 0; font-size: 12px; color: var(--mute); opacity: 0; transition: opacity .3s; }
 .pxs.on { opacity: 1; }
 .pxs span { display: inline-flex; align-items: center; gap: 6px; } .pxs b { color: var(--ink); font-weight: 500; }
-.points { display: grid; gap: 10px; margin: 26px 0 0; padding: 0; list-style: none; max-width: 48ch; font-size: 13px; line-height: 1.55; }
-.points li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; color: var(--mute); }
-.points li::before { content: ''; width: 7px; height: 7px; margin: 7px 0 0 4px; border-radius: 50%; background: var(--orange); }
-.points li:nth-child(2)::before { background: var(--eth); } .points li:nth-child(3)::before { background: transparent; border: 1.5px dashed var(--ink); width: 8px; height: 8px; }
-.points b { color: var(--ink); font-weight: 500; }
-.howlink { display: inline-flex; align-items: center; gap: 8px; margin: 26px 0 0; font-size: 13px; color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--hair-2); padding-bottom: 2px; }
-@media (hover: hover) { .howlink:hover { border-color: var(--ink); } }
-@media (max-width: 900px) { .howlink { display: none; } }
-@media (max-width: 900px) { .hero { order: 0; } .sw { order: 1; } .points { display: none; } .hero .lede { margin-top: 12px; } }
+@media (max-width: 900px) { .hero { order: 0; } .sw { order: 1; } .hero .lede { margin-top: 12px; } }
 
 /* the card: the front page's console, two verbs */
 .sw { position: relative; min-width: 0; background: var(--card); border: 1px solid var(--hair-2); border-radius: 18px; box-shadow: var(--float); }
@@ -207,6 +201,7 @@ button, input { font: inherit; color: inherit; letter-spacing: inherit; }
 .go.priv:hover:not(:disabled) { background: var(--ink); color: var(--card); border-style: solid; }
 .q { min-height: 20px; margin: 10px 2px 0; font-size: 12px; line-height: 1.55; color: var(--mute); overflow-wrap: anywhere; }
 .q a, .q button.link { color: var(--ink); }
+.q:empty { min-height: 0; margin: 0; }
 .q.err { color: var(--err); } .q.ok { color: var(--ok); }
 .link { padding: 0; font: inherit; color: var(--ink); background: none; border: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .sw-foot { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 12px 2px 0; padding-top: 10px; border-top: 1px solid var(--hair); font-size: 12px; color: var(--mute); }
@@ -238,14 +233,9 @@ button, input { font: inherit; color: inherit; letter-spacing: inherit; }
 .pk-n { margin: 6px 8px 0; font-size: 12px; color: var(--mute); }
 
 /* Earn: the farms to choose between, then the chosen one */
-.earn-n { margin: 0 2px 12px; font-size: 13px; line-height: 1.55; color: var(--mute); }
-.earn-n b { color: var(--ink); font-weight: 500; }
 .rows .c { grid-template-columns: 38px minmax(0, 1fr) auto 18px; }
 .farm-host { margin-top: 14px; }
-.privfarm { margin-top: 14px; padding: 14px; border: 1px dashed var(--hair-2); border-radius: 12px; font-size: 13px; line-height: 1.55; color: var(--mute); }
-.privfarm b { color: var(--ink); font-weight: 500; }
-.privfarm .go { margin-top: 12px; }
-.anytok { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px 14px; margin: 12px 2px 0; font-size: 12px; color: var(--mute); }
+.privfarm { margin-top: 14px; }
 
 /* the Precision farm (trade/farm.js), in the card */
 .farm-host .eyebrow { display: flex; align-items: center; gap: 8px; font-size: 10.5px; font-weight: 400; letter-spacing: .1em; text-transform: uppercase; color: var(--mute); margin: 0 0 12px; }
@@ -314,8 +304,9 @@ button, input { font: inherit; color: inherit; letter-spacing: inherit; }
 
 /* how it works */
 .how { margin: 64px 0 0; }
-.how > h2, .addrs > h2 { font: 400 clamp(34px, 5vw, 52px)/1 var(--serif); letter-spacing: -.02em; margin: 0 0 10px; }
+.how > h2 { font: 400 clamp(34px, 5vw, 52px)/1 var(--serif); letter-spacing: -.02em; margin: 0 0 10px; }
 .how > h2 em { font-style: italic; }
+.how > h2 { margin-bottom: 26px; }
 .how > p.lede { max-width: 64ch; margin: 0 0 28px; font-size: 14px; line-height: 1.65; color: var(--mute); }
 .doors { display: grid; grid-template-columns: minmax(0, 1fr) 150px minmax(0, 1.15fr) 150px minmax(0, 1fr); align-items: center; gap: 0; margin: 0 0 34px; }
 .doors .end, .doors .pool { position: relative; z-index: 1; padding: 16px 16px 15px; background: var(--card); border: 1px solid var(--hair-2); border-radius: 14px; }
@@ -344,19 +335,9 @@ button, input { font: inherit; color: inherit; letter-spacing: inherit; }
   .door span, .door small { transform: none; margin: 0; max-width: none; background: none; }
   .door span { padding: 0; }
 }
-.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
-.card { padding: 18px 18px 16px; background: var(--card); border: 1px solid var(--hair); border-radius: 14px; }
-.card h3 { font: 400 23px/1.1 var(--serif); letter-spacing: -.01em; margin: 0 0 8px; }
-.card p { margin: 0; font-size: 13px; line-height: 1.6; color: var(--mute); text-wrap: pretty; }
-.card p + p { margin-top: 8px; }
-.card b { color: var(--ink); font-weight: 500; }
-.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 22px 0 0; padding: 14px 16px; font-size: 12px; color: var(--mute); background: var(--card); border: 1px solid var(--hair); border-radius: 14px; }
-.flow > b { margin-right: 6px; font: italic 400 19px/1.2 var(--serif); color: var(--ink); font-weight: 400; }
-.flow .st { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; color: var(--ink); background: var(--field); border: 1px solid var(--hair); border-radius: 999px; }
-.flow .st.t { padding-left: 10px; }
-.flow i { font-style: normal; }
-.addrs { margin: 54px 0 0; }
-.addrs > h2 { font-size: clamp(28px, 4vw, 38px); }
+.addrs { margin: 40px 0 0; }
+.addrs > summary { cursor: pointer; font-size: 12.5px; color: var(--mute); list-style: none; } .addrs > summary::-webkit-details-marker { display: none; } .addrs > summary::after { content: " ▾"; } .addrs[open] > summary::after { content: " ▴"; }
+@media (hover: hover) { .addrs > summary:hover { color: var(--ink); } }
 .addrs ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0 28px; margin: 12px 0 0; padding: 0; list-style: none; font-size: 12.5px; }
 .addrs li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--hair); }
 .addrs li span { color: var(--mute); } .addrs li a { font-variant-numeric: tabular-nums; }
@@ -399,15 +380,9 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
   <div class="stage">
     <section class="hero" aria-labelledby="hero-h">
       <h1 id="hero-h">Swap into <em>tacit</em></h1>
-      <p class="lede">Buy <b>TAC</b> with ETH or any token in one transaction, or swap <b>privately</b> in the Tacit pool. One set of reserves: a public door any router can reach, and a private one only a proof opens.</p>
+      <p class="lede">Any token into TAC, in one transaction. Or swap privately.</p>
       <p class="pxs" id="pxs" aria-live="off"></p>
-      <ul class="points">
-        <li><span><b>Best price, one transaction.</b> TAC comes from the Precision pool or the Tacit pool, or both at once when splitting pays more.</span></li>
-        <li><span><b>Any token.</b> zQuoter finds the best pool for your token against WETH, and the same transaction buys the TAC with it.</span></li>
-        <li><span><b>Or private.</b> Swap TAC, tETH, cUSD and cBTC inside the pool with a proof made on your device; nothing says whose swap it is.</span></li>
-      </ul>
-      <a class="howlink" href="#how">How the Tacit pool works ↓</a>
-      <noscript><p class="lede">Swapping on this page needs JavaScript. The pools' addresses are listed below.</p></noscript>
+      <noscript><p class="lede">Swapping needs JavaScript.</p></noscript>
     </section>
 
     <section class="sw" id="sw" aria-label="Swap">
@@ -441,11 +416,9 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
       </div>
 
       <div class="sw-b" id="p-earn" role="tabpanel" aria-labelledby="tab-earn" hidden>
-        <p class="earn-n">Add liquidity and earn <b>TAC</b>. The Precision farm takes ETH, TAC or both from your wallet in one transaction. The Tacit pool's farms are private: your liquidity is a shielded note.</p>
         <div class="rows" id="farms" role="radiogroup" aria-label="Farm"></div>
         <div class="farm-host" id="farm"></div>
         <div class="privfarm" id="privfarm" hidden></div>
-        <p class="anytok"><span>Holding USDC, DAI or another token?</span><button type="button" class="link" id="any-first">Swap it for TAC first</button></p>
       </div>
       <div class="pk" id="pk" hidden></div>
     </section>
@@ -453,27 +426,19 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
 
   <section class="how" id="how" aria-labelledby="how-h">
     <h2 id="how-h">One pool, <em>two doors</em></h2>
-    <p class="lede">The Tacit pool keeps one set of reserves for each pair. A wallet swaps with it in the open, like with any AMM. A private balance swaps with the same reserves through a proof, so both doors get the same price, and every trade through either one deepens the same pool.</p>
     <div class="doors" role="img" aria-label="Your wallet reaches the Tacit pool through the public door; your private balance reaches the same pool through the private door.">
-      <div class="end"><b>Your wallet</b><small>ETH, TAC, cUSD, cBTC, or any token through zRouter. Address and amounts in the open.</small></div>
-      <div class="door pub"><span>public door</span><small>TacitPublicAmm, reachable by any router</small></div>
-      <div class="pool"><b>Tacit pool</b><small>One set of reserves per pair, 0.30% to its liquidity.</small>
+      <div class="end"><b>Your wallet</b><small>public</small></div>
+      <div class="door pub"><span>public door</span><small>any router</small></div>
+      <div class="pool"><b>Tacit pool</b><small>one set of reserves</small>
         <ul class="pairs"><li><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-teth"/></svg></span>TAC/tETH</li><li><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-cusd"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-teth"/></svg></span>cUSD/tETH</li><li><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-cbtc"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-teth"/></svg></span>cBTC/tETH</li></ul>
       </div>
-      <div class="door priv"><span>private door</span><small>a proof made on your device, sent by the relay</small></div>
-      <div class="end priv"><b>Your private balance</b><small>Notes held by your tacit1 key. What you hold, and whose swap it is, stay hidden.</small></div>
+      <div class="door priv"><span>private door</span><small>proved on your device</small></div>
+      <div class="end priv"><b>Your private balance</b><small>hidden</small></div>
     </div>
-    <div class="cards">
-      <div class="card"><h3>The public door</h3><p>An ordinary AMM contract: send ETH or a token, get the other side, in one transaction from your wallet. Because it is ordinary, routers reach it: <b>zRouter</b> sends ETH into it, and a large order is split between it and the <b>Precision pool</b> when that pays more.</p></div>
-      <div class="card"><h3>The private door</h3><p>Your balance is a set of notes only your key can open. A swap spends notes and makes new ones, proved on your device; the relay submits it and takes a small fee from the swap. The pool's reserves move by the trade's size, as they must, but <b>nothing says whose swap it is</b> or what else you hold.</p></div>
-      <div class="card"><h3>From any token</h3><p><b>zQuoter</b> reads Uniswap, Sushi, Curve and zAMM for the best pool between your token and WETH. That leg buys exactly the WETH needed and hands it to <b>PrecisionRoute</b>, which unwraps it and buys the TAC: one transaction, never below the floor you saw. The part of your token not needed stays in your wallet.</p></div>
-      <div class="card"><h3>Sign, don't approve</h3><p>TAC, cUSD, cBTC, USDC, DAI and wstETH are spent with a <b>permit</b>: a free signature in your wallet, then one transaction. A token that already allows <b>Permit2</b> signs a Permit2 transfer instead. Any other takes one approval, for the exact amount.</p></div>
-    </div>
-    <p class="flow" aria-label="Any token to TAC in one transaction"><b>Any token, one transaction</b><span class="st t">USDC</span><i>→ best pool, by zQuoter →</i><span class="st"><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>WETH</span><i>→ unwrapped by PrecisionRoute →</i><span class="st"><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>ETH</span><i>→ Precision pool →</i><span class="st"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>TAC</span></p>
   </section>
 
-  <section class="addrs" aria-labelledby="addrs-h">
-    <h2 id="addrs-h">The contracts</h2>
+  <details class="addrs">
+    <summary>Contracts</summary>
     <ul>
       <li><span>Tacit pool</span><a href="https://etherscan.io/address/0x000000000Ed1eabD231Be41d93b719056F7febFC" target="_blank" rel="noopener noreferrer">0x0000…7febFC</a></li>
       <li><span>Public door (TacitPublicAmm)</span><a href="https://etherscan.io/address/0x00000000E36C7EC997CC59DCda9E03673B448119" target="_blank" rel="noopener noreferrer">0x0000…448119</a></li>
@@ -484,7 +449,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
       <li><span>Precision pool TAC/ETH</span><a href="https://etherscan.io/address/0x0155358241411dB868BA714aE7c83A27087e3D6E" target="_blank" rel="noopener noreferrer">0x0155…7e3D6E</a></li>
       <li><span>TAC</span><a href="https://etherscan.io/token/0xA1313eb9f3A445606D9583bcAc3ebeB56a858279" target="_blank" rel="noopener noreferrer">0xA131…858279</a></li>
     </ul>
-  </section>
+  </details>
 
   </main>
 
@@ -500,6 +465,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
     </nav>
   </footer>
 </div>
-<script type="module" src="/swap/app.js?cb=2cf7360a"></script>
+<script type="module" src="/swap/app.js?cb=2c162bf1"></script>
 </body>
 </html>

@@ -78,7 +78,8 @@ async function openPage(viewport, { wallet = null, path = '/swap/', scheme = 'li
     try {
       const body = route.request().postData() || '{}', j = JSON.parse(body);
       // zQuoter's scan reads too many slots for a fork: the upstream node answers it at the fork's block.
-      const toZq = j.method === 'eth_call' && String(j.params?.[0]?.to || '').toLowerCase() === ZQUOTER;
+      // and so does the token list's registry, whose JSON a fork would read one storage slot at a time.
+      const toZq = j.method === 'eth_call' && (String(j.params?.[0]?.to || '').toLowerCase() === ZQUOTER || body.toLowerCase().includes('0000006013df75a31678b786061c2b54bf531524'));
       const r = toZq ? JSON.stringify({ ...(await up('eth_call', [j.params[0], '0x' + FORK_BLOCK.toString(16)])), id: j.id }) : await (await fetch(ANVIL, { method: 'POST', headers: { 'content-type': 'application/json' }, body })).text();
       await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: r });
     } catch (e) { await route.fulfill({ status: 502, headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ error: e.message }) }).catch(() => {}); }
@@ -111,15 +112,19 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   ok(/from=|amt=0\.5/.test(page.url()), `the address carries the swap (${page.url().split('/swap/')[1]})`);
   await shot(page, 'desktop-eth-tac');
 
-  // Any token: USDC → TAC through zQuoter and PrecisionRoute.
+  // Any token: the picker lists token.list.wei's mainnet tokens with their logos; USDC → TAC through zQuoter and PrecisionRoute.
+  await page.click('#pay-coin');
+  await until(page, () => document.querySelectorAll('.pk-r img.tk').length >= 8, null, 60000);
+  ok(await page.$$eval('.pk-r b', (x) => x.some((e) => e.textContent === 'rETH') && !x.some((e) => e.textContent === 'stETH')), 'the picker lists the onchain token list (rETH in, stETH left out) with its logos');
+  await page.keyboard.press('Escape');
   await pick(page, 'pay', 'USDC');
   ok((await page.textContent('#get-coin')).includes('TAC'), 'USDC buys TAC');
   await typeAmt(page, '500');
   await quoted(page);
   const usdcOut = Number((await page.textContent('#out')).replace(/,/g, ''));
   ok(usdcOut > 100, `500 USDC quotes ${usdcOut} TAC`);
-  ok(/Spends at most/.test(await page.textContent('#rcpt')) && /free permit signature/.test(await page.textContent('#rcpt')), 'USDC: the most it spends, and that it signs a permit');
-  ok(/Uniswap|Curve|Sushi|zAMM/.test(await page.textContent('#q')), 'the line names the pool zQuoter found');
+  ok(/Route.*(Uniswap|Curve|Sushi|zAMM).*Precision/.test(await page.textContent('#rcpt')), 'USDC: the receipt names the pool zQuoter found, then Precision');
+  ok(!(await page.textContent('#q')).trim(), 'no line under the button when nothing is wrong');
   await shot(page, 'desktop-usdc-tac');
 
   // Choosing cUSD while paying USDC puts ETH on the pay side: the 500 typed in USDC is not kept as 500 ETH.
@@ -140,7 +145,7 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   }
   ok(gated ? /under/.test(await page.textContent('#ackbox')) : true, `cUSD: ${gated ? 'a price far under the market is gated' : 'priced near the market, no gate'}`);
   if (gated) {
-    ok(/Borrow cUSD at a dollar/.test(await page.textContent('#ackbox')), 'the gate offers the vault');
+    ok(/Borrow cUSD at \$1/.test(await page.textContent('#ackbox')), 'the gate offers the vault');
     ok((await page.textContent('#go')).startsWith('Connect') || await page.isDisabled('#go'), 'the button waits for the acceptance (or a wallet)');
   }
   await shot(page, 'desktop-cusd');
