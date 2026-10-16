@@ -1,8 +1,8 @@
 // The catch-up registry's admin page (contracts/script/deploy-checkpoints.mjs) end to end on anvil forks of Ethereum and
-// Base: a wallet in the browser (anvil's first account, through a scripted EIP-6963 provider) connects, deploys the
-// registry through the CREATE2 proxy at its fixed address on each chain, prepares a point from the relay's index (served
-// here cut off below each fork's head, so the index and the fork agree), posts it, and finds the same point refused as
-// posted already. Nothing is sent to a real chain.
+// Base: the anon.wei steward (impersonated on the forks) connects through a scripted EIP-6963 wallet, deploys the registry
+// through the real CreateX with the committed salt at its fixed address on each chain, prepares a point from the relay's
+// index (served here cut off below each fork's head, so the index and the fork agree), posts it, and finds the same point
+// refused as posted already; another wallet is told it is not the deployer. Nothing is sent to a real chain.
 // Usage: node tests/checkpoints-admin.test.mjs     (anvil on PATH, playwright-core installed; FORK_1 / FORK_8453 to fork
 // from other nodes; the registry's build under the checkpoints profile)
 import { spawn } from 'node:child_process';
@@ -19,8 +19,9 @@ const ok = (c, m, x = '') => { console.log(`${c ? 'ok' : 'not ok'} - ${m}${x ? '
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const kids = [];
 process.on('exit', () => kids.forEach((k) => k.kill('SIGKILL')));
-const ACCT = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
-const ADDR = '0x000000CDfeda8512b8DcD8642765A5Fa43b6Ab4b';
+const ACCT = '0x1C0Aa8cCD568d90d61659F060D1bFb1e6f855A20';              // the steward, the deployer the committed salt is bound to
+const OTHER = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
+const ADDR = '0x00000000182cc07949efad43bac79a25e6a9413b';
 const CHAINS = [
   { id: 1, fork: process.env.FORK_1 || 'https://ethereum-rpc.publicnode.com', relay: 'https://tacit-evm-pool-keeper.onrender.com/evm-pool/keeper' },
   { id: 8453, fork: process.env.FORK_8453 || 'https://base.gateway.tenderly.co', relay: 'https://tacit-evm-pool-keeper-base.onrender.com/evm-pool/keeper' },
@@ -34,6 +35,8 @@ for (const c of CHAINS) {
   kids.push(spawn('anvil', ['--port', String(c.port), '--fork-url', c.fork, '--silent'], { stdio: 'ignore' }));
   for (let i = 0; ; i++) { try { if (await rpcAt(c.url, 'eth_chainId')) break; } catch {} if (i > 240) throw new Error('anvil did not start'); await sleep(500); }
   c.head = Number(BigInt(await rpcAt(c.url, 'eth_blockNumber')));
+  await rpcAt(c.url, 'anvil_impersonateAccount', [ACCT]);
+  await rpcAt(c.url, 'anvil_setBalance', [ACCT, '0x' + (10n ** 19n).toString(16)]);
   const cut = c.head - 5;
   const srv = http.createServer(async (q, r) => {
     const from = Number(new URL(q.url, 'http://x').searchParams.get('from'));
@@ -83,25 +86,34 @@ await page.addInitScript(({ forks, acct }) => {
   announce();
 }, { forks: Object.fromEntries(CHAINS.map((c) => [c.id, c.url])), acct: ACCT });
 
+// Another wallet is not the deployer: the server says so, and nothing could land at the address from it.
+for (const c of CHAINS) {
+  const s = await (await fetch(`http://127.0.0.1:${adminPort}/api/state?chain=${c.id}&from=${OTHER}`)).json();
+  ok(s.dryRun === 'wrong-wallet' && s.deployed === false, `chain ${c.id}: a wallet that is not the deployer is told so`, s.dryRun);
+  const none = await (await fetch(`http://127.0.0.1:${adminPort}/api/state?chain=${c.id}`)).json();
+  ok(none.dryRun === 'connect', `chain ${c.id}: with no wallet the page asks for the deployer`);
+}
 await page.goto(`http://127.0.0.1:${adminPort}/`);
 const status = (id) => page.locator(`#r${id} .st`).innerText();
 const waitStatus = async (id, re, ms = 300_000) => { await page.waitForFunction(([id, src]) => new RegExp(src).test(document.querySelector(`#r${id} .st`)?.textContent || ''), [id, re.source], { timeout: ms }); return status(id); };
 
-await page.waitForFunction((ids) => ids.every((id) => /dry run lands/.test(document.querySelector(`#r${id}`)?.textContent || '')), CHAINS.map((c) => c.id), { timeout: 120_000 })
-  .catch(async (e) => { for (const c of CHAINS) console.log(`# row ${c.id}: ${(await page.locator(`#r${c.id}`).innerText()).replace(/\s+/g, ' ')}`); throw e; });
-ok(true, 'every chain reads as not deployed, with a dry run that lands at the address');
-ok(await page.locator('#banner').innerText() === '', 'no banner: this build lands at the address the page and keepers name');
+ok(await page.locator('#banner').innerText() === '', 'no banner: the deployer is the one whose address the page and keepers name');
 // A wallet that already has this site connected is picked up without a prompt; otherwise the button connects it.
 await sleep(600);
 if (await page.locator('#conn').isEnabled()) await page.click('#conn');
 await page.waitForFunction((a) => document.querySelector('#who')?.textContent.includes(a), ACCT);
 ok(true, 'the wallet connects through EIP-6963');
+await page.waitForFunction((ids) => ids.every((id) => /dry run lands/.test(document.querySelector(`#r${id}`)?.textContent || '')), CHAINS.map((c) => c.id), { timeout: 120_000 })
+  .catch(async (e) => { for (const c of CHAINS) console.log(`# row ${c.id}: ${(await page.locator(`#r${c.id}`).innerText()).replace(/\s+/g, ' ')}`); throw e; });
+ok(true, 'every chain reads as not deployed, with a dry run from the deployer that lands at the address');
 
 for (const c of CHAINS) {
   await page.click(`[data-deploy="${c.id}"]`);
   const s = await waitStatus(c.id, /Deployed|revert|refuse|not land|bad|Could not|Error/i);
   const code = await rpcAt(c.url, 'eth_getCode', [ADDR, 'latest']);
   ok(/Deployed/.test(s) && code.length > 2 + 2 * 18000, `chain ${c.id}: deployed at the registry address`, `${s} · ${(code.length - 2) / 2} bytes`);
+  await page.waitForFunction((id) => /the code of this build/.test(document.querySelector(`#r${id}`)?.textContent || ''), c.id, { timeout: 30_000 });
+  ok(true, `chain ${c.id}: the code on chain is this build's, immutables included`);
   const pool = await rpcAt(c.url, 'eth_call', [{ to: ADDR, data: '0x7535d246' }, 'latest']);
   ok(pool.toLowerCase().endsWith('000000c2a20657ce25f2ba99737933d031afbee9'), `chain ${c.id}: wired to the pool`);
   ok(await page.locator(`[data-deploy="${c.id}"]`).isDisabled(), `chain ${c.id}: deploy is off once deployed`);

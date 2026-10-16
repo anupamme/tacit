@@ -44,14 +44,15 @@ these addresses). On any other chain, treat code at these addresses as unrelated
 | PoseidonT5 (four-input Poseidon, used by receive boxes) | `0x555333f3f677Ca3930Bf7c56ffc75144c51D9767` |
 | Zap (`TacitEvmPoolZap`, shields a token in one transaction; not on MegaETH) | `0x0000008EbBF2323f95c4fBc18254f3D65C53998c` |
 
-The catch-up registry (`TacitEvmPoolCheckpoints`) is deployed the same way, from a wallet on the localhost admin page
-`contracts/script/deploy-checkpoints.mjs` (which also shows each chain's newest point and posts one; built
-under the `checkpoints` foundry profile: no via-IR, 200 runs; init code hash `0x1defca95…b41209`, salt `0x28e79676…9644d0`),
-so code at its address on any chain is this contract. What it is for is under Keys and recovery, Catch-up points.
+The catch-up registry (`TacitEvmPoolCheckpoints`, see Catch-up points under Keys and recovery) is deployed through CreateX's
+CREATE3 with a salt bound to the anon.wei steward (`0x1C0Aa8cCD568d90d61659F060D1bFb1e6f855A20`): the address follows from
+that deployer and salt alone, not from the registry's code, and only the steward can land it there. It is deployed and
+funded from a wallet on the localhost admin page `contracts/script/deploy-checkpoints.mjs`, which also shows each chain's
+newest point and posts one; built under the `checkpoints` foundry profile (no via-IR, 200 runs).
 
 | Contract | Address |
 |---|---|
-| Catch-up registry (`TacitEvmPoolCheckpoints`) | `0x000000CDfeda8512b8DcD8642765A5Fa43b6Ab4b` |
+| Catch-up registry (`TacitEvmPoolCheckpoints`) | `0x00000000182CC07949EFaD43BAc79A25e6A9413B` |
 
 PoseidonT5 is the standard deterministic deployment (poseidon-solidity, CREATE2 proxy
 `0x4e59b44847b379578588920cA78FbF26c0B4956C`); the deploy script lands it first on chains that lack it. The zap goes

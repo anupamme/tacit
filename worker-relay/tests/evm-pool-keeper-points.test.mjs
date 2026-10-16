@@ -6,7 +6,7 @@ import { makePointPoster } from '../src/lib/evm-pool-keeper-points.js';
 let failures = 0, passed = 0;
 const ok = (c, m, x = '') => { console.log(`${c ? 'ok' : 'not ok'} - ${m}${x ? '  ' + x : ''}`); c ? passed++ : failures++; };
 
-const cfg = { pointsAddress: '0x000000CDfeda8512b8DcD8642765A5Fa43b6Ab4b', pointsEvery: 2000, pointsMaxAgeSecs: 86400, pointsGas: 2500000n };
+const cfg = { pointsAddress: '0x00000000182CC07949EFaD43BAc79A25e6A9413B', pointsEvery: 2000, pointsMaxAgeSecs: 86400, pointsGas: 2500000n };
 const tree = (size) => ({ size, toJSON: () => ({ filled: Array.from({ length: 32 }, (_, i) => String(BigInt(size) * 1000n + BigInt(i))) }) });
 const synced = (size, block) => ({ confirmed: { tree: tree(size), block } });
 function fakeChain({ code = true, latest = 0, postedAt = 0, time = 0, front = true, fail = false } = {}) {

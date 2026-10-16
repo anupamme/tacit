@@ -35,7 +35,7 @@ button:disabled{opacity:.35;cursor:default}
 <body>
 <main>
 <h1>Catch-up registry</h1>
-<p>Deploys <code>TacitEvmPoolCheckpoints</code> from your wallet on each chain the pool is on, and posts a catch-up point. Every action is dry-run on the chain first; your wallet signs, this page holds no key.</p>
+<p>Deploys <code>TacitEvmPoolCheckpoints</code> from the deployer wallet on each chain the pool is on, at one address on all of them (CREATE3 through CreateX), and posts a catch-up point. Every action is dry-run on the chain first; your wallet signs, this page holds no key.</p>
 <div id="banner"></div>
 <div class="top"><button id="conn">Connect wallet</button><span class="meta" id="who"></span></div>
 <div id="rows"></div>
@@ -109,7 +109,12 @@ function row(c) {
   const cost = (gas) => (gas && s?.gasPrice ? ` · about ${eth(BigInt(gas) * BigInt(s.gasPrice))} ETH at ${(Number(s.gasPrice) / 1e9).toPrecision(2)} gwei` : '');
   const kv = [];
   if (s) {
-    kv.push(['Registry', s.deployed ? (s.wired ? `<span class="ok">deployed</span>, ${group(s.codeBytes)} bytes, wired to the pool · <a target="_blank" rel="noopener" href="${esc(c.explorer)}/address/${CFG.address}">explorer</a>` : '<span class="bad">code there, but not wired to this pool</span>') : s.problem ? `<span class="bad">${esc(s.problem)}</span>` : s.dryRun === 'lands' ? `not deployed · the dry run lands at the address${cost(s.deployGas)}${s.deployGas ? ` (${group(s.deployGas)} gas)` : ''}` : `<span class="bad">not deployed · dry run ${esc(s.dryRun)}</span>`]);
+    const open = s.deployed ? null : s.problem ? `<span class="bad">${esc(s.problem)}</span>`
+      : s.dryRun === 'connect' ? `not deployed · connect the deployer wallet <code>${esc(short(CFG.deployer))}</code> to dry-run it`
+      : s.dryRun === 'wrong-wallet' ? `<span class="bad">not deployed · this wallet is not the deployer: the salt is bound to <code>${esc(short(CFG.deployer))}</code>, so any other wallet would land somewhere else</span>`
+      : s.dryRun === 'lands' ? `not deployed · the dry run lands at the address${cost(s.deployGas)}${s.deployGas ? ` (${group(s.deployGas)} gas)` : ''}`
+      : `<span class="bad">not deployed · dry run ${esc(s.dryRun)}</span>`;
+    kv.push(['Registry', s.deployed ? (s.wired ? `<span class="ok">deployed</span>, ${group(s.codeBytes)} bytes, wired to the pool, ${s.sameCode ? 'the code of this build' : '<span class="warn">not the code of this build</span>'} · <a target="_blank" rel="noopener" href="${esc(c.explorer)}/address/${CFG.address}">explorer</a>` : '<span class="bad">code there, but not wired to this pool</span>') : open]);
     if (s.poolLeaves != null) kv.push(['Pool', `${group(s.poolLeaves)} leaves at block ${group(s.head)}`]);
     if (s.deployed) kv.push(['Newest point', s.latest ? `${group(s.latest.size)} leaves, block ${group(s.latest.block)} · ${group(s.poolLeaves - s.latest.size)} leaves behind the pool` : 'none yet']);
     if (s.balance != null) kv.push(['Your wallet', `${eth(s.balance)} ETH`]);
@@ -144,8 +149,9 @@ function deploy(c) {
     await refresh(c);
     const s = S[c.id].s;
     if (s.deployed) return say(c, 'Already deployed.', 'ok');
+    if (s.dryRun === 'wrong-wallet') throw new Error(`Connect ${CFG.deployer}: the salt is bound to it, and any other wallet lands somewhere else.`);
     if (s.dryRun !== 'lands') throw new Error(`The dry run does not land at the address (${s.dryRun}), so nothing was sent.`);
-    const r = await sendTx(c, { to: CFG.proxy, data: CFG.deployData, value: '0x0', gas: gasHex(s.deployGas) }, (m) => say(c, m));
+    const r = await sendTx(c, { to: CFG.createx, data: CFG.deployData, value: '0x0', gas: gasHex(s.deployGas) }, (m) => say(c, m));
     S[c.id].msg = `Deployed ${r.link} · ${group(r.gasUsed)} gas`; S[c.id].cls = 'ok';
   });
 }
@@ -179,7 +185,7 @@ function wire() {
 
 $('#conn').onclick = () => connect().catch((e) => { $('#who').innerHTML = `<span class="bad">${esc(e.message)}</span>`; });
 if (CFG.address.toLowerCase() !== CFG.named.toLowerCase()) $('#banner').innerHTML = `<div class="banner">This build lands at <code>${esc(CFG.address)}</code>, not at <code>${esc(CFG.named)}</code>, the address the anon.wei page, the keepers and the docs name. Deploy only if you will update them to this one.</div>`;
-$('#build').innerHTML = `Registry <code>${esc(CFG.address)}</code> · init code ${group(CFG.initBytes)} bytes (runtime ${group(CFG.runtimeBytes)}), hash <code>${esc(CFG.initHash)}</code> · salt <code>${esc(CFG.salt)}</code> through the CREATE2 proxy <code>${esc(CFG.proxy)}</code> · pool <code>${esc(CFG.pool)}</code>`;
+$('#build').innerHTML = `Registry <code>${esc(CFG.address)}</code> · CREATE3 through CreateX <code>${esc(CFG.createx)}</code>, salt <code>${esc(CFG.salt)}</code> bound to <code>${esc(CFG.deployer)}</code> · this build: init code ${group(CFG.initBytes)} bytes, runtime ${group(CFG.runtimeBytes)} · pool <code>${esc(CFG.pool)}</code>`;
 CFG.chains.forEach((c) => draw(c));
 refreshAll();
 // A wallet already connected here is picked up without a prompt.

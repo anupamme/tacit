@@ -2,11 +2,15 @@
 // The catch-up registry's admin page, on localhost: deploys TacitEvmPoolCheckpoints from a browser wallet on each chain the
 // pool is on, shows what each chain holds, and posts a point from the wallet.
 //
-// Deploy: the init code (this checkout's build under the `checkpoints` profile) goes through the deterministic CREATE2
-// proxy with one salt, so the registry lands at the same address on every chain whoever sends it, and code at that
-// address can only be this init code. The salt is taken from checkpoints-salts.json for this init code's hash, or mined
-// here with `cast create2` (leading zero bytes, ZEROS, default 3) and saved there. Each deploy is dry-run on the chain
-// first and sent only if it lands at the address.
+// Deploy: CreateX's CREATE3 (deployCreate3) with one salt bound to one deployer (the salt starts with the deployer's
+// address and has 0x00 as its 21st byte, so CreateX guards it as keccak256(pad32(deployer) ‖ salt)): the registry lands at
+// the same address on every chain, whatever its code, and only that deployer can land it there (anyone else with the same
+// salt lands somewhere unrelated). So the address can be named in the anon.wei page, the keepers and the docs before the
+// registry is deployed anywhere, and the contract can still change until the first deploy; a chain that has the code
+// keeps it. The page reads the code on chain and says whether it is this checkout's build.
+// The salt comes from checkpoints-salts.json for the deployer (DEPLOYER, default the anon.wei steward) or is mined here
+// with create3-vanity (ZEROS leading zero bytes, default 4, about three minutes) and saved there. Each deploy is dry-run
+// from the connected wallet first and sent only if it lands at the address.
 //
 // Post: the server rebuilds the pool's tree from the relay's event index (or the chain's logs, where the relay is down
 // or RELAY_<chainId>= is empty), takes its edge at the index's confirmed block, and offers it only once the pool holds
@@ -16,7 +20,8 @@
 //   (cd contracts && FOUNDRY_PROFILE=checkpoints forge build)
 //   node contracts/script/deploy-checkpoints.mjs [port]                 → http://127.0.0.1:8796
 // RPC_<chainId>=<url> reads (and dry-runs) a chain through another node, a local fork for instance; RELAY_<chainId>=<url>
-// names another relay, or none when empty; CHAINS=1,8453 limits the page to those chains.
+// names another relay, or none when empty; CHAINS=1,8453 limits the page to those chains; SALTS_FILE=<path> keeps the
+// salts elsewhere.
 import http from 'node:http';
 import net from 'node:net';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -30,9 +35,14 @@ net.setDefaultAutoSelectFamily?.(false);
 
 const DIR = new URL('../', import.meta.url).pathname;
 const POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9';
-const PROXY = '0x4e59b44847b379578588920ca78fbf26c0b4956c';
-// The address the anon.wei page, the keepers and the docs name. A different build lands elsewhere: the page says so.
-const NAMED = '0x000000CDfeda8512b8DcD8642765A5Fa43b6Ab4b';
+const CREATEX = '0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed';
+// keccak256 of CreateX's CREATE3 proxy init code, 0x67363d3d37363d34f03d5260086018f3.
+const PROXY_INIT_HASH = '0x21c35dbe1b344a2488cf3321d6ce542f8e9f305544ff09e4993a62319a497c1f';
+// The anon.wei steward, who signs deployNext: the deployer the salt is bound to unless DEPLOYER says another.
+const STEWARD = '0x1C0Aa8cCD568d90d61659F060D1bFb1e6f855A20';
+// The address the anon.wei page, the keepers and the docs name (the steward's salt). Another deployer lands elsewhere:
+// the page says so.
+const NAMED = '0x00000000182cc07949efad43bac79a25e6a9413b';
 const keeper = (sub) => `https://tacit-evm-pool-keeper${sub}.onrender.com/evm-pool/keeper`;
 let CHAINS = [
   { id: 1, name: 'Ethereum', rpc: ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org', 'https://mainnet.gateway.tenderly.co'], explorer: 'https://etherscan.io', relay: keeper(''), deployBlock: 26069245, logStep: 50_000 },
@@ -63,27 +73,45 @@ let art;
 try { art = JSON.parse(readFileSync(ART, 'utf8')); }
 catch { console.error(`No build at ${ART}. Run: (cd contracts && FOUNDRY_PROFILE=checkpoints forge build)`); process.exit(1); }
 const INIT = '0x' + art.bytecode.object.replace(/^0x/, '') + word(POOL);
-const INIT_HASH = keccak(INIT), RUNTIME_BYTES = (art.deployedBytecode.object.length - 2) / 2;
-const SALTS_FILE = new URL('./checkpoints-salts.json', import.meta.url).pathname;
-const salts = JSON.parse(readFileSync(SALTS_FILE, 'utf8'));
-const addressOf = (salt) => checksum('0x' + keccak('0xff' + PROXY.slice(2) + salt.slice(2) + INIT_HASH.slice(2)).slice(-40));
-if (!salts[INIT_HASH]) {
-  const zeros = Number(process.env.ZEROS ?? 3);
-  console.log(`This build (init code hash ${INIT_HASH}) has no salt yet: mining one for ${zeros} leading zero bytes with cast create2…`);
+// The runtime this build leaves on chain: the pool, its one immutable, written into the places the compiler left for it.
+const RUNTIME = (() => {
+  let r = art.deployedBytecode.object.replace(/^0x/, '').toLowerCase();
+  for (const refs of Object.values(art.deployedBytecode.immutableReferences || {})) for (const { start, length } of refs) r = r.slice(0, 2 * start) + word(POOL).slice(64 - 2 * length) + r.slice(2 * (start + length));
+  return r;
+})();
+const DEPLOYER = checksum(process.env.DEPLOYER || STEWARD);
+const SALTS_FILE = process.env.SALTS_FILE || new URL('./checkpoints-salts.json', import.meta.url).pathname;
+let salts = {};
+try { salts = JSON.parse(readFileSync(SALTS_FILE, 'utf8')); } catch {}
+// CreateX's CREATE3 address of a deployer's salt: the proxy it creates by CREATE2 under the guarded salt, then that
+// proxy's first contract.
+const addressOf = (deployer, salt) => {
+  const guarded = keccak('0x' + word(deployer) + salt.slice(2));
+  const proxy = keccak('0xff' + CREATEX.slice(2) + guarded.slice(2) + PROXY_INIT_HASH.slice(2)).slice(-40);
+  return checksum('0x' + keccak('0xd694' + proxy + '01').slice(-40));
+};
+if (keccak('0x67363d3d37363d34f03d5260086018f3') !== PROXY_INIT_HASH) throw new Error('PROXY_INIT_HASH is not the hash of the CREATE3 proxy init code');
+const key = DEPLOYER.toLowerCase();
+if (!salts[key]) {
+  const zeros = Number(process.env.ZEROS ?? 4);
+  console.log(`No salt for ${DEPLOYER} yet: mining one for ${zeros} leading zero bytes with create3-vanity (each extra zero byte takes about 256 times as long)…`);
+  const bin = new URL('./create3-vanity/target/release/create3-vanity', import.meta.url).pathname;
   try {
-    const out = execFileSync('cast', ['create2', '--starts-with', '00'.repeat(zeros), '--init-code-hash', INIT_HASH, '--deployer', PROXY], { encoding: 'utf8', timeout: 900_000 });
-    const salt = /Salt:\s*(0x[0-9a-fA-F]{64})/.exec(out)?.[1];
-    if (!salt) throw new Error(out.slice(-300));
-    salts[INIT_HASH] = { salt, address: addressOf(salt) };
-  } catch (e) {
-    console.error(`Could not mine a salt (${String(e.message).slice(0, 200)}); using salt 0, no leading zeros.`);
-    salts[INIT_HASH] = { salt: '0x' + '0'.repeat(64), address: addressOf('0x' + '0'.repeat(64)) };
-  }
+    try { readFileSync(bin); } catch { execFileSync('cargo', ['build', '--release', '--offline', '--manifest-path', new URL('./create3-vanity/Cargo.toml', import.meta.url).pathname], { stdio: 'inherit' }); }
+    const out = execFileSync(bin, [DEPLOYER, CREATEX, String(zeros)], { encoding: 'utf8', timeout: 3_600_000 });
+    const m = /salt (0x[0-9a-f]{64}) guarded (0x[0-9a-f]{64}) address (0x[0-9a-f]{40})/.exec(out);
+    if (!m) throw new Error(out.slice(-300));
+    if (addressOf(DEPLOYER, m[1]).toLowerCase() !== m[3]) throw new Error('the miner and this script disagree on the address');
+    salts[key] = { salt: m[1], address: addressOf(DEPLOYER, m[1]) };
+  } catch (e) { console.error(`Could not mine a salt: ${String(e.message).slice(0, 300)}`); process.exit(1); }
   writeFileSync(SALTS_FILE, JSON.stringify(salts, null, 2) + '\n');
 }
-const { salt: SALT } = salts[INIT_HASH], ADDR = addressOf(SALT);
-if (salts[INIT_HASH].address.toLowerCase() !== ADDR.toLowerCase()) { console.error(`checkpoints-salts.json names ${salts[INIT_HASH].address} for this salt, which lands at ${ADDR}`); process.exit(1); }
-const DEPLOY_DATA = SALT + INIT.slice(2);
+const { salt: SALT } = salts[key], ADDR = addressOf(DEPLOYER, SALT);
+if (salts[key].address.toLowerCase() !== ADDR.toLowerCase()) { console.error(`${SALTS_FILE} names ${salts[key].address} for this salt, which lands at ${ADDR}`); process.exit(1); }
+if (SALT.slice(0, 42).toLowerCase() !== DEPLOYER.toLowerCase() || SALT.slice(42, 44) !== '00') { console.error('The salt does not start with the deployer and 0x00, so CreateX would not guard it for the deployer.'); process.exit(1); }
+// deployCreate3(bytes32 salt, bytes initCode)
+const initLen = (INIT.length - 2) / 2;
+const DEPLOY_DATA = sel('deployCreate3(bytes32,bytes)') + SALT.slice(2) + word(64) + word(initLen) + INIT.slice(2) + '00'.repeat((32 - (initLen % 32)) % 32);
 
 // ── reads ──
 async function rpc(c, method, params = []) {
@@ -109,25 +137,31 @@ const why = (e) => { const d = String(e?.data?.data ?? e?.data ?? ''); return RE
 
 async function state(c, from) {
   const out = { id: c.id };
-  const [code, gp, head, leaves, bal] = await Promise.all([
+  const [code, gp, head, leaves, bal, cx] = await Promise.all([
     rpc(c, 'eth_getCode', [ADDR, 'latest']), rpc(c, 'eth_gasPrice').catch(() => null), rpc(c, 'eth_blockNumber').catch(() => null),
     call(c, POOL, sel('nextIndex()')).catch(() => null), from ? rpc(c, 'eth_getBalance', [from, 'latest']).catch(() => null) : null,
+    rpc(c, 'eth_getCode', [CREATEX, 'latest']).catch(() => null),
   ]);
   Object.assign(out, { gasPrice: gp && String(num(gp)), head: head && Number(num(head)), poolLeaves: leaves && Number(num(leaves)), balance: bal && String(num(bal)) });
   out.deployed = !!code && code !== '0x';
   if (out.deployed) {
     out.codeBytes = (code.length - 2) / 2;
+    out.sameCode = code.slice(2).toLowerCase() === RUNTIME;
     out.wired = (await call(c, ADDR, sel('POOL()')).catch(() => '0x')).slice(-40).toLowerCase() === POOL.slice(2).toLowerCase();
     const latest = Number(num(await call(c, ADDR, sel('latest()'))));
     out.latest = latest ? { size: latest, block: Number(num((await call(c, ADDR, sel('pointAt(uint256)') + word(latest))).slice(0, 66))), postedAt: Number(num(await call(c, ADDR, sel('postedAt(uint256)') + word(latest)))) } : null;
+  } else if (!cx || cx === '0x') {
+    out.problem = 'CreateX is not on this chain at ' + CREATEX;
+  } else if (!from) {
+    out.dryRun = 'connect';
+  } else if (from.toLowerCase() !== DEPLOYER.toLowerCase()) {
+    out.dryRun = 'wrong-wallet';
   } else {
-    const proxy = await rpc(c, 'eth_getCode', [PROXY, 'latest']);
-    if (!proxy || proxy === '0x') { out.problem = 'This chain has no CREATE2 proxy at ' + PROXY; return out; }
     try {
-      const lands = await call(c, PROXY, DEPLOY_DATA);
+      const lands = await call(c, CREATEX, DEPLOY_DATA, 'latest', from);
       out.dryRun = '0x' + lands.slice(-40).toLowerCase() === ADDR.toLowerCase() ? 'lands' : 'elsewhere: ' + lands;
     } catch (e) { out.dryRun = 'reverts: ' + why(e); }
-    out.deployGas = await rpc(c, 'eth_estimateGas', [{ to: PROXY, data: DEPLOY_DATA, ...(from ? { from } : {}) }]).then((g) => String(num(g)), () => null);
+    out.deployGas = await rpc(c, 'eth_estimateGas', [{ to: CREATEX, data: DEPLOY_DATA, from }]).then((g) => String(num(g)), () => null);
   }
   return out;
 }
@@ -224,7 +258,7 @@ async function dryPost(c, data, from) {
 
 // ── the page ──
 const page = readFileSync(new URL('./deploy-checkpoints.html', import.meta.url), 'utf8').replace('/*CONFIG*/null', JSON.stringify({
-  address: ADDR, named: NAMED, proxy: PROXY, pool: POOL, salt: SALT, initHash: INIT_HASH, initBytes: (INIT.length - 2) / 2, runtimeBytes: RUNTIME_BYTES, deployData: DEPLOY_DATA,
+  address: ADDR, named: NAMED, createx: CREATEX, deployer: DEPLOYER, pool: POOL, salt: SALT, initBytes: initLen, runtimeBytes: RUNTIME.length / 2, deployData: DEPLOY_DATA,
   chains: CHAINS.map(({ id, name, rpc: r, explorer }) => ({ id, name, rpc: r[0], explorer })),
 }));
 const send = (res, status, body) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); };
@@ -249,6 +283,6 @@ http.createServer(async (req, res) => {
 }).listen(Number(process.argv[2] || 8796), '127.0.0.1', function () {
   console.log(`Catch-up registry admin: http://127.0.0.1:${this.address().port}`);
   console.log(`  registry ${ADDR}${ADDR.toLowerCase() === NAMED.toLowerCase() ? '' : `  (NOT the ${NAMED} the page and keepers name)`}`);
-  console.log(`  init code ${(INIT.length - 2) / 2} bytes, hash ${INIT_HASH}, salt ${SALT}`);
+  console.log(`  CREATE3 through CreateX ${CREATEX}, deployer ${DEPLOYER}, salt ${SALT}, init code ${initLen} bytes`);
   console.log(`  chains: ${CHAINS.map((c) => c.name).join(', ')}`);
 });
