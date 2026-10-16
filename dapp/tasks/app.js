@@ -5,9 +5,10 @@
 // on the service except the reward: the deployment is the same from any browser.
 //
 // Open jobs are shown in full; a job that is done is a tile with its result, and opens to what it did when it is clicked.
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=47bedb13';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=a8cdf0f7';
 import { esc } from '/trade/sheet.js?cb=84cda8f2';
 import { rpc, RPCS, $, short, fmtUnits } from '/trade/util.js?cb=c3dc39b3';
+import { bodyType } from '/trade/rpc.js?cb=842f58a5';
 import { checkPayload, checkStep } from '/tasks/verify.js?cb=b8174dad';
 
 const POINTS = 'https://tacit-points.onrender.com';
@@ -20,9 +21,29 @@ const CHAINS = {
   4663: { name: 'Robinhood Chain', explorer: 'https://robinhoodchain.blockscout.com', hosts: ['https://rpc.mainnet.chain.robinhood.com', 'https://robinhood.drpc.org'] },
   4326: { name: 'MegaETH', explorer: 'https://mega.etherscan.io', hosts: ['https://mainnet.megaeth.com/rpc', 'https://megaeth.drpc.org'] },
 };
+// What the reader has set (Endpoints, below): nodes per chain, the rewards service and the keepers. A chain with nodes of the reader's own
+// is read through them alone; the page's are the default.
+const ENDS = 'tacit.tasks.endpoints.v1';
+let ends = (() => { try { return JSON.parse(localStorage.getItem(ENDS)) || {}; } catch { return {}; } })();
+const hostsOf = (id) => (ends.rpc?.[id]?.length ? ends.rpc[id] : CHAINS[id].hosts);
+const pointsUrl = () => ends.points || POINTS;
+const keepersUrl = () => ends.keepers || KEEPERS;
 const chainOf = (job, s) => s.chainId ?? job.chainId;
-const readOn = (id, method, params) => rpc(method, params, CHAINS[id].hosts);
-const asWallet = (id) => ({ id, name: CHAINS[id].name, rpc: CHAINS[id].hosts.slice(0, 2), explorer: CHAINS[id].explorer });
+const readOn = (id, method, params) => rpc(method, params, hostsOf(id));
+// Several reads of one chain in one request: [[method, params], …] → [result, …], null for one that failed. A node that will not take a
+// batch is passed over for the next; with none left the reads go one at a time.
+async function batchOn(id, calls) {
+  if (!calls.length) return [];
+  const body = JSON.stringify(calls.map(([method, params], i) => ({ jsonrpc: '2.0', id: i + 1, method, params })));
+  for (const host of hostsOf(id)) {
+    try {
+      const j = await (await fetch(host, { method: 'POST', headers: { 'content-type': bodyType(host) }, body, signal: AbortSignal.timeout(15e3) })).json();
+      if (Array.isArray(j) && j.length === calls.length) { const out = new Array(calls.length).fill(null); for (const x of j) if (!x.error && x.id >= 1 && x.id <= calls.length) out[x.id - 1] = x.result ?? null; return out; }
+    } catch { /* the next node */ }
+  }
+  return Promise.all(calls.map(([m, p]) => readOn(id, m, p).catch(() => null)));
+}
+const asWallet = (id) => ({ id, name: CHAINS[id].name, rpc: hostsOf(id).slice(0, 2), explorer: CHAINS[id].explorer, icon: `${location.origin}/chain-icons/${id}.svg` });
 const LATEST = '0x52bfe789';                          // the catch-up registry's latest(): the count of its newest point
 // A job's steps in the groups it names (else contracts, then the confidential pool's calls), in order.
 const groupOf = (s) => s.group || (s.kind === 'createx' ? 'Contracts' : 'Confidential pool');
@@ -61,25 +82,29 @@ $('#wallet-chip').hidden = false;
 
 // ── reading ──
 const get = (url) => fetch(url, { signal: AbortSignal.timeout(15e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-const call = (to, data) => rpc('eth_call', [{ to, data }, 'latest']);
 const flagged = (r) => String(r).slice(2, 66) === `${'0'.repeat(63)}1`;
 
-// Whether each step is already on the chain: code at a deployment's address, the asset or the pool in the confidential pool's registry.
+// Whether each step is already on the chain: code at a deployment's address, the registry's newest point, the asset or the pool in the
+// confidential pool's registry. One request per chain; a step that has been seen on the chain is not asked about again.
 async function readDone(job) {
-  const out = {};
-  await Promise.all(job.steps.map(async (s) => {
-    try {
-      const id = chainOf(job, s);
-      if (s.kind === 'createx') out[s.id] = (await readOn(id, 'eth_getCode', [s.expected, 'latest'])) !== '0x';
-      else if (s.kind === 'post') { const r = await readOn(id, 'eth_call', [{ to: s.to, data: LATEST }, 'latest']); out[s.id] = r !== '0x' && BigInt(r) >= BigInt(s.minSize); }
-      else if (s.kind === 'register') out[s.id] = flagged(await call(s.to, `0x9fda5b66${s.asset.slice(2)}`));
-      else out[s.id] = flagged(await call(s.to, `0xb5217bb4${s.poolId.slice(2)}`));
-    } catch { out[s.id] = null; }
+  const out = {}, prev = S.done[job.id] || {}, asks = new Map();
+  const ask = (id, s, method, params, yes) => { if (!asks.has(id)) asks.set(id, []); asks.get(id).push({ s, method, params, yes }); };
+  for (const s of job.steps) {
+    if (prev[s.id] === true) { out[s.id] = true; continue; }
+    const id = chainOf(job, s);
+    if (s.kind === 'createx') ask(id, s, 'eth_getCode', [s.expected, 'latest'], (r) => r !== '0x');
+    else if (s.kind === 'post') ask(id, s, 'eth_call', [{ to: s.to, data: LATEST }, 'latest'], (r) => r !== '0x' && BigInt(r) >= BigInt(s.minSize));
+    else if (s.kind === 'register') ask(id, s, 'eth_call', [{ to: s.to, data: `0x9fda5b66${s.asset.slice(2)}` }, 'latest'], flagged);
+    else ask(id, s, 'eth_call', [{ to: s.to, data: `0xb5217bb4${s.poolId.slice(2)}` }, 'latest'], flagged);
+  }
+  await Promise.all([...asks].map(async ([id, rows]) => {
+    const got = await batchOn(id, rows.map((r) => [r.method, r.params]));
+    rows.forEach((r, i) => { try { out[r.s.id] = got[i] == null ? null : !!r.yes(got[i]); } catch { out[r.s.id] = null; } });
   }));
   return out;
 }
 async function loadApi() {
-  S.api = await get(`${POINTS}/tasks`);
+  S.api = await get(`${pointsUrl()}/tasks`);
   renderAll();
 }
 async function refresh() {
@@ -378,7 +403,7 @@ async function verify(job, show = false) {
 
 // ── a point for the registry: read from the chain's keeper when it is sent, and checked here against the plan ──
 async function pointTx(job, s) {
-  const id = chainOf(job, s), r = await get(`${KEEPERS}/${id}/evm-pool/keeper/point`);
+  const id = chainOf(job, s), r = await get(`${keepersUrl()}/${id}/evm-pool/keeper/point`);
   if (!r?.data) throw new Error(`The keeper on ${CHAINS[id].name} has no point to give just now. Try again in a moment.`);
   if (Number(r.chainId) !== id || String(r.registry).toLowerCase() !== s.to.toLowerCase()) throw new Error('That point is for another registry, so nothing was sent.');
   return { id: s.id, to: s.to, data: r.data, value: '0x0' };
@@ -436,7 +461,7 @@ async function settle() {
     const chains = [...new Set(waiting.map((h) => S.hashes[h].chainId ?? 1))];
     for (const chainId of chains) for (let i = 0, mine = waiting.filter((h) => (S.hashes[h].chainId ?? 1) === chainId); i < mine.length; i += 25) {
       const batch = mine.slice(i, i + 25);
-      const r = await fetch(`${POINTS}/tasks/claim`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(chainId === 1 ? { txHashes: batch } : { txHashes: batch, chainId }), signal: AbortSignal.timeout(60e3) }).catch(() => null);
+      const r = await fetch(`${pointsUrl()}/tasks/claim`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(chainId === 1 ? { txHashes: batch } : { txHashes: batch, chainId }), signal: AbortSignal.timeout(60e3) }).catch(() => null);
       if (!r || !r.ok) { for (const h of batch) S.hashes[h].note = r?.status === 429 ? 'the service asked to slow down' : 'the rewards service did not answer'; continue; }
       for (const res of (await r.json()).results) {
         const h = res.txHash.toLowerCase(), steps = res.steps.filter((x) => x.state);
@@ -449,6 +474,50 @@ async function settle() {
     }
   } finally { remember(S.hashes); settling = false; loadApi(); }
 }
+
+// ── the reader's own endpoints ──
+// Each chain is read through public nodes, which see the reader's IP address; with nodes of their own it is read through those alone. The
+// rewards service and the keepers can be the reader's too. Saved in this browser.
+const goodUrl = (u) => /^https:\/\/[^\s/]+/i.test(u) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(u);
+const urlsOf = (t) => [...new Set(String(t).split(/\s+/).filter(Boolean).map((u) => u.replace(/\/+$/, '')))];
+function renderEnds() {
+  const el = $('#ends-body');
+  el.innerHTML = `<form autocomplete="off">
+    <p class="note">Each chain is read through public nodes, which see your IP address. Set your own and it is read through yours alone.</p>
+    ${Object.entries(CHAINS).map(([id, c]) => `<label class="lbl"><span>${esc(c.name)} · your own nodes</span><textarea rows="2" spellcheck="false" id="e-rpc-${id}" placeholder="https://… (optional)">${esc((ends.rpc?.[id] || []).join('\n'))}</textarea></label>`).join('')}
+    <label class="lbl"><span>Rewards service</span><input id="e-points" spellcheck="false" placeholder="${esc(POINTS)}" value="${esc(ends.points || '')}"></label>
+    <label class="lbl"><span>Keepers, for the first points</span><input id="e-keepers" spellcheck="false" placeholder="${esc(KEEPERS)}" value="${esc(ends.keepers || '')}"></label>
+    <p class="note" id="ends-say" role="status"></p>
+    <div class="row2"><button class="btn" type="submit">Save</button><button class="btn ghost" type="button" id="e-reset">Use the defaults</button></div>
+  </form>`;
+  const say = (m, bad = false) => { const n = $('#ends-say'); n.className = `note${bad ? ' err' : ''}`; n.textContent = m; };
+  el.querySelector('form').onsubmit = async (e) => {
+    e.preventDefault();
+    const next = { rpc: {}, points: '', keepers: '' }, bad = [];
+    for (const id of Object.keys(CHAINS)) { const l = urlsOf($(`#e-rpc-${id}`).value); bad.push(...l.filter((u) => !goodUrl(u))); if (l.length) next.rpc[id] = l; }
+    for (const k of ['points', 'keepers']) { const v = urlsOf($(`#e-${k}`).value)[0] || ''; if (v && !goodUrl(v)) bad.push(v); next[k] = v; }
+    if (bad.length) return say(`${short(bad[0], 18)} is not a URL this page can reach. Use https://… for each.`, true);
+    say('Checking the nodes…');
+    // A node on another chain would show that chain's code as this one's.
+    for (const [id, l] of Object.entries(next.rpc)) for (const u of l) {
+      const got = await fetch(u, { method: 'POST', headers: { 'content-type': bodyType(u) }, body: '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}', signal: AbortSignal.timeout(10e3) }).then((r) => r.json()).then((j) => Number(j.result), () => NaN);
+      if (Number.isNaN(got)) return say(`${short(u, 18)} did not answer. Check the address, and that it allows requests from this page.`, true);
+      if (got !== Number(id)) return say(`${short(u, 18)} is on chain ${got}, not ${CHAINS[id].name}.`, true);
+    }
+    apply(next);
+    say('Saved.');
+  };
+  $('#e-reset').onclick = () => { apply({}); renderEnds(); $('#ends-say').textContent = 'Using the defaults.'; };
+}
+function apply(next) {
+  ends = next;
+  try { localStorage.setItem(ENDS, JSON.stringify(next)); } catch { /* private window: it lasts until this page is closed */ }
+  S.done = {}; S.api = null;
+  refresh(); loadApi();
+  $('#ends > summary').textContent = Object.keys(next.rpc || {}).length || next.points || next.keepers ? 'Endpoints: yours' : 'Endpoints';
+}
+$('#ends').addEventListener('toggle', () => { if ($('#ends').open) renderEnds(); });
+$('#ends > summary').textContent = Object.keys(ends.rpc || {}).length || ends.points || ends.keepers ? 'Endpoints: yours' : 'Endpoints';
 
 // ── start ──
 async function start() {

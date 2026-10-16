@@ -66,7 +66,8 @@ try {
     if (!forks[chain] || s.kind === 'post') continue;
     const [from] = await rpc(chain, 'eth_accounts');
     const hash = await rpc(chain, 'eth_sendTransaction', [{ from, to: tx.to, data: tx.data, value: '0x0' }]);
-    const rc = await rpc(chain, 'eth_getTransactionReceipt', [hash]);
+    let rc = null;
+    for (let i = 0; i < 50 && !rc; i++) { rc = await rpc(chain, 'eth_getTransactionReceipt', [hash]); if (!rc) await new Promise((r) => setTimeout(r, 200)); }
     assert.equal(rc.status, '0x1', `${s.id} landed`);
     const code = await rpc(chain, 'eth_getCode', [s.expected, 'latest']);
     assert.ok(code !== '0x', `${s.id}: code at the planned address ${s.expected}`);

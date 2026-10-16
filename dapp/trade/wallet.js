@@ -85,7 +85,7 @@ export function makeWallet({ rpc, leave = null }) {
     if (W.chain !== MAINNET) throw new Error('Switch your wallet to Ethereum mainnet.');
   }
   // Another chain than Ethereum (a job's step on Base, say): switched to, or added first when the wallet has never seen it, from
-  // `chain` = { id, name, rpc: [url], explorer }.
+  // `chain` = { id, name, rpc: [url], explorer, icon? } (the icon is a picture of ours for a wallet that has none for the chain).
   async function ensureChain(chain) {
     const want = hexChain(chain.id);
     W.chain = hexChain(await req('eth_chainId'));
@@ -93,7 +93,7 @@ export function makeWallet({ rpc, leave = null }) {
     try { await req('wallet_switchEthereumChain', [{ chainId: want }]); }
     catch (e) {
       if (!(e?.code === 4902 || /unrecogni[sz]ed|not been added|unknown chain|try adding/i.test(e?.message || ''))) throw e;
-      await req('wallet_addEthereumChain', [{ chainId: want, chainName: chain.name, nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: chain.rpc, blockExplorerUrls: [chain.explorer] }]);
+      await req('wallet_addEthereumChain', [{ chainId: want, chainName: chain.name, nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: chain.rpc, blockExplorerUrls: [chain.explorer], ...(chain.icon ? { iconUrls: [chain.icon] } : {}) }]);
       // Some wallets switch to a chain they have just added; the rest are asked to.
       if (hexChain(await req('eth_chainId')) !== want) await req('wallet_switchEthereumChain', [{ chainId: want }]);
     }

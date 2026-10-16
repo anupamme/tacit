@@ -61,23 +61,26 @@ try {
     return route.fulfill(json({ error: 'not here' }, 404));
   });
   const HOSTS = { 1: ['ethereum-rpc.publicnode.com', 'eth.drpc.org', '1rpc.io', 'mainnet.gateway.tenderly.co'], 8453: ['mainnet.base.org', 'base.gateway.tenderly.co', 'base-rpc.publicnode.com', 'base.drpc.org'], 4663: ['rpc.mainnet.chain.robinhood.com', 'robinhood.drpc.org'], 4326: ['mainnet.megaeth.com', 'megaeth.drpc.org'] };
-  for (const [id, hosts] of Object.entries(HOSTS)) for (const h of hosts) {
-    await ctx.route(`https://${h}/**`, async (route) => {
-      const req = route.request();
-      if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
-      const one = (b) => {
-        let result = null;
-        if (b.method === 'eth_getCode') result = code.has(`${id}:${b.params[0].toLowerCase()}`) ? '0x6001' : '0x';
-        else if (b.method === 'eth_call') result = b.params[0].data === '0x52bfe789' ? `0x${BigInt(latest.get(Number(id)) ?? 0).toString(16).padStart(64, '0')}` : '0x';
-        else if (b.method === 'eth_getTransactionReceipt') result = receipts.has(b.params[0]) ? { status: '0x1', transactionHash: b.params[0], blockNumber: '0x64' } : null;
-        else if (b.method === 'eth_blockNumber') result = '0x2710';
-        else if (b.method === 'eth_chainId') result = `0x${Number(id).toString(16)}`;
-        return { jsonrpc: '2.0', id: b.id, result };
-      };
-      const body = JSON.parse(req.postData() || '{}');
-      return route.fulfill(json(Array.isArray(body) ? body.map(one) : one(body)));
-    });
-  }
+  const seen = { defaults: { 1: 0, 8453: 0, 4663: 0, 4326: 0 }, custom: 0, batches: 0 };
+  const serve = (id, label) => async (route) => {
+    const req = route.request();
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+    const one = (b) => {
+      let result = null;
+      if (b.method === 'eth_getCode') result = code.has(`${id}:${b.params[0].toLowerCase()}`) ? '0x6001' : '0x';
+      else if (b.method === 'eth_call') result = b.params[0].data === '0x52bfe789' ? `0x${BigInt(latest.get(Number(id)) ?? 0).toString(16).padStart(64, '0')}` : '0x';
+      else if (b.method === 'eth_getTransactionReceipt') result = receipts.has(b.params[0]) ? { status: '0x1', transactionHash: b.params[0], blockNumber: '0x64' } : null;
+      else if (b.method === 'eth_blockNumber') result = '0x2710';
+      else if (b.method === 'eth_chainId') result = `0x${Number(id).toString(16)}`;
+      return { jsonrpc: '2.0', id: b.id, result };
+    };
+    const body = JSON.parse(req.postData() || '{}');
+    if (label === 'default') seen.defaults[id]++; else if (label === 'custom') { seen.custom++; if (Array.isArray(body)) seen.batches++; }
+    return route.fulfill(json(Array.isArray(body) ? body.map(one) : one(body)));
+  };
+  for (const [id, hosts] of Object.entries(HOSTS)) for (const h of hosts) await ctx.route(`https://${h}/**`, serve(Number(id), 'default'));
+  await ctx.route('https://my-base.example/**', serve(8453, 'custom'));
+  await ctx.route('https://wrong-chain.example/**', serve(1, 'wrong'));
   // The chain's keeper hands out the first point; its size is what the pool has (25,480 on Base, 2,340 on Robinhood Chain).
   await ctx.route('https://tacit-evm-pool-keepers.onrender.com/**', async (route) => {
     const m = /^\/(\d+)\/evm-pool\/keeper\/point$/.exec(new URL(route.request().url()).pathname);
@@ -148,6 +151,22 @@ try {
   console.log(`ok - the job shows ${total} steps in three groups, each on its chain, none on the chain yet`);
   if (process.env.SHOTS) { await page.screenshot({ path: `${process.env.SHOTS}/gen4-open.png`, fullPage: true }); await page.setViewportSize({ width: 390, height: 844 }); await page.locator('.p-steps').scrollIntoViewIfNeeded(); await page.screenshot({ path: `${process.env.SHOTS}/gen4-steps-mobile.png` }); await page.locator('.p-mine').scrollIntoViewIfNeeded(); await page.screenshot({ path: `${process.env.SHOTS}/gen4-mine-mobile.png` }); await page.setViewportSize({ width: 1280, height: 900 }); }
 
+  // The reader's own node for Base: refused when it is on another chain, then taken; Base is read through it alone, in batches.
+  await page.locator('#ends > summary').click();
+  await page.fill('#e-rpc-8453', 'https://wrong-chain.example/rpc');
+  await page.locator('#ends form button[type="submit"]').click();
+  await page.waitForFunction(() => /is on chain 1, not Base/.test(document.querySelector('#ends-say')?.textContent || ''), null, { timeout: 15000 });
+  await page.fill('#e-rpc-8453', 'https://my-base.example/rpc');
+  const before = seen.defaults[8453];
+  await page.locator('#ends form button[type="submit"]').click();
+  await page.waitForFunction(() => /^Saved/.test(document.querySelector('#ends-say')?.textContent || ''), null, { timeout: 15000 });
+  await page.waitForFunction(() => document.querySelector('#ends > summary')?.textContent === 'Endpoints: yours');
+  for (let i = 0; i < 40 && !seen.custom; i++) await page.waitForTimeout(250);
+  assert.ok(seen.custom > 0 && seen.batches > 0, `Base is read through the reader's node, in batches (${seen.custom} reads, ${seen.batches} batches)`);
+  assert.equal(seen.defaults[8453], before, 'and no longer through the page\'s nodes');
+  assert.ok(await page.evaluate(() => JSON.parse(localStorage.getItem('tacit.tasks.endpoints.v1')).rpc[8453][0]) === 'https://my-base.example/rpc', 'kept in this browser');
+  console.log('ok - the reader\'s own node is checked for its chain, then used alone for that chain, in batches');
+
   // Connect (the stand-in wallet announces itself), then send everything.
   const GO = '[data-go]';
   await page.locator(GO).click();
@@ -174,6 +193,7 @@ try {
   assert.deepEqual(sent.map((s) => s.chainId), [chainOf(one), ...order], 'the lone chunk first, then the rest in the plan\'s order, each on its own chain');
   assert.ok(added.some((a) => a.chainName === 'Robinhood Chain') && added.some((a) => a.chainName === 'MegaETH'), 'the wallet was asked to add the chains it had never seen');
   assert.ok(!added.some((a) => a.chainName === 'Base'), 'and not those it knew');
+  assert.ok(added.every((x) => /\/chain-icons\/\d+\.svg$/.test(x.iconUrls?.[0] || '')), 'each added chain comes with a picture of ours, for a wallet that has none');
   assert.ok(sent.filter((s) => s.data.slice(0, 10) === `0x${keccak256(new TextEncoder().encode('post(uint256,uint256,bytes32[32])')).slice(2, 10)}`).length === 2, 'two points, read from the keepers');
   console.log(`ok - the page sent all ${total} steps on four chains, adding the two chains the wallet did not have, and read both points from the keepers`);
 

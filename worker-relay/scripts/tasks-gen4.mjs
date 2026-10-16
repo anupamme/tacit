@@ -97,10 +97,10 @@ const COPY = {
   title: 'Deploy the next anon.wei',
   tagline: `Put anon.wei's next version on Ethereum, its catch-up registry on four chains, and the first points: ${steps.length} transactions, from any wallet.`,
   about: [
-    { h: 'What it does', p: 'anon.wei opens a new device by reading the pool\'s whole history, which on a busy chain takes a long time. The catch-up registry holds the pool\'s tree edge at a count, checked against the pool when it is posted, so a new device starts from the newest point and reads the older history in the background. The next version of the page also adds wallet apps by WalletConnect and a round of fixes.' },
-    { h: 'What gets deployed', p: `The page's ${files.length} chunks on Ethereum (plain code the page is read from), then the registry on Ethereum, Base, Robinhood Chain and MegaETH at one address, then one catch-up point on Base and one on Robinhood Chain, where the pool's history is longest. The page's own contract and the anon.wei name are the steward's to set afterwards.` },
+    { h: 'What it does', p: 'anon.wei opens on a new device by reading the pool\'s whole history, which takes long on a busy chain. The catch-up registry keeps the pool\'s tree at some counts, each checked against the pool when it is posted, so a new device starts from the newest and reads the older history in the background. The next page also adds wallet apps through WalletConnect, and fixes.' },
+    { h: 'What gets deployed', p: `The page\'s ${files.length} chunks on Ethereum (plain code the page is read from); the registry on Ethereum, Base, Robinhood Chain and MegaETH, at one address; and the first catch-up point on Base and on Robinhood Chain, where the history is longest. The page\'s own contract and the anon.wei name are the steward\'s to set afterwards.` },
     { h: 'Who controls it', p: 'Nobody. The registry has no owner and no settings: anyone may post a point, and it keeps one only if the pool itself held that root at that count. The chunks are code with no owner.' },
-    { h: 'Who can send it', p: 'Anyone. Each address is fixed in advance by the exact code, so the sender cannot change what lands there. A point is read from the chain\'s keeper when it is sent, and the registry refuses one the pool did not hold.' },
+    { h: 'Who can send it', p: 'Anyone. Each address is fixed by its exact code, so the sender cannot change what lands there. A point is read from the chain\'s keeper when it is sent, and the registry refuses one the pool did not hold.' },
   ],
   links: [],
   verified: false,

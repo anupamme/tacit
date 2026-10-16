@@ -58,6 +58,12 @@ quick blocks is not final in twelve of them. Nodes: `POINTS_TASKS_RPC_8453`, `_4
 nodes and MegaETH's public ones; a comma list is tried in order). A job on a chain with no node refuses to start the service, and a node
 that answers for another chain than the one it serves credits nothing.
 
+## The page's own endpoints
+
+Under *Endpoints* at the foot of `/tasks` a reader can set nodes of their own for each chain, the rewards service and the keepers (saved in
+their browser; a node is checked for its chain before it is kept). A chain with nodes of the reader's is read through them alone. The page
+asks each chain for what it needs in one batched request, and a step it has seen on the chain is not asked about again.
+
 ## Turning it on
 
 Set `POINTS_TASKS_BUDGET_WEI` (what was topped up for tasks, in wei) and `POINTS_TASKS_END_SEC` on `tacit-points`, then deploy it.

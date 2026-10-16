@@ -35,7 +35,7 @@ try {
   await new Promise((r) => setTimeout(r, 800));
   const [account] = await rpc('eth_accounts');
   const pageJobs = JSON.parse(readFileSync(new URL('../../dapp/tasks/jobs.json', import.meta.url), 'utf8'));
-  const serviceJob = checkJob({ ...JSON.parse(readFileSync(new URL('../src/lib/points-tasks-jobs.json', import.meta.url), 'utf8')).jobs[0], opensAt: 1 });
+  const serviceJob = checkJob({ ...JSON.parse(readFileSync(new URL('../src/lib/points-tasks-jobs.json', import.meta.url), 'utf8')).jobs.find((j) => j.id === 'tac-vaults'), opensAt: 1 });
   const store = openStore(join(dir, 'points.db'));
   const client = createPublicClient({ chain: mainnet, transport: http(FORK) });
   const now = Number((await client.getBlock()).timestamp);                // the fork's own clock, which an old fork block keeps
@@ -68,7 +68,7 @@ try {
     });
   }
   await ctx.route(/^(wss|https):\/\/(relay|verify)\.walletconnect\.(org|com)/, (route) => route.abort());
-  await ctx.route(`${SITE}/tasks/jobs.json`, (route) => route.fulfill(json({ jobs: pageJobs.jobs.map((j) => ({ ...j, opensAt: jobsOpen ? 1 : 0 })) })));
+  await ctx.route(`${SITE}/tasks/jobs.json`, (route) => route.fulfill(json({ jobs: pageJobs.jobs.filter((j) => j.id === 'tac-vaults').map((j) => ({ ...j, opensAt: jobsOpen ? 1 : 0 })) })));
   // A payload whose first step carries other code than the job names: one hex digit of its init code is changed.
   await ctx.route(`${SITE}/tasks/tac-vaults-payload.json`, (route) => {
     if (!tamper) return route.fulfill(json(payloadFile));
