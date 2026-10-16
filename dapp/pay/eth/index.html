@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-4LuAMSrn8/9ovIdimVdQ/6Ni6oRYk2c7n1MAtWFX99I=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://ethereum-rpc.publicnode.com https://mainnet.gateway.tenderly.co https://eth.drpc.org https://1rpc.io https://rpc.flashbots.net https://mainnet.base.org https://base.gateway.tenderly.co https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-zJxuH+xf72NvbCxLAoKnI6VDCAtRrQPxhqtx2cGMRMU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://ethereum-rpc.publicnode.com https://mainnet.gateway.tenderly.co https://eth.drpc.org https://1rpc.io https://rpc.flashbots.net https://mainnet.base.org https://base.gateway.tenderly.co https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay</title>
 <meta name="description" content="Private ETH payments on Ethereum, Base, Robinhood Chain and MegaETH. Deposit, pay privately, withdraw any part. Proved on your device, recovered from your key.">
@@ -611,11 +611,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Hands the thread back so queued input, timers and network callbacks run; unlike a timer it is not slowed in a background tab.
 const idle = (() => { const q = [], ch = new MessageChannel(); ch.port1.onmessage = () => q.shift()?.(); return () => new Promise((r) => { q.push(r); ch.port2.postMessage(0); }); })();
 // Runs `draw` (a repaint of `root`) and puts focus, and a field's caret, back on the element that had them, found again by id.
+// A control with no id is found again by its place among the region's focusable controls, when it reads the same.
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), summary, select, textarea';
+const focusKey = (el) => `${el.tagName}|${el.textContent.trim()}|${el.getAttribute('aria-label') || ''}`;
 function keepFocus(root, draw) {
-  const a = document.activeElement, id = a?.id && a !== document.body && root.contains(a) ? a.id : null;
+  const a = document.activeElement, inside = !!a && a !== document.body && root.contains(a), id = inside && a.id ? a.id : null;
+  const nth = inside && !id ? [...root.querySelectorAll(FOCUSABLE)].indexOf(a) : -1, key = nth >= 0 ? focusKey(a) : null;
   const at = id && a.selectionStart != null ? [a.selectionStart, a.selectionEnd, a.selectionDirection] : null;
   draw();
-  const n = id && document.getElementById(id);
+  let n = id && document.getElementById(id);
+  if (!n && key) { const c = root.querySelectorAll(FOCUSABLE)[nth]; if (c && focusKey(c) === key) n = c; }
   if (!n || n === document.activeElement || n.disabled) return;
   n.focus({ preventScroll: true });
   if (at) try { n.setSelectionRange(...at); } catch {}
@@ -943,7 +948,7 @@ const viaText = (k) => ({ eth: `Ethereum ${short(k.address || '')}`, btc: `Bitco
 // those paths, as a library: it reads the shared network once at import, so this page pins mainnet for its visit, and any
 // call that rewrites the app's linked-wallet records is run with them put back afterwards, except one another tab wrote
 // meanwhile. Its passphrase prompt is the dialog from pass-dialog.js.
-const TACIT_URL = '/tacit.js?cb=e5898454';
+const TACIT_URL = '/tacit.js?cb=ce08ab24';
 const SHARED_NET = 'tacit-network-v1', PREV_NET = 'tacit-pay-prev-net-v1';
 const SHARED_WALLET_KEYS = ['tacit-eth-identity', 'tacit-btc-identity', 'tacit-active-mode-v1', 'tacit-ext-mode-v1', 'tacit-ext-state-v1',
   ...['mainnet', 'signet'].flatMap((n) => [`tacit-eth-identity:${n}`, `tacit-btc-identity:${n}`, `tacit-active-mode-v1:${n}`])];
