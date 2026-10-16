@@ -1,0 +1,29 @@
+Lets sp1-gpu-server (sp1 v6.2.3, sp1-gpu/crates/prover_components/src/builder.rs) run on cards under 24 GB for programs
+whose shards are small. Unchanged without the env: SP1_GPU_MIN_GB (default 24) is the gate on ceil(VRAM GiB)+4, and
+SP1_GPU_ELEMENT_THRESHOLD overrides the core shard's element threshold (default 402,653,184; 301,989,888 under 30 GB).
+Our ordinary ops are under 1M cycles, so a threshold of 1<<27 (134M elements) still holds some thirty of them per shard.
+
+--- a/sp1-gpu/crates/prover_components/src/builder.rs
++++ b/sp1-gpu/crates/prover_components/src/builder.rs
+@@
+     // Get the amount of memory on the GPU.
+     let gpu_memory_gb: usize = (((cuda_memory_info().unwrap().1 as f64) / gb).ceil() as usize) + 4;
+ 
+-    if gpu_memory_gb < 24 {
+-        panic!("Unsupported GPU memory: {gpu_memory_gb}, must be at least 24GB");
++    let min_gb: usize = std::env::var("SP1_GPU_MIN_GB").ok().and_then(|s| s.parse().ok()).unwrap_or(24);
++    if gpu_memory_gb < min_gb {
++        panic!("Unsupported GPU memory: {gpu_memory_gb}, must be at least {min_gb}GB (SP1_GPU_MIN_GB)");
+     }
+ 
+-    let shard_threshold = if gpu_memory_gb <= 30 {
++    let default_threshold = if gpu_memory_gb <= 30 {
+         ELEMENT_THRESHOLD - (1 << 26) - (1 << 25)
+     } else {
+         ELEMENT_THRESHOLD
+     };
++    let shard_threshold =
++        std::env::var("SP1_GPU_ELEMENT_THRESHOLD").ok().and_then(|s| s.parse::<u64>().ok()).unwrap_or(default_threshold);
+ 
+     tracing::debug!("Shard threshold: {shard_threshold}");
+     opts.sharding_threshold.element_threshold = shard_threshold;
