@@ -156,7 +156,7 @@ try {
   // the chart: a line by default, as the Bitcoin market draws it, and candles a press away
   ok(!!(await p.$('#chart .line')) && !!(await p.$('#chart polygon.area')) && !!(await p.$('#chart .lastdot')) && (await candles(p)) === 0 && !!(await p.$('[data-kind="candles"]')), 'the Ethereum lane draws the Precision pool\'s price as a shaded line with its last price marked');
   const rd = (await text(p, '#ch-read')).replace(/\s+/g, ' ');
-  ok(/^\$0\.\d{4}.*(all time|past month).*low \$0\.\d+.*high \$0\.\d+.*ETH traded/.test(rd), `a line above the chart gives the price, its move over the range, the low, the high and the volume (${rd.slice(0, 120)})`);
+  ok(/^\$0\.\d{4}.*(all time|past month).*low \$0\.\d+.*high \$0\.\d+.*ETH \(\$[\d.,]+[kM]?\) traded/.test(rd), `a line above the chart gives the price, its move over the range, the low, the high and the volume (${rd.slice(0, 120)})`);
   ok((await p.$$eval('#chart .mark', (m) => m.length)) === 2 && (await p.$eval('#tf-seg', (e) => e.hidden)) === true, 'the high and the low are named on the line, and a line has no candle size to choose');
   const lineN = await p.$eval('#chart polyline', (l) => l.getAttribute('points').split(' ').length);
   await p.click('[data-range="1"]'); await until(p, () => document.querySelector('#chart polyline') && document.querySelector('#chart polyline').getAttribute('points').split(' ').length < 120 && /past day/.test(document.querySelector('#ch-read')?.textContent || ''));
@@ -180,6 +180,21 @@ try {
   const keyRead = (await text(p, '#ch-read')).replace(/\s+/g, ' ');
   await p.keyboard.press('Escape'); await until(p, () => /all time/.test(document.querySelector('#ch-read')?.textContent || ''), null, 10000);
   ok(/\d{2}:\d{2}/.test(keyRead) && /(traded|nothing traded|trade)/.test(keyRead), `the arrow keys read a bar's time, price and volume, and Escape goes back to the whole range (${keyRead.slice(0, 110)})`);
+  // a mouse dragged across the chart measures that stretch; let go, the chart zooms into it, and Zoom out goes back to the whole
+  await p.$eval('#chart', (e) => e.scrollIntoView({ block: 'center' }));
+  const zb = await (await p.$('#chart svg')).boundingBox();
+  await p.mouse.move(zb.x + zb.width * 0.3, zb.y + zb.height * 0.5); await p.mouse.down();
+  await p.mouse.move(zb.x + zb.width * 0.6, zb.y + zb.height * 0.5, { steps: 8 });
+  const measuring = (await text(p, '#ch-read')).replace(/\s+/g, ' ').trim(), band = await p.$eval('#chart .selband', (b) => b.getAttribute('visibility'));
+  await p.mouse.up(); await p.mouse.move(5, 5);
+  await until(p, () => !!document.querySelector('#ch-read [data-zoomout]'), null, 10000).catch(() => {});
+  const zoomedRead = (await text(p, '#ch-read')).replace(/\s+/g, ' ').trim(), zoomedLabel = await p.$eval('#chart svg', (e) => e.getAttribute('aria-label'));
+  const spanOf = (t) => (t.match(/\d+ \w{3} \d{2}:\d{2}(–| – \d+ \w{3} )\d{2}:\d{2} · \d+ (days|h|min)/) || [])[0];
+  ok(band === 'visible' && !!spanOf(measuring) && /low \$0\.\d+ high \$0\.\d+/.test(measuring), `dragging across the chart reads the stretch: its move, its times and length, its low and high (${measuring.slice(0, 120)})`);
+  ok(spanOf(zoomedRead) === spanOf(measuring) && /Zoom out/.test(zoomedRead) && /zoomed in/.test(zoomedLabel), `letting go zooms into that stretch and offers to zoom out (${zoomedRead.slice(0, 90)})`);
+  await p.click('#ch-read [data-zoomout]');
+  await until(p, () => /all time/.test(document.querySelector('#ch-read')?.textContent || ''), null, 10000);
+  ok(!/zoomed in/.test(await p.$eval('#chart svg', (e) => e.getAttribute('aria-label'))) && !(await p.$('#ch-read [data-zoomout]')), 'and Zoom out draws the whole range again');
   ok((await p.$$eval('#chart .halo', (h) => h.length)) === 1 && (await p.$$eval('.hero h1 svg.tk', (h) => h.length)) === 1 && (await p.$eval('.hero h1 svg.tk', (e) => e.getBoundingClientRect().width)) > 30 && (await p.$$eval('main use[href="#tk-tac"]', (u) => u.length)) >= 7, 'the live price is marked, and the TAC mark sits beside the price and on the page\'s headings');
   await p.click('[data-kind="candles"]'); await until(p, () => document.querySelectorAll('#chart .body').length > 5);
   const c4 = await candles(p);
@@ -405,6 +420,8 @@ try {
     ok(BigInt(await rpcA('eth_getTransactionCount', [me.account, 'latest'])) === n0 + 1n && w.walletLog.sends.length === 1 && w.walletLog.sends[0].to.toLowerCase() === ROUTER.toLowerCase(), 'in one transaction, sent to zRouter');
     ok(e0 - (await ethBal(me.account)) >= 2n * E18 && e0 - (await ethBal(me.account)) < 2n * E18 + E18 / 50n && (await tacBal(MC3)) === mc0 && (await ethBal(ROUTER)) === rt0, 'the ETH spent is the 2 ETH and its gas, and nothing is left in Multicall3 or the router');
     ok(/Balance [\d.,]+ ETH/.test(await text(q, '#in-bal')) && (await q.inputValue('#amt')) === '', 'the balance and the form are refreshed');
+    await until(q, () => !!document.querySelector('#chart path.tpt.up'), null, 30000).catch(() => {});
+    ok(!!(await q.$('#chart path.tpt.up')) && /your purchases and sales/.test(await text(q, '#legend')), `the purchase is flagged on the chart at its price, and the key under it says what the flags are (${(await text(q, '#legend')).trim()})`);
 
     // Yours: the purchase is listed once (what this browser saw, with its figures, and not again from the pool's swap to the same account), with the
     // balances on Ethereum above it; the Trades tab marks that swap as the visitor's
@@ -440,6 +457,8 @@ try {
     ok(w.walletLog.sends.every((t) => t.from.toLowerCase() === me.account.toLowerCase()), 'every transaction was sent from the account that traded');
     ok(w.walletLog.signs === 1 && BigInt(await rpcA('eth_getTransactionCount', [me.account, 'latest'])) === n1 + 1n, 'with the permit signed once in the wallet and one transaction sent: no approval, no allowance');
     ok((await tacBal(MC3)) === mc0, 'and Multicall3 holds no TAC');
+    await until(q, () => !!document.querySelector('#chart path.tpt.down'), null, 30000).catch(() => {});
+    ok(!!(await q.$('#chart path.tpt.down')), 'and the sale is flagged on the chart too');
     ok(w.errors.length === 0 && w.blocked.length === 0, `no page errors or blocked requests while trading (${[...w.errors, ...w.blocked].slice(0, 2).join(' | ')})`);
     await w.browser.close();
 
@@ -635,6 +654,11 @@ try {
   const subh = await m.$eval('#px-sub', (e) => e.getBoundingClientRect().height);
   ok(subh >= parseFloat(await m.$eval('#px-sub', (e) => getComputedStyle(e).minHeight)) - 1 && (await m.$$eval('#px-sub .st', (a) => a.every((x) => x.getBoundingClientRect().height < 26))), `the headline's figures are one line each, in a block that holds its height (${subh}px)`);
   if (SHOTS) await m.screenshot({ path: join(SHOTS, 'trade-phone.png'), fullPage: true });
+  // the chart comes back as it was left: its lane, range and kind are kept in this browser
+  await m.click('[data-lane="btc"]'); await m.click('[data-kind="candles"]'); await m.click('[data-range="0"]');
+  await m.reload();
+  await until(m, () => document.querySelector('[data-lane="btc"]')?.getAttribute('aria-pressed') === 'true' && document.querySelector('[data-kind="candles"]')?.getAttribute('aria-pressed') === 'true' && document.querySelectorAll('#chart .body').length > 0, null, 120000).catch(() => {});
+  ok((await m.getAttribute('[data-lane="btc"]', 'aria-pressed')) === 'true' && (await m.getAttribute('[data-kind="candles"]', 'aria-pressed')) === 'true' && (await m.getAttribute('#range-seg [data-range="0"]', 'aria-pressed')) === 'true', 'the chart opens again on the lane, range and kind it was left on');
   ok(r.errors.length === 0 && r.blocked.length === 0, `and no errors or blocked requests there (${[...r.errors, ...r.blocked].slice(0, 2).join(' | ')})`);
   await r.browser.close();
 } catch (e) {

@@ -25,8 +25,8 @@
 <link rel="preload" as="fetch" href="https://api.tacit.finance/farm/program?network=mainnet" crossorigin fetchpriority="low">
 <!-- preload-roots: /trade/teth/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/trade/teth/app.js?cb=f4371572">
-<link rel="modulepreload" href="/trade/chart.js?cb=63bbd8a9">
+<link rel="modulepreload" href="/trade/teth/app.js?cb=5bf2e119">
+<link rel="modulepreload" href="/trade/chart.js?cb=97813823">
 <link rel="modulepreload" href="/trade/fmt.js?cb=43646c2e">
 <link rel="modulepreload" href="/trade/connect.js?cb=f4bd67db">
 <link rel="modulepreload" href="/walletconnect.js?cb=b3b540fa">
@@ -46,7 +46,7 @@
 <link rel="modulepreload" href="/trade/poolux.js?cb=0c532ca8">
 <link rel="modulepreload" href="/trade/teth/prover.js?cb=3040333f">
 <link rel="modulepreload" href="/relay/abi.js?cb=abf8bf2b">
-<link rel="modulepreload" href="/trade/depth.js?cb=77fa1885">
+<link rel="modulepreload" href="/trade/depth.js?cb=5aaa8a95">
 <link rel="modulepreload" href="/trade/book.js?cb=577d1f94">
 <link rel="modulepreload" href="/trade/tape.js?cb=a4aefafb">
 <link rel="modulepreload" href="/trade/teth/market.js?cb=3ff5bcec">
@@ -226,6 +226,8 @@ code { font-size: 12px; overflow-wrap: anywhere; }
 .chart .mark { font-size: 10.5px; fill: var(--ink); font-weight: 500; paint-order: stroke; stroke: var(--card); stroke-width: 3px; stroke-linejoin: round; }
 .chart .cross .cd { fill: var(--card); stroke-width: 2; }
 .chart .clab { fill: var(--ink); } .chart .clabt { fill: var(--card); font-size: 10px; font-weight: 500; }
+.chart .selband { fill: var(--ink); opacity: .08; } .chart-svg { -webkit-user-select: none; user-select: none; }
+.chart .tpt { stroke: var(--card); stroke-width: 1.5; } .chart .tpt.up { fill: var(--up); } .chart .tpt.down { fill: var(--down); }
 .chart-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; margin: 10px 0 0; } .chart-foot { min-height: 30px; } @media (pointer: coarse) { .chart-foot { min-height: 44px; } }
 .chart-foot .legend { margin: 0; } .chart-foot .view { margin-left: auto; }
 .view { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; font-size: 12px; }
@@ -242,7 +244,7 @@ code { font-size: 12px; overflow-wrap: anywhere; }
 .hero .chgs { display: inline-flex; flex-wrap: wrap; gap: 2px 14px; } .hero .chg i { font-style: normal; color: var(--mute); margin-right: 3px; } .hero .chg.mute { color: var(--mute); }
 .trades td small { display: inline; margin-left: 8px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; } .trades .up { color: var(--up); } .trades .down { color: var(--down); }
 .trades td { padding: 8px 8px; } .trades td.go { text-align: right; width: 1%; } .trades td.go a { color: var(--mute); text-decoration: none; } .trades td.go a:hover { color: var(--ink); }
-.chart:focus-visible, .chart-svg:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.chart:focus-visible, .chart-svg:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; } .chart-svg:focus:not(:focus-visible) { outline: none; }
 .more { margin: 12px 0 0; font-size: 12.5px; }
 .more > summary { cursor: pointer; color: var(--mute); list-style: none; }
 .more > summary::-webkit-details-marker { display: none; }
@@ -251,7 +253,8 @@ code { font-size: 12px; overflow-wrap: anywhere; }
 .more > summary:hover { color: var(--ink); }
 .more .note { margin-top: 8px; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 0; font-size: 12px; color: var(--mute); }
-.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.legend span { display: inline-flex; align-items: center; gap: 7px; } .legend b.up { color: var(--up); } .legend b.down { color: var(--down); }
+.ch-read .r .you { color: var(--ink); }
 .legend .sw { width: 14px; height: 3px; border-radius: 2px; }
 
 /* the ticket */
@@ -647,6 +650,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: va
     </nav>
   </footer>
 </div>
-<script type="module" src="/trade/teth/app.js?cb=f4371572"></script>
+<script type="module" src="/trade/teth/app.js?cb=5bf2e119"></script>
 </body>
 </html>
