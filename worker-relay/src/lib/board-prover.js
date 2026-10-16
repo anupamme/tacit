@@ -5,7 +5,7 @@
 // never lose a job. `post`, `status`, `cancel` and `verify` are injected (lib/worker-client.js and the chain), so this is
 // tested without either.
 
-export function makeBoardProver({ post, status, cancel, verify, waitMs = 240_000, pollMs = 3000, now = Date.now, sleep, log = () => {} } = {}) {
+export function makeBoardProver({ post, status, cancel, verify, alive = null, waitMs = 240_000, pollMs = 3000, now = Date.now, sleep, log = () => {} } = {}) {
   const wait = sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const miss = (reason, extra = {}) => Object.assign(new Error(`prover board: ${reason}`), { code: 'board_miss', reason, ...extra });
 
@@ -13,6 +13,8 @@ export function makeBoardProver({ post, status, cancel, verify, waitMs = 240_000
   // memo root is checked. → { publicValues, proof, worker, jobId }, or an error with code 'board_miss'.
   async function prove({ stdin, cycleLimit, gasLimit, cls = 'private', label = null, memos = [], timeoutMs = waitMs } = {}) {
     if (!(stdin instanceof Uint8Array) || !stdin.length) throw new Error('prover board: stdin must be the input bytes');
+    // No worker has polled lately: the job would only sit out the wait, so it goes straight to the next lane.
+    if (alive && !(await Promise.resolve(alive()).catch(() => true))) throw miss('no worker has been seen lately');
     const budget = Math.min(waitMs, timeoutMs);
     const t0 = now();
     // The job's deadline sits a minute past this wait: a worker that answers just late is not paid for by the network too.

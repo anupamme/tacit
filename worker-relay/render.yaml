@@ -230,7 +230,7 @@ services:
       - key: PROVER_BOARD
         value: "1"
       - key: PROVER_BOARD_WAIT_SECS
-        value: "240"
+        value: "180"
       # Ordered PRIVATE submission endpoints. A settle pays its bound fee to msg.sender, so it is kept out of
       # the public mempool; several endpoints mean one refusing a valid tx does not discard a paid proof.
       - key: SETTLE_RPC_URLS
@@ -310,6 +310,9 @@ services:
         value: "0x6BEF15D938d4E72056AC92Ea4bDD0D76B1C4ad29"
       - key: ZQUOTER_ADDR
         value: "0x000000bd2DB80567c23E353ca95a251c573cBf9B"
+      # Tacit runs a GPU worker on the prover board; warn when none has polled for ten minutes.
+      - key: PROVER_BOARD_EXPECT_WORKERS
+        value: "1"
       - key: ZROUTER_ADDR
         value: "0x000000000000FB114709235f1ccBFfb925F600e4"
       - key: REFLECTION_GENESIS_HEIGHT

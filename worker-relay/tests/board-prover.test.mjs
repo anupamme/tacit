@@ -55,3 +55,12 @@ test('nobody in time: the job is cancelled and the miss says who had claimed it;
   assert.deepEqual(f.calls.cancel, [{ jobId: '0xjob1234567890', reason: 'timeout' }]);
   assert.equal(f.calls.post[0].deadline, 10 + 60);
 });
+
+test('with no worker seen lately the job is not posted at all', async () => {
+  const f = fakeBoard({ script: [{ status: 'queued' }] });
+  await assert.rejects(makeBoardProver({ ...f.api, alive: async () => false }).prove({ stdin, cycleLimit: 1, gasLimit: 1 }), (e) => e.code === 'board_miss' && /no worker/.test(e.message));
+  assert.equal(f.calls.post.length, 0);
+  const g = fakeBoard({ script: [{ status: 'proved', worker: 'gpu1', publicValues: PV, proof: PROOF }] });
+  const r = await makeBoardProver({ ...g.api, alive: async () => { throw new Error('unreadable'); } }).prove({ stdin, cycleLimit: 1, gasLimit: 1 });
+  assert.equal(r.worker, 'gpu1', 'an unreadable liveness read does not hold the job back');
+});

@@ -16,7 +16,7 @@ import { privateProvePlan, retryPublic, privateRefused, rememberRefusal, private
 import { CREDIT_SHORT } from './prove-pause.js';
 import { makeStdinProver, batchInput } from './stdin-prover.js';
 import { makeBoardProver } from './board-prover.js';
-import { boardPost, boardStatus, boardCancel } from './worker-client.js';
+import { boardPost, boardStatus, boardCancel, boardSummary } from './worker-client.js';
 import { stdinFor, SELF_PROVE_TYPES, LIMITS } from './spn/sp1-stdin.js';
 import { assertMemosMatchProof } from './memo-root.js';
 
@@ -284,8 +284,18 @@ let board = null;
 const boardLog = (m) => console.log(`[prover ${new Date().toISOString()}] ${m}`);
 function boardLane() {
   if (!CFG.proverBoard) return null;
-  board ||= makeBoardProver({ post: boardPost, status: boardStatus, cancel: boardCancel, verify: verifySettle, waitMs: CFG.proverBoardWaitSecs * 1000, log: boardLog });
+  board ||= makeBoardProver({ post: boardPost, status: boardStatus, cancel: boardCancel, verify: verifySettle, alive: boardAlive, waitMs: CFG.proverBoardWaitSecs * 1000, log: boardLog });
   return board;
+}
+// Whether a worker has polled the board in the last half minute (the worker polls every few seconds), read at most every
+// ten seconds; an unreadable summary counts as alive, since the post itself then answers.
+let aliveAt = 0, aliveWas = true;
+async function boardAlive() {
+  if (Date.now() - aliveAt < 10_000) return aliveWas;
+  const s = await boardSummary();
+  aliveAt = Date.now();
+  aliveWas = !s || s.workers.some((w) => Number(w.lastSeenSeconds) <= 30);
+  return aliveWas;
 }
 async function verifySettle({ publicValues, proof, memos }) {
   try {

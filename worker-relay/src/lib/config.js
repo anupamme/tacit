@@ -197,6 +197,10 @@ export const CFG = {
   // /prover/* routes for PROVER_BOARD_WAIT_SECS before it goes to the prover network as before. Off until a worker runs.
   proverBoard: opt('PROVER_BOARD', '0') === '1',
   proverBoardWaitSecs: num('PROVER_BOARD_WAIT_SECS', 240),
+  // The monitor warns when no board worker has polled for this long (Tacit runs one; a pod that stopped, out of credit or
+  // otherwise, sends every settle proof to the prover network with a public input until it is back).
+  proverBoardExpectWorkers: opt('PROVER_BOARD_EXPECT_WORKERS', '0') === '1',
+  proverBoardQuietSecs: num('PROVER_BOARD_QUIET_SECS', 600),
   // Resident-memory caps for a settle's prover child, in KB (lib/prover.js run). The container's ceiling is 2 GiB
   // and the service itself needs some of it; a batch is held tighter, since a batch that cannot prove here just
   // settles its members one at a time.

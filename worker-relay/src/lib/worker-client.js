@@ -180,6 +180,15 @@ export async function boardStatus(jobId) {
   const r = await getJson(`/prover/jobs?id=${encodeURIComponent(jobId)}`);
   return r && r.status ? r : null;
 }
+// The board's public summary: { queued, claimed, proved, failed, workers: [{ name, lastSeenSeconds, … }] }, or null.
+export async function boardSummary() {
+  try {
+    const res = await fetch(`${CFG.workerBase}/prover/board`);
+    if (!res.ok) return null;
+    const j = await res.json();
+    return j && Array.isArray(j.workers) ? j : null;
+  } catch { return null; }
+}
 export async function boardCancel(jobId, reason) {
   try { await postJson('/prover/jobs/cancel', { jobId, reason }, { timeoutMs: 10_000 }); } catch { /* the job expires on its own */ }
 }

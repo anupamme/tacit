@@ -574,9 +574,31 @@ async function checkEvmPoolKeepers() {
   }));
 }
 
+// The prover board (worker/src/prover-board.js): Tacit's own GPU worker polls it every few seconds; while none has for a
+// while, every settle proof goes to the prover network with a public input, which the relay does on its own but which
+// costs the base fee and the witness's privacy, so it is worth knowing at once.
+async function checkProverBoard() {
+  if (!CFG.proverBoardExpectWorkers) return;
+  let s;
+  try {
+    const res = await fetch(`${CFG.workerBase}/prover/board`);
+    s = res.ok ? await res.json() : null;
+  } catch (e) { s = null; }
+  if (!s || !Array.isArray(s.workers)) { await alert('warning', `prover board unreadable: settle proofs may be going to the prover network`); return; }
+  const live = s.workers.filter((w) => Number(w.lastSeenSeconds) <= CFG.proverBoardQuietSecs);
+  if (!live.length) {
+    const seen = s.workers.map((w) => `${w.name} ${Math.round(Number(w.lastSeenSeconds) / 60)} min ago`).join(', ') || 'none ever';
+    await alert('critical', `no prover-board worker has polled in ${Math.round(CFG.proverBoardQuietSecs / 60)} min (last: ${seen}): settle proofs go to the prover network with public inputs until the GPU box is back (stopped pod, out of credit, or the worker loop down)`, { workers: s.workers });
+    return;
+  }
+  const bad = s.workers.filter((w) => Number(w.bad) > 0);
+  if (bad.length) await alert('warning', `prover board: ${bad.map((w) => `${w.name} ${w.bad} refused proof(s)`).join(', ')} — a proof the pool would not settle; check that box's guest and server versions`, { workers: s.workers });
+  log(`prover board: ${live.map((w) => `${w.name} seen ${w.lastSeenSeconds}s ago, proved ${w.proved}`).join('; ')}; queued ${s.queued}, claimed ${s.claimed}`);
+}
+
 async function main() {
   log(`monitor run — worker=${CFG.workerBase} relay=${relayWallet ? relayWallet.account.address : '(no key on this service — watching by address)'}`);
-  const results = await Promise.allSettled([checkProve(), checkEth(), checkReflectionLag(), checkProverKinds(), checkSnapshotCapacity(), checkFarmHealth(), checkPointsFunding(), checkReflectionStall(), checkQueue(), checkEthStatePending(), checkCrossOutFold(), checkEvmPoolKeepers(), checkTacSupply(), checkBitcoinScan()]);
+  const results = await Promise.allSettled([checkProve(), checkEth(), checkReflectionLag(), checkProverKinds(), checkSnapshotCapacity(), checkFarmHealth(), checkPointsFunding(), checkReflectionStall(), checkQueue(), checkEthStatePending(), checkCrossOutFold(), checkEvmPoolKeepers(), checkTacSupply(), checkBitcoinScan(), checkProverBoard()]);
   for (const r of results) if (r.status === 'rejected') log('check threw:', r.reason?.message || r.reason);
   log(`monitor done — ${criticals} critical${criticals === 1 ? '' : 's'}`);
   // Exit non-zero so the cron run is marked failed even with no webhook configured. A check that THREW is
