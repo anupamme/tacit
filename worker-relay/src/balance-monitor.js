@@ -14,6 +14,9 @@
 //     off the pool's digest on two consecutive runs (a lost ack) — lib/reflection-stall.js
 //   * launch-farm health (treasury solvency, epoch runway, idle pools, governor handover) — lib/farm-health.js;
 //     FARM_MANAGER_ADDR overrides the manager, or set it to "off" to skip the check
+//   * TAC on Ethereum against its backing (mainnet): the ERC-20 over the 21M etched or wTAC under one TAC per wTAC
+//     (critical); a second pool registration over a canonical token, or a retired TAC token changing supply
+//     (warning) — lib/tac-supply.js; TAC_SUPPLY_CHECK=off skips it
 //
 // The lag alert is the "reflection is falling behind" signal that catches a stalled
 // reflection worker before the backlog grows into a batch too large to prove.
@@ -34,7 +37,8 @@ import { creditLevel } from './lib/prove-credit.js';
 import { blockSecOf, feedLagSec, feedLagLevel } from './lib/feed-lag.js';
 import { settleFundsNeed } from './lib/settle-fees.js';
 import { poolBooks } from './lib/evm-pool-solvency.js';
-import { publicClient, relayWallet, watchedWallets, ERC20_ABI, PROVE, readPool, readReflectionDigest, HEADER_RELAY, RELAY_ABI } from './lib/chain.js';
+import { readTacSupply } from './lib/tac-supply.js';
+import { publicClient, relayWallet, watchedWallets, ERC20_ABI, PROVE, readPool, readReflectionDigest, HEADER_RELAY, RELAY_ABI, POOL } from './lib/chain.js';
 import { safeErr } from './lib/safe-err.js';
 
 const log = (...a) => console.log(`[monitor ${new Date().toISOString()}]`, ...a);
@@ -425,6 +429,23 @@ async function checkCrossOutFold() {
     { onchain, folded, baseline, gap, attestedHeight, gapSinceHours: Number(hours.toFixed(1)) });
 }
 
+// Mainnet only: the pool-minted tokens beside TAC (tacBTC, tacUSD), the wTAC wrapper, and a retired TAC token with the
+// supply it ended at.
+const TAC_SUPPLY_WATCH = {
+  wtac: '0x2018139a8FDd3666855BE3315C7683b4D6aB7AEf',
+  canonicalTokens: ['0xdf1d99148bEb7a9AFf1d95C49B3d22b7ed90D696', '0x23cACFFAc2674514A6d4F6cD420B4cc2aC921564'],
+  legacy: [{ token: '0xD7D7976367D171d105722F1Ce1aFa61602D97A4d', expected: 100000200000000000000n }],
+};
+async function checkTacSupply() {
+  if (CFG.network !== 'mainnet' || process.env.TAC_SUPPLY_CHECK === 'off') return;
+  const r = await readTacSupply({ client: publicClient, chainId: 1, pool: POOL, ...TAC_SUPPLY_WATCH });
+  if (r.level === 'ok') { log(`tac supply: ${r.why.join('; ')}`); return; }
+  // A critical is read once more before it stands, so one odd node answer cannot page.
+  const again = r.level === 'critical' ? await readTacSupply({ client: publicClient, chainId: 1, pool: POOL, ...TAC_SUPPLY_WATCH }) : r;
+  if (again.level === 'ok') { log(`tac supply: ${again.why.join('; ')} (a first read said: ${r.why.join('; ')})`); return; }
+  await alert(again.level, `TAC on Ethereum: ${again.why.join('; ')}`, { tacToken: again.tacToken });
+}
+
 // The EVM pool keepers (evm-pool-keeper.js), one per chain: each relays users' sends and withdrawals and sweeps their
 // deposit addresses, fronting the gas and taking it back, with a margin, from the fee paid to it in the same
 // transaction. So its balance is working capital, and what matters is whether it can front the next send. It pages
@@ -528,7 +549,7 @@ async function checkEvmPoolKeepers() {
 
 async function main() {
   log(`monitor run — worker=${CFG.workerBase} relay=${relayWallet ? relayWallet.account.address : '(no key on this service — watching by address)'}`);
-  const results = await Promise.allSettled([checkProve(), checkEth(), checkReflectionLag(), checkProverKinds(), checkSnapshotCapacity(), checkFarmHealth(), checkPointsFunding(), checkReflectionStall(), checkQueue(), checkEthStatePending(), checkCrossOutFold(), checkEvmPoolKeepers()]);
+  const results = await Promise.allSettled([checkProve(), checkEth(), checkReflectionLag(), checkProverKinds(), checkSnapshotCapacity(), checkFarmHealth(), checkPointsFunding(), checkReflectionStall(), checkQueue(), checkEthStatePending(), checkCrossOutFold(), checkEvmPoolKeepers(), checkTacSupply()]);
   for (const r of results) if (r.status === 'rejected') log('check threw:', r.reason?.message || r.reason);
   log(`monitor done — ${criticals} critical${criticals === 1 ? '' : 's'}`);
   // Exit non-zero so the cron run is marked failed even with no webhook configured. A check that THREW is

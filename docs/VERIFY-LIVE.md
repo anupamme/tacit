@@ -61,6 +61,15 @@ coverage figure needs the per-lock `cbtcLockVBtc` and `cbtcMinted` split, and th
 it, so an outside reader has to walk the attest calldata for the outpoints — out of scope for a snapshot this
 size, and better absent than wrong.
 
+**TAC on Ethereum.** The TAC ERC-20, the public AMM that pays swaps out of the pool's reserve, the canonical
+factory and the wTAC wrapper are each compared with their compiled artifacts (immutables normalised). The token's
+`MINTER` is the pool and its `ASSET_ID` the Bitcoin etch's id; the pool's record for that id is registered,
+pool-minted, at a `1e10` unit scale and linked to it; `canonicalTokenFor` resolves back to the token; and no second
+asset is registered under the local EVM id of TAC, tacBTC or tacUSD, which would pay out the same token at another
+scale. The supply is checked against the 21,000,000 etched on Bitcoin, and wTAC's TAC balance against its supply.
+The etch itself (zero mint authority, a supply commitment that opens to 21,000,000) is checked from Bitcoin and IPFS
+by [tacit.finance/verify.html](https://tacit.finance/verify.html).
+
 **Risk parameters, printed plainly.** `cdpRatioBps`, `liqRatioBps`, `escrowRatioBps`, `maxStaleness`,
 `maxDeviationBps`, `stabilityFeePerSecond`, `escrowMaintenanceBps`, `insuranceReserve`, `outstandingCusd`,
 `escrowGraceWindow` and the configured feeds. Combinations worth a reader's attention — an empty insurance

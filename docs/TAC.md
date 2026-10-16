@@ -83,11 +83,38 @@ values, who holds the role, and anything queued to change, with a button to prop
 The same data is available at `GET https://api.tacit.finance/governance/oversight?network=mainnet`, and
 proposals at `/governance/proposals`.
 
+## Integrating the ERC-20
+
+- **Identity.** TAC on Ethereum is [`0xA1313eb9f3A445606D9583bcAc3ebeB56a858279`](https://etherscan.io/address/0xA1313eb9f3A445606D9583bcAc3ebeB56a858279).
+  Its `MINTER()` is the confidential pool
+  [`0x000000000Ed1eabD231Be41d93b719056F7febFC`](https://etherscan.io/address/0x000000000Ed1eabD231Be41d93b719056F7febFC),
+  its `ASSET_ID()` is the Bitcoin asset id `0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b`,
+  and the pool's `canonicalTokenFor(ASSET_ID)` returns it. Every Tacit canonical token is named "Tacit Token",
+  so identify TAC by this address, or by those three reads, never by name or symbol alone.
+- **Units.** 18 decimals over Bitcoin TAC's 8: the pool mints and burns whole multiples of `1e10`, and a wrap
+  of any other amount reverts.
+- **Supply.** Only the pool mints TAC, when a TAC note leaves it (a proven withdrawal) or when its public AMM
+  pays a swap out of TAC already in the pool's reserve, and it burns TAC when TAC is wrapped back in. Every
+  TAC in the pool came from Bitcoin, through a bridge burn the pool pays once or a fast-lane spend of a
+  reflected note ([SPEC §6.3](../SPEC.md#63-two-ways-bitcoin-value-reaches-ethereum)), so the ERC-20 supply
+  stays within the 21,000,000 etched. `node tools/verify-live.mjs` checks the token's code, its wiring to the pool and the
+  etch, and the supply ([what it checks](./VERIFY-LIVE.md)).
+- **Behaviour.** A standard ERC-20: no transfer fee, rebasing, hooks, pause, blacklist or owner. It supports
+  EIP-2612 `permit` (name `Tacit Token`, version `1`), and the canonical Permit2 contract holds a standing
+  maximum allowance from every holder, so Permit2 signatures need no approval transaction.
+- **wTAC.** [`0x2018139a8FDd3666855BE3315C7683b4D6aB7AEf`](https://etherscan.io/address/0x2018139a8FDd3666855BE3315C7683b4D6aB7AEf)
+  wraps TAC one-for-one where an escrowed ERC-20 is needed (farm rewards); `deposit` and `withdraw` move
+  exactly the amount given.
+- **Lineage.** The pool is immutable, and so is the token's minter. A later pool in the V1 lineage
+  ([SPEC §8](../SPEC.md#8-deployment-lineage)) mints its own canonical tokens; TAC held as this ERC-20 can
+  always be wrapped into this pool and exited to Bitcoin from it.
+
 ## Addresses (Ethereum)
 
 | | Address |
 | --- | --- |
 | TAC ERC-20 | [`0xA1313eb9f3A445606D9583bcAc3ebeB56a858279`](https://etherscan.io/address/0xA1313eb9f3A445606D9583bcAc3ebeB56a858279) |
+| wTAC | [`0x2018139a8FDd3666855BE3315C7683b4D6aB7AEf`](https://etherscan.io/address/0x2018139a8FDd3666855BE3315C7683b4D6aB7AEf) |
 | TacBuyback | [`0x6919cbEf0e70AFFA02Ae02c86c532A137154f250`](https://etherscan.io/address/0x6919cbEf0e70AFFA02Ae02c86c532A137154f250) |
 | TacBuyback keeper | [`0x1eeb713E6EAfbcFADb217664d53CF8DBDEc45fda`](https://etherscan.io/address/0x1eeb713E6EAfbcFADb217664d53CF8DBDEc45fda) |
 | Reserve (ops multisig) | [`0x006CD14F36F65eCbB29b2519cCBe63A0DC8549F2`](https://etherscan.io/address/0x006CD14F36F65eCbB29b2519cCBe63A0DC8549F2) |

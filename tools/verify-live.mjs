@@ -380,6 +380,54 @@ for (const [sym, token, cap, source] of backed) {
   if (units <= cap) ok(`backing.${sym}`, shown); else fail(`backing.${sym}`, shown);
 }
 
+at('TAC');
+
+// The public TAC ERC-20 is the canonical token the pool mints when a TAC note exits, and burns when TAC is wrapped back
+// in. Checked here: the deployed code of it and of what touches it (the public AMM that pays swaps out of the pool's
+// reserve, the factory, the wTAC wrapper) is the code built from this repo; it is wired to the pool and the Bitcoin
+// etch; the pool has no second asset over it; and its supply is within the 21,000,000 etched on Bitcoin.
+const WTAC = '0x2018139a8FDd3666855BE3315C7683b4D6aB7AEf'; // docs/DEPLOYMENTS.md: WrappedTac, deployed apart from the suite
+function sameCode(name, address, liveHex, artifactRel) {
+  if (!existsSync(ROOT + artifactRel)) { note(name, `${artifactRel} is not built; run forge build to compare`); return; }
+  const art = readJson(artifactRel).deployedBytecode;
+  const local = Buffer.from(art.object.replace(/^0x/, ''), 'hex'), live = Buffer.from(liveHex.replace(/^0x/, ''), 'hex');
+  for (const refs of Object.values(art.immutableReferences || {})) for (const r of refs) { local.fill(0, r.start, r.start + r.length); live.fill(0, r.start, r.start + r.length); }
+  if (local.equals(live)) ok(name, `${checksum(address)} is the local build (${local.length} bytes, immutables normalised)`);
+  else fail(name, `${checksum(address)} differs from the local build`);
+}
+const TAC = manifest.tacToken, TAC_ID = manifest.tacAssetId;
+sameCode('tac.runtime-match', TAC, await rpc('eth_getCode', [TAC, BLOCK]), 'contracts/out/CanonicalBridgedERC20.sol/CanonicalBridgedERC20.json');
+sameCode('publicAmm.runtime-match', manifest.publicAmm, await rpc('eth_getCode', [manifest.publicAmm, BLOCK]), 'contracts/out/TacitPublicAmm.sol/TacitPublicAmm.json');
+sameCode('factory.runtime-match', manifest.factory, await rpc('eth_getCode', [manifest.factory, BLOCK]), 'contracts/out/CanonicalAssetFactory.sol/CanonicalAssetFactory.json');
+sameCode('wtac.runtime-match', WTAC, await rpc('eth_getCode', [WTAC, BLOCK]), 'contracts/out/WrappedTac.sol/WrappedTac.json');
+eq('tac.MINTER', asAddr(await callSig(TAC, 'MINTER()')), POOL, checksum);
+eq('tac.ASSET_ID', await callSig(TAC, 'ASSET_ID()'), TAC_ID);
+eq('tac.decimals', asUint(await callSig(TAC, 'decimals()')), 18n);
+eq('pool.canonicalTokenFor(TAC)', asAddr(await callSig(POOL, 'canonicalTokenFor(bytes32)', b32Word(TAC_ID))), TAC, checksum);
+{
+  const a = await callSig(POOL, 'assets(bytes32)', b32Word(TAC_ID));
+  const record = { registered: asUint(slice32(a, 0)) === 1n, underlying: asAddr(slice32(a, 1)), unitScale: asUint(slice32(a, 2)), link: slice32(a, 3), poolMinted: asUint(slice32(a, 4)) === 1n };
+  const good = record.registered && record.underlying.toLowerCase() === TAC.toLowerCase() && record.unitScale === 10n ** 10n
+    && record.link.toLowerCase() === TAC_ID.toLowerCase() && record.poolMinted;
+  (good ? ok : fail)('pool.assets(TAC)', `registered ${record.registered}, pool-minted ${record.poolMinted}, unitScale ${record.unitScale}, linked to ${record.link.slice(0, 18)}…`);
+}
+// The token's local EVM id (ConfidentialPool._evmAssetId) must stay unregistered: an asset there would pay out the same
+// token at a scale of its registrant's choosing.
+for (const [sym, token] of [['TAC', TAC], ['tacBTC', manifest.cbtcToken], ['tacUSD', manifest.cusdToken]]) {
+  const localId = '0x' + hex(sha256(Buffer.concat([Buffer.from('tacit-evm-token-v1'), Buffer.from(word(chainId).slice(-16), 'hex'), Buffer.from(token.replace(/^0x/, ''), 'hex')])));
+  const registered = asUint(slice32(await callSig(POOL, 'assets(bytes32)', b32Word(localId)), 0)) === 1n;
+  if (registered) fail(`pool.single-registration.${sym}`, `a second asset ${localId} is registered over ${checksum(token)}`);
+  else ok(`pool.single-registration.${sym}`, `no asset registered under its local id ${localId.slice(0, 18)}…`);
+}
+const tacSupply = await totalSupply(TAC);
+const ETCHED = 21000000n * 10n ** 18n;
+(tacSupply <= ETCHED ? ok : fail)('tac.supply', `${(Number(tacSupply) / 1e18).toFixed(8)} TAC, within the 21,000,000 etched on Bitcoin`);
+eq('wtac.TAC', asAddr(await callSig(WTAC, 'TAC()')), TAC, checksum);
+{
+  const wSupply = await totalSupply(WTAC), wBacking = await balanceOf(TAC, WTAC);
+  (wBacking >= wSupply ? ok : fail)('wtac.backing', `${(Number(wBacking) / 1e18).toFixed(8)} TAC held for ${(Number(wSupply) / 1e18).toFixed(8)} wTAC`);
+}
+
 at('risk parameters');
 
 const params = {};
