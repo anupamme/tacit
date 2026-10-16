@@ -82,14 +82,18 @@ services:
   # Cron ($ = runtime only): incremental Bitcoin-state reflection attester. A 5-min cron keeps
   # pace with Bitcoin's ~10-min blocks (lag ≪ the ~60-min maturity window) — no always-on worker
   # needed. RUN_MODE=cron drains pending batches then exits. Switch type→worker for zero-lag.
+  # RETIRED 2026-10-16: the reflection folder runs inside tacit-eth-state (src/bitcoin-lane.js), the moment its eth-state fuel
+  # is there instead of at the next five-minute mark, and never at the same time as an eth_prove. The cron stays declared so
+  # the blueprint keeps its record, scheduled once a year and running nothing. To run the folder alone again: schedule
+  # "*/5 * * * *", dockerCommand `node src/reflection-folder.js`, and LANE_REFLECTION=0 on tacit-eth-state.
   - type: cron
     name: tacit-reflection
     runtime: docker
     rootDir: worker-relay
     dockerfilePath: ./Dockerfile
-    plan: standard
-    schedule: "*/5 * * * *"
-    dockerCommand: node src/reflection-folder.js
+    plan: starter
+    schedule: "0 0 1 1 *"
+    dockerCommand: 'echo tacit-reflection is retired - the reflection folder runs inside tacit-eth-state'
     autoDeploy: false
     envVars:
       - fromGroup: tacit-relay-shared
@@ -99,14 +103,17 @@ services:
   # Cron: BitcoinLightRelay header feeder — submits BTC headers (advanceTip) so the relay confirms blocks
   # ahead of reflection. No proving; just fetch headers + one on-chain tx. Paced to stay ≤ HEADER_RELAY_LEAD
   # ahead of reflection's attested height (maturity-window constraint).
+  # RETIRED 2026-10-16: the header feeder runs inside tacit-eth-state (src/bitcoin-lane.js) every HEADER_EVERY_SECS, with no
+  # container start per run. To run it alone again: schedule "*/3 * * * *", dockerCommand `node src/header-relay.js`, and
+  # LANE_HEADERS=0 on tacit-eth-state.
   - type: cron
     name: tacit-header
     runtime: docker
     rootDir: worker-relay
     dockerfilePath: ./Dockerfile
     plan: starter
-    schedule: "*/3 * * * *"
-    dockerCommand: node src/header-relay.js
+    schedule: "0 0 1 1 *"
+    dockerCommand: 'echo tacit-header is retired - the header feeder runs inside tacit-eth-state'
     autoDeploy: false
     envVars:
       - fromGroup: tacit-relay-shared
@@ -135,7 +142,11 @@ services:
     rootDir: worker-relay
     dockerfilePath: ./Dockerfile
     plan: standard
-    dockerCommand: node src/eth-state-sidecar.js
+    # Since 2026-10-16 the whole Bitcoin lane (src/bitcoin-lane.js): this eth-state producer, the reflection folder that was the
+    # tacit-reflection cron, and the header feeder that was the tacit-header cron, run in turn in this one process. Standard (2 GB)
+    # holds the lane's peak because the three never prove at once: an eth_prove or a bitcoin_prove child is over a gigabyte, and one
+    # runs at a time. Each stage can be switched off (LANE_* = 0) while its own file runs elsewhere.
+    dockerCommand: node src/bitcoin-lane.js
     autoDeploy: false
     disk:
       name: eth-prove-state
@@ -149,6 +160,35 @@ services:
         value: "0"
       - key: ETH_STATE_POLL_SECS
         value: "60"
+      # ── the lane's other two stages ──
+      - key: LANE_ETH_STATE
+        value: "1"
+      - key: LANE_REFLECTION
+        value: "1"
+      - key: LANE_HEADERS
+        value: "1"
+      # The reflection folder, as its cron ran it (its cycle and gas limits; the group's MAX_GAS_GWEI=5 holds its attests back only in a
+      # real spike). It polls every REFLECTION_POLL_SECS when caught up and goes again at once after a landed batch.
+      - key: REFLECT_CYCLE_LIMIT
+        value: "50000000000"
+      - key: REFLECT_GAS_LIMIT
+        value: "25000000000"
+      - key: REFLECTION_POLL_SECS
+        value: "30"
+      # The header feeder, as its cron ran it: every three minutes, batches of 20 at up to 0.3 gwei (its own ceiling, HEADER_MAX_GAS_GWEI:
+      # headers can wait for cheap gas, an attest should not), forced past 144 blocks of staleness, kept 110 blocks ahead of the reflection.
+      - key: HEADER_EVERY_SECS
+        value: "180"
+      - key: HEADER_RELAY_LEAD
+        value: "110"
+      - key: HEADER_RELAY_MAX_BATCH
+        value: "20"
+      - key: HEADER_RELAY_MIN_BATCH
+        value: "20"
+      - key: HEADER_RELAY_MAX_STALE_BLOCKS
+        value: "144"
+      - key: HEADER_MAX_GAS_GWEI
+        value: "0.3"
       # ── deployment-pinned constants — re-pin for a successor deployment ──
       - key: SOURCE_CONSENSUS_RPC
         value: https://ethereum-beacon-api.publicnode.com
@@ -225,7 +265,7 @@ services:
       # Last resort after every private endpoint refuses: the user's op still settles, though the bound fee
       # may go to another submitter. 0 keeps submission private-only.
       - key: SETTLE_ALLOW_PUBLIC
-        value: "1"
+        value: "0"
       # Settles are signed with SETTLE_KEY, set on this service, so they no longer share a nonce with the
       # header relay and the reflection folder (which share RELAY_KEY with each other). Fee income therefore
       # lands on the settle wallet rather than the account that funds proving, which is what replenish moves
@@ -245,7 +285,7 @@ services:
       - key: BUYBACK_ADDR
         value: "0x6919cbEf0e70AFFA02Ae02c86c532A137154f250"
       - key: BUYBACK_SHARE_BPS
-        value: "2500"
+        value: "0"
 
   # TacBuyback keeper (contracts/src/TacBuyback.sol). Hourly: if the contract holds ETH and its cooldown has passed,
   # buys TAC for the ops reserve on whichever TAC/ETH venue quotes better, through private endpoints only. Its own
@@ -821,6 +861,82 @@ services:
   #     - key: EVM_POOL_KEEPER_MIN_FEES    # floor per completion / sweep / relay, in wei
   #       value: "eth:20000000000000"
   #     - key: EVM_POOL_WASM               # finalized ceremony artifacts, by URL + pin (dapp/circuits/evm-pool finalize)
+  #       sync: false
+  #     - key: EVM_POOL_WASM_SHA256
+  #       sync: false
+  #     - key: EVM_POOL_ZKEY
+  #       sync: false
+  #     - key: EVM_POOL_ZKEY_SHA256
+  #       sync: false
+  #     - key: EVM_POOL_VK
+  #       sync: false
+  #     - key: EVM_POOL_VK_HASH
+  #       sync: false
+  #     - key: PORT
+  #       value: "10000"
+
+  # Every EVM pool keeper in ONE web service (src/evm-pool-keepers.js): the four single-chain services above, each on its own Starter,
+  # become one Starter. Each chain keeps its own key, nodes, start block and store (EVM_POOL_<KNOB>_<chainId> over the shared value;
+  # the store is keeper-<chainId>.db on the one disk); the witness model and the proving key are loaded once and proofs are made one
+  # chain at a time. Routes: /<chainId>/evm-pool/keeper/* and /<chainId>/health per chain; the unprefixed routes are the first chain's.
+  # Rollout: create it with the four keys set (fresh disk: each chain rebuilds its leaves from the chain, minutes), check
+  # /health and each /<chainId>/evm-pool/keeper/info against the old service, point the pages (dapp/index.html and dapp/sats/eth.js
+  # `keeper:`), the monitor (src/balance-monitor.js KEEPERS) and the sats CSP at https://tacit-evm-pool-keepers.onrender.com/<chainId>/evm-pool/keeper,
+  # and suspend the four old services once the pages have been live a day.
+  # - type: web
+  #   name: tacit-evm-pool-keepers
+  #   runtime: docker
+  #   rootDir: .
+  #   dockerfilePath: ./worker-relay/Dockerfile.evm-pool-keeper
+  #   dockerContext: .
+  #   plan: starter
+  #   region: oregon
+  #   dockerCommand: node src/evm-pool-keepers.js
+  #   healthCheckPath: /health
+  #   autoDeploy: false
+  #   disk:
+  #     name: evm-pool-keepers-db
+  #     mountPath: /var/lib/tacit-evm-pool-keeper
+  #     sizeGB: 2
+  #   envVars:
+  #     # DELIBERATELY NOT `fromGroup: tacit-relay-shared`: public, and signs only with its own keys.
+  #     - key: EVM_POOL_CHAINS
+  #       value: "1,8453,4663,4326"
+  #     - key: EVM_POOL_ADDR
+  #       value: "0x000000c2A20657CE25f2Ba99737933D031AFBEE9"
+  #     - key: EVM_POOL_ROUTER_ADDR
+  #       value: "0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5"
+  #     - key: EVM_POOL_KEEPER_SINGLE_THREAD
+  #       value: "1"
+  #     # per chain: its key, its nodes (the read fallbacks and the facts nodes as the single services carry them), its start block
+  #     # and confirmations, its fee floor (eth:20000000000000 on Ethereum, eth:5000000000000 on Base and Robinhood, eth:1000000000000 on
+  #     # MegaETH), and MegaETH's gas figures (EVM_POOL_KEEPER_GAS_CAP_4326 3000000, _RELAY_GAS_4326 900000, _DEPOSIT_GAS_4326 900000,
+  #     # _SWEEP_GAS_4326 1500000, EVM_POOL_CONFIRMATIONS_4326 200, EVM_POOL_LOG_CHUNK_4326 10000)
+  #     - key: EVM_POOL_KEEPER_PRIV_1
+  #       sync: false
+  #     - key: EVM_POOL_KEEPER_PRIV_8453
+  #       sync: false
+  #     - key: EVM_POOL_KEEPER_PRIV_4663
+  #       sync: false
+  #     - key: EVM_POOL_KEEPER_PRIV_4326
+  #       sync: false
+  #     - key: EVM_POOL_RPC_URL_1
+  #       value: https://ethereum-rpc.publicnode.com
+  #     - key: EVM_POOL_RPC_URL_8453
+  #       value: https://mainnet.base.org
+  #     - key: EVM_POOL_RPC_URL_4663
+  #       value: https://rpc.mainnet.chain.robinhood.com
+  #     - key: EVM_POOL_RPC_URL_4326
+  #       value: https://mainnet.megaeth.com/rpc
+  #     - key: EVM_POOL_START_BLOCK_1
+  #       sync: false
+  #     - key: EVM_POOL_START_BLOCK_8453
+  #       sync: false
+  #     - key: EVM_POOL_START_BLOCK_4663
+  #       sync: false
+  #     - key: EVM_POOL_START_BLOCK_4326
+  #       sync: false
+  #     - key: EVM_POOL_WASM               # finalized ceremony artifacts, by URL + pin, shared by every chain
   #       sync: false
   #     - key: EVM_POOL_WASM_SHA256
   #       sync: false

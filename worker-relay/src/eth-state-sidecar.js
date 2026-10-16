@@ -343,4 +343,9 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error('fatal', e); process.exit(1); });
+// The Bitcoin lane worker (src/bitcoin-lane.js) runs this cycle beside the reflection folder and the header feeder, in turn; on its own
+// this file is the sidecar service as before.
+export { cycle as ethStateCycle, resetLocalStateIfRequested as ethStateReset };
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((e) => { console.error('fatal', e); process.exit(1); });
+}

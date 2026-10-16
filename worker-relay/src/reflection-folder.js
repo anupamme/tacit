@@ -351,4 +351,7 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error('fatal', e); process.exit(1); });
+export { cycle as reflectionCycle };
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((e) => { console.error('fatal', e); process.exit(1); });
+}

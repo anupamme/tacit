@@ -23,11 +23,12 @@ export const publicClient = createPublicClient({ chain, transport });
 
 // The live gas price in gwei when it is above MAX_GAS_GWEI, else null (also null when the guard is off or the price
 // cannot be read, so a flaky RPC never stalls a lane).
-export async function gasAboveCap() {
-  if (!(CFG.maxGasGwei > 0)) return null;
+// The live gas price when it is above `capGwei` (MAX_GAS_GWEI by default; the header feeder passes its own HEADER_MAX_GAS_GWEI), else null.
+export async function gasAboveCap(capGwei = CFG.maxGasGwei) {
+  if (!(capGwei > 0)) return null;
   try {
     const gwei = Number(await publicClient.getGasPrice()) / 1e9;
-    return gwei > CFG.maxGasGwei ? gwei : null;
+    return gwei > capGwei ? gwei : null;
   } catch { return null; }
 }
 

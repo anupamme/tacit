@@ -54,6 +54,20 @@ test('replenish runs inside tacit-settle, and the old cron is inert', () => {
   if (cron) ok(!/replenish\.js/.test(cron.dockerCommand || ''), 'tacit-replenish would run replenish.js again');
 });
 
+test('the Bitcoin lane is one worker: tacit-eth-state runs it, and the reflection and header crons are inert', () => {
+  const lane = svc('tacit-eth-state');
+  ok(/bitcoin-lane\.js/.test(lane.dockerCommand || ''), 'tacit-eth-state does not run src/bitcoin-lane.js');
+  const keys = envKeys(lane);
+  for (const k of ['LANE_ETH_STATE', 'LANE_REFLECTION', 'LANE_HEADERS', 'HEADER_EVERY_SECS', 'HEADER_MAX_GAS_GWEI', 'HEADER_RELAY_LEAD', 'HEADER_RELAY_MIN_BATCH', 'REFLECT_CYCLE_LIMIT', 'REFLECT_GAS_LIMIT']) ok(keys.includes(k), `tacit-eth-state does not declare ${k}`);
+  ok(!keys.includes('RUN_MODE'), 'the lane is an always-on worker, not a cron run');
+  // A cron still running its file beside the lane would prove the same batch twice and race the lane for the relay key's nonces.
+  for (const [n, file] of [['tacit-reflection', 'reflection-folder.js'], ['tacit-header', 'header-relay.js']]) {
+    const c = svc(n);
+    ok(!new RegExp(file.replace('.', '\\.')).test(c.dockerCommand || ''), `${n} would run ${file} beside the lane`);
+    ok(c.schedule === '0 0 1 1 *', `${n} is still scheduled`);
+  }
+});
+
 test('settlement keeps its private-submission safety', () => {
   const s = svc('tacit-settle');
   ok(envKeys(s).includes('SETTLE_RPC_URLS'), 'private submission endpoints are not declared');

@@ -251,7 +251,7 @@ async function cycle() {
   // advanceTip derives each header's difficulty target from its OWN branch (blockTarget[prev] +
   // epochStartTs[prev]), not a single global per-epoch value set by a separate call — so it crosses a
   // difficulty-epoch boundary transparently within one submission. No special-casing needed here.
-  const dear = await gasAboveCap();
+  const dear = await gasAboveCap(CFG.headerMaxGasGwei);
   // A user waiting on the reflection (a bonded cBTC lock not recorded yet) outranks waiting for cheap gas, up to a
   // ceiling, once the wait is real: a lock cannot be folded before it has its confirmations (about four hours), so
   // until the oldest such bond is DEMAND_GRACE_BLOCKS old the relay keeps to cheap gas and loses nothing by it.
@@ -271,7 +271,7 @@ async function cycle() {
     gasDear: urgent ? false : !!dear, restore: depth > 0,
   });
   if (plan.action === 'wait') {
-    if (plan.reason === 'gas') log(`gas ${dear.toFixed(3)} gwei is above MAX_GAS_GWEI=${CFG.maxGasGwei} — waiting`);
+    if (plan.reason === 'gas') log(`gas ${dear.toFixed(3)} gwei is above HEADER_MAX_GAS_GWEI=${CFG.headerMaxGasGwei} — waiting`);
     else log(`batching: ${plan.pending} of ${CFG.headerMinBatch} headers pending — waiting (tip=${rtip} btc=${btip})`);
     return false;
   }
@@ -286,7 +286,7 @@ async function cycle() {
     }
     if (gate && gate.ref != null) log(`base fee ${(Number(gate.nextBase) / 1e9).toFixed(3)} gwei (${gate.why}; recent norm ${(Number(gate.ref) / 1e9).toFixed(3)} gwei)`);
   }
-  if (plan.forced && dear) log(`gas ${dear.toFixed(3)} gwei is above MAX_GAS_GWEI=${CFG.maxGasGwei} but the relay is at its staleness bound — advancing`);
+  if (plan.forced && dear) log(`gas ${dear.toFixed(3)} gwei is above HEADER_MAX_GAS_GWEI=${CFG.headerMaxGasGwei} but the relay is at its staleness bound — advancing`);
   log(`advancing relay ${plan.from}..${plan.to} (btc=${btip} refl=${refl ?? '?'} lead-cap=${paceCap})`);
   const { txHash: tx, to: reached } = await submitAdvance(plan.from, plan.to);
   log(`relay advanced to ${reached} tx=${tx}`);
@@ -312,6 +312,7 @@ async function main() {
   }
 }
 
+export { cycle as headerCycle };
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((e) => { console.error('fatal', e); process.exit(1); });
 }

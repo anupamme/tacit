@@ -148,6 +148,9 @@ export const CFG = {
   // Opt-in spend guard for long catch-ups: when > 0, the header feeder and the reflection folder wait instead of
   // submitting while the live gas price is above this many gwei. 0 (default) disables it.
   maxGasGwei: num('MAX_GAS_GWEI', 0),
+  // The header feeder's own ceiling (headers can wait for cheap gas; an attest should not), HEADER_MAX_GAS_GWEI, else MAX_GAS_GWEI. In the
+  // one-process lane (bitcoin-lane.js) the two run side by side, so each has its own.
+  headerMaxGasGwei: num('HEADER_MAX_GAS_GWEI', num('MAX_GAS_GWEI', 0)),
   // Alert depth for the header feeder's fork recovery. The feeder always walks the relay's tip back to the
   // explorer's chain and resubmits the canonical headers, at any depth; a branch deeper than this is not a
   // normal Bitcoin reorg, so it is also raised as a critical alert (log + ALERT_WEBHOOK_URL).
