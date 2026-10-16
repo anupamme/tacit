@@ -355,6 +355,52 @@ try {
   ok(r.walletLog.sends.length === 1 && vaultOf(USD, 'user').a === 0n, 'ending it is one transaction, and the vault is out of the auction');
   await closeAll(r);
 
+  // ── a pause: the owner stops liquidations, outside bids and redemptions for a while ──
+  send('owner', USD, 'pauseAuctions(uint256)', '7200');
+  r = await openPage({});
+  await until(r.page, () => /Auctions are paused/.test(document.querySelector('#cap')?.textContent || ''), null, 30000);
+  const pz = await text(r.page, '#cap');
+  ok(/Auctions are paused\./.test(pz) && /for \d{1,3}:\d\d\./.test(pz) && /Repaying, adding TAC and withdrawing work as usual/.test(pz), `a pause is said, with its countdown and what still works (${pz.slice(0, 160).replace(/\s+/g, ' ')})`);
+  await closeAll(r);
+  send('owner', USD, 'resumeAuctions()');
+  r = await openPage({});
+  await until(r.page, () => /Room to borrow now|room to borrow now/i.test(document.querySelector('#cap')?.textContent || ''), null, 30000);
+  await sleep(1500);
+  ok(!/Auctions are paused/.test(await text(r.page, '#cap')), 'when the owner lifts the pause the notice is gone');
+  await closeAll(r);
+
+  // ── the owner changes a term, slowly: the page follows it ──
+  r = await openPage({ hash: hashFor(`&a=${ACC.user.a}`) });
+  await until(r.page, () => /Collateral/.test(document.querySelector('#pos')?.textContent || ''));
+  const bar0 = await text(r.page, '#pos');
+  ok(/200%/.test(bar0) && /400%/.test(bar0) && !/300%/.test(bar0.replace(/350%/g, '')), 'the bar is drawn with the 200% line and the 400% line');
+  send('owner', USD, 'queueParam(uint8,uint256)', '2', '15000');                                          // the liquidation ratio to 150%
+  await r.page.reload();
+  await until(r.page, () => /announced a change/.test(document.querySelector('#cap')?.textContent || ''), null, 30000);
+  const an = await text(r.page, '#cap');
+  ok(/liquidation ratio to 150%: can take effect in (2 days|1 day \d+ h)/.test(an) && /Repay or withdraw before it if you do not want it/.test(an), `an announced change is shown with its term, value and wait (${an.replace(/\s+/g, ' ').slice(-170)})`);
+  // the owner's tool (tools/tac-vault-admin.mjs, or VAULT_ADMIN) reads the same announcement from the chain, and builds the calldata that makes it
+  const ADMIN = process.env.VAULT_ADMIN || join(REPO, 'tools/tac-vault-admin.mjs');
+  if (existsSync(ADMIN)) {
+    const adm = execFileSync('node', [ADMIN, 'status', USD, SYN.usd], { env: { ...process.env, RPC: ANVIL }, encoding: 'utf8' });
+    ok(/\bliq\s+-> 15000\s+executable from/.test(adm) && /liquidation ratio \(bps\)\s+20000/.test(adm) && /announced minter 0x0+\b/.test(adm), `the admin tool shows the terms now and the announced change (${adm.replace(/\s+/g, ' ').slice(0, 700)})`);
+    ok(execFileSync('node', [ADMIN, 'call', 'queue', 'liq', '15000'], { encoding: 'utf8' }).trim() === cast('calldata', 'queueParam(uint8,uint256)', '2', '15000'), 'and its calldata is the vault\'s own queueParam');
+  }
+  // a further synth minter the owner names is shown the same way, and goes when it is cancelled
+  send('owner', SYN.usd, 'queueMinter(address)', TAC);
+  await r.page.reload();
+  await until(r.page, () => /another contract allowed to mint/.test(document.querySelector('#cap')?.textContent || ''), null, 30000);
+  ok(/another contract allowed to mint TACD: can be added in (3 days|2 days \d+ h)/.test(await text(r.page, '#cap')), 'an announced synth minter is shown with its wait');
+  send('owner', SYN.usd, 'cancelMinter()');
+  await rpcA('evm_increaseTime', [2 * 86400 + 60]); await rpcA('evm_mine', []);
+  send('owner', USD, 'executeParam(uint8)', '2');
+  await r.page.reload();
+  await until(r.page, () => /Collateral/.test(document.querySelector('#pos')?.textContent || ''), null, 30000);
+  const bar1 = await text(r.page, '#pos');
+  ok(!/announced a change/.test(await text(r.page, '#cap')), 'once the change is made the notice is gone');
+  ok(/150%/.test(bar1) && /300%/.test(bar1) && !/400%/.test(bar1), `the lines follow the new liquidation ratio: 150% and 300% (${bar1.replace(/\s+/g, ' ').slice(0, 120)})`);
+  await closeAll(r);
+
   // ── a read-only look at another account ──
   setPrice(P0);
   r = await openPage({ hash: hashFor(`&a=${ACC.user.a}`) });

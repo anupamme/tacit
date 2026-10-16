@@ -223,6 +223,7 @@ function vault() {
   assert.equal(M.floorTo(1999999n * 10n ** 12n, 2), 1990000n * 10n ** 12n); assert.equal(M.ceilTo(1000001n * 10n ** 12n, 2), 1010000n * 10n ** 12n);
   assert.equal(M.ceilTo(5n * E18, 2), 5n * E18);
   ok('amounts are written rounding down (never more than there is), the amount to add rounds up, small amounts keep two significant digits');
+  assert.equal(M.span(172800), '2 days'); assert.equal(M.span(180000), '2 days 2 h'); assert.equal(M.span(19200), '5 h 20 min'); assert.equal(M.span(7200), '2 h'); assert.equal(M.span(600), '10 min'); assert.equal(M.span(5), '1 min');
   assert.equal(M.clock(75), '1:15'); assert.equal(M.clock(0), '0:00'); assert.equal(M.clock(-5), '0:00'); assert.equal(M.clock(59.2), '1:00');
   ok('the owner-window countdown reads m:ss');
 

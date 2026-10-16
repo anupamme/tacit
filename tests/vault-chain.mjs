@@ -26,7 +26,7 @@ const SIGS = {
   TAC: 'TAC()', SYNTH: 'SYNTH()', MINT_RATIO_BPS: 'MINT_RATIO_BPS()', LIQ_RATIO_BPS: 'LIQ_RATIO_BPS()', OWNER_WINDOW: 'OWNER_WINDOW()', AUCTION_DURATION: 'AUCTION_DURATION()',
   MIN_DEBT: 'MIN_DEBT()', REDEMPTION_FEE_BPS: 'REDEMPTION_FEE_BPS()', DEPTH_BPS: 'DEPTH_BPS()',
   totalDebt: 'totalDebt()', debtCeiling: 'debtCeiling()', depthCeiling: 'depthCeiling()', borrowFeeBps: 'borrowFeeBps()', valueOf: 'valueOf(uint256,bool)', liquidationPrice: 'liquidationPrice()', offerPrice: 'offerPrice()',
-  vaults: 'vaults(address)', recovered: 'recovered(address)', onOffer: 'onOffer(address)',
+  vaults: 'vaults(address)', recovered: 'recovered(address)', onOffer: 'onOffer(address)', pausedUntil: 'pausedUntil()', auctionTime: 'auctionTime()', queuedParam: 'queuedParam(uint8)', pendingOracleEta: 'pendingOracleEta()', pendingMinterEta: 'pendingMinterEta()',
   deposit: 'deposit(uint256)', withdraw: 'withdraw(uint256)', borrow: 'borrow(uint256,uint256)', repay: 'repay(address,uint256)', cancel: 'cancel(address)',
   permitTac: 'permitTac(uint256,uint256,uint8,bytes32,bytes32)', permitSynth: 'permitSynth(uint256,uint256,uint8,bytes32,bytes32)', multicall: 'multicall(bytes[])',
   balanceOf: 'balanceOf(address)', allowance: 'allowance(address,address)', approve: 'approve(address,uint256)', nonces: 'nonces(address)', name: 'name()', symbol: 'symbol()', timestamp: 'getCurrentBlockTimestamp()',
@@ -77,7 +77,7 @@ function encReturns(rets) {
 }
 const enc = (types, ...vals) => cast('abi-encode', `f(${types})`, ...vals);
 // the answers by selector: a vault's terms and totals, the account's vault, prices; `gone` names the views that fail
-function fake({ gone = [] } = {}) {
+function fake({ gone = [], over = {} } = {}) {
   const S = C.SEL, ask = [];
   const answers = {
     [S.TAC]: enc('address', TAC), [S.SYNTH]: enc('address', SYN), [S.MINT_RATIO_BPS]: enc('uint256', '35000'), [S.LIQ_RATIO_BPS]: enc('uint256', '20000'), [S.OWNER_WINDOW]: enc('uint256', '1200'),
@@ -85,7 +85,8 @@ function fake({ gone = [] } = {}) {
     [S.totalDebt]: enc('uint256', String(52000n * E18)), [S.debtCeiling]: enc('uint256', String((1n << 256n) - 1n)), [S.depthCeiling]: enc('uint256', String(250000n * E18)), [S.borrowFeeBps]: enc('uint256', '100'),
     [S.valueOf]: enc('uint256', String(E18 / 4n)), [S.liquidationPrice]: enc('uint256', String(E18 / 4n + E18 / 100n)), [S.offerPrice]: enc('uint256', String(E18 / 4n + E18 / 50n)),
     [S.vaults]: enc('uint256,uint256,uint256', String(100000n * E18), String(3030n * E18), '1800000000'), [S.recovered]: enc('bool', 'true'), [S.onOffer]: enc('uint256', String(50000n * E18)),
-    [S.balanceOf]: enc('uint256', String(900000n * E18)), [S.allowance]: enc('uint256', '0'), [S.symbol]: enc('string', 'TACD'), [S.timestamp]: enc('uint256', '1800000123'),
+    [S.balanceOf]: enc('uint256', String(900000n * E18)), [S.allowance]: enc('uint256', '0'), [S.symbol]: enc('string', 'TACD'), [S.timestamp]: enc('uint256', '1800000123'), [S.pausedUntil]: enc('uint256', '1800003600'), [S.auctionTime]: enc('uint256', '1799990000'),
+    [S.queuedParam]: enc('uint256,uint256', '0', '0'), [S.pendingOracleEta]: enc('uint256', '0'), [S.pendingMinterEta]: enc('uint256', '0'), ...over,
   };
   const gonesel = new Set(gone.map((g) => S[g]));
   const chain = async (to, data) => {
@@ -107,12 +108,22 @@ const V = { addr: VAULT, tac: TAC, synth: SYN };
   const calls = [C.timestampCall(), ...C.dynamicCalls(V, A)], res = await batch(calls);
   const d = C.parseDynamic(V, A, res.slice(1));
   assert.equal(BigInt(res[0]), 1800000123n);
-  assert.deepEqual({ ...d, me: undefined }, { totalDebt: 52000n * E18, debtCeiling: (1n << 256n) - 1n, depthCeiling: 250000n * E18, feeBps: 100n, pB: E18 / 4n, pL: E18 / 4n + E18 / 100n, pO: E18 / 4n + E18 / 50n, symbol: 'TACD', me: undefined, recovered: true, onOffer: 50000n * E18, tacBal: 900000n * E18, tacAllow: 0n, synBal: 900000n * E18, synAllow: 0n });
+  assert.deepEqual({ ...d, me: undefined }, { totalDebt: 52000n * E18, debtCeiling: (1n << 256n) - 1n, depthCeiling: 250000n * E18, feeBps: 100n, pB: E18 / 4n, pL: E18 / 4n + E18 / 100n, pO: E18 / 4n + E18 / 50n, symbol: 'TACD', pausedUntil: 1800003600n, auctionTime: 1799990000, announced: [], oracleEta: 0, minterEta: 0, me: undefined, recovered: true, onOffer: 50000n * E18, tacBal: 900000n * E18, tacAllow: 0n, synBal: 900000n * E18, synAllow: 0n });
   assert.deepEqual(d.me, { collateral: 100000n * E18, debt: 3030n * E18, auctionStart: 1800000000 });
   // the borrow price is the vault's own valueOf(1e18, true): one wei of TAC is one wei of price
   const vo = f.ask.find((s) => s.data.startsWith(C.SEL.valueOf));
   assert.equal(vo.data, cast('calldata', 'valueOf(uint256,bool)', String(E18), 'true'));
   ok('the totals, fees, prices, symbol and one account\'s vault, balances and allowances are read in one batch, the borrow price as valueOf(1e18, true)');
+  {
+    // an owner's announcement: a term and when it may be made (every term answers the same here), and a new oracle's time
+    const S = C.SEL, g = fake({ over: { [S.queuedParam]: enc('uint256,uint256', '15000', '1800172800'), [S.pendingOracleEta]: enc('uint256', '1800259200'), [S.pendingMinterEta]: enc('uint256', '1800345600') } });
+    const dd = C.parseDynamic(V, null, await C.makeReader(rpc(g.chain)).batch(C.dynamicCalls(V, null)));
+    assert.equal(dd.announced.length, 7); assert.deepEqual(dd.announced[2], { id: 2, value: 15000n, eta: 1800172800 }); assert.equal(dd.oracleEta, 1800259200); assert.equal(dd.minterEta, 1800345600);
+    ok('the changes the owner has announced (each of the seven terms) and the times a new oracle and a new synth minter may be put in are read with the rest');
+    const old = C.parseDynamic(V, null, await C.makeReader(rpc(fake({ gone: ['queuedParam', 'pendingOracleEta', 'pendingMinterEta'] }).chain)).batch(C.dynamicCalls(V, null)));
+    assert.deepEqual(old.announced, []); assert.equal(old.oracleEta, 0); assert.equal(old.minterEta, 0);
+    ok('a vault that has no announcements to read gives none');
+  }
   const nobody = C.parseDynamic(V, null, (await batch(C.dynamicCalls(V, null))));
   assert.equal(nobody.me, undefined); assert.equal(nobody.tacBal, undefined); assert.equal(nobody.pB, E18 / 4n);
   ok('without an account only the public numbers are asked');
