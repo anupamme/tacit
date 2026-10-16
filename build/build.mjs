@@ -186,6 +186,8 @@ const VAULT_CB_FILES = ['vault/math.js', 'vault/deployments.js', 'vault/chain.js
 const TASKS_CB_FILES = ['tasks/verify.js', 'tasks/app.js', 'tasks/index.html'];
 // dapp/build/ is the page for builders: its one script, then the page.
 const BUILD_CB_FILES = ['build/app.js', 'build/index.html'];
+// dapp/swap/ is the swap page: its routes first, then app.js, then the page.
+const SWAP_CB_FILES = ['swap/route.js', 'swap/app.js', 'swap/index.html'];
 // dapp/splitter/ is the tip splitter page: its encodings and the contract's creation code first, then app.js, then the page.
 const SPLITTER_CB_FILES = ['splitter/abi.js', 'splitter/bytecode.js', 'splitter/app.js', 'splitter/index.html'];
 // dapp/relay/ is the public page on what the relay earns and spends and what the buyback has bought, the settles it holds for any sender, and
@@ -266,7 +268,7 @@ function pageCacheBust(files, write) {
 // from the first bytes of the HTML. The group after the bar is what the page needs right after it starts, not before:
 // the module's first lines preload it, once what the page waits on has arrived, so the two do not share bandwidth.
 // Generated here so it cannot go stale; --verify-only reports a block that no longer matches.
-const PRELOAD_PAGES = ['index.html', 'pay/index.html', 'pay/eth/index.html', 'trade/index.html', 'trade/teth/index.html', 'trade/cbtc/index.html', 'vault/index.html', 'tasks/index.html', 'splitter/index.html', 'relay/index.html'];
+const PRELOAD_PAGES = ['index.html', 'pay/index.html', 'pay/eth/index.html', 'trade/index.html', 'trade/teth/index.html', 'trade/cbtc/index.html', 'vault/index.html', 'tasks/index.html', 'splitter/index.html', 'relay/index.html', 'swap/index.html'];
 const STATIC_IMPORT = /(?:^|[\n;}])\s*(?:import|export)\s*(?:[^'"();]*?\sfrom\s*)?(['"])([^'"]+)\1/g;
 const HEAD_BLOCK = /<!-- preload:begin -->[\s\S]*?<!-- preload:end -->/, LATER_BLOCK = /\/\/ preload-later:begin\n[\s\S]*?\/\/ preload-later:end/;
 function preloadBlocks(page) {
@@ -437,7 +439,7 @@ async function main() {
     if (gotCb !== wantCb) drift.push(`classic.html tacit.js ?cb=${gotCb} but sha256(dapp/tacit.js)=${wantCb}`);
     if (gotPreboot !== wantPreboot) drift.push(`classic.html preboot.js ?cb=${gotPreboot} but sha256(dapp/preboot.js)=${wantPreboot}`);
     if (gotSw !== wantSw) drift.push(`sw.js CACHE_VERSION suffix ${gotSw} but sha256(vendor‖prf-wallet)=${wantSw}`);
-    drift.push(...pageCacheBust(SATS_CB_FILES, false), ...pageCacheBust(WELD_CB_FILES, false), ...pageCacheBust(TAC_CB_FILES, false), ...btcMarketCss(false), ...tethPageStyle(false), ...pageCacheBust(TRADE_CB_FILES, false), ...tradeAssetPages(false), ...pageCacheBust(VAULT_CB_FILES, false), ...pageCacheBust(TASKS_CB_FILES, false), ...pageCacheBust(BUILD_CB_FILES, false), ...pageCacheBust(SPLITTER_CB_FILES, false), ...pageCacheBust(RELAY_CB_FILES, false), ...pageCacheBust(PAY_CB_FILES, false));
+    drift.push(...pageCacheBust(SATS_CB_FILES, false), ...pageCacheBust(WELD_CB_FILES, false), ...pageCacheBust(TAC_CB_FILES, false), ...btcMarketCss(false), ...tethPageStyle(false), ...pageCacheBust(TRADE_CB_FILES, false), ...tradeAssetPages(false), ...pageCacheBust(VAULT_CB_FILES, false), ...pageCacheBust(TASKS_CB_FILES, false), ...pageCacheBust(BUILD_CB_FILES, false), ...pageCacheBust(SWAP_CB_FILES, false), ...pageCacheBust(SPLITTER_CB_FILES, false), ...pageCacheBust(RELAY_CB_FILES, false), ...pageCacheBust(PAY_CB_FILES, false));
     drift.push(...pagePreloads(false));
     if (drift.length) {
       console.error('✗ cache-bust tokens or preload links are stale — run `npm run build` and commit the result:');
@@ -482,6 +484,8 @@ async function main() {
     console.log(`• tasks page cache-bust: ${tasksDrift.length ? `${tasksDrift.length} token(s) updated` : 'unchanged'}`);
     const buildDrift = pageCacheBust(BUILD_CB_FILES, true);
     console.log(`• build page cache-bust: ${buildDrift.length ? `${buildDrift.length} token(s) updated` : 'unchanged'}`);
+    const swapDrift = pageCacheBust(SWAP_CB_FILES, true);
+    console.log(`• swap page cache-bust: ${swapDrift.length ? `${swapDrift.length} token(s) updated` : 'unchanged'}`);
     const relayDrift = pageCacheBust(RELAY_CB_FILES, true);
     console.log(`• relay page cache-bust: ${relayDrift.length ? `${relayDrift.length} token(s) updated` : 'unchanged'}`);
     const splitterDrift = pageCacheBust(SPLITTER_CB_FILES, true);

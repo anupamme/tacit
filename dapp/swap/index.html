@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
+<meta name="color-scheme" content="light dark">
+<title>tacit swap</title>
+<meta name="description" content="Swap ETH or any token for TAC in one transaction, or swap privately in the Tacit pool: one set of reserves with a public door any router can reach and a private one.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="tacit">
+<link rel="canonical" href="https://tacit.finance/swap/">
+<meta property="og:url" content="https://tacit.finance/swap/">
+<meta property="og:title" content="tacit swap">
+<meta property="og:description" content="Swap any token for TAC in one transaction, or privately in the Tacit pool.">
+<meta property="og:image" content="https://tacit.finance/tacit-card.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
+<!-- preload-roots: /swap/app.js -->
+<!-- preload:begin -->
+<link rel="modulepreload" href="/swap/app.js?cb=08e790ae">
+<link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
+<link rel="modulepreload" href="/evm-trade-venues.js?cb=a08631ce">
+<link rel="modulepreload" href="/trade/connect.js?cb=b9f00573">
+<link rel="modulepreload" href="/walletconnect.js?cb=92886522">
+<link rel="modulepreload" href="/trade/wallet.js?cb=0cba8a63">
+<link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
+<link rel="modulepreload" href="/trade/util.js?cb=c3dc39b3">
+<link rel="modulepreload" href="/trade/rpc.js?cb=842f58a5">
+<link rel="modulepreload" href="/trade/fmt.js?cb=43646c2e">
+<link rel="modulepreload" href="/trade/farm.js?cb=e7c9d199">
+<link rel="modulepreload" href="/swap/route.js?cb=9a5d9c69">
+<!-- preload:end -->
+<style>
+@font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-weight: 500; font-display: swap; src: url('/fonts/ibm-plex-mono-500-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Instrument Serif'; font-weight: 400; font-display: swap; src: url('/fonts/instrument-serif-400-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Instrument Serif'; font-weight: 400; font-style: italic; font-display: swap; src: url('/fonts/instrument-serif-400i-latin.woff2') format('woff2'); }
+
+:root {
+  --paper: #E8E0CC; --card: #F2EBD4; --field: #FAF6EA;
+  --ink: #1A1A1A; --mute: #625C4F;
+  --hair: rgba(26,26,26,.12); --hair-2: rgba(26,26,26,.28);
+  --orange: #f7931a; --ok: #0a7234; --warn: #9a4a00; --err: #b8341d; --eth: #627eea;
+  --scrim: rgba(26,26,26,.36); --lift: 0 22px 44px -28px rgba(26,26,26,.45);
+  --sheet-shadow: 0 40px 90px -40px rgba(0,0,0,.6);
+  --float: 0 1px 2px rgba(26,26,26,.06), 0 30px 60px -32px rgba(26,26,26,.5);
+  --skel: rgba(26,26,26,.08);
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --serif: 'Instrument Serif', Georgia, serif;
+  --tap: 44px;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --spring: cubic-bezier(.34, 1.56, .64, 1);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #15130E; --card: #1F1C15; --field: #191711;
+    --ink: #EDE5CF; --mute: #A39B85;
+    --hair: rgba(237,229,207,.12); --hair-2: rgba(237,229,207,.28);
+    --ok: #8fcf9a; --warn: #f7931a; --err: #f08a6c; --eth: #8ea2f4;
+    --scrim: rgba(0,0,0,.6); --lift: 0 22px 44px -28px rgba(0,0,0,.9);
+    --float: 0 0 0 1px rgba(237,229,207,.04), 0 34px 70px -30px rgba(0,0,0,.95);
+    --skel: rgba(237,229,207,.07);
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); }
+body {
+  font: 14px/1.6 var(--mono); letter-spacing: -.01em; overflow-x: hidden;
+  background-image: radial-gradient(var(--hair) 1px, transparent 1px); background-size: 24px 24px;
+  padding: 0 max(16px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(16px, env(safe-area-inset-left));
+}
+a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+@media (hover: hover) { a:hover { text-decoration-thickness: 2px; } }
+button, input { font: inherit; color: inherit; letter-spacing: inherit; }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+[hidden] { display: none !important; }
+.num { font-variant-numeric: tabular-nums; }
+.mute { color: var(--mute); } .ok { color: var(--ok); } .err { color: var(--err); } .warn { color: var(--warn); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.skip { position: absolute; left: 16px; top: -64px; z-index: 100; padding: 10px 16px; background: var(--ink); color: var(--paper); border-radius: 8px; text-decoration: none; font-size: 13px; transition: top .15s; }
+.skip:focus { top: 12px; }
+.tk { width: 28px; height: 28px; display: block; flex: none; border-radius: 50%; }
+.tk.sm { width: 18px; height: 18px; } .tk.xs { width: 14px; height: 14px; }
+.tk.inl { display: inline-block; vertical-align: -3px; margin-right: 5px; }
+.tk.letter { display: grid; place-items: center; font: 500 13px/1 var(--mono); color: #fff; background: var(--c, #8F8979); }
+.pairtk { display: inline-flex; flex: none; } .pairtk .tk + .tk { margin-left: -6px; box-shadow: 0 0 0 2px var(--card); }
+.shell { max-width: 1120px; margin: 0 auto; padding-bottom: 56px; }
+
+/* header (the trade pages') */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px 0 8px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; flex: none; }
+.brand b { font: italic 400 30px/1 var(--serif); letter-spacing: -.01em; }
+.brand i { font-style: normal; font-size: 12px; color: var(--mute); text-transform: uppercase; letter-spacing: .12em; }
+.top nav { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 2px 18px; font-size: 12.5px; }
+.top nav a { color: var(--mute); text-decoration: none; padding: 8px 0; }
+.top nav a[aria-current="page"] { color: var(--ink); }
+@media (hover: hover) { .top nav a:hover { color: var(--ink); text-decoration: underline; } }
+@media (max-width: 760px) { .top nav a.opt { display: none; } }
+@media (max-width: 560px) { .top nav a[href="/"], .top nav a[aria-current="page"] { display: none; } .top nav { flex-wrap: nowrap; gap: 2px 14px; } }
+.chip { display: inline-flex; align-items: center; gap: 8px; min-height: 34px; margin-left: 4px; padding: 0 12px; font-size: 12.5px; color: var(--ink); background: var(--card); border: 1px solid var(--hair-2); border-radius: 999px; cursor: pointer; }
+.chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--hair-2); flex: none; } .chip .dot.on { background: var(--ok); } .chip .dot.warn { background: var(--orange); }
+@media (hover: hover) { .chip:hover { border-color: var(--ink); } }
+@media (pointer: coarse) { .chip { min-height: var(--tap); } }
+
+/* the page: a short hero beside the card on a wide screen, the card first on a narrow one */
+.stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 470px); gap: 28px 56px; align-items: start; padding: 34px 0 10px; }
+@media (max-width: 900px) { .stage { grid-template-columns: minmax(0, 1fr); padding-top: 18px; } }
+.hero h1 { font: 400 clamp(48px, 7.4vw, 88px)/.92 var(--serif); letter-spacing: -.025em; margin: 0; }
+.hero h1 em { font-style: italic; }
+.hero .lede { margin: 18px 0 0; max-width: 46ch; font-size: 14px; line-height: 1.65; color: var(--mute); text-wrap: pretty; }
+.hero .lede b { color: var(--ink); font-weight: 500; }
+.pxs { display: flex; flex-wrap: wrap; gap: 4px 18px; min-height: 22px; margin: 18px 0 0; font-size: 12px; color: var(--mute); opacity: 0; transition: opacity .3s; }
+.pxs.on { opacity: 1; }
+.pxs span { display: inline-flex; align-items: center; gap: 6px; } .pxs b { color: var(--ink); font-weight: 500; }
+.points { display: grid; gap: 10px; margin: 26px 0 0; padding: 0; list-style: none; max-width: 48ch; font-size: 13px; line-height: 1.55; }
+.points li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; color: var(--mute); }
+.points li::before { content: ''; width: 7px; height: 7px; margin: 7px 0 0 4px; border-radius: 50%; background: var(--orange); }
+.points li:nth-child(2)::before { background: var(--eth); } .points li:nth-child(3)::before { background: transparent; border: 1.5px dashed var(--ink); width: 8px; height: 8px; }
+.points b { color: var(--ink); font-weight: 500; }
+@media (max-width: 900px) { .hero { order: 0; } .sw { order: 1; } .points { display: none; } .hero .lede { margin-top: 12px; } }
+
+/* the card: the front page's console, two verbs */
+.sw { position: relative; min-width: 0; background: var(--card); border: 1px solid var(--hair-2); border-radius: 18px; box-shadow: var(--float); }
+.sw-h { position: relative; display: grid; grid-template-columns: repeat(2, 1fr); padding: 4px 8px 0; border-bottom: 1px solid var(--hair); }
+.sw-h::after { content: ''; position: absolute; bottom: -1px; left: calc(8px + (100% - 16px) / 2 * var(--i, 0) + (100% - 16px) / 2 * .22); width: calc((100% - 16px) / 2 * .56); height: 2px; border-radius: 2px; background: var(--ink); transition: left .3s var(--ease); }
+.sw-h button { display: inline-flex; justify-content: center; align-items: center; gap: 8px; padding: 13px 0 12px; background: none; border: 0; cursor: pointer; font: italic 400 22px/1 var(--serif); letter-spacing: -.01em; color: var(--mute); transition: color .15s; }
+.sw-h button[aria-selected="true"] { color: var(--ink); }
+@media (hover: hover) { .sw-h button:hover { color: var(--ink); } }
+.sw-h svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.sw-b { padding: 14px 16px 16px; }
+.mode { display: inline-flex; gap: 2px; margin: 0 0 12px; padding: 3px; border-radius: 999px; background: color-mix(in srgb, var(--ink) 6%, transparent); font-size: 12.5px; }
+.mode button { display: inline-flex; align-items: center; gap: 7px; min-height: 30px; padding: 2px 14px; border: 0; border-radius: 999px; background: none; color: var(--mute); cursor: pointer; transition: background .15s, color .15s; }
+.mode button[aria-checked="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 14%, transparent); }
+.mode .lock { width: 9px; height: 10px; border: 1.5px dashed currentColor; border-radius: 2px; }
+@media (pointer: coarse) { .mode button { min-height: 38px; } }
+.f { padding: 12px 14px 10px; background: var(--field); border: 1px solid var(--hair); border-radius: 12px; transition: border-color .15s; }
+.f:focus-within { border-color: var(--ink); }
+.f.priv { border-style: dashed; border-color: var(--hair-2); }
+.fh, .ff { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px 10px; min-height: 22px; font-size: 12px; color: var(--mute); }
+.fh .where { display: inline-flex; align-items: center; gap: 6px; }
+.fh .where.priv::before { content: ''; width: 8px; height: 9px; border: 1.5px dashed currentColor; border-radius: 2px; }
+.fm { display: flex; align-items: center; gap: 12px; min-height: 58px; margin: 2px 0; }
+.amt, .big { flex: 1; min-width: 0; padding: 0; font: 400 44px/1.1 var(--serif); letter-spacing: -.01em; color: var(--ink); background: none; border: 0; outline: none; font-variant-numeric: tabular-nums; }
+.big { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.amt.long, .big.long { font-size: 34px; } .amt.longer, .big.longer { font-size: 27px; }
+.amt::placeholder { color: var(--hair-2); opacity: 1; } .big.ph { color: var(--hair-2); }
+.big.busy { opacity: .45; transition: opacity .15s; }
+.coin { display: inline-flex; align-items: center; gap: 8px; flex: none; height: 44px; padding: 0 12px 0 6px; font-size: 15px; font-weight: 500; background: var(--card); border: 1px solid var(--hair-2); border-radius: 999px; cursor: pointer; transition: border-color .15s, transform .15s; }
+.coin .tk { width: 32px; height: 32px; transition: transform .4s var(--spring); }
+.coin .car { font-size: 10px; color: var(--mute); }
+@media (hover: hover) { .coin:hover { border-color: var(--ink); } .coin:hover .tk { transform: rotate(-8deg); } }
+.coin:active { transform: scale(.97); }
+.ff button { padding: 0; font: 12px var(--mono); color: var(--mute); background: none; border: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.ff button.over { color: var(--warn); }
+@media (hover: hover) { .ff button:hover { color: var(--ink); } }
+.quick { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.quick button { padding: 3px 10px; font: 12px var(--mono); color: var(--ink); text-decoration: none; background: none; border: 1px solid var(--hair-2); border-radius: 999px; cursor: pointer; }
+@media (hover: hover) { .quick button:hover { border-color: var(--ink); } }
+@media (pointer: coarse) { .quick button { padding: 7px 13px; } }
+.mid { position: relative; z-index: 1; height: 8px; }
+.flip { position: absolute; left: 50%; top: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px; padding: 0; display: grid; place-items: center; background: var(--card); border: 1px solid var(--hair-2); border-radius: 50%; color: var(--ink); cursor: pointer; transition: transform .3s var(--spring), border-color .15s; }
+.flip svg { width: 16px; height: 16px; }
+@media (hover: hover) { .flip:hover { transform: rotate(180deg); border-color: var(--ink); } }
+.flip:disabled { opacity: .4; cursor: default; transform: none; }
+
+/* the ways to fill it, one to choose */
+.rows { margin-top: 8px; overflow: hidden; background: var(--field); border: 1px solid var(--hair); border-radius: 12px; }
+.rows-h { display: flex; justify-content: space-between; gap: 10px; padding: 11px 14px 2px; font-size: 12px; color: var(--mute); }
+.rows button { display: grid; grid-template-columns: minmax(0, 1fr) auto 18px; align-items: center; gap: 12px; width: 100%; padding: 10px 14px 11px; text-align: left; color: inherit; background: none; border: 0; border-top: 1px solid var(--hair); font: inherit; cursor: pointer; transition: background .15s; }
+.rows-h + button { border-top: 0; }
+@media (hover: hover) { .rows button:hover { background: color-mix(in srgb, var(--hair) 40%, transparent); } }
+.rows button:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.rt { display: grid; min-width: 0; line-height: 1.3; }
+.rt b { font: 400 21px/1.1 var(--serif); letter-spacing: -.01em; color: var(--mute); transition: color .15s; }
+.rt small { font-size: 12px; color: var(--mute); text-wrap: pretty; }
+.ra { display: grid; justify-items: end; line-height: 1.3; font-size: 15px; font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--mute); }
+.ra small { font: 11px var(--mono); color: var(--mute); } .ra em { font: 11px var(--mono); font-style: normal; color: var(--ok); }
+.rows [aria-checked="true"] .rt b, .rows [aria-checked="true"] .ra { color: var(--ink); }
+.rd { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--hair-2); transition: box-shadow .2s var(--spring), border-color .15s; }
+.rows [aria-checked="true"] .rd { border-color: var(--ink); box-shadow: inset 0 0 0 3.5px var(--field), inset 0 0 0 9px var(--ink); }
+.rows .wait .ra { opacity: .45; }
+@media (max-width: 380px) { .rt b { font-size: 19px; } .ra { font-size: 14px; } }
+
+/* the receipt: dotted rows */
+.rcpt { margin: 12px 2px 0; display: grid; gap: 2px; font-size: 12.5px; }
+.rcpt div { display: flex; align-items: baseline; gap: 8px; color: var(--mute); }
+.rcpt div::after { content: ''; order: 1; flex: 1; min-width: 12px; border-bottom: 1px dotted var(--hair-2); transform: translateY(-4px); }
+.rcpt dt { order: 0; } .rcpt dd { order: 2; margin: 0; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
+.rcpt dd.warn { color: var(--warn); } .rcpt dd.ok { color: var(--ok); } .rcpt dd.err { color: var(--err); }
+.ack { display: flex; gap: 10px; align-items: flex-start; margin: 12px 2px 0; padding: 10px 12px; font-size: 12.5px; line-height: 1.5; color: var(--ink); background: color-mix(in srgb, var(--warn) 9%, transparent); border-radius: 10px; cursor: pointer; }
+.ack input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--ink); flex: none; }
+.go { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 54px; margin-top: 14px; padding: 10px 16px; font-size: 15px; font-weight: 500; color: var(--card); background: var(--ink); border: 1px solid var(--ink); border-radius: 12px; cursor: pointer; transition: background .15s, color .15s, opacity .15s; text-decoration: none; }
+.go:hover:not(:disabled) { background: transparent; color: var(--ink); }
+.go:disabled { opacity: .4; cursor: not-allowed; }
+.go.priv { background: transparent; color: var(--ink); border-style: dashed; }
+.go.priv:hover:not(:disabled) { background: var(--ink); color: var(--card); border-style: solid; }
+.q { min-height: 20px; margin: 10px 2px 0; font-size: 12px; line-height: 1.55; color: var(--mute); overflow-wrap: anywhere; }
+.q a, .q button.link { color: var(--ink); }
+.q.err { color: var(--err); } .q.ok { color: var(--ok); }
+.link { padding: 0; font: inherit; color: var(--ink); background: none; border: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.sw-foot { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 12px 2px 0; padding-top: 10px; border-top: 1px solid var(--hair); font-size: 12px; color: var(--mute); }
+.slip { display: inline-flex; gap: 4px; }
+.slip button { min-height: 26px; padding: 1px 9px; font: 12px var(--mono); color: var(--mute); background: none; border: 1px solid var(--hair-2); border-radius: 999px; cursor: pointer; }
+.slip button[aria-pressed="true"] { color: var(--card); background: var(--ink); border-color: var(--ink); }
+@media (pointer: coarse) { .slip button { min-height: 34px; padding: 1px 12px; } }
+
+/* the coin picker: a sheet that rises inside the card */
+.pk { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; border-radius: 17px; background: color-mix(in srgb, var(--paper) 55%, transparent); backdrop-filter: blur(1px); }
+.pk-s { display: flex; flex-direction: column; max-height: 92%; background: var(--card); border-top: 1px solid var(--hair-2); border-radius: 16px 16px 0 0; box-shadow: 0 -24px 48px -32px rgba(0,0,0,.5); animation: up .3s var(--ease); }
+@keyframes up { from { transform: translateY(40px); opacity: 0; } }
+.pk-h { display: flex; justify-content: space-between; align-items: center; padding: 12px 10px 6px 18px; }
+.pk-h b { font: italic 400 24px/1 var(--serif); }
+.pk-x { width: 36px; height: 36px; font-size: 22px; color: var(--mute); background: none; border: 0; border-radius: 50%; cursor: pointer; }
+@media (hover: hover) { .pk-x:hover { color: var(--ink); background: var(--field); } }
+.pk-q { margin: 2px 14px 6px; padding: 10px 12px; font: 13px var(--mono); background: var(--field); border: 1px solid var(--hair); border-radius: 10px; outline: none; }
+.pk-q:focus { border-color: var(--ink); }
+.pk-l { overflow: auto; padding: 0 10px 14px; }
+.pk-g { margin: 10px 8px 4px; font-size: 12px; color: var(--mute); }
+.pk-r { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px; text-align: left; color: inherit; background: none; border: 0; border-radius: 12px; cursor: pointer; transition: background .12s; }
+.pk-r .tk { width: 34px; height: 34px; }
+.pk-r > span { flex: 1; display: grid; line-height: 1.3; min-width: 0; }
+.pk-r b { font-weight: 500; } .pk-r small { font-size: 12px; color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pk-r em { flex: none; font-style: normal; font-size: 13px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.pk-r[aria-current="true"] { background: var(--field); box-shadow: inset 0 0 0 1px var(--hair-2); }
+.pk-r.off { opacity: .45; }
+@media (hover: hover) { .pk-r:hover { background: var(--field); } }
+.pk-n { margin: 6px 8px 0; font-size: 12px; color: var(--mute); }
+
+/* Earn: the farms to choose between, then the chosen one */
+.earn-n { margin: 0 2px 12px; font-size: 13px; line-height: 1.55; color: var(--mute); }
+.earn-n b { color: var(--ink); font-weight: 500; }
+.rows .c { grid-template-columns: 38px minmax(0, 1fr) auto 18px; }
+.farm-host { margin-top: 14px; }
+.privfarm { margin-top: 14px; padding: 14px; border: 1px dashed var(--hair-2); border-radius: 12px; font-size: 13px; line-height: 1.55; color: var(--mute); }
+.privfarm b { color: var(--ink); font-weight: 500; }
+.privfarm .go { margin-top: 12px; }
+.anytok { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px 14px; margin: 12px 2px 0; font-size: 12px; color: var(--mute); }
+
+/* the Precision farm (trade/farm.js), in the card */
+.farm-host .eyebrow { display: flex; align-items: center; gap: 8px; font-size: 10.5px; font-weight: 400; letter-spacing: .1em; text-transform: uppercase; color: var(--mute); margin: 0 0 12px; }
+.farm-host h3 { font: 400 20px/1.15 var(--serif); margin: 0 0 12px; }
+.farm-host .note { font-size: 12.5px; color: var(--mute); margin: 12px 0 0; } .farm-host .note a { color: var(--ink); }
+.seg { display: inline-grid; grid-auto-flow: column; grid-auto-columns: minmax(0, auto); border: 1px solid var(--hair-2); border-radius: 10px; overflow: hidden; }
+.seg button { min-height: 34px; padding: 4px 13px; background: none; border: 0; cursor: pointer; color: var(--mute); font-size: 12.5px; }
+.seg button + button { border-left: 1px solid var(--hair-2); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--card); }
+.seg.big { display: grid; grid-auto-columns: minmax(0, 1fr); margin-bottom: 14px; } .seg.big button { min-height: 40px; font-size: 13px; }
+@media (pointer: coarse) { .seg button { min-height: var(--tap); } }
+.lbl { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--mute); margin: 14px 0 6px; }
+.farm-host .amt { display: flex; align-items: center; background: var(--field); border: 1px solid var(--hair); border-radius: 12px; font: inherit; }
+.farm-host .amt:focus-within { border-color: var(--ink); }
+.farm-host .amt input { flex: 1; min-width: 0; font: 400 32px/1.15 var(--serif); color: var(--ink); background: none; border: 0; padding: 10px 14px; outline: none; }
+.farm-host .amt .u { display: inline-flex; align-items: center; gap: 8px; padding: 0 14px 0 4px; color: var(--mute); white-space: nowrap; }
+.kv { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; color: var(--mute); padding: 5px 0; }
+.kv b { font-weight: 400; color: var(--ink); text-align: right; overflow-wrap: anywhere; } .kv b.err { color: var(--err); }
+.btn { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 50px; margin-top: 14px; padding: 10px 16px; font-weight: 500; text-decoration: none; color: var(--card); background: var(--ink); border: 1px solid var(--ink); border-radius: 12px; cursor: pointer; transition: background .15s, color .15s; }
+.btn:hover:not(:disabled) { background: transparent; color: var(--ink); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn.ghost { color: var(--ink); background: transparent; border-color: var(--hair-2); }
+.btn.sm { width: auto; min-height: 28px; padding: 2px 12px; font-size: 12px; margin: 0; border-radius: 8px; }
+.linkbtn { background: none; border: 0; padding: 0; cursor: pointer; color: var(--mute); text-decoration: underline; text-underline-offset: 3px; font-size: 12px; }
+.linkbtn:hover { color: var(--ink); }
+.status { font-size: 12.5px; margin-top: 12px; overflow-wrap: anywhere; } .status:empty { margin-top: 0; } .status a { color: var(--ink); }
+.fm-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; margin: 0 0 12px; }
+.fm-stats > div { display: grid; gap: 2px; } .fm-stats .k { font-size: 11px; color: var(--mute); } .fm-stats b { font-weight: 500; font-size: 17px; } .fm-stats .s { font-size: 11.5px; color: var(--mute); }
+.fm-prog { margin: 16px 0 0; padding-top: 12px; border-top: 1px solid var(--hair); } .fm-prog:empty { display: none; }
+.fm-ph { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 0 0 6px; font-size: 12px; } .fm-ph span { color: var(--mute); font-size: 11.5px; }
+.fm-pf { display: grid; grid-template-columns: 1fr auto auto 14px; align-items: center; gap: 10px; padding: 9px 2px; border-top: 1px solid var(--hair); color: var(--ink); text-decoration: none; font-size: 12.5px; }
+.fm-pf .d { color: var(--mute); font-size: 11.5px; } .fm-pf b { font-weight: 500; } .fm-pf i { font-style: normal; color: var(--mute); }
+@media (hover: hover) { .fm-pf:hover { background: var(--field); } }
+.fm-prog .note { margin: 6px 0 0; font-size: 11.5px; }
+.fm-pos, .fm-add { border-top: 1px solid var(--hair); margin-top: 14px; padding-top: 14px; }
+.fm-how { margin: 0 0 4px; }
+.fm-rcpt { margin: 12px 0 0; padding: 10px 12px; background: var(--field); border: 1px solid var(--hair-2); border-radius: 10px; }
+.fm-rcpt .note { margin: 6px 0 0; }
+.fm-rcpt .ack { margin: 10px 0 0; padding: 0; background: none; }
+.fm-out { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.kv.earned { align-items: center; } .kv .rt { display: inline-flex; align-items: center; gap: 10px; }
+.wd { margin: 6px 0 0; border-top: 1px solid var(--hair); padding-top: 6px; }
+.wd > summary { cursor: pointer; list-style: none; font-size: 12.5px; color: var(--mute); display: flex; align-items: center; gap: 6px; padding: 6px 0; }
+.wd > summary::-webkit-details-marker { display: none; }
+.wd > summary::before { content: '▸'; font-size: 10px; transition: transform .15s; } .wd[open] > summary::before { transform: rotate(90deg); }
+.fm-out .seg button { min-height: 30px; padding: 2px 10px; font-size: 12px; }
+.privnote { margin: 10px 0 0; font-size: 12px; color: var(--mute); text-align: center; } .privnote a { color: var(--mute); }
+
+/* the wallet's sheets (trade/connect.js) */
+.bsheet { position: fixed; inset: 0; z-index: 900; display: grid; grid-template-columns: minmax(0, 1fr); place-items: start center; padding: 16px; overflow: auto; overscroll-behavior: contain; background: var(--scrim); backdrop-filter: blur(2px); }
+.bsheet.top { z-index: 1100; place-items: center; }
+.bsheet-in { min-width: 0; width: min(480px, 100%); padding: 22px 22px 24px; color: var(--ink); background: var(--card); border: 1px solid var(--hair-2); border-radius: 16px; box-shadow: var(--sheet-shadow); }
+.bsheet-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
+.bsheet-head h2 { font: italic 400 28px/1 var(--serif); letter-spacing: -.01em; margin: 0 auto 0 0; } .bsheet-head h2:focus { outline: none; }
+.bsheet .x { padding: 4px 8px; font-size: 26px; line-height: 1; cursor: pointer; color: var(--mute); background: none; border: 0; }
+.bsheet-actions { display: grid; grid-auto-flow: column; gap: 10px; } .bsheet-actions .btn { margin-top: 0; }
+.bsheet .note { font-size: 12.5px; color: var(--mute); }
+@media (max-width: 560px) { .bsheet { padding: 0; place-items: end center; } .bsheet-in { width: 100%; border-radius: 16px 16px 0 0; } }
+.picker { display: grid; gap: 8px; }
+.way { display: grid; gap: 3px; width: 100%; padding: 12px 14px; text-align: left; cursor: pointer; background: var(--field); border: 1px solid var(--hair-2); border-radius: 12px; }
+@media (hover: hover) { .way:hover { border-color: var(--ink); } }
+.way-t { display: flex; align-items: center; gap: 10px; font-weight: 500; }
+.wc-qr { margin: 0 auto 14px; width: 224px; padding: 10px; background: #fff; border-radius: 8px; } .wc-qr svg { display: block; width: 100%; height: auto; }
+.addr-s { font-size: 11.5px; overflow-wrap: anywhere; }
+
+/* how it works */
+.how { margin: 64px 0 0; }
+.how > h2, .addrs > h2 { font: 400 clamp(34px, 5vw, 52px)/1 var(--serif); letter-spacing: -.02em; margin: 0 0 10px; }
+.how > h2 em { font-style: italic; }
+.how > p.lede { max-width: 64ch; margin: 0 0 28px; font-size: 14px; line-height: 1.65; color: var(--mute); }
+.doors { display: grid; grid-template-columns: minmax(0, 1fr) 150px minmax(0, 1.15fr) 150px minmax(0, 1fr); align-items: center; gap: 0; margin: 0 0 34px; }
+.doors .end, .doors .pool { position: relative; z-index: 1; padding: 16px 16px 15px; background: var(--card); border: 1px solid var(--hair-2); border-radius: 14px; }
+.doors .end.priv { border-style: dashed; }
+.doors .pool { padding: 18px; box-shadow: var(--float); }
+.doors b { display: block; font: 400 24px/1.1 var(--serif); letter-spacing: -.01em; }
+.doors small { display: block; margin-top: 4px; font-size: 12px; line-height: 1.5; color: var(--mute); }
+.doors .pairs { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+.doors .pairs li { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 4px; font-size: 12px; background: var(--field); border: 1px solid var(--hair); border-radius: 999px; }
+.doors .tk.sm { width: 18px; height: 18px; }
+.door { position: relative; display: grid; justify-items: center; gap: 4px; padding: 0 8px; text-align: center; font-size: 11.5px; line-height: 1.4; color: var(--mute); }
+.door::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; background: var(--c); border-radius: 2px; }
+.door::after { content: ''; position: absolute; top: 50%; width: 8px; height: 8px; margin-top: -5px; border-top: 2px solid var(--c); border-right: 2px solid var(--c); }
+.door.pub { --c: var(--eth); } .door.pub::after { right: 1px; transform: rotate(45deg); }
+.door.priv { --c: var(--ink); } .door.priv::before { background: none; border-top: 2px dashed var(--c); height: 0; } .door.priv::after { left: 1px; transform: rotate(-135deg); }
+.door span { position: relative; z-index: 1; padding: 2px 8px; font: italic 400 17px/1.2 var(--serif); color: var(--ink); background: var(--paper); border-radius: 6px; }
+.door small { position: relative; z-index: 1; margin-top: 30px; max-width: 18ch; background: var(--paper); }
+.door span { transform: translateY(-14px); }
+@media (max-width: 860px) {
+  .doors { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .door { min-height: 84px; align-content: center; justify-items: start; padding: 10px 0 10px 40px; text-align: left; }
+  .door::before { left: 22px; right: auto; top: 0; bottom: 0; width: 2px; height: auto; margin: 0; }
+  .door.priv::before { border-top: 0; border-left: 2px dashed var(--c); width: 0; }
+  .door::after { left: 18px; right: auto; top: auto; margin: 0; }
+  .door.pub::after { bottom: 2px; transform: rotate(135deg); } .door.priv::after { top: 2px; left: 18px; transform: rotate(-45deg); }
+  .door span, .door small { transform: none; margin: 0; max-width: none; }
+}
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
+.card { padding: 18px 18px 16px; background: var(--card); border: 1px solid var(--hair); border-radius: 14px; }
+.card h3 { font: 400 23px/1.1 var(--serif); letter-spacing: -.01em; margin: 0 0 8px; }
+.card p { margin: 0; font-size: 13px; line-height: 1.6; color: var(--mute); text-wrap: pretty; }
+.card p + p { margin-top: 8px; }
+.card b { color: var(--ink); font-weight: 500; }
+.flow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin: 22px 0 0; padding: 14px 16px; font-size: 12px; color: var(--mute); background: var(--card); border: 1px solid var(--hair); border-radius: 14px; }
+.flow > b { margin-right: 6px; font: italic 400 19px/1.2 var(--serif); color: var(--ink); font-weight: 400; }
+.flow .st { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px; color: var(--ink); background: var(--field); border: 1px solid var(--hair); border-radius: 999px; }
+.flow .st.t { padding-left: 10px; }
+.flow i { font-style: normal; }
+.addrs { margin: 54px 0 0; }
+.addrs > h2 { font-size: clamp(28px, 4vw, 38px); }
+.addrs ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0 28px; margin: 12px 0 0; padding: 0; list-style: none; font-size: 12.5px; }
+.addrs li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--hair); }
+.addrs li span { color: var(--mute); } .addrs li a { font-variant-numeric: tabular-nums; }
+footer { display: flex; flex-wrap: wrap; gap: 8px 22px; justify-content: space-between; margin-top: 54px; padding-top: 18px; border-top: 1px solid var(--hair); font-size: 12px; color: var(--mute); }
+footer nav { display: flex; flex-wrap: wrap; gap: 0 18px; } footer a { color: var(--mute); display: inline-flex; align-items: center; min-height: 24px; }
+@media (hover: hover) { footer a:hover { color: var(--ink); } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the swap</a>
+<div class="sr" id="live" role="status" aria-live="polite"></div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <symbol id="tk-tac" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="tk-teth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#627eea" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#627eea" stroke-width="2.4" stroke-linecap="round"/><path d="M14.8 17L19 17" stroke="#627eea" stroke-width="2.2" stroke-linecap="round"/></symbol>
+    <symbol id="tk-cbtc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><g fill="none" stroke="#f7931a" stroke-linecap="round" stroke-linejoin="round"><path d="M16.4 8 L12.9 23 C 18.6 24 21 21.5 21 18.7 C 21 16 17.6 15.2 14.7 15.6" stroke-width="2.8"/><path d="M11.9 13.2 L18.4 11.5" stroke-width="2.4"/></g></symbol>
+    <symbol id="tk-cusd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><path d="M16.5 7 L15.5 25" stroke="#16a34a" stroke-width="2.7" stroke-linecap="round"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" fill="none" stroke="#16a34a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="tk-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#F7931A"/><path fill="#FFF" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
+    <symbol id="tk-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#627EEA"/><g fill="#FFF"><path fill-opacity=".602" d="M16.498 4v8.87l7.497 3.35z"/><path d="M16.498 4L9 16.22l7.498-3.35z"/><path fill-opacity=".602" d="M16.498 21.968v6.027L24 17.616z"/><path d="M16.498 27.995v-6.028L9 17.616z"/><path fill-opacity=".2" d="M16.498 20.573l7.497-4.353-7.497-3.348z"/><path fill-opacity=".602" d="M9 16.22l7.498 4.353v-7.701z"/></g></symbol>
+  </defs>
+</svg>
+<div class="shell">
+
+  <header class="top">
+    <a class="brand" href="/" aria-label="tacit"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><b>tacit</b><i>swap</i></a>
+    <nav aria-label="Pages">
+      <a href="/">Home</a>
+      <a href="/swap/" aria-current="page">Swap</a>
+      <a href="/trade/tac/">Trade</a>
+      <a href="/vault/" class="opt">Borrow</a>
+      <a href="/pay/" class="opt">Pay</a>
+      <a href="/build/" class="opt">Build</a>
+      <button class="chip" id="wallet-chip" type="button" aria-label="Connect a wallet"><span class="dot" id="wallet-dot"></span><span id="wallet-label">Connect</span></button>
+    </nav>
+  </header>
+
+  <main id="main" tabindex="-1">
+
+  <div class="stage">
+    <section class="hero" aria-labelledby="hero-h">
+      <h1 id="hero-h">Swap into <em>tacit</em></h1>
+      <p class="lede">Buy <b>TAC</b> with ETH or any token in one transaction, or swap <b>privately</b> in the Tacit pool. One set of reserves: a public door any router can reach, and a private one only a proof opens.</p>
+      <p class="pxs" id="pxs" aria-live="off"></p>
+      <ul class="points">
+        <li><span><b>Best price, one transaction.</b> TAC comes from the Precision pool or the Tacit pool, or both at once when splitting pays more.</span></li>
+        <li><span><b>Any token.</b> zQuoter finds the best pool for your token against WETH, and the same transaction buys the TAC with it.</span></li>
+        <li><span><b>Or private.</b> Swap TAC, tETH, cUSD and cBTC inside the pool with a proof made on your device; nothing says whose swap it is.</span></li>
+      </ul>
+      <noscript><p class="lede">Swapping on this page needs JavaScript. The pools' addresses are listed below.</p></noscript>
+    </section>
+
+    <section class="sw" id="sw" aria-label="Swap">
+      <div class="sw-h" role="tablist" aria-label="What to do">
+        <button type="button" role="tab" id="tab-swap" aria-controls="p-swap" aria-selected="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v15m0 0-3.5-3.5M7 19l3.5-3.5M17 20V5m0 0-3.5 3.5M17 5l3.5 3.5"/></svg>swap</button>
+        <button type="button" role="tab" id="tab-earn" aria-controls="p-earn" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V10m0 0c0-3.3 2.7-6 6-6 0 3.3-2.7 6-6 6Zm0 3c0-2.8-2.2-5-5-5 0 2.8 2.2 5 5 5Z"/></svg>earn</button>
+      </div>
+
+      <div class="sw-b" id="p-swap" role="tabpanel" aria-labelledby="tab-swap">
+        <div class="mode" role="radiogroup" aria-label="Where it arrives">
+          <button type="button" role="radio" data-mode="wallet" aria-checked="true">To your wallet</button>
+          <button type="button" role="radio" data-mode="private" aria-checked="false"><i class="lock" aria-hidden="true"></i>Private</button>
+        </div>
+        <div class="f" id="f-pay">
+          <div class="fh"><span>You pay</span><span class="where" id="pay-where">from your wallet</span></div>
+          <div class="fm"><input class="amt" id="amt" inputmode="decimal" placeholder="0" autocomplete="off" spellcheck="false" aria-label="Amount to pay"><button class="coin" id="pay-coin" type="button" aria-haspopup="dialog" aria-label="Pay with ETH"></button></div>
+          <div class="ff"><span id="pay-usd" class="num"></span><span id="pay-side"></span></div>
+        </div>
+        <div class="mid"><button class="flip" id="flip" type="button" aria-label="Swap the two sides"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v17m0 0-4-4m4 4 4-4M16 21V4m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
+        <div class="f" id="f-get">
+          <div class="fh"><span>You get</span><span class="where" id="get-where">to your wallet</span></div>
+          <div class="fm"><output class="big ph num" id="out" for="amt">0</output><button class="coin" id="get-coin" type="button" aria-haspopup="dialog" aria-label="Get TAC"></button></div>
+          <div class="ff"><span id="get-usd" class="num"></span><span id="get-side"></span></div>
+        </div>
+        <div class="rows" id="rows" role="radiogroup" aria-label="Route" hidden></div>
+        <dl class="rcpt" id="rcpt" hidden></dl>
+        <div id="ackbox"></div>
+        <button class="go" id="go" type="button">Connect wallet</button>
+        <p class="q" id="q" role="status"></p>
+        <div class="sw-foot"><span id="foot-l">Slippage</span><span class="slip" id="slip" role="group" aria-label="Slippage"></span></div>
+      </div>
+
+      <div class="sw-b" id="p-earn" role="tabpanel" aria-labelledby="tab-earn" hidden>
+        <p class="earn-n">Add liquidity and earn <b>TAC</b>. The Precision farm takes ETH, TAC or both from your wallet in one transaction. The Tacit pool's farms are private: your liquidity is a shielded note.</p>
+        <div class="rows" id="farms" role="radiogroup" aria-label="Farm"></div>
+        <div class="farm-host" id="farm"></div>
+        <div class="privfarm" id="privfarm" hidden></div>
+        <p class="anytok"><span>Holding USDC, DAI or another token?</span><button type="button" class="link" id="any-first">Swap it for TAC first</button></p>
+      </div>
+      <div class="pk" id="pk" hidden></div>
+    </section>
+  </div>
+
+  <section class="how" id="how" aria-labelledby="how-h">
+    <h2 id="how-h">One pool, <em>two doors</em></h2>
+    <p class="lede">The Tacit pool keeps one set of reserves for each pair. A wallet swaps with it in the open, like with any AMM. A private balance swaps with the same reserves through a proof, so both doors get the same price, and every trade through either one deepens the same pool.</p>
+    <div class="doors" role="img" aria-label="Your wallet reaches the Tacit pool through the public door; your private balance reaches the same pool through the private door.">
+      <div class="end"><b>Your wallet</b><small>ETH, TAC, cUSD, cBTC, or any token through zRouter. Address and amounts in the open.</small></div>
+      <div class="door pub"><span>public door</span><small>TacitPublicAmm, reachable by any router</small></div>
+      <div class="pool"><b>Tacit pool</b><small>One set of reserves per pair, 0.30% to its liquidity.</small>
+        <ul class="pairs"><li><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-teth"/></svg></span>TAC/tETH</li><li><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-cusd"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-teth"/></svg></span>cUSD/tETH</li><li><span class="pairtk"><svg class="tk sm" aria-hidden="true"><use href="#tk-cbtc"/></svg><svg class="tk sm" aria-hidden="true"><use href="#tk-teth"/></svg></span>cBTC/tETH</li></ul>
+      </div>
+      <div class="door priv"><span>private door</span><small>a proof made on your device, sent by the relay</small></div>
+      <div class="end priv"><b>Your private balance</b><small>Notes held by your tacit1 key. What you hold, and whose swap it is, stay hidden.</small></div>
+    </div>
+    <div class="cards">
+      <div class="card"><h3>The public door</h3><p>An ordinary AMM contract: send ETH or a token, get the other side, in one transaction from your wallet. Because it is ordinary, routers reach it: <b>zRouter</b> sends ETH into it, and a large order is split between it and the <b>Precision pool</b> when that pays more.</p></div>
+      <div class="card"><h3>The private door</h3><p>Your balance is a set of notes only your key can open. A swap spends notes and makes new ones, proved on your device; the relay submits it and takes a small fee from the swap. The pool's reserves move by the trade's size, as they must, but <b>nothing says whose swap it is</b> or what else you hold.</p></div>
+      <div class="card"><h3>From any token</h3><p><b>zQuoter</b> reads Uniswap, Sushi, Curve and zAMM for the best pool between your token and WETH. That leg buys exactly the WETH needed and hands it to <b>PrecisionRoute</b>, which unwraps it and buys the TAC: one transaction, never below the floor you saw. The part of your token not needed stays in your wallet.</p></div>
+      <div class="card"><h3>Sign, don't approve</h3><p>TAC, cUSD, cBTC, USDC, DAI and wstETH are spent with a <b>permit</b>: a free signature in your wallet, then one transaction. A token that already allows <b>Permit2</b> signs a Permit2 transfer instead. Any other takes one approval, for the exact amount.</p></div>
+    </div>
+    <p class="flow" aria-label="Any token to TAC in one transaction"><b>Any token, one transaction</b><span class="st t">USDC</span><i>→ best pool, by zQuoter →</i><span class="st"><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>WETH</span><i>→ unwrapped by PrecisionRoute →</i><span class="st"><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>ETH</span><i>→ Precision pool →</i><span class="st"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>TAC</span></p>
+  </section>
+
+  <section class="addrs" aria-labelledby="addrs-h">
+    <h2 id="addrs-h">The contracts</h2>
+    <ul>
+      <li><span>Tacit pool</span><a href="https://etherscan.io/address/0x000000000Ed1eabD231Be41d93b719056F7febFC" target="_blank" rel="noopener noreferrer">0x0000…7febFC</a></li>
+      <li><span>Public door (TacitPublicAmm)</span><a href="https://etherscan.io/address/0x00000000E36C7EC997CC59DCda9E03673B448119" target="_blank" rel="noopener noreferrer">0x0000…448119</a></li>
+      <li><span>Tacit router (permits, zaps)</span><a href="https://etherscan.io/address/0x000000005dA3E3B73726af3c774Deeb9472D4992" target="_blank" rel="noopener noreferrer">0x0000…2D4992</a></li>
+      <li><span>zRouter</span><a href="https://etherscan.io/address/0x000000000000FB114709235f1ccBFfb925F600e4" target="_blank" rel="noopener noreferrer">0x0000…F600e4</a></li>
+      <li><span>zQuoter</span><a href="https://etherscan.io/address/0x000000bd2DB80567c23E353ca95a251c573cBf9B" target="_blank" rel="noopener noreferrer">0x0000…3cBf9B</a></li>
+      <li><span>PrecisionRoute</span><a href="https://etherscan.io/address/0x0000007Be74558A1F8c9045301c6F44C8eD0c9eB" target="_blank" rel="noopener noreferrer">0x0000…D0c9eB</a></li>
+      <li><span>Precision pool TAC/ETH</span><a href="https://etherscan.io/address/0x0155358241411dB868BA714aE7c83A27087e3D6E" target="_blank" rel="noopener noreferrer">0x0155…7e3D6E</a></li>
+      <li><span>TAC</span><a href="https://etherscan.io/token/0xA1313eb9f3A445606D9583bcAc3ebeB56a858279" target="_blank" rel="noopener noreferrer">0xA131…858279</a></li>
+    </ul>
+  </section>
+
+  </main>
+
+  <footer>
+    <span>tacit swap · mainnet</span>
+    <nav aria-label="More">
+      <a href="/">All of Tacit</a>
+      <a href="/trade/tac/">Trade TAC</a>
+      <a href="/vault/">Borrow against TAC</a>
+      <a href="/pay/">Pay privately</a>
+      <a href="/build/">Build on Tacit</a>
+      <a href="https://github.com/src-company/tacit" target="_blank" rel="noopener noreferrer">Source</a>
+    </nav>
+  </footer>
+</div>
+<script type="module" src="/swap/app.js?cb=08e790ae"></script>
+</body>
+</html>

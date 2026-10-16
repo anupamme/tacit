@@ -24,6 +24,7 @@
 /vault    /vault/    301
 /tasks    /tasks/    301
 /build    /build/    301
+/swap     /swap/     301
 /splitter  /splitter/  301
 /relay  /relay/  301
 /pay      /pay/      301
