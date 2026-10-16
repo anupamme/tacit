@@ -32,7 +32,7 @@ async function main() {
   if (on('LANE_HEADERS')) stages.push({ name: 'header', everySecs: Number(process.env.HEADER_EVERY_SECS || 180), run: headerCycle });
   if (!stages.length) throw new Error('every stage is off (LANE_ETH_STATE, LANE_REFLECTION, LANE_HEADERS)');
   log(`starting — stages ${stages.map((s) => `${s.name} every ${s.everySecs}s`).join(', ')}; worker=${CFG.workerBase} network=${CFG.network}`);
-  const lane = makeLaneSchedule(stages, { idleSecs: Math.min(CFG.ethStatePollSecs, CFG.reflectionPollSecs), log });
+  const lane = makeLaneSchedule(stages, { idleSecs: Number(process.env.LANE_IDLE_SECS || Math.min(CFG.ethStatePollSecs, CFG.reflectionPollSecs)), log });
   // A deploy or restart sends SIGTERM: the stage in hand finishes (a proof paid for is not abandoned), then the loop ends.
   let stopping = false;
   process.on('SIGTERM', () => { if (!stopping) log('SIGTERM — finishing the stage in hand'); stopping = true; });

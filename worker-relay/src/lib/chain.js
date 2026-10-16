@@ -80,7 +80,10 @@ export const fundedWallets = (() => {
     const addr = w.account.address.toLowerCase();
     const prior = seen.get(addr);
     if (prior) { prior.roles.push(role); continue; }
-    seen.set(addr, { address: w.account.address, wallet: w, roles: [role] });
+    // `publicWallet`: the same signer over the public read endpoints, for plain transfers and small treasury swaps that carry nothing a
+    // searcher could take and that a private builder may leave unmined for minutes (a relay-wallet transfer sat unconfirmed for three
+    // minutes on 2026-10-16 and was dropped). Settles stay on the private endpoints.
+    seen.set(addr, { address: w.account.address, wallet: w, publicWallet: role === 'settle' ? walletFor(CFG.settleKey || CFG.relayKey) : w, roles: [role] });
   }
   return [...seen.values()];
 })();

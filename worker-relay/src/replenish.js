@@ -455,7 +455,9 @@ async function distributeSplitter(wallet) {
 // Burns come from the books where they have a day or more, else from the gas model and the measured defaults; floors from today's gas.
 // Nothing here throws into the pass: a treasury that cannot be read is logged and left for the next pass.
 async function runTreasury(earner, sink, { credit, convertToProve }) {
-  const owner = earner.address, wallet = earner.wallet, sinkAddr = sink.account.address;
+  // The moves go through the public endpoints (`publicWallet`): a transfer carries nothing a searcher could take, a swap this small is
+  // not worth a sandwich, and a private builder left both unmined past the receipt wait.
+  const owner = earner.address, mover = earner.publicWallet || earner.wallet, sinkAddr = sink.account.address;
   const toSink = owner.toLowerCase() !== sinkAddr.toLowerCase();
   try {
     const [settleWei, relayWei, gasPrice, funds, ethUsd] = await Promise.all([
@@ -493,7 +495,7 @@ async function runTreasury(earner, sink, { credit, convertToProve }) {
     let sentRelay = 0n, sentProve = 0n;
     if (plan.toRelayWei > 0n && toSink) {
       try {
-        const h = await withNonceRetry('relay wallet gas', () => wallet.sendTransaction({ to: sinkAddr, value: plan.toRelayWei }));
+        const h = await withNonceRetry('relay wallet gas', () => mover.sendTransaction({ to: sinkAddr, value: plan.toRelayWei }));
         const r = await publicClient.waitForTransactionReceipt({ hash: h });
         if (r.status !== 'success') throw new Error(`transfer reverted ${h}`);
         sentRelay = plan.toRelayWei;
@@ -505,7 +507,7 @@ async function runTreasury(earner, sink, { credit, convertToProve }) {
         const q = await quote(ETH, PROVE, plan.toProveWei, sinkAddr); // PROVE lands on the sink, which deposits it
         if (ethUsd && !(await provePlausible(q, (Number(plan.toProveWei) / 1e18) * ethUsd, ethUsd, 'ETH->PROVE'))) throw new Error('implausible quote');
         log(`  treasury: ${plan.toProveWei} wei ETH -> ~${q.amountOut} PROVE (to sink)`);
-        await fireSwap(q, wallet);
+        await fireSwap(q, mover);
         sentProve = plan.toProveWei;
       } catch (e) { log(`  treasury: PROVE purchase failed (continuing): ${e.message}`); }
     }

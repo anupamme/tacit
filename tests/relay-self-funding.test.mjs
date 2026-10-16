@@ -74,8 +74,9 @@ test('replenish sweeps every earner, and the sink is the relay wallet', () => {
   // The treasury pass moves the settle wallet's ETH (lib/treasury-plan.js) and signs with that wallet's own handle too.
   const treasury = replenish.slice(replenish.indexOf('async function runTreasury'), replenish.indexOf('// One replenish pass'));
   ok(treasury.length > 0, 'treasury pass not found');
-  ok(/wallet\.sendTransaction\(\{ to: sinkAddr, value: plan\.toRelayWei \}\)/.test(treasury), 'the relay wallet is not fed from the settle wallet by its own handle');
-  ok(/fireSwap\(q, wallet\)/.test(treasury), 'the PROVE purchase is not signed by the settle wallet');
+  ok(/const owner = earner\.address, mover = earner\.publicWallet \|\| earner\.wallet/.test(treasury), 'the treasury moves do not use the earner\'s public-endpoint handle');
+  ok(/mover\.sendTransaction\(\{ to: sinkAddr, value: plan\.toRelayWei \}\)/.test(treasury), 'the relay wallet is not fed from the settle wallet by its own handle');
+  ok(/fireSwap\(q, mover\)/.test(treasury), 'the PROVE purchase is not signed by the settle wallet');
   ok(!/relayWallet\./.test(treasury), 'the treasury pass references relayWallet directly');
 });
 
