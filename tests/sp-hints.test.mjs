@@ -57,4 +57,27 @@ await test('posting is rate limited per client', async () => {
   } finally { server.close(); }
 });
 
+await test('a page that cannot be read ends the read at the last page read, and the next read carries on from there', async () => {
+  const ids = [3, 5, 8, 13, 21];
+  // Two hints a page; the page after `down` fails as `fail` says: an HTTP error, a dropped connection or a body that is no page.
+  const serve = (down, fail) => async (url) => {
+    const after = Number(new URL(url).searchParams.get('after'));
+    if (after === down) {
+      if (fail === 'drop') throw new TypeError('Failed to fetch');
+      return fail === 'body' ? { ok: true, json: async () => ({}) } : { ok: false, status: 503 };
+    }
+    const page = ids.filter((i) => i > after).slice(0, 2);
+    return { ok: true, json: async () => ({ hints: page.map((i) => [i, 'e', 'c']), next: page.length && ids.at(-1) > page.at(-1) ? page.at(-1) : null }) };
+  };
+  for (const fail of ['http', 'drop', 'body']) {
+    const read = [];
+    const at = await readHints('http://x', 0, (id) => { read.push(id); }, serve(5, fail));
+    assert.deepEqual(read, [3, 5], fail);
+    assert.equal(at, 5, `${fail}: the id of the last page read`);
+    assert.equal(await readHints('http://x', at, (id) => { read.push(id); }, serve(null)), 21);
+    assert.deepEqual(read, [3, 5, 8, 13, 21], `${fail}: each hint is read once`);
+    await assert.rejects(readHints('http://x', 0, () => {}, serve(0, fail)), undefined, `${fail}: a first page that cannot be read throws`);
+  }
+});
+
 console.log(`\n${passed} passed`);

@@ -43,12 +43,18 @@ export async function postHint(base, scanPub, txidHex, fetchImpl = fetch) {
 
 // Every hint after `after`, in order, through onHint(id, e, c); returns the last id read. At most `maxPages` pages of
 // 2,000 a call: anyone may post hints, so one read is bounded and the next carries on from the id this one returns.
+// A page that cannot be read after others were ends the read there, with the id of the last page read, so the next
+// read carries on from it instead of reading those pages again; only a first page that cannot be read throws.
 export async function readHints(base, after, onHint, fetchImpl = fetch, { maxPages = 1000 } = {}) {
   let at = after;
   for (let guard = 0; guard < maxPages; guard++) {
-    const r = await fetchImpl(`${base}/sp/hints?after=${at}&limit=2000`, { cache: 'no-store', signal: AbortSignal.timeout?.(20_000) });
-    if (!r.ok) throw new Error(`hints: HTTP ${r.status}`);
-    const j = await r.json();
+    let j;
+    try {
+      const r = await fetchImpl(`${base}/sp/hints?after=${at}&limit=2000`, { cache: 'no-store', signal: AbortSignal.timeout?.(20_000) });
+      if (!r.ok) throw new Error(`hints: HTTP ${r.status}`);
+      j = await r.json();
+      if (!Array.isArray(j?.hints)) throw new Error('hints: unreadable page');
+    } catch (e) { if (guard === 0) throw e; break; }
     for (const [id, e, c] of j.hints) { await onHint(id, e, c); at = id; }
     if (j.next == null) break;
   }
