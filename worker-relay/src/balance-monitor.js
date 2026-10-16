@@ -4,7 +4,7 @@
 // Render service type: Cron Job (e.g. every 5-10 min). Runs once and exits.
 //
 // Alerts (log always; POST to ALERT_WEBHOOK_URL if set) when:
-//   * PROVE balance (relay wallet's undeposited PROVE) < floor
+//   * the prover network credit is low: under PROVE_CREDIT_WARN (warning) or PROVE_CREDIT_CRITICAL (critical) PROVE
 //   * a wallet can no longer do its job (critical): the settle wallet cannot pay for the next settle, so relayed jobs
 //     wait in the queue, or the relay wallet cannot keep an attest back and still send headers, so the Bitcoin headers
 //     and attests stop; a settle wallet with under N days of runway, or any wallet under the buffer (warnings)
@@ -72,11 +72,8 @@ async function checkProve() {
   //
   // Read it for what it is: a healthy figure here means replenish is working, and a zero means replenish
   // has stopped — but neither tells you the prover can pay. Treat a stalled prover as the symptom to watch.
-  // A WARNING, never a critical. Replenish deposits everything it buys into the vApp straight away, so a
-  // healthy relay reads ~0 here by design.
-  if (whole < CFG.proveBalanceFloor) {
-    await alert('warning', `PROVE (undeposited) ${whole} < ${CFG.proveBalanceFloor} — expected while replenish deposits eagerly; a stalled prover is the real signal`, { prove: whole });
-  }
+  // Logged, never alerted: replenish deposits everything it buys into the vApp straight away, so a healthy relay reads
+  // ~0 here by design. The credit itself is judged in checkProverKinds.
 }
 
 // Check EVERY wallet the relay spends from, not just RELAY_KEY.
@@ -297,8 +294,8 @@ async function checkProverKinds() {
     const note = String(h?.note || '');
     log(`prover-health ${kind}: healthy=${h?.healthy} age=${h?.age_seconds}s note=${note}${h?.prover_credit ? ` credit=${h.prover_credit} PROVE` : ''}`);
     // The prover network credit (reported by the settle service's replenish run): proving stops when it is spent.
-    const low = h?.prover_credit ? creditLevel(h.prover_credit, Number(CFG.proveCreditFloorWei) / 1e18) : null;
-    if (low) await alert(low, `prover credit is ${h.prover_credit} PROVE, under ${low === 'critical' ? '60% of ' : ''}the ${Number(CFG.proveCreditFloorWei) / 1e18} PROVE floor: network proofs stop when it reaches zero. Fund the settle wallet (replenish converts ETH above its gas float to PROVE) or deposit PROVE`, { kind, prover_credit: h.prover_credit });
+    const low = h?.prover_credit ? creditLevel(h.prover_credit, { warn: CFG.proveCreditWarn, critical: CFG.proveCreditCritical }) : null;
+    if (low) await alert(low, `prover credit is ${h.prover_credit} PROVE, under ${low === 'critical' ? CFG.proveCreditCritical : CFG.proveCreditWarn}: network proofs stop when it reaches zero. Fund the settle wallet (replenish converts ETH above its gas float to PROVE) or deposit PROVE`, { kind, prover_credit: h.prover_credit });
     if (h?.healthy === false) {
       await alert('critical', `${kind} prover unhealthy: ${(h.reasons || []).join('; ') || 'no heartbeat'}`, { kind, ...h });
     } else if (/^error\b|\bSTALL\b/i.test(note)) {
@@ -362,7 +359,10 @@ async function checkEthStatePending() {
   } catch (e) { log(`eth-state pending check failed: ${e?.message || e}`); return; }
   const pending = body?.pending;
   if (!pending || !pending.publishedAt) { log('eth-state pending: none outstanding'); return; }
-  const ageSec = (Date.now() - Date.parse(pending.publishedAt)) / 1000;
+  // The sidecar stamps publishedAt in epoch milliseconds; an ISO string reads too.
+  const publishedMs = Number.isFinite(Number(pending.publishedAt)) ? Number(pending.publishedAt) : Date.parse(pending.publishedAt);
+  if (!Number.isFinite(publishedMs)) { log(`eth-state pending: ${pending.contentHash} with an unreadable publishedAt (${pending.publishedAt})`); return; }
+  const ageSec = (Date.now() - publishedMs) / 1000;
   log(`eth-state pending: ${pending.contentHash} published ${(ageSec / 60).toFixed(1)}min ago (execBlock=${pending.execBlock})`);
   const extra = { contentHash: pending.contentHash, publishedAt: pending.publishedAt, ageSec, execBlock: pending.execBlock };
   if (ageSec > CFG.ethStatePendingCriticalSec) {

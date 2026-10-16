@@ -285,8 +285,6 @@ services:
     autoDeploy: false
     envVars:
       - fromGroup: tacit-relay-shared
-      - key: PROVE_BALANCE_FLOOR
-        value: "50"
       - key: ETH_GAS_BUFFER_WEI
         value: "30000000000000000"
       # Healthy steady state is ~HEADER_RELAY_LEAD (144) plus a few blocks of batch cadence, so this sits above it.

@@ -8,9 +8,12 @@ export const creditText = (wei) => (wei == null ? null : (Number(wei) / 1e18).to
 // A heartbeat's credit field, as the API keeps it: digits with up to four decimals, else not kept.
 export const creditField = (v) => (typeof v === 'string' && /^\d{1,12}(\.\d{1,4})?$/.test(v) ? v : null);
 
-// How low it is against the replenish floor: 'critical' under `critical` of the floor (default 60%), 'warning' under the floor.
-export function creditLevel(whole, floorWhole, critical = 0.6) {
-  const w = Number(whole), f = Number(floorWhole);
-  if (!Number.isFinite(w) || !Number.isFinite(f) || f <= 0) return null;
-  return w < f * critical ? 'critical' : w < f ? 'warning' : null;
+// How low it is, in whole PROVE: 'critical' under `critical` (proofs are about to stop), 'warning' under `warn` (top it
+// up). A proof spends about 2-3 PROVE (an attest ~2, a settle ~3), and replenish buys toward its own floor
+// (PROVE_CREDIT_FLOOR_WEI) only from ETH above the settle wallet's gas float, so the credit normally runs between a few
+// PROVE and a few tens; these thresholds sit below that band rather than at replenish's target.
+export function creditLevel(whole, { warn, critical } = {}) {
+  const w = Number(whole), hi = Number(warn), lo = Number(critical);
+  if (!Number.isFinite(w) || !(hi > 0) || !(lo >= 0) || lo > hi) return null;
+  return w < lo ? 'critical' : w < hi ? 'warning' : null;
 }

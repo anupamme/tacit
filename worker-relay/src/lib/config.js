@@ -405,13 +405,16 @@ export const CFG = {
   gateIncludesMaintenance: opt('RELAY_GATE_INCLUDE_MAINTENANCE', '0') === '1',
 
   // ── Replenish / monitor thresholds ──
-  proveBalanceFloor: num('PROVE_BALANCE_FLOOR', 50), // PROVE, whole tokens
   ethGasBufferWei: BigInt(opt('ETH_GAS_BUFFER_WEI', '30000000000000000')), // 0.03 ETH
   // Prover credit the replenish loop keeps on the network. Under the floor, ETH above the gas buffer (not only above
   // ETH_SWEEP_ABOVE_WEI) turns into PROVE, at most PROVE_TOPUP_MAX_WEI of it a pass, so proving never stops for want of
   // credit while the wallet can still pay gas.
   proveCreditFloorWei: BigInt(opt('PROVE_CREDIT_FLOOR_WEI', '100000000000000000000')), // 100 PROVE
   proveTopUpMaxWei: BigInt(opt('PROVE_TOPUP_MAX_WEI', '20000000000000000')), // 0.02 ETH
+  // The monitor's prover-credit alerts, in whole PROVE (lib/prove-credit.js): a warning to top up, and a critical about
+  // two proofs from zero.
+  proveCreditWarn: num('PROVE_CREDIT_WARN', 20),
+  proveCreditCritical: num('PROVE_CREDIT_CRITICAL', 5),
   // What each wallet's next transaction can cost, as the services that send them reckon it before sending. A settle:
   // SETTLE_FUNDS_GAS at 3x the base fee plus the settle tip floor (the settle relay leaves jobs queued below it). An
   // attest: REFLECTION_ATTEST_GAS_BUDGET at 2x the base fee plus the tip (the reflection waits below it). The header

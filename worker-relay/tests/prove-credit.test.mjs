@@ -18,21 +18,24 @@ test('the API keeps only a plain decimal credit', () => {
   for (const bad of [78.24, '-1', '1e3', '78.', '.5', '1,000', '78.24 PROVE', '1'.repeat(13), '', null, undefined, {}]) assert.equal(creditField(bad), null, String(bad));
 });
 
-test('under the floor is a warning, under 60% of it critical, and anything else is quiet', () => {
-  assert.equal(creditLevel('100', 100), null);
-  assert.equal(creditLevel('250.5', 100), null);
-  assert.equal(creditLevel('99.99', 100), 'warning');
-  assert.equal(creditLevel('78.24', 100), 'warning');
-  assert.equal(creditLevel('60', 100), 'warning');
-  assert.equal(creditLevel('59.99', 100), 'critical');
-  assert.equal(creditLevel('0', 100), 'critical');
+const T = { warn: 20, critical: 5 };
+test('under the warning line is a warning, under the critical line critical, and anything else is quiet', () => {
+  assert.equal(creditLevel('20', T), null);
+  assert.equal(creditLevel('78.24', T), null);
+  assert.equal(creditLevel('19.99', T), 'warning');
+  assert.equal(creditLevel('8.35', T), 'warning');
+  assert.equal(creditLevel('5', T), 'warning');
+  assert.equal(creditLevel('4.99', T), 'critical');
+  assert.equal(creditLevel('0', T), 'critical');
 });
 
-test('a credit or floor that does not read gives no verdict, so a broken read never pages', () => {
-  assert.equal(creditLevel('abc', 100), null);
-  assert.equal(creditLevel(undefined, 100), null);
-  assert.equal(creditLevel('50', 0), null);
-  assert.equal(creditLevel('50', NaN), null);
+test('a credit or threshold that does not read gives no verdict, so a broken read never pages', () => {
+  assert.equal(creditLevel('abc', T), null);
+  assert.equal(creditLevel(undefined, T), null);
+  assert.equal(creditLevel('3', { warn: 0, critical: 5 }), null);
+  assert.equal(creditLevel('3', { warn: NaN, critical: 5 }), null);
+  assert.equal(creditLevel('3', { warn: 5, critical: 20 }), null);
+  assert.equal(creditLevel('3'), null);
 });
 
 console.log(`\n${n} passed`);
