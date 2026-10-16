@@ -426,6 +426,8 @@ test('a free prove-only job is turned away while the credit is kept for the brid
   const low = loadSubmit({ cap: '50', submitJob: async () => ({ jobId: 'j' + ++n, status: 'pending' }), health: health('21.86') });
   const r = await low.call({ type: 'unwrap', op: {}, mode: 'prove' });
   ok(r.status === 503 && r.body.code === 'prove_reserved' && r.headers['Retry-After'] === '600', `under 40 PROVE a free proof is refused, got ${r.status} ${r.body.code}`);
+  ok(r.body.hint === 'relay', 'an unwrap is pointed at a relayed settle');
+  ok((await low.call({ type: 'wrap', op: {}, mode: 'prove' })).body.hint === 'tip', 'a wrap is pointed at tipping its deposit');
   ok(/through the relay instead/.test(r.body.error) && !/\d+ PROVE|balance|gas/.test(r.body.error), 'the refusal says what to do and nothing about balances');
   ok(low.kvStore.size === 0, 'a refusal spent budget');
   const settle = await low.call({ type: 'unwrap', op: {}, mode: 'settle' });
@@ -447,7 +449,7 @@ test('one client gets its own share of the day\'s free proofs; a tipped wrap spe
   const { call, kvStore } = loadSubmit({ cap: '50', env: { PROVE_MODE_CLIENT_DAILY_CAP: '2' }, submitJob: async () => ({ jobId: 'j' + ++n, status: 'pending' }) });
   ok((await call({ type: 'unwrap', op: {}, mode: 'prove' })).status === 200 && (await call({ type: 'unwrap', op: {}, mode: 'prove' })).status === 200, 'two within the client cap');
   const third = await call({ type: 'unwrap', op: {}, mode: 'prove' });
-  ok(third.status === 429 && third.body.code === 'prove_budget' && third.body.class === 'client' && /2\/2/.test(third.body.error), `the third from one client is refused, got ${third.status} ${JSON.stringify(third.body)}`);
+  ok(third.status === 429 && third.body.code === 'prove_budget' && third.body.class === 'client' && third.body.hint === 'relay' && /2\/2/.test(third.body.error), `the third from one client is refused, got ${third.status} ${JSON.stringify(third.body)}`);
   ok([...kvStore.keys()].some((k) => k.startsWith('cps:budget:prove:1.2.3.4:')), 'the client counter is keyed by its address');
   ok(Number(kvStore.get([...kvStore.keys()].find((k) => /^cps:budget:prove:\d{4}/.test(k)))) === 2, 'the global counter counts the two accepted');
   const paid = loadSubmit({ cap: '50', env: { PROVE_MODE_CLIENT_DAILY_CAP: '1' }, submitJob: async () => ({ jobId: 'w', status: 'pending' }), tipPaid: async () => true });

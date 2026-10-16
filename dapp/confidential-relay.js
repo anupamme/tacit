@@ -70,6 +70,8 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
       const e = new Error(`relay ${res.status}: ${body.error || text || res.statusText}`);
       e.httpStatus = res.status;
       if (body.code) e.code = body.code;
+      if (body.class) e.class = body.class;      // which allowance a budget refusal hit ('client': this sender's share)
+      if (body.hint) e.hint = body.hint;         // the way on the relay names: 'relay', 'tip' or 'self-prove'
       if (body.retryAfter != null) e.retryAfter = body.retryAfter;
       throw e;
     }

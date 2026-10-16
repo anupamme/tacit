@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-mjCoeOOm3d5CMEmrcEEnXAoRDtunhQXHanF4BmGo2kU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-vSfbt43mewttURJCB7VSxDbgVj2uaXPxEe9BqCJYDw4=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keeper.onrender.com https://tacit-evm-pool-keeper-base.onrender.com https://tacit-evm-pool-keeper-robinhood.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-evm-pool-keeper-megaeth.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -1637,7 +1637,9 @@ const errText = (e) => {
   if (r) return r;
   // The relay's own reason, when it gives one (confidential-relay.js keeps its `code`). Its day's proofs used up is not a refusal the
   // paying account gets round: a send from it needs a proof from the same relay.
-  if (proveCapped(e)) return 'The relay has made as many proofs as it can for today. Try again after midnight UTC; nothing was spent.';
+  if (relayCode(e) === 'prove_reserved') return 'The relay is keeping its proving credit for the bridge right now, so it isn’t proving requests sent from your own account. Nothing was spent. Try again later, or prove it yourself.';
+  if (proveCapped(e)) return e?.class === 'client' ? 'You’ve used today’s share of proofs the relay pays for. It opens again at midnight UTC; nothing was spent. Prove it yourself to go on now.'
+    : 'The relay has made as many proofs as it can for today. Try again after midnight UTC; nothing was spent.';
   if (e?.code === 'prover_credit' || e?.code === 'not_proved' || e?.code === 'prover_load') return spMsg(e);
   if (relayCode(e) === 'open' || /^settle held: proved/i.test(m)) return proved(e) ? 'It is proved and waiting to be sent: it goes through when a relay sends it, or send it yourself now from Activity.'
     : 'It is proved and waiting for a relay to send it. It goes through when one does; follow it in Activity.';
@@ -2711,7 +2713,7 @@ async function selfFinish(id) {
 // `go` runs the same call again with the settle handed to the account. An `exit` also pays no relay fee. offerSelf returns
 // the error to throw, flagged so the caller's own failure line leaves the offer in place.
 // A step proved and held (`proved`) is offered too: the account then sends that proof as it is.
-const relayRefused = (e) => !proveCapped(e) && relayCode(e) !== 'relay_paused' && (proved(e) || ['relay_held', 'free_budget'].includes(relayCode(e))
+const relayRefused = (e) => !proveCapped(e) && relayCode(e) !== 'relay_paused' && relayCode(e) !== 'prove_reserved' && (proved(e) || ['relay_held', 'free_budget'].includes(relayCode(e))
   || /fee below the current floor|FEE_MOVED|can.t take this one|free relayed settles|relay (5\d\d|429)\b|temporarily unavailable/i.test(`${relayCode(e)} ${e?.message || e || ''}`));
 // An exit again, with the settle handed to the paying account (a whole note and a part of one are the same call).
 const exitGo = (note, to, units) => (x) => x.t.sendUnwrap({ note, walletPriv: x.priv, recipient: to, amount: BigInt(units), waitOpts: x.waitOpts, selfSettle: x.selfSettle });
@@ -2962,7 +2964,7 @@ const spTell = (w, tell) => ({ ...w, onUpdate: (st) => { w.onUpdate?.(st); if (O
 // The holder's prover could not take it: credit short of what a request needs on hand, or Succinct's prover not taking it in time.
 const proverSaid = (e) => e?.code === 'prover_credit' || e?.code === 'not_proved' || e?.code === 'prover_load';
 // The relay could not make the proof (its day's proofs used up, a proof it failed): proving it yourself is the way on.
-const relayCantProve = (e) => proveCapped(e) || relayCode(e) === 'relay_paused' || /prove failed:|prove timed out/i.test(String(e?.message || ''));
+const relayCantProve = (e) => proveCapped(e) || relayCode(e) === 'relay_paused' || relayCode(e) === 'prove_reserved' || /prove failed:|prove timed out/i.test(String(e?.message || ''));
 const spMsg = (e) => (e?.code === 'prover_credit' ? `Your prover credit is ${proveFmt(e.have)} PROVE; this needs ${proveFmt(e.need)} on hand.`
   : e?.code === 'prover_load' ? 'Proving with your credit could not start; nothing was sent. Try again, or let the relay prove this one.'
   : 'Succinct’s prover did not take it in time. Nothing was sent; the network kept its base fee (about 0.39 PROVE). Try again, or let the relay prove this one.');
@@ -6820,7 +6822,7 @@ function brProof(force = false) {
 // still in the relay's queue: neither is offered. A record keeps only the words of its last error, so those are read too.
 const brRefused = (err) => {
   const m = String(err?.message || err || '');
-  return !proveCapped(err) && relayCode(err) !== 'relay_paused' && !/relay_paused/.test(m) && !waitRanOut({ message: m }) && (['relay_held', 'free_budget'].includes(relayCode(err))
+  return !proveCapped(err) && relayCode(err) !== 'relay_paused' && relayCode(err) !== 'prove_reserved' && !/relay_paused/.test(m) && !waitRanOut({ message: m }) && (['relay_held', 'free_budget'].includes(relayCode(err))
     || /free relayed settles|fee below|below the (current )?floor|feegate|marginal cost|can.t take this one|relay (5\d\d|429)\b|temporarily unavailable/i.test(m));
 };
 function brErr(e) {

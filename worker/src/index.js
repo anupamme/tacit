@@ -3400,13 +3400,15 @@ async function handleConfidentialSubmit(req, env, cors) {
   const paidProve = submitMode === 'prove' && body.type === 'wrap' && await wrapTipPaid(env, body);
   if (submitMode === 'prove' && !paidProve) {
     const minCredit = Number(env.PROVE_MODE_MIN_CREDIT || 40);
+    // `hint` names the way on for a page that does not read the words: 'relay' (a relayed settle, which carries a fee), 'tip' (a wrap
+    // whose deposit tips the relay is paid work), 'self-prove' (the holder's own prover credit).
     if (relay && relay.credit != null && minCredit > 0 && relay.credit < minCredit) {
-      return jsonResponse({ ok: false, error: 'the relay is keeping its proving credit for the bridge right now — send it through the relay instead (it carries a fee), prove it with your own prover account, or try again later', code: 'prove_reserved', retryAfter: 600 }, 503, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '600' });
+      return jsonResponse({ ok: false, error: 'the relay is keeping its proving credit for the bridge right now — send it through the relay instead (it carries a fee), prove it with your own prover account, or try again later', code: 'prove_reserved', hint: body.type === 'wrap' ? 'tip' : 'relay', retryAfter: 600 }, 503, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '600' });
     }
     const b = await proveBudget(env);
-    if (!b.ok) return jsonResponse({ ok: false, error: `prove capacity for today is used up (${b.used}/${b.cap}) — prove locally instead, or use a relayed settle`, code: 'prove_budget' }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '3600' });
+    if (!b.ok) return jsonResponse({ ok: false, error: `prove capacity for today is used up (${b.used}/${b.cap}) — prove locally instead, or use a relayed settle`, code: 'prove_budget', hint: body.type === 'wrap' ? 'tip' : 'relay' }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '3600' });
     const cb = await proveClientBudget(env, clientIp);
-    if (!cb.ok) return jsonResponse({ ok: false, error: `your share of relay-paid proofs for today is used up (${cb.used}/${cb.cap}) — send it through the relay instead (it carries a fee), prove locally, or try again tomorrow`, code: 'prove_budget', class: 'client' }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '3600' });
+    if (!cb.ok) return jsonResponse({ ok: false, error: `your share of relay-paid proofs for today is used up (${cb.used}/${cb.cap}) — send it through the relay instead (it carries a fee), prove locally, or try again tomorrow`, code: 'prove_budget', class: 'client', hint: body.type === 'wrap' ? 'tip' : 'relay' }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '3600' });
   }
   try {
     const r = await q.submitJob({ type: body.type, op: body.op, memos: body.memos, mode: body.mode, feeAsset: body.feeAsset, exit: body.exit,
