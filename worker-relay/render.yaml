@@ -263,7 +263,7 @@ services:
       # /prover/* routes (worker/src/prover-board.js, tokens in the API's PROVER_WORKER_TOKENS) for PROVER_BOARD_WAIT_SECS,
       # then goes to the prover network as before. Off until a worker runs.
       - key: PROVER_BOARD
-        value: "0"
+        value: "1"
       - key: PROVER_BOARD_WAIT_SECS
         value: "240"
       # Ordered PRIVATE submission endpoints. A settle pays its bound fee to msg.sender, so it is kept out of
