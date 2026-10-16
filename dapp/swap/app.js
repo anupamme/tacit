@@ -497,7 +497,10 @@ function openPicker(side) {
     : [[null, keys]];
   pk.innerHTML = `<div class="pk-s" role="dialog" aria-modal="true" aria-label="${side === 'pay' ? 'Pay with' : 'Get'}"><div class="pk-h"><b>${side === 'pay' ? 'Pay with' : 'Get'}</b><button type="button" class="pk-x" aria-label="Close">×</button></div>${side === 'pay' && S.mode !== 'private' ? '<input class="pk-q" id="pk-q" placeholder="Search, or paste a token address" autocomplete="off" spellcheck="false" aria-label="Search tokens or paste an address">' : ''}<div class="pk-l" id="pk-l">${groups.map(([g, ks]) => `${g ? `<p class="pk-g">${esc(g)}</p>` : ''}${ks.map(row).join('')}`).join('')}<p class="pk-n" id="pk-n">${side === 'get' && S.mode !== 'private' ? 'TAC from any token. cUSD and cBTC with ETH, from the Tacit pool.' : ''}</p></div></div>`;
   pk.hidden = false;
-  const close = () => { pk.hidden = true; pk.innerHTML = ''; $(side === 'pay' ? '#pay-coin' : '#get-coin').focus(); };
+  // Escape closes it wherever the keyboard is, not only inside it.
+  const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  const close = () => { document.removeEventListener('keydown', onKey, true); pk.hidden = true; pk.innerHTML = ''; $(side === 'pay' ? '#pay-coin' : '#get-coin').focus(); };
+  document.addEventListener('keydown', onKey, true);
   pk.querySelector('.pk-x').onclick = close;
   pk.onclick = (e) => {
     if (e.target === pk) return close();
@@ -507,7 +510,6 @@ function openPicker(side) {
     if (b.dataset.add) { const t = JSON.parse(b.dataset.add); S.custom = [t, ...S.custom.filter((x) => x.addr !== t.addr)].slice(0, 20); try { localStorage.setItem(CUSTOM_KEY, JSON.stringify(S.custom)); } catch { /* storage is a convenience */ } readBalances().then(paintSides); }
     choose(side, k); close();
   };
-  pk.onkeydown = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
   const qEl = $('#pk-q');
   if (qEl) {
     let seq = 0;
