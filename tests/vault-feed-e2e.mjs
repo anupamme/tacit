@@ -80,7 +80,7 @@ try {
   const panel = await page.locator('#feed').innerText();
   const missing = Number(/(\d+) to record/.exec(panel)[1]);
   assert.ok(missing >= 90, `the whole window is missing on this fork: ${missing}`);
-  await page.waitForFunction(() => /paused until prices are recorded/.test(document.querySelector('#cap')?.innerText || ''), null, { timeout: 60000 });   // lending cannot price yet
+  await page.waitForFunction(() => /prices? of the two venues (is|are) not recorded/.test(document.querySelector('#board')?.innerText || ''), null, { timeout: 60000 });   // lending cannot price yet
   console.log(`ok - before: ${missing} prices to record, lending paused`);
   if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/feed-before.png`, fullPage: true });
 
@@ -97,9 +97,9 @@ try {
   assert.deepEqual(after, [48, 48], 'both oracles hold all 48 intervals on the fork');
   const ceiling = BigInt(await rpc('eth_call', [{ to: USD, data: '0x16275096' }, 'latest']));
   assert.ok(ceiling > 0n, 'the vault now answers how much it can lend');
-  await page.waitForFunction(() => /\d+\.\d+\s*TACD/.test(document.querySelector('#cap')?.innerText || ''), null, { timeout: 60000 });
-  const cap = await page.locator('#cap').innerText();
-  assert.doesNotMatch(cap, /paused until prices/);
+  await page.waitForFunction(() => /\d+\.\d+\s*TACD/.test(document.querySelector('#board')?.innerText || ''), null, { timeout: 60000 });
+  const cap = await page.locator('#board').innerText();
+  assert.doesNotMatch(cap, /not recorded/);
   console.log(`ok - both oracles hold 48 of 48 and the vault shows its room: ${cap.split('\n').find((l) => /TACD/.test(l)) ?? ''}`);
   if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/feed-after.png`, fullPage: true });
   assert.deepEqual(errors, [], `no page errors: ${errors.join(' | ')}`);

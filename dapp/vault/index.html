@@ -20,12 +20,12 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /vault/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/vault/app.js?cb=bb17e207">
+<link rel="modulepreload" href="/vault/app.js?cb=f858bbec">
 <link rel="modulepreload" href="/vault/deployments.js?cb=174de1c7">
 <link rel="modulepreload" href="/vault/math.js?cb=ac1ed53e">
-<link rel="modulepreload" href="/vault/chain.js?cb=f91a5f6f">
+<link rel="modulepreload" href="/vault/chain.js?cb=6423299e">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=a08631ce">
-<link rel="modulepreload" href="/vault/feed.js?cb=f0f5d534">
+<link rel="modulepreload" href="/vault/feed.js?cb=dc2d28c9">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/trade/wallet.js?cb=0cba8a63">
 <link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
@@ -115,7 +115,7 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .how p { margin: 8px 0 0; color: var(--mute); }
 
 /* the page */
-.pick { margin: 0 0 14px; max-width: 460px; }
+.pick { max-width: 460px; }
 .grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px 16px; align-items: start; }
 .col { display: grid; gap: 14px; min-width: 0; }
 @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
@@ -137,10 +137,27 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .seg.big.tabs button { font-size: 13px; padding: 4px 4px; }
 @media (pointer: coarse) { .seg.big button { min-height: var(--tap); } }
 
-/* what can be borrowed */
-.room { font: 400 clamp(34px, 5vw, 46px)/1.05 var(--serif); letter-spacing: -.02em; margin: 0; }
-.room small { font: 400 15px/1 var(--mono); letter-spacing: 0; color: var(--mute); margin-left: 8px; }
-.room.off { color: var(--mute); }
+/* the status board: whether each vault can be borrowed from, and the figures behind it */
+.board { min-width: 0; }
+.verdict { display: flex; align-items: center; gap: 12px; margin: 0; font: 400 clamp(26px, 4vw, 36px)/1.1 var(--serif); letter-spacing: -.02em; }
+.sd { flex: none; display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--amber); }
+.verdict.on .sd, .st.s-open .sd { background: var(--green); }
+.verdict .sd { width: 12px; height: 12px; }
+.needs { margin: 14px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 12.5px; color: var(--mute); }
+.needs li { padding: 9px 12px; background: var(--field); border-left: 2px solid var(--amber); }
+.needs b { font-weight: 500; color: var(--ink); } .needs a { color: var(--ink); }
+.bt-wrap { margin: 16px 0 0; }
+.bt { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12.5px; }
+.bt th, .bt td { padding: 7px 0 7px 10px; text-align: right; vertical-align: top; border-top: 1px solid var(--hair); font-weight: 400; overflow-wrap: anywhere; }
+.bt thead th, .bt thead td { border-top: 0; padding-top: 0; font-weight: 500; color: var(--ink); }
+.bt tbody th { width: 36%; padding-left: 0; text-align: left; color: var(--mute); }
+.bt td b { font-weight: 500; }
+.bt small { display: block; margin-top: 1px; font-size: 11.5px; color: var(--mute); }
+.bt thead th small { display: inline; margin-left: 6px; }
+@media (max-width: 480px) { .bt thead th small { display: none; } }
+.st { display: inline-flex; align-items: center; gap: 7px; }
+.verdict.off { color: var(--ink); }
+.pick-l { margin: 0 0 8px; font-size: 12px; color: var(--mute); }
 .kv { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 12.5px; color: var(--mute); padding: 5px 0; }
 .kv b { font-weight: 400; color: var(--ink); text-align: right; overflow-wrap: anywhere; }
 .kv b small { display: block; font-size: 11.5px; color: var(--mute); }
@@ -285,10 +302,10 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
   </section>
 
   <div id="app" hidden>
-    <div class="seg big pick" id="pick" role="group" aria-label="Which vault"></div>
     <div class="grid">
       <div class="col">
-        <section class="panel" id="cap" aria-labelledby="cap-h"></section>
+        <section class="panel board" id="board" aria-labelledby="board-h"></section>
+        <div id="pick-w"><p class="pick-l">Deposit, borrow, repay or withdraw in</p><div class="seg big pick" id="pick" role="group" aria-label="Which vault"></div></div>
         <section class="panel" id="pos" aria-labelledby="pos-h"></section>
         <section class="panel" id="feed" aria-labelledby="feed-h" hidden></section>
       </div>
@@ -320,6 +337,6 @@ footer nav { display: flex; flex-wrap: wrap; gap: 4px 18px; } footer a { color: 
     </nav>
   </footer>
 </div>
-<script type="module" src="/vault/app.js?cb=bb17e207"></script>
+<script type="module" src="/vault/app.js?cb=f858bbec"></script>
 </body>
 </html>

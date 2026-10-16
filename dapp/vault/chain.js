@@ -42,6 +42,7 @@ export const SEL = {
   vaults: '0xa622ee7c', recovered: '0x0015aa6c', onOffer: '0x6a76229f', pausedUntil: '0xda748b10', auctionTime: '0x155f586d', queuedParam: '0x01641934', pendingOracleEta: '0xf1c99189', pendingMinterEta: '0x294ac4e2',
   deposit: '0xb6b55f25', withdraw: '0x2e1a7d4d', borrow: '0x0ecbcdab', repay: '0x22867d78', cancel: '0x4c33fe94', permitTac: '0x1de38e64', permitSynth: '0xba8c86f1', multicall: '0xac9650d8',
   balanceOf: '0x70a08231', allowance: '0xdd62ed3e', approve: '0x095ea7b3', nonces: '0x7ecebe00', name: '0x06fdde03', symbol: '0x95d89b41', timestamp: '0x0f28c97d',
+  ORACLE: '0x38013f02', ETH_USD: '0x6260f55b', FEED_MAX_STALENESS: '0xf5d48317', spot: '0x6f265b93', latestRoundData: '0xfeaf968c', decimals: '0x313ce567',
 };
 export const encDeposit = (amount) => SEL.deposit + word(amount);
 export const encWithdraw = (amount) => SEL.withdraw + word(amount);
@@ -84,11 +85,15 @@ export function decString(x) {
 export const staticCalls = (vault) => [
   ['tac', vault, SEL.TAC], ['synth', vault, SEL.SYNTH], ['mint', vault, SEL.MINT_RATIO_BPS], ['liq', vault, SEL.LIQ_RATIO_BPS], ['ownerWindow', vault, SEL.OWNER_WINDOW],
   ['auctionDuration', vault, SEL.AUCTION_DURATION], ['minDebt', vault, SEL.MIN_DEBT], ['redemptionFee', vault, SEL.REDEMPTION_FEE_BPS], ['depthBps', vault, SEL.DEPTH_BPS],
+  ['oracle', vault, SEL.ORACLE], ['feed', vault, SEL.ETH_USD], ['staleness', vault, SEL.FEED_MAX_STALENESS],
 ];
 export function parseStatic(res) {
   const r = nameOf(staticCalls('0x'), res);
   if (Object.values(r).some((x) => x == null)) return null;
-  return { tac: addrAt(r.tac, 0), synth: addrAt(r.synth, 0), mint: wordAt(r.mint, 0), liq: wordAt(r.liq, 0), ownerWindow: Number(wordAt(r.ownerWindow, 0)), auctionDuration: Number(wordAt(r.auctionDuration, 0)), minDebt: wordAt(r.minDebt, 0), redemptionFee: wordAt(r.redemptionFee, 0), depthBps: wordAt(r.depthBps, 0) };
+  return {
+    tac: addrAt(r.tac, 0), synth: addrAt(r.synth, 0), mint: wordAt(r.mint, 0), liq: wordAt(r.liq, 0), ownerWindow: Number(wordAt(r.ownerWindow, 0)), auctionDuration: Number(wordAt(r.auctionDuration, 0)),
+    minDebt: wordAt(r.minDebt, 0), redemptionFee: wordAt(r.redemptionFee, 0), depthBps: wordAt(r.depthBps, 0), oracle: addrAt(r.oracle, 0), feed: addrAt(r.feed, 0), staleness: Number(wordAt(r.staleness, 0)),
+  };
 }
 
 // What changes: the vault's totals, fees and prices (a view that has no price to give fails, and is null here), the synth's symbol and, for an
@@ -99,6 +104,7 @@ export function dynamicCalls(V, who) {
     ['totalDebt', v, SEL.totalDebt], ['debtCeiling', v, SEL.debtCeiling], ['depthCeiling', v, SEL.depthCeiling], ['feeBps', v, SEL.borrowFeeBps],
     ['pB', v, SEL.valueOf + word(WAD) + word(1)], ['pL', v, SEL.liquidationPrice], ['pO', v, SEL.offerPrice], ['symbol', V.synth, SEL.symbol], ['pausedUntil', v, SEL.pausedUntil], ['auctionTime', v, SEL.auctionTime],
     ...TERM_IDS.map((id) => ['q' + id, v, SEL.queuedParam + word(id)]), ['oracleEta', v, SEL.pendingOracleEta], ['minterEta', V.synth, SEL.pendingMinterEta],
+    ['held', V.tac, SEL.balanceOf + addrWord(v)], ['spot', V.oracle, SEL.spot], ['round', V.feed, SEL.latestRoundData], ['feedDec', V.feed, SEL.decimals],
     ...(who ? [
       ['vault', v, SEL.vaults + addrWord(who)], ['recovered', v, SEL.recovered + addrWord(who)], ['onOffer', v, SEL.onOffer + addrWord(who)],
       ['tacBal', V.tac, SEL.balanceOf + addrWord(who)], ['tacAllow', V.tac, SEL.allowance + addrWord(who) + addrWord(v)],
@@ -114,6 +120,10 @@ export function parseDynamic(V, who, res) {
   out.oracleEta = r.oracleEta ? Number(wordAt(r.oracleEta, 0)) : 0;
   // The time another contract the owner has named may start minting the synth (0 for none).
   out.minterEta = r.minterEta ? Number(wordAt(r.minterEta, 0)) : 0;
+  // The TAC deposited in the vault (its balance), the oracle's ETH per TAC now (the thinner of the venues' prices) and the ETH/USD answer the vault
+  // converts with: its value, its decimals and when it was last updated.
+  out.held = U(r.held); out.spot = U(r.spot);
+  out.feed = r.round ? { answer: wordAt(r.round, 1), updatedAt: Number(wordAt(r.round, 3)), decimals: r.feedDec ? Number(wordAt(r.feedDec, 0)) : 8 } : null;
   if (who) {
     out.me = r.vault ? { collateral: wordAt(r.vault, 0), debt: wordAt(r.vault, 1), auctionStart: Number(wordAt(r.vault, 2)) } : null;
     out.recovered = r.recovered == null ? null : wordAt(r.recovered, 0) === 1n;

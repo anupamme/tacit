@@ -19,6 +19,7 @@ const src = readFileSync(new URL('vault/chain.js', dapp), 'utf8').replace(/'\/ev
 writeFileSync(join(tmp, 'chain.mjs'), src);
 const C = await import(pathToFileURL(join(tmp, 'chain.mjs')).href);
 
+const ORACLE = '0x000000cE58D7d49319252DaFB0ABdB3F02101271', FEED = '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419';
 const E18 = 10n ** 18n, A = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC', VAULT = '0xdc64a140aa3e981100a9beca4e685f962f0cf6c9', TAC = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279', SYN = '0x856e4424f806d16e8cbc702b3c0f2ede5468eae5';
 
 // ── selectors ──
@@ -30,6 +31,7 @@ const SIGS = {
   deposit: 'deposit(uint256)', withdraw: 'withdraw(uint256)', borrow: 'borrow(uint256,uint256)', repay: 'repay(address,uint256)', cancel: 'cancel(address)',
   permitTac: 'permitTac(uint256,uint256,uint8,bytes32,bytes32)', permitSynth: 'permitSynth(uint256,uint256,uint8,bytes32,bytes32)', multicall: 'multicall(bytes[])',
   balanceOf: 'balanceOf(address)', allowance: 'allowance(address,address)', approve: 'approve(address,uint256)', nonces: 'nonces(address)', name: 'name()', symbol: 'symbol()', timestamp: 'getCurrentBlockTimestamp()',
+  ORACLE: 'ORACLE()', ETH_USD: 'ETH_USD()', FEED_MAX_STALENESS: 'FEED_MAX_STALENESS()', spot: 'spot()', latestRoundData: 'latestRoundData()', decimals: 'decimals()',
 };
 for (const [k, sig] of Object.entries(SIGS)) assert.equal(C.SEL[k], cast('sig', sig), `selector of ${sig}`);
 assert.deepEqual(Object.keys(C.SEL).sort(), Object.keys(SIGS).sort(), 'every selector is checked');
@@ -86,7 +88,9 @@ function fake({ gone = [], over = {} } = {}) {
     [S.valueOf]: enc('uint256', String(E18 / 4n)), [S.liquidationPrice]: enc('uint256', String(E18 / 4n + E18 / 100n)), [S.offerPrice]: enc('uint256', String(E18 / 4n + E18 / 50n)),
     [S.vaults]: enc('uint256,uint256,uint256', String(100000n * E18), String(3030n * E18), '1800000000'), [S.recovered]: enc('bool', 'true'), [S.onOffer]: enc('uint256', String(50000n * E18)),
     [S.balanceOf]: enc('uint256', String(900000n * E18)), [S.allowance]: enc('uint256', '0'), [S.symbol]: enc('string', 'TACD'), [S.timestamp]: enc('uint256', '1800000123'), [S.pausedUntil]: enc('uint256', '1800003600'), [S.auctionTime]: enc('uint256', '1799990000'),
-    [S.queuedParam]: enc('uint256,uint256', '0', '0'), [S.pendingOracleEta]: enc('uint256', '0'), [S.pendingMinterEta]: enc('uint256', '0'), ...over,
+    [S.queuedParam]: enc('uint256,uint256', '0', '0'), [S.pendingOracleEta]: enc('uint256', '0'), [S.pendingMinterEta]: enc('uint256', '0'),
+    [S.ORACLE]: enc('address', ORACLE), [S.ETH_USD]: enc('address', FEED), [S.FEED_MAX_STALENESS]: enc('uint256', '3900'), [S.spot]: enc('uint256', String(10n ** 14n)),
+    [S.latestRoundData]: enc('uint80,int256,uint256,uint256,uint80', '7', '244834000000', '1800000000', '1800000050', '7'), [S.decimals]: enc('uint8', '8'), ...over,
   };
   const gonesel = new Set(gone.map((g) => S[g]));
   const chain = async (to, data) => {
@@ -97,23 +101,27 @@ function fake({ gone = [], over = {} } = {}) {
   return { chain, ask };
 }
 const rpc = (chain) => async (method, params) => { assert.equal(method, 'eth_call'); return chain(params[0].to, params[0].data); };
-const V = { addr: VAULT, tac: TAC, synth: SYN };
+const V = { addr: VAULT, tac: TAC, synth: SYN, oracle: ORACLE, feed: FEED };
 
 {
   const f = fake(), { batch } = C.makeReader(rpc(f.chain));
   const st = C.parseStatic(await batch(C.staticCalls(VAULT)));
-  assert.deepEqual(st, { tac: TAC.toLowerCase(), synth: SYN.toLowerCase(), mint: 35000n, liq: 20000n, ownerWindow: 1200, auctionDuration: 5400, minDebt: 100n * E18, redemptionFee: 50n, depthBps: 500n });
+  assert.deepEqual(st, { tac: TAC.toLowerCase(), synth: SYN.toLowerCase(), mint: 35000n, liq: 20000n, ownerWindow: 1200, auctionDuration: 5400, minDebt: 100n * E18, redemptionFee: 50n, depthBps: 500n, oracle: ORACLE.toLowerCase(), feed: FEED.toLowerCase(), staleness: 3900 });
   assert.ok(f.ask.every((s) => s.to.toLowerCase() === '0xca11bde05977b3631167028862be2a173976ca11' || s.to.toLowerCase() === VAULT), 'static reads go to the vault');
   ok('a vault\'s terms (both tokens, 350% and 200%, the owner window, the auction, the minimum debt, the redemption fee) are read in one batch');
   const calls = [C.timestampCall(), ...C.dynamicCalls(V, A)], res = await batch(calls);
   const d = C.parseDynamic(V, A, res.slice(1));
   assert.equal(BigInt(res[0]), 1800000123n);
-  assert.deepEqual({ ...d, me: undefined }, { totalDebt: 52000n * E18, debtCeiling: (1n << 256n) - 1n, depthCeiling: 250000n * E18, feeBps: 100n, pB: E18 / 4n, pL: E18 / 4n + E18 / 100n, pO: E18 / 4n + E18 / 50n, symbol: 'TACD', pausedUntil: 1800003600n, auctionTime: 1799990000, announced: [], oracleEta: 0, minterEta: 0, me: undefined, recovered: true, onOffer: 50000n * E18, tacBal: 900000n * E18, tacAllow: 0n, synBal: 900000n * E18, synAllow: 0n });
+  assert.deepEqual({ ...d, me: undefined }, { totalDebt: 52000n * E18, debtCeiling: (1n << 256n) - 1n, depthCeiling: 250000n * E18, feeBps: 100n, pB: E18 / 4n, pL: E18 / 4n + E18 / 100n, pO: E18 / 4n + E18 / 50n, symbol: 'TACD', pausedUntil: 1800003600n, auctionTime: 1799990000, announced: [], oracleEta: 0, minterEta: 0, held: 900000n * E18, spot: 10n ** 14n, feed: { answer: 244834000000n, updatedAt: 1800000050, decimals: 8 }, me: undefined, recovered: true, onOffer: 50000n * E18, tacBal: 900000n * E18, tacAllow: 0n, synBal: 900000n * E18, synAllow: 0n });
   assert.deepEqual(d.me, { collateral: 100000n * E18, debt: 3030n * E18, auctionStart: 1800000000 });
   // the borrow price is the vault's own valueOf(1e18, true): one wei of TAC is one wei of price
   const vo = f.ask.find((s) => s.data.startsWith(C.SEL.valueOf));
   assert.equal(vo.data, cast('calldata', 'valueOf(uint256,bool)', String(E18), 'true'));
   ok('the totals, fees, prices, symbol and one account\'s vault, balances and allowances are read in one batch, the borrow price as valueOf(1e18, true)');
+  // the vault's own oracle and ETH/USD feed are asked for what the board shows: the TAC held, the price now and the feed's answer, age and decimals
+  const oc = f.ask.find((x) => x.data.startsWith(C.SEL.spot)), fc = f.ask.find((x) => x.data.startsWith(C.SEL.latestRoundData)), hc = f.ask.find((x) => x.data.startsWith(C.SEL.balanceOf + w(VAULT)));
+  assert.equal(oc.to.toLowerCase(), ORACLE.toLowerCase()); assert.equal(fc.to.toLowerCase(), FEED.toLowerCase()); assert.equal(hc.to.toLowerCase(), TAC.toLowerCase());
+  ok('the TAC a vault holds, its oracle\'s price now and its ETH/USD feed are read from the contracts the vault names');
   {
     // an owner's announcement: a term and when it may be made (every term answers the same here), and a new oracle's time
     const S = C.SEL, g = fake({ over: { [S.queuedParam]: enc('uint256,uint256', '15000', '1800172800'), [S.pendingOracleEta]: enc('uint256', '1800259200'), [S.pendingMinterEta]: enc('uint256', '1800345600') } });

@@ -95,10 +95,18 @@ export function makeFeed({ rpc, proofRpc = rpc }) {
       for (let k = v.top; k >= v.from; k--) { calls.push({ to: v.oracle, data: SEL.sampleOf + word(k) }); keys.push([v, k]); }
     }
     const res = await batch(calls);
-    for (const v of venues) { v.have = new Set(); v.missing = []; }
-    keys.forEach(([v, k], i) => { if (res[i] && wordAt(res[i], 0) !== 0n) v.have.add(k); else v.missing.push(k); });
+    for (const v of venues) { v.have = new Set(); v.missing = []; v.depth = null; }
+    keys.forEach(([v, k], i) => {
+      if (!res[i] || wordAt(res[i], 0) === 0n) { v.missing.push(k); return; }
+      v.have.add(k);
+      const d = wordAt(res[i], 1);                                                     // the venue's ETH depth at that interval
+      if (k >= v.from && k <= v.newest && (v.depth == null || d < v.depth)) v.depth = d;
+    });
     for (const v of venues) v.counted = v.points - v.missing.filter((k) => k <= v.newest).length;     // of `points`, the ones lending reads
-    return { head, venues, missing: venues.reduce((n, v) => n + v.missing.length, 0), ready: venues.every((v) => v.counted === v.points) };
+    // The depth lending would read, from what is recorded: the thinner venue's lowest. Once every interval is in it is the vault's own figure;
+    // before, a missing interval may be thinner still, so it is an upper bound.
+    const depth = venues.every((v) => v.depth != null) ? venues.reduce((m, v) => (m == null || v.depth < m ? v.depth : m), null) : null;
+    return { head, venues, depth, missing: venues.reduce((n, v) => n + v.missing.length, 0), ready: venues.every((v) => v.counted === v.points) };
   }
 
   // ── building one record ──
