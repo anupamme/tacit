@@ -603,9 +603,11 @@ async function batchCycle() {
     //
     // So check it here, where the op is actually built. These jobs are already claimed, so a mismatch is
     // released back rather than failed — the ordinary single-op path settles them correctly.
+    // With the mixed path on, every batch goes through it, transfers alone included: it is the path the prover board and
+    // the direct network request serve, where the transfer batch binary is a public network request only.
     const wrongType = jobs.filter((j) => j.type !== 'transfer');
+    if (mixedOn()) return await settleMixed(jobs);
     if (wrongType.length) {
-      if (mixedOn()) return await settleMixed(jobs);
       log(`REFUSING to batch: ${wrongType.length} non-transfer job(s) claimed (${[...new Set(wrongType.map((j) => j.type))].join(', ')}) — batchtransfer folds transfers only`);
       for (const id of ids) await confidentialAck({ jobId: id, error: 'released: non-transfer job claimed into a transfer batch' });
       return true;
