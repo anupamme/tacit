@@ -13,6 +13,8 @@
 //   farmsteps joining a private farm with tETH but no TAC opens on tETH alone; both sides says where TAC is made (with a way back
 //            to the farm) or to farm with tETH alone
 //   hxbal   the card's balance line and Max, the picker's balances, and what Your Tacit and the header say it is all worth
+//   hxborrow the card's Borrow tab with a key open: the lock it follows step by step with what the key holds, and the bond posted from
+//           the card with wstETH already held (a permit and the post in one transaction), after which the lock waits to mint
 //   hxteth  a key holding private tETH: Shield says so with Send, Swap and Back to ETH a press away; Back to ETH and Send quote their relay
 //           fees as their forms will (Max keeping the fee that combines notes), and each hands its form the amount
 //   farmcoming a private farm opened while a wrap is settling says the tETH is on its way instead of asking for it again
@@ -150,7 +152,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxteth,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,selffund,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxteth,hxborrow,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,selffund,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -864,6 +866,39 @@ await step('borrow', async () => {
   await page.click('[data-bond-take]');
   await chainUntil(async () => (await wst(A0)) > w0, 120000);
   ok((await wst(A0)) > w0, `borrow: a bond on a lock not minted comes back to the account that posted it ${await text(page, '#bw-status')}`);
+});
+
+await step('hxborrow', async () => {
+  const r = await openPage({ account: A0, key: K0 });
+  const p = r.page, WSTETH = '0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0', wst = async (x) => BigInt(await rpc('eth_call', [{ to: WSTETH, data: '0x70a08231' + addrWord(x) }, 'latest']));
+  const card = async () => (await text(p, '#hx-bw')).replace(/\s+/g, ' ');
+  try {
+    // wstETH held by the paying account: ETH sent to wstETH stakes it and mints wstETH back.
+    await chainUntil(async () => !!(await rpc('eth_sendTransaction', [{ from: A0, to: WSTETH, value: '0x' + (5n * 10n ** 16n).toString(16) }])), 60000);
+    const w0 = await wst(A0);
+    await p.goto(r.url + '#borrow');
+    await p.waitForSelector('#bw-lock, #borrow-body [data-in="eth"]', { timeout: 60000 });
+    if (await p.$('#borrow-body [data-in="eth"]')) { await p.click('#borrow-body [data-in="eth"]'); await p.waitForSelector('#bw-lock', { timeout: 120000 }); }
+    const pub = await p.evaluate(() => localStorage.getItem(Object.keys(localStorage).find((k) => k.startsWith('tacit-eth-identity-anchor:'))));
+    await p.evaluate((x) => localStorage.setItem(`tacit-lite-cbtc-v1:${x}`, JSON.stringify({ lockTxid: 'cd'.repeat(32), lockVout: 1, vBtc: '20000', anchor: { txid: 'ce'.repeat(32), vout: 0 }, at: Date.now() })), pub);
+    // The page read this key's locks before the record was seeded: the sheet, opened again, reads them again (as a lock made in another tab is found).
+    await p.evaluate(() => { location.hash = ''; location.hash = '#borrow'; });
+    await p.waitForSelector('#bw-bond, #bw-topup', { timeout: 120000 });
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    await p.click('[data-hxm="borrow"]');
+    await until(p, () => !!document.querySelector('#hx-bw [data-hxbw="bond-wst"]'), null, 300000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await card().catch(() => '?')} | ${await text(p, '#hx-have').catch(() => '')}`); });
+    const c0 = await card();
+    ok(/Your lock\s*0\.0002 BTC/.test(c0) && /✓\s*Lock\s*2\s*Bond\s*3\s*Mint\s*4\s*Borrow/.test(c0) && /Locked\s*0\.0002 BTC/.test(c0) && /At your Bitcoin address/.test(c0),
+      `hxborrow: the Borrow tab follows the lock, at its bond, with what the key holds (${c0.slice(0, 200)})`);
+    ok(/Post bond with [\d.]+ wstETH/.test(c0) && /Or with [\d.]+ ETH/.test(c0), 'hxborrow: wstETH already held is offered as the bond, ETH as the other way');
+    await p.click('#hx-bw [data-hxbw="bond-wst"]');
+    await until(p, () => /Bond posted/.test(document.querySelector('#hx-bw-s')?.textContent || '') || /err/.test(document.querySelector('#hx-bw-s')?.innerHTML || ''), null, 300000);
+    ok(/Bond posted/.test(await text(p, '#hx-bw-s')) && (await wst(A0)) < w0, `hxborrow: the bond posts from the card in wstETH, by a permit in the same transaction (${(await text(p, '#hx-bw-s')).slice(0, 100)}; wstETH ${w0} → ${await wst(A0)})`);
+    await until(p, () => /✓\s*Lock\s*✓\s*Bond\s*3\s*Mint/.test(document.querySelector('#hx-bw')?.textContent || ''), null, 300000);
+    ok(/Waiting for/.test(await card()), `hxborrow: with the bond in, the lock waits to mint, and says for what (${(await card()).match(/Waiting for[^.]*\./)?.[0] || ''})`);
+    if (r.errors.length) { fails++; console.log('FAIL hxborrow page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
 });
 
 // A bond whose lock the pool records as minted on and then spent on Bitcoin (the pool's own flags for a fixture lock,
@@ -5084,12 +5119,14 @@ await step('hxways', async () => {
     await until(p, () => document.querySelector('#sheet-eth[open] #d-amt')?.value === '0.04', null, 120000);
     ok((await sheetAt()) === 'eth #device/ethereum', `hxways: and on Ethereum, the Ethereum pool's (${await sheetAt()})`);
     await closeAll();
+    // With the key open, Borrow does the lock in the card: the BTC goes to the key's own Bitcoin address first, then is locked there.
     await p.click('[data-hxm="borrow"]'); await p.fill('#hx-amt', '0.002');
-    await until(p, () => /^≈ /.test(document.querySelector('#hx-out')?.textContent || '') && /floor/.test(document.querySelector('#hx-q')?.textContent || ''), null, 120000);
-    ok(/Lock BTC and borrow/.test(await text(p, '#hx-go')) && /post an ETH bond worth at least 1\.5× the lock/.test(await text(p, '#hx-q')), `hxways: Borrow quotes what the lock can borrow and says what it takes (${(await text(p, '#hx-q')).slice(0, 120)})`);
+    await until(p, () => /^≈ /.test(document.querySelector('#hx-out')?.textContent || '') && /this lock needs about/.test(document.querySelector('#hx-q')?.textContent || ''), null, 120000);
+    ok((await text(p, '#hx-go')) === 'Send BTC to lock' && /ETH bond of at least 1\.5×/.test(await text(p, '#hx-q')) && /Your Bitcoin address bc1q/.test(await text(p, '#hx-have')),
+      `hxways: Borrow quotes what the lock can borrow, names the key's Bitcoin address and says what the lock needs (${(await text(p, '#hx-q')).slice(0, 140)})`);
     await p.click('#hx-go');
-    await until(p, () => document.querySelector('#sheet-borrow[open] #bw-amt')?.value === '0.002', null, 240000);
-    ok(true, 'hxways: and its button opens the Borrow sheet with the BTC in the lock form');
+    await until(p, () => /Bitcoin wallet|Send from any wallet|on its way/i.test(document.querySelector('#hx-bw-s')?.textContent || ''), null, 120000);
+    ok(true, `hxways: and with no BTC there yet its button sends it from a Bitcoin wallet, or says to send it from any (${(await text(p, '#hx-bw-s')).slice(0, 100)})`);
     if (r.errors.length) { fails++; console.log('FAIL hxways page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
