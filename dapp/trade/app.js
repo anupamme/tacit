@@ -442,10 +442,10 @@ function renderChart() {
   $('#legend').innerHTML = lane === 'cmp' ? legend.join('') : points.length ? '<span><b class="up">▲</b><b class="down">▼</b> your purchases and sales</span>' : '';
   const first = D.tape.coarse[0], days = first ? Math.max(1, Math.round((now() - first.t) / 86400)) : 0;
   $('#chart-note').textContent = lane === 'eth'
-    ? `A line of executed prices (fees included) from the Precision pool's on-chain price tape; a stretch with no trades holds the price before it, and the right edge is the price now. Candles show each period's open, high, low and close, each opening where the one before closed (the pool's price moves only when it trades). The tape holds about a day of 5-minute and six weeks of 4-hour bars, so candles under four hours are for the past day; this browser keeps what it has read${first ? ` (${days} days so far)` : ''}.`
+    ? `Executed prices (fees included) from the Precision pool's on-chain tape. A quiet stretch holds the last price, and the right edge is the price now. Each candle opens where the one before closed. The tape holds a day of 5-minute and six weeks of 4-hour bars; this browser keeps what it has read${first ? ` (${days} days so far)` : ''}.`
     : lane === 'btc' ? `Every trade on the Bitcoin order book since ${D.btc?.firstTrade ? new Date(D.btc.firstTrade * 1000).toISOString().slice(0, 10) : 'it began'}${D.btc?.trades?.length ? ` (${D.btc.trades.length} trades)` : ''}; a stretch with no trades holds the price before it.`
-    : 'Both lanes in dollars at today\'s ETH and BTC prices. The figure above the chart is how far Bitcoin\'s price sits from Ethereum\'s.';
-  if (lane !== 'cmp') $('#chart-note').textContent += ' Drag across the chart to measure a stretch and zoom into it; a double-click zooms out. With a wallet connected, its own purchases and sales are flagged (on Ethereum, the pool\'s swaps to it over the last day).';
+    : 'Both lanes in dollars at today\'s ETH and BTC prices. The figure above is how far Bitcoin sits from Ethereum.';
+  if (lane !== 'cmp') $('#chart-note').textContent += ' Drag across the chart to zoom; double-click to zoom out. Your own trades are flagged when a wallet is connected.';
   renderControls();
 }
 
@@ -932,7 +932,7 @@ function renderBook() {
   if (tab === 'mine') { if (W.account && (D.tradesStale || ((!D.tradesAt || now() - D.tradesAt > 120) && (!D.tradesTried || now() - D.tradesTried > 60)))) ensureTrades(); setHtml(box, mineHtml(orders)); note.textContent = ''; return; }
   if (tab === 'trades') {
     setHtml(box, tradesHtml());
-    note.textContent = 'Swaps in the Precision pool for about the last day, read from its own events (a split counts its Precision share), and every trade on the Bitcoin order book.';
+    note.textContent = 'Precision pool swaps from about the last day (a split counts its Precision share), and every Bitcoin order book trade.';
     return;
   }
   if (tab === 'eth') {
@@ -949,7 +949,7 @@ function renderBook() {
       priceFmt: ethPxFmt, sizeFmt: (n) => `${tacFmt(n)} TAC`, label: 'zSwap order book for TAC', empty: 'No TAC orders rest on zSwap\'s boards right now.',
     });
     setHtml(box, hasBoardOrders() ? ethStack(z) : `<p class="note">${z.answered < BOARD_CALLS ? 'No TAC orders on the boards that answered.' : 'No TAC orders on zSwap\'s boards.'}${missing} ${ZSWAP_LINK}</p>`);
-    note.innerHTML = hasBoardOrders() ? `Orders on zSwap's boards. Fill sets the ticket to that order; otherwise the ticket fills the best orders together when that pays more.${missing} ${ZSWAP_LINK}` : '';
+    note.innerHTML = hasBoardOrders() ? `Orders on zSwap's boards. Fill sets the ticket to one order; otherwise it fills the best together when that pays more.${missing} ${ZSWAP_LINK}` : '';
     return;
   }
   const b = D.book;
@@ -962,7 +962,7 @@ function renderBook() {
   const live = btcOn();
   setHtml(box, btcStack(b, live) + (live ? `<div class="btc-actions"><button class="fillbtn primary" type="button" data-btc="open">Trade on Bitcoin</button><button class="fillbtn" type="button" data-btc="list">List a sale</button></div>` : ''));
   const total = b.asks.reduce((a, r) => a + r.amount, 0n), want = b.bids.reduce((a, r) => a + r.amount, 0n);
-  const bidsTxt = !D.bidsRead ? 'Could not read the bids.' : b.bids.length ? `${b.bids.length} bid${b.bids.length === 1 ? '' : 's'} (${grp(Number(want) / 1e8, 0)} TAC) settle when the bidder is online${b.bids.some((r) => r.auto) ? ', some within minutes' : ''}.` : 'No bids.';
+  const bidsTxt = !D.bidsRead ? 'Could not read the bids.' : b.bids.length ? `${b.bids.length} bid${b.bids.length === 1 ? '' : 's'} (${grp(Number(want) / 1e8, 0)} TAC) settle when the bidder is online.` : 'No bids.';
   const nMine = orders.filter((o) => o.lane === 'btc').length, yours = nMine ? `<button type="button" class="linkbtn" data-goto="mine">You have ${nMine} open order${nMine === 1 ? '' : 's'} here</button>. ` : '';
   note.innerHTML = b.asks.length ? `${yours}${b.asks.length} listings (${grp(Number(total) / 1e8, 0)} TAC), taken whole. ${bidsTxt}${live ? '' : ` <a href="/tac/#buy">Buy on Bitcoin →</a> · <a href="/classic.html#tab=market&aid=${TAC_BTC_ID}&lane=btc">List a sale →</a>`}` : bidsTxt;
 }
@@ -984,13 +984,13 @@ function pinOrder(key) {
   $('.p-ticket').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 function renderAbout() {
-  $('#about').innerHTML = `<p><b>TAC</b> is Tacit's token: 21,000,000, issued once on Bitcoin with no mint authority, and an ERC-20 on Ethereum minted only against TAC that left Bitcoin. One supply, two lanes. <a href="/verify.html">Check the supply →</a></p>`;
+  $('#about').innerHTML = `<p><b>TAC</b> is Tacit's token: 21,000,000, issued once on Bitcoin. On Ethereum it is an ERC-20 minted only against TAC that left Bitcoin. <a href="/verify.html">Check the supply →</a></p>`;
   const link = (a, t) => `<a href="${SCAN}${a}" target="_blank" rel="noopener noreferrer">${t || `${a.slice(0, 8)}…${a.slice(-6)}`}</a>`;
   const pool = getConfidentialDeployment('mainnet')?.pool, vol24Usd = D.btc?.vol24 && D.btcUsd ? (D.btc.vol24 * D.btcUsd) / 1e8 : null;
   const main = [
     ['On Ethereum', `ERC-20 ${link(TAC_ERC20)}${D.ethSupply != null ? ` · ${grp(Number(D.ethSupply) / 1e18, 0)} TAC minted there so far` : ''}`],
     ['On Bitcoin', `Asset <code>${TAC_BTC_ID.slice(0, 8)}…${TAC_BTC_ID.slice(-6)}</code>${D.btc?.holders ? ` · ${grp(D.btc.holders, 0)} holders` : ''}${D.btc?.vol24 ? ` · ${grp(D.btc.vol24, 0)} sats${vol24Usd != null ? ` (${vol24Usd < 10 ? usd(vol24Usd) : `$${grp(vol24Usd, 0)}`})` : ''} traded in 24h` : ''}`],
-    ['Between them', `<a href="/#bridge">The bridge</a> takes TAC from Bitcoin to Ethereum in hours, sometimes a day.`],
+    ['Bridging', `<a href="/#bridge">The bridge</a> takes TAC from Bitcoin to Ethereum in hours, sometimes a day.`],
   ];
   const more = [
     ['Precision pool', `${link(PRECISION_POOL)} · TAC/ETH${D.precision ? ` · holds ${fmtUnits(D.precision.eth, 18, 2)} ETH and ${fmtUnits(D.precision.tac, 18, 0)} TAC` : ''}`],

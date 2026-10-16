@@ -68,7 +68,7 @@ function renderLanes() {
     ? `<span>Pool rate <b>${usd(px)}</b></span>${usds.length ? `<span>· in private pools <b>${usd(Math.min(...usds))}${Math.min(...usds) === Math.max(...usds) ? '' : ` to ${usd(Math.max(...usds))}`}</b></span>` : ''}${m && isActive(m) && m.mark && btcUsd() ? `<span>· on Bitcoin <b>${usd(m.mark * btcUsd() / 1e8)}</b></span>` : ''}${apart >= 0.01 ? `<span class="apart">· up to ${Math.round(apart * 100)}% apart</span>` : ''}`
     : 'Where tETH sits';
   $('#lanes').innerHTML = cards.map((c) => `<div class="lane"><span class="k"><i class="sw" style="background:${c.sw}"></i>${tn(c.name)}</span><span class="v num">${c.idle ? '—' : c.v == null && c.name !== 'Pool rate' ? '<i class="sk"></i>' : usd(c.v)}</span><span class="s num">${esc(c.s || '')}</span><span class="g ${c.gap != null && Math.abs(c.gap) >= 0.01 ? 'dev' : ''}">${esc(c.g || '')}</span></div>`).join('');
-  $('#gapnote').textContent = apart >= 0.01 ? 'A private pool prices tETH from its own reserves, so a small one can sit well away from ETH. Swaps there happen at that pool\'s price.' : '';
+  $('#gapnote').textContent = apart >= 0.01 ? 'Each private pool prices tETH from its own reserves, so a small one can sit away from ETH. Swaps happen at its price.' : '';
 }
 
 // ── the chart: the ETH the pool holds, and, once tETH trades on Bitcoin, its price there against ETH's ──
@@ -136,7 +136,7 @@ function renderChart() {
   chart.update({ series: [{ id: 'held', name: 'ETH held', color: ETHBLUE, kind: 'line', area: true, bars, fmt: f, volFmt: (v) => `${grp(v / (k || 1), 2)} ETH` }], tags: bars.length ? [{ y: bars.at(-1).close, label: 'Now', color: ETHBLUE }] : [], empty: 'Nothing to draw for this range yet.', period: tf, label: `ETH held in the Tacit pool, ${range ? RANGE_WORDS[range] : 'all time'}` });
   S.view = { bars, unit, range, kind };
   paintRead();
-  $('#chart-note').textContent = `The ETH held by the Tacit pool, from every movement into and out of it: deposits, withdrawals and public swaps. A quiet stretch repeats the last figure, and the right edge is the balance now.${H.exact ? '' : ' The history does not add up exactly to the balance, so the last point is the balance.'}`;
+  $('#chart-note').textContent = `The ETH held by the Tacit pool, from every deposit, withdrawal and public swap. A quiet stretch repeats the last figure, and the right edge is the balance now.${H.exact ? '' : ' The history does not add up exactly, so the last point is the balance.'}`;
 }
 
 // ── tETH on Bitcoin: the order book, or the quiet state until there is one ──
@@ -161,11 +161,11 @@ function renderBtc() {
     return;
   }
   if (!isActive(m)) {
-    lead.innerHTML = '<b>No tETH is listed on Bitcoin yet.</b> Its order book and price in sats appear here as soon as someone lists or bids.';
+    lead.innerHTML = '<b>No tETH is listed on Bitcoin yet.</b>';
     dep.hidden = true; setHtml(acts, '');
     setHtml(box, idle(m, { ref }));
     setHtml(facts, lines.join(''));
-    note.innerHTML = 'A listing is a signed sale anyone can take, and a bid a signed offer anyone can fill. The tETH and the sats change hands in the same transaction. tETH reaches Bitcoin through the bridge: <a href="/#private/bitcoin">Bridge →</a>';
+    note.innerHTML = 'A listing is a signed sale anyone can take; a bid is a signed offer anyone can fill. The tETH and the sats change hands in the same transaction. Get tETH to Bitcoin with the bridge: <a href="/#private/bitcoin">Bridge →</a>';
     return;
   }
   lead.textContent = '';
@@ -180,7 +180,7 @@ function renderBtc() {
   if (m.vol24) lines.push(`<li><b>${grp(m.vol24, 0)}</b> sats traded in 24h</li>`);
   setHtml(facts, lines.join(''));
   const total = b ? b.asks.reduce((a, r) => a + r.amount, 0n) : 0n, want = b ? b.bids.reduce((a, r) => a + r.amount, 0n) : 0n;
-  const bidsTxt = !m.bidsRead ? 'Could not read the bids.' : b?.bids.length ? `${b.bids.length} bid${b.bids.length === 1 ? '' : 's'} (${grp(Number(want) / 1e8, 2)} tETH) settle when the bidder is online${b.bids.some((r) => r.auto) ? ', some within minutes' : ''}.` : 'No bids.';
+  const bidsTxt = !m.bidsRead ? 'Could not read the bids.' : b?.bids.length ? `${b.bids.length} bid${b.bids.length === 1 ? '' : 's'} (${grp(Number(want) / 1e8, 2)} tETH) settle when the bidder is online.` : 'No bids.';
   note.innerHTML = b?.asks.length ? `${b.asks.length} listing${b.asks.length === 1 ? '' : 's'} (${grp(Number(total) / 1e8, 2)} tETH), taken whole. ${bidsTxt}` : bidsTxt;
 }
 let bitcoin = null;
@@ -276,7 +276,7 @@ function renderQuote() {
 const ownerText = () => (key.unlocked ? (key.key.address ? `the key of ${short(key.key.address, 4)}` : key.key.label ? `your passkey “${key.key.label}”` : `the key ${short(key.key.pubHex, 4)}`) : 'the Tacit key you open next');
 const noteHtml = () => (S.quote?.own
   ? 'Your wallet sends the deposit, your Tacit account\'s PROVE credit pays Succinct\'s prover for the proof, and your wallet sends the settle. Deposits count toward <a href="/#points">TAC points</a>.'
-  : 'One transaction pays the deposit and a small tip to Tacit\'s relay, which does the heavy work so your device does not. Deposits count toward <a href="/#points">TAC points</a>.');
+  : 'One transaction pays the deposit and a small tip to Tacit\'s relay. Deposits count toward <a href="/#points">TAC points</a>.');
 function renderGo() {
   const go = $('#go'), q = S.quote, wei = getWei();
   go.disabled = false; go.title = '';
@@ -920,7 +920,7 @@ function renderUse() {
   const cur = $('#use-amt')?.value ?? S.useAmt;
   $('#uses').innerHTML = `<div class="lbl"><span>Amount</span><span class="mute">optional</span></div><div class="amt"><input id="use-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="tETH to use" value="${esc(cur)}"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-teth"/></svg>tETH</span></div>`
     + `<div id="use-rows">${useRowsHtml()}</div>`;
-  $('#use-note').textContent = 'These open tacit.finance. Swap and Back to ETH carry your amount; the bridge asks for its own. Sign in there with the same wallet or passkey: it is the same key.';
+  $('#use-note').textContent = 'These open tacit.finance. Swap and Back to ETH carry your amount. Sign in there with the same wallet or passkey.';
 }
 const useRowsHtml = () => useLinks().map(([href, t, sub, kind]) => `<a class="use" href="${esc(href)}"${kind === 'scroll' ? ' data-scroll' : ''}><b>${esc(t)}</b><span>${esc(sub)}</span><i aria-hidden="true">→</i></a>`).join('');
 
@@ -957,7 +957,7 @@ function renderFarm() {
       + (m ? `<span class="sb mine">Yours: ${esc(amt(m.teth, 4))} tETH + ${esc(amt(m.other, dp(r)))} ${esc(r.other)} · ${esc(grp(m.earned, 2))} TAC earned${m.perDay > 0 ? ` · about ${esc(m.perDay >= 10 ? grp(m.perDay, 0) : m.perDay.toFixed(2))} TAC a day` : ''}</span>` : '') + '</a>';
   }).join('');
   const heldHere = key.unlocked && D.held?.pub === key.key.pubHex;
-  $('#fm-note').innerHTML = `Join, harvest and exit on tacit.finance, from tETH alone or from both sides. Positions are private: nobody sees who farms or how much. ${!key.unlocked ? '<button class="linkbtn" type="button" id="fm-signin">Sign in to see yours</button>' : heldHere && D.held.loading ? 'Reading your positions…' : heldHere && D.held.positions == null && !D.held.err ? 'Your positions could not be read just now.' : ''}`;
+  $('#fm-note').innerHTML = `Join, harvest and exit on tacit.finance. ${!key.unlocked ? '<button class="linkbtn" type="button" id="fm-signin">Sign in to see yours</button>' : heldHere && D.held.loading ? 'Reading your positions…' : heldHere && D.held.positions == null && !D.held.err ? 'Your positions could not be read just now.' : ''}`;
 }
 
 // ── what moved: every ETH movement into and out of the pool ──
@@ -968,19 +968,19 @@ function renderMoves() {
   body.innerHTML = rows.length ? rows.map((m) => { const inn = m.wei > 0n, v = inn ? m.wei : -m.wei; return `<tr><td title="${esc(new Date(m.t * 1000).toLocaleString())}">${esc(ago(m.t))}</td><td class="${inn ? 'in' : 'out'}">${inn ? 'ETH in' : 'ETH out'}</td><td class="r num" ${px ? `title="${esc(usd(toEth(v) * px))}"` : ''}>${inn ? '+' : '−'}${esc(fmtUnits(v, 18, v < 10n ** 16n ? 4 : 3))}</td></tr>`; }).join('') : '<tr><td colspan="3" class="mute">Nothing has moved yet.</td></tr>';
   const d = movedSince(H.pts, 86400), w = movedSince(H.pts, 7 * 86400);
   $('#mv-sum').textContent = `24h ${ethTxt(d.in)} in, ${ethTxt(d.out)} out · 7d ${ethTxt(w.in)} in, ${ethTxt(w.out)} out`;
-  $('#moves-note').textContent = 'ETH entering or leaving the pool contract: deposits, withdrawals and public swaps. What happens inside the pool is private, and these lines never say whose ETH it is.';
+  $('#moves-note').textContent = 'ETH in and out of the pool: deposits, withdrawals and public swaps. Whose it is stays private.';
 }
 
 // ── about ──
 function renderAbout() {
   const P = D.pool, link = (a, t) => `<a href="${SCAN}address/${a}" target="_blank" rel="noopener noreferrer">${t || `${a.slice(0, 8)}…${a.slice(-6)}`}</a>`;
-  $('#about').innerHTML = `<p><b>tETH</b> is private ETH. Put ETH in the Tacit pool and you hold the same amount as tETH, one for one. The chain then shows neither what you hold nor who you pay. Take it out for ETH any time, less the relay's fee.</p>
-    <p>Send it, swap it for TAC, farm with it, or bridge it to your own Bitcoin address and back. <a href="/weld/stats/">The pool's figures →</a></p>`;
+  $('#about').innerHTML = `<p><b>tETH</b> is private ETH: put ETH in the Tacit pool and hold the same amount as tETH. The chain shows neither what you hold nor who you pay. Take it out any time, less the relay's fee.</p>
+    <p>Send it, swap it for TAC, farm it, or bridge it to your own Bitcoin address and back. <a href="/weld/stats/">The pool's figures →</a></p>`;
   const fee = D.floor ? fmtUnits(D.floor, 18, 5) : null;
   const main = [
-    ['On Ethereum', `The pool ${link(POOL)} holds the ETH behind every tETH. Its balance and each deposit and withdrawal are public; who owns what is not.`],
-    ['On Bitcoin', 'The bridge burns tETH on Ethereum, and the same amount, less the relay fee, arrives at your own Bitcoin address in a few hours, sometimes up to a day. A burn cannot be undone. The tETH returns to Ethereum, private, once Bitcoin\'s proof is recorded there. 0.01 to 0.5 tETH a bridge. <a href="/#private/bitcoin">Bridge →</a>'],
-    ['What it costs', `Making ETH private costs the relay's tip, shown before you confirm, and the network fee${fee ? '. Sending, swapping and taking out cost the relay\'s fee (at least about ' + esc(fee) + ' ETH); swaps also pay the pool\'s fee' : ''}.`],
+    ['On Ethereum', `The pool ${link(POOL)} holds the ETH behind every tETH. Its balance, deposits and withdrawals are public; who owns what is not.`],
+    ['On Bitcoin', 'The bridge burns tETH on Ethereum; the same amount, less the relay fee, arrives at your Bitcoin address in hours, sometimes a day. A burn cannot be undone. Coming back to Ethereum, it is private again once Bitcoin\'s proof is recorded. 0.01 to 0.5 tETH a bridge. <a href="/#private/bitcoin">Bridge →</a>'],
+    ['What it costs', `Making ETH private costs the relay's tip (shown before you confirm) and the network fee${fee ? '. Sending, swapping and taking out cost the relay\'s fee, at least about ' + esc(fee) + ' ETH; swaps add the pool\'s fee' : ''}.`],
   ];
   const pools = D.rows.map((r) => `${esc(r.name)} (${esc(r.depthEth < 0.01 ? 'under 0.01' : grp(r.depthEth, 2))} ETH deep)`).join(' · ');
   const more = [
