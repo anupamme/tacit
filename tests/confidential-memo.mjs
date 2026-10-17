@@ -143,4 +143,62 @@ ok('balance scan recovers my active notes only (stranger + spent filtered)');
   ok('malformed memos are skipped without aborting the scan; valid notes around them are recovered');
 }
 
-console.log(`\n${n}/7 confidential-memo checks passed`);
+// ── the sliced scan: the same notes as scan, on every pass, with what it has already tried remembered ──
+{
+  const mk = (value, nk) => ({ value, blinding: randomScalar(), secret: nk, asset: ASSET, owner: pool.nkToOwner(nk) });
+  const mineNotes = [mk(11n, '0x' + '1'.repeat(64)), mk(12n, '0x' + '2'.repeat(64)), mk(13n, '0x' + '3'.repeat(64))];
+  const strangers = [mk(21n, '0x' + '4'.repeat(64)), mk(22n, '0x' + '5'.repeat(64))];
+  const ev = (nt, to, i) => ({ leaf: mkLeaf(nt), leafIndex: i, memo: m.encodeMemo(m.sealMemo(to, nt, randomScalar)) });
+  const sPub = pubHex(sPriv);
+  const events = [ev(strangers[0], sPub, 0), ev(mineNotes[0], rPub, 1), ev(strangers[1], sPub, 2), ev(mineNotes[1], rPub, 3),
+    { leaf: '0x' + '00'.repeat(32), leafIndex: 4, memo: '0x' }, { leaf: undefined, memo: undefined }, null];
+  const spentNu = [nullifierOf(mineNotes[1], mkLeaf(mineNotes[1]))];
+  const same = (a, b) => JSON.stringify(a, (_, v) => (typeof v === 'bigint' ? v.toString() : v)) === JSON.stringify(b, (_, v) => (typeof v === 'bigint' ? v.toString() : v));
+  const plain = m.scan(rPriv, events, spentNu, nullifierOf);
+  assert.deepStrictEqual(plain.map((x) => x.leafIndex), [1], 'the plain scan finds the unspent note');
+  assert.ok(same(await m.scanSliced(rPriv, events, spentNu, nullifierOf), plain), 'the first sliced pass equals the plain scan');
+  assert.ok(same(await m.scanSliced(rPriv, events, spentNu, nullifierOf), plain), 'the second pass, with the others remembered, equals it too');
+  assert.ok(same(await m.scanSliced(rPriv, events, spentNu, nullifierOf, { sliceMs: 0 }), plain), 'handing the thread back at every memo changes nothing');
+  // a memo that arrives later is tried; one the key has already been told is not its own is not tried again, whoever else it is for
+  const later = ev(mineNotes[2], rPub, 5);
+  const more = await m.scanSliced(rPriv, [...events, later], spentNu, nullifierOf);
+  assert.deepStrictEqual(more.map((x) => x.leafIndex), [1, 5], 'a note that arrived since the last pass is found');
+  assert.deepStrictEqual((await m.scanSliced(sPriv, events, [], nullifierOf)).map((x) => x.leafIndex), [0, 2], 'another key reads the same list on its own');
+  assert.deepStrictEqual((await m.scanSliced(rPriv, events, [], nullifierOf)).map((x) => x.leafIndex), [1, 3], 'a spent note is spent only for the pass that says so');
+  // the same leaf given again with a memo sealed to this key is still found, though its first memo was somebody else's
+  const decoy = { leaf: events[1].leaf, leafIndex: 9, memo: m.encodeMemo(m.sealMemo(sPub, mineNotes[0], randomScalar)) };
+  const dup = await m.scanSliced(rPriv, [decoy, events[1]], [], nullifierOf);
+  assert.deepStrictEqual(dup.map((x) => x.leafIndex), [1], 'a memo is remembered with its leaf: the same leaf under another memo is tried');
+  assert.strictEqual(m.openMemo(rPriv, mkLeaf(mineNotes[0]), events[1].memo)?.value, 11n, 'and the plain open still works');
+  // Counted at the point decompression (one per memo opened): the second pass opens only the memos that were mine.
+  let opened = 0;
+  const spy = { ...secp, ProjectivePoint: new Proxy(secp.ProjectivePoint, { get: (t, k) => (k === 'fromHex' ? (h) => { opened++; return t.fromHex(h); } : t[k]) }) };
+  const mc = makeConfidentialMemo({ secp: spy, sha256, keccak256 });
+  await mc.scanSliced(rPriv, events, spentNu, nullifierOf);
+  assert.strictEqual(opened, 4, 'the first pass opens every memo that has a body');
+  opened = 0;
+  await mc.scanSliced(rPriv, events, spentNu, nullifierOf);
+  assert.strictEqual(opened, 2, 'the second opens only the two that were mine');
+  opened = 0;
+  await mc.scanSliced(rPriv, [...events, later], spentNu, nullifierOf);
+  assert.strictEqual(opened, 3, 'and the one that arrived since');
+  ok('the sliced scan finds what the plain scan finds on every pass, and opens a memo it has ruled out only once');
+  // It hands the thread back between memos that are not its key's too (the ones a scan mostly meets): a timer is served while it runs.
+  const crowd = Array.from({ length: 40 }, (_, i) => ev(mk(BigInt(100 + i), '0x' + (200 + i).toString(16).padStart(64, '0')), sPub, 100 + i));
+  let ticks = 0;
+  const probe = setInterval(() => { ticks++; }, 1);
+  const found = await m.scanSliced(randomScalar(), crowd, [], nullifierOf, { sliceMs: 1 });
+  clearInterval(probe);
+  assert.deepStrictEqual(found, [], 'a stranger finds nothing in them');
+  assert.ok(ticks >= 3, `a timer ran while the scan did (${ticks} ticks): it does not hold the thread to the end`);
+  ok('the sliced scan hands the thread back while it works through memos that are not its own');
+}
+// An owner that does not bind its secret is refused before the commitment is made.
+{
+  const wrong = { value: 9n, blinding: randomScalar(), secret: '0x' + '6'.repeat(64), asset: ASSET, owner: pool.nkToOwner('0x' + '7'.repeat(64)) };
+  const c = m.commitXY(wrong.value, wrong.blinding);
+  assert.strictEqual(m.openMemo(rPriv, m.leafHash(ASSET, c.cx, c.cy, wrong.owner), m.sealMemo(rPub, wrong, randomScalar)), null, 'a sealed secret that its owner does not commit to is not an opening');
+  ok('an owner that does not bind its secret is refused');
+}
+
+console.log(`\n${n}/10 confidential-memo checks passed`);

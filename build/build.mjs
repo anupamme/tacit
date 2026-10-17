@@ -284,15 +284,17 @@ function pageCacheBust(files, write) {
 // preloaded from the head, under the exact URL the page (or the module importing it) uses, so it is fetched in parallel
 // from the first bytes of the HTML. The group after the bar is what the page needs right after it starts, not before:
 // the module's first lines preload it, once what the page waits on has arrived, so the two do not share bandwidth.
+// A third group, after a second bar (`<!-- preload-roots: /a.js | | /lazy.js -->`), is what the page loads on demand: its list is
+// written into the page as `WARM_MODULES`, and the page appends the same modulepreload links when something first reaches for it.
 // Generated here so it cannot go stale; --verify-only reports a block that no longer matches.
 const PRELOAD_PAGES = ['index.html', 'pay/index.html', 'pay/eth/index.html', 'trade/index.html', 'trade/teth/index.html', 'trade/cbtc/index.html', 'vault/index.html', 'tasks/index.html', 'splitter/index.html', 'relay/index.html', 'swap/index.html', 'assets/index.html', 'rewards/index.html'];
 const STATIC_IMPORT = /(?:^|[\n;}])\s*(?:import|export)\s*(?:[^'"();]*?\sfrom\s*)?(['"])([^'"]+)\1/g;
-const HEAD_BLOCK = /<!-- preload:begin -->[\s\S]*?<!-- preload:end -->/, LATER_BLOCK = /\/\/ preload-later:begin\n[\s\S]*?\/\/ preload-later:end/;
+const HEAD_BLOCK = /<!-- preload:begin -->[\s\S]*?<!-- preload:end -->/, LATER_BLOCK = /\/\/ preload-later:begin\n[\s\S]*?\/\/ preload-later:end/, INTENT_BLOCK = /\/\/ preload-intent:begin\n[\s\S]*?\/\/ preload-intent:end/;
 function preloadBlocks(page) {
   const spec = (/<!-- preload-roots:([^>]*?)-->/.exec(page) || [])[1];
   if (!spec) return null;
-  const [roots, later = ''] = spec.split('|');
-  const code = page.replace(HEAD_BLOCK, '').replace(LATER_BLOCK, '');
+  const [roots, later = '', intent = ''] = spec.split('|');
+  const code = page.replace(HEAD_BLOCK, '').replace(LATER_BLOCK, '').replace(INTENT_BLOCK, '');
   const urlOf = (path) => {
     const m = new RegExp(`(["'])(${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\?cb=[A-Za-z0-9_-]+)?)\\1`).exec(code);
     if (!m) throw new Error(`preload root ${path} is not imported by the page`);
@@ -311,13 +313,16 @@ function preloadBlocks(page) {
     for (const r of list.trim().split(/\s+/).filter(Boolean)) walk(urlOf(r));
     return seen;
   };
-  const first = reach(roots, new Set()), after = [...reach(later, new Set(first))].slice(first.size);
+  const first = reach(roots, new Set()), laterSeen = reach(later, new Set(first)), after = [...laterSeen].slice(first.size);
+  const warm = [...reach(intent, new Set(laterSeen))].slice(laterSeen.size);
   const head = [...first].map((u) => `<link rel="modulepreload" href="${u}"${u.startsWith('/vendor/tacit-deps') ? ' fetchpriority="high"' : ''}>`);
   return {
     head: `<!-- preload:begin -->\n${head.join('\n')}\n<!-- preload:end -->`,
     later: after.length
       ? `// preload-later:begin\nfor (const u of ${JSON.stringify(after)}) document.head.append(Object.assign(document.createElement('link'), { rel: 'modulepreload', href: u }));\n// preload-later:end`
       : `// preload-later:begin\n// preload-later:end`,
+    intent: `// preload-intent:begin\nconst WARM_MODULES = ${JSON.stringify(warm)};\n// preload-intent:end`,
+    wantsIntent: !!intent.trim(),
   };
 }
 function pagePreloads(write) {
@@ -329,7 +334,8 @@ function pagePreloads(write) {
     const blocks = preloadBlocks(before);
     if (!blocks) continue;
     if (!LATER_BLOCK.test(before) && blocks.later.includes('for (')) throw new Error(`${rel} has no preload-later block`);   // a page with nothing after the bar needs none (the trade page runs no inline script)
-    const after = before.replace(HEAD_BLOCK, () => blocks.head).replace(LATER_BLOCK, () => blocks.later);
+    if (blocks.wantsIntent && !INTENT_BLOCK.test(before)) throw new Error(`${rel} has no preload-intent block`);
+    const after = before.replace(HEAD_BLOCK, () => blocks.head).replace(LATER_BLOCK, () => blocks.later).replace(INTENT_BLOCK, () => blocks.intent);
     if (after !== before) { drift.push(`${rel} modulepreload links do not match the page's imports`); if (write) writeFileSync(file, after); }
   }
   return drift;

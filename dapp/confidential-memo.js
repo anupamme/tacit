@@ -12,12 +12,12 @@
 // layout as the contract + guest, so a recovered opening recommits and rehashes
 // to exactly the on-chain leaf.
 
-import { bppGens, G } from './bulletproofs-plus.js';
+import { bppH, G } from './bulletproofs-plus.js';
 
 const MEMO_LEN = 136; // value(8) ‖ blinding(32) ‖ secret(32) ‖ asset(32) ‖ owner(32)
 
 export function makeConfidentialMemo({ secp, sha256, keccak256 }) {
-  const H = bppGens().H;
+  const H = bppH();
   const bytesToHex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
   const hexToBytes = (h) => Uint8Array.from((String(h).replace(/^0x/, '').match(/../g) || []).map((x) => parseInt(x, 16)));
   const beBytes = (n, len) => hexToBytes(BigInt(n).toString(16).padStart(len * 2, '0'));
@@ -82,11 +82,12 @@ export function makeConfidentialMemo({ secp, sha256, keccak256 }) {
       const secret = '0x' + bytesToHex(plain.subarray(40, 72));
       const asset = '0x' + bytesToHex(plain.subarray(72, 104));
       const owner = '0x' + bytesToHex(plain.subarray(104, 136));
+      // Noise from a memo that is not mine fails the owner binding in one hash, so it is asked before the commitment's two multiplications.
+      if (BigInt(owner) !== 0n && nkToOwner(secret) !== owner.toLowerCase()) return null;
       // The decrypted value/blinding are sender-chosen for a memo sealed to my public key: a zero or
       // out-of-range scalar has no commitment, so it is not an opening of any leaf.
       const { cx, cy } = commitXY(value, blinding);
       if (leafHash(asset, cx, cy, owner).toLowerCase() !== String(leaf).toLowerCase()) return null;
-      if (BigInt(owner) !== 0n && nkToOwner(secret) !== owner.toLowerCase()) return null;
       return { value, blinding, secret, asset, owner, cx, cy };
     } catch { return null; }
   }
@@ -114,5 +115,46 @@ export function makeConfidentialMemo({ secp, sha256, keccak256 }) {
     return mine;
   }
 
-  return { sealMemo, openMemo, scan, commitXY, leafHash, encodeMemo, decodeMemo };
+  // `scan` in slices: a pool's memos are thousands of point multiplications, so the thread is handed back every `sliceMs`. Whether a
+  // memo is a key's own is fixed by the key and the memo, so one found not to be is not tried again by a later scan of the same key;
+  // a memo that opened is opened again. What is kept is a hash of each memo and a yes or no, no key and no opening.
+  const _tried = new Map();                                    // key id -> Map(memo and leaf hash -> was it mine)
+  const TRIED_CAP = 200000;
+  const utf8 = new TextEncoder();
+  // A message to oneself yields like a timer but is not slowed to a second a turn in a background tab.
+  const handBack = () => new Promise((resolve) => {
+    if (typeof MessageChannel === 'undefined') return setTimeout(resolve, 0);
+    const c = new MessageChannel();
+    c.port1.onmessage = () => { c.port1.close(); resolve(); };
+    c.port2.postMessage(0);
+  });
+  // `covered` ({ upTo, mine }): an earlier scan of these same leaves and memos below `upTo` found the key's own at leaf indices `mine`
+  // (the caller has checked the list is unchanged), so the rest below `upTo` are not tried.
+  async function scanSliced(myPriv, events, spentNullifiers, nullifierOf, { sliceMs = 12, covered = null } = {}) {
+    const known = covered ? new Set(covered.mine) : null;
+    const spent = new Set((spentNullifiers || []).map((n) => n.toLowerCase()));
+    const kid = bytesToHex(sha256(utf8.encode('tacit-memo-tried-v1:' + String(myPriv).toLowerCase())));
+    let tried = _tried.get(kid);
+    if (!tried || tried.size > TRIED_CAP) _tried.set(kid, tried = new Map());
+    const mine = [];
+    let t0 = Date.now();
+    for (const ev of events) {
+      if (Date.now() - t0 > sliceMs) { await handBack(); t0 = Date.now(); }
+      try {
+        if (known && ev && Number(ev.leafIndex) < covered.upTo && !known.has(Number(ev.leafIndex))) continue;
+        const m = ev && ev.memo, text = typeof m === 'string' ? m : null;
+        const id = text && text.length > 2 ? bytesToHex(sha256(utf8.encode(String(ev.leaf).toLowerCase() + '|' + text))).slice(0, 32) : null;
+        if (id && tried.get(id) === false) continue;
+        const note = openMemo(myPriv, ev && ev.leaf, m);
+        if (id) tried.set(id, !!note);
+        if (!note) continue;
+        const nullifier = nullifierOf(note, ev.leaf);
+        if (spent.has(nullifier.toLowerCase())) continue;
+        mine.push({ ...note, leaf: ev.leaf, leafIndex: ev.leafIndex, nullifier });
+      } catch { /* an event that cannot be processed is skipped; the rest of the scan continues */ }
+    }
+    return mine;
+  }
+
+  return { sealMemo, openMemo, scan, scanSliced, commitXY, leafHash, encodeMemo, decodeMemo };
 }

@@ -256,7 +256,7 @@ export function makeConfidentialRecovery({ pool, memo, keccak256, secp, hmac, sh
   const FIELD_P = 2n ** 256n - 0x1000003d1n;
   const _fieldInv = (x) => { let a = ((x % FIELD_P) + FIELD_P) % FIELD_P, m = FIELD_P, u = 1n, v = 0n; while (a) { const q = m / a; [a, m] = [m - q * a, a]; [u, v] = [v - q * u, u]; } return ((v % FIELD_P) + FIELD_P) % FIELD_P; };
   // A coordinate's 32 big-endian bytes, written straight into `out` at `off` (no hex string in between).
-function _be32(x, out, off) { for (let j = 31; j >= 0; j--) { out[off + j] = Number(x & 0xffn); x >>= 8n; } }
+function _be32(x, out, off) { const dv = new DataView(out.buffer, out.byteOffset + off, 32); for (let j = 24; j >= 0; j -= 8) { dv.setBigUint64(j, x & 0xffffffffffffffffn); x >>= 64n; } }
 function _toAffineBatch(ps) {
     if (!ps.length || ps.some((q) => typeof q.pz !== 'bigint' || q.pz === 0n)) return ps.map((q) => q.toAffine());
     const pre = new Array(ps.length);
@@ -318,9 +318,12 @@ function _toAffineBatch(ps) {
     }) }));
     const pts = [...points];
     const same = (d, w) => { for (let j = 0; j < 32; j++) if (d[j] !== w[j]) return false; return true; };
+    // The search hands the thread back every few milliseconds so it never freezes the page.
+    const handBack = () => new Promise((r) => { if (typeof MessageChannel === 'undefined') return setTimeout(r, 0); const c = new MessageChannel(); c.port1.onmessage = () => { c.port1.close(); r(); }; c.port2.postMessage(0); });
+    let t0 = Date.now();
+    const breathe = async () => { if (Date.now() - t0 > 12) { await handBack(); t0 = Date.now(); } };
     for (const { n, want } of nulls) {
-      // One nullifier's candidates in a few milliseconds of hashing; yield between them so a long search never freezes the page.
-      await new Promise((r) => setTimeout(r, 0));
+      await breathe();
       const b = deriveBridgeMintBlinding(p, n);
       const Gb = G.multiply(b);
       const wanted = [...want].map((w) => hexToBytes(w));
@@ -332,6 +335,7 @@ function _toAffineBatch(ps) {
       for (const { asset, idBytes, notes } of owners) {
         buf.set(idBytes, 0);
         for (const dn of notes) {
+          await breathe();
           buf.set(dn.ownerBytes, 96);
           for (const c of cands) {
             tried++;

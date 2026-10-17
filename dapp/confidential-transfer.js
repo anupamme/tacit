@@ -18,7 +18,7 @@
 // keccak256 injected for Node + browser parity.
 
 import {
-  bppGens, bppRangeProve, bppRangeVerify,
+  bppH, bppRangeProve, bppRangeVerify,
   G, ZERO, SECP_N, modN, randomScalar,
 } from './bulletproofs-plus.js';
 
@@ -35,7 +35,7 @@ const kernelDomainBytes = (domain) => {
 };
 
 export function makeConfidentialTransfer({ keccak256 }) {
-  const H = bppGens().H;
+  const H = bppH();
 
   const bytesToHex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
   const hexToBytes = (h) => Uint8Array.from((String(h).replace(/^0x/, '').match(/../g) || []).map((x) => parseInt(x, 16)));

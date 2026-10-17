@@ -31,7 +31,7 @@ import { makeConfidentialLockScan } from './confidential-lock-scan.js';
 import { makeConfidentialBridgeMint } from './confidential-bridge-mint.js';
 import { makeBridgeBurnBroadcaster } from './bridge-burn-broadcast.js';
 import { signSchnorr, SECP_N } from './bulletproofs.js';
-import { randomScalar, bppGens, G as BPP_G } from './bulletproofs-plus.js';
+import { randomScalar, bppH, G as BPP_G } from './bulletproofs-plus.js';
 import { hmac, sha256 as vendorSha256 } from './vendor/tacit-deps.min.js';
 import { makeConfidentialRecovery, privBytes, deriveOutputKeys } from './confidential-recovery.js';
 import { makeImportedFarmStore } from './confidential-secret-store.js';
@@ -280,8 +280,17 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     }
     try { return next === Number(BigInt(await rpc('eth_call', [{ to: cfg.pool, data: '0x0be4f422' }, '0x' + to.toString(16)]))); } catch { return null; }
   }
+  // The balance, the lock set and the other scans ask for the same stream: a second read of a query waits for the first and then reads
+  // only the blocks since.
+  const _logsBusy = new Map();
   async function getLogsChunked(params, from, to) {
     const key = _qkey(params, from);
+    for (let r; (r = _logsBusy.get(key)); ) await r.catch(() => {});
+    const run = _getLogsChunked(params, from, to, key);
+    _logsBusy.set(key, run);
+    try { return await run; } finally { if (_logsBusy.get(key) === run) _logsBusy.delete(key); }
+  }
+  async function _getLogsChunked(params, from, to, key) {
     let cached = _logsCache.get(key);
     if (!cached && _kept) {
       const rec = await _kept.get(key).catch(() => null);
@@ -343,9 +352,37 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   let _rec = null;
   const recovery = () => _rec || (_rec = makeConfidentialRecovery({
     pool, memo, keccak256, secp, hmac, sha256: vendorSha256, curveOrder: SECP_N, lockScan: _lockScan, airdrop: _airdrop, cdp: _cdp,
-    bpp: { H: bppGens().H, G: BPP_G },
+    bpp: { H: bppH(), G: BPP_G },
   }));
   const _rev = (h) => (String(h).replace(/^0x/, '').match(/../g) || []).reverse().join('');
+  // What an earlier scan of this key found among the pool's memos, kept in this browser: how many leaves it read, a digest of those
+  // leaves with their memos, and the indices of the key's own. While the first `upTo` leaves and memos are the same bytes (a memo this
+  // browser saved included) only the leaves after them are tried. A cache only: without it, or when the list differs, the scan is the
+  // whole one, and recover() always reads the whole list.
+  const _ckKey = (pubHex) => `tacit-memo-ck-v1:${network || activeNetwork()}:${_hex(sha256(new TextEncoder().encode('tacit-memo-ck-v1:' + lc(pubHex)))).slice(0, 32)}`;
+  function _leavesDigest(leaves, upTo) {
+    const enc = new TextEncoder();
+    let h = new Uint8Array(32);
+    for (let i = 0; i < upTo; i += 256) {                                    // blocks, so a long list is never one string
+      let s = '';
+      for (let j = i; j < Math.min(upTo, i + 256); j++) { const l = leaves[j]; s += lc(l.leaf) + '|' + (typeof l.memo === 'string' ? l.memo : JSON.stringify(l.memo ?? '')) + ';'; }
+      const b = enc.encode(s), c = new Uint8Array(32 + b.length); c.set(h); c.set(b, 32);
+      h = sha256(c);
+    }
+    return _hex(h);
+  }
+  function _loadMemoCk(key, leaves) {
+    if (typeof localStorage === 'undefined') return null;
+    try {
+      const o = JSON.parse(localStorage.getItem(key) || 'null');
+      if (!o || o.v !== 1 || !Number.isInteger(o.upTo) || o.upTo < 1 || o.upTo > leaves.length || !Array.isArray(o.mine)) return null;
+      return o.digest === _leavesDigest(leaves, o.upTo) ? o : null;
+    } catch { return null; }
+  }
+  function _saveMemoCk(key, leaves, found) {
+    if (typeof localStorage === 'undefined' || !leaves.length) return;
+    try { localStorage.setItem(key, JSON.stringify({ v: 1, upTo: leaves.length, digest: _leavesDigest(leaves, leaves.length), mine: found.map((n) => n.leafIndex) })); } catch {}
+  }
   // Bridge-mint walk memo. Recovered notes are keyed `${wallet}:${leaf}` and re-added on a rescan without searching; leaves
   // the cheap balance-read pass / the full pass searched without a match are keyed `${wallet}:${amounts}:${leaf}`, so a
   // second wallet in the same tab, or a newly known amount, searches afresh. `wallet` is the wallet's pubkey.
@@ -608,7 +645,10 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     // known only from a memo is an INBOUND claim — spendable, but not the wallet's own work — and it is marked
     // here rather than presented as equivalent to one re-derived from the key. A key-derived channel below that
     // reaches the same leaf clears the mark.
-    for (const n of memo.scan(_scanKeyHex(id.priv), leaves.filter(Boolean), [], nu)) all.set(lc(n.leaf), { ...n, inboundUnverified: true });
+    const _ck = _ckKey(id.pubHex), covered = deep ? null : _loadMemoCk(_ck, leaves);
+    const fromMemos = await memo.scanSliced(_scanKeyHex(id.priv), leaves.filter(Boolean), [], nu, { covered });
+    _saveMemoCk(_ck, leaves, fromMemos);
+    for (const n of fromMemos) all.set(lc(n.leaf), { ...n, inboundUnverified: true });
     diag.memoNotes = all.size;
 
     // (b) wrap deposits. `unsettled`: every deposit of this key whose own wrap note is not in the tree. `pending`: those of

@@ -82,6 +82,27 @@ test('fetchEvents: one read of the pool\'s events from the deploy block serves e
   assert.equal(logReads[1].params[0].fromBlock, '0x' + (head - 63).toString(16), 'the second scan re-reads only the last 64 blocks, not the history');
 });
 
+test('fetchEvents: scans that ask at the same moment share one walk of the history', async () => {
+  const head = Number(DEPLOY_BLOCK) + 1000;
+  const reads = [];
+  const ux = makeConfidentialPoolUx({
+    ...deps,
+    logStore: null,
+    fetchImpl: async (_url, opts) => {
+      const body = JSON.parse(opts.body);
+      if (body.method === 'eth_blockNumber') return { ok: true, json: async () => ({ result: '0x' + head.toString(16) }) };
+      if (body.method === 'eth_getLogs') { reads.push(body.params[0]); await new Promise((r) => setTimeout(r, 25)); return { ok: true, json: async () => ({ result: [] }) }; }
+      return { ok: true, json: async () => ({ result: '0x0' }) };
+    },
+  });
+  const got = await Promise.all([ux.fetchEvents(), ux.fetchEvents({ include: ['wraps'] }), ux.fetchEvents({ include: ['wraps', 'bonds'] })]);
+  assert.deepEqual(got.map((g) => g.length), [0, 0, 0]);
+  const full = reads.filter((r) => r.fromBlock === '0x' + DEPLOY_BLOCK.toString(16));
+  assert.equal(full.length, 1, 'the history is walked once, not once for each scan that asked');
+  assert.equal(reads.length, 3, 'the two that waited read only what the first did not');
+  for (const r of reads.filter((x) => !full.includes(x))) assert.equal(r.fromBlock, '0x' + (head - 63).toString(16), 'the last 64 blocks');
+});
+
 // A chain of LeavesInserted logs (one leaf each, empty memos) at the given block offsets from the deploy block, served
 // per endpoint by `serve(url, from, to)`: a result, or { error } for a JSON-RPC error, or a thrown error for no answer.
 const LEAVES_T0 = makeConfidentialEvmLog({ keccak256: keccak_256 }).TOPIC0.LeavesInserted;

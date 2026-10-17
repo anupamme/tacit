@@ -45,7 +45,7 @@ function mkUx(handler = async () => '0x', extra = {}) {
     if (extra.http) return extra.http(url, b);
     throw new Error('no network');
   };
-  return makeConfidentialPoolUx({ ...deps, network: 'mainnet', fetchImpl });
+  return makeConfidentialPoolUx({ ...deps, ...(extra.deps || {}), network: 'mainnet', fetchImpl });
 }
 
 // A note owned by `priv` for `asset` at derivation `index` (the wrap derivation), with its leaf.
@@ -199,6 +199,52 @@ test('balance: a note known only from a memo is labelled inbound-unverified; one
 });
 
 // ── bridge-mint destination notes ──
+test('balance: a return visit tries only the memos that arrived since; a list that changed, or recover(), tries them all', async () => {
+  const store = new Map();
+  const had = globalThis.localStorage;
+  globalThis.localStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => { store.set(k, String(v)); }, removeItem: (k) => { store.delete(k); } };
+  try {
+    let opened = 0;     // one per memo opened: the point decompression is the first thing opening a memo does
+    const spy = { ...secp, ProjectivePoint: new Proxy(secp.ProjectivePoint, { get: (t, k) => (k === 'fromHex' ? (h) => { opened++; return t.fromHex(h); } : t[k]) }) };
+    const ux = (events) => mkUx(chainHandler(events), { deps: { secp: spy } });
+    const ux0 = mkUx();
+    const ceth = ux0.assetByTicker.cETH;
+    const note = (priv, i, v) => derivedNote(ux0, priv, ceth.assetId, i, v);
+    const stranger = (i) => { const n = note(otherPriv, 20 + i, 100n + BigInt(i)); return { leaf: n.leaf, memo: sealTo(ux0, otherPriv, n, 11n + BigInt(i)) }; };
+    const gift = (i, v) => { const n = note(otherPriv, 40 + i, v); return { leaf: n.leaf, memo: sealTo(ux0, walletPriv, n, 31n + BigInt(i)), n }; };
+    const rows = [...[0, 1, 2, 3, 4, 5].map(stranger), gift(0, 7000n), gift(1, 8000n)];
+    const at = (list) => [leavesEv(0, list.map((r) => r.leaf), list.map((r) => r.memo), tx(1))];
+    const run = async (list, o = {}) => { opened = 0; const b = await ux(at(list)).balance(walletPriv, { cbtc: false, bridge: false, ...o }); return { b, opened, vals: b.notes.map((n) => BigInt(n.value)).sort() }; };
+
+    const first = await run(rows);
+    assert.deepEqual(first.vals, [7000n, 8000n]);
+    assert.equal(store.size >= 1 && [...store.keys()].some((k) => k.startsWith('tacit-memo-ck-v1:mainnet:')), true, 'the first scan leaves its checkpoint');
+    const second = await run(rows);
+    assert.deepEqual(second.vals, first.vals, 'the same notes on the next visit');
+    assert.equal(first.opened - second.opened, 6, 'the six memos that were not its own are not opened again');
+    // two more leaves arrive, one of them its own: only those two are tried, and the note is found
+    const more = [...rows, stranger(6), gift(2, 9000n)];
+    const third = await run(more);
+    assert.deepEqual(third.vals, [7000n, 8000n, 9000n]);
+    assert.equal(third.opened - second.opened, 2, 'only what arrived since is tried');
+    // a memo in the part already covered that now opens (one this browser saved, or a different list) makes the digest differ: the whole list is read
+    const changed = more.map((r, i) => (i === 3 ? { leaf: r.leaf, memo: r.memo } : r));
+    const g3 = gift(3, 6500n);
+    changed[3] = g3;
+    const fourth = await run(changed);
+    assert.deepEqual(fourth.vals, [6500n, 8000n, 7000n, 9000n].sort(), 'a changed list is read in full and the note in it found');
+    assert.ok(fourth.opened - second.opened >= 6, `a list that changed is not read from the checkpoint (${fourth.opened} against ${second.opened})`);
+    // recover() always reads every memo, with the checkpoint there or not
+    const rec = async () => { opened = 0; const r = await ux(at(more)).recover({ walletPriv, events: at(more), cbtc: false, farm: false, locks: false, cdp: false }); return { r, opened }; };
+    store.clear();
+    const bare = await rec();
+    await run(more);                                   // leaves a checkpoint for exactly this list
+    const withCk = await rec();
+    assert.equal(withCk.opened, bare.opened, 'recover() does not use the checkpoint');
+    assert.deepEqual(withCk.r.notes.map((n) => BigInt(n.value)).sort(), [7000n, 8000n, 9000n]);
+  } finally { globalThis.localStorage = had; if (had === undefined) delete globalThis.localStorage; }
+});
+
 test('balance: a bridge-mint destination note (empty memo) is derived from the wallet key and the burn nullifier', async () => {
   const ux = mkUx();
   const TAC = ux.assetByTicker.TAC.assetId;

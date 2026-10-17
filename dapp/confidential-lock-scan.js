@@ -42,6 +42,7 @@ const SELECTOR_SETTLE_WITH_TIP = '70b16a7d';
 // (see scanLockLeaves on provenance). Per-deployment: both callers (confidential-pool-ux.js) rely on these as
 // their only source, so a successor deployment MUST update these two constants or stealth-lock scanning keeps
 // reading the retired pool.
+const READ_AHEAD = 6;       // transactions read at once while the lock set is rebuilt
 const MAINNET_POOL = '0x000000000Ed1eabD231Be41d93b719056F7febFC';
 const MAINNET_RELAYER = '0x000000009C28617AC88B52Eae5EFaAcdD4aC34c3';
 
@@ -288,8 +289,17 @@ export function makeConfidentialLockScan({ pool }) {
       }
       found = [];
       const cache = new Map(); // txHash -> callsOf
+      // The transactions' calldata is read ahead, READ_AHEAD at a time, one round trip each otherwise; the walk below goes in append
+      // order over what was read. A stream with a gap is left to the walk, which refuses it.
+      const firsts = [...byFirst.keys()].sort((a, b) => a - b);
+      if (firsts.every((first, i) => first === (i ? firsts[i - 1] + byFirst.get(firsts[i - 1]).lockLeaves.length : 0))) {
+        const queue = [...new Set(firsts.map((first) => byFirst.get(first).txHash).filter(Boolean))];
+        await Promise.all(Array.from({ length: Math.min(READ_AHEAD, queue.length) }, async () => {
+          for (let h; (h = queue.shift()) !== undefined;) cache.set(h, await callsOf(h));
+        }));
+      }
       let next = 0;
-      for (const first of [...byFirst.keys()].sort((a, b) => a - b)) {
+      for (const first of firsts) {
         const e = byFirst.get(first);
         if (first !== next) throw new Error(`stealth lock stream is not contiguous: expected lock index ${next}, found ${first} (tx ${e.txHash}) — a LockLeavesInserted log was missed`);
         next += e.lockLeaves.length;

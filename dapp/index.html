@@ -5,8 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-bM1bcQLRTUwLRX3dEAXpqY+Xu/MwQXhGj8er75XDU4o=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-fvTs77g80gDas2HTL5a5BRYccOuMcUsiO/Pf8u4De20=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
+<link rel="preconnect" href="https://api.tacit.finance" crossorigin>
+<link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-mono-400-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -25,7 +27,7 @@
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<!-- preload-roots: /vendor/tacit-deps.min.js /prf-wallet.js /tacit-wallet-known.js /tacit-address.js /bip352.js /evm-wallet.js /walletconnect.js /evm-account.js /evm-tx.js /tac-airdrop.js /evm-trade-venues.js /confidential-payout.js /address-id.js -->
+<!-- preload-roots: /vendor/tacit-deps.min.js /prf-wallet.js /tacit-wallet-known.js /tacit-address.js /bip352.js /evm-wallet.js /walletconnect.js /evm-account.js /evm-tx.js /tac-airdrop.js /evm-trade-venues.js /confidential-payout.js /address-id.js | | /confidential-pool-ux.js /confidential-deployments.js -->
 <!-- preload:begin -->
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/prf-wallet.js">
@@ -1393,6 +1395,9 @@ dialog.layer { width: min(460px, calc(100vw - 32px)); }
 <script type="module">
 // preload-later:begin
 // preload-later:end
+// preload-intent:begin
+const WARM_MODULES = ["/confidential-pool-ux.js?cb=c7bc1e8e","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
+// preload-intent:end
 import { secp, keccak_256, sha256, hmac, bytesToHex, hexToBytes, concatBytes } from '/vendor/tacit-deps.min.js';
 import { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPasskeyAvailable } from '/prf-wallet.js';
 import { knownWallets } from '/tacit-wallet-known.js?cb=ed4c75b7';
@@ -4289,8 +4294,12 @@ const segSub = (name, cur, items) => html`<div class="seg sub" role="tablist"${S
 function wireSub(el, name, set) { $$(`[data-${name}]`, el).forEach((b) => b.onclick = () => { if (!running(sheetOf(b))) { set(b.getAttribute(`data-${name}`)); syncLink(); } }); }
 
 // ── Tacit V1 pool: shared module, loaded on first use ────────────────────────────────────────────────────
+// The module's graph is dozens of files several imports deep: the first reach for it asks for every file at once (WARM_MODULES is
+// generated from the graph by build/build.mjs) instead of one level per round trip.
+const warmPool = (() => { let on = false; return () => { if (on) return; on = true; for (const u of WARM_MODULES) document.head.append(Object.assign(document.createElement('link'), { rel: 'modulepreload', href: u })); }; })();
 const getUx = lazy(async () => {
-  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=62c636f8'), import('/confidential-deployments.js')]);
+  warmPool();
+  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=c7bc1e8e'), import('/confidential-deployments.js')]);
   dep.setActiveNetwork('mainnet');
   setExternalTacHolders(() => (S.wallet ? [S.wallet] : []));      // public TAC in the connected wallet counts toward the exit-fee tier, as on tacit.finance
   const ux = makeConfidentialPoolUx({ secp, keccak256: keccak_256, sha256, network: 'mainnet' });
@@ -6714,14 +6723,16 @@ function loadTacPrice(force = false, book = false) {
     };
     TPX.at = Date.now(); if (book) TPX.book = true;
     try { paintPxs(); } catch { /* the strip is a nicety; the reading above is what other forms wait on */ }
-  })().finally(() => { TPX.p = null; TPX.pBook = false; }));
+    if (TPX.v.usdBtc && TPX.v.mid) store.set(PXS_KEY, { at: TPX.at, v: { mid: TPX.v.mid, ethBtc: TPX.v.ethBtc, usdBtc: TPX.v.usdBtc } });
+  })().catch((e) => { if (!TPX.v) { try { paintPxs(null); } catch { /* nothing drawn */ } } throw e; }).finally(() => { TPX.p = null; TPX.pBook = false; }));
 }
 // The price strip under the header: TAC, cBTC and tETH in dollars, from the one multicall loadTacPrice already makes (the Precision pool's
 // price, and the collateral engine's BTC price both ways), so it costs no request of its own and every dollar on the page agrees. cBTC is
 // locked bitcoin and tETH is ETH made private, one for one, so their dollars are bitcoin's and ETH's. Each is a link to its trade page.
-// Nothing is drawn until the figures are read.
-function paintPxs() {
-  const el = $('#pxs'), v = TPX.v;
+// Nothing is drawn until the figures are read, except on a return visit: the figures last read, if under an hour old, are drawn at once
+// and the reading replaces them; a first reading that fails takes them away.
+function paintPxs(v = TPX.v) {
+  const el = $('#pxs');
   if (!el) return;
   const eth = v?.usdBtc && v.ethBtc ? v.usdBtc / v.ethBtc : null, tac = eth && v.mid ? v.mid * eth : null;
   const usd0 = (x, dp = 0) => `$${x.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp })}`;
@@ -6731,6 +6742,8 @@ function paintPxs() {
   if (el.__h !== out) { el.__h = out; el.innerHTML = out; }                      // written only when it changed
   el.classList.toggle('on', !!out);
 }
+const PXS_KEY = 'tacit-front-pxs-v1', PXS_MS = 60 * 60e3;
+{ const kept = store.get(PXS_KEY); if (kept?.v && Date.now() - kept.at < PXS_MS) { try { paintPxs(kept.v); } catch { /* the reading draws it */ } } }
 // The private AMM's mid, cETH over cTAC in its pool (both kept at the pool's own 8 decimals); the founded fee tier is the one with reserves.
 function loadPrivateAmm() {
   if (TPX.amm !== undefined || TPX.ammP) return TPX.ammP || Promise.resolve();
@@ -12256,8 +12269,8 @@ function paintHx() {
   }
   const pickTab = (k, focusIt) => { if (HX.tab === k) return; hxKeepAmt(() => { HX.tab = k; HX.q = null; HX.route = null; }); paintHx(); if (focusIt) $(`[data-hxm="${k}"]`)?.focus(); };
   for (const b of $$('[data-hxm]', el)) b.onclick = () => pickTab(b.dataset.hxm);
-  // Swap's private pool is read through the Tacit pool's module, the page's largest: a pointer or the keyboard on its tab starts loading it.
-  for (const b of $$('[data-hxm="swap"]', el)) for (const ev of ['pointerenter', 'pointerdown', 'focus']) b.addEventListener(ev, hxWarm, { once: true });
+  // Swap's and Send's private quotes are read through the Tacit pool's module, the page's largest: a pointer or the keyboard on either tab starts loading it.
+  for (const b of $$('[data-hxm="swap"], [data-hxm="send"]', el)) for (const ev of ['pointerenter', 'pointerdown', 'focus']) b.addEventListener(ev, hxWarm, { once: true });
   for (const b of $$('[data-hxm="borrow"]', el)) for (const ev of ['pointerenter', 'pointerdown', 'focus']) b.addEventListener(ev, () => hxBwLoad(), { once: true });
   // The tabs are one stop: the arrow keys, Home and End move among them.
   $('.hx-h', el).onkeydown = (e) => {

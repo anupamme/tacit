@@ -350,13 +350,9 @@ function _hashToCurveSecp(domain, idx) {
 }
 
 let _BPP_GVEC = null, _BPP_HVEC = null, _BPP_H = null;
-export function bppGens() {
-  if (_BPP_GVEC) return { Gvec: _BPP_GVEC, Hvec: _BPP_HVEC, H: _BPP_H };
-  const gv = [], hv = [];
-  for (let i = 0; i < BPP_MAX_NM; i++) {
-    gv.push(_hashToCurveSecp('tacit-bp-G-v1', i));
-    hv.push(_hashToCurveSecp('tacit-bp-H-v1', i));
-  }
+// The note generator H alone: commitments, memos and leaves need only it; the 1,024 vector points bppGens also derives are for range proofs.
+export function bppH() {
+  if (_BPP_H) return _BPP_H;
   let H = null;
   const hSeed = sha256(new TextEncoder().encode('tacit-generator-H-v1'));
   for (let counter = 0; counter < 256; counter++) {
@@ -367,16 +363,25 @@ export function bppGens() {
     } catch {}
   }
   if (!H) throw new Error('bpp: failed to derive H');
+  return (_BPP_H = H);
+}
+export function bppGens() {
+  if (_BPP_GVEC) return { Gvec: _BPP_GVEC, Hvec: _BPP_HVEC, H: _BPP_H };
+  const gv = [], hv = [];
+  for (let i = 0; i < BPP_MAX_NM; i++) {
+    gv.push(_hashToCurveSecp('tacit-bp-G-v1', i));
+    hv.push(_hashToCurveSecp('tacit-bp-H-v1', i));
+  }
+  const H = bppH();
   _BPP_GVEC = Object.freeze(gv);
   _BPP_HVEC = Object.freeze(hv);
-  _BPP_H = H;
-  return { Gvec: _BPP_GVEC, Hvec: _BPP_HVEC, H: _BPP_H };
+  return { Gvec: _BPP_GVEC, Hvec: _BPP_HVEC, H };
 }
 
 // Pedersen commitment: C = v·H + γ·G.
 // Same scheme as standard BP (the amendment requires commitment-format parity).
 export function pedersenCommit(v, gamma) {
-  const { H } = bppGens();
+  const H = bppH();
   return safeMult(H, BigInt(v)).add(safeMult(G, BigInt(gamma)));
 }
 

@@ -104,6 +104,7 @@
 //   hxout    the landing card's Bitcoin tab, going out: the assets it offers follow the two settings, TAC is quoted at its relay floor and
 //            limits, its button opens the TAC sheet's To Bitcoin side with the amount, and a key short of private TAC is sent to make some
 //   hxlink   the same button with no key open: the Bridge tab asks for one, still addressed as the way out, and opens on that side with the amount
+//   pxsback  the price strip on a return visit: prices kept less than an hour ago show at once and the reading replaces them; older ones are not drawn
 //   hxways  the card's Shield by what is held: each source lists its own ways, the chain picker shows for the ETH-only pools alone (MegaETH scores no
 //            points), payments ETH goes to its own chain's Deposit form with the amount, Borrow hands its BTC to the lock form
 //   activity relayed jobs (dispatched as tacit:job, as the relay client does) move Queued → Proving → Done or Failed, with
@@ -158,7 +159,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxteth,hxborrow,hxborrowback,tradelinks,pxs,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxteth,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -5538,6 +5539,31 @@ await step('pxs', async () => {
       ok(Math.abs(s.top - top0) < 1 && s.h >= 18, `pxs (${name}): the row was already there, so the hero did not move when the prices arrived (${Math.round(s.top - top0)}px)`);
       ok(!s.scroll, `pxs (${name}): and the page does not scroll sideways`);
       if (r.errors.length) { fails++; console.log('FAIL pxs page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+    } finally { await r.browser.close(); }
+  }
+});
+
+// A return visit draws the prices it last read before it reads them again: figures kept less than an hour ago show at once and the reading
+// replaces them; older ones are never drawn.
+await step('pxsback', async () => {
+  const seedAt = (ago) => ({ fn: ({ ago }) => {
+    if (!localStorage.getItem('tacit-front-pxs-v1')) localStorage.setItem('tacit-front-pxs-v1', JSON.stringify({ at: Date.now() - ago, v: { mid: 0.00007, ethBtc: 31.5, usdBtc: 99999 } }));
+    window.__seen = [];
+    const note = () => { const e = document.querySelector('#pxs'); const t = e && e.classList.contains('on') ? e.textContent : ''; if (t && window.__seen[window.__seen.length - 1] !== t) window.__seen.push(t); };
+    new MutationObserver(note).observe(document, { childList: true, subtree: true, attributes: true, characterData: true });
+  }, arg: { ago } });
+  for (const [name, ago, shown] of [['fresh', 5 * 60e3, true], ['old', 3 * 3600e3, false]]) {
+    const r = await openPage({ account: A0, key: K0, init: seedAt(ago) });
+    const p = r.page;
+    try {
+      await p.goto(r.url);
+      await p.waitForSelector('#hx-body .hx-h');
+      await p.waitForFunction(() => window.__seen.some((t) => !t.includes('99,999')) , null, { timeout: 120000 });
+      const seen = await p.evaluate(() => window.__seen);
+      ok(shown ? seen[0].includes('$99,999') : !seen.some((t) => t.includes('99,999')), `pxsback (${name}): ${shown ? 'the figures kept five minutes ago show first' : 'figures kept three hours ago are not drawn'} (${JSON.stringify(seen[0])})`);
+      const last = seen[seen.length - 1], btc = Number((last.match(/cBTC\$([\d,]+)/) || [])[1]?.replace(/,/g, ''));
+      ok(btc > 1000 && btc !== 99999, `pxsback (${name}): the reading replaces them (${last})`);
+      if (r.errors.length) { fails++; console.log('FAIL pxsback page errors: ' + r.errors.slice(0, 3).join(' | ')); }
     } finally { await r.browser.close(); }
   }
 });

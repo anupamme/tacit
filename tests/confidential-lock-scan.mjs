@@ -489,4 +489,36 @@ function encodePublicValuesPrefix({ leaves, lockSetRoot, lockLeaves, nullifiers 
   ok('decodeSettleCalls: settleWithTip (SettleTipForwarder self-settle) decodes like a direct settle, untrusted');
 }
 
+// ── 9. The transactions are read a few at a time, and the result is the one the one-at-a-time walk gives ──
+{
+  const zero = '0x' + '00'.repeat(32);
+  const h = (i) => '0x' + (0x100 + i).toString(16).padStart(64, '0');
+  const COUNT = 14;
+  const mine = Array.from({ length: COUNT }, (_, i) => ({ tx: '0xt' + i, leaf: h(i), memo: '0x' + (i + 16).toString(16).repeat(6) }));
+  const txs = Object.fromEntries(mine.map((m) => [m.tx, encodeSettleCall({ publicValues: encodePublicValuesPrefix({ leaves: [], lockSetRoot: zero, lockLeaves: [m.leaf], nullifiers: [] }), proof: '0x01', memos: [m.memo] })]));
+  // events newest first, so the append order is not the arrival order
+  const events = mine.map((m, i) => ({ type: 'LockLeavesInserted', txHash: m.tx, blockNumber: 100 + i, logIndex: 0, firstLockIndex: i, lockLeaves: [m.leaf] })).reverse();
+  let live = 0, peak = 0, asked = 0;
+  const slow = async (tx) => { asked++; live++; peak = Math.max(peak, live); await new Promise((r) => setTimeout(r, 15)); live--; return txs[tx]; };
+  const t0 = Date.now();
+  const r = await scan.scanLockLeaves({ events, getTxInput: slow });
+  const took = Date.now() - t0;
+  assert.deepStrictEqual(r.lockLeaves, mine.map((m) => m.leaf), 'append order, whatever order the reads finish in');
+  assert.deepStrictEqual(r.lockMemos, mine.map((m) => m.memo), 'each lock keeps its own transaction\'s memo');
+  assert.strictEqual(asked, COUNT, 'each transaction is read once');
+  assert.ok(peak > 1 && peak <= 6, `reads overlap but stay bounded (${peak} at once)`);
+  assert.ok(took < COUNT * 15 * 0.6, `the reads overlapped (${took} ms for ${COUNT} reads of 15 ms)`);
+  // a gap is refused as before, by the walk that reaches it: no read ahead is spent on a stream that cannot be used
+  asked = 0;
+  await assert.rejects(scan.scanLockLeaves({ events: events.filter((e) => e.firstLockIndex !== 3), getTxInput: slow }), /not contiguous/);
+  assert.strictEqual(asked, 3, 'a stream with a gap is read only as far as the gap, one at a time');
+  // and a read that fails keeps the lock's place, as it does when read one at a time
+  const flaky = async (tx) => { if (tx === '0xt5') throw new Error('rpc down'); return txs[tx]; };
+  const f = await scan.scanLockLeaves({ events, getTxInput: flaky });
+  assert.deepStrictEqual(f.lockLeaves, mine.map((m) => m.leaf));
+  assert.strictEqual(f.lockMemos[5], null, 'the lock whose transaction could not be read has no memo');
+  assert.strictEqual(f.lockMemos[6], mine[6].memo);
+  ok('scanLockLeaves: transactions are read a few at a time, in the same order, with a gap or a failed read handled as before');
+}
+
 console.log(`\n${n}/${n} confidential-lock-scan checks passed`);
