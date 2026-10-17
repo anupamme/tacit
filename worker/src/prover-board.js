@@ -145,10 +145,13 @@ export function makeProverBoard({ storage, hash, now, lock } = {}) {
 
   // A worker takes the oldest job of a class it may prove, and holds it for the lease. `{}` when there is nothing.
   // `pubkey`: the key inputs may be sealed to (prover-worker/src/main.rs), shown on the summary.
-  async function claim({ worker, classes, pubkey = null } = {}) {
+  // `warming`: the worker is starting (building its prover, warming the GPU) and takes nothing yet; it is counted as seen, so the relay
+  // keeps posting jobs here for the minute it takes instead of sending them to the network, and the jobs wait for it.
+  async function claim({ worker, classes, pubkey = null, warming = false } = {}) {
     if (!worker || !Array.isArray(classes) || !classes.length) throw new Error('worker and classes are required');
     return exclusive(async () => {
       await bump(worker.name, null, pubkey);
+      if (warming) return null;
       const pend = await sweep(await storage.getPending());
       await storage.putPending(pend);
       let open = 0;

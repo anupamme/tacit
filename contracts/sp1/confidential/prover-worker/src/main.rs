@@ -113,6 +113,26 @@ fn main() {
     let poll = Duration::from_millis(env_or("POLL_MS", "3000").parse().expect("POLL_MS"));
     let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(60)).build();
 
+    // While it starts (the prover built, the GPU warmed: about a minute) the worker tells the board it is coming, every ten seconds, so
+    // the relay keeps sending jobs here and they wait the minute instead of going to the network. PAUSE_FLAG (default
+    // /workspace/worker.pause) silences it: the worker neither claims nor pings while the file exists, and the relay then sends its jobs to
+    // the network, which is how the fallback is tested on purpose.
+    let pause_flag = env_or("PAUSE_FLAG", "/workspace/worker.pause");
+    let warming = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    {
+        let warming = warming.clone();
+        let (base, token, name, pause_flag) = (base.clone(), token.clone(), name.clone(), pause_flag.clone());
+        std::thread::spawn(move || {
+            let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(20)).build();
+            while warming.load(std::sync::atomic::Ordering::Relaxed) {
+                if !std::path::Path::new(&pause_flag).exists() {
+                    let _ = agent.post(&format!("{base}/prover/claim")).set("Authorization", &format!("Bearer {token}"))
+                        .send_json(serde_json::json!({ "worker": name, "classes": ["private"], "warming": true }));
+                }
+                std::thread::sleep(Duration::from_secs(10));
+            }
+        });
+    }
     println!("[{name}] building the CUDA prover and the proving key (once)...");
     let t0 = Instant::now();
     let client = ProverClient::builder().cuda().build();
@@ -157,6 +177,7 @@ fn main() {
         }
     }
 
+    warming.store(false, std::sync::atomic::Ordering::Relaxed);
     let reload_flag = env_or("RELOAD_FLAG", "/workspace/worker.reload");
     let reload_due = || std::path::Path::new(&reload_flag).exists();
     let claim_url = format!("{base}/prover/claim");
@@ -199,6 +220,12 @@ fn main() {
         });
     }
     loop {
+        if std::path::Path::new(&pause_flag).exists() {
+            if quiet % 30 == 0 { println!("[{name}] paused ({pause_flag} exists): not taking jobs"); }
+            quiet += 1;
+            std::thread::sleep(Duration::from_secs(2));
+            continue;
+        }
         if reload_due() {
             let _ = std::fs::remove_file(&reload_flag);
             println!("[{name}] reload asked for; exiting between jobs");

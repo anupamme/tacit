@@ -43,6 +43,6 @@ while true; do
   W=$!
   ( sleep 600; keep ) &
   wait $W
-  echo "[run-worker] $(date -u +%FT%TZ) exited ($?); restarting in 20 s"
-  sleep 20
+  echo "[run-worker] $(date -u +%FT%TZ) exited ($?); restarting in 3 s"
+  sleep 3
 done

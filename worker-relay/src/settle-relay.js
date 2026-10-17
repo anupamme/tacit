@@ -234,8 +234,10 @@ async function submitCall(base, label, { gasLimit = null, landed = null } = {}) 
   const endpointsFor = (r) => (privateEps.length
     ? [...privateEps.map((_, i) => privateEps[(i + r) % privateEps.length]), ...publicEps]
     : publicEps);
-  // Rounds spent at one price before it rises: one per private endpoint, so each gets a turn in the lead first.
-  const epsPerTip = Math.max(1, privateEps.length);
+  // Every private endpoint gets the round's transaction at once (the same nonce, fee and bytes, so the same transaction offered to more
+  // builders): a settle is no longer left a whole receipt wait on one endpoint whose builders did not win the next blocks. The price
+  // rises every round.
+  const epsPerTip = 1;
   // Every broadcast under this nonce. A later round REPLACES an earlier one, but the earlier hash can still
   // be the one that lands, so all of them are checked before the job is called failed.
   const seen = [];
@@ -310,19 +312,36 @@ async function submitCall(base, label, { gasLimit = null, landed = null } = {}) 
     // prover top-up behind a nonce that nothing will ever consume.
     lastBroadcastNonce = Math.max(lastBroadcastNonce, nonce);
     let txHash, taken = false;
-    for (const { url, wallet } of endpointsFor(round)) {
+    // The private endpoints all at once; the public one only when none of them took it.
+    const sendVia = async ({ url, wallet }) => {
       try {
-        txHash = await wallet.writeContract(tx);
-        seen.push(txHash);
-        log(`${label} submitted via ${url} (round ${round + 1}, tip ${tip} wei) ${txHash}`);
+        const h = await wallet.writeContract(tx);
+        if (!seen.includes(h)) seen.push(h);
+        txHash ||= h;
+        log(`${label} submitted via ${url} (round ${round + 1}, tip ${tip} wei) ${h}`);
         if (/PUBLIC/.test(url)) log(`${label} WARNING: settling over the PUBLIC mempool — the bound fee is exposed to a searcher`);
-        break;
+        return 'ok';
       } catch (e) {
+        if (/already known|known transaction|already imported/i.test(String(e && e.message))) return 'ok';   // the same transaction, already there
         lastErr = e;
         log(`${label} submit via ${url} failed: ${String(e.message).slice(0, 160)}`);
-        if (NONCE_TAKEN.test(String(e && e.message))) { taken = true; break; } // every endpoint would say the same
-        // An endpoint's revert is only a verdict once the public node agrees; one lagging a block says nothing.
-        if (isRevert(e)) { const dead = await wouldRevert(); if (dead) return settledOrDead(dead); }
+        if (NONCE_TAKEN.test(String(e && e.message))) return 'taken';
+        if (isRevert(e)) return 'revert';
+        return 'err';
+      }
+    };
+    const order = endpointsFor(round);
+    const priv = order.filter((x) => !/PUBLIC/.test(x.url)), pub = order.filter((x) => /PUBLIC/.test(x.url));
+    const outs = await Promise.all(priv.map(sendVia));
+    if (outs.includes('taken')) taken = true;
+    // An endpoint's revert is only a verdict once the public node agrees; one lagging a block says nothing.
+    if (!txHash && outs.includes('revert')) { const dead = await wouldRevert(); if (dead) return settledOrDead(dead); }
+    if (!txHash && !taken) {
+      for (const ep of pub) {
+        const o = await sendVia(ep);
+        if (o === 'ok') break;
+        if (o === 'taken') { taken = true; break; }
+        if (o === 'revert') { const dead = await wouldRevert(); if (dead) return settledOrDead(dead); }
       }
     }
 
@@ -338,7 +357,7 @@ async function submitCall(base, label, { gasLimit = null, landed = null } = {}) 
       // A revert is the chain's verdict and is terminal — unless another landing of the same work caused it.
       if (res.state === 'reverted') return finishReverted(res.hash);
       if (res.state === 'taken') { log(`${label} nonce ${nonce} was consumed by another sender before ours landed`); taken = true; }
-      else log(`${label} not included within ${RECEIPT_WAIT_MS}ms at tip ${tip} wei — ${(round + 1) % epsPerTip ? 'trying the next endpoint at the same tip' : 'escalating'}`);
+      else log(`${label} not included within ${RECEIPT_WAIT_MS}ms at tip ${tip} wei — escalating`);
     }
 
     // The nonce is spent. If one of our own broadcasts spent it, that transaction is the answer; otherwise another

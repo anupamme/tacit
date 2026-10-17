@@ -108,6 +108,16 @@ test('a sealed job is offered only to the worker it is sealed to; keys ride on t
   await assert.rejects(b.post({ class: 'private', cycleLimit: 1, gasLimit: 1, deadline: now() / 1000 + 600 }), /stdin must be/);
 });
 
+test('a warming worker is counted as seen and takes nothing; its first real claim takes the job waiting for it', async () => {
+  const b = makeProverBoard({ storage: store(), now });
+  const { jobId } = await b.post({ class: 'private', stdin, cycleLimit: 1e6, gasLimit: 1e8, deadline: now() / 1000 + 600, label: 'wrap' });
+  assert.equal(await b.claim({ worker: tacit, classes: ['private'], warming: true }), null, 'a warming ping claims nothing');
+  assert.equal((await b.status(jobId)).status, 'queued');
+  const w = (await b.summary()).workers.find((x) => x.name === tacit.name);
+  assert.ok(w && w.lastSeenSeconds <= 1, 'but the worker reads as seen, so the relay keeps posting here');
+  assert.equal((await b.claim({ worker: tacit, classes: ['private'] })).jobId, jobId);
+});
+
 test('routes: box token for posting and reading, worker tokens for claiming and answering, the summary open to any page', async () => {
   const kv = () => { const m = new Map(); return { async get(k) { return m.has(k) ? m.get(k) : null; }, async put(k, v) { m.set(k, String(v)); }, async delete(k) { m.delete(k); } }; };
   const env = { REGISTRY_KV: kv(), CONFIDENTIAL_BOX_TOKEN: 'box-token-box-token-box', PROVER_WORKER_TOKENS: 'gpu1:worker-token-worker-tok:private+public,alice:alice-token-alice-token' };
