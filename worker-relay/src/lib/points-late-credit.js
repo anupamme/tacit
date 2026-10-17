@@ -11,9 +11,9 @@ import { splitDayBudget } from './points-day-board.js';
 
 // allRows / onTimeRows: a day's [{ address, dayPoints }] with and without the late rows. Returns Map<address, wei> of what
 // each address is still owed for the day, before anything already credited for it.
-export function owedForDay({ allRows, onTimeRows, budgetWei, maxWeiPerPoint = null }) {
-  const would = splitDayBudget(allRows, budgetWei, maxWeiPerPoint);
-  const paid = splitDayBudget(onTimeRows, budgetWei, maxWeiPerPoint);
+export function owedForDay({ allRows, onTimeRows, budgetWei, maxWeiPerPoint = null, groups = [] }) {
+  const would = splitDayBudget(allRows, budgetWei, maxWeiPerPoint, groups);
+  const paid = splitDayBudget(onTimeRows, budgetWei, maxWeiPerPoint, groups);
   const owed = new Map();
   for (const [address, w] of would) {
     const p = paid.get(address) ?? 0n;
@@ -23,9 +23,9 @@ export function owedForDay({ allRows, onTimeRows, budgetWei, maxWeiPerPoint = nu
 }
 
 // Credits every settled day that has late rows and that the scanners have now read past. `rowsFor(day, { onTime })`,
-// `budgetFor(day)`, `capFor(day)`, `coveredThroughSec` (the earliest point any scanner has read to, null when unknown).
+// `budgetFor(day)`, `capFor(day)`, `groupsFor(day)`, `coveredThroughSec` (the earliest point any scanner has read to, null when unknown).
 // Returns [{ day, address, wei }] of what it credited.
-export function creditLateDays({ store, lastSettledDay, firstDay, coveredThroughSec, rowsFor, budgetFor, capFor, log = () => {} }) {
+export function creditLateDays({ store, lastSettledDay, firstDay, coveredThroughSec, rowsFor, budgetFor, capFor, groupsFor = () => [], log = () => {} }) {
   const credited = [];
   if (coveredThroughSec == null) return credited;
   for (const { day, n } of store.lateDays()) {
@@ -35,7 +35,7 @@ export function creditLateDays({ store, lastSettledDay, firstDay, coveredThrough
     if (seen != null && Number(seen) === Number(n)) continue;            // nothing new since it was last credited
     const budgetWei = budgetFor(day);
     if (budgetWei <= 0n) { store.setMeta(`late-rows:${day}`, n); continue; }
-    const owed = owedForDay({ allRows: rowsFor(day, { onTime: false }), onTimeRows: rowsFor(day, { onTime: true }), budgetWei, maxWeiPerPoint: capFor(day) });
+    const owed = owedForDay({ allRows: rowsFor(day, { onTime: false }), onTimeRows: rowsFor(day, { onTime: true }), budgetWei, maxWeiPerPoint: capFor(day), groups: groupsFor(day) });
     let total = 0n;
     const due = [];
     for (const [address, w] of owed) {

@@ -3876,18 +3876,18 @@ await step('rewardsfolds', async () => {
   const n = await openPage({ account: A0, viewport: { width: 1000, height: 900 } });
   await n.ctx.route(/api\.tacit\.finance\/(points|claim|leaderboard)/, (route) => {
     const u = route.request().url();
-    if (/leaderboard\?day=today/.test(u)) return json(route, { day: 20743, programDay: 25, programDays: 90, program: { settleGraceSecs: 1800, dayBudgetWei: '1111111111111111111111', rateCap: [{ fromDay: 20729, maxWeiPerPoint: '30000000000000000' }], rates: { wrap: 1250, evmpooldeposit: 1000, zswapeth: 1000, cbtcmint: 1000, cbtchold: 500, cusdmint: 2, pmbet: 1000 }, weights: [{ fromDay: 20730, weights: { zswapeth: 2, cusdmint: 0 } }], addressDayCaps: [{ fromDay: 20741, caps: { wrap: '5' } }], categoryShareCaps: [{ fromDay: 20741, caps: { evmpooldeposit: 0.5 } }], holder: { tiers: [{ tac: 100, multiplier: 1.25 }, { tac: 1000, multiplier: 1.5 }] }, earlyBonus: { max: 5 } } });
+    if (/leaderboard\?day=today/.test(u)) return json(route, { day: 20743, programDay: 25, programDays: 90, program: { settleGraceSecs: 1800, dayBudgetWei: '1111111111111111111111', rateCap: [{ fromDay: 20729, maxWeiPerPoint: '30000000000000000' }], rates: { holding: 1000, wrap: 1250, evmpooldeposit: 1000, zswapeth: 1000, cbtcmint: 1000, cbtchold: 500, cusdmint: 2, pmbet: 1000 }, budgets: [{ fromDay: 20747, groups: [{ name: 'stay', activities: ['holding', 'cbtchold'], share: 0.25, maxWeiPerPoint: '20000000000000000' }, { name: 'use', activities: ['zswapeth', 'cusdmint'], share: 0.15, maxWeiPerPoint: '10000000000000000' }] }], weights: [{ fromDay: 20730, weights: { zswapeth: 2, cusdmint: 0 } }], addressDayCaps: [{ fromDay: 20741, caps: { wrap: '5' } }], categoryShareCaps: [{ fromDay: 20741, caps: { evmpooldeposit: 0.5 } }], holder: { tiers: [{ tac: 100, multiplier: 1.25 }, { tac: 1000, multiplier: 1.5 }] }, earlyBonus: { max: 5 } } });
     if (/leaderboard/.test(u)) return json(route, board);
     if (/\/claim\//.test(u)) return json(route, { cumulativeAmount: '0', claimedWei: '0', unclaimedWei: '0', proof: null });
     if (/\/days$/.test(u)) { dayCalls++; return json(route, { days: [{ day: 20743, points: 40, settled: false }, { day: 20742, points: 33.458, settled: true, tacWei: '10746707713728415' }] }); }
     const a = (u.match(/0x[0-9a-fA-F]{40}/) || [''])[0].toLowerCase();
-    return json(route, { address: a, points: a === ME ? 5000 : 0, deposit_count: 3, today: { points: 1000, totalPoints: 2000000, dayBudgetWei: '1000000000000000000000' }, deposits: [] });
+    return json(route, { address: a, points: a === ME ? 5000 : 0, deposit_count: 3, today: { points: 1000, totalPoints: 2000000, dayBudgetWei: '1000000000000000000000', tacWei: '3000000000000000000' }, deposits: [] });
   });
   try {
     await n.page.goto(n.url + 'rewards/?q=' + ME);
     await n.page.waitForSelector('#c-pts [data-days]', { timeout: 120000 });
     const read = (sel) => n.page.$eval(sel, (e) => e.innerText.replace(/\s+/g, ' ').trim()), kv = await read('#c-pts .kv');
-    ok(/Today 1,000 points · 0\.050% of the day · about 0\.5 TAC/.test(kv), `rewardsfolds: today's share of the day's pot, in points, percent and TAC (${kv.trim()})`);
+    ok(/Today 1,000 points · 0\.050% of the day · about 3 TAC/.test(kv), `rewardsfolds: today's share of the day's pot, in points and percent, and the TAC the service says it pays (not the share of the pot) (${kv.trim()})`);
     const clk = await read('#c-pts .clock');
     ok(/^Day 25 of 90 · today's points claimable from 00:30 UTC \((~\d+ h|\d+ min|now)\)$/.test(clk), `rewardsfolds: the program's day and when today's points can be claimed (${clk})`);
     ok(dayCalls === 0 && !(await n.page.$eval('#c-pts [data-days]', (d) => d.open)), 'rewardsfolds: the days are not read until the fold is opened');
@@ -3898,8 +3898,10 @@ await step('rewardsfolds', async () => {
     await n.page.click('#earn > summary');
     await n.page.waitForSelector('#earn-b .ways li', { timeout: 20000 });
     const ways = await n.page.$$eval('#earn-b .ways li', (a) => a.map((x) => `${x.querySelector('a').getAttribute('href')} ${x.innerText.replace(/\s+/g, ' ').trim()}`));
-    ok(ways.length === 4 && /^\/#private Wrap ETH into the Tacit pool 1,250 points per ETH · up to 5 ETH a day per address$/.test(ways[0]) && /^\/#device .* 1,000 points per ETH · together at most 50% of a day's 1,111 TAC$/.test(ways[1]) && /^\/swap\/ Buy TAC with ETH through the Precision pool 2,000 points per ETH · ×2$/.test(ways[2]) && !ways.some((w) => /Borrow cUSD/.test(w)) && /500 a day while the bond stays posted/.test(ways[3]), `rewardsfolds: Earn more lists each action with its rate, weight, limits and where to do it, and leaves out one that is weighted to nothing (${ways.length}: ${ways[2]})`);
-    ok(/Holding 100, 1,000 public TAC .* ×1\.25, ×1\.5\. Early activity counts up to 5×/.test(await read('#earn-b > p')), 'rewardsfolds: and the holder boost and the early bonus');
+    ok(ways.length === 5 && /^\/#points Keep ETH in the private pools, proven on your device 1,000 points per ETH for each day it is held$/.test(ways[0]) && /^\/#private Wrap ETH into the Tacit pool 1,250 points per ETH · up to 5 ETH a day per address$/.test(ways[1]) && /^\/#device .* 1,000 points per ETH · together at most 50% of a day's 1,111 TAC$/.test(ways[2]) && /^\/swap\/ Buy TAC with ETH through the Precision pool 2,000 points per ETH · ×2$/.test(ways[3]) && !ways.some((w) => /Borrow cUSD/.test(w)) && /500 a day while the bond stays posted/.test(ways[4]), `rewardsfolds: Earn more lists each action with its rate, weight, limits and where to do it, the staying reward first, and leaves out one that is weighted to nothing (${ways.length}: ${ways[3]})`);
+    const reserved = await read('#earn-b > p:first-of-type');
+    ok(/^From Wed 21 Oct: 25% of each day's 1,111 TAC is kept for ETH kept in the private pools and a bond kept posted, at most 0\.02 TAC a point; 15% of each day's 1,111 TAC is kept for buying TAC and borrowing cUSD, at most 0\.01 TAC a point\. What a group does not use goes back to everyone else\.$/.test(reserved), `rewardsfolds: the reserved shares, with their start day and what a point can earn (${reserved.slice(0, 60)}…)`);
+    ok(/Holding 100, 1,000 public TAC .* ×1\.25, ×1\.5\. Early activity counts up to 5×/.test(await read('#earn-b > p:last-of-type')), 'rewardsfolds: and the holder boost and the early bonus');
     await n.page.click('#lb > summary');
     await n.page.waitForSelector('#lb-b .board li', { timeout: 20000 });
     const rows = await n.page.$$eval('#lb-b .board li', (a) => a.map((x) => `${x.className}:${x.innerText.replace(/\s+/g, ' ').trim()}`));
@@ -3944,6 +3946,36 @@ await step('ptslookup', async () => {
     ok(!(await n.page.evaluate(() => document.documentElement.scrollWidth > innerWidth)), 'ptslookup: no sideways scroll at phone width');
     if (SHOTS) await n.page.screenshot({ path: join(SHOTS, 'weld-ptslookup.png'), fullPage: false });
     if (n.errors.length) { fails++; console.log('FAIL ptslookup page errors: ' + n.errors.slice(0, 3).join(' | ')); }
+  } finally { await n.browser.close(); }
+});
+// Reserved budgets on the points sheet: the Terms say each group's share of the day's pot and its ceiling (and when it starts), and an address's TAC
+// for the day so far is the figure the service gives, not its share of the pot.
+await step('ptsbudgets', async () => {
+  const today = Math.floor(Date.now() / 86400e3), X = '0x' + 'ab'.repeat(20), hex = (c) => '0x' + c.repeat(40);
+  const n = await openPage({ account: A0, viewport: { width: 1000, height: 900 } });
+  const program = { startDay: today - 8, days: 90, dayBudgetWei: '1111111111111111111111', totalWei: '100000000000000000000000', rates: { zswapeth: 1000, holding: 1000 }, weights: [{ fromDay: today - 1, weights: {} }],
+    budgets: [{ fromDay: today + 3, groups: [{ name: 'stay', activities: ['holding', 'cbtchold'], share: 0.25, maxWeiPerPoint: '20000000000000000' }, { name: 'use', activities: ['zswapeth', 'cusdmint'], share: 0.15, maxWeiPerPoint: '10000000000000000' }] }] };
+  await n.ctx.route(/api\.tacit\.finance\/(points|claim)\/0x/, (route) => {
+    const u = route.request().url(), a = (u.match(/0x[0-9a-fA-F]{40}/) || [''])[0].toLowerCase(), mine = a === X;
+    if (/\/claim\//.test(u)) return json(route, { cumulativeAmount: '0', claimedWei: '0', unclaimedWei: '0', proof: null });
+    if (/\/days$/.test(u)) return json(route, { address: a, startDay: today - 8, programDays: 90, today, lastSettledDay: today - 1, earnedWei: '0', days: [] });
+    return json(route, { address: a, points: mine ? 1234.5 : 0, deposit_count: mine ? 3 : 0, today: { points: mine ? 100 : 0, totalPoints: 1000, dayBudgetWei: '1111111111111111111111', tacWei: mine ? '7000000000000000000' : '0', factor: 1, rawPoints: 100, kinds: 1, activeDays: 1 }, deposits: [] });
+  });
+  await n.ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => json(route, /day=today/.test(route.request().url())
+    ? { day: today, programDay: 9, programDays: 90, program, totalPoints: 1000, dayBudgetWei: '1111111111111111111111', taking: 2, rows: [{ address: hex('1'), points: 800, tacWei: '900000000000000000000' }, { address: X, points: 100, tacWei: '7000000000000000000' }] }
+    : [{ address: hex('1'), points: 9e9 }, { address: X, points: 1234.5 }]));
+  try {
+    await n.page.goto(n.url + '#pts');
+    await n.page.waitForSelector('#pl-look', { timeout: 60000 });
+    await n.page.fill('#pl-look', X); await n.page.click('#pl-look-f button');
+    await until(n.page, () => /Looked up/.test(document.querySelector('#pts-body')?.textContent || ''), null, 60000);
+    const t = (await text(n.page, '#pts-body')).replace(/\s+/g, ' ');
+    ok(/Today\s*100 points · [\d.]+% · about 7 TAC/.test(t), `ptsbudgets: today's TAC is the service's own figure, not the share of the pot (${(t.match(/Today\s*100 points[^A-Z]*TAC/) || [''])[0]})`);
+    await n.page.click('#pts-body details.ptlog > summary:has-text("Terms")');
+    const terms = (await text(n.page, '#pts-body details.ptlog')).replace(/\s+/g, ' ');
+    const when = new Date((today + 3) * 864e5).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+    ok(new RegExp(`Reserved\\s*25% of a day’s 1,111 TAC for ETH held in the private pools or a bond kept posted, paid up to 0\\.02 TAC per point; 15% of a day’s 1,111 TAC for ETH swap or cUSD loan, paid up to 0\\.01 TAC per point; what a group does not use goes back to everyone else \\(from ${when}\\)`).test(terms), `ptsbudgets: the Terms say each group's share, its ceiling and when it starts (${(terms.match(/Reserved.{0,330}/) || [''])[0]})`);
+    if (n.errors.length) { fails++; console.log('FAIL ptsbudgets page errors: ' + n.errors.slice(0, 3).join(' | ')); }
   } finally { await n.browser.close(); }
 });
 // The points sheet from a stubbed service: activity across chains in time order (Base's larger block numbers do not put

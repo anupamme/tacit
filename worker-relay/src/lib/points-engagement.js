@@ -170,7 +170,7 @@ export function engagementFactor(spec, { kinds, activeDays }) {
 // dayRows: [{ address, activity, points, capFactor? }] for the day (capFactor: the share of the points that counts); weekRows: [{ address, day, activity, points }] for the 7 days
 // ending with it. dayPoints is the points the day's pot is split by: each activity's points times its weight, summed,
 // times the address's multiplier. rawPoints is what the activities scored.
-export function countedRows({ dayRows, weekRows = [], weights = {}, spec = null, shareCaps = {}, pointCaps = {} }) {
+export function countedRows({ dayRows, weekRows = [], weights = {}, spec = null, shareCaps = {}, pointCaps = {}, withBy = false }) {
   const byAddress = new Map();
   for (const r of [...dayRows].sort((a, b) => (a.address < b.address ? -1 : a.address > b.address ? 1 : a.activity < b.activity ? -1 : a.activity > b.activity ? 1 : 0))) {
     const e = byAddress.get(r.address) ?? { counted: 0, raw: 0, by: {} };
@@ -221,8 +221,12 @@ export function countedRows({ dayRows, weekRows = [], weights = {}, spec = null,
   for (const [address, e] of byAddress) {
     const { kinds, activeDays, factor } = factors.get(address);
     let counted = e.counted;
-    for (const [activity, k] of Object.entries(scale.get(address) ?? {})) counted -= (e.by[activity] ?? 0) * (1 - k);
-    out.push({ address, dayPoints: counted * factor, rawPoints: e.raw, factor, kinds, activeDays });
+    const scaled = scale.get(address) ?? {};
+    for (const [activity, k] of Object.entries(scaled)) counted -= (e.by[activity] ?? 0) * (1 - k);
+    const row = { address, dayPoints: counted * factor, rawPoints: e.raw, factor, kinds, activeDays };
+    // withBy: what each activity counts for after its weight, its share cap and the address's multiplier (these add up to dayPoints), for sharing a day by group.
+    if (withBy) row.by = Object.fromEntries(Object.entries(e.by).map(([activity, p]) => [activity, p * (scaled[activity] ?? 1) * factor]));
+    out.push(row);
   }
   return out;
 }

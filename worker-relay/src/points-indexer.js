@@ -34,6 +34,7 @@ import { makeClient as holdingClient } from './lib/evm-pool-snapshot-chain.js';
 import { decideBondHolds, accrueBondHolds } from './lib/points-bond-hold.js';
 import { parseCategoryWeights, parseAddressDayCaps, parseCategoryShareCaps, parseEngagementSchedule } from './lib/points-engagement.js';
 import { dayPot, dayBoard, dayHistory, splitDayBudget } from './lib/points-day-board.js';
+import { parseBudgets, budgetsForDay, nextBudgets, allocateDay, groupResult } from './lib/points-budgets.js';
 import Database from 'better-sqlite3';
 import { openStore } from './lib/points-store.js';
 import { parseBoostTiers, openTacBoost, scanTacTransfers } from './lib/tac-holder-boost.js';
@@ -171,8 +172,10 @@ const categoryWeights = parseCategoryWeights(CFG.pointsCategoryWeights, log);
 const engagementSchedule = parseEngagementSchedule(CFG.pointsEngagement, log);
 const addressDayCaps = parseAddressDayCaps(CFG.pointsAddressDayCaps, log);
 const shareCaps = parseCategoryShareCaps(CFG.pointsCategoryShareCaps, log);
+const budgetSchedule = parseBudgets(CFG.pointsBudgets, log);
+const groupsFor = (day) => budgetsForDay(budgetSchedule, day);
 // The rows each UTC day is split by: settlement and every read of a day go through this one.
-const countedFor = (store, onTime = false) => makeCounted({ store, weightSchedule: categoryWeights, engagementSchedule, addressDayCaps, shareCapSchedule: shareCaps, potFor: (d) => ({ budgetWei: dayBudgetWei(d - Math.floor(CFG.pointsProgramStartSec / 86400)), maxWeiPerPoint: rateCapForDay(rateCapSchedule, d) }), bondHoldFromDay: CFG.pointsBondHoldFromDay, onTime });
+const countedFor = (store, onTime = false) => makeCounted({ store, weightSchedule: categoryWeights, engagementSchedule, addressDayCaps, shareCapSchedule: shareCaps, budgetSchedule, potFor: (d) => ({ budgetWei: dayBudgetWei(d - Math.floor(CFG.pointsProgramStartSec / 86400)), maxWeiPerPoint: rateCapForDay(rateCapSchedule, d) }), bondHoldFromDay: CFG.pointsBondHoldFromDay, onTime });
 
 const WRAP_EVENT = {
   type: 'event',
@@ -1482,7 +1485,7 @@ export async function settleCycle(store, coverage = null) {
     if (rows.length) {
       const budget = dayBudgetWei(dayIndex);
       if (budget > 0n) {
-        deltas = splitDayBudget(rows, budget, rateCapForDay(rateCapSchedule, d));
+        deltas = splitDayBudget(rows, budget, rateCapForDay(rateCapSchedule, d), groupsFor(d));
       }
     }
     // The day's rewards and the mark that it is settled go in together, so a crash cannot pay a day and leave it to be paid again.
@@ -1504,6 +1507,7 @@ export async function settleCycle(store, coverage = null) {
       rowsFor: (d, { onTime }) => countedFor(store, onTime).rows(d),
       budgetFor: (d) => dayBudgetWei(d - startDay),
       capFor: (d) => rateCapForDay(rateCapSchedule, d),
+      groupsFor,
     });
   }
 
@@ -1613,8 +1617,22 @@ function startHttp(store, evmState) {
     dayRowsFor: (d) => counted.rows(d),
     budgetFor: (d) => dayBudgetWei(d - Math.floor(CFG.pointsProgramStartSec / 86400)),
     capFor: (d) => rateCapForDay(rateCapSchedule, d),
+    groupsFor,
     ledgerFor: (a) => store.rewardFor(a),
   });
+  // What the day so far would pay under the next schedule of budgets that has not started, for a client to say what is coming (and to check it on
+  // live rows before it applies). Read at most once a minute: it is a second pass over the day's rows.
+  let previewMemo = { at: 0, day: 0, value: null };
+  const budgetPreview = (todayDay, startDay) => {
+    const upcoming = nextBudgets(budgetSchedule, todayDay);
+    if (!upcoming || !upcoming.groups.length || groupsFor(todayDay).length) return null;
+    if (previewMemo.day === todayDay && previewMemo.upcoming === upcoming.fromDay && Date.now() - previewMemo.at < 60_000) return previewMemo.value;
+    const budgetWei = dayBudgetWei(todayDay - startDay), cap = rateCapForDay(rateCapSchedule, todayDay);
+    const a = allocateDay({ rows: counted.rows(todayDay, { withGroups: true }), budgetWei, maxWeiPerPoint: cap, groups: upcoming.groups });
+    const value = { fromDay: upcoming.fromDay, totalPoints: a.totalPoints, dayBudgetWei: (a.totalPoints > 0 ? a.pot : budgetWei).toString(), groups: a.groups.map(groupResult) };
+    previewMemo = { at: Date.now(), day: todayDay, upcoming: upcoming.fromDay, value };
+    return value;
+  };
   const server = createServer(async (req, res) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
@@ -1704,8 +1722,9 @@ function startHttp(store, evmState) {
           const todayDay = Math.floor(Date.now() / 1000 / 86400);
           res.end(JSON.stringify({
             day: todayDay, programDay: todayDay - startDay + 1, programDays: CFG.pointsProgramDays,
-            program: programTerms({ cfg: CFG, dayBudgetWei, rateCapSchedule, tiers: CFG.tacBoostTiers ? parseBoostTiers(CFG.tacBoostTiers) : [], weights: categoryWeights, engagement: engagementSchedule, addressDayCaps, categoryShareCaps: shareCaps }),
-            ...dayBoard(counted.rows(todayDay), { budgetWei: dayBudgetWei(todayDay - startDay), maxWeiPerPoint: rateCapForDay(rateCapSchedule, todayDay), limit }),
+            program: programTerms({ cfg: CFG, dayBudgetWei, rateCapSchedule, tiers: CFG.tacBoostTiers ? parseBoostTiers(CFG.tacBoostTiers) : [], weights: categoryWeights, engagement: engagementSchedule, addressDayCaps, categoryShareCaps: shareCaps, budgets: budgetSchedule }),
+            ...dayBoard(counted.rows(todayDay), { budgetWei: dayBudgetWei(todayDay - startDay), maxWeiPerPoint: rateCapForDay(rateCapSchedule, todayDay), limit, groups: groupsFor(todayDay) }),
+            ...(budgetPreview(todayDay, startDay) ? { preview: budgetPreview(todayDay, startDay) } : {}),
           }));
           return;
         }
@@ -1730,8 +1749,12 @@ function startHttp(store, evmState) {
           // addresses deposit today, same as `row`'s own count does. The pot is the day's budget as it would split
           // right now, or less where the TAC-per-point ceiling binds, so a client's "share of today's pot" estimate
           // matches what settlement will pay.
-          const { totalPoints, pot } = dayPot(dayRows, dayBudgetWei(todayDay - startDay), rateCapForDay(rateCapSchedule, todayDay));
-          today = { points: row ? row.dayPoints : 0, totalPoints, dayBudgetWei: pot.toString(), factor: row?.factor ?? 1, rawPoints: row ? row.rawPoints : 0, kinds: row?.kinds ?? 0, activeDays: row?.activeDays ?? 0 };
+          const budgetWei = dayBudgetWei(todayDay - startDay), cap = rateCapForDay(rateCapSchedule, todayDay), groups = groupsFor(todayDay);
+          const { totalPoints, pot } = dayPot(dayRows, budgetWei, cap, groups);
+          // tacWei: what this address's points would be paid if the day ended now, through the same sharing settlement uses (with groups in force
+          // an address can be paid at its group's ceiling, which "the pot x my points / all points" does not say).
+          const paid = row && row.dayPoints > 0 ? splitDayBudget(dayRows, budgetWei, cap, groups).get(row.address) ?? 0n : 0n;
+          today = { points: row ? row.dayPoints : 0, totalPoints, dayBudgetWei: pot.toString(), tacWei: paid.toString(), factor: row?.factor ?? 1, rawPoints: row ? row.rawPoints : 0, kinds: row?.kinds ?? 0, activeDays: row?.activeDays ?? 0 };
         }
         res.end(JSON.stringify({ ...total, today, deposits }));
         return;
@@ -1804,6 +1827,7 @@ function startHttp(store, evmState) {
           funding: await readFunding(state, BigInt(totalLedgerWei)),
           adjustments: store.listAdjustments().map((a) => ({ id: a.id, address: a.address, wei: a.wei, appliedAt: a.appliedAt })),
           rateCapSchedule: rateCapSchedule.map((e) => ({ fromDay: e.fromDay, maxWeiPerPoint: e.maxWeiPerPoint === null ? null : e.maxWeiPerPoint.toString() })),
+          budgets: budgetSchedule.map((e) => ({ fromDay: e.fromDay, groups: e.groups.map((g) => ({ name: g.name, activities: g.activities, share: g.sharePpm / 1e6, maxWeiPerPoint: g.maxWeiPerPoint === null ? null : g.maxWeiPerPoint.toString() })) })),
           leaderboard,
         }));
         return;

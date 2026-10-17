@@ -729,6 +729,10 @@ export const CFG = {
   pointsAddressDayCaps: opt('POINTS_ADDRESS_DAY_CAPS', ''),
   // The largest share of a day an activity's points can take together, from a day forward (lib/points-engagement.js): "20741:evmpooldeposit=0.5".
   pointsCategoryShareCaps: opt('POINTS_CATEGORY_SHARE_CAPS', ''),
+  // Reserved budgets (src/lib/points-budgets.js): from a day forward, named groups of activities are each set aside a share of the day's
+  // pot and paid at a TAC-per-point ceiling of their own, and whatever a group does not use goes back to the rest:
+  // "20747:retention=holding+cbtchold@0.25/0.02,use=zswapeth+cusdmint@0.15/0.01;20790:off". Empty means one pro-rata split of the day.
+  pointsBudgets: opt('POINTS_BUDGETS', ''),
   pointsBondHoldFromDay: num('POINTS_BOND_HOLD_FROM_DAY', 0),
   // Points per wstETH for each further UTC day a cBTC bond on a real Bitcoin lock stays posted (lib/points-bond-hold.js),
   // from the given day. 0 means none.

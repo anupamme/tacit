@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-peIoul/+OY5zyRmbvi+PmzDTnoxT9BNPGkZlh98d3aA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-dFtDmatwGNfwMQRmadX23K1GxvkghWrUv9yn2+AkpzQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -8214,7 +8214,7 @@ const PGM = { startDay: Date.UTC(2026, 8, 23) / 864e5, days: 90, totalWei: 10000
   tiers: [[100, 1.25], [1000, 1.5], [10000, 2]], windowHours: 24,
   rates: { wrap: 1250, evmpooldeposit: 1000, zswapeth: 1000, cbtcmint: 1000, cusdmint: 2 },
   kinds: { wrap: 'private', evmpooldeposit: 'private', btcpool: 'private', holding: 'private', zswapeth: 'swap', cbtcmint: 'borrow', cbtchold: 'borrow', cusdmint: 'borrow', weiname: 'names', pmbet: 'markets', pmcreate: 'markets' },
-  weights: [], caps: [], shareCaps: [], engagement: [], bondHoldFromDay: null, cbtcHoldFromDay: null };
+  weights: [], caps: [], shareCaps: [], budgets: [], engagement: [], bondHoldFromDay: null, cbtcHoldFromDay: null };
 const ptsDays = () => PGM.days, ptsEnd = () => (PGM.startDay + PGM.days) * 86400;   // the first second after the program's last day
 const potTac = () => fmt(PGM.dayWei, 18, 0), rateStr = (n) => Number(n).toLocaleString('en-US');
 const ethBase = () => PGM.rates.evmpooldeposit ?? PGM.rates.zswapeth ?? 1000;
@@ -8228,7 +8228,7 @@ function capText(day) {
 }
 // What each activity is called, and the weights and the week's multiplier in force on `day` or next to come: the entry in force, or
 // failing that the first one ahead, with the day it starts when that is still to come.
-const ACT_NAME = { wrap: 'Tacit-pool wrap', evmpooldeposit: 'ETH-pool deposit', zswapeth: 'ETH swap', weiname: '.wei name', cbtcmint: 'cBTC bond', cusdmint: 'cUSD loan', pmbet: 'bet', pmcreate: 'market' };
+const ACT_NAME = { wrap: 'Tacit-pool wrap', evmpooldeposit: 'ETH-pool deposit', zswapeth: 'ETH swap', weiname: '.wei name', cbtcmint: 'cBTC bond', cusdmint: 'cUSD loan', pmbet: 'bet', pmcreate: 'market', holding: 'ETH held in the private pools', cbtchold: 'a bond kept posted' };
 const scheduled = (list, day) => { const eff = [...list].reverse().find((e) => e.fromDay <= day), next = list.find((e) => e.fromDay > day); return eff ? { e: eff, from: null } : next ? { e: next, from: next.fromDay } : null; };
 const pct = (x) => `${Math.round(x * 100)}%`;
 // The most the week's multiplier can reach, from the entry in force or the next one, and the day it starts when that is ahead.
@@ -8258,6 +8258,17 @@ function takeProgram(p) {
   }
   if (Array.isArray(p.addressDayCaps)) next.caps = p.addressDayCaps.map((e) => { const f = num(e?.fromDay, 1, 1e6); return f == null || !e.caps || typeof e.caps !== 'object' ? null : { fromDay: f, caps: Object.fromEntries(Object.entries(e.caps).filter(([a, v]) => /^[a-z0-9_]{1,24}$/.test(a) && /^\d{1,6}(\.\d{1,18})?$/.test(String(v)) && Number(v) > 0).map(([a, v]) => [a, String(Number(v))])) }; }).filter(Boolean).sort((a, b) => a.fromDay - b.fromDay);
   if (Array.isArray(p.categoryShareCaps)) next.shareCaps = p.categoryShareCaps.map((e) => { const f = num(e?.fromDay, 1, 1e6); return f == null || !e.caps || typeof e.caps !== 'object' ? null : { fromDay: f, caps: Object.fromEntries(Object.entries(e.caps).filter(([a, v]) => /^[a-z0-9_]{1,24}$/.test(a) && num(v, 0.01, 0.99) != null).map(([a, v]) => [a, Number(v)])) }; }).filter(Boolean).sort((a, b) => a.fromDay - b.fromDay);
+  // Reserved budgets: from each day, groups of activities that each have a share of the day's pot set aside and a ceiling on TAC per point of their own.
+  if (Array.isArray(p.budgets)) next.budgets = p.budgets.map((e) => {
+    const f = num(e?.fromDay, 1, 1e6);
+    if (f == null) return null;
+    const groups = Array.isArray(e.groups) ? e.groups.map((g) => {
+      const share = num(g?.share, 0.001, 1), w = g?.maxWeiPerPoint == null ? 0n : wei(g.maxWeiPerPoint);
+      const acts = Array.isArray(g?.activities) ? g.activities.filter((a) => /^[a-z0-9_]{1,32}$/.test(a)) : [];
+      return share == null || w == null || !acts.length || typeof g.name !== 'string' || !/^[a-z0-9_]{1,24}$/.test(g.name) ? null : { name: g.name, activities: acts, share, wei: w || null };
+    }).filter(Boolean) : [];
+    return { fromDay: f, groups: e.off ? [] : groups };
+  }).filter(Boolean).sort((a, b) => a.fromDay - b.fromDay);
   if (Array.isArray(p.weights)) next.weights = p.weights.map((e) => { const f = num(e?.fromDay, 1, 1e6); return f == null || !e.weights || typeof e.weights !== 'object' ? null : { fromDay: f, weights: Object.fromEntries(Object.entries(e.weights).filter(([, v]) => num(v, 0, 20) != null).map(([k, v]) => [k, Number(v)])) }; }).filter(Boolean).sort((a, b) => a.fromDay - b.fromDay);
   if (Array.isArray(p.engagement)) next.engagement = p.engagement.map((e) => {
     const f = num(e?.fromDay, 1, 1e6);
@@ -8318,7 +8329,8 @@ async function readRow(addr, label) {
   // The service answers /claim for every address (proof null when nothing is owed), so no answer at all is a failed read, not a zero.
   const owedHex = c?.proof && c.cumulativeAmount ? await ethCall(DISTRIBUTOR, '787eef2e' + addrWord(addr) + word(BigInt(c.cumulativeAmount))).catch(() => null) : c || !p ? '0x' : null, owed = owedHex == null ? 0n : wordAt(owedHex, 0);
   const hist = p ? await get(`points/${addr}/days`) : null;
-  const t = p?.today, today = t && Number(t.totalPoints) > 0 ? tacOf(BigInt(t.dayBudgetWei), Number(t.points), Number(t.totalPoints)) : 0n;
+  // The service's own figure for the day so far when it gives one (with reserved budgets an address can be paid at its group's ceiling, which the share of the pot does not say).
+  const t = p?.today, today = t && t.tacWei != null && /^\d+$/.test(String(t.tacWei)) ? BigInt(t.tacWei) : t && Number(t.totalPoints) > 0 ? tacOf(BigInt(t.dayBudgetWei), Number(t.points), Number(t.totalPoints)) : 0n;
   // The service lists activity by block number, which does not order Base or Robinhood blocks against Ethereum's; time does.
   const recent = [...(p?.deposits || [])].sort((a, b) => Number(b.block_time) - Number(a.block_time));
   return { addr, label, points: Number(p?.points || 0), count: Number(p?.deposit_count || 0), todayPts: Number(t?.points || 0), today, tod: t || null, share: t && Number(t.totalPoints) > 0 ? Number(t.points) / Number(t.totalPoints) : 0,
@@ -8461,7 +8473,7 @@ function leaderboard(connected) {
   const mine = new Set(connected ? pointsWho().map(([a]) => a) : []), whole = !day && lb.length < PTS_BOARD ? lb.reduce((s, e) => s + e.points, 0) : 0;
   const line = (e, i) => {
     const a = String(e.address).toLowerCase(), me = mine.has(a);
-    const sub = day ? `${fmt(tacOf(PTS.pulse?.pot || 0n, e.points, day.totalPoints), 18, 2)} TAC` : whole ? sharePct(e.points / whole) : '';
+    const sub = day ? `${fmt(e.tacWei != null && /^\d+$/.test(String(e.tacWei)) ? BigInt(e.tacWei) : tacOf(PTS.pulse?.pot || 0n, e.points, day.totalPoints), 18, 2)} TAC` : whole ? sharePct(e.points / whole) : '';
     return html`<li class="${me ? 'me' : ''}" data-a="${a}"><span class="ptl-w"><span class="rk num">${i + 1}</span><a href="${ETHERSCAN(a)}" target="_blank" rel="noopener">${short(a)}</a>${me ? ' · you' : ''}</span><span class="ptl-r"><b class="num">${ptsFmt(e.points)}</b>${sub ? html`<small class="mute">${sub}</small>` : ''}</span></li>`;
   };
   const at = new Set([0, 1, 2, 3, 4].filter((i) => i < lb.length));
@@ -8502,6 +8514,9 @@ function terms() {
   const w = scheduled(PGM.weights, today), names = w && Object.entries(w.e.weights).filter(([, x]) => x !== 1).map(([a, x]) => `${ACT_NAME[a] || a} ${x === 0 ? 'not counted' : `×${x}`}`);
   const cp = scheduled(PGM.caps, today), limits = cp && Object.keys(cp.e.caps).length ? `${Object.entries(cp.e.caps).map(([a, c]) => `${ACT_NAME[a] || a} counts up to ${c} ETH a day`).join(', ')}, all chains together${cp.from ? ` from ${dayShort(cp.from)}` : ''}` : null;
   const sc = scheduled(PGM.shareCaps, today), shares = sc && Object.keys(sc.e.caps).length ? `${Object.entries(sc.e.caps).map(([a, c]) => `${ACT_NAME[a] || a} points together take at most ${pct(c)} of a day’s ${potTac()} TAC`).join(', ')}; the rest is split as before${sc.from ? ` (from ${dayShort(sc.from)})` : ''}` : null;
+  const bd = scheduled(PGM.budgets, today);
+  const perPoint = (x) => `${(Number(x / 10n ** 12n) / 1e6).toLocaleString('en-US', { maximumFractionDigits: 4 })} TAC per point`;
+  const reserved = bd && bd.e.groups.length ? `${bd.e.groups.map((g) => `${pct(g.share)} of a day’s ${potTac()} TAC for ${listOr(g.activities.map((a) => ACT_NAME[a] || a))}${g.wei ? `, paid up to ${perPoint(g.wei)}` : ''}`).join('; ')}; what a group does not use goes back to everyone else${bd.from ? ` (from ${dayShort(bd.from)})` : ''}` : null;
   const mix = names?.length ? `${names.join(', ')}${w.from ? ` from ${dayShort(w.from)}` : ''}` : null;
   const g = scheduled(PGM.engagement, today), sp = g?.e.spec;
   const week = sp ? `${pct(sp.kindStep)} more for each other kind of activity in the past 7 days${sp.maxKinds ? ` (up to ${pct(sp.kindStep * sp.maxKinds)}${sp.minPoints ? `; a kind counts once it has earned ${rateStr(sp.minPoints)} points that week` : ''})` : ''}, and ${pct(sp.returnStep)} more for activity on more than one day${g.from ? `, from ${dayShort(g.from)}` : ''}` : null;
@@ -8519,6 +8534,7 @@ function terms() {
     ${mix ? kv('Weights', mix) : ''}
     ${limits ? kv('Per address', limits) : ''}
     ${shares ? kv('Share limit', shares) : ''}
+    ${reserved ? kv('Reserved', reserved) : ''}
     ${week ? kv('Each week', week) : ''}
     ${bonds ? kv('Bonds', bonds) : ''}
     ${kv('Points go to', 'the address that sent the transaction')}

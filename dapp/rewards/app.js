@@ -107,7 +107,9 @@ function readPoints(address, signal) {
     let today = null;
     if (pts > 0 && all > 0) {
       const mp = BigInt(Math.round(pts * 1e6)), share = BigInt(t.dayBudgetWei || 0) * mp / BigInt(Math.round(all * 1e6));
-      today = { points: pts, pct: pts / all * 100, tac: prog ? (prog.cap != null && mp * prog.cap / 1000000n < share ? mp * prog.cap / 1000000n : share) : null };
+      // The service's own figure when it gives one: with reserved budgets in force an address can be paid at its group's ceiling, which a share of the pot does not say.
+      const own = t.tacWei != null && /^\d+$/.test(String(t.tacWei)) ? BigInt(t.tacWei) : null;
+      today = { points: pts, pct: pts / all * 100, tac: own ?? (prog ? (prog.cap != null && mp * prog.cap / 1000000n < share ? mp * prog.cap / 1000000n : share) : null) };
     }
     return { points: Number(p.points) || 0, earned, claimed, owed: c?.proof && earned > claimed ? earned - claimed : 0n, unread: paid === null && earned > 0n, today, clock: prog && prog.programDay <= prog.programDays ? { day: prog.programDay, days: prog.programDays, settleAt: prog.settleAt } : null };
   });
@@ -424,14 +426,22 @@ async function paintEarn() {
   const pot = tac(BigInt(P.dayBudgetWei || 0), 0), n = (x) => Math.round(x).toLocaleString('en-US');
   const note = (k) => `${wts[k] != null && wts[k] !== 1 ? ` · ×${wts[k]}` : ''}${caps[k] ? ` · up to ${caps[k]} ETH a day per address` : ''}${shares[k] ? ` · together at most ${Math.round(shares[k] * 100)}% of a day's ${pot} TAC` : ''}`;
   const ways = [
+    ['holding', 'Keep ETH in the private pools, proven on your device', '/#points', (r) => `${n(r)} points per ETH for each day it is held`],
     ['wrap', 'Wrap ETH into the Tacit pool', '/#private', (r) => `${n(r)} points per ETH`],
     ['evmpooldeposit', 'Deposit ETH on this device (Ethereum, Base or Robinhood Chain)', '/#device', (r) => `${n(r)} points per ETH`],
     ['zswapeth', 'Buy TAC with ETH through the Precision pool', '/swap/', (r) => `${n(r)} points per ETH`],
     ['cbtcmint', 'Bond toward cBTC', '/#borrow', (r) => `${n(r)} points per wstETH${P.rates.cbtchold ? `, then ${n(P.rates.cbtchold)} a day while the bond stays posted` : ''}`],
     ['cusdmint', 'Borrow cUSD, sending the loan yourself', '/#borrow', (r) => `${n(r)} points per dollar`],
   ].filter(([k]) => P.rates[k] && wts[k] !== 0);
+  // The groups that have a share of each day's pot set aside (in force, or the next to start): what they are for, how much and at most what a point earns.
+  const NAMES = { holding: 'ETH kept in the private pools', cbtchold: 'a bond kept posted', zswapeth: 'buying TAC', cusdmint: 'borrowing cUSD', cbtcmint: 'bonding for cBTC', weiname: '.wei names', pmbet: 'bets', pmcreate: 'markets' };
+  const upcoming = (P.budgets || []).filter((e) => e.fromDay > day).sort((a, b) => a.fromDay - b.fromDay)[0], live = inForce(P.budgets, day);
+  const entry = live?.groups?.length ? live : upcoming?.groups?.length ? upcoming : null;
+  const perPoint = (w) => `${(Number(BigInt(w) / 10n ** 12n) / 1e6).toLocaleString('en-US', { maximumFractionDigits: 4 })} TAC a point`;
+  const reserved = entry ? `<p class="st mute">${entry.fromDay > day ? `From ${dayName(entry.fromDay)}: ` : ''}${entry.groups.map((g) => `${Math.round(g.share * 100)}% of each day's ${pot} TAC is kept for ${g.activities.map((a) => NAMES[a] || a).join(' and ')}${g.maxWeiPerPoint ? `, at most ${perPoint(g.maxWeiPerPoint)}` : ''}`).join('; ')}. What a group does not use goes back to everyone else.</p>` : '';
   const tiers = P.holder?.tiers || [];
   el.innerHTML = `<ul class="rows ways">${ways.map(([k, label, to, f]) => `<li><a href="${to}">${esc(label)}</a><span class="m">${f(P.rates[k] * (wts[k] ?? 1))}${esc(note(k))}</span></li>`).join('')}</ul>`
+    + reserved
     + (tiers.length ? `<p class="st mute">Holding ${tiers.map((t) => n(t.tac)).join(', ')} public TAC at the same address through a day multiplies what that day's activity earns by ${tiers.map((t) => `×${t.multiplier}`).join(', ')}. ` : '<p class="st mute">')
     + `Early activity counts up to ${P.earlyBonus?.max ?? 1}×. The day's pot is split by points.</p>`;
   el.dataset.done = '1';
