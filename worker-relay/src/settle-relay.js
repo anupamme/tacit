@@ -815,6 +815,16 @@ function noteProveFailure() { proveFailAt.push(Date.now()); }
 function recentProveFailures(now = Date.now()) { while (proveFailAt.length && now - proveFailAt[0] > 3_600_000) proveFailAt.shift(); return proveFailAt.length; }
 const withFailures = (detail) => { const n = recentProveFailures(); return n ? `${detail || ''} · ${n} prove failure${n === 1 ? '' : 's'} in the last hour` : detail; };
 const beat = (detail) => heartbeat('settle', withFailures(standing || detail));
+// What a failed proof tells the job (and so the holder's page): a reason in the op is kept in the relay's words (it is theirs to act
+// on); a reason on the relay's side (its prover did not run, the board was away, a timeout) is said plainly, with nothing of the
+// relay's insides in it. The full error is in the log either way.
+function proveFailureForJob(e) {
+  const m = String(e && e.message || e);
+  if (/unexecutable|execution failed|failed to execute|exceeded cycle limit|VKEY|stale|refused|did not pass/i.test(m)) return e;
+  const out = new Error('the relay’s prover could not make this proof just now; nothing was spent — try again in a few minutes, or prove it yourself');
+  out.creditShort = e && e.creditShort === true;
+  return out;
+}
 // A prove can run past the API's ten quiet minutes (a private request waits up to six before its public retry), and a relay
 // that has gone quiet reads as down to the pages, so the beat goes out again every few minutes until the proof is back.
 async function beating(detail, fn) {
@@ -962,6 +972,7 @@ async function cycle() {
     } catch (e) {
       log(`job ${jobId} prove failed/timeout: ${e.message}`);
       noteProveFailure();
+      e = proveFailureForJob(e);
       // A request the prover account could not pay for pauses proving first; the job is failed as any other, so the page
       // waiting on it offers to prove it another way.
       await pauseOn(e);

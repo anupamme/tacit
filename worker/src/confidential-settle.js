@@ -382,6 +382,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
         if (openable && ((j.mode || 'settle') !== 'settle' || !OPEN_TYPES.includes(j.type) || j.exit)) return null;
         const claimable = j.status === 'pending' || (j.status === 'proving' && clock() - (j.claimedAt || 0) > CLAIM_TTL_MS);
         if (!claimable) return null;
+        if (j.retryAfter && clock() < j.retryAfter) return null;                // a job the relay failed on its own account waits a little before its one more try
         const nonce = crypto.randomUUID();
         j.status = 'proving'; j.claimedAt = clock(); j.claimNonce = nonce;
         await storage.putJob(id, j);
@@ -431,6 +432,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
         if (!j) return null;
         const claimable = j.status === 'pending' || (j.status === 'proving' && clock() - (j.claimedAt || 0) > CLAIM_TTL_MS);
         if (!claimable) return null;
+        if (j.retryAfter && clock() < j.retryAfter) return null;                // a job the relay failed on its own account waits a little before its one more try
         if ((j.mode || 'settle') !== 'settle') return null; // prove-only jobs are user-sent, never batched
         if (!types.includes(j.type)) return null;
         if (mixed && j.exit) return null;
@@ -496,6 +498,10 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
   // Tacit; 'network-private' or 'network-public': the prover network, with the input readable by the whitelisted prover
   // only or by anyone). Kept on the job so a page can say so.
   const LANES = ['board', 'network-private', 'network-public'];
+  // The relay's own words for a proof that did not get made for reasons on its side, and never for reasons in the op.
+  const RELAY_SIDE_FAILURE = (m) => /produced no proof|could not make this proof|prover is not available|sealed prover|GPU server|no worker|board_miss|ECONNREFUSED|ETIMEDOUT/i.test(m)
+    && !/unexecutable|execution failed|failed to execute|exceeded cycle limit|VKEY|stale|feeGate|reverted|fee below|did not pass/i.test(m);
+  const RETRY_DELAY_MS = 3 * 60_000;
   async function ackJobLocked(jobId, { txHash, error, publicValues, proof, activateTx, activateError, broadcastHashes, settledBy, open, requeue, release, lane }) {
     const j = await storage.getJob(jobId);
     if (!j) return { ok: false, reason: 'unknown job' };
@@ -515,6 +521,16 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
       await storage.putJob(jobId, j);
       await storage.putPending((await storage.getPending()).filter((x) => x !== jobId));
       if (!ids.includes(jobId)) await putOpen([...ids, jobId]);
+      return ackView(j);
+    }
+    // A failure that was the relay's and not the op's (its prover did not run, the board went quiet, a sealed prover was away) is
+    // given one more try a few minutes later, when the job still has what it needs to prove: a hiccup then costs the holder a wait,
+    // not a press. A failure that names the op (it cannot execute, its root is stale, its fee is short) is final, and so is the second.
+    if (error && !j.retried && RELAY_SIDE_FAILURE(String(error)) && (j.op || (j.sealed && j.sealed.ct))) {
+      Object.assign(j, { status: 'pending', claimedAt: 0, error: null, retried: true, retryAfter: clock() + RETRY_DELAY_MS, lastError: String(error).slice(0, 300) });
+      await storage.putJob(jobId, j);
+      const pend = await storage.getPending();
+      if (!pend.includes(jobId)) { pend.push(jobId); await storage.putPending(pend); }
       return ackView(j);
     }
     if (error) {

@@ -202,6 +202,10 @@ export const CFG = {
   proverBoardExpectWorkers: opt('PROVER_BOARD_EXPECT_WORKERS', '0') === '1',
   // The monitor's alarm on the settle relay's own count of failed proofs in the last hour (settle-relay.js withFailures).
   proveFailuresWarn: num('PROVE_FAILURES_WARN', 2),
+  // The RunPod account that rents the prover board's GPU box: with a key, the monitor reads its balance and says when the box's rent runs low.
+  runpodApiKey: opt('RUNPOD_API_KEY', ''),
+  runpodHoursWarn: num('RUNPOD_HOURS_WARN', 48),
+  runpodHoursCritical: num('RUNPOD_HOURS_CRITICAL', 12),
   proveFailuresCritical: num('PROVE_FAILURES_CRITICAL', 4),
   proverBoardQuietSecs: num('PROVER_BOARD_QUIET_SECS', 600),
   // Resident-memory caps for a settle's prover child, in KB (lib/prover.js run). The container's ceiling is 2 GiB

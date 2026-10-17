@@ -605,9 +605,32 @@ async function checkProverBoard() {
   log(`prover board: ${live.map((w) => `${w.name} seen ${w.lastSeenSeconds}s ago, proved ${w.proved}`).join('; ')}; queued ${s.queued}, claimed ${s.claimed}`);
 }
 
+// The GPU box's rent: RunPod stops the pod at a zero balance, and the board then goes quiet with no word. Hours left = balance over
+// the running pods' hourly cost; a warning under two days, critical under half a day.
+async function checkRunPod() {
+  if (!CFG.runpodApiKey) return;
+  let m;
+  try {
+    const res = await fetch('https://api.runpod.io/graphql', { method: 'POST', headers: { authorization: `Bearer ${CFG.runpodApiKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ query: '{ myself { clientBalance pods { name desiredStatus costPerHr } } }' }) });
+    m = res.ok ? (await res.json())?.data?.myself : null;
+  } catch { m = null; }
+  if (!m) { log('runpod: balance unreadable'); return; }
+  const running = (m.pods || []).filter((p) => p.desiredStatus === 'RUNNING');
+  const perHour = running.reduce((a, p) => a + Number(p.costPerHr || 0), 0);
+  const balance = Number(m.clientBalance || 0);
+  if (!running.length) { await alert('warning', `runpod: no pod is running (balance $${balance.toFixed(2)}); the prover board has no worker from here`); return; }
+  if (perHour <= 0) { log(`runpod: balance $${balance.toFixed(2)}, cost unknown`); return; }
+  const hours = balance / perHour;
+  const what = `runpod balance $${balance.toFixed(2)} lasts about ${hours.toFixed(0)} h for ${running.map((p) => p.name).join(', ')} at $${perHour.toFixed(2)}/h`;
+  if (hours < CFG.runpodHoursCritical) await alert('critical', `${what} — top it up or the GPU box stops and settle proofs go to the prover network with public inputs`);
+  else if (hours < CFG.runpodHoursWarn) await alert('warning', `${what} — top it up soon`);
+  else log(what);
+}
+
 async function main() {
   log(`monitor run — worker=${CFG.workerBase} relay=${relayWallet ? relayWallet.account.address : '(no key on this service — watching by address)'}`);
-  const results = await Promise.allSettled([checkProve(), checkEth(), checkReflectionLag(), checkProverKinds(), checkSnapshotCapacity(), checkFarmHealth(), checkPointsFunding(), checkReflectionStall(), checkQueue(), checkEthStatePending(), checkCrossOutFold(), checkEvmPoolKeepers(), checkTacSupply(), checkBitcoinScan(), checkProverBoard()]);
+  const results = await Promise.allSettled([checkProve(), checkEth(), checkReflectionLag(), checkProverKinds(), checkRunPod(), checkSnapshotCapacity(), checkFarmHealth(), checkPointsFunding(), checkReflectionStall(), checkQueue(), checkEthStatePending(), checkCrossOutFold(), checkEvmPoolKeepers(), checkTacSupply(), checkBitcoinScan(), checkProverBoard()]);
   for (const r of results) if (r.status === 'rejected') log('check threw:', r.reason?.message || r.reason);
   log(`monitor done — ${criticals} critical${criticals === 1 ? '' : 's'}`);
   // Exit non-zero so the cron run is marked failed even with no webhook configured. A check that THREW is

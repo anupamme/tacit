@@ -598,7 +598,10 @@ const swapOp = { reserveAPre: 1000, reserveBPre: 1000, intents: [{ amountIn: 100
   const again = await relay.submitOp({ type: 'transfer', op: { ...op, secret: 'w6' }, memos: ['0x07'] });
   assert.strictEqual(again.jobId, first.jobId); assert.ok(again.deduped); assert.strictEqual(sealings, 1, 'sealed once');
   await q.nextJob(); await q.nextJob(); await q.nextJob();                      // claim what is queued so the sealed job can be acked
-  await q.ackJob(first.jobId, { error: 'the sealed prover is not available right now' });
+  await q.ackJob(first.jobId, { error: 'the sealed prover is not available right now' });   // the relay's own failure: one more try, still the same job
+  const held = await relay.submitOp({ type: 'transfer', op: { ...op, secret: 'w6' }, memos: ['0x07'] });
+  assert.strictEqual(held.jobId, first.jobId); assert.strictEqual(sealings, 1, 'a job back in line is still this client’s job');
+  await q.ackJob(first.jobId, { error: 'the sealed prover is not available right now' });   // the second failure is final
   const third = await relay.submitOp({ type: 'transfer', op: { ...op, secret: 'w6' }, memos: ['0x07'] });
   assert.notStrictEqual(third.jobId, first.jobId); assert.strictEqual(sealings, 2, 'a failed sealed job is sealed and sent again');
   relay.useSealer(null);

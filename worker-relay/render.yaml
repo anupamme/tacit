@@ -313,6 +313,8 @@ services:
       # Tacit runs a GPU worker on the prover board; warn when none has polled for ten minutes.
       - key: PROVER_BOARD_EXPECT_WORKERS
         value: "1"
+      - key: RUNPOD_API_KEY
+        sync: false
       - key: ZROUTER_ADDR
         value: "0x000000000000FB114709235f1ccBFfb925F600e4"
       - key: REFLECTION_GENESIS_HEIGHT

@@ -318,6 +318,8 @@ const routeOp = { asset0: 'aa', assetFinal: 'bb', hops: [{ reserveAPre: '1000', 
   const b = await q.submitJob({ type: 'transfer', mode: 'sealed', sealed: { ...sealed, ct: 'REVG'.repeat(10) }, memos: [] });
   await q.nextJob();
   await q.ackJob(b.jobId, { error: 'the sealed prover is not available right now' });
+  assert.strictEqual((await q.jobStatus(b.jobId)).status, 'pending', 'a sealed prover away is the relay’s failure: one more try later');
+  await q.ackJob(b.jobId, { error: 'the sealed prover is not available right now' });
   assert.strictEqual((await q.jobStatus(b.jobId)).status, 'failed');
   const c = await q.submitJob({ type: 'transfer', mode: 'sealed', sealed: { ...sealed, ct: 'REVG'.repeat(10) }, memos: [] });
   assert.strictEqual(c.jobId, b.jobId); assert.strictEqual(c.status, 'pending', 'a failed sealed job can be sent again');
@@ -342,6 +344,28 @@ const routeOp = { asset0: 'aa', assetFinal: 'bb', hops: [{ reserveAPre: '1000', 
   assert.deepStrictEqual(await q.requeueJob(a.jobId), { ok: false, error: 'the job is settled, not failed' });
   assert.deepStrictEqual(await q.requeueJob('0x' + 'ee'.repeat(32)), { ok: false, error: 'unknown job' });
   ok('requeue: a failed job goes back to pending with its op, is handed out again, and nothing else can be requeued');
+}
+
+// ───────────────── 18. a relay-side failure gets one more try a few minutes later; an op's own failure is final ─────────────────
+{
+  let t = 1_000_000; const clockNow = () => t;
+  const q = makeConfidentialSettler({ storage: freshStore(), hash, now: clockNow, sleep: instantSleep });
+  const a = await q.submitJob({ type: 'transfer', op: { chainBinding: '0xcb', spendRoot: '0xr', fee: 0, n: 'retry' }, memos: ['0x01'] });
+  await q.nextJob();
+  await q.ackJob(a.jobId, { error: 'prove failed: exec:transfer produced no proof (code=101): ENOENT' });
+  let st = await q.jobStatus(a.jobId);
+  assert.strictEqual(st.status, 'pending', 'the relay’s own failure puts the job back in line'); assert.strictEqual(st.error, null);
+  assert.strictEqual(await q.nextJob(), null, 'not handed out again at once');
+  t += 3 * 60_000 + 1;
+  const again = await q.nextJob();
+  assert.strictEqual(again?.jobId, a.jobId, 'handed out again after the wait');
+  await q.ackJob(a.jobId, { error: 'prove failed: exec:transfer produced no proof (code=101): ENOENT' });
+  assert.strictEqual((await q.jobStatus(a.jobId)).status, 'failed', 'the second failure is final');
+  const b = await q.submitJob({ type: 'transfer', op: { chainBinding: '0xcb', spendRoot: '0xr', fee: 0, n: 'own' }, memos: ['0x01'] });
+  await q.nextJob();
+  await q.ackJob(b.jobId, { error: 'prove failed: unexecutable: the op does not execute' });
+  assert.strictEqual((await q.jobStatus(b.jobId)).status, 'failed', 'a failure in the op itself is final at once');
+  ok('one automatic retry for a relay-side failure, after a wait; an op’s own failure and a second failure are final');
 }
 
 console.log(`\n${n} confidential-settle checks passed.`);

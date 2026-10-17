@@ -3243,7 +3243,11 @@ async function relayState(env) {
   // The credit the relay last reported (whole PROVE), for the submit route's reserve on free prove-only jobs; the public relay route
   // never passes it on.
   const credit = typeof h.prover_credit === 'string' && /^\d{1,12}(\.\d{1,4})?$/.test(h.prover_credit) ? Number(h.prover_credit) : null;
-  const at = (state, board = false) => ({ state, board, credit, ageSeconds: Number.isFinite(h.age_seconds) ? h.age_seconds : null });
+  // Proofs the relay failed in the last hour, as its note counts them (worker-relay settle-relay.js withFailures): a relay that is
+  // up and failing its jobs is told apart from one that is up, by the pages and the monitor.
+  const fm = /(\d+) prove failures? in the last hour/.exec(note);
+  const failing = fm ? Number(fm[1]) : 0;
+  const at = (state, board = false) => ({ state, board, credit, failing, ageSeconds: Number.isFinite(h.age_seconds) ? h.age_seconds : null });
   if (h.status === 'unknown' || h.status === 'down' || h.status === 'process_down') return at('down');
   if (RELAY_PAUSE_NOTE.test(note)) return at('paused');
   if (h.status === 'low_gas' || RELAY_HOLD_NOTE.test(note)) return at('held', RELAY_BOARD_NOTE.test(note));
@@ -3306,7 +3310,7 @@ async function handleConfidentialRelay(env, cors) {
   if (!st) return jsonResponse({ ok: false, error: 'the relay’s state cannot be read just now' }, 503, { ...cors, 'Cache-Control': 'no-store' });
   return jsonResponse({
     state: st.state, proving: RELAY_PROVING.has(st.state), settling: RELAY_SETTLING.has(st.state),
-    board: st.state === 'held' && st.board, ageSeconds: st.ageSeconds,
+    board: st.state === 'held' && st.board, failing: st.failing || 0, ageSeconds: st.ageSeconds,
   }, 200, { ...cors, 'Cache-Control': 'max-age=10' });
 }
 // The burn root the pool holds (knownBitcoinBurnRoot, storage slot 80), which every bridge mint must be built on. Read from Ethereum at
