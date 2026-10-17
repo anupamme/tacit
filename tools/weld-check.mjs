@@ -7230,7 +7230,7 @@ await step('selfprove', async () => {
     await withdraw('0.3');
     await until(r.page, () => /did not take it in time/.test(document.querySelector('#v1-status')?.textContent || ''), null, 300000).catch(() => {});
     const np = await said();
-    ok(/Succinct’s prover did not take it in time\. Nothing was sent; the network kept its base fee \(about 0\.39 PROVE\)\./.test(np) && /Try again/.test(np) && /Let the relay prove this one/.test(np), `selfprove: a request Succinct's prover did not take offers Try again or the relay (${np})`);
+    ok(/Succinct’s prover did not take it in time\. Nothing was sent\. The network kept its base fee \(about 0\.39 PROVE\)\./.test(np) && /Try again/.test(np) && /Let the relay prove this one/.test(np), `selfprove: a request Succinct's prover did not take offers Try again or the relay (${np})`);
     proveStub = true; restore = await stubPoolSettle('ok');
     const s3 = submits.length, w3 = walletTxs.length;
     await r.page.click('#v1-status [data-selfdo]:last-of-type');
