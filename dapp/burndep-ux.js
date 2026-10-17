@@ -50,13 +50,24 @@ const DEST_INDEXES = 8; // matches confidential-recovery.js's walkBridgeMints de
 const MINT_WAIT_MS = 15 * 60 * 1000;
 // How long a mint the relay took is left to land before it is built and sent again.
 const MINT_QUEUE_MS = 20 * 60 * 1000;
-// A failure that was not the bridge's: the relay's own (its prover did not run), the pool's burn root moving on while a mint waited, or
-// the day's free settles or proofs used up. The relay gives the settle of the first two back, so asking again costs the holder nothing,
-// and the last lifts at the next midnight UTC. None of them uses up the few tries a bridge is given (`errorCount`).
+// A failure that was not the bridge's: the relay's own (its prover did not run), the pool's burn root moving on while a mint waited (also as the
+// settle's revert, 0x8a98f245), its deadline passing in the relay's queue, or the day's free settles or proofs used up. The relay gives the
+// settle back for the first three, so asking again costs the holder nothing, and the last lifts with the day. None of them uses up the few
+// tries a bridge is given (`errorCount`).
 const DAY_REFUSAL = /free relayed settles for today|prove capacity for today|relay-paid proofs for today/i;
 const BUDGET_CODES = ['free_budget', 'prove_budget'];
 const dayRefusal = (e) => BUDGET_CODES.includes(e && e.code) || DAY_REFUSAL.test(String((e && e.message) || e || ''));
-export const relayFault = (e) => dayRefusal(e) || /produced no proof|could not make this proof|moved on while this/i.test(String((e && e.message) || e || ''));
+export const relayFault = (e) => dayRefusal(e) || /produced no proof|could not make this proof|moved on while this|0x8a98f245|waited in the queue past its deadline/i.test(String((e && e.message) || e || ''));
+// Whether a mint that failed is tried again now, on the page's own: a day's allowance used up is asked again every hour (a refused submit
+// costs nothing, and the allowance can come back at any time: at midnight UTC, by a refund, by a raised limit); a failure that was the
+// relay's, or one of a bridge's first four, every ten minutes; one whose wait ran out, an hour after, since the relay may still hold it.
+export function mintRetryDue(rec, { ranOut = false, at = Date.now() } = {}) {
+  const e = rec && rec.lastError;
+  if (!e) return true;
+  const since = at - Number(e.at || 0);
+  if (Number(e.until) > at) return since > 60 * 60e3;
+  return (relayFault(e) || (Number(rec.errorCount) || 0) < 4) && since > (ranOut ? 60 : 10) * 60e3;
+}
 const nextUtcDay = (t) => { const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 1); };
 
 const stripHex = (h) => String(h).replace(/^0x/, '');
@@ -1303,7 +1314,7 @@ export function makeBurnDepositUx(deps) {
 
   return {
     BURNDEP_BETA_CAP_RAW, assets: ASSETS, assetOf, eligibleNotes, isReserved, pickFunding, bridgeCost, noteForms, preflight, preflightHeld, recheckBurn, RETURN_FEE_CEILING, start, startReflected, advance, resumeAll, recoverFromTxid, discover, list, abandon,
-    cancelSigned, buildCancel, reclaim, recover, verify, isLive, burnRecorded, destLeaf, relayFault,
+    cancelSigned, buildCancel, reclaim, recover, verify, isLive, burnRecorded, destLeaf, relayFault, mintRetryDue,
     // Bitcoin's priority fee rate now (sat/vB), as the builders price a move or a one-step burn.
     quoteRate: () => chain.getFeeRate('priority'),
     slipstreamStatus: broadcaster.slipstreamStatus,

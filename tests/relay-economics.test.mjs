@@ -107,6 +107,7 @@ ok(buildEconomics({ ledger: s, now: 5 }).ledger.stale === true && buildEconomics
 const sp = cleanSponsorship({ day: '2026-10-15', total: { used: 14, cap: 300 }, classes: { onboard: { used: 3, cap: 12 }, farm: { used: 8, cap: 8 }, wrap: { used: 'x', cap: null }, other: { used: -1, cap: 'many' }, evil: { used: 1, cap: 1 } }, junk: 1 });
 ok(sp.total.used === 14 && sp.total.cap === 300 && sp.classes.onboard.cap === 12 && sp.classes.farm.used === 8 && !('evil' in sp.classes) && !('junk' in sp), 'the allowances are copied field by field');
 ok(sp.classes.wrap.used === 0 && sp.classes.wrap.cap === null && sp.classes.other.used === 0 && sp.classes.other.cap === null, 'junk reads as zero used, and a limit that is not a number is no limit');
+ok(sp.classes.bridge.used === 0 && sp.classes.bridge.cap === null && cleanSponsorship({ day: '2026-10-17', total: { used: 1, cap: 300 }, classes: { bridge: { used: 9, cap: null } } }).classes.bridge.used === 9, 'bridge mints are a class of their own, with no limit when none is set');
 ok(cleanSponsorship(null) === null && cleanSponsorship('x') === null && cleanSponsorship({ day: 'today' }).day === null, 'nothing, or a bad day, is null');
 {
   const p = cleanSponsorship({ day: '2026-10-16', total: { used: 1, cap: 2 }, classes: {}, prove: { used: 41, cap: 150, perClient: 20, secret: 1 } }).prove;

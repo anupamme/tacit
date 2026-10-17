@@ -2127,7 +2127,7 @@ await step('bridge', async () => {
   ok(/2 bridges of TAC to Ethereum are waiting for you/.test(await text(r.page, '#dash-due')), `bridge: the dashboard says two bridges wait for a press from their holder (${(await text(r.page, '#dash-due')).replace(/\s+/g, ' ').slice(0, 120)})`);
   // The one the relay refused for the day's allowance is said apart, with what it does and what the holder can do, not as a press that would be refused again.
   const dueText = (await text(r.page, '#dash-due')).replace(/\s+/g, ' ');
-  ok(/Your bridge of [\d,.]+ TAC is ready to mint\. Today’s free settles are used up, so it goes on after midnight UTC while this page is open with your wallet, or send it from your wallet now\./.test(dueText), `bridge: a mint held by the day's allowance is said with when it goes on and what the holder can do (${dueText.slice(0, 300)})`);
+  ok(/Your bridge of [\d,.]+ TAC is ready to mint\. Today’s free settles are used up, so this page asks again every hour while it is open with your wallet, or send it from your wallet now\./.test(dueText), `bridge: a mint held by the day's allowance is said with when it goes on and what the holder can do (${dueText.slice(0, 300)})`);
   // It is announced once (a toast and, with notices on, a system notice), and remembered so the next look does not say it again.
   await until(r.page, ([k]) => /:held:/.test(localStorage.getItem(k) || ''), ['tacit-lite-bridge-told-v1'], 60000);
   const toldKeys = await r.page.evaluate(([k, p]) => (JSON.parse(localStorage.getItem(k) || '{}')[p] || []), ['tacit-lite-bridge-told-v1', pub]);
@@ -2196,7 +2196,7 @@ await step('bridge', async () => {
   await r.page.click('#bridge-body [data-bract="seen"]');
   await until(r.page, () => document.querySelectorAll('#bridge-body .brr').length === 4, null, 30000);
   ok(true, 'bridge: Done takes an arrived bridge off the list');
-  ok(/Mint now/.test(rows[1] || '') && /Send it from/.test(rows[1] || '') && /free settles are used up/.test(rows[1] || '') && /mints it after midnight UTC while it is open with your wallet/.test(rows[1] || ''),
+  ok(/Mint now/.test(rows[1] || '') && /Send it from/.test(rows[1] || '') && /free settles are used up/.test(rows[1] || '') && /asks again every hour while it is open with your wallet/.test(rows[1] || ''),
     `bridge: a mint the relay refused for the day offers Mint now and sending it from the paying account, and says when this page mints it (${(rows[1] || '').slice(0, 260)})`);
   ok(/didn’t complete/.test(rows[2] || '') && /Recover/.test(rows[2] || '') && /Check again/.test(rows[2] || ''), 'bridge: one that did not complete offers Recover, and to look at the burn again');
   ok(/Cancel this bridge/.test(rows[3] || '') && /has not taken this transaction/.test(rows[3] || ''), 'bridge: a signed transaction Bitcoin keeps rejecting offers to be cancelled');

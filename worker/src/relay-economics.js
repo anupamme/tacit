@@ -156,7 +156,7 @@ export function cleanSponsorship(sp) {
   if (!sp || typeof sp !== 'object') return null;
   const one = (x) => ({ used: finite(x && x.used), cap: x && x.cap != null && Number.isFinite(Number(x.cap)) && Number(x.cap) >= 0 ? Math.floor(Number(x.cap)) : null });
   const out = { day: typeof sp.day === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(sp.day) ? sp.day : null, total: one(sp.total), classes: {} };
-  for (const k of ['onboard', 'farm', 'wrap', 'other']) out.classes[k] = one(sp.classes && sp.classes[k]);
+  for (const k of ['onboard', 'bridge', 'farm', 'wrap', 'other']) out.classes[k] = one(sp.classes && sp.classes[k]);
   // Prove-only jobs the relay pays the proof for (the sender settles): today's count against the day's cap, and one client's cap.
   const p = sp.prove && typeof sp.prove === 'object' ? sp.prove : null;
   out.prove = { ...one(p), perClient: p && p.perClient != null && Number.isFinite(Number(p.perClient)) && Number(p.perClient) >= 0 ? Math.floor(Number(p.perClient)) : null };

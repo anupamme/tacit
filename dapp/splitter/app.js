@@ -314,7 +314,7 @@ function paintRelay() {
       row('Splitter sent on by the relay', cfg.splitter ? `${wk ? wk.splitterSends : 0} times this week` : 'not set (SPLITTER_ADDR)')),
     j.sponsorship ? h('div', { class: 'rows' },
       row('Sponsored settles today', `${j.sponsorship.total.used} of ${j.sponsorship.total.cap}`),
-      Object.entries({ onboard: 'mints (bridge, cBTC)', farm: 'farm harvests and unbonds', wrap: 'wraps with no tip', other: 'other' }).map(([k, label]) => { const c = j.sponsorship.classes[k]; return row(`  ${label}`, c.cap == null ? `${c.used}, no limit` : `${c.used} of ${c.cap}${c.used >= c.cap ? ' (used up)' : ''}`); })) : null,
+      Object.entries({ bridge: 'bridge mints', onboard: 'cBTC mints', farm: 'farm harvests and unbonds', wrap: 'wraps with no tip', other: 'other' }).map(([k, label]) => { const c = j.sponsorship.classes[k]; return row(`  ${label}`, c.cap == null ? `${c.used}, no limit` : `${c.used} of ${c.cap}${c.used >= c.cap ? ' (used up)' : ''}`); })) : null,
     h('p', { class: 'note' }, l && l.stale ? 'The relay has not reported for a few minutes.' : 'The buyback and splitter settings are on the settle service (BUYBACK_INCOME_BPS, BUYBACK_KEEP_WEI, BUYBACK_MIN_SEND_WEI, SPLITTER_ADDR, SPLITTER_MIN_WEI) and take effect on its next pass; the sponsored-settle limits are on the API (FREE_RELAY_DAILY_CAP, FREE_RELAY_CAP_ONBOARD, _FARM, _WRAP, _OTHER).'));
 }
 async function loadRelay() {

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-t4RIsKBp0KyFlsLBFxKUsI9VrbUVPPsWqinQVdHAbWM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-WV3Zcrv2x654sg2KxiDuw3BX9FKjqiKI6lHjdJVAEr4=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -6933,7 +6933,7 @@ function brProofText(rec) {
     : ` The proof is at Bitcoin block ${at(p)}; the burn is in block ${at(h)}, ${at(h - p)} block${h - p === 1 ? '' : 's'} on.`;
 }
 // A bridge ready to mint: what the mint is doing. One the relay has taken lands on its own, and is not sent again meanwhile.
-const brMinting = (rec) => (rec.lastError ? `Recorded, and ready to mint.${brHeld(rec) ? ' Today’s free settles are used up, so this page mints it after midnight UTC while it is open with your wallet, or send it from your wallet now.'
+const brMinting = (rec) => (rec.lastError ? `Recorded, and ready to mint.${brHeld(rec) ? ' Today’s free settles are used up, so this page asks again every hour while it is open with your wallet, or send it from your wallet now.'
     : rec.lastError.relay ? ' Its proof is not ready yet: this page asks again every few minutes while it is open with your wallet.' : ''}`
   : rec.mintJob && Date.now() - Number(rec.mintJob.at || 0) < 20 * 60e3 ? `Recorded. Its mint is with the relay, which proves it and settles it on Ethereum, usually within minutes.`
   : `Recorded. Minting your private ${brTk(rec)}: this page does it while it is open with your wallet.`);
@@ -7515,10 +7515,9 @@ async function brTick(first = false) {
       if (S.key?.pubHex !== pub) break;
       const ready = rec.stage === 'folded' || rec.stage === 'rfolded';
       // A mint whose wait ran out is still in the relay's queue: until an hour has passed it is only looked for in the pool. A bridge is
-      // given four tries of its own; a failure that was the relay's or the day's (ux.relayFault) is none of them, and a day's allowance
-      // used up is tried again once it is lifted (`until`, the next midnight UTC), not every ten minutes against a closed door.
-      const due = ready && (!rec.lastError || (rec.lastError.until ? Date.now() >= rec.lastError.until
-        : (ux.relayFault(rec.lastError) || (Number(rec.errorCount) || 0) < 4) && Date.now() - Number(rec.lastError.at || 0) > (waitRanOut(rec.lastError) ? 60 : 10) * 60e3));
+      // given four tries of its own; a failure that was the relay's or the day's is none of them, and a day's allowance used up is asked
+      // again every hour (ux.mintRetryDue).
+      const due = ready && ux.mintRetryDue(rec, { ranOut: waitRanOut(rec.lastError) });
       try {
         // A moved note whose holder asked for its burn to be sent is burned here, within the miner's rate that was quoted: signed in a
         // tacit.js turn (it spends this key's sats), then handed to the miner, which needs no key.
@@ -7559,7 +7558,7 @@ function brNews(pub, recs) {
     const key = held ? `${rec.id}:held:${day}` : `${rec.id}:need`;
     if (told.has(key)) continue;
     fresh.push(key);
-    const said = held ? `Your bridge of ${brAmt(rec)} is ready to mint. Today’s free settles are used up: it goes on after midnight UTC, or send it from your wallet now.`
+    const said = held ? `Your bridge of ${brAmt(rec)} is ready to mint. Today’s free settles are used up: this page asks again every hour, or send it from your wallet now.`
       : `Your bridge of ${brAmt(rec)} to Ethereum is waiting for you: Mint now.`;
     toast(said, false, 12000);
     osNote('Bridge from Bitcoin', said, key, () => openLink(brLinkOf(rec)));
@@ -11022,8 +11021,8 @@ function paintDash() {
     const brs =brJournal(k, null).filter((r) => !BR_DONE.includes(r.stage) && r.stage !== 'recovered'), held = brs.filter(brHeld), need = brs.filter(brDue), going = brs.filter((r) => !brHeld(r));
     const brLink = (xs) => (xs.every((r) => brTk(r) === 'TAC') ? 'bridge' : 'private/bitcoin'), ofTk = (xs) => (new Set(xs.map(brTk)).size === 1 ? ` of ${brTk(xs[0])}` : '');
     // Ready to mint while the day's free settles are used up: said with what happens next and what the holder can do, not as a press that would be refused.
-    if (held.length) due.push([held.length === 1 ? `Your bridge of ${brAmt(held[0])} is ready to mint. Today’s free settles are used up, so it goes on after midnight UTC while this page is open with your wallet, or send it from your wallet now.`
-      : `${held.length} bridges${ofTk(held)} are ready to mint. Today’s free settles are used up, so they go on after midnight UTC while this page is open with your wallet, or send them from your wallet now.`, brLink(held), 'Open']);
+    if (held.length) due.push([held.length === 1 ? `Your bridge of ${brAmt(held[0])} is ready to mint. Today’s free settles are used up, so this page asks again every hour while it is open with your wallet, or send it from your wallet now.`
+      : `${held.length} bridges${ofTk(held)} are ready to mint. Today’s free settles are used up, so this page asks again every hour while it is open with your wallet, or send them from your wallet now.`, brLink(held), 'Open']);
     if (need.length) due.push([need.length === 1 ? `Your bridge of ${brAmt(need[0])} to Ethereum is waiting for you: ${brDue(need[0])}.` : `${need.length} bridges${ofTk(need)} to Ethereum are waiting for you.`, brLink(need), 'Open']);
     else if (going.length) due.push([going.length === 1 ? `${brAmt(going[0])} is on its way from Bitcoin to Ethereum, ${brWhere(going[0])}. It finishes while this page is open with your wallet.`
       : `${going.length} bridges${ofTk(going)} are on their way from Bitcoin to Ethereum. They finish while this page is open with your wallet.`, brLink(going), 'Follow']);

@@ -57,7 +57,7 @@ const submit = async (op) => {
 };
 const day = () => new Date().toISOString().slice(0, 10);
 const used = (name) => Number(kv._m.get(`cps:budget:${name}:${day()}`) || 0);
-const onboardUsed = () => used('free:onboard');
+const bridgeUsed = () => used('free:bridge');
 // The settle relay's ack, as it fails a job.
 const fail = async (jobId, error) => (await worker.default.fetch(new Request('https://api.test/confidential/ack', { method: 'POST', headers: { 'content-type': 'application/json', Authorization: `Bearer ${BOX_TOKEN}` }, body: JSON.stringify({ jobId, error }) }), env, { waitUntil() {} })).json();
 
@@ -69,7 +69,7 @@ test('junk posted as a bridge mint is refused and uses none of the day\'s free s
     assert.equal(r.status, 400, JSON.stringify(r.body));
     assert.equal(r.body.code, 'not_a_burn');
   }
-  assert.equal(onboardUsed(), 0);
+  assert.equal(bridgeUsed(), 0);
 });
 
 test('a mint built on an older burn set is turned back as stale, also without costing a settle', async () => {
@@ -78,7 +78,7 @@ test('a mint built on an older burn set is turned back as stale, also without co
   const r = await submit(m.op);
   assert.equal(r.status, 409);
   assert.equal(r.body.code, 'stale_root');
-  assert.equal(onboardUsed(), 0);
+  assert.equal(bridgeUsed(), 0);
 });
 
 test('the mint of a recorded burn is taken and spends one free settle; one burn takes a few a day, never the whole allowance', async () => {
@@ -86,7 +86,7 @@ test('the mint of a recorded burn is taken and spends one free settle; one burn 
   poolRoot = first.root;
   const r = await submit(first.op);
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.equal(onboardUsed(), 1);
+  assert.equal(bridgeUsed(), 1);
   // The same burn rebuilt (a new op each time) takes its few, then is told to send it from its own account.
   const codes = [];
   for (let i = 0; i < 6; i++) codes.push((await submit(b.build().op)).status);
@@ -94,23 +94,44 @@ test('the mint of a recorded burn is taken and spends one free settle; one burn 
   assert.equal(codes[3], 429, `then it is told its free settles for the day are used (${codes})`);
   const over = await submit(b.build().op);
   assert.equal(over.body.code, 'free_budget');
-  assert.equal(onboardUsed(), 4, 'and it used four of the day\'s twelve, not the day');
+  assert.equal(bridgeUsed(), 4, 'and it used four of the day\'s allowance, not the day');
   // Another burn is not held back by it.
   const other = burn(3).build();
   poolRoot = other.root;
   assert.equal((await submit(other.op)).status, 200);
 });
 
+// A bridge mint is the mint of a recorded burn and one burn takes a few a day, so it is bounded by real burns, not by a class allowance
+// it would share with cBTC mints: more burns than that allowance are all taken, until a limit is set for them (FREE_RELAY_CAP_BRIDGE).
+test('bridge mints are not held to cBTC\'s allowance, and a limit set for them applies', async () => {
+  env.FREE_RELAY_CAP_ONBOARD = '2';
+  try {
+    const before = bridgeUsed(), codes = [];
+    for (let v = 20; v < 26; v++) { const m = burn(v).build(); poolRoot = m.root; codes.push((await submit(m.op)).status); }
+    assert.deepEqual(codes, [200, 200, 200, 200, 200, 200], `six burns over an allowance of two are all taken (${codes})`);
+    assert.equal(bridgeUsed(), before + 6);
+    assert.equal(used('free:onboard'), 0, 'and none of it is spent from cBTC\'s allowance');
+    env.FREE_RELAY_CAP_BRIDGE = String(bridgeUsed() + 1);
+    const a = burn(26).build(); poolRoot = a.root;
+    assert.equal((await submit(a.op)).status, 200, 'one more fits under a limit that was set');
+    const b = burn(27).build(); poolRoot = b.root;
+    const over = await submit(b.op);
+    assert.equal(over.status, 429);
+    assert.equal(over.body.code, 'free_budget');
+    assert.equal(over.body.class, 'bridge');
+  } finally { env.FREE_RELAY_CAP_ONBOARD = '12'; delete env.FREE_RELAY_CAP_BRIDGE; }
+});
+
 // What a free settle spent is given back when the job ends failed for a reason that was not the holder's, so a relay that fails its jobs
 // does not use up the day's allowance.
-const spentFor = (b) => ({ free: used('free'), onboard: onboardUsed(), burn: used(`bridgemint:${b.burnId}`) });
+const spentFor = (b) => ({ free: used('free'), bridge: bridgeUsed(), burn: used(`bridgemint:${b.burnId}`) });
 
 test('a mint the pool moved past while it waited gives its free settle back, once', async () => {
   const b = burn(5), m = b.build(), before = spentFor(b);
   poolRoot = m.root;
   const r = await submit(m.op);
   assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.deepEqual(spentFor(b), { free: before.free + 1, onboard: before.onboard + 1, burn: 1 });
+  assert.deepEqual(spentFor(b), { free: before.free + 1, bridge: before.bridge + 1, burn: 1 });
   const done = await fail(r.body.jobId, 'settle reverted: Execution reverted for an unknown reason. (0x8a98f245)');
   assert.equal(done.status, 'failed');
   assert.deepEqual(spentFor(b), before, 'the day, the class and the burn have each their settle back');
@@ -132,7 +153,7 @@ test('a proof the relay could not make is tried once more, and only its final fa
   poolRoot = m.root;
   const r = await submit(m.op);
   const spent = spentFor(b);
-  assert.equal(spent.onboard, before.onboard + 1);
+  assert.equal(spent.bridge, before.bridge + 1);
   const first = await fail(r.body.jobId, 'prove failed: exec:bridgemint produced no proof (code=101): ENOENT');
   assert.equal(first.status, 'pending', 'the first failure of this kind is tried again');
   assert.deepEqual(spentFor(b), spent, 'and the settle stays spent while it is');

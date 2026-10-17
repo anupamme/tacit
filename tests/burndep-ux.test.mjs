@@ -1685,8 +1685,23 @@ function storageContainsPrivkey(storage, priv) {
   c = await fail('the settle reverted');
   ok(c.errorCount === 2, 'and keeps counting');
   ok([['prove capacity for today is used up (150/150)', true], ['your share of relay-paid proofs for today is used up', true], ['Bitcoin’s proof on Ethereum moved on while this mint was waiting', true],
-    ['the relay’s prover could not make this proof just now', true], ['receipt timeout', false], ['settle reverted: NullifierAlreadySpent', false]].every(([m, want]) => ux.relayFault(new Error(m)) === want),
+    ['the relay’s prover could not make this proof just now', true], ['settle reverted: Execution reverted for an unknown reason. (0x8a98f245)', true], ['expired: it waited in the queue past its deadline, so it was not sent', true], ['receipt timeout', false], ['settle reverted: NullifierAlreadySpent', false]].every(([m, want]) => ux.relayFault(new Error(m)) === want),
   'which failures are the relay’s or the day’s is told by their words');
+  // The page's own retries of a mint: a day's allowance used up is asked again every hour, a failure that was the relay's every ten minutes
+  // however many there were, a bridge's own four tries every ten minutes and then not by itself, and a wait that ran out an hour on.
+  const T0 = 1_800_000_000_000, min = 60e3, day = 'free relayed settles for today are used up (12/12)';
+  const at = (m) => ({ at: T0 + m * min });
+  const retry = (lastError, errorCount, m, extra = {}) => ux.mintRetryDue({ lastError, errorCount }, { ...at(m), ...extra });
+  ok(ux.mintRetryDue({ lastError: null, errorCount: 0 }, at(0)) === true, 'a mint with no failure is for the page to send');
+  const held = { message: day, at: T0, until: T0 + 6 * 60 * min };
+  ok(!retry(held, 0, 5) && !retry(held, 0, 59) && retry(held, 0, 61) && retry(held, 0, 300), 'a mint held by the day is asked again once an hour has passed, not before');
+  ok(!retry({ message: day, at: T0, until: T0 + 90 * min }, 0, 50) && retry({ message: day, at: T0, until: T0 + 90 * min }, 0, 100), 'and once its day has passed, it is asked at once (the allowance is new)');
+  const relay = { message: 'prove failed: exec:bridgemint produced no proof', at: T0, relay: true };
+  ok(!retry(relay, 9, 5) && retry(relay, 9, 11) && retry(relay, 40, 11), 'a failure that was the relay’s is asked again every ten minutes, however many there were');
+  const own = { message: 'the settle reverted', at: T0 };
+  ok(!retry(own, 3, 5) && retry(own, 3, 11) && !retry(own, 4, 600), 'a bridge’s own failure is asked again every ten minutes for its first four, and then waits for its holder');
+  const ran = { message: 'settle timed out', at: T0 };
+  ok(!retry(ran, 1, 30, { ranOut: true }) && retry(ran, 1, 61, { ranOut: true }) && retry(ran, 1, 11), 'a wait that ran out is left an hour, since the relay may still hold the mint');
 }
 console.log(failures ? `\n${failures} FAILURES (${n} passed)` : `\nall ${n} burndep-ux checks passed`);
 process.exit(failures ? 1 : 0);
