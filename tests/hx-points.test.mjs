@@ -39,23 +39,23 @@ await test('the page and the service agree on the multiplier for random weeks', 
 await test('a first deposit of the week counts x1 and points to a second kind of activity', () => {
   const r = hxWeek(SPEC, [], TODAY, kindOf, one, 'private', 80);
   assert.equal(r.f, 1);
-  assert.match(r.tip, /^Counts ×1 toward today’s pot\. A swap or a loan this week lifts it to ×1\.25\.$/);
+  assert.match(r.tip, /^Counts 1× toward today’s pot\. A swap or a loan this week lifts it to 1\.25×\.$/);
 });
 
 await test('another kind and a second day are each worth a step, and the tip names the next one', () => {
   const r = hxWeek(SPEC, [row(1, 'zswapeth', 100)], TODAY, kindOf, one, 'private', 80);
   assert.equal(r.f, 1.5);
-  assert.match(r.tip, /^Counts ×1\.5 toward today’s pot\. A loan or a \.wei name this week lifts it to ×1\.75\.$/);
+  assert.match(r.tip, /^Counts 1\.5× toward today’s pot\. A loan or a \.wei name this week lifts it to 1\.75×\.$/);
   const same = hxWeek(SPEC, [row(0, 'wrap', 100)], TODAY, kindOf, one, 'private', 80);
   assert.equal(same.f, 1);
   const two = hxWeek({ ...SPEC, maxKinds: 0 }, [], TODAY, kindOf, one, 'private', 80);
-  assert.match(two.tip, /^Counts ×1 toward today’s pot\. Activity on a second day this week lifts it to ×1\.25\.$/);
+  assert.match(two.tip, /^Counts 1× toward today’s pot\. Activity on a second day this week lifts it to 1\.25×\.$/);
 });
 
 await test('with every bonus in reach the tip says so, and says nothing where there is nothing to gain', () => {
   const full = hxWeek(SPEC, [row(1, 'zswapeth', 100), row(2, 'cusdmint', 100)], TODAY, kindOf, one, 'private', 80);
   assert.equal(full.f, 1.75);
-  assert.equal(full.tip, 'This week counts ×1.75 toward today’s pot, as much as it gets.');
+  assert.equal(full.tip, 'This week counts 1.75× toward today’s pot, as much as it gets.');
   assert.equal(hxWeek({ ...SPEC, kindStep: 0, returnStep: 0 }, [], TODAY, kindOf, one, 'private', 80).tip, '');
 });
 

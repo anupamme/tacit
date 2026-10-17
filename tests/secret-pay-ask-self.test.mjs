@@ -36,7 +36,7 @@ const pay = (opts = {}) => secret.payPrivately(tacit, { poolWallet: pw, to, amou
 const asker = (answer) => async (why, d) => { log.asks.push([why, d?.timedOut ?? null]); return typeof answer === 'function' ? answer(why, d) : answer; };
 const posted = (p) => assert.rejects(p, /SELF_POST/);
 const declined = (p, msg) => assert.rejects(p, (e) => e.relayDeclined === true && e.said === true && e.message === msg);
-const NO_RELAY = 'The relay isn’t taking payments right now. Nothing was sent.';
+const NO_RELAY = 'The relay can’t take this one right now. Nothing was sent.';
 const SLOW = 'The relay hasn’t posted it yet and may still. Nothing else was sent; check your balance before paying again.';
 // Still queued when it timed out: its notes are set aside for half an hour.
 const SLOW_HELD = 'The relay hasn’t posted it yet and may still. Nothing else was sent; the TAC it would spend is set aside for half an hour, so it is not paid twice.';

@@ -107,7 +107,7 @@ pool.recoverExit = (wallet, payload, notes, opts) => { assert.equal(wallet, pw);
 }
 
 // ── exitToSaleKey ──
-const NOT_NOW = 'The relay isn’t taking TAC out right now. Nothing was sent; try again in a few minutes.';
+const NOT_NOW = 'The relay can’t take this one right now. Nothing was sent. Try again in a few minutes.';
 const SLOW = 'The relay hasn’t posted it yet and may still. Nothing else was sent; once it posts, the TAC shows here, ready to list.';
 const TOTAL = 10_000_000_000n;   // 100 TAC: the 2.5 TAC taken out, the 15 TAC fee and the change
 const notes = [{ asset: '0x' + ASSET, value: TOTAL.toString(), nf: '0x01', txid: 'aa'.repeat(32), leafIndex: 0 }];

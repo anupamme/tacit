@@ -1402,7 +1402,7 @@ await step('farmjoin', async () => {
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(r.page, '#sj-rcpt-0')).replace(/\s+/g, ' ')}`); });
     await shot(r.page, 'farmjoin');
     const rc = (await text(r.page, '#sj-rcpt-0')).replace(/\s+/g, ' ');
-    ok(/Share of the farm/.test(rc) && /Relay fee to split your notes/.test(rc) && /Gas, from your Tacit account/.test(rc), `farmjoin: Max quotes both sides, the split fees and the gas (${rc})`);
+    ok(/Share of the farm/.test(rc) && /Relay fee to split your notes/.test(rc) && /Network fee, from your Tacit account/.test(rc), `farmjoin: Max quotes both sides, the split fees and the gas (${rc})`);
     if (/Earns about/.test(rc)) ok(/APR on this deposit\s*(about [\d,]+%|over 100,000%)/.test(rc) && /Swap fees come on top/.test(rc), 'farmjoin: and the APR for this deposit');
     // An amount finer than a note's eight decimals is said, not left as a button that stays disabled with no reason.
     await r.page.fill('#sj-a-0', '0.123456789');
@@ -1817,7 +1817,7 @@ await step('keys', async () => {
   await r.page.goto(r.url + '#wallet');
   // Before anyone has signed in: the chip says what it opens, and the Ethereum option says what the signature is and how many the first time asks for.
   const first = await r.page.evaluate(() => ({ chip: document.querySelector('#wallet-label').textContent, eth: document.querySelector('#wallet-body [data-in="eth"]').textContent.replace(/\s+/g, ' '), lede: document.querySelector('#wallet-body .lede-s').textContent }));
-  ok(first.chip === 'Sign in' && /A free message signature, two the first time/.test(first.eth) && /sends nothing and costs no gas/.test(first.lede), `keys: the first visit says it is a sign-in, and that the signature is free (${first.chip} | ${first.eth})`);
+  ok(first.chip === 'Sign in' && /One free signature, two the first time/.test(first.eth) && /sends nothing and costs nothing/.test(first.lede), `keys: the first visit says it is a sign-in, and that the signature is free (${first.chip} | ${first.eth})`);
   await r.page.click('#wallet-body [data-in="eth"]');
   await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
   const txt = await shown(r.page);
@@ -2296,7 +2296,7 @@ await step('bridge', async () => {
   ok(true, 'bridge: Done takes an arrived bridge off the list');
   ok(/Mint now/.test(rows[1] || '') && /Send it from/.test(rows[1] || '') && /free settles are used up/.test(rows[1] || '') && /asks again every hour while it is open with your wallet/.test(rows[1] || ''),
     `bridge: a mint the relay refused for the day offers Mint now and sending it from the paying account, and says when this page mints it (${(rows[1] || '').slice(0, 260)})`);
-  ok(/didn’t complete/.test(rows[2] || '') && /Recover/.test(rows[2] || '') && /Check again/.test(rows[2] || ''), 'bridge: one that did not complete offers Recover, and to look at the burn again');
+  ok(/did not complete/.test(rows[2] || '') && /Recover/.test(rows[2] || '') && /Check again/.test(rows[2] || ''), 'bridge: one that did not complete offers Recover, and to look at the burn again');
   ok(/Cancel this bridge/.test(rows[3] || '') && /has not taken this transaction/.test(rows[3] || ''), 'bridge: a signed transaction Bitcoin keeps rejecting offers to be cancelled');
   await r.page.click('#bridge-body [data-bract="cancel"]');
   await until(r.page, () => /Yes, cancel it/.test(document.querySelector('#bridge-body [data-bract="cancel"]')?.textContent || ''), null, 30000);
@@ -3665,7 +3665,7 @@ await step('rewardsuses', async () => {
     };
     await land('trade/tac/', () => /trade/i.test(document.title) && !!document.querySelector('#route'), '/trade/tac/ is the trade page');
     await land('swap/#earn', () => !!document.querySelector('#p-earn') && !document.querySelector('#p-earn').hidden, '/swap/#earn opens the Earn tab (the Precision farm)');
-    await land('vault/', () => /vault/i.test(document.title), '/vault/ is the borrow page');
+    await land('vault/', () => /borrow/i.test(document.title), '/vault/ is the borrow page');
     await land('#tac', () => document.querySelector('#sheet-tac')?.open === true, '/#tac opens the TAC sheet, where TAC is made private');
     await land('pay/#tac', () => /pay/i.test(document.title) && location.hash === '#tac', '/pay/#tac is the pay page on TAC');
     await land('tac/', () => /tac/i.test(document.title), '/tac/ is the Bitcoin-native shielded TAC page');
@@ -3889,7 +3889,7 @@ await step('rewardsfolds', async () => {
     const read = (sel) => n.page.$eval(sel, (e) => e.innerText.replace(/\s+/g, ' ').trim()), kv = await read('#c-pts .kv');
     ok(/Today 1,000 points · 0\.050% of the day · about 3 TAC/.test(kv), `rewardsfolds: today's share of the day's pot, in points and percent, and the TAC the service says it pays (not the share of the pot) (${kv.trim()})`);
     const clk = await read('#c-pts .clock');
-    ok(/^Day 25 of 90 · today's points can be claimed after 00:30 UTC$/.test(clk), `rewardsfolds: the program's day and when today's points can be claimed (${clk})`);
+    ok(/^Day 25 of 90 · today’s points can be claimed after 00:30 UTC$/.test(clk), `rewardsfolds: the program's day and when today's points can be claimed (${clk})`);
     ok(dayCalls === 0 && !(await n.page.$eval('#c-pts [data-days]', (d) => d.open)), 'rewardsfolds: the days are not read until the fold is opened');
     await n.page.click('#c-pts [data-days] > summary');
     await n.page.waitForSelector('#c-pts .rows li', { timeout: 20000 });
@@ -3898,10 +3898,10 @@ await step('rewardsfolds', async () => {
     await n.page.click('#earn > summary');
     await n.page.waitForSelector('#earn-b .ways li', { timeout: 20000 });
     const ways = await n.page.$$eval('#earn-b .ways li', (a) => a.map((x) => `${x.querySelector('a').getAttribute('href')} ${x.innerText.replace(/\s+/g, ' ').trim()}`));
-    ok(ways.length === 5 && /^\/#points Hold ETH in the private pools 1,000 points per ETH a day, proven on your device$/.test(ways[0]) && /^\/#private Wrap ETH into the Tacit pool 1,250 points per ETH · up to 5 ETH a day per address$/.test(ways[1]) && /^\/#device .* 1,000 points per ETH · together at most 50% of a day's 1,111 TAC$/.test(ways[2]) && /^\/swap\/ Buy TAC with ETH \(Precision pool\) 2,000 points per ETH · ×2$/.test(ways[3]) && !ways.some((w) => /Borrow cUSD/.test(w)) && /500 a day while it stays posted/.test(ways[4]), `rewardsfolds: Earn more lists each action with its rate, weight, limits and where to do it, the staying reward first, and leaves out one that is weighted to nothing (${ways.length}: ${ways[3]})`);
+    ok(ways.length === 5 && /^\/#points Hold ETH in the private pools 1,000 points per ETH a day, proven on your device$/.test(ways[0]) && /^\/#private Wrap ETH into the Tacit pool 1,250 points per ETH · up to 5 ETH a day per address$/.test(ways[1]) && /^\/#device .* 1,000 points per ETH · together at most 50% of a day’s 1,111 TAC$/.test(ways[2]) && /^\/swap\/ Buy TAC with ETH \(Precision pool\) 2,000 points per ETH · 2×$/.test(ways[3]) && !ways.some((w) => /Borrow cUSD/.test(w)) && /500 a day while it stays posted/.test(ways[4]), `rewardsfolds: Earn more lists each action with its rate, weight, limits and where to do it, the staying reward first, and leaves out one that is weighted to nothing (${ways.length}: ${ways[3]})`);
     const reserved = await read('#earn-b > p:first-of-type');
-    ok(/^From Wed 21 Oct, part of each day's 1,111 TAC is set aside: 25% for holding ETH in the private pools and keeping bonds posted \(up to 0\.02 TAC a point\) and 15% for buying TAC and borrowing \(up to 0\.01 TAC a point\)\. A share that is not used goes back to everyone else\.$/.test(reserved), `rewardsfolds: the reserved shares, with their start day and what a point can earn (${reserved.slice(0, 60)}…)`);
-    ok(/Holding 100 or 1,000 public TAC at the same address for a day multiplies that day's points by 1\.25× or 1\.5×\. Early activity counts up to 5×\./.test(await read('#earn-b > p:last-of-type')), 'rewardsfolds: and the holder boost and the early bonus');
+    ok(/^From Wed 21 Oct, part of each day’s 1,111 TAC is set aside: 25% for holding ETH in the private pools and keeping bonds posted \(up to 0\.02 TAC a point\) and 15% for buying TAC and borrowing \(up to 0\.01 TAC a point\)\. A share that is not used goes back to everyone else\.$/.test(reserved), `rewardsfolds: the reserved shares, with their start day and what a point can earn (${reserved.slice(0, 60)}…)`);
+    ok(/Holding 100 or 1,000 public TAC at the same address for a day multiplies that day’s points by 1\.25× or 1\.5×\. Early activity counts up to 5×\./.test(await read('#earn-b > p:last-of-type')), 'rewardsfolds: and the holder boost and the early bonus');
     await n.page.click('#lb > summary');
     await n.page.waitForSelector('#lb-b .board li', { timeout: 20000 });
     const rows = await n.page.$$eval('#lb-b .board li', (a) => a.map((x) => `${x.className}:${x.innerText.replace(/\s+/g, ' ').trim()}`));
@@ -4019,7 +4019,7 @@ await step('ptsview', async () => {
     bars: document.querySelectorAll('#pts-body .ptd-b').length,
     links: [...document.querySelectorAll('#pts-body .ptl a')].map((a) => a.href) }));
   ok(/^Wrapped ETH/.test(v.items[0] || '') && /^Deposited ETH on Base/.test(v.items[1] || '') && /^Swapped ETH/.test(v.items[2] || ''), `ptsview: recent points in time order across chains (${v.items.join(' | ')})`);
-  ok(v.days.length >= 2 && /^Today\s*\+215\s*×1\.25\s*about 4\.5 TAC$/.test(v.days[0]) && /^Yesterday\s*\+100\s*2 TAC$/.test(v.days[1]), `ptsview: the activity is grouped under each day's total and what it paid (${v.days.join(' | ')})`);
+  ok(v.days.length >= 2 && /^Today\s*\+215\s*1\.25×\s*about 4\.5 TAC$/.test(v.days[0]) && /^Yesterday\s*\+100\s*2 TAC$/.test(v.days[1]), `ptsview: the activity is grouped under each day's total and what it paid (${v.days.join(' | ')})`);
   ok(/Holder boost at last activity\s*1\.5×/.test(v.body), 'ptsview: the holder boost is the newest activity\'s');
   ok(/rank\s*#2/.test(v.body) && /#1 today/.test(v.body) && /Claimed so far\s*5 TAC/.test(v.body) && /10% · about 111\.11 TAC/.test(v.body) && /closes in \d/.test(v.body), `ptsview: rank, claimed, today's share and the countdown (${v.body.slice(0, 500)})`);
   ok(/Earned from finished days\s*8 TAC/.test(v.body) && /To reach #1\s*8,999,998,766 points/.test(v.body), `ptsview: settled TAC and the gap to the rank above (${v.body.slice(0, 700)})`);
@@ -4034,23 +4034,23 @@ await step('ptsview', async () => {
   ok(/Early activity counts up to 3×\. Holding 50 or 500 public TAC at the same address through the past day multiplies its points by 1\.1 or 1\.3\./.test(v.body),
     `ptsview: the early bonus and the holder tiers are the service's (${v.body.slice(-330)})`);
   ok(/Hold 50 public TAC here through a day and what it does next earns 1\.1×/.test(v.body), 'ptsview: the next holder tier is read from the same tiers');
-  ok(/1,000 per wstETH once cBTC is minted against it \(from \d+ \w+\) · ×3(?! from)/.test(v.body), 'ptsview: a weight in force shows on its way of earning');
+  ok(/1,000 per wstETH once cBTC is minted against it \(from \d+ \w+\) · 3×(?! from)/.test(v.body), 'ptsview: a weight in force shows on its way of earning');
   ok(/up to 5 ETH a day per address from \d+ \w+/.test(v.body) && /Per address\s*ETH-pool deposit counts up to 5 ETH a day, all chains together from \d+ \w+/.test(v.body), `ptsview: a daily limit per address shows on its way of earning and in the terms (${v.body.slice(0, 300)})`);
-  ok(/together up to 50% of a day's 1,111 TAC from \d+ \w+/.test(v.body) && /Share limit\s*ETH-pool deposit points together take at most 50% of a day’s 1,111 TAC; the rest is split as before \(from \d+ \w+\)/.test(v.body), `ptsview: a share limit shows on its way of earning and in the terms (${v.body.slice(0, 300)})`);
-  ok(new RegExp(`1,000 per wstETH once cBTC is minted against it \\(from ${dShort(today + 1)}\\) · ×3; 500 a day while a bond on a Bitcoin lock stays posted from ${dShort(today + 1)}`).test(v.body), 'ptsview: the bond\'s mint condition, its daily credit and the day they start show on its way of earning');
+  ok(/together up to 50% of a day’s 1,111 TAC from \d+ \w+/.test(v.body) && /Share limit\s*ETH-pool deposit points together take at most 50% of a day’s 1,111 TAC; the rest is split as before \(from \d+ \w+\)/.test(v.body), `ptsview: a share limit shows on its way of earning and in the terms (${v.body.slice(0, 300)})`);
+  ok(new RegExp(`1,000 per wstETH once cBTC is minted against it \\(from ${dShort(today + 1)}\\) · 3×; 500 a day while a bond on a Bitcoin lock stays posted from ${dShort(today + 1)}`).test(v.body), 'ptsview: the bond\'s mint condition, its daily credit and the day they start show on its way of earning');
   ok(v.days.some((d) => /\+0\s*not counted/.test(d)), `ptsview: a day whose listed points were not counted (a released bond) says so instead of adding them up (${v.days.join(' | ')})`);
   ok(/Kept a cBTC bond posted/.test(v.body) && !v.links.some((h) => h.includes('d'.repeat(64))), 'ptsview: a day\'s bond credit is listed as activity and links to no transaction');
-  ok(/This week\s*×1\.25 · 2 kinds of activity · 3 days/.test(v.body), `ptsview: an address whose points were multiplied for the week is told so (${v.body.slice(500, 900)})`);
+  ok(/This week\s*1\.25× · 2 kinds of activity · 3 days/.test(v.body), `ptsview: an address whose points were multiplied for the week is told so (${v.body.slice(500, 900)})`);
   await r.page.click('#pts-body summary:has-text("Terms")');
   await r.page.evaluate(() => document.querySelector('#pts-body details:has(> summary)').closest('#pts-body').lastElementChild.scrollIntoView({ block: 'end' }));
   await shot(r.page, 'ptsview-terms');
   const terms = await r.page.$eval('#pts-body details:has(> summary:has-text("Terms"))', (d) => d.textContent.replace(/\s+/g, ' '));
   ok(new RegExp(`Runs\\s*${dShort(today - 8)} to ${lastD} \\(UTC\\), 90 days`).test(terms) && /Each day’s pot\s*up to 1,111 TAC, of 100,000 in all/.test(terms)
     && new RegExp(`Limit\\s*0\\.02 TAC per point, no limit from ${nextD}`).test(terms)
-    && /Weights\s*cBTC bond ×3(?! from)/.test(terms)
+    && /Weights\s*cBTC bond 3×(?! from)/.test(terms)
     && new RegExp(`Each week\\s*25% more for each other kind of activity in the past 7 days \\(up to 50%; a kind counts once it has earned 25 points that week\\), and 25% more for activity on more than one day, from ${dShort(today + 1)}`).test(terms)
-    && new RegExp(`Bonds\\s*a cBTC bond counts if cBTC has been minted against it and it is still posted when its day settles, shortly after the day ends, from ${dShort(today + 1)}; a bond on a Bitcoin lock earns a flat 500 points per wstETH for each further day it stays posted, credited when the day settles and counted as activity for the week, from ${dShort(today + 1)}`).test(terms)
-    && /Counting\s*each activity at its weight, times the week’s multiplier\. A day’s pot is split by these counted points; the all-time total is points as scored/.test(terms) && /Points go to\s*the address that sent the transaction/.test(terms) && /Settled\s*each day, shortly after it ends/.test(terms) && /Claim\s*any time once a day is settled/.test(terms),
+    && new RegExp(`Bonds\\s*a cBTC bond counts if cBTC has been minted against it and it is still posted when its day is finished, shortly after midnight UTC, from ${dShort(today + 1)}; a bond on a Bitcoin lock earns a flat 500 points per wstETH for each further day it stays posted, credited when the day is finished and counted as activity for the week, from ${dShort(today + 1)}`).test(terms)
+    && /Counting\s*each activity at its weight, times the week’s multiplier\. A day’s pot is split by these counted points; the all-time total is points as scored/.test(terms) && /Points go to\s*the address that sent the transaction/.test(terms) && /Claim\s*any time after a day is finished, shortly after midnight UTC/.test(terms),
     `ptsview: the terms list the days, the pot, the limit, who is paid and when (${terms.slice(0, 300)})`);
   await r.page.click('.ptd-b:last-child');
   const said = (await r.page.textContent('.ptd-r')).trim();
@@ -4189,7 +4189,7 @@ await step('retention', async () => {
     ok(/learns which of your accounts holds how many private notes of which sizes each day/.test(v.body) && /31 MB/.test(v.body), 'retention: it says what the service learns and what is downloaded');
     ok(/1 ETH held\s*Base · \d+ \w+\s*\+1,000/.test(v.body) && /0\.3 ETH held\s*Ethereum · \d+ \w+\s*\+300/.test(v.body), 'retention: each day proven is listed with its chain, size and points');
     ok(/Not counted: the proof does not verify/.test(v.body) && !/NaN|undefined|null/.test(v.body.slice(v.body.indexOf('Retention'), v.body.indexOf('Retention') + 900)), 'retention: a refused proof says so, and a damaged row is skipped without a trace');
-    ok(v.btn === null && /Open your Tacit key to count what it holds/.test(v.body), 'retention: with no Tacit key there is nothing to press, and it says why');
+    ok(v.btn === null && /Open your Tacit wallet to count what it holds/.test(v.body), 'retention: with no Tacit key there is nothing to press, and it says why');
     ok(!v.wide, 'retention: no sideways scroll');
     if (r.errors.length) { fails++; console.log('FAIL retention page errors: ' + r.errors.slice(0, 3).join(' | ')); }
     await r.browser.close(); }
@@ -5209,7 +5209,7 @@ await step('hxteth', async () => {
     await lander();
     await p.click('[data-hxm="send"]');
     await p.fill('#hx-amt', '0.1');
-    await until(p, () => /^They get about [\d.]+ tETH: their claim's relay fee comes out of it\. Nobody sees how much or to whom\.$/.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 240000)
+    await until(p, () => /^They get about [\d.]+ tETH: their claim’s relay fee comes out of it\. Nobody sees how much or to whom\.$/.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
     ok(/0\.25 tETH · Max/.test(await text(p, '#hx-bal')), `hxteth: Send says what the recipient gets (a 0.1 note is held, so nothing is cut), with the balance and Max (${await line()})`);
     await p.fill('#hx-rcpt', 'name.wei');
@@ -5245,7 +5245,7 @@ await step('hxsend', async () => {
   const quote = async (amt, ticker) => {
     await p.fill('#hx-rcpt', to);
     await p.fill('#hx-amt', amt);
-    await until(p, (t) => new RegExp(`^They get about [\\d.]+ ${t}: their claim's relay fee comes out of it(, and [\\d.]+ ${t} from your balance (splits a note|combines notes) first)?\\. Nobody sees how much or to whom\\.$`).test((document.querySelector('#hx-q')?.textContent || '').trim()), ticker, 240000)
+    await until(p, (t) => new RegExp(`^They get about [\\d.]+ ${t}: their claim’s relay fee comes out of it(, and [\\d.]+ ${t} from your balance (splits a note|combines notes) first)?\\. Nobody sees how much or to whom\\.$`).test((document.querySelector('#hx-q')?.textContent || '').trim()), ticker, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
   };
   try {
@@ -5468,7 +5468,7 @@ await step('farmzap', async () => {
     await until(p, () => /Swaps/.test(document.querySelector('#sj-rcpt-0')?.textContent || '') && !document.querySelector('#sj-go-0').disabled, null, 420000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#sj-rcpt-0')).replace(/\s+/g, ' ')}`); });
     const rc = (await text(p, '#sj-rcpt-0')).replace(/\s+/g, ' ');
-    ok((await p.inputValue('#sj-a-0')) === '0.02' && /Swaps\s*0\.0\d+ tETH for about [\d.,]+ TAC/.test(rc) && /Then adds\s*0\.0\d+ tETH \+ [\d.,]+ TAC/.test(rc) && /Relay fee for the swap/.test(rc) && /Relay fee to split your notes/.test(rc) && /Share of the farm/.test(rc) && /Gas, from your Tacit account/.test(rc),
+    ok((await p.inputValue('#sj-a-0')) === '0.02' && /Swaps\s*0\.0\d+ tETH for about [\d.,]+ TAC/.test(rc) && /Then adds\s*0\.0\d+ tETH \+ [\d.,]+ TAC/.test(rc) && /Relay fee for the swap/.test(rc) && /Relay fee to split your notes/.test(rc) && /Share of the farm/.test(rc) && /Network fee, from your Tacit account/.test(rc),
       `farmzap: Max takes the whole balance, and the quote says what is swapped, what both sides add, and the fees (${rc})`);
     await shot(p, 'farmzap');
     await p.click('#sj-go-0');
@@ -5940,14 +5940,14 @@ await step('hxweek', async () => {
   try {
     await p.waitForSelector('#hx-body .hx-h');
     await p.click('[data-hxm="private"]'); await p.fill('#hx-amt', '0.02');
-    await until(p, () => /Counts ×1\.5 toward/.test(document.querySelector('#hx-pts')?.textContent || ''), null, 300000);   // the card waits for the Points reading made at sign-in
+    await until(p, () => /Counts 1\.5× toward/.test(document.querySelector('#hx-pts')?.textContent || ''), null, 300000);   // the card waits for the Points reading made at sign-in
     const tip = (await text(p, '#hx-pts')).replace(/\s+/g, ' ');
-    ok(/Counts ×1\.5 toward today’s pot\. A loan or a \.wei name this week lifts it to ×1\.75\./.test(tip), `hxweek: yesterday's swap and today's private deposit count x1.5, and the next kind is named (${tip.slice(0, 200)})`);
+    ok(/Counts 1\.5× toward today’s pot\. A loan or a \.wei name this week lifts it to 1\.75×\./.test(tip), `hxweek: yesterday's swap and today's private deposit count x1.5, and the next kind is named (${tip.slice(0, 200)})`);
     if (SHOTS) await (await p.$('#hx')).screenshot({ path: join(SHOTS, 'weld-hxweek.png') });
     await p.fill('#hx-amt', '0.0001');
     await until(p, () => document.querySelector('#hx-out')?.textContent === '0.0001' && !document.querySelector('#hx-pts')?.hidden, null, 120000);
     const small = (await text(p, '#hx-pts')).replace(/\s+/g, ' ');
-    ok(/< 1 TAC points/.test(small) && !/Counts ×/.test(small) && !/: 0 more/.test(small), `hxweek: a deposit too small to count as a kind says nothing of the week (${small.slice(0, 120)})`);
+    ok(/< 1 TAC points/.test(small) && !/Counts \d[\d.]*×/.test(small) && !/: 0 more/.test(small), `hxweek: a deposit too small to count as a kind says nothing of the week (${small.slice(0, 120)})`);
     // A key with nothing on Bitcoin is told so, and where to receive it.
     await p.click('[data-hxm="private"]'); await p.selectOption('#hx-from', 'btc');
     await until(p, () => /No TAC on this key’s Bitcoin address yet/.test(document.querySelector('#hx-have')?.textContent || ''), null, 240000);
@@ -7222,7 +7222,7 @@ await step('selfprove', async () => {
     const w2 = walletTxs.length;
     await swap('0.06');
     await until(r.page, () => /pool moved|class="err"/.test(document.querySelector('#v1-status')?.innerHTML || ''), null, 300000).catch(() => {});
-    ok(/Nothing was sent\. The pool moved while it was being proved; press again for a fresh quote\./.test(await said()) && settles(w2).length === 0, `selfprove: a pool that moved while it was proved says to quote again, with nothing sent (${await said()})`);
+    ok(/Nothing was sent\. The pool moved while it was being proved\. Press again for a fresh quote\./.test(await said()) && settles(w2).length === 0, `selfprove: a pool that moved while it was proved says to quote again, with nothing sent (${await said()})`);
     await restore(); restore = null;
 
     // (d) Succinct's prover did not take it: Try again, or let the relay prove this one, which then goes out from the wallet.

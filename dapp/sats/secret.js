@@ -409,7 +409,7 @@ export async function payPrivately(tacit, { poolWallet, to, amount, asset, ancho
   say('finding your notes…');
   const a = await prepare(poolWallet, asset, pay + (q ? BigInt(q.fee) : 0n), anchor, inputs);
   if (a.wait) return { wait: a.wait, tip: a.tip };
-  if (!q && !noRelay && askSelf && !(await askSelf('no-relay'))) throw relayDeclined('The relay isn’t taking payments right now. Nothing was sent.');
+  if (!q && !noRelay && askSelf && !(await askSelf('no-relay'))) throw relayDeclined('The relay can’t take this one right now. Nothing was sent.');
   const outputs = [{ address: to, value: pay }];
   if (q) outputs.push({ address: q.address, value: BigInt(q.fee) });
   const built = pool.buildSpendBody({ asset: '0x' + String(asset).replace(/^0x/, ''), hAnchor: a.hAnchor, root: a.root, inputs: a.notes, outputs, wallet: poolWallet, bind: q ? q.bind : null });
@@ -919,7 +919,7 @@ export async function saleKeys(tacit, poolWallet, notes, asset, { addresses = []
 // quote, or has not posted after five minutes, ends it with `relayDeclined`: nothing is posted from the wallet.
 export async function exitToSaleKey(tacit, { poolWallet, amount, asset, key, anchor = null, maxFee = null, say = () => {}, inputs = null, requoted = false }) {
   const assetHex = strip0x(asset), client = poolClientFor(poolWallet.network);
-  const NOT_NOW = 'The relay isn’t taking TAC out right now. Nothing was sent; try again in a few minutes.';
+  const NOT_NOW = 'The relay can’t take this one right now. Nothing was sent. Try again in a few minutes.';
   const info = await client.relayInfo().catch(() => null);
   const listed = info?.fees?.['0x' + assetHex];
   if (listed == null) throw relayDeclined(NOT_NOW);
