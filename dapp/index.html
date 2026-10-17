@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-aGO6zZ0rECf6dO9jg6zfiASKSCNA12LInDTy/WB5UpY=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-REtcoJf/5nccR8ACcFfJP2rDVys6lwzOiaydZMPGxHA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -8830,7 +8830,8 @@ async function loadPaid(who, force = false) {
 const loadFarms = (force = false, o = {}) => once(FARM, `${S.address}|${S.key?.pubHex}`, (cur) => readFarms(cur, force, o), force);   // forced after an action
 async function readFarms(current, force = false, o = {}) {
   const [pr, pg] = await Promise.allSettled([loadPrecision(), loadProgram(), S.key ? loadPositions() : null, S.key ? scanPrivate() : null,
-    S.address ? ((who) => ethCall(WTAC, SEL.balanceOf + addrWord(who)).then((r) => { FARM.wtac = { who, v: wordAt(r, 0) }; }))(S.address) : null]);
+    S.address ? ((who) => ethCall(WTAC, SEL.balanceOf + addrWord(who)).then((r) => { FARM.wtac = { who, v: wordAt(r, 0) }; }))(S.address) : null,
+    loadTacPrice()]);                                                // the market's prices, for what a private pool's own price is set against
   if (!current()) return;
   // What the farm has paid this account is a log search over its whole life, read only for the open sheet that shows it.
   if (S.address && $('#sheet-farm')?.open) loadPaid(S.address, force && !o.private).then(() => { if (current()) rerender('farm'); }).catch(() => {});      // a private action leaves the public farm's log search alone
@@ -8885,6 +8886,17 @@ const lpWorth = (p, shares) => {
   if (!total || n == null || String(r.assetA).toLowerCase() !== CETH_ID) return null;
   return `${fmt(n * BigInt(r.reserveA) / total, 8, 5)} tETH + ${fmt(n * BigInt(r.reserveB) / total, 8, /BTC/.test(other) ? 6 : 2)} ${shownAs(other)}`;
 };
+// A private pool's price against the market's, where the market prices what it pairs with tETH: TAC by the Precision pool, cUSD at a dollar, cBTC by
+// the engine's price of a bitcoin. `pool` and `market` are ETH per one of the other asset; null while either is unread.
+function poolVsMarket(p) {
+  const r = p?.reserves || {}, a = Number(r.reserveA), b = Number(r.reserveB), v = TPX.v;
+  if (!(a > 0 && b > 0) || !v || String(r.assetA).toLowerCase() !== CETH_ID) return null;
+  const other = String(p.pair).split('/').find((k) => k !== 'cETH'), ethUsd = v.usdBtc && v.ethBtc ? v.usdBtc / v.ethBtc : null;
+  const market = other === 'TAC' ? v.mid : other === 'cUSD' ? (ethUsd ? 1 / ethUsd : null) : other === 'cBTC' ? v.ethBtc : null;
+  if (!(market > 0)) return null;
+  return { unit: shownAs(other), pool: a / b, market, ratio: a / b / market };
+}
+const priceFmt = (v) => (v >= 100 ? Math.round(v).toLocaleString('en-US') : sig(v, 4));
 const aprShort = (a) => (a == null ? '' : a >= 10000 ? '10,000%+ APR' : `${Math.round(a).toLocaleString('en-US')}% APR`);
 const aprLong = (a) => (a >= 100000 ? 'over 100,000%' : `about ${Math.round(a).toLocaleString('en-US')}%`);
 const aprRow = (a) => (a == null ? '' : html`<div class="kv"><span>APR now</span><b>${aprLong(a)}</b></div>
@@ -9211,6 +9223,7 @@ function renderPrecision(el) {
   }
   if (x.who !== S.address) { mount(el, reading); loadFarms().then(() => rerender('farm')).catch(() => {}); return; }
   if (!FARM.mode) FARM.mode = x.tac >= 10n ** 18n ? 'pair' : 'eth';
+  if (hxLive('farm')?.tac) FARM.mode = 'tac';                         // TAC handed over from the card opens the TAC tab
   const has = x.staked > 0n, mode = FARM.mode, withEth = mode !== 'tac', withTac = mode !== 'eth';
   const myDay = has && x.totalStaked ? x.perDay * x.staked / x.totalStaked : 0n;
   const ethOf = (tac, p = x) => ethOfTac(tac, p);
@@ -9388,7 +9401,7 @@ function renderPrecision(el) {
   });
   $('#pf-tmax')?.addEventListener('click', () => (mode === 'pair' ? (x.tac > 0n && (spendable > 0n ? pairMax() : noRoom())) : fill(tacIn, cutTo(x.tac, TAC_DP))));
   if (FARM.fill === 'tac' && tacIn) { FARM.fill = null; $('#pf-tmax').click(); }
-  takeDraft('farm', ethIn);
+  takeDraft('farm', mode === 'tac' ? tacIn : ethIn, (d) => !!d.tac === (mode === 'tac'));      // the card's TAC goes in the TAC field, its ETH in the ETH field
   if (FARM.reinvest && tacIn) {
     const v = FARM.reinvest; FARM.reinvest = null;
     fill(tacIn, cutTo(v < x.tac ? v : x.tac, TAC_DP));
@@ -9508,9 +9521,12 @@ function renderShielded(el, p) {
   if (!p) return;
   const r = p.reserves || {};
   const mine = (FARM.positions || []).filter((x) => Number(x.pid) === Number(p.pid));
-  // The farm's facts lead the card until the key has a position here; then the position leads and they close it.
+  // The farm's facts lead the card until the key has a position here; then the position leads and they close it. A pool whose price is
+  // 5% or more from the market's says so: a deposit of one side buys the other at the pool's price.
+  const pm = poolVsMarket(p), off = pm && Math.abs(pm.ratio - 1) >= 0.05;
   const facts = html`
     <div class="kv"><span>In the pool</span><b>${lpWorth(p, r.lpTotalShares) || ''}${lpWorth(p, r.lpTotalShares) ? ' · ' : ''}${pctFmt(Number(p.totalShares) * 100 / Math.max(1, Number(r.lpTotalShares || 1)))} bonded</b></div>
+    ${off ? html`<div class="kv"><span>Price in the pool</span><b>1 ETH = ${priceFmt(1 / pm.pool)} ${pm.unit} · market ${priceFmt(1 / pm.market)}</b></div>` : ''}
     <div class="kv"><span>${FARM.program.epoch?.active ? 'Stream ends' : 'Stream'}</span><b>${FARM.program.epoch?.active ? dayFmt(FARM.program.epoch.periodFinish) : 'between reward periods'}</b></div>
     ${FARM.program.epoch?.active ? aprRow(shieldedApr(p)) : ''}`;
   mount(el, html`
@@ -9768,20 +9784,32 @@ function farmJoin(el, p, status, has) {
     if (!z || z.y <= fr || z.add <= 0n) { warn(rc, `Add more than ${fmt((fr + fee) * 4n, 8, dp[kS])} ${unit[kS]}: the relay’s fees for the swap and the note cuts come out of it.`); return; }
     const a = inA ? z.add : z.out, b = inA ? z.out : z.add, rA2 = inA ? z.rIn2 : z.rOut2, rB2 = inA ? z.rOut2 : z.rIn2;
     const shares = t.pool.lpAddShares(res.totalShares, a, b, rA2, rB2);
-    q = { kind: 'one', x: z.x, fr, out: z.out, minOut: z.out * 99n / 100n, path: [{ assetNext: P.scan[kO].id, feeBps }], impact: z.impact, over: false, gasShort: eth != null && eth < j.gas, at: Date.now() };
+    // Against the market: the swap gives something worth `gave` ETH at the market's price and returns something worth `got`; what falls short, as a
+    // share of the deposit, is what the pool's price costs beyond its price impact (nothing where the pool's price is the better one).
+    const pm = poolVsMarket({ pair: p.pair, reserves: { assetA: res.assetA, reserveA: res.reserveA, reserveB: res.reserveB } });      // the pool as read for this quote
+    let mkt = 0;
+    if (pm && z.y > 0n) {
+      const y = Number(z.y) / 1e8, o = Number(z.out) / 1e8, whole = Number(Zin) / 1e8;
+      const gave = inA ? y : y * pm.market, got = inA ? o * pm.market : o, dep = inA ? whole : whole * pm.market;
+      mkt = dep > 0 ? Math.max(0, (gave - got) / dep * 100) : 0;
+    }
+    const worst = Math.max(z.impact, mkt);
+    q = { kind: 'one', x: z.x, fr, out: z.out, minOut: z.out * 99n / 100n, path: [{ assetNext: P.scan[kO].id, feeBps }], impact: worst, over: false, gasShort: eth != null && eth < j.gas, at: Date.now() };
     mount(rc, html`
       <div class="kv"><span>Swaps</span><b>${fmt(z.x, 8, dp[kS])} ${unit[kS]} for about ${fmt(z.out, 8, dp[kO])} ${unit[kO]}</b></div>
       <div class="kv"><span>Then adds</span><b>${fmt(a, 8, 6)} tETH + ${fmt(b, 8, dpB)} ${other}</b></div>
       ${lossLine(z.impact)}
+      ${mkt >= 1 ? html`<div class="kv"><span>Against the market</span><b class="${mkt >= 5 ? 'err' : ''}">${pctFmt(mkt)} of this deposit</b></div>` : ''}
       ${yieldRows(shares, a)}
       <div class="kv"><span>Relay fee for the swap</span><b>${fmt(fr, 8, dp[kS])} ${unit[kS]}</b></div>
       ${s1 + s2 ? html`<div class="kv"><span>Relay fee to split your notes</span><b>${fmt(s1 + s2, 8, dp[kS])} ${unit[kS]}</b></div>` : ''}
       ${reuse ? html`<p class="note">Uses the two notes already made for this: nothing is split again.</p>` : ''}
       ${gasRow(j)}`);
-    mount(ackBox, lossGate(`sj-ackv-${pid}`, z.impact, 'deposit'));
-    wireAck(ackBox, `sj-ackv-${pid}`, z.impact, gateOk);
+    mount(ackBox, lossGate(`sj-ackv-${pid}`, worst, 'deposit'));
+    wireAck(ackBox, `sj-ackv-${pid}`, worst, gateOk);
     if (q.gasShort) warn(rc, lowEth());
     else if (fr * 20n >= z.x) warn(rc, `The relay fee is ${pctFmt(Number((fr * 1000n) / z.x) / 10)} of the swap: a larger deposit spreads it.`);
+    else if (mkt >= 5) warn(rc, html`This pool’s price for ${pm.unit} is ${pctFmt(Math.abs(pm.ratio - 1) * 100)} ${pm.ratio > 1 ? 'above' : 'below'} the market’s, and the swap is made at it${spendable(kO) > 0n ? html`. <button class="link" type="button" data-join-one="pair">Adding ${unit[kO]} too</button> needs no swap` : ''}.`);
     else if (z.impact >= 5) warn(rc, html`The swap inside the pool costs a lot at this size. A smaller deposit costs less${spendable(kO) > 0n ? html`, and so does <button class="link" type="button" data-join-one="pair">adding ${unit[kO]} too</button>` : ''}.`);
     rc.querySelector('[data-join-one]')?.addEventListener('click', () => { if (running('farm')) return; FARM.jm[pid] = 'pair'; keep($('#sheet-farm'), render.farm); });
     gateOk();
@@ -9797,7 +9825,7 @@ function farmJoin(el, p, status, has) {
     } catch (e2) { if (my === seq) quoteErr(rc, e2); }
   };
   onEdit([aIn, bIn].filter(Boolean), go, requote);
-  takeDraft('join', aIn, (d) => d.pid === pid && mode === 'a');
+  takeDraft('join', mode === 'b' ? bIn : aIn, (d) => d.pid === pid && mode === (d.side || 'a'));        // tETH from the card goes in the tETH field, private TAC in the paired side's
   // Max. One side: the whole balance, the fees coming out of it. Both: the fullest add both balances cover, unless an add
   // that spends a note whole (so that side needs no cut) is worth more after the cuts' fees.
   $(`#sj-max-${pid}`).onclick = async () => {
@@ -11358,8 +11386,11 @@ const HX_SATS = ['sats', 'sats', 'btc', 0];
 // What can cross out to Bitcoin from the card, by what is switched on: ETH (made tETH first) and tETH, and TAC. None, and the tab only brings TAC in.
 const HX_TETH = ['eth', 'tETH', 'teth'], HX_TACOUT = ['tac', 'TAC', 'tac'];
 const hxOut = () => [...(xoOn(XA.teth) ? [HX_ETHER, HX_TETH] : []), ...(xoOn(XA.tac) ? [HX_TACOUT] : [])];
-const HX_COLOR = { ether: '#627eea', eth: '#627eea', tac: '#f7931a', cusd: '#16a34a', cbtc: '#f7931a', btc: '#f7931a', sats: '#f7931a' };
-const hxAsset = (k) => (k === 'ether' ? HX_ETHER : k === 'sats' ? HX_SATS : swapAsset(k));
+const HX_COLOR = { ether: '#627eea', eth: '#627eea', tac: '#f7931a', wtac: '#f7931a', cusd: '#16a34a', cbtc: '#f7931a', btc: '#f7931a', sats: '#f7931a' };
+// Earn's sources: what a wallet holds (ETH, and TAC, which the Precision pool farms alone) and what a key holds privately (tETH, and TAC, which the TAC pool farms alone).
+const HX_WTAC = ['wtac', 'TAC', 'tac', 2];
+const HX_EARN = [['In your wallet', [HX_ETHER, HX_WTAC]], ['Private', [HX_TETH, HX_TACOUT]]];
+const hxAsset = (k) => (k === 'ether' ? HX_ETHER : k === 'wtac' ? HX_WTAC : k === 'sats' ? HX_SATS : swapAsset(k));
 // Which pairs the Swap tab offers: pool assets for one another, ETH for any of them, and TAC for ETH (public pools, to the wallet) and
 // for sats (the Bitcoin order book), each way. Sats and wallet ETH are never paired with anything but TAC, nor wallet ETH out of ETH.
 const hxValid = (a, b) => (a === b ? false : a === 'sats' ? b === 'tac' : b === 'sats' ? a === 'tac' : b === 'ether' ? a === 'tac' : true);
@@ -11415,18 +11446,20 @@ async function hxPoolSwap(from, to, units) {
   const fee = await swapFee(t, from, to).catch(() => 0n);
   return { fee, plan: units > fee * 2n ? await swapPlan(t, from, to, units, fee, id) : null };
 }
-// What each farm pays a deposit of `eth` ETH a day now, in TAC, beside its APR: the Precision pool from ETH alone, the
-// private pools from tETH alone.
-async function hxFarms(eth) {
+// What each farm pays a deposit a day now, in TAC, beside its APR, by the source on show: the Precision pool from a wallet's ETH or TAC alone, the
+// private pools from tETH alone, and the TAC pool from private TAC alone. `amt` is the amount typed, in that source's own unit.
+async function hxFarms(amt) {
   await Promise.all([FARM.precision || loadPrecision(), HX.program ||= loadProgram().catch(() => FARM.program)]);
-  const out = [], x = FARM.precision;
-  if (HX.from === 'ether' && x?.supply) {
+  const out = [], x = FARM.precision, src = HX.from, tacSrc = src === 'wtac' || src === 'tac';
+  const eth = tacSrc ? amt * (x?.tacEth || 0) : amt;                                  // what the deposit is worth in ETH
+  if ((src === 'ether' || src === 'wtac') && x?.supply) {
     const staked = x.value / 1e18 * Number(x.totalStaked) / Number(x.supply);
     out.push({ k: 'precision', name: 'Precision pool', note: 'public', apr: precisionApr(x), day: eth ? Number(x.perDay) / 1e18 * eth / (staked + eth) : 0 });
   }
   for (const p of FARM.program?.pools || []) {
     const r = p.reserves || {};
     if (p.idle || String(r.assetA).toLowerCase() !== CETH_ID || !Number(r.lpTotalShares)) continue;
+    if (src === 'wtac' || (src === 'tac' && !String(p.pair).split('/').includes('TAC'))) continue;      // a wallet's TAC farms in the public pool; private TAC in the pool that pairs it
     const staked = 2 * Number(r.reserveA) / 1e8 * Number(p.totalShares) / Number(r.lpTotalShares);
     out.push({ k: String(p.pid), name: pairName(p.pair), note: 'private', apr: shieldedApr(p), day: eth ? Number(p.tacPerDayForPool) * eth / (staked + eth) : 0 });
   }
@@ -11526,7 +11559,7 @@ function hxAmtKind() {
   if (t === 'borrow') return 'btc';
   if (t === 'send') return HX.send === 'eth' ? 'eth' : null;                         // only tETH is typed here; TAC and BTC go from Pay
   const f = HX.from;
-  return f === 'ether' || f === 'eth' ? 'eth' : f;
+  return f === 'ether' || f === 'eth' ? 'eth' : f === 'wtac' ? 'tac' : f;
 }
 function hxUsd(kind, n) {
   const v = TPX.v;
@@ -11797,7 +11830,7 @@ function hxPreset(spec, amt, inCard = false) {
     if (tab === 'shield') { HX.tab = 'private'; HX.sf = a; HX.sd = b; }
     else if (tab === 'swap') { HX.tab = 'swap'; HX.swp = { from: a, to: b }; }
     else if (tab === 'send') { HX.tab = 'send'; HX.send = a; }
-    else if (tab === 'earn') { HX.tab = 'earn'; HX.ern = a === 'eth' ? 'eth' : 'ether'; if (b === 'public') HX.pool = 'precision'; else if (/^p\d{1,3}$/.test(b)) HX.pool = b.slice(1); }   // p<id>: that private farm (the swap page's links)
+    else if (tab === 'earn') { HX.tab = 'earn'; HX.ern = ['eth', 'tac', 'wtac'].includes(a) ? a : 'ether'; if (b === 'public') HX.pool = 'precision'; else if (/^p\d{1,3}$/.test(b)) HX.pool = b.slice(1); }   // p<id>: that private farm (the swap page's links)
     else { HX.tab = 'borrow'; HX.bm = a === 'cbtc' ? 'cbtc' : 'cusd'; }
   });
   if (amt != null) HX.amt = amt;
@@ -11892,10 +11925,11 @@ async function hxQuote() {
       const pick = rows.find((r) => r.k === HX.pool) || rows[0], two = pick.k !== 'precision' && hxTwo(units);
       HX.pool = pick.k;
       for (const r of rows) { r.show = r.apr == null ? '—' : `${r.apr >= 10 ? Math.round(r.apr).toLocaleString('en-US') + '%' : pctFmt(r.apr)} APR`; if (r.k !== 'precision' && hxTwo(units)) r.note = 'private · 2 steps'; }
+      const tacSrc = HX.from === 'wtac' || HX.from === 'tac';
       return done({ out: units ? sig(pick.day) : null, rows, pick: pick.k, unit: 'TAC a day', pk: two ? 'wrap' : null,
-        go: pick.k === 'precision' ? 'Farm with ETH' : two ? 'Make ETH private' : 'Farm privately',
-        line: pick.k === 'precision' ? 'From ETH alone: about half is swapped to TAC in the pool, then both farm. Claim TAC any time.'
-          : `${two ? 'Two steps: make the ETH private, then farm it. ' : ''}From tETH alone: about half is swapped inside the pool. Nobody sees whose deposit it is.` });
+        go: pick.k === 'precision' ? (tacSrc ? 'Farm with TAC' : 'Farm with ETH') : two ? 'Make ETH private' : 'Farm privately',
+        line: pick.k === 'precision' ? `From ${tacSrc ? 'TAC' : 'ETH'} alone: about half is swapped to ${tacSrc ? 'ETH' : 'TAC'} in the pool, then both farm. Claim TAC any time.`
+          : `${two ? 'Two steps: make the ETH private, then farm it. ' : ''}From ${tacSrc ? 'TAC' : 'tETH'} alone: about half is swapped inside the pool. Nobody sees whose deposit it is.` });
     }
     if (m === 'btc' && HX.from === 'tac') {
       // TAC out: a private TAC note is burned and the same TAC less the relay fee (a floor in TAC, not gas-priced) arrives on Bitcoin.
@@ -12072,7 +12106,7 @@ const hxWalletTac = () => hxWalletRead('tac', 1, (who) => ethCall(ADDR.tac, SEL.
 const hxPubTac = () => HX.tab === 'swap' && HX.from === 'tac' && HX.to === 'ether' && HX.q?.pick === 'public';
 function hxHeldOf(k) {
   if (k === 'ether') { const v = hxWalletEth(); return v == null ? null : [v, 18, 'ETH']; }
-  if (k === 'tac' && hxPubTac()) { const v = hxWalletTac(); return v == null ? null : [v, 18, 'TAC']; }
+  if ((k === 'tac' && hxPubTac()) || k === 'wtac') { const v = hxWalletTac(); return v == null ? null : [v, 18, 'TAC']; }
   if (!S.key) return null;
   if (k === 'pp') { const v = big(store.get(`tacit-lite-device-bal-v1:${hxChain().chainId}:${S.key.pubHex}`)?.v); return v == null ? null : [v, 18, 'ETH']; }
   if (k === 'btc' && HX.tab === 'borrow') { const st = LOCK.state; return st?.sats != null ? [st.sats - st.pendingSats, 8, 'BTC'] : BTC.pub === S.key.pubHex && BTC.got === 3 ? [BTC.sats, 8, 'BTC'] : null; }
@@ -12112,7 +12146,7 @@ function hxBalPaint() {
 function hxSubOf(id, k) {
   if (id === 'hx-from' && HX.tab === 'private') return k === 'pp' ? `private, for payments on ${hxChain().name}` : HX_SH[k]?.place || '';
   if (id === 'hx-sa') return { eth: 'private on Ethereum', tac: 'private on Bitcoin, sent from Pay', btc: 'at your Bitcoin address, sent from Pay' }[k] || '';
-  return k === 'ether' ? 'in your wallet' : k === 'sats' ? 'in your Bitcoin wallet' : id === 'hx-to' && HX.from === 'sats' ? 'at your Bitcoin address' : 'private on Ethereum';
+  return k === 'ether' || k === 'wtac' ? 'in your wallet' : k === 'sats' ? 'in your Bitcoin wallet' : id === 'hx-to' && HX.from === 'sats' ? 'at your Bitcoin address' : 'private on Ethereum';
 }
 // The card's picker: a sheet that rises inside the card over a dim of it, one row per choice with its coin; the dim, the ×, Escape or a press
 // elsewhere close it. While it is open it keeps the keyboard: Tab cycles inside it, the arrow keys, Home and End move among its rows.
@@ -12248,10 +12282,11 @@ function hxGo() {
     swap(); return openLink('private/swap');
   }
   if (m === 'earn') {
-    if (HX.pool === 'precision' && HX.from === 'ether') { hxDraft({ mode: 'farm', amt }); return openLink('farm/public'); }
+    // A wallet's TAC goes to the public form's TAC tab; private TAC to the TAC pool's own side of the private form.
+    if (HX.pool === 'precision' && (HX.from === 'ether' || HX.from === 'wtac')) { hxDraft({ mode: 'farm', amt, tac: HX.from === 'wtac' }); return openLink('farm/public'); }
     const pid = Number(HX.pool), p = FARM.program?.pools?.find((x) => x.pid === pid);
     if (!Number.isInteger(pid)) return openLink('farm');                          // tETH, with the private farms not read yet: their list
-    const join = () => { (FARM.jm ||= {})[pid] = 'a'; hxDraft({ mode: 'join', pid, amt }); };
+    const side = HX.from === 'tac' ? 'b' : 'a', join = () => { (FARM.jm ||= {})[pid] = side; hxDraft({ mode: 'join', pid, amt, side }); };
     if (hxTwo(units)) return wrapFirst(`farm/private-${pid}`, `farm it in ${p ? pairName(p.pair) : 'the pool'}`, join);
     join(); return openLink(`farm/private-${pid}`);
   }
@@ -12292,7 +12327,7 @@ function paintHx() {
   const where = hxWhere;
   // Where an asset of the Swap and Earn lists sits: ETH in the wallet, sats in the Bitcoin wallet, TAC bought with sats at the Bitcoin
   // address (Bitcoin's order book pays it there), the rest private on Ethereum.
-  const whereOf = (k, paid) => (k === 'ether' ? where('your wallet', false) : k === 'sats' ? where('your Bitcoin wallet', false, 'btc')
+  const whereOf = (k, paid) => (k === 'ether' ? where('your wallet', false) : k === 'wtac' ? where('your wallet', false, 'tac') : k === 'sats' ? where('your Bitcoin wallet', false, 'btc')
     : paid === 'sats' ? where('your Bitcoin address', false, 'btc') : where('private on Ethereum', true));
   const field = (lbl, w, main, side = '', sub = '') => html`<div class="hx-f"><div class="hx-fh"><span class="hx-lbl">${lbl}</span>${w}</div><div class="hx-fm">${main}${side}</div>${sub}</div>`;
   const subline = html`<div class="hx-ff"><span class="hx-sub" id="hx-sub"></span><span class="hx-bal" id="hx-bal"></span></div>`;
@@ -12340,7 +12375,7 @@ function paintHx() {
       ${mid(hxValid(HX.to, HX.from) && `Pay with ${hxAsset(HX.to)[1]} instead`)}
       ${field('You get', html`<span id="hx-to-w">${whereOf(HX.to, HX.from)}</span>`, out(), coin('hx-to', 'You get', tos, HX.to))}${tail}`;
   } else if (m === 'earn') {
-    body = html`${field('You put in', whereOf(HX.from), amt(`${hxAsset(HX.from)[1]} to farm`), coin('hx-from', 'You put in', [HX_ETHER, ['eth', 'tETH', 'teth', 6]], HX.from), subline)}
+    body = html`${field('You put in', whereOf(HX.from), amt(`${hxAsset(HX.from)[1]} to farm`), coin('hx-from', 'You put in', HX_EARN, HX.from, true), subline)}
       ${mid()}${field('You earn', '', out('a day'), coin('hx-to', 'You earn', [['tac', 'TAC', 'tac']], 'tac'))}${tail}
       <a class="hx-more" href="#farm" data-link="farm">Have both sides? Join with both →</a>`;
   } else if (m === 'borrow' && (HX.bwKey = S.key?.pubHex || '', HX.bwFace = (S.key && hxBwLoad(), hxBwMode())) === 'track') {

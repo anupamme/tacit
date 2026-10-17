@@ -22,6 +22,8 @@
 //   farmcoming a private farm opened while a wrap is settling says the tETH is on its way instead of asking for it again
 //   farmzap  one side alone farms: Max takes the whole balance, the quote says what is swapped and what both sides add, and the
 //            press cuts the swap note, swaps it in the farm's pool, cuts what pairs with the return and bonds both
+//   farmmarket a private pool priced far from the market says so on its card; tETH alone shows its cost against the market and waits for it to be accepted
+//   hxearntac the card's Earn tab takes a wallet's TAC (the public pool, the form's TAC tab) and private TAC (the pool that pairs it), each with its amount
 //   farmqueue a cut still in the relay's queue when the wait runs out says so, says how to carry on, and offers the paying account
 //   hxtip    the card's wrap tip is the relay's for the amount typed (3% of a small one, capped), not one figure read for 0.1 ETH
 //   farmheld  a harvest still in the relay's queue when the wait runs out offers the paying account too
@@ -4913,7 +4915,7 @@ const heldStub = () => `
       if (a.selfSettle) throw new Error('proved a second time');
       return ux.relay.settle({ type: 'farmharvest', op: { stub: 'held' }, memos: [] }, a.waitOpts);
     };`;
-const stubFarmUx = (page, { notes = [], positions = null, chain = false, swap = false, refuse = false, held = false, fees = null }) => page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
+const stubFarmUx = (page, { notes = [], positions = null, chain = false, swap = false, refuse = false, held = false, fees = null, reserves = null }) => page.route(/\/confidential-pool-ux\.js\?cb=/, (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: `
   import * as real from '/confidential-pool-ux.js?stub=real';
   export * from '/confidential-pool-ux.js?stub=real';
   export function makeConfidentialPoolUx(o) {
@@ -4933,6 +4935,7 @@ const stubFarmUx = (page, { notes = [], positions = null, chain = false, swap = 
       return b;
     };
     ${fees ? `ux.quoteOpFee = async (tk, k) => BigInt(${JSON.stringify(fees)}[k] ?? 0);` : ''}       // fixed relay fees, so notes can be made to a plan
+    ${reserves ? `const rv = ux.poolReserves, OV = ${JSON.stringify(reserves)}; ux.poolReserves = async (id) => { const r = await rv(id), o = OV[String(id).toLowerCase()]; return o && r ? { ...r, reserveA: BigInt(o.reserveA), reserveB: BigInt(o.reserveB) } : r; };` : ''}       // a pool whose price is set here
     ${swap ? swapStub() : ''}
     ${positions ? `const positions = ${JSON.stringify(positions)}; ux.farmPositions = async () => positions.map((p) => ({ ...p }));
     ${chain ? chainStub() : `ux.farmHarvest = async ({ position }) => { window.__farmCalls.push('harvest:' + position.receiptLeaf); return {}; };
@@ -5201,6 +5204,79 @@ await step('farmzap', async () => {
   } finally { await r.browser.close(); }
 });
 
+// A private pool whose price is far from the market's says so on its card (what 1 ETH buys there, and what it buys at the market), and a deposit of
+// tETH alone, which buys the other asset at that price, shows what that costs against the market and waits for it to be accepted.
+await step('farmmarket', async () => {
+  const CUSD_POOL = '0x5925c0c2954c5b11bedd20e444f0cb22f3827f6197814f97d193e7a44e909da7';
+  const r = await openFarmKey('b4d1'.padEnd(64, '6'), { notes: [[FARM_CETH, 2000000n]], positions: [], swap: true, fees: { transfer: 10000, route: 10000 }, reserves: { [CUSD_POOL]: { reserveA: '10000000000', reserveB: '10000000000000' } } }, undefined, async (pg) => {
+    await pg.route(/api\.tacit\.finance\/farm\/program/, async (route) => {
+      const res = await route.fetch(), j = await res.json(), p1 = j.pools.find((x) => Number(x.pid) === 1);
+      if (p1) { p1.reserves.reserveA = '10000000000'; p1.reserves.reserveB = '10000000000000'; }       // 100 tETH against 100,000 cUSD: 1 ETH = 1,000 cUSD
+      await route.fulfill({ response: res, json: j });
+    });
+  });
+  const p = r.page;
+  try {
+    await go(p, '#farm');
+    await p.waitForSelector('[data-farm="pid1"] > button', { timeout: 120000 });
+    if (!(await p.$('.farm.open[data-farm="pid1"]'))) await p.click('[data-farm="pid1"] > button');
+    await until(p, () => /Price in the pool/.test(document.querySelector('#farm-pid1')?.textContent || ''), null, 120000);
+    const facts = (await text(p, '#farm-pid1')).replace(/\s+/g, ' ');
+    ok(/Price in the pool\s*1 ETH = 1,000 cUSD · market [\d,]+/.test(facts), `farmmarket: a pool far from the market says what 1 ETH buys there and at the market (${facts.slice(0, 200)})`);
+    await p.waitForSelector('#sj-max-1', { timeout: 300000 });
+    await p.click('#sj-max-1');
+    await until(p, () => /Swaps/.test(document.querySelector('#sj-rcpt-1')?.textContent || ''), null, 420000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#sj-rcpt-1')).replace(/\s+/g, ' ')}`); });
+    const rc = (await text(p, '#sj-rcpt-1')).replace(/\s+/g, ' ');
+    ok(/Against the market\s*\d+% of this deposit/.test(rc) && /above the market’s/.test(rc), `farmmarket: tETH alone shows what the swap costs against the market (${rc.slice(0, 240)})`);
+    ok(await p.isDisabled('#sj-go-1') && !!(await p.$('#sj-ackv-1')), 'farmmarket: and waits for that to be accepted');
+    if (await p.$eval('#sj-ackv-1', (x) => x.type === 'checkbox')) await p.check('#sj-ackv-1'); else await p.fill('#sj-ackv-1', await p.$eval('.ack b', (b) => b.textContent));
+    await until(p, () => !document.querySelector('#sj-go-1').disabled, null, 30000);
+    ok(true, 'farmmarket: accepted, the deposit can go ahead');
+    await shot(p, 'farmmarket');
+    if (r.errors.length) { fails++; console.log('FAIL farmmarket page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+// The card's Earn tab takes TAC too: a wallet's TAC goes to the public pool (the form's TAC tab, with the amount), private TAC to the pool that
+// pairs it (the private form's TAC side, with the amount). Each source lists only the farms it can join.
+await step('hxearntac', async () => {
+  const hex = 'e7a1'.padEnd(64, '6');
+  const acct = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address;
+  await fundTac(acct, 2000n * 10n ** 18n);
+  const r = await openFarmKey(hex, { notes: [[FARM_CTAC, 50000000000n]], positions: [], swap: true, fees: { transfer: 10000, route: 10000 } }, { width: 1280, height: 1100 });
+  const p = r.page, closeAll = () => p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+  const rows = () => p.$$eval('#hx-routes [data-hxr]', (a) => a.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
+  try {
+    await closeAll();
+    await p.click('[data-hxm="earn"]');
+    await p.click('[data-pk="hx-from"]'); await p.waitForSelector('.hx-pk-r');
+    ok((await p.$$eval('.hx-pk-g', (g) => g.map((x) => x.textContent.trim()).join('|'))) === 'In your wallet|Private' && (await p.$$eval('.hx-pk-r', (r) => r.length)) === 4, 'hxearntac: Earn offers ETH and TAC in the wallet, tETH and TAC private, in those two groups');
+    await p.waitForTimeout(700); await shot(p, 'hxearntac-picker'); await p.keyboard.press('Escape');
+    await p.selectOption('#hx-from', 'wtac');
+    await p.fill('#hx-amt', '1000');
+    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Farm with TAC' && /Precision pool/.test(document.querySelector('#hx-routes')?.textContent || ''), null, 240000);
+    const wallet = await rows();
+    ok(wallet.length === 1 && /Precision pool/.test(wallet[0]) && /%\s*APR/.test(wallet[0]), `hxearntac: a wallet's TAC lists the public pool alone, with its APR (${wallet.join(' | ')})`);
+    ok(/2,000/.test(await text(p, '#hx-bal')), `hxearntac: and the balance line is the wallet's TAC (${await text(p, '#hx-bal')})`);
+    await p.click('#hx-go');
+    await p.waitForSelector('#sheet-farm[open] #pf-tac', { timeout: 120000 }).catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#farm-precision')).replace(/\s+/g, ' ').slice(-300)} | ${JSON.stringify(await p.evaluate(() => ({ modes: [...document.querySelectorAll('[data-pfm]')].map((b) => b.dataset.pfm + ':' + b.getAttribute('aria-pressed') + b.className), ids: ['pf-amt', 'pf-tac', 'pf-go', 'pf-connect'].filter((i) => document.getElementById(i)) })))}`); });
+    await until(p, () => document.querySelector('#pf-tac')?.value === '1000', null, 60000);
+    ok(await p.$eval('[data-pfm="tac"]', (b) => b.getAttribute('aria-pressed') === 'true' || b.classList.contains('on') || b.getAttribute('aria-selected') === 'true'), 'hxearntac: its button opens the public form on TAC with the amount in it');
+    await closeAll();
+    await p.click('[data-hxm="earn"]');
+    await p.selectOption('#hx-from', 'tac');
+    await p.fill('#hx-amt', '100');
+    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Farm privately' && /tETH \/ TAC/.test(document.querySelector('#hx-routes')?.textContent || ''), null, 240000);
+    const priv = await rows();
+    ok(priv.length === 1 && /tETH \/ TAC/.test(priv[0]) && !/2 steps/.test(priv[0]), `hxearntac: private TAC lists the pool that pairs it alone, in one step (${priv.join(' | ')})`);
+    await p.click('#hx-go');
+    await p.waitForSelector('#sheet-farm[open] #sj-b-0', { timeout: 300000 });
+    await until(p, () => document.querySelector('#sj-b-0')?.value === '100', null, 60000);
+    ok(!(await p.$('#sj-a-0')), 'hxearntac: its button opens the TAC pool on the TAC side alone with the amount in it');
+    await shot(p, 'hxearn');
+    if (r.errors.length) { fails++; console.log('FAIL hxearntac page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
 // A step the relay has not done when the wait runs out is not a dead end: the line says it is in the relay's queue, how to carry on
 // when it is done, and offers to send it from the paying account (what a refused step offers). The cut then goes out with the settle
 // handed over, and pressing again carries the chain on to the bond.
