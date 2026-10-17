@@ -49904,7 +49904,11 @@ function setupCustomApiPanel() {
 // paying `addr` (forms `SWAP:BTC.BTC:<addr>:…`, `=:b:<addr>:…`, with an
 // optional `/<refund>` after the address) and it has not expired. Returns the
 // reason to refuse, or null.
+// The router on Ethereum that takes the ETH of a THORChain swap and passes it to the vault the quote names.
+const THORCHAIN_ETH_ROUTERS = ['0xd37bbe5744d730a1d98d8dc97c42f0ca46ad7146'];
 function thorchainQuoteProblem(q, addr, nowSec = Math.floor(Date.now() / 1000)) {
+  if (!THORCHAIN_ETH_ROUTERS.includes(String(q?.router || '').toLowerCase())) return 'The quote names a router this wallet does not know. Nothing was sent.';
+  if (!/^0x[0-9a-fA-F]{40}$/.test(String(q?.inbound_address || ''))) return 'The quote names no vault address. Nothing was sent.';
   const f = String(q?.memo || '').split(':');
   const fn = (f[0] || '').toLowerCase(), asset = (f[1] || '').toLowerCase();
   const dest = (f[2] || '').split('/')[0];
@@ -50143,7 +50147,13 @@ function setupTopupModal() {
       const accounts = await provider.request({ method: 'eth_requestAccounts' });
       if (!accounts?.length) throw new Error('no accounts');
       const from = accounts[0];
-      const router = q.router || q.inbound_address;
+      // The swap is made on Ethereum mainnet: a wallet on another network is asked to switch, and read again, before anything is sent.
+      const onMainnet = async () => String(await provider.request({ method: 'eth_chainId' })).toLowerCase() === '0x1';
+      if (!(await onMainnet())) {
+        try { await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x1' }] }); } catch { /* read again below */ }
+        if (!(await onMainnet())) throw new Error('Switch your wallet to Ethereum mainnet to make this swap. Nothing was sent.');
+      }
+      const router = q.router;
       const data = _encodeDepositWithExpiry(q.inbound_address, weiStr, q.memo, q.expiry);
       const txHash = await provider.request({
         method: 'eth_sendTransaction',
@@ -50152,6 +50162,7 @@ function setupTopupModal() {
           to: router,
           value: weiStr,
           data,
+          chainId: '0x1',
         }],
       });
       if (swapStatus) swapStatus.innerHTML =

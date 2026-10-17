@@ -60,7 +60,8 @@ console.log('\nthorchainQuoteProblem');
 {
   const addr = 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4';
   const now = 1_800_000_000, later = now + 600;
-  const q = (memo, expiry = later) => ({ memo, expiry });
+  const ROUTER = '0xD37BbE5744D730a1d98d8DC97c42F0Ca46aD7146', VAULT = '0x4d39d5c55cfeb48f44d680fcac20493635dafdee';
+  const q = (memo, expiry = later) => ({ memo, expiry, router: ROUTER, inbound_address: VAULT });
   ok('=:b:<addr> is used', T.thorchainQuoteProblem(q(`=:b:${addr}:0/1/0`), addr, now) === null);
   ok('SWAP:BTC.BTC:<addr> is used', T.thorchainQuoteProblem(q(`SWAP:BTC.BTC:${addr}:12345`), addr, now) === null);
   ok('a refund address after the destination is allowed', T.thorchainQuoteProblem(q(`=:b:${addr}/0xabc:0/1/0`), addr, now) === null);
@@ -68,7 +69,10 @@ console.log('\nthorchainQuoteProblem');
   ok('a swap to another asset is refused', /not a swap to Bitcoin/.test(T.thorchainQuoteProblem(q(`=:ETH.ETH:${addr}`), addr, now) || ''));
   ok('a memo that is not a swap is refused', /not a swap to Bitcoin/.test(T.thorchainQuoteProblem(q(`+:BTC.BTC:${addr}`), addr, now) || ''));
   ok('an expired quote is refused', /expired/.test(T.thorchainQuoteProblem(q(`=:b:${addr}`, now - 1), addr, now) || ''));
-  ok('a quote with no expiry is refused', /expired/.test(T.thorchainQuoteProblem({ memo: `=:b:${addr}` }, addr, now) || ''));
+  ok('a quote with no expiry is refused', /expired/.test(T.thorchainQuoteProblem({ memo: `=:b:${addr}`, router: ROUTER, inbound_address: VAULT }, addr, now) || ''));
+  ok('a router that is not THORChain\'s is refused', /router this wallet does not know/.test(T.thorchainQuoteProblem({ ...q(`=:b:${addr}`), router: '0x' + 'ab'.repeat(20) }, addr, now) || ''));
+  ok('a quote with no router is refused, not sent to the vault', /router this wallet does not know/.test(T.thorchainQuoteProblem({ memo: `=:b:${addr}`, expiry: later, inbound_address: VAULT }, addr, now) || ''));
+  ok('a quote whose vault is not an address is refused', /no vault address/.test(T.thorchainQuoteProblem({ ...q(`=:b:${addr}`), inbound_address: 'bc1qvault' }, addr, now) || ''));
   ok('every refusal says nothing was sent', /nothing was sent/i.test(T.thorchainQuoteProblem(q('=:b:x'), addr, now)));
 }
 
