@@ -650,7 +650,8 @@ export function makeBurnDepositUx(deps) {
       if (now_ && now_.stage === at.stage && !(WAITS.has(at.stage) && passing(e))) {
         // The day's allowance used up names when it lifts (`until`), so the page goes on by itself then; and a failure that was the
         // relay's or the day's is not one of the bridge's tries.
-        putRecord({ ...now_, lastError: { message: String((e && e.message) || e), at: now(), ...(dayRefusal(e) ? { until: nextUtcDay(now()) } : {}) }, errorCount: (now_.errorCount || 0) + (relayFault(e) ? 0 : 1) });
+        // `relay` marks a failure that was the relay's, which the page retries by itself and does not ask the holder to press for.
+        putRecord({ ...now_, lastError: { message: String((e && e.message) || e), at: now(), ...(dayRefusal(e) ? { until: nextUtcDay(now()) } : relayFault(e) ? { relay: true } : {}) }, errorCount: (now_.errorCount || 0) + (relayFault(e) ? 0 : 1) });
       }
       throw e;
     } finally { inFlight.delete(id); clearInterval(renew); releaseLease(id); }

@@ -1672,16 +1672,16 @@ function storageContainsPrivkey(storage, priv) {
   const fail = async (msg, code) => { await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV, selfSettle: async () => { throw Object.assign(new Error(msg), code ? { code } : {}); } }).catch(() => {}); return cur(); };
   let c;
   for (let i = 0; i < 5; i++) c = await fail('settle failed: prove failed: exec:bridgemint produced no proof (code=101): ENOENT: no such file or directory');
-  ok(c.stage === 'rfolded' && c.lastError && !c.lastError.until && c.errorCount === 0 && ux.relayFault(c.lastError),
+  ok(c.stage === 'rfolded' && c.lastError && c.lastError.relay === true && !c.lastError.until && c.errorCount === 0 && ux.relayFault(c.lastError),
     'five failures that were the relay’s own are recorded for the row to show, and none of them is one of the bridge’s tries');
   c = await fail('the free relayed settles for today are used up (12/12)', 'free_budget');
   const until = c.lastError.until, d = new Date(until);
-  ok(c.errorCount === 0 && until > Date.now() && until - Date.now() <= 24 * 3600e3 + 60e3 && d.getUTCHours() === 0 && d.getUTCMinutes() === 1,
+  ok(c.errorCount === 0 && !c.lastError.relay && until > Date.now() && until - Date.now() <= 24 * 3600e3 + 60e3 && d.getUTCHours() === 0 && d.getUTCMinutes() === 1,
     `a day’s allowance used up is no try either, and names the next midnight UTC as when it lifts (${d.toISOString()})`);
   c = await fail('this burn has used its free relayed settles for today (4/4): send it from your own account');
   ok(c.errorCount === 0 && c.lastError.until > Date.now(), 'a burn’s own allowance used up reads the same without its code');
   c = await fail('the settle reverted');
-  ok(c.errorCount === 1 && !c.lastError.until && !ux.relayFault(c.lastError), 'a failure that was the bridge’s still counts as a try');
+  ok(c.errorCount === 1 && !c.lastError.until && !c.lastError.relay && !ux.relayFault(c.lastError), 'a failure that was the bridge’s still counts as a try');
   c = await fail('the settle reverted');
   ok(c.errorCount === 2, 'and keeps counting');
   ok([['prove capacity for today is used up (150/150)', true], ['your share of relay-paid proofs for today is used up', true], ['Bitcoin’s proof on Ethereum moved on while this mint was waiting', true],

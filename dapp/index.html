@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-LvmiqiONpn8yp+5TVy0ACnLT7tW0bX5HYnziePvFoCU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-mnOVbqrHFbGzQoTqWZ8W7qwIc2iOF0Aq0WUKmr0fVcU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -2393,12 +2393,28 @@ function actSaid(it, prev) {
   // Balances are read again after an outcome no action here reports (a failure too: what it held is free again).
   if ((good || bad) && !mine && prev != null) afterActivity();
 }
-function notifyOS(it, good) {
+// A system notice, while this tab is in the background and the holder has turned notices on (Activity's switch, or the Bridge tab's).
+function osNote(title, body, tag, open) {
   if (!document.hidden || !store.get(NOTIFY_KEY) || typeof Notification !== 'function' || Notification.permission !== 'granted') return;
   try {
-    const n = new Notification(it.label, { body: good ? (it.kind === 'tx' || it.kind === 'btc' ? 'Confirmed.' : 'Done.') : `Did not go through: ${failText(it)}`, tag: it.id, icon: '/favicon.svg' });
-    n.onclick = () => { focus(); openAct(); n.close(); };
+    const n = new Notification(title, { body, tag, icon: '/favicon.svg' });
+    n.onclick = () => { focus(); open?.(); n.close(); };
   } catch {}
+}
+// Notices on or off. → '' when it is as asked, else the words for why it is not.
+async function setNotify(on) {
+  if (!on) { store.set(NOTIFY_KEY, null); return ''; }
+  let p = Notification.permission;
+  try { if (p === 'default') p = await Notification.requestPermission(); } catch { p = 'denied'; }
+  if (p !== 'granted') return 'This browser is blocking notifications from this site. Allow them in its site settings, then try again.';
+  try { new Notification('tacit weld', { body: 'Notifications are on. One arrives when something finishes while this tab is in the background.', tag: 'tacit-notify-on', icon: '/favicon.svg' }); }
+  catch { return 'This browser shows notifications only from installed apps.'; }
+  store.set(NOTIFY_KEY, true); return '';
+}
+// Whether to offer notices: the browser has them, has not blocked them, and they are not on already.
+const notifyOffer = () => typeof Notification === 'function' && Notification.permission !== 'denied' && !(store.get(NOTIFY_KEY) && Notification.permission === 'granted');
+function notifyOS(it, good) {
+  osNote(it.label, good ? (it.kind === 'tx' || it.kind === 'btc' ? 'Confirmed.' : 'Done.') : `Did not go through: ${failText(it)}`, it.id, openAct);
 }
 // An outcome no action here was waiting on changes balances: read them again, once, keeping what shows meanwhile.
 let afterT = 0;
@@ -3073,13 +3089,9 @@ function renderAct() {
   keep(el, () => mount(el, view));                                                // focus stays on the control it was on
   const nb = $('#act-notify', el), setNote = (t) => { const n = $('#act-note'); if (n) n.textContent = t; };   // the list may be drawn again while a permission prompt is open
   if (nb) nb.onchange = async () => {
-    if (!nb.checked) { store.set(NOTIFY_KEY, null); setNote(''); return; }
-    let p = Notification.permission;
-    try { if (p === 'default') p = await Notification.requestPermission(); } catch { p = 'denied'; }
-    if (p !== 'granted') { nb.checked = false; setNote('This browser is blocking notifications from this site. Allow them in its site settings, then try again.'); return; }
-    try { new Notification('tacit weld', { body: 'Notifications are on. One arrives when something finishes while this tab is in the background.', tag: 'tacit-notify-on', icon: '/favicon.svg' }); }
-    catch { nb.checked = false; setNote('This browser shows notifications only from installed apps.'); return; }
-    store.set(NOTIFY_KEY, true); setNote('');
+    const why = await setNotify(nb.checked);
+    if (why) nb.checked = false;
+    setNote(why);
   };
   const cl = $('#act-clear', el);
   if (cl) cl.onclick = () => {
@@ -6820,8 +6832,12 @@ const brMinerStuck = (rec) => (rec.stage === 'burn-signed' && !!rec.lastError &&
   || (rec.stage === 'burn-submitted' && Date.now() - Number(rec.submittedAt || rec.updatedAt || Date.now()) > BR_MINER_WAIT);
 // What a bridge waits on its holder for, as the press its row offers: a burn, a mint the relay did not take, a move back, a
 // recovery, or a signed transaction Bitcoin keeps refusing. Empty while it goes on by itself.
+// A mint the relay refused because the day's free settles are used up (burndep-ux.js notes when it lifts, `until`, the next midnight UTC):
+// the page mints it then (the row offers sending it from the holder's own wallet now). A mint the relay failed to prove (`relay`) is tried
+// again by the page every few minutes. Neither asks a press of the holder, so neither is "due".
+const brHeld = (rec) => (rec.stage === 'folded' || rec.stage === 'rfolded') && Number(rec.lastError?.until) > Date.now();
 const brDue = (rec) => (rec.stage === 'traced' ? (brPlanOf(rec)?.burn && !rec.lastError && !rec.feeWait ? '' : 'Burn it')
-  : (rec.stage === 'folded' || rec.stage === 'rfolded') && rec.lastError && !waitRanOut(rec.lastError) ? 'Mint now'
+  : (rec.stage === 'folded' || rec.stage === 'rfolded') && rec.lastError && !waitRanOut(rec.lastError) ? (brHeld(rec) || rec.lastError.relay ? '' : 'Mint now')
   : rec.stage === 'stopped' || brMinerStuck(rec) ? 'Move it back' : rec.stage === 'not-recorded' && brRecoverable(rec) ? 'Recover'
   : BR_SIGNED.includes(rec.stage) && rec.lastError && (rec.errorCount || 0) >= 3 ? 'Try again or cancel' : '');
 // Where a bridge is, in a few words (the dashboard's line).
@@ -6917,7 +6933,8 @@ function brProofText(rec) {
     : ` The proof is at Bitcoin block ${at(p)}; the burn is in block ${at(h)}, ${at(h - p)} block${h - p === 1 ? '' : 's'} on.`;
 }
 // A bridge ready to mint: what the mint is doing. One the relay has taken lands on its own, and is not sent again meanwhile.
-const brMinting = (rec) => (rec.lastError ? 'Recorded, and ready to mint.'
+const brMinting = (rec) => (rec.lastError ? `Recorded, and ready to mint.${brHeld(rec) ? ' Today’s free settles are used up, so this page mints it after midnight UTC while it is open with your wallet, or send it from your wallet now.'
+    : rec.lastError.relay ? ' Its proof is not ready yet: this page asks again every few minutes while it is open with your wallet.' : ''}`
   : rec.mintJob && Date.now() - Number(rec.mintJob.at || 0) < 20 * 60e3 ? `Recorded. Its mint is with the relay, which proves it and settles it on Ethereum, usually within minutes.`
   : `Recorded. Minting your private ${brTk(rec)}: this page does it while it is open with your wallet.`);
 // A move that has confirmed waits for Bitcoin's proof on Ethereum to reach its block before it is checked and burned.
@@ -7158,6 +7175,7 @@ function renderBridgeIn(el) {
     ${recs.length ? html`<div class="lbl"><span>On the way</span></div><ul class="acts brs">${recs.map(brRow)}</ul>` : ''}
     ${done.length ? html`<div class="lbl"><span>Arrived</span></div><ul class="acts brs">${done.map(brRow)}</ul>` : ''}
     ${recs.length || done.length ? html`<div class="status" role="status" id="br-rstatus"></div>` : ''}
+    ${recs.length && notifyOffer() ? html`<div class="actr-f"><button class="link" type="button" id="br-notify">Tell me when a bridge arrives or needs me</button>: a notice from this browser while this tab is in the background.</div>` : ''}
     <div class="lbl"><span>TAC on Bitcoin</span>${b?.notes ? html`<button type="button" id="br-re">refresh</button>` : ''}</div>
     ${!b?.notes ? (b?.err ? html`<p class="note err">${errText(b.err)} <button class="link" type="button" id="br-re">Try again</button></p>` : html`<p class="note">Reading your TAC on Bitcoin…</p>`)
       : !notes.length ? html`<p class="note">No TAC on this key’s Bitcoin address. <a href="#bitcoin/receive" data-link="bitcoin/receive">Receive TAC on Bitcoin</a>${xoShown(pub, XA.tac) ? ' TAC bridged from Ethereum is listed under To Bitcoin.' : ''}</p>`
@@ -7175,6 +7193,8 @@ function renderBridgeIn(el) {
     </details>`);
   for (const r of $$('#br-re', el)) r.onclick = () => busy(r, async () => { BR.err = null; BR.rv = null; await Promise.allSettled([loadBridge(true), loadBtc(true)]); rerender('tac'); });
   $$('[data-bract]', el).forEach((x) => x.onclick = () => busy(x, (run) => brAct(run, x.dataset.bract, x.dataset.brid)));
+  const nf = $('#br-notify', el);
+  if (nf) nf.onclick = () => busy(nf, async () => { const why = await setNotify(true); toast(why || 'Notices are on.', !!why); rerender('tac'); });
   const go = $('#br-go'), rc = $('#br-rcpt'), ackRow = $('#br-ackrow'), ack = $('#br-ack'), status = $('#br-status');
   let review = null, seq = 0;
   const gateOk = () => { go.disabled = !review || review.short || !ack.checked; };
@@ -7511,14 +7531,40 @@ async function brTick(first = false) {
         } else after = due ? await ux.advance(pub, rec.id, { walletPriv: walletPriv() })
           : ready || rec.stage === 'traced' ? await ux.verify(pub, rec.id) : await ux.advance(pub, rec.id);
         if (after?.stage !== rec.stage) moved = true;
-        if (after?.stage === 'minted') { toast(`${brAmt(after)} from Bitcoin is in your private ${brTk(after)}`); scanPrivate(true).catch(() => {}).then(() => rerender(brTk(after) === 'TAC' ? 'tac' : 'eth')); }
+        if (after?.stage === 'minted') {
+          const said = `${brAmt(after)} from Bitcoin is in your private ${brTk(after)}`;
+          toast(said); osNote('Bridge from Bitcoin', said, `${after.id}:minted`, () => openLink(brLinkOf(after)));
+          scanPrivate(true).catch(() => {}).then(() => rerender(brTk(after) === 'TAC' ? 'tac' : 'eth'));
+        }
         else if (after?.stage === 'traced' && rec.stage !== 'traced') toast(`${brAmt(after)} is moved and ready to burn: open Bridge to finish`);
       } catch { moved = true; }                                    // its row shows the error the record now carries
     }
+    brNews(pub, ux.list(pub));
   } catch {} finally { BR.auto = false; }
   if (moved) { BR.at = 0; rerender('tac'); rerender('eth'); dashSoon(); }
   // Making an arrived note public waits on a relayed exit for minutes, so it runs beside the tick, not inside it.
   if (brPublicPending(pub)) brPublishDue(pub).catch(() => {});
+}
+// A bridge that needs its holder, or waits on the day's allowance, is said once: a toast, and a system notice while this tab is in the
+// background and notices are on, as a bond's news is. The dashboard and the row go on saying it. A mint the page is still trying again
+// by itself is not news: only one it has stopped on (four tries of its own) or one held by the day.
+const BR_TOLD = 'tacit-lite-bridge-told-v1';
+const brLinkOf = (rec) => (brTk(rec) === 'TAC' ? 'bridge' : 'private/bitcoin');
+function brNews(pub, recs) {
+  const told = new Set(store.get(BR_TOLD)?.[pub] || []), day = new Date().toISOString().slice(0, 10), fresh = [];
+  for (const rec of recs) {
+    if (rec.stage !== 'folded' && rec.stage !== 'rfolded') continue;
+    const held = brHeld(rec), need = !held && brDue(rec) === 'Mint now' && (Number(rec.errorCount) || 0) >= 4;
+    if (!held && !need) continue;
+    const key = held ? `${rec.id}:held:${day}` : `${rec.id}:need`;
+    if (told.has(key)) continue;
+    fresh.push(key);
+    const said = held ? `Your bridge of ${brAmt(rec)} is ready to mint. Today’s free settles are used up: it goes on after midnight UTC, or send it from your wallet now.`
+      : `Your bridge of ${brAmt(rec)} to Ethereum is waiting for you: Mint now.`;
+    toast(said, false, 12000);
+    osNote('Bridge from Bitcoin', said, key, () => openLink(brLinkOf(rec)));
+  }
+  if (fresh.length) { const all = store.get(BR_TOLD) || {}; all[pub] = [...told, ...fresh].slice(-200); store.set(BR_TOLD, all); }
 }
 // An arrived bridge whose holder asked for public TAC: its note made public, one at a time.
 async function brPublishDue(pub) {
@@ -10936,11 +10982,14 @@ function paintDash() {
     else if (preps.length) due.push([preps.length === 1 ? `${prepAmt(preps[0])} is getting ready to bridge: it can go once Bitcoin’s proof on Ethereum reaches it, usually within a few hours.`
       : `${preps.length} notes are getting ready to bridge: they can go once Bitcoin’s proof on Ethereum reaches them, usually within a few hours.`, 'bridge', 'Follow']);
     // Bridges from Bitcoin under way (TAC and tETH): one waiting for its holder names the press; otherwise where it is.
-    const brs =brJournal(k, null).filter((r) => !BR_DONE.includes(r.stage) && r.stage !== 'recovered'), need = brs.filter(brDue);
+    const brs =brJournal(k, null).filter((r) => !BR_DONE.includes(r.stage) && r.stage !== 'recovered'), held = brs.filter(brHeld), need = brs.filter(brDue), going = brs.filter((r) => !brHeld(r));
     const brLink = (xs) => (xs.every((r) => brTk(r) === 'TAC') ? 'bridge' : 'private/bitcoin'), ofTk = (xs) => (new Set(xs.map(brTk)).size === 1 ? ` of ${brTk(xs[0])}` : '');
+    // Ready to mint while the day's free settles are used up: said with what happens next and what the holder can do, not as a press that would be refused.
+    if (held.length) due.push([held.length === 1 ? `Your bridge of ${brAmt(held[0])} is ready to mint. Today’s free settles are used up, so it goes on after midnight UTC while this page is open with your wallet, or send it from your wallet now.`
+      : `${held.length} bridges${ofTk(held)} are ready to mint. Today’s free settles are used up, so they go on after midnight UTC while this page is open with your wallet, or send them from your wallet now.`, brLink(held), 'Open']);
     if (need.length) due.push([need.length === 1 ? `Your bridge of ${brAmt(need[0])} to Ethereum is waiting for you: ${brDue(need[0])}.` : `${need.length} bridges${ofTk(need)} to Ethereum are waiting for you.`, brLink(need), 'Open']);
-    else if (brs.length) due.push([brs.length === 1 ? `${brAmt(brs[0])} is on its way from Bitcoin to Ethereum, ${brWhere(brs[0])}. It finishes while this page is open with your wallet.`
-      : `${brs.length} bridges${ofTk(brs)} are on their way from Bitcoin to Ethereum. They finish while this page is open with your wallet.`, brLink(brs), 'Follow']);
+    else if (going.length) due.push([going.length === 1 ? `${brAmt(going[0])} is on its way from Bitcoin to Ethereum, ${brWhere(going[0])}. It finishes while this page is open with your wallet.`
+      : `${going.length} bridges${ofTk(going)} are on their way from Bitcoin to Ethereum. They finish while this page is open with your wallet.`, brLink(going), 'Follow']);
     // Bridges to Bitcoin under way, each asset's own: the same two lines.
     for (const a of Object.values(XA)) {
       const xs = xoJournal(k, a), needx = xs.filter(xoDue), link = a.key === 'tac' ? 'bridge/out' : 'private/bitcoin';

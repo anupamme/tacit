@@ -2112,7 +2112,7 @@ await step('bridge', async () => {
     burn: { txid: id.replace(/^../, 'bb'), hex: '00', commitTxid: 'cc'.repeat(32), commitHex: '00', fundingUtxo: { txid: 'dd'.repeat(32), vout: 1 } },
     envelope: { destLeaf: '0x' + 'ee'.repeat(32) }, ...extra });
   const journal = [recOf('d1'.repeat(32), 'rburn-mined', { burnHeight: 970050, createdAt: Date.now() - 3e6 }),
-    recOf('d2'.repeat(32), 'rfolded', { createdAt: Date.now() - 2e6, lastError: { message: 'free relayed settles for today are used up', at: Date.now() }, errorCount: 1 }),
+    recOf('d2'.repeat(32), 'rfolded', { createdAt: Date.now() - 2e6, lastError: { message: 'free relayed settles for today are used up', at: Date.now(), until: Date.now() + 3 * 3600e3 }, errorCount: 0 }),
     recOf('d3'.repeat(32), 'not-recorded', { createdAt: Date.now() - 1e6 }),
     recOf('d4'.repeat(32), 'rburn-signed', { createdAt: Date.now() - 5e5, lastError: { message: 'bad-txns-inputs-missingorspent', at: Date.now() }, errorCount: 3 }),
     // One that arrived an hour ago: listed under Arrived, with its Ethereum transaction, until Done.
@@ -2124,7 +2124,14 @@ await step('bridge', async () => {
   await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
   // The dashboard names the bridges waiting for their holder, and opens the Bridge tab.
   await until(r.page, () => /bridges of TAC to Ethereum are waiting for you/.test(document.querySelector('#dash-due')?.textContent || ''), null, 60000);
-  ok(/3 bridges of TAC to Ethereum are waiting for you/.test(await text(r.page, '#dash-due')), `bridge: the dashboard says three bridges wait for their holder (${(await text(r.page, '#dash-due')).replace(/\s+/g, ' ').slice(0, 120)})`);
+  ok(/2 bridges of TAC to Ethereum are waiting for you/.test(await text(r.page, '#dash-due')), `bridge: the dashboard says two bridges wait for a press from their holder (${(await text(r.page, '#dash-due')).replace(/\s+/g, ' ').slice(0, 120)})`);
+  // The one the relay refused for the day's allowance is said apart, with what it does and what the holder can do, not as a press that would be refused again.
+  const dueText = (await text(r.page, '#dash-due')).replace(/\s+/g, ' ');
+  ok(/Your bridge of [\d,.]+ TAC is ready to mint\. Today’s free settles are used up, so it goes on after midnight UTC while this page is open with your wallet, or send it from your wallet now\./.test(dueText), `bridge: a mint held by the day's allowance is said with when it goes on and what the holder can do (${dueText.slice(0, 300)})`);
+  // It is announced once (a toast and, with notices on, a system notice), and remembered so the next look does not say it again.
+  await until(r.page, ([k]) => /:held:/.test(localStorage.getItem(k) || ''), ['tacit-lite-bridge-told-v1'], 60000);
+  const toldKeys = await r.page.evaluate(([k, p]) => (JSON.parse(localStorage.getItem(k) || '{}')[p] || []), ['tacit-lite-bridge-told-v1', pub]);
+  ok(toldKeys.length === 1 && toldKeys[0] === `${'d2'.repeat(32)}:0:held:${new Date().toISOString().slice(0, 10)}`, `bridge: the held mint is announced once and remembered (${JSON.stringify(toldKeys)})`);
   // The landing card's Bitcoin tab is a handoff: it says in one line what the one-step bridge costs and how long it takes, and its
   // button opens the Bridge tab.
   await r.page.click('[data-hxm="private"]'); await r.page.selectOption('#hx-from', 'btc');
@@ -2133,10 +2140,10 @@ await step('bridge', async () => {
   await shot(r.page, 'hx-bitcoin');
   ok(/Your TAC/.test(hxBtc) && /1,000 TAC a bridge/.test(hxBtc) && /No relay fee/.test(hxBtc) && /Bitcoin fee in sats/.test(hxBtc) && /few hours, sometimes up to a day/.test(hxBtc), `bridge: the landing card's TAC-from-Bitcoin way says what the one-step bridge costs, the most one bridge takes and how long it takes, as the Bridge tab does (${hxBtc.slice(0, 200)})`);
   // A signed-in key also sees what the Bridge tab lists, read when the tab opens: the stubbed notes (250, 1,500, 30 and 40 TAC), the
-  // three that can be picked (the Bridge tab checks each one's proof when it is picked), the one over the limit, and the bridges under way (four, three of them waiting for the holder).
+  // three that can be picked (the Bridge tab checks each one's proof when it is picked), the one over the limit, and the bridges under way (four, two of them waiting for a press from the holder).
   await until(r.page, () => /1,820 TAC on Bitcoin, in 4 notes/.test(document.querySelector('#hx-have')?.textContent || ''), null, 240000);
   const have = (await text(r.page, '#hx-have')).replace(/\s+/g, ' ');
-  ok(/3 notes to pick from \(320 TAC\)\. Each bridges whole, and is checked first/.test(have) && /1 note over 1,000 TAC: split it in the Bridge tab first/.test(have) && !/not ready yet/.test(have) && /4 bridges on their way: 3 need you/.test(have),
+  ok(/3 notes to pick from \(320 TAC\)\. Each bridges whole, and is checked first/.test(have) && /1 note over 1,000 TAC: split it in the Bridge tab first/.test(have) && !/not ready yet/.test(have) && /4 bridges on their way: 2 need you/.test(have),
     `bridge: the card's Bitcoin tab says what the key holds on Bitcoin and what is under way (${have.slice(0, 260)})`);
   await shot(r.page, 'hx-bitcoin-have');
   await r.page.click('#hx-go');
@@ -2180,7 +2187,7 @@ await step('bridge', async () => {
   ok(/Recorded/.test(rows[0] || '') && /proof is at Bitcoin block 970,000; the burn is in block 970,050, 50 blocks on/.test(rows[0] || '') && /Started \d+ min ago/.test(rows[0] || '')
     && !!(await r.page.$('#bridge-body .brr:nth-child(1) .stp li.now')) && /Check now/.test(rows[0] || '') && /Bitcoin bbd1d1/.test(rows[0] || '') && !/Your turn/.test(rows[0] || ''),
     `bridge: one waiting for the proof shows its step, how many blocks the proof has to go, when it started, its burn and Check now (${(rows[0] || '').slice(0, 220)})`);
-  ok([1, 2, 3].every((i) => /Your turn/.test(rows[i] || '')), 'bridge: each bridge waiting for its holder says it is their turn');
+  ok([2, 3].every((i) => /Your turn/.test(rows[i] || '')) && !/Your turn/.test(rows[1] || ''), 'bridge: each bridge waiting for a press from its holder says it is their turn, and one held by the day’s allowance does not');
   ok(/Arrived/.test(rows[4] || '') && /Arrived 1 h ago/.test(rows[4] || '') && /Ethereum 0xabab/.test(rows[4] || '') && /Done/.test(rows[4] || '') && (await r.page.$$('#bridge-body .brr:last-child .stp li.done')).length === 4,
     `bridge: an arrived bridge is listed with all its steps done, its Ethereum transaction and Done (${(rows[4] || '').slice(0, 200)})`);
   await r.page.click('#bridge-body [data-bract="poll"]');
@@ -2189,8 +2196,8 @@ await step('bridge', async () => {
   await r.page.click('#bridge-body [data-bract="seen"]');
   await until(r.page, () => document.querySelectorAll('#bridge-body .brr').length === 4, null, 30000);
   ok(true, 'bridge: Done takes an arrived bridge off the list');
-  ok(/Mint now/.test(rows[1] || '') && /Send it from/.test(rows[1] || '') && /free settles for today/.test(rows[1] || ''),
-    `bridge: a mint the relay refused offers Mint now and sending it from the paying account (${(rows[1] || '').slice(0, 200)})`);
+  ok(/Mint now/.test(rows[1] || '') && /Send it from/.test(rows[1] || '') && /free settles are used up/.test(rows[1] || '') && /mints it after midnight UTC while it is open with your wallet/.test(rows[1] || ''),
+    `bridge: a mint the relay refused for the day offers Mint now and sending it from the paying account, and says when this page mints it (${(rows[1] || '').slice(0, 260)})`);
   ok(/didn’t complete/.test(rows[2] || '') && /Recover/.test(rows[2] || '') && /Check again/.test(rows[2] || ''), 'bridge: one that did not complete offers Recover, and to look at the burn again');
   ok(/Cancel this bridge/.test(rows[3] || '') && /has not taken this transaction/.test(rows[3] || ''), 'bridge: a signed transaction Bitcoin keeps rejecting offers to be cancelled');
   await r.page.click('#bridge-body [data-bract="cancel"]');
@@ -2202,6 +2209,25 @@ await step('bridge', async () => {
   await until(r.page, () => /Recovering/.test(document.querySelector('#br-rstatus')?.textContent || '') || /err/.test(document.querySelector('#br-rstatus')?.innerHTML || ''), null, 60000);
   ok(claims.length === 1 && claims[0].burnTxid?.replace(/^0x/, '') === 'bb' + 'd3'.repeat(31) && /on its way back/.test(await text(r.page, '#bridge-body')),
     `bridge: Recover files one signed claim for that burn, and the row says the TAC is on its way back (${await text(r.page, '#br-rstatus')})`);
+  // While a bridge is under way and notices are off, the tab offers them: a notice from this browser while the tab is in the background.
+  // Not once the browser has blocked them.
+  const redraw = async () => { await r.page.click('[data-tac-mode="airdrop"], [data-tac-mode="air"]'); await sleep(300); await r.page.click('[data-tac-mode="bridge"]'); };
+  await r.page.evaluate(() => { Object.defineProperty(Notification, 'permission', { get: () => 'default', configurable: true }); });
+  await redraw();
+  await until(r.page, () => !!document.querySelector('#br-notify'), null, 60000);
+  ok(/Tell me when a bridge arrives or needs me: a notice from this browser while this tab is in the background/.test((await r.page.$eval('#br-notify', (b) => b.parentElement.textContent)).replace(/\s+/g, ' ')),
+    'bridge: the tab offers notices while a bridge is under way and they are off');
+  await r.page.evaluate(() => { Object.defineProperty(Notification, 'permission', { get: () => 'denied', configurable: true }); });
+  await redraw(); await sleep(500);
+  ok(!(await r.page.$('#br-notify')), 'bridge: the offer is not made again once the browser has blocked notices');
+  // A mint the relay failed to prove is tried again by the page itself: its row says so, and it is not the holder's turn.
+  await r.page.evaluate(([k, rec]) => localStorage.setItem(k, JSON.stringify([rec])), [`tacit-burndep-bridge-v1:mainnet:${pub}`,
+    recOf('d6'.repeat(32), 'rfolded', { createdAt: Date.now() - 2e6, lastError: { message: 'settle failed: prove failed: exec:bridgemint produced no proof (code=101)', at: Date.now(), relay: true }, errorCount: 0 })]);
+  await redraw();
+  await until(r.page, () => /Its proof is not ready yet/.test(document.querySelector('#bridge-body')?.textContent || ''), null, 60000);
+  const relayRow = (await text(r.page, '#bridge-body .brr')).replace(/\s+/g, ' ');
+  ok(/asks again every few minutes while it is open with your wallet/.test(relayRow) && !/Your turn/.test(relayRow) && /Mint now/.test(relayRow),
+    `bridge: a mint whose proof is not ready says this page asks again, is not the holder's turn, and still offers Mint now (${relayRow.slice(0, 220)})`);
   if (process.env.SHOT) await r.page.screenshot({ path: process.env.SHOT + '-wide.png' });
   // Phone width: nothing scrolls sideways.
   // TAC received privately (a stealth note the proof tracks) cannot be burned as it is: the page offers to send it to this key's own address.
