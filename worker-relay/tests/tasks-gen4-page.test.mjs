@@ -176,7 +176,7 @@ try {
   // Someone sends one chunk only, from its own button: the rest is left to others, and each is paid to whoever sends it.
   const one = serviceJob.steps.find((x) => x.id.includes('-chunk-5'));
   await page.locator(`[data-one="${one.id}"]`).click();
-  await page.waitForFunction(() => /Sent\. The step is named/.test(document.querySelector('.status')?.textContent || ''), null, { timeout: 60000 });
+  await page.waitForFunction(() => /Sent\. The rewards service reads the step/.test(document.querySelector('.status')?.textContent || ''), null, { timeout: 60000 });
   assert.equal(sent.length, 1, 'only that step was sent');
   assert.equal(await page.locator(`[data-one="${one.id}"]`).count(), 0, 'and it has no button now');
   assert.ok(await page.locator('[data-one]').count() >= total - 1 - 1, 'the others still have theirs');

@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://tacit-api.onrender.com https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://tacit-btc-pool.onrender.com https://tacit-btc-pool-relay.onrender.com https://api.coinbase.com https://api.kraken.com https://api.coingecko.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
-<title>tacit tac</title>
-<meta name="description" content="Shield TAC in a Bitcoin-native pool. Hidden amounts, unlinkable payments, withdraw anywhere.">
+<title>tacit shielded TAC</title>
+<meta name="description" content="Shield TAC in a pool on Bitcoin. Pay anyone without revealing the amount or who received it, and withdraw when you want.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="tacit">
 <link rel="canonical" href="https://tacit.finance/tac/">
 <meta property="og:url" content="https://tacit.finance/tac/">
-<meta property="og:title" content="tacit tac">
-<meta property="og:description" content="Shield TAC in a Bitcoin-native pool. Hidden amounts, unlinkable payments, withdraw anywhere.">
+<meta property="og:title" content="tacit shielded TAC">
+<meta property="og:description" content="Shield TAC in a pool on Bitcoin. Pay without revealing the amount or the recipient.">
 <meta property="og:image" content="https://tacit.finance/tacit-card.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
@@ -408,7 +408,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <div class="shell">
 
   <header class="top">
-    <a class="brand" href="/" aria-label="tacit"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><b>tacit</b><i>tac</i></a>
+    <a class="brand" href="/" aria-label="tacit shielded TAC"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><b>tacit</b><i>shielded TAC</i></a>
     <div class="top-r">
       <span class="px" id="hdr-price" title="TAC mark price, from real trades"></span>
       <!-- chrome:nav:begin -->
@@ -474,13 +474,13 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       </div>
       <div class="side">in your wallet<b class="num" id="bal-public">—</b><span class="fiat" id="bal-public-sats"></span></div>
     </div>
-    <div class="kv"><span id="bal-note">Open your wallet to see your balances.</span><button class="link" id="btn-refresh" hidden>refresh</button></div>
+    <div class="kv"><span id="bal-note">Open your Tacit wallet to see your balances.</span><button class="link" id="btn-refresh" hidden>Refresh</button></div>
     <div class="status comb" id="st-comb" role="status"></div>
 
     <div id="pane-shield" role="tabpanel" aria-labelledby="tab-shield" tabindex="0">
       <div class="lbl"><label for="shield-pick">TAC to move into the pool</label></div>
-      <div class="amt text"><select id="shield-pick"><option>Open your wallet first</option></select></div>
-      <p class="note">A whole note goes in at once — splitting it first would publish the split. Once it is in the pool you can send or withdraw any amount you like. This step pays its own Bitcoin fee, so the wallet needs a little BTC.</p>
+      <div class="amt text"><select id="shield-pick"><option>Open your Tacit wallet first</option></select></div>
+      <p class="note">A whole note goes in at once, since splitting it first would publish the split. Once it is in the pool, send or withdraw any amount. This step pays its own Bitcoin fee, so your Tacit wallet needs a little BTC.</p>
       <p class="note" id="shield-stealth-note"></p>
       <button class="btn" id="btn-shield">Shield TAC</button>
       <div class="status" id="st-shield" role="status"></div>
@@ -489,16 +489,16 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <div id="pane-send" role="tabpanel" aria-labelledby="tab-send" tabindex="0" hidden>
       <div class="lbl"><label for="send-to">To a Tacit or pool address</label></div>
       <div class="amt text"><input id="send-to" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="tacit1… or bp1…"></div>
-      <div class="lbl"><label for="send-amt">Amount</label><button class="link" id="send-max" type="button">max</button></div>
+      <div class="lbl"><label for="send-amt">Amount</label><button class="link" id="send-max" type="button">Max</button></div>
       <div class="amt"><input id="send-amt" inputmode="decimal" autocomplete="off" placeholder="0.00"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>TAC</span></div>
       <div class="fiat" id="send-sats"></div>
       <div class="comb" id="send-comb" hidden></div>
-      <p class="note">The amount and the recipient stay hidden. Send any part of your balance; the remainder stays in the pool as change.</p>
+      <p class="note">The amount and the recipient stay hidden. Send any part of your balance; the rest stays in the pool as change.</p>
       <button class="btn" id="btn-send">Send privately</button>
       <div class="status" id="st-send" role="status"></div>
 
       <div class="lbl sep"><span>Or send to someone with no wallet</span></div>
-      <p class="note" style="margin-top:0">Creates a link that holds the TAC. Whoever opens it can take it into a wallet of their own — they need no wallet now and no bitcoin ever, because the relay takes its fee from the TAC itself. Anyone holding the link can spend it, so send it the way you would send cash, and add a PIN if the channel is not private.</p>
+      <p class="note" style="margin-top:0">Creates a link that holds the TAC. Whoever opens it can move the TAC into a wallet of their own, with no wallet or bitcoin needed beforehand, because the relay takes its fee from the TAC. Anyone with the link can spend it, so treat it like cash, and add a PIN if the channel is not private.</p>
       <div class="lbl"><label for="claim-amt">Amount</label></div>
       <div class="amt"><input id="claim-amt" inputmode="decimal" autocomplete="off" placeholder="0.00"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>TAC</span></div>
       <div class="fiat" id="claim-sats"></div>
@@ -515,15 +515,15 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 
     <div id="pane-withdraw" role="tabpanel" aria-labelledby="tab-withdraw" tabindex="0" hidden>
       <div class="seg sub" role="tablist" id="wtabs" aria-label="Withdraw">
-        <button role="tab" id="wtab-self" aria-controls="wpane-self" aria-selected="true" tabindex="0">To my wallet</button>
+        <button role="tab" id="wtab-self" aria-controls="wpane-self" aria-selected="true" tabindex="0">To your wallet</button>
         <button role="tab" id="wtab-sats" aria-controls="wpane-sats" aria-selected="false" tabindex="-1">To sats</button>
       </div>
 
       <div id="wpane-self" role="tabpanel" aria-labelledby="wtab-self">
-        <div class="lbl"><label for="exit-amt">Amount to withdraw</label><button class="link" id="exit-max" type="button">max</button></div>
+        <div class="lbl"><label for="exit-amt">Amount to withdraw</label><button class="link" id="exit-max" type="button">Max</button></div>
         <div class="amt"><input id="exit-amt" inputmode="decimal" autocomplete="off" placeholder="0.00"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>TAC</span></div>
       <div class="fiat" id="exit-sats"></div>
-        <p class="note">Comes back as ordinary TAC at your Bitcoin address, which shows as where it goes; the amount does not. Withdraw part and the rest stays shielded. This step pays its own Bitcoin fee.</p>
+        <p class="note">Comes back as ordinary TAC at your Bitcoin address. The address shows as the destination; the amount does not. Withdraw part and the rest stays shielded. This step pays its own Bitcoin fee.</p>
         <button class="btn" id="btn-exit">Withdraw TAC</button>
         <div class="status" id="st-exit" role="status"></div>
       </div>
@@ -537,14 +537,14 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 
     <div id="pane-receive" role="tabpanel" aria-labelledby="tab-receive" tabindex="0" hidden>
       <p class="eyebrow">Your Tacit address</p>
-      <div class="amt text"><input id="recv-tacit" readonly value="Open your wallet to see it"></div>
-      <p class="note">The one to share. Tacit apps pay it inside the shielded pool, and the same address takes BTC and ETH. It says nothing about what you hold, and each payment to it arrives at a different one-time key that only your wallet can find.</p>
+      <div class="amt text"><input id="recv-tacit" readonly value="Open your Tacit wallet to see it"></div>
+      <p class="note">Share this one. Tacit apps pay it inside the shielded pool, and the same address takes BTC and ETH. It says nothing about what you hold, and each payment to it arrives at a different one-time key that only your Tacit wallet can find.</p>
       <div class="row2">
         <button class="btn ghost" id="btn-copy-tacit">Copy Tacit address</button>
       </div>
       <p class="eyebrow">Your pool address</p>
-      <div class="amt text"><input id="recv-addr" readonly value="Open your wallet to see it"></div>
-      <p class="note">The pool part alone, for an app that asks for a bp1… address. What it receives lands in the same shielded balance.</p>
+      <div class="amt text"><input id="recv-addr" readonly value="Open your Tacit wallet to see it"></div>
+      <p class="note">The pool part alone, for an app that asks for a bp1… address. Payments to it land in the same shielded balance.</p>
       <div class="row2">
         <button class="btn ghost" id="btn-copy">Copy pool address</button>
         <button class="btn ghost" id="btn-scan">Scan for payments</button>
@@ -554,11 +554,11 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </section>
 
   <section class="panel">
-    <p class="eyebrow">What is and isn't public</p>
+    <p class="eyebrow">What is and is not public</p>
     <ul class="facts">
       <li><b>Public</b><span>That something happened, and in which Bitcoin block. How many notes the pool holds.</span></li>
       <li><b>Hidden</b><span>Every amount, inside the pool and at both edges. Which note was spent, and who was paid. What you hold.</span></li>
-      <li><b>Not even us</b><span>Nobody publishes the pool's total, because no amount in it is ever published. Only you can add up your own notes.</span></li>
+      <li><b>Not even us</b><span>Nobody publishes the pool’s total, because no amount in it is ever published. Only you can add up your own notes.</span></li>
       <li><b>Trust</b><span>No custodian, federation or multisig. Proofs check against a key pinned in this page, and the indexer replays Bitcoin itself rather than trusting a feed.</span></li>
     </ul>
   </section>

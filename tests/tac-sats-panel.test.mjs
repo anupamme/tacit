@@ -78,6 +78,7 @@ await settle();
 const text = host.textContent;
 assert.doesNotMatch(text, /null|undefined/, 'a part that is not shown writes no text');
 assert.ok(!/nothing links it to the wallet on this page/i.test(text), 'the old claim is gone');
+assert.ok(!/null|undefined/.test(text), 'a part the panel leaves out is not written as the word null');
 assert.match(text, /This wallet’s address takes no part/);
 assert.match(text, /The relay sees your connection when it takes the TAC out and the market sees it when you list, so Tor or a VPN for the listing keeps those two apart/, 'the panel says what each side sees');
 assert.match(text, /The relay’s fee is 15 TAC/);
@@ -176,12 +177,12 @@ assert.match(said['st-sats-1'], /on its way to a new key, posted by the relay in
   const S3 = { ...S, saleKeys: async () => { calls++; if (calls === 1) throw new Error('explorer down'); return { keys: [{ ...saleKey, notes: [NOTE] }], free }; } };
   mount(host3, { ...ctx, S: S3 });
   await settle();
-  assert.match(host3.textContent, /Couldn’t read what you have taken out just now\. Nothing is lost/);
+  assert.match(host3.textContent, /Could not read what you have taken out\. Nothing is lost/);
   assert.doesNotMatch(host3.textContent, /2,500 TAC/, 'no note is shown for a read that failed');
-  [...host3.querySelectorAll('button.link')].find((b) => b.textContent === 'retry').click();
+  [...host3.querySelectorAll('button.link')].find((b) => b.textContent === 'Retry').click();
   await settle();
   assert.equal(calls, 2, 'retry reads again');
-  assert.doesNotMatch(host3.textContent, /Couldn’t read/);
+  assert.doesNotMatch(host3.textContent, /Could not read/);
   assert.match(host3.textContent, /2,500 TAC\s*ready to list/);
 }
 
@@ -201,7 +202,7 @@ assert.match(said['st-sats-1'], /on its way to a new key, posted by the relay in
   assert.equal(outs.length, before + 1, 'the take-out went to the relay');
   assert.match(said['st-sats-1'], /on its way to a new key/, 'and is still said as done');
   assert.doesNotMatch(said['st-sats-1'], /^ERR/);
-  assert.match(host4.textContent, /Couldn’t read what you have taken out just now/, 'the failed read says so beside Step 2');
+  assert.match(host4.textContent, /Could not read what you have taken out/, 'the failed read says so beside Step 2');
 }
 
 console.log('tac-sats-panel: all checks passed');

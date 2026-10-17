@@ -5,9 +5,9 @@
 // on the service except the reward: the deployment is the same from any browser.
 //
 // Open jobs are shown in full; a job that is done is a tile with its result, and opens to what it did when it is clicked.
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=b0beb322';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=ba3dc25f';
 import { esc } from '/trade/sheet.js?cb=84cda8f2';
-import { rpc, RPCS, $, short, fmtUnits } from '/trade/util.js?cb=c3dc39b3';
+import { rpc, RPCS, $, short, fmtUnits } from '/trade/util.js?cb=782a003c';
 import { bodyType } from '/trade/rpc.js?cb=842f58a5';
 import { checkPayload, checkStep } from '/tasks/verify.js?cb=b8174dad';
 
@@ -204,7 +204,7 @@ function card(job) {
     const waiting = Object.values(S.hashes).filter((v) => v.state === 'pending').length;
     cap = res.count ? `paid to ${res.senders.map((a) => short(a)).join(', ')}` : waiting ? 'waiting for twelve confirmations' : 'deployed outside the rewards';
     foot = res.last ? `Done ${day(res.last)}` : 'Done';
-  } else if (eco || apiJob(job)?.estimateWei != null) { fig = `≈ ${tacR(eco ? eco.pays : apiJob(job).estimateWei)}<small>TAC</small>`; cap = 'for the whole job, at today\'s gas'; }
+  } else if (eco || apiJob(job)?.estimateWei != null) { fig = `≈ ${tacR(eco ? eco.pays : apiJob(job).estimateWei)}<small>TAC</small>`; cap = 'for the whole job, at today’s network fees'; }
   return `<article class="job ${st}${exp ? ' is-open' : ''}" id="${esc(job.id)}">
     <button class="job-head" type="button" data-toggle="${esc(job.id)}" aria-expanded="${exp}" aria-controls="body-${esc(job.id)}">
       <span class="job-top"><b>${esc(job.title)}</b><span class="pill ${cls}">${label}</span></span>
@@ -279,23 +279,23 @@ function rewardsPanel(job) {
   const a = S.api, eco = economics(job);
   const how = `<ol class="how">
     <li><span><b>Send.</b> The page checks each transaction against the plan, then your wallet signs it.</span></li>
-    <li><span><b>Twelve blocks later,</b> the service reads the step from the chain and fixes its reward.</span></li>
-    <li><span><b>Get paid.</b> It is credited to the account that sent the step and claimed with the daily rewards, on the ${link('/rewards/', 'rewards page')}.</span></li>
+    <li><span><b>Twelve blocks later,</b> the rewards service reads the step from the chain and sets its reward.</span></li>
+    <li><span><b>Get paid.</b> The reward is credited to the account that sent the step. Claim it with the daily rewards on the ${link('/rewards/', 'rewards page')}.</span></li>
   </ol>`;
   if (!a) return `<p class="eyebrow">Rewards</p>${how}<p class="note">The rewards service did not answer. The steps can still be read; try again in a moment.</p>`;
-  if (!a.enabled) return `<p class="eyebrow">Rewards</p>${how}<p class="note">Rewards are not switched on yet. Nothing sent now is paid for later.</p>`;
+  if (!a.enabled) return `<p class="eyebrow">Rewards</p>${how}<p class="note">Rewards are not switched on yet, so a step sent now will not be paid.</p>`;
   const left = BigInt(a.budget.remainingWei);
   const est = apiJob(job)?.estimateWei, perStep = job.steps.some((s) => s.minWei != null);
   return `<p class="eyebrow"><span>Rewards</span><span class="who">${a.quote?.fresh ? 'live' : 'price not fresh'}</span></p>
     <p class="sum num">${eco ? `≈ ${tacR(eco.pays)}<small>TAC for the job</small>` : est != null ? `≈ ${tacR(est)}<small>TAC for the job</small>` : '—'}</p>
     ${perStep ? `<div class="eq">${groupsOf(job).map(([g, rows]) => { const lo = rows.reduce((x, [s]) => x + BigInt(s.minWei ?? 0), 0n) / BigInt(rows.length); return `<div class="l"><span>${esc(g)}</span><b class="num">at least ${tac(lo, 0)} TAC a step</b></div>`; }).join('')}</div>` : ''}
     ${eco ? `<div class="eq">
-      <div class="l"><span>Gas for the whole job</span><b class="num">${(Number(eco.eth) / 1e18).toFixed(4)} ETH ≈ ${tac(eco.plain)} TAC</b></div>
+      <div class="l"><span>Network fees for the whole job</span><b class="num">${(Number(eco.eth) / 1e18).toFixed(4)} ETH ≈ ${tac(eco.plain)} TAC</b></div>
       <div class="l"><span>With the ${Number(a.terms.tipBps) / 100}% tip</span><b class="num">${tac(eco.tipped)} TAC</b></div>
       <div class="l"><span>Floor · cap for the job</span><b class="num">${tac(eco.floor, 0)} · ${tac(eco.cap, 0)} TAC</b></div>
       <div class="l tot"><span>${eco.by === 'floor' ? 'Pays the floor' : eco.by === 'cap' ? 'Pays the cap' : 'Pays'}</span><b class="num">${tac(eco.pays)} TAC</b></div>
     </div>` : ''}
-    <p class="note">${perStep ? 'Each step pays its own gas, on its own chain, with the tip, and never less than its minimum: a chain where gas costs next to nothing still takes the time of whoever sends the step. ' : ''}Gas is priced at a slow-mode rate, in TAC at the ${a.quote ? esc(a.quote.venue) : 'deepest'} venue's price${a.quote?.tacPerEthWei ? ` (${tac(a.quote.tacPerEthWei, 0)} TAC per ETH)` : ''}. Each step takes its share by gas.</p>
+    <p class="note">${perStep ? 'Each step pays its own network fee, on its own chain, with the tip, and never less than its minimum: a chain where fees cost next to nothing still takes the time of whoever sends the step. ' : ''}Network fees are priced at a slow-mode rate, in TAC at the ${a.quote ? esc(a.quote.venue) : 'deepest'} venue’s price${a.quote?.tacPerEthWei ? ` (${tac(a.quote.tacPerEthWei, 0)} TAC per ETH)` : ''}. Each step takes its share by the gas it uses.</p>
     ${how}
     <div class="rows"><div class="kv"><span>Budget left</span><b class="num">${tac(left, 0)} of ${tac(a.budget.totalWei, 0)} TAC</b></div><div class="kv"><span>Open until</span><b>${esc(day(a.endSec))}</b></div></div>`;
 }
@@ -309,8 +309,8 @@ function openBody(job) {
   const est = todo.map((s) => aj?.steps.find((y) => y.id === s.id)?.estimateWei);
   const payNow = !open || !aj || !todo.length ? null : todo.length === job.steps.length && eco ? eco.pays : est.every((e) => e != null) ? est.reduce((x, e) => x + BigInt(e), 0n) : null;
   const hint = !S.api ? 'The rewards service did not answer, so sending is paused: a step sent now might not be paid.'
-    : !open ? 'Rewards for this job are not open yet, so the steps are not sent from here.'
-    : todo.length ? 'Each step is paid to the account that sends it, so you can send them all or only some and leave the rest to others. Most wallets let you pick a slower speed: it costs you less than it pays.' : 'Everything in this job is on the chain.';
+    : !open ? 'Rewards for this job are not open yet, so steps cannot be sent from here.'
+    : todo.length ? 'Each step is paid to the account that sends it, so you can send all of them or only some and leave the rest to others. Most wallets let you pick a slower speed, which keeps your network fee below what the step pays.' : 'Everything in this job is on the chain.';
   return `
     <div class="grid">
       <div class="col">
@@ -323,7 +323,7 @@ function openBody(job) {
           <p class="eyebrow"><span>Steps, in order</span><span class="who">${n} of ${job.steps.length} on the chain</span></p>
           ${groupsOf(job).map(([g, rows]) => `<p class="grp-h"><span>${esc(g)}</span><span>${rows.filter(([s]) => onChain(job, s)).length} of ${rows.length}</span></p>
           <ol class="steps">${rows.map(([s, i]) => stepRow(job, s, i)).join('')}</ol>`).join('')}
-          <p class="note">${verdict ? (verdict.ok ? '<span class="ok">Checked in your browser: every transaction is the plan\'s, with the same code, salt, settings and address the job names.</span>' : '<span class="err">A transaction does not match the plan; nothing will be sent.</span>') : 'Before anything is sent, this page checks each transaction against the plan in your browser.'} <button class="linkbtn" type="button" data-verify="${esc(job.id)}">Check now</button> · ${link(job.payloadUrl, 'The transactions (JSON) ↗')}</p>
+          <p class="note">${verdict ? (verdict.ok ? '<span class="ok">Checked in your browser: every transaction matches the plan, with the same code, salt, settings and address the job names.</span>' : '<span class="err">A transaction does not match the plan; nothing will be sent.</span>') : 'Before anything is sent, this page checks each transaction against the plan in your browser.'} <button class="linkbtn" type="button" data-verify="${esc(job.id)}">Check now</button> · ${link(job.payloadUrl, 'The transactions (JSON) ↗')}</p>
         </section>
       </div>
       <div class="col">
@@ -343,7 +343,7 @@ function openBody(job) {
           <p class="eyebrow">Your steps</p>
           ${mineList(job)}
           <form class="paste" autocomplete="off" data-for="${esc(job.id)}">
-            <label class="lbl"><span>Sent a step yourself? Name its transaction</span>
+            <label class="lbl"><span>Sent a step yourself? Paste its transaction hash</span>
               <textarea rows="2" spellcheck="false" data-for="${esc(job.id)}" placeholder="0x… (one or more transaction hashes)"></textarea></label>
             ${manyChains(job) ? `<label class="lbl"><span>On which chain</span><select>${[...new Set(job.steps.map((s) => chainOf(job, s)))].map((id) => `<option value="${id}">${esc(CHAINS[id].name)}</option>`).join('')}</select></label>` : ''}
             <button class="btn ghost" type="submit">Claim</button>
@@ -369,7 +369,7 @@ function paste(form) {
   const chainId = Number(form.querySelector('select')?.value || 1);
   found.forEach((h) => track(h, chainId));
   area.value = '';
-  say(`Naming ${found.length} transaction${found.length > 1 ? 's' : ''} to the rewards service…`, false, form.dataset.for);
+  say(`Checking ${found.length} transaction${found.length > 1 ? 's' : ''} with the rewards service…`, false, form.dataset.for);
   settle();
 }
 
@@ -391,7 +391,7 @@ async function gasNote() {
 async function loadPayload(job) {
   if (!S.payload[job.id]) {
     const r = await fetch(job.payloadUrl, { signal: AbortSignal.timeout(30e3) });
-    if (!r.ok) throw new Error('The transactions could not be loaded.');
+    if (!r.ok) throw new Error('Could not load the transactions. Try again in a moment.');
     S.payload[job.id] = await r.json();
   }
   return S.payload[job.id];
@@ -408,7 +408,7 @@ async function verify(job, show = false) {
 // ── a point for the registry: read from the chain's keeper when it is sent, and checked here against the plan ──
 async function pointTx(job, s) {
   const id = chainOf(job, s), r = await get(`${keepersUrl()}/${id}/evm-pool/keeper/point`);
-  if (!r?.data) throw new Error(`The keeper on ${CHAINS[id].name} has no point to give just now. Try again in a moment.`);
+  if (!r?.data) throw new Error(`The keeper on ${CHAINS[id].name} has no point to give. Try again in a moment.`);
   if (Number(r.chainId) !== id || String(r.registry).toLowerCase() !== s.to.toLowerCase()) throw new Error('That point is for another registry, so nothing was sent.');
   return { id: s.id, to: s.to, data: r.data, value: '0x0' };
 }
@@ -432,19 +432,19 @@ async function go(job, only = null) {
       }
       const id = chainOf(job, s), tx = s.kind === 'post' ? await pointTx(job, s) : payload.steps[i];
       if (checkStep(job, s, tx).length) throw new Error('A transaction no longer matches the plan.');
-      say(`Step ${i + 1} of ${job.steps.length}: ${esc(s.label)}${id === job.chainId ? '' : ` (on ${CHAINS[id].name})`}. Confirm it in your wallet.`);
+      say(`Step ${i + 1} of ${job.steps.length}: ${esc(s.label)}${id === job.chainId ? '' : ` (on ${CHAINS[id].name})`}. Confirm in your wallet…`);
       const hash = await conn.wallet.sendTx({ to: tx.to, data: tx.data, value: 0n, from: W.account, chain: id === 1 ? null : asWallet(id) });
       say(`Step ${i + 1} sent: ${link(`${CHAINS[id].explorer}/tx/${hash}`, esc(short(hash, 6)))}. Waiting for it to land…`);
       const rc = await conn.wallet.receipt(hash, { read: (m, p) => readOn(id, m, p), where: `the ${CHAINS[id].name} explorer` });
-      if (rc.status !== '0x1') throw new Error(`Step ${i + 1} failed on the chain. Nothing more was sent.`);
+      if (rc.status !== '0x1') throw new Error(`Step ${i + 1} failed (${short(hash, 6)}). Nothing more was sent.`);
       track(hash, id);
       renderAll();
     }
     S.done[job.id] = await readDone(job);
     renderAll();
-    say(only ? 'Sent. The step is named to the rewards service once it has twelve confirmations.' : 'Everything is sent. Each step is named to the rewards service once it has twelve confirmations.');
+    say(only ? 'Sent. The rewards service reads the step after twelve confirmations.' : 'Everything is sent. The rewards service reads each step after twelve confirmations.');
   } catch (e) {
-    say(esc(e instanceof UserStopped ? 'Stopped. Send again to carry on from where it left off.' : (e.message || 'The wallet did not send it.')), !(e instanceof UserStopped));
+    say(esc(e instanceof UserStopped ? 'Cancelled in your wallet. Send again to continue where it left off.' : (e.message || 'The wallet did not send it.')), !(e instanceof UserStopped));
   } finally { const id = S.running; S.running = null; S.done[id] = await readDone(job).catch(() => S.done[id]); renderAll(); settle(); }
 }
 
@@ -530,7 +530,7 @@ function settled() { $('#jobs').classList.remove('loading'); $('#stats').classLi
 setTimeout(settled, 12e3);
 async function start() {
   const file = await get('/tasks/jobs.json');
-  if (!file?.jobs?.length) { settled(); $('#jobs').innerHTML = '<p class="none">The jobs could not be loaded.</p>'; return; }
+  if (!file?.jobs?.length) { settled(); $('#jobs').innerHTML = '<p class="none">Could not load the jobs. Try again in a moment.</p>'; return; }
   S.jobs = file.jobs;
   const wanted = location.hash.slice(1);
   if (S.jobs.some((j) => j.id === wanted)) S.expanded.set(wanted, true);          // a link to a job opens it

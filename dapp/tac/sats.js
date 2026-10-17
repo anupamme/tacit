@@ -158,7 +158,7 @@ export function mount(host, ctx) {
   const payoutScript = (addr) => ctx.S.payoutScriptFor(addr);
   // The listing, signed by the sale key in this page's turn of tacit.js (secret.js listFromSaleKey).
   const listAs = (key, note, opts) => ctx.turn(async () => {
-    if (!ctx.T.wallet.priv) throw new Error('Open your wallet first.');
+    if (!ctx.T.wallet.priv) throw new Error('Open your Tacit wallet first.');
     return ctx.S.listFromSaleKey(ctx.T, { key, note, ...opts });
   });
 
@@ -171,13 +171,13 @@ export function mount(host, ctx) {
     if (units + fee() > shieldedTotal()) throw new Error(fee() ? `More than your shielded balance with the relay’s ${fmt(fee())} TAC fee.` : 'More than your shielded balance.');
     say('st-sats-1', 'Finding a new key for this sale…');
     await look();
-    if (ctx.poolWallet !== pw || sale?.free == null) throw new Error('Your wallet changed, so nothing was done.');
+    if (ctx.poolWallet !== pw || sale?.free == null) throw new Error('Your Tacit wallet changed, so nothing was done.');
     const r = await S.exitToSaleKey(ctx.T, {
       poolWallet: pw, amount: units, asset: S.TAC_ASSET_MAINNET, key: S.saleKey(pw, sale.free),
       say: (m) => say('st-sats-1', m),
     });
     if (r.wait) {
-      say('st-sats-1', `Your newest note needs ${r.wait} more Bitcoin block${r.wait === 1 ? '' : 's'} before it can be spent against a settled block. Try again shortly.`);
+      say('st-sats-1', `Your newest note needs ${r.wait} more Bitcoin block${r.wait === 1 ? '' : 's'} (≈ ${r.wait * 10} min) before it can be spent against a settled block. Try again after that.`);
       return;
     }
     if (r.revealTxid) pick = `${r.revealTxid}:${r.exitVout}`;
@@ -194,7 +194,7 @@ export function mount(host, ctx) {
     const n = chosen();
     if (!n) throw new Error(held().length ? 'Nothing is ready to list yet: the pool counts a take-out three confirmations after it is posted.' : 'Take some TAC out first.');
     const dest = payout.value.trim();
-    if (!dest) throw new Error('Give a Bitcoin address for the sats to land at.');
+    if (!dest) throw new Error('Enter the address to pay the sats to.');
     const script = payoutScript(dest), T = ctx.T;
     if (hexOf(script) === hexOf(T.p2wpkhScript(T.wallet.pub))) throw new Error('That is this wallet’s own address. Use one from another wallet, so the sats land apart from it.');
     if ((sale?.keys || []).some((k) => k.scriptPubKey === hexOf(script))) throw new Error('That is a key this page made for a sale. Use an address from another wallet.');
@@ -211,7 +211,7 @@ export function mount(host, ctx) {
       payoutScript: script,
       onProgress: (m) => say('st-sats-2', String(m)),
     });
-    say('st-sats-2', `Listed ${fmt(n.value)} TAC for ${sats.toLocaleString('en-US')} sats, for ${days === 1 ? 'a day' : `${days} days`}. A buyer settles it and pays ${dest.slice(0, 12)}… directly; you need nothing further.`,
+    say('st-sats-2', `Listed ${fmt(n.value)} TAC for ${sats.toLocaleString('en-US')} sats, for ${days === 1 ? 'a day' : `${days} days`}. A buyer settles it and pays ${dest.slice(0, 12)}… directly. Nothing more to do.`,
       rec?.sale_id ? el('div', { class: 'note' }, `Sale ${String(rec.sale_id).slice(0, 12)}…`) : null);
     pick = null;
     book = (await openSales()) || book;
@@ -239,33 +239,33 @@ export function mount(host, ctx) {
         'Shielded TAC out, real bitcoin in. The relay takes your TAC out of the pool to a new key made for this sale and pays its Bitcoin fee, for a fee in TAC. That key lists it at your price, and the buyer pays sats straight to an address you name. This wallet’s address takes no part, so nothing on chain or on the listing ties those sats to it.'),
 
       el('div', { class: 'lbl' }, el('label', { for: 'sats-amt' }, 'Amount to take out'),
-        el('button', { class: 'link', type: 'button', onclick: () => { const m = shieldedTotal() - f; amt.value = m > 0n ? plain(m) : '0'; recompute(); } }, 'max')),
+        el('button', { class: 'link', type: 'button', onclick: () => { const m = shieldedTotal() - f; amt.value = m > 0n ? plain(m) : '0'; recompute(); } }, 'Max')),
       el('div', { class: 'amt' }, amt, el('span', { class: 'u' }, 'TAC')),
 
       el('div', { class: 'lbl' }, el('label', { for: 'sats-price' }, 'Price'),
-        mark ? el('button', { class: 'link', type: 'button', onclick: () => { priceEl.value = pxText(mark); recompute(); } }, `market · ${pxText(mark)} sats`) : el('span', {}, 'market price unavailable')),
+        mark ? el('button', { class: 'link', type: 'button', onclick: () => { priceEl.value = pxText(mark); recompute(); } }, `Market · ${pxText(mark)} sats`) : el('span', {}, 'Market price unavailable')),
       el('div', { class: 'amt' }, priceEl, el('span', { class: 'u' }, 'sats / TAC')),
       quote,
       book?.count != null ? el('div', { class: 'kv' }, el('span', {}, 'Open sales on the book'), el('b', {}, String(book.count))) : null,
 
       el('div', { class: 'lbl sep' }, el('label', { for: 'sats-payout' }, 'Pay the sats to')),
       el('div', { class: 'amt text' }, payout),
-      el('p', { class: 'note' }, 'An address from another wallet, best one that has never been used. It needs nothing in it first.'),
+      el('p', { class: 'note' }, 'An address from another wallet, ideally one that has never been used. It needs no funds first.'),
       payHint,
       el('div', { class: 'lbl' }, el('label', { for: 'sats-lasts' }, 'Listing lasts'), lasts),
 
-      el('p', { class: 'eyebrow', style: 'margin-top:22px' }, 'Step 1 — take it out'),
+      el('p', { class: 'eyebrow', style: 'margin-top:22px' }, 'Step 1: take it out'),
       f ? el('p', { class: 'note' }, `The relay’s fee is ${fmt(f)} TAC, from your shielded balance. The rest stays shielded.`) : null,
       btnOut,
       statusStep1,
 
-      el('p', { class: 'eyebrow', style: 'margin-top:18px' }, 'Step 2 — list for sats'),
-      readErr ? el('p', { class: 'note' }, 'Couldn’t read what you have taken out just now. Nothing is lost: it stays at its own key. ',
-        el('button', { class: 'link', type: 'button', onclick: () => { readErr = false; render(); look().catch(() => {}); } }, 'retry')) : null,
+      el('p', { class: 'eyebrow', style: 'margin-top:18px' }, 'Step 2: list for sats'),
+      readErr ? el('p', { class: 'note' }, 'Could not read what you have taken out. Nothing is lost: it stays at its own key. ',
+        el('button', { class: 'link', type: 'button', onclick: () => { readErr = false; render(); look().catch(() => {}); } }, 'Retry')) : null,
       ...rows.map(heldRow),
       btnList,
       statusStep2,
-      el('p', { class: 'note' }, 'Listing is a signature, not a transaction: it costs nothing and needs no bitcoin. It stands until it ends; to change the price, list again once it has. Like every listing, it shows the amount and the price, so round amounts are harder to pick out. The relay sees your connection when it takes the TAC out and the market sees it when you list, so Tor or a VPN for the listing keeps those two apart.'),
+      el('p', { class: 'note' }, 'Listing is a signature, not a transaction: it costs nothing and needs no bitcoin. A listing stands until it ends; to change the price, list again after that. It shows the amount and the price, as every listing does, so round amounts are harder to pick out. The relay sees your connection when it takes the TAC out and the market sees it when you list, so Tor or a VPN for the listing keeps those two apart.'),
     );
     host.querySelectorAll('input[name="sats-pick"]').forEach((r, i) => r.addEventListener('change', () => { pick = opKey(listable()[i]); recompute(); }));
     btnList.disabled = !chosen();

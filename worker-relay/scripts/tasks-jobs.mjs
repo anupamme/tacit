@@ -28,7 +28,7 @@ const opensAt = Number(arg('opens', 0));
 
 const saltOf = new Map(manifest.contracts.map((c) => [c.name, c.salt]));
 const LABEL = {
-  PRECISION_ORACLE: 'Price oracle for the Precision venue', AMM_ORACLE: 'Price oracle for the Tacit AMM', PAIR_ORACLE: 'Oracle that combines the two',
+  PRECISION_ORACLE: 'Price oracle for the Precision pool', AMM_ORACLE: 'Price oracle for the Tacit AMM', PAIR_ORACLE: 'Oracle that combines the two',
   ETH_FEED: 'Fixed ETH price feed', USD_VAULT: 'TAC-collateral vault that lends TACD (a dollar)', ETH_VAULT: 'TAC-collateral vault that lends TACE (ether)',
   TAC_POOL: 'EVM pool for TAC', TAC_ROUTER: 'Router for the TAC pool', USD_POOL: 'EVM pool for TACD', USD_ROUTER: 'Router for the TACD pool',
   ETH_POOL: 'EVM pool for TACE', ETH_ROUTER: 'Router for the TACE pool', USD_ZAP: 'Zap into the TACD vault', ETH_ZAP: 'Zap into the TACE vault',
@@ -41,9 +41,9 @@ const COPY = {
   title: 'Deploy the TAC vaults',
   tagline: 'Put the TAC vaults on Ethereum: 21 transactions, from any wallet.',
   about: [
-    { h: 'What it does', p: 'Lets people deposit TAC and borrow TAC Dollar (TACD) or TAC Ether (TACE) against it. No interest, and one fee when you borrow.' },
-    { h: 'What gets deployed', p: 'Fourteen contracts: three price oracles, a fixed ETH feed, the two vaults, a pool and router for TAC, TACD and TACE, and a zap into each vault. Then seven calls to the confidential pool register the two tokens and create five trading pairs.' },
-    { h: 'Who controls it', p: 'The Tacit ops multisig (0x006C…49F2) owns both vaults and receives their fees. It can change terms, the oracle or the minters only after an announced wait of two to three days and within fixed limits, and can pause liquidations and redemptions for up to twelve hours at a time.' },
+    { h: 'What it does', p: 'Lets people deposit TAC and borrow TAC Dollar (TACD) or TAC Ether (TACE) against it. No interest, one fee when you borrow.' },
+    { h: 'What gets deployed', p: 'Fourteen contracts: three price oracles, a fixed ETH feed, the two vaults, a pool and a router for each of TAC, TACD and TACE, and a zap into each vault. Then seven calls to the confidential pool register the two tokens and create five trading pairs.' },
+    { h: 'Who controls it', p: 'The Tacit ops multisig (0x006C…49F2) owns both vaults and receives their fees. It can change the terms, the oracle or the minters only after an announced wait of two to three days, and only within fixed limits. It can also pause liquidations and redemptions for up to twelve hours at a time.' },
     { h: 'Who can send it', p: 'Anyone. Each address is fixed in advance from the exact code, its settings and its owner, so the sender cannot change what lands there.' },
   ],
   links: [

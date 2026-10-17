@@ -119,15 +119,15 @@ const errText = (e) => {
   const m = String(e?.shortMessage || e?.message || e || 'Something went wrong');
   if (e?.code === 4001 || /user (rejected|denied)|rejected the request|denied transaction|no wallet selected/i.test(m)) return 'Cancelled in your wallet.';
   if (e?.code === -32002 || /already (pending|processing)|request of type .* pending/i.test(m)) return 'Your wallet already has a request open. Answer it there, then try again.';
-  if (/chain.*not approved|does not support 'wallet_switchEthereumChain'/i.test(m)) return 'Your wallet app did not allow that network for this connection. Switch to it in the app, or disconnect and connect again.';
+  if (/chain.*not approved|does not support 'wallet_switchEthereumChain'/i.test(m)) return 'Your wallet app did not allow that network. Switch to it in the app, or disconnect and connect again.';
   if (e?.unlockCancelled || e?.name === 'NotAllowedError') return 'Cancelled.';         // the passphrase or passkey prompt was closed
-  if (/no ethereum wallet detected/i.test(m)) return `No Ethereum wallet found in this browser. Open this page in your wallet's own browser, or install MetaMask, Rabby or Rainbow.${prf?.isPasskeyAvailable?.() ? ' Or use a passkey.' : ''}`;
+  if (/no ethereum wallet detected/i.test(m)) return `No Ethereum wallet found in this browser. Open this page in your wallet’s own browser, or install MetaMask, Rabby or Rainbow.${prf?.isPasskeyAvailable?.() ? ' Or use a passkey.' : ''}`;
   if (/insufficient sats|no plain-sats|not enough (?:signet )?sats/i.test(m)) return 'Not enough BTC at your Bitcoin address for this and its network fee.';
   if (/two notes cannot cover/i.test(m)) return 'One payment spends two of your notes at most. Combine them first, then pay again.';
   if (/no spendable notes/i.test(m)) return 'Nothing in your shielded balance can be spent yet: a payment you just made is still settling.';
-  if (/\bHTTP 5\d\d\b/.test(m)) return 'The service is busy right now. Try again in a moment.';
+  if (/\bHTTP 5\d\d\b/.test(m)) return 'The service is busy. Try again in a moment.';
   if (/failed to fetch|networkerror|load failed|all rpcs failed/i.test(m)) return 'Could not reach the network. Check your connection and try again.';
-  if (/rate.?limit|too many requests|\b429\b|exceeded.*(?:request|quota)|upgrade.*(?:plan|tier)/i.test(m)) return 'That network is busy right now. Try again in a moment.';
+  if (/rate.?limit|too many requests|\b429\b|exceeded.*(?:request|quota)|upgrade.*(?:plan|tier)/i.test(m)) return 'That network is busy. Try again in a moment.';
   if (/timed? ?out|timeout/i.test(m)) return 'The network took too long to answer. Try again.';
   if (/previously derived a different Tacit identity/i.test(m)) return 'This account opened a different Tacit key on this device before. Switch to that account in your wallet, or open your key another way.';
   if (/non-canonical \(high-s\) signature/i.test(m)) return 'The wallet’s signature came back in a form Tacit does not use, so nothing was opened. Reconnect the wallet and try again.';
@@ -191,7 +191,7 @@ function toast(msg, bad = false, ms = bad ? 7000 : 4200) {
 // looked while a background scan held the lock.
 let afterBusy = null;   // what waits for the action in progress to end (a lock asked for by the wallet)
 async function busy(btn, id, fn) {
-  if (busyId) { say(id, busyId === id ? 'Already working on that…' : 'Finishing the last action first — try again in a moment.'); return; }
+  if (busyId) { say(id, busyId === id ? 'Already working on that…' : 'Finishing the last action first. Try again in a moment.'); return; }
   busyId = id;
   const wasDisabled = btn.disabled;
   btn.disabled = true; btn.setAttribute('aria-busy', 'true');
@@ -444,12 +444,12 @@ function signIn(id) {
   const hasBtc = btcWalletSeen(), hasEth = evm.hasBrowserWallet(), bare = pk && !known && !other && !hasBtc && !hasEth;
   const opt = (k, title, sub, cls = '') => html`<button class="opt ${cls}" type="button" data-in="${k}"><span class="opt-t">${title}</span><span class="opt-m">${sub}</span></button>`;
   return html`<div class="opts" id="${id}-in">
-    ${known ? opt('known', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>Continue with your Tacit wallet`, `Opens with ${viaText(known)}, the same key as on tacit.finance.`, 'main') : ''}
-    ${other ? opt('other', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>${other.tacit ? html`Continue as <b>${short(other.tacit, 7)}</b>` : 'Your other Tacit key'}`, html`A different key, opened here before with ${viaText(other)}. Not the one tacit.finance has open.`) : ''}
+    ${known ? opt('known', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>Continue with your Tacit wallet`, `Opens with ${viaText(known)}, the same wallet as everywhere on tacit.finance.`, 'main') : ''}
+    ${other ? opt('other', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>${other.tacit ? html`Continue as <b>${short(other.tacit, 7)}</b>` : 'Your other Tacit wallet'}`, html`A different wallet, opened here before with ${viaText(other)}.`) : ''}
     ${bare ? opt('new', html`<svg class="tk sm" aria-hidden="true"><use href="#i-key"/></svg>Create a wallet`, 'Touch ID, Face ID or Windows Hello. Nothing to install.', 'main') : ''}
     ${bare ? opt('passkey', html`<svg class="tk sm" aria-hidden="true"><use href="#i-key"/></svg>Open a passkey wallet`, 'One you made before, with a passkey on this device or in your password manager.') : ''}
-    ${opt('btc', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg>Bitcoin wallet`, hasBtc || !bare ? 'Xverse, Leather or UniSat. One signature, two the first time.' : 'Xverse, Leather or UniSat. None found in this browser.')}
-    ${opt('eth', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>Ethereum wallet`, hasEth || !bare ? 'MetaMask, Rabby, Rainbow or any browser wallet, or a wallet app through WalletConnect. One signature, two the first time on this browser.' : 'MetaMask, Rabby, Rainbow or any browser wallet, or a wallet app through WalletConnect.')}
+    ${opt('btc', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg>Bitcoin wallet`, hasBtc || !bare ? 'Xverse, Leather or UniSat. One free signature, two the first time.' : 'Xverse, Leather or UniSat. None found in this browser.')}
+    ${opt('eth', html`<svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>Ethereum wallet`, hasEth || !bare ? 'MetaMask, Rabby, Rainbow or any browser wallet, or a wallet app through WalletConnect. One free signature, two the first time.' : 'MetaMask, Rabby, Rainbow or any browser wallet, or a wallet app through WalletConnect.')}
     ${pk && !bare ? opt('passkey', html`<svg class="tk sm" aria-hidden="true"><use href="#i-key"/></svg>Passkey`, 'Touch ID, Windows Hello or a security key.') : ''}
     <p class="opts-err" id="${id}-err" role="alert" hidden></p>
     <p class="more">${pk && !bare ? html`<button class="link" type="button" data-in="new">New passkey wallet</button>` : ''}${saved ? html`<button class="link" type="button" data-in="local">Saved in this browser</button>` : ''}<button class="link" type="button" data-in="paste">Paste a key</button></p>
@@ -488,7 +488,7 @@ function wireSignIn(root, id, after) {
 function renderWalletSheet() {
   const el = $('wallet-body');
   if (!unlocked()) {
-    mount(el, html`<p class="lede-s">Open your Tacit wallet. It is the same key, with the same balances, as on tacit.finance.</p>${signIn('ws')}`);
+    mount(el, html`<p class="lede-s">Open your Tacit wallet. It is the same key, with the same balances, as everywhere on tacit.finance.</p>${signIn('ws')}`);
     return wireSignIn(el, 'ws', () => $('connect-sheet').close());
   }
   const k = key, kept = k.mode === 'ext' || k.mode === 'local', a = tacitAddress || null;
@@ -498,7 +498,7 @@ function renderWalletSheet() {
       <div class="row2"><button class="btn ghost" type="button" id="w-copy" ${a ? '' : 'disabled'}>Copy address</button><button class="btn ghost" type="button" id="w-lock">Lock</button></div></div>
     ${k.mode === 'eth' && ethProvider?.isWalletConnect ? html`<div class="kv"><span>WalletConnect</span><b>${short(k.address, 6)} <button class="link" type="button" id="w-wc-off">Disconnect</button></b></div>` : ''}
     ${kept ? html`<p class="more"><button class="link" type="button" id="w-backup">Copy key to back up</button></p>` : ''}
-    <p class="note">${kept ? 'This key is kept in this browser only, so clearing the browser’s data loses it. Copy it somewhere private: anyone who has it controls these funds, and pasting it back opens them again.' : k.mode === 'key' ? 'You pasted this key and it is not saved here, so closing the tab forgets it. Keep your own copy somewhere private: anyone who has it controls these funds.' : 'Your wallet or passkey is the only way back to these funds: keep it safe.'} The key stays in this tab; payments to your addresses reach you here and on tacit.finance.</p>`);
+    <p class="note">${kept ? 'This key is kept in this browser only, so clearing the browser’s data loses it. Copy it somewhere private: anyone who has it controls these funds, and pasting it back opens them again.' : k.mode === 'key' ? 'You pasted this key and it is not saved here, so closing the tab forgets it. Keep your own copy somewhere private: anyone who has it controls these funds.' : 'Your wallet or passkey is the only way back to these funds: keep it safe.'} The key stays in this tab; payments to your addresses reach you here and everywhere on tacit.finance.</p>`);
   $('w-copy').onclick = () => a && navigator.clipboard.writeText(a).then(() => toast('Address copied'), () => toast(`Could not copy: ${a}`, true));
   $('w-backup')?.addEventListener('click', () => {
     if (!unlocked() || key !== k) return;
@@ -534,7 +534,7 @@ async function ensureKey() {
   if (!unlocked()) {
     await loadTacit();
     const k = knownWallet();
-    if (!k || signing) { openWallet(); throw said(signing ? 'Finish signing in first.' : 'Open your wallet first.', { quiet: true }); }
+    if (!k || signing) { openWallet(); throw said(signing ? 'Finish signing in first.' : 'Open your Tacit wallet first.', { quiet: true }); }
     signing = true;
     try { await open[k.mode](k); } finally { signing = false; }
   }
@@ -552,7 +552,7 @@ function afterUnlock(fresh = false) {
   window.dispatchEvent(new Event('tac:wallet'));                  // the market says what this key can buy with
   // One quiet pass so a stealth payment shows up without the owner knowing to go looking for it.
   if (!stealthScanned) {
-    findStealth().then((n) => { if (n) say('st-recv', `Found ${n} stealth payment${n === 1 ? '' : 's'} paid to you.`); }).catch(() => {});
+    findStealth().then((n) => { if (n) say('st-recv', `Found ${n} stealth payment${n === 1 ? '' : 's'}.`); }).catch(() => {});
   }
 }
 
@@ -569,8 +569,8 @@ function watchPassphrase() {
 }
 
 function paintReceive() {
-  $('recv-addr').value = poolWallet ? poolWallet.addressString : 'Open your wallet to see your pool address';
-  $('recv-tacit').value = !poolWallet ? 'Open your wallet to see your Tacit address'
+  $('recv-addr').value = poolWallet ? poolWallet.addressString : 'Open your Tacit wallet to see it';
+  $('recv-tacit').value = !poolWallet ? 'Open your Tacit wallet to see it'
     : tacitAddress === false ? 'Not available here: use the pool address below.' : tacitAddress || 'Deriving your Tacit address…';
 }
 // Receive leads with the unified Tacit address, which the pool pays, and keeps the pool address beneath it.
@@ -608,7 +608,7 @@ window.addEventListener('tacit:evm-accounts', (e) => {
   whenIdle(() => {
     if (key !== was) return;
     lock();
-    toast(a ? 'Your wallet switched accounts, so the key it opened was locked.' : 'Your wallet locked, so the key it opened was locked.');
+    toast(a ? 'Your wallet switched accounts, so the Tacit key opened with it was locked. Open it again to continue.' : 'Your wallet locked, so the Tacit key opened with it was locked. Open it again to continue.');
   });
 });
 
@@ -658,10 +658,10 @@ function renderBalances() {
   // Spends pad to three outputs with zero-value notes so the real count stays hidden on chain. They are
   // padding, not holdings — counting them would tell the wallet's owner they have notes they don't.
   const n = (shielded.notes || []).filter((x) => !x.spent && BigInt(x.value) > 0n).length;
-  $('bal-note').textContent = !unlocked() ? 'Open your wallet to see your balances.'
+  $('bal-note').textContent = !unlocked() ? 'Open your Tacit wallet to see your balances.'
     : `${n} shielded note${n === 1 ? '' : 's'} only you can see.`;
   if (unlocked() && !shielded.loading && liveNotes().length > 4) {
-    const b = Object.assign(document.createElement('button'), { className: 'link', type: 'button', textContent: 'Combine my notes' });
+    const b = Object.assign(document.createElement('button'), { className: 'link', type: 'button', textContent: 'Combine notes' });
     b.onclick = offerCombine;
     $('bal-note').append(' ', b);
   }
@@ -674,7 +674,7 @@ function renderBalances() {
 const liveNotes = () => (S && poolWallet ? S.pendingView(shielded.notes || [], S.TAC_ASSET_MAINNET, poolWallet).live.filter((n) => BigInt(n.value) > 0n) : []);
 const liveValues = () => liveNotes().map((n) => BigInt(n.value)).sort((a, b) => (a < b ? 1 : a > b ? -1 : 0));
 const combineFee = () => (relayLive && relayFee != null ? relayFee : null);
-const combineBox = (id, lead, each = false) => html`<div class="callout"><span>${lead}<small>${combineFee() != null ? `Relay fee ≈ ${fmt(combineFee())} TAC${each ? ' each' : ''}` : 'Posted from your Bitcoin address, which pays its Bitcoin fee and shows as the sender'}.</small></span><button class="btn ghost" type="button" id="${id}">Combine my notes</button></div>`;
+const combineBox = (id, lead, each = false) => html`<div class="callout"><span>${lead}<small>${combineFee() != null ? `Relay fee ≈ ${fmt(combineFee())} TAC${each ? ' each' : ''}` : 'Posted from your Bitcoin address, which pays its Bitcoin fee and shows as the sender'}.</small></span><button class="btn ghost" type="button" id="${id}">Combine notes</button></div>`;
 // Under Send's amount: the offer to combine first, when two notes cannot cover the amount and its fee and a run of combines can.
 function renderSendComb() {
   const box = $('send-comb');
@@ -708,7 +708,7 @@ function renderShieldPicker() {
   sel.replaceChildren();
   if (!pub.notes.length) {
     const o = document.createElement('option');
-    o.textContent = unlocked() ? 'No public TAC in this wallet' : 'Open your wallet first';
+    o.textContent = unlocked() ? 'No public TAC in this wallet' : 'Open your Tacit wallet first';
     sel.append(o); sel.disabled = true;
     $('shield-stealth-note').textContent = '';
     return;
@@ -718,7 +718,7 @@ function renderShieldPicker() {
   const shieldable = pub.notes.filter((u) => !u.stealthTweakedSk);
   const stealthHeld = pub.notes.length - shieldable.length;
   $('shield-stealth-note').textContent = stealthHeld
-    ? `${stealthHeld} note${stealthHeld === 1 ? '' : 's'} paid to a one-time address ${stealthHeld === 1 ? 'is' : 'are'} in your balance but cannot be shielded from this page yet — move ${stealthHeld === 1 ? 'it' : 'them'} in the classic app first.`
+    ? `${stealthHeld} note${stealthHeld === 1 ? '' : 's'} paid to a one-time address ${stealthHeld === 1 ? 'is' : 'are'} in your balance but cannot be shielded from this page yet. Move ${stealthHeld === 1 ? 'it' : 'them'} in the classic app first.`
     : '';
   if (!shieldable.length) {
     const o = document.createElement('option');
@@ -794,13 +794,13 @@ async function doSend(anchor = null) {
   // A relayed payment spends the fee out of the same notes, so it has to fit alongside the amount.
   if (amount + relayFeeUnits() > shieldedTotal()) {
     throw new Error(relayFeeUnits() > 0n
-      ? `More than your shielded balance once the relay's ${fmt(relayFeeUnits())} TAC fee is included.`
+      ? `More than your shielded balance with the relay’s ${fmt(relayFeeUnits())} TAC fee.`
       : 'More than your shielded balance.');
   }
   const r = await S.payPrivately(T, { poolWallet, to, amount, asset: S.TAC_ASSET_MAINNET, anchor, say: (m) => say('st-send', m), askSelf: askSelfPost('st-send') });
   if (r.wait) return waitBox('st-send', r, (tip) => doSend(tip));
   $('send-to').value = ''; $('send-amt').value = ''; renderAmountHints();
-  say('st-send', `Sent ${fmt(amount)} TAC in `, txLink(r.revealTxid), r.relayed ? ' — relayed, fee paid in TAC.' : ' — self-funded.');
+  say('st-send', `Sent ${fmt(amount)} TAC in `, txLink(r.revealTxid), r.relayed ? '. The relay posted it, for a fee in TAC.' : '. Posted from your Bitcoin address.');
   await loadShielded();
 }
 
@@ -860,7 +860,7 @@ const askSelfPost = (statusId) => (why, { timedOut = false, signal } = {}) => ne
 function waitBox(statusId, w, retry) {
   const wrap = document.createElement('div');
   const p = document.createElement('div');
-  p.textContent = `Your newest note needs ${w.wait} more Bitcoin block${w.wait === 1 ? '' : 's'} (≈ ${w.wait * 10} min) before the wallet will spend it against a settled block.`;
+  p.textContent = `Your newest note needs ${w.wait} more Bitcoin block${w.wait === 1 ? '' : 's'} (≈ ${w.wait * 10} min) before it can be spent against a settled block.`;
   const row = document.createElement('div');
   row.className = 'row2';
   const now = document.createElement('button');
@@ -958,7 +958,7 @@ async function scanEverything(statusId = 'st-recv') {
   ]);
   if (!found) await loadPublic();
   const n = (shielded.notes || []).filter((x) => !x.spent && BigInt(x.value) > 0n).length;
-  say(statusId, `${n} shielded note${n === 1 ? '' : 's'}${found ? `, and ${found} stealth payment${found === 1 ? '' : 's'} added to your wallet balance` : ', no new stealth payments'}.`);
+  say(statusId, `${n} shielded note${n === 1 ? '' : 's'}. ${found ? `${found} stealth payment${found === 1 ? '' : 's'} added to your wallet balance.` : 'No new stealth payments.'}`);
 }
 
 // ── boot ──
@@ -1017,7 +1017,7 @@ function renderClaimLinks() {
       return b;
     };
     if (rec.link) {
-      act('copy link', (b) => { navigator.clipboard?.writeText(rec.link); b.textContent = 'copied'; });
+      act('Copy link', (b) => { navigator.clipboard?.writeText(rec.link); b.textContent = 'Copied'; });
     } else {
       let pinField = null;
       if (rec.pinned) {
@@ -1027,9 +1027,9 @@ function renderClaimLinks() {
         pinField.className = 'field-in sm';
         acts.append(pinField);
       }
-      act('find the link', (b) => busy(b, 'st-claim-links', () => findClaimLink(rec, pinField ? pinField.value.trim() : '')));
+      act('Find the link', (b) => busy(b, 'st-claim-links', () => findClaimLink(rec, pinField ? pinField.value.trim() : '')));
     }
-    act('forget', () => {
+    act('Forget', () => {
       if (!confirm(rec.link ? 'Forget this link on this device? Anyone who already has it can still claim it.' : 'Forget this link? This device keeps the only copy of its secret.')) return;
       dropClaimLink(rec.secret);
     });
@@ -1076,7 +1076,7 @@ async function makeClaimLink() {
   });
   if (r.wait) {
     if (secret) dropClaimLink(secret);
-    return say('st-claim-make', `Your newest note needs ${r.wait} more Bitcoin block${r.wait === 1 ? '' : 's'} first.`);
+    return say('st-claim-make', `Your newest note needs ${r.wait} more Bitcoin block${r.wait === 1 ? '' : 's'} (≈ ${r.wait * 10} min) before it can be spent. Try again after that.`);
   }
   if (secret) patchClaimLink(secret, { txid: r.revealTxid, link: r.link });
   $('claim-amt').value = ''; $('claim-pin').value = '';
@@ -1085,9 +1085,9 @@ async function makeClaimLink() {
   field.readOnly = true; field.value = r.link; field.setAttribute('aria-label', 'Claim link');
   field.className = 'field-in out';
   const copy = document.createElement('button');
-  copy.className = 'btn ghost'; copy.textContent = 'Copy the link';
+  copy.className = 'btn ghost'; copy.textContent = 'Copy link';
   copy.onclick = () => { navigator.clipboard?.writeText(r.link); copy.textContent = 'Copied'; };
-  box.append(document.createTextNode(`${fmt(amount)} TAC is under this link. Anyone who opens it can take it${pin ? ', with the PIN' : ''}.`), field, copy);
+  box.append(document.createTextNode(`${fmt(amount)} TAC is under this link. Anyone who has the link${pin ? ' and the PIN' : ''} can take it.`), field, copy);
   say('st-claim-make', box);
   await loadShielded();
 }
@@ -1107,7 +1107,7 @@ async function showClaim(payload) {
   pinField.setAttribute('aria-label', 'PIN');
   pinField.className = 'field-in';
   const line = document.createElement('div'); line.className = 'kv';
-  const btn = document.createElement('button'); btn.className = 'btn'; btn.textContent = 'Claim into my wallet';
+  const btn = document.createElement('button'); btn.className = 'btn'; btn.textContent = 'Claim to your wallet';
   const st = document.createElement('div'); st.className = 'status'; st.id = 'st-claim'; st.setAttribute('role', 'status');
 
   async function refresh() {
@@ -1116,7 +1116,7 @@ async function showClaim(payload) {
       const r = await C.readClaim(S, S.pool, { secret32: parsed.secret32, pin: pinField.value.trim(), network: 'mainnet', asset: S.TAC_ASSET_MAINNET });
       line.replaceChildren(
         Object.assign(document.createElement('span'), { textContent: r.total > 0n ? 'Waiting for you' : 'Nothing under this link' }),
-        Object.assign(document.createElement('b'), { className: 'num', textContent: r.total > 0n ? `${fmt(r.total)} TAC${satsText(r.total) ? ' · ' + satsText(r.total) : ''}` : parsed.pinned ? 'check the PIN' : 'already claimed' }));
+        Object.assign(document.createElement('b'), { className: 'num', textContent: r.total > 0n ? `${fmt(r.total)} TAC${satsText(r.total) ? ' · ' + satsText(r.total) : ''}` : parsed.pinned ? 'Check the PIN' : 'Already claimed' }));
       btn.disabled = r.total <= 0n;
     } catch (e) { line.replaceChildren(); errSayInto(line, e); }
   }
@@ -1133,8 +1133,8 @@ async function showClaim(payload) {
       S, pool: S.pool, secret32: parsed.secret32, pin: pinField.value.trim(), network: 'mainnet',
       asset: S.TAC_ASSET_MAINNET, toAddress: poolWallet.addressString, fmt, say: (m) => { st.textContent = m; }, askSelf: askSelfPost('st-claim'),
     });
-    if (r.wait) { st.textContent = `The note needs ${r.wait} more Bitcoin block${r.wait === 1 ? '' : 's'} before it can move.`; return; }
-    st.replaceChildren(document.createTextNode('Claimed into your wallet in '), txLink(r.revealTxid), document.createTextNode(r.relayed ? ' — the fee came out of the TAC, so this cost you no bitcoin.' : '.'));
+    if (r.wait) { st.textContent = `The note needs ${r.wait} more Bitcoin block${r.wait === 1 ? '' : 's'} (≈ ${r.wait * 10} min) before it can move. Try again after that.`; return; }
+    st.replaceChildren(document.createTextNode('Claimed to your wallet in '), txLink(r.revealTxid), document.createTextNode(r.relayed ? '. The fee came out of the TAC, so it cost you no bitcoin.' : '.'));
     await refreshAll();
     await refresh();
   });
@@ -1211,7 +1211,7 @@ function renderSats() {
     await ensureKey();
     if (!shielded.notes.length && !shielded.loading) await loadShielded();
     const total = shieldedTotal() - (field === 'send-amt' ? relayFeeUnits() : 0n);
-    if (total <= 0n) return say(statusId, 'Nothing shielded yet — shield some TAC first.');
+    if (total <= 0n) return say(statusId, 'Nothing shielded yet. Shield some TAC first.');
     $(field).value = fmtPlain(total);
     $(field).dispatchEvent(new Event('input', { bubbles: true }));
     say(statusId, '');
@@ -1219,12 +1219,12 @@ function renderSats() {
   $('send-max').onclick = () => maxInto('send-amt', 'st-send')().catch((e) => errSay('st-send', e));
   $('exit-max').onclick = () => maxInto('exit-amt', 'st-exit')().catch((e) => errSay('st-exit', e));
   $('btn-copy').onclick = () => {
-    if (!poolWallet) return say('st-recv', 'Open your wallet first: your pool address is derived from its key.');
+    if (!poolWallet) return say('st-recv', 'Open your Tacit wallet first: your pool address is derived from its key.');
     navigator.clipboard?.writeText(poolWallet.addressString);
     say('st-recv', 'Pool address copied.');
   };
   $('btn-copy-tacit').onclick = () => {
-    if (!poolWallet) return say('st-recv', 'Open your wallet first: your Tacit address is derived from its key.');
+    if (!poolWallet) return say('st-recv', 'Open your Tacit wallet first: your Tacit address is derived from its key.');
     if (!tacitAddress) return say('st-recv', tacitAddress === false ? 'Your Tacit address could not be derived here. Copy the pool address instead.' : 'Still deriving your Tacit address. Try again in a moment, or copy the pool address.');
     navigator.clipboard?.writeText(tacitAddress);
     say('st-recv', 'Tacit address copied.');

@@ -122,7 +122,7 @@ function askDepth(sales, decimals = 8, mark = null, onBuy = null) {
   if (!rows.length) {
     return el('p', { class: 'note' }, sales.length
       ? `All ${sales.length} listings on the book have expired.`
-      : 'No asks standing on the book right now.');
+      : 'No asks on the book.');
   }
   // One listing priced hundreds of times over the market would otherwise dominate any total and read as
   // depth that is not really there, so the aggregate covers asks near the market and the rest is counted
@@ -154,7 +154,7 @@ function askDepth(sales, decimals = 8, mark = null, onBuy = null) {
     el('div', { class: 'kv' }, el('span', {}, 'Highest of those'), el('b', { class: 'num' }, `${num(shown[shown.length - 1].unit, 1)} sats / TAC`)),
     list,
     shown.length > 8 ? el('p', { class: 'note' }, `Showing the 8 cheapest of ${shown.length}.`) : null,
-    far ? el('p', { class: 'note' }, `${far} further ask${far === 1 ? '' : 's'} priced above ${num(band, 0)} sats — far over the market, and left out of the total.`) : null);
+    far ? el('p', { class: 'note' }, `${far} further ask${far === 1 ? ' is' : 's are'} priced above ${num(band, 0)} sats per TAC, far over the market, and left out of the total.`) : null);
 }
 
 // ── buying with sats ──
@@ -189,9 +189,9 @@ function buyer(host, ctx, mark) {
     const mine = ++seq;                                          // a read for an earlier wallet state never paints over a later one
     if (!ctx.unlocked?.()) {
       shown = null;
-      const open = el('button', { class: 'link', type: 'button' }, 'Open your wallet');
+      const open = el('button', { class: 'link', type: 'button' }, 'Open your Tacit wallet');
       open.onclick = () => ctx.busy(open, st, async () => { await ctx.ensureKey(); await paintFund(); });
-      fund.replaceChildren(el('p', { class: 'note' }, 'Buying takes sats from your Tacit wallet’s Bitcoin address. ', open, ' to buy.'));
+      fund.replaceChildren(el('p', { class: 'note' }, 'Buying takes sats from your Bitcoin address. ', open, ' to buy.'));
       return;
     }
     fund.replaceChildren(el('p', { class: 'note' }, 'Reading your Bitcoin address…'));
@@ -199,8 +199,8 @@ function buyer(host, ctx, mark) {
       const T = ctx.T, f = await freeSats(T);
       if (mine !== seq) return;
       shown = f.addr;
-      const copy = el('button', { class: 'link', type: 'button' }, 'copy');
-      copy.onclick = () => navigator.clipboard?.writeText(f.addr).then(() => { copy.textContent = 'copied'; }).catch(() => {});
+      const copy = el('button', { class: 'link', type: 'button' }, 'Copy');
+      copy.onclick = () => navigator.clipboard?.writeText(f.addr).then(() => { copy.textContent = 'Copied'; }).catch(() => {});
       fill(fund,
         el('div', { class: 'kv' }, el('span', {}, 'Pay from'), el('b', { class: 'num' }, `${f.addr.slice(0, 10)}…${f.addr.slice(-6)} `, copy)),
         el('div', { class: 'kv' }, el('span', {}, 'Sats there'), el('b', { class: 'num' }, `${num(f.sats, 0)} sats`)),
@@ -227,7 +227,7 @@ function buyer(host, ctx, mark) {
     return ctx.busy(btn, st, async () => {
       await ctx.ensureKey();
       // What was shown must be what pays: if the open key is not the address above, say so and show the new one.
-      if (!shown || ctx.T.wallet.address() !== shown) { await paintFund(); throw new Error('The wallet changed since the address above was read. Check it, then press Buy again.'); }
+      if (!shown || ctx.T.wallet.address() !== shown) { await paintFund(); throw new Error('Your Tacit wallet changed since the address above was read. Check it, then press Buy again.'); }
       try {
         const res = await ctx.turn(() => ctx.T.takePreauthSale({ assetIdHex: ASSET, saleIdHex: r.sale.sale_id, sale: r.sale, onProgress: (s) => ctx.say(st, STAGE[s] || 'Working…') }));
         notice = () => [el('span', { class: 'ok' }, `Bought ${num(r.units, 2)} TAC.`), ' ', ctx.txLink(res.reveal_txid)];
@@ -268,7 +268,7 @@ export async function mount(host, ctx = {}) {
   const chg = Number(row.price_24h_change_pct);
   const buy = buyer(host, ctx, mark);
   wrap.append(
-    el('p', { class: 'eyebrow' }, 'TAC on the Bitcoin orderbook'),
+    el('p', { class: 'eyebrow' }, 'TAC on the Bitcoin order book'),
     el('div', { class: 'bal' },
       el('div', {},
         el('div', { class: 'uu' }, el('span', { class: 'v num' }, mark == null ? '—' : num(mark, 2)), el('span', { class: 'u' }, 'sats / TAC')),
@@ -278,12 +278,12 @@ export async function mount(host, ctx = {}) {
     el('div', { class: 'chips' }, ...[['1h', row.price_1h_change_pct], ['4h', row.price_4h_change_pct], ['24h', row.price_24h_change_pct], ['7d', row.price_7d_change_pct], ['all', row.price_all_change_pct]]
       .filter(([, v]) => Number.isFinite(Number(v)))
       .map(([k, v]) => el('span', { class: 'chipx' }, el('i', {}, k), el('b', { class: Number(v) >= 0 ? 'ok' : 'err' }, pct(v))))),
-    el('p', { class: 'note' }, `Price comes from real trades on the book, not a quote. ${(row.price_summary || []).length} points, holders ${num(row.holder_count || 0, 0)}.`),
+    el('p', { class: 'note' }, `Price comes from real trades on the book, not a quote. ${(row.price_summary || []).length} price points · ${num(row.holder_count || 0, 0)} holders.`),
     el('p', { class: 'eyebrow', style: 'margin-top:22px' }, 'Asks on the book'),
     ...(buy ? [buy.fund] : []),
     sales ? askDepth(sales, Number(row.decimals) || 8, mark, buy?.onBuy) : el('p', { class: 'note' }, 'Could not read the book.'),
     ...(buy ? [buy.status] : []),
-    el('p', { class: 'eyebrow', style: 'margin-top:22px' }, 'TAC / ETH precision pool'),
+    el('p', { class: 'eyebrow', style: 'margin-top:22px' }, 'TAC / ETH Precision pool'),
     el('div', { id: 'prec-body' }, el('p', { class: 'note' }, 'Reading Ethereum…')),
   );
   host.replaceChildren(wrap);
@@ -306,12 +306,12 @@ export async function mount(host, ctx = {}) {
       el('div', { class: 'kv' }, el('span', {}, 'Rate'), el('b', { class: 'num' }, `${num(tacPerEth, 0)} TAC / ETH`)),
       el('div', { class: 'kv' }, el('span', {}, 'Staked in the farm'), el('b', { class: 'num' }, `${num((staked / (supply || 1)) * 100, 1)}% of LP`)),
       el('div', { class: 'kv' }, el('span', {}, 'Streaming'), el('b', { class: 'num' }, ended ? 'ended' : `${num(perDay, 0)} TAC / day`)),
-      el('div', { class: 'kv' }, el('span', {}, ended ? 'Ended' : 'Runs for'), el('b', { class: 'num' }, ended ? new Date(p.finish * 1000).toISOString().slice(0, 10) : `${days} more days`)),
+      el('div', { class: 'kv' }, el('span', {}, ended ? 'Ended' : 'Runs for'), el('b', { class: 'num' }, ended ? new Date(p.finish * 1000).toISOString().slice(0, 10) : `${days} more day${days === 1 ? '' : 's'}`)),
       apr != null && !ended ? el('div', { class: 'kv' }, el('span', {}, 'Rewards vs staked value'), el('b', { class: 'num' }, `≈ ${num(apr, 0)}% a year`)) : null,
       el('p', { class: 'note' }, ended
         ? 'The stream has ended: withdrawing and claiming still work, but a new stake earns nothing until the farm is funded again.'
-        : 'That rate moves sharply as stake joins or leaves — it is a snapshot, not a promise. Nothing indexes this pool over time, so there is no line to draw here yet.'),
-      el('p', { class: 'note' }, 'A one-sided deposit into a pool this thin moves the price against itself. Add both sides when you hold both.'),
+        : 'That rate moves sharply as stake joins or leaves: it is a snapshot, not a promise. Nothing indexes this pool over time, so there is no chart yet.'),
+      el('p', { class: 'note' }, 'A one-sided deposit into a pool this thin moves the price against you. Add both sides when you hold both.'),
     );
   } catch (e) {
     document.getElementById('prec-body').replaceChildren(el('p', { class: 'note err' }, `Could not read the pool: ${words(ctx, e)}`));

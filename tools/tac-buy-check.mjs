@@ -48,7 +48,7 @@ try {
   await page.waitForSelector('#market-body .dep', { timeout: 60000 });
   const asks = await page.$$eval('#market-body .dep .buy', (b) => b.length);
   ok(asks > 0, `the asks on the book carry Buy buttons (${asks})`);
-  ok(/Open your wallet/.test(await text('#market-body .fund')), 'locked: the page asks for the wallet before buying');
+  ok(/Open your Tacit wallet/.test(await text('#market-body .fund')), 'locked: the page asks for the wallet before buying');
 
   await page.click('#wallet-chip');
   // A key made for this run, pasted, so no one can have funded its address: pressing Confirm below can never send

@@ -99,10 +99,10 @@ export async function readClaim(S, pool, { secret32, pin = '', network = 'mainne
 export async function sweepClaim(tacit, { S, pool, secret32, pin = '', network = 'mainnet', asset, toAddress, fmt = String, say = () => {}, askSelf = null }) {
   const from = claimPoolWallet(pool, secret32, { pin, network });
   const { total } = await readClaim(S, pool, { secret32, pin, network, asset });
-  if (total <= 0n) throw new Error(`Nothing is under this link now: it has been claimed already${pin ? ', or that PIN is not the one it was made with' : ''}.`);
+  if (total <= 0n) throw new Error(`Nothing is left under this link: it was already claimed${pin ? ', or the PIN is not the one it was made with' : ''}.`);
   try { return await S.payPrivately(tacit, { poolWallet: from, to: toAddress, amount: total, deductFee: true, asset, say, askSelf }); }
   catch (e) {
-    if (e?.feeOver != null) throw new Error(`The relay's fee (${fmt(e.feeOver)} TAC) is more than this link holds (${fmt(total)} TAC).`);
+    if (e?.feeOver != null) throw new Error(`The relay’s fee (${fmt(e.feeOver)} TAC) is more than this link holds (${fmt(total)} TAC). Nothing was sent.`);
     throw e;
   }
 }
