@@ -23,7 +23,7 @@
 //   activate → delete old cache versions
 //   fetch → route by URL pattern, fall back to network on any error
 
-const CACHE_VERSION = 'v1-ipfs-cid-verified-immutable-57133d53';
+const CACHE_VERSION = 'v2-confirmed-tx-ipfs-verified-57133d53';
 const STATIC_CACHE  = `tacit-static-${CACHE_VERSION}`;
 const IMMUTABLE_CACHE = `tacit-immutable-${CACHE_VERSION}`;
 
@@ -95,8 +95,9 @@ function _cacheForRequest(url) {
 // /chain/tx/<txid> stays pattern-matched: a confirmed tx body is immutable,
 // and the response is the worker's JSON rendering of the tx rather than the
 // preimage of the txid, so there is nothing to hash-check here. Nothing
-// executable is fetched this way and the dapp re-polls mempool-aware paths
-// until confirmation lands.
+// executable is fetched this way. An answer is stored only once it says the
+// tx is confirmed; one for a tx still in the mempool goes through as it came
+// and is asked again, so the dapp's polling sees confirmation land.
 function _isImmutableTxPath(url) {
   return /^\/chain\/tx\/[0-9a-f]{64}$/i.test(url.pathname);
 }
@@ -169,9 +170,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Confirmed-tx bodies: pattern-matched, immutable, nothing to verify.
+  // Confirmed-tx bodies: pattern-matched, immutable once confirmed, nothing to verify.
   if (_isImmutableTxPath(url)) {
-    event.respondWith(_cacheFirst(req, IMMUTABLE_CACHE));
+    event.respondWith(_cacheConfirmedTx(req));
     return;
   }
 
@@ -220,6 +221,23 @@ async function _cacheFirst(req, cacheName) {
   if (resp && resp.ok) {
     // Clone before storing because Response bodies are single-use.
     try { _putReplacingBuilds(cache, req, resp.clone()).catch(() => {}); } catch { /* quota / opaque — fine */ }
+  }
+  return resp;
+}
+
+// Cache-first for a tx body that says it is confirmed. Anything else (unconfirmed, not JSON, an error status) is returned unstored.
+async function _cacheConfirmedTx(req) {
+  const cache = await caches.open(IMMUTABLE_CACHE);
+  const cached = await cache.match(req);
+  if (cached) return cached;
+  let resp;
+  try { resp = await fetch(req); }
+  catch { return Response.error(); }
+  if (resp && resp.ok) {
+    try {
+      const body = await resp.clone().json();
+      if (body && body.status && body.status.confirmed === true) cache.put(req, resp.clone()).catch(() => {});
+    } catch { /* not JSON: nothing is stored */ }
   }
   return resp;
 }

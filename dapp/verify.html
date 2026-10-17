@@ -14,7 +14,7 @@
      CDN. connect-src is limited to public Bitcoin explorers, IPFS gateways and public
      Ethereum nodes.
      No third-party script, no analytics. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-gRRb0VRFppCsaXk5rogUp+CVPuQvh/mKYKN4I6m2J2E='; style-src 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src https://mempool.space https://blockstream.info https://gateway.pinata.cloud https://ipfs.filebase.io https://ipfs.orbitor.dev https://ipfs.io https://dweb.link https://ethereum-rpc.publicnode.com https://rpc.mevblocker.io https://eth.drpc.org; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Po6rvjhi9KhB5H8FNUTNvbCz1ML0BheRFfAtFhvXZIo='; style-src 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src https://mempool.space https://blockstream.info https://gateway.pinata.cloud https://ipfs.filebase.io https://ipfs.orbitor.dev https://ipfs.io https://dweb.link https://ethereum-rpc.publicnode.com https://rpc.mevblocker.io https://eth.drpc.org; base-uri 'none'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
@@ -400,7 +400,8 @@ const erowsEl = document.getElementById('erows'), everdictEl = document.getEleme
 let anyFail = false;
 function row(label, list = rowsEl) {
   const el = document.createElement('li'); el.className = 'step run';
-  el.innerHTML = `<span class="n">${list.children.length + 1}</span><div><h3>${label}</h3><div class="d"></div></div>`;
+  el.innerHTML = `<span class="n">${list.children.length + 1}</span><div><h3></h3><div class="d"></div></div>`;
+  el.querySelector('h3').textContent = label;
   list.appendChild(el); return el;
 }
 function settle(el, pass, extra = '') {
