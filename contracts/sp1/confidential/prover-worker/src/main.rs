@@ -110,7 +110,7 @@ fn main() {
     let token = if bench.is_some() { String::new() } else { std::env::var("WORKER_TOKEN").expect("WORKER_TOKEN is the bearer the API knows this worker by") };
     let name = env_or("WORKER_NAME", "worker");
     let classes: Vec<String> = env_or("CLASSES", "private,public").split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
-    let poll = Duration::from_millis(env_or("POLL_MS", "3000").parse().expect("POLL_MS"));
+    let poll = Duration::from_millis(env_or("POLL_MS", "1000").parse().expect("POLL_MS"));
     let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(60)).build();
 
     // While it starts (the prover built, the GPU warmed: about a minute) the worker tells the board it is coming, every ten seconds, so
@@ -195,7 +195,8 @@ fn main() {
     // A GPU server is not kept for ever. Measured 2026-10-17: a fresh server makes the Groth16 proof in 6-8 s; after a while it falls into
     // a regime where every proof takes 100 s (the GPU's part done on the CPU, by the look of the constant time) and stays there until it is
     // restarted, and once it hung there. So the worker exits, and the loop starts a fresh server, when two proofs in a row took longer than
-    // SLOW_PROOF_SECS, and in any case after JOBS_PER_SERVER jobs.
+    // SLOW_PROOF_SECS (at once: the next job would be slow too), and after JOBS_PER_SERVER jobs at the first moment it has nothing in hand,
+    // so the planned restart (about a minute) falls between jobs and not in front of one; 2 x JOBS_PER_SERVER is the most it waits for that.
     let jobs_per_server = env_or("JOBS_PER_SERVER", "40").parse::<u32>().unwrap_or(40);
     let slow_secs = env_or("SLOW_PROOF_SECS", "90").parse::<f64>().unwrap_or(90.0);
     let mut jobs_done = 0u32;
@@ -240,6 +241,10 @@ fn main() {
         let job = match claimed {
             Ok(Claim { job: Some(j) }) => j,
             Ok(Claim { job: None }) => {
+                if jobs_done >= jobs_per_server {
+                    println!("[{name}] {jobs_done} jobs on this GPU server and nothing waiting; exiting so the loop starts a fresh worker and GPU server");
+                    std::process::exit(4);
+                }
                 quiet += 1;
                 if quiet % 100 == 1 { println!("[{name}] waiting for work"); }
                 std::thread::sleep(poll);
@@ -301,7 +306,7 @@ fn main() {
         }
         jobs_done += 1;
         slow_in_a_row = if outcome.is_ok() && t.elapsed().as_secs_f64() > slow_secs { slow_in_a_row + 1 } else { 0 };
-        if jobs_done >= jobs_per_server || slow_in_a_row >= 2 {
+        if jobs_done >= 2 * jobs_per_server || slow_in_a_row >= 2 {
             println!("[{name}] {}; exiting so the loop starts a fresh worker and GPU server", if slow_in_a_row >= 2 { format!("two proofs in a row took over {slow_secs} s") } else { format!("{jobs_done} jobs on this GPU server") });
             std::process::exit(4);
         }

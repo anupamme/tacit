@@ -5,7 +5,7 @@
 // never lose a job. `post`, `status`, `cancel` and `verify` are injected (lib/worker-client.js and the chain), so this is
 // tested without either.
 
-export function makeBoardProver({ post, status, cancel, verify, alive = null, waitMs = 240_000, pollMs = 3000, now = Date.now, sleep, log = () => {} } = {}) {
+export function makeBoardProver({ post, status, cancel, verify, alive = null, waitMs = 240_000, pollMs = 1000, now = Date.now, sleep, log = () => {} } = {}) {
   const wait = sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const miss = (reason, extra = {}) => Object.assign(new Error(`prover board: ${reason}`), { code: 'board_miss', reason, ...extra });
 
