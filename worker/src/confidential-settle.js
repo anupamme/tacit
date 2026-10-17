@@ -77,7 +77,7 @@ export function makeLock() {
   };
 }
 
-export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee, sleep, lock, verifyPosted, expiryOf }) {
+export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee, sleep, lock, verifyPosted, expiryOf, refund }) {
   // storage: { getPending()->id[], putPending(id[]), getJob(id)->job|null, putJob(id, job) }
   // feeGate({ type, op }) -> bool : OPTIONAL profitability gate for the relayed (mode:'settle') flow — reject
   //   a fee below the current gas-priced floor (relay-quote.js `passesFloor`) before burning a prove cycle.
@@ -93,6 +93,8 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
   //   chain (a simulated settle) before it goes on the board. Absent ⇒ posted proofs are refused.
   // expiryOf({ type, op, publicValues }) -> unix seconds (0 = none) : OPTIONAL, when an open job's settle stops being
   //   valid, so the board drops it then rather than after OPEN_TTL_MS.
+  // refund({ day, names }) -> Promise : OPTIONAL, gives back the allowances a job was charged (submitJob's `charge`) when it ends failed
+  //   for a reason that was not the holder's: the relay's prover did not run, or the pool moved past the root the op was built on.
   const clock = now || (() => Date.now());
   const exclusive = lock || makeLock();
   const wait = sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
@@ -123,7 +125,11 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
   const SEALED_SHAPE = (x) => x && typeof x === 'object' && typeof x.worker === 'string' && /^[A-Za-z0-9_.-]{1,40}$/.test(x.worker)
     && typeof x.epk === 'string' && /^0x0[23][0-9a-fA-F]{64}$/.test(x.epk) && typeof x.iv === 'string' && /^[A-Za-z0-9+/]+={0,2}$/.test(x.iv) && x.iv.length === 16
     && typeof x.ct === 'string' && /^[A-Za-z0-9+/]+={0,2}$/.test(x.ct) && x.ct.length >= 24 && x.ct.length <= 1_400_000;
-  async function submitJob({ type, op, memos, mode = 'settle', feeAsset = null, exit = null, publicValues = null, proof = null, paid = false, sealed = null }) {
+  // `charge`: { day, names } — the daily allowances the caller spends on this job once it is accepted. Kept on the job so they can be
+  // given back if the relay fails it on its own account (see ackJobLocked); nothing else reads it.
+  const chargeOf = (c) => (c && typeof c === 'object' && /^\d{4}-\d{2}-\d{2}$/.test(String(c.day)) && Array.isArray(c.names)
+    ? { day: String(c.day), names: c.names.map(String).slice(0, 6) } : null);
+  async function submitJob({ type, op, memos, mode = 'settle', feeAsset = null, exit = null, publicValues = null, proof = null, paid = false, sealed = null, charge = null }) {
     if (mode === 'preproven') return postProven({ type, memos, publicValues, proof });
     if (mode === 'sealed') {
       if (!type || !SEALED_SHAPE(sealed)) throw new Error('submitJob: a sealed job needs type + sealed { worker, epk, iv, ct }');
@@ -178,6 +184,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
       feeToken: priced?.feeToken ?? null,
       // A prove-only wrap whose deposit tipped the relay: paid work, proved whatever the credit (the relay reads it).
       ...(paid === true ? { paid: true } : {}),
+      ...(chargeOf(charge) ? { charge: chargeOf(charge) } : {}),
       // feeAsset: the public ERC20/ETH address of this op's relay FeePayment (native ETH = the zero
       // address / null). The relayer needs it for the relaySettle path so TacitRelayer forwards the right
       // token to the ops fee recipient; the direct-settle path ignores it (fee → msg.sender in-kind).
@@ -502,6 +509,10 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
   const RELAY_SIDE_FAILURE = (m) => /produced no proof|could not make this proof|prover is not available|sealed prover|GPU server|no worker|board_miss|ECONNREFUSED|ETIMEDOUT/i.test(m)
     && !/unexecutable|execution failed|failed to execute|exceeded cycle limit|VKEY|stale|feeGate|reverted|fee below|did not pass/i.test(m);
   const RETRY_DELAY_MS = 3 * 60_000;
+  // A failure that was not the holder's: the relay's own, as above, or the pool's burn root moving past the one a bridge mint was built
+  // on while it waited, or its deadline passing in the relay's queue. The holder's day of free settles was spent on a settle that did
+  // not happen, so it is given back (`refund`), once: the charge leaves the job as it is refunded.
+  const NOT_THE_HOLDERS = (m) => RELAY_SIDE_FAILURE(m) || /moved on while this mint was waiting|0x8a98f245|waited in the queue past its deadline/i.test(m);
   async function ackJobLocked(jobId, { txHash, error, publicValues, proof, activateTx, activateError, broadcastHashes, settledBy, open, requeue, release, lane }) {
     const j = await storage.getJob(jobId);
     if (!j) return { ok: false, reason: 'unknown job' };
@@ -533,8 +544,10 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
       if (!pend.includes(jobId)) { pend.push(jobId); await storage.putPending(pend); }
       return ackView(j);
     }
+    let owed = null;
     if (error) {
       j.status = 'failed'; j.error = String(error);
+      if (j.charge && refund && NOT_THE_HOLDERS(String(error))) { owed = j.charge; j.charge = null; }
       // A settle can be given up on and still be included: a private endpoint keeps re-submitting an
       // accepted bundle long after the relay stops waiting. Keeping the hashes on the job is what makes
       // that recoverable at all — the relay's own memory of them dies with the process, and afterwards
@@ -564,6 +577,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
     // Any terminal outcome leaves the pending queue (the job record is kept for status lookups).
     const pend = (await storage.getPending()).filter((x) => x !== jobId);
     await storage.putPending(pend);
+    if (owed) { try { await refund(owed); } catch { /* the allowances are approximate by design; a refund that fails is not worth failing the ack for */ } }
     return ackView(j);
   }
 
@@ -652,7 +666,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
 // KV-backed wiring for the worker runtime. KV keys: cps:pending (id[]), cps:open (id[]), cps:job:<id> (job).
 // The worker builds a settler per request, so the queue lock lives per KV namespace, not per settler.
 const kvLocks = new WeakMap();
-export function buildConfidentialSettler(env, { hash, feeGate, priceFee, verifyPosted, expiryOf }) {
+export function buildConfidentialSettler(env, { hash, feeGate, priceFee, verifyPosted, expiryOf, refund }) {
   const KV = env.CONFIDENTIAL_KV || env.REGISTRY_KV;
   if (KV && !kvLocks.has(KV)) kvLocks.set(KV, makeLock());
   const storage = {
@@ -663,5 +677,5 @@ export function buildConfidentialSettler(env, { hash, feeGate, priceFee, verifyP
     getOpen: async () => { const s = await KV.get('cps:open'); return s ? JSON.parse(s) : []; },
     putOpen: async (ids) => KV.put('cps:open', JSON.stringify(ids)),
   };
-  return makeConfidentialSettler({ storage, hash, feeGate, priceFee, verifyPosted, expiryOf, lock: kvLocks.get(KV) });
+  return makeConfidentialSettler({ storage, hash, feeGate, priceFee, verifyPosted, expiryOf, refund, lock: kvLocks.get(KV) });
 }

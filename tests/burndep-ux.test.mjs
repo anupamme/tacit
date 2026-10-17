@@ -1665,5 +1665,28 @@ function storageContainsPrivkey(storage, priv) {
   const down = await refusedWith('trace failed: esplora 503');
   ok(down.step && !down.step.ok && !/hop\(s\) to the etch/.test(down.step.detail) && /esplora 503/.test(down.step.detail), 'a read that failed keeps its own words, and the page still says to try again');
 }
+// ==== a failure that was the relay's or the day's is not one of a bridge's four tries ====
+{
+  const { ux, r } = await atRfolded(makeMemStorage(), { nullifierSpent: async () => false });
+  const cur = () => ux.list(r.walletPub).find((x) => x.id === r.id);
+  const fail = async (msg, code) => { await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV, selfSettle: async () => { throw Object.assign(new Error(msg), code ? { code } : {}); } }).catch(() => {}); return cur(); };
+  let c;
+  for (let i = 0; i < 5; i++) c = await fail('settle failed: prove failed: exec:bridgemint produced no proof (code=101): ENOENT: no such file or directory');
+  ok(c.stage === 'rfolded' && c.lastError && !c.lastError.until && c.errorCount === 0 && ux.relayFault(c.lastError),
+    'five failures that were the relay’s own are recorded for the row to show, and none of them is one of the bridge’s tries');
+  c = await fail('the free relayed settles for today are used up (12/12)', 'free_budget');
+  const until = c.lastError.until, d = new Date(until);
+  ok(c.errorCount === 0 && until > Date.now() && until - Date.now() <= 24 * 3600e3 + 60e3 && d.getUTCHours() === 0 && d.getUTCMinutes() === 1,
+    `a day’s allowance used up is no try either, and names the next midnight UTC as when it lifts (${d.toISOString()})`);
+  c = await fail('this burn has used its free relayed settles for today (4/4): send it from your own account');
+  ok(c.errorCount === 0 && c.lastError.until > Date.now(), 'a burn’s own allowance used up reads the same without its code');
+  c = await fail('the settle reverted');
+  ok(c.errorCount === 1 && !c.lastError.until && !ux.relayFault(c.lastError), 'a failure that was the bridge’s still counts as a try');
+  c = await fail('the settle reverted');
+  ok(c.errorCount === 2, 'and keeps counting');
+  ok([['prove capacity for today is used up (150/150)', true], ['your share of relay-paid proofs for today is used up', true], ['Bitcoin’s proof on Ethereum moved on while this mint was waiting', true],
+    ['the relay’s prover could not make this proof just now', true], ['receipt timeout', false], ['settle reverted: NullifierAlreadySpent', false]].every(([m, want]) => ux.relayFault(new Error(m)) === want),
+  'which failures are the relay’s or the day’s is told by their words');
+}
 console.log(failures ? `\n${failures} FAILURES (${n} passed)` : `\nall ${n} burndep-ux checks passed`);
 process.exit(failures ? 1 : 0);

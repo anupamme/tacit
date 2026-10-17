@@ -31,7 +31,7 @@ function burn(vout = 1) {
   burns.insert(burnId, destLeaf);
   const snapshot = { noteLeaves: ['0x' + '01'.repeat(32), srcLeaf], burnNodes: burns.nodes() };
   const build = () => { const built = bm.buildBridgeMintOp({ chainBinding: CHAIN_BINDING, asset: ASSET, spentTxid: SPENT_TXID, spentVout: vout, sourceClass: 2, burned, dest, snapshot }); return { op: JSON.parse(JSON.stringify(built.op)), root: built.op.bitcoinBurnRoot }; };
-  return { build };
+  return { build, burnId };
 }
 const mint = (vout = 1) => burn(vout).build();
 
@@ -48,13 +48,18 @@ globalThis.fetch = async (url, init) => {
   return new Response('{}', { status: 404 });
 };
 const kv = memKv();
-const env = { CONFIDENTIAL_SETTLE: '1', REGISTRY_KV: kv, CONFIDENTIAL_KV: kv, FREE_RELAY_CAP_ONBOARD: '12', PROVE_RL_BURST: '1000' };
+const BOX_TOKEN = 'box-token-for-the-test-0123456789';
+const env = { CONFIDENTIAL_SETTLE: '1', REGISTRY_KV: kv, CONFIDENTIAL_KV: kv, CONFIDENTIAL_BOX_TOKEN: BOX_TOKEN, FREE_RELAY_CAP_ONBOARD: '12', PROVE_RL_BURST: '1000' };
 let ipSeq = 0;
 const submit = async (op) => {
   const res = await worker.default.fetch(new Request('https://api.test/confidential/submit', { method: 'POST', headers: { 'content-type': 'application/json', 'CF-Connecting-IP': `203.0.113.${++ipSeq}` }, body: JSON.stringify({ type: 'bridgemint', op, memos: [] }) }), env, { waitUntil() {} });
   return { status: res.status, body: await res.json() };
 };
-const onboardUsed = () => Number(kv._m.get(`cps:budget:free:onboard:${new Date().toISOString().slice(0, 10)}`) || 0);
+const day = () => new Date().toISOString().slice(0, 10);
+const used = (name) => Number(kv._m.get(`cps:budget:${name}:${day()}`) || 0);
+const onboardUsed = () => used('free:onboard');
+// The settle relay's ack, as it fails a job.
+const fail = async (jobId, error) => (await worker.default.fetch(new Request('https://api.test/confidential/ack', { method: 'POST', headers: { 'content-type': 'application/json', Authorization: `Bearer ${BOX_TOKEN}` }, body: JSON.stringify({ jobId, error }) }), env, { waitUntil() {} })).json();
 
 test('junk posted as a bridge mint is refused and uses none of the day\'s free settles', async () => {
   const m = mint();
@@ -94,6 +99,46 @@ test('the mint of a recorded burn is taken and spends one free settle; one burn 
   const other = burn(3).build();
   poolRoot = other.root;
   assert.equal((await submit(other.op)).status, 200);
+});
+
+// What a free settle spent is given back when the job ends failed for a reason that was not the holder's, so a relay that fails its jobs
+// does not use up the day's allowance.
+const spentFor = (b) => ({ free: used('free'), onboard: onboardUsed(), burn: used(`bridgemint:${b.burnId}`) });
+
+test('a mint the pool moved past while it waited gives its free settle back, once', async () => {
+  const b = burn(5), m = b.build(), before = spentFor(b);
+  poolRoot = m.root;
+  const r = await submit(m.op);
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.deepEqual(spentFor(b), { free: before.free + 1, onboard: before.onboard + 1, burn: 1 });
+  const done = await fail(r.body.jobId, 'settle reverted: Execution reverted for an unknown reason. (0x8a98f245)');
+  assert.equal(done.status, 'failed');
+  assert.deepEqual(spentFor(b), before, 'the day, the class and the burn have each their settle back');
+  await fail(r.body.jobId, 'settle reverted: Execution reverted for an unknown reason. (0x8a98f245)');
+  assert.deepEqual(spentFor(b), before, 'a second ack of the same failure gives nothing more back');
+});
+
+test('a mint refused for the holder\'s own reason keeps its settle spent', async () => {
+  const b = burn(6), m = b.build();
+  poolRoot = m.root;
+  const r = await submit(m.op), before = spentFor(b);
+  const done = await fail(r.body.jobId, 'feeGate: fee below the current floor');
+  assert.equal(done.status, 'failed');
+  assert.deepEqual(spentFor(b), before);
+});
+
+test('a proof the relay could not make is tried once more, and only its final failure gives the settle back', async () => {
+  const b = burn(7), m = b.build(), before = spentFor(b);
+  poolRoot = m.root;
+  const r = await submit(m.op);
+  const spent = spentFor(b);
+  assert.equal(spent.onboard, before.onboard + 1);
+  const first = await fail(r.body.jobId, 'prove failed: exec:bridgemint produced no proof (code=101): ENOENT');
+  assert.equal(first.status, 'pending', 'the first failure of this kind is tried again');
+  assert.deepEqual(spentFor(b), spent, 'and the settle stays spent while it is');
+  const last = await fail(r.body.jobId, 'prove failed: exec:bridgemint produced no proof (code=101): ENOENT');
+  assert.equal(last.status, 'failed');
+  assert.deepEqual(spentFor(b), before, 'the second failure is final, and the settle is given back');
 });
 
 test.after(() => { globalThis.fetch = realFetch; });

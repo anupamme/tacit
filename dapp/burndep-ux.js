@@ -50,6 +50,14 @@ const DEST_INDEXES = 8; // matches confidential-recovery.js's walkBridgeMints de
 const MINT_WAIT_MS = 15 * 60 * 1000;
 // How long a mint the relay took is left to land before it is built and sent again.
 const MINT_QUEUE_MS = 20 * 60 * 1000;
+// A failure that was not the bridge's: the relay's own (its prover did not run), the pool's burn root moving on while a mint waited, or
+// the day's free settles or proofs used up. The relay gives the settle of the first two back, so asking again costs the holder nothing,
+// and the last lifts at the next midnight UTC. None of them uses up the few tries a bridge is given (`errorCount`).
+const DAY_REFUSAL = /free relayed settles for today|prove capacity for today|relay-paid proofs for today/i;
+const BUDGET_CODES = ['free_budget', 'prove_budget'];
+const dayRefusal = (e) => BUDGET_CODES.includes(e && e.code) || DAY_REFUSAL.test(String((e && e.message) || e || ''));
+export const relayFault = (e) => dayRefusal(e) || /produced no proof|could not make this proof|moved on while this/i.test(String((e && e.message) || e || ''));
+const nextUtcDay = (t) => { const d = new Date(t); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 1); };
 
 const stripHex = (h) => String(h).replace(/^0x/, '');
 const withHex = (h) => (String(h).startsWith('0x') ? String(h) : '0x' + String(h));
@@ -639,7 +647,11 @@ export function makeBurnDepositUx(deps) {
     } catch (e) {
       // Only a record still where this call found it takes the error: one that another page moved on keeps what it reached.
       const now_ = at && getRecord(walletPub, id);
-      if (now_ && now_.stage === at.stage && !(WAITS.has(at.stage) && passing(e))) putRecord({ ...now_, lastError: { message: String((e && e.message) || e), at: now() }, errorCount: (now_.errorCount || 0) + 1 });
+      if (now_ && now_.stage === at.stage && !(WAITS.has(at.stage) && passing(e))) {
+        // The day's allowance used up names when it lifts (`until`), so the page goes on by itself then; and a failure that was the
+        // relay's or the day's is not one of the bridge's tries.
+        putRecord({ ...now_, lastError: { message: String((e && e.message) || e), at: now(), ...(dayRefusal(e) ? { until: nextUtcDay(now()) } : {}) }, errorCount: (now_.errorCount || 0) + (relayFault(e) ? 0 : 1) });
+      }
       throw e;
     } finally { inFlight.delete(id); clearInterval(renew); releaseLease(id); }
   }
@@ -1290,7 +1302,7 @@ export function makeBurnDepositUx(deps) {
 
   return {
     BURNDEP_BETA_CAP_RAW, assets: ASSETS, assetOf, eligibleNotes, isReserved, pickFunding, bridgeCost, noteForms, preflight, preflightHeld, recheckBurn, RETURN_FEE_CEILING, start, startReflected, advance, resumeAll, recoverFromTxid, discover, list, abandon,
-    cancelSigned, buildCancel, reclaim, recover, verify, isLive, burnRecorded, destLeaf,
+    cancelSigned, buildCancel, reclaim, recover, verify, isLive, burnRecorded, destLeaf, relayFault,
     // Bitcoin's priority fee rate now (sat/vB), as the builders price a move or a one-step burn.
     quoteRate: () => chain.getFeeRate('priority'),
     slipstreamStatus: broadcaster.slipstreamStatus,

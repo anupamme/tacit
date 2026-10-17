@@ -2968,7 +2968,7 @@ function confSettler(env) {
   if (!kv) return null;
   const hash = (s) => '0x' + [...keccak_256(new TextEncoder().encode(s))].map((b) => b.toString(16).padStart(2, '0')).join('');
   return buildConfidentialSettler(env, { hash, feeGate: buildRelayFeeGate(env), priceFee: buildFeePricer(env),
-    verifyPosted: (p) => simulateSettle(env, p), expiryOf: openExpiryOf });
+    verifyPosted: (p) => simulateSettle(env, p), expiryOf: openExpiryOf, refund: (charge) => refundDailyBudgets(env, charge) });
 }
 
 // The open board (worker/src/confidential-open.js): proofs waiting for any sender, whoever sends one paid its fee.
@@ -3191,6 +3191,21 @@ async function spendDailyBudget(env, name) {
     const used = Number((await kv.get(key)) || 0);
     await kv.put(key, String(used + 1), { expirationTtl: 172800 });
   });
+}
+// Gives back what a job was charged (the names it spent, confidential-settle.js `charge`) when the relay failed it on its own account:
+// one off each counter, never below zero, and only for today's counters (a charge from an earlier day has expired with its day).
+const REFUNDABLE = /^(free|free:[a-z]+|bridgemint:0x[0-9a-f]{64})$/;
+async function refundDailyBudgets(env, charge) {
+  const kv = env.CONFIDENTIAL_KV || env.REGISTRY_KV;
+  if (!kv || !charge || charge.day !== new Date().toISOString().slice(0, 10)) return;
+  for (const name of charge.names || []) {
+    if (!REFUNDABLE.test(String(name))) continue;
+    const key = budgetKey(name);
+    await withKvKeyLock(key, async () => {
+      const used = Number((await kv.get(key)) || 0);
+      if (used > 0) await kv.put(key, String(used - 1), { expirationTtl: 172800 });
+    });
+  }
 }
 const proveBudget = (env) => dailyBudget(env, 'prove', Number(env.PROVE_MODE_DAILY_CAP || 150));
 const spendProveBudget = (env) => spendDailyBudget(env, 'prove');
@@ -3491,14 +3506,16 @@ async function handleConfidentialSubmit(req, env, cors) {
     const cb = await proveClientBudget(env, clientIp);
     if (!cb.ok) return jsonResponse({ ok: false, error: `your share of relay-paid proofs for today is used up (${cb.used}/${cb.cap}) — send it through the relay instead (it carries a fee), prove locally, or try again tomorrow`, code: 'prove_budget', class: 'client', hint: body.type === 'wrap' ? 'tip' : 'relay' }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '3600' });
   }
+  // What a free settle spends, kept on the job so it is given back if the relay fails the job on its own account.
+  const charge = feeless ? { day: new Date().toISOString().slice(0, 10), names: ['free', `free:${freeClassOf(body.type)}`, ...(mintBurn ? [`bridgemint:${mintBurn}`] : [])] } : undefined;
   try {
     const r = await q.submitJob({ type: body.type, op: body.op, memos: body.memos, mode: body.mode, feeAsset: body.feeAsset, exit: body.exit,
-      publicValues: body.publicValues, proof: body.proof, paid: paidProve || undefined, sealed: body.sealed });
+      publicValues: body.publicValues, proof: body.proof, paid: paidProve || undefined, sealed: body.sealed, charge });
     // Spend only on a job we actually accepted and will prove — a dedupe hit costs us nothing.
     if (!r.deduped) {
       if (onBoard) await spendDailyBudget(env, 'prove:board').catch(() => {});
       else if (submitMode === 'prove' && !paidProve) { await spendProveBudget(env).catch(() => {}); await spendDailyBudget(env, `prove:${clientIp}`).catch(() => {}); }
-      else if (feeless) { await spendDailyBudget(env, 'free').catch(() => {}); await spendDailyBudget(env, `free:${freeClassOf(body.type)}`).catch(() => {}); if (mintBurn) await spendDailyBudget(env, `bridgemint:${mintBurn}`).catch(() => {}); }
+      else if (feeless) { for (const name of charge.names) await spendDailyBudget(env, name).catch(() => {}); }
     }
     return jsonResponse({ ok: true, ...r, ...(relay ? { relay: relay.state } : {}) }, 200, { ...cors, 'Cache-Control': 'no-store' });
   } catch (e) { return jsonResponse({ ok: false, error: String(e && e.message || e) }, 400, cors); }

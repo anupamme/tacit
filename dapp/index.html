@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-XSsHu4iR3VzizUU+ABZuOSbNu3nMrAjgqfK1m+bsHUU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-fJr+rTCC2hBBQ7JuAEi8Y71YV1eLGU6gSWAei2lmYhQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -7494,8 +7494,11 @@ async function brTick(first = false) {
     for (const rec of ux.list(pub).filter((r) => !BR_DONE.includes(r.stage) && !BR_HELD.includes(r.stage))) {
       if (S.key?.pubHex !== pub) break;
       const ready = rec.stage === 'folded' || rec.stage === 'rfolded';
-      // A mint whose wait ran out is still in the relay's queue: until an hour has passed it is only looked for in the pool.
-      const due = ready && (!rec.lastError || ((Number(rec.errorCount) || 0) < 4 && Date.now() - Number(rec.lastError.at || 0) > (waitRanOut(rec.lastError) ? 60 : 10) * 60e3));
+      // A mint whose wait ran out is still in the relay's queue: until an hour has passed it is only looked for in the pool. A bridge is
+      // given four tries of its own; a failure that was the relay's or the day's (ux.relayFault) is none of them, and a day's allowance
+      // used up is tried again once it is lifted (`until`, the next midnight UTC), not every ten minutes against a closed door.
+      const due = ready && (!rec.lastError || (rec.lastError.until ? Date.now() >= rec.lastError.until
+        : (ux.relayFault(rec.lastError) || (Number(rec.errorCount) || 0) < 4) && Date.now() - Number(rec.lastError.at || 0) > (waitRanOut(rec.lastError) ? 60 : 10) * 60e3));
       try {
         // A moved note whose holder asked for its burn to be sent is burned here, within the miner's rate that was quoted: signed in a
         // tacit.js turn (it spends this key's sats), then handed to the miner, which needs no key.
