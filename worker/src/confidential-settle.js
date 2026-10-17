@@ -313,6 +313,9 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
     return null;
   }
 
+  // A settled job has no further use for its op (the user's witness) or a sealed input's ciphertext: its id, memos and transaction stay.
+  const forgetWitness = (j) => { delete j.op; if (j.sealed) j.sealed = { worker: j.sealed.worker }; };
+
   // A settle sent outside the relay (by the holder's own account, or another relayer from the board) closes its job once
   // verify(job, txHash) has seen it on chain. Only a job whose public values are known can be checked: open, sending, or
   // proven for its page to send.
@@ -329,6 +332,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
       if (cur.status === 'settled') return ackView(cur);
       cur.status = 'settled'; cur.txHash = String(txHash).toLowerCase(); cur.error = null;
       delete cur.broadcastHashes;
+      forgetWitness(cur);
       await storage.putJob(jobId, cur);
       // The same proof can sit on the board twice (relayed, and posted by its holder): one landing settles both.
       const ids = await getOpen(), closed = [jobId], pv = String(cur.publicValues).toLowerCase();
@@ -337,6 +341,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
         const o = await storage.getJob(id);
         if (!o || !(o.status === 'open' || o.status === 'sending') || String(o.publicValues || '').toLowerCase() !== pv) continue;
         o.status = 'settled'; o.txHash = cur.txHash; o.error = null;
+        forgetWitness(o);
         await storage.putJob(id, o);
         closed.push(id);
       }
@@ -558,7 +563,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
         j.broadcastHashes = broadcastHashes.slice(0, 8).map((h) => String(h));
       }
     } else if (settledBy) {
-      delete j.op;
+      forgetWitness(j);
       // What the job consumes was consumed by a settle found on chain (a deposit settled from elsewhere, by the page
       // itself or another settler): the job is done by that transaction, whichever mode it was asked in.
       j.status = 'settled'; j.txHash = String(settledBy);
@@ -570,8 +575,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
       j.status = 'settled'; j.txHash = txHash || null;
       if (LANES.includes(lane)) j.lane = lane;
       delete j.broadcastHashes; // resolved: the one that landed is j.txHash
-      // The op is the user's witness; a settled job has no further use for it (its id, memos and transaction stay).
-      delete j.op; if (j.sealed) j.sealed = { worker: j.sealed.worker };
+      forgetWitness(j);
       recordActivation(j, activateTx, activateError);
     }
     await storage.putJob(jobId, j);
@@ -588,7 +592,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
   async function ackOpenLocked(jobId, j, { txHash, error, settledBy, requeue, release, broadcastHashes }) {
     const dropOpen = async () => putOpen((await getOpen()).filter((x) => x !== jobId));
     if (txHash || settledBy) {
-      j.status = 'settled'; j.txHash = String(txHash || settledBy); j.error = null; delete j.op;
+      j.status = 'settled'; j.txHash = String(txHash || settledBy); j.error = null; forgetWitness(j);
       delete j.broadcastHashes;
       await storage.putJob(jobId, j);
       await dropOpen();
@@ -691,6 +695,8 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
 // KV-backed wiring for the worker runtime. KV keys: cps:pending (id[]), cps:open (id[]), cps:job:<id> (job).
 // The worker builds a settler per request, so the queue lock lives per KV namespace, not per settler.
 const kvLocks = new WeakMap();
+// A job record lives thirty days from its last write: far past the day an open job can wait and the hours a settle takes, and it is gone after.
+const JOB_TTL_SECS = 30 * 86400;
 export function buildConfidentialSettler(env, { hash, feeGate, priceFee, verifyPosted, expiryOf, refund }) {
   const KV = env.CONFIDENTIAL_KV || env.REGISTRY_KV;
   if (KV && !kvLocks.has(KV)) kvLocks.set(KV, makeLock());
@@ -698,7 +704,7 @@ export function buildConfidentialSettler(env, { hash, feeGate, priceFee, verifyP
     getPending: async () => { const s = await KV.get('cps:pending'); return s ? JSON.parse(s) : []; },
     putPending: async (ids) => KV.put('cps:pending', JSON.stringify(ids)),
     getJob: async (id) => { const s = await KV.get('cps:job:' + id); return s ? JSON.parse(s) : null; },
-    putJob: async (id, job) => KV.put('cps:job:' + id, JSON.stringify(job)),
+    putJob: async (id, job) => KV.put('cps:job:' + id, JSON.stringify(job), { expirationTtl: JOB_TTL_SECS }),
     getOpen: async () => { const s = await KV.get('cps:open'); return s ? JSON.parse(s) : []; },
     putOpen: async (ids) => KV.put('cps:open', JSON.stringify(ids)),
   };
