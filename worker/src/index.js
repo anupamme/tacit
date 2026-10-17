@@ -1977,20 +1977,34 @@ async function handleReflectionBurndep(req, env, url, cors) {
   }
 
   const key = `reflection:burndep:${network}:${txid}`;
-  // Burn txids are public Bitcoin data, so without this anyone could watch for a real 0x2B burn and replace
-  // its holder's registration with junk — silently preventing that burn from onboarding. First writer wins;
-  // an identical re-registration is a no-op so an honest retry still works.
+  // A registration stands once made, and an identical re-registration is a no-op so an honest retry still works. A
+  // different bundle replaces it only when it passes the admission check of POST /reflection/burndep/check against the
+  // burn read from the chain, so the registration that stands is always one the fold can use.
   const serialized = JSON.stringify(bundle);
   const existing = await env.REGISTRY_KV.get(key);
   if (existing && existing !== serialized) {
-    return jsonResponse({
-      ok: false,
-      error: 'a different provenance bundle is already registered for this burn txid — refusing to overwrite it',
-      stored: key,
-    }, 409, { ...cors, 'Cache-Control': 'no-store' });
+    const rr = await proveRateLimit(env, ip, 'burndep-replace', Number(env.BURNDEP_REPLACE_RL_BURST || 3), Number(env.BURNDEP_REPLACE_RL_REFILL_MS || 120000));
+    if (!rr.ok) return jsonResponse({ ok: false, error: `too many replacement checks — retry in ~${rr.retryAfter}s`, retryAfter: rr.retryAfter }, 429, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': String(rr.retryAfter) });
+    if (!(await burndepReplacementAdmitted(env, network, txid, bundle))) {
+      return jsonResponse({
+        ok: false,
+        error: 'a different provenance bundle is already registered for this burn txid, and this one does not pass admission yet',
+        stored: key,
+      }, 409, { ...cors, 'Cache-Control': 'no-store' });
+    }
   }
   await env.REGISTRY_KV.put(key, serialized, { expirationTtl: 90 * 86400 });
   return jsonResponse({ ok: true, stored: key }, 200, { ...cors, 'Cache-Control': 'no-store' });
+}
+// Whether `bundle` passes admission for the burn `txid`. The burn transaction is read by its id, never taken from the request.
+async function burndepReplacementAdmitted(env, network, txid, bundle) {
+  let burnTxHex;
+  try { burnTxHex = withHex((await apiText(env, `/tx/${txid}/hex`, {}, network)).trim()); } catch { return false; }
+  const body = { bundle, burnTxHex };
+  try {
+    const out = env.burnDepositCheckOffThread ? await env.burnDepositCheckOffThread(network, body) : await burnDepositCheckOutcome(env, network, body);
+    return !!(out && out.status === 200 && out.body && out.body.admitted === true);
+  } catch { return false; }
 }
 
 // Holder-submitted resolution for a fast-lane-consumed Bitcoin note. A Mode-B batch that folds a consumed ν
@@ -2519,7 +2533,7 @@ export async function burnDepositCheckOutcome(env, network, body) {
 // every other scheduled operation this pool depends on, and a slow or wedged trace has no business risking
 // its budget until this has been exercised standalone first) — callable directly for now.
 async function sweepPendingBurnDeposits(env, network, { maxCount = 3 } = {}) {
-  const result = { network, attempted: 0, registered: 0, skipped: 0, errors: [] };
+  const result = { network, attempted: 0, registered: 0, skipped: 0, checked: 0, errors: [] };
   if (!env.REGISTRY_KV) return result;
   const snap = await getReflectionSnapshotForStatus(env, network);
   if (!snap || !Number.isInteger(snap.attestedHeight)) return result;
@@ -2532,7 +2546,16 @@ async function sweepPendingBurnDeposits(env, network, { maxCount = 3 } = {}) {
     const revealTxidDisplay = String(rec.burnTxidDisplay || '').replace(/^0x/, '').toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(revealTxidDisplay)) { result.skipped++; continue; }
     const regKey = `reflection:burndep:${network}:${revealTxidDisplay}`;
-    if (await env.REGISTRY_KV.get(regKey)) { result.skipped++; continue; } // already registered — next fold attempt will pick it up
+    // A registration that passes admission is left for the next fold; one that does not is rebuilt and replaced. Each such check is as costly
+    // as a trace, so a call makes at most `maxCount` of them.
+    const stored = await env.REGISTRY_KV.get(regKey);
+    if (stored) {
+      if (result.checked >= maxCount) { result.skipped++; continue; }
+      result.checked++;
+      let storedBundle = null;
+      try { storedBundle = JSON.parse(stored); } catch { /* replaced below */ }
+      if (storedBundle && await burndepReplacementAdmitted(env, network, revealTxidDisplay, storedBundle)) { result.skipped++; continue; }
+    }
     result.attempted++;
     try {
       const assetIdHex = String(rec.asset || '').replace(/^0x/, '').toLowerCase();
