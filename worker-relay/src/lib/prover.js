@@ -20,18 +20,11 @@ import { makeBoardProver } from './board-prover.js';
 import { boardPost, boardStatus, boardCancel, boardSummary } from './worker-client.js';
 import { stdinFor, SELF_PROVE_TYPES, LIMITS } from './spn/sp1-stdin.js';
 import { assertMemosMatchProof } from './memo-root.js';
+import { proverEnvFrom } from './prover-env.js';
 
 function proverEnv(extra = {}) {
-  // Env the spawned SP1 binary reads to route to the Succinct network prover.
-  const env = {
-    ...process.env,
-    SP1_PROVER: CFG.sp1Prover, // 'network'
-    NETWORK_RPC_URL: CFG.networkRpcUrl,
-    PROVER_OUT: CFG.proverOut,
-    ...extra,
-  };
-  if (CFG.networkPrivateKey) env.NETWORK_PRIVATE_KEY = CFG.networkPrivateKey;
-  return env;
+  // Env the spawned SP1 binary reads to route to the Succinct network prover: the service's own, without its keys and tokens (lib/prover-env.js).
+  return proverEnvFrom(process.env, { sp1Prover: CFG.sp1Prover /* 'network' */, networkRpcUrl: CFG.networkRpcUrl, proverOut: CFG.proverOut, networkPrivateKey: CFG.networkPrivateKey }, extra);
 }
 
 // Run a binary with a hard timeout; resolve with {code} or reject on timeout/spawn error. `memLimitKB`
