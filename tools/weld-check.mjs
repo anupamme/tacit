@@ -5240,6 +5240,17 @@ await step('hxsend', async () => {
     await q.evaluate((h) => { location.hash = h; }, `#card=send&to=${encodeURIComponent(long)}`);
     await until(q, (v) => document.querySelector('#hx-rcpt')?.value === v && document.querySelector('#hx-sa')?.value === 'cusd', long, 60000);
     ok(long.length > 200, `hxsend: a link names a ${long.length}-character tacit1 address whole, and an asset left out opens on the cUSD the key holds`);
+    // The recipient is said under the field before the hand-off: another key's tacit1 with its ID, this key's own refused, a name nothing is registered on refused.
+    await q.fill('#hx-rcpt', to);
+    await until(q, (id) => { const e = document.querySelector('#hx-rc'); return !e.hidden && !e.classList.contains('warn') && /ID /.test(e.textContent); }, null, 60000);
+    ok(true, `hxsend: a tacit1 address is shown with its ID under the field (${(await text(q, '#hx-rc')).replace(/\s+/g, ' ')})`);
+    await q.fill('#hx-rcpt', long);
+    ok(await q.$eval('#hx-rc', (e) => e.hidden), 'hxsend: what was said of the last recipient is gone the moment another is typed');
+    await until(q, () => { const e = document.querySelector('#hx-rc'); return !e.hidden && e.classList.contains('warn') && /own Tacit address/.test(e.textContent); }, null, 60000);
+    ok(true, 'hxsend: this key\'s own address is refused under the field');
+    await q.fill('#hx-rcpt', 'no-such-name-zzqx.wei');
+    await until(q, () => { const e = document.querySelector('#hx-rc'); return !e.hidden && e.classList.contains('warn') && e.textContent.trim().length > 5 && !/own Tacit address/.test(e.textContent); }, null, 120000);
+    ok(true, `hxsend: a name with nothing registered is refused under the field (${(await text(q, '#hx-rc')).replace(/\s+/g, ' ').slice(0, 90)})`);
     // Request a payment: this key's link, for the asset and amount asked for, copied; opened, it is the same payment filled in.
     await q.evaluate(() => { window.__clip = []; navigator.clipboard.writeText = async (t) => { window.__clip.push(t); }; });
     await q.click('#hx-ask');
