@@ -194,6 +194,9 @@ services:
     plan: standard
     dockerCommand: node src/settle-relay.js
     autoDeploy: false
+    # A deploy sends SIGTERM and the relay finishes the job in hand (src/settle-relay.js): a proof on the board takes up to a few minutes, so Render
+    # waits for it (its default is 30 s, after which the process is killed and the job sits claimed until its 16-minute claim lapses).
+    maxShutdownDelaySeconds: 240
     envVars:
       - fromGroup: tacit-relay-shared
       # No per-service POOL_ADDR override: the group's POOL_ADDR is the single source for every service.
