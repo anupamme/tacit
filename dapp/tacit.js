@@ -24026,7 +24026,12 @@ function _renderHoldingsBurndepBridges(listEl) {
       const statusEl = section.querySelector('[data-burndep-resume-status]');
       const txid = (txidInput?.value || '').trim().toLowerCase();
       const amountStr = (amountInput?.value || '').trim();
-      if (txid && !/^[0-9a-f]{64}$/.test(txid)) { if (statusEl) statusEl.textContent = 'A burn transaction id is 64 hex characters. Leave it empty to search by amount alone.'; return; }
+      if (txid && !/^[0-9a-f]{64}$/.test(txid)) {
+        if (statusEl) statusEl.textContent = /^[0-9a-f]{32}$/.test(txid)
+          ? 'That is a bid id. Bid wallets are recovered in Holdings → Recover bid wallets.'
+          : 'A burn transaction id is 64 hex characters. Leave it empty to search by amount alone.';
+        return;
+      }
       const meta = getAssetMeta('0x' + CANONICAL_TAC_ASSET_ID_HEX) || {};
       const decimals = Number.isInteger(meta.decimals) ? meta.decimals : 8;
       let amountRaw = 0n;
@@ -24066,7 +24071,9 @@ function _renderHoldingsBurndepBridges(listEl) {
       } catch (e) {
         const m = String(e?.message || e);
         // Only a burn of untouched TAC needs its amount; say so rather than showing the code's own wording.
-        if (statusEl) statusEl.textContent = /needs \{ amount \}/.test(m) ? 'This bridge needs its TAC amount as well: add it in the box beside the transaction id, then press Recover again.' : `Could not recover: ${m.replace(/^burndep-ux:\s*/, '')}`;
+        if (statusEl) statusEl.textContent = /needs \{ amount \}/.test(m) ? 'This bridge needs its TAC amount as well: add it in the box beside the transaction id, then press Recover again.'
+          : /does not classify as a burn-deposit/.test(m) ? 'That transaction is not a bridge burn. If it funded a walk-away bid, recover that bid wallet in Holdings → Recover bid wallets.'
+          : `Could not recover: ${m.replace(/^burndep-ux:\s*/, '')}`;
         resumeBtn.disabled = false;
       }
     });
@@ -30278,6 +30285,48 @@ async function scanAssetForStealthReceipts(assetIdHex, { onProgress = null, maxP
   return { discovered, pagesScanned, txsScanned, txsSkipped, txsFailed, complete };
 }
 
+// TAC notes the reflection does not track (a lineage from before its first attestation) bridge by the
+// migrate path, and a transfer that spends one beside tracked notes leaves its outputs untracked too. So
+// when notes of one kind cover the amount, a greedy pick walks only those: tracked notes first, else
+// untracked ones; a note newer than the attested block joins either. Takes and returns notes sorted
+// largest first; returns them as given for other assets, for a pick of one note, or when the state
+// cannot be read. The state is read whole and checked here, so no note is named to the worker.
+let _tacTrackedCache = null; // { height, live: Set<outpoint key> }
+async function tacPickCandidates(assetIdHex, sorted, amount) {
+  if (String(assetIdHex || '').toLowerCase().replace(/^0x/, '') !== CANONICAL_TAC_ASSET_ID_HEX || !WORKER_BASE) return sorted;
+  if (!sorted.length || sorted[0].amount >= amount) return sorted;
+  try {
+    const net = encodeURIComponent(currentNetworkName());
+    const st = await (await fetch(`${WORKER_BASE}/reflection/status?network=${net}`)).json();
+    const height = Number(st && st.attestedHeight);
+    if (!Number.isInteger(height) || height <= 0) return sorted;
+    if (!_tacTrackedCache || _tacTrackedCache.height !== height) {
+      const d = await (await fetch(`${WORKER_BASE}/reflection/dump?network=${net}`)).json();
+      const triples = d && d.snapshot && d.snapshot.liveTriples;
+      if (!Array.isArray(triples)) return sorted;
+      _tacTrackedCache = { height, live: new Set(triples.map((t) => String(t[0]).toLowerCase())) };
+    }
+    const { live } = _tacTrackedCache;
+    const keyOf = (u) => {
+      const b = new Uint8Array(36);
+      b.set(hexToBytes(u.utxo.txid).reverse(), 0);
+      new DataView(b.buffer).setUint32(32, u.utxo.vout >>> 0, true);
+      return '0x' + bytesToHex(keccak_256(b));
+    };
+    const kind = (u) => {
+      if (live.has(keyOf(u))) return 'tracked';
+      const h = Number(u.utxo && u.utxo.status && u.utxo.status.block_height);
+      return Number.isInteger(h) && h <= height ? 'untracked' : 'new';
+    };
+    const kinds = sorted.map(kind);
+    for (const want of ['tracked', 'untracked']) {
+      const group = sorted.filter((_, i) => kinds[i] === want || kinds[i] === 'new');
+      if (group.reduce((s, u) => s + u.amount, 0n) >= amount) return group;
+    }
+  } catch { /* the plain greedy pick */ }
+  return sorted;
+}
+
 // forceUtxos (optional) lets callers pre-select the exact asset UTXO(s) to
 // consume — used by the cancel-atomic-offer flow, which must spend the
 // specific UTXO referenced by an outstanding T_AXFER partial reveal in order
@@ -30363,7 +30412,7 @@ async function buildAndBroadcastCXferMulti({ assetIdHex, recipients, forceUtxos 
     const h = holdings.get(assetIdHex);
     if (!h) throw new Error(`no holdings for asset ${assetIdHex}`);
     if (h.balance < totalSendAmt) throw new Error(`insufficient balance: have ${h.balance}, need ${totalSendAmt}`);
-    const sortedUtxos = [...h.utxos].sort((a, b) => a.amount < b.amount ? 1 : a.amount > b.amount ? -1 : 0);
+    const sortedUtxos = await tacPickCandidates(assetIdHex, [...h.utxos].sort((a, b) => a.amount < b.amount ? 1 : a.amount > b.amount ? -1 : 0), totalSendAmt);
     pickedAssetUtxos = [];
     for (const x of sortedUtxos) {
       pickedAssetUtxos.push(x); inAmt += x.amount; inBlindingSum = modN(inBlindingSum + BigInt(x.blinding));
@@ -30865,7 +30914,7 @@ async function carveExactAmount({ assetIdHex, amount, recipientPubHex = null, wa
   } else {
     coverUtxos = [];
     let sum = 0n;
-    for (const u of available) {
+    for (const u of await tacPickCandidates(assetIdHex, available, amount)) {
       coverUtxos.push(u);
       sum += u.amount;
       if (sum >= amount) break;
@@ -63486,7 +63535,7 @@ async function renderHoldings() {
               } else {
                 coverUtxos = [];
                 let sum = 0n;
-                for (const u of availableUtxos) {
+                for (const u of await tacPickCandidates(aid, availableUtxos, amount)) {
                   coverUtxos.push(u);
                   sum += u.amount;
                   if (sum >= amount) break;
@@ -79721,6 +79770,7 @@ if (typeof document !== 'undefined' && !globalThis.__TACIT_NO_INIT__) {
 // silent drift like F1 (BP generator domain strings) or T7 (mint anchor
 // binding) that internal-consistency tests can't surface.
 export {
+  tacPickCandidates,
   // Curve + scalars
   G, H, ZERO, SECP_N, SECP_P, N_BITS,
   // Point + commitment helpers
