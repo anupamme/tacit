@@ -24,6 +24,7 @@
 //            press cuts the swap note, swaps it in the farm's pool, cuts what pairs with the return and bonds both
 //   farmmarket a private pool priced far from the market says so on its card; tETH alone shows its cost against the market and waits for it to be accepted
 //   hxearntac the card's Earn tab takes a wallet's TAC (the public pool, the form's TAC tab) and private TAC (the pool that pairs it), each with its amount
+//   farmcusd  private cUSD held: the Borrow sheet offers to farm it, which opens the cUSD pool on its own side; selling cUSD into a pool that prices it dear shows no cost against the market
 //   farmqueue a cut still in the relay's queue when the wait runs out says so, says how to carry on, and offers the paying account
 //   hxtip    the card's wrap tip is the relay's for the amount typed (3% of a small one, capped), not one figure read for 0.1 ETH
 //   farmheld  a harvest still in the relay's queue when the wait runs out offers the paying account too
@@ -5275,6 +5276,34 @@ await step('hxearntac', async () => {
     ok(!(await p.$('#sj-a-0')), 'hxearntac: its button opens the TAC pool on the TAC side alone with the amount in it');
     await shot(p, 'hxearn');
     if (r.errors.length) { fails++; console.log('FAIL hxearntac page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+// Private cUSD held (borrowed, say): the Borrow sheet offers to farm it, which opens the pool that pairs it on its own side, where it farms alone.
+// Where the pool prices cUSD above the market's, selling some into it for tETH shows no cost against the market.
+await step('farmcusd', async () => {
+  const CUSD_ID = '0x8f4490dd3728b0ee904d7a67c11b37ffd463a5c7f08b79810006995ee8a9679d', CBTC_ID = '0x62a20d98fc1cd20289621d1315294cb8772f934d822e404b71e1f471cf0679c8';
+  const CUSD_POOL = '0x5925c0c2954c5b11bedd20e444f0cb22f3827f6197814f97d193e7a44e909da7';
+  const r = await openFarmKey('c05d'.padEnd(64, '6'), { notes: [[CUSD_ID, 10000000000n], [CBTC_ID, 50000n]], positions: [], swap: true, fees: { transfer: 10000, route: 10000 }, reserves: { [CUSD_POOL]: { reserveA: '10000000000', reserveB: '10000000000000' } } }, undefined, async (pg) => {
+    await pg.route(/api\.tacit\.finance\/farm\/program/, async (route) => {
+      const res = await route.fetch(), j = await res.json(), p1 = j.pools.find((x) => Number(x.pid) === 1);
+      if (p1) { p1.reserves.reserveA = '10000000000'; p1.reserves.reserveB = '10000000000000'; }
+      await route.fulfill({ response: res, json: j });
+    });
+  });
+  const p = r.page;
+  try {
+    await go(p, '#borrow');
+    await p.waitForSelector('[data-farm-with="cusd"]', { timeout: 300000 });
+    ok(/Private cUSD\s*100/.test(await text(p, '#borrow-body')), 'farmcusd: the Borrow sheet shows the private cUSD held');
+    await p.click('[data-farm-with="cusd"]');
+    await p.waitForSelector('#sheet-farm[open] #sj-b-1', { timeout: 300000 });
+    ok(!(await p.$('#sj-a-1')) && /cUSD/.test(await text(p, '#farm-pid1')), 'farmcusd: its link opens the cUSD pool on the cUSD side alone');
+    await p.fill('#sj-b-1', '50');
+    await until(p, () => /Swaps\s*50(\.0+)? cUSD for about/.test((document.querySelector('#sj-rcpt-1')?.textContent || '').replace(/\s+/g, ' ')) || /Swaps/.test(document.querySelector('#sj-rcpt-1')?.textContent || ''), null, 420000);
+    const rc = (await text(p, '#sj-rcpt-1')).replace(/\s+/g, ' ');
+    ok(/Swaps[^T]*cUSD for about [\d.,]+ tETH/.test(rc) && !/Against the market/.test(rc), `farmcusd: selling cUSD into a pool that prices it dear shows no cost against the market (${rc.slice(0, 160)})`);
+    await shot(p, 'farmcusd');
+    if (r.errors.length) { fails++; console.log('FAIL farmcusd page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 // A step the relay has not done when the wait runs out is not a dead end: the line says it is in the relay's queue, how to carry on

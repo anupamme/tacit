@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-REtcoJf/5nccR8ACcFfJP2rDVys6lwzOiaydZMPGxHA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-fYunL5c32+Cnt/qmgw489mmhQj9JNZWHXBZc6swGwFs=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -8857,6 +8857,14 @@ document.addEventListener('click', (e) => {
   const b = e.target.closest?.('[data-fn-go]');
   const to = b && (b.dataset.fnGo === 'redeem' ? $('#fn-turn') || $('#fn-redeem') : $(`[data-lprm="${b.dataset.fnGo.slice(2)}"]`));
   if (to) { to.scrollIntoView({ block: 'center', behavior: 'smooth' }); to.focus({ preventScroll: true }); }
+  // Private cUSD (or cBTC) held: the pool that pairs it opens on its own side, so it farms alone (about half is swapped to tETH inside the pool).
+  const w = e.target.closest?.('[data-farm-with]');
+  if (w) {
+    const want = w.dataset.farmWith === 'cbtc' ? 'cBTC' : 'cUSD', p = FARM.program?.pools?.find((x) => String(x.pair).split('/').includes(want));
+    if (!p) return openLink('farm');
+    (FARM.jm ||= {})[p.pid] = 'b';
+    openLink(`farm/private-${p.pid}`);
+  }
 });
 RETRY.farm = () => { FARM.errs = null; rerender('farm'); loadFarms().then(() => rerender('farm')).catch(() => {}); };
 load.farm = () => loadFarms();
@@ -10617,7 +10625,8 @@ render.borrow = () => {
     ${st.loans === null ? html`<p class="note err">Your loans could not be read just now. <button class="link" type="button" data-retry="loan">Try again</button></p>` : ''}
     ${loans.length ? html`<div class="lbl"><span>Your loans</span></div>${loans.map(loanRow)}
       <p class="note">Repaying burns the cUSD you hold privately and returns the cBTC as a private note. tacUSD withdrawn to an account turns back into cUSD under Send in the <a href="/classic.html#tab=csend" target="_blank" rel="noopener">classic app</a>.</p>` : ''}
-    ${cusdNote ? html`<div class="kv"><span>Private cUSD</span><b>${fmt(cusdHeld.value, 8, 2)}</b></div><button class="btn ghost" type="button" id="bw-out">Withdraw ${fmt(BigInt(cusdNote.value), 8, 2)} as tacUSD</button>` : ''}
+    ${cusdNote ? html`<div class="kv"><span>Private cUSD</span><b>${fmt(cusdHeld.value, 8, 2)}</b></div><button class="btn ghost" type="button" id="bw-out">Withdraw ${fmt(BigInt(cusdNote.value), 8, 2)} as tacUSD</button>
+      <button class="link" type="button" data-farm-with="cusd">Or farm it for TAC →</button>` : ''}
     <div class="status" role="status" id="bw-s4"></div>
   </div>`;
   mount(el, html`
@@ -10665,7 +10674,8 @@ render.borrow = () => {
             <div class="rcpt" id="bw-rcpt" hidden></div>
             <label class="pick"><input type="checkbox" id="bw-pts"><span>Send the loan from ${your()} to earn points. It pays the gas and is linked to the loan.</span></label>
             <button class="btn" type="button" id="bw-borrow">Borrow cUSD</button>` : ''}
-          ${s4 && st.cusd?.value ? html`<div class="kv"><span>Private cUSD</span><b>${fmt(st.cusd.value, 8, 2)}</b></div>${(() => { const n = freeNotes(st.cusd.notes).sort(byValue).at(-1); return n ? html`<button class="btn ghost" type="button" id="bw-out">Withdraw ${fmt(BigInt(n.value), 8, 2)} as tacUSD</button>` : ''; })()}` : ''}
+          ${s4 && st.cusd?.value ? html`<div class="kv"><span>Private cUSD</span><b>${fmt(st.cusd.value, 8, 2)}</b></div>${(() => { const n = freeNotes(st.cusd.notes).sort(byValue).at(-1); return n ? html`<button class="btn ghost" type="button" id="bw-out">Withdraw ${fmt(BigInt(n.value), 8, 2)} as tacUSD</button>
+            <button class="link" type="button" data-farm-with="cusd">Or farm it for TAC →</button>` : ''; })()}` : ''}
           ${s4 ? html`<button class="btn" type="button" id="bw-repay">${LOCK.repayOver ? 'Repay anyway' : 'Repay and close'}</button>
             <div class="status" role="status" id="bw-s4"></div>
             <p class="note">Repaying burns ${fmt(st.borrowed, 8, 2)} cUSD you hold privately and returns the cBTC as a private note. tacUSD withdrawn to an account turns back into cUSD under Send in the <a href="/classic.html#tab=csend" target="_blank" rel="noopener">classic app</a>, whose <a href="/classic.html#tab=cdp" target="_blank" rel="noopener">CDP tab</a> can close this loan too.</p>` : ''}
