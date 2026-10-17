@@ -3316,6 +3316,7 @@ await step('rewards', async () => {
     await n.page.fill('#q', 'hello'); await n.page.click('#go');
     await until(n.page, () => /Enter a 0x address/.test(document.querySelector('#out')?.textContent || ''), null, 30000);
     ok((await n.page.getAttribute('#q', 'aria-invalid')) === 'true', 'rewards: something that is neither an address nor a name is told, and marked on the bar');
+    ok((await n.page.getAttribute('#ninja', 'data-mood')) === 'shake' && (await text(n.page, '#emo')) === '', 'rewards: the ninja shakes its head at it, with no thumb either way');
     await n.page.fill('#q', '0x1c0aA8ccd568d90d61659f060d1bfb1e6f855a20');
     await until(n.page, () => /bad checksum/.test(document.querySelector('#out')?.textContent || ''), null, 30000);
     ok(true, 'rewards: an address in mixed case that fails its checksum is refused, with nothing pressed');
@@ -3323,12 +3324,21 @@ await step('rewards', async () => {
     slow = 1500;
     await n.page.fill('#q', OTHER);
     await until(n.page, () => /Not on the airdrop list/.test(document.querySelector('#c-air')?.textContent || '') && !!document.querySelector('#c-pts .sk'), null, 30000);
-    ok(true, 'rewards: a pasted address answers at once, and the airdrop card draws while the points are still being read');
+    ok((await n.page.getAttribute('#ninja', 'data-mood')) === 'think', 'rewards: a pasted address answers at once, the airdrop card draws while the points are still read, and the ninja thinks');
     await until(n.page, () => /No points yet/.test(document.querySelector('#c-pts')?.textContent || ''), null, 30000);
+    await until(n.page, () => document.querySelector('#ninja')?.dataset.mood === 'down', null, 10000);
+    ok((await text(n.page, '#emo')) === '👎', 'rewards: nothing to claim (not on the list, no points): the ninja shakes its head and a thumbs down appears');
     slow = 0;
     // A name starts it too, a moment after the last key; the address it points to was not read before, so this reads it.
+    await n.page.evaluate(() => { window.__winked = false; new MutationObserver(() => { if (document.querySelector('#ninja').classList.contains('wink')) window.__winked = true; }).observe(document.querySelector('#ninja'), { attributes: true, attributeFilter: ['class'] }); });
     await n.page.fill('#q', LISTED);
     await settled();
+    ok((await n.page.getAttribute('#ninja', 'data-mood')) === 'up' && (await text(n.page, '#emo')) === '👍', 'rewards: something to claim: the ninja nods and a thumbs up appears');
+    await until(n.page, () => document.querySelector('#ninja')?.dataset.mood === 'idle' && document.querySelector('#emo')?.textContent === '', null, 10000);
+    ok(await n.page.evaluate(() => window.__winked), 'rewards: it winked on the way');
+    ok(true, 'rewards: and it settles back behind the bar, the thumb gone');
+    await n.page.click('#ninja');
+    ok(await n.page.evaluate(() => document.querySelector('#ninja').classList.contains('wink')), 'rewards: pressing the ninja makes it wink');
     const readsBefore = { ...hits };
     await n.page.fill('#q', 'z0r0z.wei');
     await sleep(150);
@@ -3341,7 +3351,7 @@ await step('rewards', async () => {
     t = await out();
     ok(/12,346\s*points/.test(t) && /Earned on settled days\s*8 TAC/.test(t) && /Claimed\s*0 TAC/.test(t) && /To claim\s*8 TAC/.test(t), `rewards: its points and rank, what it has earned, what the distributor says it has claimed, and what it can claim (${t.slice(t.indexOf('Points'), t.indexOf('Points') + 200)})`);
     ok(hits.points === readsBefore.points && hits.claim === readsBefore.claim && hits.board === readsBefore.board, `rewards: the same account read again by its name costs no new reading (${JSON.stringify(hits)})`);
-    ok(!!(await n.page.$('#out a.act[href="/#points"]')) && (await n.page.$$eval('#out button', (b) => b.every((x) => !/Claim \d/.test(x.textContent)))), 'rewards: a claim is a link into the dapp; the only buttons are for copying');
+    ok((await n.page.$$('#out button[data-claim]')).length === 2 && !(await n.page.$('#out a.act')), 'rewards: with a browser wallet each claim is a button on its card');
     ok((await n.page.evaluate(() => location.search)) === '?q=z0r0z.wei', 'rewards: the address bar carries the lookup, so it can be shared');
     // Copying.
     await n.page.click('[data-copy^="0x"]');
@@ -3388,6 +3398,99 @@ await step('rewards', async () => {
     if (SHOTS) await n.page.screenshot({ path: join(SHOTS, 'weld-rewards-phone.png'), fullPage: true });
     if (n.errors.length) { fails++; console.log('FAIL rewards page errors: ' + n.errors.slice(0, 3).join(' | ')); }
   } finally { await n.browser.close(); }
+});
+
+// Claiming on the rewards page, by the account itself. First the cases that send nothing (a wallet on another account; no wallet at all, where a
+// claim is a link into the dapp), then the airdrop (read from the fork's contract, claimed through the page), then points with the service's real
+// proof for PTS_ACCOUNT (an address with points to claim, as for ptsclaim) both as it is and with a proof that has been replaced since it was read.
+// A claim that lands rains TAC coins, lists its transaction, and the ninja nods; the card reads claimed.
+await step('rewardsclaim', async () => {
+  const LISTED = '0x1c0aa8ccd568d90d61659f060d1bfb1e6f855a20', AIRDROP = '0x4b4cb98d0c836c2783ac46f0078b904dab533ae8', hex40 = (c) => '0x' + c.repeat(40);
+  const stubs = async (ctx) => {
+    await ctx.route(/api\.tacit\.finance\/(points|claim)\/0x/, (route) => {
+      const u = route.request().url(), a = (u.match(/0x[0-9a-fA-F]{40}/) || [''])[0].toLowerCase(), mine = a === LISTED;
+      if (/\/claim\//.test(u)) return json(route, { cumulativeAmount: '0', claimedWei: '0', unclaimedWei: '0', proof: null });
+      return json(route, { address: a, points: mine ? 12345.6 : 0, deposit_count: mine ? 4 : 0, deposits: [] });
+    });
+    await ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => json(route, [{ address: hex40('1'), points: 9e9 }, { address: LISTED, points: 12345.6 }]));
+  };
+  await rpc('anvil_impersonateAccount', [LISTED]); await rpc('anvil_setBalance', [LISTED, '0x' + (10n ** 18n).toString(16)]);
+  // A wallet on another account is told which to switch to, and nothing is sent.
+  {
+    const n = await openPage({ account: A0, viewport: { width: 1000, height: 900 } });
+    await stubs(n.ctx);
+    try {
+      await n.page.goto(n.url + 'rewards/?q=' + LISTED);
+      await n.page.waitForSelector('[data-claim="airdrop"]', { timeout: 120000 });
+      const sent = walletTxs.length, before = await tacOf(LISTED);
+      await n.page.click('[data-claim="airdrop"]');
+      await until(n.page, () => /Switch it to/.test(document.querySelector('#done')?.textContent || ''), null, 30000);
+      const t = (await text(n.page, '#done')).replace(/\s+/g, ' ');
+      ok(/Your wallet is on 0xf39f…2266\. Switch it to 0x1c0a…5a20 to claim\./.test(t) && walletTxs.length === sent && (await tacOf(LISTED)) === before, `rewardsclaim: a wallet on another account is told which to switch to, and nothing is sent (${t.trim()})`);
+      ok((await n.page.getAttribute('#ninja', 'data-mood')) === 'shake', 'rewardsclaim: and the ninja shakes its head');
+    } finally { await n.browser.close(); }
+  }
+  // No browser wallet: the claim is the way into the dapp.
+  {
+    const n = await openPage({ account: A0, init: { fn: () => { delete window.ethereum; } } });
+    await stubs(n.ctx);
+    try {
+      await n.page.goto(n.url + 'rewards/?q=' + LISTED);
+      await n.page.waitForSelector('#c-air .act', { timeout: 120000 });
+      ok((await n.page.getAttribute('#c-air a.act', 'href')) === '/#airdrop' && !(await n.page.$('[data-claim]')), 'rewardsclaim: with no browser wallet a claim is a link into the dapp');
+    } finally { await n.browser.close(); }
+  }
+  // The airdrop, claimed by its account.
+  {
+    const n = await openPage({ account: LISTED, viewport: { width: 1000, height: 900 } });
+    await stubs(n.ctx);
+    try {
+      await n.page.goto(n.url + 'rewards/?q=' + LISTED);
+      await n.page.waitForSelector('[data-claim="airdrop"]', { timeout: 120000 });
+      const sent = walletTxs.length, before = await tacOf(LISTED);
+      await n.page.click('[data-claim="airdrop"]');
+      await until(n.page, () => !!document.querySelector('#done .done a[href^="https://etherscan.io/tx/0x"]'), null, 180000);
+      const coins = await n.page.evaluate(() => Number(document.querySelector('#fx')?.dataset.coins || 0));
+      const tx = walletTxs[walletTxs.length - 1], done = (await text(n.page, '#done')).replace(/\s+/g, ' ');
+      ok(walletTxs.length === sent + 1 && String(tx.to).toLowerCase() === AIRDROP && String(tx.from).toLowerCase() === LISTED, `rewardsclaim: the airdrop claim is one transaction to the airdrop contract, from the account (${tx.to})`);
+      ok((await tacOf(LISTED)) - before > 216000n * 10n ** 18n && /Claimed [\d.,]+ TAC\s*0x[0-9a-f]{8}…[0-9a-f]{6} ↗/.test(done), `rewardsclaim: the TAC arrives and the page lists the transaction (${done.slice(0, 80)})`);
+      ok(coins >= 40 && (await n.page.getAttribute('#ninja', 'data-mood')) === 'up' && (await text(n.page, '#emo')) === '👍', `rewardsclaim: TAC coins fall down the screen (${coins}) and the ninja nods`);
+      await until(n.page, () => !document.querySelector('#fx'), null, 20000);
+      ok(true, 'rewardsclaim: and the coins are gone once they have fallen');
+      await until(n.page, () => /Claimed/.test(document.querySelector('#c-air .st')?.textContent || '') && !document.querySelector('#c-air [data-claim]'), null, 60000);
+      ok(true, 'rewardsclaim: the airdrop card is read again and says claimed, with nothing left to press');
+      if (SHOTS) await n.page.screenshot({ path: join(SHOTS, 'weld-rewardsclaim.png') });
+      if (n.errors.length) { fails++; console.log('FAIL rewardsclaim page errors: ' + n.errors.slice(0, 3).join(' | ')); }
+    } finally { await n.browser.close(); }
+  }
+  // Points, with the service's real proof (the live service is read, so this runs only for an address that has some to claim).
+  const who = process.env.PTS_ACCOUNT;
+  if (!/^0x[0-9a-fA-F]{40}$/.test(who || '')) { ok(true, 'rewardsclaim: set PTS_ACCOUNT to an address with points to claim to run the points claim'); return; }
+  await rpc('anvil_impersonateAccount', [who]); await rpc('anvil_setBalance', [who, '0x' + (10n ** 18n).toString(16)]);
+  const DISTRIBUTOR = '0x000000c918e44a3a443937fa7594ea4f7c95d6b9';
+  for (const stale of [false, true]) {
+    const snap = await rpc('evm_snapshot');
+    const n = await openPage({ account: who, viewport: { width: 1000, height: 900 } });
+    let spoil = 0, spoiled = 0;
+    await n.ctx.route(/api\.tacit\.finance\/claim\/0x/, async (route) => {
+      if (!spoil) return route.continue();
+      spoil--; spoiled++;
+      const res = await route.fetch(), body = await res.json();
+      if (body.proof?.length) { const h = body.proof[0]; body.proof[0] = h.slice(0, -1) + (h.endsWith('0') ? '1' : '0'); }
+      return route.fulfill({ response: res, json: body });
+    });
+    try {
+      await n.page.goto(n.url + 'rewards/?q=' + who);
+      await n.page.waitForSelector('[data-claim="points"]', { timeout: 120000 });
+      const before = await tacOf(who), sent = walletTxs.length;
+      if (stale) spoil = 1;
+      await n.page.click('[data-claim="points"]');
+      await until(n.page, () => !!document.querySelector('#done .done a[href^="https://etherscan.io/tx/0x"]') || /did not|refuse|nothing left|just updated/i.test(document.querySelector('#done')?.textContent || ''), null, 180000);
+      const tx = walletTxs[walletTxs.length - 1];
+      ok(walletTxs.length === sent + 1 && String(tx.to).toLowerCase() === DISTRIBUTOR && (await tacOf(who)) > before && (!stale || spoiled === 1), `rewardsclaim: points ${stale ? 'with a proof replaced since it was read: it is read again, once, and the claim goes through' : 'are claimed with the service\'s proof'} (${(await text(n.page, '#done')).replace(/\s+/g, ' ').trim().slice(0, 90)})`);
+    } finally { await n.browser.close(); }
+    await rpc('evm_revert', [snap]);
+  }
 });
 
 // Any address can be looked up on the points sheet by someone with no wallet: a bad entry is told, a good one is read like the account's own

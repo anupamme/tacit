@@ -1,17 +1,21 @@
-// Airdrop and points for one account: a 0x address, or a .eth, .wei or .gwei name that points to one. All of it is read and nothing is sent;
-// a claim goes through the dapp, where the account connects (the links below), so this page never asks for a wallet.
+// Airdrop and points for one account: a 0x address, or a .eth, .wei or .gwei name that points to one, and, with a browser wallet on that
+// account, the claim of either. Reading comes first and sends nothing; a claim is made only by the account itself, after the contract has
+// been asked whether it would accept it (no wallet here: the claim is a link into the dapp; another account: a note says which to switch to).
 //
 // A lookup starts as soon as what is typed can be one (a whole address, or a whole name after a short pause), the airdrop and the points each
 // draw as their own reading arrives, and what was read is kept for a minute, so asking again is instant. The hosts it reads are connected
-// while the person types (the page's preconnect links), and the leaderboard, which gives the rank, is fetched once and shared.
+// while the person types (the page's preconnect links), and the leaderboard, which gives the rank, is fetched once and shared. The ninja
+// peeks over the bar and answers what a lookup found; a claim that lands rains TAC coins.
 import { secp, keccak_256 } from '/vendor/tacit-deps.min.js';
 import { makeConfidentialNames, makeMainnetCall, MAINNET_RPCS, NameError } from '/confidential-names.js?cb=7bb10833';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=02ef61b4';
+import { makeWallet, UserStopped } from '/trade/wallet.js?cb=595c892a';
 
 const API = 'https://api.tacit.finance', DISTRIBUTOR = '0x000000C918e44A3a443937fA7594eA4f7C95D6b9', BOARD = 500, KEEP = 60e3, RECENT = 'tacit-rewards-recent-v1';
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const short = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const names = makeConfidentialNames({ call: makeMainnetCall({}), secp, keccak256: keccak_256 });
 const call = makeRpcCall({ rpcs: MAINNET_RPCS });
@@ -19,6 +23,20 @@ const air = makeTacAirdrop({ call, keccak256: keccak_256 });
 const within = (s) => (s && AbortSignal.any ? AbortSignal.any([s, AbortSignal.timeout(20e3)]) : AbortSignal.timeout(20e3));
 const get = (path, signal) => fetch(`${API}/${path}`, { signal: within(signal) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* a convenience */ } } };
+// The wallet module reads the chain through this (receipts): the first endpoint that answers.
+async function rpc(method, params) {
+  let last = null;
+  for (const u of MAINNET_RPCS) {
+    try {
+      const r = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(10e3) });
+      const j = await r.json();
+      if (j.error) throw new Error(j.error.message || 'rpc error');
+      return j.result;
+    } catch (e) { last = e; }
+  }
+  throw last || new Error('could not reach Ethereum');
+}
+const wallet = makeWallet({ rpc });
 
 // An amount of TAC (18 decimals) to `dp` places, grouped, trailing zeros dropped; under the smallest place it says so.
 function tac(wei, dp = 2) {
@@ -101,26 +119,49 @@ function board() {
 }
 const rankOf = (address) => board().then((b) => { const i = b ? b.findIndex((e) => String(e.address).toLowerCase() === address) : -1; return i >= 0 ? i + 1 : b && b.length >= BOARD ? 0 : null; });
 
+// ── the ninja: it peeks over the bar, thinks while a lookup is read, and answers it ──
+const ninja = $('#ninja'), emo = $('#emo');
+let moodTimer = 0, winkTimer = 0;
+function react(mood, ms = 3400) {
+  clearTimeout(moodTimer); clearTimeout(winkTimer);
+  ninja.classList.remove('wink');
+  ninja.dataset.mood = mood;
+  emo.classList.remove('pop');
+  emo.textContent = { up: '👍', down: '👎' }[mood] || '';
+  if (emo.textContent) { void emo.offsetWidth; emo.classList.add('pop'); }
+  // A press winks at once; a thumbs up nods first, then winks.
+  const wink = () => { ninja.classList.add('wink'); winkTimer = setTimeout(() => ninja.classList.remove('wink'), 650); };
+  if (mood === 'wink') wink(); else if (mood === 'up') winkTimer = setTimeout(wink, 950);
+  if (mood === 'idle' || mood === 'think') return;                                     // thinking lasts until the answer
+  moodTimer = setTimeout(() => { ninja.dataset.mood = 'idle'; emo.textContent = ''; }, ms);
+}
+ninja.addEventListener('click', () => react('wink', 1600));
+
 // ── what is drawn ──
 const card = (title, body) => `<section class="card"><h2>${title}</h2>${body}</section>`;
 // A number that counts up to itself when it appears (not for someone who asks for less motion); its text is final from the start.
 const figure = (n, text, unit) => `<p class="big num"><span class="cu" data-to="${n}" data-text="${esc(text)}">${esc(text)}</span><small>${unit}</small></p>`;
-function airdropCard(s) {
+// A claim is made here when a browser wallet is present; without one it is the link into the dapp.
+const claimUi = (kind, label, address, to, amount) => (wallet.available().length
+  ? `<button class="act" type="button" data-claim="${kind}" data-addr="${address}" data-amt="${esc(amount)}">${label}</button>`
+  : `<a class="act" href="${to}">${label}</a>`);
+function airdropCard(s, address) {
   if (s.reason === 'error') return card('Airdrop', '<p class="st warn">Could not read the airdrop just now. Look up again in a moment.</p>');
   if (!s.eligible) return card('Airdrop', '<p class="big">—</p><p class="st mute">Not on the airdrop list.</p>');
   const left = Math.ceil((s.deadline - Date.now() / 1000) / 86400), by = day(s.deadline);
   const [cls, line] = s.claimed ? ['ok', 'Claimed'] : s.claimable ? [left <= 7 ? 'warn' : 'ok', `Claim by ${by} · ${left} day${left === 1 ? '' : 's'} left`] : s.reason === 'closed' ? ['mute', `Closed ${by}`] : ['warn', s.message];
-  return card('Airdrop', `${figure(Number(s.amountTac), tac(s.amountWei), 'TAC')}<p class="st ${cls}">${esc(line)}</p>${s.claimable ? `<a class="act" href="/#airdrop">Claim ${tac(s.amountWei)} TAC</a>` : ''}`);
+  return card('Airdrop', `${figure(Number(s.amountTac), tac(s.amountWei), 'TAC')}<p class="st ${cls}">${esc(line)}</p>${s.claimable ? claimUi('airdrop', `Claim ${tac(s.amountWei)} TAC`, address, '/#airdrop', tac(s.amountWei)) : ''}`);
 }
-function pointsCard(p) {
+function pointsCard(p, address) {
   if (p.error) return card('Points', '<p class="st warn">Could not read points just now. Look up again in a moment.</p>');
   const rows = p.earned > 0n ? [['Earned on settled days', `${tac(p.earned)} TAC`], ['Claimed', `${tac(p.claimed)} TAC`], ['To claim', p.unread ? 'not read' : `${tac(p.owed)} TAC`]] : [];
   return card('Points', `${figure(Math.round(p.points), Math.round(p.points).toLocaleString('en-US'), 'points')}<p class="st mute" id="rank">${p.points <= 0 ? 'No points yet.' : ''}</p>`
     + (rows.length ? `<dl class="kv">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd class="num">${v}</dd></div>`).join('')}</dl>` : '')
-    + (p.owed > 0n ? `<a class="act" href="/#points">Claim ${tac(p.owed)} TAC</a>` : ''));
+    + (p.owed > 0n ? claimUi('points', `Claim ${tac(p.owed)} TAC`, address, '/#points', tac(p.owed)) : ''));
 }
 const whoLine = (who, q) => `<p class="who"><b>${esc(who.name || short(who.address))}</b>${who.name ? `<span>${short(who.address)}</span>` : ''}</p>
-  <p class="acts"><button type="button" data-copy="${who.address}">Copy address</button><a href="https://etherscan.io/address/${who.address}" target="_blank" rel="noopener noreferrer">Etherscan ↗</a><button type="button" data-copy="${esc(`${location.origin}/rewards/?q=${encodeURIComponent(q)}`)}" data-said="Link copied">Copy link</button></p>`;
+  <p class="acts"><button type="button" data-copy="${who.address}">Copy address</button><a href="https://etherscan.io/address/${who.address}" target="_blank" rel="noopener noreferrer">Etherscan ↗</a><button type="button" data-copy="${esc(`${location.origin}/rewards/?q=${encodeURIComponent(q)}`)}" data-said="Link copied">Copy link</button></p>
+  <div id="done" aria-live="polite"></div>`;
 const SKEL = (t) => `<section class="card"><h2>${t}</h2><p class="big"><span class="sk"></span></p></section>`;
 const SKELETON = `<p class="who"><b><span class="sk"></span></b></p><div id="c-air">${SKEL('Airdrop')}</div><div id="c-pts">${SKEL('Points')}</div>`;
 
@@ -136,6 +177,105 @@ function countUp(el) {
   requestAnimationFrame(step);
 }
 function paint(sel, html) { const el = $(sel); if (!el) return; el.innerHTML = html; el.querySelectorAll('.cu').forEach(countUp); }
+function fillRank(address, p) {
+  if (p.error || !(p.points > 0)) return;
+  rankOf(address).then((k) => { const el = $('#rank'); if (el && out.dataset.address === address) el.textContent = k > 0 ? `Rank #${k.toLocaleString('en-US')}` : k === 0 ? `Outside the top ${BOARD}` : ''; });
+}
+
+// ── TAC coins fall down the screen when a claim lands ──
+const COIN = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/></svg>')}`;
+function confetti() {
+  if (calm) return;
+  $('#fx')?.remove();
+  const cv = document.createElement('canvas'), W = innerWidth, H = innerHeight, dpr = Math.min(2, devicePixelRatio || 1);
+  cv.id = 'fx'; cv.setAttribute('aria-hidden', 'true'); cv.width = W * dpr; cv.height = H * dpr;
+  const n = Math.max(40, Math.min(150, Math.round(W / 9))), g = cv.getContext('2d'), img = new Image();
+  cv.dataset.coins = String(n);
+  g.scale(dpr, dpr);
+  document.body.append(cv);
+  const coins = Array.from({ length: n }, () => ({ x: Math.random() * W, y: -40 - Math.random() * H * 0.7, s: 18 + Math.random() * 18, vy: 190 + Math.random() * 230, sway: 16 + Math.random() * 38, ph: Math.random() * 6.28, spin: 3 + Math.random() * 5, a: Math.random() * 6.28 }));
+  let last = performance.now();
+  const t0 = last, frame = (now) => {
+    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    g.clearRect(0, 0, W, H);
+    let live = 0;
+    for (const c of coins) {
+      c.y += c.vy * dt; c.vy += 90 * dt; c.a += c.spin * dt;
+      if (c.y > H + 40) continue;
+      live++;
+      g.save();
+      g.translate(c.x + Math.sin(c.ph + (now - t0) / 600) * c.sway, c.y); g.rotate(Math.sin(c.a) * 0.4); g.scale(Math.cos(c.a * 1.3), 1);
+      g.drawImage(img, -c.s / 2, -c.s / 2, c.s, c.s);
+      g.restore();
+    }
+    cv.dataset.live = String(live);
+    if (live && now - t0 < 9000 && cv.isConnected) requestAnimationFrame(frame); else cv.remove();
+  };
+  img.addEventListener('load', () => requestAnimationFrame(frame), { once: true });
+  img.addEventListener('error', () => cv.remove(), { once: true });
+  img.src = COIN;
+}
+
+// ── claiming: only by the account itself, after the contract has been asked ──
+const word = (n) => BigInt(n).toString(16).padStart(64, '0');
+const txLink = (h) => `<a href="https://etherscan.io/tx/${h}" target="_blank" rel="noopener noreferrer">${h.slice(0, 10)}…${h.slice(-6)} ↗</a>`;
+async function signedIn(address) {
+  if (!wallet.state.account) {
+    const w = wallet.available()[0];
+    if (!w) throw new Error('No browser wallet found. Claim in the app instead.');
+    await wallet.connect(w);
+  }
+  const mine = String(wallet.state.account || '').toLowerCase();
+  if (!mine) throw new Error('Your wallet did not share an account.');
+  if (mine !== address) throw new Error(`Your wallet is on ${short(mine)}. Switch it to ${short(address)} to claim.`);
+}
+// distributor.claim(cumulativeAmount, proof): the running total less what the account already claimed, to itself. The proof is the service's
+// current one; one that has been replaced since is read again, once.
+async function pointsTx(address) {
+  const attempt = async (c) => {
+    const proof = c?.proof;
+    if (!proof?.length || !c.cumulativeAmount) throw new Error('There is nothing left to claim here.');
+    const data = `0x2f52ebb7${word(c.cumulativeAmount)}${word(64)}${word(proof.length)}${proof.map((h) => h.replace(/^0x/, '').padStart(64, '0')).join('')}`;
+    try { await call({ to: DISTRIBUTOR, data, from: address }); } catch (e) {
+      const sel = String(e?.data || '').slice(2, 10);
+      if (e?.code !== 3) throw new Error('Could not check the claim before sending it. Nothing was sent.');
+      throw Object.assign(new Error(sel === '797dba54' ? 'There is nothing left to claim here.' : 'The distributor would refuse this claim. Nothing was sent.'), { stale: sel === '7ca55c77' });
+    }
+    return wallet.sendTx({ to: DISTRIBUTOR, data, from: address });
+  };
+  try { return await attempt(await get(`claim/${address}`)); } catch (e) {
+    if (!e.stale) throw e;
+    try { return await attempt(await get(`claim/${address}`)); } catch (e2) { throw e2.stale ? new Error('The reward list was just updated. Try again in a minute.') : e2; }
+  }
+}
+let claiming = false;
+async function claim(kind, address, btn) {
+  if (claiming) return;
+  claiming = true;
+  const label = btn.textContent, amt = btn.dataset.amt;
+  let hash = null;                                                                     // once sent, any note that follows keeps its link
+  const say = (html) => { const d = $('#done'); if (!d || out.dataset.address !== address) return; d.querySelector('.note-claim')?.remove(); d.insertAdjacentHTML('afterbegin', html); };
+  btn.disabled = true;
+  try {
+    await signedIn(address);
+    btn.textContent = 'Confirm in your wallet…'; react('think');
+    hash = kind === 'airdrop' ? (await air.claim(address, { from: address, send: (t) => wallet.sendTx({ to: t.to, data: t.data, from: address }) })).txHash : await pointsTx(address);
+    btn.textContent = 'Claiming…'; say(`<p class="note-claim st mute">Claiming ${esc(amt)} TAC · ${txLink(hash)}</p>`);
+    const rc = await wallet.receipt(hash);
+    if (rc.status !== '0x1') throw new Error(`The transaction failed on chain (${hash.slice(0, 10)}…). Nothing was claimed.`);
+    $('#done')?.querySelector('.note-claim')?.remove();
+    $('#done')?.insertAdjacentHTML('beforeend', `<p class="done"><b>Claimed ${esc(amt)} TAC</b>${txLink(hash)}</p>`);
+    said(`Claimed ${amt} TAC`); react('up', 4200); confetti();
+    kept.delete(`airdrop:${address}`); kept.delete(`points:${address}`);
+    await sleep(1500);
+    const [a, p] = await Promise.all([readAirdrop(address), readPoints(address)]);
+    if (out.dataset.address === address) { paint('#c-air', airdropCard(a, address)); paint('#c-pts', pointsCard(p, address)); fillRank(address, p); }
+  } catch (e) {
+    react(e instanceof UserStopped ? 'idle' : 'shake');
+    say(`<p class="note-claim st ${e instanceof UserStopped ? 'mute' : 'warn'}">${esc(e.message || 'The claim did not go through.')}${hash ? ` · ${txLink(hash)}` : ''}</p>`);
+    btn.textContent = label;
+  } finally { claiming = false; if (btn.isConnected) btn.disabled = false; }
+}
 
 // ── the bar, its suggestions, and what was looked up before ──
 const input = $('#q'), go = $('#go'), out = $('#out'), hints = $('#hints'), recent = $('#recent'), note = $('#note');
@@ -153,8 +293,9 @@ function showHints(v) {
 
 let seq = 0, ctl = null, last = '';
 function clear() {
-  seq++; ctl?.abort(); last = ''; out.innerHTML = ''; hints.innerHTML = ''; go.disabled = false;
+  seq++; ctl?.abort(); last = ''; out.innerHTML = ''; delete out.dataset.address; hints.innerHTML = ''; go.disabled = false;
   input.setAttribute('aria-invalid', 'false');
+  react('idle');
   try { history.replaceState(null, '', location.pathname); } catch { /* the address bar is a convenience */ }
   showRecent();
 }
@@ -163,23 +304,30 @@ async function run(raw) {
   ctl?.abort(); ctl = new AbortController();
   input.setAttribute('aria-invalid', 'false');
   if (!q) { clear(); return; }
-  last = q; hints.innerHTML = ''; recent.innerHTML = ''; go.disabled = true; out.innerHTML = SKELETON;
+  last = q; hints.innerHTML = ''; recent.innerHTML = ''; go.disabled = true; out.innerHTML = SKELETON; delete out.dataset.address;
+  react('think');
   try {
     const who = await identify(q);
     if (my !== seq) return;
     remember(q);
+    out.dataset.address = who.address;
     out.innerHTML = `${whoLine(who, q)}<div id="c-air">${SKEL('Airdrop')}</div><div id="c-pts">${SKEL('Points')}</div>`;
     try { history.replaceState(null, '', `?q=${encodeURIComponent(q)}`); } catch { /* the address bar is a convenience */ }
-    const a = readAirdrop(who.address), p = readPoints(who.address, ctl.signal), r = rankOf(who.address);
-    a.then((s) => { if (my === seq) paint('#c-air', airdropCard(s)); });
-    p.then((v) => {
+    const a = readAirdrop(who.address), p = readPoints(who.address, ctl.signal);
+    // The ninja answers once something is claimable (thumbs up at once), or once both are read and nothing is (thumbs down).
+    const can = { air: null, pts: null };
+    const answer = () => {
       if (my !== seq) return;
-      paint('#c-pts', pointsCard(v));
-      if (!v.error && v.points > 0) r.then((k) => { if (my === seq && $('#rank')) $('#rank').textContent = k > 0 ? `Rank #${k.toLocaleString('en-US')}` : k === 0 ? `Outside the top ${BOARD}` : ''; });
-    });
+      if (can.air === true || can.pts === true) { if (ninja.dataset.mood !== 'up') { react('up'); said('Something to claim'); } }
+      else if (can.air === false && can.pts === false) { react('down'); said('Nothing to claim'); }
+      else if (can.air !== null && can.pts !== null) react('idle');                 // a reading failed: nothing to say
+    };
+    a.then((s) => { if (my !== seq) return; paint('#c-air', airdropCard(s, who.address)); can.air = s.reason === 'error' ? undefined : !!s.claimable; answer(); });
+    p.then((v) => { if (my !== seq) return; paint('#c-pts', pointsCard(v, who.address)); fillRank(who.address, v); can.pts = v.error ? undefined : v.owed > 0n; answer(); });
     await Promise.allSettled([a, p]);
   } catch (e) {
     if (my !== seq) return;
+    react('shake');
     input.setAttribute('aria-invalid', 'true');
     out.innerHTML = `<p class="err" role="alert">${esc(e.message || 'Something went wrong. Try again.')}</p>`;
   } finally { if (my === seq) go.disabled = false; }
@@ -203,22 +351,23 @@ input.addEventListener('keydown', (e) => { if (e.key === 'Escape' && input.value
 document.addEventListener('keydown', (e) => { if (e.key === '/' && !/^(input|textarea|select)$/i.test(document.activeElement?.tagName || '') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); input.focus(); input.select(); } });
 $('#f').addEventListener('submit', (e) => { e.preventDefault(); clearTimeout(pause); run(input.value); });
 
-// A suggestion or a recent lookup fills the bar and answers; a copy button copies and says so.
+// A suggestion or a recent lookup fills the bar and answers; a copy button copies and says so; a claim button claims.
 document.addEventListener('click', async (e) => {
-  const chip = e.target.closest('[data-q]'), cp = e.target.closest('[data-copy]');
+  const chip = e.target.closest('[data-q]'), cp = e.target.closest('[data-copy]'), cl = e.target.closest('[data-claim]');
   if (chip) { input.value = chip.dataset.q; run(chip.dataset.q); return; }
   if (e.target.closest('[data-clear]')) { store.set(RECENT, '[]'); showRecent(); return; }
+  if (cl) { claim(cl.dataset.claim, cl.dataset.addr, cl); return; }
   if (cp) {
-    const text = cp.dataset.copy, was = cp.textContent;
+    const text = cp.dataset.copy, label = cp.textContent;
     try { await navigator.clipboard.writeText(text); } catch {
       const t = Object.assign(document.createElement('textarea'), { value: text }); document.body.append(t); t.select();
       try { document.execCommand('copy'); } catch { /* nothing more to try */ } t.remove();
     }
-    cp.textContent = 'Copied'; said(cp.dataset.said || 'Address copied'); setTimeout(() => { cp.textContent = was; }, 1400);
+    cp.textContent = 'Copied'; said(cp.dataset.said || 'Address copied'); setTimeout(() => { cp.textContent = label; }, 1400);
   }
 });
 
 const asked = new URLSearchParams(location.search).get('q');
 if (asked) { input.value = asked; run(asked); } else { showRecent(); if (matchMedia('(pointer: fine)').matches) input.focus({ preventScroll: true }); }
-// The rank's board is fetched once the page has nothing else to do.
-(window.requestIdleCallback || ((f) => setTimeout(f, 300)))(() => { prime(); board(); });
+// The rank's board is fetched once the page has nothing else to do; a wallet connected here before is found again without a prompt.
+(window.requestIdleCallback || ((f) => setTimeout(f, 300)))(() => { prime(); board(); wallet.restore().catch(() => {}); });
