@@ -23,6 +23,8 @@
   X-Frame-Options: SAMEORIGIN
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=31536000
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), usb=(), bluetooth=(), serial=(), hid=(), payment=()
 
 # Files other apps load or vendor: the standalone EVM pool wallet and its ceremony files, and the address kit.
 /evm-pool/*

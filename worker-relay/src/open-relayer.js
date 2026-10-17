@@ -9,7 +9,8 @@
 //
 // Env: RELAYER_KEY (the account that sends and is paid), RPC_URL (reads and simulation), SEND_RPC_URL (where the signed
 // settle goes; default Flashbots Protect, fast mode, hash-only hints), API_BASE (default https://api.tacit.finance),
-// MARGIN_BPS (fee over the settle's cost, default 2000 = 20%), POLL_SECS (default 15), ONCE=1 (one pass, then exit).
+// MARGIN_BPS (fee over the settle's cost, default 2000 = 20%), POLL_SECS (default 15), ONCE=1 (one pass, then exit),
+// POOL_ADDR (the pool settles go to; default Tacit's V1 pool).
 // Only tETH fee legs are priced here; a proof paid in another asset is left for a relayer that values it.
 
 import { createPublicClient, createWalletClient, http, parseAbi, encodeFunctionData, getAddress } from 'viem';
@@ -25,6 +26,8 @@ const MARGIN_BPS = BigInt(env('MARGIN_BPS', '2000'));
 const POLL_SECS = Number(env('POLL_SECS', '15'));
 const SETTLE_GAS = 600_000n; // an ordinary settle; the estimate below is what is actually sent
 const POOL_ABI = parseAbi(['function settle(bytes publicValues, bytes proof, bytes[] memos)']);
+// The pool the settles go to is named here, not by the board's answer.
+const POOL = getAddress(env('POOL_ADDR', '0x000000000Ed1eabD231Be41d93b719056F7febFC'));
 const log = (...a) => console.log(`[open-relayer ${new Date().toISOString()}]`, ...a);
 
 const k = env('RELAYER_KEY');
@@ -43,6 +46,7 @@ async function board() {
 async function pass() {
   const { pool, jobs } = await board();
   if (!pool || !jobs?.length) return false;
+  if (getAddress(pool) !== POOL) { log(`the board names pool ${pool}, not ${POOL}; nothing is sent`); return false; }
   const gasPrice = await reader.getGasPrice();
   const fresh = jobs.filter((j) => !(tried.get(j.jobId) > Date.now() - 10 * 60_000));
   // The board's own jobs carry no "posted" preference here: every job is priced by the fee it pays this sender.
@@ -50,7 +54,7 @@ async function pass() {
     settleCostWei: SETTLE_GAS * gasPrice, ethAssetId: ETH_ASSET_ID, ethUnitScale: ETH_UNIT_SCALE, marginBps: MARGIN_BPS,
   });
   if (!pick) return false;
-  const call = { address: getAddress(pool), abi: POOL_ABI, functionName: 'settle', args: [pick.publicValues, pick.proof, pick.memos || []], account };
+  const call = { address: POOL, abi: POOL_ABI, functionName: 'settle', args: [pick.publicValues, pick.proof, pick.memos || []], account };
   let gas;
   try { await reader.simulateContract(call); gas = await reader.estimateContractGas(call); }
   catch (e) { tried.set(pick.jobId, Date.now()); log(`job ${pick.jobId}: the pool would refuse it now (${(e.shortMessage || e.message).slice(0, 120)})`); return true; }

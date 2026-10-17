@@ -28,7 +28,8 @@ import { loadTacitHeadless, setWalletKey } from './sats-faucet.js';
 import { makeBridgeRecover } from '../../dapp/bridge-recover.js';
 import { makeConfidentialPool } from '../../dapp/confidential-pool.js';
 import { makeScanReflectionIndexer } from '../../dapp/confidential-reflection-scan-indexer.js';
-import { classifyConfidentialTx } from '../../dapp/burn-deposit-bitcoin.js';
+import { classifyConfidentialTx, readVarint, txOutputScript } from '../../dapp/burn-deposit-bitcoin.js';
+import { sha256, hexToBytes, bytesToHex } from '../../dapp/vendor/tacit-deps.min.js';
 import { signSchnorr, verifySchnorr } from '../../dapp/bulletproofs.js';
 
 const log = (...a) => console.log(`[bridge-recover ${new Date().toISOString()}]`, ...a);
@@ -58,23 +59,58 @@ export function configFromEnv(env = process.env) {
   return cfg;
 }
 
-// Public chain data, first explorer that answers.
+// A transaction's id (display order) from its raw hex: the double SHA-256 of its serialization without witness data. null when the hex is not a
+// whole transaction (inputs, outputs, witnesses and locktime consume it exactly).
+export function txidOfHex(hex) {
+  try {
+    const tx = hexToBytes(lc(hex));
+    const segwit = tx.length > 5 && tx[4] === 0x00 && tx[5] === 0x01;
+    const skip = (pos, bytesOf) => { const r = readVarint(tx, pos); if (!r) throw new Error('short'); return [r[0], pos + r[1] + (bytesOf ? r[0] : 0)]; };
+    let pos = segwit ? 6 : 4; const bodyStart = pos;
+    let [inCount, p] = skip(pos, false); pos = p;
+    if (inCount === 0) return null;
+    for (let i = 0; i < inCount; i++) { pos += 36; [, pos] = skip(pos, true); pos += 4; }
+    let outCount; [outCount, pos] = skip(pos, false);
+    if (outCount === 0) return null;
+    for (let i = 0; i < outCount; i++) { pos += 8; [, pos] = skip(pos, true); }
+    const bodyEnd = pos;
+    if (segwit) for (let i = 0; i < inCount; i++) { let items; [items, pos] = skip(pos, false); for (let j = 0; j < items; j++) [, pos] = skip(pos, true); }
+    if (pos + 4 !== tx.length) return null;
+    const stripped = new Uint8Array(4 + (bodyEnd - bodyStart) + 4);
+    stripped.set(tx.subarray(0, 4), 0); stripped.set(tx.subarray(bodyStart, bodyEnd), 4); stripped.set(tx.subarray(tx.length - 4), 4 + (bodyEnd - bodyStart));
+    return bytesToHex(sha256(sha256(stripped)).reverse());
+  } catch { return null; }
+}
+
+// Public chain data from the first explorer whose answer is the one asked for: a transaction's hex hashes to its id, its JSON carries that id,
+// and each input's prevout script is the one its parent transaction's output holds. An answer that is not is skipped like an explorer that is down.
 export function makeChain(fetchImpl = fetch, bases = ESPLORA.mainnet) {
-  async function get(p, kind) {
+  async function get(p, kind, accept = null) {
     let last;
     for (const b of bases) {
       try {
         const r = await fetchImpl(b + p);
         if (r.status === 404) return null;
         if (!r.ok) throw new Error(`${r.status}`);
-        return kind === 'json' ? await r.json() : (await r.text()).trim();
+        const v = kind === 'json' ? await r.json() : (await r.text()).trim();
+        if (accept && !(await accept(v))) throw new Error('the answer is not the one asked for');
+        return v;
       } catch (e) { last = e; }
     }
     throw new Error(`explorers unavailable for ${p}: ${last && last.message}`);
   }
+  const hexOf = (t) => get(`/tx/${t}/hex`, 'text', (h) => txidOfHex(h) === lc(t));
   return {
-    getTx: (t) => get(`/tx/${t}`, 'json'),
-    getTxHex: (t) => get(`/tx/${t}/hex`, 'text'),
+    getTx: (t) => get(`/tx/${t}`, 'json', async (j) => {
+      if (!j || lc(j.txid) !== lc(t)) return false;
+      for (const v of j.vin || []) {
+        if (!v.prevout) continue;
+        const parent = await hexOf(v.txid);
+        if (!parent || lc(txOutputScript(parent, v.vout)) !== lc(v.prevout.scriptpubkey)) return false;
+      }
+      return true;
+    }),
+    getTxHex: hexOf,
     outspend: (t, v) => get(`/tx/${t}/outspend/${v}`, 'json'),
   };
 }

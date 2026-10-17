@@ -379,10 +379,10 @@ services:
       # DELIBERATELY NOT `fromGroup: tacit-relay-shared`. This is the one service here that listens on the
       # public internet, and that group carries RELAY_KEY, BOX_TOKEN and NETWORK_PRIVATE_KEY — a signing key
       # for every settle and attest, the token that gates the control plane including the reflection cursor
-      # reseed, and the prover balance. This process signs nothing and calls no control-plane route: it reads
-      # Wrap events and serves a leaderboard. It needs a chain endpoint and its own POINTS_* settings, so
-      # those are declared here instead. Keeping the group off this service is the whole point — re-adding it
-      # would put the relay's keys back on a public box, and a blueprint sync is how that silently happens.
+      # reseed, and the prover balance. This process calls no control-plane route: it reads Wrap events and serves a
+      # leaderboard. It needs a chain endpoint and its own POINTS_* settings, so those are declared here instead.
+      # Keeping the group off this service is the whole point — re-adding it would put the relay's keys back on a
+      # public box, and a blueprint sync is how that silently happens.
       - key: NETWORK
         value: mainnet
       - key: CHAIN_ID
