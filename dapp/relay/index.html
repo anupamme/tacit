@@ -99,6 +99,12 @@ button, input, textarea { font: inherit; color: inherit; letter-spacing: inherit
 .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 420px); gap: 14px 16px; align-items: start; }
 .col { display: grid; gap: 14px; min-width: 0; }
 @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+/* Each panel of the first grid keeps the height it has once the relay is read (it is taller as the screen is narrower), so the panels under it do not move while the figures come in */
+#p-buyback { min-height: 360px; } #p-fees { min-height: 487px; } #p-costs { min-height: 576px; } #p-tips { min-height: 461px; } #p-flow { min-height: 403px; }
+@media (max-width: 900px) { #p-buyback { min-height: 317px; } #p-fees { min-height: 472px; } #p-costs { min-height: 456px; } #p-tips { min-height: 438px; } #p-flow { min-height: 263px; } }
+@media (max-width: 640px) { #p-buyback { min-height: 347px; } #p-costs { min-height: 496px; } #p-flow { min-height: 303px; } }
+@media (max-width: 480px) { #p-buyback { min-height: 365px; } #p-costs { min-height: 536px; } #p-flow { min-height: 343px; } }
+@media (max-width: 400px) { #p-buyback { min-height: 410px; } #p-fees { min-height: 484px; } #p-costs { min-height: 600px; } #p-tips { min-height: 470px; } #p-flow { min-height: 430px; } }
 .panel { background: var(--card); border: 1px solid var(--hair); padding: 22px; min-width: 0; }
 @media (max-width: 480px) { .panel { padding: 18px 14px; } }
 .eyebrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--mute); margin: 0 0 12px; }

@@ -82,6 +82,7 @@ a:hover { text-decoration-thickness: 2px; }
 .brand i { font-style: normal; font-size: 12px; color: var(--mute); text-transform: uppercase; letter-spacing: .12em; }
 
 .asof { font-size: 12px; color: var(--mute); margin: 0 0 4px; min-height: 1.6em; }
+@media (max-width: 600px) { .asof { min-height: 3.2em; } }          /* the line it becomes is two lines on a phone */
 
 section.grp { margin-top: 30px; }
 section.grp > h2 { margin-bottom: 12px; }
@@ -98,6 +99,15 @@ h2 .tk { width: 26px; height: 26px; }
 .card .m a { color: var(--ink); }
 .card.wide { grid-column: span 2; }
 .card.err .v { color: var(--mute); }
+/* Each group keeps the height its cards have once they are read (taller as the screen is narrower, the cards being wider than the text they hold),
+   and the two charts that arrive last keep theirs, so nothing under them moves while the figures come in */
+.cards { min-height: var(--ch); }
+[data-cards="eth"] { --ch: 134px; } [data-cards="btc"] { --ch: 134px; } [data-cards="tac"] { --ch: 169px; } [data-cards="pts"] { --ch: 131px; } [data-cards="link"] { --ch: 169px; }
+@media (max-width: 999px) { [data-cards="eth"] { --ch: 153px; } [data-cards="tac"] { --ch: 189px; } [data-cards="link"] { --ch: 189px; } }
+@media (max-width: 760px) { [data-cards="eth"] { --ch: 247px; } [data-cards="btc"] { --ch: 230px; } [data-cards="tac"] { --ch: 345px; } [data-cards="pts"] { --ch: 225px; } [data-cards="link"] { --ch: 285px; } }
+@media (max-width: 600px) { [data-cards="eth"] { --ch: 266px; } [data-cards="btc"] { --ch: 249px; } [data-cards="tac"] { --ch: 383px; } [data-cards="pts"] { --ch: 244px; } [data-cards="link"] { --ch: 304px; } }
+@media (max-width: 400px) { [data-cards="eth"] { --ch: 316px; } [data-cards="btc"] { --ch: 288px; } [data-cards="tac"] { --ch: 411px; } [data-cards="pts"] { --ch: 256px; } [data-cards="link"] { --ch: 362px; } }
+#f-eth { min-height: 235px; } #f-dev { min-height: 246px; }
 
 .figure { background: var(--card); border: 1px solid var(--hair); padding: 14px 16px 12px; margin-top: 10px; }
 .figure .k { font-size: 12px; color: var(--mute); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -304,11 +314,11 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <section class="grp" id="g-eth">
     <h2><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg>Private ETH</h2>
     <div class="cards" data-cards="eth"></div>
-    <div class="figure" id="f-eth" hidden>
+    <div class="figure" id="f-eth">
       <div class="k"><span>ETH over time</span><span class="legend"><span><i style="background:var(--eth)"></i>Made private</span><span><i style="background:var(--ink)"></i>Private now</span></span></div>
       <div id="c-eth"></div>
     </div>
-    <div class="figure" id="f-dev" hidden>
+    <div class="figure" id="f-dev">
       <div class="k"><span>By pool</span></div>
       <div id="c-dev"></div>
     </div>

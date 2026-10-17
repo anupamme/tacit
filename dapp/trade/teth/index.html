@@ -133,6 +133,9 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .hero h1 em { font-style: italic; }
 .hero .sub { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-top: 12px; color: var(--mute); font-size: 13px; }
 .hero .sub b { color: var(--ink); font-weight: 500; }
+.hero .sub { position: relative; }
+.hero .sub .gh { visibility: hidden; }                                /* the price line as it will be, unseen, so it takes the room it will need at any width */
+.hero .sub .ph { position: absolute; left: 0; top: 0; }
 .chg.up { color: var(--up); } .chg.down { color: var(--down); }
 .gapnote { margin: 12px 0 0; font-size: 12px; color: var(--mute); max-width: 62ch; }
 .gapnote:empty { display: none; }
@@ -449,6 +452,9 @@ button.ob-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2p
 </style>
 <!-- style:shared:end -->
 <style>
+@media (max-width: 520px) { .hints summary { min-height: 46px; } }       /* the line it becomes is two lines on a phone */
+@media (max-width: 460px) { .hero .sub { min-height: 95px; } }           /* the price line is built in steps: it keeps the room it has at the end */
+@media (min-width: 461px) and (max-width: 920px) { .hero .sub { min-height: 46px; } }
 /* tETH: the layout with the Bitcoin panel, the steps of a deposit, what to do with tETH, the farms that pair it */
 .grid { grid-template-areas: "chart side" "btc side" "depth side" "info side"; grid-template-rows: auto auto auto 1fr; }
 .p-btc { grid-area: btc; container-type: inline-size; }
@@ -654,7 +660,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <div>
       <nav class="assets" aria-label="Asset"><a href="/trade/tac/"><svg class="tk xs" aria-hidden="true"><use href="#tk-tac"/></svg>TAC</a><a href="/trade/teth/" aria-current="page"><svg class="tk xs" aria-hidden="true"><use href="#tk-teth"/></svg>tETH</a><a href="/trade/cbtc/"><svg class="tk xs" aria-hidden="true"><use href="#tk-cbtc"/></svg>cBTC</a></nav>
       <h1 id="px-h"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><span class="sr">tETH price </span><span id="px-usd" class="num">tETH</span></h1>
-      <div class="sub" id="px-sub"><span class="mute">Reading the pool…</span></div>
+      <div class="sub" id="px-sub"><span class="gh" aria-hidden="true"><b class="num">1 tETH</b> = 1 ETH, private</span><span class="gh" aria-hidden="true"><b class="num">00.00 ETH</b> ($00k) held in the pool</span><span class="gh" aria-hidden="true">000 deposits · 00 wallets</span><span class="gh" aria-hidden="true"><i>24h in</i> 000.0 ETH <i>out</i> 000.0 ETH</span><span class="mute ph">Reading the pool…</span></div>
       <noscript><p class="note">Prices, charts and making ETH private on this page need JavaScript.</p></noscript>
       <details class="hints" id="hints"><summary id="hints-sum">Where tETH sits</summary>
         <div class="hints-pop"><div class="lanes" id="lanes" role="group" aria-label="What a tETH is worth in each place it sits"></div><p class="gapnote" id="gapnote"></p></div>

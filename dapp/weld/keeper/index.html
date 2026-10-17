@@ -92,6 +92,10 @@ h1 { font: italic 400 34px/1.1 var(--serif); margin: 0 0 6px; }
 
 section.grp { margin-top: 30px; }
 section.grp > h2 { margin-bottom: 12px; }
+/* Each section keeps the height it has once the relay is read (more on a narrow screen), so what is under it does not move while the figures come in */
+#g-wait { min-height: 500px; } #g-advance { min-height: 334px; } #g-attest { min-height: 474px; }
+@media (min-width: 601px) { #g-wait { min-height: 284px; } #g-advance { min-height: 339px; } #g-attest { min-height: 434px; } }
+@media (max-width: 440px) { .asof { min-height: 3.2em; } }                    /* the line it becomes is two lines on a small phone */
 h2 { font: italic 400 26px/1.1 var(--serif); margin: 0; display: flex; align-items: center; gap: 10px; }
 h2 .tk { width: 24px; height: 24px; }
 

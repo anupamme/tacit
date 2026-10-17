@@ -157,6 +157,9 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .hero h1 em { font-style: italic; }
 .hero .sub { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-top: 12px; color: var(--mute); font-size: 13px; }
 .hero .sub b { color: var(--ink); font-weight: 500; }
+.hero .sub { position: relative; }
+.hero .sub .gh { visibility: hidden; }                                /* the price line as it will be, unseen, so it takes the room it will need at any width */
+.hero .sub .ph { position: absolute; left: 0; top: 0; }
 .chg.up { color: var(--up); } .chg.down { color: var(--down); }
 .gapnote { margin: 12px 0 0; font-size: 12px; color: var(--mute); max-width: 62ch; }
 .gapnote:empty { display: none; }
