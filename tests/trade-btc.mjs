@@ -111,7 +111,7 @@ try {
   await until(p, () => document.querySelectorAll('#ladders [data-btc]').length > 0, null, 60000);
   ok(true, 'the Bitcoin ladders have their buttons with no setting made');
   await p.click('[data-book="eth"]');
-  ok(/Could not read zSwap's boards/.test(await text(p, '#ladders')), 'when no RPC answers, the Ethereum tab says the boards could not be read rather than that they hold no orders');
+  ok(/Could not read zSwap’s boards/.test(await text(p, '#ladders')), 'when no RPC answers, the Ethereum tab says the boards could not be read rather than that they hold no orders');
   await p.click('[data-book="btc"]');
   await p.evaluate(() => { location.hash = '#btc=off'; location.reload(); });
   await p.waitForLoadState('load');
@@ -143,7 +143,7 @@ try {
   await p.click('.bsheet .bm [data-act="unlock"]');
   await p.waitForSelector('.bsheet.top .ways');
   const opts = (await text(p, '.bsheet.top .ways')).replace(/\s+/g, ' ');
-  ok(/Ethereum wallet/.test(opts) && /Bitcoin wallet.*Not found in this browser/.test(opts) && !/Paste a key|Saved in this browser/.test(opts), 'the sign-in offers the Ethereum wallet, a Bitcoin wallet (none here) and no way that needs a passphrase');
+  ok(/Ethereum wallet/.test(opts) && /Bitcoin wallet.*None found in this browser/.test(opts) && !/Paste a key|Saved in this browser/.test(opts), 'the sign-in offers the Ethereum wallet, a Bitcoin wallet (none here) and no way that needs a passphrase');
   await p.click('.bsheet.top [data-in="eth"]');
   await until(p, () => !document.querySelector('.bsheet.top') && /Balance/.test(document.querySelector('.bsheet .bm')?.textContent || ''), null, 120000);
   ok(r.walletLog.signs >= 1, `the wallet signed the Tacit identity message (${r.walletLog.signs}×) and nothing else (${[...new Set(r.walletLog.requests)].join(', ')})`);

@@ -4,7 +4,7 @@
 // the last price and how far it sits from ETH) with a way into the Bitcoin market; and a quiet one that says what will appear, with ETH's price
 // in sats as its one figure.
 import { buildBook, ladderLevels } from '/btc-book.js?cb=2d11b335';
-import { api, esc, grp, usd } from '/trade/util.js?cb=c3dc39b3';
+import { api, esc, grp, usd } from '/trade/util.js?cb=782a003c';
 
 export const BTC_ID = '3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34';        // tETH on Bitcoin: the cETH asset id, without the 0x
 const BOOK_ROWS = 8;
@@ -60,7 +60,7 @@ export function ladders(m, { btcUsd, live, all = false, at }) {
   const lvs = (rows, ask) => ladderLevels(rows, ask ? 'ask' : 'bid').map((l, i) => {
     const amt = Number(l.amount) / 1e8, price = px(l.unit), ends = ask ? Math.min(...l.rows.map((r) => r.expiry).filter(Boolean)) : 0;
     const why = ask ? (l.count > 1 ? `${l.count} listings, each taken whole` : 'one listing, taken whole') : l.flag === 'auto' ? 'settles within minutes' : 'settles when the bidder is online';
-    return { price, small: [btcUsd ? `${satsTxt(l.unit)} sats` : '', l.count > 1 ? `×${l.count}` : ''].filter(Boolean).join(' · '), amount: tethTxt(amt), total: satsTxt(l.sats), depth: l.sats, mine: l.flag === 'mine',
+    return { price, small: [btcUsd ? `${satsTxt(l.unit)} sats` : '', l.count > 1 ? `${l.count} listings` : ''].filter(Boolean).join(' · '), amount: tethTxt(amt), total: satsTxt(l.sats), depth: l.sats, mine: l.flag === 'mine',
       attrs: live ? `data-btc="${ask ? 'buy' : 'sell'}" data-i="${i}"` : '', title: `${why}${Number.isFinite(ends) && ends ? ` · ends in ${left(ends, at)}` : ''}.${live ? ` Click to ${ask ? 'buy' : 'sell'} up to this price.` : ''}`,
       label: `${ask ? 'Buy up to' : 'Sell up to'} ${tethTxt(amt)} tETH at ${price} each` };
   });
@@ -71,7 +71,7 @@ export function ladders(m, { btcUsd, live, all = false, at }) {
 // The quiet state: the book's own shape, empty, with ETH's price in sats where the last trade will be.
 export function idle(m, { ref }) {
   return stackBook({ asks: [], bids: [], totalHead: 'Sats', ghost: true, emptyAsk: 'No one is selling yet.', emptyBid: 'No one is bidding yet.',
-    mid: ref ? `<span class="ob-last"><b>≈ ${esc(satsTxt(ref))} sats</b><em>ETH's price</em></span>` : '<span></span>' });
+    mid: ref ? `<span class="ob-last"><b>≈ ${esc(satsTxt(ref))} sats</b><em>ETH’s price</em></span>` : '<span></span>' });
 }
 
 // What a ladder click should set the market's ticket to: everything cheaper than the row, and the row. The row's index counts the levels as the

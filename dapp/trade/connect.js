@@ -1,9 +1,9 @@
 // The browser wallet on a trade page: the header chip, the picker, WalletConnect's pairing sheets, and the account sheet with Disconnect. The page
 // says what to show in the account sheet and what to do when the account changes; the wallet itself (sending, signing, receipts) is wallet.js.
 import { announceWalletConnect, wcSheets, WC_PROJECT_ID } from '/walletconnect.js?cb=92886522';
-import { makeWallet, UserStopped } from '/trade/wallet.js?cb=595c892a';
+import { makeWallet, UserStopped } from '/trade/wallet.js?cb=7b4ab128';
 import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
-import { rpc, RPCS, short, $ } from '/trade/util.js?cb=c3dc39b3';
+import { rpc, RPCS, short, $ } from '/trade/util.js?cb=782a003c';
 
 // WalletConnect joins the browser wallets in the picker, and is the one wallet offered where the browser has none (a phone): a wallet app signs
 // and sends for this page.
@@ -34,7 +34,7 @@ export function makeConnect({ describe, rows = () => '', wire = () => {}, leave 
   // Several wallets (or one and WalletConnect): the person chooses. One: it connects at once. → true once connected.
   async function connect() {
     const list = wallet.available();
-    if (!list.length) { say('No wallet was found in this browser. Open this page in a wallet app\'s browser, or use tacit.finance.'); return false; }
+    if (!list.length) { say('No wallet was found in this browser. Open this page in a wallet app’s browser, or use tacit.finance.'); return false; }
     try {
       let w = list[0];
       if (list.length > 1) { const i = await pickWallet(list); if (i == null) return false; w = list[i]; }
@@ -52,7 +52,7 @@ export function makeConnect({ describe, rows = () => '', wire = () => {}, leave 
   function accountSheet() {
     const o = overlay({ title: 'Wallet', top: true });
     const wrong = W.chain && W.chain !== '0x1', stop = busy(), app = W.prov?.peerName?.();
-    o.body.innerHTML = `<div class="kv"><span>Connected with</span><b>${esc(W.name)}${app ? ` · ${esc(app)}` : ''}</b></div><div class="kv"><span>Account</span><b class="addr-s">${esc(W.account)}</b></div>${wrong ? '<div class="kv"><span>Network</span><b>Not Ethereum <button class="linkbtn" type="button" data-switch>Switch</button></b></div>' : ''}${rows()}${rewards ? `<a class="btn ghost" href="/rewards/?q=${esc(W.account)}">Airdrop and points</a>` : ''}<div class="bsheet-actions" style="margin-top:14px"><button class="btn ghost" type="button" data-copy>Copy address</button><button class="btn" type="button" data-leave${stop ? ' disabled' : ''}>Disconnect</button></div>${stop ? '<p class="note">Something is in progress; disconnect when it ends.</p>' : ''}`;
+    o.body.innerHTML = `<div class="kv"><span>Connected with</span><b>${esc(W.name)}${app ? ` · ${esc(app)}` : ''}</b></div><div class="kv"><span>Account</span><b class="addr-s">${esc(W.account)}</b></div>${wrong ? '<div class="kv"><span>Network</span><b>Not Ethereum <button class="linkbtn" type="button" data-switch>Switch</button></b></div>' : ''}${rows()}${rewards ? `<a class="btn ghost" href="/rewards/?q=${esc(W.account)}">Airdrop and points →</a>` : ''}<div class="bsheet-actions" style="margin-top:14px"><button class="btn ghost" type="button" data-copy>Copy address</button><button class="btn" type="button" data-leave${stop ? ' disabled' : ''}>Disconnect</button></div>${stop ? '<p class="note">Something is in progress; disconnect when it ends.</p>' : ''}`;
     const addr = W.account;
     o.body.querySelector('[data-switch]')?.addEventListener('click', (e) => { e.target.disabled = true; wallet.ensureMainnet().then(() => { o.close(); renderChip(); }, () => { e.target.disabled = false; }); });
     o.body.querySelector('[data-copy]').onclick = (e) => navigator.clipboard?.writeText(addr).then(() => { e.target.textContent = 'Copied'; }, () => { e.target.textContent = 'Could not copy'; });

@@ -19,7 +19,7 @@ for (const v of [...values, 99.95, 100.4, 100.5, 5339999, 176, 295.55]) assert.e
 ok('satsFmt matches (whole above 100, one decimal below)');
 for (const v of [0n, 5n, 1234n, 10n ** 12n + 7n, 123456789012345678901234567890n]) assert.equal(group(v), v.toLocaleString('en-US'));
 ok('group matches for numbers and bigints');
-for (const t of [0, 1700000000, 1766188800, 1798761599]) assert.equal(day(t), new Date(t * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }));
+for (const t of [0, 1700000000, 1766188800, 1798761599]) assert.equal(day(t), new Date(t * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }));
 ok('day matches toLocaleDateString');
 const refZone = (d) => new Intl.DateTimeFormat('en-GB', { timeZoneName: 'short' }).formatToParts(d).find((x) => x.type === 'timeZoneName')?.value || '';
 for (const t of [1700000000, 1720000000, 1750000000]) assert.equal(zone(new Date(t * 1000)), refZone(new Date(t * 1000)));

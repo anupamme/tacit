@@ -447,18 +447,18 @@ try {
     const w = await import('/trade/teth/wrap.js'), pv = await import('/trade/teth/prover.js');
     const err = (m, o = {}) => Object.assign(new Error(m), o), E = 10n ** 18n;
     const refused = err('relay 503: the relay is not proving right now', { code: 'relay_paused', httpStatus: 503 });
-    const stopped = err('The relay isn\'t proving right now.', { code: 'relay_paused', queued: true, proving: false });
-    const stillProves = err('The relay isn\'t proving right now.', { code: 'relay_paused', queued: true, proving: true });
-    const held = err('The relay can\'t send this one right now.', { code: 'relay_held', queued: true, proving: true });
+    const stopped = err('The relay isn’t proving right now.', { code: 'relay_paused', queued: true, proving: false });
+    const stillProves = err('The relay isn’t proving right now.', { code: 'relay_paused', queued: true, proving: true });
+    const held = err('The relay can’t send this one right now.', { code: 'relay_held', queued: true, proving: true });
     const row = (e) => [w.ownable(e), w.selfable(e), w.relayWords(e)];
     return { refused: row(refused), stopped: row(stopped), stillProves: row(stillProves), held: row(held),
       failed: row(err('settle failed: prove failed: guest exited with code 1')), slow: row(err('prove timed out (box offline or backlogged)')),
       proofs: [pv.proofsFor({ PROVE_PER_PROOF: 0.4 }, 2n * E, 45n * E / 100n), pv.proofsFor({ PROVE_PER_PROOF: 0.4 }, 85n * E / 100n, 45n * E / 100n), pv.proofsFor({ PROVE_PER_PROOF: 0.4 }, 44n * E / 100n, 45n * E / 100n), pv.proofsFor({ PROVE_PER_PROOF: 0.4 }, E, 578n * E / 1000n), pv.proofsFor({ PROVE_PER_PROOF: 0.4 }, 2n * E)] };
   });
-  ok(kinds.refused[0] && !kinds.refused[1] && kinds.refused[2] === 'The relay isn\'t proving right now. Your deposit is safe and waits to be finished.', `a relay_paused refusal offers the holder's own credit and not the wallet (which needs the relay's proof) (${kinds.refused[2]})`);
-  ok(kinds.stopped[0] && !kinds.stopped[1] && kinds.stopped[2] === 'The relay isn\'t proving right now. Your deposit is safe and keeps its place in line: it goes through once the relay is back.', `a wait the relay's pause ended offers the holder's credit, and says the job keeps its place (${kinds.stopped[2]})`);
-  ok(kinds.stillProves[0] && kinds.stillProves[1] && /^The relay can't send this one right now\./.test(kinds.stillProves[2]), 'one that has stopped sending but still proves offers the wallet as well');
-  ok(!kinds.held[0] && kinds.held[1] && kinds.held[2] === 'The relay can\'t send this one right now. It still proves it, so your wallet can send the settle.', `a held relay offers the wallet only (${kinds.held[2]})`);
+  ok(kinds.refused[0] && !kinds.refused[1] && kinds.refused[2] === 'The relay isn’t proving right now. Your deposit is safe and waits to be finished.', `a relay_paused refusal offers the holder's own credit and not the wallet (which needs the relay's proof) (${kinds.refused[2]})`);
+  ok(kinds.stopped[0] && !kinds.stopped[1] && kinds.stopped[2] === 'The relay isn’t proving right now. Your deposit is safe and keeps its place in line: it goes through once the relay is back.', `a wait the relay's pause ended offers the holder's credit, and says the job keeps its place (${kinds.stopped[2]})`);
+  ok(kinds.stillProves[0] && kinds.stillProves[1] && /^The relay can’t send this one right now\./.test(kinds.stillProves[2]), 'one that has stopped sending but still proves offers the wallet as well');
+  ok(!kinds.held[0] && kinds.held[1] && kinds.held[2] === 'The relay can’t send this one right now. It still proves it, so your wallet can send the settle.', `a held relay offers the wallet only (${kinds.held[2]})`);
   ok(kinds.failed[0] && kinds.slow[0] && !kinds.slow[1], 'a relayed job whose proof failed ("settle failed: prove failed: …") and a proof that ran out of time offer the holder\'s own credit');
   ok(![kinds.refused, kinds.stopped, kinds.stillProves, kinds.held].some((x) => /low on|out of|\bgas\b|credit|running low/i.test(x[2]) || /\bPROVE\b/.test(x[2])), 'none of the relay\'s words says it is short of anything');
   ok(kinds.proofs.join() === '4,2,0,2,5', `proofs are counted from what a request needs on hand, then about 0.4 PROVE each (${kinds.proofs.join()})`);
@@ -605,7 +605,7 @@ try {
   await p.fill('#amt', '0.03');
   await until(p, () => document.querySelector('#go').textContent === 'Make ETH private' && !document.querySelector('#go').disabled);
   await p.click('#go');
-  await until(p, () => /failed on chain/.test(document.querySelector('#status').textContent), null, 20000);
+  await until(p, () => /The transaction failed/.test(document.querySelector('#status').textContent), null, 20000);
   ok(!/not private yet/.test(await text(p, '#status')) && !(await p.$('#retry')) && (await text(p, '#go')) !== 'Finish the earlier deposit first', 'a deposit that reverted is not called waiting and offers no retry');
   chain.receipt = 'ok';
   // the index could not be read
@@ -704,8 +704,8 @@ try {
   await deposit('0.09');
   await until(p, () => document.querySelector('#retry'), null, 20000);
   sst = await text(p, '#status');
-  ok(/as many proofs as it can for today; try again after midnight UTC\. Your deposit is safe and waits to be finished\./.test(sst) && !(await p.$('#self')), `a relay with no proofs left says so and offers no wallet finish (${sst.slice(0, 160)})`);
-  ok(/Or prove it with your own PROVE credit\./.test(sst) && !!(await p.$('#status #own')), 'where the relay cannot prove, proving with your own credit is offered');
+  ok(/as many proofs as it can for today\. Try again after midnight UTC\. Your deposit is safe and waits to be finished\./.test(sst) && !(await p.$('#self')), `a relay with no proofs left says so and offers no wallet finish (${sst.slice(0, 160)})`);
+  ok(/Or prove it with your own credit\./.test(sst) && !!(await p.$('#status #own')), 'where the relay cannot prove, proving with your own credit is offered');
   await p.click('#retry');
   await until(p, () => /Done\./.test(document.querySelector('#status').textContent), null, 20000);
 
@@ -717,7 +717,7 @@ try {
   await p.click('#finish');
   await until(p, () => document.querySelector('#self-pending'), null, 20000);
   sst = await text(p, '#status');
-  ok(/catching up on settles and did not take this one/.test(sst) && /Finish from your wallet: Test Wallet pays the network fee/.test(sst), `a refused Finish offers the wallet (${sst.slice(0, 160)})`);
+  ok(/can’t take this one right now/.test(sst) && /Finish from your wallet: Test Wallet pays the network fee/.test(sst), `a refused Finish offers the wallet (${sst.slice(0, 160)})`);
   await cfg(p, { pending: [] });
   const pendSends = r.log.sends.length;
   await p.click('#self-pending');
@@ -746,13 +746,13 @@ try {
   const { secp: nsecp, keccak_256: nkeccak } = await import(new URL('../dapp/vendor/tacit-deps.min.js', import.meta.url).href);
   const hexb = (h) => Uint8Array.from(Buffer.from(String(h).replace(/^0x/, ''), 'hex'));
   const kec = (h) => '0x' + Buffer.from(nkeccak(typeof h === 'string' ? hexb(h) : h)).toString('hex');
-  ok(/Proved byTacit's relay · Prove it yourself/.test(await text(p, '#prover-line')), `the ticket says who proves the deposit, and offers to prove it yourself (${await text(p, '#prover-line')})`);
+  ok(/Proved byTacit’s relay · Prove it yourself/.test(await text(p, '#prover-line')), `the ticket says who proves the deposit, and offers to prove it yourself (${await text(p, '#prover-line')})`);
   await spnCfg(p, { credit: '0' });
   await p.click('#prover-line #ps-open');
   await until(p, () => /Credit/.test(document.querySelector('.bsheet #ps-acct')?.textContent || '') && !/reading/.test(document.querySelector('.bsheet #ps-acct').textContent), null, 20000);
   let sheet = await text(p, '.bsheet');
   ok(sheet.includes(`${ACCT.address.slice(0, 8)}…${ACCT.address.slice(-6)}`) && /your Tacit account/.test(sheet) && /Credit0 PROVE · enough for about 0 proofs/.test(sheet), `the sheet shows the prover account (the Tacit account) and its credit (${sheet.slice(0, 260)})`);
-  ok(/go to Succinct's own prover as a private input, passing through Tacit's API without being kept/.test(sheet) && !/never sees|neither proves/.test(sheet) && /no relay tip/.test(sheet) && /about 0\.39 PROVE/.test(sheet) && !(await p.$eval('#ps-on', (x) => x.checked)), 'it says where the private input goes, what a failed request costs, and the switch starts off');
+  ok(/go to Succinct’s own prover as a private input, passing through Tacit’s API without being kept/.test(sheet) && !/never sees|neither proves/.test(sheet) && /no relay tip/.test(sheet) && /about 0\.39 PROVE/.test(sheet) && !(await p.$eval('#ps-on', (x) => x.checked)), 'it says where the private input goes, what a failed request costs, and the switch starts off');
   await until(p, () => /Wallet 10 PROVE/.test(document.querySelector('#ps-bal')?.textContent || ''), null, 15000);
   ok((await p.inputValue('#ps-amt')) === '2' && (await text(p, '#ps-go')) === 'Add PROVE', 'Add PROVE starts at 2 PROVE, with the wallet\'s PROVE shown');
   events.length = 0;
@@ -828,7 +828,7 @@ try {
   events.length = 0;
   const ownFrom = r.log.sends.length;
   await p.click('#go');
-  await until(p, () => /Succinct's prover/.test(document.querySelector('#status').textContent), null, 20000);
+  await until(p, () => /Succinct’s prover/.test(document.querySelector('#status').textContent), null, 20000);
   const midSteps = await p.$$eval('#steps li', (ls) => ls.map((l) => l.textContent));
   await until(p, () => /Done\./.test(document.querySelector('#status').textContent), null, 30000);
   const ownTx = r.log.sends.slice(ownFrom).map((x) => x.tx);
@@ -841,7 +841,7 @@ try {
   u = await ux(p);
   const ups = u.calls.filter((c) => c[0] === 'useProver').slice(-2).map((c) => c[1]);
   ok(ups.join() === 'true,false', 'the holder\'s prover is set for this proof only, then put back');
-  ok(midSteps.join('|').includes('Prepare the input for Succinct\'s prover|Succinct\'s prover proves it, about half a minute|Confirm the settle in your wallet|The settle lands on Ethereum'), `the steps say what happens in plain words (${midSteps.join(' · ')})`);
+  ok(midSteps.join('|').includes('Prepare the input for Succinct’s prover|Succinct’s prover proves it, about half a minute|Confirm the settle in your wallet|The settle lands on Ethereum'), `the steps say what happens in plain words (${midSteps.join(' · ')})`);
   ok(/Proved with your own credit and settled from your wallet/.test(await text(p, '#status')), 'it says it was proved with your own credit and settled from your wallet');
 
   // Succinct's network refusing private inputs: the proof goes with a public input, the steps say so as it goes and at the end, and the wallet
@@ -855,7 +855,7 @@ try {
   await until(p, () => /Done\./.test(document.querySelector('#status').textContent), null, 30000);
   const pubReq = (await p.evaluate(() => window.__spn)).calls.filter((c) => c[0] === 'request').at(-1);
   ok(await sawPub && pubReq?.[4] === 'public' && r.log.sends.slice(pubFrom).length === 2, `with private inputs refused, the proof goes with a public input and the steps say so (${JSON.stringify(pubReq?.slice(2))})`);
-  ok(/Proved with your own credit \(its input went public: Succinct's network was not taking private inputs\) and settled from your wallet/.test(await text(p, '#status')), `and the result says so (${(await text(p, '#status')).slice(0, 200)})`);
+  ok(/Proved with your own credit \(its input went public: Succinct’s network was not taking private inputs\) and settled from your wallet/.test(await text(p, '#status')), `and the result says so (${(await text(p, '#status')).slice(0, 200)})`);
   await spnCfg(p, { privateOff: false });
 
   // too little credit, read before the deposit: nothing is sent
@@ -894,7 +894,7 @@ try {
   await p.click('#go');
   await until(p, () => document.querySelector('#status #retry') && /did not take it/.test(document.querySelector('#status').textContent), null, 30000);
   sst = await text(p, '#status');
-  ok(sst.includes('Succinct\'s prover did not take it in time. Nothing was sent; the network kept its base fee (about 0.39 PROVE). Try again, or let the relay prove this one.') && /Try again with your credit, or let the relay prove this one\./.test(sst), `a request not proved in time is said plainly (${sst.slice(0, 200)})`);
+  ok(sst.includes('Succinct’s prover did not take it in time. Nothing was sent. The network kept its base fee (about 0.39 PROVE). Try again, or let the relay prove this one.') && /Try again with your credit, or let the relay prove this one\./.test(sst), `a request not proved in time is said plainly (${sst.slice(0, 200)})`);
   const relayPosts = posts.length;
   await p.click('#status #retry');
   await until(p, () => /Done\./.test(document.querySelector('#status').textContent), null, 30000);
@@ -933,7 +933,7 @@ try {
   await p.evaluate(() => document.querySelector('#prover-line #ps-open').click());
   await p.waitForSelector('.bsheet #ps-on');
   await p.uncheck('#ps-on'); await p.click('.bsheet .x');
-  await until(p, () => /Proved byTacit's relay/.test(document.querySelector('#prover-line').textContent), null, 10000);
+  await until(p, () => /Proved byTacit’s relay/.test(document.querySelector('#prover-line').textContent), null, 10000);
   await cfg(p, { settleRefuse: 'prove_budget' });
   await deposit('0.05');
   await until(p, () => document.querySelector('#status #own'), null, 20000);
@@ -958,7 +958,7 @@ try {
   ok(/No tETH is listed on Bitcoin yet/.test(await text(p, '#btc-lead')) && /not listed yet/.test(await text(p, '#btc-sum')), 'with nothing on the Bitcoin book, the panel says so');
   const ghost = await p.$eval('#btc-ladder', (e) => ({ ghost: !!e.querySelector('.ob.ghost'), mid: e.querySelector('.ob-spread')?.textContent.replace(/\s+/g, ' ').trim(), empties: [...e.querySelectorAll('.ob-empty')].map((x) => x.textContent) }));
   const refTxt = (ETH_USD / 83000 * 1e8 / 1e6).toFixed(2);
-  ok(ghost.ghost && ghost.empties.length === 2 && ghost.mid.includes(`≈ ${refTxt}M sats`) && /ETH's price/.test(ghost.mid), `the book's own shape, empty, with ETH's price in sats where the last trade will be (${ghost.mid})`);
+  ok(ghost.ghost && ghost.empties.length === 2 && ghost.mid.includes(`≈ ${refTxt}M sats`) && /ETH’s price/.test(ghost.mid), `the book's own shape, empty, with ETH's price in sats where the last trade will be (${ghost.mid})`);
   ok(!(await p.$('#btc-actions button')) && !(await p.$('#btc-actions a')) && (await p.$eval('#btc-depth', (e) => e.hidden)), 'no way to trade is offered until there is something to trade');
   const facts = await text(p, '#btc-facts');
   ok(/3 holders on Bitcoin · 2 transfers/.test(facts), `what is known of tETH on Bitcoin (${facts})`);
@@ -1030,10 +1030,10 @@ try {
   chain.market = 'partial';
   r = await openPage({ width: 1280, height: 900 });
   p = r.page;
-  await until(p, () => /Could not read the Bitcoin order book just now/.test(document.querySelector('#btc-ladder').textContent) && document.querySelector('#px-usd').textContent.startsWith('$'));
+  await until(p, () => /Could not read the Bitcoin order book/.test(document.querySelector('#btc-ladder').textContent) && document.querySelector('#px-usd').textContent.startsWith('$'));
   await p.click('#hints summary');
   const partLane = (await p.$$eval('#lanes .lane', (ls) => ls.map((l) => l.textContent.replace(/\s+/g, ' ').trim()))).find((l) => /On Bitcoin/.test(l));
-  ok(!/No tETH is listed/.test(await text(p, '#btc-lead')) && /book not read/.test(await text(p, '#btc-sum')) && /book not read just now/.test(partLane) && !(await p.$('#btc-actions button')), `holders and transfers known but no listings read: it says so and does not call the book empty (${partLane})`);
+  ok(!/No tETH is listed/.test(await text(p, '#btc-lead')) && /book not read/.test(await text(p, '#btc-sum')) && /book not read/.test(partLane) && !(await p.$('#btc-actions button')), `holders and transfers known but no listings read: it says so and does not call the book empty (${partLane})`);
   await r.browser.close();
   // clicking a ladder row with the visitor's own order at the best price primes only what is cheaper than the row, theirs left out
   r = await openPage({ width: 1280, height: 900 });
@@ -1077,7 +1077,7 @@ try {
   await p.fill('#amt', '0.1');
   await until(p, () => /Relay tip/.test(document.querySelector('#route').textContent) && /Private to/.test(document.querySelector('#route').textContent));
   const rt = await text(p, '#route');
-  ok(/Private to\s*the Tacit key you open next/.test(rt), `before a key is open the receipt says whose key the note will be for (${rt.slice(0, 120)})`);
+  ok(/Private to\s*the Tacit wallet you open next/.test(rt), `before a key is open the receipt says whose key the note will be for (${rt.slice(0, 120)})`);
   ok(r.log.sends.length === sendsBefore, 'nothing was sent for any of them');
   await r.browser.close();
 
@@ -1135,7 +1135,7 @@ try {
   await p.click('#go'); await signInNow();
   await until(p, () => document.querySelector('#status #own-now'), null, 30000);
   sst = await text(p, '#status');
-  ok(sst === 'The relay isn\'t proving right now. Prove it with your own credit, or wrap anyway: it goes through once the relay is back, or you finish it from your wallet.' && !!(await p.$('#status #anyway')), `paused at the press: one sentence and two ways on (${sst})`);
+  ok(sst === 'The relay isn’t proving right now. Prove it with your own credit or deposit anyway: it goes through once the relay is back, or you finish it from your wallet.' && !!(await p.$('#status #anyway')), `paused at the press: one sentence and two ways on (${sst})`);
   ok(r.log.sends.length === 0 && !(await ux(p)).calls.some((c) => c[0] === 'nextWrapIndex') && (await text(p, '#go')) === 'Make ETH private', 'no deposit was sent and no note was built; the ticket is as it was');
   await p.click('#status #own-now');
   await until(p, () => document.querySelector('.bsheet #ps-on') && /Credit0 PROVE/.test(document.querySelector('.bsheet #ps-acct')?.textContent || ''), null, 20000);
@@ -1149,8 +1149,8 @@ try {
   await p.click('#go');
   await statusHas(/Done\./);
   ok(r.log.sends.length === 2 && BigInt(r.log.sends[0].tx.value) === 5n * 10n ** 16n && r.log.sends[0].tx.data.endsWith('0'.repeat(64)) && r.log.sends[1].tx.to.toLowerCase() === POOL.toLowerCase() && posts.length === postsAt && /Proved with your own credit/.test(await text(p, '#status')), 'with the credit in, the wrap goes with no tip, proved on the holder\'s credit and settled from the wallet; nothing reaches the relay');
-  ok(/Proved byTacit's relay/.test(await text(p, '#prover-line')) && !(await p.evaluate(() => /true/.test(localStorage.getItem('tacit-trade-own-prover-v1') || ''))), 'for that wrap only: the switch is not kept');
-  // wrap anyway: the deposit goes to the relay, and the page stops waiting at once with the holder's own credit offered
+  ok(/Proved byTacit’s relay/.test(await text(p, '#prover-line')) && !(await p.evaluate(() => /true/.test(localStorage.getItem('tacit-trade-own-prover-v1') || ''))), 'for that wrap only: the switch is not kept');
+  // deposit anyway: the deposit goes to the relay, and the page stops waiting at once with the holder's own credit offered
   await cfg(p, { settleHang: true });
   await p.fill('#amt', '0.03');
   await until(p, () => /Relay tip\d/.test(document.querySelector('#route').textContent) && document.querySelector('#go').textContent === 'Make ETH private', null, 20000);
@@ -1163,8 +1163,8 @@ try {
   sst = await text(p, '#status');
   await until(p, () => window.__ux.calls.some((c) => c[0] === 'waitEnded'), null, 5000).catch(() => {});
   u = await ux(p);
-  ok(r.log.sends.length === anyFrom + 1 && BigInt(r.log.sends.at(-1).tx.value) === 3n * 10n ** 16n + TIP && posts.length === postsAt + 1 && posts.at(-1).mode === 'settle', 'wrap anyway: the deposit goes with its tip and the relay is given the settle, which keeps its place in line');
-  ok(sst.startsWith('The relay isn\'t proving right now. Your deposit is safe and keeps its place in line: it goes through once the relay is back.') && /Try again with your credit\. Or finish it later/.test(sst) && !!(await p.$('#status #own')) && !(await p.$('#status #self')), `and the page does not wait on it: the holder's own credit is offered, not the wallet (${sst.slice(0, 240)})`);
+  ok(r.log.sends.length === anyFrom + 1 && BigInt(r.log.sends.at(-1).tx.value) === 3n * 10n ** 16n + TIP && posts.length === postsAt + 1 && posts.at(-1).mode === 'settle', 'deposit anyway: the deposit goes with its tip and the relay is given the settle, which keeps its place in line');
+  ok(sst.startsWith('The relay isn’t proving right now. Your deposit is safe and keeps its place in line: it goes through once the relay is back.') && /Try again with your credit\. Or finish it on tacit\.finance/.test(sst) && !!(await p.$('#status #own')) && !(await p.$('#status #self')), `and the page does not wait on it: the holder's own credit is offered, not the wallet (${sst.slice(0, 240)})`);
   ok(u.calls.some((c) => c[0] === 'waitEnded' && c[2] === 'relay_paused'), 'the relay client\'s own wait ends at its next poll');
   ok(!/low on|out of|gas|running low/i.test(sst), 'nothing says the relay is short of anything');
   await cfg(p, { settleHang: false });
@@ -1182,7 +1182,7 @@ try {
   await until(p, () => /then the settle · network fee about/.test(document.querySelector('#route').textContent), null, 20000);
   // The relay only proves, so its tip is the one it asks for a proof alone.
   const heldRoute = await text(p, '#route'), heldTotal = 4n * 10n ** 16n + BigInt(quote.recommendedProveTipWei);
-  ok(heldRoute.includes(`Your wallet sends${f6(heldTotal)} ETH, then the settle · network fee about ${feeTxt} ETH`) && heldRoute.includes('The relay can\'t send this one right now, so your wallet sends the settle and pays its network fee.'), `held: the quote adds the settle and its network fee, with the relay's tip for a proof alone (${heldRoute})`);
+  ok(heldRoute.includes(`Your wallet sends${f6(heldTotal)} ETH, then the settle · network fee about ${feeTxt} ETH`) && heldRoute.includes('The relay can’t send this one right now, so your wallet sends the settle and pays its network fee.'), `held: the quote adds the settle and its network fee, with the relay's tip for a proof alone (${heldRoute})`);
   events.length = 0;
   postsAt = posts.length;
   await p.click('#go'); await signInNow();
@@ -1200,7 +1200,7 @@ try {
   await p.click('#go');
   await until(p, () => document.querySelector('#status #own'), null, 30000);
   sst = await text(p, '#status');
-  ok(sst.startsWith('The relay isn\'t proving right now. Your deposit is safe and waits to be finished.') && /Try again with your credit\. Or finish it later/.test(sst) && !(await p.$('#status #self')), `a relay_paused refusal of the proof offers the holder's own credit (${sst.slice(0, 200)})`);
+  ok(sst.startsWith('The relay isn’t proving right now. Your deposit is safe and waits to be finished.') && /Try again with your credit\. Or finish it on tacit\.finance/.test(sst) && !(await p.$('#status #self')), `a relay_paused refusal of the proof offers the holder's own credit (${sst.slice(0, 200)})`);
   postsAt = posts.length;
   await p.click('#status #own');
   await statusHas(/Done\./);
@@ -1224,7 +1224,7 @@ try {
   sst = await text(p, '#status');
   await until(p, () => window.__ux.calls.some((c) => c[0] === 'waitEnded'), null, 5000).catch(() => {});
   u = await ux(p);
-  ok(sst.startsWith('The relay can\'t send this one right now. It still proves it, so your wallet can send the settle.') && /Finish it from your wallet: Test Wallet pays the network fee/.test(sst) && !(await p.$('#status #own')) && waited < 35, `held during the wait: the page stops within ${waited.toFixed(0)} s and offers the wallet (${sst.slice(0, 200)})`);
+  ok(sst.startsWith('The relay can’t send this one right now. It still proves it, so your wallet can send the settle.') && /Finish it from your wallet: Test Wallet pays the network fee/.test(sst) && !(await p.$('#status #own')) && waited < 35, `held during the wait: the page stops within ${waited.toFixed(0)} s and offers the wallet (${sst.slice(0, 200)})`);
   ok(u.calls.some((c) => c[0] === 'waitEnded' && c[2] === 'relay_held'), 'and the relay client\'s own wait ends at its next poll');
   const waitsBefore = count(u, 'waitForSettle');
   postsAt = posts.length;
@@ -1267,7 +1267,7 @@ try {
   p = r.page;
   await p.waitForTimeout(2500);
   ok((await text(p, '#px-usd')) === 'tETH' && /Reading the pool/.test(await text(p, '#px-sub')), 'with nothing readable the headline waits and says so');
-  ok(/history could not be read/.test(await text(p, '#chart')), 'the chart says its history was not read');
+  ok(/Could not read the pool’s history/.test(await text(p, '#chart')), 'the chart says its history was not read');
   ok((await text(p, '#go')) === 'Connect wallet' && !(await p.$('.pf')), 'no farms are invented');
   await r.browser.close();
   chain.rates = true;

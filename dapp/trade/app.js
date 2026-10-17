@@ -14,13 +14,13 @@ import {
 import { getConfidentialDeployment } from '/confidential-deployments.js';
 import { buildBook, planBuy, planSell as planBtcSell, ladderLevels } from '/btc-book.js?cb=2d11b335';
 import { decodeTape, chartBars, continuous, invert, ethLaneUsd, btcLaneUsd, candlesFromTrades, tradePrices, closeAt, volumeSince, gap, TAPE_FINE, TAPE_COARSE } from '/trade/tape.js?cb=a4aefafb';
-import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=97813823';
-import { mountDepth } from '/trade/depth.js?cb=5aaa8a95';
+import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=38205f01';
+import { mountDepth } from '/trade/depth.js?cb=9da7b532';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=b0beb322';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=ba3dc25f';
 import { takeEarly } from '/trade/rpc.js?cb=842f58a5';
-import { mountFarm } from '/trade/farm.js?cb=96802b3c';
-import { grp, sig, group, satsFmt, warm as warmFormatters } from '/trade/fmt.js?cb=43646c2e';
+import { mountFarm } from '/trade/farm.js?cb=cf321c4e';
+import { grp, sig, group, satsFmt, warm as warmFormatters } from '/trade/fmt.js?cb=c07717c4';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
 
 const API = 'https://api.tacit.finance';
@@ -204,7 +204,7 @@ const compact = (x) => (x >= 1e6 ? `$${(x / 1e6).toFixed(x >= 1e7 ? 0 : 1)}M` : 
 function renderHead() {
   const eth = priceEth(), px = usdOf(eth);
   $('#px-usd').textContent = px != null ? usd(px) : eth != null ? `${sig(eth)} ETH` : 'TAC';
-  document.title = px != null ? `TAC ${usd(px)} · tacit trade` : 'tacit trade';
+  document.title = px != null ? `TAC ${usd(px)} · tacit trade` : 'tacit trade · TAC';
   const vol = volumeSince(D.tape, now() - 86400, now());                                         // the last 24 hours exactly, not the 4-hour buckets that began inside them
   const bits = [], stats = [], st = (k, v, title = '') => stats.push(html`<span class="st"${title ? ` title="${esc(title)}"` : ''}><i>${k}</i> <b class="num">${v}</b></span>`);
   // How far TAC's price in ETH has moved over each window: the price then (TAC per ETH, from the tape) against the pool's now.
@@ -215,12 +215,12 @@ function renderHead() {
   if (D.precision && D.ethUsd) st('Liquidity', compact(2 * Number(D.precision.eth) / 1e18 * D.ethUsd), 'Both sides of the Precision pool, in dollars');
   if (px != null) st('FDV', compact(21e6 * px), 'Fully diluted value: all 21,000,000 TAC at this price');
   if (stats.length) bits.push(`<span class="stats">${stats.join(' ')}</span>`);
-  $('#px-sub').innerHTML = bits.length ? bits.join('') : D.chainFailed ? '<span class="mute">Could not read the pools just now. <button class="linkbtn" type="button" data-retry>Try again</button></span>' : '<span class="mute">Reading the pools…</span>';
+  $('#px-sub').innerHTML = bits.length ? bits.join('') : D.chainFailed ? '<span class="mute">Could not read the pools. <button class="linkbtn" type="button" data-retry>Try again</button></span>' : '<span class="mute">Reading the pools…</span>';
   // Bitcoin's last trade says where it last changed hands; its cheapest ask is what a buyer there pays now. Each is set against Ethereum's price.
   const ask = D.btc?.ask && D.btcUsd ? (D.btc.ask * D.btcUsd) / 1e8 : null, gl = laneGap(btcUsdPerTac()), ga = laneGap(ask);
   const side = (v) => (Math.abs(v) < 0.01 ? 0 : Math.sign(v));
   const rel = (v) => (side(v) === 0 ? 'level with' : html`<b>${Math.round(Math.abs(v) * 100)}% ${v > 0 ? 'above' : 'below'}</b>`);
-  const lastTxt = gl != null ? `the last trade was ${rel(gl)} Ethereum's price` : '', askTxt = ga != null ? `the cheapest ask is ${rel(ga)} ${lastTxt ? 'it' : 'Ethereum\'s price'}` : '';
+  const lastTxt = gl != null ? `the last trade was ${rel(gl)} Ethereum’s price` : '', askTxt = ga != null ? `the cheapest ask is ${rel(ga)} ${lastTxt ? 'it' : 'Ethereum’s price'}` : '';
   $('#gapnote').innerHTML = lastTxt || askTxt ? `On Bitcoin, ${lastTxt}${lastTxt && askTxt ? (side(gl) === side(ga) ? ', and ' : ', but ') : ''}${askTxt}.` : '';
 }
 function renderLanes() {
@@ -323,7 +323,7 @@ function renderControls() {
   sizes.hidden = !showSizes;
   if (showSizes) { const tf = candleTf(lane); sizes.innerHTML = sizesFor(lane).map(([l, p]) => `<button type="button" data-tf="${p}" aria-pressed="${tf === p}">${l}</button>`).join(''); }
   $('#view-seg').innerHTML = (lane === 'cmp' ? '' : seg('Chart type', 'kind', [['line', 'Line'], ['candles', 'Candles']], S.kind) + seg('Price in', 'unit', [['usd', 'USD'], ['native', native]], effUnit(lane)))
-    + `<button type="button" class="tg" data-log="1" aria-pressed="${S.log}" title="A log axis shows moves of the same size the same height">Log</button>`;
+    + `<button type="button" class="tg" data-log="1" aria-pressed="${S.log}" title="A log axis draws equal percentage moves at equal heights">Log</button>`;
   const tk = (id) => `<svg class="tk sm" aria-hidden="true"><use href="#tk-${id}"/></svg>`;
   $('#chart-name').textContent = { eth: 'TAC / ETH · Precision pool', btc: 'TAC / BTC · Bitcoin order book', cmp: 'TAC · Ethereum and Bitcoin' }[lane];
   $('#chart-pair').innerHTML = tk('tac') + (lane === 'cmp' ? '' : tk(lane === 'btc' ? 'btc' : 'eth'));
@@ -342,11 +342,11 @@ function spanStats(V, w) {
   const lows = inW.map((x) => (line || !(x.low > 0) ? x.close : x.low)), highs = inW.map((x) => (line ? x.close : x.high));
   return { from, to, lo: Math.min(...lows, from, to), hi: Math.max(...highs, from, to), vol: inW.reduce((a, x) => a + (x.vol || 0), 0), t0: Math.max(w.t0, bars[0].t), t1: toEnd ? now() : Math.min(w.t1, last.t + tf) };
 }
-// "16 Oct 02:00–14:00 · 12 h" within a day, "3 Oct 19:00 – 9 Oct 07:00 · 6 days" across days.
+// "16 Oct 02:00 to 14:00 · 12 h" within a day, "3 Oct 19:00 to 9 Oct 07:00 · 6 days" across days.
 function spanText(t0, t1) {
   const one = fmtLocalTime(t0, true) === fmtLocalTime(t1, true), d = t1 - t0;
   const len = d >= 2 * 86400 ? `${Math.round(d / 86400)} days` : d >= 2 * 3600 ? `${Math.round(d / 3600)} h` : `${Math.max(1, Math.round(d / 60))} min`;
-  return `${fmtLocalTime(t0, true)} ${fmtLocalTime(t0)}${one ? '–' : ` – ${fmtLocalTime(t1, true)} `}${fmtLocalTime(t1)} · ${len}`;
+  return `${fmtLocalTime(t0, true)} ${fmtLocalTime(t0)}${one ? ' to ' : ` to ${fmtLocalTime(t1, true)} `}${fmtLocalTime(t1)} · ${len}`;
 }
 const chgHtml = (chg) => { const up = chg >= 0.0005, down = chg <= -0.0005; return html`<span class="chg ${up ? 'up' : down ? 'down' : 'mute'}">${up ? '▲' : down ? '▼' : ''} ${pct(chg).slice(1)}</span>`; };   // the head's rounding, so a day here reads as its 24h
 function paintRead(h = null, rows = null) {
@@ -383,7 +383,7 @@ function paintRead(h = null, rows = null) {
 // What an empty chart says: that its history could not be read, if that is why it is empty, else that nothing has traded.
 function chartEmpty(lane) {
   const ethFailed = D.tapeFailed && !D.tape.coarse.length, btcFailed = D.btcFailed && !D.btc;
-  return lane === 'eth' && ethFailed ? 'Could not read the price history just now.' : lane === 'btc' && btcFailed ? 'Could not read the Bitcoin trades just now.' : lane === 'cmp' && (ethFailed || btcFailed) ? 'Could not read the price history just now.' : undefined;
+  return lane === 'eth' && ethFailed ? 'Could not read the price history. Try again in a moment.' : lane === 'btc' && btcFailed ? 'Could not read the Bitcoin trades. Try again in a moment.' : lane === 'cmp' && (ethFailed || btcFailed) ? 'Could not read the price history. Try again in a moment.' : undefined;
 }
 function renderChart() {
   // In dollars the chart waits for the first read of the chain, which has the rates: drawn before it in ETH, its read line is wider and then narrower again.
@@ -391,8 +391,8 @@ function renderChart() {
   const lane = S.lane, tf = tfFor(lane);
   const unit = lane === 'cmp' ? 'usd' : effUnit(lane);
   if (lane === 'cmp' && !(D.ethUsd && D.btcUsd)) {                                              // the two lanes meet in dollars, which needs both rates
-    chart.update({ series: [], tags: [], period: tf, label: 'TAC price, both lanes' });
-    $('#legend').innerHTML = ''; $('#chart-note').textContent = D.ethUsd || D.btcUsd ? 'Waiting for the other dollar rate to compare the lanes.' : 'Waiting for the dollar rates to compare the lanes.';
+    chart.update({ series: [], tags: [], period: tf, label: 'TAC price, Ethereum and Bitcoin' });
+    $('#legend').innerHTML = ''; $('#chart-note').textContent = D.ethUsd || D.btcUsd ? 'Waiting for the other dollar rate to compare Ethereum and Bitcoin.' : 'Waiting for the dollar rates to compare Ethereum and Bitcoin.';
     S.view = null; paintRead(); renderControls();
     return;
   }
@@ -446,9 +446,9 @@ function renderChart() {
   $('#legend').innerHTML = lane === 'cmp' ? legend.join('') : points.length ? '<span><b class="up">▲</b><b class="down">▼</b> your purchases and sales</span>' : '';
   const first = D.tape.coarse[0], days = first ? Math.max(1, Math.round((now() - first.t) / 86400)) : 0;
   $('#chart-note').textContent = lane === 'eth'
-    ? `Executed prices (fees included) from the Precision pool's on-chain tape. A quiet stretch holds the last price, and the right edge is the price now. Each candle opens where the one before closed. The tape holds a day of 5-minute and six weeks of 4-hour bars; this browser keeps what it has read${first ? ` (${days} days so far)` : ''}.`
+    ? `Executed prices (fees included) from the Precision pool’s on-chain tape. A quiet stretch holds the last price, and the right edge is the price now. Each candle opens where the one before closed. The tape holds a day of 5-minute bars and six weeks of 4-hour bars; this browser keeps what it has read${first ? ` (${days} days so far)` : ''}.`
     : lane === 'btc' ? `Every trade on the Bitcoin order book since ${D.btc?.firstTrade ? new Date(D.btc.firstTrade * 1000).toISOString().slice(0, 10) : 'it began'}${D.btc?.trades?.length ? ` (${D.btc.trades.length} trades)` : ''}; a stretch with no trades holds the price before it.`
-    : 'Both lanes in dollars at today\'s ETH and BTC prices. The figure above is how far Bitcoin sits from Ethereum.';
+    : 'Ethereum and Bitcoin in dollars, at today’s ETH and BTC prices. The figure above is how far Bitcoin sits from Ethereum.';
   if (lane !== 'cmp') $('#chart-note').textContent += ' Drag across the chart to zoom; double-click to zoom out. Your own trades are flagged when a wallet is connected.';
   renderControls();
 }
@@ -540,7 +540,7 @@ async function requote(quiet = false) {
     renderQuote(S.quote); renderVenues(S.quote); renderBook();
     // zQuoter's answer belongs to the amount and direction asked, so it lands on whichever quote is current for them (a refresh that began meanwhile has the same ones).
     if ($('#cmp').open) askZq(S.quote);
-  } catch (e) { if (my === S.seq && !quiet) { renderQuote({ err: 'The pools could not be read just now.' }); renderVenues(null); } }
+  } catch (e) { if (my === S.seq && !quiet) { renderQuote({ err: 'Could not read the pools. Try again in a moment.' }); renderVenues(null); } }
   finally { if (quiet) S.refreshing = false; }
 }
 // zQuoter scans every Uniswap, Sushi and Curve pool in one heavy call, and shows only in the comparison (it has found no route for TAC): it is asked once the
@@ -588,14 +588,15 @@ function renderQuote(q) {
   if (q.err) { none('—'); quoteSay(q.err); return; }
   quoteSay('');
   const { rt, wei } = q, via = routeOf(q);
-  if (!via) { none('—'); quoteSay(S.pin ? 'That order cannot fill this amount: it may be taken whole, or it has just been filled.' : 'No pool can fill this right now.'); return; }
+  if (!via) { none('—'); quoteSay(S.pin ? 'That order cannot fill this amount. It can only be taken whole, or it was just filled.' : 'No pool can fill this right now.'); return; }
   let out, perTac, name, note = '', usdIn;
   if (via === 'boards') {
     const bd = q.board;
     out = bd.out; usdIn = buy ? bd.spent : bd.out;
     perTac = buy ? Number(bd.spent) / Number(bd.out) : Number(bd.out) / Number(bd.spent);
     name = boardsName(bd);
-    if (!bd.full) note = `<p class="splitnote">${S.pin ? 'This order' : 'These orders'} ${buy ? 'cost' : 'take'} ${esc(fmtUnits(bd.spent, 18, 6))} ${buy ? 'ETH' : 'TAC'}, less than the amount you entered; the rest stays with you.</p>`;
+    const one = bd.plan.fills.length === 1;
+    if (!bd.full) note = `<p class="splitnote">${one ? 'This order' : 'These orders'} ${(buy ? 'cost' : 'take') + (one ? 's' : '')} ${esc(fmtUnits(bd.spent, 18, 6))} ${buy ? 'ETH' : 'TAC'}, less than the amount you entered; the rest stays with you.</p>`;
   } else {
     const pick = rt.pick === 'split' ? rt.split : rt.single;
     out = BigInt(pick.amountOut); usdIn = buy ? wei : out;
@@ -604,7 +605,7 @@ function renderQuote(q) {
     const gainTxt = rt.split ? `${(rt.split.gainBps / 100).toFixed(rt.split.gainBps < 100 ? 2 : 1)}%` : '';
     if (rt.pick === 'split') note = `<p class="splitnote">Split: <b>${gainTxt}</b> ${buy ? 'more TAC' : 'more ETH'} than the better pool alone.</p>`;
     else if (rt.split && buy && rt.split.gainBps >= 30) note = `<p class="splitnote mute">A split pays ${gainTxt} more, not enough to leave the Precision pool (it earns points).</p>`;
-    else if (rt.split) note = `<p class="splitnote mute">A split pays ${gainTxt} more, less than its extra gas.</p>`;
+    else if (rt.split) note = `<p class="splitnote mute">A split pays ${gainTxt} more, less than its extra network fee.</p>`;
   }
   outEl.textContent = fmtUnits(out, 18, buy ? 2 : 6); outEl.classList.remove('ph');
   $('#live').textContent = `You get about ${outEl.textContent} ${buy ? 'TAC' : 'ETH'} for ${fmtUnits(wei, 18, 6)} ${buy ? 'ETH' : 'TAC'}.`;
@@ -623,7 +624,7 @@ function renderQuote(q) {
     + (q.priv && via === 'pools' ? html`<p class="privnote"><a href="${esc(privLink(q))}">Swap privately through the Tacit pool →</a></p>` : '');
   // A sale through the Tacit pool alone takes an approval of the TAC (once per amount the pool may spend); every other sale takes a permit, signed for free.
   const approves = !buy && via === 'pools' && rt.pick !== 'split' && rt.single.venue === 'tacit-amm';
-  $('#tk-note').textContent = `${buy ? 'One transaction' : approves ? 'An approval of your TAC for the Tacit pool (the first time), then one transaction' : 'A free permit signature, then one transaction'}, tested before it is sent.${via === 'boards' ? ' If an order is filled first, nothing is sent.' : rt.pick === 'split' ? ' If the split fails its test it goes to one pool.' : ''}`;
+  $('#tk-note').textContent = `${buy ? 'One transaction' : approves ? 'An approval of your TAC for the Tacit pool (the first time), then one transaction' : 'A free permit signature, then one transaction'}, checked before it is sent.${via === 'boards' ? ' If an order is filled first, nothing is sent.' : rt.pick === 'split' ? ' If the split fails the check, it goes to one pool.' : ''}`;
   S.shown = S.side;
   renderGo();
 }
@@ -645,7 +646,7 @@ function renderVenues(q) {
   add({ name: 'Tacit pool', note: 'public swap · fee 0.30%', out: t?.amountOut, why: t ? null : 'could not quote', runs: runs === 'tacit-amm' });
   if (rt.split) add({ name: 'Both, split', note: splitWhat(rt.split), out: rt.split.amountOut, split: true, runs: runs === 'split' });
   const priv = q.priv;
-  add({ name: 'Tacit pool, private', note: 'shielded note, before the relay fee', out: priv, why: D.priv ? null : 'not read', priv: true, link: privLink(q) });
+  add({ name: 'Tacit pool, private', note: 'before the relay fee', out: priv, why: D.priv ? null : 'not read', priv: true, link: privLink(q) });
   const zqv = q.zq;
   if (zqv?.status === 'ok') add({ name: 'Uniswap, Sushi or Curve', note: 'found by zQuoter', out: zqv.amountOut });
   const bz = q.board, zside = D.zb ? (buy ? D.zb.asks : D.zb.bids) : [];
@@ -657,7 +658,7 @@ function renderVenues(q) {
     else if (bk.sell?.fills.length) {
       const sp = bk.sell, manual = sp.fills.filter((f) => !f.bid.auto).length;
       add({ name: 'Bitcoin order book', show: `${satsFmt(bk.sats)} sats`, btc: true,
-        note: `${sp.fills.length} bid${sp.fills.length === 1 ? '' : 's'} · ${!manual ? 'settles within minutes' : 'settles when the bidder is online'}${sp.leftoverBase ? ` · takes ${fmtUnits(sp.amount * E10, 18, 2)} TAC` : ''} · less ~${satsFmt(sp.feesEst)} sats fees`, out: null });
+        note: `${sp.fills.length} bid${sp.fills.length === 1 ? '' : 's'} · ${!manual ? 'settles within minutes' : 'settles when the bidder is online'}${sp.leftoverBase ? ` · takes ${fmtUnits(sp.amount * E10, 18, 2)} TAC` : ''} · less ~${satsFmt(sp.feesEst)} sats in fees`, out: null });
     } else add({ name: 'Bitcoin order book', note: bk.bids ? 'no bid takes this amount' : D.bidsRead ? 'no bids' : 'bids not read', why: `list it: ~${satsFmt(bk.sats)} sats at the last trade`, out: null, btc: true });
   }
   // The best is among the ways that fill the whole amount in ETH or TAC: the pools, zQuoter's finds and the boards' orders when they take it all.
@@ -783,17 +784,17 @@ function mineHtml(orders) {
   const who = key ? (key.mode === 'eth' ? `Ethereum ${short(key.address)}` : key.mode === 'passkey' ? `passkey “${key.label || 'Tacit'}”` : `Bitcoin ${short(key.address || '')}`) : W.account ? `Ethereum ${short(W.account)}` : '';
   const btn = (act, t, cls = '') => `<button type="button" class="fillbtn ${cls}" data-mine="${act}">${esc(t)}</button>`;
   const openBtn = here ? btn('open', `Open with ${short(here.address)}`, 'primary') : btn('signin', 'Open your Tacit wallet', 'primary');
-  const how = here ? ' It opens with this wallet\'s signature: one, two the first time.' : '';
-  const bal = me ? `${me.sats != null ? esc(satsFmt(me.sats)) : '—'} sats · ${me.assetBase != null ? `${esc(tacFmt(Number(me.assetBase) / 1e8))} TAC on Bitcoin` : 'TAC on Bitcoin still being read'}`
+  const how = here ? ' One free signature, two the first time.' : '';
+  const bal = me ? `${me.sats != null ? esc(satsFmt(me.sats)) : '—'} sats · ${me.assetBase != null ? `${esc(tacFmt(Number(me.assetBase) / 1e8))} TAC on Bitcoin` : 'TAC on Bitcoin loading…'}`
     : key ? 'Reading what it holds on Bitcoin…'
     : ME.pub ? `Open it to see what it holds on Bitcoin.${how}` : `Open your Tacit wallet to see your Bitcoin orders and what you hold there.${how}`;
   const acts = me ? btn('fund', 'Add sats') + btn('lock', 'Lock') : key ? '' : openBtn;
   const lane = (l) => `<svg class="tk xs inl" aria-hidden="true"><use href="#tk-${l === 'btc' ? 'btc' : 'eth'}"/></svg>`;
   const ord = orders.length ? `<table class="table trades yours"><thead><tr><th>Order</th><th class="r">TAC</th><th class="r">Price</th><th class="r opt">Ends</th><th><span class="sr">Actions</span></th></tr></thead><tbody>${orders.map((o) =>
     `<tr><td>${lane(o.lane)}${o.side === 'sell' ? 'Selling' : 'Bid'}<small>${esc(o.note)}</small></td><td class="r num">${esc(tacFmt(o.tac))}</td><td class="r num">${esc(o.px)}${o.alt ? `<small>${esc(o.alt)}</small>` : ''}</td><td class="r opt">${o.expiry ? esc(left(o.expiry)) : ''}</td><td class="go">${o.lane === 'btc' ? (btcOn() ? '<button type="button" class="linkbtn" data-mine="manage">Manage</button>' : '') : `<a href="${ZSWAP_HOST}" target="_blank" rel="noopener noreferrer">zSwap ↗</a>`}</td></tr>`).join('')}</tbody></table>`
-    : ME.pub ? `<p class="note">No open orders on the Bitcoin book. ${btcOn() ? `<button type="button" class="linkbtn" data-mine="list">List a sale</button>` : ''}</p>` : '';
+    : ME.pub ? `<p class="note">No open orders on the Bitcoin order book. ${btcOn() ? `<button type="button" class="linkbtn" data-mine="list">List a sale</button>` : ''}</p>` : '';
   const rec = myRecent();
-  const recent = rec.length ? `<p class="mine-h">Recent <span>what this browser saw, and the Precision pool's swaps to your account over the last day</span></p><table class="table trades yours recent"><tbody>${rec.map((e) => {
+  const recent = rec.length ? `<p class="mine-h">Recent <span>what this browser saw, and the Precision pool’s swaps to your account over the last day</span></p><table class="table trades yours recent"><tbody>${rec.map((e) => {
     const pay = e.paid != null ? ` for ${e.unit === 'eth' ? `${grp(e.paid, e.paid < 1 ? 4 : 2)} ETH` : `${satsFmt(e.paid)} sats`}` : '', what = e.kind === 'listed' ? 'Listed' : e.kind === 'sold' ? 'Sold' : 'Bought';
     const href = e.tx ? (e.lane === 'btc' ? `https://mempool.space/tx/${e.tx}` : `https://etherscan.io/tx/${e.tx}`) : '';
     return `<tr><td>${lane(e.lane)}${esc(ago(e.t))}</td><td>${esc(what)} <b>${esc(tacFmt(e.tac))}</b> TAC${esc(pay)}</td><td class="go">${href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer" aria-label="Open the transaction">↗</a>` : ''}</td></tr>`;
@@ -854,7 +855,7 @@ async function ensureTrades(force = false) {
 }
 const ago = (t) => { const d = Math.max(0, now() - t); return d < 90 ? 'just now' : d < 3600 ? `${Math.round(d / 60)}m ago` : d < 86400 ? `${Math.round(d / 3600)}h ago` : `${Math.round(d / 86400)}d ago`; };
 function tradesHtml() {
-  if (D.tradesErr && !D.trades) return `<p class="note">Could not read the pool's recent swaps just now.</p>`;
+  if (D.tradesErr && !D.trades) return `<p class="note">Could not read the pool’s recent swaps. Try again in a moment.</p>`;
   if (!D.trades) return `<p class="note">Reading recent trades…</p>`;
   const rows = [...D.trades.map((x) => ({ ...x, usd: D.ethUsd ? x.eth / x.tac * D.ethUsd : null })),
     ...tradePrices(D.btc?.trades || []).slice(-40).map((x) => ({ lane: 'btc', t: x.t, side: null, tac: x.vol, sats: x.price, usd: D.btcUsd ? x.price * D.btcUsd / 1e8 : null }))].sort((a, b) => b.t - a.t).slice(0, 40);
@@ -875,7 +876,7 @@ const btcPx = (sats) => (D.btcUsd ? (sats * D.btcUsd) / 1e8 : sats);
 const btcPxFmt = (v) => (D.btcUsd ? usd(v) : `${satsFmt(v)} sats`);
 const tacFmt = (n) => grp(n, n >= 100 ? 0 : 2);
 const left = (t) => { const d = t - now(); return d <= 0 ? 'now' : d < 3600 ? `${Math.ceil(d / 60)} min` : d < 172800 ? `${Math.round(d / 3600)} h` : `${Math.round(d / 86400)} days`; };
-const ZSWAP_LINK = `<a href="${ZSWAP_HOST}" target="_blank" rel="noopener noreferrer">Place an order on zSwap →</a>`;
+const ZSWAP_LINK = `<a href="${ZSWAP_HOST}" target="_blank" rel="noopener noreferrer">Place an order on zSwap ↗</a>`;
 // The book as the Bitcoin market draws it: the asks above with the cheapest nearest the middle, the last price and the spread
 // between, the bids below, each row shaded by how much lies between it and the middle. A row is a button that trades up to it.
 const BOOK_ROWS = 8;
@@ -938,28 +939,28 @@ function renderBook() {
   if (tab === 'mine') { if (W.account && (D.tradesStale || ((!D.tradesAt || now() - D.tradesAt > 120) && (!D.tradesTried || now() - D.tradesTried > 60)))) ensureTrades(); setHtml(box, mineHtml(orders)); note.textContent = ''; return; }
   if (tab === 'trades') {
     setHtml(box, tradesHtml());
-    note.textContent = 'Precision pool swaps from about the last day (a split counts its Precision share), and every Bitcoin order book trade.';
+    note.textContent = 'Precision pool swaps from about the last day (a split counts its Precision share) and every Bitcoin order book trade.';
     return;
   }
   if (tab === 'eth') {
     const z = D.zb;
     if (!z) {
-      depth.update({ asks: [], bids: [], empty: D.zbFailed ? 'Could not read zSwap\'s boards.' : 'Reading zSwap\'s boards…' });
-      setHtml(box, D.zbFailed ? `<p class="note">Could not read zSwap's boards. ${ZSWAP_LINK}</p>` : ''); note.textContent = ''; return;
+      depth.update({ asks: [], bids: [], empty: D.zbFailed ? 'Could not read zSwap’s boards.' : 'Reading zSwap’s boards…' });
+      setHtml(box, D.zbFailed ? `<p class="note">Could not read zSwap’s boards. ${ZSWAP_LINK}</p>` : ''); note.textContent = ''; return;
     }
     const missing = z.answered < BOARD_CALLS ? ' Some boards did not answer; orders may be missing.' : '';
     const bd = S.quote?.board, via = routeOf(S.quote);
     const take = S.pin == null && via === 'boards' && bd?.ok ? { side: S.quote.buy ? 'ask' : 'bid', size: Number(S.quote.buy ? bd.out : bd.spent) / 1e18 } : null;
     depth.update({
       asks: z.asks.map((o) => ({ price: ethPx(o.price), size: Number(o.base) / 1e18, order: o })), bids: z.bids.map((o) => ({ price: ethPx(o.price), size: Number(o.base) / 1e18, order: o })), take,
-      priceFmt: ethPxFmt, sizeFmt: (n) => `${tacFmt(n)} TAC`, label: 'zSwap order book for TAC', empty: 'No TAC orders rest on zSwap\'s boards right now.',
+      priceFmt: ethPxFmt, sizeFmt: (n) => `${tacFmt(n)} TAC`, label: 'zSwap order book for TAC', empty: 'No TAC orders on zSwap’s boards.',
     });
-    setHtml(box, hasBoardOrders() ? ethStack(z) : `<p class="note">${z.answered < BOARD_CALLS ? 'No TAC orders on the boards that answered.' : 'No TAC orders on zSwap\'s boards.'}${missing} ${ZSWAP_LINK}</p>`);
-    note.innerHTML = hasBoardOrders() ? `Orders on zSwap's boards. Fill sets the ticket to one order; otherwise it fills the best together when that pays more.${missing} ${ZSWAP_LINK}` : '';
+    setHtml(box, hasBoardOrders() ? ethStack(z) : `<p class="note">${z.answered < BOARD_CALLS ? 'No TAC orders on the boards that answered.' : 'No TAC orders on zSwap’s boards.'}${missing} ${ZSWAP_LINK}</p>`);
+    note.innerHTML = hasBoardOrders() ? `Orders on zSwap’s boards. Press an order to trade with it alone; otherwise the ticket fills the best orders together when that pays more.${missing} ${ZSWAP_LINK}` : '';
     return;
   }
   const b = D.book;
-  if (!b) { setPeek(null); depth.update({ asks: [], bids: [], empty: D.bookFailed ? 'Could not read the Bitcoin order book just now.' : 'Reading the Bitcoin order book…' }); setHtml(box, D.bookFailed ? '<p class="note">Could not read the Bitcoin order book. <button class="linkbtn" type="button" data-retry>Try again</button></p>' : ''); note.textContent = ''; return; }
+  if (!b) { setPeek(null); depth.update({ asks: [], bids: [], empty: D.bookFailed ? 'Could not read the Bitcoin order book.' : 'Reading the Bitcoin order book…' }); setHtml(box, D.bookFailed ? '<p class="note">Could not read the Bitcoin order book. <button class="linkbtn" type="button" data-retry>Try again</button></p>' : ''); note.textContent = ''; return; }
   const take = S.quote?.book?.plan?.fills?.length && S.side === 'buy' ? { side: 'ask', size: Number(S.quote.book.plan.amount) / 1e8 } : null;
   depth.update({
     asks: b.asks.map((r) => ({ price: btcPx(r.unit), size: Number(r.amount) / 1e8 })), bids: b.bids.map((r) => ({ price: btcPx(r.unit), size: Number(r.amount) / 1e8 })), take,
@@ -968,9 +969,9 @@ function renderBook() {
   const live = btcOn();
   setHtml(box, btcStack(b, live) + (live ? `<div class="btc-actions"><button class="fillbtn primary" type="button" data-btc="open">Trade on Bitcoin</button><button class="fillbtn" type="button" data-btc="list">List a sale</button></div>` : ''));
   const total = b.asks.reduce((a, r) => a + r.amount, 0n), want = b.bids.reduce((a, r) => a + r.amount, 0n);
-  const bidsTxt = !D.bidsRead ? 'Could not read the bids.' : b.bids.length ? `${b.bids.length} bid${b.bids.length === 1 ? '' : 's'} (${grp(Number(want) / 1e8, 0)} TAC) settle when the bidder is online.` : 'No bids.';
+  const bidsTxt = !D.bidsRead ? 'Could not read the bids.' : b.bids.length ? `${count(b.bids.length, 'bid')} (${grp(Number(want) / 1e8, 0)} TAC) ${b.bids.length === 1 ? 'settles' : 'settle'} when the bidder is online.` : 'No bids.';
   const nMine = orders.filter((o) => o.lane === 'btc').length, yours = nMine ? `<button type="button" class="linkbtn" data-goto="mine">You have ${nMine} open order${nMine === 1 ? '' : 's'} here</button>. ` : '';
-  note.innerHTML = b.asks.length ? `${yours}${b.asks.length} listings (${grp(Number(total) / 1e8, 0)} TAC), taken whole. ${bidsTxt}${live ? '' : ` <a href="/tac/#buy">Buy on Bitcoin →</a> · <a href="/classic.html#tab=market&aid=${TAC_BTC_ID}&lane=btc">List a sale →</a>`}` : bidsTxt;
+  note.innerHTML = b.asks.length ? `${yours}${count(b.asks.length, 'listing')} (${grp(Number(total) / 1e8, 0)} TAC), taken whole. ${bidsTxt}${live ? '' : ` <a href="/tac/#buy">Buy on Bitcoin →</a> · <a href="/classic.html#tab=market&aid=${TAC_BTC_ID}&lane=btc">List a sale →</a>`}` : bidsTxt;
 }
 // Pinning an order: the ticket takes its side and size, and trades with that order alone.
 function renderPin() {
@@ -990,19 +991,19 @@ function pinOrder(key) {
   $('.p-ticket').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 function renderAbout() {
-  $('#about').innerHTML = `<p><b>TAC</b> is Tacit's token: 21,000,000, issued once on Bitcoin. On Ethereum it is an ERC-20 minted only against TAC that left Bitcoin. <a href="/verify.html">Check the supply →</a></p>`;
+  $('#about').innerHTML = `<p><b>TAC</b> is Tacit’s token: 21,000,000, issued once on Bitcoin. On Ethereum it is an ERC-20 minted only against TAC that left Bitcoin. <a href="/verify.html">Check the supply →</a></p>`;
   const link = (a, t) => `<a href="${SCAN}${a}" target="_blank" rel="noopener noreferrer">${t || `${a.slice(0, 8)}…${a.slice(-6)}`}</a>`;
   const pool = getConfidentialDeployment('mainnet')?.pool, vol24Usd = D.btc?.vol24 && D.btcUsd ? (D.btc.vol24 * D.btcUsd) / 1e8 : null;
   const main = [
     ['On Ethereum', `ERC-20 ${link(TAC_ERC20)}${D.ethSupply != null ? ` · ${grp(Number(D.ethSupply) / 1e18, 0)} TAC minted there so far` : ''}`],
     ['On Bitcoin', `Asset <code>${TAC_BTC_ID.slice(0, 8)}…${TAC_BTC_ID.slice(-6)}</code>${D.btc?.holders ? ` · ${grp(D.btc.holders, 0)} holders` : ''}${D.btc?.vol24 ? ` · ${grp(D.btc.vol24, 0)} sats${vol24Usd != null ? ` (${vol24Usd < 10 ? usd(vol24Usd) : `$${grp(vol24Usd, 0)}`})` : ''} traded in 24h` : ''}`],
-    ['Bridging', `<a href="/#bridge">The bridge</a> takes TAC from Bitcoin to Ethereum in hours, sometimes a day.`],
+    ['Bridging', `<a href="/#bridge">The bridge</a> takes TAC from Bitcoin to Ethereum, usually within a few hours and sometimes up to a day.`],
   ];
   const more = [
     ['Precision pool', `${link(PRECISION_POOL)} · TAC/ETH${D.precision ? ` · holds ${fmtUnits(D.precision.eth, 18, 2)} ETH and ${fmtUnits(D.precision.tac, 18, 0)} TAC` : ''}`],
-    ['Tacit pool', `${pool ? link(pool) : ''} · TAC/tETH, 0.30% fee${D.priv ? ` · holds ${fmtUnits(D.priv.rEth, 8, 2)} tETH and ${fmtUnits(D.priv.rTac, 8, 0)} TAC` : ''} · public swaps via ${link(TACIT_AMM)}, private ones with shielded notes`],
+    ['Tacit pool', `${pool ? link(pool) : ''} · TAC/tETH, 0.30% fee${D.priv ? ` · holds ${fmtUnits(D.priv.rEth, 8, 2)} tETH and ${fmtUnits(D.priv.rTac, 8, 0)} TAC` : ''} · public swaps via ${link(TACIT_AMM)}, private swaps from private balances`],
     ['Buybacks', `${link('0x6919cbEf0e70AFFA02Ae02c86c532A137154f250', 'TacBuyback')} buys up to 0.25 ETH of TAC every 6 hours`],
-    ['More', `<a href="https://github.com/src-company/tacit/blob/main/docs/TAC.md" target="_blank" rel="noopener noreferrer">About TAC</a> · <a href="/#asset/tac">TAC in the app</a> · <a href="/weld/stats/">Stats</a>`],
+    ['More', `<a href="https://github.com/src-company/tacit/blob/main/docs/TAC.md" target="_blank" rel="noopener noreferrer">About TAC ↗</a> · <a href="/#asset/tac">TAC in the app →</a> · <a href="/weld/stats/">Stats →</a>`],
   ];
   const li = ([k, v]) => `<li><b>${esc(k)}</b><span>${v}</span></li>`;
   $('#facts').innerHTML = main.map(li).join('');
@@ -1048,7 +1049,7 @@ function renderGo() {
   if (!routeOf(q) || !D.perEth) { go.textContent = S.shown && !q ? 'Updating the quote…' : 'Reading the pools…'; go.disabled = true; return; }     // the price impact is measured against the Precision pool's price, so it needs it
   const have = spendable();
   if (have != null && wei > have) { go.textContent = `Not enough ${buy ? 'ETH' : 'TAC'}`; go.disabled = true; return; }
-  if (!buy && S.bal && S.bal.eth != null && S.bal.eth < 5n * 10n ** 14n) { go.textContent = 'Needs a little ETH for the network fee'; go.disabled = true; return; }
+  if (!buy && S.bal && S.bal.eth != null && S.bal.eth < 5n * 10n ** 14n) { go.textContent = 'Add ETH for the network fee'; go.disabled = true; return; }
   go.textContent = buy ? 'Buy TAC' : 'Sell TAC';
   const P = planOf();
   if (P.impact >= 0.1 && S.ack !== ackKey(P)) { go.disabled = true; go.title = 'Tick the box above to accept the price impact'; }
@@ -1076,7 +1077,7 @@ function detailsHtml(P) {
   return html`${P.impact >= 0.005 ? `<div class="kv"><span>Price impact</span><b class="${P.impact >= 0.05 ? 'err' : ''}">${(P.impact * 100).toFixed(P.impact < 0.1 ? 1 : 0)}%</b></div>` : ''}
     <div class="kv"><span>Least you get</span><b>${esc(fmtUnits(P.floor, 18, dp))} ${outU}</b></div>${feeHtml(P)}
     <div class="slip"><span class="mute">Slippage</span><div class="seg sm" id="slip-seg" role="group" aria-label="Slippage">${[[50, '0.5%'], [100, '1%'], [300, '3%']].map(([v, l]) => `<button type="button" data-slip="${v}" aria-pressed="${S.slip === v}">${l}</button>`).join('')}</div></div>
-    ${big ? `<label class="ack"><input type="checkbox" id="ack"${S.ack === ackKey(P) ? ' checked' : ''}><span>I accept losing about ${Math.round(P.impact * 100)}% of this ${buy ? 'purchase' : 'sale'} ${P.via === 'boards' ? 'against the Precision pool\'s price' : 'to price impact. A smaller amount moves it less'}.</span></label>` : ''}`;
+    ${big ? `<label class="ack"><input type="checkbox" id="ack"${S.ack === ackKey(P) ? ' checked' : ''}><span>I accept losing about ${Math.round(P.impact * 100)}% of this ${buy ? 'purchase' : 'sale'} ${P.via === 'boards' ? 'against the Precision pool’s price' : 'to price impact. A smaller amount moves it less'}.</span></label>` : ''}`;
 }
 // What the network takes for the trade, at the gas price now. The gas is what each route used: on mainnet in October 2026 for the Precision pool (its swaps
 // through zRouter) and a split (both legs in one transaction), on a fork for the Tacit pool alone. The boards' orders differ by board, so they are not given one.
@@ -1094,7 +1095,7 @@ function walletRows() {
   const bal = S.bal ? `<div class="kv"><span>ETH</span><b class="num">${esc(fmtUnits(S.bal.eth ?? 0n, 18, 4))}</b></div><div class="kv"><span>TAC</span><b class="num">${esc(fmtUnits(S.bal.tac ?? 0n, 18, 2))}</b></div>` : '';
   const bk = bitcoin?.session.unlocked ? bitcoin.me : null, btcOpen = !!bitcoin?.session.unlocked;
   const onBtc = bk ? `<div class="kv"><span>Bitcoin</span><b class="addr-s">${esc(bk.address || '')}</b></div><div class="kv"><span>On Bitcoin</span><b class="num">${bk.sats != null ? esc(satsFmt(bk.sats)) : '—'} sats · ${bk.assetBase != null ? esc(tacFmt(Number(bk.assetBase) / 1e8)) : '…'} TAC <button class="linkbtn" type="button" data-btc-lock>Lock</button></b></div>`
-    : btcOpen ? '<div class="kv"><span>Bitcoin</span><b>Reading…</b></div>'
+    : btcOpen ? '<div class="kv"><span>Bitcoin</span><b>Loading…</b></div>'
     : pageWallet() ? `<div class="kv"><span>Bitcoin</span><b>${ME.pub ? 'Your Tacit wallet' : 'Not open'} <button class="linkbtn" type="button" data-btc-open>${ME.pub ? 'Show balances' : 'Open'}</button></b></div>` : '';
   return bal + onBtc;
 }
@@ -1128,7 +1129,7 @@ async function withTacAccess({ make, buy, permit, from, dl }) {
     const have = wordAt(allowed, 0);
     if (have < tx.approval.amount) {
       if (permit) {
-        say('Sign the permit for your TAC in your wallet. It costs no gas.');
+        say('Sign the permit for your TAC in your wallet. The signature costs nothing.');
         const nonce = wordAt(nonceRaw, 0);
         const sig = await wallet.signPermit({ token: TAC_ERC20, name: 'Tacit Token', spender: tx.approval.spender, value: tx.approval.amount, deadline: dl, nonce, owner: from });
         tx = make({ value: tx.approval.amount, deadline: dl, ...sig });
@@ -1160,16 +1161,16 @@ async function preparePools(P, from) {
     const isSplit = !!route.legs, floor = floorFor(route);
     const make = (permit) => (isSplit ? venues.buildSplit({ split: route, account: from, minOut: floor, deadline: dl, permit }) : venues.build({ quote: route, dir, account: from, minOut: floor, deadline: dl, permit }));
     const tx = await withTacAccess({ make, buy, permit: route.venue === 'precision' || isSplit, from, dl });
-    say('Testing it first…');
+    say('Checking it first…');
     return { tx, sim: await venues.simulate({ tx, from }) };
   };
   let run = await prepare(pick);
   if (!run.sim.ok && P.split) {
-    say('The split did not run in a test, so this goes to one pool.');
-    if (BigInt(rt.single.amountOut) < P.floor) throw new Error('The price on one pool alone is below the least you accepted. Nothing was sent.');
+    say('The split failed its check, so this goes to one pool.');
+    if (BigInt(rt.single.amountOut) < P.floor) throw new Error('The price on one pool alone is below the least you accept. Nothing was sent.');
     run = await prepare(rt.single);
   }
-  if (!run.sim.ok) throw new Error('This trade would fail right now, so it was not sent. Try a smaller amount or try again soon.');
+  if (!run.sim.ok) throw new Error('This trade would fail, so nothing was sent. Try a smaller amount or try again.');
   return run.tx;
 }
 
@@ -1190,8 +1191,8 @@ async function prepareBoards(P, from) {
   const dl = chainDeadline(1200);
   const make = (permit) => buildBoardFill({ plan: fine, side, token: TAC_ERC20, account: from, deadline: dl, slipBps: S.slip, permit, floor: P.floor });      // never below the "at least" that was reviewed
   const tx = await withTacAccess({ make, buy, permit: true, from, dl });
-  say('Testing it first…');
-  if (!(await venues.simulate({ tx, from })).ok) throw new Error('This would fail right now, so it was not sent. An order may have been filled; the order book is reloading.');
+  say('Checking it first…');
+  if (!(await venues.simulate({ tx, from })).ok) throw new Error('This would fail, so nothing was sent. An order may have been filled; the order book is reloading.');
   return tx;
 }
 
@@ -1202,7 +1203,7 @@ async function sendAndReport(tx, { from, buy, P }) {
   const hash = await wallet.sendTx({ ...tx, from }), eth0 = await eth0P;
   say(`Sent ${txLink(hash)}. Waiting for it to land…`);
   const rc = await wallet.receipt(hash);
-  if (rc.status !== '0x1') throw new Error(`The transaction failed on chain (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`);
+  if (rc.status !== '0x1') throw new Error(`The transaction failed (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`);
   // What arrived: the TAC transferred to the account in this transaction (a split or several orders make more than one), or the ETH balance's rise.
   let got;
   if (buy) { const T = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef', me = '0x' + word(BigInt(from)); got = rc.logs.filter((l) => l.address.toLowerCase() === TAC_ERC20.toLowerCase() && l.topics[0] === T && l.topics[2]?.toLowerCase() === me).reduce((a, l) => a + BigInt(l.data), 0n); }
@@ -1328,7 +1329,7 @@ const loads = [loadChain().then(paintAll), loadTapes().then(paintAll), loadBitco
 setTimeout(warmFormatters, 0);                                                                              // the number formatters load their locale data while the reads are out
 Promise.allSettled(loads).then((rs) => {
   D.readAt = now();
-  if (rs.every((r) => r.status === 'rejected')) $('#chart').innerHTML = '<p class="chart-empty">The pools could not be read just now. Try again in a moment.</p>';
+  if (rs.every((r) => r.status === 'rejected')) $('#chart').innerHTML = '<p class="chart-empty">Could not read the pools. Try again in a moment.</p>';
   const params = new URLSearchParams(location.hash.replace(/^#/, ''));
   if (params.get('btc') === 'on' || params.get('btc') === 'off') { try { localStorage.setItem('tacit-trade-btc', params.get('btc') === 'on' ? '1' : '0'); } catch { /* storage is a convenience */ } renderBook(); }
   if (params.get('side') === 'sell') $('#side-seg [data-side="sell"]').click();                   // a side change clears the amount, so it comes first

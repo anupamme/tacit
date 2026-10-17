@@ -3,7 +3,7 @@
 // previews a deposit, the farm zaps ETH or TAC into the pool and stakes the shares in one transaction (TAC by permit where it
 // has no allowance), and a withdrawal comes back as both assets or as one of them. Shielded farms are the front page's; their
 // stream is named here with a link.
-import { day, group } from '/trade/fmt.js?cb=43646c2e';
+import { day, group } from '/trade/fmt.js?cb=c07717c4';
 
 const POOL = '0x0155358241411dB868BA714aE7c83A27087e3D6E', FARM = '0x0000003bF4BA0B21f5e0d35119b337F4d4CF82E0', LENS = '0x000000956bf20A41C54BaE4a4b6F5C8A166DAB4E';
 const TAC = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279', MC3 = '0xcA11bde05977b3631167028862bE2a173976CA11', ZERO = '0x0000000000000000000000000000000000000000';
@@ -93,7 +93,7 @@ export function mountFarm(host, ctx) {
   // ── the farm's figures and the private farms' stream ──
   function renderStats() {
     const x = F.x, el = $('#fm-stats');
-    if (!x) { el.innerHTML = `<p class="note">${F.err ? 'The farm could not be read just now.' : 'Reading the farm…'}</p>`; return; }
+    if (!x) { el.innerHTML = `<p class="note">${F.err ? 'Could not read the farm. Try again in a moment.' : 'Reading the farm…'}</p>`; return; }
     const cell = (k, v, s = '') => `<div><span class="k">${k}</span><b class="num">${v}</b>${s ? `<span class="s">${s}</span>` : ''}</div>`;
     el.innerHTML = cell('APR now', aprTxt(x.apr), 'paid in TAC, swap fees on top')
       + cell('Rewards', x.live ? `<svg class="tk xs inl" aria-hidden="true"><use href="#tk-tac"/></svg>${fmt(x.perDay, 18, 0)} TAC a day` : 'between periods', x.live ? tacUsd(x.perDay) ? `about ${tacUsd(x.perDay)} a day` : '' : '')
@@ -111,7 +111,7 @@ export function mountFarm(host, ctx) {
       return bonded > 0 ? Number(pool.tacPerDayForPool) * 365 * x.tacEth / bonded * 100 : null;
     };
     $('#fm-prog').innerHTML = e?.active && p.pools?.length
-      ? `<div class="fm-ph" title="Shielded positions: who farms and how much stays private. Each opens with your Tacit wallet on the main page."><b>Private farms</b><span>${group(Math.round(Number(e.ratePerDayTac)))} TAC a day more, to ${dayFmt(e.periodFinish)}</span></div>`
+      ? `<div class="fm-ph" title="Private positions: who farms and how much is not shown. Each opens with your Tacit wallet on the main page."><b>Private farms</b><span>${group(Math.round(Number(e.ratePerDayTac)))} TAC a day more, to ${dayFmt(e.periodFinish)}</span></div>`
         + p.pools.filter((pool) => Number(pool.tacPerDayForPool) > 0).map((pool) => `<a class="fm-pf" href="/#farm/private-${Number(pool.pid)}"><span class="pair">${esc(pairName(pool.pair))}</span><span class="d">${group(Math.round(Number(pool.tacPerDayForPool)))} TAC a day</span><b class="num">${aprTxt(aprOf(pool))}</b><i aria-hidden="true">→</i></a>`).join('')
 
       : '';
@@ -130,7 +130,7 @@ export function mountFarm(host, ctx) {
       <div class="kv earned"><span>Earned</span><span class="rt"><b class="num" id="fm-earned">${fmt(earnedNow(x), 18, 4)} TAC</b><button class="btn sm" type="button" id="fm-claim"${earnedNow(x) > 0n ? '' : ' disabled'}>Claim</button></span></div>
       <details class="wd" id="fm-wd"${F.wdOpen ? ' open' : ''}><summary>Withdraw</summary>
       <div class="fm-out"><div class="seg" id="fm-pct" role="group" aria-label="How much">${[['25', '25%'], ['50', '50%'], ['100', 'All']].map(([v, l]) => `<button type="button" data-pct="${v}" aria-pressed="${F.outPct === v}">${l}</button>`).join('')}</div>
-      <div class="seg" id="fm-as" role="group" aria-label="As">${[['both', 'ETH + TAC'], ['eth', 'ETH'], ['tac', 'TAC']].map(([v, l]) => `<button type="button" data-as="${v}" aria-pressed="${F.outAs === v}">${l}</button>`).join('')}</div></div>
+      <div class="seg" id="fm-as" role="group" aria-label="Withdraw as">${[['both', 'ETH + TAC'], ['eth', 'ETH'], ['tac', 'TAC']].map(([v, l]) => `<button type="button" data-as="${v}" aria-pressed="${F.outAs === v}">${l}</button>`).join('')}</div></div>
       <div class="fm-rcpt" id="fm-out-rcpt" hidden></div>
       <button class="btn ghost" type="button" id="fm-exit" disabled>Withdraw</button></details>` : '')
       + (x.lp > 0n ? `<div class="kv"><span>LP shares not staked</span><b>${fmt(x.lp, 18, 6)}</b></div><button class="btn ghost" type="button" id="fm-stake">Stake them</button>` : '');
@@ -196,7 +196,7 @@ export function mountFarm(host, ctx) {
     F.q = null; gate();
     // An amount that cannot be read is marked and said, not taken for nothing typed.
     const unread = [[ethIn, m !== 'tac'], [tacIn, m !== 'eth']].filter(([i, shown]) => { const off = shown && !!i.value.trim() && parseUnits(i.value) == null; i.toggleAttribute('aria-invalid', off); return off; });
-    if (unread.length) { rc.hidden = false; rc.innerHTML = '<p class="note err">That amount cannot be read. Use a plain number such as 0.25, with at most 18 decimals.</p>'; return; }
+    if (unread.length) { rc.hidden = false; rc.innerHTML = '<p class="note err">Cannot read that amount. Write 1500 or 0.05 (1,500 alone is ambiguous).</p>'; return; }
     if (!x || (!wei && !tac)) { rc.hidden = true; rc.innerHTML = ''; return; }
     try {
       let lp, loss = 0;
@@ -238,13 +238,13 @@ export function mountFarm(host, ctx) {
 
   // The farm's transaction, tested once before the wallet is asked to send it, then waited for.
   async function send(tx, label, at, from) {
-    say(at, 'Testing it first…');
-    await ethCall(FARM, tx.data, 'latest', { from, value: tx.value ? '0x' + tx.value.toString(16) : undefined }).catch((e) => { throw new Error(e?.revert ? 'This would fail right now, so it was not sent. Try a smaller amount or again soon.' : 'The farm could not be reached to test this. Nothing was sent.'); });
-    say(at, 'Confirm in your wallet.');
+    say(at, 'Checking it first…');
+    await ethCall(FARM, tx.data, 'latest', { from, value: tx.value ? '0x' + tx.value.toString(16) : undefined }).catch((e) => { throw new Error(e?.revert ? 'This would fail, so nothing was sent. Try a smaller amount or try again.' : 'Could not reach the farm to check this. Nothing was sent.'); });
+    say(at, 'Confirm in your wallet…');
     const hash = await wallet.sendTx({ to: FARM, data: tx.data, value: tx.value || 0n, from });                 // the wallet refuses if its account has changed since
     say(at, `${label}… ${txLink(hash)}`);
     const r = await wallet.receipt(hash).catch((e) => { throw Object.assign(e, { sentHash: hash }); });      // a send that has not confirmed is not one that failed
-    if (r.status !== '0x1') throw new Error(`The transaction failed on chain (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`);
+    if (r.status !== '0x1') throw new Error(`The transaction failed (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`);
     return { hash, r };
   }
   const permit = async (token, name, value, dl, from) => {
@@ -274,7 +274,7 @@ export function mountFarm(host, ctx) {
     run(go, status, async () => {
       const minShares = z.lp * 995n / 1000n, dl = deadline(), tail = word(minShares) + word(dl);
       const needPermit = z.tac > 0n && x.allowance < z.tac;
-      if (needPermit) say(status, 'Sign the permit for your TAC in your wallet. It costs no gas.');
+      if (needPermit) say(status, 'Sign the permit for your TAC in your wallet. The signature costs nothing.');
       const sig = needPermit ? await permit(TAC, 'Tacit Token', z.tac, dl, from) : '';
       const tx = z.m === 'eth' ? { data: SEL.zapETH + word(0) + tail, value: z.wei }
         : z.m === 'tac' ? { data: (needPermit ? SEL.zapTokenWithPermit : SEL.zapToken) + word(z.tac) + word(0) + tail + sig }
@@ -345,13 +345,13 @@ export function mountFarm(host, ctx) {
       F.w = { all, as, shares, loss };
       el.hidden = false;
       el.innerHTML = `<div class="kv"><span>You get about</span><b>${as === 'both' ? `${amt(wordAt(r, 0), 5)} ETH + ${amt(wordAt(r, 1), 2)} TAC` : `${amt(wordAt(r, 0), as === 'eth' ? 5 : 2)} ${as === 'eth' ? 'ETH' : 'TAC'}`}</b></div>${all && x.earned > 0n ? `<div class="kv"><span>Plus earned</span><b>${fmt(earnedNow(x), 18, 2)} TAC</b></div>` : ''}`
-        + (loss >= 0.5 ? `<div class="kv"><span>Price impact of the swap</span><b class="${loss >= 5 ? 'err' : ''}">${loss.toFixed(loss < 10 ? 1 : 0)}%</b></div>` : '')
+        + (loss >= 0.5 ? `<div class="kv"><span>Swap price impact</span><b class="${loss >= 5 ? 'err' : ''}">${loss.toFixed(loss < 10 ? 1 : 0)}%</b></div>` : '')
         + (loss >= 15 ? ackBox('fm-out-ack', loss, 'withdrawal', false) : '');
       ex.textContent = all ? 'Withdraw all' : `Withdraw ${F.outPct}%`;
       const outGate = () => { ex.disabled = F.busy || !accepted('fm-out-ack', loss); };
       for (const ev of ['input', 'change']) $('#fm-out-ack')?.addEventListener(ev, outGate);
       outGate();
-    } catch { if (my === F.wseq && el) { el.hidden = false; el.innerHTML = '<p class="note err">The withdrawal could not be previewed just now.</p>'; } }
+    } catch { if (my === F.wseq && el) { el.hidden = false; el.innerHTML = '<p class="note err">Could not preview the withdrawal. Try again in a moment.</p>'; } }
   }
 
   // The largest pair the wallet can make with up to `tac` of TAC (all it holds when none is named): ETH at the pool's ratio, each side within its

@@ -154,7 +154,7 @@ try {
   ok(/1 TAC = [\d.]+ ETH/.test(sub) && /24h volume [\d.,]+ ETH/.test(sub), `and in ETH and the day's volume, each figure with its name (${sub.slice(0, 120)})`);
   const lanes = await p.$$eval('#lanes .lane', (ls) => ls.map((l) => l.textContent.replace(/\s+/g, ' ').trim()));
   ok(lanes.length === 4 && /Precision pool.*\$0\.\d+.*ETH.*the reference/.test(lanes[0]) && /Tacit pool.*\$0\.\d+.*ETH.*vs Precision/.test(lanes[1]) && /Bitcoin · last trade.*\$0\.\d+.*150 sats/.test(lanes[2]) && /Bitcoin · cheapest ask.*\$0\.\d+.*157 sats/.test(lanes[3]), `four prices, each in dollars with ETH or sats and its gap against Precision (${lanes.map((l) => l.slice(0, 60)).join(' | ')})`);
-  ok(/^On Bitcoin, the last trade was (level with|\d+% (above|below)) Ethereum's price(, (and|but) the cheapest ask is (level with|\d+% (above|below)) it)?\.$/.test((await text(p, '#gapnote')).trim()), `Bitcoin's last trade and its cheapest ask are each set against Ethereum's price in words (${(await text(p, '#gapnote')).slice(0, 160)})`);
+  ok(/^On Bitcoin, the last trade was (level with|\d+% (above|below)) Ethereum’s price(, (and|but) the cheapest ask is (level with|\d+% (above|below)) it)?\.$/.test((await text(p, '#gapnote')).trim()), `Bitcoin's last trade and its cheapest ask are each set against Ethereum's price in words (${(await text(p, '#gapnote')).slice(0, 160)})`);
 
   // the chart: a line by default, as the Bitcoin market draws it, and candles a press away
   ok(!!(await p.$('#chart .line')) && !!(await p.$('#chart polygon.area')) && !!(await p.$('#chart .lastdot')) && (await candles(p)) === 0 && !!(await p.$('[data-kind="candles"]')), 'the Ethereum lane draws the Precision pool\'s price as a shaded line with its last price marked');
@@ -192,7 +192,7 @@ try {
   await p.mouse.up(); await p.mouse.move(5, 5);
   await until(p, () => !!document.querySelector('#ch-read [data-zoomout]'), null, 10000).catch(() => {});
   const zoomedRead = (await text(p, '#ch-read')).replace(/\s+/g, ' ').trim(), zoomedLabel = await p.$eval('#chart svg', (e) => e.getAttribute('aria-label'));
-  const spanOf = (t) => (t.match(/\d+ \w{3} \d{2}:\d{2}(–| – \d+ \w{3} )\d{2}:\d{2} · \d+ (days|h|min)/) || [])[0];
+  const spanOf = (t) => (t.match(/\d+ \w{3} \d{2}:\d{2} to (\d+ \w{3} )?\d{2}:\d{2} · \d+ (days|h|min)/) || [])[0];
   ok(band === 'visible' && !!spanOf(measuring) && /low \$0\.\d+ high \$0\.\d+/.test(measuring), `dragging across the chart reads the stretch: its move, its times and length, its low and high (${measuring.slice(0, 120)})`);
   ok(spanOf(zoomedRead) === spanOf(measuring) && /Zoom out/.test(zoomedRead) && /zoomed in/.test(zoomedLabel), `letting go zooms into that stretch and offers to zoom out (${zoomedRead.slice(0, 90)})`);
   await p.click('#ch-read [data-zoomout]');
@@ -242,7 +242,7 @@ try {
   ok(/Every trade on the Bitcoin order book since 2026-05-24/.test(await text(p, '#chart-note')), 'and says where they come from');
   await p.click('[data-lane="cmp"]'); await until(p, () => document.querySelectorAll('#chart polyline').length === 2);
   ok((await lines(p)) === 2 && !(await p.$('#chart .body')), 'Compare draws the two lanes as lines in dollars');
-  ok(/Both lanes in dollars at today's ETH and BTC prices/.test(await text(p, '#chart-note')), 'and says they are at today\'s rates');
+  ok(/Ethereum and Bitcoin in dollars, at today’s ETH and BTC prices/.test(await text(p, '#chart-note')), 'and says they are at today\'s rates');
   ok(/Precision pool \(Ethereum\).*Bitcoin order book.*Tacit pool/.test((await text(p, '#legend')).replace(/\s+/g, ' ')), 'the legend names the lanes and the Tacit pool\'s place against Precision');
   ok(/^[+−]\d[\d.]*% Bitcoin against Ethereum · now Ethereum \$0\.\d{4} Bitcoin \$0\.\d{4}$/.test((await text(p, '#ch-read')).replace(/\s+/g, ' ').trim()), `above the chart, how far Bitcoin sits from Ethereum now, and both prices (${(await text(p, '#ch-read')).replace(/\s+/g, ' ').trim()})`);
   await p.hover('#chart svg', { position: { x: 400, y: 150 } });
@@ -276,7 +276,7 @@ try {
   const rows = await p.$$eval('#venues tbody tr', (t) => t.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
   ok(rows.length >= 5 && rows.length <= 7, `the quotes table holds the places that quote: the pools, the split, the private swap and the Bitcoin book (${rows.length} rows)`);
   ok(rows.some((x) => /^Precision pool.*fee 0\.30%/.test(x)) && rows.some((x) => /^Tacit pool.*public swap/.test(x)) && rows.some((x) => /^Both, split.*best/.test(x)), 'the pools and the split are there (the Precision fee as 0.30%), the split tagged best');
-  ok(rows.some((x) => /^Tacit pool, private.*estimate.*shielded note/.test(x)), 'the private swap is an estimate, from the same reserves');
+  ok(rows.some((x) => /^Tacit pool, private.*estimate.*before the relay fee/.test(x)), 'the private swap is an estimate, from the same reserves');
   const privHref = await p.$eval('#venues a[href^="/#card="]', (a) => a.getAttribute('href'));
   ok(privHref === '/#card=swap:ether:tac:private&amt=2' && /Swap privately/.test(await text(p, '#route')), `and links to the main page's private swap with the amount (${privHref})`);
   // the arrows turn the trade around, carrying what it gets over as what the other side pays
@@ -317,7 +317,7 @@ try {
   await until(p, () => /Split across/.test(document.querySelector('#route')?.textContent || '') && !document.querySelector('#out').classList.contains('ph') && !document.querySelector('.p-ticket').classList.contains('stale'), null, 240000);
   const sell = (await text(p, '#route')).replace(/\s+/g, ' ');
   ok(/Split across two pools \+[\d.]+%/.test(sell) && /TAC$/.test((await text(p, '#in-unit')).trim()), `selling 12,000 TAC is quoted as a split, paid in ETH (${sell.slice(0, 120)})`);
-  ok(/Bitcoin order book.*\d+ bids? · settles (when the bidder is online|within minutes).*sats fees/.test((await text(p, '#venues')).replace(/\s+/g, ' ')), 'the Bitcoin row says what the standing bids pay for the sale, and that each settles when its bidder is online');
+  ok(/Bitcoin order book.*\d+ bids? · settles (when the bidder is online|within minutes).*sats in fees/.test((await text(p, '#venues')).replace(/\s+/g, ' ')), 'the Bitcoin row says what the standing bids pay for the sale, and that each settles when its bidder is online');
 
   // the order book and the facts
   ok((await p.getAttribute('[data-book="btc"]', 'aria-pressed')) === 'true', 'with zSwap holding no TAC order the order book opens on Bitcoin\'s listings');
@@ -344,8 +344,8 @@ try {
   ok((await p.$$eval('#ladders table.trades tbody tr', (r) => r.length)) > 12 && /Show fewer/.test(await text(p, '#ladders [data-more-trades]')), 'Show all lists every one, and Show fewer folds them again');
   await p.click('#ladders [data-more-trades]');
   await p.click('[data-book="eth"]');
-  await until(p, () => /No TAC orders on zSwap's boards|No TAC orders on the boards that answered/.test(document.querySelector('#ladders')?.textContent || ''), null, 150000);
-  ok(/No TAC orders on zSwap's boards|No TAC orders on the boards that answered/.test(await text(p, '#ladders')) && !!(await p.$('#ladders a[href^="https://zswap"]')), 'the Ethereum tab says zSwap holds none and where to place one');
+  await until(p, () => /No TAC orders on zSwap’s boards|No TAC orders on the boards that answered/.test(document.querySelector('#ladders')?.textContent || ''), null, 150000);
+  ok(/No TAC orders on zSwap’s boards|No TAC orders on the boards that answered/.test(await text(p, '#ladders')) && !!(await p.$('#ladders a[href^="https://zswap"]')), 'the Ethereum tab says zSwap holds none and where to place one');
   await p.click('[data-book="btc"]');
   ok(/\d+ listings \([\d,]+ TAC\), taken whole/.test(await text(p, '#depth-note')) && !(await p.$('#depth-note a')), 'with how deep the book is (the buttons beside it do what the old links did)');
   const facts = (await text(p, '#facts')).replace(/\s+/g, ' '), more = (await text(p, '#facts-more')).replace(/\s+/g, ' ');
@@ -389,7 +389,7 @@ try {
     ok(await q.evaluate(() => window.__go.has('Updating the quote…')), `while a new amount is quoted the button says so and waits (${await q.evaluate(() => [...window.__go].join(' / '))})`);
     if (SHOTS) await q.locator('.p-ticket').screenshot({ path: join(SHOTS, 'ticket-quoted.png') });
     const rv = (await text(q, '#route')).replace(/\s+/g, ' ');
-    ok(/Split across two pools/.test(rv) && /Price impact\d+%/.test(rv) && /Least you get[\d,.]+ TAC/.test(rv) && /Slippage/.test(rv) && !!(await q.$('#slip-seg')) && /tested before it is sent/.test(await text(q, '#tk-note')) && !(await q.$('#review')), `the quote itself says the route, the price impact and the least it takes, with slippage in it and no review step (${rv.slice(0, 200)})`);
+    ok(/Split across two pools/.test(rv) && /Price impact\d+%/.test(rv) && /Least you get[\d,.]+ TAC/.test(rv) && /Slippage/.test(rv) && !!(await q.$('#slip-seg')) && /checked before it is sent/.test(await text(q, '#tk-note')) && !(await q.$('#review')), `the quote itself says the route, the price impact and the least it takes, with slippage in it and no review step (${rv.slice(0, 200)})`);
     ok(/Network fee(≈ \$\d+\.\d\d|under \$0\.01)/.test(rv) && /gas at [\d.]+ gwei/.test(await q.$eval('#route .kv b[title*="gas at"]', (b) => b.title)), `the quote says what the network takes, at the gas price now (${(rv.match(/Network fee[^S]*/) || [''])[0]})`);
     const floorTxt = (rv.match(/Least you get([\d,.]+) TAC/) || [])[1];
     ok(await q.$eval('#go', (b) => b.disabled) && /I accept losing about \d+%/.test(await text(q, '#route')), 'a purchase that moves the price over 10% waits for the box to be ticked');

@@ -2,7 +2,7 @@
 // private farms and the prices in the pools that pair tETH (the farming program's reading), the dollar rates (Chainlink) and TAC's price (the
 // Precision pool), and the relay's quote for a wrap. The arithmetic is plain functions of what was read, so tests can pin it.
 import { MULTICALL3, PRECISION_POOL, _internal } from '/evm-trade-venues.js?cb=f6e1b626';
-import { api, ethCall, wordAt, now, E10 } from '/trade/util.js?cb=c3dc39b3';
+import { api, ethCall, wordAt, now, E10 } from '/trade/util.js?cb=782a003c';
 
 export const POOL = '0x000000000Ed1eabD231Be41d93b719056F7febFC';              // the Tacit pool (one contract): it holds the ETH behind every tETH
 export const WRAP_TIP = '0x000000D218B03db5837943b0b05DeA2965AE956e';           // wraps and pays the relay's tip in one transaction
@@ -126,11 +126,11 @@ export const RELAY_TIP_SPLITTER = '0xf5eBBE5Db610F64D29A0dC5e9534074Af12834F9';
 export const TIP_CEILING_BPS = 500n;
 export async function wrapQuote(wei) {
   const j = await api(`/confidential/quote?asset=cETH&amountWei=${wei}`);
-  if (!j) throw new Error('The relay could not quote right now. Try again in a moment.');
+  if (!j) throw new Error('The relay could not quote. Try again in a moment.');
   if (!/^\d+$/.test(String(j.recommendedWrapTipWei ?? ''))) throw new Error('The relay did not give a tip for this deposit. Try again in a moment.');
   const to = j.tipSplitter || j.recommendedTipRecipient, tip = BigInt(j.recommendedWrapTipWei);
   const known = [RELAY_TIP_TO, RELAY_TIP_SPLITTER].find((a) => a.toLowerCase() === String(to || '').toLowerCase());
-  if (!known) throw new Error('The relay named a tip address this page does not know, so nothing will be sent. Try again later, or use tacit.finance.');
+  if (!known) throw new Error('The relay named a tip address this page does not know, so nothing will be sent. Try again, or use tacit.finance.');
   if (tip * 10000n > BigInt(wei) * TIP_CEILING_BPS) throw new Error('The relay asked for more than 5% of this deposit as its tip, so nothing will be sent. A larger deposit pays a smaller share.');
   // What the relay asks for a proof alone (the wallet then sends the settle): never more than the full tip, which it stands in for.
   const proveTip = /^\d+$/.test(String(j.recommendedProveTipWei ?? '')) && BigInt(j.recommendedProveTipWei) <= tip ? BigInt(j.recommendedProveTipWei) : tip;

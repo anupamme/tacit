@@ -11,7 +11,7 @@
 <meta property="og:site_name" content="tacit">
 <link rel="canonical" href="https://tacit.finance/trade/cbtc/">
 <meta property="og:url" content="https://tacit.finance/trade/cbtc/">
-<meta property="og:title" content="cBTC · bitcoin you keep">
+<meta property="og:title" content="tacit trade · cBTC">
 <meta property="og:description" content="cBTC backing, loans, pools and farms.">
 <meta property="og:image" content="https://tacit.finance/tacit-card.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -25,26 +25,26 @@
 <link rel="preload" as="fetch" href="https://api.tacit.finance/farm/program?network=mainnet" crossorigin fetchpriority="low">
 <!-- preload-roots: /trade/cbtc/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/trade/cbtc/app.js?cb=6f7d43a5">
+<link rel="modulepreload" href="/trade/cbtc/app.js?cb=76133f22">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
-<link rel="modulepreload" href="/trade/chart.js?cb=97813823">
-<link rel="modulepreload" href="/trade/fmt.js?cb=43646c2e">
-<link rel="modulepreload" href="/trade/connect.js?cb=b0beb322">
+<link rel="modulepreload" href="/trade/chart.js?cb=38205f01">
+<link rel="modulepreload" href="/trade/fmt.js?cb=c07717c4">
+<link rel="modulepreload" href="/trade/connect.js?cb=ba3dc25f">
 <link rel="modulepreload" href="/walletconnect.js?cb=92886522">
-<link rel="modulepreload" href="/trade/wallet.js?cb=595c892a">
+<link rel="modulepreload" href="/trade/wallet.js?cb=7b4ab128">
 <link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
-<link rel="modulepreload" href="/trade/util.js?cb=c3dc39b3">
+<link rel="modulepreload" href="/trade/util.js?cb=782a003c">
 <link rel="modulepreload" href="/trade/rpc.js?cb=842f58a5">
-<link rel="modulepreload" href="/trade/key.js?cb=ad559513">
+<link rel="modulepreload" href="/trade/key.js?cb=8d183dce">
 <link rel="modulepreload" href="/prf-wallet.js">
 <link rel="modulepreload" href="/tacit-wallet-known.js?cb=ed4c75b7">
 <link rel="modulepreload" href="/evm-wallet.js?cb=12c7dccd">
 <link rel="modulepreload" href="/identity-message.js">
 <link rel="modulepreload" href="/trade/poolux.js?cb=f6352066">
-<link rel="modulepreload" href="/trade/teth/read.js?cb=c8e19226">
+<link rel="modulepreload" href="/trade/teth/read.js?cb=b443f514">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=f6e1b626">
 <link rel="modulepreload" href="/zrouter-guard.js">
-<link rel="modulepreload" href="/trade/cbtc/read.js?cb=75bd04de">
+<link rel="modulepreload" href="/trade/cbtc/read.js?cb=ab2ab74b">
 <!-- preload:end -->
 <!-- style:shared:begin -->
 <style>
@@ -660,7 +660,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <section class="hero" aria-labelledby="px-h">
     <div>
       <nav class="assets" aria-label="Asset"><a href="/trade/tac/"><svg class="tk xs" aria-hidden="true"><use href="#tk-tac"/></svg>TAC</a><a href="/trade/teth/"><svg class="tk xs" aria-hidden="true"><use href="#tk-teth"/></svg>tETH</a><a href="/trade/cbtc/" aria-current="page"><svg class="tk xs" aria-hidden="true"><use href="#tk-cbtc"/></svg>cBTC</a></nav>
-      <h1 id="px-h"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><span class="sr">Bitcoin price: </span><span id="px-usd" class="num">cBTC</span></h1>
+      <h1 id="px-h"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><span class="sr">Bitcoin price </span><span id="px-usd" class="num">cBTC</span></h1>
       <div class="sub" id="px-sub"><span class="gh" aria-hidden="true"><b class="num">1 cBTC</b> = 1 BTC, locked</span><span class="gh" aria-hidden="true"><b class="num">0.000000 cBTC</b> ($0.0k) minted</span><span class="gh" aria-hidden="true">00 locks · 00 loans open</span><span class="mute ph">Reading the locks…</span></div>
       <noscript><p class="note">This page needs JavaScript.</p></noscript>
       <details class="hints" id="hints"><summary id="hints-sum">cBTC prices</summary>
@@ -681,7 +681,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="chart-foot"><div class="legend" id="legend"></div><div class="view" id="view-seg" role="group" aria-label="View"></div></div>
       <details class="more"><summary>About this chart</summary><p class="note" id="chart-note"></p></details>
       <p class="eyebrow cov-h2">Backing</p>
-      <div class="cov" id="cov"><p class="note">Reading…</p></div>
+      <div class="cov" id="cov"><p class="note">Loading…</p></div>
       <p class="note" id="cov-note"></p>
     </section>
 
@@ -703,7 +703,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         <div class="amt"><input id="amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="BTC to lock"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-btc"/></svg>BTC</span></div>
         <div class="chips" id="chips" role="group" aria-label="Quick amounts"></div>
         <div id="route"></div>
-        <a class="btn" id="go" href="/#lock">Lock BTC on tacit.finance →</a>
+        <a class="btn" id="go" href="/#lock">Lock BTC →</a>
         <p class="note" id="tk-note"></p>
       </div>
       <div id="use" hidden>
@@ -767,6 +767,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/trade/cbtc/app.js?cb=6f7d43a5"></script>
+<script type="module" src="/trade/cbtc/app.js?cb=76133f22"></script>
 </body>
 </html>

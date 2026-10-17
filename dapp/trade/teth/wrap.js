@@ -7,8 +7,8 @@
 //
 // The pool module (confidential-pool-ux.js) is loaded the first time it is needed. Nothing here holds a key: each step is handed `priv()`.
 import { getUx, forgetUx } from '/trade/poolux.js?cb=f6352066';
-import { WRAP_TIP, WRAP_WITH_TIP, CETH_ID, POOL } from '/trade/teth/read.js?cb=c8e19226';
-import { strip, word, rpc, ethCall, api, E10 } from '/trade/util.js?cb=c3dc39b3';
+import { WRAP_TIP, WRAP_WITH_TIP, CETH_ID, POOL } from '/trade/teth/read.js?cb=b443f514';
+import { strip, word, rpc, ethCall, api, E10 } from '/trade/util.js?cb=782a003c';
 
 export { getUx, forgetUx };
 
@@ -39,7 +39,7 @@ export const relayStopped = (rs) => rs?.state === 'paused' || rs?.state === 'dow
 // it says, for one that has stopped sending and still proves). `queued`: the relay's job keeps its place in line.
 function halted(rs, queued) {
   const held = rs.state === 'held';
-  return Object.assign(new Error(held ? 'The relay can\'t send this one right now.' : 'The relay isn\'t proving right now.'), { code: held ? 'relay_held' : 'relay_paused', queued, proving: rs.proving, relay: rs });
+  return Object.assign(new Error(held ? 'The relay can’t send this one right now.' : 'The relay isn’t proving right now.'), { code: held ? 'relay_held' : 'relay_paused', queued, proving: rs.proving, relay: rs });
 }
 // While the relay is waited on, its state is read every 15 seconds, and once `stops(state)` the wait (`race`) ends early with `halted`. The relay
 // client's own wait, handed `sleep`, ends at its next poll; a settle that lands later finds the deposit consumed. `quiet()` stops the reading, as a
@@ -79,7 +79,7 @@ export async function wrapEth({ priv, wei, tip, to, from, wallet, say = () => {}
   say('sent', hash);
   let rc;
   try { rc = await wallet.receipt(hash); } catch (e) { throw Object.assign(e, { deposit: { hash, built, landed: false } }); }
-  if (rc.status !== '0x1') throw Object.assign(new Error('The deposit failed on chain. Nothing was lost but its network fee.'), { reverted: true });
+  if (rc.status !== '0x1') throw Object.assign(new Error(`The transaction failed (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`), { reverted: true });
   return own ? proveOwn({ t, built, hash, wallet, from, prover: own, say }) : self ? proveRelay({ t, built, hash, wallet, from, say }) : settle({ t, built, hash, say });
 }
 // The relay proves the note and the wallet sends its settle (selfFinish), for a relay that proves but is not sending settles now. The steps reach
@@ -121,14 +121,14 @@ export async function settle({ t = null, built, hash = null, say = () => {} }) {
 export function relayWords(e) {
   const m = String(e?.message || e || ''), code = e?.code;
   if (code === 'open' || e?.open || /settle held|waiting for a sender/i.test(m)) return 'Your note is proved and waiting to be sent. Anyone can send it, and it goes through on its own once a relay does.';
-  if (code === 'prove_budget') return 'The relay has made as many proofs as it can for today; try again after midnight UTC. Your deposit is safe and waits to be finished.';
-  if (code === 'relay_paused') return `${e.proving ? 'The relay can\'t send this one right now.' : 'The relay isn\'t proving right now.'} ${e.queued ? 'Your deposit is safe and keeps its place in line: it goes through once the relay is back.' : 'Your deposit is safe and waits to be finished.'}`;
-  if (code === 'relay_held' && e.queued) return 'The relay can\'t send this one right now. It still proves it, so your wallet can send the settle.';
-  if (code === 'relay_held' || /can.t take this one/i.test(m)) return 'The relay is catching up on settles and did not take this one just now. Your deposit is safe and waits to be finished.';
-  if (code === 'free_budget' || /free relayed settles for today are used up/i.test(m)) return 'The relay\'s free settles for today are used up. They open again at midnight UTC.';
+  if (code === 'prove_budget') return 'The relay has made as many proofs as it can for today. Try again after midnight UTC. Your deposit is safe and waits to be finished.';
+  if (code === 'relay_paused') return `${e.proving ? 'The relay can’t send this one right now.' : 'The relay isn’t proving right now.'} ${e.queued ? 'Your deposit is safe and keeps its place in line: it goes through once the relay is back.' : 'Your deposit is safe and waits to be finished.'}`;
+  if (code === 'relay_held' && e.queued) return 'The relay can’t send this one right now. It still proves it, so your wallet can send the settle.';
+  if (code === 'relay_held' || /can.t take this one/i.test(m)) return 'The relay can’t take this one right now. Your deposit is safe and waits to be finished.';
+  if (code === 'free_budget' || /free relayed settles for today are used up/i.test(m)) return 'The relay’s free settles for today are used up. They open again at midnight UTC.';
   if (/settle timed out|status polling for job/i.test(m)) return 'The relay is still working on it. It goes through on its own, so there is no need to send the deposit again.';
   if (/prove timed out/i.test(m)) return 'The relay is taking longer than usual to prove it, and this page stopped waiting.';
-  if (/relay lost the job/i.test(m)) return 'The relay lost track of the request.';
+  if (/relay lost the job/i.test(m)) return 'The relay lost track of this request.';
   if (/failed to fetch|networkerror|load failed/i.test(m)) return 'Could not reach the relay.';
   return m.replace(/^Error:\s*/, '').replace(/\brelayer/gi, 'relay').slice(0, 220);
 }
@@ -137,7 +137,7 @@ export function relayWords(e) {
 const proveAmt = (wei) => (Number(wei) / 1e18).toFixed(2);
 export function ownWords(e) {
   if (e?.code === 'prover_credit') return `Your prover credit is ${proveAmt(e.have ?? 0n)} PROVE, and a proof needs about ${proveAmt(e.need ?? 0n)} PROVE on hand.`;
-  if (e?.code === 'not_proved') return 'Succinct\'s prover did not take it in time. Nothing was sent; the network kept its base fee (about 0.39 PROVE). Try again, or let the relay prove this one.';
+  if (e?.code === 'not_proved') return 'Succinct’s prover did not take it in time. Nothing was sent. The network kept its base fee (about 0.39 PROVE). Try again, or let the relay prove this one.';
   return relayWords(e);
 }
 // Where the relay could not prove (no proofs left today, it is not proving now, or its proof failed or ran out of time, a relayed job's too: "settle
@@ -203,7 +203,7 @@ export async function selfFinish({ t = null, built, hash = null, jobId = null, o
     try { await rpc('eth_call', [{ from, to: POOL, data }, 'latest']); }
     catch (e) {
       if (await consumed(built)) return { txHash: null, already: true };
-      throw new Error(e?.revert ? 'The settle would not go through on chain just now, so nothing was sent. Try again in a moment.' : 'The settle could not be checked just now, so nothing was sent. Try again in a moment.');
+      throw new Error(e?.revert ? 'The settle would not go through, so nothing was sent. Try again in a moment.' : 'The settle could not be checked, so nothing was sent. Try again in a moment.');
     }
     say('confirm');
     const txHash = await wallet.sendTx({ to: POOL, data, from });
@@ -211,7 +211,7 @@ export async function selfFinish({ t = null, built, hash = null, jobId = null, o
     const rc = await wallet.receipt(txHash);
     if (rc.status !== '0x1') {
       if (await consumed(built)) return { txHash: null, already: true };
-      throw new Error('The settle failed on chain. Nothing was lost but its network fee, and the deposit still waits to be finished.');
+      throw new Error('The settle failed. Nothing was lost but its network fee, and the deposit still waits to be finished.');
     }
     mine = txHash;
     if (id) await ux.relay.landed(id, txHash);

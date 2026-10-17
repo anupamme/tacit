@@ -16,6 +16,6 @@ export const sig = (x, n = 3) => (x >= 1 ? grp(x, x >= 100 ? 0 : 2) : (sigs[n] |
 // A price in sats: whole above a hundred, one decimal below.
 export const satsFmt = (n) => (n >= 100 ? intF().format(Math.round(n)) : oneF().format(Number(n)));
 // A day as "Dec 20, 2026".
-export const day = (t) => (dayF ||= new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' })).format(new Date(t * 1000));
+export const day = (t) => (dayF ||= new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })).format(new Date(t * 1000));
 // The short name of the reader's time zone at a date ("GMT+7", "EST").
 export const zone = (d) => { try { return (zoneF ||= new Intl.DateTimeFormat('en-GB', { timeZoneName: 'short' })).formatToParts(d).find((x) => x.type === 'timeZoneName')?.value || ''; } catch { return ''; } };

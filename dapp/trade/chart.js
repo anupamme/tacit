@@ -1,7 +1,7 @@
 // A small SVG price chart for the TAC trade page: candles or lines on a shared time axis, volume under them, price tags at the
 // right edge, a crosshair with a tooltip. No library (the page's CSP allows only its own scripts). Colours come from the page's
 // CSS variables so light and dark are the page's own.
-import { zone, grp } from '/trade/fmt.js?cb=43646c2e';
+import { zone, grp } from '/trade/fmt.js?cb=c07717c4';
 
 
 const NS = 'http://www.w3.org/2000/svg';

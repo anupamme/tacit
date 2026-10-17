@@ -34,10 +34,10 @@ try {
   await p.goto(`${base}/trade/tac/`, { waitUntil: 'domcontentloaded' });
   await p.waitForFunction(() => /Could not read the pools/.test(document.querySelector('#px-sub')?.textContent || ''), null, { timeout: 60000 });
   await p.waitForTimeout(1500);
-  ok(/^Could not read the pools just now\. Try again$/.test(await text(p, '#px-sub')), 'the head says the pools could not be read, and offers another go (not "reading" for ever)');
-  ok(/^Could not read the price history just now\.$/.test(await text(p, '#chart')), 'the chart says its history could not be read (not that nothing has traded)');
-  ok(/Could not read the Bitcoin order book/.test(await text(p, '#ladders')) && /Could not read the Bitcoin order book just now/.test(await text(p, '#depthchart')) && !!(await p.$('#ladders [data-retry]')) && (await p.$eval('#ob-peek', (e) => e.hidden)), 'the Bitcoin book says so too, with a Try again, and no hint about pressing a price');
-  ok(/could not be read/i.test(await text(p, '#fm-stats')), 'and so does the farm');
+  ok(/^Could not read the pools\. Try again$/.test(await text(p, '#px-sub')), 'the head says the pools could not be read, and offers another go (not "reading" for ever)');
+  ok(/^Could not read the price history\. Try again in a moment\.$/.test(await text(p, '#chart')), 'the chart says its history could not be read (not that nothing has traded)');
+  ok(/Could not read the Bitcoin order book/.test(await text(p, '#ladders')) && /Could not read the Bitcoin order book\./.test(await text(p, '#depthchart')) && !!(await p.$('#ladders [data-retry]')) && (await p.$eval('#ob-peek', (e) => e.hidden)), 'the Bitcoin book says so too, with a Try again, and no hint about pressing a price');
+  ok(/Could not read the farm/.test(await text(p, '#fm-stats')), 'and so does the farm');
   const a0 = api, r0 = rpc;
   await p.waitForTimeout(6500);
   ok(api > a0 && rpc > r0, `the page tries again by itself within seconds (${api - a0} API and ${rpc - r0} node reads in 6 s)`);

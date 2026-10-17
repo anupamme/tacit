@@ -272,7 +272,7 @@ try {
   // a failing read is said, and the others still show
   await cfg(p, { locksFail: true });
   await p.click('#lk-re');
-  await until(p, () => /could not be read: esplora is down/.test(document.querySelector('#lk-mine').textContent), null, 20000);
+  await until(p, () => /Could not read your locks: esplora is down/.test(document.querySelector('#lk-mine').textContent), null, 20000);
   ok(/0\.042/.test(await text(p, '#held')) && !/Reading/.test(await text(p, '#lk-mine')), 'a Bitcoin history that cannot be read says so, and the cBTC and loans still show');
   await p.click('#held-lock').catch(() => {});
   await p.click('#mode-seg [data-mode="use"]');
@@ -286,7 +286,7 @@ try {
   // ── what cannot be read ──
   chain.logs = false;
   r = await openPage({ width: 1280, height: 900 });
-  await until(r.page, () => /could not be read/.test(document.querySelector('#chart').textContent), null, 30000);
+  await until(r.page, () => /Could not read the history/.test(document.querySelector('#chart').textContent), null, 30000);
   ok(!(await r.page.$('#chart .line')) && (await r.page.$$eval('#cov .cov-row', (a) => a.length)) === 4, 'a node that does not serve the events leaves the chart saying so, and everything else stands');
   await r.browser.close();
   chain.logs = true;
@@ -295,7 +295,7 @@ try {
   p = r.page;
   await p.waitForTimeout(2500);
   ok(!/\$\d/.test(await text(p, '#px-usd')) || /\$81,500/.test(await text(p, '#px-usd')), 'without the engine the headline falls back to the feed\'s price of bitcoin, or waits');
-  ok(/Reading|could not/i.test(await text(p, '#cov')) || (await p.$$eval('#cov .cov-row', (a) => a.length)) === 0, 'with no totals nothing is invented');
+  ok(/Loading|could not/i.test(await text(p, '#cov')) || (await p.$$eval('#cov .cov-row', (a) => a.length)) === 0, 'with no totals nothing is invented');
   await r.browser.close();
   chain.engine = true; chain.stats = null;
 

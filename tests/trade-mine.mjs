@@ -144,7 +144,7 @@ try {
   ok(!(await p.$eval('[data-book="mine"]', (b) => b.hidden)) && (await text(p, '[data-book="mine"]')).trim() === 'Yours', 'once a wallet is connected the Yours tab is there');
   await p.click('[data-book="mine"]');
   const head0 = (await text(p, '.mine-head')).replace(/\s+/g, ' ');
-  ok(/Your Tacit wallet Ethereum 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}/.test(head0) && /Open your Tacit wallet to see your Bitcoin orders/.test(head0) && /one, two the first time/.test(head0) && !!(await p.$('[data-mine="open"]')), `with no Tacit key known it names the wallet and offers to open it (${head0.slice(0, 120)})`);
+  ok(/Your Tacit wallet Ethereum 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}/.test(head0) && /Open your Tacit wallet to see your Bitcoin orders/.test(head0) && /One free signature, two the first time/.test(head0) && !!(await p.$('[data-mine="open"]')), `with no Tacit key known it names the wallet and offers to open it (${head0.slice(0, 120)})`);
   ok(!/No open orders/.test(await text(p, '#ladders')) && !(await p.$('table.yours')), 'and it does not say there are no orders when it cannot know');
   ok(await p.$eval('#depthchart', (e) => e.hidden), 'the depth chart gives way to the list');
 
@@ -166,7 +166,7 @@ try {
   await p.click('.bsheet.top [data-btc-lock]');
   await until(p, () => !document.querySelector('.bsheet.top'), null, 10000);
   ok(/^Open it to see what it holds on Bitcoin\./.test((await text(p, '.mine-bal')).trim()) && !!(await p.$('[data-mine="open"]')), 'Lock closes the key and the Yours tab says it must be opened again to show what it holds');
-  ok(/No open orders on the Bitcoin book/.test(await text(p, '#ladders')), 'but the key is known (the wallet opened it before), so it can say there are no orders');
+  ok(/No open orders on the Bitcoin order book/.test(await text(p, '#ladders')), 'but the key is known (the wallet opened it before), so it can say there are no orders');
 
   // returning: two of the book's listings and a bid are this key's. A reload knows it with no signature.
   sales.sales[3].seller_pubkey = pub; sales.sales[5].seller_pubkey = pub;
@@ -193,7 +193,7 @@ try {
   ok(rows.filter((x) => /^Selling/.test(x)).length === 2 && rows.filter((x) => /^Bid/.test(x)).length === 1, `Yours lists the two listings and the bid (${rows.length} rows)`);
   ok(rows.some((x) => /taken whole/.test(x)) && rows.some((x) => /settles while you are online/.test(x)) && rows.every((x) => /\d+ (days|h|min)|Manage/.test(x)), 'each with what it is, its price and when it ends');
   const mineTxt = (await text(p, '#ladders')).replace(/\s+/g, ' ');
-  ok(/Recent what this browser saw, and the Precision pool's swaps to your account over the last day/.test(mineTxt) && /Bought 1,500 TAC for 262,544 sats/.test(mineTxt) && /Listed 10,000 TAC/.test(mineTxt) && !/Sold 99 TAC/.test(mineTxt), 'what this browser saw the key do is listed, and another account\'s is not');
+  ok(/Recent what this browser saw, and the Precision pool’s swaps to your account over the last day/.test(mineTxt) && /Bought 1,500 TAC for 262,544 sats/.test(mineTxt) && /Listed 10,000 TAC/.test(mineTxt) && !/Sold 99 TAC/.test(mineTxt), 'what this browser saw the key do is listed, and another account\'s is not');
   ok(await p.$eval('#ladders table.yours a[href^="https://mempool.space/tx/"]', (a) => a.href.endsWith('ab'.repeat(32))), 'with a link to the transaction');
   ok(/Open it to see what it holds on Bitcoin\./.test(await text(p, '.mine-bal')), 'the balance waits to be opened (nothing was asked of the wallet)');
 
@@ -243,7 +243,7 @@ try {
   await p.click('.bsheet .bm >> text=Connect a wallet');
   await p.waitForSelector('.bsheet.top .way', { timeout: 30000 });
   const lead = await p.$eval('.bsheet.top .way', (b) => ({ t: b.textContent.replace(/\s+/g, ' '), k: b.dataset.in, main: b.classList.contains('main') }));
-  ok(lead.k === 'page' && lead.main && /^Use the wallet connected here ?Ethereum 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}\. One signature/.test(lead.t), `with no key opened before, the sheet's sign-in leads with the wallet connected on the page (${lead.t.slice(0, 80)})`);
+  ok(lead.k === 'page' && lead.main && /^Use the wallet connected here ?Ethereum 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}\. One free signature/.test(lead.t), `with no key opened before, the sheet's sign-in leads with the wallet connected on the page (${lead.t.slice(0, 80)})`);
   await p.click('.bsheet.top [data-in="page"]');
   await until(p, () => !document.querySelector('.bsheet.top'), null, 60000);
   await until(p, () => /Balance:\s*3,000,000 sats/.test(document.querySelector('.bsheet .bm')?.textContent || ''), null, 60000);

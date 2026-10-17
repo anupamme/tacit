@@ -12,7 +12,7 @@ function plain(e) {
   if (e?.code === 4001 || /user (rejected|denied)|rejected the request|request rejected|denied (transaction|message)/i.test(m)) return new UserStopped();
   if (e?.code === -32002 || /already (pending|processing)|request of type .* pending/i.test(m)) return new Error('Your wallet already has a request open. Answer it there, then try again.');
   if (e?.code === 4100 && !/WalletConnect/.test(m)) return new Error('Your wallet is locked or has not allowed this site. Unlock it and connect again.');
-  if (/chain.*not approved|does not support 'wallet_switchEthereumChain'/i.test(m)) return new Error('Your wallet app did not allow Ethereum for this connection. Disconnect, then connect again.');
+  if (/chain.*not approved|does not support 'wallet_switchEthereumChain'/i.test(m)) return new Error('Your wallet app did not allow Ethereum. Disconnect, then connect again.');
   return e;
 }
 
@@ -76,7 +76,7 @@ export function makeWallet({ rpc, leave = null }) {
     emit();
   }
   // What was reviewed was for one account: a wallet whose account has changed since is not asked to send or sign it.
-  const same = (from) => { if (from && String(from).toLowerCase() !== String(W.account || '').toLowerCase()) throw new Error('The wallet\'s account changed. Nothing was sent; review it again.'); };
+  const same = (from) => { if (from && String(from).toLowerCase() !== String(W.account || '').toLowerCase()) throw new Error('The wallet’s account changed. Nothing was sent; review it again.'); };
   async function ensureMainnet() {
     W.chain = hexChain(await req('eth_chainId'));
     if (W.chain === MAINNET) return;
@@ -135,7 +135,7 @@ export function makeWallet({ rpc, leave = null }) {
     for (;;) {
       const r = await read('eth_getTransactionReceipt', [hash]).catch(() => null);
       if (r) return r;
-      if (Date.now() - t0 > timeoutMs) throw new Error(`Sent, but not confirmed yet. Check it on ${where} before trying again.`);
+      if (Date.now() - t0 > timeoutMs) throw new Error(`Sent, not confirmed yet. Check it on ${where} before sending anything again.`);
       await new Promise((res) => setTimeout(res, every));
     }
   }

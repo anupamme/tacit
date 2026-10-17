@@ -118,7 +118,7 @@ try {
   const p = r.page;
   await until(p, () => /Staked\s*\$/.test(document.querySelector('#fm-stats')?.textContent || '') && /Private farms/.test(document.querySelector('#fm-prog')?.textContent || ''), null, 240000);
   const stats = (await text(p, '#fm-stats')).replace(/\s+/g, ' ');
-  ok(/APR now\s*[\d,]+%/.test(stats) && /Rewards\s*[\d,]+ TAC a day/.test(stats) && /Staked\s*\$[\d,]+/.test(stats) && /Stream ends\s*\w{3} \d+, \d{4}/.test(stats), `the farm says its APR, its stream in TAC a day, what is staked and when the stream ends (${stats})`);
+  ok(/APR now\s*[\d,]+%/.test(stats) && /Rewards\s*[\d,]+ TAC a day/.test(stats) && /Staked\s*\$[\d,]+/.test(stats) && /Stream ends\s*\d+ \w{3} \d{4}/.test(stats), `the farm says its APR, its stream in TAC a day, what is staked and when the stream ends (${stats})`);
   const pf = await p.$$eval('#fm-prog .fm-pf', (a) => a.map((x) => `${x.getAttribute('href')} ${x.textContent.replace(/\s+/g, ' ').trim()}`));
   ok(/1,108 TAC a day more/.test(await text(p, '#fm-prog')) && pf.length === 3 && /^\/#farm\/private-0 tETH \/ TAC\s*554 TAC a day\s*[\d,]+%/.test(pf[0]) && pf.every((x) => /%/.test(x)), `and the program's private farms, each with its stream, its APR and the way to it (${pf.join(' | ')})`);
   const box = await p.$eval('#farm', (e) => { const b = e.getBoundingClientRect(), t = document.querySelector('.p-ticket').getBoundingClientRect(); return { right: b.left > t.left - 5, below: b.top >= t.bottom }; });
@@ -142,7 +142,7 @@ try {
   await p.fill('#fm-amt', '0.4');
   ok(await p.$eval('#fm-go', (b) => b.disabled), 'typing a new amount holds the button until that amount is quoted');
   await p.fill('#fm-amt', '1.2.3');
-  await until(p, () => /cannot be read/.test(document.querySelector('#fm-rcpt')?.textContent || ''), null, 30000);
+  await until(p, () => /Cannot read that amount/.test(document.querySelector('#fm-rcpt')?.textContent || ''), null, 30000);
   ok(await p.$eval('#fm-go', (b) => b.disabled) && (await p.$eval('#fm-amt', (i) => i.hasAttribute('aria-invalid'))), 'an amount that cannot be read is said and marked, and nothing can be sent');
   // A deposit whose swap costs 30% or more is accepted by typing its figure, not by ticking a box.
   await p.fill('#fm-amt', '20');

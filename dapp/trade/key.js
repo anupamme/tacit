@@ -7,7 +7,7 @@ import { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPass
 import { knownWallets } from '/tacit-wallet-known.js?cb=ed4c75b7';
 import { makeEvmWallet } from '/evm-wallet.js?cb=12c7dccd';
 import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
-import { short } from '/trade/util.js?cb=c3dc39b3';
+import { short } from '/trade/util.js?cb=782a003c';
 
 const RECORD = 'tacit-trade-id-v1';                                           // how /trade last opened a key: public data only (the Bitcoin market writes it too)
 const KNOWN_IDS = [RECORD, 'tacit-tac-id-v1', 'tacit-pay-hub-id-v1', 'tacit-lite-id-v1', 'tacit-pay-id-v1'];
@@ -85,9 +85,9 @@ export function signInSheet(session, { pick, why = 'Open your Tacit wallet to ma
     const opt = (k, t, m, cls = '') => `<button class="way ${cls}" type="button" data-in="${k}"><span class="way-t">${t}</span><span class="way-m">${m}</span></button>`;
     const pk = session.passkeyAvailable(), hasEth = session.ethAvailable();
     o.body.innerHTML = `<p class="note" style="margin-top:0">${esc(why)}</p><div class="ways">
-      ${known ? opt('known', 'Continue with your Tacit wallet', `Opens with ${esc(via(known))}, the same key as on tacit.finance.`, 'main') : ''}
-      ${other ? opt('other', 'Your other Tacit key', `A different key, opened here before with ${esc(via(other))}.`) : ''}
-      ${opt('eth', 'Ethereum wallet', hasEth ? 'Any browser wallet, or a wallet app through WalletConnect. One signature (two the first time).' : 'Any browser wallet, or a wallet app through WalletConnect.')}
+      ${known ? opt('known', 'Continue with your Tacit wallet', `Opens with ${esc(via(known))}, the same wallet as everywhere on tacit.finance.`, 'main') : ''}
+      ${other ? opt('other', 'Your other Tacit wallet', `A different wallet, opened here before with ${esc(via(other))}.`) : ''}
+      ${opt('eth', 'Ethereum wallet', hasEth ? 'MetaMask, Rabby, Rainbow or any browser wallet, or a wallet app through WalletConnect. One free signature, two the first time.' : 'MetaMask, Rabby, Rainbow or any browser wallet, or a wallet app through WalletConnect.')}
       ${pk ? opt('passkey', 'Passkey', 'Touch ID, Windows Hello or a security key.') : ''}
       <p class="ways-err" role="alert" hidden></p>
       ${away ? '<p class="note">The wallet open on tacit.finance was opened another way (a Bitcoin wallet or a key saved in the browser). That one opens on <a href="/">tacit.finance</a>.</p>' : ''}
@@ -106,7 +106,7 @@ export function signInSheet(session, { pick, why = 'Open your Tacit wallet to ma
         else await session.open[k](undefined, pick);
         o.close(); resolve();
       } catch (e) {
-        if (!/cancel/i.test(e?.message || '') && e?.name !== 'NotAllowedError' && !e?.unlockCancelled && e?.code !== 4001) { err.textContent = e?.message || 'That did not open a wallet.'; err.hidden = false; }
+        if (!/cancel/i.test(e?.message || '') && e?.name !== 'NotAllowedError' && !e?.unlockCancelled && e?.code !== 4001) { err.textContent = e?.message || 'Could not open your Tacit wallet. Try again.'; err.hidden = false; }
       } finally { busy = false; b.removeAttribute('aria-busy'); o.body.querySelectorAll('[data-in]').forEach((x) => { x.disabled = false; }); }
     }; });
   });

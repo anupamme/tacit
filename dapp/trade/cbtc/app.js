@@ -4,13 +4,13 @@
 // API with no wallet and holds no key it was not given. Making cBTC (lock, bond, mint, borrow) is a flow of several steps with Bitcoin and Ethereum
 // transactions, and it is done on tacit.finance's Borrow sheet, which each button here opens; this page sizes the bond for an amount before it does.
 import { sha256 } from '/vendor/tacit-deps.min.js';
-import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=97813823';
-import { makeConnect } from '/trade/connect.js?cb=b0beb322';
-import { makeKeySession, signInSheet } from '/trade/key.js?cb=ad559513';
+import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=38205f01';
+import { makeConnect } from '/trade/connect.js?cb=ba3dc25f';
+import { makeKeySession, signInSheet } from '/trade/key.js?cb=8d183dce';
 import { getUx, forgetUx } from '/trade/poolux.js?cb=f6352066';
-import { readRates, readProgram, heldBars, rangesFor, barSize } from '/trade/teth/read.js?cb=c8e19226';
-import { totalsOf, readEngine, sizeBond, coverage, readPools, poolRows, farmApr, readLocks, readLoans, readHeld, readHistory, positionsIn, lockStep, CBTC_ID, ENGINE, WSTETH } from '/trade/cbtc/read.js?cb=75bd04de';
-import { $, esc, api, now, fmtUnits, parseUnits, grp, usd, pct, short, sig } from '/trade/util.js?cb=c3dc39b3';
+import { readRates, readProgram, heldBars, rangesFor, barSize } from '/trade/teth/read.js?cb=b443f514';
+import { totalsOf, readEngine, sizeBond, coverage, readPools, poolRows, farmApr, readLocks, readLoans, readHeld, readHistory, positionsIn, lockStep, CBTC_ID, ENGINE, WSTETH } from '/trade/cbtc/read.js?cb=ab2ab74b';
+import { $, esc, api, now, fmtUnits, parseUnits, grp, usd, pct, short, sig } from '/trade/util.js?cb=782a003c';
 
 const SCAN = 'https://etherscan.io/', MEMPOOL = 'https://mempool.space/';
 const PRESETS = [['0.001 BTC', '0.001'], ['0.01 BTC', '0.01'], ['0.1 BTC', '0.1']];
@@ -63,7 +63,7 @@ function renderBacking() {
   if (cov) {
     const scale = Math.max(2, Math.ceil((cov.ratio || 0) * 4) / 4 + 0.25), w = Math.min(100, (cov.ratio / scale) * 100), tick = (1.5 / scale) * 100, wstTxt = grp(Number(T.bond) / 1e18, 2);
     rows.push(row('ETH bond', `${Math.round(cov.ratio * 100)}% of locked BTC`, `<div class="cov-bar"><i class="eth" style="width:${w.toFixed(1)}%"></i><u style="left:${tick.toFixed(1)}%" title="1.5×"></u></div>`,
-      `<b>${wstTxt} wstETH</b> (${compact(cov.bondUsd)}) in ${grp(T.bonds, 0)} bond${T.bonds === 1 ? '' : 's'}. Each lock needs a bond of at least 1.5× (dashed line); spending the BTC without redeeming forfeits it.`));
+      `<b>${wstTxt} wstETH</b> (${compact(cov.bondUsd)}) in ${grp(T.bonds, 0)} bond${T.bonds === 1 ? '' : 's'}. Each lock needs a bond of at least 1.5× (dashed line). Spending the BTC without redeeming forfeits it.`));
   } else rows.push(row('ETH bond', `${grp(Number(T.bond) / 1e18, 2)} wstETH`, '', 'Held by the collateral engine.'));
   const mintedPct = T.locked > 0n ? Number(T.minted * 1000n / T.locked) / 10 : null;
   rows.push(row('cBTC minted', `${esc(btcTxt(T.minted))} of ${esc(btcTxt(T.locked))}`, mintedPct != null ? `<div class="cov-bar"><i style="width:${Math.min(100, mintedPct)}%"></i></div>` : '', `${grp(T.mints, 0)} of ${grp(T.locks, 0)} live lock${T.locks === 1 ? '' : 's'} minted, 1:1.${T.tacbtc > 0n ? ` ${esc(grp(Number(T.tacbtc) / 1e18, 5))} BTC withdrawn as public tacBTC.` : ''}`));
@@ -107,7 +107,7 @@ function paintRead(h = null) {
 function renderChart() {
   const H = histOf();
   renderControls();
-  if (!H?.pts.length) { chart.update({ series: [], tags: [], period: 3600, label: 'History of the locks and the loans', empty: D.histFailed ? 'The history could not be read just now. Try again in a moment.' : D.hist ? 'Nothing to draw yet.' : 'Reading the history…' }); S.view = null; paintRead(); return; }
+  if (!H?.pts.length) { chart.update({ series: [], tags: [], period: 3600, label: 'History of the locks and the loans', empty: D.histFailed ? 'Could not read the history. Try again in a moment.' : D.hist ? 'Nothing to draw yet.' : 'Reading the history…' }); S.view = null; paintRead(); return; }
   const span = spanDays(), range = effRange(), tf = barSize(range, span), unit = unitOf(), k = unit === 'usd' ? usdBtc() : 1;
   const T = tot(), spot = S.chart === 'locked' ? T?.locked : T?.out;
   const raw = heldBars(H.pts, { tf, since: range ? now() - range * 86400 : 0, spot: spot ?? null, scale: 1e8 });
@@ -118,7 +118,7 @@ function renderChart() {
   paintRead();
   $('#chart-note').textContent = (S.chart === 'locked'
     ? 'BTC in live locks. Spent or redeemed locks drop out.'
-    : 'cUSD borrowed, minus repaid and liquidated.') + ` From the collateral engine's events.${S.chart === 'locked' && unit === 'usd' ? ' In USD at today\'s BTC price.' : ''}${H.exact ? '' : ' Past events do not add up exactly to today\'s total, so the last point is the total.'}`;
+    : 'cUSD borrowed, minus repaid and liquidated.') + ` From the collateral engine’s events.${S.chart === 'locked' && unit === 'usd' ? ' In USD at today’s BTC price.' : ''}${H.exact ? '' : ' Past events do not add up exactly to today’s total, so the last point is the total.'}`;
 }
 
 // ── the ticket: size a lock's bond, then do it on tacit.finance ──
@@ -135,7 +135,7 @@ function renderRoute() {
   $('#chips').innerHTML = PRESETS.map(([l, v]) => `<button type="button" data-amt="${v}" aria-pressed="${S.amt === v}">${l}</button>`).join('');
   if (!z) { el.innerHTML = ''; return; }
   if (z.loading) { el.innerHTML = '<div class="kv"><span>Bond</span><b class="mute">reading…</b></div>'; return; }
-  if (z.err || z.eth == null) { el.innerHTML = '<p class="note">Couldn\'t size the bond. Try again in a moment.</p>'; return; }
+  if (z.err || z.eth == null) { el.innerHTML = '<p class="note">Could not size the bond. Try again in a moment.</p>'; return; }
   const max = px && D.engine?.ratio ? Number(z.sats) / 1e8 * px / (D.engine.ratio / 100) : null, ethTxt = fmtUnits(z.eth, 18, 4);
   el.innerHTML = `<div class="kv"><span>You get</span><b>${esc(btcTxt(z.sats))} cBTC${px ? ` <span class="mute">· ${compact(Number(z.sats) / 1e8 * px)}</span>` : ''}</b></div>
     <div class="kv"><span>ETH bond, at least</span><b>${esc(ethTxt)} ETH${ethUsd() ? ` <span class="mute">· ${compact(Number(z.eth) / 1e18 * ethUsd())}</span>` : ''}</b></div>
@@ -145,7 +145,7 @@ function renderRoute() {
 
 // ── the key: sign in for the locks, the cBTC, the loans and the farm positions it holds ──
 const key = makeKeySession();
-const connect = makeConnect({ describe: 'Track cBTC', rows: () => (key.unlocked ? `<div class="kv"><span>Tacit key</span><b class="addr-s">${esc(key.key.address ? short(key.key.address, 6) : key.key.label || short(key.key.pubHex, 6))} <button class="linkbtn" type="button" id="sheet-lock">Lock</button></b></div>` : ''), onChange: () => {} });
+const connect = makeConnect({ describe: 'Track cBTC', rows: () => (key.unlocked ? `<div class="kv"><span>Tacit wallet</span><b class="addr-s">${esc(key.key.address ? short(key.key.address, 6) : key.key.label || short(key.key.pubHex, 6))} <button class="linkbtn" type="button" id="sheet-lock">Lock</button></b></div>` : ''), onChange: () => {} });
 const { wallet, W } = connect;
 function pickProvider(list) { const mine = wallet.available().find((w) => w.provider === W.prov)?.info?.uuid; return mine && list.some((x) => x.uuid === mine) ? mine : list[0]?.uuid; }
 const signIn = () => signInSheet(key, { pick: pickProvider, why: 'Sign in to see your locks, cBTC and loans. Nothing is stored or sent.' });
@@ -189,14 +189,14 @@ function renderLocks() {
   if (!key.unlocked) h = '<p class="note"><button class="linkbtn" type="button" id="lk-signin">Sign in</button> to see your locks.</p>';
   else if (!m || m.loading) h = '<p class="note">Reading your locks…</p>';
   else if (m.err) h = `<p class="note err">${esc(m.err)} <button class="linkbtn" type="button" id="lk-re">Try again</button></p>`;
-  else if (m.errs.locks) h = `<p class="note err">Your locks could not be read: ${esc(m.errs.locks)} <button class="linkbtn" type="button" id="lk-re">Try again</button></p>`;
+  else if (m.errs.locks) h = `<p class="note err">Could not read your locks: ${esc(m.errs.locks)} <button class="linkbtn" type="button" id="lk-re">Try again</button></p>`;
   else if (!m.locks?.length) h = '<p class="note">No locks yet. <a href="/#lock">Lock BTC →</a></p>';
   else h = `<table class="table lk"><thead><tr><th>Your lock</th><th class="r">Bitcoin</th><th>Next</th><th></th></tr></thead><tbody>${m.locks.map((l) => {
     const step = lockStep(l);
-    return `<tr><td>${esc(short(l.lockTxid, 6))}:${l.lockVout}</td><td class="r num">${esc(btcTxt(l.sats))} BTC${px != null ? `<small>${compact(Number(l.sats) / 1e8 * px)}</small>` : ''}</td><td class="st ${l.minted ? 'ok' : 'wait'}">${esc(step)}</td><td class="go"><a href="${MEMPOOL}tx/${esc(l.lockTxid)}" target="_blank" rel="noopener noreferrer" aria-label="Open the lock's transaction">↗</a></td></tr>`;
+    return `<tr><td>${esc(short(l.lockTxid, 6))}:${l.lockVout}</td><td class="r num">${esc(btcTxt(l.sats))} BTC${px != null ? `<small>${compact(Number(l.sats) / 1e8 * px)}</small>` : ''}</td><td class="st ${l.minted ? 'ok' : 'wait'}">${esc(step)}</td><td class="go"><a href="${MEMPOOL}tx/${esc(l.lockTxid)}" target="_blank" rel="noopener noreferrer" aria-label="Open the lock’s transaction">↗</a></td></tr>`;
   }).join('')}</tbody></table><p class="note"><a href="/#lock">Manage your locks on tacit.finance →</a></p>`;
   if (box.__h !== h) { box.__h = h; box.innerHTML = h; }
-  $('#lk-note').textContent = 'Lock, bond, mint and borrow on tacit.finance. Sign in to see your locks.';
+  $('#lk-note').textContent = 'Lock, bond, mint and borrow on tacit.finance.';
 }
 
 // ── use cBTC ──
@@ -205,10 +205,10 @@ function renderUse() {
   const loans = m?.loans, owed = loans ? loans.reduce((a, l) => a + l.debt, 0n) : null;
   $('#held').innerHTML = !key.unlocked ? '<div class="held"><span class="mute">Sign in to see your cBTC and loans.</span><button class="linkbtn" type="button" id="signin">Sign in</button></div>'
     : !m || m.loading ? '<div class="held"><span class="mute">Reading your private cBTC…</span></div>'
-    : m.err || m.errs.held ? `<div class="held"><span class="err">${esc(m.err || m.errs.held)}</span><button class="linkbtn" type="button" id="lk-re">retry</button></div>`
-    : `<div class="held"><span><b class="num">${esc(btcTxt(h.cbtc.value))}</b> <span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-cbtc"/></svg>cBTC, private</span></span><button class="linkbtn" type="button" id="lk-re">refresh</button><button class="linkbtn" type="button" id="held-lock">Lock</button></div>
-      ${owed != null ? `<div class="kv"><span>Borrowed against it</span><b>${loans.length ? `${esc(cusdTxt(owed))} cUSD in ${loans.length} loan${loans.length === 1 ? '' : 's'}` : 'nothing'}</b></div>` : m.errs.loans ? '<p class="note err">Your loans could not be read just now.</p>' : ''}
-      ${h.cusd.value > 0n ? `<div class="kv"><span>Private cUSD</span><b>${esc(cusdTxt(h.cusd.value))}</b></div>` : ''}${h.partial ? '<p class="note err">Part of your balance could not be read. Refresh to try again.</p>' : ''}`;
+    : m.err || m.errs.held ? `<div class="held"><span class="err">${esc(m.err || m.errs.held)}</span><button class="linkbtn" type="button" id="lk-re">Retry</button></div>`
+    : `<div class="held"><span><b class="num">${esc(btcTxt(h.cbtc.value))}</b> <span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-cbtc"/></svg>cBTC, private</span></span><button class="linkbtn" type="button" id="lk-re">Refresh</button><button class="linkbtn" type="button" id="held-lock">Lock</button></div>
+      ${owed != null ? `<div class="kv"><span>Borrowed against it</span><b>${loans.length ? `${esc(cusdTxt(owed))} cUSD in ${loans.length} loan${loans.length === 1 ? '' : 's'}` : 'nothing'}</b></div>` : m.errs.loans ? '<p class="note err">Could not read your loans.</p>' : ''}
+      ${h.cusd.value > 0n ? `<div class="kv"><span>Private cUSD</span><b>${esc(cusdTxt(h.cusd.value))}</b></div>` : ''}${h.partial ? '<p class="note err">Could not read part of your balance. Refresh to try again.</p>' : ''}`;
   const rows = [['/#borrow', 'Borrow cUSD', 'Borrow dollars against your cBTC. Repay to unlock it.'],
     ['/#private/swap', 'Swap privately', (() => { const r = D.rows.find((x) => (x.depthUsd ?? 0) >= DUST_USD); return r?.per ? `${r.other} pool: 1 cBTC = ${sig(r.per, 4)} ${r.other}, ${compact(r.depthUsd)} deep.` : 'In the private pools.'; })()],
     ['#farm', 'Earn TAC', 'Join a farm with cBTC alone.', 'scroll'],
@@ -228,7 +228,7 @@ function renderPools() {
   if (tb.__h !== html) { tb.__h = html; tb.innerHTML = html; }
   const dusty = rows.filter((r) => (r.depthUsd ?? 0) < DUST_USD).length;
   $('#pl-sum').textContent = rows.length ? `${rows.length} pool${rows.length === 1 ? '' : 's'}` : '';
-  $('#pl-note').textContent = `Swaps in these private pools happen at the pool's price. Farms pay TAC to liquidity providers.${dusty ? ' Dust pools are too small to price.' : ''}`;
+  $('#pl-note').textContent = `Swaps in these private pools happen at the pool’s price. Farms pay TAC to liquidity providers.${dusty ? ' Dust pools are too small to price.' : ''}`;
 }
 function renderFarm() {
   const p = D.program, e = p?.epoch, rows = D.rows.filter((r) => r.farm), px = usdBtc();
@@ -237,7 +237,7 @@ function renderFarm() {
   const aprs = rows.map((r) => farmApr(r, p, { usdBtc: px, ethUsd: ethUsd(), tacEth: D.rates.tacEth })).filter((a) => a != null), day = rows.reduce((a, r) => a + r.farm.perDay, 0);
   const tacUsd = D.rates.tacEth && ethUsd() ? D.rates.tacEth * ethUsd() : null, end = Number(e.periodFinish) || null;
   const cell = (k, v, s = '') => `<div><span class="k">${k}</span><b class="num">${v}</b>${s ? `<span class="s">${s}</span>` : ''}</div>`;
-  $('#fm-stats').innerHTML = cell('APR', aprs.length ? aprTxt(Math.max(...aprs)) : '—', 'in TAC, plus swap fees')
+  $('#fm-stats').innerHTML = cell('Best APR now', aprs.length ? aprTxt(Math.max(...aprs)) : '—', 'paid in TAC, swap fees on top')
     + cell('Rewards', `<svg class="tk xs inl" aria-hidden="true"><use href="#tk-tac"/></svg>${Math.round(day).toLocaleString('en-US')} TAC`, `a day${tacUsd ? ` · about ${usd(day * tacUsd)}` : ''}`)
     + cell('Farms', `${rows.length}`, 'positions are private')
     + cell('Stream ends', end ? new Date(end * 1000).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
@@ -247,13 +247,13 @@ function renderFarm() {
     const apr = farmApr(r, p, { usdBtc: px, ethUsd: ethUsd(), tacEth: D.rates.tacEth }), dust = (r.depthUsd ?? 0) < DUST_USD, m = mine.get(r.farm.pid);
     return `<a class="pf" href="/#farm/private-${r.farm.pid}"><span class="nm"><span class="pairtk">${icon('cbtc')}${icon(ico[r.other])}</span>${esc(r.name)}${m ? '<span class="tag">yours</span>' : ''}</span><span class="rt num">${esc(aprTxt(apr))}<small>${esc(Math.round(r.farm.perDay).toLocaleString('en-US'))} TAC a day</small></span><i aria-hidden="true">→</i><span class="sb">${r.depthUsd == null ? '' : `${dust ? 'under $25' : compact(r.depthUsd)} deep · `}${esc(grp(r.cbtc, r.cbtc < 1 ? 5 : 2))} cBTC + ${esc(grp(r.side, r.side < 1 ? 4 : 2))} ${esc(r.other)}</span>${m ? `<span class="sb mine">Yours: ${esc(amt(m.cbtc, 6))} cBTC + ${esc(amt(m.side, 4))} ${esc(r.other)} · ${esc(grp(m.earned, 2))} TAC earned${m.perDay > 0 ? ` · about ${esc(m.perDay >= 10 ? grp(m.perDay, 0) : m.perDay.toFixed(2))} TAC a day` : ''}</span>` : ''}</a>`;
   }).join('');
-  $('#fm-note').innerHTML = `Join on tacit.finance with cBTC, the paired asset, or both.`;
+  $('#fm-note').innerHTML = `Join on tacit.finance with cBTC, the paired asset or both.`;
 }
 
 // ── about ──
 function renderAbout() {
   const link = (a, t) => `<a href="${SCAN}address/${a}" target="_blank" rel="noopener noreferrer">${t || `${a.slice(0, 8)}…${a.slice(-6)}`}</a>`;
-  $('#about').innerHTML = `<p><b>cBTC</b> is bitcoin you keep, usable privately on Ethereum. Lock BTC at your own address, post an ETH bond of at least 1.5×, and mint the same amount. Then swap it, farm it, or borrow cUSD against it.</p>
+  $('#about').innerHTML = `<p><b>cBTC</b> is bitcoin you keep, usable privately on Ethereum. Lock BTC at your own address, post an ETH bond of at least 1.5× and mint the same amount. Then swap it, farm it or borrow cUSD against it.</p>
     <p>The backing is public. <a href="/weld/stats/">Stats →</a></p>`;
   const main = [
     ['On Bitcoin', 'Each lock is spendable only by its owner.'],
@@ -261,7 +261,7 @@ function renderAbout() {
     ['Cost', 'A Bitcoin fee to lock. Minting is free. The bond keeps earning and comes back when you redeem.'],
   ];
   const more = [['The engine', `${link(ENGINE)} · prices BTC, holds bonds, lends cUSD`], ['The pool', `${link('0x000000000Ed1eabD231Be41d93b719056F7febFC')} · cBTC is asset <code>${CBTC_ID.slice(0, 10)}…${CBTC_ID.slice(-6)}</code>`],
-    ['More', '<a href="/#lock">Borrow</a> · <a href="/#farm">Farms</a> · <a href="/trade/teth/">tETH</a> · <a href="/weld/stats/">Stats</a>']];
+    ['More', '<a href="/#lock">Borrow →</a> · <a href="/#farm">Farms →</a> · <a href="/trade/teth/">tETH →</a> · <a href="/weld/stats/">Stats →</a>']];
   const li = ([k, v]) => `<li><b>${esc(k)}</b><span>${v}</span></li>`;
   $('#facts').innerHTML = main.map(li).join('');
   $('#facts-more').innerHTML = more.map(li).join('');

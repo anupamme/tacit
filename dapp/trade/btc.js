@@ -38,11 +38,11 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
       // The wallet connected on this page leads, unless the Tacit wallet it would open is the one offered first anyway.
       const hereIsKnown = known?.mode === 'eth' && here && String(known.address || '').toLowerCase() === here.address.toLowerCase();
       o.body.innerHTML = `<p class="note" style="margin-top:0">Open your Tacit wallet to trade on Bitcoin. This page never stores the key.</p><div class="ways">
-        ${here && !hereIsKnown ? opt('page', 'Use the wallet connected here', `Ethereum ${esc(short(here.address))}. One signature (two the first time).`, known ? '' : 'main') : ''}
-        ${known ? opt('known', 'Continue with your Tacit wallet', `Opens with ${esc(via(known))}, the same key as on tacit.finance.`, 'main') : ''}
-        ${other ? opt('other', 'Your other Tacit key', `A different key, opened here before with ${esc(via(other))}.`) : ''}
-        ${opt('eth', 'Ethereum wallet', hasEth ? 'Any browser wallet, or a wallet app through WalletConnect. One signature (two the first time).' : 'Any browser wallet, or a wallet app through WalletConnect.')}
-        ${opt('btc', 'Bitcoin wallet', hasBtc ? 'Xverse, Leather or UniSat. One signature (two the first time).' : 'Xverse, Leather or UniSat. Not found in this browser.')}
+        ${here && !hereIsKnown ? opt('page', 'Use the wallet connected here', `Ethereum ${esc(short(here.address))}. One free signature, two the first time.`, known ? '' : 'main') : ''}
+        ${known ? opt('known', 'Continue with your Tacit wallet', `Opens with ${esc(via(known))}, the same wallet as everywhere on tacit.finance.`, 'main') : ''}
+        ${other ? opt('other', 'Your other Tacit wallet', `A different wallet, opened here before with ${esc(via(other))}.`) : ''}
+        ${opt('eth', 'Ethereum wallet', hasEth ? 'MetaMask, Rabby, Rainbow or any browser wallet, or a wallet app through WalletConnect. One free signature, two the first time.' : 'MetaMask, Rabby, Rainbow or any browser wallet, or a wallet app through WalletConnect.')}
+        ${opt('btc', 'Bitcoin wallet', hasBtc ? 'Xverse, Leather or UniSat. One free signature, two the first time.' : 'Xverse, Leather or UniSat. None found in this browser.')}
         ${pk ? opt('passkey', 'Passkey', 'Touch ID, Windows Hello or a security key.') : ''}
         <p class="ways-err" role="alert" hidden></p>
         ${pk ? '<p class="more"><button class="linkbtn" type="button" data-in="new">New passkey wallet</button></p>' : ''}
@@ -61,7 +61,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
           else await session.open[k](undefined, k === 'eth' ? pickFor(null) : pickWallet);
           o.close(); resolve();
         } catch (e) {
-          if (!/cancel/i.test(e?.message || '') && e?.name !== 'NotAllowedError' && !e?.unlockCancelled) { err.textContent = e?.message || 'That did not open a wallet.'; err.hidden = false; }
+          if (!/cancel/i.test(e?.message || '') && e?.name !== 'NotAllowedError' && !e?.unlockCancelled) { err.textContent = e?.message || 'Could not open your Tacit wallet. Try again.'; err.hidden = false; }
         } finally { busy = false; b.removeAttribute('aria-busy'); o.body.querySelectorAll('[data-in]').forEach((x) => { x.disabled = false; }); }
       }; });
     });
@@ -104,7 +104,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
   function fundDialog() {
     const addr = session.address;
     const o = overlay({ title: 'Add sats', top: true });
-    o.body.innerHTML = addr ? `<p style="margin:0 0 12px">Send sats to this address from any Bitcoin wallet. It belongs to the key you opened, and buying spends from it.</p><p class="addr"><code>${esc(addr)}</code></p><div class="bsheet-actions"><button class="btn" type="button" data-copy>Copy address</button></div>` : '<p style="margin:0">Open your wallet first: the address is the one of the key you open.</p>';
+    o.body.innerHTML = addr ? `<p style="margin:0 0 12px">Send sats to this address from any Bitcoin wallet. It belongs to your Tacit wallet, and buying spends from it.</p><p class="addr"><code>${esc(addr)}</code></p><div class="bsheet-actions"><button class="btn" type="button" data-copy>Copy address</button></div>` : '<p style="margin:0">Open your Tacit wallet first. The address belongs to the wallet you open.</p>';
     const c = o.body.querySelector('[data-copy]');
     if (c) c.onclick = () => navigator.clipboard?.writeText(addr).then(() => { c.textContent = 'Copied'; }, () => { c.textContent = 'Could not copy'; });
   }
@@ -113,11 +113,11 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
     const msg = err?.message || String(err || '');
     if (!/Commit tx broadcast|locked at|recovery record/.test(msg)) return;
     const m = /locked at ([0-9a-f]{64}):0/i.exec(msg);
-    if (!m) { notify('The purchase stopped after its commit went out. The sats it holds can be recovered in the classic app, under Holdings.', 'error', 12000); return; }
+    if (!m) { notify('The purchase stopped after its first transaction. The sats it holds can be recovered in the classic app, under Holdings.', 'error', 12000); return; }
     const v = /(?:Commit tx broadcast — |locked\s+)(\d+)\s*sats/i.exec(msg), sats = v ? Number(v[1]) : 0;
     const yes = await confirmDialog({
       title: 'Purchase stopped · sats recoverable',
-      body: `The purchase stopped after its first transaction. The ${sats.toLocaleString('en-US')} sats it holds are not lost: one more transaction (small fee) returns them to your wallet. If you wait, you can recover them later in the classic app under Holdings.`,
+      body: `The purchase stopped after its first transaction. The ${sats.toLocaleString('en-US')} sats it holds are not lost: one more transaction (small fee) returns them to your wallet. You can also recover them later in the classic app, under Holdings.`,
       confirmLabel: `Recover ${sats.toLocaleString('en-US')} sats now`, cancelLabel: 'Later',
     });
     if (!yes) return;
@@ -126,7 +126,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
       const r = await session.T.recoverPreauthCommit(m[1].toLowerCase());
       notify(`Recovered ${Number(r.recovered_sats).toLocaleString('en-US')} sats (sweep fee ${r.fee_sats} sats).`, 'success', 9000);
       await refreshMe(); ctl?.refresh?.({ soft: true });
-    } catch (e) { notify(`Could not recover them yet: ${e?.message || e}. They stay recoverable in the classic app under Holdings.`, 'error', 12000); }
+    } catch (e) { notify(`Could not recover them yet: ${e?.message || e}. They stay recoverable in the classic app, under Holdings.`, 'error', 12000); }
   }
 
   // The sats at the key's address and the TAC it holds, which the module reads synchronously through ctx.me().
@@ -192,7 +192,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
     if (!head) return;
     let who = head.querySelector('.who');
     if (!who) { who = document.createElement('span'); who.className = 'who'; head.insertBefore(who, head.querySelector('.x')); }
-    who.innerHTML = session.unlocked ? `<span class="mute" title="The Bitcoin address of the key you opened">${esc(short(session.address, 6))}</span><button class="linkbtn" type="button" data-lock>Lock</button>` : '';
+    who.innerHTML = session.unlocked ? `<span class="mute" title="The Bitcoin address of your Tacit wallet">${esc(short(session.address, 6))}</span><button class="linkbtn" type="button" data-lock>Lock</button>` : '';
     who.querySelector('[data-lock]')?.addEventListener('click', () => { session.lock(); meState = null; ctl?.refresh?.({ soft: true }); });
   }
   let cssP = null;

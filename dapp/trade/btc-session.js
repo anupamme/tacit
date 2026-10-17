@@ -138,7 +138,7 @@ export function makeBtcSession() {
           if (T.btcWallet.state) await T.btcWallet.login(); else await T.btcWallet.enroll();
           return { mode: 'btc', priv: tPriv(), pubHex: T.btcWallet.state.tacitPubkey, address: st.address, btc: { ...T.btcWallet.state } };
         } catch (e) {
-          if (e?._btcNonDeterministic) { T.btcWallet.state = null; T.extWallet.state = null; throw new Error('This Bitcoin wallet signs differently each time, so it cannot open a Tacit key by itself. Open the key in the classic app, or use a passkey or an Ethereum wallet.'); }
+          if (e?._btcNonDeterministic) { T.btcWallet.state = null; T.extWallet.state = null; throw new Error('This Bitcoin wallet signs differently each time, so it cannot open a Tacit wallet by itself. Open your Tacit wallet in the classic app, or use a passkey or an Ethereum wallet.'); }
           T.extWallet.state = null; throw e;
         }
       }));

@@ -9,8 +9,8 @@
 //
 // self-prover.js is loaded the first time it is needed. Nothing here keeps a key: each use derives the account from the page's `priv()`.
 import { secp, keccak_256, sha256, hmac, concatBytes } from '/vendor/tacit-deps.min.js';
-import { quoteEthToProve, ethForProve, ZROUTER } from '/relay/abi.js?cb=784a6cc6';
-import { rpc, ethCall, strip, word, now } from '/trade/util.js?cb=c3dc39b3';
+import { quoteEthToProve, ethForProve, ZROUTER } from '/relay/abi.js?cb=5078b247';
+import { rpc, ethCall, strip, word, now } from '/trade/util.js?cb=782a003c';
 
 // The permit is signed synchronously, which noble's secp256k1 does once it is given an HMAC (as tacit.js and the sats page give it).
 if (!secp.etc.hmacSha256Sync) secp.etc.hmacSha256Sync = (k, ...m) => hmac(sha256, k, concatBytes(...m));
@@ -19,7 +19,7 @@ let modP = null;
 export function loadSelfProver() {
   return (modP ||= import('/self-prover.js?cb=66f1b014').catch((e) => {
     modP = null;
-    throw Object.assign(new Error('Proving from this page could not load just now. Try again in a moment.'), { code: 'unavailable', cause: e });
+    throw Object.assign(new Error('Could not load the prover. Try again in a moment.'), { code: 'unavailable', cause: e });
   }));
 }
 
@@ -64,12 +64,12 @@ export function proofsFor(sp, wei, need = null) {
 // hash)`: 'confirm', 'sent'. → the transaction's hash, once it has landed.
 async function sendChecked({ wallet, from, tx, say }) {
   try { await rpc('eth_call', [{ from, to: tx.to, data: tx.data, ...(tx.value ? { value: hexv(tx.value) } : {}) }, 'latest']); }
-  catch (e) { throw new Error(e?.revert ? 'It would not go through just now, so nothing was sent.' : 'It could not be checked just now, so nothing was sent. Try again in a moment.'); }
+  catch (e) { throw new Error(e?.revert ? 'It would not go through, so nothing was sent.' : 'It could not be checked, so nothing was sent. Try again in a moment.'); }
   say('confirm');
   const hash = await wallet.sendTx({ ...tx, from });
   say('sent', hash);
   const rc = await wallet.receipt(hash);
-  if (rc.status !== '0x1') throw new Error('It did not go through on chain. Nothing was lost but its network fee.');
+  if (rc.status !== '0x1') throw new Error(`The transaction failed (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`);
   return hash;
 }
 
@@ -102,7 +102,7 @@ export async function fundFromWallet({ prover, wallet, from, amountWei, say = ()
 // zQuoter's route from `wei` of ETH to PROVE, built for the Tacit account as the recipient, with a 1% guard on what it buys. Checked before it is
 // shown: it spends exactly what was asked, pays the Tacit account, and guards a least amount out (relay/abi.js holds the checks every page shares).
 const readCall = ({ to, data, gas }) => rpc('eth_call', [{ to, data, gas }, 'latest']);
-const NO_ROUTE = 'No route from ETH to PROVE was found just now. Try again in a moment, or add PROVE from your wallet.';
+const NO_ROUTE = 'Could not find a route from ETH to PROVE. Try again in a moment, or add PROVE from your wallet.';
 export const quoteEth = ({ prover, wei }) => quoteEthToProve({ call: readCall, to: prover.address, wei, noRoute: NO_ROUTE });
 // The same quote for the ETH that buys at least `want` PROVE, with a little over so the least the swap may buy still covers it.
 export const quoteEthFor = ({ prover, want }) => ethForProve({ call: readCall, to: prover.address, want, noRoute: NO_ROUTE });
