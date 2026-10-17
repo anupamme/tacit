@@ -74,7 +74,7 @@ export function decodeBestSwap(raw) {
 // carries `.revert`), so each page reads through its own nodes.
 export const SLIPPAGE_BPS = 100n;                                                       // the least a swap may buy: 1% under its quote
 const QUOTE_GAS = '0x5f5e100';
-const NO_ROUTE = 'No route from ETH to PROVE was found just now. Try again in a moment, or add PROVE.';
+const NO_ROUTE = 'No route from ETH to PROVE was found. Try again in a moment, or add PROVE.';
 const deadlineIn = (secs) => BigInt(Math.floor(Date.now() / 1000) + secs);
 // zQuoter's best route from `wei` of ETH to PROVE for the recipient `to`, checked before it is shown or sent: it spends exactly what was asked,
 // pays `to`, and guards a least amount out. → { wei, amountIn, amountOut, amountLimit, msgValue, callData, at, router }
@@ -84,7 +84,7 @@ export async function quoteEthToProve({ call, to, wei, slippageBps = SLIPPAGE_BP
   const data = buildBestSwapData({ to, tokenIn: ETH, tokenOut: PROVE, amount: wei, slippageBps, deadline });
   let q;
   try { q = decodeBestSwap(await call({ to: ZQUOTER, data, gas: QUOTE_GAS })); }
-  catch (e) { throw new Error(e?.revert ? noRoute : 'Could not read a quote just now.'); }
+  catch (e) { throw new Error(e?.revert ? noRoute : 'Could not read a quote.'); }
   if (!q || q.amountOut <= 0n) throw new Error(noRoute);
   // The bytes run as the sender: one swap of exactly `wei` of ETH into PROVE for `to`, with the guard the quote names.
   const mismatch = q.msgValue !== wei || q.amountLimit <= 0n || q.amountLimit > q.amountOut
@@ -105,7 +105,7 @@ export async function ethForProve({ call, to, want, headroomBps = 150n, slippage
   const data = buildBestSwapData({ to, tokenIn: ETH, tokenOut: PROVE, amount: want, slippageBps, deadline: deadlineIn(600), exactOut: true });
   let size;
   try { size = decodeBestSwap(await call({ to: ZQUOTER, data, gas: QUOTE_GAS })); }
-  catch (e) { throw new Error(e?.revert ? noRoute : 'Could not read a quote just now.'); }
+  catch (e) { throw new Error(e?.revert ? noRoute : 'Could not read a quote.'); }
   if (!size || size.amountOut !== want || size.amountIn <= 0n) throw new Error(noRoute);
   let wei = roundUp(size.amountIn * (10000n + BigInt(headroomBps)) / 10000n);
   for (let i = 0; i < 3; i++) {

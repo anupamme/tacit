@@ -4,9 +4,9 @@
 //
 // Two things a visitor can do with a wallet: send a settle the relay has proved and holds for a sender (#open, open.js), and pay for proofs by
 // sending PROVE, or ETH swapped to PROVE, to the prover account (#prove, prove.js). Only the visitor's own balances are read for those.
-import { makeConnect } from '/trade/connect.js?cb=b0beb322';
-import { mountOpen } from '/relay/open.js?cb=251331b1';
-import { mountProve } from '/relay/prove.js?cb=743e3ba1';
+import { makeConnect } from '/trade/connect.js?cb=ba3dc25f';
+import { mountOpen } from '/relay/open.js?cb=9c376370';
+import { mountProve } from '/relay/prove.js?cb=c7f2a796';
 
 const API = 'https://api.tacit.finance';
 const SPLITTER_LABELS = new Map([
@@ -34,7 +34,7 @@ const kv = (k, v) => h('div', { class: 'kv' }, h('span', {}, k), h('b', { class:
 
 function paintBuyback(j) {
   const b = j.chain && j.chain.buyback, l = j.ledger, cfg = (l && l.cfg) || {}, week = l && l.week;
-  if (!b) { mount($('#p-buyback'), h('p', { class: 'eyebrow' }, 'TAC buyback'), h('p', { class: 'mute' }, 'The chain did not answer just now. Try again in a moment.')); return; }
+  if (!b) { mount($('#p-buyback'), h('p', { class: 'eyebrow' }, 'TAC buyback'), h('p', { class: 'mute' }, 'Could not read the chain. Try again in a moment.')); return; }
   const pct = cfg.buybackBps ? `${num(cfg.buybackBps / 100, 1)}%` : null;
   mount($('#p-buyback'),
     h('p', { class: 'eyebrow' }, h('span', {}, 'TAC buyback'), scan(`address/${b.address}`, `${b.address.slice(0, 8)}…${b.address.slice(-4)}`)),
@@ -46,7 +46,7 @@ function paintBuyback(j) {
       week ? kv(`Sent in the last ${week.days} ${week.days === 1 ? 'day' : 'days'}`, `${eth(week.buybackEth)} ETH`) : null,
       l && l.owedEth > 0 ? kv('Carried to the next pass', `${eth(l.owedEth)} ETH`) : null,
       kv('Waiting in the contract', `${eth(b.ethHeld)} ETH`)),
-    h('p', { class: 'note' }, 'The relay keeps a small float for its next settles, so a share it cannot spare yet is carried and paid as soon as it can. The contract buys at most once every six hours, in small amounts, so ETH waits there between buys.'));
+    h('p', { class: 'note' }, 'The relay keeps a small float for its next settles. A share not yet paid is carried to the next pass. The contract buys at most once every six hours, in small amounts, so ETH waits there between buys.'));
 }
 
 function paintFees(j) {
@@ -64,9 +64,9 @@ function paintFees(j) {
       kv('Paid in ETH', usd(f.eth)),
       kv('Paid in converted tokens', usd(f.converted))),
     l.recent.length ? h('div', { class: 'scroll' }, h('table', {},
-      h('thead', {}, h('tr', {}, ['Day', 'Settled', 'Fees', 'Gas', 'Buyback'].map((t) => h('th', {}, t)))),
+      h('thead', {}, h('tr', {}, ['Day', 'Settled', 'Fees', 'Network fee', 'Buyback'].map((t) => h('th', {}, t)))),
       h('tbody', {}, [...l.recent].reverse().map((d) => h('tr', {}, h('td', {}, d.date.slice(5)), h('td', {}, num(d.settled, 0)), h('td', {}, usd(d.feeUsd.convertible ?? d.feeUsd.eth + d.feeUsd.converted)), h('td', {}, `${eth(d.gasEth)} ETH`), h('td', {}, `${eth(d.buybackEth)} ETH`)))))) : null,
-    h('p', { class: 'stale' }, `Counted from ${new Date(l.since).toISOString().slice(0, 16).replace('T', ' ')} UTC${l.stale ? ' (the relay has not reported for a few minutes)' : ''}.`));
+    h('p', { class: 'stale' }, `Counted from ${new Date(l.since).toISOString().slice(0, 16).replace('T', ' ')} UTC${l.stale ? ' (as of the relay’s last report)' : ''}.`));
 }
 
 const CLASS_WORDS = { onboard: 'Bridge and cBTC mints', farm: 'Farm harvests and unbonds', wrap: 'Wraps with no tip', other: 'Other requests with no fee' };
@@ -77,7 +77,7 @@ function sponsorshipRows(j) {
     h('p', { class: 'eyebrow' }, 'Settles the relay pays for today'),
     h('div', { class: 'rows' }, Object.entries(CLASS_WORDS).map(([k, label]) => { const c = sp.classes[k]; return kv(label, c.cap == null || c.used > c.cap ? `${c.used} so far` : `${c.used} of ${c.cap}`); }),
       sp.prove ? kv('Proofs for requests the sender settles', sp.prove.cap == null || sp.prove.used > sp.prove.cap ? `${sp.prove.used} so far` : `${sp.prove.used} of ${sp.prove.cap}${sp.prove.perClient ? `, up to ${sp.prove.perClient} per sender` : ''}`) : null),
-    h('p', { class: 'note' }, 'Requests that carry a fee, or a tip with the wrap, are not counted. Past a limit the relay still proves the request, and it is settled from the sender’s own account instead; past the proofs’ limit a request goes through the relay with a fee, or is proved locally.'));
+    h('p', { class: 'note' }, 'Requests that carry a fee, or a tip with the wrap, are not counted. Past a limit the relay still proves the request, and it is settled from the sender’s own account instead. Past the proofs’ limit a request goes through the relay with a fee, or is proved locally.'));
 }
 
 function paintCosts(j) {
@@ -87,7 +87,7 @@ function paintCosts(j) {
   mount(el,
     h('p', { class: 'eyebrow' }, `What it costs, last ${w.days} ${w.days === 1 ? 'day' : 'days'}`),
     h('div', { class: 'rows' },
-      kv('Gas paid to settle', h('span', {}, `${eth(w.gasEth)} ETH`, gasUsd != null ? h('small', { class: 'mute' }, ` · ${usd(gasUsd)}`) : null)),
+      kv('Network fees to settle', h('span', {}, `${eth(w.gasEth)} ETH`, gasUsd != null ? h('small', { class: 'mute' }, ` · ${usd(gasUsd)}`) : null)),
       kv('PROVE put into the prover', h('span', {}, `${num(w.proveIn, 1)} PROVE`, proveUsd != null ? h('small', { class: 'mute' }, ` · ${usd(proveUsd)}`) : null))),
     h('p', { class: 'note' }, 'Keeping Bitcoin’s state current on Ethereum (headers and attests) is paid from the same wallets and is not in these figures. Fees pay part of all this; the team funds the rest.'),
     sponsorshipRows(j));
@@ -97,10 +97,10 @@ function paintTips(j) {
   const t = j.chain && j.chain.tips, sp = j.chain && j.chain.splitter, el = $('#p-tips');
   const paid = t ? t.byRecipient.filter((r) => r.eth > 0) : [];
   // Said as it is set up now: a splitter is only mentioned once there is one.
-  $('#flow-tips').textContent = sp && sp.shares ? 'A wrap’s tip pays for settling it. Tacit’s own pages send it to a splitter, which sends it on to the wallets that keep Bitcoin’s state current and settle requests, and to the buyback; a page that pays the ops multisig directly is counted the same.' : 'A wrap’s tip pays for settling it. It goes to the ops multisig, which funds the relay’s wallets.';
+  $('#flow-tips').textContent = sp && sp.shares ? 'A wrap’s tip pays for settling it. Tacit’s own pages send it to a splitter, which sends it on to the wallets that keep Bitcoin’s state current and settle requests, and to the buyback. A page that pays the ops multisig directly is counted the same.' : 'A wrap’s tip pays for settling it. It goes to the ops multisig, which funds the relay’s wallets.';
   mount(el,
     h('p', { class: 'eyebrow' }, 'Wrap tips, last 30 days'),
-    !t ? h('p', { class: 'mute' }, 'Reading…')
+    !t ? h('p', { class: 'mute' }, 'Loading…')
       : h('div', {},
         h('p', { class: 'big num' }, num(t.wraps, 0), h('small', {}, `wraps tipped, ${eth(t.eth)} ETH`)),
         paid.length ? h('div', { class: 'rows' }, paid.map((r) => kv(`To ${nameOf(r.to)}`, `${eth(r.eth)} ETH`))) : null,
@@ -114,7 +114,7 @@ function paintTips(j) {
 async function load() {
   let j;
   try { j = await (await fetch(`${API}/relay/economics`, { cache: 'no-store', signal: AbortSignal.timeout(20000) })).json(); }
-  catch { for (const id of ['#p-buyback', '#p-fees', '#p-costs', '#p-tips']) mount($(id), h('p', { class: 'mute' }, 'Could not read the relay just now. Try again in a moment.')); return; }
+  catch { for (const id of ['#p-buyback', '#p-fees', '#p-costs', '#p-tips']) mount($(id), h('p', { class: 'mute' }, 'Could not read the relay. Try again in a moment.')); return; }
   paintBuyback(j); paintFees(j); paintCosts(j); paintTips(j);
 }
 load();
@@ -125,7 +125,7 @@ setInterval(load, 120000);
 let sayTo = '#open-status', board = null, prove = null;
 const sayIn = (sel) => (html, err = false) => { sayTo = sel; const s = $(sel); if (s) s.innerHTML = !html ? '' : err ? `<span class="err">${html}</span>` : html; };
 const connect = makeConnect({
-  describe: 'Send proved settles, and pay for proofs',
+  describe: 'Send proved settles and pay for proofs',
   busy: () => !!(board?.busy() || prove?.busy()),
   say: (html, err) => sayIn(sayTo)(html, err),
   onChange: () => { board?.render(); prove?.onAccount(); },

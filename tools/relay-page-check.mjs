@@ -68,8 +68,15 @@ const JOBS = [
   { jobId: 'j-free', type: 'farmharvest', status: 'open', posted: false, publicValues: pvOf([]), proof: '0x' + 'ab'.repeat(260), memos: ['0x' + 'bb'.repeat(40)], openSince: nowMs - 2 * 60e3, expiresAt: 0, feeUsd: null, feeAsset: null },
 ];
 const PROVE_BAL = 25n * 10n ** 18n, ETH_BAL = 15n * 10n ** 17n;
-const SWAP_CALL = '0xfeedface' + PROVER.slice(2).toLowerCase().padStart(64, '0') + w32(10n ** 17n);
-const QUOTE = cast('abi-encode', 'f((uint8,uint256,uint256,uint256),bytes,uint256,uint256)', '(1,30,100000000000000000,250000000000000000000)', SWAP_CALL, '247500000000000000000', '100000000000000000');
+// zQuoter's answer is made from the request: one swapV2 through zRouter that takes the ETH asked, pays the prover account and carries the request's
+// deadline, so it passes the checks the page runs on a quote (dapp/zrouter-guard.js) before it shows or sends it.
+let SWAP_CALL = '';
+function makeQuote(data) {
+  const q = data.slice(10), wd = (i) => q.slice(i * 64, i * 64 + 64);
+  const amount = BigInt('0x' + wd(4)), deadline = BigInt('0x' + wd(6));
+  SWAP_CALL = '0x6e0a4f98' + wd(0) + w32(0) + w32(0) + PROVE.slice(2).toLowerCase().padStart(64, '0') + w32(amount) + w32(247500000000000000000n) + w32(deadline);
+  return cast('abi-encode', 'f((uint8,uint256,uint256,uint256),bytes,uint256,uint256)', `(1,30,${amount},250000000000000000000)`, SWAP_CALL, '247500000000000000000', String(amount));
+}
 const events = [], landed = [], quoted = [];
 let boardMode = 'jobs';
 function rpcAnswer({ id, method, params }) {
@@ -77,7 +84,7 @@ function rpcAnswer({ id, method, params }) {
   if (method === 'eth_call') {
     const to = String(params[0].to).toLowerCase(), data = String(params[0].data);
     if (to === PROVE.toLowerCase() && data.startsWith('0x70a08231')) return res('0x' + w32(PROVE_BAL));
-    if (to === ZQUOTER.toLowerCase()) { quoted.push(data); return res(QUOTE); }
+    if (to === ZQUOTER.toLowerCase()) { quoted.push(data); return res(makeQuote(data)); }
     events.push(['sim', params[0]]);
     return res('0x');
   }
@@ -140,7 +147,7 @@ try {
   const tacNote = await page.$$eval('#p-fees .note', (els) => els.map((e) => e.textContent).find((x) => /paid in TAC/.test(x)) || '');
 ok(/Fees paid in TAC are kept, not sold/.test(tacNote) && !/\$/.test(tacNote), 'fees: a fee paid in TAC is said to be kept, with no dollar value put on it');
   t = await text('#p-costs');
-  ok(/Gas paid to settle0\.02 ETH · \$48/.test(t) && /PROVE put into the prover55 PROVE · \$9\.9/.test(t), `costs: gas and PROVE, in ETH and dollars (${t.slice(0, 120)})`);
+  ok(/Network fees to settle0\.02 ETH · \$48/.test(t) && /PROVE put into the prover55 PROVE · \$9\.9/.test(t), `costs: network fees and PROVE, in ETH and dollars (${t.slice(0, 120)})`);
   ok(/Fees pay part of all this; the team funds the rest/.test(t), 'costs: says the team funds the rest');
   ok(/Settles the relay pays for today/.test(t) && /Bridge and cBTC mints3 of 12/.test(t) && /Farm harvests and unbonds17 so far/.test(t) && /Wraps with no tip2 so far/.test(t) && /Other requests with no fee1 of 4/.test(t) && /settled from the sender’s own account/.test(t), `costs: today's sponsored settles against each limit (${t.slice(-330)})`);
   t = await text('#p-tips');

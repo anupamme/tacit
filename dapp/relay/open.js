@@ -3,9 +3,9 @@
 // settle with eth_call, has the wallet send it, and tells the API it landed. The fee shown is read from the proof's own public values.
 import { makeConfidentialRelay } from '/confidential-relay.js?cb=b941725a';
 import { CONFIDENTIAL_DEPLOYMENTS, shownTicker } from '/confidential-deployments.js?cb=de357fe5';
-import { pvFees, pvDeadline, settleCalldata, typeWords } from '/relay/abi.js?cb=784a6cc6';
-import { UserStopped } from '/trade/wallet.js?cb=595c892a';
-import { rpc, esc, fmtUnits, short } from '/trade/util.js?cb=c3dc39b3';
+import { pvFees, pvDeadline, settleCalldata, typeWords } from '/relay/abi.js?cb=5078b247';
+import { UserStopped } from '/trade/wallet.js?cb=7b4ab128';
+import { rpc, esc, fmtUnits, short } from '/trade/util.js?cb=782a003c';
 
 const API = 'https://api.tacit.finance';
 const SCAN = 'https://etherscan.io/';
@@ -48,12 +48,12 @@ export function mountOpen({ el, wallet, W, connect, say }) {
   const list = el.querySelector('#open-list');
 
   function render() {
-    if (S.jobs == null) { list.innerHTML = `<p class="mute">${S.err ? 'Could not read the board just now. Try again in a moment.' : 'Reading…'}</p>`; return; }
+    if (S.jobs == null) { list.innerHTML = `<p class="mute">${S.err ? 'Could not read the board. Try again in a moment.' : 'Loading…'}</p>`; return; }
     if (!S.jobs.length) { list.innerHTML = '<p class="calm">Nothing is waiting.</p>'; return; }
     const at = Date.now();
     list.innerHTML = S.jobs.map((j) => {
       const f = feeOf(j), sending = j.status === 'sending', mine = S.busy === j.jobId, ready = j.publicValues && j.proof && Array.isArray(j.memos) && !(expiry(j) && expiry(j) <= at);
-      return `<div class="job"><div class="jt"><b>${esc(typeWords(j.type))}</b>${j.posted ? '<span class="tag" title="Proved by its holder\'s own prover and posted here">posted</span>' : ''}<small>${esc(timing(j, at))}</small></div>`
+      return `<div class="job"><div class="jt"><b>${esc(typeWords(j.type))}</b>${j.posted ? '<span class="tag" title="Proved by its holder’s own prover and posted here">posted</span>' : ''}<small>${esc(timing(j, at))}</small></div>`
         + `<div class="jf num"><span>${esc(f.text)}</span>${f.usd ? `<small>${esc(f.usd)}</small>` : ''}</div>`
         + (sending ? '<span class="jx mute">being sent</span>' : `<button class="btn sm" type="button" data-send="${esc(j.jobId)}"${S.busy || !ready ? ' disabled' : ''}${mine ? ' aria-busy="true"' : ''}>${mine ? 'Sending…' : 'Send it'}</button>`) + '</div>';
     }).join('');
@@ -73,20 +73,20 @@ export function mountOpen({ el, wallet, W, connect, say }) {
     if (!job || S.busy) return;
     if (!W.account && !(await connect.connect())) return;
     if (S.pool && lc(S.pool) !== lc(POOL)) { say('The board names a pool this page does not know, so nothing will be sent.', true); return; }
-    const from = W.account, data = settleCalldata(job), f = feeOf(job), link = (h) => `<a href="${SCAN}tx/${esc(h)}" target="_blank" rel="noopener noreferrer">${esc(h.slice(0, 10))}…↗</a>`;
+    const from = W.account, data = settleCalldata(job), f = feeOf(job), link = (h) => `<a href="${SCAN}tx/${esc(h)}" target="_blank" rel="noopener noreferrer">${esc(h.slice(0, 10))}… ↗</a>`;
     S.busy = id; render();
     try {
       say('Checking it first…');
       try { await rpc('eth_call', [{ from, to: POOL, data }, 'latest']); }
       catch (e) {
-        if (e?.revert) { say('This one would not go through now: someone has most likely sent it already, or its deadline has passed. Nothing was sent.', true); return; }
-        throw new Error('It could not be checked just now, so nothing was sent. Try again in a moment.');
+        if (e?.revert) { say('This one would not go through: someone has most likely sent it already, or its deadline has passed. Nothing was sent.', true); return; }
+        throw new Error('It could not be checked, so nothing was sent. Try again in a moment.');
       }
-      say(`Confirm it in your wallet. ${esc(W.name || 'Your wallet')} pays the network fee${f.none ? '' : `, and the account that sends it is paid ${esc(f.text)}`}.`);
+      say(`You pay the network fee${f.none ? '' : `, and the account that sends it is paid ${esc(f.text)}`}. Confirm in your wallet…`);
       const hash = await wallet.sendTx({ to: POOL, data, from });
       say(`Sent ${link(hash)}. Waiting for it to land…`);
       const rc = await wallet.receipt(hash);
-      if (rc.status !== '0x1') { say(`It did not go through ${link(hash)}: someone most likely sent it first. Nothing was lost but the network fee.`, true); return; }
+      if (rc.status !== '0x1') { say(`It did not go through ${link(hash)}: someone most likely sent it first. Nothing was lost but its network fee.`, true); return; }
       await relay.landed(job.jobId, hash);
       say(`<span class="ok">Sent.</span> ${link(hash)} ${f.none ? 'It carried no fee.' : `Its fee, ${esc(f.text)}, went to ${esc(short(from, 4))}.`}`);
     } catch (e) { say(esc(e instanceof UserStopped || e?.userStopped ? e.message : (e?.message || 'It could not be sent.')), true); }

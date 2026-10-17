@@ -5,14 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
-<title>Build on Tacit</title>
-<meta name="description" content="Build on Tacit V1: the confidential pool on Ethereum, its bridge to Bitcoin, cBTC and cUSD, farms and the public TAC token. Plain ES modules, one public API, no keys to request.">
+<title>tacit build</title>
+<meta name="description" content="Build on Tacit V1: the Tacit pool on Ethereum, its bridge to Bitcoin, cBTC and cUSD, farms and the TAC ERC-20. Plain ES modules, one public API, no keys to request.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="tacit">
 <link rel="canonical" href="https://tacit.finance/build/">
 <meta property="og:url" content="https://tacit.finance/build/">
-<meta property="og:title" content="Build on Tacit">
-<meta property="og:description" content="The confidential pool on Ethereum, its bridge to Bitcoin and the public TAC token: every path, its rules and the mainnet transactions behind it.">
+<meta property="og:title" content="tacit build">
+<meta property="og:description" content="The Tacit pool on Ethereum, its bridge to Bitcoin and the TAC ERC-20: every path, its rules and the mainnet transactions behind it.">
 <meta property="og:image" content="https://tacit.finance/tacit-card.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
@@ -293,7 +293,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <main>
     <section class="hero" aria-labelledby="h">
       <h1 id="h"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span>tacit <em>build</em></span></h1>
-      <p class="sub">Everything to build on Tacit V1: the confidential pool on Ethereum, its bridge to Bitcoin, cBTC and cUSD, the farms and the public TAC token. The client is plain ES modules with no build step, the API is public, and there are no keys to request. Each path lists the rules that matter and the mainnet transactions behind it.</p>
+      <p class="sub">Everything to build on Tacit V1: the Tacit pool on Ethereum, its bridge to Bitcoin, cBTC and cUSD, farms and the TAC ERC-20. The client is plain ES modules with no build step. The API is public, with no keys to request. Each path lists the rules that matter and the mainnet transactions behind it.</p>
       <div class="facts">
         <div><span>Confidential pool</span><b>0x000000000Ed1eabD231Be41d93b719056F7febFC</b></div>
         <div><span>Relay and reflection API</span><b>https://api.tacit.finance</b></div>
@@ -312,7 +312,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         <ol>
           <li><a href="#eth"><span class="n">01</span>ETH and tokens</a></li>
           <li><a href="#amm"><span class="n">02</span>Trading</a></li>
-          <li><a href="#bridge"><span class="n">03</span>Bitcoin ↔ Ethereum</a></li>
+          <li><a href="#bridge"><span class="n">03</span>Bridge</a></li>
           <li><a href="#cbtc"><span class="n">04</span>cBTC and cUSD</a></li>
           <li><a href="#farms"><span class="n">05</span>Farms</a></li>
           <li><a href="#tac"><span class="n">06</span>TAC ERC-20</a></li>
@@ -353,8 +353,8 @@ const { notes, byAsset } = await tacit.balance(walletPriv);</code></pre></div>
   <h3>Before your first op</h3>
   <ul>
     <li><b>One secp256k1 key is the identity.</b> <code>tacit.account(walletPriv)</code> is the Ethereum account that sends your deposits and self-submitted settles. It is not the plain address of the same key. Fund it with a little ETH once; relayed ops need none.</li>
-    <li><b>Everything comes back from the key.</b> <code>tacit.recover({ walletPriv })</code> finds notes, farm and CDP positions, cBTC and stealth locks from chain data alone. The few records it cannot re-derive, such as a CDP position's secrets, must be saved before you submit.</li>
-    <li><b>Rescan before a spend.</b> The pool accepts every root it has ever had, so a membership path never expires. An op carries one <code>spendRoot</code>, so take every input's path from the same scan.</li>
+    <li><b>Everything comes back from the key.</b> <code>tacit.recover({ walletPriv })</code> finds notes, farm and CDP positions, cBTC and stealth locks from chain data alone. Save the few records it cannot re-derive, such as a CDP position’s secrets, before you submit.</li>
+    <li><b>Rescan before a spend.</b> The pool accepts every root it has ever had, so a membership path never expires. An op carries one <code>spendRoot</code>, so take every input’s path from the same scan.</li>
     <li><b>One key per process.</b> A scan returns every note sealed to the key, including notes another process made.</li>
     <li><b>A first integration:</b> wrap, settle the wrap, send to yourself, unwrap. That covers a deposit, a proof, a spend and an exit.</li>
   </ul>
@@ -388,17 +388,17 @@ const { notes, byAsset } = await tacit.balance(walletPriv);</code></pre></div>
     <li>Your balance is a set of <b>notes</b>. A note is <code>(asset, value, blinding, owner)</code>; only its Pedersen commitment <code>C = value·H + blinding·G</code> is public.</li>
     <li>The pool stores <b>leaves</b>, <code>keccak(assetId ‖ Cx ‖ Cy ‖ owner)</code>, in an append-only Merkle tree.</li>
     <li>Spending a note publishes a <b>nullifier</b>, never the leaf. A second spend reverts.</li>
-    <li>Every change goes through <code>ConfidentialPool.settle(publicValues, proofBytes, memos)</code>, which verifies one SP1 Groth16 proof against the pool's immutable <code>PROGRAM_VKEY</code>. <code>wrap()</code> is the one exception: a plain payable call that escrows funds.</li>
-    <li>A <b>memo</b> per created leaf carries the note's opening, encrypted to its owner. Notes a wallet mints for itself also re-derive from its key.</li>
-    <li>The <b>relay</b> proves and settles for a fee carved from the op. It never receives the wallet key or a note's blinding.</li>
+    <li>Every change goes through <code>ConfidentialPool.settle(publicValues, proofBytes, memos)</code>, which verifies one SP1 Groth16 proof against the pool’s immutable <code>PROGRAM_VKEY</code>. <code>wrap()</code> is the one exception: a plain payable call that escrows funds.</li>
+    <li>A <b>memo</b> per created leaf carries the note’s opening, encrypted to its owner. Notes a wallet mints for itself also re-derive from its key.</li>
+    <li>The <b>relay</b> proves and settles an op for a relay fee paid out of that op. It never receives the wallet key or a note’s blinding.</li>
   </ul>
-  <p>The pool has no proxy, no upgrade path, no pause switch and no key over escrow, exits or payouts. It is the root of the V1 lineage: its lineage steward, the ops multisig, can deploy a successor once, which closes this pool to new value while every exit stays open. <code>pool.successor()</code> reads zero.</p>
+  <p>The pool has no proxy, no upgrade path, no pause switch and no key over escrow, exits or payouts. It is the root of the V1 lineage. Its lineage steward, the ops multisig, can deploy a successor once; that closes this pool to new value while every exit stays open. <code>pool.successor()</code> reads zero.</p>
 
   <h3>Four things that surprise everyone</h3>
   <ul>
-    <li><b>You cannot send a note straight to someone else.</b> A note's owner is <code>keccak(nk ‖ dom)</code>, a hash, so a note minted to another person's key could never be spent. Pay others with a stealth lock that they claim.</li>
+    <li><b>You cannot send a note straight to someone else.</b> A note’s owner is <code>keccak(nk ‖ dom)</code>, a hash, so a note minted to another person’s key could never be spent. Pay others with a stealth lock that they claim.</li>
     <li><b>Values are 8-decimal in-system units, not wei.</b> The value is <code>amount / unitScale</code> and must divide exactly; ETH, TAC, cBTC and cUSD use <code>1e10</code>.</li>
-    <li><b>Bitcoin value arrives two ways.</b> A bridge burn is minted once on Ethereum, or a note bound to this pool is spent directly in the fast lane. Both wait for reflection, which folds a Bitcoin block once it is 24 deep, about four hours.</li>
+    <li><b>Bitcoin value arrives two ways.</b> A bridge burn is minted once on Ethereum, or a note bound to this pool is spent directly in the fast lane. Both wait for reflection, which folds a Bitcoin block once it is 24 blocks deep, about four hours.</li>
     <li><b>A wrap is two steps.</b> The deposit is a plain transaction; a proof turns it into a note.</li>
   </ul>
 </section>
@@ -419,14 +419,14 @@ await tacit.transfer({ walletPriv, notes, recipientPubHex: me.pubHex, amount: 5_
 await tacit.stealthSend({ walletPriv, notes, recipientPubHex, amount: 5_000_000n });
 await tacit.unwrap({ note: notes[0], walletPriv, recipient: '0x…' });</code></pre></div>
   <ul>
-    <li><b>Record the wrap index.</b> <code>tacit.wrap</code> takes the next unused index. If the settle step fails, <code>buildWrap</code> with the same index rebuilds the same deposit; the escrow has no deadline, and wrapping again would deposit twice.</li>
+    <li><b>Record the wrap index.</b> <code>tacit.wrap</code> takes the next unused index. If the settle step fails, <code>buildWrap</code> with the same index rebuilds the same deposit. The escrow has no deadline, and wrapping again would deposit twice.</li>
     <li><b>One transaction.</b> <code>wrapAndSend</code> wraps and settles together and splits the deposit into an amount and change. To pay the relay inside a plain deposit, send it through <code>WrapTipForwarder</code> with the tip <code>GET /confidential/quote</code> recommends.</li>
-    <li><b>Paying someone else.</b> <code>stealthSend</code> locks to a one-time key derived from their <code>tacit1…</code> address, and they claim it. The sender can refund after the lock's deadline, about 90 days by default. A <code>.wei</code>, <code>.gwei</code> or <code>.eth</code> name can carry that address in its <code>finance.tacit</code> text record; <code>confidential-names.js</code> resolves and publishes it.</li>
-    <li><b>Exiting.</b> <code>unwrap</code> pays a whole note out; <code>sendUnwrap</code> pays an exact amount and keeps the change hidden. Confirm an exit by the recipient's balance or the settle receipt, not by the relay's status. The pool has no <code>withdraw()</code> and no <code>receive()</code>: an exit is the <code>unwrap</code> op, a proof that <code>settle</code> applies, so a direct call or a plain transfer to the pool address reverts and moves nothing.</li>
+    <li><b>Paying someone else.</b> <code>stealthSend</code> locks to a one-time key derived from their <code>tacit1…</code> address, and they claim it. The sender can refund after the lock’s deadline, about 90 days by default. A <code>.wei</code>, <code>.gwei</code> or <code>.eth</code> name can carry that address in its <code>finance.tacit</code> text record; <code>confidential-names.js</code> resolves and publishes it.</li>
+    <li><b>Exiting.</b> <code>unwrap</code> pays a whole note out; <code>sendUnwrap</code> pays an exact amount and keeps the change private. Confirm an exit by the recipient’s balance or the settle receipt, not by the relay’s status. The pool has no <code>withdraw()</code> and no <code>receive()</code>. An exit is the <code>unwrap</code> op, a proof that <code>settle</code> applies. A direct call or a plain transfer to the pool address reverts and moves nothing.</li>
   </ul>
 
   <h3>Exiting straight to Base or Robinhood Chain</h3>
-  <p><code>ConfidentialRouter</code> unwraps into a deterministic escrow (<code>escrowAddressFor(recipe)</code>) and makes the L2 deposit from it. <code>exitAndExecute(recipe, publicValues, proofBytes, memos)</code> does it in one transaction you send. Otherwise a relayed unwrap funds the escrow and anyone calls <code>activateExit(recipe)</code>; <code>reclaimExit</code> returns the funds if the deposit never fires. Base uses <code>L1StandardBridge</code>, and Robinhood Chain, an Arbitrum Orbit chain, a retryable ticket.</p>
+  <p><code>ConfidentialRouter</code> unwraps into a deterministic escrow (<code>escrowAddressFor(recipe)</code>) and makes the L2 deposit from it. <code>exitAndExecute(recipe, publicValues, proofBytes, memos)</code> does it in one transaction you send. Otherwise a relayed unwrap funds the escrow and anyone calls <code>activateExit(recipe)</code>. <code>reclaimExit</code> returns the funds if the deposit never fires. Base uses <code>L1StandardBridge</code>. Robinhood Chain, an Arbitrum Orbit chain, uses a retryable ticket.</p>
   <div class="box">
     <b>Two rules for the L2 exit</b>
     <ul>
@@ -452,9 +452,9 @@ await tacit.lpAdd({ walletPriv, aNote, bNote, feeBps: 30, fee: add.fee });
 await tacit.lpRemove({ walletPriv, assetA, assetB, feeBps: 30, shareNote, fee: null });</code></pre></div>
   <ul>
     <li><b>Whole notes.</b> A route spends its input note whole, up to four hops in one settle, and <code>lpRemove</code> burns a whole share note. Split with <code>transfer</code> first to use part of one.</li>
-    <li><b>Founding.</b> The first add goes through <code>createPairAndSettle</code> from your own account (<code>lpAdd</code> with <code>selfRelay: true</code>); a relayed first add reverts <code>PoolNotInit</code>. The founding amounts set the price, and 1,000 shares stay locked for good.</li>
-    <li><b>In ratio.</b> After founding, add the amount <code>quoteLpAdd</code> returns; an off-ratio add donates the difference to existing LPs.</li>
-    <li><b>Finding a pool.</b> There is no registry or creation event. Compute the id and read <code>pools(poolId)</code>; the dapp probes the 30, 5, 100 and 1 bps tiers.</li>
+    <li><b>Founding.</b> The first add goes through <code>createPairAndSettle</code> from your own account (<code>lpAdd</code> with <code>selfRelay: true</code>). A relayed first add reverts <code>PoolNotInit</code>. The founding amounts set the price, and 1,000 shares stay locked for good.</li>
+    <li><b>In ratio.</b> After founding, add the amount <code>quoteLpAdd</code> returns. An off-ratio add donates the difference to existing LPs.</li>
+    <li><b>Finding a pool.</b> There is no registry or creation event. Compute the id and read <code>pools(poolId)</code>. The dapp probes the 30, 5, 100 and 1 bps tiers.</li>
   </ul>
   <h3>The public face: TacitPublicAmm</h3>
   <p><code>TacitPublicAmm</code> trades the same reserves with plain ERC-20s and ETH, with no proof and no relay. <code>quoteSwap(assetIn, assetOut, feeBps, amountIn)</code> returns exactly what <code>swapPublic(assetIn, assetOut, feeBps, amountIn, minAmountOut, deadline, to)</code> pays, and amounts must be multiples of <code>1e10</code>. <code>ConfidentialRouter</code> adds permit and Permit2 entry points: <code>swapPublicWithPermit</code>, <code>swapPublicExactIn</code>, <code>swapPublicPathWithPermit2</code>, <code>swapPublicETHPath</code>, <code>addLiquidityPublicWithPermit2</code> and <code>addLiquidityPublicETHWithPermit2</code>. This is where an aggregator plugs in.</p>
@@ -471,7 +471,7 @@ await tacit.lpRemove({ walletPriv, assetA, assetB, feeBps: 30, shareNote, fee: n
 <!-- ─────────────── 03 Bridge ─────────────── -->
 <section class="part" id="bridge">
   <p class="kick">Path 03</p>
-  <h2>Bitcoin <em>↔</em> Ethereum</h2>
+  <h2>Bridge · <em>Bitcoin and Ethereum</em></h2>
   <p class="lead">TAC, tETH, cBTC and cUSD ride one bridge · REFLECTION_CONFIRMATIONS = 24</p>
   <p>Every canonical asset bridges the same way; only the asset id differs. tETH is native ETH under its Bitcoin-side id, so a bridged tETH note and a wrapped cETH note are one asset. <code>GET /reflection/status</code> shows the Bitcoin height reflection has attested.</p>
 
@@ -488,8 +488,8 @@ await tacit.lpRemove({ walletPriv, assetA, assetB, feeBps: 30, shareNote, fee: n
 await tacit.bridgeMint({ ...b.mintArgs, recovery });</code></pre></div>
   <ul>
     <li><b>The burn</b> is a standard commit and reveal that any node relays. Derive the destination blinding with <code>deriveBridgeMintBlinding</code> (<code>bridge-mint-recovery.js</code>) so the minted note comes back from the key.</li>
-    <li><b>The mint</b> is relayed and can pay its fee from the minted note. At fee 0 it relays within the free daily budget, so a holder with no ETH can finish.</li>
-    <li><b>Check the note first.</b> A note is tracked when its history is inside reflection's tree; <code>GET /reflection/note-witness?leaf=</code> finds it. A note whose history reflection never folded bridges by a burn-deposit instead: a provenance bundle registered at <code>POST /reflection/burndep</code>, and a burn that goes to a miner directly because it is non-standard (<code>makeBurnDepositBroadcaster</code> submits it to MARA Slipstream). A standard burn of an untracked note folds nothing.</li>
+    <li><b>The mint</b> is relayed and can pay its relay fee from the minted note. At fee 0 it relays within the free daily budget, so a holder with no ETH can finish.</li>
+    <li><b>Check the note first.</b> A note is tracked when its history is inside reflection’s tree; <code>GET /reflection/note-witness?leaf=</code> finds it. A note whose history reflection never folded bridges by a burn-deposit instead. That takes a provenance bundle registered at <code>POST /reflection/burndep</code> and a burn that goes straight to a miner because it is non-standard (<code>makeBurnDepositBroadcaster</code> submits it to MARA Slipstream). A standard burn of an untracked note folds nothing.</li>
   </ul>
   <p class="proof"><span class="chip">mainnet</span>1,000,000 TAC by burn-deposit, <a href="https://mempool.space/tx/d5d5bb73c7214acee52032fadf169a8cfb5714764e11b720db75e9ed328c5008" target="_blank" rel="noopener noreferrer">burn</a> → <a href="https://etherscan.io/tx/0xe49e6ccaaf8969f1951321b128b047d1517bf40555e297de5b9161bc56daca0a" target="_blank" rel="noopener noreferrer">mint</a> · a tracked TAC note, <a href="https://mempool.space/tx/7320b6b654726ba99489bcf47f3d31dcf8a87040241def827b5fccd8836b0fbb" target="_blank" rel="noopener noreferrer">burn</a> → <a href="https://etherscan.io/tx/0x0f0793f61e57a0eb40ef551ef516e9a33ba0f270343abedf4ea014aa006465bb" target="_blank" rel="noopener noreferrer">mint</a> · a bound tETH note, <a href="https://mempool.space/tx/b30eed8b32b71db5bd7e9eaa7ce390e572c2e7d610680713d5527cde6f6f0dfd" target="_blank" rel="noopener noreferrer">burn</a> → <a href="https://etherscan.io/tx/0x25582ac7a64f5be42673c2bdd577dc59d1eba9bc07a9ffd5b981b0bb7dd80299" target="_blank" rel="noopener noreferrer">mint</a></p>
 
@@ -499,14 +499,14 @@ await tacit.bridgeMint({ ...b.mintArgs, recovery });</code></pre></div>
 // r carries the claim id read back from CrossOutRecorded (claimIdVerified) and the settle's block
 await broadcast.completeCrossOutOnBitcoin({ ...r, ...r.crossOuts[0] });   // dapp/crossout-broadcast.js</code></pre></div>
   <ul>
-    <li><b>Exact amount.</b> The notes must sum to exactly <code>amount + fee</code>; a bridge burn has no change output. <code>destOwner</code> is the recipient's x-only Taproot key.</li>
-    <li><b>Wait for coverage.</b> <code>completeCrossOutOnBitcoin</code> broadcasts only once <code>GET /reflection/eth-state/covers</code> says the settle's block is covered, and only with a verified claim id. <code>tools/build-crossout-mint.mjs</code> builds the same pair for review by hand.</li>
+    <li><b>Exact amount.</b> The notes must sum to exactly <code>amount + fee</code>. A bridge burn has no change output. <code>destOwner</code> is the recipient’s x-only Taproot key.</li>
+    <li><b>Wait for coverage.</b> <code>completeCrossOutOnBitcoin</code> broadcasts only once <code>GET /reflection/eth-state/covers</code> says the settle’s block is covered, and only with a verified claim id. <code>tools/build-crossout-mint.mjs</code> builds the same pair for review by hand.</li>
     <li><b>Credit.</b> <code>GET /crossout/minted?asset=&amp;claim=&amp;txid=</code> reports whether a mint was credited.</li>
   </ul>
   <div class="box">
     <b>A wrong cross-out mint fails silently</b>
     <ul>
-      <li>The reveal's output 0 must be a P2TR output paying <code>destOwner</code>. Anything else is not a member, and nothing reverts.</li>
+      <li>The reveal’s output 0 must be a P2TR output paying <code>destOwner</code>. Anything else is not a member, and nothing reverts.</li>
       <li>Build from the claim id the pool emitted, never from a prediction.</li>
       <li>The guest checks a mint once, when it scans it, so a mint broadcast before its block is covered never folds.</li>
     </ul>
@@ -514,13 +514,13 @@ await broadcast.completeCrossOutOnBitcoin({ ...r, ...r.crossOuts[0] });   // dap
   <p class="proof"><span class="chip">mainnet</span>a TAC <a href="https://etherscan.io/tx/0xc7bfc7cec938e59c5d256d1c44c2aea5269eb7c237ac018878f21b2a93c29a8f" target="_blank" rel="noopener noreferrer">cross-out</a> → <a href="https://mempool.space/tx/aaa687924435ef64f056aa83beb7fabef4f57087f315655b52c596f83897bcf2" target="_blank" rel="noopener noreferrer">mint on Bitcoin</a>, and back to Ethereum by the tracked burn above</p>
 
   <h3>The fast lane</h3>
-  <p>A Bitcoin note bound to this pool (<code>T_CXFER_BOUND</code>, 0x39, carrying the pool's chain binding) can be spent on Ethereum directly once reflected, with no burn and mint: <code>tacit.fastlaneExit</code>. The settle proves the note's membership in the attested Bitcoin tree, its absence from the reflected spent set and a BIP-340 signature by its key, and records the spend so the note cannot also be spent on Bitcoin. <code>buildTacMigration</code> (<code>burn-deposit-bitcoin.js</code>) moves a reflected note into the bound form in one Bitcoin transaction.</p>
+  <p>Once reflected, a Bitcoin note bound to this pool (<code>T_CXFER_BOUND</code>, 0x39, carrying the pool’s chain binding) can be spent on Ethereum directly, with no burn and mint: <code>tacit.fastlaneExit</code>. The settle proves the note’s membership in the attested Bitcoin tree, its absence from the reflected spent set and a BIP-340 signature by its key. It records the spend, so the note cannot also be spent on Bitcoin. <code>buildTacMigration</code> (<code>burn-deposit-bitcoin.js</code>) moves a reflected note into the bound form in one Bitcoin transaction.</p>
   <p class="proof"><span class="chip">mainnet</span>250,000 TAC <a href="https://etherscan.io/tx/0x548d52cbae38d8e60c278ec919e6cbe8bdb5a370d36a04fe5ca0e64940fd0c84" target="_blank" rel="noopener noreferrer">spent in the fast lane</a>, then <a href="https://etherscan.io/tx/0xad9e30e35b2dd175ee1dc8e1c4b4a5c676d76e9994c198added36bb13ed6fae3" target="_blank" rel="noopener noreferrer">unwrapped</a> to an ERC-20 balance · a tETH <a href="https://etherscan.io/tx/0x9811b18ea2f2cbb75a4b79fea6736dc3c83c05741ffbfbf818c2604856b3865f" target="_blank" rel="noopener noreferrer">fast-lane spend</a></p>
 
   <h3>Notes on Bitcoin</h3>
   <ul>
-    <li>Split or merge a Bitcoin note with a confidential transfer (<code>T_CXFER</code>). Each output needs its own P2TR key, which becomes that note's spend key.</li>
-    <li>A note that came through reflection nullifies under <code>btc_note_leaf(asset, cx, cy, authKey)</code>, keyed by its own Taproot key. A burn that declares the wrong nullifier never folds, so check it against the note's live key before broadcasting.</li>
+    <li>Split or merge a Bitcoin note with a confidential transfer (<code>T_CXFER</code>). Each output needs its own P2TR key, which becomes that note’s spend key.</li>
+    <li>A note that came through reflection nullifies under <code>btc_note_leaf(asset, cx, cy, authKey)</code>, keyed by its own Taproot key. A burn that declares the wrong nullifier never folds, so check it against the note’s live key before broadcasting.</li>
   </ul>
 </section>
 
@@ -530,20 +530,20 @@ await broadcast.completeCrossOutOnBitcoin({ ...r, ...r.crossOuts[0] });   // dap
   <h2>cBTC <em>and cUSD</em></h2>
   <p class="lead">cBTC 0x62a20d98…79c8 · cUSD 0x8f4490dd…679d · minted against self-custody Bitcoin</p>
   <ol class="steps">
-    <li><b>Lock.</b> Send BTC to a self-custody output whose transaction carries the lock envelope (<code>T_CBTC_LOCK</code>, <code>cbtc-lock.js</code>). Pick the funding input first: the cBTC note's blinding derives from your key and that funding outpoint, which is how recovery finds it.</li>
-    <li><b>Escrow.</b> Post wstETH worth <code>requiredEscrow(vBtc)</code>, 1.5 times the lock today, through <code>CbtcEscrowHelper</code>: <code>postEscrowWithETH(outpoint)</code> stakes raw ETH (about 320,000 gas), <code>postEscrowWithPermit</code> uses a wstETH permit, and <code>reclaimEscrow</code> returns your share. Anyone may fund a lock.</li>
+    <li><b>Lock.</b> Send BTC to a self-custody output whose transaction carries the lock envelope (<code>T_CBTC_LOCK</code>, <code>cbtc-lock.js</code>). Pick the funding input first: the cBTC note’s blinding derives from your key and that funding outpoint, which is how recovery finds it.</li>
+    <li><b>Escrow.</b> Post a bond of wstETH worth <code>requiredEscrow(vBtc)</code>, 1.5 times the lock today, through <code>CbtcEscrowHelper</code>: <code>postEscrowWithETH(outpoint)</code> stakes raw ETH (about 320,000 gas), <code>postEscrowWithPermit</code> uses a wstETH permit, and <code>reclaimEscrow</code> returns your share. Anyone may fund a lock.</li>
     <li><b>Wait</b> for reflection to fold the lock; <code>pool.cbtcLockVBtc(outpoint)</code> then reads its value.</li>
     <li><b>Mint.</b> <code>tacit.mintCbtc({ walletPriv, outpoint, vBtc, blinding })</code>, relayed and free. The note is a bearer note. A lock mints once; a second mint reverts <code>CbtcLockMismatch</code>.</li>
   </ol>
   <h3>Borrowing cUSD</h3>
-  <p>Open a position with <code>tacit.defiActions(walletPriv).openCdp</code>. Collateral must stay above 150% of debt, and liquidation starts at 130%. cUSD has 8 decimals.</p>
+  <p>Open a position with <code>tacit.defiActions(walletPriv).openCdp</code>. A mint needs 150% collateral, and a position can be liquidated below 130%. cUSD has 8 decimals.</p>
   <ul>
-    <li><b>Rate snapshot.</b> Pass the engine's live <code>rate()</code>, which is <code>1e27</code> while the stability fee is dormant. A value outside <code>[RAY, rate()]</code> reverts <code>BadSnapshot</code>.</li>
-    <li><b>Save the position secrets first.</b> The position owner key, the debt blinding and the debt note's <code>nk</code> exist nowhere else.</li>
-    <li><b>Mint at fee 0.</b> A fee taken from the debt note leaves you less cUSD than the position owes, so <code>openCdp</code> refuses one unless you pass <code>acknowledgeFeeShortfall: true</code>.</li>
-    <li><b>Close</b> by burning debt notes worth at least the debt (an excess is burned, not refunded), with the position's path from <code>tacit.cdpPositionTree()</code> and a fresh blinding and <code>nk</code> for each released leg.</li>
+    <li><b>Rate snapshot.</b> Pass the engine’s live <code>rate()</code>, which is <code>1e27</code> while the stability fee is dormant. A value outside <code>[RAY, rate()]</code> reverts <code>BadSnapshot</code>.</li>
+    <li><b>Save the position secrets first.</b> The position owner key, the debt blinding and the debt note’s <code>nk</code> exist nowhere else.</li>
+    <li><b>Mint at fee 0.</b> A relay fee taken from the debt note leaves you less cUSD than the position owes, so <code>openCdp</code> refuses one unless you pass <code>acknowledgeFeeShortfall: true</code>.</li>
+    <li><b>Close</b> by burning debt notes worth at least the debt (an excess is burned, not refunded), with the position’s path from <code>tacit.cdpPositionTree()</code> and a fresh blinding and <code>nk</code> for each released leg.</li>
   </ul>
-  <p>The public ERC-20 forms, tacBTC and tacUSD, come from unwrapping a note, and a mint and an unwrap can share one settle. <code>ConfidentialRouter.zapETHToCanonicalCdpMint</code> buys collateral through zRouter, wraps it and settles your CDP-mint proof in one transaction; <code>CbtcEscrowHelper.postEscrowWithETHAndSettle</code> posts the escrow and settles a self-proved cBTC mint and CDP open together.</p>
+  <p>The public ERC-20 forms, tacBTC and tacUSD, come from unwrapping a note, and a mint and an unwrap can share one settle. <code>ConfidentialRouter.zapETHToCanonicalCdpMint</code> buys collateral through zRouter, wraps it and settles your CDP-mint proof in one transaction. <code>CbtcEscrowHelper.postEscrowWithETHAndSettle</code> posts the escrow and settles a self-proved cBTC mint and CDP open together.</p>
   <p class="proof"><span class="chip">mainnet</span>a 2,000-sat <a href="https://mempool.space/tx/ea26635173bdfbda06e90eaaec686ba8a499416ebf3f36f8d89d61baafe8e399" target="_blank" rel="noopener noreferrer">lock</a> · its <a href="https://etherscan.io/tx/0x0ec9326b15fb159bd88417354bb1a19c741efb657b6926247e10345386b7d49b" target="_blank" rel="noopener noreferrer">escrow</a> · a relayed <a href="https://etherscan.io/tx/0xf03ab46da94602ee6d3383ca9ab8228ace324bdeff01128d8d0fbb984e76cee1" target="_blank" rel="noopener noreferrer">cBTC mint</a> · CDP <a href="https://etherscan.io/tx/0xb4a1f32d80ff1cd413d58023811eaafa8aed3388d3fa82741f52f06afa7d4908" target="_blank" rel="noopener noreferrer">open</a> and <a href="https://etherscan.io/tx/0x23851ea3ec4c0434940a1120505b0efe1878023e3d6faac9cea41ad14e44232e" target="_blank" rel="noopener noreferrer">close</a></p>
 </section>
 
@@ -552,7 +552,7 @@ await broadcast.completeCrossOutOnBitcoin({ ...r, ...r.crossOuts[0] });   // dap
   <p class="kick">Path 05</p>
   <h2>Farms · <em>earn TAC</em></h2>
   <p class="lead">FarmManager 0x000031C47Cb61faB1CE2790a69625FABB71EDE24 · reward wTAC · epoch 1 ends 2026-12-19</p>
-  <p>The three pools above earn TAC while their LP shares are bonded: TAC/cETH (weight 50), cETH/cUSD (30) and cETH/cBTC (20). Epoch 1 streams 99,700 TAC over 90 days, to unix <code>1797712559</code>. Rewards are wTAC notes, and wTAC redeems one for one for TAC. Read the live program from <code>GET /farm/program?network=mainnet</code> or <code>tacit.farmProgram()</code>, and its checks from <code>GET /farm/health</code>; weights are governed, so read them rather than hardcoding them.</p>
+  <p>The three pools above earn TAC while their LP shares are bonded: TAC/cETH (weight 50), cETH/cUSD (30) and cETH/cBTC (20). Epoch 1 streams 99,700 TAC over 90 days, to unix <code>1797712559</code>. Rewards are wTAC notes, and each wTAC redeems for one TAC. Read the live program from <code>GET /farm/program?network=mainnet</code> or <code>tacit.farmProgram()</code>, and its checks from <code>GET /farm/health</code>. Weights are governed, so read them instead of hardcoding them.</p>
   <div class="code"><pre><code>await tacit.lpBond({ walletPriv, controller: farm.manager, aNote, bNote, feeBps: 30, selfRelay: true });
 const positions = await tacit.farmPositions({ walletPriv });
 await tacit.farmHarvest({ walletPriv, position: positions[0] });   // harvest first
@@ -561,7 +561,7 @@ await tacit.farmUnbond({ walletPriv, position: positions[0] });</code></pre></di
     <li><b>One step in.</b> <code>lpBond</code> adds liquidity and bonds in one settle. It has no fee leg, so send it with <code>selfRelay: true</code>. <code>farmBond</code> bonds an LP note you already hold.</li>
     <li><b>Recovery.</b> The position key derives from your wallet key and the bonded note, so <code>farmPositions</code> finds it again.</li>
     <li><b>Harvest before you unbond.</b> A harvest re-stamps the position, and unbonding forfeits whatever was not harvested.</li>
-    <li><b>Redeeming.</b> Unwrap the wTAC note, then call <code>WrappedTac.withdraw(amount, to)</code> for TAC; <code>farmRedeem</code> drives both steps.</li>
+    <li><b>Redeeming.</b> Unwrap the wTAC note, then call <code>WrappedTac.withdraw(amount, to)</code> for TAC. <code>farmRedeem</code> drives both steps.</li>
     <li><b>Governance.</b> The ops multisig re-weights through a 7-day public queue, at most ±25% per change and one change per 30 days. The rate can only be kept or raised, and the end only moved later. It cannot touch a position.</li>
   </ul>
   <p class="proof"><span class="chip">mainnet</span>one-step <a href="https://etherscan.io/tx/0x1db736a739ffdda1f2cffb685a5caba2ebfcfb454094b66e6e9dbf2db67f414c" target="_blank" rel="noopener noreferrer">add and bond</a> · <a href="https://etherscan.io/tx/0xb9a500a2d49e255e3192cac65d51a7f04952049af4a7eadcadc255f8a9b75a85" target="_blank" rel="noopener noreferrer">harvest</a> · <a href="https://etherscan.io/tx/0xaa3f122ed9bce60d085af458486a10b8c229a22623e69b40fb91f6a842a45a07" target="_blank" rel="noopener noreferrer">unbond</a> · a reward redeemed: <a href="https://etherscan.io/tx/0xe41ba5f064eddbb0a3548bce63e1240487908796f32f8620b402b3d6228e2a70" target="_blank" rel="noopener noreferrer">unwrap</a>, <a href="https://etherscan.io/tx/0x2e4e056d355bf73b076ee8af67ea7ce771b531c7516275307e71ec82a7c87d34" target="_blank" rel="noopener noreferrer">withdraw</a></p>
@@ -572,23 +572,23 @@ await tacit.farmUnbond({ walletPriv, position: positions[0] });</code></pre></di
   <p class="kick">Path 06</p>
   <h2>TAC ERC-20 · <em>list it in DeFi</em></h2>
   <p class="lead">0xA1313eb9f3A445606D9583bcAc3ebeB56a858279 · 18 decimals · minted only by the pool</p>
-  <p>For a DEX, an aggregator, a lending market, a wallet or a market-data site. TAC was etched once on Bitcoin: 21,000,000, with no mint authority. Its public form on Ethereum is a <code>CanonicalBridgedERC20</code> that only the confidential pool can mint, and only against TAC that came from Bitcoin. <a href="/verify.html">Verify TAC</a> checks the etch, the token's code and wiring, its supply and wTAC's backing in your own browser.</p>
+  <p>This path is for a DEX, an aggregator, a lending market, a wallet or a market-data site. TAC was etched once on Bitcoin with a supply of 21,000,000 and no mint authority. Its public form on Ethereum is a <code>CanonicalBridgedERC20</code> that only the Tacit pool can mint, and only against TAC that came from Bitcoin. <a href="/verify.html">Verify TAC</a> checks the etch, the token’s code and wiring, its supply and wTAC’s backing in your own browser.</p>
   <div class="tbl"><table>
     <caption>Identify it by these reads, never by name</caption>
     <tr><th>Read</th><th>Returns</th><th>Meaning</th></tr>
     <tr><td><code>token.MINTER()</code></td><td class="h">0x000000000Ed1eabD231Be41d93b719056F7febFC</td><td>The pool, the only account that can mint or burn. Immutable.</td></tr>
-    <tr><td><code>token.ASSET_ID()</code></td><td class="h">0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b</td><td>The Bitcoin etch's asset id.</td></tr>
-    <tr><td><code>pool.canonicalTokenFor(ASSET_ID)</code></td><td class="h">0xA1313eb9f3A445606D9583bcAc3ebeB56a858279</td><td>The pool names this token as TAC's public form.</td></tr>
+    <tr><td><code>token.ASSET_ID()</code></td><td class="h">0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b</td><td>The Bitcoin etch’s asset id.</td></tr>
+    <tr><td><code>pool.canonicalTokenFor(ASSET_ID)</code></td><td class="h">0xA1313eb9f3A445606D9583bcAc3ebeB56a858279</td><td>The pool names this token as TAC’s public form.</td></tr>
     <tr><td><code>symbol()</code>, <code>decimals()</code></td><td class="h">TAC, 18</td><td>8 decimals on Bitcoin, scaled by <code>1e10</code>.</td></tr>
     <tr><td><code>name()</code></td><td class="h">Tacit Token</td><td>Shared by every token the pool mints, so it identifies nothing.</td></tr>
     <tr><td><code>contractURI()</code></td><td class="h">ipfs://f0155122039c809872b0d5fff4072c357afe39fe46d1e0edc68e3a578c7e94de138d81231</td><td>EIP-7572 metadata, its hash fixed by the etch. Logo: <a href="/brand/logo.svg">tacit.finance/brand/logo.svg</a>.</td></tr>
   </table></div>
   <ul>
-    <li><b>The supply is 21,000,000, fixed on Bitcoin.</b> <code>totalSupply()</code> is only the part public on Ethereum right now, never more than the etch. It rises when TAC leaves the pool (an exit, or a public swap paid out in TAC) and falls when TAC goes back in (a wrap, or a public swap paid with TAC). A market-data site should report a maximum supply of 21,000,000.</li>
+    <li><b>The supply is 21,000,000, fixed on Bitcoin.</b> <code>totalSupply()</code> is only the part public on Ethereum, never more than the etch. It rises when TAC leaves the pool (an exit, or a public swap paid out in TAC) and falls when TAC goes back in (a wrap, or a public swap paid with TAC). On a market-data site, show a maximum supply of 21,000,000.</li>
     <li><b>Amounts.</b> Transfers take any amount; the pool and <code>TacitPublicAmm</code> take only whole multiples of <code>1e10</code>.</li>
     <li><b>Nothing non-standard.</b> No transfer fee, rebasing, hooks, pause, blacklist or owner. EIP-2612 <code>permit</code> uses the name <code>Tacit Token</code> and version <code>1</code>. The canonical Permit2 holds a standing maximum allowance from every holder, so a Permit2 flow needs no approval transaction.</li>
-    <li><b>Quote and route.</b> TAC/ETH trades on the Precision pool (0.30%) and on the Tacit pool through <code>TacitPublicAmm</code> at the 30 bps tier. ETH goes in as <code>msg.value</code>; TAC going in needs an <code>approve</code> to <code>TacitPublicAmm</code>. <a href="https://github.com/src-company/tacit/blob/main/dapp/evm-trade-venues.js" target="_blank" rel="noopener noreferrer">evm-trade-venues.js</a> has the addresses, quotes and calldata for every venue.</li>
-    <li><b>A pool's spot price is not an oracle.</b> One trade can move either pool. Collateral needs a price that is costly to move, such as a time-weighted average over enough liquidity.</li>
+    <li><b>Quote and route.</b> TAC/ETH trades on the Precision pool (0.30%) and on the Tacit pool through <code>TacitPublicAmm</code> at the 30 bps tier. ETH goes in as <code>msg.value</code>. TAC going in needs an <code>approve</code> to <code>TacitPublicAmm</code>. <a href="https://github.com/src-company/tacit/blob/main/dapp/evm-trade-venues.js" target="_blank" rel="noopener noreferrer">evm-trade-venues.js</a> has the addresses, quotes and calldata for every venue.</li>
+    <li><b>A pool’s spot price is not an oracle.</b> One trade can move either pool. Collateral needs a price that is costly to move, such as a time-weighted average over enough liquidity.</li>
     <li><b>wTAC is a separate token</b> that escrows farm rewards. List TAC, not wTAC.</li>
     <li><b>Watch <code>successor()</code> on the pool.</b> A successor pool would mint its own canonical TAC at another address. This token keeps working and can still be wrapped into this pool and crossed to Bitcoin.</li>
   </ul>
@@ -607,11 +607,11 @@ const out = await client.readContract({ address: AMM, abi, functionName: 'quoteS
   <p class="kick">Path 07</p>
   <h2>TAC <em>airdrop</em></h2>
   <p class="lead">TacAirdrop 0x4b4cb98D0C836c2783Ac46f0078b904dab533AE8 · 8,652 recipients · claim by 2026-12-20 21:50 UTC</p>
-  <p>A merkle claim of public TAC. <code>claim(index, account, amount, proof)</code> can be sent by anyone and always pays <code>account</code>, so a wallet can sponsor the gas without being able to redirect the TAC. <code>claimTo</code> and <code>claimAndShield</code> need the eligible account itself.</p>
+  <p>The airdrop is a Merkle claim of public TAC. <code>claim(index, account, amount, proof)</code> can be sent by anyone and always pays <code>account</code>, so a wallet can pay the network fee without being able to redirect the TAC. <code>claimTo</code> and <code>claimAndShield</code> need the eligible account itself.</p>
   <div class="code"><pre><code>const s = await tacit.tacAirdrop.status(address);   // fetches the proof, checks it against the root, reads the contract
 // s.amountTac, s.claimByISO, s.reason: show 'error' as "could not check", never as "not eligible"</code></pre></div>
   <ul>
-    <li><b>Offer <code>claim</code> and <code>claimTo</code>.</b> The shield route's final settle has not been run for this contract, so the client builds it only with <code>allowUnproven: true</code>.</li>
+    <li><b>Offer <code>claim</code> and <code>claimTo</code>.</b> The shield route’s final settle has not been run for this contract, so the client builds it only with <code>allowUnproven: true</code>.</li>
     <li><b>People check and claim at <a href="/rewards/">tacit.finance/rewards</a></b>: look up any address or .eth, .wei or .gwei name, claim from the account itself (to itself or to another address), then farm the TAC.</li>
     <li><b>Proof files</b> are at <code>tacit.finance/airdrop/v1/proofs/&lt;xx&gt;.json</code>. tacit.finance sends no CORS header, so a page on another origin reads the commit-pinned mirrors in <code>PUBLIC_PROOF_HOSTS</code>.</li>
     <li><b>The guardian</b>, the ops multisig, can pause claims and sweep the balance. It cannot change the root, the token or the deadline.</li>
@@ -623,10 +623,10 @@ const out = await client.readContract({ address: AMM, abi, functionName: 'quoteS
   <p class="kick">Path 08</p>
   <h2>One key, <em>two chains</em></h2>
   <p class="lead">a Tacit key from the wallet a user already has, with nothing to back up</p>
-  <p>Every Tacit key is a secp256k1 key, so one key has both an Ethereum and a Bitcoin address. Tacit apps derive it from one fixed message the user signs: <code>identityMessage({ netName })</code> in <code>identity-message.js</code>. The key is <code>prfBytesToScalar(sha256(signature))</code> over the 65-byte signature, with <code>v</code> folded to 27 or 28. An EOA's signature is deterministic, so reconnecting the same wallet gives the same key; contract wallets are refused. A Bitcoin wallet can sign the same message instead, in which case the app signs twice and requires identical output. <a href="/kit/tacit-address-kit.js">tacit.finance/kit/tacit-address-kit.js</a> does the derivation and builds the <code>tacit1…</code> address in one dependency-free module.</p>
+  <p>Every Tacit key is a secp256k1 key, so one key has both an Ethereum and a Bitcoin address. Tacit apps derive it from one fixed message the user signs: <code>identityMessage({ netName })</code> in <code>identity-message.js</code>. The key is <code>prfBytesToScalar(sha256(signature))</code> over the 65-byte signature, with <code>v</code> folded to 27 or 28. An EOA’s signature is deterministic, so reconnecting the same wallet gives the same key. Contract wallets are refused. A Bitcoin wallet can sign the same message instead; the app then signs twice and requires identical output. <a href="/kit/tacit-address-kit.js">tacit.finance/kit/tacit-address-kit.js</a> does the derivation and builds the <code>tacit1…</code> address in one dependency-free module.</p>
   <div class="box">
     <b>The signature is the key</b>
-    <p>Anyone who gets it controls all of the user's Tacit funds, and every Tacit app uses the same text, so a wallet cannot warn about the site. Ask for it only in an app the user trusts. Never send, log or store it, and zero it once the key is derived.</p>
+    <p>Anyone who gets it controls all of the user’s Tacit funds. Every Tacit app uses the same text, so a wallet cannot warn about the site. Ask for it only in an app the user trusts. Never send, log or store it, and zero it once the key is derived.</p>
   </div>
 </section>
 
@@ -641,15 +641,15 @@ const out = await client.readContract({ address: AMM, abi, functionName: 'quoteS
     <tr><td><code>GET /confidential/status?id=</code></td><td><code>pending</code> → <code>proving</code> → <code>settled</code> or <code>failed</code>; a prove job ends at <code>proven</code> with <code>publicValues</code>, <code>proof</code> and the <code>memos</code> settle must carry. A <code>failed</code> with <code>broadcastHashes</code> may still land.</td></tr>
     <tr><td><code>GET /confidential/relay</code></td><td>Where the relay stands: <code>ok</code>, <code>busy</code>, <code>held</code>, <code>paused</code> or <code>down</code>.</td></tr>
     <tr><td><code>GET /confidential/open</code>, <code>POST /confidential/landed</code></td><td>The open board of proofs any sender can settle, and closing a job you settled yourself.</td></tr>
-    <tr><td><code>GET /confidential/quote?asset=</code></td><td>The fee floor in in-system units, and the recommended tip for a tipped wrap.</td></tr>
-    <tr><td><code>GET /confidential/index</code></td><td>The pool's event stream and the stealth lock set behind one cursor, for recovery without a scanner.</td></tr>
+    <tr><td><code>GET /confidential/quote?asset=</code></td><td>The relay fee floor (in-system units) and the recommended tip for a tipped wrap.</td></tr>
+    <tr><td><code>GET /confidential/index</code></td><td>The pool’s event stream and the stealth lock set behind one cursor, for recovery without a scanner.</td></tr>
     <tr><td><code>GET /reflection/status</code></td><td>The Bitcoin height reflection has attested, the tip and the lag.</td></tr>
-    <tr><td><code>GET /reflection/dump</code>, <code>/reflection/note-witness</code></td><td>The reflected note tree and bridge-burn set, and one note's path.</td></tr>
+    <tr><td><code>GET /reflection/dump</code>, <code>/reflection/note-witness</code></td><td>The reflected note tree and bridge-burn set, and one note’s path.</td></tr>
     <tr><td><code>GET /reflection/eth-state/covers?block=</code></td><td>Whether an Ethereum block is covered, before a cross-out mint is broadcast.</td></tr>
     <tr><td><code>GET /crossout/minted</code></td><td>Whether a cross-out mint was credited.</td></tr>
-    <tr><td><code>GET /farm/program</code>, <code>/farm/health</code></td><td>The farms' schedule and a solvency verdict, read from chain.</td></tr>
+    <tr><td><code>GET /farm/program</code>, <code>/farm/health</code></td><td>The farms’ schedule and a solvency verdict, read from the chain.</td></tr>
   </table></div>
-  <p>Submits are rate-limited per IP. Free settles share a daily budget (<code>429 free_budget</code>) and prove-only jobs a daily prove budget (<code>429 prove_budget</code>); past either, attach a fee or prove with your own account. While the relay keeps its prover credit for the bridge, a free prove-only job is refused (<code>503 prove_reserved</code>, with a <code>hint</code> naming the way on); exits are held last, and a relayed settle is not affected. Requests are capped at 1 MiB.</p>
+  <p>Submits are rate-limited per IP. Free settles share a daily budget (<code>429 free_budget</code>) and prove-only jobs share a daily prove budget (<code>429 prove_budget</code>). Past either, attach a relay fee or prove with your own account. While the relay keeps its prover credit for the bridge, a free prove-only job is refused (<code>503 prove_reserved</code>, with a <code>hint</code> naming the way on). Exits are held last, and a relayed settle is not affected. Requests are capped at 1 MiB.</p>
 </section>
 
 <!-- ─────────────── Proving ─────────────── -->
@@ -665,16 +665,16 @@ const out = await client.readContract({ address: AMM, abi, functionName: 'quoteS
   <div class="box">
     <b>Fees</b>
     <ul>
-      <li>The relay takes its fee in the op's own asset, from fee legs inside the op. It prices cETH, cUSDC, cUSDT, cUSD, cBTC and cTAC.</li>
-      <li>An op with a fee leg must clear the floor from <code>GET /confidential/quote</code>. Quote with <code>tacit.quoteTransferFee</code> or <code>tacit.quoteOpFee</code>; the program takes only fees on its two-significant-digit ladder.</li>
-      <li>Ops with no fee relay free within a daily budget: <code>wrap</code>, <code>cbtcmint</code>, <code>farmbond</code>, a zero-fee <code>bridgemint</code>, stealth and adaptor locks, and <code>cdptopup</code>.</li>
+      <li>The relay fee is paid in the op’s own asset, from fee legs inside the op. The relay prices cETH, cUSDC, cUSDT, cUSD, cBTC and cTAC.</li>
+      <li>An op with a fee leg must clear the floor from <code>GET /confidential/quote</code>. Quote with <code>tacit.quoteTransferFee</code> or <code>tacit.quoteOpFee</code>. The program takes only fees on its two-significant-digit ladder.</li>
+      <li>Ops with no fee relay free within a daily budget: stealth and adaptor locks, <code>wrap</code>, <code>cbtcmint</code>, <code>farmbond</code>, <code>cdptopup</code> and a zero-fee <code>bridgemint</code>.</li>
       <li>Pool founding and <code>lpBond</code> are sent from your own account.</li>
     </ul>
   </div>
-  <p><b>What the relay sees.</b> The witness of the op you hand it: the spent notes' commitments, owners, paths and nullifier keys, the outputs, the public legs, the authorizing signature or kernel and the sealed memos. Never your wallet key or a note's blinding. It can prove the op you authorized or decline it; it cannot redirect an output or raise the fee. For a swap it also sees the amounts.</p>
+  <p><b>What the relay sees.</b> The witness of the op you hand it: the spent notes’ commitments, owners, paths and nullifier keys, the outputs, the public legs, the authorizing signature or kernel and the sealed memos. Never your wallet key or a note’s blinding. It can prove the op you authorized or decline it; it cannot redirect an output or raise the fee. For a swap it also sees the amounts.</p>
   <div class="tbl"><table>
     <caption>Relay types</caption>
-    <tr><th>Group</th><th>type</th></tr>
+    <tr><th>Group</th><th>Type</th></tr>
     <tr><td>Deposit and send</td><td><code>wrap</code>, <code>transfer</code>, <code>batchtransfer</code>, <code>wraptransfer</code></td></tr>
     <tr><td>Exit</td><td><code>unwrap</code>, <code>sendunwrap</code></td></tr>
     <tr><td>Trading and liquidity</td><td><code>swap</code>, <code>route</code>, <code>lp</code>, <code>lpremove</code>, <code>lpbond</code>, <code>otc</code>, <code>bid</code>, <code>wrapswap</code>, <code>wraplp</code></td></tr>
@@ -689,14 +689,14 @@ const out = await client.readContract({ address: AMM, abi, functionName: 'quoteS
   <p class="kick">Reference</p>
   <h2>Trust <em>and verify</em></h2>
   <p class="lead">what Tacit hosts is a convenience, not an authority</p>
-  <p>Nothing Tacit runs decides whether an op is valid. A proof verifies against the pool's immutable program key or the settle reverts, and reflection data counts only if it reaches the root the pool attested.</p>
+  <p>Nothing Tacit runs decides whether an op is valid. A proof verifies against the pool’s immutable program key or the settle reverts, and reflection data counts only if it reaches the root the pool attested.</p>
   <div class="tbl"><table>
     <tr><th>Layer</th><th>Hosted</th><th>Run it yourself</th></tr>
     <tr><td>Proving and sending</td><td><code>POST /confidential/submit</code></td><td>Your own Succinct account, then <code>settle()</code> from any address</td></tr>
     <tr><td>Reflection data</td><td><code>/reflection/dump</code>, <code>/reflection/note-witness</code></td><td>Replay the fold over public Bitcoin blocks; a path that misses the attested root is refused anyway</td></tr>
-    <tr><td>Indexes</td><td><code>/confidential/index</code></td><td>Rebuild from the pool's logs; <code>scanLockLeaves</code> with <code>strict: true</code> checks the result against the pool</td></tr>
+    <tr><td>Indexes</td><td><code>/confidential/index</code></td><td>Rebuild from the pool’s logs; <code>scanLockLeaves</code> with <code>strict: true</code> checks the result against the pool</td></tr>
   </table></div>
-  <p><a href="/verify.html">Verify TAC</a> checks TAC's etch and supply and the ERC-20's code and wiring from your browser. <code>node tools/verify-live.mjs</code> checks the pool's code, program keys and roles. And TAC's fixed supply checks with nothing installed:</p>
+  <p><a href="/verify.html">Verify TAC</a> checks TAC’s etch and supply and the ERC-20’s code and wiring from your browser. <code>node tools/verify-live.mjs</code> checks the pool’s code, program keys and roles. You can also check TAC’s fixed supply with nothing installed:</p>
   <div class="code"><pre><code>curl -fsSL https://raw.githubusercontent.com/src-company/tacit/main/scripts/verify-tac-supply-standalone.mjs | node --input-type=module</code></pre></div>
 </section>
 
@@ -740,7 +740,7 @@ const out = await client.readContract({ address: AMM, abi, functionName: 'quoteS
     <tr><td>cUSD</td><td class="h">0x8f4490dd3728b0ee904d7a67c11b37ffd463a5c7f08b79810006995ee8a9679d</td><td class="h">tacUSD 0x23cACFFAc2674514A6d4F6cD420B4cc2aC921564</td></tr>
     <tr><td>wTAC</td><td class="h">0x1097c9e552ae4fce2a8c416b93403953fa445a5f2cdae8ced36d9a78cfe40832</td><td class="h">0x2018139a8FDd3666855BE3315C7683b4D6aB7AEf</td></tr>
   </table></div>
-  <p>Resolve a pool-minted token with <code>canonicalTokenFor(assetId)</code> rather than caching it. The chain binding a burn or mint targets is <code>keccak256(chainId ‖ poolAddress)</code>. Private ETH on Ethereum, Base, Robinhood Chain and MegaETH is a separate, smaller pool with its own guide, <a href="https://github.com/src-company/tacit/blob/main/docs/EVM-POOL.md" target="_blank" rel="noopener noreferrer">EVM-POOL.md</a>.</p>
+  <p>Resolve a pool-minted token with <code>canonicalTokenFor(assetId)</code> rather than caching it. The chain binding a burn or mint targets is <code>keccak256(chainId ‖ poolAddress)</code>. Private ETH on Ethereum, Base, Robinhood Chain and MegaETH uses a separate, smaller pool, described in its own guide, <a href="https://github.com/src-company/tacit/blob/main/docs/EVM-POOL.md" target="_blank" rel="noopener noreferrer">EVM-POOL.md</a>.</p>
 </section>
 
 <!-- ─────────────── Tokens ─────────────── -->
@@ -748,7 +748,7 @@ const out = await client.readContract({ address: AMM, abi, functionName: 'quoteS
   <p class="kick">Reference</p>
   <h2>Token <em>discovery</em></h2>
   <p class="lead">token.list.wei · registry 0x0000006013dF75A31678B786061C2B54bf531524</p>
-  <p>Tacit's assets are listed on token.list.wei, a general on-chain token registry. A listing with <code>standard = 2</code> is an ERC-20 on this chain, and its id is its address. A listing with <code>standard = 5</code> is a confidential pool asset keyed by asset id, with no <code>balanceOf</code>; show it apart from plain ERC-20s. Pair a confidential asset with its ERC-20 through <code>canonicalTokenFor(assetId)</code>. <code>get(id)</code> returns a listing with a ready-to-use logo, and <code>rankedIds()</code> with <code>summariesPaged(start, count)</code> pages the whole registry.</p>
+  <p>Tacit’s assets are listed on token.list.wei, a general on-chain token registry. A listing with <code>standard = 2</code> is an ERC-20 on this chain, and its id is its address. A listing with <code>standard = 5</code> is a Tacit pool asset keyed by asset id, with no <code>balanceOf</code>. Show it apart from plain ERC-20s. Pair a pool asset with its ERC-20 through <code>canonicalTokenFor(assetId)</code>. <code>get(id)</code> returns a listing with a ready-to-use logo, and <code>rankedIds()</code> with <code>summariesPaged(start, count)</code> pages the whole registry.</p>
   <div class="tbl"><table>
     <tr><th>Asset</th><th>Standard</th><th>Registry id</th></tr>
     <tr><td>TAC</td><td>ERC-20</td><td class="h">its address, 0xA1313eb9f3A445606D9583bcAc3ebeB56a858279</td></tr>
@@ -768,7 +768,7 @@ const out = await client.readContract({ address: AMM, abi, functionName: 'quoteS
   <p class="lead">a failed proof costs the relay, not you · a settle applies completely or reverts</p>
   <div class="tbl"><table>
     <tr><th>Selector</th><th>Error</th><th>What it means</th></tr>
-    <tr><td class="h">0x9c63840c</td><td><code>AmountNotAligned</code></td><td>The amount is not a multiple of the asset's <code>unitScale</code>.</td></tr>
+    <tr><td class="h">0x9c63840c</td><td><code>AmountNotAligned</code></td><td>The amount is not a multiple of the asset’s <code>unitScale</code>.</td></tr>
     <tr><td class="h">0xad2fa98e</td><td><code>DepositExists</code></td><td>This asset, amount and wrap index is already a deposit; take the next index.</td></tr>
     <tr><td class="h">0x070d817c</td><td><code>DepositNotPending</code></td><td>The wrap is not mined yet, or its deposit was already consumed.</td></tr>
     <tr><td class="h">0x8c520116</td><td><code>UnknownRoot</code></td><td>The spend root was never a root of this pool: a witness from another pool or an incomplete scan. Rescan.</td></tr>
@@ -777,11 +777,11 @@ const out = await client.readContract({ address: AMM, abi, functionName: 'quoteS
     <tr><td class="h">0x7fcdd1f4</td><td><code>ProofInvalid</code></td><td>The proof does not verify against the program key, usually a prover built from the wrong program.</td></tr>
     <tr><td class="h">0x5f946d18</td><td><code>PoolNotInit</code></td><td>A first liquidity add went through <code>settle()</code>; found the pool with <code>createPairAndSettle</code>.</td></tr>
     <tr><td class="h">0xafff2f20</td><td><code>CbtcLockMismatch</code></td><td>The lock does not match, is already minted, spent or redeemed, or its escrow is short.</td></tr>
-    <tr><td class="h">0x610f890f</td><td><code>BadSnapshot</code></td><td>A CDP mint's <code>rateSnapshot</code> is outside <code>[RAY, rate()]</code>.</td></tr>
+    <tr><td class="h">0x610f890f</td><td><code>BadSnapshot</code></td><td>A CDP mint’s <code>rateSnapshot</code> is outside <code>[RAY, rate()]</code>.</td></tr>
     <tr><td class="h">0x8199f5f3</td><td><code>SlippageExceeded</code></td><td>A public swap or liquidity call paid less than its minimum.</td></tr>
     <tr><td class="h">0x55a09618</td><td><code>ConsumedCountStale</code></td><td>A cross-out or fast-lane spend landed after a reflection proof was built; rebuild it.</td></tr>
   </table></div>
-  <p>Farm errors: <code>OverClaim</code> (a harvest claimed more than accrued; read <code>pending</code> at build time), <code>NoLivePosition</code> (wrong receipt, or already unbonded) and <code>WrongStakeAsset</code> (not a farmed LP-share asset). A relay refusal at submit is a fee below the floor or a full queue, and a <code>413</code> is a body over 1 MiB.</p>
+  <p>Farm errors: <code>OverClaim</code> (a harvest claimed more than accrued; read <code>pending</code> at build time), <code>NoLivePosition</code> (wrong receipt, or already unbonded) and <code>WrongStakeAsset</code> (not a farmed LP-share asset). A relay refusal at submit means a relay fee below the floor or a full queue, and a <code>413</code> means a body over 1 MiB.</p>
 </section>
 
 <!-- ─────────────── Gotchas ─────────────── -->
@@ -791,12 +791,12 @@ const out = await client.readContract({ address: AMM, abi, functionName: 'quoteS
   <ul>
     <li><b>Output 0 is the cross-out note.</b> A Bitcoin mint reveal pays the declared key as a P2TR output at output 0, or it never folds.</li>
     <li><b>Wait for coverage.</b> Broadcast a cross-out mint only after <code>/reflection/eth-state/covers</code> says yes, built from the claim id the pool emitted.</li>
-    <li><b>The nullifier follows the note's history.</b> A reflected Bitcoin note nullifies under <code>btc_note_leaf</code> with its own Taproot key.</li>
+    <li><b>The nullifier follows the note’s history.</b> A reflected Bitcoin note nullifies under <code>btc_note_leaf</code> with its own Taproot key.</li>
     <li><b>Four hours of depth.</b> Nothing within 24 blocks of the Bitcoin tip is folded. Say so in the interface, not only in a retry loop.</li>
     <li><b>Whole notes.</b> A route and an LP removal spend their input whole.</li>
-    <li><b>One key per process.</b> Two processes on one key pick each other's notes as inputs.</li>
-    <li><b>Send from your own account.</b> Never sign from a key the relay or a keeper uses; two senders on one nonce sequence stall each other.</li>
-    <li><b>Confirm exits by balance.</b> An <code>unwrap</code> can report <code>settled</code> from the relay's acknowledgement; the recipient's balance is the proof.</li>
+    <li><b>One key per process.</b> Two processes on one key pick each other’s notes as inputs.</li>
+    <li><b>Send from your own account.</b> Never sign from a key the relay or a keeper uses. Two senders on one nonce sequence stall each other.</li>
+    <li><b>Confirm exits by balance.</b> An <code>unwrap</code> can report <code>settled</code> from the relay’s acknowledgement. The recipient’s balance is the proof.</li>
   </ul>
 </section>
 

@@ -5,17 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module (its sha256 pinned in script-src by build/build.mjs) and the reading it imports. It reads
      public data only: no wallet, no key; it keeps the last reading, and the chain data behind it, to read on from. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-6xpxqfn9WPguB9jCFHMU1Dy7Phz5DO7HryELBpnNfXE='; connect-src https://api.tacit.finance https://mainnet.gateway.tenderly.co https://ethereum-rpc.publicnode.com https://eth.drpc.org https://mainnet.base.org https://base-rpc.publicnode.com https://base.gateway.tenderly.co https://rpc.mainnet.chain.robinhood.com https://eth.blockscout.com https://base.blockscout.com https://api.routescan.io https://mempool.space https://blockstream.info; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-EvTWnm8SliWy8xF/v0m8jQ2gjbFMN4ZvwgdFXRqOfYE='; connect-src https://api.tacit.finance https://mainnet.gateway.tenderly.co https://ethereum-rpc.publicnode.com https://eth.drpc.org https://mainnet.base.org https://base-rpc.publicnode.com https://base.gateway.tenderly.co https://rpc.mainnet.chain.robinhood.com https://eth.blockscout.com https://base.blockscout.com https://api.routescan.io https://mempool.space https://blockstream.info; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
-<title>Tacit v1 stats</title>
-<meta name="description" content="Tacit v1 stats, live from Ethereum and Bitcoin: private ETH, cBTC and cUSD, TAC, and Bitcoin's state on Ethereum.">
+<title>tacit stats</title>
+<meta name="description" content="Live figures from Ethereum and Bitcoin: private ETH, cBTC and cUSD, TAC, points and Bitcoin’s state on Ethereum.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="tacit">
 <meta property="og:url" content="https://tacit.finance/weld/stats/">
-<meta property="og:title" content="Tacit v1 stats">
-<meta property="og:description" content="Live from Ethereum and Bitcoin: private ETH, cBTC and cUSD, TAC, and Bitcoin's state on Ethereum.">
+<meta property="og:title" content="tacit stats">
+<meta property="og:description" content="Live figures: private ETH, cBTC and cUSD, TAC, points and Bitcoin’s state on Ethereum.">
 <meta property="og:image" content="https://tacit.finance/tacit-card.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
@@ -340,7 +340,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </section>
 
   <section class="grp" id="g-link">
-    <h2><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg>Bitcoin ↔ Ethereum</h2>
+    <h2><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg>Bitcoin and Ethereum</h2>
     <div class="cards" data-cards="link"></div>
     <div class="figure" id="f-flow">
       <div class="k"><span>Between the chains</span></div>
@@ -353,27 +353,27 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </section>
 
   <details class="how">
-    <summary>How it's counted</summary>
+    <summary>How the figures are counted</summary>
     <dl>
-      <dt>Made private</dt><dd>ETH deposited into the Tacit pool (its Wrap events) and into the device pools on Ethereum, Base and Robinhood (their Transact events).</dd>
+      <dt>Made private</dt><dd>ETH deposited into the Tacit pool (its Wrap events) and into the device pools on Ethereum, Base and Robinhood Chain (their Transact events).</dd>
       <dt>Private now</dt><dd>The ETH balance of the Tacit pool and of each device pool.</dd>
-      <dt>Withdrawn</dt><dd>All those pools have paid out: withdrawals and relay fees.</dd>
-      <dt>Wallets</dt><dd>Distinct senders of the Tacit pool's wraps. The device pools take deposits through routers and keepers as well as wallets, so their senders aren't counted.</dd>
-      <dt>By pool</dt><dd>Each pool's own balance, deposits and payments out; the totals are the figures above. Out includes relay fees.</dd>
+      <dt>Withdrawn</dt><dd>What those pools have paid out, as withdrawals and relay fees.</dd>
+      <dt>Wallets</dt><dd>Distinct senders of the Tacit pool’s wraps. Device pools also take deposits through routers and keepers, so their senders are not counted.</dd>
+      <dt>By pool</dt><dd>Each pool’s own balance, deposits and payments out. The totals are the figures above. Out includes relay fees.</dd>
       <dt>BTC locked</dt><dd>Proven locks not yet spent or redeemed, each found by its bond (EscrowPosted).</dd>
-      <dt>cBTC minted</dt><dd>Every mint on those locks, including on locks since closed.</dd>
+      <dt>cBTC minted</dt><dd>Every mint on those locks, including locks since closed.</dd>
       <dt>Bonds</dt><dd>wstETH in escrow now.</dd>
-      <dt>cUSD</dt><dd>CdpMinted, CdpClosed and CdpLiquidated events; open is the engine's outstanding debt.</dd>
-      <dt>TAC ERC-20</dt><dd>Its supply. The pool mints it as TAC is withdrawn and burns it as TAC is made private, so private TAC isn't in it.</dd>
-      <dt>TAC made public</dt><dd>TAC the pool has minted to an account: paid out of a private note by a withdrawal, or out of its own reserve when someone buys TAC on its public market. Left out: the relays' fee mints, and the treasury the protocol itself bridged at the start (to the ops multisig and the airdrop contract).</dd>
-      <dt>Between the chains</dt><dd>What passed between Bitcoin and Ethereum, each drawn when it happened: proofs of Bitcoin landing on Ethereum, bridge burns recorded and minted, cross-outs to Bitcoin, TAC made public and private, ETH made private, settles. A counter with no time of its own is drawn when it moved, to the nearest reading. Counts and times only.</dd>
-      <dt>Airdrop claimed</dt><dd>The airdrop's Claimed events.</dd>
-      <dt>Points</dt><dd>Every account on the points leaderboard; TAC allocated and claimed from the points distributor.</dd>
-      <dt>Bitcoin headers</dt><dd>The light relay's tip, and blocks relayed since its anchor.</dd>
+      <dt>cUSD borrowed</dt><dd>Totals from the CdpMinted, CdpClosed and CdpLiquidated events. Open is the engine’s outstanding debt.</dd>
+      <dt>TAC ERC-20</dt><dd>Its supply. The pool mints it when TAC is made public and burns it when TAC is made private, so private TAC is not in it.</dd>
+      <dt>TAC made public</dt><dd>TAC the pool has minted to an account: paid out of a private note by a withdrawal, or from its own reserve when someone buys TAC on its public market. Left out: relay fee mints, and the treasury the protocol bridged at the start (to the ops multisig and the airdrop contract).</dd>
+      <dt>Between the chains</dt><dd>What passed between Bitcoin and Ethereum, drawn when it happened: proofs of Bitcoin landing on Ethereum, bridge burns recorded and minted, cross-outs to Bitcoin, TAC made public and private, ETH made private and settles. A counter with no time of its own is drawn when it moved, to the nearest reading. Counts and times only.</dd>
+      <dt>Airdrop claimed</dt><dd>The airdrop’s Claimed events.</dd>
+      <dt>Points</dt><dd>Every account on the points leaderboard. TAC allocated and claimed are read from the points contract.</dd>
+      <dt>Bitcoin headers</dt><dd>The Bitcoin light relay’s tip, and the blocks relayed since its anchor.</dd>
       <dt>Proven to</dt><dd>The Bitcoin block the pool last attested to.</dd>
       <dt>Settles</dt><dd>Transactions that made or spent notes.</dd>
       <dt>Cross-chain</dt><dd>Moves out to Bitcoin (and how many are folded into its state), Bitcoin notes spent on Ethereum, and bridges in: Bitcoin TAC burned and recorded by the reflection, then minted on Ethereum by its holder. Bridges in counts the ones minted; burns recorded and not yet minted are named beside it.</dd>
-      <dt>Sources</dt><dd>Each chain's own nodes, with transaction lists from Blockscout and Routescan. Refreshed every quarter hour.</dd>
+      <dt>Sources</dt><dd>Each chain’s own nodes, with transaction lists from Blockscout and Routescan. Refreshed every 15 minutes.</dd>
     </dl>
   </details>
 
@@ -511,9 +511,9 @@ function showPrivate() {
   const left = (ids) => (ids.length ? ` · ${ids.map((id) => NAME[id] || id).join(', ')} not read` : '');
   const v1 = t.pools[0], devHeld = t.pools.slice(1).reduce((s, p) => s + (p.held ?? 0n), 0n);
   paint('eth', [
-    { k: 'Made private', icon: 'tk-eth', v: fmt(t.inWei, 18, 4), u: 'ETH', m: `${int(t.deposits)} deposits${t.lastAt ? ` · latest ${ago(t.lastAt)}` : ''}${left(t.unread.flow)}` },
+    { k: 'Made private', icon: 'tk-eth', v: fmt(t.inWei, 18, 4), u: 'ETH', m: `${int(t.deposits)} deposit${t.deposits === 1 ? '' : 's'}${t.lastAt ? ` · latest ${ago(t.lastAt)}` : ''}${left(t.unread.flow)}` },
     { k: 'Private now', icon: 'tk-teth', v: fmt(t.held, 18, 4), u: 'ETH', m: `${fmt(v1.held, 18, 4)} in ${addr(A.pool, 1, 'the Tacit pool')} · ${fmt(devHeld, 18, 4)} in device pools${left(t.unread.held)}` },
-    { k: 'Withdrawn', v: fmt(t.outWei, 18, 4), u: 'ETH', m: `incl. relay fees${left(t.unread.flow)}` },
+    { k: 'Withdrawn', v: fmt(t.outWei, 18, 4), u: 'ETH', m: `including relay fees${left(t.unread.flow)}` },
     { k: 'Wallets', v: int(eth.wallets), m: `that made ETH private in the Tacit pool${eth.unread ? ` · ${int(eth.unread)} deposit${eth.unread === 1 ? '' : 's'} unread` : ''}` },
   ]);
   $('#f-eth').hidden = false;
@@ -557,8 +557,8 @@ function showTac(r) {
 function showPoints(r) {
   paint('pts', [
     { k: 'Participants', v: `${int(r.participants)}${r.full ? '+' : ''}`, m: 'accounts earning points' },
-    { k: 'Points', v: int(Math.round(r.points)), m: `${r.full ? `across the top ${int(r.participants)} · ` : ''}<a href="/#leaderboard">leaderboard ↗</a>` },
-    { k: 'TAC allocated', v: fmt(r.allocated, 18, 0), u: 'TAC', m: `to points holders · ${addr(A.points, 1, 'distributor')}` },
+    { k: 'Points', v: int(Math.round(r.points)), m: `${r.full ? `across the top ${int(r.participants)} · ` : ''}<a href="/#leaderboard">leaderboard →</a>` },
+    { k: 'TAC allocated', v: fmt(r.allocated, 18, 0), u: 'TAC', m: `to points holders · ${addr(A.points, 1, 'contract')}` },
     { k: 'TAC claimed', v: fmt(r.claimed, 18, 2), u: 'TAC', m: 'from points so far' },
   ]);
 }
@@ -661,7 +661,7 @@ async function run() {
 }
 run();
 // The picture of the two chains stands apart from the figures: its own small feed, and if it cannot load the page is as it was.
-import('/weld/flow/viz.js?cb=6c95b6d1').then((m) => m.mountFlow($('#c-flow'), { compact: true })).catch(() => { $('#f-flow').hidden = true; });
+import('/weld/flow/viz.js?cb=a8d48bff').then((m) => m.mountFlow($('#c-flow'), { compact: true })).catch(() => { $('#f-flow').hidden = true; });
 </script>
 </body>
 </html>

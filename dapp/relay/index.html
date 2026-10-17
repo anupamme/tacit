@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
 <meta name="color-scheme" content="light dark">
-<title>Relay and buyback · tacit</title>
+<title>tacit relay</title>
 <meta name="description" content="What the relay earns, what it spends keeping settles and the bridge running, and the tenth of its fee income that buys TAC. Send a settle it has proved, or pay for its proofs.">
 <link rel="canonical" href="https://tacit.finance/relay/">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
@@ -16,19 +16,19 @@
 <link rel="modulepreload" href="/relay/app.js?cb=1dc83745">
 <link rel="modulepreload" href="/trade/connect.js?cb=b0beb322">
 <link rel="modulepreload" href="/walletconnect.js?cb=92886522">
-<link rel="modulepreload" href="/trade/wallet.js?cb=595c892a">
+<link rel="modulepreload" href="/trade/wallet.js?cb=7b4ab128">
 <link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
-<link rel="modulepreload" href="/trade/util.js?cb=c3dc39b3">
+<link rel="modulepreload" href="/trade/util.js?cb=782a003c">
 <link rel="modulepreload" href="/trade/rpc.js?cb=842f58a5">
-<link rel="modulepreload" href="/trade/fmt.js?cb=43646c2e">
-<link rel="modulepreload" href="/relay/open.js?cb=251331b1">
+<link rel="modulepreload" href="/trade/fmt.js?cb=c07717c4">
+<link rel="modulepreload" href="/relay/open.js?cb=9c376370">
 <link rel="modulepreload" href="/confidential-relay.js?cb=b941725a">
 <link rel="modulepreload" href="/confidential-deployments.js?cb=de357fe5">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/confidential-deployments.generated.js">
-<link rel="modulepreload" href="/relay/abi.js?cb=784a6cc6">
+<link rel="modulepreload" href="/relay/abi.js?cb=5078b247">
 <link rel="modulepreload" href="/zrouter-guard.js">
-<link rel="modulepreload" href="/relay/prove.js?cb=743e3ba1">
+<link rel="modulepreload" href="/relay/prove.js?cb=c7f2a796">
 <!-- preload:end -->
 <style>
 @font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
@@ -359,13 +359,13 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <main>
     <section class="hero">
       <h1>The relay, <em>in the open</em></h1>
-      <p class="sub">The relay proves and settles what people send through it, and keeps Bitcoin’s state on Ethereum current for everyone. Here is what it earns, what that costs, and the tenth of its fee income that buys TAC. Below: settles it has proved that anyone can send, and how to pay for its proofs.</p>
-      <p class="jump"><a href="#open">Waiting</a><a href="#prove">Pay for proofs</a></p>
+      <p class="sub">The relay proves and settles what people send through it, and keeps Bitcoin’s state on Ethereum current for everyone. Here is what it earns, what that costs and the tenth of its fee income that buys TAC. Below: settles it has proved that anyone can send, and how to pay for its proofs.</p>
+      <p class="jump"><a href="#open">Send a settle</a><a href="#prove">Pay for proofs</a></p>
     </section>
 
     <div class="grid">
       <div class="col">
-        <section class="panel" id="p-buyback" aria-live="polite"><p class="eyebrow">TAC buyback</p><p class="mute">Reading…</p></section>
+        <section class="panel" id="p-buyback" aria-live="polite"><p class="eyebrow">TAC buyback</p><p class="mute">Loading…</p></section>
         <section class="panel" id="p-fees"></section>
       </div>
       <div class="col">
@@ -374,7 +374,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         <section class="panel" id="p-flow">
           <p class="eyebrow">Where it goes</p>
           <ol class="flow">
-            <li>Fees paid in ETH, or in a token the relay converts, land in the settle wallet. <b>A tenth of them goes to the TAC buyback</b>, every pass; the rest pays settle gas and proving.</li>
+            <li>Fees paid in ETH, or in a token the relay converts, land in the settle wallet. <b>A tenth of them goes to the TAC buyback</b>, every pass; the rest pays for settles and proving.</li>
             <li>Fees paid in TAC are never sold: the relay moves them to the protocol reserve.</li>
             <li id="flow-tips">A wrap’s tip pays for settling it.</li>
             <li>The buyback turns its ETH into TAC on the public market, a little at a time, and sends the TAC to the reserve.</li>
@@ -385,10 +385,10 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 
     <div class="grid" style="margin-top:14px">
       <section class="panel" id="open" aria-labelledby="open-h">
-        <p class="eyebrow"><span id="open-h">Proved, waiting for a sender</span><button class="linkbtn" id="open-re" type="button">refresh</button></p>
-        <div id="open-list" aria-live="polite"><p class="mute">Reading…</p></div>
+        <p class="eyebrow"><span id="open-h">Proved, waiting for a sender</span><button class="linkbtn" id="open-re" type="button">Refresh</button></p>
+        <div id="open-list" aria-live="polite"><p class="mute">Loading…</p></div>
         <div class="status" id="open-status" role="status"></div>
-        <p class="note">Anyone can send these. Each is a settle the relay has proved; the pool’s settle is open to every account, and whoever sends one is paid the fee its proof binds, in the asset it names. Your wallet pays the network fee, and each is tried first, so one already sent is not sent again. To send them as they come, <a href="https://github.com/src-company/tacit/blob/main/docs/OPEN-RELAYER.md" target="_blank" rel="noopener">run a relayer</a>.</p>
+        <p class="note">Anyone can send these. Each is a settle the relay has proved. The pool’s settle is open to every account, and whoever sends one is paid the fee its proof binds, in the asset it names. Your wallet pays the network fee. Each settle is tried first, so one already sent is not sent again. To send them as they come, <a href="https://github.com/src-company/tacit/blob/main/docs/OPEN-RELAYER.md" target="_blank" rel="noopener">run your own relay</a>.</p>
       </section>
       <section class="panel" id="prove" aria-labelledby="prove-h">
         <p class="eyebrow"><span id="prove-h">Pay for proofs</span><a href="https://etherscan.io/address/0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7" target="_blank" rel="noopener">prover account</a></p>
@@ -399,8 +399,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         <div class="rows" id="pv-quote"></div>
         <button class="btn" id="pv-go" type="button">Connect wallet</button>
         <div class="status" id="pv-status" role="status"></div>
-        <p class="note">The prover account is <span class="addr">0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7</span>. PROVE goes to it in one transfer. With ETH, one transaction swaps it to PROVE through zRouter and sends the PROVE straight there, with the least it may buy set before you confirm.</p>
-        <p class="note" id="prove-self">Prove your own actions with your own PROVE, privately: your Tacit account pays Succinct’s prover for its own proofs and sends each one itself, so the relay neither proves nor sends them. <a href="/#prove-self">Set it up on tacit.finance →</a></p>
+        <p class="note">The prover account is <span class="addr">0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7</span>. PROVE goes to it in one transfer. With ETH, one transaction swaps it to PROVE through zRouter and sends the PROVE straight there. The least it may buy is set before you confirm.</p>
+        <p class="note" id="prove-self">Prove your own actions with your own PROVE, privately: your Tacit account pays Succinct’s prover for its own proofs and sends each one itself, so the relay neither proves nor sends them. <a href="/#prove-self">Set it up →</a></p>
       </section>
     </div>
   </main>

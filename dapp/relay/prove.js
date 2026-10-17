@@ -1,14 +1,14 @@
 // Paying for proofs: every proof the relay makes is paid in PROVE from one prover account (the Succinct network requester), and PROVE sent to that
 // account is put into the prover network within a few minutes (under 2 PROVE, at the relay's next half-hourly top-up). A visitor's wallet can send PROVE there, or pay ETH that zRouter swaps to
 // PROVE with the prover account as the recipient, in one transaction. Only the visitor's own balances are read; never the prover account's.
-import { PROVER, PROVE, ZROUTER, PROVE_PER_PROOF, SLIPPAGE_BPS, transferData, balanceOfData, quoteEthToProve } from '/relay/abi.js?cb=784a6cc6';
-import { UserStopped } from '/trade/wallet.js?cb=595c892a';
-import { rpc, esc, fmtUnits, parseUnits, plain, grp, short } from '/trade/util.js?cb=c3dc39b3';
+import { PROVER, PROVE, ZROUTER, PROVE_PER_PROOF, SLIPPAGE_BPS, transferData, balanceOfData, quoteEthToProve } from '/relay/abi.js?cb=5078b247';
+import { UserStopped } from '/trade/wallet.js?cb=7b4ab128';
+import { rpc, esc, fmtUnits, parseUnits, plain, grp, short } from '/trade/util.js?cb=782a003c';
 
 const SCAN = 'https://etherscan.io/';
 const QUOTE_TTL = 60e3;                                                            // a quote older than this is read again before it is sent
 const proofs = (wei) => Math.floor(Number(wei) / 1e18 / PROVE_PER_PROOF);
-const link = (h) => `<a href="${SCAN}tx/${esc(h)}" target="_blank" rel="noopener noreferrer">${esc(h.slice(0, 10))}…↗</a>`;
+const link = (h) => `<a href="${SCAN}tx/${esc(h)}" target="_blank" rel="noopener noreferrer">${esc(h.slice(0, 10))}… ↗</a>`;
 const kv = (k, v) => `<div class="kv"><span>${k}</span><b class="num">${v}</b></div>`;
 
 export function mountProve({ el, wallet, W, connect, say }) {
@@ -34,12 +34,12 @@ export function mountProve({ el, wallet, W, connect, say }) {
     if (P.mode !== 'eth' || !wei) { P.quote = null; render(); return; }
     P.quote = { wei, loading: true }; render();
     try {
-      const q = await quoteEthToProve({ call: ({ to, data, gas }) => rpc('eth_call', [{ to, data, gas }, 'latest']), to: PROVER, wei, noRoute: 'No route from ETH to PROVE was found just now. Try again in a moment, or send PROVE.' });
+      const q = await quoteEthToProve({ call: ({ to, data, gas }) => rpc('eth_call', [{ to, data, gas }, 'latest']), to: PROVER, wei, noRoute: 'No route from ETH to PROVE was found. Try again in a moment, or send PROVE.' });
       if (my !== P.seq) return;
       P.quote = q;
     } catch (e) {
       if (my !== P.seq) return;
-      P.quote = { wei, err: e?.revert ? 'No route from ETH to PROVE was found just now. Try again in a moment, or send PROVE.' : (e?.message || 'Could not read a quote just now.') };
+      P.quote = { wei, err: e?.revert ? 'No route from ETH to PROVE was found. Try again in a moment, or send PROVE.' : (e?.message || 'Could not read a quote.') };
     }
     render();
   }
@@ -56,14 +56,14 @@ export function mountProve({ el, wallet, W, connect, say }) {
     const box = $('#pv-quote');
     if (P.mode === 'prove') box.innerHTML = wei ? kv('Pays for', `about ${grp(proofs(wei), 0)} proof${proofs(wei) === 1 ? '' : 's'}`) + kv('Sent to', `the prover account, ${esc(short(PROVER, 4))}`) : '';
     else if (!wei) box.innerHTML = '';
-    else if (!q || q.loading || q.wei !== wei) box.innerHTML = kv('You get', '<span class="mute">reading…</span>');
+    else if (!q || q.loading || q.wei !== wei) box.innerHTML = kv('You get', '<span class="mute">loading…</span>');
     else if (q.err) box.innerHTML = `<p class="hint err">${esc(q.err)}</p>`;
     else box.innerHTML = kv('You get about', `${esc(fmtUnits(q.amountOut, 18, 2))} PROVE`) + kv('At least', `${esc(fmtUnits(q.amountLimit, 18, 2))} PROVE · ${Number(SLIPPAGE_BPS) / 100}% slippage guard`)
-      + kv('Pays for', `about ${grp(proofs(q.amountOut), 0)} proofs`) + kv('Sent to', `the prover account, ${esc(short(PROVER, 4))}, through zRouter`);
+      + kv('Pays for', `about ${grp(proofs(q.amountOut), 0)} proof${proofs(q.amountOut) === 1 ? '' : 's'}`) + kv('Sent to', `the prover account, ${esc(short(PROVER, 4))}, through zRouter`);
     const go = $('#pv-go');
     go.disabled = false;
     if (!W.account) { go.textContent = 'Connect wallet'; return; }
-    if (P.busy) { go.textContent = 'Working…'; go.disabled = true; return; }
+    if (P.busy) { go.textContent = 'Sending…'; go.disabled = true; return; }
     if (!wei) { go.textContent = 'Enter an amount'; go.disabled = true; return; }
     if (have != null && wei > have) { go.textContent = `Not enough ${P.mode === 'eth' ? 'ETH' : 'PROVE'}`; go.disabled = true; return; }
     if (P.mode === 'prove') { go.textContent = 'Send PROVE'; return; }
@@ -75,8 +75,8 @@ export function mountProve({ el, wallet, W, connect, say }) {
   // Each send is tried with eth_call from the paying account first: a call that would revert is never put to the wallet.
   async function sendTx(tx, from) {
     try { await rpc('eth_call', [{ from, to: tx.to, data: tx.data, ...(tx.value ? { value: '0x' + tx.value.toString(16) } : {}) }, 'latest']); }
-    catch (e) { throw new Error(e?.revert ? 'It would not go through just now, so nothing was sent.' : 'It could not be checked just now, so nothing was sent. Try again in a moment.'); }
-    say('Confirm it in your wallet.');
+    catch (e) { throw new Error(e?.revert ? 'It would not go through, so nothing was sent.' : 'It could not be checked, so nothing was sent. Try again in a moment.'); }
+    say('Confirm in your wallet…');
     return wallet.sendTx({ ...tx, from });
   }
 
@@ -98,7 +98,7 @@ export function mountProve({ el, wallet, W, connect, say }) {
       say(`Sent ${link(hash)}. It reaches the prover within a few minutes, or within half an hour for under 2 PROVE.`);
       P.amt = ''; $('#pv-amt').value = ''; P.quote = null; P.seq++;
       const rc = await wallet.receipt(hash);
-      if (rc.status !== '0x1') say(`It did not go through ${link(hash)}. Nothing was lost but the network fee.`, true);
+      if (rc.status !== '0x1') say(`It did not go through ${link(hash)}. Nothing was lost but its network fee.`, true);
       else say(`<span class="ok">Landed.</span> ${link(hash)} It reaches the prover within a few minutes, or within half an hour for under 2 PROVE. Thank you.`);
     } catch (e) { say(esc(e instanceof UserStopped || e?.userStopped ? e.message : (e?.message || 'It could not be sent.')), true); }
     finally { P.busy = false; await readBalances().catch(() => {}); render(); }

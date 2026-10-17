@@ -7,17 +7,17 @@
      data stats does, plus an injected wallet to sign advanceTip(bytes) — permissionless on chain
      (contracts/src/lib/BitcoinLightRelay.sol:253) — so anyone can push the header relay forward and pay their
      own gas, instead of waiting on Tacit's own cron. No Tacit key touches this page. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-GDkO4QArZT03Rep0cDXkU5I4S7Nux/yWwmYLxFFhOeQ=' 'wasm-unsafe-eval'; connect-src wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-zyAv3I5gkGiIPx8aijxzlvz89czSWpk7CrcjYQGfsJs=' 'wasm-unsafe-eval'; connect-src wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
-<title>Tacit community ops</title>
-<meta name="description" content="Move Bitcoin's state onto Ethereum yourself, from your own wallet: advance Tacit's Bitcoin header relay or submit a published proof. Both are permissionless on-chain calls, and you pay only the gas.">
+<title>tacit community ops</title>
+<meta name="description" content="Move Bitcoin’s state onto Ethereum yourself, from your own wallet: advance Tacit’s Bitcoin header relay or submit a published proof. Both are permissionless on-chain calls, and you pay only the network fee.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="tacit">
 <meta property="og:url" content="https://tacit.finance/weld/keeper/">
-<meta property="og:title" content="Tacit community ops">
-<meta property="og:description" content="Advance Tacit's Bitcoin header relay or submit a published proof from your own wallet: permissionless on-chain calls, and you pay only the gas.">
+<meta property="og:title" content="tacit community ops">
+<meta property="og:description" content="Advance Tacit’s Bitcoin header relay or submit a published proof from your own wallet. Both are permissionless on-chain calls, and you pay only the network fee.">
 <meta property="og:image" content="https://tacit.finance/tacit-card.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
@@ -350,7 +350,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 
   <main>
   <h1>Community ops</h1>
-  <p class="lede">Bitcoin's state reaches Ethereum in two steps: a header relay that stores Bitcoin's block headers, and proofs that fold each batch of blocks into the pool. Both are plain on-chain calls that need no permission, the same calls Tacit's own services make. When either is behind, you can move it yourself from your own wallet and pay only the gas.</p>
+  <p class="lede">Bitcoin’s state reaches Ethereum in two steps: a header relay stores Bitcoin’s block headers, and proofs fold each batch of blocks into the pool. Both are on-chain calls that need no permission, the same calls Tacit’s own services make. When either is behind, you can move it yourself from your own wallet and pay only the network fee.</p>
   <p class="asof num" id="asof">Reading the relay…</p>
 
   <section class="grp" id="g-wait" aria-labelledby="h-wait">
@@ -361,14 +361,14 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <section class="grp" id="g-advance" aria-labelledby="h-advance">
     <h2 id="h-advance"><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg>Advance the header relay</h2>
     <div class="panel">
-      <p class="lede">Sends Bitcoin block headers, read from a public explorer, to <code>BitcoinLightRelay.advanceTip</code> on Ethereum. The contract checks each header's proof of work itself, so only real Bitcoin blocks are accepted. Each transaction carries up to 40 headers, and your wallet asks you to confirm each one.</p>
+      <p class="lede">Sends Bitcoin block headers, read from a public explorer, to <code>BitcoinLightRelay.advanceTip</code> on Ethereum. The contract checks each header’s proof of work itself, so only real Bitcoin blocks are accepted. Each transaction carries up to 40 headers, and your wallet asks you to confirm each one.</p>
       <div class="plan" id="plan-box"><p><span class="sk" style="--w:30ch"></span></p></div>
       <button class="btn" id="btn-advance" type="button" disabled>Advance the relay</button>
       <ol class="stp" id="strip" hidden></ol>
       <div class="tscroll"><table class="batches num" id="batch-table" hidden><thead><tr><th>Batch</th><th>Blocks</th><th>Status</th></tr></thead><tbody id="batch-rows"></tbody></table></div>
       <p class="status" id="status" role="status"></p>
       <div class="callout" id="ancestry-callout" hidden>
-        <p><b>The proofs are more than 2,016 blocks behind the relay.</b> A proof can't span that gap in one batch, so the pool first needs a checkpoint closer to the proven block. <code>advanceReflectionAncestry()</code> sets it by walking the relay's chain back, up to 2,016 blocks a call; anyone can call it. <span id="anc-plan"></span></p>
+        <p><b>The proofs are more than 2,016 blocks behind the relay.</b> One batch cannot span that gap, so the pool first needs a checkpoint closer to the proven block. <code>advanceReflectionAncestry()</code> sets it by walking the relay’s chain back, up to 2,016 blocks a call. Anyone can call it. <span id="anc-plan"></span></p>
         <button class="btn ghost" id="btn-ancestry" type="button">Call advanceReflectionAncestry()</button>
         <p class="status" id="anc-status" role="status"></p>
       </div>
@@ -378,19 +378,19 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <section class="grp" id="g-attest" aria-labelledby="h-attest">
     <h2 id="h-attest"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg>Submit a proof</h2>
     <div class="panel">
-      <p class="lede">Tacit's prover publishes each proof the moment it has one, then submits it itself. A proof waiting here can be submitted by any wallet: <code>attestBitcoinStateProven</code> needs no permission, only a valid proof over the pool's current state.</p>
+      <p class="lede">Tacit’s prover publishes each proof the moment it has one, then submits it itself. A proof waiting here can be submitted from any wallet: <code>attestBitcoinStateProven</code> needs no permission, only a valid proof over the pool’s current state.</p>
       <div class="plan" id="proof-box"><p>Reading the latest proof…</p></div>
       <button class="btn" id="btn-proof" type="button" disabled>Submit the proof</button>
       <p class="status" id="proof-status" role="status"></p>
     </div>
     <div class="callout">
-      <p>Each proof is an SP1 zero-knowledge proof over one batch of Bitcoin blocks, paid for in <a href="https://etherscan.io/address/0x6BEF15D938d4E72056AC92Ea4bDD0D76B1C4ad29" target="_blank" rel="noopener">PROVE</a> credits on the Succinct network, so it is made on a prover with a funded Succinct account rather than in this page.</p>
-      <p>Tacit's prover looks for a new batch every 5 minutes. Anyone can run the same prover against the same public inputs with their own account: see <a href="https://github.com/src-company/tacit/blob/main/worker-relay/src/reflection-folder.js" target="_blank" rel="noopener">reflection-folder.js</a>.</p>
+      <p>Each proof is an SP1 zero-knowledge proof over one batch of Bitcoin blocks. It is paid for in <a href="https://etherscan.io/address/0x6BEF15D938d4E72056AC92Ea4bDD0D76B1C4ad29" target="_blank" rel="noopener">PROVE</a> credits on the Succinct network, so a prover with a funded Succinct account makes it, not this page.</p>
+      <p>Tacit’s prover looks for a new batch every 5 minutes. Anyone can run the same prover against the same public inputs with their own account: see <a href="https://github.com/src-company/tacit/blob/main/worker-relay/src/reflection-folder.js" target="_blank" rel="noopener">reflection-folder.js</a>.</p>
     </div>
   </section>
   </main>
 
-  <nav class="sf-x" aria-label="">
+  <nav class="sf-x" aria-label="Contracts and tools">
     <a href="https://etherscan.io/address/0x20A6ddc2C6E620c6248B5A34E85996516FDd19D0" target="_blank" rel="noopener noreferrer">Bitcoin light relay</a>
     <a href="https://etherscan.io/address/0x000000000Ed1eabD231Be41d93b719056F7febFC" target="_blank" rel="noopener noreferrer">Pool contract</a>
     <a href="https://github.com/src-company/tacit/blob/main/tools/advance-header-relay.mjs" target="_blank" rel="noopener noreferrer">Command-line version</a>
@@ -457,11 +457,11 @@ const errText = (e) => {
   const m = String(e?.message || e || 'Something went wrong');
   if (e?.code === 4001 || /user (rejected|denied)/i.test(m)) return 'Cancelled in your wallet.';
   if (e?.code === -32002 || /already (pending|processing)|request of type .* pending/i.test(m)) return 'Your wallet already has a request open. Answer it there, then try again.';
-  if (/chain.*not approved|does not support 'wallet_switchEthereumChain'/i.test(m)) return 'Your wallet app did not allow Ethereum for this connection. Disconnect, then connect again.';
-  if (/insufficient funds/i.test(m)) return 'Not enough ETH in that wallet for this and its gas.';
-  if (/no Ethereum wallet detected/i.test(m)) return 'No Ethereum wallet in this browser. Open this page in your wallet’s browser, or add a wallet extension such as MetaMask or Rabby.';
+  if (/chain.*not approved|does not support 'wallet_switchEthereumChain'/i.test(m)) return 'Your wallet app did not allow Ethereum. Disconnect, then connect again.';
+  if (/insufficient funds/i.test(m)) return 'Not enough ETH in that wallet for the network fee.';
+  if (/no Ethereum wallet detected/i.test(m)) return 'No Ethereum wallet found in this browser. Open this page in your wallet’s own browser, or install MetaMask, Rabby or Rainbow.';
   if (/does not match the canonical chain/i.test(m)) return 'The relay’s newest block is not the block the explorer has at that height (a reorg, or an explorer running behind). Tacit’s header relay returns it to Bitcoin’s main chain on its next run. Nothing was sent.';
-  if (/^esplora /.test(m)) return 'Could not read Bitcoin’s blocks from the explorer just now. Try again in a minute.';
+  if (/^esplora /.test(m)) return 'Could not read Bitcoin’s blocks from the explorer. Try again in a moment.';
   if (/failed to fetch|networkerror|load failed/i.test(m)) return 'Could not reach the network. Check your connection and try again.';
   return m.replace(/^Error:\s*/, '').slice(0, 240);
 };
@@ -482,7 +482,7 @@ const RPC = 'https://ethereum-rpc.publicnode.com';
 const wcOpen = dialogHost({ dialog: $('#sheet-wc'), title: $('#wc-h'), body: $('#wc-body') }), wcSheet = wcSheets(wcOpen);
 const WC = announceWalletConnect({
   projectId: WC_PROJECT_ID, chains: [1], rpcMap: { 1: RPC },
-  metadata: { name: 'tacit ops', description: 'Keeper actions anyone can send', url: location.origin, icons: [`${location.origin}/tac-logo.png`] },
+  metadata: { name: 'tacit ops', description: 'Keep Bitcoin’s state on Ethereum current', url: location.origin, icons: [`${location.origin}/tac-logo.png`] },
   onPair: (x) => wcSheet.onPair(x), onAsk: (x) => wcSheet.onAsk(x),
 });
 const S = { provider: null, address: null };
@@ -537,7 +537,7 @@ function paintWallet() {
   const label = $('#wallet-label');
   if (S.address) label.textContent = short(S.address);
   else label.innerHTML = '<span class="wide">Connect wallet</span><span class="narrow">Connect</span>';
-  $('#wallet').title = S.address ? `Connected: ${S.address}` : 'Connect an Ethereum wallet to pay the gas';
+  $('#wallet').title = S.address ? `Connected: ${S.address}` : 'Connect an Ethereum wallet to pay the network fee';
 }
 
 // ── what a send costs: the node's gas price now, for an estimate in ETH next to each action ───────────────────
@@ -589,9 +589,9 @@ async function refresh() {
     cardHtml({ k: 'Bitcoin tip', v: int(st.btcTip), u: 'block', m: 'from a public explorer' }),
     cardHtml({
       k: 'Proven to', v: st.attested == null ? '—' : int(st.attested), u: st.attested == null ? '' : 'block', attn: far,
-      m: lag == null ? 'not read just now' : lag <= 0 ? 'caught up with the relay' : `${plural(lag, 'block')} the relay has confirmed, not yet proven`,
+      m: lag == null ? 'not read yet' : lag <= 0 ? 'caught up with the relay' : `${plural(lag, 'block')} the relay has confirmed, not yet proven`,
     }),
-    cardHtml({ k: 'Bridge deposits', v: st.burnDeposits == null ? '—' : int(st.burnDeposits), m: 'Bitcoin→Ethereum deposits the proofs have recorded' }),
+    cardHtml({ k: 'Bridge deposits', v: st.burnDeposits == null ? '—' : int(st.burnDeposits), m: 'Deposits from Bitcoin recorded by the proofs' }),
   ].join('');
   $('#asof').textContent = `As of ${new Date().toLocaleTimeString('en-GB')} · a block can be proven once it is ${st.confirmations} deep`;
   $('#ancestry-callout').hidden = !far;
@@ -600,7 +600,7 @@ async function refresh() {
   return st;
 }
 function readFailed(e) {
-  $('#asof').innerHTML = 'Could not read the relay just now. <button class="link" type="button" id="retry">Read again</button>';
+  $('#asof').innerHTML = 'Could not read the relay. <button class="link" type="button" id="retry">Try again</button>';
   $('#retry').addEventListener('click', () => { $('#asof').textContent = 'Reading the relay…'; refresh().catch(readFailed); });
   $('#plan-box').innerHTML = '<p>The plan appears once the relay is read.</p>';
   if (e) toast(errText(e), true);
@@ -620,13 +620,13 @@ function paintPlan(st, pl) {
   } else {
     can = true;
     const txs = Math.ceil(pl.pending / advance.MAX_BATCH);
-    let what = `${plural(pl.pending, 'header')} to send, blocks ${int(pl.from)}–${int(pl.to)}`;
+    let what = `${plural(pl.pending, 'header')} to send, blocks ${int(pl.from)} to ${int(pl.to)}`;
     if (need != null) what += pl.to >= need ? `, to reach block ${int(need)}, the height ${forWhat()} needs.` : `. ${forWhat()[0].toUpperCase() + forWhat().slice(1)} needs block ${int(need)}: the relay stays 2 blocks behind Bitcoin’s tip, so the rest can follow after ${plural(need - pl.to, 'more Bitcoin block')}.`;
     else what += '.';
     lines.push(what);
     if (pl.useless && need == null) lines.push(`The relay already confirms Bitcoin to block ${int(proven)}, past the proven block ${int(st.attested)}, so the next proof isn’t waiting on it. Advancing now readies the ones after it.`);
     const eth = ethFor(advanceGas(pl.pending, txs));
-    lines.push(`${plural(txs, 'transaction')}${eth ? `, about ${eth} ETH in gas at the current price` : ''}. Your wallet shows the exact fee before you confirm.`);
+    lines.push(`${plural(txs, 'transaction')}${eth ? `, about ${eth} ETH in network fees at the current price` : ''}. Your wallet shows the exact fee before you confirm.`);
   }
   box.innerHTML = lines.map((l) => `<p>${esc(l)}</p>`).join('');
   if (btn.getAttribute('aria-busy') === 'true') return;   // a run in progress keeps its button
@@ -659,26 +659,26 @@ async function doAdvance() {
       onBatches: (bs) => {
         batches = bs;
         strip.innerHTML = stripHtml(bs); strip.hidden = false; stripSet(0, 'done');
-        rows.innerHTML = bs.map((b, i) => `<tr id="brow-${i}"><td>${i + 1}</td><td>${int(b.from)}–${int(b.to)}</td><td>waiting</td></tr>`).join('');
+        rows.innerHTML = bs.map((b, i) => `<tr id="brow-${i}"><td>${i + 1}</td><td>${int(b.from)} to ${int(b.to)}</td><td>waiting</td></tr>`).join('');
         $('#batch-table').hidden = false;
-        out.textContent = bs.length > 1 ? `Your wallet asks you to confirm ${bs.length} transactions, one a batch.` : 'Confirm the transaction in your wallet.';
+        out.textContent = bs.length > 1 ? `Your wallet asks you to confirm ${bs.length} transactions, one per batch.` : 'Confirm the transaction in your wallet.';
       },
       onProgress: (p) => {
         at = batches.findIndex((b) => b.from === p.from && b.to === p.to);
         const cell = row(at);
         if (p.skipped) { stripSet(at + 1, 'done'); if (cell) cell.textContent = 'already on chain'; return; }
-        if (p.sending && !p.txHash) { stripSet(at + 1, 'now'); if (cell) cell.textContent = 'confirm in wallet'; return; }
+        if (p.sending && !p.txHash) { stripSet(at + 1, 'now'); if (cell) cell.textContent = 'confirm in your wallet'; return; }
         if (p.txHash && cell) cell.innerHTML = txLink(p.txHash, 'confirming');
       },
     });
-    if (result.action !== 'advance') { out.textContent = 'Nothing to advance now: the relay moved since this page read it.'; toast('Nothing to advance right now.'); return; }
+    if (result.action !== 'advance') { out.textContent = 'Nothing to advance now: the relay moved since this page read it.'; toast('Nothing to advance.'); return; }
     stripSet(batches.length + 1, 'done');
     if (!result.sent.length) { out.textContent = `The relay reached block ${int(result.to)} before your batches went out, so nothing was sent.`; toast('Nothing to send'); return; }
     out.textContent = `The relay now has block ${int(result.to)}. Tacit’s prover looks for a new batch every 5 minutes; the next proof can cover Bitcoin to block ${int(result.to - result.confirmations)}.`;
     toast('Header relay advanced');
   } catch (e) {
     if (at >= 0) { stripSet(at + 1, 'bad'); const cell = row(at); if (cell && !/landed/.test(cell.textContent)) cell.textContent = 'stopped'; }
-    out.textContent = batches.length > 1 ? `Stopped at batch ${at + 1} of ${batches.length}${done ? `; ${plural(done, 'batch', 'batches')} before it landed` : ''}.` : '';
+    out.textContent = batches.length > 1 ? `Stopped at batch ${at + 1} of ${batches.length}${done ? `. ${plural(done, 'batch', 'batches')} landed before it` : ''}.` : '';
     throw e;
   } finally {
     refresh().catch(() => {});
@@ -693,7 +693,7 @@ async function paintAncestry(st) {
   const calls = ancestryCalls(st.reflectionLag);
   const say = () => {
     const eth = ancestryGas != null ? ethFor(ancestryGas) : null;
-    $('#anc-plan').textContent = `This gap takes ${plural(calls, 'call')}${eth ? `, about ${eth} ETH in gas each at the current price` : ''}.`;
+    $('#anc-plan').textContent = `This gap takes ${plural(calls, 'call')}${eth ? `, about ${eth} ETH each in network fees at the current price` : ''}.`;
   };
   say();
   try { ancestryGas = BigInt(await rpc('eth_estimateGas', [{ to: POOL, data: SEL_ADVANCE_ANCESTRY }])); say(); } catch {}
@@ -707,7 +707,7 @@ async function doAncestry() {
   const calls = ancestryCalls(st.reflectionLag);
   // Run it first: a call the pool refuses costs gas to find out, and the node tells us for free.
   try { await rpc('eth_call', [{ from: S.address, to: POOL, data: SEL_ADVANCE_ANCESTRY }, 'latest']); }
-  catch (e) { throw new Error(`The pool would not take this call right now: ${errText(e)}`); }
+  catch (e) { throw new Error(`The pool would not take this call, so nothing was sent: ${errText(e)}`); }
   const est = BigInt(await rpc('eth_estimateGas', [{ from: S.address, to: POOL, data: SEL_ADVANCE_ANCESTRY }]));
   out.textContent = 'Confirm the transaction in your wallet.';
   let txHash;
@@ -715,7 +715,7 @@ async function doAncestry() {
   catch (e) { out.textContent = ''; throw e; }
   out.innerHTML = `Sent ${txLink(txHash, short(txHash, 8))}. Waiting for it to land…`;
   const rcpt = await waitReceipt(txHash);
-  if (!landed(rcpt)) { out.innerHTML = `Reverted: ${txLink(txHash, short(txHash, 8))}.`; refresh().catch(() => {}); throw new Error('The call reverted on chain; the figures above are read again.'); }
+  if (!landed(rcpt)) { out.innerHTML = `Reverted: ${txLink(txHash, short(txHash, 8))}.`; refresh().catch(() => {}); throw new Error('The call reverted. Nothing was lost but its network fee.'); }
   out.innerHTML = `Landed: ${txLink(txHash, short(txHash, 8))}. ${calls > 1 ? `This gap takes ${plural(calls, 'call')}: ${plural(calls - 1, 'more carries', 'more carry')} the walk to the checkpoint.` : 'The checkpoint is set, and the next proof builds on it.'}`;
   toast('advanceReflectionAncestry() landed');
   refresh().catch(() => {});
@@ -743,13 +743,13 @@ async function refreshProof() {
       rpc('eth_call', [{ to: POOL, data: SEL_ATTESTED_DIGEST }, 'latest']),
     ]);
     rec = r && r.proof; onchain = String(d || '').toLowerCase();
-  } catch { return none('Could not read the latest proof just now. The page reads it again every minute.'); }
+  } catch { return none('Could not read the latest proof. The page tries again every minute.'); }
   if (!rec) return none('No proof is waiting. Tacit’s prover submits each one itself, usually within minutes of making it.');
   if (!WORD.test(rec.priorDigest) || !HEX_BYTES.test(rec.publicValues) || !HEX_BYTES.test(rec.proof)) return none('The published proof is not in the form the pool takes, so it is not offered.');
   if (rec.priorDigest.toLowerCase() !== onchain) return none(`The latest published proof (Bitcoin to block ${int(rec.attestedTo)}) is already on chain, or builds on a state the pool has moved past. Nothing to submit.`);
   const mins = Number.isFinite(rec.at) ? Math.max(0, Math.round((Date.now() - rec.at) / 60000)) : null;
   const eth = ethFor(ATTEST_GAS);
-  box.innerHTML = `<p><b>A proof is ready</b> for Bitcoin to block ${esc(int(rec.attestedTo))}${mins == null ? '' : `, published ${mins < 1 ? 'just now' : `${esc(int(mins))} min ago`}`}, and it is not on chain yet.</p><p>Submitting it takes about 0.5–0.6 million gas${eth ? `, about ${esc(eth)} ETH at the current price` : ''}.</p>`;
+  box.innerHTML = `<p><b>A proof is ready</b> for Bitcoin to block ${esc(int(rec.attestedTo))}${mins == null ? '' : `, published ${mins < 1 ? 'just now' : `${esc(int(mins))} min ago`}`}, and it is not on chain yet.</p><p>Submitting it takes about 0.5 to 0.6 million gas${eth ? `, about ${esc(eth)} ETH in network fees at the current price` : ''}.</p>`;
   btn.disabled = false; readyProof = rec;
   return rec;
 }
@@ -766,7 +766,7 @@ async function doSubmitProof() {
   catch (e) {
     const m = String(e?.message || e);
     const reason = /e677decb/i.test(m) ? 'the pool has already moved past this batch' : /d3897419/i.test(m) ? 'the header relay has not confirmed this batch yet' : errText(e);
-    throw new Error(`The pool would not accept this proof right now: ${reason}.`);
+    throw new Error(`The pool would not accept this proof, so nothing was sent: ${reason}.`);
   }
   const est = BigInt(await rpc('eth_estimateGas', [{ from: S.address, to: POOL, data }]));
   out.textContent = 'Confirm the transaction in your wallet.';
@@ -775,7 +775,7 @@ async function doSubmitProof() {
   catch (e) { out.textContent = ''; throw e; }
   out.innerHTML = `Sent ${txLink(txHash, short(txHash, 8))}. Waiting for it to land…`;
   const rcpt = await waitReceipt(txHash);
-  if (!landed(rcpt)) { out.innerHTML = `Reverted: ${txLink(txHash, short(txHash, 8))}.`; refreshProof().catch(() => {}); throw new Error('The transaction reverted: another wallet may have landed this proof first.'); }
+  if (!landed(rcpt)) { out.innerHTML = `Reverted: ${txLink(txHash, short(txHash, 8))}.`; refreshProof().catch(() => {}); throw new Error('The transaction reverted: another wallet may have landed this proof first. Nothing was lost but its network fee.'); }
   out.innerHTML = `Landed: ${txLink(txHash, short(txHash, 8))}. Bitcoin is proven on Ethereum to block ${esc(int(rec.attestedTo))}; bridge deposits up to there can now mint.`;
   toast('Proof submitted');
   refresh().catch(() => {}); refreshProof().catch(() => {});

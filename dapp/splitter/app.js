@@ -18,7 +18,7 @@ const KNOWN = new Map([
   [OPS_MULTISIG.toLowerCase(), ['Ops multisig', 'owns the pool, the farms and this splitter']],
   [DEPLOYER.toLowerCase(), ['Deployer wallet', 'headers and attests: keeps Bitcoin’s state on Ethereum current']],
   [SETTLE.toLowerCase(), ['Settle wallet', 'settles relayed requests']],
-  [BUYBACK.toLowerCase(), ['TAC buyback', 'turns its ETH into TAC for the reserve, hourly']],
+  [BUYBACK.toLowerCase(), ['TAC buyback', 'turns its ETH into TAC for the reserve, at most once every six hours']],
 ]);
 // 10% to the buyback, then the other 90% as 70 : 30 between the wallets that run the relay (63 : 27).
 const START_ROWS = [[DEPLOYER, '63'], [SETTLE, '27'], [BUYBACK, '10']];
@@ -68,8 +68,8 @@ async function waitReceipt(hash, ms = 20 * 60e3) {
   const end = Date.now() + ms;
   for (;;) {
     const r = await rpc('eth_getTransactionReceipt', [hash]).catch(() => null);
-    if (r) { if (r.status !== '0x1') throw new Error('The transaction failed on chain.'); return r; }
-    if (Date.now() > end) throw new Error('Still not mined after twenty minutes. Check the transaction on Etherscan.');
+    if (r) { if (r.status !== '0x1') throw new Error('The transaction failed.'); return r; }
+    if (Date.now() > end) throw new Error('Not confirmed after 20 minutes. It can still land: check the transaction on Etherscan.');
     await new Promise((res) => setTimeout(res, 4000));
   }
 }
@@ -94,7 +94,7 @@ async function sendTx(tx) {
   await ensureChain();
   return provider().request({ method: 'eth_sendTransaction', params: [{ from: S.account, ...tx }] });
 }
-const walletWords = (e) => (e?.code === 4001 || /user (rejected|denied)/i.test(e?.message || '') ? 'Cancelled in the wallet.' : String(e?.message || e).slice(0, 240));
+const walletWords = (e) => (e?.code === 4001 || /user (rejected|denied)/i.test(e?.message || '') ? 'Cancelled in your wallet.' : String(e?.message || e).slice(0, 240));
 
 // ── state ──
 const S = { addr: null, account: null, owner: null, shares: null, balance: 0n, block: 0, recip: [], quote: null, logs: [], err: null, rows: null, dirty: false, deploy: { owner: OPS_MULTISIG, rows: START_ROWS.map((r) => [...r]), ownerOk: false }, gas: null };
@@ -117,7 +117,7 @@ async function load() {
     if (!S.dirty) S.rows = S.shares.to.map((a, i) => [a, String(S.shares.weight[i])]);
   } catch (e) {
     S.shares = null;
-    S.err = e.message === 'empty' || e.revert ? 'No splitter answers at that address.' : 'Could not read that address just now. Try again in a moment.';
+    S.err = e.message === 'empty' || e.revert ? 'No splitter answers at that address.' : 'Could not read that address. Try again in a moment.';
   }
   paint();
   loadExtras();
@@ -140,7 +140,7 @@ async function busy(btn, out, fn) {
   try { await fn((t, c) => say(out, t, c)); } catch (e) { say(out, walletWords(e), 'err'); } finally { btn.removeAttribute('aria-busy'); btn.disabled = false; }
 }
 function copy(text, el) {
-  const done = () => { const was = el.textContent; el.textContent = 'copied'; setTimeout(() => { el.textContent = was; }, 1200); };
+  const done = () => { const was = el.textContent; el.textContent = 'Copied'; setTimeout(() => { el.textContent = was; }, 1200); };
   (navigator.clipboard?.writeText(text) || Promise.reject()).then(done, () => {
     const t = h('textarea', { style: 'position:fixed;opacity:0' }); t.value = text; document.body.append(t); t.select();
     try { document.execCommand('copy'); done(); } catch { /* the text is on screen too */ } t.remove();
@@ -157,14 +157,14 @@ function editor(rows, { balance = 0n, onChange }) {
     pcs.forEach((el, i) => {
       const r = rows[i];
       el.textContent = !isAddress(r[0]) ? 'Paste the address.'
-        : [nameOf(r[0]) || 'Not a known tacit wallet', ws[i] > 0n ? ` · ${percent(ws, i)}%` : ' · –', balance > 0n && ws[i] > 0n ? ` · ${fmtEth(pay[i])} ETH of what waits` : ''].join('');
+        : [nameOf(r[0]) || 'Not a known Tacit wallet', ws[i] > 0n ? ` · ${percent(ws, i)}%` : ' · –', balance > 0n && ws[i] > 0n ? ` · ${fmtEth(pay[i])} ETH of what waits` : ''].join('');
     });
   };
   rows.forEach((r, i) => {
     const pc = h('div', { class: 'pc' }); pcs.push(pc);
     wrap.append(h('div', { class: 'row' },
       h('input', { type: 'text', value: r[0], spellcheck: 'false', 'aria-label': `Wallet ${i + 1}`, placeholder: '0x…', oninput: (e) => { r[0] = e.target.value.trim(); refresh(); onChange(false); } }),
-      h('input', { type: 'text', inputmode: 'numeric', value: r[1], 'aria-label': `Weight of wallet ${i + 1}`, placeholder: 'weight', oninput: (e) => { r[1] = e.target.value; refresh(); onChange(false); } }),
+      h('input', { type: 'text', inputmode: 'numeric', value: r[1], 'aria-label': `Weight of wallet ${i + 1}`, placeholder: 'Weight', oninput: (e) => { r[1] = e.target.value; refresh(); onChange(false); } }),
       h('button', { type: 'button', 'aria-label': `Remove wallet ${i + 1}`, disabled: rows.length < 2, onclick: () => { rows.splice(i, 1); onChange(true); } }, '\u00d7'),
       pc));
   });
@@ -204,13 +204,13 @@ function paintState() {
   const el = $('#p-state');
   if (!S.addr) { el.hidden = true; return; }
   el.hidden = false;
-  if (!S.shares) { mount(el, h('p', { class: 'eyebrow' }, 'Splitter'), h('p', { class: S.err ? 'err' : 'mute' }, S.err || 'Reading…')); return; }
+  if (!S.shares) { mount(el, h('p', { class: 'eyebrow' }, 'Splitter'), h('p', { class: S.err ? 'err' : 'mute' }, S.err || 'Loading…')); return; }
   const { to, weight } = S.shares, pay = payouts(S.balance, weight), out = OUT.state;
   const go = h('button', { class: 'btn', type: 'button', disabled: S.balance === 0n }, S.balance === 0n ? 'Nothing to send on' : 'Send it on');
   go.addEventListener('click', () => busy(go, out, async (say_) => {
     say_('Confirm in your wallet…');
     const tx = await sendTx({ to: S.addr, data: encDistribute() });
-    say_(h('span', {}, 'Sent. ', scan(`tx/${tx}`, short(tx, 8)), ' · waiting for it to be mined…'));
+    say_(h('span', {}, 'Sent ', scan(`tx/${tx}`, short(tx, 8)), '. Waiting for it to land…'));
     await waitReceipt(tx);
     say_(h('span', { class: 'ok' }, 'Sent on. ', scan(`tx/${tx}`, short(tx, 8))));
     await load();
@@ -257,7 +257,7 @@ function paintEdit() {
     }
     say_('Confirm the new list in your wallet…');
     const t2 = await sendTx({ to: S.addr, data: encSetShares(to, weight) });
-    say_(h('span', {}, 'Sent. ', scan(`tx/${t2}`, short(t2, 8)), ' · waiting for it to be mined…'));
+    say_(h('span', {}, 'Sent ', scan(`tx/${t2}`, short(t2, 8)), '. Waiting for it to land…'));
     await waitReceipt(t2);
     S.dirty = false;
     say_(h('span', { class: 'ok' }, 'The list is changed. ', scan(`tx/${t2}`, short(t2, 8))));
@@ -265,10 +265,10 @@ function paintEdit() {
   }));
   const sb = safeBox(rows, out);
   mount(el,
-    h('p', { class: 'eyebrow' }, h('span', {}, 'Change who is paid'), h('button', { class: 'linkbtn', type: 'button', onclick: () => { S.dirty = false; S.rows = S.shares.to.map((a, i) => [a, String(S.shares.weight[i])]); paintEdit(); } }, 'start again')),
+    h('p', { class: 'eyebrow' }, h('span', {}, 'Change who is paid'), h('button', { class: 'linkbtn', type: 'button', onclick: () => { S.dirty = false; S.rows = S.shares.to.map((a, i) => [a, String(S.shares.weight[i])]); paintEdit(); } }, 'Start again')),
     ed,
-    h('button', { class: 'linkbtn', type: 'button', disabled: rows.length >= MAX_RECIPIENTS, onclick: () => { rows.push(['', '1']); S.dirty = true; paintEdit(); } }, rows.length >= MAX_RECIPIENTS ? 'Eight wallets is the most' : '+ add a wallet'),
-    h('p', { class: 'note' }, 'Weights are plain numbers: 7 and 3, or 70 and 30, both pay 70% and 30%. What is paid is worked out when the balance is sent on, so the new list applies to what has not been sent yet.'),
+    h('button', { class: 'linkbtn', type: 'button', disabled: rows.length >= MAX_RECIPIENTS, onclick: () => { rows.push(['', '1']); S.dirty = true; paintEdit(); } }, rows.length >= MAX_RECIPIENTS ? 'Eight wallets is the most' : '+ Add a wallet'),
+    h('p', { class: 'note' }, 'Weights are plain numbers: 7 and 3, or 70 and 30, both pay 70% and 30%. Payouts are worked out when the balance is sent on, so the new list applies to what has not been sent yet.'),
     hint, go, out,
     ownerNote,
     sb);
@@ -299,10 +299,10 @@ function paintRelay() {
   el.hidden = false;
   const w = j.chain.wallets, l = j.ledger, wk = l && l.week, cfg = (l && l.cfg) || {};
   const perSettle = wk && wk.settled > 0 && wk.gasEth > 0 ? wk.gasEth / wk.settled : null;
-  const left = (eth) => (perSettle && eth != null ? ` · about ${Math.floor(eth / perSettle)} settles of gas` : '');
+  const left = (eth) => (perSettle && eth != null ? ` · enough for about ${Math.floor(eth / perSettle)} settles` : '');
   const row = (k, v) => h('div', { class: 'kv' }, h('span', {}, k), h('b', { class: 'num' }, v));
   mount(el,
-    h('p', { class: 'eyebrow' }, h('span', {}, 'The relay’s wallets'), h('a', { href: '/relay/' }, 'public page')),
+    h('p', { class: 'eyebrow' }, h('span', {}, 'The relay’s wallets'), h('a', { href: '/relay/' }, 'Public page →')),
     h('div', { class: 'rows' },
       row('Settle wallet', `${ethFmt(w.settle.eth)} ETH${left(w.settle.eth)}`),
       row('Deployer wallet', `${ethFmt(w.relay.eth)} ETH`),
@@ -310,14 +310,14 @@ function paintRelay() {
     h('div', { class: 'rows' },
       row('Buyback share of fee income', cfg.buybackBps ? `${cfg.buybackBps / 100}%` : 'off'),
       row('Settle wallet keeps before paying it', cfg.buybackKeepEth != null ? `${ethFmt(cfg.buybackKeepEth)} ETH` : '–'),
-      row('Owed, to be paid when it can', l ? `${ethFmt(l.owedEth)} ETH` : '–'),
-      row('Splitter sent on by the relay', cfg.splitter ? `${wk ? wk.splitterSends : 0} times this week` : 'not set (SPLITTER_ADDR)')),
+      row('Carried to the next pass', l ? `${ethFmt(l.owedEth)} ETH` : '–'),
+      row('Splitter sent on by the relay', cfg.splitter ? `${wk ? wk.splitterSends : 0} ${wk && wk.splitterSends === 1 ? 'time' : 'times'} this week` : 'not set (SPLITTER_ADDR)')),
     j.sponsorship ? h('div', { class: 'rows' },
       row('Sponsored settles today', `${j.sponsorship.total.used} of ${j.sponsorship.total.cap}`),
-      j.sponsorship.cheapGas ? row('  Allowances open while gas is cheap', j.sponsorship.cheapGas.on ? `on (gas ${j.sponsorship.cheapGas.gwei} gwei, under ${j.sponsorship.cheapGas.limit}): bridge, cBTC and cUSD ops have no daily limit, the rest ×${j.sponsorship.cheapGas.mult}`
-        : j.sponsorship.cheapGas.limit ? `off (gas ${j.sponsorship.cheapGas.gwei ?? 'unread'} gwei; opens under ${j.sponsorship.cheapGas.limit})` : 'off (FREE_RELAY_CHEAP_GWEI is 0)') : null,
+      j.sponsorship.cheapGas ? row('  Allowances open while network fees are low', j.sponsorship.cheapGas.on ? `on (network fee ${j.sponsorship.cheapGas.gwei} gwei, under ${j.sponsorship.cheapGas.limit}): bridge, cBTC and cUSD ops have no daily limit, the rest ${j.sponsorship.cheapGas.mult}×`
+        : j.sponsorship.cheapGas.limit ? `off (network fee ${j.sponsorship.cheapGas.gwei ?? 'unread'} gwei; opens under ${j.sponsorship.cheapGas.limit})` : 'off (FREE_RELAY_CHEAP_GWEI is 0)') : null,
       Object.entries({ bridge: 'bridge mints', onboard: 'cBTC mints', cusd: 'cUSD loans, repayments, top-ups', farm: 'farm harvests and unbonds', wrap: 'wraps with no tip', other: 'other' }).map(([k, label]) => { const c = j.sponsorship.classes[k]; return row(`  ${label}`, c.cap == null ? `${c.used}, no limit` : `${c.used} of ${c.cap}${c.used >= c.cap ? ' (used up)' : ''}`); })) : null,
-    h('p', { class: 'note' }, l && l.stale ? 'The relay has not reported for a few minutes.' : 'The buyback and splitter settings are on the settle service (BUYBACK_INCOME_BPS, BUYBACK_KEEP_WEI, BUYBACK_MIN_SEND_WEI, SPLITTER_ADDR, SPLITTER_MIN_WEI) and take effect on its next pass; the sponsored-settle limits are on the API (FREE_RELAY_DAILY_CAP, FREE_RELAY_CAP_ONBOARD, _FARM, _WRAP, _OTHER).'));
+    h('p', { class: 'note' }, l && l.stale ? 'These figures are as of the relay’s last report.' : 'The buyback and splitter settings are on the settle service (BUYBACK_INCOME_BPS, BUYBACK_KEEP_WEI, BUYBACK_MIN_SEND_WEI, SPLITTER_ADDR, SPLITTER_MIN_WEI) and take effect on its next pass; the sponsored-settle limits are on the API (FREE_RELAY_DAILY_CAP, FREE_RELAY_CAP_ONBOARD, _FARM, _WRAP, _OTHER).'));
 }
 async function loadRelay() {
   try { RELAY.j = await (await fetch(`${API}/relay/economics`, { cache: 'no-store', signal: AbortSignal.timeout(15000) })).json(); } catch { /* the panel stays as it was */ }
@@ -332,17 +332,17 @@ function paintDeploy() {
     const p = bad();
     hint.textContent = p || ''; go.disabled = !!p || !D.ownerOk; dataBtn.disabled = !!p;
     if (!p) { const { to, weight } = rowsArgs(D.rows); dataBtn.dataset.data = deployData(SPLITTER_INITCODE, D.owner, to, weight); }
-    ownerName.textContent = isAddress(D.owner) ? (nameOf(D.owner) || 'not a known tacit wallet') : '';
+    ownerName.textContent = isAddress(D.owner) ? (nameOf(D.owner) || 'Not a known Tacit wallet') : '';
   };
   const ed = editor(D.rows, { balance: 0n, onChange: (structural) => { if (structural) paintDeploy(); else check(); } });
   const go = h('button', { class: 'btn', type: 'button' }, S.account ? 'Deploy' : 'Connect a wallet and deploy');
-  const dataBtn = h('button', { class: 'linkbtn', type: 'button', onclick: (e) => copy(e.target.dataset.data, e.target) }, 'copy the deploy data');
+  const dataBtn = h('button', { class: 'linkbtn', type: 'button', onclick: (e) => copy(e.target.dataset.data, e.target) }, 'Copy the deploy data');
   const ownerName = h('span', { class: 'mute' });
   go.addEventListener('click', () => busy(go, out, async (say_) => {
     const { to, weight } = rowsArgs(D.rows);
     say_('Confirm the deploy in your wallet…');
     const tx = await sendTx({ data: deployData(SPLITTER_INITCODE, D.owner, to, weight) });
-    say_(h('span', {}, 'Sent. ', scan(`tx/${tx}`, short(tx, 8)), ' · waiting for it to be mined…'));
+    say_(h('span', {}, 'Sent ', scan(`tx/${tx}`, short(tx, 8)), '. Waiting for it to land…'));
     const rc = await waitReceipt(tx);
     if (!isAddress(rc.contractAddress)) throw new Error('The transaction did not create a contract.');
     S.addr = rc.contractAddress; S.dirty = false; S.rows = null; D.ownerOk = false;
@@ -351,7 +351,7 @@ function paintDeploy() {
     say_(h('span', { class: 'ok' }, 'Deployed at ', scan(`address/${S.addr}`, S.addr), '.'));
     await load();
   }));
-  const cost = S.gas ? `About ${Number(DEPLOY_GAS).toLocaleString('en-US')} gas to deploy: ${ethFmt(Number(DEPLOY_GAS * S.gas) / 1e18)} ETH at today’s gas.` : `About ${Number(DEPLOY_GAS).toLocaleString('en-US')} gas to deploy.`;
+  const cost = S.gas ? `About ${Number(DEPLOY_GAS).toLocaleString('en-US')} gas to deploy: ${ethFmt(Number(DEPLOY_GAS * S.gas) / 1e18)} ETH in network fees today.` : `About ${Number(DEPLOY_GAS).toLocaleString('en-US')} gas to deploy.`;
   mount(el,
     h('p', { class: 'eyebrow' }, h('span', {}, fresh ? 'Deploy the splitter' : 'Deploy another')),
     fresh ? h('ul', { class: 'what' },
@@ -363,8 +363,8 @@ function paintDeploy() {
     h('p', { class: 'note' }, ownerName),
     h('span', { class: 'lbl' }, 'Who is paid, and in what proportion'),
     ed,
-    h('button', { class: 'linkbtn', type: 'button', disabled: D.rows.length >= MAX_RECIPIENTS, onclick: () => { D.rows.push(['', '1']); paintDeploy(); } }, '+ add a wallet'),
-    h('label', { class: 'tick' }, h('input', { type: 'checkbox', id: 'dep-ok', checked: D.ownerOk, onchange: (e) => { D.ownerOk = e.target.checked; check(); } }), h('span', {}, 'The owner address is right. Whoever owns it can redirect every tip, and the wallet that sends the deploy only pays its gas.')),
+    h('button', { class: 'linkbtn', type: 'button', disabled: D.rows.length >= MAX_RECIPIENTS, onclick: () => { D.rows.push(['', '1']); paintDeploy(); } }, '+ Add a wallet'),
+    h('label', { class: 'tick' }, h('input', { type: 'checkbox', id: 'dep-ok', checked: D.ownerOk, onchange: (e) => { D.ownerOk = e.target.checked; check(); } }), h('span', {}, 'The owner address is right. Whoever owns it can redirect every tip, and the wallet that sends the deploy only pays its network fee.')),
     h('p', { class: 'note' }, cost),
     hint, go, h('div', {}, dataBtn), out);
   const tick = $('#dep-ok', el);
@@ -378,13 +378,13 @@ function paintNext() {
   const mine = st.args && lc(st.addr) === lc(S.addr);
   const lines = { verify: `forge verify-contract ${S.addr} src/EthSplitter.sol:EthSplitter --chain mainnet --compiler-version 0.8.37 --num-of-optimizations 1 --via-ir --evm-version prague${mine ? ` --constructor-args 0x${st.args}` : ' --constructor-args <the hex from the deploy>'} --watch`,
     api: `RELAY_TIP_SPLITTER_ADDR=${S.addr}\nSPLITTER_ADDR=${S.addr}`, settle: `SPLITTER_ADDR=${S.addr}` };
-  const copyBlock = (key, label, text) => h('div', { class: 'cmd' }, h('div', { class: 'cmd-h' }, h('span', { class: 'mute' }, label), h('button', { class: 'linkbtn', type: 'button', onclick: (e) => copy(text, e.target) }, 'copy')), h('pre', {}, text));
+  const copyBlock = (key, label, text) => h('div', { class: 'cmd' }, h('div', { class: 'cmd-h' }, h('span', { class: 'mute' }, label), h('button', { class: 'linkbtn', type: 'button', onclick: (e) => copy(text, e.target) }, 'Copy')), h('pre', {}, text));
   mount(el,
     h('p', { class: 'eyebrow' }, 'Switching the tips over'),
     h('ol', { class: 'steps' },
       h('li', {}, h('b', {}, 'Verify it on Etherscan. '), 'From the repo’s contracts folder, with your Etherscan key in the environment (compiler 0.8.37, optimizer 1 run, via IR, EVM prague):', copyBlock('verify', 'forge', lines.verify)),
-      h('li', {}, h('b', {}, 'Point the tips here. '), 'On the API service on Render set these two. The relay’s quote then names the splitter in a separate field, Tacit’s own pages tip it, and the relay counts a tip paid to it or to the ops multisig as paid. The multisig stays the quote’s recipient, so a page that pinned it keeps working unchanged.', copyBlock('api', 'tacit-api', lines.api)),
-      h('li', {}, h('b', {}, 'Let the relay send it on. '), 'On the settle service set this; its next pass (every 30 minutes) sends the splitter on once it holds 0.0005 ETH.', copyBlock('settle', 'tacit-settle', lines.settle)),
+      h('li', {}, h('b', {}, 'Point the tips here. '), 'On the API service on Render, set these two. The relay’s quote then names the splitter in a separate field. Tacit’s own pages tip it, and the relay counts a tip paid to it or to the ops multisig as paid. The multisig stays the quote’s recipient, so a page that pinned it keeps working unchanged.', copyBlock('api', 'tacit-api', lines.api)),
+      h('li', {}, h('b', {}, 'Let the relay send it on. '), 'On the settle service, set this. Its next pass (every 30 minutes) sends the splitter on once it holds 0.0005 ETH.', copyBlock('settle', 'tacit-settle', lines.settle)),
       h('li', {}, h('b', {}, 'Pinned pages. '), 'A page that pays the ops multisig directly (an integrator’s, say) still can: its tips reach the multisig as before, and only a page that reads the new field tips the splitter.')));
 }
 

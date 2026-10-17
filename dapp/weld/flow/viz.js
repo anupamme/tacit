@@ -260,7 +260,7 @@ export function mountFlow(host, { api = 'https://api.tacit.finance', compact = f
   const el = (tag, cls, text) => { const e = doc.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const root = el('div', `fl${compact ? ' fl-c' : ''}`);
   root.setAttribute('role', 'group'); root.setAttribute('aria-label', 'Bitcoin and Ethereum, kept in step');
-  const top = el('div', 'fl-top'), modes = el('div', 'fl-mode'), clock = el('span', 'fl-clock', 'reading…');
+  const top = el('div', 'fl-top'), modes = el('div', 'fl-mode'), clock = el('span', 'fl-clock', 'loading…');
   modes.setAttribute('role', 'tablist'); modes.setAttribute('aria-label', 'View');
   const modeBtn = (m, label) => { const b = el('button', '', label); b.type = 'button'; b.setAttribute('role', 'tab'); b.dataset.flm = m; return b; };
   const bLive = modeBtn('live', 'Live'), bReplay = modeBtn('replay', 'Last 24 h');
