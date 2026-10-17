@@ -23,9 +23,9 @@
 <link rel="preload" href="/fonts/ibm-plex-mono-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-mono-500-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
-<!-- preload-roots: /swap/app.js -->
+<!-- preload-roots: /swap/app.js | | /confidential-pool-ux.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/swap/app.js?cb=c61e5bf9">
+<link rel="modulepreload" href="/swap/app.js?cb=b65b0258">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=a08631ce">
 <link rel="modulepreload" href="/trade/connect.js?cb=b0beb322">
@@ -43,6 +43,9 @@
 @font-face { font-family: 'IBM Plex Mono'; font-weight: 500; font-display: swap; src: url('/fonts/ibm-plex-mono-500-latin.woff2') format('woff2'); }
 @font-face { font-family: 'Instrument Serif'; font-weight: 400; font-display: swap; src: url('/fonts/instrument-serif-400-latin.woff2') format('woff2'); }
 @font-face { font-family: 'Instrument Serif'; font-weight: 400; font-style: italic; font-display: swap; src: url('/fonts/instrument-serif-400i-latin.woff2') format('woff2'); }
+/* Georgia scaled to Instrument Serif's width and line metrics, shown until the font arrives, so the swap moves nothing */
+@font-face { font-family: 'Instrument Serif Fallback'; src: local('Georgia'); size-adjust: 75.5%; ascent-override: 131%; descent-override: 41%; line-gap-override: 0%; }
+@font-face { font-family: 'Instrument Serif Fallback'; font-style: italic; src: local('Georgia Italic'), local('Georgia-Italic'); size-adjust: 80.5%; ascent-override: 128%; descent-override: 40%; line-gap-override: 0%; }
 
 :root {
   --paper: #E8E0CC; --card: #F2EBD4; --field: #FAF6EA;
@@ -54,7 +57,7 @@
   --float: 0 1px 2px rgba(26,26,26,.06), 0 30px 60px -32px rgba(26,26,26,.5);
   --skel: rgba(26,26,26,.08);
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --serif: 'Instrument Serif', Georgia, serif;
+  --serif: 'Instrument Serif', 'Instrument Serif Fallback', Georgia, serif;
   --tap: 44px;
   --ease: cubic-bezier(.2, .8, .2, 1);
   --spring: cubic-bezier(.34, 1.56, .64, 1);
@@ -135,6 +138,7 @@ img.tk { object-fit: contain; }
 .f:focus-within { border-color: var(--ink); }
 .f.priv { border-style: dashed; border-color: var(--hair-2); }
 .fh, .ff { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px 10px; min-height: 22px; font-size: 12px; color: var(--mute); }
+.ff { min-height: 28px; }                                              /* the quick amounts' row, drawn by the script */
 .fh .where { display: inline-flex; align-items: center; gap: 6px; }
 .fh .where.priv::before { content: ''; width: 8px; height: 9px; border: 1.5px dashed currentColor; border-radius: 2px; }
 .fm { display: flex; align-items: center; gap: 12px; min-height: 58px; margin: 2px 0; }
@@ -188,6 +192,9 @@ img.tk { object-fit: contain; }
 .rcpt dd.warn { color: var(--warn); } .rcpt dd.ok { color: var(--ok); } .rcpt dd.err { color: var(--err); }
 .ack { display: flex; gap: 10px; align-items: flex-start; margin: 12px 2px 0; padding: 10px 12px; font-size: 12.5px; line-height: 1.5; color: var(--ink); background: color-mix(in srgb, var(--warn) 9%, transparent); border-radius: 10px; cursor: pointer; }
 .ack input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--ink); flex: none; }
+.act { position: sticky; bottom: 0; z-index: 2; margin: 0 -16px; padding: 14px 16px max(8px, env(safe-area-inset-bottom)); background: linear-gradient(to bottom, transparent, var(--card) 14px); }
+.act .go { margin-top: 0; }
+.act .ack { margin: 0 2px 12px; }
 .go { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 54px; margin-top: 14px; padding: 10px 16px; font-size: 15px; font-weight: 500; color: var(--card); background: var(--ink); border: 1px solid var(--ink); border-radius: 12px; cursor: pointer; transition: background .15s, color .15s, opacity .15s; text-decoration: none; }
 .go:hover:not(:disabled) { background: transparent; color: var(--ink); }
 .go:disabled { opacity: .4; cursor: not-allowed; }
@@ -198,11 +205,11 @@ img.tk { object-fit: contain; }
 .q:empty { min-height: 0; margin: 0; }
 .q.err { color: var(--err); } .q.ok { color: var(--ok); }
 .link { padding: 0; font: inherit; color: var(--ink); background: none; border: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-.sw-foot { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 12px 2px 0; padding-top: 10px; border-top: 1px solid var(--hair); font-size: 12px; color: var(--mute); }
-.slip { display: inline-flex; gap: 4px; }
+.sw-foot { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 4px 2px 0; padding-top: 10px; border-top: 1px solid var(--hair); font-size: 12px; color: var(--mute); }
+.slip { display: inline-flex; gap: 4px; min-height: 26px; }
 .slip button { min-height: 26px; padding: 1px 9px; font: 12px var(--mono); color: var(--mute); background: none; border: 1px solid var(--hair-2); border-radius: 999px; cursor: pointer; }
 .slip button[aria-pressed="true"] { color: var(--card); background: var(--ink); border-color: var(--ink); }
-@media (pointer: coarse) { .slip button { min-height: 34px; padding: 1px 12px; } }
+@media (pointer: coarse) { .slip { min-height: 34px; } .slip button { min-height: 34px; padding: 1px 12px; } }
 
 /* the coin picker: a sheet that rises inside the card */
 .pk { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; justify-content: flex-end; overflow: hidden; border-radius: 17px; background: color-mix(in srgb, var(--paper) 55%, transparent); backdrop-filter: blur(1px); }
@@ -258,7 +265,7 @@ img.tk { object-fit: contain; }
 .linkbtn:hover { color: var(--ink); }
 .status { font-size: 12.5px; margin-top: 12px; overflow-wrap: anywhere; } .status:empty { margin-top: 0; } .status a { color: var(--ink); }
 .fm-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; margin: 0 0 12px; }
-.fm-stats > div { display: grid; gap: 2px; } .fm-stats .k { font-size: 11px; color: var(--mute); } .fm-stats b { font-weight: 500; font-size: 17px; } .fm-stats .s { font-size: 11.5px; color: var(--mute); }
+.fm-stats > div { display: grid; gap: 2px; align-content: start; } .fm-stats .k { font-size: 11px; color: var(--mute); } .fm-stats b { font-weight: 500; font-size: 17px; } .fm-stats .s { font-size: 11.5px; color: var(--mute); }
 .fm-prog { margin: 16px 0 0; padding-top: 12px; border-top: 1px solid var(--hair); } .fm-prog:empty { display: none; }
 .fm-ph { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; margin: 0 0 6px; font-size: 12px; } .fm-ph span { color: var(--mute); font-size: 11.5px; }
 .fm-pf { display: grid; grid-template-columns: 1fr auto auto 14px; align-items: center; gap: 10px; padding: 9px 2px; border-top: 1px solid var(--hair); color: var(--ink); text-decoration: none; font-size: 12.5px; }
@@ -337,8 +344,100 @@ img.tk { object-fit: contain; }
 .addrs li span { color: var(--mute); } .addrs li a { font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
-<!-- chrome:head:begin -->
-<link rel="stylesheet" href="/chrome.css?cb=ea93665d">
+<!-- chrome:head:begin inline -->
+<style>
+/* The header's page links and the footer, as every page that wears them draws them. The markup is made by build/chrome.mjs and stamped
+   into the pages (`npm run build`); a page keeps only its own tokens (--ink --mute --card --hair --hair-2 --orange --mono --spring)
+   and its brand, chips and spacing. Nothing here is a size the page has to agree with: the header's width is read from the header. */
+
+header.top { position: relative; z-index: 30; container: top / inline-size; }
+header.top .top-r { position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; }
+
+/* page links: four in the header (icons, then icons and names as the header gets wide), the rest in the menu; on a phone all of them are there */
+.sn { display: flex; align-items: center; gap: 2px; }
+.sn > a, .sn summary {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-sizing: border-box; flex: none;
+  height: 40px; min-width: 40px; padding: 0 9px; border-radius: 12px; color: var(--mute);
+  font: 500 12.5px/1 var(--mono); text-decoration: none; list-style: none; cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent;
+  transition: color .15s, background-color .15s, transform .25s var(--spring, ease);
+}
+.sn summary::-webkit-details-marker { display: none; }
+/* the menu is a <details>: a page's own rules for details and summary (a border, a "+", a margin) are not for it */
+header.top .sm { margin: 0; padding: 0; border: 0; font: inherit; }
+header.top .sm > summary { display: flex; min-height: 0; }
+header.top .sm > summary::before, header.top .sm > summary::after { content: none; }
+.sn svg, .sf svg { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.sn svg.fill, .sf svg.fill { fill: currentColor; stroke: none; }
+.sn > a { display: none; }
+.sn > a span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.sn > a[aria-current="page"], .sn summary.here, .sm[open] > summary { color: var(--ink); background: var(--hair); }
+@media (hover: hover) { .sn > a:hover, .sn summary:hover { color: var(--ink); background: var(--hair); } }
+.sn > a:active, .sn summary:active { transform: scale(.93); }
+.sn a:focus-visible, .sn summary:focus-visible, .sf a:focus-visible { outline: 2px solid var(--orange); outline-offset: 1px; }
+@container top (min-width: 540px) { .sn > a { display: inline-flex; } }
+@container top (min-width: 900px) {
+  .sn > a { padding: 0 13px 0 11px; }
+  .sn > a span { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
+}
+
+/* a very narrow header keeps the mark and the name; the page's label, and the Activity and total chips' room, go first */
+@container top (max-width: 340px) { header.top .brand i { display: none; } }
+
+/* the account chip (and, on the front page, Activity and the total): a quiet outline on the page's own ground, not a block; the dot says whether a wallet is open */
+header.top .chip {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-sizing: border-box; flex: 0 1 auto; min-width: 0; height: 40px; margin: 0; padding: 0 16px 0 13px;
+  color: var(--ink); background: transparent; border: 1px solid var(--hair-2, var(--hair-strong, var(--hair))); border-radius: 999px;
+  font: 500 12.5px/1 var(--mono); white-space: nowrap; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  transition: border-color .15s, background-color .15s, transform .25s var(--spring, ease);
+}
+header.top .chip > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+header.top .chip .dot { width: 7px; height: 7px; margin: 0; border-radius: 50%; background: var(--hair-2, var(--hair-strong, var(--hair))); flex: none; vertical-align: 0; }
+header.top .chip .dot.on { background: var(--ok); }
+header.top .chip .dot.warn, header.top .chip .dot.live { background: var(--orange); }
+header.top .chip.act { position: relative; width: 40px; padding: 0; color: var(--mute); border-color: transparent; }
+header.top .chip.act[aria-expanded="true"], header.top .chip.act:hover { color: var(--ink); }
+@media (hover: hover) { header.top .chip:hover { border-color: var(--mute); background: var(--hair); } header.top .chip.act:hover { border-color: transparent; } }
+header.top .chip:active { transform: scale(.97); }
+header.top .chip:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+@container top (max-width: 480px) { header.top .chip { padding: 0 12px 0 11px; } header.top .chip.act { padding: 0; } }
+@media (pointer: coarse) { .sn > a, .sn summary, header.top .chip, footer.sf nav a { height: var(--tap, 44px); } }
+
+/* the menu: under the header's right edge, whatever the width */
+.sm-p {
+  position: absolute; z-index: 5; top: calc(100% + 8px); right: 0; display: grid; gap: 1px; box-sizing: border-box;
+  width: max-content; min-width: 220px; max-width: calc(100vw - 32px); padding: 6px;
+  background: var(--card); border: 1px solid var(--hair-2, var(--hair)); border-radius: 16px;
+  box-shadow: 0 24px 48px -26px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.06);
+  transform-origin: 100% 0; animation: sm-in .16s ease-out;
+}
+@keyframes sm-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
+.sm-p a { display: flex; align-items: center; gap: 12px; box-sizing: border-box; min-height: 42px; padding: 0 12px; border-radius: 10px; color: var(--ink); font: 400 13px/1 var(--mono); text-decoration: none; }
+.sm-p a svg { width: 18px; height: 18px; color: var(--mute); }
+.sm-p a[aria-current="page"] { background: var(--hair); }
+.sm-p a:focus-visible { outline: 2px solid var(--orange); outline-offset: -2px; }
+.sm-p hr { margin: 4px 8px; border: 0; border-top: 1px solid var(--hair); }
+.sm-p .pr { display: flex; }
+@container top (min-width: 540px) { .sm-p .pr { display: none; } }
+@media (hover: hover) { .sm-p a:hover { background: var(--hair); } }
+@media (prefers-reduced-motion: reduce) { .sm-p { animation: none; } .sn > a, .sn summary, header.top .chip { transition: none; } }
+
+/* the footer: where it is said to be, then the places outside the app, as icons that say their name on hover and to a screen reader */
+footer.sf { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0 20px; margin-top: 56px; padding: 10px 0 22px; border-top: 1px solid var(--hair); color: var(--mute); font: 400 12px/1.4 var(--mono); }
+footer.sf nav { display: flex; align-items: center; margin: 0 -10px 0 auto; }
+footer.sf nav a { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; width: 40px; height: 40px; border-radius: 12px; color: var(--mute); transition: color .15s, background-color .15s, transform .25s var(--spring, ease); }
+footer.sf nav a:active { transform: scale(.92); }
+footer.sf svg { width: 18px; height: 18px; }
+footer.sf svg.fill { width: 16px; height: 16px; }
+@media (hover: hover) { footer.sf nav a:hover { color: var(--ink); background: var(--hair); } }
+@media (max-width: 480px) { footer.sf nav { margin: 0 0 0 -11px; } }
+
+/* what only one page has to point at (papers, the pool on each chain): a quiet line above the footer */
+.sf-x { display: flex; flex-wrap: wrap; align-items: center; gap: 0 18px; margin-top: 48px; color: var(--mute); font: 400 12px/1.4 var(--mono); }
+.sf-x + footer.sf { margin-top: 12px; }
+.sf-x span { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+.sf-x a { display: inline-flex; align-items: center; min-height: 32px; color: var(--mute); text-decoration: underline; text-decoration-color: var(--hair-2, var(--hair)); text-underline-offset: 3px; }
+@media (hover: hover) { .sf-x a:hover { color: var(--ink); text-decoration-color: currentColor; } }
+</style>
 <script src="/chrome.js?cb=7e28cf35" defer></script>
 <!-- chrome:head:end -->
 </head>
@@ -412,21 +511,23 @@ img.tk { object-fit: contain; }
         </div>
         <div class="f" id="f-pay">
           <div class="fh"><span>You pay</span><span class="where" id="pay-where">from your wallet</span></div>
-          <div class="fm"><input class="amt" id="amt" inputmode="decimal" placeholder="0" autocomplete="off" spellcheck="false" aria-label="Amount to pay"><button class="coin" id="pay-coin" type="button" aria-haspopup="dialog" aria-label="Pay with ETH"></button></div>
-          <div class="ff"><span id="pay-usd" class="num"></span><span id="pay-side"></span></div>
+          <div class="fm"><input class="amt" id="amt" inputmode="decimal" placeholder="0" autocomplete="off" spellcheck="false" aria-label="Amount to pay"><button class="coin" id="pay-coin" type="button" aria-haspopup="dialog" aria-label="Pay with ETH"><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg>ETH<span class="car" aria-hidden="true">▾</span></button></div>
+          <div class="ff"><span id="pay-usd" class="num"></span><span id="pay-side"><span class="quick"><button type="button" data-quick="0.1">0.1</button><button type="button" data-quick="0.5">0.5</button><button type="button" data-quick="1">1</button></span></span></div>
         </div>
         <div class="mid"><button class="flip" id="flip" type="button" aria-label="Swap the two sides"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v17m0 0-4-4m4 4 4-4M16 21V4m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
         <div class="f" id="f-get">
           <div class="fh"><span>You get</span><span class="where" id="get-where">to your wallet</span></div>
-          <div class="fm"><output class="big ph num" id="out" for="amt">0</output><button class="coin" id="get-coin" type="button" aria-haspopup="dialog" aria-label="Get TAC"></button></div>
+          <div class="fm"><output class="big ph num" id="out" for="amt">0</output><button class="coin" id="get-coin" type="button" aria-haspopup="dialog" aria-label="Get TAC"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg>TAC<span class="car" aria-hidden="true">▾</span></button></div>
           <div class="ff"><span id="get-usd" class="num"></span><span id="get-side"></span></div>
         </div>
         <div class="rows" id="rows" role="radiogroup" aria-label="Route" hidden></div>
         <dl class="rcpt" id="rcpt" hidden></dl>
-        <div id="ackbox"></div>
-        <button class="go" id="go" type="button">Connect wallet</button>
-        <p class="q" id="q" role="status"></p>
-        <div class="sw-foot"><span id="foot-l">Slippage</span><span class="slip" id="slip" role="group" aria-label="Slippage"></span></div>
+        <div class="act">
+          <div id="ackbox"></div>
+          <button class="go" id="go" type="button" disabled>Enter an amount</button>
+          <p class="q" id="q" role="status"></p>
+        </div>
+        <div class="sw-foot"><span id="foot-l">Slippage</span><span class="slip" id="slip" role="group" aria-label="Slippage"><button type="button" data-slip="10" aria-pressed="false">0.1%</button><button type="button" data-slip="50" aria-pressed="true">0.5%</button><button type="button" data-slip="100" aria-pressed="false">1%</button><button type="button" data-slip="300" aria-pressed="false">3%</button></span></div>
       </div>
 
       <div class="sw-b" id="p-earn" role="tabpanel" aria-labelledby="tab-earn" hidden>
@@ -481,6 +582,49 @@ img.tk { object-fit: contain; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/swap/app.js?cb=c61e5bf9"></script>
+<!-- warm:begin -->
+<template id="warm">
+<link rel="modulepreload" href="/confidential-pool-ux.js?cb=c7bc1e8e">
+<link rel="modulepreload" href="/confidential-deployments.js">
+<link rel="modulepreload" href="/confidential-deployments.generated.js">
+<link rel="modulepreload" href="/evm-account.js">
+<link rel="modulepreload" href="/confidential-indexer.js">
+<link rel="modulepreload" href="/confidential-pool.js">
+<link rel="modulepreload" href="/evm-confidential.js">
+<link rel="modulepreload" href="/bulletproofs.js">
+<link rel="modulepreload" href="/bulletproofs-plus.js">
+<link rel="modulepreload" href="/burn-deposit-bitcoin.js">
+<link rel="modulepreload" href="/burn-deposit-provenance.js">
+<link rel="modulepreload" href="/burn-deposit-assembler.js">
+<link rel="modulepreload" href="/confidential-memo.js">
+<link rel="modulepreload" href="/confidential-evm-log.js">
+<link rel="modulepreload" href="/confidential-relay.js">
+<link rel="modulepreload" href="/evm-tx.js">
+<link rel="modulepreload" href="/confidential-recovery-guard.js">
+<link rel="modulepreload" href="/confidential-router.js">
+<link rel="modulepreload" href="/confidential-transfer.js">
+<link rel="modulepreload" href="/confidential-route.js">
+<link rel="modulepreload" href="/confidential-swap.js">
+<link rel="modulepreload" href="/confidential-swap-coordinator.js">
+<link rel="modulepreload" href="/confidential-lp.js">
+<link rel="modulepreload" href="/confidential-cdp.js">
+<link rel="modulepreload" href="/confidential-farm.js">
+<link rel="modulepreload" href="/confidential-farm-program.js">
+<link rel="modulepreload" href="/confidential-defi-actions.js">
+<link rel="modulepreload" href="/confidential-stealth.js">
+<link rel="modulepreload" href="/confidential-airdrop.js">
+<link rel="modulepreload" href="/tac-airdrop.js">
+<link rel="modulepreload" href="/confidential-lock-scan.js">
+<link rel="modulepreload" href="/confidential-bridge-mint.js">
+<link rel="modulepreload" href="/bridge-burn-broadcast.js">
+<link rel="modulepreload" href="/confidential-recovery.js">
+<link rel="modulepreload" href="/bridge-mint-recovery.js">
+<link rel="modulepreload" href="/confidential-secret-store.js">
+<link rel="modulepreload" href="/confidential-recovery-btc.js">
+<link rel="modulepreload" href="/bitcoin-taproot-wallet.js">
+<link rel="modulepreload" href="/cbtc-note-recovery.js">
+</template>
+<!-- warm:end -->
+<script type="module" src="/swap/app.js?cb=b65b0258"></script>
 </body>
 </html>

@@ -13,7 +13,11 @@ Dev-time tooling for the dapp in `../dapp/`. It is not part of the pinned dapp.
 - stamps the header's page links, the footer and the links to `dapp/chrome.css` and `dapp/chrome.js` between the
   `<!-- chrome:nav|foot|head:begin -->` markers of every page listed in `chrome.mjs`; change a link or an icon in
   `build/chrome.mjs` and the build rewrites every page (`npm run verify` fails on a page that differs). A new page
-  adds the three marker pairs and its name to `CHROME_PAGES`
+  adds the three marker pairs and its name to `CHROME_PAGES`. `<!-- chrome:head:begin inline -->` writes the
+  stylesheet into the page instead of linking it, so the first paint waits for no request (the swap page)
+- writes each page's `modulepreload` links from its `<!-- preload-roots: first | later | on-demand -->` comment; the
+  on-demand group goes into the page's `WARM_MODULES` or, for a page with no inline script, into an inert
+  `<template id="warm">` between `<!-- warm:begin -->` and `<!-- warm:end -->`, which its script appends to the head
 - writes a brotli-q11 copy of `tacit.js` to `build/out/tacit.js.br` for the API's `/tacit.js`
   edge route, and prints the `wrangler kv key put` command that uploads it
 - prints SHA-384 integrity hashes for every bundle, `tacit.js` and `index.html`

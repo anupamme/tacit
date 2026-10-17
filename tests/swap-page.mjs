@@ -257,6 +257,36 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await browser.close();
 }
 
+// ── the first paint needs the HTML alone, the private door's modules wait for someone going to it, the button stays in view, the picker keeps Tab ──
+{
+  const { browser, page, errors } = await openPage({ width: 1280, height: 700 });
+  await until(page, () => document.querySelector('#pxs')?.classList.contains('on'));
+  const res = () => page.evaluate(() => performance.getEntriesByType('resource').map((e) => e.name));
+  ok(!(await res()).some((u) => /\/chrome\.css/.test(u)) && (await page.evaluate(() => getComputedStyle(document.querySelector('footer.sf')).display)) === 'flex', 'the shared header and footer styles are in the page, not a request the first paint waits for');
+  ok(!(await res()).some((u) => /confidential-pool-ux|confidential-pool\.js/.test(u)), 'the private door\'s modules are not fetched by a page that stays public');
+  await page.hover('[data-mode="private"]');
+  await until(page, () => performance.getEntriesByType('resource').some((e) => /confidential-pool-ux/.test(e.name)) && performance.getEntriesByType('resource').some((e) => /confidential-pool\.js/.test(e.name)), null, 60000);
+  ok(true, 'going toward Private fetches its modules, all at once');
+  await page.click('[data-slip="100"]');
+  await page.reload();
+  await until(page, () => document.querySelector('#slip [aria-pressed="true"]'));
+  ok((await page.getAttribute('#slip [aria-pressed="true"]', 'data-slip')) === '100', 'the slippage chosen is kept for the next visit');
+  await page.click('[data-slip="50"]');
+  await typeAmt(page, '1');
+  await quoted(page);
+  const act = await page.evaluate(() => { const g = document.querySelector('#go').getBoundingClientRect(); return { sticky: getComputedStyle(document.querySelector('.act')).position, bottom: g.bottom, top: g.top, h: innerHeight, card: document.querySelector('#sw').getBoundingClientRect().bottom }; });
+  ok(act.sticky === 'sticky' && act.top >= 0 && act.bottom <= act.h, `the button stays in view under a long quote (card ends at ${Math.round(act.card)}, button at ${Math.round(act.top)}–${Math.round(act.bottom)} of ${act.h})`);
+  await page.click('#pay-coin');
+  await page.focus('.pk-x');
+  await page.keyboard.press('Shift+Tab');
+  ok(await page.evaluate(() => document.activeElement.classList.contains('pk-r') && !!document.activeElement.closest('.pk-s')), 'Shift+Tab from the picker\'s first control wraps to its last');
+  await page.keyboard.press('Tab');
+  ok(await page.evaluate(() => document.activeElement.classList.contains('pk-x')), 'and Tab from the last wraps to the first');
+  await page.keyboard.press('Escape');
+  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
+  await browser.close();
+}
+
 // ── a phone, light and dark: no sideways scroll; the bare address finds the page ──
 for (const [scheme, width] of [['light', 360], ['dark', 390]]) {
   const { browser, page, errors } = await openPage({ width, height: 800 }, { scheme, path: '/swap' });

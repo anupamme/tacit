@@ -43,6 +43,8 @@ const S = {
   tab: 'swap', mode: 'wallet', pay: lc(R.ZERO), get: lc(R.TAC), amt: '', slip: 50, pick: null, q: null, seq: 0, busy: false, ack: false, max: false,
   custom: [], bal: {}, px: {}, gasPrice: null, chainT: 0, chainAt: 0, farm: 'precision', farms: null, lastBuy: null, note: '', ackKey: '',
 };
+const SLIP_KEY = 'tacit-swap-slip-v1';
+try { const v = Number(localStorage.getItem(SLIP_KEY)); if ([10, 50, 100, 300].includes(v)) S.slip = v; } catch { /* storage is a convenience */ }
 try { S.custom = (JSON.parse(localStorage.getItem(CUSTOM_KEY) || '[]') || []).filter((t) => /^0x[0-9a-f]{40}$/.test(t?.addr) && Number.isInteger(t.dec)).slice(0, 20); } catch { /* storage is a convenience */ }
 // The tokens offered: ETH and Tacit's, then the mainnet ERC-20s of token.list.wei (an onchain list: registry, ranked ids, one JSON each, its
 // logo inline), the page's own known ones among them for their permits, then any pasted here.
@@ -252,6 +254,18 @@ const getUx = () => (uxP ||= (async () => {
   dep.setActiveNetwork('mainnet');
   return makeConfidentialPoolUx({ secp: d.secp, keccak256: d.keccak_256, sha256: d.sha256, network: 'mainnet' });
 })().catch((e) => { uxP = null; throw e; }));
+// The way to the private door is warmed before it is taken: its modules (the template holds their links, made by build/build.mjs, so the
+// graph is fetched in one round rather than one import level at a time), a connection to the node it reads, the module, and the gas price and prove cost its
+// first quote asks for in turn (read now, as the console does).
+let warmed = false;
+function warmPrivate() {
+  if (warmed) return;
+  warmed = true;
+  const t = $('#warm');
+  if (t) { document.head.append(t.content); t.remove(); }
+  document.head.append(Object.assign(document.createElement('link'), { rel: 'preconnect', href: 'https://mainnet.gateway.tenderly.co', crossOrigin: '' }));
+  getUx().then((t) => t.quoteOpFee('cETH', 'route')).catch(() => {});
+}
 const twoDigits = (v) => { if (v <= 0n) return 0n; const d = BigInt(String(v).length); if (d <= 2n) return v; const m = 10n ** (d - 2n); return ((v + m - 1n) / m) * m; };
 
 // How the pick compares with the market: the dollar value out over the dollar value in (fees and price impact included).
@@ -404,7 +418,7 @@ async function go() {
     const after = await balanceNow(P.get, from).catch(() => null), got = before != null && after != null ? after - before : null;
     const g = tokenOf(P.get);
     S.lastBuy = P.get === lc(R.TAC) && got > 0n ? got : null;
-    S.amt = ''; S.q = null; S.busy = false; paint();
+    S.amt = ''; S.q = null; S.busy = false; keepUrl(); paint();
     say(`Done ${txLink(h)}: ${isEth(P.get) ? `about ${tidy(amtFmt(P.r.out, g.dec))} ETH to your wallet` : got != null && got > 0n ? `${tidy(amtFmt(got, g.dec))} ${esc(g.sym)} in your wallet` : `${esc(g.sym)} sent to your wallet`}.${!isEth(P.get) ? ` <button type="button" class="link" data-watch="${esc(g.addr)}">Add ${esc(g.sym)} to your wallet</button>` : ''}${S.lastBuy ? ` · <button type="button" class="link" data-farm-it>Farm it</button>` : ''}`, 'ok', true);
     live('Swap done');
     readBalances().then(() => paintSides());
@@ -537,7 +551,13 @@ function openPicker(side) {
   pk.innerHTML = `<div class="pk-s" role="dialog" aria-modal="true" aria-label="${side === 'pay' ? 'Pay with' : 'Get'}"><div class="pk-h"><b>${side === 'pay' ? 'Pay with' : 'Get'}</b><button type="button" class="pk-x" aria-label="Close">×</button></div>${side === 'pay' && S.mode !== 'private' ? '<input class="pk-q" id="pk-q" placeholder="Search, or paste a token address" autocomplete="off" spellcheck="false" aria-label="Search tokens or paste an address">' : ''}<div class="pk-l" id="pk-l">${groups.map(([g, ks]) => `${g ? `<p class="pk-g">${esc(g)}</p>` : ''}${ks.map(row).join('')}`).join('')}<p class="pk-n" id="pk-n"></p></div></div>`;
   pk.hidden = false;
   // Escape closes it wherever the keyboard is, not only inside it.
-  const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+  const onKey = (e) => {
+    if (e.key === 'Escape') { e.stopPropagation(); close(); return; }
+    if (e.key !== 'Tab') return;
+    const f = [...pk.querySelectorAll('button, input')].filter((x) => !x.hidden), a = document.activeElement;
+    if (!f.length) return;
+    if (e.shiftKey ? a === f[0] || !pk.contains(a) : a === f[f.length - 1] || !pk.contains(a)) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); }
+  };
   const close = () => { document.removeEventListener('keydown', onKey, true); pk.hidden = true; pk.innerHTML = ''; $(side === 'pay' ? '#pay-coin' : '#get-coin').focus(); };
   document.addEventListener('keydown', onKey, true);
   pk.querySelector('.pk-x').onclick = close;
@@ -658,7 +678,7 @@ function readUrl() {
 
 // ── the controls ──
 function slipPaint() { $('#slip').innerHTML = [10, 50, 100, 300].map((b) => `<button type="button" data-slip="${b}" aria-pressed="${S.slip === b}">${b / 100}%</button>`).join(''); }
-$('#slip').addEventListener('click', (e) => { const b = e.target.closest('[data-slip]'); if (!b) return; S.slip = Number(b.dataset.slip); slipPaint(); if (S.q) requote(true); else paintQuote(); });
+$('#slip').addEventListener('click', (e) => { const b = e.target.closest('[data-slip]'); if (!b) return; S.slip = Number(b.dataset.slip); try { localStorage.setItem(SLIP_KEY, String(S.slip)); } catch { /* storage is a convenience */ } slipPaint(); if (S.q) requote(true); else paintQuote(); });
 $('#amt').addEventListener('input', (e) => { S.amt = e.target.value.trim(); S.max = false; S.note = ''; fitSize(e.target); keepUrl(); paintSides(); requote(); });
 $('#amt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('#go').disabled) $('#go').click(); });
 $('#pay-coin').addEventListener('click', () => openPicker('pay'));
@@ -688,7 +708,8 @@ $('#p-swap').addEventListener('click', (e) => {
   if (e.target.closest('[data-farm-it]')) farmIt();
 });
 $('#ackbox').addEventListener('change', (e) => { if (e.target.id === 'ack') { S.ack = e.target.checked; paintQuote(); } });
-function setMode(m) { if (S.mode === m) return; keepAmt(() => { S.mode = m; fit('pay'); if (!kindOf(S.pay, S.get)) fit('get'); }); S.q = null; S.pick = null; keepUrl(); paint(); requote(true); }
+function setMode(m) { if (S.mode === m) return; if (m === 'private') warmPrivate(); keepAmt(() => { S.mode = m; fit('pay'); if (!kindOf(S.pay, S.get)) fit('get'); }); S.q = null; S.pick = null; keepUrl(); paint(); requote(true); }
+for (const ev of ['pointerenter', 'focus', 'touchstart']) document.querySelector('.mode [data-mode="private"]').addEventListener(ev, warmPrivate, { once: true, passive: true });
 document.querySelector('.mode').addEventListener('click', (e) => { const b = e.target.closest('[data-mode]'); if (b) setMode(b.dataset.mode); });
 function setTab(t) { if (S.tab === t) return; S.tab = t; keepUrl(); paint(); if (t === 'earn') { paintEarn(); if (!S.farms) readFarms().then(paintEarn, paintEarn); } }
 $('#tab-swap').addEventListener('click', () => setTab('swap'));
@@ -719,7 +740,17 @@ paint();
 if ([S.pay, S.get].some((k) => { const t = tokenOf(k); return t && !SPRITE.has(t.icon) && !LOGO[k]; })) loadList();
 if (S.tab === 'swap' && matchMedia('(pointer: fine)').matches && !location.hash) $('#amt').focus({ preventScroll: true });
 if (S.tab === 'earn') { paintEarn(); }
-readPrices().then(() => { paint(); if (S.amt) requote(true); if (S.tab === 'earn') readFarms().then(paintEarn, paintEarn); }).catch(() => { if (S.amt) requote(true); });
+if (S.mode === 'private') { warmPrivate(); if (S.amt) requote(true); }                    // a private quote has no price gate, so it need not wait for the prices
+readPrices().then(() => { paint(); if (S.amt && S.mode !== 'private') requote(true); if (S.tab === 'earn') readFarms().then(paintEarn, paintEarn); }).catch(() => { if (S.amt && S.mode !== 'private') requote(true); });
 gasPrice();
 PN.load().then(() => { if (S.q?.rows && !S.q.busy) paintQuote(); }, () => {});
-setInterval(() => { if (document.hidden) return; readPrices().catch(() => {}); if (S.q && !S.busy && !S.q.busy && now() - (S.q.at || 0) > (S.q.kind === 'any' ? 55 : 25) && kindOf(S.pay, S.get) !== 'private') requote(true); }, 30e3);   // zQuoter's scan is heavy: a minute between
+// Every half minute, and when the tab comes back to the front: the prices, and the quote when it has grown old (zQuoter's scan is heavy: a minute between).
+let ticked = 0;
+const tick = () => {
+  if (document.hidden || now() - ticked < 10) return;
+  ticked = now();
+  readPrices().catch(() => {});
+  if (S.q && !S.busy && !S.q.busy && now() - (S.q.at || 0) > (S.q.kind === 'any' ? 55 : 25) && kindOf(S.pay, S.get) !== 'private') requote(true);
+};
+setInterval(tick, 30e3);
+document.addEventListener('visibilitychange', tick);

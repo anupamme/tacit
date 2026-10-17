@@ -5,7 +5,8 @@
 // A page marks where they go:
 //   <!-- chrome:nav:begin -->…<!-- chrome:nav:end -->     the page links, inside the header's .top-r, before the page's own chips
 //   <!-- chrome:foot:begin -->…<!-- chrome:foot:end -->   the footer; `label="…"` and `id="…"` on the begin marker name the left-hand text
-//   <!-- chrome:head:begin -->…<!-- chrome:head:end -->   the stylesheet and script, last in the head, tokens taken from the files
+//   <!-- chrome:head:begin -->…<!-- chrome:head:end -->   the stylesheet and script, last in the head, tokens taken from the files;
+//                                                         `inline` on the begin marker writes the stylesheet into the page (no request to wait for)
 // What belongs to one page alone (the Secret Sats papers, the pool's addresses on each chain) is the page's own, in a
 // `<nav class="sf-x">` above the footer.
 
@@ -91,7 +92,9 @@ export function footHtml(label = 'tacit.finance · mainnet', id = '') {
 }
 
 const token = (dapp, file) => createHash('sha256').update(readFileSync(join(dapp, file))).digest('hex').slice(0, 8);
-export const headHtml = (dapp) => `<link rel="stylesheet" href="/chrome.css?cb=${token(dapp, 'chrome.css')}">\n<script src="/chrome.js?cb=${token(dapp, 'chrome.js')}" defer></script>`;
+// A stylesheet link is a request the first paint waits for, and it queues behind the page's preloads (fonts, modules).
+// `<!-- chrome:head:begin inline -->` puts the styles in the page instead, so the first paint needs the HTML alone.
+export const headHtml = (dapp, inline = false) => `${inline ? `<style>\n${readFileSync(join(dapp, 'chrome.css'), 'utf8').trim()}\n</style>` : `<link rel="stylesheet" href="/chrome.css?cb=${token(dapp, 'chrome.css')}">`}\n<script src="/chrome.js?cb=${token(dapp, 'chrome.js')}" defer></script>`;
 
 // a block is the begin marker's line, what is stamped (indented as the marker is) and the end marker's line
 const BLOCK = (name) => new RegExp(`^([ \\t]*)(<!-- chrome:${name}:begin([^>]*?)-->)[\\s\\S]*?<!-- chrome:${name}:end -->`, 'm');
@@ -105,6 +108,6 @@ export function chromePage(text, rel, dapp) {
   for (const name of ['nav', 'foot', 'head']) if (!BLOCK(name).test(out)) throw new Error(`${rel} has no chrome:${name} markers`);
   out = out.replace(BLOCK('nav'), (m, ind, begin) => block('nav', ind, begin, navHtml(key)));
   out = out.replace(BLOCK('foot'), (m, ind, begin, params) => block('foot', ind, begin, footHtml(attr(params, 'label'), attr(params, 'id'))));
-  out = out.replace(BLOCK('head'), (m, ind, begin) => block('head', ind, begin, headHtml(dapp)));
+  out = out.replace(BLOCK('head'), (m, ind, begin, params) => block('head', ind, begin, headHtml(dapp, /\binline\b/.test(params))));
   return out;
 }
