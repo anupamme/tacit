@@ -197,20 +197,23 @@ export function makePoolClient({ api = POOL_API, relayApi = null, base = '/btc-p
     return feed.map((f) => memo.get(f.leafIndex).x).filter(Boolean);
   }
   // A wallet's notes from the feed, each with its height, txid and spent flag. Spent flags come from the whole list of
-  // the pool's nullifiers, so no request names a note of this wallet's; a replay without the list is asked note by note.
-  async function walletNotes(pool, wallet, { notes = null } = {}) {
+  // the pool's nullifiers, so no request names a note of this wallet's. A replay without the list can only be asked note by
+  // note, which names them: that is done only when the caller sets `namedChecks`.
+  async function walletNotes(pool, wallet, { notes = null, namedChecks = false } = {}) {
     const feed = notes || await feedNow();
     const byIndex = new Map(feed.map((n) => [n.leafIndex, n]));
     const mine = (await scanMine(pool, wallet, feed)).map((x) => ({ ...x, height: byIndex.get(x.leafIndex).height, txid: byIndex.get(x.leafIndex).txid }));
     const list = mine.some((x) => x.nf) ? await spentList() : null;
+    if (mine.some((x) => x.nf) && !list && !namedChecks) throw new Error('the pool replay does not serve its list of spent notes, so the notes of this wallet are not checked against it');
     for (const x of mine) if (x.nf) x.spent = list ? list.has(strip(x.nf)) : (await nullifier(x.nf)).spent === true;
     return mine;
   }
 
   // Anchor for spending `notes` under the wallet policy, the root there and each note's path. Returns
   // { wait } with the number of blocks left when the policy anchor is still below a note's block; with
-  // { anchor } the caller picks any retained height instead (at least every note's block).
-  async function anchorAndPaths(notes, { anchor = null } = {}) {
+  // { anchor } the caller picks any retained height instead (at least every note's block). A path asked of the replay names the
+  // note it is for, so the paths come from the feed alone unless the caller sets `namedPaths`.
+  async function anchorAndPaths(notes, { anchor = null, namedPaths = false } = {}) {
     const s = await status();
     if (s.halted) throw new Error('the pool replay is paused');
     if (s.height == null) throw new Error('the pool replay has not started');
@@ -222,7 +225,7 @@ export function makePoolClient({ api = POOL_API, relayApi = null, base = '/btc-p
     }
     if (hAnchor > s.height) throw new Error('anchor is ahead of the pool replay');
     // The paths are worked out here from the feed, which holds every leaf, and the root is checked against the
-    // replay's root for the anchor; the replay is asked for paths only if the two disagree twice.
+    // replay's root for the anchor.
     const R = await getJson(`${api}/btc-pool/root/${hAnchor}`).catch(() => null);
     if (R?.root && R.retained !== false) {
       for (const fresh of [false, true]) {
@@ -233,6 +236,7 @@ export function makePoolClient({ api = POOL_API, relayApi = null, base = '/btc-p
         } catch { /* read the paths from the replay */ }
       }
     }
+    if (!namedPaths) throw new Error('the pool replay did not give a root to check the paths against just now; try again in a moment');
     const withPaths = [];
     let root = null;
     for (const n of notes) {
