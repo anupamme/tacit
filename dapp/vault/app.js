@@ -11,7 +11,7 @@ import {
   encDeposit, encWithdraw, encBorrow, encRepay, encCancel, encApprove, encPermit, encMulticall,
 } from '/vault/chain.js?cb=b10ae830';
 import { makeFeed, RECORD_GAS, encBatch, MULTICALL3 } from '/vault/feed.js?cb=bdda2346';
-import { makeWallet, UserStopped } from '/trade/wallet.js?cb=595c892a';
+import { makeWallet, UserStopped } from '/trade/wallet.js?cb=7b4ab128';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { announceWalletConnect, wcSheets, WC_PROJECT_ID } from '/walletconnect.js?cb=92886522';
 
@@ -74,7 +74,7 @@ function pickWallet(list) {
 }
 async function connectWallet() {
   const list = wallet.available();
-  if (!list.length) { say('No wallet was found in this browser. Open this page in a wallet app\'s browser, or use tacit.finance.'); return; }
+  if (!list.length) { say('No wallet was found in this browser. Open this page in a wallet app’s browser, or use tacit.finance.'); return; }
   try {
     let w = list[0];
     if (list.length > 1) { const i = await pickWallet(list); if (i == null) return; w = list[i]; }
@@ -194,18 +194,18 @@ function afterAnnounced(x) {
 function statusOf(x) {
   const f = feedOf(x.V);
   if (x.paused) {
-    if (x.stale) return { state: 'paused', short: 'ETH/USD price old', why: `The ETH/USD price is ${M.span(x.feedAge)} old; lending needs one under ${M.span(x.s.staleness)}.`, next: 'It clears with the feed\'s next update.' };
-    if (f && !f.ready) return { state: 'paused', short: 'prices not recorded', why: `Lending waits for ${f.missing} price${f.missing === 1 ? '' : 's'} to be recorded.`, next: 'Anyone can record them, <a href="#feed" data-tofeed>below</a>.' };
+    if (x.stale) return { state: 'paused', short: 'ETH/USD price old', why: `The ETH/USD price is ${M.span(x.feedAge)} old; borrowing needs one under ${M.span(x.s.staleness)}.`, next: 'It clears with the feed’s next update.' };
+    if (f && !f.ready) return { state: 'paused', short: 'prices not recorded', why: `Borrowing waits for ${f.missing} price${f.missing === 1 ? '' : 's'} to be recorded.`, next: 'Anyone can record them, <a href="#feed" data-tofeed>below</a>.' };
     if (!f && !F.tried) return { state: 'paused', short: 'checking prices', why: 'Checking prices…', next: '' };
-    return { state: 'paused', short: 'prices unreadable', why: 'Prices cannot be read right now.', next: '' };
+    return { state: 'paused', short: 'prices unreadable', why: 'Could not read the prices. Try again in a moment.', next: '' };
   }
   if (x.room < x.s.minDebt) {
     const ceil = x.d.debtCeiling, g = (v) => `${syn(x, v)} ${x.sym}`;
-    if (x.ownerCap && ceil === 0n) return { state: 'thin', short: 'switched off', why: 'The owner has switched lending off.', next: '' };
-    if (x.ownerCap) return { state: 'thin', short: 'cap reached', why: `The owner caps lending at ${g(ceil)}; ${g(x.room)} is left, under the smallest debt (${g(x.s.minDebt)}).`, next: '' };
+    if (x.ownerCap && ceil === 0n) return { state: 'thin', short: 'switched off', why: 'The owner has switched borrowing off.', next: '' };
+    if (x.ownerCap) return { state: 'thin', short: 'cap reached', why: `The owner caps borrowing at ${g(ceil)}; ${g(x.room)} is left, under the smallest debt (${g(x.s.minDebt)}).`, next: '' };
     const after = afterAnnounced(x), why = x.room === 0n ? `All ${g(x.cap)} is borrowed.` : `Room (${g(x.room)}) is under the smallest debt (${g(x.s.minDebt)}).`;
     if (after && after.room >= after.minDebt && after.room > 0n) return { state: 'thin', short: 'room too small', why, next: `The announced change makes the room ${g(after.room)} (smallest debt ${g(after.minDebt)}): borrowing opens from ${onDay(after.eta)}.` };
-    return { state: 'thin', short: 'room too small', why, next: 'More liquidity in the TAC pools adds room. <a href="/trade/tac/#farm">Add liquidity</a>' };
+    return { state: 'thin', short: 'room too small', why, next: 'More liquidity in the TAC pools adds room. <a href="/trade/tac/#farm">Add liquidity →</a>' };
   }
   return { state: 'open', short: '', why: '', next: '' };
 }
@@ -221,7 +221,7 @@ function boardRows(xs) {
     ['Borrowed so far', (x) => (x.d.totalDebt != null ? `${esc(syn(x, x.d.totalDebt))} ${esc(x.sym)}` : dash)],
     ['TAC deposited', (x) => (x.d.held != null ? `${esc(tac(x.d.held))} TAC` : dash), true],
     ['Collateral ratio', (x) => (x.backing != null ? esc(pctOf(x.backing)) : dash), true],
-    ['Pools\' depth', (x) => {
+    ['Pools’ depth', (x) => {
       const f = feedOf(x.V), d = x.d;
       if (d.depthCeiling != null && x.s.depthBps > 0n) return `${esc(syn(x, d.depthCeiling * 10000n / x.s.depthBps))} ${esc(x.sym)}<small>lowest in 8 h</small>`;
       if (f?.depth != null && d.feed && d.feed.answer > 0n) return `${esc(syn(x, f.depth * d.feed.answer / 10n ** BigInt(d.feed.decimals)))} ${esc(x.sym)}<small>lowest so far</small>`;
@@ -229,7 +229,7 @@ function boardRows(xs) {
     }, true],
     ['Share of depth lent', (x) => `${esc(String(Number(x.s.depthBps) / 100))}%`, true],
     ['TAC price', (x) => (x.px != null ? esc(priceText(x, x.px, 'down')) : dash), true],
-    ...(xs.some((x) => x.feedAge != null) ? [['ETH/USD price', (x) => (x.feedAge != null ? `<span class="${x.stale ? 'z-liquidation' : ''}">${esc(M.span(x.feedAge))} old</span><small>${x.stale ? 'too old to lend' : `limit ${esc(M.span(x.s.staleness))}`}</small>` : dash), true]] : []),
+    ...(xs.some((x) => x.feedAge != null) ? [['ETH/USD price', (x) => (x.feedAge != null ? `<span class="${x.stale ? 'z-liquidation' : ''}">${esc(M.span(x.feedAge))} old</span><small>${x.stale ? 'too old to use' : `limit ${esc(M.span(x.s.staleness))}`}</small>` : dash), true]] : []),
     ['Borrow / liquidate at', (x) => `${esc(pctOf(x.s.mint))} · ${esc(pctOf(x.s.liq))}`, true],
   ];
   return rows.filter((r) => S.more || !r[2]).map(([label, fn]) => `<tr><th scope="row">${esc(label)}</th>${cell(fn)}</tr>`).join('');
@@ -238,7 +238,7 @@ function renderBoard() {
   const el = $('#board'), xs = VS.map((v) => derive(v)).filter(Boolean);
   const head = `<p class="eyebrow" id="board-h"><span>Vault status</span><span class="who">${S.readAt ? `read <span data-ago="${S.readAt}">${agoText(now() - S.readAt)}</span> · ` : ''}<button class="linkbtn" type="button" data-refresh>Refresh</button></span></p>`;
   el.classList.toggle('loading', !xs.length && !S.failed);
-  if (!xs.length) { setHtml(el, `${head}<p class="verdict off">${S.failed ? 'The vaults could not be read just now.' : 'Reading the vaults…'}</p>${S.failed ? '<p class="note">Try again in a moment.</p>' : '<div class="sk" aria-hidden="true">' + '<i></i>'.repeat(9) + '</div>'}`); return; }
+  if (!xs.length) { setHtml(el, `${head}<p class="verdict off">${S.failed ? 'Could not read the vaults.' : 'Reading the vaults…'}</p>${S.failed ? '<p class="note">Try again in a moment.</p>' : '<div class="sk" aria-hidden="true">' + '<i></i>'.repeat(9) + '</div>'}`); return; }
   for (const x of xs) x.status = statusOf(x);
   const open = xs.filter((x) => x.status.state === 'open');
   const verdict = open.length === xs.length ? (xs.length > 1 ? 'Borrowing is open on both vaults' : `Borrowing is open on ${xs[0].k.name}`) : open.length ? `Borrowing is open on ${open.map((x) => x.k.name).join(' and ')}` : 'Borrowing is not open yet';
@@ -262,12 +262,12 @@ function renderHow() {
   el.hidden = !VS.length;
   const V = cur(), x = V && derive(V);
   if (!x) return;
-  const sym = esc(x.sym), fee = x.d.feeBps != null ? `${feeText(x.d.feeBps)} fee to borrow` : 'One fee to borrow', redeem = `${feeText(x.s.redemptionFee)}–${feeText(x.s.redemptionFee * 4n)}`;
+  const sym = esc(x.sym), fee = x.d.feeBps != null ? `${feeText(x.d.feeBps)} fee to borrow` : 'One fee to borrow', redeem = `${feeText(x.s.redemptionFee)} to ${feeText(x.s.redemptionFee * 4n)}`;
   setHtml($('#how-body'), `<ol>
-    <li><b>Deposit TAC, borrow ${sym}.</b> Up to your TAC's value over ${pctOf(x.s.mint)}. ${fee}, no interest.</li>
+    <li><b>Deposit TAC, borrow ${sym}.</b> Up to your TAC’s value over ${pctOf(x.s.mint)}. ${fee}, no interest.</li>
     <li><b>Prices move slowly.</b> They come from the TAC pools over hours, so a brief dip does not liquidate you.</li>
-    <li><b>Under ${pctOf(x.s.liq)}, a vault can be auctioned.</b> Bids repay its debt for its TAC at a bonus that grows over ${esc(M.span(x.s.auctionDuration))}; only the owner can bid for the first ${esc(M.span(x.s.ownerWindow))}. Repaying or adding TAC ends it.</li>
-    <li><b>${pctOf(x.s.liq)} to ${pctOf(x.safe)}, it can be redeemed against.</b> A ${sym} holder swaps it for the vault's TAC at its price (${redeem} fee), which lowers the debt.</li>
+    <li><b>Under ${pctOf(x.s.liq)}, a vault can be auctioned.</b> Bids repay its debt for its TAC at a bonus that grows over ${esc(M.span(x.s.auctionDuration))}; only the vault’s owner can bid for the first ${esc(M.span(x.s.ownerWindow))}. Repaying or adding TAC ends it.</li>
+    <li><b>${pctOf(x.s.liq)} to ${pctOf(x.safe)}, it can be redeemed against.</b> A ${sym} holder swaps it for the vault’s TAC at its price (${redeem} fee), which lowers the debt.</li>
     <li><b>Repay any time.</b> The debt left must be zero or at least ${esc(syn(x, x.s.minDebt))} ${sym}.</li>
   </ol>
   <p>The owner can lower the cap, set fees (up to 5% to borrow, 2.5% to redeem) and pause auctions for up to 12 hours. Other changes are announced here 2 to 3 days ahead.</p>`);
@@ -296,7 +296,7 @@ function pauseBox(x, named = false) {
 }
 // What the owner has announced and not yet made, in one notice for every vault. Only a change that tightens is one to act ahead of; a new price
 // source or minter is neither way, so it counts as one.
-const TERM_NAMES = ['Share of depth lent', 'Borrowing line', 'Liquidation ratio', 'Bid bonus', "Owner's bidding window", 'Auction length', 'Smallest debt'];
+const TERM_NAMES = ['Share of depth lent', 'Borrowing line', 'Liquidation ratio', 'Bid bonus', 'Vault owner’s bidding window', 'Auction length', 'Smallest debt'];
 // Which way a term's change falls for someone borrowing: 1 where a larger number is the easier one, -1 where a smaller one is, 0 where neither is.
 const EASIER_WHEN_LARGER = [1, -1, -1, -1, 1, 0, -1];
 // What each term is now, in the same units as an announcement; null where the page does not read it, which counts as a change to act on.
@@ -333,7 +333,7 @@ function changesNotice(xs) {
 const auctionNow = (d) => (d.auctionTime == null ? chainNow() : d.auctionTime + Math.max(0, chainNow() - Math.max(S.chainT, Number(d.pausedUntil || 0))));
 function auctionBox(x) {
   const left = x.me.auctionStart + x.s.ownerWindow - auctionNow(x.d);
-  const owner = x.auctionsPaused ? `Bids from others are paused for <b data-cd="${x.pauseEnd}">${M.clock(x.pauseEnd - chainNow())}</b>; the owner can still bid.` : left > 0 ? `Only the owner can bid for <b data-cd="${chainNow() + left}">${M.clock(left)}</b>, then anyone.` : 'Anyone can bid now.';
+  const owner = x.auctionsPaused ? `Bids from others are paused for <b data-cd="${x.pauseEnd}">${M.clock(x.pauseEnd - chainNow())}</b>; the vault’s owner can still bid.` : left > 0 ? `Only the vault’s owner can bid for <b data-cd="${chainNow() + left}">${M.clock(left)}</b>, then anyone.` : 'Anyone can bid now.';
   const offer = x.d.pO != null ? `<span class="sub">The offer is ${esc(priceText(x, x.d.pO, 'down'))} per TAC${x.d.onOffer != null ? `; a bid for all the debt takes ${esc(tac(x.d.onOffer))} TAC` : ''}.</span>` : '';
   const way = x.d.recovered ? 'The vault has recovered: ending the auction restores borrowing and withdrawing.' : 'Repay, or add TAC, to end it. It ends once the vault is back above ' + pctOf(x.s.liq) + '.';
   return `<div class="callout red"><span class="t"><b>An auction is running.</b> ${owner}${offer}<span class="sub">${way}</span></span>${x.d.recovered && canAct() ? '<button class="pillbtn" type="button" data-cancel>End the auction</button>' : ''}</div>`;
@@ -356,7 +356,7 @@ function renderPos() {
   if (x.borrow) rows.push(`<div class="kv"><span>You can borrow</span><b class="num">${esc(syn(x, x.borrow.amount))} ${esc(x.sym)}${x.borrow.binding === 'room' ? '<small>limited by the room left to borrow</small>' : ''}</b></div>`);
   if (x.liqPrice != null && x.d.pL != null) {
     const below = Math.floor((1 - Number(x.liqPrice) / Number(x.d.pL)) * 100);
-    rows.push(`<div class="kv"><span>Liquidation price</span><b class="num">${esc(priceText(x, x.liqPrice, 'up'))}<small>${below > 0 ? `${below}% below TAC's price` : 'TAC is at or below it'}</small></b></div>`);
+    rows.push(`<div class="kv"><span>Liquidation price</span><b class="num">${esc(priceText(x, x.liqPrice, 'up'))}<small>${below > 0 ? `${below}% below TAC’s price` : 'TAC is at or below it'}</small></b></div>`);
   }
   let body = `<div class="rows flat">${rows.join('')}</div>`;
   if (x.ratio == null && m.debt > 0n) body += '<p class="zline">The ratio shows once prices are recorded.</p>';
@@ -394,7 +394,7 @@ function planOf() {
   if (t === 'borrow') {
     P.max = x.borrow?.amount ?? 0n; P.maxText = x.borrow && who() ? `Up to ${syn(x, P.max)} · Max` : '';
     if (x.auction) { P.cta = 'In an auction'; P.hint = 'Borrowing waits until the auction ends. Repay, or add TAC, to end it.'; return P; }
-    if (x.paused) { P.cta = 'Lending is paused'; P.hint = 'Lending is paused until prices are recorded.'; return P; }
+    if (x.paused) { P.cta = 'Borrowing is paused'; P.hint = 'Borrowing waits until prices are recorded.'; return P; }
     if (none) { P.cta = 'Enter an amount'; return P; }
     const c = M.checkBorrow({ amount: amt, collateral: m.collateral, debt: m.debt, pB: d.pB, mint: x.s.mint, feeBps: d.feeBps, room: x.room, minDebt: x.s.minDebt });
     P.cta = `Borrow ${sym}`;
@@ -425,7 +425,7 @@ function planOf() {
     P.cta = c.all ? `Repay all ${sym}` : `Repay ${sym}`;
     if (!c.ok) {
       P.err = true;
-      if (c.why === 'balance') P.hint = `You hold ${syn(x, bal)} ${sym}${bal < m.debt ? `, ${syn(x, m.debt)} are owed${x.rep.max > 0n ? `. You can repay up to ${syn(x, x.rep.max)}` : ''}` : ''}.`;
+      if (c.why === 'balance') P.hint = bal < m.debt ? `You hold ${syn(x, bal)} of the ${syn(x, m.debt)} ${sym} you owe.${x.rep.max > 0n ? ` You can repay up to ${syn(x, x.rep.max)}.` : ''}` : `You hold ${syn(x, bal)} ${sym}.`;
       else P.hint = `Debt left must be zero or at least ${syn(x, x.s.minDebt)} ${sym}. Repay ${m.debt > x.s.minDebt ? `up to ${syn(x, M.floorTo(m.debt - x.s.minDebt, x.k.dp))}, or ` : ''}all ${syn(x, m.debt)}.`;
       if (c.why === 'balance') P.cta = 'Not enough ' + sym;
       return P;
@@ -487,12 +487,12 @@ async function simulate(to, data, from) {
   try { await ethCall(to, data, { from }); return { ok: true }; } catch (e) { return { ok: false, e }; }
 }
 const WHY = {
-  limit: (x) => `That would take the vault under ${pctOf(x.s.mint)}.`, room: () => 'The market has less room to borrow than that right now.', auction: () => 'This vault is in an auction.',
-  amount: (x) => `That amount is not accepted: a vault's debt is zero or at least ${syn(x, x.s.minDebt)} ${x.sym}.`, fee: () => 'The borrow fee changed.', paused: () => 'Lending is paused until prices are recorded.',
-  noauction: () => 'There is no auction on this vault.', unhealthy: () => 'The vault has not recovered yet.', healthy: () => 'The vault is healthy.', ownerwindow: () => 'Only the owner can bid for now.',
+  limit: (x) => `That would take the vault under ${pctOf(x.s.mint)}.`, room: () => 'There is less room to borrow than that.', auction: () => 'This vault is in an auction.',
+  amount: (x) => `That amount is not accepted: a vault’s debt is zero or at least ${syn(x, x.s.minDebt)} ${x.sym}.`, fee: () => 'The borrow fee changed.', paused: () => 'Borrowing waits until prices are recorded.',
+  noauction: () => 'There is no auction on this vault.', unhealthy: () => 'The vault has not recovered yet.', healthy: () => 'The vault is healthy.', ownerwindow: () => 'Only the vault’s owner can bid for now.',
   access: (x, kind) => `The ${kind === 'repay' ? x.sym : 'TAC'} was not available to the vault.`, balance: (x, kind) => `Not enough ${kind === 'repay' ? x.sym : 'TAC'}.`,
 };
-const failText = (x, kind, e) => { const w = refusal(e); return `${w && WHY[w] ? WHY[w](x, kind) : 'This would fail right now.'} Nothing was sent; the figures above are current.`; };
+const failText = (x, kind, e) => { const w = refusal(e); return `${w && WHY[w] ? WHY[w](x, kind) : 'This would fail.'} Nothing was sent; the figures above are current.`; };
 const errText = (e) => esc(e instanceof UserStopped ? e.message : String(e?.message || e).slice(0, 220));
 
 // The token the call spends, made available to the vault: a permit signed in the wallet (no gas, one transaction) where there is no allowance,
@@ -500,12 +500,12 @@ const errText = (e) => esc(e instanceof UserStopped ? e.message : String(e?.mess
 async function withAccess({ V, token, amount, allowance, from, make }) {
   if (allowance >= amount) return { data: make(null) };
   try {
-    say('Sign the permit in your wallet. It costs no gas.');
+    say('Sign the permit in your wallet. The signature costs nothing.');
     const [name, nonce] = await Promise.all([ethCall(token, SEL.name), ethCall(token, SEL.nonces + addrWord(from))]);
     const dl = chainDeadline(1200);
     const sig = await wallet.signPermit({ token, name: decString(name), spender: V.addr, value: amount, deadline: dl, nonce: wordAt(nonce, 0), owner: from });
     const data = make({ value: amount, deadline: dl, ...sig });
-    say('Testing it first…');
+    say('Checking it first…');
     const sim = await simulate(V.addr, data, from);
     if (sim.ok) return { data };
     const why = refusal(sim.e);
@@ -546,7 +546,7 @@ async function run(kindOverride) {
       acc = await withAccess({ V, token: x.s.synth, amount: P.paid, allowance: x.d.synAllow ?? 0n, from, make: (p) => { const call = encRepay(owner, P.amount); return p ? encMulticall([encPermit('permitSynth', p), call]) : call; } });
     } else acc = { data: encWithdraw(P.amount) };
     data ||= acc.data;
-    say('Testing it first…');
+    say('Checking it first…');
     let sim = await simulate(V.addr, data, from);
     // A node that is a block behind has not seen the approval yet: asked again shortly.
     for (let i = 0; i < 3 && !sim.ok && acc.approved && refusal(sim.e) === 'access'; i++) { await new Promise((r) => setTimeout(r, 1500)); sim = await simulate(V.addr, data, from); }
@@ -555,7 +555,7 @@ async function run(kindOverride) {
     const hash = await wallet.sendTx({ to: V.addr, data, from });
     say(`Sent ${txLink(hash)}. Waiting for it to land…`);
     const rc = await wallet.receipt(hash);
-    if (rc.status !== '0x1') throw new Error(`The transaction failed on chain (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`);
+    if (rc.status !== '0x1') throw new Error(`The transaction failed (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`);
     S.amt = ''; $('#amt').value = '';
     await load().catch(() => {});
     const x2 = derive(V), said = { deposit: `Deposited ${tac(P.amount ?? 0n)} TAC.`, borrow: `Borrowed ${P.amount != null ? syn(x2, P.amount) : ''} ${x2.sym}. You owe ${syn(x2, x2.me.debt)}.`, repay: x2.me.debt === 0n ? `Repaid. Nothing owed now.` : `Repaid. You owe ${syn(x2, x2.me.debt)} ${x2.sym}.`, withdraw: 'Withdrawn.', cancel: 'The auction has ended.' }[P.kind];
@@ -586,7 +586,7 @@ const feedOf = (V) => (V ? F.by[V.key] || null : null);
 const oracleOf = (V) => V.oracle || V.addr;
 // A read of the venues, kept for every vault that prices from the same oracle.
 const keepFeed = (V, st) => { for (const m of VS) if (oracleOf(m) === oracleOf(V)) F.by[m.key] = st; };
-const VENUE = ['Precision pool', 'Tacit AMM'];
+const VENUE = ['Precision pool', 'Tacit pool'];
 const setFeed = (note, bad = false) => { F.note = note; F.bad = bad; const el = $('#feed-status'); if (el) { el.innerHTML = note; el.className = `status${bad ? ' err' : ''}`; } };
 async function loadFeed() {
   if (!VS.length || F.busy) return;
@@ -629,7 +629,7 @@ async function pokeFeed() {
         // One of them may have been recorded by someone else in the meantime: find which, and carry on without them.
         const each = await Promise.all(recs.map((r) => simulate(r.to, r.data, W.account)));
         const bad = each.find((r) => !r.ok && !String(r.e?.data || '').startsWith('0x103b4afe'));
-        if (bad) throw new Error(`A record would fail on the chain (${String(bad.e?.message || 'refused').slice(0, 120)}). Nothing was sent.`);
+        if (bad) throw new Error(`A record would fail (${String(bad.e?.message || 'refused').slice(0, 120)}). Nothing was sent.`);
         setFeed('Someone else is recording too; reading again…');
         continue;
       }
@@ -637,10 +637,10 @@ async function pokeFeed() {
       const hash = await wallet.sendTx({ to: MULTICALL3, data, from: W.account });
       setFeed(`Sent ${txLink(hash)}. Waiting for it to land…`);
       const rc = await wallet.receipt(hash);
-      if (rc.status !== '0x1') throw new Error('The batch failed on the chain. Nothing more was sent.');
+      if (rc.status !== '0x1') throw new Error(`The transaction failed (${hash.slice(0, 10)}…). Nothing more was sent.`);
     }
     F.busy = false; await loadFeed();
-    setFeed(feedOf(cur())?.ready ? 'The price feed is up to date.' : 'Recorded what could be. Some newer intervals still need adding: record again.');
+    setFeed(feedOf(cur())?.ready ? 'The price feed is up to date.' : 'Recorded what could be. Some newer prices still need adding: record again.');
   } catch (e) {
     F.busy = false;
     setFeed(errText(e), !(e instanceof UserStopped));

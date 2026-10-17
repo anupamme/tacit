@@ -80,8 +80,8 @@ try {
   const panel = await page.locator('#feed').innerText();
   const missing = Number(/(\d+) to record/.exec(panel)[1]);
   assert.ok(missing >= 90, `the whole window is missing on this fork: ${missing}`);
-  await page.waitForFunction(() => /prices? of the two venues (is|are) not recorded/.test(document.querySelector('#board')?.innerText || ''), null, { timeout: 60000 });   // lending cannot price yet
-  console.log(`ok - before: ${missing} prices to record, lending paused`);
+  await page.waitForFunction(() => /Borrowing waits for \d+ prices? to be recorded/.test(document.querySelector('#board')?.innerText || ''), null, { timeout: 60000 });   // borrowing cannot price yet
+  console.log(`ok - before: ${missing} prices to record, borrowing paused`);
   if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/feed-before.png`, fullPage: true });
 
   // Connect, then record.

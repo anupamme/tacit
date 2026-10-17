@@ -9,7 +9,7 @@
 import { secp, keccak_256 } from '/vendor/tacit-deps.min.js';
 import { makeConfidentialNames, makeMainnetCall, MAINNET_RPCS, NameError } from '/confidential-names.js?cb=7bb10833';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=02ef61b4';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=b0beb322';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=ba3dc25f';
 
 // Where an airdrop is never sent: the zero address and the contracts that would hold TAC with no way to give it back.
 const NO_SEND = ['0x0000000000000000000000000000000000000000', '0xa1313eb9f3a445606d9583bcac3ebeb56a858279', '0x000000c918e44a3a443937fa7594ea4f7c95d6b9', '0x4b4cb98d0c836c2783ac46f0078b904dab533ae8'];
@@ -176,7 +176,7 @@ function airdropCard(s, address) {
 // Where the program is: its day, and when today's points can be claimed (the day's end and the service's grace after it).
 function clockLine(c) {
   const at = new Date(c.settleAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
-  return `Day ${c.day} of ${c.days} · today's points can be claimed after ${at} UTC`;
+  return `Day ${c.day} of ${c.days} · today’s points can be claimed after ${at} UTC`;
 }
 function pointsCard(p, address) {
   if (p.error) return card('Points', '<p class="st warn">Could not read points. Try again in a moment.</p>');
@@ -339,7 +339,7 @@ let farmUi = null, farmFor = null, farmSeq = 0, ethUsd = 0, hasStake = false;
 const eth4 = (wei) => (Number(wei) / 1e18).toLocaleString('en-US', { maximumSignificantDigits: 3 });
 const wordOf = (a) => a.slice(2).toLowerCase().padStart(64, '0');
 function mountedFarm() {
-  return farmUi ||= Promise.all([import('/trade/farm.js?cb=96802b3c'), import('/trade/util.js?cb=c3dc39b3'), import('/evm-trade-venues.js?cb=f6e1b626'),
+  return farmUi ||= Promise.all([import('/trade/farm.js?cb=cf321c4e'), import('/trade/util.js?cb=782a003c'), import('/evm-trade-venues.js?cb=f6e1b626'),
     call({ to: ETH_USD, data: '0xfeaf968c' }).then((r) => { ethUsd = Number(BigInt(`0x${r.slice(66, 130)}`)) / 1e8; }, () => {})])
     .then(([{ mountFarm }, U, E]) => {
       const ethCall = (to, data, block = 'latest', o = {}) => U.rpc('eth_call', [{ to, data, ...(o.from ? { from: o.from } : {}), ...(o.value ? { value: `0x${BigInt(o.value).toString(16)}` } : {}) }, block]);
@@ -423,7 +423,7 @@ async function paintEarn() {
   if (!P?.rates) { el.innerHTML = '<p class="st warn">Could not load this. Close it and open it again.</p>'; return; }
   const day = c.day, wts = inForce(P.weights, day)?.weights || {}, caps = inForce(P.addressDayCaps, day)?.caps || {}, shares = inForce(P.categoryShareCaps, day)?.caps || {};
   const pot = tac(BigInt(P.dayBudgetWei || 0), 0), n = (x) => Math.round(x).toLocaleString('en-US');
-  const note = (k) => `${wts[k] != null && wts[k] !== 1 ? ` · ×${wts[k]}` : ''}${caps[k] ? ` · up to ${caps[k]} ETH a day per address` : ''}${shares[k] ? ` · together at most ${Math.round(shares[k] * 100)}% of a day's ${pot} TAC` : ''}`;
+  const note = (k) => `${wts[k] != null && wts[k] !== 1 ? ` · ${wts[k]}×` : ''}${caps[k] ? ` · up to ${caps[k]} ETH a day per address` : ''}${shares[k] ? ` · together at most ${Math.round(shares[k] * 100)}% of a day’s ${pot} TAC` : ''}`;
   const ways = [
     ['holding', 'Hold ETH in the private pools', '/#points', (r) => `${n(r)} points per ETH a day, proven on your device`],
     ['wrap', 'Wrap ETH into the Tacit pool', '/#private', (r) => `${n(r)} points per ETH`],
@@ -439,12 +439,12 @@ async function paintEarn() {
   const upcoming = (P.budgets || []).filter((e) => e.fromDay > day).sort((a, b) => a.fromDay - b.fromDay)[0], live = inForce(P.budgets, day);
   const entry = live?.groups?.length ? live : upcoming?.groups?.length ? upcoming : null;
   const perPoint = (w) => `${(Number(BigInt(w) / 10n ** 12n) / 1e6).toLocaleString('en-US', { maximumFractionDigits: 4 })} TAC a point`;
-  const reserved = entry ? `<p class="st mute">${entry.fromDay > day ? `From ${dayName(entry.fromDay)}, part` : 'Part'} of each day's ${pot} TAC is set aside: ${entry.groups.map((g) => `${Math.round(g.share * 100)}% for ${andList(g.activities.map((a) => WORDS[a] || a))}${g.maxWeiPerPoint ? ` (up to ${perPoint(g.maxWeiPerPoint)})` : ''}`).join(' and ')}. A share that is not used goes back to everyone else.</p>` : '';
+  const reserved = entry ? `<p class="st mute">${entry.fromDay > day ? `From ${dayName(entry.fromDay)}, part` : 'Part'} of each day’s ${pot} TAC is set aside: ${entry.groups.map((g) => `${Math.round(g.share * 100)}% for ${andList(g.activities.map((a) => WORDS[a] || a))}${g.maxWeiPerPoint ? ` (up to ${perPoint(g.maxWeiPerPoint)})` : ''}`).join(' and ')}. A share that is not used goes back to everyone else.</p>` : '';
   const tiers = P.holder?.tiers || [];
   el.innerHTML = `<ul class="rows ways">${ways.map(([k, label, to, f]) => `<li><a href="${to}">${esc(label)}</a><span class="m">${f(P.rates[k] * (wts[k] ?? 1))}${esc(note(k))}</span></li>`).join('')}</ul>`
     + reserved
-    + (tiers.length ? `<p class="st mute">Holding ${orList(tiers.map((t) => n(t.tac)))} public TAC at the same address for a day multiplies that day's points by ${orList(tiers.map((t) => `${t.multiplier}×`))}. ` : '<p class="st mute">')
-    + `Early activity counts up to ${P.earlyBonus?.max ?? 1}×. Each day's pot is split by points.</p>`;
+    + (tiers.length ? `<p class="st mute">Holding ${orList(tiers.map((t) => n(t.tac)))} public TAC at the same address for a day multiplies that day’s points by ${orList(tiers.map((t) => `${t.multiplier}×`))}. ` : '<p class="st mute">')
+    + `Early activity counts up to ${P.earlyBonus?.max ?? 1}×. Each day’s pot is split by points.</p>`;
   el.dataset.done = '1';
 }
 document.addEventListener('toggle', (e) => {

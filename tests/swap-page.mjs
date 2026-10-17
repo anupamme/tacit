@@ -166,7 +166,7 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   }
   ok(gated ? /under/.test(await page.textContent('#ackbox')) : true, `cUSD: ${gated ? 'a price far under the market is gated' : 'priced near the market, no gate'}`);
   if (gated) {
-    ok(/Borrow cUSD at \$1/.test(await page.textContent('#ackbox')), 'the gate offers the vault');
+    ok(/Borrow cUSD at \$1/.test(await page.textContent('#ackbox')), 'the gate offers to borrow cUSD');
     ok((await page.textContent('#go')).startsWith('Connect') || await page.isDisabled('#go'), 'the button waits for the acceptance (or a wallet)');
   }
   await shot(page, 'desktop-cusd');

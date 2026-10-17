@@ -167,13 +167,13 @@ try {
   await until(p, () => /250,000\s*TACD/.test(document.querySelector('#board')?.textContent || ''));
   const cap = await text(p, '#board');
   ok(/Borrowing is open on both vaults/.test(cap) && /Room to borrow\s*250,000 TACD\s*100 TACE/.test(cap) && /Borrowed so far\s*0 TACD\s*0 TACE/.test(cap) && /Fee\s*1%\s*1%/.test(cap) && /Smallest debt\s*100 TACD\s*0\.04 TACE/.test(cap), `the status board says both are open, with the room (the depth's 5% less the debt), the smallest debt, the fee and what is borrowed: ${cap.slice(0, 200)}`);
-  ok(!/Pools' depth|TAC price|Collateral ratio/.test(cap) && (await text(p, '#board [data-more]')) === 'More figures', 'the further figures wait behind More figures');
+  ok(!/Pools’ depth|TAC price|Collateral ratio/.test(cap) && (await text(p, '#board [data-more]')) === 'More figures', 'the further figures wait behind More figures');
   await p.click('#board [data-more]');
   const more = await text(p, '#board');
-  ok(/Pools' depth\s*5,000,000 TACD.*2,000 TACE/.test(more) && /Share of depth lent\s*5%\s*5%/.test(more) && /Borrow \/ liquidate at\s*350% · 200%\s*350% · 200%/.test(more) && /TAC deposited\s*0 TAC\s*0 TAC/.test(more), 'and give the pools\' depth, the share of it lent, the TAC deposited and the ratios');
+  ok(/Pools’ depth\s*5,000,000 TACD.*2,000 TACE/.test(more) && /Share of depth lent\s*5%\s*5%/.test(more) && /Borrow \/ liquidate at\s*350% · 200%\s*350% · 200%/.test(more) && /TAC deposited\s*0 TAC\s*0 TAC/.test(more), 'and give the pools\' depth, the share of it lent, the TAC deposited and the ratios');
   ok(/TAC price\s*\$0\.25\s*0\.0001 ETH/.test(more) && /ETH\/USD price\s*\d+ (min|s|h)[^—]*—/.test(more) && (await text(p, '#board [data-more]')) === 'Fewer figures', 'the TAC price now in each vault\'s token, and how old the dollar feed is (TAC Ether has none)');
   ok(await p.evaluate(() => localStorage.getItem('tacit-vault-more')) === '1', 'the choice is kept in this browser');
-  ok(await p.title() === 'tacit vault · TAC' && /read (just now|\d+ s ago)/.test(await text(p, '#board .eyebrow')) && !!(await p.$('#board [data-refresh]')), 'the tab\'s title is the page\'s name, and the board says when it was read, with a Refresh');
+  ok(await p.title() === 'tacit borrow' && /read (just now|\d+ s ago)/.test(await text(p, '#board .eyebrow')) && !!(await p.$('#board [data-refresh]')), 'the tab\'s title is the page\'s name, and the board says when it was read, with a Refresh');
   ok((await p.$$eval('#pick button', (b) => b.map((x) => x.textContent))).join('|') === 'TAC DollarTACD|TAC EtherTACE', 'two vaults to pick: TAC Dollar and TAC Ether');
   ok(/Connect a wallet to see your vault/.test(await text(p, '#pos')) && /Connect wallet/.test(await text(p, '#go')), 'with no wallet the position asks for one and the button connects');
   ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
@@ -186,7 +186,7 @@ try {
   // ── paused: no price recorded ──
   send('deployer', ORACLE, 'setBroken(bool)', 'true');
   r = await openPage();
-  await until(r.page, () => /Prices cannot be read right now/.test(document.querySelector('#board')?.textContent || ''));
+  await until(r.page, () => /Could not read the prices/.test(document.querySelector('#board')?.textContent || ''));
   const pb = await text(r.page, '#board');
   ok(/Borrowing is not open yet/.test(pb) && /Borrowing\s*Not open.*Not open/.test(pb) && /Room to borrow\s*—\s*—/.test(pb) && !/error|revert/i.test(pb), 'with no price the board says borrowing is not open and that prices cannot be read, calmly, with no room shown');
   ok(r.errors.length === 0, 'and logs no error');
@@ -200,7 +200,7 @@ try {
   await until(r.page, () => /under the smallest debt/.test(document.querySelector('#board')?.textContent || ''));
   const tb = await text(r.page, '#board');
   ok(/Borrowing is not open yet/.test(tb) && /Room to borrow\s*62\.5 TACD\s*0\.025 TACE/.test(tb) && /TAC Dollar: Room \(62\.5 TACD\) is under the smallest debt \(100 TACD\)/.test(tb) && /TAC Ether: Room \(0\.025 TACE\) is under the smallest debt \(0\.04 TACE\)/.test(tb), `a room under the smallest debt is said with both figures, and the vault is not open (${tb.slice(0, 160)})`);
-  ok((await r.page.$eval('#board .needs a[href="/trade/tac/#farm"]', (a) => a.textContent)) === 'Add liquidity' && await r.page.title() === 'tacit vault · TAC', 'the way to more room is the TAC pools, and the tab\'s title stays the page\'s name');
+  ok((await r.page.$eval('#board .needs a[href="/trade/tac/#farm"]', (a) => a.textContent)) === 'Add liquidity →' && await r.page.title() === 'tacit borrow', 'the way to more room is the TAC pools, and the tab\'s title stays the page\'s name');
   // an announced change to the share of depth lent opens it: the board says what the room becomes and from when
   send('owner', USD, 'queueParam(uint8,uint256)', '0', '1000'); send('owner', ETH, 'queueParam(uint8,uint256)', '0', '1000');
   await r.page.reload();
@@ -347,7 +347,7 @@ try {
   send('deployer', ORACLE, 'setBroken(bool)', 'true');
   await u.reload(); await until(u, () => /Borrowing is not open yet/.test(document.querySelector('#board')?.textContent || ''));
   await tab(u, 'borrow');
-  ok(/Lending is paused/.test(await text(u, '#go')) && await u.$eval('#go', (b) => b.disabled), 'paused: the borrow button says lending is paused');
+  ok(/Borrowing is paused/.test(await text(u, '#go')) && await u.$eval('#go', (b) => b.disabled), 'paused: the borrow button says borrowing is paused');
   await tab(u, 'withdraw');
   ok(/Withdrawing is paused/.test(await text(u, '#go')) && /With a debt, withdrawing waits until prices are recorded/.test(await text(u, '#hint')), 'and withdrawing with a debt waits too');
   await tab(u, 'deposit'); await typed(u, '10');
@@ -366,7 +366,7 @@ try {
   await until(a, () => !document.querySelector('#app').hidden && /Nothing|Collateral/.test(document.querySelector('#pos')?.textContent || '') || true, null, 15000);
   await connect(a); await until(a, () => /An auction is running/.test(document.querySelector('#pos')?.textContent || ''));
   const ac = await text(a, '#pos .callout.red');
-  ok(/Only the owner can bid for \d{1,2}:\d\d, then anyone\./.test(ac) && /The offer is \$0\.0\d+ per TAC/.test(ac) && /a bid for all the debt takes [\d,.]+ TAC/.test(ac) && /Repay, or add TAC, to end it/.test(ac), `an auction shows the owner-only time left, the offer and the way out (${ac})`);
+  ok(/Only the vault’s owner can bid for \d{1,2}:\d\d, then anyone\./.test(ac) && /The offer is \$0\.0\d+ per TAC/.test(ac) && /a bid for all the debt takes [\d,.]+ TAC/.test(ac) && /Repay, or add TAC, to end it/.test(ac), `an auction shows the owner-only time left, the offer and the way out (${ac})`);
   ok(/Under 200%/.test(await text(a, '#pos')) && (await a.$eval('#pos', (e) => [...e.querySelectorAll('.hb-key span.on')].map((x) => x.textContent).join())) === 'Liquidation', 'the bar is in the liquidation zone');
   await shot(a, 'auction-desktop');
   await tab(a, 'borrow');
@@ -420,7 +420,7 @@ try {
   ok(/They tighten borrowing: repay or withdraw before then/.test(tight) && /Liquidation ratio → 150%/.test(tight), `a tightening change warns, alongside the easier one (${tight.replace(/\s+/g, ' ').slice(-170)})`);
   send('owner', USD, 'cancelParam(uint8)', '1');
   await r.page.reload();
-  await until(r.page, () => !/Borrowing line → 400%/.test(document.querySelector('#board')?.textContent || ''), null, 30000);
+  await until(r.page, () => { const b = document.querySelector('#board')?.textContent || ''; return /Changes announced by the owner/.test(b) && !/Borrowing line → 400%/.test(b); }, null, 30000);
   ok(/They make borrowing easier/.test(await text(r.page, '#board')), 'and the warning goes with it when it is cancelled');
   // the owner's tool (tools/tac-vault-admin.mjs, or VAULT_ADMIN) reads the same announcement from the chain, and builds the calldata that makes it
   const ADMIN = process.env.VAULT_ADMIN || join(REPO, 'tools/tac-vault-admin.mjs');

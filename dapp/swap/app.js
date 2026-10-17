@@ -8,8 +8,8 @@
 // Earn: the Precision farm (trade/farm.js) in the card, the private farms by link.
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venues.js?cb=f6e1b626';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=b0beb322';
-import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18 } from '/trade/util.js?cb=c3dc39b3';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=ba3dc25f';
+import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18 } from '/trade/util.js?cb=782a003c';
 import * as R from '/swap/route.js?cb=6eafe8b3';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
 
@@ -167,7 +167,7 @@ const live = (t) => { $('#live').textContent = t; };
 // `stick`: the notice stays under the button until the amount, the pair or the mode changes (a later quote does not wipe it).
 const say = (h, cls = '', stick = false) => { if (stick) S.note = { h, cls }; const q = $('#q'); q.className = `q${cls ? ` ${cls}` : ''}`; q.innerHTML = h; };
 const connect = makeConnect({
-  describe: 'Swap into Tacit\'s tokens and farm them.',
+  describe: 'Swap into Tacit’s tokens and farm them.',
   busy: () => S.busy,
   say: (t, bad) => say(t, bad ? 'err' : ''),
   onChange: () => { S.bal = {}; paint(); readBalances().then(paint); if (S.q) requote(true); },
@@ -175,7 +175,7 @@ const connect = makeConnect({
 const { wallet, W } = connect;
 // A signature over typed data from the connected wallet, on Ethereum, from the account that was reviewed.
 async function signTyped(typed, from) {
-  if (lc(W.account || '') !== lc(from)) throw new Error('The wallet\'s account changed. Nothing was signed; review it again.');
+  if (lc(W.account || '') !== lc(from)) throw new Error('The wallet’s account changed. Nothing was signed; review it again.');
   await wallet.ensureMainnet();
   try { return await W.prov.request({ method: 'eth_signTypedData_v4', params: [from, JSON.stringify(typed)] }); } catch (e) {
     if (e?.code === 4001 || /user (rejected|denied)|rejected the request|denied/i.test(e?.message || '')) throw new UserStopped();
@@ -223,7 +223,7 @@ async function quote(my, wei) {
     const q = await within(R.quoteAnyToTac({ ethCall, venues, token: S.pay, amountIn: wei, account: account || '0x0000000000000000000000000000000000000001', slippageBps: S.slip, deadline: chainDeadline(1800) }), 15e3, 'zQuoter did not answer in time. Try again.');
     if (!q) return done({ rows: [], why: `No pool trades ${esc(pay.sym)} against WETH deeply enough. Swap it for ETH elsewhere first.` });
     const hop = q.hop ? `${q.hop.name}${q.hop.feeBps ? ` ${Number(q.hop.feeBps) / 100}%` : ''}` : null;
-    return done({ rows: [{ k: 'any', name: hop ? `${hop} → Precision` : 'Precision pool', note: '', out: q.tacOut, any: q, gas: GAS.any, best: true }] });
+    return done({ rows: [{ k: 'any', name: hop ? `${hop} → Precision pool` : 'Precision pool', note: '', out: q.tacOut, any: q, gas: GAS.any, best: true }] });
   }
   // Private: priced exactly as the front page's console prices it (its hxPoolSwap: the relay's route fee from pool-ux, then the best tier at each
   // stop through tETH), with the same module the console then loads, so the figure handed over is the figure it shows.
@@ -234,7 +234,7 @@ async function quote(my, wei) {
   const id = (k) => (k === 'cbtc' ? String(t.pool.CBTC_ZK_ASSET_ID) : String(t.assetByTicker[POOL_TK[k]]?.assetId || '')).toLowerCase();
   const stops = from === 'eth' || to === 'eth' ? [to] : ['eth', to];
   const f0 = BigInt(await t.quoteOpFee(POOL_TK[from], 'route')), fee = stops.length > 1 ? twoDigits((f0 * 14n) / 10n) : f0;
-  if (units <= fee * 2n) return done({ rows: [], why: `Swap more than ${fmtUnits(fee * 2n, 8, 6)} ${esc(pay.sym)}: the relay's fee is ${fmtUnits(fee, 8, 6)}.` });
+  if (units <= fee * 2n) return done({ rows: [], why: `Swap more than ${fmtUnits(fee * 2n, 8, 6)} ${esc(pay.sym)}: the relay’s fee is ${fmtUnits(fee, 8, 6)}.` });
   let cur = id(from), amt = units - fee;
   for (const k of stops) {
     const next = id(k);
@@ -356,7 +356,7 @@ function paintQuote() {
   // A buy far under the market is acknowledged first.
   const gate = r && !q.busy && m != null && m <= GATE && !r.priv;
   if (busy) { /* the acceptance stays as it is until the new quote is in */ } else if (gate) {
-    const alt = S.get === lc(R.CUSD) ? ' <a href="/vault/">Borrow cUSD at $1</a>.' : S.get === lc(R.CBTC) ? ' <a href="/#card=borrow:cbtc:mint">Mint cBTC 1:1</a>.' : '';
+    const alt = S.get === lc(R.CUSD) ? ' <a href="/#borrow">Borrow cUSD at $1</a>.' : S.get === lc(R.CBTC) ? ' <a href="/#card=borrow:cbtc:mint">Mint cBTC 1:1</a>.' : '';
     if (!ackbox.querySelector('input') || ackbox.dataset.k !== `${S.pay}>${S.get}`) {
       ackbox.dataset.k = `${S.pay}>${S.get}`;
       const tac = S.pay === lc(R.TAC) || S.get === lc(R.TAC);
@@ -414,7 +414,7 @@ async function go() {
     say(`Sent ${txLink(h)}. Waiting for it to land…`);
     live('Swap sent');
     const rc = await wallet.receipt(h);
-    if (rc.status !== '0x1') throw new Error(`The transaction failed on chain ${txLink(h)}. Nothing was swapped.`);
+    if (rc.status !== '0x1') throw new Error(`The transaction failed (${txLink(h)}). Nothing was swapped.`);
     const after = await balanceNow(P.get, from).catch(() => null), got = before != null && after != null ? after - before : null;
     const g = tokenOf(P.get);
     S.lastBuy = P.get === lc(R.TAC) && got > 0n ? got : null;
@@ -454,7 +454,7 @@ async function prepare(P, from) {
     if (!isEth(P.pay)) {
       const acc = await R.readAccess({ ethCall, token: P.pay, owner: from, spender: R.TACIT_AMM });
       if (acc.allowed < q.amountIn) {
-        say(`Sign the permit for your ${esc(tokenOf(P.pay).sym)} in your wallet. It costs no gas.`);
+        say(`Sign the permit for your ${esc(tokenOf(P.pay).sym)} in your wallet. The signature costs nothing.`);
         const accR = await R.readAccess({ ethCall, token: P.pay, owner: from, spender: R.CONF_ROUTER });
         permit = R.splitSig(await signTyped(R.permitTyped({ token: P.pay, name: 'Tacit Token', version: '1', owner: from, spender: R.CONF_ROUTER, value: q.amountIn, nonce: accR.nonce, deadline: dl }), from));
       }
@@ -466,9 +466,9 @@ async function prepare(P, from) {
     const floor = floorFor(q.tacOut), access = await anyAccess(q, from);
     tx = R.buildAnyToTac({ quote: q, account: from, minOut: floor, keccak256: keccak_256, access });
   } else throw new Error('Nothing to do for this pair.');
-  say('Testing it first…');
+  say('Checking it first…');
   const sim = await venues.simulate({ tx, from });
-  if (!sim.ok) throw new Error('This swap would fail right now, so it was not sent. Try a smaller amount or try again soon.');
+  if (!sim.ok) throw new Error('This swap would fail, so nothing was sent. Try a smaller amount or try again.');
   return tx;
 }
 // TAC's way in for the trade venues: a permit where the route takes one, else an approval sent first (the Tacit pool alone).
@@ -476,7 +476,7 @@ async function withAccess({ tx, make, from, dl, permit }) {
   const acc = await R.readAccess({ ethCall, token: R.TAC, owner: from, spender: tx.approval.spender });
   if (acc.allowed >= tx.approval.amount) return tx;
   if (permit) {
-    say('Sign the permit for your TAC in your wallet. It costs no gas.');
+    say('Sign the permit for your TAC in your wallet. The signature costs nothing.');
     const sig = R.splitSig(await signTyped(R.permitTyped({ token: R.TAC, name: 'Tacit Token', version: '1', owner: from, spender: tx.approval.spender, value: tx.approval.amount, nonce: acc.nonce, deadline: dl }), from));
     return make({ value: tx.approval.amount, deadline: dl, ...sig });
   }
@@ -490,15 +490,15 @@ async function anyAccess(q, from) {
   if (acc.allowed >= q.maxIn) return { kind: 'approved' };                       // allowed already: nothing to sign
   if (t.permit === undefined) t.permit = (await R.readToken({ ethCall, keccak256: keccak_256, address: q.token }).catch(() => null))?.permit ?? null;
   if (t.permit === 'dai') {
-    say('Sign DAI\'s permit in your wallet. It costs no gas.');
+    say('Sign DAI’s permit in your wallet. The signature costs nothing.');
     return { kind: 'dai', nonce: acc.nonce, expiry: q.deadline, ...R.splitSig(await signTyped(R.daiPermitTyped({ owner: from, nonce: acc.nonce, expiry: q.deadline }), from)) };
   }
   if (t.permit && acc.nonce != null) {
-    say(`Sign the permit for your ${esc(t.sym)} in your wallet. It costs no gas.`);
+    say(`Sign the permit for your ${esc(t.sym)} in your wallet. The signature costs nothing.`);
     return { kind: 'permit', value: q.maxIn, deadline: q.deadline, ...R.splitSig(await signTyped(R.permitTyped({ token: q.token, name: await tokenName(q.token), version: t.permit, owner: from, spender: R.ZROUTER, value: q.maxIn, nonce: acc.nonce, deadline: q.deadline }), from)) };
   }
   if (acc.permit2 >= q.maxIn) {
-    say(`Sign a Permit2 transfer of your ${esc(t.sym)} in your wallet. It costs no gas.`);
+    say(`Sign a Permit2 transfer of your ${esc(t.sym)} in your wallet. The signature costs nothing.`);
     const nonce = R.randomNonce();
     return { kind: 'permit2', nonce, deadline: q.deadline, signature: await signTyped(R.permit2Typed({ token: q.token, amount: q.maxIn, nonce, deadline: q.deadline }), from) };
   }
@@ -634,7 +634,7 @@ function paintEarn() {
   $('#farm').hidden = f.k !== 'precision';
   $('#privfarm').hidden = f.k === 'precision';
   if (f.k === 'precision' && !farmUi) {
-    farmUi = import('/trade/farm.js?cb=96802b3c').then(({ mountFarm }) => mountFarm($('#farm'), { ethCall, batch, rpc, api, wallet, W, connect: () => connect.connect(), fmtUnits, parseUnits, esc, usd, ethUsd: () => S.px.ethUsd, txLink, onDone: () => readBalances().then(paintSides) }));
+    farmUi = import('/trade/farm.js?cb=cf321c4e').then(({ mountFarm }) => mountFarm($('#farm'), { ethCall, batch, rpc, api, wallet, W, connect: () => connect.connect(), fmtUnits, parseUnits, esc, usd, ethUsd: () => S.px.ethUsd, txLink, onDone: () => readBalances().then(paintSides) }));
   }
   if (f.k !== 'precision') {
     $('#privfarm').innerHTML = `<a class="go priv" href="/#card=earn:ether:p${f.pid}">Farm ${esc(f.name)} privately →</a>`;
