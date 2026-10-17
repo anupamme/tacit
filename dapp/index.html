@@ -2668,7 +2668,7 @@ function selfLine(it) {
     return html`${err}<div class="actr-f"><button class="link" type="button" data-prove-open>Prove it yourself</button>: the relay isn’t proving right now. Switch on your own prover credit, then ${it.self.exit ? 'send it' : 'finish it'} from ${your()} here.</div>`;
   }
   return html`${err}<div class="actr-f"><button class="link" type="button" data-self="${it.id}">${it.self.exit ? 'Send it' : 'Finish it'} from ${your()}</button>
-    instead: ${it.self.exit ? `no relay fee; ${your()} pays the network fee, and its address shows on the withdrawal.` : `${your()} pays the network fee.`}</div>`;
+    instead: ${it.self.exit ? `no relay fee; ${your()} pays the network fee, and its address shows on the withdrawal.` : `${your()} pays the network fee, and its address shows as the sender.`}</div>`;
 }
 document.addEventListener('click', (e) => { const b = e.target.closest?.('[data-self]'); if (b) selfFinish(b.dataset.self); });
 // The offer appears once a receipt has waited long enough, which no change of its own marks: the open list is drawn
@@ -2762,7 +2762,7 @@ function openLine(it) {
   if (SELF.has(it.id)) return html`<div class="actr-f">${SELF.get(it.id)}</div>`;
   const err = it.selfErr ? html`<div class="actr-f err">${it.selfErr}</div>` : '';
   return html`${err}<div class="actr-f">Proved and ready. <button class="link" type="button" data-sendopen="${it.id}">Send it now from ${your()}</button>:
-    ${j.status === 'proven' ? `${your()} pays the network fee.` : `${your()} pays the network fee, and its relay fee comes back to you. Or leave it: it goes through when a relay sends it.`}</div>`;
+    ${j.status === 'proven' ? `${your()} pays the network fee, and its address shows as the sender.` : `${your()} pays the network fee and its address shows as the sender; its relay fee comes back to you. Or leave it: it goes through when a relay sends it.`}</div>`;
 }
 document.addEventListener('click', (e) => { const b = e.target.closest?.('[data-sendopen]'); if (b) sendOpenFrom(b.dataset.sendopen); });
 // A deposit the pool has consumed already (a relay sent its settle meanwhile): depositStatus(bytes32) is 2 once consumed.
@@ -2875,10 +2875,10 @@ async function selfGasCheck() {
 // A step the relay proved and has not sent (`spec.open`) is sent as it is; any other is proved again for the account to send.
 const selfOffer = (spec) => (spec.open
   ? html`<div class="actr-f"><button class="link" type="button" data-selfdo="${spec.id}">Send it now from ${your()}</button>:
-    ${your()} pays the network fee, and its relay fee comes back to you. Or leave it: it goes through when a relay sends it.</div>`
-  : spec.held ? html`<div class="actr-f"><button class="link" type="button" data-selfdo="${spec.id}">Send it from ${your()}</button>: the relay proves it, and ${your()} pays the network fee${keepLink(spec.keep)}.</div>`
+    ${your()} pays the network fee and its address shows as the sender; its relay fee comes back to you. Or leave it: it goes through when a relay sends it.</div>`
+  : spec.held ? html`<div class="actr-f"><button class="link" type="button" data-selfdo="${spec.id}">Send it from ${your()}</button>: the relay proves it, and ${your()} pays the network fee, and its address shows as the sender${keepLink(spec.keep)}.</div>`
   : html`<div class="actr-f"><button class="link" type="button" data-selfdo="${spec.id}">Send it from ${your()} instead</button>
-    ${spec.exit ? `no relay fee; ${your()} pays the network fee, and its address shows on the withdrawal.` : `${your()} pays the network fee.`}</div>`);
+    ${spec.exit ? `no relay fee; ${your()} pays the network fee, and its address shows on the withdrawal.` : `${your()} pays the network fee, and its address shows as the sender.`}</div>`);
 // `spec.run`: the action that was refused. Once its form has gone to Activity (run.away), the offer is made there instead.
 function offerSelf(spec, e) {
   noteOpen(e);
@@ -3961,7 +3961,7 @@ function renderProve() {
   const credit = SP.credit, short_ = credit != null && proofsFor(credit) === 0;
   const unit = src === 'eth' ? 'ETH' : 'PROVE';
   mount(el, html`
-    <p class="lede-s">Your private actions can be proved on Succinct’s prover network with your own credit instead of by Tacit’s relay, so nothing waits on the relay’s queue or credit. Its private details go to Succinct’s own prover as a private input, passing through Tacit’s API without being kept. While Succinct’s network isn’t taking private inputs, they go as a public input instead, which anyone can read, and the action says so; the relay meanwhile proves on Tacit’s own machine, where the details never leave Tacit, and each action’s line says which. Each costs about ${perProof()} PROVE, and is sent from ${your()}, which pays its network fee.</p>
+    <p class="lede-s">Your private actions can be proved on Succinct’s prover network with your own credit instead of by Tacit’s relay, so nothing waits on the relay’s queue or credit. Its private details go to Succinct’s own prover as a private input, passing through Tacit’s API without being kept. While Succinct’s network isn’t taking private inputs, they go as a public input instead, which anyone can read, and the action says so; the relay meanwhile proves on Tacit’s own machine, where the details stay with Tacit, and asks Succinct’s network when that machine is unavailable, with the details as a public input while the network isn’t taking private ones. Each action’s line says which. Each costs about ${perProof()} PROVE, and is sent from ${your()}, which pays its network fee.</p>
     <ol class="steps">
       <li class="step done"><span class="n">1</span><div><h3>Your prover account</h3>
         <div class="kv"><span>Tacit account</span><b class="mono">${short(a.address, 8)}</b><button class="link" type="button" data-copy="${a.address}">copy</button></div>

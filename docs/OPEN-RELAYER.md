@@ -127,8 +127,9 @@ binaries:
   deadline, nothing is sent, and the network keeps its base fee. While the network refuses private inputs
   (`PERMISSION_DENIED`, which costs nothing), the request goes with a public input instead, open to any prover, and the
   page says so as it goes and on the result. `makeSelfProver({ input: 'private' })` keeps it private only. The relay's own
-  proofs go first to Tacit's prover board (below), a machine Tacit runs, so while the network refuses private inputs a
-  relayed op's witness never leaves Tacit, which a self-proved one's does; a settled job's `lane` says which way it went.
+  proofs go first to Tacit's prover board (below), a machine Tacit runs, where a relayed op's witness stays with Tacit; a
+  proof the board does not take in time is requested from the network, with the witness as a public input while the
+  network refuses private ones. A settled job's `lane` says which way it went: `board`, `network-private` or `network-public`.
 - **The settle** is sent from your connected wallet.
 - **The proxy.** The network's artifact store sends no CORS headers, so the page's input goes up through
   `POST /prover/upload` and the finished proof comes back through `POST /prover/download` on the API. Both forward bytes
