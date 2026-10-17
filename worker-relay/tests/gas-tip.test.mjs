@@ -3,7 +3,7 @@
 // Offline: node --test worker-relay/tests/gas-tip.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { medianReward, tipFor, readTip, TIP_HISTORY_BLOCKS, TIP_PERCENTILE } from '../src/lib/gas-tip.js';
+import { medianReward, tipFor, readTip, makeTipFloor, TIP_HISTORY_BLOCKS, TIP_PERCENTILE } from '../src/lib/gas-tip.js';
 
 const gwei = (n) => BigInt(Math.round(n * 1e9));
 const blocks = (...xs) => xs.map((x) => [gwei(x)]);
@@ -63,4 +63,26 @@ test('read from a client: one fee-history call, and every failure is the fallbac
   assert.equal(await readTip(down, { gas: HEADER_GAS, minTotalWei: MIN_TOTAL, capWei: CAP, fallbackWei: gwei(0.05) }), gwei(0.05));
   const junk = { getFeeHistory: async () => ({}) };
   assert.equal(await readTip(junk, { gas: HEADER_GAS, minTotalWei: MIN_TOTAL, capWei: CAP, fallbackWei: gwei(0.05) }), gwei(0.05));
+});
+
+test('a tuned floor falls slowly on first-round landings, doubles on a miss, and stays within its bounds', () => {
+  const START = 20_000_000_000_000n, MIN = 4_000_000_000_000n;
+  const f = makeTipFloor({ startWei: START, minWei: MIN, maxWei: START });
+  assert.equal(f.value(), START, 'it starts at the full floor');
+  for (let i = 0; i < 10; i++) f.record(true);
+  assert.equal(f.value() < START && f.value() > (START * 70n) / 100n, true, 'ten prompt landings take about a quarter off, not more');
+  for (let i = 0; i < 400; i++) f.record(true);
+  assert.equal(f.value(), MIN, 'it never falls under its minimum');
+  f.record(false);
+  assert.equal(f.value(), MIN * 2n, 'a miss doubles it');
+  for (let i = 0; i < 10; i++) f.record(false);
+  assert.equal(f.value(), START, 'and it never rises over the full floor');
+  const t = makeTipFloor({ startWei: 100n, minWei: 50n, maxWei: 100n });
+  t.record(true); t.record(true);
+  assert.equal(t.value() >= 50n && t.value() <= 100n, true);
+  // the floor feeds tipFor as the total: a lower floor lowers the tip only where the floor was what set it
+  const dear = tipFor({ rewards: QUIET, gas: SETTLE_GAS, minTotalWei: START, capWei: CAP });
+  const cheap = tipFor({ rewards: QUIET, gas: SETTLE_GAS, minTotalWei: MIN, capWei: CAP });
+  assert.equal(cheap < dear, true, 'a lower floor offers less');
+  assert.equal(cheap, gwei(0.02), 'and a floor under the market leaves the market tip');
 });

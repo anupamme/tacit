@@ -42,7 +42,7 @@ import { proveFloorWei } from './lib/prove-floor.js';
 import { openable, pickOpen, ethFeeWei, STALE_PROOF_SELECTORS, pvFees } from './lib/open-board.js';
 import { boardProving, standingNote, creditShort, makeProvePause } from './lib/prove-pause.js';
 import { replenishDue } from './lib/replenish-schedule.js';
-import { tipFor, TIP_HISTORY_BLOCKS, TIP_PERCENTILE } from './lib/gas-tip.js';
+import { tipFor, makeTipFloor, TIP_HISTORY_BLOCKS, TIP_PERCENTILE } from './lib/gas-tip.js';
 import { feeCapFor } from './lib/fee-cap.js';
 import { SETTLE_TIP_MIN_TOTAL_WEI, SETTLE_TIP_CAP_WEI, CAP_MULT_MAX, CAP_MULT_MIN, settleFundsNeed } from './lib/settle-fees.js';
 import { safeErr } from './lib/safe-err.js';
@@ -69,6 +69,11 @@ const TIP_FLOOR_WEI = CFG.settleTipFloorWei;   // only a fallback now: the rate 
 // The smallest total priority payment worth a builder's attention. A floor on the total rather than on the rate, so a
 // 350k-gas settle stays worth including without a 3.5M-gas batch paying the same rate for it.
 const TIP_MIN_TOTAL_WEI = SETTLE_TIP_MIN_TOTAL_WEI;   // 0.00002 ETH, lib/settle-fees.js (the monitor prices a settle with the same figures)
+// The floor a settle actually offers starts at that figure and tunes itself between it and SETTLE_TIP_MIN_TOTAL_LOW_WEI (0.000004 ETH):
+// it falls 3% for each settle that lands in its first round and doubles for each that does not (lib/gas-tip.js makeTipFloor). With a
+// settle sent to every private endpoint at once, 25 of 26 land in the first round at the full floor (2026-10-17), so most of the floor
+// is paid for nothing; the funds the wallet must hold are still reckoned at the full figure.
+const tipFloor = makeTipFloor({ startWei: TIP_MIN_TOTAL_WEI, minWei: BigInt(process.env.SETTLE_TIP_MIN_TOTAL_LOW_WEI || '4000000000000'), maxWei: TIP_MIN_TOTAL_WEI });
 const TIP_CAP_WEI = SETTLE_TIP_CAP_WEI;               // 2 gwei
 const SUBMIT_ROUNDS = Math.max(1, parseInt(process.env.SETTLE_SUBMIT_ROUNDS || '3', 10));
 const RECEIPT_WAIT_MS = Math.max(30_000, parseInt(process.env.SETTLE_RECEIPT_WAIT_MS || '90000', 10));
@@ -211,7 +216,7 @@ async function submitCall(base, label, { gasLimit = null, landed = null } = {}) 
   // private endpoint accepts and then never lands, while a rate fixed high enough to fix that overpays by multiples
   // once gas is cheap. A history we cannot read falls back to that fixed rate.
   const gasForTip = gasLimit || (gasEst ? (gasEst * 12n) / 10n : 0n);
-  let tip = tipFor({ rewards: feeHist && feeHist.reward, gas: gasForTip, minTotalWei: TIP_MIN_TOTAL_WEI, capWei: TIP_CAP_WEI, fallbackWei: TIP_FLOOR_WEI });
+  let tip = tipFor({ rewards: feeHist && feeHist.reward, gas: gasForTip, minTotalWei: tipFloor.value(), capWei: TIP_CAP_WEI, fallbackWei: TIP_FLOOR_WEI });
 
   const call = { ...base, ...(gasLimit ? { gas: gasLimit } : gasEst ? { gas: (gasEst * 12n) / 10n } : {}) };
   // The fee cap each round sends with: the full multiple of the base fee when the wallet covers it, a lower one when it does
@@ -354,7 +359,7 @@ async function submitCall(base, label, { gasLimit = null, landed = null } = {}) 
         getReceipt: (h) => publicClient.getTransactionReceipt({ hash: h }),
         getConfirmedNonce: () => publicClient.getTransactionCount({ address: settleWallet.account.address, blockTag: 'latest' }),
       });
-      if (res.state === 'landed') return res.hash;
+      if (res.state === 'landed') { const f = tipFloor.record(round === 0); log(`${label} landed in round ${round + 1}; the tip floor is now ${f} wei in total`); return res.hash; }
       // A revert is the chain's verdict and is terminal — unless another landing of the same work caused it.
       if (res.state === 'reverted') return finishReverted(res.hash);
       if (res.state === 'taken') { log(`${label} nonce ${nonce} was consumed by another sender before ours landed`); taken = true; }
@@ -570,10 +575,14 @@ async function gatherWait() {
   if (CFG.settleBatchMax <= 1 || CFG.settleBatchWaitMaxSecs <= 0) return 0;
   const q = await confidentialQueue().catch(() => null);
   if (!q) return 0;
-  const ms = batchWindow.wait({ pending: q.pending, oldestPendingSec: q.oldestPendingSec, batchMax: CFG.settleBatchMax });
+  // Only relayed settles can join one another: a queue of prove-only jobs holds nobody, and an older API that does not say how many
+  // of the pending are settles gets the old reading.
+  const settles = Number.isFinite(q.pendingSettle) ? q.pendingSettle : q.pending;
+  const oldest = Number.isFinite(q.oldestPendingSettleSec) ? q.oldestPendingSettleSec : q.oldestPendingSec;
+  const ms = batchWindow.wait({ pending: settles, oldestPendingSec: oldest, batchMax: CFG.settleBatchMax });
   if (ms > 0 && Date.now() - gatherNotedAt > 30_000) {
     gatherNotedAt = Date.now();
-    log(`holding ${q.pending} queued op${q.pending === 1 ? '' : 's'} up to ${Math.round(ms / 1000)} s for company (${batchWindow.ratePerHour().toFixed(0)} jobs/h)`);
+    log(`holding ${settles} queued op${settles === 1 ? '' : 's'} up to ${Math.round(ms / 1000)} s for company (${batchWindow.ratePerHour().toFixed(0)} settles/h)`);
   }
   return ms;
 }
@@ -948,10 +957,12 @@ async function cycle() {
   if (holding) job = await confidentialJob({ mode: 'settle', openable: true });
   const jobId = job?.jobId;
   if (!jobId) return false; // empty queue
-  batchWindow.seen(jobId);
 
   const type = job.type;
   const mode = job.mode || 'settle';
+  // An arrival that could have shared a settle: the rate that decides whether a lone op waits for company counts these only (prove-only
+  // jobs were 90% of the count, so the relay expected company that never came and held settles a minute for it).
+  if (mode === 'settle' && !job.exit) batchWindow.seen(jobId);
   // A worker that predates the mode filter can hand a settle job over while the wallet is short: it is left
   // claimed and unacked, so it comes back to the queue when the claim lapses, and nothing is spent on it now.
   if (short && mode !== 'prove' && !(holding && openable(job))) return false;

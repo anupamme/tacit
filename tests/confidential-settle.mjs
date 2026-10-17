@@ -368,4 +368,16 @@ const routeOp = { asset0: 'aa', assetFinal: 'bb', hops: [{ reserveAPre: '1000', 
   ok('one automatic retry for a relay-side failure, after a wait; an op’s own failure and a second failure are final');
 }
 
+// ───────────────── 19. the queue says how many pending jobs are relayed settles, the only ones that can share a settle ─────────────────
+{
+  const q = makeConfidentialSettler({ storage: freshStore(), hash, now, sleep: instantSleep });
+  await q.submitJob({ type: 'transfer', op: { chainBinding: '0xcb', spendRoot: '0xr', fee: 0, n: 'qs1' }, memos: [] });
+  await q.submitJob({ type: 'transfer', op: { chainBinding: '0xcb', spendRoot: '0xr', fee: 0, n: 'qs2' }, memos: [], mode: 'prove' });
+  await q.submitJob({ type: 'transfer', op: { chainBinding: '0xcb', spendRoot: '0xr', fee: 0, n: 'qs3' }, memos: [], mode: 'prove' });
+  const st = await q.queueStats();
+  assert.strictEqual(st.pending, 3); assert.strictEqual(st.pendingSettle, 1, 'two of the three are prove-only and cannot join a batch');
+  assert.ok(Number.isFinite(st.oldestPendingSettleSec));
+  ok('queueStats: pendingSettle counts only relayed settles');
+}
+
 console.log(`\n${n} confidential-settle checks passed.`);

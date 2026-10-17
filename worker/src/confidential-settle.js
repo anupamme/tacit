@@ -642,16 +642,20 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
   async function queueStats() {
     const pend = await storage.getPending();
     const t = clock();
-    let pending = 0, proving = 0, oldestPendingMs = 0, oldestProvingMs = 0;
+    let pending = 0, proving = 0, oldestPendingMs = 0, oldestProvingMs = 0, pendingSettle = 0, oldestPendingSettleMs = 0;
     for (const id of pend) {
       const j = await storage.getJob(id);
       if (!j) continue;
-      if (j.status === 'pending') { pending++; oldestPendingMs = Math.max(oldestPendingMs, t - (j.createdAt || t)); }
+      if (j.status === 'pending') {
+        pending++; oldestPendingMs = Math.max(oldestPendingMs, t - (j.createdAt || t));
+        // Only a relayed settle can share a settle with another: a prove-only job is handed back to its page and is never batched.
+        if ((j.mode || 'settle') === 'settle' && !j.exit && !(j.retryAfter && t < j.retryAfter)) { pendingSettle++; oldestPendingSettleMs = Math.max(oldestPendingSettleMs, t - (j.createdAt || t)); }
+      }
       else if (j.status === 'proving') { proving++; oldestProvingMs = Math.max(oldestProvingMs, t - (j.claimedAt || t)); }
     }
     // `open`: proved jobs waiting on the board for a sender (they are not in the pending queue).
     const open = (await getOpen()).length;
-    return { pending, proving, open, oldestPendingSec: Math.round(oldestPendingMs / 1000), oldestProvingSec: Math.round(oldestProvingMs / 1000) };
+    return { pending, proving, open, pendingSettle, oldestPendingSec: Math.round(oldestPendingMs / 1000), oldestPendingSettleSec: Math.round(oldestPendingSettleMs / 1000), oldestProvingSec: Math.round(oldestProvingMs / 1000) };
   }
 
   async function pendingCount() {

@@ -30,6 +30,27 @@ export function medianReward(rewards) {
   return xs.length % 2 ? xs[m] : (xs[m - 1] + xs[m]) / 2n;
 }
 
+// A floor on the total that tunes itself. The right floor is the least that still gets a transaction into the next blocks, and that
+// depends on the builders reached and the day, so it is learned: it starts at `startWei`, falls a few percent each time a
+// transaction lands in its first round, and doubles each time one misses its first round and needs a higher offer. It stays within
+// [minWei, maxWei]; a restart begins again at `startWei`. A fall is slow and a rise is fast, so it settles where a miss is rare.
+export function makeTipFloor({ startWei, minWei, maxWei = startWei, fall = 0.97, rise = 2 } = {}) {
+  const lo = big(minWei), hi = big(maxWei);
+  let v = big(startWei);
+  const clamp = () => { if (v < lo) v = lo; if (v > hi) v = hi; };
+  clamp();
+  const per = 1_000_000n;
+  return {
+    value: () => v,
+    // `first`: the transaction landed in the first round (at whatever offer); false: it needed a later one.
+    record(first) {
+      v = first ? (v * BigInt(Math.round(fall * 1e6))) / per : v * BigInt(Math.round(rise * 1e6)) / per;
+      clamp();
+      return v;
+    },
+  };
+}
+
 // The tip to offer, in wei per gas:
 //   rewards      per-block priority fees at one percentile (eth_feeHistory's `reward`), newest last
 //   gas          what this transaction is expected to use, so the floor can be a total rather than a rate
