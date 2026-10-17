@@ -8997,13 +8997,16 @@ function isWebP(b) {
     && b[0]===0x52 && b[1]===0x49 && b[2]===0x46 && b[3]===0x46
     && b[8]===0x57 && b[9]===0x45 && b[10]===0x42 && b[11]===0x50;
 }
+// An SVG is pinned as an image only: markup that scripts, embeds another document or runs on an event is refused.
+const SVG_ACTIVE = /<\s*(?:script|foreignObject|iframe|embed|object)\b|\son[a-z]+\s*=|javascript\s*:|data\s*:\s*text\/html/i;
 function magicMatches(bytes, mime) {
   if (mime === 'image/png')  return startsWith(bytes, PNG_MAGIC);
   if (mime === 'image/jpeg') return startsWith(bytes, JPEG_MAGIC);
   if (mime === 'image/webp') return isWebP(bytes);
   if (mime === 'image/svg+xml') {
-    const head = new TextDecoder().decode(bytes.slice(0, 256)).trim();
-    return head.startsWith('<svg') || head.startsWith('<?xml');
+    const text = new TextDecoder().decode(bytes);
+    const head = text.slice(0, 256).trim();
+    return (head.startsWith('<svg') || head.startsWith('<?xml')) && !SVG_ACTIVE.test(text);
   }
   return false;
 }
@@ -12065,6 +12068,9 @@ async function handleIpfsProxy(req, env, cors) {
   // response for 24h (content-addressed so freshness is guaranteed).
   const respHeaders = new Headers(cors);
   respHeaders.set('Cache-Control', 'public, max-age=86400, immutable');
+  // Gateway bytes are data: they are served unsniffed, under a policy that lets a document opened directly run nothing.
+  respHeaders.set('X-Content-Type-Options', 'nosniff');
+  respHeaders.set('Content-Security-Policy', "default-src 'none'; sandbox");
   if (winner.buf !== undefined) {
     respHeaders.set('Content-Type', winner.ct || 'application/octet-stream');
     return new Response(winner.buf, { status: 200, headers: respHeaders });
