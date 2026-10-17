@@ -5272,7 +5272,7 @@ await step('tradelinks', async () => {
       ok(seen.menu, `tradelinks (${name}): the header has its menu in view`);
       if (name === 'desktop') ok(seen.assets && seen.order === 'Assets:/assets/ Swap:/swap/ Pay:/pay/ Borrow:/vault/', `tradelinks (${name}): and Assets, Swap, Pay and Borrow beside it (${seen.order})`);
       else ok(!seen.assets && seen.all.startsWith('Assets:/assets/ Swap:/swap/ Pay:/pay/ Borrow:/vault/ '), `tradelinks (${name}): the menu holds them all, Assets first (${seen.all})`);
-      ok(seen.more === 'Shielded TAC:/tac/ Tasks:/tasks/ Build:/build/ Stats:/weld/stats/ Community ops:/weld/keeper/ Classic app:/classic.html', `tradelinks (${name}): and, under the menu, the rest of the pages (${seen.more})`);
+      ok(seen.more === 'Shielded TAC:/tac/ Tasks:/tasks/ Rewards:/rewards/ Build:/build/ Stats:/weld/stats/ Community ops:/weld/keeper/ Classic app:/classic.html', `tradelinks (${name}): and, under the menu, the rest of the pages (${seen.more})`);
       await p.click('.sn .sm > summary');
       ok(await p.evaluate(() => [...document.querySelectorAll('.sm-p a[href="/assets/"]')].some((a) => a.getBoundingClientRect().width > 0)) === (name === 'phone'), `tradelinks (${name}): the menu lists Assets only where the header has not`);
       await p.keyboard.press('Escape');
