@@ -15,6 +15,11 @@
 # /tac has a directory with an index.html AND a tac.html stub beside it, and still does not redirect, which
 # is what rules out both "directory index" and "clean URL" being automatic. A new page needs its line here
 # and the matching entry in the dashboard, or the bare URL people type and share lands on the wrong page.
+#
+# The live rules can also be read and changed through Render's API, without the dashboard: GET and POST
+# /v1/services/<static site id>/routes (a route posted at a priority pushes the later ones down, so the /* catch-all
+# stays last; a redirect keeps the query string). /swap, /assets, /rewards, /airdrop and /weld/keeper were missing
+# live until 2026-10-17 and were added that way; this file and GET .../routes should list the same rules.
 
 /tac      /tac/      301
 /trade    /trade/tac/    301
