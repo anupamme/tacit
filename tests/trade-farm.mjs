@@ -154,6 +154,10 @@ try {
   ok(await p.$eval('#fm-go', (b) => b.disabled), 'a wrong figure does not accept it');
   await p.fill('#fm-ack', big.n);
   ok(!(await p.$eval('#fm-go', (b) => b.disabled)), 'the figure typed accepts it');
+  // More than the wallet holds is said so, even where the amount is too large for the pool to quote.
+  await p.fill('#fm-amt', '999999999');
+  await until(p, () => /Not enough ETH/.test(document.querySelector('#fm-rcpt')?.textContent || '') || /refuse/.test(document.querySelector('#fm-rcpt')?.textContent || ''), null, 120000);
+  ok(/Not enough ETH/.test(await text(p, '#fm-rcpt')) && (await p.$eval('#fm-go', (b) => b.disabled)), 'an amount far past the balance says the wallet does not hold it');
   await p.fill('#fm-amt', '0.4');
   await until(p, () => /Earns about/.test(document.querySelector('#fm-rcpt')?.textContent || '') && !document.querySelector('#fm-go').disabled && !document.querySelector('#fm-amt').hasAttribute('aria-invalid'), null, 120000);
   await p.click('#fm-go');

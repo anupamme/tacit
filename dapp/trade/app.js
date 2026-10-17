@@ -19,7 +19,7 @@ import { mountDepth } from '/trade/depth.js?cb=5aaa8a95';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=b0beb322';
 import { takeEarly } from '/trade/rpc.js?cb=842f58a5';
-import { mountFarm } from '/trade/farm.js?cb=981d15eb';
+import { mountFarm } from '/trade/farm.js?cb=9b68f7ad';
 import { grp, sig, group, satsFmt, warm as warmFormatters } from '/trade/fmt.js?cb=43646c2e';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
 

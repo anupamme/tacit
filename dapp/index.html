@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-JCxgR1OZQ8hN0DwkI38Cc8+cHWwm4wFV7dpSpz2qSiQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-aGO6zZ0rECf6dO9jg6zfiASKSCNA12LInDTy/WB5UpY=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -9302,6 +9302,11 @@ function renderPrecision(el) {
     const typedIn = (i) => e?.target === i && (e.isTrusted || e.fill);
     if (mode === 'pair' && typedIn(ethIn)) { const v = parseUnits(ethIn.value); if (!ethIn.value) tacIn.value = ''; else if (v != null) tacIn.value = plain(upTo(tacFor(v), TAC_DP), 18); }
     if (mode === 'pair' && typedIn(tacIn)) { const v = parseUnits(tacIn.value); if (!tacIn.value) ethIn.value = ''; else if (v != null) ethIn.value = plain(upTo(ethFor(v), ETH_DP), 18); }
+    // Coming to both sides with one already typed (the mode was switched): the other follows at the pool's ratio, rather than the pool being asked for a deposit of one.
+    if (mode === 'pair' && !typedIn(ethIn) && !typedIn(tacIn)) {
+      const ev = parseUnits(ethIn.value), tv = parseUnits(tacIn.value);
+      if (ev && !tv) tacIn.value = plain(upTo(tacFor(ev), TAC_DP), 18); else if (tv && !ev) ethIn.value = plain(upTo(ethFor(tv), ETH_DP), 18);
+    }
     const wei = withEth ? parseUnits(ethIn.value) || 0n : 0n, tac = withTac ? parseUnits(tacIn.value) || 0n : 0n;
     if (!go.isConnected) return;
     q = null; go.disabled = true; mount(ackBox, html``); if (e?.isTrusted) say(status, '');
@@ -9347,7 +9352,13 @@ function renderPrecision(el) {
       rc.querySelector('[data-go="eth"]')?.addEventListener('click', (e) => { if (running(sheetOf(e.currentTarget))) return; FARM.mode = 'eth'; keep($('#sheet-farm'), render.farm); });
       rc.querySelector('[data-go="pair"]')?.addEventListener('click', (e) => { if (running(sheetOf(e.currentTarget))) return; FARM.mode = 'pair'; keep($('#sheet-farm'), render.farm); });
       gateOk();
-    } catch (e2) { if (my === seq) quoteErr(rc, e2); }
+    } catch (e2) {
+      if (my !== seq) return;
+      // An amount past what the account holds, too large for the pool to quote, is told as that, not as the pool refusing it.
+      if (wei > (x.bal ?? wei)) { mount(rc, html``); warn(rc, lowEth()); }
+      else if (tac > x.tac) { mount(rc, html``); warn(rc, `Not enough TAC in ${your()}.`); }
+      else quoteErr(rc, e2);
+    }
   };
   const edit = onEdit([ethIn, tacIn].filter(Boolean), go, requote);
   const fill = (input, v) => { edit.cancel(); input.value = v > 0n ? plain(v, 18) : ''; requote({ target: input, fill: true }); };

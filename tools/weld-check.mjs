@@ -557,6 +557,17 @@ await step('pair', async () => {
   await page.fill('#pf-amt', '0.002');
   await until(page, () => !document.querySelector('#pf-go').disabled || /\S/.test(document.querySelector('#pf-status')?.textContent || ''));
   if (await page.isDisabled('#pf-go')) throw new Error(`the ETH + TAC deposit stayed disabled: ${await text(page, '#pf-status')} | ${await text(page, '#pf-rcpt')}`);
+  // ETH typed on its own tab, then ETH + TAC chosen: the TAC follows at the pool's ratio, rather than the pool being asked for a deposit of one side.
+  await page.click('[data-pfm="eth"]'); await page.fill('#pf-amt', '0.003');
+  await page.click('[data-pfm="pair"]');
+  await until(page, () => Number(document.querySelector('#pf-tac')?.value) > 0 && /Deposit/.test(document.querySelector('#pf-rcpt')?.textContent || '') && !document.querySelector('#pf-go').disabled, null, 240000);
+  ok(!/refuse/.test(await text(page, '#pf-rcpt')), `pair: switching to ETH + TAC with ETH typed fills the TAC at the pool's ratio (${await page.inputValue('#pf-tac')} TAC for ${await page.inputValue('#pf-amt')} ETH)`);
+  // More than the account holds is said so, not that the pool refuses an amount too large to quote.
+  await page.fill('#pf-amt', '999999999');
+  await until(page, () => /More than your/.test(document.querySelector('#pf-rcpt')?.textContent || '') || /refuse/.test(document.querySelector('#pf-rcpt')?.textContent || ''), null, 240000);
+  ok(/More than your/.test(await text(page, '#pf-rcpt')) && await page.isDisabled('#pf-go'), 'pair: an amount far past the balance says it is more than the account holds');
+  await page.fill('#pf-amt', '0.002');
+  await until(page, () => !document.querySelector('#pf-go').disabled && /Deposit/.test(document.querySelector('#pf-rcpt')?.textContent || ''), null, 240000);
   const s0 = await stakedOf(A0), t0 = await tacOf(A0);
   await page.click('#pf-go');
   await until(page, () => /Staked/.test(document.querySelector('#toast-container')?.textContent || '') || !!document.querySelector('#farm-precision .status .err'));

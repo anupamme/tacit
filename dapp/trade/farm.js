@@ -228,7 +228,12 @@ export function mountFarm(host, ctx) {
         ${loss >= 15 ? ackBox('fm-ack', loss, 'deposit', F.ackKey === ackKey) : ''}`;
       for (const ev of ['input', 'change']) $('#fm-ack')?.addEventListener(ev, () => { F.ackKey = accepted('fm-ack', loss) ? ackKey : null; gate(); });
       gate();
-    } catch (e) { if (my === F.seq) { rc.hidden = false; rc.innerHTML = `<p class="note err">${errMsg(e)}</p>`; } }
+    } catch (e) {
+      if (my !== F.seq) return;
+      // An amount past what the wallet holds, too large for the pool to quote, is told as that, not as the pool refusing it.
+      const short = mineX(x) && ((x.bal != null && wei > x.bal) ? 'ETH' : tac > x.tac ? 'TAC' : '');
+      rc.hidden = false; rc.innerHTML = short ? `<p class="note err">Not enough ${short} in this wallet.</p>` : `<p class="note err">${errMsg(e)}</p>`;
+    }
   }
 
   // The farm's transaction, tested once before the wallet is asked to send it, then waited for.
