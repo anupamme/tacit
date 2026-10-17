@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-dFtDmatwGNfwMQRmadX23K1GxvkghWrUv9yn2+AkpzQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Eta9f9MLB9p0fAwbd8kx+hMvqUSnvUXh8/T6jZvX4i4=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -460,6 +460,10 @@ a.di { color: inherit; text-decoration: none; }
 .hx-q .link, .hx-q button { color: var(--ink); }
 .hx-rc { margin: 6px 0 0; font-size: 12px; line-height: 1.5; color: var(--mute); overflow-wrap: anywhere; }
 .hx-rc.warn { color: var(--warn); }
+.hx-recent { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 8px 0 0; }
+.hx-recent .hx-quick button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hx-recent .link { position: relative; padding: 0; font-size: 12px; }
+.hx-recent .link::after { content: ''; position: absolute; inset: -8px -6px; }
 #hx-ask, #hx-pay { position: relative; padding: 0; font-size: 12px; }
 #hx-ask::after, #hx-pay::after { content: ''; position: absolute; inset: -8px -6px; }
 .hero .hx-q.warn, .hx-q.warn { color: var(--warn); }
@@ -11713,10 +11717,13 @@ function hxSendWhy(k = HX.send) {
 }
 // A request: a link that opens Send filled in with this key's tacit1 address, the asset and the amount asked for, for whoever pays it.
 const hxAskWhy = () => 'Whoever opens the link sees this payment filled in, ready to send.';
-function hxAskGo() {
+const hxCanShare = () => typeof navigator.share === 'function' && matchMedia('(pointer: coarse)').matches;     // a phone: its share sheet reaches the person asked
+async function hxAskGo() {
   const a = S.key?.tacit, u = hxUnits();
   if (!a) return openSheet('wallet');
-  copy(`${location.origin}/#card=send:${HX.send}&to=${encodeURIComponent(a)}${u ? `&amt=${plain(u, 8)}` : ''}`, 'Payment link copied');
+  const url = `${location.origin}/#card=send:${HX.send}&to=${encodeURIComponent(a)}${u ? `&amt=${plain(u, 8)}` : ''}`;
+  if (hxCanShare()) { try { await navigator.share({ url, title: 'Payment request' }); return; } catch (e) { if (e?.name === 'AbortError') return; } }
+  copy(url, 'Payment link copied');
 }
 // A key opens Send on what it holds: the first of the pool's four with a private balance, unless it chose another asset, has begun an amount or is asking.
 function hxSendAuto() {
@@ -11751,6 +11758,25 @@ function hxRcptCheck() {
     }, (e) => show(true, html`${errText(e)}`));
   }, 450);
 }
+// The last few Tacit recipients a send was started to, kept in this browser alone and shown under an empty recipient field, so a long address is not pasted twice.
+const HX_RECENT = 'tacit-hx-recent-to-v1';
+const hxRecent = () => { try { const v = JSON.parse(localStorage.getItem(HX_RECENT) || '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string' && x.length < 400).slice(0, 5) : []; } catch { return []; } };
+function hxRecentAdd(to) {
+  if (!to || hxRcptKind(to)) return;
+  try { localStorage.setItem(HX_RECENT, JSON.stringify([to, ...hxRecent().filter((x) => x !== to)].slice(0, 5))); } catch {}
+}
+function hxRecentPaint() {
+  const el = $('#hx-recent');
+  if (!el) return;
+  const list = HX.rcpt || HX.ask ? [] : hxRecent();
+  el.hidden = !list.length;
+  if (!list.length) { el.__h = ''; return; }
+  const view = html`<span class="hx-quick">${list.map((to) => html`<button type="button" data-hxto="${to}" title="${to}">${to.length > 22 ? short(to, 8) : to}</button>`)}</span><button class="link" type="button" data-hxto-clear>clear</button>`;
+  if (el.__h === view.s) return;
+  el.__h = view.s; mount(el, view);
+  for (const b of $$('[data-hxto]', el)) b.onclick = () => { const r = $('#hx-rcpt'); if (!r) return; r.value = b.dataset.hxto; r.dispatchEvent(new Event('input')); r.focus(); };
+  $('[data-hxto-clear]', el).onclick = () => { try { localStorage.removeItem(HX_RECENT); } catch {} hxRecentPaint(); };
+}
 // A recipient typed: what it is (an address or a Tacit one) changes what is quoted and what the button says, so a change of kind asks again.
 function hxRcptChanged() {
   const kind = hxRcptKind() + (hxSendFit() ? '!' : '');
@@ -11765,6 +11791,7 @@ function hxSendGo() {
   if (hxSendFit()) return;
   const k = HX.send, u = hxUnits(), amt = u ? plain(u, 8) : HX.amt, to = HX.rcpt;
   HX.draft = null;
+  hxRecentAdd(to);
   if (hxSendBtc(k)) { const a = u ? plain(u, 8) : ''; location.href = `/pay/#${k === 'btc' ? 'btc' : 'tac'}${to || a ? `&to=${encodeURIComponent(to)}&amount=${encodeURIComponent(a)}` : ''}`; return; }
   if (S.key && P.scan && spendable(k) === 0n) return;                                // nothing to send: the line above says how to get some
   if (k === 'eth' && hxRcptKind() === 'eth') { hxDraft({ mode: 'out', to, amt }); return openLink('private/withdraw'); }      // an address is paid as ETH: the Withdraw form
@@ -12574,12 +12601,12 @@ function paintHx() {
       ${mid()}
       ${field('Paid to', where('your tacit1 address', false, 'tac'), html`<span class="hx-say mono">${HX.askFor ? short(HX.askFor, 12) : 'Open your wallet to get the link'}</span>`)}
       <div class="hx-have" id="hx-have" hidden></div>
-      <button class="btn" type="button" id="hx-go">${HX.askFor ? 'Copy payment link' : 'Open your wallet'}</button>
+      <button class="btn" type="button" id="hx-go">${HX.askFor ? (hxCanShare() ? 'Share payment link' : 'Copy payment link') : 'Open your wallet'}</button>
       <p class="hx-q" id="hx-q" aria-live="polite">${hxAskWhy()}</p>
       <p class="hx-q"><button class="link" type="button" id="hx-pay">Send instead</button></p>`
     : html`${field('You send', where(...at), amt(`${unit} to send`), coin('hx-sa', 'Asset to send', HX_SEND_G, HX.send, true), subline)}
       ${mid()}
-      ${field('To', btcPay ? where('anyone with a Bitcoin address', false, 'btc') : where('anyone, on either chain', false, 'tac'), html`<input class="hx-to" id="hx-rcpt" placeholder="${btcPay ? 'tacit1…, sp1… or bc1…' : 'tacit1… or name.wei'}" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Recipient" value="${HX.rcpt}">`, '', html`<div class="hx-rc" id="hx-rc" aria-live="polite" hidden></div>`)}
+      ${field('To', btcPay ? where('anyone with a Bitcoin address', false, 'btc') : where('anyone, on either chain', false, 'tac'), html`<input class="hx-to" id="hx-rcpt" placeholder="${btcPay ? 'tacit1…, sp1… or bc1…' : HX.send === 'tacb' ? 'tacit1… or name.wei' : 'tacit1…, name.wei or 0x…'}" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Recipient" value="${HX.rcpt}">`, '', html`<div class="hx-rc" id="hx-rc" aria-live="polite" hidden></div><div class="hx-recent" id="hx-recent" hidden></div>`)}
       <div class="hx-have" id="hx-have" hidden></div>
       <button class="btn" type="button" id="hx-go">${hxSendBtc() ? 'Continue in Pay' : 'Send privately'}</button>
       <p class="hx-q" id="hx-q" aria-live="polite">${hxSendWhy()}</p>
@@ -12627,10 +12654,10 @@ function paintHx() {
   if (m === 'send') {
     $('#hx-sa').onchange = (e) => { HX.sendPick = true; hxKeepAmt(() => { HX.send = e.target.value; }); paintHx(); };
     const r = $('#hx-rcpt');
-    if (r) { r.oninput = (e) => { HX.rcpt = e.target.value.trim(); hxRcptChanged(); hxRcptCheck(); }; r.onkeydown = enter; }
+    if (r) { r.oninput = (e) => { HX.rcpt = e.target.value.trim(); hxRcptChanged(); hxRcptCheck(); hxRecentPaint(); }; r.onkeydown = enter; }
     $('#hx-ask')?.addEventListener('click', () => { HX.ask = true; paintHx(); $('#hx-amt')?.focus(); });
     $('#hx-pay')?.addEventListener('click', () => { HX.ask = false; paintHx(); $('#hx-amt')?.focus(); });
-    paintHxQ(); hxQuote(); hxSendRead(); hxRcptCheck();                              // what the recipient gets, and what is held
+    paintHxQ(); hxQuote(); hxSendRead(); hxRcptCheck(); hxRecentPaint();             // what the recipient gets, and what is held
     return;
   }
   // The ways are one stop too: the arrow keys move the choice among them.

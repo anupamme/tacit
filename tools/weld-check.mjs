@@ -5281,6 +5281,15 @@ await step('hxsend', async () => {
         .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | form: ${await p.evaluate(() => [...document.querySelectorAll('dialog[open]')].map((d) => d.id).join())}`); });
       ok(true, `hxsend: ${ticker}'s button opens its form with the amount and the recipient`);
     }
+    // Recipients a send was started to are offered again under an empty field, and an address paid in the public token is not one of them.
+    await lander(p);
+    await p.click('[data-hxm="send"]');
+    await p.fill('#hx-rcpt', '');
+    await until(p, () => document.querySelectorAll('#hx-recent [data-hxto]').length >= 1, null, 60000);
+    ok((await p.$$eval('#hx-recent [data-hxto]', (b) => b.map((x) => x.dataset.hxto))).join() === to, 'hxsend: the recipients a send was started to are offered again under the empty field, once each');
+    await p.click('#hx-recent [data-hxto]');
+    ok(await p.inputValue('#hx-rcpt') === to && await p.$eval('#hx-recent', (e) => e.hidden), 'hxsend: choosing one fills the field and the list steps aside');
+    ok((await p.getAttribute('#hx-rcpt', 'placeholder')) === 'tacit1…, name.wei or 0x…', 'hxsend: the placeholder says an Ethereum address will do');
     // An Ethereum address is paid in the public token: tETH through the Withdraw form, cUSD through its form's address route; the wrong kind of address for an asset is said, and the button waits.
     const eth0 = '0x' + 'ab'.repeat(20), btc0 = 'bc1q' + 'a'.repeat(38);
     await pick('eth', '^0\\.25 tETH · Max');
