@@ -266,13 +266,20 @@ async function cycle() {
       : urgent ? 'advancing now' : `gas ${gwei.toFixed(2)} gwei is above the ${CFG.demandMaxGasGwei} gwei ceiling, waiting`;
     log(`${demand.waiting} bonded cBTC lock(s) waiting on the reflection — ${why}`);
   }
+  // A header costs about the same gas alone or in a batch (~177k each; a batch saves only the transaction's own overhead), so the
+  // batch minimum is a saving worth its delay only while gas is dear. Under HEADER_CHEAP_GWEI the relay advances every
+  // HEADER_CHEAP_MIN_BATCH headers, so the tip, and the bridge and reflection that wait on it, stay close to Bitcoin for a few
+  // cents a day more.
+  const nowGwei = await publicClient.getGasPrice().then((w) => Number(w) / 1e9).catch(() => null);
+  const cheap = nowGwei != null && nowGwei < CFG.headerCheapGwei;
+  const minBatch = urgent ? 1 : cheap ? Math.min(CFG.headerMinBatch, CFG.headerCheapMinBatch) : CFG.headerMinBatch;
   const plan = planHeaderAdvance({
-    base, to, minBatch: urgent ? 1 : CFG.headerMinBatch, maxStale: CFG.headerMaxStaleBlocks, maxBatch: CFG.headerMaxBatch,
+    base, to, minBatch, maxStale: CFG.headerMaxStaleBlocks, maxBatch: CFG.headerMaxBatch,
     gasDear: urgent ? false : !!dear, restore: depth > 0,
   });
   if (plan.action === 'wait') {
     if (plan.reason === 'gas') log(`gas ${dear.toFixed(3)} gwei is above HEADER_MAX_GAS_GWEI=${CFG.headerMaxGasGwei} — waiting`);
-    else log(`batching: ${plan.pending} of ${CFG.headerMinBatch} headers pending — waiting (tip=${rtip} btc=${btip})`);
+    else log(`batching: ${plan.pending} of ${minBatch} headers pending${cheap ? ` (gas ${nowGwei.toFixed(3)} gwei: the cheap-gas batch)` : ''} — waiting (tip=${rtip} btc=${btip})`);
     return false;
   }
   // Nobody waits on this batch to the minute (a user who does is 'urgent', above), so a ready batch holds for a cheaper block,

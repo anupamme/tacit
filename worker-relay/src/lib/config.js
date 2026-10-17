@@ -134,6 +134,10 @@ export const CFG = {
   // Submit only once this many headers are pending, so a quiet lane pays one transaction for a batch instead of one per
   // block. 1 (default) is the original behaviour: submit as soon as any block exists.
   headerMinBatch: num('HEADER_RELAY_MIN_BATCH', 1),
+  // While gas is under HEADER_CHEAP_GWEI the batch minimum drops to HEADER_CHEAP_MIN_BATCH (header-relay.js): a header costs the same
+  // gas alone or batched, so waiting for twenty only pays when gas is dear.
+  headerCheapGwei: num('HEADER_CHEAP_GWEI', 0.15),
+  headerCheapMinBatch: num('HEADER_CHEAP_MIN_BATCH', 3),
   // While a user waits on Bitcoin state (lib/reflection-demand.js), headers go out at any gas up to this, in whatever
   // number is pending, rather than waiting for MAX_GAS_GWEI and HEADER_RELAY_MIN_BATCH.
   demandMaxGasGwei: num('DEMAND_MAX_GAS_GWEI', 5),
