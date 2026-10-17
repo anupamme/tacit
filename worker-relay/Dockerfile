@@ -42,8 +42,8 @@ RUN cd /app/prover/bin \
  && sha256sum -c SHA256SUMS \
  && chmod +x exec-* bitcoin_prove eth_prove
 
-COPY package.json package-lock.json* ./
-RUN npm install --omit=dev
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm rebuild better-sqlite3
 
 COPY src/ ./src/
 

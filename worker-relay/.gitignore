@@ -1,5 +1,4 @@
 node_modules/
-package-lock.json
 /tmp/
 # Prover binaries are fetched from the GitHub release at Docker build (see Dockerfile).
 # Committed: SHA256SUMS (pins them) + this .gitignore. Not committed: the 28MB binaries.

@@ -15,8 +15,8 @@ COPY dapp/vendor/*.js /app/dapp/vendor/
 COPY dapp/btc-pool/pin.json dapp/btc-pool/vk.bin dapp/btc-pool/params-k13.bin dapp/btc-pool/btc_pool_halo2.js dapp/btc-pool/btc_pool_halo2_bg.wasm /app/dapp/btc-pool/
 
 WORKDIR /app/worker-relay
-COPY worker-relay/package.json ./
-RUN npm install --omit=dev && npm cache clean --force
+COPY worker-relay/package.json worker-relay/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm rebuild better-sqlite3 && npm cache clean --force
 COPY worker-relay/src ./src
 
 ENV NODE_ENV=production \

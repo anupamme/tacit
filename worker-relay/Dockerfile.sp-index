@@ -13,8 +13,8 @@ COPY dapp/bip352.js /app/dapp/bip352.js
 COPY dapp/vendor/tacit-deps.min.js /app/dapp/vendor/tacit-deps.min.js
 
 WORKDIR /app/worker-relay
-COPY worker-relay/package.json ./
-RUN npm install --omit=dev && npm cache clean --force
+COPY worker-relay/package.json worker-relay/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm rebuild better-sqlite3 && npm cache clean --force
 COPY worker-relay/src ./src
 
 # The shared input rules must load here, or the image is unusable.

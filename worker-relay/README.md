@@ -136,6 +136,6 @@ Image: `docker build -f worker-relay/Dockerfile.pool-maker .` from the repo root
 Local run:
 
 ```bash
-cd worker-relay && npm install
+cd worker-relay && npm ci
 WORKER_BASE=… BOX_TOKEN=… RPC_URL=… RELAY_KEY=… NETWORK_PRIVATE_KEY=… node src/reflection-folder.js
 ```
