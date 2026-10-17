@@ -70,7 +70,17 @@ export function buildEnv(driver, { tomlPath = WRANGLER_TOML, extra = {} } = {}) 
 //   3. Socket peer address (direct/local).
 const trustProxy = (env) => (env.TRUST_PROXY ?? process.env.TRUST_PROXY) === '1';
 
-export function clientIpFrom(nodeReq, env) {
+// An IPv6 client is counted by its /64, the block a single subscriber is given (worker-relay/src/lib/token-bucket.js does the same for the points service).
+export function ipKey(addr) {
+  const a = String(addr).trim().toLowerCase();
+  if (!a.includes(':') || /^(::ffff:)?\d+\.\d+\.\d+\.\d+$/.test(a)) return a;
+  const [h, t = ''] = a.split('::'), head = h ? h.split(':') : [], tail = t ? t.split(':') : [];
+  const full = a.includes('::') ? [...head, ...Array(Math.max(0, 8 - head.length - tail.length)).fill('0'), ...tail] : head;
+  return `${full.slice(0, 4).map((x) => x.replace(/^0+(?=.)/, '')).join(':')}::/64`;
+}
+
+export function clientIpFrom(nodeReq, env) { return ipKey(rawClientIp(nodeReq, env)); }
+function rawClientIp(nodeReq, env) {
   const h = nodeReq.headers;
   const trustKey = env.PROXY_TRUST_KEY || process.env.PROXY_TRUST_KEY;
   if (trustKey && h['x-tacit-proxy-key'] === trustKey && h['x-tacit-forwarded-ip']) {

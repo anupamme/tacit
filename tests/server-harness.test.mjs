@@ -90,6 +90,14 @@ ok('POST body reaches worker (auth-gated, not 5xx)', hb.status >= 400 && hb.stat
   ok('legacy proxy handshake forwards client ip', clientIpFrom(proxied, envKey) === '1.2.3.4');
   const badKey = { ...proxied, headers: { ...proxied.headers, 'x-tacit-proxy-key': 'nope' } };
   ok('wrong proxy key ignored', clientIpFrom(badKey, envKey) === '127.0.0.1');
+  // An IPv6 client is counted by its /64: every address in it is one client, and an IPv4 one is kept as it is.
+  const v6 = (ip) => ({ ...fakeReq, headers: { ...fakeReq.headers, 'true-client-ip': ip } });
+  const trust = { ...env, TRUST_PROXY: '1' };
+  ok('an IPv6 client is keyed by its /64', clientIpFrom(v6('2001:db8:1234:5678:aaaa:bbbb:cccc:dddd'), trust) === '2001:db8:1234:5678::/64');
+  ok('every address of a /64 is one client', clientIpFrom(v6('2001:db8:1234:5678:1::2'), trust) === clientIpFrom(v6('2001:DB8:1234:5678:ffff:ffff:ffff:ffff'), trust));
+  ok('another /64 is another client', clientIpFrom(v6('2001:db8:1234:5679::1'), trust) !== clientIpFrom(v6('2001:db8:1234:5678::1'), trust));
+  ok('a compressed address is read in full', clientIpFrom(v6('2001:db8::1'), trust) === '2001:db8:0:0::/64');
+  ok('an IPv4 client and an IPv4-mapped one are kept as they are', clientIpFrom(v6('81.97.145.25'), trust) === '81.97.145.25' && clientIpFrom(v6('::ffff:81.97.145.25'), trust) === '::ffff:81.97.145.25');
 }
 
 // caches shim: store/match/delete with X-Cached-At preserved (SWR contract)
