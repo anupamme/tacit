@@ -13,6 +13,7 @@ import { extname, join, normalize } from 'node:path';
 
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT || '/Users/z/zFi/node_modules/playwright-core');
 const secret = await import('../dapp/sats/secret.js');
+const { poseidon2 } = await import('../dapp/vendor/tacit-poseidon.min.js');
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 const TYPES = { '.js': 'text/javascript', '.html': 'text/html; charset=utf-8', '.json': 'application/json', '.css': 'text/css', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' };
 const local = [];
@@ -44,7 +45,9 @@ async function stubbed(answer) {
   const pw = secret.poolWalletFor(hexToBytes(A), 'mainnet');
   const to = secret.poolWalletFor(hexToBytes(B), 'mainnet').addressString;
   const note = secret.pool.createNote(pw.addressString, TAC, 100_000_000n);
-  const zeros = Array(32).fill('0x' + '00'.repeat(32)), root = secret.pool.merkleRootFrom(note.leaf, 0, zeros);
+  // The pool's tree has Poseidon empty-subtree hashes; the page works its paths out from the feed and checks the root the replay gives for the anchor.
+  const Z = [0n]; for (let i = 1; i < 32; i++) Z.push(poseidon2([Z[i - 1], Z[i - 1]]));
+  const zeros = Z.map((v) => '0x' + v.toString(16).padStart(64, '0')), root = secret.pool.merkleRootFrom(note.leaf, 0, zeros);
   const feed = [{ leafIndex: 0, txid: 'ab'.repeat(32), height: H - 100, leaf: note.leaf, asset: note.asset, pk_eph: note.pkEph, ct_note: note.ctNote }];
   const seen = { posts: [], relay: [] };
   let relayDown = false;
@@ -77,6 +80,7 @@ async function stubbed(answer) {
     }
     if (p === '/btc-pool/status') return json(r, 200, { height: H, halted: false });
     if (p === '/btc-pool/notes') return json(r, 200, Number(u.searchParams.get('from') || 0) === 0 ? { notes: feed, next: 1 } : { notes: [], next: 1 });
+    if (/^\/btc-pool\/root\/\d+$/.test(p)) return json(r, 200, { root, retained: true });
     if (p === '/btc-pool/nullifiers') return json(r, 200, { nullifiers: [], next: null });
     const m = p.match(/^\/btc-pool\/path\/0$/);
     if (m) { const at = Number(u.searchParams.get('at')); return json(r, 200, { leaf: note.leaf, hAnchor: at, root, path: zeros }); }
@@ -120,7 +124,7 @@ async function run(answer) {
     if (answer === 'no') await page.click('#status [data-ask="no"]');
     await page.waitForFunction(() => /Nothing was sent/.test(document.querySelector('#status').textContent), null, { timeout: 30e3 });
     const said = (await page.textContent('#status')).trim();
-    ok(said === 'The relay isn’t taking payments right now. Nothing was sent.' && !(await page.$('#status .err')), `${answer}: says so plainly: ${said}`);
+    ok(said === 'The relay can’t take this one right now. Nothing was sent.' && !(await page.$('#status .err')), `${answer}: says so plainly: ${said}`);
     await page.waitForTimeout(1500);
     ok(!seen.posts.length, `${answer}: nothing was posted (${seen.posts.join(' ') || 'none'})`);
     ok(!seen.relay.some((x) => /submit/.test(x)), `${answer}: nothing was handed to the relay (${seen.relay.join(', ')})`);
@@ -161,7 +165,7 @@ async function runTac() {
   await page.click('#st-send button:text-is("Not now")');
   await page.waitForFunction(() => /Nothing was sent/.test(document.querySelector('#st-send').textContent), null, { timeout: 30e3 });
   const said = (await page.textContent('#st-send')).trim();
-  ok(said === 'The relay isn’t taking payments right now. Nothing was sent.' && !(await page.$('#st-send .err')), `tac: says so plainly: ${said}`);
+  ok(said === 'The relay can’t take this one right now. Nothing was sent.' && !(await page.$('#st-send .err')), `tac: says so plainly: ${said}`);
   await page.waitForTimeout(1500);
   ok(!seen.posts.length && !seen.relay.some((x) => /submit/.test(x)) && !local.length, `tac: nothing was posted, handed to the relay or proved (${[...seen.posts, ...local].join(' ') || 'none'})`);
   ok(!(await page.$eval('#btn-send', (x) => x.disabled)), 'tac: Send works again afterwards');

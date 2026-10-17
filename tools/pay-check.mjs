@@ -358,7 +358,7 @@ try {
     ok(/^Paid from your shielded TAC/.test(await text('#f-bnote')), 'the line under the button says it is paid from shielded TAC');
     await p.click('#d-poolhow > summary');
     ok(/Halo2 proof made on this device/.test(await text('#d-poolhow')) && /amounts going in and coming out are public/.test(await text('#d-poolhow')), 'which says what it hides and what it does not');
-    const enough = !/hold .* TAC shielded|at most two of your notes|relay isn’t/.test(r);
+    const enough = !/hold .* TAC shielded|at most two of your notes|relay can’t/.test(r);
     ok((await text('#f-go')) === 'Pay privately' && (await p.$eval('#f-go', (b) => b.disabled)) === !enough, `Pay privately is ${enough ? 'ready' : 'held back: ' + (r.match(/(This takes|One payment|The relay)[^.]*\./) || [''])[0]}`);
     await p.fill('#f-amt', '0.0001');
     ok(/pay 0\.0005 BTC or more/.test(await rcpt(/or more/)), 'under the minimum it says what the minimum is');
@@ -381,7 +381,7 @@ try {
     await p.fill('#f-to', TO);
     await rcpt(/Through the shielded TAC pool/);
     await p.click('#f-rcpt [data-via="direct"]');
-    ok(/Plain payment/.test(await rcpt(/Plain payment/)) && (await text('#f-go')) === 'Send BTC' && /^Sent from your key’s own/.test(await text('#f-bnote')), 'Send it directly instead goes back');
+    ok(/Plain payment/.test(await rcpt(/Plain payment/)) && (await text('#f-go')) === 'Send BTC' && /^Sent from your Bitcoin address/.test(await text('#f-bnote')), 'Send it directly instead goes back');
     ok(!errors.length, `no page errors ${errors.join(' | ').slice(0, 300)}`);
     await ctx.close();
   }
@@ -442,9 +442,9 @@ try {
     await p.click('[data-qrv="tacit"]').catch(() => {});
     // Activity, read from the key and the chain once its card is in view: rows, or that there are none yet.
     await p.evaluate(() => document.querySelector('#activity').scrollIntoView());
-    await p.waitForFunction(() => document.querySelector('#act-body .rows li') || /Nothing yet|Couldn’t/.test(document.querySelector('#act-body').textContent), null, { timeout: 180e3 }).catch(() => {});
+    await p.waitForFunction(() => document.querySelector('#act-body .rows li') || /Nothing yet|Could not/.test(document.querySelector('#act-body').textContent), null, { timeout: 180e3 }).catch(() => {});
     const rowsN = await p.$$eval('#act-body .rows li', (x) => x.length);
-    ok(rowsN > 0 || /Nothing yet\. Payments you make or receive with this key show here\./.test(await text('#act-body')), `Activity: ${rowsN ? `${rowsN} payments` : ((await text('#act-body')).match(/(Nothing yet|Couldn’t)[^.]*\./) || [''])[0]}`);
+    ok(rowsN > 0 || /Nothing yet\. Payments you make or receive with this wallet show here\./.test(await text('#act-body')), `Activity: ${rowsN ? `${rowsN} payments` : ((await text('#act-body')).match(/(Nothing yet|Could not)[^.]*\./) || [''])[0]}`);
     await p.evaluate(() => scrollTo(0, 0));
     ok(await p.evaluate(() => document.body.classList.contains('in') && getComputedStyle(document.querySelector('.hero p')).display === 'none'), 'signed in, the pitch gives way to the form');
     ok(await p.evaluate(() => {
