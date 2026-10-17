@@ -61806,6 +61806,15 @@ async function _prefillSelfSend({ aid, amount }) {
 }
 
 // ============== HOLDINGS UI ==============
+// Walk-away bids registered with the watchtower (cross-asset), and the bid-wallet recovery form, which a wallet
+// with no assets also needs (a cancelled bid's sats sit in its bid wallet). Async so it never blocks the paint.
+function _mountWatchtowerBids(list) {
+  if (!WATCHTOWER_SERVICE_PUB || typeof renderWatchtowerBidsInto !== 'function') return;
+  const wtHost = document.createElement('div');
+  wtHost.setAttribute('data-watchtower-bids', '1');
+  list.appendChild(wtHost);
+  renderWatchtowerBidsInto(wtHost).catch(() => {});
+}
 async function renderHoldings() {
   const list = $('#holdings-list');
   // Lazy-unlock affordance: confidential amounts are recovered via ECDH against
@@ -62028,6 +62037,7 @@ async function renderHoldings() {
       try { _renderHoldingsTethBridgeNotes(list); } catch {}
       try { _renderHoldingsBurndepBridges(list); } catch {}
       try { _renderHoldingsMixerSummary(list); } catch {}
+      try { _mountWatchtowerBids(list); } catch {}
       setStatus('#holdings-status', '');
       setTabBadge('holdings', 0);
       _holdingsLastRenderOk = true;
@@ -62210,14 +62220,7 @@ async function renderHoldings() {
           fetchMarketData().then(d => { _marketCache = d; }).catch(() => {});
         }
       }
-      // Walk-away bids registered with the watchtower (cross-asset). Async so it
-      // never blocks the holdings paint; renders nothing when there are none.
-      if (WATCHTOWER_SERVICE_PUB && typeof renderWatchtowerBidsInto === 'function') {
-        const wtHost = document.createElement('div');
-        wtHost.setAttribute('data-watchtower-bids', '1');
-        list.appendChild(wtHost);
-        renderWatchtowerBidsInto(wtHost).catch(() => {});
-      }
+      _mountWatchtowerBids(list);
     } catch (e) { console.warn('[holdings] open-orders panel failed:', e); }
     // Render helpers — used by the initial skeleton AND by the per-asset
     // enrichment that updates [data-region] markers in place once each card's
