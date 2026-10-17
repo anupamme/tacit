@@ -19,6 +19,8 @@
 //           dashboard's cBTC opens that tab
 //   hxteth  a key holding private tETH: Shield says so with Send, Swap and Back to ETH a press away; Back to ETH and Send quote their relay
 //           fees as their forms will (Max keeping the fee that combines notes), and each hands its form the amount
+//   hxsend  the card's Send for every asset it offers: tETH, TAC, cUSD and cBTC quoted in their own ticker, each opening its form with the amount and the
+//           recipient; TAC and BTC on Bitcoin carried into Pay's link; a key with only cUSD opens on it; none of the chosen asset says so; a #card=send link
 //   farmcoming a private farm opened while a wrap is settling says the tETH is on its way instead of asking for it again
 //   farmzap  one side alone farms: Max takes the whole balance, the quote says what is swapped and what both sides add, and the
 //            press cuts the swap note, swaps it in the farm's pool, cuts what pairs with the return and bonds both
@@ -162,7 +164,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxteth,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxteth,hxsend,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -5110,6 +5112,99 @@ await step('hxteth', async () => {
     ok(true, 'hxteth: Send privately opens the Send form with the amount and the recipient');
     if (r.errors.length) { fails++; console.log('FAIL hxteth page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
+});
+
+// The card's Send for each asset it offers: a key holding private tETH, TAC, cUSD and cBTC quotes each in its own ticker with its balance and Max, and the press
+// opens the form that sends it (tETH its Send tab, TAC and cUSD/cBTC their own) with the amount and the recipient; TAC and BTC on Bitcoin carry both into Pay's link;
+// a key holding only cUSD opens on it, and a chosen asset it has none of says so and offers the way to get some; a #card=send link fills the card.
+await step('hxsend', async () => {
+  const CUSD = '0x8f4490dd3728b0ee904d7a67c11b37ffd463a5c7f08b79810006995ee8a9679d', CBTC = '0x62a20d98fc1cd20289621d1315294cb8772f934d822e404b71e1f471cf0679c8';
+  const fees = { transfer: 100000, stealthclaim: 100000, sendunwrap: 100000 };                 // fixed relay fees: no cold DEX reads
+  const to = tacit1('abc'.padEnd(64, '9'));
+  const lander = (p) => p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+  const r = await openFarmKey('7d7d'.padEnd(64, '5'), { notes: [[FARM_CETH, 25000000n], ['@cTAC', 5000000000n], [CUSD, 2500000000n], [CBTC, 50000000n]], fees });
+  const p = r.page, urls = [];
+  p.on('framenavigated', (f) => { if (f === p.mainFrame()) urls.push(f.url()); });
+  const line = async () => (await text(p, '#hx-q')).replace(/\s+/g, ' ').trim();
+  const dbg = (m) => { if (process.env.DEBUG_STEP) console.log('     ·', m); };
+  const pick = async (k, bal) => {
+    dbg(`pick ${k}`);
+    await lander(p);
+    await p.click('[data-hxm="send"]');
+    await p.selectOption('#hx-sa', k);
+    await until(p, (re) => new RegExp(re).test(document.querySelector('#hx-bal')?.textContent || ''), bal, 300000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | bal: ${await text(p, '#hx-bal')} | have: ${await text(p, '#hx-have')} | q: ${await line()}`); });
+    dbg(`picked ${k}`);
+  };
+  const quote = async (amt, ticker) => {
+    await p.fill('#hx-rcpt', to);
+    await p.fill('#hx-amt', amt);
+    await until(p, (t) => new RegExp(`^They get about [\\d.]+ ${t}: their claim's relay fee comes out of it(, and [\\d.]+ ${t} from your balance (splits a note|combines notes) first)?\\. Nobody sees how much or to whom\\.$`).test((document.querySelector('#hx-q')?.textContent || '').trim()), ticker, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
+  };
+  try {
+    await lander(p);
+    await p.click('[data-hxm="send"]');
+    await until(p, () => /0\.25 tETH · Max/.test(document.querySelector('#hx-bal')?.textContent || ''), null, 300000);
+    ok(await p.$eval('#hx-sa', (e) => e.value) === 'eth', 'hxsend: a key holding tETH opens Send on it');
+    // Each private holding on Your Tacit has a Send of its own, and it sets the card to that asset.
+    await until(p, () => document.querySelectorAll('#dash-g .di-send').length >= 4, null, 300000);
+    const sends = await p.$$eval('#dash-g .di-send', (b) => b.map((x) => x.dataset.hx).sort().join());
+    ok(sends === 'send:cbtc,send:cusd,send:eth,send:tac', `hxsend: Your Tacit offers Send on tETH, TAC, cUSD and cBTC and nowhere it holds none (${sends})`);
+    if (SHOTS) {
+      await p.locator('#dash').screenshot({ path: join(SHOTS, 'weld-hxsend-dash.png') });
+      await p.setViewportSize({ width: 390, height: 900 });
+      await p.locator('#dash').screenshot({ path: join(SHOTS, 'weld-hxsend-dash-phone.png') });
+      await p.setViewportSize({ width: 1280, height: 900 });
+    }
+    await p.click('#dash-g .di-send[data-hx="send:cusd"]');
+    await until(p, () => document.querySelector('[data-hxm="send"]')?.getAttribute('aria-selected') === 'true' && document.querySelector('#hx-sa')?.value === 'cusd', null, 60000);
+    ok(true, 'hxsend: a holding\'s Send sets the card to Send on that asset');
+    await lander(p);
+    await p.click('[data-hxm="send"]');
+    await p.selectOption('#hx-sa', 'eth');
+    await until(p, () => /0\.25 tETH · Max/.test(document.querySelector('#hx-bal')?.textContent || ''), null, 120000);
+    const rows = await p.$$eval('#hx-sa option', (o) => o.map((x) => x.value).join());
+    ok(rows === 'eth,tac,cusd,cbtc,tacb,btc', `hxsend: Send offers tETH, TAC, cUSD and cBTC on Ethereum and TAC and BTC on Bitcoin (${rows})`);
+    for (const [k, bal, amt, ticker, sheet, amtId, toId] of [['cusd', '^25 cUSD · Max', '15', 'cUSD', 'borrow', 'cs-amt', 'cs-to'], ['tac', '^50 TAC · Max', '20', 'TAC', 'tac', 'ts-amt', 'ts-to'], ['cbtc', '^0\\.5 cBTC · Max', '0.2', 'cBTC', 'borrow', 'cs-amt', 'cs-to']]) {
+      await pick(k, bal);
+      await quote(amt, ticker);
+      ok(true, `hxsend: ${ticker} is quoted in its own ticker with its balance and Max (${await line()})`);
+      await p.click('#hx-go');
+      await until(p, ([s, a, t, v, w]) => document.querySelector(`#sheet-${s}[open] #${a}`)?.value === v && document.querySelector(`#${t}`)?.value === w, [sheet, amtId, toId, amt, to], 120000)
+        .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | form: ${await p.evaluate(() => [...document.querySelectorAll('dialog[open]')].map((d) => d.id).join())}`); });
+      ok(true, `hxsend: ${ticker}'s button opens its form with the amount and the recipient`);
+    }
+    await lander(p);
+    await p.click('[data-hxm="send"]');
+    await p.selectOption('#hx-sa', 'tacb');
+    await p.fill('#hx-rcpt', to); await p.fill('#hx-amt', '3');
+    ok(await text(p, '#hx-go') === 'Continue in Pay' && /^Inside the shielded pool on Bitcoin/.test(await line()), `hxsend: TAC on Bitcoin goes on to Pay (${await text(p, '#hx-go')}: ${await line()})`);
+    await p.click('#hx-go');
+    await until(p, () => /\/pay\//.test(location.pathname), null, 60000);
+    ok(urls.some((u) => u.endsWith(`/pay/#tac&to=${encodeURIComponent(to)}&amount=3`)), `hxsend: Pay's link carries the recipient and the amount (${urls.at(-1)})`);
+    if (r.errors.length) { fails++; console.log('FAIL hxsend page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+  // A key with cUSD alone: Send opens on it, tETH says there is none and says how to get some, and the button waits.
+  const r2 = await openFarmKey('7d7e'.padEnd(64, '5'), { notes: [[CUSD, 2500000000n]], fees });
+  const q = r2.page;
+  try {
+    await lander(q);
+    await q.click('[data-hxm="send"]');
+    await until(q, () => document.querySelector('#hx-sa')?.value === 'cusd' && /25 cUSD · Max/.test(document.querySelector('#hx-bal')?.textContent || ''), null, 300000);
+    ok(true, 'hxsend: a key holding only cUSD opens Send on cUSD');
+    await q.selectOption('#hx-sa', 'eth');
+    await until(q, () => /No private tETH yet/.test(document.querySelector('#hx-have')?.textContent || ''), null, 60000);
+    ok(await q.$eval('#hx-go', (b) => b.disabled) && (await q.$$eval('#hx-have [data-hxin]', (b) => b.map((x) => x.dataset.hxin).join())) === 'shield:ether:defi', 'hxsend: with no tETH the button waits and the line offers making ETH private');
+    await q.selectOption('#hx-sa', 'cbtc');
+    await until(q, () => /No private cBTC yet/.test(document.querySelector('#hx-have')?.textContent || ''), null, 60000);
+    await q.click('#hx-have [data-hxin]');
+    ok(await q.$eval('[data-hxm="borrow"]', (b) => b.getAttribute('aria-selected')) === 'true', 'hxsend: Mint some opens the card on Borrow');
+    await q.evaluate(() => { location.hash = '#card=send:cusd&to=alice.wei&amt=5'; });
+    await until(q, () => document.querySelector('#hx-sa')?.value === 'cusd' && document.querySelector('#hx-rcpt')?.value === 'alice.wei' && document.querySelector('#hx-amt')?.value === '5', null, 60000);
+    ok(await q.evaluate(() => location.hash) === '', 'hxsend: a #card=send link fills the card with its asset, recipient and amount');
+    if (r2.errors.length) { fails++; console.log('FAIL hxsend page errors: ' + r2.errors.slice(0, 3).join(' | ')); }
+  } finally { await r2.browser.close(); }
 });
 
 // A wrap still settling (as the card's two steps leave one): the private farm says the tETH is on its way and does not ask for it again,
