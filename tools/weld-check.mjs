@@ -3552,9 +3552,11 @@ await step('rewardsuses', async () => {
   try {
     await n.page.goto(n.url + 'rewards/');
     await n.page.waitForSelector('.uses');
-    const links = await n.page.$$eval('.uses a', (a) => a.map((x) => `${x.textContent}:${x.getAttribute('href')}`));
+    const links = await n.page.$$eval('.uses a', (a) => a.map((x) => `${x.firstChild.textContent}:${x.getAttribute('href')}`));
     ok(links.join(' ') === 'Trade:/trade/tac/ Farm:/swap/#earn Borrow:/vault/ Shield:/#tac Pay:/pay/#tac Bitcoin:/tac/', `rewardsuses: the line under the search names what TAC is for (${links.join(' ')})`);
-    ok(await n.page.evaluate(() => { const b = document.querySelector('.bar').getBoundingClientRect(), u = document.querySelector('.uses').getBoundingClientRect(); return u.top >= b.bottom && u.top - b.bottom < 60; }), 'rewardsuses: and it sits right under the bar');
+    await until(n.page, () => /^\d[\d,]*%\+?$/.test(document.querySelector('.uses a[data-apr] .apr')?.textContent || ''), null, 60000);
+    ok(Number((await text(n.page, '.uses a[data-apr] .apr')).replace(/\D/g, '')) > 0 && /APR now/.test(await n.page.getAttribute('.uses a[data-apr]', 'title')), `rewardsuses: the Farm link carries the farm's APR now (${await text(n.page, '.uses a[data-apr] .apr')})`);
+    ok(await n.page.evaluate(() => { const b = document.querySelector('.bar').getBoundingClientRect(), u = document.querySelector('.uses').getBoundingClientRect(); return u.top >= b.bottom && u.top - b.bottom < 100; }), 'rewardsuses: and it sits right under the bar (below the chips for connecting or going back)');
     const land = async (path, check, what) => {
       await n.page.goto(n.url + path, { waitUntil: 'domcontentloaded' });
       await until(n.page, check, null, 60000).catch((e) => { throw new Error(`${what}: ${e.message.split('\n')[0]}`); });

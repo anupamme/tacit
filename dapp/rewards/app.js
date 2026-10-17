@@ -148,7 +148,7 @@ const claimUi = (kind, label, address, to, amount, wei) => (wallet.available().l
   : `<a class="act" href="${to}">${label}</a>`);
 function airdropCard(s, address) {
   if (s.reason === 'error') return card('Airdrop', '<p class="st warn">Could not read the airdrop just now. Look up again in a moment.</p>');
-  if (!s.eligible) return card('Airdrop', '<p class="big">—</p><p class="st mute">Not on the airdrop list.</p>');
+  if (!s.eligible) return card('Airdrop', '<p class="st mute">Not on the airdrop list.</p>').replace('class="card"', 'class="card slim"');
   const left = Math.ceil((s.deadline - Date.now() / 1000) / 86400), by = day(s.deadline);
   const [cls, line] = s.claimed ? ['ok', 'Claimed'] : s.claimable ? [left <= 7 ? 'warn' : 'ok', `Claim by ${by} · ${left} day${left === 1 ? '' : 's'} left`] : s.reason === 'closed' ? ['mute', `Closed ${by}`] : ['warn', s.message];
   return card('Airdrop', `${figure(Number(s.amountTac), tac(s.amountWei), 'TAC')}<p class="st ${cls}">${esc(line)}</p>${s.claimable ? claimUi('airdrop', `Claim ${tac(s.amountWei)} TAC`, address, '/#airdrop', tac(s.amountWei), s.amountWei) : ''}`);
@@ -181,7 +181,7 @@ function countUp(el) {
 function paint(sel, html) { const el = $(sel); if (!el) return; el.innerHTML = html; el.querySelectorAll('.cu').forEach(countUp); }
 function fillRank(address, p) {
   if (p.error || !(p.points > 0)) return;
-  rankOf(address).then((k) => { const el = $('#rank'); if (el && out.dataset.address === address) el.textContent = k > 0 ? `Rank #${k.toLocaleString('en-US')}` : k === 0 ? `Outside the top ${BOARD}` : ''; });
+  rankOf(address).then((k) => { const el = $('#rank'); if (el && out.dataset.address === address) el.textContent = k > 0 ? `Rank #${k.toLocaleString('en-US')}` : k === 0 ? `Outside the top ${BOARD}` : ''; if (el.textContent) el.classList.add('pill'); });
 }
 
 // ── TAC coins fall down the screen when a claim lands ──
@@ -276,6 +276,23 @@ async function claim(kind, address, btn) {
   } finally { claiming = false; if (btn.isConnected) btn.disabled = false; }
 }
 
+// The Precision farm's APR now (paid in TAC, swap fees on top), noted on the links that lead to the farm: the farm's own arithmetic, from the
+// pool's reserves and price and the farm's stream and stake.
+async function readApr() {
+  const POOL = '0x0155358241411dB868BA714aE7c83A27087e3D6E', FARM = '0x0000003bF4BA0B21f5e0d35119b337F4d4CF82E0';
+  const [r0, r1, supply, sp, staked, rate, finish] = await Promise.all([[POOL, '0x443cb4bc'], [POOL, '0x5a76f25e'], [POOL, '0x18160ddd'], [POOL, '0x2af1f249'], [FARM, '0x817b1cd2'], [FARM, '0x7b0a47ee'], [FARM, '0xebe2b12b']]
+    .map(([to, data]) => call({ to, data }).then(BigInt)));
+  const sq = Number(sp) / 1e18, tacEth = sq > 0 ? 1 / (sq * sq) : 0;
+  if (!tacEth || !supply || !staked || Date.now() / 1000 >= Number(finish)) return null;
+  const stakedEth = (Number(r0) + Number(r1) * tacEth) * Number(staked) / Number(supply);
+  return stakedEth > 0 ? Number(rate) * 86400 * 365 * tacEth / stakedEth * 100 : null;
+}
+function noteApr(a) {
+  const txt = a >= 100000 ? '100,000%+' : `${Math.round(a).toLocaleString('en-US')}%`, link = $('.uses a[data-apr]'), tag = link?.querySelector('.apr'), sum = $('#farm-apr');
+  if (tag) { tag.textContent = txt; tag.classList.add('on'); link.title = `Farm TAC and ETH in the Precision pool: ${txt} APR now, paid in TAC`; }
+  if (sum) sum.textContent = `${txt} APR`;
+}
+
 // ── putting TAC to work: the Precision farm, in a card under the result for the account the wallet is on ──
 // The card appears when that account holds TAC (or has just claimed some). Opening it loads the farm module the swap and trade pages use, and
 // fills in the largest TAC + ETH pair the wallet can make, so what is left is one button; after a claim it opens by itself with the claimed
@@ -355,7 +372,7 @@ let seenAccount = null;
 function onWallet() {
   const acct = W.account ? W.account.toLowerCase() : null, fresh = !!acct && acct !== seenAccount;
   seenAccount = acct;
-  paintWallet(); showFarm(); farmUi?.then((f) => f.refresh()).catch(() => {});
+  paintWallet(); showFarm(); showRecent(); farmUi?.then((f) => f.refresh()).catch(() => {});
   if (fresh) { if (!input.value.trim() && !out.innerHTML) lookMine(); else react('wink', 1600); }          // connected with nothing asked: its own rewards; else a wink
 }
 // The wallet's account chooser (EIP-2255); a wallet app on a phone is switched in the app.
@@ -373,8 +390,8 @@ const said = (t) => { note.textContent = ''; setTimeout(() => { note.textContent
 const recents = () => { try { const l = JSON.parse(store.get(RECENT) || '[]'); return Array.isArray(l) ? l.filter((x) => typeof x === 'string').slice(0, 6) : []; } catch { return []; } };
 const remember = (q) => store.set(RECENT, JSON.stringify([q, ...recents().filter((x) => x.toLowerCase() !== q.toLowerCase())].slice(0, 6)));
 function showRecent() {
-  const l = recents();
-  recent.innerHTML = l.length && !out.innerHTML && !input.value.trim() ? `${l.map((q) => `<button type="button" class="chip" data-q="${esc(q)}">${esc(q.length > 22 ? short(q) : q)}</button>`).join('')}<button type="button" class="chip x" data-clear aria-label="Clear recent lookups">×</button>` : '';
+  const l = recents(), empty = !out.innerHTML && !input.value.trim(), own = empty && !W.account ? '<button type="button" class="chip own" data-own>Connect wallet</button>' : '';
+  recent.innerHTML = empty && (l.length || own) ? `${own}${l.map((q) => `<button type="button" class="chip" data-q="${esc(q)}">${esc(q.length > 22 ? short(q) : q)}</button>`).join('')}${l.length ? '<button type="button" class="chip x" data-clear aria-label="Clear recent lookups">×</button>' : ''}` : '';
 }
 // A bare name is offered under all three services.
 function showHints(v) {
@@ -447,6 +464,7 @@ $('#f').addEventListener('submit', (e) => { e.preventDefault(); clearTimeout(pau
 document.addEventListener('click', async (e) => {
   const chip = e.target.closest('[data-q]'), cp = e.target.closest('[data-copy]'), cl = e.target.closest('[data-claim]');
   if (chip) { input.value = chip.dataset.q; run(chip.dataset.q); return; }
+  if (e.target.closest('[data-own]')) { connect.connect(); return; }
   if (e.target.closest('[data-clear]')) { store.set(RECENT, '[]'); showRecent(); return; }
   if (cl) { claim(cl.dataset.claim, cl.dataset.addr, cl); return; }
   if (e.target.closest('[data-mine]')) { lookMine(); return; }
@@ -464,4 +482,4 @@ document.addEventListener('click', async (e) => {
 const asked = new URLSearchParams(location.search).get('q');
 if (asked) { input.value = asked; run(asked); } else { showRecent(); if (matchMedia('(pointer: fine)').matches) input.focus({ preventScroll: true }); }
 // The rank's board is fetched once the page has nothing else to do; a wallet connected here before is found again without a prompt.
-(window.requestIdleCallback || ((f) => setTimeout(f, 300)))(() => { prime(); board(); connect.restore(); });
+(window.requestIdleCallback || ((f) => setTimeout(f, 300)))(() => { prime(); board(); connect.restore(); readApr().then((a) => { if (a != null) noteApr(a); else $('.uses .apr')?.remove(); }, () => $('.uses .apr')?.remove()); });
