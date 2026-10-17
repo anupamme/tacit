@@ -25,7 +25,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /swap/app.js | | /confidential-pool-ux.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/swap/app.js?cb=8095e4fe">
+<link rel="modulepreload" href="/swap/app.js?cb=5ad9d1aa">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=a08631ce">
 <link rel="modulepreload" href="/trade/connect.js?cb=b0beb322">
@@ -43,9 +43,13 @@
 @font-face { font-family: 'IBM Plex Mono'; font-weight: 500; font-display: swap; src: url('/fonts/ibm-plex-mono-500-latin.woff2') format('woff2'); }
 @font-face { font-family: 'Instrument Serif'; font-weight: 400; font-display: swap; src: url('/fonts/instrument-serif-400-latin.woff2') format('woff2'); }
 @font-face { font-family: 'Instrument Serif'; font-weight: 400; font-style: italic; font-display: swap; src: url('/fonts/instrument-serif-400i-latin.woff2') format('woff2'); }
-/* Georgia scaled to Instrument Serif's width and line metrics, shown until the font arrives, so the swap moves nothing */
-@font-face { font-family: 'Instrument Serif Fallback'; src: local('Georgia'); size-adjust: 75.5%; ascent-override: 131%; descent-override: 41%; line-gap-override: 0%; }
-@font-face { font-family: 'Instrument Serif Fallback'; font-style: italic; src: local('Georgia Italic'), local('Georgia-Italic'); size-adjust: 80.5%; ascent-override: 128%; descent-override: 40%; line-gap-override: 0%; }
+/* A serif scaled to Instrument Serif's width and line metrics (Georgia, Times or Noto Serif, whichever the device has) shows until the font arrives, so the swap moves nothing */
+@font-face { font-family: 'Instrument Serif Fallback'; src: local('Georgia'); size-adjust: 75.8%; ascent-override: 130.6%; descent-override: 40.9%; line-gap-override: 0%; }
+@font-face { font-family: 'Instrument Serif Fallback'; font-style: italic; src: local('Georgia Italic'), local('Georgia-Italic'); size-adjust: 78.8%; ascent-override: 125.6%; descent-override: 39.3%; line-gap-override: 0%; }
+@font-face { font-family: 'Instrument Serif Fallback T'; src: local('Times New Roman'), local('TimesNewRomanPSMT'), local('Liberation Serif'), local('Tinos'); size-adjust: 83.1%; ascent-override: 119.1%; descent-override: 37.3%; line-gap-override: 0%; }
+@font-face { font-family: 'Instrument Serif Fallback T'; font-style: italic; src: local('Times New Roman Italic'), local('TimesNewRomanPS-ItalicMT'), local('Liberation Serif Italic'), local('Tinos Italic'); size-adjust: 87.8%; ascent-override: 112.8%; descent-override: 35.3%; line-gap-override: 0%; }
+@font-face { font-family: 'Instrument Serif Fallback N'; src: local('Noto Serif'), local('NotoSerif'); size-adjust: 70.5%; ascent-override: 140.4%; descent-override: 44%; line-gap-override: 0%; }
+@font-face { font-family: 'Instrument Serif Fallback N'; font-style: italic; src: local('Noto Serif Italic'), local('NotoSerif-Italic'); size-adjust: 76.3%; ascent-override: 129.7%; descent-override: 40.6%; line-gap-override: 0%; }
 
 :root {
   --paper: #E8E0CC; --card: #F2EBD4; --field: #FAF6EA;
@@ -57,7 +61,7 @@
   --float: 0 1px 2px rgba(26,26,26,.06), 0 30px 60px -32px rgba(26,26,26,.5);
   --skel: rgba(26,26,26,.08);
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --serif: 'Instrument Serif', 'Instrument Serif Fallback', Georgia, serif;
+  --serif: 'Instrument Serif', 'Instrument Serif Fallback', 'Instrument Serif Fallback T', 'Instrument Serif Fallback N', Georgia, serif;
   --tap: 44px;
   --ease: cubic-bezier(.2, .8, .2, 1);
   --spring: cubic-bezier(.34, 1.56, .64, 1);
@@ -109,7 +113,7 @@ img.tk { object-fit: contain; }
 .brand i { font-style: normal; font-size: 12px; color: var(--mute); text-transform: uppercase; letter-spacing: .12em; }
 
 /* the page: a short hero beside the card on a wide screen, the card first on a narrow one */
-.stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 470px); gap: 28px 56px; align-items: start; padding: 34px 0 10px; }
+.stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 470px); gap: 28px 56px; align-items: start; padding: 24px 0 10px; }
 @media (max-width: 900px) { .stage { grid-template-columns: minmax(0, 1fr); padding-top: 18px; } }
 .hero h1 { font: 400 clamp(48px, 7.4vw, 88px)/.92 var(--serif); letter-spacing: -.025em; margin: 0; }
 .hero h1 em { font-style: italic; }
@@ -141,7 +145,7 @@ img.tk { object-fit: contain; }
 .ff { min-height: 28px; }                                              /* the quick amounts' row, drawn by the script */
 .fh .where { display: inline-flex; align-items: center; gap: 6px; }
 .fh .where.priv::before { content: ''; width: 8px; height: 9px; border: 1.5px dashed currentColor; border-radius: 2px; }
-.fm { display: flex; align-items: center; gap: 12px; min-height: 58px; margin: 2px 0; }
+.fm { display: flex; align-items: center; gap: 12px; min-height: 52px; margin: 2px 0; }
 .amt, .big { flex: 1; min-width: 0; padding: 0; font: 400 44px/1.1 var(--serif); letter-spacing: -.01em; color: var(--ink); background: none; border: 0; outline: none; font-variant-numeric: tabular-nums; }
 .big { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .amt.long, .big.long { font-size: 34px; } .amt.longer, .big.longer { font-size: 27px; }
@@ -168,8 +172,8 @@ img.tk { object-fit: contain; }
 
 /* the ways to fill it, one to choose */
 .rows { margin-top: 8px; overflow: hidden; background: var(--field); border: 1px solid var(--hair); border-radius: 12px; }
-.rows-h { display: flex; justify-content: space-between; gap: 10px; padding: 11px 14px 2px; font-size: 12px; color: var(--mute); }
-.rows button { display: grid; grid-template-columns: minmax(0, 1fr) auto 18px; align-items: center; gap: 12px; width: 100%; padding: 10px 14px 11px; text-align: left; color: inherit; background: none; border: 0; border-top: 1px solid var(--hair); font: inherit; cursor: pointer; transition: background .15s; }
+.rows-h { display: flex; justify-content: space-between; gap: 10px; padding: 9px 14px 1px; font-size: 12px; color: var(--mute); }
+.rows button { display: grid; grid-template-columns: minmax(0, 1fr) auto 18px; align-items: center; gap: 12px; width: 100%; padding: 8px 14px 9px; text-align: left; color: inherit; background: none; border: 0; border-top: 1px solid var(--hair); font: inherit; cursor: pointer; transition: background .15s; }
 .rows-h + button { border-top: 0; }
 @media (hover: hover) { .rows button:hover { background: color-mix(in srgb, var(--hair) 40%, transparent); } }
 .rows button:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
@@ -185,16 +189,16 @@ img.tk { object-fit: contain; }
 @media (max-width: 380px) { .rt b { font-size: 19px; } .ra { font-size: 14px; } }
 
 /* the receipt: dotted rows */
-.rcpt { margin: 12px 2px 0; display: grid; gap: 2px; font-size: 12.5px; }
+.rcpt { margin: 10px 2px 0; display: grid; gap: 2px; font-size: 12.5px; }
 .rcpt div { display: flex; align-items: baseline; gap: 8px; color: var(--mute); }
 .rcpt div::after { content: ''; order: 1; flex: 1; min-width: 12px; border-bottom: 1px dotted var(--hair-2); transform: translateY(-4px); }
 .rcpt dt { order: 0; } .rcpt dd { order: 2; margin: 0; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
 .rcpt dd.warn { color: var(--warn); } .rcpt dd.ok { color: var(--ok); } .rcpt dd.err { color: var(--err); }
-.ack { display: flex; gap: 10px; align-items: flex-start; margin: 12px 2px 0; padding: 10px 12px; font-size: 12.5px; line-height: 1.5; color: var(--ink); background: color-mix(in srgb, var(--warn) 9%, transparent); border-radius: 10px; cursor: pointer; }
+.ack { display: flex; gap: 10px; align-items: flex-start; margin: 12px 2px 0; padding: 8px 12px; font-size: 12.5px; line-height: 1.5; color: var(--ink); background: color-mix(in srgb, var(--warn) 9%, transparent); border-radius: 10px; cursor: pointer; }
 .ack input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--ink); flex: none; }
-.act { position: sticky; bottom: 0; z-index: 2; margin: 0 -16px; padding: 14px 16px max(8px, env(safe-area-inset-bottom)); background: linear-gradient(to bottom, transparent, var(--card) 14px); }
+.act { position: sticky; bottom: 0; z-index: 2; margin: 6px -16px 0; padding: 8px 16px max(8px, env(safe-area-inset-bottom)); background: linear-gradient(to bottom, transparent, var(--card) 8px); }
 .act .go { margin-top: 0; }
-.act .ack { margin: 0 2px 12px; }
+.act .ack { margin: 0 2px 8px; }
 .go { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 54px; margin-top: 14px; padding: 10px 16px; font-size: 15px; font-weight: 500; color: var(--card); background: var(--ink); border: 1px solid var(--ink); border-radius: 12px; cursor: pointer; transition: background .15s, color .15s, opacity .15s; text-decoration: none; }
 .go:hover:not(:disabled) { background: transparent; color: var(--ink); }
 .go:disabled { opacity: .4; cursor: not-allowed; }
@@ -620,6 +624,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <link rel="modulepreload" href="/cbtc-note-recovery.js">
 </template>
 <!-- warm:end -->
-<script type="module" src="/swap/app.js?cb=8095e4fe"></script>
+<script type="module" src="/swap/app.js?cb=5ad9d1aa"></script>
 </body>
 </html>

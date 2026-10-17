@@ -717,6 +717,20 @@ $('#tab-earn').addEventListener('click', () => setTab('earn'));
 $('.sw-h').addEventListener('keydown', (e) => { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { setTab(S.tab === 'swap' ? 'earn' : 'swap'); $(`#tab-${S.tab}`).focus(); } });
 $('#farms').addEventListener('click', (e) => { const b = e.target.closest('[data-farm]'); if (!b) return; S.farm = b.dataset.farm; paintEarn(); });
 addEventListener('hashchange', () => setTab(location.hash === '#earn' ? 'earn' : 'swap'));
+// A group of radios takes the arrow keys: each press chooses the next (or previous) and keeps the focus on it, whichever way the group is redrawn.
+function arrows(box, attr) {
+  box.addEventListener('keydown', (e) => {
+    const d = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (!d) return;
+    const rs = [...box.querySelectorAll('[role="radio"]:not(:disabled)')], i = rs.indexOf(document.activeElement);
+    if (i < 0) return;
+    e.preventDefault();
+    const next = rs[(i + d + rs.length) % rs.length], k = next.getAttribute(attr);
+    next.click();
+    ([...box.querySelectorAll(`[${attr}]`)].find((x) => x.getAttribute(attr) === k) || next).focus();
+  });
+}
+arrows(document.querySelector('.mode'), 'data-mode'); arrows($('#rows'), 'data-route'); arrows($('#farms'), 'data-farm');
 
 // ── start ──
 readUrl();

@@ -69,11 +69,13 @@ async function fundedWallet() {
   return { account: who, key: j.private_key };
 }
 
-async function openPage(viewport, { wallet = null, path = '/swap/', scheme = 'light' } = {}) {
+async function openPage(viewport, { wallet = null, path = '/swap/', scheme = 'light', fontDelay = 0, shifts = false } = {}) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport, colorScheme: scheme });
   const walletLog = wallet ? await stubWallet(ctx, wallet) : null;
   await ctx.addInitScript(() => { try { localStorage.setItem('tacit-trade-hedge-ms', '0'); } catch { /* storage is a convenience */ } });
+  if (fontDelay) await ctx.route('**/*.woff2', async (route) => { await sleep(fontDelay); await route.continue(); });
+  if (shifts) await ctx.addInitScript(() => { window.__cls = 0; new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__cls += e.value; }).observe({ type: 'layout-shift', buffered: true }); });
   for (const h of RPC_HOSTS) await ctx.route(`https://${h}/**`, async (route) => {
     try {
       const body = route.request().postData() || '{}', j = JSON.parse(body);
@@ -286,6 +288,39 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await page.keyboard.press('Tab');
   ok(await page.evaluate(() => document.activeElement.classList.contains('pk-x')), 'and Tab from the last wraps to the first');
   await page.keyboard.press('Escape');
+  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
+  await browser.close();
+}
+
+// ── fonts that arrive late move nothing; the radio groups take the arrow keys; the whole receipt clears the button's bar at 900 px ──
+{
+  const { browser, page } = await openPage({ width: 390, height: 844 }, { fontDelay: 900, shifts: true });
+  await until(page, () => document.querySelector('#pxs')?.classList.contains('on'));
+  await page.evaluate(() => document.fonts.ready);
+  await sleep(500);
+  const cls = await page.evaluate(() => window.__cls);
+  ok(cls < 0.005, `fonts arriving late move nothing (layout shift ${cls.toFixed(4)})`);
+  await browser.close();
+}
+{
+  const { browser, page, errors } = await openPage({ width: 1440, height: 900 });
+  await until(page, () => document.querySelector('#pxs')?.classList.contains('on'));
+  await page.focus('[data-mode="wallet"]');
+  await page.keyboard.press('ArrowRight');
+  ok((await page.getAttribute('[data-mode="private"]', 'aria-checked')) === 'true' && await page.evaluate(() => document.activeElement.dataset.mode === 'private'), 'the arrow keys move from "To your wallet" to "Private", the focus with them');
+  await page.keyboard.press('ArrowLeft');
+  ok((await page.getAttribute('[data-mode="wallet"]', 'aria-checked')) === 'true' && await page.evaluate(() => document.activeElement.dataset.mode === 'wallet'), 'and back');
+  await typeAmt(page, '1');
+  await quoted(page);
+  if ((await page.$$('#rows [data-route]')).length >= 2) {
+    await page.focus('#rows [aria-checked="true"]');
+    const was = await page.evaluate(() => document.activeElement.dataset.route);
+    await page.keyboard.press('ArrowDown');
+    const now = await page.evaluate(() => ({ k: document.activeElement.dataset.route, on: document.activeElement.getAttribute('aria-checked') }));
+    ok(!!now.k && now.k !== was && now.on === 'true', 'the arrow keys choose the next route and keep the focus on it');
+  }
+  const fit = await page.evaluate(() => ({ bar: document.querySelector('.act').getBoundingClientRect().top, last: Math.max(...[...document.querySelectorAll('#rcpt div')].map((e) => e.getBoundingClientRect().bottom)) }));
+  ok(fit.last <= fit.bar + 1, `the whole receipt clears the button's bar at 900 px (ends ${Math.round(fit.last)}, the bar starts ${Math.round(fit.bar)})`);
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   await browser.close();
 }
