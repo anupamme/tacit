@@ -60,6 +60,13 @@ test('a proof the pool refuses is cancelled as bad and misses; a failed, expired
   await assert.rejects(makeBoardProver(f.api).prove({ stdin: 'nope', cycleLimit: 1, gasLimit: 1 }), /input bytes/);
 });
 
+test('a proof for roots the pool has moved past is cancelled as stale, not held against the worker', async () => {
+  const f = fakeBoard({ script: [{ status: 'proved', worker: 'tacit-a5000', publicValues: PV, proof: PROOF }] });
+  f.api.verify = async () => 'stale';
+  await assert.rejects(makeBoardProver(f.api).prove({ stdin, cycleLimit: 1n, gasLimit: 1n }), (e) => e.code === 'board_miss' && e.stale === true && /moved past/.test(e.message));
+  assert.deepEqual(f.calls.cancel, [{ jobId: '0xjob1234567890', reason: 'stale' }]);
+});
+
 test('nobody in time: the job is cancelled and the miss says who had claimed it; a shorter job timeout bounds the wait', async () => {
   const f = fakeBoard({ script: [{ status: 'claimed', worker: 'gpu1' }] });
   await assert.rejects(makeBoardProver(f.api).prove({ stdin, cycleLimit: 1, gasLimit: 1, timeoutMs: 10_000 }), (e) => e.code === 'board_miss' && /within 10 s/.test(e.message) && /gpu1 had claimed it/.test(e.message));

@@ -32,9 +32,11 @@ export function makeBoardProver({ post, status, cancel, verify, alive = null, wa
       if (s && s !== lastSeen) { lastSeen = s; log(`prover board: job ${jobId.slice(0, 10)} ${s}${st.worker ? ` (${st.worker})` : ''}`); }
       if (s === 'proved') {
         const ok = await Promise.resolve(verify({ publicValues: st.publicValues, proof: st.proof, memos })).catch(() => false);
-        if (!ok) {
-          await cancel(jobId, 'bad').catch(() => {});
-          throw miss(`the proof from ${st.worker || 'a worker'} did not pass the settle check`, { jobId, worker: st.worker });
+        if (ok !== true) {
+          // 'stale': the op's roots are behind the pool, so the proof cannot land whoever made it; the job is cancelled without a mark
+          // against the worker. Anything else is a proof the pool refuses, which counts against the worker that made it.
+          await cancel(jobId, ok === 'stale' ? 'stale' : 'bad').catch(() => {});
+          throw miss(ok === 'stale' ? `the proof from ${st.worker || 'a worker'} is for roots the pool has moved past` : `the proof from ${st.worker || 'a worker'} did not pass the settle check`, { jobId, worker: st.worker, stale: ok === 'stale' });
         }
         return { publicValues: st.publicValues, proof: st.proof, worker: st.worker, jobId };
       }

@@ -171,6 +171,14 @@ fn main() {
     // process can mend: it exits, and the loop around it starts a fresh worker and server. Three in a row, so one bad
     // input does not restart a healthy worker.
     let mut failed_in_a_row = 0u32;
+    // A GPU server is not kept for ever. Measured 2026-10-17: a fresh server makes the Groth16 proof in 6-8 s; after a while it falls into
+    // a regime where every proof takes 100 s (the GPU's part done on the CPU, by the look of the constant time) and stays there until it is
+    // restarted, and once it hung there. So the worker exits, and the loop starts a fresh server, when two proofs in a row took longer than
+    // SLOW_PROOF_SECS, and in any case after JOBS_PER_SERVER jobs.
+    let jobs_per_server = env_or("JOBS_PER_SERVER", "40").parse::<u32>().unwrap_or(40);
+    let slow_secs = env_or("SLOW_PROOF_SECS", "90").parse::<f64>().unwrap_or(90.0);
+    let mut jobs_done = 0u32;
+    let mut slow_in_a_row = 0u32;
     // A proof that never ends (a GPU kernel that hangs leaves the server alive and silent, and the client waiting on it for ever) is
     // ended from outside: a watchdog thread sees a job in hand for longer than JOB_TIMEOUT_SECS (15 minutes by default, three times a
     // long op) and exits the process, so the loop around it starts a fresh worker and GPU server and the job goes back to the board.
@@ -263,6 +271,12 @@ fn main() {
         if transport_dead || failed_in_a_row >= 3 {
             println!("[{name}] {}; exiting so the loop starts a fresh worker and GPU server", if transport_dead { "the GPU server is gone".to_string() } else { format!("{failed_in_a_row} jobs failed in a row") });
             std::process::exit(2);
+        }
+        jobs_done += 1;
+        slow_in_a_row = if outcome.is_ok() && t.elapsed().as_secs_f64() > slow_secs { slow_in_a_row + 1 } else { 0 };
+        if jobs_done >= jobs_per_server || slow_in_a_row >= 2 {
+            println!("[{name}] {}; exiting so the loop starts a fresh worker and GPU server", if slow_in_a_row >= 2 { format!("two proofs in a row took over {slow_secs} s") } else { format!("{jobs_done} jobs on this GPU server") });
+            std::process::exit(4);
         }
     }
 }

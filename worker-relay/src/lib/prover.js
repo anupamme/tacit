@@ -6,6 +6,7 @@
 // binaries and unset SP1_PROVER.
 
 import { spawn, execFile } from 'node:child_process';
+import { STALE_PROOF_SELECTORS } from './open-board.js';
 import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { keccak256 } from 'viem';
@@ -297,14 +298,17 @@ export async function boardAlive() {
   aliveWas = !s || s.workers.some((w) => Number(w.lastSeenSeconds) <= 30);
   return aliveWas;
 }
+// → true (the pool takes it), 'stale' (the proof is sound but its roots have moved on: the op's fault, not the worker's) or false.
 async function verifySettle({ publicValues, proof, memos }) {
   try {
     assertMemosMatchProof(publicValues, memos);
     await publicClient.estimateContractGas({ address: POOL, abi: POOL_ABI, functionName: 'settle', args: [publicValues, proof, memos], account: settleWallet.account });
     return true;
   } catch (e) {
-    boardLog(`a board proof did not pass the settle check: ${String(e && e.shortMessage || e && e.message || e).slice(0, 200)}`);
-    return false;
+    const said = String(e && e.shortMessage || e && e.message || e);
+    const stale = STALE_PROOF_SELECTORS.some((sel) => said.toLowerCase().includes(sel.toLowerCase()) || JSON.stringify(e && e.cause || '').toLowerCase().includes(sel.toLowerCase()));
+    boardLog(`a board proof did not pass the settle check${stale ? ' (stale roots: the op is behind the pool, the proof itself is fine)' : ''}: ${said.slice(0, 200)}`);
+    return stale ? 'stale' : false;
   }
 }
 // The board lane for `stdin`, or null when it missed; the time it took comes off `timeoutMs` for the lane after it.
