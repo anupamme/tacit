@@ -75,8 +75,8 @@ function sponsorshipRows(j) {
   if (!sp) return null;
   return h('div', {},
     h('p', { class: 'eyebrow' }, 'Settles the relay pays for today'),
-    h('div', { class: 'rows' }, Object.entries(CLASS_WORDS).map(([k, label]) => { const c = sp.classes[k]; return kv(label, c.cap == null ? `${c.used} so far` : `${c.used} of ${c.cap}`); }),
-      sp.prove ? kv('Proofs for requests the sender settles', sp.prove.cap == null ? `${sp.prove.used} so far` : `${sp.prove.used} of ${sp.prove.cap}${sp.prove.perClient ? `, up to ${sp.prove.perClient} per sender` : ''}`) : null),
+    h('div', { class: 'rows' }, Object.entries(CLASS_WORDS).map(([k, label]) => { const c = sp.classes[k]; return kv(label, c.cap == null || c.used > c.cap ? `${c.used} so far` : `${c.used} of ${c.cap}`); }),
+      sp.prove ? kv('Proofs for requests the sender settles', sp.prove.cap == null || sp.prove.used > sp.prove.cap ? `${sp.prove.used} so far` : `${sp.prove.used} of ${sp.prove.cap}${sp.prove.perClient ? `, up to ${sp.prove.perClient} per sender` : ''}`) : null),
     h('p', { class: 'note' }, 'Requests that carry a fee, or a tip with the wrap, are not counted. Past a limit the relay still proves the request, and it is settled from the sender’s own account instead; past the proofs’ limit a request goes through the relay with a fee, or is proved locally.'));
 }
 
@@ -95,6 +95,7 @@ function paintCosts(j) {
 
 function paintTips(j) {
   const t = j.chain && j.chain.tips, sp = j.chain && j.chain.splitter, el = $('#p-tips');
+  const paid = t ? t.byRecipient.filter((r) => r.eth > 0) : [];
   // Said as it is set up now: a splitter is only mentioned once there is one.
   $('#flow-tips').textContent = sp && sp.shares ? 'A wrap’s tip pays for settling it. Tacit’s own pages send it to a splitter, which sends it on to the wallets that keep Bitcoin’s state current and settle requests, and to the buyback; a page that pays the ops multisig directly is counted the same.' : 'A wrap’s tip pays for settling it. It goes to the ops multisig, which funds the relay’s wallets.';
   mount(el,
@@ -102,7 +103,7 @@ function paintTips(j) {
     !t ? h('p', { class: 'mute' }, 'Reading…')
       : h('div', {},
         h('p', { class: 'big num' }, num(t.wraps, 0), h('small', {}, `wraps tipped, ${eth(t.eth)} ETH`)),
-        t.byRecipient.length ? h('div', { class: 'rows' }, t.byRecipient.map((r) => kv(`To ${nameOf(r.to)}`, `${eth(r.eth)} ETH`))) : null,
+        paid.length ? h('div', { class: 'rows' }, paid.map((r) => kv(`To ${nameOf(r.to)}`, `${eth(r.eth)} ETH`))) : null,
         t.complete ? null : h('p', { class: 'stale' }, 'Read in part: the figures can only grow.')),
     sp && sp.shares ? h('div', {},
       h('p', { class: 'note' }, 'A splitter sends what tips it receives on to:'),

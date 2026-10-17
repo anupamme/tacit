@@ -40,7 +40,7 @@ const txLink = (h) => `<a href="https://etherscan.io/tx/${esc(h)}" target="_blan
 const TETH = { sym: 'tETH', name: 'Ether, private', addr: 'teth', dec: 18, icon: 'teth', priv: true };
 const CUSTOM_KEY = 'tacit-swap-tokens-v1';
 const S = {
-  tab: 'swap', mode: 'wallet', pay: lc(R.ZERO), get: lc(R.TAC), amt: '', slip: 50, pick: null, q: null, seq: 0, busy: false, ack: false, max: false,
+  tab: 'swap', mode: 'wallet', pay: lc(R.ZERO), get: lc(R.TAC), amt: '', slip: 50, pick: null, hold: false, q: null, seq: 0, busy: false, ack: false, max: false,
   custom: [], bal: {}, px: {}, gasPrice: null, chainT: 0, chainAt: 0, farm: 'precision', farms: null, lastBuy: null, note: '', ackKey: '',
 };
 const SLIP_KEY = 'tacit-swap-slip-v1';
@@ -199,7 +199,7 @@ function requote(now_ = false) {
 }
 async function quote(my, wei) {
   const kind = kindOf(S.pay, S.get), pay = tokenOf(S.pay), get = tokenOf(S.get);
-  const done = (q) => { if (my !== S.seq) return; S.q = { ...q, kind, wei, at: now() }; if (!picked(S.q) || !S.q.rows?.some((r) => r.k === S.pick)) S.pick = S.q.rows?.find((r) => r.best)?.k || S.q.rows?.[0]?.k || null; const ak = `${S.pay}>${S.get}:${S.amt}:${S.pick}`; if (ak !== S.ackKey) { S.ack = false; S.ackKey = ak; } paint(); };
+  const done = (q) => { if (my !== S.seq) return; S.q = { ...q, kind, wei, at: now() }; if (!S.hold || !S.q.rows?.some((r) => r.k === S.pick)) S.pick = S.q.rows?.find((r) => r.best)?.k || S.q.rows?.[0]?.k || null; const ak = `${S.pay}>${S.get}:${S.amt}:${S.pick}`; if (ak !== S.ackKey) { S.ack = false; S.ackKey = ak; } paint(); };
   if (!kind) return done({ none: true });
   const account = W.account || undefined;
   if (kind === 'tac') {
@@ -600,7 +600,7 @@ const defaultFor = (k) => (isEth(k) ? lc(R.TAC) : tacitKey(k) ? lc(R.ZERO) : lc(
 function keepAmt(change) { const was = S.pay; change(); if (S.pay !== was) { S.amt = ''; S.max = false; } S.note = ''; }
 function choose(side, k) {
   keepAmt(() => { if (side === 'pay') { S.pay = k; fit('pay'); } else { S.get = k; fit('get'); } });
-  S.q = null; S.pick = null; keepUrl(); paint(); requote(true);
+  S.q = null; S.pick = null; S.hold = false; keepUrl(); paint(); requote(true);
 }
 
 // ── Earn ──
@@ -689,10 +689,10 @@ $('#flip').addEventListener('click', () => {
   if (!kindOf(S.get, S.pay)) return;
   const r = picked(), out = r && !S.q?.busy ? tidy(plain(r.out, tokenOf(S.get).dec)) : '';
   [S.pay, S.get] = [S.get, S.pay]; S.note = '';
-  S.amt = out ? tidy(out.replace(/(\.\d{8})\d+$/, '$1')) : S.amt; S.q = null; S.pick = null; keepUrl(); paint(); requote(true);
+  S.amt = out ? tidy(out.replace(/(\.\d{8})\d+$/, '$1')) : S.amt; S.q = null; S.pick = null; S.hold = false; keepUrl(); paint(); requote(true);
 });
 $('#go').addEventListener('click', go);
-$('#rows').addEventListener('click', (e) => { const b = e.target.closest('[data-route]'); if (!b) return; S.pick = b.dataset.route; S.ack = false; S.ackKey = `${S.pay}>${S.get}:${S.amt}:${S.pick}`; paintQuote(); });
+$('#rows').addEventListener('click', (e) => { const b = e.target.closest('[data-route]'); if (!b) return; S.pick = b.dataset.route; S.hold = true; S.ack = false; S.ackKey = `${S.pay}>${S.get}:${S.amt}:${S.pick}`; paintQuote(); });
 $('#p-swap').addEventListener('click', (e) => {
   const q = e.target.closest('[data-quick]');
   if (q) { S.amt = q.dataset.quick; S.note = ''; keepUrl(); paintSides(); requote(true); return; }
@@ -708,7 +708,7 @@ $('#p-swap').addEventListener('click', (e) => {
   if (e.target.closest('[data-farm-it]')) farmIt();
 });
 $('#ackbox').addEventListener('change', (e) => { if (e.target.id === 'ack') { S.ack = e.target.checked; paintQuote(); } });
-function setMode(m) { if (S.mode === m) return; if (m === 'private') warmPrivate(); keepAmt(() => { S.mode = m; fit('pay'); if (!kindOf(S.pay, S.get)) fit('get'); }); S.q = null; S.pick = null; keepUrl(); paint(); requote(true); }
+function setMode(m) { if (S.mode === m) return; if (m === 'private') warmPrivate(); keepAmt(() => { S.mode = m; fit('pay'); if (!kindOf(S.pay, S.get)) fit('get'); }); S.q = null; S.pick = null; S.hold = false; keepUrl(); paint(); requote(true); }
 for (const ev of ['pointerenter', 'focus', 'touchstart']) document.querySelector('.mode [data-mode="private"]').addEventListener(ev, warmPrivate, { once: true, passive: true });
 document.querySelector('.mode').addEventListener('click', (e) => { const b = e.target.closest('[data-mode]'); if (b) setMode(b.dataset.mode); });
 function setTab(t) { if (S.tab === t) return; S.tab = t; keepUrl(); paint(); if (t === 'earn') { paintEarn(); if (!S.farms) readFarms().then(paintEarn, paintEarn); } }

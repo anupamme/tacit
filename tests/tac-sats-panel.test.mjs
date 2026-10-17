@@ -76,6 +76,7 @@ mount(host, ctx);
 await settle();
 
 const text = host.textContent;
+assert.doesNotMatch(text, /null|undefined/, 'a part that is not shown writes no text');
 assert.ok(!/nothing links it to the wallet on this page/i.test(text), 'the old claim is gone');
 assert.match(text, /This wallet’s address takes no part/);
 assert.match(text, /The relay sees your connection when it takes the TAC out and the market sees it when you list, so Tor or a VPN for the listing keeps those two apart/, 'the panel says what each side sees');

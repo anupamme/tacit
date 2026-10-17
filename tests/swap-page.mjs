@@ -120,6 +120,16 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   ok(/500\+ points/.test(pr) && !/points/.test(ta), `ETH → TAC says what the Precision pool earns (500+ for 0.5 ETH) and the Tacit pool nothing (${pr.slice(0, 70)} | ${ta.slice(0, 50)})`);
   ok(!sp || (/\d+% \/ \d+% · [\d,]+\+ points/.test(sp) && Number(sp.match(/([\d,]+)\+ points/)[1].replace(/,/g, '')) < 500), `a split earns on its Precision leg only (${sp.slice(0, 80) || 'no split offered'})`);
   ok((await page.textContent('#go')) === 'Connect wallet', 'without a wallet the button connects one');
+  // The route picked follows the amount: 0.5 ETH after a small amount is routed as a fresh 0.5 ETH is, and a route the visitor clicked stays.
+  const picked = () => page.evaluate(() => document.querySelector('#rows [role="radio"][aria-checked="true"]')?.dataset.route || null);
+  const fresh = await picked();
+  await typeAmt(page, '0.001'); await sleep(900); await quoted(page);
+  await typeAmt(page, '0.5'); await sleep(900); await quoted(page);
+  ok((await picked()) === fresh, `a route picked for a small amount does not stay for 0.5 ETH (${fresh})`);
+  await page.click('#rows [data-route="precision"]');
+  await typeAmt(page, '0.4'); await sleep(900); await quoted(page);
+  ok((await picked()) === 'precision', 'a route the visitor clicked stays when the amount changes');
+  await typeAmt(page, '0.5'); await sleep(900); await quoted(page);
   ok(/from=|amt=0\.5/.test(page.url()), `the address carries the swap (${page.url().split('/swap/')[1]})`);
   await shot(page, 'desktop-eth-tac');
 

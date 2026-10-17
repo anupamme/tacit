@@ -46,6 +46,8 @@ const opKey = (n) => `${n.txid}:${n.vout}`;
 // A price in sats per TAC as it is shown and prefilled: the market's mark carries eight decimals, a price is read to two.
 const pxText = (n) => String(Math.round(Number(n) * 100) / 100);
 const LASTS = [[1, '1 day'], [3, '3 days'], [7, '7 days']];
+// replaceChildren writes a null as the text "null": a part that is not shown is left out.
+const fill = (host, ...kids) => host.replaceChildren(...kids.filter((x) => x != null));
 
 export function mount(host, ctx) {
   const { ensureKey, busy, say, fmt, parseUnits, shieldedTotal, txLink, loadShielded } = ctx;
@@ -232,7 +234,7 @@ export function mount(host, ctx) {
 
   function render() {
     const f = fee(), rows = held();
-    host.replaceChildren(
+    fill(host,
       el('p', { class: 'note', style: 'margin-top:0' },
         'Shielded TAC out, real bitcoin in. The relay takes your TAC out of the pool to a new key made for this sale and pays its Bitcoin fee, for a fee in TAC. That key lists it at your price, and the buyer pays sats straight to an address you name. This wallet’s address takes no part, so nothing on chain or on the listing ties those sats to it.'),
 

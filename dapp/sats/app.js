@@ -1,7 +1,7 @@
 // Secret Sats page. The landing copy is static; everything that touches a key
 // or the chain comes from ../tacit.js, imported only once the user connects.
 
-const TACIT_URL = '/tacit.js?cb=13ad59ed';
+const TACIT_URL = '/tacit.js?cb=378ab6a8';
 const SECRET_URL = '/sats/secret.js?cb=21be264a';
 const MIX_URL = '/sats/mix.js?cb=5ce07955';
 const ETH_URL = '/sats/eth.js?cb=a08690ed';
@@ -43,9 +43,9 @@ const FETCH_MS = 20_000;
 
 const $ = (id) => document.getElementById(id);
 const store = {
-  get(k, s = localStorage) { try { return s.getItem(k); } catch { return null; } },
-  set(k, v, s = localStorage) { try { s.setItem(k, v); } catch {} },
-  del(k, s = localStorage) { try { s.removeItem(k); } catch {} },
+  get(k, s) { try { return (s || localStorage).getItem(k); } catch { return null; } },
+  set(k, v, s) { try { (s || localStorage).setItem(k, v); } catch {} },
+  del(k, s) { try { (s || localStorage).removeItem(k); } catch {} },
   json(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } },
 };
 

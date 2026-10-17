@@ -43,11 +43,11 @@ const FULL = {
   chain: {
     head: 26_200_000, wallets: { settle: { address: '0x7a0F0511E1DcF399C2F7bbe8414b6a0D1ABc4331', eth: 0.003 }, relay: { address: '0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7', eth: 0.001, prove: 4 } },
     buyback: { address: '0x6919cbEf0e70AFFA02Ae02c86c532A137154f250', ethHeld: 0.0004, buys: 3, ethSpent: 0.0123, tacBought: 187.4, lastBuyBlock: 26_199_000, complete: true },
-    tips: { at: 1, days: 30, wraps: 122, eth: 0.032, byRecipient: [{ to: '0x006cd14f36f65ecbb29b2519ccbe63a0dc8549f2', eth: 0.031 }, { to: '0x' + '5'.repeat(40), eth: 0.001 }], complete: true },
+    tips: { at: 1, days: 30, wraps: 122, eth: 0.032, byRecipient: [{ to: '0x006cd14f36f65ecbb29b2519ccbe63a0dc8549f2', eth: 0.031 }, { to: '0x' + '5'.repeat(40), eth: 0.001 }, { to: '0x' + '0'.repeat(40), eth: 0 }], complete: true },
     splitter: { address: '0x' + '5'.repeat(40), ethHeld: 0.0002, shares: [{ to: '0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7', weight: '63', percent: '63' }, { to: '0x7a0F0511E1DcF399C2F7bbe8414b6a0D1ABc4331', weight: '27', percent: '27' }, { to: '0x6919cbEf0e70AFFA02Ae02c86c532A137154f250', weight: '10', percent: '10' }] },
   },
   prices: { ethUsd: 2400, proveUsd: 0.18 },
-  sponsorship: { day: '2026-10-15', total: { used: 20, cap: 300 }, classes: { onboard: { used: 3, cap: 12 }, farm: { used: 8, cap: 8 }, wrap: { used: 2, cap: null }, other: { used: 1, cap: 4 } } },
+  sponsorship: { day: '2026-10-15', total: { used: 20, cap: 300 }, classes: { onboard: { used: 3, cap: 12 }, farm: { used: 17, cap: 8 }, wrap: { used: 2, cap: null }, other: { used: 1, cap: 4 } } },
 };
 // ── the open board: a proof's public values, made as the pool encodes them (word 0 the tuple's offset, `fees` an offset at word 8, `deadline` word 16) ──
 const w32 = (v) => BigInt(v).toString(16).padStart(64, '0');
@@ -142,9 +142,11 @@ ok(/Fees paid in TAC are kept, not sold/.test(tacNote) && !/\$/.test(tacNote), '
   t = await text('#p-costs');
   ok(/Gas paid to settle0\.02 ETH · \$48/.test(t) && /PROVE put into the prover55 PROVE · \$9\.9/.test(t), `costs: gas and PROVE, in ETH and dollars (${t.slice(0, 120)})`);
   ok(/Fees pay part of all this; the team funds the rest/.test(t), 'costs: says the team funds the rest');
-  ok(/Settles the relay pays for today/.test(t) && /Bridge and cBTC mints3 of 12/.test(t) && /Farm harvests and unbonds8 of 8/.test(t) && /Wraps with no tip2 so far/.test(t) && /Other requests with no fee1 of 4/.test(t) && /settled from the sender’s own account/.test(t), `costs: today's sponsored settles against each limit (${t.slice(-330)})`);
+  ok(/Settles the relay pays for today/.test(t) && /Bridge and cBTC mints3 of 12/.test(t) && /Farm harvests and unbonds17 so far/.test(t) && /Wraps with no tip2 so far/.test(t) && /Other requests with no fee1 of 4/.test(t) && /settled from the sender’s own account/.test(t), `costs: today's sponsored settles against each limit (${t.slice(-330)})`);
   t = await text('#p-tips');
   ok(/122wraps tipped, 0\.032 ETH/.test(t) && /To Ops multisig0\.031 ETH/.test(t) && /Prover account63%/.test(t) && /Settle wallet27%/.test(t) && /TAC buyback10%/.test(t), `tips: the month's tips, where they went and who the splitter pays (${t.slice(0, 130)})`);
+  ok(!/To 0x0+…0+/.test(t), 'tips: a recipient that was paid nothing is not listed');
+  ok(/^0x6919cb/.test(await page.innerText('#p-buyback .eyebrow a')), 'buyback: the contract link keeps its 0x in lower case');
   ok(/send it to a splitter/.test(await text('#flow-tips')), 'flow: with a splitter set, the tip line names it');
   const all = await page.evaluate(() => document.body.textContent);
   ok(!/0\.003 ETH|0\.001 ETH.*4 PROVE|runway|low on gas|running low/i.test(all) && !/68575b073de49a94e3e3acf6f3a0d6e3b66267c7.*\bETH\b.*held/i.test(all), 'no wallet balance or runway is shown on the public page');

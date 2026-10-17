@@ -688,7 +688,7 @@ const pageWallet = () => (W.account && W.prov && !W.prov.isWalletConnect ? { uui
 // Made once: two asks at the same moment (the hover that warms it and the press that uses it) share one module and so one wallet session.
 let bitcoinP = null;
 function getBitcoin() {
-  return (bitcoinP ||= import('/trade/btc.js?cb=16c433a5').then((m) => (bitcoin = m.makeBitcoin({
+  return (bitcoinP ||= import('/trade/btc.js?cb=53663215').then((m) => (bitcoin = m.makeBitcoin({
     notify, wallet: pageWallet, onChange: () => syncMe(),
     onTraded: (t) => { noteBitcoinTrade(t); loadBitcoin().then(paintAll).catch(() => {}); },
   }))).catch((e) => { bitcoinP = null; throw e; }));

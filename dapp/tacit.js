@@ -213,7 +213,8 @@ const MAINNET_OK_KEY = 'tacit-mainnet-consented-v1';
 // consent dialog on first load since landing on mainnet is the expected
 // behavior of a Bitcoin token dapp.
 function currentNetworkName() {
-  const v = localStorage.getItem(NET_KEY);
+  let v = null;
+  try { v = localStorage.getItem(NET_KEY); } catch { /* storage denied: mainnet */ }
   return v === 'signet' ? 'signet' : 'mainnet';
 }
 let NET = NETWORKS[currentNetworkName()];

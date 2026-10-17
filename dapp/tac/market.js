@@ -26,6 +26,8 @@ const el = (tag, attrs = {}, ...kids) => {
   n.append(...kids.filter((x) => x != null).map((x) => (typeof x === 'string' ? document.createTextNode(x) : x)));
   return n;
 };
+// replaceChildren writes a null as the text "null": a part that is not shown is left out.
+const fill = (host, ...kids) => host.replaceChildren(...kids.filter((x) => x != null));
 const svgEl = (tag, attrs = {}) => {
   const n = document.createElementNS('http://www.w3.org/2000/svg', tag);
   for (const [k, v] of Object.entries(attrs)) if (v != null) n.setAttribute(k, String(v));
@@ -199,7 +201,7 @@ function buyer(host, ctx, mark) {
       shown = f.addr;
       const copy = el('button', { class: 'link', type: 'button' }, 'copy');
       copy.onclick = () => navigator.clipboard?.writeText(f.addr).then(() => { copy.textContent = 'copied'; }).catch(() => {});
-      fund.replaceChildren(
+      fill(fund,
         el('div', { class: 'kv' }, el('span', {}, 'Pay from'), el('b', { class: 'num' }, `${f.addr.slice(0, 10)}…${f.addr.slice(-6)} `, copy)),
         el('div', { class: 'kv' }, el('span', {}, 'Sats there'), el('b', { class: 'num' }, `${num(f.sats, 0)} sats`)),
         f.sats ? null : el('p', { class: 'note' }, 'Send sats to that address from any Bitcoin wallet, then buy.'));
@@ -299,7 +301,7 @@ export async function mount(host, ctx = {}) {
     const tacPerLp = supply > 0 ? (tac * 2) / supply : 0;
     const stakedTac = staked * tacPerLp;
     const apr = stakedTac > 0 ? ((perDay * 365) / stakedTac) * 100 : null;
-    document.getElementById('prec-body').replaceChildren(
+    fill(document.getElementById('prec-body'),
       el('div', { class: 'kv' }, el('span', {}, 'Pool'), el('b', { class: 'num' }, `${num(eth, 3)} ETH · ${num(tac, 0)} TAC`)),
       el('div', { class: 'kv' }, el('span', {}, 'Rate'), el('b', { class: 'num' }, `${num(tacPerEth, 0)} TAC / ETH`)),
       el('div', { class: 'kv' }, el('span', {}, 'Staked in the farm'), el('b', { class: 'num' }, `${num((staked / (supply || 1)) * 100, 1)}% of LP`)),
