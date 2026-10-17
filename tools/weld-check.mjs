@@ -3631,6 +3631,14 @@ await step('rewardsfarm', async () => {
       ok(walletTxs.length === sent + 1 && String(tx.to).toLowerCase() === FARM.toLowerCase() && (await stakedOf(LISTED)) > 0n && left < 5n * E18, `rewardsfarm: one press farms the pair in one transaction (${(await text(n.page, '#fm-status')).slice(0, 60)}; ${Number(left / 10n ** 16n) / 100} TAC left)`);
       await until(n.page, () => /Your stake/.test(document.querySelector('#fm-pos')?.textContent || ''), null, 120000);
       ok(true, 'rewardsfarm: and the stake is shown under the form');
+      // With no TAC left in the wallet the card stays for the stake (to claim from, or withdraw), and does not say there is nothing to farm.
+      const rest = await tacOf(LISTED);
+      await rpc('eth_sendTransaction', [{ from: LISTED, to: TAC, data: '0xa9059cbb' + addrWord('0x000000000000000000000000000000000000dEaD') + word(rest) }]);
+      await n.page.reload();
+      await until(n.page, () => !document.querySelector('#farm').hidden && /Your stake/.test(document.querySelector('#farm-s')?.textContent || ''), null, 120000);
+      await n.page.click('#farm > summary');
+      await until(n.page, () => /Your stake/.test(document.querySelector('#fm-pos')?.textContent || '') && !document.querySelector('#fm-pos').hidden, null, 120000);
+      ok(!(await text(n.page, '#farm-note')) && (await tacOf(LISTED)) === 0n, 'rewardsfarm: farm it all and the card stays for the stake, with its claim and withdrawal and no "nothing to farm" note');
       if (n.errors.length) { fails++; console.log('FAIL rewardsfarm page errors: ' + n.errors.slice(0, 3).join(' | ')); }
     } finally { await n.browser.close(); }
     await rpc('evm_revert', [snap]);
@@ -3767,7 +3775,7 @@ await step('rewardsfolds', async () => {
   const n = await openPage({ account: A0, viewport: { width: 1000, height: 900 } });
   await n.ctx.route(/api\.tacit\.finance\/(points|claim|leaderboard)/, (route) => {
     const u = route.request().url();
-    if (/leaderboard\?day=today/.test(u)) return json(route, { day: 20743, program: { rateCap: [{ fromDay: 20729, maxWeiPerPoint: '30000000000000000' }] } });
+    if (/leaderboard\?day=today/.test(u)) return json(route, { day: 20743, programDay: 25, programDays: 90, program: { settleGraceSecs: 1800, rateCap: [{ fromDay: 20729, maxWeiPerPoint: '30000000000000000' }] } });
     if (/leaderboard/.test(u)) return json(route, board);
     if (/\/claim\//.test(u)) return json(route, { cumulativeAmount: '0', claimedWei: '0', unclaimedWei: '0', proof: null });
     if (/\/days$/.test(u)) { dayCalls++; return json(route, { days: [{ day: 20743, points: 40, settled: false }, { day: 20742, points: 33.458, settled: true, tacWei: '10746707713728415' }] }); }
@@ -3779,6 +3787,8 @@ await step('rewardsfolds', async () => {
     await n.page.waitForSelector('#c-pts [data-days]', { timeout: 120000 });
     const read = (sel) => n.page.$eval(sel, (e) => e.innerText.replace(/\s+/g, ' ').trim()), kv = await read('#c-pts .kv');
     ok(/Today 1,000 points · 0\.050% of the day · about 0\.5 TAC/.test(kv), `rewardsfolds: today's share of the day's pot, in points, percent and TAC (${kv.trim()})`);
+    const clk = await read('#c-pts .clock');
+    ok(/^Day 25 of 90 · today's points can be claimed from 00:30 UTC \((in about \d+ h|in \d+ min|now)\)$/.test(clk), `rewardsfolds: the program's day and when today's points can be claimed (${clk})`);
     ok(dayCalls === 0 && !(await n.page.$eval('#c-pts [data-days]', (d) => d.open)), 'rewardsfolds: the days are not read until the fold is opened');
     await n.page.click('#c-pts [data-days] > summary');
     await n.page.waitForSelector('#c-pts .rows li', { timeout: 20000 });

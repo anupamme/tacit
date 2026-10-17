@@ -340,7 +340,7 @@ export function mountFarm(host, ctx) {
       await new Promise((r) => setTimeout(r, 1500));
     }
     const x = F.x;
-    renderStats();                                                                   // the read above may be the one that the page's own refresh gave way to
+    renderStats(); if (!F.busy) renderPos();                                          // the read above may be the one that the page's own refresh gave way to
     if (!mineX(x) || !(x.tac > 0n)) return null;
     let use = tac && tac < x.tac ? tac : x.tac, wei = up(ethFor(use, x), 6);
     const all = use, need = wei;
