@@ -512,6 +512,7 @@ const out = await client.readContract({ address: AMM, abi, functionName: 'quoteS
 // s.amountTac, s.claimByISO, s.reason: show 'error' as "could not check", never as "not eligible"</code></pre></div>
   <ul>
     <li><b>Offer <code>claim</code> and <code>claimTo</code>.</b> The shield route's final settle has not been run for this contract, so the client builds it only with <code>allowUnproven: true</code>.</li>
+    <li><b>People check and claim at <a href="/rewards/">tacit.finance/rewards</a></b>: any address or .eth, .wei or .gwei name, a claim from the account itself (to itself or another address), and the TAC farmed from there.</li>
     <li><b>Proof files</b> are at <code>tacit.finance/airdrop/v1/proofs/&lt;xx&gt;.json</code>. tacit.finance sends no CORS header, so a page on another origin reads the commit-pinned mirrors in <code>PUBLIC_PROOF_HOSTS</code>.</li>
     <li><b>The guardian</b>, the ops multisig, can pause claims and sweep the balance. It cannot change the root, the token or the deadline.</li>
   </ul>

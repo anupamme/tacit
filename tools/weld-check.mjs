@@ -3719,6 +3719,12 @@ await step('rewardsto', async () => {
       await n.page.goto(n.url);
       await n.page.waitForSelector('#air-news', { timeout: 60000 });
       ok((await n.page.getAttribute('#air-news', 'href')) === '/rewards/', 'rewardsto: the lander\'s airdrop line is a link to the rewards page');
+      await n.page.evaluate(() => { location.hash = '#airdrop'; });
+      await until(n.page, () => document.querySelector('#sheet-tac')?.open === true && !document.querySelector('#air-more').hidden, null, 60000);
+      ok((await n.page.getAttribute('#air-more a', 'href')) === '/rewards/', 'rewardsto: and the Airdrop tab of its TAC sheet points there too');
+      await n.page.click('[data-tac-mode="buy"]');
+      await until(n.page, () => document.querySelector('#air-more').hidden, null, 10000);
+      ok(true, 'rewardsto: (only on that tab)');
       // The host serves the front page for a path that is not a file; this server does not, so it is asked to for /airdrop.
       await n.ctx.route(/\/airdrop(\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: 'text/html', body: readFileSync(join(DAPP, 'index.html')) }));
       await n.page.goto(n.url + 'airdrop?x=1');

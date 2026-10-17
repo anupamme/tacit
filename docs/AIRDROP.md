@@ -11,6 +11,7 @@ confidential pool in the same transaction. It is separate from the Bitcoin-side 
 | Inputs and how to rebuild the root | [`airdrop/v1/README.md`](../airdrop/v1/README.md) |
 | Tree tooling | [`tools/airdrop-tree.mjs`](../tools/airdrop-tree.mjs), [`tools/airdrop-verify.mjs`](../tools/airdrop-verify.mjs) |
 | Proofs | `dapp/airdrop/v1/proofs`, served at `https://tacit.finance/airdrop/v1/proofs/<xx>.json` (`xx` is the first byte of the lowercase address). tacit.finance sends no CORS header; other origins use the commit-pinned copies listed in [`airdrop/v1/README.md`](../airdrop/v1/README.md#claim-proofs) |
+| Page | [tacit.finance/rewards](https://tacit.finance/rewards/): look up any address or .eth, .wei or .gwei name, claim from the account itself (`claim`, or `claimTo` to another address), then farm what was claimed. It also shows the airdrop's points. |
 | Client | [`dapp/tac-airdrop.js`](../dapp/tac-airdrop.js) (`tacit.tacAirdrop` on the pool ux): reads an allocation, checks it against the root, reads the contract and builds the claim calls |
 | Integrator guides | [`BUILD-A-TACIT-DAPP.md`](./BUILD-A-TACIT-DAPP.md#5a-tac-airdrop) section 5a (with a no-dependency read-only snippet), [`INTEGRATOR-PLAYBOOK.md`](./INTEGRATOR-PLAYBOOK.md#3b-the-tac-airdrop) section 3b |
 
