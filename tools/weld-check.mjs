@@ -3594,7 +3594,7 @@ await step('rewardsfarm', async () => {
       return json(route, { address: a, points: 0, deposit_count: 0, deposits: [] });
     });
     await ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => json(route, []));
-    await ctx.route(/api\.tacit\.finance\/farm\/program/, (route) => json(route, {}));
+    await ctx.route(/api\.tacit\.finance\/farm\/program/, (route) => json(route, JSON.parse(readFileSync(new URL('../tests/fixtures/farm-program-2026-10-14.json', import.meta.url), 'utf8'))));
   };
   const choose = (page) => page.waitForSelector('.bsheet .way', { timeout: 8000 }).then(() => page.click('.bsheet .way:has-text("Browser wallet")')).catch(() => {});
   const eth = (v) => rpc('anvil_setBalance', [LISTED, '0x' + BigInt(v).toString(16)]);
@@ -3639,6 +3639,17 @@ await step('rewardsfarm', async () => {
       await n.page.click('#farm > summary');
       await until(n.page, () => /Your stake/.test(document.querySelector('#fm-pos')?.textContent || '') && !document.querySelector('#fm-pos').hidden, null, 120000);
       ok(!(await text(n.page, '#farm-note')) && (await tacOf(LISTED)) === 0n, 'rewardsfarm: farm it all and the card stays for the stake, with its claim and withdrawal and no "nothing to farm" note');
+      const pf = await n.page.$$eval('#fm-prog .fm-pf', (a) => a.map((x) => `${x.getAttribute('href')} ${x.innerText.replace(/\s+/g, ' ').trim()}`));
+      ok(pf.length === 3 && /^\/#farm\/private-0 tETH \/ TAC 554 TAC a day [\d,]+%/.test(pf[0]), `rewardsfarm: the private farms are listed in the card with their streams and APRs (${pf[0]})`);
+      // A day on: claim what the stake earned, and it is filled in to farm again, with the ETH that pairs with it.
+      await rpc('evm_increaseTime', [86400]); await rpc('evm_mine', []);
+      const tac0 = await tacOf(LISTED);
+      await n.page.click('#fm-claim');
+      await until(n.page, () => /Claimed/.test(document.querySelector('#fm-pos-status')?.textContent || ''), null, 240000);
+      const earned = (await tacOf(LISTED)) - tac0;
+      await until(n.page, () => Number(document.querySelector('#fm-tacamt').value) > 0 && /Deposit/.test(document.querySelector('#fm-rcpt')?.textContent || '') && !document.querySelector('#fm-go').disabled, null, 180000);
+      const filled = Number(await n.page.inputValue('#fm-tacamt')), rewarded = Number(earned / 10n ** 14n) / 1e4;
+      ok(earned > 0n && Math.abs(filled - rewarded) < 0.011 && /filled in below to farm again/.test(await text(n.page, '#fm-pos-status')) && (await n.page.getAttribute('#fm-mode [data-fm="pair"]', 'aria-pressed')) === 'true', `rewardsfarm: a claim from the stake fills the rewards back in to farm again (${rewarded} TAC claimed, ${filled} in the form)`);
       if (n.errors.length) { fails++; console.log('FAIL rewardsfarm page errors: ' + n.errors.slice(0, 3).join(' | ')); }
     } finally { await n.browser.close(); }
     await rpc('evm_revert', [snap]);
@@ -3775,7 +3786,7 @@ await step('rewardsfolds', async () => {
   const n = await openPage({ account: A0, viewport: { width: 1000, height: 900 } });
   await n.ctx.route(/api\.tacit\.finance\/(points|claim|leaderboard)/, (route) => {
     const u = route.request().url();
-    if (/leaderboard\?day=today/.test(u)) return json(route, { day: 20743, programDay: 25, programDays: 90, program: { settleGraceSecs: 1800, rateCap: [{ fromDay: 20729, maxWeiPerPoint: '30000000000000000' }] } });
+    if (/leaderboard\?day=today/.test(u)) return json(route, { day: 20743, programDay: 25, programDays: 90, program: { settleGraceSecs: 1800, dayBudgetWei: '1111111111111111111111', rateCap: [{ fromDay: 20729, maxWeiPerPoint: '30000000000000000' }], rates: { wrap: 1250, evmpooldeposit: 1000, zswapeth: 1000, cbtcmint: 1000, cbtchold: 500, cusdmint: 2, pmbet: 1000 }, weights: [{ fromDay: 20730, weights: { zswapeth: 2, cusdmint: 0 } }], addressDayCaps: [{ fromDay: 20741, caps: { wrap: '5' } }], categoryShareCaps: [{ fromDay: 20741, caps: { evmpooldeposit: 0.5 } }], holder: { tiers: [{ tac: 100, multiplier: 1.25 }, { tac: 1000, multiplier: 1.5 }] }, earlyBonus: { max: 5 } } });
     if (/leaderboard/.test(u)) return json(route, board);
     if (/\/claim\//.test(u)) return json(route, { cumulativeAmount: '0', claimedWei: '0', unclaimedWei: '0', proof: null });
     if (/\/days$/.test(u)) { dayCalls++; return json(route, { days: [{ day: 20743, points: 40, settled: false }, { day: 20742, points: 33.458, settled: true, tacWei: '10746707713728415' }] }); }
@@ -3794,6 +3805,11 @@ await step('rewardsfolds', async () => {
     await n.page.waitForSelector('#c-pts .rows li', { timeout: 20000 });
     const days = await read('#c-pts .rows');
     ok(dayCalls === 1 && /Sat 17 Oct\s*\+40\.0\s*counting/.test(days) && /Fri 16 Oct\s*\+33\.5\s*0\.0107 TAC/.test(days), `rewardsfolds: points by day, the settled day with its TAC and today as counting (${days.trim()})`);
+    await n.page.click('#earn > summary');
+    await n.page.waitForSelector('#earn-b .ways li', { timeout: 20000 });
+    const ways = await n.page.$$eval('#earn-b .ways li', (a) => a.map((x) => `${x.querySelector('a').getAttribute('href')} ${x.innerText.replace(/\s+/g, ' ').trim()}`));
+    ok(ways.length === 4 && /^\/#private Wrap ETH into the Tacit pool 1,250 points per ETH · up to 5 ETH a day per address$/.test(ways[0]) && /^\/#device .* 1,000 points per ETH · together at most 50% of a day's 1,111 TAC$/.test(ways[1]) && /^\/swap\/ Buy TAC with ETH through the Precision pool 2,000 points per ETH · ×2$/.test(ways[2]) && !ways.some((w) => /Borrow cUSD/.test(w)) && /500 a day while the bond stays posted/.test(ways[3]), `rewardsfolds: Earn more lists each action with its rate, weight, limits and where to do it, and leaves out one that is weighted to nothing (${ways.length}: ${ways[2]})`);
+    ok(/Holding 100, 1,000 public TAC .* ×1\.25, ×1\.5\. Early activity counts up to 5×/.test(await read('#earn-b > p')), 'rewardsfolds: and the holder boost and the early bonus');
     await n.page.click('#lb > summary');
     await n.page.waitForSelector('#lb-b .board li', { timeout: 20000 });
     const rows = await n.page.$$eval('#lb-b .board li', (a) => a.map((x) => `${x.className}:${x.innerText.replace(/\s+/g, ' ').trim()}`));

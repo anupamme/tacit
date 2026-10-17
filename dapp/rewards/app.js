@@ -95,7 +95,7 @@ const claimedOn = (address) => call({ to: DISTRIBUTOR, data: `0xc884ef83${addres
 // The day's rate cap (the most TAC a point can earn), from the program the leaderboard carries; without it no TAC figure is given for today.
 const capNow = () => keep('cap', () => get('leaderboard?day=today&limit=1').then((d) => {
   const c = (d?.program?.rateCap || []).filter((x) => x.fromDay <= d.day).sort((a, b) => b.fromDay - a.fromDay)[0];
-  return d?.program ? { cap: c ? BigInt(c.maxWeiPerPoint) : null, programDay: d.programDay, programDays: d.programDays, settleAt: ((d.day + 1) * 86400 + (Number(d.program.settleGraceSecs) || 0)) * 1000 } : null;
+  return d?.program ? { program: d.program, day: d.day, cap: c ? BigInt(c.maxWeiPerPoint) : null, programDay: d.programDay, programDays: d.programDays, settleAt: ((d.day + 1) * 86400 + (Number(d.program.settleGraceSecs) || 0)) * 1000 } : null;
 }));
 function readPoints(address, signal) {
   return keep(`points:${address}`, async () => {
@@ -194,7 +194,7 @@ const whoLine = (who, q) => `<p class="who"><b>${esc(who.name || short(who.addre
   <div id="done" aria-live="polite"></div>`;
 const SKEL = (t) => `<section class="card"><h2>${t}</h2><p class="big"><span class="sk"></span></p></section>`;
 const SKELETON = `<p class="who"><b><span class="sk"></span></b></p><div id="c-air">${SKEL('Airdrop')}</div><div id="c-pts">${SKEL('Points')}</div>`;
-const LB = '<details class="card fold" id="lb"><summary>Leaderboard</summary><div class="fold-b" id="lb-b"></div></details>';
+const LB = '<details class="card fold" id="earn"><summary>Earn more points</summary><div class="fold-b" id="earn-b"></div></details><details class="card fold" id="lb"><summary>Leaderboard</summary><div class="fold-b" id="lb-b"></div></details>';
 
 function countUp(el) {
   const to = Number(el.dataset.to), text = el.dataset.text;
@@ -338,13 +338,13 @@ let farmUi = null, farmFor = null, farmSeq = 0, ethUsd = 0, hasStake = false;
 const eth4 = (wei) => (Number(wei) / 1e18).toLocaleString('en-US', { maximumSignificantDigits: 3 });
 const wordOf = (a) => a.slice(2).toLowerCase().padStart(64, '0');
 function mountedFarm() {
-  return farmUi ||= Promise.all([import('/trade/farm.js?cb=f1e959c3'), import('/trade/util.js?cb=c3dc39b3'), import('/evm-trade-venues.js?cb=a08631ce'),
+  return farmUi ||= Promise.all([import('/trade/farm.js?cb=981d15eb'), import('/trade/util.js?cb=c3dc39b3'), import('/evm-trade-venues.js?cb=a08631ce'),
     call({ to: ETH_USD, data: '0xfeaf968c' }).then((r) => { ethUsd = Number(BigInt(`0x${r.slice(66, 130)}`)) / 1e8; }, () => {})])
     .then(([{ mountFarm }, U, E]) => {
       const ethCall = (to, data, block = 'latest', o = {}) => U.rpc('eth_call', [{ to, data, ...(o.from ? { from: o.from } : {}), ...(o.value ? { value: `0x${BigInt(o.value).toString(16)}` } : {}) }, block]);
       const batch = async (calls) => E._internal.decAggregate3(await ethCall(E.MULTICALL3, E._internal.encAggregate3(calls)), calls.length);
       const done = () => { react('up', 3000); said('Farming'); showFarm(); };
-      return mountFarm($('#farm-host'), { ethCall, batch, rpc: U.rpc, api: U.api, wallet, W, connect: () => connect.connect(), fmtUnits: U.fmtUnits, parseUnits: U.parseUnits, esc, usd: U.usd, ethUsd: () => ethUsd, txLink, onDone: done });
+      return mountFarm($('#farm-host'), { ethCall, batch, rpc: U.rpc, api: U.api, wallet, W, connect: () => connect.connect(), fmtUnits: U.fmtUnits, parseUnits: U.parseUnits, esc, usd: U.usd, ethUsd: () => ethUsd, txLink, onDone: done, refarm: true });
     })
     .catch((e) => { farmUi = null; throw e; });
 }
@@ -409,10 +409,37 @@ async function paintBoard() {
   el.innerHTML = `<ol class="board">${b.slice(0, 10).map((e, k) => row(e, k + 1)).join('')}${i >= 10 ? `<li class="gap" aria-hidden="true">⋯</li>${row(b[i], i + 1)}` : ''}</ol>`;
   el.dataset.done = '1';
 }
+// What each action earns, from the program itself: its rate and what is in force today (a weight, a per-address limit, a share of the day's pot
+// that the activity's points can take together), the holder boost and the early bonus. The same terms the app's points sheet lists.
+const inForce = (list, day) => (list || []).filter((e) => e.fromDay <= day).sort((a, b) => b.fromDay - a.fromDay)[0];
+async function paintEarn() {
+  const el = $('#earn-b');
+  if (!el || el.dataset.done === '1') return;
+  el.innerHTML = '<p class="st mute">Reading…</p>';
+  const c = await capNow().catch(() => null);
+  if (!el.isConnected) return;
+  const P = c?.program;
+  if (!P?.rates) { el.innerHTML = '<p class="st warn">Could not read the program just now. Close this and open it again.</p>'; return; }
+  const day = c.day, wts = inForce(P.weights, day)?.weights || {}, caps = inForce(P.addressDayCaps, day)?.caps || {}, shares = inForce(P.categoryShareCaps, day)?.caps || {};
+  const pot = tac(BigInt(P.dayBudgetWei || 0), 0), n = (x) => Math.round(x).toLocaleString('en-US');
+  const note = (k) => `${wts[k] != null && wts[k] !== 1 ? ` · ×${wts[k]}` : ''}${caps[k] ? ` · up to ${caps[k]} ETH a day per address` : ''}${shares[k] ? ` · together at most ${Math.round(shares[k] * 100)}% of a day's ${pot} TAC` : ''}`;
+  const ways = [
+    ['wrap', 'Wrap ETH into the Tacit pool', '/#private', (r) => `${n(r)} points per ETH`],
+    ['evmpooldeposit', 'Deposit ETH on this device (Ethereum, Base or Robinhood Chain)', '/#device', (r) => `${n(r)} points per ETH`],
+    ['zswapeth', 'Buy TAC with ETH through the Precision pool', '/swap/', (r) => `${n(r)} points per ETH`],
+    ['cbtcmint', 'Bond toward cBTC', '/#borrow', (r) => `${n(r)} points per wstETH${P.rates.cbtchold ? `, then ${n(P.rates.cbtchold)} a day while the bond stays posted` : ''}`],
+    ['cusdmint', 'Borrow cUSD, sending the loan yourself', '/#borrow', (r) => `${n(r)} points per dollar`],
+  ].filter(([k]) => P.rates[k] && wts[k] !== 0);
+  const tiers = P.holder?.tiers || [];
+  el.innerHTML = `<ul class="rows ways">${ways.map(([k, label, to, f]) => `<li><a href="${to}">${esc(label)}</a><span class="m">${f(P.rates[k] * (wts[k] ?? 1))}${esc(note(k))}</span></li>`).join('')}</ul>`
+    + (tiers.length ? `<p class="st mute">Holding ${tiers.map((t) => n(t.tac)).join(', ')} public TAC at the same address through a day multiplies what that day's activity earns by ${tiers.map((t) => `×${t.multiplier}`).join(', ')}. ` : '<p class="st mute">')
+    + `Early activity counts up to ${P.earlyBonus?.max ?? 1}×. The day's pot is split by points.</p>`;
+  el.dataset.done = '1';
+}
 document.addEventListener('toggle', (e) => {
   const d = e.target;
   if (!(d instanceof HTMLDetailsElement) || !d.open) return;
-  if (d.id === 'lb') paintBoard(); else if (d.dataset.days) paintDays(d);
+  if (d.id === 'lb') paintBoard(); else if (d.id === 'earn') paintEarn(); else if (d.dataset.days) paintDays(d);
 }, true);
 
 // ── the wallet's part: a notice, a line under the result, what connecting does, switching accounts ──

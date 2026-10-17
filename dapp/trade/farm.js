@@ -23,7 +23,7 @@ const wordAt = (hex, i) => BigInt('0x' + (strip(hex).slice(i * 64, (i + 1) * 64)
 const now = () => Math.floor(Date.now() / 1000);
 
 export function mountFarm(host, ctx) {
-  const { ethCall, batch, api, wallet, W, connect, fmtUnits: fmt, parseUnits, esc, usd, ethUsd, txLink, onDone } = ctx;
+  const { ethCall, batch, api, wallet, W, connect, fmtUnits: fmt, parseUnits, esc, usd, ethUsd, txLink, onDone, refarm = false } = ctx;
   const F = { wdOpen: false, rseq: 0, ackKey: null, x: null, prog: null, mode: 'eth', outPct: '100', outAs: 'both', q: null, seq: 0, w: null, wseq: 0, busy: false, tick: 0, err: false };
   const $ = (s) => host.querySelector(s);
   const plain = (v) => { const n = BigInt(v), b = 10n ** 18n, f = (n % b).toString().padStart(18, '0').replace(/0+$/, ''); return `${n / b}${f ? `.${f}` : ''}`; };
@@ -303,11 +303,15 @@ export function mountFarm(host, ctx) {
     }
     const ps = () => $('#fm-pos-status'), from = W.account;
     if (['fm-claim', 'fm-stake', 'fm-exit'].includes(b.id) && (!from || x?.who !== from)) return;
-    if (b.id === 'fm-claim') run(b, ps(), async () => {
-      const { hash, r } = await send({ data: SEL.claim }, 'Claiming', ps(), from);
-      const got = (r.logs || []).filter((l) => l.address.toLowerCase() === FARM.toLowerCase() && l.topics[0] === REWARD_PAID).reduce((t, l) => t + BigInt(l.data), 0n);
-      say(ps(), `<span class="ok">Claimed${got ? ` ${fmt(got, 18, 2)} TAC` : ''}.</span> ${txLink(hash)}`); onDone();
-    });
+    if (b.id === 'fm-claim') {
+      let rewarded = 0n;
+      run(b, ps(), async () => {
+        const { hash, r } = await send({ data: SEL.claim }, 'Claiming', ps(), from);
+        const got = (r.logs || []).filter((l) => l.address.toLowerCase() === FARM.toLowerCase() && l.topics[0] === REWARD_PAID).reduce((t, l) => t + BigInt(l.data), 0n);
+        rewarded = got;
+        say(ps(), `<span class="ok">Claimed${got ? ` ${fmt(got, 18, 2)} TAC` : ''}.</span> ${txLink(hash)}${refarm && got ? ' It is filled in below to farm again.' : ''}`); onDone();
+      }).then(() => { if (refarm && rewarded > 0n) pairWith(rewarded, { settle: true }); });                // the TAC just claimed, with the ETH that pairs with it
+    }
     if (b.id === 'fm-stake') run(b, ps(), async () => {
       const dl = deadline(), sig = x.lpAllow < x.lp ? await permit(POOL, 'Precision LP', x.lp, dl, from) : '';
       const { hash } = await send({ data: sig ? SEL.stakeWithPermit + word(x.lp) + word(dl) + sig : SEL.stake + word(x.lp) }, 'Staking', ps(), from);
