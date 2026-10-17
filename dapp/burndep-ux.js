@@ -360,7 +360,13 @@ export function makeBurnDepositUx(deps) {
 
     let traced;
     try { traced = await traceNote({ txid: note.txid, vout: note.vout, assetId: tacAssetId }); }
-    catch (e) { step('trace', false, String(e.message || e)); return out; }
+    catch (e) {
+      // A lineage longer than the walk's own budget is a fact about the note, not a read that failed: asked again it is as long, so it
+      // is reported as over the limit (the page tells a holder to try again only when a read failed).
+      const long = /provenance exceeded (?:maxDepth \((\d+)\)|\d+ outpoints)/.exec(String((e && e.message) || e));
+      step('trace', false, long ? `over ${long[1] || MAX_HOPS_SOURCE} hop(s) to the etch (max ${MAX_HOPS_SOURCE})` : String(e.message || e));
+      return out;
+    }
     if (!step('trace', traced.hops <= MAX_HOPS_SOURCE, `${traced.hops} hop(s) to the etch (max ${MAX_HOPS_SOURCE})`)) return out;
     out.bundle = traced.bundle;
     out.hops = traced.hops;

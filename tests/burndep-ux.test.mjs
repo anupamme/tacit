@@ -1642,5 +1642,28 @@ function storageContainsPrivkey(storage, priv) {
   const pfC = await c.ux.preflight({ note, walletPub: WALLET_PUB });
   ok(!pfC.steps.find((s) => s.name === 'trace')?.ok && c.waits.length === 0 && c.traces() === 1, 'a limit of 90 s is not waited out');
 }
+// ==== a lineage past the walk's own budget is reported as too many transfers, not as a read that failed ====
+{
+  const note = { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING };
+  const refusedWith = async (error) => {
+    const world = makeWorld();
+    world.setBurnHomeOnChain(NOTE_TXID, realWpkhSpkHexOf(WALLET_PUB));
+    let traces = 0;
+    const fetchImpl = async (url, opts) => {
+      if (new URL(url).pathname === '/reflection/burndep/trace') { traces += 1; return { ok: false, status: 502, json: async () => ({ ok: false, error }) }; }
+      return world.fetchImpl(url, opts);
+    };
+    const ux = makeUx({ ...world, fetchImpl }, makeMemStorage());
+    const pf = await ux.preflight({ note, walletPub: WALLET_PUB });
+    return { step: pf.steps.find((s) => s.name === 'trace'), traces };
+  };
+  const deep = await refusedWith('trace failed: burn-deposit trace: provenance exceeded maxDepth (96)');
+  ok(deep.step && !deep.step.ok && /^over 96 hop\(s\) to the etch \(max 63\)$/.test(deep.step.detail) && deep.traces === 1,
+    `a history longer than the 96 the walk reads says it is over the limit, which the page words as too many transfers (${deep.step && deep.step.detail})`);
+  const wide = await refusedWith('trace failed: burn-deposit trace: provenance exceeded 4096 outpoints');
+  ok(wide.step && !wide.step.ok && /hop\(s\) to the etch \(max 63\)/.test(wide.step.detail), `a history of thousands of outpoints is the same answer (${wide.step && wide.step.detail})`);
+  const down = await refusedWith('trace failed: esplora 503');
+  ok(down.step && !down.step.ok && !/hop\(s\) to the etch/.test(down.step.detail) && /esplora 503/.test(down.step.detail), 'a read that failed keeps its own words, and the page still says to try again');
+}
 console.log(failures ? `\n${failures} FAILURES (${n} passed)` : `\nall ${n} burndep-ux checks passed`);
 process.exit(failures ? 1 : 0);
