@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-28OYdsvkW4bla33mI9Ny9ZWeClaoKZPlogi8TK5Cndc=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-peIoul/+OY5zyRmbvi+PmzDTnoxT9BNPGkZlh98d3aA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -10941,7 +10941,10 @@ function assetSendForm(el, status, { prefix, sheet, statusId, sources, pick }) {
   };
   onEdit([to, amt], go, check);
   const dr = hxLive('asend');                                    // from the hero card's Send: this asset's amount and recipient
-  if (dr && dr.k === src.k && !src.pub) { to.value = dr.to || ''; amt.value = dr.amt || ''; HX.draft = null; if (to.value || amt.value) check({}); }
+  if (dr && dr.k === src.k && !src.pub) {
+    to.value = dr.to || ''; amt.value = dr.amt || ''; HX.draft = null; if (to.value || amt.value) check({});
+    const id = el.id; setTimeout(() => document.getElementById(id)?.scrollIntoView({ block: 'center' }), 400);     // the form sits below the sheet's other blocks
+  }
   go.onclick = () => busy(go, async (run) => {
     const x = q, raw = to.value.trim();                           // the quote shown when pressed, whatever is typed after
     if (!x) return;
@@ -11089,7 +11092,7 @@ function dashSoon() { if (!dashQ) dashQ = requestAnimationFrame(() => { dashQ = 
 function dashItems() {
   const k = S.key?.pubHex, s = k ? P.scan : null, scanErr = !!(k && !s && P.err), out = [];
   if (k) {
-    out.push({ key: 'teth', icon: 'tk-teth', label: 'tETH', dec: 8, max: 6, v: s ? s.eth.value : null, err: scanErr, meta: 'private', open: 'private', core: true, send: s?.eth.value > 0n ? 'eth' : null });
+    out.push({ key: 'teth', icon: 'tk-teth', label: 'tETH', dec: 8, max: 6, v: s ? s.eth.value : null, err: scanErr, meta: 'private', open: 'private', core: true, send: spendable('eth') > 0n ? 'eth' : null });
     let dev = null;
     const on = [];
     for (const c of DEVICE_CHAINS) { const v = big(store.get(`tacit-lite-device-bal-v1:${c.chainId}:${k}`)?.v); if (v != null) { dev = (dev || 0n) + v; if (v > 0n) on.push(c.name); } }
@@ -11103,7 +11106,7 @@ function dashItems() {
   }
   const who = [...new Set([S.wallet, S.acct?.address].filter(Boolean).map((a) => a.toLowerCase()))].join();
   const pubTac = who && TACB.who === who ? TACB.erc : null, privTac = k ? (s ? s.tac.value * E10 : null) : 0n;
-  out.push({ key: 'tac', icon: 'tk-tac', label: 'TAC', dec: 18, max: 2, v: pubTac != null && privTac != null ? pubTac + privTac : null, priv: privTac, err: scanErr || (!!who && TACB.who !== who && !!TACB.err), open: 'tac', core: true, send: privTac > 0n ? 'tac' : null,
+  out.push({ key: 'tac', icon: 'tk-tac', label: 'TAC', dec: 18, max: 2, v: pubTac != null && privTac != null ? pubTac + privTac : null, priv: privTac, err: scanErr || (!!who && TACB.who !== who && !!TACB.err), open: 'tac', core: true, send: spendable('tac') > 0n ? 'tac' : null,
     meta: !k ? 'on Ethereum' : pubTac != null && privTac != null ? `${fmt(privTac, 18, 2)} private · ${fmt(pubTac, 18, 2)} public` : '' });
   if (k) {
     const b = BTC.pub === k ? BTC : null, tacB = b?.held.find((a) => a.id === TAC_BTC_ID), lk = LOCKNOTE.pub === k ? LOCKNOTE : null;
@@ -11114,8 +11117,8 @@ function dashItems() {
     for (const a of sats || []) out.push({ key: `sats-${a.ticker.toLowerCase()}`, icon: a.ticker === 'TAC' ? 'tk-tac' : 'tk-cbtc', label: a.ticker, dec: a.decimals, max: a.ticker === 'TAC' ? 2 : 6,
       v: a.value, meta: 'Secret Sats, private on Bitcoin', href: a.ticker === 'TAC' ? '/tac/' : '/sats/', show: a.value > 0n, send: a.ticker === 'TAC' && a.value > 0n ? 'tacb' : null });
     const cb = s ? s.cbtc.notes.reduce((a, n) => a + BigInt(n.value), 0n) : null;
-    out.push({ key: 'cbtc', icon: 'tk-cbtc', label: 'cBTC', dec: 8, max: 6, v: cb, err: scanErr, meta: lk?.text || 'private', open: 'borrow', send: cb > 0n ? 'cbtc' : null, show: cb > 0n || !!lk?.text });
-    out.push({ key: 'cusd', icon: 'tk-cusd', label: 'cUSD', dec: 8, max: 2, v: s ? s.cusd.value : null, err: scanErr, open: 'borrow', send: s?.cusd.value > 0n ? 'cusd' : null, show: s?.cusd.value > 0n || !!lk?.borrowed,
+    out.push({ key: 'cbtc', icon: 'tk-cbtc', label: 'cBTC', dec: 8, max: 6, v: cb, err: scanErr, meta: lk?.text || 'private', open: 'borrow', send: spendable('cbtc') > 0n ? 'cbtc' : null, show: cb > 0n || !!lk?.text });
+    out.push({ key: 'cusd', icon: 'tk-cusd', label: 'cUSD', dec: 8, max: 2, v: s ? s.cusd.value : null, err: scanErr, open: 'borrow', send: spendable('cusd') > 0n ? 'cusd' : null, show: s?.cusd.value > 0n || !!lk?.borrowed,
       meta: lk?.borrowed ? `${fmt(lk.borrowed, 8, 2)} borrowed` : 'private' });
   }
   // cBTC and cUSD withdrawn to an account, as the public ERC-20s; each opens its asset card.
@@ -11669,6 +11672,7 @@ const hxRcptKind = (r = HX.rcpt) => (/^0x[0-9a-fA-F]{40}$/.test(r) ? 'eth' : /^(
 function hxSendFit() {
   const r = hxRcptKind();
   if (r === 'eth' && hxSendBtc()) return 'That is an Ethereum address. To pay it, choose tETH, TAC, cUSD or cBTC.';
+  if (r === 'eth') { try { recipientOf(HX.rcpt); } catch (e) { return e.message; } }                // the forms refuse a bad checksum, the zero address and Tacit's own contracts
   if (r === 'btc' && HX.send === 'tacb') return 'TAC on Bitcoin goes to a tacit1 address or a name. A Bitcoin address takes BTC.';
   if (r === 'btc' && HX.send !== 'btc') return 'That is a Bitcoin address. To pay it, choose BTC.';
   return '';
@@ -11686,7 +11690,11 @@ async function hxSendOutQuote(units) {
       : small ? `Send more than ${show(fee)}: the relay fee comes out of it.`
       : `They get ${fmt(units - fee, 8, dp)} ${as} at that address${own ? ', with no relay fee' : `: the relay fee of ${show(fee)} comes out of it`}${size ? `, and ${show(size)} from your balance ${notes.some((n) => BigInt(n.value) >= units + size) ? 'splits a note' : 'combines notes'} first` : ''}.` };
 }
-const hxSendWhy = (k = HX.send) => (k === 'btc' ? 'A silent payment: it lands at a fresh address only they can find.' : k === 'tacb' ? 'Inside the shielded pool on Bitcoin: sender, recipient and amount hidden.' : 'Nobody sees how much or to whom.');
+function hxSendWhy(k = HX.send) {
+  if (k === 'btc') return hxRcptKind() === 'btc' && !/^sp1/i.test(HX.rcpt) ? 'A plain Bitcoin payment: public on chain.' : 'A silent payment: it lands at a fresh address only they can find.';
+  if (k === 'tacb') return 'Inside the shielded pool on Bitcoin: the recipient and the amount are hidden.';
+  return hxRcptKind() === 'eth' ? 'A public payment: the address and the amount can be seen.' : 'Nobody sees how much or to whom.';
+}
 // A request: a link that opens Send filled in with this key's tacit1 address, the asset and the amount asked for, for whoever pays it.
 const hxAskWhy = () => 'Whoever opens the link sees this payment filled in, ready to send.';
 function hxAskGo() {
@@ -11741,7 +11749,7 @@ function hxSendGo() {
   if (hxSendFit()) return;
   const k = HX.send, u = hxUnits(), amt = u ? plain(u, 8) : HX.amt, to = HX.rcpt;
   HX.draft = null;
-  if (hxSendBtc(k)) { location.href = `/pay/#${k === 'btc' ? 'btc' : 'tac'}${to || amt ? `&to=${encodeURIComponent(to)}&amount=${encodeURIComponent(amt)}` : ''}`; return; }
+  if (hxSendBtc(k)) { const a = u ? plain(u, 8) : ''; location.href = `/pay/#${k === 'btc' ? 'btc' : 'tac'}${to || a ? `&to=${encodeURIComponent(to)}&amount=${encodeURIComponent(a)}` : ''}`; return; }
   if (S.key && P.scan && spendable(k) === 0n) return;                                // nothing to send: the line above says how to get some
   if (k === 'eth' && hxRcptKind() === 'eth') { hxDraft({ mode: 'out', to, amt }); return openLink('private/withdraw'); }      // an address is paid as ETH: the Withdraw form
   if (k === 'eth') { hxDraft({ mode: 'send', to, amt }); return openLink('private/send'); }
@@ -11975,7 +11983,7 @@ function hxPreset(spec, amt, inCard = false) {
     HX.q = HX.route = null;
     if (tab === 'shield') { HX.tab = 'private'; HX.sf = a; HX.sd = b; }
     else if (tab === 'swap') { HX.tab = 'swap'; HX.swp = { from: a, to: b }; }
-    else if (tab === 'send') { HX.tab = 'send'; HX.send = a; HX.sendPick = true; }
+    else if (tab === 'send') { HX.tab = 'send'; HX.send = a; HX.sendPick = true; HX.ask = false; }
     else if (tab === 'earn') { HX.tab = 'earn'; HX.ern = ['eth', 'tac', 'wtac'].includes(a) ? a : 'ether'; if (b === 'public') HX.pool = 'precision'; else if (/^p\d{1,3}$/.test(b)) HX.pool = b.slice(1); }   // p<id>: that private farm (the swap page's links)
     else { HX.tab = 'borrow'; HX.bm = a === 'cbtc' ? 'cbtc' : 'cusd'; }
   });
@@ -12007,6 +12015,7 @@ async function hxQuote() {
   const my = ++HX.seq, units = hxUnits(), m = HX.mode, ethN = units ? Number(units) / 1e8 : 0;
   const done = (q) => { if (my === HX.seq) { HX.q = { eth: ethN, ...q }; paintHxQ(); } };
   HX.held = hxHeld(); HX.heldTac = hxHeldTac(); HX.heldSend = hxSendHeld();
+  if (m === 'send') HX.rk = hxRcptKind() + (hxSendFit() ? '!' : '');                 // what hxRcptChanged compares a typed recipient with
   if (m === 'send' && HX.ask) return done({ line: hxAskWhy() });
   if (m === 'send' && hxSendFit()) return done({ warn: true, line: hxSendFit() });
   if (m === 'send' && hxSendBtc()) return done({ line: hxSendWhy() });
@@ -12702,6 +12711,7 @@ const route = () => {
   if (snd) {
     const q = new URLSearchParams(snd[2]), to = (q.get('to') || '').trim(), amt = (q.get('amt') || '').trim();
     history.replaceState(null, '', location.pathname + location.search);
+    if (snd[1] && !HX_SEND.some(([k]) => k === snd[1])) return;
     HX.rcpt = /^[\p{L}\p{N}._:-]{1,400}$/u.test(to) ? to : ''; HX.ask = false;
     hxPreset(`send:${snd[1] || HX.send}`, snd[1] && /^\d{0,12}(?:\.\d{1,18})?$/.test(amt) ? amt : '');      // an amount means nothing without its asset
     if (!snd[1]) { HX.sendPick = false; if (hxSendAuto()) paintHx(); }

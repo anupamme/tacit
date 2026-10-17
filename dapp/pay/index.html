@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-g3/dTKoxKZcryRA1zGBZ0QV2LLhHhdNrtsQOEmycstw=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-3FunUjskrlXSI+P6qGhqhMzLrdtkqPkVA9z1vEqHyU0=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay</title>
 <meta name="description" content="Simple, private payments: Bitcoin by silent payment, TAC shielded, ETH on Ethereum, Base, Robinhood Chain and MegaETH. One key and one tacit1 address, every payment made on your device, and your balances rebuild from that key.">
@@ -2493,7 +2493,7 @@ function parsePre(h) {
   const q = new URLSearchParams(m[2]);
   if (q.has('pay')) return null;
   const to = (q.get('to') || '').trim(), t = (q.get('amount') || '').trim(), amount = t ? parseUnits(t, 8) : null;
-  return to || amount ? { mode: m[1], to, amount: amount || null, at: Date.now() } : null;
+  return { mode: m[1], to, amount: amount || null, at: Date.now() };       // an empty or unreadable amount still opens the mode it names
 }
 function parseReq(h) {
   const m = /^#(btc|tac)&(.*)$/.exec(h);

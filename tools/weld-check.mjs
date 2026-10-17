@@ -5252,13 +5252,20 @@ await step('hxsend', async () => {
     // An Ethereum address is paid in the public token: tETH through the Withdraw form, cUSD through its form's address route; the wrong kind of address for an asset is said, and the button waits.
     const eth0 = '0x' + 'ab'.repeat(20), btc0 = 'bc1q' + 'a'.repeat(38);
     await pick('eth', '^0\\.25 tETH · Max');
-    await p.fill('#hx-rcpt', eth0); await p.fill('#hx-amt', '0.1');
+    await p.fill('#hx-rcpt', eth0);
+    await until(p, () => /^A public payment: the address and the amount can be seen\.$/.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 60000);
+    ok(true, 'hxsend: an Ethereum address with no amount yet says the payment is public');
+    await p.fill('#hx-amt', '0.1');
     await until(p, () => /^They get [\d.]+ ETH at that address: the relay fee of [\d.]+ tETH comes out of it\.$/.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
     ok(await text(p, '#hx-go') === 'Send to the address', `hxsend: tETH to an Ethereum address says it arrives as ETH there (${await line()})`);
     await p.click('#hx-go');
     await until(p, ([x, v]) => document.querySelector('#sheet-eth[open] #o-to')?.value === x && document.querySelector('#o-amt')?.value === v, [eth0, '0.1'], 120000);
     ok(true, 'hxsend: its button opens Withdraw with the address and the amount');
+    await pick('eth', '^0\\.25 tETH · Max');
+    await p.fill('#hx-rcpt', '0x' + '0'.repeat(40)); await p.fill('#hx-amt', '0.1');
+    await until(p, () => document.querySelector('#hx-q')?.classList.contains('warn') && !/^They get/.test(document.querySelector('#hx-q')?.textContent || '') && !/^A public payment/.test(document.querySelector('#hx-q')?.textContent || ''), null, 60000);
+    ok(await p.$eval('#hx-go', (b) => b.disabled), `hxsend: the zero address is refused in the card, as the forms refuse it (${await line()})`);
     await pick('cusd', '^25 cUSD · Max');
     await p.fill('#hx-rcpt', eth0); await p.fill('#hx-amt', '15');
     await until(p, () => /^They get [\d.]+ tacUSD at that address/.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 240000)
@@ -5278,8 +5285,11 @@ await step('hxsend', async () => {
     ok(await p.$eval('#hx-go', (b) => b.disabled), 'hxsend: an Ethereum address typed for TAC on Bitcoin is said, and the button waits');
     await p.selectOption('#hx-sa', 'btc');
     await p.fill('#hx-rcpt', btc0);
-    await until(p, () => /^A silent payment/.test((document.querySelector('#hx-q')?.textContent || '').trim()) && !document.querySelector('#hx-go').disabled, null, 60000);
-    ok(true, 'hxsend: the same Bitcoin address is fine for BTC');
+    await until(p, () => /^A plain Bitcoin payment: public on chain\.$/.test((document.querySelector('#hx-q')?.textContent || '').trim()) && !document.querySelector('#hx-go').disabled, null, 60000);
+    ok(true, 'hxsend: a bc1 address is fine for BTC, and said to be a plain, public payment');
+    await p.fill('#hx-rcpt', to);
+    await until(p, () => /^A silent payment/.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 60000);
+    ok(true, 'hxsend: a tacit1 address for BTC is a silent payment');
     await lander(p);
     await p.click('[data-hxm="send"]');
     await p.selectOption('#hx-sa', 'tacb');
@@ -5337,6 +5347,11 @@ await step('hxsend', async () => {
     await q.evaluate((h) => { location.hash = h; }, new URL(link).hash);
     await until(q, (v) => document.querySelector('#hx-rcpt')?.value === v && document.querySelector('#hx-amt')?.value === '5' && document.querySelector('#hx-sa')?.value === 'cusd', long, 60000);
     ok(true, 'hxsend: opening that link fills Send with the address, cUSD and the amount');
+    // A Send button elsewhere on the page opens Send, even after Request was used.
+    await q.click('#hx-ask');
+    await q.click('#dash-g .di-send[data-hx="send:cusd"]');
+    await until(q, () => !!document.querySelector('#hx-rcpt') && /Send privately/.test(document.querySelector('#hx-go')?.textContent || ''), null, 60000);
+    ok(true, 'hxsend: a Send button on Your Tacit opens Send, not Request, after Request was used');
     if (r2.errors.length) { fails++; console.log('FAIL hxsend page errors: ' + r2.errors.slice(0, 3).join(' | ')); }
   } finally { await r2.browser.close(); }
 });
