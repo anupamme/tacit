@@ -50,4 +50,5 @@
 /classic  /classic.html  301
 /lite     /              301
 /lite/*   /              301
+/airdrop  /rewards/    301
 /*        /index.html    200

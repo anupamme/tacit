@@ -9,8 +9,10 @@
 import { secp, keccak_256 } from '/vendor/tacit-deps.min.js';
 import { makeConfidentialNames, makeMainnetCall, MAINNET_RPCS, NameError } from '/confidential-names.js?cb=7bb10833';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=02ef61b4';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=a8cdf0f7';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=b0beb322';
 
+// Where an airdrop is never sent: the zero address and the contracts that would hold TAC with no way to give it back.
+const NO_SEND = ['0x0000000000000000000000000000000000000000', '0xa1313eb9f3a445606d9583bcac3ebeb56a858279', '0x000000c918e44a3a443937fa7594ea4f7c95d6b9', '0x4b4cb98d0c836c2783ac46f0078b904dab533ae8'];
 const API = 'https://api.tacit.finance', DISTRIBUTOR = '0x000000C918e44A3a443937fA7594eA4f7C95D6b9', BOARD = 500, KEEP = 60e3, RECENT = 'tacit-rewards-recent-v1';
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -27,6 +29,7 @@ const store = { get: (k) => { try { return localStorage.getItem(k); } catch { re
 // account sheet (which here also looks up the account and switches it). It is not restored until the page is idle.
 const connect = makeConnect({
   describe: 'Look up and claim the TAC airdrop and points.',
+  rewards: false,
   busy: () => claiming,
   say: (html, bad) => wsay(html, bad),
   onChange: () => onWallet(),
@@ -146,19 +149,23 @@ const figure = (n, text, unit) => `<p class="big num"><span class="cu" data-to="
 const claimUi = (kind, label, address, to, amount, wei) => (wallet.available().length
   ? `<button class="act" type="button" data-claim="${kind}" data-addr="${address}" data-amt="${esc(amount)}" data-wei="${wei}">${label}</button>`
   : `<a class="act" href="${to}">${label}</a>`);
+// Sending the allocation to another address (a cold wallet, a Tacit account) instead of the one that claims: the form opens from a link.
+const sendTo = (address, wei) => (wallet.available().length ? `<p class="to"><button class="linkbtn" type="button" data-to-show>Send it to another address</button></p>
+  <form class="toform" id="to-f" hidden novalidate><label class="sr" for="to-q">Where to send it: an address or a .eth, .wei or .gwei name</label><input id="to-q" placeholder="0x address or name" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off"><button class="act" type="submit" data-claim="airdrop-to" data-addr="${address}" data-amt="${esc(tac(wei))}" data-wei="${wei}">Claim to it</button></form>` : '');
 function airdropCard(s, address) {
   if (s.reason === 'error') return card('Airdrop', '<p class="st warn">Could not read the airdrop just now. Look up again in a moment.</p>');
   if (!s.eligible) return card('Airdrop', '<p class="st mute">Not on the airdrop list.</p>').replace('class="card"', 'class="card slim"');
   const left = Math.ceil((s.deadline - Date.now() / 1000) / 86400), by = day(s.deadline);
   const [cls, line] = s.claimed ? ['ok', 'Claimed'] : s.claimable ? [left <= 7 ? 'warn' : 'ok', `Claim by ${by} · ${left} day${left === 1 ? '' : 's'} left`] : s.reason === 'closed' ? ['mute', `Closed ${by}`] : ['warn', s.message];
-  return card('Airdrop', `${figure(Number(s.amountTac), tac(s.amountWei), 'TAC')}<p class="st ${cls}">${esc(line)}</p>${s.claimable ? claimUi('airdrop', `Claim ${tac(s.amountWei)} TAC`, address, '/#airdrop', tac(s.amountWei), s.amountWei) : ''}`);
+  return card('Airdrop', `${figure(Number(s.amountTac), tac(s.amountWei), 'TAC')}<p class="st ${cls}">${esc(line)}</p>${s.claimable ? claimUi('airdrop', `Claim ${tac(s.amountWei)} TAC`, address, '/#airdrop', tac(s.amountWei), s.amountWei) + sendTo(address, s.amountWei) : ''}`);
 }
 function pointsCard(p, address) {
   if (p.error) return card('Points', '<p class="st warn">Could not read points just now. Look up again in a moment.</p>');
   const rows = p.earned > 0n ? [['Earned on settled days', `${tac(p.earned)} TAC`], ['Claimed', `${tac(p.claimed)} TAC`], ['To claim', p.unread ? 'not read' : `${tac(p.owed)} TAC`]] : [];
   return card('Points', `${figure(Math.round(p.points), Math.round(p.points).toLocaleString('en-US'), 'points')}<p class="st mute" id="rank">${p.points <= 0 ? 'No points yet.' : ''}</p>`
     + (rows.length ? `<dl class="kv">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd class="num">${v}</dd></div>`).join('')}</dl>` : '')
-    + (p.owed > 0n ? claimUi('points', `Claim ${tac(p.owed)} TAC`, address, '/#points', tac(p.owed), p.owed) : ''));
+    + (p.owed > 0n ? claimUi('points', `Claim ${tac(p.owed)} TAC`, address, '/#points', tac(p.owed), p.owed) : '')
+    + (p.points > 0 ? '<p class="more"><a href="/#points">Points by day, standing and the leaderboard →</a></p>' : ''));
 }
 const whoLine = (who, q) => `<p class="who"><b>${esc(who.name || short(who.address))}</b>${who.name ? `<span>${short(who.address)}</span>` : ''}</p>
   <p class="acts"><button type="button" data-copy="${who.address}">Copy address</button><a href="https://etherscan.io/address/${who.address}" target="_blank" rel="noopener noreferrer">Etherscan ↗</a><button type="button" data-copy="${esc(`${location.origin}/rewards/?q=${encodeURIComponent(q)}`)}" data-said="Link copied">Copy link</button></p>
@@ -247,24 +254,30 @@ async function pointsTx(address) {
   }
 }
 let claiming = false;
-async function claim(kind, address, btn) {
+async function claim(kind, address, btn, to = '') {
   if (claiming) return;
   claiming = true;
   const label = btn.textContent, amt = btn.dataset.amt;
+  let dest = null;
   let hash = null;                                                                     // once sent, any note that follows keeps its link
   const say = (html) => { const d = $('#done'); if (!d || out.dataset.address !== address) return; d.querySelector('.note-claim')?.remove(); d.insertAdjacentHTML('afterbegin', html); };
   btn.disabled = true;
   try {
+    if (to !== '') {                                                                // a name is read before the wallet is asked
+      btn.textContent = 'Looking it up…'; dest = (await identify(to)).address;
+      if (NO_SEND.includes(dest)) throw new Error('TAC sent to that address could not be recovered. Pick another.');
+    }
     await signedIn(address);
     btn.textContent = 'Confirm in your wallet…'; react('think');
-    hash = kind === 'airdrop' ? (await air.claim(address, { from: address, send: (t) => wallet.sendTx({ to: t.to, data: t.data, from: address }) })).txHash : await pointsTx(address);
+    const send = (t) => wallet.sendTx({ to: t.to, data: t.data, from: address });
+    hash = kind === 'airdrop' ? (await (dest ? air.claimTo(address, dest, { send }) : air.claim(address, { from: address, send }))).txHash : await pointsTx(address);
     btn.textContent = 'Claiming…'; say(`<p class="note-claim st mute">Claiming ${esc(amt)} TAC · ${txLink(hash)}</p>`);
     const rc = await wallet.receipt(hash);
     if (rc.status !== '0x1') throw new Error(`The transaction failed on chain (${hash.slice(0, 10)}…). Nothing was claimed.`);
     $('#done')?.querySelector('.note-claim')?.remove();
-    $('#done')?.insertAdjacentHTML('beforeend', `<p class="done"><b>Claimed ${esc(amt)} TAC</b>${txLink(hash)}</p>`);
+    $('#done')?.insertAdjacentHTML('beforeend', `<p class="done"><b>Claimed ${esc(amt)} TAC${dest ? ` to ${short(dest)}` : ''}</b>${txLink(hash)}${dest ? '' : '<button class="linkbtn" type="button" data-watch>Add TAC to wallet</button>'}</p>`);
     said(`Claimed ${amt} TAC`); react('up', 4200); confetti();
-    farmClaimed(BigInt(btn.dataset.wei || 0));
+    if (!dest) farmClaimed(BigInt(btn.dataset.wei || 0));                           // the TAC is the wallet's own to farm
     kept.delete(`airdrop:${address}`); kept.delete(`points:${address}`);
     await sleep(1500);
     const [a, p] = await Promise.all([readAirdrop(address), readPoints(address)]);
@@ -459,6 +472,7 @@ input.addEventListener('focus', prime);
 input.addEventListener('keydown', (e) => { if (e.key === 'Escape' && input.value) { e.preventDefault(); input.value = ''; clear(); } });
 document.addEventListener('keydown', (e) => { if (e.key === '/' && !/^(input|textarea|select)$/i.test(document.activeElement?.tagName || '') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); input.focus(); input.select(); } });
 $('#f').addEventListener('submit', (e) => { e.preventDefault(); clearTimeout(pause); run(input.value); });
+document.addEventListener('submit', (e) => { if (e.target.id === 'to-f') e.preventDefault(); });
 
 // A suggestion or a recent lookup fills the bar and answers; a copy button copies and says so; a claim button claims.
 document.addEventListener('click', async (e) => {
@@ -466,7 +480,9 @@ document.addEventListener('click', async (e) => {
   if (chip) { input.value = chip.dataset.q; run(chip.dataset.q); return; }
   if (e.target.closest('[data-own]')) { connect.connect(); return; }
   if (e.target.closest('[data-clear]')) { store.set(RECENT, '[]'); showRecent(); return; }
-  if (cl) { claim(cl.dataset.claim, cl.dataset.addr, cl); return; }
+  if (cl) { const toward = cl.dataset.claim === 'airdrop-to'; claim(toward ? 'airdrop' : cl.dataset.claim, cl.dataset.addr, cl, toward ? $('#to-q').value.trim() || ' ' : ''); return; }
+  if (e.target.closest('[data-to-show]')) { const f = $('#to-f'); f.hidden = false; e.target.closest('.to').hidden = true; $('#to-q').focus(); return; }
+  if (e.target.closest('[data-watch]')) { wallet.watchAsset({ address: TAC, symbol: 'TAC', decimals: 18 }).catch(() => {}); return; }
   if (e.target.closest('[data-mine]')) { lookMine(); return; }
   if (e.target.closest('[data-switch]')) { switchAccount(); return; }
   if (cp) {

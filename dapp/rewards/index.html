@@ -30,12 +30,12 @@
 <link rel="preconnect" href="https://1rpc.io" crossorigin>
 <!-- preload-roots: /rewards/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/rewards/app.js?cb=ddbdbb40">
+<link rel="modulepreload" href="/rewards/app.js?cb=c94d5670">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/confidential-names.js?cb=7bb10833">
 <link rel="modulepreload" href="/tacit-address.js">
 <link rel="modulepreload" href="/tac-airdrop.js?cb=02ef61b4">
-<link rel="modulepreload" href="/trade/connect.js?cb=a8cdf0f7">
+<link rel="modulepreload" href="/trade/connect.js?cb=b0beb322">
 <link rel="modulepreload" href="/walletconnect.js?cb=92886522">
 <link rel="modulepreload" href="/trade/wallet.js?cb=595c892a">
 <link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
@@ -226,6 +226,18 @@ button.act:disabled { opacity: .6; cursor: default; transform: none; }
 .card.slim { padding-bottom: 16px; } .card.slim .st { margin-top: 2px; }
 .st.pill { display: inline-block; padding: 1px 11px; border: 1px solid var(--hair-2); border-radius: 999px; font-size: 12.5px; margin-top: 10px; }
 @media (max-width: 560px) { .act { display: flex; justify-content: center; width: 100%; min-height: 50px; } .card { padding: 20px 18px 18px; } .fm > summary { padding: 0 18px; } .fm .fm-in { padding: 0 18px 20px; } }
+/* claiming to another address, adding TAC to the wallet, where the detail lives */
+.to { margin: 6px 0 0; } .to .linkbtn, .done .linkbtn { background: none; border: 0; padding: 4px 0; cursor: pointer; color: var(--mute); font: 13px var(--mono); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; } .to .linkbtn:hover, .done .linkbtn:hover { color: var(--ink); }
+.done .linkbtn { margin-left: 14px; }
+.toform { display: flex; gap: 8px; margin: 8px 0 0; } .toform[hidden] { display: none; }
+.toform input { flex: 1; min-width: 0; font: 400 14px/1.4 var(--mono); color: var(--ink); background: var(--field); border: 1px solid var(--hair-2); padding: 0 12px; min-height: var(--tap); outline: none; } .toform input:focus { border-color: var(--ink); }
+.toform .act { margin: 0; white-space: nowrap; }
+.more { margin: 14px 0 0; font-size: 13px; } .more a { color: var(--mute); } .more a:hover { color: var(--ink); }
+/* the TAC token's address, where it is easy to find: the whole of it on a wide screen, copied or opened on Etherscan */
+.tok { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 0 10px; margin: 4px 0 0; font-size: 12.5px; color: var(--mute); }
+.tok .tk { width: 16px; height: 16px; } .tok code { font: inherit; color: var(--ink); } .tok .short { display: none; }
+.tok button, .tok a { font: inherit; color: var(--mute); background: none; border: 0; padding: 8px 4px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; } .tok button:hover, .tok a:hover { color: var(--ink); }
+@media (max-width: 560px) { .tok { gap: 0 6px; } .tok .tk { display: none; } .tok .full { display: none; } .tok .short { display: inline; } }
 #fx { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 60; }
 #out { margin-top: 28px; text-align: left; min-height: 1px; }
 .err { color: var(--err); margin: 0; text-align: center; }
@@ -313,6 +325,7 @@ button.act:disabled { opacity: .6; cursor: default; transform: none; }
       <div class="chips" id="hints" aria-label="Complete the name"></div>
       <div class="chips" id="recent" aria-label="Recent lookups"></div>
       <nav class="uses" aria-label="What you can do with TAC"><span>With TAC</span><a href="/trade/tac/" title="Buy or sell TAC at the best price">Trade</a><a href="/swap/#earn" data-apr title="Farm TAC and ETH in the Precision pool, or ETH alone">Farm<i class="apr" aria-label="APR"></i></a><a href="/vault/" title="Borrow TAC Dollar or TAC Ether against your TAC">Borrow</a><a href="/#tac" title="Make TAC private in the Tacit pool on Ethereum">Shield</a><a href="/pay/#tac" title="Pay TAC privately, inside the shielded pool">Pay</a><a href="/tac/" title="Shield TAC in the Bitcoin-native pool">Bitcoin</a></nav>
+      <p class="tok" id="tok"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg><span>TAC token</span><code><span class="full">0xA1313eb9f3A445606D9583bcAc3ebeB56a858279</span><span class="short">0xA1313e…858279</span></code><button type="button" data-copy="0xA1313eb9f3A445606D9583bcAc3ebeB56a858279" data-said="Token address copied">Copy</button><a href="https://etherscan.io/token/0xA1313eb9f3A445606D9583bcAc3ebeB56a858279" target="_blank" rel="noopener noreferrer">Etherscan ↗</a></p>
       <p class="wmsg" id="wmsg" role="status" aria-live="polite"></p>
       <div id="out" aria-live="polite"></div>
       <details class="fm" id="farm" hidden>
@@ -337,6 +350,6 @@ button.act:disabled { opacity: .6; cursor: default; transform: none; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/rewards/app.js?cb=ddbdbb40"></script>
+<script type="module" src="/rewards/app.js?cb=c94d5670"></script>
 </body>
 </html>

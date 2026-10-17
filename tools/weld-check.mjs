@@ -3353,11 +3353,11 @@ await step('rewards', async () => {
     t = await out();
     ok(/12,346\s*points/.test(t) && /Earned on settled days\s*8 TAC/.test(t) && /Claimed\s*0 TAC/.test(t) && /To claim\s*8 TAC/.test(t), `rewards: its points and rank, what it has earned, what the distributor says it has claimed, and what it can claim (${t.slice(t.indexOf('Points'), t.indexOf('Points') + 200)})`);
     ok(hits.points === readsBefore.points && hits.claim === readsBefore.claim && hits.board === readsBefore.board, `rewards: the same account read again by its name costs no new reading (${JSON.stringify(hits)})`);
-    ok((await n.page.$$('#out button[data-claim]')).length === 2 && !(await n.page.$('#out a.act')), 'rewards: with a browser wallet each claim is a button on its card');
+    ok((await n.page.$$('#out button[data-claim]:not([data-claim="airdrop-to"])')).length === 2 && !(await n.page.$('#out a.act')), 'rewards: with a browser wallet each claim is a button on its card');
     ok((await n.page.evaluate(() => location.search)) === '?q=z0r0z.wei', 'rewards: the address bar carries the lookup, so it can be shared');
     // Copying.
-    await n.page.click('[data-copy^="0x"]');
-    await until(n.page, () => document.querySelector('[data-copy^="0x"]')?.textContent === 'Copied', null, 10000);
+    await n.page.click('#out [data-copy^="0x"]');
+    await until(n.page, () => document.querySelector('#out [data-copy^="0x"]')?.textContent === 'Copied', null, 10000);
     ok((await read()) === LISTED, 'rewards: Copy address copies the address and says so');
     await n.page.click('[data-said="Link copied"]');
     await until(n.page, () => document.querySelector('[data-said="Link copied"]')?.textContent === 'Copied', null, 10000);
@@ -3557,6 +3557,11 @@ await step('rewardsuses', async () => {
     await until(n.page, () => /^\d[\d,]*%\+?$/.test(document.querySelector('.uses a[data-apr] .apr')?.textContent || ''), null, 60000);
     ok(Number((await text(n.page, '.uses a[data-apr] .apr')).replace(/\D/g, '')) > 0 && /APR now/.test(await n.page.getAttribute('.uses a[data-apr]', 'title')), `rewardsuses: the Farm link carries the farm's APR now (${await text(n.page, '.uses a[data-apr] .apr')})`);
     ok(await n.page.evaluate(() => { const b = document.querySelector('.bar').getBoundingClientRect(), u = document.querySelector('.uses').getBoundingClientRect(); return u.top >= b.bottom && u.top - b.bottom < 100; }), 'rewardsuses: and it sits right under the bar (below the chips for connecting or going back)');
+    const tok = await n.page.$eval('#tok', (e) => ({ copy: e.querySelector('[data-copy]').dataset.copy, href: e.querySelector('a').href, full: e.querySelector('.full').textContent, target: e.querySelector('a').target }));
+    ok(tok.copy === TAC && tok.full === TAC && tok.href === `https://etherscan.io/token/${TAC}` && tok.target === '_blank', `rewardsuses: the TAC token's address is on the page in full, to copy, and links to its token page on Etherscan (${tok.full})`);
+    await n.page.click('#tok [data-copy]');
+    await until(n.page, () => document.querySelector('#tok [data-copy]').textContent === 'Copied' && /Token address copied/.test(document.querySelector('#note').textContent), null, 10000);
+    ok(true, 'rewardsuses: copying it says so');
     const land = async (path, check, what) => {
       await n.page.goto(n.url + path, { waitUntil: 'domcontentloaded' });
       await until(n.page, check, null, 60000).catch((e) => { throw new Error(`${what}: ${e.message.split('\n')[0]}`); });
@@ -3672,6 +3677,73 @@ await step('rewardsfarm', async () => {
     } finally { await o.browser.close(); }
   }
   await rpc('evm_revert', [snap2]);
+});
+
+// Sending the airdrop to another address from the rewards page, and the ways in to the page: the account's own claim goes to a recipient (an
+// address; the zero address and TAC's own contract are refused), nothing is offered to farm there, and the lander line, /airdrop and the account
+// sheet on another page lead to the rewards page.
+await step('rewardsto', async () => {
+  const LISTED = '0x1c0aa8ccd568d90d61659f060d1bfb1e6f855a20', DEST = '0x70997970c51812dc3a010c7d01b50e0d17dc79c8', E18 = 10n ** 18n;
+  const choose = (page) => page.waitForSelector('.bsheet .way', { timeout: 8000 }).then(() => page.click('.bsheet .way:has-text("Browser wallet")')).catch(() => {});
+  await rpc('anvil_impersonateAccount', [LISTED]); await rpc('anvil_setBalance', [LISTED, '0x' + (10n ** 18n).toString(16)]);
+  const snap = await rpc('evm_snapshot');
+  {
+    const n = await openPage({ account: LISTED, viewport: { width: 1000, height: 900 } });
+    await n.ctx.route(/api\.tacit\.finance\/(points|claim|leaderboard|farm)/, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: /leaderboard/.test(route.request().url()) ? '[]' : /claim/.test(route.request().url()) ? '{"cumulativeAmount":"0","claimedWei":"0","unclaimedWei":"0","proof":null}' : '{"points":0,"deposit_count":0,"deposits":[]}' }));
+    try {
+      await n.page.goto(n.url + 'rewards/?q=' + LISTED);
+      await n.page.waitForSelector('[data-claim="airdrop"]', { timeout: 120000 });
+      ok(!!(await n.page.$('[data-to-show]')) && (await n.page.$eval('#to-f', (f) => f.hidden)), 'rewardsto: the claim offers to send it to another address, the form closed');
+      await n.page.click('[data-to-show]');
+      ok(!(await n.page.$eval('#to-f', (f) => f.hidden)) && (await n.page.evaluate(() => document.activeElement?.id)) === 'to-q', 'rewardsto: the form opens with its bar focused');
+      const before = await tacOf(DEST), sent = walletTxs.length;
+      for (const bad of ['', '0x0000000000000000000000000000000000000000', '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279', '0x12']) {
+        await n.page.fill('#to-q', bad); choose(n.page); await n.page.click('#to-f [data-claim]');
+        await until(n.page, () => /Enter a 0x address|could not be recovered|bad checksum/.test(document.querySelector('#done')?.textContent || ''), null, 30000);
+      }
+      ok(walletTxs.length === sent, 'rewardsto: no recipient that is empty, the zero address, TAC itself or not an address sends anything');
+      await n.page.fill('#to-q', DEST); choose(n.page); await n.page.click('#to-f [data-claim]');
+      await until(n.page, () => !!document.querySelector('#done .done a[href^="https://etherscan.io/tx/0x"]'), null, 180000);
+      const tx = walletTxs[walletTxs.length - 1], got = (await tacOf(DEST)) - before, done = (await text(n.page, '#done')).replace(/\s+/g, ' ');
+      ok(walletTxs.length === sent + 1 && String(tx.to).toLowerCase() === '0x4b4cb98d0c836c2783ac46f0078b904dab533ae8' && String(tx.data).startsWith('0x4f54d47c') && got > 216000n * E18, `rewardsto: the allocation goes to the recipient by claimTo (${Number(got / 10n ** 16n) / 100} TAC; ${done.slice(0, 70)})`);
+      await sleep(2500);
+      ok(/to 0x7099…79c8/.test(done) && !(await n.page.$('[data-watch]')) && !(await n.page.evaluate(() => document.querySelector('#farm').open)), 'rewardsto: the page says where it went, and neither opens the farm nor offers add-to-wallet for TAC that is not the wallet\'s');
+      if (n.errors.length) { fails++; console.log('FAIL rewardsto page errors: ' + n.errors.slice(0, 3).join(' | ')); }
+    } finally { await n.browser.close(); }
+    await rpc('evm_revert', [snap]);
+  }
+  // the ways in
+  {
+    const n = await openPage({ account: A0, viewport: { width: 1000, height: 900 } });
+    try {
+      await n.page.goto(n.url);
+      await n.page.waitForSelector('#air-news', { timeout: 60000 });
+      ok((await n.page.getAttribute('#air-news', 'href')) === '/rewards/', 'rewardsto: the lander\'s airdrop line is a link to the rewards page');
+      // The host serves the front page for a path that is not a file; this server does not, so it is asked to for /airdrop.
+      await n.ctx.route(/\/airdrop(\?.*)?$/, (route) => route.fulfill({ status: 200, contentType: 'text/html', body: readFileSync(join(DAPP, 'index.html')) }));
+      await n.page.goto(n.url + 'airdrop?x=1');
+      await until(n.page, () => location.pathname === '/rewards/', null, 30000);
+      ok(true, 'rewardsto: /airdrop is the rewards page');
+      await n.page.goto(n.url + 'swap/');
+      await n.page.waitForSelector('#wallet-chip', { timeout: 60000 });
+      choose(n.page); await n.page.click('#wallet-chip');
+      await until(n.page, () => /0x[0-9a-f]{4}/i.test(document.querySelector('#wallet-label')?.textContent || ''), null, 30000);
+      await n.page.click('#wallet-chip');
+      await n.page.waitForSelector('.bsheet a[href^="/rewards/"]', { timeout: 15000 });
+      ok((await n.page.getAttribute('.bsheet a[href^="/rewards/"]', 'href')) === '/rewards/?q=' + A0.replace(/^0x/, '0x'), 'rewardsto: the wallet sheet on another page links to this account\'s airdrop and points');
+      await n.page.goto(n.url + 'rewards/');
+      await n.page.waitForSelector('#wallet-chip', { timeout: 60000 });
+      await sleep(2000);                                                              // the wallet used on the swap page is found again once the page is idle
+      if (!/0x[0-9a-f]{4}/i.test(await text(n.page, '#wallet-label'))) {
+        choose(n.page); await n.page.click('#wallet-chip');
+        await until(n.page, () => /0x[0-9a-f]{4}/i.test(document.querySelector('#wallet-label')?.textContent || ''), null, 30000);
+        await until(n.page, () => !document.querySelector('.bsheet'), null, 30000);
+      }
+      await n.page.click('#wallet-chip');
+      await n.page.waitForSelector('.bsheet [data-mine-sheet]', { timeout: 15000 });
+      ok(!(await n.page.$('.bsheet a[href^="/rewards/"]')), 'rewardsto: and the rewards page\'s own sheet has no link to itself');
+    } finally { await n.browser.close(); }
+  }
 });
 
 // Any address can be looked up on the points sheet by someone with no wallet: a bad entry is told, a good one is read like the account's own

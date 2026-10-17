@@ -5,7 +5,7 @@
 //
 // It reads the chain and the API with no wallet, as /trade/tac/ does, and holds no key it was not given: the key lives in this visit's memory.
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=97813823';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=a8cdf0f7';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=b0beb322';
 import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=ad559513';
 import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=34fe5a19';
 import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, proveOwn, ownWords, ownable, relayState, relayStopped, forgetUx, getUx } from '/trade/teth/wrap.js?cb=297b83bc';
@@ -275,8 +275,8 @@ function renderQuote() {
 // Whose key the note will be made for, said before the wallet is asked: the wallet that pays need not be the one that opened the key.
 const ownerText = () => (key.unlocked ? (key.key.address ? `the key of ${short(key.key.address, 4)}` : key.key.label ? `your passkey “${key.key.label}”` : `the key ${short(key.key.pubHex, 4)}`) : 'the Tacit key you open next');
 const noteHtml = () => (S.quote?.own
-  ? 'Your wallet sends the deposit, your Tacit account\'s PROVE credit pays Succinct\'s prover for the proof, and your wallet sends the settle. Deposits count toward <a href="/#points">TAC points</a>.'
-  : 'One transaction pays the deposit and a small tip to Tacit\'s relay. Deposits count toward <a href="/#points">TAC points</a>.');
+  ? 'Your wallet sends the deposit, your Tacit account\'s PROVE credit pays Succinct\'s prover for the proof, and your wallet sends the settle. Deposits count toward <a href="/rewards/">TAC points</a>.'
+  : 'One transaction pays the deposit and a small tip to Tacit\'s relay. Deposits count toward <a href="/rewards/">TAC points</a>.');
 function renderGo() {
   const go = $('#go'), q = S.quote, wei = getWei();
   go.disabled = false; go.title = '';

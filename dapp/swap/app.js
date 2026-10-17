@@ -8,7 +8,7 @@
 // Earn: the Precision farm (trade/farm.js) in the card, the private farms by link.
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venues.js?cb=a08631ce';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=a8cdf0f7';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=b0beb322';
 import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18 } from '/trade/util.js?cb=c3dc39b3';
 import * as R from '/swap/route.js?cb=9a5d9c69';
 import { makePointsNote } from '/points-note.js?cb=eacef061';

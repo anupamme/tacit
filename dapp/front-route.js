@@ -14,13 +14,14 @@
   var CLASSIC_QUERY = ['ceremony', 'coordinator', 'amm', 'ammceremony'];
   // Readable paths for this page's own views (/lock, /farm, /device/base/withdraw): each becomes its link, the part after
   // the #, on this same page, with no reload. Names the classic app used for its tabs (/points) stay its own, except /airdrop,
-  // which opens this page's claim. /swap is a page of its own (dapp/swap/); this page's own swap is still #swap.
+  // which is the rewards page. /swap is a page of its own (dapp/swap/); this page's own swap is still #swap.
   var VIEWS = ['lock', 'borrow', 'farm', 'leaderboard', 'bitcoin', 'private', 'device', 'buy', 'sell', 'activity', 'asset', 'airdrop'];
   // Leaving for another page: the front page's own module sees the flag and stays idle until the browser moves on.
   var away = function (to) { window.__tacitAway = true; window.location.replace(to); };
   try {
     var loc = window.location, path = loc.pathname, q = loc.search, h = loc.hash;
     var seg = ((path.match(/^\/([a-z0-9-]+(?:\/[a-z0-9-]+)?)\/?$/i) || [])[1] || '').toLowerCase();
+    if (seg === 'airdrop' && !h) return away('/rewards/' + q);                // the airdrop and points have one page; #airdrop still opens this page's own claim
     if (seg === 'trade') return away('/trade/tac/' + q + h);                // TAC is the one market the trade page has, at its own address
     if (PAGES.indexOf(seg) !== -1 && !/\/$/.test(path)) return away('/' + seg + '/' + q + h);
     if (seg === 'classic') return away(CLASSIC + q + h);

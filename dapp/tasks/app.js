@@ -5,7 +5,7 @@
 // on the service except the reward: the deployment is the same from any browser.
 //
 // Open jobs are shown in full; a job that is done is a tile with its result, and opens to what it did when it is clicked.
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=a8cdf0f7';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=b0beb322';
 import { esc } from '/trade/sheet.js?cb=84cda8f2';
 import { rpc, RPCS, $, short, fmtUnits } from '/trade/util.js?cb=c3dc39b3';
 import { bodyType } from '/trade/rpc.js?cb=842f58a5';
@@ -276,7 +276,7 @@ function rewardsPanel(job) {
   const how = `<ol class="how">
     <li><span><b>Send.</b> The page checks each transaction against the plan, then your wallet signs it.</span></li>
     <li><span><b>Twelve blocks later,</b> the service reads the step from the chain and fixes its reward.</span></li>
-    <li><span><b>Get paid.</b> It is credited to the account that sent the step and claimed with the daily rewards, on the ${link('/#points', 'rewards page')}.</span></li>
+    <li><span><b>Get paid.</b> It is credited to the account that sent the step and claimed with the daily rewards, on the ${link('/rewards/', 'rewards page')}.</span></li>
   </ol>`;
   if (!a) return `<p class="eyebrow">Rewards</p>${how}<p class="note">The rewards service did not answer. The steps can still be read; try again in a moment.</p>`;
   if (!a.enabled) return `<p class="eyebrow">Rewards</p>${how}<p class="note">Rewards are not switched on yet. Nothing sent now is paid for later.</p>`;
