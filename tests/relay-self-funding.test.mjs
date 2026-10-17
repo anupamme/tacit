@@ -784,7 +784,9 @@ test('a wrap counts as paid only for its own deposit, through our forwarder, to 
 
 test('Tacit\'s own front page pays the splitter when the quote names one, and the ops address otherwise', async () => {
   const page = readFileSync(join(ROOT, 'dapp/index.html'), 'utf8');
-  ok(page.includes('to = j.tipSplitter || j.recommendedTipRecipient'), 'the Shield card takes the tip address from tipSplitter first');
+  ok(page.includes('j.tipSplitter || j.recommendedTipRecipient'), 'the Shield card takes the tip address from tipSplitter first');
+  ok(page.includes('[ADDR.tipOps, ADDR.tipSplitter].find('), 'and pays only one of Tacit\'s two tip addresses, whatever the quote names');
+  ok(page.includes('tip * 10000n > wei * 500n'), 'and refuses a tip over a twentieth of the deposit');
 });
 
 test('prove-mode is not counted against the free-relay budget', async () => {

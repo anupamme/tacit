@@ -41,7 +41,8 @@
 <link rel="modulepreload" href="/evm-account.js">
 <link rel="modulepreload" href="/evm-tx.js">
 <link rel="modulepreload" href="/tac-airdrop.js?cb=02ef61b4">
-<link rel="modulepreload" href="/evm-trade-venues.js?cb=a08631ce">
+<link rel="modulepreload" href="/evm-trade-venues.js?cb=f6e1b626">
+<link rel="modulepreload" href="/zrouter-guard.js">
 <link rel="modulepreload" href="/confidential-payout.js?cb=c27b4853">
 <link rel="modulepreload" href="/address-id.js?cb=c4fa5a58">
 <!-- preload:end -->
@@ -1523,7 +1524,7 @@ import { announceWalletConnect, wcSheets, dialogHost, WC_PROJECT_ID } from '/wal
 import { makeEvmAccount } from '/evm-account.js';
 import { makeEvmTx } from '/evm-tx.js';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=02ef61b4';
-import { makeEvmTradeVenues, encErc20Approve, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, TACIT_AMM } from '/evm-trade-venues.js?cb=a08631ce';
+import { makeEvmTradeVenues, encErc20Approve, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, TACIT_AMM } from '/evm-trade-venues.js?cb=f6e1b626';
 import { parseRecipient } from '/confidential-payout.js?cb=c27b4853';
 import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
@@ -1541,6 +1542,8 @@ const ESPLORA = ['https://mempool.space/api', 'https://blockstream.info/api', 'h
 const ADDR = {
   pool: '0x000000000Ed1eabD231Be41d93b719056F7febFC',                // Tacit V1 confidential pool
   wrapTip: '0x000000D218B03db5837943b0b05DeA2965AE956e',             // wrap + relay tip in one tx
+  tipOps: '0x006CD14F36F65eCbB29b2519cCBe63A0DC8549F2',              // Tacit's ops multisig: a wrap tip may go here
+  tipSplitter: '0xf5eBBE5Db610F64D29A0dC5e9534074Af12834F9',         // or to the splitter that forwards tips to the relay and the buyback
   engine: '0x000000003f608BDdF0ca45934003ffb9DbDF70DB',              // CollateralEngine (cUSD)
   escrow: '0x000000008eCD09f922C9FbbDD9ACA5aE8F0beBfA',              // CbtcEscrowHelper: ETH → wstETH bond
   wsteth: '0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0',
@@ -3411,7 +3414,7 @@ function setKey(k) {
 // tacit.js opens the passphrase-locked and Bitcoin-signed keys exactly as tacit.finance does. It loads only for
 // those paths, as a library: it reads the shared network once at import, so this page pins mainnet for its visit,
 // and any call that rewrites the app's linked-wallet records is run with them put back afterwards.
-const TACIT_URL = '/tacit.js?cb=70cae9cc';
+const TACIT_URL = '/tacit.js?cb=13ad59ed';
 const SHARED_NET = 'tacit-network-v1', PREV_NET = 'tacit-lite-prev-net-v1';
 const SHARED_WALLET_KEYS = ['tacit-eth-identity', 'tacit-btc-identity', 'tacit-active-mode-v1', 'tacit-ext-mode-v1', 'tacit-ext-state-v1',
   ...['mainnet', 'signet'].flatMap((n) => [`tacit-eth-identity:${n}`, `tacit-btc-identity:${n}`, `tacit-active-mode-v1:${n}`])];
@@ -4060,7 +4063,7 @@ function renderProve() {
   paintProve();
 }
 // zQuoter's best route from ETH to PROVE for the Tacit account, checked before it is shown or sent (relay/abi.js holds the checks every page shares).
-const spAbi = () => import('/relay/abi.js?cb=abf8bf2b');
+const spAbi = () => import('/relay/abi.js?cb=784a6cc6');
 const spCall = ({ to, data, gas }) => rpc('eth_call', [{ to, data, gas }, 'latest']);
 async function spQuote(wei) {
   const abi = await spAbi();
@@ -4819,8 +4822,11 @@ function v1Wrap(el, status) {
       // The splitter when the relay names one (it forwards tips on to the wallets that run the relay and the buyback), else the ops address as before.
       // Proved on the holder's own credit, the deposit carries no relay tip: the relay does nothing for it.
       const own = spOn() && (!SP.prover || SP.prover.supports('wrap'));
-      const tip = own ? 0n : BigInt(j.recommendedWrapTipWei || 0), to = j.tipSplitter || j.recommendedTipRecipient;
-      if (!/^0x[0-9a-fA-F]{40}$/.test(to || '')) throw new Error('The relay did not name a tip recipient. Try again in a moment.');
+      const tip = own ? 0n : BigInt(j.recommendedWrapTipWei || 0), named = String(j.tipSplitter || j.recommendedTipRecipient || '').toLowerCase();
+      // The relay's answer is not trusted with the money: the tip goes only to Tacit's two tip addresses, and one over a twentieth of the deposit is refused.
+      const to = [ADDR.tipOps, ADDR.tipSplitter].find((a) => a.toLowerCase() === named);
+      if (!to) throw new Error('The relay named a tip address this page does not know, so nothing will be sent. Try again in a moment.');
+      if (tip * 10000n > wei * 500n) throw new Error('The relay asked for more than 5% of this deposit as its tip, so nothing will be sent. A larger deposit pays a smaller share.');
       q = { wei, tip, to };
       mount(rc, html`
         <div class="kv"><span>You get</span><b>${fmt(wei, 18, 8)} tETH</b></div>
@@ -6084,7 +6090,7 @@ function loadHeld(force = false) {
     for (const c of order) { if (S.key?.pubHex !== pub) return; await idle(); await one(c).catch(() => {}); }
   })()];
   const sats = (async () => {
-    const X = await import('/sats/secret.js?cb=f61870bb');
+    const X = await import('/sats/secret.js?cb=21be264a');
     const notes = (await X.poolNotes(X.poolWalletFor(priv, 'mainnet'))).filter((n) => !n.spent);
     const held = X.livePoolAssets().map((a) => ({ ...a, value: notes.filter((n) => strip(n.asset).toLowerCase() === a.id).reduce((t, n) => t + BigInt(n.value), 0n) }));
     if (S.key?.pubHex === pub) { HELD.sats = held; HELD.satsErr = false; dashSoon(); }
