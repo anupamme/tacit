@@ -47,7 +47,7 @@ try {
     assert.ok(Math.abs(total - r.dayPoints) < 1e-6, `${r.address}: by activity adds up to the day's points (${total} vs ${r.dayPoints})`);
   }
   const a = by(rows)[A];
-  assert.ok(Math.abs(a.by.wrap / a.factor - 900_000) < 1e-6 && Math.abs(a.by.evmpooldeposit / a.factor - 903_000) < 1e-6, 'the by figures are after the multiplier and the share cap: the deposits are scaled down to everything else counted (903,000)');
+  assert.ok(Math.abs(a.by.wrap / a.factor - 900_000) < 1e-6 && Math.abs(a.by.evmpooldeposit / a.factor - 900_000) < 1e-6, 'the by figures are after the multiplier and the share cap: the deposits are scaled down to the rest of their own group (the wraps, 900,000)');
   assert.deepEqual(Object.keys(by(rows)[B].by), ['holding']);
   // the rows are the same on a day the groups have not reached when asked to carry activity
   const preview = counted.rows(D - 1, { withGroups: true });

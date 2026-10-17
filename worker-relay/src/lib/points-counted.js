@@ -32,7 +32,9 @@ export function makeCounted({ store, weightSchedule = [], engagementSchedule = [
       // With the day's budget and ceiling known, a share of the pot is a number of points; otherwise it is a share of the points.
       const pointCaps = {}, pot = potFor && Object.keys(shareCaps).length ? potFor(day) : null;
       if (pot && pot.maxWeiPerPoint && pot.budgetWei > 0n) for (const [a, share] of Object.entries(shareCaps)) pointCaps[a] = (share * Number(pot.budgetWei)) / Number(pot.maxWeiPerPoint);
-      return countedRows({ dayRows, weekRows, weights, spec, shareCaps, pointCaps, withBy: byActivity });
+      const groups = budgetsForDay(budgetSchedule, day), where = new Map();
+      groups.forEach((g) => g.activities.forEach((a) => where.set(a, g.name)));
+      return countedRows({ dayRows, weekRows, weights, spec, shareCaps, pointCaps, withBy: byActivity, groupOf: groups.length ? (a) => where.get(a) ?? 'open' : null });
     },
   };
 }

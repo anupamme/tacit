@@ -170,7 +170,7 @@ export function engagementFactor(spec, { kinds, activeDays }) {
 // dayRows: [{ address, activity, points, capFactor? }] for the day (capFactor: the share of the points that counts); weekRows: [{ address, day, activity, points }] for the 7 days
 // ending with it. dayPoints is the points the day's pot is split by: each activity's points times its weight, summed,
 // times the address's multiplier. rawPoints is what the activities scored.
-export function countedRows({ dayRows, weekRows = [], weights = {}, spec = null, shareCaps = {}, pointCaps = {}, withBy = false }) {
+export function countedRows({ dayRows, weekRows = [], weights = {}, spec = null, shareCaps = {}, pointCaps = {}, withBy = false, groupOf = null }) {
   const byAddress = new Map();
   for (const r of [...dayRows].sort((a, b) => (a.address < b.address ? -1 : a.address > b.address ? 1 : a.activity < b.activity ? -1 : a.activity > b.activity ? 1 : 0))) {
     const e = byAddress.get(r.address) ?? { counted: 0, raw: 0, by: {} };
@@ -205,9 +205,14 @@ export function countedRows({ dayRows, weekRows = [], weights = {}, spec = null,
   for (const activity of Object.keys(shareCaps).sort()) {
     const share = shareCaps[activity];
     let cat = 0, rest = 0;
+    // groupOf: where groups share the day (lib/points-budgets.js) a share cap is a share of the points in the capped activity's own group,
+    // since the pay of another group's points is not the pay of this one's; with none, of everything else counted.
+    const grp = groupOf ? groupOf(activity) : null;
     for (const [address, e] of byAddress) {
       const f = factors.get(address).factor, c = (e.by[activity] ?? 0) * (scale.get(address)?.[activity] ?? 1);
-      cat += c * f; rest += (e.counted - (e.by[activity] ?? 0)) * f;
+      let others = e.counted - (e.by[activity] ?? 0);
+      if (grp !== null) { others = 0; for (const [a, p] of Object.entries(e.by)) if (a !== activity && groupOf(a) === grp) others += p; }
+      cat += c * f; rest += others * f;
     }
     // What the activity may count: the larger of its share of the points (the cap when the others hold many) and, where the
     // TAC-per-point ceiling is in force, a budget of points (its share of the day's pot over the most a point can pay: the

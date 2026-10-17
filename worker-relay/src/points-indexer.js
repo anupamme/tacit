@@ -34,7 +34,7 @@ import { makeClient as holdingClient } from './lib/evm-pool-snapshot-chain.js';
 import { decideBondHolds, accrueBondHolds } from './lib/points-bond-hold.js';
 import { parseCategoryWeights, parseAddressDayCaps, parseCategoryShareCaps, parseEngagementSchedule } from './lib/points-engagement.js';
 import { dayPot, dayBoard, dayHistory, splitDayBudget } from './lib/points-day-board.js';
-import { parseBudgets, budgetsForDay, nextBudgets, allocateDay, groupResult } from './lib/points-budgets.js';
+import { parseBudgets, budgetsForDay, nextBudgets, allocateDay, groupResult, settledBudgets, checkSettledBudgets } from './lib/points-budgets.js';
 import Database from 'better-sqlite3';
 import { openStore } from './lib/points-store.js';
 import { parseBoostTiers, openTacBoost, scanTacTransfers } from './lib/tac-holder-boost.js';
@@ -1453,6 +1453,14 @@ export async function settleCycle(store, coverage = null) {
   }
   state.knobs = knobs;
 
+  // Nor under different groups: an entry of POINTS_BUDGETS that was in force for a settled day must be as it was (entries for days ahead can change).
+  const budgetsCheck = checkSettledBudgets(store.getMeta('budgets-settled'), budgetSchedule);
+  if (!budgetsCheck.ok) {
+    log(`REFUSING to settle: POINTS_BUDGETS changed for days that were already settled (${store.getMeta('budgets-settled')}; now ${budgetsCheck.now}).\n`
+      + '  Restore the entries that were in force, and add a new entry (from a day ahead) for any change.');
+    return;
+  }
+
   // A day settles once and is never revisited, so hold it until it is over and every scanner has read past its end.
   // Coverage is only looked up when a day is otherwise ready, and an unreadable answer holds the day back.
   const gate = { nowSec, lastProgramDay, graceSecs: CFG.pointsSettleGraceSecs, maxWaitSecs: CFG.pointsSettleMaxWaitSecs };
@@ -1492,6 +1500,7 @@ export async function settleCycle(store, coverage = null) {
     state.lastSettledDay = d;
     store.commitDay(deltas, state);
   }
+  store.setMeta('budgets-settled', settledBudgets(budgetSchedule, state.lastSettledDay));
 
   for (const adj of ledgerAdjustments) {
     if (store.applyAdjustment(adj)) log(`ledger adjustment ${adj.id}: credited ${formatTac(adj.wei)} TAC to ${adj.address}`);

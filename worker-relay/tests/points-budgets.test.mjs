@@ -2,7 +2,8 @@
 //   node worker-relay/tests/points-budgets.test.mjs
 
 import assert from 'node:assert/strict';
-import { parseBudgets, budgetsForDay, nextBudgets, allocateDay, groupTerms, groupResult } from '../src/lib/points-budgets.js';
+import { parseBudgets, budgetsForDay, nextBudgets, allocateDay, groupTerms, groupResult, settledBudgets, checkSettledBudgets } from '../src/lib/points-budgets.js';
+import { countedRows } from '../src/lib/points-engagement.js';
 import { splitDayBudget, dayPot, dayBoard, dayHistory } from '../src/lib/points-day-board.js';
 
 const TAC = 10n ** 18n;
@@ -15,18 +16,23 @@ const sum = (m) => [...m.values()].reduce((s, v) => s + v, 0n);
 // ── the schedule ──
 {
   const logs = [];
-  const s = parseBudgets('20747:retention=holding+cbtchold@0.25/0.02,use=zswapeth+cusdmint@0.15;20790:off;bad;20800:x=a@2;20801:a=x@0.6,b=y@0.6;20802:a=x+y@0.1,b=y@0.1;20803:open=x@0.1;20804:a=x@0.5/0', (m) => logs.push(m));
+  const s = parseBudgets('20747:retention=holding+cbtchold@0.25/0.02,use=zswapeth+cusdmint@0.15/0.01;20790:off;bad;20800:x=zzz@2/0.01;20801:a=wrap@0.6/0.01,b=holding@0.6/0.01;20802:a=wrap+holding@0.1/0.01,b=holding@0.1/0.01;20803:open=wrap@0.1/0.01;20804:a=wrap@0.5/0;20805:a=wrap@0.5;20806:a=cbtc_hold@0.5/0.01;20807:a=wrap@0.0000004/0.01', (m) => logs.push(m));
   assert.deepEqual(s.map((e) => e.fromDay), [20747, 20790], 'the well-formed entries stand, in day order');
   assert.equal(s[1].groups.length, 0, 'off ends the groups');
   const [ret, use] = s[0].groups;
   assert.deepEqual([ret.name, ret.activities, ret.sharePpm, ret.maxWeiPerPoint], ['retention', ['holding', 'cbtchold'], 250000, 2n * TAC / 100n]);
-  assert.deepEqual([use.name, use.activities, use.sharePpm, use.maxWeiPerPoint], ['use', ['zswapeth', 'cusdmint'], 150000, null], 'a group without a ceiling has none of its own');
-  assert.equal(logs.length, 6, 'each malformed entry is reported: ' + logs.join(' | '));
-  assert.match(logs.join('|'), /not <day>|expected/);
-  assert.match(logs.join('|'), /add up to more than 1/);
-  assert.match(logs.join('|'), /in two groups/);
-  assert.match(logs.join('|'), /usable group name/);
-  assert.match(logs.join('|'), /must be positive/);
+  assert.deepEqual([use.name, use.activities, use.sharePpm, use.maxWeiPerPoint], ['use', ['zswapeth', 'cusdmint'], 150000, TAC / 100n]);
+  assert.equal(logs.length, 9, 'each malformed entry is reported: ' + logs.join(' | '));
+  const all = logs.join('|');
+  assert.match(all, /expected <day>/);
+  assert.match(all, /zzz is not an activity the program scores/, 'an activity the program does not score (a typo would be a group that never fills) is refused');
+  assert.match(all, /add up to more than 1/);
+  assert.match(all, /in two groups/);
+  assert.match(all, /usable group name/);
+  assert.match(all, /ceiling of a must be positive/);
+  assert.match(all, /needs a ceiling on TAC per point/, 'a group with no ceiling would pay its whole share for any points at all');
+  assert.match(all, /cbtc_hold is not an activity/);
+  assert.match(all, /above 0\.000001/, 'a share that rounds to nothing is refused');
   assert.deepEqual(parseBudgets(''), []);
   assert.deepEqual(budgetsForDay(s, 20746), [], 'before the first entry nothing is shared');
   assert.equal(budgetsForDay(s, 20747).length, 2);
@@ -36,7 +42,28 @@ const sum = (m) => [...m.values()].reduce((s, v) => s + v, 0n);
   assert.equal(nextBudgets(s, 20747).fromDay, 20790);
   assert.equal(nextBudgets(s, 20790), null);
   assert.deepEqual(groupTerms(ret), { name: 'retention', activities: ['holding', 'cbtchold'], share: 0.25, maxWeiPerPoint: '20000000000000000' });
-  console.log('ok - the schedule is read, ordered, and a malformed entry is reported and skipped');
+  console.log('ok - the schedule is read, ordered, and a malformed entry (no ceiling, an unknown activity, a share of nothing) is reported and skipped');
+}
+
+// ── the days that have settled keep the groups they were paid under ──
+{
+  const sched = (spec) => parseBudgets(spec);
+  const base = sched('20747:a=holding@0.25/0.02');
+  assert.deepEqual(checkSettledBudgets(null, base), { ok: true, now: null }, 'nothing kept yet, nothing to compare');
+  const kept1 = settledBudgets(base, 20742);                                  // settled through 20742: the entry (from 20747) is not part of history yet
+  assert.equal(checkSettledBudgets(kept1, base).ok, true);
+  assert.equal(checkSettledBudgets(kept1, sched('20747:a=holding@0.5/0.02')).ok, true, 'an entry for a day ahead can still be changed');
+  assert.equal(checkSettledBudgets(kept1, [...base, ...sched('20760:a=holding@0.3/0.02')]).ok, true, 'and one added');
+  assert.equal(checkSettledBudgets(kept1, []).ok, true, 'or taken back before it starts');
+  const kept2 = settledBudgets(base, 20747);                                  // 20747 settled under it
+  assert.equal(checkSettledBudgets(kept2, base).ok, true);
+  assert.equal(checkSettledBudgets(kept2, [...base, ...sched('20760:a=holding@0.3/0.02')]).ok, true, 'a later entry changes nothing already paid');
+  assert.equal(checkSettledBudgets(kept2, sched('20747:a=holding@0.5/0.02')).ok, false, 'a changed share for a settled day is refused');
+  assert.equal(checkSettledBudgets(kept2, sched('20747:a=holding@0.25/0.03')).ok, false, 'so is a changed ceiling');
+  assert.equal(checkSettledBudgets(kept2, sched('20747:a=holding+cbtchold@0.25/0.02')).ok, false, 'a changed activity');
+  assert.equal(checkSettledBudgets(kept2, []).ok, false, 'and an entry taken away');
+  assert.equal(checkSettledBudgets('not json', base).ok, false, 'an unreadable record is not taken for agreement');
+  console.log('ok - an entry that a settled day was paid under cannot be edited or removed, while entries ahead can');
 }
 
 // ── with no group the day is split exactly as before ──
@@ -124,9 +151,9 @@ const sum = (m) => [...m.values()].reduce((s, v) => s + v, 0n);
 
 // ── groups that fill up one after another (the second only once the first has left the sharing) ──
 {
-  const groups = parseBudgets('1:a=ga@0.1/0.01,b=gb@0.1/0.0215')[0].groups;
+  const groups = parseBudgets('1:a=weiname@0.1/0.01,b=pmbet@0.1/0.0215')[0].groups;
   // a: 30,000 points -> worth 300 at its ceiling, reserved 100; b: 20,000 points -> worth 430, reserved 100; the open group has 100 points
-  const rows = [row(A('1'), { ga: 30_000 }), row(A('2'), { gb: 20_000 }), row(A('3'), { wrap: 100 })];
+  const rows = [row(A('1'), { weiname: 30_000 }), row(A('2'), { pmbet: 20_000 }), row(A('3'), { wrap: 100 })];
   const r = allocateDay({ rows, budgetWei: 1000n * TAC, maxWeiPerPoint: null, groups });
   const g = Object.fromEntries(r.groups.map((x) => [x.name, x]));
   // the 800 left after the two reservations is shared by points: a is worth 200 more (it takes them, leaving the rest), then b is worth 330 more
@@ -137,7 +164,7 @@ const sum = (m) => [...m.values()].reduce((s, v) => s + v, 0n);
   console.log('ok - groups that fill up one after another are paid exactly what their points are worth');
 
   // with many open points, the others share the remainder by points (a floor, not a claim on the rest)
-  const crowded = allocateDay({ rows: [row(A('1'), { ga: 30_000 }), row(A('2'), { gb: 20_000 }), row(A('3'), { wrap: 1_000_000 })], budgetWei: 1000n * TAC, maxWeiPerPoint: null, groups });
+  const crowded = allocateDay({ rows: [row(A('1'), { weiname: 30_000 }), row(A('2'), { pmbet: 20_000 }), row(A('3'), { wrap: 1_000_000 })], budgetWei: 1000n * TAC, maxWeiPerPoint: null, groups });
   const c = Object.fromEntries(crowded.groups.map((x) => [x.name, x]));
   assert.ok(c.a.paidWei > 100n * TAC && c.a.paidWei < 130n * TAC, `a gets its reservation and a small share of the rest (${c.a.paidWei})`);
   assert.ok(c.open.paidWei > 750n * TAC, 'and the open group most of it');
@@ -150,7 +177,7 @@ const sum = (m) => [...m.values()].reduce((s, v) => s + v, 0n);
   const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
   const acts = ['wrap', 'evmpooldeposit', 'holding', 'cbtchold', 'zswapeth', 'cusdmint', 'weiname', 'pmbet'];
   for (let t = 0; t < 400; t++) {
-    const spec = `1:g1=holding+cbtchold@${(0.05 + rnd() * 0.4).toFixed(2)}${rnd() < 0.7 ? '/' + (0.001 + rnd() * 0.05).toFixed(4) : ''},g2=zswapeth+cusdmint+weiname@${(0.05 + rnd() * 0.4).toFixed(2)}${rnd() < 0.7 ? '/' + (0.001 + rnd() * 0.05).toFixed(4) : ''}`;
+    const spec = `1:g1=holding+cbtchold@${(0.05 + rnd() * 0.4).toFixed(2)}/${(0.001 + rnd() * 0.05).toFixed(4)},g2=zswapeth+cusdmint+weiname@${(0.05 + rnd() * 0.4).toFixed(2)}/${(0.001 + rnd() * 0.05).toFixed(4)}`;
     const groups = parseBudgets(spec)[0].groups;
     const n = 1 + Math.floor(rnd() * 14);
     const rows = Array.from({ length: n }, (_, i) => {
@@ -202,4 +229,31 @@ const sum = (m) => [...m.values()].reduce((s, v) => s + v, 0n);
   assert.equal(hist.days[0].tacWei, (20n * TAC).toString());
   assert.throws(() => allocateDay({ rows: [{ address: A('1'), dayPoints: 5 }], budgetWei: budget, groups }), /by activity/);
   console.log('ok - the pot, board and history read the same sharing settlement pays');
+}
+
+// ── a group with no ceiling of its own, on a day with none, is not paid its whole reservation for dust ──
+{
+  const hand = [{ name: 'ret', activities: ['holding'], sharePpm: 250000, maxWeiPerPoint: null }];       // parseBudgets refuses this; built by hand to check the allocator is safe anyway
+  const r = allocateDay({ rows: [row(A('1'), { holding: 0.01 }), row(A('2'), { wrap: 1_000_000 })], budgetWei: budget, maxWeiPerPoint: null, groups: hand });
+  assert.ok(r.paid.get(A('1')) < TAC / 1000n, `a hundredth of a point earns next to nothing (${r.paid.get(A('1'))})`);
+  assert.equal(r.groups[0].reservedWei, 277_750_000_000_000_000_000n);
+  console.log('ok - with no ceiling a reservation is not a payment for dust');
+}
+
+// ── a share cap holds inside its group ──
+{
+  const groups = parseBudgets('1:stay=holding@0.25/0.001')[0].groups;
+  const where = new Map(groups.flatMap((g) => g.activities.map((a) => [a, g.name])));
+  const dayRows = [{ address: A('1'), activity: 'holding', points: 9000 }, { address: A('2'), activity: 'wrap', points: 1000 }, { address: A('3'), activity: 'evmpooldeposit', points: 100_000 }];
+  // the old reading (a share of everything else counted) lets the deposits count 10,000 points because holding's 9,000 are 'the rest', though those pay 0.001 a point
+  const loose = countedRows({ dayRows, shareCaps: { evmpooldeposit: 0.5 }, withBy: true });
+  const looseShare = Number(splitDayBudget(loose, budget, null, groups).get(A('3')) * 1000n / budget) / 10;
+  assert.ok(looseShare > 85, `without the group in the reading the cap leaks (${looseShare}% of the day)`);
+  const tight = countedRows({ dayRows, shareCaps: { evmpooldeposit: 0.5 }, withBy: true, groupOf: (a) => where.get(a) ?? 'open' });
+  const tightShare = Number(splitDayBudget(tight, budget, null, groups).get(A('3')) * 1000n / budget) / 10;
+  assert.ok(tightShare <= 50, `with it, the deposits take at most half of the day (${tightShare}%)`);
+  assert.equal(tight.find((r) => r.address === A('3')).dayPoints, 1000, 'they count as many points as the open group\'s others');
+  const alone = countedRows({ dayRows: dayRows.filter((r) => r.activity !== 'holding'), shareCaps: { evmpooldeposit: 0.5 }, withBy: true });
+  assert.equal(alone.find((r) => r.address === A('3')).dayPoints, 1000, 'and as with no groups at all');
+  console.log('ok - a share cap is a share of the capped activity\'s own group, so it holds when other groups are paid less a point');
 }

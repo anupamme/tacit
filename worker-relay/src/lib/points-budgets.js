@@ -6,10 +6,14 @@
 //
 //   POINTS_BUDGETS="20747:retention=holding+cbtchold@0.25/0.02,use=zswapeth+cusdmint+cbtcmint+weiname+pmbet+pmcreate@0.15/0.01;20790:off"
 //
-// From each UTC day an entry is in force, a group is `name=activity+activity@share[/ceiling]`: `share` is the part of the day's
-// budget reserved for it (0 to 1, all groups together at most 1) and `ceiling` the most TAC one of its points can earn (decimal
-// TAC, never above the day's own TAC-per-point ceiling). Everything not named belongs to the open group, which has no
-// reservation and takes what is left. A later entry replaces an earlier one, and "off" ends them.
+// From each UTC day an entry is in force, a group is `name=activity+activity@share/ceiling`: `share` is the part of the day's
+// budget reserved for it (above 0, all groups together at most 1) and `ceiling` the most TAC one of its points can earn (decimal
+// TAC, never above the day's own TAC-per-point ceiling; required, since a reservation with no limit on a point's worth would pay
+// its whole share for a handful of points). Activities are the program's own (KIND_OF). Everything not named belongs to the open
+// group, which has no reservation and takes what is left. A later entry replaces an earlier one, and "off" ends them.
+// An entry whose day has settled must not be edited or removed (settlement refuses to go on if it is: checkSettledBudgets), only added to.
+//
+// A category share cap (lib/points-engagement.js) holds inside a group: it is a share of the points of the group its activity is in.
 //
 // How a day is shared:
 //   1. Each named group is paid what its points would earn at its ceiling, up to its reserved share. A reservation nobody
@@ -23,6 +27,7 @@
 // The schedule only applies from a given day forward, so a settled day is never re-priced. Pure functions, BigInt for TAC.
 import { parseUnits } from 'viem';
 import { POINTS_SCALE } from './points-rate-cap.js';
+import { KIND_OF } from './points-engagement.js';
 
 const PPM = 1_000_000;
 const NAME = /^[a-z][a-z0-9_]{0,23}$/, ACTIVITY = /^[a-z][a-z0-9_]{0,31}$/;
@@ -31,19 +36,18 @@ export const OPEN_GROUP = 'open';
 // A group's share is kept in parts per million, so no float is ever multiplied into a wei amount.
 function parseGroup(item) {
   const m = item.match(/^([a-z][a-z0-9_]*)=([a-z0-9_+]+)@([0-9]*\.?[0-9]+)(?:\/([0-9]*\.?[0-9]+))?$/);
-  if (!m) throw new Error(`"${item}" is not <name>=<activity>+<activity>@<share>[/<TAC per point>]`);
+  if (!m) throw new Error(`"${item}" is not <name>=<activity>+<activity>@<share>/<TAC per point>`);
   const [, name, acts, shareText, ceilingText] = m;
   if (!NAME.test(name) || name === OPEN_GROUP) throw new Error(`"${name}" is not a usable group name`);
   const activities = acts.split('+').filter(Boolean);
   if (!activities.length || activities.some((a) => !ACTIVITY.test(a)) || new Set(activities).size !== activities.length) throw new Error(`"${acts}" is not a list of distinct activities`);
-  const share = Number(shareText);
-  if (!(share > 0 && share <= 1)) throw new Error(`the share of ${name} must be above 0 and at most 1`);
-  const sharePpm = Math.round(share * PPM);
-  let maxWeiPerPoint = null;
-  if (ceilingText !== undefined) {
-    maxWeiPerPoint = parseUnits(ceilingText, 18);
-    if (maxWeiPerPoint <= 0n) throw new Error(`the ceiling of ${name} must be positive`);
-  }
+  const unknown = activities.filter((a) => !(a in KIND_OF));
+  if (unknown.length) throw new Error(`${unknown.join(', ')} ${unknown.length > 1 ? 'are' : 'is'} not an activity the program scores (${Object.keys(KIND_OF).join(', ')})`);
+  const share = Number(shareText), sharePpm = Math.round(share * PPM);
+  if (!(share > 0 && share <= 1) || sharePpm < 1) throw new Error(`the share of ${name} must be above 0.000001 and at most 1`);
+  if (ceilingText === undefined) throw new Error(`${name} needs a ceiling on TAC per point (…@${shareText}/0.01): a reservation with none would pay its whole share for any points at all`);
+  const maxWeiPerPoint = parseUnits(ceilingText, 18);
+  if (maxWeiPerPoint <= 0n) throw new Error(`the ceiling of ${name} must be positive`);
   return { name, activities, sharePpm, maxWeiPerPoint };
 }
 
@@ -84,6 +88,20 @@ export function nextBudgets(schedule, day) {
   return schedule.find((e) => e.fromDay > day) ?? null;
 }
 
+// What the days that have settled were paid under. Settlement keeps this next to its ledger and refuses to go on if an entry of the schedule that was in force
+// for a settled day is edited or removed afterwards: that would pay later days under rules the earlier ones were not paid under, re-price their history and
+// their late credits. Entries for days still ahead can be added or changed freely.
+const fingerprintOf = (entries) => JSON.stringify(entries.map((e) => [e.fromDay, e.groups.map((g) => [g.name, g.activities, g.sharePpm, g.maxWeiPerPoint === null ? null : g.maxWeiPerPoint.toString()])]));
+export const settledBudgets = (schedule, throughDay) => JSON.stringify({ throughDay, entries: fingerprintOf(schedule.filter((e) => e.fromDay <= throughDay)) });
+// → { ok, now } : `previous` is what settledBudgets returned when it was last kept (or null); ok is false when the entries up to the day it covered are not what they were.
+export function checkSettledBudgets(previous, schedule) {
+  if (!previous) return { ok: true, now: null };
+  let prev;
+  try { prev = JSON.parse(previous); } catch { return { ok: false, now: null }; }
+  const now = fingerprintOf(schedule.filter((e) => e.fromDay <= prev.throughDay));
+  return { ok: now === prev.entries, now };
+}
+
 const ceilingOf = (groupCeiling, dayCeiling) => (groupCeiling && dayCeiling ? (groupCeiling < dayCeiling ? groupCeiling : dayCeiling) : (groupCeiling ?? dayCeiling));
 
 // The day's rows shared out by group.
@@ -115,7 +133,8 @@ export function allocateDay({ rows, budgetWei, maxWeiPerPoint = null, groups = [
   const demand = T.map((t, i) => (ceil[i] ? (ceil[i] * t) / SCALE : null));                     // null: no ceiling, so no limit
   const reserved = names.map((_, i) => (i === open ? 0n : (budgetWei * BigInt(groups[i].sharePpm)) / BigInt(PPM)));
   // 1. what each named group is owed up to its reservation
-  const pay = names.map((_, i) => (T[i] <= 0n ? 0n : (i === open ? 0n : (demand[i] === null || demand[i] > reserved[i] ? reserved[i] : demand[i]))));
+  // (A named group with no ceiling at all, which parseBudgets does not produce, has no floor: its points are not worth anything in particular, so it competes by points.)
+  const pay = names.map((_, i) => (T[i] <= 0n || i === open || demand[i] === null ? 0n : (demand[i] > reserved[i] ? reserved[i] : demand[i])));
   // 2. the rest, shared by points between whoever could still use more, each at most to its ceiling
   let rem = budgetWei - pay.reduce((s, v) => s + v, 0n);
   let active = names.map((_, i) => i).filter((i) => T[i] > 0n && (demand[i] === null || demand[i] > pay[i]));
