@@ -16,6 +16,8 @@
 // here is on-chain-checked per leg, so a caller must `simulate` the exact transaction before signing and fall
 // back to the best single venue when it reverts.
 
+import { checkZRouterCall } from './zrouter-guard.js';
+
 export const ZERO_ADDR = '0x0000000000000000000000000000000000000000';
 export const TAC_ERC20 = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279';
 export const TAC_POOL_ASSET_ID = '0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
@@ -333,6 +335,10 @@ async function quoteZQuoter({ ethCall, dir, amountIn, account, slippageBps = 100
   }
   const decoded = decBuildBestSwap(raw);
   if (!decoded) return { venue: VENUES.ZQUOTER, status: 'no-route' };
+  // The bytes run as the sender: one swap of exactly `amountIn` of the input to the asked recipient, and the ETH sent is the input or nothing.
+  const refused = decoded.msgValue !== (tokenIn === ZERO_ADDR ? BigInt(amountIn) : 0n)
+    || checkZRouterCall(decoded.callData, { to: account || ZERO_ADDR, tokenIn, tokenOut, exactOut: false, amount: amountIn, maxIn: amountIn, deadline });
+  if (refused) return { venue: VENUES.ZQUOTER, status: 'error', error: new Error('zQuoter answered with a call that does not match what was asked') };
   return { venue: VENUES.ZQUOTER, status: 'ok', amountIn, amountOut: decoded.amountOut, feeBps: decoded.feeBps, callData: decoded.callData, msgValue: decoded.msgValue };
 }
 

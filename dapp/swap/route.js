@@ -10,7 +10,10 @@
 // How the token reaches zRouter, best first: an EIP-2612 permit signed for free (USDC, wstETH, TAC, cUSD, cBTC and most new tokens;
 // DAI's own permit), a Permit2 signature where the token already allows Permit2, else an approval of the exact amount.
 //
-// No imports: the page passes `ethCall(to, data, block?, { from, value, gas })`, `keccak256(bytes) -> bytes` and the trade venues.
+// The page passes `ethCall(to, data, block?, { from, value, gas })`, `keccak256(bytes) -> bytes` and the trade venues. The one import is the guard
+// that reads what zQuoter returns against what was asked: its bytes run as the sender.
+
+import { checkZRouterCall, decodeZRouterCall } from '../zrouter-guard.js';
 
 export const ZERO = '0x0000000000000000000000000000000000000000';
 export const WETH = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
@@ -162,6 +165,9 @@ export async function quoteAnyToTac({ ethCall, venues, token, amountIn, account,
       hop = null;
     }
     if (!hop) return null;
+    // The leg must be one swap that buys exactly `weth` of WETH for PrecisionRoute and spends no more than was typed.
+    if (checkZRouterCall(hop.callData, { to: PRECISION_ROUTE, tokenIn: token, tokenOut: WETH, exactOut: true, amount: weth, maxIn: amountIn, deadline: dl })) return null;
+    if (decodeZRouterCall(hop.callData)[0].limit !== hop.amountLimit) return null;
   }
   if (weth <= 0n) return null;
   const tac = await venues.quotePrecision({ dir: 'ETH_TO_TAC', amountIn: weth, account });

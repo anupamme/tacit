@@ -22,6 +22,7 @@ import { ledger } from './lib/income-ledger.js';
 import { planBuyback, splitterDue } from './lib/income-allocation.js';
 import { planTreasury, daysText } from './lib/treasury-plan.js';
 import { treasuryFloors } from './lib/settle-fees.js';
+import { checkZRouterCall, decodeZRouterCall } from './lib/zrouter-guard.js';
 import {
   publicClient, relayWallet, fundedWallets, ethUsdPrice, ERC20_ABI, VAPP_ABI, ZQUOTER_ABI, ZROUTER_ABI,
   PROVE, VAPP, ZQUOTER, ZROUTER,
@@ -145,6 +146,8 @@ async function maxPreApprove(assets, wallet = relayWallet, includeProve = true) 
 export async function quote(tokenIn, tokenOut, amountIn, recipient, exactOut = false) {
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
   const candidates = [];
+  // The terms the quote was asked for, kept with it: fireSwap reads the call it is about to sign against them.
+  const intent = { tokenIn, tokenOut, recipient, exactOut, amount: BigInt(amountIn), deadline };
 
   try {
     const [best, callData, amountLimit, msgValue] = await publicClient.readContract({
@@ -152,7 +155,7 @@ export async function quote(tokenIn, tokenOut, amountIn, recipient, exactOut = f
       args: [recipient, exactOut, tokenIn, tokenOut, amountIn, SLIPPAGE_BPS, deadline],
     });
     if (best.amountIn > 0n && best.amountOut > 0n) {
-      candidates.push({ amountIn: best.amountIn, amountOut: best.amountOut, callData, amountLimit, msgValue });
+      candidates.push({ amountIn: best.amountIn, amountOut: best.amountOut, callData, amountLimit, msgValue, intent });
     }
   } catch {}
 
@@ -163,7 +166,7 @@ export async function quote(tokenIn, tokenOut, amountIn, recipient, exactOut = f
         args: [recipient, recipient, exactOut, tokenIn, tokenOut, amountIn, SLIPPAGE_BPS, deadline],
       });
       if (legA.amountIn > 0n && legB.amountOut > 0n) {
-        candidates.push({ amountIn: legA.amountIn, amountOut: legB.amountOut, callData: multicall, amountLimit: 0n, msgValue });
+        candidates.push({ amountIn: legA.amountIn, amountOut: legB.amountOut, callData: multicall, amountLimit: 0n, msgValue, intent });
       }
     } catch {}
   }
@@ -200,7 +203,27 @@ export async function provePriceUsd(ethPriceUsd) {
 // Fire the quoted route: send the zQuoter callData straight at zRouter (to: zRouter,
 // data: callData, value: msgValue). Approvals are set once up front (maxPreApprove);
 // native-ETH routes carry their input in msgValue. No manual route/fee-tier picking.
+// Curve pools beyond the built-in list that a route may use (comma-separated addresses).
+const EXTRA_CURVE_POOLS = String(process.env.ZROUTER_CURVE_POOLS || '').split(',').map((a) => a.trim()).filter(Boolean);
+// A quote's call read against the terms it was asked for: one swap, or a short chain of swaps, that spends the asked token and pays the asked
+// recipient, with the ETH sent matching the input and a guard on what is spent and what is paid. → null when acceptable, else the reason.
+export function swapProblem(q) {
+  const i = q && q.intent;
+  if (!i) return 'the quote carries no terms';
+  let legs;
+  try { legs = decodeZRouterCall(q.callData); } catch (e) { return String((e && e.message) || e); }
+  const ethIn = String(i.tokenIn).toLowerCase() === ETH;
+  const spend = i.exactOut && legs.length === 1 ? q.amountLimit : i.amount;
+  if (q.msgValue !== (ethIn ? spend : 0n)) return 'the ETH sent does not match the input';
+  if (legs.length === 1 && legs[0].limit !== q.amountLimit) return 'the call guards another amount than the quote';
+  const want = { to: i.recipient, tokenIn: i.tokenIn, tokenOut: i.tokenOut, exactOut: i.exactOut, amount: i.amount, deadline: i.deadline, curvePools: EXTRA_CURVE_POOLS };
+  if (i.exactOut) want.maxIn = q.amountIn * (10000n + 2n * SLIPPAGE_BPS) / 10000n;
+  else { want.maxIn = i.amount; want.minOut = q.amountOut * (10000n - 2n * SLIPPAGE_BPS) / 10000n; }
+  return checkZRouterCall(q.callData, want);
+}
 async function fireSwap(quoted, wallet = relayWallet) {
+  const problem = swapProblem(quoted);
+  if (problem) throw new Error(`refusing the swap: ${problem}`);
   const h = await wallet.sendTransaction({ to: ZROUTER, data: quoted.callData, value: quoted.msgValue || 0n });
   const rcpt = await publicClient.waitForTransactionReceipt({ hash: h });
   if (rcpt.status !== 'success') throw new Error(`zRouter swap reverted ${h}`);

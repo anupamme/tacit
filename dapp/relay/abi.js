@@ -1,6 +1,8 @@
 // The relay page's encodings: a proof's public values read for the fee it pays its sender, the settle() call anyone can send, an ERC-20
 // transfer, and zQuoter's swap builder. Plain functions of hex, so a test can pin them.
 
+import { checkZRouterCall, decodeZRouterCall } from '../zrouter-guard.js';
+
 export const PROVER = '0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7';                  // the Succinct network requester whose credit pays every relay proof
 export const PROVE = '0x6BEF15D938d4E72056AC92Ea4bDD0D76B1C4ad29';                   // PROVE, 18 decimals
 export const ZQUOTER = '0x000000bd2DB80567c23E353ca95a251c573cBf9B';
@@ -78,12 +80,17 @@ const deadlineIn = (secs) => BigInt(Math.floor(Date.now() / 1000) + secs);
 // pays `to`, and guards a least amount out. → { wei, amountIn, amountOut, amountLimit, msgValue, callData, at, router }
 export async function quoteEthToProve({ call, to, wei, slippageBps = SLIPPAGE_BPS, noRoute = NO_ROUTE }) {
   wei = BigInt(wei);
-  const data = buildBestSwapData({ to, tokenIn: ETH, tokenOut: PROVE, amount: wei, slippageBps, deadline: deadlineIn(600) });
+  const deadline = deadlineIn(600);
+  const data = buildBestSwapData({ to, tokenIn: ETH, tokenOut: PROVE, amount: wei, slippageBps, deadline });
   let q;
   try { q = decodeBestSwap(await call({ to: ZQUOTER, data, gas: QUOTE_GAS })); }
   catch (e) { throw new Error(e?.revert ? noRoute : 'Could not read a quote just now.'); }
   if (!q || q.amountOut <= 0n) throw new Error(noRoute);
-  if (q.msgValue !== wei || !strip(q.callData).includes(strip(to)) || q.amountLimit <= 0n || q.amountLimit > q.amountOut) throw new Error('The quote did not match what was asked, so nothing will be sent.');
+  // The bytes run as the sender: one swap of exactly `wei` of ETH into PROVE for `to`, with the guard the quote names.
+  const mismatch = q.msgValue !== wei || q.amountLimit <= 0n || q.amountLimit > q.amountOut
+    || checkZRouterCall(q.callData, { to, tokenIn: ETH, tokenOut: PROVE, exactOut: false, amount: wei, maxIn: wei, minOut: q.amountLimit, deadline }) !== null
+    || decodeZRouterCall(q.callData)[0].limit !== q.amountLimit;
+  if (mismatch) throw new Error('The quote did not match what was asked, so nothing will be sent.');
   return { wei, ...q, at: Date.now(), router: ZROUTER };
 }
 // The ETH to pay so that a swap buys at least `want` PROVE (its guard included), for the same quote quoteEthToProve gives. zQuoter prices `want`

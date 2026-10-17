@@ -5,15 +5,15 @@
 // what it carried. The test then asserts on what the code actually sent rather than on what its source
 // says it does — which is the only kind of check that catches a swap delivered to the wrong recipient.
 //
-// buildSwapAuto returns callData that is just a marker + the recipient it was asked to deliver to, so a
-// recorded swap can be traced back to "who was this swap for".
+// buildBestSwap answers with a real zRouter.swapV3 call (to, exactOut, fee, tokenIn, tokenOut, swapAmount, amountLimit, deadline), so a
+// recorded swap can be traced back to "who was this swap for" and passes the same read of the quote the relay makes before it signs.
 import http from 'node:http';
 import { createRequire } from 'node:module';
 const require = createRequire(new URL('../../worker-relay/package.json', import.meta.url));
 const viem = await import(require.resolve('viem'));
 const { encodeFunctionResult, decodeFunctionData, parseTransaction, keccak256, recoverTransactionAddress, toHex } = viem;
 
-export async function startStub({ balances, tokenBalances, zQuoterAbi, addr, nonceRaceFor = [], badProveQuoteFactor = 0, badEthOutFactor = 0, badGasCostFactor = 0 }) {
+export async function startStub({ balances, tokenBalances, zQuoterAbi, addr, nonceRaceFor = [], badProveQuoteFactor = 0, badEthOutFactor = 0, badGasCostFactor = 0, otherCall = null }) {
   const sent = [];
   const raced = new Set(); // addresses that have already had their one injected 'nonce too low'
   const nonces = new Map();
@@ -52,8 +52,8 @@ export async function startStub({ balances, tokenBalances, zQuoterAbi, addr, non
                 const { functionName, args } = decodeFunctionData({ abi: zQuoterAbi, data });
                 // Only the direct route quotes; the via-ETH hub route declines, so replenish keeps the direct one.
                 if (functionName !== 'buildBestSwap') return ok(id, '0x');
-                const [recipient, exactOut, tokenIn, tokenOut, amount] = args;
-                const marker = '0xa11ce000' + (exactOut ? '01' : '00') + lc(recipient).slice(2).padStart(64, '0');
+                const [recipient, exactOut, tokenIn, tokenOut, amount, slippage, deadline] = args;
+                const w32 = (v) => BigInt(v).toString(16).padStart(64, '0');
                 // Realistic prices, so the code's own sanity checks are exercised rather than bypassed:
                 // ETH $1840 (the static fallback the relay uses when no feed answers), stables $1, PROVE $0.25.
                 const usdPerUnit = (t) => {
@@ -71,9 +71,16 @@ export async function startStub({ balances, tokenBalances, zQuoterAbi, addr, non
                 // a broken EXACT-OUT quote: the aggregator asks far too much of the input asset for the ETH it sells
                 const amountIn = exactOut ? BigInt(Math.ceil(Number(amount) * outU / inU * (badGasCostFactor || 1))) + 1n : amount;
                 const amountOut = exactOut ? amount : BigInt(Math.floor(Number(amount) * inU / outU * skew));
+                const limit = exactOut ? amountIn * (10000n + slippage) / 10000n : amountOut * (10000n - slippage) / 10000n;
+                let callData = '0xafeae12b' + [w32(recipient), w32(exactOut ? 1 : 0), w32(3000), w32(tokenIn), w32(tokenOut), w32(amount), w32(limit), w32(deadline)].join('');
+                // A quoter answering with another call than the one asked for: the swap pays another address, spends more, or is an executor call.
+                if (otherCall === 'recipient') callData = callData.replace(w32(recipient), '0'.repeat(24) + 'ba'.repeat(20));
+                if (otherCall === 'amount') callData = '0xafeae12b' + [w32(recipient), w32(exactOut ? 1 : 0), w32(3000), w32(tokenIn), w32(tokenOut), w32(BigInt(amount) * 100n), w32(limit), w32(deadline)].join('');
+                if (otherCall === 'executor') callData = '0x5f3bd1c8' + '0'.repeat(64 * 7);
+                const ethIn = tokenIn === '0x0000000000000000000000000000000000000000';
                 const out = encodeFunctionResult({
                   abi: zQuoterAbi, functionName: 'buildBestSwap',
-                  result: [{ source: 1, feeBps: 30n, amountIn, amountOut }, marker, 0n, tokenIn === '0x0000000000000000000000000000000000000000' ? amount : 0n],
+                  result: [{ source: 1, feeBps: 30n, amountIn, amountOut }, callData, limit, ethIn ? (exactOut ? limit : amount) : 0n],
                 });
                 return ok(id, out);
               }

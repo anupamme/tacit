@@ -40,8 +40,8 @@ const abiSrc = chainSrc.slice(chainSrc.indexOf('export const ZQUOTER_ABI'), chai
   .replace('export const ZQUOTER_ABI =', 'return');
 const zQuoterAbi = new Function(abiSrc)();
 
-async function run({ splitKeys = true, opts = { roles: ['settle'] }, feeAssets, balances, tokenBalances, extraEnv = {}, nonceRaceFor = [], badProveQuoteFactor = 0, badEthOutFactor = 0, badGasCostFactor = 0, fn = 'replenishOnce', fnArgs = null, pre = '' }) {
-  const stub = await startStub({ balances, tokenBalances, zQuoterAbi, addr: A, nonceRaceFor, badProveQuoteFactor, badEthOutFactor, badGasCostFactor });
+async function run({ splitKeys = true, opts = { roles: ['settle'] }, feeAssets, balances, tokenBalances, extraEnv = {}, nonceRaceFor = [], badProveQuoteFactor = 0, badEthOutFactor = 0, badGasCostFactor = 0, otherCall = null, fn = 'replenishOnce', fnArgs = null, pre = '' }) {
+  const stub = await startStub({ balances, tokenBalances, zQuoterAbi, addr: A, nonceRaceFor, badProveQuoteFactor, badEthOutFactor, badGasCostFactor, otherCall });
   const script = `${pre}\nconst r = await import('${join(ROOT, 'worker-relay/src/replenish.js')}'); await r.${fn}(${JSON.stringify(fnArgs ?? opts)});`;
   const env = {
     PATH: process.env.PATH, WORKER_BASE: 'http://x', BOX_TOKEN: 't', RELAY_KEY: RELAY_PK,
@@ -63,9 +63,9 @@ async function run({ splitKeys = true, opts = { roles: ['settle'] }, feeAssets, 
   return { sent: stub.sent, log: r.stdout };
 }
 
-// A swap the stub built is a marker + the recipient it was asked to deliver to.
-const swaps = (sent) => sent.filter((t) => t.to === A.zRouter && t.data.startsWith('0xa11ce000')).map((t) => ({
-  signer: t.from, exactOut: t.data.slice(10, 12) === '01', recipient: '0x' + t.data.slice(-40), value: t.value,
+// A swap the stub built is a zRouter.swapV3 call: its first word is the recipient it was asked to deliver to, its second whether it is exact-out.
+const swaps = (sent) => sent.filter((t) => t.to === A.zRouter && t.data.startsWith('0xafeae12b')).map((t) => ({
+  signer: t.from, exactOut: BigInt('0x' + t.data.slice(74, 138)) === 1n, recipient: '0x' + t.data.slice(10 + 24, 10 + 64), value: t.value,
 }));
 
 console.log('replenish flow (real code, stub RPC):\n');
@@ -265,6 +265,20 @@ await test('a clearly-low wallet IS refilled to the buffer (hysteresis is not "n
   });
   ok(swaps(sent).some((x) => x.exactOut && x.recipient === settle), 'a wallet at 10% of the buffer must be refilled');
 });
+
+// The quoter answers with a call other than the one it was asked for. The relay reads each call against the terms of its quote before it
+// signs, so none of these goes out, for a gas top-up (a token in, exact-out) or a PROVE swap (a token in, exact-in).
+for (const kind of ['recipient', 'amount', 'executor']) {
+  await test(`a quote whose call differs from what was asked (${kind}) is not signed`, async () => {
+    const { sent, log } = await run({
+      feeAssets: A.usdc, otherCall: kind,
+      balances: { [settle]: ETH(0.001), [relay]: ETH(0.002) },
+      tokenBalances: { [A.usdc]: { [settle]: 1_000_000_000n }, [A.prove]: { [relay]: 100n * 10n ** 18n } },
+    });
+    ok(swaps(sent).length === 0 && !sent.some((t) => t.to === A.zRouter), `a swap was signed on a call that differs from the quote (${kind})`);
+    ok(/refusing the swap/.test(log), 'the refusal must be logged');
+  });
+}
 
 await test('a broken wstETH gas quote is refused (the gas leg checks every asset, not just stablecoins)', async () => {
   const { sent, log } = await run({
