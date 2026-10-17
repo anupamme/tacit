@@ -950,10 +950,12 @@ function renderFarm() {
   const icon = (k) => `<svg class="tk sm" aria-hidden="true"><use href="#tk-${k}"/></svg>`;
   const mine = key.unlocked && D.held?.pub === key.key.pubHex ? positionsIn(rows, D.held.positions) : new Map();
   const dp = (r) => (r.other === 'cBTC' ? 6 : 2), amt = (x, d) => (x < 0.01 && x > 0 ? 'under 0.01' : grp(x, d));
+  // The share of a pool that is farmed, whole except at the ends: a pool that is not quite all farmed is not "100%", nor one with some farmed "0%".
+  const farmedPct = (f) => { const p = f * 100; return p > 0 && p < 1 ? 'under 1%' : p >= 99.5 && p < 100 ? `${Math.floor(p * 10) / 10}%` : `${Math.round(p)}%`; };
   $('#pools').innerHTML = rows.map((r) => {
     const m = mine.get(r.pid);
     return `<a class="pf" href="/#farm/private-${r.pid}"><span class="nm"><span class="pairtk">${icon('teth')}${icon(r.other.toLowerCase())}</span>${esc(r.name)}${m ? '<span class="tag">yours</span>' : ''}</span><span class="rt num">${esc(aprTxt(r.apr))}<small>${r.perDay > 0 ? `${Math.round(r.perDay).toLocaleString('en-US')} TAC a day` : 'no reward now'}</small></span><i aria-hidden="true">→</i>`
-      + `<span class="sb">${esc(r.depthEth < 0.01 ? 'under 0.01' : grp(r.depthEth, 2))} ETH deep${r.bondedPct != null ? ` · ${Math.round(r.bondedPct * 100)}% farmed` : ''} · ${esc(amt(r.tethSide, 2))} tETH + ${esc(amt(r.otherSide, dp(r)))} ${esc(r.other)} in the pool</span>`
+      + `<span class="sb">${esc(r.depthEth < 0.01 ? 'under 0.01' : grp(r.depthEth, 2))} ETH deep${r.bondedPct != null ? ` · ${farmedPct(r.bondedPct)} farmed` : ''} · ${esc(amt(r.tethSide, 2))} tETH + ${esc(amt(r.otherSide, dp(r)))} ${esc(r.other)} in the pool</span>`
       + (m ? `<span class="sb mine">Yours: ${esc(amt(m.teth, 4))} tETH + ${esc(amt(m.other, dp(r)))} ${esc(r.other)} · ${esc(grp(m.earned, 2))} TAC earned${m.perDay > 0 ? ` · about ${esc(m.perDay >= 10 ? grp(m.perDay, 0) : m.perDay.toFixed(2))} TAC a day` : ''}</span>` : '') + '</a>';
   }).join('');
   const heldHere = key.unlocked && D.held?.pub === key.key.pubHex;

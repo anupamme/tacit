@@ -1314,6 +1314,12 @@ await step('farmjoin', async () => {
     const rc = (await text(r.page, '#sj-rcpt-0')).replace(/\s+/g, ' ');
     ok(/Share of the farm/.test(rc) && /Relay fee to split your notes/.test(rc) && /Gas, from your Tacit account/.test(rc), `farmjoin: Max quotes both sides, the split fees and the gas (${rc})`);
     if (/Earns about/.test(rc)) ok(/APR on this deposit\s*(about [\d,]+%|over 100,000%)/.test(rc) && /Swap fees come on top/.test(rc), 'farmjoin: and the APR for this deposit');
+    // An amount finer than a note's eight decimals is said, not left as a button that stays disabled with no reason.
+    await r.page.fill('#sj-a-0', '0.123456789');
+    await until(r.page, () => /Up to 8 decimals/.test(document.querySelector('#sj-rcpt-0')?.textContent || ''), null, 120000);
+    ok(await r.page.$eval('#sj-go-0', (b) => b.disabled), 'farmjoin: an amount finer than 8 decimals is said, and nothing can be added');
+    await r.page.click('#sj-max-0');
+    await until(r.page, () => /Adds/.test(document.querySelector('#sj-rcpt-0')?.textContent || '') && !document.querySelector('#sj-go-0').disabled, null, 240000);
     await r.page.click('#sj-go-0');
     await until(r.page, () => !!window.__join || /err/.test(document.querySelector('#sf-status-0')?.innerHTML || ''), null, 120000);
     const j = await r.page.evaluate(() => window.__join), splits = await r.page.evaluate(() => window.__splits);

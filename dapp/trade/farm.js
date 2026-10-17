@@ -127,14 +127,20 @@ export function mountFarm(host, ctx) {
     el.innerHTML = (has ? `<h3>Your stake</h3>
       <div class="kv"><span>In the farm</span><b>${amt(x.mine.eth, 4)} ETH + ${amt(x.mine.tac, 0)} TAC</b></div>
       <div class="kv"><span>Earning</span><b>${amt(day, 2)} TAC a day${tacUsd(day) ? ` · ${tacUsd(day)}` : ''}</b></div>
-      <div class="kv earned"><span>Earned</span><span class="rt"><b class="num" id="fm-earned">${fmt(earnedNow(x), 18, 4)} TAC</b><button class="btn sm" type="button" id="fm-claim">Claim</button></span></div>
+      <div class="kv earned"><span>Earned</span><span class="rt"><b class="num" id="fm-earned">${fmt(earnedNow(x), 18, 4)} TAC</b><button class="btn sm" type="button" id="fm-claim"${earnedNow(x) > 0n ? '' : ' disabled'}>Claim</button></span></div>
       <details class="wd" id="fm-wd"${F.wdOpen ? ' open' : ''}><summary>Withdraw</summary>
       <div class="fm-out"><div class="seg" id="fm-pct" role="group" aria-label="How much">${[['25', '25%'], ['50', '50%'], ['100', 'All']].map(([v, l]) => `<button type="button" data-pct="${v}" aria-pressed="${F.outPct === v}">${l}</button>`).join('')}</div>
       <div class="seg" id="fm-as" role="group" aria-label="As">${[['both', 'ETH + TAC'], ['eth', 'ETH'], ['tac', 'TAC']].map(([v, l]) => `<button type="button" data-as="${v}" aria-pressed="${F.outAs === v}">${l}</button>`).join('')}</div></div>
       <div class="fm-rcpt" id="fm-out-rcpt" hidden></div>
       <button class="btn ghost" type="button" id="fm-exit" disabled>Withdraw</button></details>` : '')
       + (x.lp > 0n ? `<div class="kv"><span>LP shares not staked</span><b>${fmt(x.lp, 18, 6)}</b></div><button class="btn ghost" type="button" id="fm-stake">Stake them</button>` : '');
-    if (has && x.live) F.tick = setInterval(() => { const e = $('#fm-earned'); if (!e || F.x !== x) return clearInterval(F.tick); e.textContent = `${fmt(earnedNow(x), 18, 4)} TAC`; }, 1000);
+    if (has && x.live) F.tick = setInterval(() => {
+      const e = $('#fm-earned'), c = $('#fm-claim');
+      if (!e || F.x !== x) return clearInterval(F.tick);
+      const v = earnedNow(x);
+      e.textContent = `${fmt(v, 18, 4)} TAC`;
+      if (c && c.getAttribute('aria-busy') !== 'true') c.disabled = v === 0n;                // there is nothing to claim until something has streamed
+    }, 1000);
     // The withdrawal is read (a call from the account) only once it is opened, and again each time the stake is drawn while it stays open.
     const wd = $('#fm-wd');
     if (wd) wd.addEventListener('toggle', () => { F.wdOpen = wd.open; if (wd.open) previewOut(); });
@@ -146,8 +152,10 @@ export function mountFarm(host, ctx) {
     const x = F.x, m = F.mode;
     $('#fm-mode').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.fm === m)));
     $('#fm-eth').hidden = m === 'tac'; $('#fm-tac').hidden = m === 'eth';
-    $('#fm-how').textContent = m === 'pair' ? 'Both go in at the pool’s ratio, then are staked.' : `Half is swapped to ${m === 'eth' ? 'TAC' : 'ETH'} inside the pool, then both are staked: one transaction.`;
     const em = $('#fm-emax'), tm = $('#fm-tmax'), mine = x && W.account && x.who === W.account;
+    // ETH + TAC takes both: with no TAC held it says so and offers the way that works, rather than a Max that fills nothing.
+    $('#fm-how').innerHTML = m === 'pair' ? (mine && x.tac === 0n ? 'You hold no TAC in this wallet, and ETH + TAC takes both. <button class="linkbtn" type="button" data-fm="eth">Farm with ETH alone</button>.' : 'Both go in at the pool’s ratio, then are staked.')
+      : `Half is swapped to ${m === 'eth' ? 'TAC' : 'ETH'} inside the pool, then both are staked: one transaction.`;
     em.hidden = !(mine && x.bal != null); tm.hidden = !mine;
     if (mine && x.bal != null) em.textContent = `Balance ${fmt(x.bal, 18, 4)} · Max`;
     if (mine) tm.textContent = `Balance ${fmt(x.tac, 18, 2)} · Max`;
@@ -176,6 +184,9 @@ export function mountFarm(host, ctx) {
     if (m === 'pair' && x && src === tacIn) { const v = parseUnits(tacIn.value); ethIn.value = !tacIn.value ? '' : v != null ? plain(capEth(up(ethFor(v, x), 6), x)) : ethIn.value; }
     const wei = m !== 'tac' ? parseUnits(ethIn.value) || 0n : 0n, tac = m !== 'eth' ? parseUnits(tacIn.value) || 0n : 0n;
     F.q = null; gate();
+    // An amount that cannot be read is marked and said, not taken for nothing typed.
+    const unread = [[ethIn, m !== 'tac'], [tacIn, m !== 'eth']].filter(([i, shown]) => { const off = shown && !!i.value.trim() && parseUnits(i.value) == null; i.toggleAttribute('aria-invalid', off); return off; });
+    if (unread.length) { rc.hidden = false; rc.innerHTML = '<p class="note err">That amount cannot be read. Use a plain number such as 0.25, with at most 18 decimals.</p>'; return; }
     if (!x || (!wei && !tac)) { rc.hidden = true; rc.innerHTML = ''; return; }
     try {
       let lp, loss = 0;
@@ -271,6 +282,7 @@ export function mountFarm(host, ctx) {
         if (tacFor(wei, x) > x.tac) { tac = cut(x.tac, 2); wei = capEth(up(ethFor(tac, x), 6), x); }
         ethIn.value = wei > 0n ? plain(wei) : ''; tacIn.value = tac > 0n ? plain(tac) : '';
       }
+      clearTimeout(t);                                                             // a check still waiting on a typed amount would size the other side again
       requote();
     }
     const ps = () => $('#fm-pos-status'), from = W.account;
@@ -343,8 +355,10 @@ export function mountFarm(host, ctx) {
   }
 
   let t = 0;
-  ethIn.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => requote(ethIn), 300); });
-  tacIn.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => requote(tacIn), 300); });
+  // The quote shown is for the amount before this keystroke: the button waits for the new one rather than send the old.
+  const typed = (i) => () => { clearTimeout(t); F.q = null; gate(); t = setTimeout(() => requote(i), 300); };
+  ethIn.addEventListener('input', typed(ethIn));
+  tacIn.addEventListener('input', typed(tacIn));
 
   // A read of the farm and the account: the figures and the stake redrawn, the form kept as typed and quoted again.
   async function refresh() {

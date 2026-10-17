@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-6VRigxGFGGsainuB9apXROHm5ZtLhFOhQ4ORRG2kkHA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-kagVtoaN7IZ1HNeNWZIlUVtjM0sgGZEqW6QbZOqoYNA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1542,7 +1542,8 @@ function parseUnits(s, dec = 18) {
 const plain = (v, dec) => fmt(v, dec, dec).replace(/,/g, '');
 const big = (v) => { try { return v == null || v === '' ? null : BigInt(v); } catch { return null; } };
 const dayFmt = (sec) => new Date(sec * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-const pctFmt = (x) => `${x >= 10 ? Math.round(x) : x.toFixed(1)}%`;
+// A figure just under 100 keeps its decimal: 99.7% staked is not "100% staked".
+const pctFmt = (x) => (x >= 99.5 && x < 100 ? `${(Math.floor(x * 10) / 10).toFixed(1)}%` : `${x >= 10 ? Math.round(x) : x.toFixed(1)}%`);
 
 // Toasts sit in a popover, the top layer, raised above whatever sheet is open whenever one appears. tacit.js posts
 // its own toasts into the same container.
@@ -9132,7 +9133,7 @@ function renderPrecision(el) {
       <div class="kv"><span>Earning</span><b>${fmt(myDay, 18, 2)} TAC a day${ethOf(myDay) > 0n ? ` (${aboutEth(ethOf(myDay))})` : ''}</b></div>
       <div class="kv"><span>Your share</span><b>${pctFmt(Number(x.staked * 10000n / x.totalStaked) / 100)} of the farm</b></div>
       <div class="kv"><span>Earned</span><b class="num" id="pf-earned">${fmt(e0, 18, 4)} TAC</b></div>
-      ${ethOf(e0) > 0n ? html`<div class="kv"><span>Worth about</span><b class="num" id="pf-earned-eth">${ethText(ethOf(e0))}</b></div>` : ''}
+      <div class="kv"${ethOf(e0) > 0n ? '' : ' hidden'}><span>Worth about</span><b class="num" id="pf-earned-eth">${ethText(ethOf(e0))}</b></div>
       ${paid > 0n ? html`<div class="kv"><span>Claimed so far</span><b>${fmt(paid, 18, 2)} TAC${ethOf(paid) > 0n ? ` (${aboutEth(ethOf(paid))})` : ''}</b></div>` : ''}
       <button class="btn ghost" type="button" id="pf-claim" ${e0 === 0n ? 'disabled' : ''}>Claim ${tacShort(e0)} TAC</button>
       <button class="link" type="button" id="pf-reinvest" ${e0 === 0n ? 'disabled' : ''}>Claim and add to the farm</button>
@@ -9188,7 +9189,7 @@ function renderPrecision(el) {
       if (!e?.isConnected || !$('#sheet-farm').open || y?.who !== x.who || !(y.staked > 0n)) { clearInterval(FARM.tick); return; }
       const v = earnedNow(y);
       e.textContent = `${fmt(v, 18, 4)} TAC`;
-      if (w) w.textContent = ethText(ethOf(v, y));
+      if (w) { const eth = ethOf(v, y); w.textContent = ethText(eth); w.parentElement.hidden = eth === 0n; }      // the row is there from the start and shows once the stake has earned something
       if (b && b.getAttribute('aria-busy') !== 'true') { b.textContent = `Claim ${tacShort(v)} TAC`; b.disabled = v === 0n; }
       if (r && r.getAttribute('aria-busy') !== 'true') r.disabled = v === 0n;
     };
@@ -9398,7 +9399,7 @@ function renderShielded(el, p) {
   const mine = (FARM.positions || []).filter((x) => Number(x.pid) === Number(p.pid));
   // The farm's facts lead the card until the key has a position here; then the position leads and they close it.
   const facts = html`
-    <div class="kv"><span>In the pool</span><b>${lpWorth(p, r.lpTotalShares) || ''}${lpWorth(p, r.lpTotalShares) ? ' · ' : ''}${Math.round(Number(p.totalShares) * 100 / Math.max(1, Number(r.lpTotalShares || 1)))}% bonded</b></div>
+    <div class="kv"><span>In the pool</span><b>${lpWorth(p, r.lpTotalShares) || ''}${lpWorth(p, r.lpTotalShares) ? ' · ' : ''}${pctFmt(Number(p.totalShares) * 100 / Math.max(1, Number(r.lpTotalShares || 1)))} bonded</b></div>
     <div class="kv"><span>${FARM.program.epoch?.active ? 'Stream ends' : 'Stream'}</span><b>${FARM.program.epoch?.active ? dayFmt(FARM.program.epoch.periodFinish) : 'between reward periods'}</b></div>
     ${FARM.program.epoch?.active ? aprRow(shieldedApr(p)) : ''}`;
   mount(el, html`
@@ -9621,7 +9622,7 @@ function farmJoin(el, p, status, has) {
     if (e?.target === bIn) { const b = parseUnits(bIn.value, 8), a0 = parseUnits(aIn.value, 8); if (!b) aIn.value = ''; else if (!a0 || bFor(a0, res) !== b) aIn.value = plain(aFor(b, res), 8); }
     const a = parseUnits(aIn.value, 8) || 0n, b = a ? bFor(a, res) : 0n;
     if (e?.target !== bIn) bIn.value = a ? plain(b, 8) : '';
-    if (!a) { rc.hidden = true; return; }
+    if (!a) { if (!tooFine(rc, (e?.target === bIn ? bIn : aIn).value, null, 8)) rc.hidden = true; return; }
     const fA = exact(kA, a) ? 0n : j.feeA, fB = exact(kB, b) ? 0n : j.feeB;
     const shares = t.pool.lpAddShares(res.totalShares, a, b, res.reserveA, res.reserveB);
     const eth = await ethBalance();
@@ -9642,7 +9643,7 @@ function farmJoin(el, p, status, has) {
   // One side: what is swapped and what comes back, then what both sides add, at the ratio after the swap.
   const quoteOne = async (my, t, j) => {
     const res = j.res, Zin = parseUnits(sIn.value, 8) || 0n;
-    if (!Zin) { rc.hidden = true; return; }
+    if (!Zin) { if (!tooFine(rc, sIn.value, null, 8)) rc.hidden = true; return; }
     const inA = kS === kA, rIn = inA ? res.reserveA : res.reserveB, rOut = inA ? res.reserveB : res.reserveA, feeBps = Number(res.feeBps ?? p.feeBps ?? 30);
     const fee = feeOf(j, kS), fr = swapFeeOf(j, kS), held = spendable(kS);
     // The note cuts: one to the amount swapped, one to what pairs with the swap's return. A deposit that is one note spent

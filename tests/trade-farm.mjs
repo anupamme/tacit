@@ -138,6 +138,14 @@ try {
   await until(p, () => /Farm with ETH/.test(document.querySelector('#fm-go')?.textContent || '') && /Balance/.test(document.querySelector('#fm-emax')?.textContent || ''), null, 120000);
   ok(true, 'connecting from the farm connects the page\'s wallet and shows the balance');
   await until(p, () => !document.querySelector('#fm-go').disabled, null, 120000);
+  // A new amount is typed: the button waits for its quote, so it can never send the amount before it.
+  await p.fill('#fm-amt', '0.4');
+  ok(await p.$eval('#fm-go', (b) => b.disabled), 'typing a new amount holds the button until that amount is quoted');
+  await p.fill('#fm-amt', '1.2.3');
+  await until(p, () => /cannot be read/.test(document.querySelector('#fm-rcpt')?.textContent || ''), null, 30000);
+  ok(await p.$eval('#fm-go', (b) => b.disabled) && (await p.$eval('#fm-amt', (i) => i.hasAttribute('aria-invalid'))), 'an amount that cannot be read is said and marked, and nothing can be sent');
+  await p.fill('#fm-amt', '0.4');
+  await until(p, () => /Earns about/.test(document.querySelector('#fm-rcpt')?.textContent || '') && !document.querySelector('#fm-go').disabled && !document.querySelector('#fm-amt').hasAttribute('aria-invalid'), null, 120000);
   await p.click('#fm-go');
   await until(p, () => /Farming\./.test(document.querySelector('#fm-status')?.textContent || '') || document.querySelector('#fm-status .err'), null, 240000);
   const s1 = await staked(me.account);
@@ -195,6 +203,18 @@ try {
   ok(true, 'and the stake leaves the panel');
   ok(r.errors.length === 0 && r.blocked.length === 0, `no page errors or blocked requests (${[...r.errors, ...r.blocked].slice(0, 3).join(' | ')})`);
   await r.browser.close();
+
+  // a wallet with ETH and no TAC: ETH + TAC takes both, so the form says so and offers ETH alone
+  const bare = await fundedWallet(1n * E18, 0n);
+  const nb = await openPage({ width: 1280, height: 900 }, bare, '', '/trade/tac/');
+  await until(nb.page, () => /TAC a day/.test(document.querySelector('#fm-stats')?.textContent || ''), null, 240000);
+  await nb.page.click('#fm-go');
+  await until(nb.page, () => /Balance/.test(document.querySelector('#fm-emax')?.textContent || ''), null, 120000);
+  await nb.page.click('[data-fm="pair"]');
+  ok(/hold no TAC/.test(await text(nb.page, '#fm-how')), 'ETH + TAC with no TAC held says so');
+  await nb.page.click('#fm-how [data-fm="eth"]');
+  ok(await nb.page.$eval('[data-fm="eth"]', (b) => b.getAttribute('aria-pressed') === 'true') && !/hold no TAC/.test(await text(nb.page, '#fm-how')), 'and offers ETH alone, which opens that form');
+  await nb.browser.close();
 
   // a phone: the farm follows the quotes, inside the width
   const ph = await openPage({ width: 390, height: 844 }, null, '', '/trade/tac/');

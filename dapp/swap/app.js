@@ -622,7 +622,7 @@ async function readFarms() {
     if (p.idle || lc(rr.assetA) !== CETH_ID || !Number(rr.lpTotalShares)) continue;
     const bonded = 2 * Number(rr.reserveA) / 1e8 * Number(p.totalShares) / Number(rr.lpTotalShares);
     const other = String(p.pair).split('/').find((x) => x !== 'cETH') || 'TAC';
-    out.push({ k: `p${p.pid}`, pid: p.pid, name: `${other} / tETH`, note: 'private', apr: tacEth && bonded > 0 ? Number(p.tacPerDayForPool) * 365 * tacEth / bonded * 100 : null, icons: [other.toLowerCase(), 'teth'] });
+    out.push({ k: `p${p.pid}`, pid: p.pid, name: `tETH / ${other}`, note: 'private', apr: tacEth && bonded > 0 ? Number(p.tacPerDayForPool) * 365 * tacEth / bonded * 100 : null, icons: [other.toLowerCase(), 'teth'] });
   }
   S.farms = out;
 }
@@ -634,7 +634,7 @@ function paintEarn() {
   $('#farm').hidden = f.k !== 'precision';
   $('#privfarm').hidden = f.k === 'precision';
   if (f.k === 'precision' && !farmUi) {
-    farmUi = import('/trade/farm.js?cb=3a32fe43').then(({ mountFarm }) => mountFarm($('#farm'), { ethCall, batch, rpc, api, wallet, W, connect: () => connect.connect(), fmtUnits, parseUnits, esc, usd, ethUsd: () => S.px.ethUsd, txLink, onDone: () => readBalances().then(paintSides) }));
+    farmUi = import('/trade/farm.js?cb=d69432ea').then(({ mountFarm }) => mountFarm($('#farm'), { ethCall, batch, rpc, api, wallet, W, connect: () => connect.connect(), fmtUnits, parseUnits, esc, usd, ethUsd: () => S.px.ethUsd, txLink, onDone: () => readBalances().then(paintSides) }));
   }
   if (f.k !== 'precision') {
     $('#privfarm').innerHTML = `<a class="go priv" href="/#card=earn:ether:p${f.pid}">Farm ${esc(f.name)} privately →</a>`;
