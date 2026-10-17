@@ -226,6 +226,9 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   ok(tf1 < tf0, `the bought TAC is farmed from the swap page: ${Number(tf0 - tf1) / 1e18} TAC zapped and staked`);
   await until(page, () => document.querySelectorAll('#farms [data-farm]').length >= 2, null, 60000).catch(() => {});
   ok((await page.$$('#farms [data-farm]')).length >= 2, 'Earn lists the Precision farm and the private farms');
+  const names = await page.$$eval('#farms [data-farm] .rt b', (a) => a.map((b) => b.textContent.trim()));
+  ok(names.length >= 2 && names.slice(1).every((n) => /^tETH \/ \S+/.test(n)), `the private farms are named tETH first, as on the other pages (${names.join(' | ')})`);
+  ok(await page.$eval('#farm .fm-prog', (e) => getComputedStyle(e).display === 'none').catch(() => false), 'the farm does not list the private farms a second time under its form: the picker above does');
   await shot(page, 'wallet-earn');
 
   // TAC → ETH, signed for

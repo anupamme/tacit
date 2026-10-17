@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-kagVtoaN7IZ1HNeNWZIlUVtjM0sgGZEqW6QbZOqoYNA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-JCxgR1OZQ8hN0DwkI38Cc8+cHWwm4wFV7dpSpz2qSiQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1542,8 +1542,8 @@ function parseUnits(s, dec = 18) {
 const plain = (v, dec) => fmt(v, dec, dec).replace(/,/g, '');
 const big = (v) => { try { return v == null || v === '' ? null : BigInt(v); } catch { return null; } };
 const dayFmt = (sec) => new Date(sec * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
-// A figure just under 100 keeps its decimal: 99.7% staked is not "100% staked".
-const pctFmt = (x) => (x >= 99.5 && x < 100 ? `${(Math.floor(x * 10) / 10).toFixed(1)}%` : `${x >= 10 ? Math.round(x) : x.toFixed(1)}%`);
+// A figure between 99.5 and 99.95 keeps its decimal: 99.7% staked is not "100% staked".
+const pctFmt = (x) => (x >= 99.5 && x < 99.95 ? `${x.toFixed(1)}%` : `${x >= 10 ? Math.round(x) : x.toFixed(1)}%`);
 
 // Toasts sit in a popover, the top layer, raised above whatever sheet is open whenever one appears. tacit.js posts
 // its own toasts into the same container.
@@ -9123,7 +9123,7 @@ function renderPrecision(el) {
     ${x.live ? aprRow(precisionApr(x)) : ''}`;
   // What the deposit does, said before anything is typed.
   const how = mode === 'pair' ? (x.tac > 0n ? 'Both go in at the pool’s ratio, with nothing swapped.'
-    : html`You hold no TAC in ${your()}, and ETH + TAC takes both. <button class="link" type="button" data-go="buy">Buy TAC</button>, claim the airdrop, or <button class="link" type="button" data-go="eth">farm with ETH alone</button>.`)
+    : html`You hold no TAC in ${your()}, and ETH + TAC takes both. <button class="link" type="button" data-go="buy">Buy TAC</button>, <a href="/rewards/">claim the airdrop</a>, or <button class="link" type="button" data-go="eth">farm with ETH alone</button>.`)
     : `About half is swapped to ${mode === 'eth' ? 'TAC' : 'ETH'} inside the pool, then both go into the farm.`;
   mount(el, html`
     ${has ? '' : facts}
@@ -9245,7 +9245,7 @@ function renderPrecision(el) {
       mount(ackBox, lossGate('pf-ackv', loss, 'deposit'));
       wireAck(ackBox, 'pf-ackv', loss, gateOk);
       if (wei > (x.bal ?? wei)) warn(rc, lowEth());
-      else if (tac > x.tac) warn(rc, html`Not enough TAC. <button class="link" type="button" data-go="buy">Buy TAC</button> or claim the airdrop${mode === 'pair' ? html`, or <button class="link" type="button" data-go="eth">farm with ETH alone</button>` : ''}.`);
+      else if (tac > x.tac) warn(rc, html`Not enough TAC. <button class="link" type="button" data-go="buy">Buy TAC</button> or <a href="/rewards/">claim the airdrop</a>${mode === 'pair' ? html`, or <button class="link" type="button" data-go="eth">farm with ETH alone</button>` : ''}.`);
       else if (loss >= 5) {
         // The price impact is the swap's cost at this depth, and the line above the fields says what is swapped: this is for when it is large.
         const other = mode === 'eth' ? x.tac > 0n : spendable > 0n;

@@ -228,7 +228,7 @@ export function mountFarm(host, ctx) {
     say(at, 'Confirm in your wallet.');
     const hash = await wallet.sendTx({ to: FARM, data: tx.data, value: tx.value || 0n, from });                 // the wallet refuses if its account has changed since
     say(at, `${label}… ${txLink(hash)}`);
-    const r = await wallet.receipt(hash);
+    const r = await wallet.receipt(hash).catch((e) => { throw Object.assign(e, { sentHash: hash }); });      // a send that has not confirmed is not one that failed
     if (r.status !== '0x1') throw new Error(`The transaction failed on chain (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`);
     return { hash, r };
   }
@@ -241,7 +241,13 @@ export function mountFarm(host, ctx) {
   const run = async (btn, at, f) => {
     if (F.busy) return;
     F.busy = true; btn.disabled = true; btn.setAttribute('aria-busy', 'true'); lock(true);
-    try { await f(); } catch (e) { say(at, `<span class="err">${errMsg(e)}</span>`); }
+    try { await f(); } catch (e) {
+      if (e?.sentHash) {
+        // The transaction is out and not yet seen: the amounts are spent with it, so a second press could send them again.
+        if (btn === go) { ethIn.value = ''; tacIn.value = ''; F.q = null; rc.hidden = true; }
+        say(at, `<span class="err">Sent, not confirmed yet.</span> ${txLink(e.sentHash)} Check it there before sending anything again.`);
+      } else say(at, `<span class="err">${errMsg(e)}</span>`);
+    }
     finally { F.busy = false; btn.removeAttribute('aria-busy'); lock(false); await refresh(); }
   };
   const lock = (b) => { [ethIn, tacIn].forEach((i) => { i.disabled = b; }); host.querySelectorAll('#fm-mode button, #fm-pct button, #fm-as button').forEach((x) => { x.disabled = b; }); };

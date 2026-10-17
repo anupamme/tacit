@@ -950,8 +950,8 @@ function renderFarm() {
   const icon = (k) => `<svg class="tk sm" aria-hidden="true"><use href="#tk-${k}"/></svg>`;
   const mine = key.unlocked && D.held?.pub === key.key.pubHex ? positionsIn(rows, D.held.positions) : new Map();
   const dp = (r) => (r.other === 'cBTC' ? 6 : 2), amt = (x, d) => (x < 0.01 && x > 0 ? 'under 0.01' : grp(x, d));
-  // The share of a pool that is farmed, whole except at the ends: a pool that is not quite all farmed is not "100%", nor one with some farmed "0%".
-  const farmedPct = (f) => { const p = f * 100; return p > 0 && p < 1 ? 'under 1%' : p >= 99.5 && p < 100 ? `${Math.floor(p * 10) / 10}%` : `${Math.round(p)}%`; };
+  // The share of a pool that is farmed, whole except at the ends: a pool with some farmed is not "0%", nor one a little short of all "100%".
+  const farmedPct = (f) => { const p = f * 100; return p > 0 && p < 1 ? 'under 1%' : p >= 99.5 && p < 99.95 ? `${p.toFixed(1)}%` : `${Math.round(p)}%`; };
   $('#pools').innerHTML = rows.map((r) => {
     const m = mine.get(r.pid);
     return `<a class="pf" href="/#farm/private-${r.pid}"><span class="nm"><span class="pairtk">${icon('teth')}${icon(r.other.toLowerCase())}</span>${esc(r.name)}${m ? '<span class="tag">yours</span>' : ''}</span><span class="rt num">${esc(aprTxt(r.apr))}<small>${r.perDay > 0 ? `${Math.round(r.perDay).toLocaleString('en-US')} TAC a day` : 'no reward now'}</small></span><i aria-hidden="true">→</i>`
