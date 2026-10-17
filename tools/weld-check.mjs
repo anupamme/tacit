@@ -3302,6 +3302,7 @@ await step('rewards', async () => {
   const out = async () => (await text(n.page, '#out')).replace(/\s+/g, ' ').trim();
   const settled = () => until(n.page, () => !!document.querySelector('#out .cu') && !document.querySelector('#out .cu:not([data-settled])') && !document.querySelector('#out .sk'), null, 120000);
   const read = (txt) => n.page.evaluate(() => navigator.clipboard.readText()).catch(() => null);
+  const primed = new Set(); n.page.on('request', (r) => { if (r.method() === 'POST' && /eth_chainId/.test(r.postData() || '')) primed.add(new URL(r.url()).host); });
   try {
     await n.page.goto(n.url + 'rewards/');
     await n.page.waitForSelector('#q', { timeout: 60000 });
@@ -3311,6 +3312,7 @@ await step('rewards', async () => {
     ok(['https://api.tacit.finance/', 'https://ethereum-rpc.publicnode.com/', 'https://eth.drpc.org/', 'https://1rpc.io/'].every((h) => pre.includes(h)), `rewards: the hosts it reads are connected while the person types (${pre.length} preconnect links)`);
     await until(n.page, () => true); await sleep(1200);
     ok(hits.board === 1, `rewards: the leaderboard is fetched once, before anything is asked (${hits.board})`);
+    ok(['ethereum-rpc.publicnode.com', 'eth.drpc.org', '1rpc.io'].every((h) => primed.has(h)), `rewards: the three Ethereum endpoints are warmed while the page is idle, so a lookup finds them connected (${[...primed]})`);
     await n.page.fill('#q', 'hello'); await n.page.click('#go');
     await until(n.page, () => /Enter a 0x address/.test(document.querySelector('#out')?.textContent || ''), null, 30000);
     ok((await n.page.getAttribute('#q', 'aria-invalid')) === 'true', 'rewards: something that is neither an address nor a name is told, and marked on the bar');
@@ -3329,6 +3331,8 @@ await step('rewards', async () => {
     await settled();
     const readsBefore = { ...hits };
     await n.page.fill('#q', 'z0r0z.wei');
+    await sleep(150);
+    ok((await out()) !== '', 'rewards: a pasted name starts at once, with no wait for more keys');
     await until(n.page, () => /^z0r0z\.wei/.test((document.querySelector('#out')?.textContent || '').trim()) && !document.querySelector('#out .sk'), null, 60000);
     await settled();
     let t = await out();
@@ -3363,7 +3367,10 @@ await step('rewards', async () => {
     await n.page.click('#recent [data-q="z0r0z.wei"]').catch(async () => { await n.page.evaluate(() => document.activeElement.blur()); await n.page.press('#q', 'Escape'); await n.page.click('#recent [data-q="z0r0z.wei"]'); });
     await until(n.page, () => /^z0r0z\.wei/.test((document.querySelector('#out')?.textContent || '').trim()) && !document.querySelector('#out .sk'), null, 60000);
     ok(true, 'rewards: a recent lookup answers when pressed');
-    await n.page.fill('#q', 'vitalik.eth');
+    await n.page.press('#q', 'Escape');
+    await n.page.type('#q', 'vitalik.eth', { delay: 12 });
+    await sleep(150);
+    ok((await out()) === '', 'rewards: a name typed key by key waits a moment after the last key, in case there is more of it');
     await until(n.page, () => /^vitalik\.eth/.test((document.querySelector('#out')?.textContent || '').trim()) && !document.querySelector('#out .sk'), null, 120000);
     t = await out();
     ok(/^vitalik\.eth\s*0xd8da…6045/.test(t), `rewards: an .eth name is read through ENS (${t.slice(0, 80)})`);

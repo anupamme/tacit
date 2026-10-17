@@ -80,6 +80,16 @@ function readPoints(address, signal) {
 }
 const readAirdrop = (address) => keep(`airdrop:${address}`, () => air.status(address));
 
+// The three Ethereum endpoints are asked a cheap question once the page is idle (and again on the bar's focus when that was a while ago), so
+// their connections are open and the browser has their CORS preflights cached by the time a lookup needs them: the first call to a host
+// otherwise costs two round trips, and a name is read from all three.
+let primedAt = 0;
+function prime() {
+  if (Date.now() - primedAt < 300e3) return;
+  primedAt = Date.now();
+  for (const u of MAINNET_RPCS) fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' }).catch(() => {});
+}
+
 // The leaderboard gives the rank. It is fetched once, as soon as the page is idle, and shared by every lookup.
 let boardP = null, boardAt = 0;
 function board() {
@@ -175,16 +185,20 @@ async function run(raw) {
   } finally { if (my === seq) go.disabled = false; }
 }
 
-let pause = 0;
+// A whole address starts at once. A whole name starts at once when it was pasted (the bar jumped by more than a key), and a moment after the
+// last key when it was typed, so a name still being written is not read.
+let pause = 0, was = 0;
 input.addEventListener('input', () => {
   clearTimeout(pause);
-  const v = input.value.trim();
+  const v = input.value.trim(), jumped = Math.abs(v.length - was) > 1;
+  was = v.length;
   showHints(v); showRecent();                                                   // what was looked up before is for an empty bar
   if (!v) { clear(); return; }
   if (v === last) return;
-  if (/^0x[0-9a-fA-F]{40}$/.test(v)) run(v);
+  if (/^0x[0-9a-fA-F]{40}$/.test(v) || (jumped && /^\S+\.(eth|wei|gwei)$/i.test(v))) run(v);
   else if (/^\S+\.(eth|wei|gwei)$/i.test(v)) pause = setTimeout(() => { if (input.value.trim() === v && v !== last) run(v); }, 450);
 });
+input.addEventListener('focus', prime);
 input.addEventListener('keydown', (e) => { if (e.key === 'Escape' && input.value) { e.preventDefault(); input.value = ''; clear(); } });
 document.addEventListener('keydown', (e) => { if (e.key === '/' && !/^(input|textarea|select)$/i.test(document.activeElement?.tagName || '') && !e.metaKey && !e.ctrlKey) { e.preventDefault(); input.focus(); input.select(); } });
 $('#f').addEventListener('submit', (e) => { e.preventDefault(); clearTimeout(pause); run(input.value); });
@@ -207,4 +221,4 @@ document.addEventListener('click', async (e) => {
 const asked = new URLSearchParams(location.search).get('q');
 if (asked) { input.value = asked; run(asked); } else { showRecent(); if (matchMedia('(pointer: fine)').matches) input.focus({ preventScroll: true }); }
 // The rank's board is fetched once the page has nothing else to do.
-(window.requestIdleCallback || ((f) => setTimeout(f, 300)))(() => { board(); });
+(window.requestIdleCallback || ((f) => setTimeout(f, 300)))(() => { prime(); board(); });
