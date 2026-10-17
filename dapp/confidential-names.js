@@ -303,6 +303,19 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
     return value === '' ? null : value;
   }
 
+  // The Ethereum address a name points to (its address record), or null when it has none: .wei and .gwei read resolve(id) on their own
+  // contract, .eth asks its resolver for addr(node) (direct, or through an ancestor's wildcard). Unlike a Tacit record this pays nothing, so it is
+  // for looking an account up, not for sending to; it is read the same way (quorum, off-chain refused) and never cached.
+  async function resolveAddress(name) {
+    const c = classify(name), node = namehash(c.name);
+    let out;
+    if (c.source === 'ENS') ({ out } = await ensQuery(c.name, addrCalldata(node)));
+    else out = await guardedCall({ to: c.contract, data: '0x' + SEL.resolveId + word(node) });
+    if (emptyOut(out)) return null;
+    const address = decodeAddressWord(out);
+    return address ? { name: c.name, source: c.source, address: address.toLowerCase() } : null;
+  }
+
   // Decoder for the record value: bech32m "tacit" address, version 0, carrying at least an Ethereum lane or a
   // pool lane (or both) — a record with neither pays nothing this file knows how to resolve. When present, the
   // Ethereum-lane key (33 bytes right after spend/scan) must be a valid secp256k1 point.
@@ -492,7 +505,7 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
 
   return {
     RECORD_KEY, namehash, normalizeName, classify, looksLikeName, dnsName, selector,
-    readRecord, resolveName, resolveRecipient, primaryName, findPrimary,
+    readRecord, resolveName, resolveAddress, resolveRecipient, primaryName, findPrimary,
     decodeTacitAddress, planPublish, simulatePublish, publish,
   };
 }

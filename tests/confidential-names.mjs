@@ -152,6 +152,41 @@ test('dns wire format', () => {
 });
 
 // ── WNS / GNS ──
+test('an account lookup: .wei and .gwei read resolve(id) on their contract, .eth the resolver\'s addr(node), and the answer is the address', async () => {
+  const wd = world(); const n = names(wd);
+  wd.wns.forward[w(n.namehash('alice.wei'))] = OWNER;
+  wd.gns.forward[w(n.namehash('bob.gwei'))] = OTHER;
+  wd.reg[w(n.namehash('carol.eth'))] = RES;
+  wd.res[RES] = { text: {}, addr: { [w(n.namehash('carol.eth'))]: OWNER }, name: {}, wild: false, offchain: false, setText: [] };
+  assert.deepStrictEqual({ ...await n.resolveAddress('Alice.wei') }, { name: 'alice.wei', source: 'WNS', address: OWNER });
+  assert.deepStrictEqual({ ...await n.resolveAddress('bob.gwei') }, { name: 'bob.gwei', source: 'GNS', address: OTHER });
+  assert.deepStrictEqual({ ...await n.resolveAddress('carol.eth') }, { name: 'carol.eth', source: 'ENS', address: OWNER });
+  let seen;
+  const n2 = makeConfidentialNames({ call: async (req) => { seen = req; return wd.call(req); }, secp, keccak256: keccak_256 });
+  await n2.resolveAddress('alice.wei');
+  assert.strictEqual(seen.data, '0x4f896d4f' + w(n.namehash('alice.wei')), 'resolve(uint256) with the namehash as the id');
+  assert.strictEqual(lc(seen.to), lc(WNS));
+  await n2.resolveAddress('bob.gwei');
+  assert.strictEqual(lc(seen.to), lc(GNS));
+});
+
+test('an account lookup: no address record is null, a wildcard resolver answers for a subname, off-chain and bad names are refused', async () => {
+  const wd = world(); const n = names(wd);
+  assert.strictEqual(await n.resolveAddress('nobody.wei'), null, 'an unregistered .wei name');
+  assert.strictEqual(await n.resolveAddress('nobody.gwei'), null, 'an unregistered .gwei name');
+  assert.strictEqual(await n.resolveAddress('nobody.eth'), null, 'an .eth name with no resolver');
+  wd.reg[w(n.namehash('eth'))] = RES2;
+  wd.res[RES2] = { text: {}, addr: { [w(n.namehash('sub.parent.eth'))]: OTHER }, name: {}, wild: true, offchain: false, setText: [] };
+  wd.reg[w(n.namehash('parent.eth'))] = RES2;
+  assert.strictEqual((await n.resolveAddress('sub.parent.eth')).address, OTHER, 'ENSIP-10: an ancestor\'s wildcard resolver answers');
+  wd.reg[w(n.namehash('gone.eth'))] = RES;
+  wd.res[RES] = { text: {}, addr: {}, name: {}, wild: false, offchain: true, setText: [] };
+  await rejects(n.resolveAddress('gone.eth'), 'offchain');
+  await rejects(n.resolveAddress('alice'), 'unsupported-name');
+  await rejects(n.resolveAddress('alice.com'), 'unsupported-name');
+  await rejects(n.resolveAddress('al ice.wei'), 'bad-name');
+});
+
 test('WNS and GNS text read: exact calldata, whitespace trimmed, nothing else changed', async () => {
   const wd = world(); const n = names(wd);
   wd.wns.text[w(n.namehash('alice.wei'))] = `  ${REF}\n`;

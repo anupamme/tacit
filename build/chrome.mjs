@@ -15,7 +15,7 @@ import { join } from 'node:path';
 
 // page → which link is the page it is ('' for none); a page not listed here does not wear the chrome
 export const CHROME_PAGES = {
-  'index.html': '', 'swap/index.html': 'swap', 'assets/index.html': 'assets', 'trade/index.html': 'assets', 'trade/teth/index.html': 'assets', 'trade/cbtc/index.html': 'assets',
+  'index.html': '', 'swap/index.html': 'swap', 'assets/index.html': 'assets', 'rewards/index.html': '', 'trade/index.html': 'assets', 'trade/teth/index.html': 'assets', 'trade/cbtc/index.html': 'assets',
   'vault/index.html': 'borrow', 'pay/index.html': 'pay', 'pay/eth/index.html': 'pay', 'tac/index.html': 'tac', 'tasks/index.html': 'tasks',
   'build/index.html': 'build', 'weld/stats/index.html': 'stats', 'weld/keeper/index.html': 'community', 'relay/index.html': '',
   'splitter/index.html': '', 'sats/index.html': '',

@@ -3282,6 +3282,61 @@ await step('ptsclaim', async () => {
     await rpc('evm_revert', [snap]);
   }
 });
+// The rewards page: one bar that takes an address or a .eth, .wei or .gwei name and answers with that account's airdrop and points. The points
+// service is stubbed (so its numbers are known); the names and the airdrop contract are read from the fork. z0r0z.wei points to an address the
+// airdrop lists.
+await step('rewards', async () => {
+  const LISTED = '0x1c0aa8ccd568d90d61659f060d1bfb1e6f855a20';
+  const n = await openPage({ account: A0, viewport: { width: 1280, height: 900 } });
+  await n.ctx.route(/api\.tacit\.finance\/(points|claim)\/0x/, (route) => {
+    const u = route.request().url(), a = (u.match(/0x[0-9a-fA-F]{40}/) || [''])[0].toLowerCase(), mine = a === LISTED;
+    if (/\/claim\//.test(u)) return json(route, mine ? { cumulativeAmount: '8000000000000000000', claimedWei: '5000000000000000000', unclaimedWei: '3000000000000000000', proof: ['0x' + '11'.repeat(32)] } : { cumulativeAmount: '0', claimedWei: '0', unclaimedWei: '0', proof: null });
+    return json(route, { address: a, points: mine ? 12345.6 : 0, deposit_count: mine ? 4 : 0, deposits: [] });
+  });
+  await n.ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => json(route, [{ address: hex40('1'), points: 9e9 }, { address: hex40('2'), points: 50000 }, { address: LISTED, points: 12345.6 }]));
+  const hex40 = (c) => '0x' + c.repeat(40);
+  const ask = async (text) => { await n.page.fill('#q', text); await n.page.click('#go'); };
+  const out = async () => (await text(n.page, '#out')).replace(/\s+/g, ' ').trim();
+  try {
+    await n.page.goto(n.url + 'rewards/');
+    await n.page.waitForSelector('#q', { timeout: 60000 });
+    const box = await n.page.evaluate(() => { const r = document.querySelector('.bar').getBoundingClientRect(), h = document.querySelector('#find-h').getBoundingClientRect(); return { bar: r.left + r.width / 2, h1: h.left + h.width / 2, vw: innerWidth }; });
+    ok(Math.abs(box.bar - box.vw / 2) < 3 && Math.abs(box.h1 - box.vw / 2) < 3 && !!(await n.page.$('header.top nav.sn')) && !!(await n.page.$('footer.sf')), `rewards: the bar and the title are centred, under the shared header and footer (${JSON.stringify(box)})`);
+    await ask('hello');
+    await until(n.page, () => /Enter a 0x address/.test(document.querySelector('#out')?.textContent || ''), null, 30000);
+    ok((await n.page.getAttribute('#q', 'aria-invalid')) === 'true', 'rewards: something that is neither an address nor a name is told, and marked on the bar');
+    await ask('0x1c0aA8ccd568d90d61659f060d1bfb1e6f855a20');
+    await until(n.page, () => /bad checksum/.test(document.querySelector('#out')?.textContent || ''), null, 30000);
+    ok(true, 'rewards: an address in mixed case that fails its checksum is refused');
+    await ask('z0r0z.wei');
+    await until(n.page, () => /Airdrop/.test(document.querySelector('#out')?.textContent || '') && /Points/.test(document.querySelector('#out')?.textContent || '') && !document.querySelector('#out .sk'), null, 120000);
+    let t = await out();
+    ok(/^z0r0z\.wei\s*0x1c0a…5a20/.test(t) && /Airdrop[\d.,]+\s*TAC/.test(t) && /(Claimed|Claim by|Closed)/.test(t), `rewards: a .wei name gives its address and the airdrop (${t.slice(0, 200)})`);
+    ok(/12,346\s*points/.test(t) && /Rank #3/.test(t) && /Earned on settled days\s*8 TAC/.test(t) && /Claimed\s*5 TAC/.test(t) && /To claim\s*[\d.,]+ TAC/.test(t), `rewards: and its points, its place on the board and what it has earned, claimed and can claim (${t.slice(t.indexOf('Points'), t.indexOf('Points') + 200)})`);
+    ok(!!(await n.page.$('#out a.act[href="/#points"]')) && !(await n.page.$('#out button')), 'rewards: a claim is a link into the dapp, not a button here');
+    ok((await n.page.evaluate(() => location.search)) === '?q=z0r0z.wei', 'rewards: the address bar carries the lookup, so it can be shared');
+    await ask('vitalik.eth');
+    await until(n.page, () => /^vitalik\.eth/.test((document.querySelector('#out')?.textContent || '').trim()) && !document.querySelector('#out .sk'), null, 120000);
+    t = await out();
+    ok(/^vitalik\.eth\s*0xd8da…6045/.test(t) && /No points yet/.test(t), `rewards: an .eth name is read through ENS (${t.slice(0, 120)})`);
+    await ask('alice.gwei');
+    await until(n.page, () => /^alice\.gwei/.test((document.querySelector('#out')?.textContent || '').trim()) && !document.querySelector('#out .sk'), null, 120000);
+    ok(/^alice\.gwei\s*0xdc10…f86a/.test(await out()), 'rewards: a .gwei name is read through GNS');
+    await ask('alice.wei');
+    await until(n.page, () => /has no address set/.test(document.querySelector('#out')?.textContent || ''), null, 120000);
+    ok(/^alice\.wei has no address set/.test(await out()), 'rewards: a name with no address says so');
+    await n.page.goto(n.url + 'rewards/?q=z0r0z.wei');
+    await until(n.page, () => /Airdrop/.test(document.querySelector('#out')?.textContent || '') && !document.querySelector('#out .sk'), null, 120000);
+    ok((await n.page.inputValue('#q')) === 'z0r0z.wei' && /^z0r0z\.wei/.test(await out()), 'rewards: a link with ?q= fills the bar and answers at once');
+    if (SHOTS) await n.page.screenshot({ path: join(SHOTS, 'weld-rewards.png'), fullPage: true });
+    await n.page.setViewportSize({ width: 390, height: 900 });
+    await sleep(500);
+    ok(!(await n.page.evaluate(() => document.documentElement.scrollWidth > innerWidth)), 'rewards: no sideways scroll at phone width');
+    if (SHOTS) await n.page.screenshot({ path: join(SHOTS, 'weld-rewards-phone.png'), fullPage: true });
+    if (n.errors.length) { fails++; console.log('FAIL rewards page errors: ' + n.errors.slice(0, 3).join(' | ')); }
+  } finally { await n.browser.close(); }
+});
+
 // Any address can be looked up on the points sheet by someone with no wallet: a bad entry is told, a good one is read like the account's own
 // (its points, ranks and what it can claim) and is never offered a Claim, since a claim pays the account that sends it.
 await step('ptslookup', async () => {
