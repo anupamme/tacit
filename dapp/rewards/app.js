@@ -143,22 +143,22 @@ const card = (title, body) => `<section class="card"><h2>${title}</h2>${body}</s
 // A number that counts up to itself when it appears (not for someone who asks for less motion); its text is final from the start.
 const figure = (n, text, unit) => `<p class="big num"><span class="cu" data-to="${n}" data-text="${esc(text)}">${esc(text)}</span><small>${unit}</small></p>`;
 // A claim is made here when a browser wallet is present; without one it is the link into the dapp.
-const claimUi = (kind, label, address, to, amount) => (wallet.available().length
-  ? `<button class="act" type="button" data-claim="${kind}" data-addr="${address}" data-amt="${esc(amount)}">${label}</button>`
+const claimUi = (kind, label, address, to, amount, wei) => (wallet.available().length
+  ? `<button class="act" type="button" data-claim="${kind}" data-addr="${address}" data-amt="${esc(amount)}" data-wei="${wei}">${label}</button>`
   : `<a class="act" href="${to}">${label}</a>`);
 function airdropCard(s, address) {
   if (s.reason === 'error') return card('Airdrop', '<p class="st warn">Could not read the airdrop just now. Look up again in a moment.</p>');
   if (!s.eligible) return card('Airdrop', '<p class="big">—</p><p class="st mute">Not on the airdrop list.</p>');
   const left = Math.ceil((s.deadline - Date.now() / 1000) / 86400), by = day(s.deadline);
   const [cls, line] = s.claimed ? ['ok', 'Claimed'] : s.claimable ? [left <= 7 ? 'warn' : 'ok', `Claim by ${by} · ${left} day${left === 1 ? '' : 's'} left`] : s.reason === 'closed' ? ['mute', `Closed ${by}`] : ['warn', s.message];
-  return card('Airdrop', `${figure(Number(s.amountTac), tac(s.amountWei), 'TAC')}<p class="st ${cls}">${esc(line)}</p>${s.claimable ? claimUi('airdrop', `Claim ${tac(s.amountWei)} TAC`, address, '/#airdrop', tac(s.amountWei)) : ''}`);
+  return card('Airdrop', `${figure(Number(s.amountTac), tac(s.amountWei), 'TAC')}<p class="st ${cls}">${esc(line)}</p>${s.claimable ? claimUi('airdrop', `Claim ${tac(s.amountWei)} TAC`, address, '/#airdrop', tac(s.amountWei), s.amountWei) : ''}`);
 }
 function pointsCard(p, address) {
   if (p.error) return card('Points', '<p class="st warn">Could not read points just now. Look up again in a moment.</p>');
   const rows = p.earned > 0n ? [['Earned on settled days', `${tac(p.earned)} TAC`], ['Claimed', `${tac(p.claimed)} TAC`], ['To claim', p.unread ? 'not read' : `${tac(p.owed)} TAC`]] : [];
   return card('Points', `${figure(Math.round(p.points), Math.round(p.points).toLocaleString('en-US'), 'points')}<p class="st mute" id="rank">${p.points <= 0 ? 'No points yet.' : ''}</p>`
     + (rows.length ? `<dl class="kv">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd class="num">${v}</dd></div>`).join('')}</dl>` : '')
-    + (p.owed > 0n ? claimUi('points', `Claim ${tac(p.owed)} TAC`, address, '/#points', tac(p.owed)) : ''));
+    + (p.owed > 0n ? claimUi('points', `Claim ${tac(p.owed)} TAC`, address, '/#points', tac(p.owed), p.owed) : ''));
 }
 const whoLine = (who, q) => `<p class="who"><b>${esc(who.name || short(who.address))}</b>${who.name ? `<span>${short(who.address)}</span>` : ''}</p>
   <p class="acts"><button type="button" data-copy="${who.address}">Copy address</button><a href="https://etherscan.io/address/${who.address}" target="_blank" rel="noopener noreferrer">Etherscan ↗</a><button type="button" data-copy="${esc(`${location.origin}/rewards/?q=${encodeURIComponent(q)}`)}" data-said="Link copied">Copy link</button></p>
@@ -264,6 +264,7 @@ async function claim(kind, address, btn) {
     $('#done')?.querySelector('.note-claim')?.remove();
     $('#done')?.insertAdjacentHTML('beforeend', `<p class="done"><b>Claimed ${esc(amt)} TAC</b>${txLink(hash)}</p>`);
     said(`Claimed ${amt} TAC`); react('up', 4200); confetti();
+    farmClaimed(BigInt(btn.dataset.wei || 0));
     kept.delete(`airdrop:${address}`); kept.delete(`points:${address}`);
     await sleep(1500);
     const [a, p] = await Promise.all([readAirdrop(address), readPoints(address)]);
@@ -273,6 +274,60 @@ async function claim(kind, address, btn) {
     say(`<p class="note-claim st ${e instanceof UserStopped ? 'mute' : 'warn'}">${esc(e.message || 'The claim did not go through.')}${hash ? ` · ${txLink(hash)}` : ''}</p>`);
     btn.textContent = label;
   } finally { claiming = false; if (btn.isConnected) btn.disabled = false; }
+}
+
+// ── putting TAC to work: the Precision farm, in a card under the result for the account the wallet is on ──
+// The card appears when that account holds TAC (or has just claimed some). Opening it loads the farm module the swap and trade pages use, and
+// fills in the largest TAC + ETH pair the wallet can make, so what is left is one button; after a claim it opens by itself with the claimed
+// amount. All of the farm's checks are the module's: the deposit is quoted by the lens, tested before the wallet is asked, and a price impact
+// is shown (and confirmed when large).
+const TAC = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279', ETH_USD = '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419';
+const farm = $('#farm'), farmSum = $('#farm-s'), farmNote = $('#farm-note');
+let farmUi = null, farmFor = null, farmSeq = 0, ethUsd = 0;
+const eth4 = (wei) => (Number(wei) / 1e18).toLocaleString('en-US', { maximumSignificantDigits: 3 });
+const wordOf = (a) => a.slice(2).toLowerCase().padStart(64, '0');
+function mountedFarm() {
+  return farmUi ||= Promise.all([import('/trade/farm.js?cb=3a32fe43'), import('/trade/util.js?cb=c3dc39b3'), import('/evm-trade-venues.js?cb=a08631ce'),
+    call({ to: ETH_USD, data: '0xfeaf968c' }).then((r) => { ethUsd = Number(BigInt(`0x${r.slice(66, 130)}`)) / 1e8; }, () => {})])
+    .then(([{ mountFarm }, U, E]) => {
+      const ethCall = (to, data, block = 'latest', o = {}) => U.rpc('eth_call', [{ to, data, ...(o.from ? { from: o.from } : {}), ...(o.value ? { value: `0x${BigInt(o.value).toString(16)}` } : {}) }, block]);
+      const batch = async (calls) => E._internal.decAggregate3(await ethCall(E.MULTICALL3, E._internal.encAggregate3(calls)), calls.length);
+      const done = () => { react('up', 3000); said('Farming'); showFarm(); };
+      return mountFarm($('#farm-host'), { ethCall, batch, rpc: U.rpc, api: U.api, wallet, W, connect: () => connect.connect(), fmtUnits: U.fmtUnits, parseUnits: U.parseUnits, esc, usd: U.usd, ethUsd: () => ethUsd, txLink, onDone: done });
+    })
+    .catch((e) => { farmUi = null; throw e; });
+}
+// Shown for the wallet's own account when it holds TAC (`extra`: a claim that may not be in the balance read yet).
+async function showFarm(extra = 0n) {
+  const mine = W.account ? W.account.toLowerCase() : null, my = ++farmSeq;
+  if (!mine || out.dataset.address !== mine) { farm.hidden = true; farm.open = false; return; }
+  const held = await call({ to: TAC, data: `0x70a08231${wordOf(mine)}` }).then(BigInt, () => 0n);
+  if (my !== farmSeq || out.dataset.address !== mine || (W.account || '').toLowerCase() !== mine) return;
+  const shown = held > extra ? held : extra;
+  farm.hidden = !(shown > 0n); if (farm.hidden) farm.open = false;
+  farmSum.textContent = shown > 0n ? `${tac(shown)} TAC` : '';
+}
+// The form is filled once the module has the wallet's balances; what went in, and what could not, is said in one line.
+async function openFarm() {
+  const want = farmFor; farmFor = null;
+  farmNote.textContent = '';
+  try {
+    const f = await mountedFarm(), r = await f.pairWith(want, { settle: want != null });
+    if (!r) farmNote.textContent = want != null ? 'Your TAC has not shown in this wallet yet. Close this and open it again in a moment.' : 'There is no TAC in this wallet to farm.';
+    else if (r.mode === 'tac') farmNote.textContent = 'There is no spare ETH in this wallet, so the TAC goes in alone: the pool swaps half of it to ETH first.';
+    else if (r.left > 0n) farmNote.textContent = `Your ETH pairs with ${tac(r.tac)} of the ${tac(r.all)} TAC. All of it needs ${eth4(r.need)} ETH.`;
+  } catch { $('#farm-host').innerHTML = '<p class="note err">The farm could not be loaded just now. <a href="/swap/#earn">Open it on the swap page</a>.</p>'; }
+}
+farm.addEventListener('toggle', () => { if (farm.open) openFarm(); });
+$('#farm-host').addEventListener('input', () => { farmNote.textContent = ''; });
+// A claim has landed: the card opens with it, and comes into view.
+function farmClaimed(wei) {
+  farmFor = wei > 0n ? wei : null;
+  showFarm(wei).then(() => {
+    if (farm.hidden) return;
+    if (farm.open) openFarm(); else farm.open = true;                                // opening it fills it
+    setTimeout(() => farm.scrollIntoView({ behavior: calm ? 'auto' : 'smooth', block: 'nearest' }), 350);
+  });
 }
 
 // ── the wallet's part: a notice, a line under the result, what connecting does, switching accounts ──
@@ -300,7 +355,7 @@ let seenAccount = null;
 function onWallet() {
   const acct = W.account ? W.account.toLowerCase() : null, fresh = !!acct && acct !== seenAccount;
   seenAccount = acct;
-  paintWallet();
+  paintWallet(); showFarm(); farmUi?.then((f) => f.refresh()).catch(() => {});
   if (fresh) { if (!input.value.trim() && !out.innerHTML) lookMine(); else react('wink', 1600); }          // connected with nothing asked: its own rewards; else a wink
 }
 // The wallet's account chooser (EIP-2255); a wallet app on a phone is switched in the app.
@@ -328,7 +383,7 @@ function showHints(v) {
 
 let seq = 0, ctl = null, last = '';
 function clear() {
-  seq++; ctl?.abort(); last = ''; out.innerHTML = ''; delete out.dataset.address; hints.innerHTML = ''; go.disabled = false;
+  seq++; ctl?.abort(); last = ''; out.innerHTML = ''; delete out.dataset.address; showFarm(); hints.innerHTML = ''; go.disabled = false;
   input.setAttribute('aria-invalid', 'false');
   react('idle');
   try { history.replaceState(null, '', location.pathname); } catch { /* the address bar is a convenience */ }
@@ -339,7 +394,7 @@ async function run(raw) {
   ctl?.abort(); ctl = new AbortController();
   input.setAttribute('aria-invalid', 'false');
   if (!q) { clear(); return; }
-  last = q; hints.innerHTML = ''; recent.innerHTML = ''; go.disabled = true; out.innerHTML = SKELETON; delete out.dataset.address;
+  last = q; hints.innerHTML = ''; recent.innerHTML = ''; go.disabled = true; out.innerHTML = SKELETON; delete out.dataset.address; showFarm();
   react('think');
   try {
     const who = await identify(q);
@@ -347,7 +402,7 @@ async function run(raw) {
     remember(q);
     out.dataset.address = who.address;
     out.innerHTML = `${whoLine(who, q)}<div id="c-air">${SKEL('Airdrop')}</div><div id="c-pts">${SKEL('Points')}</div>`;
-    paintWallet();
+    paintWallet(); showFarm();
     try { history.replaceState(null, '', `?q=${encodeURIComponent(q)}`); } catch { /* the address bar is a convenience */ }
     const a = readAirdrop(who.address), p = readPoints(who.address, ctl.signal);
     // The ninja answers once something is claimable (thumbs up at once), or once both are read and nothing is (thumbs down).

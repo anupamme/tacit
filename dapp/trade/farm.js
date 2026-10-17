@@ -15,6 +15,7 @@ const SEL = {
 };
 const REWARD_PAID = '0xe2403640ba68fed3a2f88b7557551d1993f84b99bb10ff833f0cf8db0c5e0486';
 const GAS = 3n * 10n ** 15n;                                                     // ETH kept back for the network fee by Max
+const FEE_MIN = 10n ** 15n;                                                      // under this a wallet cannot pay for any of the farm's transactions
 const strip = (h) => String(h).replace(/^0x/, '');
 const word = (v) => BigInt(v).toString(16).padStart(64, '0');
 const addr = (a) => strip(a).toLowerCase().padStart(64, '0');
@@ -158,6 +159,7 @@ export function mountFarm(host, ctx) {
     go.disabled = false;
     if (!W.account) { go.textContent = 'Connect wallet'; return; }
     go.textContent = { eth: 'Farm with ETH', tac: 'Farm with TAC', pair: 'Farm with ETH + TAC' }[F.mode];
+    if (x && mineX(x) && x.bal != null && x.bal < FEE_MIN) { go.textContent = 'Add ETH for the network fee'; go.disabled = true; return; }
     const ack = $('#fm-ack');
     go.disabled = !q || q.over || !x || (q.loss >= 15 && !(ack && ack.checked));
   }
@@ -314,6 +316,32 @@ export function mountFarm(host, ctx) {
     } catch { if (my === F.wseq && el) { el.hidden = false; el.innerHTML = '<p class="note err">The withdrawal could not be previewed just now.</p>'; } }
   }
 
+  // The largest pair the wallet can make with up to `tac` of TAC (all it holds when none is named): ETH at the pool's ratio, each side within its
+  // balance, filled in and quoted, so the person has one button to press. With no ETH to spare it is TAC alone (the pool swaps half). `settle`
+  // is for a balance that has only just changed (a claim): the read is repeated while the node asked still shows less TAC than expected.
+  // Returns what went in, what is left out (of `all`, which needs `need` of ETH), or null when there is nothing to farm.
+  async function pairWith(tac = null, { settle = false } = {}) {
+    if (F.busy || !W.account) return null;
+    for (let i = 0; i < (settle ? 5 : 1); i++) {
+      await read().catch(() => {});
+      if (!settle || (mineX(F.x) && F.x.tac >= (tac || 1n))) break;
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    const x = F.x;
+    renderStats();                                                                   // the read above may be the one that the page's own refresh gave way to
+    if (!mineX(x) || !(x.tac > 0n)) return null;
+    let use = tac && tac < x.tac ? tac : x.tac, wei = up(ethFor(use, x), 6);
+    const all = use, need = wei;
+    const room = x.bal != null ? cut(spendEth(x), 6) : wei;
+    if (wei > room) { wei = room; use = wei > 0n ? capTac(up(tacFor(wei, x), 2), x) : use; }
+    const pair = wei > 0n;
+    F.mode = pair ? 'pair' : 'tac'; F.q = null; F.ackKey = null;
+    ethIn.value = pair ? plain(wei) : ''; tacIn.value = plain(use);
+    renderForm();
+    await requote();
+    return { mode: F.mode, tac: use, wei: pair ? wei : 0n, left: all > use ? all - use : 0n, all, need };
+  }
+
   let t = 0;
   ethIn.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => requote(ethIn), 300); });
   tacIn.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => requote(tacIn), 300); });
@@ -325,5 +353,5 @@ export function mountFarm(host, ctx) {
     if (!F.busy) { renderPos(); if (ethIn.value || tacIn.value) requote(); }
   }
   renderForm(); refresh();
-  return { refresh, paint: renderStats, busy: () => F.busy };
+  return { refresh, paint: renderStats, busy: () => F.busy, pairWith };
 }

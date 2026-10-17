@@ -3446,8 +3446,9 @@ await step('rewardsclaim', async () => {
       ok(!!(await n.page.$('#c-air button[data-claim="airdrop"]')) && !(await n.page.$('#c-air a.act')), 'rewardsclaim: with no browser wallet the claim is still a button (it pairs a wallet app through WalletConnect)');
     } finally { await n.browser.close(); }
   }
-  // The airdrop, claimed by its account.
+  // The airdrop, claimed by its account (and taken back on the fork afterwards, so the farm check that follows can claim it too).
   {
+    const snapAir = await rpc('evm_snapshot');
     const n = await openPage({ account: LISTED, viewport: { width: 1000, height: 900 } });
     await stubs(n.ctx);
     try {
@@ -3467,7 +3468,7 @@ await step('rewardsclaim', async () => {
       ok(true, 'rewardsclaim: the airdrop card is read again and says claimed, with nothing left to press');
       if (SHOTS) await n.page.screenshot({ path: join(SHOTS, 'weld-rewardsclaim.png') });
       if (n.errors.length) { fails++; console.log('FAIL rewardsclaim page errors: ' + n.errors.slice(0, 3).join(' | ')); }
-    } finally { await n.browser.close(); }
+    } finally { await n.browser.close(); await rpc('evm_revert', [snapAir]); }
   }
   // Points, with the service's real proof (the live service is read, so this runs only for an address that has some to claim).
   const who = process.env.PTS_ACCOUNT;
@@ -3566,6 +3567,109 @@ await step('rewardsuses', async () => {
     await land('pay/#tac', () => /pay/i.test(document.title) && location.hash === '#tac', '/pay/#tac is the pay page on TAC');
     await land('tac/', () => /tac/i.test(document.title), '/tac/ is the Bitcoin-native shielded TAC page');
   } finally { await n.browser.close(); }
+});
+
+// Farming what was claimed, on the rewards page. The card is there only for the wallet's own account and only once it holds TAC; a claim opens it
+// with the claimed TAC and the ETH that pairs with it already in, so one press farms it. With less ETH than that the pair is what the ETH covers
+// (and the page says so), with none to spare the TAC goes in alone, and under the network fee the button says to add ETH.
+await step('rewardsfarm', async () => {
+  const LISTED = '0x1c0aa8ccd568d90d61659f060d1bfb1e6f855a20', E18 = 10n ** 18n, stakedOf = async (a) => BigInt(await rpc('eth_call', [{ to: FARM, data: '0x98807d84' + addrWord(a) }, 'latest']));
+  const stubs = async (ctx) => {
+    await ctx.route(/api\.tacit\.finance\/(points|claim)\/0x/, (route) => {
+      const u = route.request().url(), a = (u.match(/0x[0-9a-fA-F]{40}/) || [''])[0].toLowerCase();
+      if (/\/claim\//.test(u)) return json(route, { cumulativeAmount: '0', claimedWei: '0', unclaimedWei: '0', proof: null });
+      return json(route, { address: a, points: 0, deposit_count: 0, deposits: [] });
+    });
+    await ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => json(route, []));
+    await ctx.route(/api\.tacit\.finance\/farm\/program/, (route) => json(route, {}));
+  };
+  const choose = (page) => page.waitForSelector('.bsheet .way', { timeout: 8000 }).then(() => page.click('.bsheet .way:has-text("Browser wallet")')).catch(() => {});
+  const eth = (v) => rpc('anvil_setBalance', [LISTED, '0x' + BigInt(v).toString(16)]);
+  const view = async (account, q) => { const n = await openPage({ account, viewport: { width: 1000, height: 900 } }); await stubs(n.ctx); await n.page.goto(n.url + 'rewards/?q=' + q); return n; };
+  const hidden = (page) => page.evaluate(() => document.querySelector('#farm').hidden);
+  // A page opened afresh has no wallet connected; the chip connects the browser's.
+  const plug = async (page) => { choose(page); await page.click('#wallet-chip'); await until(page, () => /0x[0-9a-f]{4}/i.test(document.querySelector('#wallet-label')?.textContent || ''), null, 30000); };
+  await rpc('anvil_impersonateAccount', [LISTED]);
+  const snap = await rpc('evm_snapshot');
+  // The farm spends the TAC it is approved for; the permit that otherwise stands in for the approval is signed by an account that has a key.
+  const approve = () => rpc('eth_sendTransaction', [{ from: LISTED, to: TAC, data: '0x095ea7b3' + addrWord(FARM) + 'f'.repeat(64) }]);
+  const claimed = async (n) => {
+    await n.page.waitForSelector('[data-claim="airdrop"]', { timeout: 120000 });
+    choose(n.page); await n.page.click('[data-claim="airdrop"]');
+    await until(n.page, () => !!document.querySelector('#done .done a[href^="https://etherscan.io/tx/0x"]'), null, 180000);
+  };
+  // 1. With ETH to spare: a claim opens the card with the whole claim and its ETH, and one press farms it.
+  {
+    await eth(1000n * E18); await approve();
+    const n = await view(LISTED, LISTED);
+    try {
+      await n.page.waitForSelector('[data-claim="airdrop"]', { timeout: 120000 });
+      ok(await hidden(n.page), 'rewardsfarm: with no TAC in the wallet there is no farm card');
+      await claimed(n);
+      await until(n.page, () => !document.querySelector('#farm').hidden && document.querySelector('#farm').open && /Deposit/.test(document.querySelector('#fm-rcpt')?.textContent || '') && !document.querySelector('#fm-go').disabled, null, 180000);
+      const got = await tacOf(LISTED), tacIn = Number(await n.page.inputValue('#fm-tacamt')), ethIn = Number(await n.page.inputValue('#fm-amt')), held = Number(got / 10n ** 14n) / 1e4;
+      ok(Math.abs(tacIn - 216176.41) < 0.011 && ethIn > 0 && (await n.page.getAttribute('#fm-mode [data-fm="pair"]', 'aria-pressed')) === 'true', `rewardsfarm: a claim opens the farm card on ETH + TAC with the claimed TAC in (${tacIn} TAC with ${ethIn} ETH)`);
+      ok(Math.abs(Number((await text(n.page, '#farm-s')).replace(/[^\d.]/g, '')) - held) < 0.011 && /Farm with ETH \+ TAC/.test(await text(n.page, '#fm-go')) && !(await text(n.page, '#farm-note')), `rewardsfarm: its summary names the TAC held, its one button says what it does, and there is nothing to warn of (${(await text(n.page, '#farm-s')).trim()})`);
+      if (SHOTS) await n.page.screenshot({ path: join(SHOTS, 'weld-rewardsfarm.png'), fullPage: true });
+      const sent = walletTxs.length;
+      await n.page.click('#fm-go');
+      await until(n.page, () => /Farming\./.test(document.querySelector('#fm-status')?.textContent || '') || !!document.querySelector('#fm-status .err'), null, 240000);
+      const tx = walletTxs[walletTxs.length - 1], left = await tacOf(LISTED);
+      ok(walletTxs.length === sent + 1 && String(tx.to).toLowerCase() === FARM.toLowerCase() && (await stakedOf(LISTED)) > 0n && left < 5n * E18, `rewardsfarm: one press farms the pair in one transaction (${(await text(n.page, '#fm-status')).slice(0, 60)}; ${Number(left / 10n ** 16n) / 100} TAC left)`);
+      await until(n.page, () => /Your stake/.test(document.querySelector('#fm-pos')?.textContent || ''), null, 120000);
+      ok(true, 'rewardsfarm: and the stake is shown under the form');
+      if (n.errors.length) { fails++; console.log('FAIL rewardsfarm page errors: ' + n.errors.slice(0, 3).join(' | ')); }
+    } finally { await n.browser.close(); }
+    await rpc('evm_revert', [snap]);
+  }
+  // 2. With less ETH than the claim pairs with: the pair is what the ETH covers, and the page says so.
+  const snap2 = await rpc('evm_snapshot');
+  {
+    await eth(5n * 10n ** 16n); await approve();
+    const n = await view(LISTED, LISTED);
+    try {
+      await claimed(n);
+      await until(n.page, () => !document.querySelector('#farm').hidden && document.querySelector('#farm').open && /Deposit/.test(document.querySelector('#fm-rcpt')?.textContent || ''), null, 180000);
+      const ethIn = Number(await n.page.inputValue('#fm-amt')), tacIn = Number(await n.page.inputValue('#fm-tacamt')), note = (await text(n.page, '#farm-note')).replace(/\s+/g, ' ');
+      ok(ethIn > 0.04 && ethIn <= 0.047 && tacIn < 216176 && /^Your ETH pairs with [\d,.]+ of the 216,176\.41 TAC\. All of it needs [\d,.]+ ETH\.$/.test(note) && !(await n.page.$eval('#fm-go', (b) => b.disabled)), `rewardsfarm: with 0.05 ETH the pair is what it covers, within the fee kept back, and the page says so (${ethIn} ETH, ${tacIn} TAC; ${note.slice(0, 90)})`);
+      await n.page.fill('#fm-amt', '0.01');
+      await until(n.page, () => !document.querySelector('#farm-note').textContent, null, 10000);
+      ok(true, 'rewardsfarm: and the note goes once the amounts are changed');
+    } finally { await n.browser.close(); }
+    // 3. Back later with the TAC held: the card is closed with the amount named; with no spare ETH the TAC goes in alone; under the fee, ETH is asked for.
+    await eth(2n * 10n ** 15n);
+    let m = await view(LISTED, LISTED);
+    try {
+      await m.page.waitForSelector('#c-air .st', { timeout: 120000 }); await plug(m.page);
+      const held = Number((await tacOf(LISTED)) / 10n ** 14n) / 1e4;
+      await until(m.page, (h) => !document.querySelector('#farm').hidden && Math.abs(Number((document.querySelector('#farm-s')?.textContent || '').replace(/[^\d.]/g, '')) - h) < 0.011, held, 120000);
+      ok(!(await m.page.evaluate(() => document.querySelector('#farm').open)), 'rewardsfarm: back on the page the card is there for the TAC held, closed until it is wanted');
+      await m.page.click('#farm > summary');
+      await until(m.page, () => /Farm with TAC/.test(document.querySelector('#fm-go')?.textContent || '') && /Earns about/.test(document.querySelector('#fm-rcpt')?.textContent || ''), null, 180000);
+      // A claim this large moves the pool a lot when half of it is swapped, so the module asks for the loss to be accepted before the button works.
+      const ack = await m.page.$('#fm-ack'), off = await m.page.$eval('#fm-go', (b) => b.disabled), rcpt = (await text(m.page, '#fm-rcpt')).replace(/\s+/g, ' ');
+      ok(/no spare ETH/.test(await text(m.page, '#farm-note')) && (ack ? off && /Swap price impact\s*\d+%/.test(rcpt) : !off), `rewardsfarm: with no spare ETH the TAC goes in alone, the page says why, and its price impact is shown (${rcpt.slice(0, 100)})`);
+    } finally { await m.browser.close(); }
+    await eth(4n * 10n ** 14n);
+    m = await view(LISTED, LISTED);
+    try {
+      await m.page.waitForSelector('#c-air .st', { timeout: 120000 }); await plug(m.page);
+      await until(m.page, () => !document.querySelector('#farm').hidden, null, 120000);
+      await m.page.click('#farm > summary');
+      await until(m.page, () => /Add ETH for the network fee/.test(document.querySelector('#fm-go')?.textContent || ''), null, 180000);
+      ok(await m.page.$eval('#fm-go', (b) => b.disabled), 'rewardsfarm: under the network fee the button asks for ETH and cannot be pressed');
+    } finally { await m.browser.close(); }
+    // 4. Another account's wallet looking at this one sees no farm: it would farm its own TAC, not this account's.
+    await eth(E18);
+    const o = await view(A0, LISTED);
+    try {
+      await o.page.waitForSelector('#c-air .st', { timeout: 120000 }); await plug(o.page);
+      await until(o.page, () => /Your wallet is on 0xf39f/.test(document.querySelector('#wl')?.textContent || ''), null, 30000);
+      await sleep(1500);
+      ok(await hidden(o.page), 'rewardsfarm: a wallet on another account is offered no farm for this one');
+    } finally { await o.browser.close(); }
+  }
+  await rpc('evm_revert', [snap2]);
 });
 
 // Any address can be looked up on the points sheet by someone with no wallet: a bad entry is told, a good one is read like the account's own
