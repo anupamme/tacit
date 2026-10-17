@@ -324,4 +324,24 @@ const routeOp = { asset0: 'aa', assetFinal: 'bb', hops: [{ reserveAPre: '1000', 
   ok('sealed: queued without an op, deduped by ciphertext, handed to the relay as sealed, ciphertext dropped once settled, resendable once failed');
 }
 
+// ───────────────── 17. a failed job goes back in line as it was ─────────────────
+{
+  const q = makeConfidentialSettler({ storage: freshStore(), hash, now, sleep: instantSleep });
+  const a = await q.submitJob({ type: 'transfer', op: { chainBinding: '0xcb', spendRoot: '0xr', fee: 0, n: 'rq' }, memos: ['0x01'] });
+  assert.deepStrictEqual(await q.requeueJob(a.jobId), { ok: false, error: 'the job is pending, not failed' });
+  await q.nextJob();
+  await q.ackJob(a.jobId, { error: 'prove failed: the binary could not run' });
+  assert.strictEqual((await q.jobStatus(a.jobId)).status, 'failed');
+  const r = await q.requeueJob(a.jobId);
+  assert.strictEqual(r.ok, true); assert.strictEqual(r.status, 'pending'); assert.strictEqual(r.type, 'transfer');
+  const st = await q.jobStatus(a.jobId);
+  assert.strictEqual(st.status, 'pending'); assert.strictEqual(st.error, null);
+  const job = await q.nextJob();
+  assert.strictEqual(job.jobId, a.jobId); assert.strictEqual(job.op.n, 'rq', 'the op it kept is handed out again');
+  await q.ackJob(a.jobId, { txHash: '0xtx', lane: 'board' });
+  assert.deepStrictEqual(await q.requeueJob(a.jobId), { ok: false, error: 'the job is settled, not failed' });
+  assert.deepStrictEqual(await q.requeueJob('0x' + 'ee'.repeat(32)), { ok: false, error: 'unknown job' });
+  ok('requeue: a failed job goes back to pending with its op, is handed out again, and nothing else can be requeued');
+}
+
 console.log(`\n${n} confidential-settle checks passed.`);

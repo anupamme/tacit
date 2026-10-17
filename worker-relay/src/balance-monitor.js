@@ -303,6 +303,11 @@ async function checkProverKinds() {
     // The prover network credit (reported by the settle service's replenish run): proving stops when it is spent.
     const low = h?.prover_credit ? creditLevel(h.prover_credit, { warn: CFG.proveCreditWarn, critical: CFG.proveCreditCritical }) : null;
     if (low) await alert(low, `prover credit is ${h.prover_credit} PROVE, under ${low === 'critical' ? CFG.proveCreditCritical : CFG.proveCreditWarn}: network proofs stop when it reaches zero. Fund the settle wallet (replenish converts ETH above its gas float to PROVE) or deposit PROVE`, { kind, prover_credit: h.prover_credit });
+    // The settle relay counts the proofs that failed in the last hour on its note (settle-relay.js withFailures): a relay that is up
+    // and failing its jobs (the board gone and the network refusing, a binary that cannot read its input) is otherwise healthy here.
+    const fails = /(\d+) prove failures? in the last hour/.exec(note);
+    if (fails && Number(fails[1]) >= CFG.proveFailuresCritical) await alert('critical', `${kind} relay: ${fails[1]} proofs failed in the last hour — the prover board and the network fallback are both failing its jobs; read the tacit-settle log`, { kind, note });
+    else if (fails && Number(fails[1]) >= CFG.proveFailuresWarn) await alert('warning', `${kind} relay: ${fails[1]} proofs failed in the last hour; read the tacit-settle log`, { kind, note });
     if (h?.healthy === false) {
       await alert('critical', `${kind} prover unhealthy: ${(h.reasons || []).join('; ') || 'no heartbeat'}`, { kind, ...h });
     } else if (/^error\b|\bSTALL\b/i.test(note)) {

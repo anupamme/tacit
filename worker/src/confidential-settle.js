@@ -475,6 +475,22 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
   const ackView = (j) => ({ ok: true, status: j.status, txHash: j.txHash, publicValues: j.publicValues, proof: j.proof, activateTx: j.activateTx || null });
 
   function ackJob(jobId, ack = {}) { return exclusive(() => ackJobLocked(jobId, ack)); }
+  // A failed job sent again as it was, for a failure that was the relay's and not the op's (a prover that could not run, a
+  // board that was away): back to pending with the op or sealed input it kept, so the relay takes it once more and a page that
+  // asks after it finds it proving, then proven or settled. A job in any other state, or one that kept nothing to prove, is left.
+  async function requeueJob(jobId) {
+    return exclusive(async () => {
+      const j = await storage.getJob(jobId);
+      if (!j) return { ok: false, error: 'unknown job' };
+      if (j.status !== 'failed') return { ok: false, error: `the job is ${j.status}, not failed` };
+      if (!j.op && !(j.sealed && j.sealed.ct)) return { ok: false, error: 'the job keeps nothing to prove again' };
+      Object.assign(j, { status: 'pending', claimedAt: 0, error: null, txHash: null, broadcastHashes: null, requeuedAt: clock() });
+      await storage.putJob(jobId, j);
+      const pend = await storage.getPending();
+      if (!pend.includes(jobId)) { pend.push(jobId); await storage.putPending(pend); }
+      return { ok: true, jobId, status: 'pending', type: j.type, mode: j.mode || 'settle' };
+    });
+  }
 
   // `lane`: where the settle's proof was made, as the relay reports it ('board': Tacit's own machine, the input never left
   // Tacit; 'network-private' or 'network-public': the prover network, with the input readable by the whitelisted prover
@@ -614,7 +630,7 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
     return n;
   }
 
-  return { submitJob, nextJob, nextBatch, ackJob, jobStatus, pendingCount, queueStats, jobIdOf, openList, nextOpen, landedJob };
+  return { submitJob, nextJob, nextBatch, ackJob, requeueJob, jobStatus, pendingCount, queueStats, jobIdOf, openList, nextOpen, landedJob };
 }
 
 // KV-backed wiring for the worker runtime. KV keys: cps:pending (id[]), cps:open (id[]), cps:job:<id> (job).

@@ -200,6 +200,9 @@ export const CFG = {
   // The monitor warns when no board worker has polled for this long (Tacit runs one; a pod that stopped, out of credit or
   // otherwise, sends every settle proof to the prover network with a public input until it is back).
   proverBoardExpectWorkers: opt('PROVER_BOARD_EXPECT_WORKERS', '0') === '1',
+  // The monitor's alarm on the settle relay's own count of failed proofs in the last hour (settle-relay.js withFailures).
+  proveFailuresWarn: num('PROVE_FAILURES_WARN', 2),
+  proveFailuresCritical: num('PROVE_FAILURES_CRITICAL', 4),
   proverBoardQuietSecs: num('PROVER_BOARD_QUIET_SECS', 600),
   // Resident-memory caps for a settle's prover child, in KB (lib/prover.js run). The container's ceiling is 2 GiB
   // and the service itself needs some of it; a batch is held tighter, since a batch that cannot prove here just

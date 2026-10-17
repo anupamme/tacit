@@ -3539,6 +3539,20 @@ async function handleConfidentialJob(req, env, cors) {
   const job = await q.nextJob(mode === 'prove' || mode === 'settle' ? { mode, openable: params.get('openable') === '1' } : {});
   return jsonResponse(job || {}, 200, { ...cors, 'Cache-Control': 'no-store' });
 }
+// POST /confidential/requeue { jobId } (box token): a failed job goes back in line as it was (confidential-settle.js requeueJob),
+// for the operator after a relay-side failure; `{ jobIds: [...] }` takes several and answers each.
+async function handleConfidentialRequeue(req, env, cors) {
+  if (!checkConfidentialAuth(req, env)) return jsonResponse({ error: 'not found' }, 404, cors);
+  const q = confSettler(env);
+  if (!q) return jsonResponse({ error: 'confidential settle not configured' }, 404, cors);
+  let body;
+  try { body = await req.json(); } catch { return jsonResponse({ ok: false, error: 'bad json' }, 400, cors); }
+  const ids = Array.isArray(body.jobIds) ? body.jobIds : body.jobId ? [body.jobId] : [];
+  if (!ids.length || ids.length > 64 || !ids.every((x) => /^0x[0-9a-f]{64}$/i.test(String(x)))) return jsonResponse({ ok: false, error: 'jobId or jobIds (up to 64 job ids) required' }, 400, cors);
+  const out = [];
+  for (const id of ids) out.push({ jobId: id, ...(await q.requeueJob(String(id).toLowerCase())) });
+  return jsonResponse({ ok: true, jobs: out }, 200, { ...cors, 'Cache-Control': 'no-store' });
+}
 async function handleConfidentialAck(req, env, cors) {
   const q = confSettler(env);
   if (!q) return jsonResponse({ error: 'confidential settle not configured' }, 404, cors);
@@ -27119,6 +27133,7 @@ async function _routeFetch(req, env, ctx) {
     if (url.pathname === '/confidential/queue' && req.method === 'GET') return handleConfidentialQueue(req, env, cors);
     if (url.pathname === '/confidential/ledger' && req.method === 'GET') return handleConfidentialLedger(req, env, cors);
     if (url.pathname === '/confidential/ack' && req.method === 'POST') return handleConfidentialAck(req, env, cors);
+    if (url.pathname === '/confidential/requeue' && req.method === 'POST') return handleConfidentialRequeue(req, env, cors);
     if (url.pathname === '/confidential/status' && req.method === 'GET') return handleConfidentialStatus(env, url, cors);
     if (url.pathname === '/confidential/open' && req.method === 'GET') return handleConfidentialOpen(req, env, url, cors);
     if (url.pathname === '/confidential/landed' && req.method === 'POST') return handleConfidentialLanded(req, env, cors);

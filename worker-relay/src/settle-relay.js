@@ -712,6 +712,7 @@ async function settleSealed(job, memos) {
     proof = await beating(`proving ${jobId} ${type} (sealed)`, () => proveSealed({ type, sealed: job.sealed, memos, timeoutMs: CFG.settleJobTimeoutSecs * 1000 }));
   } catch (e) {
     log(`job ${jobId} sealed prove failed: ${e.message}`);
+    noteProveFailure();
     await confidentialAck({ jobId, error: e.code === 'sealed_unavailable' || e.code === 'sealed_unsupported' ? e.message : `prove failed: ${safeErr(e)}` });
     return true;
   }
@@ -807,7 +808,13 @@ async function standWith(note) {
   standingAt = Date.now();
   await heartbeat('settle', note);
 }
-const beat = (detail) => heartbeat('settle', standing || detail);
+// Proofs that failed in the last hour (the board and the network both refusing, say) ride on every heartbeat note, so the monitor
+// (balance-monitor.js checkProverKinds) can say so: a relay that is up and failing every job otherwise reads as healthy.
+const proveFailAt = [];
+function noteProveFailure() { proveFailAt.push(Date.now()); }
+function recentProveFailures(now = Date.now()) { while (proveFailAt.length && now - proveFailAt[0] > 3_600_000) proveFailAt.shift(); return proveFailAt.length; }
+const withFailures = (detail) => { const n = recentProveFailures(); return n ? `${detail || ''} · ${n} prove failure${n === 1 ? '' : 's'} in the last hour` : detail; };
+const beat = (detail) => heartbeat('settle', withFailures(standing || detail));
 // A prove can run past the API's ten quiet minutes (a private request waits up to six before its public retry), and a relay
 // that has gone quiet reads as down to the pages, so the beat goes out again every few minutes until the proof is back.
 async function beating(detail, fn) {
@@ -954,6 +961,7 @@ async function cycle() {
       proof = await beating(`proving ${jobId} ${type}`, () => proveSettle({ type, op: job.op, memos, timeoutMs: CFG.settleJobTimeoutSecs * 1000 }));
     } catch (e) {
       log(`job ${jobId} prove failed/timeout: ${e.message}`);
+      noteProveFailure();
       // A request the prover account could not pay for pauses proving first; the job is failed as any other, so the page
       // waiting on it offers to prove it another way.
       await pauseOn(e);
