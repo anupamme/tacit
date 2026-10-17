@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-iTwIAJilF35JdWEjh/zOnjWycKiIFEPqZUaQrAkmQIw=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-G9VOi/DYDLwu2lGSZWwGd6O55/93RXWkkx6mx4vCieo=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -7895,22 +7895,38 @@ function renderTacBal(el) {
 // from S.acct, the same account payingAccount() otherwise uses, regardless of which one pays elsewhere), a permit
 // riding inside it, then the relay's settle. If the settle fails once the deposit has landed, the form empties and
 // points to Finish, same as every other wrap here — the deposit is never asked for twice.
+// A TAC deposit paid from the connected wallet: the note is the key's, as ever; the permit and the router's transaction are the wallet's.
+async function tacWrapFromWallet(t, priv, wei, status) {
+  const index = await t.nextWrapIndex({ walletPriv: priv, ticker: 'TAC' });
+  const w = t.buildWrap({ walletPriv: priv, amountWei: wei.toString(), ticker: 'TAC', index });
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+  const sig = await permitSig({ token: ADDR.tac, name: 'Tacit Token', what: 'TAC', spender: t.cfg.router, value: wei, deadline, status });
+  const data = t.router.wrapWithPermitCalldata({ token: ADDR.tac, amount: wei, commit: w.commit, deadline, v: sig.v, r: sig.r, s: sig.s });
+  say(status, 'Confirm the deposit in your wallet…');
+  const txHash = await sendTx({ to: t.cfg.router, data, value: 0n, label: `Deposit ${fmt(wei, 18, 6)} TAC to shield` });
+  return { ...w, txHash };
+}
 function tacShield(el, status, acctBal, walletBal) {
   if (!el) return;
-  // Offered only when the Tacit account has public TAC to make private: an empty form above Airdrop · Buy · Sell is noise.
-  if (!acctBal) {
-    mount(el, acctBal != null && walletBal ? html`<p class="note">To make the ${fmt(walletBal, 18, 2)} TAC in your connected wallet private, send it to your Tacit account first (Wallet → Send out → TAC, to your own tacit1 address's Ethereum account). It can be made private from there.</p>` : html``);
-    return;
-  }
+  // What is made private is public TAC the key can pay for: the Tacit account's, offered as it always was (when it pays, or when the wallet holds none),
+  // or the connected wallet's when that pays (its permit and its transaction; the note is the key's either way). The other, where it holds some, is
+  // a press away: it switches the paying account. An empty form above Airdrop · Buy · Sell is noise, so nothing is drawn when neither holds any.
+  const via = payer(), src = acctBal > 0n && (via === 'tacit' || !(walletBal > 0n)) ? 'tacit' : via === 'wallet' && walletBal > 0n ? 'wallet' : null;
+  const alt = src === 'wallet' ? (acctBal > 0n ? 'tacit' : null) : (via === 'tacit' && walletBal > 0n ? 'wallet' : null);
+  const balance = src === 'wallet' ? walletBal : acctBal, from = src === 'wallet' ? 'your wallet' : 'your Tacit account';
+  const swap = alt ? html`<p class="note">${fmt(alt === 'wallet' ? walletBal : acctBal, 18, 2)} TAC is ${src ? 'also ' : ''}in ${alt === 'wallet' ? 'your connected wallet' : 'your Tacit account'}. <button class="link" type="button" id="tsh-switch">Make it private from there</button></p>` : '';
+  const wireSwap = () => { const sw = $('#tsh-switch', el); if (sw) sw.onclick = () => busy(sw, async () => { try { setPayer(alt); } catch (e) { toast(errText(e), true); } }); };
+  if (!src) { mount(el, html`${swap}`); wireSwap(); return; }
   mount(el, html`
-    <div class="lbl"><span>Make TAC private</span><button type="button" id="tsh-max">TAC in your Tacit account ${fmt(acctBal, 18, 2)}</button></div>
+    <div class="lbl"><span>Make TAC private</span><button type="button" id="tsh-max">TAC in ${from} ${fmt(balance, 18, 2)}</button></div>
     <div class="amt"><input id="tsh-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="TAC to make private"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-tac"/></svg>TAC</span></div>
     <div class="rcpt" id="tsh-rcpt" hidden></div>
     <button class="btn" type="button" id="tsh-go" disabled>Make private</button>
-    <p class="note">One transaction from your Tacit account; Tacit’s relay does the privacy work after. It stays private until you send it or make it public again.</p>`);
+    <p class="note">One transaction from ${from}${src === 'wallet' ? ', with a signed permit' : ''}; Tacit’s relay does the privacy work after. It stays private until you send it or make it public again.</p>${swap}`);
+  wireSwap();
   const amt = $('#tsh-amt'), go = $('#tsh-go'), rc = $('#tsh-rcpt');
   let q = null;
-  $('#tsh-max').onclick = () => { if (acctBal) { amt.value = plain(acctBal - acctBal % E10, 18); amt.dispatchEvent(new Event('input')); } };
+  $('#tsh-max').onclick = () => { if (balance) { amt.value = plain(balance - balance % E10, 18); amt.dispatchEvent(new Event('input')); } };
   onEdit([amt], go, (e) => {
     const wei = parseUnits(amt.value);
     q = null; go.disabled = true; if (e?.isTrusted) say(status, '');
@@ -7919,9 +7935,9 @@ function tacShield(el, status, acctBal, walletBal) {
     q = { wei };
     mount(rc, html`<div class="kv"><span>You get</span><b>${fmt(wei, 18, 8)} TAC, private</b></div>`);
     rc.hidden = false;
-    const over = acctBal != null && wei > acctBal;
+    const over = wei > balance;
     go.disabled = over;
-    if (over) warn(rc, `More than the ${fmt(acctBal, 18, 4)} TAC in your Tacit account.`);
+    if (over) warn(rc, `More than the ${fmt(balance, 18, 4)} TAC in ${from}.`);
   });
   go.onclick = () => busy(go, async (run) => {
     const x = q;
@@ -7933,15 +7949,16 @@ function tacShield(el, status, acctBal, walletBal) {
     let sent = false, landed = false;
     try {
       const t = await getUx(), priv = walletPriv();
-      say(status, 'Sending from your Tacit account…');
+      say(status, src === 'wallet' ? 'Preparing your note, about half a minute…' : 'Sending from your Tacit account…');
       run.check();
-      const w = await t.routerWrap({ walletPriv: priv, amountWei: x.wei.toString(), ticker: 'TAC' });
+      const w = src === 'wallet' ? await tacWrapFromWallet(t, priv, x.wei, status) : await t.routerWrap({ walletPriv: priv, amountWei: x.wei.toString(), ticker: 'TAC' });
       sent = true;
       run.take(kDep(w));
       // routerWrap signs and sends outside sendTx, so this names it in Activity and as the run's own Deposit step
       // itself — the same two things sendTx plus runTx give v1Wrap's deposit, and what opSync's "kept" check reads
       // to say "press Finish" even once this hand-off's own message has moved to a background receipt in Activity.
-      runTx(run, actTx(w.txHash, { label: `Deposit ${fmt(x.wei, 18, 6)} TAC to shield` }), 'Deposit', 'Depositing');
+      // The wallet's goes through sendTx, which has named it in Activity already.
+      runTx(run, src === 'wallet' ? w.txHash : actTx(w.txHash, { label: `Deposit ${fmt(x.wei, 18, 6)} TAC to shield` }), 'Deposit', 'Depositing');
       say(status, html`Sent ${txLink(w.txHash)}. Waiting for it to land…`);
       await waitTx(w.txHash);
       landed = true;

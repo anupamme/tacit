@@ -75,6 +75,7 @@
 //            or out as tacUSD to an 0x… address, with fees shown first and an amount over the balance refused
 //   tacsend  the TAC sheet's own Send, private-only: a stubbed cTAC note goes privately to a tacit1 address, shown as
 //            TAC never cTAC, or out as public TAC to an 0x… address for a partial amount, beside the one-tap Make public
+//   shieldwallet with a wallet paying, the TAC sheet makes the wallet's own TAC private: its permit, one router transaction, no stop at the Tacit account
 //   farmjoin a private farm joined from weld: stubbed tETH and TAC notes are cut to the live pool ratio and handed to
 //            lpBond for the farm manager, with a self-settle hook so the paying account sends the bond
 //   shield   the TAC sheet's Shield: public TAC funded into the key's own Tacit account wraps in one router
@@ -1271,6 +1272,79 @@ await step('shield', async () => {
       .then((v) => ok(v, 'shield: the deposit is then offered to Finish, same as any other pending TAC deposit'));
     if (r.errors.length) { fails++; console.log('FAIL shield page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
+});
+
+// With a wallet paying, the TAC sheet makes the wallet's own TAC private: the wallet signs the permit and sends one router transaction, and the
+// deposit is left for the relay to settle (or Finish), as the Tacit account's is. Nothing is sent to the Tacit account first. TAC in the other
+// account is a press away, which switches the paying account; and where the wallet holds none, the Tacit account's TAC is offered as it always was.
+// The wallets are fresh ones: a wallet on the airdrop list opens the TAC sheet on its claim alone, which hides the balance and this form.
+await step('shieldwallet', async () => {
+  const ROUTER = '0x000000005da3e3b73726af3c774deeb9472d4992', acctOf = (hex) => makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address;
+  const fresh = async () => {
+    const kw = '0x' + Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex');
+    const W = '0x' + Buffer.from(keccak_256(secp.getPublicKey(kw.slice(2), false).slice(1))).toString('hex').slice(-40);
+    await rpc('anvil_impersonateAccount', [W]); await rpc('anvil_setBalance', [W, '0x' + (10n ** 18n).toString(16)]);
+    return { kw, W };
+  };
+  // Opens the TAC sheet with this key open and the wallet paying, on a tab that shows the balance.
+  const open = async (r, hex) => {
+    await r.page.goto(r.url + '#wallet');
+    await r.page.click('#wallet-body [data-in="paste"]');
+    await r.page.fill('#ws-hex', hex);
+    await r.page.click('#wallet-body [data-in="key"]');
+    await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
+    await toWallet(r.page);
+    await r.page.waitForSelector('[data-pay="wallet"]', { timeout: 60000 });
+    await r.page.click('[data-pay="wallet"]');                                              // connects the stub wallet, which pays
+    await until(r.page, () => document.querySelector('[data-pay="wallet"]')?.classList.contains('main'));
+    await r.page.evaluate(() => { location.hash = ''; location.hash = '#tac'; });
+    await r.page.waitForSelector('#sheet-tac[open] [data-tac-mode="buy"]', { timeout: 120000 });
+    await r.page.click('[data-tac-mode="buy"]');                                            // a wallet connected opens the sheet on the airdrop alone, which hides the balance
+  };
+  const maxIs = (p, re) => until(p, (x) => new RegExp(x).test((document.querySelector('#tsh-max')?.textContent || '').trim()), re, 120000)
+    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | max: ${await text(p, '#tsh-max')} | shield: ${(await text(p, '#tac-shield')).replace(/\s+/g, ' ').slice(0, 200)}`); });
+  const hex = '5411f'.padEnd(64, '3'), { kw, W } = await fresh();
+  await fundTac(W, 40n * 10n ** 18n);
+  await fundTac(acctOf(hex), 10n * 10n ** 18n);                                             // the key's own account holds some too
+  const r = await openPage({ account: W, key: kw });
+  try {
+    await open(r, hex);
+    await r.page.waitForSelector('#tac-shield #tsh-go', { timeout: 240000 }).catch(async (e) => {
+      throw new Error(`${e.message.split('\n')[0]} | shield: ${(await text(r.page, '#tac-shield')).replace(/\s+/g, ' ')} | hash: ${await r.page.evaluate(() => location.hash)} | errors: ${r.errors.slice(0, 2).join(' | ')}`);
+    });
+    await maxIs(r.page, 'your wallet 40(\\.00)?$');
+    ok(true, `shieldwallet: the paying wallet's own public TAC is offered (${await text(r.page, '#tsh-max')})`);
+    await until(r.page, () => /10 TAC is also in your Tacit account/.test(document.querySelector('#tac-shield')?.textContent || ''), null, 60000);
+    ok(!!(await r.page.$('#tsh-switch')), 'shieldwallet: and the Tacit account\'s TAC is a press away');
+    await r.page.fill('#tsh-amt', '25');
+    await until(r.page, () => !document.querySelector('#tsh-go').disabled, null, 30000);
+    const t0 = walletTxs.length, tacBefore = await tacOf(W);
+    await r.page.click('#tsh-go');
+    await until(r.page, () => /press Finish|err/i.test(document.querySelector('#tac-bal-status')?.textContent || ''), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | status: ${await text(r.page, '#tac-bal-status')} | errors: ${r.errors.slice(0, 2).join(' | ')}`); });
+    const tx = walletTxs.slice(t0).find((x) => String(x.to).toLowerCase() === ROUTER);
+    const sel = Buffer.from(keccak_256('wrapWithPermit(address,uint256,bytes32,uint256,uint8,bytes32,bytes32)')).toString('hex').slice(0, 8);
+    ok(tx && String(tx.from).toLowerCase() === W && String(tx.data).startsWith('0x' + sel), `shieldwallet: one router transaction from the wallet, with the permit in it (${tx ? tx.data.slice(0, 10) : 'none sent'})`);
+    ok((await tacOf(W)) === tacBefore - 25n * 10n ** 18n, 'shieldwallet: and the wallet paid the 25 TAC itself');
+    const st = await text(r.page, '#tac-bal-status');
+    ok(/deposit is (in the Tacit pool|safe in the pool)/.test(st) && /press Finish/.test(st), `shieldwallet: the settle is left to Finish like every other wrap here (${st.slice(0, 120)})`);
+    ok(await r.page.$eval('#tsh-amt', (i) => i.value === ''), 'shieldwallet: the amount field empties once the deposit lands');
+    await r.page.click('#tsh-switch');
+    await maxIs(r.page, 'your Tacit account 10(\\.00)?$');
+    ok(true, 'shieldwallet: switching the paying account offers the Tacit account\'s TAC');
+    if (r.errors.length) { fails++; console.log('FAIL shieldwallet page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+  // A wallet that holds no TAC, with the key's own account holding some: the form is the Tacit account's, as it was before the wallet could pay.
+  const hex2 = '5411e'.padEnd(64, '3'), { kw: kw2, W: W2 } = await fresh();
+  await fundTac(acctOf(hex2), 10n * 10n ** 18n);
+  const r2 = await openPage({ account: W2, key: kw2 });
+  try {
+    await open(r2, hex2);
+    await r2.page.waitForSelector('#tac-shield #tsh-go', { timeout: 240000 });
+    await maxIs(r2.page, 'your Tacit account 10(\\.00)?$');
+    ok(!/also in/.test(await text(r2.page, '#tac-shield')) && !(await r2.page.$('#tsh-switch')), `shieldwallet: with no TAC in the wallet, the Tacit account's is offered as before (${await text(r2.page, '#tsh-max')})`);
+    if (r2.errors.length) { fails++; console.log('FAIL shieldwallet (2) page errors: ' + r2.errors.slice(0, 3).join(' | ')); }
+  } finally { await r2.browser.close(); }
 });
 
 // Joining a private farm from weld: stubbed private tETH and TAC notes, a relay split that leaves the exact note it was
