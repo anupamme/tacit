@@ -201,6 +201,13 @@ fn main() {
     let slow_secs = env_or("SLOW_PROOF_SECS", "90").parse::<f64>().unwrap_or(90.0);
     let mut jobs_done = 0u32;
     let mut slow_in_a_row = 0u32;
+    // The warning stage: before a server falls into the 100 s regime its Groth16 step runs 16-31 s for two or three proofs (ICICLE chunks the
+    // G2 multiplication as free GPU memory shrinks). run-worker.sh watches the server's log for that and creates RECYCLE_FLAG; the worker then
+    // restarts at the first moment it has nothing in hand, and after at most RECYCLE_MAX_JOBS more jobs, so users meet one restart and not
+    // two slow proofs.
+    let recycle_flag = env_or("RECYCLE_FLAG", "/workspace/worker.recycle");
+    let recycle_max = env_or("RECYCLE_MAX_JOBS", "2").parse::<u32>().unwrap_or(2);
+    let mut recycle_from: Option<u32> = None;
     // A proof that never ends (a GPU kernel that hangs leaves the server alive and silent, and the client waiting on it for ever) is
     // ended from outside: a watchdog thread sees a job in hand for longer than JOB_TIMEOUT_SECS (15 minutes by default, three times a
     // long op) and exits the process, so the loop around it starts a fresh worker and GPU server and the job goes back to the board.
@@ -241,6 +248,11 @@ fn main() {
         let job = match claimed {
             Ok(Claim { job: Some(j) }) => j,
             Ok(Claim { job: None }) => {
+                if std::path::Path::new(&recycle_flag).exists() {
+                    let _ = std::fs::remove_file(&recycle_flag);
+                    println!("[{name}] the GPU server's Groth16 step has slowed and nothing is waiting; exiting so the loop starts a fresh worker and GPU server");
+                    std::process::exit(4);
+                }
                 if jobs_done >= jobs_per_server {
                     println!("[{name}] {jobs_done} jobs on this GPU server and nothing waiting; exiting so the loop starts a fresh worker and GPU server");
                     std::process::exit(4);
@@ -306,6 +318,14 @@ fn main() {
         }
         jobs_done += 1;
         slow_in_a_row = if outcome.is_ok() && t.elapsed().as_secs_f64() > slow_secs { slow_in_a_row + 1 } else { 0 };
+        if std::path::Path::new(&recycle_flag).exists() {
+            let from = *recycle_from.get_or_insert(jobs_done);
+            if jobs_done - from >= recycle_max {
+                let _ = std::fs::remove_file(&recycle_flag);
+                println!("[{name}] the GPU server's Groth16 step has slowed; exiting after {recycle_max} more jobs so the loop starts a fresh worker and GPU server");
+                std::process::exit(4);
+            }
+        }
         if jobs_done >= 2 * jobs_per_server || slow_in_a_row >= 2 {
             println!("[{name}] {}; exiting so the loop starts a fresh worker and GPU server", if slow_in_a_row >= 2 { format!("two proofs in a row took over {slow_secs} s") } else { format!("{jobs_done} jobs on this GPU server") });
             std::process::exit(4);

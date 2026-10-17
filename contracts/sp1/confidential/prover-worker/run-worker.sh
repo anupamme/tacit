@@ -22,6 +22,11 @@ restore() {
 keep() {
   if [ -d /root/.sp1/circuits/groth16 ] && [ ! -d /workspace/.sp1/circuits/groth16 ]; then (cp -a /root/.sp1/circuits /workspace/.sp1/ && echo "[run-worker] circuit artifacts kept on /workspace") & fi
 }
+# The slow-regime watcher (watch-slow.sh) runs in its own session so one kill takes down the whole pipeline; a previous one is stopped first.
+[ -f /workspace/watch.pid ] && kill -- "-$(cat /workspace/watch.pid)" 2>/dev/null
+rm -f /workspace/worker.recycle
+setsid bash /workspace/watch-slow.sh >/dev/null 2>&1 &
+echo $! > /workspace/watch.pid
 while true; do
   set -a; . /workspace/worker.env; set +a
   # The pod sees the host's cores but may use a few (cgroup quota); threads past the quota only thrash.
