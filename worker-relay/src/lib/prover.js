@@ -406,13 +406,14 @@ export async function proveSettle({ type, op, memos = [], timeoutMs }) {
       // op keeps a last-resort cap under the container's ceiling.
       rssLimitKB: type === 'batchtransfer' ? CFG.batchProverRssKB : CFG.settleProverRssKB,
     });
-    await rm(opFile, { force: true }); // the witness is not left on disk once the binary has read it
     try {
       const publicValues = await readHex(path.join(cwd, 'public_values.hex'));
       const proof = await readHex(path.join(cwd, 'proof_bytes.hex'));
       return { publicValues, proof };
     } catch (e) {
       const fail = new Error(`exec:${type} produced no proof (code=${code}): ${e.message}\n${out.slice(-2000)}`);
+      // The binary's own last words (a panic names the network's answer), for the retry rules: never copied into the message.
+      fail.stderr = String(err || '').slice(-4000);
       // A request the prover account cannot pay for is refused by the network, and the binary panics with that refusal on
       // stderr. It is marked rather than copied into the message, which reaches the job's public status; the settle loop
       // pauses proving on it (lib/prove-pause.js).
@@ -420,6 +421,9 @@ export async function proveSettle({ type, op, memos = [], timeoutMs }) {
       throw fail;
     }
   };
+  // The witness file stays for every attempt below (a public retry reads it again) and goes once the last one is over.
+  try { return await attempts(); } finally { await rm(opFile, { force: true }); }
+  async function attempts() {
   const plan = privateProvePlan(process.env, timeoutMs);
   if (!plan.fallback) return laned(await attempt({}, timeoutMs), process.env.PRIVATE_STDIN === '1' ? 'network-private' : 'network-public');
   // The witness goes as a private input, which only provers that fetch it with the signed GetStdinUri call can read
@@ -440,5 +444,6 @@ export async function proveSettle({ type, op, memos = [], timeoutMs }) {
       console.log(`[exec:${type}] the private request was not proved (${String(e.message).split('\n')[0].slice(0, 160)}); proving it with a public input`);
     }
     return laned(await attempt(asPublic, Math.max(60_000, timeoutMs - (Date.now() - t0))), 'network-public');
+  }
   }
 }

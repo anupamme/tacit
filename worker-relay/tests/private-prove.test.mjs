@@ -2,6 +2,7 @@
 // time, then one public attempt only when no prover proved it; never a public retry of a witness that cannot execute.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { privateProvePlan, retryPublic, privateRefused, rememberRefusal, privateOff, PRIVATE_OFF_MS } from '../src/lib/private-prove.js';
 
 test('a public input is one attempt with the whole time; so is a private one with the fallback off', () => {
@@ -33,4 +34,19 @@ test('the network\'s refusal of private inputs is recognised and remembered for 
   rememberRefusal(1_000_000);
   assert.equal(privateOff(1_000_000 + PRIVATE_OFF_MS - 1), true);
   assert.equal(privateOff(1_000_000 + PRIVATE_OFF_MS), false);
+});
+
+test('the refusal is seen on the binary\'s stderr, where a panic puts it, not only in the message', () => {
+  const e = new Error('exec:wrap produced no proof (code=101): ENOENT: no such file or directory');
+  assert.equal(privateRefused(e), false);
+  e.stderr = 'thread main panicked: groth16 proof failed: status: PermissionDenied, message: "private stdin is not enabled on this network"';
+  assert.equal(privateRefused(e), true);
+  assert.equal(retryPublic(e), true);
+});
+
+test('the witness file outlives the private attempt, so the public retry can read it', async () => {
+  const src = await readFile(new URL('../src/lib/prover.js', import.meta.url), 'utf8');
+  const attempt = src.slice(src.indexOf('const attempt = async (extra, ms) => {'), src.indexOf('// The witness file stays for every attempt'));
+  assert.ok(!/rm\(opFile/.test(attempt), 'an attempt must not remove the op file: the public retry reads it');
+  assert.ok(/finally \{ await rm\(opFile, \{ force: true \}\); \}/.test(src), 'the op file is removed once every attempt is over');
 });

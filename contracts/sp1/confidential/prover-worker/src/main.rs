@@ -171,6 +171,25 @@ fn main() {
     // process can mend: it exits, and the loop around it starts a fresh worker and server. Three in a row, so one bad
     // input does not restart a healthy worker.
     let mut failed_in_a_row = 0u32;
+    // A proof that never ends (a GPU kernel that hangs leaves the server alive and silent, and the client waiting on it for ever) is
+    // ended from outside: a watchdog thread sees a job in hand for longer than JOB_TIMEOUT_SECS (15 minutes by default, three times a
+    // long op) and exits the process, so the loop around it starts a fresh worker and GPU server and the job goes back to the board.
+    let job_since = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+    {
+        let job_since = job_since.clone();
+        let limit = env_or("JOB_TIMEOUT_SECS", "900").parse::<u64>().unwrap_or(900);
+        let name = name.clone();
+        std::thread::spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(15));
+            let since = job_since.load(std::sync::atomic::Ordering::Relaxed);
+            if since == 0 { continue; }
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            if now.saturating_sub(since) > limit {
+                println!("[{name}] a job has been in hand for {} s (limit {limit}); exiting so the loop starts a fresh worker and GPU server", now - since);
+                std::process::exit(3);
+            }
+        });
+    }
     loop {
         if reload_due() {
             let _ = std::fs::remove_file(&reload_flag);
@@ -201,6 +220,7 @@ fn main() {
         let label = job.label.clone().unwrap_or_default();
         println!("[{name}] job {} {label}: proving", &job.job_id[..job.job_id.len().min(12)]);
         let t = Instant::now();
+        job_since.store(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(1).max(1), std::sync::atomic::Ordering::Relaxed);
         // The job: its input decoded, proved as groth16 within its cycle limit → (public values, proof bytes as settle() takes them).
         let outcome: Result<(Vec<u8>, Vec<u8>), String> = (|| {
             let bytes = match (&job.sealed, &job.stdin) {
@@ -217,6 +237,7 @@ fn main() {
             let proof = client.prove(&pk, stdin).groth16().cycle_limit(cycles).run().map_err(|e| format!("groth16 proof failed: {e}"))?;
             Ok((proof.public_values.as_slice().to_vec(), proof.bytes()))
         })();
+        job_since.store(0, std::sync::atomic::Ordering::Relaxed);
         let body = match &outcome {
             Ok((pv, proof)) => {
                 println!("[{name}] job {} {label}: proved in {:.1} s", &job.job_id[..job.job_id.len().min(12)], t.elapsed().as_secs_f64());

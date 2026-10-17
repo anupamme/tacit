@@ -14,7 +14,8 @@ export function privateProvePlan(env, timeoutMs) {
 // is created or charged). It is remembered for ten minutes, so the jobs after it go public at once instead of each
 // spending a binary start and a refused request first (about half a minute per job).
 export const PRIVATE_OFF_MS = 10 * 60_000;
-export const privateRefused = (e) => /private stdin is not enabled/i.test(String(e && e.message || e));
+// The refusal is on the binary's stderr (lib/prover.js attaches it as `e.stderr`); the message itself says only that no proof came.
+export const privateRefused = (e) => /private stdin is not enabled/i.test(`${String(e && e.message || e)}\n${String(e && e.stderr || '')}`);
 let privateOffAt = 0;
 export const rememberRefusal = (now = Date.now()) => { privateOffAt = now; };
 export const privateOff = (now = Date.now()) => now - privateOffAt < PRIVATE_OFF_MS;
