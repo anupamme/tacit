@@ -92,12 +92,24 @@ function identify(raw) {
 // The points service's reading of the address, with what the distributor says it has paid out read at the same time (its own figure, not the
 // service's copy): what can be claimed is the earned total less that, which is exactly what the distributor's owed() computes.
 const claimedOn = (address) => call({ to: DISTRIBUTOR, data: `0xc884ef83${address.slice(2).padStart(64, '0')}` }).then(BigInt);
+// The day's rate cap (the most TAC a point can earn), from the program the leaderboard carries; without it no TAC figure is given for today.
+const capNow = () => keep('cap', () => get('leaderboard?day=today&limit=1').then((d) => {
+  const c = (d?.program?.rateCap || []).filter((x) => x.fromDay <= d.day).sort((a, b) => b.fromDay - a.fromDay)[0];
+  return d?.program ? { cap: c ? BigInt(c.maxWeiPerPoint) : null } : null;
+}));
 function readPoints(address, signal) {
   return keep(`points:${address}`, async () => {
-    const [p, c, paid] = await Promise.all([get(`points/${address}`, signal), get(`claim/${address}`, signal), claimedOn(address).catch(() => null)]);
+    const [p, c, paid, prog] = await Promise.all([get(`points/${address}`, signal), get(`claim/${address}`, signal), claimedOn(address).catch(() => null), capNow().catch(() => null)]);
     if (!p) return { error: true };
     const earned = BigInt(c?.cumulativeAmount || 0), claimed = paid ?? BigInt(c?.claimedWei || 0);
-    return { points: Number(p.points) || 0, earned, claimed, owed: c?.proof && earned > claimed ? earned - claimed : 0n, unread: paid === null && earned > 0n };
+    // Today: this account's points against everyone's, of the day's pot (at most the cap per point).
+    const t = p.today, pts = Number(t?.points) || 0, all = Number(t?.totalPoints) || 0;
+    let today = null;
+    if (pts > 0 && all > 0) {
+      const mp = BigInt(Math.round(pts * 1e6)), share = BigInt(t.dayBudgetWei || 0) * mp / BigInt(Math.round(all * 1e6));
+      today = { points: pts, pct: pts / all * 100, tac: prog ? (prog.cap != null && mp * prog.cap / 1000000n < share ? mp * prog.cap / 1000000n : share) : null };
+    }
+    return { points: Number(p.points) || 0, earned, claimed, owed: c?.proof && earned > claimed ? earned - claimed : 0n, unread: paid === null && earned > 0n, today };
   });
 }
 const readAirdrop = (address) => keep(`airdrop:${address}`, () => air.status(address));
@@ -161,11 +173,13 @@ function airdropCard(s, address) {
 }
 function pointsCard(p, address) {
   if (p.error) return card('Points', '<p class="st warn">Could not read points just now. Look up again in a moment.</p>');
-  const rows = p.earned > 0n ? [['Earned on settled days', `${tac(p.earned)} TAC`], ['Claimed', `${tac(p.claimed)} TAC`], ['To claim', p.unread ? 'not read' : `${tac(p.owed)} TAC`]] : [];
+  const t = p.today, pct = t ? (t.pct < 0.01 ? t.pct.toFixed(4) : t.pct < 1 ? t.pct.toFixed(3) : t.pct.toFixed(2)) : '';
+  const rows = [...(t ? [['Today', `${Math.round(t.points).toLocaleString('en-US')} points · ${pct}% of the day${t.tac != null ? ` · about ${tac(t.tac)} TAC` : ''}`]] : []),
+    ...(p.earned > 0n ? [['Earned on settled days', `${tac(p.earned)} TAC`], ['Claimed', `${tac(p.claimed)} TAC`], ['To claim', p.unread ? 'not read' : `${tac(p.owed)} TAC`]] : [])];
   return card('Points', `${figure(Math.round(p.points), Math.round(p.points).toLocaleString('en-US'), 'points')}<p class="st mute" id="rank">${p.points <= 0 ? 'No points yet.' : ''}</p>`
     + (rows.length ? `<dl class="kv">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd class="num">${v}</dd></div>`).join('')}</dl>` : '')
     + (p.owed > 0n ? claimUi('points', `Claim ${tac(p.owed)} TAC`, address, '/#points', tac(p.owed), p.owed) : '')
-    + (p.points > 0 ? '<p class="more"><a href="/#points">Points by day, standing and the leaderboard →</a></p>' : ''));
+    + (p.points > 0 ? `<details class="fold" data-days="${address}"><summary>Points by day</summary><div class="fold-b"></div></details><p class="more"><a href="/#points">Holder boosts and the holding proof, in the app →</a></p>` : ''));
 }
 const whoLine = (who, q) => `<p class="who"><b>${esc(who.name || short(who.address))}</b>${who.name ? `<span>${short(who.address)}</span>` : ''}</p>
   <p class="acts"><button type="button" data-copy="${who.address}">Copy address</button><a href="https://etherscan.io/address/${who.address}" target="_blank" rel="noopener noreferrer">Etherscan ↗</a><button type="button" data-copy="${esc(`${location.origin}/rewards/?q=${encodeURIComponent(q)}`)}" data-said="Link copied">Copy link</button></p>
@@ -173,6 +187,7 @@ const whoLine = (who, q) => `<p class="who"><b>${esc(who.name || short(who.addre
   <div id="done" aria-live="polite"></div>`;
 const SKEL = (t) => `<section class="card"><h2>${t}</h2><p class="big"><span class="sk"></span></p></section>`;
 const SKELETON = `<p class="who"><b><span class="sk"></span></b></p><div id="c-air">${SKEL('Airdrop')}</div><div id="c-pts">${SKEL('Points')}</div>`;
+const LB = '<details class="card fold" id="lb"><summary>Leaderboard</summary><div class="fold-b" id="lb-b"></div></details>';
 
 function countUp(el) {
   const to = Number(el.dataset.to), text = el.dataset.text;
@@ -360,6 +375,38 @@ function farmClaimed(wei) {
   });
 }
 
+
+// ── the folds: points by day, and the leaderboard, read when they are opened ──
+const dayName = (n) => new Date(n * 86400e3).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+async function paintDays(d) {
+  const el = d.querySelector('.fold-b'), a = d.dataset.days;
+  if (el.dataset.done === a) return;
+  el.innerHTML = '<p class="st mute">Reading…</p>';
+  const r = await keep(`days:${a}`, () => get(`points/${a}/days`));
+  if (!el.isConnected) return;
+  if (!r || !Array.isArray(r.days)) { el.innerHTML = '<p class="st warn">Could not read the days just now. Close this and open it again.</p>'; return; }
+  const list = r.days.slice(0, 14);
+  el.innerHTML = list.length ? `<ul class="rows">${list.map((x) => `<li><span>${dayName(x.day)}</span><b class="num">+${Number(x.points).toLocaleString('en-US', { minimumFractionDigits: Number(x.points) < 10 ? 2 : 1, maximumFractionDigits: Number(x.points) < 10 ? 2 : 1 })}</b><span class="m">${x.settled ? `${tac(BigInt(x.tacWei || 0), 4)} TAC` : 'counting'}</span></li>`).join('')}</ul>${r.days.length > 14 ? `<p class="st mute">The latest 14 of ${r.days.length} days.</p>` : ''}` : '<p class="st mute">No days yet.</p>';
+  el.dataset.done = a;
+}
+async function paintBoard() {
+  const el = $('#lb-b'), who = out.dataset.address;
+  if (!el || el.dataset.done === '1') return;
+  el.innerHTML = '<p class="st mute">Reading…</p>';
+  const b = await board();
+  if (!el.isConnected) return;
+  if (!b) { el.innerHTML = '<p class="st warn">Could not read the board just now. Close this and open it again.</p>'; return; }
+  const i = b.findIndex((e) => String(e.address).toLowerCase() === who);
+  const row = (e, k) => `<li${String(e.address).toLowerCase() === who ? ' class="me"' : ''}><button type="button" data-q="${esc(e.address)}"><span class="k">#${k}</span><span class="a">${short(e.address)}</span><b class="num">${Math.round(e.points).toLocaleString('en-US')}</b></button></li>`;
+  el.innerHTML = `<ol class="board">${b.slice(0, 10).map((e, k) => row(e, k + 1)).join('')}${i >= 10 ? `<li class="gap" aria-hidden="true">⋯</li>${row(b[i], i + 1)}` : ''}</ol>`;
+  el.dataset.done = '1';
+}
+document.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (!(d instanceof HTMLDetailsElement) || !d.open) return;
+  if (d.id === 'lb') paintBoard(); else if (d.dataset.days) paintDays(d);
+}, true);
+
 // ── the wallet's part: a notice, a line under the result, what connecting does, switching accounts ──
 let wmsgTimer = 0;
 function wsay(html, bad = false) {
@@ -431,7 +478,7 @@ async function run(raw) {
     if (my !== seq) return;
     remember(q);
     out.dataset.address = who.address;
-    out.innerHTML = `${whoLine(who, q)}<div id="c-air">${SKEL('Airdrop')}</div><div id="c-pts">${SKEL('Points')}</div>`;
+    out.innerHTML = `${whoLine(who, q)}<div id="c-air">${SKEL('Airdrop')}</div><div id="c-pts">${SKEL('Points')}</div>${LB}`;
     paintWallet(); showFarm();
     try { history.replaceState(null, '', `?q=${encodeURIComponent(q)}`); } catch { /* the address bar is a convenience */ }
     const a = readAirdrop(who.address), p = readPoints(who.address, ctl.signal);

@@ -3752,6 +3752,45 @@ await step('rewardsto', async () => {
   }
 });
 
+// What the rewards page shows of points beyond the total: today's share of the day's pot (the most a point can earn is the rate cap), the days one
+// by one (read only when opened), and the leaderboard's top ten with the account's own place when it is further down (a row looks that address up).
+await step('rewardsfolds', async () => {
+  const ME = '0x1c0aa8ccd568d90d61659f060d1bfb1e6f855a20', hex40 = (c) => '0x' + c.repeat(40);
+  const board = Array.from({ length: 14 }, (_, i) => ({ address: i === 11 ? ME : hex40((i + 1).toString(16)), points: 100000 - i * 1000 }));
+  let dayCalls = 0;
+  const n = await openPage({ account: A0, viewport: { width: 1000, height: 900 } });
+  await n.ctx.route(/api\.tacit\.finance\/(points|claim|leaderboard)/, (route) => {
+    const u = route.request().url();
+    if (/leaderboard\?day=today/.test(u)) return json(route, { day: 20743, program: { rateCap: [{ fromDay: 20729, maxWeiPerPoint: '30000000000000000' }] } });
+    if (/leaderboard/.test(u)) return json(route, board);
+    if (/\/claim\//.test(u)) return json(route, { cumulativeAmount: '0', claimedWei: '0', unclaimedWei: '0', proof: null });
+    if (/\/days$/.test(u)) { dayCalls++; return json(route, { days: [{ day: 20743, points: 40, settled: false }, { day: 20742, points: 33.458, settled: true, tacWei: '10746707713728415' }] }); }
+    const a = (u.match(/0x[0-9a-fA-F]{40}/) || [''])[0].toLowerCase();
+    return json(route, { address: a, points: a === ME ? 5000 : 0, deposit_count: 3, today: { points: 1000, totalPoints: 2000000, dayBudgetWei: '1000000000000000000000' }, deposits: [] });
+  });
+  try {
+    await n.page.goto(n.url + 'rewards/?q=' + ME);
+    await n.page.waitForSelector('#c-pts [data-days]', { timeout: 120000 });
+    const read = (sel) => n.page.$eval(sel, (e) => e.innerText.replace(/\s+/g, ' ').trim()), kv = await read('#c-pts .kv');
+    ok(/Today 1,000 points · 0\.050% of the day · about 0\.5 TAC/.test(kv), `rewardsfolds: today's share of the day's pot, in points, percent and TAC (${kv.trim()})`);
+    ok(dayCalls === 0 && !(await n.page.$eval('#c-pts [data-days]', (d) => d.open)), 'rewardsfolds: the days are not read until the fold is opened');
+    await n.page.click('#c-pts [data-days] > summary');
+    await n.page.waitForSelector('#c-pts .rows li', { timeout: 20000 });
+    const days = await read('#c-pts .rows');
+    ok(dayCalls === 1 && /Sat 17 Oct\s*\+40\.0\s*counting/.test(days) && /Fri 16 Oct\s*\+33\.5\s*0\.0107 TAC/.test(days), `rewardsfolds: points by day, the settled day with its TAC and today as counting (${days.trim()})`);
+    await n.page.click('#lb > summary');
+    await n.page.waitForSelector('#lb-b .board li', { timeout: 20000 });
+    const rows = await n.page.$$eval('#lb-b .board li', (a) => a.map((x) => `${x.className}:${x.innerText.replace(/\s+/g, ' ').trim()}`));
+    ok(rows.length === 12 && /^:#1 0x1111…1111 100,000$/.test(rows[0]) && rows[10] === 'gap:⋯' && /^me:#12 0x1c0a…5a20 89,000$/.test(rows[11]), `rewardsfolds: the leaderboard's top ten, then this account's own place marked (${rows.slice(9).join(' | ')})`);
+    await n.page.click('#lb-b .board li:first-child button');
+    await until(n.page, () => document.querySelector('#q').value === '0x1111111111111111111111111111111111111111' && /0x1111…1111/.test(document.querySelector('.who')?.textContent || ''), null, 30000);
+    ok(true, 'rewardsfolds: a row on the board looks that address up');
+    await n.page.setViewportSize({ width: 390, height: 900 });
+    ok(!(await n.page.evaluate(() => document.documentElement.scrollWidth > innerWidth)), 'rewardsfolds: no sideways scroll at phone width');
+    if (n.errors.length) { fails++; console.log('FAIL rewardsfolds page errors: ' + n.errors.slice(0, 3).join(' | ')); }
+  } finally { await n.browser.close(); }
+});
+
 // Any address can be looked up on the points sheet by someone with no wallet: a bad entry is told, a good one is read like the account's own
 // (its points, ranks and what it can claim) and is never offered a Claim, since a claim pays the account that sends it.
 await step('ptslookup', async () => {
