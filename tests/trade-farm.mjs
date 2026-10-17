@@ -113,7 +113,7 @@ const FARM = '0x0000003bF4BA0B21f5e0d35119b337F4d4CF82E0', E18 = 10n ** 18n;
 const staked = async (a) => BigInt(await rpcA('eth_call', [{ to: FARM, data: '0x98807d84' + a.slice(2).toLowerCase().padStart(64, '0') }, 'latest']));
 let r;
 try {
-  const me = await fundedWallet(10n * E18, 30000n * E18);
+  const me = await fundedWallet(50n * E18, 30000n * E18);
   r = await openPage({ width: 1280, height: 900 }, me, '', '/trade/tac/');
   const p = r.page;
   await until(p, () => /Staked\s*\$/.test(document.querySelector('#fm-stats')?.textContent || '') && /Private farms/.test(document.querySelector('#fm-prog')?.textContent || ''), null, 240000);
@@ -144,6 +144,16 @@ try {
   await p.fill('#fm-amt', '1.2.3');
   await until(p, () => /cannot be read/.test(document.querySelector('#fm-rcpt')?.textContent || ''), null, 30000);
   ok(await p.$eval('#fm-go', (b) => b.disabled) && (await p.$eval('#fm-amt', (i) => i.hasAttribute('aria-invalid'))), 'an amount that cannot be read is said and marked, and nothing can be sent');
+  // A deposit whose swap costs 30% or more is accepted by typing its figure, not by ticking a box.
+  await p.fill('#fm-amt', '20');
+  await until(p, () => /Swap price impact/.test(document.querySelector('#fm-rcpt')?.textContent || '') && !!document.querySelector('#fm-ack'), null, 120000);
+  const big = await p.evaluate(() => { const a = document.querySelector('#fm-ack'); return { typed: a.type !== 'checkbox', n: (a.getAttribute('aria-label') || '').replace(/\D/g, ''), off: document.querySelector('#fm-go').disabled }; });
+  ok(big.typed && Number(big.n) >= 30 && big.off, `a deposit that loses ${big.n}% to the swap asks for the figure to be typed, and waits for it`);
+  if (SHOTS) await p.locator('#farm').screenshot({ path: join(SHOTS, 'farm-bigloss.png') });
+  await p.fill('#fm-ack', String(Number(big.n) + 1));
+  ok(await p.$eval('#fm-go', (b) => b.disabled), 'a wrong figure does not accept it');
+  await p.fill('#fm-ack', big.n);
+  ok(!(await p.$eval('#fm-go', (b) => b.disabled)), 'the figure typed accepts it');
   await p.fill('#fm-amt', '0.4');
   await until(p, () => /Earns about/.test(document.querySelector('#fm-rcpt')?.textContent || '') && !document.querySelector('#fm-go').disabled && !document.querySelector('#fm-amt').hasAttribute('aria-invalid'), null, 120000);
   await p.click('#fm-go');
@@ -194,7 +204,11 @@ try {
   await p.click('[data-as="eth"]');
   await until(p, () => document.querySelector('[data-as="eth"]')?.getAttribute('aria-pressed') === 'true', null, 30000);
   await until(p, () => /Withdraw all/.test(document.querySelector('#fm-exit')?.textContent || '') && /You get about\s*[\d.]+ ETH/.test(document.querySelector('#fm-out-rcpt')?.textContent || ''), null, 120000);
-  if (await p.$('#fm-out-ack')) { ok(await p.$eval('#fm-exit', (b) => b.disabled), 'a withdrawal as one asset with a large swap waits for its box to be ticked'); await p.check('#fm-out-ack'); }
+  if (await p.$('#fm-out-ack')) {
+    ok(await p.$eval('#fm-exit', (b) => b.disabled), 'a withdrawal as one asset with a large swap waits for its box to be ticked (or its figure typed)');
+    if (await p.$eval('#fm-out-ack', (i) => i.type === 'checkbox')) await p.check('#fm-out-ack');
+    else await p.fill('#fm-out-ack', await p.$eval('#fm-out-ack', (i) => (i.getAttribute('aria-label') || '').replace(/\D/g, '')));
+  }
   const e0 = await ethBal(me.account);
   await p.click('#fm-exit');
   await until(p, () => /Withdrawn/.test(document.querySelector('#fm-pos-status')?.textContent || '') || document.querySelector('#fm-pos-status .err'), null, 240000);

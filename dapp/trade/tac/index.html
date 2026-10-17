@@ -57,7 +57,7 @@
 <link rel="preload" as="fetch" href="https://api.tacit.finance/assets/f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b/bid-intents?network=mainnet" crossorigin fetchpriority="low">
 <link rel="preload" as="fetch" href="https://api.tacit.finance/farm/program?network=mainnet" crossorigin fetchpriority="low">
 <!-- preload:begin -->
-<link rel="modulepreload" href="/trade/app.js?cb=4e6207bf">
+<link rel="modulepreload" href="/trade/app.js?cb=0292afae">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=a08631ce">
 <link rel="modulepreload" href="/confidential-deployments.js">
@@ -75,7 +75,7 @@
 <link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
 <link rel="modulepreload" href="/trade/util.js?cb=c3dc39b3">
 <link rel="modulepreload" href="/trade/rpc.js?cb=842f58a5">
-<link rel="modulepreload" href="/trade/farm.js?cb=16900288">
+<link rel="modulepreload" href="/trade/farm.js?cb=f1e959c3">
 <link rel="modulepreload" href="/points-note.js?cb=eacef061">
 <!-- preload:end -->
 <style>
@@ -452,6 +452,7 @@ button.ob-row:focus-visible { outline: 2px solid var(--ink); outline-offset: -2p
 .fm-rcpt .note { margin: 6px 0 0; }
 .fm-rcpt .ack { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0 0; font-size: 12.5px; cursor: pointer; }
 .fm-rcpt .ack input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--ink); flex: none; }
+.fm-rcpt .ack input:not([type="checkbox"]) { width: 72px; height: auto; margin: 0; padding: 6px 8px; font: 500 16px var(--mono); color: var(--ink); background: transparent; border: 1px solid var(--err); border-radius: 8px; }
 .fm-out { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .kv.earned { align-items: center; } .kv .rt { display: inline-flex; align-items: center; gap: 10px; }
 .btn.sm { width: auto; min-height: 28px; padding: 2px 12px; font-size: 12px; margin: 0; }
@@ -714,6 +715,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/trade/app.js?cb=4e6207bf"></script>
+<script type="module" src="/trade/app.js?cb=0292afae"></script>
 </body>
 </html>

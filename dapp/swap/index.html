@@ -25,7 +25,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /swap/app.js | | /confidential-pool-ux.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/swap/app.js?cb=5ad9d1aa">
+<link rel="modulepreload" href="/swap/app.js?cb=57c31599">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=a08631ce">
 <link rel="modulepreload" href="/trade/connect.js?cb=b0beb322">
@@ -196,6 +196,7 @@ img.tk { object-fit: contain; }
 .rcpt dd.warn { color: var(--warn); } .rcpt dd.ok { color: var(--ok); } .rcpt dd.err { color: var(--err); }
 .ack { display: flex; gap: 10px; align-items: flex-start; margin: 12px 2px 0; padding: 8px 12px; font-size: 12.5px; line-height: 1.5; color: var(--ink); background: color-mix(in srgb, var(--warn) 9%, transparent); border-radius: 10px; cursor: pointer; }
 .ack input { width: 18px; height: 18px; margin: 1px 0 0; accent-color: var(--ink); flex: none; }
+.fm-rcpt .ack input:not([type="checkbox"]) { width: 72px; height: auto; margin: 0; padding: 6px 8px; font: 500 16px var(--mono); color: var(--ink); background: transparent; border: 1px solid var(--err); border-radius: 8px; }
 .act { position: sticky; bottom: 0; z-index: 2; margin: 6px -16px 0; padding: 8px 16px max(8px, env(safe-area-inset-bottom)); background: linear-gradient(to bottom, transparent, var(--card) 8px); }
 .act .go { margin-top: 0; }
 .act .ack { margin: 0 2px 8px; }
@@ -624,6 +625,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <link rel="modulepreload" href="/cbtc-note-recovery.js">
 </template>
 <!-- warm:end -->
-<script type="module" src="/swap/app.js?cb=5ad9d1aa"></script>
+<script type="module" src="/swap/app.js?cb=57c31599"></script>
 </body>
 </html>

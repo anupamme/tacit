@@ -168,9 +168,19 @@ export function mountFarm(host, ctx) {
     if (!W.account) { go.textContent = 'Connect wallet'; return; }
     go.textContent = { eth: 'Farm with ETH', tac: 'Farm with TAC', pair: 'Farm with ETH + TAC' }[F.mode];
     if (x && mineX(x) && x.bal != null && x.bal < FEE_MIN) { go.textContent = 'Add ETH for the network fee'; go.disabled = true; return; }
-    const ack = $('#fm-ack');
-    go.disabled = !q || q.over || !x || (q.loss >= 15 && !(ack && ack.checked));
+    go.disabled = !q || q.over || !x || !accepted('fm-ack', q.loss);
   }
+  // A loss of 15% or more to the swap is accepted in a box; one of 30% or more by typing its figure, as on the front page.
+  const ackBox = (id, loss, what, prior) => {
+    const n = Math.round(loss);
+    return loss >= 30 ? `<label class="ack"><span>Type <b>${n}</b> to accept losing about ${n}% of this ${what} to the swap.</span><input id="${id}" inputmode="numeric" autocomplete="off" aria-label="Type ${n} to accept" value="${prior ? n : ''}"></label>`
+      : `<label class="ack"><input type="checkbox" id="${id}"${prior ? ' checked' : ''}><span>I accept losing about ${n}% of this ${what} to the swap.</span></label>`;
+  };
+  const accepted = (id, loss) => {
+    if (!(loss >= 15)) return true;
+    const el = $(`#${id}`);
+    return !!el && (el.type === 'checkbox' ? el.checked : el.value.trim() === String(Math.round(loss)));
+  };
   const up = (v, dp) => { const u = 10n ** BigInt(18 - dp); return ((v + u - 1n) / u) * u; };
   const mineX = (x) => !!W.account && x?.who === W.account;
   const spendEth = (x) => (x.bal != null && x.bal > GAS ? x.bal - GAS : 0n);
@@ -215,8 +225,8 @@ export function mountFarm(host, ctx) {
         ${loss >= 0.5 ? `<div class="kv"><span>Swap price impact</span><b class="${loss >= 5 ? 'err' : ''}">${loss.toFixed(loss < 10 ? 1 : 0)}%</b></div>` : ''}
         <p class="note">${share(lp, x.totalStaked + lp)} of the farm. ${x.live ? `At today’s price and stake; the APR falls as more joins. Streams to ${dayFmt(x.finish)}.` : 'The farm is between reward periods: nothing streams until the next one.'}</p>
         ${over ? `<p class="note err">Not enough ${(x.bal != null && wei > x.bal) ? 'ETH' : 'TAC'} in this wallet.</p>` : loss >= 5 ? `<p class="note">The swap inside the pool costs a lot at this size. A smaller deposit${m !== 'pair' ? ', or ETH + TAC,' : ''} costs less.</p>` : ''}
-        ${loss >= 15 ? `<label class="ack"><input type="checkbox" id="fm-ack"${F.ackKey === ackKey ? ' checked' : ''}><span>I accept losing about ${Math.round(loss)}% of this deposit to the swap.</span></label>` : ''}`;
-      $('#fm-ack')?.addEventListener('change', (e) => { F.ackKey = e.target.checked ? ackKey : null; gate(); });
+        ${loss >= 15 ? ackBox('fm-ack', loss, 'deposit', F.ackKey === ackKey) : ''}`;
+      for (const ev of ['input', 'change']) $('#fm-ack')?.addEventListener(ev, () => { F.ackKey = accepted('fm-ack', loss) ? ackKey : null; gate(); });
       gate();
     } catch (e) { if (my === F.seq) { rc.hidden = false; rc.innerHTML = `<p class="note err">${errMsg(e)}</p>`; } }
   }
@@ -255,7 +265,7 @@ export function mountFarm(host, ctx) {
   go.onclick = () => {
     if (!W.account) return connect();
     const z = F.q, x = F.x, from = W.account;
-    if (!z || z.over || !x || x.who !== from || (z.loss >= 15 && !$('#fm-ack')?.checked)) return;
+    if (!z || z.over || !x || x.who !== from || !accepted('fm-ack', z.loss)) return;
     run(go, status, async () => {
       const minShares = z.lp * 995n / 1000n, dl = deadline(), tail = word(minShares) + word(dl);
       const needPermit = z.tac > 0n && x.allowance < z.tac;
@@ -303,7 +313,7 @@ export function mountFarm(host, ctx) {
       const { hash } = await send({ data: sig ? SEL.stakeWithPermit + word(x.lp) + word(dl) + sig : SEL.stake + word(x.lp) }, 'Staking', ps(), from);
       say(ps(), `<span class="ok">Staked.</span> ${txLink(hash)}`); onDone();
     });
-    if (b.id === 'fm-exit' && F.w && !(F.w.loss >= 15 && !$('#fm-out-ack')?.checked)) run(b, ps(), async () => {
+    if (b.id === 'fm-exit' && F.w && accepted('fm-out-ack', F.w.loss)) run(b, ps(), async () => {
       const z = F.w, dl = deadline();
       const sim = await ethCall(FARM, outData(z, 0n, 0n, dl), 'latest', { from });
       const m0 = wordAt(sim, 0) * 995n / 1000n, m1 = z.as === 'both' ? wordAt(sim, 1) * 995n / 1000n : 0n;
@@ -327,10 +337,11 @@ export function mountFarm(host, ctx) {
       el.hidden = false;
       el.innerHTML = `<div class="kv"><span>You get about</span><b>${as === 'both' ? `${amt(wordAt(r, 0), 5)} ETH + ${amt(wordAt(r, 1), 2)} TAC` : `${amt(wordAt(r, 0), as === 'eth' ? 5 : 2)} ${as === 'eth' ? 'ETH' : 'TAC'}`}</b></div>${all && x.earned > 0n ? `<div class="kv"><span>Plus earned</span><b>${fmt(earnedNow(x), 18, 2)} TAC</b></div>` : ''}`
         + (loss >= 0.5 ? `<div class="kv"><span>Price impact of the swap</span><b class="${loss >= 5 ? 'err' : ''}">${loss.toFixed(loss < 10 ? 1 : 0)}%</b></div>` : '')
-        + (loss >= 15 ? `<label class="ack"><input type="checkbox" id="fm-out-ack"><span>I accept losing about ${Math.round(loss)}% of this withdrawal to the swap.</span></label>` : '');
+        + (loss >= 15 ? ackBox('fm-out-ack', loss, 'withdrawal', false) : '');
       ex.textContent = all ? 'Withdraw all' : `Withdraw ${F.outPct}%`;
-      const outGate = () => { ex.disabled = F.busy || (loss >= 15 && !$('#fm-out-ack')?.checked); };
-      $('#fm-out-ack')?.addEventListener('change', outGate); outGate();
+      const outGate = () => { ex.disabled = F.busy || !accepted('fm-out-ack', loss); };
+      for (const ev of ['input', 'change']) $('#fm-out-ack')?.addEventListener(ev, outGate);
+      outGate();
     } catch { if (my === F.wseq && el) { el.hidden = false; el.innerHTML = '<p class="note err">The withdrawal could not be previewed just now.</p>'; } }
   }
 
