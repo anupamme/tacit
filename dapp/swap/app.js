@@ -7,10 +7,10 @@
 // Private: the same pool's private door, priced here and handed to the front page's console, which holds the tacit1 key and proves it.
 // Earn: the Precision farm (trade/farm.js) in the card, the private farms by link.
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
-import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venues.js?cb=a08631ce';
+import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venues.js?cb=f6e1b626';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=b0beb322';
 import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18 } from '/trade/util.js?cb=c3dc39b3';
-import * as R from '/swap/route.js?cb=9a5d9c69';
+import * as R from '/swap/route.js?cb=6eafe8b3';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
 
 const CHAINLINK = { eth: '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419', btc: '0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c' };

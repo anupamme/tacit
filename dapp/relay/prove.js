@@ -1,7 +1,7 @@
 // Paying for proofs: every proof the relay makes is paid in PROVE from one prover account (the Succinct network requester), and PROVE sent to that
 // account is put into the prover network within a few minutes (under 2 PROVE, at the relay's next half-hourly top-up). A visitor's wallet can send PROVE there, or pay ETH that zRouter swaps to
 // PROVE with the prover account as the recipient, in one transaction. Only the visitor's own balances are read; never the prover account's.
-import { PROVER, PROVE, ZROUTER, PROVE_PER_PROOF, SLIPPAGE_BPS, transferData, balanceOfData, quoteEthToProve } from '/relay/abi.js?cb=abf8bf2b';
+import { PROVER, PROVE, ZROUTER, PROVE_PER_PROOF, SLIPPAGE_BPS, transferData, balanceOfData, quoteEthToProve } from '/relay/abi.js?cb=784a6cc6';
 import { UserStopped } from '/trade/wallet.js?cb=595c892a';
 import { rpc, esc, fmtUnits, parseUnits, plain, grp, short } from '/trade/util.js?cb=c3dc39b3';
 

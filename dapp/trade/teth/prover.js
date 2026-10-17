@@ -9,7 +9,7 @@
 //
 // self-prover.js is loaded the first time it is needed. Nothing here keeps a key: each use derives the account from the page's `priv()`.
 import { secp, keccak_256, sha256, hmac, concatBytes } from '/vendor/tacit-deps.min.js';
-import { quoteEthToProve, ethForProve, ZROUTER } from '/relay/abi.js?cb=abf8bf2b';
+import { quoteEthToProve, ethForProve, ZROUTER } from '/relay/abi.js?cb=784a6cc6';
 import { rpc, ethCall, strip, word, now } from '/trade/util.js?cb=c3dc39b3';
 
 // The permit is signed synchronously, which noble's secp256k1 does once it is given an HMAC (as tacit.js and the sats page give it).

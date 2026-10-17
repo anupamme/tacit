@@ -10,7 +10,7 @@ if (/^\/trade\/(index\.html)?$/.test(location.pathname)) history.replaceState(nu
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import {
   makeEvmTradeVenues, zswapDeepLink, encErc20Approve, PRECISION_POOL, TAC_ERC20, TACIT_AMM, MULTICALL3, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, _internal,
-} from '/evm-trade-venues.js?cb=a08631ce';
+} from '/evm-trade-venues.js?cb=f6e1b626';
 import { getConfidentialDeployment } from '/confidential-deployments.js';
 import { buildBook, planBuy, planSell as planBtcSell, ladderLevels } from '/btc-book.js?cb=2d11b335';
 import { decodeTape, chartBars, continuous, invert, ethLaneUsd, btcLaneUsd, candlesFromTrades, tradePrices, closeAt, volumeSince, gap, TAPE_FINE, TAPE_COARSE } from '/trade/tape.js?cb=a4aefafb';
@@ -688,7 +688,7 @@ const pageWallet = () => (W.account && W.prov && !W.prov.isWalletConnect ? { uui
 // Made once: two asks at the same moment (the hover that warms it and the press that uses it) share one module and so one wallet session.
 let bitcoinP = null;
 function getBitcoin() {
-  return (bitcoinP ||= import('/trade/btc.js?cb=757752eb').then((m) => (bitcoin = m.makeBitcoin({
+  return (bitcoinP ||= import('/trade/btc.js?cb=16c433a5').then((m) => (bitcoin = m.makeBitcoin({
     notify, wallet: pageWallet, onChange: () => syncMe(),
     onTraded: (t) => { noteBitcoinTrade(t); loadBitcoin().then(paintAll).catch(() => {}); },
   }))).catch((e) => { bitcoinP = null; throw e; }));

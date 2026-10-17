@@ -3,7 +3,7 @@
 // settle with eth_call, has the wallet send it, and tells the API it landed. The fee shown is read from the proof's own public values.
 import { makeConfidentialRelay } from '/confidential-relay.js?cb=b941725a';
 import { CONFIDENTIAL_DEPLOYMENTS, shownTicker } from '/confidential-deployments.js?cb=de357fe5';
-import { pvFees, pvDeadline, settleCalldata, typeWords } from '/relay/abi.js?cb=abf8bf2b';
+import { pvFees, pvDeadline, settleCalldata, typeWords } from '/relay/abi.js?cb=784a6cc6';
 import { UserStopped } from '/trade/wallet.js?cb=595c892a';
 import { rpc, esc, fmtUnits, short } from '/trade/util.js?cb=c3dc39b3';
 
