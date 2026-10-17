@@ -3283,51 +3283,97 @@ await step('ptsclaim', async () => {
   }
 });
 // The rewards page: one bar that takes an address or a .eth, .wei or .gwei name and answers with that account's airdrop and points. The points
-// service is stubbed (so its numbers are known); the names and the airdrop contract are read from the fork. z0r0z.wei points to an address the
-// airdrop lists.
+// service is stubbed (so its numbers are known, and its calls can be counted and slowed); the names and the airdrop contract are read from the
+// fork. z0r0z.wei points to an address the airdrop lists. A lookup starts on its own once what is typed can be one, each card draws as its own
+// reading arrives, a second look costs no new reading, and the bar offers the three services for a bare name and what was looked up before.
 await step('rewards', async () => {
-  const LISTED = '0x1c0aa8ccd568d90d61659f060d1bfb1e6f855a20';
+  const LISTED = '0x1c0aa8ccd568d90d61659f060d1bfb1e6f855a20', OTHER = '0x' + 'ab'.repeat(20), hex40 = (c) => '0x' + c.repeat(40);
   const n = await openPage({ account: A0, viewport: { width: 1280, height: 900 } });
-  await n.ctx.route(/api\.tacit\.finance\/(points|claim)\/0x/, (route) => {
+  await n.ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(n.url).origin }).catch(() => {});
+  const hits = { points: 0, claim: 0, board: 0 }; let slow = 0;
+  await n.ctx.route(/api\.tacit\.finance\/(points|claim)\/0x/, async (route) => {
     const u = route.request().url(), a = (u.match(/0x[0-9a-fA-F]{40}/) || [''])[0].toLowerCase(), mine = a === LISTED;
-    if (/\/claim\//.test(u)) return json(route, mine ? { cumulativeAmount: '8000000000000000000', claimedWei: '5000000000000000000', unclaimedWei: '3000000000000000000', proof: ['0x' + '11'.repeat(32)] } : { cumulativeAmount: '0', claimedWei: '0', unclaimedWei: '0', proof: null });
+    if (/\/claim\//.test(u)) { hits.claim++; return json(route, mine ? { cumulativeAmount: '8000000000000000000', claimedWei: '5000000000000000000', unclaimedWei: '3000000000000000000', proof: ['0x' + '11'.repeat(32)] } : { cumulativeAmount: '0', claimedWei: '0', unclaimedWei: '0', proof: null }); }
+    hits.points++;
+    if (slow) await sleep(slow);
     return json(route, { address: a, points: mine ? 12345.6 : 0, deposit_count: mine ? 4 : 0, deposits: [] });
   });
-  await n.ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => json(route, [{ address: hex40('1'), points: 9e9 }, { address: hex40('2'), points: 50000 }, { address: LISTED, points: 12345.6 }]));
-  const hex40 = (c) => '0x' + c.repeat(40);
-  const ask = async (text) => { await n.page.fill('#q', text); await n.page.click('#go'); };
+  await n.ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => { hits.board++; return json(route, [{ address: hex40('1'), points: 9e9 }, { address: hex40('2'), points: 50000 }, { address: LISTED, points: 12345.6 }]); });
   const out = async () => (await text(n.page, '#out')).replace(/\s+/g, ' ').trim();
+  const settled = () => until(n.page, () => !!document.querySelector('#out .cu') && !document.querySelector('#out .cu:not([data-settled])') && !document.querySelector('#out .sk'), null, 120000);
+  const read = (txt) => n.page.evaluate(() => navigator.clipboard.readText()).catch(() => null);
   try {
     await n.page.goto(n.url + 'rewards/');
     await n.page.waitForSelector('#q', { timeout: 60000 });
     const box = await n.page.evaluate(() => { const r = document.querySelector('.bar').getBoundingClientRect(), h = document.querySelector('#find-h').getBoundingClientRect(); return { bar: r.left + r.width / 2, h1: h.left + h.width / 2, vw: innerWidth }; });
     ok(Math.abs(box.bar - box.vw / 2) < 3 && Math.abs(box.h1 - box.vw / 2) < 3 && !!(await n.page.$('header.top nav.sn')) && !!(await n.page.$('footer.sf')), `rewards: the bar and the title are centred, under the shared header and footer (${JSON.stringify(box)})`);
-    await ask('hello');
+    const pre = await n.page.$$eval('link[rel="preconnect"]', (l) => l.map((x) => x.href));
+    ok(['https://api.tacit.finance/', 'https://ethereum-rpc.publicnode.com/', 'https://eth.drpc.org/', 'https://1rpc.io/'].every((h) => pre.includes(h)), `rewards: the hosts it reads are connected while the person types (${pre.length} preconnect links)`);
+    await until(n.page, () => true); await sleep(1200);
+    ok(hits.board === 1, `rewards: the leaderboard is fetched once, before anything is asked (${hits.board})`);
+    await n.page.fill('#q', 'hello'); await n.page.click('#go');
     await until(n.page, () => /Enter a 0x address/.test(document.querySelector('#out')?.textContent || ''), null, 30000);
     ok((await n.page.getAttribute('#q', 'aria-invalid')) === 'true', 'rewards: something that is neither an address nor a name is told, and marked on the bar');
-    await ask('0x1c0aA8ccd568d90d61659f060d1bfb1e6f855a20');
+    await n.page.fill('#q', '0x1c0aA8ccd568d90d61659f060d1bfb1e6f855a20');
     await until(n.page, () => /bad checksum/.test(document.querySelector('#out')?.textContent || ''), null, 30000);
-    ok(true, 'rewards: an address in mixed case that fails its checksum is refused');
-    await ask('z0r0z.wei');
-    await until(n.page, () => /Airdrop/.test(document.querySelector('#out')?.textContent || '') && /Points/.test(document.querySelector('#out')?.textContent || '') && !document.querySelector('#out .sk'), null, 120000);
+    ok(true, 'rewards: an address in mixed case that fails its checksum is refused, with nothing pressed');
+    // A whole address starts the lookup by itself; the airdrop card is drawn while the points are still being read.
+    slow = 1500;
+    await n.page.fill('#q', OTHER);
+    await until(n.page, () => /Not on the airdrop list/.test(document.querySelector('#c-air')?.textContent || '') && !!document.querySelector('#c-pts .sk'), null, 30000);
+    ok(true, 'rewards: a pasted address answers at once, and the airdrop card draws while the points are still being read');
+    await until(n.page, () => /No points yet/.test(document.querySelector('#c-pts')?.textContent || ''), null, 30000);
+    slow = 0;
+    // A name starts it too, a moment after the last key; the address it points to was not read before, so this reads it.
+    await n.page.fill('#q', LISTED);
+    await settled();
+    const readsBefore = { ...hits };
+    await n.page.fill('#q', 'z0r0z.wei');
+    await until(n.page, () => /^z0r0z\.wei/.test((document.querySelector('#out')?.textContent || '').trim()) && !document.querySelector('#out .sk'), null, 60000);
+    await settled();
     let t = await out();
-    ok(/^z0r0z\.wei\s*0x1c0a…5a20/.test(t) && /Airdrop[\d.,]+\s*TAC/.test(t) && /(Claimed|Claim by|Closed)/.test(t), `rewards: a .wei name gives its address and the airdrop (${t.slice(0, 200)})`);
-    ok(/12,346\s*points/.test(t) && /Rank #3/.test(t) && /Earned on settled days\s*8 TAC/.test(t) && /Claimed\s*5 TAC/.test(t) && /To claim\s*[\d.,]+ TAC/.test(t), `rewards: and its points, its place on the board and what it has earned, claimed and can claim (${t.slice(t.indexOf('Points'), t.indexOf('Points') + 200)})`);
-    ok(!!(await n.page.$('#out a.act[href="/#points"]')) && !(await n.page.$('#out button')), 'rewards: a claim is a link into the dapp, not a button here');
+    ok(/^z0r0z\.wei\s*0x1c0a…5a20/.test(t) && /Airdrop[\d.,]+\s*TAC/.test(t) && /(Claimed|Claim by [^·]+· \d+ days? left|Closed)/.test(t), `rewards: a .wei name answers by itself, with its address and the airdrop (${t.slice(0, 200)})`);
+    await until(n.page, () => /Rank #3/.test(document.querySelector('#out')?.textContent || ''), null, 30000);
+    t = await out();
+    ok(/12,346\s*points/.test(t) && /Earned on settled days\s*8 TAC/.test(t) && /Claimed\s*0 TAC/.test(t) && /To claim\s*8 TAC/.test(t), `rewards: its points and rank, what it has earned, what the distributor says it has claimed, and what it can claim (${t.slice(t.indexOf('Points'), t.indexOf('Points') + 200)})`);
+    ok(hits.points === readsBefore.points && hits.claim === readsBefore.claim && hits.board === readsBefore.board, `rewards: the same account read again by its name costs no new reading (${JSON.stringify(hits)})`);
+    ok(!!(await n.page.$('#out a.act[href="/#points"]')) && (await n.page.$$eval('#out button', (b) => b.every((x) => !/Claim \d/.test(x.textContent)))), 'rewards: a claim is a link into the dapp; the only buttons are for copying');
     ok((await n.page.evaluate(() => location.search)) === '?q=z0r0z.wei', 'rewards: the address bar carries the lookup, so it can be shared');
-    await ask('vitalik.eth');
+    // Copying.
+    await n.page.click('[data-copy^="0x"]');
+    await until(n.page, () => document.querySelector('[data-copy^="0x"]')?.textContent === 'Copied', null, 10000);
+    ok((await read()) === LISTED, 'rewards: Copy address copies the address and says so');
+    await n.page.click('[data-said="Link copied"]');
+    await until(n.page, () => document.querySelector('[data-said="Link copied"]')?.textContent === 'Copied', null, 10000);
+    ok((await read()) === `${new URL(n.url).origin}/rewards/?q=z0r0z.wei`, 'rewards: Copy link copies the address of this lookup');
+    // A bare name is offered under the three services; a lookup is remembered; / finds the bar; Esc clears it.
+    await n.page.fill('#q', 'alice');
+    const chips = await n.page.$$eval('#hints .chip', (c) => c.map((x) => x.textContent));
+    ok(chips.join() === 'alice.eth,alice.wei,alice.gwei' && (await n.page.$$('#recent .chip')).length === 0, `rewards: a bare name is offered as .eth, .wei and .gwei, and what was looked up before steps aside (${chips})`);
+    await n.page.click('#hints [data-q="alice.gwei"]');
+    await until(n.page, () => /^alice\.gwei/.test((document.querySelector('#out')?.textContent || '').trim()) && !document.querySelector('#out .sk'), null, 120000);
+    ok(/^alice\.gwei\s*0xdc10…f86a/.test(await out()), 'rewards: choosing one answers (a .gwei name is read through GNS)');
+    await n.page.press('#q', 'Escape');
+    ok((await n.page.inputValue('#q')) === '' && (await out()) === '' && (await n.page.evaluate(() => location.search)) === '', 'rewards: Esc empties the bar and the answer');
+    const rec = await n.page.$$eval('#recent .chip[data-q]', (c) => c.map((x) => x.dataset.q));
+    ok(rec[0] === 'alice.gwei' && rec.includes('z0r0z.wei') && rec.includes(LISTED), `rewards: what was looked up is offered again, newest first (${rec})`);
+    await n.page.evaluate(() => document.activeElement.blur());
+    await n.page.keyboard.press('/');
+    ok(await n.page.evaluate(() => document.activeElement.id === 'q'), 'rewards: / puts the cursor in the bar');
+    await n.page.click('#recent [data-q="z0r0z.wei"]').catch(async () => { await n.page.evaluate(() => document.activeElement.blur()); await n.page.press('#q', 'Escape'); await n.page.click('#recent [data-q="z0r0z.wei"]'); });
+    await until(n.page, () => /^z0r0z\.wei/.test((document.querySelector('#out')?.textContent || '').trim()) && !document.querySelector('#out .sk'), null, 60000);
+    ok(true, 'rewards: a recent lookup answers when pressed');
+    await n.page.fill('#q', 'vitalik.eth');
     await until(n.page, () => /^vitalik\.eth/.test((document.querySelector('#out')?.textContent || '').trim()) && !document.querySelector('#out .sk'), null, 120000);
     t = await out();
-    ok(/^vitalik\.eth\s*0xd8da…6045/.test(t) && /No points yet/.test(t), `rewards: an .eth name is read through ENS (${t.slice(0, 120)})`);
-    await ask('alice.gwei');
-    await until(n.page, () => /^alice\.gwei/.test((document.querySelector('#out')?.textContent || '').trim()) && !document.querySelector('#out .sk'), null, 120000);
-    ok(/^alice\.gwei\s*0xdc10…f86a/.test(await out()), 'rewards: a .gwei name is read through GNS');
-    await ask('alice.wei');
+    ok(/^vitalik\.eth\s*0xd8da…6045/.test(t), `rewards: an .eth name is read through ENS (${t.slice(0, 80)})`);
+    await n.page.fill('#q', 'alice.wei');
     await until(n.page, () => /has no address set/.test(document.querySelector('#out')?.textContent || ''), null, 120000);
     ok(/^alice\.wei has no address set/.test(await out()), 'rewards: a name with no address says so');
     await n.page.goto(n.url + 'rewards/?q=z0r0z.wei');
     await until(n.page, () => /Airdrop/.test(document.querySelector('#out')?.textContent || '') && !document.querySelector('#out .sk'), null, 120000);
     ok((await n.page.inputValue('#q')) === 'z0r0z.wei' && /^z0r0z\.wei/.test(await out()), 'rewards: a link with ?q= fills the bar and answers at once');
+    await settled();
     if (SHOTS) await n.page.screenshot({ path: join(SHOTS, 'weld-rewards.png'), fullPage: true });
     await n.page.setViewportSize({ width: 390, height: 900 });
     await sleep(500);

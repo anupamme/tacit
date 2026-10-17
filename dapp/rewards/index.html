@@ -22,9 +22,13 @@
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-mono-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-mono-500-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preconnect" href="https://api.tacit.finance" crossorigin>
+<link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
+<link rel="preconnect" href="https://eth.drpc.org" crossorigin>
+<link rel="preconnect" href="https://1rpc.io" crossorigin>
 <!-- preload-roots: /rewards/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/rewards/app.js?cb=496879bf">
+<link rel="modulepreload" href="/rewards/app.js?cb=b7fab059">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/confidential-names.js?cb=7bb10833">
 <link rel="modulepreload" href="/tacit-address.js">
@@ -92,12 +96,22 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .bar button:disabled { opacity: .35; cursor: default; }
 @media (pointer: coarse) { .bar input { font-size: 16px; } }
 
+.chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin: 14px 0 0; min-height: 0; }
+.chips:empty { display: none; }
+.chip { font: 400 13px/1 var(--mono); color: var(--ink); background: none; border: 1px solid var(--hair-2); border-radius: 999px; padding: 9px 14px; min-height: 36px; cursor: pointer; transition: border-color .15s, background .15s; }
+.chip:hover { border-color: var(--ink); background: var(--field); }
+.chip.x { color: var(--mute); border-color: transparent; padding: 9px 10px; }
 #out { margin-top: 28px; text-align: left; min-height: 1px; }
 .err { color: var(--err); margin: 0; text-align: center; }
 .who { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 4px 12px; margin: 0 0 20px; text-align: center; }
 .who b { font: 400 26px/1.1 var(--serif); letter-spacing: -.01em; word-break: break-all; }
-.who a { color: var(--mute); font-size: 13px; }
-.card { background: var(--card); border: 1px solid var(--hair); padding: 22px 24px 20px; margin: 0 0 14px; }
+.who span { color: var(--mute); font-size: 13px; }
+.acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 18px; margin: -8px 0 18px; }
+.acts a, .acts button { font: 400 13px/1.4 var(--mono); color: var(--mute); background: none; border: 0; padding: 6px 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.acts a:hover, .acts button:hover { color: var(--ink); }
+.card { background: var(--card); border: 1px solid var(--hair); padding: 22px 24px 20px; margin: 0 0 14px; animation: rise .38s cubic-bezier(.2, .7, .2, 1) both; }
+#c-pts .card { animation-delay: .06s; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } }
 .card h2 { margin: 0 0 6px; font: 500 12px/1.4 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--mute); }
 .big { margin: 0; font: 400 clamp(38px, 7vw, 54px)/1 var(--serif); letter-spacing: -.02em; }
 .big small { font: 400 15px var(--mono); letter-spacing: 0; color: var(--mute); margin-left: 8px; }
@@ -167,7 +181,10 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
         <label class="sr" for="q">An address, or a name ending in .eth, .wei or .gwei</label>
         <div class="bar"><input id="q" name="q" type="text" placeholder="0x address, name.eth, name.wei or name.gwei" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" enterkeyhint="search"><button type="submit" id="go" aria-label="Look up">→</button></div>
       </form>
+      <div class="chips" id="hints" aria-label="Complete the name"></div>
+      <div class="chips" id="recent" aria-label="Recent lookups"></div>
       <div id="out" aria-live="polite"></div>
+      <p class="sr" id="note" role="status" aria-live="polite"></p>
     </section>
   </main>
 
@@ -185,6 +202,6 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/rewards/app.js?cb=496879bf"></script>
+<script type="module" src="/rewards/app.js?cb=b7fab059"></script>
 </body>
 </html>
