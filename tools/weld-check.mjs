@@ -5175,6 +5175,37 @@ await step('hxsend', async () => {
         .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | form: ${await p.evaluate(() => [...document.querySelectorAll('dialog[open]')].map((d) => d.id).join())}`); });
       ok(true, `hxsend: ${ticker}'s button opens its form with the amount and the recipient`);
     }
+    // An Ethereum address is paid in the public token: tETH through the Withdraw form, cUSD through its form's address route; the wrong kind of address for an asset is said, and the button waits.
+    const eth0 = '0x' + 'ab'.repeat(20), btc0 = 'bc1q' + 'a'.repeat(38);
+    await pick('eth', '^0\\.25 tETH · Max');
+    await p.fill('#hx-rcpt', eth0); await p.fill('#hx-amt', '0.1');
+    await until(p, () => /^They get [\d.]+ ETH at that address: the relay fee of [\d.]+ tETH comes out of it\.$/.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
+    ok(await text(p, '#hx-go') === 'Send to the address', `hxsend: tETH to an Ethereum address says it arrives as ETH there (${await line()})`);
+    await p.click('#hx-go');
+    await until(p, ([x, v]) => document.querySelector('#sheet-eth[open] #o-to')?.value === x && document.querySelector('#o-amt')?.value === v, [eth0, '0.1'], 120000);
+    ok(true, 'hxsend: its button opens Withdraw with the address and the amount');
+    await pick('cusd', '^25 cUSD · Max');
+    await p.fill('#hx-rcpt', eth0); await p.fill('#hx-amt', '15');
+    await until(p, () => /^They get [\d.]+ tacUSD at that address/.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
+    await p.click('#hx-go');
+    await until(p, ([x, v]) => document.querySelector('#sheet-borrow[open] #cs-to')?.value === x && document.querySelector('#cs-amt')?.value === v, [eth0, '15'], 120000);
+    ok(true, 'hxsend: cUSD to an Ethereum address arrives as tacUSD and opens its form with the address');
+    await lander(p);
+    await p.click('[data-hxm="send"]');
+    await p.selectOption('#hx-sa', 'cusd');
+    await p.fill('#hx-rcpt', btc0);
+    await until(p, () => /^That is a Bitcoin address\. To pay it, choose BTC\.$/.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 60000);
+    ok(await p.$eval('#hx-go', (b) => b.disabled), 'hxsend: a Bitcoin address typed for cUSD is said, and the button waits');
+    await p.selectOption('#hx-sa', 'tacb');
+    await p.fill('#hx-rcpt', eth0);
+    await until(p, () => /^That is an Ethereum address\./.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 60000);
+    ok(await p.$eval('#hx-go', (b) => b.disabled), 'hxsend: an Ethereum address typed for TAC on Bitcoin is said, and the button waits');
+    await p.selectOption('#hx-sa', 'btc');
+    await p.fill('#hx-rcpt', btc0);
+    await until(p, () => /^A silent payment/.test((document.querySelector('#hx-q')?.textContent || '').trim()) && !document.querySelector('#hx-go').disabled, null, 60000);
+    ok(true, 'hxsend: the same Bitcoin address is fine for BTC');
     await lander(p);
     await p.click('[data-hxm="send"]');
     await p.selectOption('#hx-sa', 'tacb');
@@ -5203,6 +5234,24 @@ await step('hxsend', async () => {
     await q.evaluate(() => { location.hash = '#card=send:cusd&to=alice.wei&amt=5'; });
     await until(q, () => document.querySelector('#hx-sa')?.value === 'cusd' && document.querySelector('#hx-rcpt')?.value === 'alice.wei' && document.querySelector('#hx-amt')?.value === '5', null, 60000);
     ok(await q.evaluate(() => location.hash) === '', 'hxsend: a #card=send link fills the card with its asset, recipient and amount');
+    // A unified tacit1 address runs to about 270 characters, and a link names it whole; with no asset named the card opens on what the key holds.
+    const long = shownAddress('7d7e'.padEnd(64, '5'));
+    await q.selectOption('#hx-sa', 'eth');
+    await q.evaluate((h) => { location.hash = h; }, `#card=send&to=${encodeURIComponent(long)}`);
+    await until(q, (v) => document.querySelector('#hx-rcpt')?.value === v && document.querySelector('#hx-sa')?.value === 'cusd', long, 60000);
+    ok(long.length > 200, `hxsend: a link names a ${long.length}-character tacit1 address whole, and an asset left out opens on the cUSD the key holds`);
+    // Request a payment: this key's link, for the asset and amount asked for, copied; opened, it is the same payment filled in.
+    await q.evaluate(() => { window.__clip = []; navigator.clipboard.writeText = async (t) => { window.__clip.push(t); }; });
+    await q.click('#hx-ask');
+    await q.fill('#hx-amt', '5');
+    ok(/Copy payment link/.test(await text(q, '#hx-go')) && !(await q.$('#hx-rcpt')) && /You ask for/.test(await text(q, '#hx-panel')), 'hxsend: Request a payment asks for an asset and an amount and offers the link');
+    await q.click('#hx-go');
+    const link = await q.evaluate(() => window.__clip[0] || '');
+    ok(link === `${new URL(q.url()).origin}/#card=send:cusd&to=${encodeURIComponent(long)}&amt=5`, `hxsend: the link is this key's tacit1 address with cUSD and 5 (${link.slice(0, 60)}…)`);
+    await q.click('#hx-pay');
+    await q.evaluate((h) => { location.hash = h; }, new URL(link).hash);
+    await until(q, (v) => document.querySelector('#hx-rcpt')?.value === v && document.querySelector('#hx-amt')?.value === '5' && document.querySelector('#hx-sa')?.value === 'cusd', long, 60000);
+    ok(true, 'hxsend: opening that link fills Send with the address, cUSD and the amount');
     if (r2.errors.length) { fails++; console.log('FAIL hxsend page errors: ' + r2.errors.slice(0, 3).join(' | ')); }
   } finally { await r2.browser.close(); }
 });

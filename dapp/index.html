@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-UbTAPzNF1/hLBl184WqUkVurz7v1XGJig6jGFvu4ddQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-BSy645QGr4pPCv5DgDEC0DJIGtEqyPYDwywQyM2fHh8=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -5190,6 +5190,7 @@ function v1Out(el, status) {
     } catch (e) { if (my === seq) quoteErr(rc, e); }
   };
   onEdit([to, amt], go, check);
+  const od = hxLive('out'); if (od?.to) to.value = od.to;       // from the card's Send to an Ethereum address
   takeDraft('out', amt);
   go.onclick = () => busy(go, async (run) => {
     const x = q, raw = to.value.trim();                           // the quote shown when pressed, whatever is typed after
@@ -11629,6 +11630,7 @@ async function hxOutQuote(units) {
 // A private send, as its form will quote it (each of the pool's four assets in its own ticker): the recipient's claim is relayed too and its fee comes
 // out of the payment, and a payment no note matches is cut from the balance first, at one more relay fee.
 async function hxSendQuote(units) {
+  if (hxRcptKind() === 'eth') return hxSendOutQuote(units);
   const k = HX.send, [, unit, , dp] = hxSendOf(k), tk = POOL_TK[k], show = (v) => `${fmt(v, 8, dp)} ${unit}`;
   const t = await getUx(), held = S.key && P.scan ? spendable(k) : null, notes = freeNotes(P.scan?.[k]?.notes), exact = notes.some((n) => BigInt(n.value) === units);
   const [split, claim] = await Promise.all([held != null && !exact && !ownNow(['transfer', 'stealthlock']) ? t.quoteOpFee(tk, 'transfer').then(BigInt) : 0n, t.quoteOpFee(tk, 'stealthclaim').then(BigInt)]);
@@ -11639,10 +11641,40 @@ async function hxSendQuote(units) {
       : `They get about ${show(units - claim)}: their claim's relay fee comes out of it${split ? `, and ${show(split)} from your balance ${notes.some((n) => BigInt(n.value) >= units + split) ? 'splits a note' : 'combines notes'} first` : ''}. Nobody sees how much or to whom.` };
 }
 // What Send says under its button where nothing is quoted: the pool's four hide the amount and the recipient; the two on Bitcoin say what Pay does with them.
+// What a typed recipient is, where it is plain: an Ethereum address (paid in the public token) or a Bitcoin address; a Tacit address or a name is '' (private).
+const hxRcptKind = (r = HX.rcpt) => (/^0x[0-9a-fA-F]{40}$/.test(r) ? 'eth' : /^(bc1[a-z0-9]{20,}|sp1[a-z0-9]{40,})$/i.test(r) || /^[13][a-km-zA-HJ-NP-Z1-9]{25,34}$/.test(r) ? 'btc' : '');
+// Whether that recipient can be paid in the asset chosen: an Ethereum address from the pool's four, a Bitcoin address in BTC. '' when it can, else why not.
+function hxSendFit() {
+  const r = hxRcptKind();
+  if (r === 'eth' && hxSendBtc()) return 'That is an Ethereum address. To pay it, choose tETH, TAC, cUSD or cBTC.';
+  if (r === 'btc' && HX.send === 'tacb') return 'TAC on Bitcoin goes to a tacit1 address or a name. A Bitcoin address takes BTC.';
+  if (r === 'btc' && HX.send !== 'btc') return 'That is a Bitcoin address. To pay it, choose BTC.';
+  return '';
+}
+// The pool's asset to an Ethereum address, as its form quotes it: it leaves as the public token (ETH for tETH), the relay fee a share of the amount, and with
+// no single note that large one more fee, from the balance, combines notes first.
+async function hxSendOutQuote(units) {
+  const k = HX.send, [, unit, , dp] = hxSendOf(k), tk = POOL_TK[k], as = { eth: 'ETH', tac: 'TAC', cusd: 'tacUSD', cbtc: 'tacBTC' }[k], show = (v) => `${fmt(v, 8, dp)} ${unit}`;
+  const t = await getUx(), own = ownNow(['sendunwrap', 'unwrap']), held = S.key && P.scan ? spendable(k) : null, notes = freeNotes(P.scan?.[k]?.notes);
+  const fee = own ? 0n : t.quoteUnwrapFee(units, tk, { minFee: await t.quoteOpFee(tk, 'sendunwrap') }).fee;
+  const size = own || held == null || notes.some((n) => BigInt(n.value) >= units) ? 0n : BigInt(await t.quoteOpFee(tk, 'transfer'));
+  const over = held != null && units + size > held, small = units <= fee;
+  return { warn: over || small,
+    line: over ? feeRoom(units, size, held, P.scan?.[k]?.notes, show) || `You hold ${show(held)}.`
+      : small ? `Send more than ${show(fee)}: the relay fee comes out of it.`
+      : `They get ${fmt(units - fee, 8, dp)} ${as} at that address${own ? ', with no relay fee' : `: the relay fee of ${show(fee)} comes out of it`}${size ? `, and ${show(size)} from your balance ${notes.some((n) => BigInt(n.value) >= units + size) ? 'splits a note' : 'combines notes'} first` : ''}.` };
+}
 const hxSendWhy = (k = HX.send) => (k === 'btc' ? 'A silent payment: it lands at a fresh address only they can find.' : k === 'tacb' ? 'Inside the shielded pool on Bitcoin: sender, recipient and amount hidden.' : 'Nobody sees how much or to whom.');
-// A key opens Send on what it holds: the first of the pool's four with a private balance, unless it chose another asset or has begun a payment.
+// A request: a link that opens Send filled in with this key's tacit1 address, the asset and the amount asked for, for whoever pays it.
+const hxAskWhy = () => 'Whoever opens the link sees this payment filled in, ready to send.';
+function hxAskGo() {
+  const a = S.key?.tacit, u = hxUnits();
+  if (!a) return openSheet('wallet');
+  copy(`${location.origin}/#card=send:${HX.send}&to=${encodeURIComponent(a)}${u ? `&amt=${plain(u, 8)}` : ''}`, 'Payment link copied');
+}
+// A key opens Send on what it holds: the first of the pool's four with a private balance, unless it chose another asset, has begun an amount or is asking.
 function hxSendAuto() {
-  if (HX.tab !== 'send' || HX.sendPick || HX.amt || HX.rcpt || !S.key || !P.scan || spendable(HX.send) > 0n) return false;
+  if (HX.tab !== 'send' || HX.sendPick || HX.amt || HX.ask || !S.key || !P.scan || spendable(HX.send) > 0n) return false;
   const k = HX_SEND.slice(0, 4).find(([x]) => spendable(x) > 0n)?.[0];
   if (!k || k === HX.send) return false;
   HX.send = k;
@@ -11654,13 +11686,23 @@ function hxSendRead() {
   const drawn = () => { hxBalPaint(); hxHave(); };
   (HX.send === 'btc' ? loadBtc() : loadHeld()).then(drawn, () => {});
 }
+// A recipient typed: what it is (an address or a Tacit one) changes what is quoted and what the button says, so a change of kind asks again.
+function hxRcptChanged() {
+  const kind = hxRcptKind() + (hxSendFit() ? '!' : '');
+  if (kind === HX.rk) return;
+  HX.rk = kind;
+  hxQuoteSoon(true);
+}
 // Where Send leaves what is typed: the pool's four in the sheet that sends them (tETH its Send tab, the others their own form), TAC and BTC on
 // Bitcoin in Pay. Each is filled in there, and a key not yet open signs in first.
 function hxSendGo() {
+  if (HX.ask) return hxAskGo();
+  if (hxSendFit()) return;
   const k = HX.send, u = hxUnits(), amt = u ? plain(u, 8) : HX.amt, to = HX.rcpt;
   HX.draft = null;
   if (hxSendBtc(k)) { location.href = `/pay/#${k === 'btc' ? 'btc' : 'tac'}${to || amt ? `&to=${encodeURIComponent(to)}&amount=${encodeURIComponent(amt)}` : ''}`; return; }
   if (S.key && P.scan && spendable(k) === 0n) return;                                // nothing to send: the line above says how to get some
+  if (k === 'eth' && hxRcptKind() === 'eth') { hxDraft({ mode: 'out', to, amt }); return openLink('private/withdraw'); }      // an address is paid as ETH: the Withdraw form
   if (k === 'eth') { hxDraft({ mode: 'send', to, amt }); return openLink('private/send'); }
   hxDraft({ mode: 'asend', k, to, amt });
   (k === 'tac' ? TACSEND : CSEND).pick = k;
@@ -11670,7 +11712,7 @@ function hxSendGo() {
 const HX_GET = { eth: ['shield:ether:defi', 'Make ETH private first'], tac: ['swap:ether:tac', 'Buy TAC'], cusd: ['borrow:cusd', 'Borrow some'], cbtc: ['borrow:cbtc', 'Mint some'], tacb: ['shield:btc:pool', 'Shield TAC on Bitcoin'] };
 function hxHaveSend(el, pub) {
   const k = HX.send, [, unit, ic] = hxSendOf(k), h = pub ? hxHeldOf(k) : null, none = !!h && h[0] === 0n, get = HX_GET[k], go = $('#hx-go');
-  if (go) go.disabled = none && !hxSendBtc();
+  if (go) { go.disabled = (none && !hxSendBtc()) || !!hxSendFit(); go.textContent = hxSendBtc() ? 'Continue in Pay' : hxRcptKind() === 'eth' ? 'Send to the address' : 'Send privately'; }
   const view = none && get ? html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><span>No ${k === 'tacb' ? 'TAC shielded on Bitcoin' : `private ${unit}`} yet.</span><button class="link" type="button" data-hxin="${get[0]}">${get[1]}</button></span>` : null;
   el.hidden = !view;
   if (view && el.__h !== view.s) { el.__h = view.s; mount(el, view); }
@@ -11905,7 +11947,7 @@ function hxPreset(spec, amt, inCard = false) {
 }
 // Ways with nothing to read (a hand-off, an amount cleared) answer at once, a wrap whose tip is in hand nearly so, and a quote that reads pools
 // waits for the typing to settle.
-const hxLocal = () => !hxUnits() || (HX.mode === 'send' && hxSendBtc()) || (HX.mode === 'btc' && HX.dir === 'in') || (HX.mode !== 'unwrap' && !!hxHandoff(HX.mode, null));
+const hxLocal = () => !hxUnits() || (HX.mode === 'send' && (hxSendBtc() || HX.ask || !!hxSendFit())) || (HX.mode === 'btc' && HX.dir === 'in') || (HX.mode !== 'unwrap' && !!hxHandoff(HX.mode, null));
 const hxQuoteSoon = (() => { let h; return (now) => { clearTimeout(h); h = setTimeout(() => hxQuote(), now || hxLocal() ? 0 : HX.mode === 'private' && hxTipFresh() ? 120 : 350); }; })();
 // A long amount steps its size down rather than scroll out of its field.
 const hxFit = (a) => { if (a) { const n = a.value.length; a.classList.toggle('long', n > 7); a.classList.toggle('longer', n > 10); } };
@@ -11924,6 +11966,8 @@ async function hxQuote() {
   const my = ++HX.seq, units = hxUnits(), m = HX.mode, ethN = units ? Number(units) / 1e8 : 0;
   const done = (q) => { if (my === HX.seq) { HX.q = { eth: ethN, ...q }; paintHxQ(); } };
   HX.held = hxHeld(); HX.heldTac = hxHeldTac(); HX.heldSend = hxSendHeld();
+  if (m === 'send' && HX.ask) return done({ line: hxAskWhy() });
+  if (m === 'send' && hxSendFit()) return done({ warn: true, line: hxSendFit() });
   if (m === 'send' && hxSendBtc()) return done({ line: hxSendWhy() });
   if (m === 'btc' && HX.dir === 'in' && S.key) loadBridge().then(() => paintHxQ(), () => paintHxQ());
   if (m === 'btc' && HX.dir === 'in') return done({ out: 'Private', line: 'Your TAC notes on Bitcoin become private TAC on Ethereum, up to 1,000 TAC a bridge. No relay fee, only a Bitcoin fee in sats; usually a few hours, sometimes up to a day.', go: 'Bridge TAC from Bitcoin' });
@@ -12079,7 +12123,7 @@ function hxHave() {
   const el = $('#hx-have'), pub = S.key?.pubHex;
   if (!el) return;
   if (pub && HX.tab === 'private' && HX.sf === 'tb') return hxHaveTb(el, pub);
-  if (HX.tab === 'send') return hxHaveSend(el, pub);
+  if (HX.tab === 'send') { if (HX.ask) { el.hidden = true; el.__h = ''; return; } return hxHaveSend(el, pub); }
   if (pub && P.scan && HX.tab === 'private' && HX.sf === 'ether') return hxHaveTeth(el);
   if (pub && HX.tab === 'borrow') return hxHaveAddr(el, LOCK.state?.addr || (LOCK.addr?.pub === pub ? LOCK.addr.a : null));
   el.__h = '';                                                                       // what is drawn below is not the tETH line
@@ -12459,12 +12503,21 @@ function paintHx() {
       ${S.key ? html`<p class="hx-bw-f" id="hx-bw-hold" hidden></p><p class="hx-q" id="hx-bw-s" aria-live="polite"></p>${HX.bwMore && LOCK.state?.rec ? html`<p class="hx-bw-f"><button class="link" type="button" id="hx-bw-back">Back to your lock</button></p>` : ''}` : ''}`;
   } else {
     const [, unit] = hxSendOf(), btcPay = HX.send === 'btc', at = HX.send === 'tacb' ? ['private on Bitcoin', true, 'btc'] : btcPay ? ['your Bitcoin address', false, 'btc'] : ['private on Ethereum', true, 'eth'];
-    body = html`${field('You send', where(...at), amt(`${unit} to send`), coin('hx-sa', 'Asset to send', HX_SEND_G, HX.send, true), subline)}
+    HX.askFor = S.key?.tacit || '';
+    body = HX.ask ? html`${field('You ask for', where(...at), amt(`${unit} to ask for`), coin('hx-sa', 'Asset to ask for', HX_SEND_G, HX.send, true), html`<div class="hx-ff"><span class="hx-sub" id="hx-sub"></span></div>`)}
+      ${mid()}
+      ${field('Paid to', where('your tacit1 address', false, 'tac'), html`<span class="hx-say mono">${HX.askFor ? short(HX.askFor, 12) : 'Open your wallet to get the link'}</span>`)}
+      <div class="hx-have" id="hx-have" hidden></div>
+      <button class="btn" type="button" id="hx-go">${HX.askFor ? 'Copy payment link' : 'Open your wallet'}</button>
+      <p class="hx-q" id="hx-q" aria-live="polite">${hxAskWhy()}</p>
+      <p class="hx-q"><button class="link" type="button" id="hx-pay">Send instead</button></p>`
+    : html`${field('You send', where(...at), amt(`${unit} to send`), coin('hx-sa', 'Asset to send', HX_SEND_G, HX.send, true), subline)}
       ${mid()}
       ${field('To', btcPay ? where('anyone with a Bitcoin address', false, 'btc') : where('anyone, on either chain', false, 'tac'), html`<input class="hx-to" id="hx-rcpt" placeholder="${btcPay ? 'tacit1…, sp1… or bc1…' : 'tacit1… or name.wei'}" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Recipient" value="${HX.rcpt}">`)}
       <div class="hx-have" id="hx-have" hidden></div>
       <button class="btn" type="button" id="hx-go">${hxSendBtc() ? 'Continue in Pay' : 'Send privately'}</button>
-      <p class="hx-q" id="hx-q" aria-live="polite">${hxSendWhy()}</p>`;
+      <p class="hx-q" id="hx-q" aria-live="polite">${hxSendWhy()}</p>
+      <p class="hx-q"><button class="link" type="button" id="hx-ask">Request a payment</button></p>`;
   }
   mount(el, html`${head}<div class="hx-b" id="hx-panel" role="tabpanel" aria-labelledby="hx-tab-${m}">${body}</div>`);
   if (m === 'borrow') hxBwHold();
@@ -12508,7 +12561,9 @@ function paintHx() {
   if (m === 'send') {
     $('#hx-sa').onchange = (e) => { HX.sendPick = true; hxKeepAmt(() => { HX.send = e.target.value; }); paintHx(); };
     const r = $('#hx-rcpt');
-    if (r) { r.oninput = (e) => { HX.rcpt = e.target.value.trim(); }; r.onkeydown = enter; }
+    if (r) { r.oninput = (e) => { HX.rcpt = e.target.value.trim(); hxRcptChanged(); }; r.onkeydown = enter; }
+    $('#hx-ask')?.addEventListener('click', () => { HX.ask = true; paintHx(); $('#hx-amt')?.focus(); });
+    $('#hx-pay')?.addEventListener('click', () => { HX.ask = false; paintHx(); $('#hx-amt')?.focus(); });
     paintHxQ(); hxQuote(); hxSendRead();                                             // what the recipient gets, and what is held
     return;
   }
@@ -12542,7 +12597,7 @@ function paintHx() {
 // The private balance read, or read again (a key opened, a wrap landed): a route from ETH may now be one step, or two.
 function hxSync() {
   hxNorm();
-  if (hxSendAuto()) { paintHx(); return; }                                          // a key's holdings arrived: Send opens on one it has
+  if (hxSendAuto() || (HX.tab === 'send' && HX.ask && HX.askFor !== (S.key?.tacit || ''))) { paintHx(); return; }   // a key's holdings arrived: Send opens on one it has; a key opened while asking: the link is its own
   hxBalPaint();
   hxHave();                                                                          // what the key holds, where the way shows it
   if (HX.tab === 'borrow') hxBwUpdate();                                             // the lock's steps, as last read
@@ -12600,13 +12655,15 @@ const route = () => {
   const h = location.hash.slice(1), pay = h.match(/^(sp|st)=([0-9a-fA-F]{64})/);
   // A link from another page that sets the console (the trade page's private routes): #card=swap:ether:tac:private&amt=0.25, where the
   // fourth part is the route to take and the amount is optional. Taken once; the address goes back to the page's own.
-  // A payment link that opens Send filled in: #card=send:<tacb|btc|eth|tac|cusd|cbtc>&to=<recipient>&amt=<amount>, both optional.
-  const snd = h.match(/^card=send:([a-z]+)((?:&(?:to|amt)=[^&]*){0,2})$/);
+  // A payment link that opens Send filled in: #card=send[:<tacb|btc|eth|tac|cusd|cbtc>]&to=<recipient>&amt=<amount>, each optional (an asset left out
+  // opens on what the key holds, and takes no amount). A unified tacit1 address runs to about 270 characters.
+  const snd = h.match(/^card=send(?::([a-z]+))?((?:&(?:to|amt)=[^&]*){0,2})$/);
   if (snd) {
     const q = new URLSearchParams(snd[2]), to = (q.get('to') || '').trim(), amt = (q.get('amt') || '').trim();
     history.replaceState(null, '', location.pathname + location.search);
-    HX.rcpt = /^[\p{L}\p{N}._:-]{1,200}$/u.test(to) ? to : '';
-    hxPreset(`send:${snd[1]}`, /^\d{0,12}(?:\.\d{1,18})?$/.test(amt) ? amt : '');
+    HX.rcpt = /^[\p{L}\p{N}._:-]{1,400}$/u.test(to) ? to : ''; HX.ask = false;
+    hxPreset(`send:${snd[1] || HX.send}`, snd[1] && /^\d{0,12}(?:\.\d{1,18})?$/.test(amt) ? amt : '');      // an amount means nothing without its asset
+    if (!snd[1]) { HX.sendPick = false; if (hxSendAuto()) paintHx(); }
     return;
   }
   const card = h.match(/^card=([a-z]+:[a-z]+:[a-z]+\d{0,3})(?::(public|private))?(?:&amt=(\d{0,12}(?:\.\d{1,18})?))?$/);
