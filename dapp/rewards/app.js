@@ -487,6 +487,7 @@ const remember = (q) => store.set(RECENT, JSON.stringify([q, ...recents().filter
 function showRecent() {
   const l = recents(), empty = !out.innerHTML && !input.value.trim(), own = empty && !W.account ? '<button type="button" class="chip own" data-own>Connect wallet</button>' : '';
   recent.innerHTML = empty && (l.length || own) ? `${own}${l.map((q) => `<button type="button" class="chip" data-q="${esc(q)}">${esc(q.length > 22 ? short(q) : q)}</button>`).join('')}${l.length ? '<button type="button" class="chip x" data-clear aria-label="Clear recent lookups">×</button>' : ''}` : '';
+  recent.dataset.ready = '1';
 }
 // A bare name is offered under all three services.
 function showHints(v) {
