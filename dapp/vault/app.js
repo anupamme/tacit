@@ -237,7 +237,8 @@ function boardRows(xs) {
 function renderBoard() {
   const el = $('#board'), xs = VS.map((v) => derive(v)).filter(Boolean);
   const head = `<p class="eyebrow" id="board-h"><span>Vault status</span><span class="who">${S.readAt ? `read <span data-ago="${S.readAt}">${agoText(now() - S.readAt)}</span> · ` : ''}<button class="linkbtn" type="button" data-refresh>Refresh</button></span></p>`;
-  if (!xs.length) { setHtml(el, `${head}<p class="verdict off">${S.failed ? 'The vaults could not be read just now.' : 'Reading the vaults…'}</p>${S.failed ? '<p class="note">Try again in a moment.</p>' : ''}`); return; }
+  el.classList.toggle('loading', !xs.length && !S.failed);
+  if (!xs.length) { setHtml(el, `${head}<p class="verdict off">${S.failed ? 'The vaults could not be read just now.' : 'Reading the vaults…'}</p>${S.failed ? '<p class="note">Try again in a moment.</p>' : '<div class="sk" aria-hidden="true">' + '<i></i>'.repeat(9) + '</div>'}`); return; }
   for (const x of xs) x.status = statusOf(x);
   const open = xs.filter((x) => x.status.state === 'open');
   const verdict = open.length === xs.length ? (xs.length > 1 ? 'Borrowing is open on both vaults' : `Borrowing is open on ${xs[0].k.name}`) : open.length ? `Borrowing is open on ${open.map((x) => x.k.name).join(' and ')}` : 'Borrowing is not open yet';

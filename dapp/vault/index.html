@@ -20,7 +20,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /vault/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/vault/app.js?cb=9ee7f288">
+<link rel="modulepreload" href="/vault/app.js?cb=127c1f80">
 <link rel="modulepreload" href="/vault/deployments.js?cb=174de1c7">
 <link rel="modulepreload" href="/vault/math.js?cb=ac1ed53e">
 <link rel="modulepreload" href="/vault/chain.js?cb=6423299e">
@@ -45,7 +45,7 @@
   --scrim: rgba(26,26,26,.36); --lift: 0 22px 44px -28px rgba(26,26,26,.45);
   --sheet-shadow: 0 40px 90px -40px rgba(0,0,0,.6);
   --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --serif: 'Instrument Serif', Georgia, serif;
+  --serif: 'Instrument Serif', 'Instrument Serif Fallback', 'Instrument Serif Fallback T', 'Instrument Serif Fallback N', Georgia, serif;
   --tap: 44px;
   color-scheme: light;
 }
@@ -130,6 +130,12 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 
 /* the status board: whether each vault can be borrowed from, and the figures behind it */
 .board { min-width: 0; }
+/* While the vaults are read the board keeps the height it has once they are, so what sits under and beside it does not move when they arrive */
+.board.loading { min-height: 560px; }
+@media (max-width: 900px) { .board.loading { min-height: 640px; } }
+.sk { display: grid; gap: 14px; margin: 26px 0 0; } .sk i { display: block; height: 18px; background: var(--field); animation: sk 1.6s ease-in-out infinite; } .sk i:nth-child(3n + 1) { width: 72%; } .sk i:nth-child(3n) { width: 48%; }
+@keyframes sk { 50% { opacity: .45; } }
+main { min-height: calc(100svh - 100px); }                          /* the footer starts below the first screen, so what arrives above it moves nothing in view */
 .verdict { display: flex; align-items: center; gap: 12px; margin: 0; font: 400 clamp(26px, 4vw, 36px)/1.1 var(--serif); letter-spacing: -.02em; }
 .sd { flex: none; display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--amber); }
 .verdict.on .sd, .st.s-open .sd { background: var(--green); }
@@ -344,6 +350,14 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 .sf-x span { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
 .sf-x a { display: inline-flex; align-items: center; min-height: 32px; color: var(--mute); text-decoration: underline; text-decoration-color: var(--hair-2, var(--hair)); text-underline-offset: 3px; }
 @media (hover: hover) { .sf-x a:hover { color: var(--ink); text-decoration-color: currentColor; } }
+
+/* A serif scaled to Instrument Serif's width and line metrics (Georgia, Times or Noto Serif, whichever the device has) shows until the font arrives, so the swap moves nothing */
+@font-face { font-family: 'Instrument Serif Fallback'; src: local('Georgia'); size-adjust: 75.8%; ascent-override: 130.6%; descent-override: 40.9%; line-gap-override: 0%; }
+@font-face { font-family: 'Instrument Serif Fallback'; font-style: italic; src: local('Georgia Italic'), local('Georgia-Italic'); size-adjust: 78.8%; ascent-override: 125.6%; descent-override: 39.3%; line-gap-override: 0%; }
+@font-face { font-family: 'Instrument Serif Fallback T'; src: local('Times New Roman'), local('TimesNewRomanPSMT'), local('Liberation Serif'), local('Tinos'); size-adjust: 83.1%; ascent-override: 119.1%; descent-override: 37.3%; line-gap-override: 0%; }
+@font-face { font-family: 'Instrument Serif Fallback T'; font-style: italic; src: local('Times New Roman Italic'), local('TimesNewRomanPS-ItalicMT'), local('Liberation Serif Italic'), local('Tinos Italic'); size-adjust: 87.8%; ascent-override: 112.8%; descent-override: 35.3%; line-gap-override: 0%; }
+@font-face { font-family: 'Instrument Serif Fallback N'; src: local('Noto Serif'), local('NotoSerif'); size-adjust: 70.5%; ascent-override: 140.4%; descent-override: 44%; line-gap-override: 0%; }
+@font-face { font-family: 'Instrument Serif Fallback N'; font-style: italic; src: local('Noto Serif Italic'), local('NotoSerif-Italic'); size-adjust: 76.3%; ascent-override: 129.7%; descent-override: 40.6%; line-gap-override: 0%; }
 </style>
 <script src="/chrome.js?cb=7e28cf35" defer></script>
 <!-- chrome:head:end -->
@@ -406,7 +420,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <div id="app" hidden>
     <div class="grid">
       <div class="col">
-        <section class="panel board" id="board" aria-labelledby="board-h"></section>
+        <section class="panel board loading" id="board" aria-labelledby="board-h"></section>
         <div id="pick-w"><p class="pick-l">Vault</p><div class="seg big pick" id="pick" role="group" aria-label="Which vault"></div></div>
         <section class="panel" id="pos" aria-labelledby="pos-h"></section>
         <section class="panel" id="feed" aria-labelledby="feed-h" hidden></section>
@@ -441,6 +455,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/vault/app.js?cb=9ee7f288"></script>
+<script type="module" src="/vault/app.js?cb=127c1f80"></script>
 </body>
 </html>

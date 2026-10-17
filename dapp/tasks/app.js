@@ -59,7 +59,7 @@ const day = (t) => new Date(t * 1000).toLocaleDateString('en-GB', { day: 'numeri
 const hhmm = (t) => new Date(t * 1000).toISOString().slice(11, 16);
 const link = (href, text) => `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${text}</a>`;
 
-const S = { jobs: [], api: null, done: {}, loaded: false, payload: {}, verdict: {}, running: null, hashes: {}, expanded: new Map() };
+const S = { jobs: [], api: null, asked: false, done: {}, loaded: false, payload: {}, verdict: {}, running: null, hashes: {}, expanded: new Map() };
 
 // ── what the browser remembers: the transactions this visitor sent or named, until the service has answered for each ──
 const remembered = () => { try { return JSON.parse(localStorage.getItem(STORE)) || {}; } catch { return {}; } };
@@ -105,6 +105,7 @@ async function readDone(job) {
 }
 async function loadApi() {
   S.api = await get(`${pointsUrl()}/tasks`);
+  S.asked = true;
   renderAll();
 }
 async function refresh() {
@@ -157,7 +158,9 @@ function renderAll() {
 
 function renderStats() {
   const a = S.api, el = $('#stats');
-  if (!a?.enabled || !S.loaded) { el.hidden = true; return; }
+  if (!S.asked || !S.loaded) return;                                  // the row keeps its place until the service and the chain have answered
+  el.classList.remove('loading'); el.removeAttribute('aria-hidden');
+  if (!a?.enabled) { el.hidden = true; return; }
   const done = S.jobs.filter(isDone).length;
   el.hidden = false;
   el.innerHTML = `
@@ -170,6 +173,7 @@ function renderJobs() {
   const root = $('#jobs');
   if (!S.jobs.length) return;
   if (!S.loaded) { root.innerHTML = '<p class="none">Reading the chain…</p>'; return; }
+  settled();
   const open = S.jobs.filter((j) => stateOf(j) !== 'done'), done = S.jobs.filter(isDone);
   root.innerHTML = `
     <h2 class="sec-h">Open jobs <span class="num">${open.length}</span></h2>
@@ -520,9 +524,13 @@ $('#ends').addEventListener('toggle', () => { if ($('#ends').open) renderEnds();
 $('#ends > summary').textContent = Object.keys(ends.rpc || {}).length || ends.points || ends.keepers ? 'Endpoints: yours' : 'Endpoints';
 
 // ── start ──
+// The places the page's late blocks will fill are held from the first paint (the css names them .loading); they are let go when the blocks are
+// there, or after a while, so a node that does not answer never leaves the stats row or the endpoints out of reach.
+function settled() { $('#jobs').classList.remove('loading'); $('#stats').classList.remove('loading'); }
+setTimeout(settled, 12e3);
 async function start() {
   const file = await get('/tasks/jobs.json');
-  if (!file?.jobs?.length) { $('#jobs').innerHTML = '<p class="none">The jobs could not be loaded.</p>'; return; }
+  if (!file?.jobs?.length) { settled(); $('#jobs').innerHTML = '<p class="none">The jobs could not be loaded.</p>'; return; }
   S.jobs = file.jobs;
   const wanted = location.hash.slice(1);
   if (S.jobs.some((j) => j.id === wanted)) S.expanded.set(wanted, true);          // a link to a job opens it
