@@ -101,6 +101,10 @@ import { buildGovernance } from './governance.js';
 import { makeTacAncestry } from './tac-ancestry.js';
 import { traceBurnDepositProvenance } from './burndep-live-tracer.js';
 import { admitBridgeMint, BURN_ROOT_SLOT } from './bridgemint-admit.js';
+import { makeArmedMints } from './bridge-armed.js';
+import { admitOpShape, SHAPED_TYPES } from './op-admit.js';
+import { makeConfidentialBridgeMint } from '../../dapp/confidential-bridge-mint.js';
+import { makeConfidentialTransfer } from '../../dapp/confidential-transfer.js';
 import { makeBurnDepositTracer } from '../../dapp/burn-deposit-tracer.js';
 import { buildOversight } from './governance-oversight.js';
 import { validateConsumedSource, deriveConsumedSource } from './consumed-source.js';
@@ -3388,6 +3392,111 @@ async function admitBridgeMintOp(env, op) {
   if (!r.ok && r.code === 'stale_root') r = admitBridgeMint({ pool: _admitPool, op, knownRoot: await poolBurnRoot(pool, true) });
   return r;
 }
+
+// ── Bridge mints the API finishes (worker/src/bridge-armed.js) ──
+// A mint op is the holder's half (commitments, range proof, kernel) and a public half read off the reflected state. A mint on a burn root the
+// pool has moved past is made current here, and one the holder built at burn time (`POST /confidential/arm`) is completed and queued once its
+// burn is recorded, with their page closed. The reflected state is read from the record the reflection keeps (the same one GET
+// /reflection/dump serves), prepared once, and used only while its burn root is the one the pool holds.
+let _mintKit = null;
+function mintKit() {
+  _admitPool ||= makeConfidentialPool({ secp, keccak256: keccak_256, sha256 });
+  _mintKit ||= makeConfidentialBridgeMint({ pool: _admitPool, ct: makeConfidentialTransfer({ keccak256: keccak_256 }) });
+  return _mintKit;
+}
+let _bridgeReflection = null;                                  // { at, fp, value }: the record, parsed and prepared; read again at most every 15 s
+async function loadBridgeReflection(env) {
+  const t = Date.now();
+  if (_bridgeReflection && t - _bridgeReflection.at < Number(env.BRIDGE_REFLECTION_TTL_MS ?? 15_000)) return _bridgeReflection.value;
+  const raw = await env.REGISTRY_KV.get('reflection:scan:mainnet');
+  if (!raw) return null;
+  const fp = `${raw.length}:${raw.slice(-96)}`;                // unchanged since the last look: the same prepared state
+  if (_bridgeReflection && _bridgeReflection.fp === fp) { _bridgeReflection.at = t; return _bridgeReflection.value; }
+  let j; try { j = JSON.parse(raw); } catch { return null; }
+  const snap = j && j.snapshot;
+  if (!snap || !Array.isArray(snap.noteLeaves) || !Array.isArray(snap.burnNodes)) return null;
+  const prepared = mintKit().prepareReflection({ noteLeaves: snap.noteLeaves, burnNodes: snap.burnNodes });
+  const value = { prepared, burnRoot: prepared.burnRoot, height: j.attestedHeight ?? snap.height ?? null };
+  _bridgeReflection = { at: t, fp, value };
+  return value;
+}
+// Whether bridgeMinted[burnId] is set (slot 76, as the status route reads it): true, false, or null when the chain cannot be read.
+async function readBridgeMinted(env, burnId) {
+  const pool = confPool(env);
+  if (!pool) return null;
+  const slot = '0x' + bytesToHex(keccak_256(hexToBytes(_word32(burnId) + _word32(BRIDGE_MINTED_SLOT.toString(16)))));
+  const v = await _ethGetStorageAt('mainnet', pool, slot);
+  if (typeof v !== 'string' || !/^0x[0-9a-fA-F]*$/.test(v)) return null;
+  return BigInt(v === '0x' ? '0x0' : v) !== 0n;
+}
+// A completed mint goes through the same door as one a page sends (admission, the free settles' counters and their refunds, the queue's bounds).
+async function submitArmedMint(env, { op, memos, key }) {
+  const req = new Request('https://armed.invalid/confidential/submit', { method: 'POST',
+    headers: { 'content-type': 'application/json', 'CF-Connecting-IP': `armed:${String(key).slice(2, 18)}` }, body: JSON.stringify({ type: 'bridgemint', op, memos, mode: 'settle' }) });
+  const res = await handleConfidentialSubmit(req, env, {});
+  let body = null; try { body = await res.json(); } catch { body = null; }
+  return { status: res.status, body };
+}
+const _armedFor = new WeakMap();
+function armedMints(env) {
+  const pool = confPool(env), main = _CONFIDENTIAL_DEPLOYMENTS?.mainnet?.pool;
+  if (env.CONFIDENTIAL_SETTLE !== '1' || !env.REGISTRY_KV || !pool || !main || String(pool).toLowerCase() !== String(main).toLowerCase()) return null;
+  let a = _armedFor.get(env);
+  if (!a) {
+    a = makeArmedMints({ kv: env.CONFIDENTIAL_KV || env.REGISTRY_KV, lock: withKvKeyLock, bm: mintKit(), reflection: () => loadBridgeReflection(env),
+      chainBurnRoot: (fresh) => poolBurnRoot(pool, fresh), isMinted: (id) => readBridgeMinted(env, id), submit: (x) => submitArmedMint(env, x), log: (m) => console.log(`[armed] ${m}`) });
+    _armedFor.set(env, a);
+  }
+  return a;
+}
+// The relay polls for jobs every few seconds: that poll also gives the armed mints their turn, at most every 30 s.
+let _armedAt = 0;
+function armedTick(env) {
+  const a = armedMints(env);
+  const t = Date.now();
+  if (!a || t - _armedAt < Number(env.ARMED_SWEEP_GAP_MS ?? 30_000)) return;
+  _armedAt = t;
+  a.sweep().then((r) => { if (r && (r.queued || r.minted || r.failed)) console.log(`[armed] sweep ${JSON.stringify(r)}`); }).catch(() => {});
+}
+// POST /confidential/arm { type: 'bridgemint', op (the holder's half), memos }: public, metered. The holder built this when the burn was sent.
+async function handleConfidentialArm(req, env, cors) {
+  const nostore = { ...cors, 'Cache-Control': 'no-store' };
+  const armed = armedMints(env);
+  if (!armed) return jsonResponse({ ok: false, error: 'not available here' }, 404, nostore);
+  const ip = req.headers.get('CF-Connecting-IP') || 'anon';
+  // Each arm checks a range proof and a kernel (about a tenth of a second), so it is metered per address and in all.
+  const rl = await proveRateLimit(env, ip, 'arm', 12, 5000);
+  const all = rl.ok ? await proveRateLimit(env, 'all', 'arm-all', 30, 2000) : rl;
+  if (!all.ok) return jsonResponse({ ok: false, error: `too many requests — retry in ~${all.retryAfter}s`, retryAfter: all.retryAfter }, 429, { ...nostore, 'Retry-After': String(all.retryAfter) });
+  let body;
+  try { body = await req.json(); } catch { return jsonResponse({ ok: false, error: 'bad json' }, 400, nostore); }
+  if (!body || (body.type && body.type !== 'bridgemint')) return jsonResponse({ ok: false, code: 'bad_op', error: 'only a bridge mint is armed' }, 400, nostore);
+  const r = await armed.arm({ op: body.op, memos: body.memos });
+  return jsonResponse(r, r.ok ? 200 : r.code === 'armed_full' ? 503 : 400, nostore);
+}
+// GET /confidential/armed?dest=<destination leaf>: where an armed mint stands (armed, queued with its job, minted, failed). Public.
+async function handleConfidentialArmed(req, env, url, cors) {
+  const nostore = { ...cors, 'Cache-Control': 'no-store' };
+  const armed = armedMints(env);
+  if (!armed) return jsonResponse({ ok: false, error: 'not available here' }, 404, nostore);
+  const ip = req.headers.get('CF-Connecting-IP') || 'anon';
+  const rl = await proveRateLimit(env, ip, 'armed-status', 60, 1000);
+  if (!rl.ok) return jsonResponse({ ok: false, error: `too many requests — retry in ~${rl.retryAfter}s`, retryAfter: rl.retryAfter }, 429, { ...nostore, 'Retry-After': String(rl.retryAfter) });
+  const st = await armed.status(url.searchParams.get('dest') || '');
+  return jsonResponse(st ? { ok: true, ...st } : { ok: true, status: 'unknown' }, 200, nostore);
+}
+// POST /confidential/refresh { jobId } (box token): the settle relay asks for a queued bridge mint that the pool's burn root has moved past
+// to be made current before it proves it (the op's public half only; the job keeps its holder's half and its memos).
+async function handleConfidentialRefresh(req, env, cors) {
+  if (!checkConfidentialAuth(req, env)) return jsonResponse({ error: 'not found' }, 404, cors);
+  const q = confSettler(env), armed = armedMints(env);
+  if (!q || !armed) return jsonResponse({ ok: false, error: 'not available here' }, 404, cors);
+  let body;
+  try { body = await req.json(); } catch { return jsonResponse({ ok: false, error: 'bad json' }, 400, cors); }
+  if (!/^0x[0-9a-f]{64}$/i.test(String(body && body.jobId))) return jsonResponse({ ok: false, error: 'jobId required' }, 400, cors);
+  const r = await q.renewJobOp(String(body.jobId).toLowerCase(), (op) => armed.renew(op));
+  return jsonResponse(r, 200, { ...cors, 'Cache-Control': 'no-store' });
+}
 // One burn's free settles a day: a mint that was refused and rebuilt is a new op, so the same burn may take a few, not the day's allowance.
 const BRIDGEMINT_FREE_PER_BURN = 4;
 // Is a prover-board worker proving now: one that polled or claimed in the last half minute (what GET /prover/board shows as
@@ -3469,6 +3578,12 @@ async function handleConfidentialSubmit(req, env, cors) {
   // Where the relay stands, read once: it decides the refusals below and rides on the answer (`relay`), so a page knows at once
   // that a job it queued waits on a relay that is holding settles, paused or down.
   const relay = await relayState(env);
+  // An op of a type the relay sponsors must carry the fields its prover reads (worker/src/op-admit.js): one that does not is turned back here,
+  // before it takes a place in the queue or a free settle. Its shape only; the chain is judged by the relay's gates and the guest.
+  if (env.OP_SHAPE_CHECK !== '0' && SHAPED_TYPES.includes(body.type) && (submitMode === 'settle' || submitMode === 'prove')) {   // OP_SHAPE_CHECK=0 switches it off
+    const shape = admitOpShape(body.type, body.op);
+    if (!shape.ok) return jsonResponse({ ok: false, error: shape.error, code: shape.code }, 400, { ...cors, 'Cache-Control': 'no-store' });
+  }
   // An op this queue already holds is answered with its job before any gate below: a page that asks again (its wait ran out, a
   // reload, a second press) finds the job it has, and a job that went through is never refused after the fact by the day's
   // budgets or the relay's state. The id is taken over the op as the queue hashes it (confidential-settle.js jobIdOf: without a
@@ -3497,7 +3612,14 @@ async function handleConfidentialSubmit(req, env, cors) {
   // free settle to find that out).
   let mintBurn = null;
   if (body.type === 'bridgemint' && (submitMode === 'settle' || submitMode === 'prove')) {
-    const adm = await admitBridgeMintOp(env, body.op);
+    let adm = await admitBridgeMintOp(env, body.op);
+    // A mint built on a burn root the pool has moved past is made current here instead of turned back: only its public half is read again,
+    // and only against the reflected state the pool's own root was taken from.
+    if (!adm.ok && adm.code === 'stale_root') {
+      const armed = armedMints(env);
+      const renewed = armed ? await armed.renew(body.op).catch(() => null) : null;
+      if (renewed && renewed.ok) { body.op = renewed.op; adm = await admitBridgeMintOp(env, body.op); }
+    }
     if (!adm.ok) return jsonResponse({ ok: false, error: adm.error, code: adm.code }, adm.status || 400, { ...cors, 'Cache-Control': 'no-store' });
     mintBurn = adm.burnId ? String(adm.burnId).toLowerCase() : null;
   }
@@ -3579,6 +3701,7 @@ async function handleConfidentialJob(req, env, cors) {
   const q = confSettler(env);
   if (!q) return jsonResponse({ error: 'confidential settle not configured' }, 404, { ...cors, 'Cache-Control': 'no-store' });
   if (!checkConfidentialAuth(req, env)) return jsonResponse({ error: 'not found' }, 404, cors);
+  armedTick(env);                                              // the armed bridge mints get their turn on the relay's poll
   // ?batch=N asks for up to N jobs that can share one settle; the single-job shape is unchanged for callers
   // that don't ask, so an older relay keeps working against a newer worker.
   // &mixed=1 lets ops of different types share it (the relay proves them from one program input).
@@ -27192,6 +27315,9 @@ async function _routeFetch(req, env, ctx) {
     if (url.pathname === '/confidential/queue' && req.method === 'GET') return handleConfidentialQueue(req, env, cors);
     if (url.pathname === '/confidential/ledger' && req.method === 'GET') return handleConfidentialLedger(req, env, cors);
     if (url.pathname === '/confidential/ack' && req.method === 'POST') return handleConfidentialAck(req, env, cors);
+    if (url.pathname === '/confidential/arm' && req.method === 'POST') return handleConfidentialArm(req, env, cors);
+    if (url.pathname === '/confidential/armed' && req.method === 'GET') return handleConfidentialArmed(req, env, url, cors);
+    if (url.pathname === '/confidential/refresh' && req.method === 'POST') return handleConfidentialRefresh(req, env, cors);
     if (url.pathname === '/confidential/requeue' && req.method === 'POST') return handleConfidentialRequeue(req, env, cors);
     if (url.pathname === '/confidential/status' && req.method === 'GET') return handleConfidentialStatus(env, url, cors);
     if (url.pathname === '/confidential/open' && req.method === 'GET') return handleConfidentialOpen(req, env, url, cors);

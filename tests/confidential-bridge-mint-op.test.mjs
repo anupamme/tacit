@@ -291,4 +291,51 @@ const built = bm.buildBridgeMintOp({ chainBinding: CHAIN_BINDING, asset: ASSET, 
   ok('a stale-root refusal rebuilds the mint from the newest state; any other refusal, and a mint that stays stale, is thrown');
 }
 
+// ── arming: the holder's half is handed to the relay at burn time, with the memo, and neither opening ──
+{
+  const ownerPriv = randomScalar();
+  const ownerPub = '0x' + Buffer.from(G.multiply(ownerPriv).toRawBytes(true)).toString('hex');
+  const calls = [];
+  let armAnswer = { ok: true, status: 'armed' };
+  const fetchImpl = async (url, init) => {
+    calls.push({ url: String(url), init });
+    if (String(url).includes('/confidential/arm?')) return new Response(JSON.stringify(armAnswer), { status: armAnswer.ok ? 200 : 400 });
+    if (String(url).includes('/confidential/armed?')) return new Response(JSON.stringify({ ok: true, status: 'queued', jobId: '0x' + 'e1'.repeat(32) }), { status: 200 });
+    return new Response('{}', { status: 404 });
+  };
+  const relay = makeConfidentialRelay({ base: 'https://relay.test', fetchImpl, guard: makeRecoveryGuard({ memo }) });
+  const client = makeConfidentialBridgeMint({ pool, ct, relay, fetchImpl, relayBase: 'https://relay.test' });
+  const st = reflectedState({ sourceClass: 2, burnValue: BURN, fee: FEE });                      // the burn's openings (its state is not read)
+  const args = { chainBinding: CHAIN_BINDING, asset: ASSET, spentTxid: SPENT_TXID, spentVout: SPENT_VOUT, sourceClass: 2, burned: st.burned, dest: st.dest, recovery: { ownerPub, secret: DEST_NK } };
+  const r = await client.armMint(args);
+  assert.deepStrictEqual({ ok: r.ok, status: r.status, dest: r.dest }, { ok: true, status: 'armed', dest: st.destLeaf });
+  const post = calls.find((c) => c.url.includes('/confidential/arm?'));
+  assert.strictEqual(post.init.method, 'POST');
+  const body = JSON.parse(post.init.body);
+  assert.strictEqual(body.type, 'bridgemint');
+  assert.strictEqual(body.memos.length, 1);
+  const opened = memo.openMemo(ownerPriv, st.destLeaf, body.memos[0]);
+  assert.ok(opened && BigInt(opened.value) === st.dest.value, 'the memo opens to the minted note, for its holder');
+  for (const k of ['bitcoinBurnRoot', 'poolRoot', 'burnMembership']) assert.ok(!(k in body.op), `${k} is read off the reflected state later, not sent`);
+  assert.ok(!('path' in body.op.input) && !('leafIndex' in body.op.input));
+  // Nothing posted opens either note.
+  const wire = post.init.body.toLowerCase();
+  for (const secret of [st.burned.blinding, st.dest.blinding, DEST_NK]) {
+    assert.ok(!wire.includes(secret.toString(16).padStart(64, '0')) && !wire.includes(secret.toString()), 'a blinding or note secret is not in what is sent');
+  }
+  assert.deepStrictEqual(bm.verifyBridgeMintParts(body.op), { ok: true }, 'and what is sent stands on its own');
+  // A seed-derived destination arms too (an empty memo list is refused only by the API, not here).
+  assert.strictEqual((await client.armMint({ ...args, recovery: { seedDerived: true } })).ok, true);
+  // A refusal comes back as a result with its code, not a throw.
+  armAnswer = { ok: false, code: 'bad_proof', error: 'the range proof does not verify' };
+  const no = await client.armMint(args);
+  assert.deepStrictEqual({ ok: no.ok, code: no.code }, { ok: false, code: 'bad_proof' });
+  await assert.rejects(client.armMint({ ...args, recovery: undefined }), /recoverable/);
+  await assert.rejects(client.armMint({ ...args, sourceClass: undefined }), /unknown source class/, 'the class must be named: nothing is read to find it');
+  const status = await client.armedStatus(st.destLeaf);
+  assert.deepStrictEqual(status, { status: 'queued', jobId: '0x' + 'e1'.repeat(32) });
+  assert.ok(calls.some((c) => c.url.includes(`/confidential/armed?dest=${st.destLeaf}`)));
+  ok('armMint hands the relay the holder\'s half and its memo, with neither opening; armedStatus follows it');
+}
+
 console.log(`\n${n}/${n} confidential-bridge-mint-op checks passed`);

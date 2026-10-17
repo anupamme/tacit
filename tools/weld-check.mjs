@@ -2111,7 +2111,7 @@ await step('bridge', async () => {
     source: { txid: id, vout: 0, sats: 546, assetId: '0x' + TAC, amount: { __big: '10000000000' }, blinding: { __big: '777' } },
     burn: { txid: id.replace(/^../, 'bb'), hex: '00', commitTxid: 'cc'.repeat(32), commitHex: '00', fundingUtxo: { txid: 'dd'.repeat(32), vout: 1 } },
     envelope: { destLeaf: '0x' + 'ee'.repeat(32) }, ...extra });
-  const journal = [recOf('d1'.repeat(32), 'rburn-mined', { burnHeight: 970050, createdAt: Date.now() - 3e6 }),
+  const journal = [recOf('d1'.repeat(32), 'rburn-mined', { burnHeight: 970050, createdAt: Date.now() - 3e6, arm: { ok: true, status: 'armed', dest: '0x' + 'dd'.repeat(32), at: Date.now() - 2.9e6 } }),
     recOf('d2'.repeat(32), 'rfolded', { createdAt: Date.now() - 2e6, lastError: { message: 'free relayed settles for today are used up', at: Date.now(), until: Date.now() + 3 * 3600e3 }, errorCount: 0 }),
     recOf('d3'.repeat(32), 'not-recorded', { createdAt: Date.now() - 1e6 }),
     recOf('d4'.repeat(32), 'rburn-signed', { createdAt: Date.now() - 5e5, lastError: { message: 'bad-txns-inputs-missingorspent', at: Date.now() }, errorCount: 3 }),
@@ -2187,6 +2187,7 @@ await step('bridge', async () => {
   ok(/Recorded/.test(rows[0] || '') && /proof is at Bitcoin block 970,000; the burn is in block 970,050, 50 blocks on/.test(rows[0] || '') && /Started \d+ min ago/.test(rows[0] || '')
     && !!(await r.page.$('#bridge-body .brr:nth-child(1) .stp li.now')) && /Check now/.test(rows[0] || '') && /Bitcoin bbd1d1/.test(rows[0] || '') && !/Your turn/.test(rows[0] || ''),
     `bridge: one waiting for the proof shows its step, how many blocks the proof has to go, when it started, its burn and Check now (${(rows[0] || '').slice(0, 220)})`);
+  ok(/The relay finishes the mint, so you can close this page\./.test(rows[0] || '') && !/close this page/.test(rows[2] || ''), 'bridge: a one-step bridge whose mint is with the relay says the page can be closed, and one that is not says nothing of it');
   ok([2, 3].every((i) => /Your turn/.test(rows[i] || '')) && !/Your turn/.test(rows[1] || ''), 'bridge: each bridge waiting for a press from its holder says it is their turn, and one held by the day’s allowance does not');
   ok(/Arrived/.test(rows[4] || '') && /Arrived 1 h ago/.test(rows[4] || '') && /Ethereum 0xabab/.test(rows[4] || '') && /Done/.test(rows[4] || '') && (await r.page.$$('#bridge-body .brr:last-child .stp li.done')).length === 4,
     `bridge: an arrived bridge is listed with all its steps done, its Ethereum transaction and Done (${(rows[4] || '').slice(0, 200)})`);

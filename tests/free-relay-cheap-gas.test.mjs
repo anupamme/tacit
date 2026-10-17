@@ -4,6 +4,7 @@
 //   node --test tests/free-relay-cheap-gas.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert';
+import { readFileSync } from 'node:fs';
 
 const worker = await import('../worker/src/index.js');
 const BOX = 'box-token-for-the-test-0123456789';
@@ -22,10 +23,14 @@ function memKv() {
 const day = () => new Date().toISOString().slice(0, 10);
 // A fresh env per case: the gas reading is kept per env, and the counters per KV.
 const fresh = (extra = {}) => { const kv = memKv(); return { kv, env: { CONFIDENTIAL_SETTLE: '1', REGISTRY_KV: kv, CONFIDENTIAL_KV: kv, CONFIDENTIAL_BOX_TOKEN: BOX, PROVE_RL_BURST: '1000', FREE_RELAY_GAS_TTL_MS: '0', ...extra } }; };
+const fixture = (f) => JSON.parse(readFileSync(new URL(`../contracts/sp1/confidential/fixtures/${f}.json`, import.meta.url), 'utf8'));
+const SHAPED = { cbtcmint: fixture('cbtc_mint_op'), cdpmint: fixture('cdp_mint_op'), cdptopup: fixture('cdp_topup_op') };
 let ip = 0, n = 0;
 const call = (env, path, init = {}) => worker.default.fetch(new Request(`https://api.test${path}`, { ...init, headers: { 'content-type': 'application/json', 'CF-Connecting-IP': `198.51.100.${++ip % 250}`, ...(init.headers || {}) } }), env, { waitUntil() {} });
 // A fee-less op of a type with no door check of its own: what counts is the allowance it meets.
-const submit = async (env, type) => { const r = await call(env, '/confidential/submit', { method: 'POST', body: JSON.stringify({ type, op: { fee: 0, n: ++n }, memos: [] }) }); return { status: r.status, body: await r.json() }; };
+// The ops of the types the door checks are real-shaped (the prover's fixtures); each is made distinct by a field the door ignores.
+const opFor = (type) => (SHAPED[type] ? { ...JSON.parse(JSON.stringify(SHAPED[type])), tag: ++n } : { fee: 0, n: ++n });
+const submit = async (env, type) => { const r = await call(env, '/confidential/submit', { method: 'POST', body: JSON.stringify({ type, op: opFor(type), memos: [] }) }); return { status: r.status, body: await r.json() }; };
 const many = async (env, type, k) => { const out = []; for (let i = 0; i < k; i++) out.push((await submit(env, type)).status); return out; };
 const heartbeat = (kv, credit) => kv.put('prover:heartbeat:mainnet:settle', JSON.stringify({ ts: Date.now(), prover_alive: true, prover_credit: credit, note: 'settle: idle' }));
 

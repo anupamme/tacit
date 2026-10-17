@@ -48,6 +48,10 @@ export function makeConfidentialTransfer({ keccak256 }) {
   const sum = (pts) => pts.reduce((a, p) => a.add(p), ZERO);
   const commit = (v, r) => H.multiply(v).add(mul(G, r));
   const xy = (P) => { const a = P.toAffine(); return { cx: beHex(a.x), cy: beHex(a.y) }; };
+  // The inverse of xy, and a point from its compressed hex: a note's commitment and a kernel's R as the points they are, for a
+  // party that holds only the op (no openings) and checks it (verifyTransfer).
+  const pointOf = (cx, cy) => G.constructor.fromAffine({ x: BigInt(cx), y: BigInt(cy) });
+  const pointFromHex = (h) => G.constructor.fromHex(String(h).replace(/^0x/, ''));
   // NATIVE (EVM-domain) leaf = keccak(asset ‖ cx ‖ cy ‖ owner) — same layout as confidential-pool.leaf().
   // Used for a non-Bitcoin destination and for ordinary transfer output binding.
   const destLeaf = (assetId, cx, cy, owner) => '0x' + bytesToHex(keccak256(concat([b32(assetId), b32(cx), b32(cy), b32(owner)])));
@@ -234,5 +238,5 @@ export function makeConfidentialTransfer({ keccak256 }) {
   // kernel is unbound (e.g. the bridge-stealth lock L, range-bounded so the relay fee can't exceed the burn).
   function rangeProve(values, blindings) { return bppRangeProve(values, blindings); }
 
-  return { H, commit, kernelSign, verifyKernel, rangeProve, buildTransfer, verifyTransfer, buildBridgeBurn, verifyBridgeBurn, claimId, destLeaf, btcDestLeaf, _ptBytes: ptBytes };
+  return { H, commit, kernelSign, verifyKernel, rangeProve, buildTransfer, verifyTransfer, buildBridgeBurn, verifyBridgeBurn, claimId, destLeaf, btcDestLeaf, pointOf, pointFromHex, _ptBytes: ptBytes };
 }

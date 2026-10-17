@@ -661,7 +661,27 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
     return n;
   }
 
-  return { submitJob, nextJob, nextBatch, ackJob, requeueJob, jobStatus, pendingCount, queueStats, jobIdOf, openList, nextOpen, landedJob };
+  // A bridge mint waiting for its proof, made current: the op's public half read again (see bridge-armed.js), the holder's half and the memos
+  // untouched. `renew(op)` → { ok, op } is called outside the queue's lock (it reads the chain); the job is written only if it is still the
+  // one that was read. → { ok, op } | { ok: false, code, error }
+  const HOLDERS_HALF = (op) => JSON.stringify([op.chainBinding, op.asset, op.sourceClass, op.spentTxid, op.spentVout, op.input && [op.input.cx, op.input.cy, op.input.owner], op.output, op.rangeProof, op.fee, op.kernel]);
+  async function renewJobOp(jobId, renew) {
+    const j = await storage.getJob(jobId);
+    if (!j) return { ok: false, error: 'unknown job' };
+    if (j.type !== 'bridgemint' || !j.op || !['pending', 'proving'].includes(j.status)) return { ok: false, error: 'not a bridge mint waiting for a proof' };
+    const r = await renew(j.op);
+    if (!r || !r.ok || !r.op) return { ok: false, code: r && r.code, error: (r && r.error) || 'could not be renewed' };
+    if (HOLDERS_HALF(r.op) !== HOLDERS_HALF(j.op)) return { ok: false, code: 'bad_renewal', error: 'a renewal may not change the holder\'s half' };
+    return exclusive(async () => {
+      const now_ = await storage.getJob(jobId);
+      if (!now_ || !now_.op || !['pending', 'proving'].includes(now_.status) || JSON.stringify(now_.op) !== JSON.stringify(j.op)) return { ok: false, error: 'the job changed while it was renewed' };
+      now_.op = r.op;
+      await storage.putJob(jobId, now_);
+      return { ok: true, op: r.op };
+    });
+  }
+
+  return { submitJob, nextJob, nextBatch, ackJob, requeueJob, renewJobOp, jobStatus, pendingCount, queueStats, jobIdOf, openList, nextOpen, landedJob };
 }
 
 // KV-backed wiring for the worker runtime. KV keys: cps:pending (id[]), cps:open (id[]), cps:job:<id> (job).

@@ -1078,10 +1078,27 @@ the burn root the pool holds at settle time, so a mint built just before a newer
 The relay looks at the op before it takes it: the burn id, the destination leaf and the burn set's path must
 reach a root, and that root must be the one the pool holds. `POST /confidential/submit` answers `stale_root`
 (409) for a mint built on an older root, and `not_a_burn` (400) for one that is not the mint of a recorded burn
-to the destination that burn pinned. `bridgeMint` builds the mint again from a fresh dump on `stale_root` (three
-tries); a caller that builds its own op does the same. A mint with no fee spends one of the day's free relayed
+to the destination that burn pinned. A mint on an older root is first made current: the op has a holder's half (the two
+commitments, the range proof, the kernel, which need the openings and name no root) and a public half (the burn set's
+path under the burn root, the note tree's path), and the relay reads the public half again from the reflected state, when
+that state is the one the pool's burn root was taken from; `stale_root` comes back only when it cannot (the saved state is
+ahead of the chain, or the burn is not recorded). `bridgeMint` builds the mint again from a fresh dump on `stale_root`
+(three tries); a caller that builds its own op does the same. A mint with no fee spends one of the day's free relayed
 settles (`free_budget` when they are used up, after which it can be sent from the holder's own account), and one
 burn takes at most four of them a day.
+
+A one-step bridge can hand its mint to the relay when its burn is sent, so the mint finishes with the page closed.
+`bridgeMintParts` builds the holder's half alone (no reflected state is read), and `armMint` posts it with the memo the mint
+carries to `POST /confidential/arm` (`{ type: 'bridgemint', op, memos }`): the relay checks the range proof and the kernel,
+keeps the half for two weeks, and once the burn is recorded on the root the pool holds it adds the public half and queues
+the mint as an ordinary job (the same door, the same free settles). Nothing sent opens either note. `GET
+/confidential/armed?dest=<destination leaf>` says where it is (`armed`, `queued` with its `jobId`, `minted`, `failed`,
+`unknown`). An armed mint that the relay has not queued a quarter of an hour after the burn was recorded is built and sent
+by the page, as before.
+
+An op of a type the relay sponsors without a fee (`cbtcmint`, `cdpmint`, `cdptopup`) must carry the fields its prover reads;
+one that does not is answered `bad_op` (400) before it takes a place in the queue or a free settle. The check is of shape
+only: the chain is judged by the relay's own gates and the guest.
 
 The relay's free settles are counted per day and per class (`GET /relay/economics`, `sponsorship`): bridge mints
 (`bridge`), cBTC mints (`onboard`), cUSD loans, repayments and top-ups (`cusd`), farm upkeep, untipped wraps, private

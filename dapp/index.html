@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Daub1zAlQVt2szzpKNesKj4xXbLg8dnerRXlaGiOyro=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-bM1bcQLRTUwLRX3dEAXpqY+Xu/MwQXhGj8er75XDU4o=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -6926,6 +6926,8 @@ function loadBridge(force = false) {
   }, (e) => { if (S.key?.pubHex === pub) Object.assign(BR, { pub, notes: null, err: e }); }).finally(() => { BR.loading = null; }));
 }
 // Where the proof is against the block the burn is in: the wait a bridge has left, in blocks.
+// A one-step bridge whose mint is with the relay needs nothing more from this page: said where the wait is longest.
+const brArmedText = (rec) => (rec.arm?.ok ? ' The relay finishes the mint, so you can close this page.' : '');
 function brProofText(rec) {
   const h = Number(rec.burnHeight), p = Number(BR.refl), at = (n) => n.toLocaleString('en-US');
   if (!Number.isInteger(h) || h <= 0) return '';
@@ -6937,6 +6939,7 @@ function brProofText(rec) {
 const brMinting = (rec) => (rec.lastError ? `Recorded, and ready to mint.${brHeld(rec) ? ' Today’s free settles are used up, so this page asks again every hour while it is open with your wallet, or send it from your wallet now.'
     : rec.lastError.relay ? ' Its proof is not ready yet: this page asks again every few minutes while it is open with your wallet.' : ''}`
   : rec.mintJob && Date.now() - Number(rec.mintJob.at || 0) < 20 * 60e3 ? `Recorded. Its mint is with the relay, which proves it and settles it on Ethereum, usually within minutes.`
+  : rec.arm?.ok && Date.now() - Number(rec.foldedAt || rec.arm.at || 0) < 15 * 60e3 ? `Recorded. Its mint is with the relay, which finishes it even if this page is closed, usually within minutes.`
   : `Recorded. Minting your private ${brTk(rec)}: this page does it while it is open with your wallet.`);
 // A move that has confirmed waits for Bitcoin's proof on Ethereum to reach its block before it is checked and burned.
 function brMoveText(rec) {
@@ -6971,12 +6974,12 @@ function brNoteText(rec) {
   const s = rec.stage, wait = 'Confirmed on Bitcoin. Waiting for Bitcoin’s proof on Ethereum to record the burn: usually within a few hours, sometimes up to a day.';
   return ({
     'rburn-signed': 'Signed. Sending it to Bitcoin…', 'migrate-signed': 'Signed. Sending it to Bitcoin…',
-    'rburn-sent': 'Sent. Waiting for its first Bitcoin confirmation, usually within the hour.', 'migrate-sent': 'Sent. Waiting for the move to confirm on Bitcoin, usually within the hour.',
+    'rburn-sent': 'Sent. Waiting for its first Bitcoin confirmation, usually within the hour.' + brArmedText(rec), 'migrate-sent': 'Sent. Waiting for the move to confirm on Bitcoin, usually within the hour.',
     'migrate-confirmed': brMoveText(rec), traced: brTracedText(rec),
     'burn-signed': brMinerStuck(rec) ? 'The miner did not take this burn. Your TAC is still at its burn address: Move back returns it to your wallet.' : 'Sending the burn to a miner…',
     'burn-submitted': brMinerStuck(rec) ? 'With a miner (MARA Slipstream) for over 12 hours and not mined yet. You can wait, or Move back returns your TAC to your wallet; if the miner mines the burn first, the bridge goes on from it.'
       : 'With a miner (MARA Slipstream). Explorers show it once it is mined.',
-    'rburn-mined': wait + brProofText(rec), 'burn-mined': wait + brProofText(rec), registered: wait + brProofText(rec),
+    'rburn-mined': wait + brProofText(rec) + brArmedText(rec), 'burn-mined': wait + brProofText(rec), registered: wait + brProofText(rec),
     rfolded: brMinting(rec), folded: brMinting(rec),
     minted: brMintedText(rec),
     stopped: 'This bridge paused before its burn, and your TAC is untouched. Move it back to your wallet, then bridge it again: it goes in one step.',
@@ -7171,7 +7174,7 @@ function renderBridgeIn(el) {
   if (BR.pick && !open.some((n) => brId(n) === BR.pick)) BR.pick = null;
   if (!BR.pick && open.length === 1) BR.pick = brId(open[0]);
   mount(el, html`
-    <p class="lede-s">TAC on your Bitcoin address becomes private TAC on Ethereum, with no relay fee: you pay only a Bitcoin fee, in sats. It arrives once Bitcoin’s proof on Ethereum records the burn, usually within a few hours and sometimes up to a day. Leave this page open with your wallet and it carries on by itself; close it, and it picks up where it stopped the next time you open it with the same wallet. Tick the choice on the receipt to have it made public TAC (ERC20) when it arrives, or press Make public after.</p>
+    <p class="lede-s">TAC on your Bitcoin address becomes private TAC on Ethereum, with no relay fee: you pay only a Bitcoin fee, in sats. It arrives once Bitcoin’s proof on Ethereum records the burn, usually within a few hours and sometimes up to a day. A one-step bridge is handed to the relay once its burn is sent, so its mint arrives even if you close this page; any other picks up where it stopped the next time you open this page with the same wallet. Tick the choice on the receipt to have it made public TAC (ERC20) when it arrives, or press Make public after.</p>
     ${preps.length ? html`<div class="lbl"><span>Getting ready</span></div><ul class="acts brs">${preps.map(brPrepRow)}</ul>` : ''}
     ${recs.length ? html`<div class="lbl"><span>On the way</span></div><ul class="acts brs">${recs.map(brRow)}</ul>` : ''}
     ${done.length ? html`<div class="lbl"><span>Arrived</span></div><ul class="acts brs">${done.map(brRow)}</ul>` : ''}
@@ -7372,7 +7375,11 @@ const brBegin = (pub, r) => withKey(async (t) => {
     if (!u) throw new Error('This key’s Bitcoin address has no sats free to pay the fee. Add some, then try again.');
     made = await ux.start({ note: r.note, walletPriv: priv, fundingUtxo: { txid: u.txid, vout: u.vout, value: u.value }, feeRate: r.pf.migrateFeeRate });
   }
-  try { return await ux.advance(made.walletPub, made.id); } catch { return ux.list(made.walletPub).find((x) => x.id === made.id) || made; }
+  let after;
+  try { after = await ux.advance(made.walletPub, made.id); } catch { after = ux.list(made.walletPub).find((x) => x.id === made.id) || made; }
+  // The mint's holder's half goes to the API once the burn is sent (not waited for), so the mint finishes with this page closed.
+  if (r.pf.path === 'reflected') ux.armMint(made.walletPub, made.id, { walletPriv: priv }).catch(() => {});
+  return after;
 }, pub);
 // TAC received privately, to its holder's own address: the one Bitcoin transaction that makes it a note the bridge can burn.
 const brPrep = (run, n, plan = null) => brSend(run, n, BigInt(n.amount), 'Send', plan);
@@ -7514,6 +7521,8 @@ async function brTick(first = false) {
     const ux = await brUx();
     for (const rec of ux.list(pub).filter((r) => !BR_DONE.includes(r.stage) && !BR_HELD.includes(r.stage))) {
       if (S.key?.pubHex !== pub) break;
+      // A one-step bridge's mint is handed to the API (once, and again if that did not take): it finishes with this page closed.
+      if (rec.path === 'reflected' && rec.mint && !rec.arm?.ok && Number(rec.arm?.tries || 0) < 6) await withKey(() => ux.armMint(pub, rec.id, { walletPriv: walletPriv() }), pub).catch(() => {});
       const ready = rec.stage === 'folded' || rec.stage === 'rfolded';
       // A mint whose wait ran out is still in the relay's queue: until an hour has passed it is only looked for in the pool. A bridge is
       // given four tries of its own; a failure that was the relay's or the day's is none of them, and a day's allowance used up is asked
@@ -11025,8 +11034,12 @@ function paintDash() {
     if (held.length) due.push([held.length === 1 ? `Your bridge of ${brAmt(held[0])} is ready to mint. Today’s free settles are used up, so this page asks again every hour while it is open with your wallet, or send it from your wallet now.`
       : `${held.length} bridges${ofTk(held)} are ready to mint. Today’s free settles are used up, so this page asks again every hour while it is open with your wallet, or send them from your wallet now.`, brLink(held), 'Open']);
     if (need.length) due.push([need.length === 1 ? `Your bridge of ${brAmt(need[0])} to Ethereum is waiting for you: ${brDue(need[0])}.` : `${need.length} bridges${ofTk(need)} to Ethereum are waiting for you.`, brLink(need), 'Open']);
-    else if (going.length) due.push([going.length === 1 ? `${brAmt(going[0])} is on its way from Bitcoin to Ethereum, ${brWhere(going[0])}. It finishes while this page is open with your wallet.`
-      : `${going.length} bridges${ofTk(going)} are on their way from Bitcoin to Ethereum. They finish while this page is open with your wallet.`, brLink(going), 'Follow']);
+    else if (going.length) {
+      // A one-step bridge whose burn is sent has its mint with the relay: it finishes with this page closed. Any other needs this page open.
+      const withRelay = going.every((r) => r.arm?.ok && r.stage !== 'rburn-signed');
+      due.push([going.length === 1 ? `${brAmt(going[0])} is on its way from Bitcoin to Ethereum, ${brWhere(going[0])}. ${withRelay ? 'The relay finishes the mint, so this page can be closed.' : 'It finishes while this page is open with your wallet.'}`
+        : `${going.length} bridges${ofTk(going)} are on their way from Bitcoin to Ethereum. ${withRelay ? 'The relay finishes their mints, so this page can be closed.' : 'They finish while this page is open with your wallet.'}`, brLink(going), 'Follow']);
+    }
     // Bridges to Bitcoin under way, each asset's own: the same two lines.
     for (const a of Object.values(XA)) {
       const xs = xoJournal(k, a), needx = xs.filter(xoDue), link = a.key === 'tac' ? 'bridge/out' : 'private/bitcoin';

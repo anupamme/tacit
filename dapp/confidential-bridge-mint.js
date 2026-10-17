@@ -61,7 +61,7 @@ export function txidInternal(displayHex) {
 }
 
 export function makeConfidentialBridgeMint({ pool, ct, relay = null, fetchImpl = null, relayBase = '' } = {}) {
-  if (!pool || !ct) throw new Error('confidential-bridge-mint: pool and ct are required');
+  if (!pool) throw new Error('confidential-bridge-mint: pool is required');
   const hex32 = (v) => '0x' + BigInt(v).toString(16).padStart(64, '0');
   const lc = (x) => String(x || '').toLowerCase();
   const ptHex = (P) => '0x' + Array.from(P.toRawBytes(true), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -88,6 +88,113 @@ export function makeConfidentialBridgeMint({ pool, ct, relay = null, fetchImpl =
     }
   }
 
+  // A mint op has two halves. The HOLDER'S half is everything that needs the two openings: the burned note's commitment, the
+  // destination's commitment, the range proof, the public fee and the conservation kernel. The kernel is signed over
+  // [C_burn] → [C_dest] with no leaf bound, so it names no root and no path. The PUBLIC half is the burn set's membership path under the
+  // burn root, and the burned note's path in the Bitcoin note tree: both are read off the reflected state by anyone, and the burn root
+  // is the one thing that goes stale (the pool takes a mint only on the root it holds). So a mint built before its burn was recorded, or
+  // on a root the pool has since moved past, is the same holder's half with a fresh public half.
+
+  // A typed refusal, so a caller can tell "not yet" (the burn is not recorded) from "never" (the destination differs).
+  const bridgeMintError = (code, message) => Object.assign(new Error(`bridge-mint: ${message}`), { code });
+  const needCt = () => { if (!ct) throw new Error('bridge-mint: ct is required to build a mint'); return ct; };
+
+  // The holder's half (no reflected state needed). `burned` and `dest` are openings { value, blinding, owner }; the class says how the
+  // burned note's leaf is formed. Returns { op, fee, destLeaf, nullifier, burnId, sourceClass, srcLeaf }, where `op` has no
+  // bitcoinBurnRoot, poolRoot, input.leafIndex/path or burnMembership yet (completeBridgeMintOp fills them in).
+  function bridgeMintParts({ chainBinding, asset, spentTxid, spentVout, sourceClass, burned, dest }) {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(String(chainBinding))) throw new Error('bridge-mint: chainBinding required');
+    if (!/^0x[0-9a-fA-F]{64}$/.test(String(asset))) throw new Error('bridge-mint: asset required');
+    if (!/^0x[0-9a-fA-F]{64}$/.test(String(spentTxid))) throw new Error('bridge-mint: spentTxid required (internal byte order)');
+    const vout = Number(spentVout);
+    if (!Number.isInteger(vout) || vout < 0 || vout > 0xffffffff) throw new Error('bridge-mint: bad spentVout');
+    const cls = Number(sourceClass);
+    if (![SOURCE_DEPOSIT, SOURCE_REFLECTED, SOURCE_REFLECTED_BOUND].includes(cls)) throw new Error(`bridge-mint: unknown source class ${sourceClass}`);
+    const c = needCt();
+    const vIn = BigInt(burned.value), rIn = BigInt(burned.blinding);
+    const vOut = BigInt(dest.value), rOut = BigInt(dest.blinding);
+    if (vIn <= 0n || vIn > U64_MAX || vOut <= 0n || vOut > vIn) throw new Error('bridge-mint: destination value must be positive and at most the burned value');
+    const fee = vIn - vOut;
+    if (!feeIsQuantized(fee)) throw new Error(`bridge-mint: implied fee ${fee} (burned − destination) is not on the fee ladder`);
+    const { cx: inCx, cy: inCy } = pool.commitXY(vIn, rIn);
+    const { cx: outCx, cy: outCy } = pool.commitXY(vOut, rOut);
+    const destLeaf = pool.leaf(asset, outCx, outCy, dest.owner);
+    const inOwner = cls === SOURCE_DEPOSIT ? pool.outpointKey(spentTxid, vout) : burned.owner;
+    const srcLeaf = sourceLeaf({ sourceClass: cls, asset, cx: inCx, cy: inCy, owner: burned.owner, spentTxid, spentVout: vout, chainBinding });
+    const burnId = pool.bridgeBurnId(cls === SOURCE_DEPOSIT ? BURN_SOURCE_DEPOSIT : BURN_SOURCE_REFLECTED, spentTxid, vout, srcLeaf, chainBinding);
+    const kernel = c.kernelSign({ inputs: [{ value: vIn, blinding: rIn }], outputs: [{ value: vOut, blinding: rOut }], fee, outLeaves: [] });
+    const { proof: rangeProof } = c.rangeProve([vOut], [rOut]);
+    const op = {
+      chainBinding: lc(chainBinding), asset: lc(asset), sourceClass: cls, spentTxid: lc(spentTxid), spentVout: vout,
+      input: { cx: inCx, cy: inCy, owner: inOwner },
+      output: { cx: outCx, cy: outCy, owner: dest.owner },
+      rangeProof: bytesHex(rangeProof), fee: fee.toString(), kernel: { R: ptHex(kernel.R), z: hex32(kernel.z) },
+    };
+    return { op, fee, destLeaf, nullifier: pool.nullifier(srcLeaf), burnId, sourceClass: cls, srcLeaf };
+  }
+
+  // The reflected state a mint is completed against, indexed once: the burn set (its root is what the pool must hold), the leaf index of
+  // each Bitcoin note, and the note tree, which is built on first use (it is the costly part) and then shared by every mint completed on
+  // it. `snapshot` is { noteLeaves, burnNodes } from fetchReflectionSnapshot or the dump.
+  function prepareReflection(snapshot) {
+    if (snapshot && snapshot.burns && snapshot.leafIndexOf) return snapshot;
+    if (!snapshot || !Array.isArray(snapshot.noteLeaves) || !Array.isArray(snapshot.burnNodes)) throw new Error('bridge-mint: snapshot { noteLeaves, burnNodes } required');
+    const burns = pool.makeUtxoAccumulator();
+    burns.setNodes(snapshot.burnNodes);
+    const leafIndexOf = new Map();
+    snapshot.noteLeaves.forEach((l, i) => { if (!leafIndexOf.has(lc(l))) leafIndexOf.set(lc(l), i); });
+    let tree = null;
+    return { burns, leafIndexOf, burnRoot: burns.root(), noteLeaves: snapshot.noteLeaves, noteTree: () => { if (!tree) { tree = new pool.Tree(); for (const l of snapshot.noteLeaves) tree.insert(l); } return tree; } };
+  }
+
+  // What an op names, from the op alone: the burned note's leaf, the burn's id (the pool's one-mint key), the destination leaf the burn pinned,
+  // and the burned note's nullifier. Throws `bad_op` on an op that is not a bridge mint's.
+  function bridgeMintIdentity(op) {
+    const cls = Number(op && op.sourceClass);
+    if (!op || !op.input || !op.output || ![SOURCE_DEPOSIT, SOURCE_REFLECTED, SOURCE_REFLECTED_BOUND].includes(cls)) throw bridgeMintError('bad_op', 'not a bridge mint op');
+    const vout = Number(op.spentVout);
+    const srcLeaf = sourceLeaf({ sourceClass: cls, asset: op.asset, cx: op.input.cx, cy: op.input.cy, owner: op.input.owner, spentTxid: op.spentTxid, spentVout: vout, chainBinding: op.chainBinding });
+    const burnId = pool.bridgeBurnId(cls === SOURCE_DEPOSIT ? BURN_SOURCE_DEPOSIT : BURN_SOURCE_REFLECTED, op.spentTxid, vout, srcLeaf, op.chainBinding);
+    return { srcLeaf, burnId, destLeaf: pool.leaf(op.asset, op.output.cx, op.output.cy, op.output.owner), nullifier: pool.nullifier(srcLeaf) };
+  }
+
+  // Fill in, or renew, a mint's public half from the reflected state. Works on a half-built op or a complete one (the old public half is
+  // simply replaced). Throws a typed error: `note_not_in_tree` and `burn_not_recorded` mean "not yet" (the reflection has not folded the
+  // burned note or recorded the burn), `dest_mismatch` that the burn pinned a different destination than this op's.
+  function completeBridgeMintOp(op, reflection) {
+    const r = prepareReflection(reflection);
+    const { srcLeaf, burnId, destLeaf, nullifier } = bridgeMintIdentity(op);
+    const leafIndex = r.leafIndexOf.get(lc(srcLeaf));
+    if (leafIndex == null) throw bridgeMintError('note_not_in_tree', 'the burned note is not in the reflected note tree (yet), or the opening/outpoint does not match it');
+    if (!r.burns.contains(burnId)) throw bridgeMintError('burn_not_recorded', 'the burn is not recorded in the reflected state yet');
+    const bm = r.burns.membershipWitness(burnId);
+    if (lc(bm.value) !== lc(destLeaf)) throw bridgeMintError('dest_mismatch', 'the burn committed to a different destination than the one given (check dest value/blinding/owner — the destination value is the burned value net of the fee)');
+    const { root: poolRoot, path: inPath } = r.noteTree().rootAndPath(leafIndex);
+    const done = {
+      ...op,
+      bitcoinBurnRoot: r.burnRoot,
+      poolRoot,
+      input: { ...op.input, leafIndex, path: inPath },
+      burnMembership: { next: bm.next, index: bm.index, path: bm.path },
+    };
+    return { op: done, burnId, destLeaf, srcLeaf, nullifier, burnRoot: r.burnRoot, poolRoot };
+  }
+
+  // True iff the holder's half stands alone: the destination's range proof and the conservation kernel over [C_burn] → [C_dest] with the
+  // public fee both verify, which no one can produce without the two openings. A third party can run this on a mint it was handed.
+  function verifyBridgeMintParts(op) {
+    try {
+      const c = needCt();
+      const hexBytes = (h) => Uint8Array.from((String(h).replace(/^0x/, '').match(/../g) || []).map((x) => parseInt(x, 16)));
+      const fee = BigInt(op.fee);
+      if (!feeIsQuantized(fee)) return { ok: false, reason: 'the fee is not on the fee ladder' };
+      const inC = [c.pointOf(op.input.cx, op.input.cy)], outC = [c.pointOf(op.output.cx, op.output.cy)];
+      const kernel = { R: c.pointFromHex(op.kernel.R), z: BigInt(op.kernel.z) };
+      const ok = c.verifyTransfer({ inC, outC, rangeProof: hexBytes(op.rangeProof), kernel, fee, outLeaves: [] });
+      return ok ? { ok: true } : { ok: false, reason: 'the range proof or the conservation kernel does not verify' };
+    } catch (e) { return { ok: false, reason: `not a readable mint (${(e && e.message) || e})` }; }
+  }
+
   // Build the OP_BRIDGE_MINT op for a burn the reflection has folded.
   //   burned   { value, blinding, owner } — the burned Bitcoin note's opening; owner is its x-only Taproot key
   //            (classes 1/2; ignored for class 0, whose owner is its outpoint key)
@@ -105,61 +212,27 @@ export function makeConfidentialBridgeMint({ pool, ct, relay = null, fetchImpl =
     if (!Number.isInteger(vout) || vout < 0 || vout > 0xffffffff) throw new Error('bridge-mint: bad spentVout');
     if (!snapshot || !Array.isArray(snapshot.noteLeaves) || !Array.isArray(snapshot.burnNodes)) throw new Error('bridge-mint: snapshot { noteLeaves, burnNodes } required');
     const vIn = BigInt(burned.value), rIn = BigInt(burned.blinding);
-    const vOut = BigInt(dest.value), rOut = BigInt(dest.blinding);
+    const vOut = BigInt(dest.value);
     if (vIn <= 0n || vIn > U64_MAX || vOut <= 0n || vOut > vIn) throw new Error('bridge-mint: destination value must be positive and at most the burned value');
     const fee = vIn - vOut;
     if (!feeIsQuantized(fee)) throw new Error(`bridge-mint: implied fee ${fee} (burned − destination) is not on the fee ladder`);
 
+    // Which class the snapshot holds this burn under, found before any proof is made, so a burn that is not there fails at once.
     const { cx: inCx, cy: inCy } = pool.commitXY(vIn, rIn);
-    const { cx: outCx, cy: outCy } = pool.commitXY(vOut, rOut);
-    const destLeaf = pool.leaf(asset, outCx, outCy, dest.owner);
-
-    const burns = pool.makeUtxoAccumulator();
-    burns.setNodes(snapshot.burnNodes);
-    const leafIndexOf = new Map();
-    snapshot.noteLeaves.forEach((l, i) => { if (!leafIndexOf.has(lc(l))) leafIndexOf.set(lc(l), i); });
-
+    const r = prepareReflection(snapshot);
     const classes = sourceClass == null ? [SOURCE_REFLECTED_BOUND, SOURCE_REFLECTED, SOURCE_DEPOSIT] : [Number(sourceClass)];
-    let found = null;
-    for (const cls of classes) {
-      const srcLeaf = sourceLeaf({ sourceClass: cls, asset, cx: inCx, cy: inCy, owner: burned.owner, spentTxid, spentVout: vout, chainBinding });
-      const leafIndex = leafIndexOf.get(lc(srcLeaf));
-      if (leafIndex == null) continue;
-      const burnId = pool.bridgeBurnId(cls === SOURCE_DEPOSIT ? BURN_SOURCE_DEPOSIT : BURN_SOURCE_REFLECTED, spentTxid, vout, srcLeaf, chainBinding);
-      if (!burns.contains(burnId)) continue;
-      found = { cls, srcLeaf, leafIndex, burnId };
+    let cls = null;
+    for (const c of classes) {
+      const srcLeaf = sourceLeaf({ sourceClass: c, asset, cx: inCx, cy: inCy, owner: burned.owner, spentTxid, spentVout: vout, chainBinding });
+      if (!r.leafIndexOf.has(lc(srcLeaf))) continue;
+      if (!r.burns.contains(pool.bridgeBurnId(c === SOURCE_DEPOSIT ? BURN_SOURCE_DEPOSIT : BURN_SOURCE_REFLECTED, spentTxid, vout, srcLeaf, chainBinding))) continue;
+      cls = c;
       break;
     }
-    if (!found) throw new Error('bridge-mint: burn not found in the reflected state yet (the burned note or its burn record is not folded), or the opening/outpoint does not match it');
-    const bm = burns.membershipWitness(found.burnId);
-    if (lc(bm.value) !== lc(destLeaf)) {
-      throw new Error('bridge-mint: the burn committed to a different destination than the one given (check dest value/blinding/owner — the destination value is the burned value net of the fee)');
-    }
-
-    const tree = new pool.Tree();
-    for (const l of snapshot.noteLeaves) tree.insert(l);
-    const { root: poolRoot, path: inPath } = tree.rootAndPath(found.leafIndex);
-
-    const kernel = ct.kernelSign({ inputs: [{ value: vIn, blinding: rIn }], outputs: [{ value: vOut, blinding: rOut }], fee, outLeaves: [] });
-    const { proof: rangeProof } = ct.rangeProve([vOut], [rOut]);
-    const inOwner = found.cls === SOURCE_DEPOSIT ? pool.outpointKey(spentTxid, vout) : burned.owner;
-
-    const op = {
-      chainBinding: lc(chainBinding),
-      bitcoinBurnRoot: burns.root(),
-      asset: lc(asset),
-      poolRoot,
-      sourceClass: found.cls,
-      spentTxid: lc(spentTxid),
-      spentVout: vout,
-      input: { cx: inCx, cy: inCy, owner: inOwner, leafIndex: found.leafIndex, path: inPath },
-      output: { cx: outCx, cy: outCy, owner: dest.owner },
-      burnMembership: { next: bm.next, index: bm.index, path: bm.path },
-      rangeProof: bytesHex(rangeProof),
-      fee: fee.toString(),
-      kernel: { R: ptHex(kernel.R), z: hex32(kernel.z) },
-    };
-    return { op, fee, destLeaf, nullifier: pool.nullifier(found.srcLeaf), burnId: found.burnId, sourceClass: found.cls };
+    if (cls == null) throw new Error('bridge-mint: burn not found in the reflected state yet (the burned note or its burn record is not folded), or the opening/outpoint does not match it');
+    const parts = bridgeMintParts({ chainBinding, asset, spentTxid, spentVout: vout, sourceClass: cls, burned, dest });
+    const done = completeBridgeMintOp(parts.op, r);
+    return { op: done.op, fee, destLeaf: parts.destLeaf, nullifier: parts.nullifier, burnId: parts.burnId, sourceClass: cls };
   }
 
   // The Bitcoin-side half for a REFLECTED note (class 1 or 2): the 161-byte 0x2B burn envelope payload
@@ -200,6 +273,41 @@ export function makeConfidentialBridgeMint({ pool, ct, relay = null, fetchImpl =
     return { noteLeaves: snap.noteLeaves, burnNodes: snap.burnNodes, height: j.attestedHeight ?? snap.height ?? null };
   }
 
+  // How the minted note stays recoverable from the seed, as the descriptor the memo is sealed from (see bridgeMint's `recovery`).
+  function outputFor(recovery, dest, op) {
+    return recovery.seedDerived
+      ? { seedDerived: true }
+      : { ownerPub: recovery.ownerPub, value: String(dest.value), blinding: hex32(dest.blinding), secret: recovery.secret == null ? 0 : recovery.secret,
+          asset: op.asset, owner: dest.owner, cx: op.output.cx, cy: op.output.cy };
+  }
+
+  // Arm the mint with the API (POST /confidential/arm): the holder's half only, built now from the two openings, with the memo the mint
+  // will carry. The API completes it with the burn's path under the pool's root and queues it as soon as the burn is recorded, so the
+  // mint no longer waits for this page to be open. Nothing in what is sent opens either note. → { ok, status, dest } | { ok: false, code, error }
+  async function armMint({ network = 'mainnet', recovery, ephRand, ...args }) {
+    if (!relay || typeof relay.sealFor !== 'function') throw new Error('bridge-mint: no relay wired');
+    if (!recovery || (!recovery.seedDerived && recovery.ownerPub == null)) throw new Error('bridge-mint: pass recovery { ownerPub, secret } or { seedDerived: true } so the minted note stays recoverable');
+    const f = fetchImpl || (typeof fetch !== 'undefined' ? fetch : null);
+    if (!f) throw new Error('bridge-mint: no fetch available');
+    const parts = bridgeMintParts(args);
+    const memos = relay.sealFor({ leaves: [parts.destLeaf], outputs: [outputFor(recovery, args.dest, parts.op)], ephRand: ephRand || freshScalar });
+    const root = String(relayBase || '').replace(/\/$/, '');
+    const res = await f(`${root}/confidential/arm?network=${network === 'signet' ? 'signet' : 'mainnet'}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ type: 'bridgemint', op: parts.op, memos }) });
+    const j = await res.json().catch(() => null);
+    if (!res.ok || !j || !j.ok) return { ok: false, code: (j && j.code) || `http_${res.status}`, error: (j && j.error) || `the relay answered ${res.status}`, dest: parts.destLeaf };
+    return { ok: true, status: j.status, jobId: j.jobId || null, dest: parts.destLeaf };
+  }
+  // Where an armed mint stands, by the destination leaf the burn pinned: armed | queued (with its job) | minted | failed | unknown.
+  async function armedStatus(dest, { network = 'mainnet' } = {}) {
+    const f = fetchImpl || (typeof fetch !== 'undefined' ? fetch : null);
+    if (!f) throw new Error('bridge-mint: no fetch available');
+    const root = String(relayBase || '').replace(/\/$/, '');
+    const res = await f(`${root}/confidential/armed?dest=${encodeURIComponent(dest)}&network=${network === 'signet' ? 'signet' : 'mainnet'}`);
+    if (!res.ok) throw new Error(`bridge-mint: armed status ${res.status}`);
+    const j = await res.json();
+    return { status: (j && j.status) || 'unknown', jobId: (j && j.jobId) || null };
+  }
+
   // Build the mint and relay it (POST /confidential/submit, type 'bridgemint'), waiting for the settle.
   // `recovery` describes how the minted note stays recoverable from the seed: { ownerPub, secret } seals a memo to
   // the owner's key (secret = the note's nk), or { seedDerived: true } when dest.blinding came from
@@ -218,10 +326,7 @@ export function makeConfidentialBridgeMint({ pool, ct, relay = null, fetchImpl =
     for (let attempt = 0; ; attempt++) {
       const snap = snapshot && attempt === 0 ? snapshot : await fetchReflectionSnapshot({ network });
       const built = buildBridgeMintOp({ ...args, snapshot: snap });
-      const output = recovery.seedDerived
-        ? { seedDerived: true }
-        : { ownerPub: recovery.ownerPub, value: String(args.dest.value), blinding: hex32(args.dest.blinding), secret: recovery.secret == null ? 0 : recovery.secret,
-            asset: built.op.asset, owner: args.dest.owner, cx: built.op.output.cx, cy: built.op.output.cy };
+      const output = outputFor(recovery, args.dest, built.op);
       const spec = { type: 'bridgemint', op: built.op, leaves: [built.destLeaf], outputs: [output], ephRand: ephRand || freshScalar };
       try {
         if (!selfSettle) return { ...(await relay.settle(spec, waitOpts)), ...built };
@@ -237,5 +342,5 @@ export function makeConfidentialBridgeMint({ pool, ct, relay = null, fetchImpl =
     }
   }
 
-  return { sourceLeaf, buildBridgeBurnEnvelope, buildBridgeMintOp, fetchReflectionSnapshot, bridgeMint, feeIsQuantized, ladderFee, destValueFor, txidInternal };
+  return { sourceLeaf, buildBridgeBurnEnvelope, buildBridgeMintOp, bridgeMintParts, bridgeMintIdentity, armMint, armedStatus, prepareReflection, completeBridgeMintOp, verifyBridgeMintParts, fetchReflectionSnapshot, bridgeMint, feeIsQuantized, ladderFee, destValueFor, txidInternal };
 }

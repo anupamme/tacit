@@ -1703,5 +1703,102 @@ function storageContainsPrivkey(storage, priv) {
   const ran = { message: 'settle timed out', at: T0 };
   ok(!retry(ran, 1, 30, { ranOut: true }) && retry(ran, 1, 61, { ranOut: true }) && retry(ran, 1, 11), 'a wait that ran out is left an hour, since the relay may still hold the mint');
 }
+// ==== arming: the holder's half of a one-step mint goes to the API, which finishes it when the burn is recorded ====
+{
+  const DEST = '0x' + 'dd'.repeat(32);
+  const withClock = async (fn) => { const real = Date.now; let off = 0; Date.now = () => real() + off; try { return await fn((ms) => { off += ms; }); } finally { Date.now = real; } };
+  // A one-step bridge that has just been started, with the two client calls stubbed.
+  async function started(answer) {
+    const world = makeWorld();
+    world.setBurnHomeOnChain(NOTE_TXID, '0014' + Buffer.from(ripemd160(nobleSha256(WALLET_PUB))).toString('hex'));
+    world.setReflectedNote({ txid: NOTE_TXID, vout: NOTE_VOUT, value: NOTE_AMOUNT, blinding: NOTE_BLINDING });
+    const arms = [], statuses = [];
+    world.bridgeMint.armMint = async (args) => { arms.push(args); return typeof answer === 'function' ? answer(args) : answer; };
+    world.bridgeMint.armedStatus = async () => statuses.shift() || { status: 'unknown' };
+    const ux = makeUx(world, makeMemStorage());
+    const r = await ux.startReflected({ note: { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING }, walletPriv: WALLET_PRIV, feeRate: BASE_RATE });
+    return { world, ux, r, arms, statuses };
+  }
+  const cur = (ux, r) => ux.list(r.walletPub).find((x) => x.id === r.id);
+
+  {
+    const { ux, r, arms } = await started({ ok: true, status: 'armed', dest: DEST });
+    ok(r.stage === 'rburn-signed' && !r.arm, 'sanity: a burn just signed, not yet armed');
+    const a = await ux.armMint(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+    ok(a.arm && a.arm.ok === true && a.arm.dest === DEST && a.arm.status === 'armed' && a.stage === 'rburn-signed', 'arming keeps the answer on the record and moves nothing');
+    const m = arms[0];
+    ok(arms.length === 1 && m.sourceClass === 1 && m.spentTxid === r.mint.spentTxid && m.spentVout === r.mint.spentVout && BigInt(m.burned.value) === BigInt(r.mint.burned.value) && BigInt(m.dest.value) === BigInt(r.mint.dest.value) && m.recovery && m.recovery.seedDerived === true,
+      'it hands the client the record\'s own openings and a recoverable destination');
+    await ux.armMint(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+    ok(arms.length === 1, 'an armed bridge is not armed again');
+  }
+  {
+    await withClock(async (tick) => {
+      const { ux, r, arms } = await started({ ok: false, code: 'http_503', error: 'the relay answered 503' });
+      let a = await ux.armMint(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+      ok(a.arm.ok === false && a.arm.code === 'http_503' && a.arm.tries === 1 && !a.lastError && a.errorCount !== 1, 'a refusal is kept as the arm\'s, not as an error of the bridge');
+      await ux.armMint(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+      ok(arms.length === 1, 'and is not asked again at once');
+      tick(11 * 60e3);
+      await assert.rejects(() => ux.armMint(r.walletPub, r.id, { walletPriv: null }), /needs the wallet key/);
+      ok(arms.length === 1, 'arming needs the key, and asks nothing without it');
+      for (let i = 0; i < 8; i++) { tick(11 * 60e3); await ux.armMint(r.walletPub, r.id, { walletPriv: WALLET_PRIV }); }
+      ok(arms.length === 6, `it is tried again every ten minutes, six times in all (${arms.length})`);
+      const b = await started({ ok: true, status: 'armed', dest: DEST });
+      b.ux.abandon(b.r.walletPub, b.r.id);
+      ok(!(await b.ux.armMint(b.r.walletPub, b.r.id, { walletPriv: WALLET_PRIV })) && b.arms.length === 0, 'a bridge that is gone is not armed');
+    });
+  }
+  {
+    // At the mint stage an armed mint is waited for, then built here only if the API has not taken it.
+    await withClock(async (tick) => {
+      const world = makeWorld(), arms = [], statuses = [];
+      world.setBurnHomeOnChain(NOTE_TXID, '0014' + Buffer.from(ripemd160(nobleSha256(WALLET_PUB))).toString('hex'));
+      world.setReflectedNote({ txid: NOTE_TXID, vout: NOTE_VOUT, value: NOTE_AMOUNT, blinding: NOTE_BLINDING });
+      world.bridgeMint.armMint = async (a) => { arms.push(a); return { ok: true, status: 'armed', dest: DEST }; };
+      world.bridgeMint.armedStatus = async () => statuses.shift() || { status: 'unknown' };
+      const ux = makeUx(world, makeMemStorage(), { nullifierSpent: async () => false });
+      let r = await ux.startReflected({ note: { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING }, walletPriv: WALLET_PRIV, feeRate: BASE_RATE });
+      await ux.armMint(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+      r = await ux.advance(r.walletPub, r.id);
+      world.setChainTx(r.burn.txid, { confirmed: true });
+      r = await ux.advance(r.walletPub, r.id);
+      world.setNoteHeight(1001); world.setChainTx(r.burn.txid, { confirmed: true });
+      world.foldReflected(r.burn.hex);
+      r = await ux.advance(r.walletPub, r.id);
+      ok(r.stage === 'rfolded' && r.arm && r.arm.ok, 'sanity: folded, and armed');
+      statuses.push({ status: 'armed' });
+      let x = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+      ok(x.stage === 'rfolded' && world.bridgeMintCalls.length === 0 && !x.lastError, 'an armed mint the API has not queued yet is waited for, not built a second time');
+      statuses.push({ status: 'queued', jobId: '0x' + 'e1'.repeat(32) });
+      x = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+      ok(x.stage === 'rfolded' && world.bridgeMintCalls.length === 0 && x.mintJob && x.mintJob.id === '0x' + 'e1'.repeat(32), 'one the API has queued is followed by its job');
+      statuses.push({ status: 'failed' });
+      tick(60e3);
+      x = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV, selfSettle: async () => ({ txHash: '0x' + 'ee'.repeat(32) }) });
+      ok(x.stage === 'minted' && world.bridgeMintCalls.length === 1, 'sent from the holder\'s own wallet, it is built here whatever the API holds');
+    });
+    await withClock(async (tick) => {
+      const world = makeWorld(), statuses = [];
+      world.setBurnHomeOnChain(NOTE_TXID, '0014' + Buffer.from(ripemd160(nobleSha256(WALLET_PUB))).toString('hex'));
+      world.setReflectedNote({ txid: NOTE_TXID, vout: NOTE_VOUT, value: NOTE_AMOUNT, blinding: NOTE_BLINDING });
+      world.bridgeMint.armMint = async () => ({ ok: true, status: 'armed', dest: DEST });
+      world.bridgeMint.armedStatus = async () => statuses.shift() || { status: 'unknown' };
+      const ux = makeUx(world, makeMemStorage(), { nullifierSpent: async () => false });
+      let r = await ux.startReflected({ note: { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING }, walletPriv: WALLET_PRIV, feeRate: BASE_RATE });
+      await ux.armMint(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+      r = await ux.advance(r.walletPub, r.id);
+      world.setChainTx(r.burn.txid, { confirmed: true });
+      r = await ux.advance(r.walletPub, r.id);
+      world.setNoteHeight(1001); world.setChainTx(r.burn.txid, { confirmed: true });
+      world.foldReflected(r.burn.hex);
+      r = await ux.advance(r.walletPub, r.id);
+      statuses.push({ status: 'armed' });
+      tick(16 * 60e3);
+      const x = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+      ok(x.stage === 'minted' && world.bridgeMintCalls.length === 1, 'a mint still only armed a quarter of an hour after the burn was recorded is built here, as it always was');
+    });
+  }
+}
 console.log(failures ? `\n${failures} FAILURES (${n} passed)` : `\nall ${n} burndep-ux checks passed`);
 process.exit(failures ? 1 : 0);

@@ -21,7 +21,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { CFG, ADDR, OP_GAS, DEFAULT_OP_GAS, OP_PROVE } from './lib/config.js';
-import { confidentialJob, confidentialBatch, confidentialAck, confidentialActivateAck, confidentialOpenList, confidentialOpenJob, confidentialQueue, heartbeat, heartbeatIdle, setHeartbeatLedger, relayBooks, quoteAsset } from './lib/worker-client.js';
+import { confidentialJob, confidentialBatch, confidentialAck, confidentialRefresh, confidentialActivateAck, confidentialOpenList, confidentialOpenJob, confidentialQueue, heartbeat, heartbeatIdle, setHeartbeatLedger, relayBooks, quoteAsset } from './lib/worker-client.js';
 import { makeBatchWindow } from './lib/batch-window.js';
 import { proveSettle, proveMixed, proveSealed, boardAlive } from './lib/prover.js';
 import { notExecuted } from './lib/stdin-prover.js';
@@ -31,6 +31,7 @@ import { findCarrier, isRevert } from './lib/landed-elsewhere.js';
 import { cbtcMintBlocker } from './lib/cbtc-mint-precheck.js';
 import { cdpBlocker } from './lib/cdp-precheck.js';
 import { bridgeMintBlocker } from './lib/bridge-mint-precheck.js';
+import { renewStaleMint } from './lib/bridge-mint-renew.js';
 import { settleWallet, settleWallets, relayWallet, publicClient, ethUsdPrice, POOL, POOL_ABI, ROUTER } from './lib/chain.js';
 import { ledger } from './lib/income-ledger.js';
 import { makeBooksRestorer } from './lib/ledger-restore.js';
@@ -513,6 +514,9 @@ const GATED = {
   bridgemint: ['bridge mint', bridgeMintBlocker], bridgestealthmint: ['bridge mint', bridgeMintBlocker],
 };
 async function skipBlockedMint(job) {
+  // A bridge mint on a burn root the pool has moved past is made current by the API first (the holder's half is kept), so it is proved on
+  // the root the pool holds; the check below then turns back only one that could not be.
+  if (job.type === 'bridgemint') await renewStaleMint(job, { blocker: (j) => bridgeMintBlocker(j, { client: publicClient, pool: POOL }), refresh: confidentialRefresh, sleep, log });
   const gate = GATED[job.type];
   const why = gate && await gate[1](job, { client: publicClient, pool: POOL });
   if (!why) return false;

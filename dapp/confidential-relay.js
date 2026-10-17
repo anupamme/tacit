@@ -445,5 +445,5 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     }
   }
 
-  return { submitOp, status, state, waitForSettle, settle, waitForProof, prove, provenMemos, verifyEmittedMemos, landed, openJobs, postProof, useProver, ownProving: () => !!ownProver, useSealer, sealing: () => !!sealer };
+  return { submitOp, sealFor, status, state, waitForSettle, settle, waitForProof, prove, provenMemos, verifyEmittedMemos, landed, openJobs, postProof, useProver, ownProving: () => !!ownProver, useSealer, sealing: () => !!sealer };
 }

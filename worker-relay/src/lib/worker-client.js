@@ -223,6 +223,15 @@ export async function confidentialBatch(max = 8, { mixed = false } = {}) {
 // `settledBy` (a job found settled by a transaction on chain) is carried as such: the worker closes a job of any mode by
 // it, where a bare txHash on a prove-mode job reads as a proof that never came. `publicValues`+`proof` hand a proof back
 // (a prove-mode job, or with `open` a relayed one put on the board); `requeue` and `release` answer for an open job.
+// A bridge mint the pool's burn root has moved past, made current by the API before the relay proves it (POST /confidential/refresh): the op's
+// public half only. → { ok, op } | { ok: false, code }
+export async function confidentialRefresh(jobId) {
+  try {
+    const res = await postJson('/confidential/refresh', { jobId }, { timeoutMs: 20_000 });
+    const j = await res.json().catch(() => null);
+    return j && typeof j === 'object' ? j : { ok: false, code: 'no_answer' };
+  } catch { return { ok: false, code: 'no_answer' }; }
+}
 export async function confidentialAck({ jobId, txHash, error, broadcastHashes, settledBy, publicValues, proof, open, requeue, release, lane }) {
   const body = error
     ? { jobId, error, ...(broadcastHashes?.length ? { broadcastHashes } : {}), ...(requeue ? { requeue: true } : {}) }

@@ -614,6 +614,35 @@ export function makeBurnDepositUx(deps) {
     });
   }
 
+  // ---- armMint: hand the API the holder's half of this bridge's mint ----
+  // The mint is the holder's half (the two commitments, the range proof, the kernel: made from the two openings this record keeps) and the burn's
+  // path under the pool's root, which anyone can read off the reflected state. The first goes to the API now (POST /confidential/arm), with
+  // the memo the mint carries; the API adds the second and queues the mint as soon as the burn is recorded, so it no longer waits for this page
+  // to be open. Nothing it receives opens either note. Best-effort and repeatable: a failure is kept on the record (`arm`), tried again a few
+  // times, and the page mints as it always did if the API never takes it. Bridges already under way are armed the same way.
+  const ARM_RETRY_MS = 10 * 60 * 1000, ARM_TRIES = 6, ARM_GRACE_MS = 15 * 60 * 1000;
+  const ARMABLE = new Set(['rburn-signed', 'rburn-sent', 'rburn-mined', 'rfolded']);
+  async function armMint(walletPub, id, { walletPriv }) {
+    const rec = getRecord(walletPub, id);
+    if (!rec || rec.path !== 'reflected' || !rec.mint || !ARMABLE.has(rec.stage) || typeof bridgeMint.armMint !== 'function') return rec;
+    const a = rec.arm;
+    if (a && (a.ok || Number(a.tries) >= ARM_TRIES || now() - Number(a.at || 0) < ARM_RETRY_MS)) return rec;
+    if (!walletPriv) throw new Error('burndep-ux: arming needs the wallet key');
+    const m = rec.mint, assetId = (rec.source && rec.source.assetId) || tacAssetId;
+    let arm;
+    try {
+      const r = await bridgeMint.armMint({
+        network, sourceClass: m.sourceClass, spentTxid: m.spentTxid, spentVout: m.spentVout, asset: withHex(assetId), chainBinding: m.chainBinding,
+        burned: { value: BigInt(m.burned.value), blinding: BigInt(m.burned.blinding), owner: m.burned.owner },
+        dest: { value: BigInt(m.dest.value), blinding: BigInt(m.dest.blinding), owner: m.dest.owner },
+        recovery: recoveryFor(walletPriv, m.dest.value, assetId),
+      });
+      arm = r.ok ? { ok: true, status: r.status || 'armed', dest: r.dest, at: now() } : { ok: false, code: r.code || null, error: String(r.error || '').slice(0, 200), tries: (a && a.tries || 0) + 1, at: now() };
+    } catch (e) { arm = { ok: false, error: String((e && e.message) || e).slice(0, 200), tries: (a && a.tries || 0) + 1, at: now() }; }
+    const cur = getRecord(walletPub, id);                         // another page may have moved the record on meanwhile: only `arm` is ours
+    return cur ? putRecord({ ...cur, arm }) : rec;
+  }
+
   // ---- advance: drive a record forward one stage. walletPriv is required only at the two stages that sign. ----
   // Tracks failures on the record itself (lastError, errorCount), not just in whatever caught the throw —
   // the background poller (dapp/tacit.js) advances unattended and otherwise has nowhere to put a repeated
@@ -806,6 +835,16 @@ export function makeBurnDepositUx(deps) {
       const already = await mintLanded(rec);
       if (already) return already;
       if (mintQueued(rec, selfSettle)) return rec;
+      // A mint armed with the API is queued by it as soon as the burn is recorded on the root the pool holds: it is waited for a while, not built
+      // a second time, and built here only if the API has not taken it by then, or this page was asked to send it from the holder's wallet.
+      if (!selfSettle && rec.arm && rec.arm.ok && typeof bridgeMint.armedStatus === 'function') {
+        const st = await bridgeMint.armedStatus(rec.arm.dest, { network }).catch(() => null);
+        if (st && st.status === 'minted') { const done = await mintLanded(rec); if (done) return done; }
+        if (st && (st.status === 'queued' || st.status === 'armed') && now() - Number(rec.foldedAt || rec.arm.at || 0) < ARM_GRACE_MS) {
+          if (st.jobId) { noteJob(rec, st.jobId); return getRecord(rec.walletPub, rec.id) || rec; }
+          return rec;
+        }
+      }
       say('fetching-snapshot');
       let minted;
       try {
@@ -1314,7 +1353,7 @@ export function makeBurnDepositUx(deps) {
 
   return {
     BURNDEP_BETA_CAP_RAW, assets: ASSETS, assetOf, eligibleNotes, isReserved, pickFunding, bridgeCost, noteForms, preflight, preflightHeld, recheckBurn, RETURN_FEE_CEILING, start, startReflected, advance, resumeAll, recoverFromTxid, discover, list, abandon,
-    cancelSigned, buildCancel, reclaim, recover, verify, isLive, burnRecorded, destLeaf, relayFault, mintRetryDue,
+    cancelSigned, buildCancel, reclaim, recover, verify, isLive, burnRecorded, destLeaf, relayFault, mintRetryDue, armMint,
     // Bitcoin's priority fee rate now (sat/vB), as the builders price a move or a one-step burn.
     quoteRate: () => chain.getFeeRate('priority'),
     slipstreamStatus: broadcaster.slipstreamStatus,

@@ -18,6 +18,8 @@ import { dirname, join } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 const read = (p) => readFileSync(join(ROOT, p), 'utf8');
+// Real-shaped ops for the types the door checks (worker/src/op-admit.js): the fixtures the prover's harnesses were built against.
+const SHAPED_OP = Object.fromEntries([['cbtcmint', 'cbtc_mint_op'], ['cdpmint', 'cdp_mint_op'], ['cdptopup', 'cdp_topup_op']].map(([t, f]) => [t, JSON.parse(read(`contracts/sp1/confidential/fixtures/${f}.json`))]));
 const chain = read('worker-relay/src/lib/chain.js');
 const config = read('worker-relay/src/lib/config.js');
 const monitor = read('worker-relay/src/balance-monitor.js');
@@ -232,6 +234,7 @@ test('the fee floor cannot switch off metering', () => {
 // and the REAL passesFloor, with only the two network reads (gas price, ETH/USD) stubbed. A string match
 // cannot tell you whether a fee that is too low is actually rejected.
 const rq = await import(join(ROOT, 'worker/src/relay-quote.js'));
+const opAdmit = await import(join(ROOT, 'worker/src/op-admit.js'));
 const { CONFIDENTIAL_DEPLOYMENTS: DEPLOY } = await import(join(ROOT, 'dapp/confidential-deployments.js'));
 const gateSrc = worker.slice(worker.indexOf('const USD_PEGGED_FEE_TICKERS'), worker.indexOf('function buildFeePricer('));
 // `amm` stubs the AMM fallback read (_ammUsdPerUnit): (assetId, env) => dollars per in-pool unit, or null.
@@ -393,10 +396,10 @@ const submitSrc = worker.slice(worker.indexOf('const budgetKey'), worker.indexOf
 function loadSubmit({ cap = '3', freeCap = '3', env = {}, submitJob, jobStatus = async () => null, boardWorkers = [], kvStore = new Map(), feeOf = () => 0n, tipPaid = async () => false, health = async () => ({ status: 'ok', age_seconds: 5, note: 'settle: idle — queue empty' }), expiryOf = (type, op) => (type === 'unwrap' ? Number(op?.opDeadline || 0) : 0) }) {
   const kv = { get: async (k) => (kvStore.has(k) ? kvStore.get(k) : null), put: async (k, v) => { kvStore.set(k, v); } };
   // confPool: no pool named, so a bridge mint's admission (checked against the mainnet pool's burn root only) passes as it does off mainnet.
-  const mk = new Function('confSettler', 'buildProverBoard', 'FEELESS_TYPES', 'proveRateLimit', 'jsonResponse', 'hasVerifiableFee', 'totalFee', 'ctx', 'withKvKeyLock', 'wrapTipPaid', 'readProverKindHealth', 'opExpiry', 'checkPostedShape', 'confPool', '_CONFIDENTIAL_DEPLOYMENTS',
+  const mk = new Function('confSettler', 'buildProverBoard', 'FEELESS_TYPES', 'proveRateLimit', 'jsonResponse', 'hasVerifiableFee', 'totalFee', 'ctx', 'withKvKeyLock', 'wrapTipPaid', 'readProverKindHealth', 'opExpiry', 'checkPostedShape', 'confPool', '_CONFIDENTIAL_DEPLOYMENTS', 'SHAPED_TYPES', 'admitOpShape',
     submitSrc + '; return handleConfidentialSubmit;');
   const handler = mk(() => ({ submitJob, jobIdOf: (type, op, mode) => `${mode}:${type}:${JSON.stringify(op)}`, jobStatus }), () => ({ summary: async () => ({ workers: boardWorkers }) }), rq.FEELESS_TYPES, async () => ({ ok: true }), (body, status, headers) => ({ body, status, headers }), () => false, (type, op) => feeOf(type, op), {},
-    (_key, fn) => fn(), tipPaid, health, expiryOf, () => null, () => null, {});
+    (_key, fn) => fn(), tipPaid, health, expiryOf, () => null, () => null, {}, opAdmit.SHAPED_TYPES, opAdmit.admitOpShape);
   const call = (body) => handler({ json: async () => body, headers: { get: () => '1.2.3.4' } }, { REGISTRY_KV: kv, PROVE_MODE_DAILY_CAP: cap, FREE_RELAY_DAILY_CAP: freeCap, ...env }, {});
   return { call, kvStore };
 }
@@ -551,8 +554,8 @@ test('the prove budget never touches a fee-paying relayed settle', async () => {
 test('a fee-less relayed op is accepted, and spends the free budget only when accepted', async () => {
   let n = 0;
   const { call, kvStore } = loadSubmit({ freeCap: '3', feeOf: () => 0n, submitJob: async () => ({ jobId: 'j' + ++n, status: 'pending' }) });
-  for (let i = 0; i < 3; i++) ok((await call({ type: 'cbtcmint', op: {}, mode: 'settle' })).status === 200, `fee-less job ${i + 1} within the cap must be accepted`);
-  const over = await call({ type: 'cbtcmint', op: {}, mode: 'settle' });
+  for (let i = 0; i < 3; i++) ok((await call({ type: 'cbtcmint', op: SHAPED_OP.cbtcmint, mode: 'settle' })).status === 200, `fee-less job ${i + 1} within the cap must be accepted`);
+  const over = await call({ type: 'cbtcmint', op: SHAPED_OP.cbtcmint, mode: 'settle' });
   ok(over.status === 429 && over.body.code === 'free_budget', `the job over the free cap must be refused, got ${over.status}`);
   ok(/attach a fee/.test(over.body.error), 'the refusal must say what to do instead');
   ok(kvStore.size === 2 && [...kvStore.keys()].every((k) => k.startsWith('cps:budget:free')), 'the free budget (its total and its class) and the prove budget must be separate counters');
@@ -569,7 +572,7 @@ test('junk and dedupe hits cannot drain the free budget', async () => {
   for (let i = 0; i < 20; i++) await junk.call({ type: '__junk__', op: {}, mode: 'settle' });
   ok(junk.kvStore.size === 0, 'failed submits spent the free budget');
   const dup = loadSubmit({ freeCap: '3', feeOf: () => 0n, submitJob: async () => ({ jobId: 'j', status: 'pending', deduped: true }) });
-  for (let i = 0; i < 10; i++) ok((await dup.call({ type: 'cbtcmint', op: {}, mode: 'settle' })).status === 200, 'a dedupe hit must always pass');
+  for (let i = 0; i < 10; i++) ok((await dup.call({ type: 'cbtcmint', op: SHAPED_OP.cbtcmint, mode: 'settle' })).status === 200, 'a dedupe hit must always pass');
   ok(dup.kvStore.size === 0, 'a dedupe hit spent the free budget');
 });
 
@@ -682,12 +685,12 @@ test('each class has its own daily allowance, and one used up does not touch the
   const farm = await call({ type: 'farmunbond', op: {}, mode: 'settle' });
   ok(farm.status === 429 && farm.body.code === 'free_budget' && farm.body.class === 'farm', `the third farm op (an unbond shares the farm class) is refused, got ${farm.status}`);
   ok(/free relayed settles for today are used up \(2\/2\)/.test(farm.body.error) && /prove-mode and settle it yourself/.test(farm.body.error), 'in the words every page already answers by offering to send it from the holder\'s own account');
-  for (const t of ['cbtcmint', 'cbtcmint', 'cbtcmint']) ok((await call({ type: t, op: {}, mode: 'settle' })).status === 200, `${t} still has onboarding room after farm is full`);
-  ok((await call({ type: 'cbtcmint', op: {}, mode: 'settle' })).status === 429, 'onboarding (a cBTC mint) is refused after its own three');
+  for (const t of ['cbtcmint', 'cbtcmint', 'cbtcmint']) ok((await call({ type: t, op: SHAPED_OP[t], mode: 'settle' })).status === 200, `${t} still has onboarding room after farm is full`);
+  ok((await call({ type: 'cbtcmint', op: SHAPED_OP.cbtcmint, mode: 'settle' })).status === 429, 'onboarding (a cBTC mint) is refused after its own three');
   ok((await call({ type: 'bridgemint', op: {}, mode: 'settle' })).status === 200, 'a bridge mint is a class of its own, with no allowance set: untouched by onboarding being full');
   ok((await call({ type: 'wrap', op: {}, mode: 'settle' })).status === 200 && (await call({ type: 'wrap', op: {}, mode: 'settle' })).status === 429, 'an untipped wrap has one, then is refused');
   ok((await call({ type: 'stealthclaim', op: {}, mode: 'settle' })).status === 200 && (await call({ type: 'stealthrefund', op: {}, mode: 'settle' })).status === 429, 'everything else shares "other"');
-  ok((await call({ type: 'cdpmint', op: {}, mode: 'settle' })).status === 200 && (await call({ type: 'cdpclose', op: {}, mode: 'settle' })).status === 200, 'a cUSD loan or repayment is a class of its own, not "other"');
+  ok((await call({ type: 'cdpmint', op: SHAPED_OP.cdpmint, mode: 'settle' })).status === 200 && (await call({ type: 'cdpclose', op: {}, mode: 'settle' })).status === 200, 'a cUSD loan or repayment is a class of its own, not "other"');
 });
 test('a class with no allowance set is bounded only by the total, and 0 means none', async () => {
   const none = sponsored({});
@@ -786,7 +789,7 @@ test('Tacit\'s own front page pays the splitter when the quote names one, and th
 
 test('prove-mode is not counted against the free-relay budget', async () => {
   const { call } = loadSubmit({ freeCap: '1', cap: '50', feeOf: () => 0n, submitJob: async () => ({ jobId: 'j' + Math.random(), status: 'pending' }) });
-  for (let i = 0; i < 5; i++) ok((await call({ type: 'cbtcmint', op: {}, mode: 'prove' })).status === 200, 'prove-mode has its own budget');
+  for (let i = 0; i < 5; i++) ok((await call({ type: 'cbtcmint', op: SHAPED_OP.cbtcmint, mode: 'prove' })).status === 200, 'prove-mode has its own budget');
 });
 
 // ── the pricer: no fee is UNPRICED, never $0 ─────────────────────────────────
