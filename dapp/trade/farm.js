@@ -314,7 +314,7 @@ export function mountFarm(host, ctx) {
         const { hash, r } = await send({ data: SEL.claim }, 'Claiming', ps(), from);
         const got = (r.logs || []).filter((l) => l.address.toLowerCase() === FARM.toLowerCase() && l.topics[0] === REWARD_PAID).reduce((t, l) => t + BigInt(l.data), 0n);
         rewarded = got;
-        say(ps(), `<span class="ok">Claimed${got ? ` ${fmt(got, 18, 2)} TAC` : ''}.</span> ${txLink(hash)}${refarm && got ? ' It is filled in below to farm again.' : ''}`); onDone();
+        say(ps(), `<span class="ok">Claimed${got ? ` ${fmt(got, 18, 2)} TAC` : ''}.</span> ${txLink(hash)}${refarm && got ? ' The form below is filled in to farm it again.' : ''}`); onDone();
       }).then(() => { if (refarm && rewarded > 0n) pairWith(rewarded, { settle: true }); });                // the TAC just claimed, with the ETH that pairs with it
     }
     if (b.id === 'fm-stake') run(b, ps(), async () => {

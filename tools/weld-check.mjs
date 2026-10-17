@@ -3447,7 +3447,7 @@ await step('rewards', async () => {
     ok(/^z0r0z\.wei\s*0x1c0a…5a20/.test(t) && /Airdrop[\d.,]+\s*TAC/.test(t) && /(Claimed|Claim by [^·]+· \d+ days? left|Closed)/.test(t), `rewards: a .wei name answers by itself, with its address and the airdrop (${t.slice(0, 200)})`);
     await until(n.page, () => /Rank #3/.test(document.querySelector('#out')?.textContent || ''), null, 30000);
     t = await out();
-    ok(/12,346\s*points/.test(t) && /Earned on settled days\s*8 TAC/.test(t) && /Claimed\s*0 TAC/.test(t) && /To claim\s*8 TAC/.test(t), `rewards: its points and rank, what it has earned, what the distributor says it has claimed, and what it can claim (${t.slice(t.indexOf('Points'), t.indexOf('Points') + 200)})`);
+    ok(/12,346\s*points/.test(t) && /Earned from finished days\s*8 TAC/.test(t) && /Claimed\s*0 TAC/.test(t) && /To claim\s*8 TAC/.test(t), `rewards: its points and rank, what it has earned, what the distributor says it has claimed, and what it can claim (${t.slice(t.indexOf('Points'), t.indexOf('Points') + 200)})`);
     ok(hits.points === readsBefore.points && hits.claim === readsBefore.claim && hits.board === readsBefore.board, `rewards: the same account read again by its name costs no new reading (${JSON.stringify(hits)})`);
     ok((await n.page.$$('#out button[data-claim]:not([data-claim="airdrop-to"])')).length === 2 && !(await n.page.$('#out a.act')), 'rewards: with a browser wallet each claim is a button on its card');
     ok((await n.page.evaluate(() => location.search)) === '?q=z0r0z.wei', 'rewards: the address bar carries the lookup, so it can be shared');
@@ -3739,7 +3739,7 @@ await step('rewardsfarm', async () => {
       const earned = (await tacOf(LISTED)) - tac0;
       await until(n.page, () => Number(document.querySelector('#fm-tacamt').value) > 0 && /Deposit/.test(document.querySelector('#fm-rcpt')?.textContent || '') && !document.querySelector('#fm-go').disabled, null, 180000);
       const filled = Number(await n.page.inputValue('#fm-tacamt')), rewarded = Number(earned / 10n ** 14n) / 1e4;
-      ok(earned > 0n && Math.abs(filled - rewarded) < 0.011 && /filled in below to farm again/.test(await text(n.page, '#fm-pos-status')) && (await n.page.getAttribute('#fm-mode [data-fm="pair"]', 'aria-pressed')) === 'true', `rewardsfarm: a claim from the stake fills the rewards back in to farm again (${rewarded} TAC claimed, ${filled} in the form)`);
+      ok(earned > 0n && Math.abs(filled - rewarded) < 0.011 && /filled in to farm it again/.test(await text(n.page, '#fm-pos-status')) && (await n.page.getAttribute('#fm-mode [data-fm="pair"]', 'aria-pressed')) === 'true', `rewardsfarm: a claim from the stake fills the rewards back in to farm again (${rewarded} TAC claimed, ${filled} in the form)`);
       if (n.errors.length) { fails++; console.log('FAIL rewardsfarm page errors: ' + n.errors.slice(0, 3).join(' | ')); }
     } finally { await n.browser.close(); }
     await rpc('evm_revert', [snap]);
@@ -3753,7 +3753,7 @@ await step('rewardsfarm', async () => {
       await claimed(n);
       await until(n.page, () => !document.querySelector('#farm').hidden && document.querySelector('#farm').open && /Deposit/.test(document.querySelector('#fm-rcpt')?.textContent || ''), null, 180000);
       const ethIn = Number(await n.page.inputValue('#fm-amt')), tacIn = Number(await n.page.inputValue('#fm-tacamt')), note = (await text(n.page, '#farm-note')).replace(/\s+/g, ' ');
-      ok(ethIn > 0.04 && ethIn <= 0.047 && tacIn < 216176 && /^Your ETH pairs with [\d,.]+ of the 216,176\.41 TAC\. All of it needs [\d,.]+ ETH\.$/.test(note) && !(await n.page.$eval('#fm-go', (b) => b.disabled)), `rewardsfarm: with 0.05 ETH the pair is what it covers, within the fee kept back, and the page says so (${ethIn} ETH, ${tacIn} TAC; ${note.slice(0, 90)})`);
+      ok(ethIn > 0.04 && ethIn <= 0.047 && tacIn < 216176 && /^Your ETH covers [\d,.]+ of the 216,176\.41 TAC\. All of it needs [\d,.]+ ETH\.$/.test(note) && !(await n.page.$eval('#fm-go', (b) => b.disabled)), `rewardsfarm: with 0.05 ETH the pair is what it covers, within the fee kept back, and the page says so (${ethIn} ETH, ${tacIn} TAC; ${note.slice(0, 90)})`);
       await n.page.fill('#fm-amt', '0.01');
       await until(n.page, () => !document.querySelector('#farm-note').textContent, null, 10000);
       ok(true, 'rewardsfarm: and the note goes once the amounts are changed');
@@ -3889,19 +3889,19 @@ await step('rewardsfolds', async () => {
     const read = (sel) => n.page.$eval(sel, (e) => e.innerText.replace(/\s+/g, ' ').trim()), kv = await read('#c-pts .kv');
     ok(/Today 1,000 points · 0\.050% of the day · about 3 TAC/.test(kv), `rewardsfolds: today's share of the day's pot, in points and percent, and the TAC the service says it pays (not the share of the pot) (${kv.trim()})`);
     const clk = await read('#c-pts .clock');
-    ok(/^Day 25 of 90 · today's points claimable from 00:30 UTC \((~\d+ h|\d+ min|now)\)$/.test(clk), `rewardsfolds: the program's day and when today's points can be claimed (${clk})`);
+    ok(/^Day 25 of 90 · today's points can be claimed after 00:30 UTC$/.test(clk), `rewardsfolds: the program's day and when today's points can be claimed (${clk})`);
     ok(dayCalls === 0 && !(await n.page.$eval('#c-pts [data-days]', (d) => d.open)), 'rewardsfolds: the days are not read until the fold is opened');
     await n.page.click('#c-pts [data-days] > summary');
     await n.page.waitForSelector('#c-pts .rows li', { timeout: 20000 });
     const days = await read('#c-pts .rows');
-    ok(dayCalls === 1 && /Sat 17 Oct\s*\+40\.0\s*counting/.test(days) && /Fri 16 Oct\s*\+33\.5\s*0\.0107 TAC/.test(days), `rewardsfolds: points by day, the settled day with its TAC and today as counting (${days.trim()})`);
+    ok(dayCalls === 1 && /Sat 17 Oct\s*\+40\.0\s*in progress/.test(days) && /Fri 16 Oct\s*\+33\.5\s*0\.0107 TAC/.test(days), `rewardsfolds: points by day, the settled day with its TAC and today as counting (${days.trim()})`);
     await n.page.click('#earn > summary');
     await n.page.waitForSelector('#earn-b .ways li', { timeout: 20000 });
     const ways = await n.page.$$eval('#earn-b .ways li', (a) => a.map((x) => `${x.querySelector('a').getAttribute('href')} ${x.innerText.replace(/\s+/g, ' ').trim()}`));
-    ok(ways.length === 5 && /^\/#points Keep ETH in the private pools, proven on your device 1,000 points per ETH for each day it is held$/.test(ways[0]) && /^\/#private Wrap ETH into the Tacit pool 1,250 points per ETH · up to 5 ETH a day per address$/.test(ways[1]) && /^\/#device .* 1,000 points per ETH · together at most 50% of a day's 1,111 TAC$/.test(ways[2]) && /^\/swap\/ Buy TAC with ETH through the Precision pool 2,000 points per ETH · ×2$/.test(ways[3]) && !ways.some((w) => /Borrow cUSD/.test(w)) && /500 a day while the bond stays posted/.test(ways[4]), `rewardsfolds: Earn more lists each action with its rate, weight, limits and where to do it, the staying reward first, and leaves out one that is weighted to nothing (${ways.length}: ${ways[3]})`);
+    ok(ways.length === 5 && /^\/#points Hold ETH in the private pools 1,000 points per ETH a day, proven on your device$/.test(ways[0]) && /^\/#private Wrap ETH into the Tacit pool 1,250 points per ETH · up to 5 ETH a day per address$/.test(ways[1]) && /^\/#device .* 1,000 points per ETH · together at most 50% of a day's 1,111 TAC$/.test(ways[2]) && /^\/swap\/ Buy TAC with ETH \(Precision pool\) 2,000 points per ETH · ×2$/.test(ways[3]) && !ways.some((w) => /Borrow cUSD/.test(w)) && /500 a day while it stays posted/.test(ways[4]), `rewardsfolds: Earn more lists each action with its rate, weight, limits and where to do it, the staying reward first, and leaves out one that is weighted to nothing (${ways.length}: ${ways[3]})`);
     const reserved = await read('#earn-b > p:first-of-type');
-    ok(/^From Wed 21 Oct: 25% of each day's 1,111 TAC is kept for ETH kept in the private pools and a bond kept posted, at most 0\.02 TAC a point; 15% of each day's 1,111 TAC is kept for buying TAC and borrowing cUSD, at most 0\.01 TAC a point\. What a group does not use goes back to everyone else\.$/.test(reserved), `rewardsfolds: the reserved shares, with their start day and what a point can earn (${reserved.slice(0, 60)}…)`);
-    ok(/Holding 100, 1,000 public TAC .* ×1\.25, ×1\.5\. Early activity counts up to 5×/.test(await read('#earn-b > p:last-of-type')), 'rewardsfolds: and the holder boost and the early bonus');
+    ok(/^From Wed 21 Oct, part of each day's 1,111 TAC is set aside: 25% for holding ETH in the private pools and keeping bonds posted \(up to 0\.02 TAC a point\) and 15% for buying TAC and borrowing \(up to 0\.01 TAC a point\)\. A share that is not used goes back to everyone else\.$/.test(reserved), `rewardsfolds: the reserved shares, with their start day and what a point can earn (${reserved.slice(0, 60)}…)`);
+    ok(/Holding 100 or 1,000 public TAC at the same address for a day multiplies that day's points by 1\.25× or 1\.5×\. Early activity counts up to 5×\./.test(await read('#earn-b > p:last-of-type')), 'rewardsfolds: and the holder boost and the early bonus');
     await n.page.click('#lb > summary');
     await n.page.waitForSelector('#lb-b .board li', { timeout: 20000 });
     const rows = await n.page.$$eval('#lb-b .board li', (a) => a.map((x) => `${x.className}:${x.innerText.replace(/\s+/g, ' ').trim()}`));
@@ -3974,7 +3974,7 @@ await step('ptsbudgets', async () => {
     await n.page.click('#pts-body details.ptlog > summary:has-text("Terms")');
     const terms = (await text(n.page, '#pts-body details.ptlog')).replace(/\s+/g, ' ');
     const when = new Date((today + 3) * 864e5).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-    ok(new RegExp(`Reserved\\s*25% of a day’s 1,111 TAC for ETH held in the private pools or a bond kept posted, paid up to 0\\.02 TAC per point; 15% of a day’s 1,111 TAC for ETH swap or cUSD loan, paid up to 0\\.01 TAC per point; what a group does not use goes back to everyone else \\(from ${when}\\)`).test(terms), `ptsbudgets: the Terms say each group's share, its ceiling and when it starts (${(terms.match(/Reserved.{0,330}/) || [''])[0]})`);
+    ok(new RegExp(`Reserved\\s*From ${when}: 25% of a day’s 1,111 TAC for holding ETH in the private pools and keeping bonds posted \\(up to 0\\.02 TAC per point\\) and 15% of a day’s 1,111 TAC for buying TAC and borrowing \\(up to 0\\.01 TAC per point\\)\\. A share that is not used goes back to everyone else\\.`).test(terms), `ptsbudgets: the Terms say each group's share, its ceiling and when it starts (${(terms.match(/Reserved.{0,330}/) || [''])[0]})`);
     if (n.errors.length) { fails++; console.log('FAIL ptsbudgets page errors: ' + n.errors.slice(0, 3).join(' | ')); }
   } finally { await n.browser.close(); }
 });
@@ -4022,7 +4022,7 @@ await step('ptsview', async () => {
   ok(v.days.length >= 2 && /^Today\s*\+215\s*×1\.25\s*about 4\.5 TAC$/.test(v.days[0]) && /^Yesterday\s*\+100\s*2 TAC$/.test(v.days[1]), `ptsview: the activity is grouped under each day's total and what it paid (${v.days.join(' | ')})`);
   ok(/Holder boost at last activity\s*1\.5×/.test(v.body), 'ptsview: the holder boost is the newest activity\'s');
   ok(/rank\s*#2/.test(v.body) && /#1 today/.test(v.body) && /Claimed so far\s*5 TAC/.test(v.body) && /10% · about 111\.11 TAC/.test(v.body) && /closes in \d/.test(v.body), `ptsview: rank, claimed, today's share and the countdown (${v.body.slice(0, 500)})`);
-  ok(/Earned on settled days\s*8 TAC/.test(v.body) && /To reach #1\s*8,999,998,766 points/.test(v.body), `ptsview: settled TAC and the gap to the rank above (${v.body.slice(0, 700)})`);
+  ok(/Earned from finished days\s*8 TAC/.test(v.body) && /To reach #1\s*8,999,998,766 points/.test(v.body), `ptsview: settled TAC and the gap to the rank above (${v.body.slice(0, 700)})`);
   ok(/Since \d+ \w+\s*\+235 points · up 3 places/.test(v.body), `ptsview: the change since an earlier day this browser saw (${v.body.slice(0, 700)})`);
   ok(/Today’s pot\s*1,111 TAC · day 9 of 90/.test(v.body) && /Points so far today\s*1,000 · 2 taking part/.test(v.body) && /each 1,000 points earn\s*1,111\.1 TAC/.test(v.body), `ptsview: the day's pot, points and rate (${v.body.slice(0, 500)})`);
   ok(v.bars >= 2, `ptsview: points per day are drawn as bars (${v.bars})`);

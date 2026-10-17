@@ -81,7 +81,7 @@ function identify(raw) {
     const n = s.toLowerCase();
     return keep(`name:${n}`, async () => {
       let r;
-      try { r = await names.resolveAddress(n); } catch (e) { throw new Error(e instanceof NameError ? e.message : 'Could not read that name just now. Try again.'); }
+      try { r = await names.resolveAddress(n); } catch (e) { throw new Error(e instanceof NameError ? e.message : 'Could not read that name. Try again.'); }
       if (!r) throw new Error(`${n} has no address set.`);
       return { address: r.address, name: r.name };
     });
@@ -165,30 +165,29 @@ const claimUi = (kind, label, address, to, amount, wei) => (wallet.available().l
   : `<a class="act" href="${to}">${label}</a>`);
 // Sending the allocation to another address (a cold wallet, a Tacit account) instead of the one that claims: the form opens from a link.
 const sendTo = (address, wei) => (wallet.available().length ? `<p class="to"><button class="linkbtn" type="button" data-to-show>Send it to another address</button></p>
-  <form class="toform" id="to-f" hidden novalidate><label class="sr" for="to-q">Where to send it: an address or a .eth, .wei or .gwei name</label><input id="to-q" placeholder="0x address or name" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off"><button class="act" type="submit" data-claim="airdrop-to" data-addr="${address}" data-amt="${esc(tac(wei))}" data-wei="${wei}">Claim to it</button></form>` : '');
+  <form class="toform" id="to-f" hidden novalidate><label class="sr" for="to-q">Where to send it: an address or a .eth, .wei or .gwei name</label><input id="to-q" placeholder="0x address or name" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off"><button class="act" type="submit" data-claim="airdrop-to" data-addr="${address}" data-amt="${esc(tac(wei))}" data-wei="${wei}">Claim to this address</button></form>` : '');
 function airdropCard(s, address) {
-  if (s.reason === 'error') return card('Airdrop', '<p class="st warn">Could not read the airdrop just now. Look up again in a moment.</p>');
+  if (s.reason === 'error') return card('Airdrop', '<p class="st warn">Could not read the airdrop. Try again in a moment.</p>');
   if (!s.eligible) return card('Airdrop', '<p class="st mute">Not on the airdrop list.</p>').replace('class="card"', 'class="card slim"');
   const left = Math.ceil((s.deadline - Date.now() / 1000) / 86400), by = day(s.deadline);
   const [cls, line] = s.claimed ? ['ok', 'Claimed'] : s.claimable ? [left <= 7 ? 'warn' : 'ok', `Claim by ${by} · ${left} day${left === 1 ? '' : 's'} left`] : s.reason === 'closed' ? ['mute', `Closed ${by}`] : ['warn', s.message];
   return card('Airdrop', `${figure(Number(s.amountTac), tac(s.amountWei), 'TAC')}<p class="st ${cls}">${esc(line)}</p>${s.claimable ? claimUi('airdrop', `Claim ${tac(s.amountWei)} TAC`, address, '/#airdrop', tac(s.amountWei), s.amountWei) + sendTo(address, s.amountWei) : ''}`);
 }
-// Where the program is: its day, and when today's points settle (the day's end and the service's grace), after which they can be claimed.
+// Where the program is: its day, and when today's points can be claimed (the day's end and the service's grace after it).
 function clockLine(c) {
-  const ms = c.settleAt - Date.now(), h = Math.floor(ms / 3600e3), m = Math.ceil(ms / 60e3);
-  const left = ms <= 0 ? 'now' : h >= 1 ? `~${h} h` : `${m} min`, at = new Date(c.settleAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
-  return `Day ${c.day} of ${c.days} · today's points claimable from ${at} UTC (${left})`;
+  const at = new Date(c.settleAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+  return `Day ${c.day} of ${c.days} · today's points can be claimed after ${at} UTC`;
 }
 function pointsCard(p, address) {
-  if (p.error) return card('Points', '<p class="st warn">Could not read points just now. Look up again in a moment.</p>');
+  if (p.error) return card('Points', '<p class="st warn">Could not read points. Try again in a moment.</p>');
   const t = p.today, pct = t ? (t.pct < 0.01 ? t.pct.toFixed(4) : t.pct < 1 ? t.pct.toFixed(3) : t.pct.toFixed(2)) : '';
   const rows = [...(t ? [['Today', `${Math.round(t.points).toLocaleString('en-US')} points · ${pct}% of the day${t.tac != null ? ` · about ${tac(t.tac)} TAC` : ''}`]] : []),
-    ...(p.earned > 0n ? [['Earned on settled days', `${tac(p.earned)} TAC`], ['Claimed', `${tac(p.claimed)} TAC`], ['To claim', p.unread ? 'not read' : `${tac(p.owed)} TAC`]] : [])];
+    ...(p.earned > 0n ? [['Earned from finished days', `${tac(p.earned)} TAC`], ['Claimed', `${tac(p.claimed)} TAC`], ['To claim', p.unread ? 'unavailable' : `${tac(p.owed)} TAC`]] : [])];
   return card('Points', `${figure(Math.round(p.points), Math.round(p.points).toLocaleString('en-US'), 'points')}<p class="st mute" id="rank">${p.points <= 0 ? 'No points yet.' : ''}</p>`
     + (rows.length ? `<dl class="kv">${rows.map(([k, v]) => `<div><dt>${k}</dt><dd class="num">${v}</dd></div>`).join('')}</dl>` : '')
     + (p.owed > 0n ? claimUi('points', `Claim ${tac(p.owed)} TAC`, address, '/#points', tac(p.owed), p.owed) : '')
     + (p.points > 0 && p.clock ? `<p class="st mute clock">${clockLine(p.clock)}</p>` : '')
-    + (p.points > 0 ? `<details class="fold" data-days="${address}"><summary>Points by day</summary><div class="fold-b"></div></details><p class="more"><a href="/#points">Holder boosts and the holding proof, in the app →</a></p>` : ''));
+    + (p.points > 0 ? `<details class="fold" data-days="${address}"><summary>Points by day</summary><div class="fold-b"></div></details><p class="more"><a href="/#points">Holding proof and more in the app →</a></p>` : ''));
 }
 const whoLine = (who, q) => `<p class="who"><b>${esc(who.name || short(who.address))}</b>${who.name ? `<span>${short(who.address)}</span>` : ''}</p>
   <p class="acts"><button type="button" data-copy="${who.address}">Copy address</button><a href="https://etherscan.io/address/${who.address}" target="_blank" rel="noopener noreferrer">Etherscan ↗</a><button type="button" data-copy="${esc(`${location.origin}/rewards/?q=${encodeURIComponent(q)}`)}" data-said="Link copied">Copy link</button></p>
@@ -196,7 +195,7 @@ const whoLine = (who, q) => `<p class="who"><b>${esc(who.name || short(who.addre
   <div id="done" aria-live="polite"></div>`;
 const SKEL = (t) => `<section class="card"><h2>${t}</h2><p class="big"><span class="sk"></span></p></section>`;
 const SKELETON = `<p class="who"><b><span class="sk"></span></b></p><div id="c-air">${SKEL('Airdrop')}</div><div id="c-pts">${SKEL('Points')}</div>`;
-const LB = '<details class="card fold" id="earn"><summary>Earn more points</summary><div class="fold-b" id="earn-b"></div></details><details class="card fold" id="lb"><summary>Leaderboard</summary><div class="fold-b" id="lb-b"></div></details>';
+const LB = '<details class="card fold" id="earn"><summary>Ways to earn points</summary><div class="fold-b" id="earn-b"></div></details><details class="card fold" id="lb"><summary>Leaderboard</summary><div class="fold-b" id="lb-b"></div></details>';
 
 function countUp(el) {
   const to = Number(el.dataset.to), text = el.dataset.text;
@@ -263,18 +262,18 @@ async function signedIn(address) {
 async function pointsTx(address) {
   const attempt = async (c) => {
     const proof = c?.proof;
-    if (!proof?.length || !c.cumulativeAmount) throw new Error('There is nothing left to claim here.');
+    if (!proof?.length || !c.cumulativeAmount) throw new Error('Nothing left to claim here.');
     const data = `0x2f52ebb7${word(c.cumulativeAmount)}${word(64)}${word(proof.length)}${proof.map((h) => h.replace(/^0x/, '').padStart(64, '0')).join('')}`;
     try { await call({ to: DISTRIBUTOR, data, from: address }); } catch (e) {
       const sel = String(e?.data || '').slice(2, 10);
       if (e?.code !== 3) throw new Error('Could not check the claim before sending it. Nothing was sent.');
-      throw Object.assign(new Error(sel === '797dba54' ? 'There is nothing left to claim here.' : 'The distributor would refuse this claim. Nothing was sent.'), { stale: sel === '7ca55c77' });
+      throw Object.assign(new Error(sel === '797dba54' ? 'Nothing left to claim here.' : 'The contract would refuse this claim. Nothing was sent.'), { stale: sel === '7ca55c77' });
     }
     return wallet.sendTx({ to: DISTRIBUTOR, data, from: address });
   };
   try { return await attempt(await get(`claim/${address}`)); } catch (e) {
     if (!e.stale) throw e;
-    try { return await attempt(await get(`claim/${address}`)); } catch (e2) { throw e2.stale ? new Error('The reward list was just updated. Try again in a minute.') : e2; }
+    try { return await attempt(await get(`claim/${address}`)); } catch (e2) { throw e2.stale ? new Error('The reward list just updated. Try again in a minute.') : e2; }
   }
 }
 let claiming = false;
@@ -289,7 +288,7 @@ async function claim(kind, address, btn, to = '') {
   try {
     if (to !== '') {                                                                // a name is read before the wallet is asked
       btn.textContent = 'Looking it up…'; dest = (await identify(to)).address;
-      if (NO_SEND.includes(dest)) throw new Error('TAC sent to that address could not be recovered. Pick another.');
+      if (NO_SEND.includes(dest)) throw new Error('TAC sent to that address could not be recovered. Use another address.');
     }
     await signedIn(address);
     btn.textContent = 'Confirm in your wallet…'; react('think');
@@ -297,7 +296,7 @@ async function claim(kind, address, btn, to = '') {
     hash = kind === 'airdrop' ? (await (dest ? air.claimTo(address, dest, { send }) : air.claim(address, { from: address, send }))).txHash : await pointsTx(address);
     btn.textContent = 'Claiming…'; say(`<p class="note-claim st mute">Claiming ${esc(amt)} TAC · ${txLink(hash)}</p>`);
     const rc = await wallet.receipt(hash);
-    if (rc.status !== '0x1') throw new Error(`The transaction failed on chain (${hash.slice(0, 10)}…). Nothing was claimed.`);
+    if (rc.status !== '0x1') throw new Error(`The transaction failed (${hash.slice(0, 10)}…). Nothing was claimed.`);
     $('#done')?.querySelector('.note-claim')?.remove();
     $('#done')?.insertAdjacentHTML('beforeend', `<p class="done"><b>Claimed ${esc(amt)} TAC${dest ? ` to ${short(dest)}` : ''}</b>${txLink(hash)}${dest ? '' : '<button class="linkbtn" type="button" data-watch>Add TAC to wallet</button>'}</p>`);
     said(`Claimed ${amt} TAC`); react('up', 4200); confetti();
@@ -325,7 +324,7 @@ async function readApr() {
 }
 function noteApr(a) {
   const txt = a >= 100000 ? '100,000%+' : `${Math.round(a).toLocaleString('en-US')}%`, link = $('.uses a[data-apr]'), tag = link?.querySelector('.apr'), sum = $('#farm-apr');
-  if (tag) { tag.textContent = txt; tag.classList.add('on'); link.title = `Farm TAC and ETH in the Precision pool: ${txt} APR now, paid in TAC`; }
+  if (tag) { tag.textContent = txt; tag.classList.add('on'); link.title = `Earn TAC by adding liquidity to the Precision pool: ${txt} APR now`; }
   if (sum) sum.textContent = `${txt} APR`;
 }
 
@@ -340,7 +339,7 @@ let farmUi = null, farmFor = null, farmSeq = 0, ethUsd = 0, hasStake = false;
 const eth4 = (wei) => (Number(wei) / 1e18).toLocaleString('en-US', { maximumSignificantDigits: 3 });
 const wordOf = (a) => a.slice(2).toLowerCase().padStart(64, '0');
 function mountedFarm() {
-  return farmUi ||= Promise.all([import('/trade/farm.js?cb=9b68f7ad'), import('/trade/util.js?cb=c3dc39b3'), import('/evm-trade-venues.js?cb=f6e1b626'),
+  return farmUi ||= Promise.all([import('/trade/farm.js?cb=96802b3c'), import('/trade/util.js?cb=c3dc39b3'), import('/evm-trade-venues.js?cb=f6e1b626'),
     call({ to: ETH_USD, data: '0xfeaf968c' }).then((r) => { ethUsd = Number(BigInt(`0x${r.slice(66, 130)}`)) / 1e8; }, () => {})])
     .then(([{ mountFarm }, U, E]) => {
       const ethCall = (to, data, block = 'latest', o = {}) => U.rpc('eth_call', [{ to, data, ...(o.from ? { from: o.from } : {}), ...(o.value ? { value: `0x${BigInt(o.value).toString(16)}` } : {}) }, block]);
@@ -368,10 +367,10 @@ async function openFarm() {
   farmNote.textContent = '';
   try {
     const f = await mountedFarm(), r = await f.pairWith(want, { settle: want != null });
-    if (!r) farmNote.textContent = want != null ? 'Your TAC has not shown in this wallet yet. Close this and open it again in a moment.' : hasStake ? '' : 'There is no TAC in this wallet to farm.';
-    else if (r.mode === 'tac') farmNote.textContent = 'There is no spare ETH in this wallet, so the TAC goes in alone: the pool swaps half of it to ETH first.';
-    else if (r.left > 0n) farmNote.textContent = `Your ETH pairs with ${tac(r.tac)} of the ${tac(r.all)} TAC. All of it needs ${eth4(r.need)} ETH.`;
-  } catch { $('#farm-host').innerHTML = '<p class="note err">The farm could not be loaded just now. <a href="/swap/#earn">Open it on the swap page</a>.</p>'; }
+    if (!r) farmNote.textContent = want != null ? 'Your TAC has not arrived yet. Close this and open it again in a moment.' : hasStake ? '' : 'This wallet has no TAC to farm.';
+    else if (r.mode === 'tac') farmNote.textContent = 'This wallet has no spare ETH, so the TAC is added alone. The pool first swaps half of it to ETH.';
+    else if (r.left > 0n) farmNote.textContent = `Your ETH covers ${tac(r.tac)} of the ${tac(r.all)} TAC. All of it needs ${eth4(r.need)} ETH.`;
+  } catch { $('#farm-host').innerHTML = '<p class="note err">Could not load the farm. <a href="/swap/#earn">Open it on the swap page</a>.</p>'; }
 }
 farm.addEventListener('toggle', () => { if (farm.open) openFarm(); });
 $('#farm-host').addEventListener('input', () => { farmNote.textContent = ''; });
@@ -391,21 +390,21 @@ const dayName = (n) => new Date(n * 86400e3).toLocaleDateString('en-GB', { weekd
 async function paintDays(d) {
   const el = d.querySelector('.fold-b'), a = d.dataset.days;
   if (el.dataset.done === a) return;
-  el.innerHTML = '<p class="st mute">Reading…</p>';
+  el.innerHTML = '<p class="st mute">Loading…</p>';
   const r = await keep(`days:${a}`, () => get(`points/${a}/days`));
   if (!el.isConnected) return;
-  if (!r || !Array.isArray(r.days)) { el.innerHTML = '<p class="st warn">Could not read the days just now. Close this and open it again.</p>'; return; }
+  if (!r || !Array.isArray(r.days)) { el.innerHTML = '<p class="st warn">Could not load this. Close it and open it again.</p>'; return; }
   const list = r.days.slice(0, 14);
-  el.innerHTML = list.length ? `<ul class="rows">${list.map((x) => `<li><span>${dayName(x.day)}</span><b class="num">+${Number(x.points).toLocaleString('en-US', { minimumFractionDigits: Number(x.points) < 10 ? 2 : 1, maximumFractionDigits: Number(x.points) < 10 ? 2 : 1 })}</b><span class="m">${x.settled ? `${tac(BigInt(x.tacWei || 0), 4)} TAC` : 'counting'}</span></li>`).join('')}</ul>${r.days.length > 14 ? `<p class="st mute">The latest 14 of ${r.days.length} days.</p>` : ''}` : '<p class="st mute">No days yet.</p>';
+  el.innerHTML = list.length ? `<ul class="rows">${list.map((x) => `<li><span>${dayName(x.day)}</span><b class="num">+${Number(x.points).toLocaleString('en-US', { minimumFractionDigits: Number(x.points) < 10 ? 2 : 1, maximumFractionDigits: Number(x.points) < 10 ? 2 : 1 })}</b><span class="m">${x.settled ? `${tac(BigInt(x.tacWei || 0), 4)} TAC` : 'in progress'}</span></li>`).join('')}</ul>${r.days.length > 14 ? `<p class="st mute">The latest 14 of ${r.days.length} days.</p>` : ''}` : '<p class="st mute">No days yet.</p>';
   el.dataset.done = a;
 }
 async function paintBoard() {
   const el = $('#lb-b'), who = out.dataset.address;
   if (!el || el.dataset.done === '1') return;
-  el.innerHTML = '<p class="st mute">Reading…</p>';
+  el.innerHTML = '<p class="st mute">Loading…</p>';
   const b = await board();
   if (!el.isConnected) return;
-  if (!b) { el.innerHTML = '<p class="st warn">Could not read the board just now. Close this and open it again.</p>'; return; }
+  if (!b) { el.innerHTML = '<p class="st warn">Could not load this. Close it and open it again.</p>'; return; }
   const i = b.findIndex((e) => String(e.address).toLowerCase() === who);
   const row = (e, k) => `<li${String(e.address).toLowerCase() === who ? ' class="me"' : ''}><button type="button" data-q="${esc(e.address)}"><span class="k">#${k}</span><span class="a">${short(e.address)}</span><b class="num">${Math.round(e.points).toLocaleString('en-US')}</b></button></li>`;
   el.innerHTML = `<ol class="board">${b.slice(0, 10).map((e, k) => row(e, k + 1)).join('')}${i >= 10 ? `<li class="gap" aria-hidden="true">⋯</li>${row(b[i], i + 1)}` : ''}</ol>`;
@@ -417,33 +416,35 @@ const inForce = (list, day) => (list || []).filter((e) => e.fromDay <= day).sort
 async function paintEarn() {
   const el = $('#earn-b');
   if (!el || el.dataset.done === '1') return;
-  el.innerHTML = '<p class="st mute">Reading…</p>';
+  el.innerHTML = '<p class="st mute">Loading…</p>';
   const c = await capNow().catch(() => null);
   if (!el.isConnected) return;
   const P = c?.program;
-  if (!P?.rates) { el.innerHTML = '<p class="st warn">Could not read the program just now. Close this and open it again.</p>'; return; }
+  if (!P?.rates) { el.innerHTML = '<p class="st warn">Could not load this. Close it and open it again.</p>'; return; }
   const day = c.day, wts = inForce(P.weights, day)?.weights || {}, caps = inForce(P.addressDayCaps, day)?.caps || {}, shares = inForce(P.categoryShareCaps, day)?.caps || {};
   const pot = tac(BigInt(P.dayBudgetWei || 0), 0), n = (x) => Math.round(x).toLocaleString('en-US');
   const note = (k) => `${wts[k] != null && wts[k] !== 1 ? ` · ×${wts[k]}` : ''}${caps[k] ? ` · up to ${caps[k]} ETH a day per address` : ''}${shares[k] ? ` · together at most ${Math.round(shares[k] * 100)}% of a day's ${pot} TAC` : ''}`;
   const ways = [
-    ['holding', 'Keep ETH in the private pools, proven on your device', '/#points', (r) => `${n(r)} points per ETH for each day it is held`],
+    ['holding', 'Hold ETH in the private pools', '/#points', (r) => `${n(r)} points per ETH a day, proven on your device`],
     ['wrap', 'Wrap ETH into the Tacit pool', '/#private', (r) => `${n(r)} points per ETH`],
-    ['evmpooldeposit', 'Deposit ETH on this device (Ethereum, Base or Robinhood Chain)', '/#device', (r) => `${n(r)} points per ETH`],
-    ['zswapeth', 'Buy TAC with ETH through the Precision pool', '/swap/', (r) => `${n(r)} points per ETH`],
-    ['cbtcmint', 'Bond toward cBTC', '/#borrow', (r) => `${n(r)} points per wstETH${P.rates.cbtchold ? `, then ${n(P.rates.cbtchold)} a day while the bond stays posted` : ''}`],
-    ['cusdmint', 'Borrow cUSD, sending the loan yourself', '/#borrow', (r) => `${n(r)} points per dollar`],
+    ['evmpooldeposit', 'Deposit ETH in a device pool (Ethereum, Base or Robinhood Chain)', '/#device', (r) => `${n(r)} points per ETH`],
+    ['zswapeth', 'Buy TAC with ETH (Precision pool)', '/swap/', (r) => `${n(r)} points per ETH`],
+    ['cbtcmint', 'Post a bond toward cBTC', '/#borrow', (r) => `${n(r)} points per wstETH${P.rates.cbtchold ? `, then ${n(P.rates.cbtchold)} a day while it stays posted` : ''}`],
+    ['cusdmint', 'Borrow cUSD', '/#borrow', (r) => `${n(r)} points per dollar, when you send the loan yourself`],
   ].filter(([k]) => P.rates[k] && wts[k] !== 0);
   // The groups that have a share of each day's pot set aside (in force, or the next to start): what they are for, how much and at most what a point earns.
-  const NAMES = { holding: 'ETH kept in the private pools', cbtchold: 'a bond kept posted', zswapeth: 'buying TAC', cusdmint: 'borrowing cUSD', cbtcmint: 'bonding for cBTC', weiname: '.wei names', pmbet: 'bets', pmcreate: 'markets' };
+  const WORDS = { holding: 'holding ETH in the private pools', cbtchold: 'keeping bonds posted', zswapeth: 'buying TAC', cusdmint: 'borrowing', cbtcmint: 'posting bonds', weiname: '.wei names', pmbet: 'bets', pmcreate: 'markets' };
+  const orList = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} or ${xs.at(-1)}`);
+  const andList = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
   const upcoming = (P.budgets || []).filter((e) => e.fromDay > day).sort((a, b) => a.fromDay - b.fromDay)[0], live = inForce(P.budgets, day);
   const entry = live?.groups?.length ? live : upcoming?.groups?.length ? upcoming : null;
   const perPoint = (w) => `${(Number(BigInt(w) / 10n ** 12n) / 1e6).toLocaleString('en-US', { maximumFractionDigits: 4 })} TAC a point`;
-  const reserved = entry ? `<p class="st mute">${entry.fromDay > day ? `From ${dayName(entry.fromDay)}: ` : ''}${entry.groups.map((g) => `${Math.round(g.share * 100)}% of each day's ${pot} TAC is kept for ${g.activities.map((a) => NAMES[a] || a).join(' and ')}${g.maxWeiPerPoint ? `, at most ${perPoint(g.maxWeiPerPoint)}` : ''}`).join('; ')}. What a group does not use goes back to everyone else.</p>` : '';
+  const reserved = entry ? `<p class="st mute">${entry.fromDay > day ? `From ${dayName(entry.fromDay)}, part` : 'Part'} of each day's ${pot} TAC is set aside: ${entry.groups.map((g) => `${Math.round(g.share * 100)}% for ${andList(g.activities.map((a) => WORDS[a] || a))}${g.maxWeiPerPoint ? ` (up to ${perPoint(g.maxWeiPerPoint)})` : ''}`).join(' and ')}. A share that is not used goes back to everyone else.</p>` : '';
   const tiers = P.holder?.tiers || [];
   el.innerHTML = `<ul class="rows ways">${ways.map(([k, label, to, f]) => `<li><a href="${to}">${esc(label)}</a><span class="m">${f(P.rates[k] * (wts[k] ?? 1))}${esc(note(k))}</span></li>`).join('')}</ul>`
     + reserved
-    + (tiers.length ? `<p class="st mute">Holding ${tiers.map((t) => n(t.tac)).join(', ')} public TAC at the same address through a day multiplies what that day's activity earns by ${tiers.map((t) => `×${t.multiplier}`).join(', ')}. ` : '<p class="st mute">')
-    + `Early activity counts up to ${P.earlyBonus?.max ?? 1}×. The day's pot is split by points.</p>`;
+    + (tiers.length ? `<p class="st mute">Holding ${orList(tiers.map((t) => n(t.tac)))} public TAC at the same address for a day multiplies that day's points by ${orList(tiers.map((t) => `${t.multiplier}×`))}. ` : '<p class="st mute">')
+    + `Early activity counts up to ${P.earlyBonus?.max ?? 1}×. Each day's pot is split by points.</p>`;
   el.dataset.done = '1';
 }
 document.addEventListener('toggle', (e) => {

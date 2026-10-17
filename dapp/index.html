@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-1ZGw703MsjXJ98+eWs8t5l4DIiQ9diaN8y92fyJs+uk=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-PJfb6oYQzSAKqlbu7PoXqX1IJzN+95RE80PEnLZCwoM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1411,7 +1411,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <button type="button" role="tab" aria-selected="false" data-tac-mode="bridge">Bridge</button>
     </div>
     <div id="air-body" role="tabpanel"></div>
-    <p class="note" id="air-more"><a href="/rewards/">Look up any address or name, and farm what you claim, on the rewards page →</a></p>
+    <p class="note" id="air-more"><a href="/rewards/">Look up any address, or farm what you claim, on the rewards page →</a></p>
     <div id="buy-body" role="tabpanel" hidden></div>
     <div id="sell-body" role="tabpanel" hidden></div>
     <div id="bridge-body" role="tabpanel" hidden></div>
@@ -8526,7 +8526,9 @@ function terms() {
   const sc = scheduled(PGM.shareCaps, today), shares = sc && Object.keys(sc.e.caps).length ? `${Object.entries(sc.e.caps).map(([a, c]) => `${ACT_NAME[a] || a} points together take at most ${pct(c)} of a day’s ${potTac()} TAC`).join(', ')}; the rest is split as before${sc.from ? ` (from ${dayShort(sc.from)})` : ''}` : null;
   const bd = scheduled(PGM.budgets, today);
   const perPoint = (x) => `${(Number(x / 10n ** 12n) / 1e6).toLocaleString('en-US', { maximumFractionDigits: 4 })} TAC per point`;
-  const reserved = bd && bd.e.groups.length ? `${bd.e.groups.map((g) => `${pct(g.share)} of a day’s ${potTac()} TAC for ${listOr(g.activities.map((a) => ACT_NAME[a] || a))}${g.wei ? `, paid up to ${perPoint(g.wei)}` : ''}`).join('; ')}; what a group does not use goes back to everyone else${bd.from ? ` (from ${dayShort(bd.from)})` : ''}` : null;
+  const WORDS = { holding: 'holding ETH in the private pools', cbtchold: 'keeping bonds posted', zswapeth: 'buying TAC', cusdmint: 'borrowing', cbtcmint: 'posting bonds', weiname: '.wei names', pmbet: 'bets', pmcreate: 'markets' };
+  const andList = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
+  const reserved = bd && bd.e.groups.length ? `${bd.from ? `From ${dayShort(bd.from)}: ` : ''}${bd.e.groups.map((g) => `${pct(g.share)} of a day’s ${potTac()} TAC for ${andList(g.activities.map((a) => WORDS[a] || a))}${g.wei ? ` (up to ${perPoint(g.wei)})` : ''}`).join(' and ')}. A share that is not used goes back to everyone else.` : null;
   const mix = names?.length ? `${names.join(', ')}${w.from ? ` from ${dayShort(w.from)}` : ''}` : null;
   const g = scheduled(PGM.engagement, today), sp = g?.e.spec;
   const week = sp ? `${pct(sp.kindStep)} more for each other kind of activity in the past 7 days${sp.maxKinds ? ` (up to ${pct(sp.kindStep * sp.maxKinds)}${sp.minPoints ? `; a kind counts once it has earned ${rateStr(sp.minPoints)} points that week` : ''})` : ''}, and ${pct(sp.returnStep)} more for activity on more than one day${g.from ? `, from ${dayShort(g.from)}` : ''}` : null;
@@ -8613,7 +8615,7 @@ render.pts = () => {
         ${r.read ? standing(r) : ''}
         ${r.boost > 1 ? html`<div class="kv"><span>Holder boost at last activity</span><b>${r.boost}×</b></div>` : ''}
         ${r.read && on && r.tod?.factor > 1 ? html`<div class="kv"><span>This week</span><b>×${r.tod.factor} · ${r.tod.kinds} kind${r.tod.kinds === 1 ? '' : 's'} of activity · ${r.tod.activeDays} day${r.tod.activeDays === 1 ? '' : 's'}</b></div>` : ''}
-        ${r.settled > 0n ? html`<div class="kv"><span>Earned on settled days</span><b>${fmt(r.settled, 18, 2)} TAC</b></div>` : ''}
+        ${r.settled > 0n ? html`<div class="kv"><span>Earned from finished days</span><b>${fmt(r.settled, 18, 2)} TAC</b></div>` : ''}
         ${r.claimed > 0n ? html`<div class="kv"><span>Claimed so far</span><b>${fmt(r.claimed, 18, 2)} TAC</b></div>` : ''}
         ${r.read && on && !watch ? nextTier(r) : ''}
         ${history(r)}
