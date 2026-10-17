@@ -3282,6 +3282,39 @@ await step('ptsclaim', async () => {
     await rpc('evm_revert', [snap]);
   }
 });
+// Any address can be looked up on the points sheet by someone with no wallet: a bad entry is told, a good one is read like the account's own
+// (its points, ranks and what it can claim) and is never offered a Claim, since a claim pays the account that sends it.
+await step('ptslookup', async () => {
+  const today = Math.floor(Date.now() / 86400e3), X = '0x' + 'ab'.repeat(20), hex = (c) => '0x' + c.repeat(40);
+  const n = await openPage({ account: A0, viewport: { width: 390, height: 900 } });
+  const program = { startDay: today - 8, days: 90, dayBudgetWei: '1111111111111111111111', totalWei: '100000000000000000000000', rates: { zswapeth: 1000 }, weights: [{ fromDay: today - 1, weights: {} }] };
+  await n.ctx.route(/api\.tacit\.finance\/(points|claim)\/0x/, (route) => {
+    const u = route.request().url(), a = (u.match(/0x[0-9a-fA-F]{40}/) || [''])[0].toLowerCase(), mine = a === X;
+    if (/\/claim\//.test(u)) return json(route, mine ? { cumulativeAmount: '8000000000000000000', claimedWei: '0', unclaimedWei: '8000000000000000000', proof: ['0x' + '11'.repeat(32)] } : { cumulativeAmount: '0', claimedWei: '0', unclaimedWei: '0', proof: null });
+    if (/\/days$/.test(u)) return json(route, { address: a, startDay: today - 8, programDays: 90, today, lastSettledDay: today - 1, earnedWei: '8000000000000000000', days: [{ day: today - 1, points: 100, raw: 100, factor: 1, tacWei: '2000000000000000000', settled: true }] });
+    return json(route, { address: a, points: mine ? 1234.5 : 0, deposit_count: mine ? 3 : 0, today: { points: mine ? 100 : 0, totalPoints: 1000, dayBudgetWei: '1111111111111111111111', factor: 1, rawPoints: 100, kinds: 1, activeDays: 1 }, deposits: [] });
+  });
+  await n.ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => json(route, /day=today/.test(route.request().url())
+    ? { day: today, programDay: 9, programDays: 90, program, totalPoints: 1000, dayBudgetWei: '1111111111111111111111', taking: 2, rows: [{ address: hex('1'), points: 800 }, { address: X, points: 100 }] }
+    : [{ address: hex('1'), points: 9e9 }, { address: X, points: 1234.5 }]));
+  try {
+    await n.page.goto(n.url + '#pts');
+    await n.page.waitForSelector('#pl-look', { timeout: 60000 });
+    ok(!!(await n.page.$('#pts-connect')), 'ptslookup: the box is there with no wallet connected');
+    await n.page.fill('#pl-look', '0x12'); await n.page.click('#pl-look-f button');
+    await until(n.page, () => /not an address/.test(document.querySelector('#pts-body')?.textContent || ''), null, 30000);
+    ok((await n.page.getAttribute('#pl-look', 'aria-invalid')) === 'true' && !(await n.page.$('#pts-body [data-claim]')), 'ptslookup: something that is not an address is told, and marked on the field');
+    await n.page.fill('#pl-look', ' ' + X.toUpperCase().replace('0X', '0x') + ' '); await n.page.click('#pl-look-f button');
+    await until(n.page, () => /Looked up/.test(document.querySelector('#pts-body')?.textContent || ''), null, 60000);
+    const t = (await text(n.page, '#pts-body')).replace(/\s+/g, ' ');
+    ok(/1,235\s*points · Looked up 0xabab/.test(t) && /rank\s*#2/.test(t) && /#2 today/.test(t), `ptslookup: a pasted address (spaces and capitals as pasted) is read: its points and its place on both boards (${t.slice(t.indexOf('Look up'), t.indexOf('Look up') + 200)})`);
+    ok(/To claim\s*8 TAC/.test(t) && /Connect this address to claim it/.test(t) && !(await n.page.$('#pts-body [data-claim]')), 'ptslookup: what it can claim is told, with no Claim button');
+    ok(!/Hold [\d,]+ TAC here/.test(t) && !!(await n.page.$('#pts-connect')), 'ptslookup: the signed-in account’s nudges are not said of it, and the connect prompt stays');
+    ok(!(await n.page.evaluate(() => document.documentElement.scrollWidth > innerWidth)), 'ptslookup: no sideways scroll at phone width');
+    if (SHOTS) await n.page.screenshot({ path: join(SHOTS, 'weld-ptslookup.png'), fullPage: false });
+    if (n.errors.length) { fails++; console.log('FAIL ptslookup page errors: ' + n.errors.slice(0, 3).join(' | ')); }
+  } finally { await n.browser.close(); }
+});
 // The points sheet from a stubbed service: activity across chains in time order (Base's larger block numbers do not put
 // an older Base deposit first), the holder boost of the newest, the rank, what was claimed, and today's countdown; the day's
 // pot, the all-time and today's boards, the gap to the next rank, what changed since an earlier day, and the points-per-day

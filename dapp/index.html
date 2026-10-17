@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-mnOVbqrHFbGzQoTqWZ8W7qwIc2iOF0Aq0WUKmr0fVcU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-t4RIsKBp0KyFlsLBFxKUsI9VrbUVPPsWqinQVdHAbWM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -8166,33 +8166,42 @@ function noteSeen(rows) {
   for (const k of Object.keys(all)) if (!all[k]?.cur || all[k].cur.d < day - 60) delete all[k];
   store.set(PTS_SEEN, all);
 }
-async function readPoints(current) {
-  const who = pointsWho(), key = who.map(([a]) => a).join();
-  const get = (path) => fetch(`${API}/${path}`, { signal: within(20e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-  const board = get(`leaderboard?limit=${PTS_BOARD}`).then((b) => (Array.isArray(b) ? b : null));
-  // The day's board is an object; a service that does not have it yet answers with the all-time array.
-  const dayB = get(`leaderboard?day=today&limit=${PTS_BOARD}`).then((b) => (b && !Array.isArray(b) && Array.isArray(b.rows) ? b : null));
-  const rows = await Promise.all(who.map(async ([addr, label]) => {
-    const [p, c, held] = await Promise.all([get(`points/${addr}`), get(`claim/${addr}`), ethCall(ADDR.tac, SEL.balanceOf + addrWord(addr)).then((r) => wordAt(r, 0)).catch(() => null)]);
-    // What is claimable comes from the distributor itself, not the service's copy of it.
-    // The distributor's figure, or unknown when it could not be read: never a zero that hides the Claim button.
-    // The service answers /claim for every address (proof null when nothing is owed), so no answer at all is a failed read, not a zero.
-    const owedHex = c?.proof && c.cumulativeAmount ? await ethCall(DISTRIBUTOR, '787eef2e' + addrWord(addr) + word(BigInt(c.cumulativeAmount))).catch(() => null) : c || !p ? '0x' : null, owed = owedHex == null ? 0n : wordAt(owedHex, 0);
-    const hist = p ? await get(`points/${addr}/days`) : null;
-    const t = p?.today, today = t && Number(t.totalPoints) > 0 ? tacOf(BigInt(t.dayBudgetWei), Number(t.points), Number(t.totalPoints)) : 0n;
-    // The service lists activity by block number, which does not order Base or Robinhood blocks against Ethereum's; time does.
-    const recent = [...(p?.deposits || [])].sort((a, b) => Number(b.block_time) - Number(a.block_time));
-    return { addr, label, points: Number(p?.points || 0), count: Number(p?.deposit_count || 0), todayPts: Number(t?.points || 0), today, tod: t || null, share: t && Number(t.totalPoints) > 0 ? Number(t.points) / Number(t.totalPoints) : 0,
-      owed, owedUnread: owedHex == null, claim: c?.proof ? c : null, claimed: big(c?.claimedWei) || 0n, settled: big(c?.cumulativeAmount) || 0n, held, recent, boost: Number(recent[0]?.tac_boost || 1), read: !!p,
-      hist: Array.isArray(hist?.days) ? new Map(hist.days.map((x) => [x.day, { p: Number(x.points) || 0, raw: Number(x.raw) || Number(x.points) || 0, wei: big(x.tacWei), settled: !!x.settled }])) : null };
-  }));
-  const [lb, day] = await Promise.all([board, dayB]);
-  if (day?.program) takeProgram(day.program);
+// A read of the points service: its answer, or null.
+const ptsGet = (path) => fetch(`${API}/${path}`, { signal: within(20e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+// One address as the sheet shows it, for the account signed in or one looked up; `rank` and `dayRank` are set from the boards (rankRows).
+async function readRow(addr, label) {
+  const get = ptsGet;
+  const [p, c, held] = await Promise.all([get(`points/${addr}`), get(`claim/${addr}`), ethCall(ADDR.tac, SEL.balanceOf + addrWord(addr)).then((r) => wordAt(r, 0)).catch(() => null)]);
+  // What is claimable comes from the distributor itself, not the service's copy of it.
+  // The distributor's figure, or unknown when it could not be read: never a zero that hides the Claim button.
+  // The service answers /claim for every address (proof null when nothing is owed), so no answer at all is a failed read, not a zero.
+  const owedHex = c?.proof && c.cumulativeAmount ? await ethCall(DISTRIBUTOR, '787eef2e' + addrWord(addr) + word(BigInt(c.cumulativeAmount))).catch(() => null) : c || !p ? '0x' : null, owed = owedHex == null ? 0n : wordAt(owedHex, 0);
+  const hist = p ? await get(`points/${addr}/days`) : null;
+  const t = p?.today, today = t && Number(t.totalPoints) > 0 ? tacOf(BigInt(t.dayBudgetWei), Number(t.points), Number(t.totalPoints)) : 0n;
+  // The service lists activity by block number, which does not order Base or Robinhood blocks against Ethereum's; time does.
+  const recent = [...(p?.deposits || [])].sort((a, b) => Number(b.block_time) - Number(a.block_time));
+  return { addr, label, points: Number(p?.points || 0), count: Number(p?.deposit_count || 0), todayPts: Number(t?.points || 0), today, tod: t || null, share: t && Number(t.totalPoints) > 0 ? Number(t.points) / Number(t.totalPoints) : 0,
+    owed, owedUnread: owedHex == null, claim: c?.proof ? c : null, claimed: big(c?.claimedWei) || 0n, settled: big(c?.cumulativeAmount) || 0n, held, recent, boost: Number(recent[0]?.tac_boost || 1), read: !!p,
+    hist: Array.isArray(hist?.days) ? new Map(hist.days.map((x) => [x.day, { p: Number(x.points) || 0, raw: Number(x.raw) || Number(x.points) || 0, wei: big(x.tacWei), settled: !!x.settled }])) : null };
+}
+// Where each row stands on the all-time board and on the day's.
+function rankRows(rows, lb, day) {
   for (const r of rows) {
     const i = lb ? lb.findIndex((e) => String(e.address).toLowerCase() === r.addr) : -1, j = day ? day.rows.findIndex((e) => String(e.address).toLowerCase() === r.addr) : -1;
     r.rank = i >= 0 ? i + 1 : lb && lb.length >= PTS_BOARD ? 0 : null;
     r.dayRank = j >= 0 ? j + 1 : null;
   }
+}
+async function readPoints(current) {
+  const who = pointsWho(), key = who.map(([a]) => a).join();
+  const get = ptsGet;
+  const board = get(`leaderboard?limit=${PTS_BOARD}`).then((b) => (Array.isArray(b) ? b : null));
+  // The day's board is an object; a service that does not have it yet answers with the all-time array.
+  const dayB = get(`leaderboard?day=today&limit=${PTS_BOARD}`).then((b) => (b && !Array.isArray(b) && Array.isArray(b.rows) ? b : null));
+  const rows = await Promise.all(who.map(([addr, label]) => readRow(addr, label)));
+  const [lb, day] = await Promise.all([board, dayB]);
+  if (day?.program) takeProgram(day.program);
+  rankRows(rows, lb, day);
   // The day's pot and points: from its own board, else from any address's reading, else from a reading of nobody (the pot is the same for all).
   const tod = day || rows.find((r) => r.tod)?.tod || (await get(`points/0x${'0'.repeat(40)}`))?.today || null;
   const pulse = tod ? { total: Number(tod.totalPoints) || 0, pot: big(tod.dayBudgetWei) || 0n, n: day?.taking ?? null,
@@ -8202,6 +8211,22 @@ async function readPoints(current) {
   Object.assign(PTS, { at: Date.now(), key, rows, board: lb, day, pulse });
   paintPointsFoot();
   OUT.paint?.();
+}
+// An address that is not the one signed in, looked up by whoever is reading: read as any other and ranked on the boards already read. It is never
+// offered a claim (a claim pays the account that sends it) and never added to what the dashboard, the reminders or the foot count (pointsWho).
+async function lookPoints(text) {
+  const raw = String(text || '').trim(), addr = raw.toLowerCase();
+  PTS.draft = raw;
+  if (!/^0x[0-9a-f]{40}$/.test(addr)) { PTS.look = { addr: raw, err: raw ? 'That is not an address: it is 0x and 40 letters or digits.' : 'Paste an address.' }; rerender('pts'); return; }
+  PTS.look = { addr, busy: true }; rerender('pts');
+  try {
+    if (!PTS.board) await loadPoints().catch(() => {});
+    const row = await readRow(addr, 'Looked up');
+    if (PTS.look?.addr !== addr) return;                                              // another was asked for meanwhile
+    rankRows([row], PTS.board, PTS.day);
+    PTS.look = row.read ? { addr, row } : { addr, err: 'Could not read that address just now. Try again.' };
+  } catch { if (PTS.look?.addr === addr) PTS.look = { addr, err: 'Could not read that address just now. Try again.' }; }
+  rerender('pts');
 }
 load.pts = () => { holdingRefresh(); return loadPoints(); };
 RETRY.points = () => loadPoints(true).then(() => rerender('pts')).catch(() => {});
@@ -8408,16 +8433,14 @@ render.pts = () => {
         return html`<li><span class="ptl-w">${what}${c && c.name !== 'Ethereum' ? ` on ${c.name}` : ''}<span class="ptl-m">${amt ? `${fmt(amt, 18, 4)} ${unit} · ` : ''}${ago(Number(d.block_time) * 1000)}${d.tac_boost > 1 ? ` · ${d.tac_boost}× holder` : ''}${c && d.tx_hash && d.activity !== 'cbtchold' ? html` · ${txLink(d.tx_hash, c.explorer)}` : ''}</span></span><b class="num">+${ptsFmt(d.points)}</b></li>`;
       })}`)}</ul>${r.count > r.recent.length ? html`<p class="note">The latest ${r.recent.length} of ${r.count.toLocaleString('en-US')} are listed.</p>` : ''}</details>`;
   };
-  mount(el, html`
-    <p class="lede-s">Every day through ${dayShort(PGM.startDay + PGM.days - 1)} (UTC), up to ${potTac()} TAC is split by that day’s points${capText(utcDay(now())) ? `, at most ${capText(utcDay(now()))}` : ''}.${on ? ` Today’s split closes in ${dayLeft()}; its TAC is yours to claim once the day is settled.` : ' Claim any time.'}</p>
-    ${on ? pulse() : ''}
-    ${!connected ? gate('Points go to the address that made each transaction. Connect it to see yours, or open your Tacit wallet.', 'Connect wallet', 'pts-connect')
-      : rows ? rows.map((r, i) => html`
+  // One address as the sheet shows it. A looked-up address is only read: what it can claim is told, with no button (a claim pays the account that sends it).
+  const card = (r, i, watch = false) => html`
       <div class="pt">
         <div class="bal"><div><div class="v num">${ptsFmt(r.points)}</div><div class="u">points · ${r.label} ${short(r.addr)}</div></div>
           <div class="side">${!r.read ? html`<span class="err">unavailable</span><br><button class="link" type="button" data-retry="points">Try again</button>`
             : r.rank ? html`rank<br><b class="num">#${r.rank.toLocaleString('en-US')}</b>${r.dayRank ? html`<br>#${r.dayRank} today` : ''}` : r.rank === 0 && r.points > 0 ? html`outside the<br>top ${PTS_BOARD}` : r.points ? '' : 'none yet'}</div></div>
-        ${r.owed > 0n ? html`<button class="btn" type="button" data-claim="${i}">Claim ${tacShort(r.owed)} TAC</button>` : r.owedUnread ? html`<p class="note err">What this address can claim could not be read. <button class="link" type="button" data-retry="points">Try again</button></p>` : ''}
+        ${r.owed > 0n ? (watch ? html`<div class="kv"><span>To claim</span><b>${tacShort(r.owed)} TAC</b></div><p class="note">Connect this address to claim it.</p>`
+          : html`<button class="btn" type="button" data-claim="${i}">Claim ${tacShort(r.owed)} TAC</button>`) : r.owedUnread && !watch ? html`<p class="note err">What this address can claim could not be read. <button class="link" type="button" data-retry="points">Try again</button></p>` : ''}
         ${dayStrip(r)}
         ${r.read && on ? html`<div class="kv"><span>Today</span><b>${r.todayPts > 0 ? `${ptsFmt(r.todayPts)} points · ${sharePct(r.share)} · about ${fmt(r.today, 18, 2)} TAC` : 'nothing yet'}</b></div>` : ''}
         ${r.read ? standing(r) : ''}
@@ -8425,12 +8448,25 @@ render.pts = () => {
         ${r.read && on && r.tod?.factor > 1 ? html`<div class="kv"><span>This week</span><b>×${r.tod.factor} · ${r.tod.kinds} kind${r.tod.kinds === 1 ? '' : 's'} of activity · ${r.tod.activeDays} day${r.tod.activeDays === 1 ? '' : 's'}</b></div>` : ''}
         ${r.settled > 0n ? html`<div class="kv"><span>Earned on settled days</span><b>${fmt(r.settled, 18, 2)} TAC</b></div>` : ''}
         ${r.claimed > 0n ? html`<div class="kv"><span>Claimed so far</span><b>${fmt(r.claimed, 18, 2)} TAC</b></div>` : ''}
-        ${r.read && on ? nextTier(r) : ''}
+        ${r.read && on && !watch ? nextTier(r) : ''}
         ${history(r)}
-      </div>`) : pointsWho().map(([, label]) => html`
+      </div>`;
+  // Any address can be looked up, signed in or not: its own reading under the box, never part of the account's.
+  const look = () => {
+    const L = PTS.look;
+    return html`<div class="lbl"><span>Look up an address</span></div>
+      <form class="amt text" id="pl-look-f"><input id="pl-look" placeholder="0x…" value="${PTS.draft ?? L?.addr ?? ''}" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="An address to look up" aria-invalid="${L?.err ? 'true' : 'false'}"><span class="u"><button class="link" type="submit" ${L?.busy ? 'disabled' : ''}>${L?.busy ? 'Reading…' : 'Look up'}</button></span></form>
+      ${L?.err ? html`<p class="note err" role="alert">${L.err}</p>` : L?.busy ? html`<div class="pt"><div class="bal"><div><div class="v"><span class="sk" style="--w:5ch"></span></div><div class="u">points · ${short(L.addr)}</div></div></div></div>` : L?.row ? card(L.row, -1, true) : ''}`;
+  };
+  mount(el, html`
+    <p class="lede-s">Every day through ${dayShort(PGM.startDay + PGM.days - 1)} (UTC), up to ${potTac()} TAC is split by that day’s points${capText(utcDay(now())) ? `, at most ${capText(utcDay(now()))}` : ''}.${on ? ` Today’s split closes in ${dayLeft()}; its TAC is yours to claim once the day is settled.` : ' Claim any time.'}</p>
+    ${on ? pulse() : ''}
+    ${!connected ? gate('Points go to the address that made each transaction. Connect it to see yours, or open your Tacit wallet.', 'Connect wallet', 'pts-connect')
+      : rows ? rows.map((r, i) => card(r, i)) : pointsWho().map(([, label]) => html`
       <div class="pt"><div class="bal"><div><div class="v"><span class="sk" style="--w:5ch"></span></div><div class="u">points · ${label}</div></div>
         <div class="side"><span class="sk" style="--w:8ch"></span><br><span class="sk" style="--w:11ch"></span></div></div></div>`)}
     ${connected ? retention() : ''}
+    ${look()}
     ${leaderboard(connected)}
     <div class="lbl"><span>Earn more</span></div>
     <div class="opts">${earnRows().map(([go, ic, t, m]) => html`<button class="opt" type="button" data-earn="${go}"><span class="opt-t"><svg class="tk sm" aria-hidden="true"><use href="#tk-${ic}"/></svg>${t}</span><span class="opt-m">${m}</span></button>`)}
@@ -8444,6 +8480,7 @@ render.pts = () => {
   // Opened by #leaderboard: the board in view, once it is read.
   if (PTS.jump && $('#pts-lb', el)) { PTS.jump = false; $('#pts-lb', el).scrollIntoView({ block: 'start' }); }
   wireConnect('pts-connect', () => rerender('pts'));
+  { const f = $('#pl-look-f', el), inp = $('#pl-look', el); if (f) { inp.oninput = () => { PTS.draft = inp.value; }; f.onsubmit = (ev) => { ev.preventDefault(); lookPoints(inp.value); }; } }
   { const b = $('#hold-now', el); if (b) b.onclick = () => holdingProveNow(); const o = $('#hold-off', el); if (o) o.onclick = () => { holdKv.set(HOLD_CONSENT, '0'); rerender('pts'); }; }
   wireSub(el, 'plv', (v) => { PTS.view = v; rerender('pts'); });
   $$('[data-earn]', el).forEach((b) => b.onclick = () => openLink(b.dataset.earn));
