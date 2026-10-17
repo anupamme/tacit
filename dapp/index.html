@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-fJr+rTCC2hBBQ7JuAEi8Y71YV1eLGU6gSWAei2lmYhQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-LvmiqiONpn8yp+5TVy0ACnLT7tW0bX5HYnziePvFoCU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preload" href="/fonts/instrument-serif-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
@@ -4616,7 +4616,7 @@ function holderTier(addr) {
 }
 // `kind`: 'v1' (a wrap into the Tacit pool) or 'dev' (a deposit into the ETH pool on any chain).
 let PTSINFO = false;
-const ptsWhy = () => `Points share each day’s pot of up to ${potTac()} TAC. You earn ${rateStr(ethBase())} per ETH, times an early bonus that shrinks as deposits add up, times more for holding TAC for a day (and ×${PGM.wrapBoost} for a wrap into the Tacit pool).${weekMax() ? ` The day’s points are then multiplied by up to ${weekMax().max} for activity across kinds and days in the week${weekMax().from ? `, from ${dayShort(weekMax().from)}` : ''}.` : ''} This is an estimate: the program counts deposits from its own records.`;
+const ptsWhy = (dev = false) => `Points share each day’s pot of up to ${potTac()} TAC. You earn ${rateStr(ethBase())} per ETH, times an early bonus that shrinks as deposits add up, times more for holding TAC for a day (and ×${PGM.wrapBoost} for a wrap into the Tacit pool).${weekMax() ? ` The day’s points are then multiplied by up to ${weekMax().max} for activity across kinds and days in the week${weekMax().from ? `, from ${dayShort(weekMax().from)}` : ''}.` : ''}${dev && shareLine('evmpooldeposit', 'Deposits in the ETH pools') ? ` ${shareLine('evmpooldeposit', 'Deposits in the ETH pools')}` : ''} This is an estimate: the program counts deposits from its own records.`;
 document.addEventListener('click', (e) => {
   if (!e.target.closest?.('[data-ptsinfo]')) return;
   PTSINFO = !PTSINFO;
@@ -4632,7 +4632,7 @@ function pointsRow(wei, kind, chain) {
   const why = [known ? `×${early.toFixed(1)} early` : '', v1 ? `×${PGM.wrapBoost} tETH` : '', hold > 1 ? `×${hold} TAC holder` : '', tier.now > hold ? `×${tier.now} once your TAC is held a day` : ''].filter(Boolean).join(' · ');
   const pts = Math.round((Number(wei) / 1e18) * (v1 ? PGM.rates.wrap ?? ethBase() * PGM.wrapBoost : ethBase()) * early * hold).toLocaleString('en-US');
   return html`<div class="kv" data-pts><span class="pts-line"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg>TAC points <button class="link" type="button" data-ptsinfo aria-expanded="${PTSINFO}">how?</button></span><b class="num">${known ? '≈ ' : 'at least '}${pts}${why ? html` <small class="mute">${why}</small>` : ''}</b></div>
-    <p class="note mute" data-ptsnote ${PTSINFO ? '' : 'hidden'}>${ptsWhy()}</p>`;
+    <p class="note mute" data-ptsnote ${PTSINFO ? '' : 'hidden'}>${ptsWhy(!v1)}</p>`;
 }
 // `where`: 'v1', or a chain id for the ETH pool there.
 function poolLine(where) {
@@ -8050,6 +8050,8 @@ const weekMax = () => { const g = scheduled(PGM.engagement, utcDay(now())), sp =
 const capNote = (act, day) => { const s = scheduled(PGM.caps, day), c = s?.e.caps[act]; return c ? ` · up to ${c} ETH a day per address${s.from ? ` from ${dayShort(s.from)}` : ''}` : ''; };
 // The most of a day's TAC (its budget, before the per-point ceiling trims what is paid) an activity's points can take together, from the entry in force or the next one (with its day).
 const shareNote = (act, day) => { const s = scheduled(PGM.shareCaps, day), c = s?.e.caps[act]; return c ? ` · together up to ${pct(c)} of a day's ${potTac()} TAC${s.from ? ` from ${dayShort(s.from)}` : ''}` : ''; };
+// The share limit as a sentence, for an estimate to say of its own activity: "Deposits in the ETH pools together take at most 50% of a day's 1,111 TAC."
+const shareLine = (act, who) => { const t = shareNote(act, utcDay(now())).replace(/^ · together up to /, ''); return t ? `${who} together take at most ${t.replace("a day's", 'a day’s')}.` : ''; };
 const weightNote = (act, day) => { const s = scheduled(PGM.weights, day), w = s?.e.weights[act]; return w != null && w !== 1 ? ` · ${w === 0 ? 'not counted' : `×${w}`}${s.from ? ` from ${dayShort(s.from)}` : ''}` : ''; };
 // Takes the service's terms where they are well-formed and leaves what the page has for the rest.
 function takeProgram(p) {
@@ -11727,6 +11729,12 @@ function hxWeek(sp, rows, today, kindOf, wt, kind, add) {
     : f(k, d) > 1 ? `This week counts ×${f(k, d)} toward today’s pot, as much as it gets.` : '';
   return { f: f(k, d), tip };
 }
+// What borrowing earns, in the Points sheet's own words: a cUSD loan sent from the account itself, and the bond that stands behind cBTC
+// (the way that only mints cBTC earns the bond's points alone). Null while the program offers neither.
+function hxBorrowPts() {
+  const rows = earnRows().filter((r) => r[0] === 'borrow' && (HX.bm !== 'cbtc' || r[1] === 'cbtc')).sort((a, b) => (b[1] === 'cusd') - (a[1] === 'cusd'));   // the loan being made first
+  return rows.length ? rows : null;
+}
 // What `eth` ETH earns in the points program now, by the terms the page already holds (PGM, the same the Private sheet's
 // own estimate reads): the activity's rate, the day's weight, the early bonus by the deposits so far, and the TAC-holder tier
 // held through the day. A wrap's count is public, so its figure is an estimate; a swap's is not, so it is a floor. `tip` is
@@ -11962,12 +11970,13 @@ function paintHxQ() {
   }
   const pts = $('#hx-pts');
   if (pts && !q.busy) {
-    const p = hxPts(q.pk, q.ethPts ?? q.eth, q.outTac);
-    pts.hidden = !p;
+    const p = hxPts(q.pk, q.ethPts ?? q.eth, q.outTac), borrows = !p && HX.mode === 'borrow' ? hxBorrowPts() : null;
+    pts.hidden = !p && !borrows;
     if (p) hxWantPoints();
+    if (borrows) mount(pts, html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><b>TAC points</b> for borrowing <a class="link" href="#points" data-link="points">terms</a></span>${borrows.map(([, , t, m]) => html`<span class="hx-pt">${t}: ${m}</span>`)}`);
     if (p) mount(pts, html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><b>${p.pts < 1 ? '< 1' : `${p.known ? '≈ ' : 'at least '}${ptsFmt(p.pts)}`}</b> TAC points <button class="link" type="button" data-ptsinfo aria-expanded="${PTSINFO}">how?</button></span>
       ${p.why ? html`<span class="hx-pw">${p.why}</span>` : ''}${p.tips.map((t) => html`<span class="hx-pt">${t}</span>`)}
-      <span class="note mute" data-ptsnote ${PTSINFO ? '' : 'hidden'}>${ptsWhy()}</span>`);
+      <span class="note mute" data-ptsnote ${PTSINFO ? '' : 'hidden'}>${ptsWhy(q.pk === 'dev')}</span>`);
   }
   // A swap between wallet ETH and TAC lands where its route does: public TAC or ETH in the wallet, or private on Ethereum.
   const tw = $('#hx-to-w');

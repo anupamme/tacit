@@ -4955,6 +4955,53 @@ await step('hxweek', async () => {
   } finally { await r.browser.close(); }
 });
 
+// What each action on the console says it earns in the points program, by the terms the service states (stubbed here, so a pass shows they
+// are read and not echoed): a deposit for payments, whose "how?" names the share limit on pool deposits; a swap's routes, where only the
+// Precision pool's share scores; and the two ways of borrowing, one naming the loan and the bond, the other the bond alone.
+await step('hxearn', async () => {
+  const today = Math.floor(Date.now() / 86400e3);
+  const program = { startDay: today - 8, days: 90, dayBudgetWei: '1111111111111111111111', totalWei: '100000000000000000000000', earlyBonus: { max: 5, halfLife: 200 }, tethWrapBoost: 1.25,
+    holder: { tiers: [{ tac: 100, multiplier: 1.25 }], windowHours: 24 }, rates: { wrap: 1250, evmpooldeposit: 1000, zswapeth: 1000, cbtcmint: 1000, cusdmint: 2, cbtchold: 500 },
+    weights: [{ fromDay: today - 1, weights: {} }], categoryShareCaps: [{ fromDay: today - 1, caps: { evmpooldeposit: 0.4 } }], bondHoldFromDay: today - 1, cbtcHoldFromDay: today - 1,
+    kinds: { wrap: 'private', evmpooldeposit: 'private', zswapeth: 'swap', cbtcmint: 'borrow', cbtchold: 'borrow', cusdmint: 'borrow' } };
+  const stub = (page) => page.route(/api\.tacit\.finance\/leaderboard/, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
+    body: JSON.stringify(/day=today/.test(route.request().url()) ? { day: today, programDay: 9, programDays: 90, program, totalPoints: 1000, dayBudgetWei: '1111111111111111111111', taking: 1, rows: [] } : []) }));
+  const r = await openFarmKey('7e4b'.padEnd(64, '6'), { notes: [] }, undefined, stub);
+  const p = r.page, line = async () => (await text(p, '#hx-pts')).replace(/\s+/g, ' ').trim();
+  try {
+    await p.waitForSelector('#hx-body .hx-h');
+    // The program's terms reach the page with the Points reading; the console reads them from there.
+    await p.evaluate(() => { location.hash = '#points'; });
+    await until(p, () => /together up to 40%/.test(document.querySelector('#pts-body')?.textContent || ''), null, 120000);
+    await p.keyboard.press('Escape');
+    await p.evaluate(() => { location.hash = ''; });
+    await p.waitForSelector('#hx-body .hx-h');
+    // A deposit for payments: the estimate, and in its "how?" the share limit that pool deposits are under.
+    await p.click('[data-hxm="private"]'); await p.click('[data-hxd="pay"]'); await p.fill('#hx-amt', '0.5');
+    await until(p, () => /TAC points/.test(document.querySelector('#hx-pts')?.textContent || ''), null, 120000);
+    await p.click('#hx-pts [data-ptsinfo]');
+    const how = await line();
+    ok(/Deposits in the ETH pools together take at most 40% of a day’s 1,111 TAC\./.test(how.replace(/'/g, '’')), `hxearn: a pool deposit's "how?" names the share limit (${how.slice(-200)})`);
+    // A deposit into the Tacit pool is a different activity, and is not under it.
+    await p.click('[data-hxd="defi"]');
+    await until(p, () => /TAC points/.test(document.querySelector('#hx-pts')?.textContent || ''), null, 120000);
+    ok(!/together take at most/.test(await line()), `hxearn: a wrap into the Tacit pool does not carry the limit of pool deposits`);
+    // Borrow: the cUSD way names the loan and the bond; the cBTC way the bond alone.
+    await p.click('[data-hxm="borrow"]');
+    await until(p, () => /Borrow cUSD:/.test(document.querySelector('#hx-pts')?.textContent || ''), null, 60000);
+    let t = await line();
+    ok(/Post a bond toward cBTC: .*1,000 per wstETH/.test(t) && /Borrow cUSD: 2 per dollar, when you send the loan yourself/.test(t) && !!(await p.$('#hx-pts a[data-link="points"]')), `hxearn: borrowing cUSD names the loan and the bond, and where the terms are (${t.slice(0, 220)})`);
+    if (SHOTS) await (await p.$('#hx')).screenshot({ path: join(SHOTS, 'weld-hxearn-borrow.png') });
+    await p.click('[data-hxd="cbtc"]');
+    await until(p, () => !/Borrow cUSD:/.test(document.querySelector('#hx-pts')?.textContent || '') && /Post a bond/.test(document.querySelector('#hx-pts')?.textContent || ''), null, 60000);
+    t = await line();
+    ok(!/Borrow cUSD/.test(t) && /Post a bond toward cBTC/.test(t), `hxearn: the way that only mints cBTC names the bond alone (${t.slice(0, 160)})`);
+    // Send and Earn score nothing, and say nothing of points.
+    for (const m of ['send', 'earn']) { await p.click(`[data-hxm="${m}"]`); await sleep(1500); ok(!(await p.$('#hx-pts')) || (await p.$eval('#hx-pts', (e) => e.hidden)), `hxearn: ${m} says nothing of points`); }
+    if (r.errors.length) { fails++; console.log('FAIL hxearn page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
 // The Swap tab sells TAC for wallet ETH: the public pools (one, or split across two in a single transaction when that pays more than
 // its extra gas) beside the private Tacit pool, and the Sell sheet it hands off to carries the amount and runs the same route. A sale
 // big enough to split is run through the page on the fork: the permit rides inside the one transaction and nothing is left behind.

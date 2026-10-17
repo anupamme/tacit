@@ -28,6 +28,24 @@ const batch = async (calls) => V.decAggregate3(await ethCall(MULTICALL3, V.encAg
 const venues = makeEvmTradeVenues({ ethCall, keccak256: keccak_256 });
 // zQuoter reads every pool it knows in one call: a node slow to answer is not waited on past ten seconds.
 const within = (p, ms, why) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(why)), ms))]);
+// What the points program pays for ETH swapped into TAC through the Precision pool, per ETH and at least (its early bonus and the TAC-holder
+// tiers only add to it): from the points service's terms, read once in ten minutes and never waited for. 0 until read, when they cannot be,
+// or when the day's weight for it is none.
+const PTS = { at: 0, rate: 0 };
+async function pointsPerEth() {
+  if (Date.now() - PTS.at < 600e3) return PTS.rate;
+  PTS.at = Date.now();
+  try {
+    const r = await fetch('https://api.tacit.finance/leaderboard?day=today&limit=1', { signal: AbortSignal.timeout(8000) });
+    const p = r.ok ? (await r.json())?.program : null, day = Math.floor(Date.now() / 86400e3);
+    const w = Number([...(p?.weights || [])].reverse().find((e) => e.fromDay <= day)?.weights?.zswapeth ?? 1), rate = Number(p?.rates?.zswapeth);
+    PTS.rate = Number.isFinite(rate) && rate > 0 && Number.isFinite(w) && w > 0 ? rate * w : 0;
+  } catch { PTS.at = Date.now() - 540e3; }                                  // asked again in a minute
+  return PTS.rate;
+}
+// A buy's rows say what each earns: the Precision pool's share of the ETH is what scores, so the Tacit pool earns none and a split earns on its first leg.
+const ptsOf = (eth) => { const n = PTS.rate ? Math.floor(Number(eth) / 1e18 * PTS.rate) : 0; return n >= 1 ? `${n.toLocaleString('en-US')}+ points` : ''; };
+const noteOf = (x, q) => [x.note, q?.dir === 'ETH_TO_TAC' ? ptsOf(x.k === 'precision' ? q.wei : x.k === 'split' ? x.split?.legs?.[0]?.amountIn : 0n) : ''].filter(Boolean).join(' · ');
 const txLink = (h) => `<a href="https://etherscan.io/tx/${esc(h)}" target="_blank" rel="noopener noreferrer">${esc(h.slice(0, 10))}…↗</a>`;
 
 // ── the tokens ──
@@ -317,7 +335,7 @@ function paintQuote() {
   if (first && !rows.hidden) rows.innerHTML = `<div class="rows-h"><span>Route</span><span>${esc(get.sym)} out</span></div>${list.map((x) => `<button type="button" role="radio" aria-checked="false" disabled><span class="rt"><b>${esc(x.name)}</b></span><span class="ra"><span>…</span></span><span class="rd" aria-hidden="true"></span></button>`).join('')}`;
   else if (!rows.hidden) {
     const top = list.reduce((a, b) => (b.out > a.out ? b : a));
-    rows.innerHTML = `<div class="rows-h"><span>Route</span><span>${esc(get.sym)} out</span></div>${list.map((x) => `<button type="button" role="radio" aria-checked="${x.k === r?.k}" data-route="${esc(x.k)}"><span class="rt"><b>${esc(x.name)}</b>${x.note ? `<small>${x.note}</small>` : ''}</span><span class="ra"><span>${esc(tidy(amtFmt(x.out, get.dec)))}</span>${x === top && list.length > 1 ? '<em>best</em>' : x.out < top.out ? `<small>−${(Number(top.out - x.out) * 100 / Number(top.out)).toFixed(2)}%</small>` : ''}</span><span class="rd" aria-hidden="true"></span></button>`).join('')}`;
+    rows.innerHTML = `<div class="rows-h"><span>Route</span><span>${esc(get.sym)} out</span></div>${list.map((x) => `<button type="button" role="radio" aria-checked="${x.k === r?.k}" data-route="${esc(x.k)}"><span class="rt"><b>${esc(x.name)}</b>${noteOf(x, q) ? `<small>${noteOf(x, q)}</small>` : ''}</span><span class="ra"><span>${esc(tidy(amtFmt(x.out, get.dec)))}</span>${x === top && list.length > 1 ? '<em>best</em>' : x.out < top.out ? `<small>−${(Number(top.out - x.out) * 100 / Number(top.out)).toFixed(2)}%</small>` : ''}</span><span class="rd" aria-hidden="true"></span></button>`).join('')}`;
   }
   // The receipt.
   const lines = first ? (kind === 'private' ? ['Price', 'Price impact', 'Relay fee'] : ['Price', 'At least', 'Price impact', 'Network fee']).map((k) => [k, '…']) : [];
@@ -715,4 +733,5 @@ if (S.tab === 'swap' && matchMedia('(pointer: fine)').matches && !location.hash)
 if (S.tab === 'earn') { paintEarn(); }
 readPrices().then(() => { paint(); if (S.amt) requote(true); if (S.tab === 'earn') readFarms().then(paintEarn, paintEarn); }).catch(() => { if (S.amt) requote(true); });
 gasPrice();
+pointsPerEth().then(() => { if (S.q?.rows && !S.q.busy) paintQuote(); }, () => {});
 setInterval(() => { if (document.hidden) return; readPrices().catch(() => {}); if (S.q && !S.busy && !S.q.busy && now() - (S.q.at || 0) > (S.q.kind === 'any' ? 55 : 25) && kindOf(S.pay, S.get) !== 'private') requote(true); }, 30e3);   // zQuoter's scan is heavy: a minute between
