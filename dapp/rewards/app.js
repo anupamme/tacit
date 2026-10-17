@@ -9,7 +9,7 @@
 import { secp, keccak_256 } from '/vendor/tacit-deps.min.js';
 import { makeConfidentialNames, makeMainnetCall, MAINNET_RPCS, NameError } from '/confidential-names.js?cb=7bb10833';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=02ef61b4';
-import { makeWallet, UserStopped } from '/trade/wallet.js?cb=595c892a';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=a8cdf0f7';
 
 const API = 'https://api.tacit.finance', DISTRIBUTOR = '0x000000C918e44A3a443937fA7594eA4f7C95D6b9', BOARD = 500, KEEP = 60e3, RECENT = 'tacit-rewards-recent-v1';
 const $ = (s) => document.querySelector(s);
@@ -23,20 +23,21 @@ const air = makeTacAirdrop({ call, keccak256: keccak_256 });
 const within = (s) => (s && AbortSignal.any ? AbortSignal.any([s, AbortSignal.timeout(20e3)]) : AbortSignal.timeout(20e3));
 const get = (path, signal) => fetch(`${API}/${path}`, { signal: within(signal) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 const store = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* a convenience */ } } };
-// The wallet module reads the chain through this (receipts): the first endpoint that answers.
-async function rpc(method, params) {
-  let last = null;
-  for (const u of MAINNET_RPCS) {
-    try {
-      const r = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(10e3) });
-      const j = await r.json();
-      if (j.error) throw new Error(j.error.message || 'rpc error');
-      return j.result;
-    } catch (e) { last = e; }
-  }
-  throw last || new Error('could not reach Ethereum');
-}
-const wallet = makeWallet({ rpc });
+// The wallet, as on the swap page: the header chip, a picker when the browser has several wallets, WalletConnect's pairing for a phone, and the
+// account sheet (which here also looks up the account and switches it). It is not restored until the page is idle.
+const connect = makeConnect({
+  describe: 'Look up and claim the TAC airdrop and points.',
+  busy: () => claiming,
+  say: (html, bad) => wsay(html, bad),
+  onChange: () => onWallet(),
+  rows: () => '<button class="btn ghost" type="button" data-mine-sheet>Look up this account</button><button class="btn ghost" type="button" data-switch-sheet>Switch account</button>',
+  wire: (root, close) => {
+    root.querySelector('[data-mine-sheet]').onclick = () => { close(); lookMine(); };
+    root.querySelector('[data-switch-sheet]').onclick = () => { close(); switchAccount(); };
+  },
+  restore: false,
+});
+const { wallet, W } = connect;
 
 // An amount of TAC (18 decimals) to `dp` places, grouped, trailing zeros dropped; under the smallest place it says so.
 function tac(wei, dp = 2) {
@@ -161,6 +162,7 @@ function pointsCard(p, address) {
 }
 const whoLine = (who, q) => `<p class="who"><b>${esc(who.name || short(who.address))}</b>${who.name ? `<span>${short(who.address)}</span>` : ''}</p>
   <p class="acts"><button type="button" data-copy="${who.address}">Copy address</button><a href="https://etherscan.io/address/${who.address}" target="_blank" rel="noopener noreferrer">Etherscan ↗</a><button type="button" data-copy="${esc(`${location.origin}/rewards/?q=${encodeURIComponent(q)}`)}" data-said="Link copied">Copy link</button></p>
+  <p class="wl" id="wl"></p>
   <div id="done" aria-live="polite"></div>`;
 const SKEL = (t) => `<section class="card"><h2>${t}</h2><p class="big"><span class="sk"></span></p></section>`;
 const SKELETON = `<p class="who"><b><span class="sk"></span></b></p><div id="c-air">${SKEL('Airdrop')}</div><div id="c-pts">${SKEL('Points')}</div>`;
@@ -220,12 +222,8 @@ function confetti() {
 const word = (n) => BigInt(n).toString(16).padStart(64, '0');
 const txLink = (h) => `<a href="https://etherscan.io/tx/${h}" target="_blank" rel="noopener noreferrer">${h.slice(0, 10)}…${h.slice(-6)} ↗</a>`;
 async function signedIn(address) {
-  if (!wallet.state.account) {
-    const w = wallet.available()[0];
-    if (!w) throw new Error('No browser wallet found. Claim in the app instead.');
-    await wallet.connect(w);
-  }
-  const mine = String(wallet.state.account || '').toLowerCase();
+  if (!W.account && !(await connect.connect())) throw new UserStopped();              // the connect module has said why when it could not
+  const mine = String(W.account || '').toLowerCase();
   if (!mine) throw new Error('Your wallet did not share an account.');
   if (mine !== address) throw new Error(`Your wallet is on ${short(mine)}. Switch it to ${short(address)} to claim.`);
 }
@@ -277,6 +275,43 @@ async function claim(kind, address, btn) {
   } finally { claiming = false; if (btn.isConnected) btn.disabled = false; }
 }
 
+// ── the wallet's part: a notice, a line under the result, what connecting does, switching accounts ──
+let wmsgTimer = 0;
+function wsay(html, bad = false) {
+  const el = $('#wmsg'); if (!el) return;
+  clearTimeout(wmsgTimer);
+  el.className = `wmsg${bad ? ' bad' : ''}`; el.innerHTML = html;
+  if (html) wmsgTimer = setTimeout(() => { el.innerHTML = ''; }, 9000);
+}
+// Under a result: whether the wallet is on this account, and when it is not, the two ways on.
+function paintWallet() {
+  const el = $('#wl'); if (!el) return;
+  const mine = W.account ? W.account.toLowerCase() : null, asked = out.dataset.address;
+  el.innerHTML = !mine || !asked ? '' : mine === asked ? '<span class="ok">Your wallet is on this account</span>'
+    : `Your wallet is on ${short(mine)}.<button type="button" data-mine>Look up mine</button><button type="button" data-switch>Switch account</button>`;
+}
+// The wallet's own account, looked up: what a first connection with nothing asked does, and what "look up mine" does.
+function lookMine() {
+  if (!W.account) return;
+  const a = W.account.toLowerCase();
+  input.value = a; showHints(''); run(a);
+}
+let seenAccount = null;
+function onWallet() {
+  const acct = W.account ? W.account.toLowerCase() : null, fresh = !!acct && acct !== seenAccount;
+  seenAccount = acct;
+  paintWallet();
+  if (fresh) { if (!input.value.trim() && !out.innerHTML) lookMine(); else react('wink', 1600); }          // connected with nothing asked: its own rewards; else a wink
+}
+// The wallet's account chooser (EIP-2255); a wallet app on a phone is switched in the app.
+async function switchAccount() {
+  const prov = W.prov;
+  if (!prov) { connect.connect(); return; }
+  if (prov.isWalletConnect) { wsay('Switch accounts in your wallet app, then press Claim.'); return; }
+  try { await prov.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] }); }          // its account change reaches onWallet by itself
+  catch (e) { if (e?.code !== 4001) wsay('Switch accounts in your wallet, then press Claim.'); }
+}
+
 // ── the bar, its suggestions, and what was looked up before ──
 const input = $('#q'), go = $('#go'), out = $('#out'), hints = $('#hints'), recent = $('#recent'), note = $('#note');
 const said = (t) => { note.textContent = ''; setTimeout(() => { note.textContent = t; }, 30); };
@@ -312,15 +347,17 @@ async function run(raw) {
     remember(q);
     out.dataset.address = who.address;
     out.innerHTML = `${whoLine(who, q)}<div id="c-air">${SKEL('Airdrop')}</div><div id="c-pts">${SKEL('Points')}</div>`;
+    paintWallet();
     try { history.replaceState(null, '', `?q=${encodeURIComponent(q)}`); } catch { /* the address bar is a convenience */ }
     const a = readAirdrop(who.address), p = readPoints(who.address, ctl.signal);
     // The ninja answers once something is claimable (thumbs up at once), or once both are read and nothing is (thumbs down).
     const can = { air: null, pts: null };
+    let given = false;                                                              // one answer to a lookup, whichever reading settles it
     const answer = () => {
-      if (my !== seq) return;
-      if (can.air === true || can.pts === true) { if (ninja.dataset.mood !== 'up') { react('up'); said('Something to claim'); } }
-      else if (can.air === false && can.pts === false) { react('down'); said('Nothing to claim'); }
-      else if (can.air !== null && can.pts !== null) react('idle');                 // a reading failed: nothing to say
+      if (my !== seq || given) return;
+      if (can.air === true || can.pts === true) { given = true; react('up'); said('Something to claim'); }
+      else if (can.air === false && can.pts === false) { given = true; react('down'); said('Nothing to claim'); }
+      else if (can.air !== null && can.pts !== null) { given = true; react('idle'); }   // a reading failed: nothing to say
     };
     a.then((s) => { if (my !== seq) return; paint('#c-air', airdropCard(s, who.address)); can.air = s.reason === 'error' ? undefined : !!s.claimable; answer(); });
     p.then((v) => { if (my !== seq) return; paint('#c-pts', pointsCard(v, who.address)); fillRank(who.address, v); can.pts = v.error ? undefined : v.owed > 0n; answer(); });
@@ -357,6 +394,8 @@ document.addEventListener('click', async (e) => {
   if (chip) { input.value = chip.dataset.q; run(chip.dataset.q); return; }
   if (e.target.closest('[data-clear]')) { store.set(RECENT, '[]'); showRecent(); return; }
   if (cl) { claim(cl.dataset.claim, cl.dataset.addr, cl); return; }
+  if (e.target.closest('[data-mine]')) { lookMine(); return; }
+  if (e.target.closest('[data-switch]')) { switchAccount(); return; }
   if (cp) {
     const text = cp.dataset.copy, label = cp.textContent;
     try { await navigator.clipboard.writeText(text); } catch {
@@ -370,4 +409,4 @@ document.addEventListener('click', async (e) => {
 const asked = new URLSearchParams(location.search).get('q');
 if (asked) { input.value = asked; run(asked); } else { showRecent(); if (matchMedia('(pointer: fine)').matches) input.focus({ preventScroll: true }); }
 // The rank's board is fetched once the page has nothing else to do; a wallet connected here before is found again without a prompt.
-(window.requestIdleCallback || ((f) => setTimeout(f, 300)))(() => { prime(); board(); wallet.restore().catch(() => {}); });
+(window.requestIdleCallback || ((f) => setTimeout(f, 300)))(() => { prime(); board(); connect.restore(); });

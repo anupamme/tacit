@@ -3416,6 +3416,9 @@ await step('rewardsclaim', async () => {
     await ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => json(route, [{ address: hex40('1'), points: 9e9 }, { address: LISTED, points: 12345.6 }]));
   };
   await rpc('anvil_impersonateAccount', [LISTED]); await rpc('anvil_setBalance', [LISTED, '0x' + (10n ** 18n).toString(16)]);
+  // The first connection opens the list of wallets (the browser's and WalletConnect), as it does for a person; the browser's is chosen, if the
+  // list opens (it is not waited for: what the page does next is read as it happens).
+  const choose = (page) => page.waitForSelector('.bsheet .way', { timeout: 8000 }).then(() => page.click('.bsheet .way:has-text("Browser wallet")')).catch(() => {});
   // A wallet on another account is told which to switch to, and nothing is sent.
   {
     const n = await openPage({ account: A0, viewport: { width: 1000, height: 900 } });
@@ -3424,21 +3427,22 @@ await step('rewardsclaim', async () => {
       await n.page.goto(n.url + 'rewards/?q=' + LISTED);
       await n.page.waitForSelector('[data-claim="airdrop"]', { timeout: 120000 });
       const sent = walletTxs.length, before = await tacOf(LISTED);
-      await n.page.click('[data-claim="airdrop"]');
+      choose(n.page); await n.page.click('[data-claim="airdrop"]');
       await until(n.page, () => /Switch it to/.test(document.querySelector('#done')?.textContent || ''), null, 30000);
       const t = (await text(n.page, '#done')).replace(/\s+/g, ' ');
       ok(/Your wallet is on 0xf39f…2266\. Switch it to 0x1c0a…5a20 to claim\./.test(t) && walletTxs.length === sent && (await tacOf(LISTED)) === before, `rewardsclaim: a wallet on another account is told which to switch to, and nothing is sent (${t.trim()})`);
       ok((await n.page.getAttribute('#ninja', 'data-mood')) === 'shake', 'rewardsclaim: and the ninja shakes its head');
+      ok(/Your wallet is on 0xf39f…2266\./.test(await text(n.page, '#wl')) && !!(await n.page.$('#wl [data-mine]')) && !!(await n.page.$('#wl [data-switch]')), 'rewardsclaim: and the line under the result offers to look up the wallet\'s own account or to switch');
     } finally { await n.browser.close(); }
   }
-  // No browser wallet: the claim is the way into the dapp.
+  // No browser wallet at all (a phone): WalletConnect is offered by itself, so a claim is still a button, and pressing it pairs a wallet app.
   {
     const n = await openPage({ account: A0, init: { fn: () => { delete window.ethereum; } } });
     await stubs(n.ctx);
     try {
       await n.page.goto(n.url + 'rewards/?q=' + LISTED);
       await n.page.waitForSelector('#c-air .act', { timeout: 120000 });
-      ok((await n.page.getAttribute('#c-air a.act', 'href')) === '/#airdrop' && !(await n.page.$('[data-claim]')), 'rewardsclaim: with no browser wallet a claim is a link into the dapp');
+      ok(!!(await n.page.$('#c-air button[data-claim="airdrop"]')) && !(await n.page.$('#c-air a.act')), 'rewardsclaim: with no browser wallet the claim is still a button (it pairs a wallet app through WalletConnect)');
     } finally { await n.browser.close(); }
   }
   // The airdrop, claimed by its account.
@@ -3449,7 +3453,7 @@ await step('rewardsclaim', async () => {
       await n.page.goto(n.url + 'rewards/?q=' + LISTED);
       await n.page.waitForSelector('[data-claim="airdrop"]', { timeout: 120000 });
       const sent = walletTxs.length, before = await tacOf(LISTED);
-      await n.page.click('[data-claim="airdrop"]');
+      choose(n.page); await n.page.click('[data-claim="airdrop"]');
       await until(n.page, () => !!document.querySelector('#done .done a[href^="https://etherscan.io/tx/0x"]'), null, 180000);
       const coins = await n.page.evaluate(() => Number(document.querySelector('#fx')?.dataset.coins || 0));
       const tx = walletTxs[walletTxs.length - 1], done = (await text(n.page, '#done')).replace(/\s+/g, ' ');
@@ -3485,13 +3489,82 @@ await step('rewardsclaim', async () => {
       await n.page.waitForSelector('[data-claim="points"]', { timeout: 120000 });
       const before = await tacOf(who), sent = walletTxs.length;
       if (stale) spoil = 1;
-      await n.page.click('[data-claim="points"]');
+      choose(n.page); await n.page.click('[data-claim="points"]');
       await until(n.page, () => !!document.querySelector('#done .done a[href^="https://etherscan.io/tx/0x"]') || /did not|refuse|nothing left|just updated/i.test(document.querySelector('#done')?.textContent || ''), null, 180000);
       const tx = walletTxs[walletTxs.length - 1];
       ok(walletTxs.length === sent + 1 && String(tx.to).toLowerCase() === DISTRIBUTOR && (await tacOf(who)) > before && (!stale || spoiled === 1), `rewardsclaim: points ${stale ? 'with a proof replaced since it was read: it is read again, once, and the claim goes through' : 'are claimed with the service\'s proof'} (${(await text(n.page, '#done')).replace(/\s+/g, ' ').trim().slice(0, 90)})`);
     } finally { await n.browser.close(); }
     await rpc('evm_revert', [snap]);
   }
+});
+
+// Getting a wallet onto the rewards page: the header chip (the swap page's own connect module), the list of wallets, what a first connection
+// does (the account's own rewards), what the page says when the wallet is on another account (look up the wallet's, or switch), and the account sheet.
+await step('rewardswallet', async () => {
+  const LISTED = '0x1c0aa8ccd568d90d61659f060d1bfb1e6f855a20', hex40 = (c) => '0x' + c.repeat(40);
+  // Two wallets announce themselves (EIP-6963), both the test browser's, so the list has something to choose from.
+  const two = { fn: () => { const say = () => { for (const [u, name] of [['a', 'Test wallet A'], ['b', 'Test wallet B']]) dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail: Object.freeze({ info: { uuid: u, name, icon: '', rdns: `test.${u}` }, provider: window.ethereum }) })); }; addEventListener('eip6963:requestProvider', say); } };
+  const n = await openPage({ account: A0, viewport: { width: 1000, height: 900 }, init: two });
+  await n.ctx.route(/api\.tacit\.finance\/(points|claim)\/0x/, (route) => {
+    const u = route.request().url(), a = (u.match(/0x[0-9a-fA-F]{40}/) || [''])[0].toLowerCase();
+    if (/\/claim\//.test(u)) return json(route, { cumulativeAmount: '0', claimedWei: '0', unclaimedWei: '0', proof: null });
+    return json(route, { address: a, points: a === LISTED ? 12345.6 : 0, deposit_count: 0, deposits: [] });
+  });
+  await n.ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => json(route, [{ address: hex40('1'), points: 9e9 }]));
+  const line = async () => (await text(n.page, '#wl')).replace(/\s+/g, ' ').trim();
+  try {
+    await n.page.goto(n.url + 'rewards/');
+    await n.page.waitForSelector('#wallet-chip');
+    ok((await text(n.page, '#wallet-label')).trim() === 'Connect' && (await n.page.$$('#wallet-chip')).length === 1, 'rewardswallet: the header carries a Connect chip');
+    await n.page.click('#wallet-chip');
+    await n.page.waitForSelector('.bsheet .way', { timeout: 15000 });
+    const ways = await n.page.$$eval('.bsheet .way', (w) => w.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
+    ok(ways.some((x) => /Test wallet A/.test(x)) && ways.some((x) => /Test wallet B/.test(x)), `rewardswallet: with several wallets the chip opens a list to choose from (${ways.join(' | ')})`);
+    await n.page.click('.bsheet .way:has-text("Test wallet A")');
+    await until(n.page, () => document.querySelector('#q').value === '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266' && /Your wallet is on this account/.test(document.querySelector('#wl')?.textContent || ''), null, 60000);
+    ok(/2266/.test(await text(n.page, '#wallet-label')), `rewardswallet: connecting with nothing asked looks the wallet's own account up, and the chip shows it (${(await text(n.page, '#wallet-label')).trim()})`);
+    await n.page.fill('#q', LISTED);
+    await until(n.page, () => /Your wallet is on 0xf39f…2266\./.test(document.querySelector('#wl')?.textContent || ''), null, 60000);
+    ok(!!(await n.page.$('#wl [data-mine]')) && !!(await n.page.$('#wl [data-switch]')), `rewardswallet: a result for another account says where the wallet is, with "Look up mine" and "Switch account" (${await line()})`);
+    await n.page.click('#wl [data-switch]');
+    await until(n.page, () => /Switch accounts in your wallet/.test(document.querySelector('#wmsg')?.textContent || ''), null, 15000);
+    ok(true, 'rewardswallet: a wallet with no account chooser is told to switch in the wallet');
+    await n.page.click('#wl [data-mine]');
+    await until(n.page, () => document.querySelector('#q').value === '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266' && /on this account/.test(document.querySelector('#wl')?.textContent || ''), null, 60000);
+    ok(true, 'rewardswallet: "Look up mine" puts the wallet\'s account in the bar');
+    await n.page.click('#wallet-chip');
+    await n.page.waitForSelector('.bsheet [data-mine-sheet]', { timeout: 10000 });
+    const sheet = (await text(n.page, '.bsheet')).replace(/\s+/g, ' ');
+    ok(/Account/.test(sheet) && !!(await n.page.$('.bsheet [data-switch-sheet]')) && !!(await n.page.$('.bsheet [data-leave]')), `rewardswallet: the chip opens the account sheet, with look up, switch and disconnect (${sheet.slice(0, 140)})`);
+    await n.page.click('.bsheet [data-leave]');
+    await until(n.page, () => document.querySelector('#wallet-label')?.textContent.trim() === 'Connect' && !document.querySelector('#wl')?.textContent.trim(), null, 15000);
+    ok(true, 'rewardswallet: disconnecting puts the chip back to Connect and clears the line');
+    if (SHOTS) await n.page.screenshot({ path: join(SHOTS, 'weld-rewardswallet.png') });
+    if (n.errors.length) { fails++; console.log('FAIL rewardswallet page errors: ' + n.errors.slice(0, 3).join(' | ')); }
+  } finally { await n.browser.close(); }
+});
+
+// The "With TAC" line under the search: what TAC is for, each a quiet link, and each landing where it says.
+await step('rewardsuses', async () => {
+  const n = await openPage({ account: A0, viewport: { width: 1000, height: 900 } });
+  try {
+    await n.page.goto(n.url + 'rewards/');
+    await n.page.waitForSelector('.uses');
+    const links = await n.page.$$eval('.uses a', (a) => a.map((x) => `${x.textContent}:${x.getAttribute('href')}`));
+    ok(links.join(' ') === 'Trade:/trade/tac/ Farm:/swap/#earn Borrow:/vault/ Shield:/#tac Pay:/pay/#tac Bitcoin:/tac/', `rewardsuses: the line under the search names what TAC is for (${links.join(' ')})`);
+    ok(await n.page.evaluate(() => { const b = document.querySelector('.bar').getBoundingClientRect(), u = document.querySelector('.uses').getBoundingClientRect(); return u.top >= b.bottom && u.top - b.bottom < 60; }), 'rewardsuses: and it sits right under the bar');
+    const land = async (path, check, what) => {
+      await n.page.goto(n.url + path, { waitUntil: 'domcontentloaded' });
+      await until(n.page, check, null, 60000).catch((e) => { throw new Error(`${what}: ${e.message.split('\n')[0]}`); });
+      ok(true, `rewardsuses: ${what}`);
+    };
+    await land('trade/tac/', () => /trade/i.test(document.title) && !!document.querySelector('#route'), '/trade/tac/ is the trade page');
+    await land('swap/#earn', () => !!document.querySelector('#p-earn') && !document.querySelector('#p-earn').hidden, '/swap/#earn opens the Earn tab (the Precision farm)');
+    await land('vault/', () => /vault/i.test(document.title), '/vault/ is the borrow page');
+    await land('#tac', () => document.querySelector('#sheet-tac')?.open === true, '/#tac opens the TAC sheet, where TAC is made private');
+    await land('pay/#tac', () => /pay/i.test(document.title) && location.hash === '#tac', '/pay/#tac is the pay page on TAC');
+    await land('tac/', () => /tac/i.test(document.title), '/tac/ is the Bitcoin-native shielded TAC page');
+  } finally { await n.browser.close(); }
 });
 
 // Any address can be looked up on the points sheet by someone with no wallet: a bad entry is told, a good one is read like the account's own
