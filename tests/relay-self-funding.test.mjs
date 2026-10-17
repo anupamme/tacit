@@ -682,10 +682,12 @@ test('each class has its own daily allowance, and one used up does not touch the
   const farm = await call({ type: 'farmunbond', op: {}, mode: 'settle' });
   ok(farm.status === 429 && farm.body.code === 'free_budget' && farm.body.class === 'farm', `the third farm op (an unbond shares the farm class) is refused, got ${farm.status}`);
   ok(/free relayed settles for today are used up \(2\/2\)/.test(farm.body.error) && /prove-mode and settle it yourself/.test(farm.body.error), 'in the words every page already answers by offering to send it from the holder\'s own account');
-  for (const t of ['bridgemint', 'cbtcmint', 'bridgemint']) ok((await call({ type: t, op: {}, mode: 'settle' })).status === 200, `${t} still has onboarding room after farm is full`);
-  ok((await call({ type: 'bridgemint', op: {}, mode: 'settle' })).status === 429, 'onboarding is refused after its own three');
+  for (const t of ['cbtcmint', 'cbtcmint', 'cbtcmint']) ok((await call({ type: t, op: {}, mode: 'settle' })).status === 200, `${t} still has onboarding room after farm is full`);
+  ok((await call({ type: 'cbtcmint', op: {}, mode: 'settle' })).status === 429, 'onboarding (a cBTC mint) is refused after its own three');
+  ok((await call({ type: 'bridgemint', op: {}, mode: 'settle' })).status === 200, 'a bridge mint is a class of its own, with no allowance set: untouched by onboarding being full');
   ok((await call({ type: 'wrap', op: {}, mode: 'settle' })).status === 200 && (await call({ type: 'wrap', op: {}, mode: 'settle' })).status === 429, 'an untipped wrap has one, then is refused');
-  ok((await call({ type: 'cdpmint', op: {}, mode: 'settle' })).status === 200 && (await call({ type: 'stealthclaim', op: {}, mode: 'settle' })).status === 429, 'everything else shares "other"');
+  ok((await call({ type: 'stealthclaim', op: {}, mode: 'settle' })).status === 200 && (await call({ type: 'stealthrefund', op: {}, mode: 'settle' })).status === 429, 'everything else shares "other"');
+  ok((await call({ type: 'cdpmint', op: {}, mode: 'settle' })).status === 200 && (await call({ type: 'cdpclose', op: {}, mode: 'settle' })).status === 200, 'a cUSD loan or repayment is a class of its own, not "other"');
 });
 test('a class with no allowance set is bounded only by the total, and 0 means none', async () => {
   const none = sponsored({});

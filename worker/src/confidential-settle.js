@@ -510,9 +510,10 @@ export function makeConfidentialSettler({ storage, hash, now, feeGate, priceFee,
     && !/unexecutable|execution failed|failed to execute|exceeded cycle limit|VKEY|stale|feeGate|reverted|fee below|did not pass/i.test(m);
   const RETRY_DELAY_MS = 3 * 60_000;
   // A failure that was not the holder's: the relay's own, as above, or the pool's burn root moving past the one a bridge mint was built
-  // on while it waited, or its deadline passing in the relay's queue. The holder's day of free settles was spent on a settle that did
-  // not happen, so it is given back (`refund`), once: the charge leaves the job as it is refunded.
-  const NOT_THE_HOLDERS = (m) => RELAY_SIDE_FAILURE(m) || /moved on while this mint was waiting|0x8a98f245|waited in the queue past its deadline/i.test(m);
+  // on while it waited, or its deadline passing in the relay's queue, or the relay declining to prove an op that could only revert (it says
+  // so: "not proved", "nothing was spent"). The day of free settles was spent on a settle that did not happen, so it is given back (`refund`),
+  // once: the charge leaves the job as it is refunded. It also keeps ops that were never going to be proved from using up the allowances.
+  const NOT_THE_HOLDERS = (m) => RELAY_SIDE_FAILURE(m) || /moved on while this mint was waiting|0x8a98f245|waited in the queue past its deadline| not proved: |nothing was spent|nothing was taken/i.test(m);
   async function ackJobLocked(jobId, { txHash, error, publicValues, proof, activateTx, activateError, broadcastHashes, settledBy, open, requeue, release, lane }) {
     const j = await storage.getJob(jobId);
     if (!j) return { ok: false, reason: 'unknown job' };

@@ -108,6 +108,12 @@ const sp = cleanSponsorship({ day: '2026-10-15', total: { used: 14, cap: 300 }, 
 ok(sp.total.used === 14 && sp.total.cap === 300 && sp.classes.onboard.cap === 12 && sp.classes.farm.used === 8 && !('evil' in sp.classes) && !('junk' in sp), 'the allowances are copied field by field');
 ok(sp.classes.wrap.used === 0 && sp.classes.wrap.cap === null && sp.classes.other.used === 0 && sp.classes.other.cap === null, 'junk reads as zero used, and a limit that is not a number is no limit');
 ok(sp.classes.bridge.used === 0 && sp.classes.bridge.cap === null && cleanSponsorship({ day: '2026-10-17', total: { used: 1, cap: 300 }, classes: { bridge: { used: 9, cap: null } } }).classes.bridge.used === 9, 'bridge mints are a class of their own, with no limit when none is set');
+{
+  const g = cleanSponsorship({ day: '2026-10-17', total: { used: 1, cap: 1200 }, classes: { cusd: { used: 4, cap: null } }, cheapGas: { on: true, gwei: 0.0456789, limit: 0.06, mult: 4, secret: 'x' } });
+  ok(g.cheapGas.on === true && g.cheapGas.gwei === 0.04568 && g.cheapGas.limit === 0.06 && g.cheapGas.mult === 4 && !('secret' in g.cheapGas), 'the cheap-gas rule\'s state is passed on, rounded, and nothing else');
+  ok(g.classes.cusd.used === 4 && g.classes.cusd.cap === null, 'cUSD ops are a class of their own');
+  ok(cleanSponsorship({ day: '2026-10-17', total: {}, classes: {} }).cheapGas === null && cleanSponsorship({ day: '2026-10-17', total: {}, classes: {}, cheapGas: { on: 'yes', gwei: 'x' } }).cheapGas.on === false, 'without it the field is null, and a bad one reads as off');
+}
 ok(cleanSponsorship(null) === null && cleanSponsorship('x') === null && cleanSponsorship({ day: 'today' }).day === null, 'nothing, or a bad day, is null');
 {
   const p = cleanSponsorship({ day: '2026-10-16', total: { used: 1, cap: 2 }, classes: {}, prove: { used: 41, cap: 150, perClient: 20, secret: 1 } }).prove;

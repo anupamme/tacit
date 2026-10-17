@@ -1817,8 +1817,11 @@ async function handleRelayEconomics(env, cors) {
   }
   // What the relay has paid for today against each allowance (the counters the submit route spends).
   const bkv = env.CONFIDENTIAL_KV || env.REGISTRY_KV, used = async (name) => { try { return Number((await bkv.get(budgetKey(name))) || 0); } catch { return 0; } };
-  const sponsorship = { day: new Date().toISOString().slice(0, 10), total: { used: await used('free'), cap: Number(env.FREE_RELAY_DAILY_CAP || 300) }, classes: {} };
-  for (const k of FREE_CLASSES) sponsorship.classes[k] = { used: await used(`free:${k}`), cap: freeClassCap(env, k) };
+  // The allowances in force now: opened while gas is cheap (see cheapGas), with the state of that rule beside them.
+  const cheap = await cheapGas(env), mult = cheapMult(env);
+  const sponsorship = { day: new Date().toISOString().slice(0, 10), total: { used: await used('free'), cap: Math.floor(Number(env.FREE_RELAY_DAILY_CAP || 300) * (cheap.on ? mult : 1)) }, classes: {},
+    cheapGas: { on: cheap.on, gwei: cheap.gwei, limit: cheap.limit, mult } };
+  for (const k of FREE_CLASSES) sponsorship.classes[k] = { used: await used(`free:${k}`), cap: effectiveCap(freeClassCap(env, k), cheap.on, mult, SPONSORED_CLASSES.has(k)) };
   sponsorship.prove = { used: await used('prove'), cap: Number(env.PROVE_MODE_DAILY_CAP || 150), perClient: Number(env.PROVE_MODE_CLIENT_DAILY_CAP || 20) };
   return jsonResponse(buildEconomics({ ledger: hb && hb.ledger, heartbeatAt: hb && hb.ts, chain, tips, prices: _econPrices.v, sponsorship }), 200, { ...cors, 'Cache-Control': 'public, max-age=60' });
 }
@@ -3215,26 +3218,59 @@ const proveClientBudget = (env, ip) => (!ip || ip === 'anon' ? Promise.resolve({
 // Relayed ops that carry NO fee at all (fee-less by design: wrap, cbtcmint …, or a zero-fee bridgemint) are a deliberate
 // subsidy, and the per-IP bucket bounds one source, not many. Same two rules as the prove budget: spent only on
 // an ACCEPTED, non-deduped job (junk can't drain it), and refusal says what to do instead.
-const freeRelayBudget = (env) => dailyBudget(env, 'free', Number(env.FREE_RELAY_DAILY_CAP || 300));
+// While gas is cheap the relay sponsors as much as it can. A free settle costs the relay its gas, a few cents at 0.05 gwei, and a proof of
+// about a PROVE. Below FREE_RELAY_CHEAP_GWEI (0.06 unless set; 0 turns this off) the allowances open: the classes that bring value in (a bridge
+// mint, a cBTC mint, a cUSD loan, repayment or top-up) have no class allowance, and every other allowance and the day's total are multiplied by
+// FREE_RELAY_CHEAP_MULT (4). It stays open for a quarter of an hour after gas was last seen cheap, so a price that ticks over the line does not
+// shut it mid-session. Gas that cannot be read, or a relay whose prover credit is under what it keeps for its Bitcoin attests
+// (PROVE_MODE_MIN_CREDIT), leaves the allowances as they are.
+const SPONSORED_CLASSES = new Set(['bridge', 'onboard', 'cusd']);
+const CHEAP_WINDOW_MS = 15 * 60e3;
+const _cheapState = new WeakMap();
+async function cheapGas(env) {
+  const limit = Number(env.FREE_RELAY_CHEAP_GWEI === undefined || env.FREE_RELAY_CHEAP_GWEI === '' ? 0.06 : env.FREE_RELAY_CHEAP_GWEI);
+  if (!(limit > 0)) return { on: false, gwei: null, limit: 0 };
+  let s = _cheapState.get(env);
+  if (!s) { s = { at: 0, until: 0, gwei: null }; _cheapState.set(env, s); }
+  const t = Date.now();
+  if (t - s.at >= Number(env.FREE_RELAY_GAS_TTL_MS ?? 30000)) {
+    s.at = t;
+    try { s.gwei = Number(BigInt(await _ethGasPrice('mainnet'))) / 1e9; if (s.gwei < limit) s.until = t + Number(env.FREE_RELAY_CHEAP_WINDOW_MS ?? CHEAP_WINDOW_MS); } catch { s.gwei = null; }
+  }
+  let on = s.until > t;
+  if (on) {
+    const st = await relayState(env).catch(() => null);
+    if (st && st.credit != null && st.credit < Number(env.PROVE_MODE_MIN_CREDIT || 40)) on = false;
+  }
+  return { on, gwei: s.gwei, limit };
+}
+const cheapMult = (env) => { const m = Number(env.FREE_RELAY_CHEAP_MULT || 4); return m >= 1 ? m : 1; };
+const effectiveCap = (cap, on, mult, sponsored) => (cap == null ? null : on ? (sponsored ? null : Math.floor(cap * mult)) : cap);
+async function freeRelayBudget(env) {
+  const c = await cheapGas(env);
+  return dailyBudget(env, 'free', Math.floor(Number(env.FREE_RELAY_DAILY_CAP || 300) * (c.on ? cheapMult(env) : 1)));
+}
 // The sponsored settles are bounded by CLASS as well as in total, so what the relay chooses to pay for is a budget it sets and not whatever
 // arrives first: onboarding (a cBTC mint) is kept apart from bringing TAC in from Bitcoin (a bridge mint), farm upkeep (harvest, unbond, bond), untipped wraps, and the rest.
 // A bridge mint is the mint of a recorded burn (worker/src/bridgemint-admit.js) and one burn takes a few a day, so it is bounded by real burns; it has no
-// class allowance unless FREE_RELAY_CAP_BRIDGE sets one, and only the total applies.
-// FREE_RELAY_CAP_ONBOARD / _BRIDGE / _FARM / _WRAP / _SEND / _OTHER set each day's allowance; one that is not set has no class limit (only the total applies),
+// class allowance unless FREE_RELAY_CAP_BRIDGE sets one, and only the total applies. A cUSD loan, repayment or top-up has a class of its own (cusd).
+// FREE_RELAY_CAP_ONBOARD / _BRIDGE / _CUSD / _FARM / _WRAP / _SEND / _OTHER set each day's allowance; one that is not set has no class limit (only the total applies),
 // and 0 means none at all. Over its allowance an op is refused in the same words as the total, which every page already answers by offering
 // to send it from the holder's own account (the relay still proves it).
 // A private send's lock (stealthlock) carries no fee leg by design: its relay fee was paid by the cut that made its note, so it has a
 // class of its own (FREE_RELAY_CAP_SEND) and the day's merges, pool adds and the rest cannot use up the sends.
-const FREE_CLASS = { bridgemint: 'bridge', cbtcmint: 'onboard', farmharvest: 'farm', farmunbond: 'farm', farmbond: 'farm', wrap: 'wrap', stealthlock: 'send', stealthlockbatch: 'send' };
-const FREE_CLASSES = ['onboard', 'bridge', 'farm', 'wrap', 'send', 'other'];
+const FREE_CLASS = { bridgemint: 'bridge', cbtcmint: 'onboard', cdpmint: 'cusd', cdpclose: 'cusd', cdptopup: 'cusd', cdpliquidate: 'cusd', farmharvest: 'farm', farmunbond: 'farm', farmbond: 'farm', wrap: 'wrap', stealthlock: 'send', stealthlockbatch: 'send' };
+const FREE_CLASSES = ['onboard', 'bridge', 'cusd', 'farm', 'wrap', 'send', 'other'];
 const freeClassOf = (type) => FREE_CLASS[String(type)] || 'other';
 const freeClassCap = (env, cls) => { const raw = env[`FREE_RELAY_CAP_${cls.toUpperCase()}`]; return raw == null || String(raw).trim() === '' || !(Number(raw) >= 0) ? null : Math.floor(Number(raw)); };
 async function freeClassBudget(env, cls) {
-  const cap = freeClassCap(env, cls);
-  if (cap == null) return { ok: true, used: 0, cap: null };
+  const base = freeClassCap(env, cls);
+  if (base == null) return { ok: true, used: 0, cap: null };
+  const c = await cheapGas(env);
+  const cap = effectiveCap(base, c.on, cheapMult(env), SPONSORED_CLASSES.has(cls));
   const kv = env.CONFIDENTIAL_KV || env.REGISTRY_KV;
   const used = kv ? Number((await kv.get(budgetKey(`free:${cls}`))) || 0) : 0;
-  return { ok: used < cap, used, cap };
+  return cap == null ? { ok: true, used, cap: null } : { ok: used < cap, used, cap };
 }
 const isFeeless = (type, op) => { try { return !!op && typeof op === 'object' && totalFee(type, op) === 0n; } catch { return false; } };
 

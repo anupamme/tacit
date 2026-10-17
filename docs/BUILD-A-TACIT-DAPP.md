@@ -1083,6 +1083,14 @@ tries); a caller that builds its own op does the same. A mint with no fee spends
 settles (`free_budget` when they are used up, after which it can be sent from the holder's own account), and one
 burn takes at most four of them a day.
 
+The relay's free settles are counted per day and per class (`GET /relay/economics`, `sponsorship`): bridge mints
+(`bridge`), cBTC mints (`onboard`), cUSD loans, repayments and top-ups (`cusd`), farm upkeep, untipped wraps, private
+sends and the rest. While gas is cheap (under `FREE_RELAY_CHEAP_GWEI`, 0.06 unless set, for as long as the relay holds
+the prover credit it keeps for its Bitcoin attests) the allowances open: the bridge, cBTC and cUSD classes have no
+daily limit, and every other limit and the day's total are multiplied by `FREE_RELAY_CHEAP_MULT` (4). `sponsorship.cheapGas`
+says whether that is on, and the figures in `classes` and `total` are the ones in force. A job the relay declines to
+prove (it says "not proved" or "nothing was spent"), or fails on its own account, gives its settle back.
+
 The TAC round trip linked above is a real, fully independent-verified example of exactly this: an Ethereum
 crossOut, its Bitcoin-side re-mint, a Bitcoin-side return burn, and the mint back on Ethereum — four
 separate settled transactions, each hash checked against live chain state before being written down here.
