@@ -22,6 +22,7 @@
 const U64_MAX = (1n << 64n) - 1n;
 const SIGHASH_SINGLE_ACP = 0x83;
 const SEQ = 0xfffffffd;
+const T_CXFER_BOUND = 0x39;
 
 // resolveNote for buyAndShield from tacit.js exports: the outpoint must pass validateOutpoint (full ancestry),
 // then its asset and commitment are read from the envelope that defines it.
@@ -30,6 +31,7 @@ export function makeNoteResolver({ validateOutpoint, txOutputEnvelope, getParent
     if ((await validateOutpoint(txid, vout, new Map(), fetchTx)) !== true) return null;
     const tx = await fetchTx(txid);
     const env = tx ? txOutputEnvelope(tx) : null;
+    if (env && env.opcode === T_CXFER_BOUND) return null; // homed to a pool deployment: the pool takes it as no shield input
     const pd = env ? await getParentEnvelopeData(env, vout, txid) : null;
     return pd ? { assetIdHex: pd.assetIdHex, commitment: pd.commitment } : null;
   };

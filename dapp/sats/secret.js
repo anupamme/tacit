@@ -135,11 +135,14 @@ export async function claim(tacit, { status, sale, onProgress } = {}) {
 }
 
 // ── carriers ──
+// A transfer homed to a pool deployment (T_CXFER_BOUND) is spent on Ethereum; the Bitcoin pool refuses it as a shield input.
+const T_CXFER_BOUND = 0x39;
 // Checks (amount, blinding) opens the commitment that defines txid:vout, and returns it as (Cx, Cy).
 async function onChainNote(tacit, assetId, txid, vout, amount, blinding) {
   const tx = await esplora(tacit, `/tx/${txid}`);
   if (!tx) throw new Error(`${txid} not visible`);
   const env = tacit.txOutputEnvelope(tx);
+  if (env && env.opcode === T_CXFER_BOUND) throw new Error(`${txid}:${vout} is bound to a pool deployment, so the Bitcoin pool cannot take it`);
   const pd = env ? await tacit.getParentEnvelopeData(env, vout, txid) : null;
   if (!pd || String(pd.assetIdHex).toLowerCase() !== assetId) throw new Error(`${txid}:${vout} is not a note of ${assetId}`);
   const xy = pool.commitXY(amount, blinding);
@@ -249,6 +252,8 @@ export async function buyAndShield(tacit, { status, sale, poolWallet, say = () =
   const amount = BigInt(sale.asset_opening.amount), blinding = BigInt('0x' + sale.asset_opening.blinding);
   const c = await onChainNote(tacit, assetId, lot.txid, lot.vout, amount, blinding);
   if (c.value !== Number(lot.value)) throw new Error('listed lot value does not match the chain');
+  // The lot must trace to a valid note of the asset on Bitcoin, as every other buy checks: the pool refuses a shield input that does not.
+  await tacit.requireValidatedLot(lot.txid, lot.vout, 'the listed lot');
   const sellerPub = hexToBytes(sale.seller_pubkey);
   const sh = pool.buildShieldEnvelope({
     asset: '0x' + assetId,
