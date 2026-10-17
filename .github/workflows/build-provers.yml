@@ -3,6 +3,8 @@
 # committed (elf/cxfer-guest, pinned in elf-vkey-pin.json) and include_bytes!'d — no guest rebuild, no pool redeploy.
 # Trigger manually (workflow_dispatch); pick which ops to build.
 name: build-provers
+permissions:
+  contents: read
 on:
   workflow_dispatch:
     inputs:
@@ -17,7 +19,7 @@ jobs:
     runs-on: ubuntu-22.04   # GLIBC 2.35 <= Bookworm runtime 2.36 (ubuntu-latest/24.04 = 2.39, too new)
     permissions: { contents: write }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install build deps (protoc for sp1-prover-types)
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
       - name: Install SP1 toolchain
@@ -34,13 +36,14 @@ jobs:
           sed -i 's/features = \["blocking", "native-gnark"\]/features = ["blocking", "network"]/; s/, *"native-gnark"//' harnesses/Cargo.toml
           grep -q '"network"' harnesses/Cargo.toml && ! grep -q '"native-gnark"' harnesses/Cargo.toml
       - name: Build each op
+        env: { OPS: '${{ github.event.inputs.ops }}' }
         run: |
           cd contracts/sp1/confidential
-          chmod +x build-all-network.sh && ./build-all-network.sh ${{ github.event.inputs.ops }}
+          chmod +x build-all-network.sh && ./build-all-network.sh $OPS
       - name: Upload to release
-        env: { GH_TOKEN: '${{ github.token }}' }
+        env: { GH_TOKEN: '${{ github.token }}', RELEASE: '${{ github.event.inputs.release }}' }
         run: |
           cd contracts/sp1/confidential/dist
-          for b in exec-*; do gh release upload "${{ github.event.inputs.release }}" "$b" --clobber; done
+          for b in exec-*; do gh release upload "$RELEASE" "$b" --clobber; done
           echo "uploaded: $(ls exec-* | tr '\n' ' ')"
           echo "Update worker-relay/prover/bin/SHA256SUMS from:"; cat SHA256SUMS
