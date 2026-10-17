@@ -174,8 +174,8 @@ function airdropCard(s, address) {
 // Where the program is: its day, and when today's points settle (the day's end and the service's grace), after which they can be claimed.
 function clockLine(c) {
   const ms = c.settleAt - Date.now(), h = Math.floor(ms / 3600e3), m = Math.ceil(ms / 60e3);
-  const left = ms <= 0 ? 'now' : h >= 1 ? `in about ${h} h` : `in ${m} min`, at = new Date(c.settleAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
-  return `Day ${c.day} of ${c.days} · today's points can be claimed from ${at} UTC (${left})`;
+  const left = ms <= 0 ? 'now' : h >= 1 ? `~${h} h` : `${m} min`, at = new Date(c.settleAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+  return `Day ${c.day} of ${c.days} · today's points claimable from ${at} UTC (${left})`;
 }
 function pointsCard(p, address) {
   if (p.error) return card('Points', '<p class="st warn">Could not read points just now. Look up again in a moment.</p>');

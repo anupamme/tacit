@@ -3799,7 +3799,7 @@ await step('rewardsfolds', async () => {
     const read = (sel) => n.page.$eval(sel, (e) => e.innerText.replace(/\s+/g, ' ').trim()), kv = await read('#c-pts .kv');
     ok(/Today 1,000 points · 0\.050% of the day · about 0\.5 TAC/.test(kv), `rewardsfolds: today's share of the day's pot, in points, percent and TAC (${kv.trim()})`);
     const clk = await read('#c-pts .clock');
-    ok(/^Day 25 of 90 · today's points can be claimed from 00:30 UTC \((in about \d+ h|in \d+ min|now)\)$/.test(clk), `rewardsfolds: the program's day and when today's points can be claimed (${clk})`);
+    ok(/^Day 25 of 90 · today's points claimable from 00:30 UTC \((~\d+ h|\d+ min|now)\)$/.test(clk), `rewardsfolds: the program's day and when today's points can be claimed (${clk})`);
     ok(dayCalls === 0 && !(await n.page.$eval('#c-pts [data-days]', (d) => d.open)), 'rewardsfolds: the days are not read until the fold is opened');
     await n.page.click('#c-pts [data-days] > summary');
     await n.page.waitForSelector('#c-pts .rows li', { timeout: 20000 });
