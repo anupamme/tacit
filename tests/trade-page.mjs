@@ -105,6 +105,9 @@ async function openPage(viewport, wallet = null, hash = '', path = '/trade/', { 
     seen.api.push(new URL(route.request().url()).pathname.replace(/^\/assets\/[0-9a-f]{64}/, '')); seen.apiT.push(Date.now());
     return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(apiBody(route.request().url())) });
   });
+  // The points program's terms, stubbed so a pass shows they are read: ETH swapped into TAC pays 1,000 points an ETH.
+  await ctx.route(/^https:\/\/api\.tacit\.finance\/leaderboard/, (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
+    body: JSON.stringify({ day: 1, programDay: 1, programDays: 90, program: { startDay: 1, days: 90, dayBudgetWei: '1111111111111111111111', rates: { zswapeth: 1000 }, weights: [{ fromDay: 1, weights: {} }] }, totalPoints: 0, dayBudgetWei: '1111111111111111111111', taking: 0, rows: [] }) }));
   const page = await ctx.newPage(), errors = [], blocked = [];
   page.on('pageerror', (e) => errors.push(String(e.message || e)));
   page.on('console', (m) => { if (m.type() === 'error') { const t = m.text(); (/Content Security Policy|Refused to/i.test(t) ? blocked : errors).push(t); } });
@@ -266,6 +269,9 @@ try {
   const route = (await text(p, '#route')).replace(/\s+/g, ' ');
   ok((await contrast(p, '.splitbar .pp')) >= 4.5 && (await contrast(p, '.splitbar .tp')) >= 4.5, `the split bar's labels read on the colours behind them (${(await contrast(p, '.splitbar .pp')).toFixed(2)}, ${(await contrast(p, '.splitbar .tp')).toFixed(2)})`);
   ok(/Split across two pools \+[\d.]+%/.test(route) && /Precision \d+%\s*Tacit \d+%/.test(route) && !!(await p.$('#route .splitbar')), `2 ETH is quoted as a split, drawn as a bar of the two pools with what it gains (${route.slice(0, 160)})`);
+  await until(p, () => /Points\s*[\d,]+\+ points/.test(document.querySelector('#route')?.textContent || ''), null, 60000);
+  const earned = Number(((await text(p, '#route')).match(/Points\s*([\d,]+)\+ points/) || [])[1]?.replace(/,/g, ''));
+  ok(earned > 0 && earned < 2000, `a split earns on its Precision leg only: ${earned}+ points for 2 ETH, under the 2,000 a whole buy through the Precision pool would`);
   ok(/^[\d,]+(\.\d+)?$/.test((await text(p, '#out')).trim()) && Number((await text(p, '#out')).replace(/,/g, '')) > 2 * 3000, `with the TAC it pays (${await text(p, '#out')}: at least 3,000 TAC to the ETH even after the price impact of 2 ETH)`);
   const rows = await p.$$eval('#venues tbody tr', (t) => t.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
   ok(rows.length >= 5 && rows.length <= 7, `the quotes table holds the places that quote: the pools, the split, the private swap and the Bitcoin book (${rows.length} rows)`);

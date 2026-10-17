@@ -21,6 +21,7 @@ import { makeConnect, UserStopped } from '/trade/connect.js?cb=a8cdf0f7';
 import { takeEarly } from '/trade/rpc.js?cb=842f58a5';
 import { mountFarm } from '/trade/farm.js?cb=e7c9d199';
 import { grp, sig, group, satsFmt, warm as warmFormatters } from '/trade/fmt.js?cb=43646c2e';
+import { makePointsNote } from '/points-note.js?cb=eacef061';
 
 const API = 'https://api.tacit.finance';
 const TAC_BTC_ID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
@@ -46,6 +47,9 @@ const ethCall = (to, data, block = 'latest', o = {}) => rpc('eth_call', [{ to, d
 const batch = async (calls) => _internal.decAggregate3(await ethCall(MULTICALL3, _internal.encAggregate3(calls)), calls.length);
 const venues = makeEvmTradeVenues({ ethCall, keccak256: keccak_256 });
 const api = (path) => fetch(`${API}${path}`, { signal: AbortSignal.timeout(15e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+// What a buy through the Precision pool earns in the points program (the terms are read once, never waited for, and the ticket repaints when they arrive).
+const PN = makePointsNote({ read: () => api('/leaderboard?day=today&limit=1') });
+PN.load().then(() => { if (S.quote && !S.quote.busy) renderQuote(S.quote); });
 
 // The private pool's id for TAC and tETH at a fee tier: keccak256(lower asset id ++ higher ++ fee as 32 bytes).
 function privatePoolId(fee) {
@@ -608,11 +612,13 @@ function renderQuote(q) {
   $('#out-usd').textContent = usdOut ? `≈ ${usdOut}` : '';
   const priceTxt = `${D.ethUsd ? `${usd(usdOf(perTac))} · ` : ''}${sig(perTac)} ETH per TAC`;
   const split = via === 'pools' && rt.pick === 'split' ? rt.split : null;
+  // Only ETH put into the Precision pool scores: the Tacit pool earns none, and a split earns on its first leg.
+  const pts = buy && via === 'pools' ? PN.floor(split ? split.legs[0].amountIn : rt.single.venue === 'precision' ? wei : 0n) : '';
   route.innerHTML = (split
     ? html`<div class="kv"><span>Route</span><b>Split across two pools${split.gainBps >= 1 ? ` <i class="gain">+${(split.gainBps / 100).toFixed(split.gainBps < 100 ? 2 : 1)}%</i>` : ''}</b></div>
       <div class="splitbar" role="img" aria-label="${esc(splitWhat(split))}"><span style="flex:${splitShare(split)}" class="pp">Precision ${splitShare(split)}%</span><span style="flex:${100 - splitShare(split)}" class="tp">Tacit ${100 - splitShare(split)}%</span></div>`
     : html`<div class="kv"><span>Route</span><b>${esc(name)}</b></div>`)
-    + html`<div class="kv"><span>Price</span><b>${esc(priceTxt)}</b></div>` + (split ? '' : note)
+    + html`<div class="kv"><span>Price</span><b>${esc(priceTxt)}</b></div>` + (pts ? html`<div class="kv"><span>Points</span><b>${pts}</b></div>` : '') + (split ? '' : note)
     + detailsHtml(planOf(q))
     + (q.priv && via === 'pools' ? html`<p class="privnote"><a href="${esc(privLink(q))}">Swap privately through the Tacit pool →</a></p>` : '');
   // A sale through the Tacit pool alone takes an approval of the TAC (once per amount the pool may spend); every other sale takes a permit, signed for free.

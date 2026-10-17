@@ -11,6 +11,7 @@ import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venue
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=a8cdf0f7';
 import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18 } from '/trade/util.js?cb=c3dc39b3';
 import * as R from '/swap/route.js?cb=9a5d9c69';
+import { makePointsNote } from '/points-note.js?cb=eacef061';
 
 const CHAINLINK = { eth: '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419', btc: '0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c' };
 const PRECISION_POOL = '0x0155358241411dB868BA714aE7c83A27087e3D6E', FARM = '0x0000003bF4BA0B21f5e0d35119b337F4d4CF82E0';
@@ -28,24 +29,10 @@ const batch = async (calls) => V.decAggregate3(await ethCall(MULTICALL3, V.encAg
 const venues = makeEvmTradeVenues({ ethCall, keccak256: keccak_256 });
 // zQuoter reads every pool it knows in one call: a node slow to answer is not waited on past ten seconds.
 const within = (p, ms, why) => Promise.race([p, new Promise((_, no) => setTimeout(() => no(new Error(why)), ms))]);
-// What the points program pays for ETH swapped into TAC through the Precision pool, per ETH and at least (its early bonus and the TAC-holder
-// tiers only add to it): from the points service's terms, read once in ten minutes and never waited for. 0 until read, when they cannot be,
-// or when the day's weight for it is none.
-const PTS = { at: 0, rate: 0 };
-async function pointsPerEth() {
-  if (Date.now() - PTS.at < 600e3) return PTS.rate;
-  PTS.at = Date.now();
-  try {
-    const r = await fetch('https://api.tacit.finance/leaderboard?day=today&limit=1', { signal: AbortSignal.timeout(8000) });
-    const p = r.ok ? (await r.json())?.program : null, day = Math.floor(Date.now() / 86400e3);
-    const w = Number([...(p?.weights || [])].reverse().find((e) => e.fromDay <= day)?.weights?.zswapeth ?? 1), rate = Number(p?.rates?.zswapeth);
-    PTS.rate = Number.isFinite(rate) && rate > 0 && Number.isFinite(w) && w > 0 ? rate * w : 0;
-  } catch { PTS.at = Date.now() - 540e3; }                                  // asked again in a minute
-  return PTS.rate;
-}
-// A buy's rows say what each earns: the Precision pool's share of the ETH is what scores, so the Tacit pool earns none and a split earns on its first leg.
-const ptsOf = (eth) => { const n = PTS.rate ? Math.floor(Number(eth) / 1e18 * PTS.rate) : 0; return n >= 1 ? `${n.toLocaleString('en-US')}+ points` : ''; };
-const noteOf = (x, q) => [x.note, q?.dir === 'ETH_TO_TAC' ? ptsOf(x.k === 'precision' ? q.wei : x.k === 'split' ? x.split?.legs?.[0]?.amountIn : 0n) : ''].filter(Boolean).join(' · ');
+// What each ETH → TAC route says it earns in the points program (the terms are read once, never waited for): the Precision pool's share of the
+// ETH is what scores, so the Tacit pool earns none and a split earns on its first leg.
+const PN = makePointsNote({ read: () => fetch('https://api.tacit.finance/leaderboard?day=today&limit=1', { signal: AbortSignal.timeout(8000) }).then((r) => (r.ok ? r.json() : null)) });
+const noteOf = (x, q) => [x.note, q?.dir === 'ETH_TO_TAC' ? PN.floor(x.k === 'precision' ? q.wei : x.k === 'split' ? x.split?.legs?.[0]?.amountIn : 0n) : ''].filter(Boolean).join(' · ');
 const txLink = (h) => `<a href="https://etherscan.io/tx/${esc(h)}" target="_blank" rel="noopener noreferrer">${esc(h.slice(0, 10))}…↗</a>`;
 
 // ── the tokens ──
@@ -421,6 +408,7 @@ async function go() {
     say(`Done ${txLink(h)}: ${isEth(P.get) ? `about ${tidy(amtFmt(P.r.out, g.dec))} ETH to your wallet` : got != null && got > 0n ? `${tidy(amtFmt(got, g.dec))} ${esc(g.sym)} in your wallet` : `${esc(g.sym)} sent to your wallet`}.${!isEth(P.get) ? ` <button type="button" class="link" data-watch="${esc(g.addr)}">Add ${esc(g.sym)} to your wallet</button>` : ''}${S.lastBuy ? ` · <button type="button" class="link" data-farm-it>Farm it</button>` : ''}`, 'ok', true);
     live('Swap done');
     readBalances().then(() => paintSides());
+    readPrices().catch(() => {});                                             // the price the next quote is judged against moved with this swap
   } catch (e) {
     S.busy = false; paintQuote();
     say(e instanceof UserStopped || e?.userStopped ? 'Cancelled in your wallet. Nothing was sent.' : `<span class="err">${e?.message?.includes('<a ') ? e.message : esc(e?.message || String(e)).slice(0, 300)}</span>`, '', true);
@@ -733,5 +721,5 @@ if (S.tab === 'swap' && matchMedia('(pointer: fine)').matches && !location.hash)
 if (S.tab === 'earn') { paintEarn(); }
 readPrices().then(() => { paint(); if (S.amt) requote(true); if (S.tab === 'earn') readFarms().then(paintEarn, paintEarn); }).catch(() => { if (S.amt) requote(true); });
 gasPrice();
-pointsPerEth().then(() => { if (S.q?.rows && !S.q.busy) paintQuote(); }, () => {});
+PN.load().then(() => { if (S.q?.rows && !S.q.busy) paintQuote(); }, () => {});
 setInterval(() => { if (document.hidden) return; readPrices().catch(() => {}); if (S.q && !S.busy && !S.q.busy && now() - (S.q.at || 0) > (S.q.kind === 'any' ? 55 : 25) && kindOf(S.pay, S.get) !== 'private') requote(true); }, 30e3);   // zQuoter's scan is heavy: a minute between
