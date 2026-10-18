@@ -1092,7 +1092,7 @@ function renderBorrow() {
   if (BW.q && BW.key === key) setHtml(el, borrowHtml(BW.q, tac));
   if ((BW.key === key && now() - BW.at < 60) || BW.busy) return;
   BW.busy = true;
-  (BW.mod ||= import('/vault/quote.js?cb=b969065e').catch((e) => { BW.mod = null; throw e; })).then((m) => m.quoteBorrow({ tac, account: who, rpc }))
+  (BW.mod ||= import('/vault/quote.js?cb=f2d028c1').catch((e) => { BW.mod = null; throw e; })).then((m) => m.quoteBorrow({ tac, account: who, rpc }))
     .then((q) => { BW.q = q; }, (e) => { console.warn('borrow quote:', e?.message || e); BW.q = null; })   // a failed read leaves the plain line, and is tried again in a minute
     .then(() => { BW.key = key; BW.at = now(); })
     .finally(() => { BW.busy = false; if (W.account && `${lc(W.account)}:${S.bal?.tac}` === key) setHtml(el, borrowHtml(BW.q, tac)); else renderBorrow(); });
