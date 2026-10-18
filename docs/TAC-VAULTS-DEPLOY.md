@@ -41,6 +41,20 @@ Without Foundry, send the transactions in `payload.json` in order (`to`, `data`,
 confidential pool. A page can do the same: for each deployment, read the code at `expectedAddress` and send the
 transaction only if there is none; check `tools/tac-vaults-check.mjs` passes for the payload it ships.
 
+## The router
+
+`contracts/src/TacVaultRouter.sol` is a separate, later contract for one thing: a person who wants to borrow (or take TAC out with a
+debt) while the oracle waits for price records can make the records, move TAC in with a permit and borrow on a signature in **one
+transaction** from any wallet. A vault acts for its caller, so a shared batcher cannot carry the action; the router can because it acts only
+for `msg.sender` (the TAC is theirs, the vault credited is theirs, the recipient is the signer). It is stateless, has no owner or
+settings, is bound at construction to the two vaults, and records only on the venues of the oracle such a vault reads. Wallets that can
+send a batch themselves (EIP-5792) do not need it: the dapp uses their batch first.
+
+    forge script script/DeployTacVaultRouter.s.sol --rpc-url $RPC --broadcast --account <account>
+
+It deploys through CreateX like the rest (a chain-bound salt: `ROUTER_SALT` to mine an address with leading zero bytes, the default
+otherwise), checks its bindings, and prints the address to put in `dapp/vault/deployments.js` (`router`). Until then the dapp does without it.
+
 ## Checking
 
 - `node tools/tac-vaults-check.mjs payload.json contracts/deployments/tac-vaults.json` re-derives every hash and address
