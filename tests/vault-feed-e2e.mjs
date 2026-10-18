@@ -64,7 +64,11 @@ try {
       if (method === 'eth_requestAccounts' || method === 'eth_accounts') return [acct];
       if (method === 'eth_chainId') return '0x1';
       if (method === 'wallet_switchEthereumChain') return null;
-      if (method === 'eth_sendTransaction') return window.__fork('eth_sendTransaction', params);
+      if (method === 'eth_sendTransaction') {
+        window.__sends = (window.__sends || 0) + 1;
+        if (window.__stallAt === window.__sends) return new Promise(() => {});          // a wallet that never answers this one
+        return window.__fork('eth_sendTransaction', params);
+      }
       throw Object.assign(new Error(`unsupported ${method}`), { code: -32601 });
     }, on() {}, removeListener() {} };
     const announce = () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail: { info: { uuid: 'test-wallet', name: 'Test wallet', icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>', rdns: 'test.wallet' }, provider } }));
@@ -89,6 +93,22 @@ try {
   await page.waitForTimeout(600);
   if (await page.locator('.picker .way').count()) await page.locator('.picker .way', { hasText: 'Test wallet' }).click();
   await page.waitForFunction(() => /^Record \d+ price/.test(document.querySelector('#feed-go')?.textContent || ''), null, { timeout: 20000 });
+
+  // The wallet answers the first batch and never the second: the page says which batch it waits on, then offers a way out, and the panel is usable again.
+  await page.evaluate(() => { window.__stallAt = 2; });
+  await page.locator('#feed-go').click();
+  const status = () => page.locator('#feed-status').innerText();
+  await page.waitForFunction(() => /Confirm batch 2 of \d+ in your wallet/.test(document.querySelector('#feed-status')?.innerText || ''), null, { timeout: 120000 });
+  const left = Number(/(\d+) to record/.exec(await page.locator('#feed').innerText())[1]);
+  assert.ok(left <= missing - 8, `the counts follow the first batch: ${missing} then ${left}`);
+  assert.equal(await page.locator('[data-feed-stop]').count(), 0, 'no way out offered while the wallet has had only a moment');
+  await page.waitForFunction(() => /Waiting for your wallet to confirm batch 2/.test(document.querySelector('#feed-status')?.innerText || ''), null, { timeout: 40000 });
+  assert.match(await status(), /stop waiting/);
+  await page.locator('[data-feed-stop]').click();
+  await page.waitForFunction(() => /Stopped waiting/.test(document.querySelector('#feed-status')?.innerText || '') && !document.querySelector('#feed-go')?.disabled, null, { timeout: 30000 });
+  assert.equal(await page.locator('#feed-status.err').count(), 0, 'stopping the wait is not an error');
+  console.log(`ok - a wallet that never answers batch 2: the page offers to stop waiting, says so, and the button works again (${left} still to record)`);
+  await page.evaluate(() => { window.__stallAt = 0; });
   await page.locator('#feed-go').click();
   await page.waitForFunction(() => /up to date/.test(document.querySelector('#feed')?.innerText || ''), null, { timeout: 420000 });
   console.log('ok - the page built, tested and sent every batch; the feed reads up to date');

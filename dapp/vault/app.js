@@ -10,7 +10,7 @@ import {
   makeRpc, makeReader, staticCalls, parseStatic, dynamicCalls, parseDynamic, timestampCall, refusal, decString, SEL, wordAt, addrWord, QUEUE_EXPIRY,
   encDeposit, encWithdraw, encBorrow, encRepay, encCancel, encApprove, encPermit, encMulticall,
 } from '/vault/chain.js?cb=b10ae830';
-import { makeFeed, RECORD_GAS, encBatch, MULTICALL3 } from '/vault/feed.js?cb=bdda2346';
+import { makeFeed, RECORD_GAS, PER_TX, encBatch, MULTICALL3 } from '/vault/feed.js?cb=bdda2346';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=7b4ab128';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { announceWalletConnect, wcSheets, WC_PROJECT_ID } from '/walletconnect.js?cb=92886522';
@@ -581,7 +581,9 @@ function renderAll() {
 // Lending needs every ten-minute price of the last eight hours from both venues. When they have not been recorded (a keeper stopped, or none runs), anyone can
 // record them from here: the page builds each record from an archive node and sends them ten at a time through Multicall3, each batch tested first.
 const feed = makeFeed({ rpc, proofRpc: makeRpc(['https://eth.drpc.org']) });
-const F = { by: {}, busy: false, note: '', bad: false, gas: null, at: 0 };            // by: what each vault's venues have recorded (vaults on one oracle share a read)
+const F = { by: {}, busy: false, note: '', bad: false, gas: null, at: 0, stop: null };   // by: what each vault's venues have recorded (vaults on one oracle share a read); stop: ends the wait for the wallet
+const WALLET_HINT_MS = 20e3;                                                          // how long the wallet may stay quiet before the person is offered a way out
+class StopWaiting extends Error { constructor() { super('Stopped waiting. If your wallet still shows the request, reject it there, then record again.'); } }
 const feedOf = (V) => (V ? F.by[V.key] || null : null);
 const oracleOf = (V) => V.oracle || V.addr;
 // A read of the venues, kept for every vault that prices from the same oracle.
@@ -611,6 +613,13 @@ function renderFeed() {
   const go = $('#feed-go');
   if (go) go.onclick = pokeFeed;
 }
+// A wallet that never answers (a request it did not show, a phone nobody picked up) must not lock the panel for good: after a while the person can stop waiting.
+// What the wallet was asked stays with the wallet; if it is confirmed there later, it lands and the next read counts it.
+function askWallet(send, round) {
+  const hint = setTimeout(() => setFeed(`Waiting for your wallet to confirm batch ${round}. Open it to answer, or <button class="linkbtn" type="button" data-feed-stop>stop waiting</button>.`), WALLET_HINT_MS);
+  const stopped = new Promise((_, no) => { F.stop = () => no(new StopWaiting()); });
+  return Promise.race([send(), stopped]).finally(() => { clearTimeout(hint); F.stop = null; });
+}
 async function pokeFeed() {
   if (F.busy) return;
   if (!W.account) { await connectWallet(); return; }
@@ -619,6 +628,7 @@ async function pokeFeed() {
     for (let round = 1; round <= 12; round++) {
       const V = cur(), st = await feed.read(V.addr);
       keepFeed(V, st);
+      renderFeed();                                                  // the counts follow each batch
       if (!st.missing) break;
       const part = feed.nextBatch(st);
       setFeed(`Building ${part.length} record${part.length === 1 ? '' : 's'} (batch ${round})…`);
@@ -633,17 +643,18 @@ async function pokeFeed() {
         setFeed('Someone else is recording too; reading again…');
         continue;
       }
-      setFeed(`Confirm batch ${round} in your wallet (${part.length} record${part.length === 1 ? '' : 's'}).`);
-      const hash = await wallet.sendTx({ to: MULTICALL3, data, from: W.account });
+      setFeed(`Confirm batch ${round} of ${round - 1 + Math.ceil(st.missing / PER_TX)} in your wallet (${part.length} record${part.length === 1 ? '' : 's'}).`);
+      const hash = await askWallet(() => wallet.sendTx({ to: MULTICALL3, data, from: W.account }), round);
       setFeed(`Sent ${txLink(hash)}. Waiting for it to land…`);
       const rc = await wallet.receipt(hash);
       if (rc.status !== '0x1') throw new Error(`The transaction failed (${hash.slice(0, 10)}…). Nothing more was sent.`);
+      setFeed(`Batch ${round} recorded ${txLink(hash)}.`);
     }
     F.busy = false; await loadFeed();
     setFeed(feedOf(cur())?.ready ? 'The price feed is up to date.' : 'Recorded what could be. Some newer prices still need adding: record again.');
   } catch (e) {
     F.busy = false;
-    setFeed(errText(e), !(e instanceof UserStopped));
+    setFeed(errText(e), !(e instanceof UserStopped || e instanceof StopWaiting));
   } finally { F.busy = false; await loadFeed(); refresh(); }
 }
 
@@ -678,6 +689,7 @@ document.addEventListener('click', (e) => {
   if (f && !S.busy) { S.t = 'deposit'; S.amt = f.dataset.fill; $('#amt').value = S.amt; say('', ''); keepInHash(); renderTicket(); $('#ticket').scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); return; }
   if (e.target.closest('[data-more]')) { S.more = !S.more; try { localStorage.setItem(MORE_KEY, S.more ? '1' : '0'); } catch { /* storage is a convenience */ } renderBoard(); return; }
   if (e.target.closest('[data-refresh]')) { if (!S.busy) { refresh(); loadFeed(); } return; }
+  if (e.target.closest('[data-feed-stop]')) { F.stop?.(); return; }
   const feedLink = e.target.closest('[data-tofeed]');
   if (feedLink) { e.preventDefault(); $('#feed')?.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }   // the hash carries the page's own state, so this scrolls rather than links
   if (e.target.closest('[data-connect]')) { connectWallet(); return; }
