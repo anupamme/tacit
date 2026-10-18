@@ -1,11 +1,10 @@
 // tacit.finance/vault: where TACD and TACE sell.
 //
-// What a borrower takes out is worth what it sells for, so each vault's token needs a market against something liquid. These are Precision pools (concentrated: each trades only
-// inside a price band fixed when it is opened), and anyone can open one. deployments.js lists the ones worth opening for each token (TACD against USDC and ETH, TACE against ETH,
-// each at a tight "peg" band and a wide "backstop" band); this module builds the market for each from the vault's token and, where a band follows a live price (TACD against ETH
-// follows ETH/USD), from that price now, reads which of them exist, and finds every other pool the factory holds for the token. A market that is not open yet is created with one
-// click, and seeded in the same transaction if amounts are typed. The pool's arithmetic is repeated here only to say what a deposit will cost before it is sent; the pool settles
-// every figure, and each transaction is tested with eth_call first.
+// What a borrower takes out is worth what it sells for, so each vault's token needs a market against the asset it tracks: TACD against USDC, TACE against ETH. These are Precision
+// pools (concentrated: each trades only inside a price band fixed when it is opened), and anyone can open one. deployments.js lists two for each token — a tight "peg" band and a
+// wide "backstop" — and this module builds the market for each from the vault's token, reads which of them exist, and finds every other pool the factory holds for the token. A
+// market that is not open yet is created with one click, and seeded in the same transaction if amounts are typed. The pool's arithmetic is repeated here only to say what a deposit
+// will cost before it is sent; the pool settles every figure, and each transaction is tested with eth_call first.
 import { word, addrWord, wordAt, SEL, encApprove } from '/vault/chain.js?cb=446cc436';
 import * as M from '/vault/math.js?cb=ac1ed53e';
 import { MULTICALL3 } from '/vault/batch.js?cb=457d6163';
@@ -31,8 +30,6 @@ const REVERTS = {
 
 const ceilDiv = (a, b) => (a + b - 1n) / b;
 const isqrt = (n) => { if (n < 2n) return n; let x = 1n << BigInt((n.toString(2).length + 1) >> 1); for (;;) { const y = (x + n / x) >> 1n; if (y >= x) return x; x = y; } };
-// To `digits` significant digits (the price a band is centred on, so that two people opening it a minute apart mean the same market).
-const roundSig = (v, digits) => { const len = v.toString().length; if (len <= digits) return v; const u = 10n ** BigInt(len - digits); return (v + u / 2n) / u * u; };
 // "9/10", "1.0004" or "1" as [numerator, denominator].
 const frac = (t) => {
   const part = (s) => { const [w, f = ''] = String(s).trim().split('.'); return [BigInt(w + f), 10n ** BigInt(f.length)]; };
@@ -60,13 +57,11 @@ function finish(kind, quote, synth, t, open) {
   m.openOk = m.sOpen !== null && m.sOpen > t.sqrtPLow && m.sOpen < t.sqrtPHigh;
   return m;
 }
-// A template of deployments.js as a market: `kind` is { vault, quote, tier, fee, center: 'peg' | 'ethusd', low, high } (the ends of the band as multiples of its centre, in synth per
-// quote), `quote` { sym, addr, dec }, `cE18` the live ETH/USD price (E18, null if unread), which a band that follows it needs.
-export function marketOf(kind, quote, synth, recipient = ZERO, cE18 = null) {
-  let centre, open;
-  if (kind.center === 'ethusd') { if (!(cE18 > 0n)) return null; centre = [roundSig(cE18, 2), WAD]; open = [cE18, WAD]; } else { centre = [1n, 1n]; open = [1n, 1n]; }
-  const by = (f) => { const [a, b] = frac(f); return [a * centre[0], b * centre[1]]; };
-  const [low, high] = [by(kind.low), by(kind.high)];
+// A template of deployments.js as a market: `kind` is { vault, quote, tier, fee, low, high } (the ends of the band as multiples of the peg, in synth per quote), `quote` is
+// { sym, addr, dec }. A market's peg is 1, because a token is sold against the asset it tracks.
+export function marketOf(kind, quote, synth, recipient = ZERO) {
+  const open = [1n, 1n];
+  const [low, high] = [frac(kind.low), frac(kind.high)];
   const qa = quote.addr ? quote.addr.toLowerCase() : ZERO, sa = synth.toLowerCase(), synthIs1 = BigInt(sa) > BigInt(qa), dq = BigInt(quote.dec);
   const sqrtOf = ([n, d]) => { const [a, b] = synthIs1 ? [n * 10n ** 18n, d * 10n ** dq] : [d * 10n ** dq, n * 10n ** 18n]; return isqrt(a * 10n ** 36n / b); };
   const [sLow, sHigh] = synthIs1 ? [sqrtOf(low), sqrtOf(high)] : [sqrtOf(high), sqrtOf(low)];
@@ -102,8 +97,8 @@ const callSeed = (m, to, plan, first) => {
 };
 
 // ── the module ──
-// `cfg`: deployments.js's pools ({ factory, recipient?, quotes, markets }); `synthOf(key)`: the vault's token once it is read; `ethUsd()`: the dollar vault's ETH/USD price (E18) or null.
-export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthOf, symOf, ethUsd, connect, txLink, onChange }) {
+// `cfg`: deployments.js's pools ({ factory, recipient?, quotes, markets }); `synthOf(key)`: the vault's token once it is read.
+export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthOf, symOf, connect, txLink, onChange }) {
   const P = { by: {}, busy: false, key: null, sel: {}, side: 's', text: { s: '', q: '' }, shape: '', msg: '', reading: {}, failed: false };
   const recipient = cfg?.recipient || ZERO, quotes = cfg?.quotes || {};
   const keys = [...new Set((cfg?.markets || []).map((k) => k.vault))];
@@ -137,12 +132,9 @@ export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthO
     const q = v.hold?.quote?.[x.m.quote.sym] || {};
     return { ...x, acc: v.hold?.acc || null, balS: v.hold?.balS ?? null, allowS: v.hold?.allowS ?? null, balQ: q.bal ?? null, allowQ: q.allow ?? null };
   }
-  // Where a market of this token against this quote opens, as [n, d] synth per quote: 1 against the asset the token tracks, the live ETH/USD price across the two.
-  function quoteOpen(key, qsym, c) {
-    if (key === 'usd') return qsym === 'USDC' ? [1n, 1n] : qsym === 'ETH' && c > 0n ? [c, WAD] : null;
-    if (key === 'eth') return qsym === 'ETH' ? [1n, 1n] : qsym === 'USDC' && c > 0n ? [WAD, c] : null;
-    return null;
-  }
+  // Where a market of this token against this quote opens, as [n, d] synth per quote: 1 against the asset the token tracks, and nothing the page can state against anything else
+  // (a pool someone opened against the other quote is read and shown, but the page does not offer to open one at a price it cannot name).
+  const quoteOpen = (key, qsym) => ((key === 'usd' && qsym === 'USDC') || (key === 'eth' && qsym === 'ETH') ? [1n, 1n] : null);
 
   // One token: the templates as markets, the pools the factory holds for it (the pools' addresses first, their configuration, then their state), and the account's holdings.
   async function read(key, force = false) {
@@ -152,10 +144,9 @@ export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthO
     try {
       const old = V(key), acc = W.account, acct = acc ? addrWord(acc) : null;
       const again = !old || force || Date.now() - old.discAt > DISCOVER_EVERY * 1000;
-      const c = (cfg.markets || []).some((k) => k.vault === key && k.center === 'ethusd') || key === 'eth' ? await ethUsd().catch(() => null) : null;
       let markets = old?.markets || [], discAt = old?.discAt || 0;
       if (again) {
-        const tm = (cfg.markets || []).filter((k) => k.vault === key).map((k) => marketOf(k, { sym: k.quote, ...quotes[k.quote] }, synth, recipient, c)).filter(Boolean);
+        const tm = (cfg.markets || []).filter((k) => k.vault === key).map((k) => marketOf(k, { sym: k.quote, ...quotes[k.quote] }, synth, recipient)).filter(Boolean);
         const r1 = await batch([...tm.map((m) => ({ to: cfg.factory, data: SELS.poolFor + encMarket(m.t) })), { to: cfg.factory, data: SELS.countFor + addrWord(synth) }]);
         const pools = tm.map((m, i) => {
           if (!/^0x0{24}[0-9a-f]{40}$/i.test(r1[i] || '')) throw new Error('the factory gave no pool address');                // nothing there: do not ask for the pool's state
@@ -173,7 +164,7 @@ export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthO
           const q = quoteByAddr(t0.toLowerCase() === synth.toLowerCase() ? t1 : t0);
           if (!q) return;
           const t = { token0: t0.toLowerCase(), token1: t1.toLowerCase(), sqrtPLow: g(2), sqrtPHigh: g(3), fee: g(4), hook, feeRecipient: ga(6).toLowerCase(), creatorFeeBps: g(7) };
-          pools.push({ m: finish({ vault: key, quote: q.sym, tier: '', template: false }, q, synth, t, quoteOpen(key, q.sym, c)), pool: p });
+          pools.push({ m: finish({ vault: key, quote: q.sym, tier: '', template: false }, q, synth, t, quoteOpen(key, q.sym)), pool: p });
         });
         markets = pools; discAt = Date.now();
       }
@@ -207,7 +198,7 @@ export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthO
     const amount = M.parseUnits(P.text[side], dec);
     if (!amount || amount <= 0n) return { ok: false, why: 'Enter an amount' };
     const first = !seeded(st), plan = first ? seedPlan(m, side, amount) : addPlan(m, st, side, amount);
-    if (!plan) return { ok: false, why: first && !m.openOk ? 'The price is outside this market’s range' : 'Too small for this market' };
+    if (!plan) return { ok: false, why: first && !m.open ? 'This pool has no liquidity, and the page cannot say where it should open.' : first && !m.openOk ? 'The price is outside this market’s range' : 'Too small for this market' };
     return { ok: true, plan, first, amount };
   }
   // The most of one side that the account can put in, given what it holds of the other (ETH keeps a little back for the fee).

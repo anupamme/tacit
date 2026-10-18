@@ -816,21 +816,16 @@ try {
     const sends = (L) => L.sends.map((t) => ({ to: t.to.toLowerCase(), data: t.data, value: t.value ? BigInt(t.value) : 0n }));
     const poolsOf = (token) => cast('call', PF, 'poolsForTokenSlice(address,uint256,uint256)(address[])', token, '0', '20', '--rpc-url', ANVIL).match(/0x[0-9a-fA-F]{40}/g) || [];
     const isqrt = (n) => { if (n < 2n) return n; let x = 1n << BigInt((n.toString(2).length + 1) >> 1); for (;;) { const y = (x + n / x) >> 1n; if (y >= x) return x; x = y; } };
-    const feedAns = view(FEED, 'latestRoundData()(uint80,int256,uint256,uint256,uint80)')[1], feedDec = Number(view(FEED, 'decimals()(uint8)')[0]);
-    const ethUsd = Number(feedAns) / 10 ** feedDec;
     const near = (a, b, rel = 1e-6) => Math.abs(Number(a - b)) <= rel * Math.abs(Number(b));
 
     // 1. nothing is open: the templates are listed, with where each opens and its range, and anyone may create one
     r = await openPage({ hash: hashP() });
-    await until(r.page, () => (document.querySelectorAll('#pl-pick button').length === 3));
+    await until(r.page, () => (document.querySelectorAll('#pl-pick button').length === 2));
     const lab = await r.page.$$eval('#pl-pick button', (bs) => bs.map((b) => b.textContent.replace(/\s+/g, ' ').trim()));
-    ok(lab.join('|') === 'TACD / USDCPeg · 0.05%|TACD / USDCBackstop · 0.3%|TACD / ETHWide · 0.3%', `the dollar token lists its three markets, each with an icon pair (${lab.join(' | ')})`);
-    ok((await r.page.$$eval('#pl-pick button .pair .tk', (n) => n.length)) === 6 && /Peg · 0\.05% fee/.test(await panel(r.page)) && /Opens at\s*1 TACD = 1 USDC/.test(await panel(r.page)) && /Range\s*0\.9 – 1\.111 USDC/.test(await panel(r.page)), 'the first is open to read: the peg band, 0.05%, opening at 1 TACD = 1 USDC');
+    ok(lab.join('|') === 'TACD / USDCPeg · 0.05%|TACD / USDCBackstop · 0.3%', `the dollar token lists two markets and no more, each with an icon pair (${lab.join(' | ')})`);
+    ok((await r.page.$$eval('#pl-pick button .pair .tk', (n) => n.length)) === 4 && /Peg · 0\.05% fee/.test(await panel(r.page)) && /Opens at\s*1 TACD = 1 USDC/.test(await panel(r.page)) && /Range\s*0\.9 – 1\.111 USDC/.test(await panel(r.page)), 'the first is open to read: the peg band, 0.05%, opening at 1 TACD = 1 USDC');
     await r.page.click('#pl-pick button:nth-child(2)'); await sleep(100);
     ok(/Backstop · 0\.3% fee/.test(await panel(r.page)) && /Range\s*0\.5 – 2 USDC/.test(await panel(r.page)), 'the backstop is wider: 0.5 to 2 USDC at 0.3%');
-    await r.page.click('#pl-pick button:nth-child(3)'); await sleep(100);
-    const c2 = Math.round(Number(`${ethUsd.toPrecision(2)}`)), pt3 = await panel(r.page);
-    ok(new RegExp(`Wide · 0\\.3% fee`).test(pt3) && new RegExp(`Opens at\\s*1 ETH = ${ethUsd.toLocaleString('en-US')} TACD`).test(pt3) && new RegExp(`Range\\s*${(c2 / 2).toLocaleString('en-US')} – ${(c2 * 2).toLocaleString('en-US')} TACD per ETH`).test(pt3), `the ETH market follows the live ETH/USD price (${ethUsd}): it opens there and its band is half to double the price rounded to two figures (${pt3.slice(0, 190)})`);
     await untilText(r.page, '#board', /Sells for\s*Not open yet\s*Not open yet/);
     ok((await text(r.page, '#pl-go')) === 'Connect wallet', 'with no wallet the button asks for one');
     ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
@@ -918,26 +913,7 @@ try {
     ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
     await closeAll(r);
 
-    // 5. TACD against ETH: the band is centred on the live price when it is opened
-    r = await openPage({ who: 'user', hash: hashP() });
-    const dp = r.page, DL = r.walletLog;
-    await connect(dp);
-    await until(dp, () => document.querySelectorAll('#pl-pick button').length === 3);
-    await dp.click('#pl-pick button:nth-child(3)'); await sleep(100);
-    await dp.fill('#pl-q', '1'); await sleep(100);
-    const sD = Number(await dp.inputValue('#pl-s'));
-    ok(near(BigInt(Math.round(sD * 1e6)), BigInt(Math.round(ethUsd * 1e6)), 1e-4), `1 ETH asks for ${ethUsd.toLocaleString('en-US')} TACD, the live price (${sD})`);
-    await dp.click('#pl-go');
-    await untilText(dp, '#pl-status', /market is open\./, 120000);
-    const pool3 = poolsOf(SYN.usd).find((p) => view(p, 'token0()(address)')[0] === '0x0000000000000000000000000000000000000000');
-    const eSl = big(pool3, 'sqrtPLow()(uint256)'), eSh = big(pool3, 'sqrtPHigh()(uint256)'), eNow = big(pool3, 'sqrtPriceCurrent()(uint256)');
-    const centre = BigInt(c2);
-    ok(near(eSl * eSl, centre * 10n ** 36n / 2n, 1e-9) && near(eSh * eSh, centre * 10n ** 36n * 2n, 1e-9), `the pool's band is half to double the price rounded to two figures (${c2}): square roots ${Number(eSl) / 1e18} to ${Number(eSh) / 1e18}`);
-    ok(near(eNow * eNow, BigInt(Math.round(ethUsd * 1e6)) * 10n ** 30n, 1e-4) && big(pool3, 'fee()(uint256)') === 3000n, 'it opened at the live price, at 0.3%');
-    ok(DL.sends.length === 2 && DL.sends[0].data.startsWith('0x095ea7b3') && r.errors.length === 0 && r.blocked.length === 0, `one approval (TACD; the ETH is native), then the pool and the deposit, with nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
-    await closeAll(r);
-
-    // 5b. the other token order: a USDC whose address is above the token's puts the token first in the pool, and every figure turns over
+    // 5. the other token order: a USDC whose address is above the token's puts the token first in the pool, and every figure turns over
     {
       const LOW = '0xfFfFffFFffFFFFFfFfFFFFFFfFFfFfFfFFFF1234', code = (await rpcA('eth_getCode', [USDC, 'latest']));
       await rpcA('anvil_setCode', [LOW, code]);
@@ -972,9 +948,9 @@ try {
       const tuple = `(${synthIs1 ? USDC : SYN.usd},${synthIs1 ? SYN.usd : USDC},${ssl(...lo)},${ssl(...hi)},100,0x0000000000000000000000000000000000000000,0x0000000000000000000000000000000000000000,0)`;
       cast('send', PF, 'createPool((address,address,uint256,uint256,uint256,address,address,uint256))', tuple, '--private-key', ACC.deployer.k, '--rpc-url', ANVIL, '--gas-limit', '30000000', '--json');
       r = await openPage({ hash: hashP() });
-      await until(r.page, () => document.querySelectorAll('#pl-pick button').length === 4);
+      await until(r.page, () => document.querySelectorAll('#pl-pick button').length === 3);
       const lab2 = await r.page.$$eval('#pl-pick button', (bs) => bs.map((b) => b.textContent.replace(/\s+/g, ' ').trim()));
-      ok(lab2.length === 4 && lab2[3] === 'TACD / USDC0.01%', `a pool someone else opened (±1%, 0.01%) is listed after the templates (${lab2.join(' | ')})`);
+      ok(lab2.length === 3 && lab2[2] === 'TACD / USDC0.01%', `a pool someone else opened (±1%, 0.01%) is listed after the templates (${lab2.join(' | ')})`);
       await closeAll(r);
     }
   }

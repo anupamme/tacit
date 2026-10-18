@@ -4,7 +4,7 @@
 // contract's own (math.js): what it shows as the room to borrow, the limit for this account, the amount to add to reach 400% and the price a vault is
 // liquidated at are the numbers the contract will test, rounded the safe way. A person's vault is the chain's, not this browser's: nothing about it
 // is kept here, so the same account shows the same vault anywhere. The wallet never gives up a key; each action is tested once with eth_call before it is sent.
-import { DEPLOYMENTS } from '/vault/deployments.js?cb=c195a780';
+import { DEPLOYMENTS } from '/vault/deployments.js?cb=ed76c169';
 import * as M from '/vault/math.js?cb=ac1ed53e';
 import {
   makeRpc, RPCS, ARCHIVE, HISTORY, makeReader, staticCalls, parseStatic, dynamicCalls, parseDynamic, timestampCall, refusal, decString, SEL, wordAt, addrWord, QUEUE_EXPIRY,
@@ -12,7 +12,7 @@ import {
 } from '/vault/chain.js?cb=446cc436';
 import { makeFeed, RECORD_GAS, PER_TX, encBatch, MULTICALL3 } from '/vault/feed.js?cb=03954743';
 import { batchSupport, simulateBundle, sendBundle, readMixed } from '/vault/batch.js?cb=457d6163';
-import { makePools } from '/vault/pools.js?cb=799fdbf2';
+import { makePools } from '/vault/pools.js?cb=1fed3547';
 import { ROUTER_SEL, encRouterRecords, encRouterBorrow, encRouterWithdraw, encRouterDeposit, encRouterRepay, encRouterPermitSynth, borrowTyped, withdrawTyped } from '/vault/router.js?cb=21df6509';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=7b4ab128';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
@@ -125,16 +125,8 @@ const POOLS = (() => {
   const usdc = params().get('usdc');
   return ADDR.test(usdc || '') ? { ...c, quotes: { ...c.quotes, USDC: { ...c.quotes.USDC, addr: usdc } } } : c;
 })();
-// The dollar vault's ETH/USD price, E18: the live figure a band that follows ETH is centred on.
-async function ethUsd() {
-  const f = VS.find((v) => v.key === 'usd')?.feed;
-  if (!f) return null;
-  const [round, dec] = await Promise.all([ethCall(f, SEL.latestRoundData), ethCall(f, SEL.decimals)]);
-  const answer = wordAt(round, 1);
-  return answer > 0n ? answer * 10n ** 18n / 10n ** wordAt(dec, 0) : null;
-}
 const pools = makePools({
-  el: $('#pools'), cfg: POOLS, esc, rpc, ethCall, batch, wallet, W, connect: connectWallet, txLink, onChange: () => renderBoard(), ethUsd,
+  el: $('#pools'), cfg: POOLS, esc, rpc, ethCall, batch, wallet, W, connect: connectWallet, txLink, onChange: () => renderBoard(),
   synthOf: (key) => VS.find((v) => v.key === key)?.synth || null, symOf: (key) => KIND[key].sym,
 });
 
