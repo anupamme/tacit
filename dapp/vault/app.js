@@ -156,6 +156,8 @@ function derive(V) {
   x.zone = d.pL != null ? M.zoneOf({ collateral: me.collateral, debt: me.debt, price: d.pL, liq: s.liq }) : null;
   x.ratio = x.value != null && me.debt > 0n ? M.ratioBps(x.value, me.debt) : null;
   x.borrow = x.paused ? null : M.borrowLimit({ collateral: me.collateral, debt: me.debt, pB: d.pB, mint: s.mint, feeBps: d.feeBps, room, minDebt: s.minDebt });
+  // The most this wallet could borrow if it deposited the TAC it holds with it, in one transaction.
+  x.borrowAll = x.paused ? null : M.borrowLimit({ collateral: me.collateral + (d.tacBal ?? 0n), debt: me.debt, pB: d.pB, mint: s.mint, feeBps: d.feeBps, room, minDebt: s.minDebt });
   x.wpaused = me.debt > 0n && d.pB == null;                                                          // taking TAC out with a debt needs the borrow price
   x.wmax = x.wpaused ? 0n : M.withdrawLimit({ collateral: me.collateral, debt: me.debt, pB: d.pB, mint: s.mint });
   x.rep = M.repayLimit({ debt: me.debt, balance: d.synBal ?? 0n, minDebt: s.minDebt });
@@ -402,27 +404,40 @@ function planOf() {
     return P;
   }
   if (t === 'borrow') {
-    P.max = x.borrow?.amount ?? 0n; P.maxText = x.borrow && who() ? `Up to ${syn(x, P.max)} · Max` : '';
+    P.max = x.borrowAll?.amount ?? 0n; P.maxText = x.borrowAll && who() ? `Up to ${syn(x, P.max)} · Max` : '';
     if (x.auction) { P.cta = 'In an auction'; P.hint = 'Borrowing waits until the auction ends. Repay, or add TAC, to end it.'; return P; }
-    if (x.paused) { P.cta = 'Borrowing is paused'; P.hint = 'Borrowing waits until prices are recorded.'; return P; }
+    if (x.paused) {
+      // Missing prices are the usual reason, and the button then records them: whoever borrows first catches the feed up.
+      const f = feedOf(x.V);
+      if (!x.stale && f && !f.ready && f.missing) { P.record = f.missing; P.cta = `Record ${f.missing} price${f.missing === 1 ? '' : 's'} to open borrowing`; P.hint = 'Borrowing opens once the prices are recorded. Anyone can record them.'; return P; }
+      P.cta = 'Borrowing is paused'; P.hint = 'Borrowing waits until prices are recorded.'; return P;
+    }
     if (none) { P.cta = 'Enter an amount'; return P; }
-    const c = M.checkBorrow({ amount: amt, collateral: m.collateral, debt: m.debt, pB: d.pB, mint: x.s.mint, feeBps: d.feeBps, room: x.room, minDebt: x.s.minDebt });
+    const held = d.tacBal ?? 0n, check = (collateral) => M.checkBorrow({ amount: amt, collateral, debt: m.debt, pB: d.pB, mint: x.s.mint, feeBps: d.feeBps, room: x.room, minDebt: x.s.minDebt });
+    let c = check(m.collateral), add = 0n;
     P.cta = `Borrow ${sym}`;
+    if (!c.ok && c.why === 'own') {
+      // Short of collateral: the TAC to deposit with it, in the same transaction. Enough to stay out of redemption when the wallet holds it, else the least that works.
+      const need = M.collateralFor(c.owe, d.pB, x.s.mint), exact = need > m.collateral ? need - m.collateral : 0n, least = M.ceilTo(exact, 2);
+      const safeAdd = d.pL != null ? M.topUp({ collateral: m.collateral, debt: c.owe, price: d.pL, bps: x.safe }) : 0n, want = safeAdd > least ? safeAdd : least;
+      add = held >= want ? want : held >= least ? least : held >= exact ? held : 0n;
+      if (!(add > 0n)) { P.err = true; P.hint = `Borrowing this takes ${tac(least)} TAC in the vault. You hold ${tac(held)}.`; return P; }
+      c = check(m.collateral + add);
+    }
     if (!c.ok) {
       P.err = true;
       if (c.why === 'min') P.hint = `Smallest debt is ${syn(x, x.s.minDebt)} ${sym}: borrow at least ${syn(x, M.ceilTo(c.least, x.k.dp))}.`;
-      else if (c.why === 'own') {
-        const add = M.addToBorrow({ collateral: m.collateral, owe: c.owe, pB: d.pB, mint: x.s.mint });
-        P.hint = `You can borrow up to ${syn(x, c.limit)} ${sym} now${add > 0n ? `, or ${fill(add)} to borrow this` : ''}.`;
-      } else P.hint = `Only ${syn(x, c.limit)} ${sym} is left to borrow.`;
+      else if (c.why === 'own') P.hint = `You can borrow up to ${syn(x, c.limit)} ${sym} now.`;
+      else P.hint = `Only ${syn(x, c.limit)} ${sym} is left to borrow.`;
       return P;
     }
-    P.ok = true; P.amount = amt; P.feeBps = d.feeBps;
-    const owe = c.owe, r = after(m.collateral, owe);
-    P.rows = [[`Fee (${feeText(d.feeBps)})`, `${esc(syn(x, c.fee))} ${esc(sym)}`], ['You receive', `${esc(syn(x, amt))} ${esc(sym)}`], ['You owe after', `${esc(syn(x, owe))} ${esc(sym)}`], ...ratioRow(m.collateral, owe)];
-    if (r != null && d.pL != null && M.zoneOf({ collateral: m.collateral, debt: owe, price: d.pL, liq: x.s.liq }) !== 'safe') {
-      const add = M.topUp({ collateral: m.collateral, debt: owe, price: d.pL, bps: x.safe });
-      P.hint = `That leaves the vault at ${pctOf(r)}, open to redemption. ${fill(add)} to stay at ${pctOf(x.safe)} or more.`;
+    P.ok = true; P.amount = amt; P.feeBps = d.feeBps; P.add = add;
+    const owe = c.owe, r = after(m.collateral + add, owe);
+    P.rows = [...(add > 0n ? [['Deposit', `${esc(tac(add))} TAC`]] : []), [`Fee (${feeText(d.feeBps)})`, `${esc(syn(x, c.fee))} ${esc(sym)}`], ['You receive', `${esc(syn(x, amt))} ${esc(sym)}`], ['You owe after', `${esc(syn(x, owe))} ${esc(sym)}`], ...ratioRow(m.collateral + add, owe)];
+    if (add > 0n) P.cta = `Deposit ${tac(add)} TAC and borrow`;
+    if (r != null && d.pL != null && M.zoneOf({ collateral: m.collateral + add, debt: owe, price: d.pL, liq: x.s.liq }) !== 'safe') {
+      const more = M.topUp({ collateral: m.collateral + add, debt: owe, price: d.pL, bps: x.safe });
+      P.hint = `That leaves the vault at ${pctOf(r)}, open to redemption. ${add > 0n ? `Deposit ${tac(more)} TAC more first` : fill(more)} to stay at ${pctOf(x.safe)} or more.`;
     }
     return P;
   }
@@ -478,8 +493,8 @@ function renderTicket() {
   go.title = '';
   if (!W.account) { go.textContent = 'Connect wallet'; go.disabled = false; }
   else if (!canAct()) { go.textContent = 'Viewing another account'; go.disabled = true; }
-  else if (S.busy) { go.textContent = 'Working…'; go.disabled = true; }
-  else { go.textContent = P.cta; go.disabled = !P.ok; }
+  else if (S.busy || (F.busy && P.record)) { go.textContent = F.busy && P.record ? 'Recording…' : 'Working…'; go.disabled = true; }
+  else { go.textContent = P.cta; go.disabled = !P.ok && !P.record; }
   $('#amt').disabled = S.busy;
 }
 // An amount for the box: a share of the most that goes through (rounded down, so it still does), or all of it.
@@ -513,16 +528,16 @@ async function withAccess({ V, token, amount, allowance, from, make }) {
     say('Sign the permit in your wallet. The signature costs nothing.');
     const [name, nonce] = await Promise.all([ethCall(token, SEL.name), ethCall(token, SEL.nonces + addrWord(from))]);
     const dl = chainDeadline(1200);
-    const sig = await wallet.signPermit({ token, name: decString(name), spender: V.addr, value: amount, deadline: dl, nonce: wordAt(nonce, 0), owner: from });
+    const sig = await askTicket(() => wallet.signPermit({ token, name: decString(name), spender: V.addr, value: amount, deadline: dl, nonce: wordAt(nonce, 0), owner: from }));
     const data = make({ value: amount, deadline: dl, ...sig });
     say('Checking it first…');
     const sim = await simulate(V.addr, data, from);
     if (sim.ok) return { data };
     const why = refusal(sim.e);
     if (why && why !== 'access') throw Object.assign(new Error(why), { sim: sim.e });
-  } catch (e) { if (e instanceof UserStopped || e.sim) throw e; }
+  } catch (e) { if (e instanceof UserStopped || e instanceof StopWaiting || e.sim) throw e; }
   say('Approve in your wallet. It lets the vault take exactly this amount.');
-  const h = await wallet.sendTx({ to: token, data: encApprove(V.addr, amount), from });
+  const h = await askTicket(() => wallet.sendTx({ to: token, data: encApprove(V.addr, amount), from }));
   say(`Waiting for the approval ${txLink(h)}`);
   if ((await wallet.receipt(h)).status !== '0x1') throw new Error('The approval did not go through.');
   return { data: make(null), approved: true };
@@ -536,6 +551,7 @@ async function run(kindOverride) {
   const from = W.account;                                                                           // everything below is for this account, and the wallet is asked for no other
   const cancel = kindOverride === 'cancel';
   const typed = S.amt, shown = cancel ? null : planOf();                                          // what the person is looking at: the amount, and for a borrow the fee
+  if (shown?.record) { pokeFeed(); return; }                                                      // prices first: the button records them
   if (!cancel && !shown.ok) return;
   S.busy = true; lockAll(); renderTicket();
   try {
@@ -547,10 +563,14 @@ async function run(kindOverride) {
     const x = P.x, owner = from;
     // A borrow is for the fee on the screen: a fee read now that is higher stops it, and the fee shown is the most the vault may take.
     if (P.kind === 'borrow' && P.feeBps > shown.feeBps) { say(`<span class="err">The borrow fee is now ${esc(feeText(P.feeBps))}. Nothing was sent; the figures above are current.</span>`); return; }
+    // The TAC deposited with a borrow is what was on the screen or less, never more.
+    if (P.kind === 'borrow' && (P.add ?? 0n) > (shown.add ?? 0n)) { say(`<span class="err">The TAC to deposit is now ${esc(tac(P.add))}. Nothing was sent; the figures above are current.</span>`); return; }
     let data, acc = {};
     if (cancel) data = encCancel(owner);
     else if (P.kind === 'deposit') {
       acc = await withAccess({ V, token: x.s.tac, amount: P.amount, allowance: x.d.tacAllow ?? 0n, from, make: (p) => (p ? encMulticall([encPermit('permitTac', p), encDeposit(P.amount)]) : encDeposit(P.amount)) });
+    } else if (P.kind === 'borrow' && P.add > 0n) {
+      acc = await withAccess({ V, token: x.s.tac, amount: P.add, allowance: x.d.tacAllow ?? 0n, from, make: (p) => encMulticall([...(p ? [encPermit('permitTac', p)] : []), encDeposit(P.add), encBorrow(P.amount, shown.feeBps)]) });
     } else if (P.kind === 'borrow') acc = { data: encBorrow(P.amount, shown.feeBps) };
     else if (P.kind === 'repay') {
       acc = await withAccess({ V, token: x.s.synth, amount: P.paid, allowance: x.d.synAllow ?? 0n, from, make: (p) => { const call = encRepay(owner, P.amount); return p ? encMulticall([encPermit('permitSynth', p), call]) : call; } });
@@ -562,18 +582,18 @@ async function run(kindOverride) {
     for (let i = 0; i < 3 && !sim.ok && acc.approved && refusal(sim.e) === 'access'; i++) { await new Promise((r) => setTimeout(r, 1500)); sim = await simulate(V.addr, data, from); }
     if (!sim.ok) { say(`<span class="err">${esc(failText(x, P.kind, sim.e))}</span>`); load().then(renderAll).catch(() => {}); return; }
     say('Confirm the transaction in your wallet.');
-    const hash = await wallet.sendTx({ to: V.addr, data, from });
+    const hash = await askTicket(() => wallet.sendTx({ to: V.addr, data, from }));
     say(`Sent ${txLink(hash)}. Waiting for it to land…`);
     const rc = await wallet.receipt(hash);
     if (rc.status !== '0x1') throw new Error(`The transaction failed (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`);
     S.amt = ''; $('#amt').value = '';
     await load().catch(() => {});
-    const x2 = derive(V), said = { deposit: `Deposited ${tac(P.amount ?? 0n)} TAC.`, borrow: `Borrowed ${P.amount != null ? syn(x2, P.amount) : ''} ${x2.sym}. You owe ${syn(x2, x2.me.debt)}.`, repay: x2.me.debt === 0n ? `Repaid. Nothing owed now.` : `Repaid. You owe ${syn(x2, x2.me.debt)} ${x2.sym}.`, withdraw: 'Withdrawn.', cancel: 'The auction has ended.' }[P.kind];
+    const x2 = derive(V), said = { deposit: `Deposited ${tac(P.amount ?? 0n)} TAC.`, borrow: `${P.add > 0n ? `Deposited ${tac(P.add)} TAC and borrowed` : 'Borrowed'} ${P.amount != null ? syn(x2, P.amount) : ''} ${x2.sym}. You owe ${syn(x2, x2.me.debt)}.`, repay: x2.me.debt === 0n ? `Repaid. Nothing owed now.` : `Repaid. You owe ${syn(x2, x2.me.debt)} ${x2.sym}.`, withdraw: 'Withdrawn.', cancel: 'The auction has ended.' }[P.kind];
     say(`<span class="ok">${esc(said)}</span> ${txLink(hash)}`);
     setTimeout(() => { if (!S.busy) load().then(renderAll).catch(() => {}); }, 5000);                 // a node a little behind has caught up
   } catch (e) {
     const x = derive(V);
-    say(`<span class="err">${e.sim ? esc(failText(x, S.t, e.sim)) : errText(e)}</span>`);
+    say(e instanceof StopWaiting ? esc(e.message) : `<span class="err">${e.sim ? esc(failText(x, S.t, e.sim)) : errText(e)}</span>`);       // giving up on a silent wallet is a choice, not a failure
   } finally { S.busy = false; lockAll(); renderAll(); }
 }
 const lockAll = () => { renderPick(); };
@@ -600,7 +620,7 @@ const feed = makeFeed({
 const F = { by: {}, busy: false, note: '', bad: false, gas: null, at: 0, stop: null };   // by: what each vault's venues have recorded (vaults on one oracle share a read); stop: ends the wait for the wallet
 const ALREADY = '0x103b4afe';                                                         // the oracle's AlreadyRecorded
 const WALLET_HINT_MS = 20e3;                                                          // how long the wallet may stay quiet before the person is offered a way out
-class StopWaiting extends Error { constructor() { super('Stopped waiting. If your wallet still shows the request, reject it there, then record again.'); } }
+class StopWaiting extends Error { constructor() { super('Stopped waiting. If your wallet still shows the request, reject it there, then try again.'); } }
 const feedOf = (V) => (V ? F.by[V.key] || null : null);
 const oracleOf = (V) => V.oracle || V.addr;
 // A read of the venues, kept for every vault that prices from the same oracle.
@@ -616,7 +636,8 @@ async function loadFeed() {
   renderFeed();
   renderBoard();                                                   // the board says what the feed lacks, so it follows the feed
 }
-function renderFeed() {
+function renderFeed() { drawFeed(); renderTicket(); }                // a borrow button that records prices follows the feed
+function drawFeed() {
   const el = $('#feed'), st = feedOf(cur());
   if (!VS.length || !st || (st.ready && !F.busy && !F.note)) { el.hidden = true; return; }       // up to date, nothing to say: the board already says lending is open
   el.hidden = false;
@@ -632,11 +653,13 @@ function renderFeed() {
 }
 // A wallet that never answers (a request it did not show, a phone nobody picked up) must not lock the panel for good: after a while the person can stop waiting.
 // What the wallet was asked stays with the wallet; if it is confirmed there later, it lands and the next read counts it.
-function askWallet(send, round) {
-  const hint = setTimeout(() => setFeed(`Waiting for your wallet to confirm batch ${round}. Open it to answer, or <button class="linkbtn" type="button" data-feed-stop>stop waiting</button>.`), WALLET_HINT_MS);
-  const stopped = new Promise((_, no) => { F.stop = () => no(new StopWaiting()); });
-  return Promise.race([send(), stopped]).finally(() => { clearTimeout(hint); F.stop = null; });
+function waitWallet(send, onHint, hold) {
+  const hint = setTimeout(onHint, WALLET_HINT_MS);
+  const stopped = new Promise((_, no) => { hold.stop = () => no(new StopWaiting()); });
+  return Promise.race([send(), stopped]).finally(() => { clearTimeout(hint); hold.stop = null; });
 }
+const askWallet = (send, round) => waitWallet(send, () => setFeed(`Waiting for your wallet to confirm batch ${round}. Open it to answer, or <button class="linkbtn" type="button" data-feed-stop>stop waiting</button>.`), F);
+const askTicket = (send) => waitWallet(send, () => say('Waiting for your wallet. Open it to answer, or <button class="linkbtn" type="button" data-stop>stop waiting</button>.'), S);
 async function pokeFeed() {
   if (F.busy) return;
   if (!W.account) { await connectWallet(); return; }
@@ -717,6 +740,7 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('[data-more]')) { S.more = !S.more; try { localStorage.setItem(MORE_KEY, S.more ? '1' : '0'); } catch { /* storage is a convenience */ } renderBoard(); return; }
   if (e.target.closest('[data-refresh]')) { if (!S.busy) { refresh(); loadFeed(); } return; }
   if (e.target.closest('[data-feed-stop]')) { F.stop?.(); return; }
+  if (e.target.closest('[data-stop]')) { S.stop?.(); return; }
   const feedLink = e.target.closest('[data-tofeed]');
   if (feedLink) { e.preventDefault(); $('#feed')?.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }   // the hash carries the page's own state, so this scrolls rather than links
   if (e.target.closest('[data-connect]')) { connectWallet(); return; }

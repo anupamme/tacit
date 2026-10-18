@@ -101,7 +101,7 @@ async function stubWallet(ctx, { who, noTyped = false }) {
     if (method === 'eth_chainId') return '0x1';
     if (method === 'wallet_switchEthereumChain') return null;
     if (method === 'eth_signTypedData_v4') { if (noTyped) throw Object.assign(new Error('Method not supported'), { code: -32601 }); log.signs++; return cast('wallet', 'sign', '--private-key', ACC[who].k, '--data', params[1]); }
-    if (method === 'eth_sendTransaction') { log.sends.push(params[0]); return rpcA('eth_sendTransaction', [{ ...params[0], gas: '0x3d0900' }]); }
+    if (method === 'eth_sendTransaction') { if (log.stall) return new Promise(() => {}); log.sends.push(params[0]); return rpcA('eth_sendTransaction', [{ ...params[0], gas: '0x3d0900' }]); }
     throw new Error(`the stub wallet does not do ${method}`);
   });
   await ctx.addInitScript(() => { window.__h = {}; window.ethereum = { isStub: true, request: ({ method, params }) => window.__wallet(method, params), on(ev, fn) { window.__h[ev] = fn; }, removeListener() {} }; });
@@ -133,6 +133,13 @@ const shot = (page, name) => (SHOTS ? page.screenshot({ path: join(SHOTS, `${nam
 const closeAll = async (...rs) => { for (const r of rs) await r?.browser.close().catch(() => {}); };
 const money = (s) => BigInt(Math.round(Number(s.replace(/,/g, '')) * 100)) * (E18 / 100n);                // "1,234.56" → wei, for what the page writes to two places
 const typed = async (p, v) => { await p.fill('#amt', v); await sleep(60); };
+// The most a vault takes from an account as a plain borrow, from the contract's own figures: the debt at most at most 1/3.5 of the collateral's value at the borrow view over 3.5), the the 1% fee on top.
+const directLimit = (vault, who) => {
+  const v = vaultOf(vault, who), pB = big(vault, 'valueOf(uint256,bool)(uint256)', String(E18), 'true'), room = v.c * pB / E18 * 10000n / 35000n - v.d;
+  let lo = 0n, hi = room > 0n ? room : 0n;
+  while (lo < hi) { const mid = (lo + hi + 1n) / 2n; if (mid + mid * 100n / 10000n <= room) lo = mid; else hi = mid - 1n; }
+  return lo;
+};
 const chipMax = async (p) => { await p.click('#chips [data-pct="100"]'); await sleep(60); return BigInt(cast('to-wei', await p.inputValue('#amt'))); };
 // Connect the stub wallet once the page has read the vaults (a click before its script has run does nothing).
 const connect = async (p) => { await until(p, () => !!document.querySelector('#board table') && /Room to borrow/.test(document.querySelector('#board')?.textContent || '')); await p.click('#go'); await until(p, () => /^0x/.test(document.querySelector('#wallet-label')?.textContent || '')); };
@@ -239,14 +246,18 @@ try {
 
   // ── borrow: what the limit is, what the fee does, and what the contract says ──
   await tab(u, 'borrow');
-  const L = await chipMax(u);                                                                            // the limit, exactly
+  const L = directLimit(USD, 'user');                                                                    // the limit on the TAC already in the vault, exactly
   ok(L > 0n && !reverts(() => asCall('user', USD, 'borrow(uint256,uint256)', String(L), '100')) && reverts(() => asCall('user', USD, 'borrow(uint256,uint256)', String(L + 1n), '100')), `the limit the page gives (${L} wei) is accepted by the vault, one wei more is refused`);
-  ok(/Up to 7,072\.\d\d · Max/.test(await text(u, '#bal')) && L >= 7072n * E18 && L < 7073n * E18, 'at 350% of $25,000 with a 1% fee on top the limit is 7,072 TACD');
+  ok(/Up to 70,721\.\d\d · Max/.test(await text(u, '#bal')) && L >= 7072n * E18 && L < 7073n * E18, 'at 350% of $25,000 with a 1% fee on top the limit on the vault\'s own TAC is 7,072 TACD, and Max counts the 900,000 TAC in the wallet too: 70,721');
+  await typed(u, String(cast('from-wei', String(L))));
+  ok(/^Borrow TACD$/.test(await text(u, '#go')) && !/Deposit/.test(await text(u, '#info')) && !(await u.$eval('#go', (b) => b.disabled)), 'the vault\'s exact limit is a plain borrow, with no deposit');
+  await typed(u, String(cast('from-wei', String(L + 1n))));
+  ok(/^Deposit [\d,.]+ TAC and borrow$/.test(await text(u, '#go')) && /Deposit\s*[\d,.]+ TAC/.test(await text(u, '#info')) && !(await u.$eval('#go', (b) => b.disabled)), 'one wei over it the page offers to deposit TAC with the borrow, in the same transaction');
   await typed(u, '3000');
   const rows = await text(u, '#info');
   ok(/Fee \(1%\)\s*30 TACD/.test(rows) && /You receive\s*3,000 TACD/.test(rows) && /You owe after\s*3,030 TACD/.test(rows) && /Ratio after\s*825%/.test(rows), `the fee is shown before: ${rows}`);
   await typed(u, '8000');
-  ok(/You can borrow up to 7,072\.\d\d TACD now/.test(await text(u, '#hint')) && await u.$eval('#go', (b) => b.disabled), 'over the limit it says how much is allowed instead of failing late');
+  ok(/^Deposit [\d,.]+ TAC and borrow$/.test(await text(u, '#go')) && /You receive\s*8,000 TACD/.test(await text(u, '#info')) && /Ratio after\s*[4-9]\d\d%/.test(await text(u, '#info')), `over what the vault's own TAC allows it offers the deposit that makes it work, enough to stay at 400% (${(await text(u, '#info')).slice(0, 120)})`);
   await typed(u, '50');
   ok(/Smallest debt is 100 TACD: borrow at least 99(\.0\d)?\./.test(await text(u, '#hint')) && await u.$eval('#go', (b) => b.disabled), 'under the minimum debt it says what to borrow at least');
   await typed(u, '3000');
@@ -303,7 +314,7 @@ try {
 
   // ── borrowing that leaves the vault exposed says so, and what to add ──
   await tab(u, 'borrow');
-  const Lb = await chipMax(u);
+  const Lb = directLimit(USD, 'user');
   ok(!reverts(() => asCall('user', USD, 'borrow(uint256,uint256)', String(Lb), '100')) && reverts(() => asCall('user', USD, 'borrow(uint256,uint256)', String(Lb + 1n), '100')), 'after the top-up the limit is again exactly what the vault accepts');
   await typed(u, '7500');                                                                                // 3,030 + 7,575 owed against 40,400: 380%
   const hint = await text(u, '#hint');
@@ -485,10 +496,50 @@ try {
   await typed(c, '100000'); await c.click('#go'); await untilText(c, '#status', /Deposited 100,000 TAC/, 60000);
   await tab(c, 'borrow'); await typed(c, '3');                                                           // 100,000 TAC = 10 ETH; 3 TACE + 1% = 3.03 owed: 330%... that is under 350%: needs less
   ok(/up to \d\.\d+ TACE now/.test(await text(c, '#hint')) || /You receive/.test(await text(c, '#info')), 'the ETH vault answers in TACE');
-  const Le = await chipMax(c);
+  const Le = directLimit(ETH, 'carol');
   ok(!reverts(() => asCall('carol', ETH, 'borrow(uint256,uint256)', String(Le), '100')) && reverts(() => asCall('carol', ETH, 'borrow(uint256,uint256)', String(Le + 1n), '100')), `its limit (${Le} wei of TACE) is exactly what the ETH vault accepts`);
   await typed(c, '2'); await c.click('#go'); await untilText(c, '#status', /Borrowed 2 TACE\. You owe 2\.02/, 60000);
   ok(vaultOf(ETH, 'carol').d === 202n * E18 / 100n, 'borrowing 2 TACE owes 2.02');
+  await closeAll(r);
+
+  // ── deposit and borrow in one transaction: an account with no vault, TAC in its wallet and no allowance ──
+  r = await openPage({ who: 'carol' });
+  const k = r.page, K = r.walletLog;
+  await connect(k); await until(k, () => /Balance 900,000/.test(document.querySelector('#bal')?.textContent || ''), null, 30000);
+  await tab(k, 'borrow');
+  ok(/Up to 63,649\.\d\d · Max/.test(await text(k, '#bal')), `with no vault yet Max counts the TAC in the wallet: 900,000 TAC (${await text(k, '#bal')})`);
+  await typed(k, '1000');
+  const crow = await text(k, '#info'), cgo = await text(k, '#go');
+  ok(/^Deposit [\d,.]+ TAC and borrow$/.test(cgo) && /Fee \(1%\)\s*10 TACD/.test(crow) && /You receive\s*1,000 TACD/.test(crow) && /You owe after\s*1,010 TACD/.test(crow) && /Ratio after\s*[3-9]\d\d%/.test(crow), `typing the amount shows the deposit it takes, the fee and the ratio (${cgo}; ${crow.slice(0, 150)})`);
+  const cadd = money(crow.match(/Deposit\s*([\d,.]+) TAC/)[1]);
+  K.sends.length = 0; const sg0 = K.signs;
+  await k.click('#go');
+  await untilText(k, '#status', /Deposited [\d,.]+ TAC and borrowed 1,000 TACD\. You owe 1,010/, 60000);
+  const cv = vaultOf(USD, 'carol');
+  ok(K.signs - sg0 === 1 && K.sends.length === 1 && K.sends[0].to.toLowerCase() === USD.toLowerCase() && K.sends[0].data.startsWith(cast('sig', 'multicall(bytes[])')), `one permit signature (no gas) and one transaction, the vault's multicall (${K.signs - sg0} signature, ${K.sends.length} sent)`);
+  ok(cv.c === cadd && cv.d === 1010n * E18 && big(SYN.usd, 'balanceOf(address)(uint256)', ACC.carol.a) === 1000n * E18, `the vault holds the ${cv.c / E18} TAC deposited, 1,010 is owed and 1,000 arrived`);
+  const safeBps = 2n * big(USD, 'LIQ_RATIO_BPS()(uint256)');                                               // the owner's change earlier put the liquidation ratio at 150%, so the safe line is 300%
+  ok(big(USD, 'valueOf(uint256,bool)(uint256)', String(cv.c), 'false') * 10000n >= cv.d * safeBps, `and the vault is at the safe line (${safeBps / 100n}%) or more, out of the redemption zone`);
+  // with an allowance in place there is no signature at all
+  send('carol', TAC, 'approve(address,uint256)', USD, String(MAXU));
+  await k.reload(); await until(k, () => /(Balance|Up to) [\d,]+/.test(document.querySelector('#bal')?.textContent || ''), null, 30000);        // the tab is kept in the address, so it reopens on Borrow
+  await tab(k, 'borrow'); await typed(k, '2000');
+  await untilText(k, '#go', /^Deposit [\d,.]+ TAC and borrow$/, 30000);
+  K.sends.length = 0; const sg1 = K.signs;
+  await k.click('#go');
+  await untilText(k, '#status', /borrowed 2,000 TACD\. You owe 3,030/, 60000);
+  ok(K.signs === sg1 && K.sends.length === 1 && vaultOf(USD, 'carol').d === 3030n * E18, 'with an allowance already given it is one transaction and no signature');
+  // a wallet that never answers: after twenty seconds the page offers to stop waiting, and the ticket is usable again
+  K.stall = true; K.sends.length = 0;
+  await tab(k, 'deposit'); await typed(k, '5');
+  await k.click('#go');
+  await untilText(k, '#status', /Waiting for your wallet\. Open it to answer, or stop waiting/, 40000);
+  ok(await k.$eval('#go', (b) => b.disabled), 'a wallet that has not answered: the page says so after a while, and nothing else can be sent meanwhile');
+  await k.click('#status [data-stop]');
+  await untilText(k, '#status', /Stopped waiting\./, 20000);
+  ok(!(await k.$eval('#go', (b) => b.disabled)) && (await k.$$('#status .err')).length === 0 && K.sends.length === 0, 'stopping the wait is not an error: the button works again and nothing was sent');
+  K.stall = false;
+  ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
   await closeAll(r);
 
   // ── screenshots, phone and dark, one per zone ──
