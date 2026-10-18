@@ -476,6 +476,16 @@ try {
   ok(await r.page.$eval('#go', (b) => b.disabled) && r.walletLog.sends.length === 0, 'viewing another account with a wallet connected cannot send anything');
   await closeAll(r);
 
+  // ── a wallet with no TAC is pointed to where TAC is bought ──
+  r = await openPage({ who: 'owner' });
+  await connect(r.page); await r.page.click('#acts [data-t="deposit"]');
+  await until(r.page, () => /holds no TAC/.test(document.querySelector('#hint')?.textContent || ''));
+  ok(await r.page.$eval('#hint a', (a) => a.getAttribute('href')) === '/trade/tac/', 'a wallet with no TAC is pointed to where TAC is bought');
+  await r.page.click('#acts [data-t="borrow"]'); await r.page.fill('#amt', '200');
+  await until(r.page, () => /You hold 0/.test(document.querySelector('#hint')?.textContent || ''));
+  ok(await r.page.$eval('#hint a', (a) => a.getAttribute('href')) === '/trade/tac/', 'and so is one that tries to borrow with none');
+  await closeAll(r);
+
   // ── a wallet that cannot sign typed data: the exact approval, then the deposit ──
   r = await openPage({ who: 'bob', noTyped: true });
   const b = r.page;

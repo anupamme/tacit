@@ -383,6 +383,7 @@ function renderPos() {
 
 // ── the ticket ──
 // What the typed amount would do: whether it can be sent, what it says about itself, and what the transaction takes.
+const BUY = '<a href="/trade/tac/">Buy TAC →</a>';
 function planOf() {
   const V = cur(), x = V && derive(V), t = S.t;
   if (!x) return { ok: false, cta: 'Reading the vault…', rows: [], hint: '' };
@@ -397,6 +398,7 @@ function planOf() {
 
   if (t === 'deposit') {
     const bal = d.tacBal ?? 0n; P.max = bal; P.maxText = who() ? `Balance ${tac(bal)} · Max` : '';
+    if (who() && d.tacBal === 0n) P.hint = `This wallet holds no TAC. ${BUY}`;
     if (none) { P.cta = 'Enter an amount'; return P; }
     if (amt > bal) { P.cta = 'Not enough TAC'; return P; }
     P.ok = true; P.cta = 'Deposit TAC'; P.amount = amt;
@@ -421,7 +423,7 @@ function planOf() {
       const need = M.collateralFor(c.owe, d.pB, x.s.mint), exact = need > m.collateral ? need - m.collateral : 0n, least = M.ceilTo(exact, 2);
       const safeAdd = d.pL != null ? M.topUp({ collateral: m.collateral, debt: c.owe, price: d.pL, bps: x.safe }) : 0n, want = safeAdd > least ? safeAdd : least;
       add = held >= want ? want : held >= least ? least : held >= exact ? held : 0n;
-      if (!(add > 0n)) { P.err = true; P.hint = `Borrowing this takes ${tac(least)} TAC in the vault. You hold ${tac(held)}.`; return P; }
+      if (!(add > 0n)) { P.err = true; P.hint = `Borrowing this takes ${tac(least)} TAC in the vault. You hold ${tac(held)}.${held === 0n ? ` ${BUY}` : ''}`; return P; }
       c = check(m.collateral + add);
     }
     if (!c.ok) {
