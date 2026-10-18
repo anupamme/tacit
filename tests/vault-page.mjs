@@ -196,16 +196,16 @@ try {
   ok(r.page.url() === `http://127.0.0.1:${WEB}/vault/${hashFor('&a=' + ACC.user.a)}`, '/vault goes to /vault/ and keeps the #fragment');
   await closeAll(r);
 
-  // ── borrowing against TAC and against Bitcoin have their own addresses ──
+  // ── borrowing against TAC and against Bitcoin have their own addresses: /vault/ and its #btc side ──
   r = await openPage({ hash: '' }); await r.page.goto(`http://127.0.0.1:${WEB}/vault/tac?x=1#a`);
   await until(r.page, () => location.pathname === '/vault/' && !document.querySelector('#app').hidden);
   ok(r.page.url() === `http://127.0.0.1:${WEB}/vault/?x=1#a`, '/vault/tac goes to /vault/ with its query and fragment');
-  ok(await r.page.$eval('.via', (n) => [...n.querySelectorAll('a')].map((a) => `${a.textContent}:${a.getAttribute('href')}:${a.getAttribute('aria-current') || ''}`).join()) === 'TAC:/vault/:page,Bitcoin:/vault/btc:', 'the page offers TAC and Bitcoin, TAC being the one it is');
+  ok(await r.page.$eval('.via', (n) => [...n.querySelectorAll('a')].map((a) => `${a.textContent}:${a.getAttribute('href')}:${a.getAttribute('aria-current') || ''}`).join()) === 'TAC:/vault/:page,Bitcoin:/vault/#btc:', 'the page offers TAC and Bitcoin, TAC being the one it is');
   await r.page.goto(`http://127.0.0.1:${WEB}/vault/btc`, { waitUntil: 'domcontentloaded' });
-  await until(r.page, () => location.pathname === '/' && location.hash === '#borrow');
-  ok(true, '/vault/btc opens Borrow on Bitcoin on the front page');
+  await until(r.page, () => location.pathname === '/vault/' && location.hash === '#btc' && document.documentElement.dataset.side === 'btc');
+  ok(await r.page.$eval('.via a[aria-current="page"]', (a) => a.dataset.side) === 'btc', '/vault/btc opens this page’s Bitcoin side (/vault/#btc)');
   await r.page.goto(`http://127.0.0.1:${WEB}/vault/btc/`, { waitUntil: 'domcontentloaded' });
-  await until(r.page, () => location.pathname === '/' && location.hash === '#borrow');
+  await until(r.page, () => location.pathname === '/vault/' && location.hash === '#btc');
   ok(true, 'with or without its trailing slash');
   await closeAll(r);
 

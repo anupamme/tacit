@@ -6,13 +6,13 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://rpc.mevblocker.io https://eth-mainnet.public.blastapi.io https://ethereum-json-rpc.stakely.io https://eth.rpc.blxrbdn.com https://1.rpc.thirdweb.com https://1rpc.io https://mainnet.gateway.tenderly.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
 <meta name="color-scheme" content="light dark">
 <title>tacit borrow</title>
-<meta name="description" content="Deposit TAC and borrow TAC Dollar or TAC Ether against it. No interest, one fee when you borrow.">
+<meta name="description" content="Borrow TACD or TACE against TAC, or cUSD against Bitcoin.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="tacit">
 <link rel="canonical" href="https://tacit.finance/vault/">
 <meta property="og:url" content="https://tacit.finance/vault/">
 <meta property="og:title" content="tacit borrow">
-<meta property="og:description" content="Deposit TAC and borrow TAC Dollar or TAC Ether against it.">
+<meta property="og:description" content="Borrow TACD or TACE against TAC, or cUSD against Bitcoin.">
 <meta property="og:image" content="https://tacit.finance/tacit-card.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
@@ -20,7 +20,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /vault/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/vault/app.js?cb=09ce5ff8">
+<link rel="modulepreload" href="/vault/app.js?cb=d23a1473">
 <link rel="modulepreload" href="/vault/deployments.js?cb=55fe04cc">
 <link rel="modulepreload" href="/vault/math.js?cb=ac1ed53e">
 <link rel="modulepreload" href="/vault/chain.js?cb=446cc436">
@@ -103,7 +103,8 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .via { display: inline-grid; grid-auto-flow: column; border: 1px solid var(--hair-2); margin: 0 0 16px; }
 .via a { display: grid; place-items: center; min-height: 34px; padding: 4px 16px; color: var(--mute); font-size: 12.5px; text-decoration: none; }
 .via a + a { border-left: 1px solid var(--hair-2); }
-.via a[aria-current="page"] { background: var(--ink); color: var(--card); }
+.via a[data-side="tac"], :root:has(#btc:target) .via a[data-side="btc"], :root[data-side="btc"] .via a[data-side="btc"] { background: var(--ink); color: var(--card); }
+:root:has(#btc:target) .via a[data-side="tac"], :root[data-side="btc"] .via a[data-side="tac"] { background: none; color: var(--mute); }
 @media (hover: hover) { .via a:not([aria-current]):hover { color: var(--ink); } }
 @media (pointer: coarse) { .via a { min-height: var(--tap); } }
 .hero h1 { font: 400 clamp(40px, 7vw, 72px)/.95 var(--serif); letter-spacing: -.025em; margin: 0; display: flex; align-items: center; gap: .2em; }
@@ -117,6 +118,23 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .how ol { margin: 10px 0 0; padding: 0 0 0 18px; display: grid; gap: 6px; color: var(--mute); }
 .how ol b { color: var(--ink); font-weight: 500; }
 .how p { margin: 8px 0 0; color: var(--mute); }
+
+/* The two sides: TAC (the vault) and Bitcoin (#btc). The address bar's #btc is that side's :target, so a page opened on it draws it from the
+   first paint, before the script runs; the script also marks the root (data-side) for a browser without :has(). */
+.btc-side, .s-btc { display: none; }
+:root:has(#btc:target) .s-tac, :root[data-side="btc"] .s-tac { display: none !important; }
+:root:has(#btc:target) .btc-side, :root[data-side="btc"] .btc-side { display: block; }
+:root:has(#btc:target) h1 .s-btc, :root[data-side="btc"] h1 .s-btc { display: contents; }
+:root:has(#btc:target) p.s-btc, :root[data-side="btc"] p.s-btc { display: block; }
+h1 .s-tac { display: contents; }
+#btc { scroll-margin-top: 9999px; }                                 /* opening #btc leaves the page at its top rather than scrolled to the side */
+.flow { list-style: none; margin: 4px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.flow li { position: relative; display: grid; justify-items: start; gap: 6px; padding: 14px 12px; background: var(--field); border: 1px solid var(--hair); font-size: 12px; color: var(--mute); }
+.flow li b { font-weight: 500; font-size: 13.5px; color: var(--ink); }
+.flow li + li::before { content: '→'; position: absolute; left: -10px; top: 50%; width: 10px; text-align: center; transform: translateY(-50%); color: var(--mute); }
+@media (max-width: 560px) { .flow { grid-template-columns: minmax(0, 1fr); } .flow li + li::before { content: '↓'; left: 50%; top: -10px; width: auto; height: 10px; line-height: 10px; transform: translateX(-50%); } }
+.btc-side .btn + .btn { margin-top: 10px; }
+.btc-l { margin: 0; }
 
 /* the page */
 .pick { max-width: none; }
@@ -384,6 +402,9 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <symbol id="tk-tac" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/></symbol>
     <symbol id="tk-tacd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M16.5 7 L15.5 25" stroke="#f7931a" stroke-width="2.7" stroke-linecap="round"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" fill="none" stroke="#f7931a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="tk-tace" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/><path d="M14.8 17L19 17" stroke="#f7931a" stroke-width="2.2" stroke-linecap="round"/></symbol>
+    <symbol id="tk-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#F7931A"/><path fill="#FFF" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
+    <symbol id="tk-cbtc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><g fill="none" stroke="#f7931a" stroke-linecap="round" stroke-linejoin="round"><path d="M16.4 8 L12.9 23 C 18.6 24 21 21.5 21 18.7 C 21 16 17.6 15.2 14.7 15.6" stroke-width="2.8"/><path d="M11.9 13.2 L18.4 11.5" stroke-width="2.4"/></g></symbol>
+    <symbol id="tk-cusd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><path d="M16.5 7 L15.5 25" stroke="#16a34a" stroke-width="2.7" stroke-linecap="round"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" fill="none" stroke="#16a34a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
   </defs>
 </svg>
 <div class="shell">
@@ -423,20 +444,21 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <main>
 
   <section class="hero" aria-labelledby="h">
-    <nav class="via" aria-label="Collateral"><a href="/vault/" aria-current="page">TAC</a><a href="/vault/btc">Bitcoin</a></nav>
-    <h1 id="h"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span>Borrow against <em>TAC</em></span></h1>
-    <p class="sub" id="sub">Borrow TAC Dollar or TAC Ether against your TAC. No interest, one fee.</p>
-    <details class="how" id="how" hidden><summary>How borrowing works</summary><div id="how-body"><p>Reading the vault’s terms…</p></div></details>
+    <nav class="via" aria-label="Collateral"><a href="/vault/" data-side="tac" aria-current="page">TAC</a><a href="/vault/#btc" data-side="btc">Bitcoin</a></nav>
+    <h1 id="h"><span class="s-tac"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span>Borrow against <em>TAC</em></span></span><span class="s-btc"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><span>Borrow against <em>Bitcoin</em></span></span></h1>
+    <p class="sub s-tac" id="sub">Borrow TACD or TACE against your TAC. No interest, one fee.</p>
+    <p class="sub s-btc">Lock BTC at your own address, mint cBTC, borrow cUSD against it.</p>
+    <details class="how s-tac" id="how" hidden><summary>How borrowing works</summary><div id="how-body"><p>Reading the vault’s terms…</p></div></details>
     <noscript><p class="note">This page needs JavaScript.</p></noscript>
   </section>
 
-  <section class="panel" id="soon" hidden aria-labelledby="soon-h">
+  <section class="panel s-tac" id="soon" hidden aria-labelledby="soon-h">
     <p class="eyebrow" id="soon-h">Opens soon</p>
     <p class="empty soon-t">Deposit TAC and borrow TAC Dollar (TACD) or TAC Ether (TACE) against it. No interest, one fee when you borrow.</p>
     <p class="note"><a href="/trade/tac/">Trade TAC →</a></p>
   </section>
 
-  <div id="app" hidden>
+  <div class="s-tac" id="app" hidden>
     <div class="grid">
       <div class="col">
         <section class="panel board loading" id="board" aria-labelledby="board-h"></section>
@@ -456,6 +478,38 @@ footer.sf svg.fill { width: 16px; height: 16px; }
           <p class="hint" id="hint"></p>
           <button class="btn" id="go" type="button">Connect wallet</button>
           <div class="status" id="status" role="status"></div>
+        </section>
+        <p class="note btc-l"><a href="/vault/#btc" data-side="btc">Or borrow cUSD against Bitcoin →</a></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="btc-side" id="btc">
+    <div class="grid">
+      <div class="col">
+        <section class="panel" aria-labelledby="bs-h">
+          <p class="eyebrow" id="bs-h">How it works</p>
+          <ol class="flow">
+            <li><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><b>Lock BTC</b><span>At an address only your key can spend.</span></li>
+            <li><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><b>Mint cBTC</b><span>One to one against the lock, free.</span></li>
+            <li><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg><b>Borrow cUSD</b><span>Against the cBTC. Repay any time to reclaim it.</span></li>
+          </ol>
+          <p class="note">An ETH bond worth at least 1.5× the BTC, staked as wstETH and refundable, stands behind each lock.</p>
+        </section>
+      </div>
+      <div class="col">
+        <section class="panel" aria-labelledby="bt-h">
+          <p class="eyebrow" id="bt-h">Borrow on Bitcoin</p>
+          <a class="btn" href="/#borrow">Borrow cUSD</a>
+          <a class="btn ghost" href="/#card=borrow:cbtc:mint">Mint cBTC only</a>
+        </section>
+        <section class="panel" id="btc-board" aria-labelledby="bb-h">
+          <p class="eyebrow" id="bb-h"><span>Bitcoin loans</span><span class="who" data-bf-who></span></p>
+          <div class="rows flat">
+            <div class="kv"><span>cUSD lent</span><b class="num" data-bf="out">…</b></div>
+            <div class="kv"><span>Collateral needed</span><b class="num" data-bf="ratio">…</b></div>
+            <div class="kv"><span>Liquidated below</span><b class="num" data-bf="liq">…</b></div>
+          </div>
         </section>
       </div>
     </div>
@@ -477,6 +531,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/vault/app.js?cb=09ce5ff8"></script>
+<script type="module" src="/vault/app.js?cb=d23a1473"></script>
 </body>
 </html>

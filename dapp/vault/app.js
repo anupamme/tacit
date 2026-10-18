@@ -1,4 +1,4 @@
-// tacit.finance/vault: borrow TAC Dollar or TAC Ether against TAC.
+// tacit.finance/vault: borrow TAC Dollar or TAC Ether against TAC; /vault/#btc is the same page's Bitcoin side (btc.js), loaded when it is shown.
 //
 // Every figure here is read from the vault contracts (one Multicall3 batch for both vaults and the account), and the page's arithmetic is the
 // contract's own (math.js): what it shows as the room to borrow, the limit for this account, the amount to add to reach 400% and the price a vault is
@@ -734,6 +734,7 @@ function watchToken(key) {
 
 // ── drawing ──
 function renderAll() {
+  if (side !== 'tac') return;                                                                       // the Bitcoin side has nothing of the vaults' to draw
   const live = VS.length > 0;
   $('#soon').hidden = live; $('#app').hidden = !live; $('#wallet-chip').hidden = !live;
   $('#sub').hidden = !live;
@@ -970,6 +971,38 @@ function keepInHash() {
   const h = p.toString() ? `#${p}` : '';
   if (h !== location.hash) history.replaceState(null, '', location.pathname + location.search + h);
 }
+// ── the two sides ──
+// TAC (the vaults, at /vault/ with the hash above) and Bitcoin (/vault/#btc), one page: the switch moves between them without a reload, and back and forward
+// follow it. The page's CSS shows a side from its :target alone (index.html); here each side's reads start the first time it is shown, so a page opened
+// on Bitcoin reads nothing of the vaults, and the Bitcoin side's module is fetched only when it is looked at.
+const onBtc = () => location.hash === '#btc';
+let side = null, tacStarted = false, btcP = null, tacHash = '';
+function showSide() {
+  const s = onBtc() ? 'btc' : 'tac';
+  if (s === side) return false;
+  side = s;
+  document.documentElement.dataset.side = s;
+  document.querySelectorAll('.via a[data-side]').forEach((a) => { if (a.dataset.side === s) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+  if (s === 'btc') {
+    $('#wallet-chip').hidden = true;                                                                // the loan is taken on the front page, with the Tacit wallet
+    btcP ||= import('/vault/btc.js?cb=701756e8').then((m) => m.loadBtc($('#btc'), { batch })).catch((e) => { btcP = null; console.warn('bitcoin side:', e?.message || e); });
+    return true;
+  }
+  renderAll();
+  if (!tacStarted) { tacStarted = true; checkRouter(); if (VS.length) refresh().then(() => loadFeed()); }   // the feed is read for the oracle each vault names, which the first read has found
+  else refresh();
+  return true;
+}
+// The switch (and the TAC side's link to Bitcoin): Bitcoin is the hash #btc; TAC is the hash the vaults had before, or none.
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('a[data-side]');
+  if (!a || e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  e.preventDefault();
+  if (a.dataset.side === side) return;
+  if (a.dataset.side === 'btc') { tacHash = location.hash; location.hash = 'btc'; return; }
+  location.hash = tacHash;
+  if (!tacHash) history.replaceState(null, '', location.pathname + location.search);               // no bare # left in the address bar
+});
 const refresh = () => load().catch((e) => { console.warn('vault read:', e?.message || e); if (!S.loaded) S.failed = true; }).then(() => { renderAll(); pools.read(); });
 
 // ── wiring ──
@@ -997,9 +1030,9 @@ document.addEventListener('click', (e) => {
   const m = e.target.closest('[data-mine]');
   if (m) { e.preventDefault(); const p = params(); p.delete('a'); history.replaceState(null, '', location.pathname + (p.toString() ? `#${p}` : '')); S.view = null; refresh(); }
 });
-addEventListener('hashchange', () => { readHash(); refresh(); });
-document.addEventListener('visibilitychange', () => { if (!document.hidden && !S.busy) refresh(); });   // a tab left open reads the vault again when it is looked at
-wallet.onChange(() => { renderChip(); detectBatch(); pools.read(); if (S.busy) return; if (!S.view) { refresh(); } else renderAll(); });   // a transaction in flight keeps the account it was made for: the wallet module refuses to send for another
+addEventListener('hashchange', () => { if (onBtc()) { showSide(); return; } readHash(); if (!showSide()) refresh(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && !S.busy && side === 'tac') refresh(); });   // a tab left open reads the vault again when it is looked at
+wallet.onChange(() => { renderChip(); detectBatch(); if (side === 'tac') pools.read(); if (S.busy || side !== 'tac') return; if (!S.view) { refresh(); } else renderAll(); });   // a transaction in flight keeps the account it was made for: the wallet module refuses to send for another
 wallet.restore().catch(() => {});
 
 // The countdown of an auction's owner-only window runs on the chain's clock.
@@ -1008,10 +1041,8 @@ setInterval(() => {
   els.forEach((el) => { const left = Number(el.dataset.cd) - chainNow(); el.textContent = M.clock(left); if (left <= 0 && !S.busy) renderPos(); });
   document.querySelectorAll('[data-ago]').forEach((el) => { el.textContent = agoText(now() - Number(el.dataset.ago)); });
 }, 1000);
-setInterval(() => { if (!document.hidden && !S.busy) refresh(); }, 30e3);
-setInterval(() => { if (!document.hidden && !S.busy && !F.busy) loadFeed(); }, 60e3);
+setInterval(() => { if (!document.hidden && !S.busy && side === 'tac') refresh(); }, 30e3);
+setInterval(() => { if (!document.hidden && !S.busy && !F.busy && side === 'tac') loadFeed(); }, 60e3);
 
 readHash();
-renderAll();
-checkRouter();
-if (VS.length) refresh().then(() => loadFeed());                                                    // the feed is read for the oracle each vault names, which the first read has found
+showSide();

@@ -23,7 +23,9 @@
     var seg = ((path.match(/^\/([a-z0-9-]+(?:\/[a-z0-9-]+)?)\/?$/i) || [])[1] || '').toLowerCase();
     if (seg === 'airdrop' && !h) return away('/rewards/' + q);                // the airdrop and points have one page; #airdrop still opens this page's own claim
     if (seg === 'trade') return away('/trade/tac/' + q + h);                // TAC is the one market the trade page has, at its own address
-    if (seg === 'vault/tac') return away('/vault/' + q + h);                // borrowing against TAC is the vault page; against Bitcoin (/vault/btc) it is this page's Borrow sheet
+    // Borrowing has one page, /vault/: against TAC its own address, against Bitcoin its #btc side (a fragment of the link's own is carried instead).
+    if (seg === 'vault/tac') return away('/vault/' + q + h);
+    if (seg === 'vault/btc') return away('/vault/' + q + (h && h !== '#' ? h : '#btc'));
     if (PAGES.indexOf(seg) !== -1 && !/\/$/.test(path)) return away('/' + seg + '/' + q + h);
     if (seg === 'classic') return away(CLASSIC + q + h);
     if (TABS.indexOf(seg) !== -1) {
@@ -40,7 +42,6 @@
     // Payment, gift and proof links belong to tacit pay: #btc&pay= and #tac&pay= to its hub, the rest to its ETH page.
     if (/(^#|&)(gift|proof|pay)=/.test(h)) return away((/^#(btc|tac)&/i.test(h) ? '/pay/' : '/pay/eth/') + h);
     var parts = path.toLowerCase().replace(/^\/+|\/+$/g, '').split('/');
-    if (seg === 'vault/btc') parts = ['borrow'];
     var view = VIEWS.indexOf(parts[0]) !== -1 && parts.every(function (x) { return /^[a-z0-9-]+$/.test(x); });
     if (path !== '/') window.history.replaceState(null, '', '/' + q + (view && !h ? '#' + parts.join('/') : h));
   } catch (e) { /* never keep the page from loading */ }
