@@ -2,6 +2,7 @@
 # tools/tac-vault-keeper-render/Dockerfile; everything else is excluded.
 *
 !worker-relay/package.json
+!worker-relay/package-lock.json
 !worker-relay/src
 !worker/package.json
 !worker/package-lock.json
