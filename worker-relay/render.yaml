@@ -463,6 +463,18 @@ services:
         sync: false
       - key: POINTS_TASKS_END_SEC
         sync: false
+      # The liquidity campaign (lib/points-lp.js): the same rule, so that a push touching this file cannot write over them. All dashboard only;
+      # it is off until the schedule, the pools, the pocket and the end are all set.
+      - key: POINTS_LP_SCHEDULE
+        sync: false
+      - key: POINTS_LP_POOLS
+        sync: false
+      - key: POINTS_LP_POCKET_WEI
+        sync: false
+      - key: POINTS_LP_END_SEC
+        sync: false
+      - key: POINTS_LP_FROM_BLOCK
+        sync: false
 
   # Always-on web service: Bitcoin-native shielded pool replay (src/btc-pool-indexer.js). Replays 0x6C/0x6D
   # envelopes from raw blocks and serves roots, Merkle paths, the note feed, nullifier and exit status.

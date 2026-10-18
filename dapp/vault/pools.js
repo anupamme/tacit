@@ -99,7 +99,7 @@ const callSeed = (m, to, plan, first) => {
 // ── the module ──
 // `cfg`: deployments.js's pools ({ factory, recipient?, quotes, markets }); `synthOf(key)`: the vault's token once it is read.
 export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthOf, symOf, connect, txLink, onChange }) {
-  const P = { by: {}, busy: false, key: null, sel: {}, side: 's', text: { s: '', q: '' }, shape: '', msg: '', reading: {}, failed: false };
+  const P = { by: {}, busy: false, key: null, sel: {}, side: 's', text: { s: '', q: '' }, shape: '', msg: '', reading: {}, failed: false, camp: null, campAt: 0, campFor: null };
   const recipient = cfg?.recipient || ZERO, quotes = cfg?.quotes || {};
   const keys = [...new Set((cfg?.markets || []).map((k) => k.vault))];
   const quoteByAddr = (a) => Object.entries(quotes).map(([sym, q]) => ({ sym, ...q })).find((q) => (q.addr || ZERO).toLowerCase() === a.toLowerCase()) || null;
@@ -192,6 +192,39 @@ export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthO
     draw(); onChange?.();
   }
 
+  // What the points service says the liquidity campaign pays (/lp), for the account connected: read at most every minute, and nothing is shown when the service does not
+  // answer or the campaign is off.
+  async function readCampaign() {
+    if (!cfg?.campaign) return;
+    const acc = W.account || null;
+    if (Date.now() - P.campAt < 60e3 && P.campFor === acc) return;
+    P.campAt = Date.now(); P.campFor = acc;
+    try {
+      const r = await fetch(`${cfg.campaign}/lp${acc ? `?address=${acc}` : ''}`, { signal: AbortSignal.timeout(8000) });
+      const j = r.ok ? await r.json() : null;
+      P.camp = j && j.enabled ? j : null;
+    } catch { P.camp = null; }
+    draw();
+  }
+  const dayText = (day) => new Date(day * 86400e3).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const tacText = (wei) => M.fmtUnits(BigInt(wei), 18, 2);
+  // The rows the campaign adds to a pool's card: the opening bonus, what holding liquidity earns, and what the account has earned so far.
+  function campaignRows(x) {
+    const c = P.camp, p = c?.pools?.find((q) => q.pool === x.pool.toLowerCase());
+    if (!p) return { bonus: null, earn: null, mine: null };
+    const t = c.terms, soon = !t && c.next, half = p.weightBps !== '10000' ? ` · counts ×${Number(p.weightBps) / 1e4}` : '';
+    const usd = Math.round(Number(BigInt(c.minUsdWei) / 10n ** 16n)) / 100;
+    const create = t ? BigInt(t.createWei) : soon ? BigInt(c.next.createWei) : 0n;
+    let bonus = null;
+    if (p.openPaid) bonus = '<b>Paid</b>';
+    else if (create > 0n) bonus = `<b>${esc(tacText(create))} TAC</b><small>${p.opened ? 'to the one who opened it, once it has held' : 'to the first to add liquidity and keep'} $${esc(usd)} in for a day${soon ? ` · from ${esc(dayText(c.next.fromDay))}` : ''}</small>`;
+    const e = t || (soon ? c.next : null);
+    const earn = e && BigInt(e.dailyWei) > 0n
+      ? `<b>${esc(tacText(e.dailyWei))} TAC a day</b><small>shared by what is held for the whole day, up to ${esc(M.fmtUnits(BigInt(e.capWeiPerUsdDay), 18, 4))} TAC per $1${esc(half)}${soon ? ` · from ${esc(dayText(c.next.fromDay))}` : ''}</small>` : null;
+    const got = c.mine && BigInt(c.mine.creditedWei) > 0n ? `<b>${esc(tacText(c.mine.creditedWei))} TAC</b>` : null;
+    return { bonus, earn, mine: got };
+  }
+
   // The plan for what is typed now, against the view: { ok, plan, first } or { ok: false, why }.
   function planNow(st) {
     const m = st.m, side = P.side, dec = side === 's' ? 18 : m.quote.dec;
@@ -231,7 +264,8 @@ export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthO
       shapeSet(shape, `${head}${pick}
         <div class="rows flat" id="pl-rows">${open
           ? '<div class="kv"><span>Price</span><b class="num" id="pl-px"></b></div><div class="kv"><span>In the pool</span><b class="num" id="pl-depth"></b></div><div class="kv"><span>Range</span><b class="num" id="pl-range"></b></div>' + (st.mine > 0n ? '<div class="kv"><span>Yours</span><b class="num" id="pl-mine"></b></div>' : '')
-          : '<div class="kv"><span>Opens at</span><b class="num" id="pl-px"></b></div><div class="kv"><span>Range</span><b class="num" id="pl-range"></b></div>'}</div>
+          : '<div class="kv"><span>Opens at</span><b class="num" id="pl-px"></b></div><div class="kv"><span>Range</span><b class="num" id="pl-range"></b></div>'}
+          <div class="kv" id="pl-kb" hidden><span>Opening bonus</span><b id="pl-bonus"></b></div><div class="kv" id="pl-ke" hidden><span>Liquidity rewards</span><b id="pl-earn"></b></div><div class="kv" id="pl-km" hidden><span>Earned so far</span><b class="num" id="pl-got"></b></div></div>
         <div class="lbl"><span>${esc(sym)}</span><button class="linkbtn" id="pl-bs" type="button"></button></div>
         <div class="amt"><input id="pl-s" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${esc(sym)} to add"><span class="u">${ico(sym.toLowerCase())}${esc(sym)}</span></div>
         <div class="lbl"><span>${esc(qs)}</span><button class="linkbtn" id="pl-bq" type="button"></button></div>
@@ -250,6 +284,11 @@ export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthO
       if (st.mine > 0n) setText('#pl-mine', `${esc((Number((st.mine * 10000n + st.supply / 2n) / st.supply) / 100).toLocaleString('en-US', { maximumFractionDigits: 2 }))}% · ${esc(qFmt(m, st.mine * r.q / st.supply, 4))} ${esc(qs)} + ${esc(sFmt(st.mine * r.s / st.supply, 4))} ${esc(sym)}`);
     } else setText('#pl-px', m.open ? esc(pxText(m, sym, m.refQps)) : '—');
     setText('#pl-range', esc(rangeText(m, sym)));
+    const camp = campaignRows(st);
+    for (const [row, cell, html] of [['#pl-kb', '#pl-bonus', camp.bonus], ['#pl-ke', '#pl-earn', camp.earn], ['#pl-km', '#pl-got', camp.mine]]) {
+      const r = bit(row); if (!r) continue;
+      r.hidden = html == null; if (html != null) setText(cell, html);
+    }
     setText('#pl-bs', st.balS == null ? '' : `Balance ${esc(sFmt(st.balS, 4))} · Max`);
     setText('#pl-bq', st.balQ == null ? '' : `Balance ${esc(qFmt(m, st.balQ, 4))} · Max`);
     drawButton(st);
@@ -393,6 +432,7 @@ export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthO
     if (key !== P.key) { P.key = key; P.text = { s: '', q: '' }; P.side = 's'; P.shape = ''; P.msg = ''; }
     draw();
     for (const k of keys) if (!V(k) && synthOf(k)) read(k);
+    readCampaign();
   }
   // The board's cell for a token: the first market (in the order deployments.js lists them) that holds liquidity, or that none does yet.
   function cell(key) {
@@ -403,5 +443,5 @@ export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthO
     const q = x.m.synthIs1 ? x.r0 : x.r1;
     return `<b>${esc(qFmt(x.m, q, 2))}</b> ${esc(x.m.quote.sym)}<small>in the ${esc(symOf(key))} / ${esc(x.m.quote.sym)} pool</small>`;
   }
-  return { show, read: () => Promise.all(keys.map((k) => read(k))), draw, cell };
+  return { show, read: () => Promise.all([...keys.map((k) => read(k)), readCampaign()]), draw, cell };
 }

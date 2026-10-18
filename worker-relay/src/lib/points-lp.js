@@ -150,11 +150,24 @@ export function allocateLpDay({ rows, dailyWei, capWeiPerUsdDay }) {
 
 // ── what each credit is called ──
 
-// One id per pool for opening it, one per address, pool and day for holding liquidity: an id is credited once and for all, so a
-// day that has been paid is never paid again however often it is looked at.
-export const openId = (pool) => `lpopen:${pool.toLowerCase()}`;
-export const dayId = (day, pool, address) => `lpday:${day}:${pool.toLowerCase()}:${address.toLowerCase()}`;
-export const CREDIT_PREFIX = 'lp';
+// One id per pool for opening it, one per address and day for holding liquidity (an address in two pools is paid once for the
+// day): an id is credited once and for all, so a day that has been paid is never paid again however often it is looked at.
+export const CREDIT_PREFIX = 'lp:';
+export const openId = (pool) => `${CREDIT_PREFIX}open:${pool.toLowerCase()}`;
+export const dayId = (day, address) => `${CREDIT_PREFIX}day:${day}:${address.toLowerCase()}`;
+
+// Why a credit of `wei` has to wait, or null when it may go ahead: the campaign has ended, it would take the pocket past what was
+// put in it, or the distributor's funding would then cover fewer than `reserveDays` whole days of the regular pot (a root is
+// published all or nothing, so the campaign must never be what holds the daily payouts back). `status(extraWei)` is the funding
+// status with `extraWei` more on the ledger (lib/points-funding.js), or null when it cannot be read.
+export function holdReason({ wei, creditedWei, pocketWei, nowSec, endSec, status, reserveDays = 2 }) {
+  if (!endSec || nowSec > endSec) return 'ended';
+  if (creditedWei + wei > pocketWei) return 'pocket';
+  const s = status(wei);
+  if (!s) return 'funding unread';
+  if (s.shortfallWei > 0n || s.daysCovered < reserveDays) return 'funding';
+  return null;
+}
 
 export const dayOf = (sec) => Math.floor(sec / DAY);
 // A day is paid once it is over, with the same grace the daily pot settles after.

@@ -13,6 +13,8 @@ export const DEPLOYMENTS = Object.freeze({
   // already holds for the token is listed either way).
   pools: Object.freeze({
     factory: '0x000000Eb27B557aB426d9E99cFd54EC455799e81',
+    // The points service, whose /lp says what the liquidity campaign pays for opening each of these pools and for holding liquidity in it (nothing is shown when it says nothing).
+    campaign: 'https://tacit-points.onrender.com',
     quotes: Object.freeze({
       USDC: Object.freeze({ addr: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', dec: 6 }),
       ETH: Object.freeze({ addr: null, dec: 18 }),

@@ -26,6 +26,8 @@ import { parseBuckets } from './lib/holding-epoch.js';
 import { loadHash } from './lib/poseidon-hash.js';
 import { readJson } from './lib/http-json.js';
 import { createTasks } from './lib/points-tasks-service.js';
+import { createLp } from './lib/points-lp-service.js';
+import { parseLpSchedule, parseLpPools, WAD as LP_WAD } from './lib/points-lp.js';
 import { checkJob, stepChain } from './lib/points-tasks.js';
 import { quoteTacForEth } from './lib/tac-quote.js';
 import { clientKey } from './lib/token-bucket.js';
@@ -1714,6 +1716,12 @@ function startHttp(store, evmState) {
         res.end(JSON.stringify(tasks ? tasks.view({ address: /^0x[0-9a-fA-F]{40}$/.test(url.searchParams.get('address') ?? '') ? url.searchParams.get('address') : null }) : { enabled: false }));
         return;
       }
+      // The liquidity campaign (lib/points-lp-service.js): its terms, pocket and pools, and with ?address= that account's part in it.
+      if (url.pathname === '/lp') {
+        res.setHeader('Cache-Control', 'public, max-age=30');
+        res.end(JSON.stringify(lp ? lp.view({ address: /^0x[0-9a-fA-F]{40}$/.test(url.searchParams.get('address') ?? '') ? url.searchParams.get('address') : null }) : { enabled: false }));
+        return;
+      }
       if (url.pathname === '/tasks/claim') {
         if (req.method !== 'POST') { res.statusCode = 405; res.end(JSON.stringify({ error: 'POST the transaction hashes' })); return; }
         const r = tasks ? await tasks.claim(await readJson(req), { client: clientKey(req) }) : { status: 404, body: { error: 'not enabled' } };
@@ -1900,6 +1908,30 @@ function setupTasks(store) {
   return t;
 }
 
+// The liquidity campaign (lib/points-lp-service.js): off unless POINTS_LP_SCHEDULE, POINTS_LP_POOLS, POINTS_LP_POCKET_WEI and POINTS_LP_END_SEC are set.
+let lp = null;
+function setupLp(store) {
+  const schedule = parseLpSchedule(CFG.pointsLpSchedule, log), pools = parseLpPools(CFG.pointsLpPools, log);
+  if (CFG.pointsLpPocketWei <= 0n || !CFG.pointsLpEndSec || !CFG.pointsProgramStartSec || !schedule.length || !pools.length) return null;
+  const l = createLp({
+    store, client: publicClient, log, budgetFor: budgetForDay, graceSecs: CFG.pointsSettleGraceSecs,
+    cfg: {
+      schedule, pools, pocketWei: CFG.pointsLpPocketWei, endSec: CFG.pointsLpEndSec, reserveDays: CFG.pointsLpReserveDays, minUsdWei: BigInt(CFG.pointsLpMinUsd) * LP_WAD,
+      minSamples: CFG.pointsLpMinSamples, exclude: CFG.pointsLpExclude.split(',').map((a) => a.trim()).filter(Boolean), fromBlock: CFG.pointsLpFromBlock || undefined,
+      usdc: CFG.pointsLpUsdc, ethUsdFeed: CFG.pointsLpEthUsdFeed, confirmations: CFG.pointsConfirmations,
+    },
+    fundingInputs: async () => {
+      const state = store.loadSettleState();
+      const ledger = store.allRewards().reduce((n, r) => n + BigInt(r.cumulativeWei), 0n);
+      const f = await readFunding(state, ledger);
+      const startDay = Math.floor(CFG.pointsProgramStartSec / 86400);
+      return f && { heldWei: BigInt(f.heldWei), claimedWei: BigInt(f.claimedWei), nextDay: (state?.lastSettledDay ?? startDay - 1) + 1 };
+    },
+  });
+  log(`liquidity campaign on: ${pools.length} pool(s), pocket ${formatTac(CFG.pointsLpPocketWei)} TAC, until ${new Date(CFG.pointsLpEndSec * 1000).toISOString()}`);
+  return l;
+}
+
 async function main() {
   if (!CFG.pointsStartBlock) throw new Error('missing required env POINTS_START_BLOCK');
   const store = openStore(CFG.pointsDbPath, { excluded: CFG.evmPoolPointsExclude });
@@ -1936,6 +1968,7 @@ async function main() {
   const evmState = openEvmPoolPointsState(store.db);
   try { holding = await setupHolding(store); } catch (err) { log('holding reward not started:', err?.message || err); holding = null; }
   tasks = setupTasks(store);
+  try { lp = setupLp(store); } catch (err) { log('liquidity campaign not started:', err?.message || err); lp = null; }
   startHttp(store, evmState);
 
   for (;;) {
@@ -2009,6 +2042,7 @@ async function main() {
       log('pool snapshot cycle failed:', err?.message || err);
     }
     if (tasks) await tasks.cycle();
+    if (lp) { try { await lp.cycle(); } catch (err) { log('liquidity campaign cycle failed:', err?.message || err); } }
     try {
       await settleCycle(store, () => scannersCoveredThrough(store, evmState));
     } catch (err) {

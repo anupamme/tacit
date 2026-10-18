@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   WAD, parseLpSchedule, lpTermsForDay, nextLpTerms, parseLpPools, poolPrice, poolValueUsd, shareValueUsd, allocateLpDay,
-  openId, dayId, dayOf, dayIsDone, MAX_DAILY_WEI,
+  openId, dayId, dayOf, dayIsDone, holdReason, MAX_DAILY_WEI, CREDIT_PREFIX,
 } from '../src/lib/points-lp.js';
 
 const tac = (n) => BigInt(Math.round(n * 1e6)) * 10n ** 12n;
@@ -145,12 +145,29 @@ test('a day never pays more than its amount, whatever the values are', () => {
   }
 });
 
-test('an id names a pool, or a pool, an address and a day', () => {
-  assert.equal(openId(POOL), `lpopen:${POOL.toLowerCase()}`);
-  assert.equal(dayId(20750, POOL, A), `lpday:20750:${POOL.toLowerCase()}:${A}`);
+test('an id names a pool, or an address and a day', () => {
+  assert.equal(openId(POOL), `lp:open:${POOL.toLowerCase()}`);
+  assert.equal(dayId(20750, A.toUpperCase().replace('0X', '0x')), `lp:day:20750:${A}`);
+  assert.ok(openId(POOL).startsWith(CREDIT_PREFIX) && dayId(1, A).startsWith(CREDIT_PREFIX), 'both are found by the prefix the pocket is counted by');
   assert.equal(dayOf(20750 * 86400 + 5), 20750);
   assert.equal(dayIsDone(20750, 20751 * 86400 - 1, 0), false);
   assert.equal(dayIsDone(20750, 20751 * 86400, 0), true);
   assert.equal(dayIsDone(20750, 20751 * 86400 + 1799, 1800), false, 'a day waits out the same grace the pot does');
   assert.equal(dayIsDone(20750, 20751 * 86400 + 1800, 1800), true);
+});
+
+test('a credit waits when the campaign has ended, the pocket is spent, or funding would fall short', () => {
+  const ok = () => ({ shortfallWei: 0n, daysCovered: 10 });
+  const base = { wei: tac(10), creditedWei: 0n, pocketWei: tac(100), nowSec: 1000, endSec: 2000, status: ok, reserveDays: 2 };
+  assert.equal(holdReason(base), null);
+  assert.equal(holdReason({ ...base, endSec: 0 }), 'ended', 'no end time, no campaign');
+  assert.equal(holdReason({ ...base, nowSec: 2001 }), 'ended');
+  assert.equal(holdReason({ ...base, creditedWei: tac(95) }), 'pocket', 'what would take it past the pocket waits');
+  assert.equal(holdReason({ ...base, creditedWei: tac(90) }), null, 'the pocket exactly is still fine');
+  assert.equal(holdReason({ ...base, status: () => ({ shortfallWei: 1n, daysCovered: 10 }) }), 'funding');
+  assert.equal(holdReason({ ...base, status: () => ({ shortfallWei: 0n, daysCovered: 1 }) }), 'funding', 'fewer than the reserve days covered');
+  assert.equal(holdReason({ ...base, status: () => null }), 'funding unread', 'a failed read never looks funded');
+  let asked = null;
+  holdReason({ ...base, status: (x) => { asked = x; return ok(); } });
+  assert.equal(asked, tac(10), 'funding is asked with the credit counted');
 });

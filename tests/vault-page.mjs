@@ -134,11 +134,13 @@ const M_OUT = (txt) => { const [a, b = ''] = txt.split('.'); return BigInt(a) * 
 const hashFor = (extra = '') => `#vusd=${USD}&veth=${ETH}&t=deposit${extra}`;
 // `bare`: the page served with a deployments module that names no vault, as it was before the vaults existed (the opens-soon state).
 // `limited`: hosts that answer every call as a node that has run out of its free requests does.
+// `lp`: what the points service answers to /lp (the liquidity campaign); null is a service with the campaign off. The page never reaches the real one.
 // `hold`: { re, gate }: a call whose body matches `re` waits for the promise `gate` before it is answered (a slow node, or a router not yet asked).
-async function openPage({ viewport = { width: 1280, height: 900 }, who = null, noTyped = false, batch = false, hash = hashFor(), host = '127.0.0.1', scheme = 'light', args = [], bare = false, limited = [], hold = null } = {}) {
+async function openPage({ viewport = { width: 1280, height: 900 }, who = null, noTyped = false, batch = false, hash = hashFor(), host = '127.0.0.1', scheme = 'light', args = [], bare = false, limited = [], hold = null, lp = null } = {}) {
   const browser = await chromium.launch({ args });
   const ctx = await browser.newContext({ viewport, colorScheme: scheme });
   if (bare) await ctx.route('**/vault/deployments.js*', (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: 'export const DEPLOYMENTS = Object.freeze({ chainId: 1, vaults: Object.freeze([]) });' }));
+  await ctx.route('https://tacit-points.onrender.com/**', (route) => route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(lp ?? { enabled: false }) }));
   const walletLog = who ? await stubWallet(ctx, { who, noTyped, batch }) : null;
   for (const h of RPC_HOSTS) await ctx.route(`https://${h}/**`, async (route) => {
     if (limited.includes(h)) return route.fulfill({ status: 429, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32005, message: 'You reached Public endpoint rate limit, please upgrade to paid plan' } }) });
@@ -854,6 +856,7 @@ try {
     ok(/Backstop · 0\.3% fee/.test(await panel(r.page)) && /Range\s*0\.5 – 2 USDC/.test(await panel(r.page)), 'the backstop is wider: 0.5 to 2 USDC at 0.3%');
     await untilText(r.page, '#board', /Sells for\s*Not open yet\s*Not open yet/);
     ok((await text(r.page, '#pl-go')) === 'Connect wallet', 'with no wallet the button asks for one');
+    ok(await r.page.$$eval('#pl-kb, #pl-ke, #pl-km', (els) => els.length === 3 && els.every((e) => e.hidden)), 'with the campaign off the page shows no rows for it');
     ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
     await shot(r.page, 'pools-list');
     await closeAll(r);
@@ -978,6 +981,35 @@ try {
       const lab2 = await r.page.$$eval('#pl-pick button', (bs) => bs.map((b) => b.textContent.replace(/\s+/g, ' ').trim()));
       ok(lab2.length === 3 && lab2[2] === 'TACD / USDC0.01%', `a pool someone else opened (±1%, 0.01%) is listed after the templates (${lab2.join(' | ')})`);
       await closeAll(r);
+      // 7. the liquidity campaign, as the points service says it: the rows it adds to a pool's card
+      const synthIs1c = BigInt(SYN.usd) > BigInt(USDC);
+      const bandTuple = (ln, ld, hn, hd, fee) => {
+        const rw = (pn, pd) => (synthIs1c ? [pn * E18, pd * 10n ** 6n] : [pd * 10n ** 6n, pn * E18]);
+        const [lo2, hi2] = synthIs1c ? [rw(ln, ld), rw(hn, hd)] : [rw(hn, hd), rw(ln, ld)];
+        return `(${synthIs1c ? USDC : SYN.usd},${synthIs1c ? SYN.usd : USDC},${ssl(...lo2)},${ssl(...hi2)},${fee},0x0000000000000000000000000000000000000000,0x0000000000000000000000000000000000000000,0)`;
+      };
+      const backstop = cast('call', PF, 'poolFor((address,address,uint256,uint256,uint256,address,address,uint256))(address)', bandTuple(1n, 2n, 2n, 1n, 3000), '--rpc-url', ANVIL).toLowerCase();
+      const camp = {
+        enabled: true, endSec: 9_999_999_999, pocket: { totalWei: String(1500n * E18), creditedWei: '0', remainingWei: String(1500n * E18) },
+        terms: { fromDay: 1, dailyWei: String(25n * E18), createWei: String(150n * E18), capWeiPerUsdDay: String(E18 / 20n) }, next: null, minUsdWei: String(20n * E18), minSamples: 12,
+        pools: [
+          { pool: pool1.toLowerCase(), weightBps: '10000', opened: true, opener: ACC.user.a.toLowerCase(), openPaid: true },
+          { pool: backstop, weightBps: '5000', opened: false, opener: null, openPaid: false },
+        ],
+        today: { day: 1, samples: 5, hour: 5 }, mine: { address: ACC.user.a.toLowerCase(), creditedWei: String(12n * E18), opened: [pool1.toLowerCase()] },
+      };
+      r = await openPage({ who: 'user', hash: hashP(), lp: camp });
+      await connect(r.page);
+      await until(r.page, () => !document.querySelector('#pl-ke')?.hidden);
+      const cp = await panel(r.page);
+      ok(/Opening bonus\s*Paid/.test(cp) && /Liquidity rewards\s*25 TAC a day\s*shared by what is held for the whole day, up to 0\.05 TAC per \$1/.test(cp) && /Earned so far\s*12 TAC/.test(cp), `an opened pool shows its bonus paid, what holding earns and what the account has earned (${cp.slice(0, 330)})`);
+      await r.page.click('#pl-pick button:nth-child(2)'); await sleep(150);
+      const cb = await panel(r.page);
+      ok(/Opening bonus\s*150 TAC\s*to the first to add liquidity and keep \$20 in for a day/.test(cb) && /counts ×0\.5/.test(cb), `a pool nobody has opened shows the bonus for the first, and that the backstop counts at half (${cb.slice(0, 330)})`);
+      ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
+      await shot(r.page, 'pools-campaign');
+      await closeAll(r);
+
     }
   }
 
