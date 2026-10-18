@@ -25,6 +25,7 @@
 //   farmzap  one side alone farms: Max takes the whole balance, the quote says what is swapped and what both sides add, and the
 //            press cuts the swap note, swaps it in the farm's pool, cuts what pairs with the return and bonds both
 //   farmmarket a private pool priced far from the market says so on its card; tETH alone shows its cost against the market and waits for it to be accepted
+//   hxdry   between reward periods the card's private farms say so and quote no APR or TAC a day; the Precision pool keeps its figures
 //   hxearntac the card's Earn tab takes a wallet's TAC (the public pool, the form's TAC tab) and private TAC (the pool that pairs it), each with its amount
 //   farmcusd  private cUSD held: the Borrow sheet offers to farm it, which opens the cUSD pool on its own side; selling cUSD into a pool that prices it dear shows no cost against the market
 //   farmqueue a cut still in the relay's queue when the wait runs out says so, says how to carry on, and offers the paying account
@@ -165,7 +166,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxteth,hxsend,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxteth,hxsend,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -5376,6 +5377,24 @@ await step('hxsend', async () => {
     await q.fill('#hx-rcpt', 'no-such-name-zzqx.wei');
     await until(q, () => { const e = document.querySelector('#hx-rc'); return !e.hidden && e.classList.contains('warn') && e.textContent.trim().length > 5 && !/own Tacit address/.test(e.textContent); }, null, 120000);
     ok(true, `hxsend: a name with nothing registered is refused under the field (${(await text(q, '#hx-rc')).replace(/\s+/g, ' ').slice(0, 90)})`);
+    // Something that is no address or name at all, and a tacit1 cut short, are said under the field too (read locally, no lookup), the first quietly.
+    await q.fill('#hx-rcpt', 'abc');
+    await until(q, () => { const e = document.querySelector('#hx-rc'); return !e.hidden && !e.classList.contains('warn') && /not a Tacit address or a name/.test(e.textContent); }, null, 60000);
+    ok(true, 'hxsend: something that is no address or name is said so under the field, quietly');
+    await q.fill('#hx-rcpt', long.slice(0, 60));
+    await until(q, () => { const e = document.querySelector('#hx-rc'); return !e.hidden && /not whole or has a typo/.test(e.textContent); }, null, 60000);
+    ok(true, 'hxsend: a tacit1 address cut short is said so under the field');
+    await q.fill('#hx-rcpt', 'alice.w');
+    await until(q, () => { const e = document.querySelector('#hx-rc'); return !e.hidden && !e.classList.contains('warn') && /\.wei, \.gwei or \.eth/.test(e.textContent); }, null, 60000);
+    ok(true, 'hxsend: a name still being typed is told its endings, quietly');
+    // A link whose amount is no amount still opens the card where it says, with the amount left empty.
+    await q.evaluate(() => { location.hash = '#card=swap:ether:tac&amt=1e3'; });
+    await until(q, () => document.querySelector('[data-hxm="swap"]')?.getAttribute('aria-selected') === 'true' && location.hash === '', null, 60000);
+    ok(await q.$eval('#hx-amt', (e) => e.value) === '', 'hxsend: a #card link with an amount that is not one opens the card on that tab, empty');
+    await q.evaluate(() => { location.hash = '#card=swap:ether:tac&amt=0.25'; });
+    await until(q, () => document.querySelector('#hx-amt')?.value === '0.25', null, 60000);
+    ok(true, 'hxsend: and one with an amount fills it');
+    await q.click('[data-hxm="send"]');
     // Request a payment: this key's link, for the asset and amount asked for, copied; opened, it is the same payment filled in.
     await q.evaluate(() => { window.__clip = []; navigator.clipboard.writeText = async (t) => { window.__clip.push(t); }; });
     await q.click('#hx-ask');
@@ -6003,6 +6022,26 @@ await step('hxearn', async () => {
   } finally { await r.browser.close(); }
 });
 
+// Between reward periods the private farms pay nothing, and the card's Earn rows say so as the Farm sheet does, with no APR and no TAC a day;
+// the Precision pool, which has its own schedule, keeps its figures.
+await step('hxdry', async () => {
+  const r = await openPage({ account: A0, key: K0 });
+  await r.page.route(/^https:\/\/api\.tacit\.finance\/farm\/program/, async (route) => { const res = await route.fetch(); const j = await res.json(); j.epoch = { ...(j.epoch || {}), active: false }; await route.fulfill({ response: res, json: j }); });
+  const p = r.page;
+  try {
+    await p.goto(r.url);
+    await p.waitForSelector('[data-hxm="earn"]', { timeout: 120000 });
+    await p.click('[data-hxm="earn"]'); await p.fill('#hx-amt', '0.5');
+    await until(p, () => /between reward periods/.test(document.querySelector('#hx-routes')?.textContent || ''), null, 240000);
+    const rows = await p.$$eval('#hx-routes [data-hxr]', (b) => b.map((x) => `${x.dataset.hxr}:${x.textContent.replace(/\s+/g, ' ')}`));
+    ok(rows.length > 1 && /^precision:.*APR/.test(rows[0]) && rows.slice(1).every((x) => /between reward periods/.test(x) && !/APR/.test(x)), `hxdry: the private farms say they are between reward periods and quote no APR (${rows.join(' | ').slice(0, 200)})`);
+    await p.click('#hx-routes [data-hxr]:not([data-hxr="precision"])');
+    await until(p, () => /Between reward periods: nothing streams/.test(document.querySelector('#hx-q')?.textContent || ''), null, 120000);
+    ok(/^0\b|—/.test(await text(p, '#hx-out')) || (await text(p, '#hx-out')) === '0', `hxdry: and earn no TAC a day (${await text(p, '#hx-out')})`);
+    if (r.errors.length) { fails++; console.log('FAIL hxdry page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
 // The Swap tab sells TAC for wallet ETH: the public pools (one, or split across two in a single transaction when that pays more than
 // its extra gas) beside the private Tacit pool, and the Sell sheet it hands off to carries the amount and runs the same route. A sale
 // big enough to split is run through the page on the fork: the permit rides inside the one transaction and nothing is left behind.
@@ -6029,6 +6068,8 @@ await step('hxsell', async () => {
     await p.fill('#hx-amt', '12000');
     await until(p, () => /Split across two pools in one transaction: [\d.]+% more/.test(document.querySelector('#hx-q')?.textContent || ''), null, 300000);
     ok(await text(p, '#hx-go') === 'Sell TAC' && !/…|—/.test(await text(p, '#hx-out')), `hxsell: 12,000 TAC is quoted as a split, paid out as ETH (${(await text(p, '#hx-q')).slice(0, 110)})`);
+    const cardQ = await text(p, '#hx-q'), cardPct = Number((cardQ.match(/moves the price ([\d.]+)%/) || [])[1]);
+    ok(cardPct > 1, `hxsell: a split sale says how far it moves the price, as the Sell sheet counts it (${cardQ.slice(0, 160)})`);
     const rows = await p.$$eval('#hx-routes [data-hxr]', (b) => b.map((x) => `${x.dataset.hxr}:${x.textContent.replace(/\s+/g, ' ')}`));
     ok(rows.length === 0 || (rows.some((x) => /^public:.*Two public pools.*Precision pool.*Tacit public pool/.test(x)) && rows.some((x) => /^private:.*arrives as tETH/.test(x))), `hxsell: with both ways quoted they are two rows, the public one naming the two pools (${rows.join(' | ').slice(0, 220)})`);
     const w0 = await text(p, '#hx-to-w');
@@ -6046,6 +6087,8 @@ await step('hxsell', async () => {
     ok(await until(p, () => document.querySelector('#sl-amt')?.value === '12000', null, 30000).then(() => true, () => false), 'hxsell: the Sell sheet opens with the amount from the card');
     await until(p, () => /Split: \d+% Precision pool, \d+% Tacit public pool/.test(document.querySelector('#sl-rcpt')?.textContent || ''), null, 300000);
     ok(true, `hxsell: and quotes the same split (${(await text(p, '#sl-rcpt')).replace(/\s+/g, ' ').slice(0, 160)})`);
+    const sheetPct = Number(((await text(p, '#sl-rcpt')).match(/Price impact\s*([\d.]+)%/) || [])[1]);
+    ok(Math.abs(cardPct - sheetPct) <= 1, `hxsell: the card's price impact is the sheet's (${cardPct}% and ${sheetPct}%)`);
     await acceptLoss(p, '#sl-go', '#sl-ackv');
     const e0 = BigInt(await rpc('eth_getBalance', [who, 'latest'])), n0 = BigInt(await rpc('eth_getTransactionCount', [who, 'latest']));
     const mc0 = await tacOf('0xcA11bde05977b3631167028862bE2a173976CA11');
