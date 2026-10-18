@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-/w8TtMqjD2uxrre528rrGdlAjSFE4pJ2nRaExj61/uM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-5zVPpZfvpvmavpip0OB1v6XBkNSeHK5ooB3+RcPL3Rs=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -449,7 +449,6 @@ a.di { color: inherit; text-decoration: none; }
 .hx-h button[data-due]::after { content: ''; position: absolute; top: 9px; left: calc(50% + 9px); width: 7px; height: 7px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 0 2px var(--card); }
 .hx-do .link { position: relative; padding: 0; font-size: 12px; }
 .hx-do .link::after { content: ''; position: absolute; inset: -8px -6px; }
-.hx-pw { color: var(--mute); }
 .hx-pt { color: var(--mute); }
 .hx-pt::before { content: '+ '; font-weight: 600; color: var(--ok); }
 .hx-chain { display: flex; align-items: center; gap: 8px; margin: 12px 2px 0; font-size: 12px; color: var(--mute); }
@@ -11516,7 +11515,7 @@ const hxTipFresh = (units = hxUnits()) => { const hit = units ? HXT.m.get(String
 // the line once read (null: still being read; undefined: unread, and the next step shows it).
 const hxWrapMode = () => HX.mode === 'private' || (HX.mode === 'swap' && HX.from === 'ether' && HX.to === 'eth');
 const hxWrapSay = (units, tip) => ({ out: units ? fmt(units, 8, 6) : null, go: 'Make ETH private', pk: 'wrap',
-  line: units ? `1 for 1, ${ownNow(['wrap']) ? 'with no relay tip: you prove it with your own credit.' : `with a relay tip${tip ? ` of ${fmt(tip, 18, 6)} ETH` : tip === undefined ? ', which the next step shows,' : ''} on top.`} Then send, swap, farm${xoOn() ? ' or bridge it' : ''} from one key.`
+  line: units ? `1 for 1, ${ownNow(['wrap']) ? 'with no relay tip: you prove it with your own credit.' : `with a relay tip${tip ? ` of ${fmt(tip, 18, 6)} ETH` : tip === undefined ? ', which the next step shows,' : ''} on top.`}`
     : 'ETH in, tETH out, 1 for 1: a private note that sends, swaps and farms, and recovers from your key.' });
 // Swap's first private quote loads the Tacit pool's module and prices its relay fee; a pointer or the keyboard on the tab starts both.
 const hxWarm = () => { if (Date.now() - (HX.warm || 0) < 10e3) return; HX.warm = Date.now(); gasNow(); getUx().then((t) => t.quoteOpFee('cETH', 'route')).catch(() => {}); };
@@ -11814,6 +11813,7 @@ function hxRcptChanged() {
 function hxSendGo() {
   if (HX.ask) return hxAskGo();
   if (hxSendFit()) return;
+  if (!hxUnits() && !HX.rcpt) return hxAskAmt();                                    // nothing typed at all: the amount first (a recipient alone goes on to the form)
   const k = HX.send, u = hxUnits(), amt = u ? plain(u, 8) : HX.amt, to = HX.rcpt;
   HX.draft = null;
   hxRecentAdd(to);
@@ -11859,12 +11859,12 @@ const HXP = { at: 0, v: null, p: null };
 const hxPad = () => (HXP.v && Date.now() - HXP.at < 60e3 ? Promise.resolve(HXP.v) : (HXP.p ||= lockPad().then((v) => { Object.assign(HXP, { at: Date.now(), v }); return v; }).finally(() => { HXP.p = null; })));
 async function hxBorrowTerms(units) {
   const btc = units ? Number(units) / 1e8 : 0, usd = TPX.v?.usdBtc, floor = HXR.ratio, liq = HXR.liq;
-  const bond = 'an ETH bond worth at least 1.5× the lock (held as wstETH, refundable)';
+  const bond = 'a refundable ETH bond of at least 1.5× the lock';
   if (HX.bm === 'cbtc') return { out: btc ? fmt(units, 8, 5) : null, go: 'Lock BTC for cBTC',
     line: `Lock BTC at an address only your key spends, post ${bond}, and mint the same amount of cBTC, free. Hold it privately, or borrow against it later.` };
   const max = btc && usd && floor ? btc * usd / (floor / 100) : null;
   return { out: max ? `≈ ${max >= 100 ? Math.round(max).toLocaleString('en-US') : max.toFixed(2)}` : btc ? '—' : null, go: 'Lock BTC and borrow',
-    line: `Lock BTC at an address only your key spends, post ${bond}, mint cBTC, then borrow dollars against it${max ? ` (up to about ${Math.round(max).toLocaleString('en-US')} cUSD at the ${floor}% floor)` : ''}. Repay any time to reclaim it.${liq ? ` Liquidation starts at ${liq}%.` : ''}` };
+    line: `Lock BTC at an address only your key spends, with ${bond}. Borrow ${max ? `up to about ${Math.round(max).toLocaleString('en-US')} cUSD (the ${floor}% floor)` : 'against it'}, repay any time.${liq ? ` Liquidation starts at ${liq}%.` : ''}` };
 }
 // ── the Borrow tab with a key open: the lock it follows, step by step (lock, bond, mint, borrow), what the key holds, and the next
 // step's button, all in the card. It reads what the Borrow sheet reads (readBorrow) and runs the sheet's own steps (BWX), so the two never
@@ -12120,7 +12120,7 @@ async function hxQuote() {
         const pp = pub?.single, sp = pub?.pick === 'split' ? pub.split : null;
         if (pp) {
           const o = sp ? sp.amountOut : pp.amountOut;
-          rows.push({ k: 'public', name: sp ? 'Two public pools' : pp.venue === 'precision' ? 'Precision pool' : 'Tacit public pool', note: sp ? `${splitWhat(sp)} · one transaction · to your wallet` : 'to your wallet',
+          rows.push({ k: 'public', name: sp ? 'Two public pools' : pp.venue === 'precision' ? 'Precision pool' : 'Tacit public pool', note: sp ? splitWhat(sp) : 'public',
             pk: sp || pp.venue === 'precision' ? 'zswap' : null, eth: sp ? ethN * splitShare(sp) / 100 : undefined, v: o, show: `${fmt(o, 18, dpTo)} ${unitTo}`, split: sp });
         }
         if (priv === undefined) rows.push(hxWaitRow());
@@ -12456,8 +12456,8 @@ function paintHxQ() {
     if (p) hxWantPoints();
     if (borrows) mount(pts, html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><b>TAC points</b> for borrowing <a class="link" href="#points" data-link="points">terms</a></span>${borrows.map(([, , t, m]) => html`<span class="hx-pt">${t}: ${m}</span>`)}`);
     if (p) mount(pts, html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><b>${p.pts < 1 ? '< 1' : `${p.known ? '≈ ' : 'at least '}${ptsFmt(p.pts)}`}</b> TAC points <button class="link" type="button" data-ptsinfo aria-expanded="${PTSINFO}">how?</button></span>
-      ${p.why ? html`<span class="hx-pw">${p.why}</span>` : ''}${p.tips.map((t) => html`<span class="hx-pt">${t}</span>`)}
-      <span class="note mute" data-ptsnote ${PTSINFO ? '' : 'hidden'}>${ptsWhy(q.pk === 'dev')}</span>`);
+      ${p.tips.map((t) => html`<span class="hx-pt">${t}</span>`)}
+      <span class="note mute" data-ptsnote ${PTSINFO ? '' : 'hidden'}>${p.why ? `${p.why}. ` : ''}${ptsWhy(q.pk === 'dev')}</span>`);
   }
   // A swap between wallet ETH and TAC lands where its route does: public TAC or ETH in the wallet, or private on Ethereum.
   const tw = $('#hx-to-w');
@@ -12486,8 +12486,19 @@ function paintHxQ() {
 // The figures behind the estimates (the pool's deposits so far, the TAC an account held through the day) arrive after the
 // quote does: the panel redraws its points when they do.
 OUT.paint = () => paintHxQ();
+// With no amount typed, the button asks for one where it is typed, rather than open a sheet that asks again. A way with no amount to type, a Borrow
+// that signs in first and a request (whose amount may be left out) go on as they were.
+const hxNeedsAmt = () => !!$('#hx-amt') && !hxUnits() && !(HX.mode === 'borrow' && !S.key);
+function hxAskAmt() {
+  const a = $('#hx-amt'), f = a?.closest('.hx-f'), q = $('#hx-q');
+  if (!a) return;
+  a.focus();
+  if (q && (!HX.amt.trim() || hxUnits() === 0n)) { q.textContent = 'Enter an amount first.'; q.classList.remove('warn'); }       // a figure that is no amount already has its own line
+  if (f && !matchMedia('(prefers-reduced-motion: reduce)').matches) f.animate([{ borderColor: 'var(--orange)' }, { borderColor: 'var(--hair)' }], { duration: 900, easing: 'ease-out' });
+}
 function hxGo() {
   hxNorm();
+  if (hxNeedsAmt()) return hxAskAmt();
   if (HX.q?.busy) { HX.goNext = true; return; }
   HX.draft = null;                                                                   // a hand-off with no amount leaves no older one to fill its form
   const units = hxUnits(), amt = units ? plain(units, 8) : HX.amt, m = HX.mode;

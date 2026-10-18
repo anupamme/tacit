@@ -26,6 +26,7 @@
 //            press cuts the swap note, swaps it in the farm's pool, cuts what pairs with the return and bonds both
 //   farmmarket a private pool priced far from the market says so on its card; tETH alone shows its cost against the market and waits for it to be accepted
 //   hxdry   between reward periods the card's private farms say so and quote no APR or TAC a day; the Precision pool keeps its figures
+//   hxnudge  with no amount typed the card's button asks for one in the card instead of opening a sheet; with one, or with no amount to type, it goes on
 //   hxearntac the card's Earn tab takes a wallet's TAC (the public pool, the form's TAC tab) and private TAC (the pool that pairs it), each with its amount
 //   farmcusd  private cUSD held: the Borrow sheet offers to farm it, which opens the cUSD pool on its own side; selling cUSD into a pool that prices it dear shows no cost against the market
 //   farmqueue a cut still in the relay's queue when the wait runs out says so, says how to carry on, and offers the paying account
@@ -166,7 +167,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxteth,hxsend,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxteth,hxsend,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -6039,6 +6040,31 @@ await step('hxdry', async () => {
     await until(p, () => /Between reward periods: nothing streams/.test(document.querySelector('#hx-q')?.textContent || ''), null, 120000);
     ok(/^0\b|—/.test(await text(p, '#hx-out')) || (await text(p, '#hx-out')) === '0', `hxdry: and earn no TAC a day (${await text(p, '#hx-out')})`);
     if (r.errors.length) { fails++; console.log('FAIL hxdry page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// With no amount typed the card's button asks for one where it is typed (the field takes the keyboard and the line says so) rather than open a sheet that
+// asks again; with one it goes on as before, and a way that takes whole notes, with no amount to type, still opens its sheet.
+await step('hxnudge', async () => {
+  const r = await openPage({ account: A0, key: K0 });
+  const p = r.page, open = () => p.evaluate(() => [...document.querySelectorAll('dialog')].filter((d) => d.open).map((d) => d.id).join());
+  try {
+    await p.goto(r.url);
+    await p.waitForSelector('[data-hxm="private"]', { timeout: 120000 });
+    for (const tab of ['private', 'swap', 'earn', 'send']) {
+      await p.click(`[data-hxm="${tab}"]`); await p.fill('#hx-amt', ''); await p.click('#hx-go');
+      ok((await open()) === '' && (await p.evaluate(() => document.activeElement?.id)) === 'hx-amt' && /^Enter an amount first\.$/.test((await text(p, '#hx-q')).trim()), `hxnudge: ${tab} with no amount asks for one in the card, and opens nothing`);
+    }
+    await p.click('[data-hxm="private"]'); await p.fill('#hx-amt', '0'); await p.click('#hx-go');
+    ok((await open()) === '' && /^Enter an amount first\.$/.test((await text(p, '#hx-q')).trim()), 'hxnudge: a zero is no amount either');
+    await p.fill('#hx-amt', '0.5'); await sleep(1500); await p.click('#hx-go');
+    await until(p, () => document.querySelector('#sheet-eth')?.open, null, 60000);
+    ok(true, 'hxnudge: with an amount the button opens its sheet as before');
+    await p.evaluate(() => document.querySelectorAll('dialog[open]').forEach((d) => d.close()));
+    await p.selectOption('#hx-from', 'btc'); await p.click('#hx-go');
+    await until(p, () => document.querySelector('#sheet-tac')?.open, null, 60000);
+    ok(true, 'hxnudge: TAC from Bitcoin, which has no amount to type, still opens its sheet');
+    if (r.errors.length) { fails++; console.log('FAIL hxnudge page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 
