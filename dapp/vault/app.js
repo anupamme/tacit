@@ -147,7 +147,9 @@ async function load() {
 // Everything one vault shows, from what was read (null until it is).
 // `post`: the numbers as they will be once the price records the vault waits for are in (see prepare), for the ticket's borrow and withdraw; the board and the position
 // always show the chain as it is.
-const postOf = (V) => (V.post && V.d && (V.d.pB == null || V.d.pL == null || V.d.recovered == null) && V.post.who === (who() || '').toLowerCase() && now() - V.post.at < POST_TTL ? V.post : null);
+// What a borrow reads: a price, the fee, and the room (the pools' depth needs EVERY interval recorded, a price only two thirds of them, so a vault can price TAC and still have no room).
+const readable = (d) => d.pB != null && d.feeBps != null && d.debtCeiling != null && d.depthCeiling != null && d.totalDebt != null;
+const postOf = (V) => (V.post && V.d && (!readable(V.d) || V.d.pL == null || V.d.recovered == null) && V.post.who === (who() || '').toLowerCase() && now() - V.post.at < POST_TTL ? V.post : null);
 // What waits for price records: a borrow or a withdraw with a debt, and an auction on the account's vault that no price can say has ended (adding TAC, repaying, or the end itself
 // would end it, but the vault must see a price to know it has recovered).
 const lapsed = (x) => x.auction && x.d.recovered == null;
@@ -221,6 +223,15 @@ function statusOf(x) {
   const f = feedOf(x.V);
   if (x.paused) {
     if (x.stale) return { state: 'paused', short: 'ETH/USD price old', why: `The ETH/USD price is ${M.span(x.feedAge)} old; borrowing needs one under ${M.span(x.s.staleness)}.`, next: 'It clears with the feed’s next update.' };
+    // Few enough to go with a transaction, for anyone (the router) or a wallet that sends batches: borrowing is open, and what is still missing is recorded with it.
+    if (f && !f.ready && f.missing > 0 && f.missing <= BATCH_MAX && viaOf(x.V)) {
+      const p = postOf(x.V)?.d;
+      if (p && p.depthCeiling != null && p.debtCeiling != null && p.totalDebt != null) {
+        const room = M.sharedRoom({ debtCeiling: p.debtCeiling, depthCeiling: p.depthCeiling, totalDebt: p.totalDebt });
+        if (room < x.s.minDebt) return { state: 'thin', short: 'room too small', why: `Room (${syn(x, room)} ${x.sym}) is under the smallest debt (${syn(x, x.s.minDebt)} ${x.sym}).`, next: 'More liquidity in the TAC pools adds room. <a href="/trade/tac/#farm">Add liquidity →</a>' };
+      }
+      return { state: 'open', carry: f.missing, short: '', why: '', next: '' };
+    }
     if (f && !f.ready) return { state: 'paused', short: 'prices not recorded', why: `Borrowing waits for ${f.missing} price${f.missing === 1 ? '' : 's'} to be recorded.`, next: 'Anyone can record them, <a href="#feed" data-tofeed>below</a>.' };
     if (!f && !F.tried) return { state: 'paused', short: 'checking prices', why: 'Checking prices…', next: '' };
     return { state: 'paused', short: 'prices unreadable', why: 'Could not read the prices. Try again in a moment.', next: '' };
@@ -241,7 +252,11 @@ function boardRows(xs) {
   // [label, what a vault shows, whether it waits behind "More figures"]
   const rows = [
     ['Borrowing', (x) => { const st = x.status; return `<span class="st s-${st.state}"><i class="sd"></i>${st.state === 'open' ? 'Open' : 'Not open'}</span>${st.short && !x.hideShort ? `<small>${esc(st.short)}</small>` : ''}`; }],
-    ['Room to borrow', (x) => (x.room != null ? `<b>${esc(syn(x, x.room))}</b> ${esc(x.sym)}` : dash)],
+    ['Room to borrow', (x) => {
+      if (x.room != null) return `<b>${esc(syn(x, x.room))}</b> ${esc(x.sym)}`;
+      const p = x.status?.carry ? postOf(x.V)?.d : null;                                               // not yet recorded: the room as it will be, once the prepared records are in
+      return p && p.debtCeiling != null && p.depthCeiling != null && p.totalDebt != null ? `<b>${esc(syn(x, M.sharedRoom({ debtCeiling: p.debtCeiling, depthCeiling: p.depthCeiling, totalDebt: p.totalDebt })))}</b> ${esc(x.sym)}` : dash;
+    }],
     ['Smallest debt', (x) => `${esc(syn(x, x.s.minDebt))} ${esc(x.sym)}`],
     ['Fee', (x) => (x.d.feeBps != null ? esc(feeText(x.d.feeBps)) : dash)],
     ['Borrowed so far', (x) => (x.d.totalDebt != null ? `${esc(syn(x, x.d.totalDebt))} ${esc(x.sym)}` : dash)],
@@ -273,9 +288,12 @@ function renderBoard() {
   const shared = need.length === 1 && need[0].names.length === xs.length;                         // one reason for every vault is said once, above the table
   for (const x of xs) x.hideShort = shared;
   const needs = need.map((g) => `<li>${g.names.length === xs.length ? '' : `<b>${esc(g.names.join(' and '))}:</b> `}${g.t.why}${g.t.next ? ` ${g.t.next}` : ''}</li>`).join('');
+  const carry = Math.max(0, ...xs.map((x) => x.status.carry || 0));
+  const cost = carry && F.gas != null ? `, for about ${(Number(BigInt(carry * RECORD_GAS) * F.gas) / 1e18).toFixed(4)} ETH` : '';
+  const carryLine = carry ? `<li>The last ${carry} price${carry === 1 ? '' : 's'} ${carry === 1 ? 'is' : 'are'} recorded with your transaction${cost}.</li>` : '';
   const notices = xs.filter((x) => x.auctionsPaused).map((x) => pauseBox(x, xs.length > 1)).join('') + changesNotice(xs);
   setHtml(el, `${head}<p class="verdict ${open.length ? 'on' : 'off'}"><i class="sd"></i><span>${esc(verdict)}</span></p>
-    ${needs ? `<ul class="needs">${needs}</ul>` : ''}
+    ${needs || carryLine ? `<ul class="needs">${needs}${carryLine}</ul>` : ''}
     <div class="bt-wrap"><table class="bt"><thead><tr><td></td>${xs.map((x) => `<th scope="col">${icon(x.V.key)}${esc(x.k.name)}<small>${esc(x.sym)}</small></th>`).join('')}</tr></thead><tbody>${boardRows(xs)}</tbody></table></div>
     <button class="linkbtn more" type="button" data-more aria-expanded="${!!S.more}">${S.more ? 'Fewer figures' : 'More figures'}</button>
     ${notices}`);
@@ -458,7 +476,7 @@ function planCore() {
     }
     P.ok = true; P.amount = amt; P.feeBps = d.feeBps; P.add = add;
     const owe = c.owe, r = after(m.collateral + add, owe);
-    P.rows = [...(add > 0n ? [['Deposit', `${esc(tac(add))} TAC`]] : []), [`Fee (${feeText(d.feeBps)})`, `${esc(syn(x, c.fee))} ${esc(sym)}`], ['You receive', `${esc(syn(x, amt))} ${esc(sym)}`], ['You owe after', `${esc(syn(x, owe))} ${esc(sym)}`], ...ratioRow(m.collateral + add, owe)];
+    P.rows = [...(add > 0n ? [['TAC added to your vault', `${esc(tac(add))} TAC`]] : []), [`Fee (${feeText(d.feeBps)})`, `${esc(syn(x, c.fee))} ${esc(sym)}`], ['You receive', `${esc(syn(x, amt))} ${esc(sym)}`], ['You owe after', `${esc(syn(x, owe))} ${esc(sym)}`], ...ratioRow(m.collateral + add, owe)];
     if (add > 0n) P.cta = `Deposit ${tac(add)} TAC and borrow`;
     if (r != null && d.pL != null && M.zoneOf({ collateral: m.collateral + add, debt: owe, price: d.pL, liq: x.s.liq }) !== 'safe') {
       const more = M.topUp({ collateral: m.collateral + add, debt: owe, price: d.pL, bps: x.safe });
@@ -841,7 +859,7 @@ async function prepare(V) {
     const reads = dynamicCalls(V, from).map(([, to, data]) => ({ to, data }));
     const res = await readMixed(ethCall, [...recs.map((r) => ({ to: r.to, data: r.data, allowFailure: false })), ...reads]);
     const d = parseDynamic(V, from, res.slice(recs.length)); d.who = from;
-    if (!((d.pB != null && d.feeBps != null && d.depthCeiling != null) || d.recovered != null)) { console.warn('price records: the records alone would not open the vault'); V.post = null; return false; }
+    if (!(readable(d) || d.recovered != null)) { console.warn('price records: the records alone would not open the vault'); V.post = null; return false; }
     V.post = { who: who0, key: missingKey(st), recs, data: checked.data, d, n: recs.length, at: now() };
     return true;
   } catch (e) {

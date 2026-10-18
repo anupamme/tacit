@@ -33,6 +33,7 @@ contract MockOracle {
     uint256 public ethDepth = 1e30;
     uint256 public lastSample; // the newest recorded interval's price
     bool public broken;
+    bool public depthBroken; // the pools' depth needs every interval recorded while a price needs only most of them
 
     function set(uint256 p) external {
         (avg, short, current, lastSample) = (p, p, p, p);
@@ -54,13 +55,17 @@ contract MockOracle {
         ethDepth = d;
     }
 
+    function setDepthBroken(bool b) external {
+        depthBroken = b;
+    }
+
     function depth(uint256) external view returns (uint256) {
-        if (broken) revert("oracle");
+        if (broken || depthBroken) revert("oracle");
         return ethDepth;
     }
 
     function depthMin(uint256) external view returns (uint256) {
-        if (broken) revert("oracle");
+        if (broken || depthBroken) revert("oracle");
         return ethDepth;
     }
 
@@ -227,9 +232,14 @@ contract MockPair is MockOracle {
         (needed, got, broken) = (n, 0, true);
     }
 
+    /// Like `arm`, but only the depth lapses: the price still reads, as it does on the live oracle while most intervals are recorded.
+    function armDepth(uint256 n) external {
+        (needed, got, depthBroken) = (n, 0, true);
+    }
+
     function noted() external {
         require(msg.sender == address(A) || msg.sender == address(B), "venue");
-        if (++got >= needed) broken = false;
+        if (++got >= needed) (broken, depthBroken) = (false, false);
     }
 }
 

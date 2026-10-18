@@ -285,7 +285,7 @@ try {
   await typed(u, String(cast('from-wei', String(L))));
   ok(/^Borrow TACD$/.test(await text(u, '#go')) && !/Deposit/.test(await text(u, '#info')) && !(await u.$eval('#go', (b) => b.disabled)), 'the vault\'s exact limit is a plain borrow, with no deposit');
   await typed(u, String(cast('from-wei', String(L + 1n))));
-  ok(/^Deposit [\d,.]+ TAC and borrow$/.test(await text(u, '#go')) && /Deposit\s*[\d,.]+ TAC/.test(await text(u, '#info')) && !(await u.$eval('#go', (b) => b.disabled)), 'one wei over it the page offers to deposit TAC with the borrow, in the same transaction');
+  ok(/^Deposit [\d,.]+ TAC and borrow$/.test(await text(u, '#go')) && /TAC added to your vault\s*[\d,.]+ TAC/.test(await text(u, '#info')) && !(await u.$eval('#go', (b) => b.disabled)), 'one wei over it the page offers to deposit TAC with the borrow, in the same transaction');
   await typed(u, '3000');
   const rows = await text(u, '#info');
   ok(/Fee \(1%\)\s*30 TACD/.test(rows) && /You receive\s*3,000 TACD/.test(rows) && /You owe after\s*3,030 TACD/.test(rows) && /Ratio after\s*825%/.test(rows), `the fee is shown before: ${rows}`);
@@ -554,7 +554,7 @@ try {
   await typed(k, '1000');
   const crow = await text(k, '#info'), cgo = await text(k, '#go');
   ok(/^Deposit [\d,.]+ TAC and borrow$/.test(cgo) && /Fee \(1%\)\s*10 TACD/.test(crow) && /You receive\s*1,000 TACD/.test(crow) && /You owe after\s*1,010 TACD/.test(crow) && /Ratio after\s*[3-9]\d\d%/.test(crow), `typing the amount shows the deposit it takes, the fee and the ratio (${cgo}; ${crow.slice(0, 150)})`);
-  const cadd = money(crow.match(/Deposit\s*([\d,.]+) TAC/)[1]);
+  const cadd = money(crow.match(/TAC added to your vault\s*([\d,.]+) TAC/)[1]);
   K.sends.length = 0; const sg0 = K.signs;
   await k.click('#go');
   await untilText(k, '#status', /Deposited [\d,.]+ TAC and borrowed 1,000 TACD\. You owe 1,010/, 60000);
@@ -624,20 +624,21 @@ try {
     const top0 = Math.floor((at - 1) / 50) - 1;                                                          // the newest interval; the three newest of each venue are left to record
     for (const v of VENUES) send('deployer', v, 'fill(uint256,uint256)', String(top0 - 40), String(top0 - 3));
     const pending = async () => { const top = Math.floor((await head() - 1) / 50) - 1; let n = 0; for (const v of VENUES) for (let k = top - 30; k <= top; k++) if (big(v, 'sampleOf(uint256)(uint256,uint256)', String(k)) === 0n) n++; return n; };
-    const arm = async () => { const n = await pending(); send('deployer', PAIR, 'arm(uint256)', String(n)); return n; };
+    const arm = async (depthOnly = false) => { const n = await pending(); send('deployer', PAIR, depthOnly ? 'armDepth(uint256)' : 'arm(uint256)', String(n)); return n; };       // depthOnly: the price still reads, as on the live oracle while most intervals are recorded
     const more = async () => { await rpcA('anvil_mine', ['0x96']); return arm(); };                    // three more intervals, three more records of each venue
     const hashC = (extra = '') => `#vusd=${VC}${extra}`;
     const ready = (p, re) => untilText(p, '#go', re, 90000);
 
     // 1. a wallet that batches: one confirmation, one permit signature, no other transaction; the router is not needed
-    let n = await arm();
+    let n = await arm(true);
     ok(n === 6, `six records are missing (three of each venue): ${n}`);
     r = await openPage({ who: 'bob', batch: true, hash: hashC(`&router=${RT}`) });
     const bb = r.page, BL = r.walletLog;
     await connect(bb);
     await ready(bb, /^Deposit [\d,.]+ TAC and borrow$/);
     ok(/Price records\s*6 included/.test(await text(bb, '#info')) && Number(await bb.inputValue('#amt')) > 0, 'the ticket reads the vault as it will be once the records are in: the amount is filled, and it says six records are included');
-    ok(/Borrowing waits for 6 prices/.test(await text(bb, '#board')), 'while the board still says what the chain says');
+    const board1 = await text(bb, '#board');
+    ok(/Borrowing is open/.test(board1) && /The last 6 prices are recorded with your transaction/.test(board1) && /Room to borrow\s*[\d,.]+ TACD/.test(board1), 'and the board calls borrowing open, says the six prices go with the transaction, and shows the room as it will be');
     await shot(bb, 'records-bundle');
     const sg = BL.signs; BL.sends.length = 0;
     await bb.click('#go');
@@ -702,7 +703,7 @@ try {
     await connect(oo);
     await untilText(oo, '#go', new RegExp(`^Record ${n} prices to open borrowing$`), 60000);
     await sleep(1500);
-    ok((await text(oo, '#info')) === '', 'with that many missing nothing is prepared in the background');
+    ok((await text(oo, '#info')) === '' && new RegExp(`Borrowing is not open yet`).test(await text(oo, '#board')) && new RegExp(`waits for ${n} prices`).test(await text(oo, '#board')), 'with that many missing nothing is prepared in the background, and the board says borrowing waits for them');
     OL.sends.length = 0;
     await oo.click('#go');
     await untilText(oo, '#go', /^Deposit [\d,.]+ TAC and borrow$/, 240000);
