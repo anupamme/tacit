@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-H/VdsNF/ksfRsGd4QK2rJanFc80FsP1HHvEZgblnQdM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Deu7Qu9N6lw0pvqw6ze0S+f2JGgB9ay82GtEpIVDdLU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -1517,7 +1517,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 // preload-later:begin
 // preload-later:end
 // preload-intent:begin
-const WARM_MODULES = ["/confidential-pool-ux.js?cb=c7bc1e8e","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
+const WARM_MODULES = ["/confidential-pool-ux.js?cb=48f19c85","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
 // preload-intent:end
 import { secp, keccak_256, sha256, hmac, bytesToHex, hexToBytes, concatBytes } from '/vendor/tacit-deps.min.js';
 import { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPasskeyAvailable } from '/prf-wallet.js';
@@ -4440,7 +4440,7 @@ function wireSub(el, name, set) { $$(`[data-${name}]`, el).forEach((b) => b.oncl
 const warmPool = (() => { let on = false; return () => { if (on) return; on = true; for (const u of WARM_MODULES) document.head.append(Object.assign(document.createElement('link'), { rel: 'modulepreload', href: u })); }; })();
 const getUx = lazy(async () => {
   warmPool();
-  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=c7bc1e8e'), import('/confidential-deployments.js')]);
+  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=48f19c85'), import('/confidential-deployments.js')]);
   dep.setActiveNetwork('mainnet');
   setExternalTacHolders(() => (S.wallet ? [S.wallet] : []));      // public TAC in the connected wallet counts toward the exit-fee tier, as on tacit.finance
   const ux = makeConfidentialPoolUx({ secp, keccak256: keccak_256, sha256, network: 'mainnet' });
@@ -10192,10 +10192,11 @@ function bondsBlock() {
     <div class="lbl"><span>Your bonds</span></div>
     ${locks.filter((l) => l.state === 'forfeit').map((l) => html`<div class="callout bad"><span>Lock ${link(l)} was spent on Bitcoin before its cBTC was redeemed, so its ${fmt(l.total, 18, 5)} wstETH bond cannot come back. It goes to the insurance reserve, which backs the ${fmt(l.vBtc, 8, 8)} cBTC minted on it.</span></div>`)}
     ${locks.filter((l) => l.health && !l.health.healthy).map((l) => html`<div class="callout bad"><span>Lock ${link(l)}: its bond is ${fmt(l.health.want - l.health.have, 18, 5)} wstETH short of what the engine asks for. Top it up${l.health.due ? ` by ${bondDue(l.health.due)}` : ''}, or it can go to the insurance reserve.</span><button class="btn ghost" type="button" data-bond-topup="${l.op}">Top up</button></div>`)}
-    ${locks.map((l) => html`<div class="kv"><span>${l.vBtc ? `${fmt(l.vBtc, 8, 8)} BTC` : 'Lock'} · ${link(l)}${l.everyday ? ' · everyday address' : ''}</span><b class="${l.state === 'forfeit' ? 'err' : ''}">${fmt(l.total, 18, 5)} wstETH · ${what[l.state]}</b></div>
+    ${locks.map((l) => html`<div class="kv"><span>${l.vBtc ? `${fmt(l.vBtc, 8, 8)} BTC` : 'Lock'} · ${link(l)}${l.everyday ? ' · everyday address' : ''}</span><b class="${l.state === 'forfeit' ? 'err' : ''}">${fmt(l.total, 18, 5)} wstETH${l.par ? ` · ${fmt(l.total * 100n / l.par, 2, 2)}× the BTC` : ''} · ${what[l.state]}</b></div>
+      ${l.state === 'backing' && l.par ? html`<button class="btn ghost" type="button" data-bond-add="${l.op}">Add 0.25× to this bond</button>` : ''}
       ${l.bonds.filter((b) => b.take && bondVia(b.account)).map((b) => html`<button class="btn ghost" type="button" data-bond-take="${l.op}|${b.contract}|${b.account}">Take back ${fmt(b.share, 18, 5)} wstETH to your ${bondVia(b.account) === 'tacit' ? 'Tacit account' : 'wallet'}</button>`)}`)}
     ${everyday ? html`<p class="note">${everyday === 1 ? 'One lock holds its' : `${everyday} locks hold their`} BTC at your everyday Bitcoin address, where early locks put it. This app never spends it, but another Bitcoin wallet using this key would see it as spendable, and spending it gives up its bond. Keep this key out of other Bitcoin wallets until you redeem.</p>` : ''}
-    <p class="note">A bond comes back to the account that posted it before its lock is minted against, or once the lock is redeemed. Spending a lock’s BTC any other way gives its bond to the insurance reserve.</p>
+    <p class="note">A bond is held as wstETH, which keeps earning staking yield, and comes back as wstETH to the account that posted it, before its lock is minted against or once the lock is redeemed. It must be at least 1.5× the BTC when the lock is minted against, then moves with the price of ETH in BTC; adding to it keeps the lock well covered. Spending a lock’s BTC any other way gives its bond to the insurance reserve.</p>
   </div>`;
 }
 // What a lock costs on top of the BTC it locks, reckoned as the lock builder reckons it and at its rate (the next-block
@@ -10660,12 +10661,12 @@ render.borrow = () => {
   if (!needKey(el, 'Borrow dollars against your bitcoin, which stays at an address only your key can spend. Open your Tacit wallet to start.', 'btc')) return;
   const st = LOCK.state, rec = st?.rec;
   // What the four steps add up to, before any of them: a first-time reader otherwise meets outputs and bonds cold.
-  const intro = html`<p class="lede-s">Borrow dollars (cUSD) against your bitcoin. The BTC never leaves an address only your key can spend; an ETH bond, refundable, stands behind the lock.</p>`;
+  const intro = html`<p class="lede-s">Borrow dollars (cUSD) against your bitcoin. The BTC never leaves an address only your key can spend; a refundable wstETH bond stands behind the lock.</p>`;
   const wireBwFinish = () => wireFinish(el, 'borrow', 'bw-finish', 'bw-status');
   if (!st) {
     const blanks = [
       ['Lock BTC', 'Send BTC to a self-custody output only your key can spend, then lock it.'],
-      ['Post the ETH bond', 'An ETH bond worth at least 1.5× the BTC, staked as wstETH and refundable. Posted in one transaction.'],
+      ['Post the wstETH bond', 'A bond of wstETH worth at least 1.5× the BTC, staked from your ETH in one transaction. Refundable, as wstETH.'],
       ['Mint cBTC', 'One to one against the lock, free, once Bitcoin confirms it and the bond is posted.'],
       ['Borrow cUSD', 'Borrow against the cBTC up to the pool’s floor. Repay anytime to reclaim it.'],
     ];
@@ -10744,8 +10745,8 @@ render.borrow = () => {
       <li class="${stepCls(s2, s1 && !s2)}">
         <span class="n">${s2 ? '✓' : '2'}</span>
         <div>
-          <h3>Post the ETH bond</h3>
-          <div class="d">${s2 ? 'Posted as wstETH, earning while it bonds the lock. Spending the BTC without redeeming forfeits it.' : s1 && st.payEth ? html`${fmt(st.payEth, 18, 5)} ETH${st.have ? ' more, as the price moved since the bond was posted' : ''}, staked as wstETH and earning while it bonds the lock. Spending the BTC without redeeming forfeits it.` : 'An ETH bond worth at least 1.5× the BTC, posted in one transaction.'}</div>
+          <h3>Post the wstETH bond</h3>
+          <div class="d">${s2 ? 'Posted as wstETH, earning while it bonds the lock. Spending the BTC without redeeming forfeits it.' : s1 && st.payEth ? html`${fmt(st.payEth, 18, 5)} ETH${st.have ? ' more, as the price moved since the bond was posted' : ''}, staked as wstETH and earning while it bonds the lock. Spending the BTC without redeeming forfeits it.` : 'A bond of wstETH worth at least 1.5× the BTC, staked from your ETH in one transaction. Refundable, as wstETH.'}</div>
           ${s1 && !s2 ? (st.payEth ? html`
             <div class="kv"><span>Paid from ${your()}${payer() === 'tacit' && S.acct ? html` · <span class="mono">${short(S.acct.address, 6)}</span> <button class="link" type="button" data-copy="${S.acct.address}">copy</button>` : ''}</span><b>${bf?.bal == null ? '…' : html`${fmt(bf.bal, 18, 5)} ETH`}</b></div>
             ${shortEth && !bwCanWst(st) ? html`<p class="note err">The bond and its network fee come to about ${fmt(need, 18, 5)} ETH. ${payer() === 'tacit' ? html`Top up your Tacit account from a connected wallet and the bond posts in the same go, or <button class="link" type="button" data-fund>add ETH another way</button> and post it once that arrives.` : 'Add ETH to your wallet, and Post bond opens once it arrives.'}</p>` : ''}
@@ -10759,7 +10760,7 @@ render.borrow = () => {
         <span class="n">${s3 ? '✓' : '3'}</span>
         <div>
           <h3>Mint cBTC</h3>
-          <div class="d">${s3 ? html`${fmt(BigInt(rec.vBtc), 8, 8)} cBTC, a private note.` : !s1 ? 'One to one against the lock, once Bitcoin confirms it.' : st.reflected ? 'Your lock is proven on Ethereum. Mint is free.' : confs == null ? 'Confirmed on Bitcoin. Its count of confirmations could not be read.' : confs < 24 ? `Bitcoin confirmations ${confs} of 24.` : html`Confirmed. Waiting for the proof to reach block ${st.height}${attested ? ` (at ${attested} now)` : ''}. <a href="/weld/keeper/#need=${st.height + 24}&why=lock">Speed this up →</a>`}</div>
+          <div class="d">${s3 ? html`${fmt(BigInt(rec.vBtc), 8, 8)} cBTC, a private note.` : !s1 ? 'One to one against the lock, free, once Bitcoin confirms it and the bond is posted.' : st.reflected ? 'Your lock is proven on Ethereum. Mint is free.' : confs == null ? 'Confirmed on Bitcoin. Its count of confirmations could not be read.' : confs < 24 ? `Bitcoin confirmations ${confs} of 24.` : html`Confirmed. Waiting for the proof to reach block ${st.height}${attested ? ` (at ${attested} now)` : ''}. <a href="/weld/keeper/#need=${st.height + 24}&why=lock">Speed this up →</a>`}</div>
           ${s2 && !s3 ? html`<button class="btn" type="button" id="bw-mint" ${st.reflected ? '' : 'disabled'}>Mint cBTC</button><div class="status" role="status" id="bw-s3"></div>` : ''}
         </div>
       </li>
@@ -10838,6 +10839,21 @@ render.borrow = () => {
       await waitTx(hash);
       say(status, html`<span class="ok">Bond topped up.</span> ${txLink(hash)}`);
       toast('Bond topped up');
+      await settleBorrow();
+    } catch (e) { txFail(run, status, e); }
+  }));
+  // A backing bond can be added to at any time: a quarter of its BTC's worth in wstETH, paid in ETH that the escrow
+  // helper stakes on the way, from the account that pays here.
+  $$('[data-bond-add]', el).forEach((btn) => btn.onclick = () => busy(btn, async (run) => {
+    const l = bondsNow()?.locks.find((x) => x.op === btn.dataset.bondAdd);
+    try {
+      if (l?.state !== 'backing' || !l.par) throw new Error('This bond no longer backs cBTC, so there is nothing to add to.');
+      const value = wordAt(await ethCall(ADDR.wsteth, SEL.stEthPerWst + word(l.par / 4n)), 0);
+      const hash = await sendTx({ to: ADDR.escrow, data: SEL.postEscrowWithETH + strip(l.op), value, label: `Add ${fmt(value, 18, 5)} ETH to a bond` });
+      say(status, html`Adding to the bond… ${txLink(hash)}`);
+      await waitTx(hash);
+      say(status, html`<span class="ok">Added to the bond.</span> ${txLink(hash)}`);
+      toast('Added to the bond');
       await settleBorrow();
     } catch (e) { txFail(run, status, e); }
   }));
@@ -11902,14 +11918,14 @@ async function hxBorrowQuote(units) {
   const go = ready != null && ready >= need ? `Lock ${fmt(units, 8, 8)} BTC` : st.sats != null && st.sats >= need ? 'Waiting for your BTC to confirm' : 'Send BTC to lock';
   const held = st.sats == null ? 'What your Bitcoin address holds could not be read.' : `It holds ${fmt(st.sats, 8, 8)} BTC${st.pendingSats ? ` (${fmt(st.pendingSats, 8, 8)} unconfirmed)` : ''}; this lock needs about ${fmt(need, 8, 8)} with its network fees.`;
   const max = q.out && HX.bm !== 'cbtc' ? ` and borrow up to ${q.out.replace(/^≈ /, 'about ')} cUSD` : '';
-  return { ...q, go, wait: go === 'Waiting for your BTC to confirm', line: `${held} Then an ETH bond of at least 1.5× (refundable, staked as wstETH), mint ${fmt(units, 8, 8)} cBTC${max}. Each step is here.` };
+  return { ...q, go, wait: go === 'Waiting for your BTC to confirm', line: `${held} Then a wstETH bond of at least 1.5× (refundable, staked from your ETH), mint ${fmt(units, 8, 8)} cBTC${max}. Each step is here.` };
 }
 // What the lock pays Bitcoin on top of the BTC it locks (lockPad), read once a minute for the card's quotes.
 const HXP = { at: 0, v: null, p: null };
 const hxPad = () => (HXP.v && Date.now() - HXP.at < 60e3 ? Promise.resolve(HXP.v) : (HXP.p ||= lockPad().then((v) => { Object.assign(HXP, { at: Date.now(), v }); return v; }).finally(() => { HXP.p = null; })));
 async function hxBorrowTerms(units) {
   const btc = units ? Number(units) / 1e8 : 0, usd = TPX.v?.usdBtc, floor = HXR.ratio, liq = HXR.liq;
-  const bond = 'a refundable ETH bond of at least 1.5× the lock';
+  const bond = 'a refundable wstETH bond of at least 1.5× the lock';
   if (HX.bm === 'cbtc') return { out: btc ? fmt(units, 8, 5) : null, go: 'Lock BTC for cBTC',
     line: `Lock BTC at an address only your key spends, post ${bond}, and mint the same amount of cBTC, free. Hold it privately, or borrow against it later.` };
   const max = btc && usd && floor ? btc * usd / (floor / 100) : null;

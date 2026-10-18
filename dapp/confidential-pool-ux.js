@@ -559,16 +559,22 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
       const out = outputs.get(op) || null, takeable = state === 'pending' || state === 'free';
       locks.push({
         op, txid: out?.txid || null, vout: out ? out.vout : null, vBtc, state, total, minted: !!minted, spent: !!spent, redeemed: !!redeemed, slashed: !!slashed,
-        everyday: !!out && out.spk === everydaySpk && !spent && !redeemed, health: null,
+        everyday: !!out && out.spk === everydaySpk && !spent && !redeemed, health: null, par: null,
         bonds: mine.map((s) => ({
           src: s.src, contract: s.contract, account: s.acct, share: s.share,
           take: takeable ? { to: s.contract, data: '0x' + _selector(s.src === 'engine' ? 'claimEscrow(bytes32)' : 'reclaimEscrow(bytes32)') + _word(op) } : null,
         })),
       });
     });
+    // Each backing bond's cover: the wstETH worth its BTC at the engine's mark (`par`), so the bond reads as a multiple of
+    // the BTC it backs. A stale or deviating feed leaves it unset.
+    const backing = locks.filter((l) => l.state === 'backing');
+    if (backing.length) {
+      const p = await _multicall(backing.map((l) => ({ to: engine, data: '0x' + _selector('wstEthForBtc(uint256)') + _word(l.vBtc) }))).catch(() => []);
+      backing.forEach((l, i) => { const par = n(p[i]); l.par = par > 0n ? par : null; });
+    }
     // While the margin call is armed, each backing bond's health at the engine's own mark, and when a flag runs out.
     let graceWindow = 0n;
-    const backing = locks.filter((l) => l.state === 'backing');
     if (maintenanceBps > 0n && backing.length) {
       const h = await _multicall([
         { to: engine, data: '0x' + _selector('escrowGraceWindow()') },

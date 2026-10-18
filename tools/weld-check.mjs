@@ -55,6 +55,7 @@
 //   devsend  the EVM pool's Send opens tacit pay on the same chain, and Receive keeps the pool and deposit addresses
 //   device   a deposit into the EVM pool, proved in the page's worker
 //   borrow   the Bitcoin deposit address renders; a bond for a lock record posts through the escrow helper
+//   bondadd  a bond backing minted cBTC reads as a multiple of its BTC, and adding to it posts more wstETH
 //   keys     an Ethereum signature opens a key; after locking, "continue" reopens the same tacit1 address; a pasted key opens
 //   tacopen  a key opened from inside the TAC sheet (reached by link): the sheet's balance reads again for it at once
 //   saved    a passphrase-locked key saved the way tacit.finance saves it opens through tacit.js's own prompt; the TAC
@@ -168,7 +169,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,bondadd,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -1001,6 +1002,41 @@ await step('bonds', async () => {
   } finally {
     // The fixture lock goes back to never recorded, and the wallet takes its bond back.
     await flag(125, 0); await flag(127, 0); await flag(123, 0);
+    await rpc('eth_sendTransaction', [{ from: A0, to: HELPER, data: '0xc5211d27' + OP }]);
+  }
+});
+
+// A bond backing minted cBTC (the pool's flags for a fixture lock, set on the fork) reads as a multiple of its BTC and can
+// be added to: a quarter of the BTC's worth, through the escrow helper.
+await step('bondadd', async () => {
+  const HELPER = '0x000000008eCD09f922C9FbbDD9ACA5aE8F0beBfA', POOL = '0x000000000Ed1eabD231Be41d93b719056F7febFC', ENGINE = '0x000000003f608BDdF0ca45934003ffb9DbDF70DB';
+  const OP = Buffer.from(keccak_256(Buffer.concat([Buffer.from('ce'.repeat(32), 'hex'), Buffer.from([1, 0, 0, 0])]))).toString('hex');
+  const slot = (n) => '0x' + Buffer.from(keccak_256(Buffer.from(OP + word(n), 'hex'))).toString('hex');
+  const flag = (n, v) => rpc('anvil_setStorageAt', [POOL, slot(n), '0x' + word(v)]);   // 123 lock sats, 127 minted
+  const total = async () => BigInt(await rpc('eth_call', [{ to: ENGINE, data: '0xe06e89c9' + OP }, 'latest']));
+  const h = await rpc('eth_sendTransaction', [{ from: A0, to: HELPER, data: '0xc0e2d9a1' + OP, value: '0x' + (10n ** 16n).toString(16) }]);
+  await chainUntil(async () => (await rpc('eth_getTransactionReceipt', [h]))?.status === '0x1', 60000);
+  await flag(123, 20000); await flag(127, 1);
+  try {
+    await page.goto(url + '#wallet');
+    await page.reload();
+    await page.waitForSelector('#wallet-body [data-in], #wallet-dot.on', { state: 'attached', timeout: 60000 });
+    if (!(await page.$('#wallet-dot.on'))) {
+      await page.click((await page.$('#wallet-body [data-in="known"]')) ? '#wallet-body [data-in="known"]' : '#wallet-body [data-in="eth"]');
+      await until(page, () => !!document.querySelector('#wallet-dot.on'), null, 60000);
+    }
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => { location.hash = '#borrow'; });
+    await until(page, (op) => !!document.querySelector(`[data-bond-add="0x${op}"]`), OP, 120000)
+      .catch(async () => { throw new Error(`no add-to-bond button (${(await text(page, '#bw-bonds')).slice(0, 200)})`); });
+    ok(/[\d.]+× the BTC · backs your cBTC/.test(await text(page, '#bw-bonds')), `bondadd: a backing bond reads as a multiple of its BTC (${(await text(page, '#bw-bonds')).slice(0, 160)})`);
+    const before = await total();
+    await page.click(`[data-bond-add="0x${OP}"]`);
+    await until(page, () => /Added to the bond/.test(document.querySelector('#toast-container')?.textContent || '') || /err/.test(document.querySelector('#bw-status')?.innerHTML || ''), null, 120000);
+    const after = await total();
+    ok(after > before, `bondadd: adding posts more wstETH to the lock's bond (${before} → ${after}) ${await text(page, '#bw-status')}`);
+  } finally {
+    await flag(127, 0); await flag(123, 0);
     await rpc('eth_sendTransaction', [{ from: A0, to: HELPER, data: '0xc5211d27' + OP }]);
   }
 });
@@ -6376,7 +6412,7 @@ await step('hxways', async () => {
     // With the key open, Borrow does the lock in the card: the BTC goes to the key's own Bitcoin address first, then is locked there.
     await p.click('[data-hxm="borrow"]'); await p.fill('#hx-amt', '0.002');
     await until(p, () => /^≈ /.test(document.querySelector('#hx-out')?.textContent || '') && /this lock needs about/.test(document.querySelector('#hx-q')?.textContent || ''), null, 120000);
-    ok((await text(p, '#hx-go')) === 'Send BTC to lock' && /ETH bond of at least 1\.5×/.test(await text(p, '#hx-q')) && /Your Bitcoin address bc1q/.test(await text(p, '#hx-have')),
+    ok((await text(p, '#hx-go')) === 'Send BTC to lock' && /wstETH bond of at least 1\.5×/.test(await text(p, '#hx-q')) && /Your Bitcoin address bc1q/.test(await text(p, '#hx-have')),
       `hxways: Borrow quotes what the lock can borrow, names the key's Bitcoin address and says what the lock needs (${(await text(p, '#hx-q')).slice(0, 140)})`);
     await p.click('#hx-go');
     await until(p, () => /Bitcoin wallet|Send from any wallet|on its way/i.test(document.querySelector('#hx-bw-s')?.textContent || ''), null, 120000);
