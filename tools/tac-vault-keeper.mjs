@@ -58,6 +58,15 @@ const RECORD_POLL = Number(process.env.RECORD_POLL_SECONDS || 12);
 const FULL_SWEEP = Number(process.env.FULL_SWEEP_SECONDS || 300);
 const SCAN_SECONDS = Number(process.env.SCAN_SECONDS || 60);
 const ALERT_WEBHOOK = process.env.ALERT_WEBHOOK;
+// A record is about 0.93M gas and a transaction can carry about a dozen (its gas and size limits), so what is due goes out that many to a transaction.
+const BATCH_RECORDS = Math.max(1, Number(process.env.BATCH_RECORDS || 12));
+// DEFER_BLOCKS > 0 lets an interval wait up to that many blocks for a cheaper block: it is recorded when the base fee is at or under the DEFER_PCT-th
+// percentile of the last 300 blocks, and at once (up to the caps) once it is that old. The vaults borrow only on an oracle that is up to date, so what waits is
+// carried by whoever borrows next; off by default.
+const DEFER_BLOCKS = BigInt(process.env.DEFER_BLOCKS || 0);
+const DEFER_PCT = Math.min(100, Math.max(0, Number(process.env.DEFER_PCT || 30)));
+// The wallet's balance under which an ALERT is raised, in ETH (about 40 records at 0.06 gwei).
+const LOW_BALANCE = gwei(process.env.LOW_BALANCE_ETH || 0.004) * 10n ** 9n;
 const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11';
 const MAX_CHUNK = BigInt(process.env.LOG_CHUNK || 5000);
 let logChunk = MAX_CHUNK;
@@ -190,8 +199,10 @@ function sampleAll() {
   for (const oracle of ORACLES) if (!readConfig(oracle)) return;
   const top = head();
   const baseFee = num(cast(['base-fee', '--rpc-url', RPC]));
-  const depth = full ? Math.max(...ORACLES.map((o) => Number(configs.get(o).intervals))) : 3;
+  const stepMax = Math.max(...ORACLES.map((o) => Number(configs.get(o).step)));
+  const depth = full ? Math.max(...ORACLES.map((o) => Number(configs.get(o).intervals))) : Math.max(3, Number(DEFER_BLOCKS) / stepMax + 3);
   let missed = 0;
+  const all = [];                                                                                      // everything due, newest interval first
   for (let i = 0; i < depth; i++) {
     const due = [];
     for (const oracle of ORACLES) {
@@ -208,11 +219,34 @@ function sampleAll() {
         log(oracle, 'record', String(k), 'failed:', errLine(e));
       }
     }
-    if (due.length) missed += submit(due, baseFee);
+    all.push(...due);
   }
+  // Out in as few transactions as the limits allow, the newest first (a transaction's own cost is paid once, not for each interval); an interval that can
+  // wait for a cheaper block does, unless something due is already older than DEFER_BLOCKS.
+  if (all.length && !cheapOrLate(all, baseFee)) log(`${all.length} record(s) due; the base fee ${baseFee / 10n ** 6n}e-3 gwei is above the ${DEFER_PCT}th percentile of the last 300 blocks: waiting for a cheaper block`);
+  else for (let j = 0; j < all.length; j += BATCH_RECORDS) missed += submit(all.slice(j, j + BATCH_RECORDS), baseFee);
   if (full) lastFull = Date.now();
   if (missed) alertOnce('missed', `${missed} interval(s) could not be recorded; borrowing and liquidation wait for them`);
   else clearAlert('missed');
+}
+
+// With DEFER_BLOCKS off, always. With it on: true when the base fee is at or under the DEFER_PCT-th percentile of the last 300 blocks, or when the oldest
+// due interval is DEFER_BLOCKS old. The history is read once a minute.
+let feeCache = { at: 0, sorted: [] };
+function cheapOrLate(all, baseFee) {
+  if (DEFER_BLOCKS === 0n) return true;
+  if (all.some((d) => d.age >= DEFER_BLOCKS)) return true;
+  if (Date.now() - feeCache.at > 60e3) {
+    try {
+      const h = JSON.parse(cast(['rpc', 'eth_feeHistory', '0x12c', 'latest', '[]', '--rpc-url', RPC]));
+      feeCache = { at: Date.now(), sorted: h.baseFeePerGas.slice(0, -1).map((x) => BigInt(x)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)) };
+    } catch (e) {
+      log('fee history unavailable, not waiting:', errLine(e));
+      return true;
+    }
+  }
+  const s = feeCache.sorted;
+  return !s.length || baseFee <= s[Math.min(s.length - 1, Math.floor((s.length * DEFER_PCT) / 100))];
 }
 
 // Sends the due records: one transaction when more than one is due and Multicall3 exists, else one each. Returns how
@@ -406,6 +440,19 @@ function scan(vault) {
   }
 }
 
+// An operator's warning: the wallet holds little, in hours of recording at today's base fee (a pair of records is about 1.87M gas, six pairs an hour).
+function checkBalance() {
+  try {
+    const bal = num(cast(['balance', sender, '--rpc-url', RPC]));
+    const fee = num(cast(['base-fee', '--rpc-url', RPC]));
+    const perHour = 6n * 1_870_000n * (fee > 0n ? fee : 1n);
+    if (bal < LOW_BALANCE) alertOnce('balance', `the keeper wallet ${sender} holds ${Number(bal) / 1e18} ETH, about ${Number((bal * 10n) / perHour) / 10} hours of recording at the current base fee; send it ETH`);
+    else clearAlert('balance');
+  } catch (e) {
+    log('balance read failed:', errLine(e));
+  }
+}
+
 async function main() {
   for (const oracle of ORACLES) {
     try {
@@ -428,6 +475,7 @@ async function main() {
         for (const v of VAULTS) scan(v);
         checkVenues();
         checkVaultOracles();
+        checkBalance();
         lastScan = Date.now();
       }
     } catch (e) {
