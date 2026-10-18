@@ -5,7 +5,7 @@
 import { secp, sha256, keccak_256, bytesToHex, hexToBytes } from '/vendor/tacit-deps.min.js';
 import { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPasskeyAvailable } from '/prf-wallet.js';
 import { knownWallets } from '/tacit-wallet-known.js?cb=ed4c75b7';
-import { makeEvmWallet } from '/evm-wallet.js?cb=12c7dccd';
+import { makeEvmWallet } from '/evm-wallet.js?cb=087655c3';
 import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
 import { short } from '/trade/util.js?cb=782a003c';
 

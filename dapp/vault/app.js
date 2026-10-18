@@ -13,7 +13,7 @@ import {
 import { makeFeed, RECORD_GAS, PER_TX, encBatch, MULTICALL3 } from '/vault/feed.js?cb=03954743';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=7b4ab128';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
-import { announceWalletConnect, wcSheets, WC_PROJECT_ID } from '/walletconnect.js?cb=92886522';
+import { announceWalletConnect, wcSheets, WC_PROJECT_ID } from '/walletconnect.js?cb=7ab92369';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

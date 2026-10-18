@@ -30,6 +30,10 @@ function holds(session, chainId) {
   return Object.entries(session?.namespaces || {}).some(([k, ns]) => /^eip155(:|$)/.test(k)
     && [...(ns.chains || []), ...(ns.accounts || []).map((a) => String(a).split(':').slice(0, 2).join(':'))].includes(want));
 }
+// The session is kept in this browser and every page reconnects it, so every page asks for the chains tacit.finance works on, not
+// only its own: a wallet app paired on one page then serves them all. They are optional, so a wallet app without one still connects
+// with the rest. Each page's own chains come first and its own node for a chain wins.
+const SITE_RPC = { 1: 'https://ethereum-rpc.publicnode.com', 8453: 'https://mainnet.base.org', 4663: 'https://rpc.mainnet.chain.robinhood.com', 4326: 'https://mainnet.megaeth.com/rpc' };
 // The bundle and the provider's start may take this long before a connect says WalletConnect did not load.
 const LOAD_MS = 20_000;
 const NOT_LOADED = 'WalletConnect did not load. Check your connection and try again.';
@@ -56,7 +60,8 @@ export function announceWalletConnect({ projectId, chains, rpcMap, metadata, onP
   // words rather than leaving Connect pressed; a start that outlasts the wait carries on, and the next call waits for it.
   const start = () => (loading ||= (async () => {
     const { EthereumProvider, qrcode } = await import(BUNDLE).catch(() => { throw new Error(NOT_LOADED); });
-    const p = await EthereumProvider.init({ projectId, optionalChains: chains, rpcMap, metadata, showQrModal: false, telemetryEnabled: false });
+    const optionalChains = [...new Set([...chains, ...Object.keys(SITE_RPC).map(Number)])];
+    const p = await EthereumProvider.init({ projectId, optionalChains, rpcMap: { ...SITE_RPC, ...rpcMap }, metadata, showQrModal: false, telemetryEnabled: false });
     for (const [ev, fns] of listeners) for (const fn of fns) p.on(ev, fn);
     // A session ended from the wallet app reads to the page as the wallet locking.
     p.on('disconnect', () => { kept.set(0); for (const fn of listeners.get('accountsChanged') || []) fn([]); });

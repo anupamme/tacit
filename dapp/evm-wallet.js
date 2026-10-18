@@ -8,6 +8,13 @@ import { identityMessage } from './identity-message.js';
 
 const ETH_SIGNED_PREFIX = '\x19Ethereum Signed Message:\n';
 
+// The wallet connected last on any tacit.finance page, by which wallet it is only (its EIP-6963 id, else its name): never an
+// account or a key. The trade pages keep the same record (trade/wallet.js), so a wallet connected on one page is connected on
+// the next without a prompt, for as long as the wallet still allows the site.
+const REMEMBERED = 'tacit-trade-wallet';
+const BARE = 'Browser wallet';                     // a wallet that announced nothing: window.ethereum alone
+const idOf = (info) => info?.rdns || info?.name || BARE;
+
 // secp256k1 group order — the low-s bound is N/2 (EIP-2).
 const SECP_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
 
@@ -88,6 +95,40 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
     if (!/^[0-9a-f]{40}$/.test(addr)) throw new Error('wallet returned malformed address');
     return { provider, address: addr, chosen };
   }
+  // Which wallet is connected is remembered for the next page.
+  const remember = (provider) => {
+    const info = providers.find((p) => p.provider === provider)?.info;
+    try { localStorage.setItem(REMEMBERED, idOf(info)); } catch { /* storage is a convenience */ }
+  };
+  // Disconnect: no page connects the wallet again on load, and this one stops hearing it. The wallet's own permission for the
+  // site is the wallet's to revoke.
+  function forget() {
+    selected = null; active = null;
+    try { localStorage.removeItem(REMEMBERED); } catch { /* storage is a convenience */ }
+  }
+  // On load: the wallet connected last, with the account it still allows this site. The wallet is asked for its accounts, which
+  // opens no prompt, so none remembered, or one that no longer allows the site, gives null and nothing is shown. Wallets
+  // announce themselves a moment after the page asks, so this waits briefly for the one remembered. A connect made in the
+  // meantime (a person was quicker) stands.
+  async function restore() {
+    let id = null;
+    try { id = localStorage.getItem(REMEMBERED); } catch { /* storage is a convenience */ }
+    if (!id || typeof window === 'undefined') return null;
+    const find = () => ordered().find((p) => idOf(p.info) === id)?.provider || (id === BARE ? injected() : null);
+    let provider = find();
+    for (let i = 0; !provider && i < 6; i++) {
+      try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch { /* ignore */ }
+      await new Promise((r) => setTimeout(r, 100));
+      provider = find();
+    }
+    if (typeof provider?.request !== 'function') return null;
+    let accounts;
+    try { accounts = await provider.request({ method: 'eth_accounts' }); } catch { return null; }
+    const address = String(accounts?.[0] || '').toLowerCase().replace(/^0x/, '');
+    if (!/^[0-9a-f]{40}$/.test(address) || active) return null;
+    use({ provider, chosen: provider });
+    return { provider, address };
+  }
   // A connect or sign-in that succeeded keeps the wallet it chose, so the next one goes straight to it, and makes it the
   // wallet in use. One that failed keeps nothing: after a wallet refused, a WalletConnect pairing closed or a signature
   // declined, the next attempt asks again which wallet, while a wallet chosen before stays chosen. Funding and identity
@@ -96,6 +137,7 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
   function use({ provider, chosen }) {
     if (chosen) selected = chosen;
     active = provider;
+    remember(provider);
     if (heard.has(provider)) return;
     heard.add(provider);
     try {
@@ -260,5 +302,5 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
     return { v, r: '0x' + h.slice(0, 64), s: '0x' + h.slice(64, 128) };
   }
 
-  return { available, hasBrowserWallet, listProviders, selectProvider, deselectProvider, providerLabel, connect, deriveIdentity, signErc2612, fundTx, chainId, derivationMsg };
+  return { available, hasBrowserWallet, listProviders, selectProvider, deselectProvider, providerLabel, connect, restore, forget, deriveIdentity, signErc2612, fundTx, chainId, derivationMsg };
 }

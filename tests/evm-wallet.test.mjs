@@ -1,5 +1,5 @@
 // dapp/evm-wallet.js with two wallets announced (EIP-6963): which wallet a connect or a sign-in goes to, what a failed one
-// keeps, and whose account changes reach the page.
+// keeps, whose account changes reach the page, and the wallet connected last coming back on the next page without a prompt.
 //   node tests/evm-wallet.test.mjs
 import assert from 'node:assert';
 import { secp, sha256, keccak_256, hmac, bytesToHex, hexToBytes } from '../dapp/vendor/tacit-deps.min.js';
@@ -7,6 +7,8 @@ import { prfBytesToScalar } from '../dapp/prf-wallet.js';
 
 secp.etc.hmacSha256Sync = (k, ...m) => hmac(sha256, k, secp.etc.concatBytes(...m)); // as tacit.js sets it
 globalThis.window = new EventTarget();
+const store = new Map();                                                         // this browser's localStorage, shared by every page
+globalThis.localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
 const heard = [];
 window.addEventListener('tacit:evm-accounts', (e) => heard.push(e.detail));
 const { makeEvmWallet } = await import('../dapp/evm-wallet.js');
@@ -19,11 +21,13 @@ const enc = (s) => new TextEncoder().encode(s);
 // to refuse, as a person refusing it would), and emits accountsChanged when told.
 function wallet(name, privHex) {
   const priv = hexToBytes(privHex), addr = '0x' + bytesToHex(keccak_256(secp.getPublicKey(priv, false).slice(1)).slice(12));
-  const on = {}, w = { refuse: new Set() };
+  const on = {}, w = { refuse: new Set(), allowed: false, calls: [] };
   w.provider = {
     async request({ method, params }) {
+      w.calls.push(method);
       if (w.refuse.has(method)) throw Object.assign(new Error('User rejected the request.'), { code: 4001 });
-      if (method === 'eth_requestAccounts') return [addr];
+      if (method === 'eth_requestAccounts') { w.allowed = true; return [addr]; }
+      if (method === 'eth_accounts') { if (w.hold) await w.hold; return w.allowed ? [addr] : []; }   // what the site was allowed before, with no prompt
       if (method === 'eth_getCode') return '0x';
       if (method === 'personal_sign') {
         const m = hexToBytes(params[0].slice(2)), s = secp.sign(keccak_256(new Uint8Array([...enc(`\x19Ethereum Signed Message:\n${m.length}`), ...m])), priv);
@@ -34,6 +38,7 @@ function wallet(name, privHex) {
     on(ev, f) { (on[ev] ||= []).push(f); },
   };
   w.emit = (accounts) => { for (const f of on.accountsChanged || []) f(accounts); };
+  w.addr = addr;
   const detail = { info: { uuid: 'uuid-' + name, name, icon: '', rdns: 'test.' + name.toLowerCase() }, provider: w.provider };
   window.addEventListener('eip6963:requestProvider', () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail })));
   return w;
@@ -89,5 +94,48 @@ const p2 = picks;
 choice = 'A';
 await evm.deriveIdentity({ pick, expect: idA.address });
 ok('a sign-in refused for the wrong account asks which wallet again', picks === p2 + 1 && reach() === 'A');
+
+// The wallet connected last is remembered by which wallet it is, and the next page connects it again with no prompt.
+ok('the wallet a sign-in used last is the one recorded, by name and not by account', store.get('tacit-trade-wallet') === 'test.a');
+const prompts = () => A.calls.concat(B.calls).filter((m) => m === 'eth_requestAccounts' || m === 'personal_sign').length;
+const before = prompts(), askedB = B.calls.length;
+evm.forget(); store.set('tacit-trade-wallet', 'test.a');                         // the page before is closed: it hears nothing more
+const next = makeEvmWallet({ secp, sha256, keccak256: keccak_256, bytesToHex, hexToBytes, prfBytesToScalar, netName: 'mainnet' });   // another page
+const back = await next.restore();
+ok('a page that opens next gets that wallet and its account back', back?.provider === A.provider && back.address === A.addr.slice(2));
+ok('with no prompt, no signature, and without so much as asking the other wallet', prompts() === before && B.calls.length === askedB);
+const p3 = picks;
+await next.connect({ pick });
+ok('and its next connect goes straight to that wallet', picks === p3);
+heard.length = 0; A.emit([]);
+ok('whose account changes reach the page that restored it', heard.length === 1 && heard[0].provider === A.provider);
+
+// A wallet that no longer allows the site, or one that is not there, gives nothing.
+A.allowed = false;
+ok('a wallet that no longer allows the site is not restored', (await makeEvmWallet({}).restore()) === null);
+A.allowed = true;
+store.set('tacit-trade-wallet', 'test.gone');
+const t0 = Date.now();
+ok('a remembered wallet that is not in this browser gives nothing, after a short wait', (await makeEvmWallet({}).restore()) === null && Date.now() - t0 < 2000);
+store.delete('tacit-trade-wallet');
+const calls0 = A.calls.length + B.calls.length;
+ok('and with no wallet remembered, no wallet is asked anything', (await makeEvmWallet({}).restore()) === null && A.calls.length + B.calls.length === calls0);
+
+// A person quicker than the restore keeps their choice.
+store.set('tacit-trade-wallet', 'test.a');
+const quick = makeEvmWallet({});
+let release; A.hold = new Promise((r) => { release = r; });                      // the remembered wallet is slow to answer
+const slow = quick.restore();
+await quick.connect({ pick: async (l) => l.find((w) => w.name === 'B').uuid });
+release(); A.hold = null;
+ok('a wallet connected while the restore runs is not replaced by it', (await slow) === null && store.get('tacit-trade-wallet') === 'test.b');
+
+// Disconnect: forgotten here and for the next page, and no longer heard.
+await quick.restore();                                                           // (no-op: B is in use)
+quick.forget();
+ok('Disconnect clears the record', store.get('tacit-trade-wallet') === undefined);
+heard.length = 0; B.emit([]);
+ok('and the wallet is no longer heard', heard.length === 0);
+ok('a page that opens after finds nothing to restore', (await makeEvmWallet({}).restore()) === null);
 
 console.log(`\n${pass} passed, 0 failed`);

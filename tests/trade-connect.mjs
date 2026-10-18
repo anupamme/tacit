@@ -97,6 +97,9 @@ try {
   await until(p, () => document.querySelector('#go').textContent === 'Enter an amount', null, 15000).catch(() => {});
   c = await chip(p);
   ok(c.on && c.label === '0x1234…5678' && (await text(p, '#go')) === 'Enter an amount', `the ticket's own button connects too, and the header shows the account (${c.label})`);
+  // the session is kept for every page of the site, so this page asks for the chains the others use too
+  const asked = await p.evaluate(() => window.__wcfake.opts.optionalChains);
+  ok([1, 8453, 4663, 4326].every((id) => asked.includes(id)), `a wallet app paired here is asked for every chain the site works on, so the pages that use Base keep it too (${asked.join(', ')})`);
   // WalletConnect answers eth_chainId with a number: the page still sees Ethereum, not another network
   ok(!(await p.$eval('#wallet-dot', (e) => e.classList.contains('warn'))) && !(await p.$eval('#wallet-chip', (e) => e.title)), 'a wallet app on Ethereum shows as connected, not as on another network');
   await p.click('#wallet-chip');

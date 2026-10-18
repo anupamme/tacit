@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ND6Bk3KSgIfg0RwqGpv1hsFZN62kz/xUZfaNWXdTYqA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-zKQclzs9koz2pL0ieVPheMe8pLxzGbvJjzx625+phKE=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -35,9 +35,9 @@
 <link rel="modulepreload" href="/tacit-wallet-known.js?cb=ed4c75b7">
 <link rel="modulepreload" href="/tacit-address.js">
 <link rel="modulepreload" href="/bip352.js">
-<link rel="modulepreload" href="/evm-wallet.js?cb=12c7dccd">
+<link rel="modulepreload" href="/evm-wallet.js?cb=087655c3">
 <link rel="modulepreload" href="/identity-message.js">
-<link rel="modulepreload" href="/walletconnect.js?cb=92886522">
+<link rel="modulepreload" href="/walletconnect.js?cb=7ab92369">
 <link rel="modulepreload" href="/evm-account.js">
 <link rel="modulepreload" href="/evm-tx.js">
 <link rel="modulepreload" href="/tac-airdrop.js?cb=02ef61b4">
@@ -1524,8 +1524,8 @@ import { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPass
 import { knownWallets } from '/tacit-wallet-known.js?cb=ed4c75b7';
 import { makeTacitAddress } from '/tacit-address.js';
 import { bip352TaggedHash } from '/bip352.js';
-import { makeEvmWallet } from '/evm-wallet.js?cb=12c7dccd';
-import { announceWalletConnect, wcSheets, dialogHost, WC_PROJECT_ID } from '/walletconnect.js?cb=92886522';
+import { makeEvmWallet } from '/evm-wallet.js?cb=087655c3';
+import { announceWalletConnect, wcSheets, dialogHost, WC_PROJECT_ID } from '/walletconnect.js?cb=7ab92369';
 import { makeEvmAccount } from '/evm-account.js';
 import { makeEvmTx } from '/evm-tx.js';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=02ef61b4';
@@ -3324,12 +3324,20 @@ const WC = announceWalletConnect({
 // The pairing link WalletConnect gives (a QR code for a wallet app on a phone, the link to copy, and on a phone buttons that open the wallet app) and a
 // request waiting in the wallet app show in the page's sheet. Closing the pairing sheet cancels the pairing.
 const wcSheet = wcSheets(dialogHost({ dialog: $('#sheet-wc'), title: $('#wc-h'), body: $('#wc-body') }));
-// Ends a WalletConnect session from here, so the next sign-in can pair another wallet app or account.
+// Disconnect: a WalletConnect session ends in the wallet app too, so the next sign-in can pair another wallet app or account; a
+// browser wallet is let go of here only (it stays allowed in its own settings). Either way no page connects it again on load, and a
+// key opened with it locks, as when it moves to another account.
 document.addEventListener('click', (e) => {
   if (!e.target.closest?.('[data-wc-off]') || midAction()) return;
-  WC.disconnect().finally(() => { evm.deselectProvider(); if (S.provider?.isWalletConnect) S.provider = null; rerender('wallet'); });
+  const wc = S.provider?.isWalletConnect, was = S.provider;
+  (wc ? WC.disconnect() : Promise.resolve()).finally(() => {
+    evm.forget();
+    if (!wc && was) window.dispatchEvent(new CustomEvent('tacit:evm-accounts', { detail: { accounts: [], provider: was } }));
+    S.provider = null;
+    rerender('wallet');
+  });
 });
-const wcLine = () => (S.provider?.isWalletConnect && S.wallet ? html`<div class="kv"><span>WalletConnect</span><b>${short(S.wallet, 6)} <button class="link" type="button" data-wc-off>Disconnect</button></b></div>` : '');
+const ethLine = () => (S.wallet && S.provider ? html`<div class="kv"><span>${S.provider.isWalletConnect ? 'WalletConnect' : 'Ethereum'}</span><b>${short(S.wallet, 6)} <button class="link" type="button" data-wc-off>Disconnect</button></b></div>` : '');
 // wallet: the connected Ethereum wallet. address: the account public transactions come from (see payer).
 const S = { address: null, wallet: null, provider: null, key: null, acct: null, pay: null };
 const walletPriv = () => {
@@ -3594,6 +3602,14 @@ async function connect() {
   S.provider = provider; S.wallet = a; syncAccount();
   paintWallet(); refreshAll();
 }
+// The wallet connected last, on this or any other page of tacit.finance, is connected here again without a prompt while it still
+// allows the site. Nothing is signed: opening a Tacit key still takes its signatures.
+async function restoreWallet() {
+  const c = await evm.restore().catch(() => null);
+  if (!c || S.wallet) return;                                         // one connected meanwhile stands
+  S.provider = c.provider; S.wallet = '0x' + c.address; syncAccount();
+  paintWallet(); refreshAll();
+}
 window.addEventListener('tacit:evm-accounts', (e) => {
   if (e.detail?.provider && S.provider && e.detail.provider !== S.provider) return;   // a wallet this page is not paying from
   const a = (e.detail?.accounts || [])[0], next = a ? String(a).toLowerCase() : null;
@@ -3790,7 +3806,7 @@ render.wallet = () => {
   const el = $('#wallet-body');
   if (!S.key) {
     mount(el, html`<p class="lede-s">Your Tacit wallet is one key for private balances on Bitcoin and Ethereum. Signing in with a wallet sends nothing and costs nothing, and the same account or passkey always opens the same Tacit wallet, everywhere on tacit.finance.</p>${signIn('ws')}
-      ${S.wallet && !S.provider?.isWalletConnect ? html`<div class="kv"><span>Ethereum</span><b>${S.wallet}</b></div>` : wcLine()}`);
+      ${ethLine()}`);
     return wireSignIn(el, 'ws', () => $('#sheet-wallet').close());
   }
   const k = S.key, kept = k.mode === 'ext' || k.mode === 'local', a = S.acct, pays = payer(), btcAddr = T?.extWallet?.state?.address || (k.mode === 'btc' || k.mode === 'ext' ? k.address : null);
@@ -3810,7 +3826,7 @@ render.wallet = () => {
     <div id="ac-form"></div>
     <div class="status" role="status" id="ac-status"></div>
     <div class="kv sep"><span>Bitcoin</span>${btcAddr ? html`<b>${short(btcAddr, 8)}</b>` : html`<span class="mute">connects when you lock BTC to borrow</span>`}</div>
-    ${wcLine()}
+    ${ethLine()}
     ${kept ? html`<p class="note"><button class="link" type="button" id="w-backup">Copy key to back up</button></p>` : ''}
     <p class="note">${kept ? 'This key is kept in this browser only, so clearing the browser’s data loses it. Copy it somewhere private: anyone who has it controls these funds, and pasting it back opens them again.' : k.mode === 'key' ? 'You pasted this key and it is not saved here, so closing the tab forgets it. Keep your own copy somewhere private: anyone who has it controls these funds.' : 'Your wallet or passkey is the only way back to these funds: keep it safe.'} The key stays in this tab, and whoever holds it holds the Tacit account too. Private payments to your Tacit address reach you here and everywhere on tacit.finance.</p>`);
   $('#w-copy').onclick = () => k.tacit && copy(k.tacit, 'Tacit address copied');
@@ -12855,6 +12871,7 @@ paintWays();
 fetch(`${API}/leaderboard?day=today&limit=1`, { signal: within(20e3) }).then((r) => (r.ok ? r.json() : null)).then((d) => { if (d?.program) takeProgram(d.program); }).catch(() => {});
 refreshAll();
 resumeActivity();
+restoreWallet();
 let lastTick = Date.now();
 const tick = () => { lastTick = Date.now(); paintEarn(); refreshTape(); loadTacPrice().catch(() => {}); brTick(); brPrepTick().catch(() => {}); xoTick(); if (lastTick - numsAt > NUMS_MS) refreshNums(); for (const n of SHEETS) if ($(`#sheet-${n}`).open && !running(n)) load[n]?.().then(() => rerender(n)).catch(() => {}); };
 setInterval(() => { if (!document.hidden) tick(); }, 60e3);
