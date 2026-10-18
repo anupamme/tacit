@@ -201,6 +201,7 @@ main { min-height: calc(100svh - 100px); }                          /* the foote
 .kv b.big { font-size: 15px; font-weight: 500; }
 .rows { margin: 12px 0 0; border-top: 1px solid var(--hair); padding-top: 8px; }
 .rows .kv { padding: 4px 0; }
+.kv[hidden] { display: none; }                                    /* .kv sets display, which would otherwise show a row the page has hidden */
 .rows.flat { margin-top: 0; border-top: 0; padding-top: 0; }
 .paused { margin: 12px 0 0; padding: 10px 12px; font-size: 12.5px; background: var(--field); border-left: 2px solid var(--amber); }
 

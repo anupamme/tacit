@@ -856,7 +856,7 @@ try {
     ok(/Backstop · 0\.3% fee/.test(await panel(r.page)) && /Range\s*0\.5 – 2 USDC/.test(await panel(r.page)), 'the backstop is wider: 0.5 to 2 USDC at 0.3%');
     await untilText(r.page, '#board', /Sells for\s*Not open yet\s*Not open yet/);
     ok((await text(r.page, '#pl-go')) === 'Connect wallet', 'with no wallet the button asks for one');
-    ok(await r.page.$$eval('#pl-kb, #pl-ke, #pl-km', (els) => els.length === 3 && els.every((e) => e.hidden)), 'with the campaign off the page shows no rows for it');
+    ok(await r.page.$$eval('#pl-kb, #pl-ke, #pl-km', (els) => els.length === 3 && els.every((e) => getComputedStyle(e).display === 'none')), 'with the campaign off the page shows no rows for it (not merely marked hidden)');
     ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
     await shot(r.page, 'pools-list');
     await closeAll(r);
@@ -1001,6 +1001,7 @@ try {
       r = await openPage({ who: 'user', hash: hashP(), lp: camp });
       await connect(r.page);
       await until(r.page, () => !document.querySelector('#pl-ke')?.hidden);
+      ok(await r.page.$$eval('#pl-kb, #pl-ke, #pl-km', (els) => els.every((e) => getComputedStyle(e).display !== 'none')), 'with the campaign on the three rows are shown');
       const cp = await panel(r.page);
       ok(/Opening bonus\s*Paid/.test(cp) && /Liquidity rewards\s*25 TAC a day\s*shared by what is held for the whole day, up to 0\.05 TAC per \$1/.test(cp) && /Earned so far\s*12 TAC/.test(cp), `an opened pool shows its bonus paid, what holding earns and what the account has earned (${cp.slice(0, 330)})`);
       await r.page.click('#pl-pick button:nth-child(2)'); await sleep(150);
