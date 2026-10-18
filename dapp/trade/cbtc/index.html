@@ -25,7 +25,7 @@
 <link rel="preload" as="fetch" href="https://api.tacit.finance/farm/program?network=mainnet" crossorigin fetchpriority="low">
 <!-- preload-roots: /trade/cbtc/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/trade/cbtc/app.js?cb=85d7317a">
+<link rel="modulepreload" href="/trade/cbtc/app.js?cb=ba16adcc">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/trade/chart.js?cb=a17675b8">
 <link rel="modulepreload" href="/trade/fmt.js?cb=c07717c4">
@@ -295,6 +295,16 @@ input::placeholder { color: var(--mute); opacity: .7; }
 .status { font-size: 12.5px; min-height: 0; margin-top: 12px; overflow-wrap: anywhere; }
 .status:empty { margin-top: 0; }
 .status a { color: var(--ink); }
+/* Borrow against TAC: a line and a link to the vault page, sized to what the wallet's TAC could borrow once that is read. Its height is held from the first paint
+   (two lines of text and the link), so the figures arriving move nothing. */
+.bw { display: flex; flex-direction: column; justify-content: space-between; gap: 8px; min-height: 108px; margin: 14px 0 0; padding: 12px 14px; background: var(--field); border: 1px solid var(--hair); font-size: 12.5px; }
+.bw p { margin: 0; }
+.bw-l { color: var(--mute); } .bw-l b { color: var(--ink); font-weight: 500; }
+.bw-a { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; }
+.bw-go { display: inline-flex; align-items: center; min-height: 34px; padding: 4px 12px; border: 1px solid var(--ink); color: var(--ink); font-weight: 500; text-decoration: none; transition: background .15s, color .15s; }
+.bw-go:hover { background: var(--ink); color: var(--card); }
+.bw-alt { color: var(--mute); } .bw-alt:hover { color: var(--ink); }
+@media (min-width: 600px) and (max-width: 980px) { .bw { min-height: 88px; } }
 
 /* where it trades */
 .table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
@@ -767,6 +777,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/trade/cbtc/app.js?cb=85d7317a"></script>
+<script type="module" src="/trade/cbtc/app.js?cb=ba16adcc"></script>
 </body>
 </html>
