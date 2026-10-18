@@ -752,8 +752,10 @@ async function loadFeed() {
 }
 function renderFeed() { drawFeed(); renderTicket(); }                // a borrow button that records prices follows the feed
 function drawFeed() {
-  const el = $('#feed'), st = feedOf(cur());
-  if (!VS.length || !st || (st.ready && !F.busy && !F.note)) { el.hidden = true; return; }       // up to date, nothing to say: the board already says lending is open
+  const el = $('#feed'), V = cur(), st = feedOf(V);
+  // Few enough missing to go with a transaction: the board already says so, and recording them is not a step of its own.
+  const carried = V && st && !st.ready && st.missing > 0 && st.missing <= BATCH_MAX && !!viaOf(V) && !F.busy && !F.note;
+  if (!VS.length || !st || carried || (st.ready && !F.busy && !F.note)) { el.hidden = true; return; }       // up to date, nothing to say: the board already says lending is open
   el.hidden = false;
   const cost = F.gas != null && st.missing ? `, for about ${(Number(BigInt(st.missing * RECORD_GAS) * F.gas) / 1e18).toFixed(4)} ETH` : '';
   const rows = st.venues.map((v, i) => `<div class="kv"><span>${esc(VENUE[i] || `Venue ${i + 1}`)}</span><b class="num">${v.counted} of ${v.points}</b></div>`).join('');
@@ -856,14 +858,18 @@ async function prepare(V) {
     const recs = part.map(([v, k]) => kept.get(keyOf(v, k)));
     const checked = await verifiedRecords(part, recs, () => {});
     if (!checked) { console.warn('price records: others recorded some while this was built'); return false; }   // the next look builds again
-    const reads = dynamicCalls(V, from).map(([, to, data]) => ({ to, data }));
-    const res = await readMixed(ethCall, [...recs.map((r) => ({ to: r.to, data: r.data, allowFailure: false })), ...reads]);
-    const d = parseDynamic(V, from, res.slice(recs.length)); d.who = from;
-    if (!(readable(d) || d.recovered != null)) { console.warn('price records: the records alone would not open the vault'); V.post = null; return false; }
-    V.post = { who: who0, key: missingKey(st), recs, data: checked.data, d, n: recs.length, at: now() };
+    // Every vault that prices from this oracle is read behind the same records, in the one call, so the board can show each one's room.
+    const vs = VS.filter((m) => m.s && oracleOf(m) === oracleOf(V));
+    const reads = vs.map((m) => dynamicCalls(m, from).map(([, to, data]) => ({ to, data })));
+    const res = await readMixed(ethCall, [...recs.map((r) => ({ to: r.to, data: r.data, allowFailure: false })), ...reads.flat()]);
+    let at = recs.length;
+    const ds = vs.map((m, i) => { const d = parseDynamic(m, from, res.slice(at, at + reads[i].length)); d.who = from; at += reads[i].length; return [m, d]; });
+    const d = ds.find(([m]) => m === V)[1];
+    if (!(readable(d) || d.recovered != null)) { console.warn('price records: the records alone would not open the vault'); for (const m of vs) m.post = null; return false; }
+    for (const [m, dm] of ds) m.post = { who: who0, key: missingKey(st), recs, data: checked.data, d: dm, n: recs.length, at: now() };
     return true;
   } catch (e) {
-    PREP.failedAt = now(); V.post = null;
+    PREP.failedAt = now(); for (const m of VS) if (oracleOf(m) === oracleOf(V)) m.post = null;
     console.warn('price records:', e?.message || e);
     return false;
   } finally { PREP.busy = false; }

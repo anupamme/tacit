@@ -616,6 +616,7 @@ try {
     const PAIR = create(art('TacVaultMocks.sol/MockPair')), VENUES = [view(PAIR, 'A()(address)')[0], view(PAIR, 'B()(address)')[0]];
     send('deployer', PAIR, 'set(uint256)', String(P0));                                                  // the pair prices like the first oracle once it is armed and recorded
     const VC = makeVault(FEED, 'TAC Dollar', 'TACD', (100n * E18).toString(), PAIR);
+    const VD = makeVault(FIXED, 'TAC Ether', 'TACE', (E18 / 25n).toString(), PAIR);                      // a second vault on the same oracle
     const SYNC = view(VC, 'SYNTH()(address)')[0];
     const RT = create(art('TacVaultRouter.sol/TacVaultRouter') + cast('abi-encode', 'f(address,address)', VC, ETH).slice(2));
     const head = async () => Number(BigInt(await rpcA('eth_blockNumber')));
@@ -632,13 +633,14 @@ try {
     // 1. a wallet that batches: one confirmation, one permit signature, no other transaction; the router is not needed
     let n = await arm(true);
     ok(n === 6, `six records are missing (three of each venue): ${n}`);
-    r = await openPage({ who: 'bob', batch: true, hash: hashC(`&router=${RT}`) });
+    r = await openPage({ who: 'bob', batch: true, hash: `#vusd=${VC}&veth=${VD}&router=${RT}` });
     const bb = r.page, BL = r.walletLog;
     await connect(bb);
     await ready(bb, /^Deposit [\d,.]+ TAC and borrow$/);
     ok(/Price records\s*6 included/.test(await text(bb, '#info')) && Number(await bb.inputValue('#amt')) > 0, 'the ticket reads the vault as it will be once the records are in: the amount is filled, and it says six records are included');
     const board1 = await text(bb, '#board');
-    ok(/Borrowing is open/.test(board1) && /The last 6 prices are recorded with your transaction/.test(board1) && /Room to borrow\s*[\d,.]+ TACD/.test(board1), 'and the board calls borrowing open, says the six prices go with the transaction, and shows the room as it will be');
+    ok(/Borrowing is open/.test(board1) && /The last 6 prices are recorded with your transaction/.test(board1) && /Room to borrow\s*[\d,.]+ TACD\s*[\d,.]+ TACE/.test(board1), 'and the board calls borrowing open, says the six prices go with the transaction, and shows the room of both vaults as it will be');
+    ok(await bb.$eval('#feed', (e) => e.hidden), 'with no separate price panel offering a step of its own');
     await shot(bb, 'records-bundle');
     const sg = BL.signs; BL.sends.length = 0;
     await bb.click('#go');
