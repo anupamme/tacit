@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-Deu7Qu9N6lw0pvqw6ze0S+f2JGgB9ay82GtEpIVDdLU=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-4mWqxqFU4bWJYURfEPh1Zpst20fkyR51Ps1ABzleVEk=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -14,7 +14,7 @@
 <link rel="preload" href="/fonts/instrument-serif-400i-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-mono-400-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-mono-500-latin.woff2" as="font" type="font/woff2" crossorigin>
-<script src="/front-route.js?cb=6cd2830e"></script>
+<script src="/front-route.js?cb=a555ea77"></script>
 <title>tacit — private DeFi on Bitcoin and Ethereum</title>
 <link rel="canonical" href="https://tacit.finance/">
 <meta name="description" content="Private DeFi on Bitcoin and Ethereum. Assets issued on Bitcoin with hidden amounts, a zero-knowledge bridge to a private pool on Ethereum, private ETH, TAC, points, farms and dollars borrowed against Bitcoin.">
@@ -892,6 +892,9 @@ a.btn { text-decoration: none; white-space: nowrap; }
 .parts b { font-weight: 400; color: var(--ink); }
 .links { list-style: none; margin: 16px 0 0; padding: 12px 0 0; border-top: 1px solid var(--hair); display: grid; gap: 8px; font-size: 13px; }
 .links a { color: var(--ink); text-underline-offset: 3px; }
+.bw-alt { margin: 16px 0 0; font-size: 13px; }
+.bw-alt a { color: var(--mute); text-underline-offset: 3px; }
+@media (hover: hover) { .bw-alt a:hover { color: var(--ink); } }
 .pt { border-bottom: 1px solid var(--hair); margin-bottom: 14px; padding-bottom: 6px; }
 .pt .bal { border: 0; margin: 0; padding: 6px 0; }
 .pt .side b { font: 500 15px/1.3 var(--mono); color: var(--ink); }
@@ -1152,6 +1155,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <symbol id="tk-tacbtc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="none" stroke="#f7931a" stroke-linecap="round" stroke-linejoin="round"><path d="M16.4 8 L12.9 23 C 18.6 24 21 21.5 21 18.7 C 21 16 17.6 15.2 14.7 15.6" stroke-width="2.8"/><path d="M11.9 13.2 L18.4 11.5" stroke-width="2.4"/></g></symbol>
     <symbol id="tk-cusd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><path d="M16.5 7 L15.5 25" stroke="#16a34a" stroke-width="2.7" stroke-linecap="round"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" fill="none" stroke="#16a34a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="tk-tacusd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><g fill="none" stroke="#16a34a" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 7 L15.5 25" stroke-width="2.7"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" stroke-width="2.6"/></g></symbol>
+    <symbol id="tk-tacd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M16.5 7 L15.5 25" stroke="#f7931a" stroke-width="2.7" stroke-linecap="round"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" fill="none" stroke="#f7931a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="tk-tace" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/><path d="M14.8 17L19 17" stroke="#f7931a" stroke-width="2.2" stroke-linecap="round"/></symbol>
     <symbol id="tk-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#F7931A"/><path fill="#FFF" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
     <symbol id="i-pts" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M16 8.5L18 14L23.5 16L18 18L16 23.5L14 18L8.5 16L14 14Z" fill="#f7931a"/></symbol>
     <symbol id="i-x" viewBox="0 0 24 24"><path fill="currentColor" d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/></symbol>
@@ -1458,6 +1463,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <button class="x" type="button" data-close aria-label="Close">×</button>
     </div>
     <div id="borrow-body"></div>
+    <p class="bw-alt"><a href="/vault/">Borrow against TAC →</a></p>
   </div>
 </dialog>
 
@@ -1555,6 +1561,10 @@ const ADDR = {
   tac: '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279',
   tacbtc: '0xdf1d99148bEb7a9AFf1d95C49B3d22b7ed90D696',              // cBTC withdrawn to an address, one for one
   tacusd: '0x23cACFFAc2674514A6d4F6cD420B4cc2aC921564',              // cUSD withdrawn to an address, one for one
+  tacd: '0xA0f6B02561C8ef08335B69aD25e022C0B342147C',                // TACD, the dollar borrowed against TAC (the dollar vault's)
+  tace: '0x9DE27883C5Dc9Db47BE12E595D59b8f1aBEC8570',                // TACE, the ether borrowed against TAC (the ether vault's)
+  tacdVault: '0x00000087ac9ed3E1Bd443E00FBe18B4EdcAEeb1F',
+  taceVault: '0x00000047bFC8cF504967049D9Cf9E1FD9651ED80',
   multicall: '0xcA11bde05977b3631167028862bE2a173976CA11',
   precisionPool: '0x0155358241411dB868BA714aE7c83A27087e3D6E',       // TAC/ETH 0.30%, LP is the pool's own ERC-20
   precisionFarm: '0x0000003bF4BA0B21f5e0d35119b337F4d4CF82E0',       // stakes that LP, streams TAC
@@ -4208,22 +4218,29 @@ const ASSETS = {
       ['Bridged: a burn on Bitcoin', MEMPOOL + '/tx/d5d5bb73c7214acee52032fadf169a8cfb5714764e11b720db75e9ed328c5008'], ['…and its mint in the Tacit pool', ETHERSCAN('0xe49e6ccaaf8969f1951321b128b047d1517bf40555e297de5b9161bc56daca0a', 'tx')],
       ['The ERC-20 on Etherscan', ETHERSCAN(ADDR.tac, 'token')], ['Integrating the ERC-20', GH + 'docs/TAC.md#integrating-the-erc-20'], ['What holding TAC does', GH + 'docs/TAC.md#holding-tac'], ['The buyback contract', ETHERSCAN('0x6919cbEf0e70AFFA02Ae02c86c532A137154f250')]] },
   cbtc: { name: 'cBTC', icon: 'cbtc',
-    lede: ['cBTC is bitcoin locked in an output only your key can spend, minted once, one for one, as a private note in the Tacit pool.',
-      'A wstETH bond worth at least 1.5× the lock makes spending that bitcoin unprofitable: spend it without redeeming and the bond is forfeited. Hold cBTC privately or borrow cUSD against it.'],
+    lede: ['Private bitcoin, one for one with BTC locked at your own address.',
+      'It is minted once as a note in the Tacit pool, from an output only your key can spend. A wstETH bond worth at least 1.5× the lock makes spending that bitcoin unprofitable: spend it without redeeming and the bond is forfeited. Hold cBTC privately or borrow cUSD against it.'],
     links: [['cBTC and cUSD in the spec', GH + 'SPEC.md#57-cdp-cusd-and-cbtc'], ['The bond helper', ETHERSCAN(ADDR.escrow)], ['A mint in the Tacit pool', ETHERSCAN('0xc6cf22b2a423e807ec8a4a93f635b47e68f5858a0cdce47c734e541770c30a6f', 'tx')]] },
   cusd: { name: 'cUSD', icon: 'cusd',
-    lede: ['cUSD is a dollar borrowed against cBTC: a loan needs 150% collateral and can be liquidated below 130%.',
-      'The borrower stays unlinkable, while loan amounts are public so they can be priced. A stability fee and a savings rate are built in and set to zero today. Withdrawn to a public address, cUSD becomes tacUSD.'],
+    lede: ['A private dollar borrowed against cBTC.',
+      'A loan needs 150% collateral and can be liquidated below 130%. The borrower stays unlinkable, while loan amounts are public so they can be priced. A stability fee and a savings rate are built in and set to zero today. Withdrawn to a public address, cUSD becomes tacUSD.'],
     links: [['cBTC and cUSD in the spec', GH + 'SPEC.md#57-cdp-cusd-and-cbtc'], ['The collateral engine', ETHERSCAN(ADDR.engine)], ['A loan opened', ETHERSCAN('0x6da330c161f236030ef83ce5c9c77268c735a52e7f9789c7ebceaccb479b3229', 'tx')]] },
   tacbtc: { name: 'tacBTC', icon: 'tacbtc',
-    lede: ['tacBTC is cBTC in public: the ERC-20 minted when a cBTC note is withdrawn to an Ethereum address, and burned when it is wrapped back into a note, one for one. Only the Tacit pool can mint it.'],
+    lede: ['cBTC in public.', 'The ERC-20 minted when a cBTC note is withdrawn to an Ethereum address, and burned when it is wrapped back into a note, one for one. Only the Tacit pool can mint it.'],
     links: [['tacBTC on Etherscan', ETHERSCAN(ADDR.tacbtc, 'token')], ['The token list', 'https://token.list.wei.limo'], ['cBTC and cUSD in the spec', GH + 'SPEC.md#57-cdp-cusd-and-cbtc']] },
   tacusd: { name: 'tacUSD', icon: 'tacusd',
-    lede: ['tacUSD is cUSD in public: the ERC-20 minted when a cUSD note is withdrawn to an Ethereum address, and burned when it is wrapped back into a note, one for one. Only the Tacit pool can mint it.'],
+    lede: ['cUSD in public.', 'The ERC-20 minted when a cUSD note is withdrawn to an Ethereum address, and burned when it is wrapped back into a note, one for one. Only the Tacit pool can mint it.'],
     links: [['tacUSD on Etherscan', ETHERSCAN(ADDR.tacusd, 'token')], ['The token list', 'https://token.list.wei.limo'], ['Borrow on Bitcoin', '#borrow']] },
+  tacd: { name: 'TACD', icon: 'tacd',
+    lede: ['A dollar borrowed against TAC.'],
+    links: [['TACD on Etherscan', ETHERSCAN(ADDR.tacd, 'token')], ['The dollar vault', ETHERSCAN(ADDR.tacdVault)]] },
+  tace: { name: 'TACE', icon: 'tace',
+    lede: ['Ether borrowed against TAC.'],
+    links: [['TACE on Etherscan', ETHERSCAN(ADDR.tace, 'token')], ['The ether vault', ETHERSCAN(ADDR.taceVault)]] },
 };
-// What each asset card leads to: its own action, opened like any link on the page.
-const ASSET_ACTS = { teth: [['Make ETH private', 'private']], tac: [['Buy TAC', 'buy'], ['Bridge from Bitcoin', 'bridge']], cbtc: [['Lock BTC for cBTC', 'lock']], cusd: [['Borrow cUSD', 'borrow']] };
+// What each asset card leads to: its own action, opened like any link on the page (or, starting with /, another page).
+const ASSET_ACTS = { teth: [['Make ETH private', 'private']], tac: [['Buy TAC', 'buy'], ['Bridge from Bitcoin', 'bridge']], cbtc: [['Lock BTC for cBTC', 'lock']], cusd: [['Borrow cUSD', 'borrow']],
+  tacd: [['Borrow more', '/vault/#v=usd'], ['Repay', '/vault/#v=usd&t=repay']], tace: [['Borrow more', '/vault/#v=eth'], ['Repay', '/vault/#v=eth&t=repay']] };
 function openAsset(key) {
   const a = Object.hasOwn(ASSETS, key) ? ASSETS[key] : null;
   if (!a) return;
@@ -4234,7 +4251,7 @@ function openAsset(key) {
     ${a.lede.map((p) => html`<p class="lede-s">${p}</p>`)}
     ${(a.facts || []).map(([k, v]) => html`<div class="kv"><span>${k}</span><b>${v}</b></div>`)}
     ${key === 'tac' && TPX.v?.mid ? html`<div class="kv"><span>Price now</span><b class="num">${sig(TPX.v.mid)} ETH${TPX.v.ethBtc ? ` · ${satsFmt((TPX.v.mid / TPX.v.ethBtc) * 1e8)} sats` : ''} <a href="#buy" data-open="buy">where it trades</a></b></div>` : ''}
-    ${ASSET_ACTS[key] ? html`<div class="card-acts">${ASSET_ACTS[key].map(([label, go], i) => html`<button class="btn${i ? ' ghost' : ''}" type="button" data-go="${go}">${label}</button>`)}</div>` : ''}
+    ${ASSET_ACTS[key] ? html`<div class="card-acts">${ASSET_ACTS[key].map(([label, go], i) => go.startsWith('/') ? html`<a class="btn${i ? ' ghost' : ''}" href="${go}">${label}</a>` : html`<button class="btn${i ? ' ghost' : ''}" type="button" data-go="${go}">${label}</button>`)}</div>` : ''}
     ${a.links?.length ? html`<ul class="links">${a.links.map(([label, href]) => href.startsWith('#') ? html`<li><a href="${href}" data-open="${href.slice(1)}">${label} →</a></li>` : html`<li><a href="${href}" target="_blank" rel="noopener">${label} ↗</a></li>`)}</ul>` : ''}`);
   $$('[data-go]', $('#asset-body')).forEach((b) => b.onclick = () => { $('#asset-card').close(); openLink(b.dataset.go); });
   $$('[data-open]', $('#asset-body')).forEach((l) => l.onclick = (e) => { e.preventDefault(); $('#asset-card').close(); openSheet(l.dataset.open); });
@@ -7837,7 +7854,7 @@ const tacFeeNote = () => {
   if (TACB.fee === undefined && S.key && P.scan?.tac) { TACB.fee = null; loadTacFee().then(() => { const el = $('#tac-fee-note'); if (el) el.textContent = tacFeeText(); }); }
   return html`<span id="tac-fee-note">${tacFeeText()}</span>`;
 };
-const PUBX = { who: null, tacbtc: 0n, tacusd: 0n };                  // cBTC and cUSD held in public, as tacBTC and tacUSD
+const PUBX = { who: null, tacbtc: 0n, tacusd: 0n, tacd: 0n, tace: 0n }; // cBTC and cUSD held in public (tacBTC, tacUSD), and TACD and TACE borrowed against TAC
 // The private balance shows when its scan lands, never after the Bitcoin read; loadBtc redraws the sheet as its parts arrive.
 const tacMore = () => { if (!S.key) return; refreshScan().catch(() => {}).then(() => rerender('tac')); loadBtc().catch(() => {}); };
 async function loadTacHoldings(force = false) {
@@ -8867,10 +8884,10 @@ async function loadPrecision() {
   if (who) calls.push({ to: f, data: SEL.staked + addrWord(who) }, { to: f, data: SEL.earned + addrWord(who) },
     { to: ADDR.tac, data: SEL.balanceOf + addrWord(who) }, { to: ADDR.tac, data: SEL.allowance + addrWord(who) + addrWord(f) },
     { to: p, data: SEL.balanceOf + addrWord(who) }, { to: p, data: SEL.allowance + addrWord(who) + addrWord(f) });
-  // The TAC, tacBTC and tacUSD the wallet and the Tacit account hold on Ethereum ride the same request, for the TAC balance
-  // and the dashboard.
+  // The TAC, tacBTC, tacUSD, TACD and TACE the wallet and the Tacit account hold on Ethereum ride the same request, for the TAC
+  // balance and the dashboard.
   const holders = who ? [...new Set([S.wallet, S.acct?.address].filter(Boolean).map((a) => a.toLowerCase()))] : [];
-  for (const token of [ADDR.tac, ADDR.tacbtc, ADDR.tacusd]) for (const a of holders) calls.push({ to: token, data: SEL.balanceOf + addrWord(a) });
+  for (const token of [ADDR.tac, ADDR.tacbtc, ADDR.tacusd, ADDR.tacd, ADDR.tace]) for (const a of holders) calls.push({ to: token, data: SEL.balanceOf + addrWord(a) });
   const r = await multicall(calls);
   const w = (i) => r[i] ? wordAt(r[i], 0) : 0n;
   const x = { who, r0: w(0), r1: w(1), supply: w(2), sp: w(3), totalStaked: w(4), rate: w(5), finish: Number(w(6)), t: Number(w(7)) || now(), staked: w(8), earned: w(9), tac: w(10), allowance: w(11), lp: w(12), lpAllow: w(13) };
@@ -8888,7 +8905,7 @@ async function loadPrecision() {
   const held = (j) => (holders.every((_, i) => r[14 + j * holders.length + i]) ? holders.reduce((sum, _, i) => sum + w(14 + j * holders.length + i), 0n) : null);
   // Another set of holders (a key switch) also drops the account's own figure and age, so loadTacHoldings reads it again.
   if (holders.length && held(0) != null) Object.assign(TACB, { who: holders.join(), erc: held(0) }, TACB.who === holders.join() ? {} : { acct: null, at: 0 });
-  if (holders.length && held(1) != null && held(2) != null) Object.assign(PUBX, { who: holders.join(), tacbtc: held(1), tacusd: held(2) });
+  if (holders.length && [1, 2, 3, 4].every((j) => held(j) != null)) Object.assign(PUBX, { who: holders.join(), tacbtc: held(1), tacusd: held(2), tacd: held(3), tace: held(4) });
   dashSoon();
   return x;
 }
@@ -11220,6 +11237,9 @@ function dashItems() {
   if (who && PUBX.who === who) {
     out.push({ key: 'tacbtc', icon: 'tk-tacbtc', label: 'tacBTC', dec: 18, max: 6, v: PUBX.tacbtc, meta: 'public', asset: 'tacbtc', show: PUBX.tacbtc > 0n });
     out.push({ key: 'tacusd', icon: 'tk-tacusd', label: 'tacUSD', dec: 18, max: 2, v: PUBX.tacusd, meta: 'public', asset: 'tacusd', show: PUBX.tacusd > 0n });
+    // Borrowed against TAC in the vaults: each opens its asset card.
+    out.push({ key: 'tacd', icon: 'tk-tacd', label: 'TACD', dec: 18, max: 2, v: PUBX.tacd, meta: 'public', asset: 'tacd', show: PUBX.tacd > 0n });
+    out.push({ key: 'tace', icon: 'tk-tace', label: 'TACE', dec: 18, max: 6, v: PUBX.tace, meta: 'public', asset: 'tace', show: PUBX.tace > 0n });
   }
   const pw = pointsWho(), rows = PTS.key && PTS.key === pw.map(([a]) => a).join() ? PTS.rows : null;
   if (pw.length) {
@@ -11243,7 +11263,7 @@ const DASH_DO = { eth: ['private', 'eth', 'v1-finish'], tac: ['tac', 'tac', 'tac
   pts: ['points', 'pts', '[data-claim]'], air: ['airdrop', 'tac', 'air-claim'], farm: ['farm/public', 'farm', 'pf-claim'], pfarm: ['farm', 'farm', ''], bonds: ['borrow', 'borrow', 'bw-see-bonds'] };
 // What the holdings are worth in dollars, and how much of it is private: from the pools' and the engine's prices (loadTacPrice), each asset
 // at its own. Points are not counted. Null until a price is read.
-const DASH_PX = { teth: 'eth', dev: 'eth', tethbtc: 'eth', tacbridged: 'tac', tac: 'tac', btc: 'btc', cbtc: 'btc', cusd: 'usd', tacbtc: 'btc', tacusd: 'usd' };
+const DASH_PX = { teth: 'eth', dev: 'eth', tethbtc: 'eth', tacbridged: 'tac', tac: 'tac', btc: 'btc', cbtc: 'btc', cusd: 'usd', tacbtc: 'btc', tacusd: 'usd', tacd: 'usd', tace: 'eth' };
 const DASH_PRIV = new Set(['teth', 'dev', 'tethbtc', 'tacbridged', 'cbtc', 'cusd']);
 function dashWorth(items) {
   const v = TPX.v;
@@ -12725,7 +12745,8 @@ function paintHx() {
     body = html`${field('You lock', where(S.key ? 'from your Bitcoin address' : 'your Bitcoin wallet', false, 'btc'), amt('BTC to lock'), coin('hx-from', 'You lock', [['btc', 'BTC', 'btc']], 'btc'), subline)}
       ${mid()}
       <div class="hx-rows" id="hx-dest" role="radiogroup" aria-label="You get"><div class="hx-rows-h"><span class="hx-lbl">You get</span></div>${ways.map(way)}</div>${tail}
-      ${S.key ? html`<p class="hx-bw-f" id="hx-bw-hold" hidden></p><p class="hx-q" id="hx-bw-s" aria-live="polite"></p>${HX.bwMore && LOCK.state?.rec ? html`<p class="hx-bw-f"><button class="link" type="button" id="hx-bw-back">Back to your lock</button></p>` : ''}` : ''}`;
+      ${S.key ? html`<p class="hx-bw-f" id="hx-bw-hold" hidden></p><p class="hx-q" id="hx-bw-s" aria-live="polite"></p>${HX.bwMore && LOCK.state?.rec ? html`<p class="hx-bw-f"><button class="link" type="button" id="hx-bw-back">Back to your lock</button></p>` : ''}` : ''}
+      <a class="hx-more" href="/vault/">Borrow against TAC →</a>`;
   } else {
     const [, unit] = hxSendOf(), btcPay = HX.send === 'btc', at = HX.send === 'tacb' ? ['private on Bitcoin', true, 'btc'] : btcPay ? ['your Bitcoin address', false, 'btc'] : ['private on Ethereum', true, 'eth'];
     HX.askFor = S.key?.tacit || '';
@@ -12909,7 +12930,8 @@ const route = () => {
     return;
   }
   // An amount that is not one (1e3, abc) is left out: the card still opens where the link says.
-  const card = h.match(/^card=([a-z]+:[a-z]+:[a-z]+\d{0,3})(?::(public|private))?(?:&amt=([^&]*))?$/);
+  // Borrow takes two parts too (#card=borrow:cusd), its choice alone.
+  const card = h.match(/^card=([a-z]+:[a-z]+:[a-z]+\d{0,3}|borrow:[a-z]+)(?::(public|private))?(?:&amt=([^&]*))?$/);
   if (card) { history.replaceState(null, '', location.pathname + location.search); hxPreset(card[1], /^\d{0,12}(?:\.\d{1,18})?$/.test(card[3] || '') ? card[3] || '' : ''); if (card[2]) { HX.route = card[2]; hxQuote(); } return; }
   if (pay) { BTC.mode = 'receive'; BTC.check = { kind: pay[1], txid: pay[2].toLowerCase() }; openSheet('btc'); }
   else if (h) openLink(h);
