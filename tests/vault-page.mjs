@@ -130,7 +130,8 @@ const M_OUT = (txt) => { const [a, b = ''] = txt.split('.'); return BigInt(a) * 
 const hashFor = (extra = '') => `#vusd=${USD}&veth=${ETH}&t=deposit${extra}`;
 // `bare`: the page served with a deployments module that names no vault, as it was before the vaults existed (the opens-soon state).
 // `limited`: hosts that answer every call as a node that has run out of its free requests does.
-async function openPage({ viewport = { width: 1280, height: 900 }, who = null, noTyped = false, batch = false, hash = hashFor(), host = '127.0.0.1', scheme = 'light', args = [], bare = false, limited = [] } = {}) {
+// `hold`: { re, gate }: a call whose body matches `re` waits for the promise `gate` before it is answered (a slow node, or a router not yet asked).
+async function openPage({ viewport = { width: 1280, height: 900 }, who = null, noTyped = false, batch = false, hash = hashFor(), host = '127.0.0.1', scheme = 'light', args = [], bare = false, limited = [], hold = null } = {}) {
   const browser = await chromium.launch({ args });
   const ctx = await browser.newContext({ viewport, colorScheme: scheme });
   if (bare) await ctx.route('**/vault/deployments.js*', (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: 'export const DEPLOYMENTS = Object.freeze({ chainId: 1, vaults: Object.freeze([]) });' }));
@@ -138,6 +139,7 @@ async function openPage({ viewport = { width: 1280, height: 900 }, who = null, n
   for (const h of RPC_HOSTS) await ctx.route(`https://${h}/**`, async (route) => {
     if (limited.includes(h)) return route.fulfill({ status: 429, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32005, message: 'You reached Public endpoint rate limit, please upgrade to paid plan' } }) });
     try {
+      if (hold && hold.re.test(route.request().postData() || '')) await hold.gate;
       const r = await fetch(ANVIL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: route.request().postData() });
       await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: await r.text() });
     } catch (e) { await route.fulfill({ status: 502, headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ error: e.message }) }).catch(() => {}); }
@@ -633,6 +635,17 @@ try {
     // 1. a wallet that batches: one confirmation, one permit signature, no other transaction; the router is not needed
     let n = await arm(true);
     ok(n === 6, `six records are missing (three of each venue): ${n}`);
+    // 0. while the router is still being asked the board is checking, not closed; then it is open
+    let release; const gate = new Promise((res) => { release = res; });
+    r = await openPage({ hash: `#vusd=${VC}&veth=${VD}&router=${RT}`, hold: { re: new RegExp(RT.slice(2), 'i'), gate } });
+    await until(r.page, () => /Mint|TACD|Room to borrow/.test(document.querySelector('#board')?.textContent || '') && !document.querySelector('#board').classList.contains('loading'));
+    await sleep(1500);
+    const waitBoard = await text(r.page, '#board');
+    ok(/Checking whether borrowing is open/.test(waitBoard) && /Borrowing\s*Checking\s*Checking/.test(waitBoard) && !/Not open|not open yet/.test(waitBoard) && await r.page.$eval('#board .verdict', (e) => e.classList.contains('wait')), 'while the router is being asked, the board says it is checking, and never that borrowing is closed');
+    release();
+    await until(r.page, () => /Borrowing is open on/.test(document.querySelector('#board')?.textContent || ''));
+    ok(/The last 6 prices are recorded with your transaction/.test(await text(r.page, '#board')), 'and once the router answers, it is open, with the six prices to go with the transaction');
+    await closeAll(r);
     r = await openPage({ who: 'bob', batch: true, hash: `#vusd=${VC}&veth=${VD}&router=${RT}` });
     const bb = r.page, BL = r.walletLog;
     await connect(bb);

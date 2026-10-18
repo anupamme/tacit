@@ -43,7 +43,8 @@ const VS = (() => {
 // The router (see router.js), when one is deployed for these vaults; a page on this computer may name one with #router= (tests only).
 const ROUTER = (() => { const a = LOCAL && ADDR.test(params().get('router') || '') ? params().get('router') : DEPLOYMENTS.router; return ADDR.test(a || '') ? a : null; })();
 
-const S = { v: VS[0]?.key, t: 'borrow', pre: true, batchOk: false, batchFor: null, routerFor: null, routerOff: false, amt: '', view: null, busy: false, seq: 0, chainT: 0, chainAt: 0, loaded: false, failed: false, more: false };
+const S = { v: VS[0]?.key, t: 'borrow', pre: true, batchOk: false, batchFor: null, routerFor: null, routerOff: false, routerSettled: false, batchBusy: false, amt: '', view: null, busy: false, seq: 0, chainT: 0, chainAt: 0, loaded: false, failed: false, more: false };
+const BOOT = now();                                                                                // when the page started: how long a check of what the wallet can do may be waited for
 const MORE_KEY = 'tacit-vault-more';                                                                // whether the board shows its further figures, kept in this browser
 try { S.more = localStorage.getItem(MORE_KEY) === '1'; } catch { /* storage is a convenience */ }
 // The connected wallet's own node. An injected wallet on Ethereum answers reads from the provider it already has, so it is asked first for the old headers and proofs the
@@ -220,10 +221,11 @@ function afterAnnounced(x) {
 }
 // Can this vault be borrowed from, and if not, why and what changes it.
 function statusOf(x) {
-  const f = feedOf(x.V);
+  const f = feedOf(x.V), checking = { state: 'wait', short: '', why: 'Checking the prices…', next: '' };            // neither open nor closed yet: the feed, the router and the wallet are still being asked
   if (x.paused) {
     if (x.stale) return { state: 'paused', short: 'ETH/USD price old', why: `The ETH/USD price is ${M.span(x.feedAge)} old; borrowing needs one under ${M.span(x.s.staleness)}.`, next: 'It clears with the feed’s next update.' };
     // Few enough to go with a transaction, for anyone (the router) or a wallet that sends batches: borrowing is open, and what is still missing is recorded with it.
+    if (f && !f.ready && f.missing > 0 && f.missing <= BATCH_MAX && !viaOf(x.V) && viaPending(x.V)) return checking;
     if (f && !f.ready && f.missing > 0 && f.missing <= BATCH_MAX && viaOf(x.V)) {
       const p = postOf(x.V)?.d;
       if (p && p.depthCeiling != null && p.debtCeiling != null && p.totalDebt != null) {
@@ -233,7 +235,7 @@ function statusOf(x) {
       return { state: 'open', carry: f.missing, short: '', why: '', next: '' };
     }
     if (f && !f.ready) return { state: 'paused', short: 'prices not recorded', why: `Borrowing waits for ${f.missing} price${f.missing === 1 ? '' : 's'} to be recorded.`, next: 'Anyone can record them, <a href="#feed" data-tofeed>below</a>.' };
-    if (!f && !F.tried) return { state: 'paused', short: 'checking prices', why: 'Checking prices…', next: '' };
+    if (!f && !F.tried) return checking;
     return { state: 'paused', short: 'prices unreadable', why: 'Could not read the prices. Try again in a moment.', next: '' };
   }
   if (x.room < x.s.minDebt) {
@@ -251,7 +253,7 @@ function boardRows(xs) {
   const dash = '—';
   // [label, what a vault shows, whether it waits behind "More figures"]
   const rows = [
-    ['Borrowing', (x) => { const st = x.status; return `<span class="st s-${st.state}"><i class="sd"></i>${st.state === 'open' ? 'Open' : 'Not open'}</span>${st.short && !x.hideShort ? `<small>${esc(st.short)}</small>` : ''}`; }],
+    ['Borrowing', (x) => { const st = x.status; return `<span class="st s-${st.state}"><i class="sd"></i>${st.state === 'open' ? 'Open' : st.state === 'wait' ? 'Checking' : 'Not open'}</span>${st.short && !x.hideShort ? `<small>${esc(st.short)}</small>` : ''}`; }],
     ['Room to borrow', (x) => {
       if (x.room != null) return `<b>${esc(syn(x, x.room))}</b> ${esc(x.sym)}`;
       const p = x.status?.carry ? postOf(x.V)?.d : null;                                               // not yet recorded: the room as it will be, once the prepared records are in
@@ -281,8 +283,8 @@ function renderBoard() {
   el.classList.toggle('loading', !xs.length && !S.failed);
   if (!xs.length) { setHtml(el, `${head}<p class="verdict off">${S.failed ? 'Could not read the vaults.' : 'Reading the vaults…'}</p>${S.failed ? '<p class="note">Try again in a moment.</p>' : '<div class="sk" aria-hidden="true">' + '<i></i>'.repeat(9) + '</div>'}`); return; }
   for (const x of xs) x.status = statusOf(x);
-  const open = xs.filter((x) => x.status.state === 'open');
-  const verdict = open.length === xs.length ? (xs.length > 1 ? 'Borrowing is open on both vaults' : `Borrowing is open on ${xs[0].k.name}`) : open.length ? `Borrowing is open on ${open.map((x) => x.k.name).join(' and ')}` : 'Borrowing is not open yet';
+  const open = xs.filter((x) => x.status.state === 'open'), waiting = xs.some((x) => x.status.state === 'wait');
+  const verdict = waiting ? 'Checking whether borrowing is open…' : open.length === xs.length ? (xs.length > 1 ? 'Borrowing is open on both vaults' : `Borrowing is open on ${xs[0].k.name}`) : open.length ? `Borrowing is open on ${open.map((x) => x.k.name).join(' and ')}` : 'Borrowing is not open yet';
   // What each closed vault needs, said once (and without a name) when every vault needs the same.
   const need = GROUP(xs.filter((x) => x.status.state !== 'open').map((x) => [x, { why: x.status.why, next: x.status.next }]));
   const shared = need.length === 1 && need[0].names.length === xs.length;                         // one reason for every vault is said once, above the table
@@ -292,8 +294,8 @@ function renderBoard() {
   const cost = carry && F.gas != null ? `, for about ${(Number(BigInt(carry * RECORD_GAS) * F.gas) / 1e18).toFixed(4)} ETH` : '';
   const carryLine = carry ? `<li>The last ${carry} price${carry === 1 ? '' : 's'} ${carry === 1 ? 'is' : 'are'} recorded with your transaction${cost}.</li>` : '';
   const notices = xs.filter((x) => x.auctionsPaused).map((x) => pauseBox(x, xs.length > 1)).join('') + changesNotice(xs);
-  setHtml(el, `${head}<p class="verdict ${open.length ? 'on' : 'off'}"><i class="sd"></i><span>${esc(verdict)}</span></p>
-    ${needs || carryLine ? `<ul class="needs">${needs}${carryLine}</ul>` : ''}
+  setHtml(el, `${head}<p class="verdict ${waiting ? 'wait' : open.length ? 'on' : 'off'}"><i class="sd"></i><span>${esc(verdict)}</span></p>
+    ${needs || carryLine ? `<ul class="needs${waiting ? ' wait' : ''}">${needs}${carryLine}</ul>` : ''}
     <div class="bt-wrap"><table class="bt"><thead><tr><td></td>${xs.map((x) => `<th scope="col">${icon(x.V.key)}${esc(x.k.name)}<small>${esc(x.sym)}</small></th>`).join('')}</tr></thead><tbody>${boardRows(xs)}</tbody></table></div>
     <button class="linkbtn more" type="button" data-more aria-expanded="${!!S.more}">${S.more ? 'Fewer figures' : 'More figures'}</button>
     ${notices}`);
@@ -451,6 +453,7 @@ function planCore() {
     if (x.paused) {
       // Missing prices are the usual reason, and the button then records them: whoever borrows first catches the feed up.
       const f = feedOf(x.V);
+      if (!x.stale && ((!f && !F.tried) || (f && !f.ready && f.missing > 0 && f.missing <= BATCH_MAX && !viaOf(x.V) && viaPending(x.V)))) { P.cta = 'Checking prices…'; return P; }
       if (!x.stale && f && !f.ready && f.missing && viaOf(x.V) && PREP.busy && PREP.vkey === x.V.key) { P.cta = 'Preparing the prices…'; return P; }
       if (!x.stale && f && !f.ready && f.missing) { P.record = f.missing; P.cta = `Record ${f.missing} price${f.missing === 1 ? '' : 's'} to open borrowing`; return P; }
       P.cta = 'Borrowing is paused'; P.hint = 'Borrowing waits until prices are recorded.'; return P;
@@ -507,6 +510,7 @@ function planCore() {
   if (x.auction) { P.cta = 'In an auction'; P.hint = 'Withdrawing waits until the auction ends. Repay, or add TAC, to end it.'; return P; }
   if (x.wpaused) {
     const f = feedOf(x.V);
+    if (!x.stale && f && !f.ready && f.missing > 0 && f.missing <= BATCH_MAX && !viaOf(x.V) && viaPending(x.V)) { P.cta = 'Checking prices…'; return P; }
     if (!x.stale && f && !f.ready && f.missing && viaOf(x.V) && PREP.busy && PREP.vkey === x.V.key) { P.cta = 'Preparing the prices…'; return P; }
     if (!x.stale && f && !f.ready && f.missing) { P.record = f.missing; P.cta = `Record ${f.missing} price${f.missing === 1 ? '' : 's'} to withdraw`; return P; }
     P.cta = 'Withdrawing is paused'; P.hint = 'With a debt, withdrawing waits until prices are recorded.'; return P;
@@ -808,13 +812,16 @@ const POST_TTL = 10 * 60;                   // seconds a prepared bundle is trus
 const PREP = { busy: false, vkey: null, failedAt: 0, last: null };       // last: what was tried and when, so that a try that ends with nothing to carry is not repeated at once
 // How the records can go with the action for this vault: in a batch the wallet sends itself, or through the router, or not at all (the two steps the page has always had).
 const viaOf = (V) => (S.batchOk ? 'bundle' : ROUTER && !S.routerOff && S.routerFor?.has(V.addr.toLowerCase()) ? 'router' : null);
+// Whether how the records can go with the action is still being found out: the router is asked once when the page opens, and a connected wallet is asked what it can batch.
+// Until then the board says it is checking rather than that borrowing is closed; a check that hangs is given twelve seconds.
+const viaPending = () => now() - BOOT < 12 && ((ROUTER && !S.routerSettled) || S.batchBusy);
 async function checkRouter() {
   if (!ROUTER) return;
   try {
     const [a, b] = await Promise.all([ethCall(ROUTER, ROUTER_SEL.vaultA), ethCall(ROUTER, ROUTER_SEL.vaultB)]);
     S.routerFor = new Set([addrAt(a), addrAt(b)].map((x) => x.toLowerCase()));
     renderAll();
-  } catch { /* no router there: the two steps */ }
+  } catch { /* no router there: the two steps */ } finally { S.routerSettled = true; renderAll(); }
 }
 const addrAt = (hex) => `0x${String(hex).replace(/^0x/, '').slice(24, 64)}`;
 const missingKey = (st) => st.venues.map((v) => v.missing.join()).join('|');
@@ -822,10 +829,11 @@ async function detectBatch() {
   const a = W.account ? W.account.toLowerCase() : null;
   if (a === S.batchFor) return;
   S.batchFor = a; S.batchOk = false;
-  if (!a) { renderTicket(); return; }
+  if (!a) { S.batchBusy = false; renderAll(); return; }
+  S.batchBusy = true;
   const ok = await batchSupport(W.prov, W.account).catch(() => false);
   if (S.batchFor !== a) return;
-  S.batchOk = ok;
+  S.batchBusy = false; S.batchOk = ok;
   renderAll();
 }
 function maybePrepare() {

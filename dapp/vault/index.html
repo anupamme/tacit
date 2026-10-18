@@ -20,7 +20,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /vault/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/vault/app.js?cb=58ca7b28">
+<link rel="modulepreload" href="/vault/app.js?cb=7880bb6c">
 <link rel="modulepreload" href="/vault/deployments.js?cb=fef8ad1c">
 <link rel="modulepreload" href="/vault/math.js?cb=ac1ed53e">
 <link rel="modulepreload" href="/vault/chain.js?cb=446cc436">
@@ -151,6 +151,9 @@ main { min-height: calc(100svh - 100px); }                          /* the foote
 .verdict { display: flex; align-items: center; gap: 12px; margin: 0; font: 400 clamp(26px, 4vw, 36px)/1.1 var(--serif); letter-spacing: -.02em; }
 .sd { flex: none; display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--amber); }
 .verdict.on .sd, .st.s-open .sd { background: var(--green); }
+.verdict.wait .sd, .st.s-wait .sd { background: var(--mute); animation: sk 1.6s ease-in-out infinite; }
+.verdict.wait { color: var(--mute); }
+.needs.wait li { border-left-color: var(--hair); }
 .verdict .sd { width: 12px; height: 12px; }
 .needs { margin: 14px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 12.5px; color: var(--mute); }
 .needs li { padding: 9px 12px; background: var(--field); border-left: 2px solid var(--amber); }
@@ -472,6 +475,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/vault/app.js?cb=58ca7b28"></script>
+<script type="module" src="/vault/app.js?cb=7880bb6c"></script>
 </body>
 </html>
