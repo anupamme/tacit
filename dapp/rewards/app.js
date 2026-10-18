@@ -304,12 +304,52 @@ async function claim(kind, address, btn, to = '') {
     kept.delete(`airdrop:${address}`); kept.delete(`points:${address}`);
     await sleep(1500);
     const [a, p] = await Promise.all([readAirdrop(address), readPoints(address)]);
-    if (out.dataset.address === address) { paint('#c-air', airdropCard(a, address)); paint('#c-pts', pointsCard(p, address)); fillRank(address, p); }
+    if (out.dataset.address === address) { paint('#c-air', airdropCard(a, address)); paint('#c-pts', pointsCard(p, address)); fillRank(address, p); claimedNow(address, a0(a), p0(p)); }
   } catch (e) {
     react(e instanceof UserStopped ? 'idle' : 'shake');
     say(`<p class="note-claim st ${e instanceof UserStopped ? 'mute' : 'warn'}">${esc(e.message || 'The claim did not go through.')}${hash ? ` · ${txLink(hash)}` : ''}</p>`);
     btn.textContent = label;
   } finally { claiming = false; if (btn.isConnected) btn.disabled = false; }
+}
+
+// ── borrowing against the TAC claimed ──
+// Once a result shows TAC claimed (the airdrop, the points reward, or both), a small card under the points: what that much TAC could borrow from each vault now, as
+// collateral alone, and a link that opens the vault page's Borrow box with that amount. The figures are the vault's own (vault/quote.js, loaded the first time
+// there is something to show); a vault that cannot lend now gives no figure, and the card then says so or only links.
+let got = { address: null, air: 0n, pts: 0n }, bwMod = null, bwSeq = 0;
+const bwQuotes = new Map();                                                          // claimed wei → the quote, for a minute
+const a0 = (s) => (s && s.claimed && s.amountWei ? BigInt(s.amountWei) : 0n);
+const p0 = (v) => (v && !v.error && v.claimed > 0n ? v.claimed : 0n);
+const rpcOf = (method, params) => (method === 'eth_call' ? call(params[0]) : Promise.reject(new Error(`${method} is not read here`)));
+function quoteFor(wei) {
+  return keepFor(bwQuotes, String(wei), () => (bwMod ||= import('/vault/quote.js?cb=b969065e').catch((e) => { bwMod = null; throw e; })).then((m) => m.quoteBorrow({ tac: wei, rpc: rpcOf })));
+}
+function keepFor(map, key, make) {
+  const hit = map.get(key);
+  if (hit && Date.now() - hit.at < KEEP) return hit.p;
+  const p = make(); map.set(key, { at: Date.now(), p }); p.catch(() => map.delete(key));
+  return p;
+}
+const BW_DP = { usd: 2, eth: 4 };
+function borrowLine(q) {
+  const open = ['usd', 'eth'].map((k) => q?.[k]).filter((v) => v?.state === 'open'), fig = (v) => `${esc(tac(v.amount, BW_DP[v.key]))} ${v.sym}`;
+  if (!open.length) {
+    if (q && ['usd', 'eth'].every((k) => q[k]?.state === 'closed')) return '<p class="bw-l">Borrowing against TAC is not open right now. <a class="bw-alt" href="/vault/">See the vaults →</a></p>';
+    return '<p class="bw-l"><a class="bw-go" href="/vault/">Borrow TACD or TACE against the TAC you claimed →</a></p>';
+  }
+  const [a, b] = open;
+  return `<p class="bw-l"><a class="bw-go" href="${esc(a.href)}">Borrow up to <b>${fig(a)}</b> against the TAC you claimed →</a>${b ? `<a class="bw-alt" href="${esc(b.href)}">or ${fig(b)}</a>` : ''}</p>`;
+}
+// `air`, `pts`: what the airdrop and the points reward say is claimed (null: not read again this time).
+function claimedNow(address, air, pts) {
+  if (got.address !== address) return;
+  if (air != null) got.air = air;
+  if (pts != null) got.pts = pts;
+  const el = $('#c-bw'), total = got.air + got.pts, my = ++bwSeq;
+  if (!el || out.dataset.address !== address) return;
+  if (total <= 0n) { el.innerHTML = ''; return; }
+  if (!$('#bw')) el.innerHTML = `<section class="card slim bw" id="bw">${borrowLine(null)}</section>`;   // the plain line at once, the figure when it is read: same height
+  quoteFor(total).then((q) => q, () => null).then((q) => { const box = $('#bw'); if (my === bwSeq && box && out.dataset.address === address) { const h = borrowLine(q); if (box.__h !== h) { box.__h = h; box.innerHTML = h; } } });
 }
 
 // The Precision farm's APR now (paid in TAC, swap fees on top), noted on the links that lead to the farm: the farm's own arithmetic, from the
@@ -525,7 +565,8 @@ async function run(raw) {
     if (my !== seq) return;
     remember(q);
     out.dataset.address = who.address;
-    out.innerHTML = `${whoLine(who, q)}<div id="c-air">${SKEL('Airdrop')}</div><div id="c-pts">${SKEL('Points')}</div>${LB}`;
+    out.innerHTML = `${whoLine(who, q)}<div id="c-air">${SKEL('Airdrop')}</div><div id="c-pts">${SKEL('Points')}</div><div id="c-bw"></div>${LB}`;
+    got = { address: who.address, air: 0n, pts: 0n };
     paintWallet(); showFarm();
     try { history.replaceState(null, '', `?q=${encodeURIComponent(q)}`); } catch { /* the address bar is a convenience */ }
     const a = readAirdrop(who.address), p = readPoints(who.address, ctl.signal);
@@ -538,8 +579,8 @@ async function run(raw) {
       else if (can.air === false && can.pts === false) { given = true; react('down'); said('Nothing to claim'); }
       else if (can.air !== null && can.pts !== null) { given = true; react('idle'); }   // a reading failed: nothing to say
     };
-    a.then((s) => { if (my !== seq) return; paint('#c-air', airdropCard(s, who.address)); can.air = s.reason === 'error' ? undefined : !!s.claimable; answer(); });
-    p.then((v) => { if (my !== seq) return; paint('#c-pts', pointsCard(v, who.address)); fillRank(who.address, v); can.pts = v.error ? undefined : v.owed > 0n; answer(); });
+    a.then((s) => { if (my !== seq) return; paint('#c-air', airdropCard(s, who.address)); can.air = s.reason === 'error' ? undefined : !!s.claimable; answer(); claimedNow(who.address, a0(s), null); });
+    p.then((v) => { if (my !== seq) return; paint('#c-pts', pointsCard(v, who.address)); fillRank(who.address, v); can.pts = v.error ? undefined : v.owed > 0n; answer(); claimedNow(who.address, null, p0(v)); });
     await Promise.allSettled([a, p]);
   } catch (e) {
     if (my !== seq) return;

@@ -1063,6 +1063,39 @@ function renderBalance() {
   const b = $('#in-bal'), have = spendable();
   b.hidden = have == null;
   if (have != null) b.textContent = `Balance ${fmtUnits(have, 18, 4)} ${S.side === 'buy' ? 'ETH' : 'TAC'} · Max`;
+  renderBorrow();
+}
+// ── borrowing against the wallet's TAC ──
+// Under the ticket: with a wallet that holds TAC, what that TAC (with the account's vault, if it has one) could borrow from each vault now, and a link that opens the
+// vault page's Borrow box with that amount; otherwise one line and a link. The figures are the vault's own (vault/quote.js, loaded the first time a wallet with TAC is
+// here), read again at most each minute or when the balance changes; a vault that cannot lend now gives no figure.
+const BW = { key: '', at: 0, q: null, busy: false, mod: null };
+const KIND_DP = { usd: 2, eth: 4 };                                                              // places the box writes TACD and TACE to (the vault page's)
+const BW_PLAIN = '<p class="bw-l">Borrow TACD or TACE against TAC. No interest, one fee.</p><p class="bw-a"><a class="bw-go" href="/vault/">Borrow against TAC →</a></p>';
+function borrowHtml(q, tac) {
+  const open = ['usd', 'eth'].map((k) => q?.[k]).filter((v) => v?.state === 'open');
+  if (!open.length) {
+    if (q && ['usd', 'eth'].every((k) => q[k]?.state === 'closed')) return '<p class="bw-l">Borrowing against TAC is not open right now.</p><p class="bw-a"><a class="bw-go" href="/vault/">See the vaults →</a></p>';
+    const small = q?.usd?.state === 'small' ? q.usd : null;
+    if (small && small.min != null) return `<p class="bw-l">Your ${esc(fmtUnits(tac, 18, 2))} TAC is too little for the smallest loan (${esc(fmtUnits(small.min, 18, 2))} TACD).</p><p class="bw-a"><a class="bw-go" href="/vault/">Borrow against TAC →</a></p>`;
+    return BW_PLAIN;
+  }
+  const [a, b] = open, n = (v) => esc(fmtUnits(v.amount, 18, KIND_DP[v.key]));
+  return `<p class="bw-l">${a.vault ? 'You can' : `Your <b>${esc(fmtUnits(tac, 18, 2))} TAC</b> can`} borrow up to <b>${n(a)} ${a.sym}</b></p>`
+    + `<p class="bw-a"><a class="bw-go" href="${esc(a.href)}">Borrow ${n(a)} ${a.sym} →</a>${b ? `<a class="bw-alt" href="${esc(b.href)}">or ${n(b)} ${b.sym}</a>` : ''}</p>`;
+}
+function renderBorrow() {
+  const el = $('#bw'), who = W.account, tac = S.bal?.tac;
+  if (!el) return;
+  if (!who || tac == null || tac === 0n) { setHtml(el, BW_PLAIN); return; }
+  const key = `${lc(who)}:${tac}`;
+  if (BW.q && BW.key === key) setHtml(el, borrowHtml(BW.q, tac));
+  if ((BW.key === key && now() - BW.at < 60) || BW.busy) return;
+  BW.busy = true;
+  (BW.mod ||= import('/vault/quote.js?cb=b969065e').catch((e) => { BW.mod = null; throw e; })).then((m) => m.quoteBorrow({ tac, account: who, rpc }))
+    .then((q) => { BW.q = q; }, (e) => { console.warn('borrow quote:', e?.message || e); BW.q = null; })   // a failed read leaves the plain line, and is tried again in a minute
+    .then(() => { BW.key = key; BW.at = now(); })
+    .finally(() => { BW.busy = false; if (W.account && `${lc(W.account)}:${S.bal?.tac}` === key) setHtml(el, borrowHtml(BW.q, tac)); else renderBorrow(); });
 }
 function renderGo() {
   const go = $('#go'), q = S.quote, buy = S.side === 'buy', wei = getAmount();

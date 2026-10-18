@@ -379,9 +379,55 @@ try {
     const q = w.page;
     await until(q, () => !!document.querySelector('#chart .line') && /^\$/.test(document.querySelector('#px-usd')?.textContent || ''), null, 240000);
     ok(/Connect wallet/.test(await text(q, '#go')), 'with no wallet connected the button says Connect wallet');
+    // Borrowing against TAC, under the ticket: one line and a link with no wallet; with a wallet holding TAC, what that TAC could borrow, from the vaults themselves.
+    const quoteJs = []; q.on('request', (rq) => { if (/\/vault\/quote\.js/.test(rq.url())) quoteJs.push(rq.url()); });
+    const bw0 = await q.$eval('#bw', (e) => ({ h: e.getBoundingClientRect().height, t: e.innerText.replace(/\s+/g, ' ').trim(), links: [...e.querySelectorAll('a')].map((a) => a.getAttribute('href')) }));
+    ok(/^Borrow TACD or TACE against TAC\. No interest, one fee\. Borrow against TAC →$/.test(bw0.t) && bw0.links.join() === '/vault/' && quoteJs.length === 0, `with no wallet the Borrow box is one line and a link to /vault/, and reads nothing (${bw0.t})`);
+    const bwReads = () => w.seen.rpc.filter((x) => x.method === 'eth_call' && x.to === MC3.toLowerCase() && /fc7b9c18/.test(x.data) && /16275096/.test(x.data)).length, bwReads0 = bwReads();
     await q.click('#go');
     await until(q, () => /Balance [\d.,]+ ETH/.test(document.querySelector('#in-bal')?.textContent || ''), null, 60000);
     ok(w.walletLog.connects === 1 && /Balance 10 ETH/.test(await text(q, '#in-bal')) && /Enter an amount/.test(await text(q, '#go')), `connecting shows the balance and asks for an amount (${await text(q, '#in-bal')})`);
+    await until(q, () => !/^Borrow TACD or TACE against TAC\./.test(document.querySelector('#bw')?.textContent || ''), null, 60000).catch(() => {});
+    const bw1 = await q.$eval('#bw', (e) => ({ h: e.getBoundingClientRect().height, t: e.innerText.replace(/\s+/g, ' ').trim(), go: e.querySelector('.bw-go')?.getAttribute('href'), goT: e.querySelector('.bw-go')?.textContent, alt: e.querySelector('.bw-alt')?.getAttribute('href') }));
+    ok(quoteJs.length === 1 && bwReads() - bwReads0 >= 1, `a wallet holding TAC loads the quote module once and reads the vaults (${quoteJs.length} module, ${bwReads() - bwReads0} node requests: one Multicall3 read, sent to more than one node by the page's hedging)`);
+    const m1 = bw1.t.match(/^Your 30,000 TAC can borrow up to ([\d,.]+) TACD Borrow ([\d,.]+) TACD →(?: or ([\d,.]+) TACE)?$/);
+    if (m1) {
+      const x = m1[1].replace(/,/g, '');
+      ok(m1[2] === m1[1] && bw1.go === `/vault/#v=usd&amt=${x}` && (!m1[3] || bw1.alt === `/vault/#v=eth&amt=${m1[3].replace(/,/g, '')}`), `with 30,000 TAC: “${bw1.t}”, the button opens /vault/ with that amount (${bw1.go}${bw1.alt ? `, ${bw1.alt}` : ''})`);
+      // The figure is the vault's: 30,000 TAC at its borrow price over its line, less its fee, is at least it (rounded down) and the vault's room covers it.
+      const V = '0x00000087ac9ed3E1Bd443E00FBe18B4EdcAEeb1F', W1 = async (data) => BigInt(await rpcA('eth_call', [{ to: V, data }, 'latest']));
+      const pB = await W1('0x195168b6' + (E18).toString(16).padStart(64, '0') + '1'.padStart(64, '0')), mint = await W1('0x347bbf43'), fee = await W1('0xb76b0aa7');
+      const amt = BigInt(Math.round(Number(x) * 100)) * (E18 / 100n), own = 30000n * E18 * pB / E18 * 10000n / mint;
+      ok(amt > 0n && amt + amt * fee / 10000n <= own, `and is within what 30,000 TAC backs at the vault’s own price, line and fee (${x} TACD, limit ${Number(own / 10n ** 16n) / 100})`);
+    } else ok(bw1.go === '/vault/' && /^(Borrowing against TAC is not open right now\. See the vaults →|Borrow TACD or TACE against TAC\. No interest, one fee\. Borrow against TAC →)$/.test(bw1.t), `the vaults cannot lend on this fork: the box says so or only links, with no figure (${bw1.t})`);
+    ok(Math.abs(bw1.h - bw0.h) < 1, `the box keeps its height when the figures arrive (${bw0.h} → ${bw1.h} px)`);
+    for (const width of [390, 900]) {
+      await q.setViewportSize({ width, height: 900 }); await sleep(100);
+      const hh = await q.$eval('#bw', (e) => [e.getBoundingClientRect().height, parseFloat(getComputedStyle(e).minHeight)]);
+      ok(hh[0] <= hh[1] + 1, `at ${width} px the content fits the box's reserved height, so nothing moves when it fills in (${hh[0]} of ${hh[1]} px)`);
+    }
+    await q.setViewportSize({ width: 1280, height: 900 });
+    {
+      // The vaults lend on mainnet only once their prices are recorded, which this fork may not have: the open state is drawn from the quote module with figures of its
+      // own (the module's own limitOf, served in place of its chain read) to check what the box says and where it links.
+      const w2 = await openPage({ width: 1280, height: 900 }, me), q2 = w2.page;
+      await w2.page.context().route(/\/vault\/quote\.js/, async (route) => {
+        const src = readFileSync(join(DAPP, 'vault/quote.js'), 'utf8').replace('export async function quoteBorrow', 'async function quoteChain');
+        const f = '{ mint: 30000n, minDebt: 10n * 10n ** 18n, totalDebt: 0n, debtCeiling: 10n ** 24n, depthCeiling: 5000n * 10n ** 18n, feeBps: 50n, pB: 2n * 10n ** 17n }', g = '{ mint: 30000n, minDebt: 4n * 10n ** 15n, totalDebt: 0n, debtCeiling: 10n ** 24n, depthCeiling: 2n * 10n ** 18n, feeBps: 50n, pB: 8n * 10n ** 13n }';
+        await route.fulfill({ status: 200, contentType: 'text/javascript', body: `${src}\nexport async function quoteBorrow({ tac }) { return { usd: limitOf('usd', ${f}, tac), eth: limitOf('eth', ${g}, tac) }; }\n` });
+      });
+      await until(q2, () => /^\$/.test(document.querySelector('#px-usd')?.textContent || ''), null, 240000);
+      const h0 = await q2.$eval('#bw', (e) => e.getBoundingClientRect().height);
+      await q2.click('#go');
+      await until(q2, () => /can borrow/.test(document.querySelector('#bw')?.textContent || ''), null, 60000);
+      const b2 = await q2.$eval('#bw', (e) => ({ t: e.innerText.replace(/\s+/g, ' ').trim(), h: e.getBoundingClientRect().height, go: e.querySelector('.bw-go')?.getAttribute('href'), alt: e.querySelector('.bw-alt')?.getAttribute('href') }));
+      // 30,000 TAC at $0.20 over a 300% line is $2,000, less the 0.5% fee: 1,990.04; at 0.00008 ETH a TAC, 0.8 ETH less the fee, 0.7960, but the 2 TACE of room caps nothing here.
+      ok(b2.t === 'Your 30,000 TAC can borrow up to 1,990.04 TACD Borrow 1,990.04 TACD → or 0.796 TACE' && b2.go === '/vault/#v=usd&amt=1990.04' && b2.alt === '/vault/#v=eth&amt=0.796', `a vault that lends: “${b2.t}” (${b2.go}, ${b2.alt})`);
+      ok(Math.abs(b2.h - h0) < 1, `and the box is the height it was before the figures (${h0} → ${b2.h} px)`);
+      if (SHOTS) await q2.locator('#bw').screenshot({ path: join(SHOTS, 'borrow-box.png') });
+      ok(w2.errors.length === 0 && w2.blocked.length === 0, `nothing logged or blocked (${[...w2.errors, ...w2.blocked].join(' | ')})`);
+      await w2.browser.close();
+    }
     await q.click('#in-bal'); await until(q, () => document.querySelector('#amt').value !== '', null, 10000);
     ok(Number(await q.inputValue('#amt')) > 9.9 && Number(await q.inputValue('#amt')) < 10, `Max leaves 0.004 ETH for the network fee (${await q.inputValue('#amt')})`);
     await q.fill('#amt', '99');
