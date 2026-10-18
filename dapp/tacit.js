@@ -3806,6 +3806,25 @@ function _isRecentlySpent(txid, vout) {
   }
   return true;
 }
+// Asset notes a transfer broadcast by this page has spent. Holdings read while the indexer is still catching up list
+// them, so a transfer checks this set before it builds, not after its commit is on the chain. Kept apart from the
+// plain-sats set above so a balance read never drops a note before its replacements are listed.
+const _spentAssetNotes = new Map(); // "txid:vout" -> expiresAtMs
+function _markAssetNotesSpent(notes) {
+  for (const n of notes || []) {
+    const u = n && n.utxo;
+    if (u && typeof u.txid === 'string') _spentAssetNotes.set(`${u.txid}:${u.vout | 0}`, Date.now() + _RECENT_SPENT_TTL_MS);
+  }
+}
+function _assetNoteJustSpent(txid, vout) {
+  const key = `${txid}:${vout | 0}`;
+  const exp = _spentAssetNotes.get(key);
+  if (!exp) return false;
+  if (exp <= Date.now()) { _spentAssetNotes.delete(key); return false; }
+  return true;
+}
+const _XFER_SETTLING_MSG = 'A transfer from these notes is still settling, so nothing was sent. Try again in a minute.';
+const _isOwnPubHex = (hex) => { try { return !!wallet.pub && hex === bytesToHex(wallet.pub); } catch { return false; } };
 // Light-address /utxo cache. Heavy addresses have their own tx-count-keyed
 // cache above; this one covers the common-case <500-UTXO wallet whose /utxo
 // endpoint is one round-trip per call. Two TTLs:
@@ -30408,12 +30427,15 @@ async function buildAndBroadcastCXferMulti({ assetIdHex, recipients, forceUtxos 
       inAmt += x.amount; inBlindingSum = modN(inBlindingSum + BigInt(x.blinding));
     }
     if (inAmt < totalSendAmt) throw new Error(`forced utxos provide ${inAmt}, need ${totalSendAmt}`);
+    if (pickedAssetUtxos.some((x) => x.utxo && _assetNoteJustSpent(x.utxo.txid, x.utxo.vout))) throw new Error(_XFER_SETTLING_MSG);
   } else {
     const holdings = await scanHoldings();
     const h = holdings.get(assetIdHex);
     if (!h) throw new Error(`no holdings for asset ${assetIdHex}`);
     if (h.balance < totalSendAmt) throw new Error(`insufficient balance: have ${h.balance}, need ${totalSendAmt}`);
-    const sortedUtxos = await tacPickCandidates(assetIdHex, [...h.utxos].sort((a, b) => a.amount < b.amount ? 1 : a.amount > b.amount ? -1 : 0), totalSendAmt);
+    const unspent = h.utxos.filter((x) => !(x.utxo && _assetNoteJustSpent(x.utxo.txid, x.utxo.vout)));
+    if (unspent.length !== h.utxos.length && unspent.reduce((s, x) => s + x.amount, 0n) < totalSendAmt) throw new Error(_XFER_SETTLING_MSG);
+    const sortedUtxos = await tacPickCandidates(assetIdHex, [...unspent].sort((a, b) => a.amount < b.amount ? 1 : a.amount > b.amount ? -1 : 0), totalSendAmt);
     pickedAssetUtxos = [];
     for (const x of sortedUtxos) {
       pickedAssetUtxos.push(x); inAmt += x.amount; inBlindingSum = modN(inBlindingSum + BigInt(x.blinding));
@@ -30731,6 +30753,10 @@ async function buildAndBroadcastCXferMulti({ assetIdHex, recipients, forceUtxos 
 
   _progress('reveal-start');
   await broadcastWithRetry(revealHex);
+  _markAssetNotesSpent(pickedAssetUtxos);
+  // Holdings read before the indexer lists this transfer still show the spent notes; read them again once it has.
+  const settleReread = setTimeout(() => { try { invalidateHoldingsCache({ fromPoll: true }); } catch {} }, 6000);
+  settleReread.unref?.();
   // Bump the worker's per-asset transfer_count immediately. Without this the
   // counter only ticks on the next cron block-scan (5+ min on mainnet) and
   // any tx in a block the cron hasn't reached is invisible to Discover.
@@ -30792,12 +30818,15 @@ async function buildAndBroadcastCXferMulti({ assetIdHex, recipients, forceUtxos 
 
   {
     const am = getAssetMeta(assetIdHex) || {};
+    let selfAmount = 0n, selfVout = -1;
     for (let i = 0; i < K; i++) {
+      const toSelf = !parsed[i].isStealth && _isOwnPubHex(parsed[i].pubHex);
+      if (toSelf) { selfAmount += parsed[i].amount; if (selfVout < 0) selfVout = i; }
       recordActivity({
         kind: 'transfer-out', ticker: am.ticker || '',
         amount: parsed[i].amount, decimals: am.decimals || 0,
         assetId: assetIdHex, txid: revealTxid,
-        ...(parsed[i].isStealth ? { extra: { shielded: true } } : {}),
+        ...(parsed[i].isStealth ? { extra: { shielded: true } } : toSelf ? { extra: { self: true, vout: i } } : {}),
       });
       // Self-shielded send is also a transfer-in to the same wallet. Tag both
       // so the Activity tab shows the round-trip explicitly (a self-send to a
@@ -30811,6 +30840,16 @@ async function buildAndBroadcastCXferMulti({ assetIdHex, recipients, forceUtxos 
           extra: { shielded: true, self: true, vout: i },
         });
       }
+    }
+    // A plain send to this wallet's own key (a split, or a note prepared for the bridge) shows both halves too: one
+    // "received" row for the transaction, however many notes it made.
+    if (selfVout >= 0) {
+      recordActivity({
+        kind: 'transfer-in', ticker: am.ticker || '',
+        amount: selfAmount, decimals: am.decimals || 0,
+        assetId: assetIdHex, txid: revealTxid,
+        extra: { self: true, vout: selfVout },
+      });
     }
   }
 
@@ -53616,6 +53655,7 @@ function setupTransferForm() {
         ? bytesToHex(parsedRecipient.recipientPub)
         : parsedRecipient.pubHex;
       const stealthAddress = parsedRecipient.kind === 'stealth' ? parsedRecipient.stealthAddress : null;
+      const toSelf = !stealthAddress && _isOwnPubHex(recipientPubHex);
       const meta = getAssetMeta(assetIdHex);
       if (!meta) throw new Error('unknown asset');
       const amountStr = $('#x-amount').value.trim();
@@ -53678,10 +53718,10 @@ function setupTransferForm() {
       $('#transfer-preview').innerHTML = `
         <div class="tx-preview" style="margin-top:14px;">
           <h4>What's about to happen</h4>
-          <div class="row"><span class="label">Sending</span> ${fmtAssetAmount(amount, meta.decimals)} ${escapeHtml(meta.ticker)} to ${recipientLabel}</div>
+          <div class="row"><span class="label">${toSelf ? 'To yourself' : 'Sending'}</span> ${fmtAssetAmount(amount, meta.decimals)} ${escapeHtml(meta.ticker)}${toSelf ? ' as a note of its own' : ` to ${recipientLabel}`}</div>
           <div class="row"><span class="label">Your change</span> ${fmtAssetAmount(h.balance - amount, meta.decimals)} ${escapeHtml(meta.ticker)} stays in your wallet</div>
           <div class="row"><span class="label">Network fee</span> ~${totalFeeEst} sats <span class="muted">(2 Bitcoin txs: submit + settlement, @ ${rate} sat/vB)</span></div>
-          <div class="row" style="color:var(--ink-mid);margin-top:8px;">${stealthAddress ? 'Recipient hidden on-chain (per-tx unique address). Share the txid or link below so they can import without rescanning.' : 'Recipient auto-discovers this on next scan; the share-link below lets them import immediately.'}</div>
+          <div class="row" style="color:var(--ink-mid);margin-top:8px;">${toSelf ? 'Nothing leaves your wallet. Both notes stay yours.' : stealthAddress ? 'Recipient hidden on-chain (per-tx unique address). Share the txid or link below so they can import without rescanning.' : 'Recipient auto-discovers this on next scan; the share-link below lets them import immediately.'}</div>
           <details style="margin-top:12px;">
             <summary class="muted" style="cursor:pointer;font-size:11px;">Technical details</summary>
             <div style="margin-top:8px;font-size:11px;line-height:1.5;">
@@ -53781,14 +53821,17 @@ function setupTransferForm() {
       // Annotate the affected card with a pending overlay so the user sees
       // their action take effect immediately. The overlay is purely visual;
       // the actual balance source of truth is still the chain scan.
-      applyOptimisticDebit(job.assetIdHex, BigInt(r.sendAmount));
+      // A transfer to this wallet's own key moves nothing out of it: no debit, no saved recipient.
+      const toSelf = !job.stealthAddress && _isOwnPubHex(job.recipientPubHex);
+      if (!toSelf) applyOptimisticDebit(job.assetIdHex, BigInt(r.sendAmount));
       // Save the recipient AS THE USER ADDRESSED THEM: shielded handle if
       // they pasted a tcs1, classical pubkey otherwise. Keeps the next-send
       // autocomplete consistent with the user's mental model.
-      saveRecentRecipient(job.stealthAddress || job.recipientPubHex);
+      if (!toSelf) saveRecentRecipient(job.stealthAddress || job.recipientPubHex);
       // Trader-facing receipt: state what shipped, not the underlying
       // two-tx mechanics. Tx hashes remain available in the Activity tab.
-      toast(`Sent ✓ · ${fmtAssetAmount(BigInt(r.sendAmount), job.decimals || 0)} ${job.ticker || ''} · settles in ~10 min`, 'success', 8000);
+      const sentAmt = `${fmtAssetAmount(BigInt(r.sendAmount), job.decimals || 0)} ${job.ticker || ''}`;
+      toast(toSelf ? `Done ✓ · ${sentAmt} is now a note of its own in your wallet · settles in ~10 min` : `Sent ✓ · ${sentAmt} · settles in ~10 min`, 'success', 8000);
       markOnboarded();
       const link = encodeShareLink({
         txid: r.revealTxid, vout: 0, // recipient is at vout 0 in reveal tx
@@ -53797,7 +53840,15 @@ function setupTransferForm() {
         ticker: job.ticker, decimals: job.decimals,
       });
       $('#transfer-share').style.display = 'block';
-      $('#transfer-share').innerHTML = `
+      $('#transfer-share').innerHTML = toSelf ? `
+        <div class="warn" style="border-left-color:var(--green);">
+          <strong>Both notes are in your wallet</strong>
+          <div class="muted" style="font-size:11px;margin-top:4px;">Holdings lists them once the transaction is seen, and your balance is unchanged.</div>
+          <div class="flex" style="margin-top:10px;">
+            <a class="btn" href="${NET.explorer}/tx/${r.revealTxid}" target="_blank" rel="noopener noreferrer">View reveal tx ↗</a>
+            <a class="btn" href="${NET.explorer}/tx/${r.commitTxid}" target="_blank" rel="noopener noreferrer">View commit tx ↗</a>
+          </div>
+        </div>` : `
         <div class="warn" style="border-left-color:var(--green);">
           <strong>↓ Send this share-link to the recipient${job.stealthAddress ? ' (required for shielded delivery)' : ' (optional notification)'}</strong>
           <div class="muted" style="font-size:11px;margin-top:4px;">${job.stealthAddress
@@ -53811,7 +53862,8 @@ function setupTransferForm() {
           </div>
           ${(NET.name === 'mainnet') ? `<div class="muted" style="font-size:10px;margin-top:6px;">also on tacitscan:${tacitscanTxLinkHTML(r.revealTxid, { sep: ' ', label: 'reveal ↗' })}${tacitscanTxLinkHTML(r.commitTxid, { label: 'commit ↗' })}</div>` : ''}
         </div>`;
-      $('#btn-copy-share').onclick = async () => {
+      const copyShare = $('#btn-copy-share');
+      if (copyShare) copyShare.onclick = async () => {
         try { await navigator.clipboard.writeText(link); toast('Share-link copied', 'success'); }
         catch { prompt('Copy this share-link:', link); }
       };
@@ -65513,7 +65565,9 @@ function renderActivity() {
     };
   }
   const rows = entries.map(e => {
-    const verb = ACTIVITY_VERBS[e.kind] || e.kind;
+    const verb = e.extra?.self && e.kind === 'transfer-out' ? 'Sent to yourself'
+      : e.extra?.self && e.kind === 'transfer-in' ? 'Received from yourself'
+      : ACTIVITY_VERBS[e.kind] || e.kind;
     // Render-time metadata fallback. Activity rows persist (ticker,
     // decimals) at write time, but historical rows written before the
     // asset's metadata was registered locally bake in placeholder values
