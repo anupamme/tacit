@@ -293,7 +293,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <main>
     <section class="hero" aria-labelledby="h">
       <h1 id="h"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span>tacit <em>build</em></span></h1>
-      <p class="sub">Everything to build on Tacit V1: the Tacit pool on Ethereum, its bridge to Bitcoin, cBTC and cUSD, farms and the TAC ERC-20. The client is plain ES modules with no build step. The API is public, with no keys to request. Each path lists the rules that matter and the mainnet transactions behind it.</p>
+      <p class="sub">Everything to build on Tacit V1: the Tacit pool on Ethereum, its bridge to Bitcoin, cBTC and cUSD, the TAC vaults, farms and the TAC ERC-20. The client is plain ES modules with no build step. The API is public, with no keys to request. Each path lists the rules that matter and the mainnet transactions behind it.</p>
       <div class="facts">
         <div><span>Confidential pool</span><b>0x000000000Ed1eabD231Be41d93b719056F7febFC</b></div>
         <div><span>Relay and reflection API</span><b>https://api.tacit.finance</b></div>
@@ -325,6 +325,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
           <li><a href="#proving">Proving and fees</a></li>
           <li><a href="#trust">Trust and verify</a></li>
           <li><a href="#addresses">Addresses and ids</a></li>
+          <li><a href="#vaults">TAC vaults</a></li>
           <li><a href="#tokens">Token discovery</a></li>
           <li><a href="#errors">When something breaks</a></li>
           <li><a href="#gotchas">Gotchas</a></li>
@@ -739,8 +740,34 @@ const out = await client.readContract({ address: AMM, abi, functionName: 'quoteS
     <tr><td>cBTC</td><td class="h">0x62a20d98fc1cd20289621d1315294cb8772f934d822e404b71e1f471cf0679c8</td><td class="h">tacBTC 0xdf1d99148bEb7a9AFf1d95C49B3d22b7ed90D696</td></tr>
     <tr><td>cUSD</td><td class="h">0x8f4490dd3728b0ee904d7a67c11b37ffd463a5c7f08b79810006995ee8a9679d</td><td class="h">tacUSD 0x23cACFFAc2674514A6d4F6cD420B4cc2aC921564</td></tr>
     <tr><td>wTAC</td><td class="h">0x1097c9e552ae4fce2a8c416b93403953fa445a5f2cdae8ced36d9a78cfe40832</td><td class="h">0x2018139a8FDd3666855BE3315C7683b4D6aB7AEf</td></tr>
+    <tr><td>TACD</td><td class="h">0x9cb6a17c0a61a40fa936296e9ec2b428e2a3b7c70cdb76ed25c6937124a3cc11</td><td class="h">0xA0f6B02561C8ef08335B69aD25e022C0B342147C</td></tr>
+    <tr><td>TACE</td><td class="h">0xda4acdbe7c276dd82c39c3fd470aa1d18d562504b678cfa5a8144c8afddd5db4</td><td class="h">0x9DE27883C5Dc9Db47BE12E595D59b8f1aBEC8570</td></tr>
+  </table></div>
+  <div class="tbl"><table>
+    <caption>The public ERC-20s and what each one is</caption>
+    <tr><th>Token</th><th>Address</th><th>What it is</th></tr>
+    <tr><td>tacBTC</td><td class="h">0xdf1d99148bEb7a9AFf1d95C49B3d22b7ed90D696</td><td>cBTC in public.</td></tr>
+    <tr><td>tacUSD</td><td class="h">0x23cACFFAc2674514A6d4F6cD420B4cc2aC921564</td><td>cUSD in public.</td></tr>
+    <tr><td>TACD</td><td class="h">0xA0f6B02561C8ef08335B69aD25e022C0B342147C</td><td>A dollar borrowed against TAC.</td></tr>
+    <tr><td>TACE</td><td class="h">0x9DE27883C5Dc9Db47BE12E595D59b8f1aBEC8570</td><td>Ether borrowed against TAC.</td></tr>
   </table></div>
   <p>Resolve a pool-minted token with <code>canonicalTokenFor(assetId)</code> rather than caching it. The chain binding a burn or mint targets is <code>keccak256(chainId ‖ poolAddress)</code>. Private ETH on Ethereum, Base, Robinhood Chain and MegaETH uses a separate, smaller pool, described in its own guide, <a href="https://github.com/src-company/tacit/blob/main/docs/EVM-POOL.md" target="_blank" rel="noopener noreferrer">EVM-POOL.md</a>.</p>
+</section>
+
+<!-- ─────────────── TAC vaults ─────────────── -->
+<section class="part" id="vaults">
+  <p class="kick">Reference</p>
+  <h2>TAC <em>vaults</em></h2>
+  <p class="lead">borrow TACD or TACE against TAC · source of truth contracts/deployments/tac-vaults.json and dapp/vault/deployments.js</p>
+  <p>Each vault takes TAC as collateral and lends its own token: the dollar vault lends TACD, the ether vault TACE. The router makes the oracle’s price records, moves TAC in with a permit and borrows on a signature in one transaction; it has no owner or settings. Read a vault’s totals with <code>totalDebt()</code> and <code>debtCeiling()</code>, an account with <code>vaults(owner)</code>, and its tokens with <code>TAC()</code> and <code>SYNTH()</code>. The app is <a href="/vault/">tacit.finance/vault</a>.</p>
+  <div class="tbl"><table>
+    <tr><th>Contract</th><th>Address</th></tr>
+    <tr><td>Dollar vault (TacVault)</td><td class="h"><a href="https://etherscan.io/address/0x00000087ac9ed3E1Bd443E00FBe18B4EdcAEeb1F" target="_blank" rel="noopener noreferrer">0x00000087ac9ed3E1Bd443E00FBe18B4EdcAEeb1F</a></td></tr>
+    <tr><td>Ether vault (TacVault)</td><td class="h"><a href="https://etherscan.io/address/0x00000047bFC8cF504967049D9Cf9E1FD9651ED80" target="_blank" rel="noopener noreferrer">0x00000047bFC8cF504967049D9Cf9E1FD9651ED80</a></td></tr>
+    <tr><td>TacVaultRouter</td><td class="h"><a href="https://etherscan.io/address/0x000000F9ab49650502BeC910D13b4717F0082598" target="_blank" rel="noopener noreferrer">0x000000F9ab49650502BeC910D13b4717F0082598</a></td></tr>
+    <tr><td>TACD (the dollar vault’s token)</td><td class="h"><a href="https://etherscan.io/token/0xA0f6B02561C8ef08335B69aD25e022C0B342147C" target="_blank" rel="noopener noreferrer">0xA0f6B02561C8ef08335B69aD25e022C0B342147C</a></td></tr>
+    <tr><td>TACE (the ether vault’s token)</td><td class="h"><a href="https://etherscan.io/token/0x9DE27883C5Dc9Db47BE12E595D59b8f1aBEC8570" target="_blank" rel="noopener noreferrer">0x9DE27883C5Dc9Db47BE12E595D59b8f1aBEC8570</a></td></tr>
+  </table></div>
 </section>
 
 <!-- ─────────────── Tokens ─────────────── -->
