@@ -27,7 +27,7 @@ import { loadHash } from './lib/poseidon-hash.js';
 import { readJson } from './lib/http-json.js';
 import { createTasks } from './lib/points-tasks-service.js';
 import { createLp } from './lib/points-lp-service.js';
-import { parseLpSchedule, parseLpPools, WAD as LP_WAD } from './lib/points-lp.js';
+import { parseLpSchedule, parseLpPools, parseLpSettings } from './lib/points-lp.js';
 import { checkJob, stepChain } from './lib/points-tasks.js';
 import { quoteTacForEth } from './lib/tac-quote.js';
 import { clientKey } from './lib/token-bucket.js';
@@ -1912,12 +1912,14 @@ function setupTasks(store) {
 let lp = null;
 function setupLp(store) {
   const schedule = parseLpSchedule(CFG.pointsLpSchedule, log), pools = parseLpPools(CFG.pointsLpPools, log);
-  if (CFG.pointsLpPocketWei <= 0n || !CFG.pointsLpEndSec || !CFG.pointsProgramStartSec || !schedule.length || !pools.length) return null;
+  const set = parseLpSettings({
+    pocket: CFG.pointsLpPocket, endSec: CFG.pointsLpEndSec, fromBlock: CFG.pointsLpFromBlock, reserveDays: CFG.pointsLpReserveDays, minUsd: CFG.pointsLpMinUsd, minSamples: CFG.pointsLpMinSamples,
+  }, log);
+  if (!set || !CFG.pointsProgramStartSec || !schedule.length || !pools.length) return null;
   const l = createLp({
     store, client: publicClient, log, budgetFor: budgetForDay, graceSecs: CFG.pointsSettleGraceSecs,
     cfg: {
-      schedule, pools, pocketWei: CFG.pointsLpPocketWei, endSec: CFG.pointsLpEndSec, reserveDays: CFG.pointsLpReserveDays, minUsdWei: BigInt(CFG.pointsLpMinUsd) * LP_WAD,
-      minSamples: CFG.pointsLpMinSamples, exclude: CFG.pointsLpExclude.split(',').map((a) => a.trim()).filter(Boolean), fromBlock: CFG.pointsLpFromBlock || undefined,
+      schedule, pools, ...set, exclude: CFG.pointsLpExclude.split(',').map((a) => a.trim()).filter(Boolean).filter((a) => { const ok = /^0x[0-9a-fA-F]{40}$/.test(a); if (!ok) log(`ignoring POINTS_LP_EXCLUDE entry "${a}": not an address`); return ok; }),
       usdc: CFG.pointsLpUsdc, ethUsdFeed: CFG.pointsLpEthUsdFeed, confirmations: CFG.pointsConfirmations,
     },
     fundingInputs: async () => {
@@ -1928,7 +1930,7 @@ function setupLp(store) {
       return f && { heldWei: BigInt(f.heldWei), claimedWei: BigInt(f.claimedWei), nextDay: (state?.lastSettledDay ?? startDay - 1) + 1 };
     },
   });
-  log(`liquidity campaign on: ${pools.length} pool(s), pocket ${formatTac(CFG.pointsLpPocketWei)} TAC, until ${new Date(CFG.pointsLpEndSec * 1000).toISOString()}`);
+  log(`liquidity campaign on: ${pools.length} pool(s), pocket ${formatTac(set.pocketWei)} TAC, until ${new Date(set.endSec * 1000).toISOString()}`);
   return l;
 }
 
@@ -2042,12 +2044,13 @@ async function main() {
       log('pool snapshot cycle failed:', err?.message || err);
     }
     if (tasks) await tasks.cycle();
-    if (lp) { try { await lp.cycle(); } catch (err) { log('liquidity campaign cycle failed:', err?.message || err); } }
     try {
       await settleCycle(store, () => scannersCoveredThrough(store, evmState));
     } catch (err) {
       log('settle cycle failed:', err?.message || err);
     }
+    // After the regular settlement, which comes first: the campaign's own scan and credits can wait a cycle, the daily pot cannot.
+    if (lp) { try { await lp.cycle(); } catch (err) { log('liquidity campaign cycle failed:', err?.message || err); } }
     if (holding) { try { await holding.cycle(); } catch (err) { log('holding cycle failed:', err?.message || err); } }
     await new Promise((r) => setTimeout(r, CFG.pointsPollSecs * 1000));
   }

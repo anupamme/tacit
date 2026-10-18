@@ -779,18 +779,22 @@ export const CFG = {
   pointsTasksMinAgeSecs: num('POINTS_TASKS_MIN_AGE_SECS', 120),
   // The liquidity campaign (lib/points-lp.js): TAC for opening the named Precision pools and for holding liquidity in them, credited
   // as ledger adjustments from a pocket of its own, outside the daily pot. Off unless the schedule, the pools, the pocket (the most it
-  // may ever credit, in wei; raise it with each top-up of the distributor) and the end time (UTC seconds, no later than the
-  // distributor's root deadline) are all set. POINTS_LP_SCHEDULE is "<day>:daily=<TAC>,create=<TAC>,cap=<TAC per $ a day>;<day>:off";
-  // POINTS_LP_POOLS is "<pool>[=<weight>],…"; POINTS_LP_FROM_BLOCK is where the scan for holders starts (the block it is switched on at).
-  // Credits wait while the pocket would be overdrawn or the distributor's funding would cover fewer than the reserve days of the regular pot.
+  // may ever credit, in wei; raise it with each top-up of the distributor) and the end time (UTC seconds, a few days after the last day
+  // paid and no later than the distributor's root deadline) are all set. POINTS_LP_SCHEDULE is
+  // "<day>:daily=<TAC>,create=<TAC>,cap=<TAC per $ a day>;<day>:off"; POINTS_LP_POOLS is "<pool>[=<weight>],…". POINTS_LP_FROM_BLOCK is where
+  // the scan of the pools' share transfers starts and it must be BEFORE any of them was opened: a pool whose transfers do not add up to its
+  // supply is not counted. Credits wait while the pocket would be overdrawn or the distributor's funding would cover fewer than the reserve
+  // days of the regular pot (or all that are left of it).
   pointsLpSchedule: opt('POINTS_LP_SCHEDULE', ''),
   pointsLpPools: opt('POINTS_LP_POOLS', ''),
-  pointsLpPocketWei: BigInt(opt('POINTS_LP_POCKET_WEI', '0')),
-  pointsLpEndSec: num('POINTS_LP_END_SEC', 0),
-  pointsLpFromBlock: num('POINTS_LP_FROM_BLOCK', 0),
-  pointsLpReserveDays: num('POINTS_LP_RESERVE_DAYS', 2),
-  pointsLpMinUsd: num('POINTS_LP_MIN_USD', 20),
-  pointsLpMinSamples: num('POINTS_LP_MIN_SAMPLES', 12),
+  // Kept as text and checked by lib/points-lp.js (parseLpSettings): a typo falls back to the safe default, or switches the campaign off, and
+  // never crashes the service or turns a guard off.
+  pointsLpPocket: opt('POINTS_LP_POCKET_WEI', ''),
+  pointsLpEndSec: opt('POINTS_LP_END_SEC', ''),
+  pointsLpFromBlock: opt('POINTS_LP_FROM_BLOCK', ''),
+  pointsLpReserveDays: opt('POINTS_LP_RESERVE_DAYS', ''),
+  pointsLpMinUsd: opt('POINTS_LP_MIN_USD', ''),
+  pointsLpMinSamples: opt('POINTS_LP_MIN_SAMPLES', ''),
   pointsLpExclude: opt('POINTS_LP_EXCLUDE', ''),
   pointsLpUsdc: opt('POINTS_LP_USDC', '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'),
   pointsLpEthUsdFeed: opt('POINTS_LP_ETH_USD_FEED', '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419'),

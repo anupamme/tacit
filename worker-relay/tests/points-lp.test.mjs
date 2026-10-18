@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   WAD, parseLpSchedule, lpTermsForDay, nextLpTerms, parseLpPools, poolPrice, poolValueUsd, shareValueUsd, allocateLpDay,
-  openId, dayId, dayOf, dayIsDone, holdReason, MAX_DAILY_WEI, CREDIT_PREFIX,
+  openId, dayId, dayOf, dayIsDone, holdReason, MAX_DAILY_WEI, CREDIT_PREFIX, dayMinimums, medianOf, reserveFor, parseLpSettings,
 } from '../src/lib/points-lp.js';
 
 const tac = (n) => BigInt(Math.round(n * 1e6)) * 10n ** 12n;
@@ -170,4 +170,81 @@ test('a credit waits when the campaign has ended, the pocket is spent, or fundin
   let asked = null;
   holdReason({ ...base, status: (x) => { asked = x; return ok(); } });
   assert.equal(asked, tac(10), 'funding is asked with the credit counted');
+});
+
+test('what an address held is read exactly: its lowest balance at any moment of the day', () => {
+  const Z = '0x0000000000000000000000000000000000000000', S = 1000, E = 2000;
+  const ev = (ts, from, to, value) => ({ ts, from, to, value: BigInt(value) });
+  // A holds 100 from before the day and is never touched: 100 all day. B arrives mid-day: it held nothing at the start, so nothing.
+  let m = dayMinimums([ev(10, Z, A, 100), ev(1500, Z, B, 50)], S, E);
+  assert.equal(m.get(A), 100n); assert.equal(m.get(B), 0n);
+  // A holder that takes some out mid-day is counted at the lower figure; one that puts more in is counted at the lower figure (the start).
+  m = dayMinimums([ev(10, Z, A, 100), ev(1200, A, B, 40), ev(1300, Z, A, 500)], S, E);
+  assert.equal(m.get(A), 60n, 'down to 60, then up: the lowest is 60'); assert.equal(m.get(B), 0n);
+  // In and out within moments: nothing, however short.
+  m = dayMinimums([ev(10, Z, A, 100), ev(1999, Z, B, 900), ev(1999, B, Z, 900)], S, E);
+  assert.equal(m.get(B), 0n); assert.equal(m.get(A), 100n);
+  // The same shares moved from one account to the other and back are counted for neither while they are away, and never for both.
+  m = dayMinimums([ev(10, Z, A, 100), ev(1100, A, B, 100), ev(1200, B, A, 100)], S, E);
+  assert.equal(m.get(A), 0n); assert.equal(m.get(B), 0n);
+  // Moved away at the very start of the day counts as in the day; a burn is counted too; events after the day are ignored.
+  m = dayMinimums([ev(10, Z, A, 100), ev(S, A, Z, 100), ev(E, Z, A, 5000)], S, E);
+  assert.equal(m.get(A), 0n);
+  // An event after the day does not reach back into it: A held 100 all day, and moving them after the day's end changes nothing.
+  m = dayMinimums([ev(10, Z, A, 100), ev(E + 10, A, B, 100)], S, E);
+  assert.equal(m.get(A), 100n); assert.equal(m.has(B), false);
+  // No event in the day: whoever held at the start held all of it.
+  m = dayMinimums([ev(10, Z, A, 100), ev(20, A, B, 30)], S, E);
+  assert.equal(m.get(A), 70n); assert.equal(m.get(B), 30n);
+  assert.equal(dayMinimums([], S, E).size, 0);
+  // The sum of what is counted never exceeds the supply (a fuzz against the real balance at the start of the day).
+  let seed = 11;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  const who = [A, B, '0x4444444444444444444444444444444444444444', '0x5555555555555555555555555555555555555555'];
+  for (let r = 0; r < 300; r++) {
+    const events = [ev(1, Z, who[0], 10_000)];
+    const held = new Map([[who[0], 10_000n]]);
+    for (let i = 0; i < 30; i++) {
+      const from = who[Math.floor(rnd() * 4)], to = who[Math.floor(rnd() * 4)], bal = held.get(from) ?? 0n;
+      if (!(bal > 0n) || from === to) continue;
+      const v = BigInt(1 + Math.floor(rnd() * Number(bal)));
+      held.set(from, bal - v); held.set(to, (held.get(to) ?? 0n) + v);
+      events.push(ev(2 + i * 60, from, to, v));
+    }
+    const total = [...dayMinimums(events, 600, 2000).values()].reduce((a, b) => a + b, 0n);
+    assert.ok(total <= 10_000n, `round ${r}: counted ${total} of 10,000 shares`);
+  }
+});
+
+test('the median ignores a single reading, and the reserve is the days left when fewer than the reserve are left', () => {
+  assert.equal(medianOf([5n, 1n, 100n]), 5n);
+  assert.equal(medianOf([1n, 2n, 3n, 4n]), 2n, 'the lower of the middle two');
+  assert.equal(medianOf([7n, 7n, 7n, 7n, 7n, 7n, 7n, 7n, 7n, 7n, 7n, 0n]), 7n, 'one pushed reading does not move the day');
+  assert.equal(medianOf([]), null);
+  const budget = (last) => (day) => (day <= last ? 1111n * WAD : 0n);
+  assert.equal(reserveFor({ reserveDays: 2, nextDay: 10, budgetFor: budget(20) }), 2);
+  assert.equal(reserveFor({ reserveDays: 2, nextDay: 20, budgetFor: budget(20) }), 1, 'one day of the regular program left');
+  assert.equal(reserveFor({ reserveDays: 2, nextDay: 21, budgetFor: budget(20) }), 0, 'none left');
+  assert.equal(reserveFor({ reserveDays: 0, nextDay: 1, budgetFor: budget(20) }), 0);
+});
+
+test('a typo in the settings never turns a guard off or crashes the service', () => {
+  const said = [];
+  const good = { pocket: '1500000000000000000000', endSec: '1795219200', fromBlock: '26222353', reserveDays: '2', minUsd: '20', minSamples: '12' };
+  const s = parseLpSettings(good, (m) => said.push(m));
+  assert.deepEqual({ ...s }, { pocketWei: 1500n * WAD, endSec: 1795219200, fromBlock: 26222353, reserveDays: 2, minSamples: 12, minUsdWei: 20n * WAD });
+  assert.equal(said.length, 0);
+  assert.deepEqual({ ...parseLpSettings({ pocket: '1', endSec: '5' }) }, { pocketWei: 1n, endSec: 5, fromBlock: undefined, reserveDays: 2, minSamples: 12, minUsdWei: 20n * WAD }, 'what is not given has a safe default');
+  // A guard that cannot be read keeps its default.
+  const t = parseLpSettings({ ...good, reserveDays: 'two', minSamples: 'twelve', minUsd: '20.5', fromBlock: '-5' }, (m) => said.push(m));
+  assert.equal(t.reserveDays, 2); assert.equal(t.minSamples, 12); assert.equal(t.minUsdWei, 20n * WAD); assert.equal(t.fromBlock, undefined);
+  assert.equal(said.length, 4, said.join('\n'));
+  // What must be given, when unreadable, switches the campaign off.
+  assert.equal(parseLpSettings({ ...good, pocket: '1.5e21' }, () => {}), null);
+  assert.equal(parseLpSettings({ ...good, pocket: '' }), null);
+  assert.equal(parseLpSettings({ ...good, pocket: '-1' }, () => {}), null);
+  assert.equal(parseLpSettings({ ...good, endSec: 'abc' }, () => {}), null);
+  assert.equal(parseLpSettings({ ...good, endSec: '' }), null);
+  assert.equal(parseLpSettings({ ...good, minSamples: '0' }, () => {}).minSamples, 12);
+  assert.equal(parseLpSettings({ ...good, reserveDays: '99' }, () => {}).reserveDays, 2);
 });

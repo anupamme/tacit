@@ -9,13 +9,16 @@
 // Everything here is pure and BigInt, so the service, its tests and the pages state the same figures.
 //
 // Two things are paid:
-//   - opening a pool: a fixed amount to whoever sent the transaction that created one of the named pools, once per pool;
+//   - opening a pool: a fixed amount to the first account minted shares in one of the named pools (the one its seeding named to receive them,
+//     which is whoever put the liquidity in), once per pool, when it has kept its own liquidity in for a whole day;
 //   - holding liquidity in it: each UTC day's amount shared between the addresses holding its shares, by the value they held.
 //
-// The value is the dollar value of the share, sampled through the day, and an address is credited on the LOWEST sample it was
-// seen at, so liquidity that arrives for the settlement and leaves after it earns nothing. The synth side of a pool is marked at
-// the LOWER of the pool's own price and the peg, so pushing the pool's price up buys no credit, and a pool that has drifted below
-// the peg is valued at what it is really worth.
+// What counts is the LOWEST number of shares an address held at any moment of the UTC day, read exactly from the pool's share
+// transfers (not from samples, whose moments can be guessed and whose reads cannot be made at once): so liquidity that arrives for
+// a moment and leaves earns nothing, and the same shares cannot be counted for two holders. That number is valued at the pool's
+// value per share, taken as the median of the day's hourly readings so that no single moment of a pushed price decides it, with the
+// synth side of the pool marked at the LOWER of the pool's own price and the peg: pushing the price up buys no credit, and a pool
+// that has drifted below the peg is valued at what it is really worth.
 
 export const WAD = 10n ** 18n;
 const BPS = 10_000n;
@@ -98,6 +101,30 @@ export function parseLpPools(raw, log = () => {}) {
   return out;
 }
 
+// ── what an address held, exactly ──
+
+const ZERO = '0x0000000000000000000000000000000000000000';
+// Each address's lowest balance at any moment of the UTC day [dayStart, dayEnd), from the pool's share transfers in order (each
+// { ts, from, to, value }, oldest first, every one up to the end of the day; `from` the zero address is a mint and `to` it a burn).
+// An address that held shares at the start and was never touched held them all day; one that first received them in the day held
+// nothing at the start, so its lowest is nothing. Transfers at the very start of the day count as in it.
+export function dayMinimums(events, dayStart, dayEnd) {
+  const bal = new Map(), min = new Map();
+  let started = false;
+  const start = () => { for (const [a, b] of bal) if (b > 0n) min.set(a, b); started = true; };
+  for (const e of events) {
+    if (e.ts >= dayEnd) break;
+    if (!started && e.ts >= dayStart) start();
+    if (e.from !== ZERO) bal.set(e.from, (bal.get(e.from) ?? 0n) - e.value);
+    if (e.to !== ZERO) bal.set(e.to, (bal.get(e.to) ?? 0n) + e.value);
+    if (started) for (const a of [e.from, e.to]) if (a !== ZERO) { const b = bal.get(a), m = min.has(a) ? min.get(a) : 0n; min.set(a, b < m ? b : m); }
+  }
+  if (!started) start();
+  return min;
+}
+// The middle of the readings (the lower one when there is an even number of them): one moment's reading cannot move it.
+export const medianOf = (xs) => { const s = [...xs].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)); return s.length ? s[Math.floor((s.length - 1) / 2)] : null; };
+
 // ── what a pool and a share in it are worth ──
 
 // The quote asset per synth (1e18-scaled) from a Precision pool's square-root price, which is of token1 per token0 in raw units.
@@ -155,6 +182,39 @@ export function allocateLpDay({ rows, dailyWei, capWeiPerUsdDay }) {
 export const CREDIT_PREFIX = 'lp:';
 export const openId = (pool) => `${CREDIT_PREFIX}open:${pool.toLowerCase()}`;
 export const dayId = (day, address) => `${CREDIT_PREFIX}day:${day}:${address.toLowerCase()}`;
+
+// The days of the regular pot the campaign must leave covered: the reserve, or fewer when fewer are left to pay (the funding report
+// counts days only while the regular program has a budget for them, so near and after its end it can never show the reserve).
+export function reserveFor({ reserveDays, nextDay, budgetFor }) {
+  let left = 0;
+  while (left < reserveDays && budgetFor(nextDay + left) > 0n) left++;
+  return left;
+}
+
+// The campaign's numbers from the environment's text, each checked: a typo falls back to the safe default (or, for what must be
+// given, switches the campaign off) rather than turning a guard off. Returns null when it is off.
+export function parseLpSettings(raw, log = () => {}) {
+  const int = (name, v, dflt, lo, hi) => {
+    if (v === undefined || v === null || v === '') return dflt;
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < lo || n > hi) { log(`ignoring ${name}="${v}": expected a whole number from ${lo} to ${hi}; using ${dflt}`); return dflt; }
+    return n;
+  };
+  const wei = (name, v) => {
+    if (v === undefined || v === null || v === '' || v === '0') return 0n;
+    if (!/^[1-9]\d{0,40}$/.test(String(v))) { log(`ignoring ${name}="${v}": expected a whole number of wei`); return 0n; }
+    return BigInt(v);
+  };
+  const pocketWei = wei('POINTS_LP_POCKET_WEI', raw.pocket), endSec = int('POINTS_LP_END_SEC', raw.endSec, 0, 0, 4_102_444_800);
+  if (pocketWei <= 0n || !endSec) return null;
+  return {
+    pocketWei, endSec,
+    fromBlock: int('POINTS_LP_FROM_BLOCK', raw.fromBlock, 0, 0, 1_000_000_000) || undefined,
+    reserveDays: int('POINTS_LP_RESERVE_DAYS', raw.reserveDays, 2, 0, 30),
+    minSamples: int('POINTS_LP_MIN_SAMPLES', raw.minSamples, 12, 1, 24),
+    minUsdWei: BigInt(int('POINTS_LP_MIN_USD', raw.minUsd, 20, 0, 1_000_000)) * WAD,
+  };
+}
 
 // Why a credit of `wei` has to wait, or null when it may go ahead: the campaign has ended, it would take the pocket past what was
 // put in it, or the distributor's funding would then cover fewer than `reserveDays` whole days of the regular pot (a root is
