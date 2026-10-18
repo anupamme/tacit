@@ -20,7 +20,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /vault/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/vault/app.js?cb=814cbe6e">
+<link rel="modulepreload" href="/vault/app.js?cb=46198dd7">
 <link rel="modulepreload" href="/vault/deployments.js?cb=174de1c7">
 <link rel="modulepreload" href="/vault/math.js?cb=ac1ed53e">
 <link rel="modulepreload" href="/vault/chain.js?cb=446cc436">
@@ -107,7 +107,7 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .how p { margin: 8px 0 0; color: var(--mute); }
 
 /* the page */
-.pick { max-width: 460px; }
+.pick { max-width: none; }
 .grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px 16px; align-items: start; }
 .col { display: grid; gap: 14px; min-width: 0; }
 @media (max-width: 900px) { .grid { grid-template-columns: minmax(0, 1fr); } }
@@ -423,20 +423,22 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="col">
         <section class="panel board loading" id="board" aria-labelledby="board-h"></section>
         <section class="panel" id="feed" aria-labelledby="feed-h" hidden></section>
+      </div>
+      <div class="col">
         <div id="pick-w"><p class="pick-l">Vault</p><div class="seg big pick" id="pick" role="group" aria-label="Which vault"></div></div>
         <section class="panel" id="pos" aria-labelledby="pos-h"></section>
+        <section class="panel p-ticket" id="ticket" aria-labelledby="tk-h">
+          <p class="eyebrow" id="tk-h">Move TAC and borrow</p>
+          <div class="seg big tabs" id="acts" role="group" aria-label="What to do"></div>
+          <div class="lbl"><span id="amt-lbl">TAC to deposit</span><button class="linkbtn" id="bal" type="button" hidden></button></div>
+          <div class="amt"><input id="amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="Amount"><span class="u" id="unit">TAC</span></div>
+          <div class="chips" id="chips" role="group" aria-label="Quick amounts"></div>
+          <div class="rows" id="info"></div>
+          <p class="hint" id="hint"></p>
+          <button class="btn" id="go" type="button">Connect wallet</button>
+          <div class="status" id="status" role="status"></div>
+        </section>
       </div>
-      <section class="panel p-ticket" id="ticket" aria-labelledby="tk-h">
-        <p class="eyebrow" id="tk-h">Move TAC and borrow</p>
-        <div class="seg big tabs" id="acts" role="group" aria-label="What to do"></div>
-        <div class="lbl"><span id="amt-lbl">TAC to deposit</span><button class="linkbtn" id="bal" type="button" hidden></button></div>
-        <div class="amt"><input id="amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="Amount"><span class="u" id="unit">TAC</span></div>
-        <div class="chips" id="chips" role="group" aria-label="Quick amounts"></div>
-        <div class="rows" id="info"></div>
-        <p class="hint" id="hint"></p>
-        <button class="btn" id="go" type="button">Connect wallet</button>
-        <div class="status" id="status" role="status"></div>
-      </section>
     </div>
   </div>
 
@@ -456,6 +458,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/vault/app.js?cb=814cbe6e"></script>
+<script type="module" src="/vault/app.js?cb=46198dd7"></script>
 </body>
 </html>

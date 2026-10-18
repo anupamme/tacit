@@ -353,7 +353,7 @@ function auctionBox(x) {
 function renderPos() {
   const V = cur(), x = V && derive(V), el = $('#pos');
   const viewing = S.view ? `<span class="who">${esc(short(S.view))}</span>` : '';
-  const head = `<p class="eyebrow" id="pos-h"><span>${x ? `${esc(x.k.name)} vault` : 'Your vault'}</span>${viewing}</p>`;
+  const head = `<p class="eyebrow" id="pos-h"><span>Your vault</span>${viewing}</p>`;
   if (!x) { setHtml(el, `${head}<p class="empty">${S.failed ? 'Not read yet.' : 'Reading the vault…'}</p>`); return; }
   if (!who()) { setHtml(el, `${head}<p class="empty"><button class="linkbtn" type="button" data-connect>Connect a wallet</button> to see your vault.</p>`); return; }
   const m = x.me;
@@ -409,7 +409,7 @@ function planOf() {
     if (x.paused) {
       // Missing prices are the usual reason, and the button then records them: whoever borrows first catches the feed up.
       const f = feedOf(x.V);
-      if (!x.stale && f && !f.ready && f.missing) { P.record = f.missing; P.cta = `Record ${f.missing} price${f.missing === 1 ? '' : 's'} to open borrowing`; P.hint = 'Borrowing opens once the prices are recorded. Anyone can record them.'; return P; }
+      if (!x.stale && f && !f.ready && f.missing) { P.record = f.missing; P.cta = `Record ${f.missing} price${f.missing === 1 ? '' : 's'} to open borrowing`; return P; }
       P.cta = 'Borrowing is paused'; P.hint = 'Borrowing waits until prices are recorded.'; return P;
     }
     if (none) { P.cta = 'Enter an amount'; return P; }
