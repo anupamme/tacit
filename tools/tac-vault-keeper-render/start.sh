@@ -7,7 +7,7 @@ set -eu
 umask 077
 PW="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 printf '%s' "$PW" > /tmp/keeper.pw
-cast wallet import keeper --private-key "$KEEPER_PRIV" --keystore-dir /root/.foundry/keystores --unsafe-password "$PW" >/dev/null
+cast wallet import keeper --private-key "$KEEPER_PRIV" --keystore-dir "$HOME/.foundry/keystores" --unsafe-password "$PW" >/dev/null
 unset KEEPER_PRIV PW
 export KEEPER_ACCOUNT=keeper KEEPER_PASSWORD_FILE=/tmp/keeper.pw
 exec node tools/tac-vault-keeper.mjs
