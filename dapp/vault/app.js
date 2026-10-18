@@ -37,7 +37,7 @@ const VS = (() => {
   return list.map((v) => ({ ...v, s: null, d: null }));
 })();
 
-const S = { v: VS[0]?.key, t: 'deposit', amt: '', view: null, busy: false, seq: 0, chainT: 0, chainAt: 0, loaded: false, failed: false, more: false };
+const S = { v: VS[0]?.key, t: 'borrow', pre: true, amt: '', view: null, busy: false, seq: 0, chainT: 0, chainAt: 0, loaded: false, failed: false, more: false };
 const MORE_KEY = 'tacit-vault-more';                                                                // whether the board shows its further figures, kept in this browser
 try { S.more = localStorage.getItem(MORE_KEY) === '1'; } catch { /* storage is a convenience */ }
 // The connected wallet's own node. An injected wallet on Ethereum answers reads from the provider it already has, so it is asked first for the old headers and proofs the
@@ -479,7 +479,16 @@ function planOf() {
 }
 
 function renderTicket() {
-  const V = cur(), x = V && derive(V), P = planOf(), t = S.t;
+  const V = cur(), x = V && derive(V), t = S.t;
+  // A Borrow opened with nothing typed offers the most this wallet can borrow, deposit and all, so one press does it: whatever the box holds can be changed.
+  if (S.pre && t === 'borrow' && !S.amt && x && canAct() && !S.busy) {
+    const m = planOf().max;
+    if (m > 0n) {
+      S.amt = M.plain(M.floorTo(m, S.v === 'eth' ? 6 : 4));
+      if (planOf().ok) { $('#amt').value = S.amt; S.pre = false; } else S.amt = '';
+    }
+  }
+  const P = planOf();
   const sym = x?.sym || KIND[S.v]?.sym || '', isTac = t === 'deposit' || t === 'withdraw';
   setHtml($('#acts'), ACTS.map(([k, l]) => `<button type="button" data-t="${k}" aria-pressed="${k === t}"${S.busy ? ' disabled' : ''}>${l}</button>`).join(''));
   $('#tk-h').textContent = x ? `${x.k.name} vault` : 'Vault';
@@ -503,6 +512,7 @@ function renderTicket() {
 function setAmount(pct) {
   const P = planOf();
   if (!(P.max > 0n)) return;
+  S.pre = false;
   const unit = (S.t === 'deposit' || S.t === 'withdraw') ? 4 : (S.v === 'eth' ? 6 : 4);
   S.amt = pct === 100 ? M.plain(P.max) : M.plain(M.floorTo(P.max * BigInt(pct) / 100n, unit));
   $('#amt').value = S.amt; renderTicket();
@@ -555,7 +565,7 @@ async function run(kindOverride) {
   const typed = S.amt, shown = cancel ? null : planOf();                                          // what the person is looking at: the amount, and for a borrow the fee
   if (shown?.record) { pokeFeed(); return; }                                                      // prices first: the button records them
   if (!cancel && !shown.ok) return;
-  S.busy = true; lockAll(); renderTicket();
+  S.busy = true; S.pre = false; lockAll(); renderTicket();
   try {
     say('Reading the vault again…');
     await load();
@@ -591,7 +601,7 @@ async function run(kindOverride) {
     S.amt = ''; $('#amt').value = '';
     await load().catch(() => {});
     const x2 = derive(V), said = { deposit: `Deposited ${tac(P.amount ?? 0n)} TAC.`, borrow: `${P.add > 0n ? `Deposited ${tac(P.add)} TAC and borrowed` : 'Borrowed'} ${P.amount != null ? syn(x2, P.amount) : ''} ${x2.sym}. You owe ${syn(x2, x2.me.debt)}.`, repay: x2.me.debt === 0n ? `Repaid. Nothing owed now.` : `Repaid. You owe ${syn(x2, x2.me.debt)} ${x2.sym}.`, withdraw: 'Withdrawn.', cancel: 'The auction has ended.' }[P.kind];
-    say(`<span class="ok">${esc(said)}</span> ${txLink(hash)}`);
+    say(`<span class="ok">${esc(said)}</span> ${txLink(hash)}${S.t === 'borrow' ? ` <button class="linkbtn" type="button" data-watch="${esc(V.key)}">Add ${esc(x2.sym)} to your wallet</button>` : ''}`);
     setTimeout(() => { if (!S.busy) load().then(renderAll).catch(() => {}); }, 5000);                 // a node a little behind has caught up
   } catch (e) {
     const x = derive(V);
@@ -599,6 +609,12 @@ async function run(kindOverride) {
   } finally { S.busy = false; lockAll(); renderAll(); }
 }
 const lockAll = () => { renderPick(); };
+// A new token does not show in a wallet by itself: the wallet is asked to list it (one prompt, and a wallet that cannot is left alone).
+function watchToken(key) {
+  const V = VS.find((v) => v.key === key), x = V && derive(V);
+  if (!x || !walletNow?.prov) return;
+  Promise.resolve(walletNow.prov.request({ method: 'wallet_watchAsset', params: { type: 'ERC20', options: { address: V.synth, symbol: x.sym, decimals: 18 } } })).catch(() => {});
+}
 
 // ── drawing ──
 function renderAll() {
@@ -721,16 +737,16 @@ function readHash() {
 function keepInHash() {
   const p = params();
   if (VS.length > 1 && S.v !== VS[0].key) p.set('v', S.v); else p.delete('v');
-  if (S.t !== 'deposit') p.set('t', S.t); else p.delete('t');
+  if (S.t !== 'borrow') p.set('t', S.t); else p.delete('t');
   const h = p.toString() ? `#${p}` : '';
   if (h !== location.hash) history.replaceState(null, '', location.pathname + location.search + h);
 }
 const refresh = () => load().catch((e) => { console.warn('vault read:', e?.message || e); if (!S.loaded) S.failed = true; }).then(renderAll);
 
 // ── wiring ──
-$('#pick').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || S.busy || b.dataset.v === S.v) return; S.v = b.dataset.v; S.amt = ''; $('#amt').value = ''; say('', ''); keepInHash(); renderAll(); });
-$('#acts').addEventListener('click', (e) => { const b = e.target.closest('[data-t]'); if (!b || S.busy || b.dataset.t === S.t) return; S.t = b.dataset.t; S.amt = ''; $('#amt').value = ''; say('', ''); keepInHash(); renderTicket(); });
-$('#amt').addEventListener('input', (e) => { S.amt = e.target.value; if ($('#status').dataset.kind === 'trade') say('', ''); renderTicket(); });
+$('#pick').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || S.busy || b.dataset.v === S.v) return; S.v = b.dataset.v; S.pre = S.t === 'borrow'; S.amt = ''; $('#amt').value = ''; say('', ''); keepInHash(); renderAll(); });
+$('#acts').addEventListener('click', (e) => { const b = e.target.closest('[data-t]'); if (!b || S.busy || b.dataset.t === S.t) return; S.t = b.dataset.t; S.pre = S.t === 'borrow'; S.amt = ''; $('#amt').value = ''; say('', ''); keepInHash(); renderTicket(); });
+$('#amt').addEventListener('input', (e) => { S.pre = false; S.amt = e.target.value; if ($('#status').dataset.kind === 'trade') say('', ''); renderTicket(); });
 $('#amt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('#go').disabled) $('#go').click(); });
 $('#chips').addEventListener('click', (e) => { const b = e.target.closest('[data-pct]'); if (b && !S.busy) setAmount(Number(b.dataset.pct)); });
 $('#bal').addEventListener('click', () => { if (!S.busy) setAmount(100); });
@@ -738,11 +754,13 @@ $('#go').addEventListener('click', () => run());
 // What a prompt fills: the deposit box, with the amount to add.
 document.addEventListener('click', (e) => {
   const f = e.target.closest('[data-fill]');
-  if (f && !S.busy) { S.t = 'deposit'; S.amt = f.dataset.fill; $('#amt').value = S.amt; say('', ''); keepInHash(); renderTicket(); $('#ticket').scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); return; }
+  if (f && !S.busy) { S.t = 'deposit'; S.pre = false; S.amt = f.dataset.fill; $('#amt').value = S.amt; say('', ''); keepInHash(); renderTicket(); $('#ticket').scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); return; }
   if (e.target.closest('[data-more]')) { S.more = !S.more; try { localStorage.setItem(MORE_KEY, S.more ? '1' : '0'); } catch { /* storage is a convenience */ } renderBoard(); return; }
   if (e.target.closest('[data-refresh]')) { if (!S.busy) { refresh(); loadFeed(); } return; }
   if (e.target.closest('[data-feed-stop]')) { F.stop?.(); return; }
   if (e.target.closest('[data-stop]')) { S.stop?.(); return; }
+  const watch = e.target.closest('[data-watch]');
+  if (watch) { watchToken(watch.dataset.watch); return; }
   const feedLink = e.target.closest('[data-tofeed]');
   if (feedLink) { e.preventDefault(); $('#feed')?.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }   // the hash carries the page's own state, so this scrolls rather than links
   if (e.target.closest('[data-connect]')) { connectWallet(); return; }

@@ -100,6 +100,7 @@ async function stubWallet(ctx, { who, noTyped = false }) {
     if (method === 'eth_accounts') return [a];
     if (method === 'eth_chainId') return '0x1';
     if (method === 'wallet_switchEthereumChain') return null;
+    if (method === 'wallet_watchAsset') { (log.watched ||= []).push(params); return true; }
     if (method === 'eth_signTypedData_v4') { if (noTyped) throw Object.assign(new Error('Method not supported'), { code: -32601 }); log.signs++; return cast('wallet', 'sign', '--private-key', ACC[who].k, '--data', params[1]); }
     if (method === 'eth_sendTransaction') { if (log.stall) return new Promise(() => {}); log.sends.push(params[0]); return rpcA('eth_sendTransaction', [{ ...params[0], gas: '0x3d0900' }]); }
     throw new Error(`the stub wallet does not do ${method}`);
@@ -107,7 +108,9 @@ async function stubWallet(ctx, { who, noTyped = false }) {
   await ctx.addInitScript(() => { window.__h = {}; window.ethereum = { isStub: true, request: ({ method, params }) => window.__wallet(method, params), on(ev, fn) { window.__h[ev] = fn; }, removeListener() {} }; });
   return log;
 }
-const hashFor = (extra = '') => `#vusd=${USD}&veth=${ETH}${extra}`;
+// The page opens on Borrow; these tests open it on Deposit unless a hash says otherwise (`&t=borrow` for the default).
+const M_OUT = (txt) => { const [a, b = ''] = txt.split('.'); return BigInt(a) * E18 + BigInt((b + '0'.repeat(18)).slice(0, 18)); };
+const hashFor = (extra = '') => `#vusd=${USD}&veth=${ETH}&t=deposit${extra}`;
 // `bare`: the page served with a deployments module that names no vault, as it was before the vaults existed (the opens-soon state).
 // `limited`: hosts that answer every call as a node that has run out of its free requests does.
 async function openPage({ viewport = { width: 1280, height: 900 }, who = null, noTyped = false, hash = hashFor(), host = '127.0.0.1', scheme = 'light', args = [], bare = false, limited = [] } = {}) {
@@ -562,6 +565,28 @@ try {
   await untilText(k, '#status', /Stopped waiting\./, 20000);
   ok(!(await k.$eval('#go', (b) => b.disabled)) && (await k.$$('#status .err')).length === 0 && K.sends.length === 0, 'stopping the wait is not an error: the button works again and nothing was sent');
   K.stall = false;
+  ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
+  await closeAll(r);
+
+  // ── one press: a wallet with TAC and no vault, the page as first opened ──
+  mintTac(ACC.deployer.a, 50_000n * E18);
+  r = await openPage({ who: 'deployer', hash: `#vusd=${USD}&veth=${ETH}` });
+  const o1 = r.page, D = r.walletLog;
+  await connect(o1);
+  await untilText(o1, '#go', /^Deposit [\d,.]+ TAC and borrow$/, 30000);
+  ok(await o1.$eval('#acts [data-t="borrow"]', (b) => b.getAttribute('aria-pressed')) === 'true', 'the page opens on Borrow');
+  const pre = await o1.$eval('#amt', (e) => e.value);
+  ok(Number(pre) > 0 && !(await o1.$eval('#go', (b) => b.disabled)), `the box already holds the most this wallet can borrow (${pre}), and the button is ready`);
+  await shot(o1, 'one-press');
+  D.sends.length = 0; const sgD = D.signs;
+  await o1.click('#go');
+  await untilText(o1, '#status', /Deposited [\d,.]+ TAC and borrowed [\d,.]+ TACD/, 60000);
+  const dv = vaultOf(USD, 'deployer');
+  ok(D.signs - sgD === 1 && D.sends.length === 1 && dv.d > 0n && big(SYN.usd, 'balanceOf(address)(uint256)', ACC.deployer.a) === M_OUT(pre), 'one press: one permit signature and one transaction, and the TACD arrived');
+  ok((await o1.$$('#status [data-watch]')).length === 1 && (await o1.$eval('#amt', (e) => e.value)) === '', 'the box is empty again and the TACD can be added to the wallet');
+  await o1.click('#status [data-watch]');
+  await until(o1, () => true); await sleep(200);
+  ok(D.watched?.length === 1 && D.watched[0].options.symbol === 'TACD' && D.watched[0].options.address.toLowerCase() === SYN.usd.toLowerCase() && D.watched[0].options.decimals === 18, 'which asks the wallet to list it with its address and symbol');
   ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
   await closeAll(r);
 

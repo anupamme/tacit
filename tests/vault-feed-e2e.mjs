@@ -153,8 +153,8 @@ try {
   await page.waitForFunction(() => /\d+\.\d+\s*TACD/.test(document.querySelector('#board')?.innerText || ''), null, { timeout: 60000 });
   const cap = await page.locator('#board').innerText();
   assert.doesNotMatch(cap, /not recorded/);
-  await page.waitForFunction(() => document.querySelector('#go')?.textContent === 'Enter an amount', null, { timeout: 30000 });
-  console.log('ok - and the Borrow button now asks for an amount: borrowing is open');
+  await page.waitForFunction(() => /^(Enter an amount|Deposit [\d,.]+ TAC and borrow|Borrow \w+)$/.test(document.querySelector('#go')?.textContent || ''), null, { timeout: 30000 });
+  console.log('ok - and the Borrow button now asks for an amount (or offers the deposit and borrow it was filled with): borrowing is open');
   console.log(`ok - both oracles hold 48 of 48 and the vault shows its room: ${cap.split('\n').find((l) => /TACD/.test(l)) ?? ''}`);
   if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/feed-after.png`, fullPage: true });
   assert.deepEqual(errors, [], `no page errors: ${errors.join(' | ')}`);
