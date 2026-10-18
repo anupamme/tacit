@@ -289,6 +289,7 @@ try {
   ok(!(await p.$('#absent')) && !(await p.$('#venues-note')) && !rows.some((x) => /Uniswap v4/.test(x)), 'the quotes say no more than the rows: no line of venues that do not quote, no how-to-read note');
   ok(/#side=buy&amount=2$/.test(p.url()), `the address keeps the side and amount, so a reload or a shared link opens the same ticket (${p.url().split('#')[1]})`);
   ok(rows.some((x) => /^Bitcoin order book.*pay [\d,]+ sats/.test(x)), 'the Bitcoin order book (paid in sats) is a row too');
+  ok(/^Buy on Bitcoin →$/.test(await p.$eval('#venues [data-btc-row="buy"]', (b) => b.textContent.trim()).catch(() => '')), 'and leads on to the Bitcoin sheet: "Buy on Bitcoin →" in that row');
   ok(/Connect wallet/.test(await text(p, '#go')) && !(await p.$eval('#go', (b) => b.disabled)), 'with a quote and no wallet the button asks to connect one');
 
   // a small purchase is not split, and says why a split would not pay
@@ -318,6 +319,11 @@ try {
   const sell = (await text(p, '#route')).replace(/\s+/g, ' ');
   ok(/Split across two pools \+[\d.]+%/.test(sell) && /TAC$/.test((await text(p, '#in-unit')).trim()), `selling 12,000 TAC is quoted as a split, paid in ETH (${sell.slice(0, 120)})`);
   ok(/Bitcoin order book.*\d+ bids? · settles (when the bidder is online|within minutes).*sats in fees/.test((await text(p, '#venues')).replace(/\s+/g, ' ')), 'the Bitcoin row says what the standing bids pay for the sale, and that each settles when its bidder is online');
+  ok(/^Sell on Bitcoin →$/.test(await p.$eval('#venues [data-btc-row="sell"]', (b) => b.textContent.trim()).catch(() => '')), 'and the sale\'s row leads on too: "Sell on Bitcoin →"');
+  await p.click('#book-seg [data-book="btc"]');
+  await until(p, () => document.querySelectorAll('#depthchart path.dep-bid.take').length === 1, null, 60000).catch(() => {});
+  ok((await p.$$eval('#depthchart path.dep-bid.take', (x) => x.length)) === 1 && (await p.$eval('#depthchart path.dep-bid.take', (x) => x.getBBox().width)) > 1, 'a sale quoted on the Bitcoin tab marks the bids it would take on the depth chart, as a purchase marks the listings');
+  ok((await p.$$eval('#ladders [data-btc="buy"]', (b) => b.every((x) => /^Buy [\d,.]+ TAC in all, up to /.test(x.getAttribute('aria-label') || '')))) && (await p.$$eval('#ladders [data-btc="sell"]', (b) => b.every((x) => /^Sell [\d,.]+ TAC in all, down to /.test(x.getAttribute('aria-label') || '')))), 'each Bitcoin row says what a press takes: everything up to its price, in all');
 
   // the order book and the facts
   ok((await p.getAttribute('[data-book="btc"]', 'aria-pressed')) === 'true', 'with zSwap holding no TAC order the order book opens on Bitcoin\'s listings');
@@ -325,7 +331,7 @@ try {
   const mid = (await text(p, '#ladders .ob-spread')).replace(/\s+/g, ' ');
   ok(dep.length >= 3 && dep.length <= 8 && bidRows >= 1 && /^\$0\.\d+[\d,.]+ sats/.test(dep[0]) && /last trade/.test(mid) && /(spread [\d.]+%|bids [\d.]+% over asks)/.test(mid), `the book stacks the listings over the last price and the bids under it, one line per price (${dep.length} + ${bidRows}: ${dep[0]} | ${mid})`);
   ok(await p.$eval('#ladders .ob-asks .ob-row:last-child', (e) => parseFloat(getComputedStyle(e, '::before').width) > 0), 'each row is shaded by the depth from the middle out');
-  ok((await p.$$eval('#depthchart path.dep-ask', (x) => x.length)) === 1 && (await p.$$eval('#depthchart path.dep-bid', (x) => x.length)) === 1, 'drawn as a depth chart of listings and bids');
+  ok((await p.$$eval('#depthchart path.dep-ask:not(.take)', (x) => x.length)) === 1 && (await p.$$eval('#depthchart path.dep-bid:not(.take)', (x) => x.length)) === 1, 'drawn as a depth chart of listings and bids');
   const dbox = await (await p.$('#depthchart svg')).boundingBox();
   await p.hover('#depthchart svg', { position: { x: dbox.width * 0.85, y: dbox.height / 2 } });      // scrolled into view first
   await until(p, () => !document.querySelector('#depthchart .chart-tip')?.hidden, null, 5000).catch(() => {});

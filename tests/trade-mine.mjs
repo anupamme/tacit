@@ -89,7 +89,7 @@ async function openPage(viewport, { wallet = false, hash = '#btc=on', utxos = []
     let m;
     if ((m = /\/address\/([^/]+)\/utxo$/.exec(path))) return route.fulfill(ok200(utxos.length ? utxos : [{ txid: 'cd'.repeat(32), vout: 0, value: 3000000, status: { confirmed: true, block_height: 900000, block_time: soon - 700000 } }]));
     if (/\/v1\/prices$/.test(path)) return route.fulfill(ok200({ time: soon, USD: 100000, EUR: 92000 }));
-    if ((m = /\/tx\/([0-9a-f]{64})$/.exec(path))) return route.fulfill(ok200({ txid: m[1], version: 2, locktime: 0, vin: [], vout: [], size: 200, weight: 800, fee: 1000, status: { confirmed: true, block_height: 900000, block_time: soon - 700000 } }));
+    if ((m = /\/tx\/([0-9a-f]{64})$/.exec(path))) return route.fulfill(ok200({ txid: m[1], version: 2, locktime: 0, vin: [{ txid: '11'.repeat(32), vout: 0, sequence: 4294967295, witness: [], prevout: { value: 3001000, scriptpubkey_address: 'bc1qplainfunding' } }], vout: [{ value: 3000000, scriptpubkey_address: 'bc1qplainfunding' }], size: 200, weight: 800, fee: 1000, status: { confirmed: true, block_height: 900000, block_time: soon - 700000 } }));      // a plain coin whose parent can be read: a coin whose parent cannot is held back, as the executors hold it back
     if (/\/fees\/recommended$/.test(path)) return route.fulfill(ok200({ fastestFee: 5, halfHourFee: 5, hourFee: 4, economyFee: 3, minimumFee: 2 }));
     if (/\/blocks\/tip\/height$/.test(path)) return route.fulfill(ok200('900100', 'text/plain'));
     if (/\/address\/[^/]+$/.test(path)) return route.fulfill(ok200({ chain_stats: { funded_txo_sum: 3000000, spent_txo_sum: 0, tx_count: 1 }, mempool_stats: { funded_txo_sum: 0, spent_txo_sum: 0, tx_count: 0 } }));

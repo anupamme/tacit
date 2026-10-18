@@ -33,7 +33,8 @@ const soon = Math.floor(Date.now() / 1000) + 7 * 86400;
 const asset = json('tac-asset-2026-10-12.json'), sales = json('tac-sales-2026-10-12.json'), bids = json('tac-bids-2026-10-12.json'), market = json('tac-market-2026-10-12.json'), petch = json('tac-petch-2026-10-12.json');
 sales.sales = sales.sales.map((x) => ({ ...x, expiry: soon, expired: false, seller_pubkey: '02' + 'ab'.repeat(32) }));
 bids.intents = bids.intents.map((x) => ({ ...x, expiry: soon }));
-market.listings = market.listings.map((x) => ({ ...x, expiry: soon, expired: false }));
+// The API serves the page's listings and the sheet's feed from one book: the market feed's listings are the same sales (with the maker-confirm offers it adds).
+market.listings = [...sales.sales.map((x) => ({ asset_id: AID, kind: 'preauth', ...x })), ...market.listings.filter((x) => x.kind !== 'preauth').map((x) => ({ ...x, expiry: soon, expired: false }))];
 
 let n = 0, fails = 0;
 const ok = (c, s) => { if (c) { n++; console.log('  ok   ' + s); } else { fails++; console.log('FAIL   ' + s); } };
@@ -56,7 +57,7 @@ async function stubWallet(ctx) {
   return log;
 }
 
-async function openPage(viewport, { wallet = false, hash = '#btc=on', utxos = [] } = {}) {
+async function openPage(viewport, { wallet = false, hash = '#btc=on', utxos = [], delay = 0 } = {}) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport, colorScheme: 'light' });
   const walletLog = wallet ? await stubWallet(ctx) : null;
@@ -77,14 +78,14 @@ async function openPage(viewport, { wallet = false, hash = '#btc=on', utxos = []
     return route.fulfill({ status: 404, headers: { 'access-control-allow-origin': '*' }, body: '{"error":"not found"}' });
   });
   // Bitcoin's explorers: the key's address holds one coin of 3,000,000 sats (`utxos` replaces that), the fee rate is 5 sat/vB, and a broadcast is recorded and refused.
-  await ctx.route(/^https:\/\/(mempool\.space|blockstream\.info|mempool\.emzy\.de|mempool\.bitaroo\.net)\//, (route) => {
+  await ctx.route(/^https:\/\/(mempool\.space|blockstream\.info|mempool\.emzy\.de|mempool\.bitaroo\.net)\//, async (route) => {
     const u = new URL(route.request().url()), path = u.pathname, who = u.host;
     seen.explorer.add(`${route.request().method()} ${path}`);
     if (route.request().method() === 'POST') { seen.posts.push(`${who}${path}`); return route.fulfill({ status: 400, headers: { 'access-control-allow-origin': '*' }, body: 'not served in this test' }); }
     let m;
     if ((m = /\/address\/([^/]+)\/utxo$/.exec(path))) return route.fulfill(ok200(utxos.length ? utxos : [{ txid: 'cd'.repeat(32), vout: 0, value: 3000000, status: { confirmed: true, block_height: 900000, block_time: soon - 700000 } }]));
     if (/\/v1\/prices$/.test(path)) return route.fulfill(ok200({ time: soon, USD: 100000, EUR: 92000 }));
-    if ((m = /\/tx\/([0-9a-f]{64})$/.exec(path))) return route.fulfill(ok200({ txid: m[1], version: 2, locktime: 0, vin: [], vout: [], size: 200, weight: 800, fee: 1000, status: { confirmed: true, block_height: 900000, block_time: soon - 700000 } }));
+    if ((m = /\/tx\/([0-9a-f]{64})$/.exec(path))) { if (delay) await new Promise((r) => setTimeout(r, delay)); return route.fulfill(ok200({ txid: m[1], version: 2, locktime: 0, vin: [{ txid: '11'.repeat(32), vout: 0, sequence: 4294967295, witness: [], prevout: { value: 3001000, scriptpubkey_address: 'bc1qplainfunding' } }], vout: [{ value: 3000000, scriptpubkey_address: 'bc1qplainfunding' }], size: 200, weight: 800, fee: 1000, status: { confirmed: true, block_height: 900000, block_time: soon - 700000 } })); };
     if (/\/fees\/recommended$/.test(path)) return route.fulfill(ok200({ fastestFee: 5, halfHourFee: 5, hourFee: 4, economyFee: 3, minimumFee: 2 }));
     if (/\/blocks\/tip\/height$/.test(path)) return route.fulfill(ok200('900100', 'text/plain'));
     if (/\/address\/[^/]+$/.test(path)) return route.fulfill(ok200({ chain_stats: { funded_txo_sum: 3000000, spent_txo_sum: 0, tx_count: 1 }, mempool_stats: { funded_txo_sum: 0, spent_txo_sum: 0, tx_count: 0 } }));
@@ -180,6 +181,33 @@ try {
   await p.click('.bsheet .who [data-lock]');
   await until(p, () => document.querySelector('.bsheet.wide .bm [data-act="unlock"]') && !document.querySelector('.bsheet .who [data-lock]'), null, 60000);
   ok(!(await p.evaluate(() => (window.__x = 1, localStorage.getItem('tacit-trade-id-v1'))?.includes('priv'))), 'Lock puts the sheet back to asking for a wallet, and nothing stored holds a private key');
+  await r.browser.close();
+
+  // a press on the deepest visible price sets the ticket as a press on the sheet's own row does: everything up to it, within a limit that reaches it
+  r = await openPage({ width: 1280, height: 900 }, { wallet: true });
+  p = r.page;
+  await until(p, () => document.querySelectorAll('#ladders [data-btc="buy"]').length > 3, null, 120000);
+  const lastI = await p.$$eval('#ladders [data-btc="buy"]', (b) => Math.max(...b.map((x) => Number(x.dataset.i))));
+  const upTo = await p.$$eval('#ladders .ob-asks .ob-row', (rows, i) => rows.reverse().slice(0, i + 1).reduce((a, x) => a + Number(x.querySelector('.a').textContent.replace(/,/g, '')), 0), lastI);
+  await p.click(`#ladders [data-btc="buy"][data-i="${lastI}"]`);
+  await until(p, () => /sats\/TAC/.test(document.querySelector('.bsheet .bm')?.textContent || '') && (document.querySelector('.bsheet .bm input[data-k="amount"]')?.value || '') !== '', null, 180000);
+  await p.waitForTimeout(600);
+  const deep = { amount: Number(await p.evaluate(() => document.querySelector('.bsheet .bm input[data-k="amount"]')?.value)), quote: (await text(p, '.bsheet .bm [data-k="quote"]')).replace(/\s+/g, ' ') };
+  ok(Math.abs(deep.amount - upTo) / upTo < 0.005 && !/within your max price/.test(deep.quote), `the deepest price (row ${lastI}) buys everything up to it, ${deep.amount} of the ${upTo.toFixed(2)} TAC the ladder shows, with no 'only … within your max price' (${deep.quote.slice(0, 80)})`);
+  await r.browser.close();
+
+  // signing in does not wait for the walk through the key's history: the sats show at once, the TAC follows
+  r = await openPage({ width: 1280, height: 900 }, { wallet: true, delay: 9000 });
+  p = r.page;
+  await until(p, () => document.querySelectorAll('#ladders [data-btc]').length > 0, null, 120000);
+  await p.click('#ladders [data-btc="open"]');
+  await until(p, () => document.querySelector('.bsheet.wide .bm [data-act="unlock"]'), null, 180000);
+  await p.click('.bsheet .bm [data-act="unlock"]'); await p.waitForSelector('.bsheet.top .ways');
+  const t0 = Date.now();
+  await p.click('.bsheet.top [data-in="eth"]');
+  await until(p, () => /3,000,000/.test(document.querySelector('.bsheet .bm')?.textContent || ''), null, 60000);
+  const took = Date.now() - t0;
+  ok(took < 6000, `signing in shows the sats in ${took} ms, not after the walk through the key's history (the explorer is held 9 s a request)`);
   await r.browser.close();
 
   // a bid's Sell sets the ticket to sell, and the recovery of a stopped purchase is offered with its figures

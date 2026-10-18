@@ -5,7 +5,7 @@
 import { makeBtcSession, short, Cancelled } from '/trade/btc-session.js?cb=30dd0ee9';
 import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
 
-const MARKET_URL = '/btc-market.js?cb=5b6a2eae', CSS_URL = '/trade/btc-market.css?cb=359753e6';
+const MARKET_URL = '/btc-market.js?cb=b3086fb8', CSS_URL = '/trade/btc-market.css?cb=359753e6';
 const TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
 // The asset a sheet trades: its id, its title, and the line under the market about getting it onto Bitcoin. TAC's, unless the page names another.
 const TAC_ASSET = { id: TAC, title: 'TAC on Bitcoin', after: 'To sell TAC you hold on Ethereum, bridge it to Bitcoin first. <a href="/#bridge">Bridge →</a>' };
@@ -130,28 +130,41 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
   }
 
   // The sats at the key's address and the TAC it holds, which the module reads synchronously through ctx.me().
+  // The sats are read quickly and this returns once they are in; the TAC takes a walk through the key's history (up to a minute and a half) and follows
+  // behind, the sheet and the page being told again when it arrives. So signing in, opening the sheet and a fill never wait for the walk. A balance
+  // read before a trade is not shown as if it were current: `blank` drops the TAC until the walk has read it again.
+  // The sats are what the executors can spend: the coins that carry TAC (or sit in the dust band, where they are) are not counted, as they are not spent.
+  const DUST = 546;
+  const spendable = (utxos, holdings) => {
+    const keep = new Set();
+    if (holdings instanceof Map) {
+      const add = (x) => { const t = x?.utxo?.txid || x?.txid, v = x?.utxo?.vout ?? x?.vout; if (t != null) keep.add(`${t}:${v}`); };
+      for (const h of holdings.values()) for (const k of ['utxos', 'ghosts', 'inflated', 'pending', 'unverified']) for (const x of (h[k] || [])) add(x);
+      for (const k of (holdings.unclassified || [])) keep.add(k);
+    }
+    return utxos.reduce((a, u) => a + (Number(u.value || 0) > DUST && !keep.has(`${u.txid}:${u.vout}`) ? Number(u.value) : 0), 0);
+  };
   let meSeq = 0;
-  async function refreshMe() {
-    const seq = ++meSeq;                                                                    // a read that began later is the one to keep: an older, slower one (a scan can take a minute) must not put its balance over it
+  async function refreshMe({ blank = false } = {}) {
+    const seq = ++meSeq;                                                                    // a read that began later is the one to keep: an older, slower one must not put its balance over it
     if (!session.unlocked) { meState = null; changed(); return; }
     const T = session.T, my = session.key;
-    // The sats are read quickly and shown at once; the TAC takes a walk through the key's history and follows. A read that is still
-    // pending keeps what was known before it (a soft refresh does not blank the balance).
     const holdingsP = T.scanHoldings().catch(() => null);
     const utxos = await T.getUtxos(T.wallet.address()).catch(() => null);
     if (session.key !== my || seq !== meSeq) return;                                       // the key changed while this was read, or a newer read began
-    const kept = meState?.pubHex === my.pubHex ? meState.assetBase : null;
+    const raw = Array.isArray(utxos) ? utxos : null, kept = !blank && meState?.pubHex === my.pubHex ? meState.assetBase : null;
     meState = {
       pubHex: my.pubHex, h160: T.bytesToHex(T.hash160(T.wallet.pub)), unlocked: true,
-      sats: Array.isArray(utxos) ? utxos.reduce((a, u) => a + Number(u.value || 0), 0) : null,
+      sats: raw ? spendable(raw, null) : null,
       assetBase: kept, address: T.wallet.address(),
     };
-    changed();
-    const holdings = await holdingsP;
-    if (session.key !== my || !meState || seq !== meSeq) return;
-    const h = holdings instanceof Map ? holdings.get(AID) : null;
-    meState = { ...meState, assetBase: h && typeof h.balance === 'bigint' ? h.balance : (holdings ? 0n : kept) };
-    changed();
+    changed(); ctl?.refresh?.({ soft: true });
+    holdingsP.then((holdings) => {
+      if (session.key !== my || !meState || seq !== meSeq) return;
+      const h = holdings instanceof Map ? holdings.get(AID) : null;
+      meState = { ...meState, sats: raw && holdings instanceof Map ? spendable(raw, holdings) : meState.sats, assetBase: h && typeof h.balance === 'bigint' ? h.balance : (holdings ? 0n : kept) };
+      changed(); ctl?.refresh?.({ soft: true });
+    });
   }
   // Opens the key with the page's wallet and reads what it holds, with no sheet: the page's own panels show the result.
   let opening = null;
@@ -171,12 +184,13 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
     const base = T._btcMarketCtx(AID);
     if (!base.asset()?.ticker || base.asset().ticker === '?') throw new Error('the market data did not load');
     const logo = (h) => (typeof h === 'string' ? h.replace('src="tac-logo.png"', 'src="/tac-logo.png"') : h);      // tacit.js names the logo relative to the classic app's address
-    const settled = (fn, kind) => async (...a) => { try { await fn?.(...a); } finally { try { await refreshMe(); ctl?.refresh?.({ soft: true }); } catch { /* the next refresh reads it */ } onTraded({ kind, ...(a[0] || {}) }); } };
+    const settled = (fn, kind) => async (...a) => { try { await fn?.(...a); } finally { try { await refreshMe({ blank: true }); } catch { /* the next refresh reads it */ } onTraded({ kind, ...(a[0] || {}) }); } };       // the sats are read again at once and the TAC behind, so the next fill is not held for a walk
     return {
       ...base,
       mountEth: null, initialLane: 'btc', onLane: null,
       asset: () => { const a = base.asset(); return { ...a, iconHtml: logo(a.iconHtml), identityHtml: logo(a.identityHtml) }; },
       me: () => meState,
+      friendlyError: (...a) => { const m = base.friendlyError?.(...a); return typeof m === 'string' ? m.replace('retry with the Swap tile or pick another row', 'try again or pick another row') : m; },      // the classic app's wording names a tile this sheet does not have
       unlock, fundSats: fundDialog,
       confirm: confirmDialog,
       toast: (m, k, ms) => notify(m, k, ms),
@@ -203,7 +217,8 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
     l.onload = l.onerror = () => res(); document.head.append(l);
   }));
   function destroy() { try { ctl?.destroy?.(); } catch { /* it is going away */ } ctl = null; host = null; main = null; clearInterval(meTimer); off?.(); off = null; }
-  // `prime` sets the ticket once the book has loaded: { side, type, receiveBase, sellBase, spendSats }. A sheet that was closed while it loaded
+  // `prime` sets the ticket once the book has loaded: { side, type, receiveBase, sellBase, spendSats }, or { side, type: 'market', atUnit, flag } for a row of the
+  // page's ladder (the price it names: the ticket takes everything up to it, within a limit that reaches it, as a press on the sheet's own row does). A sheet that was closed while it loaded
   // (and maybe opened again) is not mounted into: each step checks that it is still the current one.
   async function open(prime = null) {
     if (main) { if (prime) await primeWhenReady(prime); return; }
@@ -244,7 +259,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
     for (let i = 0, max = opts.focus === 'orders' ? 400 : 80; i < max; i++) {
       if (!ctl) return;
       if (opts.focus === 'orders') { const o = host?.querySelector('[data-k="orders"]'); if (o && !o.hidden) { await bringIntoView(o); return; } }
-      else if (ctl.state?.loadedOnce) { ctl.prime(opts); return; }
+      else if (ctl.state?.loadedOnce) { const set = opts.atUnit != null && opts.type === 'market' && ctl.primeAt ? ctl.primeAt(opts.side === 'sell' ? 'bid' : 'ask', opts.atUnit, opts.flag) : false; if (set === false) ctl.prime(opts); return; }       // a book with nothing at that price is set by the amount
       await sleep(150);
     }
   }

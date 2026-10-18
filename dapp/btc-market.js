@@ -67,6 +67,14 @@ function ago(ts) {
 function plainUnit(u) {
   return fmtUnit(u).replace(/,/g, '');
 }
+// The same, moved on by one place when rounding went the wrong way: a limit buy set to the best ask has to reach the ask (167.994 shown as 167.99
+// would rest below it as a bid), and a limit sell set to the best bid has to reach the bid. `up` says which way it must not fall short.
+function plainUnitReach(u, up) {
+  const t = plainUnit(u), x = Number(t);
+  if (!Number.isFinite(x) || (up ? x >= u : x <= u)) return t;
+  const dp = (t.split('.')[1] || '').length, step = 10 ** -dp;
+  return (up ? x + step : Math.max(0, x - step)).toFixed(dp);
+}
 
 function fmtUsd(v) {
   if (v == null || !Number.isFinite(v)) return '';
@@ -518,8 +526,8 @@ function createMarket(host, ctx) {
     if (S.type === 'limit' && S.book) {
       const pcs = [];
       const b = S.book;
-      if (b.bestBid) pcs.push(`<button type="button" data-act="pchip" data-v="${b.bestBid}">best bid ${fmtUnit(b.bestBid)}</button>`);
-      if (b.bestAsk) pcs.push(`<button type="button" data-act="pchip" data-v="${b.bestAsk}">best ask ${fmtUnit(b.bestAsk)}</button>`);
+      if (b.bestBid) pcs.push(`<button type="button" data-act="pchip" data-kind="bid" data-v="${b.bestBid}">best bid ${fmtUnit(b.bestBid)}</button>`);
+      if (b.bestAsk) pcs.push(`<button type="button" data-act="pchip" data-kind="ask" data-v="${b.bestAsk}">best ask ${fmtUnit(b.bestAsk)}</button>`);
       if (ctx.asset().markUnit > 0) pcs.push(`<button type="button" data-act="pchip" data-v="${ctx.asset().markUnit}">last ${fmtUnit(ctx.asset().markUnit)}</button>`);
       const h = pcs.join('');
       if (pc.innerHTML !== h) pc.innerHTML = h;
@@ -726,6 +734,7 @@ function createMarket(host, ctx) {
       if (p.leftoverBase > 0n) html += `<div class="bm-q bm-note">${fmtAmount(p.leftoverBase, dec, 4)} ${T} has no matching bid and stays in your wallet.</div>`;
       html += `<div class="bm-q bm-muted">${p.needsBidder ? 'Completes when each bidder\'s wallet settles — some may take hours.' : 'Completes in about a minute — keep this tab open until it does.'}</div>`;
       el.quote.innerHTML = html;
+      if (m && m.unlocked && m.sats != null && m.sats < p.feesEst) { setGo(`Add ${fmtSats(p.feesEst - m.sats)} more sats`, true, 'fund'); return; }
       setGo('Review sell', true, 'review');
       return;
     }
@@ -803,8 +812,8 @@ function createMarket(host, ctx) {
     paintHeader();
     if (S.book) paintBook();
     paintBalance();
+    paintOrders();                                                                          // before the quote, which notes an order of yours at the same price from what this draws
     paintQuote();
-    paintOrders();
     paintLive();
   }
 
@@ -831,6 +840,7 @@ function createMarket(host, ctx) {
     }
     for (const [iid, sale] of S.sells) {
       if (mine.some((r) => r.raw?.intent_id === iid)) continue;
+      if (sale.owner && me()?.pubHex && sale.owner !== me().pubHex) continue;                  // another key's sale: not this key's order, and none of its tokens are locked
       if (sale.state === 'settled' || sale.state === 'closed' || sale.state === 'gone') continue;
       mine.push({ id: 'sell:' + iid, side: 'sell', amount: BigInt(sale.amount), unit: sale.unit, sats: sale.sats, lock: BigInt(sale.amount), status: sellStatusText(sale), action: sale.state === 'posted' ? 'cancel' : null, kind: 'sale', raw: { intent_id: iid } });
     }
@@ -850,7 +860,7 @@ function createMarket(host, ctx) {
     if (!S.book) return;
     const m = me();
     const mine = myOrderRows();
-    if (!mine.length || !m) { el.orders.hidden = true; el.orders.innerHTML = ''; return; }
+    if (!mine.length || !m) { el.orders.hidden = true; el.orders.innerHTML = ''; el.orders.__html = null; S.myRows = new Map(); return; }   // what was drawn is forgotten, so the same orders drawn again (a key locked and opened again) are written, and no order of the key that left is still counted
     el.orders.hidden = false;
     const html = `<h3>Your orders <em>${mine.length}</em></h3><div class="bm-otable">${mine.map((r) => `
       <div class="bm-orow ${r.side}"><span class="s">${r.side === 'buy' ? 'Buy' : 'Sell'}</span>
@@ -874,7 +884,7 @@ function createMarket(host, ctx) {
   // ── recent trades ─────────────────────────────────────────────────────────
   function paintTrades() {
     const all = S.stats?.trades || [];
-    if (!all.length) { el.trades.innerHTML = ''; return; }
+    if (!all.length) { el.trades.innerHTML = ''; el.trades.__html = null; return; }
     // Oldest first so each print's arrow compares with the one before it.
     let prev = null;
     const rows = all.slice(0, 40).reverse().map((t) => {
@@ -1423,7 +1433,7 @@ function createMarket(host, ctx) {
           const iid = r.offer?.intent_id;
           if (iid) {
             runIds.add(iid);
-            S.sells.set(iid, { state: 'posted', amount: f.amount.toString(), sats: f.sats, unit: f.unit, bidId: f.bid.raw.bid_id, at: nowSec(), raw: { asset_utxo: r.offer?.asset_utxo || null, maker_address: r.offer?.maker_address || null, price_sats: f.sats } });
+            S.sells.set(iid, { state: 'posted', owner: me()?.pubHex || null, amount: f.amount.toString(), sats: f.sats, unit: f.unit, bidId: f.bid.raw.bid_id, at: nowSec(), raw: { asset_utxo: r.offer?.asset_utxo || null, maker_address: r.offer?.maker_address || null, price_sats: f.sats } });
             saveSells();
           }
           try { await ctx.after.sold({ amount: f.amount, result: r, ids: f.bid.kind === 'bid' ? [f.bid.id] : [] }); } catch {}
@@ -1583,9 +1593,30 @@ function createMarket(host, ctx) {
 
   // Load a book row into the ticket: an ask → buy it, a bid → sell into it.
   function primeFromRow(side, key) {
-    const lv = S.ladder?.[side]?.get(key);
-    if (!lv) return;
-    if (lv.flag === 'mine') { el.orders.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return; }
+    primeLevel(side, S.ladder?.[side]?.get(key));
+  }
+  // The same for a price named from outside, as the trade page's ladder does (its row is the level at that price): the ticket is set exactly as a press on
+  // the sheet's own row sets it, the price limit that reaches the level, the online-only bids it needs, and no more to sell than the key holds. A price this
+  // book has no level at is read as a level of its own, so the sheet never opens on a limit that stops short of the row that was pressed.
+  function primeAt(side, unit, flag = null) {
+    const lvs = [...(S.ladder?.[side]?.values() || [])];
+    const near = (l) => Math.abs(l.unit - unit) <= unit * 1e-6;
+    const lv = lvs.find((l) => near(l) && (!flag || l.flag === flag)) || lvs.find(near)
+      || (side === 'ask' ? { unit, flag: 'lot', rows: [{ instant: true }] } : { unit, flag: flag === 'manual' ? 'manual' : 'auto', rows: [] });
+    return primeLevel(side, lv);
+  }
+  // The price limit that reaches `unit`: the smallest of the % choices from the best price that does, else that exact price (a level further out than
+  // the largest choice is allowed by its own price, not left outside the limit).
+  function limitToReach(side, unit) {
+    const buy = side === 'buy', best = (buy ? eligibleAsks() : eligibleBids())[0]?.unit || unit;
+    const reach = SLIPPAGE_CHOICES.find((p) => (buy ? best * (1 + p / 100) >= unit : best * (1 - p / 100) <= unit));
+    S.slip = reach ?? SLIPPAGE_CHOICES[SLIPPAGE_CHOICES.length - 1];
+    S.limitAt = reach == null ? { side, unit } : null;
+  }
+  // → false when this book has nothing at or below the price to take (the caller sets the ticket by its own amount instead).
+  function primeLevel(side, lv) {
+    if (!lv) return false;
+    if (lv.flag === 'mine') { el.orders.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return true; }
     if (side === 'ask') {
       // Everything up to and including this level, at this level's price. A level that
       // needs the seller's confirmation turns that option on first, so the cheaper rows
@@ -1593,26 +1624,30 @@ function createMarket(host, ctx) {
       if (!lv.rows[0].instant) S.includeMaker = true;
       const upTo = S.book.asks.filter((a) => !a.mine && a.unit <= lv.unit * (1 + 1e-9) && (S.includeMaker || a.instant));
       const need = upTo.reduce((t, a) => t + a.amount, 0n);
-      const best = eligibleAsks()[0]?.unit || lv.unit;
-      S.slip = SLIPPAGE_CHOICES.find((p) => best * (1 + p / 100) >= lv.unit) ?? SLIPPAGE_CHOICES[SLIPPAGE_CHOICES.length - 1];
+      if (need <= 0n) return false;
+      limitToReach('buy', lv.unit);
       prime({ side: 'buy', type: 'market', receiveBase: need });
+      return true;
     } else {
       if (lv.flag === 'manual') S.includeManual = true;
       const upTo = S.book.bids.filter((b) => !b.mine && b.unit >= lv.unit * (1 - 1e-9) && (S.includeManual || b.auto));
       const need = upTo.reduce((t, b) => t + b.amount, 0n);
+      if (need <= 0n) return false;
       const m = me();
       const free = freeBase(m);
       const give = free != null && free > 0n && free < need ? free : need;
-      const best = eligibleBids()[0]?.unit || lv.unit;
-      S.slip = SLIPPAGE_CHOICES.find((p) => best * (1 - p / 100) <= lv.unit) ?? SLIPPAGE_CHOICES[SLIPPAGE_CHOICES.length - 1];
+      limitToReach('sell', lv.unit);
       prime({ side: 'sell', type: 'market', sellBase: give });
+      return true;
     }
   }
 
   // Set the ticket from outside (book rows, Holdings "sell", the post-buy "bid the rest").
-  function prime({ side, type, spendSats, receiveBase, sellBase, amountBase, totalSats, unit } = {}) {
+  function prime({ side, type, spendSats, receiveBase, sellBase, amountBase, totalSats, unit, reachUnit, includeManual } = {}) {
     if (side) S.side = side;
     if (type) S.type = type;
+    if (includeManual) S.includeManual = true;                                              // the caller's own plan took bids that settle only while their bidder is online
+    if (reachUnit > 0 && S.type === 'market') limitToReach(S.side, reachUnit);              // ...and went as far as this price: the limit reaches it, so the ticket quotes what the caller's plan did
     if (S.lane !== 'btc') setLane('btc');
     if (S.type === 'market' && S.side === 'buy') {
       if (receiveBase != null) { S.buyIn = 'token'; el.amount.value = fmtAmount(receiveBase, dec).replace(/,/g, ''); }
@@ -1697,7 +1732,7 @@ function createMarket(host, ctx) {
       savePref(); paintTicketFrame(); paintAll(); return;
     }
     if (act === 'chip') { el.amount.value = t.dataset.v; S.anchorTotal = false; S.syncTotal(); paintQuote(); return; }
-    if (act === 'pchip') { el.price2.value = plainUnit(Number(t.dataset.v)); S.anchorTotal ? el.total.dispatchEvent(new Event('input')) : S.syncTotal(); paintQuote(); return; }
+    if (act === 'pchip') { const v = Number(t.dataset.v), k = t.dataset.kind; el.price2.value = k === 'ask' && S.side === 'buy' ? plainUnitReach(v, true) : k === 'bid' && S.side === 'sell' ? plainUnitReach(v, false) : plainUnit(v); S.anchorTotal ? el.total.dispatchEvent(new Event('input')) : S.syncTotal(); paintQuote(); return; }
     if (act === 'go') { review(); return; }
     if (act === 'unlock') { ctx.unlock().then(() => refresh({ soft: true })).catch(() => {}); return; }
     if (act === 'fund') { ctx.fundSats(); return; }
@@ -1735,7 +1770,9 @@ function createMarket(host, ctx) {
   };
   const syncAmount = () => {
     const u = unitNow(); const t = parseNumber(el.total.value);
-    el.amount.value = u > 0 && t > 0 ? fmtAmount(amountForSats(t, u, dec), dec).replace(/,/g, '') : '';
+    if (!(u > 0 && t > 0)) { el.amount.value = ''; return; }
+    const a0 = amountForSats(t, u, dec);                                                    // the sats typed are the sats the ticket then shows, not one fewer
+    el.amount.value = fmtAmount(satsForAmount(a0, u, dec) < t ? a0 + 1n : a0, dec).replace(/,/g, '');
   };
   el.amount.addEventListener('input', () => { S.anchorTotal = false; if (S.type === 'limit') syncTotal(); onInput(); }, sig);
   el.price2.addEventListener('input', () => { if (S.type === 'limit') { if (S.anchorTotal) syncAmount(); else syncTotal(); } onInput(); }, sig);
@@ -1768,6 +1805,7 @@ function createMarket(host, ctx) {
     aid,
     refresh,
     prime,
+    primeAt,
     destroy,
     get state() { return S; },
   };

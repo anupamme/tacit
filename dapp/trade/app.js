@@ -560,6 +560,16 @@ function askZq(q) {
   zq(dir, wei).then((v) => { if (S.quote && S.quote.wei === wei && S.quote.dir === dir) { S.quote.zq = v; renderVenues(S.quote); } });
 }
 $('#cmp').addEventListener('toggle', () => { if ($('#cmp').open) askZq(S.quote); });
+// The Bitcoin row of the comparison opens the sheet at the amount typed: what the ticket's quote buys (its sats, the row's plan), what it sells, or a listing of it.
+$('#venues').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-btc-row]'), q = S.quote;
+  if (!b || !q || !btcOn()) return;
+  const act = b.dataset.btcRow, base = q.wei / E10;
+  const sp = q.book?.sell, bp = q.book?.plan;
+  openBitcoin(act === 'buy' && q.book?.sats >= 546 ? { side: 'buy', type: 'market', spendSats: q.book.sats, reachUnit: bp?.worstUnit || undefined }
+    : act === 'sell' ? { side: 'sell', type: 'market', sellBase: base, reachUnit: sp?.fills.length ? sp.worstUnit : undefined, includeManual: !!sp?.fills.some((f) => !f.bid.auto) }
+    : { side: 'sell', type: 'limit', sellBase: base });                                       // the sheet's ticket is set to go as far as the plan the row quoted went
+});
 // Quick amounts under the amount box: what the usual sizes would get, one press, no wallet needed.
 const PRESETS = { buy: [['0.05 ETH', '0.05'], ['0.25 ETH', '0.25'], ['1 ETH', '1']], sell: [['1,000 TAC', '1000'], ['5,000 TAC', '5000'], ['20,000 TAC', '20000']] };
 function renderChips() { $('#chips').innerHTML = PRESETS[S.side].map(([l, v]) => `<button type="button" data-amt="${v}" aria-pressed="${S.amt === v}"${S.busy ? ' disabled' : ''}>${l}</button>`).join(''); }
@@ -663,12 +673,13 @@ function renderVenues(q) {
   else if (zside.length) add({ name: 'zSwap boards', note: `${zside.length} resting order${zside.length === 1 ? '' : 's'}`, why: S.pin ? 'the pinned order cannot fill this' : 'none fits this amount', out: null });
   const bk = q.book;
   if (bk) {
-    if (buy) add({ name: 'Bitcoin order book', note: `pay ${satsFmt(bk.sats)} sats instead`, out: bk.out, why: bk.out ? null : bk.sats < 546 ? 'too small for Bitcoin' : 'no listing that small', btc: true });
+    const to = (act, text) => (btcOn() ? { act, actText: text } : {});                              // the row opens the Bitcoin sheet at this amount
+    if (buy) add({ name: 'Bitcoin order book', note: `pay ${satsFmt(bk.sats)} sats instead`, out: bk.out, why: bk.out ? null : bk.sats < 546 ? 'too small for Bitcoin' : 'no listing that small', btc: true, ...(bk.out ? to('buy', 'Buy on Bitcoin →') : {}) });
     else if (bk.sell?.fills.length) {
       const sp = bk.sell, manual = sp.fills.filter((f) => !f.bid.auto).length;
       add({ name: 'Bitcoin order book', show: `${satsFmt(bk.sats)} sats`, btc: true,
-        note: `${sp.fills.length} bid${sp.fills.length === 1 ? '' : 's'} · ${!manual ? 'settles within minutes' : 'settles when the bidder is online'}${sp.leftoverBase ? ` · takes ${fmtUnits(sp.amount * E10, 18, 2)} TAC` : ''} · less ~${satsFmt(sp.feesEst)} sats in fees`, out: null });
-    } else add({ name: 'Bitcoin order book', note: bk.bids ? 'no bid takes this amount' : D.bidsRead ? 'no bids' : 'bids not read', why: `list it: ~${satsFmt(bk.sats)} sats at the last trade`, out: null, btc: true });
+        note: `${sp.fills.length} bid${sp.fills.length === 1 ? '' : 's'} · ${!manual ? 'settles within minutes' : 'settles when the bidder is online'}${sp.leftoverBase ? ` · takes ${fmtUnits(sp.amount * E10, 18, 2)} TAC` : ''} · less ~${satsFmt(sp.feesEst)} sats in fees`, out: null, ...to('sell', 'Sell on Bitcoin →') });
+    } else add({ name: 'Bitcoin order book', note: bk.bids ? 'no bid takes this amount' : D.bidsRead ? 'no bids' : 'bids not read', why: `list it: ~${satsFmt(bk.sats)} sats at the last trade`, out: null, btc: true, ...to('list', 'List on Bitcoin →') });
   }
   // The best is among the ways that fill the whole amount in ETH or TAC: the pools, zQuoter's finds and the boards' orders when they take it all.
   const eth = rows.filter((r) => r.out != null && !r.priv && !r.btc && !r.part).map((r) => BigInt(r.out));
@@ -678,7 +689,7 @@ function renderVenues(q) {
     const isBest = best != null && r.out != null && !r.priv && !r.btc && !r.part && BigInt(r.out) === best;
     const delta = r.out != null && best && !r.part && !r.btc ? Number((BigInt(r.out) - best) * 10000n / best) / 10000 : null;
     const cell = r.out != null ? `<b class="num">${f(r.out)}</b>` : r.show ? `<b class="num">${esc(r.show)}</b>` : `<span class="mute">${esc(r.why || '')}</span>`;
-    return `<tr${isBest ? ' class="best"' : ''}><td><b>${esc(r.name)}</b>${isBest ? '<span class="tag">best</span>' : ''}${r.runs ? '<span class="tag mute">this ticket</span>' : ''}${r.priv ? '<span class="tag mute">estimate</span>' : ''}<small>${esc(r.note || '')}${r.link ? ` · <a href="${esc(r.link)}">Swap privately →</a>` : ''}</small></td><td class="r">${cell}</td><td class="r opt num">${delta != null && !isBest ? esc(pct(delta, 1)) : ''}</td></tr>`;
+    return `<tr${isBest ? ' class="best"' : ''}><td><b>${esc(r.name)}</b>${isBest ? '<span class="tag">best</span>' : ''}${r.runs ? '<span class="tag mute">this ticket</span>' : ''}${r.priv ? '<span class="tag mute">estimate</span>' : ''}<small>${esc(r.note || '')}${r.link ? ` · <a href="${esc(r.link)}">Swap privately →</a>` : ''}${r.act ? ` · <button type="button" class="linkbtn" data-btc-row="${r.act}">${esc(r.actText)}</button>` : ''}</small></td><td class="r">${cell}</td><td class="r opt num">${delta != null && !isBest ? esc(pct(delta, 1)) : ''}</td></tr>`;
   }).join('');
 }
 
@@ -698,7 +709,7 @@ const pageWallet = () => (W.account && W.prov && !W.prov.isWalletConnect ? { uui
 // Made once: two asks at the same moment (the hover that warms it and the press that uses it) share one module and so one wallet session.
 let bitcoinP = null;
 function getBitcoin() {
-  return (bitcoinP ||= import('/trade/btc.js?cb=ed440478').then((m) => (bitcoin = m.makeBitcoin({
+  return (bitcoinP ||= import('/trade/btc.js?cb=cf1279b4').then((m) => (bitcoin = m.makeBitcoin({
     notify, wallet: pageWallet, onChange: () => syncMe(),
     onTraded: (t) => { noteBitcoinTrade(t); loadBitcoin().then(paintAll).catch(() => {}); },
   }))).catch((e) => { bitcoinP = null; throw e; }));
@@ -734,8 +745,11 @@ function syncMe() {
 // What the ticket is set to when a listing or a bid is picked: everything cheaper than it, and it, as the market module's own rows do.
 function bookPrime(kind, i) {
   const b = D.book, upTo = (rows, side) => ladderLevels(rows, side).slice(0, i + 1).filter((l) => l.flag !== 'mine').reduce((a, l) => a + l.amount, 0n);   // the row's index counts the ladder's levels, the visitor's own among them
-  if (kind === 'buy') return { side: 'buy', type: 'market', receiveBase: upTo(b.asks, 'ask') };
-  if (kind === 'sell') return { side: 'sell', type: 'market', sellBase: upTo(b.bids, 'bid') };
+  // `atUnit` and `flag` name the row (its price, and whether its bids settle only while the bidder is online): the sheet sets its price limit and what it offers to
+  // sell to reach it, as a press on its own row does, not an amount alone that a limit nearer the best price would cut short.
+  const at = (rows, side) => { const l = ladderLevels(rows, side)[i]; return l ? { atUnit: l.unit, flag: l.flag } : {}; };
+  if (kind === 'buy') return { side: 'buy', type: 'market', receiveBase: upTo(b.asks, 'ask'), ...at(b.asks, 'ask') };
+  if (kind === 'sell') return { side: 'sell', type: 'market', sellBase: upTo(b.bids, 'bid'), ...at(b.bids, 'bid') };
   if (kind === 'list') return { side: 'sell', type: 'limit' };
   return null;
 }
@@ -926,13 +940,14 @@ function ethStack(z) {
     mid: `${ref ? `<span class="ob-last"><b>${esc(ethPxFmt(ethPx(ref)))}</b><em>Precision pool</em></span>` : '<span></span>'}${spreadTxt(z.asks[0]?.price, z.bids[0]?.price)}` });
 }
 function btcStack(b, live) {
-  const lvs = (rows, ask) => ladderLevels(rows, ask ? 'ask' : 'bid').map((l, i) => {
+  const lvs = (rows, ask) => { let upTo = 0; return ladderLevels(rows, ask ? 'ask' : 'bid').map((l, i) => {
     const amt = Number(l.amount) / 1e8, px = btcPxFmt(btcPx(l.unit)), ends = ask ? Math.min(...l.rows.map((r) => r.expiry).filter(Boolean)) : 0;
     const why = ask ? (l.count > 1 ? `${l.count} listings, each taken whole` : 'one listing, taken whole') : l.flag === 'auto' ? 'settles within minutes' : 'settles when the bidder is online';
+    if (l.flag !== 'mine') upTo += amt;
     return { price: px, small: [D.btcUsd ? `${satsFmt(l.unit)} sats` : '', l.count > 1 ? `${l.count} listings` : ''].filter(Boolean).join(' · '), amount: tacFmt(amt), total: satsFmt(l.sats), depth: l.sats, mine: l.flag === 'mine',
       attrs: live ? `data-btc="${ask ? 'buy' : 'sell'}" data-i="${i}"` : '', title: `${why}${Number.isFinite(ends) && ends ? ` · ends in ${left(ends)}` : ''}.${live ? ` Click to ${ask ? 'buy' : 'sell'} up to this price.` : ''}`,
-      label: `${ask ? 'Buy up to' : 'Sell up to'} ${tacFmt(amt)} TAC at ${px} each` };
-  });
+      label: `${ask ? 'Buy' : 'Sell'} ${tacFmt(upTo)} TAC in all, ${ask ? 'up' : 'down'} to ${px} each` };           // a press takes everything from the best price to this one
+  }); };
   return stackBook({ asks: lvs(b.asks, true), bids: lvs(b.bids, false), totalHead: 'Sats', levels: true,
     mid: `${D.btc?.mark ? `<span class="ob-last"><b>${esc(btcPxFmt(btcPx(D.btc.mark)))}</b><em>last trade</em></span>` : '<span></span>'}${spreadTxt(b.bestAsk, b.bestBid, ' A bid settles when its bidder is online, and a listing is taken whole.')}` });
 }
@@ -970,7 +985,7 @@ function renderBook() {
   }
   const b = D.book;
   if (!b) { setPeek(null); depth.update({ asks: [], bids: [], empty: D.bookFailed ? 'Could not read the Bitcoin order book.' : 'Reading the Bitcoin order book…' }); setHtml(box, D.bookFailed ? `<p class="note">Could not read the Bitcoin order book. ${retryBtn()}</p>` : ''); note.textContent = ''; return; }
-  const take = S.quote?.book?.plan?.fills?.length && S.side === 'buy' ? { side: 'ask', size: Number(S.quote.book.plan.amount) / 1e8 } : null;
+  const bq = S.quote?.book, take = bq?.plan?.fills?.length && S.side === 'buy' ? { side: 'ask', size: Number(bq.plan.amount) / 1e8 } : bq?.sell?.fills?.length && S.side === 'sell' ? { side: 'bid', size: Number(bq.sell.amount) / 1e8 } : null;
   depth.update({
     asks: b.asks.map((r) => ({ price: btcPx(r.unit), size: Number(r.amount) / 1e8 })), bids: b.bids.map((r) => ({ price: btcPx(r.unit), size: Number(r.amount) / 1e8 })), take,
     priceFmt: btcPxFmt, sizeFmt: (n) => `${tacFmt(n)} TAC`, label: 'Bitcoin order book for TAC', empty: 'No TAC is listed on the Bitcoin order book right now.',
