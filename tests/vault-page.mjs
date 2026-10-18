@@ -149,7 +149,7 @@ async function openPage({ viewport = { width: 1280, height: 900 }, who = null, n
     } catch (e) { await route.fulfill({ status: 502, headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ error: e.message }) }).catch(() => {}); }
   });
   const page = await ctx.newPage(), errors = [], blocked = [];
-  page.on('pageerror', (e) => { if (process.env.DEBUG) console.log('[pageerror]', e.message); errors.push(String(e.message || e)); });
+  page.on('pageerror', (e) => { if (process.env.DEBUG) console.log('[pageerror]', e.message, String(e.stack || '').split('\n').slice(1, 4).join(' | ')); errors.push(String(e.message || e)); });
   if (process.env.DEBUG) page.on('requestfailed', (q) => console.log('[requestfailed]', q.url().slice(0, 100), q.failure()?.errorText));
   page.on('console', (m) => { if (process.env.DEBUG) console.log('[page]', m.type(), m.text()); if (m.type() === 'error') { const t = m.text(); (/Content Security Policy|Refused to/i.test(t) ? blocked : errors).push(t); } });
   await page.goto(`http://${host}:${WEB}/vault/${hash}`);
@@ -807,107 +807,176 @@ try {
       cast('send', SYN[key], 'mint(address,uint256)', to, String(amt), '--from', vault, '--unlocked', '--rpc-url', ANVIL, '--json');
       await rpcA('anvil_stopImpersonatingAccount', [vault]);
     };
-    for (const w of ['owner', 'user']) {
+    for (const w of ['user', 'bob']) {
       await mintSyn('usd', ACC[w].a, 50_000n * E18); await mintSyn('eth', ACC[w].a, 50n * E18);
       send('deployer', USDC, 'mint(address,uint256)', ACC[w].a, String(50_000n * 10n ** 6n));
     }
-    const hashP = (extra = '') => `#vusd=${USD}&veth=${ETH}&usdc=${USDC}&poolto=${ACC.owner.a}${extra}`;
+    const hashP = (extra = '') => `#vusd=${USD}&veth=${ETH}&usdc=${USDC}${extra}`;
     const panel = (p) => text(p, '#pools');
     const sends = (L) => L.sends.map((t) => ({ to: t.to.toLowerCase(), data: t.data, value: t.value ? BigInt(t.value) : 0n }));
-    const poolOf = (m) => { const a = view(PF, 'poolsForTokenSlice(address,uint256,uint256)(address[])', m, '0', '5')[0]; return a.replace(/[\[\],]/g, ''); };
+    const poolsOf = (token) => cast('call', PF, 'poolsForTokenSlice(address,uint256,uint256)(address[])', token, '0', '20', '--rpc-url', ANVIL).match(/0x[0-9a-fA-F]{40}/g) || [];
+    const isqrt = (n) => { if (n < 2n) return n; let x = 1n << BigInt((n.toString(2).length + 1) >> 1); for (;;) { const y = (x + n / x) >> 1n; if (y >= x) return x; x = y; } };
+    const feedAns = view(FEED, 'latestRoundData()(uint80,int256,uint256,uint256,uint80)')[1], feedDec = Number(view(FEED, 'decimals()(uint8)')[0]);
+    const ethUsd = Number(feedAns) / 10 ** feedDec;
+    const near = (a, b, rel = 1e-6) => Math.abs(Number(a - b)) <= rel * Math.abs(Number(b));
 
-    // 1. nothing is open: anyone sees that, and only the address named for the market can open it
+    // 1. nothing is open: the templates are listed, with where each opens and its range, and anyone may create one
     r = await openPage({ hash: hashP() });
-    await until(r.page, () => /Not open yet/.test(document.querySelector('#pools')?.textContent || ''));
-    ok(/TACD \/ USDC market/.test(await panel(r.page)) && /0\.05% fee/.test(await panel(r.page)) && !(await r.page.$('#pl-go')), 'the market panel names the pair and its fee, and says it is not open yet, with nothing to press');
+    await until(r.page, () => (document.querySelectorAll('#pl-pick button').length === 3));
+    const lab = await r.page.$$eval('#pl-pick button', (bs) => bs.map((b) => b.textContent.replace(/\s+/g, ' ').trim()));
+    ok(lab.join('|') === 'TACD / USDCPeg · 0.05%|TACD / USDCBackstop · 0.3%|TACD / ETHWide · 0.3%', `the dollar token lists its three markets, each with an icon pair (${lab.join(' | ')})`);
+    ok((await r.page.$$eval('#pl-pick button .pair .tk', (n) => n.length)) === 6 && /Peg · 0\.05% fee/.test(await panel(r.page)) && /Opens at\s*1 TACD = 1 USDC/.test(await panel(r.page)) && /Range\s*0\.9 – 1\.111 USDC/.test(await panel(r.page)), 'the first is open to read: the peg band, 0.05%, opening at 1 TACD = 1 USDC');
+    await r.page.click('#pl-pick button:nth-child(2)'); await sleep(100);
+    ok(/Backstop · 0\.3% fee/.test(await panel(r.page)) && /Range\s*0\.5 – 2 USDC/.test(await panel(r.page)), 'the backstop is wider: 0.5 to 2 USDC at 0.3%');
+    await r.page.click('#pl-pick button:nth-child(3)'); await sleep(100);
+    const c2 = Math.round(Number(`${ethUsd.toPrecision(2)}`)), pt3 = await panel(r.page);
+    ok(new RegExp(`Wide · 0\\.3% fee`).test(pt3) && new RegExp(`Opens at\\s*1 ETH = ${ethUsd.toLocaleString('en-US')} TACD`).test(pt3) && new RegExp(`Range\\s*${(c2 / 2).toLocaleString('en-US')} – ${(c2 * 2).toLocaleString('en-US')} TACD per ETH`).test(pt3), `the ETH market follows the live ETH/USD price (${ethUsd}): it opens there and its band is half to double the price rounded to two figures (${pt3.slice(0, 190)})`);
     await untilText(r.page, '#board', /Sells for\s*Not open yet\s*Not open yet/);
-    ok(true, 'and the board has a row saying so for each vault');
-    await closeAll(r);
-    r = await openPage({ who: 'user', hash: hashP() });
-    await connect(r.page);
-    await until(r.page, () => /Not open yet/.test(document.querySelector('#pools')?.textContent || ''));
-    await sleep(800);
-    ok(!(await r.page.$('#pl-go')), 'an account that is not the market’s owner is not offered to open it');
-    await closeAll(r);
-
-    // 2. the owner opens the TACD / USDC market: two approvals, then the market
-    r = await openPage({ who: 'owner', hash: hashP() });
-    const op = r.page, OL = r.walletLog;
-    await connect(op);
-    await until(op, () => !!document.querySelector('#pl-go'));
-    ok(/Opens at\s*1 TACD = 1 USDC/.test(await panel(op)) && /Range\s*0\.9 – 1\.111 USDC/.test(await panel(op)), `the owner sees where it opens and the range it trades in (${(await panel(op)).slice(0, 160)})`);
-    await op.fill('#pl-s', '1000'); await sleep(100);
-    const q1 = Number(await op.inputValue('#pl-q'));
-    ok(q1 > 999.9 && q1 < 1000.1, `typing the TACD fills the USDC at the opening price: ${q1}`);
-    ok(/2 approvals first/.test(await text(op, '#pl-hint')) && (await text(op, '#pl-go')) === 'Open the market', 'it says two approvals come first and the button opens the market');
-    await shot(op, 'pools-form');
-    await op.click('#pl-go');
-    await untilText(op, '#pl-status', /The TACD market is open\./, 120000);
-    const S1 = sends(OL), pool1 = poolOf(SYN.usd);
-    ok(S1.length === 3 && S1[0].data.startsWith('0x095ea7b3') && S1[1].data.startsWith('0x095ea7b3') && S1[2].to === PF.toLowerCase() && S1[2].data.startsWith('0x7163352a'), 'three transactions: the approvals for TACD and USDC, then createAndSeed');
-    const t0 = view(pool1, 'token0()(address)')[0].toLowerCase(), t1 = view(pool1, 'token1()(address)')[0].toLowerCase();
-    ok(BigInt(t0) < BigInt(t1) && [t0, t1].sort().join() === [SYN.usd.toLowerCase(), USDC.toLowerCase()].sort().join(), 'the pool holds TACD and USDC, ordered as the factory orders them');
-    const sl = big(pool1, 'sqrtPLow()(uint256)'), sh = big(pool1, 'sqrtPHigh()(uint256)'), sn = big(pool1, 'sqrtPriceCurrent()(uint256)');
-    const sIs1 = t1 === SYN.usd.toLowerCase(), prod = sl * sh, want = sIs1 ? 10n ** 48n : 10n ** 24n;
-    ok((prod > want ? prod - want : want - prod) * 1_000_000_000n < want && sn > sl && sn < sh, 'its range is 0.9 to 1.111 of the opening price (in raw units, with the six-decimal USDC), and it opened inside it');
-    ok(big(pool1, 'fee()(uint256)') === 500n && view(pool1, 'feeRecipient()(address)')[0].toLowerCase() === ACC.owner.a.toLowerCase() && big(pool1, 'creatorFeeBps()(uint256)') === 0n, 'a fee of 500 pips, named to the owner, with no creator share');
-    const rS = sIs1 ? big(pool1, 'reserve1()(uint256)') : big(pool1, 'reserve0()(uint256)'), rQ = sIs1 ? big(pool1, 'reserve0()(uint256)') : big(pool1, 'reserve1()(uint256)');
-    ok(rS <= 1000n * E18 && rS >= 1000n * E18 - 10n ** 12n && rQ >= 999_999_000n && rQ <= 1_000_001_000n && big(pool1, 'balanceOf(address)(uint256)', ACC.owner.a) > 0n, `the pool holds the 1,000 TACD and about 1,000 USDC (${rS}, ${rQ}), and the owner holds the shares`);
-    await until(op, () => /In the pool/.test(document.querySelector('#pools')?.textContent || ''));
-    const pt = await panel(op);
-    ok(/Price\s*1 TACD = 1 USDC/.test(pt) && /In the pool\s*1,000 USDC · 1,000 TACD/.test(pt) && /Yours\s*100%/.test(pt), `the panel now shows the price, the depth and the owner’s share (${pt.slice(0, 200)})`);
-    await untilText(op, '#board', /Sells for\s*1,000 USDC/);
-    ok(true, 'and the board row shows the depth');
-    await shot(op, 'pools-open');
+    ok((await text(r.page, '#pl-go')) === 'Connect wallet', 'with no wallet the button asks for one');
     ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
+    await shot(r.page, 'pools-list');
     await closeAll(r);
 
-    // 3. anyone adds to it, in the pool's proportions, and takes some out
+    // 2. one click creates the pool: no tokens, no approvals, one transaction. Then it is seeded.
     r = await openPage({ who: 'user', hash: hashP() });
     const up = r.page, UL = r.walletLog;
     await connect(up);
-    await until(up, () => !!document.querySelector('#pl-go'));
-    ok(!/Opens at/.test(await panel(up)), 'a market that is open shows no opening price');
-    await up.click('#pl-bq'); await sleep(150);
-    const maxQ = Number(await up.inputValue('#pl-q')), maxS = Number(await up.inputValue('#pl-s'));
-    ok(maxQ > 0 && maxS > 0 && maxQ <= 50000 && maxS <= 50000 && Math.abs(maxQ - maxS) / maxQ < 0.01, `Max fills both boxes in proportion (${maxS} TACD, ${maxQ} USDC)`);
-    await up.fill('#pl-q', '100'); await sleep(100);
-    await shot(up, 'pools-add');
-    const s100 = Number(await up.inputValue('#pl-s'));
-    ok(s100 > 99.9 && s100 < 100.1, `100 USDC asks for about 100 TACD (${s100})`);
-    const lp0 = big(pool1, 'totalSupply()(uint256)'), px0 = big(pool1, 'sqrtPriceCurrent()(uint256)');
+    await until(up, () => /^Create pool$/.test(document.querySelector('#pl-go')?.textContent || ''));
     await up.click('#pl-go');
-    await untilText(up, '#pl-status', /Added\./, 120000);
-    const S2 = sends(UL);
-    ok(S2.length === 3 && S2[2].to === PF.toLowerCase() && S2[2].data.startsWith('0xbdc5ef29'), 'two approvals, then seed on the open market');
-    const lp1 = big(pool1, 'totalSupply()(uint256)'), px1 = big(pool1, 'sqrtPriceCurrent()(uint256)'), mine = big(pool1, 'balanceOf(address)(uint256)', ACC.user.a);
-    ok(lp1 > lp0 && mine > 0n && lp1 - lp0 === mine && (px1 > px0 ? px1 - px0 : px0 - px1) * 10_000_000n < px0, 'it minted shares to the account in proportion, without moving the price');
-    await until(up, () => /Yours/.test(document.querySelector('#pools')?.textContent || ''));
+    await untilText(up, '#pl-status', /pool is created\./, 120000);
+    const S1 = sends(UL), pool1 = poolsOf(SYN.usd)[0];
+    ok(S1.length === 1 && S1[0].to === PF.toLowerCase() && S1[0].data.startsWith('0xb18a0dcf') && S1[0].value === 0n, 'creating is one transaction to the factory (createPool) and nothing else');
+    ok(view(PF, 'isPool(address)(bool)', pool1)[0] === 'true' && big(pool1, 'totalSupply()(uint256)') === 0n && big(pool1, 'fee()(uint256)') === 500n && view(pool1, 'feeRecipient()(address)')[0] === '0x0000000000000000000000000000000000000000', 'the pool exists, holds nothing, charges 500 pips and is not named to anyone');
+    const t0 = view(pool1, 'token0()(address)')[0].toLowerCase(), t1 = view(pool1, 'token1()(address)')[0].toLowerCase();
+    const sIs1 = t1 === SYN.usd.toLowerCase(), sl = big(pool1, 'sqrtPLow()(uint256)'), sh = big(pool1, 'sqrtPHigh()(uint256)'), prod = sl * sh, want = sIs1 ? 10n ** 48n : 10n ** 24n;
+    ok(BigInt(t0) < BigInt(t1) && [t0, t1].sort().join() === [SYN.usd.toLowerCase(), USDC.toLowerCase()].sort().join() && near(prod, want, 1e-9), 'it holds TACD and USDC in the factory’s order, with the band 0.9 to 1.111 (in raw units, with the six-decimal USDC)');
+    await until(up, () => /Add the first liquidity/.test(document.querySelector('#pl-go')?.textContent || ''));
+    ok(/Created\. Add liquidity to open it/.test(await text(up, '#pl-hint')) && await up.$eval('#pl-go', (b) => b.disabled), 'the page now says it is created and asks for the first liquidity');
     UL.sends.length = 0;
-    await up.click('#pl-rm [data-rm="50"]');
-    await untilText(up, '#pl-status', /Taken out\./, 120000);
-    const S3 = sends(UL), mine2 = big(pool1, 'balanceOf(address)(uint256)', ACC.user.a);
-    ok(S3.length === 1 && S3[0].to === pool1.toLowerCase() && S3[0].data.startsWith('0xe39b0eb5') && mine2 === mine - mine / 2n, `taking half out is one transaction to the pool, and burns half the shares (${mine} → ${mine2})`);
+    await up.fill('#pl-s', '1000'); await sleep(100);
+    const q1 = Number(await up.inputValue('#pl-q'));
+    ok(q1 > 999.9 && q1 < 1000.1 && /2 approvals first/.test(await text(up, '#pl-hint')), `typing 1,000 TACD fills about 1,000 USDC at the opening price (${q1}), and says two approvals come first`);
+    await shot(up, 'pools-form');
+    await up.click('#pl-go');
+    await untilText(up, '#pl-status', /market is open\./, 120000);
+    const S2 = sends(UL);
+    ok(S2.length === 3 && S2[0].data.startsWith('0x095ea7b3') && S2[1].data.startsWith('0x095ea7b3') && S2[2].data.startsWith('0x7163352a'), 'two approvals, then the first liquidity (createAndSeed, which seeds a pool created empty)');
+    const rS = sIs1 ? big(pool1, 'reserve1()(uint256)') : big(pool1, 'reserve0()(uint256)'), rQ = sIs1 ? big(pool1, 'reserve0()(uint256)') : big(pool1, 'reserve1()(uint256)');
+    ok(rS <= 1000n * E18 && rS >= 1000n * E18 - 10n ** 12n && rQ >= 999_999_000n && rQ <= 1_000_001_000n && big(pool1, 'balanceOf(address)(uint256)', ACC.user.a) > 0n, `the pool holds the 1,000 TACD and about 1,000 USDC (${rS}, ${rQ}), and the account holds the shares`);
+    await until(up, () => /In the pool/.test(document.querySelector('#pools')?.textContent || ''));
+    const pt = await panel(up);
+    ok(/Price\s*1 TACD = 1 USDC/.test(pt) && /In the pool\s*1,000 USDC · 1,000 TACD/.test(pt) && /Yours\s*100%/.test(pt), `the panel shows the price, the depth and the share (${pt.slice(0, 200)})`);
+    await untilText(up, '#board', /Sells for\s*1,000 USDC/);
+    ok(true, 'and the board row shows the depth');
+    await shot(up, 'pools-open');
+    ok(UL.sends.length === 3 && r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
+    await closeAll(r);
+
+    // 3. anyone adds to it, in the pool's proportions, and takes some out
+    r = await openPage({ who: 'bob', hash: hashP() });
+    const bp = r.page, BL = r.walletLog;
+    await connect(bp);
+    await until(bp, () => /Price/.test(document.querySelector('#pools')?.textContent || '') && !!document.querySelector('#pl-go'));
+    ok(!/Opens at/.test(await panel(bp)), 'a market that is open shows no opening price');
+    await bp.click('#pl-bq'); await sleep(150);
+    const maxQ = Number(await bp.inputValue('#pl-q')), maxS = Number(await bp.inputValue('#pl-s'));
+    ok(maxQ > 0 && maxS > 0 && maxQ <= 50000 && maxS <= 50000 && Math.abs(maxQ - maxS) / maxQ < 0.01, `Max fills both boxes in proportion (${maxS} TACD, ${maxQ} USDC)`);
+    await bp.fill('#pl-q', '100'); await sleep(100);
+    const s100 = Number(await bp.inputValue('#pl-s'));
+    ok(s100 > 99.9 && s100 < 100.1, `100 USDC asks for about 100 TACD (${s100})`);
+    await shot(bp, 'pools-add');
+    const lp0 = big(pool1, 'totalSupply()(uint256)'), px0 = big(pool1, 'sqrtPriceCurrent()(uint256)');
+    await bp.click('#pl-go');
+    await untilText(bp, '#pl-status', /Added\./, 120000);
+    const S3 = sends(BL);
+    ok(S3.length === 3 && S3[2].to === PF.toLowerCase() && S3[2].data.startsWith('0xbdc5ef29'), 'two approvals, then seed on the open market');
+    const lp1 = big(pool1, 'totalSupply()(uint256)'), px1 = big(pool1, 'sqrtPriceCurrent()(uint256)'), mine = big(pool1, 'balanceOf(address)(uint256)', ACC.bob.a);
+    ok(lp1 > lp0 && mine > 0n && lp1 - lp0 === mine && (px1 > px0 ? px1 - px0 : px0 - px1) * 10_000_000n < px0, 'it minted shares to the account in proportion, without moving the price');
+    await until(bp, () => /Yours/.test(document.querySelector('#pools')?.textContent || ''));
+    BL.sends.length = 0;
+    await bp.click('#pl-rm [data-rm="50"]');
+    await untilText(bp, '#pl-status', /Taken out\./, 120000);
+    const S4 = sends(BL), mine2 = big(pool1, 'balanceOf(address)(uint256)', ACC.bob.a);
+    ok(S4.length === 1 && S4[0].to === pool1.toLowerCase() && S4[0].data.startsWith('0xe39b0eb5') && mine2 === mine - mine / 2n, `taking half out is one transaction to the pool, and burns half the shares (${mine} → ${mine2})`);
     ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
     await closeAll(r);
 
-    // 4. TACE against ETH: the ETH goes with the transaction, so only TACE needs approving
-    r = await openPage({ who: 'owner', hash: hashP('&v=eth') });
+    // 4. TACE against ETH, created and seeded in one click: the ETH goes with the transaction, so only TACE needs approving
+    r = await openPage({ who: 'user', hash: hashP('&v=eth') });
     const ep = r.page, EL = r.walletLog;
     await connect(ep);
-    await until(ep, () => !!document.querySelector('#pl-go') && /TACE \/ ETH market/.test(document.querySelector('#pools')?.textContent || ''));
-    ok(/Opens at\s*1 TACE = 1 ETH/.test(await panel(ep)) && /Range\s*0\.7 – 1\.429 ETH/.test(await panel(ep)), `the ether vault’s market opens at 1 TACE = 1 ETH, between 0.7 and 1.429 (${(await panel(ep)).slice(0, 160)})`);
+    await until(ep, () => !!document.querySelector('#pl-go') && /Where TACE sells/.test(document.querySelector('#pools')?.textContent || ''));
+    ok(/Opens at\s*1 TACE = 1 ETH/.test(await panel(ep)) && /Range\s*0\.9 – 1\.111 ETH/.test(await panel(ep)), 'the ether token’s first market opens at 1 TACE = 1 ETH, between 0.9 and 1.111');
     await ep.fill('#pl-q', '2'); await sleep(100);
     const sE = Number(await ep.inputValue('#pl-s'));
-    ok(sE > 1.99 && sE < 2.01, `2 ETH asks for about 2 TACE (${sE})`);
-    ok(/1 approval first/.test(await text(ep, '#pl-hint')), 'one approval comes first');
+    ok(sE > 1.99 && sE < 2.01 && (await text(ep, '#pl-go')) === 'Create and add liquidity' && /1 approval first, then the pool and the deposit/.test(await text(ep, '#pl-hint')), `2 ETH asks for about 2 TACE (${sE}); one approval, then the pool and the deposit in one transaction`);
     await ep.click('#pl-go');
-    await untilText(ep, '#pl-status', /The TACE market is open\./, 120000);
-    const S4 = sends(EL), pool2 = poolOf(SYN.eth);
-    ok(S4.length === 2 && S4[0].data.startsWith('0x095ea7b3') && S4[0].to === SYN.eth.toLowerCase() && S4[1].to === PF.toLowerCase() && S4[1].data.startsWith('0x7163352a') && S4[1].value >= 2n * E18 - 10n ** 9n && S4[1].value <= 2n * E18 + 10n ** 9n, 'one approval for TACE, then createAndSeed carrying about 2 ETH');
+    await untilText(ep, '#pl-status', /market is open\./, 120000);
+    const S5 = sends(EL), pool2 = poolsOf(SYN.eth)[0];
+    ok(S5.length === 2 && S5[0].data.startsWith('0x095ea7b3') && S5[0].to === SYN.eth.toLowerCase() && S5[1].to === PF.toLowerCase() && S5[1].data.startsWith('0x7163352a') && S5[1].value >= 2n * E18 - 10n ** 9n && S5[1].value <= 2n * E18 + 10n ** 9n, 'one approval for TACE, then createAndSeed carrying about 2 ETH');
     ok(view(pool2, 'token0()(address)')[0] === '0x0000000000000000000000000000000000000000' && big(pool2, 'reserve0()(uint256)') >= 2n * E18 - 10n ** 9n && big(pool2, 'reserve1()(uint256)') >= 2n * E18 - 10n ** 9n, 'ETH is the pool’s first token, and it holds about 2 ETH and 2 TACE');
     ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
     await closeAll(r);
+
+    // 5. TACD against ETH: the band is centred on the live price when it is opened
+    r = await openPage({ who: 'user', hash: hashP() });
+    const dp = r.page, DL = r.walletLog;
+    await connect(dp);
+    await until(dp, () => document.querySelectorAll('#pl-pick button').length === 3);
+    await dp.click('#pl-pick button:nth-child(3)'); await sleep(100);
+    await dp.fill('#pl-q', '1'); await sleep(100);
+    const sD = Number(await dp.inputValue('#pl-s'));
+    ok(near(BigInt(Math.round(sD * 1e6)), BigInt(Math.round(ethUsd * 1e6)), 1e-4), `1 ETH asks for ${ethUsd.toLocaleString('en-US')} TACD, the live price (${sD})`);
+    await dp.click('#pl-go');
+    await untilText(dp, '#pl-status', /market is open\./, 120000);
+    const pool3 = poolsOf(SYN.usd).find((p) => view(p, 'token0()(address)')[0] === '0x0000000000000000000000000000000000000000');
+    const eSl = big(pool3, 'sqrtPLow()(uint256)'), eSh = big(pool3, 'sqrtPHigh()(uint256)'), eNow = big(pool3, 'sqrtPriceCurrent()(uint256)');
+    const centre = BigInt(c2);
+    ok(near(eSl * eSl, centre * 10n ** 36n / 2n, 1e-9) && near(eSh * eSh, centre * 10n ** 36n * 2n, 1e-9), `the pool's band is half to double the price rounded to two figures (${c2}): square roots ${Number(eSl) / 1e18} to ${Number(eSh) / 1e18}`);
+    ok(near(eNow * eNow, BigInt(Math.round(ethUsd * 1e6)) * 10n ** 30n, 1e-4) && big(pool3, 'fee()(uint256)') === 3000n, 'it opened at the live price, at 0.3%');
+    ok(DL.sends.length === 2 && DL.sends[0].data.startsWith('0x095ea7b3') && r.errors.length === 0 && r.blocked.length === 0, `one approval (TACD; the ETH is native), then the pool and the deposit, with nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
+    await closeAll(r);
+
+    // 5b. the other token order: a USDC whose address is above the token's puts the token first in the pool, and every figure turns over
+    {
+      const LOW = '0xfFfFffFFffFFFFFfFfFFFFFFfFFfFfFfFFFF1234', code = (await rpcA('eth_getCode', [USDC, 'latest']));
+      await rpcA('anvil_setCode', [LOW, code]);
+      send('deployer', LOW, 'mint(address,uint256)', ACC.user.a, String(50_000n * 10n ** 6n));
+      r = await openPage({ who: 'user', hash: `#vusd=${USD}&veth=${ETH}&usdc=${LOW}` });
+      const lp = r.page, LL = r.walletLog;
+      await connect(lp);
+      await until(lp, () => /Opens at/.test(document.querySelector('#pools')?.textContent || '') && !!document.querySelector('#pl-go'));
+      const lt = await panel(lp);
+      ok(/Opens at\s*1 TACD = 1 USDC/.test(lt) && /Range\s*0\.9 – 1\.111 USDC/.test(lt), `with the token first in the pool the page reads the same market: opens at 1 TACD = 1 USDC, 0.9 to 1.111 (${lt.slice(0, 150)})`);
+      await lp.fill('#pl-q', '300'); await sleep(100);
+      const sL = Number(await lp.inputValue('#pl-s'));
+      ok(sL > 299.9 && sL < 300.1, `300 USDC asks for about 300 TACD (${sL})`);
+      await lp.click('#pl-go');
+      await untilText(lp, '#pl-status', /market is open\./, 120000);
+      const poolL = poolsOf(SYN.usd).find((p) => view(p, 'token1()(address)')[0].toLowerCase() === LOW.toLowerCase());
+      ok(!!poolL && view(poolL, 'token0()(address)')[0].toLowerCase() === SYN.usd.toLowerCase(), 'the pool has TACD first and the high USDC second');
+      const lS = big(poolL, 'reserve0()(uint256)'), lQ = big(poolL, 'reserve1()(uint256)');
+      ok(lQ >= 299_999_000n && lQ <= 300_001_000n && near(lS, 300n * E18, 1e-5), `it holds about 300 TACD and 300 USDC (${lS}, ${lQ})`);
+      await until(lp, () => /In the pool/.test(document.querySelector('#pools')?.textContent || ''));
+      const lt2 = await panel(lp);
+      ok(/Price\s*1 TACD = 1 USDC/.test(lt2) && /In the pool\s*300 USDC · 300 TACD/.test(lt2), `and shows it the same way (${lt2.slice(0, 200)})`);
+      ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
+      await closeAll(r);
+    }
+
+    // 6. a pool someone else opened for the token is found and listed
+    {
+      const ssl = (n, d) => isqrt(n * 10n ** 36n / d), synthIs1 = BigInt(SYN.usd) > BigInt(USDC);
+      const raw = (pn, pd) => (synthIs1 ? [pn * E18, pd * 10n ** 6n] : [pd * 10n ** 6n, pn * E18]);
+      const [lo, hi] = synthIs1 ? [raw(99n, 100n), raw(100n, 99n)] : [raw(100n, 99n), raw(99n, 100n)];
+      const tuple = `(${synthIs1 ? USDC : SYN.usd},${synthIs1 ? SYN.usd : USDC},${ssl(...lo)},${ssl(...hi)},100,0x0000000000000000000000000000000000000000,0x0000000000000000000000000000000000000000,0)`;
+      cast('send', PF, 'createPool((address,address,uint256,uint256,uint256,address,address,uint256))', tuple, '--private-key', ACC.deployer.k, '--rpc-url', ANVIL, '--gas-limit', '30000000', '--json');
+      r = await openPage({ hash: hashP() });
+      await until(r.page, () => document.querySelectorAll('#pl-pick button').length === 4);
+      const lab2 = await r.page.$$eval('#pl-pick button', (bs) => bs.map((b) => b.textContent.replace(/\s+/g, ' ').trim()));
+      ok(lab2.length === 4 && lab2[3] === 'TACD / USDC0.01%', `a pool someone else opened (±1%, 0.01%) is listed after the templates (${lab2.join(' | ')})`);
+      await closeAll(r);
+    }
   }
 
   // ── screenshots, phone and dark, one per zone ──

@@ -20,8 +20,8 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /vault/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/vault/app.js?cb=0a5aa0de">
-<link rel="modulepreload" href="/vault/deployments.js?cb=55fe04cc">
+<link rel="modulepreload" href="/vault/app.js?cb=fd3d7ebf">
+<link rel="modulepreload" href="/vault/deployments.js?cb=c195a780">
 <link rel="modulepreload" href="/vault/math.js?cb=ac1ed53e">
 <link rel="modulepreload" href="/vault/chain.js?cb=446cc436">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=f6e1b626">
@@ -29,7 +29,7 @@
 <link rel="modulepreload" href="/vault/feed.js?cb=03954743">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/vault/batch.js?cb=457d6163">
-<link rel="modulepreload" href="/vault/pools.js?cb=b6a28bb1">
+<link rel="modulepreload" href="/vault/pools.js?cb=799fdbf2">
 <link rel="modulepreload" href="/vault/router.js?cb=21df6509">
 <link rel="modulepreload" href="/trade/wallet.js?cb=7b4ab128">
 <link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
@@ -155,6 +155,11 @@ h1 .s-tac { display: contents; }
 .seg button small { margin-left: 6px; font-size: 11px; opacity: .75; }
 @media (hover: hover) { .seg button:not([aria-pressed="true"]):hover { color: var(--ink); } }
 @media (pointer: coarse) { .seg button { min-height: var(--tap); } }
+.pair { display: inline-flex; flex: none; } .pair .tk { width: 20px; height: 20px; margin: 0; box-shadow: 0 0 0 2px var(--card); } .pair .tk + .tk { margin-left: -7px; }
+.seg.pick2 { display: grid; width: 100%; grid-auto-flow: row; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 0 0 4px; }
+.seg.pick2 button { display: flex; align-items: center; gap: 8px; justify-content: flex-start; text-align: left; padding: 8px 10px; border-left: 0; border-top: 1px solid var(--hair-2); }
+.seg.pick2 button:first-child { border-top: 0; }
+.seg.pick2 .mk { display: grid; gap: 1px; line-height: 1.25; } .seg.pick2 .mk b { font-weight: 500; font-size: 12.5px; white-space: nowrap; } .seg.pick2 .mk small { display: block; margin: 0; font-size: 11px; }
 .seg.big { display: grid; width: 100%; } .seg.big button { min-height: 42px; font-size: 13.5px; }
 .seg.big.tabs button { font-size: 13px; padding: 4px 4px; }
 @media (pointer: coarse) { .seg.big button { min-height: var(--tap); } }
@@ -401,6 +406,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <defs>
     <symbol id="tk-tac" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/></symbol>
     <symbol id="tk-tacd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M16.5 7 L15.5 25" stroke="#f7931a" stroke-width="2.7" stroke-linecap="round"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" fill="none" stroke="#f7931a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="tk-usdc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#2775ca"/><circle cx="16" cy="16" r="12" fill="none" stroke="#fff" stroke-width="2"/><path d="M19.2 12.6c-.3-1.1-1.4-1.8-3.2-1.8-2 0-3.2.9-3.2 2.2 0 1.3 1 1.9 3.2 2.3 2.2.4 3.2 1 3.2 2.4 0 1.3-1.2 2.3-3.2 2.3-1.9 0-3.1-.8-3.4-2" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><path d="M16 9v2M16 21v2" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="tk-eth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#3c4a63"/><path d="M16 5.5l-6 10 6 3.5 6-3.5z" fill="#fff"/><path d="M16 20.4l-6-3.5 6 9.6 6-9.6z" fill="#cfd6e4"/></symbol>
     <symbol id="tk-tace" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/><path d="M14.8 17L19 17" stroke="#f7931a" stroke-width="2.2" stroke-linecap="round"/></symbol>
     <symbol id="tk-btc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#F7931A"/><path fill="#FFF" d="M23.189 14.02c.314-2.096-1.283-3.223-3.465-3.975l.708-2.84-1.728-.43-.69 2.765c-.454-.114-.92-.22-1.385-.326l.695-2.783L15.596 6l-.708 2.839c-.376-.086-.746-.17-1.104-.26l.002-.009-2.384-.595-.46 1.846s1.283.294 1.256.312c.7.175.826.638.805 1.006l-.806 3.235c.048.012.11.03.18.057l-.183-.045-1.13 4.532c-.086.212-.303.531-.793.41.018.025-1.256-.313-1.256-.313l-.858 1.978 2.25.561c.418.105.828.215 1.231.318l-.715 2.872 1.727.43.708-2.84c.472.127.93.245 1.378.357l-.706 2.828 1.728.43.715-2.866c2.948.558 5.164.333 6.097-2.333.752-2.146-.037-3.385-1.588-4.192 1.13-.26 1.98-1.003 2.207-2.538zm-3.95 5.538c-.533 2.147-4.148.986-5.32.695l.95-3.805c1.172.293 4.929.872 4.37 3.11zm.535-5.569c-.487 1.953-3.495.96-4.47.717l.86-3.45c.975.243 4.118.696 3.61 2.733z"/></symbol>
     <symbol id="tk-cbtc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><g fill="none" stroke="#f7931a" stroke-linecap="round" stroke-linejoin="round"><path d="M16.4 8 L12.9 23 C 18.6 24 21 21.5 21 18.7 C 21 16 17.6 15.2 14.7 15.6" stroke-width="2.8"/><path d="M11.9 13.2 L18.4 11.5" stroke-width="2.4"/></g></symbol>
@@ -531,6 +538,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/vault/app.js?cb=0a5aa0de"></script>
+<script type="module" src="/vault/app.js?cb=fd3d7ebf"></script>
 </body>
 </html>

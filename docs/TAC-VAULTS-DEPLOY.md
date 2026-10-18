@@ -71,18 +71,24 @@ and debt-free withdrawal work. The owner's tools are in `tools/tac-vault-admin.m
 
 ## Where the tokens sell
 
-A borrowed token is worth what it sells for. `dapp/vault/deployments.js` (`pools`) names one Precision pool for each vault's token: TACD against USDC and TACE against ETH,
-each at 0.05%, in a price band of about ±10% (TACD) and ±30% (TACE) around where it opens (1 USDC, 1 ETH). The vault page (`dapp/vault/pools.js`) builds the market from that
-entry and the vault's token, reads it, opens it and adds to it or takes from it. Three things to know before it is opened:
+A borrowed token is worth what it sells for. `dapp/vault/deployments.js` (`pools`) lists the Precision pools worth opening for each token, and the vault page (`dapp/vault/pools.js`)
+shows them under the board: TACD against USDC (a tight ±10% "peg" band at 0.05%, and a wide ×0.5–×2 "backstop" at 0.3%), TACD against ETH (half to double the ETH/USD price when it is
+opened, rounded to two figures, at 0.3%), and TACE against ETH (peg and backstop as for TACD). Anyone can open one: with nothing typed the button creates the pool (one transaction, no
+tokens); with amounts typed it creates and seeds it in the same transaction, or adds to it if it exists. Pools that others open for the token, against USDC or ETH and with no hook, are
+found from the factory and listed after these.
 
-- **A market is its tuple.** The factory derives the pool's address from the two tokens, the band, the fee and the fee recipient, so none of them changes afterwards. The
-  recipient is the one address that may open the market (a market with a front end is named so that nobody else can open it, or pick its opening price, first), and it is
-  the ops multisig unless `pools.recipient` says otherwise. With the multisig as recipient the planned pools are TACD/USDC `0xb2dD089d075e23C124172dcF35c06343D8402D95`
-  and TACE/ETH `0xb2c77c744712658387534d7cdBFFfBf69fd2b38e`; changing the recipient, the fee or a bound changes them.
-- **The band is deliberate.** A swap that would leave the band is refused, so a narrow one stops selling exactly when the token drifts furthest. The bands are wide enough
-  to keep an exit open through a bad week and narrow enough to give several times the depth of a full-range pool for the same money.
-- **Nothing can be sold until someone has borrowed.** TACD and TACE exist only as debt, so the first deposit comes from an account that borrowed them (1% fee) and holds
-  the other side. `tests/vault-page.mjs` opens both markets against the live factory's code on a local chain.
+- **A market is its tuple.** The factory derives the pool's address from the two tokens, the band, the fee and the fee recipient, so none of them changes afterwards. The templates are
+  unnamed (no fee recipient), so no one has to be the one to open them; the cost is that someone can open one first at a price of their own, which on a ±10% band is arbitraged back
+  within the band and which the page shows (a deposit into a pool that trades 3% from where its market opens says so). Planned addresses on mainnet today: TACD/USDC peg
+  `0xDfEE03499f65E56D54aCeEEdc6F41A09FBEB94B3`, backstop `0x867918fD7B6D4F13A20048485147867B9A597534`; TACE/ETH peg `0x386627b60CD2A11365e653f0382d92421fddF7a1`, backstop
+  `0xe1E317700589F3EaFCA20Ac9408c97fE700fC1C1`. The TACD/ETH address follows the rounded ETH/USD price of the day it is opened (`0x7248a2011c76eC958B791c4C0dD99AD6E0cAa351` at 2,300).
+- **Why bands.** A swap that would leave the band is refused, so the band decides both the price and the exit. On a $200 pool (100 TACD and 100 USDC) selling 25 TACD costs 0.7% in a ±5% band,
+  1.3% in ±10%, 6.9% in ×0.5–×2 and 19.5% across a full range; the cost of the narrow ones is the tail (if TACD fell to $0.80 a ±10% depositor is down 8.7% against holding, a full-range
+  one 0.6%). The peg tier is where the price is made; the backstop is what still trades if the peg breaks. A band that follows ETH goes out of range when ETH leaves it, which the page
+  says ("out of range") and answers with a new pool at the new centre.
+- **How much there can be.** TACD and TACE exist only as debt, and the vault lends 0.55% of the TAC/ETH pools' smallest ETH depth (3.6 ETH today, so about $47 of TACD and 0.02 TACE in
+  all, against a smallest debt of $10). The first liquidity comes from an account that borrowed (1% fee) and holds the other side; more room comes from a deeper TAC/ETH pool or from
+  `depthBps` (at most 2×+25 bps a step, at most 1,000). `tests/vault-page.mjs` opens the markets against the live factory's code on a local chain, in both token orders.
 
 ## Changing anything
 

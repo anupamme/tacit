@@ -4,16 +4,25 @@
 export const DEPLOYMENTS = Object.freeze({
   chainId: 1,
   router: '0x000000F9ab49650502BeC910D13b4717F0082598',
-  // The markets where a vault's token sells: a Precision pool for each (pools.js). `factory`: the Precision pool factory. `recipient`: the one address that may open a market (a market
-  // with a front end is named so that nobody else can open it at a price of their own); the pool's address follows from the market, so changing a number here before it is opened
-  // changes which pool the page means, and after it is opened a different one. `open`, `low` and `high`: the synth's price in the quote (tokens of the synth per unit of the quote),
-  // where the market opens and the ends of the range it trades in; `fee`: in pips (500 = 0.05%).
+  // The markets where a vault's token sells: Precision pools that anyone can open (dapp/vault/pools.js). `factory`: the Precision pool factory. `quotes`: what a token sells for.
+  // `markets`: the ones worth opening, in the order the page lists them (the first is the one it opens on). Each is `{ vault, quote, tier, fee, center, low, high }`: the token of
+  // that vault against that quote; `fee` in pips (500 = 0.05%); `low` and `high` the ends of the price band it trades in (a swap that would leave it is refused), as multiples of
+  // its centre, in tokens of the vault per unit of the quote; `center`: 'peg' (1: the token tracks what it is sold for) or 'ethusd' (the live ETH/USD price, rounded to two
+  // figures, when the market is opened). Two tiers for each token: a tight band around the peg, which gives the best price in ordinary times (a $200 pool sells 25 of its tokens at
+  // 0.7% slippage in a ±10% band, 20% in a full-range pool), and a wide one that still trades if the peg breaks. A market is its tuple: the pool's address follows from the tokens, the
+  // band and the fee, so changing one here points the page at another pool (a pool the factory already holds for the token is listed either way).
   pools: Object.freeze({
     factory: '0x000000Eb27B557aB426d9E99cFd54EC455799e81',
-    recipient: '0x006CD14F36F65eCbB29b2519cCBe63A0DC8549F2',
+    quotes: Object.freeze({
+      USDC: Object.freeze({ addr: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', dec: 6 }),
+      ETH: Object.freeze({ addr: null, dec: 18 }),
+    }),
     markets: Object.freeze([
-      Object.freeze({ vault: 'usd', quote: Object.freeze({ sym: 'USDC', addr: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', dec: 6 }), fee: 500, open: '1', low: '9/10', high: '10/9' }),
-      Object.freeze({ vault: 'eth', quote: Object.freeze({ sym: 'ETH', addr: null, dec: 18 }), fee: 500, open: '1', low: '7/10', high: '10/7' }),
+      Object.freeze({ vault: 'usd', quote: 'USDC', tier: 'Peg', fee: 500, center: 'peg', low: '9/10', high: '10/9' }),
+      Object.freeze({ vault: 'usd', quote: 'USDC', tier: 'Backstop', fee: 3000, center: 'peg', low: '1/2', high: '2' }),
+      Object.freeze({ vault: 'usd', quote: 'ETH', tier: 'Wide', fee: 3000, center: 'ethusd', low: '1/2', high: '2' }),
+      Object.freeze({ vault: 'eth', quote: 'ETH', tier: 'Peg', fee: 500, center: 'peg', low: '9/10', high: '10/9' }),
+      Object.freeze({ vault: 'eth', quote: 'ETH', tier: 'Backstop', fee: 3000, center: 'peg', low: '1/2', high: '2' }),
     ]),
   }),
   vaults: Object.freeze([
