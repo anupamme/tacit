@@ -13,15 +13,15 @@ interface ICreateXRouter {
 ///         to no sender and to this chain, as the vaults were: the address is CREATE2(CreateX, keccak256(abi.encode(chainId,
 ///         salt)), keccak256(init code)), so it commits to the init code and to the two vaults it is built for, and nobody
 ///         can put different code there or take the address on another chain. A salt of the form 20 zero bytes, 0x01, then
-///         11 bytes of your choice (`ROUTER_SALT`, to mine an address with leading zero bytes) is the only form accepted; the
-///         default is a fixed one. A repeated run finds the router there and only checks it.
+///         11 bytes of your choice (`ROUTER_SALT`) is the only form accepted; the default is one mined
+///         for an address that starts with three zero bytes (`tools/vanity-create2 mine --init-hash <the hash this prints>`). A repeated run finds the router there and only checks it.
 ///
 ///         It must be built with the project's settings (solc 0.8.37 from the contract's own pragma, via-IR, optimizer runs
 ///         1, no metadata hash): the address follows from the compiled bytes.
 ///
 ///         forge script script/DeployTacVaultRouter.s.sol --rpc-url $RPC --broadcast --account <any funded account>
 contract DeployTacVaultRouter is Script {
-    bytes32 internal constant DEFAULT_SALT = 0x0000000000000000000000000000000000000000017461632d726f7574657231;
+    bytes32 internal constant DEFAULT_SALT = 0x000000000000000000000000000000000000000001000200e2832ae7af92adda; // mined with tools/vanity-create2: the address starts with three zero bytes, as the vaults' do
 
     function run() external {
         require(block.chainid == 1, "mainnet only");

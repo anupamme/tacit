@@ -52,8 +52,8 @@ send a batch themselves (EIP-5792) do not need it: the dapp uses their batch fir
 
     forge script script/DeployTacVaultRouter.s.sol --rpc-url $RPC --broadcast --account <account>
 
-It deploys through CreateX like the rest (a chain-bound salt: `ROUTER_SALT` to mine an address with leading zero bytes, the default
-otherwise), checks its bindings, and prints the address to put in `dapp/vault/deployments.js` (`router`). Until then the dapp does without it.
+It deploys through CreateX like the rest (a chain-bound salt: the default is mined for an address with three leading zero bytes,
+`0x000000F9ab49650502BeC910D13b4717F0082598`; `ROUTER_SALT` sets another), checks its bindings, and prints the address to put in `dapp/vault/deployments.js` (`router`). Until then the dapp does without it.
 
 ## Checking
 

@@ -13,7 +13,7 @@ const FORK_URL = process.env.FORK_URL || 'https://ethereum-rpc.publicnode.com';
 const PW = existsSync('/Users/z/zFi/node_modules/playwright-core') ? '/Users/z/zFi/node_modules/playwright-core' : 'playwright-core';
 const { chromium } = createRequire(import.meta.url)(PW);
 const PORT = 22000 + Math.floor(Math.random() * 900), WEB = PORT + 1, ANVIL = `http://127.0.0.1:${PORT}`;
-const EXPECT = { address: '0x21ce4fECbD2CFe0141317EE6d088f0704C37Eee1', hash: '0x50454a8e9106642aed979db84a63b45ac8c4bbc59da68a0853d5be88be72c28d' };   // from `forge script script/DeployTacVaultRouter.s.sol`
+const EXPECT = { address: '0x000000F9ab49650502BeC910D13b4717F0082598', hash: '0x50454a8e9106642aed979db84a63b45ac8c4bbc59da68a0853d5be88be72c28d' };   // from `forge script script/DeployTacVaultRouter.s.sol`
 
 const anvil = spawn('anvil', ['--fork-url', FORK_URL, '--port', String(PORT), '--chain-id', '1', '--silent'], { stdio: 'ignore' });
 let server, n = 0, fails = 0;
@@ -56,7 +56,7 @@ try {
   await p.fill('#tail', '00');
   await sleep(300);
   ok((await text(p, '#addr')) === '—' && (await p.$eval('#deploy', (b) => b.disabled)), 'a salt that is not 11 bytes gives no address');
-  await p.fill('#tail', '7461632d726f7574657231');
+  await p.fill('#tail', '000200e2832ae7af92adda');
   await p.click('#connect');
   await p.check('#agree');
   await p.waitForFunction(() => !document.querySelector('#deploy').disabled, null, { timeout: 30000 });
@@ -66,7 +66,7 @@ try {
   ok(sent.length === 1 && sent[0].to.toLowerCase() === '0xba5ed099633d3b313e4d5f7bdc1305d3c28ba5ed' && sent[0].data.startsWith('0x26307668'), 'one transaction, to CreateX, deployCreate2');
   const code = await rpc('eth_getCode', [EXPECT.address, 'latest']);
   ok(code !== '0x' && code.length > 6000, `the router is at its address (${(code.length - 2) / 2} bytes of code)`);
-  ok(/router: '0x21ce4fECbD2CFe0141317EE6d088f0704C37Eee1'/.test(await text(p, '#log')), 'and the page prints the line for deployments.js');
+  ok(/router: '0x000000F9ab49650502BeC910D13b4717F0082598'/.test(await text(p, '#log')), 'and the page prints the line for deployments.js');
   ok(errs.length === 0, `no page errors (${errs.join(' | ')})`);
   await p.close();
 
