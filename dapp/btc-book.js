@@ -53,9 +53,22 @@ export function satsForAmount(amountBase, unit, decimals) {
   return Number((toBig(amountBase) * scaledUnit) / (pow10(decimals) * 100_000_000n));
 }
 
+// What a person typed as plain digits and one point, or null. A comma between groups of three (1,500 and 1,234.5) is a thousands separator, as it
+// always was here; any other comma is a decimal point (0,05 and 12,5, as a keypad with a comma key gives them; 1.234,5 reads as 1234.5), not a
+// separator that would make 0,05 five.
+export function cleanNumber(text) {
+  let s = String(text ?? '').trim().replace(/[_\s]/g, '');
+  if (/^\d{1,3}(?:\.\d{3})+,\d*$/.test(s)) s = s.replace(/\./g, '').replace(',', '.');
+  else if (/^\d*,\d*$/.test(s) && !/^[1-9]\d{0,2},\d{3}$/.test(s)) s = s.replace(',', '.');
+  s = s.replace(/,/g, '');
+  return /^\d*\.?\d*$/.test(s) && s !== '' && s !== '.' ? s : null;
+}
+// A typed price or total as a number: NaN when it cannot be read.
+export const parseNumber = (text) => { const s = cleanNumber(text); return s == null ? NaN : Number(s); };
+
 export function parseAmount(text, decimals) {
-  const s = String(text ?? '').trim().replace(/[,_\s]/g, '');
-  if (!/^\d*\.?\d*$/.test(s) || s === '' || s === '.') return null;
+  const s = cleanNumber(text);
+  if (s == null) return null;
   const [w, f = ''] = s.split('.');
   const frac = f.slice(0, decimals).padEnd(decimals, '0');
   const v = BigInt(w || '0') * pow10(decimals) + BigInt(frac || '0');

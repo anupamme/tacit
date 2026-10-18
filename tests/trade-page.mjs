@@ -218,7 +218,7 @@ try {
   await p.click('[data-range="0"]');
   await p.click('[data-log="1"]'); await until(p, () => document.querySelector('[data-log="1"]').getAttribute('aria-pressed') === 'true');
   const logAxis = await p.$$eval('#chart .axis:not(.mid)', (t) => t.map((x) => x.textContent));
-  ok(logAxis.length >= 2 && logAxis.every((x) => /^\$0\.\d+$/.test(x)) && logAxis.some((x) => /^\$0\.[1-9]00?$|^\$0\.[1-9]$|^\$0\.\d{1,2}0?$/.test(x)), `the log axis names round dollar prices (${logAxis.join(' ')})`);
+  ok(logAxis.length >= 3 && logAxis.every((x) => /^\$0\.\d+$/.test(x)) && logAxis.some((x) => /^\$0\.[1-9]00?$|^\$0\.[1-9]$|^\$0\.\d{1,2}0?$/.test(x)), `the log axis names round dollar prices (${logAxis.join(' ')})`);
   await p.click('[data-log="1"]');
   await p.click('[data-tf="86400"]'); await until(p, () => document.querySelectorAll('#chart .body').length > 5 && document.querySelectorAll('#chart .body').length < 30);
   const c1d = await candles(p);
@@ -542,7 +542,7 @@ try {
     ok(/Route.*(zSwap orders|Swapboard v1 order|Swapboard v2 order)/.test(auto) && !/Tacit pool|Precision/.test(auto), `0.03 ETH goes to the boards, whose orders are cheaper than the pools (${auto.slice(0, 110)})`);
     const vrows = await lad('#venues tbody tr');
     ok(vrows.some((x) => /^zSwap boards.*this ticket/.test(x)) && vrows.some((x) => /best/.test(x) && /^zSwap boards/.test(x)), 'the quotes table lists zSwap boards as the route and the best');
-    ok((await q.$$eval('#ladders .ob-row.take', (x) => x.length)) >= 1 && (await q.$$eval('#depthchart path.dep-ask.take', (x) => x.length)) === 1, 'and the order book marks the orders the ticket would take, in the ladder and on the chart');
+    ok((await q.$$eval('#ladders .ob-row.take', (x) => x.length)) >= 1 && (await q.$$eval('#depthchart path.dep-ask.take', (x) => x.length)) === 1 && (await q.$$eval('#depthchart path.dep-ask.take', (x) => x[0].getBBox().width)) > 1, 'and the order book marks the orders the ticket would take, in the ladder and on the chart (a band with width)');
     await q.fill('#amt', '');
 
     // Fill on the cheapest order pins it to the ticket
@@ -619,6 +619,18 @@ try {
     const bare = await openPage({ width: 1280, height: 900 }, null, '#side=sell&amount=1500', '/trade/tac');
     await until(bare.page, () => /\/trade\/tac\/#side=sell/.test(location.href) && document.querySelector('#amt')?.value === '1500' && !document.querySelector('#out')?.classList.contains('ph') && !document.querySelector('.p-ticket')?.classList.contains('stale'), null, 240000);
     ok(/\/trade\/tac\/#side=sell&amount=1500$/.test(bare.page.url()) && /tacit trade$/.test(await bare.page.title()), '/trade/tac, without the slash, arrives at /trade/tac/ with the link\'s fragment kept: the sale of 1,500 TAC is quoted');
+    // a ticket link followed while the page is open sets the ticket; an address with neither side nor amount (#farm) leaves it alone
+    const quoted = (v) => until(bare.page, (x) => document.querySelector('#amt')?.value === x && !document.querySelector('#out')?.classList.contains('ph') && !document.querySelector('.p-ticket')?.classList.contains('stale'), v, 240000);
+    await bare.page.evaluate(() => { location.hash = '#side=buy&amount=0.05'; });
+    await quoted('0.05');
+    ok((await bare.page.getAttribute('#side-seg [data-side="buy"]', 'aria-pressed')) === 'true' && /TAC/.test(await text(bare.page, '#out-unit')) && /^#side=buy&amount=0\.05$/.test(await bare.page.evaluate(() => location.hash)), 'a link to #side=buy&amount=0.05 followed on the open page turns the ticket to a purchase of 0.05 ETH, quoted');
+    await bare.page.evaluate(() => { location.hash = '#farm'; });
+    await bare.page.waitForTimeout(600);
+    ok((await bare.page.inputValue('#amt')) === '0.05' && (await bare.page.getAttribute('#side-seg [data-side="buy"]', 'aria-pressed')) === 'true', 'and #farm leaves the ticket as it was');
+    // an amount whose output is less than the last place shown says so, not 0
+    await bare.page.fill('#amt', '0.00000001');
+    await until(bare.page, () => /^under /.test(document.querySelector('#out')?.textContent || '') && !document.querySelector('.p-ticket')?.classList.contains('stale'), null, 240000);
+    ok(/^under 0\.01$/.test(await text(bare.page, '#out')) && !/e-/.test(await text(bare.page, '#out-usd')) && /under 0\.01 TAC/.test(await text(bare.page, '#route')), `a dust purchase reads "under 0.01" TAC, not 0 (${await text(bare.page, '#out-usd')})`);
     await bare.browser.close();
     const root = await openPage({ width: 1280, height: 900 }, null, '', '/trade');
     await until(root.page, () => /\/trade\/tac\/$/.test(location.pathname) && /^\$/.test(document.querySelector('#px-usd')?.textContent || ''), null, 240000);

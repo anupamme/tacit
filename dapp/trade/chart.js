@@ -21,11 +21,17 @@ export function niceTicks(lo, hi, count = 5) {
   return out;
 }
 
-// 1, 2 and 5 times each power of ten between lo and hi: a log axis's round numbers.
-export function logTicks(lo, hi) {
+// Round numbers for a log axis: 1, 2 and 5 times each power of ten between lo and hi, and when that leaves fewer than `want` (a price that has
+// moved by a factor of three has only 0.1 and 0.2 to name) the next finer set, so the axis always has something to read against.
+const LOG_STEPS = [[1, 2, 5], [1, 1.5, 2, 3, 5, 7], [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8]];
+export function logTicks(lo, hi, want = 4) {
   if (!(lo > 0 && hi > lo)) return [lo];
-  const out = [];
-  for (let e = Math.floor(Math.log10(lo)); e <= Math.ceil(Math.log10(hi)); e++) for (const k of [1, 2, 5]) { const v = k * 10 ** e; if (v >= lo && v <= hi) out.push(Number(v.toPrecision(12))); }
+  let out = [];
+  for (const ks of LOG_STEPS) {
+    out = [];
+    for (let e = Math.floor(Math.log10(lo)); e <= Math.ceil(Math.log10(hi)); e++) for (const k of ks) { const v = k * 10 ** e; if (v >= lo && v <= hi) out.push(Number(v.toPrecision(12))); }
+    if (out.length >= want) break;
+  }
   return out;
 }
 
@@ -103,7 +109,7 @@ export function mountChart(host, onHover = null, { onSelect = null, onView = nul
     svg.append(el('defs', {}, el('clipPath', { id: 'chart-clip' }, el('rect', { x: m.l, y: m.t, width: pw, height: H - m.t }))));
     const plot = el('g', { 'clip-path': 'url(#chart-clip)' }), marks = [];
     // grid and the price axis
-    const ticks0 = useLog ? logTicks(lo, hi) : niceTicks(lo, hi, Math.max(3, Math.round(ph / 56))), ticks = ticks0.length > 1 ? ticks0 : niceTicks(lo, hi, 4);
+    const ticks0 = useLog ? logTicks(lo, hi) : niceTicks(lo, hi, Math.max(3, Math.round(ph / 56))), ticks = ticks0.length > 2 ? ticks0 : niceTicks(lo, hi, 4);
     const pstep = ticks.length > 1 ? ticks[1] - ticks[0] : 0, even = !useLog && pstep > 0;
     const tickF = even && first?.tickFmt ? first.tickFmt(pstep) : f;                                  // even steps are labelled to the places the step needs
     const pointF = (s) => (even && s.tickFmt ? s.tickFmt(pstep / 10) : s.fmt || f);                   // a price read off the axis: a place finer than its labels

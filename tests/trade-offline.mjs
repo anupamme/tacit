@@ -46,6 +46,18 @@ try {
   ok(/Trying…/.test(await text(p, '#px-sub')) || api > a1, 'Try again asks again at once');
   await p.waitForTimeout(2500);
   ok(api > a1, `and the reads go out (${api - a1} more API reads)`);
+  // a retry that fails again leaves the button ready for the next one (it used to stay "Trying…" for good, the book's unchanged text being left as it was)
+  await p.click('#ladders [data-retry]');
+  const ready = await p.waitForFunction(() => { const x = document.querySelector('#ladders [data-retry]'); return !!x && !x.disabled && x.textContent === 'Try again'; }, null, { timeout: 15000 }).then(() => true, () => false);
+  ok(ready, 'the Bitcoin book\'s Try again is back to "Try again" once the reads have answered again (not stuck on "Trying…")');
+  // a quote that could not be read is asked for again by the page once the nodes answer, without the amount being retyped
+  await p.fill('#amt', '0.05');
+  await p.waitForFunction(() => /Could not read the pools/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 60000 });
+  ok(/Could not read the pools\. Try again in a moment\./.test(await text(p, '#status')), 'a quote the nodes refused says so');
+  await ctx.unroute(/^https:\/\/(ethereum-rpc\.publicnode\.com|eth\.drpc\.org|1rpc\.io|mainnet\.gateway\.tenderly\.co)\//);
+  await ctx.route(/^https:\/\/(ethereum-rpc\.publicnode\.com|eth\.drpc\.org|1rpc\.io|mainnet\.gateway\.tenderly\.co)\//, (r) => r.continue());
+  const back = await p.waitForFunction(() => !document.querySelector('#out')?.classList.contains('ph') && !/Could not read/.test(document.querySelector('#status')?.textContent || ''), null, { timeout: 90000 }).then(() => true, () => false);
+  ok(back, 'and asks again itself when they answer again: the quote lands without retyping the amount');
   ok(errors.length === 0, `no page errors from the refusals (${errors.slice(0, 2).join(' | ')})`);
   await ctx.close();
 } catch (e) { fails++; console.log('FAIL   ' + (e.stack || e).toString().split('\n').slice(0, 4).join(' / ')); }

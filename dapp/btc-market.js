@@ -15,7 +15,7 @@
 
 import {
   DUST, buildBook, planBuy, planSell, withinBounds, ladderLevels, listingShape,
-  parseAmount, fmtAmount, fmtUnit, fmtSats, amountForSats, satsForAmount,
+  parseAmount, parseNumber, fmtAmount, fmtUnit, fmtSats, amountForSats, satsForAmount,
 } from './btc-book.js';
 
 const REFRESH_MS = 10_000;
@@ -535,7 +535,7 @@ function createMarket(host, ctx) {
     if (S.type === 'market') {
       if (S.side === 'buy') {
         if (S.buyIn === 'sats') {
-          const v = Number(String(amtTxt).replace(/[,_\s]/g, ''));
+          const v = parseNumber(amtTxt);
           return Number.isFinite(v) && v > 0 ? { side: 'buy', type: 'market', spendSats: Math.floor(v) } : null;
         }
         const base = parseAmount(amtTxt, dec);
@@ -544,7 +544,7 @@ function createMarket(host, ctx) {
       const base = parseAmount(amtTxt, dec);
       return base && base > 0n ? { side: 'sell', type: 'market', sellBase: base } : null;
     }
-    const unit = Number(String(el.price2.value).replace(/[,_\s]/g, ''));
+    const unit = parseNumber(el.price2.value);
     const base = parseAmount(amtTxt, dec);
     if (!(unit > 0) || !base || base <= 0n) return { side: S.side, type: 'limit', unit: unit > 0 ? unit : null, base: base || null, incomplete: true };
     return { side: S.side, type: 'limit', unit, base, totalSats: satsForAmount(base, unit, dec) };
@@ -1728,13 +1728,13 @@ function createMarket(host, ctx) {
   const onInput = () => { clearTimeout(debounce); debounce = setTimeout(paintQuote, 60); };
   // At my price: any two of price / amount / total set the third. Typing the total
   // anchors it, so a later price change re-derives the amount instead.
-  const unitNow = () => Number(String(el.price2.value).replace(/[,_\s]/g, ''));
+  const unitNow = () => parseNumber(el.price2.value);
   const syncTotal = () => {
     const u = unitNow(); const base = parseAmount(el.amount.value, dec);
     el.total.value = u > 0 && base > 0n ? String(satsForAmount(base, u, dec)) : '';
   };
   const syncAmount = () => {
-    const u = unitNow(); const t = Number(String(el.total.value).replace(/[,_\s]/g, ''));
+    const u = unitNow(); const t = parseNumber(el.total.value);
     el.amount.value = u > 0 && t > 0 ? fmtAmount(amountForSats(t, u, dec), dec).replace(/,/g, '') : '';
   };
   el.amount.addEventListener('input', () => { S.anchorTotal = false; if (S.type === 'limit') syncTotal(); onInput(); }, sig);

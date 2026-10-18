@@ -5,7 +5,7 @@
 import { makeBtcSession, short, Cancelled } from '/trade/btc-session.js?cb=3f7225b3';
 import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
 
-const MARKET_URL = '/btc-market.js?cb=e07ed7ab', CSS_URL = '/trade/btc-market.css?cb=359753e6';
+const MARKET_URL = '/btc-market.js?cb=5b6a2eae', CSS_URL = '/trade/btc-market.css?cb=359753e6';
 const TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
 // The asset a sheet trades: its id, its title, and the line under the market about getting it onto Bitcoin. TAC's, unless the page names another.
 const TAC_ASSET = { id: TAC, title: 'TAC on Bitcoin', after: 'To sell TAC you hold on Ethereum, bridge it to Bitcoin first. <a href="/#bridge">Bridge →</a>' };
@@ -130,14 +130,16 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
   }
 
   // The sats at the key's address and the TAC it holds, which the module reads synchronously through ctx.me().
+  let meSeq = 0;
   async function refreshMe() {
+    const seq = ++meSeq;                                                                    // a read that began later is the one to keep: an older, slower one (a scan can take a minute) must not put its balance over it
     if (!session.unlocked) { meState = null; changed(); return; }
     const T = session.T, my = session.key;
     // The sats are read quickly and shown at once; the TAC takes a walk through the key's history and follows. A read that is still
     // pending keeps what was known before it (a soft refresh does not blank the balance).
     const holdingsP = T.scanHoldings().catch(() => null);
     const utxos = await T.getUtxos(T.wallet.address()).catch(() => null);
-    if (session.key !== my) return;                                                        // the key changed while this was read
+    if (session.key !== my || seq !== meSeq) return;                                       // the key changed while this was read, or a newer read began
     const kept = meState?.pubHex === my.pubHex ? meState.assetBase : null;
     meState = {
       pubHex: my.pubHex, h160: T.bytesToHex(T.hash160(T.wallet.pub)), unlocked: true,
@@ -146,7 +148,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
     };
     changed();
     const holdings = await holdingsP;
-    if (session.key !== my || !meState) return;
+    if (session.key !== my || !meState || seq !== meSeq) return;
     const h = holdings instanceof Map ? holdings.get(AID) : null;
     meState = { ...meState, assetBase: h && typeof h.balance === 'bigint' ? h.balance : (holdings ? 0n : kept) };
     changed();

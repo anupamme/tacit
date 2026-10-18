@@ -4,7 +4,7 @@
 // API with no wallet and holds no key it was not given. Making cBTC (lock, bond, mint, borrow) is a flow of several steps with Bitcoin and Ethereum
 // transactions, and it is done on tacit.finance's Borrow sheet, which each button here opens; this page sizes the bond for an amount before it does.
 import { sha256 } from '/vendor/tacit-deps.min.js';
-import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=38205f01';
+import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=a17675b8';
 import { makeConnect } from '/trade/connect.js?cb=4a8e3482';
 import { makeKeySession, signInSheet } from '/trade/key.js?cb=2c0446af';
 import { getUx, forgetUx } from '/trade/poolux.js?cb=f6352066';

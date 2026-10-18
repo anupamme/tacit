@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { isRerouteable } from '../dapp/btc-market.js';
 import {
   DUST, BID_CLAIM_WINDOW_SEC, buildBook, planBuy, planSell, withinBounds, ladderLevels, listingShape,
-  parseAmount, fmtAmount, fmtUnit, amountForSats, satsForAmount, scaledSats, unitPrice,
+  parseAmount, parseNumber, fmtAmount, fmtUnit, amountForSats, satsForAmount, scaledSats, unitPrice,
 } from '../dapp/btc-book.js';
 
 const fx = JSON.parse(readFileSync(new URL('./fixtures/btc-book-tac-2026-09-29.json', import.meta.url)));
@@ -140,6 +140,23 @@ t('excludeIds drops a failed offer from the re-plan', () => {
   const p1 = planBuy(b, { spendSats: 50_000, maxUnit: 250 });
   const p2 = planBuy(b, { spendSats: 50_000, maxUnit: 250, excludeIds: new Set([p1.fills[0].ask.id]) });
   assert.ok(!p2.fills.some((f) => f.ask.id === p1.fills[0].ask.id));
+});
+
+t('a comma that is a decimal point is read as one, a comma between groups of three as a thousands separator', () => {
+  // a keypad with a comma key: 0,05 TAC is five hundredths, not five
+  assert.equal(parseAmount('0,05', 8), 5000000n);
+  assert.equal(parseAmount('0,5', 8), 50000000n);
+  assert.equal(parseAmount('1,5', 8), 150000000n);
+  assert.equal(parseAmount('12,50', 8), 1250000000n);
+  assert.equal(parseAmount('0,500', 8), 50000000n);                   // a leading zero is no group of three
+  assert.equal(parseAmount('1.234,5', 8), 123450000000n);             // the other way round: a point between groups, a comma for the fraction
+  // and what it always read as a thousands separator still is
+  assert.equal(parseAmount('1,500', 8), 150000000000n);
+  assert.equal(parseAmount('1,234.5', 8), 123450000000n);
+  assert.equal(parseAmount('1,234,567', 8), 123456700000000n);
+  assert.equal(parseNumber('152,5'), 152.5);
+  assert.equal(parseNumber('1,500'), 1500);
+  assert.ok(Number.isNaN(parseNumber('abc')) && Number.isNaN(parseNumber('')) && Number.isNaN(parseNumber(',')));
 });
 
 t('amount parsing and formatting round-trip', () => {

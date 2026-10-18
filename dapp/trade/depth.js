@@ -8,7 +8,7 @@
 //   valueFmt: a total in the price's unit (what the orders up to a price come to; default priceFmt)
 //   onPick(level, side) is called with the order a click lands on.
 
-import { niceTicks } from '/trade/chart.js?cb=38205f01';
+import { niceTicks } from '/trade/chart.js?cb=a17675b8';
 import { cumulative } from '/trade/book.js?cb=577d1f94';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -51,17 +51,19 @@ export function mountDepth(host, { onPick = null } = {}) {
     // heavier path over it
     const stairs = (steps, side, upto) => {
       const pts = [];
-      let prev = 0;
-      for (const s of steps) {
+      let prev = 0, k = -1;
+      for (const [i, s] of steps.entries()) {
         if (upto != null && prev >= upto) break;
         const c = upto != null ? Math.min(s.cum, upto) : s.cum;
         pts.push([s.price, prev], [s.price, c]);
-        prev = c;
+        prev = c; k = i;
         if (upto != null && c >= upto) break;
       }
       if (!pts.length) return null;
       const first = pts[0], last = pts[pts.length - 1];
-      const edge = upto != null ? last[0] : (side === 'ask' ? hi : lo);
+      // The shaded part runs on to the next price (the window's edge after the last), as the staircase beneath it does: an amount inside the best
+      // order is a band as wide as that order's step, not a line.
+      const edge = steps[k + 1]?.price ?? (side === 'ask' ? hi : lo);
       const d = `M${X(first[0])},${Y(0)} ` + pts.map(([p, c]) => `L${X(p)},${Y(c)}`).join(' ') + ` L${X(edge)},${Y(last[1])} L${X(edge)},${Y(0)} Z`;
       return el('path', { d, class: `dep-${side}${upto != null ? ' take' : ''}` });
     };
