@@ -20,7 +20,7 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /vault/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/vault/app.js?cb=19f3d27e">
+<link rel="modulepreload" href="/vault/app.js?cb=dd056cd6">
 <link rel="modulepreload" href="/vault/deployments.js?cb=feb5f9d3">
 <link rel="modulepreload" href="/vault/math.js?cb=ac1ed53e">
 <link rel="modulepreload" href="/vault/chain.js?cb=446cc436">
@@ -29,7 +29,7 @@
 <link rel="modulepreload" href="/vault/feed.js?cb=03954743">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/vault/batch.js?cb=457d6163">
-<link rel="modulepreload" href="/vault/pools.js?cb=c478ce61">
+<link rel="modulepreload" href="/vault/pools.js?cb=8b3a3492">
 <link rel="modulepreload" href="/vault/router.js?cb=21df6509">
 <link rel="modulepreload" href="/trade/wallet.js?cb=7b4ab128">
 <link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
@@ -201,7 +201,12 @@ main { min-height: calc(100svh - 100px); }                          /* the foote
 .kv b.big { font-size: 15px; font-weight: 500; }
 .rows { margin: 12px 0 0; border-top: 1px solid var(--hair); padding-top: 8px; }
 .rows .kv { padding: 4px 0; }
-.kv[hidden] { display: none; }                                    /* .kv sets display, which would otherwise show a row the page has hidden */
+.kv[hidden] { display: none; }
+.promo { margin: 12px 0 0; padding: 9px 12px; max-width: 64ch; background: var(--field); border-left: 2px solid var(--amber); font-size: 12.5px; color: var(--ink); }
+.promo[hidden], .reward[hidden] { display: none; }
+.promo .linkbtn { margin-left: 4px; color: var(--ink); font-size: inherit; }
+.reward { margin: 12px 0 0; padding: 8px 12px 6px; background: var(--field); border-left: 2px solid var(--amber); }
+.reward .rwd-h { margin: 0 0 4px; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--mute); }                                    /* .kv sets display, which would otherwise show a row the page has hidden */
 .rows.flat { margin-top: 0; border-top: 0; padding-top: 0; }
 .paused { margin: 12px 0 0; padding: 10px 12px; font-size: 12.5px; background: var(--field); border-left: 2px solid var(--amber); }
 
@@ -455,6 +460,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <nav class="via" aria-label="Collateral"><a href="/vault/" data-side="tac" aria-current="page">TAC</a><a href="/vault/#btc" data-side="btc">Bitcoin</a></nav>
     <h1 id="h"><span class="s-tac"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span>Borrow against <em>TAC</em></span></span><span class="s-btc"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><span>Borrow against <em>Bitcoin</em></span></span></h1>
     <p class="sub s-tac" id="sub">Borrow TACD or TACE against your TAC. No interest, one fee.</p>
+    <p class="promo s-tac" id="promo" hidden></p>
     <p class="sub s-btc">Lock BTC at your own address, mint cBTC, borrow cUSD against it.</p>
     <details class="how s-tac" id="how" hidden><summary>How borrowing works</summary><div id="how-body"><p>Reading the vault’s terms…</p></div></details>
     <noscript><p class="note">This page needs JavaScript.</p></noscript>
@@ -540,6 +546,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/vault/app.js?cb=19f3d27e"></script>
+<script type="module" src="/vault/app.js?cb=dd056cd6"></script>
 </body>
 </html>

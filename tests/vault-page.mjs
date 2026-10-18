@@ -846,6 +846,38 @@ try {
     const isqrt = (n) => { if (n < 2n) return n; let x = 1n << BigInt((n.toString(2).length + 1) >> 1); for (;;) { const y = (x + n / x) >> 1n; if (y >= x) return x; x = y; } };
     const near = (a, b, rel = 1e-6) => Math.abs(Number(a - b)) <= rel * Math.abs(Number(b));
 
+    // The address the factory gives a pool of this token against the test USDC, for a band and a fee (what deployments.js names, which the points service is told).
+    const bandPool = (ln, ld, hn, hd, fee) => {
+      const sIs1 = BigInt(SYN.usd) > BigInt(USDC), rw = (pn, pd) => (sIs1 ? [pn * E18, pd * 10n ** 6n] : [pd * 10n ** 6n, pn * E18]);
+      const [lo, hi] = sIs1 ? [rw(ln, ld), rw(hn, hd)] : [rw(hn, hd), rw(ln, ld)], sq = ([n, d]) => isqrt(n * 10n ** 36n / d);
+      return cast('call', PF, 'poolFor((address,address,uint256,uint256,uint256,address,address,uint256))(address)', `(${sIs1 ? USDC : SYN.usd},${sIs1 ? SYN.usd : USDC},${sq(lo)},${sq(hi)},${fee},0x0000000000000000000000000000000000000000,0x0000000000000000000000000000000000000000,0)`, '--rpc-url', ANVIL).toLowerCase();
+    };
+    const pegPool = bandPool(9n, 10n, 10n, 9n, 500), stopPool = bandPool(1n, 2n, 2n, 1n, 3000);
+
+    // 0. the campaign is on and nothing is open yet: it is said under the title, on the board and in the pool's card
+    {
+      const camp0 = {
+        enabled: true, endSec: 9_999_999_999, pocket: { totalWei: String(1500n * E18), creditedWei: '0', remainingWei: String(1500n * E18) },
+        terms: { fromDay: 1, dailyWei: String(25n * E18), createWei: String(150n * E18), capWeiPerUsdDay: String(E18 / 20n) }, next: null, minUsdWei: String(20n * E18), minSamples: 12,
+        pools: [{ pool: pegPool, weightBps: '10000', opened: false, opener: null, openPaid: false }, { pool: stopPool, weightBps: '5000', opened: false, opener: null, openPaid: false }],
+        today: { day: 1, samples: 0, hour: 0 },
+      };
+      r = await openPage({ hash: hashP(), lp: camp0 });
+      await until(r.page, () => ['#promo', '#pl-reward'].every((q) => { const e = document.querySelector(q); return !!e && getComputedStyle(e).display !== 'none'; }));
+      const pr = await text(r.page, '#promo');
+      ok(/^Earn 150 TAC for opening a TACD or TACE market, and 25 TAC a day for supplying one\. See the markets ↓$/.test(pr), `one line under the title says what it pays (${pr})`);
+      await untilText(r.page, '#board', /Sells for\s*Not open yet\s*opening earns 150 TAC/);
+      ok(true, 'the board says on the unopened token that opening it earns 150 TAC');
+      const rw = (await r.page.$eval('#pl-reward', (e) => e.innerText)).replace(/\s+/g, ' ').trim();           // what is shown, not what is merely in the markup
+      ok(/^EARN TAC HERE Opening bonus 150 TAC to the first in with \$20 for a day Daily rewards 25 TAC a day to those who hold it all day · up to 0\.05 per \$1$/i.test(rw), `the card has one block for it, short enough to read (${rw})`);
+      const y0 = await r.page.evaluate(() => scrollY);
+      await r.page.click('[data-to-pools]'); await sleep(900);
+      ok((await r.page.evaluate(() => scrollY)) > y0, 'and the line takes you to the markets');
+      ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
+      await shot(r.page, 'pools-advert');
+      await closeAll(r);
+    }
+
     // 1. nothing is open: the templates are listed, with where each opens and its range, and anyone may create one
     r = await openPage({ hash: hashP() });
     await until(r.page, () => (document.querySelectorAll('#pl-pick button').length === 2));
@@ -856,7 +888,7 @@ try {
     ok(/Backstop · 0\.3% fee/.test(await panel(r.page)) && /Range\s*0\.5 – 2 USDC/.test(await panel(r.page)), 'the backstop is wider: 0.5 to 2 USDC at 0.3%');
     await untilText(r.page, '#board', /Sells for\s*Not open yet\s*Not open yet/);
     ok((await text(r.page, '#pl-go')) === 'Connect wallet', 'with no wallet the button asks for one');
-    ok(await r.page.$$eval('#pl-kb, #pl-ke, #pl-km', (els) => els.length === 3 && els.every((e) => getComputedStyle(e).display === 'none')), 'with the campaign off the page shows no rows for it (not merely marked hidden)');
+    ok(await r.page.$$eval('#pl-kb, #pl-ke, #pl-km, #pl-reward, #promo', (els) => els.length === 5 && els.every((e) => getComputedStyle(e).display === 'none')), 'with the campaign off the page advertises nothing for it (the rows, their block and the line under the title are not shown, not merely marked hidden)');
     ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
     await shot(r.page, 'pools-list');
     await closeAll(r);
@@ -1003,10 +1035,10 @@ try {
       await until(r.page, () => !document.querySelector('#pl-ke')?.hidden);
       ok(await r.page.$$eval('#pl-kb, #pl-ke, #pl-km', (els) => els.every((e) => getComputedStyle(e).display !== 'none')), 'with the campaign on the three rows are shown');
       const cp = await panel(r.page);
-      ok(/Opening bonus\s*Paid/.test(cp) && /Liquidity rewards\s*25 TAC a day\s*shared by what is held for the whole day, up to 0\.05 TAC per \$1/.test(cp) && /Earned so far\s*12 TAC/.test(cp), `an opened pool shows its bonus paid, what holding earns and what the account has earned (${cp.slice(0, 330)})`);
+      ok(/Earn TAC here/.test(cp) && /Opening bonus\s*Paid/.test(cp) && /Daily rewards\s*25 TAC a day\s*to those who hold it all day · up to 0\.05 per \$1/.test(cp) && /Earned so far\s*12 TAC/.test(cp), `an opened pool shows its bonus paid, what holding earns and what the account has earned (${cp.slice(0, 330)})`);
       await r.page.click('#pl-pick button:nth-child(2)'); await sleep(150);
       const cb = await panel(r.page);
-      ok(/Opening bonus\s*150 TAC\s*to the first to add liquidity and keep \$20 in for a day/.test(cb) && /counts ×0\.5/.test(cb), `a pool nobody has opened shows the bonus for the first, and that the backstop counts at half (${cb.slice(0, 330)})`);
+      ok(/Opening bonus\s*150 TAC\s*to the first in with \$20 for a day/.test(cb) && /counts ×0\.5/.test(cb), `a pool nobody has opened shows the bonus for the first, and that the backstop counts at half (${cb.slice(0, 330)})`);
       ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
       await shot(r.page, 'pools-campaign');
       await closeAll(r);

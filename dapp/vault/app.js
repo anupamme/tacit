@@ -12,7 +12,7 @@ import {
 } from '/vault/chain.js?cb=446cc436';
 import { makeFeed, RECORD_GAS, PER_TX, encBatch, MULTICALL3 } from '/vault/feed.js?cb=03954743';
 import { batchSupport, simulateBundle, sendBundle, readMixed } from '/vault/batch.js?cb=457d6163';
-import { makePools } from '/vault/pools.js?cb=c478ce61';
+import { makePools } from '/vault/pools.js?cb=8b3a3492';
 import { ROUTER_SEL, encRouterRecords, encRouterBorrow, encRouterWithdraw, encRouterDeposit, encRouterRepay, encRouterPermitSynth, borrowTyped, withdrawTyped } from '/vault/router.js?cb=21df6509';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=7b4ab128';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
@@ -126,9 +126,18 @@ const POOLS = (() => {
   return ADDR.test(usdc || '') ? { ...c, quotes: { ...c.quotes, USDC: { ...c.quotes.USDC, addr: usdc } } } : c;
 })();
 const pools = makePools({
-  el: $('#pools'), cfg: POOLS, esc, rpc, ethCall, batch, wallet, W, connect: connectWallet, txLink, onChange: () => renderBoard(),
+  el: $('#pools'), cfg: POOLS, esc, rpc, ethCall, batch, wallet, W, connect: connectWallet, txLink, onChange: () => { renderBoard(); renderPromo(); },
   synthOf: (key) => VS.find((v) => v.key === key)?.synth || null, symOf: (key) => KIND[key].sym,
 });
+
+// The one line under the title that says what the liquidity campaign pays (nothing is shown while the points service says nothing).
+function renderPromo() {
+  const el = $('#promo');
+  if (!el) return;
+  const t = pools.promo();
+  el.hidden = !t;
+  if (t) setHtml(el, `${t} <button class="linkbtn" type="button" data-to-pools>See the markets ↓</button>`);
+}
 
 // ── reading the vaults ──
 // Both vaults and the account in one batch. A view that has no price to give fails inside the batch and comes back null, which is how
@@ -740,6 +749,7 @@ function renderAll() {
   if (!live) return;
   renderChip(); renderPick(); renderBoard(); renderPos(); renderFeed(); renderTicket(); renderHow();
   pools.show(S.v);
+  renderPromo();
 }
 
 // ── the price feed ──
@@ -1020,6 +1030,7 @@ $('#go').addEventListener('click', () => run());
 document.addEventListener('click', (e) => {
   const f = e.target.closest('[data-fill]');
   if (f && !S.busy) { S.t = 'deposit'; S.pre = false; S.amt = f.dataset.fill; $('#amt').value = S.amt; say('', ''); keepInHash(); renderTicket(); $('#ticket').scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); return; }
+  if (e.target.closest('[data-to-pools]')) { $('#pools').scrollIntoView?.({ block: 'start', behavior: 'smooth' }); return; }
   if (e.target.closest('[data-more]')) { S.more = !S.more; try { localStorage.setItem(MORE_KEY, S.more ? '1' : '0'); } catch { /* storage is a convenience */ } renderBoard(); return; }
   if (e.target.closest('[data-refresh]')) { if (!S.busy) { refresh(); loadFeed(); } return; }
   if (e.target.closest('[data-feed-stop]')) { F.stop?.(); return; }

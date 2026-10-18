@@ -208,21 +208,29 @@ export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthO
   }
   const dayText = (day) => new Date(day * 86400e3).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
   const tacText = (wei) => M.fmtUnits(BigInt(wei), 18, 2);
+  // The campaign's terms as they apply now, or from when they start: { create, daily, cap } in wei, and the day they start when that is still ahead.
+  const termsNow = () => { const c = P.camp, t = c?.terms, soon = !t && c?.next, e = t || soon; return e ? { create: BigInt(e.createWei), daily: BigInt(e.dailyWei), cap: BigInt(e.capWeiPerUsdDay), from: soon ? c.next.fromDay : null } : null; };
   // The rows the campaign adds to a pool's card: the opening bonus, what holding liquidity earns, and what the account has earned so far.
   function campaignRows(x) {
-    const c = P.camp, p = c?.pools?.find((q) => q.pool === x.pool.toLowerCase());
-    if (!p) return { bonus: null, earn: null, mine: null };
-    const t = c.terms, soon = !t && c.next, half = p.weightBps !== '10000' ? ` · counts ×${Number(p.weightBps) / 1e4}` : '';
+    const c = P.camp, p = c?.pools?.find((q) => q.pool === x.pool.toLowerCase()), n = termsNow();
+    if (!p || !n) return { bonus: null, earn: null, mine: null };
+    const from = n.from ? ` · from ${esc(dayText(n.from))}` : '', half = p.weightBps !== '10000' ? ` · counts ×${Number(p.weightBps) / 1e4}` : '';
     const usd = Math.round(Number(BigInt(c.minUsdWei) / 10n ** 16n)) / 100;
-    const create = t ? BigInt(t.createWei) : soon ? BigInt(c.next.createWei) : 0n;
     let bonus = null;
     if (p.openPaid) bonus = '<b>Paid</b>';
-    else if (create > 0n) bonus = `<b>${esc(tacText(create))} TAC</b><small>${p.opened ? 'to the one who opened it, once it has held' : 'to the first to add liquidity and keep'} $${esc(usd)} in for a day${soon ? ` · from ${esc(dayText(c.next.fromDay))}` : ''}</small>`;
-    const e = t || (soon ? c.next : null);
-    const earn = e && BigInt(e.dailyWei) > 0n
-      ? `<b>${esc(tacText(e.dailyWei))} TAC a day</b><small>shared by what is held for the whole day, up to ${esc(M.fmtUnits(BigInt(e.capWeiPerUsdDay), 18, 4))} TAC per $1${esc(half)}${soon ? ` · from ${esc(dayText(c.next.fromDay))}` : ''}</small>` : null;
+    else if (n.create > 0n) bonus = `<b>${esc(tacText(n.create))} TAC</b><small>${p.opened ? `to the opener, once it holds $${esc(usd)} for a day` : `to the first in with $${esc(usd)} for a day`}${from}</small>`;
+    const earn = n.daily > 0n ? `<b>${esc(tacText(n.daily))} TAC a day</b><small>to those who hold it all day · up to ${esc(M.fmtUnits(n.cap, 18, 4))} per $1${esc(half)}${from}</small>` : null;
     const got = c.mine && BigInt(c.mine.creditedWei) > 0n ? `<b>${esc(tacText(c.mine.creditedWei))} TAC</b>` : null;
     return { bonus, earn, mine: got };
+  }
+  // One line for the top of the page: what the campaign pays, while a market is still unopened or the daily reward runs.
+  function promo() {
+    const c = P.camp, n = termsNow();
+    if (!c || !n) return null;
+    const parts = [];
+    if (n.create > 0n && c.pools.some((p) => !p.openPaid)) parts.push(`${tacText(n.create)} TAC for opening a ${keys.map(symOf).join(' or ')} market`);
+    if (n.daily > 0n) parts.push(`${tacText(n.daily)} TAC a day for supplying one`);
+    return parts.length ? `Earn ${esc(parts.join(', and '))}.${n.from ? ` From ${esc(dayText(n.from))}.` : ''}` : null;
   }
 
   // The plan for what is typed now, against the view: { ok, plan, first } or { ok: false, why }.
@@ -265,7 +273,8 @@ export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthO
         <div class="rows flat" id="pl-rows">${open
           ? '<div class="kv"><span>Price</span><b class="num" id="pl-px"></b></div><div class="kv"><span>In the pool</span><b class="num" id="pl-depth"></b></div><div class="kv"><span>Range</span><b class="num" id="pl-range"></b></div>' + (st.mine > 0n ? '<div class="kv"><span>Yours</span><b class="num" id="pl-mine"></b></div>' : '')
           : '<div class="kv"><span>Opens at</span><b class="num" id="pl-px"></b></div><div class="kv"><span>Range</span><b class="num" id="pl-range"></b></div>'}
-          <div class="kv" id="pl-kb" hidden><span>Opening bonus</span><b id="pl-bonus"></b></div><div class="kv" id="pl-ke" hidden><span>Liquidity rewards</span><b id="pl-earn"></b></div><div class="kv" id="pl-km" hidden><span>Earned so far</span><b class="num" id="pl-got"></b></div></div>
+          </div>
+        <div class="reward" id="pl-reward" hidden><p class="rwd-h">Earn TAC here</p><div class="kv" id="pl-kb" hidden><span>Opening bonus</span><b id="pl-bonus"></b></div><div class="kv" id="pl-ke" hidden><span>Daily rewards</span><b id="pl-earn"></b></div><div class="kv" id="pl-km" hidden><span>Earned so far</span><b class="num" id="pl-got"></b></div></div>
         <div class="lbl"><span>${esc(sym)}</span><button class="linkbtn" id="pl-bs" type="button"></button></div>
         <div class="amt"><input id="pl-s" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${esc(sym)} to add"><span class="u">${ico(sym.toLowerCase())}${esc(sym)}</span></div>
         <div class="lbl"><span>${esc(qs)}</span><button class="linkbtn" id="pl-bq" type="button"></button></div>
@@ -289,6 +298,7 @@ export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthO
       const r = bit(row); if (!r) continue;
       r.hidden = html == null; if (html != null) setText(cell, html);
     }
+    const block = bit('#pl-reward'); if (block) block.hidden = camp.bonus == null && camp.earn == null;
     setText('#pl-bs', st.balS == null ? '' : `Balance ${esc(sFmt(st.balS, 4))} · Max`);
     setText('#pl-bq', st.balQ == null ? '' : `Balance ${esc(qFmt(m, st.balQ, 4))} · Max`);
     drawButton(st);
@@ -439,9 +449,12 @@ export function makePools({ el, cfg, esc, rpc, ethCall, batch, wallet, W, synthO
     if (!keys.includes(key) || !synthOf(key)) return null;
     if (!V(key)) return '<span class="mute">…</span>';
     const x = list(key).find(seeded);
-    if (!x) return 'Not open yet';
+    if (!x) {
+      const n = termsNow(), unopened = n && n.create > 0n && list(key).some((m) => P.camp?.pools?.some((p) => p.pool === m.pool.toLowerCase() && !p.openPaid));
+      return unopened ? `Not open yet<small>opening earns ${esc(tacText(n.create))} TAC</small>` : 'Not open yet';
+    }
     const q = x.m.synthIs1 ? x.r0 : x.r1;
     return `<b>${esc(qFmt(x.m, q, 2))}</b> ${esc(x.m.quote.sym)}<small>in the ${esc(symOf(key))} / ${esc(x.m.quote.sym)} pool</small>`;
   }
-  return { show, read: () => Promise.all([...keys.map((k) => read(k)), readCampaign()]), draw, cell };
+  return { show, read: () => Promise.all([...keys.map((k) => read(k)), readCampaign()]), draw, cell, promo };
 }
