@@ -86,7 +86,7 @@ found from the factory and listed after these.
   1.3% in ±10%, 6.9% in ×0.5–×2 and 19.5% across a full range; the cost of the narrow ones is the tail (if TACD fell to $0.80 a ±10% depositor is down 8.7% against holding, a full-range
   one 0.6%). The peg tier is where the price is made; the backstop is what still trades if the peg breaks. A band that follows ETH goes out of range when ETH leaves it, which the page
   says ("out of range") and answers with a new pool at the new centre.
-- **How much there can be.** TACD and TACE exist only as debt, and the vault lends 0.55% of the TAC/ETH pools' smallest ETH depth (3.6 ETH today, so about $47 of TACD and 0.02 TACE in
+- **How much there can be.** TACD and TACE exist only as debt, and the vault lends 0.55% of the TAC/ETH pools' smallest ETH depth (3.6 ETH today, so about $46 of TACD and 0.02 TACE in
   all, against a smallest debt of $10). The first liquidity comes from an account that borrowed (1% fee) and holds the other side; more room comes from a deeper TAC/ETH pool or from
   `depthBps` (at most 2×+25 bps a step, at most 1,000). `tests/vault-page.mjs` opens the markets against the live factory's code on a local chain, in both token orders.
 
