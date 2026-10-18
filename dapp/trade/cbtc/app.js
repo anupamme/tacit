@@ -261,7 +261,7 @@ function renderAbout() {
     ['Cost', 'A Bitcoin fee to lock. Minting is free. The bond keeps earning and comes back when you redeem.'],
   ];
   const more = [['The engine', `${link(ENGINE)} · prices BTC, holds bonds, lends cUSD`], ['The pool', `${link('0x000000000Ed1eabD231Be41d93b719056F7febFC')} · cBTC is asset <code>${CBTC_ID.slice(0, 10)}…${CBTC_ID.slice(-6)}</code>`],
-    ['More', '<a href="/#lock">Borrow →</a> · <a href="/#farm">Farms →</a> · <a href="/trade/teth/">tETH →</a> · <a href="/weld/stats/">Stats →</a>']];
+    ['More', '<a href="/vault/#btc">Borrow →</a> · <a href="/#farm">Farms →</a> · <a href="/trade/teth/">tETH →</a> · <a href="/weld/stats/">Stats →</a>']];
   const li = ([k, v]) => `<li><b>${esc(k)}</b><span>${v}</span></li>`;
   $('#facts').innerHTML = main.map(li).join('');
   $('#facts-more').innerHTML = more.map(li).join('');

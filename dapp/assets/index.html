@@ -6,13 +6,13 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
 <meta name="color-scheme" content="light dark">
 <title>tacit assets</title>
-<meta name="description" content="Tacit’s own assets: TAC, tETH, cBTC and cUSD. What each is, its price, and where to trade, hold or borrow it.">
+<meta name="description" content="Tacit’s own assets: TAC, tETH, cBTC, cUSD, TACD and TACE. What each is, its price, and where to trade, hold or borrow it.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="tacit">
 <link rel="canonical" href="https://tacit.finance/assets/">
 <meta property="og:url" content="https://tacit.finance/assets/">
 <meta property="og:title" content="tacit assets">
-<meta property="og:description" content="TAC, tETH, cBTC and cUSD: what each is, its price, and where to use it.">
+<meta property="og:description" content="TAC, tETH, cBTC, cUSD, TACD and TACE: what each is, its price, and where to use it.">
 <meta property="og:image" content="https://tacit.finance/tacit-card.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
@@ -93,6 +93,7 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .al .n b { font: 400 30px/1.1 var(--serif); letter-spacing: -.01em; }
 .al .n small { font: 400 13px var(--mono); color: var(--mute); min-width: 5ch; }
 .al .d { font-size: 14px; line-height: 1.45; color: var(--mute); text-wrap: balance; }
+.al .d small { display: block; font: 400 12px var(--mono); }
 .al .go { font-size: 16px; color: var(--mute); transition: transform .3s var(--spring), color .15s; }
 @media (hover: hover) { .al a:hover .tk { transform: scale(1.06); } .al a:hover .go { transform: translateX(4px); color: var(--ink); } }
 @media (max-width: 860px) { .al { grid-template-columns: minmax(0, 1fr); } .hero { padding-top: 18px; } }
@@ -211,6 +212,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <symbol id="tk-teth" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#627eea" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#627eea" stroke-width="2.4" stroke-linecap="round"/><path d="M14.8 17L19 17" stroke="#627eea" stroke-width="2.2" stroke-linecap="round"/></symbol>
     <symbol id="tk-cbtc" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><g fill="none" stroke="#f7931a" stroke-linecap="round" stroke-linejoin="round"><path d="M16.4 8 L12.9 23 C 18.6 24 21 21.5 21 18.7 C 21 16 17.6 15.2 14.7 15.6" stroke-width="2.8"/><path d="M11.9 13.2 L18.4 11.5" stroke-width="2.4"/></g></symbol>
     <symbol id="tk-cusd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5" stroke-dasharray="2.4 1.4"/><path d="M16.5 7 L15.5 25" stroke="#16a34a" stroke-width="2.7" stroke-linecap="round"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" fill="none" stroke="#16a34a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="tk-tacd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M16.5 7 L15.5 25" stroke="#f7931a" stroke-width="2.7" stroke-linecap="round"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" fill="none" stroke="#f7931a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="tk-tace" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/><path d="M14.8 17L19 17" stroke="#f7931a" stroke-width="2.2" stroke-linecap="round"/></symbol>
   </defs>
 </svg>
 <div class="shell">
@@ -253,8 +256,10 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <ul class="al">
       <li><a href="/trade/tac/"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><span class="t"><span class="n"><b>TAC</b><small class="num" id="px-tac"></small></span><span class="d">Tacit’s token, traded on Ethereum and Bitcoin.</span></span><span class="go" aria-hidden="true">→</span></a></li>
       <li><a href="/trade/teth/"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><span class="t"><span class="n"><b>tETH</b><small class="num" id="px-teth"></small></span><span class="d">ETH made private in the Tacit pool.</span></span><span class="go" aria-hidden="true">→</span></a></li>
-      <li><a href="/trade/cbtc/"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><span class="t"><span class="n"><b>cBTC</b><small class="num" id="px-cbtc"></small></span><span class="d">Bitcoin you lock and mint 1:1, private on Ethereum.</span></span><span class="go" aria-hidden="true">→</span></a></li>
-      <li><a href="/#lock"><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg><span class="t"><span class="n"><b>cUSD</b></span><span class="d">A dollar you borrow against cBTC.</span></span><span class="go" aria-hidden="true">→</span></a></li>
+      <li><a href="/trade/cbtc/"><svg class="tk" aria-hidden="true"><use href="#tk-cbtc"/></svg><span class="t"><span class="n"><b>cBTC</b><small class="num" id="px-cbtc"></small></span><span class="d">Private bitcoin, one for one with BTC locked at your own address.<small>In public: tacBTC</small></span></span><span class="go" aria-hidden="true">→</span></a></li>
+      <li><a href="/vault/#btc"><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg><span class="t"><span class="n"><b>cUSD</b></span><span class="d">A private dollar borrowed against cBTC.<small>In public: tacUSD</small></span></span><span class="go" aria-hidden="true">→</span></a></li>
+      <li><a href="/vault/#v=usd"><svg class="tk" aria-hidden="true"><use href="#tk-tacd"/></svg><span class="t"><span class="n"><b>TACD</b></span><span class="d">A dollar borrowed against TAC.</span></span><span class="go" aria-hidden="true">→</span></a></li>
+      <li><a href="/vault/#v=eth"><svg class="tk" aria-hidden="true"><use href="#tk-tace"/></svg><span class="t"><span class="n"><b>TACE</b></span><span class="d">Ether borrowed against TAC.</span></span><span class="go" aria-hidden="true">→</span></a></li>
     </ul>
   </main>
 

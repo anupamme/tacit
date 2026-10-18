@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // dapp/swap/ in a real browser, under its own CSP, with Ethereum an anvil fork of mainnet (zQuoter's scan of every pool, a read a fork
 // makes slowly, goes to the upstream node at the fork's block). Checks the page loads clean; the quotes for ETH → TAC (with its routes),
-// USDC → TAC, ETH → cUSD (a price far under the market has to be accepted first) and a private swap (priced here, handed to the front
+// USDC → TAC, ETH → tacUSD (a price far under the market has to be accepted first) and a private swap (priced here, handed to the front
 // page's console); then, with a wallet that signs with a real key, buys TAC with ETH, buys TAC with USDC by permit, sells TAC by permit,
 // and opens the farm on what was bought. A phone and a dark screen have no sideways scroll.
 //
@@ -148,11 +148,11 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   ok(!(await page.textContent('#q')).trim(), 'no line under the button when nothing is wrong');
   await shot(page, 'desktop-usdc-tac');
 
-  // Choosing cUSD while paying USDC puts ETH on the pay side: the 500 typed in USDC is not kept as 500 ETH.
-  await pick(page, 'get', 'cUSD');
+  // Choosing tacUSD while paying USDC puts ETH on the pay side: the 500 typed in USDC is not kept as 500 ETH.
+  await pick(page, 'get', 'tacUSD');
   ok((await page.textContent('#pay-coin')).includes('ETH') && (await page.inputValue('#amt')) === '', 'a pay side that follows a choice clears the amount typed in the old asset');
 
-  // cUSD from the Tacit pool, priced far from a dollar: accepted first.
+  // tacUSD from the Tacit pool, priced far from a dollar: accepted first.
   await typeAmt(page, '0.05');
   await quoted(page);
   const gated = await page.isVisible('#ack');
@@ -164,15 +164,18 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
     await typeAmt(page, '0.06'); await quoted(page);
     ok(!(await page.isChecked('#ack')), 'a new amount asks for it again');
   }
-  ok(gated ? /under/.test(await page.textContent('#ackbox')) : true, `cUSD: ${gated ? 'a price far under the market is gated' : 'priced near the market, no gate'}`);
+  ok(gated ? /under/.test(await page.textContent('#ackbox')) : true, `tacUSD: ${gated ? 'a price far under the market is gated' : 'priced near the market, no gate'}`);
   if (gated) {
-    ok(/Borrow cUSD at \$1/.test(await page.textContent('#ackbox')), 'the gate offers to borrow cUSD');
+    ok(/Borrow cUSD at \$1, then make it public/.test(await page.textContent('#ackbox')), 'the gate offers to borrow cUSD and make it public');
     ok((await page.textContent('#go')).startsWith('Connect') || await page.isDisabled('#go'), 'the button waits for the acceptance (or a wallet)');
   }
   await shot(page, 'desktop-cusd');
 
   // Private: priced here, handed to the console.
   await page.click('[data-mode="private"]');
+  await page.click('#get-coin');
+  ok(await page.$('.pk-r:has(b:text-is("cUSD"))') && await page.$('.pk-r:has(b:text-is("cBTC"))') && !(await page.$('.pk-r:has(b:text-is("tacUSD"))')), 'private: the picker names the notes cUSD and cBTC');
+  await page.click('.pk-x');
   await pick(page, 'pay', 'ETH');
   await pick(page, 'get', 'TAC');
   await typeAmt(page, '0.25');
@@ -269,6 +272,16 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await quoted(page);
   ok(/Price impact/.test(await page.textContent('#rcpt')), 'a token with no dollar price of its own still shows its price impact (through the WETH it buys)');
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 2).join(' | ') : ''}`);
+  await browser.close();
+}
+
+// ── an old link's ?to=cusd still opens on the same token, now named tacUSD ──
+{
+  const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { path: '/swap/?to=cusd' });
+  ok((await page.textContent('#get-coin')).includes('tacUSD'), 'an old ?to=cusd link opens on tacUSD');
+  await page.click('[data-mode="private"]');
+  ok((await page.textContent('#get-coin')).includes('cUSD') && !(await page.textContent('#get-coin')).includes('tacUSD'), 'in private the same token is the cUSD note');
+  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   await browser.close();
 }
 

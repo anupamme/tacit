@@ -5,9 +5,9 @@
 //     `routeFromWETH` unwraps it and buys TAC from the Precision pool. The WETH leg is exact-out because PrecisionRoute's checkpoint
 //     commits to the exact calldata it will run (amount included) and refuses any other balance change; whatever of the token the
 //     leg does not need stays with its owner.
-//   - ETH to and from cUSD and cBTC in the Tacit pool's public door (TacitPublicAmm), the same reserves its private swaps use.
+//   - ETH to and from tacUSD and tacBTC in the Tacit pool's public door (TacitPublicAmm), the same reserves its private swaps use.
 //
-// How the token reaches zRouter, best first: an EIP-2612 permit signed for free (USDC, wstETH, TAC, cUSD, cBTC and most new tokens;
+// How the token reaches zRouter, best first: an EIP-2612 permit signed for free (USDC, wstETH, TAC, tacUSD, tacBTC and most new tokens;
 // DAI's own permit), a Permit2 signature where the token already allows Permit2, else an approval of the exact amount.
 //
 // The page passes `ethCall(to, data, block?, { from, value, gas })`, `keccak256(bytes) -> bytes` and the trade venues. The one import is the guard
@@ -38,12 +38,13 @@ export const POOL_ID = {
 export const AMM_FEE = 30n;                  // the founded tier of each Tacit pool pair
 export const UNIT = 10n ** 10n;              // the pool takes 18-decimal amounts in steps of 1e10 (8 decimals inside)
 
-// The tokens the picker offers before any is pasted. `permit`: the EIP-2612 version, 'dai' for DAI's own permit, null for none.
+// The tokens the picker offers before any is pasted. `permit`: the EIP-2612 version, 'dai' for DAI's own permit, null for none. `psym`: the
+// name of the same token as a private note in the Tacit pool (tacUSD in public is cUSD in private, tacBTC is cBTC).
 export const TOKENS = [
   { sym: 'ETH', name: 'Ether', addr: ZERO, dec: 18, icon: 'eth' },
   { sym: 'TAC', name: 'Tacit', addr: TAC, dec: 18, icon: 'tac', permit: '1' },
-  { sym: 'cUSD', name: 'Tacit dollar', addr: CUSD, dec: 18, icon: 'cusd', permit: '1' },
-  { sym: 'cBTC', name: 'Tacit bitcoin', addr: CBTC, dec: 18, icon: 'cbtc', permit: '1' },
+  { sym: 'tacUSD', name: 'Tacit USD', psym: 'cUSD', addr: CUSD, dec: 18, icon: 'cusd', permit: '1' },
+  { sym: 'tacBTC', name: 'Tacit Bitcoin', psym: 'cBTC', addr: CBTC, dec: 18, icon: 'cbtc', permit: '1' },
   { sym: 'USDC', name: 'USD Coin', addr: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', dec: 6, icon: 'usdc', permit: '2' },
   { sym: 'USDT', name: 'Tether', addr: '0xdAC17F958D2ee523a2206206994597C13D831ec7', dec: 6, icon: 'usdt', permit: null },
   { sym: 'DAI', name: 'Dai', addr: DAI, dec: 18, icon: 'dai', permit: 'dai' },
@@ -203,7 +204,7 @@ export function buildAnyToTac({ quote, account, minOut, keccak256, access }) {
   return { to: ZROUTER, data: encMulticall(legs), value: 0n };
 }
 
-// ── the Tacit pool's public door: ETH ⇄ cUSD / cBTC (and TAC, which the trade venues route) ──
+// ── the Tacit pool's public door: ETH ⇄ tacUSD / tacBTC (and TAC, which the trade venues route) ──
 export async function quoteAmm({ ethCall, tokenIn, tokenOut, amountIn }) {
   const a = POOL_ID[tokenIn] || POOL_ID[Object.keys(POOL_ID).find((k) => same(k, tokenIn))], b = POOL_ID[tokenOut] || POOL_ID[Object.keys(POOL_ID).find((k) => same(k, tokenOut))];
   const aligned = amountIn - (amountIn % UNIT);

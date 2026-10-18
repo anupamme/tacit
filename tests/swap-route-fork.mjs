@@ -122,7 +122,7 @@ const wbtc = await readToken({ ethCall, keccak256: keccak_256, address: tok('WBT
 assert.equal(wbtc.sym, 'WBTC'); assert.equal(wbtc.dec, 8); assert.equal(wbtc.permit, null);
 assert.equal(await readToken({ ethCall, keccak256: keccak_256, address: '0x1111111111111111111111111111111111111111' }), null);
 for (const t of TOKENS.filter((x) => x.permit && x.permit !== 'dai')) assert.equal((await readToken({ ethCall, keccak256: keccak_256, address: t.addr })).permit, t.permit, `${t.sym} permit version`);
-ok('readToken: permit versions from each token\'s domain separator (USDC 2, wstETH/TAC/cUSD/cBTC 1, none for USDT/WBTC), decimals, a non-token');
+ok('readToken: permit versions from each token\'s domain separator (USDC 2, wstETH/TAC/tacUSD/tacBTC 1, none for USDT/WBTC), decimals, a non-token');
 
 // ── any token → TAC ──
 await anyToTac('USDC', 500n * 10n ** 6n, 'permit');
@@ -170,11 +170,11 @@ async function amm(sym, dir, amount, how) {
   ok(`${dir === 'buy' ? `ETH → ${sym}` : `${sym} → ETH`}${how ? ` by ${how}` : ''}: ${f(q.amountIn)} → ${f(q.amountOut, 18, 6)} (${outTok === ZERO ? 'net of gas ' + f(got, 18, 6) : 'received ' + f(got, 18, 6)}), gas ${r.gas}`);
   return got;
 }
-const cusdGot = await amm('cUSD', 'buy', E18 / 50n);
-const cbtcGot = await amm('cBTC', 'buy', E18 / 50n);
+const cusdGot = await amm('tacUSD', 'buy', E18 / 50n);
+const cbtcGot = await amm('tacBTC', 'buy', E18 / 50n);
 assert.ok(cusdGot > 0n && cbtcGot > 0n);
-await amm('cUSD', 'sell', 20n * E18, 'permit');
-await amm('cBTC', 'sell', E18 / 10000n, 'approve');
+await amm('tacUSD', 'sell', 20n * E18, 'permit');
+await amm('tacBTC', 'sell', E18 / 10000n, 'approve');
 assert.equal(await quoteAmm({ ethCall, tokenIn: ZERO, tokenOut: CUSD, amountIn: 5n }), null, 'an amount under one pool unit has no quote');
 ok('an amount under the pool\'s unit is not quoted');
 

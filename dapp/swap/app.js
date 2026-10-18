@@ -1,8 +1,8 @@
 // tacit.finance/swap: one card that swaps into Tacit's tokens and farms them.
 //
 // To your wallet: ETH ⇄ TAC at the best of the Precision pool, the Tacit pool's public door and a split of the two (the trade page's
-// venues); any other token → TAC in one transaction (zQuoter's best pool to WETH, then PrecisionRoute; swap/route.js); ETH ⇄ cUSD and
-// cBTC in the Tacit pool's public door. Every quote is set beside the market price (Chainlink's ETH and BTC, cUSD's dollar, the
+// venues); any other token → TAC in one transaction (zQuoter's best pool to WETH, then PrecisionRoute; swap/route.js); ETH ⇄ tacUSD and
+// tacBTC in the Tacit pool's public door. Every quote is set beside the market price (Chainlink's ETH and BTC, tacUSD's dollar, the
 // Precision pool for TAC), and a buy far below it has to be acknowledged first. A token is spent by a permit where it has one.
 // Private: the same pool's private door, priced here and handed to the front page's console, which holds the tacit1 key and proves it.
 // Earn: the Precision farm (trade/farm.js) in the card, the private farms by link.
@@ -10,7 +10,7 @@ import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venues.js?cb=f6e1b626';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=4a8e3482';
 import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18 } from '/trade/util.js?cb=782a003c';
-import * as R from '/swap/route.js?cb=6eafe8b3';
+import * as R from '/swap/route.js?cb=2be79f2b';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
 
 const CHAINLINK = { eth: '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419', btc: '0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c' };
@@ -78,13 +78,16 @@ const listed = () => {
   const known = R.TOKENS.map((t) => ({ ...t, addr: lc(t.addr) })), have = new Set(known.map((t) => t.addr));
   return [...known, ...TL.rows.filter((t) => !have.has(t.addr) && (have.add(t.addr), true)), ...S.custom.filter((t) => !have.has(t.addr))];
 };
-const tokenOf = (k) => (k === 'teth' ? TETH : listed().find((t) => t.addr === k)) || null;
+// In private, tacUSD and tacBTC are their notes, cUSD and cBTC, and are named so.
+const tokenOf = (k) => { const t = (k === 'teth' ? TETH : listed().find((x) => x.addr === k)) || null; return t?.psym && S.mode === 'private' ? { ...t, sym: t.psym } : t; };
+// A name in a link or a search: a token's symbol, or its private name (old links say ?to=cUSD).
+const nameIs = (t, x) => lc(t.sym) === x || (t.psym && lc(t.psym) === x);
 const isEth = (k) => k === lc(R.ZERO);
 const tacitKey = (k) => R.tacitToken(k);
 const KEY = { [lc(R.ZERO)]: 'ether', teth: 'eth', [lc(R.TAC)]: 'tac', [lc(R.CUSD)]: 'cusd', [lc(R.CBTC)]: 'cbtc' };
 const POOLID = (k) => (k === 'teth' ? CETH_ID : R.POOL_ID[Object.keys(R.POOL_ID).find((a) => lc(a) === k)]);
 
-// What a pair is, where it arrives: 'tac' (ETH ⇄ TAC, the venues), 'amm' (ETH ⇄ cUSD/cBTC), 'any' (a token → TAC), 'private', or null.
+// What a pair is, where it arrives: 'tac' (ETH ⇄ TAC, the venues), 'amm' (ETH ⇄ tacUSD/tacBTC), 'any' (a token → TAC), 'private', or null.
 function kindOf(pay, get, mode = S.mode) {
   if (pay === get) return null;
   if (mode === 'private') return KEY[pay] && KEY[get] && get !== lc(R.ZERO) ? 'private' : null;
@@ -123,8 +126,8 @@ function usdOf(k, wei) {
   const n = Number(wei) / 10 ** t.dec;
   if (isEth(k) || k === 'teth' || t.sym === 'WETH') return p.ethUsd ? n * p.ethUsd : null;
   if (t.sym === 'wstETH') return p.ethUsd && p.wstEth ? n * p.wstEth * p.ethUsd : null;
-  if (t.sym === 'cBTC' || t.sym === 'WBTC') return p.btcUsd ? n * p.btcUsd : null;
-  if (['USDC', 'USDT', 'DAI', 'cUSD'].includes(t.sym) && !t.custom) return n;
+  if (['cBTC', 'tacBTC', 'WBTC'].includes(t.sym)) return p.btcUsd ? n * p.btcUsd : null;
+  if (['USDC', 'USDT', 'DAI', 'cUSD', 'tacUSD'].includes(t.sym) && !t.custom) return n;
   if (k === lc(R.TAC)) return p.ethUsd && p.perEth ? (n / p.perEth) * p.ethUsd : null;
   return null;
 }
@@ -313,7 +316,7 @@ function paintSides() {
   const v = wei ? usdOf(S.pay === 'teth' ? lc(R.ZERO) : S.pay, wei) : null;
   $('#pay-usd').textContent = v != null ? `≈ ${usd(v)}` : '';
 }
-const QUICK = { ETH: ['0.1', '0.5', '1'], TAC: ['500', '1000'], USDC: ['100', '500'], USDT: ['100', '500'], DAI: ['100', '500'], cUSD: ['100', '500'], cBTC: ['0.001', '0.01'], WBTC: ['0.005', '0.01'], WETH: ['0.1', '0.5'], wstETH: ['0.1', '0.5'], tETH: ['0.1', '0.5'] };
+const QUICK = { ETH: ['0.1', '0.5', '1'], TAC: ['500', '1000'], USDC: ['100', '500'], USDT: ['100', '500'], DAI: ['100', '500'], cUSD: ['100', '500'], tacUSD: ['100', '500'], cBTC: ['0.001', '0.01'], tacBTC: ['0.001', '0.01'], WBTC: ['0.005', '0.01'], WETH: ['0.1', '0.5'], wstETH: ['0.1', '0.5'], tETH: ['0.1', '0.5'] };
 const fitSize = (el) => { const n = (el.value || el.textContent || '').length; el.classList.toggle('long', n > 8); el.classList.toggle('longer', n > 11); };
 
 function paintQuote() {
@@ -356,7 +359,7 @@ function paintQuote() {
   // A buy far under the market is acknowledged first.
   const gate = r && !q.busy && m != null && m <= GATE && !r.priv;
   if (busy) { /* the acceptance stays as it is until the new quote is in */ } else if (gate) {
-    const alt = S.get === lc(R.CUSD) ? ' <a href="/#borrow">Borrow cUSD at $1</a>.' : S.get === lc(R.CBTC) ? ' <a href="/#card=borrow:cbtc:mint">Mint cBTC 1:1</a>.' : '';
+    const alt = S.get === lc(R.CUSD) ? ' <a href="/#borrow">Borrow cUSD at $1</a>, then make it public.' : S.get === lc(R.CBTC) ? ' <a href="/#card=borrow:cbtc:mint">Mint cBTC 1:1</a>, then make it public.' : '';
     if (!ackbox.querySelector('input') || ackbox.dataset.k !== `${S.pay}>${S.get}`) {
       ackbox.dataset.k = `${S.pay}>${S.get}`;
       const tac = S.pay === lc(R.TAC) || S.get === lc(R.TAC);
@@ -575,7 +578,7 @@ function openPicker(side) {
     let seq = 0;
     qEl.oninput = async () => {
       const v = qEl.value.trim(), my = ++seq, l = $('#pk-l');
-      l.querySelectorAll('.pk-r').forEach((b) => { const t = tokenOf(b.dataset.k); b.hidden = !!v && !/^0x/i.test(v) && !`${t.sym} ${t.name}`.toLowerCase().includes(v.toLowerCase()); });
+      l.querySelectorAll('.pk-r').forEach((b) => { const t = tokenOf(b.dataset.k); b.hidden = !!v && !/^0x/i.test(v) && !`${t.sym} ${t.psym || ''} ${t.name}`.toLowerCase().includes(v.toLowerCase()); });
       l.querySelector('[data-add]')?.remove();
       $('#pk-n').textContent = '';
       if (!/^0x[0-9a-fA-F]{40}$/.test(v)) return;
@@ -666,7 +669,7 @@ function keepUrl() {
   history.replaceState(null, '', `${location.pathname}${qs ? `?${qs}` : ''}${S.tab === 'earn' ? '#earn' : ''}`);
 }
 function readUrl() {
-  const p = new URLSearchParams(location.search), find = (v) => { if (!v) return null; const x = lc(v); return x === 'teth' ? 'teth' : (listed().find((t) => lc(t.sym) === x || t.addr === x)?.addr) || null; };
+  const p = new URLSearchParams(location.search), find = (v) => { if (!v) return null; const x = lc(v); return x === 'teth' ? 'teth' : (listed().find((t) => nameIs(t, x) || t.addr === x)?.addr) || null; };
   if (p.has('private')) S.mode = 'private';
   const f = find(p.get('from')), t = find(p.get('to'));
   if (f) S.pay = f; if (t) S.get = t;
@@ -736,7 +739,7 @@ arrows(document.querySelector('.mode'), 'data-mode'); arrows($('#rows'), 'data-r
 readUrl();
 {
   const q = new URLSearchParams(location.search), named = [q.get('from'), q.get('to')].filter((v) => v && !/^0x/i.test(v));
-  if (named.some((v) => !listed().some((t) => lc(t.sym) === lc(v)) && lc(v) !== 'teth')) loadList().then(() => { const was = S.pay; readUrl(); if (S.pay !== was) { S.q = null; paint(); if (S.amt) requote(true); } });
+  if (named.some((v) => !listed().some((t) => nameIs(t, lc(v))) && lc(v) !== 'teth')) loadList().then(() => { const was = S.pay; readUrl(); if (S.pay !== was) { S.q = null; paint(); if (S.amt) requote(true); } });
 }
 {
   const f = new URLSearchParams(location.search).get('from');

@@ -6,13 +6,13 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self' https://api.tacit.finance wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src https://verify.walletconnect.org https://verify.walletconnect.com">
 <meta name="color-scheme" content="light dark">
 <title>tacit swap</title>
-<meta name="description" content="Get TAC, cUSD and cBTC: from your wallet with ETH or any token, or privately in the Tacit pool.">
+<meta name="description" content="Get TAC, tacUSD and tacBTC from your wallet with ETH or any token, or cUSD and cBTC privately in the Tacit pool.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="tacit">
 <link rel="canonical" href="https://tacit.finance/swap/">
 <meta property="og:url" content="https://tacit.finance/swap/">
 <meta property="og:title" content="tacit swap">
-<meta property="og:description" content="Get TAC, cUSD and cBTC, from your wallet or privately.">
+<meta property="og:description" content="Get TAC, tacUSD and tacBTC from your wallet, or cUSD and cBTC privately.">
 <meta property="og:image" content="https://tacit.finance/tacit-card.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
@@ -25,7 +25,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /swap/app.js | | /confidential-pool-ux.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/swap/app.js?cb=2142a448">
+<link rel="modulepreload" href="/swap/app.js?cb=6f602050">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=f6e1b626">
 <link rel="modulepreload" href="/zrouter-guard.js">
@@ -36,7 +36,7 @@
 <link rel="modulepreload" href="/trade/util.js?cb=782a003c">
 <link rel="modulepreload" href="/trade/rpc.js?cb=842f58a5">
 <link rel="modulepreload" href="/trade/fmt.js?cb=c07717c4">
-<link rel="modulepreload" href="/swap/route.js?cb=6eafe8b3">
+<link rel="modulepreload" href="/swap/route.js?cb=2be79f2b">
 <link rel="modulepreload" href="/points-note.js?cb=eacef061">
 <!-- preload:end -->
 <style>
@@ -496,7 +496,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <div class="stage">
     <section class="hero" aria-labelledby="hero-h">
       <h1 id="hero-h">Swap into <em>tacit</em></h1>
-      <p class="lede">Get TAC, cUSD and cBTC. From your wallet, or privately.</p>
+      <p class="lede">Get TAC, tacUSD and tacBTC from your wallet, or cUSD and cBTC privately.</p>
       <p class="pxs" id="pxs" aria-live="off"></p>
       <noscript><p class="lede">Swapping needs JavaScript.</p></noscript>
     </section>
@@ -628,6 +628,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <link rel="modulepreload" href="/cbtc-note-recovery.js">
 </template>
 <!-- warm:end -->
-<script type="module" src="/swap/app.js?cb=2142a448"></script>
+<script type="module" src="/swap/app.js?cb=6f602050"></script>
 </body>
 </html>
