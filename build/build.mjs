@@ -182,7 +182,7 @@ const TRADE_CB_FILES = ['trade/tape.js', 'trade/chart.js', 'trade/book.js', 'tra
   'trade/util.js', 'trade/poolux.js', 'trade/key.js', 'trade/connect.js', 'trade/teth/read.js', 'trade/teth/wrap.js', 'trade/teth/prover.js', 'trade/teth/market.js', 'trade/teth/app.js', 'trade/teth/index.html',
   'trade/cbtc/read.js', 'trade/cbtc/app.js', 'trade/cbtc/index.html'];
 // dapp/vault/ is the borrow page: the same walk, leaves first (its arithmetic, its chain reads and its addresses), then app.js, then the page.
-const VAULT_CB_FILES = ['vault/math.js', 'vault/deployments.js', 'vault/chain.js', 'vault/feed.js', 'vault/app.js', 'vault/index.html'];
+const VAULT_CB_FILES = ['vault/math.js', 'vault/deployments.js', 'vault/chain.js', 'vault/feed.js', 'vault/batch.js', 'vault/router.js', 'vault/app.js', 'vault/index.html'];
 // dapp/tasks/ is the page of jobs paid in TAC: the check of a job's transactions first, then app.js, then the page.
 const TASKS_CB_FILES = ['tasks/verify.js', 'tasks/app.js', 'tasks/index.html'];
 // dapp/build/ is the page for builders: its one script, then the page.

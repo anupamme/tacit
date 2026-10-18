@@ -75,8 +75,8 @@ await rpcA('anvil_setCode', ['0xcA11bde05977b3631167028862bE2a173976CA11', readF
 const TAC = create(art('TacVaultMocks.sol/TestTac')), ORACLE = create(art('TacVaultMocks.sol/MockOracle'));
 const FEED = create(art('TacVaultMocks.sol/LiveFeed')), FIXED = create(art('FixedFeed.sol/FixedFeed'));
 const noLimit = MAXU.toString();
-const makeVault = (feed, name, symbol, minDebt) => {
-  const cfg = `(${TAC},${ORACLE},${feed},${ACC.owner.a},35000,20000,2500,5400,1200,${minDebt},3900,${noLimit},500,50,100,${FEE_TO},${SINK},${name},${symbol})`;
+const makeVault = (feed, name, symbol, minDebt, oracle = ORACLE) => {
+  const cfg = `(${TAC},${oracle},${feed},${ACC.owner.a},35000,20000,2500,5400,1200,${minDebt},3900,${noLimit},500,50,100,${FEE_TO},${SINK},${name},${symbol})`;
   const enc = cast('abi-encode', 'f((address,address,address,address,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256,address,address,string,string))', cfg);
   return create(art('TacVault.sol/TacVault') + enc.slice(2));
 };
@@ -92,14 +92,31 @@ const snap = async () => (await rpcA('eth_getBlockByNumber', ['latest', false]))
 
 // ── the page ──
 const RPC_HOSTS = ['ethereum-rpc.publicnode.com', 'eth.drpc.org', 'rpc.mevblocker.io', 'eth-mainnet.public.blastapi.io', 'ethereum-json-rpc.stakely.io', 'eth.rpc.blxrbdn.com', '1.rpc.thirdweb.com', '1rpc.io', 'mainnet.gateway.tenderly.co'];
-async function stubWallet(ctx, { who, noTyped = false }) {
-  const log = { sends: [], signs: 0 };
+// `batch`: a wallet that is a smart account and sends several calls as one transaction (EIP-5792): its account is given BatchRun's code (a 7702-style delegation), so each call
+// comes from the account, as it would from a real one.
+const BATCH_RUN_HEX = /BATCH_RUN = '(0x[0-9a-f]+)'/.exec(readFileSync(join(DAPP, 'vault/batch.js'), 'utf8'))[1];
+const DELEGATE = '0x' + 'b47c0001'.padStart(40, '0');
+async function stubWallet(ctx, { who, noTyped = false, batch = false }) {
+  const log = { sends: [], signs: 0, bundles: [], bundleIds: {} };
   await ctx.exposeFunction('__wallet', async (method, params) => {
     const a = ACC[who].a;
     if (method === 'eth_requestAccounts') return [a];
     if (method === 'eth_accounts') return [a];
     if (method === 'eth_chainId') return '0x1';
     if (method === 'wallet_switchEthereumChain') return null;
+    if (method === 'wallet_getCapabilities') { if (!batch) throw Object.assign(new Error('Method not found'), { code: -32601 }); return { '0x1': { atomic: { status: 'supported' } } }; }
+    if (method === 'wallet_sendCalls') {
+      if (!batch) throw Object.assign(new Error('Method not found'), { code: -32601 });
+      const q = params[0]; log.bundles.push(q);
+      await rpcA('anvil_setCode', [DELEGATE, BATCH_RUN_HEX]); await rpcA('anvil_setCode', [a, '0xef0100' + DELEGATE.slice(2)]);
+      const data = cast('calldata', 'run(address[],bytes[])', `[${q.calls.map((c) => c.to).join(',')}]`, `[${q.calls.map((c) => c.data).join(',')}]`);
+      const hash = await rpcA('eth_sendTransaction', [{ from: a, to: a, data, gas: '0x1c9c380' }]);
+      log.bundleIds[hash] = hash; return { id: hash };
+    }
+    if (method === 'wallet_getCallsStatus') {
+      const hash = log.bundleIds[params[0]], rc = await rpcA('eth_getTransactionReceipt', [hash]);
+      return { version: '2.0.0', id: params[0], chainId: '0x1', atomic: true, status: rc ? (rc.status === '0x1' ? 200 : 500) : 100, receipts: rc ? [{ transactionHash: hash, status: rc.status, blockNumber: rc.blockNumber, blockHash: rc.blockHash, gasUsed: rc.gasUsed, logs: [] }] : [] };
+    }
     if (method === 'wallet_watchAsset') { (log.watched ||= []).push(params); return true; }
     if (method === 'eth_signTypedData_v4') { if (noTyped) throw Object.assign(new Error('Method not supported'), { code: -32601 }); log.signs++; return cast('wallet', 'sign', '--private-key', ACC[who].k, '--data', params[1]); }
     if (method === 'eth_sendTransaction') { if (log.stall) return new Promise(() => {}); log.sends.push(params[0]); return rpcA('eth_sendTransaction', [{ ...params[0], gas: '0x3d0900' }]); }
@@ -113,11 +130,11 @@ const M_OUT = (txt) => { const [a, b = ''] = txt.split('.'); return BigInt(a) * 
 const hashFor = (extra = '') => `#vusd=${USD}&veth=${ETH}&t=deposit${extra}`;
 // `bare`: the page served with a deployments module that names no vault, as it was before the vaults existed (the opens-soon state).
 // `limited`: hosts that answer every call as a node that has run out of its free requests does.
-async function openPage({ viewport = { width: 1280, height: 900 }, who = null, noTyped = false, hash = hashFor(), host = '127.0.0.1', scheme = 'light', args = [], bare = false, limited = [] } = {}) {
+async function openPage({ viewport = { width: 1280, height: 900 }, who = null, noTyped = false, batch = false, hash = hashFor(), host = '127.0.0.1', scheme = 'light', args = [], bare = false, limited = [] } = {}) {
   const browser = await chromium.launch({ args });
   const ctx = await browser.newContext({ viewport, colorScheme: scheme });
   if (bare) await ctx.route('**/vault/deployments.js*', (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: 'export const DEPLOYMENTS = Object.freeze({ chainId: 1, vaults: Object.freeze([]) });' }));
-  const walletLog = who ? await stubWallet(ctx, { who, noTyped }) : null;
+  const walletLog = who ? await stubWallet(ctx, { who, noTyped, batch }) : null;
   for (const h of RPC_HOSTS) await ctx.route(`https://${h}/**`, async (route) => {
     if (limited.includes(h)) return route.fulfill({ status: 429, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32005, message: 'You reached Public endpoint rate limit, please upgrade to paid plan' } }) });
     try {
@@ -589,6 +606,159 @@ try {
   ok(D.watched?.length === 1 && D.watched[0].options.symbol === 'TACD' && D.watched[0].options.address.toLowerCase() === SYN.usd.toLowerCase() && D.watched[0].options.decimals === 18, 'which asks the wallet to list it with its address and symbol');
   ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
   await closeAll(r);
+
+  // ── the price records carried with the action ──
+  // A vault that prices only once its venues have been recorded (MockPair; its venues take a record on a header alone), and the page's own record flow against it: headers and
+  // proofs built from the chain, the records and the person's call in one confirmation, from a wallet that can batch and from one that cannot (through the router).
+  const kit = ['TacVaultRouter.sol/TacVaultRouter', 'TacVaultMocks.sol/MockPair', 'TacVaultMocks.sol/MockVenue'].every((f) => existsSync(join(OUT, `${f}.json`)));
+  if (!kit) console.log('skipped: the record tests need the compiled TacVaultRouter and MockPair (forge build)');
+  else {
+    const PAIR = create(art('TacVaultMocks.sol/MockPair')), VENUES = [view(PAIR, 'A()(address)')[0], view(PAIR, 'B()(address)')[0]];
+    send('deployer', PAIR, 'set(uint256)', String(P0));                                                  // the pair prices like the first oracle once it is armed and recorded
+    const VC = makeVault(FEED, 'TAC Dollar', 'TACD', (100n * E18).toString(), PAIR);
+    const SYNC = view(VC, 'SYNTH()(address)')[0];
+    const RT = create(art('TacVaultRouter.sol/TacVaultRouter') + cast('abi-encode', 'f(address,address)', VC, ETH).slice(2));
+    const head = async () => Number(BigInt(await rpcA('eth_blockNumber')));
+    const h0 = await head(), at = (Math.floor(h0 / 50) + 45) * 50 + 20;                                   // enough blocks for forty intervals (each block of history costs the test node disk)
+    await rpcA('anvil_mine', ['0x' + (at - h0).toString(16)]);
+    const top0 = Math.floor((at - 1) / 50) - 1;                                                          // the newest interval; the three newest of each venue are left to record
+    for (const v of VENUES) send('deployer', v, 'fill(uint256,uint256)', String(top0 - 40), String(top0 - 3));
+    const pending = async () => { const top = Math.floor((await head() - 1) / 50) - 1; let n = 0; for (const v of VENUES) for (let k = top - 30; k <= top; k++) if (big(v, 'sampleOf(uint256)(uint256,uint256)', String(k)) === 0n) n++; return n; };
+    const arm = async () => { const n = await pending(); send('deployer', PAIR, 'arm(uint256)', String(n)); return n; };
+    const more = async () => { await rpcA('anvil_mine', ['0x96']); return arm(); };                    // three more intervals, three more records of each venue
+    const hashC = (extra = '') => `#vusd=${VC}${extra}`;
+    const ready = (p, re) => untilText(p, '#go', re, 90000);
+
+    // 1. a wallet that batches: one confirmation, one permit signature, no other transaction; the router is not needed
+    let n = await arm();
+    ok(n === 6, `six records are missing (three of each venue): ${n}`);
+    r = await openPage({ who: 'bob', batch: true, hash: hashC(`&router=${RT}`) });
+    const bb = r.page, BL = r.walletLog;
+    await connect(bb);
+    await ready(bb, /^Deposit [\d,.]+ TAC and borrow$/);
+    ok(/Price records\s*6 included/.test(await text(bb, '#info')) && Number(await bb.inputValue('#amt')) > 0, 'the ticket reads the vault as it will be once the records are in: the amount is filled, and it says six records are included');
+    ok(/Borrowing waits for 6 prices/.test(await text(bb, '#board')), 'while the board still says what the chain says');
+    await shot(bb, 'records-bundle');
+    const sg = BL.signs; BL.sends.length = 0;
+    await bb.click('#go');
+    await untilText(bb, '#status', /Deposited [\d,.]+ TAC and borrowed [\d,.]+ TACD\. You owe [\d,.]+\. Recorded 6 prices with it/, 120000);
+    const bv = vaultOf(VC, 'bob');
+    ok(BL.bundles.length === 1 && BL.bundles[0].calls.length === 2 && BL.bundles[0].atomicRequired === true && BL.sends.length === 0, 'one batch of two calls (the records, then the vault) and no other transaction');
+    ok(BL.signs - sg === 1, 'and one signature, the permit');
+    ok(bv.d > 0n && bv.c > 0n && view(PAIR, 'broken()(bool)')[0] === 'false' && big(PAIR, 'got()(uint256)') === 6n && (await pending()) === 0, 'the vault holds the deposit and the debt, and every missing record was made');
+    ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
+    await closeAll(r);
+
+    // 2. a wallet that cannot batch, with the router: two signatures (the borrow, the permit) and one transaction, to the router
+    n = await more();
+    r = await openPage({ who: 'carol', hash: hashC(`&router=${RT}`) });
+    const cc = r.page, CL = r.walletLog;
+    await connect(cc);
+    await ready(cc, /^Deposit [\d,.]+ TAC and borrow$/);
+    ok(new RegExp(`Price records\\s*${n} included`).test(await text(cc, '#info')), `through the router too the ticket says the ${n} records are included`);
+    const sgc = CL.signs; CL.sends.length = 0;
+    await cc.click('#go');
+    await untilText(cc, '#status', new RegExp(`Recorded ${n} prices with it`), 120000);
+    const cv2 = vaultOf(VC, 'carol');
+    ok(CL.sends.length === 1 && CL.sends[0].to.toLowerCase() === RT.toLowerCase() && CL.sends[0].data.startsWith(cast('sig', 'multicall(bytes[])')) && CL.bundles.length === 0, 'one transaction, to the router, its multicall');
+    ok(CL.signs - sgc === 2, 'with two signatures: the borrow for the vault and the permit for the router');
+    ok(cv2.d > 0n && cv2.c > 0n && big(SYNC, 'balanceOf(address)(uint256)', ACC.carol.a) >= cv2.d * 99n / 100n && big(TAC, 'balanceOf(address)(uint256)', RT) === 0n, 'the debt and the deposit are carol\'s, the TACD reached her, and the router holds nothing');
+    ok(big(TAC, 'allowance(address,address)(uint256)', ACC.carol.a, RT) === 0n && (await pending()) === 0, 'the permit was used up and no record is left');
+    ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
+
+    // 3. the same wallet taking TAC out with a debt, when the prices have lapsed again: one signature and one transaction (it first repays some, as it borrowed all it could)
+    send('carol', SYNC, 'approve(address,uint256)', VC, MAXU.toString());
+    send('carol', VC, 'repay(address,uint256)', ACC.carol.a, String(vaultOf(VC, 'carol').d - 5000n * E18));
+    n = await more();
+    await cc.reload();                                                                                   // the wallet is remembered across a reload: no connecting again
+    await until(cc, () => !!document.querySelector('#board table') && /^0x/.test(document.querySelector('#wallet-label')?.textContent || ''), null, 60000);
+    await tab(cc, 'withdraw');
+    await typed(cc, '1');
+    await untilText(cc, '#go', /^Withdraw TAC$/, 90000);
+    ok(new RegExp(`Price records\\s*${n} included`).test(await text(cc, '#info')), 'the withdraw tab carries the records too');
+    const colBefore = vaultOf(VC, 'carol').c, sgw = CL.signs; CL.sends.length = 0;
+    await cc.click('#go');
+    await untilText(cc, '#status', new RegExp(`Recorded ${n} prices with it`), 120000);
+    ok(vaultOf(VC, 'carol').c === colBefore - E18 && CL.signs - sgw === 1 && CL.sends.length === 1 && CL.sends[0].to.toLowerCase() === RT.toLowerCase(), 'one TAC left the vault for carol with one signature and one transaction to the router');
+    await closeAll(r);
+
+    // 4. a wallet that cannot batch, and no router: the page does what it always did (the button records the prices first), and builds nothing in the background
+    n = await more();
+    r = await openPage({ who: 'user', hash: hashC() });
+    const uu = r.page;
+    await connect(uu);
+    await untilText(uu, '#go', new RegExp(`^Record ${n} prices to open borrowing$`), 60000);
+    await sleep(1500);
+    ok((await text(uu, '#info')) === '' && !(await uu.$$('#status .err')).length, 'with neither a batching wallet nor a router there is no price-record row, and the button is the old one');
+    await closeAll(r);
+
+    // 5. more than one batch can carry (20 missing): the ticket's button records the older ones in its own transaction, then the last ones go with the borrow
+    await rpcA('anvil_mine', ['0x15e']);                                                                 // seven more intervals of each venue
+    n = await arm();
+    ok(n > 12, `more records are missing than one batch carries: ${n}`);
+    mintTac(ACC.owner.a, 50_000n * E18);
+    r = await openPage({ who: 'owner', batch: true, hash: hashC(`&router=${RT}`) });
+    const oo = r.page, OL = r.walletLog;
+    await connect(oo);
+    await untilText(oo, '#go', new RegExp(`^Record ${n} prices to open borrowing$`), 60000);
+    await sleep(1500);
+    ok((await text(oo, '#info')) === '', 'with that many missing nothing is prepared in the background');
+    OL.sends.length = 0;
+    await oo.click('#go');
+    await untilText(oo, '#go', /^Deposit [\d,.]+ TAC and borrow$/, 240000);
+    const left = await pending(), shown = Number(/Price records\s*(\d+) included/.exec(await text(oo, '#info'))?.[1]);
+    ok(OL.sends.length === 1 && shown === left && left > 0 && left <= 12, `the button recorded the older ones in one transaction and left ${left} for the borrow`);
+    await oo.click('#go');
+    await untilText(oo, '#status', new RegExp(`Recorded ${left} prices with it`), 120000);
+    ok(OL.bundles.length === 1 && vaultOf(VC, 'owner').d > 0n && (await pending()) === 0, 'which went through in one batch: the vault holds a debt and nothing is missing');
+    await closeAll(r);
+
+    // 6. an auction on the account's vault while the prices have lapsed: the callout offers to record them and end the auction in one transaction (any wallet, through Multicall3)
+    const auction = (who, div) => { send('deployer', PAIR, 'set(uint256)', String(P0 / div)); send('deployer', VC, 'liquidate(address)', ACC[who].a); send('deployer', PAIR, 'set(uint256)', String(P0)); };
+    auction('bob', 4n);
+    ok(vaultOf(VC, 'bob').a > 0n, 'an auction is open on bob\'s vault');
+    n = await more();
+    r = await openPage({ who: 'bob', hash: hashC() });
+    const ba = r.page, AL = r.walletLog;
+    await connect(ba);
+    await untilText(ba, '#pos', new RegExp(`Record ${n} prices and end the auction`), 120000);
+    AL.sends.length = 0;
+    await ba.click('#pos [data-cancel]');
+    await untilText(ba, '#status', new RegExp(`The auction has ended\\. Recorded ${n} prices with it`), 120000);
+    ok(vaultOf(VC, 'bob').a === 0n && AL.sends.length === 1 && AL.sends[0].to.toLowerCase() === '0xca11bde05977b3631167028862be2a173976ca11' && (await pending()) === 0, 'one Multicall3 transaction recorded the prices and ended the auction');
+    await closeAll(r);
+
+    // 7. adding TAC to a vault in an auction whose prices have lapsed: with a wallet that batches, the records go with the deposit and the auction ends in it
+    auction('bob', 4n);
+    mintTac(ACC.bob.a, 1_000n * E18);                                                                    // bob put all of his TAC in the vault earlier
+    n = await more();
+    r = await openPage({ who: 'bob', batch: true, hash: hashC('&t=deposit') });
+    const bd = r.page, DL = r.walletLog;
+    await connect(bd);
+    await typed(bd, '100');
+    await untilText(bd, '#go', /^Deposit TAC$/, 120000);
+    await until(bd, () => /Price records\s*\d+ included/.test(document.querySelector('#info')?.textContent || ''), null, 120000);
+    await bd.click('#go');
+    await untilText(bd, '#status', /Deposited 100 TAC\. Recorded \d+ prices with it/, 120000);
+    ok(vaultOf(VC, 'bob').a === 0n && DL.bundles.length === 1 && (await pending()) === 0, 'the deposit and the records went in one batch, and the auction is over');
+    await closeAll(r);
+
+    // 8. repaying part of the debt of a vault in an auction, from a wallet that cannot batch: through the router, the records, the permit for the TACD and the repayment in one transaction
+    auction('carol', 100n);
+    n = await more();
+    r = await openPage({ who: 'carol', hash: hashC(`&t=repay&router=${RT}`) });
+    const cr = r.page, RL = r.walletLog;
+    await connect(cr);
+    await typed(cr, '1000');
+    await until(cr, () => /Price records\s*\d+ included/.test(document.querySelector('#info')?.textContent || ''), null, 120000);
+    RL.sends.length = 0;
+    const debt0 = vaultOf(VC, 'carol').d;
+    await cr.click('#go');
+    await untilText(cr, '#status', /Repaid\. You owe [\d,.]+ TACD\. Recorded \d+ prices with it/, 120000);
+    ok(RL.sends.length === 1 && RL.sends[0].to.toLowerCase() === RT.toLowerCase() && vaultOf(VC, 'carol').d === debt0 - 1000n * E18 && vaultOf(VC, 'carol').a === 0n && (await pending()) <= 2, 'one transaction to the router repaid 1,000 and, with the records before it, ended the auction (at most the newest interval, which began meanwhile, is left)');
+    ok(big(SYNC, 'balanceOf(address)(uint256)', RT) === 0n && big(SYNC, 'allowance(address,address)(uint256)', RT, VC) === 0n, 'and the router holds no TACD and leaves no approval');
+    await closeAll(r);
+  }
 
   // ── screenshots, phone and dark, one per zone ──
   if (SHOTS) {

@@ -4,13 +4,15 @@
 // contract's own (math.js): what it shows as the room to borrow, the limit for this account, the amount to add to reach 400% and the price a vault is
 // liquidated at are the numbers the contract will test, rounded the safe way. A person's vault is the chain's, not this browser's: nothing about it
 // is kept here, so the same account shows the same vault anywhere. The wallet never gives up a key; each action is tested once with eth_call before it is sent.
-import { DEPLOYMENTS } from '/vault/deployments.js?cb=174de1c7';
+import { DEPLOYMENTS } from '/vault/deployments.js?cb=8d4d1783';
 import * as M from '/vault/math.js?cb=ac1ed53e';
 import {
   makeRpc, RPCS, ARCHIVE, HISTORY, makeReader, staticCalls, parseStatic, dynamicCalls, parseDynamic, timestampCall, refusal, decString, SEL, wordAt, addrWord, QUEUE_EXPIRY,
   encDeposit, encWithdraw, encBorrow, encRepay, encCancel, encApprove, encPermit, encMulticall,
 } from '/vault/chain.js?cb=446cc436';
 import { makeFeed, RECORD_GAS, PER_TX, encBatch, MULTICALL3 } from '/vault/feed.js?cb=03954743';
+import { batchSupport, simulateBundle, sendBundle, readMixed } from '/vault/batch.js?cb=457d6163';
+import { ROUTER_SEL, encRouterRecords, encRouterBorrow, encRouterWithdraw, encRouterDeposit, encRouterRepay, encRouterPermitSynth, borrowTyped, withdrawTyped } from '/vault/router.js?cb=21df6509';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=7b4ab128';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { announceWalletConnect, wcSheets, WC_PROJECT_ID } from '/walletconnect.js?cb=7ab92369';
@@ -21,6 +23,7 @@ const now = () => Math.floor(Date.now() / 1000);
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
 const short = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const KIND = { usd: { name: 'TAC Dollar', sym: 'TACD', dp: 2, price: (t) => `$${t}` }, eth: { name: 'TAC Ether', sym: 'TACE', dp: 4, price: (t) => `${t} ETH` } };
+const icon = (key) => `<svg class="tk" aria-hidden="true"><use href="#tk-${key === 'usd' ? 'tacd' : 'tace'}"/></svg>`;   // the token's mark, in TAC's colours
 const ACTS = [['deposit', 'Deposit'], ['borrow', 'Borrow'], ['repay', 'Repay'], ['withdraw', 'Withdraw']];
 
 // ── which vaults ──
@@ -37,7 +40,10 @@ const VS = (() => {
   return list.map((v) => ({ ...v, s: null, d: null }));
 })();
 
-const S = { v: VS[0]?.key, t: 'borrow', pre: true, amt: '', view: null, busy: false, seq: 0, chainT: 0, chainAt: 0, loaded: false, failed: false, more: false };
+// The router (see router.js), when one is deployed for these vaults; a page on this computer may name one with #router= (tests only).
+const ROUTER = (() => { const a = LOCAL && ADDR.test(params().get('router') || '') ? params().get('router') : DEPLOYMENTS.router; return ADDR.test(a || '') ? a : null; })();
+
+const S = { v: VS[0]?.key, t: 'borrow', pre: true, batchOk: false, batchFor: null, routerFor: null, routerOff: false, amt: '', view: null, busy: false, seq: 0, chainT: 0, chainAt: 0, loaded: false, failed: false, more: false };
 const MORE_KEY = 'tacit-vault-more';                                                                // whether the board shows its further figures, kept in this browser
 try { S.more = localStorage.getItem(MORE_KEY) === '1'; } catch { /* storage is a convenience */ }
 // The connected wallet's own node. An injected wallet on Ethereum answers reads from the provider it already has, so it is asked first for the old headers and proofs the
@@ -139,15 +145,23 @@ async function load() {
 
 // ── what the numbers mean ──
 // Everything one vault shows, from what was read (null until it is).
-function derive(V) {
+// `post`: the numbers as they will be once the price records the vault waits for are in (see prepare), for the ticket's borrow and withdraw; the board and the position
+// always show the chain as it is.
+const postOf = (V) => (V.post && V.d && (V.d.pB == null || V.d.pL == null || V.d.recovered == null) && V.post.who === (who() || '').toLowerCase() && now() - V.post.at < POST_TTL ? V.post : null);
+// What waits for price records: a borrow or a withdraw with a debt, and an auction on the account's vault that no price can say has ended (adding TAC, repaying, or the end itself
+// would end it, but the vault must see a price to know it has recovered).
+const lapsed = (x) => x.auction && x.d.recovered == null;
+const needs = (x, t) => (t === 'borrow' && x.paused && !x.auction) || (t === 'withdraw' && x.wpaused && !x.auction) || ((t === 'deposit' || t === 'repay') && lapsed(x));
+function derive(V, post = false) {
   const s = V.s;
   if (!s || !V.d) return null;
+  const pre = post ? postOf(V) : null, D = pre ? pre.d : V.d;
   // What was read for another account (the wallet has changed since) is not this account's vault.
-  const mine = (V.d.who || '').toLowerCase() === (who() || '').toLowerCase();
-  const d = mine ? V.d : { ...V.d, me: null, recovered: null, onOffer: null, tacBal: null, tacAllow: null, synBal: null, synAllow: null };
+  const mine = (D.who || '').toLowerCase() === (who() || '').toLowerCase();
+  const d = mine ? D : { ...D, me: null, recovered: null, onOffer: null, tacBal: null, tacAllow: null, synBal: null, synAllow: null };
   const k = KIND[V.key], me = d.me || { collateral: 0n, debt: 0n, auctionStart: 0 };
   const room = d.depthCeiling != null && d.debtCeiling != null && d.totalDebt != null ? M.sharedRoom({ debtCeiling: d.debtCeiling, depthCeiling: d.depthCeiling, totalDebt: d.totalDebt }) : null;
-  const x = { V, s, d, k, me, room, sym: /^[A-Za-z0-9]{2,12}$/.test(d.symbol || '') ? d.symbol : k.sym, safe: 2n * s.liq };
+  const x = { V, s, d, k, me, room, post: !!pre, sym: /^[A-Za-z0-9]{2,12}$/.test(d.symbol || '') ? d.symbol : k.sym, safe: 2n * s.liq };
   x.paused = d.pB == null || room == null || d.feeBps == null;                                       // borrowing needs a price, the depth and the fee
   x.auction = me.auctionStart !== 0;
   x.pauseEnd = d.pausedUntil != null ? Number(d.pausedUntil) : 0;
@@ -186,7 +200,7 @@ const zoneName = { liquidation: 'Liquidation', redemption: 'Redemption', safe: '
 // ── the vault picker, the room ──
 function renderPick() {
   $('#pick-w').hidden = VS.length < 2;
-  $('#pick').innerHTML = VS.map((v) => `<button type="button" data-v="${v.key}" aria-pressed="${v.key === S.v}"${S.busy ? ' disabled' : ''}>${esc(KIND[v.key].name)}<small>${esc(KIND[v.key].sym)}</small></button>`).join('');
+  $('#pick').innerHTML = VS.map((v) => `<button type="button" data-v="${v.key}" aria-pressed="${v.key === S.v}"${S.busy ? ' disabled' : ''}>${icon(v.key)}${esc(KIND[v.key].name)}<small>${esc(KIND[v.key].sym)}</small></button>`).join('');
 }
 const setHtml = (el, h) => { if (el.__h !== h) { el.__h = h; el.innerHTML = h; } };
 // ── the status board ──
@@ -262,7 +276,7 @@ function renderBoard() {
   const notices = xs.filter((x) => x.auctionsPaused).map((x) => pauseBox(x, xs.length > 1)).join('') + changesNotice(xs);
   setHtml(el, `${head}<p class="verdict ${open.length ? 'on' : 'off'}"><i class="sd"></i><span>${esc(verdict)}</span></p>
     ${needs ? `<ul class="needs">${needs}</ul>` : ''}
-    <div class="bt-wrap"><table class="bt"><thead><tr><td></td>${xs.map((x) => `<th scope="col">${esc(x.k.name)}<small>${esc(x.sym)}</small></th>`).join('')}</tr></thead><tbody>${boardRows(xs)}</tbody></table></div>
+    <div class="bt-wrap"><table class="bt"><thead><tr><td></td>${xs.map((x) => `<th scope="col">${icon(x.V.key)}${esc(x.k.name)}<small>${esc(x.sym)}</small></th>`).join('')}</tr></thead><tbody>${boardRows(xs)}</tbody></table></div>
     <button class="linkbtn more" type="button" data-more aria-expanded="${!!S.more}">${S.more ? 'Fewer figures' : 'More figures'}</button>
     ${notices}`);
 }
@@ -343,12 +357,14 @@ function changesNotice(xs) {
 // The clock auctions run on (`auctionStart` is a reading of it): the chain's time less the time spent paused, so it stands still while
 // auctions are paused. From the reading in `d` it runs on from the later of the reading and the end of the pause.
 const auctionNow = (d) => (d.auctionTime == null ? chainNow() : d.auctionTime + Math.max(0, chainNow() - Math.max(S.chainT, Number(d.pausedUntil || 0))));
+// Prices lapsed with an auction running, and the vault as it would be after the records has recovered: the records and the end of the auction go in one transaction (any wallet).
+const lapsedCure = (x) => { const p = canAct() && lapsed(x) ? postOf(x.V) : null; return p && p.d.recovered ? p.n : 0; };
 function auctionBox(x) {
   const left = x.me.auctionStart + x.s.ownerWindow - auctionNow(x.d);
   const owner = x.auctionsPaused ? `Bids from others are paused for <b data-cd="${x.pauseEnd}">${M.clock(x.pauseEnd - chainNow())}</b>; the vault’s owner can still bid.` : left > 0 ? `Only the vault’s owner can bid for <b data-cd="${chainNow() + left}">${M.clock(left)}</b>, then anyone.` : 'Anyone can bid now.';
   const offer = x.d.pO != null ? `<span class="sub">The offer is ${esc(priceText(x, x.d.pO, 'down'))} per TAC${x.d.onOffer != null ? `; a bid for all the debt takes ${esc(tac(x.d.onOffer))} TAC` : ''}.</span>` : '';
   const way = x.d.recovered ? 'The vault has recovered: ending the auction restores borrowing and withdrawing.' : 'Repay, or add TAC, to end it. It ends once the vault is back above ' + pctOf(x.s.liq) + '.';
-  return `<div class="callout red"><span class="t"><b>An auction is running.</b> ${owner}${offer}<span class="sub">${way}</span></span>${x.d.recovered && canAct() ? '<button class="pillbtn" type="button" data-cancel>End the auction</button>' : ''}</div>`;
+  return `<div class="callout red"><span class="t"><b>An auction is running.</b> ${owner}${offer}<span class="sub">${way}</span></span>${x.d.recovered && canAct() ? '<button class="pillbtn" type="button" data-cancel>End the auction</button>' : lapsedCure(x) ? `<button class="pillbtn" type="button" data-cancel>Record ${lapsedCure(x)} price${lapsedCure(x) === 1 ? '' : 's'} and end the auction</button>` : ''}</div>`;
 }
 function renderPos() {
   const V = cur(), x = V && derive(V), el = $('#pos');
@@ -384,8 +400,14 @@ function renderPos() {
 // ── the ticket ──
 // What the typed amount would do: whether it can be sent, what it says about itself, and what the transaction takes.
 const BUY = '<a href="/trade/tac/">Buy TAC →</a>';
+// What the ticket would do. When the vault waits for price records that were prepared (see prepare), a borrow or withdraw carries them in the same confirmation.
 function planOf() {
-  const V = cur(), x = V && derive(V), t = S.t;
+  const P = planCore();
+  if (P.ok && P.x?.post && needs(derive(P.x.V), P.kind)) { P.catchUp = P.x.V.post.n; P.via = viaOf(P.x.V); P.rows = [...P.rows, ['Price records', `${P.catchUp} included`]]; }
+  return P;
+}
+function planCore() {
+  const V = cur(), t = S.t, x = V && derive(V, true);
   if (!x) return { ok: false, cta: 'Reading the vault…', rows: [], hint: '' };
   const amt = M.parseUnits(S.amt, 18), m = x.me, d = x.d, sym = x.sym, mint = pctOf(x.s.mint);
   const P = { kind: t, x, amt, ok: false, cta: '', rows: [], hint: '', err: false, max: 0n, maxText: '' };
@@ -411,6 +433,7 @@ function planOf() {
     if (x.paused) {
       // Missing prices are the usual reason, and the button then records them: whoever borrows first catches the feed up.
       const f = feedOf(x.V);
+      if (!x.stale && f && !f.ready && f.missing && viaOf(x.V) && PREP.busy && PREP.vkey === x.V.key) { P.cta = 'Preparing the prices…'; return P; }
       if (!x.stale && f && !f.ready && f.missing) { P.record = f.missing; P.cta = `Record ${f.missing} price${f.missing === 1 ? '' : 's'} to open borrowing`; return P; }
       P.cta = 'Borrowing is paused'; P.hint = 'Borrowing waits until prices are recorded.'; return P;
     }
@@ -464,7 +487,12 @@ function planOf() {
   // withdraw
   P.max = x.wmax; P.maxText = who() ? `Up to ${tac(x.wmax)} · Max` : '';
   if (x.auction) { P.cta = 'In an auction'; P.hint = 'Withdrawing waits until the auction ends. Repay, or add TAC, to end it.'; return P; }
-  if (x.wpaused) { P.cta = 'Withdrawing is paused'; P.hint = 'With a debt, withdrawing waits until prices are recorded.'; return P; }
+  if (x.wpaused) {
+    const f = feedOf(x.V);
+    if (!x.stale && f && !f.ready && f.missing && viaOf(x.V) && PREP.busy && PREP.vkey === x.V.key) { P.cta = 'Preparing the prices…'; return P; }
+    if (!x.stale && f && !f.ready && f.missing) { P.record = f.missing; P.cta = `Record ${f.missing} price${f.missing === 1 ? '' : 's'} to withdraw`; return P; }
+    P.cta = 'Withdrawing is paused'; P.hint = 'With a debt, withdrawing waits until prices are recorded.'; return P;
+  }
   if (m.collateral === 0n) { P.cta = 'Nothing to withdraw'; return P; }
   if (none) { P.cta = 'Enter an amount'; return P; }
   P.cta = 'Withdraw TAC';
@@ -479,7 +507,7 @@ function planOf() {
 }
 
 function renderTicket() {
-  const V = cur(), x = V && derive(V), t = S.t;
+  const V = cur(), t = S.t, x = V && derive(V, true);
   // A Borrow opened with nothing typed offers the most this wallet can borrow, deposit and all, so one press does it: whatever the box holds can be changed.
   if (S.pre && t === 'borrow' && !S.amt && x && canAct() && !S.busy) {
     const m = planOf().max;
@@ -493,7 +521,7 @@ function renderTicket() {
   setHtml($('#acts'), ACTS.map(([k, l]) => `<button type="button" data-t="${k}" aria-pressed="${k === t}"${S.busy ? ' disabled' : ''}>${l}</button>`).join(''));
   $('#tk-h').textContent = x ? `${x.k.name} vault` : 'Vault';
   $('#amt-lbl').textContent = isTac ? `TAC to ${t}` : `${sym} to ${t}`;
-  $('#unit').textContent = isTac ? 'TAC' : sym;
+  $('#unit').innerHTML = `${isTac ? '<svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg>' : icon(S.v)}${esc(isTac ? 'TAC' : sym)}`;
   $('#amt').setAttribute('aria-label', isTac ? `TAC to ${t}` : `${sym} to ${t}`);
   const bal = $('#bal'); bal.hidden = !P.maxText || !x; bal.textContent = P.maxText; bal.disabled = S.busy;
   setHtml($('#chips'), [25, 50, 75, 100].map((p) => `<button type="button" data-pct="${p}"${S.busy || !(P.max > 0n) ? ' disabled' : ''}>${p === 100 ? 'Max' : `${p}%`}</button>`).join(''));
@@ -507,6 +535,7 @@ function renderTicket() {
   else if (S.busy || (F.busy && P.record)) { go.textContent = F.busy && P.record ? 'Recording…' : 'Working…'; go.disabled = true; }
   else { go.textContent = P.cta; go.disabled = !P.ok && !P.record; }
   $('#amt').disabled = S.busy;
+  maybePrepare();
 }
 // An amount for the box: a share of the most that goes through (rounded down, so it still does), or all of it.
 function setAmount(pct) {
@@ -534,22 +563,22 @@ const errText = (e) => esc(e instanceof UserStopped ? e.message : String(e?.mess
 
 // The token the call spends, made available to the vault: a permit signed in the wallet (no gas, one transaction) where there is no allowance,
 // else an exact approval sent first. A permit the vault does not accept falls back to the approval.
-async function withAccess({ V, token, amount, allowance, from, make }) {
+async function withAccess({ V, token, amount, allowance, from, make, spender = V.addr, check = (data) => simulate(V.addr, data, from) }) {
   if (allowance >= amount) return { data: make(null) };
   try {
     say('Sign the permit in your wallet. The signature costs nothing.');
     const [name, nonce] = await Promise.all([ethCall(token, SEL.name), ethCall(token, SEL.nonces + addrWord(from))]);
     const dl = chainDeadline(1200);
-    const sig = await askTicket(() => wallet.signPermit({ token, name: decString(name), spender: V.addr, value: amount, deadline: dl, nonce: wordAt(nonce, 0), owner: from }));
+    const sig = await askTicket(() => wallet.signPermit({ token, name: decString(name), spender, value: amount, deadline: dl, nonce: wordAt(nonce, 0), owner: from }));
     const data = make({ value: amount, deadline: dl, ...sig });
     say('Checking it first…');
-    const sim = await simulate(V.addr, data, from);
-    if (sim.ok) return { data };
+    const sim = await check(data);
+    if (sim.ok || sim.ok === null) return { data };
     const why = refusal(sim.e);
     if (why && why !== 'access') throw Object.assign(new Error(why), { sim: sim.e });
   } catch (e) { if (e instanceof UserStopped || e instanceof StopWaiting || e.sim) throw e; }
-  say('Approve in your wallet. It lets the vault take exactly this amount.');
-  const h = await askTicket(() => wallet.sendTx({ to: token, data: encApprove(V.addr, amount), from }));
+  say(`Approve in your wallet. It lets the ${spender === V.addr ? 'vault' : 'router'} take exactly this amount.`);
+  const h = await askTicket(() => wallet.sendTx({ to: token, data: encApprove(spender, amount), from }));
   say(`Waiting for the approval ${txLink(h)}`);
   if ((await wallet.receipt(h)).status !== '0x1') throw new Error('The approval did not go through.');
   return { data: make(null), approved: true };
@@ -563,45 +592,88 @@ async function run(kindOverride) {
   const from = W.account;                                                                           // everything below is for this account, and the wallet is asked for no other
   const cancel = kindOverride === 'cancel';
   const typed = S.amt, shown = cancel ? null : planOf();                                          // what the person is looking at: the amount, and for a borrow the fee
-  if (shown?.record) { pokeFeed(); return; }                                                      // prices first: the button records them
+  if (shown?.record) { pokeFeed(viaOf(V) ? BATCH_MAX : 0); return; }                                                      // prices first: the button records them
   if (!cancel && !shown.ok) return;
   S.busy = true; S.pre = false; lockAll(); renderTicket();
   try {
-    say('Reading the vault again…');
+    say(shown?.catchUp ? 'Reading the vault and the missing prices again…' : 'Reading the vault again…');
     await load();
+    if (shown?.catchUp) {                                                                           // the records and the figures they lead to, built again now
+      for (let i = 0; i < 200 && PREP.busy; i++) await new Promise((r) => setTimeout(r, 300));
+      await prepare(V);
+    }
     const P = cancel ? { kind: 'cancel', x: derive(V) } : planOf();
     if (S.amt !== typed) throw new Error('The amount changed. Nothing was sent.');
-    if (!cancel && !P.ok) { say(`<span class="err">${esc(P.hint || 'That is no longer possible.')} Nothing was sent; the figures above are current.</span>`); return; }
+    if (!cancel && !P.ok) { say(`<span class="err">${esc(P.record ? 'The prices changed while this was prepared.' : P.hint || 'That is no longer possible.')} Nothing was sent; the figures above are current.</span>`); return; }
     const x = P.x, owner = from;
     // A borrow is for the fee on the screen: a fee read now that is higher stops it, and the fee shown is the most the vault may take.
     if (P.kind === 'borrow' && P.feeBps > shown.feeBps) { say(`<span class="err">The borrow fee is now ${esc(feeText(P.feeBps))}. Nothing was sent; the figures above are current.</span>`); return; }
     // The TAC deposited with a borrow is what was on the screen or less, never more.
     if (P.kind === 'borrow' && (P.add ?? 0n) > (shown.add ?? 0n)) { say(`<span class="err">The TAC to deposit is now ${esc(tac(P.add))}. Nothing was sent; the figures above are current.</span>`); return; }
+    // With the price records in the same confirmation the vault cannot be tested alone (it still waits for them): the records and the call are tested together, as the account.
+    const via = P.catchUp ? viaOf(V) : null, post = P.catchUp ? V.post : null;
+    const bundle = (d) => [{ to: MULTICALL3, data: post.data }, { to: V.addr, data: d }];
+    const check = via === 'bundle' ? (d) => simulateBundle(rpc, from, bundle(d)) : via === 'router' ? (d) => simulate(ROUTER, d, from) : undefined;
+    let target = via === 'router' ? ROUTER : V.addr, carried = 0;
     let data, acc = {};
-    if (cancel) data = encCancel(owner);
+    if (cancel) {
+      const rec = lapsedCure(x) ? postOf(V) : null;                                                    // prices lapsed: the records and the end of the auction, as one Multicall3 transaction
+      if (rec) { data = encBatch([...rec.recs.map((r) => ({ to: r.to, data: r.data })), { to: V.addr, data: encCancel(owner) }]); target = MULTICALL3; carried = rec.n; }
+      else data = encCancel(owner);
+    }
+    else if (via === 'router') {
+      // The records, then the person's own call, which the router makes for the account that sends it: the vault checks a signature for it (the recipient is the signer).
+      const records = [encRouterRecords(V.addr, post.recs)];
+      const deadline = chainDeadline(300), nonce = wordAt(await ethCall(V.addr, SEL.nonces + addrWord(from)), 0);       // a few minutes: a signature seen by others is good only until then
+      if (P.kind === 'withdraw') {
+        say('Sign the withdrawal in your wallet. The signature costs nothing.');
+        const sig = await askTicket(() => signTyped(from, withdrawTyped(V.addr, from, { amount: P.amount, nonce, deadline })));
+        acc = { data: encMulticall([...records, encRouterWithdraw(V.addr, { amount: P.amount, deadline }, sig)]) };
+      } else if (P.kind === 'deposit') {
+        const make = (p) => encMulticall([...records, ...(p ? [encPermit('permitTac', p)] : []), encRouterDeposit(V.addr, P.amount)]);
+        const allowance = wordAt(await ethCall(x.s.tac, SEL.allowance + addrWord(from) + addrWord(ROUTER)), 0);
+        acc = await withAccess({ V, token: x.s.tac, amount: P.amount, allowance, from, spender: ROUTER, check, make });
+      } else if (P.kind === 'repay') {
+        const make = (p) => encMulticall([...records, ...(p ? [encRouterPermitSynth(V.addr, p)] : []), encRouterRepay(V.addr, P.paid)]);
+        const allowance = wordAt(await ethCall(x.s.synth, SEL.allowance + addrWord(from) + addrWord(ROUTER)), 0);
+        acc = await withAccess({ V, token: x.s.synth, amount: P.paid, allowance, from, spender: ROUTER, check, make });
+      } else {
+        const args = { tacIn: P.add ?? 0n, amount: P.amount, maxFeeBps: shown.feeBps, minCollateral: x.me.collateral + (P.add ?? 0n), deadline };
+        say('Sign the borrow in your wallet. The signature costs nothing.');
+        const sig = await askTicket(() => signTyped(from, borrowTyped(V.addr, from, { ...args, nonce })));
+        const make = (p) => encMulticall([...records, ...(p ? [encPermit('permitTac', p)] : []), encRouterBorrow(V.addr, args, sig)]);
+        if (args.tacIn > 0n) {
+          const allowance = wordAt(await ethCall(x.s.tac, SEL.allowance + addrWord(from) + addrWord(ROUTER)), 0);
+          acc = await withAccess({ V, token: x.s.tac, amount: args.tacIn, allowance, from, spender: ROUTER, check, make });
+        } else acc = { data: make(null) };
+      }
+    }
     else if (P.kind === 'deposit') {
-      acc = await withAccess({ V, token: x.s.tac, amount: P.amount, allowance: x.d.tacAllow ?? 0n, from, make: (p) => (p ? encMulticall([encPermit('permitTac', p), encDeposit(P.amount)]) : encDeposit(P.amount)) });
+      acc = await withAccess({ V, token: x.s.tac, amount: P.amount, allowance: x.d.tacAllow ?? 0n, from, check, make: (p) => (p ? encMulticall([encPermit('permitTac', p), encDeposit(P.amount)]) : encDeposit(P.amount)) });
     } else if (P.kind === 'borrow' && P.add > 0n) {
-      acc = await withAccess({ V, token: x.s.tac, amount: P.add, allowance: x.d.tacAllow ?? 0n, from, make: (p) => encMulticall([...(p ? [encPermit('permitTac', p)] : []), encDeposit(P.add), encBorrow(P.amount, shown.feeBps)]) });
+      acc = await withAccess({ V, token: x.s.tac, amount: P.add, allowance: x.d.tacAllow ?? 0n, from, check, make: (p) => encMulticall([...(p ? [encPermit('permitTac', p)] : []), encDeposit(P.add), encBorrow(P.amount, shown.feeBps)]) });
     } else if (P.kind === 'borrow') acc = { data: encBorrow(P.amount, shown.feeBps) };
     else if (P.kind === 'repay') {
-      acc = await withAccess({ V, token: x.s.synth, amount: P.paid, allowance: x.d.synAllow ?? 0n, from, make: (p) => { const call = encRepay(owner, P.amount); return p ? encMulticall([encPermit('permitSynth', p), call]) : call; } });
+      acc = await withAccess({ V, token: x.s.synth, amount: P.paid, allowance: x.d.synAllow ?? 0n, from, check, make: (p) => { const call = encRepay(owner, P.amount); return p ? encMulticall([encPermit('permitSynth', p), call]) : call; } });
     } else acc = { data: encWithdraw(P.amount) };
     data ||= acc.data;
     say('Checking it first…');
-    let sim = await simulate(V.addr, data, from);
+    const trial = () => (via === 'bundle' ? simulateBundle(rpc, from, bundle(data)) : simulate(target, data, from));
+    let sim = await trial();
     // A node that is a block behind has not seen the approval yet: asked again shortly.
-    for (let i = 0; i < 3 && !sim.ok && acc.approved && refusal(sim.e) === 'access'; i++) { await new Promise((r) => setTimeout(r, 1500)); sim = await simulate(V.addr, data, from); }
-    if (!sim.ok) { say(`<span class="err">${esc(failText(x, P.kind, sim.e))}</span>`); load().then(renderAll).catch(() => {}); return; }
-    say('Confirm the transaction in your wallet.');
-    const hash = await askTicket(() => wallet.sendTx({ to: V.addr, data, from }));
+    for (let i = 0; i < 3 && sim.ok === false && acc.approved && refusal(sim.e) === 'access'; i++) { await new Promise((r) => setTimeout(r, 1500)); sim = await trial(); }
+    if (sim.ok === false) { say(`<span class="err">${esc(failText(x, P.kind, sim.e))}</span>`); load().then(renderAll).catch(() => {}); return; }
+    say(P.catchUp ? 'Confirm in your wallet. It records the prices and then does this, as one transaction.' : 'Confirm the transaction in your wallet.');
+    const hash = via === 'bundle' ? await askTicket(() => sendAsBundle(from, bundle(data))) : await askTicket(() => wallet.sendTx({ to: target, data, from }));
     say(`Sent ${txLink(hash)}. Waiting for it to land…`);
     const rc = await wallet.receipt(hash);
     if (rc.status !== '0x1') throw new Error(`The transaction failed (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`);
     S.amt = ''; $('#amt').value = '';
+    if (P.catchUp || carried) { for (const v of VS) v.post = null; loadFeed(); }
     await load().catch(() => {});
     const x2 = derive(V), said = { deposit: `Deposited ${tac(P.amount ?? 0n)} TAC.`, borrow: `${P.add > 0n ? `Deposited ${tac(P.add)} TAC and borrowed` : 'Borrowed'} ${P.amount != null ? syn(x2, P.amount) : ''} ${x2.sym}. You owe ${syn(x2, x2.me.debt)}.`, repay: x2.me.debt === 0n ? `Repaid. Nothing owed now.` : `Repaid. You owe ${syn(x2, x2.me.debt)} ${x2.sym}.`, withdraw: 'Withdrawn.', cancel: 'The auction has ended.' }[P.kind];
-    say(`<span class="ok">${esc(said)}</span> ${txLink(hash)}${S.t === 'borrow' ? ` <button class="linkbtn" type="button" data-watch="${esc(V.key)}">Add ${esc(x2.sym)} to your wallet</button>` : ''}`);
+    const recs = P.catchUp || carried;
+    say(`<span class="ok">${esc(said + (recs ? ` Recorded ${recs} price${recs === 1 ? '' : 's'} with it.` : ''))}</span> ${txLink(hash)}${S.t === 'borrow' ? ` <button class="linkbtn" type="button" data-watch="${esc(V.key)}">Add ${esc(x2.sym)} to your wallet</button>` : ''}`);
     setTimeout(() => { if (!S.busy) load().then(renderAll).catch(() => {}); }, 5000);                 // a node a little behind has caught up
   } catch (e) {
     const x = derive(V);
@@ -612,8 +684,8 @@ const lockAll = () => { renderPick(); };
 // A new token does not show in a wallet by itself: the wallet is asked to list it (one prompt, and a wallet that cannot is left alone).
 function watchToken(key) {
   const V = VS.find((v) => v.key === key), x = V && derive(V);
-  if (!x || !walletNow?.prov) return;
-  Promise.resolve(walletNow.prov.request({ method: 'wallet_watchAsset', params: { type: 'ERC20', options: { address: V.synth, symbol: x.sym, decimals: 18 } } })).catch(() => {});
+  if (!x || !W.prov) return;
+  wallet.watchAsset({ address: V.synth, symbol: x.sym, decimals: 18, image: `${location.origin}/brand/${V.key === 'usd' ? 'tacd' : 'tace'}.svg` });
 }
 
 // ── drawing ──
@@ -667,7 +739,7 @@ function drawFeed() {
     <button class="btn" id="feed-go" type="button"${F.busy ? ' disabled' : ''}>${F.busy ? 'Recording…' : W.account ? `Record ${st.missing} price${st.missing === 1 ? '' : 's'}` : 'Connect wallet'}</button>` : ''}
     <div class="status${F.bad ? ' err' : ''}" id="feed-status" role="status">${F.note}</div>`);
   const go = $('#feed-go');
-  if (go) go.onclick = pokeFeed;
+  if (go) go.onclick = () => pokeFeed();
 }
 // A wallet that never answers (a request it did not show, a phone nobody picked up) must not lock the panel for good: after a while the person can stop waiting.
 // What the wallet was asked stays with the wallet; if it is confirmed there later, it lands and the next read counts it.
@@ -678,7 +750,126 @@ function waitWallet(send, onHint, hold) {
 }
 const askWallet = (send, round) => waitWallet(send, () => setFeed(`Waiting for your wallet to confirm batch ${round}. Open it to answer, or <button class="linkbtn" type="button" data-feed-stop>stop waiting</button>.`), F);
 const askTicket = (send) => waitWallet(send, () => say('Waiting for your wallet. Open it to answer, or <button class="linkbtn" type="button" data-stop>stop waiting</button>.'), S);
-async function pokeFeed() {
+// The records as one Multicall3 batch, tested as the account. A record that fails is one someone else has recorded in the meantime (read again without it) or one a node gave a
+// wrong proof for: that one is built again, from the next node and not the one that failed, twice at most. { data } for the batch, or null when others were recording too.
+async function verifiedRecords(part, recs, note) {
+  const pack = () => encBatch(recs.map((r) => ({ to: r.to, data: r.data })));
+  let data = pack(), sim = await simulate(MULTICALL3, data, W.account);
+  for (let again = 1; !sim.ok && again <= 2; again++) {
+    const each = await Promise.all(recs.map((r) => simulate(r.to, r.data, W.account)));
+    const bad = each.flatMap((r, i) => (!r.ok && !String(r.e?.data || '').startsWith(ALREADY) ? [i] : []));
+    if (!bad.length) break;
+    note(`Building ${bad.length} record${bad.length === 1 ? '' : 's'} again…`);
+    const fresh = await Promise.all(bad.map((i) => feed.buildRecord(...part[i], undefined, again)));
+    bad.forEach((i, j) => { recs[i] = fresh[j]; });
+    data = pack(); sim = await simulate(MULTICALL3, data, W.account);
+  }
+  if (!sim.ok) {
+    const each = await Promise.all(recs.map((r) => simulate(r.to, r.data, W.account)));
+    const bad = each.find((r) => !r.ok && !String(r.e?.data || '').startsWith(ALREADY));
+    if (bad) throw new Error(`A record would fail (${String(bad.e?.message || 'refused').slice(0, 120)}). Nothing was sent.`);
+    return null;
+  }
+  return { data };
+}
+
+// ── the records carried with the action ──
+// A wallet that can send several calls from the account as one transaction (see batch.js) spares the person the separate "record the prices" step: while the borrow or withdraw tab
+// is open and the vault waits for no more than BATCH_MAX records, the page builds them in the background, reads the vault as it will be once they are in, and the ticket shows that.
+// The button then records, deposits and borrows in one confirmation. Nothing is sent until it is pressed, and then everything is built and tested again.
+const BATCH_MAX = 12;                       // records in one bundle: 12 of them (0.95M gas each) and the action stay under a transaction's gas cap (2^24)
+const POST_TTL = 10 * 60;                   // seconds a prepared bundle is trusted: after that the chain has moved on and it is built again
+const PREP = { busy: false, vkey: null, failedAt: 0, last: null };       // last: what was tried and when, so that a try that ends with nothing to carry is not repeated at once
+// How the records can go with the action for this vault: in a batch the wallet sends itself, or through the router, or not at all (the two steps the page has always had).
+const viaOf = (V) => (S.batchOk ? 'bundle' : ROUTER && !S.routerOff && S.routerFor?.has(V.addr.toLowerCase()) ? 'router' : null);
+async function checkRouter() {
+  if (!ROUTER) return;
+  try {
+    const [a, b] = await Promise.all([ethCall(ROUTER, ROUTER_SEL.vaultA), ethCall(ROUTER, ROUTER_SEL.vaultB)]);
+    S.routerFor = new Set([addrAt(a), addrAt(b)].map((x) => x.toLowerCase()));
+    renderAll();
+  } catch { /* no router there: the two steps */ }
+}
+const addrAt = (hex) => `0x${String(hex).replace(/^0x/, '').slice(24, 64)}`;
+const missingKey = (st) => st.venues.map((v) => v.missing.join()).join('|');
+async function detectBatch() {
+  const a = W.account ? W.account.toLowerCase() : null;
+  if (a === S.batchFor) return;
+  S.batchFor = a; S.batchOk = false;
+  if (!a) { renderTicket(); return; }
+  const ok = await batchSupport(W.prov, W.account).catch(() => false);
+  if (S.batchFor !== a) return;
+  S.batchOk = ok;
+  renderAll();
+}
+function maybePrepare() {
+  const V = cur();
+  if (!V || !canAct() || S.busy || F.busy || PREP.busy || now() - PREP.failedAt < 60) return;
+  const x = derive(V), st = feedOf(V);
+  if (!x || !st || st.ready || x.stale || !st.missing || st.missing > BATCH_MAX) return;
+  if (!(viaOf(V) && needs(x, S.t)) && !lapsed(x)) return;                                              // a lapsed auction can be ended with the records by any wallet (Multicall3)
+  const have = postOf(V), key = missingKey(st);
+  if (have && have.key === key) return;
+  if (PREP.last && PREP.last.key === key && now() - PREP.last.at < 60) return;
+  prepare(V).then(renderAll);
+}
+// The records for what is missing now, and the vault's figures after them (the same batch of reads the page makes, run behind the records in one call). Kept records that are still
+// missing are not built again. false when there is nothing to carry, too much of it, or the records alone would not open the vault.
+async function prepare(V) {
+  const from = W.account, who0 = (from || '').toLowerCase();
+  if (!who0 || PREP.busy) return false;
+  PREP.busy = true; PREP.vkey = V.key; renderTicket();
+  try {
+    const st = await feed.read(V.addr);
+    keepFeed(V, st);
+    if ((who() || '').toLowerCase() !== who0) return false;
+    PREP.last = { key: missingKey(st), at: now() };
+    if (!st.missing || st.missing > BATCH_MAX) { V.post = null; return false; }
+    const part = feed.nextBatch(st, BATCH_MAX), keyOf = (v, k) => `${v.oracle}:${k}`;
+    const kept = new Map((V.post?.recs || []).map((r) => [`${r.to}:${r.k}`, r]));
+    const fresh = part.filter(([v, k]) => !kept.has(keyOf(v, k)));
+    (fresh.length ? await feed.build(fresh) : []).forEach((r) => kept.set(`${r.to}:${r.k}`, r));
+    const recs = part.map(([v, k]) => kept.get(keyOf(v, k)));
+    const checked = await verifiedRecords(part, recs, () => {});
+    if (!checked) { console.warn('price records: others recorded some while this was built'); return false; }   // the next look builds again
+    const reads = dynamicCalls(V, from).map(([, to, data]) => ({ to, data }));
+    const res = await readMixed(ethCall, [...recs.map((r) => ({ to: r.to, data: r.data, allowFailure: false })), ...reads]);
+    const d = parseDynamic(V, from, res.slice(recs.length)); d.who = from;
+    if (!((d.pB != null && d.feeBps != null && d.depthCeiling != null) || d.recovered != null)) { console.warn('price records: the records alone would not open the vault'); V.post = null; return false; }
+    V.post = { who: who0, key: missingKey(st), recs, data: checked.data, d, n: recs.length, at: now() };
+    return true;
+  } catch (e) {
+    PREP.failedAt = now(); V.post = null;
+    console.warn('price records:', e?.message || e);
+    return false;
+  } finally { PREP.busy = false; }
+}
+// Sends the calls from the account as one batch. A wallet that says no to batching after all (it said it could) is not asked again: the page goes back to two steps.
+const NO_BATCH = new Set([4200, 5700, 5710, 5740, 5750, 5760, -32601]);
+const stopped = (e) => (e?.code === 4001 || /user (rejected|denied)|rejected the request|request rejected|denied (transaction|message)/i.test(e?.message || '') ? new UserStopped() : e);
+// Typed data signed in the wallet for the account it was reviewed for: the vault's borrow or withdraw, for the router to send.
+async function signTyped(from, typed) {
+  if (String(W.account || '').toLowerCase() !== from.toLowerCase()) throw new Error('The wallet’s account changed. Nothing was sent; review it again.');
+  await wallet.ensureMainnet();
+  try { return String(await W.prov.request({ method: 'eth_signTypedData_v4', params: [from, JSON.stringify(typed)] })); } catch (e) {
+    const s = stopped(e);
+    if (s instanceof UserStopped) throw s;
+    S.routerOff = true; for (const v of VS) v.post = null;
+    throw new Error('Your wallet could not sign this. Nothing was sent: record the prices first, then try again.');
+  }
+}
+async function sendAsBundle(from, calls) {
+  if (String(W.account || '').toLowerCase() !== from.toLowerCase()) throw new Error('The wallet’s account changed. Nothing was sent; review it again.');
+  await wallet.ensureMainnet();
+  try { return await sendBundle(W.prov, from, calls); } catch (e) {
+    if (stopped(e) instanceof UserStopped) throw new UserStopped();
+    if (NO_BATCH.has(e?.code)) { S.batchOk = false; for (const v of VS) v.post = null; throw new Error('Your wallet could not send these together. Nothing was sent: record the prices first, then try again.'); }
+    throw e;
+  }
+}
+
+// `leave`: records the ticket's own button leaves for the action to carry (it stops once that many or fewer are missing).
+async function pokeFeed(leave = 0) {
   if (F.busy) return;
   if (!W.account) { await connectWallet(); return; }
   F.busy = true; renderFeed();
@@ -687,30 +878,13 @@ async function pokeFeed() {
       const V = cur(), st = await feed.read(V.addr);
       keepFeed(V, st);
       renderFeed();                                                  // the counts follow each batch
-      if (!st.missing) break;
+      if (st.missing <= leave) break;
       const part = feed.nextBatch(st);
       setFeed(`Building ${part.length} record${part.length === 1 ? '' : 's'} (batch ${round})…`);
       const recs = await feed.build(part);
-      const pack = () => encBatch(recs.map((r) => ({ to: r.to, data: r.data })));
-      let data = pack(), sim = await simulate(MULTICALL3, data, W.account);
-      // A record that fails is one someone else has recorded in the meantime (read again without it) or one a node gave a wrong proof for: that one is built again, from the
-      // next node and not the one that failed, twice at most.
-      for (let again = 1; !sim.ok && again <= 2; again++) {
-        const each = await Promise.all(recs.map((r) => simulate(r.to, r.data, W.account)));
-        const bad = each.flatMap((r, i) => (!r.ok && !String(r.e?.data || '').startsWith(ALREADY) ? [i] : []));
-        if (!bad.length) break;
-        setFeed(`Building ${bad.length} record${bad.length === 1 ? '' : 's'} again…`);
-        const fresh = await Promise.all(bad.map((i) => feed.buildRecord(...part[i], undefined, again)));
-        bad.forEach((i, j) => { recs[i] = fresh[j]; });
-        data = pack(); sim = await simulate(MULTICALL3, data, W.account);
-      }
-      if (!sim.ok) {
-        const each = await Promise.all(recs.map((r) => simulate(r.to, r.data, W.account)));
-        const bad = each.find((r) => !r.ok && !String(r.e?.data || '').startsWith(ALREADY));
-        if (bad) throw new Error(`A record would fail (${String(bad.e?.message || 'refused').slice(0, 120)}). Nothing was sent.`);
-        setFeed('Someone else is recording too; reading again…');
-        continue;
-      }
+      const checked = await verifiedRecords(part, recs, setFeed);
+      if (!checked) { setFeed('Someone else is recording too; reading again…'); continue; }
+      const data = checked.data;
       setFeed(`Confirm batch ${round} of ${round - 1 + Math.ceil(st.missing / PER_TX)} in your wallet (${part.length} record${part.length === 1 ? '' : 's'}).`);
       const hash = await askWallet(() => wallet.sendTx({ to: MULTICALL3, data, from: W.account }), round);
       setFeed(`Sent ${txLink(hash)}. Waiting for it to land…`);
@@ -719,7 +893,7 @@ async function pokeFeed() {
       setFeed(`Batch ${round} recorded ${txLink(hash)}.`);
     }
     F.busy = false; await loadFeed();
-    setFeed(feedOf(cur())?.ready ? 'The price feed is up to date.' : 'Recorded what could be. Some newer prices still need adding: record again.');
+    setFeed(feedOf(cur())?.ready ? 'The price feed is up to date.' : leave && feedOf(cur())?.missing <= leave ? `The older prices are recorded. The last ${feedOf(cur()).missing} go with your transaction.` : 'Recorded what could be. Some newer prices still need adding: record again.');
   } catch (e) {
     F.busy = false;
     setFeed(errText(e), !(e instanceof UserStopped || e instanceof StopWaiting));
@@ -770,7 +944,7 @@ document.addEventListener('click', (e) => {
 });
 addEventListener('hashchange', () => { readHash(); refresh(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !S.busy) refresh(); });   // a tab left open reads the vault again when it is looked at
-wallet.onChange(() => { renderChip(); if (S.busy) return; if (!S.view) { refresh(); } else renderAll(); });   // a transaction in flight keeps the account it was made for: the wallet module refuses to send for another
+wallet.onChange(() => { renderChip(); detectBatch(); if (S.busy) return; if (!S.view) { refresh(); } else renderAll(); });   // a transaction in flight keeps the account it was made for: the wallet module refuses to send for another
 wallet.restore().catch(() => {});
 
 // The countdown of an auction's owner-only window runs on the chain's clock.
@@ -784,4 +958,5 @@ setInterval(() => { if (!document.hidden && !S.busy && !F.busy) loadFeed(); }, 6
 
 readHash();
 renderAll();
+checkRouter();
 if (VS.length) refresh().then(() => loadFeed());                                                    // the feed is read for the oracle each vault names, which the first read has found

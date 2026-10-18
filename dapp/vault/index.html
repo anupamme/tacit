@@ -20,14 +20,16 @@
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <!-- preload-roots: /vault/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/vault/app.js?cb=fc0e57bb">
-<link rel="modulepreload" href="/vault/deployments.js?cb=174de1c7">
+<link rel="modulepreload" href="/vault/app.js?cb=0c738a3c">
+<link rel="modulepreload" href="/vault/deployments.js?cb=8d4d1783">
 <link rel="modulepreload" href="/vault/math.js?cb=ac1ed53e">
 <link rel="modulepreload" href="/vault/chain.js?cb=446cc436">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=f6e1b626">
 <link rel="modulepreload" href="/zrouter-guard.js">
 <link rel="modulepreload" href="/vault/feed.js?cb=03954743">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
+<link rel="modulepreload" href="/vault/batch.js?cb=457d6163">
+<link rel="modulepreload" href="/vault/router.js?cb=21df6509">
 <link rel="modulepreload" href="/trade/wallet.js?cb=7b4ab128">
 <link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
 <link rel="modulepreload" href="/walletconnect.js?cb=7ab92369">
@@ -83,6 +85,9 @@ button, select, input { font: inherit; color: inherit; letter-spacing: inherit; 
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .tk { width: 28px; height: 28px; display: block; flex: none; border-radius: 50%; }
 .tk.xs { width: 14px; height: 14px; }
+.seg button .tk, .bt thead th .tk, .amt .u .tk { display: inline-block; width: 18px; height: 18px; margin: 0 8px 0 0; vertical-align: -4px; }
+.amt .u { display: inline-flex; align-items: center; }
+.amt .u .tk { vertical-align: 0; }
 
 .shell { max-width: 1060px; margin: 0 auto; padding-bottom: 56px; }
 
@@ -373,6 +378,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
   <defs>
     <symbol id="tk-tac" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/></symbol>
+    <symbol id="tk-tacd" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M16.5 7 L15.5 25" stroke="#f7931a" stroke-width="2.7" stroke-linecap="round"/><path d="M18.9 13 C 18.9 10.3 13.1 10.3 13.1 13.2 C 13.1 15.5 18.9 16.4 18.9 19.4 C 18.9 22.3 13.1 22.3 13.1 19.6" fill="none" stroke="#f7931a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="tk-tace" viewBox="0 0 32 32"><circle cx="16" cy="16" r="16" fill="#0a0a0a"/><circle cx="16" cy="16" r="13" fill="none" stroke="#f4efe6" stroke-width="2.5"/><path d="M17.5 7L13 22.5Q13 25 18 24" fill="none" stroke="#f7931a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 11L21 11" stroke="#f7931a" stroke-width="2.4" stroke-linecap="round"/><path d="M14.8 17L19 17" stroke="#f7931a" stroke-width="2.2" stroke-linecap="round"/></symbol>
   </defs>
 </svg>
 <div class="shell">
@@ -465,6 +472,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/vault/app.js?cb=fc0e57bb"></script>
+<script type="module" src="/vault/app.js?cb=0c738a3c"></script>
 </body>
 </html>
