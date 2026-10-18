@@ -132,6 +132,9 @@ async function requote() {
 }
 function renderRoute() {
   const z = D.size, el = $('#route'), px = usdBtc();
+  // The front page's card opens on minting cBTC with the BTC typed here (an amount it would not read opens the plain lock step).
+  const amt = String(S.amt || '').trim();
+  $('#go').href = getSats() && /^\d{0,12}(?:\.\d{1,8})?$/.test(amt) ? `/#card=borrow:cbtc:mint&amt=${amt}` : '/#lock';
   $('#chips').innerHTML = PRESETS.map(([l, v]) => `<button type="button" data-amt="${v}" aria-pressed="${S.amt === v}">${l}</button>`).join('');
   if (!z) { el.innerHTML = ''; return; }
   if (z.loading) { el.innerHTML = '<div class="kv"><span>Bond</span><b class="mute">reading…</b></div>'; return; }
