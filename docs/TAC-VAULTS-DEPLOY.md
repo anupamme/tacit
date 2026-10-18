@@ -69,6 +69,21 @@ Lending opens once the oracle has recorded the whole 8-hour window: run `tools/t
 `ORACLE=<Precision oracle>,<AMM oracle>` (see its header). Until then every priced function fails closed and repayment
 and debt-free withdrawal work. The owner's tools are in `tools/tac-vault-admin.mjs`.
 
+## Where the tokens sell
+
+A borrowed token is worth what it sells for. `dapp/vault/deployments.js` (`pools`) names one Precision pool for each vault's token: TACD against USDC and TACE against ETH,
+each at 0.05%, in a price band of about ±10% (TACD) and ±30% (TACE) around where it opens (1 USDC, 1 ETH). The vault page (`dapp/vault/pools.js`) builds the market from that
+entry and the vault's token, reads it, opens it and adds to it or takes from it. Three things to know before it is opened:
+
+- **A market is its tuple.** The factory derives the pool's address from the two tokens, the band, the fee and the fee recipient, so none of them changes afterwards. The
+  recipient is the one address that may open the market (a market with a front end is named so that nobody else can open it, or pick its opening price, first), and it is
+  the ops multisig unless `pools.recipient` says otherwise. With the multisig as recipient the planned pools are TACD/USDC `0xb2dD089d075e23C124172dcF35c06343D8402D95`
+  and TACE/ETH `0xb2c77c744712658387534d7cdBFFfBf69fd2b38e`; changing the recipient, the fee or a bound changes them.
+- **The band is deliberate.** A swap that would leave the band is refused, so a narrow one stops selling exactly when the token drifts furthest. The bands are wide enough
+  to keep an exit open through a bad week and narrow enough to give several times the depth of a full-range pool for the same money.
+- **Nothing can be sold until someone has borrowed.** TACD and TACE exist only as debt, so the first deposit comes from an account that borrowed them (1% fee) and holds
+  the other side. `tests/vault-page.mjs` opens both markets against the live factory's code on a local chain.
+
 ## Changing anything
 
 A change to a contract or to the config changes init code hashes, so the plan is made again:

@@ -19,6 +19,25 @@ contract TestTac is ERC20 {
     }
 }
 
+/// A six-decimal dollar token, for the pools the vault page opens against USDC.
+contract TestUsdc is ERC20 {
+    function name() public pure override returns (string memory) {
+        return "USD Coin";
+    }
+
+    function symbol() public pure override returns (string memory) {
+        return "USDC";
+    }
+
+    function decimals() public pure override returns (uint8) {
+        return 6;
+    }
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+}
+
 /// The oracle surface the vault reads, with each window's low and high median equal. `set(p)` moves every price;
 /// `setPrices` sets the long median (any window but SHORT_WINDOW), the SHORT_WINDOW median and the current price;
 /// `setDepth` the pool's ETH depth (deep by default).
