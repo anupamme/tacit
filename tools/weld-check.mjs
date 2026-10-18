@@ -26,6 +26,7 @@
 //            press cuts the swap note, swaps it in the farm's pool, cuts what pairs with the return and bonds both
 //   farmmarket a private pool priced far from the market says so on its card; tETH alone shows its cost against the market and waits for it to be accepted
 //   hxdry   between reward periods the card's private farms say so and quote no APR or TAC a day; the Precision pool keeps its figures
+//   hxfold   Shield shows the way in use with a line to the others; a returning visitor finds the tab and choices kept, the amount for the visit only
 //   hxnudge  with no amount typed the card's button asks for one in the card instead of opening a sheet; with one, or with no amount to type, it goes on
 //   hxearntac the card's Earn tab takes a wallet's TAC (the public pool, the form's TAC tab) and private TAC (the pool that pairs it), each with its amount
 //   farmcusd  private cUSD held: the Borrow sheet offers to farm it, which opens the cUSD pool on its own side; selling cUSD into a pool that prices it dear shows no cost against the market
@@ -167,7 +168,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxteth,hxsend,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -353,6 +354,9 @@ const flowFeed = () => { const t = Math.floor(Date.now() / 1000), ago = (x) => t
   series: [{ t: ago(90000), burns: 25, minted: 22, out: 4, att: 969000, relay: 969050, btc: 969100 }, { t: ago(40000), burns: 26, minted: 23, out: 5, att: 969090, relay: 969120, btc: 969150 }, { t: ago(600), burns: 27, minted: 24, out: 5, att: 969159, relay: 969180, btc: 969200 }],
   events: { attests: [ago(70000), ago(30000), ago(900)], settles: [ago(50000), ago(3000)], deposits: [ago(20000)], tacOut: [ago(10000), ago(9000)], tacIn: [ago(5000)] } }; };
 const until = (page, fn, arg, timeout = 60000) => page.waitForFunction(fn, arg, { timeout });
+// The card folds away a way beside the one in use behind a line that opens them: a test opens it before it presses one.
+const reveal = async (page, sel, timeout = 120000) => { await page.waitForSelector(sel, { state: 'attached', timeout }); if (!(await page.isVisible(sel))) await page.locator('[data-hxmore]:visible').first().click(); };
+const pressRow = async (page, sel, timeout) => { await reveal(page, sel, timeout); await page.click(sel); };
 // A fee quote reads gas and the prove price over the fork, which can take minutes a call when the fork is slow.
 const QUOTE_WAIT = 600000;
 
@@ -5825,7 +5829,7 @@ await step('hxout', async () => {
     await repaint();
     const both = [await waysOf('ether'), await waysOf('eth'), await waysOf('tac')];
     ok(both.join(' | ') === 'defi,pay,btc | wallet,btc | btc,wallet' && (await sourceValues()) === 'ether,btc,eth,tac,pp,tb', `hxout: with both on it can send ETH (made tETH first), tETH or TAC to Bitcoin (${both.join(' | ')})`);
-    await p.selectOption('#hx-from', 'eth'); await p.click('[data-hxd="btc"]');
+    await p.selectOption('#hx-from', 'eth'); await pressRow(p, '[data-hxd="btc"]');
     await p.fill('#hx-amt', '0.04');
     await until(p, () => /tETH a bridge while this is new/.test(document.querySelector('#hx-q')?.textContent || '') && document.querySelector('#hx-go')?.textContent !== 'Bridge TAC to Bitcoin', null, 240000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | card: ${await body()}`); });
@@ -5998,13 +6002,13 @@ await step('hxearn', async () => {
     await p.evaluate(() => { location.hash = ''; });
     await p.waitForSelector('#hx-body .hx-h');
     // A deposit for payments: the estimate, and in its "how?" the share limit that pool deposits are under.
-    await p.click('[data-hxm="private"]'); await p.click('[data-hxd="pay"]'); await p.fill('#hx-amt', '0.5');
+    await p.click('[data-hxm="private"]'); await pressRow(p, '[data-hxd="pay"]'); await p.fill('#hx-amt', '0.5');
     await until(p, () => /TAC points/.test(document.querySelector('#hx-pts')?.textContent || ''), null, 120000);
     await p.click('#hx-pts [data-ptsinfo]');
     const how = await line();
     ok(/Deposits in the ETH pools together take at most 40% of a day’s 1,111 TAC\./.test(how.replace(/'/g, '’')), `hxearn: a pool deposit's "how?" names the share limit (${how.slice(-200)})`);
     // A deposit into the Tacit pool is a different activity, and is not under it.
-    await p.click('[data-hxd="defi"]');
+    await pressRow(p, '[data-hxd="defi"]');
     await until(p, () => /TAC points/.test(document.querySelector('#hx-pts')?.textContent || ''), null, 120000);
     ok(!/together take at most/.test(await line()), `hxearn: a wrap into the Tacit pool does not carry the limit of pool deposits`);
     // Borrow: the cUSD way names the loan and the bond; the cBTC way the bond alone.
@@ -6055,6 +6059,9 @@ await step('hxnudge', async () => {
       await p.click(`[data-hxm="${tab}"]`); await p.fill('#hx-amt', ''); await p.click('#hx-go');
       ok((await open()) === '' && (await p.evaluate(() => document.activeElement?.id)) === 'hx-amt' && /^Enter an amount first\.$/.test((await text(p, '#hx-q')).trim()), `hxnudge: ${tab} with no amount asks for one in the card, and opens nothing`);
     }
+    await p.click('[data-hxm="send"]'); await p.fill('#hx-amt', ''); await p.fill('#hx-rcpt', 'name.wei'); await p.click('#hx-go');
+    ok((await open()) === '' && (await p.evaluate(() => document.activeElement?.id)) === 'hx-amt', 'hxnudge: a recipient with no amount still asks for the amount first, for the pool\u2019s own assets');
+    await p.fill('#hx-rcpt', '');
     await p.click('[data-hxm="private"]'); await p.fill('#hx-amt', '0'); await p.click('#hx-go');
     ok((await open()) === '' && /^Enter an amount first\.$/.test((await text(p, '#hx-q')).trim()), 'hxnudge: a zero is no amount either');
     await p.fill('#hx-amt', '0.5'); await sleep(1500); await p.click('#hx-go');
@@ -6065,6 +6072,39 @@ await step('hxnudge', async () => {
     await until(p, () => document.querySelector('#sheet-tac')?.open, null, 60000);
     ok(true, 'hxnudge: TAC from Bitcoin, which has no amount to type, still opens its sheet');
     if (r.errors.length) { fails++; console.log('FAIL hxnudge page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// The card shows the way in use (Shield) with a line to the others; choosing one folds the rest again. It is left as it was
+// for a returning visitor: the tab and what was chosen stay in this browser, the amount for the visit only, a #card link overrides it, and storage that
+// holds nonsense is ignored.
+await step('hxfold', async () => {
+  const r = await openPage({ account: A0, key: K0 });
+  const p = r.page, shown = (sel) => p.$$eval(sel, (b) => b.filter((x) => x.offsetParent).map((x) => x.dataset.hxd || x.dataset.hxr || x.dataset.hxmore).join());
+  try {
+    await p.goto(r.url);
+    await p.waitForSelector('[data-hxm="private"]', { timeout: 120000 });
+    ok((await shown('#hx-dest [data-hxd], #hx-dest [data-hxmore]')) === 'defi,ways' && /Other ways: For payments, On Bitcoin/.test(await text(p, '[data-hxmore="ways"]')), 'hxfold: Shield shows the way in use and names the others in a line');
+    await p.click('[data-hxmore="ways"]');
+    ok((await shown('#hx-dest [data-hxd], #hx-dest [data-hxmore]')) === 'defi,pay,btc,ways', 'hxfold: the line opens them');
+    await p.click('[data-hxd="pay"]');
+    ok((await shown('#hx-dest [data-hxd], #hx-dest [data-hxmore]')) === 'pay,ways' && (await text(p, '#hx-go')) === 'Deposit privately', 'hxfold: choosing one folds the rest again, and the button follows the choice');
+    await p.focus('[data-hxd="pay"]'); await p.keyboard.press('ArrowDown');
+    await until(p, () => document.activeElement?.dataset?.hxd === 'btc', null, 30000);
+    ok(true, 'hxfold: the arrow keys still move the choice while it is folded');
+    // The tab and what was chosen are kept; the amount only for the visit.
+    await p.click('[data-hxm="swap"]'); await p.fill('#hx-amt', '0.25');
+    await p.reload(); await p.waitForSelector('[data-hxm="private"]', { timeout: 120000 });
+    ok((await p.$eval('[data-hxm][aria-selected="true"]', (b) => b.dataset.hxm)) === 'swap' && (await p.inputValue('#hx-amt')) === '0.25', 'hxfold: a reload finds the card on the Swap tab with the amount');
+    const q = await r.page.context().newPage();
+    await q.goto(r.url); await q.waitForSelector('[data-hxm="private"]', { timeout: 120000 });
+    ok((await q.$eval('[data-hxm][aria-selected="true"]', (b) => b.dataset.hxm)) === 'swap' && (await q.inputValue('#hx-amt')) === '', 'hxfold: a later visit finds the tab, and no amount');
+    await q.goto(r.url + '#card=shield:ether:defi&amt=1'); await until(q, () => document.querySelector('#hx-amt')?.value === '1' && document.querySelector('[data-hxm="private"]')?.getAttribute('aria-selected') === 'true', null, 60000);
+    ok(true, 'hxfold: a #card link overrides what was kept');
+    await q.evaluate(() => { localStorage.setItem('tacit-hx-card-v1', JSON.stringify({ tab: '<img>', sf: '__proto__', sd: 'x'.repeat(40), swp: { from: 'tac', to: 'tac' }, ern: 7, bm: {}, send: 'zzz' })); sessionStorage.setItem('tacit-hx-amt-v1', '{"sig":"x","amt":"<b>"}'); });
+    await q.goto(r.url); await q.reload(); await q.waitForSelector('[data-hxm="private"]', { timeout: 120000 });
+    ok((await q.$eval('[data-hxm][aria-selected="true"]', (b) => b.dataset.hxm)) === 'private', 'hxfold: storage that holds nonsense is ignored, and the card opens on Shield');
+    if (r.errors.length) { fails++; console.log('FAIL hxfold page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
 
@@ -6307,13 +6347,13 @@ await step('hxways', async () => {
     await p.waitForSelector('#hx-body .hx-h');
     ok((await waysOf('ether')) === 'defi,pay,btc' && (await waysOf('btc')) === 'eth,pool' && (await waysOf('eth')) === 'wallet,btc' && (await waysOf('tac')) === 'btc,wallet' && (await waysOf('pp')) === 'addr,defi' && (await waysOf('tb')) === 'back',
       'hxways: ETH can be made tETH, kept for payments or sent to Bitcoin; TAC on Bitcoin goes to Ethereum or its shielded pool; each private thing has its own ways out');
-    await p.selectOption('#hx-from', 'ether'); await p.click('[data-hxd="pay"]');
+    await p.selectOption('#hx-from', 'ether'); await pressRow(p, '[data-hxd="pay"]');
     ok(await p.$eval('#hx-chain', (e) => e.hidden) === false, 'hxways: payments ETH asks for its chain');
     await p.selectOption('#hx-chain-sel', '8453');
     ok((await waysOf('pp')) === 'addr', 'hxways: on Base, ETH kept for payments goes to an address (moving it into tETH needs Ethereum)');
-    await p.selectOption('#hx-from', 'ether'); await p.click('[data-hxd="defi"]');
+    await p.selectOption('#hx-from', 'ether'); await pressRow(p, '[data-hxd="defi"]');
     ok(await p.$eval('#hx-chain', (e) => e.hidden), 'hxways: the tETH way has no chain to pick');
-    await p.click('[data-hxd="pay"]');
+    await pressRow(p, '[data-hxd="pay"]');
     await p.selectOption('#hx-chain-sel', '4326'); await p.fill('#hx-amt', '0.02');
     await until(p, () => /No TAC points on MegaETH/.test(document.querySelector('#hx-q')?.textContent || '') && document.querySelector('#hx-pts')?.hidden, null, 60000);
     ok(true, 'hxways: on MegaETH the card says it scores no points, and shows none');

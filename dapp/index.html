@@ -285,11 +285,10 @@ a.di { color: inherit; text-decoration: none; }
 /* ── the hero's console: a card that takes a verb, an amount and a way, and hands the rest to the sheet that does it ── */
 .hx { position: relative; min-width: 0; background: var(--card); border: 1px solid var(--hair-2); border-radius: 18px; box-shadow: var(--float); }
 /* The card is filled by script, so until it is, it holds the height it settles at (measured at each width): what is below it does not move when it appears. */
-.hx:has(#hx-body:empty) { min-height: 588px; }
-@media (max-width: 767px) { .hx:has(#hx-body:empty) { min-height: 577px; } }
-@media (max-width: 430px) { .hx:has(#hx-body:empty) { min-height: 608px; } }
-@media (max-width: 390px) { .hx:has(#hx-body:empty) { min-height: 642px; } }
-@media (max-width: 360px) { .hx:has(#hx-body:empty) { min-height: 673px; } }
+.hx:has(#hx-body:empty) { min-height: 501px; }
+@media (max-width: 430px) { .hx:has(#hx-body:empty) { min-height: 490px; } }
+@media (max-width: 390px) { .hx:has(#hx-body:empty) { min-height: 524px; } }
+@media (max-width: 360px) { .hx:has(#hx-body:empty) { min-height: 522px; } }
 .hx-h { --i: 0; position: relative; display: grid; grid-template-columns: repeat(5, 1fr); padding: 4px 8px 0; border-bottom: 1px solid var(--hair); }
 .hx-h::after { content: ''; position: absolute; bottom: -1px; height: 2px; border-radius: 2px; background: var(--ink); width: calc((100% - 16px) / 5 * .56);
   left: calc(8px + (100% - 16px) / 5 * (var(--i) + .22)); transition: left .4s var(--spring); }
@@ -385,6 +384,10 @@ a.di { color: inherit; text-decoration: none; }
 .hx-rows-h { display: flex; justify-content: space-between; align-items: center; gap: 4px 10px; flex-wrap: wrap; padding: 12px 14px 2px; font-size: 12px; }
 .hx-rows button, .hx-rows .hx-r { display: grid; grid-template-columns: minmax(0, 1fr) auto 18px; align-items: center; gap: 12px; width: 100%; padding: 10px 14px 11px; text-align: left; color: inherit; background: none; border: 0; border-top: 1px solid var(--hair); font: inherit; cursor: pointer; transition: background .15s; }
 .hx-rows-h + button, .hx-rows-h + .hx-r { border-top: 0; }
+.hx-rows button[hidden], .hx-rows .hx-r[hidden] { display: none; }
+.hx-rows.fold [data-hxd]:not([hidden]) { border-top: 0; }
+.hx-rows .hx-fold { display: block; margin-top: 2px; padding: 8px 14px 12px; font: 12px var(--mono); color: var(--mute); text-decoration: underline; text-underline-offset: 3px; border-top: 0; }
+@media (hover: hover) { .hx-rows .hx-fold:hover { color: var(--ink); background: none; } }
 .hx-rows .hx-r { cursor: default; }
 .hx-rows button:first-child { border-top: 0; }
 .hx-rows .c { grid-template-columns: 34px minmax(0, 1fr) auto 18px; }
@@ -11844,7 +11847,7 @@ function hxRcptChanged() {
 function hxSendGo() {
   if (HX.ask) return hxAskGo();
   if (hxSendFit()) return;
-  if (!hxUnits() && !HX.rcpt) return hxAskAmt();                                    // nothing typed at all: the amount first (a recipient alone goes on to the form)
+  if (!hxUnits() && (!HX.rcpt || !hxSendBtc())) return hxAskAmt();                  // no amount: asked for here (Pay, for the two on Bitcoin, takes a recipient alone)
   const k = HX.send, u = hxUnits(), amt = u ? plain(u, 8) : HX.amt, to = HX.rcpt;
   HX.draft = null;
   hxRecentAdd(to);
@@ -12098,7 +12101,7 @@ const hxFit = (a) => { if (a) { const n = a.value.length; a.classList.toggle('lo
 // The amount changed (typed, a quick amount, Max): a quote still out for the one before is never drawn beside it, and one that reads the chain
 // says it is coming, so the button never takes the old figure's route.
 function hxTyped(now) {
-  HX.seq++; HX.goNext = false; hxFit($('#hx-amt'));
+  HX.seq++; HX.goNext = false; hxFit($('#hx-amt')); hxRememberAmt();
   if (hxWrapMode()) { const u = hxUnits(), tip = u && hxTipFresh(u) ? HXT.m.get(String(u)).v : null; HX.q = { eth: u ? Number(u) / 1e8 : 0, ...hxWrapSay(u, tip), early: !!u && tip == null }; paintHxQ(); }
   else if (!hxLocal()) { HX.q = { ...(HX.q || {}), busy: true }; paintHxQ(); }
   hxSub(); hxBalPaint(); hxQuoteSoon(now);
@@ -12580,11 +12583,39 @@ function hxGo() {
 const hxNb = (t) => String(t ?? '').replace(/ · /g, '\u00a0· ');
 // Where an amount sits or lands, said above its field: a coin, or the private mark.
 const hxWhere = (text, priv, ic = 'eth') => html`<span class="hx-where${priv ? ' priv' : ''}"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg>${text}</span>`;
+// A returning visitor finds the card where it was left: the tab and what was chosen in it are kept in this browser, the amount only for the visit (it
+// goes stale) and only where it still means the same thing. A link that sets the card (#card=) overrides all of it.
+const HX_MEM = 'tacit-hx-card-v1', HX_AMT = 'tacit-hx-amt-v1';
+const hxSig = () => `${HX.tab}|${hxAmtKind()}`;
+function hxRemember() {
+  if (!HX.recalled) return;                                                          // a repaint before the kept state is read must not take its place
+  try { localStorage.setItem(HX_MEM, JSON.stringify({ tab: HX.tab, sf: HX.sf, sd: HX.sd, swp: HX.swp, ern: HX.ern, bm: HX.bm, send: HX.send, sendPick: !!HX.sendPick })); } catch { /* kept nowhere: the card opens as on a first visit */ }
+}
+function hxRememberAmt() { try { sessionStorage.setItem(HX_AMT, JSON.stringify({ sig: hxSig(), amt: HX.amt })); } catch { /* as above */ } }
+function hxRecall() {
+  HX.recalled = true;
+  try {
+    const m = JSON.parse(localStorage.getItem(HX_MEM) || 'null');
+    if (m && typeof m === 'object') {
+      const coins = new Set(['ether', 'sats', ...SWAP_ASSETS.map(([k]) => k)]);
+      if (HX_TABS.some(([k]) => k === m.tab)) HX.tab = m.tab;
+      if (typeof m.sf === 'string' && Object.hasOwn(HX_SH, m.sf)) HX.sf = m.sf;
+      if (typeof m.sd === 'string' && /^[a-z]{1,8}$/.test(m.sd)) HX.sd = m.sd;                    // hxNorm sets it right if it is no way of that source now
+      if (coins.has(m.swp?.from) && coins.has(m.swp?.to) && hxValid(m.swp.from, m.swp.to)) HX.swp = { from: m.swp.from, to: m.swp.to };
+      if (['ether', 'eth', 'tac', 'wtac'].includes(m.ern)) HX.ern = m.ern;
+      if (['cusd', 'cbtc'].includes(m.bm)) HX.bm = m.bm;
+      if (HX_SEND.some(([k]) => k === m.send)) { HX.send = m.send; HX.sendPick = !!m.sendPick; }
+    }
+    hxNorm();
+    const a = JSON.parse(sessionStorage.getItem(HX_AMT) || 'null');
+    if (a?.sig === hxSig() && typeof a.amt === 'string' && /^[\d.,]{1,24}$/.test(a.amt)) HX.amt = a.amt;
+  } catch { Object.assign(HX, { tab: 'private', sf: 'ether', sd: 'defi', swp: { from: 'ether', to: 'tac' }, ern: 'ether', bm: 'cusd', send: 'eth', sendPick: false, amt: '' }); }   // nothing readable: the card opens as on a first visit
+}
 function paintHx() {
   const el = $('#hx-body');
   if (!el) return;
   $('#hx').__pkClose?.();                                                            // a picker open over the card is for the card it was opened on
-  hxNorm(); HX.goNext = false; hxSendAuto();
+  hxNorm(); HX.goNext = false; hxSendAuto(); hxRemember();
   const act = document.activeElement, focus = el.contains(act) ? { id: act.id, hxd: act.dataset.hxd, hxm: act.dataset.hxm } : null;     // a redraw keeps the control the keyboard was on
   const due = hxBwDue();
   const tab = ([k, label, ic]) => html`<button type="button" role="tab" id="hx-tab-${k}" aria-controls="hx-panel" data-hxm="${k}" aria-selected="${HX.tab === k}" tabindex="${HX.tab === k ? 0 : -1}"${k === 'borrow' && due ? html` data-due aria-description="A step of your lock waits for you"` : ''}><svg aria-hidden="true"><use href="#g-${ic}"/></svg>${label}</button>`;
@@ -12640,7 +12671,7 @@ function paintHx() {
     const whole = ['btcpool', 'tbback', 'tacpub'].includes(HX.mode) || (HX.mode === 'btc' && HX.dir === 'in');
     body = html`${field(taken ? 'You take out' : 'You put in', where(place, !!src.priv, HX.sf === 'btc' || HX.sf === 'tb' ? 'btc' : 'eth'), whole ? html`<span class="hx-word">Your ${src.u}</span>` : amt(`${src.u} to move`), coin('hx-from', taken ? 'You take out' : 'You put in', groups, HX.sf, true), whole ? '' : subline)}
       ${mid(revOk ? 'Reverse' : '')}
-      <div class="hx-rows" id="hx-dest" role="${many ? 'radiogroup' : 'group'}" aria-label="You get"><div class="hx-rows-h"><span class="hx-lbl">You get</span></div>${ways.map(way)}</div>${tail}`;
+      <div class="hx-rows" id="hx-dest" role="${many ? 'radiogroup' : 'group'}" aria-label="You get"><div class="hx-rows-h"><span class="hx-lbl">You get</span></div>${ways.map(way)}${many ? html`<button type="button" class="hx-fold" data-hxmore="ways" aria-expanded="false"></button>` : ''}</div>${tail}`;
   } else if (m === 'swap') {
     // Wallet ETH and sats are paired only with TAC (see hxValid); the lists offer what the other side allows.
     const froms = [HX_ETHER, ...SWAP_ASSETS, ...(HX.to === 'tac' || HX.from === 'sats' ? [HX_SATS] : [])];
@@ -12731,12 +12762,25 @@ function paintHx() {
   }
   // The ways are one stop too: the arrow keys move the choice among them.
   const dest = $('#hx-dest', el);
-  const choose = (k) => { if (m === 'borrow') HX.bm = k; else HX.sd = k; HX.route = HX.q = null; paintHx(); $(`[data-hxd="${k}"]`)?.focus(); };
+  const choose = (k, keep) => { if (m === 'borrow') HX.bm = k; else { HX.sd = k; if (!keep) HX.waysOpen = ''; } HX.route = HX.q = null; paintHx(); $(`[data-hxd="${k}"]`)?.focus(); };
   for (const b of $$('button[data-hxd]', el)) b.onclick = () => choose(b.dataset.hxd);
+  // Shield shows the way in use and, in a line below it, the names of the others; the line opens them. Choosing one folds the rest again.
+  const moreW = $('[data-hxmore="ways"]', el);
+  if (moreW && dest) {
+    const foldWays = () => {
+      const o = HX.waysOpen === HX.sf, others = $$('button[data-hxd]', dest).filter((b) => b.dataset.hxd !== HX.sd).map((b) => $('b', b)?.textContent || '');
+      dest.classList.toggle('fold', !o);
+      for (const b of $$('button[data-hxd]', dest)) b.hidden = !o && b.dataset.hxd !== HX.sd;
+      moreW.setAttribute('aria-expanded', o);
+      moreW.textContent = o ? 'Fewer ways ▴' : `Other ways: ${others.join(', ')} ▾`;
+    };
+    moreW.onclick = () => { HX.waysOpen = HX.waysOpen === HX.sf ? '' : HX.sf; foldWays(); moreW.focus(); };
+    foldWays();
+  }
   if (dest) dest.onkeydown = (e) => {
     const ks = $$('[data-hxd]', dest).map((b) => b.dataset.hxd), i = ks.indexOf(m === 'borrow' ? HX.bm : HX.sd), d = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[e.key];
     if (!d || ks.length < 2) return;
-    e.preventDefault(); choose(ks[(i + d + ks.length) % ks.length]);
+    e.preventDefault(); choose(ks[(i + d + ks.length) % ks.length], true);
   };
   const setFrom = (v) => { hxKeepAmt(() => { if (m === 'private') { HX.sf = v; HX.sd = null; } else if (m === 'swap') HX.swp.from = v; else if (m === 'earn') HX.ern = v; HX.route = HX.q = null; }); paintHx(); };
   $('#hx-from')?.addEventListener('change', (e) => setFrom(e.target.value));
@@ -12771,6 +12815,7 @@ function hxSync() {
   if (HX.mode === 'btc' && HX.dir === 'out' && HX.from === 'tac' && hxHeldTac() !== HX.heldTac) hxQuoteSoon();         // the private TAC read: it may now be short
   if (HX.mode === 'swap' && HX.from === 'tac' && HX.to === 'ether' && hxUnits() && hxHeldTac() !== HX.heldTac) hxQuoteSoon();   // a sale takes the route the TAC held covers
 }
+hxRecall();
 paintHx();
 refreshTape();
 loadTacPrice().catch(() => {});                                                       // the price strip: one multicall, shared with everything that prices TAC
