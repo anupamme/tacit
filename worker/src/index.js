@@ -1938,6 +1938,7 @@ async function handleReflectionBurndep(req, env, url, cors) {
   const network = url.searchParams.get('network') === 'signet' ? 'signet' : 'mainnet';
   let body;
   try { body = await req.json(); } catch { return jsonResponse({ ok: false, error: 'bad json' }, 400, cors); }
+  if (!body || typeof body !== 'object') return jsonResponse({ ok: false, error: 'bad json' }, 400, cors);
   const txid = String(body.burnTxidDisplay || body.txid || '').replace(/^0x/, '').toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(txid)) return jsonResponse({ ok: false, error: 'bad burnTxidDisplay (want 32-byte display hex)' }, 400, cors);
   const bundle = body.bundle;
@@ -3467,6 +3468,7 @@ function armedMints(env) {
   let a = _armedFor.get(env);
   if (!a) {
     a = makeArmedMints({ kv: env.CONFIDENTIAL_KV || env.REGISTRY_KV, lock: withKvKeyLock, bm: mintKit(), reflection: () => loadBridgeReflection(env),
+      jobState: async (id) => { const q = confSettler(env); if (!q) return null; const st = await q.jobStatus(id); return st ? st.status : 'missing'; },
       chainBurnRoot: (fresh) => poolBurnRoot(pool, fresh), isMinted: (id) => readBridgeMinted(env, id), submit: (x) => submitArmedMint(env, x), log: (m) => console.log(`[armed] ${m}`) });
     _armedFor.set(env, a);
   }
@@ -3495,7 +3497,7 @@ async function handleConfidentialArm(req, env, cors) {
   try { body = await req.json(); } catch { return jsonResponse({ ok: false, error: 'bad json' }, 400, nostore); }
   if (!body || (body.type && body.type !== 'bridgemint')) return jsonResponse({ ok: false, code: 'bad_op', error: 'only a bridge mint is armed' }, 400, nostore);
   const r = await armed.arm({ op: body.op, memos: body.memos });
-  return jsonResponse(r, r.ok ? 200 : r.code === 'armed_full' ? 503 : 400, nostore);
+  return jsonResponse(r, r.ok ? 200 : r.code === 'armed_full' || r.code === 'reflection_unavailable' ? 503 : 400, nostore);
 }
 // GET /confidential/armed?dest=<destination leaf>: where an armed mint stands (armed, queued with its job, minted, failed). Public.
 async function handleConfidentialArmed(req, env, url, cors) {
@@ -3542,6 +3544,7 @@ async function handleConfidentialSubmit(req, env, cors) {
   if (!q) return jsonResponse({ error: 'confidential settle not configured' }, 404, { ...cors, 'Cache-Control': 'no-store' });
   let body;
   try { body = await req.json(); } catch { return jsonResponse({ ok: false, error: 'bad json' }, 400, cors); }
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return jsonResponse({ ok: false, error: 'bad json' }, 400, cors);
   // EVERY submit is metered, floor or not: `buildRelayFeeGate` only prices a cETH fee leg and passes every
   // other asset through ungated, so the floor alone does not bound submissions.
   //

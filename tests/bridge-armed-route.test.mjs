@@ -21,10 +21,14 @@ const ASSET = '0x' + 'a5'.repeat(32), CB = '0x' + '7c'.repeat(32), AUTH = '0x' +
 const DEST_OWNER = pool.nkToOwner('0x' + 'c5'.repeat(32)), TX = txidInternal('33'.repeat(31) + '44');
 const BOX = 'box-token-for-the-test-0123456789';
 
+// A burned note is in the reflected note tree from the moment it is made, as a tracked note is before it is burned.
+const TREE = [];
 function burn(vout) {
   const burned = { value: 1_000_000n, blinding: randomScalar(), owner: AUTH };
   const dest = { value: destValueFor({ burnValue: burned.value }), blinding: randomScalar(), owner: DEST_OWNER };
-  return { parts: bm.bridgeMintParts({ chainBinding: CB, asset: ASSET, spentTxid: TX, spentVout: vout, sourceClass: 2, burned, dest }), memos: ['0x' + 'ab'.repeat(40)] };
+  const parts = bm.bridgeMintParts({ chainBinding: CB, asset: ASSET, spentTxid: TX, spentVout: vout, sourceClass: 2, burned, dest });
+  TREE.push(parts.srcLeaf);
+  return { parts, memos: ['0x' + 'ab'.repeat(40)] };
 }
 function memKv() {
   const m = new Map();
@@ -35,7 +39,7 @@ const W = { burns: [], poolRoot: null, minted: new Set() };
 const state = () => {
   const acc = pool.makeUtxoAccumulator();
   for (const b of W.burns) acc.insert(b.parts.burnId, b.parts.destLeaf);
-  return { snapshot: { noteLeaves: ['0x' + '01'.repeat(32), ...W.burns.map((b) => b.parts.srcLeaf)], burnNodes: acc.nodes() }, root: acc.root() };
+  return { snapshot: { noteLeaves: ['0x' + '01'.repeat(32), ...TREE], burnNodes: acc.nodes() }, root: acc.root() };
 };
 const kv = memKv();
 const publish = ({ chain = true } = {}) => { const s = state(); kv._m.set('reflection:scan:mainnet', JSON.stringify({ snapshot: s.snapshot, attestedHeight: 1000 + W.burns.length, tipHeight: 1000 })); if (chain) W.poolRoot = s.root; };

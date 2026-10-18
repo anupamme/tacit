@@ -20,11 +20,14 @@ const bm = makeConfidentialBridgeMint({ pool, ct });
 const ASSET = '0x' + 'a5'.repeat(32), CB = '0x' + '7c'.repeat(32), AUTH = '0x' + '00'.repeat(31) + 'b7';
 const DEST_OWNER = pool.nkToOwner('0x' + 'c5'.repeat(32)), TX = txidInternal('33'.repeat(31) + '44');
 
-function burn(vout) {
-  const burned = { value: 1_000_000n, blinding: randomScalar(), owner: AUTH };
+// Every burned note is in the reflected note tree from the moment it is made, as a tracked note is before it is burned.
+const TREE = [];
+function burn(vout, burned = { value: 1_000_000n, blinding: randomScalar(), owner: AUTH }) {
   const dest = { value: destValueFor({ burnValue: burned.value }), blinding: randomScalar(), owner: DEST_OWNER };
   const args = { chainBinding: CB, asset: ASSET, spentTxid: TX, spentVout: vout, sourceClass: 2, burned, dest };
-  return { parts: bm.bridgeMintParts(args), memos: ['0x' + 'ab'.repeat(40)] };
+  const made = { parts: bm.bridgeMintParts(args), memos: ['0x' + 'ab'.repeat(40)], burned };
+  TREE.push(made.parts.srcLeaf);
+  return made;
 }
 function memKv() {
   const m = new Map(), ttl = [];
@@ -39,20 +42,21 @@ function world({ burns = [] } = {}) {
   w.state = () => {
     const acc = pool.makeUtxoAccumulator();
     for (const b of w.burns) acc.insert(b.parts.burnId, b.parts.destLeaf);
-    const noteLeaves = ['0x' + '01'.repeat(32), ...w.burns.map((b) => b.parts.srcLeaf)];
+    const noteLeaves = ['0x' + '01'.repeat(32), ...TREE];
     return { snapshot: { noteLeaves, burnNodes: acc.nodes() }, root: acc.root() };
   };
   w.sync = () => { w.chainRoot = w.state().root; };
   w.sync();
   return w;
 }
-function build(w, kv = memKv()) {
+function build(w, kv = memKv(), extra = {}) {
   const a = makeArmedMints({
     kv, lock, bm,
     reflection: async () => { const s = w.state(); const prepared = bm.prepareReflection(s.snapshot); return { prepared, burnRoot: s.root, height: 1 }; },
     chainBurnRoot: async () => (w.ahead ? '0x' + 'ff'.repeat(32) : w.chainRoot),
     isMinted: async (id) => w.minted.has(id),
     submit: async (x) => { w.submits.push(x); return w.door(x); },
+    ...extra,
   });
   return { a, kv };
 }
@@ -184,4 +188,81 @@ test('a mint on a root the pool has moved past is renewed, when the reflection i
   assert.equal((await a.renew(old)).code, 'reflection_not_current');
   w.ahead = false;
   assert.equal((await a.renew({ ...old, sourceClass: 9 })).code, 'bad_op');
+});
+
+test('a mint whose burned note the reflection does not hold, or that is not a tracked note\'s, is not kept', async () => {
+  const w = world(), { a, kv } = build(w);
+  const burned = { value: 1_000_000n, blinding: randomScalar(), owner: AUTH };
+  const dest = { value: destValueFor({ burnValue: burned.value }), blinding: randomScalar(), owner: DEST_OWNER };
+  const made = bm.bridgeMintParts({ chainBinding: CB, asset: ASSET, spentTxid: TX, spentVout: 77, sourceClass: 2, burned, dest });
+  const r = await a.arm({ op: made.op, memos: ['0x' + 'ab'.repeat(40)] });
+  assert.equal(r.code, 'note_not_in_tree');
+  const dep = bm.bridgeMintParts({ chainBinding: CB, asset: ASSET, spentTxid: TX, spentVout: 78, sourceClass: 0, burned, dest });
+  assert.equal((await a.arm({ op: dep.op, memos: ['0x' + 'ab'.repeat(40)] })).code, 'bad_op', 'a burn-deposit mint is not armed');
+  assert.equal(kv._m.size, 0, 'and nothing is kept');
+  const down = build(w, memKv(), { reflection: async () => null });
+  const b = burn(3);
+  assert.equal((await down.a.arm({ op: b.parts.op, memos: b.memos })).code, 'reflection_unavailable', 'with the state unreadable it is asked again, not kept');
+});
+
+test('one waiting mint per burn: the same burned note under another destination is turned away', async () => {
+  const w = world(), { a } = build(w);
+  const first = burn(5), again = burn(5, first.burned);
+  assert.notEqual(first.parts.destLeaf, again.parts.destLeaf);
+  assert.equal(first.parts.burnId, again.parts.burnId);
+  assert.equal((await a.arm({ op: first.parts.op, memos: first.memos })).status, 'armed');
+  assert.equal((await a.arm({ op: again.parts.op, memos: again.memos })).code, 'already_armed');
+});
+
+test('a mint armed while a pass is dropping old records stays in the index', async () => {
+  const w = world(), kv = memKv();
+  let clock = 1_000_000, late = null, armedLate = false;
+  const old = burn(1), fresh = burn(2);
+  const { a } = build(w, kv, { now: () => clock });
+  await a.arm({ op: old.parts.op, memos: old.memos });
+  w.burns.push(old); w.sync(); w.minted.add(old.parts.burnId);
+  await a.sweep();                                                              // old is minted
+  clock += 4 * 86400e3;                                                         // and older than three days
+  const del = kv.delete;
+  kv.delete = async (k) => { await del(k); if (!armedLate) { armedLate = true; late = await a.arm({ op: fresh.parts.op, memos: fresh.memos }); } };
+  const out = await a.sweep();
+  assert.equal(out.dropped, 1);
+  assert.equal(late.ok, true);
+  assert.deepEqual(JSON.parse(kv._m.get('cps:armed:index')), [fresh.parts.destLeaf], 'the mint armed meanwhile is still listed');
+  // A record that is kept but missing from the index is listed again when it is armed again.
+  await kv.put('cps:armed:index', '[]');
+  await a.arm({ op: fresh.parts.op, memos: fresh.memos });
+  assert.deepEqual(JSON.parse(kv._m.get('cps:armed:index')), [fresh.parts.destLeaf]);
+});
+
+test('a queued mint whose job ended is offered again, a few times, and then given up', async () => {
+  const b = burn(1), w = world({ burns: [] }); let js = 'pending';
+  const { a } = build(w, memKv(), { jobState: async () => js });
+  w.burns.push(b); w.sync();
+  assert.equal((await a.arm({ op: b.parts.op, memos: b.memos })).status, 'queued');
+  assert.equal(w.submits.length, 1);
+  assert.equal((await a.sweep()).queued, 1, 'a job still in line stays queued');
+  js = 'failed';
+  assert.equal((await a.sweep()).armed, 1, 'a failed job puts the mint back');
+  assert.equal((await a.status(b.parts.destLeaf)).status, 'armed');
+  await a.sweep();
+  assert.equal(w.submits.length, 2, 'and it is queued again as a new job');
+  for (let i = 0; i < 12; i++) await a.sweep();
+  assert.equal((await a.status(b.parts.destLeaf)).status, 'failed', 'the tries are bounded');
+  js = 'missing';
+  const c = burn(2); w.burns.push(c); w.sync();
+  await a.arm({ op: c.parts.op, memos: c.memos });
+  assert.equal((await a.sweep()).armed, 1, 'a job that is gone is the same');
+});
+
+test('a busy door is not a failed try', async () => {
+  const b = burn(1), w = world({ burns: [] }), { a } = build(w);
+  w.burns.push(b); w.sync();
+  w.door = () => ({ status: 429, body: { ok: false, error: 'too many submit requests' } });
+  await a.arm({ op: b.parts.op, memos: b.memos });
+  for (const door of [{ status: 429, body: { ok: false, error: 'too many submit requests' } }, { status: 503, body: { ok: false, error: 'busy' } }, { status: 400, body: { ok: false, error: 'submitJob: queue full, retry later' } }]) {
+    w.door = () => door;
+    for (let i = 0; i < 8; i++) await a.sweep();
+    assert.equal((await a.status(b.parts.destLeaf)).status, 'armed');
+  }
 });

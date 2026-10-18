@@ -1800,5 +1800,105 @@ function storageContainsPrivkey(storage, priv) {
     });
   }
 }
+// ==== a move back, a cancel and a read that fails once ====
+const NOTE = { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING };
+const startMoved = async (world, ux) => {
+  let r = await ux.start({ note: NOTE, walletPriv: WALLET_PRIV, fundingUtxo: { txid: FUND_TXID_1, vout: 0, value: 30_000 }, feeRate: BASE_RATE });
+  r = await ux.advance(r.walletPub, r.id); world.setMigrateConfirmed(true);
+  r = await ux.advance(r.walletPub, r.id);   // migrate-confirmed
+  r = await ux.advance(r.walletPub, r.id);   // traced
+  world.setBurnHomeOnChain(r.burnHome.txid, r.burnHome.spk);
+  return r;
+};
+// A move back keeps and holds the coin its commit spends; when Bitcoin refuses it for good (that coin went elsewhere) the bridge is back where it was.
+{
+  const world = makeWorld(), ux = makeUx(world, makeMemStorage());
+  const r = await startMoved(world, ux);
+  const moved = await ux.reclaim({ rec: r, walletPriv: WALLET_PRIV });
+  const fund = moved.reclaim.fundingUtxo;
+  ok(moved.stage === 'reclaim-sent' && !!fund && !!fund.txid, 'a move back keeps the coin its commit spends');
+  ok(ux.isReserved(fund.txid, fund.vout), 'and holds that coin back from other spends while it is under way');
+  world.setMigrateConfirmed(false);
+  world.chain.broadcastWithRetry = async () => { throw new Error('bad-txns-inputs-missingorspent'); };
+  const back = await ux.advance(moved.walletPub, moved.id);
+  ok(back.stage === 'traced' && !back.reclaim && /did not take the move back/.test(back.lastError?.message || ''), 'a move back whose coin was spent elsewhere takes the bridge back to where it was, and says so');
+  ok(!ux.isReserved(fund.txid, fund.vout), 'and lets that coin go');
+  world.chain.broadcastWithRetry = async () => { throw new Error('network down'); };
+  const again = await (async () => { const q = await ux.reclaim({ rec: back, walletPriv: WALLET_PRIV }).catch(() => null); return q; })();
+  ok(again === null || again.stage === 'traced' || again.stage === 'reclaim-sent', 'a transport failure alone is not read as a refusal');
+}
+// A move back is not made over a burn Bitcoin has, and not from a row the bridge has left.
+{
+  const world = makeWorld(), ux = makeUx(world, makeMemStorage());
+  let r = await startMoved(world, ux);
+  r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+  ok(r.stage === 'burn-signed', 'sanity: the burn is signed');
+  world.setChainTx(r.burn.txid, { confirmed: false });
+  const before = world.broadcasts.length;
+  const same = await ux.reclaim({ rec: r, walletPriv: WALLET_PRIV });
+  ok(same.stage === 'burn-submitted' && world.broadcasts.length === before, 'a burn Bitcoin already has is not moved back: the bridge goes on from the burn');
+  await assert.rejects(() => ux.reclaim({ rec: r, walletPriv: WALLET_PRIV }), /moved on/, 'a move back pressed on a row the bridge has since left is refused');
+}
+// Cancel and a send of the same bridge are not run side by side in one page.
+{
+  const world = makeWorld(), ux = makeUx(world, makeMemStorage());
+  const r = await ux.start({ note: NOTE, walletPriv: WALLET_PRIV, fundingUtxo: { txid: FUND_TXID_1, vout: 0, value: 30_000 }, feeRate: BASE_RATE });
+  let release; const gate = new Promise((res) => { release = res; });
+  const send = world.chain.broadcastWithRetry;
+  world.chain.broadcastWithRetry = async (hex) => { await gate; return send(hex); };
+  const adv = ux.advance(r.walletPub, r.id);
+  await new Promise((res) => setTimeout(res, 20));
+  await assert.rejects(() => ux.cancelSigned(r.walletPub, r.id), /being advanced in this page right now/, 'a cancel pressed while the same bridge is being sent is refused');
+  release();
+  const after = await adv;
+  ok(after.stage === 'migrate-sent' && ux.list(r.walletPub).length === 1, 'and the bridge is not dropped from under its send');
+}
+// A read that fails once at a waiting stage is thrown but not kept on the record, so the page's own burn is not held back by it.
+{
+  const world = makeWorld(); let down = false, html502 = false;
+  const through = { ...world, fetchImpl: async (url, o) => {
+    const u = new URL(url);
+    if (down && u.pathname === '/reflection/dump') return { ok: false, status: 503, json: async () => ({ error: 'busy' }), text: async () => 'busy', headers: { get: () => null } };
+    if (html502 && u.pathname === '/reflection/burndep') return { ok: false, status: 502, json: async () => { throw new SyntaxError('Unexpected token <'); }, text: async () => '<html><body>Bad gateway</body></html>', headers: { get: () => null } };
+    return world.fetchImpl(url, o);
+  } };
+  const ux = makeUx(through, makeMemStorage());
+  let r = await startMoved(world, ux);
+  down = true;
+  await assert.rejects(() => ux.advance(r.walletPub, r.id), /busy/, 'a failed read at the burn stage is thrown');
+  ok(!ux.list(r.walletPub)[0].lastError, 'and is not kept on the record');
+  down = false;
+  r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+  world.setBurnSubmitted(r.burn.txid);
+  r = await ux.advance(r.walletPub, r.id);
+  world.setBurnConfirmed(true);
+  r = await ux.advance(r.walletPub, r.id);
+  ok(r.stage === 'burn-mined', 'sanity: the burn is mined');
+  html502 = true;
+  await assert.rejects(() => ux.advance(r.walletPub, r.id), /registration failed \(502\)/, 'a gateway error page at registration is read as the gateway answering, not as a parse failure');
+  ok(!ux.list(r.walletPub)[0].lastError, 'and is not kept on the record');
+  html502 = false;
+  r = await ux.advance(r.walletPub, r.id);
+  ok(r.stage === 'registered', 'the next try registers it');
+}
+// The later burn of a two-step bridge is priced at the miner's rate, which is what its fee and coin are then worked out at.
+{
+  const world = makeWorld(), ux = makeUx(world, makeMemStorage());
+  const at = ux.bridgeCost({ path: 'deposit', feeRate: 20, coins: [], noteSats: NOTE_SATS });
+  const mara = ux.bridgeCost({ path: 'deposit', feeRate: 20, coins: [], noteSats: NOTE_SATS, burnRate: 40 });
+  ok(at.later === 270 * 20 && mara.later === 270 * 40 && mara.need - at.need === mara.later - at.later && mara.fee === at.fee, 'the burn after a move is priced at the miner’s rate, the move at the network’s');
+  world.setBurnHomeOnChain(NOTE_TXID, '0014' + Buffer.from(ripemd160(nobleSha256(WALLET_PUB))).toString('hex'));
+  const pf = await ux.preflight({ note: NOTE, walletPub: WALLET_PUB });
+  ok(Math.abs(pf.burnRate - 1.1) < 1e-9, 'a check hands back the miner’s rate the burn will be paid at');
+}
+// A browser that cannot keep the record starts nothing.
+{
+  const world = makeWorld();
+  const blocked = { getItem: () => null, setItem: () => {}, removeItem: () => {}, get length() { return 0; }, key: () => null };
+  const ux = makeUx(world, blocked);
+  await assert.rejects(() => ux.start({ note: NOTE, walletPriv: WALLET_PRIV, fundingUtxo: { txid: FUND_TXID_1, vout: 0, value: 30_000 }, feeRate: BASE_RATE }), /cannot keep the bridge record/, 'with storage blocked a bridge is not started');
+  ok(world.broadcasts.length === 0, 'and nothing is sent');
+}
+
 console.log(failures ? `\n${failures} FAILURES (${n} passed)` : `\nall ${n} burndep-ux checks passed`);
 process.exit(failures ? 1 : 0);

@@ -147,8 +147,10 @@ export function makeBurnDepositBroadcaster({ workerBase, fetchImpl, slipstreamBa
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ burnTxidDisplay, bundle }),
     });
-    const body = await res.json();
-    if (!res.ok || !body.ok) throw new Error(`burndep-broadcast: registration failed: ${JSON.stringify(body)}`);
+    // Read as text first: a gateway's error page is not JSON, and its status is what tells a passing refusal from a real conflict.
+    const text = await res.text();
+    let body = null; try { body = JSON.parse(text); } catch { body = null; }
+    if (!res.ok || !body || !body.ok) throw Object.assign(new Error(`burndep-broadcast: registration failed${body ? '' : ` (${res.status})`}: ${body ? JSON.stringify(body) : String(text).replace(/\s+/g, ' ').slice(0, 120)}`), { status: res.status });
     return body;
   }
 

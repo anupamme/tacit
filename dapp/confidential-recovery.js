@@ -293,11 +293,15 @@ function _toAffineBatch(ps) {
     // skip exactly those next time and leave the rest for a later pass.
     groups.reverse();
     const nulls = [], searched = new Set();
+    let oversize = null;
     for (const g of groups) {
-      if (nulls.length + g.ns.length > maxNullifiers) break;
+      // A transaction with more nullifiers than one pass takes is passed over, not a stop: the ones behind it are still searched.
+      if (nulls.length + g.ns.length > maxNullifiers) { oversize = oversize || g; continue; }
       for (const n of g.ns) nulls.push({ n, want: g.want });
       searched.add(g.txHash);
     }
+    // Alone in a pass, such a transaction is searched whole, so the walk always reaches it.
+    if (!nulls.length && oversize) { for (const n of oversize.ns) nulls.push({ n, want: oversize.want }); searched.add(oversize.txHash); }
     if (!nulls.length || !(assets || []).length) return { found: [], tried: 0, searched };
     // Value points: caller values by multiplication; round values by repeated addition of one base per exponent.
     const points = new Map();

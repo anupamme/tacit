@@ -185,6 +185,13 @@ export function makeBurnDepositUx(deps) {
     return saved;
   }
   function getRecord(walletPub, id) { return loadAll(walletPub).find((r) => r.id === id) || null; }
+  // A record journalled before anything is signed or sent for it: a browser whose storage is blocked cannot keep one, and a bridge it could
+  // not find again is not started.
+  function keptRecord(rec) {
+    const saved = putRecord(rec);
+    if (!getRecord(rec.walletPub, rec.id)) throw new Error('burndep-ux: this browser cannot keep the bridge record (its storage is blocked), so nothing was sent');
+    return saved;
+  }
 
   // A cross-tab lease, not a hard lock: a stale (LEASE_TTL_MS-old) lease is treated as free, so a crashed tab
   // never permanently strands a record. Good enough to stop two tabs racing the SAME advance() concurrently;
@@ -305,6 +312,8 @@ export function makeBurnDepositUx(deps) {
   function isReserved(txid, vout) {
     const op = recordId(txid, vout);
     for (const rec of allRecordsAnyWallet()) {
+      // A move back under way holds the coin its commit spends until Bitcoin has taken it.
+      if (rec.stage === 'reclaim-sent') { const u = rec.reclaim && rec.reclaim.fundingUtxo; if (u && recordId(u.txid, u.vout) === op) return true; continue; }
       if (SPENDS_NOTHING.has(rec.stage)) continue;
       if (rec.id === op) return true;
       if (rec.migrate && recordId(rec.migrate.fundingUtxo.txid, rec.migrate.fundingUtxo.vout) === op) return true;
@@ -394,6 +403,7 @@ export function makeBurnDepositUx(deps) {
     try { rates = await broadcaster.slipstreamRates(); step('mara-rates', true, `${rates.effective_rate} sat/vB effective`); }
     catch (e) { step('mara-rates', false, String(e.message || e)); }
     out.slipstreamRates = rates;
+    out.burnRate = rates ? burnRateOf(rates) : null;
 
     let migrateRate = null;
     try { migrateRate = await chain.getFeeRate('priority'); step('fee-estimate', true, `${migrateRate} sat/vB`); }
@@ -490,9 +500,10 @@ export function makeBurnDepositUx(deps) {
   // and its gate match what signing then needs. Sizes: a P2WPKH input 68 vB; a commit 85 vB plus 68 per input; the one-step
   // reveal 228 vB (218 for a note at the key's Taproot output); the move's reveal 415 vB; the two-step burn about 270 vB;
   // every transaction at least 500 sats. The one-step commit takes coins largest first, as many as it needs; the move takes one
-  // coin whole, so for it the largest coin is what counts, and it must cover the burn after it as well. → { fee, need, ok, have, later? } (sats; `later`: the burn's own fee).
-  function bridgeCost({ path, feeRate, coins = [], noteSats = 546, p2tr = false } = {}) {
-    const r = Number(feeRate), DUST = 546, feeFor = (vb) => Math.max(500, Math.ceil(vb * r)), commitVb = (n) => 85 + 68 * n;
+  // coin whole, so for it the largest coin is what counts, and it must cover the burn after it as well. The burn after a move is
+  // paid at the miner's rate (`burnRate`, from burnRateOf), not the mempool's. → { fee, need, ok, have, later? } (sats; `later`: the burn's own fee).
+  function bridgeCost({ path, feeRate, coins = [], noteSats = 546, p2tr = false, burnRate = null } = {}) {
+    const r = Number(feeRate), DUST = 546, feeFor = (vb, at = r) => Math.max(500, Math.ceil(vb * at)), commitVb = (n) => 85 + 68 * n;
     const vals = (coins || []).map((c) => Number(c && c.value)).filter((v) => v > 0).sort((a, b) => b - a);
     if (path === 'reflected') {
       const revealFee = feeFor(p2tr ? 218 : 228), commitValue = Math.max(DUST, revealFee + DUST - Number(noteSats));
@@ -504,9 +515,12 @@ export function makeBurnDepositUx(deps) {
     // The burn that follows is paid from what the move returns, so the one coin the move takes must cover that fee too: a coin that
     // pays only the move leaves the burn with no sats, which stops it at 'Burn it' until the holder adds some.
     // The builder also needs its commit to carry at least dust (the coin pays the commit's fee and that), whatever the note's sats.
-    const commitFee = feeFor(commitVb(1)), fee = commitFee + feeFor(415), later = feeFor(270), need = Math.max(fee + DUST - Number(noteSats), DUST + commitFee) + later;
+    const commitFee = feeFor(commitVb(1)), fee = commitFee + feeFor(415), later = feeFor(270, Number(burnRate) > 0 ? Number(burnRate) : r), need = Math.max(fee + DUST - Number(noteSats), DUST + commitFee) + later;
     return { fee, need, ok: (vals[0] || 0) >= need, have: vals[0] || 0, later };
   }
+
+  // The rate a two-step bridge's burn is paid at: the miner's own (the higher of its effective and submission rates, a tenth over).
+  const burnRateOf = (rates) => Math.max(Number(rates && rates.effective_rate) || 0, Number(rates && rates.submit_fee_rate) || 0, 1) * 1.1;
 
   // Picks one confirmed, safe-to-spend UTXO from `address` — chain.pickSafeCommitSats does the actual
   // filtering/sorting (see this module's own header comment on why that call is opaque here), this just
@@ -560,7 +574,7 @@ export function makeBurnDepositUx(deps) {
         controlBlock: bytesToHexLocal(mig.burnHome.controlBlock), scriptS: bytesToHexLocal(mig.burnHome.scriptS),
       },
     };
-    return putRecord(rec);
+    return keptRecord(rec);
   }
 
   // ---- startReflected: a tracked note burned directly (source class 1), signed now, journalled before any broadcast ----
@@ -601,7 +615,7 @@ export function makeBurnDepositUx(deps) {
     });
     const p = built.plan;
     const funding = built.commitTx.inputs.map((i) => ({ txid: i.txid, vout: i.vout }));
-    return putRecord({
+    return keptRecord({
       id, network, walletPub: bytesToHexLocal(walletPub), path: 'reflected', stage: 'rburn-signed', createdAt: now(),
       source: { txid: stripHex(note.txid).toLowerCase(), vout: Number(note.vout), sats: Number(note.sats), assetId: asset.assetId, ticker: asset.ticker, ...(p2tr ? { p2tr: true } : {}), amount: BigInt(note.amount), blinding: BigInt(note.blinding) },
       burn: { txid: built.revealTxid, hex: built.revealHex, commitTxid: built.commitTxid, commitHex: built.commitHex, fee: built.commitFee + built.revealFee, feeRate: built.feeRate, fundingUtxo: funding[0], fundingUtxos: funding },
@@ -661,7 +675,7 @@ export function makeBurnDepositUx(deps) {
   const inFlight = new Set();                                  // bridges this page is moving on now
   // Stages that wait on Bitcoin, the proof or a recovery. A read there that failed for a moment (a rate limit, a gateway, the
   // network) is thrown to the caller but not kept on the record: the stage simply waits, and is not shown as failing.
-  const WAITS = new Set(['migrate-sent', 'migrate-confirmed', 'burn-submitted', 'registered', 'rburn-sent', 'rburn-mined', 'recovering', 'reclaim-sent']);
+  const WAITS = new Set(['migrate-sent', 'migrate-confirmed', 'traced', 'burn-submitted', 'burn-mined', 'registered', 'rburn-sent', 'rburn-mined', 'recovering', 'reclaim-sent']);
   const passing = (e) => { const st = Number(e && e.status); return st === 429 || st >= 500 || /failed to fetch|networkerror|load failed|timed? ?out|aborted/i.test(String((e && e.message) || e)); };
   async function advance(walletPub, id, { walletPriv = null, onProgress = null, selfSettle = null, maxFeeRate = null } = {}) {
     const rec = getRecord(walletPub, id);
@@ -740,7 +754,7 @@ export function makeBurnDepositUx(deps) {
       });
 
       const rates = await broadcaster.slipstreamRates();
-      const feeRate = Math.max(Number(rates.effective_rate), Number(rates.submit_fee_rate), 1) * 1.1;
+      const feeRate = burnRateOf(rates);
       if (maxFeeRate != null && feeRate > Number(maxFeeRate)) {
         // Not an error: the burn waits for the miner's rate to fall, and the record says so until it does (or the holder presses Burn it).
         return putRecord({ ...rec, feeWait: { rate: feeRate, max: Number(maxFeeRate), at: now() } });
@@ -791,14 +805,25 @@ export function makeBurnDepositUx(deps) {
     'reclaim-sent': async (rec) => {
       const t = await fetchChainJson(`/tx/${stripHex(rec.reclaim.txid)}`).catch(() => null);
       if (!t || !t.status || !t.status.confirmed) {
-        // A burn the miner held when the move back went out, mined first: the bridge goes on from it.
-        if ((rec.reclaimFrom === 'burn-submitted' || rec.reclaimFrom === 'burn-signed') && rec.burn && rec.burn.txid) {
+        // A burn the miner held, or one signed earlier, mined first: the bridge goes on from it.
+        if (rec.burn && rec.burn.txid) {
           const b = await fetchChainJson(`/tx/${stripHex(rec.burn.txid)}`).catch(() => null);
           if (b && b.status && b.status.confirmed) return putRecord({ ...rec, stage: 'burn-mined', burnMinedAt: now(), burnHeight: b.status.block_height });
         }
         // Re-sending a known transaction is a no-op; never rebuilt, since a rebuilt cancel would conflict with this one.
-        await chain.broadcastWithRetry(rec.reclaim.commitHex).catch(() => {});
-        await chain.broadcastWithRetry(rec.reclaim.revealHex).catch(() => {});
+        const refused = [];
+        for (const hex of [rec.reclaim.commitHex, rec.reclaim.revealHex]) {
+          try { await chain.broadcastWithRetry(hex); } catch (e) { refused.push(String((e && e.message) || e)); }
+        }
+        // A move back whose coin was spent elsewhere can never be taken: with neither of its transactions on Bitcoin and the commit refused
+        // for its input, the bridge is back where it was and Move back can be made again.
+        if (refused.length && /missingorspent|missing-inputs|inputs-missing|bad-txns-inputs|already spent|txn-mempool-conflict|conflict/i.test(refused[0])) {
+          const [c, r] = await Promise.all([chainTxState(rec.reclaim.commitTxid), chainTxState(rec.reclaim.txid)]);
+          if (c === 'absent' && r === 'absent') {
+            const { reclaim, reclaimFrom, reclaimSentAt, ...rest } = rec;
+            return putRecord({ ...rest, stage: reclaimFrom || 'stopped', lastError: { message: 'Bitcoin did not take the move back, and its coin was spent elsewhere. Your TAC is where it was: Move back makes it again.', at: now() }, errorCount: 0 });
+          }
+        }
         return rec;
       }
       return putRecord({ ...rec, stage: 'reclaimed', reclaimedAt: now() });
@@ -1072,7 +1097,9 @@ export function makeBurnDepositUx(deps) {
   // whose commit alone is there, or that could not be checked, is kept. → the record that goes on, or null once dropped.
   async function cancelSigned(walletPub, id) {
     if (!getRecord(walletPub, id)) return null;
+    if (inFlight.has(id)) throw new Error('burndep-ux: this bridge is being advanced in this page right now');
     if (!tryAcquireLease(id)) throw new Error('burndep-ux: this bridge is being advanced in another tab right now');
+    inFlight.add(id);
     try {
       const rec = getRecord(walletPub, id);
       if (!rec) return null;
@@ -1089,7 +1116,7 @@ export function makeBurnDepositUx(deps) {
       if (commit !== 'absent' || reveal !== 'absent') throw new Error('burndep-ux: Bitcoin could not be asked about its transactions just now, so it was not cancelled; try again in a minute');
       abandon(walletPub, id);
       return null;
-    } finally { releaseLease(id); }
+    } finally { inFlight.delete(id); releaseLease(id); }
   }
 
   // Recovers a bridge from just its burn txid and the wallet key — the case where the journal itself is
@@ -1287,7 +1314,8 @@ export function makeBurnDepositUx(deps) {
     // One rate for both: the coin is picked for the fee the move back is then built at.
     const rate = Number(feeRate != null ? feeRate : await chain.getFeeRate('priority'));
     const fundingUtxo = await pickFundingUtxo(P.wallet.address(), Math.ceil(600 * rate * 1.3) + 846);
-    return reveal.buildCancelTx({ prims: P, burnHome, assetId: tacAssetId, walletPriv, walletPub, fundingUtxo, feeRate: rate });
+    const built = await reveal.buildCancelTx({ prims: P, burnHome, assetId: tacAssetId, walletPriv, walletPub, fundingUtxo, feeRate: rate });
+    return { ...built, fundingUtxo: { txid: fundingUtxo.txid, vout: fundingUtxo.vout, value: fundingUtxo.value } };
   }
 
   // Sends a stopped bridge's TAC back to this wallet: the cancel is built (buildCancel), broadcast, and followed to its
@@ -1295,18 +1323,31 @@ export function makeBurnDepositUx(deps) {
   // Once the commit is out the record says so before the reveal goes, so a reveal Bitcoin did not take yet is sent again from
   // 'reclaim-sent' rather than a second move back built from another coin. A burn a miner held (burn-signed, burn-submitted) can
   // still be mined first: 'reclaim-sent' then takes the bridge on from the burn.
-  async function reclaim({ rec, walletPriv, feeRate = null } = {}) {
-    const built = await buildCancel({ rec, walletPriv, feeRate });
-    // Journalled before the commit goes out. The move back cannot be rebuilt (its range proof is random) and its commit takes the whole
-    // funding coin into one output, so a commit Bitcoin took with no record of its reveal would leave that coin locked. A commit
-    // Bitcoin certainly does not have after a refusal takes the record back; any other answer keeps it, and 'reclaim-sent' sends again.
-    const sent = putRecord({ ...rec, stage: 'reclaim-sent', reclaimFrom: rec.stage, reclaim: { commitTxid: built.commitTxid, txid: built.revealTxid, commitHex: built.commitHex, revealHex: built.revealHex }, reclaimSentAt: now(), lastError: null, errorCount: 0 });
-    try { await chain.broadcastWithRetry(built.commitHex); }
-    catch (e) {
-      if ((await chainTxState(built.commitTxid)) === 'absent') { putRecord(rec); throw e; }
-    }
-    await chain.broadcastWithRetry(built.revealHex).catch(() => {});
-    return sent;
+  async function reclaim({ rec: given, walletPriv, feeRate = null } = {}) {
+    if (!given || !given.id || !given.walletPub) throw new Error('burndep-ux: rec required');
+    if (inFlight.has(given.id)) throw new Error('burndep-ux: this bridge is being advanced in this page right now');
+    if (!tryAcquireLease(given.id)) throw new Error('burndep-ux: this bridge is being advanced in another tab right now');
+    inFlight.add(given.id);
+    try {
+      // The record as it is now: a press can wait behind a signing turn while the page's own check moves the bridge on.
+      const rec = getRecord(given.walletPub, given.id);
+      if (!rec || rec.stage !== given.stage) throw new Error('burndep-ux: this bridge moved on while the move back was being made; look at its row, then try again');
+      // A burn Bitcoin has spends the burn-home itself, so there is nothing left to move back: the bridge goes on from the burn.
+      if (rec.burn && rec.burn.txid && (await chainTxState(rec.burn.txid)) === 'present') {
+        return putRecord({ ...rec, stage: 'burn-submitted', submittedAt: rec.submittedAt || now(), lastError: null, errorCount: 0 });
+      }
+      const built = await buildCancel({ rec, walletPriv, feeRate });
+      // Journalled before the commit goes out. The move back cannot be rebuilt (its range proof is random) and its commit takes the whole
+      // funding coin into one output, so a commit Bitcoin took with no record of its reveal would leave that coin locked. A commit
+      // Bitcoin certainly does not have after a refusal takes the record back; any other answer keeps it, and 'reclaim-sent' sends again.
+      const sent = putRecord({ ...rec, stage: 'reclaim-sent', reclaimFrom: rec.stage, reclaim: { commitTxid: built.commitTxid, txid: built.revealTxid, commitHex: built.commitHex, revealHex: built.revealHex, fundingUtxo: built.fundingUtxo }, reclaimSentAt: now(), lastError: null, errorCount: 0 });
+      try { await chain.broadcastWithRetry(built.commitHex); }
+      catch (e) {
+        if ((await chainTxState(built.commitTxid)) === 'absent') { putRecord(rec); throw e; }
+      }
+      await chain.broadcastWithRetry(built.revealHex).catch(() => {});
+      return sent;
+    } finally { inFlight.delete(given.id); releaseLease(given.id); }
   }
   // A bridge that did not complete: its TAC comes back to this wallet. The wallet key signs a claim naming the burn, the
   // amount and the burned note's opening (dapp/bridge-recover.js); once it checks out the same amount is sent to this

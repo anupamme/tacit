@@ -38,6 +38,7 @@ export const CROSSOUT_TETH_MIN_RAW = 1_000_000n;       // 0.01 tETH: under this 
 // The mint is sent hours after the burn, whatever Bitcoin's fees are by then: above this rate (sat/vB) it waits, until the
 // holder says to send it anyway. A mint is about 290 vB, so this caps what an unattended send can cost at ~29,000 sats.
 export const CROSSOUT_MINT_FEE_CEILING = 100;
+const CANCEL_SPENT_AFTER_MS = 6 * 3600e3;
 const JOURNAL_PREFIX = 'tacit-crossout-bridge-v1';
 const LEASE_TTL_MS = 30_000;
 
@@ -286,6 +287,8 @@ export function makeCrossoutUx(deps) {
       id, network, walletPub: bytesToHexLocal(walletPub), stage: 'settling', createdAt: earlier ? earlier.createdAt : now(), startBlock, dests,
       source: { nullifier: id, value, amount, fee, attempts, assetId: a.assetId, ticker: a.ticker }, destXonly,
     });
+    // A browser that cannot keep the record would burn the note and lose the only way the Bitcoin step is sent from here.
+    if (!getRecord(walletPub, id)) throw new Error('crossout-ux: this browser cannot keep the bridge record (its storage is blocked), so nothing was burned');
     if (earlier) {
       // A previous attempt may have landed while this one was being made.
       const found = await reconcile({ ...intent, source: { ...intent.source, value } });
@@ -333,7 +336,8 @@ export function makeCrossoutUx(deps) {
       // Only the error is written, onto the record as it is now: a copy read before the step began would undo whatever a
       // concurrent start() retry (its fee attempts, its destinations) wrote meanwhile.
       const cur = getRecord(walletPub, id) || rec;
-      putRecord({ ...cur, lastError: { message: String((e && e.message) || e), at: now() }, errorCount: (cur.errorCount || 0) + 1 });
+      const waiting = !!(e && e.feeWait);
+      putRecord({ ...cur, lastError: { message: String((e && e.message) || e), at: now(), ...(waiting ? { feeWait: true } : {}) }, errorCount: (cur.errorCount || 0) + (waiting ? 0 : 1) });
       throw e;
     } finally { inFlight.delete(id); releaseLease(id); }
   }
@@ -410,7 +414,7 @@ export function makeCrossoutUx(deps) {
       const feeRate = await chain.getFeeRate('priority');
       if (!allowHighFee && Number(feeRate) > feeCeiling) {
         const cost = mintReveal.estimateSats({ feeRate: Math.ceil(Number(feeRate)), dust: P.DUST }).toLocaleString('en-US');
-        throw new Error(`crossout-ux: Bitcoin fees are high right now (${Math.round(feeRate)} sat/vB, about ${cost} sats for this step), so it is waiting for them to fall under ${feeCeiling}`);
+        throw Object.assign(new Error(`crossout-ux: Bitcoin fees are high right now (${Math.round(feeRate)} sat/vB, about ${cost} sats for this step), so it is waiting for them to fall under ${feeCeiling}`), { feeWait: true });
       }
       const fundingUtxo = rec.mint && rec.mint.fundingUtxo ? rec.mint.fundingUtxo : await pickFundingUtxo(P.wallet.address());
       const built = mintReveal.buildCrossoutMintTxs({
@@ -507,7 +511,9 @@ export function makeCrossoutUx(deps) {
     if (nullifierSpent) {
       let spent;
       try { spent = await nullifierSpent(id); } catch { throw new Error('crossout-ux: could not check whether this note was spent, so it was not cancelled'); }
-      if (spent) throw new Error('crossout-ux: this note has been spent on Ethereum, so its burn may have landed; it was not cancelled. If you bridged it, find it with its Ethereum transaction hash');
+      // Spent, and no burn for it in the pool's logs since this began: after the relay's own deadlines have passed the note went somewhere
+      // else, and the record is let go. A burn that does turn up later is found again from this key (recoverFromKey).
+      if (spent && now() - Number(rec.createdAt || now()) < CANCEL_SPENT_AFTER_MS) throw new Error('crossout-ux: this note has been spent on Ethereum, so its burn may have landed; it was not cancelled. If you bridged it, find it with its Ethereum transaction hash');
     }
     saveAll(walletPub, loadAll(walletPub).filter((r) => r.id !== id));
     return null;
@@ -566,7 +572,16 @@ export function makeCrossoutUx(deps) {
     if (!a) throw new Error('crossout-ux: this crossOut is for a different asset');
 
     const destXonly = bytesToHexLocal(freshPrims(walletPriv).wallet.xonly());
-    const dest = deriveDest(walletPriv, ev.nullifier, amount, a.assetId, destXonly);
+    // The amount asked for is what arrives on Bitcoin; one typed as the note burned (before any relay fee) is found by the fee ladder.
+    let dest = deriveDest(walletPriv, ev.nullifier, amount, a.assetId, destXonly), fee = null, value = null;
+    if (lc(dest.destCommitment) !== lc(ev.destCommitment)) {
+      const burned = BigInt(amount);
+      for (const f of feeLadder(burned)) {
+        if (f === 0n) continue;
+        const d = deriveDest(walletPriv, ev.nullifier, burned - f, a.assetId, destXonly);
+        if (lc(d.destCommitment) === lc(ev.destCommitment)) { dest = d; fee = f; value = burned; amount = burned - f; break; }
+      }
+    }
     if (lc(dest.destCommitment) !== lc(ev.destCommitment)) {
       throw new Error('crossout-ux: recomputed destCommitment does not match the event -- wrong amount, wrong wallet key, or this settle used an explicit non-default blinding recovery cannot reproduce');
     }
@@ -577,7 +592,7 @@ export function makeCrossoutUx(deps) {
     const existing = getRecord(walletPub, ev.nullifier);
     if (existing && existing.stage !== 'settling' && existing.settle && existing.settle.claimIdVerified !== false) return existing;
     const rec = settledRecord({
-      id: ev.nullifier, walletPub, a, amount, destXonly, dest, ev, txHash: settleTxHash, ethBlock,
+      id: ev.nullifier, walletPub, a, amount, fee, value, destXonly, dest, ev, txHash: settleTxHash, ethBlock,
       note: 'recovered from the CrossOutRecorded event directly', recovered: true,
     });
     return putRecord(rec);

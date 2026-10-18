@@ -14,10 +14,12 @@
 //   chainBurnRoot(fresh) → the burn root the pool holds, or null when it cannot be read
 //   isMinted(burnId)    → true / false / null (unread)
 //   submit({ op, memos, key }) → { status, body }  the API's own submit door, as an ordinary mint
+//   jobState(jobId)     → the queued job's status ('failed', 'missing', or another), or null when it cannot be read
 const lc = (x) => String(x == null ? '' : x).toLowerCase();
 const HEX32 = /^0x[0-9a-f]{64}$/;
 const POINT = /^0x0[23][0-9a-f]{64}$/;
 const KEY = (dest) => `cps:armed:${dest}`;
+const BURN = (burnId) => `cps:armed:burn:${burnId}`;
 const INDEX = 'cps:armed:index';
 export const ARMED_TTL_S = 14 * 86400;
 export const MAX_ARMED = 512;
@@ -56,10 +58,11 @@ export function readArmedMemos(raw) {
   return { memos: raw.map(lc) };
 }
 
-export function makeArmedMints({ kv, lock, bm, reflection, chainBurnRoot, isMinted, submit, now = () => Date.now(), log = () => {} }) {
+export function makeArmedMints({ kv, lock, bm, reflection, chainBurnRoot, isMinted, submit, jobState = null, now = () => Date.now(), log = () => {} }) {
   const read = async (dest) => { const s = await kv.get(KEY(dest)); if (!s) return null; try { return JSON.parse(s); } catch { return null; } };
   const write = (rec) => kv.put(KEY(rec.dest), JSON.stringify(rec), { expirationTtl: ARMED_TTL_S });
   const indexOf = async () => { const s = await kv.get(INDEX); try { const a = JSON.parse(s || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
+  const put = (key, value) => kv.put(key, value, { expirationTtl: ARMED_TTL_S });
   const view = (rec) => ({ status: rec.state, dest: rec.dest, ...(rec.jobId ? { jobId: rec.jobId } : {}), at: rec.at, ...(rec.note ? { note: rec.note } : {}) });
 
   // The reflected state, only when it is the state the pool's burn root was taken from: a mint completed against a state that is ahead of the
@@ -94,7 +97,8 @@ export function makeArmedMints({ kv, lock, bm, reflection, chainBurnRoot, isMint
     const r = await submit({ op: done.op, memos: rec.memos, key: rec.dest });
     const code = r && r.body && r.body.code;
     if (r && r.status === 200 && r.body && r.body.ok && r.body.jobId) return { ...rec, state: 'queued', jobId: r.body.jobId, note: null, at: now() };
-    if (TRANSIENT.has(code)) return { ...rec, note: code, at: rec.at };
+    const busy = r && (r.status === 429 || r.status === 503 || /queue full|too many/i.test(String((r.body && (r.body.error || r.body.message)) || '')));
+    if (TRANSIENT.has(code) || busy) return { ...rec, note: code || 'busy', at: rec.at };
     const tries = (rec.tries || 0) + 1;
     return tries >= MAX_TRIES ? { ...rec, tries, state: 'failed', note: (r && r.body && r.body.error) || code || 'refused', at: now() } : { ...rec, tries, note: code || null };
   }
@@ -109,16 +113,35 @@ export function makeArmedMints({ kv, lock, bm, reflection, chainBurnRoot, isMint
     try { id = bm.bridgeMintIdentity(o.op); } catch (e) { return { ok: false, code: 'bad_op', error: (e && e.message) || 'not a mint op' }; }
     const dest = id.destLeaf;
     if ((await isMinted(id.burnId).catch(() => null)) === true) return { ok: true, status: 'minted', dest };
+    // Only the mint of a note the reflection already tracks is kept: it has to name a real burned note, which an op made up of nothing else
+    // does not. A burn-deposit's note is in the tree only once its burn is recorded, so that mint is not armed.
+    if (o.op.sourceClass === 0) return { ok: false, code: 'bad_op', error: 'only the mint of a tracked note is armed' };
+    const ref = await reflection().catch(() => null);
+    if (!ref || !ref.prepared) return { ok: false, code: 'reflection_unavailable', error: 'the reflected state cannot be read just now; try again in a moment' };
+    if (!ref.prepared.leafIndexOf.has(lc(id.srcLeaf))) return { ok: false, code: 'note_not_in_tree', error: 'the burned note is not in the reflected note tree' };
     const made = await lock(INDEX, async () => {
       const have = await read(dest);
-      if (have && have.state !== 'failed') return { rec: have, fresh: false };
+      if (have && have.state !== 'failed') {
+        // Kept in the index whatever happened to it, so the sweep always reaches it.
+        const idx = await indexOf();
+        if (!idx.includes(dest)) await put(INDEX, JSON.stringify([...idx, dest]));
+        return { rec: have, fresh: false };
+      }
+      // One waiting mint per burn: the same burned note under another destination is not a second burn.
+      const other = await kv.get(BURN(id.burnId));
+      if (other && other !== dest) {
+        const o2 = await read(other);
+        if (o2 && o2.state !== 'failed') return { duplicate: true };
+      }
       const idx = await indexOf();
       if (!idx.includes(dest) && idx.length >= MAX_ARMED) return { full: true };
       const rec = { v: 1, dest, burnId: id.burnId, op: o.op, memos: m.memos, state: 'armed', tries: 0, at: now(), jobId: null, note: null };
       await write(rec);
-      if (!idx.includes(dest)) await kv.put(INDEX, JSON.stringify([...idx, dest]), { expirationTtl: ARMED_TTL_S });
+      await put(BURN(id.burnId), dest);
+      if (!idx.includes(dest)) await put(INDEX, JSON.stringify([...idx, dest]));
       return { rec, fresh: true };
     });
+    if (made.duplicate) return { ok: false, code: 'already_armed', error: 'a mint for this burn is already waiting' };
     if (made.full) return { ok: false, code: 'armed_full', error: 'too many mints are waiting; try again later' };
     // A burn already recorded needs no wait.
     if (made.fresh) {
@@ -155,8 +178,20 @@ export function makeArmedMints({ kv, lock, bm, reflection, chainBurnRoot, isMint
         keep.push(dest);
         if (rec.state === 'minted' || rec.state === 'failed') { if (now() - rec.at > 3 * 86400e3) { keep.pop(); await kv.delete(KEY(dest)); out.dropped++; } continue; }
         if (rec.state === 'queued') {
-          if ((await isMinted(rec.burnId).catch(() => null)) === true) { await lock(KEY(dest), async () => write({ ...rec, state: 'minted', at: now() })); out.minted++; }
-          else out.queued++;
+          if ((await isMinted(rec.burnId).catch(() => null)) === true) { await lock(KEY(dest), async () => write({ ...rec, state: 'minted', at: now() })); out.minted++; continue; }
+          // The job ended without minting (the relay gave it up, or it is gone): the mint is offered again, built on the newest state, a few times.
+          const js = rec.jobId && jobState ? await jobState(rec.jobId).catch(() => null) : null;
+          if (js === 'failed' || js === 'missing') {
+            const next = await lock(KEY(dest), async () => {
+              const r = await read(dest);
+              if (!r || r.state !== 'queued' || r.jobId !== rec.jobId) return r;
+              const tries = (r.tries || 0) + 1;
+              const n = tries >= MAX_TRIES ? { ...r, tries, state: 'failed', note: 'its job did not complete', at: now() } : { ...r, tries, state: 'armed', jobId: null, note: 'job_ended' };
+              await write(n);
+              return n;
+            });
+            out[next && next.state === 'failed' ? 'failed' : next && next.state === 'armed' ? 'armed' : 'queued']++;
+          } else out.queued++;
           continue;
         }
         cur = cur || (await currentReflection());
@@ -165,7 +200,11 @@ export function makeArmedMints({ kv, lock, bm, reflection, chainBurnRoot, isMint
         if (!next) continue;
         out[next.state === 'armed' ? 'armed' : next.state === 'queued' ? 'queued' : next.state === 'minted' ? 'minted' : 'failed']++;
       }
-      if (keep.length !== idx.length) await lock(INDEX, async () => kv.put(INDEX, JSON.stringify(keep), { expirationTtl: ARMED_TTL_S }));
+      // Only the destinations this pass dropped come out of the index as it stands now: a mint armed while the pass ran stays in it.
+      if (keep.length !== idx.length) {
+        const dropped = new Set(idx.filter((d) => !keep.includes(d)));
+        await lock(INDEX, async () => put(INDEX, JSON.stringify((await indexOf()).filter((d) => !dropped.has(d)))));
+      }
       return out;
     } catch (e) { log(`armed sweep: ${(e && e.message) || e}`); return out; } finally { sweeping = false; }
   }

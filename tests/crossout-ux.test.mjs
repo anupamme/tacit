@@ -345,7 +345,7 @@ function makeUx(world, extra = {}) {
   });
 
   let threwWrongAmount = false;
-  try { await ux.recoverFromEthTx(settleTxHash, WALLET_PRIV, { amount: NOTE.value + 1n }); }
+  try { await ux.recoverFromEthTx(settleTxHash, WALLET_PRIV, { amount: NOTE.value + 12_345n }); }
   catch (e) { threwWrongAmount = /does not match/.test(e.message); }
   ok(threwWrongAmount, 'a wrong amount is caught by the destCommitment check, not silently written');
 
@@ -562,8 +562,11 @@ const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 4_000_000n, blinding
   world.setEthReceipt(h, { blockNumber: '0x2a', logs: [buildCrossOutRecordedLog({ claimId: CLAIM_ID, destChain: 1, destCommitment, nullifier: TNOTE.nullifier, assetId: TETH })] });
   const rec = await ux.recoverFromEthTx(h, WALLET_PRIV, { amount: arrives });
   ok(rec.source.ticker === 'tETH' && rec.source.amount === arrives && rec.source.assetId.toLowerCase() === TETH.toLowerCase(), 'a recovered tETH settle is a tETH record worth what arrives');
-  let m = null; try { await makeUx(world, MULTI).recoverFromEthTx(h, WALLET_PRIV, { amount: arrives + 1n }); } catch (e) { m = e.message; }
+  let m = null; try { await makeUx(world, MULTI).recoverFromEthTx(h, WALLET_PRIV, { amount: arrives + 12_345n }); } catch (e) { m = e.message; }
   ok(/does not match/.test(m || ''), 'the amount is still checked against the event\'s commitment');
+  // The amount typed may be the note that was burned: the relay fee is found on the ladder, and the record is worth what arrives.
+  const viaNote = await makeUx(world, MULTI).recoverFromEthTx(h, WALLET_PRIV, { amount: arrives + 10_000n });
+  ok(viaNote.source.amount === arrives && viaNote.source.value === arrives + 10_000n && viaNote.source.fee === 10_000n && viaNote.stage === 'settled', 'a note typed before its relay fee is found on the fee ladder and worth what arrives');
   // A TAC-only module does not take a tETH settle.
   let m2 = null; try { await makeUx(world).recoverFromEthTx(h, WALLET_PRIV, { amount: arrives }); } catch (e) { m2 = e.message; }
   ok(/different asset/.test(m2 || ''), 'a module configured for TAC alone refuses that same tETH settle as another asset');
@@ -924,6 +927,42 @@ const TNOTE = { nullifier: withHex('7f'.repeat(32)), value: 4_000_000n, blinding
     m = null; try { await bad.cancelIntent(WALLET_PUB, TNOTE.nullifier); } catch (e) { m = e.message; }
     ok(/could not check whether this note was spent/.test(m || '') && bad.list(WALLET_PUB).length === 1, 'and one that cannot be checked is kept too');
   }
+}
+
+// A browser that cannot keep the bridge record does not burn the note: the burn would go out with no way to send its Bitcoin step from here.
+{
+  const world = makeWorld();
+  const blocked = { getItem: () => null, setItem: () => {}, removeItem: () => {}, get length() { return 0; }, key: () => null };
+  const ux = makeUx(world, { ...MULTI, storage: blocked });
+  let m = null; try { await ux.start({ note: TNOTE, walletPriv: WALLET_PRIV, fee: 0n }); } catch (e) { m = e.message; }
+  ok(/cannot keep the bridge record/.test(m || '') && world.crossOutCalls.length === 0, 'with storage blocked the burn is not sent');
+}
+// A wait for Bitcoin's fees to fall is not a failed try: it is marked as a wait and does not count toward the page's six.
+{
+  const world = makeWorld();
+  world.chain.getFeeRate = async () => 400;
+  world.setUtxos([{ txid: FUND_TXID, vout: 0, value: 200_000 }]);
+  const ux = makeUx(world, MULTI);
+  await ux.start({ note: TNOTE, walletPriv: WALLET_PRIV, fee: 0n });
+  world.setEthCovered(true);
+  await ux.advance(WALLET_PUB, TNOTE.nullifier);
+  for (let i = 0; i < 8; i++) { try { await ux.advance(WALLET_PUB, TNOTE.nullifier, { walletPriv: WALLET_PRIV }); } catch {} }
+  const waiting = ux.list(WALLET_PUB)[0];
+  ok(waiting.stage === 'covered' && waiting.lastError?.feeWait === true && !waiting.errorCount, 'eight checks above the ceiling leave a wait on the record and no failed tries');
+  world.chain.getFeeRate = async () => 20;
+  const sent = await ux.advance(WALLET_PUB, TNOTE.nullifier, { walletPriv: WALLET_PRIV });
+  ok(sent.stage === 'mint-signed' && !sent.lastError, 'and once the fee falls the Bitcoin step is signed without any press');
+}
+// A burn that never landed, whose note went elsewhere, is let go after the relay's own deadlines; a burn that did land is found again from the key.
+{
+  const world = makeWorld(); world.setCrossOutError(Object.assign(new Error('settle timed out'), {}));
+  const ux = makeUx(world, { ...MULTI, poolAddress: POOL_ADDR, nullifierSpent: async () => true });
+  try { await ux.start({ note: TNOTE, walletPriv: WALLET_PRIV, fee: 10_000n }); } catch {}
+  let m = null; try { await ux.cancelIntent(WALLET_PUB, TNOTE.nullifier); } catch (e) { m = e.message; }
+  ok(/has been spent on Ethereum/.test(m || '') && ux.list(WALLET_PUB).length === 1, 'a spent note is kept at first');
+  const real = Date.now; Date.now = () => real() + 7 * 3600e3;
+  try { ok((await ux.cancelIntent(WALLET_PUB, TNOTE.nullifier)) === null && ux.list(WALLET_PUB).length === 0, 'and let go once six hours have passed with no burn found for it'); }
+  finally { Date.now = real; }
 }
 
 console.log(`\n${n} crossout-ux checks passed${failures ? `, ${failures} FAILED` : ''}`);
