@@ -3,7 +3,7 @@
 // `router`: the TacVaultRouter built for these two vaults, once deployed (empty until then: the page does without it).
 export const DEPLOYMENTS = Object.freeze({
   chainId: 1,
-  router: '',
+  router: '0x000000F9ab49650502BeC910D13b4717F0082598',
   vaults: Object.freeze([
     Object.freeze({ key: 'usd', vault: '0x00000087ac9ed3E1Bd443E00FBe18B4EdcAEeb1F' }),
     Object.freeze({ key: 'eth', vault: '0x00000047bFC8cF504967049D9Cf9E1FD9651ED80' }),

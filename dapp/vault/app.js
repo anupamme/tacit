@@ -4,7 +4,7 @@
 // contract's own (math.js): what it shows as the room to borrow, the limit for this account, the amount to add to reach 400% and the price a vault is
 // liquidated at are the numbers the contract will test, rounded the safe way. A person's vault is the chain's, not this browser's: nothing about it
 // is kept here, so the same account shows the same vault anywhere. The wallet never gives up a key; each action is tested once with eth_call before it is sent.
-import { DEPLOYMENTS } from '/vault/deployments.js?cb=8d4d1783';
+import { DEPLOYMENTS } from '/vault/deployments.js?cb=fef8ad1c';
 import * as M from '/vault/math.js?cb=ac1ed53e';
 import {
   makeRpc, RPCS, ARCHIVE, HISTORY, makeReader, staticCalls, parseStatic, dynamicCalls, parseDynamic, timestampCall, refusal, decString, SEL, wordAt, addrWord, QUEUE_EXPIRY,
