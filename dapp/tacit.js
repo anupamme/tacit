@@ -23986,8 +23986,8 @@ function _renderHoldingsBurndepBridges(listEl) {
         }
         if (kind === 'reclaim') {
           await ensurePrivkey();
-          await ux.reclaim({ rec, walletPriv: wallet.priv });
-          toast('Moving your TAC back to your wallet. It shows in Holdings once it confirms.', 'success', 8000);
+          const moved = await ux.reclaim({ rec, walletPriv: wallet.priv });
+          toast(moved && moved.stage !== 'reclaim-sent' ? 'Its burn is already with Bitcoin, so there is nothing to move back: the bridge goes on from the burn.' : 'Moving your TAC back to your wallet. It shows in Holdings once it confirms.', 'success', 8000);
           renderHoldings();
           return;
         }
