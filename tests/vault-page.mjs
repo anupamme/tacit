@@ -643,8 +643,8 @@ try {
     await bb.click('#go');
     await untilText(bb, '#status', /Deposited [\d,.]+ TAC and borrowed [\d,.]+ TACD\. You owe [\d,.]+\. Recorded 6 prices with it/, 120000);
     const bv = vaultOf(VC, 'bob');
-    ok(BL.bundles.length === 1 && BL.bundles[0].calls.length === 2 && BL.bundles[0].atomicRequired === true && BL.sends.length === 0, 'one batch of two calls (the records, then the vault) and no other transaction');
-    ok(BL.signs - sg === 1, 'and one signature, the permit');
+    ok(BL.bundles.length === 1 && BL.bundles[0].calls.length === 3 && BL.bundles[0].atomicRequired === true && BL.bundles[0].calls[1].to.toLowerCase() === TAC.toLowerCase() && BL.bundles[0].calls[1].data.startsWith('0x095ea7b3') && BL.sends.length === 0, 'one atomic batch of three calls (the records, the approval of the TAC, the vault) and no other transaction');
+    ok(BL.signs - sg === 0, 'and no signature at all: the approval is a call in the batch, not a permit');
     ok(bv.d > 0n && bv.c > 0n && view(PAIR, 'broken()(bool)')[0] === 'false' && big(PAIR, 'got()(uint256)') === 6n && (await pending()) === 0, 'the vault holds the deposit and the debt, and every missing record was made');
     ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
     await closeAll(r);
@@ -757,6 +757,23 @@ try {
     await untilText(cr, '#status', /Repaid\. You owe [\d,.]+ TACD\. Recorded \d+ prices with it/, 120000);
     ok(RL.sends.length === 1 && RL.sends[0].to.toLowerCase() === RT.toLowerCase() && vaultOf(VC, 'carol').d === debt0 - 1000n * E18 && vaultOf(VC, 'carol').a === 0n && (await pending()) <= 2, 'one transaction to the router repaid 1,000 and, with the records before it, ended the auction (at most the newest interval, which began meanwhile, is left)');
     ok(big(SYNC, 'balanceOf(address)(uint256)', RT) === 0n && big(SYNC, 'allowance(address,address)(uint256)', RT, VC) === 0n, 'and the router holds no TACD and leaves no approval');
+    await closeAll(r);
+
+    // 9. a wallet that batches and nothing to record: the approval is still a call in the batch (no permit to sign), so there is no signature at all
+    mintTac(ACC.deployer.a, 20_000n * E18);
+    for (let i = 0; i < 3 && (await pending()) > 0; i++) { const top = Math.floor((await head() - 1) / 50) - 1; for (const v of VENUES) send('deployer', v, 'fill(uint256,uint256)', String(top - 6), String(top)); }
+    ok((await pending()) === 0 && view(PAIR, 'broken()(bool)')[0] === 'false', 'the oracle is current and prices');
+    r = await openPage({ who: 'deployer', batch: true, hash: hashC() });
+    const dp = r.page, DP = r.walletLog;
+    await connect(dp);
+    await untilText(dp, '#go', /^Deposit [\d,.]+ TAC and borrow$/, 90000);
+    ok(!/Price records/.test(await text(dp, '#info')), 'nothing to record: the ticket does not mention records');
+    DP.sends.length = 0; const sgd = DP.signs;
+    await dp.click('#go');
+    await untilText(dp, '#status', /Deposited [\d,.]+ TAC and borrowed [\d,.]+ TACD/, 120000);
+    const q = DP.bundles.at(-1);
+    ok(DP.bundles.length === 1 && q.calls.length === 2 && q.calls[0].to.toLowerCase() === TAC.toLowerCase() && q.calls[0].data.startsWith('0x095ea7b3') && DP.signs === sgd && DP.sends.length === 0, 'one atomic batch of the approval and the vault call: no signature and no other transaction');
+    ok(big(TAC, 'allowance(address,address)(uint256)', ACC.deployer.a, VC) === 0n, 'and the approval was used up exactly');
     await closeAll(r);
   }
 

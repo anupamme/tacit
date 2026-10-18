@@ -563,8 +563,10 @@ const errText = (e) => esc(e instanceof UserStopped ? e.message : String(e?.mess
 
 // The token the call spends, made available to the vault: a permit signed in the wallet (no gas, one transaction) where there is no allowance,
 // else an exact approval sent first. A permit the vault does not accept falls back to the approval.
-async function withAccess({ V, token, amount, allowance, from, make, spender = V.addr, check = (data) => simulate(V.addr, data, from) }) {
+// `batched`: the call goes in an atomic batch the wallet sends, so the exact approval is one more call in it (`approve` returned for the batch) and nothing is signed or sent first.
+async function withAccess({ V, token, amount, allowance, from, make, spender = V.addr, batched = false, check = (data) => simulate(V.addr, data, from) }) {
   if (allowance >= amount) return { data: make(null) };
+  if (batched) return { data: make(null), approve: { to: token, data: encApprove(spender, amount) } };
   try {
     say('Sign the permit in your wallet. The signature costs nothing.');
     const [name, nonce] = await Promise.all([ethCall(token, SEL.name), ethCall(token, SEL.nonces + addrWord(from))]);
@@ -611,8 +613,11 @@ async function run(kindOverride) {
     // The TAC deposited with a borrow is what was on the screen or less, never more.
     if (P.kind === 'borrow' && (P.add ?? 0n) > (shown.add ?? 0n)) { say(`<span class="err">The TAC to deposit is now ${esc(tac(P.add))}. Nothing was sent; the figures above are current.</span>`); return; }
     // With the price records in the same confirmation the vault cannot be tested alone (it still waits for them): the records and the call are tested together, as the account.
-    const via = P.catchUp ? viaOf(V) : null, post = P.catchUp ? V.post : null;
-    const bundle = (d) => [{ to: MULTICALL3, data: post.data }, { to: V.addr, data: d }];
+    // A wallet that sends batches does the approval in the batch too (no permit signature), so it is used whenever the TAC or TACD needs approving, with the records when there are some.
+    const allow = P.kind === 'deposit' ? [P.amount, x.d.tacAllow] : P.kind === 'borrow' && P.add > 0n ? [P.add, x.d.tacAllow] : P.kind === 'repay' ? [P.paid, x.d.synAllow] : null;
+    const via = P.catchUp ? viaOf(V) : S.batchOk && allow && (allow[1] ?? 0n) < allow[0] ? 'bundle' : null, post = P.catchUp ? V.post : null;
+    let extra = [];                                                                                     // the approval, once there is one
+    const bundle = (d) => [...(post ? [{ to: MULTICALL3, data: post.data }] : []), ...extra, { to: V.addr, data: d }];
     const check = via === 'bundle' ? (d) => simulateBundle(rpc, from, bundle(d)) : via === 'router' ? (d) => simulate(ROUTER, d, from) : undefined;
     let target = via === 'router' ? ROUTER : V.addr, carried = 0;
     let data, acc = {};
@@ -649,13 +654,14 @@ async function run(kindOverride) {
       }
     }
     else if (P.kind === 'deposit') {
-      acc = await withAccess({ V, token: x.s.tac, amount: P.amount, allowance: x.d.tacAllow ?? 0n, from, check, make: (p) => (p ? encMulticall([encPermit('permitTac', p), encDeposit(P.amount)]) : encDeposit(P.amount)) });
+      acc = await withAccess({ V, token: x.s.tac, amount: P.amount, allowance: x.d.tacAllow ?? 0n, from, check, batched: via === 'bundle', make: (p) => (p ? encMulticall([encPermit('permitTac', p), encDeposit(P.amount)]) : encDeposit(P.amount)) });
     } else if (P.kind === 'borrow' && P.add > 0n) {
-      acc = await withAccess({ V, token: x.s.tac, amount: P.add, allowance: x.d.tacAllow ?? 0n, from, check, make: (p) => encMulticall([...(p ? [encPermit('permitTac', p)] : []), encDeposit(P.add), encBorrow(P.amount, shown.feeBps)]) });
+      acc = await withAccess({ V, token: x.s.tac, amount: P.add, allowance: x.d.tacAllow ?? 0n, from, check, batched: via === 'bundle', make: (p) => encMulticall([...(p ? [encPermit('permitTac', p)] : []), encDeposit(P.add), encBorrow(P.amount, shown.feeBps)]) });
     } else if (P.kind === 'borrow') acc = { data: encBorrow(P.amount, shown.feeBps) };
     else if (P.kind === 'repay') {
-      acc = await withAccess({ V, token: x.s.synth, amount: P.paid, allowance: x.d.synAllow ?? 0n, from, check, make: (p) => { const call = encRepay(owner, P.amount); return p ? encMulticall([encPermit('permitSynth', p), call]) : call; } });
+      acc = await withAccess({ V, token: x.s.synth, amount: P.paid, allowance: x.d.synAllow ?? 0n, from, check, batched: via === 'bundle', make: (p) => { const call = encRepay(owner, P.amount); return p ? encMulticall([encPermit('permitSynth', p), call]) : call; } });
     } else acc = { data: encWithdraw(P.amount) };
+    if (acc.approve) extra = [acc.approve];
     data ||= acc.data;
     say('Checking it first…');
     const trial = () => (via === 'bundle' ? simulateBundle(rpc, from, bundle(data)) : simulate(target, data, from));
@@ -663,7 +669,7 @@ async function run(kindOverride) {
     // A node that is a block behind has not seen the approval yet: asked again shortly.
     for (let i = 0; i < 3 && sim.ok === false && acc.approved && refusal(sim.e) === 'access'; i++) { await new Promise((r) => setTimeout(r, 1500)); sim = await trial(); }
     if (sim.ok === false) { say(`<span class="err">${esc(failText(x, P.kind, sim.e))}</span>`); load().then(renderAll).catch(() => {}); return; }
-    say(P.catchUp ? 'Confirm in your wallet. It records the prices and then does this, as one transaction.' : 'Confirm the transaction in your wallet.');
+    say(P.catchUp ? `Confirm in your wallet. It records the prices${extra.length ? ', approves the TAC' : ''} and then does this, as one transaction.` : extra.length ? 'Confirm in your wallet. It approves the amount and then does this, as one transaction.' : 'Confirm the transaction in your wallet.');
     const hash = via === 'bundle' ? await askTicket(() => sendAsBundle(from, bundle(data))) : await askTicket(() => wallet.sendTx({ to: target, data, from }));
     say(`Sent ${txLink(hash)}. Waiting for it to land…`);
     const rc = await wallet.receipt(hash);
