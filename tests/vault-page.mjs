@@ -591,6 +591,32 @@ try {
   ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
   await closeAll(r);
 
+  // ── an amount from another page's Borrow box: #amt= fills the Borrow box once, instead of Max, and leaves the address bar ──
+  mintTac(ACC.deployer.a, 50_000n * E18);
+  r = await openPage({ who: 'deployer', hash: `#vusd=${USD}&veth=${ETH}&t=deposit&amt=125` });
+  const am = r.page;
+  await connect(am);
+  await untilText(am, '#go', /^(Borrow TACD|Deposit [\d,.]+ TAC and borrow)$/, 30000);
+  await sleep(400);
+  ok(await am.$eval('#acts [data-t="borrow"]', (b) => b.getAttribute('aria-pressed')) === 'true' && (await am.$eval('#amt', (e) => e.value)) === '125', `#amt=125 opens Borrow with 125 in the box, not the Max (button: ${await text(am, '#go')})`);
+  ok(!/amt=/.test(await am.evaluate(() => location.hash)) && /vusd=/.test(await am.evaluate(() => location.hash)), 'and the amount leaves the address bar (the rest of it stays)');
+  ok(/You receive\s*125 TACD/.test(await text(am, '#info')), `the rows are for 125 TACD (${(await text(am, '#info')).slice(0, 120)}${await text(am, '#hint')})`);
+  await am.reload();
+  await until(am, () => !!document.querySelector('#board table'));
+  await sleep(800);
+  ok((await am.$eval('#amt', (e) => e.value)) !== '125', 'a refresh does not fill it again');
+  ok(r.errors.length === 0 && r.blocked.length === 0, `nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
+  await closeAll(r);
+  r = await openPage({ hash: `#vusd=${USD}&veth=${ETH}&v=eth&amt=0.01` });
+  await until(r.page, () => !!document.querySelector('#board table'));
+  ok(await r.page.$eval('#pick [data-v="eth"]', (b) => b.getAttribute('aria-pressed')) === 'true' && (await r.page.$eval('#amt', (e) => e.value)) === '0.01', '#v=eth&amt=0.01 fills the TAC Ether vault’s Borrow box with 0.01');
+  ok(/v=eth/.test(await r.page.evaluate(() => location.hash)) && !/amt=/.test(await r.page.evaluate(() => location.hash)), 'the vault stays in the address bar, the amount does not');
+  await closeAll(r);
+  r = await openPage({ hash: `#vusd=${USD}&veth=${ETH}&amt=1,5x` });
+  await until(r.page, () => !!document.querySelector('#board table'));
+  await sleep(300);
+  ok((await r.page.$eval('#amt', (e) => e.value)) === '' && !/amt=/.test(await r.page.evaluate(() => location.hash)), 'an amount that does not read is ignored (and dropped)');
+  await closeAll(r);
   // ── one press: a wallet with TAC and no vault, the page as first opened ──
   mintTac(ACC.deployer.a, 50_000n * E18);
   r = await openPage({ who: 'deployer', hash: `#vusd=${USD}&veth=${ETH}` });

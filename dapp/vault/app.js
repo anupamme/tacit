@@ -956,15 +956,19 @@ async function pokeFeed(leave = 0) {
 }
 
 // ── the address bar ──
-// #v= the vault, #t= the action, #a= an account to look at (read only). Anything else in it (the test addresses) stays.
+// #v= the vault, #t= the action, #a= an account to look at (read only), #amt= an amount for the Borrow box (a link from another page's Borrow box: read once,
+// then dropped from the address bar, so a refresh does not fill it again). Anything else in it (the test addresses) stays.
 function readHash() {
-  const p = params(), v = p.get('v'), t = p.get('t'), a = p.get('a');
+  const p = params(), v = p.get('v'), t = p.get('t'), a = p.get('a'), amt = p.has('amt') ? M.parseUnits(p.get('amt'), 18) : null;
   if (v && VS.some((x) => x.key === v)) S.v = v;
   if (ACTS.some(([k]) => k === t)) S.t = t;
   S.view = ADDR.test(a || '') ? a : null;
+  if (amt != null && amt > 0n && !S.busy) { S.t = 'borrow'; S.pre = false; S.amt = M.plain(amt); $('#amt').value = S.amt; say('', ''); }
+  if (p.has('amt')) keepInHash();
 }
 function keepInHash() {
   const p = params();
+  p.delete('amt');
   if (VS.length > 1 && S.v !== VS[0].key) p.set('v', S.v); else p.delete('v');
   if (S.t !== 'borrow') p.set('t', S.t); else p.delete('t');
   const h = p.toString() ? `#${p}` : '';
