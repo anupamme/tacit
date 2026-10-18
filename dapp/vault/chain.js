@@ -1,26 +1,113 @@
-// What the vault page reads from and sends to the chain: Ethereum's public nodes (the same four the trade page asks, one after another),
-// the calls of a vault and its two tokens as Multicall3 batches, and the calldata of what a person does there. Nothing here is kept: every
-// figure comes from the contracts, so a vault is the same from any browser.
+// What the vault page reads from and sends to the chain: a pool of Ethereum's public nodes (and, when the connected wallet has its own, that one too), the
+// calls of a vault and its two tokens as Multicall3 batches, and the calldata of what a person does there. Nothing here is kept: every figure comes from the
+// contracts, so a vault is the same from any browser.
 import { _internal, MULTICALL3 } from '/evm-trade-venues.js?cb=f6e1b626';
 
-export const RPCS = ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org', 'https://1rpc.io/eth', 'https://mainnet.gateway.tenderly.co'];
+// The nodes the page's reads ask, in order (one that answers is kept until it fails). ARCHIVE are the ones that still hold the state of blocks hours old, which the
+// price feed needs for eth_getProof (a node that has pruned it answers with an error); HISTORY are the nodes asked for the headers of those blocks.
+export const RPCS = [
+  'https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org', 'https://rpc.mevblocker.io', 'https://eth-mainnet.public.blastapi.io',
+  'https://ethereum-json-rpc.stakely.io', 'https://eth.rpc.blxrbdn.com', 'https://1rpc.io/eth', 'https://mainnet.gateway.tenderly.co',
+];
+export const ARCHIVE = ['https://eth.drpc.org', 'https://rpc.mevblocker.io', 'https://1.rpc.thirdweb.com', 'https://eth-mainnet.public.blastapi.io'];
+export const HISTORY = [...new Set([...ARCHIVE, ...RPCS])];
 export const WAD = 10n ** 18n;
 
-export function makeRpc(urls = RPCS) {
-  return async function rpc(method, params) {
-    let last;
-    for (const [n, url] of urls.entries()) {
-      try {
-        const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(n === urls.length - 1 ? 30e3 : 12e3) });
-        const j = await r.json();
-        if (j.error) {
-          if (j.error.code === 3 || /revert/i.test(j.error.message || '')) throw Object.assign(new Error(j.error.message), { revert: true, data: typeof j.error.data === 'string' ? j.error.data : null });
-          last = new Error(j.error.message); continue;
+// ── a pool of nodes ──
+// A source is a URL, or { id, send(method, params, ms), usable?(method), prefer?, last?, timeout? } for a node that is not one (the connected wallet's). A call goes
+// to the first source that is not resting. A source that fails rests (seconds for a rate limit, minutes for a method it does not serve), so the next call does not
+// queue behind it, and it is asked again when its rest is over. `spread` starts each call at the next source, so that no node takes all the traffic; `prefer` sources
+// are asked first and `last` ones only when the others have failed. When every source is resting a call waits for the first to return, up to `patience`. A revert is
+// the contract's answer and ends the call. `check(result)` throws or returns false for a reply that is no good (a node's error dressed as a result, a header that does
+// not rebuild to its hash): that source rests for the method and the next is asked. `skip` leaves out that many of the sources first in line, for a retry.
+const BUSY = 'The public Ethereum nodes are busy. Wait a minute, then try again.';
+const LIMITED = /rate.?limit|too many|\b429\b|compute units|capacity|exceeded|upgrade|quota|throttl|slow down|try again later/i;
+const UNSERVED = /not (supported|available|whitelisted|allowed|enabled)|unsupported|unauthori[sz]ed|forbidden|payment required|\b40[123]\b|invalid params|historical state|archive|missing trie|origin required|auth check|disabled/i;
+const REST = { limited: 15e3, slow: 20e3, down: 20e3, unserved: 300e3, bad: 120e3 };
+const kindOf = (e) => {
+  const m = String(e?.message || ''), http = e?.status, code = e?.code;
+  if (e?.bad) return 'bad';
+  if (e?.name === 'TimeoutError' || e?.name === 'AbortError' || e?.timedOut) return 'slow';
+  if (http === 429 || code === 429 || LIMITED.test(m)) return 'limited';
+  if ([401, 402, 403, 405].includes(http) || [401, 402, 403, -32601, -32602].includes(code) || UNSERVED.test(m)) return 'unserved';
+  return 'down';
+};
+const reverted = (e) => !!e && (e.revert === true || e.code === 3 || /revert/i.test(e.message || ''));
+// A node that wraps its own error in a successful reply ({ code, message }) has not answered.
+const dressed = (v) => v && typeof v === 'object' && !Array.isArray(v) && typeof v.code === 'number' && typeof v.message === 'string' && Object.keys(v).length <= 3;
+const timed = (p, ms) => new Promise((res, rej) => { const t = setTimeout(() => rej(Object.assign(new Error('the node did not answer in time'), { timedOut: true })), ms); p.then((v) => { clearTimeout(t); res(v); }, (e) => { clearTimeout(t); rej(e); }); });
+
+const urlSource = (url, doFetch) => {
+  const host = (() => { try { return new URL(url).host; } catch { return url; } })();
+  return {
+    id: url.replace(/^https?:\/\//, ''),
+    signalled: true,                             // it times itself out (the others are timed by the pool)
+    async send(method, params, ms) {
+      const r = await doFetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(ms) });
+      let j;
+      try { j = await r.json(); } catch { throw Object.assign(new Error(`${host} answered ${r.status}`), { status: r.status }); }
+      if (j?.error) throw Object.assign(new Error(j.error.message || `${host} refused`), { code: j.error.code, status: r.status, revert: j.error.code === 3 || /revert/i.test(j.error.message || ''), data: typeof j.error.data === 'string' ? j.error.data : null });
+      if (j?.result === undefined) throw Object.assign(new Error(`${host} sent no result`), { status: r.status });
+      return j.result;
+    },
+  };
+};
+
+export function makeRpc(sources = RPCS, { spread = false, timeout = 12e3, patience = 30e3, onWait = null, fetchImpl = (...a) => fetch(...a), now = () => Date.now(), sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  const pool = sources.map((s) => (typeof s === 'string' ? urlSource(s, fetchImpl) : s));
+  const rests = new Map();                       // id (the node) or id|method (the node, for a method it does not serve) → when it may be asked again
+  const strikes = new Map();                     // id → failures in a row, which lengthen a rest
+  let turn = 0;
+  const restOf = (s, method) => Math.max(rests.get(s.id) || 0, rests.get(`${s.id}|${method}`) || 0);
+  const rest = (s, method, kind, ms) => {
+    const n = Math.min((strikes.get(s.id) || 0) + 1, 4);
+    strikes.set(s.id, n);
+    const base = Math.max(1e3, ms ?? REST[kind]);
+    const wait = kind === 'unserved' || kind === 'bad' ? base : Math.min(base * 2 ** (n - 1), 120e3);
+    rests.set(kind === 'unserved' || kind === 'bad' ? `${s.id}|${method}` : s.id, now() + wait);
+  };
+  return async function rpc(method, params, { check = null, skip = 0 } = {}) {
+    const t0 = now();
+    let last = null, onlyLimited = true;
+    for (;;) {
+      const usable = pool.filter((s) => !s.usable || s.usable(method));
+      const t = now();
+      const live = usable.filter((s) => restOf(s, method) <= t);
+      if (!live.length) {
+        if (!usable.length) break;
+        const wake = Math.min(...usable.map((s) => restOf(s, method)));
+        if (wake - t0 > patience) break;
+        onWait?.(wake - t);
+        await sleep(Math.max(50, wake - t) + 25);
+        continue;
+      }
+      const first = live.filter((s) => s.prefer), mid = live.filter((s) => !s.prefer && !s.last), tail = live.filter((s) => s.last && !s.prefer);
+      if (spread && mid.length > 1) mid.push(...mid.splice(0, turn++ % mid.length));
+      const all = [...first, ...mid, ...tail];
+      const order = skip > 0 && all.length > 1 ? all.slice(Math.min(skip, all.length - 1)) : all;     // `skip`: not the first ones, which an earlier answer came from
+      for (const s of order) {
+        try {
+          const ms = s.timeout || (order.length === 1 ? Math.max(timeout, 30e3) : timeout);       // the last source left gets longer
+          const v = await (s.signalled ? s.send(method, params, ms) : timed(s.send(method, params), ms));
+          if (dressed(v)) throw Object.assign(new Error(v.message), { code: v.code });
+          if (check) {
+            let ok;
+            try { ok = check(v); } catch (e) { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { bad: true }); }
+            if (ok === false) throw Object.assign(new Error(`${s.id} sent a reply that is no good`), { bad: true });
+          }
+          strikes.delete(s.id);
+          return v;
+        } catch (e) {
+          if (reverted(e) && !e.bad) throw Object.assign(e, { revert: true, data: typeof e.data === 'string' ? e.data : null });
+          last = e;
+          const kind = kindOf(e);
+          if (kind !== 'limited') onlyLimited = false;
+          rest(s, method, kind, e?.rest);
         }
-        return j.result;
-      } catch (e) { if (e.revert) throw e; last = e; }
+      }
+      if (now() - t0 > patience) break;
     }
-    throw last || new Error('no RPC answered');
+    throw onlyLimited && last ? new Error(BUSY) : last || new Error('no RPC answered');
   };
 }
 

@@ -149,4 +149,105 @@ const V = { addr: VAULT, tac: TAC, synth: SYN, oracle: ORACLE, feed: FEED };
   assert.equal(C.decString(enc('string', 'TAC Dollar')), 'TAC Dollar'); assert.equal(C.decString(null), null);
   ok('a token\'s name is read as the contract writes it');
 }
+
+// ── the pool of nodes ──
+// Fake nodes behind a fake fetch, a clock the pool's rests are measured on and a sleep that moves it, so waits cost nothing.
+{
+  const clock = { t: 0 };
+  const result = (v) => ({ body: { jsonrpc: '2.0', id: 1, result: v } });
+  const refuse = (code, message, status = 200) => ({ status, body: { jsonrpc: '2.0', id: 1, error: { code, message } } });
+  const LIMIT = refuse(-32005, 'You reached Public endpoint rate limit, please upgrade to paid plan');
+  const pool = (replies, sources = ['https://a.test', 'https://b.test', 'https://c.test'], o = {}) => {
+    const calls = [], slept = [];
+    const fetchImpl = async (url, init) => {
+      const host = new URL(url).host, body = JSON.parse(init.body);
+      calls.push(host);
+      const r = typeof replies[host] === 'function' ? replies[host](body) : replies[host];
+      return { status: r.status ?? 200, json: async () => { if (r.html) throw new SyntaxError('Unexpected token <'); return r.body; } };
+    };
+    const sleep = async (ms) => { slept.push(ms); clock.t += ms; };
+    return { calls, slept, replies, rpc: C.makeRpc(sources, { fetchImpl, now: () => clock.t, sleep, ...o }) };
+  };
+
+  // A node that is rate limited rests: the call goes on to the next, and the next call does not queue behind the first.
+  let p = pool({ 'a.test': LIMIT, 'b.test': result('0xb'), 'c.test': result('0xc') });
+  assert.equal(await p.rpc('eth_blockNumber', []), '0xb');
+  assert.equal(await p.rpc('eth_blockNumber', []), '0xb');
+  assert.deepEqual(p.calls, ['a.test', 'b.test', 'b.test'], 'the second call goes straight to the node that answered');
+  clock.t += 16e3;
+  p.replies['a.test'] = result('0xa');
+  assert.equal(await p.rpc('eth_blockNumber', []), '0xa');
+  ok('a node that says it is rate limited rests, the next call goes to the next node, and the first is asked again once its rest is over');
+
+  // A second failure in a row doubles the rest.
+  clock.t = 0;
+  p = pool({ 'a.test': LIMIT, 'b.test': result('0xb'), 'c.test': result('0xc') });
+  await p.rpc('x', []); clock.t += 16e3; await p.rpc('x', []); clock.t += 16e3; await p.rpc('x', []);
+  assert.deepEqual(p.calls, ['a.test', 'b.test', 'a.test', 'b.test', 'b.test'], 'a failed again after its first rest and now rests for twice as long');
+  ok('a node that fails again after its rest rests twice as long');
+
+  // A revert is the contract's answer, not a node's failure.
+  p = pool({ 'a.test': { body: { jsonrpc: '2.0', id: 1, error: { code: 3, message: 'execution reverted', data: '0xdeadbeef' } } }, 'b.test': result('0xb') });
+  await assert.rejects(p.rpc('eth_call', []), (e) => e.revert === true && e.data === '0xdeadbeef');
+  assert.deepEqual(p.calls, ['a.test'], 'no other node is asked about a revert');
+  ok('a revert ends the call with the revert data, and no other node is asked');
+
+  // Every node busy: the call waits for the first to return, then says so plainly (not in the node\'s words).
+  clock.t = 0;
+  p = pool({ 'a.test': LIMIT, 'b.test': refuse(-32005, 'Too many requests', 429), 'c.test': { status: 429, html: true } });
+  await assert.rejects(p.rpc('eth_getProof', []), (e) => /nodes are busy/.test(e.message) && !/paid plan/.test(e.message));
+  assert.ok(p.slept.length >= 1 && p.slept.every((ms) => ms <= 30e3), 'it waited for the nodes to come back, not longer than its patience');
+  ok('when every node is busy the call waits for one to return and then says the nodes are busy');
+
+  // A node\'s error wrapped in a successful reply, and a page that is not JSON, are not answers.
+  clock.t = 0;
+  p = pool({ 'a.test': result({ code: 503, message: 'server unavailable' }), 'b.test': { status: 525, html: true }, 'c.test': result('0xc') });
+  assert.equal(await p.rpc('eth_blockNumber', []), '0xc');
+  assert.deepEqual(p.calls, ['a.test', 'b.test', 'c.test']);
+  assert.equal(await p.rpc('eth_blockNumber', []), '0xc');
+  assert.deepEqual(p.calls.slice(3), ['c.test'], 'both rest');
+  ok('an error dressed as a result and an answer that is no JSON make a node rest; the next one is asked');
+
+  // A reply that fails the caller\'s check rests that node for that method only.
+  clock.t = 0;
+  p = pool({ 'a.test': (b) => result(b.method === 'eth_getBlockByNumber' ? { ok: false } : '0xa'), 'b.test': result({ ok: true }) });
+  assert.deepEqual(await p.rpc('eth_getBlockByNumber', ['0x1', false], { check: (r) => r.ok }), { ok: true });
+  assert.equal(await p.rpc('eth_call', []), '0xa', 'the same node still answers the methods it answered');
+  await p.rpc('eth_getBlockByNumber', ['0x2', false], { check: (r) => r.ok });
+  assert.deepEqual(p.calls, ['a.test', 'b.test', 'a.test', 'b.test'], 'and is not asked for the one it got wrong');
+  await assert.rejects(pool({ 'a.test': result(1) }, ['https://a.test']).rpc('x', [], { check: () => { throw new Error('the header did not rebuild'); } }), /did not rebuild/);
+  ok('a reply that fails the check rests the node for that method only, and the next node is asked');
+
+  // Spread: each call starts at the next node.
+  p = pool({ 'a.test': result(1), 'b.test': result(1), 'c.test': result(1) }, undefined, { spread: true });
+  for (let i = 0; i < 6; i++) await p.rpc('x', []);
+  assert.deepEqual(p.calls, ['a.test', 'b.test', 'c.test', 'a.test', 'b.test', 'c.test']);
+  ok('with spread each call starts at the next node, so none takes all the traffic');
+
+  // skip: a retry leaves out the nodes first in line.
+  p = pool({ 'a.test': result('a'), 'b.test': result('b'), 'c.test': result('c') });
+  assert.equal(await p.rpc('x', [], { skip: 1 }), 'b'); assert.equal(await p.rpc('x', [], { skip: 2 }), 'c'); assert.equal(await p.rpc('x', [], { skip: 9 }), 'c', 'never past the last');
+  ok('skip leaves out the nodes first in line, never all of them');
+
+  // A source that is not a URL (the wallet): asked first when preferred, left out when it cannot serve, rested for a method it does not know, timed out when it hangs.
+  clock.t = 0;
+  let connected = false, mode = 'works'; const asked = [];
+  const wallet = { id: 'wallet', prefer: true, timeout: 40, usable: (m) => connected && m === 'eth_getProof', send: async (m) => { asked.push(m); if (mode === 'works') return 'from the wallet'; if (mode === 'unknown') throw Object.assign(new Error('The method eth_getProof does not exist'), { code: -32601 }); return new Promise(() => {}); } };
+  p = pool({ 'a.test': result('a') }, [wallet, 'https://a.test']);
+  assert.equal(await p.rpc('eth_getProof', []), 'a'); assert.deepEqual(asked, [], 'not asked while it cannot serve');
+  connected = true;
+  assert.equal(await p.rpc('eth_getProof', []), 'from the wallet'); assert.equal(await p.rpc('eth_blockNumber', []), 'a', 'and not asked for a method it does not serve');
+  mode = 'unknown'; clock.t += 1;
+  assert.equal(await p.rpc('eth_getProof', []), 'a'); assert.equal(await p.rpc('eth_getProof', []), 'a');
+  assert.equal(asked.filter((m) => m === 'eth_getProof').length, 2, 'a method it said it does not have is not asked of it again for a while');
+  clock.t += 301e3; mode = 'hangs';
+  const t0 = Date.now();
+  assert.equal(await p.rpc('eth_getProof', []), 'a'); assert.ok(Date.now() - t0 < 2000, 'a wallet that never answers is given up on after its time');
+  ok('the wallet is a source like the others: preferred, left out when it cannot serve, rested for what it does not know, timed out when it hangs');
+
+  // A wallet\'s revert ends the call as a node\'s does.
+  const reverting = { id: 'wallet', send: async () => { throw Object.assign(new Error('execution reverted: BadAmount'), { code: -32000, data: '0x749b5939' }); } };
+  await assert.rejects(pool({}, [reverting]).rpc('eth_call', []), (e) => e.revert === true && e.data === '0x749b5939');
+  ok('a revert from the wallet carries its data too');
+}
 console.log(`${n} checks passed`);

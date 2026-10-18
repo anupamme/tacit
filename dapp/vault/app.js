@@ -7,10 +7,10 @@
 import { DEPLOYMENTS } from '/vault/deployments.js?cb=174de1c7';
 import * as M from '/vault/math.js?cb=ac1ed53e';
 import {
-  makeRpc, makeReader, staticCalls, parseStatic, dynamicCalls, parseDynamic, timestampCall, refusal, decString, SEL, wordAt, addrWord, QUEUE_EXPIRY,
+  makeRpc, RPCS, ARCHIVE, HISTORY, makeReader, staticCalls, parseStatic, dynamicCalls, parseDynamic, timestampCall, refusal, decString, SEL, wordAt, addrWord, QUEUE_EXPIRY,
   encDeposit, encWithdraw, encBorrow, encRepay, encCancel, encApprove, encPermit, encMulticall,
-} from '/vault/chain.js?cb=b10ae830';
-import { makeFeed, RECORD_GAS, PER_TX, encBatch, MULTICALL3 } from '/vault/feed.js?cb=bdda2346';
+} from '/vault/chain.js?cb=446cc436';
+import { makeFeed, RECORD_GAS, PER_TX, encBatch, MULTICALL3 } from '/vault/feed.js?cb=03954743';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=7b4ab128';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { announceWalletConnect, wcSheets, WC_PROJECT_ID } from '/walletconnect.js?cb=92886522';
@@ -40,7 +40,16 @@ const VS = (() => {
 const S = { v: VS[0]?.key, t: 'deposit', amt: '', view: null, busy: false, seq: 0, chainT: 0, chainAt: 0, loaded: false, failed: false, more: false };
 const MORE_KEY = 'tacit-vault-more';                                                                // whether the board shows its further figures, kept in this browser
 try { S.more = localStorage.getItem(MORE_KEY) === '1'; } catch { /* storage is a convenience */ }
-const rpc = makeRpc();
+// The connected wallet's own node. An injected wallet on Ethereum answers reads from the provider it already has, so it is asked first for the old headers and proofs the
+// price feed needs (which the public nodes ration) and last for everything else. A WalletConnect session is left out: it would send each read on to the phone.
+const WALLET_READS = new Set(['eth_call', 'eth_blockNumber', 'eth_getBlockByNumber', 'eth_getProof', 'eth_getTransactionReceipt', 'eth_gasPrice']);
+let walletNow = null;                                                                               // the wallet's state, once it exists
+const walletNode = (order) => ({
+  id: 'wallet', timeout: 8e3, ...order,
+  usable: (m) => !!walletNow?.prov && !walletNow.prov.isWalletConnect && walletNow.chain === '0x1' && WALLET_READS.has(m),
+  send: (m, p) => walletNow.prov.request({ method: m, params: p }),
+});
+const rpc = makeRpc([...RPCS, walletNode({ last: true })]);
 const { ethCall, batch } = makeReader(rpc);
 const cur = () => VS.find((v) => v.key === S.v) || null;
 // Time on the chain's clock: a computer whose clock is off would otherwise send a permit that has already expired.
@@ -56,6 +65,7 @@ const WC = announceWalletConnect({
 });
 const wallet = makeWallet({ rpc, leave: (p) => (p?.isWalletConnect ? WC.disconnect() : null) });
 const W = wallet.state;
+walletNow = W;
 const sameAddr = (a, b) => !!a && !!b && String(a).toLowerCase() === String(b).toLowerCase();
 // The account whose vault is shown: the one in the address bar (read only), else the connected wallet's.
 const who = () => S.view || W.account || null;
@@ -580,8 +590,15 @@ function renderAll() {
 // ── the price feed ──
 // Lending needs every ten-minute price of the last eight hours from both venues. When they have not been recorded (a keeper stopped, or none runs), anyone can
 // record them from here: the page builds each record from an archive node and sends them ten at a time through Multicall3, each batch tested first.
-const feed = makeFeed({ rpc, proofRpc: makeRpc(['https://eth.drpc.org']) });
+// The headers and proofs of blocks hours old come from many nodes, each asked in turn, so that none is asked for more than a few of them; one that says it is busy rests.
+const busyNote = (ms) => { if (F.busy) setFeed(`The public nodes are busy. Trying again in ${Math.ceil(ms / 1000)} s…`); };
+const feed = makeFeed({
+  rpc,
+  headerRpc: makeRpc([walletNode({ prefer: true }), ...HISTORY], { spread: true, onWait: busyNote }),
+  proofRpc: makeRpc([walletNode({ prefer: true }), ...ARCHIVE], { spread: true, onWait: busyNote }),
+});
 const F = { by: {}, busy: false, note: '', bad: false, gas: null, at: 0, stop: null };   // by: what each vault's venues have recorded (vaults on one oracle share a read); stop: ends the wait for the wallet
+const ALREADY = '0x103b4afe';                                                         // the oracle's AlreadyRecorded
 const WALLET_HINT_MS = 20e3;                                                          // how long the wallet may stay quiet before the person is offered a way out
 class StopWaiting extends Error { constructor() { super('Stopped waiting. If your wallet still shows the request, reject it there, then record again.'); } }
 const feedOf = (V) => (V ? F.by[V.key] || null : null);
@@ -633,12 +650,22 @@ async function pokeFeed() {
       const part = feed.nextBatch(st);
       setFeed(`Building ${part.length} record${part.length === 1 ? '' : 's'} (batch ${round})…`);
       const recs = await feed.build(part);
-      const data = encBatch(recs.map((r) => ({ to: r.to, data: r.data })));
-      const sim = await simulate(MULTICALL3, data, W.account);
-      if (!sim.ok) {
-        // One of them may have been recorded by someone else in the meantime: find which, and carry on without them.
+      const pack = () => encBatch(recs.map((r) => ({ to: r.to, data: r.data })));
+      let data = pack(), sim = await simulate(MULTICALL3, data, W.account);
+      // A record that fails is one someone else has recorded in the meantime (read again without it) or one a node gave a wrong proof for: that one is built again, from the
+      // next node and not the one that failed, twice at most.
+      for (let again = 1; !sim.ok && again <= 2; again++) {
         const each = await Promise.all(recs.map((r) => simulate(r.to, r.data, W.account)));
-        const bad = each.find((r) => !r.ok && !String(r.e?.data || '').startsWith('0x103b4afe'));
+        const bad = each.flatMap((r, i) => (!r.ok && !String(r.e?.data || '').startsWith(ALREADY) ? [i] : []));
+        if (!bad.length) break;
+        setFeed(`Building ${bad.length} record${bad.length === 1 ? '' : 's'} again…`);
+        const fresh = await Promise.all(bad.map((i) => feed.buildRecord(...part[i], undefined, again)));
+        bad.forEach((i, j) => { recs[i] = fresh[j]; });
+        data = pack(); sim = await simulate(MULTICALL3, data, W.account);
+      }
+      if (!sim.ok) {
+        const each = await Promise.all(recs.map((r) => simulate(r.to, r.data, W.account)));
+        const bad = each.find((r) => !r.ok && !String(r.e?.data || '').startsWith(ALREADY));
         if (bad) throw new Error(`A record would fail (${String(bad.e?.message || 'refused').slice(0, 120)}). Nothing was sent.`);
         setFeed('Someone else is recording too; reading again…');
         continue;

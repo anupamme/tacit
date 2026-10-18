@@ -66,8 +66,9 @@ export function encRecord(a) {
 export const encBatch = (calls) => _internal.encAggregate3(calls, false);
 
 // ── reading what is recorded ──
-// `rpc(method, params)` for the page's reads and `proofRpc` for headers and proofs of old blocks (an archive node: only some serve them).
-export function makeFeed({ rpc, proofRpc = rpc }) {
+// `rpc(method, params)` for the page's reads, `headerRpc` for the headers of blocks hours old (any node has them) and `proofRpc` for eth_getProof at those blocks (an
+// archive node: only some serve them). Either may be a pool that takes `rpc(method, params, { check })`, which asks the next node when a reply fails the check.
+export function makeFeed({ rpc, proofRpc = rpc, headerRpc = proofRpc }) {
   const call = (to, data, extra = {}) => rpc('eth_call', [{ to, data, ...extra }, 'latest']);
   const batch = async (list) => (list.length ? _internal.decAggregate3(await call(MULTICALL3, _internal.encAggregate3(list)), list.length) : []);
 
@@ -110,25 +111,34 @@ export function makeFeed({ rpc, proofRpc = rpc }) {
   }
 
   // ── building one record ──
-  const block = async (n, full = false) => {
-    const b = await proofRpc('eth_getBlockByNumber', [`0x${n.toString(16)}`, full]);
-    if (!b) throw new Error(`block ${n} is not available from the node`);
-    return b;
+  // A header rebuilt to its own hash (a node that sends anything else is not believed: the next one is asked), kept in `memo` so that the two venues of an interval, which
+  // share their blocks, ask for each once. A node that does not have the block yet is only given a moment's rest.
+  const header = (n, memo, skip) => {
+    if (!memo.has(n)) {
+      const p = headerRpc('eth_getBlockByNumber', [`0x${n.toString(16)}`, false], {
+        skip, check: (b) => { if (!b) throw Object.assign(new Error(`block ${n} is not at the node yet`), { rest: 8e3 }); headerRlp(b); return b.mixHash != null; },
+      }).then((b) => { if (!b) throw new Error(`block ${n} is not available from the node`); return { b, rlp: headerRlp(b) }; });
+      memo.set(n, p);
+      p.catch(() => memo.delete(n));
+    }
+    return memo.get(n);
   };
-  // The arguments of `record` for interval k of a venue: the sample block is picked by the next block's mixHash.
-  async function buildRecord(v, k) {
-    const next = (k + 1) * v.step;
-    const nextBlock = await block(next);
-    const n = k * v.step + Number(BigInt(nextBlock.mixHash) % BigInt(v.step));
-    const [sample, proof] = await Promise.all([block(n), proofRpc('eth_getProof', [v.pool, v.slots, `0x${n.toString(16)}`])]);
-    return { to: v.oracle, k, n, data: encRecord([headerRlp(sample), headerRlp(nextBlock), proof.accountProof, proof.storageProof[0].proof, proof.storageProof[1].proof]) };
+  // A proof has the account's nodes and one list of nodes for each slot asked.
+  const proofOk = (slots) => (p) => Array.isArray(p?.accountProof) && p.accountProof.length > 0 && Array.isArray(p.storageProof) && p.storageProof.length === slots.length && p.storageProof.every((x) => Array.isArray(x?.proof) && x.proof.length > 0);
+  // The arguments of `record` for interval k of a venue: the sample block is picked by the next block's mixHash. `skip` is for building a record again after the oracle
+  // refused it: the nodes that answered first are left out.
+  async function buildRecord(v, k, memo = new Map(), skip = 0) {
+    const nextBlock = await header((k + 1) * v.step, memo, skip);
+    const n = k * v.step + Number(BigInt(nextBlock.b.mixHash) % BigInt(v.step));
+    const [sample, proof] = await Promise.all([header(n, memo, skip), proofRpc('eth_getProof', [v.pool, v.slots, `0x${n.toString(16)}`], { check: proofOk(v.slots), skip })]);
+    return { to: v.oracle, k, n, data: encRecord([sample.rlp, nextBlock.rlp, proof.accountProof, proof.storageProof[0].proof, proof.storageProof[1].proof]) };
   }
   // Records for a list of [venue, k], a few at a time so a public node is not flooded.
   async function build(list, parallel = 4) {
-    const out = new Array(list.length);
+    const out = new Array(list.length), memo = new Map();
     let i = 0;
     await Promise.all(Array.from({ length: Math.min(parallel, list.length) }, async () => {
-      for (let j = i++; j < list.length; j = i++) out[j] = await buildRecord(...list[j]);
+      for (let j = i++; j < list.length; j = i++) out[j] = await buildRecord(...list[j], memo);
     }));
     return out;
   }

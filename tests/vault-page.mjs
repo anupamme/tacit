@@ -91,7 +91,7 @@ const vaultOf = (v, who) => { const [c, d, a] = view(v, 'vaults(address)(uint256
 const snap = async () => (await rpcA('eth_getBlockByNumber', ['latest', false])).timestamp;
 
 // ── the page ──
-const RPC_HOSTS = ['ethereum-rpc.publicnode.com', 'eth.drpc.org', '1rpc.io', 'mainnet.gateway.tenderly.co'];
+const RPC_HOSTS = ['ethereum-rpc.publicnode.com', 'eth.drpc.org', 'rpc.mevblocker.io', 'eth-mainnet.public.blastapi.io', 'ethereum-json-rpc.stakely.io', 'eth.rpc.blxrbdn.com', '1.rpc.thirdweb.com', '1rpc.io', 'mainnet.gateway.tenderly.co'];
 async function stubWallet(ctx, { who, noTyped = false }) {
   const log = { sends: [], signs: 0 };
   await ctx.exposeFunction('__wallet', async (method, params) => {
@@ -109,12 +109,14 @@ async function stubWallet(ctx, { who, noTyped = false }) {
 }
 const hashFor = (extra = '') => `#vusd=${USD}&veth=${ETH}${extra}`;
 // `bare`: the page served with a deployments module that names no vault, as it was before the vaults existed (the opens-soon state).
-async function openPage({ viewport = { width: 1280, height: 900 }, who = null, noTyped = false, hash = hashFor(), host = '127.0.0.1', scheme = 'light', args = [], bare = false } = {}) {
+// `limited`: hosts that answer every call as a node that has run out of its free requests does.
+async function openPage({ viewport = { width: 1280, height: 900 }, who = null, noTyped = false, hash = hashFor(), host = '127.0.0.1', scheme = 'light', args = [], bare = false, limited = [] } = {}) {
   const browser = await chromium.launch({ args });
   const ctx = await browser.newContext({ viewport, colorScheme: scheme });
   if (bare) await ctx.route('**/vault/deployments.js*', (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: 'export const DEPLOYMENTS = Object.freeze({ chainId: 1, vaults: Object.freeze([]) });' }));
   const walletLog = who ? await stubWallet(ctx, { who, noTyped }) : null;
   for (const h of RPC_HOSTS) await ctx.route(`https://${h}/**`, async (route) => {
+    if (limited.includes(h)) return route.fulfill({ status: 429, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32005, message: 'You reached Public endpoint rate limit, please upgrade to paid plan' } }) });
     try {
       const r = await fetch(ANVIL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: route.request().postData() });
       await route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: await r.text() });
@@ -181,6 +183,13 @@ try {
   await p.click('#pick [data-v="eth"]');
   await until(p, () => /TAC Ether vault/.test(document.querySelector('#ticket')?.textContent || ''));
   ok(/Room to borrow\s*250,000 TACD\s*100 TACE/.test(await text(p, '#board')) && /Borrow TACE|TACE to deposit|TAC to deposit/.test(await text(p, '#ticket')), 'choosing the ETH vault leaves the board showing both, and the ticket speaks of TACE');
+  await closeAll(r);
+
+  // ── the nodes first in line are rate limited: the page reads from the one left, and its content policy allows every node it asks ──
+  r = await openPage({ limited: RPC_HOSTS.slice(0, -1) });
+  await until(r.page, () => /250,000\s*TACD/.test(document.querySelector('#board')?.textContent || ''));
+  ok(/Borrowing is open on both vaults/.test(await text(r.page, '#board')), 'with every node but the last saying it is rate limited the page still reads both vaults');
+  ok(r.errors.filter((e) => !/status of 429/.test(e)).length === 0 && r.blocked.length === 0, `and asked each of them without the content policy refusing any (${[...r.errors, ...r.blocked].join(' | ').slice(0, 200)})`);
   await closeAll(r);
 
   // ── paused: no price recorded ──

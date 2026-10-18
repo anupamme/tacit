@@ -3,8 +3,9 @@
 // oracles on the fork accept all of them, after which the vaults can price and say how much there is to borrow.
 //   anvil --fork-url https://eth.drpc.org --fork-block-number 26203780 --port 8547 --chain-id 1 &
 //   FORK_RPC=http://127.0.0.1:8547 node tests/vault-feed-e2e.mjs
-// 26203780 is after the vaults were deployed and before their first interval was recorded. The proofs are read from the real chain through the node the page asks
-// for them (eth.drpc.org), so this needs the network; everything it sends goes to the fork.
+// 26203780 is after the vaults were deployed and before their first interval was recorded. The headers and proofs of the past are read from the real chain through the
+// nodes the page asks for them, so this needs the network; everything it sends goes to the fork. In this run eth.drpc.org answers every one of those with a rate limit,
+// the connected wallet serves them for the first batches and then says it has no such method, and the page carries on with the other nodes.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -46,24 +47,46 @@ try {
   browser = await chromium.launch({ executablePath: CHROME, headless: true });
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'GET, POST, OPTIONS' };
-  // The page's reads and sends go to the fork; headers and proofs of past blocks come from the real chain (the fork's node would have to be an archive).
-  for (const host of ['https://ethereum-rpc.publicnode.com/**', 'https://eth.drpc.org/**', 'https://1rpc.io/**', 'https://mainnet.gateway.tenderly.co/**']) {
-    await ctx.route(host, async (route) => {
+  // The page's reads and sends go to the fork; headers and proofs of past blocks come from the real chain (the fork's node would have to be an archive), from whichever
+  // real node the page asked, except that eth.drpc.org says it is rate limited.
+  const PAST = new Set(['eth_getProof', 'eth_getBlockByNumber']), served = {}, limitedAnswers = { n: 0 };
+  const realNode = async (url, postData) => { const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: postData }); return { status: r.status, text: await r.text() }; };
+  for (const host of ['ethereum-rpc.publicnode.com', 'eth.drpc.org', 'rpc.mevblocker.io', 'eth-mainnet.public.blastapi.io', 'ethereum-json-rpc.stakely.io', 'eth.rpc.blxrbdn.com', '1.rpc.thirdweb.com', '1rpc.io', 'mainnet.gateway.tenderly.co']) {
+    await ctx.route(`https://${host}/**`, async (route) => {
       const req = route.request();
       if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
       const body = JSON.parse(req.postData() || '{}');
-      if (req.url().includes('eth.drpc.org') && (body.method === 'eth_getProof' || body.method === 'eth_getBlockByNumber')) return route.continue();
+      if (PAST.has(body.method)) {
+        if (host === 'eth.drpc.org') {
+          limitedAnswers.n++;
+          return route.fulfill({ status: 429, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: body.id ?? 1, error: { code: 429, message: 'You reached Public endpoint rate limit, please upgrade to paid plan' } }) });
+        }
+        const r = await realNode(req.url(), req.postData());
+        if (r.status === 200 && /"result":\{/.test(r.text)) served[host] = (served[host] || 0) + 1;
+        return route.fulfill({ status: r.status, headers: { ...cors, 'content-type': 'application/json' }, body: r.text });
+      }
       const r = await fetch(FORK, { method: 'POST', headers: { 'content-type': 'application/json' }, body: req.postData() });
       return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: await r.text() });
     });
   }
   await ctx.route(/^(wss|https):\/\/(relay|verify)\.walletconnect\.(org|com)/, (route) => route.abort());
   await ctx.exposeFunction('__fork', (method, params) => rpc(method, params));
+  const walletReads = { n: 0 };
+  await ctx.exposeFunction('__past', async (method, params) => {                              // the wallet's own node: the real chain
+    walletReads.n++;
+    const r = JSON.parse((await realNode('https://rpc.mevblocker.io', JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }))).text);
+    if (r.error) throw new Error(r.error.message);
+    return r.result;
+  });
   await ctx.addInitScript((acct) => {
     const provider = { request: async ({ method, params }) => {
       if (method === 'eth_requestAccounts' || method === 'eth_accounts') return [acct];
       if (method === 'eth_chainId') return '0x1';
       if (method === 'wallet_switchEthereumChain') return null;
+      if (method === 'eth_getBlockByNumber' || method === 'eth_getProof') {
+        if (window.__walletMode === 'none') throw Object.assign(new Error(`The method ${method} does not exist`), { code: -32601 });
+        return window.__past(method, params);
+      }
       if (method === 'eth_sendTransaction') {
         window.__sends = (window.__sends || 0) + 1;
         if (window.__stallAt === window.__sends) return new Promise(() => {});          // a wallet that never answers this one
@@ -108,11 +131,17 @@ try {
   await page.waitForFunction(() => /Stopped waiting/.test(document.querySelector('#feed-status')?.innerText || '') && !document.querySelector('#feed-go')?.disabled, null, { timeout: 30000 });
   assert.equal(await page.locator('#feed-status.err').count(), 0, 'stopping the wait is not an error');
   console.log(`ok - a wallet that never answers batch 2: the page offers to stop waiting, says so, and the button works again (${left} still to record)`);
-  await page.evaluate(() => { window.__stallAt = 0; });
+  await page.evaluate(() => { window.__stallAt = 0; window.__walletMode = 'none'; });         // the wallet now says it has no such method
+  const readsBefore = walletReads.n;
   await page.locator('#feed-go').click();
   await page.waitForFunction(() => /up to date/.test(document.querySelector('#feed')?.innerText || ''), null, { timeout: 420000 });
   console.log('ok - the page built, tested and sent every batch; the feed reads up to date');
 
+  assert.ok(readsBefore > 0, `the connected wallet served the first batches\' headers and proofs (${readsBefore} reads)`);
+  const hosts = Object.keys(served);
+  assert.ok(limitedAnswers.n > 0, 'eth.drpc.org was asked and said it was rate limited');
+  assert.ok(hosts.length >= 2, `once the wallet had none, the headers and proofs came from several nodes at once, not one: ${JSON.stringify(served)}`);
+  console.log(`ok - ${readsBefore} reads served by the wallet, then ${hosts.map((h) => `${h} ${served[h]}`).join(', ')}; eth.drpc.org rate limited ${limitedAnswers.n} calls`);
   const after = [await sampleCount(ORACLES[0]), await sampleCount(ORACLES[1])];
   assert.deepEqual(after, [48, 48], 'both oracles hold all 48 intervals on the fork');
   const ceiling = BigInt(await rpc('eth_call', [{ to: USD, data: '0x16275096' }, 'latest']));
