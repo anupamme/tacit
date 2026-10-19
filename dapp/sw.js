@@ -26,6 +26,9 @@
 const CACHE_VERSION = 'v2-confirmed-tx-ipfs-verified-57133d53';
 const STATIC_CACHE  = `tacit-static-${CACHE_VERSION}`;
 const IMMUTABLE_CACHE = `tacit-immutable-${CACHE_VERSION}`;
+// Versioned files (see _tokenOf). Its own name, not tied to CACHE_VERSION: an entry is right for as long as its URL exists.
+const TOKENED_CACHE = 'tacit-tokened-v1';
+const TOKENED_KEEP = 400;
 
 self.addEventListener('install', (event) => {
   // Activate immediately on update — don't wait for all tabs to close.
@@ -44,7 +47,8 @@ self.addEventListener('activate', (event) => {
     const names = await caches.keys();
     await Promise.all(
       names
-        .filter(n => (n.startsWith('tacit-static-') || n.startsWith('tacit-immutable-')) && !n.endsWith(CACHE_VERSION))
+        .filter(n => ((n.startsWith('tacit-static-') || n.startsWith('tacit-immutable-')) && !n.endsWith(CACHE_VERSION))
+          || (n.startsWith('tacit-tokened-') && n !== TOKENED_CACHE))
         .map(n => caches.delete(n))
     );
     // Take control of any pages that were loaded before this SW activated.
@@ -65,11 +69,17 @@ function _cacheForRequest(url) {
   // Static assets: the dapp bundle, vendor deps, prf-wallet helper.
   // index.html is intentionally NOT cached (always network-first) so a
   // new build is picked up immediately without waiting for a SW update.
-  if (path === '/tacit.js'
-      || path === '/vendor/tacit-deps.min.js'
+  if (path === '/tacit.js') {
+    return { cache: STATIC_CACHE, mode: 'cache-first' };
+  }
+
+  // The code files with no token in their URL: the network answers when it can, and the kept copy answers when it cannot. A copy that
+  // answered first could be older than the modules loaded beside it (a deploy that adds an export to the bundle), and these are asked for by
+  // every page under the header, not only the classic app.
+  if (path === '/vendor/tacit-deps.min.js'
       || path === '/prf-wallet.js'
       || path === '/preboot.js') {
-    return { cache: STATIC_CACHE, mode: 'cache-first' };
+    return { cache: STATIC_CACHE, mode: 'network-first' };
   }
 
   // Static CSS / images / fonts at fixed paths
@@ -166,7 +176,14 @@ self.addEventListener('fetch', (event) => {
   // Same-origin static handling.
   const staticHandling = _cacheForRequest(url);
   if (staticHandling) {
-    event.respondWith(_cacheFirst(req, staticHandling.cache));
+    event.respondWith(staticHandling.mode === 'network-first' ? _networkFirst(req, staticHandling.cache) : _cacheFirst(req, staticHandling.cache));
+    return;
+  }
+
+  // A versioned file: kept once its bytes match its token, then answered from disk with no request.
+  const token = _tokenOf(url);
+  if (token) {
+    event.respondWith(_tokenedFirst(req, token));
     return;
   }
 
@@ -191,6 +208,55 @@ self.addEventListener('fetch', (event) => {
 
   // Everything else: do nothing (let the browser handle it normally).
 });
+
+// A first-party script or stylesheet whose URL ends in ?cb=<token> names its content: the build makes the token the first eight hex
+// digits of the file's sha-256, so the file at that URL does not change. Anything else (another query, another kind of file, another
+// origin) is not one, and is left to the network.
+function _tokenOf(url) {
+  if (url.origin !== self.location.origin || !/\.(?:js|css)$/.test(url.pathname)) return null;
+  const m = /^\?cb=([0-9a-f]{8})$/.exec(url.search);
+  return m ? m[1] : null;
+}
+
+// Cache-first for a versioned file, with the token checked against the bytes before anything is kept. A token that does not match (a
+// deploy whose build was not run, an edge still holding the last deploy's file, a token made another way) is passed through unchanged and
+// not stored, so the worker cannot hold the wrong bytes under a token. On a network failure with nothing kept the request fails as it would
+// with no worker.
+async function _tokenedFirst(req, token) {
+  const cache = await caches.open(TOKENED_CACHE);
+  const hit = await cache.match(req);
+  if (hit) return hit;
+  let resp;
+  try { resp = await fetch(req); }
+  catch { return Response.error(); }
+  if (resp.status === 200 && resp.type === 'basic') {
+    try {
+      const forHash = resp.clone(), forCache = resp.clone();
+      const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', await forHash.arrayBuffer()));
+      const hex = Array.from(digest.subarray(0, 4), (b) => b.toString(16).padStart(2, '0')).join('');
+      if (hex === token) {
+        await cache.put(req, forCache);
+        // oldest first: a deploy gives every changed file a new URL, and the earlier ones are never asked for again
+        const keys = await cache.keys();
+        if (keys.length > TOKENED_KEEP * 1.25) await Promise.all(keys.slice(0, keys.length - TOKENED_KEEP).map((k) => cache.delete(k)));
+      }
+    } catch { /* quota, or a body that cannot be read twice: the response still goes out */ }
+  }
+  return resp;
+}
+
+// Network-first: the network's answer, kept for when it cannot be had. A response that is not ok (a 404 or 5xx) is returned as it came, and
+// the kept copy answers only when the request itself fails.
+async function _networkFirst(req, cacheName) {
+  const cache = await caches.open(cacheName);
+  try {
+    const resp = await fetch(req);
+    if (resp && resp.ok) { try { _putReplacingBuilds(cache, req, resp.clone()).catch(() => {}); } catch { /* quota */ } }
+    return resp;
+  } catch {
+    return (await cache.match(req)) || Response.error();
+  }
+}
 
 // Cache-first strategy: serve from cache when present; otherwise fetch from
 // network, store, and return. On network failure with no cache entry the
