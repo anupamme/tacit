@@ -74,9 +74,9 @@ async function mock(ctx) {
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, result: '0x' + (2_512_345n * 10n ** 18n).toString(16).padStart(64, '0') }) }));
 }
 
-async function openPage(viewport, { scheme = 'light', seed = true, path = '/bridge/', shifts = false } = {}) {
+async function openPage(viewport, { scheme = 'light', seed = true, path = '/bridge/', shifts = false, reduced = false } = {}) {
   const browser = await chromium.launch();
-  const ctx = await browser.newContext({ viewport, colorScheme: scheme });
+  const ctx = await browser.newContext({ viewport, colorScheme: scheme, reducedMotion: reduced ? 'reduce' : 'no-preference' });
   await mock(ctx);
   if (shifts) await ctx.addInitScript(() => { window.__cls = 0; new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__cls += e.value; }).observe({ type: 'layout-shift', buffered: true }); });
   if (seed) await ctx.addInitScript(([pub, a, b]) => {
@@ -160,6 +160,13 @@ try {
     for (let y = 0; y < await page.evaluate(() => document.body.scrollHeight); y += 500) { await page.evaluate((v) => scrollTo(0, v), y); await page.waitForTimeout(120); }
     await page.waitForTimeout(900);
     ok(await page.$$eval('.rv', (els) => els.every((e) => e.classList.contains('in'))), 'every section comes in as it is scrolled to');
+    const cls2 = await page.evaluate(() => window.__cls);
+    console.log('  cls after scrolling the whole page ' + cls2.toFixed(4));
+    ok(cls2 <= 0.04, `layout shift over a scroll through the whole page is ${cls2.toFixed(3)} (at most 0.04)`);
+    await page.evaluate(() => document.querySelector('#rf').scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(400);
+    ok(await page.$eval('#rf', (e) => e.dataset.run) === '1' && await page.$eval('#bt', (e) => e.dataset.run) === '0' && await page.$eval('#mv', (e) => e.dataset.run) === '0', 'motion runs only where it can be seen: the drawing in view runs, the tile and the other drawings are held');
+    ok(await page.$eval('#rf .lane-b svg', (e) => getComputedStyle(e).animationPlayState) === 'running' && await page.$eval('#mv svg', (e) => getComputedStyle(e.querySelector('.flow')).animationPlayState) === 'paused', 'and a held drawing’s animations are paused, not only hidden');
     await page.waitForFunction(() => !!document.querySelector('#live-v canvas'), null, { timeout: 10000 }).catch(() => {});
     ok(!!(await page.$('#live-v canvas')), 'the live picture of both chains is drawn');
     ok((await page.textContent('#bt-wait')).includes('About 4 hours') && (await page.textContent('#bt-wait')).includes('about every 30 min'), 'the tile says how long it takes, with the live proof cadence');
@@ -207,6 +214,19 @@ try {
     }
     ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'the wide drawings scroll inside their frames, not the page');
     ok(errors.length === 0, `no console errors on a phone${errors.length ? ': ' + errors.join(' | ').slice(0, 400) : ''}`);
+    await browser.close();
+  }
+
+  // ── a reader who asks for less motion ──
+  {
+    const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { reduced: true });
+    await page.waitForTimeout(600);
+    await page.evaluate(() => document.querySelector('#rf').scrollIntoView({ block: 'center' }));
+    await page.waitForTimeout(500);
+    ok(await page.$eval('#rf .lane-b svg', (e) => getComputedStyle(e).animationName) === 'none' && await page.$eval('#bt-steps li', (e) => getComputedStyle(e, '::after').animationName) === 'none', 'reduced motion: nothing drifts, glows or pulses');
+    ok(await page.$eval('#rf', (e) => e.dataset.run) === '0' && await page.$eval('#rf svg.rf-top', (e) => e.animationsPaused()), 'and the drawings’ own animations are held');
+    ok(await page.$$eval('.rv', (els) => els.every((e) => getComputedStyle(e).opacity === '1')), 'and every section is simply there');
+    ok(errors.length === 0, 'no console errors with reduced motion');
     await browser.close();
   }
 

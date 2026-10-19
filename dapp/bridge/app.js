@@ -25,7 +25,7 @@ const ago = (t) => {
 };
 
 // ── live: the two proofs, and the TAC that has crossed ──────────────────────────────────────────────────────────────────
-const LIVE = { btcAttested: null, btcTip: null, btcConfs: null, ethCovered: null, burns: null, cadence: null, txs: new Map(), at: 0 };
+const LIVE = { btcAttested: null, btcTip: null, btcConfs: null, ethCovered: null, burns: null, cadence: null, cadenceAt: 0, txs: new Map(), at: 0 };
 
 async function readProofs() {
   // each reading is drawn as it arrives, so a slow one holds up only its own figure
@@ -39,8 +39,9 @@ async function readProofs() {
     read(`${API}/reflection/eth-state/covers?network=mainnet&block=1`, (c) => { if (Number.isInteger(c.bestBlock)) LIVE.ethCovered = c.bestBlock; }),
     // Bitcoin's own tip (the status's tipHeight is the reflection's view of it)
     read(`${ESPLORA}/blocks/tip/height`, (h) => { if (Number.isInteger(h)) LIVE.btcTip = h; }),
-    // how often a proof of Bitcoin lands on Ethereum: the median gap between the day's attestations
-    read(`${API}/flow`, (f) => { const m = medianGapMin(f?.events?.attests); if (m) LIVE.cadence = m; }),
+    // how often a proof of Bitcoin lands on Ethereum: the median gap between the day's attestations. It moves slowly and the
+    // feed is 15 KB, so it is read every ten minutes, not with each minute's figures.
+    ...(Date.now() - LIVE.cadenceAt > 10 * 60e3 ? [read(`${API}/flow`, (f) => { LIVE.cadenceAt = Date.now(); const m = medianGapMin(f?.events?.attests); if (m) LIVE.cadence = m; })] : []),
   ]);
   LIVE.at = Date.now();
 }
@@ -324,8 +325,22 @@ wireChecks();
 const centre = () => $$('.fig.big').forEach((f) => { if (f.scrollWidth > f.clientWidth) f.scrollLeft = (f.scrollWidth - f.clientWidth) / 2; });
 centre();
 addEventListener('resize', centre);
-// the drawings' own motion (SVG animations) holds still for a reader who asks for less of it
-if (reduce) $$('svg.d').forEach((s) => { try { s.pauseAnimations(); } catch { /* not an SVG root */ } });
+// Motion runs only where it can be seen. The tile, the proof lines, the bridges list and each drawing run their animations (CSS and
+// SVG) while they are in view in a visible tab, and hold still otherwise; a reader who asks for less motion gets none of it.
+function gateMotion() {
+  document.documentElement.classList.add('m');
+  const els = $$('.fig, #bt, .pf, #mine'), seen = new Map();
+  const apply = (el) => {
+    const on = !!seen.get(el) && !document.hidden && !reduce;
+    el.dataset.run = on ? '1' : '0';
+    for (const s of el.matches('svg') ? [el] : $$('svg', el)) { try { on ? s.unpauseAnimations() : s.pauseAnimations(); } catch { /* not an SVG root */ } }
+  };
+  if (!('IntersectionObserver' in window)) { els.forEach((el) => { seen.set(el, true); apply(el); }); return; }
+  const io = new IntersectionObserver((es) => { for (const e of es) { seen.set(e.target, e.isIntersecting); apply(e.target); } }, { rootMargin: '60px' });
+  els.forEach((el) => io.observe(el));
+  document.addEventListener('visibilitychange', () => els.forEach(apply));
+}
+gateMotion();
 revealOnScroll();
 mountLive();
 

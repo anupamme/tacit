@@ -29,7 +29,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /bridge/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/bridge/app.js?cb=ad2c0239">
+<link rel="modulepreload" href="/bridge/app.js?cb=a4b1611b">
 <link rel="modulepreload" href="/bridge/track.js?cb=7b7cc779">
 <link rel="modulepreload" href="/rpc-body.js">
 <!-- preload:end -->
@@ -112,9 +112,13 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 
 /* the way's steps: it leaves one chain's colour and arrives in the other's, a light running along the line between */
 #bt-steps { list-style: none; display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin: 18px 0 4px; padding: 0; font-size: 11.5px; line-height: 1.35; color: var(--mute); }
-#bt-steps li { position: relative; padding: 18px 6px 0 0; }
-#bt-steps li::before { content: ''; position: absolute; left: 11px; right: 0; top: 5px; height: 1px; background: linear-gradient(90deg, var(--hair-2) 0 35%, var(--ink) 50%, var(--hair-2) 65%) 0 0 / 300% 100%; animation: run 2.4s calc(var(--i) * .8s) linear infinite; }
-#bt-steps li:last-child::before { display: none; }
+#bt-steps li { position: relative; padding: 18px 6px 0 0; animation: stepin .45s calc(var(--i) * .06s) backwards; }
+@keyframes stepin { from { opacity: 0; transform: translateY(5px); } }
+#bt-steps li::before, #bt-steps li::after { content: ''; position: absolute; left: 11px; right: 0; top: 5px; height: 1px; }
+#bt-steps li::before { background: var(--hair-2); }
+#bt-steps li::after { background: var(--ink); opacity: 0; animation: glow 2.4s calc(var(--i) * .8s) ease-in-out infinite; }
+@keyframes glow { 0%, 100% { opacity: 0; } 40% { opacity: .8; } }
+#bt-steps li:last-child::before, #bt-steps li:last-child::after { display: none; }
 #bt-steps .dot { position: absolute; left: 0; top: 0; width: 11px; height: 11px; border-radius: 50%; border: 1px solid var(--ink); background: var(--ink); }
 #bt-steps li:first-child .dot { background: var(--from); border-color: var(--from); }
 #bt-steps li:last-child .dot { background: var(--to); border-color: var(--to); }
@@ -131,10 +135,11 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .pf b { color: var(--ink); font-weight: 500; }
 .pf .lost { margin-top: 6px; }
 .pf .lost a { color: var(--ink); }
-.pf i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--hair-2); transform: translateY(-1px); }
-.pf p[data-state="on"] i { background: var(--ok); box-shadow: 0 0 0 0 var(--ok); animation: beat 2.4s ease-out infinite; }
+.pf i { position: relative; flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--hair-2); transform: translateY(-1px); }
+.pf p[data-state="on"] i { background: var(--ok); }
+.pf p[data-state="on"] i::after { content: ''; position: absolute; inset: -1px; border-radius: 50%; border: 1px solid var(--ok); animation: ring 2.4s ease-out infinite; }
+@keyframes ring { from { transform: scale(1); opacity: .7; } to { transform: scale(2.8); opacity: 0; } }
 .pf p[data-state="slow"] i { background: var(--warn); }
-@keyframes beat { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent); } 70%, 100% { box-shadow: 0 0 0 7px transparent; } }
 
 /* your bridges */
 #mine { max-width: 720px; margin: 44px auto 0; }
@@ -150,9 +155,10 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .mb-r { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 8px 0 6px; max-width: 280px; }
 .mb-r i { height: 4px; border-radius: 2px; background: var(--hair); }
 .mb-r i.y { background: var(--ink); }
-.mb-r i.now { background: linear-gradient(90deg, var(--ink) 0 40%, var(--hair) 40%); background-size: 250% 100%; animation: run 1.6s linear infinite; }
+.mb-r i.now { position: relative; background: var(--hair); }
+.mb-r i.now::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 40%; border-radius: 2px; background: var(--ink); animation: nowp 1.6s ease-in-out infinite; }
+@keyframes nowp { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
 .mb.done .mb-r i { background: var(--ok); }
-@keyframes run { from { background-position: 100% 0; } to { background-position: 0 0; } }
 .mb-w { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; }
 .mb-live { color: var(--mute); }
 .mb-a { display: grid; justify-items: end; gap: 6px; text-align: right; font-size: 12px; }
@@ -162,6 +168,10 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .mb-x { display: inline-flex; gap: 10px; }
 .mb-x a { color: var(--mute); }
 @media (max-width: 560px) { .mb { grid-template-columns: auto 1fr; } .mb-a { grid-column: 1 / -1; justify-items: start; text-align: left; } }
+
+/* motion runs only where it can be seen: app.js adds .m, then sets data-run on what is in view in a visible tab */
+.m :is(.fig, #bt, .pf, #mine):not([data-run="1"]) * { animation-play-state: paused !important; }
+.m :is(.fig, #bt, .pf, #mine):not([data-run="1"]) *::before, .m :is(.fig, #bt, .pf, #mine):not([data-run="1"]) *::after { animation-play-state: paused !important; }
 
 /* ── the walk-through ── */
 .wt { margin: 96px 0 0; }
@@ -226,6 +236,12 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .d .drop:nth-of-type(2) { animation-delay: .5s; } .d .drop:nth-of-type(3) { animation-delay: 1s; } .d .drop:nth-of-type(4) { animation-delay: 1.5s; }
 @keyframes drop { 0% { transform: translate(0, 0); opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { transform: translate(var(--dx, 70px), var(--dy, 70px)); opacity: 0; } }
 
+.go span:last-child { transition: transform .2s; }
+@media (hover: hover) { .go:hover span:last-child { transform: translateX(4px); } }
+.ch, .faq, .nx { content-visibility: auto; contain-intrinsic-size: auto 520px; }
+.wide { content-visibility: auto; contain-intrinsic-size: auto 640px; }
+#live { content-visibility: auto; contain-intrinsic-size: auto 420px; }
+
 /* a two-way switch */
 .seg { display: inline-flex; gap: 4px; padding: 4px; margin: 0 0 10px; background: var(--field); border: 1px solid var(--hair); border-radius: 10px; }
 .seg button { min-height: 36px; padding: 0 14px; font: 500 12.5px var(--mono); color: var(--mute); background: none; border: 0; border-radius: 7px; cursor: pointer; }
@@ -235,9 +251,19 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .wide { margin: 48px 0 0; }
 .fig.big { padding: 22px 26px; }
 .fig.big svg.d { min-width: 0; }
-.d .young { opacity: .42; }
-.d .tipb { animation: born 10s ease-in-out infinite; }
-@keyframes born { 0%, 80% { opacity: 1; } 88% { opacity: .2; } 100% { opacity: 1; } }
+/* the reflection drawing: two lanes of blocks slide under a fixed proven edge, each on its own layer (transform only) */
+.rfw { position: relative; }
+.rfw .rf-top { position: relative; }
+.lane { position: absolute; left: 0; width: 100%; overflow: hidden; pointer-events: none;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 7%, #000 62%, transparent 77%); mask-image: linear-gradient(90deg, transparent 0, #000 7%, #000 62%, transparent 77%); }
+.lane-b { top: 10.3%; height: 18.2%; -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 7%, #000 92%, transparent 100%); mask-image: linear-gradient(90deg, transparent 0, #000 7%, #000 92%, transparent 100%); }
+.lane-e { top: 71.5%; height: 11.5%; }
+.lane svg.d { position: absolute; top: 0; height: 100%; min-width: 0 !important; left: -8%; will-change: transform; animation: drift linear infinite; }
+.lane-b svg.d { width: 132%; --dx: -12.1212%; animation-duration: 16s; }
+.lane-e svg.d { width: 120%; --dx: -3.3333%; animation-duration: 1.7s; }
+@keyframes drift { to { transform: translateX(var(--dx)); } }
+.d rect.at { fill: none; stroke: var(--ink); stroke-width: 1.6; }
+
 .d .brk { fill: none; stroke: var(--mute); stroke-width: 1; opacity: .7; }
 .d text.lv { font: 500 12px var(--mono); fill: var(--ink); }
 .d .prf { stroke-width: 1.4; fill: var(--card); }
@@ -262,7 +288,7 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 #mv-dir { margin: 16px 0 0; }
 @media (max-width: 760px) {
   .fig.big { overflow-x: auto; padding: 16px; }
-  .fig.big:not(#mv) svg.d { min-width: 620px; }
+  .fig.big:not(#mv) .rfw, .fig.big:not(#mv):not(#rf) svg.d { min-width: 620px; }
   #mv { overflow: visible; }
   .cap3 { grid-template-columns: 1fr; gap: 16px; }
 }
@@ -539,46 +565,45 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <section class="wide rv" aria-labelledby="rf-h">
       <h3 class="sr" id="rf-h">Reflection</h3>
       <figure class="fig big" id="rf" style="margin:0">
-        <svg class="d" viewBox="0 0 1000 330" role="img" aria-label="Bitcoin's blocks and Ethereum's finalized blocks feed one proof, which the pool on Ethereum verifies">
-          <defs>
-            <linearGradient id="fadeR" x1="0" x2="1"><stop offset="0" stop-color="var(--card)" stop-opacity="0"/><stop offset="1" stop-color="var(--card)" stop-opacity=".92"/></linearGradient>
-            <linearGradient id="fadeL" x1="0" x2="1"><stop offset="0" stop-color="var(--card)" stop-opacity=".92"/><stop offset="1" stop-color="var(--card)" stop-opacity="0"/></linearGradient>
-          </defs>
-          <!-- Bitcoin: a block every ten minutes; the proof takes each one once it is 24 deep -->
-          <text class="h" x="24" y="26">BITCOIN</text>
-          <g class="lane-btc">
-            <rect class="bx s-btc" x="24" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="104" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="184" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="264" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="344" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="424" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc ink at" x="504" y="40" width="56" height="48" rx="8"/>
-            <g class="young"><rect class="bx s-btc" x="584" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="664" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="744" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="824" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc tipb" x="904" y="40" width="56" height="48" rx="8"/></g>
-            <g class="btc"><circle cx="52" cy="64" r="4"/><circle cx="212" cy="58" r="4"/><circle cx="222" cy="72" r="4"/><circle cx="372" cy="64" r="4"/><circle cx="532" cy="64" r="5" class="pulse"/><circle cx="692" cy="64" r="4" opacity=".45"/><circle cx="852" cy="64" r="4" opacity=".45"/></g>
-            <path class="ln" d="M80 64h24M160 64h24M240 64h24M320 64h24M400 64h24M480 64h24M560 64h24M640 64h24M720 64h24M800 64h24M880 64h24"/>
-            <path class="brk" d="M584 100v6h376v-6"/><text class="m" x="700" y="122">waiting to be 24 deep</text>
-          </g>
-          <text class="lv" x="532" y="30" text-anchor="middle">block <tspan data-live="btc">…</tspan></text>
+        <div class="rfw">
+          <!-- the two chains scroll past the proven edge, one block every ten minutes and one every few seconds: each lane is a layer the browser moves on its own -->
+          <div class="lane lane-b" aria-hidden="true"><svg class="d" viewBox="-80 34 1320 60"><rect class="bx s-btc" x="-136" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="-56" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="24" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="104" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="184" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="264" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="344" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="424" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="504" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="584" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="664" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="744" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="824" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="904" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="984" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="1064" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="1144" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="1224" y="40" width="56" height="48" rx="8"/><path class="ln" d="M-80 64h24M0 64h24M80 64h24M160 64h24M240 64h24M320 64h24M400 64h24M480 64h24M560 64h24M640 64h24M720 64h24M800 64h24M880 64h24M960 64h24M1040 64h24M1120 64h24M1200 64h24M1280 64h24"/><g class="btc"><circle cx="-108" cy="64" r="4"/><circle cx="-37" cy="58" r="3.5"/><circle cx="-21" cy="72" r="3.5"/><circle cx="52" cy="64" r="4"/><circle cx="123" cy="58" r="3.5"/><circle cx="139" cy="72" r="3.5"/><circle cx="212" cy="64" r="4"/><circle cx="283" cy="58" r="3.5"/><circle cx="299" cy="72" r="3.5"/><circle cx="372" cy="64" r="4"/><circle cx="443" cy="58" r="3.5"/><circle cx="459" cy="72" r="3.5"/><circle cx="532" cy="64" r="4"/><circle cx="603" cy="58" r="3.5"/><circle cx="619" cy="72" r="3.5"/><circle cx="692" cy="64" r="4"/><circle cx="763" cy="58" r="3.5"/><circle cx="779" cy="72" r="3.5"/><circle cx="852" cy="64" r="4"/><circle cx="923" cy="58" r="3.5"/><circle cx="939" cy="72" r="3.5"/><circle cx="1012" cy="64" r="4"/><circle cx="1083" cy="58" r="3.5"/><circle cx="1099" cy="72" r="3.5"/><circle cx="1172" cy="64" r="4"/><circle cx="1243" cy="58" r="3.5"/><circle cx="1259" cy="72" r="3.5"/></g></svg></div>
+          <div class="lane lane-e" aria-hidden="true"><svg class="d" viewBox="-80 236 1200 38"><rect class="bx s-eth" x="-56" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="-16" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="24" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="64" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="104" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="144" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="184" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="224" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="264" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="304" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="344" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="384" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="424" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="464" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="504" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="544" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="584" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="624" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="664" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="704" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="744" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="784" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="824" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="864" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="904" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="944" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="984" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="1024" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="1064" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="1104" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="1144" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="1184" y="240" width="30" height="30" rx="6"/></svg></div>
+          <svg class="d rf-top" viewBox="0 0 1000 330" role="img" aria-label="Bitcoin's blocks and Ethereum's finalized blocks scroll past the point each has been proven to, and feed one proof, which the pool on Ethereum verifies">
+            <defs>
+              <linearGradient id="rfYoung" x1="0" x2="1"><stop offset="0" style="stop-color:var(--card);stop-opacity:0"/><stop offset=".25" style="stop-color:var(--card);stop-opacity:.66"/><stop offset="1" style="stop-color:var(--card);stop-opacity:.66"/></linearGradient>
+            </defs>
+            <!-- Bitcoin: the proof takes each block once it is 24 deep, so its edge stays that far behind the tip while the chain moves -->
+            <text class="h" x="24" y="26">BITCOIN</text>
+            <rect x="560" y="34" width="440" height="60" fill="url(#rfYoung)"/>
+            <rect class="at" x="504" y="37" width="60" height="54" rx="9"/>
+            <circle class="btc pulse" cx="534" cy="64" r="5"/>
+            <path class="brk" d="M584 102v6h376v-6"/><text class="m" x="772" y="124" text-anchor="middle">waiting to be 24 deep</text>
+            <text class="lv" x="534" y="30" text-anchor="middle">block <tspan data-live="btc">…</tspan></text>
 
-          <!-- Ethereum: a block every twelve seconds; the proof takes each one once it is final -->
-          <text class="h" x="24" y="226">ETHEREUM</text>
-          <g class="lane-eth">
-            <g class="eb"><rect class="bx s-eth" x="24" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="64" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="104" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="144" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="184" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="224" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="264" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="304" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="344" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="384" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="424" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth ink at" x="464" y="240" width="30" height="30" rx="6"/></g>
-            <g class="young"><rect class="bx s-eth" x="504" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="544" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="584" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="624" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth tipb" x="664" y="240" width="30" height="30" rx="6"/></g>
-            <path class="brk" d="M24 282v6h470v-6"/><text class="m" x="180" y="306">finalized</text>
-          </g>
-          <text class="lv" x="479" y="306" text-anchor="middle">block <tspan data-live="eth">…</tspan></text>
-          <!-- the pool lives on Ethereum -->
-          <rect class="bx ink" x="790" y="232" width="170" height="46" rx="10"/>
-          <text x="806" y="252">pool</text><text class="m" x="806" y="268">verifies every proof</text>
-          <path class="dash" d="M790 255 H700"/>
+            <!-- Ethereum: the proof takes each block once it is final -->
+            <text class="h" x="24" y="226">ETHEREUM</text>
+            <rect x="498" y="234" width="272" height="42" fill="url(#rfYoung)"/>
+            <rect class="at" x="461" y="237" width="38" height="36" rx="8"/>
+            <path class="brk" d="M24 282v6h474v-6"/><text class="m" x="180" y="306">finalized</text>
+            <text class="lv" x="480" y="306" text-anchor="middle">block <tspan data-live="eth">…</tspan></text>
+            <!-- the pool lives on Ethereum -->
+            <rect class="bx ink" x="790" y="232" width="170" height="46" rx="10"/>
+            <text x="806" y="252">pool</text><text class="m" x="806" y="268">verifies every proof</text>
+            <path class="dash" d="M790 255 H772"/>
 
-          <!-- one proof -->
-          <path class="ln s-btc flow" d="M532 90 C532 130 470 140 440 160"/>
-          <path class="ln s-eth flow" d="M479 240 C479 214 470 206 440 200"/>
-          <rect class="bx ink prf" x="300" y="150" width="300" height="60" rx="30"/>
-          <circle class="fi" cx="336" cy="180" r="16"/><text x="330" y="185" style="fill:var(--paper);font-size:15px">π</text>
-          <text x="364" y="176">one proof</text><text class="m" x="364" y="192">Bitcoin folded · Ethereum verified</text>
-          <path class="ln ink flow" d="M600 180 C700 180 760 200 790 240"/>
-          <circle class="fi pkt" r="4"><animateMotion dur="2.6s" repeatCount="indefinite" path="M600 180 C700 180 760 200 790 240"/></circle>
-          <circle class="btc pkt" r="4"><animateMotion dur="2.6s" repeatCount="indefinite" path="M532 90 C532 130 470 140 440 160"/></circle>
-          <circle class="eth pkt" r="4"><animateMotion dur="2.6s" begin="1.3s" repeatCount="indefinite" path="M479 240 C479 214 470 206 440 200"/></circle>
-        </svg>
+            <!-- one proof -->
+            <path class="ln s-btc flow" d="M534 91 C534 130 470 140 440 160"/>
+            <path class="ln s-eth flow" d="M480 237 C480 214 470 206 440 200"/>
+            <rect class="bx ink prf" x="300" y="150" width="300" height="60" rx="30"/>
+            <circle class="fi" cx="336" cy="180" r="16"/><text x="330" y="185" style="fill:var(--paper);font-size:15px">π</text>
+            <text x="364" y="176">one proof</text><text class="m" x="364" y="192">Bitcoin folded · Ethereum verified</text>
+            <path class="ln ink flow" d="M600 180 C700 180 760 200 790 240"/>
+            <circle class="fi pkt" r="4"><animateMotion dur="2.6s" repeatCount="indefinite" path="M600 180 C700 180 760 200 790 240"/></circle>
+            <circle class="btc pkt" r="4"><animateMotion dur="2.6s" repeatCount="indefinite" path="M534 91 C534 130 470 140 440 160"/></circle>
+            <circle class="eth pkt" r="4" visibility="hidden"><set attributeName="visibility" to="visible" begin="1.3s"/><animateMotion dur="2.6s" begin="1.3s" repeatCount="indefinite" path="M480 237 C480 214 470 206 440 200"/></circle>
+          </svg>
+        </div>
       </figure>
       <ol class="cap3">
         <li><b><i class="b"></i>Bitcoin, in</b><span>Every block, once 24 deep. Each Tacit envelope in it is folded into proven roots.</span></li>
@@ -598,9 +623,9 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         <svg class="d" viewBox="0 20 1000 132" role="img" aria-label="A note is burned on one chain, proven, and minted on the other">
           <path class="ln trk" d="M170 86 H830"/>
           <path class="ln trk flow" d="M170 86 H830"/>
-          <g class="st"><circle class="bx src" cx="170" cy="86" r="50"/><use id="mv-a" href="#tk-btc" x="146" y="62" width="48" height="48"/></g>
-          <g class="st"><rect class="bx ink" x="452" y="38" width="96" height="96" rx="24"/><text x="487" y="98" style="font:400 40px var(--serif)">π</text></g>
-          <g class="st"><circle class="bx dst" cx="830" cy="86" r="50"/><use id="mv-b" href="#tk-eth" x="806" y="62" width="48" height="48"/></g>
+          <g class="st"><circle class="bx src" cx="170" cy="86" r="50"><animate attributeName="stroke-width" dur="6s" repeatCount="indefinite" values="1.6;5;1.6;1.6" keyTimes="0;.14;.3;1"/></circle><use id="mv-a" href="#tk-btc" x="146" y="62" width="48" height="48"/></g>
+          <g class="st"><rect class="bx ink" x="452" y="38" width="96" height="96" rx="24"><animate attributeName="stroke-width" dur="6s" repeatCount="indefinite" values="1;1;3.5;3.5;1;1" keyTimes="0;.4;.46;.54;.6;1"/></rect><text x="487" y="98" style="font:400 40px var(--serif)">π</text></g>
+          <g class="st"><circle class="bx dst" cx="830" cy="86" r="50"><animate attributeName="stroke-width" dur="6s" repeatCount="indefinite" values="1.6;1.6;5;1.6" keyTimes="0;.8;.86;1"/></circle><use id="mv-b" href="#tk-eth" x="806" y="62" width="48" height="48"/></g>
           <g class="note"><circle r="13" class="nt"/><text x="-5" y="5" style="fill:var(--paper)">C</text>
             <animateMotion dur="6s" repeatCount="indefinite" path="M170 86 H830" keyPoints="0;0;.5;.5;1;1" keyTimes="0;.14;.42;.58;.86;1" calcMode="linear"/>
           </g>
@@ -923,6 +948,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/bridge/app.js?cb=ad2c0239"></script>
+<script type="module" src="/bridge/app.js?cb=a4b1611b"></script>
 </body>
 </html>
