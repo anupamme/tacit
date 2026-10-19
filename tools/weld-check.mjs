@@ -56,6 +56,7 @@
 //   device   a deposit into the EVM pool, proved in the page's worker
 //   borrow   the Bitcoin deposit address renders; a bond for a lock record posts through the escrow helper
 //   bondadd  a bond backing minted cBTC reads as a multiple of its BTC, and adding to it posts more wstETH
+//   redeem   the Redeem panel is dark until its setting is on; then a lock backing minted cBTC offers it, and with no cBTC held it names what is short
 //   keys     an Ethereum signature opens a key; after locking, "continue" reopens the same tacit1 address; a pasted key opens
 //   tacopen  a key opened from inside the TAC sheet (reached by link): the sheet's balance reads again for it at once
 //   saved    a passphrase-locked key saved the way tacit.finance saves it opens through tacit.js's own prompt; the TAC
@@ -169,7 +170,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,bondadd,mainbond,locks,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -1174,6 +1175,76 @@ await step('locks', async () => {
     } else ok(false, 'locks: an empty Tacit account offers Top up from wallet');
     if (r.errors.length) { fails++; console.log('FAIL locks page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
+});
+
+// The Redeem panel (a cBTC lock's bitcoin back, dapp/cbtc-redeem.js) is dark: with the 'tacit-cbtc-redeem' setting off nothing of it
+// shows. With it on, a lock backing minted cBTC offers Redeem; the panel reads the lock and the cBTC on Bitcoin and in the private
+// balance and, holding none, says how much is short and points to Swap. Closing it takes it away.
+await step('redeem', async () => {
+  const HELPER = '0x000000008eCD09f922C9FbbDD9ACA5aE8F0beBfA', POOL = '0x000000000Ed1eabD231Be41d93b719056F7febFC';
+  const hex = 'cafe'.padEnd(64, '5'), TXID = 'b3'.repeat(32), COMMIT = 'c3'.repeat(32);   // palindromic ids: display and raw byte order agree
+  const spk = makeBtcHistoryProvider({ sha256, fetchImpl: async () => ({ ok: false }) }).walletScripts(hex).lock;
+  const lockHex = Buffer.from(spk).toString('hex'), sh = Buffer.from(sha256(spk)).toString('hex');
+  const OP = Buffer.from(keccak_256(Buffer.concat([Buffer.from(TXID, 'hex'), Buffer.from([1, 0, 0, 0])]))).toString('hex');
+  const slot = (n) => '0x' + Buffer.from(keccak_256(Buffer.from(OP + word(n), 'hex'))).toString('hex');
+  const flag = (n, v) => rpc('anvil_setStorageAt', [POOL, slot(n), '0x' + word(v)]);   // 123 lock sats, 127 minted
+  const h = await rpc('eth_sendTransaction', [{ from: A0, to: HELPER, data: '0xc0e2d9a1' + OP, value: '0x' + (10n ** 15n).toString(16) }]);
+  await chainUntil(async () => (await rpc('eth_getTransactionReceipt', [h]))?.status === '0x1', 60000);
+  await flag(123, 20000); await flag(127, 1);
+  // A lock's reveal spends a Taproot commit output: the bonds reader counts an output as a lock only for that shape.
+  const lockTx = { txid: TXID, vin: [{ txid: COMMIT, vout: 0, prevout: { scriptpubkey: '5120' + '11'.repeat(32), scriptpubkey_type: 'v1_p2tr' } }], status: { confirmed: true, block_time: 1_790_500_000, block_height: 968900 },
+    vout: [{ scriptpubkey: '0014' + '00'.repeat(20), value: 1000 }, { scriptpubkey: lockHex, value: 20000 }] };
+  const open = async (on) => {
+    const r = await openPage({ account: A0, key: K0 });
+    const asked = new Set();
+    r.page.on('request', (rq) => { if (/scripthash|\/tx\/|\/address\//.test(rq.url())) asked.add(rq.url().replace(/^https:\/\//, '').slice(0, 100)); });
+    if (on) await r.ctx.addInitScript(() => localStorage.setItem('tacit-cbtc-redeem', 'true'));
+    for (const base of ['https://mempool.space/api', 'https://blockstream.info/api', 'https://mempool.emzy.de/api']) {
+      await r.ctx.route(`${base}/scripthash/${sh}/txs**`, (route) => json(route, route.request().url().includes('/chain/') ? [] : [lockTx]));
+      await r.ctx.route(`${base}/tx/${COMMIT}`, (route) => json(route, { txid: COMMIT, vin: [{ txid: 'a3'.repeat(32), vout: 0 }] }));
+    }
+    await r.ctx.route((u) => /\/address\/bc1p[0-9a-z]+\/utxo$/.test(u.pathname), (route) => json(route, []));   // nothing bridged to this key's Taproot address
+    await r.page.goto(r.url + '#wallet');
+    await r.page.click('#wallet-body [data-in="paste"]');
+    await r.page.fill('#ws-hex', hex);
+    await r.page.click('#wallet-body [data-in="key"]');
+    await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
+    await r.page.evaluate(() => { location.hash = ''; location.hash = '#borrow'; });
+    await until(r.page, () => /0\.0002 BTC/.test(document.querySelector('#bw-bonds')?.textContent || ''), null, 180000)
+      .catch(async () => {
+        await shot(r.page, 'redeem-fail');
+        const at = await r.page.evaluate(() => ({ hash: location.hash, body: (document.querySelector('#borrow-body')?.innerText || '').replace(/\s+/g, ' ').slice(0, 300), bonds: (document.querySelector('#bw-bonds')?.innerText || '').replace(/\s+/g, ' ').slice(0, 200) }));
+        throw new Error(`no bond row for the lock (${JSON.stringify(at)}; bitcoin reads ${[...asked].slice(0, 14).join(' , ')}; page errors ${r.errors.slice(0, 2).join(' | ')})`);
+      });
+    return r;
+  };
+  try {
+    let r = await open(false);
+    try {
+      ok(!(await r.page.$('[data-redeem]')) && !(await r.page.$('#bw-redeem')), 'redeem: with the setting off the sheet offers no Redeem');
+      if (r.errors.length) { fails++; console.log('FAIL redeem (dark) page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+    } finally { await r.browser.close(); }
+    r = await open(true);
+    try {
+      await r.page.waitForSelector(`[data-redeem="0x${OP}"]`, { timeout: 60000 });
+      ok(true, 'redeem: with the setting on, a lock backing minted cBTC offers Redeem');
+      await r.page.click(`[data-redeem="0x${OP}"]`);
+      await until(r.page, () => /more\./.test(document.querySelector('#bw-redeem')?.textContent || '') || /error|could not|cannot/i.test(document.querySelector('#bw-redeem .err')?.textContent || ''), null, 180000)
+        .catch(async () => { throw new Error(`the panel never named the next step (${(await text(r.page, '#bw-redeem')).slice(0, 240)})`); });
+      const panel = (await text(r.page, '#bw-redeem')).replace(/\s+/g, ' ');
+      ok(/Redeem 0\.0002 BTC/.test(panel) && /You hold [\d.]+ cBTC privately\. Redeeming needs [\d.]+ cBTC: the lock’s 0\.0002 BTC and the relay fee of [\d.]+ cBTC\. [\d.]+ cBTC more\./.test(panel),
+        `redeem: holding no cBTC, the panel says what is short (${panel.slice(0, 200)})`);
+      ok(!!(await r.page.$('#bw-redeem a[href="/swap/"]')), 'redeem: and points to Swap');
+      await shot(r.page, 'redeem');
+      await r.page.click('#bw-redeem-x');
+      await until(r.page, () => !document.querySelector('#bw-redeem'), null, 20000);
+      ok(true, 'redeem: closing the panel takes it away');
+      if (r.errors.length) { fails++; console.log('FAIL redeem page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+    } finally { await r.browser.close(); }
+  } finally {
+    await flag(127, 0); await flag(123, 0);
+    await rpc('eth_sendTransaction', [{ from: A0, to: HELPER, data: '0xc5211d27' + OP }]);
+  }
 });
 
 // A loan taken against a lock is repaid from weld itself: the step shows what repaying burns and offers Repay and close,

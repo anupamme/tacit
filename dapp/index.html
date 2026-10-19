@@ -3438,7 +3438,7 @@ function setKey(k) {
 // tacit.js opens the passphrase-locked and Bitcoin-signed keys exactly as tacit.finance does. It loads only for
 // those paths, as a library: it reads the shared network once at import, so this page pins mainnet for its visit,
 // and any call that rewrites the app's linked-wallet records is run with them put back afterwards.
-const TACIT_URL = '/tacit.js?cb=89ab08dc';
+const TACIT_URL = '/tacit.js?cb=66f6cbd1';
 const SHARED_NET = 'tacit-network-v1', PREV_NET = 'tacit-lite-prev-net-v1';
 const SHARED_WALLET_KEYS = ['tacit-eth-identity', 'tacit-btc-identity', 'tacit-active-mode-v1', 'tacit-ext-mode-v1', 'tacit-ext-state-v1',
   ...['mainnet', 'signet'].flatMap((n) => [`tacit-eth-identity:${n}`, `tacit-btc-identity:${n}`, `tacit-active-mode-v1:${n}`])];
@@ -5286,8 +5286,14 @@ const XA = {
   tac: { key: 'tac', ticker: 'TAC', pool: 'cTAC', k: 'tac', icon: 'tk-tac', flag: 'tacit-tac-btc', sheet: 'tac', status: '#bt-status', pre: 'xt', bpre: 'xc', dp: 4, mixed: true, floor: true, min: 2_000_000_000n,
     held: 'Bridged TAC on your Bitcoin address', see: 'TAC, Bridge, To Bitcoin', none: 'You have no private TAC yet. Make TAC private above, buy it on the Buy tab, or bring it from Bitcoin on the From Bitcoin side.', after: 'There it can be brought back to Ethereum below once Bitcoin’s proof has recorded it.',
     get id() { return '0x' + TAC_BTC_ID; } },
+  // cBTC crosses to Bitcoin only to be burned there, redeeming a cBTC lock (the Redeem panel on the Borrow sheet, dapp/cbtc-redeem.js). It is dark:
+  // on only while its setting is true, and it has no way back from Bitcoin (`redeem`: the sheet shows its notes in the panel instead).
+  cbtc: { key: 'cbtc', ticker: 'cBTC', pool: 'cBTC', k: 'cbtc', icon: 'tk-cbtc', flag: 'tacit-cbtc-redeem', dark: true, redeem: true, sheet: 'borrow', status: '#bw-status', pre: 'xk', bpre: 'xkb', dp: 8,
+    held: 'cBTC on your Bitcoin address', see: 'Borrow, Redeem', none: 'You have no private cBTC yet. Buy some in Swap.', after: 'There it is burned to redeem your lock.',
+    get id() { return CBTC_BTC_ID; } },
 };
-const xoOn = (a = XA.teth) => store.get(a.flag) !== false;                       // on unless its setting is false
+const CBTC_BTC_ID = '0x62a20d98fc1cd20289621d1315294cb8772f934d822e404b71e1f471cf0679c8';   // cxfer-core CBTC_ZK_ASSET_ID: the id cBTC has on both sides
+const xoOn = (a = XA.teth) => (a.dark ? store.get(a.flag) === true : store.get(a.flag) !== false);   // on unless its setting is false (a dark one: only when true)
 const XO = { pf: null, auto: false, autoAt: 0, acked: null, rechecked: {} };
 const XO_STEPS = ['Burned on Ethereum', 'Seen by the proof', 'Sent to Bitcoin', 'Arrived'];
 const XO_AT = { settling: 0, settled: 1, covered: 2, 'mint-signed': 2, 'mint-submitted': 3, 'mint-confirmed': 3, 'mint-rejected': 3 };
@@ -5295,7 +5301,7 @@ const xoUx = async () => (await loadTacit()).crossoutUx();
 const xoIs = (r, a) => String(r?.source?.assetId || '').toLowerCase() === a.id;
 const xoTk = (r) => r.source?.ticker || xaOf(r)?.ticker || 'tETH';                     // an older record names its asset only by its id
 const xaOf = (r) => Object.values(XA).find((a) => xoIs(r, a)) || null;
-const xoAmt = (r) => `${fmt(BigInt(r.source.amount ?? r.source.value), 8, xoTk(r) === 'TAC' ? 4 : 6)} ${xoTk(r)}`;
+const xoAmt = (r) => `${fmt(BigInt(r.source.amount ?? r.source.value), 8, xaOf(r)?.dp ?? (xoTk(r) === 'TAC' ? 4 : 6))} ${xoTk(r)}`;
 const xoHash = (h) => '0x' + String(h || '').replace(/^0x/, '');
 // This key's bridges of an asset that are not finished, oldest first.
 const xoRecords = (pub, a = XA.teth) => {
@@ -5427,7 +5433,7 @@ async function xoAdvance(ux, pub, rec, allowHighFee = false) {
 function xoArrived(rec) {
   // Bitcoin's own holdings list reads the key's P2WPKH address, where this is not, so it is said where it is listed.
   toast(`${xoAmt(rec)} is on your Bitcoin address. See ${xaOf(rec)?.see || 'To Bitcoin'}.`);
-  osNote('Bridge to Bitcoin', `${xoAmt(rec)} is on your Bitcoin address`, `${rec.id}:xminted`, () => openLink(xaOf(rec)?.key === 'tac' ? 'bridge/out' : 'private/bitcoin'));
+  osNote('Bridge to Bitcoin', `${xoAmt(rec)} is on your Bitcoin address`, `${rec.id}:xminted`, () => openLink(xaOf(rec)?.key === 'tac' ? 'bridge/out' : xaOf(rec)?.key === 'cbtc' ? 'borrow' : 'private/bitcoin'));
   loadBtc(true).then(() => rerender('btc')).catch(() => {});
 }
 // One press on a row.
@@ -5498,8 +5504,9 @@ async function xoDiscover(pub, daily = false) {
     const scan = P.scan || await scanPrivate();
     if (S.key?.pubHex !== pub || !scan?.spentNotes?.length) return;
     const ux = await xoUx();
-    await Promise.all(Object.values(XA).map((a) => loadBridged(false, a).catch(() => {})));
-    const claims = Object.values(XA).flatMap((a) => (xbOf(a).notes || []).map((n) => n.claimId));
+    const seen = Object.values(XA).filter((a) => !a.dark || xoOn(a));
+    await Promise.all(seen.map((a) => loadBridged(false, a).catch(() => {})));
+    const claims = seen.flatMap((a) => (xbOf(a).notes || []).map((n) => n.claimId));
     const made = await ux.recoverFromKey({ walletPriv: walletPriv(), spent: scan.spentNotes, skipClaims: claims });
     const m = store.get(XD_KEY) || {}; m[pub] = Date.now(); store.set(XD_KEY, m);
     if (!made.length || S.key?.pubHex !== pub) return;
@@ -5681,7 +5688,7 @@ function xoOut(el, status, a) {
     ${open ? html`<p class="lede-s">Burn private ${a.ticker} here and the same amount, less the relay fee, arrives as ${a.ticker} on your own Bitcoin address. It takes a few hours, sometimes up to a day: Bitcoin takes the note only after its proof on Ethereum has seen the burn. ${a.after}</p>`
       : html`<p class="lede-s">Your ${a.ticker} bridges to Bitcoin are followed here until each arrives on your own Bitcoin address.</p>`}
     ${recs.length ? html`<div class="lbl"><span>On the way</span></div><ul class="acts brs">${recs.map(xoRow)}</ul><div class="status" role="status" id="${p('rstatus')}"></div>` : ''}
-    ${xbSection(pub, a)}
+    ${a.redeem ? '' : xbSection(pub, a)}
     ${open ? html`<div class="lbl"><span>Amount</span><button type="button" id="${p('max')}"${maxAria(`Use the most one bridge takes, out of ${fmt(held, 8, a.dp)} ${a.ticker}`)}>${heldLabel(a.k, 8, a.dp, a.ticker)}</button></div>
     <div class="amt"><input id="${p('amt')}" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${a.ticker} to bridge to Bitcoin"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#${a.icon}"/></svg>${a.ticker}</span></div>
     <div class="rcpt" id="${p('rcpt')}" hidden></div>
@@ -5695,7 +5702,7 @@ function xoOut(el, status, a) {
       <div class="status" role="status" id="${p('fstatus')}"></div>
     </details>`);
   $$('[data-xoact]', el).forEach((x) => x.onclick = () => busy(x, (run) => xoAct(run, x.dataset.xoact, x.dataset.xoid)));
-  wireHeld(el, status, a);
+  if (!a.redeem) wireHeld(el, status, a);
   const find = $(`#${p('find')}`), txh = $(`#${p('txh')}`), ramt = $(`#${p('ramt')}`), fst = $(`#${p('fstatus')}`);
   find.onclick = () => busy(find, async (run) => {
     const h = txh.value.trim().toLowerCase(), v = parseUnits(ramt.value, 8);
@@ -5757,6 +5764,7 @@ function xoOut(el, status, a) {
       if (units < min) { warn(rc, `Bridge at least ${fmt(min, 8, 8)} ${a.ticker}: below that the fees take too much of it.`); ok = false; }
       else if (units > lim.capRaw) { warn(rc, `One bridge takes at most ${fmt(lim.capRaw, 8, 8)} ${a.ticker} while this is new. Bridge less, then again.`); ok = false; }
       else if (units <= fee) { warn(rc, `Bridge more than ${fmt(fee, 8, 6)} ${a.ticker}: the relay fee comes out of it.`); ok = false; }
+      else if (a.redeem && REDEEM.plan?.plan?.short != null && units - fee !== REDEEM.plan.plan.short) { warn(rc, `Bridge exactly ${fmt(REDEEM.plan.plan.short + fee, 8, 8)} ${a.ticker}: after the relay fee of ${fmt(fee, 8, 8)} that is the ${fmt(REDEEM.plan.plan.short, 8, 8)} the lock needs to arrive, no more and no less.`); ok = false; }
       else if (units + size > held) { warn(rc, feeRoom(units, size, held, P.scan?.[a.k].notes, (v) => `${fmt(v, 8, 6)} ${a.ticker}`) || overBalance()); ok = false; }
       if (problem) {
         ok = false;
@@ -5793,13 +5801,13 @@ function xoOut(el, status, a) {
       const startWith = (o) => ux.start({ note, walletPriv: priv, fee: o.fee, selfSettle: o.selfSettle, waitOpts: o.waitOpts });
       let rec;
       // On the holder's own credit the burn goes out from the paying account at once, with no relay fee.
-      if (await proveOwn(['bridgeburn'])) {
+      if (!a.redeem && await proveOwn(['bridgeburn'])) {                    // (a redeem is exact to the satoshi: it always pays the quoted relay fee, never the fee-less path)
         try { rec = await selfNow({ run, types: ['bridgeburn'], quiet: true, label: `Bridge ${amtText} to Bitcoin`, sheet: a.sheet, status: () => $(a.status), go: (y) => startWith({ fee: 0n, selfSettle: y.selfSettle, waitOpts: y.waitOpts }) }); }
         catch (e) { if (e?.offered) return; throw e; }
       } else try {
         try { rec = await startWith({ fee: x.fee, waitOpts: run.wait(null, 15 * 60e3) }); }
         // The relay's floor moved between the quote and the submit: nothing was proved, so ask once more at twice the fee.
-        catch (e0) { const up = xoLadder(x.fee * 2n); if (xoFeeShort(e0) && !waitRanOut(e0) && up * 2n < x.units) rec = await startWith({ fee: up, waitOpts: run.wait(null, 15 * 60e3) }); else throw e0; }
+        catch (e0) { const up = xoLadder(x.fee * 2n); if (xoFeeShort(e0) && !waitRanOut(e0) && up * 2n < x.units && !a.redeem) rec = await startWith({ fee: up, waitOpts: run.wait(null, 15 * 60e3) }); else throw e0; }
       } catch (e) {
         // A burn the relay proved and holds keeps its intent (it lands whoever sends it, and is looked for on Ethereum): it is offered to
         // send as it is, here, or in Activity once the form has gone there.
@@ -5810,6 +5818,7 @@ function xoOut(el, status, a) {
         // reserved). A gateway's 5xx can stand in front of a submit the relay took, so then the intent stays and the burn is looked
         // for on Ethereum; a second burn of the same note can only fail.
         if (!/relay 5\d\d\b|temporarily unavailable/i.test(String(e?.message || e))) await ux.cancelIntent(pub, note.nullifier).catch(() => {});
+        if (a.redeem) throw e;                                              // a redeem is not sent fee-less: the lock needs exactly its value to arrive
         // The same burn goes out from the paying account instead: offered here, or on its receipt in Activity once the form has gone there
         // (the run's first relay job, a split, was queued).
         offerSelf({ run, label: `Bridge ${amtText} to Bitcoin`, sheet: a.sheet, status: () => $(a.status), then: 'Burned. The Bitcoin step goes on by itself from here.', after: () => xoTick(true),
@@ -10198,6 +10207,137 @@ function bondNews(r) {
   }
   store.set(bondSeen(), { ids: [...seen, ...fresh.map((n) => n.id)].slice(-200) });
 }
+// ── redeem a cBTC lock ───────────────────────────────────────────────────────────────────────────────────────
+// One Bitcoin transaction spends the lock and burns its value of cBTC held on Bitcoin (dapp/cbtc-redeem.js). cBTC gets there by
+// the To Bitcoin bridge (XA.cbtc); the panel reads the lock and the cBTC and names the next step. Dark: shown only while the
+// setting 'tacit-cbtc-redeem' is true. A redeem the proof does not fold burns the notes and forfeits the bond, so it is built and
+// checked against the proof's own rules before it is shown, and read again as the money goes.
+const redeemOn = () => store.get('tacit-cbtc-redeem') === true;
+const REDEEM = { op: null, pub: null, plan: null, err: null, built: null, acked: false };
+const redeemSentKey = () => `tacit-cbtc-redeem-v1:${S.key?.pubHex}`;
+const getRedeemMod = lazy(async () => {
+  const [rm, bw, dep] = await Promise.all([import('/cbtc-redeem.js?cb=60004963'), import('/bitcoin-taproot-wallet.js'), import('/confidential-deployments.js')]);
+  return { ...rm, ...bw, ...dep };
+});
+async function redeemRead(op) {
+  const pub = S.key.pubHex, l = bondsNow()?.locks.find((x) => x.op === op), a = XA.cbtc;
+  if (!l || !l.txid) throw new Error('This lock is not in this key’s Bitcoin history here, so it cannot be redeemed from this page.');
+  const [t, ux, m] = await Promise.all([getUx(), xoUx(), getRedeemMod()]), lim = ux.assetOf(a.id);
+  if (!lim) throw new Error('cBTC cannot be bridged to Bitcoin from this deployment.');
+  await Promise.all([P.scan ? null : scanPrivate(), loadBridged(true, a)]);
+  const XB = xbOf(a), notes = XB.pub === pub ? XB.notes || [] : [];
+  const st = await t.cbtcLockState(l.txid, l.vout), fee = await xoFee(t, a);
+  const R = m.makeCbtcRedeem({ pool: t.pool, secp, sha256 });
+  const plan = R.planRedeem({ lockState: { vBtc: st.vBtc, spent: st.spent, redeemed: st.redeemed, minted: l.minted }, notes, held: spendable(a.k), bridging: xoRecords(pub, a).length, fee, min: lim.minRaw ?? 0n, cap: lim.capRaw });
+  return { op, plan, fee, st, cap: lim.capRaw, held: spendable(a.k) };
+}
+async function redeemRefresh() {
+  const op = REDEEM.op, pub = S.key?.pubHex;
+  if (!op) return;
+  try {
+    const r = await redeemRead(op);
+    if (REDEEM.op !== op || S.key?.pubHex !== pub) return;
+    REDEEM.plan = r; REDEEM.err = null;
+  } catch (e) { if (REDEEM.op === op) REDEEM.err = e; }
+  rerender('borrow');
+}
+function redeemPanel() {
+  if (!redeemOn() || !REDEEM.op || REDEEM.pub !== S.key?.pubHex) return '';
+  const l = bondsNow()?.locks.find((x) => x.op === REDEEM.op);
+  if (!l) return '';
+  const N = fmt(BigInt(l.vBtc), 8, 8), R = REDEEM.plan, r = R?.plan, sent = (store.get(redeemSentKey()) || {})[l.op], b = REDEEM.built;
+  const link = (h) => html`<a href="${MEMPOOL}/tx/${h}" target="_blank" rel="noopener">${short(h, 6)} ↗</a>`;
+  const c = (v) => `${fmt(BigInt(v), 8, 8)} cBTC`;
+  const body = REDEEM.err ? html`<p class="note err">${errText(REDEEM.err)}</p><button class="btn ghost" type="button" id="bw-redeem-again">Try again</button>`
+    : !r ? html`<p class="note">Reading the lock and your cBTC on Bitcoin…</p>`
+    : r.step === 'done' ? html`<p class="note">Redeemed${sent ? html`: ${link(sent.reveal)}` : ''}. The bond above can be taken back.</p>`
+    : r.step === 'gone' ? html`<p class="note err">This lock was spent on Bitcoin without a redeem, so there is nothing to redeem. Its bond goes to the insurance reserve.</p>`
+    : r.step === 'unminted' ? html`<p class="note">No cBTC was minted on this lock, so there is nothing to burn. Its bond can be taken back above.</p>`
+    : r.step === 'unknown' ? html`<p class="note">The pool has not recorded this lock yet.</p>`
+    : sent ? html`<p class="note">Sent: ${link(sent.reveal)}. Bitcoin’s proof on Ethereum records it within a few hours. The lock then reads redeemed and its bond can be taken back above.</p>`
+    : r.step === 'toobig' ? html`<p class="note err">One bridge takes at most ${c(R.cap)} and this lock needs ${c(r.bridge)}. Redeeming a lock this large is not offered here yet.</p>`
+    : r.step === 'buy' ? html`<p class="note">You hold ${c(R.held)} privately. Redeeming needs ${c(r.bridge)}: the lock’s ${N} BTC${r.have ? `, less the ${c(r.have)} already on Bitcoin,` : ''} and the relay fee of ${c(R.fee)}. ${c(r.lack)} more.</p>
+        <a class="btn ghost" href="/swap/">Get cBTC in Swap</a>`
+    : r.step === 'bridge' ? html`<p class="note">Bridge exactly ${c(r.bridge)} to Bitcoin: ${c(r.short)} for the lock${r.have ? ' (the rest of it)' : ''} and the relay fee of ${c(R.fee)}. It must be exact, since a redeem burns the lock’s value to the satoshi. Once on Bitcoin it stays there until it is redeemed: this page has no way to bring it back.</p><div id="bw-xo"></div>`
+    : r.step === 'arriving' ? html`<p class="note">cBTC is on its way to Bitcoin. When it has arrived and Bitcoin’s proof holds it, this reads Redeem.</p><div id="bw-xo"></div>`
+    : html`<div class="kv"><span>Burns</span><b>${c(l.vBtc)} on your Bitcoin address</b></div>
+      <div class="kv"><span>Unlocks</span><b>${N} BTC, back to your Bitcoin address</b></div>
+      ${b ? html`<div class="kv"><span>Bitcoin fees</span><b>${(b.commitFee + b.revealFee).toLocaleString('en-US')} sats, from ${short(b.address, 6)}</b></div>
+        <label class="pick"><input type="checkbox" id="bw-redeem-ack" ${REDEEM.acked ? 'checked' : ''}><span>I understand the cBTC is burned and the lock is spent, and neither can be undone.</span></label>
+        <button class="btn" type="button" id="bw-redeem-send" ${REDEEM.acked ? '' : 'disabled'}>Redeem</button>`
+      : html`<button class="btn" type="button" id="bw-redeem-go">Review</button>`}`;
+  return html`<div class="blk" id="bw-redeem"><div class="lbl"><span>Redeem ${N} BTC</span><button type="button" id="bw-redeem-x">close</button></div>${body}</div>`;
+}
+async function redeemBuild(run, status) {
+  const pub = S.key.pubHex, op = REDEEM.op;
+  try {
+    run.say(status, 'Checking the lock, your cBTC on Bitcoin and the proof…');
+    const fresh = await redeemRead(op), p = fresh.plan;
+    REDEEM.plan = fresh;
+    if (p.step !== 'ready') { rerender('borrow'); return; }
+    const [t, m] = await Promise.all([getUx(), getRedeemMod()]), l = bondsNow().locks.find((x) => x.op === op);
+    const tx = await esplora(`/tx/${l.txid}`), out = tx.vout?.[l.vout];
+    if (!out || !tx.status?.confirmed) throw new Error('The lock’s transaction is not confirmed on Bitcoin yet.');
+    const lock = { txid: l.txid, vout: l.vout, value: out.value, spk: out.scriptpubkey };
+    const spent = async (txid, vout) => (await esplora(`/tx/${txid}/outspend/${vout}`)).spent === true;
+    const unspent = { lock: !(await spent(l.txid, l.vout)), notes: await Promise.all(p.notes.map(async (n) => !(await spent(n.txid, n.vout)))) };
+    const built = await withKey(async (Tk) => {
+      const priv = walletPriv();
+      const { prims, wallet } = m.makeBtcWallet({ priv, hrp: 'bc', fetchUtxos: async () => [], broadcastTx: (h) => Tk.broadcast(h), fetchFeeRate: () => Tk.getFeeRate('priority') });
+      const R = m.makeCbtcRedeem({ pool: t.pool, secp, sha256, prims });
+      const verdict = R.assessRedeem({ lock, lockState: { vBtc: fresh.st.vBtc, spent: fresh.st.spent, redeemed: fresh.st.redeemed, minted: l.minted }, unspent, notes: p.notes });
+      if (!verdict.ok) throw new Error(verdict.problems[0]);
+      const funding = (await Tk.pickSafeCommitSats(await Tk.getUtxos(wallet.address(), null, { forSpend: true }))).map((u) => ({ txid: u.txid, vout: u.vout, value: u.value }));
+      const b = R.buildRedeemTxs({ prims, lock, notes: p.notes, funding, feeRate: await Tk.getFeeRate('priority'), expectedVBtc: fresh.st.vBtc, protectedOutpoints: m.listProtectedOutpoints() });
+      return { ...b, address: wallet.address(), at: Date.now() };
+    }, pub);
+    if (REDEEM.op !== op || S.key?.pubHex !== pub) return;
+    REDEEM.built = built; REDEEM.acked = false;
+    say(status, '');
+    rerender('borrow');
+  } catch (e) { run.fail(status, e); }
+}
+async function redeemSend(run, status) {
+  const b = REDEEM.built, op = REDEEM.op;
+  try {
+    // A review is good for ten minutes; a commit already sent is finished, not rebuilt.
+    if (!b || (!b.commitSent && Date.now() - b.at > 10 * 60e3)) { REDEEM.built = null; rerender('borrow'); throw new Error('The review is more than ten minutes old. Review it again.'); }
+    const [t, m] = await Promise.all([getUx(), getRedeemMod()]), R = m.makeCbtcRedeem({ pool: t.pool, secp, sha256 });
+    run.say(status, 'Sending the redeem to Bitcoin…');
+    const out = await withKey((Tk) => R.send({
+      built: b, broadcast: (h) => Tk.broadcast(h), broadcastWithRetry: (h) => Tk.broadcastWithRetry(h),
+      isUnspent: async (txid, vout) => (await esplora(`/tx/${txid}/outspend/${vout}`)).spent !== true,
+      onProgress: (s) => { if (s === 'reveal') b.commitSent = true; },
+    }));
+    const sent = store.get(redeemSentKey()) || {};
+    sent[op] = { commit: out.commitTxid, reveal: out.revealTxid, at: Date.now() };
+    store.set(redeemSentKey(), sent);
+    REDEEM.built = null;
+    toast('Redeem sent to Bitcoin');
+    say(status, html`<span class="ok">Sent.</span> ${txLink(out.revealTxid, MEMPOOL)}`);
+    rerender('borrow');
+  } catch (e) {
+    if (b?.commitSent) run.fail(status, new Error(`The first transaction went out but the second did not: press Redeem again to send it. ${errText(e)}`));
+    else run.fail(status, e);
+  }
+}
+function wireRedeem(el, status) {
+  $$('[data-redeem]', el).forEach((btn) => btn.onclick = () => {
+    Object.assign(REDEEM, { op: btn.dataset.redeem, pub: S.key.pubHex, plan: null, err: null, built: null, acked: false });
+    rerender('borrow'); redeemRefresh();
+  });
+  const x = $('#bw-redeem-x', el); if (x) x.onclick = () => { REDEEM.op = null; rerender('borrow'); };
+  const again = $('#bw-redeem-again', el); if (again) again.onclick = () => { Object.assign(REDEEM, { err: null, plan: null }); rerender('borrow'); redeemRefresh(); };
+  const go = $('#bw-redeem-go', el); if (go) go.onclick = () => busy(go, (run) => redeemBuild(run, status));
+  const ack = $('#bw-redeem-ack', el), send = $('#bw-redeem-send', el);
+  if (ack && send) { ack.onchange = () => { REDEEM.acked = ack.checked; send.disabled = !ack.checked; }; send.onclick = () => busy(send, (run) => redeemSend(run, status)); }
+  const xo = $('#bw-xo', el), step = REDEEM.plan?.plan?.step;
+  if (xo && (step === 'bridge' || step === 'arriving')) {
+    xoOut(xo, status, XA.cbtc);
+    const amt = $('#xk-amt', xo);
+    if (amt && step === 'bridge') { amt.value = plain(REDEEM.plan.plan.bridge, 8); amt.dispatchEvent(new Event('input')); }
+  }
+}
 // The sheet's view of every bond: a line per lock with what its bond does, a way to take back each one that can come
 // back, and the notices that go with them.
 function bondsBlock() {
@@ -10212,9 +10352,11 @@ function bondsBlock() {
     ${locks.filter((l) => l.health && !l.health.healthy).map((l) => html`<div class="callout bad"><span>Lock ${link(l)}: its bond is ${fmt(l.health.want - l.health.have, 18, 5)} wstETH short of what the engine asks for. Top it up${l.health.due ? ` by ${bondDue(l.health.due)}` : ''}, or it can go to the insurance reserve.</span><button class="btn ghost" type="button" data-bond-topup="${l.op}">Top up</button></div>`)}
     ${locks.map((l) => html`<div class="kv"><span>${l.vBtc ? `${fmt(l.vBtc, 8, 8)} BTC` : 'Lock'} · ${link(l)}${l.everyday ? ' · everyday address' : ''}</span><b class="${l.state === 'forfeit' ? 'err' : ''}">${fmt(l.total, 18, 5)} wstETH${l.par ? ` · ${fmt(l.total * 100n / l.par, 2, 2)}× the BTC` : ''} · ${what[l.state]}</b></div>
       ${l.state === 'backing' && l.par ? html`<button class="btn ghost" type="button" data-bond-add="${l.op}">Add 0.25× to this bond</button>` : ''}
+      ${l.state === 'backing' && l.txid && redeemOn() ? html`<button class="btn ghost" type="button" data-redeem="${l.op}">Redeem this lock</button>` : ''}
       ${l.bonds.filter((b) => b.take && bondVia(b.account)).map((b) => html`<button class="btn ghost" type="button" data-bond-take="${l.op}|${b.contract}|${b.account}">Take back ${fmt(b.share, 18, 5)} wstETH to your ${bondVia(b.account) === 'tacit' ? 'Tacit account' : 'wallet'}</button>`)}`)}
     ${everyday ? html`<p class="note">${everyday === 1 ? 'One lock holds its' : `${everyday} locks hold their`} BTC at your everyday Bitcoin address, where early locks put it. This app never spends it, but another Bitcoin wallet using this key would see it as spendable, and spending it gives up its bond. Keep this key out of other Bitcoin wallets until you redeem.</p>` : ''}
     <p class="note">A bond is held as wstETH, which keeps earning staking yield, and comes back as wstETH to the account that posted it, before its lock is minted against or once the lock is redeemed. It must be at least 1.5× the BTC when the lock is minted against, then moves with the price of ETH in BTC; adding to it keeps the lock well covered. Spending a lock’s BTC any other way gives its bond to the insurance reserve.</p>
+    ${redeemPanel()}
   </div>`;
 }
 // What a lock costs on top of the BTC it locks, reckoned as the lock builder reckons it and at its rate (the next-block
@@ -10875,6 +11017,7 @@ render.borrow = () => {
       await settleBorrow();
     } catch (e) { txFail(run, status, e); }
   }));
+  wireRedeem(el, status);
   $('#bw-see-bonds')?.addEventListener('click', () => $('#bw-bonds')?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
   // A forfeit shown here has been seen: the dashboard stops pointing at it.
   const lost = bondNotes().filter((n) => n.kind === 'lost').map((n) => n.id);
@@ -11346,7 +11489,7 @@ function paintDash() {
     }
     // Bridges to Bitcoin under way, each asset's own: the same two lines.
     for (const a of Object.values(XA)) {
-      const xs = xoJournal(k, a), needx = xs.filter(xoDue), link = a.key === 'tac' ? 'bridge/out' : 'private/bitcoin';
+      const xs = xoJournal(k, a), needx = xs.filter(xoDue), link = a.key === 'tac' ? 'bridge/out' : a.key === 'cbtc' ? 'borrow' : 'private/bitcoin';
       if (needx.length) due.push([needx.length === 1 ? `Your bridge of ${xoAmtRaw(needx[0])} to Bitcoin is waiting for you: ${xoDue(needx[0])}.` : `${needx.length} bridges of ${a.ticker} to Bitcoin are waiting for you.`, link, 'Open']);
       else if (xs.length) due.push([xs.length === 1 ? `${xoAmtRaw(xs[0])} is on its way from Ethereum to Bitcoin, ${xoWhere(xs[0])}. It finishes while this page is open with your wallet.`
         : `${xs.length} bridges of ${a.ticker} are on their way from Ethereum to Bitcoin. They finish while this page is open with your wallet.`, link, 'Follow']);

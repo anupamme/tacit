@@ -75,7 +75,7 @@ import { bppRangeProve, bppRangeVerify } from './bulletproofs-plus.js';
 import { makeConfidentialPool } from './confidential-pool.js';
 import { makeConfidentialPoolUx, setExternalTacHolders, forgetKeys as forgetPoolKeys } from './confidential-pool-ux.js';
 import { makeBurnDepositUx, BURNDEP_BETA_CAP_RAW as BURNDEP_BETA_CAP_RAW_TAC } from './burndep-ux.js';
-import { makeCrossoutUx, CROSSOUT_BETA_CAP_RAW as CROSSOUT_TAC_CAP_RAW, CROSSOUT_TETH_CAP_RAW, CROSSOUT_TETH_MIN_RAW } from './crossout-ux.js';
+import { makeCrossoutUx, CROSSOUT_BETA_CAP_RAW as CROSSOUT_TAC_CAP_RAW, CROSSOUT_TETH_CAP_RAW, CROSSOUT_TETH_MIN_RAW, CROSSOUT_CBTC_CAP_RAW, CROSSOUT_CBTC_MIN_RAW } from './crossout-ux.js';
 import { makeCrossoutNotes } from './crossout-notes.js';
 import { renderConfidentialPoolTab } from './confidential-pool-tab.js';
 import { renderLanePanel } from './cross-chain-lane.js';
@@ -20675,6 +20675,8 @@ function _burndepReserved(txid, vout) {
 // only where the deployment ties its note asset to the Bitcoin-lane tETH asset (the same id on both sides): any other
 // id would mint a note on Bitcoin that no one there recognises.
 let _crossoutUx = null, _crossoutUxNet = null;
+// Settings are JSON in localStorage; this one is on only when true.
+function _cbtcRedeemOn() { try { return JSON.parse(localStorage.getItem('tacit-cbtc-redeem')) === true; } catch { return false; } }
 function _crossoutUxSingleton() {
   const net = NET.name;
   if (_crossoutUx && _crossoutUxNet === net) return _crossoutUx;
@@ -20688,7 +20690,9 @@ function _crossoutUxSingleton() {
     deployBlock: Number((poolUx.cfg && poolUx.cfg.deployBlock) || 0),
     tacAssetId: '0x' + CANONICAL_TAC_ASSET_ID_HEX,
     assets: [{ assetId: '0x' + CANONICAL_TAC_ASSET_ID_HEX, ticker: 'TAC', capRaw: CROSSOUT_TAC_CAP_RAW },
-      ...(tethId ? [{ assetId: tethId, ticker: 'tETH', capRaw: CROSSOUT_TETH_CAP_RAW, minRaw: CROSSOUT_TETH_MIN_RAW }] : [])],
+      ...(tethId ? [{ assetId: tethId, ticker: 'tETH', capRaw: CROSSOUT_TETH_CAP_RAW, minRaw: CROSSOUT_TETH_MIN_RAW }] : []),
+      // cBTC crosses to Bitcoin to redeem a lock (dapp/cbtc-redeem.js), while the 'tacit-cbtc-redeem' setting is on.
+      ...(_cbtcRedeemOn() && poolUx.pool && poolUx.pool.CBTC_ZK_ASSET_ID ? [{ assetId: poolUx.pool.CBTC_ZK_ASSET_ID, ticker: 'cBTC', capRaw: CROSSOUT_CBTC_CAP_RAW, minRaw: CROSSOUT_CBTC_MIN_RAW }] : [])],
     chain: { getUtxos: (a, cb) => getUtxos(a, cb, { forSpend: true }), pickSafeCommitSats, broadcastWithRetry, getFeeRate },
     postHint,
     // Cancelling a burn that never settled first asks the pool whether the note's nullifier has been spent.
