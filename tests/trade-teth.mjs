@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// dapp/trade/teth/ in a real browser, under the page's own CSP: what it reads (the pool's totals and ETH history, the private farms that pair
+// dapp/teth/ in a real browser, under the page's own CSP: what it reads (the pool's totals and ETH history, the private farms that pair
 // tETH, the dollar rates), what it draws, and what it does when ETH is made private: the Tacit key opened from a stub Ethereum wallet's real
 // signature, one transaction to the wrap forwarder carrying the deposit and the relay's tip, the relay's half, and every way that can stop.
 // The API's answers are fixtures captured on 2026-10-14 (the flows moved so the newest is two hours old), the chain's reads are answered by the
@@ -323,7 +323,7 @@ async function openPage(viewport, { wallet = false, reject = false, hash = '', s
   const page = await ctx.newPage(), errors = [], blocked = [];
   page.on('pageerror', (e) => errors.push(String(e.message || e)));
   page.on('console', (m) => { if (m.type() === 'error') { const t = m.text(); if (/Content Security Policy|Refused to/i.test(t)) blocked.push(t); else if (!/Failed to load resource/.test(t)) errors.push(t.slice(0, 200)); } });
-  await page.goto(`http://127.0.0.1:${WEB}/trade/teth/${hash}`);
+  await page.goto(`http://127.0.0.1:${WEB}/teth/${hash}`);
   await page.waitForSelector('#wallet-chip');
   return { browser, page, errors, blocked, log, seen };
 }
@@ -340,17 +340,28 @@ try {
   let p = r.page;
   await until(p, () => document.querySelector('#px-usd').textContent.startsWith('$') && document.querySelectorAll('.pf').length === 3 && document.querySelectorAll('#moves tbody tr').length > 3 && document.querySelector('#chart .line'));
   ok((await text(p, '#px-usd')) === '$2,441', `the headline is a tETH's dollar value, ETH's price: ${await text(p, '#px-usd')}`);
-  ok((await p.title()) === 'tETH $2,441 · tacit trade', 'the tab names it and its price');
+  ok((await p.title()) === 'tETH $2,441 · tacit', 'the tab names it and its price');
   const sub = await text(p, '#px-sub');
   const heldTxt = (Number(HELD) / 1e18).toFixed(2);
   ok(/1 tETH = 1 ETH, private/.test(sub) && sub.includes(`${heldTxt} ETH`) && /187 deposits · 64 wallets/.test(sub), `the line under it says what the pool holds and from how many (${sub.slice(0, 90)})`);
   const asset = await p.$$eval('.assets a', (as) => as.map((a) => [a.textContent.trim(), a.getAttribute('href'), a.getAttribute('aria-current')]));
   ok(asset.length === 3 && asset[0][1] === '/trade/tac/' && asset[1][0] === 'tETH' && asset[1][2] === 'page' && asset[2][1] === '/trade/cbtc/', 'a switch names the three markets and marks this one');
   const sum = await text(p, '#hints-sum');
-  ok(/Pool rate \$2,441/.test(sum) && /in private pools \$\d/.test(sum) && /apart/.test(sum), `the dropdown's line gives the wrapped value and the pools' range (${sum})`);
+  ok(/Redeems for \$2,441/.test(sum) && /private pools \$\d/.test(sum) && /up to \d+% under ETH/.test(sum), `the dropdown's line gives the redeem value, the pools' range and how far the worst sits under ETH (${sum})`);
   await p.click('#hints summary');
   const lanes = await p.$$eval('#lanes .lane', (ls) => ls.map((l) => l.textContent.replace(/\s+/g, ' ').trim()));
-  ok(lanes.length === 5 && /Pool rate/.test(lanes[0]) && lanes.some((l) => /On Bitcoin.*not listed yet/.test(l)) && lanes.some((l) => /TAC pool/.test(l)) && lanes.some((l) => /cUSD pool/.test(l)) && lanes.some((l) => /cBTC pool/.test(l)), `one lane for the wrapped rate, one for each pool that pairs tETH and one for Bitcoin, which says it has no listing yet (${lanes.length})`);
+  await shot(p, 'lanes');
+  ok(lanes.length === 4 && /Redeems for/.test(lanes[0]) && /tETH \/ TAC/.test(lanes[1]) && /tETH \/ cUSD/.test(lanes[2]) && /tETH \/ cBTC/.test(lanes[3]) && !lanes.some((l) => /On Bitcoin|not listed yet/.test(l)), `one lane for the redeem value and one for each pool that pairs tETH, named as the farms are; a Bitcoin book with nothing on it has none (${lanes.length})`);
+  ok(lanes.every((l) => /1 tETH = /.test(l)) && /1 tETH = 1 ETH/.test(lanes[0]) && /one for one/.test(lanes[0]), `every lane says what one tETH is, in the lane's own money (${lanes.join(' | ')})`);
+  const icons = await p.$$eval('#lanes .lane .k use', (us) => us.map((u) => u.getAttribute('href')));
+  ok(icons.join() === '#tk-eth,#tk-tac,#tk-cusd,#tk-cbtc', `each lane wears its own token's icon, no two alike (${icons.join()})`);
+  ok(lanes.slice(1).every((l) => /(under|over) ETH|level with ETH/.test(l) && /\$[\d.]+k? deep/.test(l)) && !lanes.some((l) => /apart/.test(l)), `each pool lane says which way it sits from ETH and how deep it is (${lanes.slice(1).join(' | ')})`);
+  // the depth is what both sides are worth, a tETH at ETH's price and the other side at its own: not twice the tETH side
+  {
+    const rx = program.pools.find((x) => x.pair === 'cETH/cUSD').reserves, worth = Number(rx.reserveA) / 1e8 * 2441 + Number(rx.reserveB) / 1e8, twice = 2 * Number(rx.reserveA) / 1e8 * 2441;
+    const kk = (x) => `$${(x / 1e3).toFixed(x >= 1e4 ? 0 : 1)}k`;
+    ok(worth < twice && lanes[2].includes(`${kk(worth)} deep`) && !lanes[2].includes(`${kk(twice)} deep`), `the cUSD pool's depth is ${kk(worth)} (both sides at market), not ${kk(twice)} (twice the tETH side)`);
+  }
   // each pool's price is its reserves' ratio, checked against the fixture
   const cusd = program.pools.find((x) => x.pair === 'cETH/cUSD'), per = Number(cusd.reserves.reserveB) / Number(cusd.reserves.reserveA);
   ok(lanes.some((l) => /cUSD pool/.test(l) && l.includes(`$${Math.round(per)}`) || l.includes(`$${per.toFixed(2)}`)), `the cUSD pool's price is its reserves' ratio, ${per.toFixed(2)} cUSD a tETH`);
@@ -400,7 +411,7 @@ try {
   p = r.page;
   await p.waitForSelector('#px-usd');
   const pure = await p.evaluate(async () => {
-    const m = await import('/trade/teth/read.js');
+    const m = await import('/teth/read.js');
     const out = {};
     const flows = [[100, 5n], [200, -2n], [200, 3n], [300, 4n]];
     const h = m.heldHistory(flows, 10n);
@@ -425,7 +436,7 @@ try {
   ok(pure.sizes.join() === '3600,14400,14400,86400,86400', `bar sizes follow the range (${pure.sizes.join()})`);
   // the pools' rows and positions, against the front page's arithmetic
   const rows = await p.evaluate(async (prog) => {
-    const m = await import('/trade/teth/read.js');
+    const m = await import('/teth/read.js');
     const rows = m.poolRows(prog, { tacEth: 1 / 11000, ethUsd: 2441, btcUsd: 83000 });
     const mine = m.positionsIn(rows, [{ pid: 0, shares: String(Number(prog.pools[0].reserves.lpTotalShares) / 10), pendingTac: '1.5', unlockAt: 5 }, { pid: 9, shares: '5' }]);
     return { rows, mine: [...mine.entries()] };
@@ -434,17 +445,17 @@ try {
   ok(Math.abs(rows.rows[0].per - Number(program.pools[0].reserves.reserveB) / Number(program.pools[0].reserves.reserveA)) < 1e-9, 'the price in a pool is its reserves\' ratio');
   ok(rows.mine.length === 1 && rows.mine[0][0] === 0 && Math.abs(rows.mine[0][1].teth - Number(program.pools[0].reserves.reserveA) / 1e8 / 10) < 1e-9 && rows.mine[0][1].earned === 1.5, 'a position is a share of the pool\'s two sides and what it earned; a pool not listed is left out');
   // what the relay says it can do: each read from a fresh copy of the module, so its 15-second memory does not answer for the endpoint
-  const relayRead = (answer) => { chain.relay = answer; return p.evaluate(async () => (await import(`/trade/teth/wrap.js?fresh=${Math.random()}`)).relayState()); };
+  const relayRead = (answer) => { chain.relay = answer; return p.evaluate(async () => (await import(`/teth/wrap.js?fresh=${Math.random()}`)).relayState()); };
   const reads = [await relayRead({ state: 'held', proving: true, settling: false, board: true, ageSeconds: 12 }), await relayRead({ state: 'paused', ageSeconds: 40 }), await relayRead({ state: 'busy' }), await relayRead({ state: 'asleep' }), await relayRead(null)];
   ok(JSON.stringify(reads) === JSON.stringify([{ state: 'held', proving: true, settling: false, board: true }, { state: 'paused', proving: false, settling: false, board: false }, { state: 'busy', proving: true, settling: true, board: false }, null, null]), `the relay's state is read from its endpoint, and an unknown state or no answer is no state at all (${JSON.stringify(reads)})`);
   chain.relay = { state: 'ok' };
-  const firstRead = await p.evaluate(async () => { window.__w = await import(`/trade/teth/wrap.js?fresh=${Math.random()}`); return (await window.__w.relayState()).state; });
+  const firstRead = await p.evaluate(async () => { window.__w = await import(`/teth/wrap.js?fresh=${Math.random()}`); return (await window.__w.relayState()).state; });
   chain.relay = { state: 'paused' };
   const againRead = await p.evaluate(async () => (await window.__w.relayState()).state);
   ok(firstRead === 'ok' && againRead === 'ok', 'it is read at most every 15 seconds');
   chain.relay = null;
   const kinds = await p.evaluate(async () => {
-    const w = await import('/trade/teth/wrap.js'), pv = await import('/trade/teth/prover.js');
+    const w = await import('/teth/wrap.js'), pv = await import('/teth/prover.js');
     const err = (m, o = {}) => Object.assign(new Error(m), o), E = 10n ** 18n;
     const refused = err('relay 503: the relay is not proving right now', { code: 'relay_paused', httpStatus: 503 });
     const stopped = err('The relay isn’t proving right now.', { code: 'relay_paused', queued: true, proving: false });
@@ -984,7 +995,7 @@ try {
   ok(acts.join() === 'Trade on Bitcoin,List a sale', `the way in: ${acts.join(' · ')}`);
   await p.click('#hints summary');
   const lanes2 = await p.$$eval('#lanes .lane', (ls) => ls.map((l) => l.textContent.replace(/\s+/g, ' ').trim()));
-  ok(lanes2.some((l) => /On Bitcoin/.test(l) && /\$/.test(l) && /vs ETH/.test(l)), `the hero's dropdown has a Bitcoin lane with its price against ETH (${lanes2.find((l) => /On Bitcoin/.test(l))})`);
+  ok(lanes2.some((l) => /On Bitcoin/.test(l) && /\$/.test(l) && /1 tETH = .* sats/.test(l) && /last trade · .*(under|over) ETH/.test(l)), `the hero's dropdown has a Bitcoin lane with its price against ETH (${lanes2.find((l) => /On Bitcoin/.test(l))})`);
   await p.keyboard.press('Escape');
   await p.click('#btc-actions [data-btc="open"]');
   await until(p, () => window.__btc?.opened.length === 1);
@@ -1023,7 +1034,7 @@ try {
   await until(p, () => document.querySelectorAll('#btc-ladder .ob-row').length >= 1 && document.querySelector('#px-usd').textContent.startsWith('$'));
   await p.click('#hints summary');
   const askLane = (await p.$$eval('#lanes .lane', (ls) => ls.map((l) => l.textContent.replace(/\s+/g, ' ').trim()))).find((l) => /On Bitcoin/.test(l));
-  ok(/cheapest ask · no trades yet/.test(askLane) && /\$/.test(askLane) && !/not listed yet/.test(askLane), `one listing and no trade: the lane gives the cheapest ask (${askLane})`);
+  ok(/cheapest ask · /.test(askLane) && /1 tETH = .* sats/.test(askLane) && /\$/.test(askLane) && !/not listed yet/.test(askLane), `one listing and no trade: the lane gives the cheapest ask (${askLane})`);
   ok(/1 listed · 0 bids · no trades yet/.test(await text(p, '#btc-sum')) && !/Could not read/.test(await text(p, '#btc-ladder')), `and the head agrees (${await text(p, '#btc-sum')})`);
   await r.browser.close();
   // the listings could not be read, the rest could: that is not an empty book
@@ -1033,12 +1044,12 @@ try {
   await until(p, () => /Could not read the Bitcoin order book/.test(document.querySelector('#btc-ladder').textContent) && document.querySelector('#px-usd').textContent.startsWith('$'));
   await p.click('#hints summary');
   const partLane = (await p.$$eval('#lanes .lane', (ls) => ls.map((l) => l.textContent.replace(/\s+/g, ' ').trim()))).find((l) => /On Bitcoin/.test(l));
-  ok(!/No tETH is listed/.test(await text(p, '#btc-lead')) && /book not read/.test(await text(p, '#btc-sum')) && /book not read/.test(partLane) && !(await p.$('#btc-actions button')), `holders and transfers known but no listings read: it says so and does not call the book empty (${partLane})`);
+  ok(!/No tETH is listed/.test(await text(p, '#btc-lead')) && /book not read/.test(await text(p, '#btc-sum')) && !partLane && !(await p.$('#btc-actions button')), `holders and transfers known but no listings read: the panel says so and does not call the book empty, and no lane quotes a price (${partLane})`);
   await r.browser.close();
   // clicking a ladder row with the visitor's own order at the best price primes only what is cheaper than the row, theirs left out
   r = await openPage({ width: 1280, height: 900 });
   const prime = await r.page.evaluate(async () => {
-    const m = await import('/trade/teth/market.js');
+    const m = await import('/teth/market.js');
     const row = (unit, mine) => ({ unit, amount: 10n ** 8n, sats: unit, mine, instant: true, whole: true });
     const book = { asks: [row(100, true), row(200, false), row(300, false)], bids: [{ ...row(90, true), auto: false }, { ...row(80, false), auto: false }, { ...row(70, false), auto: false }] };
     return { buy1: m.bookPrime({ book }, 'buy', 1).receiveBase, buy2: m.bookPrime({ book }, 'buy', 2).receiveBase, sell1: m.bookPrime({ book }, 'sell', 1).sellBase };
@@ -1276,6 +1287,7 @@ try {
   r = await openPage({ width: 390, height: 800 }, { scheme: 'dark' });
   p = r.page;
   await until(p, () => document.querySelectorAll('.pf').length === 3 && document.querySelector('#chart .line'));
+  await p.evaluate(() => { document.querySelector("#hints").open = true; }); await shot(p, 'phone-lanes'); await p.evaluate(() => { document.querySelector("#hints").open = false; });
   await shot(p, 'phone-dark');
   ok(await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'a phone has no sideways scroll');
   const order = await p.evaluate(() => ['.p-ticket', '.p-chart', '.p-farm', '.p-depth', '.p-info'].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().top + scrollY)));
@@ -1294,7 +1306,15 @@ try {
   await r.page.goto(`http://127.0.0.1:${WEB}/trade/tac/`);
   await r.page.waitForSelector('.assets');
   const tac = await r.page.$$eval('.assets a', (as) => as.map((a) => [a.textContent.trim(), a.getAttribute('href'), a.getAttribute('aria-current')]));
-  ok(tac.length === 3 && tac[0][2] === 'page' && tac[1][1] === '/trade/teth/' && tac[2][1] === '/trade/cbtc/', 'the TAC page carries the same switch, to the other two');
+  ok(tac.length === 3 && tac[0][2] === 'page' && tac[1][1] === '/teth/' && tac[2][1] === '/trade/cbtc/', 'the TAC page carries the same switch, to the other two');
+  // tETH's old address (/trade/teth/) is a stub that sends on, the query and the fragment with it, under its own CSP
+  for (const [from, want] of [['/trade/teth/', '/teth/'], ['/trade/teth/#mode=use', '/teth/#mode=use'], ['/trade/teth/?x=1#amount=0.1', '/teth/?x=1#amount=0.1']]) {
+    await r.page.goto(`http://127.0.0.1:${WEB}${from}`);
+    await r.page.waitForSelector('#wallet-chip');
+    const u = new URL(r.page.url());
+    ok(u.pathname + u.search + u.hash === want, `the old address ${from} lands on ${want} (${u.pathname + u.search + u.hash})`);
+  }
+  ok(r.blocked.length === 0, `and the stub's own script ran under its CSP (${r.blocked.join(' | ').slice(0, 160)})`);
   await r.browser.close();
 } catch (e) {
   fails++; console.log('FAIL   ' + (e.stack || e).toString().split('\n').slice(0, 8).join('\n'));

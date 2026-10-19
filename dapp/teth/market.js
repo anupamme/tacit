@@ -30,6 +30,8 @@ export const bookState = (m) => (!m ? 'none' : isActive(m) ? 'active' : !m.book 
 export const refSats = (ethUsd, btcUsd) => (ethUsd > 0 && btcUsd > 0 ? (ethUsd / btcUsd) * 1e8 : null);
 // How far a price in sats sits from ETH's: negative is below.
 export const premium = (sats, ref) => (sats > 0 && ref > 0 ? sats / ref - 1 : null);
+// How far a price sits from ETH's, in words: the one phrase the hero's lanes and the Bitcoin panel both use.
+export const vsEth = (p) => (p == null ? '' : Math.abs(p) < 0.005 ? 'level with ETH' : `${Math.abs(p * 100).toFixed(Math.abs(p) < 0.1 ? 1 : 0)}% ${p < 0 ? 'under' : 'over'} ETH`);
 export const satsTxt = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(n >= 1e7 ? 1 : 2)}M` : n >= 100 ? Math.round(n).toLocaleString('en-US') : Number(n).toLocaleString('en-US', { maximumFractionDigits: 1 }));
 const left = (t, at) => { const d = t - at; return d <= 0 ? 'now' : d < 3600 ? `${Math.ceil(d / 60)} min` : d < 172800 ? `${Math.round(d / 3600)} h` : `${Math.round(d / 86400)} days`; };
 const tethTxt = (n) => grp(n, n >= 100 ? 0 : n >= 1 ? 2 : 4);
@@ -90,7 +92,7 @@ export function summary(m, { ethUsd, btcUsd, ref }) {
   if (bookState(m) === 'unread') return '<span>book not read</span>';
   if (!isActive(m)) return '<span>not listed yet</span>';
   if (!m.mark) return `<span>${m.book?.asks.length || 0} listed · ${m.book?.bids.length || 0} bid${m.book?.bids.length === 1 ? '' : 's'} · no trades yet</span>`;
-  const p = premium(m.mark, ref), word = p == null ? '' : Math.abs(p) < 0.005 ? 'level with ETH' : `${Math.abs(p * 100).toFixed(Math.abs(p) < 0.1 ? 1 : 0)}% ${p < 0 ? 'under' : 'over'} ETH`;
+  const word = vsEth(premium(m.mark, ref));
   return `<b class="num">${esc(satsTxt(m.mark))} sats</b>${btcUsd ? ` · ${usd(m.mark * btcUsd / 1e8)}` : ''}${word ? ` · ${word}` : ''}`;
 }
 

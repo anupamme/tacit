@@ -5,7 +5,7 @@
 //     Disconnect ends the session in the wallet app, and the next sign-in pairs afresh.
 //   · /tac, the keeper page and Secret Sats: a wallet app opens the key (/tac, /sats; /sats and the classic app share tacit.js's Ethereum wallet, whose
 //     disconnect ends the session) or pays for a keeper action (the keeper page, which names the wallet app and leaves it on Disconnect).
-//   · /trade/tac/, /trade/teth/ and /trade/cbtc/: the header shows the wallet app's account as connected (on Ethereum, not "another network"), a reload
+//   · /trade/tac/, /teth/ and /trade/cbtc/: the header shows the wallet app's account as connected (on Ethereum, not "another network"), a reload
 //     brings it back with no new pairing, and Disconnect ends the session in the wallet app.
 //   · the trade pages' wallet layer (trade/wallet.js over the real adapter): the network reads as 0x1, the page never asks the wallet to switch to it,
 //     a transaction and TAC's permit reach the wallet app as the page built them, and Disconnect ends the session.
@@ -164,7 +164,7 @@ try {
   await page.context().close();
 
   // ── the trade pages: a wallet app connects, and the header says so ──
-  for (const path of ['/trade/tac/', '/trade/teth/', '/trade/cbtc/']) {
+  for (const path of ['/trade/tac/', '/teth/', '/trade/cbtc/']) {
     page = await newPage();
     asked.length = 0;
     await page.goto(`${ORIGIN}${path}`, { waitUntil: 'domcontentloaded' });

@@ -81,7 +81,10 @@ export const shown = (t) => (t === 'cETH' ? 'tETH' : t);
 // Each pool of the program that pairs tETH, with what it pays, what that earns on what is bonded, how deep it is and what one tETH costs in it.
 // Notes carry 8 decimals, so the reserves' ratio is the price. A pool's APR is a year of its TAC at TAC's price now over twice its tETH side
 // that is bonded (the pool's two sides are worth the same): the front page's own sum. `usd` is what the pool says a tETH is worth, with cUSD
-// counted as a dollar; `gap` how far that is from ETH's price. `bonded` is the share of the pool's liquidity that is in the farm.
+// counted as a dollar; `gap` how far that is from ETH's price. `bonded` is the share of the pool's liquidity that is in the farm. `worthUsd` is
+// what both sides are worth now, a tETH at ETH's price and the other side at its own, and `depthEth` the same in ETH: a pool that sits away from
+// ETH holds less than twice its tETH side (a tETH is ETH, the cUSD beside it is a dollar), so the depth shown is this, not that doubling, which
+// is what stands in only while a price is missing.
 export function poolRows(program, { tacEth = null, ethUsd = null, btcUsd = null } = {}) {
   const live = !!program?.epoch?.active;
   return (program?.pools || []).map((p) => {
@@ -91,9 +94,11 @@ export function poolRows(program, { tacEth = null, ethUsd = null, btcUsd = null 
     const per = rA > 0 ? rB / rA : null;                                                                       // OTHER per tETH
     const perDay = live ? Number(p.tacPerDayForPool) || 0 : 0;
     const bonded = total > 0 ? 2 * rA / 1e8 * Number(p.totalShares) / total : 0;                                // ETH
-    const usd = per == null ? null : other === 'TAC' ? (tacEth && ethUsd ? per * tacEth * ethUsd : null) : other === 'cUSD' ? per : (btcUsd ? per * btcUsd : null);
+    const unit = other === 'TAC' ? (tacEth && ethUsd ? tacEth * ethUsd : null) : other === 'cUSD' ? 1 : (btcUsd || null);                  // dollars in one of the other side
+    const usd = per == null || unit == null ? null : per * unit;
+    const worthUsd = ethUsd && unit != null ? rA / 1e8 * ethUsd + rB / 1e8 * unit : null;
     return { pid: Number(p.pid), other, name: `tETH / ${other}`, perDay, apr: perDay > 0 && bonded > 0 && tacEth ? perDay * 365 * tacEth / bonded * 100 : null,
-      depthEth: 2 * rA / 1e8, tethSide: rA / 1e8, otherSide: rB / 1e8, bondedPct: total > 0 ? Number(p.totalShares) / total : null, per, usd, gap: usd != null && ethUsd ? usd / ethUsd - 1 : null,
+      worthUsd, depthEth: worthUsd != null ? worthUsd / ethUsd : 2 * rA / 1e8, tethSide: rA / 1e8, otherSide: rB / 1e8, bondedPct: total > 0 ? Number(p.totalShares) / total : null, per, usd, gap: usd != null && ethUsd ? usd / ethUsd - 1 : null,
       shares: Number(p.totalShares) || 0, lpTotal: total, rA, rB };
   }).filter(Boolean).sort((x, y) => x.pid - y.pid);
 }

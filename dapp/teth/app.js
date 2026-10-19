@@ -1,13 +1,13 @@
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=deafdf6c';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=92188b57';
 import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=149c5b79';
-import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=de43ba2c';
-import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, proveOwn, ownWords, ownable, relayState, relayStopped, forgetUx, getUx } from '/trade/teth/wrap.js?cb=6b8d342b';
-import { ownPref, setOwnPref, proverFor, readCredit, proofsFor, fundFromWallet, quoteEth, quoteEthFor, fundWithEth, loadSelfProver, tokenBalance } from '/trade/teth/prover.js?cb=1baba054';
+import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/teth/read.js?cb=c0ec533f';
+import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, proveOwn, ownWords, ownable, relayState, relayStopped, forgetUx, getUx } from '/teth/wrap.js?cb=8727988a';
+import { ownPref, setOwnPref, proverFor, readCredit, proofsFor, fundFromWallet, quoteEth, quoteEthFor, fundWithEth, loadSelfProver, tokenBalance } from '/teth/prover.js?cb=1baba054';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { mountDepth } from '/trade/depth.js?cb=70a80f2f';
 import { candlesFromTrades, closeAt } from '/trade/tape.js?cb=a4aefafb';
-import { readMarket, isActive, bookState, refSats, premium, satsTxt, ladders, idle, bookPrime, summary, fillBars, BTC_ID } from '/trade/teth/market.js?cb=9229f140';
+import { readMarket, isActive, bookState, refSats, premium, vsEth, satsTxt, ladders, idle, bookPrime, summary, fillBars, BTC_ID } from '/teth/market.js?cb=0ebeb453';
 import { $, esc, now, rpc, fmtUnits, plain, parseUnits, grp, sig, usd, pct, ago, short, E10, E18 } from '/trade/util.js?cb=509d6618';
 
 const ETHBLUE = '#627eea', ORANGE = '#f7931a';
@@ -31,7 +31,7 @@ const say = (t, err = false) => { const s = $('#status'); s.innerHTML = err ? `<
 function renderHead() {
   const px = ethUsd(), P = D.pool;
   $('#px-usd').textContent = px != null ? usd(px) : 'tETH';
-  document.title = px != null ? `tETH ${usd(px)} · tacit trade` : 'tacit trade · tETH';
+  document.title = px != null ? `tETH ${usd(px)} · tacit` : 'tacit tETH';
   const bits = [`<span title="Put in ETH, take out ETH: the pool gives one for one"><b class="num">1 tETH</b> = 1 ETH, private</span>`];
   if (P) {
     bits.push(`<span><b class="num">${esc(grp(toEth(P.held), 2))} ETH</b>${px != null ? ` (${compact(toEth(P.held) * px)})` : ''} held in the pool</span>`);
@@ -45,20 +45,21 @@ function renderHead() {
 }
 
 function renderLanes() {
-  const px = ethUsd(), rows = D.rows, cards = [{ name: 'Pool rate', sw: ETHBLUE, v: px, s: '1 ETH', g: 'one for one' },
-    ...rows.map((r) => ({ name: `In the ${r.other} pool`, sw: r.other === 'TAC' ? '#f7931a' : r.other === 'cUSD' ? '#16a34a' : '#f7931a', v: r.usd, s: `${sig(r.per, 3)} ${r.other}`, gap: r.gap, g: r.gap != null ? `${pct(r.gap)} vs ETH${Math.abs(r.gap) >= 0.01 ? ' · apart' : ''}` : 'reading' }))];
-  const usds = rows.map((r) => r.usd).filter((x) => x != null), apart = Math.max(0, ...rows.map((r) => (r.gap == null ? 0 : Math.abs(r.gap))));
-  const m = D.btc, ref = refSats(px, btcUsd());
+  const px = ethUsd(), rows = D.rows, m = D.btc, ref = refSats(px, btcUsd());
   const best = m?.book ? m.book.bestAsk ?? m.book.bestBid : null, bestWord = m?.book?.bestAsk != null ? 'cheapest ask' : 'best bid';
-  if (m) cards.push(bookState(m) === 'unread' ? { name: 'On Bitcoin', sw: ORANGE, v: null, s: '', g: 'book not read', idle: true }
-    : isActive(m) && !m.mark && best ? { name: 'On Bitcoin', sw: ORANGE, v: btcUsd() ? best * btcUsd() / 1e8 : null, s: `${satsTxt(best)} sats`, gap: premium(best, ref), g: `${bestWord} · no trades yet` }
-    : isActive(m) && m.mark ? { name: 'On Bitcoin', sw: ORANGE, v: btcUsd() ? m.mark * btcUsd() / 1e8 : null, s: `${satsTxt(m.mark)} sats`, gap: premium(m.mark, ref), g: ref ? `${pct(premium(m.mark, ref))} vs ETH${Math.abs(premium(m.mark, ref)) >= 0.01 ? ' · apart' : ''}` : 'last trade' }
-    : { name: 'On Bitcoin', sw: ORANGE, v: null, s: ref ? `ETH is ≈ ${satsTxt(ref)} sats` : '', g: 'not listed yet', idle: true });
+  // Every lane answers one question, what a tETH is worth there: its dollars, what that is in the lane's own money, and how far it sits from ETH.
+  const lane = (ico, name, v, s, gap, what = '') => ({ ico, name, v, s, gap, g: [what, vsEth(gap)].filter(Boolean).join(' · ') });
+  const cards = [{ ...lane('eth', 'Redeems for', px, '1 tETH = 1 ETH', null, 'one for one'), first: true },
+    ...rows.map((r) => lane(r.other.toLowerCase(), r.name, r.usd, `1 tETH = ${sig(r.per, 3)} ${r.other}`, r.gap, r.worthUsd != null ? `${compact(r.worthUsd)} deep` : ''))];
+  const sats = m && isActive(m) ? m.mark || best : null;                                    // a Bitcoin book with nothing in it has no lane: its panel below says so
+  if (sats) cards.push(lane('btc', 'On Bitcoin', btcUsd() ? sats * btcUsd() / 1e8 : null, `1 tETH = ${satsTxt(sats)} sats`, premium(sats, ref), m.mark ? 'last trade' : bestWord));
+  const usds = rows.map((r) => r.usd).filter((x) => x != null), gaps = rows.map((r) => r.gap).filter((x) => x != null);
+  const far = gaps.reduce((w, g) => (Math.abs(g) > Math.abs(w) ? g : w), 0), apart = Math.abs(far);
   $('#hints-sum').innerHTML = px != null
-    ? `<span>Pool rate <b>${usd(px)}</b></span>${usds.length ? `<span>· in private pools <b>${usd(Math.min(...usds))}${Math.min(...usds) === Math.max(...usds) ? '' : ` to ${usd(Math.max(...usds))}`}</b></span>` : ''}${m && isActive(m) && m.mark && btcUsd() ? `<span>· on Bitcoin <b>${usd(m.mark * btcUsd() / 1e8)}</b></span>` : ''}${apart >= 0.01 ? `<span class="apart">· up to ${Math.round(apart * 100)}% apart</span>` : ''}`
+    ? `<span>Redeems for <b>${usd(px)}</b></span>${usds.length ? `<span>· private pools <b>${usd(Math.min(...usds))}${Math.min(...usds) === Math.max(...usds) ? '' : ` to ${usd(Math.max(...usds))}`}</b></span>` : ''}${m && isActive(m) && m.mark && btcUsd() ? `<span>· on Bitcoin <b>${usd(m.mark * btcUsd() / 1e8)}</b></span>` : ''}${apart >= 0.01 ? `<span class="apart">· up to ${Math.round(apart * 100)}% ${far < 0 ? 'under' : 'over'} ETH</span>` : ''}`
     : 'Where tETH sits';
-  $('#lanes').innerHTML = cards.map((c) => `<div class="lane"><span class="k"><i class="sw" style="background:${c.sw}"></i>${tn(c.name)}</span><span class="v num">${c.idle ? '—' : c.v == null && c.name !== 'Pool rate' ? '<i class="sk"></i>' : usd(c.v)}</span><span class="s num">${esc(c.s || '')}</span><span class="g ${c.gap != null && Math.abs(c.gap) >= 0.01 ? 'dev' : ''}">${esc(c.g || '')}</span></div>`).join('');
-  $('#gapnote').textContent = apart >= 0.01 ? 'Each private pool prices tETH from its own reserves, so a small one can sit away from ETH. Swaps happen at its price.' : '';
+  $('#lanes').innerHTML = cards.map((c) => `<div class="lane"><span class="k"><svg class="tk xs" aria-hidden="true"><use href="#tk-${c.ico}"/></svg>${tn(c.name)}</span><span class="v num">${c.v == null && !c.first ? '<i class="sk"></i>' : usd(c.v)}</span><span class="s num">${esc(c.s)}</span><span class="g ${c.gap != null && Math.abs(c.gap) >= 0.01 ? 'dev' : ''}">${esc(c.g)}</span></div>`).join('');
+  $('#gapnote').textContent = apart >= 0.01 ? 'A private pool prices tETH from its own reserves, so a thin one can sit well away from ETH, and a swap in it gets that price. Taking tETH out as ETH is one for one, less the relay’s fee.' : '';
 }
 
 const chart = mountChart($('#chart'), (h) => paintRead(h));
@@ -875,7 +876,7 @@ function renderFarm() {
   $('#pools').innerHTML = rows.map((r) => {
     const m = mine.get(r.pid);
     return `<a class="pf" href="/#farm/private-${r.pid}"><span class="nm"><span class="pairtk">${icon('teth')}${icon(r.other.toLowerCase())}</span>${esc(r.name)}${m ? '<span class="tag">yours</span>' : ''}</span><span class="rt num">${esc(aprTxt(r.apr))}<small>${r.perDay > 0 ? `${Math.round(r.perDay).toLocaleString('en-US')} TAC a day` : 'no reward now'}</small></span><i aria-hidden="true">→</i>`
-      + `<span class="sb">${esc(r.depthEth < 0.01 ? 'under 0.01' : grp(r.depthEth, 2))} ETH deep${r.bondedPct != null ? ` · ${farmedPct(r.bondedPct)} farmed` : ''} · ${esc(amt(r.tethSide, 2))} tETH + ${esc(amt(r.otherSide, dp(r)))} ${esc(r.other)} in the pool</span>`
+      + `<span class="sb">${esc(r.depthEth < 0.01 ? 'under 0.01' : grp(r.depthEth, 2))} ETH deep${r.bondedPct != null ? ` · ${farmedPct(r.bondedPct)} farmed` : ''} · holds ${esc(amt(r.tethSide, 2))} tETH + ${esc(amt(r.otherSide, dp(r)))} ${esc(r.other)}</span>`
       + (m ? `<span class="sb mine">Yours: ${esc(amt(m.teth, 4))} tETH + ${esc(amt(m.other, dp(r)))} ${esc(r.other)} · ${esc(grp(m.earned, 2))} TAC earned${m.perDay > 0 ? ` · about ${esc(m.perDay >= 10 ? grp(m.perDay, 0) : m.perDay.toFixed(2))} TAC a day` : ''}</span>` : '') + '</a>';
   }).join('');
   const heldHere = key.unlocked && D.held?.pub === key.key.pubHex;

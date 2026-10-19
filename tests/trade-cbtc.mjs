@@ -183,7 +183,7 @@ try {
   await p.evaluate(() => { document.querySelector('#hints').open = false; });
   ok(heads.some((h) => /cBTC/.test(h)) && !heads.some((h) => /CBTC|TETH|CUSD/.test(h)), `the label capitals leave the tokens' own spelling alone (${heads.join(' | ').replace(/\n/g, ' ')})`);
   const assets = await p.$$eval('.assets a', (a) => a.map((x) => `${x.textContent.trim()}:${x.getAttribute('href')}:${x.getAttribute('aria-current') || ''}`));
-  ok(assets.join() === 'TAC:/trade/tac/:,tETH:/trade/teth/:,cBTC:/trade/cbtc/:page', `the switch names the three markets and marks this one (${assets.join(' ')})`);
+  ok(assets.join() === 'TAC:/trade/tac/:,tETH:/teth/:,cBTC:/trade/cbtc/:page', `the switch names the three markets and marks this one (${assets.join(' ')})`);
   const rows = await p.$$eval('#cov .cov-row', (rs) => rs.map((x) => ({ h: x.querySelector('.cov-h').textContent.replace(/\s+/g, ' ').trim(), s: x.querySelector('.cov-s').textContent.replace(/\s+/g, ' ').trim(), bar: x.querySelector('.cov-bar i')?.style.width || null, tick: x.querySelector('.cov-bar u')?.style.left || null })));
   ok(rows.length === 4 && /Bitcoin locked/.test(rows[0].h) && /0\.113908 BTC/.test(rows[0].h), `the locks: the sats locked (${rows[0].h})`);
   const liveBond = 20 * 0.24, bondUsd = liveBond * WST * ETH_USD, lockUsd = Number(T.locked) / 1e8 * BTC_USD, cover = Math.round(bondUsd / lockUsd * 100);

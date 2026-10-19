@@ -24,7 +24,8 @@
 /tac      /tac/      301
 /trade    /trade/tac/    301
 /trade/tac  /trade/tac/  301
-/trade/teth  /trade/teth/  301
+/teth  /teth/  301
+/trade/teth  /teth/  301
 /trade/cbtc  /trade/cbtc/  301
 /vault    /vault/    301
 /tasks    /tasks/    301
