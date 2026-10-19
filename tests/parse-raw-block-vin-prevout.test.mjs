@@ -61,6 +61,9 @@ ok('vin[0].vout matches', tx.vin[0].vout === 7, String(tx.vin[0].vout));
 ok('vin[1].txid matches the second input\'s own distinct prevout', tx.vin[1].txid === bytesToHex(prevTxidB), tx.vin[1].txid);
 ok('vin[1].vout matches', tx.vin[1].vout === 3, String(tx.vin[1].vout));
 ok('vout still parses correctly alongside the fix', tx.vout.length === 1 && tx.vout[0].value === 1000);
+// `raw` is the transaction's own bytes in the block (what the Tacit transaction archive keeps), so they hash to its txid.
+const { parseTx } = await import('../worker/src/tac-archive.js');
+ok('raw is the transaction\'s own bytes, hashing to its txid', tx.raw && parseTx(tx.raw, (b) => sha256(sha256(b))).txid === tx.txid, tx.raw && tx.raw.length);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

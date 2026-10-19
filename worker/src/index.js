@@ -99,7 +99,8 @@ import { preauthSalesBookBody } from './book-views.js';
 import { buildCrossoutConsumer, crossoutMintLeaf } from './crossout-consumer.js';
 import { buildGovernance } from './governance.js';
 import { makeTacAncestry } from './tac-ancestry.js';
-import { traceBurnDepositProvenance } from './burndep-live-tracer.js';
+import { makeTacArchive, ARCHIVE_MAX_ROOTS, ARCHIVE_MAX_IMPORT } from './tac-archive.js';
+import { traceBurnDepositProvenance, rebuiltRawTx } from './burndep-live-tracer.js';
 import { admitBridgeMint, BURN_ROOT_SLOT } from './bridgemint-admit.js';
 import { makeArmedMints } from './bridge-armed.js';
 import { admitOpShape, SHAPED_TYPES } from './op-admit.js';
@@ -12313,6 +12314,54 @@ async function handleChainOutspendsBatch(req, env, network, cors) {
   return new Response(JSON.stringify({ outspends: out }), { status: 200, headers });
 }
 
+// ---- the Tacit transaction archive (tac-archive.js) ---------------------------------------------------------------
+// POST /chain/tac/ancestry { roots: [txid…] } → { txs: { txid: { hex, h, b? } }, truncated }: every archived transaction reached
+// from the roots through their inputs, from this service's own store only (it never asks upstream for it). A page reads a
+// note's history in one answer this way, checks each txid against its bytes, and asks a public explorer only for what is absent.
+const TAC_ANCESTRY_RL_BURST = 20, TAC_ANCESTRY_RL_REFILL_MS = 15_000;
+async function jsonMaybeGzip(req, body, headers) {
+  const h = new Headers(headers);
+  h.set('Content-Type', 'application/json');
+  h.set('Vary', 'Accept-Encoding');
+  if (body.length > 4096 && /\bgzip\b/.test(req.headers.get('Accept-Encoding') || '') && typeof CompressionStream === 'function') {
+    h.set('Content-Encoding', 'gzip');
+    return new Response(new Blob([body]).stream().pipeThrough(new CompressionStream('gzip')), { status: 200, headers: h });
+  }
+  return new Response(body, { status: 200, headers: h });
+}
+async function handleTacAncestry(req, env, network, cors) {
+  const h = { ...cors, 'Cache-Control': 'no-store' };
+  if (!env.REGISTRY_KV) return jsonResponse({ error: 'no kv' }, 503, h);
+  const ip = req.headers.get('CF-Connecting-IP') || 'anon';
+  const rl = await proveRateLimit(env, ip, 'tacanc', TAC_ANCESTRY_RL_BURST, TAC_ANCESTRY_RL_REFILL_MS);
+  if (!rl.ok) return jsonResponse({ error: `too many requests — retry in ~${rl.retryAfter}s` }, 429, { ...h, 'Retry-After': String(rl.retryAfter) });
+  let body;
+  try { body = await req.json(); } catch { return jsonResponse({ error: 'expected JSON body' }, 400, h); }
+  const roots = Array.isArray(body?.roots) ? body.roots : null;
+  if (!roots || !roots.length || roots.length > ARCHIVE_MAX_ROOTS || !roots.every((t) => typeof t === 'string' && /^[0-9a-f]{64}$/i.test(t))) {
+    return jsonResponse({ error: `roots: 1 to ${ARCHIVE_MAX_ROOTS} txids` }, 400, h);
+  }
+  const { txs, truncated } = await tacArchive(env, network).ancestry(roots);
+  return jsonMaybeGzip(req, JSON.stringify({ txs: Object.fromEntries(txs), truncated }), h);
+}
+// POST /chain/tac/import { txs: [{ hex, h, b? }…] } (operator token): confirmed Tacit transactions from a list, each kept only if it
+// is one whole transaction with a Tacit envelope; its txid is the hash of the bytes given.
+async function handleTacImport(req, env, network, cors) {
+  const h = { ...cors, 'Cache-Control': 'no-store' };
+  if (!checkConfidentialAuth(req, env)) return jsonResponse({ error: 'not found' }, 404, h);
+  if (!env.REGISTRY_KV) return jsonResponse({ error: 'no kv' }, 503, h);
+  let body;
+  try { body = await req.json(); } catch { return jsonResponse({ error: 'expected JSON body' }, 400, h); }
+  const list = Array.isArray(body?.txs) ? body.txs : null;
+  if (!list || list.length > ARCHIVE_MAX_IMPORT) return jsonResponse({ error: `txs: up to ${ARCHIVE_MAX_IMPORT}` }, 400, h);
+  const a = tacArchive(env, network), kept = [], refused = [];
+  for (const [i, t] of list.entries()) {
+    const id = await a.keep(String(t && t.hex || ''), Number(t && t.h), t && t.b).catch(() => null);
+    if (id) kept.push(id); else refused.push(i);
+  }
+  return jsonResponse({ ok: true, kept: kept.length, refused }, 200, h);
+}
+
 // ---- /chain read cache -------------------------------------------------------------------------------------------
 // The proxy's `cf.cacheTtl` hint only means something on an edge runtime; on the Node host it is ignored, so every
 // reader would re-fetch immutable data (a confirmed tx, a block) from the public explorers, and a holdings scan
@@ -23266,8 +23315,31 @@ function* parseRawBlockTxs(d) {
     const stripped = segwit
       ? concatBytes(d.subarray(start, start + 4), d.subarray(start + 6, voutEnd), d.subarray(p - 4, p))
       : d.subarray(start, p);
-    yield { txid: bytesToHex(sha256(sha256(stripped)).slice().reverse()), status: { block_time }, vin, vout };
+    // `raw` is a view of the block's own bytes for this transaction (no copy), for the Tacit transaction archive.
+    yield { txid: bytesToHex(sha256(sha256(stripped)).slice().reverse()), status: { block_time }, vin, vout, raw: d.subarray(start, p) };
   }
+}
+
+// The Tacit transaction archive (tac-archive.js) for a network, and the forward scan's hand-off to it: a transaction it read in
+// a block with a Tacit envelope is kept by its bytes (the block's own, or rebuilt from the paged answer and checked against its
+// txid), without waiting and without ever holding the scan up.
+const _tacArchives = new Map();
+function tacArchive(env, network) {
+  const kv = env.REGISTRY_KV;
+  let a = _tacArchives.get(network);
+  if (!a || a.kv !== kv) {
+    a = { kv, archive: makeTacArchive({ kv, network, dsha256: (b) => sha256(sha256(b)),
+      isTacit: (w) => { try { return !!(w && w.length >= 3 && decodeEnvelopeScript(hexToBytes(w[1]))); } catch { return false; } } }) };
+    _tacArchives.set(network, a);
+  }
+  return a.archive;
+}
+function archiveTacitTx(env, network, tx, height, blockHash) {
+  if (!env.REGISTRY_KV) return;
+  try {
+    const raw = tx.raw || (() => { const hex = rebuiltRawTx(tx, tx.txid, (b) => sha256(sha256(b))); return hex ? hexToBytes(hex) : null; })();
+    if (raw) tacArchive(env, network).keep(raw, height, blockHash).catch(() => {});
+  } catch { /* the archive is a convenience; the scan goes on */ }
 }
 
 const _SCAN_PAGE_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 20_000];
@@ -23530,6 +23602,7 @@ async function scanForEtches(env, network) {
         } catch {}
       }
       if (!decoded) continue;
+      archiveTacitTx(env, network, tx, h, blockHash);
       if (decoded.opcode === T_CETCH) {
         const ce = decodeCEtchPayload(decoded.payload);
         if (!ce) continue;
@@ -27041,6 +27114,8 @@ export {
   // against a fake KV + real esplora data, without needing a live REGISTRY_KV.
   sweepPendingBurnDeposits, buildBurndepBundle, assetKey, handleBurnDepositStatus, handleBurnDepositCheck, handleBridgeRecover, handleBridgeRecoverQueue, handleBridgeRecoverMark,
   buildProbeBurnTxHex, handleBurndepCacheStatus, applyReflectionAck,
+  // The forward scan, so a test can hand it one block and see what it keeps (the Tacit transaction archive among it).
+  scanForEtches,
 };
 
 // ============== DISCORD TOKEN-GATE HANDLERS ==============
@@ -28115,6 +28190,13 @@ async function _routeFetch(req, env, ctx) {
     // Body: { "outpoints": ["txid:vout", ...] }
     if (url.pathname === '/chain/outspends/batch' && req.method === 'POST') {
       return handleChainOutspendsBatch(req, env, network, cors);
+    }
+    // A note's history from the Tacit transaction archive (this service's own store, never upstream), and its operator import.
+    if (url.pathname === '/chain/tac/ancestry' && req.method === 'POST') {
+      return handleTacAncestry(req, env, network, cors);
+    }
+    if (url.pathname === '/chain/tac/import' && req.method === 'POST') {
+      return handleTacImport(req, env, network, cors);
     }
     // IPFS content proxy. Races multiple public gateways server-side and
     // returns the first valid response. The dapp's IPFS fetches (asset
