@@ -13,7 +13,7 @@
 //   3. XCurve sigma proof+verify parity (dapp prove → worker verify, vice versa)
 //   4. XCurve domain string consistency (challenge matches)
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { hexToBytes, bytesToHex } from '@noble/hashes/utils';
 import {
   TEST_LP_ADD_REFUND_TAIL, TEST_LP_ADD_KERNEL_TAIL_A, TEST_LP_ADD_KERNEL_TAIL_B,

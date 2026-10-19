@@ -16,7 +16,7 @@
 // Covers capabilities: 0x00 (default), 0x01 (RANGE_ATTEST gating).
 // Covers reserve ratios: 1:1, 1:10, 1:100, 1:10000 (asymmetric).
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const dom = new JSDOM('<!doctype html>', { url: 'http://localhost/' });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;

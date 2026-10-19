@@ -18,7 +18,7 @@
 // Run:
 //   SEED=<hex64> CONFIRM=1 node tests/list-amount-mode-e2e-signet.mjs
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import * as secp from '@noble/secp256k1';
 import { ripemd160 } from '@noble/hashes/ripemd160';
 import { sha256 } from '@noble/hashes/sha256';

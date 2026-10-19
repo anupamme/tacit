@@ -34,7 +34,7 @@
 //   sender:    ~150k signet sats (CETCH + send + receive-back fees)
 //   recipient: ~30k  signet sats (send-back fee)
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

@@ -6,7 +6,7 @@
 // Setup mirrors tests/stealth-scan-window.test.mjs (JSDOM + localStorage shims so dapp/tacit.js loads in node; the
 // worker and the indexers are a fetch stub). Run with Node >= 22 and --no-experimental-global-navigator.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;

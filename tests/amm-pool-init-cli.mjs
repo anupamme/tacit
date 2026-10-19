@@ -50,7 +50,7 @@
 // to recover liquidity is via T_LP_REMOVE (not yet shipped from the dapp
 // side). Use signet for first runs.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

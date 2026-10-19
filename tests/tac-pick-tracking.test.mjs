@@ -5,7 +5,7 @@
 //
 // Run: `node tests/tac-pick-tracking.test.mjs`
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { keccak_256 } from '@noble/hashes/sha3';
 import { hexToBytes, bytesToHex } from '@noble/hashes/utils';
 

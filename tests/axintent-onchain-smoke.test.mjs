@@ -14,7 +14,7 @@
 // signet harness's job. This test catches structural / integration bugs
 // without needing chain access.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost/',
   pretendToBeVisual: true,

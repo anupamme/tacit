@@ -5,7 +5,7 @@
 //   node tests/secret-sats-sell.test.mjs
 
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { secp, sha256, keccak_256, bytesToHex, hexToBytes } from '../dapp/vendor/tacit-deps.min.js';
 import { makeBtcShieldedPool } from '../dapp/btc-shielded-pool.js';
 import { makeBtcPoolZap } from '../dapp/btc-pool-zap.js';

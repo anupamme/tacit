@@ -17,7 +17,7 @@
 // for drift, not silently track the new (possibly incorrect) regex.
 //
 // Run: `node worker-contract.test.mjs`
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 
 // jsdom shim — the dapp expects browser globals at module-load time
 // (document.addEventListener, localStorage reads). __TACIT_NO_INIT__ keeps

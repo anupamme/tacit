@@ -26,7 +26,7 @@
 //   Depositor: ≥ 50k signet sats for two CETCHes (if needed) + POOL_INIT
 //              fee + asset-A + asset-B holdings ≥ DELTA_{A,B} each.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

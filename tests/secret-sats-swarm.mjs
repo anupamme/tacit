@@ -22,7 +22,7 @@
 // Env: BTC_POOL_API, BTC_POOL_RELAY, ESPLORA, FEE_RATE (default 2), N_WALLETS, FUND_EACH, PAYS (default 40),
 //      ANCHOR (policy|latest|mixed, default mixed: each spend uses the wallet policy anchor or the replayed tip at
 //      random, so part of the traffic reflects real wallet behavior), CONFIRM_TIMEOUT_MIN (default 180).
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';

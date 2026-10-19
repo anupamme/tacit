@@ -23,7 +23,7 @@ import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex, hexToBytes, concatBytes } from '@noble/hashes/utils';
 import * as secp from '@noble/secp256k1';
 
-const { JSDOM } = await import('jsdom');
+const { JSDOM } = await import('./_jsdom.mjs');
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost/', pretendToBeVisual: true,
 });

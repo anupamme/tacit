@@ -37,7 +37,7 @@
 //       on-chain units) so an unprofitable batch reverts. Verify the unitScale conversion matches the pool
 //       (cETH fee is in-system units × unitScale = wei).
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

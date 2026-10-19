@@ -23,7 +23,7 @@
 //
 // Run: `node tests/mixer-nullifier-depth-gate.test.mjs`
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { bytesToHex } from '@noble/hashes/utils';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });

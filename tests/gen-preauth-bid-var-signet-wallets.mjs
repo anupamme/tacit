@@ -17,7 +17,7 @@
 // Run once:  node tests/gen-preauth-bid-var-signet-wallets.mjs
 // Re-running prints existing wallets (idempotent — does NOT overwrite).
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

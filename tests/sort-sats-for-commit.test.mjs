@@ -14,7 +14,7 @@
 // mempool ancestor chain. Signet faucets routinely chain 25+ deep —
 // confirmed-first prevents that cascade on every commit broadcast.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const dom = new JSDOM('<!doctype html><html></html>', { url: 'http://localhost/' });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;

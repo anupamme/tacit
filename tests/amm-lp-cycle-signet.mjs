@@ -24,7 +24,7 @@
 //   SKIP_LP_REMOVE=1     stop after LP_ADD (test add only)
 //   SKIP_BROADCAST=1     build txs + print hex without broadcasting
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

@@ -564,7 +564,7 @@ group('decodeTLpRemovePayload structural round-trip');
 group('Dapp T_SWAP_VAR encoder → worker decoder parity');
 {
   // Load dapp module with JSDOM globals.
-  const { JSDOM } = await import('jsdom');
+  const { JSDOM } = await import('./_jsdom.mjs');
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
     url: 'http://localhost/', pretendToBeVisual: true,
   });

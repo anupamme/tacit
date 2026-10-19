@@ -22,7 +22,7 @@
 //
 // Run: `node tests/cbtc-zk-slot-recover-from-privkey.test.mjs`
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { hexToBytes, bytesToHex } from '@noble/hashes/utils';
 import * as secp from '@noble/secp256k1';
 

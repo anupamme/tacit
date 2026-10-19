@@ -2,7 +2,7 @@
 // address (payPrivately's `askSelf`): a yes, a no, the relay posting it meanwhile (abort) and no answer at all.
 //   node tests/secret-ask-self-ui.test.mjs
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 
 const dom = new JSDOM('<!doctype html><body><span id="host"></span></body>');
 globalThis.document = dom.window.document;

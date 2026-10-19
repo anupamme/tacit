@@ -7,7 +7,7 @@
 //   - fragmented = dustCount >= SATS_CONSOLIDATE_MIN_INPUTS (6)
 //   - Robust to null / undefined / missing-value inputs
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const dom = new JSDOM('<!doctype html><html></html>', { url: 'http://localhost/' });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;

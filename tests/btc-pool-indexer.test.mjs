@@ -1024,7 +1024,7 @@ test('dapp validateOutpoint: a T_BTC_SPEND output is not a note when no pool ser
   const t = parseTx(exitTx.raw).tx;
   const esp = { txid: t.txid, vin: t.vin.map((i) => ({ txid: i.txid, vout: i.vout, witness: i.witness.map(bytesToHex) })), vout: [], status: { confirmed: true } };
   const script = `
-    import { JSDOM } from 'jsdom';
+    import { JSDOM } from ${JSON.stringify(new URL('./_jsdom.mjs', import.meta.url).href)};
     const dom = new JSDOM('', { url: 'http://localhost/' });
     Object.assign(globalThis, { window: dom.window, document: dom.window.document, localStorage: dom.window.localStorage, location: dom.window.location, __TACIT_NO_INIT__: true });
     localStorage.setItem('tacit-network-v1', 'signet');

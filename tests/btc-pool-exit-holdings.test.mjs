@@ -4,7 +4,7 @@
 // both credit it; a carrier the replay has not reached is unverified; a refused one is not credited.
 //   node tests/btc-pool-exit-holdings.test.mjs
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 

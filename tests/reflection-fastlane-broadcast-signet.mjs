@@ -40,7 +40,7 @@
 //       ν entered the on-chain consumed set; the actual spend-of-the-leaf settle reuses the standard transfer
 //       path against the now-reflected spendRoot (driven via the relay, fee bound in proof).
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

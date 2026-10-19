@@ -6,7 +6,7 @@
 // POOL_INIT). Together they prove every legal AMM envelope shape is
 // accepted by the worker, and every illegal shape is rejected.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const dom = new JSDOM('<!doctype html>', { url: 'http://localhost/' });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;

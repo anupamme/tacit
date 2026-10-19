@@ -61,7 +61,7 @@
 // post the envelope via the worker's normal /broadcast path — the harness
 // validates that the ingredients those flows produce are correct.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import * as secp from '@noble/secp256k1';
 import { sha256 } from '@noble/hashes/sha256';
 import { hexToBytes, bytesToHex, concatBytes } from '@noble/hashes/utils';

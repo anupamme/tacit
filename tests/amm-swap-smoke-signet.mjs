@@ -20,7 +20,7 @@
 // swaps assumed against this pool). For a real swap against a pool
 // that's seen traffic, fetch /amm/pool/<id> from the worker instead.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

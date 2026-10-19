@@ -8,7 +8,7 @@
 //      with the same extra input still covers all its spends (and so does not conserve).
 //   node tests/confidential-reflection-axfer.mjs
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;

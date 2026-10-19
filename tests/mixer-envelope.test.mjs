@@ -7,7 +7,7 @@
 //
 // Run: `node mixer-envelope.test.mjs`
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 
 // jsdom shim before dapp import — same boot pattern as dapp-parity.test.mjs.
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {

@@ -27,7 +27,7 @@
 //
 // Run: `node mixer-state.test.mjs`
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost/',

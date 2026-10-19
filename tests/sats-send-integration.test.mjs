@@ -12,7 +12,7 @@
 // access we don't have here.
 //
 // Run: `node sats-send-integration.test.mjs`
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost/',
   pretendToBeVisual: true,

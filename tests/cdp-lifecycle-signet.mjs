@@ -37,7 +37,7 @@
 //   (c) The keeper needs cUSD notes ≥ debtValue to burn (it repays the seized position's debt). The harness
 //       reuses the borrower's wallet as keeper for self-containment; a real keeper is a distinct wallet.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

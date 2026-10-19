@@ -11,7 +11,7 @@
 // amount_ct — is encoded identically. This test pins that invariant and
 // confirms the encoder/decoder roundtrip is lossless across both opcodes.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;

@@ -8,7 +8,7 @@
 //
 // Chain and worker are mocks. Run: `node tests/xfer-self-send.test.mjs` (Node 22: add --no-experimental-global-navigator)
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;

@@ -22,7 +22,7 @@
 //
 // Env: BTC_POOL_API, RELAY_API, PAY_VIA, ESPLORA (default blockstream signet), STATE_FILE, ANCHOR,
 // CONFIRM_TIMEOUT_MIN (default 90), FEE_RATE (sat/vB, default 2).
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';

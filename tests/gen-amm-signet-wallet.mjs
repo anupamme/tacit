@@ -8,7 +8,7 @@
 // Run once:  node tests/gen-amm-signet-wallet.mjs
 // Re-running prints the existing wallet (idempotent — does NOT overwrite).
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

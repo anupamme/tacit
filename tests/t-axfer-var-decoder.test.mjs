@@ -279,7 +279,7 @@ test('encoder rejects rangeproof > 65535 bytes', () => {
 //
 // These tests pin the wire format so a non-standard encoding can't slip back.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const _dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 globalThis.window = _dom.window;
 globalThis.document = _dom.window.document;

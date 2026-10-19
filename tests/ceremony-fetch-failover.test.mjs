@@ -21,7 +21,7 @@
 //
 // Run: `node ceremony-fetch-failover.test.mjs`
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 
 // Boot jsdom before importing the dapp — top-level addEventListener and
 // localStorage reads need browser globals at module-load time.

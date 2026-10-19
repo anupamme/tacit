@@ -4,7 +4,7 @@
 //   (2) the browser pedersenCommit's affine (Cx,Cy) == confidential-pool.commitXY (so lock = mint = scan agree),
 //   (3) the funded signet wallet + its balance (so the live broadcast has sats).
 // No broadcast here. Run: node tests/cbtc-lock-signet.mjs
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

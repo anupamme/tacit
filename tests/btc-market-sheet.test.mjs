@@ -5,12 +5,10 @@
 // opened again, a sale followed here belonging to the key that made it, a typed total being the sats typed, the best-ask chip reaching the ask, and a sell
 // asking for sats to pay its network fee.
 //
-//   JSDOM_ROOT=/Users/z/zFi/ node tests/btc-market-sheet.test.mjs
+//   node tests/btc-market-sheet.test.mjs        (JSDOM_ROOT=<dir with node_modules/jsdom> picks a jsdom; see tests/_jsdom.mjs)
 
-import { createRequire } from 'node:module';
 import fs from 'node:fs';
-const req = createRequire(process.env.JSDOM_ROOT || '/Users/z/zFi/');
-const { JSDOM } = req('jsdom');
+import { JSDOM } from './_jsdom.mjs';
 const FX = new URL('./fixtures/', import.meta.url).pathname;
 export const AID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
 const jsonF = (n) => JSON.parse(fs.readFileSync(FX + n, 'utf8'));

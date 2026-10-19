@@ -16,7 +16,7 @@
 // Or skip the pauses (script polls balances on its own):
 //   CONFIRM=1 SEED=<hex64> node tests/list-consolidate-e2e-signet.mjs
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import * as secp from '@noble/secp256k1';
 import { ripemd160 } from '@noble/hashes/ripemd160';
 import { sha256 } from '@noble/hashes/sha256';

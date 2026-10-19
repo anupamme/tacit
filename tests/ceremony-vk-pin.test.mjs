@@ -71,7 +71,7 @@ for (const [filename, expected] of Object.entries(EXPECTED)) {
 // here would silently route proofs to the wrong canonical zkey.
 {
   globalThis.__TACIT_NO_INIT__ = true;
-  const { JSDOM } = await import('jsdom');
+  const { JSDOM } = await import('./_jsdom.mjs');
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {
     url: 'http://localhost/', pretendToBeVisual: true,
   });

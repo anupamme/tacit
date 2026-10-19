@@ -1,4 +1,4 @@
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 globalThis.window = dom.window; globalThis.document = dom.window.document;
 globalThis.localStorage = dom.window.localStorage; globalThis.location = dom.window.location;

@@ -7,7 +7,7 @@
 //
 // Env: BTC_POOL_API, SATS_FAUCET, ESPLORA (default blockstream signet), STATE_FILE, SELL_UNITS (default 6000),
 // CONFIRM_TIMEOUT_MIN (default 90).
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';

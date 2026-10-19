@@ -7,7 +7,7 @@
 // This file uses a fresh module load so the per-(net,tier) rate cache inside getFeeRate is empty;
 // bundling these cases into fee-tier.test.mjs would hit cached values from the prior MOCK_FEES.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const dom = new JSDOM('<!doctype html><html></html>', { url: 'http://localhost/' });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;

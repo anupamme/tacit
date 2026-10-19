@@ -4,7 +4,7 @@
 //
 // Run (Node 22): node --no-experimental-global-navigator tests/farm-receipt-holdings.test.mjs
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { randomBytes } from 'node:crypto';
 
 const dom = new JSDOM('', { url: 'http://localhost/' });

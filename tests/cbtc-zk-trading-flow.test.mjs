@@ -28,7 +28,7 @@
 //
 // Run: `node cbtc-zk-trading-flow.test.mjs`
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import * as secp from '@noble/secp256k1';
 import { sha256 } from '@noble/hashes/sha256';
 import { hexToBytes, bytesToHex, concatBytes } from '@noble/hashes/utils';

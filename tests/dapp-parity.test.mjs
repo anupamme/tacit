@@ -9,7 +9,7 @@
 //
 // Run: `node dapp-parity.test.mjs`
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 
 // Boot the jsdom shim BEFORE importing the dapp. The dapp expects browser
 // globals at module-load time (top-level addEventListener, localStorage reads).

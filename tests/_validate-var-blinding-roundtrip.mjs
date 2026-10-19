@@ -6,7 +6,7 @@
 // with the onchain keystream opens C_recip, recovery with the derivation
 // keystream does not, and enc is not rRecip in the clear (no leak).
 // Run: node tests/_validate-var-blinding-roundtrip.mjs
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import * as secp from '@noble/secp256k1';
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 globalThis.window = dom.window; globalThis.document = dom.window.document;

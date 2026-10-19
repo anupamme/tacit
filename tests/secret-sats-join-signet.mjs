@@ -14,7 +14,7 @@
 // Tier: the signet-only d = 10,000 sats at fr = 1 sat/vB, so o = 11,000 and each entry output is 11,210.
 // Env: JOIN_BOARD (default https://tacit-join-board.onrender.com), PARTICIPANTS (default 8), ESPLORA
 // (comma-separated), STATE_FILE, AGE_MIN (default 6), FEE_RATE (entry and funding, default 2).
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';

@@ -13,7 +13,7 @@
 // Coverage: determinism, per-input independence, domain separation,
 // input validation, canonical-HMAC cross-check.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { bytesToHex, hexToBytes, concatBytes } from '@noble/hashes/utils';
 import { sha256 } from '@noble/hashes/sha256';
 import { hmac } from '@noble/hashes/hmac';

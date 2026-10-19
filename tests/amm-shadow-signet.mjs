@@ -17,7 +17,7 @@
 // Run:  node tests/amm-shadow-signet.mjs
 //       TACIT_WORKER_BASE=https://… node tests/amm-shadow-signet.mjs   (override)
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 
 const WORKER = process.env.TACIT_WORKER_BASE || 'https://api.tacit.finance';
 globalThis.__TACIT_WORKER_BASE__ = WORKER;

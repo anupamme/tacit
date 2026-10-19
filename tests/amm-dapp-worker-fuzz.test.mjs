@@ -5,7 +5,7 @@
 // Same dapp + worker imports as amm-pool-init-parameter-sweep — but
 // hundreds of random samples instead of a hand-picked sweep matrix.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const dom = new JSDOM('<!doctype html>', { url: 'http://localhost/' });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;

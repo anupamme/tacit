@@ -1,5 +1,5 @@
 // Local replay of step 6 — commitmentForUtxo on the launcher's vin[1] parent.
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;

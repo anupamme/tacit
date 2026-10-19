@@ -564,7 +564,7 @@ function buildSlotRotatePayload({
 // JSDOM shim mirrors what dapp-parity.test.mjs does.
 group('Dapp ↔ worker parity (round-trip via JSDOM-loaded dapp)');
 
-const { JSDOM } = await import('jsdom');
+const { JSDOM } = await import('./_jsdom.mjs');
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost/', pretendToBeVisual: true,
 });

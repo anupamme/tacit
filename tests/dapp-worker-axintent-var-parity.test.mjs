@@ -12,7 +12,7 @@
 // changes) is already covered by tests/worker-axintent-var.test.mjs;
 // this file is the cross-implementation parity check.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;

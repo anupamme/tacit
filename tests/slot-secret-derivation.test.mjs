@@ -7,7 +7,7 @@
 // This test covers the CRYPTOGRAPHIC PROPERTIES of the helpers in isolation.
 // Phase 2 (plumbing into builders) and Phase 3 (scanSlots) land separately.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { bytesToHex, hexToBytes, concatBytes } from '@noble/hashes/utils';
 import { sha256 } from '@noble/hashes/sha256';
 import { hmac } from '@noble/hashes/hmac';

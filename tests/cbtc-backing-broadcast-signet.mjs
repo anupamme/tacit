@@ -41,7 +41,7 @@
 //       in-tx cBTC burn). Only run it on a throwaway signet lock — it forfeits the posted escrow to the
 //       reserve. SKIP_SLASH=1 leaves the lock honest (claim via redeem instead).
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

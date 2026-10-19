@@ -5,7 +5,7 @@
 // Setup mirrors tests/stealth-cache-isolation.test.mjs (JSDOM + localStorage shims so dapp/tacit.js loads in node);
 // the worker is a fetch stub. Run with Node >= 22 and NODE_OPTIONS=--no-experimental-global-navigator.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;

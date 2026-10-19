@@ -15,7 +15,7 @@
 //      fails (each field is bound — no field can be silently mutated in
 //      transit without invalidating the sig)
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import * as secp from '@noble/secp256k1';
 import { hexToBytes, bytesToHex } from '@noble/hashes/utils';
 

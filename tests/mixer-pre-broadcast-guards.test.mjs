@@ -23,7 +23,7 @@
 //
 // Run: `node --test tests/mixer-pre-broadcast-guards.test.mjs`
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost/',

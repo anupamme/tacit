@@ -12,7 +12,7 @@
 // isolation from chain I/O.
 //
 // Run: `node sats-send.test.mjs`
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost/',
   pretendToBeVisual: true,

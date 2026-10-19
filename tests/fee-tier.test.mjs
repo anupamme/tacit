@@ -11,7 +11,7 @@
 // User preference lives in localStorage['tacit-fee-tier-v1'] and defaults
 // to 'standard'.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 const dom = new JSDOM('<!doctype html><html></html>', { url: 'http://localhost/' });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;

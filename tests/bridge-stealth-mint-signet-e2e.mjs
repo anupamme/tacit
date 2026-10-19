@@ -132,7 +132,7 @@ async function live() {
   }
 
   // ── Bitcoin tx primitives (commit/reveal, signing, broadcast) need a browser-ish global env. ──
-  const { JSDOM } = await import('jsdom');
+  const { JSDOM } = await import('./_jsdom.mjs');
   const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });
   globalThis.window = dom.window; globalThis.document = dom.window.document;
   globalThis.localStorage = dom.window.localStorage; globalThis.location = dom.window.location;

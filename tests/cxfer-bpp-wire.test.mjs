@@ -32,7 +32,7 @@
 import * as worker from '../worker/src/index.js';
 import { bytesToHex, hexToBytes, concatBytes } from '@noble/hashes/utils';
 
-const { JSDOM } = await import('jsdom');
+const { JSDOM } = await import('./_jsdom.mjs');
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost/', pretendToBeVisual: true,
 });

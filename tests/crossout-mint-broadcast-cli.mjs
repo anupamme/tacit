@@ -10,7 +10,7 @@
 //
 // Env: NETWORK(signet) ASSET_ID CLAIM_ID CX CY OWNER (all 64-hex; OWNER optional, default 0). DRY_RUN=1
 //      builds + prints hex without broadcasting. Wallet: ~/.tacit-validation/signet.json {priv_hex,network}.
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

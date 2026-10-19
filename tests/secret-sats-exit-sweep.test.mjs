@@ -4,7 +4,7 @@
 //   node tests/secret-sats-exit-sweep.test.mjs
 
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { secp } from '../dapp/vendor/tacit-deps.min.js';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost/' });

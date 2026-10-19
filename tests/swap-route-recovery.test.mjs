@@ -9,7 +9,7 @@
 // scanner (e.g. confusing delta_a_net_mag vs delta_b_net_mag for the last
 // hop direction) is caught.
 
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { bytesToHex, hexToBytes, concatBytes } from '@noble/hashes/utils';
 import { sha256 } from '@noble/hashes/sha256';
 import * as secp from '@noble/secp256k1';

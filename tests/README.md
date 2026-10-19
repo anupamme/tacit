@@ -10,7 +10,10 @@ npm install              # repo root: snarkjs, poseidon, noble
 cd tests && npm install  # noble/scure pins + jsdom for the dapp-in-Node tests
 ```
 
-Node 20+.
+Node 20+. The jsdom tests load jsdom through `tests/_jsdom.mjs`, which takes the first jsdom that works on the running Node: `$JSDOM_ROOT`
+(a directory with `node_modules/jsdom`), then `tests/node_modules` or the repo's, then the main checkout's when this is a git worktree. The root
+`package.json` jsdom (30) needs Node 22+; `tests/package.json` pins jsdom 24, which runs on Node 18+, so `cd tests && npm install` is what makes
+Node 20 work. A new test that needs jsdom should `import { JSDOM } from './_jsdom.mjs'`, not from `'jsdom'`.
 
 ## Running
 

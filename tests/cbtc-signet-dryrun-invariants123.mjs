@@ -15,7 +15,7 @@
 // recovery) — see the report this produces for why that's a dedicated follow-up.
 //
 // Usage: node scratchpad/cbtc-signet-dryrun.mjs
-import { JSDOM } from 'jsdom';
+import { JSDOM } from './_jsdom.mjs';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
