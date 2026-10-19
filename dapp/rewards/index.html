@@ -31,7 +31,7 @@
 <link rel="preconnect" href="https://1rpc.io" crossorigin>
 <!-- preload-roots: /rewards/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/rewards/app.js?cb=73cd38bb">
+<link rel="modulepreload" href="/rewards/app.js?cb=9fe512aa">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/confidential-names.js?cb=9efdff52">
 <link rel="modulepreload" href="/tacit-address.js">
@@ -301,6 +301,7 @@ span.ern { cursor: default; }
 .ern .ra b { font: 500 17px/1.25 var(--mono); min-width: 5ch; }
 .ern .ra b.apr:not(:empty) { color: var(--ok); }
 .ern .ra small { font-size: 11px; color: var(--mute); }
+.ern .ra b:empty + small { display: none; }
 .ern .go { flex: none; padding: 9px 16px; border: 1px solid var(--hair-2); border-radius: 999px; font: 500 13px/1 var(--mono); color: var(--paper); background: var(--ink); border-color: var(--ink); transition: background-color .15s, color .15s, border-color .15s; }
 .ern .go.o { color: var(--ink); background: transparent; border-color: var(--hair-2); }
 .ern .cv, a.ern::after { content: ''; flex: none; width: 8px; height: 8px; margin: 0 4px 0 -4px; border-right: 1.5px solid var(--mute); border-bottom: 1.5px solid var(--mute); transform: rotate(-45deg); transition: transform .15s; }
@@ -515,7 +516,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="chips" id="hints" aria-label="Complete the name"></div>
       <div class="chips" id="recent" aria-label="Recent lookups"></div>
       <p class="wmsg" id="wmsg" role="status" aria-live="polite"></p>
-      <div id="out" aria-live="polite"></div>
+      <div id="out"></div>
     </section>
 
     <section class="earn" aria-labelledby="farms-h">
@@ -525,7 +526,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
           <summary><span class="pairtk"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span><span class="rt"><b>TAC / ETH</b><small><span id="farm-d">Public</span><span id="farm-s"></span></small></span><span class="ra"><b class="apr" id="farm-apr"></b><small>APR now</small></span><span class="go">Farm</span><span class="cv" aria-hidden="true"></span></summary>
           <div class="fm-in"><p class="note fm-note" id="farm-note" role="status"></p><div class="farm-host" id="farm-host"></div></div>
         </details>
-        <span class="ern wait" data-priv><span class="pairtk"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span class="rt"><b><i class="sk"></i></b><small>Private</small></span><span class="ra"><b></b><small>APR now</small></span><span class="go o">Farm</span></span><span class="ern wait" data-priv><span class="pairtk"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span class="rt"><b><i class="sk"></i></b><small>Private</small></span><span class="ra"><b></b><small>APR now</small></span><span class="go o">Farm</span></span><span class="ern wait" data-priv><span class="pairtk"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span class="rt"><b><i class="sk"></i></b><small>Private</small></span><span class="ra"><b></b><small>APR now</small></span><span class="go o">Farm</span></span>
+        <span class="ern wait" data-priv aria-hidden="true"><span class="pairtk"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span class="rt"><b><i class="sk"></i></b><small>Private</small></span><span class="ra"><b></b><small>APR now</small></span><span class="go o">Farm</span></span><span class="ern wait" data-priv aria-hidden="true"><span class="pairtk"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span class="rt"><b><i class="sk"></i></b><small>Private</small></span><span class="ra"><b></b><small>APR now</small></span><span class="go o">Farm</span></span><span class="ern wait" data-priv aria-hidden="true"><span class="pairtk"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span class="rt"><b><i class="sk"></i></b><small>Private</small></span><span class="ra"><b></b><small>APR now</small></span><span class="go o">Farm</span></span>
       </div>
       <h2 class="sec">More ways to earn</h2>
       <div class="lst" id="more">
@@ -558,6 +559,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/rewards/app.js?cb=73cd38bb"></script>
+<script type="module" src="/rewards/app.js?cb=9fe512aa"></script>
 </body>
 </html>

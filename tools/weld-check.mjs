@@ -3862,6 +3862,21 @@ await step('rewardsearn', async () => {
     ok((await top()) < top0 - 300, 'rewardsearn: and the place is let go once the bar is cleared');
     if (k.errors.length) { fails++; console.log('FAIL rewardsearn page errors: ' + k.errors.slice(0, 3).join(' | ')); }
   } finally { await k.browser.close(); }
+  // An account's panel: pool dust (the burn address holds the pool's locked shares) is not a farm stake; a reading that failed is not "nothing to claim";
+  // a figure that is not there leaves no unit behind it.
+  const u = await openPage({ account: A0, viewport: { width: 1000, height: 900 } });
+  try {
+    await stubs(u.ctx);
+    await u.ctx.route(/api\.tacit\.finance\/leaderboard\?day=today/, (route) => route.fulfill({ status: 500, body: '' }));
+    await u.ctx.route(/api\.tacit\.finance\/(points|claim)\/0x/, (route) => route.fulfill({ status: 500, body: '' }));
+    await u.page.goto(u.url + 'rewards/?q=0x000000000000000000000000000000000000dEaD');
+    await until(u.page, () => /Could not read points/.test(document.querySelector('#c-pts')?.textContent || '') && !document.querySelector('#out .sk') && !!document.querySelector('#c-air .st'), null, 120000);
+    await sleep(2000);
+    ok((await text(u.page, '#tot')).trim() === '', 'rewardsearn: with the points unreadable the total does not say there is nothing to claim');
+    ok(!(await u.page.$('#c-farm .rw')), 'rewardsearn: an address holding only the pool\'s locked shares has no farm row');
+    ok(!(await u.page.$eval('#pts-f + small', (e) => e.checkVisibility())), 'rewardsearn: and the points row, with no pot to name, has no "TAC a day" left standing alone');
+    if (u.errors.length) { fails++; console.log('FAIL rewardsearn page errors: ' + u.errors.slice(0, 3).join(' | ')); }
+  } finally { await u.browser.close(); }
 });
 
 // Farming what was claimed, on the rewards page. The farm is a row of the list for everyone; its line says what the wallet holds there, and a claim opens it
@@ -3913,6 +3928,8 @@ await step('rewardsfarm', async () => {
       ok(walletTxs.length === sent + 1 && String(tx.to).toLowerCase() === FARM.toLowerCase() && (await stakedOf(LISTED)) > 0n && left < 5n * E18, `rewardsfarm: one press farms the pair in one transaction (${(await text(n.page, '#fm-status')).slice(0, 60)}; ${Number(left / 10n ** 16n) / 100} TAC left)`);
       await until(n.page, () => /Your stake/.test(document.querySelector('#fm-pos')?.textContent || ''), null, 120000);
       ok(true, 'rewardsfarm: and the stake is shown under the form');
+      await until(n.page, () => /ETH \+ 2\d\d,\d{3} TAC in the pool/.test(document.querySelector('#c-farm')?.textContent || ''), null, 120000);
+      ok(true, 'rewardsfarm: and the account\'s own panel lists that stake at once, with no new lookup');
       // The account's own panel lists it too: what it earned, and the way into the farm.
       await n.page.goto(n.url + 'rewards/?q=' + LISTED);
       await n.page.waitForSelector('#c-farm .rw [data-open-farm]', { timeout: 120000 });

@@ -165,19 +165,35 @@ function pointsRow(p, address) {
     + '</div>';
 }
 let stakeOf = null;
+const readFarmFor = (address) => farmFacts().then((facts) => readStake(call, address, facts).then((stake) => ({ facts, stake })), () => null);
+function paintFarmRow(address) {
+  const el = $('#c-farm');
+  if (!el) return;
+  const h = farmRow(address);
+  if (el.__h !== h) { el.__h = h; paint('#c-farm', h); }
+}
+function showStake(address, r) {
+  stakeOf = r?.stake ? { address, stake: r.stake, facts: r.facts } : null;
+  paintFarmRow(address);
+  tot.farm = r?.stake ? r.stake.earned : 0n;
+  if (!r?.stake) tot.bad = true;
+  paintTotal();
+}
 function farmRow(address) {
   const m = stakeOf?.address === address ? stakeOf.stake : null, f = stakeOf?.facts;
-  if (!m || (m.staked === 0n && m.earned === 0n && m.loose === 0n)) return '';
+  if (!m) return '';
+  const looseWorth = f && f.supply > 0n ? m.loose * f.r0 / f.supply : 0n;
+  if (m.staked === 0n && m.earned === 0n && looseWorth < 10n ** 14n) return '';
   const mine = !!W.account && W.account.toLowerCase() === address;
   const worth = m.staked > 0n ? `${eth4(m.eth)} ETH + ${tac(m.tac, 0)} TAC in the pool` : `${tac(m.loose, 4)} pool shares, not staked`;
   return `<div class="rw"><h3>Farm</h3>${figure(Number(m.earned) / 1e18, tac(m.earned, 4), 'TAC')}<p class="st mute">${esc(worth)}${f?.apr != null ? ` · ${aprText(f.apr)} APR` : ''}</p>`
     + `<button class="act" type="button" data-open-farm>${mine && m.earned > 0n ? 'Claim in the farm' : 'Open the farm'}</button></div>`;
 }
-let tot = { address: null, air: null, pts: null, farm: null };
+let tot = { address: null, air: null, pts: null, farm: null, bad: false };
 function paintTotal() {
   if (!$('#tot') || tot.address !== out.dataset.address || [tot.air, tot.pts, tot.farm].some((v) => v == null)) return;
   const sum = tot.air + tot.pts + tot.farm;
-  paint('#tot', sum > 0n ? `<b class="num">${esc(tac(sum))}</b>TAC to claim` : 'Nothing to claim yet');
+  paint('#tot', sum > 0n ? `<b class="num">${esc(tac(sum))}</b>TAC to claim` : tot.bad ? '' : 'Nothing to claim yet');
 }
 const whoLine = (who, q) => `<p class="who"><b>${esc(who.name || short(who.address))}</b>${who.name ? `<span>${short(who.address)}</span>` : ''}</p>
   <p class="acts"><button type="button" data-copy="${who.address}">Copy address</button><a href="https://etherscan.io/address/${who.address}" target="_blank" rel="noopener noreferrer">Etherscan ↗</a><button type="button" data-copy="${esc(`${location.origin}/rewards/?q=${encodeURIComponent(q)}`)}" data-said="Link copied">Copy link</button></p>
@@ -292,7 +308,7 @@ async function claim(kind, address, btn, to = '') {
     const [a, p] = await Promise.all([readAirdrop(address), readPoints(address)]);
     if (out.dataset.address === address) {
       paint('#c-air', airdropRow(a, address)); paint('#c-pts', pointsRow(p, address)); fillRank(address, p); claimedNow(address, a0(a), p0(p));
-      tot.air = a.claimable ? BigInt(a.amountWei) : 0n; tot.pts = p.error ? 0n : p.owed; paintTotal();
+      tot.air = a.claimable ? BigInt(a.amountWei) : 0n; tot.pts = p.error ? 0n : p.owed; tot.bad = a.reason === 'error' || !!p.error || tot.bad; paintTotal();
     }
   } catch (e) {
     react(e instanceof UserStopped ? 'idle' : 'shake');
@@ -346,8 +362,11 @@ function noteFarm(f) {
   $('#farm-d').textContent = f?.live ? `Public · ${tac(f.perDay, 0)} TAC a day` : f ? 'Public · between reward periods' : 'Public';
 }
 function paintPrivate(list) {
+  const host = $('#farms'), h = list.map((x) => `<a class="ern" data-priv href="/#farm/private-${x.pid}">${pairIcons(x.icons)}<span class="rt"><b>${esc(x.name)}</b><small>Private · ${Math.round(x.perDay).toLocaleString('en-US')} TAC a day</small></span><span class="ra"><b class="apr">${aprText(x.apr)}</b><small>APR now</small></span><span class="go o">Farm</span></a>`).join('');
+  if (host.__priv === h) return;
+  host.__priv = h;
   $$('#farms [data-priv]').forEach((e) => e.remove());
-  $('#farms').insertAdjacentHTML('beforeend', list.map((x) => `<a class="ern" data-priv href="/#farm/private-${x.pid}">${pairIcons(x.icons)}<span class="rt"><b>${esc(x.name)}</b><small>Private · ${Math.round(x.perDay).toLocaleString('en-US')} TAC a day</small></span><span class="ra"><b class="apr">${aprText(x.apr)}</b><small>APR now</small></span><span class="go o">Farm</span></a>`).join(''));
+  host.insertAdjacentHTML('beforeend', h);
 }
 function notePoints(c) {
   if (!c?.program) return;
@@ -357,14 +376,27 @@ function notePoints(c) {
 }
 function noteLiquidity(l) {
   const row = $('#lp-row');
-  if (!l) { row.hidden = true; return; }
+  row.hidden = !l;
+  if (!l) return;
   const open = l.create > 0n && l.bonusOpen;
   $('#lp-f').textContent = tac(l.daily > 0n ? l.daily : l.create, 0);
   $('#lp-u').textContent = l.daily > 0n ? 'TAC a day' : 'TAC once';
   $('#lp-s').textContent = `Supply a Borrow market${l.daily > 0n && open ? ` · ${tac(l.create, 0)} TAC for opening one` : ''}${l.from ? ` · from ${dayText(l.from * 86400)}` : ''}`;
 }
 const noteTasks = (t) => { $('#tk-f').textContent = t ? tac(t.left, 0) : '—'; };
+function farmChanged() {
+  kept.delete('farm');
+  farmFacts().then(noteFarm, () => {});
+  const address = out.dataset.address;
+  if (address) readFarmFor(address).then((r) => { if (out.dataset.address === address) showStake(address, r); });
+}
+let earnTimer = 0;
+function earnAgain() {
+  clearTimeout(earnTimer);
+  earnTimer = setTimeout(() => { if (!document.hidden) { kept.delete('farm'); readEarn(); } else earnAgain(); }, 120e3);
+}
 async function readEarn() {
+  earnAgain();
   const f = await farmFacts().catch(() => null);
   noteFarm(f);
   get('farm/program?network=mainnet').then((prog) => paintPrivate(privateFarms(prog, f?.tacEth || 0)), () => paintPrivate([]));
@@ -379,12 +411,12 @@ let farmUi = null, farmFor = null, farmSeq = 0, ethUsd = 0, hasStake = false;
 const eth4 = (wei) => (Number(wei) / 1e18).toLocaleString('en-US', { maximumSignificantDigits: 3 });
 const wordOf = (a) => a.slice(2).toLowerCase().padStart(64, '0');
 function mountedFarm() {
-  return farmUi ||= Promise.all([import('/trade/farm.js?cb=cf321c4e'), import('/trade/util.js?cb=509d6618'), import('/evm-trade-venues.js?cb=563db4d4'),
+  return farmUi ||= Promise.all([import('/trade/farm.js?cb=7621bd3c'), import('/trade/util.js?cb=509d6618'), import('/evm-trade-venues.js?cb=563db4d4'),
     call({ to: ETH_USD, data: '0xfeaf968c' }).then((r) => { ethUsd = Number(BigInt(`0x${r.slice(66, 130)}`)) / 1e8; }, () => {})])
     .then(([{ mountFarm }, U, E]) => {
       const ethCall = (to, data, block = 'latest', o = {}) => U.rpc('eth_call', [{ to, data, ...(o.from ? { from: o.from } : {}), ...(o.value ? { value: `0x${BigInt(o.value).toString(16)}` } : {}) }, block]);
       const batch = async (calls) => E._internal.decAggregate3(await ethCall(E.MULTICALL3, E._internal.encAggregate3(calls)), calls.length);
-      const done = () => { react('up', 3000); said('Farming'); showFarm(); };
+      const done = () => { react('up', 3000); said('Farm updated'); showFarm(); farmChanged(); };
       return mountFarm($('#farm-host'), { ethCall, batch, rpc: U.rpc, api: U.api, wallet, W, connect: () => connect.connect(), fmtUnits: U.fmtUnits, parseUnits: U.parseUnits, esc, usd: U.usd, ethUsd: () => ethUsd, txLink, onDone: done, refarm: true });
     })
     .catch((e) => { farmUi = null; throw e; });
@@ -417,7 +449,7 @@ function farmClaimed(wei) {
   farmFor = wei > 0n ? wei : null;
   showFarm(wei).then(() => { if (farm.open) openFarm(); else farm.open = true; toFarm(); });
 }
-function openTheFarm() { if (!farm.open) farm.open = true; toFarm(); }
+function openTheFarm() { if (!farm.open) farm.open = true; toFarm(); farm.querySelector('summary').focus({ preventScroll: true }); }
 if (location.hash === '#farm') farm.open = true;
 addEventListener('hashchange', () => { if (location.hash === '#farm') openTheFarm(); });
 
@@ -497,7 +529,7 @@ function paintWallet() {
   const mine = W.account ? W.account.toLowerCase() : null, asked = out.dataset.address;
   el.innerHTML = !mine || !asked ? '' : mine === asked ? '<span class="ok">Your wallet is on this account</span>'
     : `Your wallet is on ${short(mine)}.<button type="button" data-mine>Look up mine</button><button type="button" data-switch>Switch account</button>`;
-  if (asked && $('#c-farm')) paint('#c-farm', farmRow(asked));
+  if (asked) paintFarmRow(asked);
 }
 function lookMine() {
   if (!W.account) return;
@@ -556,7 +588,7 @@ async function run(raw) {
     out.dataset.address = who.address;
     out.innerHTML = `${whoLine(who, q)}${YOURS}<div id="c-bw"></div>`;
     got = { address: who.address, air: 0n, pts: 0n };
-    tot = { address: who.address, air: null, pts: null, farm: null }; stakeOf = null;
+    tot = { address: who.address, air: null, pts: null, farm: null, bad: false }; stakeOf = null;
     paintWallet();
     try { history.replaceState(null, '', `?q=${encodeURIComponent(q)}`); } catch { }
     const a = readAirdrop(who.address), p = readPoints(who.address, ctl.signal);
@@ -568,10 +600,10 @@ async function run(raw) {
       else if (can.air === false && can.pts === false) { given = true; react('down'); said('Nothing to claim'); }
       else if (can.air !== null && can.pts !== null) { given = true; react('idle'); }
     };
-    a.then((s) => { if (my !== seq) return; paint('#c-air', airdropRow(s, who.address)); can.air = s.reason === 'error' ? undefined : !!s.claimable; answer(); claimedNow(who.address, a0(s), null); tot.air = s.claimable ? BigInt(s.amountWei) : 0n; paintTotal(); });
-    p.then((v) => { if (my !== seq) return; paint('#c-pts', pointsRow(v, who.address)); fillRank(who.address, v); can.pts = v.error ? undefined : v.owed > 0n; answer(); claimedNow(who.address, null, p0(v)); tot.pts = v.error ? 0n : v.owed; paintTotal(); });
-    const fm = farmFacts().then((facts) => readStake(call, who.address, facts).then((stake) => ({ facts, stake })), () => null);
-    fm.then((r) => { if (my !== seq) return; stakeOf = r?.stake ? { address: who.address, stake: r.stake, facts: r.facts } : null; paint('#c-farm', farmRow(who.address)); tot.farm = r?.stake ? r.stake.earned : 0n; paintTotal(); });
+    a.then((s) => { if (my !== seq) return; paint('#c-air', airdropRow(s, who.address)); can.air = s.reason === 'error' ? undefined : !!s.claimable; answer(); claimedNow(who.address, a0(s), null); tot.air = s.claimable ? BigInt(s.amountWei) : 0n; if (s.reason === 'error') tot.bad = true; paintTotal(); });
+    p.then((v) => { if (my !== seq) return; paint('#c-pts', pointsRow(v, who.address)); fillRank(who.address, v); can.pts = v.error ? undefined : v.owed > 0n; answer(); claimedNow(who.address, null, p0(v)); tot.pts = v.error ? 0n : v.owed; if (v.error) tot.bad = true; paintTotal(); });
+    const fm = readFarmFor(who.address);
+    fm.then((r) => { if (my === seq) showStake(who.address, r); });
     await Promise.allSettled([a, p, fm]);
   } catch (e) {
     if (my !== seq) return;

@@ -1,8 +1,3 @@
-// The Precision pool's farm on the trade page: what it streams, what a deposit would earn, and the deposit itself (ETH alone,
-// TAC alone or both), the stake's claim and withdrawal. The same contracts and calls as the front page's farm sheet: the lens
-// previews a deposit, the farm zaps ETH or TAC into the pool and stakes the shares in one transaction (TAC by permit where it
-// has no allowance), and a withdrawal comes back as both assets or as one of them. Shielded farms are the front page's; their
-// stream is named here with a link.
 import { day, group } from '/trade/fmt.js?cb=c07717c4';
 
 const POOL = '0x0155358241411dB868BA714aE7c83A27087e3D6E', FARM = '0x0000003bF4BA0B21f5e0d35119b337F4d4CF82E0', LENS = '0x000000956bf20A41C54BaE4a4b6F5C8A166DAB4E';
@@ -14,8 +9,8 @@ const SEL = {
   claim: '0x4e71d92d', stake: '0xa694fc3a', stakeWithPermit: '0xecd9ba82', exitAndRemove: '0xbccbe38a', withdrawAndRemove: '0xbd8196a9', exitTo: '0x6ae36ea7', withdrawTo: '0x47d1eebd', nonces: '0x7ecebe00',
 };
 const REWARD_PAID = '0xe2403640ba68fed3a2f88b7557551d1993f84b99bb10ff833f0cf8db0c5e0486';
-const GAS = 3n * 10n ** 15n;                                                     // ETH kept back for the network fee by Max
-const FEE_MIN = 10n ** 15n;                                                      // under this a wallet cannot pay for any of the farm's transactions
+const GAS = 3n * 10n ** 15n;
+const FEE_MIN = 10n ** 15n;
 const strip = (h) => String(h).replace(/^0x/, '');
 const word = (v) => BigInt(v).toString(16).padStart(64, '0');
 const addr = (a) => strip(a).toLowerCase().padStart(64, '0');
@@ -27,7 +22,6 @@ export function mountFarm(host, ctx) {
   const F = { wdOpen: false, rseq: 0, ackKey: null, x: null, prog: null, mode: 'eth', outPct: '100', outAs: 'both', q: null, seq: 0, w: null, wseq: 0, busy: false, tick: 0, err: false };
   const $ = (s) => host.querySelector(s);
   const plain = (v) => { const n = BigInt(v), b = 10n ** 18n, f = (n % b).toString().padStart(18, '0').replace(/0+$/, ''); return `${n / b}${f ? `.${f}` : ''}`; };
-  // An amount with at least its first two significant digits, so a small stake does not read as 0.
   const amt = (v, dp) => { let d = dp; const n = BigInt(v); while (n > 0n && d < 12 && fmt(n, 18, d).replace(/[^1-9]/g, '').length < 2) d++; return fmt(n, 18, d); };
   const share = (num, den) => { if (!den || !num) return '0%'; const bp = Number(num * 1000000n / den) / 10000; return bp > 0 && bp < 0.01 ? 'under 0.01%' : `${bp.toFixed(2)}%`; };
   const cut = (v, dp) => { const u = 10n ** BigInt(18 - dp); return (v / u) * u; };
@@ -60,7 +54,6 @@ export function mountFarm(host, ctx) {
     <div class="fm-prog" id="fm-prog"></div>`;
   const ethIn = $('#fm-amt'), tacIn = $('#fm-tacamt'), go = $('#fm-go'), rc = $('#fm-rcpt'), status = $('#fm-status');
 
-  // ── reading the farm ──
   async function read() {
     const who = W.account, my = ++F.rseq;
     const calls = [
@@ -76,38 +69,34 @@ export function mountFarm(host, ctx) {
     const s = Number(x.sp) / 1e18;
     x.live = x.t < x.finish;
     x.perDay = x.live ? x.rate * 86400n : 0n;
-    x.tacEth = s > 0 ? 1 / (s * s) : 0;                                             // ETH per TAC at the pool's price
-    x.value = Number(x.r0) + Number(x.r1) * x.tacEth;                              // the pool's worth in ETH wei
+    x.tacEth = s > 0 ? 1 / (s * s) : 0;
+    x.value = Number(x.r0) + Number(x.r1) * x.tacEth;
     x.stakedEth = x.supply ? x.value * Number(x.totalStaked) / Number(x.supply) : 0;
     x.apr = x.live && x.stakedEth > 0 ? Number(x.perDay) * 365 * x.tacEth / x.stakedEth * 100 : null;
     x.mine = x.supply ? { eth: x.staked * x.r0 / x.supply, tac: x.staked * x.r1 / x.supply } : { eth: 0n, tac: 0n };
-    if (my !== F.rseq || W.account !== who) return;                                // a newer read, or another account's, is the one to keep
+    if (my !== F.rseq || W.account !== who) return;
     F.x = x; F.err = false;
   }
   const readProgram = () => api('/farm/program?network=mainnet').then((p) => { if (p?.epoch) F.prog = p; });
 
-  // What the stake has earned by now, counted at its share of the stream since the read.
   const earnedNow = (x) => (!x?.live || !(x.staked > 0n) || !x.totalStaked ? x?.earned ?? 0n
     : x.earned + x.rate * x.staked / x.totalStaked * BigInt(Math.max(0, Math.min(now() + (x.t - x.at), x.finish) - x.t)));
 
-  // ── the farm's figures and the private farms' stream ──
   function renderStats() {
     const x = F.x, el = $('#fm-stats');
     if (!x) { el.innerHTML = `<p class="note">${F.err ? 'Could not read the farm. Try again in a moment.' : 'Reading the farm…'}</p>`; return; }
     const cell = (k, v, s = '') => `<div><span class="k">${k}</span><b class="num">${v}</b>${s ? `<span class="s">${s}</span>` : ''}</div>`;
     el.innerHTML = cell('APR now', aprTxt(x.apr), 'paid in TAC, swap fees on top')
-      + cell('Rewards', x.live ? `<svg class="tk xs inl" aria-hidden="true"><use href="#tk-tac"/></svg>${fmt(x.perDay, 18, 0)} TAC a day` : 'between periods', x.live ? tacUsd(x.perDay) ? `about ${tacUsd(x.perDay)} a day` : '' : '')
+      + cell('Rewards', x.live ? `<svg class="tk xs inl" aria-hidden="true"><use href="#tk-tac"/></svg>${group(Math.round(Number(x.perDay) / 1e18))} TAC a day` : 'between periods', x.live ? tacUsd(x.perDay) ? `about ${tacUsd(x.perDay)} a day` : '' : '')
       + cell('Staked', ethUsd() ? usd(x.stakedEth / 1e18 * ethUsd()) : `${(x.stakedEth / 1e18).toFixed(2)} ETH`, x.supply ? `${Math.round(Number(x.totalStaked * 1000n / x.supply)) / 10}% of the pool` : '')
       + cell('Stream ends', x.live ? dayFmt(x.finish) : '—');
-    // The farming program's private farms: shielded pools whose positions say nothing of who holds them. Each opens on the front page,
-    // which signs in with a Tacit wallet and adds from private tETH, the paired asset, or both.
     const p = F.prog, e = p?.epoch;
     const CETH = '0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34';
     const pairName = (pair) => { const k = String(pair).split('/').map((y) => (y === 'cETH' ? 'tETH' : y)); if (k[1] === 'tETH') k.reverse(); return k.join(' / '); };
     const aprOf = (pool) => {
       const r = pool.reserves || {}, total = Number(r.lpTotalShares || 0);
       if (String(r.assetA).toLowerCase() !== CETH || !total || !x.tacEth) return null;
-      const bonded = 2 * Number(r.reserveA) / 1e8 * Number(pool.totalShares) / total;            // ETH: the tETH side, twice, for the shares bonded
+      const bonded = 2 * Number(r.reserveA) / 1e8 * Number(pool.totalShares) / total;
       return bonded > 0 ? Number(pool.tacPerDayForPool) * 365 * x.tacEth / bonded * 100 : null;
     };
     $('#fm-prog').innerHTML = e?.active && p.pools?.length
@@ -117,7 +106,6 @@ export function mountFarm(host, ctx) {
       : '';
   }
 
-  // ── a stake: what it holds and earns, claim, stake loose shares, withdraw ──
   function renderPos() {
     const x = F.x, el = $('#fm-pos');
     clearInterval(F.tick);
@@ -139,21 +127,18 @@ export function mountFarm(host, ctx) {
       if (!e || F.x !== x) return clearInterval(F.tick);
       const v = earnedNow(x);
       e.textContent = `${fmt(v, 18, 4)} TAC`;
-      if (c && c.getAttribute('aria-busy') !== 'true') c.disabled = v === 0n;                // there is nothing to claim until something has streamed
+      if (c && c.getAttribute('aria-busy') !== 'true') c.disabled = v === 0n;
     }, 1000);
-    // The withdrawal is read (a call from the account) only once it is opened, and again each time the stake is drawn while it stays open.
     const wd = $('#fm-wd');
     if (wd) wd.addEventListener('toggle', () => { F.wdOpen = wd.open; if (wd.open) previewOut(); });
     if (has && F.wdOpen) previewOut();
   }
 
-  // ── adding ──
   function renderForm() {
     const x = F.x, m = F.mode;
     $('#fm-mode').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.fm === m)));
     $('#fm-eth').hidden = m === 'tac'; $('#fm-tac').hidden = m === 'eth';
     const em = $('#fm-emax'), tm = $('#fm-tmax'), mine = x && W.account && x.who === W.account;
-    // ETH + TAC takes both: with no TAC held it says so and offers the way that works, rather than a Max that fills nothing.
     $('#fm-how').innerHTML = m === 'pair' ? (mine && x.tac === 0n ? 'You hold no TAC in this wallet, and ETH + TAC takes both. <button class="linkbtn" type="button" data-fm="eth">Farm with ETH alone</button>.' : 'Both go in at the pool’s ratio, then are staked.')
       : `Half is swapped to ${m === 'eth' ? 'TAC' : 'ETH'} inside the pool, then both are staked: one transaction.`;
     em.hidden = !(mine && x.bal != null); tm.hidden = !mine;
@@ -170,7 +155,6 @@ export function mountFarm(host, ctx) {
     if (x && mineX(x) && x.bal != null && x.bal < FEE_MIN) { go.textContent = 'Add ETH for the network fee'; go.disabled = true; return; }
     go.disabled = !q || q.over || !x || !accepted('fm-ack', q.loss);
   }
-  // A loss of 15% or more to the swap is accepted in a box; one of 30% or more by typing its figure, as on the front page.
   const ackBox = (id, loss, what, prior) => {
     const n = Math.round(loss);
     return loss >= 30 ? `<label class="ack"><span>Type <b>${n}</b> to accept losing about ${n}% of this ${what} to the swap.</span><input id="${id}" inputmode="numeric" autocomplete="off" aria-label="Type ${n} to accept" value="${prior ? n : ''}"></label>`
@@ -185,16 +169,14 @@ export function mountFarm(host, ctx) {
   const mineX = (x) => !!W.account && x?.who === W.account;
   const spendEth = (x) => (x.bal != null && x.bal > GAS ? x.bal - GAS : 0n);
   const capTac = (v, x) => (mineX(x) && v > x.tac ? x.tac : v), capEth = (v, x) => (mineX(x) && x.bal != null && v > spendEth(x) ? spendEth(x) : v);
-  const tacFor = (wei, x) => (x.r0 > 0n ? (wei * x.r1 + x.r0 - 1n) / x.r0 : 0n);   // TAC at the pool's ratio
+  const tacFor = (wei, x) => (x.r0 > 0n ? (wei * x.r1 + x.r0 - 1n) / x.r0 : 0n);
   const ethFor = (tac, x) => (x.r1 > 0n ? (tac * x.r0 + x.r1 - 1n) / x.r1 : 0n);
   async function requote(src = null) {
     const my = ++F.seq, x = F.x, m = F.mode;
-    // The other side follows at the pool's ratio, rounded up so the pair is whole, but never past what the wallet holds.
     if (m === 'pair' && x && src === ethIn) { const v = parseUnits(ethIn.value); tacIn.value = !ethIn.value ? '' : v != null ? plain(capTac(up(tacFor(v, x), 2), x)) : tacIn.value; }
     if (m === 'pair' && x && src === tacIn) { const v = parseUnits(tacIn.value); ethIn.value = !tacIn.value ? '' : v != null ? plain(capEth(up(ethFor(v, x), 6), x)) : ethIn.value; }
     const wei = m !== 'tac' ? parseUnits(ethIn.value) || 0n : 0n, tac = m !== 'eth' ? parseUnits(tacIn.value) || 0n : 0n;
     F.q = null; gate();
-    // An amount that cannot be read is marked and said, not taken for nothing typed.
     const unread = [[ethIn, m !== 'tac'], [tacIn, m !== 'eth']].filter(([i, shown]) => { const off = shown && !!i.value.trim() && parseUnits(i.value) == null; i.toggleAttribute('aria-invalid', off); return off; });
     if (unread.length) { rc.hidden = false; rc.innerHTML = '<p class="note err">Cannot read that amount. Write 1500 or 0.05 (1,500 alone is ambiguous).</p>'; return; }
     if (!x || (!wei && !tac)) { rc.hidden = true; rc.innerHTML = ''; return; }
@@ -209,7 +191,7 @@ export function mountFarm(host, ctx) {
         const r = await ethCall(LENS, SEL.previewZap + addr(POOL) + addr(m === 'eth' ? ZERO : TAC) + word(amount));
         if (wordAt(r, 0) !== 1n || wordAt(r, 2) === 0n) throw new Error('The pool would refuse this deposit.');
         lp = wordAt(r, 2);
-        const ideal = Number(x.supply) * (m === 'eth' ? Number(amount) : Number(amount) * x.tacEth) / x.value;     // shares a balanced deposit of the same worth gets
+        const ideal = Number(x.supply) * (m === 'eth' ? Number(amount) : Number(amount) * x.tacEth) / x.value;
         loss = ideal > 0 ? Math.max(0, (1 - Number(lp) / ideal) * 100) : 0;
       }
       if (my !== F.seq) return;
@@ -230,20 +212,18 @@ export function mountFarm(host, ctx) {
       gate();
     } catch (e) {
       if (my !== F.seq) return;
-      // An amount past what the wallet holds, too large for the pool to quote, is told as that, not as the pool refusing it.
       const short = mineX(x) && ((x.bal != null && wei > x.bal) ? 'ETH' : tac > x.tac ? 'TAC' : '');
       rc.hidden = false; rc.innerHTML = short ? `<p class="note err">Not enough ${short} in this wallet.</p>` : `<p class="note err">${errMsg(e)}</p>`;
     }
   }
 
-  // The farm's transaction, tested once before the wallet is asked to send it, then waited for.
   async function send(tx, label, at, from) {
     say(at, 'Checking it first…');
     await ethCall(FARM, tx.data, 'latest', { from, value: tx.value ? '0x' + tx.value.toString(16) : undefined }).catch((e) => { throw new Error(e?.revert ? 'This would fail, so nothing was sent. Try a smaller amount or try again.' : 'Could not reach the farm to check this. Nothing was sent.'); });
     say(at, 'Confirm in your wallet…');
-    const hash = await wallet.sendTx({ to: FARM, data: tx.data, value: tx.value || 0n, from });                 // the wallet refuses if its account has changed since
+    const hash = await wallet.sendTx({ to: FARM, data: tx.data, value: tx.value || 0n, from });
     say(at, `${label}… ${txLink(hash)}`);
-    const r = await wallet.receipt(hash).catch((e) => { throw Object.assign(e, { sentHash: hash }); });      // a send that has not confirmed is not one that failed
+    const r = await wallet.receipt(hash).catch((e) => { throw Object.assign(e, { sentHash: hash }); });
     if (r.status !== '0x1') throw new Error(`The transaction failed (${hash.slice(0, 10)}…). Nothing was lost but its network fee.`);
     return { hash, r };
   }
@@ -252,13 +232,12 @@ export function mountFarm(host, ctx) {
     const s = await wallet.signPermit({ token, name, spender: FARM, value, deadline: dl, nonce, owner: from });
     return word(s.v) + strip(s.r) + strip(s.s);
   };
-  const deadline = () => BigInt((F.x ? F.x.t + (now() - F.x.at) : now()) + 1800);          // on the chain's clock, which a computer's can be off from
+  const deadline = () => BigInt((F.x ? F.x.t + (now() - F.x.at) : now()) + 1800);
   const run = async (btn, at, f) => {
     if (F.busy) return;
     F.busy = true; btn.disabled = true; btn.setAttribute('aria-busy', 'true'); lock(true);
     try { await f(); } catch (e) {
       if (e?.sentHash) {
-        // The transaction is out and not yet seen: the amounts are spent with it, so a second press could send them again.
         if (btn === go) { ethIn.value = ''; tacIn.value = ''; F.q = null; rc.hidden = true; }
         say(at, `<span class="err">Sent, not confirmed yet.</span> ${txLink(e.sentHash)} Check it there before sending anything again.`);
       } else say(at, `<span class="err">${errMsg(e)}</span>`);
@@ -293,7 +272,6 @@ export function mountFarm(host, ctx) {
     if (b.dataset.pct) { F.outPct = b.dataset.pct; renderPos(); return; }
     if (b.dataset.as) { F.outAs = b.dataset.as; renderPos(); return; }
     const x = F.x;
-    // Max: the whole balance of one side; with both, the largest pair the two balances cover, each side within its balance.
     if ((b.id === 'fm-emax' || b.id === 'fm-tmax') && x && mineX(x)) {
       if (F.mode !== 'pair') {
         if (b.id === 'fm-emax' && x.bal != null) { const wei = cut(spendEth(x), 6); ethIn.value = wei > 0n ? plain(wei) : ''; }
@@ -303,7 +281,7 @@ export function mountFarm(host, ctx) {
         if (tacFor(wei, x) > x.tac) { tac = cut(x.tac, 2); wei = capEth(up(ethFor(tac, x), 6), x); }
         ethIn.value = wei > 0n ? plain(wei) : ''; tacIn.value = tac > 0n ? plain(tac) : '';
       }
-      clearTimeout(t);                                                             // a check still waiting on a typed amount would size the other side again
+      clearTimeout(t);
       requote();
     }
     const ps = () => $('#fm-pos-status'), from = W.account;
@@ -315,7 +293,7 @@ export function mountFarm(host, ctx) {
         const got = (r.logs || []).filter((l) => l.address.toLowerCase() === FARM.toLowerCase() && l.topics[0] === REWARD_PAID).reduce((t, l) => t + BigInt(l.data), 0n);
         rewarded = got;
         say(ps(), `<span class="ok">Claimed${got ? ` ${fmt(got, 18, 2)} TAC` : ''}.</span> ${txLink(hash)}${refarm && got ? ' The form below is filled in to farm it again.' : ''}`); onDone();
-      }).then(() => { if (refarm && rewarded > 0n) pairWith(rewarded, { settle: true }); });                // the TAC just claimed, with the ETH that pairs with it
+      }).then(() => { if (refarm && rewarded > 0n) pairWith(rewarded, { settle: true }); });
     }
     if (b.id === 'fm-stake') run(b, ps(), async () => {
       const dl = deadline(), sig = x.lpAllow < x.lp ? await permit(POOL, 'Precision LP', x.lp, dl, from) : '';
@@ -330,7 +308,6 @@ export function mountFarm(host, ctx) {
       say(ps(), `<span class="ok">Withdrawn.</span> ${txLink(hash)}`); onDone();
     });
   });
-  // All of it goes through exit*, which also pays what was earned; part of it through withdraw*, which leaves the rest staked.
   const outData = ({ all, as, shares }, m0, m1, dl) => (as === 'both'
     ? (all ? SEL.exitAndRemove : SEL.withdrawAndRemove + word(shares)) + word(m0) + word(m1) + word(dl)
     : (all ? SEL.exitTo + word(as === 'eth' ? 1 : 0) : SEL.withdrawTo + word(as === 'eth' ? 1 : 0) + word(shares)) + word(m0) + word(dl));
@@ -340,7 +317,7 @@ export function mountFarm(host, ctx) {
     try {
       const r = await ethCall(FARM, outData({ all, as, shares }, 0n, 0n, deadline()), 'latest', { from: W.account });
       if (my !== F.wseq || !ex?.isConnected) return;
-      const worth = x.value * Number(shares) / Number(x.supply), got = as === 'both' ? null : Number(wordAt(r, 0));      // in ETH wei at the pool's price
+      const worth = x.value * Number(shares) / Number(x.supply), got = as === 'both' ? null : Number(wordAt(r, 0));
       const loss = got == null || !worth ? 0 : Math.max(0, (1 - got / (as === 'eth' ? worth : worth / x.tacEth)) * 100);
       F.w = { all, as, shares, loss };
       el.hidden = false;
@@ -354,10 +331,6 @@ export function mountFarm(host, ctx) {
     } catch { if (my === F.wseq && el) { el.hidden = false; el.innerHTML = '<p class="note err">Could not preview the withdrawal. Try again in a moment.</p>'; } }
   }
 
-  // The largest pair the wallet can make with up to `tac` of TAC (all it holds when none is named): ETH at the pool's ratio, each side within its
-  // balance, filled in and quoted, so the person has one button to press. With no ETH to spare it is TAC alone (the pool swaps half). `settle`
-  // is for a balance that has only just changed (a claim): the read is repeated while the node asked still shows less TAC than expected.
-  // Returns what went in, what is left out (of `all`, which needs `need` of ETH), or null when there is nothing to farm.
   async function pairWith(tac = null, { settle = false } = {}) {
     if (F.busy || !W.account) return null;
     for (let i = 0; i < (settle ? 5 : 1); i++) {
@@ -366,7 +339,7 @@ export function mountFarm(host, ctx) {
       await new Promise((r) => setTimeout(r, 1500));
     }
     const x = F.x;
-    renderStats(); if (!F.busy) renderPos();                                          // the read above may be the one that the page's own refresh gave way to
+    renderStats(); if (!F.busy) renderPos();
     if (!mineX(x) || !(x.tac > 0n)) return null;
     let use = tac && tac < x.tac ? tac : x.tac, wei = up(ethFor(use, x), 6);
     const all = use, need = wei;
@@ -381,12 +354,10 @@ export function mountFarm(host, ctx) {
   }
 
   let t = 0;
-  // The quote shown is for the amount before this keystroke: the button waits for the new one rather than send the old.
   const typed = (i) => () => { clearTimeout(t); F.q = null; gate(); t = setTimeout(() => requote(i), 300); };
   ethIn.addEventListener('input', typed(ethIn));
   tacIn.addEventListener('input', typed(tacIn));
 
-  // A read of the farm and the account: the figures and the stake redrawn, the form kept as typed and quoted again.
   async function refresh() {
     await Promise.allSettled([read().catch(() => { if (!F.x) F.err = true; }), F.prog ? null : readProgram()]);
     renderStats(); renderForm();
