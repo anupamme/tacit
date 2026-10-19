@@ -10,7 +10,7 @@ import { keccak_256 } from '../node_modules/@noble/hashes/sha3.js';
 import { sha256 } from '../node_modules/@noble/hashes/sha2.js';
 import * as secp from '../node_modules/@noble/secp256k1/index.js';
 import { makeConfidentialPool } from '../dapp/confidential-pool.js';
-import { makeLiveBurnDepositTracer, traceBurnDepositProvenance } from '../worker/src/burndep-live-tracer.js';
+import { makeLiveBurnDepositTracer, traceBurnDepositProvenance, rebuiltRawTx } from '../worker/src/burndep-live-tracer.js';
 import { makeBurnDepositTracer } from '../dapp/burn-deposit-tracer.js';
 
 const FIX = JSON.parse(readFileSync(new URL('./fixtures/burndep-listing-purchase-2026-10-16.json', import.meta.url), 'utf8'));
@@ -106,4 +106,73 @@ test('a lineage of two hops traces under a limit of two, and is refused under a 
   assert.equal(res.cxfers.length, 2);
   assert.deepEqual(res.cxfers.map((c) => c.inputSkip), [1, 1]);
   await assert.rejects(walk(1), /exceeded maxDepth \(1\)/);
+});
+
+// One explorer request per transaction: its JSON, from which the raw bytes are rebuilt. Real mainnet transactions (a P2WPKH-homed
+// reveal with a commit input, an atomic settlement with the taker's sats after the note) rebuild byte for byte, witness included.
+// esplora-tx-json-2026-10-19.json: what mempool.bitaroo.net answered for /tx/<id> of four mainnet TAC transactions (a BP+ transfer,
+// a classic transfer, an order-book settlement and a bridge burn), beside their raw hex.
+const REAL = JSON.parse(readFileSync(new URL('./fixtures/esplora-tx-json-2026-10-19.json', import.meta.url), 'utf8'));
+const dsha = (b) => sha256(sha256(b));
+test('real esplora JSON rebuilds to the raw transaction byte for byte, witness included, and a wrong txid or a trimmed answer gets null', () => {
+  assert.equal(Object.keys(REAL).length, 4);
+  for (const [txid, rec] of Object.entries(REAL)) assert.equal(rebuiltRawTx(rec.json, txid, dsha), rec.hex, `${rec.kind} ${txid.slice(0, 8)} rebuilds`);
+  const [txid, rec] = Object.entries(REAL)[0];
+  assert.equal(rebuiltRawTx(rec.json, 'ff'.repeat(32), dsha), null);
+  assert.equal(rebuiltRawTx({ ...rec.json, vin: [] }, txid, dsha), null);
+  assert.equal(rebuiltRawTx(JSON.parse(FIX[PURCHASE].json), PURCHASE, dsha), null, 'the older fixture keeps only status and vin');
+});
+
+// The older fixture keeps only status and vin; an esplora answer carries the rest, read here from the raw hex.
+function esploraJsonOf(hex, kept) {
+  const b = Buffer.from(hex.trim().replace(/^0x/, ''), 'hex');
+  let p = 0;
+  const u32 = () => { const v = b.readUInt32LE(p); p += 4; return v; };
+  const vi = () => { const f = b[p++]; if (f < 0xfd) return f; if (f === 0xfd) { const v = b.readUInt16LE(p); p += 2; return v; } const v = b.readUInt32LE(p); p += 4; return v; };
+  const take = (n) => { const v = b.subarray(p, p + n).toString('hex'); p += n; return v; };
+  const version = u32();
+  const segwit = b[p] === 0 && b[p + 1] === 1; if (segwit) p += 2;
+  const vin = Array.from({ length: vi() }, () => ({ txid: Buffer.from(take(32), 'hex').reverse().toString('hex'), vout: u32(), scriptsig: take(vi()), sequence: u32() }));
+  const vout = Array.from({ length: vi() }, () => { const value = Number(b.readBigUInt64LE(p)); p += 8; return { value, scriptpubkey: take(vi()) }; });
+  if (segwit) for (const v of vin) v.witness = Array.from({ length: vi() }, () => take(vi()));
+  return { ...kept, version, locktime: u32(), vin, vout };
+}
+
+test('the walk reads each transaction once and never asks for hex', async () => {
+  const paths = [];
+  await traceBurnDepositProvenance({
+    env: {}, network: 'mainnet', outpointKey: pool.outpointKey, sha256, maxDepth: 4,
+    trace: makeBurnDepositTracer({ outpointKey: pool.outpointKey }).trace,
+    apiText: async (env, path) => {
+      paths.push(path);
+      const m = /^\/tx\/([0-9a-f]{64})$/.exec(path);
+      return m ? JSON.stringify(esploraJsonOf(FIX[m[1]].hex, JSON.parse(FIX[m[1]].json))) : FIXTURE_API(path);
+    },
+    apiRawBytes: async () => { throw new Error('no blocks'); },
+    note: { txid: PURCHASE, vout: 0 }, leaves: [{ txid: SPLIT_NOTE, vout: 0 }],
+  });
+  assert.ok(!paths.some((p) => p.endsWith('/hex')), `asked for hex: ${paths.join(' ')}`);
+  assert.equal(new Set(paths).size, paths.length, `asked twice: ${paths.join(' ')}`);
+});
+
+test('a walk past its deadline stops with how far it got, and asked again over the same KV it finishes reading nothing twice', async () => {
+  const store = new Map(), paths = [];
+  const kv = { get: async (k) => (store.has(k) ? JSON.parse(store.get(k)) : null), put: async (k, v) => { store.set(k, v); } };
+  const go = (deadline) => traceBurnDepositProvenance({
+    env: { REGISTRY_KV: kv }, network: 'mainnet', outpointKey: pool.outpointKey, sha256, maxDepth: 4, deadline,
+    trace: makeBurnDepositTracer({ outpointKey: pool.outpointKey }).trace,
+    apiText: async (env, path) => { paths.push(path); await new Promise((r) => setTimeout(r, 30)); return FIXTURE_API(path); },
+    apiRawBytes: async () => { throw new Error('no blocks'); },
+    note: { txid: PURCHASE, vout: 0 }, leaves: [{ txid: SPLIT_NOTE, vout: 0 }],
+  });
+  const t0 = Date.now();
+  let stopped;
+  try { await go(t0 + 20); } catch (e) { stopped = e; }
+  assert.equal(stopped && stopped.code, 'trace_pending', `stopped: ${stopped && stopped.message}`);
+  assert.ok(Number.isInteger(stopped.hops) && stopped.hops >= 1 && stopped.hops < 2, `hops so far ${stopped.hops}`);
+  const before = paths.length;
+  const res = await go(Date.now() + 60_000);
+  assert.equal(res.cxfers.length, 2);
+  const again = paths.slice(before);
+  assert.ok(again.every((p) => !paths.slice(0, before).includes(p)), `read again: ${again.join(' ')}`);
 });

@@ -51,12 +51,33 @@ export function makeBurnDepositAssembler({ dsha256, cat, bytesToHex }) {
     };
   }
 
+  // Everything the guest needs to place one transaction in its block: its index, its txid path and the block's root,
+  // its wtxid path and the coinbase that commits to the wtxid tree. Read from the whole block's txid and wtxid lists, or
+  // taken as already worked out (`record.proof`, the same fields this returns), which is how a record is kept once its
+  // block has been read: a few hundred bytes for good instead of the block read again.
+  const isHex32 = (x) => typeof x === 'string' && /^0x[0-9a-fA-F]{64}$/.test(x);
+  function inclusionOf(record, label) {
+    const p = record.proof;
+    if (p) {
+      if (!Number.isInteger(p.index) || p.index <= 0 || !isHex32(p.confirmedBlockRoot) || typeof p.coinbase !== 'string' || !p.coinbase.startsWith('0x')
+        || ![p.merkleSiblings, p.wtxidSiblings, p.coinbaseTxidSiblings].every((a) => Array.isArray(a) && a.every(isHex32))) {
+        throw new Error(`${label}: inclusion proof malformed`);
+      }
+      return p;
+    }
+    const w = witnessPath(record, label);
+    return {
+      index: record.index, merkleSiblings: merkleSiblings(record.blockTxids, record.index), confirmedBlockRoot: merkleRoot(record.blockTxids),
+      wtxidSiblings: w.wtxidSiblings, coinbase: w.coinbase, coinbaseTxidSiblings: w.coinbaseTxidSiblings,
+    };
+  }
+
   function buildBurnDepositStatic({ etch, provHeaders = [], cxfers, cmints = [], poolMemberships = [] }) {
-    const ew = etch ? witnessPath(etch, 'etch') : null;
+    const ew = etch ? inclusionOf(etch, 'etch') : null;
     return {
       etchTx: etch ? etch.tx : '0x',
-      etchIndex: etch ? etch.index : 0,
-      etchSiblings: etch ? merkleSiblings(etch.blockTxids, etch.index) : [],
+      etchIndex: etch ? ew.index : 0,
+      etchSiblings: etch ? ew.merkleSiblings : [],
       etchWtxidSiblings: etch ? ew.wtxidSiblings : [],
       etchCoinbase: etch ? ew.coinbase : '0x',
       etchCoinbaseTxidSiblings: etch ? ew.coinbaseTxidSiblings : [],
@@ -66,28 +87,28 @@ export function makeBurnDepositAssembler({ dsha256, cat, bytesToHex }) {
         noteClass: pm.noteClass, chainBinding: pm.chainBinding, leafIndex: pm.leafIndex, path: pm.path,
       })),
       cxfers: cxfers.map((c, i) => {
-        const w = witnessPath(c, `cxfer[${i}]`);
+        const w = inclusionOf(c, `cxfer[${i}]`);
         return {
           tx: c.tx,
           inputCommitments: c.inputs.map((x) => x.commitment),
           outputVouts: c.outputs.map((x) => x.vout),
           burnedAmount: c.burnedAmount || 0,
           inputSkip: c.inputSkip || 0,
-          merkleSiblings: merkleSiblings(c.blockTxids, c.index),
-          merkleIndex: c.index,
-          confirmedBlockRoot: merkleRoot(c.blockTxids),
+          merkleSiblings: w.merkleSiblings,
+          merkleIndex: w.index,
+          confirmedBlockRoot: w.confirmedBlockRoot,
           wtxidSiblings: w.wtxidSiblings,
           coinbase: w.coinbase,
           coinbaseTxidSiblings: w.coinbaseTxidSiblings,
         };
       }),
       cmints: cmints.map((cm, i) => {
-        const w = witnessPath(cm, `cmint[${i}]`);
+        const w = inclusionOf(cm, `cmint[${i}]`);
         return {
           revealTx: cm.revealTx,
           commitTx: cm.commitTx,
-          merkleSiblings: merkleSiblings(cm.blockTxids, cm.index),
-          merkleIndex: cm.index,
+          merkleSiblings: w.merkleSiblings,
+          merkleIndex: w.index,
           revealWtxidSiblings: w.wtxidSiblings,
           revealCoinbase: w.coinbase,
           revealCoinbaseTxidSiblings: w.coinbaseTxidSiblings,
@@ -170,5 +191,5 @@ export function makeBurnDepositAssembler({ dsha256, cat, bytesToHex }) {
     };
   }
 
-  return { assembleBurnDeposit, buildBurnDepositStatic, serializeProvenanceBlob, merkleSiblings, merkleRoot, witnessPath };
+  return { assembleBurnDeposit, buildBurnDepositStatic, serializeProvenanceBlob, merkleSiblings, merkleRoot, witnessPath, inclusionOf };
 }

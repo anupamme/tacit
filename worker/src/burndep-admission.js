@@ -81,16 +81,74 @@ export function makeBurndepAdmission({ env, api, apiRawBytes, network, kit, deps
     return out;
   }
 
+  // ── A provenance transaction's place in its block, worked out once and kept for good: the fields
+  // assembler.inclusionOf takes (index, txid path and block root, wtxid path, coinbase and its path) and the transaction's
+  // bytes exactly as its block holds them. Confirmed history does not change, so an entry never expires: a hop then costs
+  // one block read ever, instead of one for every check and every batch that carries its deposit, which for a history of
+  // a few hundred transfers is hundreds of multi-MB block reads from the mirrors the whole service shares.
+  const inclusionKey = (txidInternal) => `burndepwit:${network}:${String(txidInternal).replace(/^0x/, '').toLowerCase()}`;
+  async function keptInclusion(txidInternal) {
+    if (!env.REGISTRY_KV) return null;
+    try {
+      const v = await env.REGISTRY_KV.get(inclusionKey(txidInternal), 'json');
+      return v && v.proof && typeof v.tx === 'string' ? v : null;
+    } catch { return null; }
+  }
+  async function blockHashOf(record) {
+    let hash = record.blockHash ? String(record.blockHash).replace(/^0x/, '') : null;
+    if (!hash && record.blockHeight != null) hash = (await api(env, `/block-height/${record.blockHeight}`, {}, network)).trim();
+    if (!hash) throw new Error('burn-deposit provenance record requires blockHash or blockHeight');
+    return hash.toLowerCase();
+  }
+  // records: [{ record, field }] where record[field] is the protocol tx (`tx`, or a cmint's `revealTx`). Each comes back
+  // with `proof` and the block's own bytes in `field`: a record whose bytes differ from the block's only outside the txid
+  // (its witness) is made exact, and one that is not in its block at all throws, as before.
+  async function withInclusion(records) {
+    const out = new Array(records.length);
+    const misses = [];
+    await mapLimit(records.map((_, i) => i), async (i) => {
+      const { record, field } = records[i];
+      const txid = kit.computeTxidInternal(record[field]).toLowerCase();
+      const kept = await keptInclusion(txid);
+      if (kept) out[i] = { ...record, [field]: kept.tx, proof: kept.proof };
+      else misses.push({ i, txid });
+    });
+    const byBlock = new Map();
+    for (const m of misses) {
+      const hash = await blockHashOf(records[m.i].record);
+      if (!byBlock.has(hash)) byBlock.set(hash, []);
+      byBlock.get(hash).push(m);
+    }
+    // One block at a time per worker, and only its few needed entries kept after it is split: peak memory stays a few
+    // blocks whatever the depth.
+    await mapLimit([...byBlock.keys()], async (hash) => {
+      const parsed = splitBlockTxs(await apiRawBytes(env, `/block/${hash}/raw`, network), dsha);
+      const blockTxids = parsed.map((t) => reverseBytes(hexBytes(t.txidDisplay)));
+      const blockWtxids = parsed.map((t) => dsha(hexBytes(t.rawHex)));
+      for (const m of byBlock.get(hash)) {
+        const index = blockTxids.findIndex((id) => bytesToHex(id) === m.txid);
+        if (index <= 0) throw new Error('burn-deposit protocol tx absent from block or at coinbase index');
+        const proof = kit.assembler.inclusionOf({ blockTxids, blockWtxids, coinbase: parsed[0].rawHex, index }, 'provenance');
+        const { record, field } = records[m.i];
+        out[m.i] = { ...record, [field]: parsed[index].rawHex, proof };
+        if (env.REGISTRY_KV) await env.REGISTRY_KV.put(inclusionKey(m.txid), JSON.stringify({ proof, tx: parsed[index].rawHex })).catch(() => {});
+      }
+    });
+    return out;
+  }
+
   async function enrichBurnDeposit(bundle) {
     // etch is OPTIONAL (see buildBurnDepositCtx / cxfer-core ProvenanceBlob): a bundle relying solely on
     // pool-membership shortcuts carries no etch at all, so there is nothing to fetch witness data for.
-    const etch = bundle.etch ? { ...bundle.etch, ...(await blockWitness(bundle.etch, bundle.etch.tx)) } : null;
-    const cxfers = await mapLimit(bundle.cxfers || [], async (c) => ({
-      ...c, ...(await blockWitness(c, c.tx)),
-    }));
-    const cmints = await mapLimit(bundle.cmints || [], async (cm) => ({
-      ...cm, ...(await blockWitness(cm, cm.revealTx)),
-    }));
+    const cx = bundle.cxfers || [], cm = bundle.cmints || [];
+    const done = await withInclusion([
+      ...(bundle.etch ? [{ record: bundle.etch, field: 'tx' }] : []),
+      ...cx.map((record) => ({ record, field: 'tx' })),
+      ...cm.map((record) => ({ record, field: 'revealTx' })),
+    ]);
+    const etch = bundle.etch ? done.shift() : null;
+    const cxfers = done.splice(0, cx.length);
+    const cmints = done;
     // The burn tx's OWN witness-commitment inclusion proof — a separate BIP141 authentication from the
     // provenance/etch chain above (that proves the BURNED NOTE is real supply; this proves the 0x2B burn
     // ENVELOPE itself is really confirmed in its block). Required unconditionally by write_stdin.
@@ -232,10 +290,14 @@ export function makeBurndepAdmission({ env, api, apiRawBytes, network, kit, deps
   // (see enrichBurnDeposit's own blockWitness, which accepts either blockHash or blockHeight for the SAME
   // reason: it's only ever used to look up a hash, and the tx-inclusion check that follows is what actually
   // authenticates the block).
+  const heightOfHash = new Map(); // a confirmed block's height does not change: every bundle's etch is the same block
   async function heightOfBlockHash(hash) {
-    const json = JSON.parse(await api(env, `/block/${String(hash).replace(/^0x/, '')}`, {}, network));
+    const key = String(hash).replace(/^0x/, '').toLowerCase();
+    if (heightOfHash.has(key)) return heightOfHash.get(key);
+    const json = JSON.parse(await api(env, `/block/${key}`, {}, network));
     const h = Number(json.height);
     if (!Number.isInteger(h) || h < 0) throw new Error('burndep-admission: could not resolve block height');
+    heightOfHash.set(key, h);
     return h;
   }
 

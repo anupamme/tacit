@@ -466,6 +466,35 @@ let rec;
   ok(world.broadcasts.length > before, 'resuming an unconfirmed migrate re-sends the identical (already-journalled) bytes rather than rebuilding');
 }
 
+// ==== a long history's first check is still reading its blocks: the burn waits, signed and sent nothing, and goes on at the
+// next advance; a press of Burn it is remembered so the page carries it on without a second press ====
+{
+  const world = makeWorld();
+  let checks = 0;
+  const fetchImpl = async (url, opts) => {
+    if (new URL(url).pathname === '/reflection/burndep/check' && checks++ === 0) {
+      return { ok: true, status: 202, json: async () => ({ ok: false, pending: true, retryAfter: 20, error: 'still checking this history; ask again in a moment' }) };
+    }
+    return world.fetchImpl(url, opts);
+  };
+  const ux = makeUx({ ...world, fetchImpl }, makeMemStorage());
+  let r = await ux.start({
+    note: { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING },
+    walletPriv: WALLET_PRIV, fundingUtxo: { txid: FUND_TXID_1, vout: 0, value: 30_000 }, feeRate: BASE_RATE,
+  });
+  r = await ux.advance(r.walletPub, r.id);
+  world.setMigrateConfirmed(true);
+  r = await ux.advance(r.walletPub, r.id);
+  r = await ux.advance(r.walletPub, r.id);
+  ok(r.stage === 'traced', 'sanity: the move is traced');
+  world.setBurnHomeOnChain(r.burnHome.txid, r.burnHome.spk);
+  const sent = world.broadcasts.length;
+  r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV, go: true });
+  ok(r.stage === 'traced' && r.checkWait && r.checkWait.go === true && !r.lastError && !r.burn && world.broadcasts.length === sent,
+    'a check that is still reading leaves the bridge where it was, with nothing signed or sent and no error, and remembers the press');
+  r = await ux.advance(r.walletPub, r.id, { walletPriv: WALLET_PRIV });
+  ok(r.stage === 'burn-signed' && r.checkWait === null && checks === 2, 'asked again, the check answers and the burn is signed');
+}
 // ==== hop-limit refusal (post-migrate: the burn-home is always one hop deeper than its source) ====
 {
   const world = makeWorld();
@@ -473,7 +502,7 @@ let rec;
   const overLimitFetch = async (url, opts) => {
     const u = new URL(url);
     if (u.pathname === '/reflection/burndep/trace') {
-      return { ok: true, json: async () => ({ ok: true, hops: 65, bundle: { etch: {}, cxfers: new Array(65).fill({ inputs: [{ prevTxid: withHex(NOTE_TXID), prevVout: 0 }] }) } }) };
+      return { ok: true, json: async () => ({ ok: true, hops: 257, bundle: { etch: {}, cxfers: new Array(257).fill({ inputs: [{ prevTxid: withHex(NOTE_TXID), prevVout: 0 }] }) } }) };
     }
     return world.fetchImpl0(url, opts);
   };
@@ -486,12 +515,12 @@ let rec;
   r = await ux.advance(r.walletPub, r.id);
   world.setMigrateConfirmed(true);
   r = await ux.advance(r.walletPub, r.id); // -> migrate-confirmed
-  await assert.rejects(() => ux.advance(r.walletPub, r.id), /over the 64-hop limit/, 'refuses a hop-limit violation');
+  await assert.rejects(() => ux.advance(r.walletPub, r.id), /over the 256-hop limit/, 'refuses a hop-limit violation');
   ok(true, 'a burn-home tracing over the hop limit is refused rather than silently proceeding');
 }
 
-// ==== hop-limit boundary: a source note at exactly the 63-hop preflight limit produces a burn-home at exactly
-// 64 hops (the migrate itself is one more hop), and neither check may reject the other's own limit ====
+// ==== hop-limit boundary: a source note at exactly the 255-hop preflight limit produces a burn-home at exactly
+// 256 hops (the migrate itself is one more hop, and 256 is the guest's own ceiling), and neither check may reject the other's own limit ====
 {
   const world = makeWorld();
   world.setBurnHomeOnChain(NOTE_TXID, realWpkhSpkHexOf(WALLET_PUB)); // preflight's ownership check needs the real hash160, not the world's cheap stand-in
@@ -502,7 +531,7 @@ let rec;
     if (u.pathname === '/reflection/burndep/trace') {
       const body = JSON.parse(opts.body);
       const tracedTxid = stripHex(body.note.txid);
-      const hops = burnHomeTxidForMock && tracedTxid === stripHex(burnHomeTxidForMock) ? 64 : 63;
+      const hops = burnHomeTxidForMock && tracedTxid === stripHex(burnHomeTxidForMock) ? 256 : 255;
       return { ok: true, json: async () => ({ ok: true, hops, bundle: { etch: {}, cxfers: new Array(hops).fill({ inputs: [{ prevTxid: withHex(NOTE_TXID), prevVout: 0 }] }) } }) };
     }
     return world.fetchImpl0(url, opts);
@@ -512,7 +541,7 @@ let rec;
 
   const pf = await ux.preflight({ note: { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING }, walletPub: WALLET_PUB });
   const traceStep = pf.steps.find((s) => s.name === 'trace');
-  ok(!!traceStep && traceStep.ok, 'preflight accepts a source note at exactly the 63-hop limit');
+  ok(!!traceStep && traceStep.ok, 'preflight accepts a source note at exactly the 255-hop limit');
 
   let r = await ux.start({
     note: { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING },
@@ -522,8 +551,8 @@ let rec;
   r = await ux.advance(r.walletPub, r.id); // migrate-sent
   world.setMigrateConfirmed(true);
   r = await ux.advance(r.walletPub, r.id); // migrate-confirmed
-  r = await ux.advance(r.walletPub, r.id); // -> traced (must NOT be refused at exactly 64 hops)
-  ok(r.stage === 'traced' && r.hops === 64, "a 64-hop burn-home — one more than its source's own 63 — is accepted, not refused as if it shared the source's limit");
+  r = await ux.advance(r.walletPub, r.id); // -> traced (must NOT be refused at exactly 256 hops)
+  ok(r.stage === 'traced' && r.hops === 256, "a 256-hop burn-home — one more than its source's own 255 — is accepted, not refused as if it shared the source's limit");
 }
 
 // ==== cap refusal in start() ====
@@ -1642,6 +1671,40 @@ function storageContainsPrivkey(storage, priv) {
   const pfC = await c.ux.preflight({ note, walletPub: WALLET_PUB });
   ok(!pfC.steps.find((s) => s.name === 'trace')?.ok && c.waits.length === 0 && c.traces() === 1, 'a limit of 90 s is not waited out');
 }
+// ==== a long history the API reads in parts: the page asks again while it answers pending, says how far it got, waits out a rate
+// limit part way through, and stops after ten minutes with words that say to try again later ====
+{
+  const note = { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING };
+  const run = async (answers, { advanceMs = 0 } = {}) => {
+    const world = makeWorld();
+    world.setBurnHomeOnChain(NOTE_TXID, realWpkhSpkHexOf(WALLET_PUB));
+    let i = 0, calls = 0;
+    const waits = [], seen = [], asked = [];
+    const fetchImpl = async (url, opts) => {
+      if (new URL(url).pathname === '/reflection/burndep/trace') { calls++; asked.push(JSON.parse(opts.body).maxDepth); return answers[Math.min(i++, answers.length - 1)]; }
+      return world.fetchImpl(url, opts);
+    };
+    const realNow = Date.now;
+    let skew = 0;
+    Date.now = () => realNow() + skew;
+    try {
+      const ux = makeUx({ ...world, fetchImpl }, makeMemStorage(), { sleep: async (ms) => { waits.push(ms); skew += advanceMs; } });
+      const pf = await ux.preflight({ note, walletPub: WALLET_PUB, onProgress: (n) => seen.push(n) });
+      return { step: pf.steps.find((s) => s.name === 'trace'), calls, waits, seen, asked };
+    } finally { Date.now = realNow; }
+  };
+  const pending = (read) => ({ ok: true, status: 202, json: async () => ({ ok: false, pending: true, read, retryAfter: 2 }) });
+  const whole = { ok: true, json: async () => ({ ok: true, hops: 140, bundle: { etch: {}, cxfers: [] } }) };
+  const limited = { ok: false, status: 429, json: async () => ({ ok: false, error: 'too many trace requests — retry in ~20s', retryAfter: 20 }) };
+  const a = await run([pending(40), pending(120), whole]);
+  ok(a.step && a.step.ok && a.calls === 3 && JSON.stringify(a.seen) === '[40,120]' && a.waits.every((w) => w === 2000) && a.asked.every((d) => d === 256),
+    `a history read in parts is asked for again until it is whole, its progress reported (${JSON.stringify(a.seen)}), each ask walking to the 256 a burn-home may hold`);
+  const b = await run([pending(60), limited, limited, pending(150), whole]);
+  ok(b.step && b.step.ok && b.calls === 5 && b.waits.filter((w) => w === 21_000).length === 2, 'a rate limit part way through is waited out, twice here, and the trace goes on from where it was');
+  const c = await run([pending(10)], { advanceMs: 4 * 60e3 });
+  ok(c.step && !c.step.ok && c.step.reading === true && c.step.read === 10 && /still being read/.test(c.step.detail) && c.calls <= 4,
+    `a history still being read after ten minutes stops, says how far it got, and is not called too long (${c.calls} asks)`);
+}
 // ==== a lineage past the walk's own budget is reported as too many transfers, not as a read that failed ====
 {
   const note = { txid: NOTE_TXID, vout: NOTE_VOUT, sats: NOTE_SATS, amount: NOTE_AMOUNT, blinding: NOTE_BLINDING };
@@ -1657,13 +1720,32 @@ function storageContainsPrivkey(storage, priv) {
     const pf = await ux.preflight({ note, walletPub: WALLET_PUB });
     return { step: pf.steps.find((s) => s.name === 'trace'), traces };
   };
-  const deep = await refusedWith('trace failed: burn-deposit trace: provenance exceeded maxDepth (96)');
-  ok(deep.step && !deep.step.ok && /^over 96 hop\(s\) to the etch \(max 63\)$/.test(deep.step.detail) && deep.traces === 1,
-    `a history longer than the 96 the walk reads says it is over the limit, which the page words as too many transfers (${deep.step && deep.step.detail})`);
+  const deep = await refusedWith('trace failed: burn-deposit trace: provenance exceeded maxDepth (256)');
+  ok(deep.step && !deep.step.ok && /^over 256 hop\(s\) to the etch \(max 255\)$/.test(deep.step.detail) && deep.traces === 1,
+    `a history longer than the 256 the walk reads says it is over the limit, which the page words as too many transfers (${deep.step && deep.step.detail})`);
+  ok(deep.step.tooLong === true && deep.step.hops === 256 && deep.step.atLeast === true && deep.step.max === 255,
+    'and the step says so in fields (a lower bound of 256, against 255), so the page does not read the count out of the words');
   const wide = await refusedWith('trace failed: burn-deposit trace: provenance exceeded 4096 outpoints');
-  ok(wide.step && !wide.step.ok && /hop\(s\) to the etch \(max 63\)/.test(wide.step.detail), `a history of thousands of outpoints is the same answer (${wide.step && wide.step.detail})`);
+  ok(wide.step && !wide.step.ok && /hop\(s\) to the etch \(max 255\)/.test(wide.step.detail), `a history of thousands of outpoints is the same answer (${wide.step && wide.step.detail})`);
+  ok(wide.step.tooLong === true && wide.step.hops === null && wide.step.max === 255, 'with no count to give: the step has none, and the page says far more than 255');
   const down = await refusedWith('trace failed: esplora 503');
   ok(down.step && !down.step.ok && !/hop\(s\) to the etch/.test(down.step.detail) && /esplora 503/.test(down.step.detail), 'a read that failed keeps its own words, and the page still says to try again');
+  ok(!down.step.tooLong, 'and is not marked as a history that is too long');
+  // A history through an output no transfer made cannot be proven to the etch at any length: told apart from a failed read.
+  const through = async (msg) => (await refusedWith(`trace failed: ${msg}`)).step;
+  const pool = await through("burndep-live-tracer: input aa:0 classified as 'swap_var', which this module does not resolve a commitment for");
+  const arrived = await through("burndep-live-tracer: input aa:1 classified as 'crossout_mint', which this module does not resolve a commitment for");
+  const shielded = await through('burndep-live-tracer: aa:0 carries an envelope this module does not recognize as a resolvable leaf (opcode 0x6c) — likely a CMINT');
+  const dangling = await through('burn-deposit trace: outpoint not produced by a known cxfer and not a supply leaf: 0x12');
+  ok([pool, arrived, shielded, dangling].every((x) => x && !x.ok && x.unprovable === true && !x.tooLong)
+    && pool.through === 'pool' && arrived.through === 'arrived' && shielded.through === 'shielded' && dangling.through === 'other',
+    `a history through a pool, an arrival from Ethereum, the shielded pool or an output no transfer made is marked as one a bridge cannot follow (${[pool, arrived, shielded, dangling].map((x) => x && x.through).join(', ')})`);
+  ok(!down.step.unprovable, 'and a read that failed is not');
+  const world70 = makeWorld();
+  world70.setBurnHomeOnChain(NOTE_TXID, realWpkhSpkHexOf(WALLET_PUB));
+  const ux70 = makeUx({ ...world70, fetchImpl: async (url, opts) => (new URL(url).pathname === '/reflection/burndep/trace' ? { ok: true, json: async () => ({ ok: true, hops: 256, bundle: {} }) } : world70.fetchImpl(url, opts)) }, makeMemStorage());
+  const s70 = (await ux70.preflight({ note, walletPub: WALLET_PUB })).steps.find((s) => s.name === 'trace');
+  ok(s70 && !s70.ok && s70.tooLong === true && s70.hops === 256 && s70.atLeast === false && s70.max === 255, 'a history the walk read in full (256, one over a source note\'s 255) is reported as exactly 256 against 255, not as a lower bound');
 }
 // ==== a failure that was the relay's or the day's is not one of a bridge's four tries ====
 {

@@ -393,6 +393,34 @@ never broadcast), so it remains available for a future real test if one is wante
 Both phases of `dapp/burn-deposit-reveal.js` are now verified: not just synthetically, but against real
 broadcast transactions and a real Bitcoin Core node's own consensus engine.
 
+## Update 2026-10-19: histories up to the guest's 256, read in parts, each block read once
+
+A holder's untracked TAC (its lineage runs through transfers the reflection's genesis dropped) failed the trace with "over
+96 hop(s) to the etch (max 63)": the door took 64 transfers, but the guest takes 256 (`ProvenanceBlob::parse`, `ncx > 256`,
+and the JS mirror's parse agrees). Measured on the pinned reflection ELF with `tests/gen-reflection-burn-deposit-chain.mjs`
+(HOPS=N, one conserving transfer per block) and `reflect-exec`: 1 hop 27.6M cycles, 16 hops 64.7M, 64 hops 183.8M, 256 hops
+665.2M (folds, digest matches the JS assembler); 257 folds nothing and does not halt. So about 25M fixed plus 2.48M per
+transfer, against ~0.5B per Bitcoin block a batch already spends and a 100B request limit: a full 256 costs about one block.
+
+What changed, none of it in the guest or the contracts:
+- The door (`BURNDEP_MAX_HOPS`, worker/src/index.js) and the page (`MAX_HOPS_BURN_HOME` 256, `MAX_HOPS_SOURCE` 255, the move
+  being one more transfer) take what the guest folds; the trace asks for exactly 256, so a longer history reads "more than 256".
+- `/reflection/burndep/trace` reads for at most `BURNDEP_TRACE_BUDGET_MS` (40 s) a request and then answers 202
+  `{pending, read}`; everything it read is in `burndepshallow:*`, so the next request goes on from there. The page asks again by
+  itself (burndep-ux `traceNote`), shows how many transfers it has read, and joins a check under way on a redraw instead of
+  starting a second read (dapp/index.html `BR.checking`).
+- One explorer request per transaction instead of two: the raw bytes are rebuilt from esplora's JSON (`rebuiltRawTx`) and
+  checked against the txid; four real mainnet TAC transactions rebuild byte for byte, witness included
+  (tests/fixtures/esplora-tx-json-2026-10-19.json). A transaction that does not rebuild costs the old /hex request.
+- The walk resolves two outpoints at a time (a merge's inputs are independent), with concurrent asks for one txid shared.
+- Fold-time and /check enrichment keep each provenance transaction's inclusion proof and its block's own bytes for good
+  (`burndepwit:{network}:{txid}`, assembler `inclusionOf`): a hop costs one raw-block read ever, instead of one per check and
+  per batch that carries the deposit. Bytes that differ from the block's only in their witness come back as the block's.
+
+Still not possible without a new guest: a history over 256 transfers, or one through a pool, farm, shielded-pool or cross-out
+output (the walk cannot reach the etch through those). `tools/tac-history-index.mjs` walks every TAC note forward from the etch
+(public mirrors, paced, cached on disk, seeded from the pre-launch txmap) and reports which untracked notes fall where.
+
 ## What NOT to do
 
 - Do not skip the byte-for-byte diff against real historical burns and ship on "it looks right."

@@ -8,9 +8,12 @@ import { makeBridgeBurnBroadcaster } from './bridge-burn-broadcast.js';
 
 export const BURNDEP_BETA_CAP_RAW = 100_000_000_000n;
 export const RETURN_FEE_CEILING = 100;
-const MAX_HOPS_SOURCE = 63;
-const TRACE_WAIT_MAX_S = 30;
-const MAX_HOPS_BURN_HOME = 64;
+// The reflection guest folds a burn-deposit whose provenance holds at most 256 transfers; the move to the burn address is one of
+// them, so the note itself may have 255 behind it.
+const MAX_HOPS_BURN_HOME = 256;
+const MAX_HOPS_SOURCE = MAX_HOPS_BURN_HOME - 1;
+const TRACE_WAIT_MAX_S = 60;
+const TRACE_TOTAL_MS = 10 * 60 * 1000;
 const JOURNAL_PREFIX = 'tacit-burndep-bridge-v1';
 const LEASE_TTL_MS = 30_000;
 const DEST_INDEXES = 8;
@@ -227,9 +230,9 @@ export function makeBurnDepositUx(deps) {
     return out;
   }
 
-  async function preflight({ note, walletPub }) {
+  async function preflight({ note, walletPub, onProgress = null }) {
     const out = { steps: [], ok: false };
-    const step = (name, ok, detail) => { out.steps.push({ name, ok, detail }); return ok; };
+    const step = (name, ok, detail, more) => { out.steps.push({ name, ok, detail, ...more }); return ok; };
     if (!step('cap', BigInt(note.amount) <= BURNDEP_BETA_CAP_RAW, `${note.amount} raw units`)) return out;
 
     let srcTx;
@@ -265,13 +268,18 @@ export function makeBurnDepositUx(deps) {
     step('not-tracked', true, 'not tracked by the reflection');
 
     let traced;
-    try { traced = await traceNote({ txid: note.txid, vout: note.vout, assetId: tacAssetId }); }
+    try { traced = await traceNote({ txid: note.txid, vout: note.vout, assetId: tacAssetId, onProgress }); }
     catch (e) {
+      if (e && e.code === 'trace_reading') { step('trace', false, String(e.message), { reading: true, read: e.read }); return out; }
+      const through = unprovableThrough(String((e && e.message) || e));
+      if (through) { step('trace', false, String(e.message || e), { unprovable: true, through }); return out; }
       const long = /provenance exceeded (?:maxDepth \((\d+)\)|\d+ outpoints)/.exec(String((e && e.message) || e));
-      step('trace', false, long ? `over ${long[1] || MAX_HOPS_SOURCE} hop(s) to the etch (max ${MAX_HOPS_SOURCE})` : String(e.message || e));
+      step('trace', false, long ? `over ${long[1] || MAX_HOPS_SOURCE} hop(s) to the etch (max ${MAX_HOPS_SOURCE})` : String(e.message || e),
+        long ? { tooLong: true, hops: Number(long[1]) || null, atLeast: true, max: MAX_HOPS_SOURCE } : undefined);
       return out;
     }
-    if (!step('trace', traced.hops <= MAX_HOPS_SOURCE, `${traced.hops} hop(s) to the etch (max ${MAX_HOPS_SOURCE})`)) return out;
+    if (!step('trace', traced.hops <= MAX_HOPS_SOURCE, `${traced.hops} hop(s) to the etch (max ${MAX_HOPS_SOURCE})`,
+      traced.hops > MAX_HOPS_SOURCE ? { tooLong: true, hops: traced.hops, atLeast: false, max: MAX_HOPS_SOURCE } : undefined)) return out;
     out.bundle = traced.bundle;
     out.hops = traced.hops;
 
@@ -346,15 +354,44 @@ export function makeBurnDepositUx(deps) {
     return putRecord({ ...rec, stage: 'rburn-mined', burnHeight: Number(t.status.block_height), lastError: null, errorCount: 0 });
   }
 
-  async function traceNote({ txid, vout, assetId }) {
-    const ask = () => callWorker('POST', '/reflection/burndep/trace', { note: { txid: stripHex(txid), vout }, assetId, maxDepth: MAX_HOPS_BURN_HOME + 32 });
-    const res = await ask().catch(async (e) => {
-      if (Number(e && e.status) !== 429 || !(e.retryAfter > 0 && e.retryAfter <= TRACE_WAIT_MAX_S)) throw e;
-      await sleep((e.retryAfter + 1) * 1000);
-      return ask();
-    });
-    if (!res.ok) throw new Error(res.error || 'trace failed');
-    return { bundle: res.bundle, hops: res.hops };
+  // A history the reflection guest cannot follow back to the etch: some transfer in it spends an output that no transfer made
+  // (a pool or farm action, a shielded-pool exit, TAC that arrived from Ethereum, or a shape the guest refuses). That does not
+  // change with time, unlike a read that failed, so it is told apart: 'pool', 'shielded', 'arrived' or 'other'.
+  function unprovableThrough(m) {
+    const kind = /classified as '([a-z_]+)'/.exec(m), op = /resolvable leaf \(opcode 0x([0-9a-f]{2})\)/i.exec(m);
+    if (kind) return kind[1] === 'crossout_mint' ? 'arrived' : /^(swap|lp_|harvest|protocol_fee|farm)/.test(kind[1]) ? 'pool' : 'other';
+    if (op) return op[1].toLowerCase() === '6c' ? 'shielded' : 'other';
+    if (/not produced by a known cxfer and not a supply leaf|non-confidential input at index|atomic settlement whose asset input/.test(m)) return 'other';
+    return null;
+  }
+
+  // The API reads a long history in parts, a bounded time per request, and keeps what it read: while it answers `pending` this
+  // asks again (reporting how many transfers it has read so far) until the trace is whole, for up to TRACE_TOTAL_MS. A history it
+  // read before comes back at once. The walk stops past the burn-home's limit, so a longer history reads as "more than 256".
+  async function traceNote({ txid, vout, assetId, onProgress = null }) {
+    const ask = () => callWorker('POST', '/reflection/burndep/trace', { note: { txid: stripHex(txid), vout }, assetId, maxDepth: MAX_HOPS_BURN_HOME });
+    const until = now() + TRACE_TOTAL_MS;
+    // A rate limit is waited out once before the API has read anything, and up to three times once it is part way through.
+    for (let limited = 0, reading = false; ;) {
+      let res;
+      try { res = await ask(); }
+      catch (e) {
+        if (Number(e && e.status) !== 429 || !(e.retryAfter > 0 && e.retryAfter <= TRACE_WAIT_MAX_S) || limited++ >= (reading ? 3 : 1) || now() > until) throw e;
+        await sleep((e.retryAfter + 1) * 1000);
+        continue;
+      }
+      if (res && res.pending) {
+        reading = true;
+        if (onProgress) { try { onProgress(Number(res.read) || 0); } catch { /* a closed view */ } }
+        if (now() > until) {
+          throw Object.assign(new Error('burndep-ux: this TAC’s history is long and still being read from Bitcoin; try again in a few minutes'), { code: 'trace_reading', read: Number(res.read) || 0 });
+        }
+        await sleep(Math.min(10, Math.max(1, Number(res.retryAfter) || 2)) * 1000);
+        continue;
+      }
+      if (!res.ok) throw new Error(res.error || 'trace failed');
+      return { bundle: res.bundle, hops: res.hops };
+    }
   }
 
   function bridgeCost({ path, feeRate, coins = [], noteSats = 546, p2tr = false, burnRate = null } = {}) {
@@ -489,7 +526,7 @@ export function makeBurnDepositUx(deps) {
   const inFlight = new Set();
   const WAITS = new Set(['migrate-sent', 'migrate-confirmed', 'traced', 'burn-submitted', 'burn-mined', 'registered', 'rburn-sent', 'rburn-mined', 'recovering', 'reclaim-sent']);
   const passing = (e) => { const st = Number(e && e.status); return st === 429 || st >= 500 || /failed to fetch|networkerror|load failed|timed? ?out|aborted/i.test(String((e && e.message) || e)); };
-  async function advance(walletPub, id, { walletPriv = null, onProgress = null, selfSettle = null, maxFeeRate = null } = {}) {
+  async function advance(walletPub, id, { walletPriv = null, onProgress = null, selfSettle = null, maxFeeRate = null, go = false } = {}) {
     const rec = getRecord(walletPub, id);
     if (!rec) throw new Error(`burndep-ux: no bridge record for ${id}`);
     if (walletPriv && lc(bytesToHexLocal(secp.getPublicKey(walletPriv, true))) !== lc(rec.walletPub)) throw new Error('burndep-ux: this bridge belongs to another key');
@@ -504,7 +541,7 @@ export function makeBurnDepositUx(deps) {
       at = cur;
       const fn = STAGE_ADVANCE[cur.stage];
       if (!fn) return cur;
-      const result = await fn(cur, { walletPriv, onProgress, selfSettle, maxFeeRate });
+      const result = await fn(cur, { walletPriv, onProgress, selfSettle, maxFeeRate, go });
       return cur.lastError ? putRecord({ ...result, lastError: null, errorCount: 0 }) : result;
     } catch (e) {
       const now_ = at && getRecord(walletPub, id);
@@ -537,7 +574,7 @@ export function makeBurnDepositUx(deps) {
       const bundle = { ...traced.bundle, burned: { cx: rec.burnHome.cx, cy: rec.burnHome.cy } };
       return putRecord({ ...rec, stage: 'traced', bundle, hops: traced.hops, homeChecked: true });
     },
-    traced: async (rec, { walletPriv, maxFeeRate }) => {
+    traced: async (rec, { walletPriv, maxFeeRate, go = false }) => {
       const tracked = await isLive(rec.burnHome.txid, 0, { fresh: true });
       if (tracked === true) return putRecord({ ...rec, stage: 'stopped', stoppedAt: now(), stoppedWhy: 'tracked' });
       if (tracked === null) return rec;
@@ -566,10 +603,13 @@ export function makeBurnDepositUx(deps) {
       const check = await callWorker('POST', '/reflection/burndep/check', {
         bundle: rec.bundle, assetId: withHex(tacAssetId), burnTxHex: built.revealHex,
       });
+      // A long history's first check is still reading its blocks: nothing is signed or sent yet, and the next advance asks again
+      // (a holder who pressed Burn it is carried on by the page without a second press, `go`).
+      if (check && check.pending) return putRecord({ ...rec, checkWait: { at: now(), go: !!go || !!(rec.checkWait && rec.checkWait.go) } });
       if (!check.ok || !check.admitted) throw new Error(`burndep-ux: the burn would not be admitted yet: ${(check && check.reason) || (check && check.error) || 'unknown'}`);
 
       return putRecord({
-        ...rec, stage: 'burn-signed', feeWait: null,
+        ...rec, stage: 'burn-signed', feeWait: null, checkWait: null,
         burn: { hex: built.revealHex, txid: built.revealTxid, feeRate: built.feeRate, fee: built.fee, fundingUtxo },
         envelope, dest,
       });

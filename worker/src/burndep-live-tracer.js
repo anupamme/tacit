@@ -27,6 +27,32 @@ const withHexPrefix = (h) => (String(h).startsWith('0x') ? String(h) : '0x' + h)
 const hexToBytes = (h) => { const s = stripHexPrefix(h); const a = new Uint8Array(s.length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(s.slice(2 * i, 2 * i + 2), 16); return a; };
 const reverseBytes = (b) => Uint8Array.from(b).reverse();
 
+// A transaction's raw bytes rebuilt from esplora's JSON for it (version, each input's outpoint, scriptSig, sequence and
+// witness, each output's value and script, locktime), or null unless the rebuilt bytes hash to `txidDisplay`. The witness
+// is not covered by the txid, but esplora gives each witness item's exact bytes, and the reflection's fold reads every
+// provenance transaction from its block anyway (burndep-admission.js withInclusion), so what it proves is the block's own.
+export function rebuiltRawTx(j, txidDisplay, dsha256) {
+  try {
+    const le = (n, bytes) => { let h = '', v = BigInt(n); for (let i = 0; i < bytes; i++) { h += Number(v & 0xffn).toString(16).padStart(2, '0'); v >>= 8n; } return h; };
+    const vi = (n) => (n < 0xfd ? le(n, 1) : n <= 0xffff ? 'fd' + le(n, 2) : n <= 0xffffffff ? 'fe' + le(n, 4) : 'ff' + le(n, 8));
+    const field = (h) => { const s = stripHexPrefix(h || '').toLowerCase(); if (!/^([0-9a-f]{2})*$/.test(s)) throw new Error('hex'); return vi(s.length / 2) + s; };
+    const rev = (h) => stripHexPrefix(h).match(/../g).reverse().join('');
+    const vin = j.vin || [], vout = j.vout || [];
+    if (!Number.isInteger(j.version) || !Number.isInteger(j.locktime) || !vin.length) return null;
+    let body = vi(vin.length);
+    for (const v of vin) body += rev(v.txid) + le(v.vout >>> 0, 4) + field(v.scriptsig) + le(v.sequence >>> 0, 4);
+    body += vi(vout.length);
+    for (const o of vout) body += le(o.value, 8) + field(o.scriptpubkey);
+    const version = le(j.version >>> 0, 4), locktime = le(j.locktime >>> 0, 4);
+    const txid = rev(Array.from(dsha256(hexToBytes(version + body + locktime)), (b) => b.toString(16).padStart(2, '0')).join(''));
+    if (txid !== stripHexPrefix(txidDisplay).toLowerCase()) return null;
+    if (!vin.some((v) => Array.isArray(v.witness) && v.witness.length)) return version + body + locktime;
+    let witness = '';
+    for (const v of vin) { const w = Array.isArray(v.witness) ? v.witness : []; witness += vi(w.length) + w.map(field).join(''); }
+    return version + '0001' + body + witness + locktime;
+  } catch { return null; }
+}
+
 // outpointKey(txidDisplayHex-or-0x, vout) — the same function `dapp/confidential-pool.js`'s makeConfidentialPool
 // exports (keccak(txid ‖ vout_le), mirroring cxfer-core::outpoint_key). Injected so this module never has an
 // opinion about which secp/keccak/sha256 implementation the caller is already using.
@@ -88,23 +114,27 @@ export function makeLiveBurnDepositTracer({ env, apiText, apiRawBytes, network, 
   // or a bound hop; a DAG that does throws rather than silently mis-resolving it.
   const shallowCacheKey = (txidDisplay) => `burndepshallow:${network}:${stripHexPrefix(txidDisplay).toLowerCase()}`;
   const shallowCache = new Map(); // txidDisplay (no 0x, lowercase) -> the tagged shallow resolution
+  const shallowInflight = new Map(); // the same, while its one request is out: two hops reaching one tx share it
   async function resolveShallow(txidDisplay) {
     const key = stripHexPrefix(txidDisplay).toLowerCase();
-    let rec = shallowCache.get(key);
+    const rec = shallowCache.get(key);
     if (rec) return rec;
+    if (!shallowInflight.has(key)) shallowInflight.set(key, resolveShallowOnce(key).finally(() => shallowInflight.delete(key)));
+    return shallowInflight.get(key);
+  }
+  async function resolveShallowOnce(key) {
+    let rec;
     if (env.REGISTRY_KV) {
       const cached = await env.REGISTRY_KV.get(shallowCacheKey(key), 'json');
       if (cached) { shallowCache.set(key, cached); return cached; }
     }
-    const [hex, jsonText] = await Promise.all([
-      fetchText(`/tx/${key}/hex`),
-      fetchText(`/tx/${key}`),
-    ]);
-    const hexTrimmed = hex.trim();
-    const json = JSON.parse(jsonText);
+    // One request per transaction: its JSON carries everything, and the raw bytes are rebuilt from it and checked against
+    // the txid asked for; only a transaction that does not rebuild exactly costs a second request for its hex.
+    const json = JSON.parse(await fetchText(`/tx/${key}`));
+    const hexTrimmed = rebuiltRawTx(json, key, dsha256) || (await fetchText(`/tx/${key}/hex`)).trim();
     const decode = classifyConfidentialTx(withHexPrefix(hexTrimmed));
     if (decode && decode.type === 'cxfer') {
-      if (!json.status || !json.status.confirmed) throw new Error(`burndep-live-tracer: ${txidDisplay} is not yet confirmed`);
+      if (!json.status || !json.status.confirmed) throw new Error(`burndep-live-tracer: ${key} is not yet confirmed`);
       rec = {
         kind: 'cxfer', tx: withHexPrefix(hexTrimmed),
         vins: (json.vin || []).map((v) => ({ txid: v.txid, vout: v.vout })),
@@ -268,7 +298,12 @@ export function makeLiveBurnDepositTracer({ env, apiText, apiRawBytes, network, 
 //   note        : { txid, vout } — display-hex txid, the note being bridged
 //   leaves      : [{ txid, vout }, ...] — the asset's C_0 (and any authorized cmint reveals); at least one
 //                 required, or every lineage throws as unprovable
-export async function traceBurnDepositProvenance({ env, apiText, apiRawBytes, network, outpointKey, sha256, trace, note, leaves, maxDepth = 256, fullBlockWitness = false } = {}) {
+//   deadline    : a Date.now() past which the walk stops and throws `trace_pending` (with `hops` read so far) instead of
+//                 running into a gateway's timeout; every transaction it read stays in the KV, so asking again goes on
+//                 from there, each answer it already has costing one KV read
+//   concurrency : outpoints resolved at once (the inputs of a merge are independent); kept small, since each one is an
+//                 explorer request the whole service shares
+export async function traceBurnDepositProvenance({ env, apiText, apiRawBytes, network, outpointKey, sha256, trace, note, leaves, maxDepth = 256, fullBlockWitness = false, deadline = null, concurrency = 2 } = {}) {
   if (typeof trace !== 'function') throw new Error('traceBurnDepositProvenance: trace required (dapp/burn-deposit-tracer.js makeBurnDepositTracer({outpointKey}).trace)');
   if (!note || note.txid == null || note.vout == null) throw new Error('traceBurnDepositProvenance: note {txid, vout} required');
   if (!Array.isArray(leaves) || !leaves.length) throw new Error('traceBurnDepositProvenance: at least one leaf (the asset\'s C_0) required');
@@ -284,26 +319,35 @@ export async function traceBurnDepositProvenance({ env, apiText, apiRawBytes, ne
   const graph = new Map();
   const queue = [noteOutpoint];
   const queued = new Set(queue);
-  // `maxDepth` bounds the HOPS (distinct transfers) in the lineage, the thing the registration door caps at 64. The walk visits outpoints,
-  // and a transfer that spends several outputs of one earlier transaction (a split put back together) is several outpoints for one hop,
-  // so counting visits instead would refuse a note of about 45 hops as "too deep" under a limit of 64. The visits get a bound of their own.
+  // `maxDepth` bounds the HOPS (distinct transfers) in the lineage, the thing the registration door caps (the guest's own 256). The walk
+  // visits outpoints, and a transfer that spends several outputs of one earlier transaction (a split put back together) is several
+  // outpoints for one hop, so counting visits instead would refuse a note well inside the limit as "too deep". The visits get a bound of
+  // their own.
   const MAX_VISITS = 4096;
   const hops = new Set();
   let steps = 0;
   while (queue.length) {
-    if (++steps > MAX_VISITS) throw new Error('burn-deposit trace: provenance exceeded ' + MAX_VISITS + ' outpoints');
-    const op = queue.shift();
-    if (leafSet.has(op) || graph.has(op)) continue;
-    const cx = await live.getCxferByOutput(op);
-    graph.set(op, cx || null);
-    if (cx) {
+    if (deadline != null && Date.now() > deadline) {
+      throw Object.assign(new Error(`burn-deposit trace: still reading this note's history (${hops.size} transfer${hops.size === 1 ? '' : 's'} so far)`), { code: 'trace_pending', hops: hops.size });
+    }
+    const wave = [];
+    while (queue.length && wave.length < Math.max(1, concurrency)) {
+      if (++steps > MAX_VISITS) throw new Error('burn-deposit trace: provenance exceeded ' + MAX_VISITS + ' outpoints');
+      const op = queue.shift();
+      if (!leafSet.has(op) && !graph.has(op)) wave.push(op);
+    }
+    const found = await Promise.all(wave.map((op) => live.getCxferByOutput(op)));
+    wave.forEach((op, i) => {
+      const cx = found[i];
+      graph.set(op, cx || null);
+      if (!cx) return;
       hops.add(cx.txid);
-      if (hops.size > maxDepth) throw new Error('burn-deposit trace: provenance exceeded maxDepth (' + maxDepth + ')');
       for (const inp of cx.inputs) {
         const inOp = outpointKey(inp.prevTxid, inp.prevVout);
         if (!leafSet.has(inOp) && !queued.has(inOp)) { queue.push(inOp); queued.add(inOp); }
       }
-    }
+    });
+    if (hops.size > maxDepth) throw new Error('burn-deposit trace: provenance exceeded maxDepth (' + maxDepth + ')');
   }
   const cxfers = await trace({ getCxferByOutput: (op) => graph.get(op) || null, noteOutpoint, leafOutpoints, maxDepth: MAX_VISITS });
   return { cxfers, live }; // `live` exposed so a caller can inspect its tx/block caches (e.g. for a local re-verify) without re-fetching

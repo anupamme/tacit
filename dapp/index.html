@@ -3176,7 +3176,7 @@ function setKey(k) {
   });
 }
 
-const TACIT_URL = '/tacit.js?cb=8c7c6204';
+const TACIT_URL = '/tacit.js?cb=f1b10fad';
 const SHARED_NET = 'tacit-network-v1', PREV_NET = 'tacit-lite-prev-net-v1';
 const SHARED_WALLET_KEYS = ['tacit-eth-identity', 'tacit-btc-identity', 'tacit-active-mode-v1', 'tacit-ext-mode-v1', 'tacit-ext-state-v1',
   ...['mainnet', 'signet'].flatMap((n) => [`tacit-eth-identity:${n}`, `tacit-btc-identity:${n}`, `tacit-active-mode-v1:${n}`])];
@@ -6403,7 +6403,7 @@ render.tac = () => {
 load.tac = () => { loadTacPrice(false, true).then(paintTacPrice).catch(() => {}); return Promise.all([TAB.tac === 'air' ? loadAirdrop() : TAB.tac === 'bridge' ? (BRM.mode === 'out' ? Promise.resolve() : loadBridge()) : loadPrecision(), loadTacHoldings()]); };
 
 const BR = { pub: null, notes: null, at: 0, loading: null, err: null, pick: null, refl: null, reflAt: 0, reflP: null, autoAt: 0, auto: false, rv: null, acked: null, drop: null, starting: false, publishing: false, noPublic: false,
-  opts: { selfburn: true, prepauto: true, public: false } };
+  opts: { selfburn: true, prepauto: true, public: false }, deep: new Map(), checks: new Map() };
 const BR_DONE = ['minted', 'reclaimed'], BR_HELD = ['not-recorded', 'stopped', 'recovered'];
 const BR_STEPS = { reflected: ['Burn sent', 'Confirmed', 'Recorded', 'Arrived'], deposit: ['Moved', 'Burned', 'Recorded', 'Arrived'] };
 const BR_AT = { 'rburn-signed': 0, 'rburn-sent': 1, 'rburn-mined': 2, rfolded: 3,
@@ -6429,7 +6429,7 @@ const brMinerStuck = (rec) => (rec.stage === 'burn-signed' && !!rec.lastError &&
   || (rec.stage === 'burn-submitted' && Date.now() - Number(rec.submittedAt || rec.updatedAt || Date.now()) > BR_MINER_WAIT);
 const brStalled = (rec) => (rec.stage === 'migrate-confirmed' || rec.stage === 'traced') && !!rec.lastError && (rec.errorCount || 0) >= 3;
 const brHeld = (rec) => (rec.stage === 'folded' || rec.stage === 'rfolded') && Number(rec.lastError?.until) > Date.now();
-const brDue = (rec) => (rec.stage === 'traced' ? (brPlanOf(rec)?.burn && !rec.lastError && !rec.feeWait ? '' : 'Burn it')
+const brDue = (rec) => (rec.stage === 'traced' ? ((brPlanOf(rec)?.burn || rec.checkWait?.go) && !rec.lastError && !rec.feeWait ? '' : 'Burn it')
   : (rec.stage === 'folded' || rec.stage === 'rfolded') && rec.lastError && !waitRanOut(rec.lastError) ? (brHeld(rec) || rec.lastError.relay ? '' : 'Mint now')
   : rec.stage === 'stopped' || brMinerStuck(rec) ? 'Move it back' : rec.stage === 'not-recorded' && brRecoverable(rec) ? 'Recover'
   : BR_SIGNED.includes(rec.stage) && rec.lastError && (rec.errorCount || 0) >= 3 ? 'Try again or cancel' : '');
@@ -6464,6 +6464,9 @@ function brErr(e) {
   return errText(s === m ? e : new Error(s.charAt(0).toUpperCase() + s.slice(1)));
 }
 const brFail = (e) => Object.assign(new Error(brErr(e)), { said: true });
+const BR_THROUGH = { pool: 'a pool or farm trade on Bitcoin', shielded: 'a move through Bitcoin’s shielded pool', arrived: 'TAC that came over from Ethereum', other: 'a kind of transaction the bridge does not follow' };
+const brTransfers = (n) => `${n.toLocaleString('en-US')} transfer${n === 1 ? '' : 's'}`;
+const brLongCount = (s) => (s.hops ? `${s.atLeast ? 'more than ' : ''}${brTransfers(s.hops)}` : `far more than ${brTransfers(s.max)}`);
 function brCheckText(s) {
   if (s.name === 'not-tracked') return 'This TAC arrived recently: Bitcoin’s proof on Ethereum has not reached its block yet. Try again in a few hours.';
   if (s.name === 'reflected') return 'This TAC was received privately. One Bitcoin transaction sends it to your own address, and then it can be bridged.';
@@ -6471,11 +6474,13 @@ function brCheckText(s) {
   if (s.name === 'bound') return 'This TAC is held in a note bound to another deployment, which the bridge does not burn.';
   if (s.name === 'source-ownership') return 'This TAC is not at this key’s own Bitcoin address.';
   if (s.name === 'source-confirmed') return 'This TAC is waiting for its Bitcoin confirmation.';
-  if (s.name === 'trace' && /hop\(s\) to the etch/.test(s.detail || '')) return `This TAC has passed through too many transfers to bridge (${s.detail}).`;
+  if (s.name === 'trace' && s.tooLong) return `This TAC has ${brLongCount(s)} in its history, and the bridge proves up to ${s.max}, so this note stays on Bitcoin, where it can be sent and traded as usual.`;
+  if (s.name === 'trace' && s.unprovable) return `This TAC’s history includes ${BR_THROUGH[s.through] || BR_THROUGH.other}, which the bridge’s proof does not follow, so this note stays on Bitcoin, where it can be sent and traded as usual.`;
+  if (s.name === 'trace' && s.reading) return `Reading this TAC’s history from Bitcoin: ${brTransfers(Number(s.read) || 0)} so far. Pick it again in a few minutes and the reading goes on from there.`;
   if (s.name === 'trace') {
     const wait = /retry in ~(\d+)s/.exec(s.detail || '');
-    return wait ? `Bitcoin’s history for this TAC is still being read. Try again in about ${wait[1]} seconds: nothing is wrong with your TAC.`
-      : `Could not read this TAC’s history from Bitcoin: ${brErr(s.detail)}. Try again in a moment: nothing is wrong with your TAC.`;
+    return wait ? `Bitcoin’s history for this TAC is still being read. Pick it again in about ${wait[1]} seconds.`
+      : `This TAC’s history could not be read from Bitcoin just now (${brErr(s.detail)}). Pick it again in a moment.`;
   }
   return `Could not check this TAC: ${brErr(s.detail || s.name)}`;
 }
@@ -6526,6 +6531,7 @@ function brMoveText(rec) {
 }
 function brTracedText(rec) {
   const plan = brPlanOf(rec);
+  if (rec.checkWait && !rec.lastError) return 'Moved. Its history is being checked before its burn, which goes out once the check is done.';
   if (!plan?.burn || rec.lastError) return 'Moved, and ready for its burn. Burn it sends it to a miner and pays its fee in sats.';
   if (rec.feeWait) return `Moved. The miner’s rate is ${Number(rec.feeWait.rate).toFixed(1)} sat/vB, over the ${rec.feeWait.max} sat/vB you allowed (twice the rate quoted), so its burn waits for the rate to fall. Burn it sends it now at today’s rate.`;
   return 'Moved. Its burn is sent for you within a few minutes, while this page is open with your wallet.';
@@ -6603,11 +6609,21 @@ function brRow(rec) {
 }
 const brArmed = (id) => BR.drop?.id === id && Date.now() - BR.drop.at < 120e3;
 const brOver = (n) => !n.eligible && /beta limit/.test(n.reason || '');
+const brLongReason = (s) => (s.unprovable ? `Its history includes ${BR_THROUGH[s.through] || BR_THROUGH.other}, which the bridge does not follow.`
+  : `${brLongCount(s).replace(/^./, (c) => c.toUpperCase())} in its history; the bridge proves up to ${s.max}.`);
+const brMarkDeep = (n) => (n.eligible && BR.deep.has(brId(n)) ? { ...n, eligible: false, reason: brLongReason(BR.deep.get(brId(n))) } : n);
 const brNote = (n) => brOver(n) ? html`<div class="brn brsp"><span><b class="num">${fmt(BigInt(n.amount), 8, 4)} TAC</b><small>Over 1,000 TAC, the most one bridge takes. Split some off to your own address, then bridge that.</small></span>
   <div class="amt"><input id="brsp-${n.txid.slice(0, 8)}-${n.vout}" inputmode="decimal" value="1000" autocomplete="off" aria-label="TAC to split off"><span class="u">TAC</span></div>
   <button class="btn ghost" type="button" data-brsplit="${brId(n)}" data-brsplit-in="brsp-${n.txid.slice(0, 8)}-${n.vout}">Split off</button></div>`
   : html`<label class="pick brn${n.eligible ? '' : ' off'}"><input type="radio" name="br-note" value="${brId(n)}" ${n.eligible ? '' : 'disabled'} ${BR.pick === brId(n) ? 'checked' : ''}>
   <span><b class="num">${fmt(BigInt(n.amount), 8, 4)} TAC</b>${!n.eligible ? html`<small>${brReason(n.reason)}</small>` : brFirst(n) ? html`<small>${brFirst(n)}</small>` : ''}</span></label>`;
+function brMarkLong(el, n, step) {
+  BR.deep.set(brId(n), step);
+  const lab = $(`input[name="br-note"][value="${brId(n)}"]`, el)?.closest('label');
+  if (!lab) return;
+  lab.classList.add('off');
+  $('span', lab)?.insertAdjacentHTML('beforeend', html`<small>${brLongReason(step)}</small>`.s);
+}
 const brNeedsSend = (n) => n.form === 'old' || n.form === 'private';
 const brFirst = (n) => (n.form === 'old' ? 'Older note form: pick it to send it to your own address once, then bridge it.'
   : n.form === 'private' ? 'Received privately: pick it to send it to your own address once, then bridge it.' : '');
@@ -6713,7 +6729,7 @@ function renderBridgeIn(el) {
   const pub = S.key.pubHex, b = BR.pub === pub ? BR : null;
   if (!b?.notes && !BR.loading && !b?.err) loadBridge().then(() => rerender('tac')).catch(() => {});
   brDiscover(pub, true);
-  const recs = brRecords(pub), done = brArrived(pub), notes = (b?.notes || []).filter((n) => n.reason !== 'already bridging'), open = notes.filter((n) => n.eligible);
+  const recs = brRecords(pub), done = brArrived(pub), notes = (b?.notes || []).filter((n) => n.reason !== 'already bridging').map(brMarkDeep), open = notes.filter((n) => n.eligible);
   const preps = brPreps(pub);
   if (preps.some((p) => !p.height || brPrepState(p) !== 'ready')) brPrepTick().catch(() => {});
   if (BR.pick && !open.some((n) => brId(n) === BR.pick)) BR.pick = null;
@@ -6754,15 +6770,33 @@ function renderBridgeIn(el) {
     const n = open.find((x) => brId(x) === BR.pick);
     if (!n) { rc.hidden = true; return; }
     const rvKey = `${pub}:${brId(n)}`, kept = BR.rv?.key === rvKey && Date.now() - BR.rv.at < 120e3 ? BR.rv.pf : null;
-    if (!kept) mount(rc, html`<p class="note">Checking this TAC and Bitcoin’s fees…</p>`);
+    // A long history is read in parts over a minute or more: a redraw meanwhile joins the check under way (and shows how far
+    // it has got) instead of starting a second read of the same history.
+    const flying = kept ? null : BR.checks.get(rvKey) || null;
+    const readingNote = (read) => html`<p class="note">Reading this TAC’s history from Bitcoin: ${brTransfers(read)} so far…</p>`;
+    if (!kept) mount(rc, flying?.read ? readingNote(flying.read) : html`<p class="note">Checking this TAC and Bitcoin’s fees…</p>`);
     rc.hidden = false;
     try {
-      const pf = await (kept || brUx().then((ux) => ux.preflight({ note: n, walletPub: hexToBytes(pub) })));
+      let pfP = kept ? Promise.resolve(kept) : flying?.p;
+      if (!pfP) {
+        const run = { key: rvKey, read: 0 };
+        const reading = (read) => {
+          run.read = read;
+          const box = $('#br-rcpt');
+          if (box?.isConnected && BR.pick === brId(n) && !box.querySelector('.kv, .err')) mount(box, readingNote(read));
+        };
+        run.p = brUx().then((ux) => ux.preflight({ note: n, walletPub: hexToBytes(pub), onProgress: reading }))
+          .finally(() => { if (BR.checks.get(rvKey) === run) BR.checks.delete(rvKey); });
+        BR.checks.set(rvKey, run);
+        pfP = run.p;
+      }
+      const pf = await pfP;
       if (!kept && pf.ok) BR.rv = { key: rvKey, at: Date.now(), pf };
       if (my !== seq || !rc.isConnected) return;
       if (!pf.ok) {
         const bad = pf.steps.find((s) => !s.ok) || { name: '' };
         mount(rc, html``); warn(rc, brCheckText(bad));
+        if (bad.tooLong || bad.unprovable) brMarkLong(el, n, bad);
         if (bad.name === 'reflected' || bad.name === 'old-leaf') {
           const coins = await withKey(async (t) => t.pickSafeCommitSats(await t.getUtxos(t.wallet.address())), pub).catch(() => null);
           if (my !== seq || !rc.isConnected) return;
@@ -6995,9 +7029,10 @@ async function brAct(run, kind, id) {
     }
     if (kind === 'burn') {
       run.say(status(), `Signing the burn of ${amt} and sending it to a miner…`);
-      let after = await withKey(() => ux.advance(pub, id, { walletPriv: walletPriv() }), pub);
+      let after = await withKey(() => ux.advance(pub, id, { walletPriv: walletPriv(), go: true }), pub);
       if (after.stage === 'burn-signed') after = await ux.advance(pub, id).catch(() => ux.list(pub).find((r) => r.id === id) || after);
-      run.say(status(), after.stage === 'traced' ? 'Not yet: it waits for Bitcoin’s proof to reach the move. Try again later.'
+      run.say(status(), after.stage === 'traced' && after.checkWait ? 'Its history is being checked before the burn. This page sends the burn once the check is done, while it is open with your wallet.'
+        : after.stage === 'traced' ? 'Not yet: it waits for Bitcoin’s proof to reach the move. Try again later.'
         : after.stage === 'burn-signed' ? html`<span class="err">Signed, but the miner did not take it yet. It is tried again on its own, or press Try again on its row.</span>`
         : BR_BURN_SENT.includes(after.stage) ? html`<span class="ok">✓ Burn sent for ${amt}.</span>`
         : brNoteText(after) || 'Checked.');
@@ -7036,8 +7071,8 @@ async function brTick(first = false) {
       const due = ready && ux.mintRetryDue(rec, { ranOut: waitRanOut(rec.lastError) });
       try {
         let after;
-        if (rec.stage === 'traced' && brPlanOf(rec)?.burn && !rec.lastError) {
-          after = await withKey(() => ux.advance(pub, rec.id, { walletPriv: walletPriv(), maxFeeRate: brPlanOf(rec).burn.maxRate }), pub);
+        if (rec.stage === 'traced' && (brPlanOf(rec)?.burn || rec.checkWait?.go) && !rec.lastError) {
+          after = await withKey(() => ux.advance(pub, rec.id, { walletPriv: walletPriv(), maxFeeRate: brPlanOf(rec)?.burn?.maxRate ?? null }), pub);
           if (after.stage === 'burn-signed') after = await ux.advance(pub, rec.id).catch(() => ux.list(pub).find((r) => r.id === rec.id) || after);
           if (BR_BURN_SENT.includes(after.stage)) toast(`${brAmt(after)}: the burn is sent`);
           else if (after.feeWait && !rec.feeWait) moved = true;

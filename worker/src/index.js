@@ -1960,7 +1960,10 @@ async function handleReflectionBurndep(req, env, url, cors) {
   // exact shape that used to throw out of the assembler, and /reflection/burndep-list already reports it as
   // `missing` — so it was known to be unusable and still accepted.
   const HEX32 = /^(0x)?[0-9a-fA-F]{64}$/;
-  const MAX_HOPS = 64, MAX_HEADERS = 4032;
+  // The guest's own ceiling (cxfer-core ProvenanceBlob::parse folds nothing past 256 transfers, and the JS mirror agrees): a deeper
+  // history cannot be onboarded at all, so the door takes everything the guest can fold. Each transfer is ~2.5M cycles in the reflection
+  // proof (measured on the pinned guest: 1 hop 27.6M, 64 hops 183.8M), so a full 256 adds about one Bitcoin block's worth to a batch.
+  const MAX_HOPS = BURNDEP_MAX_HOPS, MAX_HEADERS = 4032;
   const namesItsBlock = (r) => !!r && typeof r === 'object'
     && (HEX32.test(String(r.blockHash || '')) || (Number.isInteger(r.blockHeight) && r.blockHeight > 0));
   const bad = (msg) => jsonResponse({ ok: false, error: msg }, 400, cors);
@@ -2092,6 +2095,9 @@ async function handleReflectionBurndepList(req, env, url, cors) {
 // derived from bitcoin::extract_inputs (cxfer-core/src/bitcoin.rs) or its JS mirror (burnedTxid in
 // pendingDepositRecords) has to be compared against or fetched via a display-hex source.
 const revHex = (h) => String(h).replace(/^0x/, '').match(/../g).reverse().join('');
+// The most transfers a burn-deposit's provenance may hold: the reflection guest folds nothing past 256 (ProvenanceBlob::parse).
+export const BURNDEP_MAX_HOPS = 256;
+
 // POST /reflection/burndep/trace?network= — { note: {txid, vout}, assetId, maxDepth? } — traces a note's
 // provenance DAG live from public Bitcoin data (burndep-live-tracer.js's getCxferByOutput, wired to
 // dapp/burn-deposit-tracer.js's existing walk) and returns it as a bundle already shaped for
@@ -2127,11 +2133,18 @@ async function handleBurnDepositTrace(req, env, url, cors) {
     return jsonResponse({ ok: false, error: `asset ${assetIdHex} has no indexed etch on ${network} — POST /assets/hint with its reveal_txid first` }, 404, cors);
   }
   let bundle, hops;
+  // A long history read cold from the explorers can take minutes, longer than a request may stay open behind the gateway. So
+  // each request reads for at most BURNDEP_TRACE_BUDGET_MS and then answers 202 with how far it got: every transaction it read
+  // is kept, so the next request goes on from there (a page asks again by itself), and a history read before answers at once.
+  const deadline = Date.now() + Math.max(5_000, Number(env.BURNDEP_TRACE_BUDGET_MS) || 40_000);
   try {
-    const built = await buildBurndepBundle({ env, network, noteTxid, noteVout, asset, maxDepth });
+    const built = await buildBurndepBundle({ env, network, noteTxid, noteVout, asset, maxDepth, deadline });
     bundle = built.bundle;
     hops = built.hops;
   } catch (e) {
+    if (e && e.code === 'trace_pending') {
+      return jsonResponse({ ok: false, pending: true, read: e.hops, retryAfter: 2, error: e.message }, 202, { ...cors, 'Cache-Control': 'no-store' });
+    }
     return jsonResponse({ ok: false, error: `trace failed: ${e && e.message || e}` }, 502, { ...cors, 'Cache-Control': 'no-store' });
   }
   return jsonResponse({ ok: true, network, hops, bundle }, 200, { ...cors, 'Cache-Control': 'no-store' });
@@ -2142,11 +2155,11 @@ async function handleBurnDepositTrace(req, env, url, cors) {
 // plus the one extra etch/leaf lookup, assembled into the same minimal /reflection/burndep registration shape.
 // `asset` is the already-fetched registry record ({etch_txid, etch_vout, etched_at_height, ...}); throws on any
 // failure (dangling lineage, wrong etch record, etc.) rather than returning a partial bundle.
-async function buildBurndepBundle({ env, network, noteTxid, noteVout, asset, maxDepth }) {
+async function buildBurndepBundle({ env, network, noteTxid, noteVout, asset, maxDepth, deadline = null }) {
   const pool = makeConfidentialPool({ secp, keccak256: keccak_256, sha256 });
   const trace = makeBurnDepositTracer({ outpointKey: pool.outpointKey }).trace;
   const res = await traceBurnDepositProvenance({
-    env, apiText, apiRawBytes, network, outpointKey: pool.outpointKey, sha256, trace, maxDepth,
+    env, apiText, apiRawBytes, network, outpointKey: pool.outpointKey, sha256, trace, maxDepth, deadline,
     note: { txid: noteTxid, vout: noteVout },
     leaves: [{ txid: asset.etch_txid, vout: asset.etch_vout || 0 }],
   });
@@ -2434,7 +2447,17 @@ async function handleBurnDepositCheck(req, env, url, cors) {
   // of seconds of CPU for a deep lineage, which on this thread holds every other request and the health check with it.
   // The server runs it on a worker thread (env.burnDepositCheckOffThread, server/burndep-check-thread.mjs); without one
   // (tests, the in-memory driver) it runs here.
-  const out = env.burnDepositCheckOffThread ? await env.burnDepositCheckOffThread(network, body) : await burnDepositCheckOutcome(env, network, body);
+  const work = env.burnDepositCheckOffThread ? env.burnDepositCheckOffThread(network, body) : burnDepositCheckOutcome(env, network, body);
+  // A deep lineage's first check reads one Bitcoin block per transfer (each kept for good after, burndep-admission.js), which can
+  // take longer than a request may stay open behind the gateway. Past BURNDEP_CHECK_ANSWER_MS this answers 202 and the check goes
+  // on, so asking again a little later finds its blocks read and answers at once.
+  let timer;
+  const budget = Math.max(5_000, Number(env.BURNDEP_CHECK_ANSWER_MS) || 45_000);
+  const out = await Promise.race([work, new Promise((resolve) => { timer = setTimeout(() => resolve(null), budget); })]).finally(() => clearTimeout(timer));
+  if (!out) {
+    work.catch(() => {});
+    return jsonResponse({ ok: false, pending: true, retryAfter: 20, error: 'still checking this history; ask again in a moment' }, 202, { ...cors, 'Cache-Control': 'no-store', 'Retry-After': '20' });
+  }
   const headers = { ...cors, 'Cache-Control': 'no-store', ...(out.retryAfter ? { 'Retry-After': String(out.retryAfter) } : {}) };
   return jsonResponse(out.body, out.status, headers);
 }

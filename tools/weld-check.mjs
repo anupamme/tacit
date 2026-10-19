@@ -171,7 +171,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgedeep,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -2552,6 +2552,81 @@ await step('bridge', async () => {
 // An arrived bridge's TAC made public: one whose holder asked for it is made public by the page on its own (to the address chosen), and
 // one that did not asks for the press, on its row, and sends to the paying account. The pool module is stubbed to hold two private TAC
 // notes, whose leaves the two bridge records name as the notes they minted.
+await step('bridgedeep', async () => {
+  const r = await openPage({ account: A0, key: K0 });
+  const hex = 'b41e'.padEnd(64, '8'), pubB = secp.getPublicKey(hex, true), pub = Buffer.from(pubB).toString('hex');
+  const { ripemd160 } = await import('@noble/hashes/ripemd160');
+  const spk = '0014' + Buffer.from(ripemd160(sha256(pubB))).toString('hex');
+  const { makeConfidentialPool } = await import(new URL('../dapp/confidential-pool.js', import.meta.url));
+  const pool = makeConfidentialPool({ secp, keccak256: keccak_256, sha256 });
+  const rev = (h) => h.match(/../g).reverse().join('');
+  const N1 = 'c5'.repeat(32), N2 = 'c6'.repeat(32), N3 = 'c8'.repeat(32), OTHER = 'c7'.repeat(32), TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
+  let traces = 0;
+  const api = (re, fn) => r.page.route(re, (route) => fn(route, new URL(route.request().url())));
+  try {
+    // Two notes the proof does not track, each with a history longer than the page's walk reads: the trace answers that, as the worker does.
+    await api(/^https:\/\/api\.tacit\.finance\/reflection\/dump/, (route) => json(route, { attestedHeight: 970000,
+      snapshot: { height: 970000, liveTriples: [[pool.outpointKey('0x' + rev(OTHER), 0), '0x00', '0x00', '0x00', 0]], burnNodes: [], noteLeaves: [], pendingDepositRecords: [] } }));
+    await api(/^https:\/\/api\.tacit\.finance\/reflection\/status/, (route) => json(route, { network: 'mainnet', attestedHeight: 970000, tipHeight: 970000, lagBlocks: 0 }));
+    await api(/^https:\/\/api\.tacit\.finance\/chain\/tx\/[0-9a-f]{64}/, (route) => route.fulfill({ status: 404, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"error":"not-found"}' }));
+    await api(/^https:\/\/api\.tacit\.finance\/chain\/tx\/(c5|c6|c8){32}/, (route, u) => json(route, { txid: u.pathname.split('/').pop(), status: { confirmed: true, block_height: 960000 }, vout: [{ scriptpubkey: spk, value: 546 }] }));
+    // The API reads a long history in parts: twice "still reading" (202), then the answer that it is over the guest's 256.
+    const parts = new Map();
+    await api(/^https:\/\/api\.tacit\.finance\/reflection\/burndep\/trace/, (route) => {
+      traces++;
+      const note = JSON.parse(route.request().postData() || '{}').note?.txid, k = (parts.get(note) || 0) + 1;
+      parts.set(note, k);
+      // The third note's history runs through a pool trade on Bitcoin: no length of walk reaches the etch through it.
+      if (note === N3) return json(route, { ok: false, error: "trace failed: burndep-live-tracer: input ab:0 classified as 'swap_var', which this module does not resolve a commitment for" });
+      if (k <= 2) return route.fulfill({ status: 202, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify({ ok: false, pending: true, read: 120 * k, retryAfter: 1 }) });
+      return json(route, { ok: false, error: 'trace failed: burn-deposit trace: provenance exceeded maxDepth (256)' });
+    });
+    await r.page.goto(r.url + '#wallet');
+    await r.page.evaluate(async ([n1, n2, n3, aid]) => {
+      globalThis.__TACIT_NO_INIT__ = true; localStorage.setItem('tacit-network-v1', 'mainnet');
+      const T = await import([...document.scripts].map((x) => x.textContent).join('').match(/\/tacit\.js\?cb=[0-9a-f]+/)[0]);
+      const note = (txid, amount) => ({ utxo: { txid, vout: 0, value: 546, status: { confirmed: true } }, amount, blinding: 12345n + amount });
+      T._testSetScanHoldingsOverride(() => new Map([[aid, { assetIdHex: aid, ticker: 'TAC', decimals: 8, balance: 9000000000n, utxos: [note(n1, 4000000000n), note(n2, 3000000000n), note(n3, 2000000000n)], ghosts: [], inflated: [], pending: [] }]]));
+    }, [N1, N2, N3, TAC]);
+    await r.page.click('#wallet-body [data-in="paste"]');
+    await r.page.fill('#ws-hex', hex);
+    await r.page.click('#wallet-body [data-in="key"]');
+    await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
+    await r.page.evaluate(() => { location.hash = ''; location.hash = '#bridge'; });
+    await until(r.page, () => document.querySelectorAll('#bridge-body .brn').length === 3, null, 120000)
+      .catch(async (e) => { console.log('bridgedeep: the list showed', JSON.stringify(await text(r.page, '#bridge-body').then((t) => t.replace(/\s+/g, ' ').slice(0, 400)))); throw e; });
+    const warn = () => text(r.page, '#br-rcpt').then((t) => t.replace(/\s+/g, ' ').trim());
+    await r.page.evaluate(() => {
+      globalThis.__rcptSeen = [];
+      new MutationObserver(() => { const t = document.querySelector('#br-rcpt')?.textContent?.replace(/\s+/g, ' ').trim(); if (t) globalThis.__rcptSeen.push(t); })
+        .observe(document.querySelector('#bridge-body'), { subtree: true, childList: true, characterData: true });
+    });
+    await r.page.check(`#bridge-body input[value="${N1}:0"]`);
+    await until(r.page, () => /in its history, and the bridge proves/.test(document.querySelector('#br-rcpt')?.textContent || ''), null, 120000);
+    const first = await warn();
+    ok(/This TAC has more than 256 transfers in its history, and the bridge proves up to 255, so this note stays on Bitcoin, where it can be sent and traded as usual\./.test(first) && !/hop\(s\)|try again|etch|too long|cannot/i.test(first), `bridgedeep: a history over the walk says how long it is, the limit, and what happens to the note, plainly (${first})`);
+    const seen = await r.page.evaluate(() => globalThis.__rcptSeen);
+    ok(seen.some((t) => /Reading this TAC’s history from Bitcoin: 120 transfers so far/.test(t)) && seen.some((t) => /240 transfers so far/.test(t)),
+      `bridgedeep: while the API reads a long history in parts the receipt says how far it has got (${[...new Set(seen.filter((t) => /Reading/.test(t)))].join(' | ')})`);
+    const row = (id) => text(r.page, `#bridge-body label:has(input[value="${id}:0"])`).then((t) => t.replace(/\s+/g, ' ').trim());
+    ok(/More than 256 transfers in its history; the bridge proves up to 255\./.test(await row(N1)), `bridgedeep: the note's own row says so at once (${await row(N1)})`);
+    ok(!(await r.page.isVisible('#br-go')) || await r.page.isDisabled('#br-go'), 'bridgedeep: nothing can be started on it');
+    await r.page.check(`#bridge-body input[value="${N2}:0"]`);
+    await until(r.page, () => /in its history, and the bridge proves/.test(document.querySelector('#br-rcpt')?.textContent || '') && document.querySelectorAll('#bridge-body .brn small').length === 2, null, 120000);
+    ok(traces === 6, `bridgedeep: each note's history was read once, in three asks (${traces})`);
+    await r.page.check(`#bridge-body input[value="${N3}:0"]`);
+    await until(r.page, () => /does not follow/.test(document.querySelector('#br-rcpt')?.textContent || '') && document.querySelectorAll('#bridge-body .brn small').length === 3, null, 120000);
+    const poolText = await warn();
+    ok(/This TAC’s history includes a pool or farm trade on Bitcoin, which the bridge’s proof does not follow, so this note stays on Bitcoin, where it can be sent and traded as usual\./.test(poolText) && !/try again|cannot/i.test(poolText),
+      `bridgedeep: a history through a pool trade says the bridge does not follow it and the note stays on Bitcoin, not to try again (${poolText})`);
+    ok(/Its history includes a pool or farm trade on Bitcoin, which the bridge does not follow\./.test(await row(N3)) && traces === 7, `bridgedeep: and its row says so at once, after one ask (${await row(N3)})`);
+    // The sheet drawn again lists both as not to be picked, without reading either history again.
+    await r.page.click('[data-tac-mode="airdrop"], [data-tac-mode="air"]'); await sleep(300); await r.page.click('[data-tac-mode="bridge"]');
+    await until(r.page, () => document.querySelectorAll('#bridge-body .brn.off').length === 3, null, 60000);
+    ok(traces === 7 && (await r.page.$$('#bridge-body input[name="br-note"]:not([disabled])')).length === 0, `bridgedeep: a note found too long or unprovable is not traced again, and all three are listed as not to be picked (${traces} asks)`);
+    if (r.errors.length) { fails++; console.log('FAIL bridgedeep page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
 await step('bridgepub', async () => {
   const r = await openPage({ account: A0, key: K0 });
   const hex = 'b9b1'.padEnd(64, '7'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex');
