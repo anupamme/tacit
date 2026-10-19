@@ -26,7 +26,8 @@
   if (navigator.webdriver && !window.__tacitUpd) return;
   const EVERY = 10 * 60e3;
   let mine = null, at = 0, said = false;
-  const tag = () => fetch(location.pathname, { method: 'HEAD', cache: 'no-store' }).then((r) => (r.ok ? r.headers.get('etag') : null), () => null);
+  // the same bytes carry a weak tag uncompressed and a strong one compressed, so the W/ is not part of the comparison
+  const tag = () => fetch(location.pathname, { method: 'HEAD', cache: 'no-store' }).then((r) => (r.ok ? (r.headers.get('etag') || '').replace(/^W\//, '') || null : null), () => null);
   const say = () => {
     said = true;
     const bar = document.createElement('div'), go = document.createElement('button');

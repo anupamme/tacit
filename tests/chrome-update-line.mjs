@@ -37,8 +37,9 @@ try {
     await page.clock.runFor(1000);
     const lines = () => page.locator('[role=status]').count();
     ok(heads === 1 && (await lines()) === 0, 'the page reads its own ETag once on load, and says nothing');
+    etag = '"one"';
     await page.clock.runFor(11 * 60e3);
-    ok(heads === 2 && (await lines()) === 0, 'ten minutes on, the same ETag: still nothing');
+    ok(heads === 2 && (await lines()) === 0, 'ten minutes on, the same ETag (strong now, as a compressed answer carries it): still nothing');
     etag = 'W/"two"';
     await showAs(page, true);
     await page.clock.runFor(30 * 60e3);
