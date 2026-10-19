@@ -3879,6 +3879,51 @@ await step('rewardsearn', async () => {
   } finally { await u.browser.close(); }
 });
 
+// The header's Rewards link says when the connected wallet has something to claim (the points reward, or the airdrop): a dot, and "something to claim" for a
+// screen reader. It is looked for once the wallet is connected and the page idle, kept ten minutes for the account (so the next page asks nothing), and the
+// rewards page, which shows the claim itself, keeps it up to date but does not draw it.
+await step('rewardsdot', async () => {
+  const proof = ['0x' + '11'.repeat(32)];
+  const choose = (page) => page.waitForSelector('.bsheet .way', { timeout: 8000 }).then(() => page.click('.bsheet .way:has-text("Browser wallet")')).catch(() => {});
+  const plug = async (page) => { choose(page); await page.click('#wallet-chip'); await until(page, () => /0x[0-9a-f]{4}/i.test(document.querySelector('#wallet-label')?.textContent || ''), null, 30000); };
+  const dot = (page) => page.evaluate(() => { const a = document.querySelector('header.top .sn a[href="/rewards/"]'); return { on: document.querySelector('header.top .sn')?.hasAttribute('data-owed'), label: a?.getAttribute('aria-label'), drawn: !!a && getComputedStyle(a, '::after').content !== 'none' && getComputedStyle(a, '::after').content !== 'normal' }; });
+  for (const owed of [true, false]) {
+    const n = await openPage({ account: A0, viewport: { width: 1000, height: 900 } });
+    let hits = 0;
+    await n.ctx.route(/api\.tacit\.finance\/claim\/0x/, (route) => { hits++; return json(route, owed ? { cumulativeAmount: '5000000000000000000', claimedWei: '0', unclaimedWei: '5000000000000000000', proof } : { cumulativeAmount: '0', claimedWei: '0', unclaimedWei: '0', proof: null }); });
+    await n.ctx.route(/api\.tacit\.finance\/(points\/0x|leaderboard)/, (route) => json(route, /leaderboard/.test(route.request().url()) ? [] : { points: 0, deposit_count: 0, deposits: [] }));
+    try {
+      await n.page.goto(n.url + 'swap/');
+      await n.page.waitForSelector('#wallet-chip', { timeout: 60000 });
+      ok(!(await dot(n.page)).on && hits === 0, `rewardsdot (${owed ? 'owed' : 'nothing'}): with no wallet connected nothing is asked and there is no dot`);
+      await plug(n.page);
+      if (owed) {
+        await until(n.page, () => document.querySelector('header.top .sn')?.hasAttribute('data-owed'), null, 60000);
+        const d = await dot(n.page);
+        ok(d.on && d.label === 'Rewards, something to claim' && d.drawn, `rewardsdot: a connected wallet with a points reward to claim gets the dot on the Rewards link, named for a screen reader (${JSON.stringify(d)})`);
+      } else {
+        await until(n.page, () => !!localStorage.getItem('tacit-rewards-owed-v1'), null, 60000);
+        const d = await dot(n.page);
+        ok(!d.on && d.label !== 'Rewards, something to claim', 'rewardsdot: with nothing to claim there is none, and that is remembered too');
+      }
+      const kept = JSON.parse(await n.page.evaluate(() => localStorage.getItem('tacit-rewards-owed-v1')));
+      ok(kept.a === A0.toLowerCase() && kept.on === owed, `rewardsdot (${owed ? 'owed' : 'nothing'}): the reading is kept for the account (${JSON.stringify(kept)})`);
+      const before = hits;
+      await n.page.goto(n.url + 'tasks/');
+      await n.page.waitForSelector('#wallet-chip', { timeout: 60000 });
+      await until(n.page, (want) => document.querySelector('header.top .sn')?.hasAttribute('data-owed') === want && /0x[0-9a-f]{4}/i.test(document.querySelector('#wallet-label')?.textContent || ''), owed, 60000);
+      ok(hits === before, `rewardsdot (${owed ? 'owed' : 'nothing'}): the next page (the tasks page, whose CSP now allows the API) shows it from what is kept, with no new request (${hits} reading)`);
+      if (owed) {
+        await n.page.goto(n.url + 'rewards/');
+        await n.page.waitForSelector('#wallet-chip', { timeout: 60000 });
+        await sleep(2500);
+        ok(!(await dot(n.page)).on, 'rewardsdot: the rewards page does not draw it');
+      }
+      if (n.errors.length) { fails++; console.log('FAIL rewardsdot page errors: ' + n.errors.slice(0, 3).join(' | ')); }
+    } finally { await n.browser.close(); }
+  }
+});
+
 // Farming what was claimed, on the rewards page. The farm is a row of the list for everyone; its line says what the wallet holds there, and a claim opens it
 // with the claimed TAC and the ETH that pairs with it already in, so one press farms it. With less ETH than that the pair is what the ETH covers
 // (and the page says so), with none to spare the TAC goes in alone, and under the network fee the button says to add ETH.

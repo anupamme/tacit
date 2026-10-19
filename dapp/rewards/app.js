@@ -2,8 +2,9 @@ import { secp, keccak_256 } from '/vendor/tacit-deps.min.js';
 import { makeConfidentialNames, makeMainnetCall, MAINNET_RPCS, NameError } from '/confidential-names.js?cb=9efdff52';
 import { bodyType } from '/rpc-body.js';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=6a6bb45f';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=e4659b0e';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=92188b57';
 import { TAC, POOL, FARM, aprText, readPrecision, readStake, privateFarms } from '/trade/farm-read.js?cb=56ac202c';
+import { rememberOwed } from '/trade/rewards-dot.js?cb=837a0a4e';
 import { readLiquidity, readTasks } from '/rewards/earn.js?cb=ffffbe6c';
 
 const NO_SEND = ['0x0000000000000000000000000000000000000000', '0xa1313eb9f3a445606d9583bcac3ebeb56a858279', '0x000000c918e44a3a443937fa7594ea4f7c95d6b9', '0x4b4cb98d0c836c2783ac46f0078b904dab533ae8'];
@@ -193,6 +194,7 @@ let tot = { address: null, air: null, pts: null, farm: null, bad: false };
 function paintTotal() {
   if (!$('#tot') || tot.address !== out.dataset.address || [tot.air, tot.pts, tot.farm].some((v) => v == null)) return;
   const sum = tot.air + tot.pts + tot.farm;
+  if (!tot.bad && W.account && W.account.toLowerCase() === tot.address) rememberOwed(tot.address, tot.air > 0n || tot.pts >= 10n ** 16n);
   paint('#tot', sum > 0n ? `<b class="num">${esc(tac(sum))}</b>TAC to claim` : tot.bad ? '' : 'Nothing to claim yet');
 }
 const whoLine = (who, q) => `<p class="who"><b>${esc(who.name || short(who.address))}</b>${who.name ? `<span>${short(who.address)}</span>` : ''}</p>

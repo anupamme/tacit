@@ -11,7 +11,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_modules/playwright-core');
 const BASE = (process.argv[2] || 'https://tacit.finance').replace(/\/$/, '');
-const POOL = '0x0155358241411dB868BA714aE7c83A27087e3D6E', TAC = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279', SEEN = '0xd59c2f78d5e6ad8c69ef11e39af7b8cfdb9faf36';
+const POOL = '0x0155358241411dB868BA714aE7c83A27087e3D6E', TAC = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279', SEEN = '0xd59c2f78d5e6ad8c69ef11e39af7b8cfdb9faf36', LISTED = '0x1c0aa8ccd568d90d61659f060d1bfb1e6f855a20';
 let fails = 0;
 const bad = [];
 const ok = (c, m) => { if (!c) fails++; console.log(c ? 'ok  ' : 'FAIL', m); };
@@ -71,6 +71,13 @@ try {
   await p.click('#wallet-chip');
   await p.waitForSelector('.bsheet a[href^="/rewards/?q=0x"]', { timeout: 15000 });
   ok(true, "another page's wallet sheet links to the account's airdrop and points");
+  // the header's dot: a wallet on an account that still has its airdrop to claim (the stub never signs)
+  p = await open(LISTED);
+  await p.goto(`${BASE}/swap/`);
+  await p.waitForSelector('#wallet-chip');
+  await connectBrowserWallet(p);
+  await wait(p, () => document.querySelector('header.top .sn')?.hasAttribute('data-owed'), 60000);
+  ok((await p.getAttribute('header.top .sn a[href="/rewards/"]', 'aria-label')) === 'Rewards, something to claim', 'the Rewards link in the header has its dot for an account with something to claim');
   // the farm, for a wallet that holds TAC: its row says what is held, opens, and fills in
   p = await open(POOL);
   await p.goto(`${BASE}/rewards/?q=${POOL}`);

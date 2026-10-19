@@ -14,8 +14,8 @@
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <!-- preload-roots: /relay/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/relay/app.js?cb=daae4d56">
-<link rel="modulepreload" href="/trade/connect.js?cb=e4659b0e">
+<link rel="modulepreload" href="/relay/app.js?cb=1d1c07a8">
+<link rel="modulepreload" href="/trade/connect.js?cb=92188b57">
 <link rel="modulepreload" href="/walletconnect.js?cb=2dd7ae09">
 <link rel="modulepreload" href="/trade/wallet.js?cb=4965f3e0">
 <link rel="modulepreload" href="/trade/sheet.js?cb=84cda8f2">
@@ -244,6 +244,10 @@ header.top .sm > summary::before, header.top .sm > summary::after { content: non
 .sn > a:active, .sn summary:active { transform: scale(.93); }
 .sn a:focus-visible, .sn summary:focus-visible, .sf a:focus-visible { outline: 2px solid var(--orange); outline-offset: 1px; }
 @container top (min-width: 540px) { .sn > a { display: inline-flex; } }
+.sn > a[href="/rewards/"], .sn .sm > summary { position: relative; }
+.sn[data-owed] > a[href="/rewards/"]::after, .sn[data-owed] .sm > summary::after { content: ''; position: absolute; top: 8px; left: 26px; width: 7px; height: 7px; border-radius: 50%; background: var(--orange); box-shadow: 0 0 0 2px var(--paper, transparent); }
+@container top (min-width: 540px) { .sn[data-owed] .sm > summary::after { display: none; } }
+@container top (max-width: 539px) { .sn[data-owed] > a[href="/rewards/"]::after { display: none; } }
 @container top (min-width: 900px) {
   .sn > a { padding: 0 13px 0 11px; }
   .sn > a span { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
@@ -423,6 +427,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/relay/app.js?cb=daae4d56"></script>
+<script type="module" src="/relay/app.js?cb=1d1c07a8"></script>
 </body>
 </html>

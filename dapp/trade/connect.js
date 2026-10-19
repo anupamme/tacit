@@ -1,19 +1,10 @@
-// The browser wallet on a trade page: the header chip, the picker, WalletConnect's pairing sheets, and the account sheet with Disconnect. The page
-// says what to show in the account sheet and what to do when the account changes; the wallet itself (sending, signing, receipts) is wallet.js.
 import { announceWalletConnect, wcSheets, WC_PROJECT_ID } from '/walletconnect.js?cb=2dd7ae09';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=4965f3e0';
 import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
 import { rpc, RPCS, short, $ } from '/trade/util.js?cb=509d6618';
 
-// WalletConnect joins the browser wallets in the picker, and is the one wallet offered where the browser has none (a phone): a wallet app signs
-// and sends for this page.
-
 export { UserStopped };
 
-// `describe`: what the page is, for the wallet app. `rows()`: extra lines for the account sheet (html), `rewards: false` for the page that is itself the airdrop and points page (every other page's sheet links to it), and `wire(root, close)` the handlers of
-// whatever they hold. `busy()`: an action in progress, which keeps the account from being left. `leave(account)`: called as the account is left.
-// `name`: what the wallet app calls the page. `rpc`: the page's own reader of receipts, where it has one. `say(text)`: a notice on the page. `onChange()`: the account or network changed. A page that is not ready to hear of a restored wallet
-// at once passes `restore: false` and calls `restore()` when it is.
 export function makeConnect({ describe, name = 'tacit trade', rpc: read = rpc, rows = () => '', wire = () => {}, leave = () => {}, busy = () => false, say = () => {}, onChange = () => {}, restore = true, rewards = true }) {
   const sheets = wcSheets((title, onClose) => overlay({ title, top: true, onClose }));
   const WC = announceWalletConnect({
@@ -31,8 +22,6 @@ export function makeConnect({ describe, name = 'tacit trade', rpc: read = rpc, r
       o.body.querySelectorAll('[data-i]').forEach((b) => { b.onclick = () => { resolve(Number(b.dataset.i)); o.close(); }; });
     });
   }
-  // Several wallets (or one and WalletConnect): the person chooses. One: it connects at once. → true once connected.
-  // One connection at a time: a second press while the wallet's prompt is open would ask the wallet again, and it answers that with an error.
   let connecting = false;
   async function connect() {
     if (connecting) return false;
@@ -42,12 +31,11 @@ export function makeConnect({ describe, name = 'tacit trade', rpc: read = rpc, r
     try {
       let w = list[0];
       if (list.length > 1) { const i = await pickWallet(list); if (i == null) return false; w = list[i]; }
-      await wallet.connect(w);                                                    // connecting reaches the page through onChange, as any account change does
+      await wallet.connect(w);
       return true;
     } catch (e) { say(esc(e instanceof UserStopped ? 'Not connected.' : (e.message || 'The wallet did not connect.')), true); return false; }
     finally { connecting = false; renderChip(); }
   }
-  // Change account: the wallet's own chooser, or for a WalletConnect session a new pairing (the wallet app asks which account), with the choice of wallet again.
   async function changeAccount() {
     if (connecting) return;
     try {
@@ -57,11 +45,9 @@ export function makeConnect({ describe, name = 'tacit trade', rpc: read = rpc, r
     } catch (e) { say(esc(e instanceof UserStopped ? 'Account not changed.' : (e.message || 'The wallet did not change account.')), !(e instanceof UserStopped)); }
     finally { connecting = false; renderChip(); }
   }
-  // The page's own `leave` (a key this account opened locks), then the wallet is let go of.
   async function leaveAccount() { const addr = W.account; await leave(addr); await wallet.disconnect(); }
   function renderChip() {
-    const on = !!W.account, wrong = on && W.chain && W.chain !== '0x1';                  // a transaction switches the wallet to Ethereum itself; the chip says so first
-    // While the wallet's prompt is open the dot is orange and the chip says it is waiting; its label stays, so the header does not move.
+    const on = !!W.account, wrong = on && W.chain && W.chain !== '0x1';
     $('#wallet-dot').classList.toggle('on', on && !wrong && !connecting); $('#wallet-dot').classList.toggle('warn', !!wrong || connecting);
     $('#wallet-label').textContent = on ? short(W.account, 4) : 'Connect';
     $('#wallet-chip').setAttribute('aria-label', connecting ? 'Waiting for your wallet' : on ? `Wallet ${W.account}${wrong ? ', on another network' : ''}` : 'Connect a wallet');
@@ -77,11 +63,19 @@ export function makeConnect({ describe, name = 'tacit trade', rpc: read = rpc, r
     o.body.querySelector('[data-copy]').onclick = (e) => navigator.clipboard?.writeText(addr).then(() => { e.target.textContent = 'Copied'; }, () => { e.target.textContent = 'Could not copy'; });
     wire(o.body, o.close);
     o.body.querySelector('[data-change]')?.addEventListener('click', () => { o.close(); changeAccount(); });
-    o.body.querySelector('[data-leave]').onclick = async () => { o.close(); await leaveAccount(); };       // the wallet's own change event redraws the chip and tells the page
+    o.body.querySelector('[data-leave]').onclick = async () => { o.close(); await leaveAccount(); };
   }
   $('#wallet-chip').addEventListener('click', () => { if (W.account) accountSheet(); else connect(); });
-  wallet.onChange(() => { renderChip(); onChange(); });
-  const restoreLast = () => wallet.restore().catch(() => {});                       // the wallet connected last time, back without a prompt when it still allows this site
+  let owedFor = null;
+  const markOwed = (on) => { const nav = document.querySelector('header.top .sn'); if (nav) { nav.toggleAttribute('data-owed', !!on); nav.querySelector('a[href="/rewards/"]')?.setAttribute('aria-label', on ? 'Rewards, something to claim' : 'Rewards'); } };
+  function checkOwed() {
+    const a = W.account ? W.account.toLowerCase() : null;
+    if (!rewards || a === owedFor) return;
+    owedFor = a; markOwed(false);
+    if (a) (window.requestIdleCallback || ((f) => setTimeout(f, 1500)))(() => import('/trade/rewards-dot.js?cb=837a0a4e').then((m) => m.owedDot(a, (on) => { if (owedFor === a) markOwed(on); })).catch(() => {}));
+  }
+  wallet.onChange(() => { renderChip(); onChange(); checkOwed(); });
+  const restoreLast = () => wallet.restore().catch(() => {});
   if (restore) restoreLast();
   renderChip();
   return { wallet, W, connect, changeAccount, renderChip, restore: restoreLast };
