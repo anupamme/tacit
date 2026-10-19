@@ -41,6 +41,7 @@ import { bppRangeProve, bppRangeVerify } from './bulletproofs-plus.js';
 import { makeConfidentialPool } from './confidential-pool.js';
 import { makeConfidentialPoolUx, setExternalTacHolders, forgetKeys as forgetPoolKeys } from './confidential-pool-ux.js';
 import { makeBurnDepositUx, BURNDEP_BETA_CAP_RAW as BURNDEP_BETA_CAP_RAW_TAC } from './burndep-ux.js';
+import { makeTxArchive } from './tx-archive.js';
 import { makeCrossoutUx, CROSSOUT_BETA_CAP_RAW as CROSSOUT_TAC_CAP_RAW, CROSSOUT_TETH_CAP_RAW, CROSSOUT_TETH_MIN_RAW, CROSSOUT_CBTC_CAP_RAW, CROSSOUT_CBTC_MIN_RAW } from './crossout-ux.js';
 import { makeCrossoutNotes } from './crossout-notes.js';
 import { renderConfidentialPoolTab } from './confidential-pool-tab.js';
@@ -3293,6 +3294,15 @@ const getTx = async (rawId) => {
     _scheduleTxBatchFlush();
   });
 };
+
+// The API's archive of confirmed Tacit transactions for the current network (tx-archive.js): the holdings walk reads a history
+// from it in one answer; it never asks an explorer itself, and the walk falls back to getTx for whatever it does not hold.
+let _txArchiveNet = null;
+function _txArchive() {
+  const name = NET?.name || 'mainnet';
+  if (!_txArchiveNet || _txArchiveNet.name !== name) _txArchiveNet = { name, a: makeTxArchive({ base: WORKER_BASE, network: name, sha256 }) };
+  return _txArchiveNet.a;
+}
 
 const _cachedRate = new Map();
 const _cachedRateAt = new Map();
@@ -15831,15 +15841,22 @@ async function _scanHoldingsImpl() {
   const holdings = new Map();
   const txCache = new Map();
   const metadataOut = new Map();
+  // A transaction the archive answered for (checked against its txid in tx-archive.js) is read from there; any other from the
+  // explorers as before. Only this walk reads it, so no other reader's cache holds the archive's shape.
   const fetchTx = async id => {
     if (txCache.has(id)) return txCache.get(id);
-    const t = await getTx(id);
+    const t = _txArchive().get(id) || await getTx(id);
     txCache.set(id, t);
     return t;
   };
 
   const persistedTrue = _getPersistedValidatedTrue();
   let validatedSet = new Map(persistedTrue);
+  // The history of every output not yet proved in this browser, from the archive in one answer per 64, before the walk begins.
+  {
+    const fresh = utxos.filter((u) => !validatedSet.has(`${u.txid}:${u.vout}`)).map((u) => u.txid);
+    if (fresh.length) await _txArchive().prefetch(fresh).catch(() => 0);
+  }
   let validatedReasons = new Map();
   let rpBatch = [];
   const pmintStatusOut = new Map();
