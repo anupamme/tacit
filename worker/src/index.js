@@ -94,7 +94,7 @@ import { pvDeadline, settleCalldata as openSettleCalldata, carriesPublicValues, 
 import { passesFloor, feeAssetOf, floorInFeeUnits, totalFee, decodePoolState, ammUsdPerUnitBest, AMM_PRICE_DEFAULTS, FEELESS_TYPES } from './relay-quote.js';
 import { makeConfidentialIndex } from './confidential-index.js';
 import { buildFlow, appendSeries, flowPoint } from './flow-feed.js';
-import { ethStatsBody } from './stats-views.js';
+import { ethStatsBody, pageStatsBody } from './stats-views.js';
 import { preauthSalesBookBody } from './book-views.js';
 import { buildCrossoutConsumer, crossoutMintLeaf } from './crossout-consumer.js';
 import { buildGovernance } from './governance.js';
@@ -1765,6 +1765,11 @@ async function handleStats(env, cors, url) {
   else if (url && url.searchParams.get('view') === 'eth') {
     if (_stats.ethOf !== _stats.body) { try { _stats.eth = ethStatsBody(_stats.body); _stats.ethOf = _stats.body; } catch { _stats.eth = null; } }
     if (_stats.eth) body = _stats.eth;
+  }
+  // `?view=page`: the whole reading with the device pools' per-event series gathered into time buckets (the stats page draws them as one line).
+  else if (url && url.searchParams.get('view') === 'page') {
+    if (_stats.pageOf !== _stats.body) { try { _stats.page = pageStatsBody(_stats.body); _stats.pageOf = _stats.body; } catch { _stats.page = null; } }
+    if (_stats.page) body = _stats.page;
   }
   return new Response(body, { status: 200, headers: { ...cors, 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60' } });
 }
