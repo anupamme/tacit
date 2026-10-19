@@ -26,11 +26,13 @@
 //   farmcoming a private farm opened while a wrap is settling says the tETH is on its way instead of asking for it again
 //   farmzap  one side alone farms: Max takes the whole balance, the quote says what is swapped and what both sides add, and the
 //            press cuts the swap note, swaps it in the farm's pool, cuts what pairs with the return and bonds both
+//   farmready a private farm opened to join arrives ready: the most the key holds is in the form and quoted, the button stays in view, the farm's facts follow the form, and an amount cleared by hand stays cleared
+//   farmgetprivate with nothing private held, Make ETH private is the farm's main button, opens with the most it can take, and carries a line on to the farm
 //   farmmarket a private pool priced far from the market says so on its card; tETH alone shows its cost against the market and waits for it to be accepted
 //   hxdry   between reward periods the card's private farms say so and quote no APR or TAC a day; the Precision pool keeps its figures
 //   hxfold   Shield shows the way in use with a line to the others; a returning visitor finds the tab and choices kept, the amount for the visit only
-//   hxnudge  with no amount typed the card's button asks for one in the card instead of opening a sheet; with one, or with no amount to type, it goes on
-//   hxearntac the card's Earn tab takes a wallet's TAC (the public pool, the form's TAC tab) and private TAC (the pool that pairs it), each with its amount
+//   hxnudge  with no amount typed the card's button asks for one in the card instead of opening a sheet; with one, with no amount to type, or with the private balance a private farm would take, it goes on
+//   hxearntac the card's Earn tab takes a wallet's TAC (the public pool, the form's TAC tab) and private TAC (the pool that pairs it), each with its amount, or with none typed when the private TAC held is what the pool takes
 //   farmcusd  private cUSD held: the Borrow sheet offers to farm it, which opens the cUSD pool on its own side; selling cUSD into a pool that prices it dear shows no cost against the market
 //   farmqueue a cut still in the relay's queue when the wait runs out says so, says how to carry on, and offers the paying account
 //   hxtip    the card's wrap tip is the relay's for the amount typed (3% of a small one, capped), not one figure read for 0.1 ETH
@@ -6383,6 +6385,49 @@ await step('farmzap', async () => {
   } finally { await r.browser.close(); }
 });
 
+// A private farm opened to join (the Farm tile, a Rewards row, a Borrow link) arrives ready: with private tETH held the form fills itself with the
+// most it can take and quotes it, so the farm button is the one press left; a farm the key is already in, or an amount the key typed, is left alone.
+await step('farmready', async () => {
+  const r = await openFarmKey('c3a1'.padEnd(64, '6'), { notes: [[FARM_CETH, 2000000n]], positions: [], swap: true }, { width: 1280, height: 800 });
+  const p = r.page;
+  try {
+    await go(p, '#farm/private-0');
+    await p.waitForSelector('#sj-go-0', { timeout: 300000 });
+    await until(p, () => /Swaps/.test(document.querySelector('#sj-rcpt-0')?.textContent || '') && !document.querySelector('#sj-go-0').disabled, null, 420000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#sj-rcpt-0')).replace(/\s+/g, ' ')}`); });
+    ok((await p.inputValue('#sj-a-0')) === '0.02' && (await text(p, '#sj-go-0')) === 'Farm with tETH', `farmready: the form opens holding the most it can take, and the farm button is live with no press before it (${await p.inputValue('#sj-a-0')})`);
+    ok(await p.evaluate(() => { const f = document.querySelector('#farm-pid0'), form = f.querySelector('#sj-go-0'), facts = [...f.querySelectorAll('.kv')].find((k) => /In the pool/.test(k.textContent)); return !!(form.compareDocumentPosition(facts) & Node.DOCUMENT_POSITION_FOLLOWING); }), 'farmready: and the farm\'s facts come after the form, not before it');
+    const inView = () => p.evaluate(() => { const d = document.querySelector('#sheet-farm').getBoundingClientRect(), b = document.querySelector('#sj-go-0').getBoundingClientRect(); return b.top >= d.top && b.bottom <= d.bottom + 1; });
+    ok(await inView(), 'farmready: and the button stays in view at the foot of the sheet however long the quote above it is');
+    await shot(p, 'farmready');
+    await p.setViewportSize({ width: 390, height: 780 });
+    await p.waitForTimeout(500);
+    ok(await inView() && await p.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'farmready: at phone width too, with no sideways scroll');
+    await shot(p, 'farmready-phone');
+    await p.setViewportSize({ width: 1280, height: 800 });
+    await p.fill('#sj-a-0', '');
+    await p.waitForTimeout(1500);
+    ok((await p.inputValue('#sj-a-0')) === '' && await p.$eval('#sj-go-0', (b) => b.disabled), 'farmready: an amount cleared by hand is not filled in again');
+    if (r.errors.length) { fails++; console.log('FAIL farmready page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// A key holding nothing private is sent to Make ETH private from a farm with the most it can take already in the form, and the way back to the farm.
+await step('farmgetprivate', async () => {
+  const r = await openFarmKey('d5e2'.padEnd(64, '6'), { notes: [], positions: [] });
+  const p = r.page;
+  try {
+    await go(p, '#farm/private-0');
+    await p.waitForSelector('#farm-pid0 [data-join-get="private"]', { timeout: 300000 });
+    ok(await p.$eval('#farm-pid0 [data-join-get="private"]', (b) => b.classList.contains('btn') && !b.classList.contains('ghost')), 'farmgetprivate: with nothing private held, Make ETH private is the farm\'s main button');
+    await p.click('#farm-pid0 [data-join-get="private"]');
+    await p.waitForSelector('#sheet-eth[open] #w-amt', { timeout: 60000 });
+    await until(p, () => /^\d*\.?\d+$/.test(document.querySelector('#w-amt')?.value || '') && Number(document.querySelector('#w-amt').value) > 0, null, 300000);
+    ok(!!(await p.$('#sheet-eth .farm-back a[href="#farm/private-0"]')) && /Then farm it in tETH \/ TAC/.test(await text(p, '#sheet-eth .farm-back')), `farmgetprivate: the form opens with the most it can take (${await p.inputValue('#w-amt')} ETH) and a line that goes on to the farm`);
+    if (r.errors.length) { fails++; console.log('FAIL farmgetprivate page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
 // A private pool whose price is far from the market's says so on its card (what 1 ETH buys there, and what it buys at the market), and a deposit of
 // tETH alone, which buys the other asset at that price, shows what that costs against the market and waits for it to be accepted.
 await step('farmmarket', async () => {
@@ -6441,6 +6486,16 @@ await step('hxearntac', async () => {
     await p.waitForSelector('#sheet-farm[open] #pf-tac', { timeout: 120000 }).catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#farm-precision')).replace(/\s+/g, ' ').slice(-300)} | ${JSON.stringify(await p.evaluate(() => ({ modes: [...document.querySelectorAll('[data-pfm]')].map((b) => b.dataset.pfm + ':' + b.getAttribute('aria-pressed') + b.className), ids: ['pf-amt', 'pf-tac', 'pf-go', 'pf-connect'].filter((i) => document.getElementById(i)) })))}`); });
     await until(p, () => document.querySelector('#pf-tac')?.value === '1000', null, 60000);
     ok(await p.$eval('[data-pfm="tac"]', (b) => b.getAttribute('aria-pressed') === 'true' || b.classList.contains('on') || b.getAttribute('aria-selected') === 'true'), 'hxearntac: its button opens the public form on TAC with the amount in it');
+    await closeAll();
+    await p.click('[data-hxm="earn"]');
+    await p.selectOption('#hx-from', 'tac');
+    await p.fill('#hx-amt', '');
+    await until(p, () => document.querySelector('#hx-go')?.textContent === 'Farm privately', null, 240000);
+    await p.click('#hx-go');
+    await p.waitForSelector('#sheet-farm[open] #sj-b-0', { timeout: 300000 });
+    ok((await text(p, '#hx-q')).trim() !== 'Enter an amount first.' && !(await p.$('#sj-a-0')), 'hxearntac: private TAC held, the button needs no amount typed: it opens the pool and the pool takes what is held');
+    await until(p, () => Number(document.querySelector('#sj-b-0')?.value) > 400, null, 420000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | value=${await p.inputValue('#sj-b-0')} | ${(await text(p, '#sj-rcpt-0')).replace(/\s+/g, ' ')} | ${(await text(p, '#farm-pid0')).replace(/\s+/g, ' ').slice(0, 300)}`); });
     await closeAll();
     await p.click('[data-hxm="earn"]');
     await p.selectOption('#hx-from', 'tac');

@@ -244,6 +244,9 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   const names = await page.$$eval('#farms [data-farm] .rt b', (a) => a.map((b) => b.textContent.trim()));
   ok(names.length >= 2 && names.slice(1).every((n) => /^tETH \/ \S+/.test(n)), `the private farms are named tETH first, as on the other pages (${names.join(' | ')})`);
   ok(await page.$eval('#farm .fm-prog', (e) => getComputedStyle(e).display === 'none').catch(() => false), 'the farm does not list the private farms a second time under its form: the picker above does');
+  await (await page.$$('#farms [data-farm]'))[1].click();
+  ok(/^\/#farm\/private-\d+$/.test(await page.$eval('#privfarm a', (a) => a.getAttribute('href'))), 'a private farm\'s link opens the farm itself, ready to join, not the card');
+  await (await page.$$('#farms [data-farm]'))[0].click();
   await shot(page, 'wallet-earn');
 
   // TAC → ETH, signed for

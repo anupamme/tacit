@@ -800,6 +800,8 @@ input::placeholder { color: var(--mute); opacity: .7; }
   font-weight: 500; color: var(--card); background: var(--ink); border: 1px solid var(--ink); cursor: pointer; transition: background .15s, color .15s; }
 @media (hover: hover) { .btn:hover:not(:disabled) { background: transparent; color: var(--ink); } }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
+.stick { position: sticky; bottom: 0; z-index: 2; margin-top: 6px; padding: 12px 0 14px; background: var(--card); }
+.stick .btn { margin-top: 0; }
 .btn.ghost { color: var(--ink); background: transparent; border-color: var(--hair-2); }
 @media (hover: hover) { .btn.ghost:hover:not(:disabled) { border-color: var(--ink); } }
 a.btn { text-decoration: none; white-space: nowrap; }
@@ -1503,7 +1505,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <h2 id="farm-h" tabindex="-1" autofocus>Farm TAC</h2>
       <button class="x" type="button" data-close aria-label="Close">×</button>
     </div>
-    <p class="lede-s">Deposit into a pool, earn TAC every second and withdraw whenever you like. The public pool takes ETH and TAC from your wallet or Tacit account. The private pools take private tETH or its partner asset, one alone or both, so what you hold stays hidden.</p>
+    <p class="lede-s">Earn TAC every second and withdraw whenever you like. Private pools keep what you hold hidden.</p>
     <div id="farm-notes"></div>
     <ul class="farms" id="farm-list"></ul>
   </div>
@@ -4065,6 +4067,7 @@ for (const d of $$('dialog.sheet:not(.layer)')) {
     for (const k of Object.keys(TICKED)) delete TICKED[k];
     if (d.id === 'sheet-pts') PTS.jump = false;
     if (d.id === 'sheet-borrow') LOCK.focus = false;
+    if (d.id === 'sheet-farm') FARM.auto = {};
     syncLink();
   });
 }
@@ -4132,7 +4135,7 @@ const getUx = lazy(async () => {
 });
 const P = { scan: null, scanning: null, err: null };
 function resetPrivate() { for (const k of Object.keys(FLASH)) delete FLASH[k]; P.scan = null; P.scanning = null; P.err = null; DEV.W = null; DEV.bal = null; DEV.key = null; DEV.quote = null; DEV.gq = {}; DEV.err = null; DEV.self = false; Object.assign(TK, { W: null, key: null, bal: null, at: 0, err: null, syncing: null, keys: null }); Object.assign(LOCK, { rec: null, state: null, lm: null, bonds: [], list: [], pick: null, found: null, repayOver: null, q: null }); Object.assign(LK, { at: 0, pub: null, mine: [], back: [], scanning: null }); Object.assign(BTC, { pub: null, at: 0, err: null, share: null, sp: null, held: [], got: 0, part: false });
-  try { FARM.positions = null; FARM.wtac = null; FARM.left = null; FARM.jm = null; FARM.paid = null; for (const k of Object.keys(JOIN)) delete JOIN[k]; } catch { }
+  try { FARM.positions = null; FARM.wtac = null; FARM.left = null; FARM.jm = null; FARM.auto = {}; FARM.paid = null; for (const k of Object.keys(JOIN)) delete JOIN[k]; } catch { }
   dropTacitKey(); }
 async function scanPrivate(force = false) {
   if (!S.key) return null;
@@ -4476,7 +4479,7 @@ function v1Wrap(el, status) {
     <p class="note mute" data-pool="v1">${poolLine('v1')}</p>`);
   const input = $('#w-amt'), go = $('#w-go'), rc = $('#w-rcpt');
   let bal = null, q = null, seq = 0;
-  ethBalance().then((b) => { bal = b; const e = $('#w-bal'); if (e) e.textContent = b == null ? '—' : fmt(b, 18, 4); if (b != null) $('#w-max')?.setAttribute('aria-label', `${payName()} ${fmt(b, 18, 4)} ETH, use the most`); noEthYet($('#w-fund'), b, '', 'make it private'); });
+  ethBalance().then((b) => { bal = b; const e = $('#w-bal'); if (e) e.textContent = b == null ? '—' : fmt(b, 18, 4); if (b != null) $('#w-max')?.setAttribute('aria-label', `${payName()} ${fmt(b, 18, 4)} ETH, use the most`); noEthYet($('#w-fund'), b, '', 'make it private'); if (b != null && input.isConnected && hxLive('wrap')?.all) { HX.draft = null; $('#w-max').click(); } });
   hxWarmWrap();
   $('#w-max').onclick = async () => {
     if (bal == null) return;
@@ -4521,7 +4524,7 @@ function v1Wrap(el, status) {
       if (!over && floor && wei < 3n * floor) rc.insertAdjacentHTML('beforeend', html`<p class="note">Sending or unwrapping a note this small later costs about ${fmt(floor, 18, 6)} ETH in relay fees.</p>`.s);
     } catch (e) { if (my === seq) quoteErr(rc, e); }
   });
-  takeDraft('wrap', input);
+  takeDraft('wrap', input, (d) => !d.all);
   go.onclick = () => busy(go, async (run) => {
     const x = q, via = payer();
     if (!x) return;
@@ -8436,7 +8439,7 @@ function weiForm(f, status) {
 }
 
 const PROGRAM_KEY = 'tacit-lite-farm-program-v1';
-const FARM = { precision: null, program: store.get(PROGRAM_KEY), open: 'precision', mode: null, positions: null, outPct: '100', outAs: 'both', fill: null, wtac: null, paid: null, reinvest: null };
+const FARM = { precision: null, program: store.get(PROGRAM_KEY), open: 'precision', mode: null, positions: null, outPct: '100', outAs: 'both', fill: null, wtac: null, paid: null, reinvest: null, auto: {} };
 const WTAC = '0x2018139a8fdd3666855be3315c7683b4d6ab7aef';
 const FARM_FIRST_BLOCK = 26033952;
 const REWARD_PAID = '0xe2403640ba68fed3a2f88b7557551d1993f84b99bb10ff833f0cf8db0c5e0486';
@@ -9122,12 +9125,11 @@ function renderShielded(el, p) {
     <div class="kv"><span>${FARM.program.epoch?.active ? 'Stream ends' : 'Stream'}</span><b>${FARM.program.epoch?.active ? dayFmt(FARM.program.epoch.periodFinish) : 'between reward periods'}</b></div>
     ${FARM.program.epoch?.active ? aprRow(shieldedApr(p)) : ''}`;
   mount(el, html`
-    ${mine.length ? '' : facts}
     <div id="sf-${p.pid}"></div>
     <div class="status" role="status" id="sf-status-${p.pid}"></div>
-    ${mine.length ? html`<div class="lbl sep"><span>The farm</span></div>${facts}` : ''}`);
+    <div class="lbl sep"><span>The farm</span></div>${facts}`);
   const box = $(`#sf-${p.pid}`), status = $(`#sf-status-${p.pid}`);
-  if (!needKey(box, 'Open your Tacit wallet to see your private positions here.')) return;
+  if (!needKey(box, 'Open your Tacit wallet to farm privately.')) return;
   if (FARM.positions == null) { mount(box, html`<div class="kv"><span><span class="sk" style="--w:11ch"></span></span><b><span class="sk" style="--w:12ch"></span></b></div>`); loadPositions().then(() => rerender('farm')).catch((e) => sayErr($(`#sf-status-${p.pid}`) || status, e)); return; }
   mount(box, html`
     ${mine.map((pos, i) => { const locked = Number(pos.unlockAt || 0) > chainNow(), day = FARM.program.epoch?.active && Number(p.totalShares) ? Number(p.tacPerDayForPool) * Number(pos.shares) / Number(p.totalShares) : 0; return html`
@@ -9231,13 +9233,13 @@ function farmJoin(el, p, status, has) {
   if (!bA && tethComing()) comingPoll('farm');
   const comingNote = html`${!bA && tethComing() ? html`<div class="callout" data-coming><span>${COMING_TETH} The farm opens with your amount once it lands.</span></div>` : ''}${P.scan.partial ? html`<p class="note err">Part of your private balance could not be read, so a side may show as none. <button class="link" type="button" data-retry="farm">Read it again</button></p>` : ''}`;
   const getB = { tac: ['tac', 'Make TAC private'], cusd: ['borrow', 'Borrow cUSD'], cbtc: ['borrow', 'Mint cBTC'] }[kB] || ['tac', `Get private ${other}`];
-  const goGet = (b) => { if (running('farm')) return; FARM.back = { pid, label: pairName(p.pair), at: Date.now() }; $('#sheet-farm').close(); openLink(b.dataset.joinGet); };
+  const goGet = (b) => { if (running('farm')) return; const wrap = b.dataset.joinGet === 'private', label = pairName(p.pair); FARM.back = wrap ? { link: `farm/private-${pid}`, label: `farm it in ${label}`, at: Date.now() } : { pid, label, at: Date.now() }; if (wrap) hxDraft({ mode: 'wrap', all: true }); $('#sheet-farm').close(); openLink(b.dataset.joinGet); };
   if (!bA && !bB) {
     mount(el, html`${comingNote}
       <div class="lbl"><span>${has ? 'Add more' : 'Add and farm'}</span></div>
       <ol class="steps">
         <li class="step now"><span class="n">1</span><div><h3>Private tETH or private ${other}</h3><div class="d">Either one farms on its own: about half is swapped to the other inside the pool. Both together go in with nothing swapped.</div>
-          <div class="act"><button class="btn ghost" type="button" data-join-get="private">Make ETH private</button><button class="link" type="button" data-join-get="${getB[0]}">${getB[1]}</button></div></div></li>
+          <div class="act"><button class="btn" type="button" data-join-get="private">Make ETH private</button><button class="link" type="button" data-join-get="${getB[0]}">${getB[1]}</button></div></div></li>
         <li class="step"><span class="n">2</span><div><h3>${has ? 'Add to the farm' : 'Add and farm'}</h3><div class="d">It opens here once you hold either one.</div></div></li>
       </ol>`);
     $$('[data-join-get]', el).forEach((b) => b.onclick = () => goGet(b));
@@ -9265,7 +9267,7 @@ function farmJoin(el, p, status, has) {
       ${mode !== 'a' ? field(kB, `sj-b-${pid}`) : ''}
       <div class="rcpt" id="sj-rcpt-${pid}" hidden></div>
       <div id="sj-ack-${pid}"></div>
-      <button class="btn" type="button" id="sj-go-${pid}" disabled>${single ? `Farm with ${unit[kS]}` : has ? 'Add to the farm' : 'Add and farm'}</button>
+      <div class="stick"><button class="btn" type="button" id="sj-go-${pid}" disabled>${single ? `Farm with ${unit[kS]}` : has ? 'Add to the farm' : 'Add and farm'}</button></div>
       <p class="note">The relay proves the bond and ${your()} sends it, paying its network fee, so that account is seen joining this farm. What you add shows in the pool’s public reserves, as all liquidity does; your private balances do not.</p>` : ''}`);
   wireSub(el, 'sjm', (m) => { FARM.jm[pid] = m; [`sj-a-${pid}`, `sj-b-${pid}`].forEach((id) => delete KEPT[id]); keep($('#sheet-farm'), render.farm); });
   $$('[data-join-get]', el).forEach((b) => b.onclick = () => goGet(b));
@@ -9385,11 +9387,12 @@ function farmJoin(el, p, status, has) {
   };
   onEdit([aIn, bIn].filter(Boolean), go, requote);
   takeDraft('join', mode === 'b' ? bIn : aIn, (d) => d.pid === pid && mode === (d.side || 'a'));
-  $(`#sj-max-${pid}`).onclick = async () => {
+  const fillMax = async (auto = false) => {
     if (!JOIN[pid]) reading();
     try {
       const t = await getUx(), j = await joinTerms(t, p), res = j.res;
-      const fill = (id, v) => { const i = $(`#${id}`); if (i) { i.value = v > 0n ? plain(v, 8) : ''; i.dispatchEvent(new Event('input')); } };
+      const typed = () => !!($(`#sj-a-${pid}`)?.value || $(`#sj-b-${pid}`)?.value);
+      const fill = (id, v) => { const i = $(`#${id}`); if (!i || (auto && typed())) return; i.value = v > 0n ? plain(v, 8) : ''; i.dispatchEvent(new Event('input')); };
       if (single) {
         const inA = kS === kA, rIn = inA ? res.reserveA : res.reserveB, rOut = inA ? res.reserveB : res.reserveA, feeBps = Number(res.feeBps ?? p.feeBps ?? 30);
         const fee = feeOf(j, kS), fr = swapFeeOf(j, kS), whole = spendable(kS);
@@ -9408,7 +9411,10 @@ function farmJoin(el, p, status, has) {
       fill(`sj-a-${pid}`, best ? best.a : 0n);
     } catch (e) { const rn = $(`#sj-rcpt-${pid}`); if (rn) quoteErr(rn, e); }
   };
+  $(`#sj-max-${pid}`).onclick = () => fillMax();
+  const autoKey = `${pid}:${mode}`;
   if (aIn?.value || bIn?.value) requote({ target: sIn });
+  else if (!has && !FARM.auto[autoKey]) { FARM.auto[autoKey] = true; fillMax(true); }
   go.onclick = () => busy(go, async (run) => {
     const z = q;
     if (!z || z.over || z.gasShort || !lossOk(ackBox, z.impact || 0)) return;
@@ -11826,7 +11832,8 @@ function paintHxQ() {
   }
 }
 OUT.paint = () => paintHxQ();
-const hxNeedsAmt = () => !!$('#hx-amt') && !hxUnits() && !(HX.mode === 'borrow' && !S.key);
+const hxFarmHeld = () => !HX.amt.trim() && HX.mode === 'earn' && /^\d+$/.test(String(HX.pool)) && (HX.from === 'eth' ? hxHeld() : HX.from === 'tac' ? hxHeldTac() : 0n) > 0n;
+const hxNeedsAmt = () => !!$('#hx-amt') && !hxUnits() && !(HX.mode === 'borrow' && !S.key) && !hxFarmHeld();
 function hxAskAmt() {
   const a = $('#hx-amt'), f = a?.closest('.hx-f'), q = $('#hx-q');
   if (!a) return;

@@ -565,7 +565,7 @@ function paintEarn() {
     farmUi = import('/trade/farm.js?cb=60987fca').then(({ mountFarm }) => mountFarm($('#farm'), { ethCall, batch, rpc, api, wallet, W, connect: () => connect.connect(), fmtUnits, parseUnits, esc, usd, ethUsd: () => S.px.ethUsd, txLink, onDone: () => readBalances().then(paintSides) }));
   }
   if (f.k !== 'precision') {
-    $('#privfarm').innerHTML = `<a class="go priv" href="/#card=earn:ether:p${f.pid}">Farm ${esc(f.name)} privately →</a>`;
+    $('#privfarm').innerHTML = `<a class="go priv" href="/#farm/private-${f.pid}">Farm ${esc(f.name)} privately →</a>`;
   }
 }
 function farmIt() {
