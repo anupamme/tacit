@@ -2,7 +2,7 @@ import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=deaf
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=92188b57';
 import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=149c5b79';
 import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/teth/read.js?cb=3f0c53e1';
-import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, proveOwn, ownWords, ownable, relayState, relayStopped, forgetUx, getUx } from '/teth/wrap.js?cb=e8cb7627';
+import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, proveOwn, ownWords, ownable, relayState, relayStopped, forgetUx, getUx } from '/teth/wrap.js?cb=3936a071';
 import { ownPref, setOwnPref, proverFor, readCredit, proofsFor, fundFromWallet, quoteEth, quoteEthFor, fundWithEth, loadSelfProver, tokenBalance } from '/teth/prover.js?cb=1baba054';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { mountDepth } from '/trade/depth.js?cb=70a80f2f';
@@ -825,7 +825,7 @@ document.addEventListener('click', (e) => {
 
 function useLinks() {
   const a = parseUnits(S.useAmt, 8), amt = a ? `&amt=${plain(a, 8)}` : '';
-  const tac = D.rows.find((r) => r.other === 'TAC'), fee = D.floor ? `about ${fmtUnits(D.floor, 18, 5)} ETH` : 'small';
+  const tac = D.rows.find((r) => r.other === 'TAC'), fee = D.floor ? `at least ${fmtUnits(D.floor, 18, 5)} ETH` : 'small';
   return [
     ['/#private/send', 'Send it privately', 'To a Tacit address or a name. The chain shows neither the amount nor the recipient.'],
     [`/#card=swap:eth:tac${amt}`, 'Swap it for TAC', tac?.per ? `Private, inside the pool. 1 tETH = ${sig(tac.per, 4)} TAC now.` : 'Private, inside the pool.'],
@@ -935,7 +935,7 @@ function paintAll() { renderHead(); renderLanes(); renderChart(); renderBtc(); r
 
 $('#amt').addEventListener('input', (e) => { S.amt = e.target.value; renderGo(); clearTimeout(amtTimer); amtTimer = setTimeout(() => { requote(); keepInHash(); }, 250); $('.p-ticket').classList.add('stale'); renderChips(); });
 $('#amt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('#go').disabled) $('#go').click(); });
-$('#amt').addEventListener('focus', () => { getUx().catch(() => {}); }, { once: true });
+$('#amt').addEventListener('focus', () => { getUx().then((t) => t.warmWrapLogs?.()).catch(() => {}); }, { once: true });
 $('#chips').addEventListener('click', (e) => { const b = e.target.closest('[data-amt]'); if (!b || S.busy) return; S.amt = b.dataset.amt; $('#amt').value = S.amt; renderChips(); requote(); keepInHash(); });
 $('#in-bal').addEventListener('click', () => {
   const have = spendable();

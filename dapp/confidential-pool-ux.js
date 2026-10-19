@@ -801,7 +801,9 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     if (!built || !built.wrapOp) throw new Error('submitWrapSettle: pass the buildWrap() result');
     const spec = { type: 'wrap', op: built.wrapOp, leaves: [built.leaf], outputs: built.outputs, memos: built.memos, ephRand: built.ephRand };
     if (selfSettle) {
-      const proven = await relay.prove(spec, waitOpts);
+      // The deposit's transaction rides on the proof request too: the relay counts a wrap whose deposit tipped it as paid work, and a
+      // proof asked for without it draws on the relay's free proofs, which run out for the day.
+      const proven = await relay.prove(depositTx ? { ...spec, depositTx } : spec, waitOpts);
       if (proven.status === 'settled') return proven;
       const memos = proven.memos || built.memos;
       const sent = await selfSettle({ jobId: proven.jobId, publicValues: proven.publicValues, proof: proven.proof, memos });
@@ -822,6 +824,17 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     for (const i of _reservedWrapIndex.get(key) || []) n = Math.max(n, i + 1);
     return n;
   }
+  async function wrapLogs(assetId) {
+    const head = await headBlock();
+    if (!Number.isFinite(head)) throw new Error('no head block');
+    return getLogsChunked({ address: cfg.pool, topics: [evmLog.TOPIC0.Wrap, null, String(assetId).toLowerCase()] }, Number(cfg.deployBlock || 0), head);
+  }
+  // The first wrap on a device reads every Wrap log of the asset (the slow part of "preparing your note"); reading them as the
+  // form opens leaves nextWrapIndex only the newest blocks. It takes no index, so nothing is reserved.
+  async function warmWrapLogs({ ticker = 'cETH' } = {}) {
+    const meta = assetByTicker[ticker];
+    if (meta) await wrapLogs(meta.assetId);
+  }
   async function nextWrapIndex({ walletPriv, ticker = 'cETH' } = {}) {
     const meta = assetByTicker[ticker];
     if (!meta) throw new Error(`unknown asset ${ticker}`);
@@ -830,10 +843,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     const unitScale = BigInt(meta.unitScale);
     let events;
     try {
-      const head = await headBlock();
-      if (!Number.isFinite(head)) throw new Error('no head block');
-      const logs = await getLogsChunked({ address: cfg.pool, topics: [evmLog.TOPIC0.Wrap, null, assetId] }, Number(cfg.deployBlock || 0), head);
-      events = evmLog.decodeLogs(logs).filter((e) => e.type === 'Wrap');
+      events = evmLog.decodeLogs(await wrapLogs(assetId)).filter((e) => e.type === 'Wrap');
     } catch (e) {
       throw new Error(`nextWrapIndex: could not read this asset's wrap deposits (${e && e.message ? e.message : e}); retry, or pass an explicit index`);
     }
@@ -857,6 +867,17 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
       try { localStorage.setItem(hintKey, String(i + 1)); } catch { }
       return i;
     }
+  }
+  // Recovery from the key alone walks wrap indexes and stops after 24 in a row with no deposit, so an index reserved for a
+  // deposit that was never sent (the wallet prompt was declined) is handed back, or enough cancelled tries would put a later
+  // deposit out of its reach. Only the newest reservation can be returned: the hint is the next index to try.
+  function releaseWrapIndex({ walletPriv, ticker = 'cETH', index } = {}) {
+    const meta = assetByTicker[ticker];
+    if (!meta || !Number.isInteger(index) || index < 0) return;
+    const key = _wrapHintKey(identity(walletPriv).pubHex, String(meta.assetId).toLowerCase());
+    const taken = _reservedWrapIndex.get(key);
+    if (taken && taken.delete(index) && !taken.size) _reservedWrapIndex.delete(key);
+    try { if (parseInt(localStorage.getItem(key), 10) === index + 1) localStorage.setItem(key, String(index)); } catch { }
   }
 
   async function wrap({ walletPriv, amountWei, ticker = 'cETH', index, gasLimit = 220000n, broadcast = true } = {}) {
@@ -2731,9 +2752,11 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     return { ...built, jobId: sub.jobId, status: st.status, txHash: st.txHash };
   }
 
+  // A note of exactly the amount leaves by plain unwrap, whose floor is lower than send-and-unwrap's (no change note to make).
+  const _exitKind = (note, amount) => (BigInt(note.value) === BigInt(amount) ? 'unwrap' : 'sendunwrap');
   async function sendUnwrap(args = {}) {
     if (!args.note || args.selfSettle || (args.feeOpts && args.feeOpts.minFee != null)) return _sendUnwrapOnce(args);
-    return _withFloorRetry(poolTickerOf(args.note.asset) || 'cETH', 'sendunwrap', args.feeOpts, (feeOpts) => _sendUnwrapOnce({ ...args, feeOpts }));
+    return _withFloorRetry(poolTickerOf(args.note.asset) || 'cETH', _exitKind(args.note, args.amount), args.feeOpts, (feeOpts) => _sendUnwrapOnce({ ...args, feeOpts }));
   }
   async function _sendUnwrapOnce({ note, walletPriv, recipient, amount, feeOpts, wait = true, waitOpts, selfSettle = null } = {}) {
     if (!note) throw new Error('sendUnwrap: note required');
@@ -2741,7 +2764,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     amount = BigInt(amount);
     const noteValue = BigInt(note.value);
     if (amount > noteValue) throw new Error('sendUnwrap: amount exceeds the note (merge notes first)');
-    const fee = selfSettle ? 0n : quoteUnwrapFee(amount, ticker, { ...feeOpts, minFee: (feeOpts && feeOpts.minFee != null) ? feeOpts.minFee : await gasAwareMinFee(ticker, 'sendunwrap') }).fee;
+    const fee = selfSettle ? 0n : quoteUnwrapFee(amount, ticker, { ...feeOpts, minFee: (feeOpts && feeOpts.minFee != null) ? feeOpts.minFee : await gasAwareMinFee(ticker, _exitKind(note, amount)) }).fee;
     const payout = amount - fee;
     if (payout <= 0n) throw new Error('sendUnwrap: amount too small for the relay fee');
     const change = noteValue - amount;
@@ -2963,7 +2986,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   });
 
   return { cfg, assets: _poolAssets, assetByTicker, account, identity, rpc, ethCall, fetchEvents, balance, poolStatsFromEvents, tickerOf, poolTickerOf,
-    deriveOutput, buildWrap, nextWrapIndex, wrap, submitWrapSettle, buildRouterWrap, routerWrap, routerConfigured, buildWrapTransferOp, wrapAndSend, wrapAndMintCusdCall, resumeWrapAndSend, sendPreparedTx, buildTransferOp, transfer, stealthSend, scanStealthLocks, stealthClaim, stealthRefund, stealthLockPosition, crossOut, payInvoice, quoteUnwrapFee, ladderFee: _ladderFee, poolLeafCount, refreshFarmPending, holderFeeBps, setPublicTacHeld, quoteTransferFee, quoteOpFee: gasAwareMinFee, feeUsdFor, relayFeeEligible, buildUnwrap, unwrap, sendUnwrap, addBridgeAmountHint, buildAttestMeta, chainBindingHex,
+    deriveOutput, buildWrap, nextWrapIndex, warmWrapLogs, releaseWrapIndex, wrap, submitWrapSettle, buildRouterWrap, routerWrap, routerConfigured, buildWrapTransferOp, wrapAndSend, wrapAndMintCusdCall, resumeWrapAndSend, sendPreparedTx, buildTransferOp, transfer, stealthSend, scanStealthLocks, stealthClaim, stealthRefund, stealthLockPosition, crossOut, payInvoice, quoteUnwrapFee, ladderFee: _ladderFee, poolLeafCount, refreshFarmPending, holderFeeBps, setPublicTacHeld, quoteTransferFee, quoteOpFee: gasAwareMinFee, feeUsdFor, relayFeeEligible, buildUnwrap, unwrap, sendUnwrap, addBridgeAmountHint, buildAttestMeta, chainBindingHex,
     settleFromAccount, erc2612Nonce: _erc2612Nonce, waitReceipt: _waitReceipt, poolReserves, poolCurrentRoot, sameRoot, routePoolId, quoteRoute, route, swapBatched, swapBatchPending, swapBatchFlush, lpBondPosition, buildLpBondOp, lpBond, farmProgram, farmBond, farmPositions, importFarmPosition, recover, recoverCdpPositions, scanSentLocks, farmHarvest, farmUnbond, farmRedeem, buildFastlaneExitOp, fastlaneExit, lpAdd, lpRemove, quoteLpAdd, wrapLp, wrapSwap, ensureExactNote, mintCbtc, defiActions, cdp: _cdp, cdpPositionTree, submitSettle, settleCalldata,
     cbtcLockState, syncCbtcLockReservations, cbtcBonds, forgetKeys: forget,
     relay, indexer, evmLog, evmTx, pool, memo, router: _router, stealth: _stealth, bridgeMint: _bridgeMint, bridgeBurn: _bridgeBurn, bridgeBurnToPool, airdrop: _airdrop, tacAirdrop: _tacAirdrop, lockScan: _lockScan };

@@ -52,6 +52,7 @@
 //   sell     TAC sold for ETH through zRouter in one transaction, the permit riding as its first leg
 //   v1       the identity signature unlocks the key; a tipped wrap lands and its settle is submitted
 //   v1refuse the relay refuses a wrap's settle after its deposit landed: the form empties and the line points to Finish
+//   wrapform the Make private form: Max keeps room for the network fee and tip, a wallet prompt declined hands the note index back, the Wrap logs are read as the form opens, and a tip that moved while the form sat open is shown again
 //   devsend  the EVM pool's Send opens tacit pay on the same chain, and Receive keeps the pool and deposit addresses
 //   device   a deposit into the EVM pool, proved in the page's worker
 //   borrow   the Bitcoin deposit address renders; a bond for a lock record posts through the escrow helper
@@ -170,7 +171,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,devsend,device,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -838,6 +839,70 @@ await step('v1refuse', async () => {
     }
     if (r.errors.length) { fails++; console.log('FAIL v1refuse page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { refuseSubmits = 0; proveStub = false; await r.browser.close(); }
+});
+
+// The Make private form: Max leaves room for the network fee and the tip, a prompt declined in the wallet hands its note index back (recovery from the
+// key stops after 24 unused ones in a row), and a tip that moved while the form sat open is shown again instead of being paid unseen.
+await step('wrapform', async () => {
+  const r = await openPage({ account: A0, key: K0 });
+  const p = r.page;
+  let bump = 1n;
+  const waitFor = (what, fn, arg, ms = 60000) => until(p, fn, arg, ms).catch(async (e) => { throw new Error(`${what}: ${e.message.split('\n')[0]} | status: ${(await text(p, '#v1-status')).replace(/\s+/g, ' ').slice(0, 160)} | rcpt: ${(await text(p, '#w-rcpt')).replace(/\s+/g, ' ').slice(0, 160)} | go disabled: ${await p.$eval('#w-go', (b) => b.disabled).catch(() => '?')}`); });
+  try {
+    await p.route(/\/confidential\/quote\?/, (route) => {
+      const wei = BigInt(new URL(route.request().url()).searchParams.get('amountWei') || '0'), cap = 300000000000000n, tip = (((wei * 3n) / 100n) < cap ? (wei * 3n) / 100n : cap) * bump;
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
+        body: JSON.stringify({ relayFeeEligible: true, recommendedTipRecipient: '0x006CD14F36F65eCbB29b2519cCBe63A0DC8549F2', tipSplitter: '0xf5eBBE5Db610F64D29A0dC5e9534074Af12834F9', recommendedWrapTipWei: String(tip) }) });
+    });
+    const logs = [];
+    r.ctx.on('request', (q) => { if (q.method() === 'POST' && /eth_getLogs/.test(q.postData() || '')) logs.push(q.postData().toLowerCase()); });
+    await p.goto(r.url + '#private');
+    await p.waitForSelector('#eth-v1 [data-in="eth"]', { timeout: 60000 });
+    await p.click('#eth-v1 [data-in="eth"]');
+    await p.waitForSelector('#w-amt', { timeout: 120000 });
+    const WRAP_TOPIC = '0x' + Buffer.from(keccak_256(Buffer.from('Wrap(bytes32,bytes32,uint256)'))).toString('hex');
+    for (let i = 0; i < 180 && !logs.some((l) => l.includes(WRAP_TOPIC)); i++) await sleep(1000);
+    ok(logs.some((l) => l.includes(WRAP_TOPIC)), 'wrapform: the Wrap logs are read as the form opens, ahead of any press');
+    // Max keeps back at least 0.003 ETH for the network fee and the tip, and the quote then accepts what it fills.
+    await until(p, () => /\d/.test(document.querySelector('#w-bal')?.textContent || ''), null, 120000);
+    const bal = BigInt(await rpc('eth_getBalance', [A0, 'latest']));
+    await p.click('#w-max');
+    await until(p, () => !!document.querySelector('#w-amt').value, null, 30000);
+    const maxV = await p.$eval('#w-amt', (i) => i.value), keep = bal - BigInt(Math.round(Number(maxV) * 1e8)) * 10n ** 10n;
+    ok(keep >= 3n * 10n ** 15n && keep < 10n ** 17n, `wrapform: Max keeps ${Number(keep) / 1e18} ETH back for the network fee and the tip (${maxV} of ${Number(bal) / 1e18})`);
+    ok(await until(p, () => !document.querySelector('#w-go').disabled, null, 60000).then(() => true, () => false), 'wrapform: and the quote accepts the Max amount');
+    // A prompt declined in the wallet: nothing is sent, the line says so, and the note index goes back, so the next try builds the same deposit.
+    await p.fill('#w-amt', '0.05');
+    await until(p, () => !document.querySelector('#w-go').disabled, null, 60000);
+    const n0 = walletTxs.length;
+    await p.evaluate(() => {
+      const real = window.ethereum.request.bind(window.ethereum); let once = true;
+      window.__declined = [];
+      window.ethereum.request = (a) => (a.method === 'eth_sendTransaction' && once ? (once = false, window.__declined.push(a.params[0].data), Promise.reject(Object.assign(new Error('User rejected the request.'), { code: 4001 }))) : real(a));
+    });
+    await p.click('#w-go');
+    await until(p, () => /Cancelled in your wallet/.test(document.querySelector('#v1-status')?.textContent || ''), null, 900000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | status: ${(await text(p, '#v1-status')).replace(/\s+/g, ' ').slice(0, 200)} | errors: ${r.errors.slice(0, 2).join(' | ')}`); });
+    const first = await p.evaluate(() => window.__declined[0]);
+    ok(walletTxs.length === n0 && /^0x/.test(first || ''), 'wrapform: a prompt declined in the wallet sends nothing and says so');
+    // A tip that moved by more than half while the form sat open is shown again, and nothing is sent.
+    await waitFor('after the decline the button comes back', () => !document.querySelector('#w-go').disabled);
+    bump = 3n;
+    // The clock moves on and the press is made in one step: a form with a deposit waiting redraws every 15 seconds, which would quote afresh in between.
+    await p.evaluate(() => { window.__now = Date.now.bind(Date); Date.now = () => window.__now() + 90000; document.querySelector('#w-go').click(); });
+    await waitFor('the moved tip is said', () => /tip moved while this was open/.test(document.querySelector('#v1-status')?.textContent || ''));
+    ok(walletTxs.length === n0, 'wrapform: a tip that moved while the form sat open is not paid unseen');
+    await waitFor('the new tip is shown', () => /0\.0009 ETH/.test(document.querySelector('#w-rcpt')?.textContent || ''));
+    ok(true, 'wrapform: and the form shows the new tip (3x the 0.0003 ETH cap)');
+    await p.evaluate(() => { Date.now = window.__now; });
+    await waitFor('the button is ready for the real press', () => !document.querySelector('#w-go').disabled);
+    await p.click('#w-go');
+    for (let i = 0; i < 1200 && walletTxs.length === n0; i++) await sleep(1000);
+    const sent = walletTxs[walletTxs.length - 1];
+    ok(walletTxs.length === n0 + 1 && sent.data === first && BigInt(sent.value) === 5n * 10n ** 16n + 9n * 10n ** 14n,
+      `wrapform: the next try builds the same deposit (the index came back) and pays the shown tip (${String(sent?.value)})`);
+    if (r.errors.length) { fails++; console.log('FAIL wrapform page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
 });
 
 await step('devsend', async () => {
@@ -4760,6 +4825,7 @@ await step('receipts', async () => {
     await r.page.click('#s-go');
     await until(r.page, () => /Sent to the relay/.test(document.querySelector('#v1-status')?.textContent || ''), null, 60000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | status: ${await text(r.page, '#v1-status')} | errors: ${r.errors.slice(0, 2).join(' | ')}`); });
+    ok(/first step is with the relay/.test(await text(r.page, '#v1-status')) && /Keep this page open until the last is sent/.test(await text(r.page, '#v1-status')), 'receipts: a send that starts with a split says more steps follow, and to keep the page open');
     const a0 = await rx();
     ok(a0.calls.length === 1 && a0.calls[0].type === 'transfer' && a0.calls[0].spend[0] === a0.notes[1][0], `receipts: the send splits the 0.2 note first (${JSON.stringify(a0.calls)})`);
     ok(await r.page.$eval('#s-amt', (i) => i.value === '') && await r.page.$eval('#s-go', (b) => b.disabled), 'receipts: the sheet comes back with an empty form as soon as the relay has the split');
@@ -5482,6 +5548,14 @@ await step('hxteth', async () => {
     await p.click('#hx-go');
     await until(p, () => document.querySelector('#sheet-eth[open] #s-amt')?.value === '0.1' && document.querySelector('#s-to')?.value === 'name.wei', null, 120000);
     ok(true, 'hxteth: Send privately opens the Send form with the amount and the recipient');
+    // The forms' own Max keeps the combine fee too: the whole of two notes would be refused.
+    await p.fill('#s-amt', ''); await p.click('#s-max');
+    await until(p, (v) => document.querySelector('#s-amt')?.value === v, String(max), 60000);
+    ok(true, `hxteth: the Send form's Max keeps the combine fee as the card's does (${max})`);
+    await p.click('#sheet-eth [data-v1="out"]');
+    await p.waitForSelector('#o-max'); await p.fill('#o-amt', ''); await p.click('#o-max');
+    await until(p, (v) => document.querySelector('#o-amt')?.value === v, String(max), 60000);
+    ok(true, `hxteth: and the Withdraw form's (${max})`);
     if (r.errors.length) { fails++; console.log('FAIL hxteth page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
@@ -5914,12 +5988,13 @@ await step('farmqueue', async () => {
 await step('hxtip', async () => {
   const r = await openPage({ account: A0, key: K0 });
   const p = r.page, asked = [];
+  let noTip = false;
   try {
     await p.route(/\/confidential\/quote\?/, (route) => {
       const wei = BigInt(new URL(route.request().url()).searchParams.get('amountWei') || '0'), cap = 117222807204416n, tip = wei * 3n / 100n < cap ? wei * 3n / 100n : cap;
       asked.push(String(wei));
       return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
-        body: JSON.stringify({ relayFeeEligible: true, recommendedTipRecipient: '0x' + '6c'.repeat(20), tipSplitter: '0x' + '5e'.repeat(20), recommendedWrapTipWei: String(tip) }) });
+        body: JSON.stringify({ relayFeeEligible: true, recommendedTipRecipient: '0x' + '6c'.repeat(20), tipSplitter: '0x' + '5e'.repeat(20), recommendedWrapTipWei: noTip ? undefined : String(tip) }) });
     });
     await p.goto(r.url);
     await p.waitForSelector('#hx-amt', { timeout: 120000 });
@@ -5933,6 +6008,12 @@ await step('hxtip', async () => {
     await until(p, () => /relay tip of 0\.000117 ETH/.test(document.querySelector('#hx')?.textContent || ''), null, 60000)
       .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#hx')).replace(/\s+/g, ' ').slice(-200)}`); });
     ok(asked.includes('3000000000000000') && asked.includes('100000000000000000'), `hxtip: and a 0.1 ETH wrap says the capped figure, each amount asked for itself (${asked.join(', ')})`);
+    // No figure from the relay means it could not work one out just now: the card says the next step shows it, not a tip of nothing.
+    noTip = true;
+    await p.fill('#hx-amt', '0.2');
+    await until(p, () => /relay tip, which the next step shows, on top/.test(document.querySelector('#hx-q')?.textContent || ''), null, 60000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${(await text(p, '#hx-q')).replace(/\s+/g, ' ')}`); });
+    ok(true, 'hxtip: a quote with no tip in it is not read as a tip of nothing');
     if (r.errors.length) { fails++; console.log('FAIL hxtip page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });

@@ -1,10 +1,12 @@
-import { getUx, forgetUx } from '/trade/poolux.js?cb=e02d54c7';
+import { getUx, forgetUx } from '/trade/poolux.js?cb=47a8146e';
 import { WRAP_TIP, WRAP_WITH_TIP, CETH_ID, POOL } from '/teth/read.js?cb=3f0c53e1';
 import { strip, word, rpc, ethCall, api, E10 } from '/trade/util.js?cb=509d6618';
 
 export { getUx, forgetUx };
 
 export const wrapCalldata = ({ commit, wei, to }) => WRAP_WITH_TIP + strip(commit).padStart(64, '0') + word(wei) + strip(to).toLowerCase().padStart(64, '0');
+
+const declined = (e) => e?.code === 4001 || /user (rejected|denied)|rejected the request|denied transaction/i.test(String(e?.shortMessage || e?.message || e || ''));
 
 export const wrapIssue = (wei) => (wei <= 0n ? 'Enter an amount.' : wei % E10 !== 0n ? 'Up to 8 decimals.' : null);
 
@@ -49,7 +51,13 @@ export async function wrapEth({ priv, wei, tip, to, from, wallet, say = () => {}
   const index = await t.nextWrapIndex({ walletPriv: priv(), ticker: 'cETH' });
   const built = t.buildWrap({ walletPriv: priv(), amountWei: wei, ticker: 'cETH', index });
   say('confirm');
-  const hash = await wallet.sendTx({ to: WRAP_TIP, data: wrapCalldata({ commit: built.commit, wei, to }), value: wei + tip, from });
+  let hash;
+  try { hash = await wallet.sendTx({ to: WRAP_TIP, data: wrapCalldata({ commit: built.commit, wei, to }), value: wei + tip, from }); }
+  catch (e) {
+    // Declined in the wallet: nothing was sent, so the index goes back (recovery from the key stops after 24 unused ones in a row).
+    if (declined(e)) try { t.releaseWrapIndex?.({ walletPriv: priv(), ticker: 'cETH', index }); } catch { }
+    throw e;
+  }
   say('sent', hash);
   let rc;
   try { rc = await wallet.receipt(hash); } catch (e) { throw Object.assign(e, { deposit: { hash, built, landed: false } }); }
