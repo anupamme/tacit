@@ -38,7 +38,7 @@ try {
   ok((await p.$eval('#tok [data-copy]', (e) => e.dataset.copy)) === TAC && (await p.$eval('#tok a', (e) => e.href)).endsWith(`/token/${TAC}`), 'the TAC token row: address, copy, and its Etherscan token page');
   await wait(p, () => /^\d[\d,]*%/.test(document.querySelector('#farm-apr')?.textContent || '')).catch(() => {});
   ok(/^\d/.test(await p.textContent('#farm-apr')), `the TAC / ETH farm's row carries its APR (${(await p.textContent('#farm-apr')).trim()})`);
-  await wait(p, () => document.querySelectorAll('#farms a[data-priv]').length > 0 && !document.querySelector('#farms .wait') && !!document.querySelector('#pts-f')?.textContent, 30000).catch(() => {});
+  await wait(p, () => document.querySelectorAll('#farms a[data-priv]').length > 0 && !document.querySelector('#farms .wait') && !!document.querySelector('#pts-f')?.textContent && !!document.querySelector('#tk-f')?.textContent && (!!document.querySelector('#lp-f')?.textContent || document.querySelector('#lp-row')?.hidden), 30000).catch(() => {});
   const priv = await p.$$eval('#farms a[data-priv]', (a) => a.map((x) => `${x.querySelector('b').textContent} ${x.querySelector('.apr').textContent}`));
   ok(priv.length > 0 && priv.every((x) => /\d%/.test(x)), `the private farms are rows with their APRs (${priv.join(', ')})`);
   ok(/^\d/.test(await p.textContent('#pts-f')) && /^\d/.test(await p.textContent('#tk-f')), `points say the day's pot (${(await p.textContent('#pts-f')).trim()} TAC) and tasks the budget left (${(await p.textContent('#tk-f')).trim()} TAC); liquidity ${(await p.$eval('#lp-row', (e) => e.hidden)) ? 'is off' : 'says ' + (await p.textContent('#lp-f')).trim() + ' TAC a day'}`);
