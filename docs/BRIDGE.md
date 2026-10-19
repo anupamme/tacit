@@ -70,6 +70,18 @@ opening it: the amount stays hidden on both sides.
 
 Reflection advances when someone runs the provers. The reference relayer does, and anyone else can.
 
+## What you trust
+
+Bitcoin's proof of work, Ethereum's validators (through its sync committee), and a proof system whose
+pinned verifying keys anyone can rebuild from source. No signer set is in the path.
+
+## How long it takes
+
+Bitcoin → Ethereum waits for 24 Bitcoin confirmations (about four hours) and then the next proof, which
+lands on Ethereum about every half hour. Ethereum → Bitcoin waits for Ethereum to finalize (about 13
+minutes) and then the Bitcoin mint confirms. [tacit.finance/bridge](https://tacit.finance/bridge/) shows
+the live cadence and follows every bridge a browser has under way.
+
 ## The assets
 
 | Asset | To Ethereum | To Bitcoin |

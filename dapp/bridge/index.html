@@ -13,7 +13,10 @@
 <meta property="og:url" content="https://tacit.finance/bridge/">
 <meta property="og:title" content="tacit bridge">
 <meta property="og:description" content="Bitcoin and Ethereum, each way proven. Nobody signs in between.">
-<meta property="og:image" content="https://tacit.finance/tacit-card.png">
+<meta property="og:image" content="https://tacit.finance/bridge/card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:image" content="https://tacit.finance/bridge/card.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
@@ -26,7 +29,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /bridge/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/bridge/app.js?cb=d02b1720">
+<link rel="modulepreload" href="/bridge/app.js?cb=3cce36c7">
 <link rel="modulepreload" href="/bridge/track.js?cb=95cef1f0">
 <link rel="modulepreload" href="/rpc-body.js">
 <!-- preload:end -->
@@ -127,6 +130,8 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .pf { max-width: 560px; margin: 12px auto 0; display: grid; gap: 4px; font-size: 12px; color: var(--mute); text-align: left; }
 .pf p { display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 0 6px; }
 .pf b { color: var(--ink); font-weight: 500; }
+.pf .lost { margin-top: 6px; }
+.pf .lost a { color: var(--ink); }
 .pf i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--hair-2); transform: translateY(-1px); }
 .pf p[data-state="on"] i { background: var(--ok); box-shadow: 0 0 0 0 var(--ok); animation: beat 2.4s ease-out infinite; }
 .pf p[data-state="slow"] i { background: var(--warn); }
@@ -297,6 +302,17 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .rt li a { color: var(--mute); font-size: 12px; margin-right: 10px; }
 @media (max-width: 860px) { .rt { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 480px) { .rt { grid-template-columns: 1fr; } }
+
+/* good to know */
+.faq { margin: 96px auto 0; max-width: 720px; }
+.fq { margin: 22px 0 0; border-top: 1px solid var(--hair-2); }
+.fq details { border-bottom: 1px solid var(--hair-2); }
+.fq summary { display: flex; justify-content: space-between; align-items: center; gap: 16px; min-height: 52px; padding: 10px 2px; cursor: pointer; list-style: none; font-weight: 500; }
+.fq summary::-webkit-details-marker { display: none; }
+.fq summary::after { content: ''; flex: none; width: 9px; height: 9px; border: solid var(--mute); border-width: 0 1.5px 1.5px 0; transform: translateY(-2px) rotate(45deg); transition: transform .25s; }
+.fq details[open] summary::after { transform: translateY(2px) rotate(-135deg); }
+.fq summary:hover { color: var(--ink); }
+.fq p { margin: 0 0 16px; padding: 0 28px 0 2px; color: var(--mute); max-width: 62ch; }
 
 /* next */
 .nx { max-width: 720px; margin: 96px auto 0; text-align: center; }
@@ -483,8 +499,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
           <button type="button" id="bt-flip" aria-label="Switch direction" title="Switch direction"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h15l-4-4"/><path d="M20 15H5l4 4"/></svg></button>
           <div class="bt-c"><span class="pair"><svg class="tk" aria-hidden="true"><use id="bt-to-ic" href="#tk-eth"/></svg><svg class="tk bt-tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span><small>To</small><b id="bt-to">Ethereum</b></span></div>
         </div>
-        <ol id="bt-steps" aria-label="Steps"></ol>
-        <p class="bt-w" id="bt-wait"></p>
+        <ol id="bt-steps" aria-label="Steps" data-key="tac/in"><li style="--i:0"><span class="dot" aria-hidden="true"></span>Burned on Bitcoin</li><li style="--i:1"><span class="dot" aria-hidden="true"></span>Confirmed</li><li style="--i:2"><span class="dot" aria-hidden="true"></span>Proven on Ethereum</li><li style="--i:3"><span class="dot" aria-hidden="true"></span>Minted privately</li></ol>
+        <p class="bt-w" id="bt-wait">About 4 hours: 24 Bitcoin confirmations, then the next proof</p>
         <a class="go" id="bt-go" href="/#bridge"><span>Bridge TAC to Ethereum</span><span aria-hidden="true">→</span></a>
         <a id="bt-then" href="/#borrow" hidden></a>
       </div>
@@ -492,6 +508,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="pf" aria-live="polite">
         <p id="pf-btc" data-state="off"><i></i><span>Bitcoin, proven on Ethereum to block <b class="num sk" data-live="btc" style="--w:7ch"></b> · <span id="pf-lag"></span></span></p>
         <p id="pf-eth" data-state="off"><i></i><span>Ethereum, proven for Bitcoin to block <b class="num sk" data-live="eth" style="--w:8ch"></b></span></p>
+        <p class="lost"><span>Can’t see a bridge? It is rebuilt from your key and the chain. <a href="/#bridge">Find it</a></span></p>
       </div>
     </section>
 
@@ -630,20 +647,33 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       </div>
     </section>
 
-    <!-- Bitcoin to Ethereum -->
-    <section class="ch flip rv" aria-labelledby="c2-h">
+    <!-- under the hood: each way, one switch -->
+    <section class="ch rv" id="hood" aria-labelledby="c2-h">
       <div>
-        <span class="kk">Under the hood · Bitcoin → Ethereum</span>
-        <h3 id="c2-h">Bitcoin, <em>proven on Ethereum</em></h3>
-        <ol class="st-l" aria-label="Steps">
+        <span class="kk">Under the hood</span>
+        <h3 id="c2-h">Step by <em>step</em></h3>
+        <div class="seg" id="hood-dir" role="group" aria-label="Direction"><button type="button" data-dir="in" aria-pressed="true">Bitcoin → Ethereum</button><button type="button" data-dir="out" aria-pressed="false">Ethereum → Bitcoin</button></div>
+        <div data-hood="in">
+        <ol class="st-l" data-for="in" aria-label="Steps, Bitcoin to Ethereum">
           <li data-step tabindex="0"><b>Headers, by work</b><span>A permissionless relay on Ethereum checks every Bitcoin header’s proof of work. The heaviest chain wins.</span></li>
           <li data-step tabindex="0"><b>Every envelope folded</b><span>A program re-hashes each block to its Merkle root and folds every Tacit envelope in it: transfers, trades, burns, locks.</span></li>
           <li data-step tabindex="0"><b>One proof</b><span>SP1 proves the fold. Its tip must sit 24 blocks under the relay’s.</span></li>
           <li data-step tabindex="0"><b>Checked by the pool</b><span>The pool verifies the proof against a pinned key, then mints each proven burn once, keyed by its burn id.</span></li>
         </ol>
         <span class="live"><i></i>Proven to block <b class="num sk" data-live="btc" style="--w:7ch"></b></span>
+        </div>
+        <div data-hood="out" hidden>
+        <ol class="st-l" data-for="out" aria-label="Steps, Ethereum to Bitcoin">
+          <li data-step tabindex="0"><b>Finality, signed</b><span>Ethereum’s sync committee signs each finalized block. A light client checks the signatures, period after period, from a pinned anchor.</span></li>
+          <li data-step tabindex="0"><b>The pool’s storage</b><span>Storage proofs against the finalized state root read the pool’s cross-outs, the notes it consumed, and its outbox.</span></li>
+          <li data-step tabindex="0"><b>Inside Bitcoin’s proof</b><span>The Bitcoin program verifies the Ethereum proof recursively. One proof carries both chains.</span></li>
+          <li data-step tabindex="0"><b>Folded on Bitcoin</b><span>A crossed-out note is minted on Bitcoin only if its claim is a member of the proven set, and only once.</span></li>
+        </ol>
+        <span class="live"><i></i>Proven to Ethereum block <b class="num sk" data-live="eth" style="--w:8ch"></b></span>
+        </div>
       </div>
-      <figure class="fig" data-stepper style="margin:0">
+      <div>
+        <figure class="fig" data-stepper data-for="in" data-hood-fig style="margin:0">
         <svg class="d" viewBox="0 0 560 300" role="img" aria-label="Bitcoin blocks, their headers relayed to Ethereum, their envelopes folded by a program into one proof, checked by the pool">
           <text class="h" x="16" y="18">BITCOIN</text><text class="h" x="226" y="18">PROVER</text><text class="h" x="408" y="18">ETHEREUM</text>
           <path class="dash" d="M206 26 V292 M388 26 V292"/>
@@ -684,22 +714,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
           </g>
         </svg>
       </figure>
-    </section>
-
-    <!-- Ethereum to Bitcoin -->
-    <section class="ch rv" aria-labelledby="c3-h">
-      <div>
-        <span class="kk">Under the hood · Ethereum → Bitcoin</span>
-        <h3 id="c3-h">Ethereum, <em>proven back</em></h3>
-        <ol class="st-l" aria-label="Steps">
-          <li data-step tabindex="0"><b>Finality, signed</b><span>Ethereum’s sync committee signs each finalized block. A light client checks the signatures, period after period, from a pinned anchor.</span></li>
-          <li data-step tabindex="0"><b>The pool’s storage</b><span>Storage proofs against the finalized state root read the pool’s cross-outs, the notes it consumed, and its outbox.</span></li>
-          <li data-step tabindex="0"><b>Inside Bitcoin’s proof</b><span>The Bitcoin program verifies the Ethereum proof recursively. One proof carries both chains.</span></li>
-          <li data-step tabindex="0"><b>Folded on Bitcoin</b><span>A crossed-out note is minted on Bitcoin only if its claim is a member of the proven set, and only once.</span></li>
-        </ol>
-        <span class="live"><i></i>Proven to Ethereum block <b class="num sk" data-live="eth" style="--w:8ch"></b></span>
-      </div>
-      <figure class="fig" data-stepper style="margin:0">
+        <figure class="fig" data-stepper data-for="out" data-hood-fig hidden style="margin:0">
         <svg class="d" viewBox="0 0 560 300" role="img" aria-label="Ethereum's sync committee signs finality, storage proofs read the pool, the Ethereum proof is verified inside Bitcoin's proof, and the note is minted on Bitcoin">
           <text class="h" x="16" y="18">ETHEREUM</text><text class="h" x="226" y="18">PROVER</text><text class="h" x="408" y="18">BITCOIN</text>
           <path class="dash" d="M206 26 V292 M388 26 V292"/>
@@ -746,6 +761,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
           </g>
         </svg>
       </figure>
+      </div>
     </section>
 
     <!-- who checks what -->
@@ -754,7 +770,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         <span class="kk">Trust</span>
         <h3 id="c4-h">Who checks <em>what</em></h3>
         <p>Every hop of a bridge is checked by math anyone can rerun.</p>
-        <p class="none"><b>No multisig, federation or attestor set signs a bridge message.</b> Anyone can run the provers.</p>
+        <p class="none"><b>No multisig, federation or attestor set signs a bridge message.</b> You rely on Bitcoin’s proof of work, Ethereum’s validators, and a proof system whose pinned keys anyone can rebuild. Anyone can run the provers.</p>
       </div>
       <div class="fig" id="ck">
         <div class="ck-b" role="group" aria-label="A hop">
@@ -805,6 +821,20 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       </ol>
     </section>
 
+    <!-- good to know -->
+    <section class="faq rv" aria-labelledby="fq-h">
+      <div class="wt-h"><span class="kk">Good to know</span><h2 id="fq-h" style="font-size:clamp(28px,4vw,40px)">Before you <em>cross</em></h2></div>
+      <div class="fq">
+        <details><summary>How long does it take?</summary><p>Bitcoin to Ethereum waits for 24 Bitcoin confirmations, about four hours, and then the next proof, which lands on Ethereum about every half hour. Ethereum to Bitcoin waits for Ethereum to finalize, about 13 minutes, and then your Bitcoin mint confirms.</p></details>
+        <details><summary>Do I have to keep the page open?</summary><p>Nothing is lost if you close it. A bridge is rebuilt from your key and the chain, and Your bridges above shows what needs you. A step that needs your key, like signing the Bitcoin mint, waits until you open the page.</p></details>
+        <details><summary>Can anyone see how much I bridge?</summary><p>Notes carry hidden amounts on both chains, and a bridge moves the note itself, so the amount is not published. The burn and the mint are public events. A cBTC lock is plain bitcoin at an output of your own key, so its size is visible.</p></details>
+        <details><summary>What can I bridge?</summary><p>TAC and tETH cross both ways. cBTC enters by locking bitcoin at your own key, with a wstETH bond behind it, and the pool mints it 1:1. cUSD is borrowed against cBTC on Ethereum.</p></details>
+        <details><summary>Is there a limit?</summary><p>From Bitcoin, a note bridges whole, up to 1,000 TAC at a time while the bridge is in beta. Split a larger note first.</p></details>
+        <details><summary>What does it cost?</summary><p>A Bitcoin network fee for the burn, and for the mint on the way back. The mint on Ethereum is relayed free within a daily allowance, or you can send it from your own wallet. The bridge shows each cost before you sign.</p></details>
+        <details><summary>A bridge is missing or stuck</summary><p>Open Bridge with the same key and press Find it: a burn is found again from the chain, and a note that was moved but not burned can be moved back. Nothing about a bridge lives only in your browser.</p></details>
+      </div>
+    </section>
+
     <!-- next -->
     <section class="nx rv" aria-labelledby="nx-h">
       <span class="kk">Next</span>
@@ -833,6 +863,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/bridge/app.js?cb=d02b1720"></script>
+<script type="module" src="/bridge/app.js?cb=3cce36c7"></script>
 </body>
 </html>

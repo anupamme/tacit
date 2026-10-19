@@ -61,7 +61,7 @@ async function mock(ctx) {
       const t = Math.floor(NOW / 1e3);
       const pt = (dt, k) => ({ t: t - dt, burns: 180 + k, minted: 165 + k, out: 9, att: 972_000 + 10 * k, relay: 972_020 + 10 * k, btc: 972_024 + 10 * k });
       return json({ asOf: t, windowSec: 86400, now: { btc: 972_093, relay: 972_090, attested: 972_090, burns: 186, minted: 169, crossOuts: 9 },
-        series: [pt(80000, 0), pt(60000, 2), pt(30000, 4), pt(5000, 6)], events: { attests: [t - 70000, t - 40000, t - 9000] } });
+        series: [pt(80000, 0), pt(60000, 2), pt(30000, 4), pt(5000, 6)], events: { attests: [0, 1, 2, 3, 4, 5].map((k) => t - 9000 - k * 1800) } });
     }
     return json({ error: 'not found' }, 404);
   });
@@ -74,10 +74,11 @@ async function mock(ctx) {
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, result: '0x' + (2_512_345n * 10n ** 18n).toString(16).padStart(64, '0') }) }));
 }
 
-async function openPage(viewport, { scheme = 'light', seed = true, path = '/bridge/' } = {}) {
+async function openPage(viewport, { scheme = 'light', seed = true, path = '/bridge/', shifts = false } = {}) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport, colorScheme: scheme });
   await mock(ctx);
+  if (shifts) await ctx.addInitScript(() => { window.__cls = 0; new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) window.__cls += e.value; }).observe({ type: 'layout-shift', buffered: true }); });
   if (seed) await ctx.addInitScript(([pub, a, b]) => {
     if (sessionStorage.getItem('seeded')) return;
     sessionStorage.setItem('seeded', '1');
@@ -96,8 +97,12 @@ const shot = async (page, name, full = false) => { if (SHOTS) await page.screens
 try {
   // ── desktop, light ──
   {
-    const { browser, page, errors } = await openPage({ width: 1280, height: 900 });
+    const { browser, page, errors } = await openPage({ width: 1280, height: 900 }, { shifts: true });
     await page.waitForFunction(() => !document.querySelector('[data-live="btc"]').classList.contains('sk'), null, { timeout: 20000 });
+    await page.waitForTimeout(1500);
+    const cls = await page.evaluate(() => window.__cls);
+    console.log('  cls ' + cls.toFixed(4));
+    ok(cls <= 0.04, `layout shift while it loads is ${cls.toFixed(3)} (at most 0.04)`);
     ok(await page.textContent('h1') === 'Cross by proof', 'the title');
     ok((await page.textContent('#pf-btc')).includes('972,090'), 'Bitcoin’s proof on Ethereum, live');
     ok((await page.textContent('#pf-btc')).includes('3 behind Bitcoin’s tip'), 'and how far it is from the tip');
@@ -157,10 +162,23 @@ try {
     ok(await page.$$eval('.rv', (els) => els.every((e) => e.classList.contains('in'))), 'every section comes in as it is scrolled to');
     await page.waitForFunction(() => !!document.querySelector('#live-v canvas'), null, { timeout: 10000 }).catch(() => {});
     ok(!!(await page.$('#live-v canvas')), 'the live picture of both chains is drawn');
+    ok((await page.textContent('#bt-wait')).includes('About 4 hours') && (await page.textContent('#bt-wait')).includes('about every 30 min'), 'the tile says how long it takes, with the live proof cadence');
+    await page.click('#bt-flip');
+    ok((await page.textContent('#bt-wait')).includes('About 13 minutes'), 'and the other way waits for Ethereum to finalize');
+    await page.click('#bt-flip');
+    ok(await page.getAttribute('.lost a', 'href') === '/#bridge', 'a bridge that cannot be seen has a way back to the front page’s Find it');
+    await page.click('#hood-dir button[data-dir="out"]');
+    ok(await page.isVisible('#hood [data-hood="out"]') && !(await page.isVisible('#hood [data-hood="in"]')) && await page.isVisible('#hood figure[data-for="out"]') && !(await page.isVisible('#hood figure[data-for="in"]')), 'under the hood: the switch shows the way out, its steps and its drawing');
+    await page.locator('#hood [data-hood="out"] [data-step]').nth(2).click();
+    ok(await page.$eval('#hood figure[data-for="out"]', (f) => f.dataset.at) === '2', 'and a press on its step moves its drawing');
+    await page.click('#hood-dir button[data-dir="in"]');
+    await page.click('.faq summary');
+    ok(await page.isVisible('.faq details[open] p'), 'a question opens to its answer');
+    ok((await page.$$('.faq details')).length === 7, 'seven questions');
     await page.click('#mv-dir button[data-dir="out"]');
     ok(await page.$eval('#mv', (f) => f.dataset.dir) === 'out' && (await page.$eval('#mv-a', (u) => u.getAttribute('href'))) === '#tk-eth' && (await page.isVisible('.mvc .out')) && !(await page.isVisible('.mvc .in')), 'burn, prove, mint: the switch turns it to Ethereum → Bitcoin');
     ok((await page.textContent('#rf')).includes('972,090'), 'the reflection drawing carries the live block');
-    for (const [id, name] of [['#rf', 'sec-reflection'], ['#mv-h', 'sec-moves'], ['#c1-h', 'sec-note'], ['#c2-h', 'sec-b2e'], ['#c3-h', 'sec-e2b'], ['#c4-h', 'sec-trust'], ['#live-h', 'sec-live'], ['#rt-h', 'sec-roundtrip']]) {
+    for (const [id, name] of [['#rf', 'sec-reflection'], ['#mv-h', 'sec-moves'], ['#c1-h', 'sec-note'], ['#c2-h', 'sec-b2e'], ['#hood', 'sec-hood'], ['.faq', 'sec-faq'], ['#c4-h', 'sec-trust'], ['#live-h', 'sec-live'], ['#rt-h', 'sec-roundtrip']]) {
       await page.evaluate((q) => { document.querySelector(q).scrollIntoView({ block: 'start' }); scrollBy(0, -90); }, id); await page.waitForTimeout(700); await shot(page, name);
     }
     await shot(page, 'desktop-full', true);

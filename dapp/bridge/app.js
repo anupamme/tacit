@@ -25,7 +25,7 @@ const ago = (t) => {
 };
 
 // ── live: the two proofs, and the TAC that has crossed ──────────────────────────────────────────────────────────────────
-const LIVE = { btcAttested: null, btcTip: null, btcConfs: null, ethCovered: null, burns: null, txs: new Map(), at: 0 };
+const LIVE = { btcAttested: null, btcTip: null, btcConfs: null, ethCovered: null, burns: null, cadence: null, txs: new Map(), at: 0 };
 
 async function readProofs() {
   // each reading is drawn as it arrives, so a slow one holds up only its own figure
@@ -39,8 +39,28 @@ async function readProofs() {
     read(`${API}/reflection/eth-state/covers?network=mainnet&block=1`, (c) => { if (Number.isInteger(c.bestBlock)) LIVE.ethCovered = c.bestBlock; }),
     // Bitcoin's own tip (the status's tipHeight is the reflection's view of it)
     read(`${ESPLORA}/blocks/tip/height`, (h) => { if (Number.isInteger(h)) LIVE.btcTip = h; }),
+    // how often a proof of Bitcoin lands on Ethereum: the median gap between the day's attestations
+    read(`${API}/flow`, (f) => { const m = medianGapMin(f?.events?.attests); if (m) LIVE.cadence = m; }),
   ]);
   LIVE.at = Date.now();
+}
+
+// The median minutes between a list of times (seconds), or null with too few of them.
+function medianGapMin(times) {
+  const t = (Array.isArray(times) ? times : []).filter(Number.isFinite).sort((a, b) => a - b);
+  if (t.length < 4) return null;
+  const gaps = t.slice(1).map((v, i) => (v - t[i]) / 60).sort((a, b) => a - b);
+  return Math.max(1, Math.round(gaps[Math.floor(gaps.length / 2)]));
+}
+
+// What the chosen way waits on, and for about how long: 24 Bitcoin blocks, then the next proof; or Ethereum's finality.
+function paintWait() {
+  const el = $('#bt-wait');
+  if (!el) return;
+  const confs = LIVE.btcConfs ?? 24, hours = Math.round(confs / 6);
+  el.innerHTML = PICK.dir === 'in'
+    ? `About ${hours} hours: <span data-live="confs" class="num">${confs}</span> Bitcoin confirmations, then the next proof${LIVE.cadence ? ` (one lands about every ${LIVE.cadence} min)` : ''}`
+    : 'About 13 minutes for Ethereum to finalize, then you sign the Bitcoin mint';
 }
 
 function paintProofs() {
@@ -57,6 +77,7 @@ function paintProofs() {
   if (e) e.dataset.state = LIVE.ethCovered == null ? 'off' : 'on';
   const lagEl = $('#pf-lag');
   if (lagEl && lag != null) lagEl.textContent = lag <= 0 ? 'at the tip' : `${int(lag)} behind Bitcoin’s tip`;
+  paintWait();
 }
 
 async function readSupply() {
@@ -113,10 +134,7 @@ function paintTile() {
   const then = $('#bt-then');
   then.hidden = !route.then;
   if (route.then) { then.href = route.then.href; then.textContent = `${route.then.label} →`; }
-  // what the way waits on: Bitcoin's proof (in), or Ethereum's (out)
-  $('#bt-wait').innerHTML = PICK.dir === 'in'
-    ? `Waits for <span data-live="confs" class="num">${LIVE.btcConfs ?? 24}</span> Bitcoin confirmations, then Bitcoin’s proof on Ethereum`
-    : 'Waits for Ethereum finality, then Ethereum’s proof inside Bitcoin’s';
+  paintWait();
   const want = `#${PICK.asset}${PICK.dir === 'out' ? '/out' : ''}`;
   if (location.hash !== want && !(want === '#tac' && !location.hash)) history.replaceState(null, '', want);
 }
@@ -198,7 +216,7 @@ function readMine() {
 function wireSteppers() {
   for (const fig of $$('[data-stepper]')) {
     // the list of steps sits beside the drawing, in the same section
-    const steps = $$('.st-l [data-step]', fig.closest('section'));
+    const steps = $$(`.st-l[data-for="${fig.dataset.for}"] [data-step]`, fig.closest('section'));
     const n = steps.length;
     let at = 0, timer = null, held = false;
     const show = (i) => {
@@ -253,6 +271,17 @@ function wireMoves() {
   set('in');
 }
 
+// Under the hood: one switch shows the way in or the way out, its steps and its drawing.
+function wireHood() {
+  const box = $('#hood');
+  if (!box) return;
+  const set = (dir) => {
+    $$('[data-hood], [data-hood-fig]', box).forEach((e) => { e.hidden = (e.dataset.hood || e.dataset.for) !== dir; });
+    $$('#hood-dir button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.dir === dir)));
+  };
+  $$('#hood-dir button').forEach((b) => b.addEventListener('click', () => set(b.dataset.dir)));
+}
+
 // Who checks what: a press on a hop names who checks it.
 function wireChecks() {
   const box = $('#ck');
@@ -292,6 +321,7 @@ readMine();
 wireSteppers();
 wireNote();
 wireMoves();
+wireHood();
 wireChecks();
 // On a narrow screen a wide drawing scrolls inside its frame: it opens on its middle, where the proof is.
 const centre = () => $$('.fig.big').forEach((f) => { if (f.scrollWidth > f.clientWidth) f.scrollLeft = (f.scrollWidth - f.clientWidth) / 2; });
