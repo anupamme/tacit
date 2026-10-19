@@ -4,7 +4,7 @@
 // contract's own (math.js): what it shows as the room to borrow, the limit for this account, the amount to add to reach 400% and the price a vault is
 // liquidated at are the numbers the contract will test, rounded the safe way. A person's vault is the chain's, not this browser's: nothing about it
 // is kept here, so the same account shows the same vault anywhere. The wallet never gives up a key; each action is tested once with eth_call before it is sent.
-import { DEPLOYMENTS } from '/vault/deployments.js?cb=feb5f9d3';
+import { DEPLOYMENTS } from '/vault/deployments.js?cb=4af96594';
 import * as M from '/vault/math.js?cb=ac1ed53e';
 import {
   makeRpc, RPCS, ARCHIVE, HISTORY, makeReader, staticCalls, parseStatic, dynamicCalls, parseDynamic, timestampCall, refusal, decString, SEL, wordAt, addrWord, QUEUE_EXPIRY,
@@ -30,10 +30,13 @@ const ACTS = [['deposit', 'Deposit'], ['borrow', 'Borrow'], ['repay', 'Repay'], 
 // (tests only): on the real host the address bar chooses nothing but the vault shown, the account looked at and the action.
 const params = () => new URLSearchParams(location.hash.replace(/^#/, ''));
 const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+// A vault's hint (see deployments.js) when it names its four addresses, else none.
+const hintOf = (h) => (h && ['tac', 'synth', 'oracle', 'feed'].every((k) => ADDR.test(h[k] || '')) ? Object.fromEntries(['tac', 'synth', 'oracle', 'feed'].map((k) => [k, h[k].toLowerCase()])) : null);
 const VS = (() => {
-  let list = DEPLOYMENTS.vaults.filter((v) => KIND[v.key] && ADDR.test(v.vault)).map((v) => ({ key: v.key, addr: v.vault }));
+  let list = DEPLOYMENTS.vaults.filter((v) => KIND[v.key] && ADDR.test(v.vault)).map((v) => ({ key: v.key, addr: v.vault, hint: hintOf(v.hint) }));
   if (LOCAL) {
-    const p = params(), over = ['usd', 'eth'].filter((k) => ADDR.test(p.get(`v${k}`) || '')).map((k) => ({ key: k, addr: p.get(`v${k}`) }));
+    // a page on this computer may give a vault's hint too (#husd=tac,synth,oracle,feed; tests only)
+    const p = params(), over = ['usd', 'eth'].filter((k) => ADDR.test(p.get(`v${k}`) || '')).map((k) => { const [tac, synth, oracle, feed] = (p.get(`h${k}`) || '').split(','); return { key: k, addr: p.get(`v${k}`), hint: hintOf({ tac, synth, oracle, feed }) }; });
     if (over.length) list = over;
   }
   return list.map((v) => ({ ...v, s: null, d: null }));
@@ -111,14 +114,17 @@ function renderPromo() {
 async function load() {
   if (!VS.length) return;
   const my = ++S.seq, who0 = who();
-  const fresh = VS.filter((v) => !v.s);
+  // A vault's tokens, oracle and feed come from the vault, and what is read after them needs them: that was a request of their own before the one below. A vault
+  // with a hint (deployments.js) has them from the hint, so that one request reads everything, and the vault's answer is then checked against the hint (below).
+  for (const v of VS) if (!v.s && v.hint && !v.hinted) { Object.assign(v, v.hint); v.hinted = true; }
+  const fresh = VS.filter((v) => !v.s && !v.hinted);
   if (fresh.length) {
     const n = staticCalls('0x').length, res = await batch(fresh.flatMap((v) => staticCalls(v.addr)));
     if (my !== S.seq) return;
     fresh.forEach((v, i) => { v.s = parseStatic(res.slice(i * n, (i + 1) * n)); });
   }
-  const live = VS.filter((v) => v.s);
-  for (const v of live) { v.tac = v.s.tac; v.synth = v.s.synth; v.oracle = v.s.oracle; v.feed = v.s.feed; }
+  const live = VS.filter((v) => v.s || v.hinted);
+  for (const v of live) if (v.s) { v.tac = v.s.tac; v.synth = v.s.synth; v.oracle = v.s.oracle; v.feed = v.s.feed; }
   // The terms (the ratios, the owner window, the share of depth) can be changed by the owner, so they are read again each time.
   const nS = staticCalls('0x').length;
   const calls = [timestampCall(), ...live.flatMap((v) => staticCalls(v.addr)), ...live.flatMap((v) => dynamicCalls(v, who0))];
@@ -126,7 +132,18 @@ async function load() {
   if (my !== S.seq || who0 !== who()) return;                                                       // the account changed while this was read
   const ts = res[0] ? Number(wordAt(res[0], 0)) : 0;
   if (ts) { S.chainT = ts; S.chainAt = now(); }
-  live.forEach((v, k) => { const s = parseStatic(res.slice(1 + k * nS, 1 + (k + 1) * nS)); if (s && s.tac === v.tac && s.synth === v.synth) { v.s = s; v.oracle = s.oracle; v.feed = s.feed; } });
+  let stale = false;
+  live.forEach((v, k) => {
+    const s = parseStatic(res.slice(1 + k * nS, 1 + (k + 1) * nS));
+    if (v.hinted) {                                                                                  // the hint was only a way to ask early: it counts when the vault says the same
+      v.hinted = false;
+      if (s && s.tac === v.tac && s.synth === v.synth && s.oracle === v.oracle && s.feed === v.feed) { v.s = s; return; }
+      v.hint = null; v.tac = v.synth = v.oracle = v.feed = undefined; stale = true;                  // it has changed: read this vault again from its own answers
+      return;
+    }
+    if (s && s.tac === v.tac && s.synth === v.synth) { v.s = s; v.oracle = s.oracle; v.feed = s.feed; }
+  });
+  if (stale) return load();
   let i = 1 + live.length * nS;
   for (const v of live) { const n = dynamicCalls(v, who0).length; v.d = parseDynamic(v, who0, res.slice(i, i + n)); v.d.who = who0; i += n; }
   S.loaded = VS.some((v) => v.d); S.failed = !S.loaded;

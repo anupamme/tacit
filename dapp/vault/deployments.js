@@ -1,5 +1,8 @@
 // The vaults' addresses on Ethereum mainnet: { key: 'usd' | 'eth', vault: '0x…' } for the dollar vault and the ETH vault. Everything else
 // (the two tokens, the terms, the prices) is read from the vault itself. Empty until they are deployed: the page then says it opens soon.
+// `hint`: the vault's TAC, its synth, its oracle and its price feed as they were when this was written. The page asks the vault for these on every
+// reading and uses the hint only to send the reads that follow them in the same request; a vault that answers otherwise (the owner swapped the oracle or the
+// feed) is read again from its own answers, so a hint that has gone out of date costs one more request and nothing else.
 // `router`: the TacVaultRouter built for these two vaults, once deployed (empty until then: the page does without it).
 export const DEPLOYMENTS = Object.freeze({
   chainId: 1,
@@ -27,7 +30,7 @@ export const DEPLOYMENTS = Object.freeze({
     ]),
   }),
   vaults: Object.freeze([
-    Object.freeze({ key: 'usd', vault: '0x00000087ac9ed3E1Bd443E00FBe18B4EdcAEeb1F' }),
-    Object.freeze({ key: 'eth', vault: '0x00000047bFC8cF504967049D9Cf9E1FD9651ED80' }),
+    Object.freeze({ key: 'usd', vault: '0x00000087ac9ed3E1Bd443E00FBe18B4EdcAEeb1F', hint: Object.freeze({ tac: '0xA1313EB9F3A445606D9583BCAC3EBEB56A858279', synth: '0xA0f6B02561C8ef08335B69aD25e022C0B342147C', oracle: '0x000000cE58D7d49319252DaFB0ABdB3F02101271', feed: '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419' }) }),
+    Object.freeze({ key: 'eth', vault: '0x00000047bFC8cF504967049D9Cf9E1FD9651ED80', hint: Object.freeze({ tac: '0xA1313EB9F3A445606D9583BCAC3EBEB56A858279', synth: '0x9DE27883C5Dc9Db47BE12E595D59b8f1aBEC8570', oracle: '0x000000cE58D7d49319252DaFB0ABdB3F02101271', feed: '0x0000005891f244187A4F00Ab6Ca25BbCd5B742Ef' }) }),
   ]),
 });

@@ -145,7 +145,8 @@ const hashFor = (extra = '') => `#vusd=${USD}&veth=${ETH}&t=deposit${extra}`;
 // `limited`: hosts that answer every call as a node that has run out of its free requests does.
 // `lp`: what the points service answers to /lp (the liquidity campaign); null is a service with the campaign off. The page never reaches the real one.
 // `hold`: { re, gate }: a call whose body matches `re` waits for the promise `gate` before it is answered (a slow node, or a router not yet asked).
-async function openPage({ viewport = { width: 1280, height: 900 }, who = null, noTyped = false, batch = false, hash = hashFor(), host = '127.0.0.1', scheme = 'light', args = [], bare = false, limited = [], hold = null, lp = null } = {}) {
+// `rpcLog`: an array that gets the body of every request the page sends to a node, from the first.
+async function openPage({ viewport = { width: 1280, height: 900 }, who = null, noTyped = false, batch = false, hash = hashFor(), host = '127.0.0.1', scheme = 'light', args = [], bare = false, limited = [], hold = null, lp = null, rpcLog = null } = {}) {
   const browser = await chromium.launch({ args });
   const ctx = await browser.newContext({ viewport, colorScheme: scheme });
   if (bare) await ctx.route('**/vault/deployments.js*', (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: 'export const DEPLOYMENTS = Object.freeze({ chainId: 1, vaults: Object.freeze([]) });' }));
@@ -163,6 +164,7 @@ async function openPage({ viewport = { width: 1280, height: 900 }, who = null, n
   page.on('pageerror', (e) => { if (process.env.DEBUG) console.log('[pageerror]', e.message, String(e.stack || '').split('\n').slice(1, 4).join(' | ')); errors.push(String(e.message || e)); });
   if (process.env.DEBUG) page.on('requestfailed', (q) => console.log('[requestfailed]', q.url().slice(0, 100), q.failure()?.errorText));
   page.on('console', (m) => { if (process.env.DEBUG) console.log('[page]', m.type(), m.text()); if (m.type() === 'error') { const t = m.text(); (/Content Security Policy|Refused to/i.test(t) ? blocked : errors).push(t); } });
+  if (rpcLog) page.on('request', (q) => { if (q.method() === 'POST' && RPC_HOSTS.some((h) => q.url().includes(h))) rpcLog.push(q.postData() || ''); });
   await page.goto(`http://${host}:${WEB}/vault/${hash}`);
   return { browser, ctx, page, errors, blocked, walletLog };
 }
@@ -219,6 +221,31 @@ try {
   await until(r.page, () => location.pathname === '/vault/' && location.hash === '#btc');
   ok(true, 'with or without its trailing slash');
   await closeAll(r);
+
+  // ── a vault's hint (deployments.js) lets the first request read everything, and is checked against the vault ──
+  {
+    const hintOf = (v) => ['TAC()(address)', 'SYNTH()(address)', 'ORACLE()(address)', 'ETH_USD()(address)'].map((sig) => view(v, sig)[0]);
+    const right = { usd: hintOf(USD).join(), eth: hintOf(ETH).join() };
+    const staleOracle = (h) => h.split(',').map((a, i) => (i === 2 ? '0x000000000000000000000000000000000000dEaD' : a)).join();
+    const staticOnly = (log) => log.filter((b) => b.includes('19f68523') && !b.includes('70a08231')).length;     // a request for the vaults' addresses and terms alone, with none of the figures that follow
+    const board = async (p) => { await untilText(p, '#board', /Room to borrow/); await until(p, () => !/…/.test(document.querySelector('#board table')?.textContent || '…')); return text(p, '#board table'); };      // the markets row fills in a little after the rest
+    const logs = { none: [], right: [], stale: [] };
+    r = await openPage({ rpcLog: logs.none });
+    const plain = await board(r.page);
+    ok(staticOnly(logs.none) === 1, 'a vault with no hint is asked for its addresses first, then for everything (one request for the addresses alone)');
+    await closeAll(r);
+    r = await openPage({ hash: hashFor(`&husd=${right.usd}&heth=${right.eth}`), rpcLog: logs.right });
+    const hinted = await board(r.page);
+    ok(staticOnly(logs.right) === 0, 'a vault with a hint is read in one request: none asks for its addresses alone');
+    ok(hinted === plain && /Room to borrow/.test(hinted), 'and the board is the one the vaults\' own answers give');
+    ok(r.errors.length === 0 && r.blocked.length === 0, `with nothing logged or blocked (${[...r.errors, ...r.blocked].join(' | ')})`);
+    await closeAll(r);
+    r = await openPage({ hash: hashFor(`&husd=${staleOracle(right.usd)}&heth=${staleOracle(right.eth)}`), rpcLog: logs.stale });
+    const stale = await board(r.page);
+    ok(stale === plain, 'a hint that the vault does not bear out (its oracle was changed) is dropped and the board is read from the vault\'s answers: the same board');
+    ok(staticOnly(logs.stale) >= 1 && r.errors.length === 0, 'by asking the vault for its addresses, with nothing logged');
+    await closeAll(r);
+  }
 
   // ── public numbers, no wallet ──
   r = await openPage();
