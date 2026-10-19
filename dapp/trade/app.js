@@ -17,8 +17,8 @@ import { decodeTape, chartBars, continuous, invert, ethLaneUsd, btcLaneUsd, cand
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=a17675b8';
 import { mountDepth } from '/trade/depth.js?cb=6e51e04f';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=4a8e3482';
-import { takeEarly } from '/trade/rpc.js?cb=842f58a5';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=db2796dd';
+import { takeEarly } from '/trade/rpc.js?cb=63f04503';
 import { mountFarm } from '/trade/farm.js?cb=cf321c4e';
 import { grp, sig, group, satsFmt, warm as warmFormatters } from '/trade/fmt.js?cb=c07717c4';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
@@ -1092,7 +1092,7 @@ function renderBorrow() {
   if (BW.q && BW.key === key) setHtml(el, borrowHtml(BW.q, tac));
   if ((BW.key === key && now() - BW.at < 60) || BW.busy) return;
   BW.busy = true;
-  (BW.mod ||= import('/vault/quote.js?cb=699a1100').catch((e) => { BW.mod = null; throw e; })).then((m) => m.quoteBorrow({ tac, account: who, rpc }))
+  (BW.mod ||= import('/vault/quote.js?cb=e70ac2ad').catch((e) => { BW.mod = null; throw e; })).then((m) => m.quoteBorrow({ tac, account: who, rpc }))
     .then((q) => { BW.q = q; }, (e) => { console.warn('borrow quote:', e?.message || e); BW.q = null; })   // a failed read leaves the plain line, and is tried again in a minute
     .then(() => { BW.key = key; BW.at = now(); })
     .finally(() => { BW.busy = false; if (W.account && `${lc(W.account)}:${S.bal?.tac}` === key) setHtml(el, borrowHtml(BW.q, tac)); else renderBorrow(); });

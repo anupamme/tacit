@@ -8,6 +8,7 @@
 // this; this module owns the read path (account + balance) + the live config + the settle/RPC handles.
 
 import { getConfidentialDeployment, activeNetwork, syncProtectedOutpoints, shownTicker } from './confidential-deployments.js';
+import { bodyType } from './rpc-body.js';
 import { makeEvmAccount } from './evm-account.js';
 import { makeConfidentialIndexer } from './confidential-indexer.js';
 import { makeConfidentialEvmLog } from './confidential-evm-log.js';
@@ -182,7 +183,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   async function _post(ep, method, params, ms = 10000) {
     let r;
     try {
-      r = await _fetch(ep.url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(ms) });
+      r = await _fetch(ep.url, { method: 'POST', headers: { 'content-type': bodyType(ep.url) }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(ms) });
     } catch (e) {
       throw Object.assign(new Error((e && e.message) || String(e)), { kind: 'transport', timeout: !!e && (e.name === 'TimeoutError' || e.name === 'AbortError') });
     }

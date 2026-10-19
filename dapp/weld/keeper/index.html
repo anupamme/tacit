@@ -7,7 +7,7 @@
      data stats does, plus an injected wallet to sign advanceTip(bytes) — permissionless on chain
      (contracts/src/lib/BitcoinLightRelay.sol:253) — so anyone can push the header relay forward and pay their
      own gas, instead of waiting on Tacit's own cron. No Tacit key touches this page. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-zJ6GCvpdZYWs4bxiLoR0C/0U/Ys5Kcfy5VopIjSa0VQ=' 'wasm-unsafe-eval'; connect-src wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-mj48AMhWtbZ/lJ0lWoIxZ7HgyVnbJ3Q1xxccW0J16nQ=' 'wasm-unsafe-eval'; connect-src wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
@@ -21,6 +21,8 @@
 <meta property="og:image" content="https://tacit.finance/tacit-card.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
+<link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <style>
 @font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
 @font-face { font-family: 'IBM Plex Mono'; font-weight: 500; font-display: swap; src: url('/fonts/ibm-plex-mono-500-latin.woff2') format('woff2'); }
@@ -422,7 +424,8 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <script type="module">
 import { makeEvmWallet } from '/evm-wallet.js?cb=087655c3';
 import { announceWalletConnect, wcSheets, dialogHost, WC_PROJECT_ID } from '/walletconnect.js?cb=7ab92369';
-import { makeHeaderRelayAdvance } from '/header-relay-advance.js?cb=62741b39';
+import { makeHeaderRelayAdvance } from '/header-relay-advance.js?cb=1c3a7226';
+import { bodyType } from '/rpc-body.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -489,7 +492,7 @@ const S = { provider: null, address: null };
 const TX_HASH = /^0x[0-9a-f]{64}$/i;
 
 async function rpc(method, params) {
-  const r = await fetch(RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) }).then((r) => r.json());
+  const r = await fetch(RPC, { method: 'POST', headers: { 'content-type': bodyType(RPC) }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) }).then((r) => r.json());
   // A node reports a contract's revert reason as data next to the message; keep it so a caller can read it.
   if (r.error) throw new Error(r.error.message + (typeof r.error.data === 'string' ? ` ${r.error.data}` : ''));
   return r.result;

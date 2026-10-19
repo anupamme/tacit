@@ -5,10 +5,10 @@
 // on the service except the reward: the deployment is the same from any browser.
 //
 // Open jobs are shown in full; a job that is done is a tile with its result, and opens to what it did when it is clicked.
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=4a8e3482';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=db2796dd';
 import { esc } from '/trade/sheet.js?cb=84cda8f2';
-import { rpc, RPCS, $, short, fmtUnits } from '/trade/util.js?cb=782a003c';
-import { bodyType } from '/trade/rpc.js?cb=842f58a5';
+import { rpc, RPCS, $, short, fmtUnits } from '/trade/util.js?cb=509d6618';
+import { bodyType } from '/trade/rpc.js?cb=63f04503';
 import { checkPayload, checkStep } from '/tasks/verify.js?cb=b8174dad';
 
 const POINTS = 'https://tacit-points.onrender.com';
@@ -84,14 +84,27 @@ $('#wallet-chip').hidden = false;
 const get = (url) => fetch(url, { signal: AbortSignal.timeout(15e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 const flagged = (r) => String(r).slice(2, 66) === `${'0'.repeat(63)}1`;
 
+// A step seen on the chain stays there (a contract is not taken away, a registry's count and a flag only rise), so the steps this browser has seen done are
+// kept and not asked again: the code of the larger contracts is most of what the page downloads (a job's chunks are 1 MB of code to learn that they exist). Only
+// the page's own nodes count: a reader who names nodes of their own may be looking at another chain.
+const SEEN = 'tacit.tasks.seen.v1';
+const seenDone = (() => { try { return new Set(JSON.parse(localStorage.getItem(SEEN)) || []); } catch { return new Set(); } })();
+const stepKey = (job, s) => [job.id, s.id, chainOf(job, s), s.expected || s.to, s.minSize || s.asset || s.poolId || ''].join(':');
+const ownNodes = (id) => !!ends.rpc?.[id]?.length;
+function keepSeen(job, out) {
+  let more = false;
+  for (const s of job.steps) if (out[s.id] === true && !ownNodes(chainOf(job, s)) && !seenDone.has(stepKey(job, s))) { seenDone.add(stepKey(job, s)); more = true; }
+  if (more) { try { localStorage.setItem(SEEN, JSON.stringify([...seenDone])); } catch { /* the page works without it */ } }
+}
+
 // Whether each step is already on the chain: code at a deployment's address, the registry's newest point, the asset or the pool in the
 // confidential pool's registry. One request per chain; a step that has been seen on the chain is not asked about again.
 async function readDone(job) {
   const out = {}, prev = S.done[job.id] || {}, asks = new Map();
   const ask = (id, s, method, params, yes) => { if (!asks.has(id)) asks.set(id, []); asks.get(id).push({ s, method, params, yes }); };
   for (const s of job.steps) {
-    if (prev[s.id] === true) { out[s.id] = true; continue; }
     const id = chainOf(job, s);
+    if (prev[s.id] === true || (!ownNodes(id) && seenDone.has(stepKey(job, s)))) { out[s.id] = true; continue; }
     if (s.kind === 'createx') ask(id, s, 'eth_getCode', [s.expected, 'latest'], (r) => r !== '0x');
     else if (s.kind === 'post') ask(id, s, 'eth_call', [{ to: s.to, data: LATEST }, 'latest'], (r) => r !== '0x' && BigInt(r) >= BigInt(s.minSize));
     else if (s.kind === 'register') ask(id, s, 'eth_call', [{ to: s.to, data: `0x9fda5b66${s.asset.slice(2)}` }, 'latest'], flagged);
@@ -101,6 +114,7 @@ async function readDone(job) {
     const got = await batchOn(id, rows.map((r) => [r.method, r.params]));
     rows.forEach((r, i) => { try { out[r.s.id] = got[i] == null ? null : !!r.yes(got[i]); } catch { out[r.s.id] = null; } });
   }));
+  keepSeen(job, out);
   return out;
 }
 async function loadApi() {

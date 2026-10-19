@@ -4,6 +4,8 @@
 // browser wallet and the CLI drive the exact same calldata. This module never signs — the caller supplies
 // `send`/`waitReceipt` (an injected wallet in the browser, a raw key in the CLI).
 
+import { bodyType } from './rpc-body.js';
+
 const HEADER_RELAY = '0x20A6ddc2C6E620c6248B5A34E85996516FDd19D0'; // docs/DEPLOYMENTS.md — BitcoinLightRelay
 const MAX_BATCH = 40;    // gas-bounding choice mirroring header-relay.js's own default; not a contract limit
 const HEADER_LEAD = 110; // mirrors HEADER_RELAY_LEAD — how far past the reflection's attested height to go
@@ -26,7 +28,7 @@ export function makeHeaderRelayAdvance({
   const reverseHex = (h) => h.replace(/^0x/, '').toLowerCase().match(/../g).reverse().join('');
 
   async function rpc(method, params) {
-    const res = await fetchImpl(rpcUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
+    const res = await fetchImpl(rpcUrl, { method: 'POST', headers: { 'content-type': bodyType(rpcUrl) }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
     const j = await res.json();
     if (j.error) throw new Error(`${method}: ${j.error.message}`);
     return j.result;

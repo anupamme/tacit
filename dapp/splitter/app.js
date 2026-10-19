@@ -7,6 +7,7 @@ import {
   payouts, percent, fmtEth, sharesProblem, isAddress, safeBatch,
 } from '/splitter/abi.js?cb=44661448';
 import { SPLITTER_INITCODE } from '/splitter/bytecode.js?cb=6e21588e';
+import { bodyType } from '../rpc-body.js';
 
 const API = 'https://api.tacit.finance';
 const RPCS = ['https://ethereum-rpc.publicnode.com', 'https://eth.drpc.org', 'https://1rpc.io/eth', 'https://mainnet.gateway.tenderly.co'];
@@ -56,7 +57,7 @@ async function rpc(method, params) {
   let last;
   for (const url of RPCS) {
     try {
-      const r = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(12000) });
+      const r = await fetch(url, { method: 'POST', headers: { 'content-type': bodyType(url) }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(12000) });
       const j = await r.json();
       if (j.error) { if (j.error.code === 3 || /revert/i.test(j.error.message || '')) throw Object.assign(new Error(j.error.message), { revert: true }); last = new Error(j.error.message); continue; }
       return j.result;

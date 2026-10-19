@@ -3,10 +3,9 @@
 // are then cancelled. Only once, so that nodes which are all merely slow are not each sent the same heavy read. A node that answers with an error
 // moves on to the next at once. A revert is the contract's answer, not a node's failure, so it ends the call. Never more requests than nodes.
 // `hedgeMs` 0 asks one node at a time. A browser can set it: localStorage['tacit-trade-hedge-ms'] (milliseconds; 0 switches hedging off).
-// A JSON-RPC body sent as text/plain is a simple request: the browser sends it at once, where application/json makes it ask the node first (an OPTIONS round
-// trip, about a second on a cold page, repeated for each call in flight). These nodes answer a text/plain body; others (1rpc.io refuses it) are sent JSON.
-const PLAIN = new Set(['ethereum-rpc.publicnode.com', 'eth.drpc.org', 'mainnet.gateway.tenderly.co']);
-export const bodyType = (url) => { try { return PLAIN.has(new URL(url).host) ? 'text/plain;charset=UTF-8' : 'application/json'; } catch { return 'application/json'; } };
+// A JSON-RPC body goes out as text/plain to the nodes that take it, so the browser does not ask first (see ../rpc-body.js).
+import { bodyType } from '../rpc-body.js';
+export { bodyType };
 export const hedgeDelay = () => { try { const v = localStorage.getItem('tacit-trade-hedge-ms'); return v == null || v === '' || !Number.isFinite(Number(v)) ? 2500 : Math.max(0, Number(v)); } catch { return 2500; } };
 export function hedgedRpc(hosts, method, params, { hedgeMs = hedgeDelay(), timeoutMs = 12e3, lastTimeoutMs = 30e3, fetchImpl = (...a) => fetch(...a) } = {}) {
   return new Promise((resolve, reject) => {

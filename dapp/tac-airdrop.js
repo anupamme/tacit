@@ -16,6 +16,8 @@
 // is called with `allowUnproven: true`. The commit must come from `shieldPlan` (the pool ux's buildWrap for the
 // recipient's own key); a commit made any other way deposits the TAC where no key can spend it.
 
+import { bodyType } from './rpc-body.js';
+
 export const AIRDROP_DEPLOYMENTS = Object.freeze({
   1: Object.freeze({
     address: '0x4b4cb98D0C836c2783Ac46f0078b904dab533AE8',
@@ -126,7 +128,7 @@ export function makeRpcCall({ rpcs, fetchImpl, timeoutMs = 10000 } = {}) {
     let lastErr = null;
     for (const url of list) {
       try {
-        const r = await f(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: timeoutSignal(timeoutMs) });
+        const r = await f(url, { method: 'POST', headers: { 'content-type': bodyType(url) }, body, signal: timeoutSignal(timeoutMs) });
         if (!r.ok) { lastErr = new Error(`rpc ${r.status}`); continue; }
         const j = await r.json();
         if (j && j.error) {

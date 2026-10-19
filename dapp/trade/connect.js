@@ -3,7 +3,7 @@
 import { announceWalletConnect, wcSheets, WC_PROJECT_ID } from '/walletconnect.js?cb=7ab92369';
 import { makeWallet, UserStopped } from '/trade/wallet.js?cb=7b4ab128';
 import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
-import { rpc, RPCS, short, $ } from '/trade/util.js?cb=782a003c';
+import { rpc, RPCS, short, $ } from '/trade/util.js?cb=509d6618';
 
 // WalletConnect joins the browser wallets in the picker, and is the one wallet offered where the browser has none (a phone): a wallet app signs
 // and sends for this page.

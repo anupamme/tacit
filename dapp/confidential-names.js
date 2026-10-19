@@ -16,6 +16,7 @@
 // revert) and, for writes, `send({ from, to, data })` supplied by the caller's wallet.
 
 import { decodeBech32m, poolAddressOf } from './tacit-address.js';
+import { bodyType } from './rpc-body.js';
 
 export const RECORD_KEY = 'finance.tacit';
 export const WNS = '0x0000000000696760E15f265e828DB644A0c242EB';
@@ -143,7 +144,7 @@ export function makeMainnetCall({ fetchImpl, rpcs = MAINNET_RPCS, timeoutMs = 10
       rpcs.forEach((url) => {
         (async () => {
           try {
-            const r = await f(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body, signal: AbortSignal.timeout(timeoutMs) });
+            const r = await f(url, { method: 'POST', headers: { 'content-type': bodyType(url) }, body, signal: AbortSignal.timeout(timeoutMs) });
             if (!r.ok) { lastErr = new Error(`rpc ${r.status}`); return; }
             const j = await r.json();
             if (j && j.error) {

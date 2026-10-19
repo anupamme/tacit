@@ -5,16 +5,16 @@
 //
 // It reads the chain and the API with no wallet, as /trade/tac/ does, and holds no key it was not given: the key lives in this visit's memory.
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=a17675b8';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=4a8e3482';
-import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=2c0446af';
-import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=b443f514';
-import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, proveOwn, ownWords, ownable, relayState, relayStopped, forgetUx, getUx } from '/trade/teth/wrap.js?cb=1899ef1a';
-import { ownPref, setOwnPref, proverFor, readCredit, proofsFor, fundFromWallet, quoteEth, quoteEthFor, fundWithEth, loadSelfProver, tokenBalance } from '/trade/teth/prover.js?cb=c74bc222';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=db2796dd';
+import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=8aceff87';
+import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=1f11613c';
+import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, proveOwn, ownWords, ownable, relayState, relayStopped, forgetUx, getUx } from '/trade/teth/wrap.js?cb=384ab9cf';
+import { ownPref, setOwnPref, proverFor, readCredit, proofsFor, fundFromWallet, quoteEth, quoteEthFor, fundWithEth, loadSelfProver, tokenBalance } from '/trade/teth/prover.js?cb=af9025c9';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { mountDepth } from '/trade/depth.js?cb=6e51e04f';
 import { candlesFromTrades, closeAt } from '/trade/tape.js?cb=a4aefafb';
-import { readMarket, isActive, bookState, refSats, premium, satsTxt, ladders, idle, bookPrime, summary, fillBars, BTC_ID } from '/trade/teth/market.js?cb=369b5897';
-import { $, esc, now, rpc, fmtUnits, plain, parseUnits, grp, sig, usd, pct, ago, short, E10, E18 } from '/trade/util.js?cb=782a003c';
+import { readMarket, isActive, bookState, refSats, premium, satsTxt, ladders, idle, bookPrime, summary, fillBars, BTC_ID } from '/trade/teth/market.js?cb=9229f140';
+import { $, esc, now, rpc, fmtUnits, plain, parseUnits, grp, sig, usd, pct, ago, short, E10, E18 } from '/trade/util.js?cb=509d6618';
 
 const ETHBLUE = '#627eea', ORANGE = '#f7931a';
 const SCAN = 'https://etherscan.io/';

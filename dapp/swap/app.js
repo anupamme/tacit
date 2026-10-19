@@ -8,8 +8,8 @@
 // Earn: the Precision farm (trade/farm.js) in the card, the private farms by link.
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venues.js?cb=f6e1b626';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=4a8e3482';
-import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18 } from '/trade/util.js?cb=782a003c';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=db2796dd';
+import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18 } from '/trade/util.js?cb=509d6618';
 import * as R from '/swap/route.js?cb=2be79f2b';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
 
@@ -253,7 +253,7 @@ const PK = { teth: 'eth', [lc(R.TAC)]: 'tac', [lc(R.CUSD)]: 'cusd', [lc(R.CBTC)]
 const POOL_TK = { eth: 'cETH', tac: 'cTAC', cbtc: 'cBTC', cusd: 'cUSD' };
 let uxP = null;
 const getUx = () => (uxP ||= (async () => {
-  const [{ makeConfidentialPoolUx }, dep, d] = await Promise.all([import('/confidential-pool-ux.js?cb=48f19c85'), import('/confidential-deployments.js'), import('/vendor/tacit-deps.min.js')]);
+  const [{ makeConfidentialPoolUx }, dep, d] = await Promise.all([import('/confidential-pool-ux.js?cb=dff04575'), import('/confidential-deployments.js'), import('/vendor/tacit-deps.min.js')]);
   dep.setActiveNetwork('mainnet');
   return makeConfidentialPoolUx({ secp: d.secp, keccak256: d.keccak_256, sha256: d.sha256, network: 'mainnet' });
 })().catch((e) => { uxP = null; throw e; }));

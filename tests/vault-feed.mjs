@@ -17,7 +17,8 @@ const tmp = mkdtempSync(join(tmpdir(), 'vault-feed-'));
 const copy = (name) => {
   const src = readFileSync(new URL(`vault/${name}.js`, dapp), 'utf8')
     .replace(/'\/evm-trade-venues\.js\?cb=[^']*'/, `'${new URL('evm-trade-venues.js', dapp).href}'`)
-    .replace(/'\/vendor\/tacit-deps\.min\.js'/, `'${new URL('vendor/tacit-deps.min.js', dapp).href}'`);
+    .replace(/'\/vendor\/tacit-deps\.min\.js'/, `'${new URL('vendor/tacit-deps.min.js', dapp).href}'`)
+    .replace(/'\.\.\/rpc-body\.js'/, `'${new URL('rpc-body.js', dapp).href}'`);
   writeFileSync(join(tmp, `${name}.mjs`), src);
   return import(pathToFileURL(join(tmp, `${name}.mjs`)).href);
 };

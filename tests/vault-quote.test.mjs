@@ -16,6 +16,7 @@ const dapp = new URL('../dapp/', import.meta.url), tmp = mkdtempSync(join(tmpdir
 const at = (name) => pathToFileURL(join(tmp, name)).href;
 const copy = (rel, name) => writeFileSync(join(tmp, name), readFileSync(new URL(rel, dapp), 'utf8')
   .replace(/'\/evm-trade-venues\.js\?cb=[^']*'/g, `'${new URL('evm-trade-venues.js', dapp).href}'`)
+  .replace(/'\.\.\/rpc-body\.js'/g, `'${new URL('rpc-body.js', dapp).href}'`)
   .replace(/'\/vault\/(math|chain|deployments)\.js\?cb=[^']*'/g, (m, f) => `'${at(`${f}.mjs`)}'`));
 for (const f of ['math', 'chain', 'deployments']) copy(`vault/${f}.js`, `${f}.mjs`);
 copy('vault/quote.js', 'quote.mjs');

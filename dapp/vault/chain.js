@@ -2,6 +2,7 @@
 // calls of a vault and its two tokens as Multicall3 batches, and the calldata of what a person does there. Nothing here is kept: every figure comes from the
 // contracts, so a vault is the same from any browser.
 import { _internal, MULTICALL3 } from '/evm-trade-venues.js?cb=f6e1b626';
+import { bodyType } from '../rpc-body.js';
 
 // The nodes the page's reads ask, in order (one that answers is kept until it fails). ARCHIVE are the ones that still hold the state of blocks hours old, which the
 // price feed needs for eth_getProof (a node that has pruned it answers with an error); HISTORY are the nodes asked for the headers of those blocks.
@@ -43,7 +44,7 @@ const urlSource = (url, doFetch) => {
     id: url.replace(/^https?:\/\//, ''),
     signalled: true,                             // it times itself out (the others are timed by the pool)
     async send(method, params, ms) {
-      const r = await doFetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(ms) });
+      const r = await doFetch(url, { method: 'POST', headers: { 'content-type': bodyType(url) }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(ms) });
       let j;
       try { j = await r.json(); } catch { throw Object.assign(new Error(`${host} answered ${r.status}`), { status: r.status }); }
       if (j?.error) throw Object.assign(new Error(j.error.message || `${host} refused`), { code: j.error.code, status: r.status, revert: j.error.code === 3 || /revert/i.test(j.error.message || ''), data: typeof j.error.data === 'string' ? j.error.data : null });

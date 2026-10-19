@@ -15,7 +15,8 @@ const cast = (...a) => execFileSync('cast', a, { encoding: 'utf8' }).trim();
 // The module imports the shared venues helpers by their address on the site; here they are the same file by its path.
 const dapp = new URL('../dapp/', import.meta.url);
 const tmp = mkdtempSync(join(tmpdir(), 'vault-chain-'));
-const src = readFileSync(new URL('vault/chain.js', dapp), 'utf8').replace(/'\/evm-trade-venues\.js\?cb=[^']*'/, `'${new URL('evm-trade-venues.js', dapp).href}'`);
+const src = readFileSync(new URL('vault/chain.js', dapp), 'utf8').replace(/'\/evm-trade-venues\.js\?cb=[^']*'/, `'${new URL('evm-trade-venues.js', dapp).href}'`)
+  .replace("'../rpc-body.js'", `'${new URL('rpc-body.js', dapp).href}'`);
 writeFileSync(join(tmp, 'chain.mjs'), src);
 const C = await import(pathToFileURL(join(tmp, 'chain.mjs')).href);
 

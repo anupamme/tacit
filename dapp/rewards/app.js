@@ -7,9 +7,10 @@
 // while the person types (the page's preconnect links), and the leaderboard, which gives the rank, is fetched once and shared. The ninja
 // peeks over the bar and answers what a lookup found; a claim that lands rains TAC coins.
 import { secp, keccak_256 } from '/vendor/tacit-deps.min.js';
-import { makeConfidentialNames, makeMainnetCall, MAINNET_RPCS, NameError } from '/confidential-names.js?cb=7bb10833';
-import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=02ef61b4';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=4a8e3482';
+import { makeConfidentialNames, makeMainnetCall, MAINNET_RPCS, NameError } from '/confidential-names.js?cb=3558f38c';
+import { bodyType } from '/rpc-body.js';
+import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=04391ed8';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=db2796dd';
 
 // Where an airdrop is never sent: the zero address and the contracts that would hold TAC with no way to give it back.
 const NO_SEND = ['0x0000000000000000000000000000000000000000', '0xa1313eb9f3a445606d9583bcac3ebeb56a858279', '0x000000c918e44a3a443937fa7594ea4f7c95d6b9', '0x4b4cb98d0c836c2783ac46f0078b904dab533ae8'];
@@ -123,7 +124,7 @@ let primedAt = 0;
 function prime() {
   if (Date.now() - primedAt < 300e3) return;
   primedAt = Date.now();
-  for (const u of MAINNET_RPCS) fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' }).catch(() => {});
+  for (const u of MAINNET_RPCS) fetch(u, { method: 'POST', headers: { 'content-type': bodyType(u) }, body: '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' }).catch(() => {});
 }
 
 // The leaderboard gives the rank. It is fetched once, as soon as the page is idle, and shared by every lookup.
@@ -322,7 +323,7 @@ const a0 = (s) => (s && s.claimed && s.amountWei ? BigInt(s.amountWei) : 0n);
 const p0 = (v) => (v && !v.error && v.claimed > 0n ? v.claimed : 0n);
 const rpcOf = (method, params) => (method === 'eth_call' ? call(params[0]) : Promise.reject(new Error(`${method} is not read here`)));
 function quoteFor(wei) {
-  return keepFor(bwQuotes, String(wei), () => (bwMod ||= import('/vault/quote.js?cb=699a1100').catch((e) => { bwMod = null; throw e; })).then((m) => m.quoteBorrow({ tac: wei, rpc: rpcOf })));
+  return keepFor(bwQuotes, String(wei), () => (bwMod ||= import('/vault/quote.js?cb=e70ac2ad').catch((e) => { bwMod = null; throw e; })).then((m) => m.quoteBorrow({ tac: wei, rpc: rpcOf })));
 }
 function keepFor(map, key, make) {
   const hit = map.get(key);
@@ -379,7 +380,7 @@ let farmUi = null, farmFor = null, farmSeq = 0, ethUsd = 0, hasStake = false;
 const eth4 = (wei) => (Number(wei) / 1e18).toLocaleString('en-US', { maximumSignificantDigits: 3 });
 const wordOf = (a) => a.slice(2).toLowerCase().padStart(64, '0');
 function mountedFarm() {
-  return farmUi ||= Promise.all([import('/trade/farm.js?cb=cf321c4e'), import('/trade/util.js?cb=782a003c'), import('/evm-trade-venues.js?cb=f6e1b626'),
+  return farmUi ||= Promise.all([import('/trade/farm.js?cb=cf321c4e'), import('/trade/util.js?cb=509d6618'), import('/evm-trade-venues.js?cb=f6e1b626'),
     call({ to: ETH_USD, data: '0xfeaf968c' }).then((r) => { ethUsd = Number(BigInt(`0x${r.slice(66, 130)}`)) / 1e8; }, () => {})])
     .then(([{ mountFarm }, U, E]) => {
       const ethCall = (to, data, block = 'latest', o = {}) => U.rpc('eth_call', [{ to, data, ...(o.from ? { from: o.from } : {}), ...(o.value ? { value: `0x${BigInt(o.value).toString(16)}` } : {}) }, block]);
