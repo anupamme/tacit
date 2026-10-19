@@ -1,30 +1,7 @@
-// Unified Send dispatch — one "send to <recipient>" intent routed to the right
-// existing builder based on the parsed recipient + chosen asset + context.
-//
-// This module is ROUTING ONLY. Every byte of crypto stays in the builders it
-// calls (BTC CXFER, sats P2WPKH/silent-payment, EVM pool transfer, wrap-and-send).
-// It is constructed by tacit.js with its builders injected (factory pattern) so
-// there is no circular import back into the monolith.
-//
-// Lanes:
-//   - Bitcoin-native asset  → CXFER (pubkey or stealth recipient)
-//   - sats                  → existing sats-send (P2WPKH or BIP-352 silent payment)
-//   - pool asset (cETH/…)   → confidential-pool transfer to your own address; a
-//                             third party goes through a stealth lock instead
-//                             (see dispatchEvmStealth). Either way, wrap-and-send
-//                             tops up from public funds when shielded balance
-//                             doesn't cover it.
-//
-// The Ethereum lane is wired but GATED: dispatch consults isCrosslaneConfigured()
-// and refuses to construct/route EVM when the pool isn't live for the network
-// (all of mainnet today; signet until an asset is flipped live).
 
 import { scanHealth } from './confidential-scan-health.js';
 import { shownTicker } from './confidential-deployments.js';
 
-// A shielded balance that looks too small to cover a send is only a fact when the scan that produced it
-// saw every channel. When it did not, the refusal says which scan is missing rather than asserting the
-// shortfall — the cBTC and bridge channels have no memo fallback, so an endpoint outage reads as zero.
 function shortfallReason(base, diag) {
   const h = scanHealth(diag);
   return h.ok ? base : `${base}. ${h.text}`;
@@ -32,29 +9,22 @@ function shortfallReason(base, diag) {
 
 export function makeUnifiedSend(deps) {
   const {
-    parseRecipient,            // (raw, {network, chainHint}) → normalized recipient
-    currentNetworkName,        // () → 'mainnet'|'signet'|…
-    isCrosslaneConfigured,     // (network) → bool   (tacit.js _crosslaneConfigured)
-    // Bitcoin-native asset send (CXFER), multi-recipient capable:
-    buildAndBroadcastCXferMulti, // ({assetIdHex, recipients:[{pubHex|stealthAddress, amount}], ...})
-    // sats send (plain BTC / silent payment) — opaque driver supplied by tacit.js:
-    sendSats,                  // ({parsed, amountSats, opts}) → {txid}
-    // EVM pool lane (lazily provided; may be null when gated):
-    getPoolUx,                 // () → ux | null   (null when pool not configured)
+    parseRecipient,
+    currentNetworkName,
+    isCrosslaneConfigured,
+    buildAndBroadcastCXferMulti,
+    sendSats,
+    getPoolUx,
   } = deps;
 
-  // Resolve which lane an asset belongs to. A descriptor carries either a
-  // Bitcoin asset id, the sats sentinel, or a pool ticker/assetId.
   function laneOfAsset(asset) {
     if (!asset) return null;
     if (asset.kind === 'sats') return 'sats';
-    if (asset.kind === 'btc')  return 'btc';   // etched Bitcoin asset
-    if (asset.kind === 'pool') return 'evm';   // confidential-pool asset
+    if (asset.kind === 'btc')  return 'btc';
+    if (asset.kind === 'pool') return 'evm';
     return null;
   }
 
-  // Map the chosen asset to the chainHint parseRecipient needs to break the
-  // bare-pubkey ambiguity (a 33-byte key is valid on both chains).
   function chainHintForAsset(asset) {
     const lane = laneOfAsset(asset);
     if (lane === 'evm') return 'evm';
@@ -62,9 +32,6 @@ export function makeUnifiedSend(deps) {
     return undefined;
   }
 
-  // Pick the concrete recipient leg for the chosen asset. For a unified Tacit
-  // address the asset selects the lane; for a single-format address we verify
-  // it matches the asset's lane.
   function resolveLeg(parsed, asset) {
     const lane = laneOfAsset(asset);
     if (parsed.kind === 'tacit') {
@@ -72,14 +39,11 @@ export function makeUnifiedSend(deps) {
         if (!parsed.lanes.evm) return { error: 'this Tacit address does not advertise an Ethereum lane' };
         return { path: 'evm-transfer', pubHex: '0x' + bytesHex(parsed.lanes.evm.ownerPub) };
       }
-      // btc / sats lane: the unified address carries spend + scan pubkeys.
       if (lane === 'sats') {
-        // Pay the unified holder as a silent payment using their scan/spend keys.
         return { path: 'sats-sp', scanPub: parsed.lanes.btc.scanPub, spendPub: parsed.lanes.btc.spendPub };
       }
       return { path: 'cxfer-pubkey', pubHex: bytesHex(parsed.lanes.btc.spendPub) };
     }
-    // Single-format address: confirm the lane matches.
     if (lane === 'evm') {
       if (parsed.path !== 'evm-transfer') return { error: 'recipient is not an Ethereum shielded pubkey' };
       return { path: 'evm-transfer', pubHex: parsed.pubHex };
@@ -88,7 +52,6 @@ export function makeUnifiedSend(deps) {
       if (parsed.path === 'sats-p2wpkh' || parsed.path === 'sats-sp') return { ...parsed };
       return { error: 'sats sends go to a bech32 address or silent-payment address' };
     }
-    // btc asset (CXFER)
     if (parsed.path === 'cxfer-pubkey' || parsed.path === 'cxfer-stealth') return { ...parsed };
     return { error: 'recipient is not a Bitcoin asset target' };
   }
@@ -97,10 +60,6 @@ export function makeUnifiedSend(deps) {
     return Array.from(u8, (x) => x.toString(16).padStart(2, '0')).join('');
   }
 
-  // Dispatch a send. Returns a result object; never throws for routing/gating
-  // decisions (throws only propagate from the underlying builders).
-  //   { wallet, recipientRaw, asset, amount, opts }
-  //   asset: { kind:'sats' } | { kind:'btc', assetId } | { kind:'pool', assetId, ticker }
   async function dispatchSend({ wallet, recipientRaw, asset, amount, opts = {} }) {
     const network = currentNetworkName();
     const parsed = parseRecipient(recipientRaw, { network, chainHint: chainHintForAsset(asset) });
@@ -115,7 +74,6 @@ export function makeUnifiedSend(deps) {
     const lane = laneOfAsset(asset);
     if (!lane) return { ok: false, reason: 'choose an asset to send' };
 
-    // Gate the Ethereum lane.
     if (lane === 'evm' && !isCrosslaneConfigured(network)) {
       return { ok: false, blocked: true, reason: 'Ethereum sends are not live on this network yet' };
     }
@@ -136,26 +94,16 @@ export function makeUnifiedSend(deps) {
       return { ok: true, lane, path: leg.path, result: r };
     }
 
-    // lane === 'evm'
     const ux = getPoolUx && getPoolUx();
     if (!ux) return { ok: false, blocked: true, reason: 'Ethereum pool is not available' };
     return await dispatchEvm({ wallet, ux, recipientPubHex: leg.pubHex, asset, amount, opts });
   }
 
-  // Ethereum side: transfer from shielded notes; wrap-and-send if the user holds
-  // underlying funds but lacks sufficient shielded balance. NOT atomic — the
-  // wrap must settle before the transfer note is spendable; caller surfaces the
-  // two-phase status via opts.onPhase.
   async function dispatchEvm({ wallet, ux, recipientPubHex, asset, amount, opts }) {
     const onPhase = opts.onPhase || (() => {});
     const ticker = asset.ticker || ux.tickerOf(asset.assetId) || 'cETH';
     const fee = opts.fee || 0n;
 
-    // A native pool note's owner is keccak(nk ‖ dom) — only whoever picks the nk can ever spend it, so a
-    // plain note-to-note mint to a third party's published key would be unspendable (see
-    // confidential-send-tab.js's module header for the full reasoning). Self stays this plain
-    // transfer/wrap-and-send path; a third party goes through the stealth lock/claim path instead
-    // (ux.stealthSend) — no atomic wrap+lock fusion exists, so that side is always two-step.
     const myPubHex = ux.identity(wallet.priv).pubHex;
     const isSelf = String(recipientPubHex).toLowerCase() === String(myPubHex).toLowerCase();
 
@@ -172,13 +120,6 @@ export function makeUnifiedSend(deps) {
       }
       const shortfall = need - shielded;
 
-      // Preferred path: the ConfidentialRouter batches wrap + settle into ONE
-      // user tx (router.wrapAndSettleETH / wrapAndSettleWithPermit) — the wrap
-      // deposit and the recipient note settle atomically, no intermediate
-      // spendable note, no poll. Available only when the router is configured
-      // and the user has no existing shielded notes to combine (single input =
-      // the freshly-wrapped note). ux.wrapAndSend encapsulates the prove-only
-      // proof + router calldata.
       if (shielded === 0n && ux.wrapAndSend && ux.routerConfigured && ux.routerConfigured()) {
         onPhase({ phase: 'wrap-and-send', ticker, atomic: true });
         const r = await ux.wrapAndSend({
@@ -187,8 +128,6 @@ export function makeUnifiedSend(deps) {
         return { ok: true, lane: 'evm', path: 'wrap-and-settle', atomic: true, result: r };
       }
 
-      // Fallback: two-step (wrap, wait for settle, then transfer). Not atomic —
-      // OP_WRAP must settle before the new note is spendable.
       onPhase({ phase: 'wrap', shortfall, ticker });
       const wrapFn = (ux.routerConfigured && ux.routerConfigured() && ux.routerWrap) ? ux.routerWrap : ux.wrap;
       await wrapFn.call(ux, { walletPriv: wallet.priv, amountWei: shortfall, ticker });
@@ -206,11 +145,6 @@ export function makeUnifiedSend(deps) {
     return { ok: true, lane: 'evm', path: 'evm-transfer', result: r };
   }
 
-  // Third-party EVM send: lock ONE note (whole-value, no multi-input change kernel) to a one-time
-  // stealth address derived from the recipient's published spend pubkey. ensureExactNote (inside
-  // ux.stealthSend) will split a single larger note down to the exact size itself, so this only
-  // needs ONE existing note individually big enough — never a sum across several, unlike the
-  // self-send path above. No atomic wrap+lock fusion exists, so a fresh wallet always wraps first.
   async function dispatchEvmStealth({ wallet, ux, recipientPubHex, asset, amount, opts, ticker }) {
     const onPhase = opts.onPhase || (() => {});
     const bal = await ux.balance(wallet.priv);

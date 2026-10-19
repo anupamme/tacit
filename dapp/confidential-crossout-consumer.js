@@ -1,45 +1,17 @@
-// Bitcoin-side CrossOut consumer — the read path.
-//
-// Scans the Ethereum ConfidentialPool for CrossOutRecorded(claimId, destChain, destCommitment, ν, asset)
-// logs (emitted by a confidential-pool bridge_burn) and records each Bitcoin-destined crossOut — PAST A
-// FINALITY GATE — under `crossout-recorded:{net}:{claimId}`, so the bind+mint step honors it exactly once.
-// Trusted-RPC + finality (mode A). This is the mirror of the tETH deposit→mint flow's worker side,
-// generalized to any asset and keyed by claimId instead of a deposit ν.
-//
-// Dependency-injected: the worker wires the real eth_getLogs (makeEthGetLogs) + its KV; node tests pass
-// mocks + the real makeConfidentialEvmLog decoder. The worker's buildCrossoutConsumer returns null when a
-// network's pool is null, so an unconfigured network is a no-op with zero hot-path cost.
 
-// ConfidentialPool deployment registry, keyed by the BITCOIN network bridged to; the address is the EVM
-// ConfidentialPool the consumer scans for CrossOutRecorded. Mirrors the dapp CROSSLANE_DEPLOYMENTS / the
-// worker TETH_GENERATIONS. tools/sync-deployment-config.mjs writes pool (+ deployBlock) per network from the
-// DeployV1Suite manifest. A network whose pool is null is inert (the factory returns null rather than a live
-// consumer scanning a nonexistent pool every cron tick).
-// `crossOutSlots` names the pool's storage slots for its cross-out log (the ones the eth-reflection guest proves):
-// with them the consumer checks each logged cross-out against the pool's own storage before recording it, and a
-// cross-out mint is judged from that storage. `crossOutPoolsRetired` lists retired pools whose recorded cross-outs,
-// at the same slots, still back notes on Bitcoin.
 export const CONFIDENTIAL_POOL_DEPLOYMENTS = {
   signet:  { pool: '0x000000003eD19c48531bd397F66800004F8A18c2', deployBlock: 11175726 },
   mainnet: { pool: '0x000000000Ed1eabD231Be41d93b719056F7febFC', deployBlock: 25998736, headerRelay: '0x20A6ddc2C6E620c6248B5A34E85996516FDd19D0',
     crossOutSlots: { commitment: 77, count: 171 }, crossOutPoolsRetired: ['0x0000000098A73197B3255aD9db1ed8544410f5Ba'] },
 };
 
-// `poolState` (optional): { commitmentOf(network, pool, claimId, block?) → bytes32 hex, countAt(network, pool, block) → number },
-// each null when it cannot be read. With it, a logged cross-out is recorded only when the pool's crossOutCommitment
-// holds the same destCommitment, and where the pool's crossOutCount can be read at both ends of a range it must have
-// grown by exactly the number of cross-outs logged in it; anything it cannot confirm leaves the cursor put.
 export function makeCrossoutConsumer({ ethGetLogs, kvGet, kvPut, evmLog, confirmations = 36, maxRange = 5000, poolState = null }) {
-  const DEST_BITCOIN = 1; // destChain selector (1=bitcoin, 2=ethereum) — only Bitcoin-destined crossOuts mint a Bitcoin note
+  const DEST_BITCOIN = 1;
   const TOPIC0 = evmLog.TOPIC0.CrossOutRecorded;
   const lc = (h) => String(h).toLowerCase();
   const recKey = (net, claimId) => `crossout-recorded:${net}:${lc(claimId)}`;
   const cursorKey = (net, pool) => `crossout-scan-cursor:${net}:${lc(pool)}`;
 
-  // Scan [fromBlock, min(tip − confirmations, fromBlock + maxRange − 1)] for Bitcoin-destined
-  // CrossOutRecorded and record each unseen claimId. The cursor advances ONLY on a successful read; an
-  // RPC failure (ethGetLogs → null) is a no-op that leaves the cursor put, so the same range is retried —
-  // a skipped range would strand a user's burned value (the tETH "never skip on RPC failure" invariant).
   async function scan({ network, pool, tipHeight, fromBlock }) {
     const base = { network, pool: lc(pool), fromBlock };
     const safeTip = tipHeight - confirmations;
@@ -54,7 +26,7 @@ export function makeCrossoutConsumer({ ethGetLogs, kvGet, kvPut, evmLog, confirm
     const events = [];
     for (const log of logs) {
       let ev;
-      try { ev = evmLog.decodeLog(log); } catch { continue; } // a single malformed log can't stall the cursor forever
+      try { ev = evmLog.decodeLog(log); } catch { continue; }
       if (!ev || ev.type !== 'CrossOutRecorded' || ev.destChain !== DEST_BITCOIN) continue;
       events.push({ ev, log });
     }
@@ -71,7 +43,7 @@ export function makeCrossoutConsumer({ ethGetLogs, kvGet, kvPut, evmLog, confirm
     let recorded = 0;
     for (const { ev, log } of events) {
       const key = recKey(network, ev.claimId);
-      if (await kvGet(key)) continue; // dedup — already recorded
+      if (await kvGet(key)) continue;
       await kvPut(key, JSON.stringify({
         claimId: lc(ev.claimId), destCommitment: ev.destCommitment, nullifier: ev.nullifier,
         assetId: ev.assetId, blockNumber: Number(log.blockNumber ?? 0), pool: lc(pool),
@@ -83,27 +55,19 @@ export function makeCrossoutConsumer({ ethGetLogs, kvGet, kvPut, evmLog, confirm
     return { ...base, toBlock, scanned: logs.length, recorded, advancedCursorTo: toBlock + 1 };
   }
 
-  // Next fromBlock for an incremental scan: the stored cursor, else the pool's deployBlock.
   async function nextFromBlock(network, pool, deployBlock) {
     const c = await kvGet(cursorKey(network, pool));
     return c != null ? Number(c) : Number(deployBlock || 0);
   }
 
-  // Phase-2 lookup: a recorded crossOut by claimId (null if unseen / not yet final).
   async function getRecorded(network, claimId) {
     const v = await kvGet(recKey(network, claimId));
     return v ? JSON.parse(v) : null;
   }
 
-  // Phase 2 — bind + gate. A Bitcoin T_CXFER output that carries a recorded crossOut's claimId is a
-  // cross-lane MINT: bind it iff the recorded destCommitment matches the broadcast output leaf, then
-  // CONSUME the claimId (one-mint-per-claimId — the bridgeMinted mirror; a replay sees 'consumed' and is
-  // rejected). Anyone may broadcast/trigger the mint, but only the rightful owner can spend the minted
-  // note (its blinding is the burn output's secret) and the value is fixed (destCommitment carried
-  // verbatim), so the open trigger is safe. The caller indexes the Bitcoin note only on { bound:true }.
   async function bindBitcoinOutput({ network, claimId, outputLeaf }) {
     const rec = await getRecorded(network, claimId);
-    if (!rec) return { bound: false, reason: 'no-recorded-crossout' };          // unknown or not yet final
+    if (!rec) return { bound: false, reason: 'no-recorded-crossout' };
     if (lc(rec.destCommitment) !== lc(outputLeaf)) return { bound: false, rejected: 'dest-mismatch' };
     if (rec.status === 'consumed') return { bound: false, rejected: 'already-consumed' };
     rec.status = 'consumed';
@@ -114,13 +78,6 @@ export function makeCrossoutConsumer({ ethGetLogs, kvGet, kvPut, evmLog, confirm
   return { scan, nextFromBlock, getRecorded, bindBitcoinOutput, recKey, cursorKey, DEST_BITCOIN, TOPIC0 };
 }
 
-// ── T_CROSSOUT_MINT envelope (the Bitcoin wire format the wallet broadcasts) ──
-// After a bridge_burn the wallet knows the destination note (Cx, Cy, owner) and the claimId (from the
-// CrossOutRecorded log), and broadcasts this 161-byte payload as a Taproot envelope (reuse the existing
-// encodeEnvelopeScript + commit/reveal + postHint). The worker decodes it, recomputes the leaf
-// keccak(asset‖Cx‖Cy‖owner), and binds it to the recorded crossOut (one-mint-per-claimId). No proof: the
-// value was kernel-proven on Ethereum and the destCommitment is carried verbatim. Opcode 0x65 is free
-// (the bridge family runs 0x60-0x64). Sits alongside T_BRIDGE_DEPOSIT in the worker opcode dispatch.
 export const T_CROSSOUT_MINT = 0x65;
 
 const _fromHex = (h) => {
@@ -135,7 +92,7 @@ const _field32 = (h) => {
   const raw = _fromHex(h);
   if (raw.length > 32) throw new Error('crossout-mint: field over 32 bytes');
   const out = new Uint8Array(32);
-  out.set(raw, 32 - raw.length); // right-align (left-pad), matching bytes32
+  out.set(raw, 32 - raw.length);
   return out;
 };
 
@@ -157,8 +114,6 @@ export function decodeCrossoutMint(payload) {
   return { assetId: at(1), claimId: at(33), cx: at(65), cy: at(97), owner: at(129) };
 }
 
-// Pool storage read the way the consumer's poolState needs it: a slot holds the value at least two of the configured
-// RPCs report (all of them when fewer are configured), else null. `slots` = { commitment, count } declaration slots.
 export function makePoolStateReader({ fetchFn, rpcsForNetwork, keccak256, slots, timeoutMs = 8000 }) {
   const word = (n) => BigInt(n).toString(16).padStart(64, '0');
   const bytes = (hex) => Uint8Array.from(hex.match(/../g).map((x) => parseInt(x, 16)));
@@ -193,9 +148,6 @@ export function makePoolStateReader({ fetchFn, rpcsForNetwork, keccak256, slots,
   };
 }
 
-// The eth_getLogs reader the worker wires — fetch + the per-network RPC fallback list (the worker passes
-// its _TETH_ETH_RPCS). Returns the decoded-ready raw logs, or null on total RPC failure (the caller must
-// then NOT advance the cursor). Mirror of the worker's _ethCall fallback loop.
 export function makeEthGetLogs({ fetchFn, rpcsForNetwork, timeoutMs = 8000 }) {
   const hexBlock = (n) => '0x' + Number(n).toString(16);
   return async function ethGetLogs(network, address, fromBlock, toBlock, topic0) {

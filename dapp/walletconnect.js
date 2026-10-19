@@ -1,69 +1,40 @@
-// WalletConnect (v2) as one more Ethereum wallet. It is announced the way browser wallets announce themselves (EIP-6963), so
-// a page's wallet picker lists it beside them with no special case, and on a phone with no wallet extension it is the
-// one wallet offered. Its bundle loads the first time it is used, or on a reload that finds a session kept in this browser.
-// Pairing shows through the page's own sheet: `onPair` gets the pairing link, a QR code of it, and `cancel`, and returns a
-// function that puts the sheet away when pairing ends (approved, refused or cancelled). A request the wallet app has to
-// approve shows the same way: `onAsk` gets the app's name and, where it gave one, a link that opens it, and returns a
-// function called once the app answers. `wcSheets` draws both sheets for any page that can give it a place to show them.
-//
-//   announceWalletConnect({ projectId, chains, rpcMap, metadata, onPair, onAsk }) → { provider, disconnect }
-//   wcSheets(open) → { onPair, onAsk }        open(title, onClose) → { body, close }
-//   dialogHost({ dialog, title, body }) → open    for a page that keeps its sheets in a <dialog>
-//   overlayHost() → open                          for a page with no sheets of its own: a <dialog> that brings its own look
 
-// The project is zSwap's, shared: an allowlist set on it must name tacit.finance too.
 export const WC_PROJECT_ID = '1e8390ef1c1d8a185e035912a1409749';
 const BUNDLE = '/vendor/tacit-walletconnect.min.js?cb=e850e423';
 const ICON = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#3B99FC"/>'
   + '<path transform="translate(10 18.5) scale(.147)" fill="#fff" d="M61.4 36.3c48.9-47.9 128.3-47.9 177.2 0l5.9 5.8c2.4 2.4 2.4 6.3 0 8.7l-20.1 19.7c-1.2 1.2-3.2 1.2-4.4 0l-8.1-7.9c-34.1-33.4-89.4-33.4-123.5 0l-8.7 8.5c-1.2 1.2-3.2 1.2-4.4 0L55.2 51.4c-2.4-2.4-2.4-6.3 0-8.7l6.2-6.4zm218.9 40.8l17.9 17.5c2.4 2.4 2.4 6.3 0 8.7l-80.7 79c-2.4 2.4-6.4 2.4-8.9 0l-57.3-56.1c-.6-.6-1.6-.6-2.2 0L91.8 182.3c-2.4 2.4-6.4 2.4-8.9 0L1.8 103.3c-2.4-2.4-2.4-6.3 0-8.7l17.9-17.5c2.4-2.4 6.4-2.4 8.9 0l57.3 56.1c.6.6 1.6.6 2.2 0l57.3-56.1c2.4-2.4 6.4-2.4 8.9 0l57.3 56.1c.6.6 1.6.6 2.2 0l57.3-56.1c2.4-2.4 6.4-2.4 8.9 0z"/></svg>');
-// Requests the wallet app answers, which is where they are approved.
 const ASKS = new Set(['personal_sign', 'eth_sign', 'eth_signTypedData', 'eth_signTypedData_v4', 'eth_sendTransaction', 'wallet_switchEthereumChain', 'wallet_addEthereumChain', 'wallet_watchAsset']);
 const rejected = (message) => Object.assign(new Error(message), { code: 4001 });
-// A chain id the way a wallet extension gives it: 0x-prefixed hex. The provider answers eth_chainId with a number, which a page that compares it with '0x1' (or reads it as hex) takes for another network.
 const hexChain = (c) => `0x${BigInt(c).toString(16)}`;
-// Whether the session holds a chain (its id in hex, as wallet_switchEthereumChain gives it): the provider switches to such a chain
-// itself, with nothing for the wallet app to approve. A chain is held when the session's eip155 namespace names it or holds an
-// account on it.
 function holds(session, chainId) {
   if (typeof chainId !== 'string') return false;
   const want = `eip155:${parseInt(chainId, 16)}`;
   return Object.entries(session?.namespaces || {}).some(([k, ns]) => /^eip155(:|$)/.test(k)
     && [...(ns.chains || []), ...(ns.accounts || []).map((a) => String(a).split(':').slice(0, 2).join(':'))].includes(want));
 }
-// The session is kept in this browser and every page reconnects it, so every page asks for the chains tacit.finance works on, not
-// only its own: a wallet app paired on one page then serves them all. They are optional, so a wallet app without one still connects
-// with the rest. Each page's own chains come first and its own node for a chain wins.
 const SITE_RPC = { 1: 'https://ethereum-rpc.publicnode.com', 8453: 'https://mainnet.base.org', 4663: 'https://rpc.mainnet.chain.robinhood.com', 4326: 'https://mainnet.megaeth.com/rpc' };
-// The bundle and the provider's start may take this long before a connect says WalletConnect did not load.
 const LOAD_MS = 20_000;
 const NOT_LOADED = 'WalletConnect did not load. Check your connection and try again.';
 const within = (work, ms) => {
   let t;
   return Promise.race([work, new Promise((_, reject) => { t = setTimeout(() => reject(new Error(NOT_LOADED)), ms); })]).finally(() => clearTimeout(t));
 };
-// Deletes the pairings waiting for a wallet app, so a code shown for one can no longer be approved into a session. The bundle's
-// own abortPairingAttempt does nothing.
 const dropPairings = (p) => { (async () => p.signer?.cleanupPendingPairings?.({ deletePairings: true }))().catch(() => {}); };
 
-// Whether this browser keeps a session, known without loading the bundle: its expiry (unix seconds) when it does, 0 when it does not. A browser that has
-// never noted it (a session made before this was kept) is asked once.
 const KEPT = 'tacit-wc-session';
 const kept = {
   get() { try { return localStorage.getItem(KEPT); } catch { return null; } },
-  set(v) { try { localStorage.setItem(KEPT, String(v)); } catch { /* storage is a convenience */ } },
+  set(v) { try { localStorage.setItem(KEPT, String(v)); } catch { } },
 };
 
 export function announceWalletConnect({ projectId, chains, rpcMap, metadata, onPair, onAsk }) {
-  const listeners = new Map();                                    // event → handlers, kept until the provider exists
+  const listeners = new Map();
   let wc = null, loading = null, pairing = null;
-  // The bundle loads and the provider starts once. A call waits for them at most LOAD_MS, so a stalled network is said in
-  // words rather than leaving Connect pressed; a start that outlasts the wait carries on, and the next call waits for it.
   const start = () => (loading ||= (async () => {
     const { EthereumProvider, qrcode } = await import(BUNDLE).catch(() => { throw new Error(NOT_LOADED); });
     const optionalChains = [...new Set([...chains, ...Object.keys(SITE_RPC).map(Number)])];
     const p = await EthereumProvider.init({ projectId, optionalChains, rpcMap: { ...SITE_RPC, ...rpcMap }, metadata, showQrModal: false, telemetryEnabled: false });
     for (const [ev, fns] of listeners) for (const fn of fns) p.on(ev, fn);
-    // A session ended from the wallet app reads to the page as the wallet locking.
     p.on('disconnect', () => { kept.set(0); for (const fn of listeners.get('accountsChanged') || []) fn([]); });
     kept.set(p.session?.expiry || 0);
     wc = { p, qrcode };
@@ -82,7 +53,7 @@ export function announceWalletConnect({ projectId, chains, rpcMap, metadata, onP
     };
     p.on('display_uri', shown);
     const connecting = p.connect();
-    connecting.catch(() => {});                                   // settles after a cancel too, with no one waiting
+    connecting.catch(() => {});
     try { await Promise.race([connecting, cancelled]); }
     catch (e) {
       const m = e?.message || '';
@@ -94,8 +65,6 @@ export function announceWalletConnect({ projectId, chains, rpcMap, metadata, onP
     kept.set(p.session?.expiry || 0);
   }
 
-  // The wallet app as it named itself when it paired, and the link that opens it: its own scheme, else its https link.
-  // A browser opens either only from a tap, so the page shows it as a button rather than following it here.
   function peer(p) {
     const m = p.session?.peer?.metadata, r = m?.redirect;
     const native = /^[a-z][a-z0-9+.-]*:/i.test(r?.native || '') && !/^(https?|javascript|data|file|blob|about|vbscript):/i.test(r.native) ? r.native : null;
@@ -107,13 +76,12 @@ export function announceWalletConnect({ projectId, chains, rpcMap, metadata, onP
     async request(args) {
       const method = args?.method;
       const unpaired = () => Object.assign(new Error('Connect a wallet through WalletConnect first.'), { code: 4100 });
-      // Nothing was ever paired here: answered without loading the bundle, so a page that asks for accounts on each load costs a returning visitor nothing.
       if (!wc && kept.get() === '0' && method !== 'eth_requestAccounts') { if (method === 'eth_accounts') return []; throw unpaired(); }
       const w = await load();
       if (!w.p.session) {
         if (method === 'eth_accounts') return [];
         if (method !== 'eth_requestAccounts') throw unpaired();
-        await (pairing ||= pair(w).finally(() => { pairing = null; }));            // a second press joins the pairing under way
+        await (pairing ||= pair(w).finally(() => { pairing = null; }));
       }
       if (method === 'eth_requestAccounts') return w.p.accounts;
       if (method === 'eth_chainId') return hexChain(await w.p.request(args));
@@ -123,21 +91,16 @@ export function announceWalletConnect({ projectId, chains, rpcMap, metadata, onP
     },
     on(ev, fn) { if (!listeners.has(ev)) listeners.set(ev, new Set()); listeners.get(ev).add(fn); wc?.p.on(ev, fn); return provider; },
     removeListener(ev, fn) { listeners.get(ev)?.delete(fn); wc?.p.removeListener(ev, fn); return provider; },
-    // The wallet app the session is with, by the name it gave; '' before a session.
     peerName: () => (wc?.p.session ? peer(wc.p).name : ''),
     endSession: () => disconnect(),
   };
-  // Ends the session in the wallet app too, and reads to the page as the wallet locking. Nothing to do when WalletConnect
-  // was never used here.
   async function disconnect() {
     if (!wc?.p.session) return;
-    try { await wc.p.disconnect(); } catch { /* already gone */ }
+    try { await wc.p.disconnect(); } catch { }
     kept.set(0);
     for (const fn of listeners.get('accountsChanged') || []) fn([]);
   }
 
-  // Listed beside the wallets that announce themselves, or alone where there is no wallet in the page at all. A wallet
-  // app's own browser that only sets window.ethereum keeps being the wallet used there, as before.
   const detail = Object.freeze({ info: Object.freeze({ uuid: crypto.randomUUID(), name: 'WalletConnect', icon: ICON, rdns: 'com.walletconnect' }), provider });
   const others = new Set();
   window.addEventListener('eip6963:announceProvider', (e) => { const u = e.detail?.info?.uuid; if (u && u !== detail.info.uuid) others.add(u); });
@@ -147,15 +110,11 @@ export function announceWalletConnect({ projectId, chains, rpcMap, metadata, onP
   return { provider, disconnect };
 }
 
-// ── the sheets ──
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const phone = () => matchMedia('(pointer: coarse)').matches;
-// Wallet apps that open a pairing from a link of their own scheme. Such a link goes to no server, so the pairing's key stays on the phone.
 const APPS = [['MetaMask', 'metamask'], ['Rainbow', 'rainbow'], ['Trust Wallet', 'trust']];
 export const appLinks = (uri) => APPS.map(([name, scheme]) => ({ name, href: `${scheme}://wc?uri=${encodeURIComponent(uri)}` }));
 
-// The pairing sheet and the sheet for a request waiting in the wallet app, drawn into whatever place `open` gives: `open(title, onClose)` shows a sheet
-// and returns its `body` and a `close()`; `onClose` is called when the person closes it.
 export function wcSheets(open) {
   const lede = (t) => `<p class="lede-s" style="margin:0 0 12px">${t}</p>`;
   return {
@@ -163,10 +122,8 @@ export function wcSheets(open) {
       let over = false;
       const o = open('Connect a wallet app', () => { if (!over) cancel(); });
       const on = phone();
-      // On a phone the apps come first: the code is for scanning from another device.
       const apps = on ? `<div style="display:grid;gap:8px;margin:0 0 14px">${appLinks(uri).map((a) => `<a class="btn" style="margin:0" href="${esc(a.href)}">Open ${esc(a.name)}</a>`).join('')}<a class="btn ghost" style="margin:0" href="${esc(uri)}">Other wallet app</a></div>` : '';
       const qr = `<div class="wc-qr" role="img" aria-label="QR code of the WalletConnect link">${qrSvg}</div>`;
-      // Copy link's result is also put in a status line only a screen reader reads, since the button's new label is not read out.
       o.body.innerHTML = `${lede(on ? 'Open your wallet app to connect, or scan the code from another device.' : 'Scan the code with a wallet app on your phone: MetaMask, Rainbow, Trust, Zerion or any WalletConnect wallet.')}${on ? apps + qr : qr}<button class="btn ghost" type="button" style="margin-top:0" data-copy>Copy link</button><span role="status" aria-live="polite" data-copied style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap"></span><p class="note">This waits until the wallet app approves. Connecting costs nothing, and the code works for a few minutes.</p>`;
       const copy = o.body.querySelector('[data-copy]'), said = o.body.querySelector('[data-copied]');
       const tell = (label, words) => { copy.textContent = label; said.textContent = words; };
@@ -182,7 +139,6 @@ export function wcSheets(open) {
   };
 }
 
-// A <dialog> as the place the sheets show in. Each sheet fills it and shows it; closing one puts the dialog away only while that sheet is the one in it.
 export function dialogHost({ dialog, title, body }) {
   let use = 0;
   return (text, onClose) => {
@@ -194,7 +150,6 @@ export function dialogHost({ dialog, title, body }) {
   };
 }
 
-// A <dialog> that brings its own look, for a page with none of its own (it takes the page's text and background colours). Its content is the same as any other host's.
 const OVERLAY_CSS = `.wcx { width: min(460px, calc(100vw - 32px)); max-height: 90vh; padding: 22px 22px 26px; overflow: auto; color: CanvasText; background: Canvas; border: 1px solid currentColor; font: 14px/1.5 system-ui, sans-serif; }
 .wcx::backdrop { background: rgba(0,0,0,.45); }
 .wcx .wcx-head { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; }

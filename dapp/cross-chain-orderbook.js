@@ -1,15 +1,3 @@
-// Cross-chain confidential orderbook (the second product of the
-// adaptor primitive). A resting offer is
-// a maker's willingness to swap one asset's lane for another's; a taker discovers + fills it, and the
-// FILL is executed as an adaptor swap (dapp/adaptor-swap.js) — so a cross-chain order is a posted
-// adaptor offer a taker completes. Same-chain fills stay native (OP_OTC/OP_BID); this module is the
-// CROSS-CHAIN book + matching, with the on-chain fill legs (the guest ops) plugged in at execution.
-//
-// Offer (maker GIVES `give` to GET `want`):
-//   { id, maker, giveAsset, giveAmount, giveLane, wantAsset, wantAmount, wantLane, expiry, remaining }
-// `remaining` is in giveAsset units; price = wantAmount/giveAmount (want per give). Partial fills take
-// `takeGive ≤ remaining` of the maker's give and pay `takeGive·wantAmount/giveAmount` of want — exact
-// multiples only (the OP_BID chunk convention), so no rounding leaks value.
 
 import { makeAdaptorSwap } from './adaptor-swap.js';
 import { signSchnorr, verifySchnorr } from './bulletproofs.js';
@@ -83,9 +71,6 @@ export function buildOrderOfferMsg({
     u64(expiry || 0, 'expiry'),
     u64(min, 'minFill'),
     b32(nonce, 'nonce'),
-    // The note the maker's give-leg will spend (nullifier / outpoint hash; ZERO32 = unbound). Binding it
-    // makes on-chain settlement the source of truth: a cancelled or replayed offer references a note that
-    // is either already spent or distinguishable, so the in-memory cancel/dedup below is only advisory.
     b32(makerInput, 'makerInput'),
   ));
 }
@@ -111,11 +96,9 @@ export function verifyOrderCancel({ chainBinding = ZERO32, bookId = ZERO32, offe
 }
 
 export function makeCrossChainOrderbook({ swap = makeAdaptorSwap(), resolver = null, chainBinding = ZERO32, bookId = ZERO32, requireSigned = false } = {}) {
-  const offers = new Map(); // id -> offer
+  const offers = new Map();
   let seq = 0;
 
-  // Post a resting cross-chain offer. Validates positivity, distinct lanes (this book is cross-chain),
-  // and — if a resolver is wired — that both assets are recognized and live on the declared lanes.
   function post(o) {
     const give = _big(o.giveAmount), want = _big(o.wantAmount);
     if (give <= 0n || want <= 0n) throw new Error('orderbook: amounts must be positive');
@@ -136,8 +119,6 @@ export function makeCrossChainOrderbook({ swap = makeAdaptorSwap(), resolver = n
     return id;
   }
 
-  // Authenticated production path. The maker signs every price/lane/replay field; id is the signed message
-  // hash, so a worker cannot rewrite amount, lane, expiry, nonce, or maker identity without invalidating it.
   function postSigned(o) {
     const offer = { ...o, chainBinding: o.chainBinding || chainBinding, bookId: o.bookId || bookId };
     if (lc(offer.chainBinding) !== lc(chainBinding) || lc(offer.bookId) !== lc(bookId)) {
@@ -178,28 +159,18 @@ export function makeCrossChainOrderbook({ swap = makeAdaptorSwap(), resolver = n
   function book(nowTs = Infinity) { return [...offers.values()].filter((o) => _live(o, nowTs)); }
   function get(id) { return offers.get(lc(id)) || null; }
 
-  // Quote a taker intent: the taker GIVES `giveAsset` to GET `wantAsset`. Match offers on the opposite
-  // pair (maker.give == taker.want AND maker.want == taker.give), ranked by best price FOR THE TAKER
-  // (most want received per give paid = highest maker giveAmount/wantAmount). Each match notes the
-  // fillable give and the price.
   function quote({ giveAsset, wantAsset, nowTs = Infinity }) {
     const g = lc(giveAsset), w = lc(wantAsset);
     return book(nowTs)
       .filter((o) => o.giveAsset === w && o.wantAsset === g)
-      // taker receives `o.giveAsset` (=w); pays `o.wantAsset` (=g). taker's rate = received/paid =
-      // o.giveAmount/o.wantAmount → higher is better for the taker.
       .map((o) => ({ offer: o, takerReceivesPerPaid: { num: o.giveAmount, den: o.wantAmount }, fillableReceive: o.remaining }))
       .sort((a, b) => {
         const l = a.takerReceivesPerPaid, r = b.takerReceivesPerPaid;
-        const d = r.num * l.den - l.num * r.den; // r > l ?
+        const d = r.num * l.den - l.num * r.den;
         return d > 0n ? 1 : d < 0n ? -1 : 0;
       });
   }
 
-  // Plan an exact-input taker sweep across the cross-chain book. The taker GIVES `amountIn` of
-  // `giveAsset` and wants `wantAsset`; offers are consumed best-price first. Returns a non-mutating plan
-  // whose fills can later be executed with `fill()`. If `requireFullFill` is true, returns null unless the
-  // book can consume the full input amount exactly.
   function quoteExactIn({ giveAsset, wantAsset, amountIn, giveLane = null, wantLane = null, nowTs = Infinity, requireFullFill = true }) {
     let remainingIn = _big(amountIn);
     if (remainingIn <= 0n) throw new Error('orderbook: amountIn must be positive');
@@ -211,13 +182,9 @@ export function makeCrossChainOrderbook({ swap = makeAdaptorSwap(), resolver = n
     for (const q of candidates) {
       if (remainingIn === 0n) break;
       const o = q.offer;
-      // Max input this offer can absorb at its price: remaining maker give converted into taker pay.
       const maxPay = (o.remaining * o.wantAmount) / o.giveAmount;
       if (maxPay <= 0n) continue;
       const pay = remainingIn < maxPay ? remainingIn : maxPay;
-      // Exact-multiple discipline: a fill's maker-give amount must map to an integer want amount.
-      // Convert pay -> receive floor, then snap down to the nearest receive multiple that has an exact
-      // integer pay side: receive * wantAmount must be divisible by giveAmount.
       const maxReceive = (pay * o.giveAmount) / o.wantAmount;
       const receiveStep = o.giveAmount / gcd(o.giveAmount, o.wantAmount);
       const receive = (maxReceive / receiveStep) * receiveStep;
@@ -234,7 +201,7 @@ export function makeCrossChainOrderbook({ swap = makeAdaptorSwap(), resolver = n
         giveLane: o.wantLane,
         wantAsset: o.giveAsset,
         wantLane: o.giveLane,
-        price: { num: o.wantAmount, den: o.giveAmount }, // pay per receive
+        price: { num: o.wantAmount, den: o.giveAmount },
       });
       remainingIn -= exactPay;
       totalOut += receive;
@@ -245,23 +212,14 @@ export function makeCrossChainOrderbook({ swap = makeAdaptorSwap(), resolver = n
     return { fills, amountIn: _big(amountIn), usedIn, unusedIn: remainingIn, amountOut: totalOut };
   }
 
-  // Fill `takeGive` units of the maker's give (= what the taker RECEIVES), composing an adaptor swap.
-  // The taker is the swap INITIATOR (holds `t`, claims first); the maker is the responder. Returns the
-  // swap context to drive (lock/verify/claim/counterclaim) + the per-fill leg amounts. Partial-fill:
-  // takeGive ≤ remaining and must divide evenly into the price so payWant is exact.
   function fill(offerId, { taker, takeGive, t, nearDeadline, farDeadline, minDeadlineGap = 0, nowTs = Infinity }) {
     const o = offers.get(lc(offerId));
     if (!o || !_live(o, nowTs)) throw new Error('orderbook: offer not fillable');
-    // In production the book is constructed with requireSigned: an unsigned post() offer is a test/spoof
-    // surface (anyone can post as anyone) and must never reach an adaptor-swap fill.
     if (requireSigned && !o.signed) throw new Error('orderbook: offer is not signed');
     const take = _big(takeGive);
     if (take <= 0n || take > o.remaining) throw new Error('orderbook: takeGive out of range');
     if (o.minFill != null && take < o.minFill && take !== o.remaining) throw new Error('orderbook: takeGive below minFill');
     if ((take * o.wantAmount) % o.giveAmount !== 0n) throw new Error('orderbook: fill must be an exact price multiple');
-    // The adaptor leg timelocks must fall within the maker's SIGNED validity window: the maker signed
-    // `expiry` expecting the offer (and its funds) to be dead afterwards, so the responder (maker) leg
-    // must not stay claimable past it. Binding farDeadline ≤ expiry keeps both legs inside that window.
     if (o.expiry != null && !(farDeadline <= o.expiry)) throw new Error('orderbook: fill deadlines must not exceed offer expiry');
     const payWant = (take * o.wantAmount) / o.giveAmount;
     const ctx = swap.open({ t, nearDeadline, farDeadline, minGap: minDeadlineGap });
@@ -269,20 +227,14 @@ export function makeCrossChainOrderbook({ swap = makeAdaptorSwap(), resolver = n
     if (o.remaining === 0n) o.status = 'filled';
     return {
       swap: ctx,
-      // the taker (initiator) gives `payWant` of wantAsset on wantLane; receives `take` of giveAsset on giveLane
       legs: {
-        initiator: { party: taker, asset: o.wantAsset, amount: payWant, lane: o.wantLane }, // taker pays
-        responder: { party: o.maker, asset: o.giveAsset, amount: take, lane: o.giveLane },  // maker pays
+        initiator: { party: taker, asset: o.wantAsset, amount: payWant, lane: o.wantLane },
+        responder: { party: o.maker, asset: o.giveAsset, amount: take, lane: o.giveLane },
       },
       offer: o,
     };
   }
 
-  // NOT an authentication check: `maker` is compared against `o.maker`, but `o.maker` is public (visible
-  // to anyone via book()/get(), and broadcast in the offer itself) — a caller supplying it back proves
-  // nothing about key possession. Safe only when the caller already authenticated the maker some other
-  // way (e.g. a trusted server-side session); never expose this to an untrusted/public entry point.
-  // `cancelSigned` below verifies a real signature and is the only safe choice for that.
   function cancel(offerId, maker) {
     const o = offers.get(lc(offerId));
     if (!o) return false;
@@ -306,9 +258,6 @@ export function makeCrossChainOrderbook({ swap = makeAdaptorSwap(), resolver = n
     for (const o of offers.values()) if (o.status === 'open' && o.expiry != null && nowTs >= o.expiry) { o.status = 'expired'; n++; }
     return n;
   }
-  // `offers` otherwise grows without bound for the life of the instance — nothing else ever deletes a
-  // terminal (filled/cancelled/expired) entry. A caller running this instance long-lived should call this
-  // periodically (e.g. alongside expireSweep) once entries are old enough that no one still needs `get()`.
   function prune(nowTs, maxAgeMs) {
     let n = 0;
     for (const [id, o] of offers) {

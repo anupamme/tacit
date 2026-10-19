@@ -1,15 +1,11 @@
-// What the cBTC page reads and how each figure on it is worked out. cBTC is bitcoin locked at an address only its owner's key can spend, backed by
-// a refundable ETH bond (held as wstETH) and minted one for one in the Tacit pool; against it cUSD is borrowed. So the page follows four things: the
-// locks on Bitcoin (their sats, the bond behind them, how many are minted), the loans taken against the cBTC, the pools in the private AMM that hold
-// it, and (with a key open) what that key has in each. The arithmetic is plain functions of what was read, so tests can pin it.
 import { MULTICALL3, TAC_POOL_ASSET_ID, CETH_POOL_ASSET_ID, _internal } from '/evm-trade-venues.js?cb=563db4d4';
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import { ethCall, rpc, wordAt, word, strip } from '/trade/util.js?cb=509d6618';
 import { POOL, heldHistory } from '/trade/teth/read.js?cb=de43ba2c';
 
-export const ENGINE = '0x000000003f608BDdF0ca45934003ffb9DbDF70DB';                 // the collateral engine: prices bitcoin, holds the bonds, lends cUSD
+export const ENGINE = '0x000000003f608BDdF0ca45934003ffb9DbDF70DB';
 export const WSTETH = '0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0';
-export const CBTC_ID = '0x62a20d98fc1cd20289621d1315294cb8772f934d822e404b71e1f471cf0679c8';      // cBTC in the pool: pinned at its construction, the same on Bitcoin's side
+export const CBTC_ID = '0x62a20d98fc1cd20289621d1315294cb8772f934d822e404b71e1f471cf0679c8';
 export const CUSD_ID = '0x8f4490dd3728b0ee904d7a67c11b37ffd463a5c7f08b79810006995ee8a9679d';
 export const TAC_ID = TAC_POOL_ASSET_ID, CETH_ID = CETH_POOL_ASSET_ID;
 const SEL = { cdpRatioBps: '0x4827ecb3', liqRatioBps: '0x1432d93f', btcToUsd: '0xd5901347', wstEthForBtc: '0x7dd55c2b', stEthPerWst: '0xbb2952fc', requiredEscrow: '0x034448ed',
@@ -19,9 +15,6 @@ const big = (x) => BigInt(x != null && typeof x === 'object' && '$n' in x ? x.$n
 
 const batch = async (calls) => _internal.decAggregate3(await ethCall(MULTICALL3, _internal.encAggregate3(calls)), calls.length);
 
-// ── the protocol's totals: the stats reading's `btc` part ──
-// Sats locked and how many locks, sats minted against them and how many, the bond (wstETH wei) and how many bonds, the cUSD (8 decimals) borrowed,
-// repaid and still out, loans open, locks spent on Bitcoin (`unlocked`) or redeemed, and the public ERC-20s' supplies (18 decimals).
 export function totalsOf(j) {
   const b = j?.btc;
   if (!b) return null;
@@ -30,9 +23,6 @@ export function totalsOf(j) {
     waiting: Number(b.waiting) || 0, tacbtc: big(b.tacbtc), tacusd: big(b.tacusd) };
 }
 
-// ── the engine: its price of bitcoin, its loan lines, and what a wstETH is worth ──
-// `usdBtc`: dollars a bitcoin, as the engine prices the loans (the front page's own BTC price). `ratio`/`liq`: the floor a loan is opened above and the
-// line it is liquidated below, in percent. `ethBtc`: ETH a bitcoin costs through wstETH. `wstEth`: stETH (about ETH) one wstETH is worth.
 export async function readEngine() {
   const r = await batch([{ to: ENGINE, data: SEL.cdpRatioBps }, { to: ENGINE, data: SEL.liqRatioBps }, { to: ENGINE, data: SEL.btcToUsd + word(BTC1) },
     { to: ENGINE, data: SEL.wstEthForBtc + word(BTC1) }, { to: WSTETH, data: SEL.stEthPerWst + word(10n ** 18n) }]);
@@ -41,7 +31,6 @@ export async function readEngine() {
   return { ratio: n(0) != null ? Number(n(0)) / 100 : null, liq: n(1) != null ? Number(n(1)) / 100 : null, usdBtc: n(2) != null ? Number(n(2)) / 1e8 : null,
     ethBtc: n(3) != null && wst ? (Number(n(3)) / 1e18) * wst : null, wstEth: wst };
 }
-// What a lock of `sats` needs bonded now (wstETH wei) and what that is in ETH: the engine's own requirement, which sits above the 1.5× floor.
 export async function sizeBond(sats) {
   const [need, rate] = await batch([{ to: ENGINE, data: SEL.requiredEscrow + word(sats) }, { to: WSTETH, data: SEL.stEthPerWst + word(10n ** 18n) }]);
   if (!need) return null;
@@ -49,18 +38,12 @@ export async function sizeBond(sats) {
   return { wst, eth: per != null ? (wst * per) / 10n ** 18n : null };
 }
 
-// How far the bonds cover the locks: the bonds' ETH value over the locks' value. The engine asks for 1.5× or more at each lock, so the sum sits above that.
 export function coverage(t, { ethUsd, usdBtc, wstEth }) {
   if (!t || !(t.locked > 0n) || !ethUsd || !usdBtc || !wstEth) return null;
   const bondUsd = Number(t.bond) / 1e18 * wstEth * ethUsd, lockUsd = Number(t.locked) / 1e8 * usdBtc;
   return { bondUsd, lockUsd, ratio: lockUsd > 0 ? bondUsd / lockUsd : null };
 }
 
-// ── the private pools that hold cBTC ──
-// A pool's id is keccak(lower asset id, higher, fee as 32 bytes); the pool contract's `pools(id)` gives its reserves. cBTC's pairs are looked for at
-// each fee tier (only the 0.30% tier is founded today), and a pool with reserves is a row: the pair, both sides at the pool's 8 decimals, the price
-// of a cBTC in the other asset, and how deep it is in ETH (twice the tETH side, or the cBTC side at the engine's price). `farm` is its entry in the
-// farming program, which pays TAC to those who bond its liquidity.
 const hexBytes = (h) => Uint8Array.from(strip(h).match(/../g).map((x) => parseInt(x, 16)));
 export function poolId(a, b, fee) {
   const [lo, hi] = BigInt(a) <= BigInt(b) ? [a, b] : [b, a], u = new Uint8Array(96);
@@ -80,35 +63,26 @@ export async function readPools() {
     const cbtcIsA = BigInt(CBTC_ID) < BigInt(x.id);
     out.push({ other: x.name, otherId: x.id, fee: x.fee, cbtc: Number(cbtcIsA ? a : b) / 1e8, side: Number(cbtcIsA ? b : a) / 1e8, lpTotal: Number(total) });
   });
-  return out.filter((p, i, all) => all.findIndex((q) => q.other === p.other) === i);          // the first tier that holds reserves
+  return out.filter((p, i, all) => all.findIndex((q) => q.other === p.other) === i);
 }
-// Each pool as a row: the price of a cBTC in dollars (`usd`), against the engine's price of bitcoin (`gap`), and the pool's depth in dollars.
 export function poolRows(pools, program, { ethUsd, usdBtc, tacEth }) {
   return pools.map((p) => {
-    const per = p.cbtc > 0 ? p.side / p.cbtc : null;                                               // the other asset per cBTC
+    const per = p.cbtc > 0 ? p.side / p.cbtc : null;
     const usd = per == null ? null : p.other === 'tETH' ? (ethUsd ? per * ethUsd : null) : p.other === 'TAC' ? (tacEth && ethUsd ? per * tacEth * ethUsd : null) : per;
-    // How deep: the front page's own measure, twice the tETH side, for a pool that pairs tETH (so a farm shows the same figures here as there); twice the
-    // cBTC side at the engine's price for the others.
     const depth = p.other === 'tETH' ? (ethUsd ? 2 * p.side * ethUsd : null) : (usdBtc ? 2 * p.cbtc * usdBtc : null);
     const farm = (program?.pools || []).find((f) => String(f.pair).split('/').sort().join('/') === ['cBTC', p.other === 'tETH' ? 'cETH' : p.other].sort().join('/')) || null;
     return { ...p, name: `cBTC / ${p.other}`, per, usd, gap: usd != null && usdBtc ? usd / usdBtc - 1 : null, depthUsd: depth, farm: farm ? { pid: Number(farm.pid), perDay: Number(farm.tacPerDayForPool) || 0, shares: Number(farm.totalShares) || 0 } : null };
   });
 }
-// A farm's APR: a year of its TAC at TAC's price over what is bonded in it, the pool's depth (above) for the share of it that is bonded, as the front page's is.
 export function farmApr(row, program, { ethUsd, tacEth }) {
   if (!row.farm || !(row.farm.perDay > 0) || !row.depthUsd || !ethUsd || !tacEth || !(row.lpTotal > 0)) return null;
   const bondedUsd = row.depthUsd * row.farm.shares / row.lpTotal;
   return bondedUsd > 0 ? (row.farm.perDay * 365 * tacEth * ethUsd) / bondedUsd * 100 : null;
 }
 
-// ── the history: the locked bitcoin and the cUSD out over time, from the engine's own events ──
-// The engine logs a bond when one is posted (its lock's outpoint is the first topic), and each loan opened, repaid or liquidated. One read of those
-// logs from the pool's first block (a node that keeps them: the page's RPC list reaches one) gives both series. The locked bitcoin is the sats of
-// each lock still live, counted from the moment its first bond was posted; the cUSD out is loans opened less repaid and liquidated, as the engine
-// counts it (8 decimals). Each is a running sum, so a history that does not end on the stats' own total says so.
 const TOPIC = { posted: '0x0c008a699968f2a24063b7eb14d9239b2430c502fda280245345c78cbc47b7c1', minted: '0x232c7d098ca44092999087e6ee530a2171f95f9ecb1caa363f6dcf448fb7dd57',
   closed: '0xc0ede5b75ee32986e50a2a39fa32dbf5e8eff1c91a46cd127591edebd91b4db9', liquidated: '0x28d08a2db16236ca56b1223ba30ba49824b860a3e7eb8c5a1c1224697aa3ebd1' };
-const FROM_BLOCK = 25998000, ARCHIVE = ['https://mainnet.gateway.tenderly.co'];                         // of the page's nodes, only the Tenderly gateway serves a range this wide (the others refuse it, and each takes a while to)
+const FROM_BLOCK = 25998000, ARCHIVE = ['https://mainnet.gateway.tenderly.co'];
 export async function readHistory({ locked, out }) {
   const logs = await rpc('eth_getLogs', [{ address: ENGINE, topics: [Object.values(TOPIC)], fromBlock: '0x' + FROM_BLOCK.toString(16), toBlock: 'latest' }], ARCHIVE);
   const sorted = logs.map((l) => ({ ...l, b: Number(BigInt(l.blockNumber)), i: Number(BigInt(l.logIndex)), t: l.blockTimestamp ? Number(BigInt(l.blockTimestamp)) : null })).sort((a, b) => a.b - b.b || a.i - b.i);
@@ -117,9 +91,6 @@ export async function readHistory({ locked, out }) {
   const loans = sorted.flatMap((l) => (l.topics[0] === TOPIC.minted ? [[l.t, amount(l)]] : l.topics[0] === TOPIC.closed || l.topics[0] === TOPIC.liquidated ? [[l.t, -amount(l)]] : []));
   const first = new Map();
   for (const l of sorted) if (l.topics[0] === TOPIC.posted && !first.has(l.topics[1])) first.set(l.topics[1], l.t);
-  // A lock counts while the pool holds sats for it and it has been neither spent on Bitcoin nor redeemed (the pool keeps a spent lock's sats on record).
-  // The same reads give what the stats' totals cannot: the minted sats and the bond of the LIVE locks only (the stats count a spent lock's mint and its
-  // bond until someone slashes or takes it).
   const ops = [...first.keys()], reads = [];
   const per = [{ to: POOL, sel: SEL.cbtcLockVBtc }, { to: POOL, sel: SEL.lockSpent }, { to: POOL, sel: SEL.lockRedeemed }, { to: POOL, sel: SEL.cbtcMinted }, { to: ENGINE, sel: SEL.escrowTotal }];
   for (let i = 0; i < ops.length; i += 20) reads.push(...await batch(ops.slice(i, i + 20).flatMap((o) => per.map((x) => ({ to: x.to, data: x.sel + strip(o) })))));
@@ -136,9 +107,6 @@ export async function readHistory({ locked, out }) {
   return { locked: heldHistory(locks, locked), out: heldHistory(loans, out), live };
 }
 
-// ── what a key has: its locks on Bitcoin, read from the key's own Bitcoin history, each with where it stands ──
-// A lock is "ready to mint" once Bitcoin's proof on Ethereum has recorded it and the bond is enough; "waiting for its proof" before; "post its bond"
-// when the bond is short; "minted" once cBTC was made against it. A lock the pool has retired (spent or redeemed) is not listed.
 export const lockStep = (l) => (l.minted ? 'minted' : !l.bonded ? 'post its bond' : !l.recorded ? 'waiting for its proof' : 'ready to mint');
 export async function readLocks({ ux, priv, hist }) {
   const all = await hist.locks(priv);
@@ -150,20 +118,16 @@ export async function readLocks({ ux, priv, hist }) {
   const w = (i) => (r[i] ? wordAt(r[i], 0) : 0n);
   return live.map((l, i) => ({ ...l, sats: BigInt(l.vBtc), recorded: w(3 * i) === BigInt(l.vBtc), bonded: w(3 * i + 1) === 1n, minted: w(3 * i + 2) === 1n }));
 }
-// The loans a key has: each live position with the cBTC it holds as collateral and what it owes (cUSD, 8 decimals).
 export async function readLoans({ ux, priv }) {
   const cdp = await ux.recoverCdpPositions({ walletPriv: priv });
   const id = CBTC_ID.toLowerCase();
   return (cdp?.positions || []).filter((p) => p.live !== false).map((p) => ({ debt: BigInt(p.debtValue || 0), cbtc: (p.basket || []).filter((l) => String(l.asset).toLowerCase() === id).reduce((a, l) => a + BigInt(l.value), 0n) }));
 }
-// The key's private cBTC and cUSD: the notes it holds, from one scan (the cBTC notes are found from the key's own Bitcoin history, which that scan reads).
 export async function readHeld({ ux, priv }) {
   const r = await ux.balance(priv, { cbtc: true, bridge: false, positions: true });
   const of = (id) => { const g = r.byAsset?.[String(id).toLowerCase()]; return { value: g ? BigInt(g.value) : 0n, notes: g?.notes?.length || 0 }; };
   return { cbtc: of(CBTC_ID), cusd: of(CUSD_ID), positions: Array.isArray(r.farmPositions) && !r.diag?.errors?.farm ? r.farmPositions : null, partial: Object.keys(r.diag?.errors || {}).length > 0 };
 }
-// What a key's farm positions (from its scan: pid, shares, pendingTac) are worth and earn in each pool of the page that has a farm: the two sides they are a
-// share of, the TAC waiting to be harvested, and about what they earn a day. A pool is told by its farm's pid; positions in others are left out.
 export function positionsIn(rows, positions) {
   const by = new Map();
   for (const pos of positions || []) {

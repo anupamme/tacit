@@ -1,6 +1,3 @@
-// A small SVG price chart for the TAC trade page: candles or lines on a shared time axis, volume under them, price tags at the
-// right edge, a crosshair with a tooltip. No library (the page's CSP allows only its own scripts). Colours come from the page's
-// CSS variables so light and dark are the page's own.
 import { zone, grp } from '/trade/fmt.js?cb=c07717c4';
 
 
@@ -12,7 +9,6 @@ const el = (name, attrs = {}, kids = []) => {
   return n;
 };
 
-// 1, 2, 2.5, 5 times a power of ten: about `count` round numbers between lo and hi.
 export function niceTicks(lo, hi, count = 5) {
   if (!(hi > lo)) return [lo];
   const raw = (hi - lo) / count, mag = 10 ** Math.floor(Math.log10(raw)), f = raw / mag;
@@ -21,8 +17,6 @@ export function niceTicks(lo, hi, count = 5) {
   return out;
 }
 
-// Round numbers for a log axis: 1, 2 and 5 times each power of ten between lo and hi, and when that leaves fewer than `want` (a price that has
-// moved by a factor of three has only 0.1 and 0.2 to name) the next finer set, so the axis always has something to read against.
 const LOG_STEPS = [[1, 2, 5], [1, 1.5, 2, 3, 5, 7], [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8]];
 export function logTicks(lo, hi, want = 4) {
   if (!(lo > 0 && hi > lo)) return [lo];
@@ -38,13 +32,11 @@ export function logTicks(lo, hi, want = 4) {
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const p2 = (n) => String(n).padStart(2, '0');
 export const fmtTime = (t, withDay) => { const d = new Date(t * 1000); return withDay ? `${d.getUTCDate()} ${MON[d.getUTCMonth()]}` : `${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}`; };
-// The reader's own clock: an axis in UTC would put a day's tick at someone's mid-afternoon. The zone is named where a time is read out.
 const zoneName = zone;
 export const fmtLocalTime = (t, withDay) => { const d = new Date(t * 1000); return withDay ? `${d.getDate()} ${MON[d.getMonth()]}` : `${p2(d.getHours())}:${p2(d.getMinutes())}`; };
 export const fmtLocalStamp = (t) => { const d = new Date(t * 1000); return `${d.getDate()} ${MON[d.getMonth()]} ${p2(d.getHours())}:${p2(d.getMinutes())} ${zoneName(d)}`.trim(); };
 export const fmtStamp = (t) => { const d = new Date(t * 1000); return `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())} UTC`; };
 
-// The bar whose middle is nearest `t`, in bars sorted by time.
 function nearestBar(bars, t, period) {
   let lo = 0, hi = bars.length - 1;
   while (lo < hi) { const mid = (lo + hi) >> 1; if (bars[mid].t + period / 2 < t) lo = mid + 1; else hi = mid; }
@@ -52,20 +44,6 @@ function nearestBar(bars, t, period) {
   return b && Math.abs(b.t + period / 2 - t) <= Math.abs(a.t + period / 2 - t) ? b : a;
 }
 
-// opts: {
-//   series: [{ id, name, color, kind: 'candles' | 'line', area, bars: [{ t, open, high, low, close, vol }], fmt: (price) => string, unit }],
-//           a line with `area` is drawn as the market page's is: shaded under it, its volume beneath, a dot on its last price
-//           tickFmt: (step) => (price) => string, the price axis's labels for ticks `step` apart (default: fmt)
-//   period: seconds a bar spans (sets candle width),
-//   tags:   [{ y, label, color }]   price marks at the right edge (the same unit as the first series' prices)
-//   label:  the chart's accessible name
-//   empty:  what is said when there is nothing to draw (default: no trades yet)
-//   minSpan: the least the price axis spans, as a share of the price (a price that barely moves is drawn flat, not as a cliff)
-//   readout: the page reads the bar under the pointer itself (`onHover` gets each series' bar there), so no box is drawn over the chart
-//   zoomable: a mouse dragged across the chart picks out a stretch of it (`onSelect` gets its times as it is dragged) and, let go, zooms into it
-//             (`onView` gets the window, or null when a double-click or `zoomOut()` goes back to the whole)
-//   points: [{ t, y, up }]   flags at a time and price (the visitor's own trades): a small triangle under the price for `up`, over it otherwise
-// }
 export function mountChart(host, onHover = null, { onSelect = null, onView = null } = {}) {
   let opts = null, size = { w: 0, h: 0 }, tip = null, zoom = null;
   host.classList.add('chart');
@@ -76,9 +54,7 @@ export function mountChart(host, onHover = null, { onSelect = null, onView = nul
     const W = size.w, H = size.h, m = { l: 8, r: 64, t: 10, b: 24 };
     if (!all.length) { host.append(Object.assign(document.createElement('p'), { className: 'chart-empty', textContent: opts.empty || 'No trades to draw yet.' })); return; }
     const T0 = Math.min(...all.map((b) => b.t)), T1 = Math.max(...all.map((b) => b.t)) + period;
-    if (zoom && !(zoom.t1 > T0 + period && zoom.t0 < T1 - period)) { zoom = null; onView?.(null); }   // a window the bars no longer reach is let go
-    // What is drawn: the whole, or the window zoomed into (a line keeps one bar more each side, so it runs to the window's edges). The prices
-    // now at the right edge are drawn while the window reaches it.
+    if (zoom && !(zoom.t1 > T0 + period && zoom.t0 < T1 - period)) { zoom = null; onView?.(null); }
     const t0 = zoom ? Math.max(T0, zoom.t0) : T0, t1 = zoom ? Math.min(T1, zoom.t1) : T1, atEnd = t1 >= T1 - 1;
     const inWin = (b) => b.t + period > t0 && b.t < t1;
     const series = given.map((s) => {
@@ -89,16 +65,13 @@ export function mountChart(host, onHover = null, { onSelect = null, onView = nul
       return { ...s, bars: s.bars.slice(a, z + 1) };
     });
     const tags = atEnd ? given0 : [];
-    // The axis fits the candles' bodies, with their wicks up to half a body-range beyond: one print far from the rest (the tape's own
-    // notes say a small trade can make one) would otherwise squash every other candle. A wick past the axis is clipped; the tooltip
-    // still reads its true high or low.
-    const ranged = series.flatMap((x) => (x.kind === 'candles' ? x.bars : x.bars.filter(inWin).map((b) => ({ open: b.close, close: b.close, low: b.close, high: b.close }))));   // a line is its closes alone
+    const ranged = series.flatMap((x) => (x.kind === 'candles' ? x.bars : x.bars.filter(inWin).map((b) => ({ open: b.close, close: b.close, low: b.close, high: b.close }))));
     const bodies = ranged.flatMap((b) => [b.open ?? b.close, b.close]).filter(Number.isFinite);
     let lo = Math.min(...bodies), hi = Math.max(...bodies);
     const room = (hi - lo || hi * 0.1) * 0.5;
     lo = Math.max(Math.min(...ranged.map((b) => b.low ?? b.close)), lo - room); hi = Math.min(Math.max(...ranged.map((b) => b.high ?? b.close)), hi + room);
     for (const tg of tags) { lo = Math.min(lo, tg.y); hi = Math.max(hi, tg.y); }
-    for (const p of points) if (p.t >= t0 && p.t <= t1 && p.y > 0) { lo = Math.min(lo, p.y); hi = Math.max(hi, p.y); }   // the visitor's own trades are always in view
+    for (const p of points) if (p.t >= t0 && p.t <= t1 && p.y > 0) { lo = Math.min(lo, p.y); hi = Math.max(hi, p.y); }
     if (minSpan > 0 && hi - lo < ((hi + lo) / 2) * minSpan) { const c = (hi + lo) / 2, h = (c * minSpan) / 2; lo = Math.max(0, c - h); hi = c + h; }
     if (log && lo > 0) { const k = (hi / lo) ** 0.04; lo /= k; hi *= k; } else { const pad = (hi - lo || hi * 0.1) * 0.06; lo = Math.max(0, lo - pad); hi += pad; }
     const pw = W - m.l - m.r, ph = H - m.t - m.b, volH = ph * 0.16;
@@ -108,19 +81,17 @@ export function mountChart(host, onHover = null, { onSelect = null, onView = nul
     const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, width: W, height: H, role: 'img', 'aria-label': `${label}${zoom ? ', zoomed in' : ''}. The arrow keys read each bar.`, class: 'chart-svg' });
     svg.append(el('defs', {}, el('clipPath', { id: 'chart-clip' }, el('rect', { x: m.l, y: m.t, width: pw, height: H - m.t }))));
     const plot = el('g', { 'clip-path': 'url(#chart-clip)' }), marks = [];
-    // grid and the price axis
     const ticks0 = useLog ? logTicks(lo, hi) : niceTicks(lo, hi, Math.max(3, Math.round(ph / 56))), ticks = ticks0.length > 2 ? ticks0 : niceTicks(lo, hi, 4);
     const pstep = ticks.length > 1 ? ticks[1] - ticks[0] : 0, even = !useLog && pstep > 0;
-    const tickF = even && first?.tickFmt ? first.tickFmt(pstep) : f;                                  // even steps are labelled to the places the step needs
-    const pointF = (s) => (even && s.tickFmt ? s.tickFmt(pstep / 10) : s.fmt || f);                   // a price read off the axis: a place finer than its labels
+    const tickF = even && first?.tickFmt ? first.tickFmt(pstep) : f;
+    const pointF = (s) => (even && s.tickFmt ? s.tickFmt(pstep / 10) : s.fmt || f);
     for (const v of ticks) {
       svg.append(el('line', { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), class: 'grid' }));
-      if (!tags.some((tg) => Math.abs(Y(tg.y) - Y(v)) < 15)) svg.append(el('text', { x: W - m.r + 6, y: Y(v) + 4, class: 'axis' }, tickF(v)));         // a price tag covers a label this close to it
+      if (!tags.some((tg) => Math.abs(Y(tg.y) - Y(v)) < 15)) svg.append(el('text', { x: W - m.r + 6, y: Y(v) + 4, class: 'axis' }, tickF(v)));
     }
-    // the time axis: about one label per 110px
     const days = (t1 - t0) > 2 * 86400, step = Math.max(1, Math.ceil((t1 - t0) / (pw / 110)));
     const tick = (t, label) => svg.append(el('line', { x1: X(t), x2: X(t), y1: m.t, y2: H - m.b, class: 'grid v' }), el('text', { x: X(t), y: H - 6, class: 'axis mid' }, label));
-    if (days) {                                                                                       // a tick on each local midnight, every few days when they would crowd
+    if (days) {
       const each = Math.max(1, Math.ceil(step / 86400));
       for (const d = new Date(t0 * 1000); ; d.setDate(d.getDate() + each)) {
         d.setHours(0, 0, 0, 0);
@@ -132,7 +103,6 @@ export function mountChart(host, onHover = null, { onSelect = null, onView = nul
       const unit = step < 3600 ? 1800 : 3600, every = Math.max(unit, Math.ceil(step / unit) * unit), off = -new Date(t0 * 1000).getTimezoneOffset() * 60;
       for (let t = Math.ceil((t0 + off) / every) * every - off; t < t1; t += every) if (t >= t0) tick(t, fmtLocalTime(t, false));
     }
-    // volume under the first series
     const vmax = Math.max(...series.flatMap((s) => (s.kind === 'candles' || s.area ? s.bars : [])).map((b) => b.vol || 0), 0), bw = Math.max(1, Math.min(18, (period / (t1 - t0 || 1)) * pw * 0.7));
     for (const s of series) {
       if (s.kind === 'candles') {
@@ -152,8 +122,7 @@ export function mountChart(host, onHover = null, { onSelect = null, onView = nul
         plot.append(el('polyline', { points: pts.join(' '), class: 'line', style: `stroke:${s.color}` }));
         if (s.area) {
           const [lx, ly] = pts.at(-1).split(',');
-          if (atEnd) marks.push(el('circle', { cx: lx, cy: ly, r: 8, class: 'halo', style: `fill:${s.color}` }), el('circle', { cx: lx, cy: ly, r: 3.5, class: 'lastdot', style: `fill:${s.color}` }));       // outside the plot's clip, so the halo is whole at the edge
-          // the highest and lowest close drawn, named at their points (a line of closes, so a dust trade's wick never sets them), when they read differently
+          if (atEnd) marks.push(el('circle', { cx: lx, cy: ly, r: 8, class: 'halo', style: `fill:${s.color}` }), el('circle', { cx: lx, cy: ly, r: 3.5, class: 'lastdot', style: `fill:${s.color}` }));
           if (s.bars.length > 8) {
             let iHi = -1, iLo = -1;
             s.bars.forEach((b, i) => { if (!inWin(b)) return; if (iHi < 0 || b.close > s.bars[iHi].close) iHi = i; if (iLo < 0 || b.close < s.bars[iLo].close) iLo = i; });
@@ -168,7 +137,6 @@ export function mountChart(host, onHover = null, { onSelect = null, onView = nul
         else if (s.bars.length < 60) for (const p of pts) plot.append(el('circle', { cx: p.split(',')[0], cy: p.split(',')[1], r: 2, style: `fill:${s.color}`, class: 'dot' }));
       }
     }
-    // the visitor's own trades: a triangle pointing at the price, from under it for a purchase and over it for a sale
     for (const p of points) {
       if (!(p.t >= t0 && p.t <= t1 && p.y > 0)) continue;
       const x = X(p.t), y = Y(p.y), k = p.up ? 1 : -1;
@@ -176,7 +144,6 @@ export function mountChart(host, onHover = null, { onSelect = null, onView = nul
       plot.append(el('path', { d: `M${x},${y + 3 * k} L${x - 5},${y + 12 * k} L${x + 5},${y + 12 * k} Z`, class: `tpt ${p.up ? 'up' : 'down'}` }));
     }
     svg.append(plot, ...marks);
-    // price tags at the right edge, each box as wide as its label
     const boxW = (text) => Math.max(m.r - 4, String(text).length * 6 + 8);
     for (const tg of tags) {
       const w = boxW(tg.label);
@@ -184,7 +151,6 @@ export function mountChart(host, onHover = null, { onSelect = null, onView = nul
         el('rect', { x: W - w - 2, y: Y(tg.y) - 8, width: w, height: 16, class: 'tagbox', style: `fill:${tg.color}` }),
         el('text', { x: W - w + 2, y: Y(tg.y) + 4, class: 'tagtext' }, tg.label));
     }
-    // the crosshair: its lines, a dot on each line it crosses, and its price and time on the axes
     const half = (period / (t1 - t0 || 1)) * pw / 2;
     const Yv = (y) => { const k = 1 - (y - m.t) / (ph - volH * 0.4), L = lg(lo) + k * (lg(hi) - lg(lo)); return Math.max(0, useLog ? Math.exp(L) : L); };
     const dots = series.map(() => el('circle', { class: 'cd', r: 4.5, visibility: 'hidden' }));
@@ -201,7 +167,6 @@ export function mountChart(host, onHover = null, { onSelect = null, onView = nul
       const rows = series.map((s) => (s.bars.length ? { s, b: nearestBar(s.bars, t, period) } : null)).filter(Boolean);
       show([...rows].sort((a, b) => Math.abs(a.b.t - t) - Math.abs(b.b.t - t))[0], rows, e.clientY - r.top);
     };
-    // `py`: where the pointer is. Over candles the level line follows it (a price can be read anywhere); over a line it sits on the bar's price.
     function show(near, rows = null, py = null) {
       if (!near) return;
       cur = near;
@@ -235,12 +200,11 @@ export function mountChart(host, onHover = null, { onSelect = null, onView = nul
       tip.style.left = `${Math.max(4, Math.min(W - tw - 4, cx + 12))}px`; tip.style.top = `${m.t + 6}px`;
       onHover?.(near, rows);
     }
-    const leave = () => { cur = null; cross.setAttribute('visibility', 'hidden'); for (const d of dots) d.setAttribute('visibility', 'hidden'); tip.hidden = true; onHover?.(null); };   // each dot too: one set visible would stay visible inside the hidden group
-    // A mouse dragged across the chart picks out a stretch (a finger moves the crosshair instead); let go, it zooms in. A click alone does nothing.
+    const leave = () => { cur = null; cross.setAttribute('visibility', 'hidden'); for (const d of dots) d.setAttribute('visibility', 'hidden'); tip.hidden = true; onHover?.(null); };
     let drag = null;
     const xAt = (e) => Math.max(m.l, Math.min(W - m.r, e.clientX - svg.getBoundingClientRect().left)), tAt = (x) => t0 + ((x - m.l) / pw) * (t1 - t0);
     const span = () => [Math.min(drag.x, drag.to), Math.max(drag.x, drag.to)];
-    const stretch = (a, b) => ({ t0: Math.floor(tAt(a) / period) * period, t1: Math.ceil(tAt(b) / period) * period });   // the stretch, out to whole bars
+    const stretch = (a, b) => ({ t0: Math.floor(tAt(a) / period) * period, t1: Math.ceil(tAt(b) / period) * period });
     hit.addEventListener('pointerdown', (e) => {
       if (zoomable && e.pointerType !== 'touch' && e.button === 0) { drag = { x: xAt(e), to: xAt(e), moved: false }; hit.setPointerCapture?.(e.pointerId); }
       move(e);
@@ -259,14 +223,12 @@ export function mountChart(host, onHover = null, { onSelect = null, onView = nul
       const moved = drag.moved, [a, b] = moved ? span() : [0, 0];
       drag = null; band.setAttribute('visibility', 'hidden');
       if (!moved) return;
-      // a stretch dragged to the right edge stays up to date: it keeps the newest bars as they come
       if (zoomIn && b - a >= 12 && tAt(b) - tAt(a) >= period * 2) { const w = stretch(a, b); zoom = { t0: w.t0, t1: b >= W - m.r - 2 ? Infinity : w.t1 }; draw(); onView?.(zoom); }
       else onSelect?.(null);
     };
     hit.addEventListener('pointerup', () => release(true)); hit.addEventListener('pointercancel', () => release(false));
     hit.addEventListener('pointerleave', leave);
     hit.addEventListener('dblclick', () => { if (zoom) { zoom = null; draw(); onView?.(null); } });
-    // The arrow keys read the bars one at a time (Home and End, the first and the last); Escape lets go.
     svg.setAttribute('tabindex', '0');
     svg.addEventListener('keydown', (e) => {
       const s = (cur?.s || series[0]), bars = s?.bars || [];
@@ -283,7 +245,6 @@ export function mountChart(host, onHover = null, { onSelect = null, onView = nul
   const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { const r = host.getBoundingClientRect(); const w = Math.round(r.width), h = Math.round(r.height); if (w !== size.w || h !== size.h) { size = { w, h }; draw(); } }) : null;
   ro?.observe(host);
   const r0 = host.getBoundingClientRect(); size = { w: Math.round(r0.width), h: Math.round(r0.height) };
-  // The page repaints on every read; a chart whose bars, tags and settings are as drawn is left alone, so its tooltip stays open.
   let sig = '';
   return {
     update(next) { const s = JSON.stringify([next, next.series?.map((x) => x.fmt?.(1))]); if (s === sig && opts) return; sig = s; opts = next; draw(); },

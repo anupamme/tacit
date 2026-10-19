@@ -1,44 +1,11 @@
-// Orchestrates a cross-out bridge (Ethereum -> Bitcoin) end to end for TAC and, where the caller names it in
-// `assets`, tETH: settle a confidential note as a
-// bridge_burn (records a claim on Ethereum), wait for the reflection worker's eth-state view to cover that
-// block, then mint the Bitcoin-side note via a commit/reveal T_CROSSOUT_MINT envelope. Wires together two
-// already-independent, already-proven pieces -- the confidential pool's own crossOut (dapp/confidential-pool-ux.js,
-// settled + corroborated against mainnet 2026-07-16/17) and dapp/crossout-mint-reveal.js (the Bitcoin-side
-// builder, extracted from the same proof's tools/build-crossout-mint.mjs) -- into one resumable state
-// machine, journalled so a reload picks up exactly where it left off.
-//
-// This module never imports dapp/tacit.js and takes every wallet-stateful primitive by injection, building a
-// fresh makeBtcWallet-shaped `prims` per signing call rather than sharing one across calls -- the same
-// one-wallet-source rule dapp/burndep-ux.js follows, for the same reason.
-//
-// v1 is self-bridge only: the destination is this wallet's own Bitcoin taproot key (the same walletPriv
-// scalar tacit.js already uses for both chains -- see makeBurnDepositUx's start() call site), not an
-// arbitrary recipient. Bridging to someone else's Bitcoin key is a real, later extension, not a gap in this
-// one; nothing here forecloses it.
-//
-// State machine (one record per source note nullifier):
-//   settling -> settled -> covered -> mint-signed -> mint-submitted -> mint-confirmed -> minted
-// 'settling' is the intent written before the burn is sent (see start); 'mint-confirmed' is the reveal confirmed on
-// Bitcoin and waiting for the worker to credit the note (GET /crossout/minted), which is what 'minted' means: a
-// confirmed reveal that the fold refuses leaves 'mint-rejected', never a bridge that reads as arrived.
-// Only 'start' (the settle) and 'covered'->'mint-signed' (the Bitcoin-side signing) need the wallet key;
-// every other transition is a poll or a pure rebuild from already-journalled public data.
-//
-// Unlike burn-deposit, a crossOut's Bitcoin-side claim has no persisted retry inside the protocol if the
-// worker's eth-state view is behind -- fold_crossout checks membership once, at scan time (see
-// dapp/crossout-broadcast.js's header comment). The 'covered' gate below is what stands in for that: it
-// blocks the mint from broadcasting until GET /reflection/eth-state/covers confirms the settle's own block is
-// in view, so the claim is never revealed before it can fold.
 import { makeCrossoutMintReveal } from './crossout-mint-reveal.js';
 import { makeBtcWallet } from './bitcoin-taproot-wallet.js';
 
-export const CROSSOUT_BETA_CAP_RAW = 100_000_000_000n; // 1,000 TAC at 8 decimals -- matches burndep-ux's own beta cap
-export const CROSSOUT_TETH_CAP_RAW = 50_000_000n;      // 0.5 tETH at 8 decimals: one bridge's most while this is new (the amount search in crossout-notes.js reaches 0.67)
-export const CROSSOUT_TETH_MIN_RAW = 1_000_000n;       // 0.01 tETH: under this the Bitcoin fees and the relay fee are too large a share of what moves
-export const CROSSOUT_CBTC_CAP_RAW = 50_000_000n;      // 0.5 cBTC in sats, as for tETH
-export const CROSSOUT_CBTC_MIN_RAW = 1_000n;           // a lock sets the amount, so the floor only keeps out dust
-// The mint is sent hours after the burn, whatever Bitcoin's fees are by then: above this rate (sat/vB) it waits, until the
-// holder says to send it anyway. A mint is about 290 vB, so this caps what an unattended send can cost at ~29,000 sats.
+export const CROSSOUT_BETA_CAP_RAW = 100_000_000_000n;
+export const CROSSOUT_TETH_CAP_RAW = 50_000_000n;
+export const CROSSOUT_TETH_MIN_RAW = 1_000_000n;
+export const CROSSOUT_CBTC_CAP_RAW = 50_000_000n;
+export const CROSSOUT_CBTC_MIN_RAW = 1_000n;
 export const CROSSOUT_MINT_FEE_CEILING = 100;
 const CANCEL_SPENT_AFTER_MS = 6 * 3600e3;
 const JOURNAL_PREFIX = 'tacit-crossout-bridge-v1';
@@ -48,7 +15,6 @@ const stripHex = (h) => String(h).replace(/^0x/, '');
 const withHex = (h) => (String(h).startsWith('0x') ? String(h) : '0x' + String(h));
 const lc = (h) => String(h).toLowerCase();
 const now = () => Date.now();
-// 8-decimal units to words: 100000000000 -> "1,000", 5000000 -> "0.05".
 function units8(raw) {
   const v = BigInt(raw), whole = (v / 100_000_000n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ','), frac = (v % 100_000_000n).toString().padStart(8, '0').replace(/0+$/, '');
   return frac ? `${whole}.${frac}` : whole;
@@ -56,9 +22,6 @@ function units8(raw) {
 function hexToBytesLocal(h) { const s = String(h).replace(/^0x/, ''); const a = new Uint8Array(s.length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(s.slice(2 * i, 2 * i + 2), 16); return a; }
 function bytesToHexLocal(b) { return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join(''); }
 
-// Real localStorage exposes .length/.key(i) alongside getItem/setItem/removeItem; a plain wrapper around it
-// must forward those too, or isReserved's cross-wallet scan silently sees nothing (see burndep-ux.js's
-// identical comment on its own defaultStorage).
 function defaultStorage() {
   const ls = (() => { try { return typeof localStorage !== 'undefined' ? localStorage : null; } catch { return null; } })();
   return {
@@ -78,18 +41,6 @@ function deserializeRecord(text) {
   return JSON.parse(text, (k, v) => (v && typeof v === 'object' && typeof v.__big === 'string' ? BigInt(v.__big) : v));
 }
 
-// deps: { network, hrp, workerBase, fetchImpl, storage, secp, hmac, sha256, crossOut, pool, rpc, evmLog,
-//         tacAssetId, assets, chain: {getUtxos, pickSafeCommitSats, broadcastWithRetry, getFeeRate}, postHint }
-// `assets` ([{ assetId, ticker, capRaw, minRaw? }]) names every asset this module will bridge, each with its own
-// per-bridge cap; left out, it is TAC alone under CROSSOUT_BETA_CAP_RAW. A note of any other asset is refused
-// before anything is settled, and so is a recovered settle that names one.
-// `poolAddress` (the pool whose CrossOutRecorded events settle a bridge) lets a bridge whose page closed before its
-// settle was seen find that settle again; without it such a record just waits. `nullifierSpent(ν)` says whether the pool has
-// spent a note: a bridge is not cancelled while its note has been. `deployBlock` (the pool's) is where recoverFromKey starts reading its events.
-// `crossOut`, `pool`, `rpc`, `evmLog` are the confidential pool ux's own (dapp/confidential-pool-ux.js) --
-// injected rather than re-instantiated here, matching how burndep-ux.js takes `bridgeMint`/`pool` from the
-// same pool ux singleton instead of building its own. `postHint` is optional (tacit.js's local fast-track
-// poke at the worker's /hint route) -- a fold happens on the worker's own scan cadence regardless.
 export function makeCrossoutUx(deps) {
   const {
     network = 'mainnet', hrp = 'bc', workerBase, fetchImpl, storage: storageIn = null,
@@ -107,14 +58,13 @@ export function makeCrossoutUx(deps) {
   function freshPrims(walletPriv) {
     const w = makeBtcWallet({
       priv: walletPriv, hrp,
-      fetchUtxos: async () => [], // never used: the funding UTXO this module signs with is already resolved
+      fetchUtxos: async () => [],
       broadcastTx: async (hex) => chain.broadcastWithRetry(hex),
       fetchFeeRate: async () => chain.getFeeRate('priority'),
     });
     return w.prims;
   }
 
-  // ---- journal: one record per source note nullifier, keyed per (network, walletPub) ----
   function journalKey(walletPub) { return `${JOURNAL_PREFIX}:${network}:${lc(typeof walletPub === 'string' ? walletPub : bytesToHexLocal(walletPub))}`; }
   function loadAll(walletPub) {
     try { const raw = storage.getItem(journalKey(walletPub)); const arr = raw ? deserializeRecord(raw) : []; return Array.isArray(arr) ? arr : []; }
@@ -130,9 +80,6 @@ export function makeCrossoutUx(deps) {
   }
   function getRecord(walletPub, id) { return loadAll(walletPub).find((r) => r.id === id) || null; }
 
-  // A cross-tab lease, not a hard lock -- see burndep-ux.js's identical comment on why a stale lease is
-  // treated as free and why this is not what actually prevents a double-spend (the journal-before-broadcast
-  // ordering is).
   function leaseKey(id) { return `${JOURNAL_PREFIX}:lease:${network}:${id}`; }
   const sessionId = `${now()}-${Math.random().toString(36).slice(2)}`;
   function tryAcquireLease(id) {
@@ -140,16 +87,12 @@ export function makeCrossoutUx(deps) {
     try {
       const raw = storage.getItem(key);
       if (raw) { const held = JSON.parse(raw); if (held.owner !== sessionId && now() - held.at < LEASE_TTL_MS) return false; }
-    } catch { /* a corrupt lease is treated as free */ }
+    } catch { }
     storage.setItem(key, JSON.stringify({ owner: sessionId, at: now() }));
     return true;
   }
   function releaseLease(id) { try { storage.removeItem(leaseKey(id)); } catch {} }
 
-  // ---- eligibility (pure -- no network) ----
-  // `note` shape: { nullifier, value (bigint|string), blinding (bigint|string), asset, confirmed (bool) } --
-  // confidential-pool-ux.js's own note shape (balance()'s per-asset .notes array), unchanged: these notes
-  // flow straight into crossOut() itself, which reads notes[0].asset the same way.
   function eligibleNotes(notes) {
     return (notes || []).map((n) => {
       const value = BigInt(n.value), a = assetOf(n.asset);
@@ -163,10 +106,6 @@ export function makeCrossoutUx(deps) {
     });
   }
 
-  // Scans every journal this storage holds under this module's prefix (not just one wallet's) -- the same
-  // technique burndep-ux.js uses for its own reservation scan, since eligibleNotes is called before any one
-  // wallet's pub is settled on as "the" pub, and a Bitcoin funding UTXO can be the same physical coin across
-  // two different wallet imports even though a note's nullifier never is.
   function _anyRecordMatching(pred) {
     try {
       const len = storage.length; const key = storage.key;
@@ -178,23 +117,17 @@ export function makeCrossoutUx(deps) {
         const list = deserializeRecord(storage.getItem(k));
         if (Array.isArray(list) && list.some((r) => r.stage !== 'minted' && pred(r))) return true;
       }
-    } catch { /* a corrupt entry is treated as unreserved */ }
+    } catch { }
     return false;
   }
   function isReserved(nullifier) {
     return _anyRecordMatching((r) => r.id === nullifier);
   }
-  // Whether `txid:vout` is some in-flight record's own Bitcoin-side funding UTXO (the 'covered'->'mint-signed'
-  // stage's pickFundingUtxo pick) -- checked from tacit.js's own getUtxos filter, mirroring _burndepReserved,
-  // so ordinary coin selection elsewhere can never spend out from under an in-flight mint.
   function isFundingReserved(txid, vout) {
     const id = `${stripHex(txid).toLowerCase()}:${Number(vout)}`;
     return _anyRecordMatching((r) => r.mint && r.mint.fundingUtxo && `${stripHex(r.mint.fundingUtxo.txid).toLowerCase()}:${Number(r.mint.fundingUtxo.vout)}` === id);
   }
 
-  // ---- start: settles the note on Ethereum (bridge_burn) and derives the self-bridge destination ----
-  // The Bitcoin note a settle of `amount` makes for this key: its blinding is bound to the spent note's nullifier (see
-  // crossOut()'s rDest), so it is the same every time from (walletPriv, nullifier, amount) and never stored.
   function deriveDest(walletPriv, nullifier, amount, assetId, destXonly) {
     const privBytes = walletPriv instanceof Uint8Array ? walletPriv : hexToBytesLocal(stripHex(walletPriv));
     const domain = new TextEncoder().encode('tacit-crossout-blinding-v1');
@@ -208,8 +141,6 @@ export function makeCrossoutUx(deps) {
     return { cx, cy, destCommitment: pool.btcNoteLeaf(withHex(assetId), cx, cy, withHex(destXonly)) };
   }
 
-  // A settle found on Ethereum, from its CrossOutRecorded event and the receipt that carries it: the 'settled' record it
-  // is. `amount` is what arrives on Bitcoin; the caller has already checked it against the event's destCommitment.
   function settledRecord({ id, walletPub, a, amount, fee = null, value = null, destXonly, dest, ev, txHash, ethBlock, note, createdAt = now(), recovered = false }) {
     return {
       id, network, walletPub: bytesToHexLocal(walletPub), stage: 'settled', createdAt, ...(recovered ? { recoveredAt: now() } : {}),
@@ -219,10 +150,6 @@ export function makeCrossoutUx(deps) {
     };
   }
 
-  // A bridge that was started but whose settle this page never saw land (it closed, the relay timed out, the send was
-  // refused) is looked for on Ethereum: its spent note's nullifier, or the destination it would have made, in a
-  // CrossOutRecorded event of the pool since the block it began at. Found, it becomes an ordinary settled record. The
-  // fees tried are kept because an earlier, slower attempt can still land after a later one was sent.
   async function reconcile(rec) {
     if (rec.stage !== 'settling') return rec;
     if (!poolAddress || rec.startBlock == null) return rec;
@@ -239,7 +166,6 @@ export function makeCrossoutUx(deps) {
         if (!ev || ev.type !== 'CrossOutRecorded' || ev.destChain !== 1) continue;
         const f = wanted.get(lc(ev.destCommitment));
         if (f === undefined) {
-          // Our note, spent into a destination we cannot account for: not a record this module can mint.
           if (lc(ev.nullifier) === lc(rec.id)) throw new Error('crossout-ux: this note was bridged, but to an amount this page did not ask for, so it cannot finish the Bitcoin step for it');
           continue;
         }
@@ -253,17 +179,12 @@ export function makeCrossoutUx(deps) {
     }
     return rec;
   }
-  // The destination for `amount`, for a record that has not kept the wallet key: its blinding needs that key, so a
-  // record stores its candidate destinations (one per fee tried) when it is made and this reads them back.
   function deriveDestFor(rec, amount) {
     const d = (rec.dests || []).find((x) => BigInt(x.amount) === BigInt(amount));
     if (!d) throw new Error('crossout-ux: no destination was kept for that amount');
     return d;
   }
 
-  // `fee` is the relay's cut of the note, taken in the note's own asset: the Bitcoin note is worth the note less it
-  // (a bridge_burn makes no change, so the whole note is spent). 0 for a settle sent from the holder's own account.
-  // `selfSettle` / `selfRelay` / `waitOpts` go straight to the pool's crossOut.
   async function start({ note, walletPriv, fee = 0n, selfRelay = false, selfSettle = null, waitOpts = undefined }) {
     const walletPub = secp.getPublicKey(walletPriv, true);
     const id = note.nullifier;
@@ -279,8 +200,6 @@ export function makeCrossoutUx(deps) {
 
     const destXonly = bytesToHexLocal(freshPrims(walletPriv).wallet.xonly());
     const amount = value - fee;
-    // The intent is journalled before the burn is sent. The relay proves a settle for minutes, and a page that closes or
-    // stops waiting meanwhile finds the burn again from Ethereum on its next look and carries on from it.
     let startBlock = earlier ? earlier.startBlock : null;
     if (startBlock == null && poolAddress) startBlock = Number(BigInt(await rpc('eth_blockNumber', [])));
     const dests = [...(earlier ? earlier.dests : []).filter((d) => BigInt(d.amount) !== amount), { amount, ...deriveDest(walletPriv, id, amount, a.assetId, destXonly) }];
@@ -289,10 +208,8 @@ export function makeCrossoutUx(deps) {
       id, network, walletPub: bytesToHexLocal(walletPub), stage: 'settling', createdAt: earlier ? earlier.createdAt : now(), startBlock, dests,
       source: { nullifier: id, value, amount, fee, attempts, assetId: a.assetId, ticker: a.ticker }, destXonly,
     });
-    // A browser that cannot keep the record would burn the note and lose the only way the Bitcoin step is sent from here.
     if (!getRecord(walletPub, id)) throw new Error('crossout-ux: this browser cannot keep the bridge record (its storage is blocked), so nothing was burned');
     if (earlier) {
-      // A previous attempt may have landed while this one was being made.
       const found = await reconcile({ ...intent, source: { ...intent.source, value } });
       if (found.stage !== 'settling') return found;
     }
@@ -302,8 +219,6 @@ export function makeCrossoutUx(deps) {
     });
     const co = r.crossOuts && r.crossOuts[0];
     if (!co) throw new Error('crossout-ux: settle produced no crossOut claim');
-    // The burn is done by now, so what the settle returned is what the Bitcoin step uses. That it equals the destination
-    // worked out beforehand matters only to finding this bridge again from Ethereum, and is kept as a fact on the record.
     const mine = dests[dests.length - 1];
 
     const rec = {
@@ -319,24 +234,20 @@ export function makeCrossoutUx(deps) {
     return putRecord(rec);
   }
 
-  // ---- advance: drive a record forward one stage. walletPriv is required only at 'covered'->'mint-signed'. ----
-  const inFlight = new Set();                                  // bridges this page is moving on now: a tick and a press do not both sign
+  const inFlight = new Set();
   async function advance(walletPub, id, { walletPriv = null, allowHighFee = false } = {}) {
     const rec = getRecord(walletPub, id);
     if (!rec) throw new Error(`crossout-ux: no bridge record for ${id}`);
-    // A key that is not the bridge's would sign its Bitcoin step with another key's coins.
     if (walletPriv && lc(bytesToHexLocal(secp.getPublicKey(walletPriv, true))) !== lc(rec.walletPub)) throw new Error('crossout-ux: this bridge belongs to another key');
     if (inFlight.has(id)) throw new Error('crossout-ux: this bridge is being advanced in this page right now');
     if (!tryAcquireLease(id)) throw new Error('crossout-ux: this bridge is being advanced in another tab right now');
     inFlight.add(id);
     try {
       const fn = STAGE_ADVANCE[rec.stage];
-      if (!fn) return rec; // terminal ('minted') or unknown -- nothing to do
+      if (!fn) return rec;
       const result = await fn(rec, { walletPriv, allowHighFee });
       return rec.lastError ? putRecord({ ...result, lastError: null, errorCount: 0 }) : result;
     } catch (e) {
-      // Only the error is written, onto the record as it is now: a copy read before the step began would undo whatever a
-      // concurrent start() retry (its fee attempts, its destinations) wrote meanwhile.
       const cur = getRecord(walletPub, id) || rec;
       const waiting = !!(e && e.feeWait);
       putRecord({ ...cur, lastError: { message: String((e && e.message) || e), at: now(), ...(waiting ? { feeWait: true } : {}) }, errorCount: (cur.errorCount || 0) + (waiting ? 0 : 1) });
@@ -344,8 +255,6 @@ export function makeCrossoutUx(deps) {
     } finally { inFlight.delete(id); releaseLease(id); }
   }
 
-  // Picks one confirmed, safe-to-spend UTXO from `address` -- same pattern burndep-ux.js's pickFundingUtxo
-  // uses (chain.pickSafeCommitSats does the actual filtering/sorting, this just takes its top pick).
   async function pickFundingUtxo(address) {
     const utxos = await chain.getUtxos(address);
     const sorted = await chain.pickSafeCommitSats(utxos);
@@ -354,14 +263,6 @@ export function makeCrossoutUx(deps) {
     return { txid: pick.txid, vout: pick.vout, value: pick.value };
   }
 
-  // Read before anything is settled: a note burned on Ethereum can only arrive on Bitcoin, and arriving costs the
-  // holder's own sats and needs Bitcoin's proof on Ethereum to keep up. `problems` stop a bridge from starting (no
-  // sats free for its fees, or the proof's state unreadable, so the gate that protects the mint could not be asked
-  // either); `warnings` are slower-than-usual conditions to show beside the receipt. A fee rate that rises in the hours
-  // before the mint is signed is covered by asking for room for twice today's.
-  // Each bridge of this key that has yet to sign its mint takes a coin of its own when it does (the top free one then), so
-  // this one is checked against the coin after theirs: `pending` counts them, less the notes named in `exclude` (a bridge
-  // being sent again). A signed mint's coin is already reserved and out of the list.
   async function preflight({ walletPriv, feeRate = null, exclude = [] } = {}) {
     const P = freshPrims(walletPriv), problems = [], warnings = [];
     const rate = Number(feeRate) || Number(await chain.getFeeRate('priority')) || 3;
@@ -398,16 +299,11 @@ export function makeCrossoutUx(deps) {
   const STAGE_ADVANCE = {
     settling: async (rec) => reconcile(rec),
     settled: async (rec) => {
-      // completeCrossOutOnBitcoin (crossout-broadcast.js) refuses to broadcast an unverified claimId for
-      // exactly this reason: a reveal built from a wrong claimId can never fold, with no on-chain error
-      // anywhere to say so. crossOut() itself corroborates before returning, so this should normally already
-      // be true -- surfacing it as a stuck, visible error (via advance()'s own lastError) rather than
-      // silently retrying is the honest response to the rare case where it isn't.
       if (!rec.settle.claimIdVerified) {
         throw new Error(`crossout-ux: claimId not corroborated against the CrossOutRecorded event (${rec.settle.claimIdNote || 'unknown reason'}) — this bridge cannot proceed safely; contact support with this record's id`);
       }
       const covers = await callWorker('GET', `/reflection/eth-state/covers?block=${rec.settle.ethBlock}`);
-      if (!covers || covers.covered !== true) return rec; // not yet -- resumable, matches burndep-ux's poll style
+      if (!covers || covers.covered !== true) return rec;
       return putRecord({ ...rec, stage: 'covered', coveredAt: now() });
     },
     covered: async (rec, { walletPriv, allowHighFee }) => {
@@ -437,22 +333,15 @@ export function makeCrossoutUx(deps) {
     'mint-submitted': async (rec) => {
       const rv = await chainTx(rec.mint.revealTxid);
       if (rv.state === 'present' && rv.confirmed) return putRecord({ ...rec, stage: 'mint-confirmed', confirmedAt: now() });
-      if (rv.state === 'unknown') return rec;                                      // not read: wait, and send nothing on a guess
-      // Not on Bitcoin, or in a mempool and not mined: the signed pair is offered again. A transaction a node knows is a safe no-op;
-      // one Bitcoin dropped is back in. The pair is never rebuilt, since a rebuilt one would conflict with it.
+      if (rv.state === 'unknown') return rec;
       const refused = [];
       for (const hex of [rec.mint.commitHex, rec.mint.revealHex]) {
         try { await chain.broadcastWithRetry(hex); } catch (e) { const m = String((e && e.message) || e); if (!/already|known|in block|in mempool/i.test(m)) refused.push(m); }
       }
-      // Dropped and refused on being offered again (its funding coin was spent elsewhere): said on the record, where "Sign it again" is offered.
       if (rv.state === 'absent' && refused.length) throw new Error(`crossout-ux: Bitcoin did not take the signed transactions again: ${refused[0].slice(0, 160)}`);
       return rec;
     },
-    // The reveal is on Bitcoin; the note is the bridge's only when the worker has credited it for this claim. That is
-    // asked per (asset, claim, txid): `decided` once the scan is past the mint by the credit depth, `minted` only for
-    // the tx recorded for the claim. Undecided or unreadable waits; decided and not minted is a refusal worth saying.
     'mint-confirmed': async (rec) => {
-      // A reveal reorged out of its block is no longer confirmed: back to waiting for a confirmation (and re-sent if dropped).
       const rv = await chainTx(rec.mint.revealTxid);
       if (rv.state === 'absent' || (rv.state === 'present' && rv.confirmed === false)) return putRecord({ ...rec, stage: 'mint-submitted', confirmedAt: null });
       return checkCredited(rec);
@@ -467,8 +356,6 @@ export function makeCrossoutUx(deps) {
     } catch { return rec; }
     if (!st || st.error || st.decided !== true) return rec;
     if (st.minted === true) return putRecord({ ...rec, stage: 'minted', mintedAt: now() });
-    // Credited to another reveal of this same claim: an earlier pair of this bridge (signed again after one Bitcoin seemed
-    // not to take). The note's leaf commits this key as its owner, so whichever reveal was credited made this key's note.
     if (st.mintedTxid) return putRecord({ ...rec, stage: 'minted', mintedAt: now(), creditedTxid: String(st.mintedTxid) });
     if (rec.stage === 'mint-rejected') return rec;
     return putRecord({ ...rec, stage: 'mint-rejected', rejectedAt: now(), rejectedStatus: st.status || null });
@@ -482,8 +369,6 @@ export function makeCrossoutUx(deps) {
     return res.json();
   }
   function fetchChainJson(path) { return callWorker('GET', `/chain${path}`); }
-  // Whether a transaction is on Bitcoin (mined or in a mempool): 'present', 'absent' only on an explicit not-found, and
-  // 'unknown' for anything else, a rate limit or an outage included -- a transport failure is never read as absence.
   async function chainTx(txid) {
     const f = fetchImpl || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
     if (!f) return { state: 'unknown' };
@@ -498,9 +383,6 @@ export function makeCrossoutUx(deps) {
   }
   const chainTxState = async (txid) => (await chainTx(txid)).state;
 
-  // Gives up a bridge that was started and never seen to settle -- after the chain has been looked at once more and shows
-  // no settle for it. One that had landed is returned as the settled record it is; a burn the relay finishes after this
-  // is found again from its Ethereum transaction (recoverFromEthTx).
   async function cancelIntent(walletPub, id) {
     const rec = getRecord(walletPub, id);
     if (!rec) return null;
@@ -508,22 +390,15 @@ export function makeCrossoutUx(deps) {
     if (!poolAddress || rec.startBlock == null) throw new Error('crossout-ux: this bridge cannot be checked against Ethereum, so it was not cancelled');
     const after = await reconcile(rec);
     if (after.stage !== 'settling') return after;
-    // A note the pool has spent may have been burned by a settle the logs did not show (a node behind, a range it would not serve,
-    // a job still being proved): the record is the only way the Bitcoin step is ever sent, so it is kept.
     if (nullifierSpent) {
       let spent;
       try { spent = await nullifierSpent(id); } catch { throw new Error('crossout-ux: could not check whether this note was spent, so it was not cancelled'); }
-      // Spent, and no burn for it in the pool's logs since this began: after the relay's own deadlines have passed the note went somewhere
-      // else, and the record is let go. A burn that does turn up later is found again from this key (recoverFromKey).
       if (spent && now() - Number(rec.createdAt || now()) < CANCEL_SPENT_AFTER_MS) throw new Error('crossout-ux: this note has been spent on Ethereum, so its burn may have landed; it was not cancelled. If you bridged it, find it with its Ethereum transaction hash');
     }
     saveAll(walletPub, loadAll(walletPub).filter((r) => r.id !== id));
     return null;
   }
 
-  // A signed mint whose first transaction Bitcoin never took (its funding coin went elsewhere, or it was refused) is
-  // signed again from a coin that is free now. Only while that transaction is not on the chain: the claim is the same,
-  // and a second commit/reveal pair for it costs a fee at worst (fold_crossout takes the first and ignores the rest).
   async function resign(walletPub, id) {
     const rec = getRecord(walletPub, id);
     if (!rec) throw new Error(`crossout-ux: no bridge record for ${id}`);
@@ -538,27 +413,6 @@ export function makeCrossoutUx(deps) {
   function list(walletPub) { return loadAll(walletPub); }
   function abandon(walletPub, id) { saveAll(walletPub, loadAll(walletPub).filter((r) => r.id !== id)); }
 
-  // Recovers a bridge from just its Ethereum settle tx hash and the wallet key -- the case where the journal
-  // itself is gone (a different browser/device, or cleared storage) but the settle already happened, so
-  // everything else is derivable from chain data + this wallet's own deterministic derivations:
-  //   - CrossOutRecorded's own `nullifier` field is the spent note's nullifier (crossOut's bindNullifier),
-  //     read directly off the log rather than guessed;
-  //   - the destination blinding is HMAC-bound to that nullifier (see start()'s destXonly comment and
-  //     crossOut()'s own rDest derivation in confidential-pool-ux.js) -- reproducible from (walletPriv,
-  //     nullifier) alone, never stored;
-  //   - destXonly is always this wallet's own Bitcoin key (v1 is self-bridge only), so it needs no source at
-  //     all beyond walletPriv.
-  // `amount` (what arrives on Bitcoin: the note less any relay fee) is the one thing NOT recoverable from chain data (the value is hidden under the commitment) --
-  // same shape as burndep-ux.js's recoverFromTxid needing `amount` for the identical reason. The recomputed
-  // (cx, cy) are checked against the event's own destCommitment before anything is journalled; a wrong amount
-  // (or any other wrong input) makes that check fail rather than silently writing an unopenable record.
-  //
-  // Always rebuilds at 'settled', even if the Bitcoin-side mint was already broadcast before the journal was
-  // lost -- there is no way to ask the chain "has this claimId already been revealed" directly. Worst case,
-  // advancing the recovered record re-broadcasts a second, redundant commit/reveal pair: fold_crossout's own
-  // replay gate takes the first one and ignores the second, so this costs a small avoidable Bitcoin fee, not a
-  // double mint. Same category of limitation as burndep-ux.js's own recoverFromTxid not recovering a bridge
-  // stuck before its burn exists -- stated here rather than engineered around under this rare edge case.
   async function recoverFromEthTx(settleTxHash, walletPriv, { amount } = {}) {
     if (amount == null) throw new Error('crossout-ux: recoverFromEthTx needs { amount } -- the value that arrives on Bitcoin, the note less any relay fee (not recoverable from chain data alone)');
     const walletPub = secp.getPublicKey(walletPriv, true);
@@ -574,7 +428,6 @@ export function makeCrossoutUx(deps) {
     if (!a) throw new Error('crossout-ux: this crossOut is for a different asset');
 
     const destXonly = bytesToHexLocal(freshPrims(walletPriv).wallet.xonly());
-    // The amount asked for is what arrives on Bitcoin; one typed as the note burned (before any relay fee) is found by the fee ladder.
     let dest = deriveDest(walletPriv, ev.nullifier, amount, a.assetId, destXonly), fee = null, value = null;
     if (lc(dest.destCommitment) !== lc(ev.destCommitment)) {
       const burned = BigInt(amount);
@@ -588,9 +441,6 @@ export function makeCrossoutUx(deps) {
       throw new Error('crossout-ux: recomputed destCommitment does not match the event -- wrong amount, wrong wallet key, or this settle used an explicit non-default blinding recovery cannot reproduce');
     }
 
-    // A bridge this module already follows past 'settled' is left as it is: this would drop its signed mint and the coin
-    // it reserved, and sign a second pair. Only a record still waiting to settle, or one whose claim was never matched to
-    // the event (the 'check it again' case), is replaced.
     const existing = getRecord(walletPub, ev.nullifier);
     if (existing && existing.stage !== 'settling' && existing.settle && existing.settle.claimIdVerified !== false) return existing;
     const rec = settledRecord({
@@ -601,13 +451,10 @@ export function makeCrossoutUx(deps) {
   }
 
 
-  // The relay fees a settle can have taken from a note of `value`: nothing, or a number of at most two significant digits (the ladder
-  // the fees are quoted on), smallest first. Fewer than a thousand for any note the bridge takes.
   function* feeLadder(value) {
     yield 0n;
     for (let scale = 1n; scale < value; scale *= 10n) for (let d = scale === 1n ? 1n : 10n; d <= 99n; d++) { const f = d * scale; if (f >= value) return; yield f; }
   }
-  // CrossOutRecorded events of the pool from `from` to `to`, in pages (a node that caps a range is asked for half of it).
   async function crossOutLogs(from, to) {
     if (from > to) return [];
     try {
@@ -618,12 +465,6 @@ export function makeCrossoutUx(deps) {
       return [...await crossOutLogs(from, mid), ...await crossOutLogs(mid + 1, to)];
     }
   }
-  // The bridges this key burned that this browser has no record of (another device, storage cleared), found from the key and Ethereum: each
-  // CrossOutRecorded event whose spent note is one of `spent` ({ nullifier, asset, value }: this key's own spent notes, from the pool scan) and whose
-  // destination is the one this key makes for that note less some relay fee. A fee is found by trying the ladder against the event's destination,
-  // so nothing is taken on trust. One the worker already has minted is journaled as arrived and left alone, as is one whose claim is in
-  // `skipClaims` (a note already at the key's Bitcoin address): signing the Bitcoin step again would only cost a fee. One the worker cannot be asked
-  // about is left for the next look. Returns the records made (settled ones go on by themselves; a tick sends their Bitcoin step).
   async function recoverFromKey({ walletPriv, spent = [], skipClaims = [] } = {}) {
     if (!poolAddress) return [];
     const walletPub = secp.getPublicKey(walletPriv, true);
@@ -652,7 +493,7 @@ export function makeCrossoutUx(deps) {
       }
       if (!hit) continue;
       let st = null;
-      try { st = await callWorker('GET', `/crossout/minted?asset=${stripHex(a.assetId)}&claim=${stripHex(ev.claimId)}&txid=${'00'.repeat(32)}`); } catch { /* left for the next look */ }
+      try { st = await callWorker('GET', `/crossout/minted?asset=${stripHex(a.assetId)}&claim=${stripHex(ev.claimId)}&txid=${'00'.repeat(32)}`); } catch { }
       if (!st || st.error) continue;
       const rec = settledRecord({
         id: ev.nullifier, walletPub, a, amount: value - hit.fee, fee: hit.fee, value, destXonly, dest: hit.dest, ev, txHash: l.transactionHash,

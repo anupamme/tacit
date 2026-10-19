@@ -1,19 +1,4 @@
-// What a scan could not see, in the words the tabs show.
-//
-// ux.balance() / ux.recover() / ux.scanStealthLocks() already report the channels that failed, the walks
-// that skipped a transaction and the notes known only from an unauthenticated memo. Nothing rendered any of
-// it, so a scan that lost an endpoint looked exactly like an empty wallet. These are the pure string/HTML
-// helpers every tab uses to say otherwise; no DOM, no network, so they are tested directly
-// (tests/confidential-scan-health.mjs).
-//
-// The case that matters: cBTC and bridge-mint notes have NO memo channel. Key + chain re-derivation is the
-// only way to find them, so one dead esplora or RPC renders a real holding as zero with nothing on screen.
-// Every figure drawn from a scan whose `diag.errors` is non-empty is therefore labelled as possibly partial,
-// naming the channel — calmly, and without ever implying the value itself is at risk. Nothing here changes
-// what is spendable: it only changes what is said about it.
 
-// esc() from confidential-deployments.js, inlined so this module stays importable on its own (the tabs pass
-// nothing in, and the tests import it without the vendor bundle).
 import { shownTicker } from './confidential-deployments.js';
 
 export function escapeHtml(s) {
@@ -21,7 +6,6 @@ export function escapeHtml(s) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-// formatUnits from confidential-payout.js, inlined for the same reason.
 function formatUnits(value, decimals) {
   const v = BigInt(value);
   const neg = v < 0n;
@@ -31,7 +15,6 @@ function formatUnits(value, decimals) {
   return (neg ? '-' : '') + (frac ? `${int}.${frac}` : int);
 }
 
-// One phrase per scan channel, as a user would name it. Keys match `diag.errors` / recover()'s `d.errors`.
 const CHANNEL_LABEL = {
   wrap: 'the deposit scan',
   cbtc: 'the cBTC scan',
@@ -44,8 +27,6 @@ const CHANNEL_LABEL = {
   farm: 'the farm-position scan',
 };
 
-// The two channels with no memo to fall back on: a note of theirs is found from the wallet key and the
-// chain or not at all, so an outage there understates a real balance rather than merely losing a label.
 const KEY_ONLY = { cbtc: 'cBTC', bridge: 'bridged' };
 
 export function channelLabel(key) {
@@ -60,9 +41,6 @@ function joinPhrases(list) {
   return `${a.slice(0, -1).join(', ')} and ${a[a.length - 1]}`;
 }
 
-// Read the `diag` a balance() carries. Returns { ok, channels, keyOnly, truncated, pendingWraps,
-// inboundUnverified, text }. `ok` true means every channel completed — the only case where a figure drawn
-// from this scan is authoritative. `text` is '' when ok.
 export function scanHealth(diag) {
   const d = diag || {};
   const channels = Object.keys(d.errors || {});
@@ -86,27 +64,17 @@ export function scanHealth(diag) {
   return out;
 }
 
-// The same, as the banner the tabs put above a balance or note list. '' when the scan was clean.
 export function scanHealthHtml(diag, { style = 'margin:8px 0;' } = {}) {
   const h = scanHealth(diag);
   if (h.ok) return '';
   return `<div class="warn" style="${escapeHtml(style)}">${escapeHtml(h.text)}</div>`;
 }
 
-// A one-line version for a status element that already holds a count ("3 shielded notes recovered").
 export function scanHealthSuffix(diag) {
   const h = scanHealth(diag);
   return h.ok ? '' : ' — ' + h.text;
 }
 
-// Deposits the pool has recorded but no note has settled from yet — a dropped connection or relay hiccup
-// between the wrap tx (pool.wrap()/routerWrap(), already mined) and its settle proof, never a failure of the
-// deposit itself: the escrow is safe and the note is deterministically recoverable from the same wallet key
-// at the same index (see confidential-pool-ux.js buildWrap/submitWrapSettle). Not just a passive count: this
-// is the one state on a balance screen that means "you have money sitting in limbo," so every tab renders it
-// as its own bordered banner (matching scanHealthHtml's warning weight) with a per-deposit Resume button, not
-// blended into the balance list. Callers still need their own wireResumeWraps (DOM wiring doesn't belong in
-// this no-DOM, no-network module — see the file header) to make the buttons this renders actually do anything.
 export function pendingWrapRowsHtml(diag, ux) {
   const pending = (diag && diag.wrap && diag.wrap.pending) || [];
   if (!pending.length) return '';
@@ -123,18 +91,11 @@ export function pendingWrapRowsHtml(diag, ux) {
     + rows + `</div>`;
 }
 
-// Fires at most once per browser session, across every tab that scans for pending wraps (csend and the pool
-// tab both can), so a wallet with a stuck deposit gets exactly one toast + one persistent notification-bell
-// entry regardless of which surface finds it first or how many times its scan re-runs. sessionStorage (not a
-// module-level flag) is what makes the cross-tab dedup work, since csend and confidential-pool-tab.js are
-// separate lazily-loaded modules with no shared state otherwise. The bell entry is what matters most: it's
-// plain-text, localStorage-backed (tacit-notif-log-v1, 24h TTL — see tacit.js), so it survives a hard refresh
-// even though the live toast's click-to-navigate does not (a function can't survive the bell's JSON persist).
 export function notifyPendingWrapsOnce(diag, notify) {
   const pending = (diag && diag.wrap && diag.wrap.pending) || [];
   if (!pending.length) return;
   const FLAG = 'tacit:pending-wrap-notified-v1';
-  try { if (sessionStorage.getItem(FLAG)) return; sessionStorage.setItem(FLAG, '1'); } catch { /* fall through and notify anyway */ }
+  try { if (sessionStorage.getItem(FLAG)) return; sessionStorage.setItem(FLAG, '1'); } catch { }
   const n = pending.length;
   notify(
     `${n === 1 ? 'A deposit is' : `${n} deposits are`} waiting to become private. Open the Ethereum tab and press Resume to finish.`,
@@ -143,11 +104,6 @@ export function notifyPendingWrapsOnce(diag, notify) {
   );
 }
 
-// ── inbound (memo-only) notes ────────────────────────────────────────────────────────────────────
-// A memo is authenticated by the leaf it opens and nothing else: whoever knows this wallet's scan key can
-// seal one over a note they built and keep its nullifier key. Such a note is spendable and is NOT filtered
-// out anywhere — it is only labelled, so a balance made of them is not read as the wallet's own work.
-
 export const INBOUND_LABEL = 'inbound';
 export const INBOUND_TITLE = 'Known only from a memo sealed to your scan key — spendable as normal, but not re-derived from your key alone, so who created it is unverified.';
 
@@ -155,18 +111,15 @@ export function noteIsInbound(note) {
   return !!(note && note.inboundUnverified);
 }
 
-// The tag that goes next to a note in a list. '' for a key-derived note.
 export function inboundBadgeHtml(note) {
   if (!noteIsInbound(note)) return '';
   return ` <span class="muted" title="${escapeHtml(INBOUND_TITLE)}">· ${escapeHtml(INBOUND_LABEL)}</span>`;
 }
 
-// Plain-text form, for an <option> or a title where markup is not allowed.
 export function inboundBadgeText(note) {
   return noteIsInbound(note) ? ` · ${INBOUND_LABEL}` : '';
 }
 
-// The line under a note list when some of it is inbound. Takes the note array or the count.
 export function inboundSummaryText(notesOrCount) {
   const n = Array.isArray(notesOrCount) ? notesOrCount.filter(noteIsInbound).length : Number(notesOrCount || 0);
   if (!n) return '';
@@ -177,11 +130,6 @@ export function inboundSummaryHtml(notesOrCount) {
   const t = inboundSummaryText(notesOrCount);
   return t ? `<div class="muted" style="margin-top:4px;">${escapeHtml(t)}</div>` : '';
 }
-
-// ── recovery coverage ────────────────────────────────────────────────────────────────────────────
-// recover()'s diagnostics.coverage.complete is false whenever a channel errored OR a walk skipped a
-// transaction it could not read. A partial restore presented as a finished one is the worst answer to give
-// someone rebuilding from a seed, so this names what went unread.
 
 const SKIPPED_LABEL = {
   change: 'change notes',
@@ -217,11 +165,6 @@ export function recoveryCoverageHtml(diagnostics, { style = 'margin:8px 0;' } = 
   const cls = c.complete ? 'info-card' : 'warn';
   return `<div class="${cls}" style="${escapeHtml(style)}">${escapeHtml(c.text)}</div>`;
 }
-
-// ── stealth locks ────────────────────────────────────────────────────────────────────────────────
-// scanLockLeaves distinguishes "the pool confirmed this set" (verified === true) from "the pool's lock
-// state could not be read, so nothing was checked" (null) — and a lock whose memo was unavailable was never
-// trial-decrypted at all, so an empty result is not the same as "nothing is waiting for you".
 
 export function lockScanHealth(scanned) {
   const s = scanned || {};

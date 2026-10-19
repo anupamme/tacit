@@ -1,29 +1,3 @@
-// Deep-link tab pre-activation. Runs synchronously during head parse
-// (the <script src="preboot.js"></script> tag in <head> has no async /
-// defer, so the parser blocks here until execution finishes). Goal:
-// when a user lands on tacit.finance/#tab=market (or any non-wallet
-// tab via deep link), the wallet panel never gets a visible frame
-// before the swap.
-//
-// Lives in its own file (rather than inline) because the dapp's CSP
-// is `script-src 'self' 'wasm-unsafe-eval'` — no 'unsafe-inline'.
-// CSP3 hash-based whitelisting would also work but pinning a hash
-// across edits is brittle, so a same-origin .js file is the simpler
-// choice.
-//
-// Two-stage swap:
-//   1. INSTANT (during head parse, before body parses past the
-//      tab-panel divs): inject a <style> rule with !important to
-//      hide #tab-wallet and show #tab-<target>. Browser applies
-//      new CSS the moment the rule lands, so the wallet panel
-//      never gets a visible frame.
-//   2. POST-DOM (DOMContentLoaded): flip the .active class on the
-//      tab + panel so subsequent JS reading `.tab.active`
-//      / `.tab-panel.active` sees the deep-linked tab as the
-//      source of truth. Then remove the stage-1 override style so
-//      future tab clicks aren't visually clamped by !important.
-// Standalone pages live in their own directories (dapp/<name>/index.html). Asked for without the trailing slash, the
-// host serves this app instead, so those paths go to the page, keeping the query and fragment.
 (function toStandalonePage() {
   var PAGES = ['sats', 'secret-sats', 'ceremony', 'tacit-v1'];
   var m = window.location.pathname.match(/^\/([a-z0-9-]+)$/i);
@@ -32,31 +6,14 @@
   }
 })();
 
-// The wallet only renders as a top-level page. A <meta> CSP cannot carry
-// frame-ancestors, so the check lives here: the page is hidden during head
-// parse and tacit.js does not boot on the same check. Comparing WindowProxy
-// objects never throws cross-origin.
 (function refuseFraming() {
   if (window.top === window.self) return;
   var s = document.createElement('style');
   s.textContent = 'html{display:none!important}';
   document.head.appendChild(s);
-  try { window.top.location.replace(window.self.location.href); } catch (_) { /* sandboxed frame: stay hidden */ }
+  try { window.top.location.replace(window.self.location.href); } catch (_) { }
 })();
 
-// Filter the "Cannot redefine property: ethereum" noise that fires when
-// two wallet browser extensions (MetaMask + Phantom, Phantom + Coinbase
-// Wallet, etc.) both try to define window.ethereum and the second one
-// fails because the first set it as non-configurable. The throw happens
-// inside the extension's inpage.js — not our code, not something we can
-// fix at the source. tacit doesn't read window.ethereum so the failure
-// is functionally harmless, but the red Uncaught TypeError row in
-// devtools makes users think the dapp is broken. Suppress just this
-// specific filename pattern so we don't accidentally swallow real
-// errors from other scripts. Registered up here (top of preboot,
-// before preActivateTabFromHash even runs) so it's installed before
-// most extensions inject their inpage.js — extensions vary on inject
-// timing, this is best-effort.
 (function silenceExtensionEthereumCollision() {
   try {
     window.addEventListener('error', function (e) {
@@ -67,35 +24,12 @@
       e.preventDefault();
       e.stopImmediatePropagation();
     }, true);
-  } catch (_) { /* never break boot */ }
+  } catch (_) { }
 })();
 
-// Clean-path deep links (tacit.finance/market?aid=<assetId> instead of
-// tacit.finance/#tab=market&aid=<assetId>). Translated into the
-// equivalent #tab= hash before preActivateTabFromHash reads it below, so
-// both forms share the one parser and everything downstream in tacit.js
-// (_parseTabHash / _consumeTabUrlHash / _writeTabHash / _writeMarketHash)
-// needs no separate path-aware code. An explicit hash always wins
-// untouched — including a secret-bearing one like #recv=/#claim=/#gate=,
-// which must never move into the path: unlike a hash fragment, a path is
-// sent to the server on every request.
-//
-// The path is a single segment (`/market`), never `/market/<id>`. Every
-// script/font/image reference in this page is a bare relative path
-// (`./tacit.js`, not `/tacit.js`) so the same bytes work unmodified when
-// pinned to IPFS and served from a gateway's own `/ipfs/<cid>/` prefix —
-// there's no fixed site root to anchor a `<base>` tag or root-relative URLs
-// to. A second path segment changes the browser's relative-URL "directory"
-// for the page (`/market/<id>/` instead of `/`), which breaks every one of
-// those bare-relative loads the instant Render's rewrite serves this same
-// index.html at that deeper path. A query string doesn't have that problem
-// — the asset id rides in `?aid=` instead.
 (function normalizePathRoute() {
   try {
     if (window.location.hash) return;
-    // Mirrors _DEEPLINK_TABS in tacit.js, plus 'govern' (deep-links via its
-    // own init-time check rather than that whitelist) — every name here is
-    // a real tab this app can land on.
     var TABS = ['wallet', 'holdings', 'transfer', 'discover', 'market', 'pool',
       'farms', 'etch', 'factory', 'drops', 'claim', 'about', 'mixer',
       'confidential-pool', 'otc', 'cdp', 'csend', 'cswap', 'earn', 'airdrop', 'points', 'govern'];
@@ -108,12 +42,9 @@
     var lane = qs.get('lane') || '';
     var hash = '#tab=' + tab;
     if (/^[0-9a-f]{64}$/i.test(aid)) hash += '&aid=' + aid.toLowerCase();
-    // TAC's Ethereum trading lane (evm-trade-tile.js). Only carried through
-    // alongside a valid aid — tacit.js's _parseTabHash re-validates both anyway,
-    // but there's no point emitting &lane= for a hash with no aid to attach it to.
     if (/^[0-9a-f]{64}$/i.test(aid) && (lane === 'btc' || lane === 'eth')) hash += '&lane=' + lane;
     window.history.replaceState(null, '', window.location.pathname + window.location.search + hash);
-  } catch (e) { /* never break boot on a path parse */ }
+  } catch (e) { }
 })();
 
 (function preActivateTabFromHash() {
@@ -122,7 +53,7 @@
     var target = m && m[1] && m[1].toLowerCase();
     if (target === 'csend') target = 'transfer';
     else if (target === 'cswap' || target === 'otc' || target === 'cdp') target = 'market';
-    else if (target === 'farms') target = 'earn'; // alias only — 'earn' itself now pre-activates directly (it's in the primary nav)
+    else if (target === 'farms') target = 'earn';
     else if (target === 'claim') target = 'wallet';
     else if (target === 'confidential-pool' || target === 'mixer' || target === 'pool') target = 'about';
     if (!target || target === 'wallet') return;
@@ -134,10 +65,6 @@
       '#tab-' + target + '{display:block!important}';
     document.head.appendChild(styleEl);
     document.addEventListener('DOMContentLoaded', function () {
-      // Map child tab → top-level group so we can show the right sub-row.
-      // Kept in sync with TAB_GROUP_OF in tacit.js. The dapp's authoritative
-      // _syncTabChromeFor() runs once tacit.js loads; this is just to avoid
-      // a brief frame where the wrong sub-row is visible above the panel.
       var GROUP_OF = {
         wallet: 'wallet', holdings: 'wallet', points: 'wallet',
         transfer: 'send',
@@ -151,22 +78,18 @@
       var group = GROUP_OF[target] || target;
       var nextPanel = document.getElementById('tab-' + target);
       if (!nextPanel) return;
-      // Panels: only `tab-<target>` active.
       var prevPanel = document.querySelector('.tab-panel.active');
       if (prevPanel) prevPanel.classList.remove('active');
       nextPanel.classList.add('active');
-      // Primary row: only the group's primary active.
       var primaries = document.querySelectorAll('.tabs-primary .tab');
       for (var i = 0; i < primaries.length; i++) {
         if (primaries[i].dataset.group === group) primaries[i].classList.add('active');
         else primaries[i].classList.remove('active');
       }
-      // Sub-rows: show only this group's row.
       var rows = document.querySelectorAll('.tabs.subtabs');
       for (var j = 0; j < rows.length; j++) {
         rows[j].style.display = (rows[j].dataset.group === group) ? '' : 'none';
       }
-      // Within the visible sub-row, mark the active child.
       var subs = document.querySelectorAll('.tabs.subtabs .tab');
       for (var k = 0; k < subs.length; k++) {
         if (subs[k].dataset.tab === target) subs[k].classList.add('active');
@@ -175,5 +98,5 @@
       var pre = document.getElementById('_tacit-preactivate-style');
       if (pre && pre.parentNode) pre.parentNode.removeChild(pre);
     });
-  } catch (e) { /* never break boot on a hash parse */ }
+  } catch (e) { }
 })();

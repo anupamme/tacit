@@ -1,42 +1,33 @@
-// tacit.finance/trade/teth: tETH, private ETH. The pool's totals and its ETH history, the private farms that pair tETH and what a tETH is worth in
-// each, and the one thing the page does itself: make ETH private. A wallet pays the deposit and the relay's tip in one transaction; a Tacit key
-// (opened here from the wallet's signature or a passkey, never stored) builds the note; the relay proves it. What happens to tETH after that
-// (send, swap, farm, bridge to Bitcoin, take out) is done on tacit.finance with the same key, and each button here opens it ready, with the amount.
-//
-// It reads the chain and the API with no wallet, as /trade/tac/ does, and holds no key it was not given: the key lives in this visit's memory.
-import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=a17675b8';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=598b5a23';
+import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=deafdf6c';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=e4659b0e';
 import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=149c5b79';
 import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=de43ba2c';
 import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, proveOwn, ownWords, ownable, relayState, relayStopped, forgetUx, getUx } from '/trade/teth/wrap.js?cb=6b8d342b';
-import { ownPref, setOwnPref, proverFor, readCredit, proofsFor, fundFromWallet, quoteEth, quoteEthFor, fundWithEth, loadSelfProver, tokenBalance } from '/trade/teth/prover.js?cb=af9025c9';
+import { ownPref, setOwnPref, proverFor, readCredit, proofsFor, fundFromWallet, quoteEth, quoteEthFor, fundWithEth, loadSelfProver, tokenBalance } from '/trade/teth/prover.js?cb=1baba054';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
-import { mountDepth } from '/trade/depth.js?cb=6e51e04f';
+import { mountDepth } from '/trade/depth.js?cb=70a80f2f';
 import { candlesFromTrades, closeAt } from '/trade/tape.js?cb=a4aefafb';
 import { readMarket, isActive, bookState, refSats, premium, satsTxt, ladders, idle, bookPrime, summary, fillBars, BTC_ID } from '/trade/teth/market.js?cb=9229f140';
 import { $, esc, now, rpc, fmtUnits, plain, parseUnits, grp, sig, usd, pct, ago, short, E10, E18 } from '/trade/util.js?cb=509d6618';
 
 const ETHBLUE = '#627eea', ORANGE = '#f7931a';
 const SCAN = 'https://etherscan.io/';
-const GAS_RESERVE = 4n * 10n ** 15n;                                                              // ETH kept back for the network fee when a deposit takes the whole balance
+const GAS_RESERVE = 4n * 10n ** 15n;
 const PRESETS = [['0.01 ETH', '0.01'], ['0.05 ETH', '0.05'], ['0.25 ETH', '0.25']];
 
-// ── the state of the page ──
 const D = { pool: null, hist: null, rates: {}, program: null, rows: [], floor: null, held: null, bal: null, btc: null, btcFailed: false };
 let amtTimer = 0;
 const S = { mode: 'get', amt: '', useAmt: '', quote: null, seq: 0, busy: false, range: null, unit: 'eth', chart: 'held', bunit: 'usd', btcAll: false, stuck: null, left: null, cost: null, steps: null, ready: false, ownOnce: null };
 
-const tn = (s) => esc(s).replace(/\b(tETH|cBTC|cUSD)\b/g, '<span class="tn">$1</span>');   // a token's own spelling inside an uppercase label
+const tn = (s) => esc(s).replace(/\b(tETH|cBTC|cUSD)\b/g, '<span class="tn">$1</span>');
 const compact = (x) => (x >= 1e6 ? `$${(x / 1e6).toFixed(x >= 1e7 ? 0 : 1)}M` : x >= 1e3 ? `$${(x / 1e3).toFixed(x >= 1e4 ? 0 : 1)}k` : usd(x));
 const ethUsd = () => D.rates.ethUsd, btcUsd = () => D.rates.btcUsd;
 const toEth = (wei) => Number(wei) / 1e18;
-// An ETH total as shown (rounded, not cut, so the figure here is the one on the chart): fewer digits the larger it is.
 const ethTxt = (wei) => { const x = Math.abs(toEth(wei)); return grp(toEth(wei), x >= 10 ? 1 : x >= 1 ? 2 : x >= 0.1 ? 3 : 4); };
 const aprTxt = (a) => (a == null ? '—' : a >= 10000 ? '10,000%+' : `${Math.round(a).toLocaleString('en-US')}%`);
 const txLink = (h) => `<a href="${SCAN}tx/${esc(h)}" target="_blank" rel="noopener noreferrer">${esc(h.slice(0, 10))}…↗</a>`;
 const say = (t, err = false) => { const s = $('#status'); s.innerHTML = err ? `<span class="err">${t}</span>` : t; };
 
-// ── the head: what a tETH is worth, what the pool holds ──
 function renderHead() {
   const px = ethUsd(), P = D.pool;
   $('#px-usd').textContent = px != null ? usd(px) : 'tETH';
@@ -53,7 +44,6 @@ function renderHead() {
   $('#px-sub').innerHTML = P || px != null ? bits.join('') : '<span class="mute">Reading the pool…</span>';
 }
 
-// Where a tETH sits and what each place says it is worth: the pool's own rate, and the three private pools that pair it (priced by their reserves).
 function renderLanes() {
   const px = ethUsd(), rows = D.rows, cards = [{ name: 'Pool rate', sw: ETHBLUE, v: px, s: '1 ETH', g: 'one for one' },
     ...rows.map((r) => ({ name: `In the ${r.other} pool`, sw: r.other === 'TAC' ? '#f7931a' : r.other === 'cUSD' ? '#16a34a' : '#f7931a', v: r.usd, s: `${sig(r.per, 3)} ${r.other}`, gap: r.gap, g: r.gap != null ? `${pct(r.gap)} vs ETH${Math.abs(r.gap) >= 0.01 ? ' · apart' : ''}` : 'reading' }))];
@@ -71,7 +61,6 @@ function renderLanes() {
   $('#gapnote').textContent = apart >= 0.01 ? 'Each private pool prices tETH from its own reserves, so a small one can sit away from ETH. Swaps happen at its price.' : '';
 }
 
-// ── the chart: the ETH the pool holds, and, once tETH trades on Bitcoin, its price there against ETH's ──
 const chart = mountChart($('#chart'), (h) => paintRead(h));
 const RANGE_WORDS = { 1: 'past day', 7: 'past week', 30: 'past month', 90: 'past 3 months', 0: 'all time' };
 const KINDS = { held: 'ETH held', btc: 'On Bitcoin' };
@@ -139,9 +128,6 @@ function renderChart() {
   $('#chart-note').textContent = `The ETH held by the Tacit pool, from every deposit, withdrawal and public swap. A quiet stretch repeats the last figure, and the right edge is the balance now.${H.exact ? '' : ' The history does not add up exactly, so the last point is the balance.'}`;
 }
 
-// ── tETH on Bitcoin: the order book, or the quiet state until there is one ──
-// With a listing, a bid or a trade, the panel is the TAC page's Bitcoin book (depth, ladders, the last price against ETH's) with a way into the
-// market, which opens in a sheet: its executors are tacit.js's, as for TAC. Without one it is the book's empty shape and ETH's price in sats.
 const btcOn = () => { try { return localStorage.getItem('tacit-trade-btc') !== '0'; } catch { return true; } };
 const depth = mountDepth($('#btc-depth'));
 const setHtml = (el, h) => { if (el.__h !== h) { el.__h = h; el.innerHTML = h; } };
@@ -154,7 +140,7 @@ function renderBtc() {
     return;
   }
   const lines = [m.holders != null ? `<li><b>${grp(m.holders, 0)}</b> holder${m.holders === 1 ? '' : 's'} on Bitcoin${m.transfers ? ` · ${grp(m.transfers, 0)} transfer${m.transfers === 1 ? '' : 's'}` : ''}</li>` : ''];
-  if (bookState(m) === 'unread') {                                                                  // a listing or a bid list that could not be read is not an empty book
+  if (bookState(m) === 'unread') {
     lead.textContent = ''; dep.hidden = true; setHtml(acts, ''); note.textContent = '';
     setHtml(box, '<p class="note">Could not read the Bitcoin order book: its listings or its bids did not answer. Try again in a moment.</p>');
     setHtml(facts, lines.join(''));
@@ -198,14 +184,13 @@ async function openBitcoin(prime = null) {
   } catch (e) { notify(`The Bitcoin market could not be opened: ${e?.message || e}`, 'error', 9000); }
 }
 
-// ── the ticket: make ETH private ──
 const getWei = () => parseUnits(S.amt, 18);
 const spendable = () => (D.bal?.who === W.account ? D.bal.eth : null);
 async function readBalances() {
   const who = W.account;
   if (!who) { D.bal = null; return; }
   const eth = await rpc('eth_getBalance', [who, 'latest']).then((x) => BigInt(x), () => null);
-  if (W.account === who) D.bal = { who, eth };                                                    // read for an account that has since changed: dropped
+  if (W.account === who) D.bal = { who, eth };
 }
 function renderBalance() {
   const b = $('#in-bal'), have = spendable();
@@ -232,10 +217,7 @@ async function requote() {
   if (!wei) { S.quote = null; renderQuote(); renderGo(); return; }
   const issue = wrapIssue(wei);
   if (issue) { S.quote = { wei, issue }; renderQuote(); renderGo(); return; }
-  // Proved with the holder's own credit: no relay tip, so nothing to ask the relay. The settle's network fee is said once read.
   if (ownOn()) { S.quote = { wei, tip: 0n, to: NO_TIP, own: true, floor: D.floor }; renderQuote(); renderGo(); if (!S.cost) fillCost(); return; }
-  // The relay's state is read with its tip: one that proves but is not sending ('held') leaves the settle to the wallet, and the quote says so.
-  // Its tip is then the relay's for a proof alone, since the wallet pays the settle's network fee itself.
   S.quote = { wei, loading: true }; renderQuote(); renderGo();
   try {
     const [q, rs] = await Promise.all([wrapQuote(wei), relayState()]);
@@ -255,7 +237,6 @@ function renderQuote() {
   if (q.issue) { box.innerHTML = `<p class="note err">${esc(q.issue)}</p>`; return; }
   if (q.err) { box.innerHTML = `<p class="note err">${esc(q.err)}</p>`; return; }
   if (q.loading) { box.innerHTML = '<div class="kv"><span>Relay tip</span><b class="mute">reading…</b></div>'; return; }
-  // The wallet sends the settle too where the holder proves it, or the relay proves it and is not sending: its network fee is said once read.
   const thenSettle = () => `, then the settle<span class="mute self-cost-fee">${S.cost ? ` · network fee about ${esc(fmtUnits(S.cost, 18, 5))} ETH` : ''}</span>`;
   if (q.own) {
     box.innerHTML = `<div class="kv"><span>Relay tip</span><b>none: you prove it yourself</b></div>
@@ -272,7 +253,6 @@ function renderQuote() {
     ${q.floor && q.wei < 3n * q.floor ? `<p class="note">Sending or taking out an amount this small later costs about ${esc(fmtUnits(q.floor, 18, 6))} ETH in relay fees.</p>` : ''}`;
   $('#tk-note').innerHTML = noteHtml();
 }
-// Whose key the note will be made for, said before the wallet is asked: the wallet that pays need not be the one that opened the key.
 const ownerText = () => (key.unlocked ? (key.key.address ? `the Tacit wallet of ${short(key.key.address, 4)}` : key.key.label ? `your passkey “${key.key.label}”` : `the Tacit wallet ${short(key.key.pubHex, 4)}`) : 'the Tacit wallet you open next');
 const noteHtml = () => (S.quote?.own
   ? 'Your wallet sends the deposit and the settle. Your Tacit account’s PROVE credit pays Succinct’s prover for the proof. Deposits count toward <a href="/rewards/">TAC points</a>.'
@@ -292,12 +272,9 @@ function renderGo() {
   if (q.own && creditShort()) { go.textContent = 'Add PROVE to prove it yourself'; return; }
   go.textContent = key.unlocked ? 'Make ETH private' : 'Sign in to make ETH private';
 }
-// The steps of a deposit, as they happen. `now` names the one running; those before it are done.
 const STEPS = [['key', 'Open your Tacit wallet'], ['prepare', 'Prepare the deposit, about half a minute'], ['confirm', 'Confirm the deposit in your wallet'], ['landing', 'The deposit lands on Ethereum'], ['proving', 'The relay finishes it, about a minute']];
-// Proved with the holder's own credit: the deposit, then the private input, Succinct's prover, and the settle from the wallet.
 const OWN_STEPS = [...STEPS.slice(0, 4), ['input', 'Prepare the input for Succinct’s prover'], ['asked', 'Succinct’s prover proves it, about half a minute'], ['settle', 'Confirm the settle in your wallet'], ['settling', 'The settle lands on Ethereum']];
 const OWN_FINISH = OWN_STEPS.slice(4);
-// The relay proves it and the wallet sends the settle, for a relay that is not sending settles just now.
 const HELD_STEPS = [...STEPS.slice(0, 4), ['proving', 'The relay proves your note'], ['check', 'The settle is checked before it is sent'], ['settle', 'Confirm the settle in your wallet'], ['settling', 'The settle lands on Ethereum']];
 function paintSteps(now_ = null, { failed = false, all = false } = {}) {
   const el = $('#steps');
@@ -307,7 +284,6 @@ function paintSteps(now_ = null, { failed = false, all = false } = {}) {
   el.innerHTML = list.map(([k, t], i) => `<li data-s="${all ? 'done' : i < at ? 'done' : i === at ? (failed ? 'fail' : 'now') : 'todo'}">${esc(t)}</li>`).join('');
 }
 
-// ── the key and the wallet ──
 const key = makeKeySession({ moved: (why) => { lockKey(); say(why, true); } });
 const connect = makeConnect({
   describe: 'Make ETH private',
@@ -318,14 +294,13 @@ const connect = makeConnect({
 });
 const { wallet, W } = connect;
 document.addEventListener('click', (e) => { if (e.target.id === 'sheet-lock' && !S.busy) { lockKey(); e.target.closest('.bsheet')?.querySelector('.x')?.click(); } });
-// Which of several announced wallets the key is derived with: the one already connected here.
 function pickProvider(list) {
   const mine = wallet.available().find((w) => w.provider === W.prov)?.info?.uuid;
   return mine && list.some((x) => x.uuid === mine) ? mine : list[0]?.uuid;
 }
 const signIn = () => signInSheet(key, { pick: pickProvider });
 function lockKey() {
-  key.lock(); forgetUx(); D.held = null; heldP = null; S.stuck = null; S.left = null; S.askedPending = null; S.ownOnce = null;   // what a retry holds (the note's secrets) goes with the key
+  key.lock(); forgetUx(); D.held = null; heldP = null; S.stuck = null; S.left = null; S.askedPending = null; S.ownOnce = null;
   forgetProver();
   paintSteps(null); say(''); renderTicketAll(); renderFarm();
 }
@@ -333,16 +308,14 @@ key.onChange(() => {
   renderGo(); renderUse(); renderFarm(); renderQuote(); renderWaiting(); if (key.unlocked && D.held?.pub !== key.key.pubHex) loadHeld();
   if (!key.unlocked || O.pub !== key.key.pubHex) forgetProver();
   if (ownOn()) refreshCredit();
-  if (!S.busy && S.quote && !!S.quote.own !== ownOn()) requote();                                   // a key that proves with its own credit quotes no tip
+  if (!S.busy && S.quote && !!S.quote.own !== ownOn()) requote();
   renderOwn();
-});   // a key just opened is read at once: what it already holds, and any deposit waiting
+});
 function renderBalanceAfter() {
   readBalances().then(() => { renderBalance(); renderGo(); }).catch(() => {});
   renderBalance(); renderGo(); renderUse();
 }
 
-// What the key holds: its private tETH, its positions in the farms, and any deposit of its that landed and is waiting for its settle. One read
-// per key at a time (a second ask joins it) unless forced; the result is what was read, or null when the key changed meanwhile.
 let heldSeq = 0, heldP = null, heldFor = null;
 function loadHeld(force = false) {
   if (!key.unlocked) return Promise.resolve(null);
@@ -370,20 +343,17 @@ function renderWaiting() {
   el.innerHTML = `<div class="callout"><span>${esc(fmtUnits(sum, 18, 6))} ETH ${p.length > 1 ? `in ${p.length} deposits is` : 'is'} waiting to become private.</span><button class="btn" type="button" id="finish"${S.busy ? ' disabled' : ''}>Finish</button></div>`;
 }
 
-// The whole of it, from the press: the key if it is not open, then the note, the deposit and the relay's proof. `anyway`: the deposit goes to a
-// relay that is not proving, to wait for it.
 async function press({ anyway = false } = {}) {
   if (!W.account) { await connect.connect(); return; }
   const q = S.quote;
   if (S.busy || S.stuck) return;
-  if (!q || q.wei !== getWei() || q.tip == null) { clearTimeout(amtTimer); requote(); return; }   // pressed while the amount was still being typed: quote it first
+  if (!q || q.wei !== getWei() || q.tip == null) { clearTimeout(amtTimer); requote(); return; }
   if (q.own && creditShort()) { openProverSheet(); return; }
   const from = W.account, hadKey = key.unlocked;
   S.busy = true; S.steps = (q.own ? OWN_STEPS : STEPS).slice(hadKey ? 1 : 0);
   lockTicket(); renderGo(); renderChips(); renderWaiting(); say('');
   let at = null, settled = null, held = false;
   const relayStep = (k, hash) => { at = k === 'sent' ? 'landing' : k; paintSteps(at); if (hash && k === 'sent') say(`Deposit sent ${txLink(hash)}. Waiting for it to land…`); else if (k === 'proving') say(`${hash ? `Deposited ${txLink(hash)}. ` : ''}The relay is finishing it, about a minute…`); else if (k === 'confirm') say('Confirm the deposit in your wallet…'); else if (k === 'prepare') say('Preparing the deposit, about half a minute…'); };
-  // A relay that proves but is not sending (HELD_STEPS): the deposit as above, then the relay's proof, sent from the wallet.
   const heldStep = (k, d) => {
     const s = { proving: 'proving', 'settle-check': 'check', 'settle-confirm': 'settle', 'settle-sent': 'settling' }[k];
     if (!s) { relayStep(k, d); return; }
@@ -397,15 +367,11 @@ async function press({ anyway = false } = {}) {
   try {
     if (!hadKey) {
       paintSteps('key'); at = 'key'; await signIn();
-      // A key just opened is read before it is given a second note: a deposit of its that never finished is the first thing to see.
       const h = await loadHeld();
       if (h?.pending?.length && S.askedPending !== h.pub) { S.askedPending = h.pub; paintSteps(null); say('A deposit of yours is waiting to become private. Press Finish above to complete it, or press the button again to make a new one.'); return; }
-      // The key just opened proves its own notes, or no longer does: what was shown (a relay tip, or none) is not what would be sent.
       if (!!q.own !== ownOn()) { paintSteps(null); requote(); say(ownOn() ? 'This Tacit wallet proves with its own PROVE credit, so the deposit carries no relay tip. Check the amounts and press again.' : 'This Tacit wallet is set to let the relay prove. Check the amounts and press again.'); return; }
     }
     if (W.account !== from) throw new Error('Your wallet switched accounts. Nothing was sent. Try again.');
-    // What the relay can do, read before the deposit. One that is not proving is said first, with the holder's own credit or the deposit anyway; one
-    // that proves but is not sending has the wallet send the settle, as the quote said (a quote that did not say so is read again first).
     if (!q.own) {
       const rs = await relayState();
       if (relayStopped(rs) && !anyway) { paintSteps(null); say(PAUSED_CHOICE); return; }
@@ -413,7 +379,6 @@ async function press({ anyway = false } = {}) {
       if (held && !q.held) { paintSteps(null); requote(); say('The relay can’t send this one right now, so your wallet sends the settle and pays its network fee. Check the amounts and press again.'); return; }
       if (held) S.steps = HELD_STEPS.slice(hadKey ? 1 : 0);
     }
-    // Its own credit is read before the deposit: one it cannot prove is not made.
     let prover = null;
     if (q.own) {
       prover = await ensureProver();
@@ -432,10 +397,7 @@ async function press({ anyway = false } = {}) {
   } catch (e) { if (e?.deposit) S.ownOnce = null; fail(e, at, q); }
   finally { S.busy = false; lockTicket(); renderGo(); renderChips(); renderWaiting(); renderOwn(); readBalances().then(() => { renderBalance(); renderGo(); }).catch(() => {}); if (q.own) refreshCredit(); }
 }
-// A relay that is not proving, said before the deposit: this wrap is proved with the holder's own credit, or the deposit goes anyway and waits for it.
 const PAUSED_CHOICE = 'The relay isn’t proving right now. <button class="linkbtn" type="button" id="own-now">Prove it with your own credit</button> or <button class="linkbtn" type="button" id="anyway">deposit anyway</button>: it goes through once the relay is back, or you finish it from your wallet.';
-// "Prove it with your own credit": this wrap only goes the holder's own way (no relay tip, and the wallet sends the settle), after the fund sheet when
-// the credit is short. The switch in the sheet keeps the choice for later wraps.
 async function ownNow() {
   if (S.busy || !key.unlocked) return;
   S.ownOnce = key.key.pubHex; say(''); renderOwn(); requote();
@@ -443,7 +405,6 @@ async function ownNow() {
   if (!ownOn() || S.busy) return;
   if (O.credit == null || creditShort()) openProverSheet(); else press();
 }
-// A note shows in a scan a moment after its settle: look again a few times before leaving it. `done(held)` says when it has.
 async function loadHeldUntil(done) {
   for (let i = 0; i < 6; i++) {
     const h = await loadHeld(true);
@@ -451,16 +412,12 @@ async function loadHeldUntil(done) {
     await new Promise((r) => setTimeout(r, 5000));
   }
 }
-// A deposit that is on its way or in, and then a step failed: it is never asked for again. What is left is the relay's half (asked again for the
-// same note, or finished from the key, here or on tacit.finance), and the form is cleared so the deposit cannot be made twice by a press.
 function fail(e, at, q) {
   if (e instanceof Cancelled || e?.unlockCancelled) { paintSteps(null); say(''); return; }
-  // A settle stopped in the wallet after the deposit landed leaves the deposit waiting, as any other failure of its settle does.
   const dep = e?.deposit, stopped = e instanceof UserStopped || !!e?.userStopped;
   if (stopped && !dep?.landed) { paintSteps(null); say(esc(e.message), false); return; }
   paintSteps(at, { failed: true });
   if (dep) {
-    // A deposit made to be proved with the holder's own credit stays so before it has landed too: it carries no relay tip.
     const own = !!dep.own || !!q?.own;
     S.stuck = { ...dep, wei: q.wei, open: e.open || null, self: !own && !!dep.landed && (stopped || selfable(e)), own };
     S.amt = ''; $('#amt').value = ''; S.quote = null; S.seq++; renderQuote(); renderChips(); keepInHash();
@@ -471,9 +428,6 @@ function fail(e, at, q) {
   }
   say(q?.own ? `${esc(ownWords(e))}${e?.code === 'prover_credit' ? ' <button class="linkbtn" type="button" id="ps-open">Add PROVE</button>' : ''}` : esc(relayWords(e)), true);
 }
-// What a deposit that is in, but not yet a note, can do next. A proof of the holder's own that failed offers another (and Add PROVE when the credit
-// was short) or the relay; a relay that could not prove offers the holder's own credit; a relay that would not send offers the wallet. A relay that
-// is not proving offers the holder's own credit first, and the wallet only where it still proves.
 const OWN_OFFER = ' Or <button class="linkbtn" type="button" id="own">prove it with your own credit</button>.';
 function stuckText(e, st) {
   const amt = esc(fmtUnits(st.wei, 18, 6));
@@ -488,8 +442,6 @@ function stuckText(e, st) {
   if (st.self) return `<span class="err">${esc(relayWords(e))}</span><br>${where} There is no need to send it again. ${selfOffer('Finish it from your wallet', 'self')} Or <button class="linkbtn" type="button" id="retry" data-relay="1">ask the relay again</button>, or finish it on tacit.finance’s Private ETH tab with the same Tacit wallet.${own}`;
   return `<span class="err">${esc(relayWords(e))}</span><br>${where} There is no need to send it again: <button class="linkbtn" type="button" id="retry">Finish it now</button>, or finish it on tacit.finance’s Private ETH tab with the same Tacit wallet.${own}`;
 }
-// Finishing from the wallet: settle() is open to any account, so the connected wallet can send the relay's proof itself and pay the network fee.
-// The fee is said before it is asked for: a wrap's settle gas at the price now, filled in once read.
 const walletName = () => (W.account && W.name ? W.name : 'Your wallet');
 const costTxt = () => (S.cost ? ` (about ${fmtUnits(S.cost, 18, 5)} ETH)` : '');
 const selfOffer = (label, id) => `<button class="linkbtn" type="button" id="${id}">${esc(label)}</button>: ${esc(walletName())} pays the network fee<span class="self-cost">${esc(costTxt())}</span>.`;
@@ -505,7 +457,6 @@ function selfSteps(set) {
     else if (k === 'sent') say(`Settle sent ${txLink(hash)}. Waiting for it to land…`);
   };
 }
-// A deposit sent but not yet confirmed is waited on again before anything else. → true once it has landed.
 async function landing(st) {
   if (st.landed) return true;
   S.busy = true; S.steps = STEPS.slice(3); lockTicket(); renderGo();
@@ -517,8 +468,6 @@ async function landing(st) {
   } catch (e) { paintSteps('landing', { failed: true }); say(stuckText(e, st)); return false; }
   finally { S.busy = false; lockTicket(); renderGo(); }
 }
-// Check again, or Finish it now: the deposit settled the way it was made. One made to be proved with the holder's own credit (it carries no relay
-// tip), or any while the switch is on, is proved that way (runOwn); the relay is asked only when it was named (`relay`) or proves the rest.
 async function retry({ relay = false } = {}) {
   const st = S.stuck;
   if (!st || S.busy || !(await landing(st))) return;
@@ -537,7 +486,6 @@ async function retry({ relay = false } = {}) {
   }
   finally { S.busy = false; lockTicket(); renderGo(); }
 }
-// The relay's proof, sent from the connected wallet: the job it holds if it has proved it, or a proof asked for now.
 async function runSelf() {
   const st = S.stuck;
   if (!st?.landed || S.busy) return;
@@ -557,8 +505,6 @@ async function runSelf() {
   }
   finally { S.busy = false; lockTicket(); renderGo(); }
 }
-// The deposit proved on the holder's own credit and its settle sent from the wallet: offered where a proof of its own failed, and where the relay
-// could not prove it.
 async function runOwn() {
   const st = S.stuck;
   if (!st?.landed || S.busy || !key.unlocked) return;
@@ -578,7 +524,6 @@ async function runOwn() {
   }
   finally { S.busy = false; lockTicket(); renderGo(); refreshCredit(); }
 }
-// Finish: each waiting deposit settled again, by the relay, or proved with the holder's own credit and sent from the wallet when that is on.
 async function runFinish({ relay = false } = {}) {
   if (S.busy || !key.unlocked) return;
   const p = S.left && relay ? S.left : D.held?.pending || [];
@@ -597,8 +542,6 @@ async function runFinish({ relay = false } = {}) {
   } catch (e) { paintSteps(null); say(`${esc(own ? ownWords(e) : relayWords(e))} ${KEPT}`, true); }
   finally { S.busy = false; lockTicket(); renderGo(); if (own) refreshCredit(); await loadHeldUntil((h) => !(h.pending || []).length); }
 }
-// A relay that is not proving, read before Finish would wait on it: the holder's own credit is offered instead, and the wallet where the relay still
-// proves. True when it was said.
 async function relayAside(p) {
   S.busy = true; lockTicket(); renderGo(); renderWaiting();
   const rs = await relayState();
@@ -610,10 +553,6 @@ async function relayAside(p) {
   return true;
 }
 const KEPT = 'It is still in the Tacit pool: press Finish again, or finish it on tacit.finance’s Private ETH tab with the same Tacit wallet. There is no need to send it again.';
-// What Finish could not do, and what is offered for the rest. `via` is how it was tried: 'relay', 'wallet' (the relay's proof, sent from the
-// wallet) or 'own' (proved on the holder's own credit). A refusal the wallet can end offers the wallet; after a try from the wallet that stays unless
-// the relay has no proofs left today; where the relay could not prove, the holder's own credit is offered; after a proof of its own failed, another
-// (Add PROVE first when the credit was short) or the relay.
 function finishFailed(done, err, via = 'relay') {
   const lead = `${done ? `${done} settled; another did not: ` : ''}`;
   if (via === 'own') {
@@ -627,7 +566,6 @@ function finishFailed(done, err, via = 'relay') {
   if (!wallet && !own) S.left = null;
   if (wallet) fillCost();
 }
-// What Finish left, proved on the holder's own credit and sent from the wallet.
 async function runOwnPending() {
   const left = S.left;
   if (!left?.length || S.busy || !key.unlocked) return;
@@ -643,7 +581,6 @@ async function runOwnPending() {
   } catch (e) { paintSteps(null); say(`${esc(ownWords(e))} ${KEPT}`, true); }
   finally { S.busy = false; lockTicket(); renderGo(); renderWaiting(); refreshCredit(); await loadHeldUntil((h) => !(h.pending || []).length); }
 }
-// What Finish left, settled from the connected wallet: each deposit rebuilt from the key, with the relay's proof of it sent by the wallet.
 async function runSelfPending() {
   const left = S.left;
   if (!left?.length || S.busy || !key.unlocked) return;
@@ -659,14 +596,10 @@ async function runSelfPending() {
   finally { S.busy = false; lockTicket(); renderGo(); renderWaiting(); await loadHeldUntil((h) => !(h.pending || []).length); }
 }
 
-// ── proving it yourself ──
-// The holder's Tacit account can pay for its own proofs with PROVE credit on Succinct's prover network (prover.js): the deposit's note then goes as a
-// private input to Succinct's own prover only, and the wallet sends the settle. A switch per key turns it on; a sheet shows the prover account, its
-// credit, and adds PROVE from the connected wallet.
-const NO_TIP = '0x0000000000000000000000000000000000000000';                                         // a deposit with no tip names no recipient
+const NO_TIP = '0x0000000000000000000000000000000000000000';
 const O = { pub: null, prover: null, unavailable: null, loading: false, err: null, credit: null, need: null, held: null, waiting: 0, sheet: null,
   f: { mode: 'prove', amt: '2', quote: null, seq: 0, timer: 0, wprove: null, msg: '' } };
-const ownOn = () => key.unlocked && (ownPref(key.key.pubHex) || S.ownOnce === key.key.pubHex);   // the switch, or this wrap only (ownNow)
+const ownOn = () => key.unlocked && (ownPref(key.key.pubHex) || S.ownOnce === key.key.pubHex);
 const fmtP = (wei, d = 2) => fmtUnits(wei, 18, d);
 const creditShort = () => O.pub === key.key?.pubHex && O.credit != null && O.need != null && O.credit < O.need;
 function forgetProver() { O.pub = null; O.prover = null; O.credit = O.need = O.held = null; O.err = null; O.waiting = 0; O.f.quote = null; O.sheet?.close(); }
@@ -689,13 +622,12 @@ function refreshCredit() {
     O.loading = true; renderOwn();
     try {
       const c = await readCredit(await ensureProver()); setCredit(c); O.err = c.credit == null ? 'Could not read your credit.' : null;
-      if (O.waiting && O.credit != null && O.credit > (O.waitFrom ?? 0n)) O.waiting = 0;                   // the new credit has shown
+      if (O.waiting && O.credit != null && O.credit > (O.waitFrom ?? 0n)) O.waiting = 0;
     }
     catch (e) { O.err = e.message || 'Could not read your prover account.'; }
     finally { O.loading = false; creditP = null; renderOwn(); renderGo(); }
   })());
 }
-// New credit shows on the network a few minutes after its deposit: read it again every 20 seconds, for up to six minutes or until it has grown.
 function pollCredit(before) {
   const until = Date.now() + 6 * 60e3, pub = O.pub;
   O.waiting = until; O.waitFrom = before; renderOwn();
@@ -707,9 +639,8 @@ function pollCredit(before) {
   };
   setTimeout(tick, 20e3);
 }
-// The progress of a proof of the holder's own, in the steps of OWN_STEPS. `set(at)` follows the step; `onSettle(hash)` gets the settle's hash.
 function ownSteps(set, onSettle = () => {}) {
-  S.pubInput = false;                                                         // this run's proof went with a public input
+  S.pubInput = false;
   return (k, d) => {
     const at = { prepare: 'prepare', confirm: 'confirm', sent: 'landing', proving: 'input', input: 'input', stage: String(d || '').split(':')[0] === 'proved' ? 'settle' : 'asked', 'settle-check': 'settle', 'settle-confirm': 'settle', 'settle-sent': 'settling' }[k];
     if (at) { set(at); paintSteps(at); }
@@ -718,7 +649,6 @@ function ownSteps(set, onSettle = () => {}) {
     else if (k === 'sent') say(`Deposit sent ${txLink(d)}. Waiting for it to land…`);
     else if (k === 'proving' || k === 'input') say('Preparing the private input…');
     else if (k === 'stage') {
-      // 'stage:public': Succinct's network was refusing private inputs, so the input went as a public one (self-prover.js).
       const [s, pub] = String(d || '').split(':');
       if (pub) S.pubInput = true;
       if (pub && s === 'uploading') say('Succinct’s network isn’t taking private inputs right now, so this one goes with a public input, which anyone can read…');
@@ -729,7 +659,6 @@ function ownSteps(set, onSettle = () => {}) {
     else if (k === 'settle-sent') { onSettle(d); say(`Settle sent ${txLink(d)}. Waiting for it to land…`); }
   };
 }
-// The line in the ticket that says who proves the deposit, and opens the sheet.
 function renderOwn() {
   const on = ownOn(), n = on && O.pub === key.key?.pubHex ? proofsFor(O.prover?.sp, O.credit, O.need) : null;
   $('#prover-line').innerHTML = `<div class="kv"><span>Proved by</span><b>${on ? `your own PROVE credit${creditShort() ? ' <span class="warn">(not enough for a proof)</span>' : n != null ? `, enough for about ${grp(n, 0)} proof${n === 1 ? '' : 's'}` : ''}` : 'Tacit’s relay'} · <button class="linkbtn" type="button" id="ps-open">${on ? 'Change' : 'Prove it yourself'}</button></b></div>`;
@@ -781,10 +710,8 @@ const psAmt = () => parseUnits(O.f.amt, 18) || 0n;
 async function readWalletProve() {
   const who = W.account;
   if (!who) { O.f.wprove = null; return; }
-  try { const sp = await loadSelfProver(); const v = await tokenBalance(sp, who); if (W.account === who) { O.f.wprove = v; renderSheet(); } } catch { /* the balance line stays empty */ }
+  try { const sp = await loadSelfProver(); const v = await tokenBalance(sp, who); if (W.account === who) { O.f.wprove = v; renderSheet(); } } catch { }
 }
-// Quick sizes for the ETH route: the ETH that makes the credit enough for 1, 5 or 20 proofs, worked out from zQuoter's price. Only the sizes the
-// credit does not already cover are offered. A first request needs `need` on hand and each one after it spends about PROVE_PER_PROOF.
 const SIZES = [1, 5, 20];
 const proveFor = (sp, need, n) => { const per = BigInt(Math.round((sp?.PROVE_PER_PROOF || 0.4) * 1e18)); return (need ?? per) + BigInt(n - 1) * per; };
 const proofsWord = (n) => `${grp(n, 0)} proof${n === 1 ? '' : 's'}`;
@@ -865,8 +792,6 @@ function renderSheet() {
   $s('#ps-status').innerHTML = O.f.msg;
 }
 const psSay = (html, err = false) => { O.f.msg = !html ? '' : err ? `<span class="err">${html}</span>` : html; renderSheet(); };
-// PROVE into the Tacit account's credit from the connected wallet (prover.js): from its PROVE, or ETH swapped to PROVE. Each transaction is tried
-// first; the credit is read again until the network shows it.
 async function runFund() {
   if (!W.account) { await connect.connect(); readWalletProve(); return; }
   if (!key.unlocked || S.busy) return;
@@ -897,9 +822,8 @@ document.addEventListener('click', (e) => {
   else if (id === 'finish-relay') runFinish({ relay: true });
 });
 
-// ── use tETH: where it goes next, each a link that opens it ready on tacit.finance ──
 function useLinks() {
-  const a = parseUnits(S.useAmt, 8), amt = a ? `&amt=${plain(a, 8)}` : '';                     // as the front page's own regex reads an amount
+  const a = parseUnits(S.useAmt, 8), amt = a ? `&amt=${plain(a, 8)}` : '';
   const tac = D.rows.find((r) => r.other === 'TAC'), fee = D.floor ? `about ${fmtUnits(D.floor, 18, 5)} ETH` : 'small';
   return [
     ['/#private/send', 'Send it privately', 'To a Tacit address or a name. The chain shows neither the amount nor the recipient.'],
@@ -934,9 +858,6 @@ function setMode(m) {
 }
 function renderTicketAll() { renderChips(); renderBalance(); renderQuote(); renderGo(); renderUse(); renderWaiting(); }
 
-// ── the farms: the pools that pair tETH, as the front page's Farm sheet lists them ──
-// Each row says what the sheet's does: the pool, how deep it is, what it pays a day and the APR now, and (with a key open) what the key has in it.
-// Joining, harvesting and exiting are the sheet's: each farm opens there, where the notes are cut, swapped and bonded step by step.
 function renderFarm() {
   const p = D.program, e = p?.epoch, rows = D.rows, px = ethUsd(), tacUsd = D.rates.tacEth && px ? D.rates.tacEth * px : null;
   if (!p) { $('#fm-stats').innerHTML = '<p class="note">Reading the farms…</p>'; return; }
@@ -950,7 +871,6 @@ function renderFarm() {
   const icon = (k) => `<svg class="tk sm" aria-hidden="true"><use href="#tk-${k}"/></svg>`;
   const mine = key.unlocked && D.held?.pub === key.key.pubHex ? positionsIn(rows, D.held.positions) : new Map();
   const dp = (r) => (r.other === 'cBTC' ? 6 : 2), amt = (x, d) => (x < 0.01 && x > 0 ? 'under 0.01' : grp(x, d));
-  // The share of a pool that is farmed, whole except at the ends: a pool with some farmed is not "0%", nor one a little short of all "100%".
   const farmedPct = (f) => { const p = f * 100; return p > 0 && p < 1 ? 'under 1%' : p >= 99.5 && p < 99.95 ? `${p.toFixed(1)}%` : `${Math.round(p)}%`; };
   $('#pools').innerHTML = rows.map((r) => {
     const m = mine.get(r.pid);
@@ -962,7 +882,6 @@ function renderFarm() {
   $('#fm-note').innerHTML = `Join, harvest and exit on tacit.finance. ${!key.unlocked ? '<button class="linkbtn" type="button" id="fm-signin">Sign in to see yours</button>' : heldHere && D.held.loading ? 'Reading your positions…' : heldHere && D.held.positions == null && !D.held.err ? 'Could not read your positions.' : ''}`;
 }
 
-// ── what moved: every ETH movement into and out of the pool ──
 function renderMoves() {
   const H = D.hist, body = $('#moves tbody');
   if (!H) return;
@@ -973,7 +892,6 @@ function renderMoves() {
   $('#moves-note').textContent = 'ETH in and out of the pool: deposits, withdrawals and public swaps. Whose it is stays private.';
 }
 
-// ── about ──
 function renderAbout() {
   const P = D.pool, link = (a, t) => `<a href="${SCAN}address/${a}" target="_blank" rel="noopener noreferrer">${t || `${a.slice(0, 8)}…${a.slice(-6)}`}</a>`;
   $('#about').innerHTML = `<p><b>tETH</b> is private ETH: put ETH in the Tacit pool and hold the same amount as tETH. The chain shows neither what you hold nor who you pay. Take it out any time, less the relay’s fee.</p>
@@ -996,7 +914,6 @@ function renderAbout() {
   $('#facts-more').innerHTML = more.map(li).join('');
 }
 
-// ── reading ──
 async function loadFront() { const p = await readPool(false); if (p) D.pool = p; }
 async function loadWhole() {
   const p = await readPool(true);
@@ -1007,19 +924,17 @@ async function loadWhole() {
 }
 async function loadRates() { D.rates = { ...D.rates, ...(await readRates()) }; }
 async function loadFarms() { const p = await readProgram(); if (p?.epoch) D.program = p; D.rows = poolRows(D.program, D.rates); }
-// A read that lost the listings or the bids does not replace a book that had them: it is shown as it was until a read gets both again.
 async function loadMarket() {
   const m = await readMarket(), was = D.btc;
   if (m) D.btc = (!m.book || !m.bidsRead) && was?.book && was.bidsRead ? { ...m, book: was.book, bidsRead: true } : m;
   D.btcFailed = !D.btc;
 }
-async function loadFloor() { try { D.floor = (await wrapQuote(10n ** 17n)).floor; } catch { /* the line says "small" */ } }
+async function loadFloor() { try { D.floor = (await wrapQuote(10n ** 17n)).floor; } catch { } }
 function paintAll() { renderHead(); renderLanes(); renderChart(); renderBtc(); renderFarm(); renderMoves(); renderAbout(); if (S.mode === 'use') renderUse(); renderQuote(); renderGo(); }
 
-// ── wiring ──
 $('#amt').addEventListener('input', (e) => { S.amt = e.target.value; renderGo(); clearTimeout(amtTimer); amtTimer = setTimeout(() => { requote(); keepInHash(); }, 250); $('.p-ticket').classList.add('stale'); renderChips(); });
 $('#amt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('#go').disabled) $('#go').click(); });
-$('#amt').addEventListener('focus', () => { getUx().catch(() => {}); }, { once: true });                 // the pool module takes a moment to load: start it while the amount is typed
+$('#amt').addEventListener('focus', () => { getUx().catch(() => {}); }, { once: true });
 $('#chips').addEventListener('click', (e) => { const b = e.target.closest('[data-amt]'); if (!b || S.busy) return; S.amt = b.dataset.amt; $('#amt').value = S.amt; renderChips(); requote(); keepInHash(); });
 $('#in-bal').addEventListener('click', () => {
   const have = spendable();
@@ -1070,7 +985,6 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#hint
 }
 
 renderChips(); renderQuote(); renderGo(); renderAbout(); renderLanes(); renderBtc(); renderOwn();
-// The pool's history is read with the page, not after the farms, the rates and the relay's quote: it is the slowest thing the page waits on and needs none of them.
 const whole = loadWhole().catch(() => {});
 whole.then(() => { S.histFailed = !D.hist; renderChart(); renderMoves(); renderHead(); });
 Promise.allSettled([loadMarket().then(() => { renderBtc(); renderLanes(); renderChart(); }), loadFront().then(renderHead), loadRates().then(() => { renderHead(); renderLanes(); renderQuote(); return loadFarms(); }).then(paintAll), loadFloor().then(() => { renderAbout(); renderUse(); })]).then(() => {

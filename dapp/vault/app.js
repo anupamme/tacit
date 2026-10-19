@@ -1,9 +1,3 @@
-// tacit.finance/vault: borrow TAC Dollar or TAC Ether against TAC; /vault/#btc is the same page's Bitcoin side (btc.js), loaded when it is shown.
-//
-// Every figure here is read from the vault contracts (one Multicall3 batch for both vaults and the account), and the page's arithmetic is the
-// contract's own (math.js): what it shows as the room to borrow, the limit for this account, the amount to add to reach 400% and the price a vault is
-// liquidated at are the numbers the contract will test, rounded the safe way. A person's vault is the chain's, not this browser's: nothing about it
-// is kept here, so the same account shows the same vault anywhere. The wallet never gives up a key; each action is tested once with eth_call before it is sent.
 import { DEPLOYMENTS } from '/vault/deployments.js?cb=4af96594';
 import * as M from '/vault/math.js?cb=ac1ed53e';
 import {
@@ -12,9 +6,9 @@ import {
 } from '/vault/chain.js?cb=2fb15a49';
 import { makeFeed, RECORD_GAS, PER_TX, encBatch, MULTICALL3 } from '/vault/feed.js?cb=0120cee0';
 import { batchSupport, simulateBundle, sendBundle, readMixed } from '/vault/batch.js?cb=0df7601f';
-import { makePools } from '/vault/pools.js?cb=5a53ae6c';
+import { makePools } from '/vault/pools.js?cb=8d6fabbd';
 import { ROUTER_SEL, encRouterRecords, encRouterBorrow, encRouterWithdraw, encRouterDeposit, encRouterRepay, encRouterPermitSynth, borrowTyped, withdrawTyped } from '/vault/router.js?cb=21df6509';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=598b5a23';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=e4659b0e';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -22,37 +16,29 @@ const now = () => Math.floor(Date.now() / 1000);
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
 const short = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const KIND = { usd: { name: 'TAC Dollar', sym: 'TACD', dp: 2, price: (t) => `$${t}` }, eth: { name: 'TAC Ether', sym: 'TACE', dp: 4, price: (t) => `${t} ETH` } };
-const icon = (key) => `<svg class="tk" aria-hidden="true"><use href="#tk-${key === 'usd' ? 'tacd' : 'tace'}"/></svg>`;   // the token's mark, in TAC's colours
+const icon = (key) => `<svg class="tk" aria-hidden="true"><use href="#tk-${key === 'usd' ? 'tacd' : 'tace'}"/></svg>`;
 const ACTS = [['deposit', 'Deposit'], ['borrow', 'Borrow'], ['repay', 'Repay'], ['withdraw', 'Withdraw']];
 
-// ── which vaults ──
-// The addresses are the deployments module's. A page on this computer (localhost) may be pointed at vaults of a local chain with #vusd= and #veth=
-// (tests only): on the real host the address bar chooses nothing but the vault shown, the account looked at and the action.
 const params = () => new URLSearchParams(location.hash.replace(/^#/, ''));
 const LOCAL = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
-// A vault's hint (see deployments.js) when it names its four addresses, else none.
 const hintOf = (h) => (h && ['tac', 'synth', 'oracle', 'feed'].every((k) => ADDR.test(h[k] || '')) ? Object.fromEntries(['tac', 'synth', 'oracle', 'feed'].map((k) => [k, h[k].toLowerCase()])) : null);
 const VS = (() => {
   let list = DEPLOYMENTS.vaults.filter((v) => KIND[v.key] && ADDR.test(v.vault)).map((v) => ({ key: v.key, addr: v.vault, hint: hintOf(v.hint) }));
   if (LOCAL) {
-    // a page on this computer may give a vault's hint too (#husd=tac,synth,oracle,feed; tests only)
     const p = params(), over = ['usd', 'eth'].filter((k) => ADDR.test(p.get(`v${k}`) || '')).map((k) => { const [tac, synth, oracle, feed] = (p.get(`h${k}`) || '').split(','); return { key: k, addr: p.get(`v${k}`), hint: hintOf({ tac, synth, oracle, feed }) }; });
     if (over.length) list = over;
   }
   return list.map((v) => ({ ...v, s: null, d: null }));
 })();
 
-// The router (see router.js), when one is deployed for these vaults; a page on this computer may name one with #router= (tests only).
 const ROUTER = (() => { const a = LOCAL && ADDR.test(params().get('router') || '') ? params().get('router') : DEPLOYMENTS.router; return ADDR.test(a || '') ? a : null; })();
 
 const S = { v: VS[0]?.key, t: 'borrow', pre: true, batchOk: false, batchFor: null, routerFor: null, routerOff: false, routerSettled: false, batchBusy: false, amt: '', view: null, busy: false, seq: 0, chainT: 0, chainAt: 0, loaded: false, failed: false, more: false };
-const BOOT = now();                                                                                // when the page started: how long a check of what the wallet can do may be waited for
-const MORE_KEY = 'tacit-vault-more';                                                                // whether the board shows its further figures, kept in this browser
-try { S.more = localStorage.getItem(MORE_KEY) === '1'; } catch { /* storage is a convenience */ }
-// The connected wallet's own node. An injected wallet on Ethereum answers reads from the provider it already has, so it is asked first for the old headers and proofs the
-// price feed needs (which the public nodes ration) and last for everything else. A WalletConnect session is left out: it would send each read on to the phone.
+const BOOT = now();
+const MORE_KEY = 'tacit-vault-more';
+try { S.more = localStorage.getItem(MORE_KEY) === '1'; } catch { }
 const WALLET_READS = new Set(['eth_call', 'eth_blockNumber', 'eth_getBlockByNumber', 'eth_getProof', 'eth_getTransactionReceipt', 'eth_gasPrice']);
-let walletNow = null;                                                                               // the wallet's state, once it exists
+let walletNow = null;
 const walletNode = (order) => ({
   id: 'wallet', timeout: 8e3, ...order,
   usable: (m) => !!walletNow?.prov && !walletNow.prov.isWalletConnect && walletNow.chain === '0x1' && WALLET_READS.has(m),
@@ -61,33 +47,26 @@ const walletNode = (order) => ({
 const rpc = makeRpc([...RPCS, walletNode({ last: true })]);
 const { ethCall, batch } = makeReader(rpc);
 const cur = () => VS.find((v) => v.key === S.v) || null;
-// Time on the chain's clock: a computer whose clock is off would otherwise send a permit that has already expired.
 const chainNow = () => (S.chainT ? S.chainT + (now() - S.chainAt) : now());
 const chainDeadline = (s) => BigInt(chainNow() + s);
 
-// ── the wallet ──
-// The chip, the picker, WalletConnect's sheets and the account sheet are the trade pages' (trade/connect.js). The page hears of a restored or changed account through onChange.
 const connect = makeConnect({
   describe: 'Borrow against TAC', name: 'tacit borrow', rpc,
   busy: () => S.busy,
   say: (t) => say(t),
-  onChange: () => { detectBatch(); if (side === 'tac') pools.read(); if (S.busy || side !== 'tac') return; if (!S.view) { refresh(); } else renderAll(); },   // a transaction in flight keeps the account it was made for: the wallet module refuses to send for another
+  onChange: () => { detectBatch(); if (side === 'tac') pools.read(); if (S.busy || side !== 'tac') return; if (!S.view) { refresh(); } else renderAll(); },
   restore: false,
 });
 const { wallet, W } = connect;
 const connectWallet = connect.connect, renderChip = connect.renderChip;
 walletNow = W;
 const sameAddr = (a, b) => !!a && !!b && String(a).toLowerCase() === String(b).toLowerCase();
-// The account whose vault is shown: the one in the address bar (read only), else the connected wallet's.
 const who = () => S.view || W.account || null;
 const canAct = () => !!W.account && sameAddr(W.account, who());
-// A time on the chain's clock as a reader's date, for an announcement that lands days away.
 const onDay = (t) => new Date(t * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' }).replace(',', '') + ' UTC';
 const txLink = (h) => `<a href="https://etherscan.io/tx/${esc(h)}" target="_blank" rel="noopener noreferrer">${esc(h.slice(0, 10))}…↗</a>`;
 const say = (t, kind = 'trade') => { const s = $('#status'); s.innerHTML = t; s.dataset.kind = kind; };
 
-// ── where the tokens sell ──
-// The Precision pools of each vault's token (pools.js): the panel under the board, and a row on it. A page on this computer may name the USDC token (#usdc=; tests only).
 const POOLS = (() => {
   const c = DEPLOYMENTS.pools;
   if (!c || !LOCAL) return c || null;
@@ -99,7 +78,6 @@ const pools = makePools({
   synthOf: (key) => VS.find((v) => v.key === key)?.synth || null, symOf: (key) => KIND[key].sym,
 });
 
-// The one line under the title that says what the liquidity campaign pays (nothing is shown while the points service says nothing).
 function renderPromo() {
   const el = $('#promo');
   if (!el) return;
@@ -108,14 +86,9 @@ function renderPromo() {
   if (t) setHtml(el, `${t} <button class="linkbtn" type="button" data-to-pools>See the markets ↓</button>`);
 }
 
-// ── reading the vaults ──
-// Both vaults and the account in one batch. A view that has no price to give fails inside the batch and comes back null, which is how
-// "prices are not recorded yet" reaches the page.
 async function load() {
   if (!VS.length) return;
   const my = ++S.seq, who0 = who();
-  // A vault's tokens, oracle and feed come from the vault, and what is read after them needs them: that was a request of their own before the one below. A vault
-  // with a hint (deployments.js) has them from the hint, so that one request reads everything, and the vault's answer is then checked against the hint (below).
   for (const v of VS) if (!v.s && v.hint && !v.hinted) { Object.assign(v, v.hint); v.hinted = true; }
   const fresh = VS.filter((v) => !v.s && !v.hinted);
   if (fresh.length) {
@@ -125,20 +98,19 @@ async function load() {
   }
   const live = VS.filter((v) => v.s || v.hinted);
   for (const v of live) if (v.s) { v.tac = v.s.tac; v.synth = v.s.synth; v.oracle = v.s.oracle; v.feed = v.s.feed; }
-  // The terms (the ratios, the owner window, the share of depth) can be changed by the owner, so they are read again each time.
   const nS = staticCalls('0x').length;
   const calls = [timestampCall(), ...live.flatMap((v) => staticCalls(v.addr)), ...live.flatMap((v) => dynamicCalls(v, who0))];
   const res = await batch(calls);
-  if (my !== S.seq || who0 !== who()) return;                                                       // the account changed while this was read
+  if (my !== S.seq || who0 !== who()) return;
   const ts = res[0] ? Number(wordAt(res[0], 0)) : 0;
   if (ts) { S.chainT = ts; S.chainAt = now(); }
   let stale = false;
   live.forEach((v, k) => {
     const s = parseStatic(res.slice(1 + k * nS, 1 + (k + 1) * nS));
-    if (v.hinted) {                                                                                  // the hint was only a way to ask early: it counts when the vault says the same
+    if (v.hinted) {
       v.hinted = false;
       if (s && s.tac === v.tac && s.synth === v.synth && s.oracle === v.oracle && s.feed === v.feed) { v.s = s; return; }
-      v.hint = null; v.tac = v.synth = v.oracle = v.feed = undefined; stale = true;                  // it has changed: read this vault again from its own answers
+      v.hint = null; v.tac = v.synth = v.oracle = v.feed = undefined; stale = true;
       return;
     }
     if (s && s.tac === v.tac && s.synth === v.synth) { v.s = s; v.oracle = s.oracle; v.feed = s.feed; }
@@ -150,55 +122,43 @@ async function load() {
   if (S.loaded) S.readAt = now();
 }
 
-// ── what the numbers mean ──
-// Everything one vault shows, from what was read (null until it is).
-// `post`: the numbers as they will be once the price records the vault waits for are in (see prepare), for the ticket's borrow and withdraw; the board and the position
-// always show the chain as it is.
-// What a borrow reads: a price, the fee, and the room (the pools' depth needs EVERY interval recorded, a price only two thirds of them, so a vault can price TAC and still have no room).
 const readable = (d) => d.pB != null && d.feeBps != null && d.debtCeiling != null && d.depthCeiling != null && d.totalDebt != null;
 const postOf = (V) => (V.post && V.d && (!readable(V.d) || V.d.pL == null || V.d.recovered == null) && V.post.who === (who() || '').toLowerCase() && now() - V.post.at < POST_TTL ? V.post : null);
-// What waits for price records: a borrow or a withdraw with a debt, and an auction on the account's vault that no price can say has ended (adding TAC, repaying, or the end itself
-// would end it, but the vault must see a price to know it has recovered).
 const lapsed = (x) => x.auction && x.d.recovered == null;
 const needs = (x, t) => (t === 'borrow' && x.paused && !x.auction) || (t === 'withdraw' && x.wpaused && !x.auction) || ((t === 'deposit' || t === 'repay') && lapsed(x));
 function derive(V, post = false) {
   const s = V.s;
   if (!s || !V.d) return null;
   const pre = post ? postOf(V) : null, D = pre ? pre.d : V.d;
-  // What was read for another account (the wallet has changed since) is not this account's vault.
   const mine = (D.who || '').toLowerCase() === (who() || '').toLowerCase();
   const d = mine ? D : { ...D, me: null, recovered: null, onOffer: null, tacBal: null, tacAllow: null, synBal: null, synAllow: null };
   const k = KIND[V.key], me = d.me || { collateral: 0n, debt: 0n, auctionStart: 0 };
   const room = d.depthCeiling != null && d.debtCeiling != null && d.totalDebt != null ? M.sharedRoom({ debtCeiling: d.debtCeiling, depthCeiling: d.depthCeiling, totalDebt: d.totalDebt }) : null;
   const x = { V, s, d, k, me, room, post: !!pre, sym: /^[A-Za-z0-9]{2,12}$/.test(d.symbol || '') ? d.symbol : k.sym, safe: 2n * s.liq };
-  x.paused = d.pB == null || room == null || d.feeBps == null;                                       // borrowing needs a price, the depth and the fee
+  x.paused = d.pB == null || room == null || d.feeBps == null;
   x.auction = me.auctionStart !== 0;
   x.pauseEnd = d.pausedUntil != null ? Number(d.pausedUntil) : 0;
-  x.auctionsPaused = x.pauseEnd > chainNow();                                                        // the owner has paused liquidations, outside bids and redemptions
+  x.auctionsPaused = x.pauseEnd > chainNow();
   x.value = d.pL != null ? M.valueOf(me.collateral, d.pL) : null;
   x.zone = d.pL != null ? M.zoneOf({ collateral: me.collateral, debt: me.debt, price: d.pL, liq: s.liq }) : null;
   x.ratio = x.value != null && me.debt > 0n ? M.ratioBps(x.value, me.debt) : null;
   x.borrow = x.paused ? null : M.borrowLimit({ collateral: me.collateral, debt: me.debt, pB: d.pB, mint: s.mint, feeBps: d.feeBps, room, minDebt: s.minDebt });
-  // The most this wallet could borrow if it deposited the TAC it holds with it, in one transaction.
   x.borrowAll = x.paused ? null : M.borrowLimit({ collateral: me.collateral + (d.tacBal ?? 0n), debt: me.debt, pB: d.pB, mint: s.mint, feeBps: d.feeBps, room, minDebt: s.minDebt });
-  x.wpaused = me.debt > 0n && d.pB == null;                                                          // taking TAC out with a debt needs the borrow price
+  x.wpaused = me.debt > 0n && d.pB == null;
   x.wmax = x.wpaused ? 0n : M.withdrawLimit({ collateral: me.collateral, debt: me.debt, pB: d.pB, mint: s.mint });
   x.rep = M.repayLimit({ debt: me.debt, balance: d.synBal ?? 0n, minDebt: s.minDebt });
   x.top = d.pL != null && me.debt > 0n ? M.topUp({ collateral: me.collateral, debt: me.debt, price: d.pL, bps: x.safe }) : 0n;
   x.liqPrice = M.liquidationPriceOf(me.collateral, me.debt, s.liq);
   x.line = Number(M.borrowLineBps({ mint: s.mint, pL: d.pL, pB: d.pB }));
-  // The TAC price now (the oracle's lower venue) in the vault's token, converted as the vault converts: ETH per TAC × the feed's answer.
   x.px = d.spot != null && d.feed && d.feed.answer > 0n ? d.spot * d.feed.answer / 10n ** BigInt(d.feed.decimals) : null;
-  // The dollar feed (TAC Dollar only: TAC Ether's is a fixed 1.0) and whether the vault would refuse its answer as too old.
   x.feedAge = V.key === 'usd' && d.feed ? Math.max(0, chainNow() - d.feed.updatedAt) : null;
   x.stale = x.feedAge != null && x.feedAge > s.staleness;
   x.cap = d.debtCeiling != null && d.depthCeiling != null ? (d.debtCeiling < d.depthCeiling ? d.debtCeiling : d.depthCeiling) : null;
-  x.ownerCap = x.cap != null && d.debtCeiling < d.depthCeiling;                                      // the owner's ceiling, not the pools' depth, is what limits lending
+  x.ownerCap = x.cap != null && d.debtCeiling < d.depthCeiling;
   x.backing = d.held != null && d.pL != null && d.totalDebt > 0n ? M.ratioBps(M.valueOf(d.held, d.pL), d.totalDebt) : null;
   return x;
 }
 
-// ── writing figures ──
 const tac = (v) => M.fmtAmount(v, 2);
 const syn = (x, v) => M.fmtAmount(v, x.k.dp);
 const pctOf = (bps) => `${Math.floor(Number(bps) / 100).toLocaleString('en-US')}%`;
@@ -206,31 +166,23 @@ const feeText = (bps) => `${Number(bps) / 100}%`;
 const priceText = (x, p, dir) => x.k.price(M.fmtUnits(M.sigTo(p, 3, dir), 18, 18));
 const zoneName = { liquidation: 'Liquidation', redemption: 'Redemption', safe: 'Safe' };
 
-// ── the vault picker, the room ──
 function renderPick() {
   $('#pick-w').hidden = VS.length < 2;
   $('#pick').innerHTML = VS.map((v) => `<button type="button" data-v="${v.key}" aria-pressed="${v.key === S.v}"${S.busy ? ' disabled' : ''}>${icon(v.key)}${esc(KIND[v.key].name)}<small>${esc(KIND[v.key].sym)}</small></button>`).join('');
 }
 const setHtml = (el, h) => { if (el.__h !== h) { el.__h = h; el.innerHTML = h; } };
-// ── the status board ──
-// One table for both vaults: whether each can be borrowed from now, the room left and the figures that decide it, with what is needed
-// when it cannot. Everything is read from the contracts; "now" is the last read, which the page repeats every half minute.
 const GROUP = (list) => { const m = new Map(); for (const [x, t] of list) { const k = JSON.stringify(t); if (!m.has(k)) m.set(k, { names: [], t }); m.get(k).names.push(x.k.name); } return [...m.values()]; };
-// The oracle's announced change of a term, if there is one still to be made: { value, eta }.
 const announcedTerm = (x, id) => { const n = chainNow(), a = (x.d.announced || []).find((q) => q.id === id && q.eta > 0 && q.eta + QUEUE_EXPIRY > n); return a ? { value: BigInt(a.value), eta: a.eta } : null; };
-// What the room and the smallest debt would be once the announced changes of the pools' share and the smallest debt are made, at today's depth.
 function afterAnnounced(x) {
   const depth = announcedTerm(x, 0), min = announcedTerm(x, 6);
   if ((!depth && !min) || x.d.depthCeiling == null || x.d.debtCeiling == null || x.d.totalDebt == null) return null;
   const ceil = depth ? x.d.depthCeiling * depth.value / x.s.depthBps : x.d.depthCeiling, cap = ceil < x.d.debtCeiling ? ceil : x.d.debtCeiling;
   return { room: cap > x.d.totalDebt ? cap - x.d.totalDebt : 0n, minDebt: min ? min.value : x.s.minDebt, eta: Math.max(depth?.eta || 0, min?.eta || 0) };
 }
-// Can this vault be borrowed from, and if not, why and what changes it.
 function statusOf(x) {
-  const f = feedOf(x.V), checking = { state: 'wait', short: '', why: 'Checking the prices…', next: '' };            // neither open nor closed yet: the feed, the router and the wallet are still being asked
+  const f = feedOf(x.V), checking = { state: 'wait', short: '', why: 'Checking the prices…', next: '' };
   if (x.paused) {
     if (x.stale) return { state: 'paused', short: 'ETH/USD price old', why: `The ETH/USD price is ${M.span(x.feedAge)} old; borrowing needs one under ${M.span(x.s.staleness)}.`, next: 'It clears with the feed’s next update.' };
-    // Few enough to go with a transaction, for anyone (the router) or a wallet that sends batches: borrowing is open, and what is still missing is recorded with it.
     if (f && !f.ready && f.missing > 0 && f.missing <= BATCH_MAX && !viaOf(x.V) && viaPending(x.V)) return checking;
     if (f && !f.ready && f.missing > 0 && f.missing <= BATCH_MAX && viaOf(x.V)) {
       const p = postOf(x.V)?.d;
@@ -257,12 +209,11 @@ function statusOf(x) {
 function boardRows(xs) {
   const cell = (fn) => xs.map((x) => `<td class="num">${fn(x)}</td>`).join('');
   const dash = '—';
-  // [label, what a vault shows, whether it waits behind "More figures"]
   const rows = [
     ['Borrowing', (x) => { const st = x.status; return `<span class="st s-${st.state}"><i class="sd"></i>${st.state === 'open' ? 'Open' : st.state === 'wait' ? 'Checking' : 'Not open'}</span>${st.short && !x.hideShort ? `<small>${esc(st.short)}</small>` : ''}`; }],
     ['Room to borrow', (x) => {
       if (x.room != null) return `<b>${esc(syn(x, x.room))}</b> ${esc(x.sym)}`;
-      const p = x.status?.carry ? postOf(x.V)?.d : null;                                               // not yet recorded: the room as it will be, once the prepared records are in
+      const p = x.status?.carry ? postOf(x.V)?.d : null;
       return p && p.debtCeiling != null && p.depthCeiling != null && p.totalDebt != null ? `<b>${esc(syn(x, M.sharedRoom({ debtCeiling: p.debtCeiling, depthCeiling: p.depthCeiling, totalDebt: p.totalDebt })))}</b> ${esc(x.sym)}` : dash;
     }],
     ['Smallest debt', (x) => `${esc(syn(x, x.s.minDebt))} ${esc(x.sym)}`],
@@ -292,9 +243,8 @@ function renderBoard() {
   for (const x of xs) x.status = statusOf(x);
   const open = xs.filter((x) => x.status.state === 'open'), waiting = xs.some((x) => x.status.state === 'wait');
   const verdict = waiting ? 'Checking whether borrowing is open…' : open.length === xs.length ? (xs.length > 1 ? 'Borrowing is open on both vaults' : `Borrowing is open on ${xs[0].k.name}`) : open.length ? `Borrowing is open on ${open.map((x) => x.k.name).join(' and ')}` : 'Borrowing is not open yet';
-  // What each closed vault needs, said once (and without a name) when every vault needs the same.
   const need = GROUP(xs.filter((x) => x.status.state !== 'open').map((x) => [x, { why: x.status.why, next: x.status.next }]));
-  const shared = need.length === 1 && need[0].names.length === xs.length;                         // one reason for every vault is said once, above the table
+  const shared = need.length === 1 && need[0].names.length === xs.length;
   for (const x of xs) x.hideShort = shared;
   const needs = need.map((g) => `<li>${g.names.length === xs.length ? '' : `<b>${esc(g.names.join(' and '))}:</b> `}${g.t.why}${g.t.next ? ` ${g.t.next}` : ''}</li>`).join('');
   const carry = Math.max(0, ...xs.map((x) => x.status.carry || 0));
@@ -309,7 +259,6 @@ function renderBoard() {
 }
 const agoText = (s) => (s < 5 ? 'just now' : s < 60 ? `${Math.round(s)} s ago` : `${M.span(s)} ago`);
 
-// ── how borrowing works, from the vault's own terms ──
 function renderHow() {
   const el = $('#how');
   el.hidden = !VS.length;
@@ -326,7 +275,6 @@ function renderHow() {
   <p>The owner can lower the cap, set fees (up to 5% to borrow, 2.5% to redeem) and pause auctions for up to 12 hours. Other changes are announced here 2 to 3 days ahead.</p>`);
 }
 
-// ── a person's vault ──
 function healthBar(x) {
   const p2 = M.barPos(Number(x.s.liq)), p4 = M.barPos(Number(x.safe)), pl = M.barPos(x.line), pm = M.barPos(Number(x.ratio));
   const pc = (f) => `${(f * 100).toFixed(2)}%`, edge = pm < 0.1 ? ' l' : pm > 0.9 ? ' r' : '';
@@ -347,12 +295,8 @@ function zoneLine(x) {
 function pauseBox(x, named = false) {
   return `<div class="callout"><span class="t"><b>Auctions paused${named ? ` on ${esc(x.k.name)}` : ''}</b> for <b data-cd="${x.pauseEnd}">${M.clock(x.pauseEnd - chainNow())}</b>: no liquidations, outside bids or redemptions. Everything else works.</span></div>`;
 }
-// What the owner has announced and not yet made, in one notice for every vault. Only a change that tightens is one to act ahead of; a new price
-// source or minter is neither way, so it counts as one.
 const TERM_NAMES = ['Share of depth lent', 'Borrowing line', 'Liquidation ratio', 'Bid bonus', 'Vault owner’s bidding window', 'Auction length', 'Smallest debt'];
-// Which way a term's change falls for someone borrowing: 1 where a larger number is the easier one, -1 where a smaller one is, 0 where neither is.
 const EASIER_WHEN_LARGER = [1, -1, -1, -1, 1, 0, -1];
-// What each term is now, in the same units as an announcement; null where the page does not read it, which counts as a change to act on.
 const CURRENT_TERM = [(x) => x.s.depthBps, (x) => x.s.mint, (x) => x.s.liq, () => null, (x) => x.s.ownerWindow, (x) => x.s.auctionDuration, (x) => x.s.minDebt];
 function termText(x, id, v) {
   if (id === 0) return `${Number(v) / 100}%`;
@@ -381,10 +325,7 @@ function changesNotice(xs) {
   return `<div class="callout${tightens ? '' : ' soft'}"><span class="t">${head}${lines.map((l) => `<span class="sub">${l}</span>`).join('')}</span></div>`;
 }
 
-// The clock auctions run on (`auctionStart` is a reading of it): the chain's time less the time spent paused, so it stands still while
-// auctions are paused. From the reading in `d` it runs on from the later of the reading and the end of the pause.
 const auctionNow = (d) => (d.auctionTime == null ? chainNow() : d.auctionTime + Math.max(0, chainNow() - Math.max(S.chainT, Number(d.pausedUntil || 0))));
-// Prices lapsed with an auction running, and the vault as it would be after the records has recovered: the records and the end of the auction go in one transaction (any wallet).
 const lapsedCure = (x) => { const p = canAct() && lapsed(x) ? postOf(x.V) : null; return p && p.d.recovered ? p.n : 0; };
 function auctionBox(x) {
   const left = x.me.auctionStart + x.s.ownerWindow - auctionNow(x.d);
@@ -424,10 +365,7 @@ function renderPos() {
   setHtml(el, head + body + (S.view ? '<p class="note"><a href="#" data-mine>Use my wallet</a></p>' : ''));
 }
 
-// ── the ticket ──
-// What the typed amount would do: whether it can be sent, what it says about itself, and what the transaction takes.
 const BUY = '<a href="/trade/tac/">Buy TAC →</a>';
-// What the ticket would do. When the vault waits for price records that were prepared (see prepare), a borrow or withdraw carries them in the same confirmation.
 function planOf() {
   const P = planCore();
   if (P.ok && P.x?.post && needs(derive(P.x.V), P.kind)) { P.catchUp = P.x.V.post.n; P.via = viaOf(P.x.V); P.rows = [...P.rows, ['Price records', `${P.catchUp} included`]]; }
@@ -458,7 +396,6 @@ function planCore() {
     P.max = x.borrowAll?.amount ?? 0n; P.maxText = x.borrowAll && who() ? `Up to ${syn(x, P.max)} · Max` : '';
     if (x.auction) { P.cta = 'In an auction'; P.hint = 'Borrowing waits until the auction ends. Repay, or add TAC, to end it.'; return P; }
     if (x.paused) {
-      // Missing prices are the usual reason, and the button then records them: whoever borrows first catches the feed up.
       const f = feedOf(x.V);
       if (!x.stale && ((!f && !F.tried) || (f && !f.ready && f.missing > 0 && f.missing <= BATCH_MAX && !viaOf(x.V) && viaPending(x.V)))) { P.cta = 'Checking prices…'; return P; }
       if (!x.stale && f && !f.ready && f.missing && viaOf(x.V) && PREP.busy && PREP.vkey === x.V.key) { P.cta = 'Preparing the prices…'; return P; }
@@ -470,7 +407,6 @@ function planCore() {
     let c = check(m.collateral), add = 0n;
     P.cta = `Borrow ${sym}`;
     if (!c.ok && c.why === 'own') {
-      // Short of collateral: the TAC to deposit with it, in the same transaction. Enough to stay out of redemption when the wallet holds it, else the least that works.
       const need = M.collateralFor(c.owe, d.pB, x.s.mint), exact = need > m.collateral ? need - m.collateral : 0n, least = M.ceilTo(exact, 2);
       const safeAdd = d.pL != null ? M.topUp({ collateral: m.collateral, debt: c.owe, price: d.pL, bps: x.safe }) : 0n, want = safeAdd > least ? safeAdd : least;
       add = held >= want ? want : held >= least ? least : held >= exact ? held : 0n;
@@ -512,7 +448,6 @@ function planCore() {
     P.rows = [['You owe', `${esc(syn(x, m.debt))} ${esc(sym)}`], ['Owed after', `${esc(syn(x, c.left))} ${esc(sym)}`], ...(c.left > 0n ? ratioRow(m.collateral, c.left) : [])];
     return P;
   }
-  // withdraw
   P.max = x.wmax; P.maxText = who() ? `Up to ${tac(x.wmax)} · Max` : '';
   if (x.auction) { P.cta = 'In an auction'; P.hint = 'Withdrawing waits until the auction ends. Repay, or add TAC, to end it.'; return P; }
   if (x.wpaused) {
@@ -537,7 +472,6 @@ function planCore() {
 
 function renderTicket() {
   const V = cur(), t = S.t, x = V && derive(V, true);
-  // A Borrow opened with nothing typed offers the most this wallet can borrow, deposit and all, so one press does it: whatever the box holds can be changed.
   if (S.pre && t === 'borrow' && !S.amt && x && canAct() && !S.busy) {
     const m = planOf().max;
     if (m > 0n) {
@@ -566,7 +500,6 @@ function renderTicket() {
   $('#amt').disabled = S.busy;
   maybePrepare();
 }
-// An amount for the box: a share of the most that goes through (rounded down, so it still does), or all of it.
 function setAmount(pct) {
   const P = planOf();
   if (!(P.max > 0n)) return;
@@ -576,8 +509,6 @@ function setAmount(pct) {
   $('#amt').value = S.amt; renderTicket();
 }
 
-// ── the actions ──
-// The call, tested once as the account before anything is signed or sent.
 async function simulate(to, data, from) {
   try { await ethCall(to, data, { from }); return { ok: true }; } catch (e) { return { ok: false, e }; }
 }
@@ -590,9 +521,6 @@ const WHY = {
 const failText = (x, kind, e) => { const w = refusal(e); return `${w && WHY[w] ? WHY[w](x, kind) : 'This would fail.'} Nothing was sent; the figures above are current.`; };
 const errText = (e) => esc(e instanceof UserStopped ? e.message : String(e?.message || e).slice(0, 220));
 
-// The token the call spends, made available to the vault: a permit signed in the wallet (no gas, one transaction) where there is no allowance,
-// else an exact approval sent first. A permit the vault does not accept falls back to the approval.
-// `batched`: the call goes in an atomic batch the wallet sends, so the exact approval is one more call in it (`approve` returned for the batch) and nothing is signed or sent first.
 async function withAccess({ V, token, amount, allowance, from, make, spender = V.addr, batched = false, check = (data) => simulate(V.addr, data, from) }) {
   if (allowance >= amount) return { data: make(null) };
   if (batched) return { data: make(null), approve: { to: token, data: encApprove(spender, amount) } };
@@ -620,16 +548,16 @@ async function run(kindOverride) {
   if (!W.account) { connectWallet(); return; }
   const V = cur();
   if (!V || !canAct()) return;
-  const from = W.account;                                                                           // everything below is for this account, and the wallet is asked for no other
+  const from = W.account;
   const cancel = kindOverride === 'cancel';
-  const typed = S.amt, shown = cancel ? null : planOf();                                          // what the person is looking at: the amount, and for a borrow the fee
-  if (shown?.record) { pokeFeed(viaOf(V) ? BATCH_MAX : 0); return; }                                                      // prices first: the button records them
+  const typed = S.amt, shown = cancel ? null : planOf();
+  if (shown?.record) { pokeFeed(viaOf(V) ? BATCH_MAX : 0); return; }
   if (!cancel && !shown.ok) return;
   S.busy = true; S.pre = false; lockAll(); renderTicket();
   try {
     say(shown?.catchUp ? 'Reading the vault and the missing prices again…' : 'Reading the vault again…');
     await load();
-    if (shown?.catchUp) {                                                                           // the records and the figures they lead to, built again now
+    if (shown?.catchUp) {
       for (let i = 0; i < 200 && PREP.busy; i++) await new Promise((r) => setTimeout(r, 300));
       await prepare(V);
     }
@@ -637,28 +565,23 @@ async function run(kindOverride) {
     if (S.amt !== typed) throw new Error('The amount changed. Nothing was sent.');
     if (!cancel && !P.ok) { say(`<span class="err">${esc(P.record ? 'The prices changed while this was prepared.' : P.hint || 'That is no longer possible.')} Nothing was sent; the figures above are current.</span>`); return; }
     const x = P.x, owner = from;
-    // A borrow is for the fee on the screen: a fee read now that is higher stops it, and the fee shown is the most the vault may take.
     if (P.kind === 'borrow' && P.feeBps > shown.feeBps) { say(`<span class="err">The borrow fee is now ${esc(feeText(P.feeBps))}. Nothing was sent; the figures above are current.</span>`); return; }
-    // The TAC deposited with a borrow is what was on the screen or less, never more.
     if (P.kind === 'borrow' && (P.add ?? 0n) > (shown.add ?? 0n)) { say(`<span class="err">The TAC to deposit is now ${esc(tac(P.add))}. Nothing was sent; the figures above are current.</span>`); return; }
-    // With the price records in the same confirmation the vault cannot be tested alone (it still waits for them): the records and the call are tested together, as the account.
-    // A wallet that sends batches does the approval in the batch too (no permit signature), so it is used whenever the TAC or TACD needs approving, with the records when there are some.
     const allow = P.kind === 'deposit' ? [P.amount, x.d.tacAllow] : P.kind === 'borrow' && P.add > 0n ? [P.add, x.d.tacAllow] : P.kind === 'repay' ? [P.paid, x.d.synAllow] : null;
     const via = P.catchUp ? viaOf(V) : S.batchOk && allow && (allow[1] ?? 0n) < allow[0] ? 'bundle' : null, post = P.catchUp ? V.post : null;
-    let extra = [];                                                                                     // the approval, once there is one
+    let extra = [];
     const bundle = (d) => [...(post ? [{ to: MULTICALL3, data: post.data }] : []), ...extra, { to: V.addr, data: d }];
     const check = via === 'bundle' ? (d) => simulateBundle(rpc, from, bundle(d)) : via === 'router' ? (d) => simulate(ROUTER, d, from) : undefined;
     let target = via === 'router' ? ROUTER : V.addr, carried = 0;
     let data, acc = {};
     if (cancel) {
-      const rec = lapsedCure(x) ? postOf(V) : null;                                                    // prices lapsed: the records and the end of the auction, as one Multicall3 transaction
+      const rec = lapsedCure(x) ? postOf(V) : null;
       if (rec) { data = encBatch([...rec.recs.map((r) => ({ to: r.to, data: r.data })), { to: V.addr, data: encCancel(owner) }]); target = MULTICALL3; carried = rec.n; }
       else data = encCancel(owner);
     }
     else if (via === 'router') {
-      // The records, then the person's own call, which the router makes for the account that sends it: the vault checks a signature for it (the recipient is the signer).
       const records = [encRouterRecords(V.addr, post.recs)];
-      const deadline = chainDeadline(300), nonce = wordAt(await ethCall(V.addr, SEL.nonces + addrWord(from)), 0);       // a few minutes: a signature seen by others is good only until then
+      const deadline = chainDeadline(300), nonce = wordAt(await ethCall(V.addr, SEL.nonces + addrWord(from)), 0);
       if (P.kind === 'withdraw') {
         say('Sign the withdrawal in your wallet. The signature costs nothing.');
         const sig = await askTicket(() => signTyped(from, withdrawTyped(V.addr, from, { amount: P.amount, nonce, deadline })));
@@ -695,7 +618,6 @@ async function run(kindOverride) {
     say('Checking it first…');
     const trial = () => (via === 'bundle' ? simulateBundle(rpc, from, bundle(data)) : simulate(target, data, from));
     let sim = await trial();
-    // A node that is a block behind has not seen the approval yet: asked again shortly.
     for (let i = 0; i < 3 && sim.ok === false && acc.approved && refusal(sim.e) === 'access'; i++) { await new Promise((r) => setTimeout(r, 1500)); sim = await trial(); }
     if (sim.ok === false) { say(`<span class="err">${esc(failText(x, P.kind, sim.e))}</span>`); load().then(renderAll).catch(() => {}); return; }
     say(P.catchUp ? `Confirm in your wallet. It records the prices${extra.length ? ', approves the TAC' : ''} and then does this, as one transaction.` : extra.length ? 'Confirm in your wallet. It approves the amount and then does this, as one transaction.' : 'Confirm the transaction in your wallet.');
@@ -709,23 +631,21 @@ async function run(kindOverride) {
     const x2 = derive(V), said = { deposit: `Deposited ${tac(P.amount ?? 0n)} TAC.`, borrow: `${P.add > 0n ? `Deposited ${tac(P.add)} TAC and borrowed` : 'Borrowed'} ${P.amount != null ? syn(x2, P.amount) : ''} ${x2.sym}. You owe ${syn(x2, x2.me.debt)}.`, repay: x2.me.debt === 0n ? `Repaid. Nothing owed now.` : `Repaid. You owe ${syn(x2, x2.me.debt)} ${x2.sym}.`, withdraw: 'Withdrawn.', cancel: 'The auction has ended.' }[P.kind];
     const recs = P.catchUp || carried;
     say(`<span class="ok">${esc(said + (recs ? ` Recorded ${recs} price${recs === 1 ? '' : 's'} with it.` : ''))}</span> ${txLink(hash)}${S.t === 'borrow' ? ` <button class="linkbtn" type="button" data-watch="${esc(V.key)}">Add ${esc(x2.sym)} to your wallet</button>` : ''}`);
-    setTimeout(() => { if (!S.busy) load().then(renderAll).catch(() => {}); }, 5000);                 // a node a little behind has caught up
+    setTimeout(() => { if (!S.busy) load().then(renderAll).catch(() => {}); }, 5000);
   } catch (e) {
     const x = derive(V);
-    say(e instanceof StopWaiting ? esc(e.message) : `<span class="err">${e.sim ? esc(failText(x, S.t, e.sim)) : errText(e)}</span>`);       // giving up on a silent wallet is a choice, not a failure
+    say(e instanceof StopWaiting ? esc(e.message) : `<span class="err">${e.sim ? esc(failText(x, S.t, e.sim)) : errText(e)}</span>`);
   } finally { S.busy = false; lockAll(); renderAll(); }
 }
 const lockAll = () => { renderPick(); };
-// A new token does not show in a wallet by itself: the wallet is asked to list it (one prompt, and a wallet that cannot is left alone).
 function watchToken(key) {
   const V = VS.find((v) => v.key === key), x = V && derive(V);
   if (!x || !W.prov) return;
   wallet.watchAsset({ address: V.synth, symbol: x.sym, decimals: 18, image: `${location.origin}/brand/${V.key === 'usd' ? 'tacd' : 'tace'}.svg` });
 }
 
-// ── drawing ──
 function renderAll() {
-  if (side !== 'tac') return;                                                                       // the Bitcoin side has nothing of the vaults' to draw
+  if (side !== 'tac') return;
   const live = VS.length > 0;
   $('#soon').hidden = live; $('#app').hidden = !live; $('#wallet-chip').hidden = !live;
   $('#sub').hidden = !live;
@@ -735,23 +655,18 @@ function renderAll() {
   renderPromo();
 }
 
-// ── the price feed ──
-// Lending needs every ten-minute price of the last eight hours from both venues. When they have not been recorded (a keeper stopped, or none runs), anyone can
-// record them from here: the page builds each record from an archive node and sends them ten at a time through Multicall3, each batch tested first.
-// The headers and proofs of blocks hours old come from many nodes, each asked in turn, so that none is asked for more than a few of them; one that says it is busy rests.
 const busyNote = (ms) => { if (F.busy) setFeed(`The public nodes are busy. Trying again in ${Math.ceil(ms / 1000)} s…`); };
 const feed = makeFeed({
   rpc,
   headerRpc: makeRpc([walletNode({ prefer: true }), ...HISTORY], { spread: true, onWait: busyNote }),
   proofRpc: makeRpc([walletNode({ prefer: true }), ...ARCHIVE], { spread: true, onWait: busyNote }),
 });
-const F = { by: {}, busy: false, note: '', bad: false, gas: null, at: 0, stop: null };   // by: what each vault's venues have recorded (vaults on one oracle share a read); stop: ends the wait for the wallet
-const ALREADY = '0x103b4afe';                                                         // the oracle's AlreadyRecorded
-const WALLET_HINT_MS = 20e3;                                                          // how long the wallet may stay quiet before the person is offered a way out
+const F = { by: {}, busy: false, note: '', bad: false, gas: null, at: 0, stop: null };
+const ALREADY = '0x103b4afe';
+const WALLET_HINT_MS = 20e3;
 class StopWaiting extends Error { constructor() { super('Stopped waiting. If your wallet still shows the request, reject it there, then try again.'); } }
 const feedOf = (V) => (V ? F.by[V.key] || null : null);
 const oracleOf = (V) => V.oracle || V.addr;
-// A read of the venues, kept for every vault that prices from the same oracle.
 const keepFeed = (V, st) => { for (const m of VS) if (oracleOf(m) === oracleOf(V)) F.by[m.key] = st; };
 const VENUE = ['Precision pool', 'Tacit pool'];
 const setFeed = (note, bad = false) => { F.note = note; F.bad = bad; const el = $('#feed-status'); if (el) { el.innerHTML = note; el.className = `status${bad ? ' err' : ''}`; } };
@@ -759,17 +674,16 @@ async function loadFeed() {
   if (!VS.length || F.busy) return;
   const firsts = [...new Map(VS.map((v) => [oracleOf(v), v])).values()];
   await Promise.all(firsts.map(async (V) => { try { keepFeed(V, await feed.read(V.addr)); F.at = now(); } catch (e) { console.warn('price feed read:', e?.message || e); } }));
-  try { F.gas = BigInt(await rpc('eth_gasPrice', [])); } catch { /* the cost line is only a convenience */ }
-  F.tried = true;                                                  // a vault without a read after this one could not be read
+  try { F.gas = BigInt(await rpc('eth_gasPrice', [])); } catch { }
+  F.tried = true;
   renderFeed();
-  renderBoard();                                                   // the board says what the feed lacks, so it follows the feed
+  renderBoard();
 }
-function renderFeed() { drawFeed(); renderTicket(); }                // a borrow button that records prices follows the feed
+function renderFeed() { drawFeed(); renderTicket(); }
 function drawFeed() {
   const el = $('#feed'), V = cur(), st = feedOf(V);
-  // Few enough missing to go with a transaction: the board already says so, and recording them is not a step of its own.
   const carried = V && st && !st.ready && st.missing > 0 && st.missing <= BATCH_MAX && !!viaOf(V) && !F.busy && !F.note;
-  if (!VS.length || !st || carried || (st.ready && !F.busy && !F.note)) { el.hidden = true; return; }       // up to date, nothing to say: the board already says lending is open
+  if (!VS.length || !st || carried || (st.ready && !F.busy && !F.note)) { el.hidden = true; return; }
   el.hidden = false;
   const cost = F.gas != null && st.missing ? `, for about ${(Number(BigInt(st.missing * RECORD_GAS) * F.gas) / 1e18).toFixed(4)} ETH` : '';
   const rows = st.venues.map((v, i) => `<div class="kv"><span>${esc(VENUE[i] || `Venue ${i + 1}`)}</span><b class="num">${v.counted} of ${v.points}</b></div>`).join('');
@@ -781,8 +695,6 @@ function drawFeed() {
   const go = $('#feed-go');
   if (go) go.onclick = () => pokeFeed();
 }
-// A wallet that never answers (a request it did not show, a phone nobody picked up) must not lock the panel for good: after a while the person can stop waiting.
-// What the wallet was asked stays with the wallet; if it is confirmed there later, it lands and the next read counts it.
 function waitWallet(send, onHint, hold) {
   const hint = setTimeout(onHint, WALLET_HINT_MS);
   const stopped = new Promise((_, no) => { hold.stop = () => no(new StopWaiting()); });
@@ -790,8 +702,6 @@ function waitWallet(send, onHint, hold) {
 }
 const askWallet = (send, round) => waitWallet(send, () => setFeed(`Waiting for your wallet to confirm batch ${round}. Open it to answer, or <button class="linkbtn" type="button" data-feed-stop>stop waiting</button>.`), F);
 const askTicket = (send) => waitWallet(send, () => say('Waiting for your wallet. Open it to answer, or <button class="linkbtn" type="button" data-stop>stop waiting</button>.'), S);
-// The records as one Multicall3 batch, tested as the account. A record that fails is one someone else has recorded in the meantime (read again without it) or one a node gave a
-// wrong proof for: that one is built again, from the next node and not the one that failed, twice at most. { data } for the batch, or null when others were recording too.
 async function verifiedRecords(part, recs, note) {
   const pack = () => encBatch(recs.map((r) => ({ to: r.to, data: r.data })));
   let data = pack(), sim = await simulate(MULTICALL3, data, W.account);
@@ -813,17 +723,10 @@ async function verifiedRecords(part, recs, note) {
   return { data };
 }
 
-// ── the records carried with the action ──
-// A wallet that can send several calls from the account as one transaction (see batch.js) spares the person the separate "record the prices" step: while the borrow or withdraw tab
-// is open and the vault waits for no more than BATCH_MAX records, the page builds them in the background, reads the vault as it will be once they are in, and the ticket shows that.
-// The button then records, deposits and borrows in one confirmation. Nothing is sent until it is pressed, and then everything is built and tested again.
-const BATCH_MAX = 12;                       // records in one bundle: 12 of them (0.95M gas each) and the action stay under a transaction's gas cap (2^24)
-const POST_TTL = 10 * 60;                   // seconds a prepared bundle is trusted: after that the chain has moved on and it is built again
-const PREP = { busy: false, vkey: null, failedAt: 0, last: null };       // last: what was tried and when, so that a try that ends with nothing to carry is not repeated at once
-// How the records can go with the action for this vault: in a batch the wallet sends itself, or through the router, or not at all (the two steps the page has always had).
+const BATCH_MAX = 12;
+const POST_TTL = 10 * 60;
+const PREP = { busy: false, vkey: null, failedAt: 0, last: null };
 const viaOf = (V) => (S.batchOk ? 'bundle' : ROUTER && !S.routerOff && S.routerFor?.has(V.addr.toLowerCase()) ? 'router' : null);
-// Whether how the records can go with the action is still being found out: the router is asked once when the page opens, and a connected wallet is asked what it can batch.
-// Until then the board says it is checking rather than that borrowing is closed; a check that hangs is given twelve seconds.
 const viaPending = () => now() - BOOT < 12 && ((ROUTER && !S.routerSettled) || S.batchBusy);
 async function checkRouter() {
   if (!ROUTER) return;
@@ -831,7 +734,7 @@ async function checkRouter() {
     const [a, b] = await Promise.all([ethCall(ROUTER, ROUTER_SEL.vaultA), ethCall(ROUTER, ROUTER_SEL.vaultB)]);
     S.routerFor = new Set([addrAt(a), addrAt(b)].map((x) => x.toLowerCase()));
     renderAll();
-  } catch { /* no router there: the two steps */ } finally { S.routerSettled = true; renderAll(); }
+  } catch { } finally { S.routerSettled = true; renderAll(); }
 }
 const addrAt = (hex) => `0x${String(hex).replace(/^0x/, '').slice(24, 64)}`;
 const missingKey = (st) => st.venues.map((v) => v.missing.join()).join('|');
@@ -851,14 +754,12 @@ function maybePrepare() {
   if (!V || !canAct() || S.busy || F.busy || PREP.busy || now() - PREP.failedAt < 60) return;
   const x = derive(V), st = feedOf(V);
   if (!x || !st || st.ready || x.stale || !st.missing || st.missing > BATCH_MAX) return;
-  if (!(viaOf(V) && needs(x, S.t)) && !lapsed(x)) return;                                              // a lapsed auction can be ended with the records by any wallet (Multicall3)
+  if (!(viaOf(V) && needs(x, S.t)) && !lapsed(x)) return;
   const have = postOf(V), key = missingKey(st);
   if (have && have.key === key) return;
   if (PREP.last && PREP.last.key === key && now() - PREP.last.at < 60) return;
   prepare(V).then(renderAll);
 }
-// The records for what is missing now, and the vault's figures after them (the same batch of reads the page makes, run behind the records in one call). Kept records that are still
-// missing are not built again. false when there is nothing to carry, too much of it, or the records alone would not open the vault.
 async function prepare(V) {
   const from = W.account, who0 = (from || '').toLowerCase();
   if (!who0 || PREP.busy) return false;
@@ -875,8 +776,7 @@ async function prepare(V) {
     (fresh.length ? await feed.build(fresh) : []).forEach((r) => kept.set(`${r.to}:${r.k}`, r));
     const recs = part.map(([v, k]) => kept.get(keyOf(v, k)));
     const checked = await verifiedRecords(part, recs, () => {});
-    if (!checked) { console.warn('price records: others recorded some while this was built'); return false; }   // the next look builds again
-    // Every vault that prices from this oracle is read behind the same records, in the one call, so the board can show each one's room.
+    if (!checked) { console.warn('price records: others recorded some while this was built'); return false; }
     const vs = VS.filter((m) => m.s && oracleOf(m) === oracleOf(V));
     const reads = vs.map((m) => dynamicCalls(m, from).map(([, to, data]) => ({ to, data })));
     const res = await readMixed(ethCall, [...recs.map((r) => ({ to: r.to, data: r.data, allowFailure: false })), ...reads.flat()]);
@@ -892,10 +792,8 @@ async function prepare(V) {
     return false;
   } finally { PREP.busy = false; }
 }
-// Sends the calls from the account as one batch. A wallet that says no to batching after all (it said it could) is not asked again: the page goes back to two steps.
 const NO_BATCH = new Set([4200, 5700, 5710, 5740, 5750, 5760, -32601]);
 const stopped = (e) => (e?.code === 4001 || /user (rejected|denied)|rejected the request|request rejected|denied (transaction|message)/i.test(e?.message || '') ? new UserStopped() : e);
-// Typed data signed in the wallet for the account it was reviewed for: the vault's borrow or withdraw, for the router to send.
 async function signTyped(from, typed) {
   if (String(W.account || '').toLowerCase() !== from.toLowerCase()) throw new Error('The wallet’s account changed. Nothing was sent; review it again.');
   await wallet.ensureMainnet();
@@ -916,7 +814,6 @@ async function sendAsBundle(from, calls) {
   }
 }
 
-// `leave`: records the ticket's own button leaves for the action to carry (it stops once that many or fewer are missing).
 async function pokeFeed(leave = 0) {
   if (F.busy) return;
   if (!W.account) { await connectWallet(); return; }
@@ -925,7 +822,7 @@ async function pokeFeed(leave = 0) {
     for (let round = 1; round <= 12; round++) {
       const V = cur(), st = await feed.read(V.addr);
       keepFeed(V, st);
-      renderFeed();                                                  // the counts follow each batch
+      renderFeed();
       if (st.missing <= leave) break;
       const part = feed.nextBatch(st);
       setFeed(`Building ${part.length} record${part.length === 1 ? '' : 's'} (batch ${round})…`);
@@ -948,9 +845,6 @@ async function pokeFeed(leave = 0) {
   } finally { F.busy = false; await loadFeed(); refresh(); }
 }
 
-// ── the address bar ──
-// #v= the vault, #t= the action, #a= an account to look at (read only), #amt= an amount for the Borrow box (a link from another page's Borrow box: read once,
-// then dropped from the address bar, so a refresh does not fill it again). Anything else in it (the test addresses) stays.
 function readHash() {
   const p = params(), v = p.get('v'), t = p.get('t'), a = p.get('a'), amt = p.has('amt') ? M.parseUnits(p.get('amt'), 18) : null;
   if (v && VS.some((x) => x.key === v)) S.v = v;
@@ -967,10 +861,6 @@ function keepInHash() {
   const h = p.toString() ? `#${p}` : '';
   if (h !== location.hash) history.replaceState(null, '', location.pathname + location.search + h);
 }
-// ── the two sides ──
-// TAC (the vaults, at /vault/ with the hash above) and Bitcoin (/vault/#btc), one page: the switch moves between them without a reload, and back and forward
-// follow it. The page's CSS shows a side from its :target alone (index.html); here each side's reads start the first time it is shown, so a page opened
-// on Bitcoin reads nothing of the vaults, and the Bitcoin side's module is fetched only when it is looked at.
 const onBtc = () => location.hash === '#btc';
 let side = null, tacStarted = false, btcP = null, tacHash = '';
 function showSide() {
@@ -980,16 +870,15 @@ function showSide() {
   document.documentElement.dataset.side = s;
   document.querySelectorAll('.via a[data-side]').forEach((a) => { if (a.dataset.side === s) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
   if (s === 'btc') {
-    $('#wallet-chip').hidden = true;                                                                // the loan is taken on the front page, with the Tacit wallet
+    $('#wallet-chip').hidden = true;
     btcP ||= import('/vault/btc.js?cb=701756e8').then((m) => m.loadBtc($('#btc'), { batch })).catch((e) => { btcP = null; console.warn('bitcoin side:', e?.message || e); });
     return true;
   }
   renderAll();
-  if (!tacStarted) { tacStarted = true; checkRouter(); if (VS.length) refresh().then(() => loadFeed()); }   // the feed is read for the oracle each vault names, which the first read has found
+  if (!tacStarted) { tacStarted = true; checkRouter(); if (VS.length) refresh().then(() => loadFeed()); }
   else refresh();
   return true;
 }
-// The switch (and the TAC side's link to Bitcoin): Bitcoin is the hash #btc; TAC is the hash the vaults had before, or none.
 document.addEventListener('click', (e) => {
   const a = e.target.closest('a[data-side]');
   if (!a || e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -997,11 +886,10 @@ document.addEventListener('click', (e) => {
   if (a.dataset.side === side) return;
   if (a.dataset.side === 'btc') { tacHash = location.hash; location.hash = 'btc'; return; }
   location.hash = tacHash;
-  if (!tacHash) history.replaceState(null, '', location.pathname + location.search);               // no bare # left in the address bar
+  if (!tacHash) history.replaceState(null, '', location.pathname + location.search);
 });
 const refresh = () => load().catch((e) => { console.warn('vault read:', e?.message || e); if (!S.loaded) S.failed = true; }).then(() => { renderAll(); pools.read(); });
 
-// ── wiring ──
 $('#pick').addEventListener('click', (e) => { const b = e.target.closest('[data-v]'); if (!b || S.busy || b.dataset.v === S.v) return; S.v = b.dataset.v; S.pre = S.t === 'borrow'; S.amt = ''; $('#amt').value = ''; say('', ''); keepInHash(); renderAll(); });
 $('#acts').addEventListener('click', (e) => { const b = e.target.closest('[data-t]'); if (!b || S.busy || b.dataset.t === S.t) return; S.t = b.dataset.t; S.pre = S.t === 'borrow'; S.amt = ''; $('#amt').value = ''; say('', ''); keepInHash(); renderTicket(); });
 $('#amt').addEventListener('input', (e) => { S.pre = false; S.amt = e.target.value; if ($('#status').dataset.kind === 'trade') say('', ''); renderTicket(); });
@@ -1009,29 +897,27 @@ $('#amt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !$('#go'
 $('#chips').addEventListener('click', (e) => { const b = e.target.closest('[data-pct]'); if (b && !S.busy) setAmount(Number(b.dataset.pct)); });
 $('#bal').addEventListener('click', () => { if (!S.busy) setAmount(100); });
 $('#go').addEventListener('click', () => run());
-// What a prompt fills: the deposit box, with the amount to add.
 document.addEventListener('click', (e) => {
   const f = e.target.closest('[data-fill]');
   if (f && !S.busy) { S.t = 'deposit'; S.pre = false; S.amt = f.dataset.fill; $('#amt').value = S.amt; say('', ''); keepInHash(); renderTicket(); $('#ticket').scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); return; }
   if (e.target.closest('[data-to-pools]')) { $('#pools').scrollIntoView?.({ block: 'start', behavior: 'smooth' }); return; }
-  if (e.target.closest('[data-more]')) { S.more = !S.more; try { localStorage.setItem(MORE_KEY, S.more ? '1' : '0'); } catch { /* storage is a convenience */ } renderBoard(); return; }
+  if (e.target.closest('[data-more]')) { S.more = !S.more; try { localStorage.setItem(MORE_KEY, S.more ? '1' : '0'); } catch { } renderBoard(); return; }
   if (e.target.closest('[data-refresh]')) { if (!S.busy) { refresh(); loadFeed(); } return; }
   if (e.target.closest('[data-feed-stop]')) { F.stop?.(); return; }
   if (e.target.closest('[data-stop]')) { S.stop?.(); return; }
   const watch = e.target.closest('[data-watch]');
   if (watch) { watchToken(watch.dataset.watch); return; }
   const feedLink = e.target.closest('[data-tofeed]');
-  if (feedLink) { e.preventDefault(); $('#feed')?.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }   // the hash carries the page's own state, so this scrolls rather than links
+  if (feedLink) { e.preventDefault(); $('#feed')?.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
   if (e.target.closest('[data-connect]')) { connectWallet(); return; }
   if (e.target.closest('[data-cancel]')) { run('cancel'); return; }
   const m = e.target.closest('[data-mine]');
   if (m) { e.preventDefault(); const p = params(); p.delete('a'); history.replaceState(null, '', location.pathname + (p.toString() ? `#${p}` : '')); S.view = null; refresh(); }
 });
 addEventListener('hashchange', () => { if (onBtc()) { showSide(); return; } readHash(); if (!showSide()) refresh(); });
-document.addEventListener('visibilitychange', () => { if (!document.hidden && !S.busy && side === 'tac') refresh(); });   // a tab left open reads the vault again when it is looked at
-connect.restore();                                                                                                 // the wallet connected last, on this or any other page, when it still allows the site
+document.addEventListener('visibilitychange', () => { if (!document.hidden && !S.busy && side === 'tac') refresh(); });
+connect.restore();
 
-// The countdown of an auction's owner-only window runs on the chain's clock.
 setInterval(() => {
   const els = document.querySelectorAll('[data-cd]');
   els.forEach((el) => { const left = Number(el.dataset.cd) - chainNow(); el.textContent = M.clock(left); if (left <= 0 && !S.busy) renderPos(); });

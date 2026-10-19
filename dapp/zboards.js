@@ -1,14 +1,3 @@
-// zSwap's order boards on Ethereum, for one token against ETH: every resting order read as an order book, a plan for filling some of them,
-// and the one transaction that fills the plan. The boards are Swapboard v1 and v2, Dutchboard (a price that falls over time) and Floorboard
-// (a bid that climbs). Pure: no DOM, no fetch. The caller passes `ethCall(to, data, block?, { from, value }?)`.
-//
-// How an order reads here. An ASK is a maker selling the token (the base) for ETH, which a buyer fills by paying ETH. A BID is a maker buying
-// the token with ETH, which a seller fills by delivering the token. The boards hold ETH as WETH (Dutchboard also as native ETH), and every
-// amount below is in wei of the token and of ETH.
-//
-// A fill is one call: zRouter.snwap runs Swapbol (0x…B976) as its executor, and Swapbol fills a list of orders across all four boards, wrapping
-// or unwrapping ETH as each needs, refunding what it did not spend, and paying the taker. The taker's side is protected twice: each order's own
-// floor, and snwap's floor on the total received. Orders addressed to one account (a counterparty) cannot be filled this way and are left out.
 
 const ZERO = '0x0000000000000000000000000000000000000000';
 export const ZB = Object.freeze({
@@ -25,7 +14,6 @@ const SEL = {
 };
 export const BOARD_NAMES = { v1: 'Swapboard v1', v2: 'Swapboard v2', dutch: 'Dutchboard', floor: 'Floorboard' };
 
-// ── hex helpers ──
 const strip = (h) => String(h || '').replace(/^0x/, '');
 const word = (v) => BigInt(v).toString(16).padStart(64, '0');
 const addrWord = (a) => strip(a).toLowerCase().padStart(64, '0');
@@ -35,7 +23,6 @@ const addrAt = (hex, i) => '0x' + strip(hex).slice(i * 64 + 24, i * 64 + 64);
 const padRight = (h) => h.padEnd(Math.ceil(h.length / 64) * 64, '0');
 const lc = (a) => String(a).toLowerCase();
 
-// ── Multicall3.aggregate3 (every call may fail on its own) ──
 function encAggregate3(calls) {
   let head = '', tail = '', off = calls.length * 32;
   for (const c of calls) {
@@ -53,10 +40,6 @@ function decAggregate3(hex, n) {
   return out;
 }
 
-// ── reading the views' answers ──
-
-// SwapboardView's (OrderView[] rows, uint256 nextCursor): each row has 16 head words (its two symbols and decimals are not read: a price comes from
-// the amounts and the token's decimals the caller gives).
 export function decOrderViews(raw) {
   if (!raw || strip(raw).length < 128) return { rows: [], next: 0n };
   const arr = Number(wordAt(raw, 0)) / 32, n = Number(wordAt(raw, arr)), rows = [];
@@ -67,7 +50,6 @@ export function decOrderViews(raw) {
   }
   return { rows, next: wordAt(raw, 1) };
 }
-// FloorboardView's (BidRow[] rows, uint256 nextCursor): 17 head words, the ids, symbols and decimals not read.
 export function decBidRows(raw) {
   if (!raw || strip(raw).length < 128) return { rows: [], next: 0n };
   const arr = Number(wordAt(raw, 0)) / 32, n = Number(wordAt(raw, arr)), rows = [];
@@ -79,18 +61,14 @@ export function decBidRows(raw) {
   return { rows, next: wordAt(raw, 1) };
 }
 
-// ── the calls that find the orders ──
 const encCandidates = (board, isV2, tokenIn, tokenOut, taker, cursor, maxScan) => '0x' + SEL.candidatesFrom + addrWord(board) + boolWord(isV2) + addrWord(tokenIn) + addrWord(tokenOut) + addrWord(taker) + word(cursor) + word(maxScan);
 const encDutch = (tokenIn, tokenOut, taker, cursor, maxScan) => '0x' + SEL.dutchCandidatesFrom + addrWord(ZB.DUTCH) + addrWord(tokenIn) + addrWord(tokenOut) + addrWord(taker) + word(cursor) + word(maxScan);
-// Floorboard's view skips rows silently when its limit is below its scan, so the two are always equal.
 const encFloor = (tokenIn, tokenOut, cursor, scan) => '0x' + SEL.floorCandidatesFrom + addrWord(ZB.FLOOR) + addrWord(tokenIn) + addrWord(tokenOut) + word(cursor) + word(scan) + word(scan);
 const encAreFillable = (ids, taker) => '0x' + SEL.areFillableBy + word(64) + addrWord(taker) + word(ids.length) + ids.map(word).join('');
 const decBools = (raw, n) => (raw ? Array.from({ length: n }, (_, i) => wordAt(raw, 2 + i) === 1n) : null);
 
-// The price of an order in quote per base, as a number for display and ordering (the arithmetic of a fill is done in bigint).
 const ratio = (q, b, qd, bd) => (b > 0n ? (Number(q) / 10 ** qd) / (Number(b) / 10 ** bd) : 0);
 
-// One order of the book, in the terms the page uses.
 function normalize(r, { base, baseDecimals, now }) {
   const isAsk = lc(r.tokenA) === lc(base), isBid = lc(r.tokenB) === lc(base);
   if (r.nftA || r.nftB || (!isAsk && !isBid) || (isAsk && isBid)) return null;
@@ -107,8 +85,6 @@ const normalizeFloor = (r, { baseDecimals, now }) => {
     partial: true, expiry: r.expiry, counterparty: ZERO, quoteIsNative: false, floor: { startTime: r.startTime, initial: r.initial } };
 };
 
-// Every resting order for `base` against ETH, both sides, from all four boards. `taker` is the zero address: orders addressed to one account are
-// not offered. → { asks (cheapest first), bids (dearest first), at, pages, partial } where `partial` is true when a board had more to read than was read.
 export async function readBook({ ethCall, base, baseDecimals = 18, now = Math.floor(Date.now() / 1000), maxPages = 6, block = 'latest' }) {
   const WETH = ZB.WETH, scan = 256, taker = ZERO;
   const batch = async (calls) => {
@@ -141,7 +117,6 @@ export async function readBook({ ethCall, base, baseDecimals = 18, now = Math.fl
   if (done.some((d) => !d)) partial = true;
   const orders = [];
   plan.forEach((p, i) => { for (const r of rows[i]) { const o = p.floor ? normalizeFloor(r, { baseDecimals, now }) : normalize(r, { base, baseDecimals, now }); if (o && (p.k.startsWith('ask') ? o.side === 'ask' : o.side === 'bid')) orders.push(o); } });
-  // Swapboard v2's view still offers an order that has been frozen, and a fill of it reverts: the board is asked which are fillable.
   const v2 = orders.filter((o) => o.board === 'v2');
   if (v2.length) {
     const [r] = await batch([{ to: ZB.V2, data: encAreFillable(v2.map((o) => o.id), taker) }]);
@@ -153,12 +128,8 @@ export async function readBook({ ethCall, base, baseDecimals = 18, now = Math.fl
   return { asks: live.filter((o) => o.side === 'ask').sort(byPrice(1)), bids: live.filter((o) => o.side === 'bid').sort(byPrice(-1)), at: now, pages, partial, answered: answered.filter(Boolean).length };
 }
 
-// ── planning a fill ──
+const cmpPrice = (a, b) => { const l = a.quote * b.base, r = b.quote * a.base; return l < r ? -1 : l > r ? 1 : 0; };
 
-const cmpPrice = (a, b) => { const l = a.quote * b.base, r = b.quote * a.base; return l < r ? -1 : l > r ? 1 : 0; };   // exact, by cross-multiplication
-
-// Spend up to `quoteBudget` wei of ETH buying the token from `asks`, cheapest first. A partial order can be taken in part; one that can only be
-// taken whole is taken or skipped. → { fills: [{ order, pay (wei of ETH), get (wei of the token), whole }], pay, get }.
 export function planBuy(asks, quoteBudget, { skip = () => false } = {}) {
   const fills = [];
   let left = BigInt(quoteBudget), pay = 0n, get = 0n;
@@ -166,13 +137,12 @@ export function planBuy(asks, quoteBudget, { skip = () => false } = {}) {
     if (left <= 0n) break;
     if (o.quote <= left) { fills.push({ order: o, pay: o.quote, get: o.base, whole: true }); left -= o.quote; pay += o.quote; get += o.base; continue; }
     if (!o.partial) continue;
-    const take = (left * o.base) / o.quote;                        // what `left` buys at the order's own price, rounded down as the boards round
+    const take = (left * o.base) / o.quote;
     if (take <= 0n) continue;
     fills.push({ order: o, pay: left, get: take, whole: false }); pay += left; get += take; left = 0n;
   }
   return { fills, pay, get };
 }
-// Sell up to `baseAmount` wei of the token into `bids`, dearest first. → { fills: [{ order, pay (token delivered), get (ETH received), whole }], pay, get }.
 export function planSell(bids, baseAmount, { skip = () => false } = {}) {
   const fills = [];
   let left = BigInt(baseAmount), pay = 0n, get = 0n;
@@ -187,16 +157,13 @@ export function planSell(bids, baseAmount, { skip = () => false } = {}) {
   return { fills, pay, get };
 }
 
-// ── the exact figures, from the boards themselves ──
-// The boards round, and Dutchboard's price moves with time, so before a plan is shown as a transaction each fill is asked of its own board.
-// → the plan with `pay`/`get` as the board would settle them, or null when a fill no longer holds.
 export async function refine({ ethCall, plan, block = 'latest' }) {
   const calls = plan.fills.map((f) => {
     const o = f.order;
-    if (o.board === 'v2') return { to: ZB.V2, data: '0x' + SEL.v2QuoteFill + word(o.id) + word(f.pay) };                // quoteFill(id, the payment) → (what it buys, what it takes)
-    if (o.board === 'dutch') return { to: ZB.DUTCH, data: '0x' + SEL.dutchTakeFor + word(o.id) + word(f.pay) };          // takeFor(id, the most to spend) → (amount taken, its cost)
-    if (o.board === 'floor') return { to: ZB.FLOOR, data: '0x' + SEL.floorQuoteHit + word(o.id) + word(f.pay) };         // quoteHit(id, what is delivered) → (takeable, proceeds)
-    return null;                                                    // v1 is all or nothing at the price it showed
+    if (o.board === 'v2') return { to: ZB.V2, data: '0x' + SEL.v2QuoteFill + word(o.id) + word(f.pay) };
+    if (o.board === 'dutch') return { to: ZB.DUTCH, data: '0x' + SEL.dutchTakeFor + word(o.id) + word(f.pay) };
+    if (o.board === 'floor') return { to: ZB.FLOOR, data: '0x' + SEL.floorQuoteHit + word(o.id) + word(f.pay) };
+    return null;
   });
   const real = calls.map((c, i) => ({ c, i })).filter((x) => x.c);
   const raw = real.length ? await ethCall(ZB.MULTICALL3, encAggregate3(real.map((x) => x.c)), block).then((r) => decAggregate3(r, real.length), () => null) : [];
@@ -214,7 +181,7 @@ export async function refine({ ethCall, plan, block = 'latest' }) {
       const take = wordAt(r, 0), cost = wordAt(r, 1);
       if (take <= 0n) return null;
       f.get = take; f.pay = cost;
-      f.whole = take >= (o.side === 'ask' ? o.base : o.quote);       // the lot is the token for an ask and ETH for a bid
+      f.whole = take >= (o.side === 'ask' ? o.base : o.quote);
     } else {
       const ok = wordAt(r, 0) !== 0n, proceeds = wordAt(r, 1);
       if (!ok || proceeds <= 0n) return null;
@@ -224,27 +191,19 @@ export async function refine({ ethCall, plan, block = 'latest' }) {
   return { fills, pay: fills.reduce((a, f) => a + f.pay, 0n), get: fills.reduce((a, f) => a + f.get, 0n) };
 }
 
-// ── the transaction ──
-// Swapbol's Fill, as each board reads it: v2 payIn = the payment, getOut = the least it will take; v1 payIn scopes the approval (all or nothing);
-// Dutchboard payIn = the most it will pay, getOut = the amount taken; Floorboard payIn = what is delivered, getOut = the least proceeds.
 function legFor(f, side, slipBps) {
   const o = f.order, down = (x) => (x * BigInt(10000 - slipBps)) / 10000n, board = ZB[o.board.toUpperCase()];
-  // `recv` is the least the taker is to receive from this leg: the figure the board itself guarantees, and what the whole transaction's floor adds up.
   if (o.board === 'v1') return { id: o.id, board, payIn: side === 'buy' ? o.quote : o.base, getOut: 0n, partial: false, recv: side === 'buy' ? o.base : o.quote };
   if (o.board === 'v2') { const g = down(f.get); return { id: o.id, board, payIn: f.pay, getOut: g, partial: !f.whole, recv: g }; }
-  if (o.board === 'dutch') return { id: o.id, board, payIn: f.pay, getOut: f.get, partial: !f.whole, recv: f.get };            // payIn is the most it will pay, and the price only falls
+  if (o.board === 'dutch') return { id: o.id, board, payIn: f.pay, getOut: f.get, partial: !f.whole, recv: f.get };
   const g = down(f.get);
-  return { id: o.id, board, payIn: f.pay, getOut: g, partial: !f.whole, recv: g };                                                  // floor: the proceeds only climb
+  return { id: o.id, board, payIn: f.pay, getOut: g, partial: !f.whole, recv: g };
 }
 const encFills = (legs) => word(legs.length) + legs.map((l) => word(l.id) + addrWord(l.board) + word(l.payIn) + word(l.getOut) + boolWord(l.partial)).join('');
 const encFillPlan = ({ tokenIn, tokenOut, recipient, refundTo, deadline, legs }) => '0x' + SEL.fillPlan + addrWord(tokenIn) + addrWord(tokenOut) + addrWord(recipient) + addrWord(refundTo) + word(deadline) + word(192) + encFills(legs);
 const encSnwap = ({ tokenIn, amountIn, recipient, tokenOut, minOut, executor, data }) => { const d = strip(data); return '0x' + SEL.snwap + addrWord(tokenIn) + word(amountIn) + addrWord(recipient) + addrWord(tokenOut) + word(minOut) + addrWord(executor) + word(224) + word(d.length / 2) + padRight(d); };
 const encMulticall = (calls) => { let head = '', tail = '', off = calls.length * 32; for (const c of calls) { const d = strip(c), body = word(d.length / 2) + padRight(d); head += word(off); tail += body; off += body.length / 2; } return '0x' + SEL.multicall + word(32) + word(calls.length) + head + tail; };
 
-// The transaction for a refined plan. `side` 'buy' pays ETH for the token; 'sell' delivers the token (the taker approves it to zRouter, or a
-// signed permit leads the bundle) for ETH. `slipBps` sets each leg's floor below what the board quoted, and `floor` is a least total the whole
-// transaction must deliver whatever the legs' own floors add up to (a review's "at least", which a re-read price must not loosen).
-// → { to, data, value, approval, minOut }.
 export function buildFill({ plan, side, token, account, deadline, slipBps = 50, permit = null, floor = 0n }) {
   const legs = plan.fills.map((f) => legFor(f, side, slipBps));
   if (!legs.length) throw new Error('buildFill: nothing to fill');

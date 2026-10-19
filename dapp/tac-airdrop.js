@@ -1,20 +1,3 @@
-// TAC airdrop client for the one-shot distributor (contracts/src/TacAirdrop.sol, docs/AIRDROP.md): what an address
-// can claim, and the calls that claim it.
-//
-// An allocation is the leaf keccak(keccak(abi.encode(index, account, amount))) of a merkle tree whose root the contract
-// pins. The proofs are published as static files, one per leading address byte (`<xx>.json`). `status` fetches that file,
-// recomputes the leaf and its path against the root pinned here, then reads the contract's state in one eth_call
-// (Multicall3, or one call per value where it is missing). The file is never trusted: an entry that does not recompute
-// to the root is rejected, and the contract's own `verify` has to accept it as well.
-//
-// Chain access is `call({ to, data, from? })`, an eth_call that throws on a revert (`makeRpcCall` builds one from RPC
-// URLs). Writes go through `send({ from?, to, data, value })`, supplied by the caller's wallet, which returns the
-// transaction hash. Every claim is simulated with `call` before it is handed to `send`.
-//
-// Shielding a claim (`claimAndShield`) deposits the TAC into the confidential pool under a commit. Settling that deposit
-// into a spendable note with a proof has not been run against this contract on mainnet, so `shieldPlan` refuses unless it
-// is called with `allowUnproven: true`. The commit must come from `shieldPlan` (the pool ux's buildWrap for the
-// recipient's own key); a commit made any other way deposits the TAC where no key can spend it.
 
 import { bodyType } from './rpc-body.js';
 
@@ -22,17 +5,15 @@ export const AIRDROP_DEPLOYMENTS = Object.freeze({
   1: Object.freeze({
     address: '0x4b4cb98D0C836c2783Ac46f0078b904dab533AE8',
     root: '0x27451b320d5aa9631f7a3fd8adcfa537db8d792dd49aad9ab0951af0c2986a10',
-    deadline: 1797803449,           // the last second at which a claim is accepted
+    deadline: 1797803449,
     token: '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279',
     decimals: 18,
-    unitScale: '10000000000',       // the pool's base units per value unit for TAC
+    unitScale: '10000000000',
     pool: '0x000000000Ed1eabD231Be41d93b719056F7febFC',
     assetId: '0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b',
   }),
 });
 
-// Where the proof files are served. The dapp reads its own origin; tacit.finance sends no CORS header, so any other
-// page uses PUBLIC_PROOF_HOSTS (both pinned to the commit that added the files).
 const PROOFS_COMMIT = '1b2eedde8490801c9ef4406020530059162e6d47';
 export const PROOF_HOSTS = Object.freeze({
   sameOrigin: '/airdrop/v1/proofs',
@@ -44,27 +25,26 @@ export const PUBLIC_PROOF_HOSTS = Object.freeze([PROOF_HOSTS.cdn, PROOF_HOSTS.mi
 export const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11';
 
 const SEL = {
-  claim: '2e7ba6ef',            // claim(uint256,address,uint256,bytes32[])
-  claimTo: '4f54d47c',          // claimTo(uint256,uint256,bytes32[],address)
-  claimAndShield: 'ad8b9781',   // claimAndShield(uint256,uint256,bytes32[],bytes32)
-  isClaimed: '9e34070f',        // isClaimed(uint256)
-  verify: '6cc1a533',           // verify(uint256,address,uint256,bytes32[])
-  paused: '5c975abb',           // paused()
-  balanceOf: '70a08231',        // balanceOf(address), on the token
-  depositStatus: '7da9874f',    // depositStatus(bytes32), on the pool: 0 none, 1 pending, 2 consumed
-  aggregate3: '82ad56cb',       // aggregate3((address,bool,bytes)[]), on Multicall3
-  blockTimestamp: '0f28c97d',   // getCurrentBlockTimestamp(), on Multicall3
+  claim: '2e7ba6ef',
+  claimTo: '4f54d47c',
+  claimAndShield: 'ad8b9781',
+  isClaimed: '9e34070f',
+  verify: '6cc1a533',
+  paused: '5c975abb',
+  balanceOf: '70a08231',
+  depositStatus: '7da9874f',
+  aggregate3: '82ad56cb',
+  blockTimestamp: '0f28c97d',
 };
 
-// The distributor's custom errors, by selector.
 const REVERTS = {
-  '9e87fac8': 'paused',         // Paused()
-  'f0f25a33': 'closed',         // ClaimWindowClosed()
-  '646cf558': 'claimed',        // AlreadyClaimed()
-  '7ca55c77': 'bad-proof',      // BadProof()
-  '67a2cc26': 'bad-recipient',  // BadRecipient()
-  '9c63840c': 'not-aligned',    // AmountNotAligned()
-  '09bf2e90': 'zero-commit',    // ZeroCommit()
+  '9e87fac8': 'paused',
+  'f0f25a33': 'closed',
+  '646cf558': 'claimed',
+  '7ca55c77': 'bad-proof',
+  '67a2cc26': 'bad-recipient',
+  '9c63840c': 'not-aligned',
+  '09bf2e90': 'zero-commit',
 };
 
 const REASON = {
@@ -104,7 +84,6 @@ const B32 = /^0x[0-9a-fA-F]{64}$/;
 const isZero32 = (h) => /^0x0{64}$/i.test(h);
 const timeoutSignal = (ms) => (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(ms) : undefined);
 
-// An exact decimal string of an 18-decimal (by default) amount, trailing zeros trimmed: 10000000000 wei -> "0.00000001".
 export function formatTac(wei, decimals = 18) {
   const v = BigInt(wei);
   if (v < 0n) throw new RangeError('formatTac: negative amount');
@@ -114,8 +93,6 @@ export function formatTac(wei, decimals = 18) {
   return frac ? `${s.slice(0, cut)}.${frac}` : s.slice(0, cut);
 }
 
-// eth_call over a list of RPC URLs. A revert is definitive and thrown with code 3 and its data; a transport or node
-// error moves on to the next endpoint. `from` is set only to simulate a write.
 export function makeRpcCall({ rpcs, fetchImpl, timeoutMs = 10000 } = {}) {
   const list = (Array.isArray(rpcs) ? rpcs : [rpcs]).filter(Boolean);
   const f = fetchImpl || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
@@ -151,10 +128,8 @@ export function makeRpcCall({ rpcs, fetchImpl, timeoutMs = 10000 } = {}) {
 
 const isRevert = (e) => !!e && (e.code === 3 || e.name === 'CallRevert' || (typeof e.data === 'string' && /^0x/i.test(e.data)) || /revert/i.test(e.message || ''));
 
-// ── ABI ──
 const proofTail = (proof) => word(proof.length) + proof.map(strip).join('');
 
-// aggregate3((address target, bool allowFailure, bytes callData)[]): every call must succeed.
 function encAggregate3(calls) {
   const elems = calls.map(({ to, data }) => addrWord(to) + word(0) + word(0x60) + word(strip(data).length / 2) + padTo32(strip(data)));
   let off = calls.length * 32;
@@ -162,7 +137,6 @@ function encAggregate3(calls) {
   return '0x' + SEL.aggregate3 + word(0x20) + word(calls.length) + offs.join('') + elems.join('');
 }
 
-// The returnData of each (bool success, bytes returnData) result.
 function decAggregate3(out) {
   const h = strip(out);
   const bad = () => new AirdropError('bad-response', 'Unexpected reply from the node.');
@@ -198,7 +172,6 @@ export function makeTacAirdrop({
   if (typeof keccak256 !== 'function') throw new Error('tac-airdrop: keccak256 is required');
   const f = fetchImpl || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
 
-  // A contract of your own (a fork or a test deployment) brings its own root, deadline, token and unit scale.
   const dep = contract ? {} : (AIRDROP_DEPLOYMENTS[chainId] || {});
   if (contract && (!root || !deadline || !token || !unitScale)) throw new Error('tac-airdrop: a custom contract needs root, deadline, token and unitScale');
   const deadlineSec = Number(deadline || dep.deadline || 0);
@@ -220,7 +193,6 @@ export function makeTacAirdrop({
   };
   const config = Object.freeze({ ...cfg, proofsBase: Object.freeze(bases.slice()) });
 
-  // ── inputs ──
   const checksum = (lower) => {
     const h = hexOf(keccak256(enc.encode(lower)));
     return '0x' + [...lower].map((c, i) => (parseInt(h[i], 16) >= 8 ? c.toUpperCase() : c)).join('');
@@ -236,9 +208,6 @@ export function makeTacAirdrop({
   }
   const requireDeployed = () => { if (!cfg.deployed) throw new AirdropError('not-deployed', REASON['not-deployed']); };
 
-  // ── the proof ──
-  // The leaf and the fold mirror the contract: keccak(keccak(abi.encode(index, account, amount))), and every node is the
-  // keccak of its two children in sorted order.
   const leafOf = (index, account, amount) => keccak256(keccak256(bytesOf(word(index) + addrWord(account) + word(amount))));
   function foldProof(leaf, proof) {
     let h = leaf;
@@ -260,7 +229,6 @@ export function makeTacAirdrop({
     return { index: c.index, amountWei: BigInt(c.amount).toString(), proof: c.proof.map(lc) };
   }
 
-  // The files are immutable, so a fetched one is kept. A failure is not.
   const files = new Map();
   function getJson(url, check) {
     if (!files.has(url)) {
@@ -284,11 +252,6 @@ export function makeTacAirdrop({
     return j;
   });
 
-  // The verified entry for an address, or null when the airdrop does not list it. Hosts are tried in order: a host that
-  // fails, has no such file, or serves an entry that does not verify passes the turn to the next; a file that is served
-  // and lacks the address is the answer. A missing file only means "not listed" when the host's manifest shows the airdrop
-  // has no file for that byte; without one, a 404 is a host that does not serve the files (a wrong base URL, a deploy that
-  // lacks them), which must not read as "not eligible". Only when every host said so is the address unlisted.
   async function lookup(account) {
     const xx = account.slice(2, 4);
     const problems = [];
@@ -312,7 +275,6 @@ export function makeTacAirdrop({
     throw new AirdropError(problems.length ? 'shard-fetch' : 'no-proof-host', `Could not load the proof file${problems.length ? ` (${problems.join('; ')})` : ': no proof host is configured.'}`);
   }
 
-  // ── the contract's state ──
   const verifyData = (account, e) => '0x' + SEL.verify + word(e.index) + addrWord(account) + word(e.amountWei) + word(0x80) + proofTail(e.proof);
   async function readChain(account, e) {
     const reads = [
@@ -326,7 +288,7 @@ export function makeTacAirdrop({
       try {
         const r = decAggregate3(await call({ to: MULTICALL3, data: encAggregate3([...reads, { to: MULTICALL3, data: '0x' + SEL.blockTimestamp }]) }));
         if (r.length === reads.length + 1) { timestamp = Number(wordOf(r[reads.length])); outs = r.slice(0, reads.length); }
-      } catch { /* no Multicall3 here, or the batch failed: read the values one by one */ }
+      } catch { }
     }
     if (!outs) { outs = await Promise.all(reads.map((r) => call(r))); timestamp = now(); }
     if (wordOf(outs[3]) !== 1n) throw new AirdropError('chain-rejects-proof', 'The airdrop contract does not accept this proof. This page may be out of date.');
@@ -338,9 +300,6 @@ export function makeTacAirdrop({
     root: cfg.root || null, deadline: cfg.deadline, claimByISO: cfg.claimByISO,
   });
 
-  // What an address can claim. Never throws: a failure to read comes back as `error`, an address the airdrop does not
-  // list as `reason: 'not-listed'`. `reason` is null when the claim can go through, otherwise the first that applies of
-  // not-deployed, not-listed, error, claimed, paused, closed, unfunded.
   async function status(address) {
     let account = null;
     try {
@@ -364,7 +323,6 @@ export function makeTacAirdrop({
     }
   }
 
-  // The verified entry without touching the chain.
   async function entryFor(address) {
     const account = toAddress(address);
     requireDeployed();
@@ -373,7 +331,6 @@ export function makeTacAirdrop({
     return { account, ...e };
   }
 
-  // ── calldata ──
   const mkTx = (data, from) => ({ ...(from ? { from } : {}), to: cfg.address, data, value: '0x0' });
   const txClaim = (e, from) => mkTx('0x' + SEL.claim + word(e.index) + addrWord(e.account) + word(e.amountWei) + word(0x80) + proofTail(e.proof), from);
   function txClaimTo(e, to) {
@@ -392,8 +349,6 @@ export function makeTacAirdrop({
   const buildClaimTo = async (address, to) => txClaimTo(await entryFor(address), to);
   const buildClaimAndShield = async (address, commit) => txShield(await entryFor(address), commit);
 
-  // ── sending ──
-  // A claim that cannot go through is refused before the wallet is asked for anything.
   async function claimableStatus(address) {
     const st = await status(address);
     if (st.error) throw new AirdropError(st.error.code, st.error.message);
@@ -422,22 +377,18 @@ export function makeTacAirdrop({
   }
   const sent = (txHash, t, st) => ({ txHash, tx: t, index: st.index, amountWei: st.amountWei });
 
-  // Anyone may send this for any recipient: the TAC always goes to the recipient's own address. `from` is the sender's
-  // account when the wallet needs it named.
   async function claim(address, { send: sender, from } = {}) {
     const st = await claimableStatus(address);
     const t = txClaim(entryOf(st), from);
     return sent(await submit(t, sender), t, st);
   }
 
-  // The recipient sends its own allocation to `to`. The wallet must be the recipient's account.
   async function claimTo(address, to, { send: sender } = {}) {
     const st = await claimableStatus(address);
     const t = txClaimTo(entryOf(st), to);
     return sent(await submit(t, sender), t, st);
   }
 
-  // Sends the transaction of a `shieldPlan`, from the recipient's account. The status is read again first.
   async function claimAndShield(plan, { send: sender } = {}) {
     if (!plan || plan.kind !== 'tac-airdrop-shield' || !plan.record) throw new AirdropError('bad-plan', 'Pass the result of shieldPlan().');
     const st = await claimableStatus(plan.record.account);
@@ -446,7 +397,6 @@ export function makeTacAirdrop({
     return sent(await submit(t, sender), t, st);
   }
 
-  // Polls the contract until the allocation reads as claimed. The chain, not the sender's wallet or a relay, is the answer.
   async function waitClaimed(address, { timeoutMs: limit = 180000, intervalMs = 4000 } = {}) {
     const e = await entryFor(address);
     let lastError = null;
@@ -460,7 +410,6 @@ export function makeTacAirdrop({
     }
   }
 
-  // ── shielding ──
   const needUx = (u) => {
     if (!u || ['buildWrap', 'nextWrapIndex', 'submitWrapSettle'].some((k) => typeof u[k] !== 'function')) {
       throw new AirdropError('no-ux', 'Shielding needs the confidential pool ux (makeConfidentialPoolUx).');
@@ -470,11 +419,6 @@ export function makeTacAirdrop({
     }
   };
 
-  // What claimAndShield needs, from the wallet key that will own the note. `address` is the recipient's account, the one
-  // that sends the transaction; `walletPriv` is the Tacit wallet key and can belong to another wallet.
-  //   tx      send from `address` (claimAndShield(plan) does this)
-  //   record  keep this; it holds no secret. settleShield needs it to settle the deposit, also after a reload
-  //   built   the wrap the note is made from. It holds the note's secrets: keep it in memory only
   async function shieldPlan({ ux: u = ux, walletPriv, address, index, allowUnproven = false } = {}) {
     if (!allowUnproven) throw new AirdropError('shield-unproven', 'Shielding an airdrop claim has not been run end to end on mainnet. Pass allowUnproven: true to build the plan anyway.');
     needUx(u);
@@ -493,8 +437,6 @@ export function makeTacAirdrop({
     return { kind: 'tac-airdrop-shield', tx: t, record, built };
   }
 
-  // After the claimAndShield transaction is mined: check the deposit is pending on the pool, then settle it into a note.
-  // `built` comes from the plan, or is rebuilt from the record and the wallet key (the same commit and deposit id).
   async function settleShield({ ux: u = ux, walletPriv, record, built, waitOpts } = {}) {
     needUx(u);
     if (!record || !B32.test(String(record.depositId)) || !B32.test(String(record.commit))) throw new AirdropError('bad-record', 'Pass the record from shieldPlan().');
