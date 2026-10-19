@@ -2348,7 +2348,7 @@ await step('bridge', async () => {
   await until(r.page, () => document.querySelector('#hx-go')?.textContent === 'Bridge TAC from Bitcoin', null, 120000);
   const hxBtc = (await text(r.page, '#hx-body')).replace(/\s+/g, ' ');
   await shot(r.page, 'hx-bitcoin');
-  ok(/Your TAC/.test(hxBtc) && /1,000 TAC a bridge/.test(hxBtc) && /No relay fee/.test(hxBtc) && /Bitcoin fee in sats/.test(hxBtc) && /few hours, sometimes up to a day/.test(hxBtc), `bridge: the landing card's TAC-from-Bitcoin way says what the one-step bridge costs, the most one bridge takes and how long it takes, as the Bridge tab does (${hxBtc.slice(0, 200)})`);
+  ok(/Your TAC/.test(hxBtc) && /1,000 TAC a bridge/.test(hxBtc) && !/relay fee/i.test(hxBtc) && /Bitcoin fee in sats/.test(hxBtc) && /few hours, sometimes up to a day/.test(hxBtc), `bridge: the landing card's TAC-from-Bitcoin way says what the one-step bridge costs, the most one bridge takes and how long it takes, as the Bridge tab does (${hxBtc.slice(0, 200)})`);
   // A signed-in key also sees what the Bridge tab lists, read when the tab opens: the stubbed notes (250, 1,500, 30 and 40 TAC), the
   // three that can be picked (the Bridge tab checks each one's proof when it is picked), the one over the limit, and the bridges under way (four, two of them waiting for a press from the holder).
   await until(r.page, () => /1,820 TAC on Bitcoin, in 4 notes/.test(document.querySelector('#hx-have')?.textContent || ''), null, 240000);
