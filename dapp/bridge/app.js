@@ -238,6 +238,21 @@ function wireNote() {
   }
 }
 
+// Burn, prove, mint: one switch turns the drawing and its words to the other way.
+function wireMoves() {
+  const fig = $('#mv'), caps = $('.mvc');
+  if (!fig) return;
+  const set = (dir) => {
+    fig.dataset.dir = dir;
+    if (caps) caps.dataset.dir = dir;
+    $('#mv-a').setAttribute('href', dir === 'in' ? '#tk-btc' : '#tk-eth');
+    $('#mv-b').setAttribute('href', dir === 'in' ? '#tk-eth' : '#tk-btc');
+    $$('#mv-dir button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.dir === dir)));
+  };
+  $$('#mv-dir button').forEach((b) => b.addEventListener('click', () => set(b.dataset.dir)));
+  set('in');
+}
+
 // Who checks what: a press on a hop names who checks it.
 function wireChecks() {
   const box = $('#ck');
@@ -276,7 +291,14 @@ paintTile();
 readMine();
 wireSteppers();
 wireNote();
+wireMoves();
 wireChecks();
+// On a narrow screen a wide drawing scrolls inside its frame: it opens on its middle, where the proof is.
+const centre = () => $$('.fig.big').forEach((f) => { if (f.scrollWidth > f.clientWidth) f.scrollLeft = (f.scrollWidth - f.clientWidth) / 2; });
+centre();
+addEventListener('resize', centre);
+// the drawings' own motion (SVG animations) holds still for a reader who asks for less of it
+if (reduce) $$('svg.d').forEach((s) => { try { s.pauseAnimations(); } catch { /* not an SVG root */ } });
 revealOnScroll();
 mountLive();
 

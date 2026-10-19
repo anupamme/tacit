@@ -7,6 +7,24 @@ Ethereum mainnet today.
 
 The app: [tacit.finance/bridge](https://tacit.finance/bridge/). The rules: [`SPEC.md` §6](../SPEC.md#6-reflection-and-the-bridge).
 
+## Reflection
+
+Each chain keeps a proven copy of the other's Tacit state. Bitcoin's blocks, once 24 deep, are folded
+into proven roots; Ethereum's finalized blocks are verified by a light client; both go into one proof,
+which the pool on Ethereum verifies. Nobody signs it, and anyone can make it.
+
+## Burn, prove, mint
+
+Every bridge is three moves:
+
+| | Bitcoin → Ethereum | Ethereum → Bitcoin |
+| --- | --- | --- |
+| **Burn** | The note is burned on Bitcoin, in one Taproot transaction. | The note leaves the pool in a cross-out, written into the pool's storage. |
+| **Prove** | Once 24 blocks deep, the burn is folded into Bitcoin's proof, and the pool verifies it. | Once Ethereum finalizes it, the cross-out is proven inside Bitcoin's proof. |
+| **Mint** | The pool mints the same note, privately, once per burn. | A Bitcoin transaction mints the same note, once, as a proven member of the cross-outs. |
+
+The amount stays hidden throughout.
+
 ## One note, two chains
 
 A Tacit note is a Pedersen commitment `C = v·H + r·G` on secp256k1, the curve both chains already use.

@@ -26,7 +26,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /bridge/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/bridge/app.js?cb=b772f1ad">
+<link rel="modulepreload" href="/bridge/app.js?cb=d02b1720">
 <link rel="modulepreload" href="/bridge/track.js?cb=95cef1f0">
 <link rel="modulepreload" href="/rpc-body.js">
 <!-- preload:end -->
@@ -188,10 +188,11 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .st-l li { position: relative; padding: 9px 12px 9px 38px; border-radius: 10px; cursor: pointer; color: var(--mute); transition: background .2s, color .2s; counter-increment: st; }
 .st-l li::before { content: counter(st); position: absolute; left: 10px; top: 9px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; border: 1px solid var(--hair-2); font-size: 11px; }
 .st-l li b { display: block; color: var(--ink); font-weight: 500; }
-.st-l li span { display: block; font-size: 12.5px; max-height: 0; overflow: hidden; transition: max-height .35s ease; }
-.st-l li[aria-current="step"] { background: var(--card); color: var(--ink); }
+.st-l li span { display: block; font-size: 12.5px; color: var(--mute); }
+.st-l li { opacity: .62; transition: opacity .3s, background .2s; }
+.st-l li:hover { opacity: .9; }
+.st-l li[aria-current="step"] { background: var(--card); color: var(--ink); opacity: 1; }
 .st-l li[aria-current="step"]::before { background: var(--ink); color: var(--paper); border-color: var(--ink); }
-.st-l li[aria-current="step"] span { max-height: 8em; color: var(--mute); }
 .st-l li:focus-visible { outline-offset: -2px; }
 
 /* the drawings' hand */
@@ -209,7 +210,7 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .d .ink { stroke: var(--ink); }
 .d .fi { fill: var(--ink); }
 .d .pp { fill: var(--paper); }
-.d [data-on], .d [data-upto] { opacity: .22; transition: opacity .45s ease; }
+.d [data-on], .d [data-upto] { opacity: .3; transition: opacity .45s ease; }
 .d [data-on].on, .d [data-upto].on { opacity: 1; }
 .d .flow { stroke-dasharray: 5 6; animation: dash 1.1s linear infinite; }
 @keyframes dash { to { stroke-dashoffset: -11; } }
@@ -219,14 +220,52 @@ a { color: inherit; text-underline-offset: 3px; text-decoration-thickness: 1px; 
 .d .drop:nth-of-type(2) { animation-delay: .5s; } .d .drop:nth-of-type(3) { animation-delay: 1s; } .d .drop:nth-of-type(4) { animation-delay: 1.5s; }
 @keyframes drop { 0% { transform: translate(0, 0); opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { transform: translate(var(--dx, 70px), var(--dy, 70px)); opacity: 0; } }
 
+/* a two-way switch */
+.seg { display: inline-flex; gap: 4px; padding: 4px; margin: 0 0 10px; background: var(--field); border: 1px solid var(--hair); border-radius: 10px; }
+.seg button { min-height: 36px; padding: 0 14px; font: 500 12.5px var(--mono); color: var(--mute); background: none; border: 0; border-radius: 7px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 0 var(--hair-2); }
+
+/* the wide drawings: reflection, and the bridge's three moves */
+.wide { margin: 48px 0 0; }
+.fig.big { padding: 22px 26px; }
+.fig.big svg.d { min-width: 0; }
+.d .young { opacity: .42; }
+.d .tipb { animation: born 10s ease-in-out infinite; }
+@keyframes born { 0%, 80% { opacity: 1; } 88% { opacity: .2; } 100% { opacity: 1; } }
+.d .brk { fill: none; stroke: var(--mute); stroke-width: 1; opacity: .7; }
+.d text.lv { font: 500 12px var(--mono); fill: var(--ink); }
+.d .prf { stroke-width: 1.4; fill: var(--card); }
+.d text { font-size: 12px; }
+.d text.m { font-size: 11px; }
+.cap3 { list-style: none; margin: 22px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
+.cap3 li { font-size: 13px; line-height: 1.55; }
+.cap3 b { display: flex; align-items: center; gap: 10px; font-weight: 500; margin: 0 0 4px; }
+.cap3 i { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.cap3 i.b { background: var(--orange); } .cap3 i.e { background: var(--blue); } .cap3 i.k { background: var(--ink); }
+.cap3 span { color: var(--mute); }
+.mvc li { border-top: 1px solid var(--hair-2); padding-top: 12px; text-align: center; }
+.mvc b { justify-content: center; }
+@media (max-width: 760px) { .mvc li { text-align: left; } .mvc b { justify-content: flex-start; } }
+.mvc .out, .mvc[data-dir="out"] .in { display: none; }
+.mvc[data-dir="out"] .out { display: inline; }
+#mv .src { stroke: var(--orange); stroke-width: 1.6; } #mv .dst { stroke: var(--blue); stroke-width: 1.6; }
+#mv[data-dir="out"] .src { stroke: var(--blue); } #mv[data-dir="out"] .dst { stroke: var(--orange); }
+#mv .trk { stroke-width: 2; }
+#mv .nt { fill: var(--orange); stroke: var(--card); stroke-width: 4; paint-order: stroke; } #mv[data-dir="out"] .nt { fill: var(--blue); }
+#mv text.mvl { font: 500 14px var(--mono); }
+#mv-dir { margin: 16px 0 0; }
+@media (max-width: 760px) {
+  .fig.big { overflow-x: auto; padding: 16px; }
+  .fig.big:not(#mv) svg.d { min-width: 620px; }
+  #mv { overflow: visible; }
+  .cap3 { grid-template-columns: 1fr; gap: 16px; }
+}
+
 /* one note, two chains */
-#note-fig .seg { display: inline-flex; gap: 4px; padding: 4px; margin: 0 0 10px; background: var(--field); border: 1px solid var(--hair); border-radius: 10px; }
-#note-fig .seg button { min-height: 36px; padding: 0 14px; font: 500 12.5px var(--mono); color: var(--mute); background: none; border: 0; border-radius: 7px; cursor: pointer; }
-#note-fig .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 0 var(--hair-2); }
 #note-c { transition: transform .9s cubic-bezier(.65,0,.35,1); }
 #note-fig[data-side="eth"] #note-c { transform: translateX(272px); }
 #note-fig .side-btc, #note-fig .side-eth { transition: opacity .5s; }
-#note-fig[data-side="eth"] .side-btc, #note-fig[data-side="btc"] .side-eth { opacity: .35; }
+#note-fig[data-side="eth"] .side-btc, #note-fig[data-side="btc"] .side-eth { opacity: .45; }
 .fx { margin: 12px 4px 2px; font-size: 12.5px; color: var(--mute); }
 .fx code { color: var(--ink); font: 500 13px var(--mono); }
 
@@ -465,15 +504,93 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="wt-h">
         <span class="kk">How it works</span>
         <h2 id="wt-h">Two chains, <em>one state</em></h2>
-        <p>Each chain’s state is proven to the other in zero knowledge. A bridge waits for a proof, never for a signature.</p>
+        <p>Each chain keeps a proven copy of the other’s Tacit state. We call it reflection. A bridge is a burn on one side and a mint on the other, with a proof in between.</p>
         <ul class="trio"><li><b>No</b> federation</li><li><b>No</b> multisig</li><li><b>No</b> soft fork</li><li><b>Live</b> on mainnet</li></ul>
       </div>
+    </section>
+
+    <!-- reflection: both chains into one proof -->
+    <section class="wide rv" aria-labelledby="rf-h">
+      <h3 class="sr" id="rf-h">Reflection</h3>
+      <figure class="fig big" id="rf" style="margin:0">
+        <svg class="d" viewBox="0 0 1000 330" role="img" aria-label="Bitcoin's blocks and Ethereum's finalized blocks feed one proof, which the pool on Ethereum verifies">
+          <defs>
+            <linearGradient id="fadeR" x1="0" x2="1"><stop offset="0" stop-color="var(--card)" stop-opacity="0"/><stop offset="1" stop-color="var(--card)" stop-opacity=".92"/></linearGradient>
+            <linearGradient id="fadeL" x1="0" x2="1"><stop offset="0" stop-color="var(--card)" stop-opacity=".92"/><stop offset="1" stop-color="var(--card)" stop-opacity="0"/></linearGradient>
+          </defs>
+          <!-- Bitcoin: a block every ten minutes; the proof takes each one once it is 24 deep -->
+          <text class="h" x="24" y="26">BITCOIN</text>
+          <g class="lane-btc">
+            <rect class="bx s-btc" x="24" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="104" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="184" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="264" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="344" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="424" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc ink at" x="504" y="40" width="56" height="48" rx="8"/>
+            <g class="young"><rect class="bx s-btc" x="584" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="664" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="744" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc" x="824" y="40" width="56" height="48" rx="8"/><rect class="bx s-btc tipb" x="904" y="40" width="56" height="48" rx="8"/></g>
+            <g class="btc"><circle cx="52" cy="64" r="4"/><circle cx="212" cy="58" r="4"/><circle cx="222" cy="72" r="4"/><circle cx="372" cy="64" r="4"/><circle cx="532" cy="64" r="5" class="pulse"/><circle cx="692" cy="64" r="4" opacity=".45"/><circle cx="852" cy="64" r="4" opacity=".45"/></g>
+            <path class="ln" d="M80 64h24M160 64h24M240 64h24M320 64h24M400 64h24M480 64h24M560 64h24M640 64h24M720 64h24M800 64h24M880 64h24"/>
+            <path class="brk" d="M584 100v6h376v-6"/><text class="m" x="700" y="122">waiting to be 24 deep</text>
+          </g>
+          <text class="lv" x="532" y="30" text-anchor="middle">block <tspan data-live="btc">…</tspan></text>
+
+          <!-- Ethereum: a block every twelve seconds; the proof takes each one once it is final -->
+          <text class="h" x="24" y="226">ETHEREUM</text>
+          <g class="lane-eth">
+            <g class="eb"><rect class="bx s-eth" x="24" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="64" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="104" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="144" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="184" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="224" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="264" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="304" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="344" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="384" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="424" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth ink at" x="464" y="240" width="30" height="30" rx="6"/></g>
+            <g class="young"><rect class="bx s-eth" x="504" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="544" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="584" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth" x="624" y="240" width="30" height="30" rx="6"/><rect class="bx s-eth tipb" x="664" y="240" width="30" height="30" rx="6"/></g>
+            <path class="brk" d="M24 282v6h470v-6"/><text class="m" x="180" y="306">finalized</text>
+          </g>
+          <text class="lv" x="479" y="306" text-anchor="middle">block <tspan data-live="eth">…</tspan></text>
+          <!-- the pool lives on Ethereum -->
+          <rect class="bx ink" x="790" y="232" width="170" height="46" rx="10"/>
+          <text x="806" y="252">pool</text><text class="m" x="806" y="268">verifies every proof</text>
+          <path class="dash" d="M790 255 H700"/>
+
+          <!-- one proof -->
+          <path class="ln s-btc flow" d="M532 90 C532 130 470 140 440 160"/>
+          <path class="ln s-eth flow" d="M479 240 C479 214 470 206 440 200"/>
+          <rect class="bx ink prf" x="300" y="150" width="300" height="60" rx="30"/>
+          <circle class="fi" cx="336" cy="180" r="16"/><text x="330" y="185" style="fill:var(--paper);font-size:15px">π</text>
+          <text x="364" y="176">one proof</text><text class="m" x="364" y="192">Bitcoin folded · Ethereum verified</text>
+          <path class="ln ink flow" d="M600 180 C700 180 760 200 790 240"/>
+          <circle class="fi pkt" r="4"><animateMotion dur="2.6s" repeatCount="indefinite" path="M600 180 C700 180 760 200 790 240"/></circle>
+          <circle class="btc pkt" r="4"><animateMotion dur="2.6s" repeatCount="indefinite" path="M532 90 C532 130 470 140 440 160"/></circle>
+          <circle class="eth pkt" r="4"><animateMotion dur="2.6s" begin="1.3s" repeatCount="indefinite" path="M479 240 C479 214 470 206 440 200"/></circle>
+        </svg>
+      </figure>
+      <ol class="cap3">
+        <li><b><i class="b"></i>Bitcoin, in</b><span>Every block, once 24 deep. Each Tacit envelope in it is folded into proven roots.</span></li>
+        <li><b><i class="e"></i>Ethereum, in</b><span>Every finalized block, by its sync committee’s signatures, checked by a light client.</span></li>
+        <li><b><i class="k"></i>One proof, out</b><span>Verified by the pool, an immutable contract. Nobody signs it, and anyone can make it.</span></li>
+      </ol>
+    </section>
+
+    <!-- a bridge in three moves -->
+    <section class="wide rv" aria-labelledby="mv-h" style="margin-top:96px">
+      <div class="wt-h">
+        <span class="kk">The bridge</span>
+        <h2 id="mv-h" style="font-size:clamp(28px,4vw,40px)">Burn, prove, <em>mint</em></h2>
+        <div class="seg" id="mv-dir" role="group" aria-label="Direction"><button type="button" data-dir="in" aria-pressed="true">Bitcoin → Ethereum</button><button type="button" data-dir="out" aria-pressed="false">Ethereum → Bitcoin</button></div>
+      </div>
+      <figure class="fig big" id="mv" data-dir="in" style="margin:18px 0 0">
+        <svg class="d" viewBox="0 20 1000 132" role="img" aria-label="A note is burned on one chain, proven, and minted on the other">
+          <path class="ln trk" d="M170 86 H830"/>
+          <path class="ln trk flow" d="M170 86 H830"/>
+          <g class="st"><circle class="bx src" cx="170" cy="86" r="50"/><use id="mv-a" href="#tk-btc" x="146" y="62" width="48" height="48"/></g>
+          <g class="st"><rect class="bx ink" x="452" y="38" width="96" height="96" rx="24"/><text x="487" y="98" style="font:400 40px var(--serif)">π</text></g>
+          <g class="st"><circle class="bx dst" cx="830" cy="86" r="50"/><use id="mv-b" href="#tk-eth" x="806" y="62" width="48" height="48"/></g>
+          <g class="note"><circle r="13" class="nt"/><text x="-5" y="5" style="fill:var(--paper)">C</text>
+            <animateMotion dur="6s" repeatCount="indefinite" path="M170 86 H830" keyPoints="0;0;.5;.5;1;1" keyTimes="0;.14;.42;.58;.86;1" calcMode="linear"/>
+          </g>
+        </svg>
+      </figure>
+      <ol class="cap3 mvc">
+        <li><b>1 · Burn</b><span class="in">The note is burned on Bitcoin, in one Taproot transaction. Its amount stays hidden.</span><span class="out">The note leaves the pool in a cross-out, written into the pool’s storage. Its amount stays hidden.</span></li>
+        <li><b>2 · Prove</b><span class="in">Once 24 blocks deep, the burn is folded into Bitcoin’s proof, and the pool verifies it.</span><span class="out">Once Ethereum finalizes it, the cross-out is proven inside Bitcoin’s proof.</span></li>
+        <li><b>3 · Mint</b><span class="in">The pool mints the same note, privately, once per burn. A second claim fails.</span><span class="out">A Bitcoin transaction mints the same note, once, as a proven member of the cross-outs.</span></li>
+      </ol>
     </section>
 
     <!-- one note -->
     <section class="ch rv" aria-labelledby="c1-h">
       <div>
-        <span class="kk">01 · The note</span>
+        <span class="kk">The note</span>
         <h3 id="c1-h">One note, <em>two chains</em></h3>
         <p>A Tacit note is a Pedersen commitment on secp256k1, the curve both chains already use. The same commitment is the note on Bitcoin and in the pool on Ethereum, so a bridge moves the note without opening it.</p>
       </div>
@@ -515,7 +632,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <!-- Bitcoin to Ethereum -->
     <section class="ch flip rv" aria-labelledby="c2-h">
       <div>
-        <span class="kk">02 · Bitcoin → Ethereum</span>
+        <span class="kk">Under the hood · Bitcoin → Ethereum</span>
         <h3 id="c2-h">Bitcoin, <em>proven on Ethereum</em></h3>
         <ol class="st-l" aria-label="Steps">
           <li data-step tabindex="0"><b>Headers, by work</b><span>A permissionless relay on Ethereum checks every Bitcoin header’s proof of work. The heaviest chain wins.</span></li>
@@ -571,7 +688,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <!-- Ethereum to Bitcoin -->
     <section class="ch rv" aria-labelledby="c3-h">
       <div>
-        <span class="kk">03 · Ethereum → Bitcoin</span>
+        <span class="kk">Under the hood · Ethereum → Bitcoin</span>
         <h3 id="c3-h">Ethereum, <em>proven back</em></h3>
         <ol class="st-l" aria-label="Steps">
           <li data-step tabindex="0"><b>Finality, signed</b><span>Ethereum’s sync committee signs each finalized block. A light client checks the signatures, period after period, from a pinned anchor.</span></li>
@@ -633,7 +750,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <!-- who checks what -->
     <section class="ch flip rv" aria-labelledby="c4-h">
       <div>
-        <span class="kk">04 · Trust</span>
+        <span class="kk">Trust</span>
         <h3 id="c4-h">Who checks <em>what</em></h3>
         <p>Every hop of a bridge is checked by math anyone can rerun.</p>
         <p class="none"><b>No multisig, federation or attestor set signs a bridge message.</b> Anyone can run the provers.</p>
@@ -671,13 +788,13 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 
     <!-- live -->
     <section id="live" class="rv" aria-labelledby="live-h">
-      <div class="wt-h"><span class="kk">05 · Live</span><h2 id="live-h" style="font-size:clamp(28px,4vw,40px)">In step, <em>right now</em></h2></div>
+      <div class="wt-h"><span class="kk">Live</span><h2 id="live-h" style="font-size:clamp(28px,4vw,40px)">In step, <em>right now</em></h2></div>
       <div class="fig" style="margin-top:18px"><div id="live-v"></div></div>
     </section>
 
     <!-- the round trip -->
     <section class="wt rv" style="margin-top:88px" aria-labelledby="rt-h">
-      <div class="wt-h"><span class="kk">06 · On mainnet</span><h2 id="rt-h" style="font-size:clamp(28px,4vw,40px)">The same note, <em>proven twice</em></h2>
+      <div class="wt-h"><span class="kk">On mainnet</span><h2 id="rt-h" style="font-size:clamp(28px,4vw,40px)">The same note, <em>proven twice</em></h2>
         <p><b class="num sk" data-live="supply" style="--w:9ch"></b> TAC on Ethereum, every one minted from TAC proven to have left Bitcoin.</p></div>
       <ol class="rt">
         <li class="e"><i></i><b>Out of the pool</b><p>A cross-out burns the note on Ethereum.</p><a href="https://etherscan.io/tx/0xc7bfc7cec938e59c5d256d1c44c2aea5269eb7c237ac018878f21b2a93c29a8f" target="_blank" rel="noopener">Ethereum tx</a></li>
@@ -715,6 +832,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/bridge/app.js?cb=b772f1ad"></script>
+<script type="module" src="/bridge/app.js?cb=d02b1720"></script>
 </body>
 </html>

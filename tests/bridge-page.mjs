@@ -157,8 +157,11 @@ try {
     ok(await page.$$eval('.rv', (els) => els.every((e) => e.classList.contains('in'))), 'every section comes in as it is scrolled to');
     await page.waitForFunction(() => !!document.querySelector('#live-v canvas'), null, { timeout: 10000 }).catch(() => {});
     ok(!!(await page.$('#live-v canvas')), 'the live picture of both chains is drawn');
-    for (const [id, name] of [['#c1-h', 'sec-note'], ['#c3-h', 'sec-e2b'], ['#c4-h', 'sec-trust'], ['#live-h', 'sec-live'], ['#rt-h', 'sec-roundtrip']]) {
-      await page.locator(id).scrollIntoViewIfNeeded(); await page.evaluate(() => scrollBy(0, -120)); await page.waitForTimeout(700); await shot(page, name);
+    await page.click('#mv-dir button[data-dir="out"]');
+    ok(await page.$eval('#mv', (f) => f.dataset.dir) === 'out' && (await page.$eval('#mv-a', (u) => u.getAttribute('href'))) === '#tk-eth' && (await page.isVisible('.mvc .out')) && !(await page.isVisible('.mvc .in')), 'burn, prove, mint: the switch turns it to Ethereum → Bitcoin');
+    ok((await page.textContent('#rf')).includes('972,090'), 'the reflection drawing carries the live block');
+    for (const [id, name] of [['#rf', 'sec-reflection'], ['#mv-h', 'sec-moves'], ['#c1-h', 'sec-note'], ['#c2-h', 'sec-b2e'], ['#c3-h', 'sec-e2b'], ['#c4-h', 'sec-trust'], ['#live-h', 'sec-live'], ['#rt-h', 'sec-roundtrip']]) {
+      await page.evaluate((q) => { document.querySelector(q).scrollIntoView({ block: 'start' }); scrollBy(0, -90); }, id); await page.waitForTimeout(700); await shot(page, name);
     }
     await shot(page, 'desktop-full', true);
     ok(errors.length === 0, `no console errors${errors.length ? ': ' + errors.join(' | ').slice(0, 400) : ''}`);
@@ -175,6 +178,10 @@ try {
     ok(await page.evaluate(() => getComputedStyle(document.body).backgroundColor) === 'rgb(21, 19, 14)', 'dark paper');
     await shot(page, 'phone-dark');
     await shot(page, 'phone-dark-full', true);
+    for (const [id, name] of [['#rf', 'phone-reflection'], ['#mv-h', 'phone-moves']]) {
+      await page.evaluate((q) => { document.querySelector(q).scrollIntoView({ block: 'start' }); scrollBy(0, -60); }, id); await page.waitForTimeout(900); await shot(page, name);
+    }
+    ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'the wide drawings scroll inside their frames, not the page');
     ok(errors.length === 0, `no console errors on a phone${errors.length ? ': ' + errors.join(' | ').slice(0, 400) : ''}`);
     await browser.close();
   }
