@@ -4,7 +4,7 @@ import { makeConnect, UserStopped } from '/trade/connect.js?cb=e4659b0e';
 import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18 } from '/trade/util.js?cb=509d6618';
 import * as R from '/swap/route.js?cb=2be79f2b';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
-import { aprText, readPrecision, privateFarms } from '/trade/farm-read.js?cb=24f7ca66';
+import { aprText, readPrecision, privateFarms } from '/trade/farm-read.js?cb=56ac202c';
 
 const CHAINLINK = { eth: '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419', btc: '0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c' };
 const PRECISION_POOL = '0x0155358241411dB868BA714aE7c83A27087e3D6E';

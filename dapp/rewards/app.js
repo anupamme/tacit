@@ -3,7 +3,7 @@ import { makeConfidentialNames, makeMainnetCall, MAINNET_RPCS, NameError } from 
 import { bodyType } from '/rpc-body.js';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=6a6bb45f';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=e4659b0e';
-import { TAC, POOL, FARM, aprText, readPrecision, readStake, privateFarms } from '/trade/farm-read.js?cb=24f7ca66';
+import { TAC, POOL, FARM, aprText, readPrecision, readStake, privateFarms } from '/trade/farm-read.js?cb=56ac202c';
 import { readLiquidity, readTasks } from '/rewards/earn.js?cb=ffffbe6c';
 
 const NO_SEND = ['0x0000000000000000000000000000000000000000', '0xa1313eb9f3a445606d9583bcac3ebeb56a858279', '0x000000c918e44a3a443937fa7594ea4f7c95d6b9', '0x4b4cb98d0c836c2783ac46f0078b904dab533ae8'];

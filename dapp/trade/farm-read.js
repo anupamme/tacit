@@ -3,6 +3,14 @@ export const TAC = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279', POOL = '0x01553
 const CETH = '0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34';
 const wordOf = (a) => a.slice(2).toLowerCase().padStart(64, '0');
 
+export const aprFrom = (tacPerDay, stakedEth, tacEth) => (stakedEth > 0 && tacEth ? tacPerDay * 365 * tacEth / stakedEth * 100 : null);
+
+export function shieldedApr(pool, tacEth) {
+  const r = pool.reserves || {}, total = Number(r.lpTotalShares || 0);
+  if (String(r.assetA).toLowerCase() !== CETH || !total) return null;
+  return aprFrom(Number(pool.tacPerDayForPool), 2 * Number(r.reserveA) / 1e8 * Number(pool.totalShares) / total, tacEth);
+}
+
 export const aprText = (a) => (a == null ? '' : a >= 100000 ? 'over 100,000%' : a >= 100 ? `${Math.round(a).toLocaleString('en-US')}%` : `${a.toFixed(1)}%`);
 
 export async function readPrecision(call) {
@@ -13,7 +21,7 @@ export async function readPrecision(call) {
   const sq = Number(sp) / 1e18, tacEth = sq > 0 ? 1 / (sq * sq) : 0;
   const live = tacEth > 0 && Date.now() / 1000 < Number(finish);
   const stakedEth = supply > 0n ? (Number(r0) + Number(r1) * tacEth) * Number(totalStaked) / Number(supply) : 0;
-  return { r0, r1, supply, tacEth, live, finish: Number(finish), perDay: live ? rate * 86400n : 0n, stakedEth, apr: live && stakedEth > 0 ? Number(rate) * 86400 * 365 * tacEth / stakedEth * 100 : null };
+  return { r0, r1, supply, tacEth, live, finish: Number(finish), perDay: live ? rate * 86400n : 0n, stakedEth, apr: live ? aprFrom(Number(rate) * 86400 / 1e18, stakedEth / 1e18, tacEth) : null };
 }
 
 export async function readStake(call, who, f) {
@@ -26,10 +34,8 @@ export async function readStake(call, who, f) {
 export function privateFarms(program, tacEth) {
   if (!program?.epoch?.active) return [];
   return (program.pools || []).filter((p) => Number(p.tacPerDayForPool) > 0).map((p) => {
-    const r = p.reserves || {}, total = Number(r.lpTotalShares || 0);
-    const bonded = String(r.assetA).toLowerCase() === CETH && total && tacEth ? 2 * Number(r.reserveA) / 1e8 * Number(p.totalShares) / total : 0;
     const k = String(p.pair).split('/').map((x) => (x === 'cETH' ? 'tETH' : x));
     if (k[1] === 'tETH') k.reverse();
-    return { pid: Number(p.pid), name: k.join(' / '), icons: k.map((x) => x.toLowerCase()), perDay: Number(p.tacPerDayForPool), apr: bonded > 0 ? Number(p.tacPerDayForPool) * 365 * tacEth / bonded * 100 : null };
+    return { pid: Number(p.pid), name: k.join(' / '), icons: k.map((x) => x.toLowerCase()), perDay: Number(p.tacPerDayForPool), apr: shieldedApr(p, tacEth) };
   });
 }

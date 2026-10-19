@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-MIVPAJ8T+kM3jPtNno246BEmn/BN5Xwd4hjCUWZv+3I=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-ccHei8x3MpPeLGGn+p4Tq32IH4M/93ZCZwjBOh7gy4w=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -28,7 +28,7 @@
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<!-- preload-roots: /vendor/tacit-deps.min.js /prf-wallet.js /tacit-wallet-known.js /tacit-address.js /bip352.js /evm-wallet.js /walletconnect.js /evm-account.js /evm-tx.js /tac-airdrop.js /evm-trade-venues.js /confidential-payout.js /address-id.js | | /confidential-pool-ux.js /confidential-deployments.js -->
+<!-- preload-roots: /vendor/tacit-deps.min.js /prf-wallet.js /tacit-wallet-known.js /tacit-address.js /bip352.js /evm-wallet.js /walletconnect.js /evm-account.js /evm-tx.js /tac-airdrop.js /evm-trade-venues.js /confidential-payout.js /address-id.js /trade/farm-read.js | | /confidential-pool-ux.js /confidential-deployments.js -->
 <!-- preload:begin -->
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/prf-wallet.js">
@@ -46,6 +46,7 @@
 <link rel="modulepreload" href="/zrouter-guard.js">
 <link rel="modulepreload" href="/confidential-payout.js?cb=c27b4853">
 <link rel="modulepreload" href="/address-id.js?cb=c4fa5a58">
+<link rel="modulepreload" href="/trade/farm-read.js?cb=56ac202c">
 <!-- preload:end -->
 <style>
 @font-face { font-family: 'IBM Plex Mono'; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
@@ -1587,6 +1588,7 @@ import { makeEvmTx } from '/evm-tx.js';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=6a6bb45f';
 import { makeEvmTradeVenues, encErc20Approve, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, TACIT_AMM } from '/evm-trade-venues.js?cb=563db4d4';
 import { parseRecipient } from '/confidential-payout.js?cb=c27b4853';
+import { aprFrom, shieldedApr as shieldedAprOf } from '/trade/farm-read.js?cb=56ac202c';
 import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
 if (window.__tacitAway) await new Promise(() => {});
@@ -8049,13 +8051,9 @@ const LOGO = { TAC: 'tk-tac', cETH: 'tk-teth', cUSD: 'tk-cusd', cBTC: 'tk-cbtc',
 const logoPair = (a, b, cls = 'md') => html`<span class="pair"><svg class="tk ${cls}" aria-hidden="true"><use href="#${LOGO[a]}"/></svg><svg class="tk ${cls}" aria-hidden="true"><use href="#${LOGO[b]}"/></svg></span>`;
 const pairName = (pair) => { const k = String(pair).split('/').map((x) => (x === 'cETH' ? 'tETH' : x)); if (k[1] === 'tETH') k.reverse(); return k.join(' / '); };
 const CETH_ID = '0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34';
-const aprOf = (tacPerDay, stakedEth) => (stakedEth > 0 && FARM.precision?.tacEth ? tacPerDay * 365 * FARM.precision.tacEth / stakedEth * 100 : null);
+const aprOf = (tacPerDay, stakedEth) => aprFrom(tacPerDay, stakedEth, FARM.precision?.tacEth);
 const precisionApr = (x) => (x?.supply ? aprOf(Number(x.perDay) / 1e18, x.value / 1e18 * Number(x.totalStaked) / Number(x.supply)) : null);
-const shieldedApr = (p) => {
-  const r = p.reserves || {};
-  if (String(r.assetA).toLowerCase() !== CETH_ID || !Number(r.lpTotalShares)) return null;
-  return aprOf(Number(p.tacPerDayForPool), 2 * Number(r.reserveA) / 1e8 * Number(p.totalShares) / Number(r.lpTotalShares));
-};
+const shieldedApr = (p) => shieldedAprOf(p, FARM.precision?.tacEth);
 const poolDepthEth = (p) => { const r = p?.reserves || {}; return String(r.assetA).toLowerCase() === CETH_ID && big(r.reserveA) ? 2n * big(r.reserveA) * E10 : null; };
 const depthText = (wei) => (wei == null ? '' : ` · ${wei < 10n ** 16n ? 'under 0.01' : fmt(wei, 18, 2)} ETH deep`);
 const sharesEth = (p, shares) => { const r = p?.reserves || {}, total = big(r.lpTotalShares), n = big(shares); return total && n != null && String(r.assetA).toLowerCase() === CETH_ID ? 2n * n * big(r.reserveA) / total * E10 : null; };
