@@ -1,9 +1,9 @@
 // Secret Sats page. The landing copy is static; everything that touches a key
 // or the chain comes from ../tacit.js, imported only once the user connects.
 
-const TACIT_URL = '/tacit.js?cb=89ab08dc';
+const TACIT_URL = '/tacit.js?cb=d5eb5f95';
 const SECRET_URL = '/sats/secret.js?cb=f6574a8f';
-const MIX_URL = '/sats/mix.js?cb=5ce07955';
+const MIX_URL = '/sats/mix.js?cb=cd41efef';
 const ETH_URL = '/sats/eth.js?cb=a08690ed';
 const POOL_STATUS = 'https://tacit-btc-pool-mainnet.onrender.com/btc-pool/status';
 

@@ -18,7 +18,7 @@
 
 import * as J from '/secret-sats-join.js?cb=7e817f1c';
 import { makeBtcPoolZap, makeNoteResolver } from '/btc-pool-zap.js?cb=526a78d8';
-import { makeBtcWallet } from '/bitcoin-taproot-wallet.js?cb=5fd402f3';
+import { makeBtcWallet } from '/bitcoin-taproot-wallet.js?cb=6e90dd96';
 import { secp, sha256, keccak_256, bytesToHex } from '../vendor/tacit-deps.min.js';
 
 const WORKER_URL = '/sats/join-worker.js?cb=2ad4d02d';
