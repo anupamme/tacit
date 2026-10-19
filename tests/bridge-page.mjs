@@ -174,11 +174,14 @@ try {
     await page.click('#hood-dir button[data-dir="in"]');
     await page.click('.faq summary');
     ok(await page.isVisible('.faq details[open] p'), 'a question opens to its answer');
-    ok((await page.$$('.faq details')).length === 7, 'seven questions');
+    ok((await page.$$('.faq details')).length === 8, 'eight questions');
+    ok(!/allowance|free/i.test(await page.textContent('.faq')), 'the answers keep to plain words about who pays');
+    ok(await page.getAttribute('.runcta .go', 'href') === '/weld/keeper/' && (await page.$$('#run .cap3 li')).length === 3 && (await page.$$('#run .pill')).length === 3, 'anyone can run it: three steps, each open to anyone, and a door to community ops');
+    ok(await page.getAttribute('.trio a', 'href') === '#run', 'and the top of the page points to it');
     await page.click('#mv-dir button[data-dir="out"]');
     ok(await page.$eval('#mv', (f) => f.dataset.dir) === 'out' && (await page.$eval('#mv-a', (u) => u.getAttribute('href'))) === '#tk-eth' && (await page.isVisible('.mvc .out')) && !(await page.isVisible('.mvc .in')), 'burn, prove, mint: the switch turns it to Ethereum → Bitcoin');
     ok((await page.textContent('#rf')).includes('972,090'), 'the reflection drawing carries the live block');
-    for (const [id, name] of [['#rf', 'sec-reflection'], ['#mv-h', 'sec-moves'], ['#c1-h', 'sec-note'], ['#c2-h', 'sec-b2e'], ['#hood', 'sec-hood'], ['.faq', 'sec-faq'], ['#c4-h', 'sec-trust'], ['#live-h', 'sec-live'], ['#rt-h', 'sec-roundtrip']]) {
+    for (const [id, name] of [['#rf', 'sec-reflection'], ['#mv-h', 'sec-moves'], ['#c1-h', 'sec-note'], ['#c2-h', 'sec-b2e'], ['#hood', 'sec-hood'], ['#run', 'sec-run'], ['.faq', 'sec-faq'], ['#c4-h', 'sec-trust'], ['#live-h', 'sec-live'], ['#rt-h', 'sec-roundtrip']]) {
       await page.evaluate((q) => { document.querySelector(q).scrollIntoView({ block: 'start' }); scrollBy(0, -90); }, id); await page.waitForTimeout(700); await shot(page, name);
     }
     await shot(page, 'desktop-full', true);

@@ -70,6 +70,23 @@ opening it: the amount stays hidden on both sides.
 
 Reflection advances when someone runs the provers. The reference relayer does, and anyone else can.
 
+## Run it yourself
+
+Tacit's services keep reflection current, and anyone can run it. Every step is an on-chain call that needs
+no permission, and you pay only the network fee:
+
+1. **Send the headers.** `BitcoinLightRelay.advanceTip(headers)` takes Bitcoin's block headers and checks
+   each one's proof of work, so only real blocks are accepted.
+2. **Make the proof.** Run the reflection prover
+   ([`worker-relay/src/reflection-folder.js`](../worker-relay/src/reflection-folder.js)) with your own
+   Succinct account. Everyone runs the same program on the same public inputs.
+3. **Submit it.** `attestBitcoinStateProven(publicValues, proof)` accepts any valid proof over the pool's
+   current state, from any wallet.
+
+[Community ops](https://tacit.finance/weld/keeper/) does the first and the last from your own wallet. To
+check the deployment itself, run [`tools/verify-live.mjs`](./VERIFY-LIVE.md) and rebuild the programs from
+source ([`REPRODUCIBLE-BUILDS.md`](./REPRODUCIBLE-BUILDS.md)).
+
 ## What you trust
 
 Bitcoin's proof of work, Ethereum's validators (through its sync committee), and a proof system whose
