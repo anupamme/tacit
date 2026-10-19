@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // tools/tac-vault-keeper.mjs recording the venues' intervals on a local anvil, against test venues that take a record on a header alone (MockPair's): what is due goes out
 // as few transactions as the batch limit allows (not one per interval), a wallet with too little is told so, and with DEFER_BLOCKS on an interval waits for a cheaper
-// block until it is that old. One-shot runs (ONCE=1).
+// block until it is that old, and a small wallet records at a low base fee (its fee cap follows the base fee) and says what it lacks at a high one. One-shot runs (ONCE=1).
 //
 //   VAULT_OUT=<forge out dir> node tests/tac-vault-keeper-records.mjs
 import { spawn, execFileSync } from 'node:child_process';
@@ -77,6 +77,30 @@ out = keeper({ DEFER_BLOCKS: '1000', DEFER_PCT: '30' });
 ok(m0 > 0 && nonce(KEEPER_ADDR) === before && /waiting for a cheaper block/.test(out), `at a dear base fee, with DEFER_BLOCKS on, it waits and sends nothing (${(out.split('\n').find((l) => /waiting/.test(l)) || 'no waiting line').slice(0, 120)})`);
 out = keeper({ DEFER_BLOCKS: '1', DEFER_PCT: '30' });
 ok(nonce(KEEPER_ADDR) > before && !/waiting for a cheaper block/.test(out), 'when what is due is older than DEFER_BLOCKS it records at once');
+
+// 5. a wallet that holds a few thousandths of an ETH records at a base fee near nothing: the fee cap it offers follows the base fee, not the 100 gwei policy cap (which
+//    would ask it for gasLimit x 100 gwei, over an ETH, before the node let it send)
+const SMALL = '0x' + '22'.repeat(32), SMALL_ADDR = cast('wallet', 'address', '--private-key', SMALL);
+await rpc('anvil_setBalance', [SMALL_ADDR, '0xAA87BEE538000']);                                           // 0.003 ETH
+await rpc('anvil_mine', ['0x258']);                                                                       // 600 blocks: twelve intervals come due, and the base fee falls to almost nothing
+const newest = async () => Math.floor(((await head()) - 1) / 50) - 1;
+const topSmall = await newest();
+const dueSmall = Array.from({ length: 12 }, (_, i) => topSmall - 11 + i).filter((k) => !recorded(k));
+before = nonce(SMALL_ADDR);
+out = keeper({ MAX_GWEI: '100', URGENT_MAX_GWEI: '100' }, SMALL);
+ok(dueSmall.length >= 10 && nonce(SMALL_ADDR) > before && dueSmall.every(recorded), `a wallet with 0.003 ETH records ${dueSmall.length} intervals at a near-zero base fee, though 100 gwei x the gas would cost over an ETH`);
+ok(!/cannot pay for a transaction/.test(out), 'and says nothing about being unable to pay');
+
+// 6. at 5 gwei the same kind of wallet cannot pay for a record: it says what it holds and what the send needs, and sends nothing
+const POOR = '0x' + '33'.repeat(32), POOR_ADDR = cast('wallet', 'address', '--private-key', POOR);
+await rpc('anvil_setBalance', [POOR_ADDR, '0x38D7EA4C68000']);                                            // 0.001 ETH
+await rpc('anvil_mine', ['0x32']);                                                                        // a new interval is due
+await rpc('anvil_setNextBlockBaseFeePerGas', ['0x12a05f200']);                                            // 5 gwei
+await rpc('anvil_mine', ['0x1']);
+before = nonce(POOR_ADDR);
+out = keeper({ MAX_GWEI: '100', URGENT_MAX_GWEI: '100' }, POOR);
+const afford = out.split('\n').find((l) => /cannot pay for a transaction/.test(l));
+ok(nonce(POOR_ADDR) === before && afford && /it holds 0\.001 ETH and this transaction needs 0\.\d+ ETH/.test(afford) && /send it ETH/.test(afford), `0.001 ETH cannot pay for a record at 5 gwei: the keeper says so and sends nothing (${afford ? afford.slice(afford.indexOf('ALERT')).slice(0, 150) : 'no alert'})`);
 
 console.log(fails ? `${fails} failed, ${n} passed` : `${n} checks passed`);
 process.exit(fails ? 1 : 0);

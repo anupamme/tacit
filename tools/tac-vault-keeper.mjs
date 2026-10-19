@@ -9,7 +9,16 @@
 // newest intervals every RECORD_POLL_SECONDS (a full sweep of the window every FULL_SWEEP_SECONDS), because a record
 // that lands more than GRACE blocks after its interval ends pauses borrowing. Records pay at most MAX_GWEI, and at
 // most URGENT_MAX_GWEI once a needed interval is URGENT_AFTER_BLOCKS old; above the cap they are skipped and anyone
-// can fill the interval later, for about 21 hours.
+// can fill the interval later, for about 21 hours. A transaction offers a fee cap of FEE_HEADROOM (3) times the base fee plus the tip, or the policy cap
+// when that is less, so the wallet needs gasLimit x that to send (a few thousandths of an ETH at today's base fee), not gasLimit x MAX_GWEI; when it holds
+// less, the keeper raises an ALERT naming what it holds and what the send needs instead of failing at the node on every cycle.
+//
+// RECORD_MODE=demand (needs VAULTS) stops the round-the-clock recording, which is the keeper's only running cost. Recording an interval later proves the
+// same storage the same way (the ring keeps about 21 hours), so a late record is as good as a prompt one and nothing is lost by waiting; a borrower who
+// finds prices missing records them in their own transaction (the router), and so does a withdrawal with a debt; a liquidator records first. The keeper then records only
+// while a borrower is within RISK_COVER_BPS (28000, that is 280%) of its debt at the lower of the venues' spot and newest recorded price, or in an auction,
+// so that prices are on the record before a vault can reach the liquidation line; it reads only what an unrecorded oracle still answers (spot, latest and the
+// vault's feed), which costs no gas. With every vault far from the line the wallet spends nothing.
 //
 // With VAULTS set, it reads each vault's borrowers from its Borrowed events (in chunks, remembering them) and:
 //   - calls `liquidate` on a vault with debt that is below the liquidation line (not while the owner has paused
@@ -30,7 +39,7 @@
 //   [ORACLE=0xvenue1,0xvenue2] [VAULTS=0xusd,0xeth FROM_BLOCK=<vault deploy block>] [SEND_RPC=https://...]
 //   [MAX_GWEI=1] [RECORD_TIP_GWEI=0.001] [URGENT_MAX_GWEI=25] [URGENT_TIP_GWEI=0.1] [URGENT_AFTER_BLOCKS=5]
 //   [ACTION_MAX_GWEI=100] [ACTION_TIP_GWEI=0.1] [RECORD_POLL_SECONDS=12] [FULL_SWEEP_SECONDS=300] [SCAN_SECONDS=60]
-//   [LOG_CHUNK=5000] [ALERT_WEBHOOK=https://...] [ONCE=1]
+//   [LOG_CHUNK=5000] [ALERT_WEBHOOK=https://...] [ONCE=1] [FEE_HEADROOM=3] [RECORD_MODE=always|demand] [RISK_COVER_BPS=28000]
 //   node tools/tac-vault-keeper.mjs
 // KEEPER_PRIV=0x.. works too, but the key is then visible to every local process in the command line of each send.
 
@@ -54,6 +63,13 @@ const ACTION_TIP = gwei(process.env.ACTION_TIP_GWEI || 0.1);
 const URGENT_CAP = gwei(process.env.URGENT_MAX_GWEI || 25);
 const URGENT_TIP = gwei(process.env.URGENT_TIP_GWEI || 0.1);
 const URGENT_AFTER = BigInt(process.env.URGENT_AFTER_BLOCKS || 5);
+const FEE_HEADROOM = BigInt(Math.max(1, Math.round(Number(process.env.FEE_HEADROOM || 3))));
+const RECORD_MODE = process.env.RECORD_MODE || 'always';
+if (!['always', 'demand'].includes(RECORD_MODE)) {
+  console.error('RECORD_MODE is always or demand');
+  process.exit(2);
+}
+const RISK_COVER_BPS = BigInt(process.env.RISK_COVER_BPS || 28000);
 const RECORD_POLL = Number(process.env.RECORD_POLL_SECONDS || 12);
 const FULL_SWEEP = Number(process.env.FULL_SWEEP_SECONDS || 300);
 const SCAN_SECONDS = Number(process.env.SCAN_SECONDS || 60);
@@ -115,20 +131,45 @@ function simulate(to, sig, ...a) {
   }
 }
 
-// Sends with a gas limit 30% over the estimate and the given fee cap and tip, waits for the receipt (up to five
-// minutes, so the next send takes the next nonce) and returns the hash; throws if the transaction reverted.
+// A node refuses a send unless the wallet holds gasLimit x the transaction's fee cap, whatever the transaction then pays (the base fee and the tip). The
+// cap a transaction offers is therefore the policy cap (MAX_GWEI, URGENT_MAX_GWEI, ACTION_MAX_GWEI) or FEE_HEADROOM times the base fee plus the tip,
+// whichever is less: at a base fee of 0.05 gwei a wallet needs a few thousandths of an ETH for a record, not the 0.03 ETH that 25 gwei would ask.
+const feeCapFor = (baseFee, cap, tip) => {
+  const want = baseFee * FEE_HEADROOM + tip;
+  return want < cap ? want : cap;
+};
+const eth = (wei) => Number(wei) / 1e18;
+
+// A send the wallet cannot pay for is an alert naming what it holds and what the transaction needs, not a refusal from the node on every cycle.
+function noteAfford(e) {
+  if (e.afford) alertOnce('afford', `the keeper wallet ${sender} cannot pay for a transaction (${e.message}); send it ETH`);
+}
+
+// Sends with a gas limit 30% over the estimate and a fee cap of at most the given cap, waits for the receipt (up to five
+// minutes, so the next send takes the next nonce) and returns the hash; throws if the wallet cannot pay for it or the transaction reverted.
 function send(to, sig, args, cap, tip) {
   const estimate = num(cast(['estimate', to, sig, ...args, '--from', sender, '--rpc-url', RPC]));
+  const gasLimit = estimate * 13n / 10n;
+  const fee = feeCapFor(num(cast(['base-fee', '--rpc-url', RPC])), cap, tip);
+  const need = gasLimit * fee;
+  const have = num(cast(['balance', sender, '--rpc-url', RPC]));
+  if (have < need) {
+    const e = new Error(`it holds ${eth(have)} ETH and this transaction needs ${eth(need)} ETH (${gasLimit} gas at a fee cap of ${Number(fee) / 1e9} gwei)`);
+    e.afford = true;
+    throw e;
+  }
   const out = cast([
-    'send', to, sig, ...args, ...signer, '--gas-limit', String(estimate * 13n / 10n), '--gas-price', String(cap),
-    '--priority-gas-price', String(tip < cap ? tip : cap), '--timeout', '300', '--rpc-url', SEND_RPC, '--json',
+    'send', to, sig, ...args, ...signer, '--gas-limit', String(gasLimit), '--gas-price', String(fee),
+    '--priority-gas-price', String(tip < fee ? tip : fee), '--timeout', '300', '--rpc-url', SEND_RPC, '--json',
   ]);
   const receipt = JSON.parse(out);
   if (!/1$/.test(String(receipt.status))) throw new Error(`REVERTED on chain: ${receipt.transactionHash}`);
+  clearAlert('afford');
   return receipt.transactionHash;
 }
 
 const alreadyRecorded = cast(['sig', 'AlreadyRecorded()']);
+const tooFewSamples = cast(['sig', 'TooFewSamples()']);
 
 const recorded = (oracle, k) => {
   try {
@@ -282,6 +323,7 @@ function submit(due, baseFee) {
         // ours mined and reverted.
         if (errLine(e).includes(alreadyRecorded) || recorded(d.oracle, d.k)) continue;
         ++missed;
+        noteAfford(e);
         log(d.oracle, 'record', String(d.k), 'failed:', errLine(e));
       }
     }
@@ -294,6 +336,7 @@ function submit(due, baseFee) {
       const hash = send(MULTICALL3, 'aggregate3((address,bool,bytes)[])', [`[${calls.join(',')}]`], cap, tip);
       for (const d of ready) log(d.oracle, 'record', String(d.k), String(d.n), hash);
     } catch (e) {
+      noteAfford(e);
       log('batch failed, recording one at a time:', errLine(e));
       each(ready.filter((d) => !recorded(d.oracle, d.k)));
     }
@@ -381,6 +424,49 @@ function readOwners(vault) {
 
 const act = (vault, sig, owner) => send(vault, sig, [owner], ACTION_CAP, ACTION_TIP);
 
+// Whether a borrower is close enough to the liquidation line, or in an auction, that prices should be on the record: the cover is the TAC held at the
+// lower of the venues' spot and the newest recorded price (the cautious one), in the vault's unit through its own feed, over the debt. Reads only what an
+// oracle with nothing recorded still answers. A price that cannot be read leaves the last answer standing and says so.
+let lastRisk = false;
+function atRisk() {
+  let risky = false;
+  for (const vault of VAULTS) {
+    try {
+      const owners = readOwners(vault);
+      const pair = call(vault, 'ORACLE()(address)');
+      const spot = num(call(pair, 'spot()(uint256)'));
+      let latest = 0n;
+      try {
+        latest = num(call(pair, 'latest()(uint256)'));
+      } catch {}
+      const ethPerTac = latest > 0n && latest < spot ? latest : spot;
+      const feed = call(vault, 'ETH_USD()(address)');
+      const answer = num(call(feed, 'latestRoundData()(uint80,int256,uint256,uint256,uint80)').split('\n')[1]);
+      const usdPerTac = (ethPerTac * answer) / 10n ** num(call(feed, 'decimals()(uint8)'));
+      for (const owner of owners) {
+        const [collateral, debt, start] = call(vault, 'vaults(address)(uint256,uint256,uint256)', owner).split('\n').map(num);
+        const key = `risk:${vault}:${owner}`;
+        if (debt === 0n) {
+          clearAlert(key);
+          continue;
+        }
+        const cover = (collateral * usdPerTac * 10000n) / (debt * 10n ** 18n);
+        if (start !== 0n || cover < RISK_COVER_BPS) {
+          risky = true;
+          alertOnce(key, `${owner} on ${vault} is ${start !== 0n ? 'in an auction' : `at ${Number(cover) / 100}% cover`}: recording prices so that it can be acted on`);
+        } else {
+          clearAlert(key);
+        }
+      }
+      clearAlert(`risk-read:${vault}`);
+    } catch (e) {
+      alertOnce(`risk-read:${vault}`, `${vault}: the borrowers' cover could not be read (${errLine(e)}); recording stays as it was`);
+      risky ||= lastRisk;
+    }
+  }
+  return (lastRisk = risky);
+}
+
 function scan(vault) {
   let list;
   try {
@@ -435,6 +521,9 @@ function scan(vault) {
         else log(vault, owner, 'auction unsold and not absorbable (vault worth its debt, or the reserve is empty)');
       }
     } catch (e) {
+      noteAfford(e);
+      // With RECORD_MODE=demand an oracle with nothing recorded is the usual state, not a failure.
+      if (RECORD_MODE === 'demand' && errLine(e).includes(tooFewSamples)) continue;
       log(vault, owner, 'check failed:', errLine(e));
     }
   }
@@ -467,10 +556,24 @@ async function main() {
     }
   }
   let lastScan = 0;
+  let lastRiskCheck = 0;
   for (;;) {
     // A node that drops one request (a reset connection, a rate limit) must not end the keeper: that cycle is skipped and the next one tries again.
     try {
-      if (ORACLES.length) sampleAll();
+      if (ORACLES.length) {
+        if (RECORD_MODE === 'demand' && VAULTS.length) {
+          // Judged once in SCAN_SECONDS; a vault that has just come near the line starts with a full sweep, since the history behind it is unrecorded.
+          if (Date.now() - lastRiskCheck >= SCAN_SECONDS * 1000 || ONCE) {
+            const was = lastRisk;
+            atRisk();
+            lastRiskCheck = Date.now();
+            if (lastRisk && !was) lastFull = 0;
+          }
+          if (lastRisk) sampleAll();
+        } else {
+          sampleAll();
+        }
+      }
       if (Date.now() - lastScan >= SCAN_SECONDS * 1000 || ONCE) {
         for (const v of VAULTS) scan(v);
         checkVenues();
