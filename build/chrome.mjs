@@ -48,10 +48,9 @@ const G = {
 const FILLED = new Set(['github', 'x', 'llama']);
 const svg = (k) => `<svg viewBox="0 0 24 24"${FILLED.has(k) ? ' class="fill"' : ''} aria-hidden="true">${G[k]}</svg>`;
 
-// the places most people come for, always in the header (icons below ~900px, a menu entry on a phone): the assets, then what is done with them; the rest are in the menu
-const MAIN = [['assets', '/assets/', 'Assets'], ['swap', '/swap/', 'Swap'], ['pay', '/pay/', 'Pay'], ['borrow', '/vault/', 'Borrow']];
-// Rewards (the airdrop and points lookup) is a temporary entry: when the campaign page is retired, drop it here, its glyph above, and 'rewards' in CHROME_PAGES.
-const MORE = [['bridge', '/bridge/', 'Bridge'], ['tac', '/tac/', 'Shielded TAC'], ['tasks', '/tasks/', 'Tasks'], ['rewards', '/rewards/', 'Rewards'], ['build', '/build/', 'Build'], ['stats', '/weld/stats/', 'Stats'], ['community', '/weld/keeper/', 'Community ops'], ['classic', '/classic.html', 'Classic app']];
+// the places most people come for, always in the header (icons below ~900px, a menu entry on a phone): the assets, then what is done with them, then what they pay (rewards: farms, points, the airdrop); the rest are in the menu
+const MAIN = [['assets', '/assets/', 'Assets'], ['swap', '/swap/', 'Swap'], ['pay', '/pay/', 'Pay'], ['borrow', '/vault/', 'Borrow'], ['rewards', '/rewards/', 'Rewards']];
+const MORE = [['bridge', '/bridge/', 'Bridge'], ['tac', '/tac/', 'Shielded TAC'], ['tasks', '/tasks/', 'Tasks'], ['build', '/build/', 'Build'], ['stats', '/weld/stats/', 'Stats'], ['community', '/weld/keeper/', 'Community ops'], ['classic', '/classic.html', 'Classic app']];
 
 const here = (key, k) => (key === k ? ' aria-current="page"' : '');
 

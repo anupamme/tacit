@@ -293,7 +293,7 @@ try {
   await until(r.page, () => /under the smallest debt/.test(document.querySelector('#board')?.textContent || ''));
   const tb = await text(r.page, '#board');
   ok(/Borrowing is not open yet/.test(tb) && /Room to borrow\s*62\.5 TACD\s*0\.025 TACE/.test(tb) && /TAC Dollar: Room \(62\.5 TACD\) is under the smallest debt \(100 TACD\)/.test(tb) && /TAC Ether: Room \(0\.025 TACE\) is under the smallest debt \(0\.04 TACE\)/.test(tb), `a room under the smallest debt is said with both figures, and the vault is not open (${tb.slice(0, 160)})`);
-  ok((await r.page.$eval('#board .needs a[href="/trade/tac/#farm"]', (a) => a.textContent)) === 'Add liquidity →' && await r.page.title() === 'tacit borrow', 'the way to more room is the TAC pools, and the tab\'s title stays the page\'s name');
+  ok((await r.page.$eval('#board .needs a[href="/rewards/#farm"]', (a) => a.textContent)) === 'Add liquidity →' && await r.page.title() === 'tacit borrow', 'the way to more room is the TAC pools, and the tab\'s title stays the page\'s name');
   // an announced change to the share of depth lent opens it: the board says what the room becomes and from when
   send('owner', USD, 'queueParam(uint8,uint256)', '0', '1000'); send('owner', ETH, 'queueParam(uint8,uint256)', '0', '1000');
   await r.page.reload();

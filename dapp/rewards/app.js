@@ -3,7 +3,8 @@ import { makeConfidentialNames, makeMainnetCall, MAINNET_RPCS, NameError } from 
 import { bodyType } from '/rpc-body.js';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=6a6bb45f';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=e4659b0e';
-import { TAC, POOL, FARM, POINTS, readPrecision, readStake, privateFarms, readLiquidity, readTasks } from '/rewards/earn.js?cb=bafce1da';
+import { TAC, POOL, FARM, aprText, readPrecision, readStake, privateFarms } from '/trade/farm-read.js?cb=24f7ca66';
+import { readLiquidity, readTasks } from '/rewards/earn.js?cb=ffffbe6c';
 
 const NO_SEND = ['0x0000000000000000000000000000000000000000', '0xa1313eb9f3a445606d9583bcac3ebeb56a858279', '0x000000c918e44a3a443937fa7594ea4f7c95d6b9', '0x4b4cb98d0c836c2783ac46f0078b904dab533ae8'];
 const API = 'https://api.tacit.finance', DISTRIBUTOR = '0x000000C918e44A3a443937fA7594eA4f7C95D6b9', BOARD = 500, KEEP = 60e3, RECENT = 'tacit-rewards-recent-v1';
@@ -335,7 +336,6 @@ function claimedNow(address, air, pts) {
   quoteFor(total).then((q) => q, () => null).then((q) => { const box = $('#bw'); if (my === bwSeq && box && out.dataset.address === address) { const h = borrowLine(q); if (box.__h !== h) { box.__h = h; box.innerHTML = h; } } });
 }
 
-const aprText = (a) => (a == null ? '' : a >= 100000 ? '100,000%+' : `${Math.round(a).toLocaleString('en-US')}%`);
 const dayText = (sec) => new Date(sec * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 const json = (url) => fetch(url, { signal: AbortSignal.timeout(8e3) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 const farmFacts = () => keep('farm', () => readPrecision(call));

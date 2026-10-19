@@ -907,7 +907,7 @@ function renderAbout() {
     ['The pool', `${link(POOL)} · holds the ETH behind every tETH`],
     ['Deposit forwarder', `${link(WRAP_TIP)} · sends the deposit to the pool and the tip to the relay in one transaction`],
     ['Private pools', pools || 'Reading the pools…'],
-    ['More', '<a href="/#private">Private ETH in the app →</a> · <a href="/#farm">Farms →</a> · <a href="/weld/stats/">Stats →</a>'],
+    ['More', '<a href="/#private">Private ETH in the app →</a> · <a href="/rewards/#farms">Farms →</a> · <a href="/weld/stats/">Stats →</a>'],
   ];
   const li = ([k, v]) => `<li><b>${esc(k)}</b><span>${v}</span></li>`;
   $('#facts').innerHTML = main.map(li).join('');

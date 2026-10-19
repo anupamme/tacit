@@ -4,9 +4,10 @@ import { makeConnect, UserStopped } from '/trade/connect.js?cb=e4659b0e';
 import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18 } from '/trade/util.js?cb=509d6618';
 import * as R from '/swap/route.js?cb=2be79f2b';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
+import { aprText, readPrecision, privateFarms } from '/trade/farm-read.js?cb=24f7ca66';
 
 const CHAINLINK = { eth: '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419', btc: '0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c' };
-const PRECISION_POOL = '0x0155358241411dB868BA714aE7c83A27087e3D6E', FARM = '0x0000003bF4BA0B21f5e0d35119b337F4d4CF82E0';
+const PRECISION_POOL = '0x0155358241411dB868BA714aE7c83A27087e3D6E';
 const CETH_ID = R.POOL_ID[R.ZERO];
 const now = () => Math.floor(Date.now() / 1000);
 const strip = (h) => String(h).replace(/^0x/, '');
@@ -549,30 +550,14 @@ function choose(side, k) {
 
 let farmUi = null;
 async function readFarms() {
-  if (!S.px.perEth) await readPrices().catch(() => {});
-  const [prog, r] = await Promise.all([
-    api('/farm/program?network=mainnet'),
-    batch([{ to: PRECISION_POOL, data: '0x443cb4bc' }, { to: PRECISION_POOL, data: '0x5a76f25e' }, { to: PRECISION_POOL, data: '0x18160ddd' }, { to: FARM, data: '0x817b1cd2' }, { to: FARM, data: '0x7b0a47ee' }, { to: FARM, data: '0xebe2b12b' }]).catch(() => []),
-  ]);
-  const tacEth = S.px.perEth ? 1 / S.px.perEth : null, out = [];
-  if (r.length && r.every(Boolean) && tacEth) {
-    const [r0, r1, supply, staked, rate, finish] = r.map((x) => wordAt(x, 0)), value = Number(r0) + Number(r1) * tacEth, stakedEth = supply ? value * Number(staked) / Number(supply) / 1e18 : 0;
-    const perDay = Number(rate) * 86400 / 1e18, live = Number(finish) > now();
-    out.push({ k: 'precision', name: 'Precision farm', note: 'public', apr: live && stakedEth > 0 ? perDay * 365 * tacEth / stakedEth * 100 : null, icons: ['tac', 'eth'] });
-  } else out.push({ k: 'precision', name: 'Precision farm', note: 'public', apr: null, icons: ['tac', 'eth'] });
-  for (const p of prog?.pools || []) {
-    const rr = p.reserves || {};
-    if (p.idle || lc(rr.assetA) !== CETH_ID || !Number(rr.lpTotalShares)) continue;
-    const bonded = 2 * Number(rr.reserveA) / 1e8 * Number(p.totalShares) / Number(rr.lpTotalShares);
-    const other = String(p.pair).split('/').find((x) => x !== 'cETH') || 'TAC';
-    out.push({ k: `p${p.pid}`, pid: p.pid, name: `tETH / ${other}`, note: 'private', apr: tacEth && bonded > 0 ? Number(p.tacPerDayForPool) * 365 * tacEth / bonded * 100 : null, icons: [other.toLowerCase(), 'teth'] });
-  }
+  const [prog, f] = await Promise.all([api('/farm/program?network=mainnet'), readPrecision(({ to, data }) => ethCall(to, data))]);
+  const out = [{ k: 'precision', name: 'Precision farm', note: 'public', apr: f?.apr ?? null, icons: ['tac', 'eth'] }];
+  for (const p of privateFarms(prog, f?.tacEth || 0)) out.push({ k: `p${p.pid}`, pid: p.pid, name: p.name, note: 'private', apr: p.apr, icons: p.icons });
   S.farms = out;
 }
-const aprTxt = (a) => (a == null ? '' : a >= 100000 ? 'over 100,000%' : `${a >= 100 ? Math.round(a).toLocaleString('en-US') : a.toFixed(1)}%`);
 function paintEarn() {
   const list = S.farms || [{ k: 'precision', name: 'Precision farm', note: 'public', icons: ['tac', 'eth'] }];
-  $('#farms').innerHTML = list.map((f) => `<button type="button" role="radio" class="c" aria-checked="${f.k === S.farm}" data-farm="${esc(f.k)}"><span class="pairtk">${f.icons.map((i) => `<svg class="tk sm" aria-hidden="true"><use href="#tk-${esc(i)}"/></svg>`).join('')}</span><span class="rt"><b>${esc(f.name)}</b><small>${esc(f.note)}</small></span><span class="ra"><span>${f.apr != null ? esc(aprTxt(f.apr)) : S.farms ? '—' : '…'}</span><small>APR now</small></span><span class="rd" aria-hidden="true"></span></button>`).join('');
+  $('#farms').innerHTML = list.map((f) => `<button type="button" role="radio" class="c" aria-checked="${f.k === S.farm}" data-farm="${esc(f.k)}"><span class="pairtk">${f.icons.map((i) => `<svg class="tk sm" aria-hidden="true"><use href="#tk-${esc(i)}"/></svg>`).join('')}</span><span class="rt"><b>${esc(f.name)}</b><small>${esc(f.note)}</small></span><span class="ra"><span>${f.apr != null ? esc(aprText(f.apr)) : S.farms ? '—' : '…'}</span><small>APR now</small></span><span class="rd" aria-hidden="true"></span></button>`).join('');
   const f = list.find((x) => x.k === S.farm) || list[0];
   $('#farm').hidden = f.k !== 'precision';
   $('#privfarm').hidden = f.k === 'precision';

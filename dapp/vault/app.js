@@ -188,7 +188,7 @@ function statusOf(x) {
       const p = postOf(x.V)?.d;
       if (p && p.depthCeiling != null && p.debtCeiling != null && p.totalDebt != null) {
         const room = M.sharedRoom({ debtCeiling: p.debtCeiling, depthCeiling: p.depthCeiling, totalDebt: p.totalDebt });
-        if (room < x.s.minDebt) return { state: 'thin', short: 'room too small', why: `Room (${syn(x, room)} ${x.sym}) is under the smallest debt (${syn(x, x.s.minDebt)} ${x.sym}).`, next: 'More liquidity in the TAC pools adds room. <a href="/trade/tac/#farm">Add liquidity →</a>' };
+        if (room < x.s.minDebt) return { state: 'thin', short: 'room too small', why: `Room (${syn(x, room)} ${x.sym}) is under the smallest debt (${syn(x, x.s.minDebt)} ${x.sym}).`, next: 'More liquidity in the TAC pools adds room. <a href="/rewards/#farm">Add liquidity →</a>' };
       }
       return { state: 'open', carry: f.missing, short: '', why: '', next: '' };
     }
@@ -202,7 +202,7 @@ function statusOf(x) {
     if (x.ownerCap) return { state: 'thin', short: 'cap reached', why: `The owner caps borrowing at ${g(ceil)}; ${g(x.room)} is left, under the smallest debt (${g(x.s.minDebt)}).`, next: '' };
     const after = afterAnnounced(x), why = x.room === 0n ? `All ${g(x.cap)} is borrowed.` : `Room (${g(x.room)}) is under the smallest debt (${g(x.s.minDebt)}).`;
     if (after && after.room >= after.minDebt && after.room > 0n) return { state: 'thin', short: 'room too small', why, next: `The announced change makes the room ${g(after.room)} (smallest debt ${g(after.minDebt)}): borrowing opens from ${onDay(after.eta)}.` };
-    return { state: 'thin', short: 'room too small', why, next: 'More liquidity in the TAC pools adds room. <a href="/trade/tac/#farm">Add liquidity →</a>' };
+    return { state: 'thin', short: 'room too small', why, next: 'More liquidity in the TAC pools adds room. <a href="/rewards/#farm">Add liquidity →</a>' };
   }
   return { state: 'open', short: '', why: '', next: '' };
 }
