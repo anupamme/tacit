@@ -100,7 +100,7 @@ try {
     await page.waitForFunction(() => !document.querySelector('[data-live="btc"]').classList.contains('sk'), null, { timeout: 20000 });
     ok(await page.textContent('h1') === 'Cross by proof', 'the title');
     ok((await page.textContent('#pf-btc')).includes('972,090'), 'Bitcoin’s proof on Ethereum, live');
-    ok((await page.textContent('#pf-btc')).includes('3 behind the tip'), 'and how far it is from the tip');
+    ok((await page.textContent('#pf-btc')).includes('3 behind Bitcoin’s tip'), 'and how far it is from the tip');
     ok((await page.textContent('#pf-eth')).includes('26,225,800'), 'Ethereum’s proof for Bitcoin, live');
     ok(await page.getAttribute('#bt-go', 'href') === '/#bridge', 'TAC from Bitcoin opens the Bridge tab');
     ok((await page.$$('#bt-steps li')).length === 4, 'four steps');

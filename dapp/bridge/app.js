@@ -28,20 +28,19 @@ const ago = (t) => {
 const LIVE = { btcAttested: null, btcTip: null, btcConfs: null, ethCovered: null, burns: null, txs: new Map(), at: 0 };
 
 async function readProofs() {
-  const [st, cv] = await Promise.allSettled([
-    getJson(`${API}/reflection/status?network=mainnet`),
-    getJson(`${API}/reflection/eth-state/covers?network=mainnet&block=1`),
+  // each reading is drawn as it arrives, so a slow one holds up only its own figure
+  const read = (url, use) => getJson(url).then((v) => { use(v); paintProofs(); }).catch(() => {});
+  await Promise.all([
+    read(`${API}/reflection/status?network=mainnet`, (s) => {
+      if (Number.isInteger(s.attestedHeight)) LIVE.btcAttested = s.attestedHeight;
+      if (Number.isInteger(s.confirmations)) LIVE.btcConfs = s.confirmations;
+      if (Number.isInteger(s.bridgeBurns)) LIVE.burns = s.bridgeBurns;
+    }),
+    read(`${API}/reflection/eth-state/covers?network=mainnet&block=1`, (c) => { if (Number.isInteger(c.bestBlock)) LIVE.ethCovered = c.bestBlock; }),
+    // Bitcoin's own tip (the status's tipHeight is the reflection's view of it)
+    read(`${ESPLORA}/blocks/tip/height`, (h) => { if (Number.isInteger(h)) LIVE.btcTip = h; }),
   ]);
-  if (st.status === 'fulfilled') {
-    const s = st.value;
-    LIVE.btcAttested = Number.isInteger(s.attestedHeight) ? s.attestedHeight : LIVE.btcAttested;
-    LIVE.btcTip = Number.isInteger(s.tipHeight) ? s.tipHeight : LIVE.btcTip;
-    LIVE.btcConfs = Number.isInteger(s.confirmations) ? s.confirmations : LIVE.btcConfs;
-    LIVE.burns = Number.isInteger(s.bridgeBurns) ? s.bridgeBurns : LIVE.burns;
-  }
-  if (cv.status === 'fulfilled' && Number.isInteger(cv.value.bestBlock)) LIVE.ethCovered = cv.value.bestBlock;
   LIVE.at = Date.now();
-  paintProofs();
 }
 
 function paintProofs() {
@@ -52,11 +51,12 @@ function paintProofs() {
   if (LIVE.burns != null) set('[data-live="burns"]', int(LIVE.burns));
   const lag = LIVE.btcTip != null && LIVE.btcAttested != null ? LIVE.btcTip - LIVE.btcAttested : null;
   const b = $('#pf-btc');
-  if (b) b.dataset.state = LIVE.btcAttested == null ? 'off' : lag != null && lag > 12 ? 'slow' : 'on';
+  // the proof sits `confirmations` deep by design, so only a lag well past that depth reads as slow
+  if (b) b.dataset.state = LIVE.btcAttested == null ? 'off' : lag != null && lag > (LIVE.btcConfs ?? 24) + 12 ? 'slow' : 'on';
   const e = $('#pf-eth');
   if (e) e.dataset.state = LIVE.ethCovered == null ? 'off' : 'on';
   const lagEl = $('#pf-lag');
-  if (lagEl && lag != null) lagEl.textContent = lag <= 0 ? 'at the tip' : `${int(lag)} behind the tip`;
+  if (lagEl && lag != null) lagEl.textContent = lag <= 0 ? 'at the tip' : `${int(lag)} behind Bitcoin’s tip`;
 }
 
 async function readSupply() {
