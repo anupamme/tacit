@@ -23334,11 +23334,24 @@ function tacArchive(env, network) {
   }
   return a.archive;
 }
+// The writes go four at a time, so a block dense with Tacit transactions (a fair launch's mints) is kept at a pace the store takes;
+// past 5,000 waiting, the rest of such a block is left for an import.
+const _tacArchiveQueue = { running: 0, waiting: [] };
+function _tacArchivePump() {
+  while (_tacArchiveQueue.running < 4 && _tacArchiveQueue.waiting.length) {
+    const job = _tacArchiveQueue.waiting.shift();
+    _tacArchiveQueue.running++;
+    job().catch(() => {}).finally(() => { _tacArchiveQueue.running--; _tacArchivePump(); });
+  }
+}
 function archiveTacitTx(env, network, tx, height, blockHash) {
-  if (!env.REGISTRY_KV) return;
+  if (!env.REGISTRY_KV || _tacArchiveQueue.waiting.length >= 5000) return;
   try {
     const raw = tx.raw || (() => { const hex = rebuiltRawTx(tx, tx.txid, (b) => sha256(sha256(b))); return hex ? hexToBytes(hex) : null; })();
-    if (raw) tacArchive(env, network).keep(raw, height, blockHash).catch(() => {});
+    if (!raw) return;
+    const archive = tacArchive(env, network);
+    _tacArchiveQueue.waiting.push(() => archive.keep(raw, height, blockHash));
+    _tacArchivePump();
   } catch { /* the archive is a convenience; the scan goes on */ }
 }
 
