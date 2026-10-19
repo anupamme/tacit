@@ -22,18 +22,19 @@ export const ROUTES = {
   tac: {
     ticker: 'TAC', icon: 'tk-tac', dp: 4,
     in: { href: '/#bridge', go: 'Bridge TAC to Ethereum', steps: ['Burned on Bitcoin', 'Confirmed', 'Proven on Ethereum', 'Minted privately'] },
-    out: { href: '/#bridge/out', go: 'Bridge TAC to Bitcoin', steps: ['Burned on Ethereum', 'Proven on Bitcoin', 'Sent to Bitcoin', 'Arrived'] },
+    out: { href: '/#bridge/out', go: 'Bridge TAC to Bitcoin', steps: ['Burned on Ethereum', 'Proven for Bitcoin', 'Sent to Bitcoin', 'Arrived'] },
   },
   teth: {
     ticker: 'tETH', icon: 'tk-teth', dp: 6,
-    in: { href: '/#private/bitcoin', go: 'Bring tETH back to Ethereum', steps: ['Burned on Bitcoin', 'Confirmed', 'Proven on Ethereum', 'Minted privately'] },
-    out: { href: '/#private/bitcoin', go: 'Bridge tETH to Bitcoin', steps: ['Burned on Ethereum', 'Proven on Bitcoin', 'Sent to Bitcoin', 'Arrived'] },
+    in: { href: '/#private/bitcoin', go: 'Bridge tETH to Ethereum', steps: ['Burned on Bitcoin', 'Confirmed', 'Proven on Ethereum', 'Minted privately'] },
+    out: { href: '/#private/bitcoin', go: 'Bridge tETH to Bitcoin', steps: ['Burned on Ethereum', 'Proven for Bitcoin', 'Sent to Bitcoin', 'Arrived'] },
   },
   // cBTC enters by a lock: the bitcoin stays at an output of the holder's own key, a wstETH bond stands behind it, Bitcoin's proof
-  // records the lock, and the pool mints cBTC 1:1. The Borrow sheet follows its own steps, so it is a route here, not a tracked row.
+  // records the lock, and the pool mints cBTC 1:1. Its steps are the Borrow sheet's own (Lock, Bond, Mint, Borrow), and the sheet
+  // follows them, so it is a route here, not a tracked row.
   cbtc: {
     ticker: 'cBTC', icon: 'tk-cbtc', dp: 8,
-    in: { href: '/#lock', go: 'Lock BTC for cBTC', steps: ['Locked on Bitcoin', 'Bonded', 'Proven on Ethereum', 'cBTC minted'], then: { href: '/#borrow', label: 'Borrow cUSD against it' } },
+    in: { href: '/#lock', go: 'Lock BTC for cBTC', steps: ['Lock BTC', 'Bond', 'Mint cBTC', 'Borrow cUSD'] },
   },
 };
 
@@ -153,16 +154,16 @@ export function liveLine(row, live) {
     const h = row.btcHeight ?? (tx?.confirmed ? tx.height : null);
     if (row.btcTx && tx && !tx.confirmed && row.at < 2) return 'In the mempool, waiting for a block';
     if (h != null && live.btcAttested != null) {
-      if (live.btcAttested >= h) return row.at < 3 ? 'Bitcoin’s proof on Ethereum has its block' : '';
+      if (live.btcAttested >= h) return row.at < 3 ? 'Bitcoin’s proof on Ethereum has reached this block' : '';
       const left = h - live.btcAttested;
       return `Block ${h.toLocaleString('en-US')}: the proof is ${left.toLocaleString('en-US')} block${left === 1 ? '' : 's'} behind it`;
     }
     return '';
   }
   if (row.ethBlock != null && live.ethCovered != null && row.at < 2) {
-    if (live.ethCovered >= row.ethBlock) return 'Bitcoin’s side has proven its Ethereum block';
+    if (live.ethCovered >= row.ethBlock) return 'Ethereum’s proof has reached this block';
     const left = row.ethBlock - live.ethCovered;
-    return `Ethereum block ${row.ethBlock.toLocaleString('en-US')}: proven up to ${left.toLocaleString('en-US')} block${left === 1 ? '' : 's'} before it`;
+    return `Ethereum block ${row.ethBlock.toLocaleString('en-US')}: the proof is ${left.toLocaleString('en-US')} block${left === 1 ? '' : 's'} short of it`;
   }
   const tx = row.btcTx && live.txs?.get(row.btcTx);
   if (tx && row.at >= 3) return tx.confirmed ? `In Bitcoin block ${Number(tx.height).toLocaleString('en-US')}` : 'In the mempool, waiting for a block';

@@ -19,18 +19,19 @@ Every bridge is three moves:
 
 | | Bitcoin → Ethereum | Ethereum → Bitcoin |
 | --- | --- | --- |
-| **Burn** | The note is burned on Bitcoin, in one Taproot transaction. | The note leaves the pool in a cross-out, written into the pool's storage. |
+| **Burn** | The note is burned on Bitcoin. | The note is burned in the pool, and the cross-out is recorded in its storage. |
 | **Prove** | Once 24 blocks deep, the burn is folded into Bitcoin's proof, and the pool verifies it. | Once Ethereum finalizes it, the cross-out is proven inside Bitcoin's proof. |
-| **Mint** | The pool mints the same note, privately, once per burn. | A Bitcoin transaction mints the same note, once, as a proven member of the cross-outs. |
+| **Mint** | The pool mints a fresh note of the same value, privately, once per burn. | A Bitcoin transaction mints a fresh note of the same value, once, as a proven member of the cross-outs. |
 
-The amount stays hidden throughout.
+The amount is not published on either chain. Whoever makes the mint's proof sees it, and today that is
+Tacit's prover.
 
-## One note, two chains
+## One format, two chains
 
-A Tacit note is a Pedersen commitment `C = v·H + r·G` on secp256k1, the curve both chains already use.
-The same commitment is the note on Bitcoin (an output of a Taproot envelope, with a kernel signature and
-range proof) and in the pool on Ethereum (a leaf of its note tree). A bridge moves the note without
-opening it: the amount stays hidden on both sides.
+A Tacit note is a Pedersen commitment `C = v·H + r·G` on secp256k1, the curve both chains already use. On
+Bitcoin it is an output of a Taproot envelope, with a kernel signature and range proof; in the pool on
+Ethereum it is a leaf of the note tree. A bridge burns a note on one chain and mints a fresh one of the same
+value on the other, keeping `v` and picking a new `r`, with a proof that nothing was added or lost.
 
 ## Bitcoin → Ethereum
 
@@ -79,7 +80,7 @@ no permission, and you pay only the network fee:
    each one's proof of work, so only real blocks are accepted.
 2. **Make the proof.** Run the reflection prover
    ([`worker-relay/src/reflection-folder.js`](../worker-relay/src/reflection-folder.js)) with your own
-   Succinct account. Everyone runs the same program on the same public inputs.
+   account on Succinct's prover network. Everyone runs the same program on the same public inputs.
 3. **Submit it.** `attestBitcoinStateProven(publicValues, proof)` accepts any valid proof over the pool's
    current state, from any wallet.
 
@@ -109,13 +110,13 @@ the live cadence and follows every bridge a browser has under way.
 
 ## On mainnet
 
-The ERC-20 supply of TAC (~2.5M) was all minted by the pool from TAC proven to have left Bitcoin. One note
-has made the whole round trip, each leg a settled transaction:
+The ERC-20 supply of TAC (~2.5M) was all minted by the pool from TAC proven to have left Bitcoin. TAC has
+made the whole round trip, each leg a settled transaction:
 
 1. Out of the pool: [`0xc7bfc7ce…3c29a8f`](https://etherscan.io/tx/0xc7bfc7cec938e59c5d256d1c44c2aea5269eb7c237ac018878f21b2a93c29a8f)
 2. Minted on Bitcoin: [`aaa68792…97bcf2`](https://mempool.space/tx/aaa687924435ef64f056aa83beb7fabef4f57087f315655b52c596f83897bcf2)
 3. Burned on Bitcoin: [`7320b6b6…36b0fbb`](https://mempool.space/tx/7320b6b654726ba99489bcf47f3d31dcf8a87040241def827b5fccd8836b0fbb)
-4. Back in the pool: [`0f0793f6…006465bb`](https://etherscan.io/tx/0x0f0793f61e57a0eb40ef551ef516e9a33ba0f270343abedf4ea014aa006465bb)
+4. Back in the pool, as a fresh note: [`0f0793f6…006465bb`](https://etherscan.io/tx/0x0f0793f61e57a0eb40ef551ef516e9a33ba0f270343abedf4ea014aa006465bb)
 
 ## Next: covenants
 

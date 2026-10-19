@@ -86,12 +86,12 @@ test('storage that refuses to be read is no bridges', () => {
 test('where a bridge really is, from the chains', () => {
   const live = { btcAttested: 972_090, ethCovered: 26_225_800, txs: new Map() };
   assert.match(liveLine(inRow(inRec(), NOW), live), /10 blocks behind/);
-  assert.match(liveLine(inRow(inRec(), NOW), { ...live, btcAttested: 972_100 }), /has its block/);
+  assert.match(liveLine(inRow(inRec(), NOW), { ...live, btcAttested: 972_100 }), /has reached this block/);
   assert.equal(liveLine(inRow(inRec({ stage: 'rfolded' }), NOW), { ...live, btcAttested: 972_200 }), '');
   const pending = inRow(inRec({ stage: 'rburn-sent', burnHeight: undefined }), NOW);
   assert.match(liveLine(pending, { ...live, txs: new Map([['bb'.repeat(32), { confirmed: false }]]) }), /mempool/);
-  assert.match(liveLine(outRow(outRec()), live), /proven up to 100 blocks before/);
-  assert.match(liveLine(outRow(outRec()), { ...live, ethCovered: 26_225_900 }), /has proven/);
+  assert.match(liveLine(outRow(outRec()), live), /the proof is 100 blocks short of it/);
+  assert.match(liveLine(outRow(outRec()), { ...live, ethCovered: 26_225_900 }), /proof has reached this block/);
   assert.equal(liveLine(inRow(inRec({ stage: 'minted', mintedAt: NOW }), NOW), live), '');
 });
 

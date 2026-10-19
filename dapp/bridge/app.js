@@ -1,7 +1,7 @@
 // The bridge page: one tile to pick an asset and a way, the bridges this browser has under way, and the two proofs they wait on.
 // Below it, the walk-through of how each way is proven. Nothing here signs or moves a bridge: the front page's bridge does
 // (its sheets are linked), and this page reads its journals (track.js) and the chains.
-import { ROUTES, readBridges, liveLine, nextOf, fmtAmount } from '/bridge/track.js?cb=95cef1f0';
+import { ROUTES, readBridges, liveLine, nextOf, fmtAmount } from '/bridge/track.js?cb=7b7cc779';
 import { bodyType } from '/rpc-body.js';
 
 const API = 'https://api.tacit.finance';
@@ -131,9 +131,6 @@ function paintTile() {
   const go = $('#bt-go');
   go.href = route.href;
   go.querySelector('span').textContent = route.go;
-  const then = $('#bt-then');
-  then.hidden = !route.then;
-  if (route.then) { then.href = route.then.href; then.textContent = `${route.then.label} →`; }
   paintWait();
   const want = `#${PICK.asset}${PICK.dir === 'out' ? '/out' : ''}`;
   if (location.hash !== want && !(want === '#tac' && !location.hash)) history.replaceState(null, '', want);
@@ -237,7 +234,7 @@ function wireSteppers() {
   }
 }
 
-// One note, two chains: the same commitment is the note on either side.
+// The note: one commitment format on both chains; a bridge burns one note and mints a fresh one of the same value.
 function wireNote() {
   const fig = $('#note-fig');
   if (!fig) return;

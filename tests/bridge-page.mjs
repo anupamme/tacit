@@ -116,7 +116,7 @@ try {
     ok(await page.getAttribute('#bt-go', 'href') === '/#private/bitcoin' && (await page.textContent('#bt-go')).includes('tETH to Bitcoin'), 'tETH to Bitcoin');
     await page.click('[data-asset="cbtc"]');
     ok(await page.getAttribute('#bt-go', 'href') === '/#lock' && await page.isDisabled('#bt-flip') && (await page.textContent('#bt-from')) === 'Bitcoin', 'cBTC enters by a lock, one way');
-    ok(await page.isVisible('#bt-then') && await page.getAttribute('#bt-then', 'href') === '/#borrow', 'and offers cUSD after');
+    ok((await page.$$eval('#bt-steps li', (l) => l.map((x) => x.textContent))).join('|') === 'Lock BTC|Bond|Mint cBTC|Borrow cUSD', 'and its steps are the Borrow sheet’s own: lock, bond, mint, borrow');
     await page.click('[data-asset="tac"]');
     await shot(page, 'desktop-top');
 
@@ -178,6 +178,9 @@ try {
     ok(!/allowance|free/i.test(await page.textContent('.faq')), 'the answers keep to plain words about who pays');
     ok(await page.getAttribute('.runcta .go', 'href') === '/weld/keeper/' && (await page.$$('#run .cap3 li')).length === 3 && (await page.$$('#run .pill')).length === 3, 'anyone can run it: three steps, each open to anyone, and a door to community ops');
     ok(await page.getAttribute('.trio a', 'href') === '#run', 'and the top of the page points to it');
+    const body = await page.textContent('main');
+    ok(!/same commitment|same note|without opening/i.test(body) && /fresh note of the same value/.test(body), 'a bridge is said to mint a fresh note of the same value, not the same note');
+    ok(/Whoever makes the mint’s proof sees it/.test(await page.textContent('.faq')), 'and the privacy answer says who sees the amount');
     await page.click('#mv-dir button[data-dir="out"]');
     ok(await page.$eval('#mv', (f) => f.dataset.dir) === 'out' && (await page.$eval('#mv-a', (u) => u.getAttribute('href'))) === '#tk-eth' && (await page.isVisible('.mvc .out')) && !(await page.isVisible('.mvc .in')), 'burn, prove, mint: the switch turns it to Ethereum → Bitcoin');
     ok((await page.textContent('#rf')).includes('972,090'), 'the reflection drawing carries the live block');
