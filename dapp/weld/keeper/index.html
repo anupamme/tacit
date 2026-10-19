@@ -7,7 +7,7 @@
      data stats does, plus an injected wallet to sign advanceTip(bytes) — permissionless on chain
      (contracts/src/lib/BitcoinLightRelay.sol:253) — so anyone can push the header relay forward and pay their
      own gas, instead of waiting on Tacit's own cron. No Tacit key touches this page. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-mj48AMhWtbZ/lJ0lWoIxZ7HgyVnbJ3Q1xxccW0J16nQ=' 'wasm-unsafe-eval'; connect-src wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-AwhbY/v39ojtU5/bMWZkrnGSaHhDxdd117juSXB/pYw=' 'wasm-unsafe-eval'; connect-src wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#E8E0CC" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#15130E" media="(prefers-color-scheme: dark)">
@@ -422,7 +422,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <div id="toast-container" class="toasts" popover="manual"></div>
 
 <script type="module">
-import { makeEvmWallet } from '/evm-wallet.js?cb=087655c3';
+import { makeEvmWallet } from '/evm-wallet.js?cb=7eb675b6';
 import { announceWalletConnect, wcSheets, dialogHost, WC_PROJECT_ID } from '/walletconnect.js?cb=7ab92369';
 import { makeHeaderRelayAdvance } from '/header-relay-advance.js?cb=1c3a7226';
 import { bodyType } from '/rpc-body.js';
@@ -505,8 +505,8 @@ async function ensureMainnet() {
   await S.provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0x1' }] });
   if (!(await onMainnet())) throw new Error('Switch your wallet to Ethereum, then try again.');
 }
-async function connect() {
-  const { provider, address } = await evm.connect({});
+async function connect({ change = false } = {}) {
+  const { provider, address } = await evm[change ? 'changeAccount' : 'connect']({});
   S.provider = provider; S.address = '0x' + address;
   paintWallet();
   return S.address;
@@ -792,13 +792,15 @@ async function doSubmitProof() {
   refresh().catch(() => {}); refreshProof().catch(() => {});
 }
 
-// The connected wallet is left from here: a WalletConnect session ends in the wallet app too, so the next connection can pair another app or
-// account; a browser wallet is let go of here only (it stays allowed in its own settings). Either way no page connects it again on load.
+// The connected wallet is left from here (evm.disconnect): a WalletConnect session ends in the wallet app too, so the next connection can pair another app or
+// account; a browser wallet takes this site's permission back, so the next connection asks which account. Either way no page connects it again on load.
+// Change account: another account of the same wallet (its own chooser), or a new pairing for a wallet app.
 function walletSheet() {
   const wc = !!S.provider?.isWalletConnect, app = S.provider?.peerName?.(), via = wc ? `WalletConnect${app ? ` · ${app}` : ''}` : evm.providerLabel();
   const o = wcOpen('Wallet');
-  o.body.innerHTML = `<div class="kv"><span>Connected with</span><b>${esc(via)}</b></div><div class="kv"><span>Account</span><b>${esc(S.address)}</b></div><button class="btn ghost" type="button" data-off>Disconnect</button>`;
-  o.body.querySelector('[data-off]').onclick = async () => { o.close(); S.provider = S.address = null; evm.forget(); paintWallet(); if (wc) await WC.disconnect(); };
+  o.body.innerHTML = `<div class="kv"><span>Connected with</span><b>${esc(via)} <button class="link" type="button" data-change>Change account</button></b></div><div class="kv"><span>Account</span><b>${esc(S.address)}</b></div><button class="btn ghost" type="button" data-off>Disconnect</button>`;
+  o.body.querySelector('[data-change]').onclick = () => { o.close(); busy($('#wallet'), () => connect({ change: true })); };
+  o.body.querySelector('[data-off]').onclick = () => { o.close(); evm.disconnect(); S.provider = S.address = null; paintWallet(); };
 }
 $('#wallet').addEventListener('click', (e) => (S.address ? walletSheet() : busy(e.currentTarget, connect)));
 document.querySelectorAll('[data-close]').forEach((b) => { b.onclick = () => b.closest('dialog').close(); });
@@ -809,6 +811,7 @@ window.addEventListener('hashchange', () => { readLink(); refresh().catch(() => 
 
 paintWallet();
 restoreWallet();
+evm.onElsewhere(restoreWallet);                                  // a wallet connected in another tab is connected here too
 refreshProof().catch(() => {});
 refresh().catch(readFailed);
 // Read again every minute while the page is in view, and at once when it comes back after longer.

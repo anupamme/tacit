@@ -5,8 +5,8 @@
 //
 // It reads the chain and the API with no wallet, as /trade/tac/ does, and holds no key it was not given: the key lives in this visit's memory.
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=a17675b8';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=db2796dd';
-import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=8aceff87';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=ceb79a33';
+import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=095a8480';
 import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=1f11613c';
 import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, proveOwn, ownWords, ownable, relayState, relayStopped, forgetUx, getUx } from '/trade/teth/wrap.js?cb=384ab9cf';
 import { ownPref, setOwnPref, proverFor, readCredit, proofsFor, fundFromWallet, quoteEth, quoteEthFor, fundWithEth, loadSelfProver, tokenBalance } from '/trade/teth/prover.js?cb=af9025c9';
@@ -192,7 +192,7 @@ function notify(msg, kind = '', ms = 5000) {
 }
 async function openBitcoin(prime = null) {
   try {
-    bitcoin ||= (await import('/trade/btc.js?cb=adc4fa97')).makeBitcoin({ notify, onTraded: () => loadMarket().then(paintAll).catch(() => {}),
+    bitcoin ||= (await import('/trade/btc.js?cb=abb130b3')).makeBitcoin({ notify, onTraded: () => loadMarket().then(paintAll).catch(() => {}),
       asset: { id: BTC_ID, title: 'tETH on Bitcoin', after: 'tETH reaches Bitcoin through the bridge: <a href="/#private/bitcoin">Bridge →</a>' } });
     await bitcoin.open(prime);
   } catch (e) { notify(`The Bitcoin market could not be opened: ${e?.message || e}`, 'error', 9000); }
@@ -308,7 +308,7 @@ function paintSteps(now_ = null, { failed = false, all = false } = {}) {
 }
 
 // ── the key and the wallet ──
-const key = makeKeySession();
+const key = makeKeySession({ moved: (why) => { lockKey(); say(why, true); } });
 const connect = makeConnect({
   describe: 'Make ETH private',
   rows: () => `${D.bal?.eth != null ? `<div class="kv"><span>ETH</span><b class="num">${esc(fmtUnits(D.bal.eth, 18, 4))}</b></div>` : ''}${key.unlocked ? `<div class="kv"><span>Tacit wallet</span><b class="addr-s">${esc(key.key.address ? short(key.key.address, 6) : key.key.label || short(key.key.pubHex, 6))} <button class="linkbtn" type="button" id="sheet-lock">Lock</button></b></div>` : ''}`,

@@ -114,7 +114,8 @@ async function stubWallet(ctx) {
     throw new Error(`the stub wallet does not do ${method}`);
   });
   await ctx.addInitScript(() => {
-    const provider = { request: ({ method, params }) => window.__wallet(method, params).catch((e) => { throw Object.assign(new Error(String(e?.message || e).replace(/^.*Error: /, '')), { code: /rejected/i.test(String(e?.message)) ? 4001 : undefined }); }), on() {}, removeListener() {} };
+    const provider = { request: ({ method, params }) => window.__wallet(method, params).catch((e) => { throw Object.assign(new Error(String(e?.message || e).replace(/^.*Error: /, '')), { code: /rejected/i.test(String(e?.message)) ? 4001 : undefined }); }), on(ev, f) { ((window.__wl ||= {})[ev] ||= []).push(f); }, removeListener() {} };
+    window.__walletEmit = (ev, ...a) => ((window.__wl || {})[ev] || []).forEach((f) => f(...a));              // the wallet moves to another account
     const detail = Object.freeze({ info: Object.freeze({ uuid: 'stub-1', name: 'Test Wallet', icon: '', rdns: 'test.wallet' }), provider });
     const announce = () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail }));
     window.addEventListener('eip6963:requestProvider', announce); announce();
@@ -279,6 +280,16 @@ try {
   await p.click('#lk-re');
   await until(p, () => /Could not read your locks: esplora is down/.test(document.querySelector('#lk-mine').textContent), null, 20000);
   ok(/0\.042/.test(await text(p, '#held')) && !/Reading/.test(await text(p, '#lk-mine')), 'a Bitcoin history that cannot be read says so, and the cBTC and loans still show');
+  // the wallet that opened the key moves to another account: the key locks, as it does on every other page of the site; opening it again works
+  await p.evaluate(() => window.__walletEmit('accountsChanged', ['0x' + '99'.repeat(20)]));
+  await until(p, () => /Sign in/.test(document.querySelector('#lk-mine').textContent), null, 10000);
+  u = await ux(p);
+  ok((u.forgot || 0) >= 1 && /Sign in/.test(await text(p, '#held')), `a wallet that moves to another account locks the key it opened (${u.forgot}; ${(await text(p, '#held')).slice(0, 60)})`);
+  await cfg(p, { locksFail: false });
+  await p.click('#lk-signin');
+  await p.waitForSelector('.bsheet.top [data-in="eth"], .bsheet.top [data-in="known"]');
+  await p.click('.bsheet.top [data-in="eth"], .bsheet.top [data-in="known"]');
+  await until(p, () => document.querySelectorAll('#lk-mine table tbody tr').length === 2, null, 30000);
   await p.click('#held-lock').catch(() => {});
   await p.click('#mode-seg [data-mode="use"]');
   await p.click('#held-lock').catch(() => {});

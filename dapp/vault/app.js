@@ -14,9 +14,7 @@ import { makeFeed, RECORD_GAS, PER_TX, encBatch, MULTICALL3 } from '/vault/feed.
 import { batchSupport, simulateBundle, sendBundle, readMixed } from '/vault/batch.js?cb=457d6163';
 import { makePools } from '/vault/pools.js?cb=e5a40a7d';
 import { ROUTER_SEL, encRouterRecords, encRouterBorrow, encRouterWithdraw, encRouterDeposit, encRouterRepay, encRouterPermitSynth, borrowTyped, withdrawTyped } from '/vault/router.js?cb=21df6509';
-import { makeWallet, UserStopped } from '/trade/wallet.js?cb=7b4ab128';
-import { overlay } from '/trade/sheet.js?cb=84cda8f2';
-import { announceWalletConnect, wcSheets, WC_PROJECT_ID } from '/walletconnect.js?cb=7ab92369';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=ceb79a33';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -65,14 +63,16 @@ const chainNow = () => (S.chainT ? S.chainT + (now() - S.chainAt) : now());
 const chainDeadline = (s) => BigInt(chainNow() + s);
 
 // ── the wallet ──
-const sheets = wcSheets((title, onClose) => overlay({ title, top: true, onClose }));
-const WC = announceWalletConnect({
-  projectId: WC_PROJECT_ID, chains: [1], rpcMap: { 1: 'https://ethereum-rpc.publicnode.com' },
-  metadata: { name: 'tacit borrow', description: 'Borrow against TAC', url: location.origin, icons: [`${location.origin}/tac-logo.png`] },
-  onPair: sheets.onPair, onAsk: sheets.onAsk,
+// The chip, the picker, WalletConnect's sheets and the account sheet are the trade pages' (trade/connect.js). The page hears of a restored or changed account through onChange.
+const connect = makeConnect({
+  describe: 'Borrow against TAC', name: 'tacit borrow', rpc,
+  busy: () => S.busy,
+  say: (t) => say(t),
+  onChange: () => { detectBatch(); if (side === 'tac') pools.read(); if (S.busy || side !== 'tac') return; if (!S.view) { refresh(); } else renderAll(); },   // a transaction in flight keeps the account it was made for: the wallet module refuses to send for another
+  restore: false,
 });
-const wallet = makeWallet({ rpc, leave: (p) => (p?.isWalletConnect ? WC.disconnect() : null) });
-const W = wallet.state;
+const { wallet, W } = connect;
+const connectWallet = connect.connect, renderChip = connect.renderChip;
 walletNow = W;
 const sameAddr = (a, b) => !!a && !!b && String(a).toLowerCase() === String(b).toLowerCase();
 // The account whose vault is shown: the one in the address bar (read only), else the connected wallet's.
@@ -82,40 +82,6 @@ const canAct = () => !!W.account && sameAddr(W.account, who());
 const onDay = (t) => new Date(t * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'UTC' }).replace(',', '') + ' UTC';
 const txLink = (h) => `<a href="https://etherscan.io/tx/${esc(h)}" target="_blank" rel="noopener noreferrer">${esc(h.slice(0, 10))}…↗</a>`;
 const say = (t, kind = 'trade') => { const s = $('#status'); s.innerHTML = t; s.dataset.kind = kind; };
-
-function pickWallet(list) {
-  return new Promise((resolve) => {
-    const o = overlay({ title: 'Choose a wallet', top: true, onClose: () => resolve(null) });
-    o.body.innerHTML = `<div class="picker">${list.map((w, i) => `<button class="way" type="button" data-i="${i}"><span class="way-t">${/^data:image\//.test(w.info?.icon || '') ? `<img src="${esc(w.info.icon)}" alt="" width="20" height="20">` : ''}${esc(w.info?.name || 'Wallet')}</span></button>`).join('')}</div>`;
-    o.body.querySelectorAll('[data-i]').forEach((b) => { b.onclick = () => { resolve(Number(b.dataset.i)); o.close(); }; });
-  });
-}
-async function connectWallet() {
-  const list = wallet.available();
-  if (!list.length) { say('No wallet was found in this browser. Open this page in a wallet app’s browser, or use tacit.finance.'); return; }
-  try {
-    let w = list[0];
-    if (list.length > 1) { const i = await pickWallet(list); if (i == null) return; w = list[i]; }
-    await wallet.connect(w);
-  } catch (e) { say(esc(e instanceof UserStopped ? 'Not connected.' : (e.message || 'The wallet did not connect.'))); }
-}
-function renderChip() {
-  const on = !!W.account, wrong = on && W.chain && W.chain !== '0x1';
-  $('#wallet-dot').classList.toggle('on', on && !wrong); $('#wallet-dot').classList.toggle('warn', !!wrong);
-  $('#wallet-label').textContent = on ? short(W.account) : 'Connect';
-  $('#wallet-chip').setAttribute('aria-label', on ? `Wallet ${W.account}${wrong ? ', on another network' : ''}` : 'Connect a wallet');
-  $('#wallet-chip').title = wrong ? 'Your wallet is on another network. It is asked to switch to Ethereum when you send.' : '';
-}
-function walletSheet() {
-  const o = overlay({ title: 'Wallet', top: true });
-  const wrong = W.chain && W.chain !== '0x1';
-  o.body.innerHTML = `<div class="kv"><span>Connected with</span><b>${esc(W.name)}</b></div><div class="kv"><span>Account</span><b class="addr-s">${esc(W.account)}</b></div>${wrong ? '<div class="kv"><span>Network</span><b>Not Ethereum <button class="linkbtn" type="button" data-switch>Switch</button></b></div>' : ''}<div class="bsheet-actions" style="margin-top:14px"><button class="btn ghost" type="button" data-copy>Copy address</button><button class="btn" type="button" data-leave${S.busy ? ' disabled' : ''}>Disconnect</button></div>${S.busy ? '<p class="note">A transaction is in progress; disconnect when it ends.</p>' : ''}`;
-  const addr = W.account;
-  o.body.querySelector('[data-switch]')?.addEventListener('click', (e) => { e.target.disabled = true; wallet.ensureMainnet().then(() => { o.close(); renderChip(); }, () => { e.target.disabled = false; }); });
-  o.body.querySelector('[data-copy]').onclick = (e) => navigator.clipboard?.writeText(addr).then(() => { e.target.textContent = 'Copied'; }, () => { e.target.textContent = 'Could not copy'; });
-  o.body.querySelector('[data-leave]').onclick = async () => { o.close(); await wallet.disconnect(); renderChip(); renderAll(); };
-}
-$('#wallet-chip').addEventListener('click', () => { if (W.account) walletSheet(); else connectWallet(); });
 
 // ── where the tokens sell ──
 // The Precision pools of each vault's token (pools.js): the panel under the board, and a row on it. A page on this computer may name the USDC token (#usdc=; tests only).
@@ -1046,8 +1012,7 @@ document.addEventListener('click', (e) => {
 });
 addEventListener('hashchange', () => { if (onBtc()) { showSide(); return; } readHash(); if (!showSide()) refresh(); });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !S.busy && side === 'tac') refresh(); });   // a tab left open reads the vault again when it is looked at
-wallet.onChange(() => { renderChip(); detectBatch(); if (side === 'tac') pools.read(); if (S.busy || side !== 'tac') return; if (!S.view) { refresh(); } else renderAll(); });   // a transaction in flight keeps the account it was made for: the wallet module refuses to send for another
-wallet.restore().catch(() => {});
+connect.restore();                                                                                                 // the wallet connected last, on this or any other page, when it still allows the site
 
 // The countdown of an auction's owner-only window runs on the chain's clock.
 setInterval(() => {

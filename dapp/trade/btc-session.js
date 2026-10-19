@@ -5,7 +5,7 @@
 // These are the ways in /tac has (dapp/tac/app.js) that need nothing but the wallet or the passkey itself. A key pasted in, one saved in
 // the browser and one an extension funds each ask for a passphrase in tacit.js's own dialogs, which belong to the classic app.
 
-const TACIT_URL = '/tacit.js?cb=d5eb5f95', KNOWN_URL = '/tacit-wallet-known.js?cb=ed4c75b7', EVM_URL = '/evm-wallet.js?cb=087655c3';
+const TACIT_URL = '/tacit.js?cb=d5eb5f95', KNOWN_URL = '/tacit-wallet-known.js?cb=ed4c75b7', EVM_URL = '/evm-wallet.js?cb=7eb675b6';
 const DEPS_URL = '/vendor/tacit-deps.min.js', PRF_URL = '/prf-wallet.js';
 const RECORD = 'tacit-trade-id-v1';                                           // how this page last opened a key: public data only
 const KNOWN_IDS = [RECORD, 'tacit-tac-id-v1', 'tacit-pay-hub-id-v1', 'tacit-lite-id-v1', 'tacit-pay-id-v1'];
@@ -40,7 +40,9 @@ function restoreNetwork() {
   });
 }
 
-export function makeBtcSession() {
+// `moved(text)`: the wallet that opened the key has moved to another account or locked, and `text` says so. The page locks the key in full and says it;
+// a page that gives no `moved` has the session lock.
+export function makeBtcSession({ moved = null } = {}) {
   let T = null, D = null, prf = null, K = null, evm = null, loading = null, key = null, walletQ = Promise.resolve();
   const listeners = new Set(), emit = () => listeners.forEach((f) => { try { f(); } catch { /* a listener must not break the session */ } });
 
@@ -148,6 +150,15 @@ export function makeBtcSession() {
   const knownIds = () => (K ? K.knownWallets(KNOWN_IDS) : { primary: null, other: null });
   // A record whose way in this page does not offer (a key saved in the browser, or one an extension funds) is not offered here.
   const usable = (w) => (w && DERIVED.has(w.mode) ? w : null);
+  // The wallet that opened a key is the proof of it: when that wallet moves to another account, or locks, the key is locked too, as on every other
+  // page of the site.
+  addEventListener('tacit:evm-accounts', (e) => {
+    if (key?.mode !== 'eth') return;
+    const a = lc((e.detail?.accounts || [])[0]);
+    if (a && a === lc(key.address)) return;
+    const why = `Your wallet ${a ? 'switched accounts' : 'locked'}, so the Tacit key opened with it was locked. Open it again to continue.`;
+    if (moved) moved(why); else { forget(); emit(); }
+  });
   return {
     load, turn, open, setKey,
     get T() { return T; }, get D() { return D; }, get key() { return key; }, get unlocked() { return !!(key && T && T.wallet.priv); },

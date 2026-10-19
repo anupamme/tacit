@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-HdmmbLRyqsx1ULPq7h3F08N7yXSRe7Nv2iKQFERcY1Y=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-g6Q17+rAeP+zSpshrENZ+9vut2t50/DnEehj0jf7kkQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -35,7 +35,7 @@
 <link rel="modulepreload" href="/tacit-wallet-known.js?cb=ed4c75b7">
 <link rel="modulepreload" href="/tacit-address.js">
 <link rel="modulepreload" href="/bip352.js">
-<link rel="modulepreload" href="/evm-wallet.js?cb=087655c3">
+<link rel="modulepreload" href="/evm-wallet.js?cb=7eb675b6">
 <link rel="modulepreload" href="/identity-message.js">
 <link rel="modulepreload" href="/walletconnect.js?cb=7ab92369">
 <link rel="modulepreload" href="/evm-account.js">
@@ -1578,7 +1578,7 @@ import { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPass
 import { knownWallets } from '/tacit-wallet-known.js?cb=ed4c75b7';
 import { makeTacitAddress } from '/tacit-address.js';
 import { bip352TaggedHash } from '/bip352.js';
-import { makeEvmWallet } from '/evm-wallet.js?cb=087655c3';
+import { makeEvmWallet } from '/evm-wallet.js?cb=7eb675b6';
 import { announceWalletConnect, wcSheets, dialogHost, WC_PROJECT_ID } from '/walletconnect.js?cb=7ab92369';
 import { makeEvmAccount } from '/evm-account.js';
 import { makeEvmTx } from '/evm-tx.js';
@@ -3382,20 +3382,17 @@ const WC = announceWalletConnect({
 // The pairing link WalletConnect gives (a QR code for a wallet app on a phone, the link to copy, and on a phone buttons that open the wallet app) and a
 // request waiting in the wallet app show in the page's sheet. Closing the pairing sheet cancels the pairing.
 const wcSheet = wcSheets(dialogHost({ dialog: $('#sheet-wc'), title: $('#wc-h'), body: $('#wc-body') }));
-// Disconnect: a WalletConnect session ends in the wallet app too, so the next sign-in can pair another wallet app or account; a
-// browser wallet is let go of here only (it stays allowed in its own settings). Either way no page connects it again on load, and a
-// key opened with it locks, as when it moves to another account.
+// Disconnect (evm.disconnect): a WalletConnect session ends in the wallet app too, a browser wallet takes this site's permission back, so
+// the next sign-in asks which account. Either way no page connects it again on load, and a key opened with it locks, as when it moves to another account.
+// Change account: another account of the same wallet (its own chooser), or a new pairing for a wallet app.
 document.addEventListener('click', (e) => {
-  if (!e.target.closest?.('[data-wc-off]') || midAction()) return;
-  const wc = S.provider?.isWalletConnect, was = S.provider;
-  (wc ? WC.disconnect() : Promise.resolve()).finally(() => {
-    evm.forget();
-    if (!wc && was) window.dispatchEvent(new CustomEvent('tacit:evm-accounts', { detail: { accounts: [], provider: was } }));
-    S.provider = null;
-    rerender('wallet');
-  });
+  const off = e.target.closest?.('[data-wc-off]'), change = e.target.closest?.('[data-wc-change]');
+  if (!(off || change) || midAction()) return;
+  if (change) { busy(change, () => connect({ change: true })).catch((err) => { if (err?.code !== 4001) toast(errText(err), true); }); return; }
+  evm.disconnect();                                      // the page lets go at once (the keys it opened lock); the wallet takes its permission back in a moment
+  S.provider = null; rerender('wallet');
 });
-const ethLine = () => (S.wallet && S.provider ? html`<div class="kv"><span>${S.provider.isWalletConnect ? 'WalletConnect' : 'Ethereum'}</span><b>${short(S.wallet, 6)} <button class="link" type="button" data-wc-off>Disconnect</button></b></div>` : '');
+const ethLine = () => (S.wallet && S.provider ? html`<div class="kv"><span>${S.provider.isWalletConnect ? 'WalletConnect' : 'Ethereum'}</span><b>${short(S.wallet, 6)} <button class="link" type="button" data-wc-change>Change account</button> <button class="link" type="button" data-wc-off>Disconnect</button></b></div>` : '');
 // wallet: the connected Ethereum wallet. address: the account public transactions come from (see payer).
 const S = { address: null, wallet: null, provider: null, key: null, acct: null, pay: null };
 const walletPriv = () => {
@@ -3653,10 +3650,11 @@ function pickWallet(list) {
   });
 }
 // An Ethereum account for public transactions. Connecting one never closes a key opened some other way.
-async function connect() {
-  const { provider, address } = await evm.connect({ pick: pickWallet });
+async function connect({ change = false } = {}) {
+  const { provider, address } = await evm[change ? 'changeAccount' : 'connect']({ pick: pickWallet });
   const a = '0x' + address;
   if (S.key?.mode === 'eth' && S.key.address !== a) { S.key = null; resetPrivate(); toast('Your wallet switched accounts, so the Tacit key opened with it was locked. Open it again to continue.'); }
+  if (S.provider === provider && S.wallet === a) return;                // the wallet's own account change got here first
   S.provider = provider; S.wallet = a; syncAccount();
   paintWallet(); refreshAll();
 }
@@ -13100,6 +13098,7 @@ fetch(`${API}/leaderboard?day=today&limit=1`, { signal: within(20e3) }).then((r)
 refreshAll();
 resumeActivity();
 restoreWallet();
+evm.onElsewhere(restoreWallet);                                  // a wallet connected in another tab is connected here too
 let lastTick = Date.now();
 const tick = () => { lastTick = Date.now(); paintEarn(); refreshTape(); loadTacPrice().catch(() => {}); brTick(); brPrepTick().catch(() => {}); xoTick(); if (lastTick - numsAt > NUMS_MS) refreshNums(); for (const n of SHEETS) if ($(`#sheet-${n}`).open && !running(n)) load[n]?.().then(() => rerender(n)).catch(() => {}); };
 setInterval(() => { if (!document.hidden) tick(); }, 60e3);

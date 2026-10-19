@@ -138,4 +138,116 @@ heard.length = 0; B.emit([]);
 ok('and the wallet is no longer heard', heard.length === 0);
 ok('a page that opens after finds nothing to restore', (await makeEvmWallet({}).restore()) === null);
 
+
+// ── Disconnect hands the permission back, and Switch opens the wallet's own chooser ──────────────────────────────────────────────────────
+// A wallet holding several accounts: it announces itself, allows the site once asked, takes the permission back (EIP-2255) and offers its account
+// chooser (wallet_requestPermissions) unless told it has neither, and says what it was asked.
+function multi(name, accounts, { revoke = true, choose = true } = {}) {
+  const on = {}, w = { accounts, at: 0, allowed: false, calls: [], revoke, choose, picks: 0 };
+  const cur = () => w.accounts[w.at];
+  w.provider = {
+    async request({ method }) {
+      w.calls.push(method);
+      if (method === 'eth_requestAccounts') { w.allowed = true; return [cur()]; }
+      if (method === 'eth_accounts') return w.allowed ? [cur()] : [];
+      if (method === 'wallet_revokePermissions') {
+        if (!w.revoke) throw Object.assign(new Error('The method wallet_revokePermissions does not exist'), { code: -32601 });
+        if (w.stall) await new Promise(() => {});
+        w.allowed = false; return null;
+      }
+      if (method === 'wallet_requestPermissions') {
+        if (!w.choose) throw Object.assign(new Error('Method not found'), { code: -32601 });
+        if (w.refuseChoice) throw Object.assign(new Error('User rejected the request.'), { code: 4001 });
+        w.at = (w.at + 1) % w.accounts.length; w.picks++;
+        return [{ parentCapability: 'eth_accounts' }];
+      }
+      throw new Error('unexpected ' + method);
+    },
+    on(ev, f) { (on[ev] ||= []).push(f); },
+  };
+  w.emit = (accs) => { for (const f of on.accountsChanged || []) f(accs); };
+  const detail = { info: { uuid: 'uuid-' + name, name, icon: '', rdns: 'test.' + name.toLowerCase() }, provider: w.provider };
+  window.addEventListener('eip6963:requestProvider', () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail })));
+  return w;
+}
+const strip = (a) => a.slice(2);
+const A1 = '0x' + 'a1'.repeat(20), A2 = '0x' + 'a2'.repeat(20);
+const M = multi('M', [A1, A2]);
+const mine = makeEvmWallet({});
+const pickM = async (l) => l.find((w) => w.name === 'M')?.uuid;
+await mine.connect({ pick: pickM });
+heard.length = 0;
+const sw = await mine.changeAccount({ pick: pickM });
+ok('Switch opens the wallet\'s own chooser and returns the account it answers', M.picks === 1 && sw.address === strip(A2) && sw.provider === M.provider);
+heard.length = 0; M.emit([A1]);
+ok('and the wallet stays the one in use, so its next account change reaches the page', heard.length === 1 && heard[0].accounts[0] === A1);
+M.refuseChoice = true;
+await assert.rejects(mine.changeAccount({ pick: pickM }), (e) => e.code === 4001);
+M.refuseChoice = false;
+ok('a chooser the person closes is a refusal the page can tell apart (4001), and changes nothing', store.get('tacit-trade-wallet') === 'test.m');
+M.choose = false;
+await assert.rejects(mine.changeAccount({ pick: pickM }), /Choose another account in your wallet/);
+M.choose = true;
+ok('a wallet without a chooser is not left hanging: the person is told to choose in it', true);
+await assert.rejects(makeEvmWallet({}).changeAccount(), /no Ethereum wallet connected|no accounts/);
+ok('and a page with no wallet connected is told so', true);
+
+// Disconnect
+heard.length = 0;
+M.calls.length = 0;
+await mine.disconnect();
+ok('Disconnect hands the site\'s permission back to the wallet', M.calls.includes('wallet_revokePermissions') && M.allowed === false);
+ok('and tells every page once that the wallet has no accounts, as the wallet locking would', heard.length === 1 && heard[0].accounts.length === 0 && heard[0].provider === M.provider);
+ok('the record is cleared and the wallet is no longer heard', store.get('tacit-trade-wallet') === undefined && (heard.length = 0, M.emit([A1]), heard.length === 0));
+ok('a page that opens next finds nothing to restore, and the wallet asks again on the next connect', (await makeEvmWallet({}).restore()) === null && (await mine.connect({ pick: pickM })).address === strip(A2) && M.calls.filter((m) => m === 'eth_requestAccounts').length === 1);
+
+// a wallet with no way to take the permission back is let go of all the same
+const N = multi('N', [A1], { revoke: false });
+const noRevoke = makeEvmWallet({});
+await noRevoke.connect({ pick: async (l) => l.find((w) => w.name === 'N').uuid });
+heard.length = 0;
+await noRevoke.disconnect();
+ok('a wallet without wallet_revokePermissions is let go of all the same, with no error', heard.length === 1 && store.get('tacit-trade-wallet') === undefined);
+
+// one that never answers is not waited for
+const S = multi('S', [A1]); S.stall = true;
+const stalled = makeEvmWallet({});
+await stalled.connect({ pick: async (l) => l.find((w) => w.name === 'S').uuid });
+const t2 = Date.now();
+await stalled.disconnect();
+ok('a wallet that never answers the revoke is waited for only a moment', Date.now() - t2 < 3000);
+
+// WalletConnect: the session ends in the wallet app, and Switch pairs again
+const wc = { isWalletConnect: true, ended: 0, paired: 0, on() {}, async endSession() { wc.ended++; }, async request({ method }) { if (method === 'eth_requestAccounts') { wc.paired++; return [A2]; } throw new Error('unexpected ' + method); } };
+const wcDetail = { info: { uuid: 'uuid-wc', name: 'WalletConnect', icon: '', rdns: 'com.walletconnect' }, provider: wc };
+const announceWc = () => window.dispatchEvent(new CustomEvent('eip6963:announceProvider', { detail: wcDetail }));
+window.addEventListener('eip6963:requestProvider', announceWc);
+const viaWc = makeEvmWallet({});
+const pickWc = async (l) => l.find((w) => w.name === 'WalletConnect').uuid;
+await viaWc.connect({ pick: pickWc });
+heard.length = 0;
+const again = await viaWc.changeAccount({ pick: pickWc });
+ok('Switch on a WalletConnect session ends it in the wallet app and pairs again', wc.ended === 1 && wc.paired === 2 && again.address === strip(A2) && heard.some((d) => d.accounts.length === 0));
+await viaWc.disconnect();
+ok('Disconnect ends a WalletConnect session in the wallet app', wc.ended === 2);
+window.removeEventListener('eip6963:requestProvider', announceWc);
+
+// Another tab of the site
+const storage = (key, newValue) => window.dispatchEvent(Object.assign(new Event('storage'), { key, newValue, storageArea: localStorage }));
+const tab = makeEvmWallet({});
+let restored = 0; tab.onElsewhere(() => { restored++; });
+storage('tacit-trade-wallet', 'test.m');
+ok('a wallet connected in another tab calls what the page gave to restore it', restored === 1);
+await tab.connect({ pick: pickM });
+storage('tacit-trade-wallet', 'test.m');
+ok('and not when this tab has a wallet of its own', restored === 1);
+heard.length = 0;
+storage('tacit-trade-wallet', null);
+// (every page-instance of this process that had a wallet in use hears it; a real page has one)
+ok('a wallet disconnected in another tab is disconnected here: the page is told it has no accounts', heard.some((d) => d.provider === M.provider && d.accounts.length === 0) && heard.every((d) => d.accounts.length === 0));
+heard.length = 0; M.emit([A2]);
+ok('and it is not heard after', heard.length === 0);
+storage('some-other-key', null);
+ok('another record changing in storage is nothing to it', restored === 1);
+
 console.log(`\n${pass} passed, 0 failed`);

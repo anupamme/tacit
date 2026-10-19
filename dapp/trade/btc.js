@@ -2,7 +2,7 @@
 // executors and the book's data from tacit.js, mounted in a sheet. The module plans and tacit.js settles; this file supplies what the classic
 // app supplies around them and a page like this one does not have: signing in, a confirmation, a notice, the sats and TAC the key holds,
 // and where a purchase that stopped halfway is recovered. Nothing here builds or signs a transaction.
-import { makeBtcSession, short, Cancelled } from '/trade/btc-session.js?cb=e296e71c';
+import { makeBtcSession, short, Cancelled } from '/trade/btc-session.js?cb=4ea54051';
 import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
 
 const MARKET_URL = '/btc-market.js?cb=b3086fb8', CSS_URL = '/trade/btc-market.css?cb=359753e6';
@@ -15,7 +15,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // without asking again which one. `onChange` hears when the key opens or locks and when the sats and TAC it holds are read again.
 export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange = () => {}, wallet = () => null, asset = TAC_ASSET } = {}) {
   const AID = asset.id;
-  const session = makeBtcSession();
+  const session = makeBtcSession({ moved: (why) => { session.lock(); meState = null; ctl?.refresh?.({ soft: true }); notify(why); } });
   let main = null, host = null, ctl = null, meState = null, meTimer = 0, off = null;
   const changed = () => { try { onChange(); } catch { /* the page's listener must not break the market */ } };
   session.onChange(() => { if (!session.unlocked) meState = null; changed(); });

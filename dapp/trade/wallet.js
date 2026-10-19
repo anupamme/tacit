@@ -15,8 +15,17 @@ function plain(e) {
   if (/chain.*not approved|does not support 'wallet_switchEthereumChain'/i.test(m)) return new Error('Your wallet app did not allow Ethereum. Disconnect, then connect again.');
   return e;
 }
+// A wallet that does not have a call (-32601, or its own words for it).
+const lacks = (e) => e?.code === -32601 || e?.code === 4200 || /not (supported|implemented|found)|unsupported|does not (exist|support)|unknown method|invalid method/i.test(e?.message || '');
+// Hands this site's permission back to the wallet, so the next Connect asks which account (EIP-2255). A wallet without the call keeps the permission, which is
+// then the wallet's to revoke; it is not waited for longer than a moment, and never an error here.
+const revokeSite = (provider) => Promise.race([
+  Promise.resolve().then(() => provider?.request?.({ method: 'wallet_revokePermissions', params: [{ eth_accounts: {} }] })).catch(() => {}),
+  new Promise((done) => setTimeout(done, 1500)),
+]);
 
-export function makeWallet({ rpc, leave = null }) {
+// `busy()`: something here is waiting on the wallet, so a wallet let go of in another tab is not let go of here until it ends.
+export function makeWallet({ rpc, leave = null, busy = () => false }) {
   const found = new Map();
   const W = { prov: null, name: '', uuid: null, account: null, chain: null, listeners: new Set() };
   const emit = () => { for (const f of W.listeners) f(); };
@@ -40,20 +49,31 @@ export function makeWallet({ rpc, leave = null }) {
   let last = null;
   try { last = localStorage.getItem(KEY); } catch { /* storage is a convenience */ }
   const remember = (w) => { last = w ? idOf(w) : null; try { if (w) localStorage.setItem(KEY, last); else localStorage.removeItem(KEY); } catch { /* storage is a convenience */ } };
-  // `silent`: asks only for the accounts the wallet already allows this site (eth_accounts opens no prompt); none → not connected.
+  // `silent`: asks only for the accounts the wallet already allows this site (eth_accounts opens no prompt); none → not connected. A wallet that
+  // refuses, or fails to answer, changes nothing here: the wallet in use stays in use.
   async function connect(w, { silent = false } = {}) {
+    const prov = w.provider, ask = (method, params) => wrap(prov.request({ method, params }));
+    const accounts = await ask(silent ? 'eth_accounts' : 'eth_requestAccounts');
+    if (silent && !accounts?.[0]) return false;
+    const chain = hexChain(await ask('eth_chainId'));
     off?.(); off = null;
-    W.prov = w.provider; W.name = w.info?.name || 'Wallet'; W.uuid = w.info?.uuid || null;     // the EIP-6963 id: another module can find this same wallet among the announced ones
-    const accounts = await req(silent ? 'eth_accounts' : 'eth_requestAccounts');
-    if (silent && !accounts?.[0]) { W.prov = null; W.name = ''; W.uuid = null; return false; }
-    W.account = accounts?.[0] ? String(accounts[0]) : null;
-    W.chain = hexChain(await req('eth_chainId'));
-    const prov = W.prov, onAccounts = (a) => { if (prov === W.prov) { W.account = a?.[0] ? String(a[0]) : null; emit(); } }, onChain = (c) => { if (prov === W.prov) { W.chain = hexChain(c); emit(); } };
+    W.prov = prov; W.name = w.info?.name || 'Wallet'; W.uuid = w.info?.uuid || null;     // the EIP-6963 id: another module can find this same wallet among the announced ones
+    W.account = accounts?.[0] ? String(accounts[0]) : null; W.chain = chain;
+    const onAccounts = (a) => { if (prov === W.prov) { W.account = a?.[0] ? String(a[0]) : null; emit(); } }, onChain = (c) => { if (prov === W.prov) { W.chain = hexChain(c); emit(); } };
     prov.on?.('accountsChanged', onAccounts); prov.on?.('chainChanged', onChain);
     off = () => { prov.removeListener?.('accountsChanged', onAccounts); prov.removeListener?.('chainChanged', onChain); };
     remember(w);
     emit();
     return true;
+  }
+  // Another account of the wallet in use: the wallet's own chooser opens (EIP-2255) and the page follows the account it answers. A wallet without the
+  // call is asked for nothing; the person is told to choose in the wallet, which the page follows as it follows any account change.
+  async function chooseAccount() {
+    if (!W.prov) throw new Error('Connect a wallet first.');
+    try { await req('wallet_requestPermissions', [{ eth_accounts: {} }]); }
+    catch (e) { throw lacks(e) ? new Error('Choose another account in your wallet. This page follows it.') : e; }
+    const a = (await req('eth_accounts'))?.[0], next = a ? String(a) : null;
+    if (next !== W.account) { W.account = next; emit(); }
   }
   // On load: the wallet connected last time, if it is here and still allows this site. Wallets announce themselves a moment after
   // the page asks, so this waits briefly for them.
@@ -64,16 +84,29 @@ export function makeWallet({ rpc, leave = null }) {
     for (let i = 0; i < 6 && !available().some((w) => idOf(w) === id); i++) { dispatchEvent(new Event('eip6963:requestProvider')); await new Promise((r) => setTimeout(r, 100)); }
     const w = available().find((x) => idOf(x) === id);
     if (!w) return false;
-    try { return await connect(w, { silent: true }); } catch { W.prov = null; return false; }
+    try { return await connect(w, { silent: true }); } catch { return false; }
   }
-  // Forgets the wallet in this page. `leave(provider)` ends a session that lives elsewhere (a WalletConnect pairing).
+  // Another tab of the site connects or disconnects a wallet and this one follows: a wallet connected there is asked for the accounts it already allows,
+  // one let go of there is let go of here (a WalletConnect session is cleared from this tab's copy; the permission was handed back there).
+  addEventListener('storage', (e) => {
+    if (e.storageArea !== localStorage || (e.key !== KEY && e.key !== null)) return;
+    if (e.newValue) { if (!W.prov) restore().catch(() => {}); return; }
+    const prov = W.prov;
+    if (!prov || busy()) return;
+    off?.(); off = null; last = null;
+    W.prov = null; W.name = ''; W.uuid = null; W.account = null; W.chain = null;
+    emit();
+    if (prov.isWalletConnect) Promise.resolve(leave?.(prov)).catch(() => {});
+  });
+  // Forgets the wallet in this page, here and on every other page of the site, and hands the site's permission back to the wallet, so the next Connect
+  // asks which account. `leave(provider)` ends a session that lives elsewhere (a WalletConnect pairing).
   async function disconnect() {
     off?.(); off = null;
     const prov = W.prov;
     W.prov = null; W.name = ''; W.uuid = null; W.account = null; W.chain = null;
     remember(null);
-    try { await leave?.(prov); } catch { /* the session is gone either way */ }
     emit();
+    try { await (prov?.isWalletConnect ? leave?.(prov) : revokeSite(prov)); } catch { /* the session is gone either way */ }
   }
   // What was reviewed was for one account: a wallet whose account has changed since is not asked to send or sign it.
   const same = (from) => { if (from && String(from).toLowerCase() !== String(W.account || '').toLowerCase()) throw new Error('The wallet’s account changed. Nothing was sent; review it again.'); };
@@ -139,5 +172,5 @@ export function makeWallet({ rpc, leave = null }) {
       await new Promise((res) => setTimeout(res, every));
     }
   }
-  return { state: W, available, connect, restore, disconnect, ensureMainnet, ensureChain, sendTx, signPermit, receipt, watchAsset, onChange: (f) => W.listeners.add(f) };
+  return { state: W, available, connect, restore, disconnect, chooseAccount, ensureMainnet, ensureChain, sendTx, signPermit, receipt, watchAsset, onChange: (f) => W.listeners.add(f) };
 }

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-IMNewbNAw1ZBGqknFO4OILaeIQOEc9jNXu+geTjyTUw=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-GpzlGiw4PvT+mjk8c2swX9gIUsYZKj30m5zTNwVPyD0=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://tacit-api.onrender.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://cloudflare-eth.com https://rpc.flashbots.net https://tacit-btc-pool-mainnet.onrender.com https://tacit-btc-pool-relay-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay</title>
 <meta name="description" content="Pay Bitcoin by silent payment, TAC shielded and ETH privately on Ethereum, Base, Robinhood Chain and MegaETH. One key and one tacit1 address: every payment is made on your device, and your balances rebuild from that key.">
@@ -25,7 +25,7 @@
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/prf-wallet.js">
 <link rel="modulepreload" href="/tacit-wallet-known.js?cb=ed4c75b7">
-<link rel="modulepreload" href="/evm-wallet.js?cb=087655c3">
+<link rel="modulepreload" href="/evm-wallet.js?cb=7eb675b6">
 <link rel="modulepreload" href="/identity-message.js">
 <link rel="modulepreload" href="/walletconnect.js?cb=7ab92369">
 <link rel="modulepreload" href="/tacit-address.js">
@@ -660,7 +660,7 @@ if (forwardOld(location.hash)) await new Promise(() => {});
 const [{ secp, keccak_256, sha256, hmac, bytesToHex, hexToBytes, concatBytes }, { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPasskeyAvailable }, { knownWallets },
   { makeEvmWallet }, { announceWalletConnect, wcSheets, dialogHost, WC_PROJECT_ID }, { makeTacitAddress }, { bip352TaggedHash }, { addressId }] = await Promise.all([
   import('/vendor/tacit-deps.min.js'), import('/prf-wallet.js'), import('/tacit-wallet-known.js?cb=ed4c75b7'),
-  import('/evm-wallet.js?cb=087655c3'), import('/walletconnect.js?cb=7ab92369'), import('/tacit-address.js'), import('/bip352.js'), import('/address-id.js?cb=c4fa5a58')]);
+  import('/evm-wallet.js?cb=7eb675b6'), import('/walletconnect.js?cb=7ab92369'), import('/tacit-address.js'), import('/bip352.js'), import('/address-id.js?cb=c4fa5a58')]);
 
 if (!secp.etc.hmacSha256Sync) secp.etc.hmacSha256Sync = (k, ...m) => hmac(sha256, k, concatBytes(...m));
 // The rest of the page's modules, asked for now that the ones it waited on are here.
@@ -3093,21 +3093,19 @@ function renderWalletSheet() {
   wireDisconnect(el);
 }
 const ethLine = () => (S.wallet && S.provider ? html`<div class="kv"><span>${S.provider.isWalletConnect ? 'WalletConnect' : 'Ethereum'}</span><b>${short(S.wallet, 6)} <button class="link" type="button" id="w-wc-off">Disconnect</button></b></div>` : '');
-// Disconnect: a WalletConnect session ends in the wallet app too, so the next sign-in can pair another wallet app or account; a browser
-// wallet is let go of here only (it stays allowed in its own settings). Either way no page connects it again on load. The key it opened locks with it.
+// Disconnect (evm.disconnect): a WalletConnect session ends in the wallet app too, a browser wallet takes this site's permission back, so the next
+// sign-in asks which account. Either way no page connects it again on load. The key it opened locks with it.
 function wireDisconnect(el) {
   el.querySelector('#w-wc-off')?.addEventListener('click', () => {
     if (S.paying) return toast('Finish the payment in progress first.', true);
     const wc = S.provider?.isWalletConnect;
-    S.wcOff = true;
-    (wc ? WC.disconnect() : Promise.resolve()).finally(() => {
-      S.wcOff = false;
-      evm.forget();
-      S.provider = S.wallet = null;
-      if (S.key?.mode === 'eth') lock(); else paintWallet();
-      renderWalletSheet();
-      toast(wc ? 'Wallet app disconnected.' : 'Wallet disconnected.');
-    });
+    S.wcOff = true;                                                                    // the lock the wallet going causes is this press's: no notice for it
+    evm.disconnect();
+    S.wcOff = false;
+    S.provider = S.wallet = null;
+    if (S.key?.mode === 'eth') lock(); else paintWallet();
+    renderWalletSheet();
+    toast(wc ? 'Wallet app disconnected.' : 'Wallet disconnected.');
   });
 }
 $('#wallet').addEventListener('pointerdown', hintTacit, { once: true, passive: true });
@@ -3169,6 +3167,7 @@ if (typeof IntersectionObserver === 'function') {
 applyHash();
 paintWallet(); render();
 restoreWallet();
+evm.onElsewhere(restoreWallet);                                  // a wallet connected in another tab is connected here too
 </script>
 </body>
 </html>

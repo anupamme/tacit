@@ -15,7 +15,7 @@ const MARKET_URL = '/tac/market.js?cb=596f6e90';
 const CLAIM_URL = '/tac/claim.js?cb=1523631a';
 const UNIFIED_URL = '/tacit-unified.js?cb=a5b3a042';
 const KNOWN_URL = '/tacit-wallet-known.js?cb=ed4c75b7';
-const EVM_URL = '/evm-wallet.js?cb=087655c3';
+const EVM_URL = '/evm-wallet.js?cb=7eb675b6';
 const WC_URL = '/walletconnect.js?cb=7ab92369';
 const ID_URL = '/address-id.js?cb=c4fa5a58';
 const DEPS_URL = '/vendor/tacit-deps.min.js';
@@ -505,10 +505,10 @@ function renderWalletSheet() {
     navigator.clipboard.writeText(D.bytesToHex(T.wallet.priv)).then(() => toast('Key copied. Keep it somewhere private.'), () => toast('Could not copy the key: the browser refused clipboard access.', true));
   });
   $('w-lock').onclick = () => { if (busyId) return toast('Finish the action in progress first.', true); lock(); renderWalletSheet(); };
-  // Ends a WalletConnect session from here, so the next sign-in can pair another wallet app or account. The key it opened locks with it.
+  // Ends a WalletConnect session from here (evm.disconnect), so the next sign-in can pair another wallet app or account. The key it opened locks with it.
   $('w-wc-off')?.addEventListener('click', () => {
     if (busyId) return toast('Finish the action in progress first.', true);
-    WC.disconnect().finally(() => { if (unlocked() && key?.mode === 'eth') lock(); renderWalletSheet(); });
+    (evm ? evm.disconnect() : WC.disconnect()).finally(() => { if (unlocked() && key?.mode === 'eth') lock(); renderWalletSheet(); });
   });
 }
 function openWallet() {

@@ -100,11 +100,42 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
     const info = providers.find((p) => p.provider === provider)?.info;
     try { localStorage.setItem(REMEMBERED, idOf(info)); } catch { /* storage is a convenience */ }
   };
-  // Disconnect: no page connects the wallet again on load, and this one stops hearing it. The wallet's own permission for the
-  // site is the wallet's to revoke.
+  // Forgets the wallet here: no page connects it again on load, and this one stops hearing it.
   function forget() {
     selected = null; active = null;
     try { localStorage.removeItem(REMEMBERED); } catch { /* storage is a convenience */ }
+  }
+  // Hands this site's permission back to the wallet (EIP-2255), so the next connect asks which account. A wallet without the call keeps the
+  // permission, which is then the wallet's to revoke; it is never waited for long, and its refusal is not an error.
+  const revoke = (p) => Promise.race([
+    Promise.resolve().then(() => p.request({ method: 'wallet_revokePermissions', params: [{ eth_accounts: {} }] })).catch(() => {}),
+    new Promise((done) => setTimeout(done, 1500)),
+  ]);
+  // Disconnect: the wallet is forgotten on every page, a key opened with it is told it has gone (a `tacit:evm-accounts` with no accounts, as when
+  // the wallet locks), a browser wallet takes this site's permission back, and a WalletConnect session ends in the wallet app too. The pages
+  // draw it from that event; they have only their own state to clear.
+  async function disconnect() {
+    const was = active || selected;
+    forget();
+    if (!was) return;
+    try { window.dispatchEvent(new CustomEvent('tacit:evm-accounts', { detail: { accounts: [], provider: was } })); } catch { /* ignore */ }
+    try { await (was.isWalletConnect ? was.endSession?.() : revoke(was)); } catch { /* the session is gone either way */ }
+  }
+  // Another tab of the site connects or disconnects a wallet and this one follows. A wallet connected there calls what `onElsewhere(fn)` was given, for
+  // the page to restore it as it does on load. One let go of there is let go of here, as the wallet locking is: a `tacit:evm-accounts` with no accounts
+  // (a WalletConnect session is cleared from this tab's copy; the permission was handed back there).
+  const elsewhere = new Set();
+  const onElsewhere = (fn) => { elsewhere.add(fn); return () => elsewhere.delete(fn); };
+  if (typeof window !== 'undefined') {
+    window.addEventListener('storage', (e) => {
+      if (e.storageArea !== localStorage || (e.key !== REMEMBERED && e.key !== null)) return;
+      if (e.newValue) { if (!active) for (const fn of elsewhere) { try { fn(); } catch { /* a page's listener must not break the others */ } } return; }
+      const was = active;
+      if (!was) return;
+      selected = null; active = null;
+      try { window.dispatchEvent(new CustomEvent('tacit:evm-accounts', { detail: { accounts: [], provider: was } })); } catch { /* ignore */ }
+      if (was.isWalletConnect) Promise.resolve(was.endSession?.()).catch(() => {});
+    });
   }
   // On load: the wallet connected last, with the account it still allows this site. The wallet is asked for its accounts, which
   // opens no prompt, so none remembered, or one that no longer allows the site, gives null and nothing is shown. Wallets
@@ -154,6 +185,24 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
     const c = await reach({ pick });
     use(c);
     return { provider: c.provider, address: c.address };
+  }
+
+  // Another account of the wallet connected: its own chooser opens (EIP-2255), and what it answers is the account in use (the wallet's own account
+  // change reaches the pages as it always has). A WalletConnect session is paired again, so the wallet app asks which account, and with several
+  // wallets announced which wallet. A wallet without a chooser is asked for nothing: the person is told to choose in it, and the page follows.
+  async function changeAccount({ pick } = {}) {
+    const provider = active || selected || injected();
+    if (!provider || typeof provider.request !== 'function') throw new Error('no Ethereum wallet connected');
+    if (provider.isWalletConnect) { await disconnect(); return connect({ pick }); }
+    try { await provider.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] }); }
+    catch (e) {
+      if (e?.code === -32601 || e?.code === 4200 || /not (supported|implemented|found)|unsupported|does not (exist|support)|unknown method|invalid method/i.test(e?.message || '')) throw new Error('Choose another account in your wallet. This page follows it.');
+      throw e;
+    }
+    const address = String((await provider.request({ method: 'eth_accounts' }))?.[0] || '').toLowerCase().replace(/^0x/, '');
+    if (!/^[0-9a-f]{40}$/.test(address)) throw new Error('no accounts returned');
+    use({ provider, chosen: provider });
+    return { provider, address };
   }
 
   // Derive the deterministic tacit1 identity from a personal_sign over the domain message. Returns
@@ -302,5 +351,5 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
     return { v, r: '0x' + h.slice(0, 64), s: '0x' + h.slice(64, 128) };
   }
 
-  return { available, hasBrowserWallet, listProviders, selectProvider, deselectProvider, providerLabel, connect, restore, forget, deriveIdentity, signErc2612, fundTx, chainId, derivationMsg };
+  return { available, hasBrowserWallet, listProviders, selectProvider, deselectProvider, providerLabel, connect, changeAccount, restore, onElsewhere, forget, disconnect, deriveIdentity, signErc2612, fundTx, chainId, derivationMsg };
 }

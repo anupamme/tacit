@@ -5,8 +5,8 @@
 // transactions, and it is done on tacit.finance's Borrow sheet, which each button here opens; this page sizes the bond for an amount before it does.
 import { sha256 } from '/vendor/tacit-deps.min.js';
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=a17675b8';
-import { makeConnect } from '/trade/connect.js?cb=db2796dd';
-import { makeKeySession, signInSheet } from '/trade/key.js?cb=8aceff87';
+import { makeConnect } from '/trade/connect.js?cb=ceb79a33';
+import { makeKeySession, signInSheet } from '/trade/key.js?cb=095a8480';
 import { getUx, forgetUx } from '/trade/poolux.js?cb=f1d44b87';
 import { readRates, readProgram, heldBars, rangesFor, barSize } from '/trade/teth/read.js?cb=1f11613c';
 import { totalsOf, readEngine, sizeBond, coverage, readPools, poolRows, farmApr, readLocks, readLoans, readHeld, readHistory, positionsIn, lockStep, CBTC_ID, ENGINE, WSTETH } from '/trade/cbtc/read.js?cb=b872e52e';
@@ -147,7 +147,7 @@ function renderRoute() {
 }
 
 // ── the key: sign in for the locks, the cBTC, the loans and the farm positions it holds ──
-const key = makeKeySession();
+const key = makeKeySession({ moved: () => lockKey() });
 const connect = makeConnect({ describe: 'Track cBTC', rows: () => (key.unlocked ? `<div class="kv"><span>Tacit wallet</span><b class="addr-s">${esc(key.key.address ? short(key.key.address, 6) : key.key.label || short(key.key.pubHex, 6))} <button class="linkbtn" type="button" id="sheet-lock">Lock</button></b></div>` : ''), onChange: () => {} });
 const { wallet, W } = connect;
 function pickProvider(list) { const mine = wallet.available().find((w) => w.provider === W.prov)?.info?.uuid; return mine && list.some((x) => x.uuid === mine) ? mine : list[0]?.uuid; }

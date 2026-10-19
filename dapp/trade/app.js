@@ -17,7 +17,7 @@ import { decodeTape, chartBars, continuous, invert, ethLaneUsd, btcLaneUsd, cand
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=a17675b8';
 import { mountDepth } from '/trade/depth.js?cb=6e51e04f';
 import { readBook, planBuy as planBoardBuy, planSell as planBoardSell, refine as refineBoards, buildFill as buildBoardFill, BOARD_NAMES } from '/zboards.js?cb=cba4b156';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=db2796dd';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=ceb79a33';
 import { takeEarly } from '/trade/rpc.js?cb=63f04503';
 import { mountFarm } from '/trade/farm.js?cb=cf321c4e';
 import { grp, sig, group, satsFmt, warm as warmFormatters } from '/trade/fmt.js?cb=c07717c4';
@@ -709,7 +709,7 @@ const pageWallet = () => (W.account && W.prov && !W.prov.isWalletConnect ? { uui
 // Made once: two asks at the same moment (the hover that warms it and the press that uses it) share one module and so one wallet session.
 let bitcoinP = null;
 function getBitcoin() {
-  return (bitcoinP ||= import('/trade/btc.js?cb=adc4fa97').then((m) => (bitcoin = m.makeBitcoin({
+  return (bitcoinP ||= import('/trade/btc.js?cb=abb130b3').then((m) => (bitcoin = m.makeBitcoin({
     notify, wallet: pageWallet, onChange: () => syncMe(),
     onTraded: (t) => { noteBitcoinTrade(t); loadBitcoin().then(paintAll).catch(() => {}); },
   }))).catch((e) => { bitcoinP = null; throw e; }));

@@ -10,7 +10,7 @@ import { secp, keccak_256 } from '/vendor/tacit-deps.min.js';
 import { makeConfidentialNames, makeMainnetCall, MAINNET_RPCS, NameError } from '/confidential-names.js?cb=3558f38c';
 import { bodyType } from '/rpc-body.js';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=04391ed8';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=db2796dd';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=ceb79a33';
 
 // Where an airdrop is never sent: the zero address and the contracts that would hold TAC with no way to give it back.
 const NO_SEND = ['0x0000000000000000000000000000000000000000', '0xa1313eb9f3a445606d9583bcac3ebeb56a858279', '0x000000c918e44a3a443937fa7594ea4f7c95d6b9', '0x4b4cb98d0c836c2783ac46f0078b904dab533ae8'];
