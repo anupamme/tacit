@@ -173,17 +173,18 @@ self.addEventListener('fetch', (event) => {
   let url;
   try { url = new URL(req.url); } catch { return; }
 
+  // A versioned file: kept once its bytes match its token, then answered from disk with no request. This is asked before the fixed-path
+  // rules below, which answer only for the same files with no token in the URL.
+  const token = _tokenOf(url);
+  if (token) {
+    event.respondWith(_tokenedFirst(req, token));
+    return;
+  }
+
   // Same-origin static handling.
   const staticHandling = _cacheForRequest(url);
   if (staticHandling) {
     event.respondWith(staticHandling.mode === 'network-first' ? _networkFirst(req, staticHandling.cache) : _cacheFirst(req, staticHandling.cache));
-    return;
-  }
-
-  // A versioned file: kept once its bytes match its token, then answered from disk with no request.
-  const token = _tokenOf(url);
-  if (token) {
-    event.respondWith(_tokenedFirst(req, token));
     return;
   }
 
@@ -236,8 +237,10 @@ async function _tokenedFirst(req, token) {
       const hex = Array.from(digest.subarray(0, 4), (b) => b.toString(16).padStart(2, '0')).join('');
       if (hex === token) {
         await cache.put(req, forCache);
-        // oldest first: a deploy gives every changed file a new URL, and the earlier ones are never asked for again
-        const keys = await cache.keys();
+        // a deploy gives a changed file a new URL and the earlier one is never asked for again: one version of a path is kept (these can be
+        // megabytes), and past that the oldest entries go
+        const mine = new URL(req.url), keys = await cache.keys();
+        await Promise.all(keys.filter((k) => { const u = new URL(k.url); return u.pathname === mine.pathname && u.search !== mine.search; }).map((k) => cache.delete(k)));
         if (keys.length > TOKENED_KEEP * 1.25) await Promise.all(keys.slice(0, keys.length - TOKENED_KEEP).map((k) => cache.delete(k)));
       }
     } catch { /* quota, or a body that cannot be read twice: the response still goes out */ }

@@ -295,6 +295,43 @@ const PRELOAD_PAGES = ['index.html', 'pay/index.html', 'pay/eth/index.html', 'tr
 const STATIC_IMPORT = /(?:^|[\n;}])\s*(?:import|export)\s*(?:[^'"();]*?\sfrom\s*)?(['"])([^'"]+)\1/g;
 const WARM_BLOCK = /<!-- warm:begin -->[\s\S]*?<!-- warm:end -->/;
 const HEAD_BLOCK = /<!-- preload:begin -->[\s\S]*?<!-- preload:end -->/, LATER_BLOCK = /\/\/ preload-later:begin\n[\s\S]*?\/\/ preload-later:end/, INTENT_BLOCK = /\/\/ preload-intent:begin\n[\s\S]*?\/\/ preload-intent:end/;
+// ── import maps ──
+// A page that carries `<!-- importmap:begin --><!-- importmap:end -->` in its head (before its preload block) gets an import map that sends every
+// first-party module it can reach, through static or dynamic imports, to `path?cb=<token>`: the token is the first eight hex digits of that
+// file's own sha-256, the same token pageCacheBust writes, so a file's URL changes when its bytes do and at no other time. No source file
+// is edited and nothing cascades: an importer's text does not hold its imports' tokens. The service worker (dapp/sw.js) keeps a versioned
+// file once its bytes are checked against its token, so a repeat visit asks the network for none of them. A browser without import maps
+// loads the modules as it always did. The preload links name the same tokened URLs, which a map does not rewrite (a preload of the bare URL
+// would fetch the module twice). Inline, the map is script to the page's CSP: its hash is pinned in script-src, as the other inline scripts'
+// are, and a page that already pins a hash for an inline script of its own is not supported here yet.
+const DYNAMIC_IMPORT = /\bimport\(\s*(['"])([^'"]+)\1\s*\)/g;
+const IMPORTMAP_BLOCK = /<!-- importmap:begin -->[\s\S]*?<!-- importmap:end -->/;
+const fileToken = (path) => createHash('sha256').update(readFileSync(join(DAPP_DIR, path))).digest('hex').slice(0, 8);
+function importMapOf(page) {
+  if (!IMPORTMAP_BLOCK.test(page)) return null;
+  const code = page.replace(HEAD_BLOCK, '').replace(IMPORTMAP_BLOCK, '').replace(LATER_BLOCK, '').replace(INTENT_BLOCK, '').replace(WARM_BLOCK, '');
+  const reached = new Set();
+  const walk = (path) => {
+    if (reached.has(path) || !path.endsWith('.js') || !existsSync(join(DAPP_DIR, path))) return;
+    reached.add(path);
+    if (path.startsWith('/vendor/') || path.endsWith('.min.js')) return;            // a bundle: nothing in it to follow
+    const text = readFileSync(join(DAPP_DIR, path), 'utf8');
+    for (const re of [STATIC_IMPORT, DYNAMIC_IMPORT]) for (const m of text.matchAll(re)) if (/^[./]/.test(m[2])) walk(new URL(m[2], `https://x${path}`).pathname);
+  };
+  const roots = ((/<!-- preload-roots:([^>]*?)-->/.exec(page) || [])[1] || '').split(/[\s|]+/).filter(Boolean);
+  for (const m of code.matchAll(/<script\b[^>]*\btype="module"[^>]*\bsrc="([^"?]+)/g)) roots.push(m[1]);
+  for (const r of roots) walk(r.split('?')[0]);
+  for (const re of [STATIC_IMPORT, DYNAMIC_IMPORT]) for (const m of code.matchAll(re)) if (/^[./]/.test(m[2])) walk(new URL(m[2], 'https://x/').pathname);
+  const entries = new Map([...reached].sort().map((path) => [path, `${path}?cb=${fileToken(path)}`]));
+  const text = JSON.stringify({ imports: Object.fromEntries(entries) });
+  return {
+    entries, text,
+    // a URL the page writes with no token goes by its tokened one; one that has a token already (the page's own entries) is left as written
+    url: (u) => { const [path, query] = [u.split('?')[0], u.includes('?')]; return !query && entries.has(path) ? entries.get(path) : u; },
+    block: `<!-- importmap:begin -->\n<script type="importmap">${text}</script>\n<!-- importmap:end -->`,
+    digest: 'sha256-' + createHash('sha256').update(text, 'utf8').digest('base64'),
+  };
+}
 function preloadBlocks(page) {
   const spec = (/<!-- preload-roots:([^>]*?)-->/.exec(page) || [])[1];
   if (!spec) return null;
@@ -321,9 +358,12 @@ function preloadBlocks(page) {
     for (const r of list.trim().split(/\s+/).filter(Boolean)) walk(urlOf(r, seen));
     return seen;
   };
-  const first = reach(roots, new Set()), laterSeen = reach(later, new Set(first)), after = [...laterSeen].slice(first.size);
-  const warm = [...reach(intent, new Set(laterSeen))].slice(laterSeen.size);
-  const head = [...first].map((u) => `<link rel="modulepreload" href="${u}"${u.startsWith('/vendor/tacit-deps') ? ' fetchpriority="high"' : ''}>`);
+  const im = importMapOf(page), placed = new Set();
+  const fin = (urls) => urls.map((u) => (im ? im.url(u) : u)).filter((u) => !placed.has(u) && placed.add(u));
+  const first = reach(roots, new Set()), laterSeen = reach(later, new Set(first));
+  const headUrls = fin([...first]), after = fin([...laterSeen].slice(first.size));
+  const warm = fin([...reach(intent, new Set(laterSeen))].slice(laterSeen.size));
+  const head = headUrls.map((u) => `<link rel="modulepreload" href="${u}"${u.startsWith('/vendor/tacit-deps') ? ' fetchpriority="high"' : ''}>`);
   return {
     head: `<!-- preload:begin -->\n${head.join('\n')}\n<!-- preload:end -->`,
     later: after.length
@@ -346,6 +386,25 @@ function pagePreloads(write) {
     if (blocks.wantsIntent && !INTENT_BLOCK.test(before) && !WARM_BLOCK.test(before)) throw new Error(`${rel} has no preload-intent or warm block`);
     const after = before.replace(HEAD_BLOCK, () => blocks.head).replace(LATER_BLOCK, () => blocks.later).replace(INTENT_BLOCK, () => blocks.intent).replace(WARM_BLOCK, () => blocks.warm);
     if (after !== before) { drift.push(`${rel} modulepreload links do not match the page's imports`); if (write) writeFileSync(file, after); }
+  }
+  return drift;
+}
+
+function pageImportMaps(write) {
+  const drift = [];
+  for (const rel of PRELOAD_PAGES) {
+    const file = join(DAPP_DIR, rel);
+    if (!existsSync(file)) continue;
+    const before = readFileSync(file, 'utf8'), im = importMapOf(before);
+    if (!im) continue;
+    if (PINNED_PAGES.some((pp) => pp.file === file)) throw new Error(`${rel} pins a hash for an inline script of its own: its import map is not supported yet`);
+    if (!/<!-- importmap:end -->\s*<!-- preload-roots:/.test(before) && before.indexOf('<!-- importmap:begin -->') > before.indexOf('<!-- preload:begin -->')) throw new Error(`${rel}: the import map must come before the preload links`);
+    let after = before.replace(IMPORTMAP_BLOCK, () => im.block);
+    // script-src keeps its other sources and takes the map's hash in place of any earlier one
+    after = after.replace(/(<meta http-equiv="Content-Security-Policy" content="[^"]*?script-src)([^;"]*)/, (_, head, sources) =>
+      `${head}${sources.replace(/\s+'sha256-[A-Za-z0-9+/=]+'/g, '')} '${im.digest}'`);
+    if (!after.includes(`'${im.digest}'`)) throw new Error(`${rel} has no script-src to pin the import map's hash in`);
+    if (after !== before) { drift.push(`${rel} import map or its CSP hash is stale`); if (write) writeFileSync(file, after); }
   }
   return drift;
 }
@@ -472,7 +531,7 @@ async function main() {
     if (gotPreboot !== wantPreboot) drift.push(`classic.html preboot.js ?cb=${gotPreboot} but sha256(dapp/preboot.js)=${wantPreboot}`);
     if (gotSw !== wantSw) drift.push(`sw.js CACHE_VERSION suffix ${gotSw} but sha256(vendor‖prf-wallet)=${wantSw}`);
     drift.push(...siteChrome(false), ...pageCacheBust(SATS_CB_FILES, false), ...pageCacheBust(REWARDS_CB_FILES, false), ...pageCacheBust(BRIDGE_CB_FILES, false), ...pageCacheBust(WELD_CB_FILES, false), ...pageCacheBust(TAC_CB_FILES, false), ...btcMarketCss(false), ...tethPageStyle(false), ...pageCacheBust(TRADE_CB_FILES, false), ...tradeAssetPages(false), ...pageCacheBust(VAULT_CB_FILES, false), ...pageCacheBust(TASKS_CB_FILES, false), ...pageCacheBust(BUILD_CB_FILES, false), ...pageCacheBust(SWAP_CB_FILES, false), ...pageCacheBust(ASSETS_CB_FILES, false), ...pageCacheBust(SPLITTER_CB_FILES, false), ...pageCacheBust(RELAY_CB_FILES, false), ...pageCacheBust(PAY_CB_FILES, false));
-    drift.push(...pagePreloads(false));
+    drift.push(...pageImportMaps(false), ...pagePreloads(false));
     if (drift.length) {
       console.error('✗ cache-bust tokens or preload links are stale — run `npm run build` and commit the result:');
       for (const d of drift) console.error(`    ${d}`);
@@ -532,6 +591,8 @@ async function main() {
     console.log(`• splitter page cache-bust: ${splitterDrift.length ? `${splitterDrift.length} token(s) updated` : 'unchanged'}`);
     const payDrift = pageCacheBust(PAY_CB_FILES, true);
     console.log(`• pay page cache-bust: ${payDrift.length ? `${payDrift.length} token(s) updated` : 'unchanged'}`);
+    const mapDrift = pageImportMaps(true);
+    console.log(`• page import maps: ${mapDrift.length ? 'updated' : 'unchanged'}`);
     const preDrift = pagePreloads(true);
     console.log(`• page preloads: ${preDrift.length ? 'updated' : 'unchanged'}`);
     if (preDrift.length) tradeAssetPages(true);                 // the trade page's copy for each asset carries its preloads too
