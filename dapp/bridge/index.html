@@ -29,8 +29,8 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /bridge/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/bridge/app.js?cb=1dc6c974">
-<link rel="modulepreload" href="/bridge/track.js?cb=aebbac4c">
+<link rel="modulepreload" href="/bridge/app.js?cb=60ad32a9">
+<link rel="modulepreload" href="/bridge/track.js?cb=089731ca">
 <link rel="modulepreload" href="/rpc-body.js">
 <!-- preload:end -->
 <style>
@@ -914,11 +914,11 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <section class="faq rv" aria-labelledby="fq-h">
       <div class="wt-h"><span class="kk">Good to know</span><h2 id="fq-h" style="font-size:clamp(28px,4vw,40px)">Before you <em>cross</em></h2></div>
       <div class="fq">
-        <details><summary>How long does it take?</summary><p>Bitcoin to Ethereum waits for 24 Bitcoin confirmations, about four hours, and then the next proof, which lands on Ethereum about every half hour. Ethereum to Bitcoin waits for Ethereum to finalize, about 13 minutes, and then you sign the Bitcoin mint and it confirms.</p></details>
+        <details><summary>How long does it take?</summary><p>Bitcoin to Ethereum waits for 24 Bitcoin confirmations, about four hours, and then the next proof, which lands on Ethereum about every half hour. Ethereum to Bitcoin waits for Ethereum to finalize, about 13 minutes, and then you sign the Bitcoin mint and it confirms. TAC that goes in two steps, a move and then a burn, waits for the proof after each, usually within a day.</p></details>
         <details><summary>Do I have to keep the page open?</summary><p>Nothing is lost if you close it. A bridge is rebuilt from your key and the chain, and the list of your bridges at the top shows what needs you. A step that needs your key, like signing the Bitcoin mint, waits until you open the page.</p></details>
         <details><summary>Can anyone see how much I bridge?</summary><p>The amount is not published on either chain. Whoever makes the mint’s proof sees it, and today that is Tacit’s prover. The burn and the mint are public events. A cBTC lock is plain bitcoin at an output of your own key, so its size is visible.</p></details>
         <details><summary>What can I bridge?</summary><p>TAC and tETH cross both ways. tETH is private ETH, made in the <a href="/#private">Make private</a> tab. cBTC enters by locking bitcoin at your own key, with a wstETH bond behind it, and the pool mints it 1:1. cUSD is borrowed against cBTC on Ethereum.</p></details>
-        <details><summary>Is there a limit?</summary><p>While the bridge is new, TAC takes 20 to 1,000 TAC to Bitcoin and up to 1,000 TAC back, and tETH takes 0.01 to 0.5 tETH to Bitcoin and up to 0.5 tETH back. Coming back from Bitcoin, a note goes whole, so split a larger one first.</p></details>
+        <details><summary>Is there a limit?</summary><p>While the bridge is new, TAC takes 20 to 1,000 TAC to Bitcoin and up to 1,000 TAC back, and tETH takes 0.01 to 0.5 tETH to Bitcoin and up to 0.5 tETH back. Coming back from Bitcoin, a note goes whole, so split a larger one first. Most TAC goes back in one Bitcoin transaction; TAC that Bitcoin’s proof on Ethereum has not followed goes in two, a move and then a burn, and the bridge proves up to 255 transfers of its history.</p></details>
         <details><summary>What does it cost?</summary><p>Bitcoin to Ethereum costs a Bitcoin network fee, and Tacit is covering the Ethereum mint for now. Ethereum to Bitcoin takes a small relay fee out of the note, plus a Bitcoin fee in sats for the mint, paid from your Bitcoin address. The bridge shows each cost before you sign.</p></details>
         <details><summary>Who keeps it running?</summary><p>Tacit’s services do today, and anyone can. Sending Bitcoin’s headers, making the proof and submitting it are all open calls that need no permission. <a href="/weld/keeper/">Community ops</a> does the first and the last from your own wallet.</p></details>
         <details><summary>A bridge is missing or stuck</summary><p>Open Bridge with the same key. A bridge is rebuilt from its transaction and your key, so nothing about it lives only in this browser. A note that was moved but not burned can be moved back.</p></details>
@@ -954,6 +954,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/bridge/app.js?cb=1dc6c974"></script>
+<script type="module" src="/bridge/app.js?cb=60ad32a9"></script>
 </body>
 </html>

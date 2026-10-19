@@ -46,6 +46,11 @@ value on the other, keeping `v` and picking a new `r`, with a proof that nothing
 4. **Checked by the pool.** `attestBitcoinStateProven` verifies the proof on-chain against
    `BITCOIN_RELAY_VKEY`. A proven burn is then minted into the pool once, keyed by its `burn_id`.
 
+TAC the reflection follows is burned in one Bitcoin transaction. TAC it has not followed (a history that runs
+through transfers from before reflection began) goes in two: a move to a burn address, then a burn whose
+provenance, every transfer back to TAC's etch, is verified in the same proof (`fold_burn_deposit`). The proof
+takes up to 256 transfers, the move among them.
+
 ## Ethereum → Bitcoin
 
 1. **Finality, signed.** The Ethereum reflection program
@@ -97,7 +102,8 @@ pinned verifying keys anyone can rebuild from source. No signer set is in the pa
 
 Bitcoin → Ethereum waits for 24 Bitcoin confirmations (about four hours) and then the next proof, which
 lands on Ethereum about every half hour. Ethereum → Bitcoin waits for Ethereum to finalize (about 13
-minutes) and then the Bitcoin mint confirms. [tacit.finance/bridge](https://tacit.finance/bridge/) shows
+minutes) and then the Bitcoin mint confirms. A two-step TAC bridge waits for the proof after the move and
+after the burn, usually within a day. [tacit.finance/bridge](https://tacit.finance/bridge/) shows
 the live cadence and follows every bridge a browser has under way.
 
 ## The assets
@@ -114,6 +120,8 @@ the live cadence and follows every bridge a browser has under way.
 | --- | --- | --- |
 | TAC | 20 to 1,000 TAC a bridge | up to 1,000 TAC, a note goes whole |
 | tETH | 0.01 to 0.5 tETH a bridge | up to 0.5 tETH, a note goes whole |
+
+A TAC note going back in two steps carries up to 255 transfers of history.
 
 Bitcoin to Ethereum costs a Bitcoin network fee, and Tacit is covering the Ethereum mint for now. Ethereum to
 Bitcoin takes a small relay fee out of the note, plus a Bitcoin fee for the mint, paid from the key's own

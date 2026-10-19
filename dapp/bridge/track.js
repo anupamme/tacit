@@ -11,6 +11,8 @@
 
 export const IN_PREFIX = 'tacit-burndep-bridge-v1:mainnet:';
 export const OUT_PREFIX = 'tacit-crossout-bridge-v1:mainnet:';
+// The front page's bridge plans ({ [pub]: { [bridge id]: plan } }): a plan with `burn` has its two-step burn sent by the page itself.
+export const PLAN_KEY = 'tacit-lite-bridge-plan-v1';
 
 // The asset ids both chains know a note by (cxfer-core), lower case, without 0x.
 export const TAC_ID = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
@@ -68,9 +70,10 @@ const IN_DONE = ['minted', 'reclaimed'];
 const MINER_WAIT = 12 * 3600e3;
 
 // What a bridge in waits on its holder for, in the front page's own words for the press (its Bridge tab offers it), or ''.
-export function inDue(r, now = Date.now()) {
+// A traced bridge needs no press when its plan sends the burn, or while a burn its holder pressed waits on the history check.
+export function inDue(r, now = Date.now(), plan = null) {
   const err = r.lastError, tries = r.errorCount || 0;
-  if (r.stage === 'traced') return 'Burn it';
+  if (r.stage === 'traced') return (plan?.burn || r.checkWait?.go) && !err && !r.feeWait ? '' : 'Burn it';
   if ((r.stage === 'folded' || r.stage === 'rfolded') && !(r.arm && r.arm.ok)) {
     if (err && Number(err.until) > now) return '';            // the day's free mints are used up: the page mints it after midnight UTC
     if (err && err.relay) return '';                           // asked again by the page every few minutes
@@ -85,7 +88,7 @@ export function inDue(r, now = Date.now()) {
   return '';
 }
 
-export function inRow(r, now = Date.now()) {
+export function inRow(r, now = Date.now(), plan = null) {
   const key = assetKey(r.source?.assetId, r.source?.ticker);
   const route = ROUTES[key]?.in || ROUTES.tac.in;
   const done = r.stage === 'minted';
@@ -94,7 +97,7 @@ export function inRow(r, now = Date.now()) {
     id: String(r.id || ''), dir: 'in', asset: key, amount: big(r.source?.amount), stage: r.stage,
     at: done ? 4 : (IN_AT[r.stage] ?? 0), steps: route.steps, href: route.href,
     done, back: r.stage === 'reclaimed', held: ['not-recorded', 'stopped', 'recovered'].includes(r.stage),
-    due: done ? '' : inDue(r, now), armed: !!(r.arm && r.arm.ok),
+    due: done ? '' : inDue(r, now, plan), armed: !!(r.arm && r.arm.ok), checking: r.stage === 'traced' && !!r.checkWait && !r.lastError,
     btcTx: burnTxid, btcHeight: num(r.burnHeight), ethTx: r.mintedTxHash ? '0x' + lc(r.mintedTxHash) : null,
     since: num(r.createdAt), doneAt: num(r.mintedAt), err: r.lastError?.message ? String(r.lastError.message).slice(0, 240) : null,
   };
@@ -138,6 +141,8 @@ export function readBridges(storage, now = Date.now()) {
   const rows = [];
   let n = 0;
   try { n = storage ? storage.length : 0; } catch { return rows; }
+  let plans = {};
+  try { plans = JSON.parse(storage.getItem(PLAN_KEY) || 'null') || {}; } catch { /* no plans */ }
   for (let i = 0; i < n; i++) {
     let k;
     try { k = storage.key(i); } catch { continue; }
@@ -149,7 +154,7 @@ export function readBridges(storage, now = Date.now()) {
     for (const r of parse(text)) {
       if (!r || typeof r !== 'object' || !r.stage) continue;
       if (dir === 'in' && r.stage === 'reclaimed' && now - Number(r.updatedAt || r.createdAt || 0) > KEEP_DONE_MS) continue;
-      const row = dir === 'in' ? inRow(r, now) : outRow(r);
+      const row = dir === 'in' ? inRow(r, now, plans[k.slice(IN_PREFIX.length)]?.[r.id] || null) : outRow(r);
       if (row.done && now - Number(row.doneAt || 0) > KEEP_DONE_MS) continue;
       rows.push(row);
     }
@@ -162,7 +167,9 @@ export function readBridges(storage, now = Date.now()) {
 // ── where a bridge really is, from the chains, when the journal has not been moved on (no page open) ─────────────────────
 // `live` = { btcAttested, btcConfs, ethCovered, txs: Map(txid → { confirmed, height }) }. Returns a short line, or ''.
 export function liveLine(row, live) {
-  if (!live || row.done || row.back) return '';
+  if (row.done || row.back) return '';
+  if (row.checking) return 'Its history is being checked before its burn';
+  if (!live) return '';
   if (row.dir === 'in') {
     const tx = row.btcTx && live.txs?.get(row.btcTx);
     const h = row.btcHeight ?? (tx?.confirmed ? tx.height : null);

@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert';
 import { readFileSync } from 'node:fs';
-import { readBridges, inRow, outRow, inDue, outDue, liveLine, nextOf, fmtAmount, limitLine, LIMITS, IN_PREFIX, OUT_PREFIX, TETH_ID, KEEP_DONE_MS } from '../dapp/bridge/track.js';
+import { readBridges, inRow, outRow, inDue, outDue, liveLine, nextOf, fmtAmount, limitLine, LIMITS, IN_PREFIX, OUT_PREFIX, PLAN_KEY, TETH_ID, KEEP_DONE_MS } from '../dapp/bridge/track.js';
 import { CROSSOUT_BETA_CAP_RAW, CROSSOUT_TETH_CAP_RAW, CROSSOUT_TETH_MIN_RAW } from '../dapp/crossout-ux.js';
 import { BURNDEP_BETA_CAP_RAW } from '../dapp/burndep-ux.js';
 
@@ -152,4 +152,30 @@ test('the line under the steps says what one bridge takes', () => {
   assert.equal(limitLine('teth', 'out'), '0.01 to 0.5 tETH a bridge while it is new');
   assert.equal(limitLine('teth', 'in'), 'Up to 0.5 tETH a bridge while it is new');
   assert.equal(limitLine('cbtc', 'in'), '');
+});
+
+test('a two-step bridge at its burn asks for no press when the page sends it, as the front page decides (brDue)', () => {
+  const traced = (o = {}) => inRec({ path: 'deposit', stage: 'traced', ...o });
+  assert.equal(inDue(traced(), NOW), 'Burn it');
+  assert.equal(inDue(traced(), NOW, { burn: { maxRate: 20 } }), '', 'its plan sends the burn');
+  assert.equal(inDue(traced({ checkWait: { at: NOW, go: true } }), NOW), '', 'a pressed burn waits on the history check');
+  assert.equal(inDue(traced({ checkWait: { at: NOW, go: false } }), NOW), 'Burn it', 'a check the page started on its own still wants the press');
+  assert.equal(inDue(traced({ feeWait: { rate: 40, max: 20 } }), NOW, { burn: { maxRate: 20 } }), 'Burn it', 'over the rate it was allowed');
+  assert.equal(inDue(traced({ lastError: { message: 'x' }, checkWait: { at: NOW, go: true } }), NOW), 'Burn it');
+  const row = inRow(traced({ checkWait: { at: NOW, go: true } }), NOW);
+  assert.equal(row.checking, true);
+  assert.equal(liveLine(row, null), 'Its history is being checked before its burn');
+  assert.equal(nextOf(row).due, '');
+  assert.equal(nextOf(row).self, false, 'the burn still needs the front page open');
+});
+
+test('the bridge page reads the front page\'s plans for each key', () => {
+  const rec = inRec({ path: 'deposit', stage: 'traced' });
+  const plans = { [PUB]: { [rec.id]: { at: NOW, burn: { maxRate: 20 } } } };
+  const [row] = readBridges(store({ [IN_PREFIX + PUB]: JSON.stringify([rec]), [PLAN_KEY]: JSON.stringify(plans) }), NOW);
+  assert.equal(row.due, '');
+  const [bare] = readBridges(store({ [IN_PREFIX + PUB]: JSON.stringify([rec]) }), NOW);
+  assert.equal(bare.due, 'Burn it');
+  const [broken] = readBridges(store({ [IN_PREFIX + PUB]: JSON.stringify([rec]), [PLAN_KEY]: '{not json' }), NOW);
+  assert.equal(broken.due, 'Burn it', 'unreadable plans are no plans');
 });
