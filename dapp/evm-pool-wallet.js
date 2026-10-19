@@ -327,9 +327,44 @@ const sweepData = (npk, feeBps, t) => calldata(`sweepReceive(uint256,uint16,${TX
 const RACED = new Set(['StaleRoot()', 'WrongInsertionIndex()', 'UnknownMembershipRoot()', 'BadIntent()'].map((e) => hex(selector(e))));
 const revertData = (e) => { for (let x = e; x; x = x.cause) { const d = x.rpc?.data?.data ?? x.rpc?.data ?? x.data?.data ?? x.data; if (typeof d === 'string' && d.startsWith('0x')) return d; } return ''; };
 
+// The router calls that pay a token pool's deposit (TacitEvmPoolRouter), as the `selfCall` of deposit/depositTo. `pull` is how the
+// router takes the token from the signer:
+//   { kind: 'allowance' }                      an allowance to the router is in place already
+//   { kind: 'permit', value, deadline, v, r, s }  an EIP-2612 permit for the router, which the router applies first
+//   { kind: 'permit2', permitSingle, sig }     a Permit2 signature naming the router
+//   { kind: 'batch', token }                   no allowance: an approval of exactly this deposit, in the same batch (the call's `before`)
+// The amount every way takes is the deposit's own `extAmount`, so the call cannot move more or less than the proof says; a permit
+// for another amount is refused here. A permit that fails on chain is skipped by the router, so a missing allowance reverts the
+// call, and the signer's pre-send check (eth_call, or eth_simulateV1 for a batch) refuses it.
+const NO_PERMIT = { deadline: 0n, v: 0, r: '0x' + '00'.repeat(32), s: '0x' + '00'.repeat(32) };
+const TX_TUPLE = { tuple: TX_TYPES };
+const PERMIT2_TYPES = [{ tuple: ['address', 'uint256', 'uint256', 'uint256'] }, 'address', 'uint256'];
+export const approveCall = (token, spender, amount) => ({ to: token, data: calldata('approve(address,uint256)', ['address', 'uint256'], [spender, BigInt(amount)]), value: 0n });
+export function routerDeposit(router, tx, pull = { kind: 'allowance' }) {
+  const amount = BigInt(tx.extAmount);
+  if (amount <= 0n) throw new Error('evm-pool-wallet: a deposit has a positive amount');
+  const permit = (p) => ({ to: router, data: calldata(`depositWithPermit(${TX_SIG},uint256,uint8,bytes32,bytes32)`, [TX_TUPLE, 'uint256', 'uint8', 'bytes32', 'bytes32'], [txValues(tx), p.deadline, p.v, p.r, p.s]) });
+  if (pull.kind === 'allowance') return permit(NO_PERMIT);
+  if (pull.kind === 'permit') {
+    if (BigInt(pull.value) !== amount) throw new Error('evm-pool-wallet: the permit is for another amount than this deposit');
+    return permit(pull);
+  }
+  if (pull.kind === 'permit2') {
+    const d = pull.permitSingle.details;
+    if (BigInt(d.amount) !== amount) throw new Error('evm-pool-wallet: the Permit2 signature is for another amount than this deposit');
+    const ps = [[d.token, d.amount, d.expiration, d.nonce], pull.permitSingle.spender, pull.permitSingle.sigDeadline];
+    return { to: router, data: calldata(`depositWithPermit2(${TX_SIG},((address,uint160,uint48,uint48),address,uint256),bytes)`, [TX_TUPLE, { tuple: PERMIT2_TYPES }, 'bytes'], [txValues(tx), ps, pull.sig]) };
+  }
+  if (pull.kind === 'batch') return { ...permit(NO_PERMIT), before: [approveCall(pull.token, router, amount)] };
+  throw new Error(`evm-pool-wallet: unknown way to pay, ${pull.kind}`);
+}
+
 // ── wallet ──
 
-// chain: { chainId, pool, router, rpc (a jsonRpc), deployBlock, logChunk?, confirmations? }
+// chain: { chainId, pool, router, rpc (a jsonRpc), deployBlock, logChunk?, confirmations?, token? }
+// `token`: the pool's ERC-20 asset (TacitEvmPool's ASSET()); left out, the pool holds native ETH. A token pool is moved by the
+// user's own wallet: a deposit goes through the router with the `selfCall` it is given (routerDeposit builds the calls),
+// and the receive box, the bridges and the move into V1 are ETH's alone.
 // keeper: base URL of a keeper (…/evm-pool/keeper) or null; prove(input) → { proof, publicSignals } (snarkjs shape);
 // store: { get(k), set(k, v) } for the synced state, or null to keep it in memory. What is stored is view-level only
 // (the tree's right edge and the paths of owned notes, and each owned note's position, value, rho and shared
@@ -341,7 +376,9 @@ const revertData = (e) => { for (let x = e; x; x = x.cause) { const d = x.rpc?.d
 // feed: read confirmed history from the keeper's /events first (checked against the pool; see sync), then the rest
 // from chain logs.
 export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store = null, signer = null, feed = true, fetchImpl = globalThis.fetch?.bind(globalThis) }) {
-  const asset = poolAsset({ chainId: BigInt(chain.chainId), pool: chain.pool, token: ZERO });
+  const token = chain.token ?? ZERO, isToken = BigInt(token) !== 0n;
+  const ethOnly = (what) => { if (isToken) throw new Error(`${what} is for the ETH pools, not a token pool`); };
+  const asset = poolAsset({ chainId: BigInt(chain.chainId), pool: chain.pool, token });
   const boxes = new Map();      // an index's address is fixed by the key, so each is derived once
   const boxOf = (i) => { if (!boxes.has(i)) boxes.set(i, receiveBoxAddress(receiveKeys(zk, keys.zkWallet, i).npk, RECEIVE_FEE_BPS, chain.router)); return boxes.get(i); };
   const box = boxOf(RECEIVE_INDEX);
@@ -665,10 +702,25 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
 
   // Submits from the signer after checking the call on chain. → tx hash, or null when another transaction landed
   // first (prove again).
-  async function sendSelf(to, data, value, onStep) {
+  // `before`: calls (an approval) the wallet sends ahead of this one, all in one atomic batch (signer.batch).
+  async function sendSelf(to, data, value, onStep, before = []) {
     if (!signer) throw new Error('no wallet to send from: connect one, or use a relayer');
     if (signer.ready) await signer.ready();
     const v = '0x' + BigInt(value).toString(16);
+    if (before.length) {
+      if (!signer.batch) throw new Error('this wallet does not send calls together');
+      // Where the node runs eth_simulateV1 the batch is checked in order, the approval first; the wallet checks it again before it signs.
+      const calls = [...before, { to, data, value }].map((x) => ({ to: x.to, data: x.data, value: BigInt(x.value ?? 0n) }));
+      const sim = await (signer.rpc || chain.rpc)('eth_simulateV1', [{ blockStateCalls: [{ calls: calls.map((x) => ({ from: signer.address, to: x.to, data: x.data, value: '0x' + x.value.toString(16) })) }], validation: false }, 'latest']).then((r) => r?.[0]?.calls, () => null);
+      const bad = Array.isArray(sim) && sim.find((x) => x.status !== '0x1');
+      if (bad) {
+        const d = String(bad.error?.data || bad.returnData || '');
+        if (RACED.has(d.slice(0, 10))) return null;
+        throw new Error(`the transaction would revert: ${String(bad.error?.message || 'it failed').slice(0, 120)}${d ? ` (${d.slice(0, 10)})` : ''}`);
+      }
+      onStep('confirm in your wallet');
+      return signer.batch(calls, () => onStep('waiting for the block'));
+    }
     // A signer may bring its own reader (`signer.rpc`), so the node that reads this key's notes and boxes is not also
     // shown the signer's address and its transactions.
     try { await (signer.rpc || chain.rpc)('eth_call', [{ from: signer.address, to, data, value: v }, 'latest']); }
@@ -837,7 +889,7 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
         h = r.body.txHash;
       } else {
         const c = selfCall ? selfCall(tx) : { to: chain.pool, data: transactData(tx) };
-        h = await sendSelf(c.to, c.data, extAmount > 0n ? extAmount : 0n, onStep);
+        h = await sendSelf(c.to, c.data, extAmount > 0n && !isToken ? extAmount : 0n, onStep, c.before);
         if (!h) { treeRefused = true; continue; }
       }
       for (const n of ins) pending.add(n.nf);
@@ -980,6 +1032,7 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
     // transaction (router.withdrawAndCall). → tx hash.
     // gas: what the withdrawal and its calls need; by default the relay's plus 250k per call.
     async withdrawAndCall({ intent, amount, gas = null, maxFee = null, onStep = () => {} }) {
+      ethOnly('Withdrawing into a call');
       const a = BigInt(amount);
       if (a <= 0n) throw new Error('enter an amount');
       await sync();
@@ -1006,11 +1059,13 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
     },
 
     // Deposits `amount` wei from the signer into a private note here. → tx hash.
-    async deposit({ amount, onStep = () => {} }) {
+    // `selfCall(tx)` → { to, data, before? }: what the signer submits in place of pool.transact; a token pool takes its
+    // deposit through the router (routerDeposit), with `before` (an approval) sent in the same batch.
+    async deposit({ amount, selfCall = null, onStep = () => {} }) {
       const a = BigInt(amount);
       if (a <= 0n) throw new Error('enter an amount');
       const before = (await sync()).balance;
-      const h = await transact({ ins: [], outs: [{ to: self, value: a }, null], extAmount: a, onStep });
+      const h = await transact({ ins: [], outs: [{ to: self, value: a }, null], extAmount: a, selfCall, onStep });
       // Returns once the note is spendable here (log providers can trail the receipt by a few seconds).
       await waitFor(() => summary().balance >= before + a, 60_000).catch(() => {});
       return h;
@@ -1019,17 +1074,18 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
     // Deposits `amount` wei from the signer straight into a private note for someone else's pool address (bp1…),
     // proved here and sent by the signer: the deposit (its sender and amount) shows on chain, whom it pays does not;
     // the recipient finds it by its memo. → tx hash.
-    async depositTo({ to, amount, onStep = () => {} }) {
+    async depositTo({ to, amount, selfCall = null, onStep = () => {} }) {
       const recipient = recipientOf(keys, to);
       const a = BigInt(amount);
       if (a <= 0n) throw new Error('enter an amount');
       await sync();
-      return transact({ ins: [], outs: [{ to: recipient, value: a }, null], extAmount: a, onStep });
+      return transact({ ins: [], outs: [{ to: recipient, value: a }, null], extAmount: a, selfCall, onStep });
     },
 
     // Sweeps a receive box (the private ETH address by default) into a note here, submitted by the signer: no fee,
     // any amount. → tx hash.
     async sweep({ index = RECEIVE_INDEX, onStep = () => {} } = {}) {
+      ethOnly('Sweeping a receive box');
       const npk = receiveKeys(zk, keys.zkWallet, index).npk, box = boxOf(index);
       for (let round = 0; round < 4; round++) {
         await sync();
@@ -1057,6 +1113,7 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
     // whose retryable is priced from the L2. `now`: the chain's time in unix seconds, which its hour-long deadline
     // counts from (this device's clock by default). → tx hash.
     async bridgeOut({ toChainId, amount, l2Rpc = null, maxFee = null, now = null, onStep = () => {} }) {
+      ethOnly('Bridging out');
       if (Number(chain.chainId) !== 1) throw new Error('bridging out starts from the Ethereum pool');
       const b = L2_BRIDGES[Number(toChainId)];
       if (!b) throw new Error(`no bridge to chain ${toChainId}`);
@@ -1094,6 +1151,7 @@ export function makeEvmPoolWallet({ zk, keys, chain, keeper = null, prove, store
     // V1's wrap commitment for the wallet's own next V1 note (confidential-pool-ux buildWrap(...).commit); the V1
     // wallet finds the deposit from its key and makes it a note with its usual wrap settle. `now` as for bridgeOut. → tx hash.
     async toV1({ amount, commit, via = null, maxFee = null, now = null, onStep = () => {} }) {
+      ethOnly('Moving into V1');
       if (Number(chain.chainId) !== 1) throw new Error('V1 is on Ethereum; move to V1 from the Ethereum pool');
       const a = BigInt(amount);
       if (a <= 0n || a % V1_UNIT !== 0n) throw new Error('the amount must be a positive multiple of 1e10 wei');

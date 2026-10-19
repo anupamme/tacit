@@ -21,6 +21,8 @@
 //           fees as their forms will (Max keeping the fee that combines notes), and each hands its form the amount
 //   hxsend  the card's Send for every asset it offers: tETH, TAC, cUSD and cBTC quoted in their own ticker, each opening its form with the amount and the
 //           recipient; TAC and BTC on Bitcoin carried into Pay's link; a key with only cUSD opens on it; none of the chosen asset says so; a #card=send link
+//   hxsendtac TAC in the wallet (the ERC-20): Send offers it, quotes a plain public transfer, and opens the TAC sheet's public source with the amount and the address (which then sends it); a Tacit address is said to need private TAC; Shield offers wallet TAC as private TAC with the amount carried to the TAC sheet; with no private TAC the Send line offers making wallet TAC private; Shield's For payments way opens the TAC pool's Deposit with the amount, the pool's sheet is named for it, and a link naming no pool opens an ETH pool
+//   hxsendwallet a wallet connected with no Tacit key holding TAC: the card's Send quotes its transfer (a small amount whole), and the TAC sheet shows the public send form, which sends it
 //   farmcoming a private farm opened while a wrap is settling says the tETH is on its way instead of asking for it again
 //   farmzap  one side alone farms: Max takes the whole balance, the quote says what is swapped and what both sides add, and the
 //            press cuts the swap note, swaps it in the farm's pool, cuts what pairs with the return and bonds both
@@ -55,6 +57,11 @@
 //   wrapform the Make private form: Max keeps room for the network fee and tip, a wallet prompt declined hands the note index back, the Wrap logs are read as the form opens, and a tip that moved while the form sat open is shown again
 //   devsend  the EVM pool's Send opens tacit pay on the same chain, and Receive keeps the pool and deposit addresses
 //   device   a deposit into the EVM pool, proved in the page's worker
+//   devtac   the TAC pool of the same sheet (an ERC-20 pool, nothing relayed): its links, a deposit by every way of paying (a permit, an
+//            EIP-5792 batch, an approval first, an allowance in place, a Permit2 signature, a signature refused in the wallet), each a
+//            real proof with the wallet's transactions counted; Receive; a private Send found by a second key's page; Withdraw and its refusals
+//   devtacdraft  the card's amount for the TAC pool (a draft with tac: true) fills its Deposit and no ETH pool's; an ETH draft fills only its chain's
+//   devtacacct   the TAC pool paid by a Tacit account (a pasted key, no wallet): it signs the permit itself, one transaction a deposit and a withdrawal
 //   borrow   the Bitcoin deposit address renders; a bond for a lock record posts through the escrow helper
 //   bondadd  a bond backing minted cBTC reads as a multiple of its BTC, and adding to it posts more wstETH
 //   redeem   the Redeem panel is dark until its setting is on; then a lock backing minted cBTC offers it, and with no cBTC held it names what is short
@@ -171,7 +178,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgedeep,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgedeep,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -179,6 +186,16 @@ const ANVIL = `http://127.0.0.1:${PORT}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const word = (v) => BigInt(v).toString(16).padStart(64, '0');
 const addrWord = (a) => a.toLowerCase().replace(/^0x/, '').padStart(64, '0');
+// The EIP-712 digest of typed data (types, primaryType, domain, message), for the typed data the page signs besides a permit (Permit2's).
+function typedDigest(d) {
+  const T = d.types, k = (x) => Buffer.from(keccak_256(typeof x === 'string' ? Buffer.from(x) : x));
+  const dep = (n, seen = new Set()) => { if (seen.has(n) || !T[n]) return seen; seen.add(n); for (const f of T[n]) dep(f.type.replace(/\[\]$/, ''), seen); return seen; };
+  const sig = (n) => `${n}(${T[n].map((f) => `${f.type} ${f.name}`).join(',')})`;
+  const encType = (n) => sig(n) + [...dep(n)].filter((x) => x !== n).sort().map(sig).join('');
+  const val = (t, v) => (T[t] ? hash(t, v) : t === 'string' ? k(v) : t === 'address' ? Buffer.from(addrWord(v), 'hex') : Buffer.from(word(BigInt(v)), 'hex'));
+  const hash = (n, v) => k(Buffer.concat([k(encType(n)), ...T[n].map((f) => val(f.type, v[f.name]))]));
+  return k(Buffer.concat([Buffer.from([0x19, 0x01]), hash('EIP712Domain', d.domain), hash(d.primaryType, d.message)]));
+}
 
 const anvil = spawn('anvil', ['--port', String(PORT), '--fork-url', FORK, '--chain-id', '1', '--silent', '--no-rate-limit'], { stdio: 'ignore' });
 process.on('exit', () => anvil.kill('SIGKILL'));
@@ -201,6 +218,9 @@ const server = createServer((req, res) => {
 
 const RPC_HOSTS = ['ethereum-rpc.publicnode.com', 'eth.drpc.org', '1rpc.io', 'mainnet.gateway.tenderly.co', 'cloudflare-eth.com', 'rpc.flashbots.net'];
 const submits = [], refused = [], relays = [], walletTxs = [];
+// What the wallet stub does beyond sending: takes EIP-5792 batches (batch), cannot sign typed data (noTyped), turns it down (rejectTyped),
+// or signs a permit for another amount than the one asked (badPermit). The batches it was sent, and where each one landed.
+const walletWays = { batch: false, noTyped: false, rejectTyped: false, badPermit: false }, batches = [], batchHashes = {};
 let gatewayOnce = false;                                          // the next relay meets a gateway timeout (devmove)
 // Submits the relay refuses before taking them, as it does once the day's free settles are used up.
 let refuseSubmits = 0;
@@ -316,18 +336,37 @@ async function openPage({ account, key = null, host = '127.0.0.1', init = null, 
   let walletChain = '0x1';                                   // what the wallet says it is on; every chain is this one fork
   await ctx.exposeFunction('__wallet', async (method, params = []) => {
     if (method === 'eth_sendTransaction') { walletTxs.push(params[0]); const { chainId, ...tx } = params[0]; return rpc(method, [tx]); }
+    // EIP-5792, for a scenario that turns it on (walletWays.batch): each call is sent in order as the account, and the batch reads back confirmed.
+    if (method === 'wallet_getCapabilities') {
+      if (!walletWays.batch) throw Object.assign(new Error('the method wallet_getCapabilities does not exist'), { code: -32601 });
+      return { '0x1': { atomic: { status: 'supported' } } };
+    }
+    if (method === 'wallet_sendCalls') {
+      if (!walletWays.batch) throw Object.assign(new Error('the method wallet_sendCalls does not exist'), { code: -32601 });
+      const b = params[0], id = '0x' + (batches.length + 1).toString(16).padStart(8, '0'), hashes = [];
+      batches.push(b);
+      for (const c of b.calls) hashes.push(await rpc('eth_sendTransaction', [{ from: account, to: c.to, data: c.data, value: c.value }]));
+      batchHashes[id] = hashes;
+      return { id };
+    }
+    if (method === 'wallet_getCallsStatus') return { status: 200, receipts: (batchHashes[params[0]] || []).map((h) => ({ transactionHash: h, status: '0x1' })) };
     if (method === 'eth_requestAccounts' || method === 'eth_accounts') return [account];
     if (method === 'eth_chainId') return walletChain;
     if (method === 'wallet_switchEthereumChain') { walletChain = params[0]?.chainId || walletChain; return null; }
     if (method === 'wallet_watchAsset') return null;
     if (method === 'personal_sign' || method === 'eth_signTypedData_v4') {
       if (!key) throw Object.assign(new Error('this account cannot sign'), { code: 4001 });
+      if (method === 'eth_signTypedData_v4' && walletWays.noTyped) throw Object.assign(new Error('the method eth_signTypedData_v4 is not supported'), { code: -32601 });
+      if (method === 'eth_signTypedData_v4' && walletWays.rejectTyped) throw Object.assign(new Error('User rejected the request.'), { code: 4001 });
       let digest;
       if (method === 'personal_sign') {
         const msg = Buffer.from(params[0].slice(2), 'hex');
         digest = keccak_256(Buffer.concat([Buffer.from(`\x19Ethereum Signed Message:\n${msg.length}`), msg]));
-      } else {                                                  // EIP-2612 Permit, the only typed data the page signs
+      } else if (JSON.parse(params[1]).primaryType !== 'Permit') {   // any other typed data (Permit2's PermitSingle), hashed as EIP-712 says
+        digest = typedDigest(JSON.parse(params[1]));
+      } else {                                                  // EIP-2612 Permit
         const d = JSON.parse(params[1]), m = d.message, hx = (b) => Buffer.from(b).toString('hex');
+        if (walletWays.badPermit) m.value = String(BigInt(m.value) + 1n);          // a signature for another amount: the token will not take it
         const k = (s) => keccak_256(typeof s === 'string' ? Buffer.from(s) : s);
         const dom = k(Buffer.from(hx(k('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')) + hx(k(d.domain.name)) + hx(k(d.domain.version)) + word(d.domain.chainId) + addrWord(d.domain.verifyingContract), 'hex'));
         const st = k(Buffer.from(hx(k('Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)')) + addrWord(m.owner) + addrWord(m.spender) + word(m.value) + word(m.nonce) + word(m.deadline), 'hex'));
@@ -939,6 +978,275 @@ await step('device', async () => {
   await until(page, () => /Deposited|err/.test(document.querySelector('#d-status')?.innerHTML || ''), null, 600000);
   await shot(page, 'device');
   ok(/Deposited/.test(await text(page, '#d-status')), `device: proved here and deposited ${(await text(page, '#d-status')).slice(0, 60)}`);
+});
+
+
+// TAC in the on-device pool: the TAC pool is a token pool of the device sheet, nothing is relayed, and every way of paying for a deposit
+// is a wallet's own. The wallet stub (walletWays) is a wallet that signs a permit, one that cannot sign typed data but takes EIP-5792
+// batches, one that does neither, one that signs a permit the token will not take (so Permit2 follows), and one that turns signing down.
+await step('devtac', async () => {
+  const TPOOL = '0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe', TROUTER = '0x000000fA029Eaf69840C1490Bf9AA6C094794D5a', PERMIT2 = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
+  const A1 = '0x70997970c51812dc3a010c7d01b50e0d17dc79c8', K1 = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d', BEEF = '0x000000000000000000000000000000000000beef';
+  const sel = (sig) => '0x' + Buffer.from(keccak_256(sig)).toString('hex').slice(0, 8);
+  const TX = '(uint256[2],uint256[2][2],uint256[2],uint256[11],address,int256,address,uint256,bytes,bytes)';
+  const S_PERMIT = sel(`depositWithPermit(${TX},uint256,uint8,bytes32,bytes32)`), S_PERMIT2 = sel(`depositWithPermit2(${TX},((address,uint160,uint48,uint48),address,uint256),bytes)`), S_TRANSACT = sel('transact' + TX);
+  const lc = (x) => String(x || '').toLowerCase();
+  const unit = 10n ** 18n, pooled = () => tacOf(TPOOL);
+  await fundTac(A0, 200n * unit);
+  const r = await openPage({ account: A0, key: K0 }), p = r.page, st = () => text(p, '#d-status');
+  const shown = async () => (await text(p, '.bal .v')).trim();
+  try {
+    await p.goto(r.url + '#device/tac');
+    if (await p.$('#eth-dev [data-in="eth"]')) await p.click('#eth-dev [data-in="eth"]');
+    await p.waitForSelector('#d-amt', { timeout: 120000 });
+    ok(await p.$('[data-chain="tac"][aria-selected="true"]') && (await p.evaluate(() => location.hash)) === '#device/tac', 'devtac: #device/tac opens the TAC pool, and the address bar follows');
+    await until(p, () => /^\d/.test(document.querySelector('.bal .v')?.textContent || ''), null, 240000);
+    ok((await shown()) === '0' && /TAC, private on this device/.test(await text(p, '.bal .u')), `devtac: the pool starts empty and its balance reads in TAC (${await shown()})`);
+    ok(await p.$('.bal use[href="#tk-tac"]'), 'devtac: the balance carries the TAC icon');
+    for (const [h, m] of [['send', 'send'], ['withdraw', 'out'], ['receive', 'receive'], ['deposit', 'deposit']]) {
+      await p.goto(r.url + `#device/tac/${h}`);
+      await p.waitForSelector(`[data-dev="${m}"][aria-selected="true"]`, { timeout: 30000 });
+      ok(await p.$(`[data-dev="${m}"][aria-selected="true"]`) && await p.$('[data-chain="tac"][aria-selected="true"]'), `devtac: #device/tac/${h} opens the TAC pool's ${m} tab`);
+    }
+    await p.goto(r.url + '#device/ethereum/deposit');
+    await p.waitForSelector('[data-chain="1"][aria-selected="true"]', { timeout: 30000 });
+    ok(!(await p.$('.bal use[href="#tk-tac"]')) && /ETH, private on Ethereum/.test(await text(p, '.bal .u')), 'devtac: #device/ethereum/deposit still opens the ETH pool');
+    await p.goto(r.url + '#device/tac/deposit');
+    await p.waitForSelector('[data-chain="tac"][aria-selected="true"]', { timeout: 30000 });
+    await p.waitForSelector('#d-amt', { timeout: 30000 });
+
+    // What a deposit sends: one amount typed, the sheet's own Max, then a press.
+    const dep = async (amt, ways = {}) => {
+      Object.assign(walletWays, { batch: false, noTyped: false, rejectTyped: false, badPermit: false }, ways);
+      await p.fill('#d-amt', amt);
+      await until(p, () => !document.querySelector('#d-go').disabled, null, 60000);
+      const n0 = walletTxs.length, b0 = batches.length, pb = await pooled(), ab = await allowanceOf(TAC, A0, TROUTER);
+      await p.click('#d-go');
+      await until(p, () => /Deposited|class="err"/.test(document.querySelector('#d-status')?.innerHTML || ''), null, 900000);
+      return { txs: walletTxs.slice(n0), batches: batches.slice(b0), gained: (await pooled()) - pb, said: (await st()).slice(0, 140), allowance: await allowanceOf(TAC, A0, TROUTER), allowance0: ab };
+    };
+    // The wallet's own balance on the Max button, in TAC.
+    await until(p, () => !/…|^$/.test(document.querySelector('#d-wb')?.textContent || '…'), null, 30000);
+    ok(/Wallet/.test(await text(p, '#d-max')) && /TAC$/.test((await text(p, '#d-max')).trim()), `devtac: the Max button names the wallet's TAC (${(await text(p, '#d-max')).trim().slice(0, 40)})`);
+
+    // (2) a permit: one transaction, to the router, with the approval a signature and no allowance left over.
+    let d = await dep('3');
+    ok(/Deposited/.test(d.said) && d.txs.length === 1 && lc(d.txs[0].to) === lc(TROUTER) && d.txs[0].data.startsWith(S_PERMIT) && d.gained === 3n * unit && d.allowance === 0n,
+      `devtac: a permit deposit is ONE transaction, to the router, with no approval of its own: ${d.txs.length} sent, pool +${d.gained / 10n ** 15n}e-3 TAC, allowance left ${d.allowance} (${d.said})`);
+    await until(p, () => /^3(\.0+)?$/.test(document.querySelector('.bal .v')?.textContent?.trim() || ''), null, 120000).catch(() => {});
+    ok(/^3(\.0+)?$/.test(await shown()) && !d.txs.some((t) => lc(t.to) === lc(TAC)), `devtac: the sheet shows the deposit (${await shown()} TAC) and nothing was sent to the token`);
+
+    // (4) no typed-data signing, but an atomic batch: the approval of exactly the amount and the deposit, in one confirmation.
+    d = await dep('2', { noTyped: true, batch: true });
+    const bt = d.batches[0]?.calls || [];
+    ok(/Deposited/.test(d.said) && d.txs.length === 0 && d.batches.length === 1 && bt.length === 2 && lc(bt[0].to) === lc(TAC) && lc(bt[1].to) === lc(TROUTER)
+      && bt[0].data === '0x095ea7b3' + addrWord(TROUTER) + word(2n * unit) && d.batches[0].atomicRequired === true && d.gained === 2n * unit && d.allowance === 0n,
+      `devtac: a batch deposit is one wallet_sendCalls of an approval of exactly 2 TAC and the router call: ${bt.length} calls, pool +${d.gained / 10n ** 15n}e-3 TAC, allowance left ${d.allowance} (${d.said})`);
+
+    // (5) a wallet that does neither: the approval of exactly the amount first, then the deposit.
+    d = await dep('1', { noTyped: true });
+    ok(/Deposited/.test(d.said) && d.txs.length === 2 && lc(d.txs[0].to) === lc(TAC) && d.txs[0].data === '0x095ea7b3' + addrWord(TROUTER) + word(unit) && lc(d.txs[1].to) === lc(TROUTER)
+      && d.gained === unit && d.allowance === 0n && d.batches.length === 0,
+      `devtac: with no signature and no batch it approves exactly 1 TAC, then deposits: ${d.txs.length} transactions, pool +${d.gained / 10n ** 15n}e-3 TAC (${d.said})`);
+
+    // (1) an allowance to the router in place: one transaction, nothing asked of the wallet beyond it.
+    await rpc('eth_sendTransaction', [{ from: A0, to: TAC, data: '0x095ea7b3' + addrWord(TROUTER) + word(unit) }]);
+    d = await dep('1', { noTyped: true });
+    ok(/Deposited/.test(d.said) && d.txs.length === 1 && lc(d.txs[0].to) === lc(TROUTER) && d.gained === unit && d.allowance === 0n && d.allowance0 === unit,
+      `devtac: an allowance already in place is used: ${d.txs.length} transaction, pool +${d.gained / 10n ** 15n}e-3 TAC (${d.said})`);
+
+    // (3) a permit the token will not take (checked on chain, before it is sent): Permit2 follows, with the token approved to Permit2 already.
+    // (Anvil's first account carries an EIP-7702 delegation on mainnet, which Permit2 reads as a contract wallet, so its plain signature is
+    // refused there: the check on chain catches it, and the way is tried again for an account with no code.)
+    const code0 = await rpc('eth_getCode', [A0, 'latest']), extra = code0 !== '0x' ? 1 : 0;
+    d = await dep('1', { badPermit: true });
+    if (extra) {
+      ok(/Deposited/.test(d.said) && d.txs.length === 2 && lc(d.txs[0].to) === lc(TAC) && !d.txs.some((t) => t.data.startsWith(S_PERMIT2)) && d.gained === unit,
+        `devtac: a Permit2 signature the chain would not take (an account under an EIP-7702 delegation) is not sent; it falls through to an approval first: ${d.txs.length} sent (${d.said})`);
+      await rpc('anvil_setCode', [A0, '0x']);
+      d = await dep('1', { badPermit: true });
+    }
+    ok(/Deposited/.test(d.said) && d.txs.length === 1 && lc(d.txs[0].to) === lc(TROUTER) && d.txs[0].data.startsWith(S_PERMIT2) && d.gained === unit,
+      `devtac: a permit that fails its check on chain falls through to a Permit2 signature, one transaction: ${d.txs.length} sent (${d.said})`);
+    if (extra) await rpc('anvil_setCode', [A0, code0]);
+
+    // A signature turned down in the wallet stops there: no other way is tried, nothing is sent, no proof is wasted on it.
+    const n1 = walletTxs.length, b1 = batches.length, p1 = await pooled();
+    Object.assign(walletWays, { batch: true, noTyped: false, rejectTyped: true, badPermit: false });
+    await p.fill('#d-amt', '1'); await until(p, () => !document.querySelector('#d-go').disabled);
+    await p.click('#d-go');
+    await until(p, () => /class="err"/.test(document.querySelector('#d-status')?.innerHTML || ''), null, 120000);
+    ok(/Cancelled in your wallet/.test(await st()) && walletTxs.length === n1 && batches.length === b1 && (await pooled()) === p1, `devtac: a refused signature stops cleanly (${(await st()).slice(0, 60)})`);
+    Object.assign(walletWays, { batch: false, noTyped: false, rejectTyped: false, badPermit: false });
+    await p.fill('#d-amt', '');
+
+    // More than the wallet holds is refused in the form, no proof made.
+    await p.fill('#d-amt', '999999999');
+    ok(await p.isDisabled('#d-go') && /holds/.test(await text(p, '#d-rcpt')), `devtac: more than the wallet holds is refused (${(await text(p, '#d-rcpt')).trim().slice(0, 50)})`);
+    await p.fill('#d-amt', '');
+
+    // The pool now holds the deposits (8 TAC, or 9 where the first account's delegation made the Permit2 way run twice); the balance is their sum, read from the key and the chain.
+    await until(p, (v) => new RegExp('^' + v + '(\\.0+)?$').test(document.querySelector('.bal .v')?.textContent?.trim() || ''), String(8 + extra), 120000);
+    ok(true, `devtac: the private balance is the sum of the deposits (${await shown()} TAC)`);
+
+    // Receive: the key's tacit1 address and the pool address; no deposit address (a receive box is the ETH pools').
+    await p.click('[data-dev="receive"]');
+    await p.waitForSelector('#d-form [data-copy]', { timeout: 60000 });
+    const recv = await p.$$eval('#d-form [data-copy]', (bs) => bs.map((b) => b.dataset.copy));
+    ok(recv.some((x) => /^tacit1/.test(x)) && recv.some((x) => /^bp1/.test(x)) && recv.length === 2 && !/Deposit address/.test(await text(p, '#d-form')), `devtac: Receive lists the tacit1 and pool addresses, no deposit address (${recv.map((x) => x.slice(0, 8)).join(', ')})`);
+    const mine = { bp1: recv.find((x) => /^bp1/.test(x)), t1: recv.find((x) => /^tacit1/.test(x)) };
+
+    // Send: refusals first (no proof), then a private transfer to a second key's tacit1 address, sent by the wallet to the pool itself.
+    await p.click('[data-dev="send"]');
+    await p.waitForSelector('#d-to', { timeout: 30000 });
+    await p.fill('#d-to', mine.bp1); await p.fill('#d-amt', '1');
+    await until(p, () => /your own address/.test(document.querySelector('#d-rcpt')?.textContent || ''), null, 30000);
+    ok(await p.isDisabled('#d-go'), 'devtac: Send refuses your own address');
+    await p.fill('#d-to', 'bp1notanaddress');
+    await until(p, () => /valid pool address/.test(document.querySelector('#d-rcpt')?.textContent || ''), null, 30000);
+    ok(await p.isDisabled('#d-go'), 'devtac: Send refuses a mistyped pool address');
+    await p.fill('#d-to', A0);
+    await until(p, () => /Enter a Tacit address/.test(document.querySelector('#d-rcpt')?.textContent || ''), null, 30000);
+    ok(await p.isDisabled('#d-go'), 'devtac: Send refuses a plain 0x address (that is Withdraw)');
+
+    const r2 = await openPage({ account: A1, key: K1 }), q = r2.page;
+    try {
+      await q.goto(r2.url + '#device/tac/receive');
+      if (await q.$('#eth-dev [data-in="eth"]')) await q.click('#eth-dev [data-in="eth"]');
+      await q.waitForSelector('#d-form [data-copy^="tacit1"]', { timeout: 240000 });
+      const t1 = await q.$eval('#d-form [data-copy^="tacit1"]', (b) => b.dataset.copy);
+      ok(t1 !== mine.t1, `devtac: the second key has an address of its own (${t1.slice(0, 12)}…)`);
+      await p.fill('#d-to', t1); await p.fill('#d-amt', '1.5');
+      await until(p, () => !document.querySelector('#d-go').disabled, null, 60000);
+      const n2 = walletTxs.length, p2 = await pooled();
+      await p.click('#d-go');
+      await until(p, () => /Sent\.|class="err"/.test(document.querySelector('#d-status')?.innerHTML || ''), null, 900000);
+      const sent = walletTxs.slice(n2);
+      ok(/Sent\./.test(await st()) && sent.length === 1 && lc(sent[0].to) === lc(TPOOL) && sent[0].data.startsWith(S_TRANSACT) && (await pooled()) === p2,
+        `devtac: a private Send is one transaction from the wallet to the pool, no TAC moves on chain: ${sent.length} sent (${(await st()).slice(0, 50)})`);
+      await until(p, (v) => document.querySelector('.bal .v')?.textContent?.trim().startsWith(v), String(6.5 + extra), 120000);
+      ok(true, `devtac: the sender's balance fell by what was sent (${await shown()} TAC)`);
+      // The second key's page finds it by its memo once it reads the pool again.
+      await q.click('[data-dev="deposit"]');
+      await q.waitForSelector('#d-rescan', { timeout: 60000 });
+      await q.click('#d-rescan');
+      await until(q, () => /^1\.5/.test(document.querySelector('.bal .v')?.textContent?.trim() || ''), null, 240000);
+      ok(true, `devtac: the other key's page finds the payment (${(await q.$eval('.bal .v', (e) => e.textContent)).trim()} TAC)`);
+    } finally { await r2.browser.close(); }
+
+    // Withdraw: refusals (the token itself, the pool and its router, the zero address, more than held), then TAC out to an address.
+    await p.click('[data-dev="out"]');
+    await p.waitForSelector('#d-to', { timeout: 30000 });
+    await p.fill('#d-amt', '1');
+    for (const [to, why, re] of [[TAC, 'the token itself', /TAC token contract/], [TROUTER, 'the pool\'s router', /private TAC router/], [TPOOL, 'the pool', /private TAC pool/], ['0x0000000000000000000000000000000000000000', 'the zero address', /zero address/]]) {
+      await p.fill('#d-to', to);
+      await until(p, (x) => new RegExp(x).test(document.querySelector('#d-rcpt')?.textContent || ''), re.source, 30000);
+      ok(await p.isDisabled('#d-go'), `devtac: Withdraw refuses ${why} (${(await text(p, '#d-rcpt')).trim().slice(0, 60)})`);
+    }
+    await p.fill('#d-to', BEEF); await p.fill('#d-amt', '999');
+    await until(p, () => /More than your private balance/.test(document.querySelector('#d-rcpt')?.textContent || ''), null, 30000);
+    ok(await p.isDisabled('#d-go'), 'devtac: Withdraw refuses more than the private balance');
+    await p.fill('#d-amt', '1');
+    await until(p, () => !document.querySelector('#d-go').disabled, null, 60000);
+    const n3 = walletTxs.length, b0 = await tacOf(BEEF), p3 = await pooled();
+    await p.click('#d-go');
+    await until(p, () => /Withdrawn|class="err"/.test(document.querySelector('#d-status')?.innerHTML || ''), null, 900000);
+    const out = walletTxs.slice(n3);
+    ok(/Withdrawn/.test(await st()) && out.length === 1 && lc(out[0].to) === lc(TPOOL) && (await tacOf(BEEF)) - b0 === unit && p3 - (await pooled()) === unit,
+      `devtac: a Withdraw is one transaction from the wallet to the pool and the TAC reaches the address: ${out.length} sent (${(await st()).slice(0, 40)})`);
+    await until(p, (v) => document.querySelector('.bal .v')?.textContent?.trim().startsWith(v), String(5.5 + extra), 120000);
+    ok(true, `devtac: and the private balance fell by it (${await shown()} TAC)`);
+    // The pool's TAC is exactly what its notes say: the deposits less the 1 withdrawn (the 1.5 sent on stays within it).
+    ok((await pooled()) === BigInt(7 + extra) * unit, `devtac: the pool holds the deposits less the withdrawal, ${(await pooled()) / 10n ** 15n}e-3 TAC`);
+    await until(p, () => !!document.querySelector('#dash-g [data-dash-open="device/tac"]'), null, 120000);
+    ok(true, 'devtac: Your Tacit lists the TAC held in this pool, and it opens the pool');
+    if (r.errors.length) { fails++; console.log('FAIL devtac page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { Object.assign(walletWays, { batch: false, noTyped: false, rejectTyped: false, badPermit: false }); await r.browser.close(); }
+});
+
+// The card hands the device sheet an amount as a draft (hxDraft) and opens it by link. A draft for the TAC pool ({ tac: true }) fills the TAC
+// pool's Deposit and no ETH pool's; an ETH pool's ({ chain }) fills that chain's Deposit and not the TAC pool's. The draft lives inside the
+// page's module, so the document is served with one line more that hands the test hxDraft and openLink (and its CSP hash moved with it).
+await step('devtacdraft', async () => {
+  const r = await openPage({ account: A0, key: K0 }), p = r.page;
+  const { createHash } = await import('node:crypto');
+  await r.ctx.route(r.url, async (route) => {
+    let html = readFileSync(join(DAPP, 'index.html'), 'utf8');
+    const open = html.lastIndexOf('<script type="module">'), start = open + '<script type="module">'.length, end = html.indexOf('</script>', start);
+    const body = html.slice(start, end), patched = body + '\nwindow.__draft = { hxDraft, openLink };\n';
+    const old = "'sha256-" + createHash('sha256').update(body).digest('base64') + "'";
+    if (!html.includes(old)) throw new Error('the page\'s inline script hash is not in its CSP');
+    html = html.slice(0, start) + patched + html.slice(end);
+    html = html.replace(old, "'sha256-" + createHash('sha256').update(patched).digest('base64') + "'");
+    await route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
+  });
+  try {
+    await p.goto(r.url + '#device/ethereum');
+    if (await p.$('#eth-dev [data-in="eth"]')) await p.click('#eth-dev [data-in="eth"]');
+    await p.waitForSelector('#d-amt', { timeout: 120000 });
+    await p.waitForFunction(() => !!window.__draft, null, { timeout: 30000 });
+    const open = async (draft, link) => {
+      await p.evaluate(([d, l]) => { window.__draft.hxDraft(d); window.__draft.openLink(l); }, [draft, link]);
+      await p.waitForSelector(link.includes('/tac') ? '[data-chain="tac"][aria-selected="true"]' : '[data-chain="1"][aria-selected="true"]', { timeout: 30000 });
+      await p.waitForSelector('#d-amt', { timeout: 30000 });
+      await sleep(800);
+      return p.$eval('#d-amt', (i) => i.value);
+    };
+    ok(await open({ mode: 'dep', amt: '2.5', tac: true }, 'device/tac/deposit') === '2.5' && !!(await p.$('.bal use[href="#tk-tac"]')), 'devtacdraft: the card\'s TAC amount fills the TAC pool\'s Deposit, opened by device/tac/deposit');
+    await p.fill('#d-amt', '');
+    ok(await open({ mode: 'dep', amt: '1.25', chain: 1 }, 'device/tac/deposit') === '', 'devtacdraft: an ETH draft is not taken by the TAC pool\'s Deposit');
+    ok(await open({ mode: 'dep', amt: '1.25', chain: 1 }, 'device/ethereum/deposit') === '1.25', 'devtacdraft: and it fills the ETH chain\'s Deposit as before');
+    await p.fill('#d-amt', '');
+    ok(await open({ mode: 'dep', amt: '4', tac: true }, 'device/ethereum/deposit') === '', 'devtacdraft: a TAC draft is not taken by an ETH chain\'s Deposit');
+    ok(await open({ mode: 'dep', amt: '4', tac: true }, 'device/tac/deposit') === '4', 'devtacdraft: and it fills the TAC pool\'s once opened');
+    if (r.errors.length) { fails++; console.log('FAIL devtacdraft page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
+// The TAC pool paid by a Tacit account (a pasted key and no wallet): the account signs the TAC permit itself, so a deposit is one
+// transaction it sends alone, and a withdrawal is one more; it asks no wallet anything.
+await step('devtacacct', async () => {
+  const TPOOL = '0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe', TROUTER = '0x000000fA029Eaf69840C1490Bf9AA6C094794D5a', BEEF = '0x000000000000000000000000000000000000beef';
+  const hex = 'cafe'.padEnd(64, '5'), unit = 10n ** 18n, lc = (x) => String(x || '').toLowerCase();
+  const { makeEvmAccount } = await import(new URL('../dapp/evm-account.js', import.meta.url));
+  const want = makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address;
+  await rpc('anvil_setBalance', [want, '0x' + (10n ** 18n).toString(16)]);
+  await fundTac(want, 20n * unit);
+  const r = await openPage({ account: A0, key: K0 }), p = r.page, st = () => text(p, '#d-status');
+  const nonce = async () => BigInt(await rpc('eth_getTransactionCount', [want, 'latest']));
+  try {
+    await p.goto(r.url + '#wallet');
+    await p.click('#wallet-body [data-in="paste"]');
+    await p.fill('#ws-hex', hex);
+    await p.click('#wallet-body [data-in="key"]');
+    await until(p, () => !!document.querySelector('#wallet-dot.on'));
+    await p.evaluate(() => { location.hash = ''; location.hash = '#device/tac/deposit'; });
+    await p.waitForSelector('#d-amt', { timeout: 120000 });
+    await until(p, () => /Tacit account/.test(document.querySelector('#d-max')?.textContent || '') && /\d/.test(document.querySelector('#d-wb')?.textContent || ''), null, 60000);
+    ok(/Tacit account 20 TAC/.test((await text(p, '#d-max')).trim()), `devtacacct: Max names the Tacit account's TAC (${(await text(p, '#d-max')).trim()})`);
+    const n0 = await nonce(), p0 = await tacOf(TPOOL), w0 = await tacOf(want), m0 = walletTxs.length;
+    await p.fill('#d-amt', '4');
+    await until(p, () => !document.querySelector('#d-go').disabled, null, 60000);
+    await p.click('#d-go');
+    await until(p, () => /Deposited|class="err"/.test(document.querySelector('#d-status')?.innerHTML || ''), null, 900000);
+    ok(/Deposited/.test(await st()) && (await nonce()) - n0 === 1n && (await tacOf(TPOOL)) - p0 === 4n * unit && w0 - (await tacOf(want)) === 4n * unit && walletTxs.length === m0 && (await allowanceOf(TAC, want, TROUTER)) === 0n,
+      `devtacacct: the Tacit account signs the permit itself and sends ONE transaction, asking no wallet (${(await nonce()) - n0} sent by it, ${walletTxs.length - m0} by a wallet; ${(await st()).slice(0, 40)})`);
+    await p.click('[data-dev="out"]');
+    await p.waitForSelector('#d-to', { timeout: 30000 });
+    await p.fill('#d-to', BEEF); await p.fill('#d-amt', '1');
+    await until(p, () => !document.querySelector('#d-go').disabled, null, 60000);
+    const n1 = await nonce(), b0 = await tacOf(BEEF);
+    await p.click('#d-go');
+    await until(p, () => /Withdrawn|class="err"/.test(document.querySelector('#d-status')?.innerHTML || ''), null, 900000);
+    ok(/Withdrawn/.test(await st()) && (await nonce()) - n1 === 1n && (await tacOf(BEEF)) - b0 === unit, `devtacacct: and the Tacit account withdraws it in one transaction (${(await st()).slice(0, 40)})`);
+    // The ETH pools beside it are as they were: Ethereum's Send tab still opens tacit pay (its Receive tab is devmove's).
+    await p.click('[data-chain="1"]');
+    await p.waitForSelector('[data-chain="1"][aria-selected="true"]', { timeout: 30000 });
+    await p.click('[data-dev="send"]');
+    const links = await p.$$eval('#d-form a', (as) => as.map((a) => a.getAttribute('href')));
+    ok(links.includes('/pay/eth/#send&chain=1') && links.includes('/pay/eth/#link&chain=1'), `devtacacct: and the ETH pool's Send tab still opens tacit pay (${links.join(' ')})`);
+    if (r.errors.length) { fails++; console.log('FAIL devtacacct page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
 });
 
 await step('borrow', async () => {
@@ -2224,7 +2532,7 @@ await step('devmove', async () => {
 
   await r.page.click('[data-dev="receive"]');
   await r.page.waitForSelector('#d-form [data-copy]', { timeout: 60000 });
-  const box = (await r.page.$$eval('#d-form [data-copy]', (bs) => bs.map((b) => b.dataset.copy)))[1];
+  const box = (await r.page.$$eval('#d-form [data-copy]', (bs) => bs.map((b) => b.dataset.copy))).at(-1);   // the deposit address is listed last (after the tacit1 and pool addresses)
   await rpc('eth_sendTransaction', [{ from: A0, to: box, value: '0x' + (10n ** 15n).toString(16) }]);   // under the keeper's minimum
   await r.page.click('[data-dev="send"]'); await r.page.click('[data-dev="receive"]');
   await r.page.waitForSelector('#d-sweep', { timeout: 60000 });
@@ -5689,7 +5997,7 @@ await step('hxsend', async () => {
     await p.selectOption('#hx-sa', 'eth');
     await until(p, () => /0\.25 tETH · Max/.test(document.querySelector('#hx-bal')?.textContent || ''), null, 120000);
     const rows = await p.$$eval('#hx-sa option', (o) => o.map((x) => x.value).join());
-    ok(rows === 'eth,tac,cusd,cbtc,tacb,btc', `hxsend: Send offers tETH, TAC, cUSD and cBTC on Ethereum and TAC and BTC on Bitcoin (${rows})`);
+    ok(rows === 'eth,tac,cusd,cbtc,wtac,tacb,btc', `hxsend: Send offers tETH, TAC, cUSD and cBTC on Ethereum, TAC in the wallet, and TAC and BTC on Bitcoin (${rows})`);
     for (const [k, bal, amt, ticker, sheet, amtId, toId] of [['cusd', '^25 cUSD · Max', '15', 'cUSD', 'borrow', 'cs-amt', 'cs-to'], ['tac', '^50 TAC · Max', '20', 'TAC', 'tac', 'ts-amt', 'ts-to'], ['cbtc', '^0\\.5 cBTC · Max', '0.2', 'cBTC', 'borrow', 'cs-amt', 'cs-to']]) {
       await pick(k, bal);
       await quote(amt, ticker);
@@ -5831,6 +6139,155 @@ await step('hxsend', async () => {
     ok(true, 'hxsend: a Send button on Your Tacit opens Send, not Request, after Request was used');
     if (r2.errors.length) { fails++; console.log('FAIL hxsend page errors: ' + r2.errors.slice(0, 3).join(' | ')); }
   } finally { await r2.browser.close(); }
+});
+
+// TAC in the wallet (the ERC-20) is sendable from the card and the TAC sheet, and can be made private from the Shield tab.
+await step('hxsendtac', async () => {
+  const fees = { transfer: 100000, stealthclaim: 100000, sendunwrap: 100000 };
+  const lander = (p) => p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+  const eth0 = '0x' + 'ab'.repeat(20), to = tacit1('abc'.padEnd(64, '9')), E18 = 10n ** 18n;
+  const acctOf = (hex) => makeEvmAccount({ secp, keccak256: keccak_256, sha256 }).deriveEvmAccount(Buffer.from(hex, 'hex'), 'mainnet').address;
+  const K1 = '7d7f'.padEnd(64, '5'), K2 = '7d80'.padEnd(64, '5'), me = acctOf(K1);
+  await fundTac(me, 40n * E18);                                   // a pasted key pays from its own Tacit account
+  const had = await tacOf(me), hadN = Number(had / E18), bal0 = await tacOf(eth0);
+  const r = await openFarmKey(K1, { notes: [['@cTAC', 5000000000n]], fees });
+  const p = r.page;
+  const line = async () => (await text(p, '#hx-q')).replace(/\s+/g, ' ').trim();
+  const look = async (name, sel = '#hx') => {
+    if (!SHOTS) return;
+    await p.locator(sel).screenshot({ path: join(SHOTS, `weld-${name}.png`) });
+    await p.setViewportSize({ width: 390, height: 900 });
+    await p.locator(sel).screenshot({ path: join(SHOTS, `weld-${name}-phone.png`) });
+    await p.setViewportSize({ width: 1280, height: 900 });
+  };
+  try {
+    await lander(p);
+    await p.click('[data-hxm="send"]');
+    await until(p, () => /^50 TAC · Max/.test(document.querySelector('#hx-bal')?.textContent || ''), null, 300000);
+    ok(await p.$eval('#hx-sa', (e) => e.value) === 'tac', 'hxsendtac: a key holding private TAC and wallet TAC opens Send on the private TAC');
+    ok((await p.$$eval('#hx-sa optgroup', (g) => g.map((x) => x.label).join('|'))) === 'Private on Ethereum|In your wallet|On Bitcoin', 'hxsendtac: the asset picker groups TAC in the wallet on its own');
+    await p.selectOption('#hx-sa', 'wtac');
+    await until(p, (n) => new RegExp(`^${n}(\\.\\d+)? TAC · Max`).test(document.querySelector('#hx-bal')?.textContent || ''), hadN, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | want ${hadN} | bal: ${await text(p, '#hx-bal')} | q: ${await line()}`); });
+    ok(true, `hxsendtac: TAC in the wallet shows the wallet's balance with Max (${await text(p, '#hx-bal')})`);
+    ok(!(await p.$('#hx-ask')), 'hxsendtac: there is no payment request for the ERC-20 (its recipient is an Ethereum address)');
+    await p.fill('#hx-rcpt', eth0); await p.fill('#hx-amt', '15');
+    await until(p, () => /^They get 15 TAC\. A plain transfer from your (wallet|Tacit account): public, and you pay the network fee\.$/.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
+    ok(await text(p, '#hx-go') === 'Send TAC' && !(await p.$eval('#hx-go', (b) => b.disabled)), `hxsendtac: an Ethereum address gets a plain public transfer, quoted (${await line()})`);
+    await look('hxsendtac-send');
+    await p.click('#hx-go');
+    await until(p, ([x]) => document.querySelector('#sheet-tac[open] #ts-to')?.value === x && document.querySelector('#ts-amt')?.value === '15' && document.querySelector('[data-ts="pub-tac"]')?.getAttribute('aria-pressed') === 'true', [eth0], 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | open: ${await p.evaluate(() => [...document.querySelectorAll('dialog[open]')].map((d) => d.id).join())} | pills: ${await p.$$eval('[data-ts]', (b) => b.map((x) => x.dataset.ts + ':' + x.getAttribute('aria-pressed')).join())}`); });
+    ok(true, 'hxsendtac: the button opens the TAC sheet on its public source with the address and the amount');
+    await until(p, () => !document.querySelector('#ts-go').disabled && /Arrives/.test(document.querySelector('#ts-rcpt')?.textContent || ''), null, 60000);
+    ok(/Private[^]*Public|Public[^]*Private/.test(await text(p, '#tac-send .lbl')), 'hxsendtac: the sheet\'s Send offers Private and Public TAC as its two sources');
+    await look('hxsendtac-sheet', '#sheet-tac .sheet-in');
+    await p.click('#ts-go');
+    await until(p, () => /Sent\./.test(document.querySelector('#tac-bal-status')?.textContent || ''), null, 240000);
+    ok((await tacOf(eth0)) - bal0 === 15n * E18 && had - (await tacOf(me)) === 15n * E18, 'hxsendtac: the wallet sent 15 TAC to the address, one plain transfer');
+    // A Tacit address does not take the ERC-20: it is said, and the button waits.
+    await lander(p);
+    await p.click('[data-hxm="send"]');
+    await p.selectOption('#hx-sa', 'wtac');
+    await p.fill('#hx-rcpt', to);
+    await until(p, () => /^TAC in your wallet goes to an Ethereum address/.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 60000);
+    ok(await p.$eval('#hx-go', (b) => b.disabled), 'hxsendtac: a Tacit address typed for the ERC-20 is said to need private TAC, and the button waits');
+    // Shield: TAC in the wallet becomes private TAC; the amount goes to the TAC sheet's form.
+    await lander(p);
+    await p.click('[data-hxm="private"]');
+    await p.selectOption('#hx-from', 'wtac');
+    await p.fill('#hx-amt', '10');
+    await until(p, () => /signed permit/.test(document.querySelector('#hx-q')?.textContent || ''), null, 60000);
+    ok(await text(p, '#hx-go') === 'Make TAC private', `hxsendtac: Shield offers wallet TAC as private TAC (${await line()})`);
+    await look('hxsendtac-shield');
+    await p.click('#hx-go');
+    await until(p, () => document.querySelector('#sheet-tac[open] #tsh-amt')?.value === '10', null, 120000);
+    ok(true, 'hxsendtac: and its button opens the TAC sheet\'s Make private form with the amount');
+    // The other way: payments, in the TAC pool whose proofs are made on this device; the card opens its Deposit with the amount.
+    await lander(p);
+    await p.click('[data-hxm="private"]');
+    await p.selectOption('#hx-from', 'wtac');
+    await pressRow(p, '[data-hxd="pay"]');
+    await p.fill('#hx-amt', '10');
+    await until(p, () => /^Proved on this device/.test(document.querySelector('#hx-q')?.textContent || ''), null, 60000);
+    ok(await text(p, '#hx-go') === 'Deposit privately', `hxsendtac: wallet TAC can also go to the TAC pool whose proofs are made on this device (${await line()})`);
+    await look('hxsendtac-pay');
+    await p.click('#hx-go');
+    await until(p, () => document.querySelector('#sheet-eth[open] #d-amt')?.value === '10' && location.hash === '#device/tac', null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | hash=${await p.evaluate(() => location.hash)} amt=${await p.evaluate(() => document.querySelector('#d-amt')?.value)}`); });
+    ok(true, 'hxsendtac: and its button opens the TAC pool\'s Deposit with the amount');
+    ok(await text(p, '#eth-h') === 'Private TAC', 'hxsendtac: the sheet is named for the TAC pool it shows');
+    await look('hxsendtac-pool', '#sheet-eth .sheet-in');
+    for (const m of ['send', 'out', 'receive']) {
+      await p.click(`[data-dev="${m}"]`); await sleep(600); await look(`hxsendtac-pool-${m}`, '#sheet-eth .sheet-in');
+      if (m === 'send') ok(/how much and to whom stay hidden/.test(await text(p, '#d-form')), 'hxsendtac: the pool\'s Send says its sender shows and what stays hidden');
+      if (m === 'out') ok(/shows its amount, the address it goes to/.test(await text(p, '#d-form')) && !/Nothing inside the pool/.test(await text(p, '#d-form')), 'hxsendtac: the pool\'s Withdraw says it shows its amount and address');
+    }
+    await p.evaluate(() => { location.hash = ''; location.hash = '#device/tac'; });
+    await until(p, () => document.querySelector('#eth-h')?.textContent === 'Private TAC', null, 60000);
+    await p.evaluate(() => { location.hash = ''; location.hash = '#device'; });
+    await until(p, () => document.querySelector('#eth-h')?.textContent === 'Private ETH', null, 60000);
+    ok(true, 'hxsendtac: a link that names no pool opens an ETH pool, not the TAC pool seen last, and the sheet is named for it');
+    if (r.errors.length) { fails++; console.log('FAIL hxsendtac page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+  // A key with no private TAC but TAC in its wallet: Send opens on the wallet's TAC, the private TAC says none and offers making it private, and the dashboard's TAC has a Send.
+  await fundTac(acctOf(K2), 5n * E18);
+  const r2 = await openFarmKey(K2, { notes: [], fees });
+  const q = r2.page;
+  try {
+    await lander(q);
+    await q.click('[data-hxm="send"]');
+    await until(q, () => document.querySelector('#hx-sa')?.value === 'wtac', null, 300000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | sa=${await q.$eval('#hx-sa', (x) => x.value)} | bal: ${await text(q, '#hx-bal')}`); });
+    ok(true, 'hxsendtac: with no private holding and TAC in the wallet, Send opens on the wallet\'s TAC');
+    await q.selectOption('#hx-sa', 'tac');
+    await until(q, () => /No private TAC yet/.test(document.querySelector('#hx-have')?.textContent || ''), null, 60000);
+    ok((await q.$$eval('#hx-have [data-hxin]', (b) => b.map((x) => x.dataset.hxin).join()))=== 'shield:wtac:defi', 'hxsendtac: no private TAC offers making the wallet\'s TAC private, not buying more');
+    await q.click('#hx-have [data-hxin]');
+    await until(q, () => document.querySelector('[data-hxm="private"]')?.getAttribute('aria-selected') === 'true' && document.querySelector('#hx-from')?.value === 'wtac', null, 60000);
+    ok(true, 'hxsendtac: and that opens Shield on TAC in the wallet');
+    await until(q, () => document.querySelectorAll('#dash-g .di-send[data-hx="send:wtac"]').length === 1, null, 120000)
+      .catch(async () => { throw new Error(`no dashboard send on TAC: ${await q.$$eval('#dash-g .di-send', (b) => b.map((x) => x.dataset.hx).join())}`); });
+    ok(true, 'hxsendtac: Your Tacit offers Send on TAC held only in the wallet');
+    if (r2.errors.length) { fails++; console.log('FAIL hxsendtac page errors: ' + r2.errors.slice(0, 3).join(' | ')); }
+  } finally { await r2.browser.close(); }
+});
+
+// A connected wallet with no Tacit key open holds TAC: the card's Send quotes its transfer and the TAC sheet shows the public send form
+// (no sign-in in the way), which sends it.
+await step('hxsendwallet', async () => {
+  const E18 = 10n ** 18n, eth0 = '0x' + 'cd'.repeat(20);
+  await fundTac(A0, 30n * E18);
+  const had = await tacOf(A0), got0 = await tacOf(eth0), hadN = Number(had / E18);
+  const r = await openPage({ account: A0 });
+  const p = r.page;
+  const line = async () => (await text(p, '#hx-q')).replace(/\s+/g, ' ').trim();
+  try {
+    await p.goto(r.url + '#airdrop');
+    await p.click('#air-connect');
+    await p.waitForSelector('#air-body', { timeout: 60000 }).catch(() => {});
+    await p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
+    await p.click('[data-hxm="send"]');
+    await p.selectOption('#hx-sa', 'wtac');
+    await until(p, (n) => new RegExp(`^${n}(\\.\\d+)? TAC · Max`).test(document.querySelector('#hx-bal')?.textContent || ''), hadN, 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | want ${hadN} | bal: ${await text(p, '#hx-bal')} | q: ${await line()}`); });
+    ok(true, `hxsendwallet: with only a wallet connected, Send on TAC in the wallet shows its balance (${await text(p, '#hx-bal')})`);
+    await p.fill('#hx-rcpt', eth0); await p.fill('#hx-amt', '0.004');
+    await until(p, () => /^They get 0\.004 TAC\. A plain transfer from your wallet/.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 120000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | ${await line()}`); });
+    ok(true, `hxsendwallet: a small amount is quoted whole, not rounded to nothing (${await line()})`);
+    await p.fill('#hx-amt', '12');
+    await until(p, () => /^They get 12 TAC\./.test((document.querySelector('#hx-q')?.textContent || '').trim()), null, 60000);
+    await p.click('#hx-go');
+    await until(p, ([x]) => document.querySelector('#sheet-tac[open] #ts-to')?.value === x && document.querySelector('#ts-amt')?.value === '12' && !document.querySelector('#ts-go').disabled, [eth0], 240000)
+      .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | open: ${await p.evaluate(() => [...document.querySelectorAll('dialog[open]')].map((d) => d.id).join())} | sheet: ${(await text(p, '#tac-bal')).replace(/\s+/g, ' ').slice(0, 200)}`); });
+    ok(true, 'hxsendwallet: the TAC sheet opens on the public send form with the address and the amount, with no key open');
+    await p.click('#ts-go');
+    await until(p, () => /Sent\./.test(document.querySelector('#tac-bal-status')?.textContent || ''), null, 240000);
+    ok((await tacOf(eth0)) - got0 === 12n * E18 && had - (await tacOf(A0)) === 12n * E18, 'hxsendwallet: the wallet sent 12 TAC to the address, one plain transfer');
+    if (r.errors.length) { fails++; console.log('FAIL hxsendwallet page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
 });
 
 // A wrap still settling (as the card's two steps leave one): the private farm says the tETH is on its way and does not ask for it again,

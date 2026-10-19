@@ -20,7 +20,7 @@ exit/entry (["Moving between V1 and this pool"](#moving-between-v1-and-this-pool
 | App | What it is | Chains |
 |---|---|---|
 | [anon.wei.limo](https://anon.wei.limo/) | The reference app: one page that shields, sends privately, withdraws, takes payments at a deposit address, and shields from or withdraws as a token. Also served by name as `anon.wei` ([the reference app](#the-reference-app-anonwei)). | Ethereum, Base, Robinhood Chain |
-| [tacit.finance/pay/eth](https://tacit.finance/pay/eth/), and "On this device" on the [tacit.finance](https://tacit.finance/) front page | The same pool without token swaps: shield, send, withdraw, a deposit address, payment links. | Ethereum, Base, Robinhood Chain and **MegaETH** |
+| [tacit.finance/pay/eth](https://tacit.finance/pay/eth/), and "On this device" on the [tacit.finance](https://tacit.finance/) front page | The same pool without token swaps: shield, send, withdraw, a deposit address, payment links. The front page also holds a TAC pool, on Ethereum ([addresses](#addresses)). | Ethereum, Base, Robinhood Chain and **MegaETH** |
 | [Secret Sats](https://tacit.finance/sats/), ETH tab | The same pool beside the Bitcoin pool: one address (`bp1…`) receives in both. | Ethereum, Base, Robinhood Chain |
 | [The standalone wallet](#standalone-wallet) | The whole wallet as one ES module, for your own app. | Ethereum, Base, Robinhood Chain and MegaETH |
 | Your own app | The contracts are at the same addresses on every chain they are on ([build one](#megaeth-and-building-an-app-on-another-chain)). | Any chain with the suite |
@@ -43,6 +43,21 @@ these addresses). On any other chain, treat code at these addresses as unrelated
 | Groth16 verifier | `0x000000b1c0e84CEc8AdF8278B90c4d6400DfB153` |
 | PoseidonT5 (four-input Poseidon, used by receive boxes) | `0x555333f3f677Ca3930Bf7c56ffc75144c51D9767` |
 | Zap (`TacitEvmPoolZap`, shields a token in one transaction; not on MegaETH) | `0x0000008EbBF2323f95c4fBc18254f3D65C53998c` |
+
+**A TAC pool, on Ethereum only.** `TacitEvmPool` takes its asset in its constructor and the proof's `asset` input is
+`keccak256(abi.encode(chainId, pool, token)) mod p`, so the same circuit, proving key and verifier serve an ERC-20 pool. The
+TAC pool was deployed with the TAC vaults ([`contracts/deployments/tac-vaults.json`](../contracts/deployments/tac-vaults.json));
+its first block is 26,201,971 and its router's is 26,201,972. No keeper serves it: every deposit, private transfer and
+withdrawal is sent by the user's own wallet, which pays the network fee in ETH. A deposit goes through the router, which takes
+the TAC from an allowance already in place, an EIP-2612 permit (`depositWithPermit`) or a Permit2 signature
+(`depositWithPermit2`), so a signature can stand in for the approval; the "On this device" TAC pool on the
+[tacit.finance](https://tacit.finance/) front page asks for them in that order, then an approval and the deposit in one
+EIP-5792 batch, and only otherwise an approval transaction first, always for exactly the deposit's amount.
+
+| Contract | Address (Ethereum) |
+|---|---|
+| TAC pool (`TacitEvmPool`, asset TAC `0xA1313eb9f3A445606D9583bcAc3ebeB56a858279`) | `0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe` |
+| TAC router (`TacitEvmPoolRouter`, bound to the TAC pool) | `0x000000fA029Eaf69840C1490Bf9AA6C094794D5a` |
 
 The catch-up registry (`TacitEvmPoolCheckpoints`, see Catch-up points under Keys and recovery) is deployed through CreateX's
 CREATE2 under one salt anyone may use (20 zero bytes and the flag `0x00`, which CreateX guards as `keccak256(salt)` alone, so

@@ -1440,7 +1440,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     </div>
     <div class="seg" role="tablist" aria-label="Pool">
       <button type="button" role="tab" aria-selected="true" data-eth-mode="v1">Tacit pool<small>tETH · send, swap, farm</small></button>
-      <button type="button" role="tab" aria-selected="false" data-eth-mode="dev">On this device<small>ETH · pay anyone</small></button>
+      <button type="button" role="tab" aria-selected="false" data-eth-mode="dev">On this device<small>ETH, TAC · pay anyone</small></button>
     </div>
     <div id="eth-v1" role="tabpanel"></div>
     <div id="eth-dev" role="tabpanel" hidden></div>
@@ -1641,6 +1641,15 @@ const DEVICE_CHAINS = [
   { chainId: 4326, name: 'MegaETH', rpc: ['https://mainnet.megaeth.com/rpc', 'https://megaeth.drpc.org'], explorer: 'https://mega.etherscan.io', keeper: 'https://tacit-evm-pool-keepers.onrender.com/4326/evm-pool/keeper', deployBlock: 28397750, confirmations: 30, logChunk: 100000, bridge: false, points: false },
 ];
 const EVM_POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9', EVM_ROUTER = '0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5';
+// The same pool contract with an ERC-20 asset (the device sheet's token pools, beside the ETH pools above). No relay serves them: the
+// paying account sends every deposit, transfer and withdrawal. `deployBlock`: a little before the pool's first block (26201971).
+// The synths' pools (TACD, TACE) are the same shape, in contracts/deployments/tac-vaults.json.
+const TOKEN_POOLS = [
+  { slug: 'tac', name: 'TAC', sym: 'TAC', icon: 'tk-tac', chainId: 1, token: ADDR.tac, permit: 'Tacit Token',
+    pool: '0x0000007F401114398b8fa67b4Bf1e1CFEcd28ffe', router: '0x000000fA029Eaf69840C1490Bf9AA6C094794D5a', deployBlock: 26201900,
+    rpc: DEVICE_CHAINS[0].rpc, explorer: DEVICE_CHAINS[0].explorer, confirmations: DEVICE_CHAINS[0].confirmations },
+];
+const PERMIT2_ADDR = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -3461,7 +3470,12 @@ async function ethKeep(own = false) {
 }
 const NOT_TO = [[ADDR.pool, 'the Tacit pool'], [EVM_POOL, 'the private ETH pool'], [EVM_ROUTER, 'the private ETH router'], [ADDR.tac, 'the TAC token'], [ADDR.wrapTip, 'the wrap forwarder'],
   [ADDR.tacbtc, 'the tacBTC token'], [ADDR.tacusd, 'the tacUSD token'], [ADDR.wsteth, 'the wstETH token'], [ADDR.escrow, 'the bond helper'], [ADDR.engine, 'the loan engine'],
-  [ADDR.precisionPool, 'the TAC/ETH pool'], [ADDR.precisionFarm, 'the TAC/ETH farm']]
+  [ADDR.precisionPool, 'the TAC/ETH pool'], [ADDR.precisionFarm, 'the TAC/ETH farm'],
+  ...TOKEN_POOLS.flatMap((p) => [[p.pool, `the private ${p.sym} pool`], [p.router, `the private ${p.sym} router`]]),
+  ['0x00000087ac9ed3E1Bd443E00FBe18B4EdcAEeb1F', 'the TAC dollar vault'], ['0x00000047bFC8cF504967049D9Cf9E1FD9651ED80', 'the TAC ether vault'],
+  ['0xA0f6B02561C8ef08335B69aD25e022C0B342147C', 'the TACD token'], ['0x9DE27883C5Dc9Db47BE12E595D59b8f1aBEC8570', 'the TACE token'],
+  ['0x000000ED49e117f472Ca16aEd7B1a8F07E6D3936', 'the TAC dollar vault zap'], ['0x0000006f0f1d16D2B27050b48D442927b2Edce0c', 'the TAC ether vault zap'],
+  [PERMIT2_ADDR, 'the Permit2']]
   .map(([address, what]) => ({ address, reason: `That is ${what} contract, not an account to send to.` }));
 function recipientOf(raw) {
   const r = parseRecipient(raw, { keccak256: keccak_256, deny: NOT_TO });
@@ -3494,7 +3508,7 @@ function paintStart() {
   else if (!k) show = !(S.address || knownWallet());
   else {
     const s = P.scan, seen = (key) => (lastSeen(key) ?? 0n) > 0n;
-    const dev = DEVICE_CHAINS.some((c) => (big(store.get(`tacit-lite-device-bal-v1:${c.chainId}:${k}`)?.v) ?? 0n) > 0n);
+    const dev = DEVICE_CHAINS.some((c) => (big(store.get(`tacit-lite-device-bal-v1:${c.chainId}:${k}`)?.v) ?? 0n) > 0n) || (big(store.get(`tacit-lite-device-bal-v1:tac:${k}`)?.v) ?? 0n) > 0n;
     const sats = HELD.pub === k && (HELD.sats || []).some((a) => a.value > 0n);
     show = !dev && !sats && (s ? !s.partial && !s.notes.length && !s.pending.length : !P.err && !['teth', 'cbtc', 'cusd'].some(seen));
   }
@@ -3948,12 +3962,14 @@ const viewOf = (map, slug) => Object.keys(map).find((k) => map[k] === (slug || '
 const chainSlug = (c) => c.name.toLowerCase();
 const SUBLINK = {
   eth: {
-    get: () => (TAB.eth === 'dev' ? [chainSlug(DEV.chain), VIEW.dev[DEV.mode]] : [VIEW.v1[V1.mode]]),
+    get: () => (TAB.eth === 'dev' ? [DEV.tok ? DEV.tok.slug : chainSlug(DEV.chain), VIEW.dev[DEV.mode]] : [VIEW.v1[V1.mode]]),
     set: (tab, parts) => {
       if (tab !== 'dev') { V1.mode = viewOf(VIEW.v1, parts[0]) || 'wrap'; return; }
-      const c = DEVICE_CHAINS.find((x) => chainSlug(x) === parts[0]);
-      if (c && c !== DEV.chain) setDeviceChain(c);
-      DEV.mode = viewOf(VIEW.dev, c ? parts[1] : parts[0]) || 'deposit';
+      const c = DEVICE_CHAINS.find((x) => chainSlug(x) === parts[0]), p = TOKEN_POOLS.find((x) => x.slug === parts[0]);
+      if (p) DEV.tok = p;
+      else if (c && (c !== DEV.chain || DEV.tok)) setDeviceChain(c);
+      else if (DEV.tok) DEV.tok = null;
+      DEV.mode = viewOf(VIEW.dev, c || p ? parts[1] : parts[0]) || 'deposit';
     },
   },
   btc: { get: () => [VIEW.btc[BTC.mode]], set: (_, [p]) => { BTC.mode = viewOf(VIEW.btc, p) || 'send'; } },
@@ -4115,7 +4131,7 @@ const getUx = lazy(async () => {
   return ux;
 });
 const P = { scan: null, scanning: null, err: null };
-function resetPrivate() { for (const k of Object.keys(FLASH)) delete FLASH[k]; P.scan = null; P.scanning = null; P.err = null; DEV.W = null; DEV.bal = null; DEV.key = null; DEV.quote = null; DEV.gq = {}; DEV.err = null; DEV.self = false; Object.assign(LOCK, { rec: null, state: null, lm: null, bonds: [], list: [], pick: null, found: null, repayOver: null, q: null }); Object.assign(LK, { at: 0, pub: null, mine: [], back: [], scanning: null }); Object.assign(BTC, { pub: null, at: 0, err: null, share: null, sp: null, held: [], got: 0, part: false });
+function resetPrivate() { for (const k of Object.keys(FLASH)) delete FLASH[k]; P.scan = null; P.scanning = null; P.err = null; DEV.W = null; DEV.bal = null; DEV.key = null; DEV.quote = null; DEV.gq = {}; DEV.err = null; DEV.self = false; Object.assign(TK, { W: null, key: null, bal: null, at: 0, err: null, syncing: null, keys: null }); Object.assign(LOCK, { rec: null, state: null, lm: null, bonds: [], list: [], pick: null, found: null, repayOver: null, q: null }); Object.assign(LK, { at: 0, pub: null, mine: [], back: [], scanning: null }); Object.assign(BTC, { pub: null, at: 0, err: null, share: null, sp: null, held: [], got: 0, part: false });
   try { FARM.positions = null; FARM.wtac = null; FARM.left = null; FARM.jm = null; FARM.paid = null; for (const k of Object.keys(JOIN)) delete JOIN[k]; } catch { }
   dropTacitKey(); }
 async function scanPrivate(force = false) {
@@ -4250,13 +4266,16 @@ const refreshScan = () => {
   return age > 60e3 ? scanIfNew() : Promise.resolve(P.scan);
 };
 render.eth = () => {
+  const tk = TAB.eth === 'dev' && DEV.tok, h = $('#eth-h'), ic = $$('#sheet-eth .sheet-head .pair use');
+  if (h) h.textContent = tk ? `Private ${tk.sym}` : 'Private ETH';
+  if (ic.length === 2) { ic[0].setAttribute('href', tk ? `#${tk.icon}` : '#tk-eth'); ic[1].parentNode.style.display = tk ? 'none' : ''; }
   $('#eth-v1').hidden = TAB.eth !== 'v1';
   $('#eth-dev').hidden = TAB.eth !== 'dev';
   if (TAB.eth === 'v1') renderV1($('#eth-v1')); else renderDevice($('#eth-dev'));
 };
 load.eth = async () => {
   if (TAB.eth === 'v1') { if (S.key) await Promise.allSettled([refreshScan(), loadLocks()]); }
-  else if (S.key) await deviceSync();
+  else if (S.key) await (DEV.tok ? tokenSync() : deviceSync());
 };
 
 const LK = { at: 0, since: 0, pub: null, mine: [], back: [], root: null, sentRoot: null, scanning: null, failed: null };
@@ -5381,10 +5400,10 @@ function xoOut(el, status, a) {
   });
 }
 
-const DEV = { chain: DEVICE_CHAINS.find((c) => c.chainId === store.get('tacit-lite-device-chain')) || DEVICE_CHAINS[1], mode: 'deposit', dest: 'addr', W: null, bal: null, key: null, quote: null, gq: {}, err: null, self: false };
+const DEV = { chain: DEVICE_CHAINS.find((c) => c.chainId === store.get('tacit-lite-device-chain')) || DEVICE_CHAINS[1], tok: null, mode: 'deposit', dest: 'addr', W: null, bal: null, key: null, quote: null, gq: {}, err: null, self: false };
 const getDeviceMods = lazy(async () => {
   const [zkm, wm, pm, pos] = await Promise.all([
-    import('/evm-pool-zk.js?cb=2f062779'), import('/evm-pool-wallet.js?cb=6e541561'), import('/evm-pool-zk-prover.js?cb=00ff69c2'), import('/vendor/tacit-poseidon.min.js'),
+    import('/evm-pool-zk.js?cb=2f062779'), import('/evm-pool-wallet.js?cb=52b903d6'), import('/evm-pool-zk-prover.js?cb=00ff69c2'), import('/vendor/tacit-poseidon.min.js'),
   ]);
   const PO = { 2: pos.poseidon2, 3: pos.poseidon3, 4: pos.poseidon4, 5: pos.poseidon5, 7: pos.poseidon7 };
   return { zk: zkm.makeEvmPoolZk({ poseidon: (xs) => PO[xs.length](xs) }), ...wm, vkHash: pm.vkHash };
@@ -5456,11 +5475,11 @@ function poolSyncInWorker(c) {
     if (S.key?.pubHex !== pub) return resolve(false);
     let w;
     try {
-      w = PSW.w ||= new Worker('/evm-pool-sync-worker.js?cb=e2f4662d', { type: 'module' });
+      w = PSW.w ||= new Worker('/evm-pool-sync-worker.js?cb=b4cc8814', { type: 'module' });
       w.onmessage = (e) => { const f = PSW.wait.get(e.data?.id); if (f) { if (!e.data.write) PSW.wait.delete(e.data.id); f(e.data); } };
       w.onerror = () => { for (const f of PSW.wait.values()) f({ ok: false }); PSW.wait.clear(); PSW.w = null; };
     } catch { return resolve(false); }
-    const id = ++PSW.n, prefix = `tacit-evm-pool-v1:${c.chainId}:`, entries = {};
+    const pool = c.pool || EVM_POOL, router = c.router || EVM_ROUTER, id = ++PSW.n, prefix = `tacit-evm-pool-v1:${c.chainId}:${pool.toLowerCase()}:`, entries = {};
     try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k?.startsWith(prefix)) entries[k] = localStorage.getItem(k); } } catch {}
     PSW.wait.set(id, (m) => {
       if (m.write) { if (S.key?.pubHex === pub) try { localStorage.setItem(...m.write); } catch {} return; }
@@ -5468,8 +5487,8 @@ function poolSyncInWorker(c) {
     });
     let priv;
     try { priv = walletPriv(); } catch { PSW.wait.delete(id); return resolve(false); }
-    w.postMessage({ id, priv, pool: EVM_POOL, router: EVM_ROUTER, entries,
-      chain: { chainId: c.chainId, keeper: c.keeper, rpc: c.rpc, deployBlock: c.deployBlock, confirmations: c.confirmations, logChunk: c.logChunk } });
+    w.postMessage({ id, priv, pool, router, entries,
+      chain: { chainId: c.chainId, keeper: c.keeper, rpc: c.rpc, deployBlock: c.deployBlock, confirmations: c.confirmations, logChunk: c.logChunk, token: c.token } });
   });
   return (PSW.q = PSW.q.then(run, run));
 }
@@ -5768,11 +5787,12 @@ function privacyView(c, amount, to, self) {
 }
 
 function renderDevice(el) {
+  if (DEV.tok) return renderTokenPool(el);
   if (!needKey(el, 'Keep ETH private on Ethereum, Base, Robinhood Chain or MegaETH, with the privacy work done here in your browser. Open your Tacit wallet to start.')) return;
   const c = DEV.chain, W = DEV.W && DEV.key === S.key.pubHex + c.chainId ? DEV.W : null;
   const last = DEV.bal == null ? big(store.get(`tacit-lite-device-bal-v1:${c.chainId}:${S.key.pubHex}`)?.v) : null;
   mount(el, html`
-    ${segSub('chain', String(c.chainId), DEVICE_CHAINS.map((x) => [String(x.chainId), x.name]))}
+    ${segSub('chain', String(c.chainId), devPools())}
     <div class="bal">
       <span class="pair"><svg class="tk md" aria-hidden="true"><use href="#tk-eth"/></svg><svg class="tk md" aria-hidden="true"><use href="#tk-peth"/></svg></span>
       <div><div class="v num">${DEV.bal != null ? fmt(DEV.bal, 18, 6) : DEV.err ? html`<span class="err">—</span>` : last != null ? html`<span class="stale">${fmt(last, 18, 6)}</span>` : html`<span class="sk" style="--w:8ch"></span>`}</div><div class="u">ETH, private on ${c.name}</div></div>
@@ -5782,7 +5802,7 @@ function renderDevice(el) {
     <div id="d-form"></div>
     <div class="status" role="status" id="d-status"></div>`);
   const syncFailed = (e) => { DEV.err = e; rerender('eth'); sayErr($('#d-status'), e); };
-  wireSub(el, 'chain', (id) => { setDeviceChain(DEVICE_CHAINS.find((x) => String(x.chainId) === id)); keep($('#sheet-eth'), render.eth); });
+  wireSub(el, 'chain', pickPool);
   wireSub(el, 'dev', (m) => { DEV.mode = m; keep($('#sheet-eth'), render.eth); });
   if ((!W || DEV.bal == null) && !DEV.err) deviceSync().then(() => rerender('eth')).catch(syncFailed);
   const re = $('#d-rescan'); if (re) re.onclick = () => busy(re, async () => { try { await deviceSync(true); DEV.err = null; rerender('eth'); } catch (e) { syncFailed(e); } });
@@ -5878,7 +5898,7 @@ function renderDevice(el) {
     toEl.addEventListener('input', check);
     $('#d-max').onclick = () => { if (wb != null) { const keep_ = c.chainId === 1 ? 3n * 10n ** 15n : 2n * 10n ** 14n, v = wb > keep_ ? wb - keep_ : 0n; amt.value = v ? plain(v, 18) : ''; amt.dispatchEvent(new Event('input')); } };
     amt.addEventListener('input', check); check();
-    takeDraft('dep', amt, (d) => d.chain === c.chainId);
+    takeDraft('dep', amt, (d) => d.chain === c.chainId && !d.tac);
     amt.addEventListener('focus', warm, { once: true });
     go.onclick = () => busy(go, async (run) => {
       try {
@@ -6026,8 +6046,325 @@ function renderDevice(el) {
 }
 
 function setDeviceChain(c) {
-  DEV.chain = c; store.set('tacit-lite-device-chain', c.chainId);
+  DEV.tok = null; DEV.chain = c; store.set('tacit-lite-device-chain', c.chainId);
   DEV.W = null; DEV.bal = null; DEV.quote = null; DEV.gq = {}; DEV.err = null; DEV.self = false;
+}
+
+// The device sheet's token pools (TOKEN_POOLS): the ETH pools' contract and proofs with an ERC-20 asset. No relay serves them, so the
+// paying account sends every deposit, transfer and withdrawal and pays the network fee in ETH. Their state is TK, apart from the ETH
+// pools' DEV; DEV.tok names the pool the sheet shows.
+const TK = { W: null, key: null, bal: null, at: 0, err: null, syncing: null, plan: null, keys: null };
+const devPools = () => [...DEVICE_CHAINS.map((x) => [String(x.chainId), x.name]), ...TOKEN_POOLS.map((p) => [p.slug, p.name])];
+function pickPool(id) {
+  const p = TOKEN_POOLS.find((x) => x.slug === id), was = DEV.tok;
+  if (p) DEV.tok = p; else setDeviceChain(DEVICE_CHAINS.find((x) => String(x.chainId) === id));
+  if ((was?.slug || '') !== (p?.slug || '')) for (const i of $$('#d-form input')) i.value = '';
+  keep($('#sheet-eth'), render.eth);
+}
+const tokCfg = (p) => ({ chainId: p.chainId, keeper: null, rpc: p.rpc, deployBlock: p.deployBlock, confirmations: p.confirmations, token: p.token, pool: p.pool, router: p.router });
+async function tokenWallet(p = DEV.tok) {
+  if (TK.W && TK.key === S.key.pubHex + p.slug) return TK.W;
+  const m = await getDeviceMods();
+  const kv = { get: (k) => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+  TK.W = m.makeEvmPoolWallet({
+    zk: m.zk, keys: m.evmPoolKeys(m.zk, walletPriv()), keeper: null, store: kv,
+    chain: { ...tokCfg(p), rpc: m.jsonRpc(p.rpc) },
+    prove: async (input) => (await prover(provingNote))(input),
+  });
+  TK.key = S.key.pubHex + p.slug; TK.bal = null;
+  return TK.W;
+}
+function tokenSync(fresh = false, p = DEV.tok) {
+  if (!p) return Promise.resolve();
+  if (!fresh && TK.bal != null && Date.now() - TK.at < 60e3) return Promise.resolve();
+  if (TK.syncing && !fresh) return TK.syncing;
+  const prev = TK.syncing || Promise.resolve();
+  const run = TK.syncing = prev.catch(() => {}).then(async () => {
+    if (!(TK.W && TK.key === S.key?.pubHex + p.slug)) await poolSyncInWorker(tokCfg(p));
+    const W = await tokenWallet(p), s = await W.sync();
+    if (TK.W === W) {
+      TK.bal = s.balance; TK.err = null; TK.at = Date.now();
+      store.set(`tacit-lite-device-bal-v1:${p.slug}:${S.key.pubHex}`, { v: s.balance.toString(), at: Date.now() });
+      dashSoon();
+    }
+  }).finally(() => { if (TK.syncing === run) TK.syncing = null; });
+  return run;
+}
+
+// Atomic batches (EIP-5792): the approval and the deposit that uses it, in one confirmation, where the wallet takes them together.
+const BATCH_NO = [4200, -32601, -32602, 5700, 5710, 5740, 5750, 5760], NO_BATCH = new Set();
+async function canBatch() {
+  if (payer() !== 'wallet' || !S.provider || !S.wallet || NO_BATCH.has(S.wallet)) return false;
+  const caps = await Promise.race([S.provider.request({ method: 'wallet_getCapabilities', params: [S.wallet] }), sleep(4000).then(() => null)]).catch(() => null);
+  if (!caps || typeof caps !== 'object') return false;
+  const at = (id) => Object.keys(caps).find((k) => { try { return BigInt(k) === BigInt(id); } catch { return false; } });
+  return ['supported', 'ready'].includes(caps[at(1) ?? at(0)]?.atomic?.status);
+}
+// → the hash of the transaction that carried `calls`, once it is in a block. A wallet that turns out not to take batches throws
+// { noBatch }, so the caller can send the calls one by one; one that took a batch and does not say how it went throws { said }.
+async function sendBatch(calls, label, sent = () => {}) {
+  await ensureChain(1);
+  let id;
+  try {
+    const r = await S.provider.request({ method: 'wallet_sendCalls', params: [{ version: '2.0.0', chainId: '0x1', from: S.wallet, atomicRequired: true,
+      calls: calls.map(({ to, data, value }) => ({ to, data, value: '0x' + BigInt(value || 0).toString(16) })) }] });
+    id = typeof r === 'string' ? r : r?.id;
+  } catch (e) {
+    if (!BATCH_NO.includes(e?.code)) throw e;
+    NO_BATCH.add(S.wallet);
+    throw Object.assign(new Error('Your wallet does not send these together.'), { noBatch: true });
+  }
+  const unknown = (m) => Object.assign(new Error(m), { said: true });
+  if (!id) throw unknown('Your wallet did not say what it sent. Check its activity before trying again.');
+  sent();
+  for (let i = 0, quiet = 0; i < 600; i++) {
+    const st = await Promise.race([S.provider.request({ method: 'wallet_getCallsStatus', params: [id] }), sleep(9000).then(() => { throw new Error('slow'); })])
+      .then((x) => { quiet = 0; return x; }, () => { if (++quiet > 9) throw unknown('Your wallet sent it but cannot say how it went. Check its activity before trying again.'); return null; });
+    const rs = st?.receipts || [], q = String(st?.status ?? '');
+    if (rs.some((r) => r?.status === '0x0') || /^(400|500|600)$/.test(q) || /fail|revert|reject/i.test(q)) throw new Error('The wallet’s transaction failed on chain, so nothing was deposited.');
+    const last = rs[rs.length - 1], h = last && (q === '200' || /CONFIRMED|SUCCESS/i.test(q) || rs.length >= calls.length) ? last.transactionHash || last.hash : null;
+    if (h) return actTx(h, { label, chainId: 1 });
+    await sleep(1000);
+  }
+  throw unknown('Your wallet has not confirmed it yet. Check its activity before trying again.');
+}
+// The paying account as the pool wallet's signer; a wallet that batches can send an approval and the deposit together.
+const payFromTok = (label) => {
+  const base = payFrom(1, label), pub = S.key?.pubHex, from = S.wallet;
+  return payer() === 'wallet' ? { ...base, batch: (calls, sent) => {
+    if (S.key?.pubHex !== pub || S.wallet !== from) throw new Error('Another key or account was opened, so this was not sent. Open the first one again to send it.');
+    return sendBatch(calls, label, sent);
+  } } : base;
+};
+const cancelled = (e) => e?.code === 4001 || errText(e) === 'Cancelled in your wallet.';
+// Approves exactly `amount` of the token to the pool's router with a transaction of its own, the last way to pay.
+async function approveFirst(t, amount, step) {
+  step(`Approve ${fmt(amount, 18, 6)} ${t.sym} in ${your()}, then the deposit follows`);
+  const h = await sendTx({ to: t.token, data: '0x095ea7b3' + addrWord(t.router) + word(amount), label: `Approve ${fmt(amount, 18, 6)} ${t.sym} for the private ${t.sym} pool` });
+  await waitTx(h, { timeoutMs: 180e3, chainId: 1 });
+  if (BigInt(await ethCall(t.token, SEL.allowance + addrWord(S.address) + addrWord(t.router))) < amount) throw new Error('The approval has not shown up yet. Try again in a moment.');
+  return { kind: 'allowance' };
+}
+// How the router takes `amount` of the pool's token from the paying account, asking the least of it: an allowance already in place;
+// an EIP-2612 permit signature; a Permit2 signature (the token approved to Permit2 already); the approval in one atomic batch with the
+// deposit; and only otherwise an approval transaction first. Each signature is checked on chain before it is used and one that does not
+// check out falls to the next way; a refusal in the wallet stops here. Every way takes exactly `amount`, never an unlimited one.
+async function tokenPull(t, amount, step, status) {
+  const owner = await payingAccount(), now = Math.floor(Date.now() / 1000), deadline = BigInt(now + 1800);
+  const num = (h) => (/^0x[0-9a-f]{64}/i.test(h || '') ? BigInt(h.slice(0, 66)) : 0n);
+  if (num(await ethCall(t.token, SEL.allowance + addrWord(owner) + addrWord(t.router))) >= amount) { step(`${t.sym} is approved already`); return { kind: 'allowance' }; }
+  try {
+    const sig = await permitSig({ token: t.token, name: t.permit, spender: t.router, value: amount, deadline, status, what: t.sym });
+    await ethCall(t.token, 'd505accf' + addrWord(owner) + addrWord(t.router) + word(amount) + word(deadline) + word(sig.v) + strip(sig.r) + strip(sig.s));
+    return { kind: 'permit', value: amount, deadline, v: sig.v, r: sig.r, s: sig.s };
+  } catch (e) { if (cancelled(e)) throw e; }
+  if (payer() === 'wallet' && num(await ethCall(t.token, SEL.allowance + addrWord(owner) + addrWord(PERMIT2_ADDR)).catch(() => '0x')) >= amount) {
+    try {
+      const nonce = wordAt(await ethCall(PERMIT2_ADDR, '927da105' + addrWord(owner) + addrWord(t.token) + addrWord(t.router)), 2);
+      const details = { token: t.token, amount: String(amount), expiration: String(deadline), nonce: String(nonce) };
+      const typed = { types: { EIP712Domain: [{ name: 'name', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }],
+        PermitSingle: [{ name: 'details', type: 'PermitDetails' }, { name: 'spender', type: 'address' }, { name: 'sigDeadline', type: 'uint256' }],
+        PermitDetails: [{ name: 'token', type: 'address' }, { name: 'amount', type: 'uint160' }, { name: 'expiration', type: 'uint48' }, { name: 'nonce', type: 'uint48' }] },
+      primaryType: 'PermitSingle', domain: { name: 'Permit2', chainId: 1, verifyingContract: PERMIT2_ADDR }, message: { details, spender: t.router, sigDeadline: String(deadline) } };
+      say(status, `Sign the ${t.sym} approval in your wallet…`);
+      await ensureChain(1);
+      let sig = strip(await S.provider.request({ method: 'eth_signTypedData_v4', params: [owner, JSON.stringify(typed)] }));
+      if (sig.length !== 130) throw new Error('permit signature malformed');
+      const v = parseInt(sig.slice(128), 16); if (v < 27) sig = sig.slice(0, 128) + (v + 27).toString(16).padStart(2, '0');
+      // As the router calls it: Permit2 applies the signature for this owner, naming the router as the spender.
+      await ethCall(PERMIT2_ADDR, '2b67b570' + addrWord(owner) + addrWord(t.token) + word(amount) + word(deadline) + word(nonce) + addrWord(t.router) + word(deadline) + word(0x100) + word(65) + sig.padEnd(192, '0'));
+      return { kind: 'permit2', sig: '0x' + sig, permitSingle: { details: { token: t.token, amount, expiration: deadline, nonce }, spender: t.router, sigDeadline: deadline } };
+    } catch (e) { if (cancelled(e)) throw e; }
+  }
+  if (await canBatch()) return { kind: 'batch', token: t.token };
+  return approveFirst(t, amount, step);
+}
+// A recipient of a private transfer in the pool, from a tacit1 address, a name or a pool address (bp1…) → { bp, label?, id? } or { error }.
+async function tokRecipient(raw) {
+  let r;
+  if (/^bp1/i.test(raw)) {
+    const m = await getDeviceMods();
+    try { m.recipientOf(TK.keys ||= m.evmPoolKeys(m.zk, walletPriv()), raw); r = { bp: raw.toLowerCase() }; } catch { return { error: 'That is not a valid pool address (bp1…). Check it for a typo.' }; }
+  } else if (/^tacit1/i.test(raw) || /\.(g?wei|eth)$/i.test(raw)) r = await devResolve(raw);
+  else return { error: 'Enter a Tacit address (tacit1…), a name or a pool address (bp1…).' };
+  if (r.error) return r;
+  if (r.bp.toLowerCase() === (await tokenWallet()).address.toLowerCase()) return { error: 'That is your own address.' };
+  return r;
+}
+
+function renderTokenPool(el) {
+  const t = DEV.tok;
+  if (!needKey(el, `Keep ${t.sym} private on Ethereum, with the privacy work done here in your browser. Open your Tacit wallet to start.`)) return;
+  const W = TK.W && TK.key === S.key.pubHex + t.slug ? TK.W : null;
+  const last = TK.bal == null ? big(store.get(`tacit-lite-device-bal-v1:${t.slug}:${S.key.pubHex}`)?.v) : null;
+  mount(el, html`
+    ${segSub('chain', t.slug, devPools())}
+    <div class="bal">
+      <span class="pair"><svg class="tk md" aria-hidden="true"><use href="#${t.icon}"/></svg></span>
+      <div><div class="v num">${TK.bal != null ? fmt(TK.bal, 18, 6) : TK.err ? html`<span class="err">—</span>` : last != null ? html`<span class="stale">${fmt(last, 18, 6)}</span>` : html`<span class="sk" style="--w:8ch"></span>`}</div><div class="u">${t.sym}, private on this device</div></div>
+      <div class="side">${TK.err ? html`<button class="link" type="button" id="d-rescan">retry</button>` : TK.bal != null ? html`<button class="link" type="button" id="d-rescan">refresh</button>` : 'updating…'}</div>
+    </div>
+    ${segSub('dev', DEV.mode, [['deposit', 'Deposit'], ['send', 'Send'], ['out', 'Withdraw'], ['receive', 'Receive']])}
+    <div id="d-form"></div>
+    <div class="status" role="status" id="d-status"></div>`);
+  const syncFailed = (e) => { TK.err = e; rerender('eth'); sayErr($('#d-status'), e); };
+  wireSub(el, 'chain', pickPool);
+  wireSub(el, 'dev', (m) => { DEV.mode = m; keep($('#sheet-eth'), render.eth); });
+  if ((!W || TK.bal == null) && !TK.err) tokenSync().then(() => rerender('eth')).catch(syncFailed);
+  const re = $('#d-rescan'); if (re) re.onclick = () => busy(re, async () => { try { await tokenSync(true); TK.err = null; rerender('eth'); } catch (e) { syncFailed(e); } });
+  const f = $('#d-form'), status = $('#d-status');
+  f.addEventListener('input', (e) => { if (e.isTrusted && !running('eth')) say(status, ''); });
+  const step = (m) => { m = String(m); say(status, m[0].toUpperCase() + m.slice(1) + '…'); };
+  const afterAction = (done) => { say(status, done); tokenSync(true, t).then(() => rerender('eth')).catch(() => rerender('eth')); };
+  const explorer = (h) => txLink(h, t.explorer);
+  const warm = () => prover(provingNote).then(() => { if (!running('eth') && /^Getting the proving key/.test(status.textContent)) say(status, ''); }).catch(() => {});
+  const amountField = (id, label, extra = '') => html`
+    <div class="lbl"><span>${label}</span>${extra}</div>
+    <div class="amt"><input id="${id}" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${label}"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#${t.icon}"/></svg>${t.sym}</span></div>`;
+  const selfNote = (out) => html`<p class="note">From ${your()}: no relay fee, the network fee instead. ${out ? `The withdrawal shows its amount, the address it goes to and ${your()} as the sender; which deposit it spends is not shown.` : `${your()} shows as the sender; how much and to whom stay hidden.`}</p>`;
+  if (W && !TK.plan && DEV.mode !== 'deposit' && DEV.mode !== 'receive') getDeviceMods().then((m) => { TK.plan = m.mergePlan; rerender('eth'); }).catch(() => {});
+  const merges = (amount) => (W && TK.plan ? TK.plan(W.notes().map((n) => n.v), amount, 0n) : TK.bal != null && amount <= TK.bal ? 0 : null);
+  const maxOut = () => { let lo = 0n, hi = TK.bal ?? 0n; while (lo < hi) { const mid = (lo + hi + 1n) / 2n; if (merges(mid) != null) lo = mid; else hi = mid - 1n; } return lo; };
+  const maxPriv = TK.bal != null ? html`<button type="button" id="d-maxp" aria-label="Use all: ${fmt(TK.bal, 18, 4)} ${t.sym} private">Private ${fmt(TK.bal, 18, 4)} ${t.sym}</button>` : '';
+  const overText = () => 'More than your private balance.';
+  const combine = (m) => (m ? html`<div class="kv"><span>Combines your notes first</span><b>${m} more transaction${m > 1 ? 's' : ''} from ${your()}</b></div>` : '');
+  const wireMax = () => $('#d-maxp')?.addEventListener('click', () => { const v = maxOut(), amt = $('#d-amt'); amt.value = v ? plain(v, 18) : ''; amt.dispatchEvent(new Event('input')); });
+  const fail = (run, amt, rc, e) => {
+    if (e?.pending) { clearField(amt); rc.hidden = true; txFail(run, status, e); }
+    else if (e?.said || waitRanOut(e)) { clearField(amt); rc.hidden = true; afterAction(html`<span class="err">${errText(e)}</span>`); }
+    else txFail(run, status, e);
+  };
+
+  if (DEV.mode === 'deposit') {
+    mount(f, html`<div id="d-fund"></div>${amountField('d-amt', 'Amount', html`<button type="button" id="d-max">${payName()} <span id="d-wb"><span class="sk" style="--w:5ch"></span></span> ${t.sym}</button>`)}
+      <div class="rcpt" id="d-rcpt" hidden></div>
+      <button class="btn" type="button" id="d-go" disabled>Deposit privately</button>
+      <p class="note">Proved on this device and sent from ${your()}, which pays the network fee. A signature approves the ${t.sym} where it can, so no separate approval is sent.</p>`);
+    let wb = null;
+    const amt = $('#d-amt'), go = $('#d-go'), rc = $('#d-rcpt'), wbEl = $('#d-wb');
+    const check = () => {
+      const amount = parseUnits(amt.value);
+      go.disabled = true; rc.hidden = true; mount(rc, html``);
+      if (!amount) return;
+      const over = wb != null && amount > wb;
+      go.disabled = over;
+      if (over) warn(rc, `More than ${your()} holds.`);
+    };
+    if (S.address) ethCall(t.token, SEL.balanceOf + addrWord(S.address)).then((b) => {
+      if (!wbEl.isConnected) return;
+      wb = BigInt(b); wbEl.textContent = fmt(wb, 18, 4); $('#d-max')?.setAttribute('aria-label', `Use all: ${fmt(wb, 18, 4)} ${t.sym} in ${payName()}`); check();
+    }).catch(() => { if (wbEl.isConnected) wbEl.textContent = '—'; });
+    else wbEl.textContent = '—';
+    if (payer() === 'tacit') ethBalance().then((b) => { if (b === 0n) noEthYet($('#d-fund'), b, '', 'deposit it'); });
+    $('#d-max').onclick = () => { if (wb != null) { amt.value = wb ? plain(wb, 18) : ''; amt.dispatchEvent(new Event('input')); } };
+    amt.addEventListener('input', check); check();
+    takeDraft('dep', amt, (d) => d.tac === true);
+    amt.addEventListener('focus', warm, { once: true });
+    go.onclick = () => busy(go, async (run) => {
+      try {
+        const amount = parseUnits(amt.value);
+        if (!amount) throw new Error('Enter an amount.');
+        const owner = await payingAccount();
+        if (amount > BigInt(await ethCall(t.token, SEL.balanceOf + addrWord(owner)))) throw new Error(`More than ${your()} holds.`);
+        const [m, W2] = await Promise.all([getDeviceMods(), tokenWallet(t)]);
+        const label = `Deposit ${fmt(amount, 18, 6)} ${t.sym} on this device`;
+        let pull = await tokenPull(t, amount, step, status), h;
+        for (;;) {
+          W2.connect(payFromTok(label));
+          try { h = await W2.deposit({ amount, selfCall: (tx) => m.routerDeposit(t.router, tx, pull), onStep: step }); break; }
+          catch (e) { if (!e?.noBatch || pull.kind !== 'batch') throw e; pull = await approveFirst(t, amount, step); }
+        }
+        await waitTx(h, { timeoutMs: 20e3, chainId: 1 });
+        clearField(amt); rc.hidden = true;
+        afterAction(html`<span class="ok">Deposited.</span> ${explorer(h)}`);
+      } catch (e) { fail(run, amt, rc, e); }
+    });
+  } else if (DEV.mode === 'send') {
+    mount(f, html`<div class="lbl"><span>To</span></div>
+      <div class="amt text"><input id="d-to" placeholder="tacit1…, name.wei or bp1…" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Recipient"></div>
+      ${amountField('d-amt', 'Amount', maxPriv)}
+      <div class="rcpt" id="d-rcpt" hidden></div>
+      <button class="btn" type="button" id="d-go" disabled>Send privately</button>
+      ${selfNote()}`);
+    wireMax();
+    const toEl = $('#d-to'), amt = $('#d-amt'), go = $('#d-go'), rc = $('#d-rcpt'), dsv = { raw: '', r: null };
+    for (const x of [toEl, amt]) x.addEventListener('focus', warm, { once: true });
+    const check = () => {
+      const amount = parseUnits(amt.value), raw = toEl.value.trim();
+      go.disabled = true; rc.hidden = true; mount(rc, html``);
+      if (raw && dsv.raw !== raw) { dsv.raw = raw; dsv.r = null; tokRecipient(raw).then((r) => { if (dsv.raw === raw) { dsv.r = r; check(); } }); }
+      if (raw && !dsv.r) { mount(rc, html`<p class="note">Looking it up…</p>`); rc.hidden = false; return; }
+      if (raw && dsv.r.error) { warn(rc, dsv.r.error); return; }
+      if (!raw || !amount) return;
+      const m = TK.bal == null ? 0 : merges(amount), over = m == null;
+      go.disabled = over;
+      if (over) warn(rc, overText());
+      else { mount(rc, html`<div class="kv"><span>To</span><b>${dsv.r.label ? `${dsv.r.label} → ` : ''}${short(dsv.r.bp, 8)}</b></div>${idRow(dsv.r.id || dsv.r.bp)}${combine(m)}`); rc.hidden = false; }
+    };
+    toEl.addEventListener('input', check); amt.addEventListener('input', check); check();
+    go.onclick = () => busy(go, async (run) => {
+      try {
+        const amount = parseUnits(amt.value), raw = toEl.value.trim();
+        if (!amount) throw new Error('Enter an amount.');
+        const r = await tokRecipient(raw);
+        if (r.error) throw new Error(r.error);
+        if (r.bp !== dsv.r?.bp) throw new Error('Where that address or name points changed. Check it and send again.');
+        const W2 = await tokenWallet(t);
+        await payingAccount(); W2.connect(payFromTok(`Send ${fmt(amount, 18, 6)} ${t.sym} privately from this device`));
+        const h = await W2.send({ to: r.bp, amount, via: 'self', onStep: step });
+        await waitTx(h, { timeoutMs: 20e3, chainId: 1 });
+        clearField(amt); clearField(toEl); rc.hidden = true;
+        afterAction(html`<span class="ok">Sent.</span> ${explorer(h)}`);
+      } catch (e) { fail(run, amt, rc, e); }
+    });
+  } else if (DEV.mode === 'out') {
+    mount(f, html`<div class="lbl"><span>To</span><button type="button" id="d-me">${mine()}</button></div>
+      <div class="amt text"><input id="d-to" placeholder="0x…" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Recipient address"></div>
+      ${amountField('d-amt', 'Amount', maxPriv)}
+      <div class="rcpt" id="d-rcpt" hidden></div>
+      <button class="btn" type="button" id="d-go" disabled>Withdraw</button>
+      ${selfNote(true)}`);
+    wireMax();
+    const toEl = $('#d-to'), amt = $('#d-amt'), go = $('#d-go'), rc = $('#d-rcpt');
+    $('#d-me').addEventListener('click', () => busy($('#d-me'), async () => { try { toEl.value = await payingAccount(); toEl.dispatchEvent(new Event('input')); } catch (e) { sayErr(status, e); } }));
+    for (const x of [toEl, amt]) x.addEventListener('focus', warm, { once: true });
+    const check = () => {
+      const amount = parseUnits(amt.value), raw = toEl.value.trim();
+      go.disabled = true; rc.hidden = true; mount(rc, html``);
+      if (!amount) return;
+      let bad = null;
+      if (raw) { try { recipientOf(raw); } catch (x) { bad = x; } }
+      const m = TK.bal == null ? 0 : merges(amount), over = m == null;
+      go.disabled = !raw || !!bad || over;
+      if (!raw) return;
+      if (bad && !/^0(x[0-9a-fA-F]{0,39})?$/i.test(raw)) warn(rc, bad.message);
+      else if (over) warn(rc, overText());
+      else if (!bad) { mount(rc, html`${combine(m)}`); rc.hidden = !m; }
+    };
+    toEl.addEventListener('input', check); amt.addEventListener('input', check); check();
+    go.onclick = () => busy(go, async (run) => {
+      try {
+        const amount = parseUnits(amt.value);
+        if (!amount) throw new Error('Enter an amount.');
+        const to = recipientOf(toEl.value), W2 = await tokenWallet(t);
+        await payingAccount(); W2.connect(payFromTok(`Withdraw ${fmt(amount, 18, 6)} ${t.sym} from this device`));
+        const h = await W2.withdraw({ to, amount, via: 'self', onStep: step });
+        await waitTx(h, { timeoutMs: 20e3, chainId: 1 });
+        clearField(amt); rc.hidden = true;
+        afterAction(html`<span class="ok">Withdrawn.</span> ${explorer(h)}`);
+      } catch (e) { fail(run, amt, rc, e); }
+    });
+  } else {
+    const uni = UNI && S.key.tacit;
+    mount(f, W ? html`
+      ${uni ? html`<div class="blk"><div class="kv"><span>Your Tacit address</span><b class="mono">${tacitShort(S.key.tacit)}</b><button class="link" type="button" data-copy="${S.key.tacit}">copy</button></div>
+        ${idRow(S.key.tacit)}
+        <p class="note">A private ${t.sym} send from another person's ${t.sym} pool to this address lands in your balance here once this page reads the pool. ${t.sym} sent from the Tacit pool arrives in the Tacit pool instead.</p></div>` : ''}
+      <div class="blk"><div class="kv"><span>Pool address</span><b class="mono">${short(W.address, 10)}</b><button class="link" type="button" data-copy="${W.address}">copy</button></div>
+        ${idRow(W.address)}
+        <p class="note">For private sends within this pool, from another Tacit user’s device.</p></div>` : html`<p class="note">Reading your addresses…</p>`);
+    $$('[data-copy]', f).forEach((b) => b.onclick = () => copy(b.dataset.copy));
+  }
 }
 
 const BTC = { mode: 'send', asset: 'btc', pub: null, at: 0, loading: null, err: null, share: null, check: null, sp: null, held: [], got: 0, part: false };
@@ -7197,6 +7534,7 @@ const tacMore = () => { if (!S.key) return; refreshScan().catch(() => {}).then((
 async function loadTacHoldings(force = false) {
   const who = [...new Set([S.wallet, S.acct?.address].filter(Boolean).map((a) => a.toLowerCase()))];
   if (!force && TACB.who === who.join() && !TACB.err && Date.now() - (TACB.at || 0) < 60e3) return;
+  if (force) CSEND.pubAt = 0;
   TACB.fee = undefined;
   let out = [];
   try { out = who.length ? await multicall(who.map((a) => ({ to: ADDR.tac, data: SEL.balanceOf + addrWord(a) }))) : []; TACB.err = null; }
@@ -7210,12 +7548,14 @@ function renderTacBal(el) {
   const who = [...new Set([S.wallet, S.acct?.address].filter(Boolean).map((a) => a.toLowerCase()))].join();
   if (!S.key) {
     if (!TACB.signIn && !knownWallet()) {
-      mount(el, html`<p class="note tb-ask">Holding private TAC? <button class="link" type="button" id="tb-open">Open your Tacit wallet</button> to see it, send it or make it public.</p>`);
+      mount(el, html`${S.wallet ? html`<div id="tac-send"></div><div class="status" role="status" id="tac-bal-status"></div>` : ''}<p class="note tb-ask">Holding private TAC? <button class="link" type="button" id="tb-open">Open your Tacit wallet</button> to see it, send it or make it public.</p>`);
       $('#tb-open').onclick = () => { TACB.signIn = true; renderTacBal(el); el.querySelector('.opt')?.focus(); };
+      if (S.wallet) tacSend($('#tac-send'), $('#tac-bal-status'));
       return;
     }
-    mount(el, html`<p class="lede-s">Open your Tacit wallet to see your private TAC, send it, or make it public. It is the same wallet as everywhere on tacit.finance.</p>${signIn('tb')}`);
+    mount(el, html`${S.wallet ? html`<div id="tac-send"></div><div class="status" role="status" id="tac-bal-status"></div>` : ''}<p class="lede-s">Open your Tacit wallet to see your private TAC, send it, or make it public. It is the same wallet as everywhere on tacit.finance.</p>${signIn('tb')}`);
     wireSignIn(el, 'tb');
+    if (S.wallet) tacSend($('#tac-send'), $('#tac-bal-status'));
     return;
   }
   if (!who) { mount(el, html``); return; }
@@ -7334,6 +7674,7 @@ function tacShield(el, status, acctBal, walletBal) {
     go.disabled = over;
     if (over) warn(rc, `More than the ${fmt(balance, 18, 4)} TAC in ${from}.`);
   });
+  if (hxLive('tacwrap')) { takeDraft('tacwrap', amt); setTimeout(() => document.getElementById('tac-shield')?.scrollIntoView({ block: 'center' }), 400); }
   go.onclick = () => busy(go, async (run) => {
     const x = q;
     if (!x) return;
@@ -10074,9 +10415,9 @@ function assetSendForm(el, status, { prefix, sheet, statusId, sources, pick }) {
   if (!sources.length) return;
   const src = sources.find((x) => x.id === pick.pick) || sources[0];
   pick.pick = src.id;
-  const { k, a } = src, show = (v) => fmt(v, src.dec, a.dp), dtk = shownAs(a.tk), out = () => $('#' + statusId);
+  const { k, a } = src, show = (v) => fmt(v, src.dec, src.dp ?? a.dp), dtk = shownAs(a.tk), out = () => $('#' + statusId);
   mount(el, html`
-    <div class="lbl"><span>Send</span>${sources.length > 1 ? html`<span>${sources.map((x, i) => html`${i ? ' · ' : ''}<button type="button" data-${prefix}="${x.id}" aria-pressed="${x.id === src.id}">${x.unit}</button>`)}</span>` : ''}</div>
+    <div class="lbl"><span>Send</span>${sources.length > 1 ? html`<span>${sources.map((x, i) => html`${i ? ' · ' : ''}<button type="button" data-${prefix}="${x.id}" aria-pressed="${x.id === src.id}">${x.label || x.unit}</button>`)}</span>` : ''}</div>
     <div class="lbl"><span>To</span>${!src.pub && S.address ? html`<button type="button" id="${prefix}-me">${mine()}, as ${a.out}</button>` : ''}</div>
     <div class="amt text"><input id="${prefix}-to" placeholder="${src.pub ? '0x…' : 'tacit1…, name.wei or 0x…'}" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Recipient"></div>
     <div class="lbl"><span>Amount</span><button type="button" id="${prefix}-max">${src.pub ? `Public in ${your()}` : 'Private'} ${show(src.held)} ${src.unit}${src.pub ? '' : inUse(k, 8, a.dp, src.unit)}</button></div>
@@ -10141,7 +10482,7 @@ function assetSendForm(el, status, { prefix, sheet, statusId, sources, pick }) {
   };
   onEdit([to, amt], go, check);
   const dr = hxLive('asend');
-  if (dr && dr.k === src.k && !src.pub) {
+  if (dr && dr.k === src.k && !!dr.pub === src.pub) {
     to.value = dr.to || ''; amt.value = dr.amt || ''; HX.draft = null; if (to.value || amt.value) check({});
     const id = el.id; setTimeout(() => document.getElementById(id)?.scrollIntoView({ block: 'center' }), 400);
   }
@@ -10194,8 +10535,8 @@ function readPublicTac() {
   if (!who) return Promise.resolve(null);
   if (CSEND.pubFor === who && Date.now() - CSEND.pubAt < 30e3) return Promise.resolve(CSEND.pub);
   if (CSEND.reading) return CSEND.reading;
-  return (CSEND.reading = multicall(Object.values(CS_ASSETS).map((a) => ({ to: a.token, data: SEL.balanceOf + addrWord(who) })))
-    .then((r) => { CSEND.pub = { cbtc: r[0] ? wordAt(r[0], 0) : 0n, cusd: r[1] ? wordAt(r[1], 0) : 0n }; CSEND.pubAt = Date.now(); CSEND.pubFor = who; return CSEND.pub; })
+  return (CSEND.reading = multicall([...Object.values(CS_ASSETS).map((a) => a.token), ADDR.tac].map((to) => ({ to, data: SEL.balanceOf + addrWord(who) })))
+    .then((r) => { CSEND.pub = { cbtc: r[0] ? wordAt(r[0], 0) : 0n, cusd: r[1] ? wordAt(r[1], 0) : 0n, tac: r[2] ? wordAt(r[2], 0) : 0n }; CSEND.pubAt = Date.now(); CSEND.pubFor = who; return CSEND.pub; })
     .finally(() => { CSEND.reading = null; }));
 }
 function cSend(el, status) {
@@ -10208,11 +10549,16 @@ function cSend(el, status) {
   ].filter((x) => x.held > 0n);
   assetSendForm(el, status, { prefix: 'cs', sheet: 'borrow', statusId: 'bw-status', sources, pick: CSEND });
 }
-const TAC_ASSET = { tk: 'cTAC', out: 'TAC', icon: 'tac', token: ADDR.tac, dp: 2 };
+const TAC_ASSET = { tk: 'cTAC', out: 'TAC', icon: 'tac', pubIcon: 'tac', token: ADDR.tac, dp: 2 };
 const TACSEND = { pick: 'tac' };
 function tacSend(el, status) {
   if (!el) return;
-  const sources = [{ id: 'tac', k: 'tac', a: TAC_ASSET, pub: false, held: privateOf('tac'), unit: shownAs(TAC_ASSET.tk), dec: 8 }].filter((x) => x.held > 0n);
+  const who = payer() === 'tacit' ? S.acct?.address : S.address, had = CSEND.pubFor === who ? CSEND.pub?.tac : undefined;
+  if (who && (CSEND.pubFor !== who || Date.now() - CSEND.pubAt > 30e3)) readPublicTac().then((p) => { if (p && (p.tac ?? 0n) !== (had ?? 0n)) rerender('tac'); }).catch(() => {});
+  const sources = [
+    { id: 'tac', k: 'tac', a: TAC_ASSET, pub: false, held: privateOf('tac'), unit: shownAs(TAC_ASSET.tk), dec: 8, label: 'Private' },
+    { id: 'pub-tac', k: 'tac', a: TAC_ASSET, pub: true, held: CSEND.pubFor === who ? CSEND.pub?.tac ?? 0n : 0n, unit: TAC_ASSET.out, dec: 18, dp: 6, label: 'Public' },
+  ].filter((x) => x.held > 0n);
   assetSendForm(el, status, { prefix: 'ts', sheet: 'tac', statusId: 'tac-bal-status', sources, pick: TACSEND });
 }
 async function nextKeyNonce(t, priv, controller, ps, ownerOf) {
@@ -10279,6 +10625,8 @@ function dashItems() {
     const on = [];
     for (const c of DEVICE_CHAINS) { const v = big(store.get(`tacit-lite-device-bal-v1:${c.chainId}:${k}`)?.v); if (v != null) { dev = (dev || 0n) + v; if (v > 0n) on.push(c.name); } }
     out.push({ key: 'dev', icon: 'tk-eth', label: 'ETH', dec: 18, max: 5, v: dev, meta: on.length ? `private on ${on.join(', ')}` : 'private', open: 'device', show: dev > 0n });
+    const devTac = big(store.get(`tacit-lite-device-bal-v1:tac:${k}`)?.v);
+    out.push({ key: 'devtac', icon: 'tk-tac', label: 'TAC', dec: 18, max: 2, v: devTac, meta: 'private on this device', open: 'device/tac', show: devTac > 0n });
     const xb = xbOf(XA.teth), xbMine = xb.pub === k && xb.notes ? xb.notes.filter((n) => n.amount != null) : null;
     if (!xbMine && !xb.loading && !xb.err && (xb.asked === k || xoJournaled(k) || xbJournaled(k))) loadBridged(false, XA.teth).then(dashSoon, () => {});
     if (xbMine) { const v = xbMine.reduce((a, n) => a + BigInt(n.amount), 0n), ready = xbMine.filter(xbReady).length;
@@ -10292,7 +10640,7 @@ function dashItems() {
   }
   const who = [...new Set([S.wallet, S.acct?.address].filter(Boolean).map((a) => a.toLowerCase()))].join();
   const pubTac = who && TACB.who === who ? TACB.erc : null, privTac = k ? (s ? s.tac.value * E10 : null) : 0n;
-  out.push({ key: 'tac', icon: 'tk-tac', label: 'TAC', dec: 18, max: 2, v: pubTac != null && privTac != null ? pubTac + privTac : null, priv: privTac, err: scanErr || (!!who && TACB.who !== who && !!TACB.err), open: 'tac', core: true, send: spendable('tac') > 0n ? 'tac' : null,
+  out.push({ key: 'tac', icon: 'tk-tac', label: 'TAC', dec: 18, max: 2, v: pubTac != null && privTac != null ? pubTac + privTac : null, priv: privTac, err: scanErr || (!!who && TACB.who !== who && !!TACB.err), open: 'tac', core: true, send: spendable('tac') > 0n ? 'tac' : pubTac > 0n ? 'wtac' : null,
     meta: !k ? 'on Ethereum' : pubTac != null && privTac != null ? `${fmt(privTac, 18, 2)} private · ${fmt(pubTac, 18, 2)} public` : '' });
   if (k) {
     const b = BTC.pub === k ? BTC : null, tacB = b?.held.find((a) => a.id === TAC_BTC_ID), lk = LOCKNOTE.pub === k ? LOCKNOTE : null;
@@ -10331,8 +10679,8 @@ function dashItems() {
 }
 const DASH_DO = { eth: ['private', 'eth', 'v1-finish'], tac: ['tac', 'tac', 'tac-finish'], borrow: ['borrow', 'borrow', 'bw-finish'], claim: ['private', 'eth', 'v1-claim'], back: ['private', 'eth', 'v1-back'],
   pts: ['points', 'pts', '[data-claim]'], air: ['airdrop', 'tac', 'air-claim'], farm: ['farm/public', 'farm', 'pf-claim'], pfarm: ['farm', 'farm', ''], bonds: ['borrow', 'borrow', 'bw-see-bonds'] };
-const DASH_PX = { teth: 'eth', dev: 'eth', tethbtc: 'eth', tacbridged: 'tac', tac: 'tac', btc: 'btc', cbtc: 'btc', cusd: 'usd', tacbtc: 'btc', tacusd: 'usd', tacd: 'usd', tace: 'eth' };
-const DASH_PRIV = new Set(['teth', 'dev', 'tethbtc', 'tacbridged', 'cbtc', 'cusd']);
+const DASH_PX = { teth: 'eth', dev: 'eth', devtac: 'tac', tethbtc: 'eth', tacbridged: 'tac', tac: 'tac', btc: 'btc', cbtc: 'btc', cusd: 'usd', tacbtc: 'btc', tacusd: 'usd', tacd: 'usd', tace: 'eth' };
+const DASH_PRIV = new Set(['teth', 'dev', 'devtac', 'tethbtc', 'tacbridged', 'cbtc', 'cusd']);
 function dashWorth(items) {
   const v = TPX.v;
   if (!v?.usdBtc || !v.ethBtc) { if (!TPX.p && S.key) loadTacPrice().then(dashSoon, () => {}); return null; }
@@ -10435,7 +10783,7 @@ function paintDash() {
     const f = document.activeElement?.closest?.('#dash button');
     const was = f && (f.dataset.dashOpen ? `[data-dash-open="${f.dataset.dashOpen}"]` : f.dataset.asset ? `[data-asset="${f.dataset.asset}"]` : f.dataset.hx ? `[data-hx="${f.dataset.hx}"]` : `[data-dash-do="${f.dataset.dashDo}"]`);
     $('#dash-due').innerHTML = dueHtml; $('#dash-g').innerHTML = gridHtml; DASH.view = view;
-    $$('[data-dash-open]', sec).forEach((b) => b.onclick = () => (b.dataset.dashOpen === 'borrow' ? hxPreset(`borrow:${HX.bm}`) : openSheet(b.dataset.dashOpen)));
+    $$('[data-dash-open]', sec).forEach((b) => b.onclick = () => (b.dataset.dashOpen === 'borrow' ? hxPreset(`borrow:${HX.bm}`) : b.dataset.dashOpen.includes('/') ? openLink(b.dataset.dashOpen) : openSheet(b.dataset.dashOpen)));
     $$('[data-dash-do]', sec).forEach((b) => b.onclick = () => { if (b.dataset.dashDo === 'act') return openAct(); if (b.dataset.dashDo === 'bridge' || b.dataset.dashDo.includes('/')) return openLink(b.dataset.dashDo); const [link, sheet, btn] = DASH_DO[b.dataset.dashDo], press = () => (btn ? $(btn.startsWith('[') ? btn : '#' + btn) : null); const busyThere = running(sheet); (link.includes('/') ? openLink : openSheet)(link); if (busyThere) return; if (press() && !press().disabled) press().click(); else load[sheet]?.().then(() => { rerender(sheet); press()?.click(); }).catch(() => {}); });
     if (was) $(was, sec)?.focus();
   }
@@ -10532,6 +10880,7 @@ const HX = { tab: 'private', mode: 'private', from: 'ether', to: 'tac', route: n
 const HX_TABS = [['private', 'Shield', 'shield'], ['swap', 'Swap', 'swap'], ['send', 'Send', 'send'], ['earn', 'Earn', 'earn'], ['borrow', 'Borrow', 'borrow']];
 const HX_SH = {
   ether: { u: 'ETH', ic: 'eth', name: 'ETH', g: 'In your wallets', place: 'your wallet', ways: ['defi', 'pay', 'btc'] },
+  wtac: { u: 'TAC', ic: 'tac', name: 'TAC, in your wallet', g: 'In your wallets', place: 'your wallet', ways: ['defi', 'pay'] },
   btc: { u: 'TAC', ic: 'tac', name: 'TAC, on Bitcoin', g: 'In your wallets', place: 'your Bitcoin wallet', ways: ['eth', 'pool'] },
   eth: { u: 'tETH', ic: 'teth', name: 'tETH', g: 'Private', place: 'private on Ethereum', priv: true, ways: ['wallet', 'btc'] },
   tac: { u: 'TAC', ic: 'tac', name: 'TAC, private', g: 'Private', place: 'private on Ethereum', priv: true, ways: ['btc', 'wallet'] },
@@ -10544,10 +10893,12 @@ const HX_WAY = {
   'ether>btc': { t: 'On Bitcoin', p: 'two steps · bring it back any time', ic: 'teth', u: 'tETH', mode: 'btc', dir: 'out', gate: 'teth', pr: 'on Bitcoin' },
   'btc>eth': { t: 'On Ethereum', p: 'swap · farm · send', ic: 'tac', u: 'TAC', mode: 'btc', dir: 'in', pr: 'on Ethereum', rev: 'tac>btc' },
   'btc>pool': { t: 'On Bitcoin', p: 'shielded · sells for sats', ic: 'tac', u: 'TAC', mode: 'btcpool', pr: 'on Bitcoin' },
+  'wtac>defi': { t: 'Private TAC', p: 'send · swap · farm', ic: 'tac', u: 'TAC', mode: 'tacwrap', pr: 'private', same: true, rev: 'tac>wallet' },
+  'wtac>pay': { t: 'For payments', p: 'pay anyone · proved on device', ic: 'tac', u: 'TAC', mode: 'paytac', pr: 'on Ethereum', same: true },
   'eth>wallet': { t: 'Back to ETH', p: 'to your wallet, one for one', ic: 'eth', u: 'ETH', mode: 'unwrap', pr: 'in your wallet', rev: 'ether>defi' },
   'eth>btc': { t: 'To Bitcoin', p: 'hold it on Bitcoin, bring it back', ic: 'teth', u: 'tETH', mode: 'btc', dir: 'out', gate: 'teth', pr: 'on Bitcoin', rev: 'tb>back' },
   'tac>btc': { t: 'To Bitcoin', p: 'TAC at your Bitcoin address', ic: 'tac', u: 'TAC', mode: 'btc', dir: 'out', gate: 'tac', pr: 'on Bitcoin', rev: 'btc>eth' },
-  'tac>wallet': { t: 'To your wallet', p: 'public TAC on Ethereum', ic: 'tac', u: 'TAC', mode: 'tacpub', pr: 'public' },
+  'tac>wallet': { t: 'To your wallet', p: 'public TAC on Ethereum', ic: 'tac', u: 'TAC', mode: 'tacpub', pr: 'public', rev: 'wtac>defi' },
   'pp>addr': { t: 'To an address', p: 'public ETH, wherever you name', ic: 'eth', u: 'ETH', mode: 'ppout', pr: 'public', rev: 'ether>pay' },
   'pp>defi': { t: 'Into tETH', p: 'no public stop on the way', ic: 'teth', u: 'tETH', mode: 'ppv1', pr: 'private', eth: true },
   'tb>back': { t: 'Back on Ethereum', p: 'private tETH again', ic: 'teth', u: 'tETH', mode: 'tbback', gate: 'teth', pr: 'private', rev: 'eth>btc' },
@@ -10570,12 +10921,15 @@ function hxNorm() {
   } else if (t === 'swap') { HX.mode = 'swap'; HX.from = HX.swp.from; HX.to = HX.swp.to; }
   else if (t === 'earn') { HX.mode = 'earn'; HX.from = HX.ern; }
   else HX.mode = t;
+  if (HX.send === 'wtac') HX.ask = false;
 }
-const HX_SEND = [['eth', 'tETH', 'teth', 6], ['tac', 'TAC', 'tac', 2], ['cusd', 'cUSD', 'cusd', 2], ['cbtc', 'cBTC', 'cbtc', 6], ['tacb', 'TAC', 'tac', 2], ['btc', 'BTC', 'btc', 8]];
-const HX_SEND_G = [['Private on Ethereum', HX_SEND.slice(0, 4)], ['On Bitcoin', HX_SEND.slice(4)]];
+const HX_SEND = [['eth', 'tETH', 'teth', 6], ['tac', 'TAC', 'tac', 2], ['cusd', 'cUSD', 'cusd', 2], ['cbtc', 'cBTC', 'cbtc', 6], ['wtac', 'TAC', 'tac', 2], ['tacb', 'TAC', 'tac', 2], ['btc', 'BTC', 'btc', 8]];
+const HX_SEND_G = [['Private on Ethereum', HX_SEND.slice(0, 4)], ['In your wallet', HX_SEND.slice(4, 5)], ['On Bitcoin', HX_SEND.slice(5)]];
 const hxSendOf = (k = HX.send) => HX_SEND.find(([x]) => x === k) || HX_SEND[0];
 const hxSendBtc = (k = HX.send) => k === 'tacb' || k === 'btc';
-const hxSendHeld = () => (S.key && P.scan && !hxSendBtc() ? spendable(HX.send) : null);
+const hxSendWallet = (k = HX.send) => k === 'wtac';
+const hxSendHeld = () => (hxSendWallet() ? hxWalletTac() : S.key && P.scan && !hxSendBtc() ? spendable(HX.send) : null);
+const hxSendLabel = () => (hxSendBtc() ? 'Continue in Pay' : hxSendWallet() ? 'Send TAC' : hxRcptKind() === 'eth' ? 'Send to the address' : 'Send privately');
 const HX_ETHER = ['ether', 'ETH', 'eth', 6];
 const HX_SATS = ['sats', 'sats', 'btc', 0];
 const HX_TETH = ['eth', 'tETH', 'teth'], HX_TACOUT = ['tac', 'TAC', 'tac'];
@@ -10729,9 +11083,9 @@ const hxPubWithPx = (route) => { const px = loadTacPrice().catch(() => {}); retu
 const HX_QUICK = { eth: ['0.1', '0.5', '1'], tac: ['500', '1000'], sats: ['50000', '200000'], btc: ['0.005', '0.01'], cusd: ['100', '500'], cbtc: ['0.005', '0.01'] };
 function hxAmtKind() {
   const t = HX.tab;
-  if (t === 'private') return { ether: 'eth', eth: 'eth', pp: 'eth', tb: 'eth', btc: 'tac', tac: 'tac' }[HX.sf];
+  if (t === 'private') return { ether: 'eth', eth: 'eth', pp: 'eth', tb: 'eth', btc: 'tac', tac: 'tac', wtac: 'tac' }[HX.sf];
   if (t === 'borrow') return 'btc';
-  if (t === 'send') return { eth: 'eth', tac: 'tac', tacb: 'tac', cusd: 'cusd', cbtc: 'cbtc', btc: 'btc' }[HX.send];
+  if (t === 'send') return { eth: 'eth', tac: 'tac', wtac: 'tac', tacb: 'tac', cusd: 'cusd', cbtc: 'cbtc', btc: 'btc' }[HX.send];
   const f = HX.from;
   return f === 'ether' || f === 'eth' ? 'eth' : f === 'wtac' ? 'tac' : f;
 }
@@ -10756,6 +11110,8 @@ function hxHandoff(m, units) {
     line: `Proved on this device, then sent from your wallet: you pay the network fee and no relay fee. The deposit shows on ${ch.name}; whose private balance it lands in does not.${ch.points === false ? ` No TAC points on ${ch.name}.` : ''}` };
   if (m === 'btcpool') return { out: 'Private', go: 'Shield TAC on Bitcoin', line: 'Your TAC on Bitcoin goes into the shielded pool on Bitcoin. It hides who holds it, and it sells for sats on the Bitcoin order book.' };
   if (m === 'unwrap') return { out: amt, go: 'Turn tETH into ETH', line: 'To your wallet, one for one, less the relay fee, which the next step shows.' };
+  if (m === 'paytac') return { out: amt, go: 'Deposit privately', line: `Proved on this device, then sent from ${your()}: you pay the network fee and no relay fee. The deposit shows on Ethereum; whose private balance it lands in does not.` };
+  if (m === 'tacwrap') return { out: amt, go: 'Make TAC private', line: `One transaction from ${your()}, with a signed permit instead of a separate approval. The relay then proves your private note.` };
   if (m === 'tacpub') return { out: 'All', go: 'Make TAC public', line: 'All your private TAC becomes ERC-20 TAC in your Ethereum account at once, ready to sell, send or farm. The next step shows the relay fee.' };
   if (m === 'ppout') return { out: amt, go: 'Withdraw ETH', line: `From your pool on ${ch.name} to any address, public. A small relay fee, or send it from your wallet for the network fee alone.` };
   if (m === 'ppv1') return { out: amt, go: 'Move ETH into tETH', line: 'Straight into the Tacit pool, with no public stop on the way. A small relay fee, shown in the next step.' };
@@ -10772,7 +11128,12 @@ async function hxOutQuote(units) {
       : small ? `Take out more than ${fmt(fee, 8, 6)} tETH: the relay fee comes out of it.`
       : `${own ? 'No relay fee: proved on your own credit' : `Relay fee ${fmt(fee, 8, 6)} ETH, out of it`}${size ? `, and ${fmt(size, 8, 6)} tETH from your balance to combine notes first` : ''}. To your wallet or any address you name next.` };
 }
+function hxSendWalletQuote(units) {
+  const held = hxWalletTac(), over = held != null && units * E10 > held;
+  return { warn: over, line: over ? `You hold ${fmt(held, 18, 4)} TAC in your wallet.` : `They get ${fmt(units, 8, 6)} TAC. A plain transfer from ${your()}: public, and you pay the network fee.` };
+}
 async function hxSendQuote(units) {
+  if (hxSendWallet()) return hxSendWalletQuote(units);
   if (hxRcptKind() === 'eth') return hxSendOutQuote(units);
   const k = HX.send, [, unit, , dp] = hxSendOf(k), tk = POOL_TK[k], show = (v) => `${fmt(v, 8, dp)} ${unit}`;
   const t = await getUx(), held = S.key && P.scan ? spendable(k) : null, notes = freeNotes(P.scan?.[k]?.notes), exact = notes.some((n) => BigInt(n.value) === units);
@@ -10790,6 +11151,7 @@ function hxSendFit() {
   if (r === 'eth') { try { recipientOf(HX.rcpt); } catch (e) { return e.message; } }
   if (r === 'btc' && HX.send === 'tacb') return 'TAC on Bitcoin goes to a tacit1 address or a name. A Bitcoin address takes BTC.';
   if (r === 'btc' && HX.send !== 'btc') return 'That is a Bitcoin address. To pay it, choose BTC.';
+  if (hxSendWallet() && HX.rcpt && !r) return 'TAC in your wallet goes to an Ethereum address (0x…). To pay a Tacit address, make it private first.';
   return '';
 }
 async function hxSendOutQuote(units) {
@@ -10804,6 +11166,7 @@ async function hxSendOutQuote(units) {
       : `They get ${fmt(units - fee, 8, dp)} ${as} at that address${own ? ', with no relay fee' : `: the relay fee of ${show(fee)} comes out of it`}${size ? `, and ${show(size)} from your balance ${notes.some((n) => BigInt(n.value) >= units + size) ? 'splits a note' : 'combines notes'} first` : ''}.` };
 }
 function hxSendWhy(k = HX.send) {
+  if (k === 'wtac') return 'A public transfer from your wallet: the address and the amount can be seen.';
   if (k === 'btc') return hxRcptKind() === 'btc' && !/^sp1/i.test(HX.rcpt) ? 'A plain Bitcoin payment: public on chain.' : 'A silent payment: it lands at a fresh address only they can find.';
   if (k === 'tacb') return 'Inside the shielded pool on Bitcoin: the recipient and the amount are hidden.';
   return hxRcptKind() === 'eth' ? 'A public payment: the address and the amount can be seen.' : 'Nobody sees how much or to whom.';
@@ -10819,7 +11182,7 @@ async function hxAskGo() {
 }
 function hxSendAuto() {
   if (HX.tab !== 'send' || HX.sendPick || HX.amt || HX.ask || !S.key || !P.scan || spendable(HX.send) > 0n) return false;
-  const k = HX_SEND.slice(0, 4).find(([x]) => spendable(x) > 0n)?.[0];
+  const k = HX_SEND.slice(0, 4).find(([x]) => spendable(x) > 0n)?.[0] || (hxWalletTac() > 0n ? 'wtac' : null);
   if (!k || k === HX.send) return false;
   HX.send = k;
   return true;
@@ -10836,7 +11199,7 @@ function hxRcptCheck() {
   if (!el) return;
   const full = /\.(eth|wei|gwei)$/i.test(raw) || /^(tacit1[0-9a-z]{80,}|bp1[0-9a-z]{20,})$/i.test(raw);
   el.hidden = true;
-  if (!raw || HX.ask || hxSendBtc() || hxRcptKind()) return;
+  if (!raw || HX.ask || hxSendBtc() || hxSendWallet() || hxRcptKind()) return;
   const show = (warn, view) => { if (my !== hxRcSeq || !el.isConnected) return; mount(el, view); el.classList.toggle('warn', warn); el.hidden = false; };
   hxRcT = setTimeout(() => {
     resolveToM(raw).then((r) => {
@@ -10882,6 +11245,7 @@ function hxSendGo() {
   HX.draft = null;
   hxRecentAdd(to);
   if (hxSendBtc(k)) { const a = u ? plain(u, 8) : ''; location.href = `/pay/#${k === 'btc' ? 'btc' : 'tac'}${to || a ? `&to=${encodeURIComponent(to)}&amount=${encodeURIComponent(a)}` : ''}`; return; }
+  if (k === 'wtac') { readPublicTac().catch(() => {}).then(() => { hxDraft({ mode: 'asend', k: 'tac', pub: true, to, amt }); TACSEND.pick = 'pub-tac'; openLink('tac'); }); return; }
   if (S.key && P.scan && spendable(k) === 0n) return;
   if (k === 'eth' && hxRcptKind() === 'eth') { hxDraft({ mode: 'out', to, amt }); return openLink('private/withdraw'); }
   if (k === 'eth') { hxDraft({ mode: 'send', to, amt }); return openLink('private/send'); }
@@ -10889,11 +11253,11 @@ function hxSendGo() {
   (k === 'tac' ? TACSEND : CSEND).pick = k;
   openLink(k === 'tac' ? 'tac' : 'borrow');
 }
-const HX_GET = { eth: ['shield:ether:defi', 'Make ETH private first'], tac: ['swap:ether:tac', 'Buy TAC'], cusd: ['borrow:cusd', 'Borrow some'], cbtc: ['borrow:cbtc', 'Mint some'], tacb: ['shield:btc:pool', 'Shield TAC on Bitcoin'] };
+const HX_GET = { eth: ['shield:ether:defi', 'Make ETH private first'], tac: ['swap:ether:tac', 'Buy TAC'], wtac: ['swap:ether:tac', 'Buy TAC'], cusd: ['borrow:cusd', 'Borrow some'], cbtc: ['borrow:cbtc', 'Mint some'], tacb: ['shield:btc:pool', 'Shield TAC on Bitcoin'] };
 function hxHaveSend(el, pub) {
-  const k = HX.send, [, unit, ic] = hxSendOf(k), h = pub ? hxHeldOf(k) : null, none = !!h && h[0] === 0n, get = HX_GET[k], go = $('#hx-go');
-  if (go) { go.disabled = (none && !hxSendBtc()) || !!hxSendFit(); go.textContent = hxSendBtc() ? 'Continue in Pay' : hxRcptKind() === 'eth' ? 'Send to the address' : 'Send privately'; }
-  const view = none && get ? html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><span>No ${k === 'tacb' ? 'TAC shielded on Bitcoin' : `private ${unit}`} yet.</span><button class="link" type="button" data-hxin="${get[0]}">${get[1]}</button></span>` : null;
+  const k = HX.send, [, unit, ic] = hxSendOf(k), h = pub || hxSendWallet(k) ? hxHeldOf(k) : null, none = !!h && h[0] === 0n, get = k === 'tac' && hxWalletTac() > 0n ? ['shield:wtac:defi', 'Make your TAC private'] : HX_GET[k], go = $('#hx-go');
+  if (go) { go.disabled = (none && !hxSendBtc()) || !!hxSendFit(); go.textContent = hxSendLabel(); }
+  const view = none && get ? html`<span class="hx-pl"><svg class="tk" aria-hidden="true"><use href="#tk-${ic}"/></svg><span>No ${k === 'tacb' ? 'TAC shielded on Bitcoin' : k === 'wtac' ? `TAC in ${your()}` : `private ${unit}`} yet.</span><button class="link" type="button" data-hxin="${get[0]}">${get[1]}</button></span>` : null;
   el.hidden = !view;
   if (view && el.__h !== view.s) { el.__h = view.s; mount(el, view); }
   if (!view) el.__h = '';
@@ -11366,8 +11730,8 @@ function hxBalPaint() {
   };
 }
 function hxSubOf(id, k) {
-  if (id === 'hx-from' && HX.tab === 'private') return k === 'pp' ? `private, for payments on ${hxChain().name}` : HX_SH[k]?.place || '';
-  if (id === 'hx-sa') return { eth: 'ETH, made private', tac: "Tacit’s token", cusd: 'a dollar on cBTC', cbtc: 'Bitcoin on Ethereum', tacb: 'shielded, finished in Pay', btc: 'a silent payment, finished in Pay' }[k] || '';
+  if (id === 'hx-from' && HX.tab === 'private') return k === 'pp' ? `private, for payments on ${hxChain().name}` : k === 'wtac' ? your() : HX_SH[k]?.place || '';
+  if (id === 'hx-sa') return { eth: 'ETH, made private', tac: "Tacit’s token", cusd: 'a dollar on cBTC', cbtc: 'Bitcoin on Ethereum', wtac: 'ERC-20 in your wallet', tacb: 'shielded, finished in Pay', btc: 'a silent payment, finished in Pay' }[k] || '';
   return k === 'ether' || k === 'wtac' ? 'in your wallet' : k === 'sats' ? 'in your Bitcoin wallet' : id === 'hx-to' && HX.from === 'sats' ? 'at your Bitcoin address' : 'private on Ethereum';
 }
 function hxPick(sel, opener) {
@@ -11482,6 +11846,8 @@ function hxGo() {
   if (m === 'btcpool') { location.href = '/tac/'; return; }
   if (m === 'unwrap') { hxDraft({ mode: 'out', amt }); return openLink('private/withdraw'); }
   if (m === 'tacpub') return openLink('sell');
+  if (m === 'tacwrap') { hxDraft({ mode: 'tacwrap', amt }); return openLink('tac'); }
+  if (m === 'paytac') { hxDraft({ mode: 'dep', amt, tac: true }); return openLink('device/tac/deposit'); }
   if (m === 'ppout' || m === 'ppv1') { const c = hxChain(); DEV.dest = m === 'ppv1' ? 'v1' : 'addr'; hxDraft({ mode: 'dout', amt, chain: c.chainId, all: HX.max }); return openLink(`device/${chainSlug(c)}/withdraw`); }
   if (m === 'tbback') return openLink('private/bitcoin');
   if (m === 'borrow') {
@@ -11588,7 +11954,7 @@ function paintHx() {
     const entry = (k) => { const s = HX_SH[k]; return [k, s.u, s.ic, 6, s.name]; };
     const srcs = hxSources(), groups = ['In your wallets', 'Private', 'On Bitcoin'].map((g) => [g, srcs.filter((k) => HX_SH[k].g === g).map(entry)]).filter(([, l]) => l.length);
     const [rf, rw] = (here.rev || '>').split('>'), revOk = !!(here.rev && HX_SH[rf] && hxWays(rf).includes(rw));
-    const place = HX.sf === 'pp' ? `for payments on ${hxChain().name}` : src.place, taken = !!src.priv || HX.sf === 'tb';
+    const place = HX.sf === 'pp' ? `for payments on ${hxChain().name}` : HX.sf === 'wtac' ? your() : src.place, taken = !!src.priv || HX.sf === 'tb';
     const way = (w) => {
       const x = HX_WAY[`${HX.sf}>${w}`], on = w === HX.sd, pr = x.pr === 'chain' ? `on ${hxChain().name}` : x.pr;
       const inner = html`<svg class="tk" aria-hidden="true"><use href="#tk-${x.ic}"/></svg><span class="hx-rt"><b>${x.t}</b><small>${hxNb(x.p)}</small></span><span class="hx-ra"><span>${on ? html`<output class="ph" id="hx-out" for="hx-amt">0.00</output>` : x.same ? html`<span data-hxa></span>` : ''} ${x.u}</span>${pr ? html`<small>${pr}</small>` : ''}</span>${many ? html`<span class="hx-rd" aria-hidden="true"></span>` : ''}`;
@@ -11620,7 +11986,7 @@ function paintHx() {
       ${S.key ? html`<p class="hx-bw-f" id="hx-bw-hold" hidden></p><p class="hx-q" id="hx-bw-s" aria-live="polite"></p>${HX.bwMore && LOCK.state?.rec ? html`<p class="hx-bw-f"><button class="link" type="button" id="hx-bw-back">Back to your lock</button></p>` : ''}` : ''}
       <a class="hx-more" href="/vault/">Borrow against TAC →</a>`;
   } else {
-    const [, unit] = hxSendOf(), btcPay = HX.send === 'btc', at = HX.send === 'tacb' ? ['private on Bitcoin', true, 'btc'] : btcPay ? ['your Bitcoin address', false, 'btc'] : ['private on Ethereum', true, 'eth'];
+    const [, unit] = hxSendOf(), btcPay = HX.send === 'btc', at = HX.send === 'tacb' ? ['private on Bitcoin', true, 'btc'] : btcPay ? ['your Bitcoin address', false, 'btc'] : hxSendWallet() ? [your(), false, 'tac'] : ['private on Ethereum', true, 'eth'];
     HX.askFor = S.key?.tacit || '';
     body = HX.ask ? html`${field('You ask for', where(...at), amt(`${unit} to ask for`), coin('hx-sa', 'Asset to ask for', HX_SEND_G, HX.send, true), html`<div class="hx-ff"><span class="hx-sub" id="hx-sub"></span></div>`)}
       ${mid()}
@@ -11631,11 +11997,11 @@ function paintHx() {
       <p class="hx-q"><button class="link" type="button" id="hx-pay">Send instead</button></p>`
     : html`${field('You send', where(...at), amt(`${unit} to send`), coin('hx-sa', 'Asset to send', HX_SEND_G, HX.send, true), subline)}
       ${mid()}
-      ${field('To', btcPay ? where('anyone with a Bitcoin address', false, 'btc') : where('anyone, on either chain', false, 'tac'), html`<input class="hx-to" id="hx-rcpt" placeholder="${btcPay ? 'tacit1…, sp1… or bc1…' : HX.send === 'tacb' ? 'tacit1… or name.wei' : 'tacit1…, name.wei or 0x…'}" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Recipient" value="${HX.rcpt}">`, '', html`<div class="hx-rc" id="hx-rc" aria-live="polite" hidden></div><div class="hx-recent" id="hx-recent" hidden></div>`)}
+      ${field('To', btcPay ? where('anyone with a Bitcoin address', false, 'btc') : hxSendWallet() ? where('any Ethereum address', false, 'eth') : where('anyone, on either chain', false, 'tac'), html`<input class="hx-to" id="hx-rcpt" placeholder="${btcPay ? 'tacit1…, sp1… or bc1…' : HX.send === 'tacb' ? 'tacit1… or name.wei' : hxSendWallet() ? '0x…' : 'tacit1…, name.wei or 0x…'}" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Recipient" value="${HX.rcpt}">`, '', html`<div class="hx-rc" id="hx-rc" aria-live="polite" hidden></div><div class="hx-recent" id="hx-recent" hidden></div>`)}
       <div class="hx-have" id="hx-have" hidden></div>
-      <button class="btn" type="button" id="hx-go">${hxSendBtc() ? 'Continue in Pay' : 'Send privately'}</button>
+      <button class="btn" type="button" id="hx-go">${hxSendLabel()}</button>
       <p class="hx-q" id="hx-q" aria-live="polite">${hxSendWhy()}</p>
-      <p class="hx-q"><button class="link" type="button" id="hx-ask">Request a payment</button></p>`;
+      ${hxSendWallet() ? '' : html`<p class="hx-q"><button class="link" type="button" id="hx-ask">Request a payment</button></p>`}`;
   }
   mount(el, html`${head}<div class="hx-b" id="hx-panel" role="tabpanel" aria-labelledby="hx-tab-${m}">${body}</div>`);
   if (m === 'borrow') hxBwHold();
