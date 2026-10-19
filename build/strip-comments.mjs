@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 // Removes the comments from JavaScript files, in place, and proves that nothing else changed.
 //
-//   node build/strip-comments.mjs dapp/tacit.js dapp/confidential-pool.js
+//   node build/strip-comments.mjs dapp/tacit.js dapp/confidential-pool.js dapp/index.html
+//
+// An .html page has its inline scripts stripped (each checked on its own); its markup and styles are left alone, and so are the `// preload-later:` and
+// `// preload-intent:` marks that build.mjs writes generated lines between.
 //
 // The site is served as these files, byte for byte, and its host compresses them with a quick setting: the comments of tacit.js were 45% of what a visitor
 // downloaded for it. A file is rewritten only when esbuild minifies the original and the stripped text to the same output (minifying drops every comment and
@@ -14,7 +17,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
-const KEEP = /^\/\*!|@license|@preserve|sourceMappingURL|@vite-ignore|webpackIgnore|webpackChunkName|#__PURE__|@__PURE__|@ts-/;
+const KEEP = /^\/\*!|@license|@preserve|sourceMappingURL|@vite-ignore|webpackIgnore|webpackChunkName|#__PURE__|@__PURE__|@ts-|preload-(later|intent):/;     // the last two are the marks build.mjs writes its generated lines between
 const WORD_BEFORE_REGEX = new Set(['return', 'typeof', 'case', 'in', 'of', 'delete', 'void', 'throw', 'new', 'else', 'do', 'instanceof', 'yield', 'await', 'extends']);
 const isIdChar = (c) => /[\w$\u0080-￿]/.test(c);
 
@@ -153,16 +156,32 @@ export function sameProgram(esbuild, a, b) {
   return esbuild.transformSync(a, opts).code === esbuild.transformSync(b, opts).code;
 }
 
+// An HTML page's inline scripts (the ones with no src, not JSON): each is stripped and checked on its own; the markup and the styles are left as they are.
+const INLINE_SCRIPT = /(<script\b(?![^>]*\bsrc=)(?![^>]*type="(?:application\/(?:ld\+)?json|importmap|speculationrules)")[^>]*>)([\s\S]*?)(<\/script>)/g;
+export function stripPage(esbuild, html) {
+  let bad = 0;
+  const out = html.replace(INLINE_SCRIPT, (all, open, body, close) => {
+    const stripped = stripComments(body);
+    if (stripped === body) return all;
+    if (!sameProgram(esbuild, body, stripped)) { bad++; return all; }
+    return open + stripped + close;
+  });
+  return { out, bad };
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const require = createRequire(import.meta.url);
   const esbuild = require('esbuild');
   const files = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-  if (!files.length) { console.error('usage: node build/strip-comments.mjs <file.js> …'); process.exit(2); }
+  if (!files.length) { console.error('usage: node build/strip-comments.mjs <file.js | page.html> …'); process.exit(2); }
   let failed = 0, saved = 0;
   for (const f of files) {
-    const src = readFileSync(f, 'utf8'), out = stripComments(src);
-    if (out === src) { console.log(`${f}: no comments to strip`); continue; }
-    if (!sameProgram(esbuild, src, out)) { console.error(`${f}: the stripped text is not the same program: left as it was`); failed++; continue; }
+    const src = readFileSync(f, 'utf8');
+    let out, bad = 0;
+    if (/\.html?$/.test(f)) ({ out, bad } = stripPage(esbuild, src)); else out = stripComments(src);
+    if (bad) { console.error(`${f}: ${bad} inline script(s) are not provably the same program once stripped: left as they were`); failed++; }
+    if (out === src) { if (!bad) console.log(`${f}: no comments to strip`); continue; }
+    if (!/\.html?$/.test(f) && !sameProgram(esbuild, src, out)) { console.error(`${f}: the stripped text is not the same program: left as it was`); failed++; continue; }
     writeFileSync(f, out);
     saved += src.length - out.length;
     console.log(`${f}: ${src.length} → ${out.length} bytes`);

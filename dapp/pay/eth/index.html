@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-LFlEJFzkMpA7I42PQoQqhmHYtxn5aVQb7Af50A5PmcA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://ethereum-rpc.publicnode.com https://mainnet.gateway.tenderly.co https://eth.drpc.org https://1rpc.io https://rpc.flashbots.net https://mainnet.base.org https://base.gateway.tenderly.co https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-DmlnlWZCNaFRDbWvkte1O/XhlA9spt/Dx7bsOmsgEwI=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://ethereum-rpc.publicnode.com https://mainnet.gateway.tenderly.co https://eth.drpc.org https://1rpc.io https://rpc.flashbots.net https://mainnet.base.org https://base.gateway.tenderly.co https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay · ETH</title>
 <meta name="description" content="Private ETH payments on Ethereum, Base, Robinhood Chain and MegaETH. Deposit, pay privately and withdraw any part, proved on your device and recovered from your key.">
@@ -675,12 +675,10 @@ import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { qrSvg as qrMarkup } from '/qr.js?cb=926d16be';
 
 if (!secp.etc.hmacSha256Sync) secp.etc.hmacSha256Sync = (k, ...m) => hmac(sha256, k, concatBytes(...m));
-// The rest of the page's modules, asked for now that the ones it waited on are here.
 // preload-later:begin
 for (const u of ["/evm-pool-zk.js","/btc-pool-zk.js","/amm-bjj.js","/evm-pool-wallet.js?cb=6e541561","/btc-shielded-pool.js","/vendor/tacit-poseidon.min.js","/btc-pool-zk-boundary.js","/amm-sigma.js","/bulletproofs.js","/bulletproofs-plus.js","/evm-pool-scan.js","/evm-pool-gateway.js","/evm-pool-zk-prover.js?cb=00ff69c2"]) document.head.append(Object.assign(document.createElement('link'), { rel: 'modulepreload', href: u }));
 // preload-later:end
 
-// ── config ───────────────────────────────────────────────────────────────────────────────────────────────
 const POOL = '0x000000c2A20657CE25f2Ba99737933D031AFBEE9', ROUTER = '0x0000006C96Afa6f1cD4DF8FE19bc0d8B6A6Cd7B5';
 const ZERO = '0x0000000000000000000000000000000000000000';
 const CHAINS = [
@@ -690,8 +688,6 @@ const CHAINS = [
     explorer: 'https://basescan.org', keeper: 'https://tacit-evm-pool-keepers.onrender.com/8453/evm-pool/keeper', deployBlock: 51864014, confirmations: 10, gasReserve: 10n ** 14n },
   { chainId: 4663, key: 'robinhood', name: 'Robinhood', full: 'Robinhood Chain', rpc: ['https://rpc.mainnet.chain.robinhood.com'],
     explorer: 'https://robinhoodchain.blockscout.com', keeper: 'https://tacit-evm-pool-keepers.onrender.com/4663/evm-pool/keeper', deployBlock: 73991661, confirmations: 10, gasReserve: 10n ** 14n },
-  // MegaETH makes a block a second, so its logs are read 100,000 blocks at a time (its public node serves that range); it has no
-  // canonical bridge here (no move from Ethereum), and the points program does not count its deposits.
   { chainId: 4326, key: 'megaeth', name: 'MegaETH', full: 'MegaETH', rpc: ['https://mainnet.megaeth.com/rpc', 'https://megaeth.drpc.org'],
     explorer: 'https://mega.etherscan.io', keeper: 'https://tacit-evm-pool-keepers.onrender.com/4326/evm-pool/keeper', deployBlock: 28397750, confirmations: 30, gasReserve: 10n ** 14n, logChunk: 100000, points: false },
 ];
@@ -701,33 +697,22 @@ const CHAIN_META = {
   4663: { chainName: 'Robinhood Chain', rpcUrls: ['https://rpc.mainnet.chain.robinhood.com'], blockExplorerUrls: ['https://robinhoodchain.blockscout.com'] },
   4326: { chainName: 'MegaETH', rpcUrls: ['https://mainnet.megaeth.com/rpc'], blockExplorerUrls: ['https://mega.etherscan.io'] },
 };
-// Each L2's canonical bridge on Ethereum (evm-pool-gateway L2_BRIDGES), to name a move in the history.
 const BRIDGES = { Base: '0x3154Cf16ccdb4C6d922629664174b904d80F2C35', 'Robinhood Chain': '0x1A07cc4BD17E0118BdB54D70990D2158AbAD7a2D' };
-// Gas a relayed withdraw-and-call through each L2's canonical bridge needs (the wallet's bridgeOut asks the same).
 const BRIDGE_GAS = { 8453: 1_300_000, 4663: 700_000 };
-const ARTIFACT_CACHE = 'tacit-evm-pool-artifacts-v1';                  // shared with weld and Secret Sats
-const BAL_SEEN = 'tacit-pay-bal-v1';                                  // last balances read, per key and chain: shown muted until fresh
+const ARTIFACT_CACHE = 'tacit-evm-pool-artifacts-v1';
+const BAL_SEEN = 'tacit-pay-bal-v1';
 const PAY_ID = 'tacit-pay-id-v1', CHAIN_PREF = 'tacit-pay-chain-v1', ROUTE_PREF = 'tacit-pay-route-v1';
-// Showing the unified tacit1… address (it carries the pool keys) and offering names the one-press upgrade to it, once
-// every app that reads tacit1… reads the pool lane. Sending to one works either way.
 const UNIFIED_LIVE = true;
 const POLL_MS = 30_000, POLL_OTHER_MS = 120_000, BOXES = 41;
 
-// ── small helpers ────────────────────────────────────────────────────────────────────────────────────────
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 const strip = (h) => String(h).replace(/^0x/, '');
 const lc = (s) => String(s || '').toLowerCase();
-// A long address as its start and end. A Tacit address starts with 10 characters every one shares (the prefix and its
-// format), so it keeps n of its own after them: what shows is the address's own.
 const short = (a, n = 4) => { if (!a) return ''; const head = /^tacit1/.test(a) ? 10 + n : n + 2; return a.length > head + n + 2 ? `${a.slice(0, head)}…${a.slice(-n)}` : a; };
-// The wallet chip's Tacit address: its short form, and on a narrow screen the prefix and six characters of its own.
 const chipView = (a) => (/^tacit1/.test(a || '') && a.length > 30 ? html`<span class="wide">${short(a, 6)}</span><span class="narrow">tacit1…${a.slice(10, 16)}</span>` : html`${short(a, 6)}`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-// Hands the thread back so queued input, timers and network callbacks run; unlike a timer it is not slowed in a background tab.
 const idle = (() => { const q = [], ch = new MessageChannel(); ch.port1.onmessage = () => q.shift()?.(); return () => new Promise((r) => { q.push(r); ch.port2.postMessage(0); }); })();
-// Runs `draw` (a repaint of `root`) and puts focus, and a field's caret, back on the element that had them, found again by id.
-// A control with no id is found again by its place among the region's focusable controls, when it reads the same.
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), summary, select, textarea';
 const focusKey = (el) => `${el.tagName}|${el.textContent.trim()}|${el.getAttribute('aria-label') || ''}`;
 function keepFocus(root, draw) {
@@ -741,8 +726,6 @@ function keepFocus(root, draw) {
   n.focus({ preventScroll: true });
   if (at) try { n.setSelectionRange(...at); } catch {}
 }
-// A request's note as a link carries it: no direction-changing or other invisible characters, line breaks read as spaces,
-// at most 60 long.
 const noteOf = (s) => String(s || '').replace(/\p{Cf}/gu, '').replace(/[\p{Cc}\s]+/gu, ' ').trim().slice(0, 60);
 const lazy = (f) => { let p = null; return () => (p ||= f().catch((e) => { p = null; throw e; })); };
 const readJson = (k) => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
@@ -757,13 +740,9 @@ class Raw { constructor(s) { this.s = s; } }
 const part = (v) => v instanceof Raw ? v.s : Array.isArray(v) ? v.map(part).join('') : v == null || v === false ? '' : String(v).replace(/[&<>"']/g, (c) => escMap[c]);
 const html = (strs, ...vals) => new Raw(strs.reduce((a, s, i) => a + part(vals[i - 1]) + s));
 const mount = (el, view) => { if (el) el.innerHTML = view.s; };
-// A region redrawn only when what it shows changed, so an identical redraw does not take a press or the focus from it.
 const mountOnce = (el, view) => { if (el && el._drawn !== view.s) { el._drawn = view.s; el.innerHTML = view.s; } };
-// A QR code (dapp/qr.js, shared with the hub) as markup the page mounts.
 const qrSvg = (...a) => new Raw(qrMarkup(...a));
 
-// `down` cuts at `max` decimals instead of rounding, for a balance or the most that can be spent: what it shows, typed
-// back, is never more than there is. A negative amount too small to show reads as 0.
 function fmt(v, dec = 18, max = 6, down = false) {
   v = BigInt(v);
   const neg = v < 0n; if (neg) v = -v;
@@ -780,14 +759,9 @@ function fmt(v, dec = 18, max = 6, down = false) {
   return (neg ? '-' : '') + whole.toLocaleString('en-US') + (f ? '.' + f : '');
 }
 const plain = (v) => fmt(v, 18, 18).replace(/,/g, '');
-// An amount to the wei, as a request or a payment names it.
 const exact = (v) => fmt(v, 18, 18);
-// An amount too small to show at 6 decimals reads as '< 0.000001', not as zero.
 const eth = (v) => fmt(v, 18, 6);
-// A balance, or the most a spend can take, at 6 decimals and cut rather than rounded up.
 const ethDown = (v) => fmt(v, 18, 6, true);
-// A decimal comma counts (1,5 is 1.5, as a comma keypad types it), and so do thousands commas (1,234.5 or 1,000,000).
-// A lone comma before exactly three digits (1,500) could mean either, so it is refused, never guessed.
 function parseUnits(s, dec = 18) {
   let t = String(s || '').trim();
   if (t.includes(',')) {
@@ -800,8 +774,6 @@ function parseUnits(s, dec = 18) {
   if (f.length > dec) return null;
   return BigInt(w || '0') * 10n ** BigInt(dec) + BigInt((f + '0'.repeat(dec)).slice(0, dec) || '0');
 }
-// Says why an amount is not read, beside the field, where a screen reader finds it with the field. It is written only
-// when what it says changes, so a keystroke that leaves the reason as it was is not read out again.
 function amountHint(i, msg) {
   const box = i.closest('.amt') || i, at = box.nextElementSibling?.matches?.('[data-amt-hint]') ? box.nextElementSibling : null;
   if (!msg) return at?.remove();
@@ -826,13 +798,9 @@ const ago = (sec) => {
   return new Date(sec * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 };
 
-// Toasts sit in a popover, the top layer, raised above whatever sheet is open whenever one appears. A modal dialog makes
-// everything outside it inert, a popover included, so the toasts sit inside the topmost open dialog (the page itself when
-// none is open): their links and buttons then work over a sheet. tacit.js posts its own toasts into the same container.
 const toasts = $('#toast-container');
 const openDialogs = [];
 const announce = (t) => { const el = $('#live'); if (el) el.textContent = t; };
-// The live region moves with them: outside the top modal it would be inert, and nothing in it would be read out.
 function raiseToasts() {
   const on = toasts.childElementCount > 0, host = openDialogs.at(-1) || document.body, live = $('#live');
   try { if (toasts.matches(':popover-open')) toasts.hidePopover(); } catch {}
@@ -840,7 +808,6 @@ function raiseToasts() {
   if (live && live.parentElement !== host) host.append(live);
   try { if (on) toasts.showPopover(); } catch {}
 }
-// Every toast is read out through the live region: the toast box appears and fills in one tick, which screen readers miss.
 new MutationObserver((recs) => {
   raiseToasts();
   const said = recs.flatMap((r) => [...r.addedNodes]).map((n) => n.textContent || '').join(' ').trim();
@@ -850,7 +817,6 @@ const dialogWatch = new MutationObserver((recs) => {
   for (const { target: d } of recs) { const i = openDialogs.indexOf(d); if (d.open && i < 0) openDialogs.push(d); else if (!d.open && i >= 0) openDialogs.splice(i, 1); }
   raiseToasts();
 });
-// Dialogs added later (the passphrase dialog) are watched once they appear.
 const watchDialogs = () => { for (const d of document.querySelectorAll('dialog')) if (!d._watched) { d._watched = true; dialogWatch.observe(d, { attributes: true, attributeFilter: ['open'] }); } };
 watchDialogs();
 new MutationObserver(watchDialogs).observe(document.body, { childList: true });
@@ -863,18 +829,17 @@ function toast(msg, bad = false, ms = bad ? 7000 : 4200) {
 }
 const copy = (text, done = 'Copied') => Promise.resolve().then(() => navigator.clipboard.writeText(text)).then(() => toast(done), () => toast(`Could not copy: ${text}`, true));
 
-// Pool and router reverts, by selector, from contracts/src/TacitEvmPool.sol and TacitEvmPoolRouter.sol.
 const REVERTS = {
-  '607447de': 'Another payment landed first. Try again.',            // StaleRoot()
-  'a151b2a2': 'Another payment landed first. Try again.',            // WrongInsertionIndex()
-  '26747c9d': 'Another payment landed first. Try again.',            // UnknownMembershipRoot()
-  '9bf42639': 'That note is already spent. Reload and try again.',   // AlreadyNullified()
-  '7ca55c77': 'The proof did not check out. Reload and try again.',   // BadProof()
-  '42c0a68f': 'The amount sent did not match the proof.',             // EthValueMismatch()
-  '4eb4f9fb': 'That amount is out of range.',                         // ValueOutOfRange()
-  '06250401': 'That amount is too large.',                            // AmountTooLarge()
-  '203d82d8': 'Its deadline passed before it landed. Try again.',     // Expired()
-  '9e80781c': 'The pool is full.',                                    // PoolFull()
+  '607447de': 'Another payment landed first. Try again.',
+  'a151b2a2': 'Another payment landed first. Try again.',
+  '26747c9d': 'Another payment landed first. Try again.',
+  '9bf42639': 'That note is already spent. Reload and try again.',
+  '7ca55c77': 'The proof did not check out. Reload and try again.',
+  '42c0a68f': 'The amount sent did not match the proof.',
+  '4eb4f9fb': 'That amount is out of range.',
+  '06250401': 'That amount is too large.',
+  '203d82d8': 'Its deadline passed before it landed. Try again.',
+  '9e80781c': 'The pool is full.',
 };
 function revertText(e) {
   for (let x = e; x; x = x.cause) for (const d of [x?.data, x?.data?.data, x?.rpc?.data, x?.rpc?.data?.data, x?.error?.data]) {
@@ -903,7 +868,6 @@ const errText = (e) => {
   if (/timed? ?out|timeout/i.test(m)) return 'The network took too long to answer. Try again.';
   if (/previously derived a different Tacit identity/i.test(m)) return 'This account opened a different Tacit key on this device before. Switch to that account in your wallet, or open your key another way.';
   if (/non-canonical \(high-s\) signature/i.test(m)) return 'The wallet’s signature came back in a form Tacit does not use, so nothing was opened. Reconnect the wallet and try again.';
-  // Anything else as written, cut at a sentence (or at least a word) when it runs long.
   const t = m.replace(/^Error:\s*/, '').replace(/\brelayer/gi, 'relay').replace(/^[a-z]/, (c) => c.toUpperCase());
   if (t.length <= 240) return t;
   const cut = t.slice(0, 240), end = cut.lastIndexOf('. ');
@@ -912,8 +876,6 @@ const errText = (e) => {
 const relayTrouble = (e) => /relay|no relayer|failed to fetch|\b5\d\d\b|\b429\b|timed? ?out/i.test(String(e?.message || e)) && !revertText(e) && !e?.said && e?.feeMoved == null;
 const say = (el, view) => mount(el, view instanceof Raw ? view : html`${view}`);
 const sayErr = (el, e) => say(el, html`<span class="err">${errText(e)}</span>`);
-// A status redrawn as it counts: when only its [data-tick] part (hidden from screen readers) changed, that part alone is
-// updated, so the line is announced once rather than at every tick.
 function sayLive(el, view) {
   const v = view instanceof Raw ? view : html`${view}`, next = document.createElement('div');
   next.innerHTML = v.s;
@@ -926,7 +888,6 @@ function sayLive(el, view) {
   if (next.innerHTML !== el.innerHTML) mount(el, v);
 }
 
-// ── pool modules, loaded once, right after the page ──────────────────────────────────────────────────────
 const mods = lazy(async () => {
   const [zkm, wm, gw, pm, pos] = await Promise.all([
     import('/evm-pool-zk.js'), import('/evm-pool-wallet.js?cb=6e541561'), import('/evm-pool-gateway.js'),
@@ -941,12 +902,9 @@ const mods = lazy(async () => {
 });
 const rpcs = new Map();
 const rpcOn = async (c) => { if (!rpcs.has(c.chainId)) rpcs.set(c.chainId, (await mods()).jsonRpc(c.rpc)); return rpcs.get(c.chainId); };
-// The connected wallet's own balance is read from the last node on the list, not the first that every private read
-// uses, so one node does not see a wallet's address beside the receive boxes (a chain with one node has no other).
 const apart = new Map();
 const rpcApart = async (c) => { if (!apart.has(c.chainId)) apart.set(c.chainId, (await mods()).jsonRpc([...c.rpc].reverse())); return apart.get(c.chainId); };
 
-// ── the prover: the ceremony's key, named and hashed by /evm-pool/pin.json, checked, cached, run in a worker ──
 const PROVER = { state: 'idle', got: 0, total: 0, last: null, lastKind: null, cached: false, err: null, testing: false };
 const pin = lazy(async () => { const r = await fetch('/evm-pool/pin.json', { cache: 'no-store' }); if (!r.ok) throw new Error('The proving key is not published.'); return r.json(); });
 const hexOf = (b) => Array.from(new Uint8Array(b), (x) => x.toString(16).padStart(2, '0')).join('');
@@ -957,7 +915,6 @@ async function artifact(name, sha, onBytes) {
   let bytes;
   if (hit) { bytes = new Uint8Array(await hit.arrayBuffer()); onBytes(bytes.length); }
   else {
-    // A download that stops moving for 45 s is given up, so a dropped connection says so instead of waiting forever.
     const stop = new AbortController();
     let quiet = setTimeout(() => stop.abort(), 45e3);
     try {
@@ -1005,14 +962,12 @@ function prover() {
       waiting.set(i, { resolve: (v) => { clearTimeout(timer); resolve(v); }, reject: (e) => { clearTimeout(timer); reject(e); } });
       worker.postMessage({ ...msg, id: i }, transfer);
     });
-    // The key and the circuit move to the worker rather than being copied, so a phone holds one 33 MB copy, not two.
     await call({ op: 'init', wasm, zkey, vk }, 5 * 60e3, [wasm.buffer, zkey.buffer]);
     Object.assign(PROVER, { state: 'ready', cached: true }); paintDevice();
     return async (input) => { const r = await call({ op: 'prove', input }, 10 * 60e3); return { proof: r.proof, publicSignals: r.publicSignals }; };
   })().catch((e) => { if (proverP === made) proverP = null; Object.assign(PROVER, { state: 'idle', err: e }); paintDevice(); throw e; });
   return made;
 }
-// Every proof the wallet asks for goes through here: timed, and self-verified in the worker before it is returned.
 async function prove(input) {
   const run = await prover();
   const t = performance.now();
@@ -1020,16 +975,12 @@ async function prove(input) {
   PROVER.last = performance.now() - t; PROVER.lastKind = 'payment'; paintDevice();
   return out;
 }
-// Focusing an amount starts the key early; with the browser's Data Saver on it waits for the press, which asks for it anyway.
 const warm = () => { if (!navigator.connection?.saveData) prover().catch(() => {}); };
-// A proving key already saved here loads in the background once a wallet opens, so the first payment starts proving at once.
 const warmIfSaved = () => { if (PROVER.cached) (globalThis.requestIdleCallback || setTimeout)(warm); };
 
-// ── key ──────────────────────────────────────────────────────────────────────────────────────────────────
 const S = { key: null, keys: null, wallet: null, provider: null, chain: chainOf(readJson(CHAIN_PREF)) || CHAINS[1], tab: 'deposit', depMode: 'wallet', dest: 'addr', busy: 0, chainOnly: false };
 const CH = Object.fromEntries(CHAINS.map((c) => [c.chainId, { W: null, for: null, bal: null, notes: [], quote: null, waiting: null, err: null, syncing: null, at: 0, fails: 0, fill: null, hist: null, histing: null, histNext: null, histErr: null, histFails: 0, histTimer: null, histStart: 0, last: null }]));
 const evm = makeEvmWallet({ secp, sha256, keccak256: keccak_256, bytesToHex, hexToBytes, prfBytesToScalar, netName: 'mainnet' });
-// WalletConnect joins the browser wallets in the picker, and is the one wallet offered where the browser has none (a phone): a wallet app signs and sends for this page.
 const wcSheet = wcSheets(dialogHost({ dialog: $('#sheet-wc'), title: $('#wc-h'), body: $('#wc-body') }));
 const WC = announceWalletConnect({
   projectId: WC_PROJECT_ID,
@@ -1040,11 +991,8 @@ const WC = announceWalletConnect({
   onAsk: (x) => wcSheet.onAsk(x),
 });
 const ROUTES = readJson(ROUTE_PREF) || {};
-// The relay sends unless you chose your wallet, or the relay has no quote to give right now (down, or not taking sends).
 const relayUp = () => !!chainKeeper(S.chain) && !CH[S.chain.chainId]?.quoteErr;
 const routeOf = (tab) => (ROUTES[tab] === 'wallet' || !chainKeeper(S.chain) ? 'wallet' : 'relay');
-// How a spend goes out, read when it is pressed: the wallet only when chosen; a relay that cannot take it stops it here
-// rather than handing it to the wallet, whose address would then show on chain.
 const viaFor = (tab) => {
   if (routeOf(tab) === 'wallet') return 'self';
   if (!relayUp()) throw new Error('This one cannot go through the relay right now. Choose “send from my wallet instead” to send it yourself.');
@@ -1052,32 +1000,25 @@ const viaFor = (tab) => {
 };
 const chainKeeper = (c) => c.keeper || null;
 
-// The wallet a returning visitor already has (tacit-wallet-known.js, shared by weld, /pay and /pay/eth): the one
-// tacit.finance is logged in with first, then a different key one of these pages opened before, offered second.
 const KNOWN_IDS = [PAY_ID, 'tacit-pay-hub-id-v1', 'tacit-lite-id-v1', 'tacit-tac-id-v1'];
 function knownWallet() { return knownWallets(KNOWN_IDS).primary; }
 function otherWallet() { return knownWallets(KNOWN_IDS).other; }
 const viaText = (k) => ({ eth: `Ethereum ${short(k.address || '')}`, btc: `Bitcoin ${short(k.address || '', 6)}`, ext: `a key funded by ${short(k.address || '', 6)}`,
   passkey: `passkey “${k.label || 'Tacit'}”`, local: 'the key saved in this browser', key: 'a pasted key' })[k.mode] || 'your wallet';
 
-// A Bitcoin wallet, or a key saved in this browser, opens through tacit.js exactly as tacit.finance does. It loads only for
-// those paths, as a library: it reads the shared network once at import, so this page pins mainnet for its visit, and any
-// call that rewrites the app's linked-wallet records is run with them put back afterwards, except one another tab wrote
-// meanwhile. Its passphrase prompt is the dialog from pass-dialog.js.
 const TACIT_URL = '/tacit.js?cb=8c7c6204';
 const SHARED_NET = 'tacit-network-v1', PREV_NET = 'tacit-pay-prev-net-v1';
 const SHARED_WALLET_KEYS = ['tacit-eth-identity', 'tacit-btc-identity', 'tacit-active-mode-v1', 'tacit-ext-mode-v1', 'tacit-ext-state-v1',
   ...['mainnet', 'signet'].flatMap((n) => [`tacit-eth-identity:${n}`, `tacit-btc-identity:${n}`, `tacit-active-mode-v1:${n}`])];
 let T = null;
 const loadTacit = lazy(async () => {
-  // Another tab of these pages may have pinned it already: its own value is then not this tab's to restore later.
   try { const cur = localStorage.getItem(SHARED_NET); if (sessionStorage.getItem(PREV_NET) === null && cur !== 'mainnet') sessionStorage.setItem(PREV_NET, cur ?? ''); localStorage.setItem(SHARED_NET, 'mainnet'); } catch {}
   globalThis.__TACIT_NO_INIT__ = true;
   (await import('/pass-dialog.js?cb=033f3fbd')).mountPassDialog();
   T = await import(TACIT_URL);
   return T;
 });
-window.addEventListener('pagehide', () => {                           // also when tacit.js failed to load after the pin
+window.addEventListener('pagehide', () => {
   try { const p = sessionStorage.getItem(PREV_NET); if (p !== null) { p === '' ? localStorage.removeItem(SHARED_NET) : localStorage.setItem(SHARED_NET, p); sessionStorage.removeItem(PREV_NET); } } catch {}
 });
 let tacitQ = Promise.resolve();
@@ -1119,20 +1060,16 @@ async function setKey(k) {
   for (const c of CHAINS) boxScan(c);
 }
 function forget() {
-  // The receive boxes' and links' keys derive from this key, so they go with it.
   S.key = null; S.keys = null; Object.assign(BOXQ, { for: null, map: null, at: [] }); BOXST.for = null; Object.assign(SHOWN, { pub: null, k: null, seen: null, told: null }); Object.assign(GIFTQ, { for: null, by: {} }); LINKSHOW.v = null; PLANS.clear();
   for (const c of CHAINS) JUST[c.chainId].length = 0;
   const typed = DRAFT['f-amt'];
   for (const k of Object.keys(DRAFT)) delete DRAFT[k];
   if (REQ.v && !REQ.v.paid) { DRAFT['f-to'] = REQ.v.bp; if (REQ.v.amount) DRAFT['f-amt'] = plain(REQ.v.amount); else if (typed) DRAFT['f-amt'] = typed; }
   GIFTSEEN.clear(); MADEQ.clear();
-  // The last payment's line, and its proof, were this key's.
   SENT.v = null; say($('#status'), '');
   for (const st of Object.values(CH)) { clearTimeout(st.histTimer); Object.assign(st, { W: null, for: null, bal: null, notes: [], quote: null, waiting: null, err: null, syncing: null, at: 0, fails: 0, fill: null, hist: null, histing: null, histNext: null, histErr: null, histFails: 0, histTimer: null, histStart: 0, last: null, waitBoxes: [], quoteErr: null, deferred: false }); }
 }
 function lock() { forget(); evm.deselectProvider(); paintWallet(); renderApp(); paintRecover(); }
-// A key tied to the wallet that opened it is locked when that wallet's account changes, but not under a payment still being
-// made with it: the code after the funds move needs the key, so the lock waits for the payment to end.
 function lockForWallet(msg) {
   if (S.busy) { S.lockDue = msg || true; return; }
   lock(); if (msg) toast(msg);
@@ -1174,7 +1111,6 @@ const open = {
       mainnetBtc(st.address);
       if (k?.address && st.address !== k.address) { T.extWallet.state = null; throw new Error(`Switch your Bitcoin wallet to ${short(k.address, 6)}, the account this Tacit wallet was opened with.`); }
       const ext = { ...T.extWallet.state };
-      // A wallet enrolled before signs once and must open the key it opened then; a new one signs twice.
       const prior = k?.btc?.address === st.address ? k.btc : T.btcWallet._read?.();
       T.btcWallet.state = prior?.address === st.address ? prior : null;
       try {
@@ -1182,7 +1118,6 @@ const open = {
         return { mode: 'btc', priv: tPriv(), pubHex: T.btcWallet.state.tacitPubkey, address: st.address, btc: { ...T.btcWallet.state } };
       } catch (e) {
         if (!e?._btcNonDeterministic) { T.extWallet.state = null; throw e; }
-        // This wallet signs differently each time, so it funds a Tacit key kept in this browser instead.
         T.btcWallet.state = null; T.extWallet.state = ext; T.wallet.mode = null;
         await T.wallet.load(st.address);
         return { mode: 'ext', priv: tPriv(), address: st.address, ext };
@@ -1205,9 +1140,7 @@ const open = {
   },
 };
 
-// A wallet in this browser, told without loading anything: the way in puts what is not here after what is.
 const btcWalletSeen = () => !!(window.btc_providers?.length || window.XverseProviders?.BitcoinProvider || window.LeatherProvider || window.unisat);
-// A way in that fails says so beside the options, not in a toast, which would cover the rows to try next.
 const signInErr = (box, id, e) => { const p = box.querySelector(`#${id}-err`); p.textContent = errText(e); p.hidden = false; };
 function signIn(id) {
   const known = knownWallet(), other = otherWallet(), pk = isPasskeyAvailable();
@@ -1226,7 +1159,6 @@ function signIn(id) {
     <div class="amt text" id="${id}-paste" hidden><input id="${id}-hex" type="password" placeholder="64-character Tacit key" autocomplete="off" spellcheck="false" aria-label="Tacit key"><button class="link" type="button" data-in="key">Open</button></div>
   </div>`;
 }
-// One sign-in runs at a time: while it does, every other sign-in button is off.
 const SIGNING = { on: false };
 function wireSignIn(root, id, after) {
   const box = root.querySelector(`#${id}-in`);
@@ -1254,7 +1186,6 @@ function wireSignIn(root, id, after) {
   box.querySelector(`#${id}-hex`)?.addEventListener('keydown', (e) => { if (e.key === 'Enter') box.querySelector('[data-in="key"]').click(); });
 }
 
-// ── the connected wallet: pays gas for deposits and anything sent without the relay ──────────────────────
 function pickWallet(list) {
   return new Promise((resolve) => {
     const d = $('#sheet-pick');
@@ -1270,21 +1201,19 @@ async function connectWallet({ change = false } = {}) {
   const { provider, address } = await evm[change ? 'changeAccount' : 'connect']({ pick: pickWallet });
   const a = '0x' + address;
   if (S.key?.mode === 'eth' && lc(S.key.address) !== a) lockForWallet();
-  if (S.provider === provider && S.wallet === a) return a;                             // the wallet's own account change got here first
+  if (S.provider === provider && S.wallet === a) return a;
   S.provider = provider; S.wallet = a;
   paintWallet(); renderForm(); paintPoints();
   return a;
 }
-// The wallet connected last, on this or any other page of tacit.finance, is connected here again without a prompt while it still
-// allows the site. Nothing is signed: opening a Tacit key still takes its signatures.
 async function restoreWallet() {
   const c = await evm.restore().catch(() => null);
-  if (!c || S.wallet) return;                                                            // one connected meanwhile stands
+  if (!c || S.wallet) return;
   S.provider = c.provider; S.wallet = '0x' + c.address;
   paintWallet(); renderForm(); paintPoints();
 }
 window.addEventListener('tacit:evm-accounts', (e) => {
-  if (e.detail?.provider && S.provider && e.detail.provider !== S.provider) return;      // another wallet's accounts, not the connected one's
+  if (e.detail?.provider && S.provider && e.detail.provider !== S.provider) return;
   const a = (e.detail?.accounts || [])[0];
   S.wallet = a ? lc(a) : null;
   if (S.key?.mode === 'eth' && lc(S.key.address) !== S.wallet) lockForWallet(a ? 'Your wallet switched accounts, so the Tacit key opened with it was locked. Open it again to continue.' : 'Your wallet locked, so the Tacit key opened with it was locked. Open it again to continue.');
@@ -1301,25 +1230,19 @@ async function ensureChain(id) {
   }
   if (Number(await S.provider.request({ method: 'eth_chainId' })) !== id) throw new Error(`Switch your wallet to ${CHAIN_META[id].chainName}.`);
 }
-// The pool wallet's signer: the connected wallet on this chain, connected and switched just before it sends.
 const signerFor = (c) => ({
   get address() { return S.wallet; },
   ready: async () => { if (!S.wallet || !S.provider) await connectWallet(); await ensureChain(c.chainId); },
-  // Each transaction names its chain, so a wallet that moved to another one meanwhile refuses it instead of sending there.
   send: ({ to, data, value }) => S.provider.request({ method: 'eth_sendTransaction', params: [{ from: S.wallet, to, data, value: '0x' + BigInt(value || 0).toString(16), chainId: '0x' + c.chainId.toString(16) }] }),
-  // Its checks and receipts are read apart from the node that reads this key's notes and boxes.
   rpc: async (method, params) => (await rpcApart(c))(method, params),
 });
 
-// ── one pool wallet per chain, all from the one key ─────────────────────────────────────────────────────
 const stateKey = (c) => `tacit-evm-pool-v1:${c.chainId}:${lc(POOL)}:${S.keys.address}`;
 async function walletOn(c) {
   const st = CH[c.chainId];
   if (st.W && st.for === S.key.pubHex) return st.W;
   const m = await mods(), rpc = await rpcOn(c);
   if (st.W && st.for === S.key.pubHex) return st.W;
-  // Each wallet saves its state through a handle of its own, shut when the wallet is replaced, so a read it is still
-  // making then never writes over the state of the wallet that replaced it.
   const store = { open: true, get: kv.get, set: (k, v) => { if (store.open) kv.set(k, v); } };
   st.W = m.makeEvmPoolWallet({
     zk: m.zk, keys: S.keys, keeper: chainKeeper(c), store, feed: !S.chainOnly, prove, fetchImpl: timedFetch,
@@ -1332,12 +1255,7 @@ async function walletOn(c) {
   if (k != null) st.W.watchThrough(k);
   return st.W;
 }
-// The pool wallet's own state sealing (under the key's view key), for what this page keeps beside the wallet's state.
 const sealing = lazy(() => import('/evm-pool-wallet.js?cb=6e541561'));
-// Drops a chain's wallet and the state it saved, so the next one reads its state again from the chain (the relay's index
-// first, unless the chain alone was asked for). A read the old wallet is making ends first, and from then on it saves
-// nothing. The fresh state keeps what this key's next spends rely on: each note's spend attempt (two attempts never share
-// a one-time key) and the next refund box. → false when the key was put away, or a payment started on that chain, meanwhile.
 async function freshWallet(c) {
   const st = CH[c.chainId], keys = S.keys, m = await mods(), { sealState, openState } = await sealing();
   while (st.syncing) await st.syncing.catch(() => {});
@@ -1349,9 +1267,6 @@ async function freshWallet(c) {
   Object.assign(st, { W: null, for: null, store: null });
   return true;
 }
-// A link address can be paid on any chain, but each chain's wallet watches only a window past the last address used
-// there. Every wallet watches through the newest link address; one whose window did not reach it has not read that
-// address's past, so its state is rebuilt from the chain (the relay's index first) to find anything paid there.
 async function watchLinkBoxes() {
   const k = linkIndex();
   if (k == null) return;
@@ -1363,11 +1278,7 @@ async function watchLinkBoxes() {
     syncChain(c, true);
   }
 }
-// Relay calls give up in time: a submit may wait on the chain, everything else answers fast.
 const timedFetch = (url, init = {}) => fetch(url, { ...init, signal: init.signal || AbortSignal.timeout?.(/\/relay$/.test(String(url)) ? 180e3 : 30e3) });
-// A relay's answer, read as it arrives: one that stops arriving for 20 s is given up, however long a large answer takes
-// on a slow connection. A busy relay (429) is asked again up to three times, after the wait it names when the browser
-// can read it, else a few seconds.
 async function keeperJson(c, path) {
   for (let i = 0; ; i++) {
     const stop = new AbortController();
@@ -1401,9 +1312,6 @@ async function keeperJson(c, path) {
     } finally { clearTimeout(quiet); }
   }
 }
-// A fresh sync (after an action) starts after any sync already running, so what it reads is newer than the action. The
-// balance shows as soon as the pool is read; the relay's quote and the receive boxes land after it without holding it back.
-// A chain that failed is left alone by the poll for 30 s, then twice as long after each failure, up to five minutes.
 const pollAfter = (st, base) => (st.fails ? Math.max(base, Math.min(30e3 * 2 ** (st.fails - 1), 300e3)) : base);
 function paintSynced(c) {
   paintChains(); paintBal();
@@ -1423,13 +1331,11 @@ function syncChain(c, fresh = false) {
     const rest = Promise.all([chainKeeper(c) ? W.quote().catch((e) => { quoteErr = e; return null; }) : null, boxBalances(c, W, boxes)]);
     const s = await W.sync();
     if (st.W !== W || S.key?.pubHex !== pub) return;
-    // A node a block or two behind the one read last answers with fewer of the pool's notes: what is shown stays, and the
-    // history is not read again, until it catches up, or for a minute (past that the chain itself dropped a transaction).
     if (st.shownBy === W && s.leaves < st.leaves && Date.now() - (st.behind ||= Date.now()) < 60e3) { Object.assign(st, { err: null, at: Date.now(), fails: 0 }); return; }
     st.behind = 0;
-    if (st.bal != null && st.bal !== s.balance) {                             // something arrived or left: read it into the history
+    if (st.bal != null && st.bal !== s.balance) {
       historyOf(c, true);
-      boxScan(c, linkIndex() ?? (boxTop(c) ?? 0) + 1, 1);                      // and whether it was the link's address
+      boxScan(c, linkIndex() ?? (boxTop(c) ?? 0) + 1, 1);
     }
     const mine = st.fill = {};
     Object.assign(st, { bal: s.balance, leaves: s.leaves, notes: W.notes().map((n) => BigInt(n.v)), shownBy: W, err: null, at: Date.now(), fails: 0 });
@@ -1440,8 +1346,7 @@ function syncChain(c, fresh = false) {
       if (st.fill !== mine || st.W !== W || S.key?.pubHex !== pub) return;
       const waitBoxes = waits.filter(([, v]) => v != null && v > 0n);
       Object.assign(st, { quote: q, quoteErr, waiting: waitBoxes.reduce((a, [, v]) => a + v, 0n), waitBoxes });
-      for (const [i] of waitBoxes) watchBox(c, i, true);                       // ETH waits there: the relay is asked to look now
-      // An address seen paid stays counted as paid once its ETH has been moved in.
+      for (const [i] of waitBoxes) watchBox(c, i, true);
       for (const [i] of waitBoxes) if (i > 0 && BOXST.for === pub && BOXST.top[c.chainId] != null && i > BOXST.top[c.chainId]) BOXST.top[c.chainId] = i;
       const wk = SHOWN.k != null && waits.find(([i]) => i === SHOWN.k);
       if (wk?.[1] > 0n) SHOWN.seen = { k: SHOWN.k, c, v: wk[1], state: 'moving' };
@@ -1452,7 +1357,6 @@ function syncChain(c, fresh = false) {
   }).catch((e) => { if (S.key?.pubHex === pub) Object.assign(st, { err: e, at: Date.now(), fails: st.fails + 1 }); }).finally(() => { if (st.syncing === p) st.syncing = null; paintSynced(c); });
   return p;
 }
-// The ETH waiting at receive boxes, asked of the node in one batch where it takes one. → [[index, wei or null]]
 async function boxBalances(c, W, boxes) {
   const rpc = await rpcOn(c);
   if (rpc.batch && boxes.length > 1) {
@@ -1472,8 +1376,6 @@ setInterval(() => {
     if (S.busyChain === c.chainId) continue;
     if (Date.now() - st.at > pollAfter(st, c === S.chain ? POLL_MS : POLL_OTHER_MS)) syncChain(c);
   }
-  // A payment held until it blends in waits on deposits made after this tab read the pool, so the pool is read again, from
-  // where the last read ended, while one is held: every two minutes, whether or not the last read worked.
   const held = new Set(dues().map((d) => d.chain));
   for (const c of CHAINS) {
     const q = POOLQ[c.chainId];
@@ -1483,12 +1385,6 @@ setInterval(() => {
   }
 }, 5_000);
 
-// ── history, rebuilt from the key and the chain alone ────────────────────────────────────────────────────
-// Every Transact and Received event since the pool was deployed: those kept from earlier reads, then the relay's index
-// (fast) or chain logs, the latest blocks always from chain logs. Memos that open under this key are its notes; a note's
-// nullifier appearing later marks the spend that used it. What each transaction did follows from what went in and out: a
-// spend that kept less than it used paid the difference to someone, a withdrawal names its address and amount, a deposit
-// or payment with none of its inputs ours was received.
 const te = new TextEncoder();
 const topic = (s) => '0x' + bytesToHex(keccak_256(te.encode(s)));
 const T_TRANSACT = topic('Transact(bytes32,bytes32,bytes32,bytes32,uint256,bytes32,address,int256,address,uint256,bytes,bytes)');
@@ -1507,8 +1403,6 @@ function decodeReceived(log) {
   const { w } = wordsOf(log.data);
   return { kind: 'received', block: Number(BigInt(log.blockNumber)), tx: log.transactionHash, box: '0x' + log.topics[1].slice(26).toLowerCase(), index: Number(w(0)), value: w(1), rho: w(2), fee: w(3) };
 }
-// The public facts a relay's index carries with ?facts=1: what a node would otherwise be asked about each transaction (its
-// recipient, amount, fee, sender, target, a router call's data) and its block's time. `fed` marks them for the check below.
 const feedFacts = (e) => ({
   ...(e.ext === undefined ? {} : { fed: true, recipient: lc(e.recipient), ext: BigInt(e.ext), fee: BigInt(e.fee) }),
   ...(e.from ? { from: lc(e.from) } : {}), ...(e.to ? { to: lc(e.to) } : {}), ...(e.input ? { input: lc(e.input) } : {}), ...(e.ts > 0 ? { ts: Number(e.ts) } : {}),
@@ -1516,8 +1410,6 @@ const feedFacts = (e) => ({
 const fromFeed = (e) => e.kind === 'transact'
   ? { kind: 'transact', block: e.block, tx: e.tx, nf: [BigInt(e.nf0), BigInt(e.nf1)], outLeaf: [BigInt(e.outLeaf0), BigInt(e.outLeaf1)], firstIndex: Number(e.firstIndex), ...feedFacts(e), memo: [hexToBytes(strip(e.memo0 || '0x')), hexToBytes(strip(e.memo1 || '0x'))] }
   : { kind: 'received', block: e.block, tx: e.tx, box: lc(e.box), index: Number(e.index), value: BigInt(e.value), rho: BigInt(e.rho), fee: BigInt(e.fee), ...(e.ts > 0 ? { ts: Number(e.ts) } : {}) };
-// The logs of `address` from block `from` through `to`, a range at a time: given `onChunk`, each range's logs go to it as they
-// come instead of into the list returned. A node that answers a range with no list is not taken at its word: the next is asked.
 async function logs(rpc, address, topics, from, to, onStep, onChunk) {
   const out = [];
   let step = 2_000_000, busyTries = 0;
@@ -1537,7 +1429,6 @@ async function logs(rpc, address, topics, from, to, onStep, onChunk) {
   }
   return out;
 }
-// This key's receive boxes: the deposit address (0) and the refund boxes after it.
 const BOXQ = { for: null, map: null, at: [] };
 async function boxMap(count = BOXES) {
   if (BOXQ.for !== S.key.pubHex) Object.assign(BOXQ, { for: S.key.pubHex, map: new Map(), at: [] });
@@ -1548,13 +1439,6 @@ async function boxMap(count = BOXES) {
   }
   return map;
 }
-// The one-time deposit address the next payment link uses: one past the highest one that has taken a payment on any
-// chain (an address is the same on all four), counting ETH still waiting at one, and past every refund address a
-// withdrawal named. A link gets a fresh address once the last has been paid, so paid links are not linked to each other
-// on chain, and no run of unused addresses opens up: rebuilt from the key, every one lies within the wallet's lookahead
-// of the one before. A chain counts once its addresses have been read (BOXST), or else its history; refund addresses
-// are named only in withdrawals on Ethereum (a move to an L2 or into the classic app), so Ethereum's history counts
-// always. null until then, and while a read that counts failed: an address paid there would not show.
 function linkIndex() {
   const e1 = CH[CHAINS[0].chainId];
   if (!S.key || !e1.hist || e1.histErr) return null;
@@ -1568,10 +1452,6 @@ function linkIndex() {
   }
   return top + 1;
 }
-// Each chain's one-time addresses, read from the chain itself: the highest one ever paid there (the router counted a
-// sweep of it, or ETH waits at it). They are handed out in order, so they are read upward until BOX_GAP in a row past
-// the highest found were never paid. A read that fails is tried again by itself, 15 s later and then twice as long each
-// time; meanwhile that chain's history stands in.
 const BOX_GAP = 20;
 const BOXST = { for: null, top: {}, hit: {}, p: {}, err: {}, fails: {}, read: {} };
 const boxTop = (c) => (S.key && BOXST.for === S.key.pubHex ? BOXST.top[c.chainId] ?? null : null);
@@ -1580,7 +1460,7 @@ function boxScan(c, from = 1, gap = BOX_GAP) {
   if (!pub) return Promise.resolve();
   if (BOXST.for !== pub) Object.assign(BOXST, { for: pub, top: {}, hit: {}, p: {}, err: {}, fails: {}, read: {} });
   if (BOXST.p[id]) return BOXST.p[id];
-  if (BOXST.top[id] == null) { from = 1; gap = BOX_GAP; }                    // a chain is read whole before a short look counts
+  if (BOXST.top[id] == null) { from = 1; gap = BOX_GAP; }
   const p = BOXST.p[id] = (async () => {
     const rpc = await rpcOn(c), hit = BOXST.hit[id] ||= {};
     let found = BOXST.top[id] ?? 0, base = Math.max(from - 1, found), next = from;
@@ -1589,8 +1469,6 @@ function boxScan(c, from = 1, gap = BOX_GAP) {
       const end = base + gap;
       await boxMap(end + 1);
       if (BOXST.for !== pub) return;
-      // Each address's sweep count and balance, ten addresses to a batch where the node takes batches (a public node may
-      // count each call against a limit of a few dozen a second); an answer missing from one is asked for by itself.
       const ids = Array.from({ length: end - next + 1 }, (_, j) => next + j);
       for (let j = 0; j < ids.length; j += 10) {
         const g = ids.slice(j, j + 10);
@@ -1617,8 +1495,6 @@ function boxScan(c, from = 1, gap = BOX_GAP) {
   }).finally(() => { if (BOXST.p[id] === p) BOXST.p[id] = null; if (S.key?.pubHex === pub) linkMoved(); });
   return p;
 }
-// Once the next link's address is known or moves, the addresses worth watching are watched, and a form that waited for
-// it, or shows another, is drawn again.
 function linkMoved(c = null) {
   const k = linkIndex();
   if (k != null) { watchLinks(); watchLinkBoxes().catch(() => {}); }
@@ -1627,13 +1503,7 @@ function linkMoved(c = null) {
   if (FORM.needsLink || (k != null && FORM.linkK != null && FORM.linkK !== k) || (FORM.paidShown !== undefined && FORM.paidShown !== paidSig())) renderForm();
   else if (c === S.chain && S.tab === 'send' && S.sendMode === 'link') { if (FORM.needsGift) renderForm(); else refreshLinks(); }
 }
-// The one-time addresses worth watching: the current link's and up to nineteen before it.
 const linkRange = () => { const k = linkIndex(); return k == null ? [] : Array.from({ length: Math.min(20, k) }, (_, j) => k - j); };
-// Each chain's relay is asked to watch this key's deposit address and those one-time addresses. A relay watches a box for
-// two weeks from when it was last asked, so a box is asked for again once three days have passed, and a new one as it
-// comes into range; a box with ETH waiting at it is asked for again (the relay looks at once) at most every five minutes.
-// The requests go one at a time per relay, three seconds apart, under its rate limit. When each box was last taken is
-// kept in this browser; one the relay did not take is asked for again on a later pass.
 const WATCHED = new Set(), WATCH_SEEN = 'tacit-pay-watch-v1', WATCH_AGAIN = 3 * 864e5, WATCHQ = {}, NUDGED = new Map();
 function watchBox(c, i, now = false) {
   if (!S.key || !chainKeeper(c)) return;
@@ -1656,15 +1526,8 @@ function watchBox(c, i, now = false) {
   });
 }
 function watchLinks() { for (const i of linkRange()) for (const c of CHAINS) watchBox(c, i); }
-// ── payment links that carry the money ───────────────────────────────────────────────────────────────────
-// Link i on a chain hands over a key of its own, HMAC(key, "tacit-pay-gift-v1" ‖ chain ‖ i), whose pool balance there
-// holds the payment. Its note is one of this key's own sends, sealed with a one-time key derived from this key, so the
-// links sent (and whether each was taken) are found again from the key alone, by opening those sends under each
-// link's keys.
 const GIFT_GAP = 10;
 const GIFTQ = { for: null, by: {} };
-// A link key that did not open a send's paid output never will, so each send remembers how many keys it was tried against
-// (and the note, once one opened it): a rescan only tries the keys added since.
 const GIFTSEEN = new Map();
 const giftLocal = () => ({ n: {}, notes: {}, made: [], ...(readJson(`tacit-pay-gifts-v1:${S.key.pubHex}`) || {}) });
 const giftSave = (g) => writeJson(`tacit-pay-gifts-v1:${S.key.pubHex}`, g);
@@ -1679,8 +1542,6 @@ async function giftKeys(chainId, count, nap = null) {
   for (let i = 0; i < count; i++) if (!ks[i]) { ks[i] = m.evmPoolKeys(m.zk, giftSeed(i, chainId)); await nap?.(); }
   return ks.slice(0, count);
 }
-// The index the next link on `c` takes: past every link found there and every one made here. null until that chain's
-// history is read, so no link's key is ever handed out twice.
 function giftIndex(c) {
   const h = S.key && CH[c.chainId].hist;
   if (!h) return null;
@@ -1689,7 +1550,6 @@ function giftIndex(c) {
   return n;
 }
 const giftLink = (seed, c, note) => { const q = new URLSearchParams({ gift: bytesToHex(seed), chain: c.key }); if (note) q.set('for', note); return `${location.origin}/pay/eth/#${q.toString()}`; };
-// A pool wallet for a key other than the open one: a link's, or a throwaway one that only proves a deposit.
 async function giftWallet(seed, c) {
   const m = await mods();
   return m.makeEvmPoolWallet({
@@ -1698,13 +1558,8 @@ async function giftWallet(seed, c) {
   });
 }
 
-// A transaction's receipt, the transaction and its block's time are fixed once the block is deep enough to stay, so each is
-// asked for once, and only what is read of it is kept (see `slim`), a few thousand at most. A call that fails is made twice
-// more, 0.6 s and then 2 s later; a third failure is the caller's.
 const SETTLED = new Map(), SETTLED_MAX = 4000;
 const keepSettled = (key, r) => { if (SETTLED.size >= SETTLED_MAX) SETTLED.delete(SETTLED.keys().next().value); SETTLED.set(key, r); };
-// What is read of a node's answer: a receipt's sender and target and the pool's Transact events in it (their nullifiers,
-// recipient, amount and fee), a transaction's target and a router call's data, a block's time.
 function slim(method, r) {
   if (r == null || typeof r !== 'object') return r;
   if (method === 'eth_getTransactionReceipt') {
@@ -1727,10 +1582,6 @@ async function settled(c, rpc, tip, at, method, params) {
   if (r != null && at + c.confirmations <= tip) keepSettled(key, r);
   return r;
 }
-// A history read asks a node about every transaction and block alike, which on a busy pool is tens of thousands of calls, so
-// they go out as batches where a node takes them: the answers are put in the cache `settled` reads, a part at a time, and
-// `settled` then finds them. A node that refuses batches, or a call it answers with an error, leaves that call to `settled`,
-// which asks for it alone as before. `live` stops it once the read it serves has ended.
 const HISTORY_PART = 400;
 async function eachBatched(c, rpc, tip, method, items, n, at, params, fn, live = () => {}) {
   const key = (x) => `${c.chainId}:${method}:${params(x)[0]}`, size = method === 'eth_getBlockByNumber' ? 40 : 100;
@@ -1748,9 +1599,6 @@ async function eachBatched(c, rpc, tip, method, items, n, at, params, fn, live =
     await eachLimit(part, n, async (x) => { live(); await fn(x); });
   }
 }
-// The pool's public facts and events are kept in IndexedDB (localStorage holds about 5 MB), where it is there. It is opened
-// once: a browser that has not opened it within four seconds is taken to have none for a minute (reads then fall back, or
-// start afresh), and a connection the browser closes is opened again on next use.
 const IDB = { p: null, retry: 0 };
 function idb() {
   if (IDB.p) return IDB.p;
@@ -1786,7 +1634,6 @@ async function idbGetMany(ks) {
     } catch (e) { if (e?.name === 'InvalidStateError' && IDB.p) IDB.p = null; res(undefined); }
   }) : undefined;
 }
-// [key, value] pairs written in one transaction, all or none; undefined deletes the key. → whether they were written
 async function idbPutMany(kvs) {
   const db = await idb();
   return !!db && new Promise((res) => {
@@ -1800,11 +1647,6 @@ async function idbPutMany(kvs) {
 }
 const idbGet = async (k) => (await idbGetMany([k]))?.[0];
 const idbPut = (k, v) => idbPutMany([[k, v]]);
-// Public facts about the pool's transactions on a chain, by hash: the event's recipient, amount and fee, the sender, and a
-// router call's data; and the time of each block with a pool event. Only settled ones are kept. They are the pool's whole
-// history on a chain, which on a busy one is more than localStorage holds, so they are kept in IndexedDB, and in
-// localStorage where that is not there; what an earlier visit left in localStorage is read once and moved. They are read
-// once a visit, and written again only when a read added to them.
 const PUBQ = {};
 async function pubTx(c) {
   if (PUBQ[c.chainId]) return PUBQ[c.chainId];
@@ -1825,17 +1667,11 @@ async function savePubTx(P, ts, time, deep) {
   const v = { tx: P.tx, bt: P.bt };
   if (await idbPut(P.k, v)) writeJson(P.k, null); else writeJson(P.k, v);
 }
-// A long loop hands the thread back every 40 ms, so input, timers and network callbacks are not held up.
 const pacer = () => { let t0 = performance.now(); return async () => { if (performance.now() - t0 < 40) return; await idle(); t0 = performance.now(); }; };
 
-// The pool's events on a chain are public and the same for every key. Those deep enough to stay are kept, in IndexedDB and
-// in memory for the visit, so a read asks the relay's index, and then the chain's logs, only for what came after them. They
-// are kept as the index serves them, facts included, in parts of 2,000 events, so a read that adds a few rewrites only the
-// last part. A read of the chain alone does not build on events the relay's index served.
 const EVQ = {}, EV_PART = 2000;
 const evq = (c) => (EVQ[c.chainId] ||= { base: undefined, gen: 0 });
 const evKey = (c) => `tacit-pay-poolev-v1:${c.chainId}:${lc(POOL)}`;
-// An event as the relay's index serves it.
 function feedOf(e) {
   if (e.kind !== 'transact') return { kind: e.kind, block: e.block, tx: e.tx, box: e.box, index: e.index, value: e.value.toString(), rho: e.rho.toString(), fee: e.fee.toString(), ...(e.ts > 0 ? { ts: e.ts } : {}) };
   return {
@@ -1860,7 +1696,6 @@ async function storedEvents(c, pace) {
   evs.length = meta.count;
   return { through: meta.through, src: meta.src, evs, saved: meta.count };
 }
-// → whether they were written. A browser that refuses them (out of room) is not asked again for ten minutes.
 async function saveEvents(c, b, pace) {
   const k = evKey(c), puts = [];
   if (b.evs.length > b.saved) for (let i = Math.floor(b.saved / EV_PART) * EV_PART; i < b.evs.length; i += EV_PART) {
@@ -1872,21 +1707,17 @@ async function saveEvents(c, b, pace) {
   b.saved = b.evs.length;
   return true;
 }
-// Forgets a chain's kept events, so the next read takes them all afresh.
 function forgetEvents(c) {
   const q = evq(c);
   Object.assign(q, { base: null, gen: q.gen + 1 });
   idbPut(evKey(c), undefined);
 }
-// A page of the relay's index from block `from`, asked up to three times, a second and then three seconds apart.
 async function indexPage(c, from) {
   for (let i = 0; ; i++) {
     try { return await keeperJson(c, `/events?from=${from}&facts=1`); }
     catch (e) { if (i === 2 || (e.status >= 400 && e.status < 500)) throw e; await sleep(i ? 3000 : 1000); }
   }
 }
-// Every Transact and Received event on a chain through `tip`: those kept, then the relay's index (a page that cannot be read
-// ends its part, and the pages before it stand), then the chain's logs for the rest. → { evs, source: 'index' | 'chain' }
 async function poolEvents(c, rpc, tip, onStep, pace, live) {
   const q = evq(c), gen = q.gen, index = !S.chainOnly && !!chainKeeper(c);
   if (q.base === undefined) { const b = await storedEvents(c, pace).catch(() => null); if (q.gen === gen && q.base === undefined) q.base = b; }
@@ -1916,7 +1747,6 @@ async function poolEvents(c, rpc, tip, onStep, pace, live) {
         ]);
       } finally {
         covered = Math.min(got.tTo, got.rTo);
-        // Pushed one by one: spreading a whole chain's logs into one call exceeds the engine's argument limit on a busy pool.
         const add = [];
         for (const l of got.t) { const e = decodeTransact(l); if (e.block <= covered) add.push(e); }
         for (const l of got.r) { const e = decodeReceived(l); if (e.block <= covered) add.push(e); }
@@ -1925,7 +1755,6 @@ async function poolEvents(c, rpc, tip, onStep, pace, live) {
       }
     }
   } finally {
-    // What is deep enough to stay is kept, from a read cut short too.
     const to = Math.min(covered, tip - c.confirmations);
     if (q.gen === gen && to > (base ? base.through : c.deployBlock - 1)) {
       const b = { through: to, src: source, evs: evs.filter((e) => e.block <= to), saved: base ? base.saved : 0 };
@@ -1935,10 +1764,6 @@ async function poolEvents(c, rpc, tip, onStep, pace, live) {
   }
   return { evs, source };
 }
-// What opened under a key on a chain: each output of its own, by leaf index (its value, nullifier, which output, and the
-// transaction), and the leaf index below which every memo has been tried, counting only events deep enough to stay. A memo
-// that did not open under a key never will, so a read opens only the memos after that. Kept for the visit, and in
-// IndexedDB sealed under the key's view key.
 const OPENED = new WeakMap();
 const openedKey = (c, keys) => `tacit-pay-opened-v1:${c.chainId}:${lc(POOL)}:${keys.address}`;
 async function openedOf(c, keys) {
@@ -1955,9 +1780,6 @@ async function openedOf(c, keys) {
   return by[c.chainId];
 }
 const saveOpened = async (c, keys, o) => idbPut(openedKey(c, keys), (await sealing()).sealState(keys.v, JSON.stringify({ below: o.below, src: o.src, notes: [...o.notes].map(([i, n]) => [i, n.v.toString(), n.nf.toString(), n.k, n.tx]) })));
-// The wallets this key deposits from, as far as this page has seen: the wallet connected, the one that opened the key, and
-// each that made a deposit of this key's while one of those was connected. A deposit to this key from any other wallet came
-// in from someone else. Kept in this browser sealed under the key's view key.
 const OWN = new WeakMap();
 const ownKey = (keys) => `tacit-pay-own-v1:${keys.address}`;
 async function ownWallets(keys) {
@@ -1976,7 +1798,6 @@ async function ownWallet(keys, a) {
 }
 async function scanHistory(c, onStep) {
   const m = await mods(), keys = S.keys, rpc = await rpcOn(c), gen = evq(c).gen;
-  // The read stops once the key that started it is put away; long loops hand the thread back every 40 ms.
   const live = () => { if (S.keys !== keys) throw new Error('The wallet was closed.'); };
   const pace = pacer(), nap = async () => { await pace(); live(); };
   live();
@@ -1986,13 +1807,9 @@ async function scanHistory(c, onStep) {
   live();
   const deep = (b) => b + c.confirmations <= tip;
   const { evs, source } = await poolEvents(c, rpc, tip, onStep, pace, live);
-  // Each read works on copies: the kept events stay as they were read.
   const all = evs.map((e) => ({ ...e })), received = all.filter((e) => e.kind === 'received');
   const ts = all.filter((e) => e.kind === 'transact').sort((a, b) => a.block - b.block || a.firstIndex - b.firstIndex);
   const evBlocks = [...new Set(all.map((e) => e.block))];
-  // The pool's leaves run on without a gap, two to each transaction that made any. A gap among the events read means some
-  // were left out: when they may lie in blocks deep enough to be kept, the kept events are dropped, and the next read takes
-  // them all again. `run` is how many leaves the events deep enough to stay hold before any gap.
   let run = 0;
   for (let next = 0, last = c.deployBlock, i = 0; i < ts.length; i++) {
     const t = ts[i];
@@ -2002,14 +1819,8 @@ async function scanHistory(c, onStep) {
     if (deep(t.block)) run = next;
   }
   await nap();
-  // What a node is asked about the pool's transactions is asked about every one of them alike, never only this key's
-  // own, so the node learns nothing about which are this key's. The answers are public and fixed once settled, so they
-  // are kept between visits and each transaction is read once.
   const P = await pubTx(c);
   live();
-  // Facts the relay's index sent that are not kept here yet are checked against a node on a few of them picked at random (so
-  // the node learns nothing about this key), and one block's time: if any differs, neither the index's facts nor those kept
-  // here are used, the kept events are dropped, and every transaction is read from the nodes.
   const fresh = ts.filter((t) => t.fed && deep(t.block) && !P.tx[t.tx]);
   let differs = false;
   if (fresh.length) {
@@ -2033,8 +1844,6 @@ async function scanHistory(c, onStep) {
     if (s) Object.assign(t, { recipient: s.r, ext: BigInt(s.e), fee: BigInt(s.f), from: s.fr, to: s.to, input: s.in });
   }
   await nap();
-  // Memos that open under this key are its notes. Those of events read before were tried then: only the rest are opened, a
-  // part at a time.
   const opened = await openedOf(c, keys);
   live();
   if (opened.src === 'index' && source === 'chain') Object.assign(opened, { below: 0, src: 'chain', notes: new Map() });
@@ -2053,10 +1862,6 @@ async function scanHistory(c, onStep) {
   }
   const tAt = new Map(), leafAt = new Map();
   for (const t of ts) for (let k = 0; k < 2; k++) if (t.outLeaf[k] !== 0n) { tAt.set(t.firstIndex + k, t); leafAt.set(t.firstIndex + k, t.outLeaf[k]); }
-  // This key's notes (by nullifier) and the transactions that touched them, from what opened under it and what came in at its
-  // receive boxes; a note's nullifier appearing later marks the spend that used it. It reads nothing, so it runs again once
-  // the boxes reach further: a box within twenty of the last one derived that took a payment, or that a withdrawal named for
-  // its refund, widens them.
   const derive = () => {
     const mine = new Map(), byTx = new Map(), rows = [], spent = new Set();
     const rec = (t) => { if (!byTx.has(t.tx)) byTx.set(t.tx, { t, ins: [], outs: [], ours: new Set() }); return byTx.get(t.tx); };
@@ -2072,8 +1877,6 @@ async function scanHistory(c, onStep) {
       rows.push({ kind: b.i ? 'link' : 'box', v: r.value, fee: r.fee, tx: r.tx, block: r.block, box: b.i });
     }
     for (const t of ts) for (const nf of t.nf) { const n = mine.get(nf); if (n) { rec(t).ins.push(n.v); spent.add(nf); } }
-    // A withdrawal that ran calls (a bridge move, a swap) names its refund box in its calldata, public from then on, so
-    // that box is never handed out as a payment link's address; a canonical bridge in it makes the row a move.
     let top = Math.max(-1, ...rows.map((r) => r.box));
     for (const x of byTx.values()) {
       if (!x.ins.length || !x.t.input) continue;
@@ -2091,8 +1894,6 @@ async function scanHistory(c, onStep) {
       live();
     }
   };
-  // A payment this key sent can be proven when its output's memo was sealed with the key's own one-time key
-  // (payments made before those keys were derived used random ones).
   const provable = (t, ours) => {
     for (const k of [0, 1]) {
       if (ours.has(k) || t.outLeaf[k] === 0n || t.memo[k]?.length !== 65) continue;
@@ -2105,10 +1906,6 @@ async function scanHistory(c, onStep) {
   };
   const before = await reach();
   await nap();
-  // A transaction from the relay's index carries no amounts: its receipt does. A deposit's receipt names its sender,
-  // public, which a withdrawal back to that account would tie to it.
-  // A read that fails for another wallet's transaction leaves it out; one of this key's own must succeed. A read cut short
-  // keeps what it got for the next one.
   const unread = ts.filter((t) => t.ext === undefined || (t.ext > 0n && !t.from));
   let nread = 0;
   onStep?.(1, { read: 0, of: unread.length });
@@ -2120,7 +1917,6 @@ async function scanHistory(c, onStep) {
     if (rc?.from) t.from = rc.from;
     onStep?.(1, { read: ++nread, of: unread.length });
   }, live).catch(async (e) => { await savePubTx(P, ts, new Map(), deep); throw e; });
-  // This key's own withdrawals must be read: a refund box named in one is never handed out as a link's address.
   await eachBatched(c, rpc, tip, 'eth_getTransactionByHash', ts.filter((t) => (t.ext ?? 0n) < 0n && t.to === undefined), 3, (t) => t.block, (t) => [t.tx], async (t) => {
     const tx = await settled(c, rpc, tip, t.block, 'eth_getTransactionByHash', [t.tx]).catch((e) => { if (before.byTx.get(t.tx)?.ins.length) throw e; return null; });
     if (!tx) return;
@@ -2139,14 +1935,11 @@ async function scanHistory(c, onStep) {
       if (ext < 0n) rows.push({ kind: x.dest ? 'bridge' : 'out', v: -ext, to: t.recipient, dest: x.dest, fee, kept, refund: x.refund, tx: t.tx, block: t.block });
       else { const paid = used - kept - fee; rows.push(paid > 0n ? { kind: 'sent', v: paid, fee, kept, proof: provable(t, ours), tx: t.tx, block: t.block } : { kind: 'self', v: kept, fee, tx: t.tx, block: t.block }); }
     } else if (kept > 0n && ext > 0n) {
-      // A deposit made from a wallet that is not this key's came in from someone else.
       const theirs = !!t.from && !ownNow.has(t.from);
       rows.push({ kind: theirs ? 'from' : 'dep', v: kept, from: t.from, tx: t.tx, block: t.block });
       if (!theirs && t.from) ownWallet(keys, t.from).catch(() => {});
     } else if (kept > 0n) rows.push({ kind: 'in', v: kept, tx: t.tx, block: t.block });
   }
-  // A send whose paid output opens under one of this key's link keys funded that link. The note's nullifier on chain
-  // means the link was taken: back into this key when that transaction paid this key, else by whoever held the link.
   const gifts = [], sends = rows.filter((r) => r.kind === 'sent' && r.proof);
   if (sends.length) {
     const nfs = new Map();
@@ -2160,7 +1953,6 @@ async function scanHistory(c, onStep) {
         const t = byTx.get(r.tx).t, one = { memo: t.memo[r.proof.k], leaf: t.outLeaf[r.proof.k], asset };
         const id = `${S.key.pubHex}:${c.chainId}:${r.tx}:${r.proof.k}`, seen = GIFTSEEN.get(id) || { n: 0, i: -1, o: null };
         GIFTSEEN.set(id, seen);
-        // The paid output was sealed to a link's address with the key `proof.e`, so it opens under that link's own keys.
         for (; seen.i < 0 && seen.n < gk.length; seen.n++) {
           await nap();
           seen.o = m.openNote(m.zk, gk[seen.n], one);
@@ -2180,14 +1972,12 @@ async function scanHistory(c, onStep) {
       gifts.push({ i: x.i, v: o ? o.v : r.v, row: r, taken: r.taken });
     }
   }
-  // The time of every block with a pool event, this key's or not.
   const time = new Map(Object.entries(P.bt).map(([b, s]) => [Number(b), s]));
   for (const e of all) if (e.ts > 0 && !time.has(e.block)) time.set(e.block, e.ts);
   await eachBatched(c, rpc, tip, 'eth_getBlockByNumber', evBlocks.filter((b) => !time.has(b)), 3, (b) => b, (b) => ['0x' + b.toString(16), false], async (b) => { const blk = await settled(c, rpc, tip, b, 'eth_getBlockByNumber', ['0x' + b.toString(16), false]).catch(() => null); if (blk) time.set(b, Number(BigInt(blk.timestamp))); }, live);
   await savePubTx(P, ts, time, deep);
   poolFromHistory(c, ts, tip);
   await nap();
-  // A block whose time could not be read has none; it sorts by the time of the nearest block that has one.
   const known = [...time.keys()];
   for (const r of rows) {
     r.time = time.get(r.block); r.chain = c;
@@ -2196,10 +1986,6 @@ async function scanHistory(c, onStep) {
   const unspent = [...mine.entries()].filter(([nf, n]) => !spent.has(nf) && n.v > 0n).map(([, n]) => n.v);
   return { rows: rows.sort((a, b) => b.block - a.block), gifts, balance: sum(unspent), notes: unspent.length, source, through: tip, at: Date.now() };
 }
-// Every deposit and withdrawal into or out of the pool on a chain, by block and amount: the crowd a withdrawal has to blend
-// into. Public data: taken from a history read, which has every amount, else read from the chain's logs. What is deep enough
-// to stay is kept (in IndexedDB, or localStorage where that is not there), so the next read starts where this one ended; a
-// read that a node's rate limit cuts short keeps what it got.
 const POOLQ = {};
 const poolq = (c) => (POOLQ[c.chainId] ||= { deep: undefined, v: null, p: null, at: 0 });
 const poolKey = (c) => `tacit-pay-pool-v1:${c.chainId}:${lc(POOL)}`;
@@ -2209,7 +1995,6 @@ async function poolKept(c, q) {
     const k = poolKey(c);
     let v = await idbGet(k);
     if (v == null) {
-      // An earlier visit kept it in localStorage through the tip: only what was deep enough then is taken.
       const o = readJson(k), through = o?.through - c.confirmations;
       if (Array.isArray(o?.ins) && Array.isArray(o?.outs)) v = { through, ins: o.ins.filter(([b]) => b <= through), outs: o.outs.filter(([b]) => b <= through) };
     }
@@ -2229,7 +2014,6 @@ function poolStats(c) {
   if (q.p) return q.p;
   if (q.v && Date.now() - q.at < 60_000) return Promise.resolve(q.v);
   q.p = (async () => {
-    // A history read under way has every amount: it is waited for rather than the chain read twice.
     if (!(await poolKept(c, q)) && CH[c.chainId].histing) await CH[c.chainId].histing.catch(() => {});
     if (q.v && Date.now() - q.at < 60_000) return q.v;
     const rpc = await rpcOn(c), tip = Number(BigInt(await rpc('eth_blockNumber'))), keepTo = tip - c.confirmations;
@@ -2250,8 +2034,6 @@ function poolStats(c) {
   })().finally(() => { q.p = null; });
   return q.p;
 }
-// A history read has the amount of every pool transaction it read: when it has all of those deep enough to stay, they stand
-// in for a read of the chain's logs.
 function poolFromHistory(c, ts, tip) {
   const q = poolq(c), keepTo = tip - c.confirmations;
   if ((q.deep && q.deep.through >= keepTo) || ts.some((t) => t.ext === undefined && t.block <= keepTo)) return;
@@ -2260,17 +2042,10 @@ function poolFromHistory(c, ts, tip) {
   poolKeep(c, q, deep).catch(() => {});
   poolShow(q, { through: tip, ins: deep.ins.concat(tail.ins), outs: deep.outs.concat(tail.outs) }, tip);
 }
-// How well a withdrawal (or a move) of `amount` to `to` blends in, from what anyone can see on chain: whether `to` is
-// an account that put ETH in, whether the amount repeats one of this key's deposits, how many deposits have landed
-// since this key's last, and the route. → { level: 'strong' | 'fair' | 'weak', notes: [text], round } or null while
-// the pool is being read.
 const YOUNG_POOL = 25;
-// Deposits and take-ins made in this tab, counted at once rather than when the history next reads the chain.
 const JUST = Object.fromEntries(CHAINS.map((c) => [c.chainId, []]));
 const justDid = (c, row) => JUST[c.chainId].push({ block: Number.MAX_SAFE_INTEGER, time: Math.floor(Date.now() / 1000), ...row });
 const ROUND = [1n, 25n, 5n].flatMap((m) => Array.from({ length: 22 }, (_, k) => m * 10n ** BigInt(k))).sort((a, b) => (a < b ? -1 : 1));
-// What a check is still missing, waited for once per chain: the pool's deposits, then the chain's history. The views
-// redraw when it arrives, never before, and a read that failed is not waited for (it has its own retry).
 const PRIVWAIT = new Set();
 function privacyWait(c) {
   const id = c.chainId, st = CH[id], waits = [];
@@ -2297,7 +2072,6 @@ function privacyCheck(c, amount, to, via) {
   const same = mine.find((r) => near(r.v) || near(r.v + (r.fee || 0n)));
   const when = (r) => (r.time ? `on ${new Date(r.time * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : 'earlier');
   if (same) fair(`Close to the amount that came in ${when(same)}, so the two can be paired. A different amount, or withdrawing it in parts, blends in better.`);
-  // More than two significant digits reads like a fingerprint; a round amount blends in with everyone else's.
   const odd = amount.toString().replace(/0+$/, '').length > 2, round = ROUND.filter((r) => r <= amount).pop();
   if (!same && odd && round) notes.push('Round amounts blend in with more withdrawals.');
   const last = mine.reduce((a, r) => (r.block > (a?.block ?? -1) ? r : a), null);
@@ -2307,32 +2081,25 @@ function privacyCheck(c, amount, to, via) {
     if (since < 5 || hours < 24) wait = { since, hours: hours === Infinity ? 0 : 24 - hours };
     if (wait) fair(`${since ? `Only ${since} deposit${since === 1 ? '' : 's'} by others since yours` : 'No one else has deposited since yours'}${last.time ? `, ${ago(last.time)}` : ''}. Waiting a day, and for a few more deposits, makes this much harder to link.`);
   }
-  // A withdrawal blends in only with deposits at least as large: few of them single it out.
   const large = v.ins.filter(([, x]) => BigInt(x) >= amount).length;
   if (large < 5) {
     notes.push(`${large ? `Only ${large} deposit${large === 1 ? '' : 's'}` : 'No deposit'} on ${c.full} ${large === 1 || !large ? 'was' : 'were'} this large. Smaller parts blend in better.`);
     if (large < 2) level = 'weak'; else if (level === 'strong') level = 'fair';
   }
   if (via === 'self') fair('Your wallet shows as the one sending it.');
-  // A small crowd is the limit no timing or amount can beat: say so, rather than call it strong.
   if (v.ins.length < YOUNG_POOL) fair(`The pool on ${c.full} is still young: ${v.ins.length} deposit${v.ins.length === 1 ? '' : 's'} so far. Every new deposit makes yours harder to single out.`);
   const crowd = `Your ETH hides among ${st.leaves ?? '…'} notes from ${v.ins.length} deposits in the pool on ${c.full}.`;
   return { level, notes, crowd, wait, round: (same || odd) && round && round !== amount ? round : null };
 }
-// `fn` over `items`, `n` at a time; the first failure stops the rest and is thrown.
 async function eachLimit(items, n, fn) {
   const q = [...items];
   await Promise.all(Array.from({ length: Math.min(n, q.length) }, async () => { while (q.length) { try { await fn(q.shift()); } catch (e) { q.length = 0; throw e; } } }));
 }
-// A fresh read (after an action or a rebuild) starts after any read already running, so it sees what that one missed;
-// unless a read that began after `since` (the moment the change was made) is running or has finished, which saw it. A read
-// that fails is tried again by itself after 8 s, then twice as long after each failure, up to five minutes.
 function historyOf(c, fresh = false, since = Date.now()) {
   const st = CH[c.chainId];
   if (!S.key) return Promise.resolve();
   if (st.histing) return fresh && st.histStart < since ? (st.histNext ||= st.histing.then(() => { st.histNext = null; return historyOf(c); })) : st.histing;
   if (fresh && st.hist && !st.histErr && st.histStart >= since) return Promise.resolve();
-  // A read's outcome counts only while the key that started it is open: the same key opened again is a new session.
   const keys = S.keys;
   st.histProg = null; st.histWork = null; st.histStart = Date.now();
   clearTimeout(st.histTimer);
@@ -2340,14 +2107,13 @@ function historyOf(c, fresh = false, since = Date.now()) {
   const p = st.histing = scanHistory(c, (f, work) => {
     if (S.keys !== keys) return;
     st.histProg = f; st.histWork = work || null;
-    if (work && work.read < work.of && performance.now() - lastPaint < 400) return;       // repainted at most every 400 ms
+    if (work && work.read < work.of && performance.now() - lastPaint < 400) return;
     lastPaint = performance.now(); paintRecover(); paintLinkWait();
   })
     .then((h) => {
       if (S.keys !== keys) return;
       const was = st.hist;
       st.hist = h; st.histErr = null; st.histFails = 0;
-      // A payment this read found that the last one had not: said once, here.
       if (was) {
         for (const r of h.rows.filter((x) => (x.kind === 'in' || x.kind === 'from') && !was.rows.some((y) => lc(y.tx) === lc(x.tx))).slice(0, 3)) {
           toast(r.kind === 'from' ? `Received ${eth(r.v)} ETH on ${c.full} from ${short(r.from)}.` : `Received ${eth(r.v)} ETH privately on ${c.full}.`);
@@ -2372,10 +2138,8 @@ function historyOf(c, fresh = false, since = Date.now()) {
 }
 const historyAll = () => Promise.all(CHAINS.map((c) => historyOf(c)));
 async function rebuild(btn) {
-  if (S.busy) return toast('Finish the payment in progress first.', true);          // a rebuild now would drop the wallet that payment is using
+  if (S.busy) return toast('Finish the payment in progress first.', true);
   await busyBtn(btn, async () => {
-    // This device's copy is forgotten: each chain's wallet state (once a read it is making ends), the pool's events kept
-    // here, and what opened under this key.
     const keys = S.keys;
     await Promise.all(CHAINS.map((c) => freshWallet(c)));
     if (S.keys !== keys) return;
@@ -2392,9 +2156,6 @@ async function rebuild(btn) {
   });
 }
 
-// ── rendering ────────────────────────────────────────────────────────────────────────────────────────────
-// A form's check does nothing while an action runs (the form is disabled then, and drawn afresh when it ends), so a
-// late read landing meanwhile never re-enables a button.
 const FORM = { needsW: false, own: null, get check() { const f = this.own; return f && ((...a) => (S.busy ? undefined : f(...a))); }, set check(f) { this.own = f; } };
 const DRAFT = {};
 const cur = () => CH[S.chain.chainId];
@@ -2406,8 +2167,6 @@ function paintWallet() {
   mount($('#wallet-label'), S.key ? chipView(UNIFIED_LIVE ? unifiedAddress() : S.key.bp) : html`${S.wallet ? short(S.wallet) : knownWallet() ? 'Open wallet' : 'Sign in'}`);
   if ($('#sheet-wallet').open) renderWalletSheet();
 }
-// Each pool's public size on its chain, read from the pool itself: the ETH it holds and the notes it has made, the
-// crowd a spend there hides among. Read at most once a minute per chain.
 const PUB = {};
 function readPub() {
   for (const c of CHAINS) {
@@ -2415,15 +2174,14 @@ function readPub() {
     if (q.p || (q.at && Date.now() - q.at < 60e3)) continue;
     q.p = (async () => {
       const rpc = await rpcOn(c);
-      const [b, n] = await Promise.all([rpc('eth_getBalance', [POOL, 'latest']), rpc('eth_call', [{ to: POOL, data: '0xfc7e9c6f' }, 'latest'])]);   // nextIndex()
+      const [b, n] = await Promise.all([rpc('eth_getBalance', [POOL, 'latest']), rpc('eth_call', [{ to: POOL, data: '0xfc7e9c6f' }, 'latest'])]);
       Object.assign(q, { locked: BigInt(b), notes: Number(BigInt(n)) });
     })().catch((e) => console.warn(`pool on ${c.name}:`, e?.message || e)).finally(() => { q.p = null; q.at = Date.now(); paintChains(); paintBal(); });
   }
-  // What has passed through each pool, from the relay's tally of its public deposits (one read for every chain).
   if (TALLY.p || (TALLY.at && Date.now() - TALLY.at < 300e3)) return;
   TALLY.p = fetch('https://api.tacit.finance/stats?network=mainnet&view=front').then((r) => r.json()).then((d) => {
     const n = (x) => BigInt(x?.$n ?? x ?? 0);
-    for (const x of d.dev || []) if (x.dep != null) TALLY[x.chain] = { in: n(x.dep), deposits: Number(x.nd) || 0 };   // a chain it could not read is unknown, not empty
+    for (const x of d.dev || []) if (x.dep != null) TALLY[x.chain] = { in: n(x.dep), deposits: Number(x.nd) || 0 };
   }).catch(() => {}).finally(() => { TALLY.p = null; TALLY.at = Date.now(); paintBal(); FORM.check?.(); });
 }
 const TALLY = {};
@@ -2447,16 +2205,12 @@ function switchChain(c, tab = null) {
   syncChain(c);
   writeHash();
 }
-// The selected chain's pool (its ETH and notes) and, once more than one chain is read, this key's total on all of them.
 function poolLine(c) {
   const q = PUB[c.chainId];
   const t = TALLY[c.chainId];
-  // What has passed through leads; what it holds now follows.
   const n = (x) => Number(x).toLocaleString('en-US');
   return q?.locked != null ? html`<div>${t?.in ? html`<b>${fmt(t.in, 18, 2)} ETH</b> has passed through the pool on ${c.full} in ${n(t.deposits)} deposits. It holds ${fmt(q.locked, 18, 3)} ETH in ${n(q.notes)} notes now.` : html`The pool on ${c.full} holds ${fmt(q.locked, 18, 3)} ETH in ${n(q.notes)} notes.`}</div>` : '';
 }
-// Its own row under the balance. It keeps its place while the pool is first read, so nothing below it moves under a
-// finger, and gives the space back if the read failed.
 function paintPoolStat() {
   const el = $('#poolstat');
   if (!el) return;
@@ -2467,10 +2221,9 @@ function paintPoolStat() {
 function totalLine() {
   const known = CHAINS.map((x) => CH[x.chainId].bal).filter((b) => b != null);
   const total = known.reduce((a, b) => a + b, 0n);
-  if (known.length < 2 || !total || total === cur().bal) return '';   // only when it says more than this chain's own
+  if (known.length < 2 || !total || total === cur().bal) return '';
   return html`<div>${ethDown(total)} ETH private across ${known.length === CHAINS.length ? 'all four chains' : `${known.length} chains`}</div>`;
 }
-// Chains whose balance a press of "refresh" is reading again: the button stays where it is, off until the read ends.
 const REFRESHING = new Set();
 function paintBal() {
   const c = S.chain, st = cur(), el = $('#bal');
@@ -2495,7 +2248,6 @@ function paintBal() {
 }
 const TABS = [['deposit', 'Deposit'], ['send', 'Send'], ['withdraw', 'Withdraw'], ['receive', 'Receive']];
 function renderApp() { paintProof(); paintGift(); paintReq(); paintDue(); paintChains(); paintBal(); renderTabs(); renderForm(); $('#points').hidden = linkOnly(); }
-// A signed-out visitor who opened a payment or a request someone sent: that card is the page.
 const linkOnly = () => !S.key && !!(GIFT.v || REQ.v);
 function renderTabs() {
   mount($('#tabs'), html`${TABS.map(([k, l]) => html`<button type="button" role="tab" id="tab-${k}" data-tab="${k}" aria-controls="form" aria-selected="${k === S.tab ? 'true' : 'false'}" tabindex="${k === S.tab ? '0' : '-1'}" ${S.busy ? 'disabled' : ''}>${l}</button>`)}`);
@@ -2510,7 +2262,6 @@ function renderForm() {
   keepFocus(f, () => {
     FORM.check = null; FORM.needsW = false; FORM.waitShown = undefined; FORM.needsLink = false; FORM.needsGift = false; FORM.relayShown = undefined; FORM.linkK = undefined; FORM.paidShown = undefined;
     if (!S.key) {
-      // Opened from a link someone sent: the link's card leads, and the way in is one line.
       if (linkOnly()) { mount(f, html`<p class="gate-p">Have a Tacit wallet? <button class="link" type="button" id="g-open">Open it</button> to keep this private.</p>`); $('#g-open').onclick = openWalletSheet; return; }
       mount(f, html`<p class="gate-p">Open your Tacit wallet. One key holds your private ETH on all four chains, and nothing else needs backing up.</p>${signIn('g')}`);
       return wireSignIn(f, 'g');
@@ -2525,8 +2276,6 @@ function renderForm() {
     FORM.check?.();
   });
 }
-// A drawn form whose picture of this chain is out of date: its wallet has arrived, what waits at the deposit
-// addresses changed, the relay came or went, or the link it shows was paid or moved in.
 const formStale = (c) => c === S.chain && ((FORM.needsW && CH[c.chainId].W) || (FORM.waitShown !== undefined && CH[c.chainId].waiting !== FORM.waitShown)
   || (FORM.relayShown !== undefined && FORM.relayShown !== relayUp()) || (FORM.linkK !== undefined && FORM.linkK !== linkIndex())
   || (FORM.paidShown !== undefined && FORM.paidShown !== paidSig()));
@@ -2539,18 +2288,9 @@ const privacyView = (c, amount, to, via) => {
     ${p.round && p.round < amount ? html`<p class="note"><button class="link" type="button" id="pv-round" data-v="${p.round}">Withdraw ${fmt(p.round, 18, 6)} ETH instead</button></p>` : ''}
     <p class="note mute">${p.crowd}</p></div>`;
 };
-// What a deposit of `a` wei is likely to earn the paying wallet, as the points program scores it now: 1,000 points per
-// ETH, times the early bonus 1 + 4 / (1 + deposits so far / 200) (the pools' public deposit count, which the program
-// counts the same deposits from), times the wallet's TAC-holder tier (100, 1,000, 10,000 TAC: ×1.25, ×1.5, ×2) and the
-// Privacy Pools boost when it has one. Until the count is read it says the floor.
 const TAC_TOKEN = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279', TAC_TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 const TACB = { who: null, v: null, p: null, retryAt: 0 };
 const tierOf = (wei) => { const t = Number(wei / 10n ** 18n); return t >= 10000 ? 2 : t >= 1000 ? 1.5 : t >= 100 ? 1.25 : 1; };
-// The program credits the tier of the LOWEST public TAC balance the depositor held over the trailing 7,200 blocks (about
-// a day), so TAC bought just now counts for nothing yet. The wallet's TAC transfers over that window are replayed
-// backwards from its balance now. → { now, held }: the tier by the balance now, and the tier it has held all day (1
-// where the transfers could not be read, which promises less rather than more). A read that failed is tried again
-// after half a minute.
 async function readTier(who) {
   const rpc = await rpcApart(CHAINS.find((c) => c.chainId === 1)), me = '0x' + who.slice(2).padStart(64, '0');
   const [bal, head] = await Promise.all([rpc('eth_call', [{ to: TAC_TOKEN, data: '0x70a08231' + who.slice(2).padStart(64, '0') }, 'latest']).then(BigInt), rpc('eth_blockNumber', []).then(BigInt)]);
@@ -2588,10 +2328,8 @@ document.addEventListener('click', (e) => {
   for (const x of $$('[data-ptsinfo]')) x.setAttribute('aria-expanded', String(PTSINFO));
   for (const n of $$('[data-ptsnote]')) n.hidden = !PTSINFO;
 });
-// What a deposit of `a` wei is likely to earn now: 1,000 points per ETH, the early bonus, the TAC holder tier held a day
-// and the Privacy Pools boost. → { pts, known (the pools' deposit counts are in), why }
 function pointsEst(a) {
-  const counted = CHAINS.filter((c) => c.points !== false);                                   // the chains the program scores
+  const counted = CHAINS.filter((c) => c.points !== false);
   const known = counted.every((c) => TALLY[c.chainId]), n = counted.reduce((s, c) => s + (TALLY[c.chainId]?.deposits || 0), 0);
   const early = known ? 1 + 4 / (1 + n / 200) : 1, tier = holderBoost(), hold = tier.held, pp = PTS.v?.pp ? 1.2 : 1;
   const why = [known ? `${early.toFixed(1)}× early` : '', hold > 1 ? `${hold}× TAC holder` : '', tier.now > hold ? `${tier.now}× once your TAC is held a day` : '', pp > 1 ? '1.2× Privacy Pools' : ''].filter(Boolean).join(' · ');
@@ -2608,8 +2346,6 @@ const amountField = (id, label, extra = '') => html`
   <div class="lbl"><span>${label}</span>${extra}</div>
   <div class="amt"><input id="${id}" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${label}"><span class="u">${ethIcon}ETH</span></div>`;
 const kvRow = (k, v, cls = '') => html`<div class="kv"><span>${k}</span><b class="num ${cls}">${v}</b></div>`;
-// A form's receipt (a status region) is set during its check and drawn once the check ends, and only when what it says
-// changed, so a screen reader hears it once rather than at every check and every poll. Nothing set hides it.
 function receipt(rc) {
   let next = null;
   return { set: (v) => { next = v; }, done: () => { keepFocus(rc, () => mountOnce(rc, next || html``)); rc.hidden = !next; next = null; } };
@@ -2625,9 +2361,6 @@ function wireRoute(f, tab) {
 }
 const routeNote = (tab, relay, wallet) => (routeOf(tab) === 'relay' ? relay : wallet);
 
-// What a spend of `amount` costs through the relay: its fee, plus one fee per merge when two notes cannot cover it
-// (the wallet combines its two largest notes, repeatedly, until two do). The wallet makes at most MERGES of them before
-// one spend, so at most nine notes pay for it; `most` lifts that, to ask whether the balance covers it at all.
 const MERGES = 7;
 function spendPlan(amount, fee, st = cur(), most = MERGES) {
   let u = [...st.notes].filter((v) => v > 0n).sort((a, b) => (a < b ? -1 : 1));
@@ -2655,53 +2388,32 @@ function maxSpend(fee, extra = 0n, st = cur()) {
   }
   return best;
 }
-// The balance covers the spend, but over more notes than one spend can combine.
 const tooSpread = (amount, fee, st = cur()) => !spendPlan(amount, fee, st) && !!spendPlan(amount, fee, st, Infinity);
-// Says so, with what can go now: `lead` begins that sentence ("Send up to").
 const spreadText = (c, st, most, lead) => `Your private ETH on ${c.full} is spread over ${st.notes.filter((v) => v > 0n).length} notes, and one payment combines at most nine of them. ${lead} ${ethDown(most)} ETH now, with Max, and the rest after.`;
-// The round deposit that lets a spend of `amount` through: from the smallest that could, up through the round amounts
-// until the notes it joins make a plan (a deposit as large as the spend and its fee always does, with no merges).
 function depositFor(amount, cap, st = cur()) {
   const from = roundUp(amount + 2n * cap - maxSpend(cap, 0n, st));
   return ROUND.find((d) => d >= from && spendPlan(amount, cap, { notes: [...st.notes, d] })) ?? amount + cap;
 }
-// The relay's quoted fee on `c`, null until a quote is in; a quote of 0 is a fee of 0, not a missing one.
 const quoteFee = (c) => { const f = CH[c.chainId].quote?.fee; return f == null || f === '' ? null : BigInt(f); };
-// The relay's fee for a spend on `c`, 0 when your wallet sends it, null while the relay's quote is not in yet.
 const relayFee = (tab, c = S.chain) => (routeOf(tab) !== 'relay' ? 0n : quoteFee(c));
-// The most a spend may cost in relay fee: a quarter more than the fee its preview showed (0 for a fee of 0). The wallet
-// refuses a dearer quote.
 const capOf = (fee) => (fee == null ? null : (fee * 5n) / 4n);
-// A spend is planned, and Max filled in, at that cap: the wallet pays the live fee, up to the cap, for the spend and for
-// each merge before it, so a plan that holds at the cap holds at any fee the wallet accepts. 0 when your wallet sends it.
 const atCap = (fee) => capOf(fee) ?? 0n;
-// The relay fee a preview shows is that cap, rounded up to 6 decimals, so "at most" holds; each merge first pays one more.
 const upTo = (v) => fmt(((v + 10n ** 12n - 1n) / 10n ** 12n) * 10n ** 12n, 18, 6);
-// `self`: your wallet sends it and pays the gas; otherwise the relay does, for `fee`.
 const feeRow = (fee, self) => (self ? kvRow('Relay fee', 'none · your wallet pays the network fee') : kvRow('Relay fee', fee ? `at most ${upTo(capOf(fee))} ETH` : 'none'));
 const mergeRow = (fee, n, self) => (!n ? '' : self ? kvRow(`Notes to combine first (${n}×)`, 'your wallet pays the network fee') : kvRow(`Relay fee to combine notes (${n}×)`, fee ? `at most ${upTo(capOf(fee) * BigInt(n))} ETH` : 'none'));
-// What stays private after the spend: at least this much, as the plan pays every fee at its cap.
 const keptRow = (change, fee) => kvRow('Stays private', `${fee ? 'at least ' : ''}${ethDown(change)} ETH`);
-// An amount Max filled in follows the route and the relay's fee: switching between relay and wallet, or a new fee, fills
-// it in again, unless it has been edited since. `whole`: it takes the two largest notes as they are, with nothing to
-// combine first, so the spend can ask the wallet for 'max' (both notes less the fee it is quoted), and the room left
-// under the fee's cap goes with the payment instead of staying behind as a note too small to use; `top`, those two.
 let MAXED = null;
 const topTwo = (vs) => { const u = vs.map(BigInt).sort((a, b) => (b < a ? -1 : 1)); return (u[0] ?? 0n) + (u[1] ?? 0n); };
 const markMax = (amt, whole = false) => { MAXED = { id: amt.id, v: amt.value, whole: !!whole && !!amt.value, top: topTwo(cur().notes) }; };
 const reMax = () => { const i = MAXED && $('#' + MAXED.id); if (i?.value && i.value === MAXED.v) $('#f-max')?.click(); };
-// The amount in `amt` is still the whole Max; with the wallet `W` at a press, only while it holds the same two largest notes.
 const maxed = (amt, W = null) => !!MAXED?.whole && MAXED.id === amt.id && amt.value === MAXED.v && (!W || MAXED.top === topTwo(W.notes().map((n) => n.v)));
-// A Max (or a wallet balance) button with nothing to fill in yet is off, and says why when pointed at.
 const maxOff = (b, why) => { if (!b) return; b.disabled = !!why; if (why) b.title = why; else b.removeAttribute('title'); };
-// The relay's fee moved past the preview's: its fresh quote replaces the one the preview used, and the form is redrawn with it.
 async function feeChanged(c, fee, bridge = null) {
   const st = CH[c.chainId];
   if (bridge) BRIDGE_Q.fee[bridge] = fee;
   else st.quote = (await st.W?.quote().catch(() => null)) || (st.quote && { ...st.quote, fee: fee.toString() });
 }
 
-// The pool wallet's progress, in this page's words.
 const STEP_WORDS = {
   'proving on this device': 'Proving on this device…', 'sending through the relayer': 'Sending through the relay…', 'waiting for it to be mined': 'Waiting for the block…',
   'confirm in your wallet': 'Confirm in your wallet…', 'someone else got in first, proving again': 'Another payment landed first. Proving again…', 'combining notes first': 'Combining two notes first…',
@@ -2709,18 +2421,14 @@ const STEP_WORDS = {
   'a spend of these funds is on its way already; waiting for it': 'Another payment from this balance is already on its way. Waiting for it…',
 };
 const stepWords = (m) => STEP_WORDS[m] || m[0].toUpperCase() + m.slice(1);
-// Leaving the page mid-payment stops it where it is, so the browser asks first.
 const KEEP_OPEN = 'Keep this page open until it finishes.';
-// A payment is being made: an action, a link being taken, or a request paid from a wallet.
 const paying = () => S.busy > 0 || GIFT.busy || !!REQ.v?.paying;
 window.addEventListener('beforeunload', (e) => { if (paying()) { e.preventDefault(); e.returnValue = ''; } });
-// Runs an action with the app card held: chain, tab and route stay put, and the poll leaves this chain alone.
-// `bridge`: the L2 a move's quote was for, so a moved fee lands on that quote.
 async function act(btn, fn, { bridge = null } = {}) {
   if (S.busy) return;
   const status = $('#status'), c = S.chain;
   S.busy++; S.busyChain = c.chainId;
-  btn.setAttribute('aria-busy', 'true');                              // first, so a card redrawn now keeps the button pressed
+  btn.setAttribute('aria-busy', 'true');
   paintChains(); renderTabs(); paintBal(); paintReq(); paintDue(); paintDevice();
   $$('#form button, #form input').forEach((x) => { x.disabled = true; });
   let t0 = 0, label = '', note = '', timer = null;
@@ -2747,37 +2455,28 @@ async function act(btn, fn, { bridge = null } = {}) {
     clearInterval(timer);
     btn.removeAttribute('aria-busy');
     S.busy--; S.busyChain = null;
-    // A spend the relay may still have sent is not filled in again: a second press would pay it twice.
     if (/may still have sent/i.test(err?.message || '')) for (const id of ['f-amt', 'f-wamt', 'f-gamt', 'f-damt']) delete DRAFT[id];
     const keepStatus = status.innerHTML;
     renderApp(); paintDevice();
     if (err?.feeMoved != null) reMax();
     status.innerHTML = keepStatus;
-    // The button pressed takes the focus back, so a keyboard is not sent to the top of the page.
     if (btn.id && (!document.activeElement || document.activeElement === document.body)) document.getElementById(btn.id)?.focus({ preventScroll: true });
     $('#use-wallet')?.addEventListener('click', () => { ROUTES[S.tab] = 'wallet'; writeJson(ROUTE_PREF, ROUTES); renderForm(); reMax(); say(status, html`<span class="mute">Your wallet will send it. Press the button again.</span>`); });
   }
   const st = CH[c.chainId], again = st.deferred;
   st.deferred = false;
-  // A relay that never answered may still have sent it: the chain is read again either way.
   if (ok || err?.said || (err && relayTrouble(err))) syncChain(c, true).then(() => historyOf(c, true, tDone));
   else if (again) syncChain(c, true);
   if (S.lockDue && !S.busy) { const msg = S.lockDue; S.lockDue = false; lock(); if (typeof msg === 'string') toast(msg); }
 }
 const done = (c, h, text) => { say($('#status'), html`<span class="ok">${text}</span> ${txLink(c, h)}`); toast(text); };
-// A transaction as the chain has it now: 'ok' in a block, 'reverted', or null while no node has it. One the connected
-// wallet sent (`self`) is read from the node kept apart for the wallet's own reads.
 const receiptOf = async (c, h, self = false) => {
   const r = await (await (self ? rpcApart(c) : rpcOn(c)))('eth_getTransactionReceipt', [h]);
   return !r ? null : r.status === '0x1' || r.status === 1 ? 'ok' : 'reverted';
 };
-// The pool wallet hands back a transaction's hash once it is mined, or after about three minutes with no receipt.
-// → whether it is in a block now, read from the node the wallet read it from.
 const mined = (c, h, via) => receiptOf(c, h, via === 'self').then((s) => s === 'ok', () => false);
 const UNMINED = 'Sent, not confirmed yet. Check Activity before sending again.';
-// A payment sent from here that no node has ten minutes on is taken as dropped.
 const LOST_MS = 10 * 60e3;
-// A private payment's success line offers its proof once the history has read the payment.
 const SENT = { v: null };
 function offerProof() {
   const s = SENT.v, el = $('#status');
@@ -2788,7 +2487,6 @@ function offerProof() {
   el.insertAdjacentHTML('beforeend', html` <button class="link" type="button" data-sproof="${s.c.key}:${r.tx}:${r.proof.k}:${r.proof.e.toString(16).padStart(64, '0')}">Copy proof of payment</button> <span class="mute">Anyone with their address can check it was paid. It shows nothing else.</span>`.s);
 }
 document.addEventListener('click', (e) => { const b = e.target.closest?.('[data-sproof]'); if (b) copy(`${location.origin}/pay/eth/#proof=${b.dataset.sproof}`, 'Proof link copied.'); });
-// Its success line once the transaction is in a block; until then, that it was sent and is not in one yet. → mined
 async function finish(c, h, via, text) {
   if (await mined(c, h, via)) { done(c, h, text); return true; }
   say($('#status'), html`<span class="warn">${UNMINED}</span> ${txLink(c, h)}`);
@@ -2822,7 +2520,6 @@ function formDeposit(f) {
       ${(st.waitBoxes || []).some(([, v]) => (min && v < min) || !relayUp()) ? html`<p class="note">Taking it in yourself has no relay fee. Your wallet pays the network fee, and its address shows as the one collecting it.</p>` : ''}
       <p class="more"><button class="link" type="button" id="f-check">Check for arrivals</button></p>`);
     $$('[data-copy]', f).forEach((b) => b.onclick = () => copy(b.dataset.copy, 'Deposit address copied'));
-    // The address alone, which an exchange's or a wallet's scanner takes on any of the four chains.
     const dq = $('#f-dqr');
     if (dq && W) mount(dq, qrSvg(W.receiveBox, Math.min(dq.clientWidth || 220, 220), 'QR code of your deposit address'));
     $('#f-check').onclick = async () => { try { const W2 = await walletOn(c); await Promise.all([0, ...linkRange()].map((i) => W2.watchReceive(i).catch(() => {}))); await syncChain(c, true); say($('#status'), cur().waiting > 0n ? `${fmt(cur().waiting, 18, 6)} ETH is on its way in.` : 'Nothing waiting at the deposit address.'); } catch (e) { sayErr($('#status'), e); } };
@@ -2845,8 +2542,6 @@ function formDeposit(f) {
     let wb = null, dto = null, lastDto = '';
     const amt = $('#f-damt'), go = $('#f-go'), rc = $('#f-rcpt'), toEl = $('#f-dto');
     $('#f-conn')?.addEventListener('click', () => connectWallet().catch((e) => toast(errText(e), true)));
-    // The wallet's balance on this chain, written into this form's own label: a read that lands after the form was drawn
-    // again (another chain, another wallet) is dropped.
     const wbEl = $('#f-wb'), mx = $('#f-max');
     if (S.wallet) rpcApart(c).then((r) => r('eth_getBalance', [S.wallet, 'latest'])).then((b) => {
       if (!wbEl?.isConnected) return;
@@ -2875,7 +2570,7 @@ function formDeposit(f) {
         if (!a) throw new Error('Enter an amount.');
         const raw = toEl.value.trim(), shown = dto?.bp;
         let to = null;
-        if (raw) {                                                             // looked up again as it is sent, and must still point where it was shown
+        if (raw) {
           const r = await resolveRecipient(raw);
           if (r.error) throw new Error(r.error);
           if (r.bp !== shown) throw new Error('Where that address or name points changed. Check it and deposit again.');
@@ -2901,19 +2596,14 @@ function formDeposit(f) {
 }
 
 const TADDR = makeTacitAddress({ secp });
-// This key's tacit1… address with the pool lane: the Bitcoin spend and silent-payment scan keys, the Ethereum-side key
-// (the spend key, as every app sets it) and the pool keys, all from the one key.
 function addressBase() {
   const spend = hexToBytes(S.key.priv), spendPub = secp.getPublicKey(spend, true);
   const scan = BigInt('0x' + bytesToHex(bip352TaggedHash('BIP0352/ScanKey', spend))) % secp.CURVE.n;
   return { network: 'mainnet', btcSpendPub: spendPub, btcScanPub: secp.getPublicKey(scan.toString(16).padStart(64, '0'), true), evmOwnerPub: spendPub };
 }
 const unifiedAddress = () => TADDR.encodeTacitAddress({ ...addressBase(), poolKeys: poolKeysOf(S.key.bp) });
-// This key's address from before the pool lane: what a name's record holds until it is upgraded.
 const legacyAddress = () => TADDR.encodeTacitAddress(addressBase());
 const getNames = lazy(async () => { const n = await import('/confidential-names.js'); return n.makeConfidentialNames({ call: n.makeMainnetCall(), secp, keccak256: keccak_256 }); });
-// A recipient as typed: a bp1… pool address, a tacit1… address that carries one, or a .wei, .gwei or .eth name whose
-// record does. → { bp, label? } or { error }. A tacit1… address from before the pool lane cannot be paid here.
 const OLD_TACIT = 'is from before pool payments, so it cannot receive here yet';
 async function resolveRecipient(raw) {
   const s = raw.trim(), lo = s.toLowerCase();
@@ -2934,13 +2624,7 @@ async function resolveRecipient(raw) {
   }
   return { error: 'Enter a pool address (bp1…), a Tacit address or a .wei name.' };
 }
-// The connected wallet's primary name, when its record is exactly this key's address from before the pool lane: the plan
-// that republishes it as the unified address (one setText on Ethereum). A record that names another key for Bitcoin is
-// left alone, as the upgrade would move those payments. null when there is nothing to upgrade. The plan is kept for a
-// minute per wallet and address, so a redraw does not ask the name's contracts again.
 const PLANS = new Map();
-// Upgrades sent from this page (by wallet and address) whose transaction is not in a block yet: none is offered again
-// meanwhile, in Receive or in the wallet sheet, so a second press can't publish it twice.
 const UPGRADING = new Set();
 function nameUpgrade() {
   if (!UNIFIED_LIVE || !S.key || !S.wallet) return Promise.resolve(null);
@@ -2966,7 +2650,6 @@ async function upgradeName(plan) {
   return names.publish(plan);
 }
 const upgradeView = (plan) => html`<div class="callout"><span>${plan.name} points to your address from before pool payments. Upgrade it so anyone can pay you privately in every pool: one transaction on Ethereum.</span><button class="btn ghost sm" type="button" id="name-up">Upgrade ${plan.name}</button></div>`;
-// Waits for a transaction the connected wallet sent on `c`: → true in a block, false reverted, null not seen in time.
 async function landedTx(c, h, ms = LOST_MS) {
   for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(4000)) {
     const s = await receiptOf(c, h, true).catch(() => undefined);
@@ -2979,7 +2662,6 @@ function wireUpgrade(root, plan, after) {
   if (b) b.onclick = () => {
     if (UPGRADING.has(plan.upId)) return;
     busyBtn(b, async () => {
-      // The other offer of the same upgrade waits while this one is sent.
       const others = () => $$('#name-up').filter((x) => x !== b);
       UPGRADING.add(plan.upId);
       for (const x of others()) x.disabled = true;
@@ -2988,7 +2670,7 @@ function wireUpgrade(root, plan, after) {
       catch (e) { UPGRADING.delete(plan.upId); for (const x of others()) x.disabled = false; return toast(errText(e), true); }
       toast(html`Upgrade of ${plan.name} sent. ${txLink(CHAINS[0], r.txHash)}`);
       const ok = await landedTx(CHAINS[0], r.txHash);
-      if (ok === null) {                                                // still not in a block: it stays sent, and is not offered again here
+      if (ok === null) {
         for (const x of $$('#name-up')) x.closest('.callout')?.remove();
         return toast(html`The upgrade of ${plan.name} is not confirmed yet. Check it in your wallet. ${txLink(CHAINS[0], r.txHash)}`, true);
       }
@@ -3000,22 +2682,17 @@ function wireUpgrade(root, plan, after) {
     });
   };
 }
-// Pool addresses are checked with the open key's decoder, or, with no key open (a payer with only a wallet), a
-// throwaway key's: decoding reads only the address.
 const spareKeys = lazy(async () => { const m = await mods(); return m.evmPoolKeys(m.zk, crypto.getRandomValues(new Uint8Array(32))); });
 async function validPool(raw) {
   const m = await mods(), keys = S.keys || await spareKeys();
   try { m.recipientOf(keys, raw); return true; } catch { return false; }
 }
-// ── people you pay: a name for an address, kept in this browser for this key ────────────────────────────────
 const peopleKey = () => `tacit-pay-people-v1:${S.key.pubHex}`;
 const people = () => (S.key && readJson(peopleKey())) || [];
 const nameFor = (to) => people().find((p) => lc(p.to) === lc(to))?.name || null;
 const savePerson = (name, to) => writeJson(peopleKey(), [{ name, to }, ...people().filter((p) => lc(p.to) !== lc(to) && p.name !== name)].slice(0, 24));
 const dropPerson = (to) => writeJson(peopleKey(), people().filter((p) => lc(p.to) !== lc(to)));
 const isAddr = (s) => /^0x[0-9a-fA-F]{40}$/.test(s);
-// A mixed-case address carries its EIP-55 checksum, and one that does not match was mistyped. All lower or all upper case
-// has no checksum to check.
 const SUM_MSG = 'That address’s capitalization does not match its checksum. Check it.';
 const NOT_ADDR = 'Not a valid 0x address: it is 0x followed by 40 hex characters.';
 function badSum(s) {
@@ -3025,8 +2702,6 @@ function badSum(s) {
   return [...a].some((ch, i) => /[a-f]/i.test(ch) && (((h[i >> 1] >> (i & 1 ? 0 : 4)) & 15) >= 8) !== (ch !== ch.toLowerCase()));
 }
 const payable = (a) => BigInt(a) !== 0n && ![lc(POOL), lc(ROUTER)].includes(lc(a));
-// The smallest round amount (1, 2.5 or 5 times a power of ten) at or above `v`: a deposit made for a payment, sized so
-// it doesn't share the payment's amount.
 const roundUp = (v) => ROUND.find((r) => r >= v) ?? v;
 
 function formSend(f) {
@@ -3051,7 +2726,7 @@ function formSend(f) {
   $$('[data-unperson]', f).forEach((b) => b.onclick = () => { dropPerson(b.dataset.unperson); renderForm(); });
   const doSave = () => { const n = pname.value.trim(); if (!n) return pname.focus(); savePerson(n, to.value.trim()); delete DRAFT['f-pname']; renderForm(); toast(`Saved as ${n}`); };
   $('#f-psave').onclick = doSave;
-  pname.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doSave(); } });     // Enter here saves the name, never sends
+  pname.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doSave(); } });
   $('#f-paste').onclick = async () => { try { to.value = (await navigator.clipboard.readText()).trim(); to.dispatchEvent(new Event('input')); } catch { to.focus(); } };
   $('#f-max').onclick = () => { const fee = relayFee(tab); if (fee == null || cur().bal == null) return; const cap = atCap(fee), v = maxSpend(cap); amt.value = v ? plain(v) : ''; markMax(amt, v && spendPlan(v, cap)?.merges === 0); amt.dispatchEvent(new Event('input')); };
   const R = receipt(rc);
@@ -3069,7 +2744,6 @@ function formSend(f) {
       ? routeNote(tab, 'The address and the amount show on chain, as a withdrawal from the pool. Nothing links it to you, and the relay cannot change it.', 'The address and the amount show on chain, and so does your wallet as the sender.')
       : routeNote(tab, 'Nothing on chain links this payment to you or to them, and the relay cannot change it.', 'Your wallet’s address shows as the sender of a pool transaction. The amount and the recipient stay hidden.'));
     const bad = (t) => R.set(html`<p class="note err" role="alert">${t}</p>`);
-    // Something still being typed (the start of an address, or a name before its .wei/.gwei/.eth) is not an error yet.
     const typing = /^(b|bp|bp1[a-z0-9]{0,159}|t|ta|tac|taci|tacit|tacit1[a-z0-9]{0,160}|0|0x[0-9a-f]{0,39})$/i.test(raw)
       || (/^[a-z0-9-]+(\.[a-z]{0,3})?$/i.test(raw) && !/\.(g?wei|eth)$/i.test(raw) && !/^(0x|bp1|tac(it|tt|rt)1)/i.test(raw));
     if (raw && okTo?.error && !typing) return bad(okTo.error);
@@ -3079,10 +2753,8 @@ function formSend(f) {
     if (fee == null) return R.set(html`<p class="note">${relayUp() ? 'Reading the relay’s fee…' : 'The relay can’t take this one right now. Send it from your wallet instead, or try again in a moment.'}</p>`);
     const cap = atCap(fee), plan = spendPlan(a, cap), who = known || okTo.label, self = routeOf(tab) === 'wallet';
     const change = bal != null && plan ? bal - plan.total : null;
-    // Covered, but by more notes than one payment combines: what can go now, and no deposit, which would not help.
     if (bal != null && !plan && tooSpread(a, cap)) return bad(spreadText(c, cur(), maxSpend(cap), 'Send up to'));
     if (okTo.addr && bal != null && !plan) {
-      // Not enough private ETH yet: a deposit now, and the payment once others have deposited after it.
       const have = maxSpend(cap);
       dep = depositFor(a, cap);
       R.set(html`${kvRow('Your private balance covers', `${ethDown(have)} ETH`)}
@@ -3093,7 +2765,6 @@ function formSend(f) {
     }
     if (bal != null && !plan) return bad('More than your private balance covers with the fee.');
     shownFee = fee;
-    // An amount left at Max goes as the wallet's 'max': at least this much arrives.
     const whole = !self && fee > 0n && !(REQ.v && !REQ.v.paid) && maxed(amt);
     R.set(html`${who ? kvRow('To', `${who} → ${short(okTo.bp || okTo.addr, 8)}`) : ''}
       ${okTo.id ? kvRow('ID', okTo.id) : ''}
@@ -3139,7 +2810,6 @@ function formSend(f) {
         clearDraft('f-amt', 'f-to');
         return finish(c, h, via, `Paid ${nameFor(raw) || short(raw)} ${whole ? 'at least ' : ''}${exact(a)} ETH.`);
       }
-      // A name is looked up again as it is sent, and must still point where it was shown.
       const shown = okTo?.bp, via = viaFor(tab), r = await resolveRecipient(raw);
       if (r.error) throw new Error(r.error);
       if (r.bp !== shown) throw new Error('Where that address or name points changed. Check it and send again.');
@@ -3148,7 +2818,6 @@ function formSend(f) {
       if (via) await signerFor(c).ready();
       const whole = !via && !!maxFee && !(req && !req.paid) && maxed(amt, W);
       const h = await W.send({ to: r.bp, amount: whole ? 'max' : a, via, maxFee, onStep: step });
-      // The request counts as paid once the payment is in a block; until then it is kept as pending.
       const paysReq = ofReq && (!req.amount || a === req.amount);
       if (paysReq) { Object.assign(req, { paid: { h, c, a, self: via === 'self' }, state: 'mining', err: null, lost: null, paidAt: Date.now() }); rememberPaid(req); }
       clearDraft('f-amt', 'f-to');
@@ -3158,11 +2827,8 @@ function formSend(f) {
     });
   };
 }
-// Why a Max button has nothing to fill in yet, or null when it has.
 const maxWhy = (fee, bal) => (fee == null ? (relayUp() ? 'Max fills in once the relay’s fee is read' : 'The relay can’t take this one right now. Max fills in once it can') : bal == null ? 'Max fills in once your private balance is read' : null);
 
-// Pay by link: the ETH goes privately to a link key of this key's, and the link hands that key over. Whoever opens it
-// takes the ETH to any wallet (the relay sends it, so no gas) or keeps it private; until then, this key can take it back.
 const LINKSHOW = { v: null };
 function formLink(f) {
   const c = S.chain, tab = 'send', gi = giftIndex(c);
@@ -3195,7 +2861,6 @@ function formLink(f) {
   checkMade();
   const amt = $('#f-gamt'), go = $('#f-go'), rc = $('#f-rcpt');
   let dep = null;
-  // The link carries the relay's fee for taking it out too, so they get what you typed.
   const claimFee = () => quoteFee(c);
   $('#f-max').onclick = () => { const fee = relayFee(tab), cf = claimFee(); if (fee == null || cf == null || cur().bal == null) return; const cap = atCap(fee), v = maxSpend(cap, cf); amt.value = v ? plain(v) : ''; markMax(amt, v && spendPlan(v + cf, cap)?.merges === 0); amt.dispatchEvent(new Event('input')); };
   const R = receipt(rc);
@@ -3247,9 +2912,8 @@ function formLink(f) {
         justDid(c, { kind: 'dep', v: deposit, from: lc(S.wallet), tx: h0 });
       }
       const via = viaFor(tab);
-      if (!via && maxFee == null) throw new Error('Still reading the relay’s fee. Try again in a moment.');     // never a spend with no cap on what the relay takes
+      if (!via && maxFee == null) throw new Error('Still reading the relay’s fee. Try again in a moment.');
       if (via) await signerFor(c).ready();
-      // The index is taken before the send and never given back, so a link's key can't be handed out twice.
       const gl = giftLocal();
       gl.n[c.chainId] = Math.max(gl.n[c.chainId] || 0, i + 1);
       if (note) gl.notes[`${c.chainId}:${i}`] = note;
@@ -3257,7 +2921,6 @@ function formLink(f) {
       const seed = giftSeed(i, c.chainId), gk = (await giftKeys(c.chainId, i + 1))[i];
       const whole = !deposit && !via && !!maxFee && maxed(amt, W);
       const h = await W.send({ to: gk.address, amount: whole ? 'max' : a + cf, via, maxFee, onStep: step });
-      // Listed as made here until the history reads it; looked up on the chain until its funding is in a block.
       const g2 = giftLocal();
       g2.made = [...g2.made, { i, chain: c.chainId, v: (a + cf).toString(), tx: h, at: Date.now(), pending: true, ...(via === 'self' ? { self: true } : {}) }].slice(-24);
       giftSave(g2);
@@ -3267,15 +2930,11 @@ function formLink(f) {
     });
   };
 }
-// Redraws only the list of links, so a read that finishes while a form is being filled in leaves the fields alone.
 function refreshLinks() {
   const el = $('#f-gl');
   if (el) keepFocus(el, () => { mount(el, html`${linksList()}`); wireLinks(el); });
 }
-// A link made here whose funding is not yet known to be in a block is looked up on its chain: once it is, the link stays
-// listed until the history reads it; reverted, or not found ten minutes after it was sent, it leaves the list.
 const MADEQ = new Set();
-// `why`, for one that leaves: 'reverted', or 'missing' when no node has it.
 function settleMade(tx, landed, why = 'missing') {
   const g = giftLocal(), shown = LINKSHOW.v?.tx === tx, x = g.made.find((m) => m.tx === tx);
   if (!x) return;
@@ -3303,7 +2962,6 @@ function checkMade() {
     }, () => { if (S.key?.pubHex === pub) later(); });
   }
 }
-// The links this key sent, on every chain, from its history, and any made here that the history hasn't read yet.
 function linksList() {
   if (!S.key) return '';
   const gl = giftLocal(), found = CHAINS.flatMap((c) => (CH[c.chainId].hist?.gifts || []).map((g) => ({ ...g, c })));
@@ -3319,7 +2977,6 @@ function wireLinks(root) {
   $$('[data-gcopy]', root).forEach((b) => b.onclick = () => { const [i, id] = b.dataset.gcopy.split(':').map(Number); copy(giftLink(giftSeed(i, id), chainOf(id), giftLocal().notes[`${id}:${i}`]), 'Link copied. Send it only to them.'); });
   $$('[data-gback]', root).forEach((b) => b.onclick = () => { const [i, id] = b.dataset.gback.split(':').map(Number); takeBack(i, chainOf(id)); });
 }
-// Takes a link's ETH back into this key's private balance, relayed (its fee comes out of the link) or from the wallet.
 function takeBack(i, c) {
   if (S.busy) return;
   if (c !== S.chain) switchChain(c);
@@ -3327,12 +2984,11 @@ function takeBack(i, c) {
   if (!btn) return;
   act(btn, async (step) => {
     const via = viaFor('send');
-    if (!via && relayFee('send', c) == null) throw new Error('Still reading the relay’s fee. Try again in a moment.');     // never a spend with no cap on what the relay takes
+    if (!via && relayFee('send', c) == null) throw new Error('Still reading the relay’s fee. Try again in a moment.');
     const Wg = await giftWallet(giftSeed(i, c.chainId), c);
     if (via) { Wg.connect(signerFor(c)); await signerFor(c).ready(); }
     const s = await Wg.sync();
     if (!s.balance) {
-      // Empty, and never seen funded by the history: the payment into it may not have landed.
       const m = giftLocal().made.find((x) => x.i === i && x.chain === c.chainId);
       if (m && !(CH[c.chainId].hist?.gifts || []).some((g) => g.i === i)) {
         const st = await receiptOf(c, m.tx, m.self).catch(() => undefined);
@@ -3346,21 +3002,14 @@ function takeBack(i, c) {
   });
 }
 
-// ── payments held until they blend in ────────────────────────────────────────────────────────────────────
-// A payment to an 0x address can wait here until enough others have deposited after yours; the ETH stays in the
-// private balance meanwhile, and only this reminder is kept, in this browser.
 const dueKey = () => `tacit-pay-due-v1:${S.key.pubHex}`;
 const dues = () => (S.key && readJson(dueKey())) || [];
 const addDue = (d) => {
-  if (dues().some((x) => !x.sent && lc(x.to) === lc(d.to) && x.amount === d.amount.toString() && x.chain === d.chain)) return;   // held once
+  if (dues().some((x) => !x.sent && lc(x.to) === lc(d.to) && x.amount === d.amount.toString() && x.chain === d.chain)) return;
   writeJson(dueKey(), [...dues(), { id: Date.now().toString(36), to: d.to, amount: d.amount.toString(), chain: d.chain }]);
 };
 const dropDue = (id) => writeJson(dueKey(), dues().filter((d) => d.id !== id));
-// A held payment that may have gone out is never offered again: it is marked before the send, unmarked only when the
-// send surely did not happen, and dropped once the history shows the withdrawal.
 const markDue = (id, sent, h) => writeJson(dueKey(), dues().map((d) => (d.id === id ? { ...d, sent: sent ? d.sent || Date.now() : undefined, h: sent ? h || d.h : undefined } : d)));
-// The withdrawal that paid it: its own transaction once that is known, else one of its amount to its address made after
-// it was sent, each row standing for one held payment only.
 const dueRow = (d, c, used) => (CH[c.chainId].hist?.rows || []).find((r) => r.kind === 'out' && !used.has(r) && (d.h ? lc(r.tx || '') === lc(d.h)
   : lc(r.to) === lc(d.to) && r.v === BigInt(d.amount) && (r.time ?? r.near ?? Infinity) * 1000 >= d.sent - 600e3));
 window.addEventListener('storage', (e) => { if (S.key && (e.key === null || e.key === dueKey())) paintDue(); });
@@ -3369,8 +3018,6 @@ function paintDue() {
   const el = $('#due'), list = S.key ? dues().filter((d) => chainOf(d.chain)) : [];
   el.hidden = !list.length;
   if (!list.length || el.querySelector('[aria-busy="true"]')) return;
-  // Drawn again only when what it says changes, so a press or the focus on it survives the polls; while another payment
-  // is being made its buttons are off.
   const self = routeOf('send') === 'wallet';
   keepFocus(el, () => mountOnce(el, html`<div class="lbl"><span>Waiting to pay</span><span>until it blends in</span></div>
     ${list.map((d) => {
@@ -3406,14 +3053,13 @@ function payDue(id) {
   if (d.sent) { paintDue(); return toast(PAYING_AWAY, true); }
   if (c !== S.chain) switchChain(c);
   const btn = $(`[data-due="${id}"]`), maxFee = capOf(relayFee('send', c));
-  $$('#due [data-undue]').forEach((b) => { b.disabled = true; });        // the card being paid stays until the payment ends
-  $('#due')._drawn = null;                                                 // and is drawn afresh once it has
+  $$('#due [data-undue]').forEach((b) => { b.disabled = true; });
+  $('#due')._drawn = null;
   if (btn) act(btn, async (step) => {
     const a = BigInt(d.amount), W = await walletOn(c), via = viaFor('send');
     if (badSum(d.to)) throw new Error(SUM_MSG);
-    if (!via && maxFee == null) throw new Error('Still reading the relay’s fee. Try again in a moment.');     // never a spend with no cap on what the relay takes
+    if (!via && maxFee == null) throw new Error('Still reading the relay’s fee. Try again in a moment.');
     if (via) await signerFor(c).ready();
-    // Read again as it starts: another tab may have paid it, or begun to.
     const now = dues().find((x) => x.id === id);
     if (!now) throw new Error('That payment was made or cancelled in another tab.');
     if (now.sent) throw new Error(PAYING_AWAY);
@@ -3421,7 +3067,6 @@ function payDue(id) {
     let h;
     try { h = await W.withdraw({ to: d.to, amount: a, via, maxFee, onStep: step }); }
     catch (e) { if (!e?.said) markDue(id, false); throw e; }
-    // One not in a block yet stays listed as sent, until the history shows it.
     if (await finish(c, h, via, `Paid ${nameFor(d.to) || short(d.to)} ${exact(a)} ETH.`)) dropDue(id); else markDue(id, true, h);
   });
 }
@@ -3466,7 +3111,6 @@ function formWithdraw(f) {
     if (!l2 && raw && badSum(raw)) return bad(SUM_MSG);
     if (!l2 && raw && (BigInt(raw) === 0n || [lc(POOL), lc(ROUTER)].includes(lc(raw)))) return bad('That address cannot receive a withdrawal.');
     if (!a || (!l2 && !raw)) return;
-    // A move always goes through the relay: without its fee, it says so and offers to ask again.
     if (fee == null && l2) {
       return R.set(!relayUp() || BRIDGE_Q.failed[S.dest]
         ? html`<p class="note err" role="alert">A move to ${l2.full} needs the relay, and it ${relayUp() ? 'did not give its fee for the move' : 'can’t take this one right now'}. <button class="link" type="button" id="f-bq">Try again</button></p>`
@@ -3490,10 +3134,9 @@ function formWithdraw(f) {
     if (!a) throw new Error('Enter an amount.');
     const W = await walletOn(c);
     if (l2) {
-      // The move names a refund address of this key; it must come after the newest payment link's.
       const ok = (x) => !!CH[x.chainId].hist && !CH[x.chainId].histErr, missing = () => CHAINS.filter((x) => !ok(x) && (x === CHAINS[0] || boxTop(x) == null));
       let k = linkIndex();
-      if (k == null) {                                              // not read yet, or a read failed: read it again first
+      if (k == null) {
         await Promise.all(missing().map((x) => (x === CHAINS[0] ? historyOf(x, true).catch(() => {}) : boxScan(x))));
         k = linkIndex();
       }
@@ -3517,12 +3160,10 @@ function formWithdraw(f) {
   if (l2 && BRIDGE_Q.fee?.[S.dest] == null) bridgeQuote(S.dest);
 }
 const BRIDGE_Q = { fee: {}, prepay: {}, busy: {}, failed: {} };
-// The relay's fee for the move and, for Robinhood Chain, the retryable's prepay as bridgeOut prices it: the submission
-// fee at twice Ethereum's base fee plus up to 450k L2 gas at eight times its price (floor 0.1 gwei), with 20% room.
 async function bridgeQuote(dest) {
   if (BRIDGE_Q.busy[dest]) return;
   BRIDGE_Q.busy[dest] = true;
-  const here = () => S.tab === 'withdraw' && String(S.dest) === String(dest) && !S.busy;       // the form that asked is still up
+  const here = () => S.tab === 'withdraw' && String(S.dest) === String(dest) && !S.busy;
   try {
     const q = await keeperJson(CHAINS[0], `/quote?gas=${BRIDGE_GAS[dest]}`);
     let prepay = 0n;
@@ -3533,18 +3174,12 @@ async function bridgeQuote(dest) {
     }
     BRIDGE_Q.fee[dest] = BigInt(q.fee); BRIDGE_Q.prepay[dest] = prepay; BRIDGE_Q.failed[dest] = false;
   } catch {
-    // The form says the move needs the relay and offers to ask again; while it is up, it is also asked again by itself.
     BRIDGE_Q.failed[dest] = true;
     setTimeout(() => { if (here() && BRIDGE_Q.fee[dest] == null) bridgeQuote(dest); }, 10_000);
   } finally { BRIDGE_Q.busy[dest] = false; FORM.check?.(); }
 }
 
-// ── getting paid: a link (and its QR code) anyone can pay, from a Tacit wallet or any other ─────────────────
-// #pay=<bp1…>&n=<deposit-address key, hex>&amount=&chain=&for=. The pool address takes a private payment; n names the
-// payee's deposit address (receiveBoxOf(n, 25)), so a payer with only an ordinary wallet can pay too.
 const npkHex = (v) => BigInt(v).toString(16).padStart(64, '0');
-// ns is the payee's signature over n under their view key (the key inside the pool address), so a payer's page can
-// tell that the deposit address in a link is the one the payee made; a link without a valid one pays the pool address.
 const BOX_TAG = new TextEncoder().encode('tacit-pay-box-v1');
 const boxDigest = (npk) => keccak_256(concatBytes(BOX_TAG, hexToBytes(npkHex(npk))));
 const signBox = (v, npk) => secp.sign(boxDigest(npk), hexToBytes(npkHex(v))).toCompactHex();
@@ -3557,7 +3192,6 @@ function payLink({ bp, n, ns, amount, chain, note }) {
   if (note) q.set('for', note);
   return `${location.origin}/pay/eth/#${q.toString()}`;
 }
-// A name for this key's payment links, checked to point at this key's pool address; the one last used is kept per key.
 const NAME_PREF = 'tacit-pay-name-v1:';
 async function ownName(n) {
   if (!/^[^\s]+\.(g?wei|eth)$/i.test(n)) throw new Error('Enter a name such as you.wei, or leave it empty.');
@@ -3566,9 +3200,7 @@ async function ownName(n) {
   if (lc(d.bp) !== lc(S.key.bp)) throw new Error(`${d.label || n} points to a different Tacit address.`);
   return d;
 }
-// The link Receive shows stays on screen once drawn: when its address is paid, it says so there, until "New link".
 const SHOWN = { pub: null, k: null, seen: null, told: null };
-// What became of link k's address: paid and being moved in, or moved into the private balance. → { c, v, state } or null
 function linkPaid(k) {
   if (k == null || !S.key) return null;
   for (const c of CHAINS) {
@@ -3580,7 +3212,6 @@ function linkPaid(k) {
   return null;
 }
 const paidSig = () => { const p = linkPaid(SHOWN.k); return p ? `${p.state}:${p.v}` : ''; };
-// A payment to the shown link is said once, wherever the page is, and Receive shows it whichever chain it came on.
 function announceLink() {
   const p = linkPaid(SHOWN.k);
   if (!S.busy && S.tab === 'receive' && FORM.paidShown !== undefined && FORM.paidShown !== paidSig()) renderForm();
@@ -3588,7 +3219,6 @@ function announceLink() {
   SHOWN.told = SHOWN.k;
   toast(`Your payment link was paid${p.v != null ? `: ${eth(p.v)} ETH` : ''} on ${p.c.full}.`);
 }
-// What the link's one-time address still waits for, as it is read.
 function linkWaitView() {
   const busy = [], failed = [];
   for (const c of CHAINS) {
@@ -3607,7 +3237,6 @@ const paintLinkWait = () => { const el = $('#f-wait'); if (el) mountOnce(el, lin
 function formReceive(f) {
   const c = S.chain, W = cur().W, live = linkIndex();
   if (SHOWN.pub !== S.key.pubHex) Object.assign(SHOWN, { pub: S.key.pubHex, k: null, seen: null, told: null });
-  // A link that was paid stays until "New link"; one that turned out not to be the next (an address found in use) gives way.
   if (SHOWN.k != null && live != null && live > SHOWN.k && !linkPaid(SHOWN.k)) SHOWN.k = null;
   const k = SHOWN.k ?? live, box = k != null ? BOXQ.at[k] : null, paid = linkPaid(k);
   if (box) SHOWN.k = k;
@@ -3648,13 +3277,8 @@ function formReceive(f) {
     for (const x of CHAINS) { if (BOXST.err[x.chainId]) boxScan(x); if (!CH[x.chainId].hist || CH[x.chainId].histErr) historyOf(x, true); }
   });
   $('#f-new')?.addEventListener('click', () => { Object.assign(SHOWN, { k: null, seen: null }); clearDraft('f-ramt', 'f-rfor'); renderForm(); $('#f-ramt')?.focus(); });
-  // Until the one-time address is in, the link pays the Tacit address: private from a Tacit wallet, and from any other
-  // wallet the payer proves the deposit on their device first.
   const ns = box ? signBox(S.keys.v, box.npk) : null, amtEl = $('#f-ramt'), forEl = $('#f-rfor'), copyB = $('#f-link'), shareB = $('#f-share'), qr = $('#f-qr');
-  // A typed amount that is not a number is not left out of the link: the link, the QR code and the buttons wait for a valid
-  // one. Why it is not read is said beside the field, as for every amount.
   const amount = () => { const t = amtEl.value.trim(), a = t ? parseUnits(t) : null; return { bad: !!t && a == null, a }; };
-  // A name in the link, once it is checked to point at this key, stands for the address: a shorter link and QR code.
   let named = null, nseq = 0, ntimer = 0;
   const nameEl = $('#f-rname'), nameNote = $('#f-rnote'), pub = S.key.pubHex;
   const link = (a) => payLink({ bp: named || (UNIFIED_LIVE ? unifiedAddress() : S.key.bp), n: box?.npk, ns, amount: a, chain: c, note: forEl.value.trim() });
@@ -3686,7 +3310,6 @@ function formReceive(f) {
     drawn = { l, w };
     mount(qr, qrSvg(l, w));
   };
-  // Typing redraws the code once it pauses.
   FORM.check = () => {
     const { bad } = amount();
     if (copyB) copyB.disabled = shareB.disabled = bad;
@@ -3694,8 +3317,7 @@ function formReceive(f) {
     if (bad) { drawn = null; mount(qr, html``); } else if (!drawn) draw(); else timer = setTimeout(draw, 150);
   };
   if (copyB) copyB.onclick = () => { const { bad, a } = amount(); if (!bad) copy(link(a), 'Payment link copied'); };
-  // The name kept from before, else the connected wallet's primary name when its record is this key.
-  nameEl.value = DRAFT['f-rname'] ?? (readJson(NAME_PREF + pub) || '');                   // what is being typed outlives a redraw
+  nameEl.value = DRAFT['f-rname'] ?? (readJson(NAME_PREF + pub) || '');
   if (nameEl.value) checkName();
   else if (S.wallet) getNames().then((n) => n.findPrimary(S.wallet)).then(({ primary }) => primary && ownName(primary.name))
     .then((d) => { if (d && nameEl.isConnected && !nameEl.value) { nameEl.value = d.label; checkName(); } }).catch(() => {});
@@ -3705,11 +3327,7 @@ function formReceive(f) {
 }
 window.addEventListener('resize', () => { if (S.key && S.tab === 'receive') FORM.check?.(); });
 
-// A payment request opened from a link: pay it from any wallet (to the payee's deposit address) or privately.
 const REQ = { v: null };
-// Requests paid from this browser, by the link that asked (its fragment), so a reload, a new tab or a dismissed card never
-// offers one again. Kept 30 days. A payment is kept as pending until its transaction is seen in a block (then as mined),
-// and one restored without that mark is looked up on its chain before the card counts it as paid.
 const PAID_REQ = 'tacit-pay-paid-req-v1', PAID_DAYS = 30;
 const paidReqs = () => Object.fromEntries(Object.entries(readJson(PAID_REQ) || {}).filter(([, x]) => Date.now() - (x?.at || 0) < PAID_DAYS * 86400e3));
 const rememberPaid = (r, landed = false) => {
@@ -3718,8 +3336,6 @@ const rememberPaid = (r, landed = false) => {
   writeJson(PAID_REQ, { ...all, [r.src]: { h: r.paid.h, chain: r.paid.c.chainId, a: r.paid.a.toString(), at: was?.h === r.paid.h ? was.at : Date.now(), ...(r.paid.self ? { self: true } : {}), ...(landed ? { mined: true } : { pending: true }) } });
 };
 const forgetPaid = (r) => { const all = paidReqs(); delete all[r?.src]; writeJson(PAID_REQ, all); };
-// A request's payment not yet seen in a block is looked up until it is: in a block, the request counts as paid; reverted,
-// it can be paid again; not found ten minutes after it was sent, the card says so and offers to pay it again.
 function watchPaid(r) {
   const p = r.paid;
   if (!p || r.watching === p) return;
@@ -3735,8 +3351,6 @@ function watchPaid(r) {
     }
   })().finally(() => { if (r.watching === p) r.watching = null; });
 }
-// A request's one-time deposit address, once paid, is not offered for a wallet payment again: a second payment to it
-// would be linked to the first on chain. Read per chain; a read that fails leaves the offer up, checked again on the press.
 async function reqBoxPaid(r, c) {
   const m = await mods(), box = m.receiveBoxAddress(BigInt('0x' + r.n), m.RECEIVE_FEE_BPS, ROUTER), rpc = await rpcOn(c);
   const [n, v] = await Promise.all([receiveCount(c, box), rpc('eth_getBalance', [box, 'latest']).then(BigInt)]);
@@ -3750,9 +3364,6 @@ function checkReqBox(r, c) {
 }
 const BOX_USED = 'This link’s deposit address has been paid already. Pay privately, or ask them for a new link.';
 const privFirstFor = (r) => !!(S.key && r.amount && cur().bal != null && cur().bal >= r.amount + atCap(BigInt(cur().quote?.fee || 0)));
-// The pool address a request's tacit1… address or name stands for, asked once and kept on the request (lowercase, null
-// until known), so a request is recognised as paid or as your own whichever form its link carries. An answer that was
-// none, or failed, is asked for again after 30 s.
 function reqPool(r) {
   if (r.rp || Date.now() - (r.rpAt || 0) < 30e3) return r.rp || Promise.resolve(null);
   r.rpAt = Date.now();
@@ -3765,8 +3376,6 @@ function reqPool(r) {
 }
 const reqIs = async (r, bp) => lc(r.bp) === lc(bp) || (await reqPool(r)) === lc(bp);
 const isNameReq = (r) => /\.(g?wei|eth)$/i.test(String(r.bp).trim());
-// A request to a name is paid where the name pointed when the card showed it; if it has moved, the card shows where it
-// points now and nothing is paid.
 function pinReq(r, bp) {
   if (!isNameReq(r) || !r.rbp || lc(bp) === r.rbp) return;
   r.rp = null; r.rpAt = 0; paintReq();
@@ -3780,9 +3389,7 @@ function drawReq() {
   reqPool(r);
   if (r.paid) leaveBar(r.src);
   const c = S.chain, own = S.key && (lc(r.bp) === lc(S.key.bp) || (UNIFIED_LIVE && lc(r.bp) === lc(unifiedAddress())) || r.rbp === lc(S.key.bp));
-  // A payer whose private balance here already covers it is offered the private way first.
   const privFirst = r.pf = privFirstFor(r), typed = $('#req-amt')?.value;
-  // While an action runs the card offers no way to pay: a private payment of it is under way, or another payment is.
   const held = !own && !r.paid && S.busy > 0, mine = held && S.tab === 'send' && S.sendMode !== 'link' && lc(DRAFT['f-to'] || '') === lc(r.bp);
   if (!own) checkReqBox(r, c);
   const used = r.boxPaid?.[c.chainId] === true, reading = r.boxPaid?.[c.chainId] === null;
@@ -3814,32 +3421,26 @@ function drawReq() {
   if (again) again.onclick = () => { forgetPaid(r); Object.assign(r, { paid: null, lost: null, state: null, err: null }); paintReq(); };
   $('#req-x').onclick = () => { leaveBar(r.src); REQ.v = null; renderApp(); };
   $('#req-priv')?.addEventListener('click', () => {
-    if (S.busy) return toast('Finish the payment in progress first.', true);          // the tab and form stay put while an action runs
+    if (S.busy) return toast('Finish the payment in progress first.', true);
     const typed = $('#req-amt')?.value.trim();
     S.tab = 'send'; S.sendMode = 'to'; DRAFT['f-to'] = r.bp;
-    if (r.amount) DRAFT['f-amt'] = plain(r.amount); else if (typed) DRAFT['f-amt'] = typed; else delete DRAFT['f-amt'];      // never an amount left from some earlier payment
+    if (r.amount) DRAFT['f-amt'] = plain(r.amount); else if (typed) DRAFT['f-amt'] = typed; else delete DRAFT['f-amt'];
     renderApp();
     if (!S.key) return openWalletSheet();
     $('#form').scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
   $('#req-wallet')?.addEventListener('click', (e) => payFromWallet(e.currentTarget));
 }
-// Paying a request from a wallet: plain ETH to the payee's deposit address. The request remembers it was paid, so no
-// redraw offers to pay it again; "in their private balance" waits for the payment to be mined and the router to
-// count a sweep of that address after it.
 const RECEIVE_COUNT = topic('receiveCount(address)').slice(0, 10);
 async function receiveCount(c, box) {
   const r = await (await rpcOn(c))('eth_call', [{ to: ROUTER, data: RECEIVE_COUNT + strip(box).toLowerCase().padStart(64, '0') }, 'latest']);
   return BigInt(r);
 }
-// A pool wallet to pay from when no Tacit key is open: a throwaway key that never holds anything, there only to prove
-// a deposit straight into someone else's private balance.
 async function payerWallet(c) {
   const W = await giftWallet(crypto.getRandomValues(new Uint8Array(32)), c);
   W.connect(signerFor(c));
   return W;
 }
-// A request without a one-time box (a link to a tacit1… address or a name): proved here, sent from the wallet.
 async function shieldTo(r, a, c) {
   const res = await resolveRecipient(r.bp);
   if (res.error) throw new Error(res.error);
@@ -3860,7 +3461,7 @@ async function shieldTo(r, a, c) {
 async function payFromWallet(btn) {
   const r = REQ.v;
   if (S.busy) return toast('Finish the payment in progress first.', true);
-  if (r.paying) return;                                 // a redraw can give a second button before the first press has reached the wallet
+  if (r.paying) return;
   r.paying = true; paintDevice();
   await busyBtn(btn, async () => {
     try {
@@ -3886,13 +3487,12 @@ async function payFromWallet(btn) {
       toast(`Paid ${exact(a)} ETH.`);
       let rc = null;
       for (let i = 0; i < 180 && !rc && REQ.v === r; i++) { rc = await rpc('eth_getTransactionReceipt', [h]).catch(() => null); if (!rc) await sleep(5_000); }
-      if (REQ.v !== r) return;                           // dismissed meanwhile: a reload looks it up again
+      if (REQ.v !== r) return;
       if (rc && rc.status !== '0x1') { forgetPaid(r); Object.assign(r, { paid: null, lost: r.paid, state: null }); paintReq(); return; }
       if (!rc) { r.state = 'missing'; paintReq(); return; }
       rememberPaid(r, true);
       const n0 = await receiveCount(c, box).catch(() => null);
       r.state = 'moving'; paintReq();
-      // Moved in once a sweep empties the address, or the router counts one more sweep of it than after the payment.
       const swept = async () => BigInt(await rpc('eth_getBalance', [box, 'latest']).catch(() => '0x1')) === 0n || (n0 != null && (await receiveCount(c, box).catch(() => n0)) > n0);
       for (let i = 0; i < 120 && REQ.v === r; i++) { if (await swept()) { r.state = 'in'; paintReq(); return; } await sleep(10_000); }
       if (REQ.v === r) { r.state = 'later'; paintReq(); }
@@ -3901,17 +3501,11 @@ async function payFromWallet(btn) {
   });
 }
 
-// ── TAC points: public ETH deposited into the pool earns them for the wallet that deposits (or that pays a link or
-// deposit address), up to 1,111 TAC a day split by points; tacit-points is the source (api.tacit.finance) ───────────────
 const API = 'https://api.tacit.finance', DISTRIBUTOR = '0x000000C918e44A3a443937fA7594eA4f7C95D6b9';
 const PTS = { who: null, at: 0, v: null, reading: null, err: null, expect: [] };
-// Looking points up sends the wallet's address to Tacit, so it starts with a press; after it, this tab reads them again on
-// its own: every minute, and every 15 s while an action of this wallet is being counted.
 const PTS_OK = 'tacit-pay-pts-ok-v1';
 const ptsOk = (who) => { try { return !!who && sessionStorage.getItem(PTS_OK) === who; } catch { return false; } };
 const ptsAllow = (who) => { try { sessionStorage.setItem(PTS_OK, who); } catch {} };
-// An action of the connected wallet that earns points (a deposit, to itself or to someone, or a payment to a link):
-// shown at once with what it should earn, then with what the program credits once it counts it.
 function ptsExpect(c, a) {
   if (!S.wallet || !a || c.points === false) return;
   const who = lc(S.wallet);
@@ -3919,7 +3513,6 @@ function ptsExpect(c, a) {
   if (ptsOk(who)) readPoints(true);
   paintPoints();
 }
-// A deposit the program lists that this wallet did not have when the action was made, on its chain, made after it.
 function ptsMatch(deposits) {
   for (const e of PTS.expect) {
     if (e.pts != null || e.who !== PTS.who) continue;
@@ -3928,7 +3521,6 @@ function ptsMatch(deposits) {
   }
 }
 const ptsCounting = () => PTS.expect.some((e) => e.who === PTS.who && e.pts == null && Date.now() - e.at < 30 * 60e3);
-// The day's TAC is shared out at midnight UTC.
 const dayLeft = () => { const s = 86400 - (Math.floor(Date.now() / 1000) % 86400), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return `${h ? `${h} h ` : ''}${m} min`; };
 const TAC_WEI = 10n ** 18n;
 function readPoints(force = false) {
@@ -3939,11 +3531,10 @@ function readPoints(force = false) {
   const get = (path) => fetch(`${API}/${path}/${who}`, { signal: AbortSignal.timeout?.(20e3) }).then((r) => { if (!r.ok) throw new Error(`${path} returned ${r.status}`); return r.json(); });
   PTS.reading = (async () => {
     const [p, c] = await Promise.all([get('points'), get('claim')]);
-    // Claimable comes from the distributor itself (owed(account, cumulative)), not the service's copy of it.
     let owed = 0n;
     if (c?.proof && c.cumulativeAmount) {
       const data = '0x787eef2e' + strip(who).padStart(64, '0') + BigInt(c.cumulativeAmount).toString(16).padStart(64, '0');
-      owed = BigInt(await (await rpcApart(CHAINS[0]))('eth_call', [{ to: DISTRIBUTOR, data }, 'latest']));      // not the node that reads this key's boxes
+      owed = BigInt(await (await rpcApart(CHAINS[0]))('eth_call', [{ to: DISTRIBUTOR, data }, 'latest']));
     }
     const t = p?.today, share = t && Number(t.totalPoints) > 0 ? Number(t.points) / Number(t.totalPoints) : 0;
     const pool = (p?.deposits || []).filter((d) => d.activity === 'evmpooldeposit');
@@ -3988,7 +3579,6 @@ function paintPoints() {
   if (S.wallet && ptsOk(lc(S.wallet)) && !v && !PTS.reading && !PTS.err) readPoints();
   if (conn) conn.onclick = () => connectWallet().then(() => paintPoints()).catch((e) => toast(errText(e), true));
 }
-// The day's countdown stays current, and points are read again while this tab may look them up.
 setInterval(() => {
   if (document.hidden) return;
   const clock = $('#pts-clock');
@@ -3997,7 +3587,6 @@ setInterval(() => {
   if (who && ptsOk(who) && !PTS.reading && Date.now() - PTS.at > (ptsCounting() ? 15e3 : 60e3)) readPoints(true);
 }, 5_000);
 
-// ── the device card ──────────────────────────────────────────────────────────────────────────────────────
 function paintMeter() {
   const m = $('#device-meter');
   if (m) m.style.setProperty('--p', `${Math.min(100, Math.floor((PROVER.got / Math.max(1, PROVER.total)) * 100))}%`);
@@ -4011,7 +3600,6 @@ function paintDevice() {
     : PROVER.state === 'loading' ? html`<b>loading <span id="device-pct" class="num">0%</span></b>`
     : PROVER.cached ? html`<b>saved on this device</b>` : html`<b>33 MB, fetched once, then saved</b>`;
   const last = PROVER.last != null ? (PROVER.last / 1000).toFixed(1) : null, el = $('#device-body');
-  // The sample waits while a payment is being made: it would queue behind, or ahead of, that payment's proof in the one worker.
   keepFocus(el, () => mountOnce(el, html`
     <p class="lede-s">Your key never leaves this tab. Every payment is proved here and checked before it is sent. The relay can deliver it but cannot change it.</p>
     ${last ? html`<div class="proof"><b class="num">${last} s</b><span class="mute">${PROVER.lastKind === 'sample' ? 'to prove a sample payment here, and verify it' : 'your last payment’s proof, verified here'}</span></div>` : ''}
@@ -4026,7 +3614,6 @@ function paintDevice() {
   $('#device-try').onclick = tryProof;
 }
 const PIN = { v: null };
-// A real pool transaction, proved and verified in the worker, then thrown away: a deposit of 1 wei to a throwaway key.
 async function tryProof() {
   if (PROVER.testing) return;
   if (paying()) return toast('Finish the payment in progress first.', true);
@@ -4044,7 +3631,6 @@ async function tryProof() {
   finally { PROVER.testing = false; paintDevice(); }
 }
 
-// ── the recovery card ────────────────────────────────────────────────────────────────────────────────────
 const KIND = {
   in: ['Received privately', true], box: ['Came in at your deposit address', true], link: ['Came in through a payment link', true], dep: ['Deposited', true], bridge: ['Moved', false],
   sent: ['Sent privately', false], out: ['Withdrew', false], self: ['Combined your notes', false], gift: ['Sent by link', false], back: ['Took back a link', true],
@@ -4071,8 +3657,6 @@ function paintRecover() {
     const n = h.rows.length;
     return html`<li><span class="n">${c.name}</span><span class="num">${ethDown(h.balance)} ETH</span><span class="s">${n} payment${n === 1 ? '' : 's'}${st.leaves != null ? ` · among ${st.leaves} pool notes` : ''}${match ? html` · <span class="ok">matches your balance</span>` : ''}${st.histErr ? html` · <span class="err">could not refresh</span> ${again}` : ''}</span></li>`;
   };
-  // "Read the chain alone" is this box's own until Rebuild applies it; while a rebuild runs, its button stays where it is,
-  // held, and a second press does nothing.
   keepFocus(el, () => mountOnce(el, html`
     <p class="lede-s">Rebuilt from your key and the chain: what you received, and what you sent with its fee and the change you kept. Your key is the only backup. This browser keeps only a view, never a spend key.</p>
     <ul class="chainsum">${CHAINS.map(line)}</ul>
@@ -4113,7 +3697,6 @@ function paintRecover() {
   };
 }
 
-// ── wallet sheet ─────────────────────────────────────────────────────────────────────────────────────────
 function renderWalletSheet() {
   const el = $('#wallet-body');
   if (!S.key) {
@@ -4138,9 +3721,6 @@ function renderWalletSheet() {
   $('#w-conn')?.addEventListener('click', () => connectWallet().then(renderWalletSheet).catch((e) => toast(errText(e), true)));
   wireDisconnect(el);
 }
-// Disconnect (evm.disconnect): a WalletConnect session ends in the wallet app too, a browser wallet takes this site's permission back, so the next
-// connection asks which account. Either way no page connects it again on load, and a key opened with it locks, as when it moves to another account.
-// Change account: another account of the same wallet (its own chooser), or a new pairing for a wallet app.
 function wireDisconnect(el) {
   el.querySelector('#w-wc-off')?.addEventListener('click', () => {
     if (paying()) return toast('Finish the payment in progress first.', true);
@@ -4163,20 +3743,17 @@ async function busyBtn(btn, fn) {
   try { return await fn(); } finally { btn.removeAttribute('aria-busy'); btn.disabled = false; }
 }
 
-// ── a link that carries the money (#gift=<link key>&chain=&for=): take it to any wallet, or keep it private ──────
-// The link's key is read from the fragment, never sent anywhere; its balance is read from the chain like any key's.
 const GIFT = { v: null, W: null, bal: null, fee: null, err: null, busy: false, step: '', done: null, to: '' };
 async function loadGift() {
   const g = GIFT.v;
   if (!g) return;
   try {
     const W = GIFT.v === g && GIFT.W || await giftWallet(g.seed, g.chain);
-    if (GIFT.v === g) GIFT.W = W;                                   // a link opened meanwhile keeps its own wallet
+    if (GIFT.v === g) GIFT.W = W;
     const [st, q] = await Promise.all([W.sync(), W.quote().catch(() => null)]);
     if (GIFT.v === g) Object.assign(GIFT, { bal: st.balance, fee: q?.fee != null ? BigInt(q.fee) : GIFT.fee, err: null });
   } catch (e) { if (GIFT.v === g) GIFT.err = e; }
   paintGift();
-  // Without the relay's fee the link can't be taken yet: asked again until the relay answers.
   clearTimeout(GIFT.t);
   if (GIFT.v === g && !GIFT.done && GIFT.bal > 0n && GIFT.fee == null) GIFT.t = setTimeout(loadGift, 10_000);
 }
@@ -4231,7 +3808,7 @@ async function claimGift(to) {
   const g = GIFT.v;
   if (!g || GIFT.busy) return;
   if (badSum(to)) { GIFT.err = new Error(SUM_MSG); return paintGift(); }
-  const maxFee = capOf(GIFT.fee), bp = S.key?.bp;                                      // the key it goes to, fixed as the press is made
+  const maxFee = capOf(GIFT.fee), bp = S.key?.bp;
   if (!to && !bp) return;
   Object.assign(GIFT, { busy: true, err: null, step: 'Getting ready…' });
   paintGift(); paintDevice();
@@ -4241,7 +3818,6 @@ async function claimGift(to) {
     if (GIFT.v === g) GIFT.W = W;
     const [st, q] = await Promise.all([W.sync(), W.quote()]);
     if (!st.balance) throw new Error('This link has already been taken.');
-    // The spend takes all of it less the relay's fee as quoted for that spend; this quote only names the amount shown.
     const amount = st.balance - BigInt(q.fee), onStep = (m) => { GIFT.step = stepWords(m); };
     const h = to ? await W.withdraw({ to, amount: 'max', maxFee, onStep }) : await W.send({ to: bp, amount: 'max', maxFee, onStep });
     const inBlock = await mined(g.chain, h, null);
@@ -4255,13 +3831,9 @@ async function claimGift(to) {
   clearInterval(tick);
   GIFT.busy = false;
   paintGift(); paintDevice();
-  if (/(^|[#&])gift=/.test(location.hash)) { applyHash(); renderApp(); }   // a link opened while this one was taken
+  if (/(^|[#&])gift=/.test(location.hash)) { applyHash(); renderApp(); }
 }
 
-// ── links: #pay=bp1…&amount=0.01&chain=base, #base/withdraw, #ethereum/send, #base/link (Send, by link), and the older
-// #send&chain=base, #withdraw, #link, #base … ──
-// A payment proof opened from a link: #proof=<chain>:<tx>:<output>:<one-time key>. Checking it against an address
-// reads the transaction's memo and leaf from the chain; the link alone says nothing about the amount or the recipient.
 const PROOF = { v: null, res: null, busy: false };
 function paintProof() { keepFocus($('#proof'), drawProof); }
 function drawProof() {
@@ -4284,12 +3856,11 @@ async function checkProof(raw) {
   if (!raw || PROOF.busy) return;
   Object.assign(PROOF, { busy: true, res: null }); paintProof();
   try {
-    // A private payment is made to a Tacit or pool address, or a name, never to an 0x address: there is nothing to check one against.
     if (/^0x/i.test(raw)) throw new Error('A private payment goes to a Tacit address, a pool address (bp1…) or a name, never to an 0x address. Enter the one it was for.');
     const r = await resolveRecipient(raw);
     if (r.error) throw new Error(r.error);
     const m = await mods(), rpc = await rpcOn(p.chain), rc = await rpc('eth_getTransactionReceipt', [p.tx]);
-    if (PROOF.v !== p) { PROOF.busy = false; PROOF.res = null; return paintProof(); }          // another proof was opened meanwhile: this verdict is not its
+    if (PROOF.v !== p) { PROOF.busy = false; PROOF.res = null; return paintProof(); }
     if (!rc) throw new Error(`That transaction is not on ${p.chain.full} yet. Try again in a minute.`);
     if (rc.status !== '0x1') throw new Error('That transaction failed, so it paid nothing.');
     const asset = m.poolAsset({ chainId: BigInt(p.chain.chainId), pool: POOL, token: ZERO });
@@ -4307,28 +3878,21 @@ async function checkProof(raw) {
   if (PROOF.v !== p) PROOF.res = null;
   paintProof();
 }
-// What a dismissed or finished link said leaves the address bar, so a reload does not bring it back.
 const leaveBar = (src) => { if (src && location.hash.slice(1) === src) try { history.replaceState(null, '', location.pathname); } catch {} };
-// The address bar names the chain and the tab chosen (#base/withdraw), unless it holds what a link said.
 function writeHash() {
   const h = location.hash.slice(1), v = `${S.chain.key}/${S.tab === 'send' && S.sendMode === 'link' ? 'link' : S.tab}`;
   if (!h.includes('=') && h !== v) try { history.replaceState(null, '', `#${v}`); } catch {}
 }
-// The address bar keeps what a link said (a request, a proof, a chain, a tab), so it can be copied into a wallet browser
-// or reloaded; applying the same link again changes nothing. A link that carries money (gift=) is the one thing taken out,
-// the moment it is read. A request that was paid leaves the bar too, so a reload does not offer it again.
 function applyHash() {
   const h = location.hash.replace(/^#/, '');
   if (!h) return;
   const q = new URLSearchParams(h.includes('=') ? h : '');
-  // #base/withdraw names a chain and a tab; #send&chain=base names a tab beside its parameters.
   const words = h.split(/[&,]/).filter((w) => w && !w.includes('=')).flatMap((w) => w.split('/')).filter(Boolean);
   const c = chainOf(q.get('chain') || words.find((w) => chainOf(w)) || '');
   const bp = (q.get('pay') || '').trim(), n = (q.get('n') || '').trim().toLowerCase(), amount = parseUnits(q.get('amount') || '') || null;
   const pfText = (q.get('proof') || '').trim(), pf = /^([a-z0-9]+):(0x[0-9a-f]{64}):([01]):([0-9a-f]{1,64})$/i.exec(pfText);
   if (pf && chainOf(pf[1]) && PROOF.v?.src !== pfText) { PROOF.v = { chain: chainOf(pf[1]), tx: pf[2], k: Number(pf[3]), e: BigInt('0x' + pf[4]), src: pfText }; PROOF.res = null; }
   const gs = lc((q.get('gift') || '').trim());
-  // A link opened while another is being taken waits in the address bar, and opens once that one is done.
   const giftLater = /^[0-9a-f]{64}$/.test(gs) && GIFT.busy;
   if (giftLater) toast('Finishing the link already open. The new one opens after it.');
   if (/^[0-9a-f]{64}$/.test(gs) && !GIFT.busy) {
@@ -4337,23 +3901,20 @@ function applyHash() {
   }
   const tab = TABS.find(([k]) => words.includes(k))?.[0] || q.get('tab') || (words.includes('link') ? 'send' : null);
   if (words.includes('link')) S.sendMode = 'link'; else if (words.includes('send')) S.sendMode = 'to';
-  if (c && !S.busy) { S.chain = c; writeJson(CHAIN_PREF, c.chainId); if (c.chainId !== 1) S.dest = 'addr'; }   // never under a running action
+  if (c && !S.busy) { S.chain = c; writeJson(CHAIN_PREF, c.chainId); if (c.chainId !== 1) S.dest = 'addr'; }
   if (bp) {
     if (REQ.v?.src !== h) {
       REQ.v = { bp, n: /^[0-9a-f]{1,64}$/.test(n) ? n : null, ns: /^[0-9a-f]{128}$/i.test((q.get('ns') || '').trim()) ? q.get('ns').trim() : null, amount, note: noteOf(q.get('for')), src: h };
-      // Paid from this browser before: shown as paid once its transaction is known to be in a block, and looked up first if not.
       const was = paidReqs()[h], wc = was && chainOf(was.chain);
       if (wc) { try { Object.assign(REQ.v, { paid: { h: was.h, c: wc, a: BigInt(was.a), self: !!was.self }, state: was.mined ? 'before' : 'pending', paidAt: was.at, restored: true }); } catch {} }
       if (REQ.v.paid && !was.mined) watchPaid(REQ.v);
       if (REQ.v.paid) delete DRAFT['f-to'];
       else { DRAFT['f-to'] = bp; if (amount) DRAFT['f-amt'] = plain(amount); else delete DRAFT['f-amt']; }
     }
-    if (!S.busy) { S.tab = 'send'; S.sendMode = 'to'; }                 // a request names whom to pay: Send to an address, not by link
+    if (!S.busy) { S.tab = 'send'; S.sendMode = 'to'; }
   } else if (tab && !S.busy && TABS.some(([k]) => k === tab)) S.tab = tab;
-  if (/(^|&)gift=/.test(h) && !giftLater && c) try { history.replaceState(null, '', location.pathname); } catch {}   // one with no chain stays until a chain is picked
+  if (/(^|&)gift=/.test(h) && !giftLater && c) try { history.replaceState(null, '', location.pathname); } catch {}
 }
-// Arrow keys, Home and End move between the tabs of a tab list, as screen-reader and keyboard users expect.
-// Enter in a form's field presses that form's action, when it is enabled; the button's own handler still checks everything.
 document.addEventListener('keydown', (e) => {
   const i = e.target;
   if (e.key !== 'Enter' || e.defaultPrevented || e.isComposing || e.shiftKey || i?.tagName !== 'INPUT' || !i.closest('#form') || /^(checkbox|radio|button|submit|file)$/.test(i.type)) return;
@@ -4373,11 +3934,10 @@ document.addEventListener('keydown', (e) => {
 });
 window.addEventListener('hashchange', () => { applyHash(); renderApp(); if (GIFT.v) $('#gift').scrollIntoView({ block: 'start', behavior: 'smooth' }); else if (REQ.v) $('#req').scrollIntoView({ block: 'start', behavior: 'smooth' }); });
 
-// ── boot ─────────────────────────────────────────────────────────────────────────────────────────────────
 applyHash();
 paintWallet(); renderApp(); paintDevice(); paintRecover(); paintPoints();
 restoreWallet();
-evm.onElsewhere(restoreWallet);                                  // a wallet connected in another tab is connected here too
+evm.onElsewhere(restoreWallet);
 if (GIFT.v || REQ.v) requestAnimationFrame(() => $(GIFT.v ? '#gift' : '#req').scrollIntoView({ block: 'start' }));
 mods().catch(() => {});
 pin().then(async (p) => {
