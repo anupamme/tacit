@@ -18,19 +18,45 @@ export const ESPLORA_BASES = [
 
 const bytesToHex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
 
-export function makeBtcHistoryProvider({ fetchImpl, sha256, bases = ESPLORA_BASES, hrp = 'bc', timeoutMs = 8000, maxPages = 40 } = {}) {
+// A mirror that refused or failed is asked last for a while, by every provider in the page, and for longer each time it does
+// so again: one that rate-limits this browser is left to forget it rather than asked again on each read.
+const COOL = new Map();
+const COOL_MS = 60_000, COOL_MAX_MS = 15 * 60_000;
+function cool(base, ms) {
+  const was = COOL.get(base), wait = Math.min(COOL_MAX_MS, Math.max(ms || COOL_MS, was ? was.wait * 2 : 0));
+  COOL.set(base, { until: Date.now() + wait, wait });
+}
+const healthy = (bases) => { const now = Date.now(), down = (b) => (COOL.get(b)?.until || 0) > now; return [...bases].sort((a, b) => down(a) - down(b)); };
+const retryAfterMs = (r) => { const s = Number(r && r.headers && typeof r.headers.get === 'function' && r.headers.get('retry-after')); return s > 0 ? s * 1000 : 0; };
+
+// What the readers below use of a transaction, so a kept history is a fraction of esplora's size.
+const slim = (t) => ({
+  txid: t.txid,
+  status: t.status ? { confirmed: !!t.status.confirmed, block_height: t.status.block_height, block_time: t.status.block_time } : undefined,
+  vin: (t.vin || []).map((v) => ({ txid: v.txid, vout: v.vout, prevout: v.prevout ? { scriptpubkey: v.prevout.scriptpubkey, scriptpubkey_type: v.prevout.scriptpubkey_type, value: v.prevout.value } : null })),
+  vout: (t.vout || []).map((o) => ({ scriptpubkey: o.scriptpubkey, scriptpubkey_type: o.scriptpubkey_type, value: o.value })),
+});
+
+export function makeBtcHistoryProvider({ fetchImpl, sha256, bases = ESPLORA_BASES, hrp = 'bc', timeoutMs = 8000, maxPages = 40, store = null } = {}) {
   const f = fetchImpl || (typeof fetch !== 'undefined' ? fetch : null);
   if (!f) throw new Error('btc history: no fetch implementation');
 
   async function getJson(path) {
     let last;
-    for (let a = 0; a < bases.length * 2; a++) {
-      const base = bases[a % bases.length];
-      try {
-        const r = await f(base + path, { signal: AbortSignal.timeout(timeoutMs) });
-        if (!r || !r.ok) throw new Error(`esplora ${r && r.status}`);
-        return await r.json();
-      } catch (e) { last = e; await new Promise((res) => setTimeout(res, 200 * (a + 1))); }
+    for (let pass = 0; pass < 2; pass++) {
+      if (pass) await new Promise((res) => setTimeout(res, 750));
+      for (const base of healthy(bases)) {
+        let r;
+        try { r = await f(base + path, { signal: AbortSignal.timeout(timeoutMs) }); }
+        catch (e) { last = e; cool(base, 30_000); continue; }
+        if (!r || !r.ok) {
+          last = new Error(`esplora ${r && r.status}`);
+          if (!r || r.status === 429 || r.status >= 500) cool(base, retryAfterMs(r));
+          continue;
+        }
+        // a mirror's rate limit can come as a page of text with a 200
+        try { const j = await r.json(); COOL.delete(base); return j; } catch (e) { last = e; cool(base); }
+      }
     }
     throw last || new Error('esplora unavailable');
   }
@@ -46,22 +72,57 @@ export function makeBtcHistoryProvider({ fetchImpl, sha256, bases = ESPLORA_BASE
   // gracefully, it reports someone's BTC-backed balance as smaller than it is, with nothing anywhere saying
   // the history was cut off. A wallet busy enough to exceed the cap needs a higher `maxPages`, not a quietly
   // wrong answer.
+  //
+  // With a `store` (get/put by key), the confirmed part is kept: a later walk reads from the top only down to the newest
+  // transaction it holds, so a visit costs a page rather than a page per 25 transactions. What is kept is always an unbroken
+  // run from the newest confirmed transaction down; a walk that hits the cap keeps what it read and where it stopped (and
+  // still throws), and the next walk carries on from there.
   async function txsOf(spk) {
-    const h = scriptHash(spk);
+    const h = scriptHash(spk), key = `btc-history|v1|${h}`;
+    const kept = store ? await Promise.resolve().then(() => store.get(key)).catch(() => null) : null;
+    const held = kept && kept.v === 1 && Array.isArray(kept.txs) ? kept.txs : [];
+    const known = new Set(held.map((t) => t.txid));
+    const capped = () => new Error(`btc history: script has more than ${maxPages * 25} transactions and the walk hit its page cap — `
+      + 'refusing to return a truncated history (cBTC notes are derivable only from these anchors); '
+      + 'raise maxPages and retry');
+    const keep = (txs, done) => {
+      if (!store) return;
+      const confirmed = txs.filter((t) => t.status && t.status.confirmed);
+      const from = done || !confirmed.length ? null : confirmed[confirmed.length - 1].txid;
+      Promise.resolve().then(() => store.put(key, { v: 1, txs: confirmed, done: !!done, from })).catch(() => {});
+    };
     const out = [];
+    let pages = 0, joined = false, ended = false;
     let page = await getJson(`/scripthash/${h}/txs`);
-    for (let n = 0; ; n++) {
-      if (!Array.isArray(page) || !page.length) return out;
-      if (n >= maxPages) {
-        throw new Error(`btc history: script has more than ${maxPages * 25} transactions and the walk hit its page cap — `
-          + 'refusing to return a truncated history (cBTC notes are derivable only from these anchors); '
-          + 'raise maxPages and retry');
+    for (;;) {
+      if (!Array.isArray(page) || !page.length) { ended = true; break; }
+      if (pages++ >= maxPages) { keep(out, false); throw capped(); }
+      for (const t of page) {
+        if (known.size && t.status && t.status.confirmed && known.has(t.txid)) { joined = true; break; }
+        out.push(slim(t));
       }
-      out.push(...page);
+      if (joined) break;
       const confirmed = page.filter((t) => t.status && t.status.confirmed);
-      if (page.length < 25 || !confirmed.length) return out;
+      if (page.length < 25 || !confirmed.length) { ended = true; break; }
       page = await getJson(`/scripthash/${h}/txs/chain/${confirmed[confirmed.length - 1].txid}`);
     }
+    // the top reached the end without meeting what was kept (nothing kept, or a chain that changed under it): the walk stands alone
+    if (!joined) { keep(out, ended); return out; }
+    const whole = [...out, ...held];
+    if (kept.done) { if (out.length) keep(whole, true); return whole; }
+    // an earlier walk stopped short: carry it on from where it stopped
+    let from = kept.from;
+    while (from) {
+      if (pages++ >= maxPages) { keep(whole, false); throw capped(); }
+      const more = await getJson(`/scripthash/${h}/txs/chain/${from}`);
+      if (!Array.isArray(more) || !more.length) break;
+      whole.push(...more.map(slim));
+      const confirmed = more.filter((t) => t.status && t.status.confirmed);
+      if (more.length < 25 || !confirmed.length) break;
+      from = confirmed[confirmed.length - 1].txid;
+    }
+    keep(whole, true);
+    return whole;
   }
 
   // The wallet's funding and lock scripts, derived the way the lock driver derives them (cbtc-lock-mint.js).

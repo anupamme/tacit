@@ -358,7 +358,7 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     const key = _hex(sha256(secp.getPublicKey(privBytes(priv), true)));
     const hit = _btcHistoryCache.get(key);
     if (hit && Date.now() - hit.at < BTC_HISTORY_TTL_MS) return hit.promise;
-    const provider = makeBtcHistoryProvider({ fetchImpl: _fetch, sha256, hrp: Number(cfg.chainId) === 1 ? 'bc' : 'tb' });
+    const provider = makeBtcHistoryProvider({ fetchImpl: _fetch, sha256, hrp: Number(cfg.chainId) === 1 ? 'bc' : 'tb', store: _kept });
     const promise = provider.history(priv);
     const entry = { at: Date.now(), promise };
     _btcHistoryCache.set(key, entry);
@@ -376,6 +376,23 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     if (vBtc > 0n) _lockVBtcCache.set(outpoint, vBtc);
     return { outpoint, vBtc };
   }
+  // The pool's record for many outputs at once, a multicall per 200: a wallet whose history holds many outputs shaped like a
+  // lock (every Tacit note it was paid is one) costs a call or two, not a call each. A batch or call that fails is asked alone.
+  async function _cbtcLockVBtcMany(outputs) {
+    const sel = '0x' + _selector('cbtcLockVBtc(bytes32)');
+    const rows = (outputs || []).map((o) => ({ txid: o.txid, vout: o.vout, outpoint: pool.outpointKey('0x' + _rev(o.txid), o.vout) }));
+    const ask = [...new Set(rows.map((r) => r.outpoint).filter((op) => !_lockVBtcCache.has(op)))];
+    for (let i = 0; i < ask.length; i += 200) {
+      const part = ask.slice(i, i + 200);
+      const got = await _multicall(part.map((op) => ({ to: cfg.pool, data: sel + _word(op) }))).catch(() => null);
+      for (let j = 0; j < part.length; j++) {
+        const r = got && got[j] != null ? got[j] : await ethCall(cfg.pool, sel + _word(part[j]));
+        const vBtc = BigInt(r && r !== '0x' ? r : '0x0');
+        if (vBtc > 0n) _lockVBtcCache.set(part[j], vBtc);
+      }
+    }
+    return rows.map((r) => ({ ...r, vBtc: _lockVBtcCache.get(r.outpoint) || 0n }));
+  }
 
   async function cbtcLockState(txid, vout) {
     const { outpoint, vBtc } = await _cbtcLockVBtc(txid, vout);
@@ -390,7 +407,9 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   async function syncCbtcLockReservations(walletPriv, { btcHistory = null } = {}) {
     const id = identity(walletPriv);
     const h = typeof btcHistory === 'function' ? await btcHistory(id.priv) : (btcHistory || await _defaultBtcHistory(id.priv));
-    return syncProtectedOutpoints({ lockOutputs: h.lockOutputs || [], lockState: cbtcLockState });
+    // one batched read says which outputs are recorded locks, and only those are asked whether they are spent or redeemed
+    const recorded = new Set((await _cbtcLockVBtcMany(h.lockOutputs)).filter((r) => r.vBtc > 0n).map((r) => `${r.txid}:${r.vout}`));
+    return syncProtectedOutpoints({ lockOutputs: (h.lockOutputs || []).filter((o) => recorded.has(`${o.txid}:${o.vout}`)), lockState: cbtcLockState });
   }
 
   const MULTICALL3 = '0xcA11bde05977b3631167028862bE2a173976CA11';
@@ -535,6 +554,12 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
     };
     const emptyLeaves = leaves.filter((l) => l && (!l.memo || l.memo === '0x'));
     diag.leaves = leaves.filter(Boolean).length; diag.emptyMemoLeaves = emptyLeaves.length;
+    // The Bitcoin history the cBTC search reads is asked for now, while the pool's own steps run, and that search comes last: a
+    // slow or rate-limited explorer holds back only cBTC notes, not the rest of the balance.
+    const btcHist = cbtc && emptyLeaves.length
+      ? Promise.resolve().then(() => (typeof btcHistory === 'function' ? btcHistory(id.priv) : (btcHistory || _defaultBtcHistory(id.priv))))
+      : null;
+    if (btcHist) btcHist.catch(() => {});
 
     const _ck = _ckKey(id.pubHex), covered = deep ? null : _loadMemoCk(_ck, leaves);
     const fromMemos = await memo.scanSliced(_scanKeyHex(id.priv), leaves.filter(Boolean), [], nu, { covered });
@@ -557,22 +582,6 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
 
     const tx = R.txIndex(events);
     const unexplained = () => emptyLeaves.filter((l) => !all.has(lc(l.leaf)));
-
-    diag.cbtc = { attempted: false, found: 0, anchors: 0, lockOutputs: 0, locksRecorded: 0 };
-    if (cbtc && unexplained().length) {
-      diag.cbtc.attempted = true;
-      try {
-        const h = typeof btcHistory === 'function' ? await btcHistory(id.priv) : (btcHistory || await _defaultBtcHistory(id.priv));
-        const seenA = new Set(), anchors = [];
-        for (const a of h.anchors || []) { const k = `${a.txid}:${a.vout}`; if (!seenA.has(k)) { seenA.add(k); anchors.push(a); } }
-        diag.cbtc.anchors = anchors.length; diag.cbtc.lockOutputs = (h.lockOutputs || []).length;
-        const locks = [];
-        for (const o of h.lockOutputs || []) { const r = await _cbtcLockVBtc(o.txid, o.vout); if (r.vBtc > 0n) locks.push({ outpoint: r.outpoint, vBtc: r.vBtc, txid: o.txid, vout: o.vout }); }
-        diag.cbtc.locksRecorded = locks.length;
-        const cbtcNotes = R.scanCbtcNotes({ priv: id.priv, anchors, locks, cbtcAsset: pool.CBTC_ZK_ASSET_ID, slotOf: (lf) => (slot.has(lc(lf)) ? slot.get(lc(lf)) : null), rec: _cbtcRec });
-        for (const n of cbtcNotes) if (addDerived(n, 'cbtc', { lockOutpoint: n.lockOutpoint })) diag.cbtc.found++;
-      } catch (e) { diag.errors.cbtc = String(e && e.message || e); }
-    }
 
     diag.bridge = { attempted: false, found: 0, unexplainedLeaves: 0, candidatesTried: 0 };
     const fast = !deep;
@@ -617,16 +626,50 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
       if (todo.size) {
         diag.bridge.attempted = true;
         try {
-          const r = await R.walkBridgeMints({ priv: id.priv, tx, unexplained: todo, assets: [...new Map(_poolAssets.filter((a) => a.bitcoinLink && (!fast || a.ticker === 'TAC' || a.ticker === 'cTAC')).map((a) => [lc(a.assetId), { assetId: a.assetId }])).values()], values: amounts.map((v) => BigInt(v)), destIndexes: fast ? 1 : 8, maxExp: fast ? 15 : 18, maxNullifiers: fast ? 4096 : 16 });
-          diag.bridge.candidatesTried = r.tried;
-          const got = new Set(r.found.map((n) => lc(n.leaf)));
-          for (const n of r.found) keep(n);
-          // only a leaf searched and not found is marked tried; a found one is kept above and rebuilt on the next scan
-          for (const [t, lfs] of todo) if (!r.searched || r.searched.has(t)) for (const lf of lfs) if (!got.has(lf)) triedSet.add(triedKey(lf));
-          _saveTried(wk, fast, amounts.join(','), triedSet);
+          const assets = [...new Map(_poolAssets.filter((a) => a.bitcoinLink && (!fast || a.ticker === 'TAC' || a.ticker === 'cTAC')).map((a) => [lc(a.assetId), { assetId: a.assetId }])).values()];
+          const walk = (unexplained, maxNullifiers) => R.walkBridgeMints({ priv: id.priv, tx, unexplained, assets, values: amounts.map((v) => BigInt(v)), destIndexes: fast ? 1 : 8, maxExp: fast ? 15 : 18, maxNullifiers });
+          // The fast search goes newest first in slices of about 48 nullifiers, each kept as it ends (leaves tried, notes found),
+          // so a page closed part way through carries on from there next time.
+          const slices = [];
+          if (fast) {
+            let part = [], n = 0, total = 0;
+            for (const g of [...todo].reverse()) {
+              const k = (tx.nullifiersOfTx.get(g[0]) || []).length;
+              if (total + k > 4096) break;
+              if (part.length && n + k > 48) { slices.push([part, n]); part = []; n = 0; }
+              part.push(g); n += k; total += k;
+            }
+            if (part.length) slices.push([part, n]);
+          } else slices.push([[...todo].reverse(), 16]);
+          for (const [part, budget] of slices) {
+            const slice = new Map([...part].reverse());
+            const r = await walk(slice, budget);
+            diag.bridge.candidatesTried += r.tried;
+            const got = new Set(r.found.map((n) => lc(n.leaf)));
+            for (const n of r.found) keep(n);
+            // only a leaf searched and not found is marked tried; a found one is kept above and rebuilt on the next scan
+            for (const [t, lfs] of slice) if (!r.searched || r.searched.has(t)) for (const lf of lfs) if (!got.has(lf)) triedSet.add(triedKey(lf));
+            _saveTried(wk, fast, amounts.join(','), triedSet);
+            _saveFoundHints(wk, hints);
+          }
         } catch (e) { diag.errors.bridge = String(e && e.message || e); }
       }
       _saveFoundHints(wk, hints);
+    }
+
+    diag.cbtc = { attempted: false, found: 0, anchors: 0, lockOutputs: 0, locksRecorded: 0 };
+    if (btcHist && unexplained().length) {
+      diag.cbtc.attempted = true;
+      try {
+        const h = await btcHist;
+        const seenA = new Set(), anchors = [];
+        for (const a of h.anchors || []) { const k = `${a.txid}:${a.vout}`; if (!seenA.has(k)) { seenA.add(k); anchors.push(a); } }
+        diag.cbtc.anchors = anchors.length; diag.cbtc.lockOutputs = (h.lockOutputs || []).length;
+        const locks = (await _cbtcLockVBtcMany(h.lockOutputs)).filter((r) => r.vBtc > 0n);
+        diag.cbtc.locksRecorded = locks.length;
+        const cbtcNotes = R.scanCbtcNotes({ priv: id.priv, anchors, locks, cbtcAsset: pool.CBTC_ZK_ASSET_ID, slotOf: (lf) => (slot.has(lc(lf)) ? slot.get(lc(lf)) : null), rec: _cbtcRec });
+        for (const n of cbtcNotes) if (addDerived(n, 'cbtc', { lockOutpoint: n.lockOutpoint })) diag.cbtc.found++;
+      } catch (e) { diag.errors.cbtc = String(e && e.message || e); }
     }
 
     diag.change = { attempted: false, found: 0, skipped: [] };

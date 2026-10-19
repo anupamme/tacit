@@ -51,4 +51,70 @@ await test('a key with no locks has none', async () => {
   assert.deepEqual(await p.locks(priv), []);
 });
 
+// A script's history of `count` confirmed transactions, newest first, served in esplora's pages of 25, and every path asked.
+function paged(h, count) {
+  const txs = Array.from({ length: count }, (_, i) => ({ txid: (count - i).toString(16).padStart(64, '0'), vin: [], vout: [], status: { confirmed: true, block_height: count - i } }));
+  const asked = [];
+  const fetchImpl = async (url) => {
+    const path = new URL(url).pathname.replace(/^\/api/, '');
+    asked.push(path);
+    let from = 0;
+    const m = /\/txs\/chain\/([0-9a-f]{64})$/.exec(path);
+    if (m) from = txs.findIndex((t) => t.txid === m[1]) + 1;
+    else if (path !== `/scripthash/${h}/txs`) return { ok: false, status: 404 };
+    return { ok: true, json: async () => txs.slice(from, from + 25) };
+  };
+  return { txs, asked, fetchImpl, add: (t) => txs.unshift(t) };
+}
+const memStore = () => { const m = new Map(); return { m, get: async (k) => m.get(k), put: async (k, v) => { m.set(k, structuredClone(v)); } }; };
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
+await test('a kept history is read again only down to the newest transaction it holds', async () => {
+  const spk = makeBtcHistoryProvider({ sha256, fetchImpl: async () => ({ ok: false }) }).walletScripts(priv).lock, h = hex(sha256(spk));
+  const chain = paged(h, 30), store = memStore();
+  const p = makeBtcHistoryProvider({ sha256, bases: ['https://kept.test/api'], fetchImpl: chain.fetchImpl, store });
+  assert.equal((await p.txsOf(spk)).length, 30);
+  assert.equal(chain.asked.length, 2, 'the first walk reads both pages');
+  await settle();
+  chain.add({ txid: 'ff'.repeat(32), vin: [], vout: [], status: { confirmed: true, block_height: 31 } });
+  chain.asked.length = 0;
+  const again = await p.txsOf(spk);
+  assert.deepEqual(chain.asked, [`/scripthash/${h}/txs`], 'the next reads one page');
+  assert.equal(again.length, 31);
+  assert.deepEqual(again.slice(0, 2).map((t) => t.txid), ['ff'.repeat(32), (30).toString(16).padStart(64, '0')], 'newest first, the new one ahead of what was kept');
+});
+
+await test('a walk stopped by its page cap keeps what it read, and the next carries on from there', async () => {
+  const spk = makeBtcHistoryProvider({ sha256, fetchImpl: async () => ({ ok: false }) }).walletScripts(priv).lock, h = hex(sha256(spk));
+  const chain = paged(h, 70), store = memStore();
+  const p = makeBtcHistoryProvider({ sha256, bases: ['https://capped.test/api'], fetchImpl: chain.fetchImpl, store, maxPages: 2 });
+  await assert.rejects(p.txsOf(spk), /page cap/, 'still refuses a cut-off history');
+  await settle();
+  chain.asked.length = 0;
+  const all = await p.txsOf(spk);
+  assert.equal(all.length, 70);
+  assert.deepEqual(all.map((t) => t.status.block_height), Array.from({ length: 70 }, (_, i) => 70 - i), 'whole, in order');
+  assert.equal(chain.asked.length, 2, 'the top page, then on from where the first walk stopped');
+  assert.ok(chain.asked[1].endsWith(`/txs/chain/${(21).toString(16).padStart(64, '0')}`));
+});
+
+await test('a mirror that rate-limits, or answers a 200 that is not JSON, is asked last on the next read', async () => {
+  for (const [busy, calm, answer] of [
+    ['limited.test', 'calm-a.test', { ok: false, status: 429 }],
+    ['texty.test', 'calm-b.test', { ok: true, status: 200, json: async () => { throw new SyntaxError('Unexpected token R'); } }],
+  ]) {
+    const order = [];
+    const fetchImpl = async (url) => {
+      const u = new URL(url);
+      order.push(u.hostname);
+      return u.hostname === busy ? answer : { ok: true, json: async () => [] };
+    };
+    const p = makeBtcHistoryProvider({ sha256, bases: [`https://${busy}/api`, `https://${calm}/api`], fetchImpl });
+    await p.locks(priv);
+    assert.deepEqual(order, [busy, calm], `${busy}: passed over for the next mirror`);
+    await p.locks(priv);
+    assert.deepEqual(order.slice(2), [calm], `${busy}: and on the next read the mirror that answered goes first`);
+  }
+});
+
 console.log(`${n} passed`);

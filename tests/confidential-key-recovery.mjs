@@ -413,6 +413,42 @@ test('balance: a cBTC bearer note is found from the wallet key, its funding prev
   assert.equal(rr.cbtc.length, 1); assert.equal(rr.diagnostics.notes.viaCbtcScan, 1);
 });
 
+test('balance and lock reservations: many outputs shaped like a lock are asked of the pool in multicalls, not one call each', async () => {
+  const { decodeAbiParameters } = await import('../worker-relay/node_modules/viem/_esm/index.js');
+  const ux0 = mkUx();
+  const asset = ux0.pool.CBTC_ZK_ASSET_ID;
+  const rec = makeCbtcNoteRecovery({ hmac, sha256: nobleSha256, curveOrder: secp.CURVE.n });
+  const anchor = { txid: 'ab'.repeat(32), vout: 3 };
+  const b = rec.deriveCbtcNoteBlinding({ privkey: ux0.identity(walletPriv).priv, anchorOutpoint: rec.anchorBytes(anchor.txid, anchor.vout), outputIndex: 0 });
+  const c = ux0.pool.commitXY(700n, b);
+  const leaf = ux0.pool.leaf(asset, c.cx, c.cy, ZERO32);
+  // every Tacit note a wallet was paid has the shape; one of these 300 is a recorded lock
+  const outs = Array.from({ length: 300 }, (_, i) => ({ txid: (i + 1).toString(16).padStart(64, '0'), vout: 0, value: 546 }));
+  const opOf = (o) => ux0.pool.outpointKey('0x' + Buffer.from(Buffer.from(o.txid, 'hex').reverse()).toString('hex'), o.vout).toLowerCase();
+  const recorded = '0x' + sel('cbtcLockVBtc(bytes32)') + opOf(outs[123]).slice(2);
+  const answer = (data) => (String(data).toLowerCase() === recorded ? '0x' + w(700) : '0x' + w(0));
+  const asked = [];
+  const extra = async (method, params) => {
+    if (method !== 'eth_call') return undefined;
+    const data = String(params[0].data);
+    asked.push(data.slice(0, 10));
+    if (!data.startsWith('0x82ad56cb')) return answer(data);
+    const [list] = decodeAbiParameters([{ type: 'tuple[]', components: [{ type: 'address' }, { type: 'bool' }, { type: 'bytes' }] }], '0x' + data.slice(10));
+    return encodeAbiParameters([{ type: 'tuple[]', components: [{ type: 'bool' }, { type: 'bytes' }] }], [list.map((x) => [true, answer(x[2])])]);
+  };
+  const history = { anchors: [anchor], lockOutputs: outs };
+  const ux = mkUx(chainHandler([leavesEv(0, [leaf], null, tx(9))], extra));
+  const lockReads = () => asked.filter((s) => s === '0x82ad56cb' || s === '0x' + sel('cbtcLockVBtc(bytes32)'));
+  const bal = await ux.balance(walletPriv, { btcHistory: history, bridge: false });
+  assert.equal(bal.notes.length, 1); assert.equal(BigInt(bal.notes[0].value), 700n);
+  assert.deepEqual(lockReads(), ['0x82ad56cb', '0x82ad56cb'], '300 outputs, two multicalls');
+  asked.length = 0;
+  const r = await mkUx(chainHandler([], extra)).syncCbtcLockReservations(walletPriv, { btcHistory: history });
+  assert.deepEqual(r.reserved.map((x) => x.txid), [outs[123].txid]);
+  assert.deepEqual(lockReads(), ['0x82ad56cb', '0x82ad56cb'], 'the reservations read the same way');
+  assert.deepEqual(asked.filter((s) => s === '0x' + sel('cbtcLockSpent(bytes32)') || s === '0x' + sel('cbtcLockRedeemed(bytes32)')).length, 2, 'and only the recorded lock is asked whether it is spent or redeemed');
+});
+
 // ── send-and-unwrap change ──
 test('recover: a send-and-unwrap change note with an empty memo is derived from the spent parent and the settle payout', async () => {
   const ux0 = mkUx();
@@ -672,7 +708,7 @@ test('balance names the notes it saw spent, with their values, only when asked',
   const nuA = ux0.pool.nativeNu(a.owner, a.secret, a.leaf);
   const events = [leavesEv(0, [a.leaf, b.leaf], [sealTo(ux0, walletPriv, a), sealTo(ux0, walletPriv, b)], tx(50)), nullifiersEv([nuA], tx(51))];
   const plain = await mkUx(chainHandler(events)).balance(walletPriv);
-  assert.deepEqual(Object.keys(plain).sort(), ['byAsset', 'diag', 'notes', 'poolStats'], 'the result is what it always was unless asked');
+  assert.deepEqual(Object.keys(plain).sort(), ['byAsset', 'diag', 'leafCount', 'notes', 'poolStats'], 'the result is what it always was unless asked');
   const asked = await mkUx(chainHandler(events)).balance(walletPriv, { spent: true });
   assert.equal(asked.notes.length, 1); assert.equal(BigInt(asked.notes[0].value), 777n, 'the unspent note is the balance');
   assert.equal(asked.spentNotes.length, 1);
@@ -691,7 +727,7 @@ test('balance keeps its shape and still recovers ordinary memo notes alongside t
   // re-derivation is the only way to find those notes — and _scanNotes swallows a per-channel failure so one
   // dead endpoint cannot blank the whole wallet. Without diag travelling with the result, a caller cannot
   // tell an empty channel from one that errored, and an esplora outage reads as a zero balance.
-  assert.deepEqual(Object.keys(b).sort(), ['byAsset', 'diag', 'notes', 'poolStats']);
+  assert.deepEqual(Object.keys(b).sort(), ['byAsset', 'diag', 'leafCount', 'notes', 'poolStats']);
   assert.deepEqual(b.diag.errors, {}, 'a clean scan reports no channel errors');
   assert.equal(b.notes.length, 1); assert.equal(BigInt(b.notes[0].value), 555n);
   assert.equal(b.notes[0].source, undefined);
