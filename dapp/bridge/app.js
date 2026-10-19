@@ -92,8 +92,9 @@ async function readSupply() {
 }
 
 // The Bitcoin transactions of bridges under way, read for their block (a bridge is followed even with no page moving it on).
+// One already in a block keeps it, so it is not asked again.
 async function readTxs(rows) {
-  const want = rows.filter((r) => r.btcTx && !r.done && !r.back).map((r) => r.btcTx).slice(0, 8);
+  const want = rows.filter((r) => r.btcTx && !r.done && !r.back && !(LIVE.txs.get(r.btcTx) || {}).confirmed).map((r) => r.btcTx).slice(0, 8);
   await Promise.all(want.map(async (id) => {
     try {
       const s = await getJson(`${ESPLORA}/tx/${id}/status`, 12e3);

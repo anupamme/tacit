@@ -379,8 +379,14 @@ export function mountFlow(host, { api = 'https://api.tacit.finance', compact = f
     else if (!want) still();
   }
 
-  // One timer for each job, replaced when it is set again, so a long-open page holds two and not a growing list.
-  const later = (name, fn, ms) => { win.clearTimeout(st.timers[name]); st.timers[name] = win.setTimeout(fn, ms); };
+  // One timer for each job, replaced when it is set again, so a long-open page holds two and not a growing list. A job that
+  // comes due while the page is hidden or the diagram is out of view waits, and runs as soon as it is seen again.
+  const asleep = new Map();
+  const later = (name, fn, ms) => {
+    win.clearTimeout(st.timers[name]);
+    st.timers[name] = win.setTimeout(() => { if (doc.hidden || !st.visible) asleep.set(name, fn); else fn(); }, ms);
+  };
+  const wake = () => { if (doc.hidden || !st.visible) return; for (const [name, fn] of asleep) { asleep.delete(name); fn(); } };
   const poll = async () => {
     try {
       const r = await doFetch(`${api}/flow`, { headers: { accept: 'application/json' } });
@@ -409,9 +415,9 @@ export function mountFlow(host, { api = 'https://api.tacit.finance', compact = f
 
   const ro = typeof win.ResizeObserver === 'function' ? new win.ResizeObserver(() => { place(); kick(); }) : null;
   if (ro) ro.observe(stage);
-  const io = typeof win.IntersectionObserver === 'function' ? new win.IntersectionObserver((es) => { st.visible = es.some((e) => e.isIntersecting); kick(); }) : null;
+  const io = typeof win.IntersectionObserver === 'function' ? new win.IntersectionObserver((es) => { st.visible = es.some((e) => e.isIntersecting); kick(); wake(); }) : null;
   if (io) io.observe(stage);
-  const vis = () => kick();
+  const vis = () => { kick(); wake(); };
   doc.addEventListener('visibilitychange', vis);
   // The page's tokens change with its theme: read them again, so the marks stay legible on either ground.
   const mq = win.matchMedia ? win.matchMedia('(prefers-color-scheme: dark)') : null;

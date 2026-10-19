@@ -18,3 +18,38 @@
   const register = () => setTimeout(() => navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {}), 1500);
   if (document.readyState === 'complete') register(); else addEventListener('load', register, { once: true });
 })();
+
+// A tab left open across a deploy keeps running the code it loaded. When the page is shown again (and every ten minutes while it
+// is, no oftener) it asks for its own address with HEAD; another ETag means the page has changed since, and one line offers a reload.
+(() => {
+  if (!/^https?:$/.test(location.protocol) || typeof fetch !== 'function') return;
+  if (navigator.webdriver && !window.__tacitUpd) return;
+  const EVERY = 10 * 60e3;
+  let mine = null, at = 0, said = false;
+  const tag = () => fetch(location.pathname, { method: 'HEAD', cache: 'no-store' }).then((r) => (r.ok ? r.headers.get('etag') : null), () => null);
+  const say = () => {
+    said = true;
+    const bar = document.createElement('div'), go = document.createElement('button');
+    bar.setAttribute('role', 'status');
+    bar.style.cssText = 'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:60;display:flex;gap:12px;align-items:center;'
+      + 'max-width:calc(100% - 32px);box-sizing:border-box;padding:10px 14px;border:1px solid var(--hair,#ddd);border-radius:12px;'
+      + 'background:var(--card,#fff);color:var(--ink,#111);font:500 12.5px/1.3 var(--mono,monospace);box-shadow:0 6px 24px rgba(0,0,0,.14)';
+    bar.textContent = 'This page has been updated.';
+    go.type = 'button';
+    go.textContent = 'Reload';
+    go.style.cssText = 'flex:none;border:0;background:none;padding:0;color:var(--orange,#c2410c);font:inherit;cursor:pointer';
+    go.addEventListener('click', () => location.reload());
+    bar.append(go);
+    document.body.append(bar);
+  };
+  const check = async () => {
+    if (said || document.hidden || !mine || Date.now() - at < EVERY) return;
+    at = Date.now();
+    const now = await tag();
+    if (now && now !== mine) say();
+  };
+  const start = () => tag().then((t) => { mine = t; at = Date.now(); });
+  if (document.readyState === 'complete') start(); else addEventListener('load', start, { once: true });
+  document.addEventListener('visibilitychange', check);
+  setInterval(check, 60e3);
+})();
