@@ -3,7 +3,7 @@ import { makeConfidentialNames, makeMainnetCall, MAINNET_RPCS, NameError } from 
 import { bodyType } from '/rpc-body.js';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=6a6bb45f';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=92188b57';
-import { TAC, POOL, FARM, aprText, readPrecision, readStake, privateFarms } from '/trade/farm-read.js?cb=56ac202c';
+import { TAC, POOL, FARM, aprText, readPrecision, readSpot, readStake, privateFarms } from '/trade/farm-read.js?cb=112a01b9';
 import { rememberOwed } from '/trade/rewards-dot.js?cb=837a0a4e';
 import { readLiquidity, readTasks } from '/rewards/earn.js?cb=ffffbe6c';
 
@@ -401,7 +401,7 @@ async function readEarn() {
   earnAgain();
   const f = await farmFacts().catch(() => null);
   noteFarm(f);
-  get('farm/program?network=mainnet').then((prog) => paintPrivate(privateFarms(prog, f?.tacEth || 0)), () => paintPrivate([]));
+  Promise.all([get('farm/program?network=mainnet'), readSpot((calls) => Promise.all(calls.map((c) => call(c).catch(() => null))))]).then(([prog, px]) => paintPrivate(privateFarms(prog, f?.tacEth || 0, px)), () => paintPrivate([]));
   capNow().then(notePoints, () => {});
   readLiquidity(json).then(noteLiquidity, () => noteLiquidity(null));
   readTasks(json).then(noteTasks, () => noteTasks(null));
@@ -413,7 +413,7 @@ let farmUi = null, farmFor = null, farmSeq = 0, ethUsd = 0, hasStake = false;
 const eth4 = (wei) => (Number(wei) / 1e18).toLocaleString('en-US', { maximumSignificantDigits: 3 });
 const wordOf = (a) => a.slice(2).toLowerCase().padStart(64, '0');
 function mountedFarm() {
-  return farmUi ||= Promise.all([import('/trade/farm.js?cb=7621bd3c'), import('/trade/util.js?cb=509d6618'), import('/evm-trade-venues.js?cb=563db4d4'),
+  return farmUi ||= Promise.all([import('/trade/farm.js?cb=60987fca'), import('/trade/util.js?cb=509d6618'), import('/evm-trade-venues.js?cb=563db4d4'),
     call({ to: ETH_USD, data: '0xfeaf968c' }).then((r) => { ethUsd = Number(BigInt(`0x${r.slice(66, 130)}`)) / 1e8; }, () => {})])
     .then(([{ mountFarm }, U, E]) => {
       const ethCall = (to, data, block = 'latest', o = {}) => U.rpc('eth_call', [{ to, data, ...(o.from ? { from: o.from } : {}), ...(o.value ? { value: `0x${BigInt(o.value).toString(16)}` } : {}) }, block]);

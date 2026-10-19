@@ -180,7 +180,7 @@ const TAC_CB_FILES = ['tac/sats.js', 'tac/market.js', 'tac/claim.js', 'tac/app.j
 // front page uses, so their tokens come out the same), then app.js, then the page that loads it.
 const TRADE_CB_FILES = ['trade/tape.js', 'trade/chart.js', 'trade/book.js', 'trade/depth.js', 'trade/wallet.js', 'trade/sheet.js', 'trade/btc-session.js', 'trade/btc.js', 'trade/farm.js', 'trade/app.js', 'trade/index.html',
   'trade/util.js', 'trade/poolux.js', 'trade/key.js', 'trade/connect.js', 'trade/rewards-dot.js', 'teth/read.js', 'teth/wrap.js', 'teth/prover.js', 'teth/market.js', 'teth/app.js', 'teth/index.html',
-  'trade/cbtc/read.js', 'trade/cbtc/app.js', 'trade/cbtc/index.html'];
+  'cbtc/read.js', 'cbtc/app.js', 'cbtc/index.html'];
 // dapp/vault/ is the borrow page: the same walk, leaves first (its arithmetic, its chain reads and its addresses), then app.js, then the page.
 const VAULT_CB_FILES = ['vault/math.js', 'vault/deployments.js', 'vault/chain.js', 'vault/feed.js', 'vault/batch.js', 'vault/router.js', 'vault/pools.js', 'vault/quote.js', 'vault/app.js', 'vault/index.html'];
 // dapp/tasks/ is the page of jobs paid in TAC: the check of a job's transactions first, then app.js, then the page.
@@ -214,9 +214,9 @@ function tradeAssetPages(write) {
   }
   return drift;
 }
-// The tETH and cBTC pages (/teth/, /trade/cbtc/) are the same page in other markets: each wears the TAC page's stylesheet, between the markers
+// The tETH and cBTC pages (/teth/, /cbtc/) are the same page in other markets: each wears the TAC page's stylesheet, between the markers
 // in its own head, so they cannot drift apart. What only one needs follows the block, in a style of its own.
-const STYLE_PAGES = ['teth/index.html', 'trade/cbtc/index.html'], STYLE_BLOCK = /<style>[\s\S]*?<\/style>/, STYLE_MARKS = /(<!-- style:shared:begin -->\n)[\s\S]*?(\n<!-- style:shared:end -->)/;
+const STYLE_PAGES = ['teth/index.html', 'cbtc/index.html'], STYLE_BLOCK = /<style>[\s\S]*?<\/style>/, STYLE_MARKS = /(<!-- style:shared:begin -->\n)[\s\S]*?(\n<!-- style:shared:end -->)/;
 function tethPageStyle(write) {
   const drift = [];
   for (const rel of STYLE_PAGES) {
@@ -291,7 +291,7 @@ function pageCacheBust(files, write) {
 // A page whose script is a file (a CSP without inline script) has a `<!-- warm:begin --><!-- warm:end -->` block instead: the same links inside an inert
 // <template>, which the script clones into the head. The root of this group may be named by the page's own modules rather than by the page.
 // Generated here so it cannot go stale; --verify-only reports a block that no longer matches.
-const PRELOAD_PAGES = ['index.html', 'pay/index.html', 'pay/eth/index.html', 'trade/index.html', 'teth/index.html', 'trade/cbtc/index.html', 'vault/index.html', 'tasks/index.html', 'splitter/index.html', 'relay/index.html', 'swap/index.html', 'assets/index.html', 'rewards/index.html', 'tac/index.html', 'bridge/index.html'];
+const PRELOAD_PAGES = ['index.html', 'pay/index.html', 'pay/eth/index.html', 'trade/index.html', 'teth/index.html', 'cbtc/index.html', 'vault/index.html', 'tasks/index.html', 'splitter/index.html', 'relay/index.html', 'swap/index.html', 'assets/index.html', 'rewards/index.html', 'tac/index.html', 'bridge/index.html'];
 const STATIC_IMPORT = /(?:^|[\n;}])\s*(?:import|export)\s*(?:[^'"();]*?\sfrom\s*)?(['"])([^'"]+)\1/g;
 const WARM_BLOCK = /<!-- warm:begin -->[\s\S]*?<!-- warm:end -->/;
 const HEAD_BLOCK = /<!-- preload:begin -->[\s\S]*?<!-- preload:end -->/, LATER_BLOCK = /\/\/ preload-later:begin\n[\s\S]*?\/\/ preload-later:end/, INTENT_BLOCK = /\/\/ preload-intent:begin\n[\s\S]*?\/\/ preload-intent:end/;

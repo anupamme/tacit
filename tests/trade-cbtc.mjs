@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// dapp/trade/cbtc/ in a real browser, under the page's own CSP: what backs cBTC (the locks, the bond, what was minted, what was lent), the engine's
+// dapp/cbtc/ in a real browser, under the page's own CSP: what backs cBTC (the locks, the bond, what was minted, what was lent), the engine's
 // price and loan lines, the private pools that hold it with their prices and farms, the ticket that sizes a bond for an amount, and, for a Tacit key
 // opened from a stub Ethereum wallet's real signature, that key's locks, private cBTC and loans. The API's answers are fixtures captured on
 // 2026-10-14/15, the chain's reads (Multicall3 carrying the engine, the pool and the feeds) are answered here, and the pool module and the key's
@@ -160,7 +160,7 @@ async function openPage(viewport, { wallet = false, scheme = 'light', hash = '' 
   const page = await ctx.newPage(), errors = [], blocked = [];
   page.on('pageerror', (e) => errors.push(String(e.message || e)));
   page.on('console', (m) => { if (m.type() === 'error') { const t = m.text(); if (/Content Security Policy|Refused to/i.test(t)) blocked.push(t); else if (!/Failed to load resource/.test(t)) errors.push(t.slice(0, 200)); } });
-  await page.goto(`http://127.0.0.1:${WEB}/trade/cbtc/${hash}`);
+  await page.goto(`http://127.0.0.1:${WEB}/cbtc/${hash}`);
   await page.waitForSelector('#wallet-chip');
   return { browser, page, errors, blocked, log };
 }
@@ -175,7 +175,7 @@ try {
   r = await openPage({ width: 1280, height: 1000 });
   p = r.page;
   await until(p, () => document.querySelector('#px-usd').textContent.startsWith('$') && document.querySelectorAll('#pl-table tbody tr').length === 2 && document.querySelectorAll('.pf').length === 1 && document.querySelector('#cov .cov-row:nth-child(2)') && document.querySelector('#chart .line') && /0\.108213/.test(document.querySelector('#px-sub').textContent));
-  ok((await text(p, '#px-usd')) === `$${BTC_USD.toLocaleString('en-US')}` && (await p.title()) === `cBTC $${BTC_USD.toLocaleString('en-US')} · tacit trade`, `the headline is the engine's price of bitcoin (${await text(p, '#px-usd')})`);
+  ok((await text(p, '#px-usd')) === `$${BTC_USD.toLocaleString('en-US')}` && (await p.title()) === `cBTC $${BTC_USD.toLocaleString('en-US')} · tacit`, `the headline is the engine's price of bitcoin (${await text(p, '#px-usd')})`);
   const sub = await text(p, '#px-sub');
   ok(/1 cBTC = 1 BTC, locked/.test(sub) && /0\.108213 cBTC/.test(sub) && /20 locks · 13 loans open/.test(sub), `the line under it: what is minted, how many locks and loans (${sub})`);
   await p.evaluate(() => { document.querySelector('#hints').open = true; });                   // the lanes sit in a closed dropdown, whose text is not drawn
@@ -183,7 +183,7 @@ try {
   await p.evaluate(() => { document.querySelector('#hints').open = false; });
   ok(heads.some((h) => /cBTC/.test(h)) && !heads.some((h) => /CBTC|TETH|CUSD/.test(h)), `the label capitals leave the tokens' own spelling alone (${heads.join(' | ').replace(/\n/g, ' ')})`);
   const assets = await p.$$eval('.assets a', (a) => a.map((x) => `${x.textContent.trim()}:${x.getAttribute('href')}:${x.getAttribute('aria-current') || ''}`));
-  ok(assets.join() === 'TAC:/trade/tac/:,tETH:/teth/:,cBTC:/trade/cbtc/:page', `the switch names the three markets and marks this one (${assets.join(' ')})`);
+  ok(assets.join() === 'TAC:/trade/tac/:,tETH:/teth/:,cBTC:/cbtc/:page', `the switch names the three markets and marks this one (${assets.join(' ')})`);
   const rows = await p.$$eval('#cov .cov-row', (rs) => rs.map((x) => ({ h: x.querySelector('.cov-h').textContent.replace(/\s+/g, ' ').trim(), s: x.querySelector('.cov-s').textContent.replace(/\s+/g, ' ').trim(), bar: x.querySelector('.cov-bar i')?.style.width || null, tick: x.querySelector('.cov-bar u')?.style.left || null })));
   ok(rows.length === 4 && /Bitcoin locked/.test(rows[0].h) && /0\.113908 BTC/.test(rows[0].h), `the locks: the sats locked (${rows[0].h})`);
   const liveBond = 20 * 0.24, bondUsd = liveBond * WST * ETH_USD, lockUsd = Number(T.locked) / 1e8 * BTC_USD, cover = Math.round(bondUsd / lockUsd * 100);
@@ -201,10 +201,10 @@ try {
   ok(/sit far from BTC/.test(await text(p, '#gapnote')) && /vs BTC/.test(await text(p, '#pl-table thead')), 'and the note and the table name the skew');
   if (process.env.SHOTS) { await p.click('#hints summary'); const bb = await p.evaluate(() => { const a = document.querySelector('#hints').getBoundingClientRect(), b = document.querySelector('.hints-pop').getBoundingClientRect(); const x = Math.max(0, Math.min(a.left, b.left) - 8), y = Math.max(0, a.top - 8); return { x, y, width: Math.max(a.right, b.right) + 8 - x, height: b.bottom + 8 - y }; }); await p.screenshot({ path: `${process.env.SHOTS}/cbtc-hints.png`, clip: bb }); await p.click('#hints summary'); }
   const farm = await p.$$eval('.pf', (a) => a.map((x) => ({ href: x.getAttribute('href'), t: x.textContent.replace(/\s+/g, ' ').trim() })));
-  const fp = program.pools.find((x) => x.pair === 'cETH/cBTC'), depthUsd = 2 * 63593972 / 1e8 * ETH_USD, bonded = depthUsd * Number(fp.totalShares) / Number(fp.reserves.lpTotalShares), wantApr = Number(fp.tacPerDayForPool) * 365 / PER_ETH * ETH_USD / bonded * 100;
+  const fp = program.pools.find((x) => x.pair === 'cETH/cBTC'), depthUsd = 63593972 / 1e8 * ETH_USD + 730828 / 1e8 * BTC_USD, bonded = depthUsd * Number(fp.totalShares) / Number(fp.reserves.lpTotalShares), wantApr = Number(fp.tacPerDayForPool) * 365 / PER_ETH * ETH_USD / bonded * 100;
   const gotApr = parseInt(farm[0].t.replace(/,/g, '').match(/(\d+)%/)[1]);
-  ok(farm[0].href === '/#farm/private-2' && Math.abs(gotApr - wantApr) <= Math.max(2, wantApr * 0.01), `the farm's APR is the front page's sum (a year of its TAC over twice the tETH side that is bonded), so it reads the same there and here: ${gotApr}% (${wantApr.toFixed(1)}%)`);
-  ok(/\$3\.1k deep/.test(farm[0].t), `and its depth is that figure too (${farm[0].t.slice(-70)})`);
+  ok(farm[0].href === '/#farm/private-2' && Math.abs(gotApr - wantApr) <= Math.max(2, wantApr * 0.01), `the farm's APR is a year of its TAC over what the farm holds of the pool, both sides at market (what the front page works out too): ${gotApr}% (${wantApr.toFixed(1)}%)`);
+  ok(/\$2\.1k deep/.test(farm[0].t), `and its depth counts both sides at market, $${Math.round(depthUsd)}, not twice the tETH side (${farm[0].t.slice(-70)})`);
   ok(/222 TAC/.test(await text(p, '#fm-stats')), 'the farms\' rewards add up');
   ok(/backed by BTC locked on Bitcoin/.test(await text(p, '#lk-lead')) && /20 live locks/.test(await text(p, '#lk-facts')) && /Sign in/.test(await text(p, '#lk-mine')), 'the locks panel says why there is no order book, counts the locks, and offers to show yours');
   // the history: the locked bitcoin and the cUSD out, from the engine's events
@@ -324,6 +324,14 @@ try {
   ok(order.every((v, i) => i === 0 || v > order[i - 1]), `the ticket first, then what backs it, the locks, the farms, the pools and about (${order.join(' ')})`);
   await shot(p, 'cbtc-phone');
   ok(r.errors.length === 0 && r.blocked.length === 0, `no page error on a phone in the dark (${[...r.errors, ...r.blocked].join(' | ').slice(0, 160)})`);
+  // cBTC's old address (/trade/cbtc/) is a stub that sends on, the query and the fragment with it, under its own CSP
+  for (const [from, want] of [['/trade/cbtc/', '/cbtc/'], ['/trade/cbtc/#mode=use', '/cbtc/#mode=use'], ['/trade/cbtc/?x=1#amount=0.1', '/cbtc/?x=1#amount=0.1']]) {
+    await r.page.goto(`http://127.0.0.1:${WEB}${from}`);
+    await r.page.waitForSelector('#wallet-chip');
+    const u = new URL(r.page.url());
+    ok(u.pathname + u.search + u.hash === want, `the old address ${from} lands on ${want} (${u.pathname + u.search + u.hash})`);
+  }
+  ok(r.blocked.length === 0, `and the stub's own script ran under its CSP (${r.blocked.join(' | ').slice(0, 160)})`);
   await r.browser.close();
 } catch (e) {
   fails++; console.log('FAIL   ' + (e.stack || e).toString().split('\n').slice(0, 8).join('\n'));

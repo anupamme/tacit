@@ -5,10 +5,36 @@ const wordOf = (a) => a.slice(2).toLowerCase().padStart(64, '0');
 
 export const aprFrom = (tacPerDay, stakedEth, tacEth) => (stakedEth > 0 && tacEth ? tacPerDay * 365 * tacEth / stakedEth * 100 : null);
 
-export function shieldedApr(pool, tacEth) {
-  const r = pool.reserves || {}, total = Number(r.lpTotalShares || 0);
-  if (String(r.assetA).toLowerCase() !== CETH || !total) return null;
-  return aprFrom(Number(pool.tacPerDayForPool), 2 * Number(r.reserveA) / 1e8 * Number(pool.totalShares) / total, tacEth);
+// What a pool that pairs tETH holds, in ETH, each side at its own price: a tETH is an ETH, and the other side is TAC at the precision pool's price,
+// cUSD as a dollar or cBTC at bitcoin's. `px` is { ethUsd, btcUsd }. A pool the market has not corrected holds less than twice its tETH side (the
+// small cUSD and cBTC pools sit far under ETH), so that doubling stands in only while a price is missing.
+export function poolWorthEth(pool, tacEth, px = {}) {
+  const r = pool?.reserves || {};
+  if (String(r.assetA).toLowerCase() !== CETH) return null;
+  const a = Number(r.reserveA) / 1e8, b = Number(r.reserveB) / 1e8, other = String(pool.pair || '').split('/').find((k) => k !== 'cETH');
+  const unit = other === 'TAC' ? tacEth : other === 'cUSD' ? (px.ethUsd > 0 ? 1 / px.ethUsd : 0) : other === 'cBTC' ? (px.ethUsd > 0 && px.btcUsd > 0 ? px.btcUsd / px.ethUsd : 0) : 0;
+  return unit > 0 ? a + b * unit : 2 * a;
+}
+
+// A private pool's APR: a year of its TAC at TAC's price over what the farm holds of the pool, as poolWorthEth counts it.
+export function shieldedApr(pool, tacEth, px) {
+  const r = pool.reserves || {}, total = Number(r.lpTotalShares || 0), worth = poolWorthEth(pool, tacEth, px);
+  if (worth == null || !total) return null;
+  return aprFrom(Number(pool.tacPerDayForPool), worth * Number(pool.totalShares) / total, tacEth);
+}
+
+// ETH/USD and BTC/USD from Chainlink, 8 decimals, through a page's own batch of eth_calls (an array of answers, nulls for those that failed).
+// A feed that has not answered in six hours is not a price.
+const CHAINLINK = { ethUsd: '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419', btcUsd: '0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c' };
+export async function readSpot(batch) {
+  const r = await batch([CHAINLINK.ethUsd, CHAINLINK.btcUsd].map((to) => ({ to, data: '0xfeaf968c' }))).catch(() => []);
+  const fresh = (x) => {
+    const h = String(x || '').replace(/^0x/, '');
+    if (h.length < 64 * 5) return null;
+    const w = (i) => BigInt(`0x${h.slice(i * 64, (i + 1) * 64)}`);
+    return w(1) > 0n && w(3) > BigInt(Math.floor(Date.now() / 1000) - 6 * 3600) ? Number(w(1)) / 1e8 : null;
+  };
+  return { ethUsd: fresh(r?.[0]), btcUsd: fresh(r?.[1]) };
 }
 
 export const aprText = (a) => (a == null ? '' : a >= 100000 ? 'over 100,000%' : a >= 100 ? `${Math.round(a).toLocaleString('en-US')}%` : `${a.toFixed(1)}%`);
@@ -31,11 +57,11 @@ export async function readStake(call, who, f) {
   return { staked, earned, loose, eth: ok ? staked * f.r0 / f.supply : 0n, tac: ok ? staked * f.r1 / f.supply : 0n };
 }
 
-export function privateFarms(program, tacEth) {
+export function privateFarms(program, tacEth, px) {
   if (!program?.epoch?.active) return [];
   return (program.pools || []).filter((p) => Number(p.tacPerDayForPool) > 0).map((p) => {
     const k = String(p.pair).split('/').map((x) => (x === 'cETH' ? 'tETH' : x));
     if (k[1] === 'tETH') k.reverse();
-    return { pid: Number(p.pid), name: k.join(' / '), icons: k.map((x) => x.toLowerCase()), perDay: Number(p.tacPerDayForPool), apr: shieldedApr(p, tacEth) };
+    return { pid: Number(p.pid), name: k.join(' / '), icons: k.map((x) => x.toLowerCase()), perDay: Number(p.tacPerDayForPool), apr: shieldedApr(p, tacEth, px) };
   });
 }

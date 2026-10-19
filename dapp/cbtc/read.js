@@ -1,7 +1,7 @@
 import { MULTICALL3, TAC_POOL_ASSET_ID, CETH_POOL_ASSET_ID, _internal } from '/evm-trade-venues.js?cb=563db4d4';
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import { ethCall, rpc, wordAt, word, strip } from '/trade/util.js?cb=509d6618';
-import { POOL, heldHistory } from '/teth/read.js?cb=c0ec533f';
+import { POOL, heldHistory } from '/teth/read.js?cb=3f0c53e1';
 
 export const ENGINE = '0x000000003f608BDdF0ca45934003ffb9DbDF70DB';
 export const WSTETH = '0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0';
@@ -69,7 +69,8 @@ export function poolRows(pools, program, { ethUsd, usdBtc, tacEth }) {
   return pools.map((p) => {
     const per = p.cbtc > 0 ? p.side / p.cbtc : null;
     const usd = per == null ? null : p.other === 'tETH' ? (ethUsd ? per * ethUsd : null) : p.other === 'TAC' ? (tacEth && ethUsd ? per * tacEth * ethUsd : null) : per;
-    const depth = p.other === 'tETH' ? (ethUsd ? 2 * p.side * ethUsd : null) : (usdBtc ? 2 * p.cbtc * usdBtc : null);
+    const sideUsd = p.other === 'tETH' ? ethUsd : p.other === 'TAC' ? (tacEth && ethUsd ? tacEth * ethUsd : null) : 1;               // dollars in one of the other side
+    const depth = usdBtc && sideUsd != null ? p.cbtc * usdBtc + p.side * sideUsd : null;                                              // both sides, each at its own price
     const farm = (program?.pools || []).find((f) => String(f.pair).split('/').sort().join('/') === ['cBTC', p.other === 'tETH' ? 'cETH' : p.other].sort().join('/')) || null;
     return { ...p, name: `cBTC / ${p.other}`, per, usd, gap: usd != null && usdBtc ? usd / usdBtc - 1 : null, depthUsd: depth, farm: farm ? { pid: Number(farm.pid), perDay: Number(farm.tacPerDayForPool) || 0, shares: Number(farm.totalShares) || 0 } : null };
   });

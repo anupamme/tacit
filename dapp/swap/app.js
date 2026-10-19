@@ -4,7 +4,7 @@ import { makeConnect, UserStopped } from '/trade/connect.js?cb=92188b57';
 import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18 } from '/trade/util.js?cb=509d6618';
 import * as R from '/swap/route.js?cb=2be79f2b';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
-import { aprText, readPrecision, privateFarms } from '/trade/farm-read.js?cb=56ac202c';
+import { aprText, readPrecision, readSpot, privateFarms } from '/trade/farm-read.js?cb=112a01b9';
 
 const CHAINLINK = { eth: '0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419', btc: '0xF4030086522a5bEEa4988F8cA5B36dbC97BeE88c' };
 const PRECISION_POOL = '0x0155358241411dB868BA714aE7c83A27087e3D6E';
@@ -550,9 +550,9 @@ function choose(side, k) {
 
 let farmUi = null;
 async function readFarms() {
-  const [prog, f] = await Promise.all([api('/farm/program?network=mainnet'), readPrecision(({ to, data }) => ethCall(to, data))]);
+  const [prog, f, spot] = await Promise.all([api('/farm/program?network=mainnet'), readPrecision(({ to, data }) => ethCall(to, data)), readSpot(batch)]);
   const out = [{ k: 'precision', name: 'Precision farm', note: 'public', apr: f?.apr ?? null, icons: ['tac', 'eth'] }];
-  for (const p of privateFarms(prog, f?.tacEth || 0)) out.push({ k: `p${p.pid}`, pid: p.pid, name: p.name, note: 'private', apr: p.apr, icons: p.icons });
+  for (const p of privateFarms(prog, f?.tacEth || 0, { ethUsd: spot.ethUsd ?? S.px.ethUsd, btcUsd: spot.btcUsd ?? S.px.btcUsd })) out.push({ k: `p${p.pid}`, pid: p.pid, name: p.name, note: 'private', apr: p.apr, icons: p.icons });
   S.farms = out;
 }
 function paintEarn() {
@@ -562,7 +562,7 @@ function paintEarn() {
   $('#farm').hidden = f.k !== 'precision';
   $('#privfarm').hidden = f.k === 'precision';
   if (f.k === 'precision' && !farmUi) {
-    farmUi = import('/trade/farm.js?cb=7621bd3c').then(({ mountFarm }) => mountFarm($('#farm'), { ethCall, batch, rpc, api, wallet, W, connect: () => connect.connect(), fmtUnits, parseUnits, esc, usd, ethUsd: () => S.px.ethUsd, txLink, onDone: () => readBalances().then(paintSides) }));
+    farmUi = import('/trade/farm.js?cb=60987fca').then(({ mountFarm }) => mountFarm($('#farm'), { ethCall, batch, rpc, api, wallet, W, connect: () => connect.connect(), fmtUnits, parseUnits, esc, usd, ethUsd: () => S.px.ethUsd, txLink, onDone: () => readBalances().then(paintSides) }));
   }
   if (f.k !== 'precision') {
     $('#privfarm').innerHTML = `<a class="go priv" href="/#card=earn:ether:p${f.pid}">Farm ${esc(f.name)} privately →</a>`;

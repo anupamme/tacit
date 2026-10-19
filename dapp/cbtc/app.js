@@ -1,4 +1,4 @@
-// tacit.finance/trade/cbtc: cBTC, bitcoin locked at an address only its owner's key can spend, minted one for one in the Tacit pool against an ETH bond.
+// tacit.finance/cbtc: cBTC, bitcoin locked at an address only its owner's key can spend, minted one for one in the Tacit pool against an ETH bond.
 // The page tracks it: what stands behind it (the locks on Bitcoin, the bond, what was minted, the cUSD lent against it), the private pools that hold it and
 // the farms that pay for liquidity in them, and, with a Tacit key open, that key's own locks, cBTC, loans and farm positions. It reads the chain and the
 // API with no wallet and holds no key it was not given. Making cBTC (lock, bond, mint, borrow) is a flow of several steps with Bitcoin and Ethereum
@@ -8,8 +8,8 @@ import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=deaf
 import { makeConnect } from '/trade/connect.js?cb=92188b57';
 import { makeKeySession, signInSheet } from '/trade/key.js?cb=149c5b79';
 import { getUx, forgetUx } from '/trade/poolux.js?cb=e02d54c7';
-import { readRates, readProgram, heldBars, rangesFor, barSize } from '/teth/read.js?cb=c0ec533f';
-import { totalsOf, readEngine, sizeBond, coverage, readPools, poolRows, farmApr, readLocks, readLoans, readHeld, readHistory, positionsIn, lockStep, CBTC_ID, ENGINE, WSTETH } from '/trade/cbtc/read.js?cb=46ad3abc';
+import { readRates, readProgram, heldBars, rangesFor, barSize } from '/teth/read.js?cb=3f0c53e1';
+import { totalsOf, readEngine, sizeBond, coverage, readPools, poolRows, farmApr, readLocks, readLoans, readHeld, readHistory, positionsIn, lockStep, CBTC_ID, ENGINE, WSTETH } from '/cbtc/read.js?cb=9d999aa5';
 import { $, esc, api, now, fmtUnits, parseUnits, grp, usd, pct, short, sig } from '/trade/util.js?cb=509d6618';
 
 const SCAN = 'https://etherscan.io/', MEMPOOL = 'https://mempool.space/';
@@ -33,7 +33,7 @@ const DUST_USD = 25;                                                            
 function renderHead() {
   const px = usdBtc(), T = tot();
   $('#px-usd').textContent = px != null ? usd(px) : 'cBTC';
-  document.title = px != null ? `cBTC ${usd(px)} · tacit trade` : 'tacit trade · cBTC';
+  document.title = px != null ? `cBTC ${usd(px)} · tacit` : 'tacit cBTC';
   const bits = ['<span title="Lock bitcoin and the same amount is minted as cBTC"><b class="num">1 cBTC</b> = 1 BTC, locked</span>'];
   if (T) {
     bits.push(`<span><b class="num">${esc(btcTxt(T.minted))} cBTC</b>${px != null ? ` (${compact(Number(T.minted) / 1e8 * px)})` : ''} minted</span>`);

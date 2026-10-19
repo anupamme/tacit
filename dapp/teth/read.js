@@ -3,6 +3,7 @@
 // Precision pool), and the relay's quote for a wrap. The arithmetic is plain functions of what was read, so tests can pin it.
 import { MULTICALL3, PRECISION_POOL, _internal } from '/evm-trade-venues.js?cb=563db4d4';
 import { api, ethCall, wordAt, now, E10 } from '/trade/util.js?cb=509d6618';
+import { poolWorthEth, shieldedApr } from '/trade/farm-read.js?cb=112a01b9';
 
 export const POOL = '0x000000000Ed1eabD231Be41d93b719056F7febFC';              // the Tacit pool (one contract): it holds the ETH behind every tETH
 export const WRAP_TIP = '0x000000D218B03db5837943b0b05DeA2965AE956e';           // wraps and pays the relay's tip in one transaction
@@ -79,12 +80,10 @@ export const readProgram = () => api('/farm/program?network=mainnet');
 const OTHER = { TAC: { dec: 8 }, cUSD: { dec: 8 }, cBTC: { dec: 8 } };
 export const shown = (t) => (t === 'cETH' ? 'tETH' : t);
 // Each pool of the program that pairs tETH, with what it pays, what that earns on what is bonded, how deep it is and what one tETH costs in it.
-// Notes carry 8 decimals, so the reserves' ratio is the price. A pool's APR is a year of its TAC at TAC's price now over twice its tETH side
-// that is bonded (the pool's two sides are worth the same): the front page's own sum. `usd` is what the pool says a tETH is worth, with cUSD
-// counted as a dollar; `gap` how far that is from ETH's price. `bonded` is the share of the pool's liquidity that is in the farm. `worthUsd` is
-// what both sides are worth now, a tETH at ETH's price and the other side at its own, and `depthEth` the same in ETH: a pool that sits away from
-// ETH holds less than twice its tETH side (a tETH is ETH, the cUSD beside it is a dollar), so the depth shown is this, not that doubling, which
-// is what stands in only while a price is missing.
+// Notes carry 8 decimals, so the reserves' ratio is the price. What a pool holds and what its APR is over are worked out once, by farm-read.js
+// (what both sides are worth, each at its own price), so the front page, the rewards and swap pages and this one read the same. `usd` is what
+// the pool says a tETH is worth, with cUSD counted as a dollar; `gap` how far that is from ETH's price. `bondedPct` is the share of the pool's
+// liquidity that is in the farm. `worthUsd` is what both sides are worth now and `depthEth` the same in ETH.
 export function poolRows(program, { tacEth = null, ethUsd = null, btcUsd = null } = {}) {
   const live = !!program?.epoch?.active;
   return (program?.pools || []).map((p) => {
@@ -93,12 +92,11 @@ export function poolRows(program, { tacEth = null, ethUsd = null, btcUsd = null 
     const rA = Number(r.reserveA), rB = Number(r.reserveB), total = Number(r.lpTotalShares);
     const per = rA > 0 ? rB / rA : null;                                                                       // OTHER per tETH
     const perDay = live ? Number(p.tacPerDayForPool) || 0 : 0;
-    const bonded = total > 0 ? 2 * rA / 1e8 * Number(p.totalShares) / total : 0;                                // ETH
     const unit = other === 'TAC' ? (tacEth && ethUsd ? tacEth * ethUsd : null) : other === 'cUSD' ? 1 : (btcUsd || null);                  // dollars in one of the other side
     const usd = per == null || unit == null ? null : per * unit;
-    const worthUsd = ethUsd && unit != null ? rA / 1e8 * ethUsd + rB / 1e8 * unit : null;
-    return { pid: Number(p.pid), other, name: `tETH / ${other}`, perDay, apr: perDay > 0 && bonded > 0 && tacEth ? perDay * 365 * tacEth / bonded * 100 : null,
-      worthUsd, depthEth: worthUsd != null ? worthUsd / ethUsd : 2 * rA / 1e8, tethSide: rA / 1e8, otherSide: rB / 1e8, bondedPct: total > 0 ? Number(p.totalShares) / total : null, per, usd, gap: usd != null && ethUsd ? usd / ethUsd - 1 : null,
+    const worthEth = poolWorthEth(p, tacEth, { ethUsd, btcUsd });
+    return { pid: Number(p.pid), other, name: `tETH / ${other}`, perDay, apr: perDay > 0 ? shieldedApr(p, tacEth, { ethUsd, btcUsd }) : null,
+      worthUsd: ethUsd ? worthEth * ethUsd : null, depthEth: worthEth, tethSide: rA / 1e8, otherSide: rB / 1e8, bondedPct: total > 0 ? Number(p.totalShares) / total : null, per, usd, gap: usd != null && ethUsd ? usd / ethUsd - 1 : null,
       shares: Number(p.totalShares) || 0, lpTotal: total, rA, rB };
   }).filter(Boolean).sort((x, y) => x.pid - y.pid);
 }

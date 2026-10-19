@@ -1,4 +1,5 @@
 import { day, group } from '/trade/fmt.js?cb=c07717c4';
+import { shieldedApr, readSpot } from '/trade/farm-read.js?cb=112a01b9';
 
 const POOL = '0x0155358241411dB868BA714aE7c83A27087e3D6E', FARM = '0x0000003bF4BA0B21f5e0d35119b337F4d4CF82E0', LENS = '0x000000956bf20A41C54BaE4a4b6F5C8A166DAB4E';
 const TAC = '0xA1313eb9f3A445606D9583bcAc3ebeB56a858279', MC3 = '0xcA11bde05977b3631167028862bE2a173976CA11', ZERO = '0x0000000000000000000000000000000000000000';
@@ -77,7 +78,7 @@ export function mountFarm(host, ctx) {
     if (my !== F.rseq || W.account !== who) return;
     F.x = x; F.err = false;
   }
-  const readProgram = () => api('/farm/program?network=mainnet').then((p) => { if (p?.epoch) F.prog = p; });
+  const readProgram = () => Promise.all([api('/farm/program?network=mainnet'), readSpot(batch)]).then(([p, px]) => { if (p?.epoch) F.prog = p; F.px = px; });
 
   const earnedNow = (x) => (!x?.live || !(x.staked > 0n) || !x.totalStaked ? x?.earned ?? 0n
     : x.earned + x.rate * x.staked / x.totalStaked * BigInt(Math.max(0, Math.min(now() + (x.t - x.at), x.finish) - x.t)));
@@ -91,14 +92,8 @@ export function mountFarm(host, ctx) {
       + cell('Staked', ethUsd() ? usd(x.stakedEth / 1e18 * ethUsd()) : `${(x.stakedEth / 1e18).toFixed(2)} ETH`, x.supply ? `${Math.round(Number(x.totalStaked * 1000n / x.supply)) / 10}% of the pool` : '')
       + cell('Stream ends', x.live ? dayFmt(x.finish) : '—');
     const p = F.prog, e = p?.epoch;
-    const CETH = '0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34';
     const pairName = (pair) => { const k = String(pair).split('/').map((y) => (y === 'cETH' ? 'tETH' : y)); if (k[1] === 'tETH') k.reverse(); return k.join(' / '); };
-    const aprOf = (pool) => {
-      const r = pool.reserves || {}, total = Number(r.lpTotalShares || 0);
-      if (String(r.assetA).toLowerCase() !== CETH || !total || !x.tacEth) return null;
-      const bonded = 2 * Number(r.reserveA) / 1e8 * Number(pool.totalShares) / total;
-      return bonded > 0 ? Number(pool.tacPerDayForPool) * 365 * x.tacEth / bonded * 100 : null;
-    };
+    const aprOf = (pool) => (x.tacEth ? shieldedApr(pool, x.tacEth, { ethUsd: F.px?.ethUsd ?? ethUsd(), btcUsd: F.px?.btcUsd }) : null);
     $('#fm-prog').innerHTML = e?.active && p.pools?.length
       ? `<div class="fm-ph" title="Private positions: who farms and how much is not shown. Each opens with your Tacit wallet on the main page."><b>Private farms</b><span>${group(Math.round(Number(e.ratePerDayTac)))} TAC a day more, to ${dayFmt(e.periodFinish)}</span></div>`
         + p.pools.filter((pool) => Number(pool.tacPerDayForPool) > 0).map((pool) => `<a class="fm-pf" href="/#farm/private-${Number(pool.pid)}"><span class="pair">${esc(pairName(pool.pair))}</span><span class="d">${group(Math.round(Number(pool.tacPerDayForPool)))} TAC a day</span><b class="num">${aprTxt(aprOf(pool))}</b><i aria-hidden="true">→</i></a>`).join('')

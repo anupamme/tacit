@@ -8,7 +8,7 @@
   var TABS = ['wallet', 'holdings', 'transfer', 'discover', 'market', 'pool', 'farms', 'etch', 'factory', 'drops', 'claim',
     'about', 'mixer', 'confidential-pool', 'otc', 'cdp', 'csend', 'cswap', 'earn', 'points', 'govern'];
   // Pages in their own directories, asked for without the trailing slash.
-  var PAGES = ['sats', 'secret-sats', 'ceremony', 'tacit-v1', 'tac', 'trade', 'trade/tac', 'teth', 'trade/cbtc', 'vault', 'pay', 'weld/stats', 'weld/keeper', 'pay/eth', 'swap', 'assets', 'rewards', 'bridge'];
+  var PAGES = ['sats', 'secret-sats', 'ceremony', 'tacit-v1', 'tac', 'trade', 'trade/tac', 'teth', 'cbtc', 'vault', 'pay', 'weld/stats', 'weld/keeper', 'pay/eth', 'swap', 'assets', 'rewards', 'bridge'];
   // The fragments and queries the classic app reads; this page's own are bare names (#eth, #farm) and #sp=/#st=.
   var CLASSIC_HASH = /^#(?:(?:tab|recv|claim|dclaim|gate|tacit-invoice|amm)=|amm-?ceremony$)/;
   var CLASSIC_QUERY = ['ceremony', 'coordinator', 'amm', 'ammceremony'];
@@ -24,6 +24,7 @@
     if (seg === 'airdrop' && !h) return away('/rewards/' + q);                // the airdrop and points have one page; #airdrop still opens this page's own claim
     if (seg === 'trade') return away('/trade/tac/' + q + h);                // TAC is the one market the trade page has, at its own address
     if (seg === 'trade/teth') return away('/teth/' + q + h);                // tETH has its own address; its old one is /trade/teth/
+    if (seg === 'trade/cbtc') return away('/cbtc/' + q + h);                // cBTC has its own address too; its old one is /trade/cbtc/
     // Borrowing has one page, /vault/: against TAC its own address, against Bitcoin its #btc side (a fragment of the link's own is carried instead).
     if (seg === 'vault/tac') return away('/vault/' + q + h);
     if (seg === 'vault/btc') return away('/vault/' + q + (h && h !== '#' ? h : '#btc'));

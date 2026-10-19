@@ -53,7 +53,7 @@ const front = JSON.parse(JSON.stringify(stats)); delete front.eth.series.flows;
 const HELD = BigInt(stats.eth.held.$n);
 const WRAP_TIP = '0x000000D218B03db5837943b0b05DeA2965AE956e', RELAY = quote.recommendedTipRecipient, TIP = BigInt(quote.recommendedWrapTipWei);
 const SPLITTER = '0xf5eBBE5Db610F64D29A0dC5e9534074Af12834F9';
-const ETH_USD = 2441, PER_ETH = 11000, ACCOUNT_BAL = 5n * 10n ** 18n;
+const ETH_USD = 2441, BTC_USD = 83000, PER_ETH = 11000, ACCOUNT_BAL = 5n * 10n ** 18n;
 
 let n = 0, fails = 0;
 const ok = (c, s) => { if (c) { n++; console.log('  ok   ' + s); } else { fails++; console.log('FAIL   ' + s); } };
@@ -109,7 +109,7 @@ function rpcAnswer(req) {
   const res = (result) => ({ jsonrpc: '2.0', id, result }), err = (message, code = -32000) => ({ jsonrpc: '2.0', id, error: { code, message } });
   if (method === 'eth_call') {
     if (!chain.rates) return err('stub: no rates');
-    if (String(params[0].to).toLowerCase() === '0xca11bde05977b3631167028862be2a173976ca11') return res(aggregate3Result([round(ETH_USD), round(83000), sqrtWord]));
+    if (String(params[0].to).toLowerCase() === '0xca11bde05977b3631167028862be2a173976ca11') return res(aggregate3Result([round(ETH_USD), round(BTC_USD), sqrtWord]));
     if (String(params[0].to).toLowerCase() === POOL.toLowerCase()) {
       const data = String(params[0].data);
       if (data.startsWith('0x7da9874f')) return res('0x' + w32(chain.deposit === 'consumed' ? 2 : 1));      // depositStatus(id)
@@ -345,7 +345,7 @@ try {
   const heldTxt = (Number(HELD) / 1e18).toFixed(2);
   ok(/1 tETH = 1 ETH, private/.test(sub) && sub.includes(`${heldTxt} ETH`) && /187 deposits · 64 wallets/.test(sub), `the line under it says what the pool holds and from how many (${sub.slice(0, 90)})`);
   const asset = await p.$$eval('.assets a', (as) => as.map((a) => [a.textContent.trim(), a.getAttribute('href'), a.getAttribute('aria-current')]));
-  ok(asset.length === 3 && asset[0][1] === '/trade/tac/' && asset[1][0] === 'tETH' && asset[1][2] === 'page' && asset[2][1] === '/trade/cbtc/', 'a switch names the three markets and marks this one');
+  ok(asset.length === 3 && asset[0][1] === '/trade/tac/' && asset[1][0] === 'tETH' && asset[1][2] === 'page' && asset[2][1] === '/cbtc/', 'a switch names the three markets and marks this one');
   const sum = await text(p, '#hints-sum');
   ok(/Redeems for \$2,441/.test(sum) && /private pools \$\d/.test(sum) && /up to \d+% under ETH/.test(sum), `the dropdown's line gives the redeem value, the pools' range and how far the worst sits under ETH (${sum})`);
   await p.click('#hints summary');
@@ -373,10 +373,15 @@ try {
   const stat = await text(p, '#fm-stats');
   ok(/Best APR now/.test(stat) && /1,108 TAC/.test(stat) && /Stream ends/.test(stat), `the farms' figures (${stat.slice(0, 100)})`);
   const aprs = await p.$$eval('.pf .rt', (rs) => rs.map((x) => parseInt(x.firstChild.textContent.replace(/[^\d]/g, '')) || 0));
-  // The APR is a year of the pool's TAC at TAC's price over twice its tETH side bonded (the front page's sum): checked for the TAC pool.
-  const tp = program.pools.find((x) => x.pair === 'TAC/cETH'), bonded = 2 * Number(tp.reserves.reserveA) / 1e8 * Number(tp.totalShares) / Number(tp.reserves.lpTotalShares);
-  const wantApr = Number(tp.tacPerDayForPool) * 365 * (1 / PER_ETH) / bonded * 100;
-  ok(Math.abs(aprs[0] - wantApr) <= 1.5, `the TAC pool's APR is a year of its TAC at TAC's price over what is bonded: ${aprs[0]}% (${wantApr.toFixed(1)}%)`);
+  // The APR is a year of the pool's TAC at TAC's price over what the farm holds of the pool, each side at its own price (farm-read.js works it out
+  // for every page that shows it): checked for all three pools, two of which sit far from the market, where twice the tETH side would be wrong.
+  const unitEth = { TAC: 1 / PER_ETH, cUSD: 1 / ETH_USD, cBTC: BTC_USD / ETH_USD };
+  for (const [i, [pair, other]] of [['TAC/cETH', 'TAC'], ['cETH/cUSD', 'cUSD'], ['cETH/cBTC', 'cBTC']].entries()) {
+    const fp = program.pools.find((x) => x.pair === pair), a = Number(fp.reserves.reserveA) / 1e8, b = Number(fp.reserves.reserveB) / 1e8, share = Number(fp.totalShares) / Number(fp.reserves.lpTotalShares);
+    const perYear = Number(fp.tacPerDayForPool) * 365 / PER_ETH, wantApr = perYear / ((a + b * unitEth[other]) * share) * 100, doubled = perYear / (2 * a * share) * 100;
+    ok(Math.abs(aprs[i] - wantApr) <= Math.max(1.5, wantApr * 0.003), `the ${other} pool's APR is a year of its TAC over what is bonded, both sides at market: ${aprs[i]}% (${wantApr.toFixed(1)}%)`);
+    if (i > 0) ok(Math.abs(aprs[i] - doubled) > 20, `and it is not the figure from twice the tETH side, ${doubled.toFixed(0)}%`);
+  }
   ok(/Sign in to see yours/.test(await text(p, '#fm-note')), 'signed out, the farms offer to show your positions');
   // the chart and the movements
   const bars = await p.evaluate(() => document.querySelector('#chart svg')?.querySelectorAll('.line').length);
@@ -1306,7 +1311,7 @@ try {
   await r.page.goto(`http://127.0.0.1:${WEB}/trade/tac/`);
   await r.page.waitForSelector('.assets');
   const tac = await r.page.$$eval('.assets a', (as) => as.map((a) => [a.textContent.trim(), a.getAttribute('href'), a.getAttribute('aria-current')]));
-  ok(tac.length === 3 && tac[0][2] === 'page' && tac[1][1] === '/teth/' && tac[2][1] === '/trade/cbtc/', 'the TAC page carries the same switch, to the other two');
+  ok(tac.length === 3 && tac[0][2] === 'page' && tac[1][1] === '/teth/' && tac[2][1] === '/cbtc/', 'the TAC page carries the same switch, to the other two');
   // tETH's old address (/trade/teth/) is a stub that sends on, the query and the fragment with it, under its own CSP
   for (const [from, want] of [['/trade/teth/', '/teth/'], ['/trade/teth/#mode=use', '/teth/#mode=use'], ['/trade/teth/?x=1#amount=0.1', '/teth/?x=1#amount=0.1']]) {
     await r.page.goto(`http://127.0.0.1:${WEB}${from}`);

@@ -6560,7 +6560,7 @@ await step('pxs', async () => {
       const [tac, btc, eth] = s.items;                                                      // the cBTC and tETH entries: bitcoin's and ETH's dollars
       ok(s.items.map((x) => x.name).join() === 'TAC,cBTC,tETH' && s.items.map((x) => x.mark).join() === '#tk-tac,#tk-cbtc,#tk-teth', `pxs (${name}): the strip names TAC, cBTC and tETH, each with its own mark (${s.items.map((x) => `${x.name} ${x.val}`).join(', ')})`);
       ok(btc.val > 1000 && eth.val > 100 && btc.val / eth.val > 5 && btc.val / eth.val < 200 && tac.val > 0 && tac.val < eth.val, `pxs (${name}): the dollar prices are sane against one another (BTC ${btc.val}, ETH ${eth.val}, TAC ${tac.val})`);
-      ok(tac.href === '/trade/tac/' && btc.href === '/trade/cbtc/' && eth.href === '/teth/', `pxs (${name}): each is a link to its own trade page`);
+      ok(tac.href === '/trade/tac/' && btc.href === '/cbtc/' && eth.href === '/teth/', `pxs (${name}): each is a link to its own trade page`);
       ok(Math.abs(s.top - top0) < 1 && s.h >= 18, `pxs (${name}): the row was already there, so the hero did not move when the prices arrived (${Math.round(s.top - top0)}px)`);
       ok(!s.scroll, `pxs (${name}): and the page does not scroll sideways`);
       if (r.errors.length) { fails++; console.log('FAIL pxs page errors: ' + r.errors.slice(0, 3).join(' | ')); }
