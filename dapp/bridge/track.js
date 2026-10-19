@@ -26,7 +26,7 @@ export const ROUTES = {
   },
   teth: {
     ticker: 'tETH', icon: 'tk-teth', dp: 6,
-    in: { href: '/#private/bitcoin', go: 'Bridge tETH to Ethereum', steps: ['Burned on Bitcoin', 'Confirmed', 'Proven on Ethereum', 'Minted privately'] },
+    in: { href: '/#private/bitcoin', go: 'Bring tETH back to Ethereum', steps: ['Burned on Bitcoin', 'Confirmed', 'Proven on Ethereum', 'Minted privately'] },
     out: { href: '/#private/bitcoin', go: 'Bridge tETH to Bitcoin', steps: ['Burned on Ethereum', 'Proven for Bitcoin', 'Sent to Bitcoin', 'Arrived'] },
   },
   // cBTC enters by a lock: the bitcoin stays at an output of the holder's own key, a wstETH bond stands behind it, Bitcoin's proof
@@ -37,6 +37,20 @@ export const ROUTES = {
     in: { href: '/#lock', go: 'Lock BTC for cBTC', steps: ['Lock BTC', 'Bond', 'Mint cBTC', 'Borrow cUSD'] },
   },
 };
+
+// What one bridge takes while the bridge is new, in the eight-decimal units a note carries. The limits live in dapp/crossout-ux.js (to Bitcoin),
+// dapp/burndep-ux.js (back from it) and the TAC minimum in the front page's own asset table; tests/bridge-track.test.mjs holds these to them.
+const E8 = 100_000_000n;
+export const LIMITS = {
+  tac: { in: { max: 1000n * E8 }, out: { min: 20n * E8, max: 1000n * E8 } },
+  teth: { in: { max: 50_000_000n }, out: { min: 1_000_000n, max: 50_000_000n } },
+};
+// The line under the steps: '20 to 1,000 TAC a bridge', 'Up to 0.5 tETH a bridge', or '' for a way with no such limit.
+export function limitLine(asset, dir) {
+  const l = LIMITS[asset]?.[dir], r = ROUTES[asset];
+  if (!l || !r) return '';
+  return `${l.min ? `${fmtAmount(l.min, r.dp)} to ` : 'Up to '}${fmtAmount(l.max, r.dp)} ${r.ticker} a bridge while it is new`;
+}
 
 const lc = (s) => String(s || '').replace(/^0x/i, '').toLowerCase();
 const big = (v) => { try { return BigInt(v?.__big ?? v ?? 0); } catch { return 0n; } };

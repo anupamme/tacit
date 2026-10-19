@@ -3,7 +3,10 @@
 //   node --test tests/bridge-track.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { readBridges, inRow, outRow, inDue, outDue, liveLine, nextOf, fmtAmount, IN_PREFIX, OUT_PREFIX, TETH_ID, KEEP_DONE_MS } from '../dapp/bridge/track.js';
+import { readFileSync } from 'node:fs';
+import { readBridges, inRow, outRow, inDue, outDue, liveLine, nextOf, fmtAmount, limitLine, LIMITS, IN_PREFIX, OUT_PREFIX, TETH_ID, KEEP_DONE_MS } from '../dapp/bridge/track.js';
+import { CROSSOUT_BETA_CAP_RAW, CROSSOUT_TETH_CAP_RAW, CROSSOUT_TETH_MIN_RAW } from '../dapp/crossout-ux.js';
+import { BURNDEP_BETA_CAP_RAW } from '../dapp/burndep-ux.js';
 
 const NOW = 1_760_000_000_000;
 const PUB = '02' + 'ab'.repeat(32);
@@ -108,4 +111,45 @@ test('amounts in eight decimals, trimmed to the asset’s places', () => {
   assert.equal(fmtAmount(1_000_00000000n, 4), '1,000');
   assert.equal(fmtAmount({ __big: '490000000' }, 6), '4.9');
   assert.equal(fmtAmount(1n, 8), '0.00000001');
+});
+
+// ── tETH ──
+const tethBack = (o = {}) => inRec({ source: { txid: 'aa'.repeat(32), vout: 1, assetId: '0x' + TETH_ID, ticker: 'tETH', amount: big(30_000_000n), blinding: big(5n) }, ...o });
+
+test('tETH coming back from Bitcoin is a tETH row, read in its own places', () => {
+  const r = inRow(tethBack({ stage: 'rburn-mined' }), NOW);
+  assert.equal(r.asset, 'teth'); assert.equal(r.dir, 'in'); assert.equal(r.amount, 30_000_000n);
+  assert.equal(r.href, '/#private/bitcoin'); assert.equal(r.at, 2); assert.equal(r.btcTx, 'bb'.repeat(32));
+  assert.equal(fmtAmount(r.amount, 6), '0.3');
+  assert.equal(inDue(tethBack({ stage: 'rfolded' }), NOW), 'Mint now');
+  const rows = readBridges(store({ [IN_PREFIX + PUB]: JSON.stringify([tethBack({ id: 't1', createdAt: NOW - 1e3 }), inRec({ id: 'x1', createdAt: NOW - 2e3 })]) }), NOW);
+  assert.deepEqual(rows.map((x) => [x.id, x.asset]), [['t1', 'teth'], ['x1', 'tac']]);
+});
+
+test('a tETH record that names only its ticker is still tETH', () => {
+  assert.equal(inRow(tethBack({ source: { ticker: 'tETH', amount: big(1n) } }), NOW).asset, 'teth');
+  assert.equal(outRow(outRec({ source: { ticker: 'tETH', amount: '5' } })).asset, 'teth');
+});
+
+test('the limits the page shows are the ones the bridge enforces', () => {
+  // to Bitcoin: dapp/crossout-ux.js; back from it: dapp/burndep-ux.js; the TAC minimum is the front page's own asset table
+  assert.equal(LIMITS.tac.out.max, CROSSOUT_BETA_CAP_RAW);
+  assert.equal(LIMITS.tac.in.max, BURNDEP_BETA_CAP_RAW);
+  assert.equal(LIMITS.teth.out.max, CROSSOUT_TETH_CAP_RAW);
+  assert.equal(LIMITS.teth.out.min, CROSSOUT_TETH_MIN_RAW);
+  assert.equal(LIMITS.teth.in.max, CROSSOUT_TETH_CAP_RAW);   // tacit.js hands the burn-deposit module the same tETH cap
+  const front = readFileSync(new URL('../dapp/index.html', import.meta.url), 'utf8');
+  const tacMin = /tac: \{ key: 'tac'[^\n]*?\bmin: ([0-9_]+)n/.exec(front);
+  assert.ok(tacMin, 'the front page keeps a TAC minimum');
+  assert.equal(LIMITS.tac.out.min, BigInt(tacMin[1].replaceAll('_', '')));
+  const tacit = readFileSync(new URL('../dapp/tacit.js', import.meta.url), 'utf8');
+  assert.match(tacit, /ticker: 'tETH', capRaw: CROSSOUT_TETH_CAP_RAW \}\] : \[\]\)\],\n\s+chain/, 'the way back for tETH takes the same cap');
+});
+
+test('the line under the steps says what one bridge takes', () => {
+  assert.equal(limitLine('tac', 'in'), 'Up to 1,000 TAC a bridge while it is new');
+  assert.equal(limitLine('tac', 'out'), '20 to 1,000 TAC a bridge while it is new');
+  assert.equal(limitLine('teth', 'out'), '0.01 to 0.5 tETH a bridge while it is new');
+  assert.equal(limitLine('teth', 'in'), 'Up to 0.5 tETH a bridge while it is new');
+  assert.equal(limitLine('cbtc', 'in'), '');
 });

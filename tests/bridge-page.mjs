@@ -38,6 +38,9 @@ const IN = [
   { id: 'a1', network: 'mainnet', walletPub: PUB, path: 'reflected', stage: 'rburn-mined', createdAt: NOW - 2 * 3600e3, burnHeight: 972_100,
     source: { txid: 'aa'.repeat(32), vout: 0, assetId: TAC_ID, ticker: 'TAC', amount: { __big: '25000000000' }, blinding: { __big: '7' } },
     burn: { txid: BURN_TX, hex: 'deadbeef' }, notePriv: SECRET },
+  { id: 'a3', network: 'mainnet', walletPub: PUB, path: 'reflected', stage: 'rburn-mined', createdAt: NOW - 5 * 3600e3, burnHeight: 972_100,
+    source: { txid: 'ac'.repeat(32), vout: 0, assetId: '0x' + TETH_ID, ticker: 'tETH', amount: { __big: '30000000' }, blinding: { __big: '9' } },
+    burn: { txid: BURN_TX }, notePriv: SECRET },
   { id: 'a2', network: 'mainnet', walletPub: PUB, path: 'reflected', stage: 'minted', createdAt: NOW - 30 * 3600e3, mintedAt: NOW - 20 * 3600e3, mintedTxHash: '9f'.repeat(32),
     source: { txid: 'ab'.repeat(32), vout: 1, assetId: TAC_ID, ticker: 'TAC', amount: { __big: '100000000000' } }, burn: { txid: 'b2'.repeat(32) } },
 ];
@@ -113,8 +116,14 @@ try {
     ok(await page.getAttribute('#bt-go', 'href') === '/#bridge/out' && await page.evaluate(() => location.hash) === '#tac/out', 'the flip: TAC to Bitcoin, and the link says so');
     ok((await page.textContent('#bt-from')) === 'Ethereum', 'from Ethereum');
     await page.click('[data-asset="teth"]');
+    ok((await page.textContent('#bt-limit')) === '0.01 to 0.5 tETH a bridge while it is new', 'tETH to Bitcoin: the tile says what one bridge takes');
+    ok((await page.textContent('#bt-wait')).includes('a little BTC'), 'and that a little BTC from the address pays the mint');
+    await page.click('#bt-flip');
+    ok((await page.textContent('#bt-go')).includes('Bring tETH back to Ethereum') && (await page.textContent('#bt-limit')) === 'Up to 0.5 tETH a bridge while it is new', 'tETH back from Bitcoin: its own button and limit');
+    await page.click('#bt-flip');
     ok(await page.getAttribute('#bt-go', 'href') === '/#private/bitcoin' && (await page.textContent('#bt-go')).includes('tETH to Bitcoin'), 'tETH to Bitcoin');
     await page.click('[data-asset="cbtc"]');
+    ok(await page.isHidden('#bt-limit'), 'cBTC has no per-bridge limit line');
     ok(await page.getAttribute('#bt-go', 'href') === '/#lock' && await page.isDisabled('#bt-flip') && (await page.textContent('#bt-from')) === 'Bitcoin', 'cBTC enters by a lock, one way');
     ok((await page.$$eval('#bt-steps li', (l) => l.map((x) => x.textContent))).join('|') === 'Lock BTC|Bond|Mint cBTC|Borrow cUSD', 'and its steps are the Borrow sheet’s own: lock, bond, mint, borrow');
     await page.click('[data-asset="tac"]');
@@ -123,7 +132,8 @@ try {
     // your bridges
     ok(await page.isVisible('#mine'), 'the bridges under way are listed');
     const rows = await page.$$eval('#mine-l > li', (ls) => ls.map((l) => l.innerText));
-    ok(rows.length === 4, `four bridges (${rows.length})`);
+    ok(rows.length === 5, `five bridges (${rows.length})`);
+    ok(rows.some((r) => /0\.3 tETH/.test(r) && /to Ethereum/.test(r)), 'a tETH bridge coming back from Bitcoin is listed as tETH, with its amount');
     ok(/1\.5 tETH/.test(rows[0]) && /Send to Bitcoin/.test(rows[0]), 'the one that needs its holder comes first, with its press');
     ok(await page.$eval('#mine-l > li .mb-due', (a) => a.getAttribute('href')) === '/#private/bitcoin', 'which opens its sheet');
     ok(rows.some((r) => /250 TAC/.test(r) && /10 blocks behind/.test(r)), 'a burn on Bitcoin: how far the proof is behind its block');
@@ -182,6 +192,9 @@ try {
     await page.click('.faq summary');
     ok(await page.isVisible('.faq details[open] p'), 'a question opens to its answer');
     ok((await page.$$('.faq details')).length === 8, 'eight questions');
+    const faq = await page.textContent('.faq');
+    ok(/tETH takes 0\.01 to 0\.5 tETH to Bitcoin and up to 0\.5 tETH back/.test(faq) && /20 to 1,000 TAC to Bitcoin/.test(faq), 'the limits answer gives each asset its own range, both ways');
+    ok(/Ethereum to Bitcoin takes a small relay fee out of the note/.test(faq) && /Tacit is covering the Ethereum mint/.test(faq), 'and the cost answer is right for both directions');
     ok(!/allowance|free/i.test(await page.textContent('.faq')), 'the answers keep to plain words about who pays');
     ok(await page.getAttribute('.runcta .go', 'href') === '/weld/keeper/' && (await page.$$('#run .cap3 li')).length === 3 && (await page.$$('#run .pill')).length === 3, 'anyone can run it: three steps, each open to anyone, and a door to community ops');
     ok(await page.getAttribute('.trio a', 'href') === '#run', 'and the top of the page points to it');

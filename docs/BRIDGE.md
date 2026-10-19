@@ -108,6 +108,19 @@ the live cadence and follows every bridge a browser has under way.
 | tETH | Burn on Bitcoin, minted back in the pool once proven | Cross-out from the pool |
 | cBTC | Lock BTC at your own key's output, with a wstETH bond behind it; the pool mints cBTC 1:1 once the lock is proven. Borrow cUSD against it. | Will be burned on Bitcoin to redeem a lock |
 
+### Limits and costs, while the bridge is new
+
+| | To Bitcoin | Back from Bitcoin |
+| --- | --- | --- |
+| TAC | 20 to 1,000 TAC a bridge | up to 1,000 TAC, a note goes whole |
+| tETH | 0.01 to 0.5 tETH a bridge | up to 0.5 tETH, a note goes whole |
+
+Bitcoin to Ethereum costs a Bitcoin network fee, and Tacit is covering the Ethereum mint for now. Ethereum to
+Bitcoin takes a small relay fee out of the note, plus a Bitcoin fee for the mint, paid from the key's own
+Bitcoin address, so it needs a little BTC there. The limits are in [`crossout-ux.js`](../dapp/crossout-ux.js)
+and [`burndep-ux.js`](../dapp/burndep-ux.js); `tests/bridge-track.test.mjs` holds the page's copy of them to
+those files.
+
 ## On mainnet
 
 The ERC-20 supply of TAC (~2.5M) was all minted by the pool from TAC proven to have left Bitcoin. TAC has

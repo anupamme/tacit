@@ -1,7 +1,7 @@
 // The bridge page: one tile to pick an asset and a way, the bridges this browser has under way, and the two proofs they wait on.
 // Below it, the walk-through of how each way is proven. Nothing here signs or moves a bridge: the front page's bridge does
 // (its sheets are linked), and this page reads its journals (track.js) and the chains.
-import { ROUTES, readBridges, liveLine, nextOf, fmtAmount } from '/bridge/track.js?cb=7b7cc779';
+import { ROUTES, readBridges, liveLine, nextOf, fmtAmount, limitLine } from '/bridge/track.js?cb=aebbac4c';
 import { bodyType } from '/rpc-body.js';
 
 const API = 'https://api.tacit.finance';
@@ -61,7 +61,7 @@ function paintWait() {
   const confs = LIVE.btcConfs ?? 24, hours = Math.round(confs / 6);
   el.innerHTML = PICK.dir === 'in'
     ? `About ${hours} hours: <span data-live="confs" class="num">${confs}</span> Bitcoin confirmations, then the next proof${LIVE.cadence ? ` (one lands about every ${LIVE.cadence} min)` : ''}`
-    : 'About 13 minutes for Ethereum to finalize, then you sign the Bitcoin mint';
+    : 'About 13 minutes for Ethereum to finalize, then you sign the Bitcoin mint, paid with a little BTC from your address';
 }
 
 function paintProofs() {
@@ -133,6 +133,9 @@ function paintTile() {
   go.href = route.href;
   go.querySelector('span').textContent = route.go;
   paintWait();
+  const lim = limitLine(PICK.asset, PICK.dir);
+  $('#bt-limit').textContent = lim;
+  $('#bt-limit').hidden = !lim;
   const want = `#${PICK.asset}${PICK.dir === 'out' ? '/out' : ''}`;
   if (location.hash !== want && !(want === '#tac' && !location.hash)) history.replaceState(null, '', want);
 }
