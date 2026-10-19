@@ -36,6 +36,18 @@ npm run build
 Run it after any change to `dapp/tacit.js` or `dapp/preboot.js`, so the `?cb=` token in
 `index.html` changes and clients fetch the new bytes, and after bumping a bundled dependency.
 
+## Comments in the served modules
+
+The site serves `dapp/` as it is, and its host compresses with a quick setting, so the comments of a large module are a large part of what a visitor downloads (45% of `tacit.js`).
+The big, rarely edited modules are kept without comments; `build/strip-comments.mjs` does it and proves it changed nothing else:
+
+```bash
+node build/strip-comments.mjs dapp/<module>.js …    # then: npm run build (twice)
+```
+
+It rewrites a file only when esbuild minifies the original and the stripped text to the same output, keeps `/*! */`, `@license`, source-map and bundler comments, and leaves a file it cannot prove
+equal exactly as it was. Page files (`index.html` and the pages' own `app.js`) are edited every day by several people and keep their comments for now.
+
 ## Integrity
 
 All code runs same-origin from the pinned `dapp/` directory; the CSP in `dapp/classic.html` allows

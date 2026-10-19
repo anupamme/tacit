@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-g6Q17+rAeP+zSpshrENZ+9vut2t50/DnEehj0jf7kkQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-lDdXb0dMQniwYmOSsJtPZvRK4FFKLQogRSeA6i/JEE0=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -35,14 +35,14 @@
 <link rel="modulepreload" href="/tacit-wallet-known.js?cb=ed4c75b7">
 <link rel="modulepreload" href="/tacit-address.js">
 <link rel="modulepreload" href="/bip352.js">
-<link rel="modulepreload" href="/evm-wallet.js?cb=7eb675b6">
+<link rel="modulepreload" href="/evm-wallet.js?cb=c3c99d5c">
 <link rel="modulepreload" href="/identity-message.js">
 <link rel="modulepreload" href="/walletconnect.js?cb=7ab92369">
 <link rel="modulepreload" href="/evm-account.js">
 <link rel="modulepreload" href="/evm-tx.js">
 <link rel="modulepreload" href="/tac-airdrop.js?cb=04391ed8">
 <link rel="modulepreload" href="/rpc-body.js">
-<link rel="modulepreload" href="/evm-trade-venues.js?cb=f6e1b626">
+<link rel="modulepreload" href="/evm-trade-venues.js?cb=563db4d4">
 <link rel="modulepreload" href="/zrouter-guard.js">
 <link rel="modulepreload" href="/confidential-payout.js?cb=c27b4853">
 <link rel="modulepreload" href="/address-id.js?cb=c4fa5a58">
@@ -1571,19 +1571,19 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 // preload-later:begin
 // preload-later:end
 // preload-intent:begin
-const WARM_MODULES = ["/confidential-pool-ux.js?cb=dff04575","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
+const WARM_MODULES = ["/confidential-pool-ux.js?cb=cb8a0940","/confidential-deployments.js","/confidential-deployments.generated.js","/confidential-indexer.js","/confidential-pool.js","/evm-confidential.js","/bulletproofs.js","/bulletproofs-plus.js","/burn-deposit-bitcoin.js","/burn-deposit-provenance.js","/burn-deposit-assembler.js","/confidential-memo.js","/confidential-evm-log.js","/confidential-relay.js","/confidential-recovery-guard.js","/confidential-router.js","/confidential-transfer.js","/confidential-route.js","/confidential-swap.js","/confidential-swap-coordinator.js","/confidential-lp.js","/confidential-cdp.js","/confidential-farm.js","/confidential-farm-program.js","/confidential-defi-actions.js","/confidential-stealth.js","/confidential-airdrop.js","/tac-airdrop.js","/confidential-lock-scan.js","/confidential-bridge-mint.js","/bridge-burn-broadcast.js","/confidential-recovery.js","/bridge-mint-recovery.js","/confidential-secret-store.js","/confidential-recovery-btc.js","/bitcoin-taproot-wallet.js","/cbtc-note-recovery.js"];
 // preload-intent:end
 import { secp, keccak_256, sha256, hmac, bytesToHex, hexToBytes, concatBytes } from '/vendor/tacit-deps.min.js';
 import { prfBytesToScalar, prfLogin, prfRegister, loadPrfMap, savePrfMap, isPasskeyAvailable } from '/prf-wallet.js';
 import { knownWallets } from '/tacit-wallet-known.js?cb=ed4c75b7';
 import { makeTacitAddress } from '/tacit-address.js';
 import { bip352TaggedHash } from '/bip352.js';
-import { makeEvmWallet } from '/evm-wallet.js?cb=7eb675b6';
+import { makeEvmWallet } from '/evm-wallet.js?cb=c3c99d5c';
 import { announceWalletConnect, wcSheets, dialogHost, WC_PROJECT_ID } from '/walletconnect.js?cb=7ab92369';
 import { makeEvmAccount } from '/evm-account.js';
 import { makeEvmTx } from '/evm-tx.js';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=04391ed8';
-import { makeEvmTradeVenues, encErc20Approve, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, TACIT_AMM } from '/evm-trade-venues.js?cb=f6e1b626';
+import { makeEvmTradeVenues, encErc20Approve, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, TACIT_AMM } from '/evm-trade-venues.js?cb=563db4d4';
 import { parseRecipient } from '/confidential-payout.js?cb=c27b4853';
 import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
@@ -3482,7 +3482,7 @@ function setKey(k) {
 // tacit.js opens the passphrase-locked and Bitcoin-signed keys exactly as tacit.finance does. It loads only for
 // those paths, as a library: it reads the shared network once at import, so this page pins mainnet for its visit,
 // and any call that rewrites the app's linked-wallet records is run with them put back afterwards.
-const TACIT_URL = '/tacit.js?cb=d5eb5f95';
+const TACIT_URL = '/tacit.js?cb=8c7c6204';
 const SHARED_NET = 'tacit-network-v1', PREV_NET = 'tacit-lite-prev-net-v1';
 const SHARED_WALLET_KEYS = ['tacit-eth-identity', 'tacit-btc-identity', 'tacit-active-mode-v1', 'tacit-ext-mode-v1', 'tacit-ext-state-v1',
   ...['mainnet', 'signet'].flatMap((n) => [`tacit-eth-identity:${n}`, `tacit-btc-identity:${n}`, `tacit-active-mode-v1:${n}`])];
@@ -4503,7 +4503,7 @@ function wireSub(el, name, set) { $$(`[data-${name}]`, el).forEach((b) => b.oncl
 const warmPool = (() => { let on = false; return () => { if (on) return; on = true; for (const u of WARM_MODULES) document.head.append(Object.assign(document.createElement('link'), { rel: 'modulepreload', href: u })); }; })();
 const getUx = lazy(async () => {
   warmPool();
-  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=dff04575'), import('/confidential-deployments.js')]);
+  const [{ makeConfidentialPoolUx, setExternalTacHolders }, dep] = await Promise.all([import('/confidential-pool-ux.js?cb=cb8a0940'), import('/confidential-deployments.js')]);
   dep.setActiveNetwork('mainnet');
   setExternalTacHolders(() => (S.wallet ? [S.wallet] : []));      // public TAC in the connected wallet counts toward the exit-fee tier, as on tacit.finance
   const ux = makeConfidentialPoolUx({ secp, keccak256: keccak_256, sha256, network: 'mainnet' });
@@ -4966,7 +4966,7 @@ function v1Wrap(el, status) {
 }
 // Send: a stealth lock to the recipient's Tacit address; only they can claim it. Relayed end to end.
 const getNames = lazy(async () => {
-  const { makeConfidentialNames, makeMainnetCall } = await import('/confidential-names.js?cb=3558f38c');
+  const { makeConfidentialNames, makeMainnetCall } = await import('/confidential-names.js?cb=9efdff52');
   return makeConfidentialNames({ call: makeMainnetCall(), secp, keccak256: keccak_256 });
 });
 async function resolveTo(raw) {
@@ -6201,7 +6201,7 @@ function loadHeld(force = false) {
     for (const c of order) { if (S.key?.pubHex !== pub) return; await idle(); await one(c).catch(() => {}); }
   })()];
   const sats = (async () => {
-    const X = await import('/sats/secret.js?cb=f6574a8f');
+    const X = await import('/sats/secret.js?cb=a8c52b0f');
     const notes = (await X.poolNotes(X.poolWalletFor(priv, 'mainnet'))).filter((n) => !n.spent);
     const held = X.livePoolAssets().map((a) => ({ ...a, value: notes.filter((n) => strip(n.asset).toLowerCase() === a.id).reduce((t, n) => t + BigInt(n.value), 0n) }));
     if (S.key?.pubHex === pub) { HELD.sats = held; HELD.satsErr = false; dashSoon(); }

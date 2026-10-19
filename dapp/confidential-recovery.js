@@ -1,24 +1,3 @@
-// Key-only recovery walks for the confidential pool. A note reaches a wallet after a wipe through exactly one of:
-//   (a) a memo sealed to the wallet's own key (the normal channel), or
-//   (b) a derivation the wallet can repeat from its key plus PUBLIC chain data.
-// This module is channel (b): pure walkers over an already-fetched event stream (plus a few injected readers), each of
-// which accepts a candidate only when the recomputed leaf / receipt / position hash equals a value the chain holds, so a
-// walk never invents a note and a wrong guess is simply not found.
-//
-//   walkWraps          wrap deposits — deriveNote(key, asset, index), matched to the pool's public Wrap deposit ids
-//   walkChange         send-and-unwrap change notes — derived from the spent parent note, matched inside the settle
-//   walkBridgeMints    bridge-mint destination notes — owner from deriveNote(key, asset, index), blinding from the burn
-//                      nullifier, matched to the leaf a settle appended
-//   scanCbtcNotes      cBTC bearer notes — blinding from the key and the lock's funding prevout
-//   deriveFarmPositions farm receipts — key and nonce from the wallet key and an anchor note, matched to Bonded events
-//   walkCdpPositions   CDP positions — owner from the wallet key and a key nonce, matched to the position's settle calldata
-//   openSentLocks      stealth locks the wallet sent — the sender-tail channel appended to the lock memo
-//   walkDerivedOutputs / walkDirectOutputs
-//                      self-owned outputs of settles the wallet made (transfer and split, LP, swap, route, CDP, claim,
-//                      refund, harvest, unbond) — nk and blinding from deriveOutputKeys(key, anchor, role, index), value
-//                      from the settle's public values or a small candidate set, matched to leaves the chain inserted
-//
-// Deps: { pool, memo, keccak256, secp, hmac, sha256, curveOrder, lockScan, airdrop, cdp, bpp: { H, G } }.
 
 import { makeBridgeMintRecovery } from './bridge-mint-recovery.js';
 
@@ -29,14 +8,11 @@ const bytesToHex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).
 const w32 = (n) => '0x' + BigInt(n).toString(16).padStart(64, '0');
 const ZERO32 = '0x' + '00'.repeat(32);
 
-// The wallet key as 32 bytes, whatever form the caller holds it in.
 export function privBytes(p) {
   if (p instanceof Uint8Array) return p;
   return hexToBytes(String(p).replace(/^0x/, '').padStart(64, '0'));
 }
 
-// The CDP position owner key for the Nth position a wallet opens against a controller — the derivation the CDP tab uses:
-// HMAC(walletPriv, "tacit-cdp-position-v1" ‖ controller ‖ keyNonce_be32) reduced mod the curve order.
 export function derivePositionOwnerPriv({ hmac, sha256, curveOrder }, walletPriv, controller, keyNonce) {
   const N = BigInt(curveOrder);
   const domain = new TextEncoder().encode('tacit-cdp-position-v1');
@@ -51,16 +27,8 @@ export function derivePositionOwnerPriv({ hmac, sha256, curveOrder }, walletPriv
   return '0x' + (b === 0n ? 1n : b).toString(16).padStart(64, '0');
 }
 
-// The roles a derived output can take. The vocabulary is fixed: a role is part of the derivation input, so adding one later is
-// a new domain for new notes and never changes what an existing role derives.
 export const OUTPUT_ROLES = Object.freeze(['send', 'change', 'lpShare', 'lpOut', 'swapOut', 'harvest', 'harvestNonce', 'unbond', 'cdpDebt', 'cdpRelease', 'claim', 'refund', 'exit']);
 
-// The nullifier key and blinding of a self-owned output, from the wallet key alone. `anchor` is a 32-byte value the settle makes
-// public and that no other settle of this wallet can share: the first spent input's nullifier, the id of a consumed deposit, the
-// receipt leaf of a farm position, a spent lock's nullifier or a closed position's nullifier. `role` names what the output is
-// and `index` counts the outputs of that role in the settle. HMAC(key, "tacit-out-nk-v1" | "tacit-out-r-v1" ‖ anchor ‖ len(role)
-// ‖ role ‖ index_be32), each reduced mod the curve order (never zero). Only the holder of the key can compute either value, so
-// two outputs are linkable to each other by nobody else; a triple (anchor, role, index) is used by one output only.
 export function deriveOutputKeys({ hmac, sha256, curveOrder }, walletPriv, anchor, role, index = 0) {
   if (!OUTPUT_ROLES.includes(role)) throw new Error(`deriveOutputKeys: unknown role "${role}"`);
   const i = Number(index);
@@ -88,8 +56,6 @@ export function deriveOutputKeys({ hmac, sha256, curveOrder }, walletPriv, ancho
   return { nk: w32(nk), blinding: r, blindingHex: w32(r) };
 }
 
-// The relay fee and every round-number amount a wallet is likely to send are m × 10^k with m below 100: the guest only accepts
-// fees of that shape, and the amounts users type are of it. `roundAmounts(max)` lists them up to `max`.
 export function roundAmounts(max = (1n << 64n) - 1n) {
   const out = new Set();
   for (let k = 0n, p = 1n; p <= max; k++, p *= 10n) for (let m = 1n; m < 100n; m++) if (m * p <= max) out.add(m * p);
@@ -102,9 +68,6 @@ export function makeConfidentialRecovery({ pool, memo, keccak256, secp, hmac, sh
   const cat = (arrs) => { const t = arrs.reduce((s, a) => s + a.length, 0); const o = new Uint8Array(t); let p = 0; for (const a of arrs) { o.set(a, p); p += a.length; } return o; };
   const affineHex = (P) => { const a = P.toAffine(); return { cx: w32(a.x), cy: w32(a.y) }; };
 
-  // ── event indexes ──
-  // Which transaction each leaf / nullifier arrived in, from the tx hash the log decoder carries on every event. A
-  // relayed settle is one transaction, so a spend and the notes it produced share a hash.
   function txIndex(events) {
     const txOfLeaf = new Map(), leavesOfTx = new Map(), txOfNullifier = new Map(), nullifiersOfTx = new Map(), order = new Map();
     const push = (m, k, v) => { let a = m.get(k); if (!a) m.set(k, (a = [])); a.push(v); };
@@ -118,18 +81,6 @@ export function makeConfidentialRecovery({ pool, memo, keccak256, secp, hmac, sh
     return { txOfLeaf, leavesOfTx, txOfNullifier, nullifiersOfTx, order };
   }
 
-  // ── wrap deposits ──
-  // A wrap note's opening is deriveNote(key, asset, index): the wrap's public Wrap event carries depositId and the
-  // amount, and depositId = keccak(asset, value, keccak(Cx, Cy, owner)), so every (index, value) the wallet could have
-  // used is checked against the deposit ids the pool holds. Per index the blinding point is computed once and each
-  // distinct deposited value adds its (cached) value point to it. A run of `gap` unused indexes ends the walk.
-  //
-  // `minIndex` (a number, or a function of the assetId) is scanned through whatever the gaps look like. The index a
-  // wallet picks is reserved and persisted BEFORE its deposit is broadcast, so a run of wraps that were built and
-  // never sent burns indexes that no deposit will ever occupy — a hole the gap rule stops at, leaving every later
-  // wrap invisible to a key-only recovery. A caller that keeps that reservation (confidential-pool-ux's wrap-index
-  // hint) passes it here as the floor. `scanned` says per asset how far the walk actually got and whether a gap is
-  // what ended it, so a short result is reportable rather than indistinguishable from "nothing more was wrapped".
   function walkWraps({ priv, events, assets, gap = 24, maxIndex = 4096, minIndex = 0 }) {
     const floorFor = (assetId) => {
       const n = Number(typeof minIndex === 'function' ? minIndex(assetId) : minIndex);
@@ -176,14 +127,8 @@ export function makeConfidentialRecovery({ pool, memo, keccak256, secp, hmac, sh
     return { found, scanned };
   }
 
-  // ── send-and-unwrap change ──
-  // Fields of a settle's PublicValues this walk reads: nullifiers (3), withdrawals (6), fees (7). The struct is one
-  // dynamic tuple, so the encoding opens with an offset word to it; the array heads at these indexes are offsets into it.
   const hexWord = (data, byteOff) => (data.slice(byteOff * 2, byteOff * 2 + 64) || '').padEnd(64, '0');
   const u256At = (data, byteOff) => BigInt('0x' + hexWord(data, byteOff));
-  // Shared bound for every settle-field array decoder below: `n` is a length word read from
-  // getTxInput-sourced calldata (an RPC-supplied historical tx input), so an unbounded loop here
-  // would let a lying/faulty RPC hang the wallet's recovery scan on a huge decoded length.
   const OUTPUT_FIELD_CAP = 4096;
   function decodeExitFields(publicValuesHex) {
     const outer = strip0x(publicValuesHex);
@@ -203,11 +148,6 @@ export function makeConfidentialRecovery({ pool, memo, keccak256, secp, hmac, sh
     };
   }
 
-  // The change note of a send-and-unwrap is derived from the spent parent: its blinding and nullifier key are
-  // deterministic in (parent blinding, parent Cx). The only unknown is the value, which is the parent value minus what
-  // the settle paid out — and the payout and relay fee are public in that settle's calldata. Each (payout, fee) pair
-  // gives one candidate change value; a candidate counts only when its leaf is one the same transaction inserted.
-  // `parents` are notes the wallet already holds (spent or not). A found note becomes a parent in turn.
   async function walkChange({ parents, tx, knownLeaves, getTxInput, maxParents = 5000 }) {
     const found = [], skipped = [];
     const queue = [...parents];
@@ -251,11 +191,8 @@ export function makeConfidentialRecovery({ pool, memo, keccak256, secp, hmac, sh
     return { found, skipped };
   }
 
-  // Affine coordinates for many projective points with one field inversion (Montgomery's trick); noble's per-point
-  // toAffine inverts each one, which dominated the bridge-mint search. Falls back per point for any other point shape.
   const FIELD_P = 2n ** 256n - 0x1000003d1n;
   const _fieldInv = (x) => { let a = ((x % FIELD_P) + FIELD_P) % FIELD_P, m = FIELD_P, u = 1n, v = 0n; while (a) { const q = m / a; [a, m] = [m - q * a, a]; [u, v] = [v - q * u, u]; } return ((v % FIELD_P) + FIELD_P) % FIELD_P; };
-  // A coordinate's 32 big-endian bytes, written straight into `out` at `off` (no hex string in between).
 function _be32(x, out, off) { const dv = new DataView(out.buffer, out.byteOffset + off, 32); for (let j = 24; j >= 0; j -= 8) { dv.setBigUint64(j, x & 0xffffffffffffffffn); x >>= 64n; } }
 function _toAffineBatch(ps) {
     if (!ps.length || ps.some((q) => typeof q.pz !== 'bigint' || q.pz === 0n)) return ps.map((q) => q.toAffine());
@@ -272,15 +209,6 @@ function _toAffineBatch(ps) {
     return out;
   }
 
-  // ── bridge-mint destination notes ──
-  // A burn's destination note is pre-committed on Bitcoin; the mint re-creates it with owner nkToOwner(deriveNote(key,
-  // asset, DEST_INDEX).secret) and blinding HMAC(key, burn nullifier) (bridge-mint-recovery.js). The burn nullifier is
-  // one of the nullifiers the mint's settle recorded, so the walk tries the nullifiers of every transaction that inserted a
-  // leaf nothing else explained. The value is hidden in the minted commitment, so candidate values come from `values` (a
-  // caller's known amounts: a Bitcoin-side burn history, the amounts of other held notes) plus, unless `roundValues` is
-  // false, every m·10^k for m < 100: the burns a wallet makes are whole-unit amounts. A candidate counts only when its leaf
-  // equals one the chain inserted, so an amount outside the set is not found — never mis-found.
-  // `unexplained` maps txHash -> the leaves of that transaction no other channel accounted for.
   async function walkBridgeMints({ priv, tx, unexplained, assets, values = [], roundValues = true, destIndexes = 8, maxNullifiers = 16, maxExp = 18 }) {
     const p = privBytes(priv);
     const groups = [];
@@ -288,22 +216,16 @@ function _toAffineBatch(ps) {
       const ns = tx.nullifiersOfTx.get(txHash) || [];
       if (ns.length) groups.push({ txHash, ns, want: new Set(leaves) });
     }
-    // Newest first, whole transactions only: a fresh mint is the note a wallet is most likely missing, and the cap must
-    // not starve it behind older empty-memo traffic. `searched` names the transactions fully tried, so a caller can
-    // skip exactly those next time and leave the rest for a later pass.
     groups.reverse();
     const nulls = [], searched = new Set();
     let oversize = null;
     for (const g of groups) {
-      // A transaction with more nullifiers than one pass takes is passed over, not a stop: the ones behind it are still searched.
       if (nulls.length + g.ns.length > maxNullifiers) { oversize = oversize || g; continue; }
       for (const n of g.ns) nulls.push({ n, want: g.want });
       searched.add(g.txHash);
     }
-    // Alone in a pass, such a transaction is searched whole, so the walk always reaches it.
     if (!nulls.length && oversize) { for (const n of oversize.ns) nulls.push({ n, want: oversize.want }); searched.add(oversize.txHash); }
     if (!nulls.length || !(assets || []).length) return { found: [], tried: 0, searched };
-    // Value points: caller values by multiplication; round values by repeated addition of one base per exponent.
     const points = new Map();
     for (const v of values) { const b = BigInt(v); if (b > 0n && !points.has(b)) points.set(b, H.multiply(b)); }
     if (roundValues) {
@@ -322,7 +244,6 @@ function _toAffineBatch(ps) {
     }) }));
     const pts = [...points];
     const same = (d, w) => { for (let j = 0; j < 32; j++) if (d[j] !== w[j]) return false; return true; };
-    // The search hands the thread back every few milliseconds so it never freezes the page.
     const handBack = () => new Promise((r) => { if (typeof MessageChannel === 'undefined') return setTimeout(r, 0); const c = new MessageChannel(); c.port1.onmessage = () => { c.port1.close(); r(); }; c.port2.postMessage(0); });
     let t0 = Date.now();
     const breathe = async () => { if (Date.now() - t0 > 12) { await handBack(); t0 = Date.now(); } };
@@ -353,20 +274,12 @@ function _toAffineBatch(ps) {
     }
     return { found, tried, searched };
   }
-  // Shared with whatever builds the burn envelope's own destination blinding (bridge-mint-recovery.js) —
-  // was reimplemented inline here, which is exactly the kind of drift risk a shared helper exists to avoid.
   const _bridgeMintRecovery = makeBridgeMintRecovery({ hmac, sha256, curveOrder });
   const deriveBridgeMintBlinding = (privKey, nullifier) => _bridgeMintRecovery.deriveBridgeMintBlinding({ privkey: privKey, nullifier });
 
-  // ── cBTC bearer notes ──
-  // Blinding = HMAC(key, "tacit-cbtc-note-blinding-v1" ‖ funding prevout ‖ 0) (cbtc-note-recovery.js). `anchors` are the
-  // prevouts the wallet has spent on Bitcoin (any could have funded a lock's commit tx); `locks` are the lock outpoints
-  // the pool has recorded a value for (cbtcLockVBtc). A note is accepted when its leaf is in the pool tree.
   function scanCbtcNotes({ priv, anchors, locks, cbtcAsset, slotOf, rec }) {
     const p = privBytes(priv);
     const blindings = anchors.map((a) => ({ a, b: rec.deriveCbtcNoteBlinding({ privkey: p, anchorOutpoint: rec.anchorBytes(a.txid, a.vout), outputIndex: 0 }) }));
-    // Every recorded lock value is tried against every anchor, and every leaf in the tree is kept (two locks of one value
-    // give two notes; the leaf, not the lock, identifies a note).
     const byValue = new Map();
     for (const lock of locks) { const v = BigInt(lock.vBtc); (byValue.get(v) || byValue.set(v, []).get(v)).push(lock); }
     const found = [], seen = new Set();
@@ -382,11 +295,6 @@ function _toAffineBatch(ps) {
     return found;
   }
 
-  // ── farm receipts ──
-  // A receipt leaf is farmReceiptLeaf(manager, lpAsset, shares, owner, nonce) with owner/nonce from
-  // lpBondPosition(wallet, manager, lpAsset, anchor). The manager's Bonded events publish (receipt, pid, shares), so each
-  // candidate anchor note (a canonical-A note an lpBond spent, or a bonded LP-share note) is tried per pool against the
-  // receipts of that pool. Returns the matches and the receipts nothing derived.
   function deriveFarmPositions({ bonded, pools, anchors, manager, lpBondPosition }) {
     const c32 = '0x' + '00'.repeat(12) + strip0x(manager).toLowerCase();
     const byPid = new Map();
@@ -412,12 +320,6 @@ function _toAffineBatch(ps) {
     return { found: [...matched.values()], unresolved };
   }
 
-  // ── CDP positions ──
-  // A position's owner key is derivePositionOwnerPriv(wallet, controller, keyNonce), and the settle that opens it
-  // publishes the owner in its CdpMint. So the walk decodes each CdpPositionInserted settle's cdpMints (PublicValues
-  // field 22), matches the owner to the derived key of some keyNonce, and recomputes the position leaf from the published
-  // controller / debt / rate / basket. A top-up (field 25) replaces the leaf under the same owner; its leaf is recomputed
-  // from the carried owner and the new basket. Key nonces are tried up to `gap` past the last one that matched.
   function decodeCdpFields(publicValuesHex) {
     const outer = strip0x(publicValuesHex);
     const data = outer.slice(Number(u256At(outer, 0)) * 2);
@@ -458,7 +360,7 @@ function _toAffineBatch(ps) {
   }
 
   async function walkCdpPositions({ priv, controller, positionEvents, getTxInput, positionIndexOf, gap = 20, maxNonce = 512 }) {
-    const owners = new Map(); // owner x-only → keyNonce
+    const owners = new Map();
     const derive = (k) => {
       const ownerPriv = derivePositionOwnerPriv({ hmac, sha256, curveOrder }, priv, controller, k);
       const owner = '0x' + bytesToHex(secp.getPublicKey(hexToBytes(ownerPriv), true).subarray(1));
@@ -472,7 +374,7 @@ function _toAffineBatch(ps) {
       const sorted = [...legs].sort((a, b) => (BigInt(a.asset) < BigInt(b.asset) ? -1 : BigInt(a.asset) > BigInt(b.asset) ? 1 : 0));
       return cdp.positionLeaf(c, d, cdp.basketRoot(sorted.map((l) => cdp.basketLeg(l.asset, BigInt(l.value)))), BigInt(debtValue), rate, owner, ZERO32);
     };
-    const lineage = new Map(); // current live leaf lc → position record
+    const lineage = new Map();
     const positions = [];
     const skipped = [];
     const seenTx = new Set();
@@ -483,8 +385,6 @@ function _toAffineBatch(ps) {
       seenTx.add(txHash);
       let calls = null;
       try { const input = await getTxInput(txHash); calls = input ? lockScan.decodeSettleCalls(input) : null; } catch { calls = null; }
-      // A position's opening exists only in its own settle's calldata, so one unread transaction is one position
-      // the wallet stops knowing it has — reported like the note walks report theirs, never dropped in silence.
       if (!calls) { skipped.push({ txHash, reason: 'settle calldata unavailable' }); continue; }
       for (const call of calls.calls) {
         let f; try { f = decodeCdpFields(call.publicValues); } catch { continue; }
@@ -510,21 +410,13 @@ function _toAffineBatch(ps) {
         }
       }
     }
-    // The position tree index of each surviving leaf (the CdpPositionInserted order).
     const live = positions.filter((r) => lineage.get(lc(r.positionLeaf)) === r);
     for (const r of positions) r.positionIndex = positionIndexOf ? positionIndexOf(r.positionLeaf) : null;
     return { positions: live, allOpened: positions, nextKeyNonce: farthest + 1, skipped };
   }
-  // ── outputs derived from the wallet key ──
-  // Every self-owned output an assembler mints takes its nullifier key and blinding from deriveOutputKeys(key, anchor, role,
-  // index). Recovery knows the anchors (a spent note's nullifier, a consumed deposit id, a farm receipt, a spent lock, a closed
-  // position), so it recomputes the (nk, blinding) of each role and the only unknown is the value. The value comes from what the
-  // settle made public — payouts, fees, reserve and share changes, CDP baskets — or from a small candidate set (m × 10^k). A
-  // candidate counts only when its leaf is one the chain inserted (in the anchor's own transaction for the calldata walk), so a
-  // value nothing supplied is not found, and never mis-found.
   const MAX_U64 = (1n << 64n) - 1n;
   const keyDeps = { hmac, sha256, curveOrder };
-  let _round = null;              // m × 10^k → value point, by repeated addition
+  let _round = null;
   const _hCache = new Map();
   const roundTable = () => {
     if (_round) return _round;
@@ -545,8 +437,6 @@ function _toAffineBatch(ps) {
   };
   const putWord = (buf, off, n) => { const h = n.toString(16).padStart(64, '0'); for (let i = 0; i < 32; i++) buf[off + i] = parseInt(h.substr(i * 2, 2), 16); };
 
-  // `base` and every base − fee for a fee the guest accepts (0, or m × 10^k with m below 100), as value candidates that share one
-  // multiplication.
   function netCandidates(base) {
     base = BigInt(base);
     if (base <= 0n || base > MAX_U64) return [];
@@ -556,8 +446,6 @@ function _toAffineBatch(ps) {
     return out;
   }
 
-  // The outputs of (anchor, role, index) that match a leaf `want` accepts, for each candidate value (a bigint, or { v, P } with the
-  // value point) and asset.
   function tryDerived({ priv, anchor, role, index = 0, assets, values, want }) {
     const k = deriveOutputKeys(keyDeps, priv, anchor, role, index);
     const owner = pool.nkToOwner(k.nk);
@@ -580,8 +468,6 @@ function _toAffineBatch(ps) {
     return out;
   }
 
-  // Fields of a settle's PublicValues these walks read (indexes in the struct): nullifiers 3, depositsConsumed 5, withdrawals 6,
-  // fees 7, swaps 13, liquidity 14, lockNullifiers 18, and the CDP arrays 22 / 23 / 25.
   function decodeOutputFields(publicValuesHex) {
     const outer = strip0x(publicValuesHex);
     const data = outer.slice(Number(u256At(outer, 0)) * 2);
@@ -607,8 +493,6 @@ function _toAffineBatch(ps) {
     };
   }
 
-  // What a settle publishes that an output's value can be read from: D = amounts (payouts, reserve and share changes, CDP debt and
-  // legs), F = fees and protocol cuts (an output can be a public amount less a fee). `assets` are the ids the settle names.
   function publicAmounts(f) {
     const D = new Set(), F = new Set(), assets = new Set();
     const absd = (a, b) => (a > b ? a - b : b - a);
@@ -622,14 +506,8 @@ function _toAffineBatch(ps) {
     return { D: [...D], F: [...F], assets: [...assets] };
   }
 
-  // Roles and output indexes tried for each anchor of a settle.
   const TX_ROLES = [['change', [0, 1]], ['send', [0]], ['exit', [0]], ['lpShare', [0]], ['lpOut', [0, 1]], ['swapOut', [0]], ['cdpDebt', [0]], ['cdpRelease', [0, 1, 2, 3]]];
 
-  // Walk the wallet's spends in chain order. `parents` are notes the wallet holds (each with its nullifier, value and asset);
-  // `deposits` are consumed public deposits with the transaction that consumed them ({ depositId, asset, value, txHash }). For
-  // each anchor in a settle that inserted leaves nothing else explained, every role's derived output is matched against those
-  // leaves. A found note is a parent in turn, so a chain of derived outputs is followed to its end. `knownLeaves` are the leaves
-  // other channels already explained.
   async function walkDerivedOutputs({ priv, parents = [], deposits = [], tx, knownLeaves, getTxInput, assets = [], lpShareOf = null, roundValues = true, maxTxs = 4000 }) {
     const found = [], skipped = [];
     const seen = new Set([...(knownLeaves || [])].map(lc));
@@ -657,8 +535,6 @@ function _toAffineBatch(ps) {
       if (!calls) { skipped.push({ txHash: h, reason: 'settle calldata unavailable' }); continue; }
       const want = new Set(fresh);
       const wanted = (lf) => want.has(lf) && !seen.has(lf);
-      // The search over round amounts (the split of a self-send) is the costly one. When the settle already inserted a leaf
-      // another channel found for this wallet, its memos were intact, so the search is spent only where nothing was found.
       const searchRound = roundValues && !(tx.leavesOfTx.get(h) || []).some((lf) => seen.has(lf));
       for (const call of calls.calls) {
         let f; try { f = decodeOutputFields(call.publicValues); } catch { continue; }
@@ -673,7 +549,6 @@ function _toAffineBatch(ps) {
         for (const a of mine) {
           const groups = [...parentValues].map(([asset, vals]) => ({ asset, vals, psum: vals.reduce((x, y) => x + y, 0n) }));
           const gen = {
-            // What a note of each spent asset can leave behind: its value less a public payout, reserve change or fee.
             change: () => groups.map((g) => {
               const vs = new Set();
               for (const p of new Set([...g.vals, g.psum])) for (const d of D0) for (const fe of F0) { const v = p - d - fe; if (v > 0n) vs.add(v); }
@@ -697,8 +572,6 @@ function _toAffineBatch(ps) {
               for (const index of indexes) {
                 if (![...want].some((lf) => !seen.has(lf))) break;
                 const hits = tryDerived({ priv, anchor: a.anchor, role, index, assets: g.assets, values: g.values, want: wanted });
-                // A self-send splits the spent total between the sent note and the change, so once one of them is found the other
-                // is exact: the total less the fee and the found value.
                 if (role === 'send') {
                   const grp = groups.find((x) => lc(x.asset) === lc(g.assets[0]));
                   for (const hit of [...hits]) hits.push(...tryDerived({ priv, anchor: a.anchor, role: 'change', index: 0, assets: g.assets, values: F0.map((fe) => grp.psum - fe - hit.value), want: wanted }));
@@ -724,9 +597,6 @@ function _toAffineBatch(ps) {
     return [...vs];
   };
 
-  // Outputs whose anchor names no transaction the wallet can locate from its notes — a farm receipt, a spent lock, a closed
-  // position. Each job carries the candidate values; a candidate counts when its leaf is in the pool tree (`isLeaf`) and not
-  // already explained (`known`).
   function walkDirectOutputs({ priv, jobs, isLeaf, known }) {
     const found = [];
     for (const j of jobs) {
@@ -736,9 +606,6 @@ function _toAffineBatch(ps) {
     return { found };
   }
 
-  // The transaction that consumed each of the wallet's pending deposits into a fused op (wrap-and-send in the deposit's own
-  // transaction, wrap-and-add-liquidity and wrap-and-swap in a later settle). The Wrap event fixes where to start; each settle
-  // after it that inserted leaves is read until one names the deposit in its depositsConsumed. Reads at most `maxTxs` settles.
   async function locateDepositTx({ deposits, events, getTxInput, maxTxs = 64, perDeposit = 24 }) {
     const evs = events || [];
     const wrapAt = new Map();
@@ -753,7 +620,7 @@ function _toAffineBatch(ps) {
       try {
         const input = await getTxInput(h);
         const calls = input ? lockScan.decodeSettleCalls(input) : null;
-        if (calls) { ids = new Set(); for (const c of calls.calls) { try { for (const d of decodeOutputFields(c.publicValues).deposits) ids.add(lc(d)); } catch { /* not a settle we read */ } } }
+        if (calls) { ids = new Set(); for (const c of calls.calls) { try { for (const d of decodeOutputFields(c.publicValues).deposits) ids.add(lc(d)); } catch { } } }
       } catch { ids = null; }
       consumedBy.set(h, ids);
       return ids;
@@ -776,11 +643,6 @@ function _toAffineBatch(ps) {
     return out;
   }
 
-  // ── stealth locks the wallet sent ──
-  // The lock memo the sender publishes is the recipient's memo followed by a tail sealed to the sender's own key. Open
-  // each lock's tail with that key; the lock leaf authenticates the result. `lockMemoCandidates[i]` (every memo a
-  // transaction's calls offered for lock i, from the lock scan) is tried in turn when it is supplied, so a memo
-  // another call of the same transaction claims for this leaf cannot hide the sender's own.
   function openSentLocks({ senderPriv, lockLeaves, lockMemos, lockMemoCandidates }) {
     const RECIPIENT_MEMO = 33 + 112;
     const out = [];

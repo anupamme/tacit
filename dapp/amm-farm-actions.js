@@ -1,35 +1,15 @@
-// Dapp builders for the five LP-bond farm opcodes.
-//
-// Composes envelope encoders from dapp/amm-envelope.js with the
-// taproot script-path tx-construction primitives from dapp/tacit.js
-// into one-call buildAndBroadcast* helpers the UI tile uses for the
-// Bond / Harvest / Unbond / Refund actions, plus the Create-Farm
-// launcher flow.
-//
-// Pattern mirrors buildAndBroadcastSwapRoute / Slot* builders in
-// tacit.js: each function ensures the privkey is loaded, builds the
-// envelope, composes commit + reveal Bitcoin txs with the right vin/
-// vout structure for that opcode, signs, broadcasts, and returns the
-// reveal txid + computed bond_id / receipt info.
-//
-// All five builders are pure dispatch — no protocol logic. The math
-// + crypto comes from amm-envelope.js (which mirrors the ref impl at
-// tests/amm-farm.mjs byte-for-byte).
 
 import {
-  // Envelope encoders + msg builders
   encodeFarmInit, encodeLpBond, encodeLpUnbond,
   encodeLpHarvest, encodeFarmRefund,
   buildFarmInitMsg, buildLpBondMsg, buildLpUnbondMsg, ammFundingHash,
   buildLpHarvestMsg, buildFarmRefundMsg,
   deriveFarmId, deriveLpAssetIdFromPoolId,
   FARM_NO_CHANGE_SENTINEL, FARM_ACC_FIXED_POINT_SHIFT,
-  // Trustless farm receipt owner-auth (one-time key + BIP-340 over the materialized note blinding)
   farmReceiptLeaf, lpHarvestOwnerMsg, lpUnbondOwnerMsg, deriveFarmOwnerKey,
 } from './amm-envelope.js';
 
 import {
-  // tacit.js primitives
   wallet, ensurePrivkey, scanHoldings, invalidateHoldingsCache,
   carveExactAmount, getUtxos, getFeeRate, feeFor,
   broadcast, broadcastWithRetry, DUST, NET,
@@ -55,7 +35,6 @@ function bigintToBytes32(n) {
 }
 
 function randomScalar() {
-  // Use the dapp's globalThis.crypto for browser + jsdom compatibility.
   const b = new Uint8Array(32);
   globalThis.crypto.getRandomValues(b);
   let n = BigInt('0x' + bytesToHex(b));
@@ -63,17 +42,6 @@ function randomScalar() {
   return modN(n);
 }
 
-// Shared commit+reveal tx-composition helper. Used by every farm
-// builder. Caller provides:
-//   payload          : envelope payload bytes (from encodeFarmInit etc.)
-//   envelopeHash     : SHA256(payload) — caller computes, we OP_RETURN it
-//   vin1             : { txid, vout } if the opcode consumes a tacit asset
-//                      input (FARM_INIT, LP_BOND); null for the rest
-//   extraOutputs     : [{ value, script }, ...] vouts after OP_RETURN.
-//                      For FARM_INIT: change UTXO (if any).
-//                      For LP_BOND: bond marker + change.
-//                      For LP_UNBOND: lp_return + reward (if payout > 0).
-//                      For LP_HARVEST / FARM_REFUND: reward / refund UTXO.
 async function broadcastFarmTx({ payload, envelopeHash, vin1, extraOutputs = [] }) {
   await ensurePrivkey();
   const envelopeScript = encodeEnvelopeScript(wallet.xonly(), payload);
@@ -85,7 +53,6 @@ async function broadcastFarmTx({ payload, envelopeHash, vin1, extraOutputs = [] 
   const feeRate = await getFeeRate();
   const opReturnSpk = concatBytes(new Uint8Array([0x6a, 0x20]), envelopeHash);
 
-  // Estimate reveal vbytes (approximate; rounded up for fee safety).
   const dustOutBytes = extraOutputs.reduce((s, o) => s + (o.script.length + 9), 0);
   const revealVbBase = 11 + 41 + (vin1 ? 41 : 0) + 34 + dustOutBytes;
   const revealVb = revealVbBase + Math.ceil((1 + 1 + 65 + 3 + 45 + payload.length + 34 + 109) / 4);
@@ -147,10 +114,6 @@ async function broadcastFarmTx({ payload, envelopeHash, vin1, extraOutputs = [] 
   return { commitTxid: commitTxidHex, revealTxid: revealTxidHex };
 }
 
-// ============================================================
-// T_FARM_INIT — launcher creates farm
-// ============================================================
-
 export async function buildAndBroadcastFarmInit({
   poolIdHex, rewardAssetIdHex, rewardTotal, rewardPerBlock,
   startHeight,
@@ -163,9 +126,6 @@ export async function buildAndBroadcastFarmInit({
     throw new Error('reward_total must be divisible by reward_per_block');
   }
   const windowBig = rewardTotalBig / rewardPerBlockBig;
-  // Reward-schedule width caps (mirror the reflection guest fold_farm_init_rewards): rate and window each fit
-  // u32, and rate*window (== reward_total by construction) stays below 2^63 so the reward-debt arithmetic can
-  // never overflow. A schedule that violates these would be rejected by the reflection and never fold.
   if (rewardPerBlockBig > 0xffffffffn) throw new Error('reward_per_block exceeds cap');
   if (windowBig > 0xffffffffn) throw new Error('farm window exceeds cap');
   if (rewardTotalBig >= (1n << 63n)) throw new Error('reward_total exceeds schedule width cap');
@@ -180,19 +140,13 @@ export async function buildAndBroadcastFarmInit({
     farmNonce,
   });
 
-  // Carve exact-amount reward UTXO (sentinel-case for clean closure).
   const carved = await carveExactAmount({ assetIdHex: rewardAssetIdHex, amount: rewardTotalBig });
   if (!carved || !carved.utxo) throw new Error('failed to carve reward UTXO');
   const inputBlind = BigInt(carved.blinding);
   const cChangeOrSentinel = FARM_NO_CHANGE_SENTINEL;
-  // Sentinel-case bulletproof: structural placeholder. Worker accepts
-  // non-empty bytes when V_pt is ZERO (per the spec's identity-sentinel rule).
   const rangeProof = new Uint8Array([0x01]);
 
-  // Kernel sig closes the reward-asset side: excess = −r_in.
   const kernelExcess = modN(-inputBlind);
-  // computeKernelMsg via the ref-impl-style helper would be cleaner;
-  // we inline the bytes the worker expects to match buildFarmInitKernelMsg.
   const KERNEL_DOMAIN = new TextEncoder().encode('tacit-kernel-v1');
   const txidBE = new Uint8Array(32);
   const txidLE = hexToBytes(carved.utxo.txid);
@@ -206,23 +160,18 @@ export async function buildAndBroadcastFarmInit({
   const kernelMsg = sha256(concatBytes(
     KERNEL_DOMAIN,
     hexToBytes(rewardAssetIdHex),
-    new Uint8Array([1]),               // input_count
+    new Uint8Array([1]),
     txidBE, voutLE,
-    new Uint8Array([1]),               // output_count
+    new Uint8Array([1]),
     cChangeOrSentinel,
     burnedLE,
   ));
   const kernelSig = signSchnorr(kernelMsg, bigintToBytes32(kernelExcess));
 
-  // Bind the treasury funding (the single carved reward-asset spend + its kernel_sig) into the launcher's
-  // signed message so a replay under different funding fails (mirrors guest amm_funding_hash).
   const initFundingHash = ammFundingHash({
     outpoints: [{ txid: carved.utxo.txid, vout: carved.utxo.vout }],
     kernelSig,
   });
-  // Founder-refund binding: on a lost farm_id the treasury is returned to a wallet-owned note at vout 1. The
-  // wallet owns the refund dest (its x-only key) and the blinding, so it can recover a refunded treasury. The
-  // expiry sits at the campaign end (far in the future) so a well-formed init never refunds on staleness.
   const refundDestXonly = wallet.pub.slice(1);
   const refundBlinding = bigintToBytes32(randomScalar());
   const refundExpiry = endHeight;
@@ -249,8 +198,6 @@ export async function buildAndBroadcastFarmInit({
   const res = await broadcastFarmTx({
     payload, envelopeHash,
     vin1: { txid: carved.utxo.txid, vout: carved.utxo.vout },
-    // vout 1 is the founder-refund note's P2TR anchor (owned by the wallet's x-only key), used only if the
-    // init loses its farm_id / expires. A well-formed init reads-but-ignores it.
     extraOutputs: [{ value: DUST, script: p2trScript(refundDestXonly) }],
   });
   return {
@@ -262,10 +209,6 @@ export async function buildAndBroadcastFarmInit({
   };
 }
 
-// ============================================================
-// T_LP_BOND — bond LP shares
-// ============================================================
-
 export async function buildAndBroadcastLpBond({
   farmIdHex, poolIdHex, bondAmount,
   entryAccPerShare, bondViewHeight,
@@ -275,14 +218,10 @@ export async function buildAndBroadcastLpBond({
   const lpAssetIdBytes = deriveLpAssetIdFromPoolId(hexToBytes(poolIdHex));
   const lpAssetIdHex = bytesToHex(lpAssetIdBytes);
 
-  // The receipt OWNER is a fresh one-time key (privacy + the spend-auth the trustless fold requires); harvest/
-  // unbond re-derive it from (walletPriv, farmId, nonce). Persist {nonce, owner, shares} — that's the WHOLE
-  // receipt, since the entry checkpoint is reflection state (stamped at fold time), not a note field.
   const receiptNonce = new Uint8Array(32);
   globalThis.crypto.getRandomValues(receiptNonce);
   const ownerKey = deriveFarmOwnerKey({ walletPriv: wallet.priv, farmId: hexToBytes(farmIdHex), nonce: receiptNonce });
 
-  // Carve exact-amount LP UTXO if possible; otherwise use a larger UTXO + change.
   const carved = await carveExactAmount({ assetIdHex: lpAssetIdHex, amount: bondAmountBig });
   if (!carved || !carved.utxo) throw new Error(`failed to carve ${bondAmountBig} of LP shares`);
   const inputValue = BigInt(carved.amount);
@@ -298,20 +237,11 @@ export async function buildAndBroadcastLpBond({
     const changeBlind = randomScalar();
     const cChange = pedersenCommit(changeValue, changeBlind);
     cChangeOrSentinel = pointToBytes(cChange);
-    // For non-sentinel case, the worker expects a real bulletproof.
-    // Browser-side bulletproof generation isn't wired here; the UI should
-    // ensure carveExactAmount returns an exact-size UTXO so we hit the
-    // sentinel branch. If we somehow ended up with change, surface a
-    // clear error.
     throw new Error('LP_BOND with non-zero change is not yet wired in this dapp build; ' +
                     'carveExactAmount should produce an exact-amount UTXO. Try unbond/re-bond.');
   }
 
-  // Share-lock kernel (mirror cxfer-core lp_bond_kernel_verify): the bonder's spent lp_asset notes net to
-  // EXACTLY bond_amount, with no output term. msg = tacit-amm-lp-bond-v1 ‖ farm_id ‖ lp_asset ‖ bond_amount_LE
-  // ‖ n_inputs ‖ (txid ‖ vout_LE)*; key = (Σ C_in − bond_amount·H).x_only. Exact-carve means one input whose
-  // value equals bond_amount, so its blinding is the signing excess.
-  void kernelExcess; // superseded by the lp-bond kernel excess (the input blinding)
+  void kernelExcess;
   const lpInputs = [{ txid: carved.utxo.txid, vout: carved.utxo.vout }];
   const lpInputCommitments = [pedersenCommit(inputValue, inputBlind)];
   const kernelSig = lpBondKernelSign({
@@ -321,11 +251,7 @@ export async function buildAndBroadcastLpBond({
     excessLP: inputBlind,
   });
 
-  // Bind the spent lp_asset outpoints (in kernel order) + kernel_sig into the bonder's signed message so a
-  // replay under different funding fails (mirrors guest amm_funding_hash).
   const bondFundingHash = ammFundingHash({ outpoints: lpInputs, kernelSig });
-  // Bonder-refund binding: on a lost receipt-leaf race the bonded amount is returned to a wallet-owned note at
-  // vout 1 (the same output that anchors the bond marker / bond_id). The wallet owns the refund dest + blinding.
   const refundDestXonly = wallet.pub.slice(1);
   const refundBlinding = bigintToBytes32(randomScalar());
   const refundExpiry = Number(bondViewHeight || 0) + 200000;
@@ -352,15 +278,12 @@ export async function buildAndBroadcastLpBond({
   });
   const envelopeHash = sha256(payload);
 
-  // vout 1: the bond marker (bond_id anchor), a P2TR to the wallet's x-only key so it doubles as the
-  // bonder-refund note's anchor if the bond loses its receipt leaf.
   const bondMarkerSpk = p2trScript(refundDestXonly);
   const res = await broadcastFarmTx({
     payload, envelopeHash,
     vin1: { txid: carved.utxo.txid, vout: carved.utxo.vout },
     extraOutputs: [{ value: DUST, script: bondMarkerSpk }],
   });
-  // bond_id = vout[1].outpoint of reveal tx.
   const revealTxidBytes = hexToBytes(res.revealTxid);
   const revealTxidBE = new Uint8Array(32);
   for (let i = 0; i < 32; i++) revealTxidBE[i] = revealTxidBytes[31 - i];
@@ -371,29 +294,10 @@ export async function buildAndBroadcastLpBond({
     bondIdHex: bytesToHex(bondIdBytes),
     revealTxid: res.revealTxid,
     commitTxid: res.commitTxid,
-    // The receipt fields the UI must persist so harvest/unbond can reconstruct + owner-sign the receipt. The
-    // receipt is a STABLE position id: ownerNonce == receiptNonce at bond and neither rotates thereafter
-    // (harvest re-stamps the entry in reflection state instead of re-minting the receipt).
     receipt: { farmIdHex, ownerNonceHex: bytesToHex(receiptNonce), receiptNonceHex: bytesToHex(receiptNonce), ownerHex: bytesToHex(ownerKey.ownerXonly), shares: bondAmountBig.toString() },
   };
 }
 
-// ============================================================
-// T_LP_HARVEST — claim reward, keep bond alive
-// ============================================================
-
-// The caller supplies the persisted receipt: `ownerNonce` (the bond nonce — seeds the stable one-time owner
-// key for the position's life), `nonce` (the receipt nonce, equal to it), and `shares`. No entry accumulator:
-// the checkpoint is reflection state, stamped at fold time and re-stamped by this harvest. Harvest
-// reconstructs + owner-signs the receipt, which stays in place.
-//
-// The signed envelope carries no nonce, so it can be rebroadcast once accrual against the CURRENT
-// checkpoint re-reaches `rewardAmount` — which happens again as the farm keeps emitting, regardless of
-// how often this is called. Harvesting smaller amounts more often does not close that gap, but it keeps
-// the value any one replay can destroy below the cost of the Bitcoin fee needed to attempt it, which is
-// the only lever available without a guest change. Callers that automate harvesting should size
-// `rewardAmount` against a current fee estimate (`getFeeRate`, already used in this file) rather than
-// letting accrual build into one large, more worthwhile target.
 export async function buildAndBroadcastLpHarvest({
   farmIdHex, lpAssetHex, bondIdHex, exitAccPerShare, exitViewHeight, rewardAmount,
   ownerNonce, nonce, shares,
@@ -405,11 +309,8 @@ export async function buildAndBroadcastLpHarvest({
   const nonceBytes = hexToBytes(nonce);
   const ownerKey = deriveFarmOwnerKey({ walletPriv: wallet.priv, farmId: farmIdBytes, nonce: hexToBytes(ownerNonce) });
   const rewardR = bigintToBytes32(randomScalar());
-  const rewardSpk = p2trScript(wallet.pub.slice(1)); // vout[1] reward destination — bound by the owner sig; P2TR (the guest onboards under its x-only key)
-  // The destination the owner sig binds: rewardSpk when a reward output exists, else empty (no vout[1]) — matching
-  // the guest's output_scriptpubkey(tx, 1) fallback so a redirected vout[1] is rejected (and reward-0 still verifies).
+  const rewardSpk = p2trScript(wallet.pub.slice(1));
   const harvestDestSpk = rewardAmountBig > 0n ? rewardSpk : new Uint8Array(0);
-  // Reconstruct the receipt leaf + owner-sign over the reward note's blinding AND its destination (trustless spend auth).
   const leaf = farmReceiptLeaf({ farmId: farmIdBytes, lpAsset: hexToBytes(String(lpAssetHex).replace(/^0x/, '')), shares: sharesBig, owner: ownerKey.ownerXonly, nonce: nonceBytes });
   const ownerMsg = lpHarvestOwnerMsg({ farmId: farmIdBytes, oldLeaf: leaf, reward: rewardAmountBig, rewardR, destSpk: harvestDestSpk });
   const harvesterSig = signSchnorr(ownerMsg, ownerKey.priv);
@@ -428,19 +329,10 @@ export async function buildAndBroadcastLpHarvest({
   const res = await broadcastFarmTx({
     payload, envelopeHash, vin1: null, extraOutputs,
   });
-  // The receipt the UI keeps: UNCHANGED. It is a stable position id, so a harvest re-stamps the entry in
-  // reflection state and leaves the note-tree receipt exactly where it is.
   return { revealTxid: res.revealTxid, commitTxid: res.commitTxid, rewardR: bytesToHex(rewardR),
     receipt: { farmIdHex, ownerNonceHex: bytesToHex(hexToBytes(ownerNonce)), receiptNonceHex: bytesToHex(nonceBytes), ownerHex: bytesToHex(ownerKey.ownerXonly), shares: sharesBig.toString() } };
 }
 
-// ============================================================
-// T_LP_UNBOND — settle bond, return LP shares + final reward
-// ============================================================
-
-// Unbond is the complete exit (harvest first to sweep any pending reward): it nullifies the receipt, drops the
-// shares, and re-mints them as a live lp_asset note at vout[1] under `lpReturnR`. Caller supplies the persisted
-// receipt (ownerNonce / receiptNonce / shares).
 export async function buildAndBroadcastLpUnbond({
   farmIdHex, lpAssetHex, ownerNonce, nonce, shares,
 }) {
@@ -450,8 +342,7 @@ export async function buildAndBroadcastLpUnbond({
   const nonceBytes = hexToBytes(nonce);
   const ownerKey = deriveFarmOwnerKey({ walletPriv: wallet.priv, farmId: farmIdBytes, nonce: hexToBytes(ownerNonce) });
   const lpReturnR = bigintToBytes32(randomScalar());
-  const myAddr = p2trScript(wallet.pub.slice(1)); // vout[1] lp-return destination — bound by the owner sig; P2TR (the guest onboards under its x-only key)
-  // Reconstruct the receipt leaf + owner-sign over the lp-return note's blinding AND its destination (trustless spend auth).
+  const myAddr = p2trScript(wallet.pub.slice(1));
   const leaf = farmReceiptLeaf({ farmId: farmIdBytes, lpAsset: hexToBytes(String(lpAssetHex).replace(/^0x/, '')), shares: sharesBig, owner: ownerKey.ownerXonly, nonce: nonceBytes });
   const ownerMsg = lpUnbondOwnerMsg({ farmId: farmIdBytes, oldLeaf: leaf, shares: sharesBig, lpReturnR, destSpk: myAddr });
   const unbonderSig = signSchnorr(ownerMsg, ownerKey.priv);
@@ -462,38 +353,20 @@ export async function buildAndBroadcastLpUnbond({
     lpReturnR, unbonderSig,
   });
   const envelopeHash = sha256(payload);
-  const extraOutputs = [{ value: DUST, script: myAddr }];   // lp_return note marker at vout[1]
+  const extraOutputs = [{ value: DUST, script: myAddr }];
   const res = await broadcastFarmTx({
     payload, envelopeHash, vin1: null, extraOutputs,
   });
   return { revealTxid: res.revealTxid, commitTxid: res.commitTxid, lpReturnR: bytesToHex(lpReturnR) };
 }
 
-// ============================================================
-// T_FARM_REFUND — launcher reclaims unspent treasury
-// ============================================================
-
-// A launcher whose refund can never succeed (fold_farm_refund requires total_shares == 0, and a single
-// bond-unbond-rebond of any position permanently prevents that) is not fully out of options: fold_harvest
-// has no such requirement, only a per-position accrual check. Bonding a dominant stake and harvesting
-// normally recovers most of a farm's remaining treasury over its remaining life, proportional to that
-// stake's share of total_shares — spread out via ordinary harvests instead of one lump sum, but not lost.
-
-// `refundAmount` MUST equal the farm's full live treasury (`pools[farmId].reserve_a` in the reflection
-// state), not a partial draw. The signed envelope carries no nonce, so anyone who reads it off the chain
-// can rebroadcast the identical bytes to debit the treasury again — but fold_harvest's own guard is
-// `reward_amount > farm.reserve_a`, a strict check against a value that only ever falls. A full-drain
-// refund leaves reserve_a at exactly 0, so a replay of these same bytes fails that guard outright,
-// forever, for this farm — a partial refund leaves headroom a replay can still spend. The mint always
-// lands at this launcher's own destSpk regardless of whose copy of the bytes gets processed first, so a
-// full drain is free of downside: at most one copy ever succeeds, and it always pays the right party.
 export async function buildAndBroadcastFarmRefund({
   farmIdHex, refundAmount, refundViewHeight,
 }) {
   await ensurePrivkey();
   const refundAmountBig = BigInt(refundAmount);
   const refundR = bigintToBytes32(randomScalar());
-  const refundSpk = p2trScript(wallet.pub.slice(1)); // vout[1] refund destination — bound by the launcher sig; P2TR (the guest onboards under its x-only key)
+  const refundSpk = p2trScript(wallet.pub.slice(1));
   const refundMsg = buildFarmRefundMsg({
     farmId: hexToBytes(farmIdHex),
     refundAmount: refundAmountBig,
@@ -515,18 +388,12 @@ export async function buildAndBroadcastFarmRefund({
   return { revealTxid: res.revealTxid, commitTxid: res.commitTxid, refundR: bytesToHex(refundR) };
 }
 
-// ============================================================
-// Worker queries (used by the UI to render farm state)
-// ============================================================
-
 const WORKER_BASE_RX = /^https?:\/\/[^\s/]+/;
 function workerBase() {
-  // Dapp's NET constant or env-pinned base. Falls back to localStorage.
   try {
     const v = localStorage.getItem('tacit-worker-base-v1');
     if (v && WORKER_BASE_RX.test(v)) return v;
   } catch {}
-  // Default production worker base.
   return 'https://api.tacit.finance';
 }
 

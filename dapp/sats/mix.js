@@ -16,12 +16,12 @@
 //    credit of class 'mixed': the plain Send never spends it.
 // 5. Optional: that output alone funds a buy-and-shield of test cBTC; the change is ordinary sats again.
 
-import * as J from '/secret-sats-join.js?cb=7e817f1c';
+import * as J from '/secret-sats-join.js?cb=d4ee085a';
 import { makeBtcPoolZap, makeNoteResolver } from '/btc-pool-zap.js?cb=526a78d8';
 import { makeBtcWallet } from '/bitcoin-taproot-wallet.js?cb=6e90dd96';
 import { secp, sha256, keccak_256, bytesToHex } from '../vendor/tacit-deps.min.js';
 
-const WORKER_URL = '/sats/join-worker.js?cb=2ad4d02d';
+const WORKER_URL = '/sats/join-worker.js?cb=1dffe7ac';
 const BOARDS_URL = '/sats/join-boards.json';
 const TIER = { signet: 10_000 };
 const AGE = J.AGE_MIN;

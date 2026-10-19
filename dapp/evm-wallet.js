@@ -1,52 +1,35 @@
-// evm-wallet — external Ethereum wallet onboarding for the V1 dapp. Two roles from one connected EOA:
-//   1. IDENTITY: personal_sign the fixed Tacit identity message → deterministic tacit1 priv (RFC-6979 ⇒ the same EOA
-//      always derives the same identity, so recovery = reconnect the wallet anywhere → same holdings).
-//   2. FUNDER: the same provider sends pool.wrap() txs (msg.value = ETH), whose note owner is the tacit1
-//      identity baked into the wrap commit — so an external wallet can top up a tacit1 note it doesn't hold.
-// Faithful port of tacit.js's ethWallet connect/derive (EIP-6963 discovery + EIP-191 recovery guard).
 import { identityMessage } from './identity-message.js';
 
 const ETH_SIGNED_PREFIX = '\x19Ethereum Signed Message:\n';
 
-// The wallet connected last on any tacit.finance page, by which wallet it is only (its EIP-6963 id, else its name): never an
-// account or a key. The trade pages keep the same record (trade/wallet.js), so a wallet connected on one page is connected on
-// the next without a prompt, for as long as the wallet still allows the site.
 const REMEMBERED = 'tacit-trade-wallet';
-const BARE = 'Browser wallet';                     // a wallet that announced nothing: window.ethereum alone
+const BARE = 'Browser wallet';
 const idOf = (info) => info?.rdns || info?.name || BARE;
 
-// secp256k1 group order — the low-s bound is N/2 (EIP-2).
 const SECP_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
 
 export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes, prfBytesToScalar, netName = 'mainnet' } = {}) {
   const enc = (s) => new TextEncoder().encode(s);
   const concat = (...a) => { const n = a.reduce((s, x) => s + x.length, 0); const o = new Uint8Array(n); let i = 0; for (const x of a) { o.set(x, i); i += x.length; } return o; };
 
-  // ── EIP-6963 multi-provider discovery (every 6963 wallet also injects window.ethereum as fallback) ──
-  const providers = []; // [{ info:{uuid,name,icon,rdns}, provider }]
+  const providers = [];
   let selected = null;
-  // The wallet in use: the one the last connect or sign-in succeeded with. Only its account changes reach the page; a
-  // wallet connected before and since left is not heard.
   let active = null;
-  const heard = new WeakSet();                           // wallets whose account changes this instance listens for
+  const heard = new WeakSet();
   if (typeof window !== 'undefined') {
     window.addEventListener('eip6963:announceProvider', (e) => {
       const d = e.detail; if (!d || !d.info || !d.provider) return;
       if (!providers.find((p) => p.info.uuid === d.info.uuid || p.provider === d.provider)) providers.push(d);
     });
-    try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch { /* ignore */ }
+    try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch { }
   }
   const injected = () => (typeof window !== 'undefined' ? window.ethereum : null);
   const currentProvider = () => selected || injected();
   const available = () => !!currentProvider() || providers.length > 0;
-  // A wallet in this browser itself: WalletConnect is always on offer, and is not one.
   const hasBrowserWallet = () => !!injected() || providers.some((p) => !p.provider.isWalletConnect);
-  // The browser's own wallets first, a phone's WalletConnect after them.
   const ordered = () => [...providers].sort((a, b) => !!a.provider.isWalletConnect - !!b.provider.isWalletConnect);
   function listProviders() { return ordered().map((p) => ({ uuid: p.info.uuid, name: p.info.name, icon: p.info.icon, rdns: p.info.rdns })); }
   function selectProvider(uuid) { const p = providers.find((x) => x.info.uuid === uuid); if (p) selected = p.provider; return !!p; }
-  // Forgets the chosen wallet, so the next connect asks again which one when several are installed. The wallet in use is
-  // still heard until another connects, since a page may go on paying from it.
   function deselectProvider() { selected = null; }
   function providerLabel() { const a = providers.find((p) => p.provider === currentProvider()); return a?.info?.name || 'Ethereum wallet'; }
 
@@ -62,20 +45,14 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
     if (pub.length !== 65 || pub[0] !== 0x04) throw new Error('recovered pubkey malformed');
     return bytesToHex(keccak256(pub.slice(1)).slice(12));
   }
-  // A genuine contract wallet (Safe/Argent) signs non-deterministically → no stable identity. An EIP-7702
-  // delegation designator (0xef0100‖impl) is still an EOA, so it's allowed.
   function isContractCode(code) {
     if (typeof code !== 'string' || !/^0x[0-9a-f]*$/i.test(code)) return false;
     if (/^0xef0100[0-9a-f]{40}$/i.test(code)) return false;
     return code.length > 2 && !/^0x0+$/i.test(code);
   }
 
-  // The connected account of the wallet chosen before, else of the one `pick(list)` chooses when >1 wallet is announced
-  // (return its uuid), else of the sole provider or window.ethereum. `chosen` is a wallet chosen here; it is kept only by use().
   async function reach({ pick } = {}) {
-    if (typeof window !== 'undefined') { try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch { /* ignore */ } }
-    // Some wallets answer the announce request on a later tick — give them a moment before treating the
-    // provider list as final, or a co-installed wallet silently drops out of the picker.
+    if (typeof window !== 'undefined') { try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch { } }
     await new Promise((r) => setTimeout(r, 120));
     let provider = selected, chosen = null;
     if (!provider) {
@@ -95,60 +72,46 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
     if (!/^[0-9a-f]{40}$/.test(addr)) throw new Error('wallet returned malformed address');
     return { provider, address: addr, chosen };
   }
-  // Which wallet is connected is remembered for the next page.
   const remember = (provider) => {
     const info = providers.find((p) => p.provider === provider)?.info;
-    try { localStorage.setItem(REMEMBERED, idOf(info)); } catch { /* storage is a convenience */ }
+    try { localStorage.setItem(REMEMBERED, idOf(info)); } catch { }
   };
-  // Forgets the wallet here: no page connects it again on load, and this one stops hearing it.
   function forget() {
     selected = null; active = null;
-    try { localStorage.removeItem(REMEMBERED); } catch { /* storage is a convenience */ }
+    try { localStorage.removeItem(REMEMBERED); } catch { }
   }
-  // Hands this site's permission back to the wallet (EIP-2255), so the next connect asks which account. A wallet without the call keeps the
-  // permission, which is then the wallet's to revoke; it is never waited for long, and its refusal is not an error.
   const revoke = (p) => Promise.race([
     Promise.resolve().then(() => p.request({ method: 'wallet_revokePermissions', params: [{ eth_accounts: {} }] })).catch(() => {}),
     new Promise((done) => setTimeout(done, 1500)),
   ]);
-  // Disconnect: the wallet is forgotten on every page, a key opened with it is told it has gone (a `tacit:evm-accounts` with no accounts, as when
-  // the wallet locks), a browser wallet takes this site's permission back, and a WalletConnect session ends in the wallet app too. The pages
-  // draw it from that event; they have only their own state to clear.
   async function disconnect() {
     const was = active || selected;
     forget();
     if (!was) return;
-    try { window.dispatchEvent(new CustomEvent('tacit:evm-accounts', { detail: { accounts: [], provider: was } })); } catch { /* ignore */ }
-    try { await (was.isWalletConnect ? was.endSession?.() : revoke(was)); } catch { /* the session is gone either way */ }
+    try { window.dispatchEvent(new CustomEvent('tacit:evm-accounts', { detail: { accounts: [], provider: was } })); } catch { }
+    try { await (was.isWalletConnect ? was.endSession?.() : revoke(was)); } catch { }
   }
-  // Another tab of the site connects or disconnects a wallet and this one follows. A wallet connected there calls what `onElsewhere(fn)` was given, for
-  // the page to restore it as it does on load. One let go of there is let go of here, as the wallet locking is: a `tacit:evm-accounts` with no accounts
-  // (a WalletConnect session is cleared from this tab's copy; the permission was handed back there).
   const elsewhere = new Set();
   const onElsewhere = (fn) => { elsewhere.add(fn); return () => elsewhere.delete(fn); };
   if (typeof window !== 'undefined') {
     window.addEventListener('storage', (e) => {
       if (e.storageArea !== localStorage || (e.key !== REMEMBERED && e.key !== null)) return;
-      if (e.newValue) { if (!active) for (const fn of elsewhere) { try { fn(); } catch { /* a page's listener must not break the others */ } } return; }
+      if (e.newValue) { if (!active) for (const fn of elsewhere) { try { fn(); } catch { } } return; }
       const was = active;
       if (!was) return;
       selected = null; active = null;
-      try { window.dispatchEvent(new CustomEvent('tacit:evm-accounts', { detail: { accounts: [], provider: was } })); } catch { /* ignore */ }
+      try { window.dispatchEvent(new CustomEvent('tacit:evm-accounts', { detail: { accounts: [], provider: was } })); } catch { }
       if (was.isWalletConnect) Promise.resolve(was.endSession?.()).catch(() => {});
     });
   }
-  // On load: the wallet connected last, with the account it still allows this site. The wallet is asked for its accounts, which
-  // opens no prompt, so none remembered, or one that no longer allows the site, gives null and nothing is shown. Wallets
-  // announce themselves a moment after the page asks, so this waits briefly for the one remembered. A connect made in the
-  // meantime (a person was quicker) stands.
   async function restore() {
     let id = null;
-    try { id = localStorage.getItem(REMEMBERED); } catch { /* storage is a convenience */ }
+    try { id = localStorage.getItem(REMEMBERED); } catch { }
     if (!id || typeof window === 'undefined') return null;
     const find = () => ordered().find((p) => idOf(p.info) === id)?.provider || (id === BARE ? injected() : null);
     let provider = find();
     for (let i = 0; !provider && i < 6; i++) {
-      try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch { /* ignore */ }
+      try { window.dispatchEvent(new Event('eip6963:requestProvider')); } catch { }
       await new Promise((r) => setTimeout(r, 100));
       provider = find();
     }
@@ -160,11 +123,6 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
     use({ provider, chosen: provider });
     return { provider, address };
   }
-  // A connect or sign-in that succeeded keeps the wallet it chose, so the next one goes straight to it, and makes it the
-  // wallet in use. One that failed keeps nothing: after a wallet refused, a WalletConnect pairing closed or a signature
-  // declined, the next attempt asks again which wallet, while a wallet chosen before stays chosen. Funding and identity
-  // both bind to the connected account, so a wallet-side account switch must be loud — the app listens for this and
-  // warns that the derived identity no longer matches.
   function use({ provider, chosen }) {
     if (chosen) selected = chosen;
     active = provider;
@@ -174,22 +132,17 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
     try {
       provider.on?.('accountsChanged', (accs) => {
         if (provider !== active) return;
-        try { window.dispatchEvent(new CustomEvent('tacit:evm-accounts', { detail: { accounts: accs || [], provider } })); } catch { /* ignore */ }
+        try { window.dispatchEvent(new CustomEvent('tacit:evm-accounts', { detail: { accounts: accs || [], provider } })); } catch { }
       });
-    } catch { /* provider without event support */ }
+    } catch { }
   }
 
-  // Connect the EOA. When >1 wallet is announced, `pick(list)` chooses one (return its uuid); else the sole
-  // provider or window.ethereum is used.
   async function connect({ pick } = {}) {
     const c = await reach({ pick });
     use(c);
     return { provider: c.provider, address: c.address };
   }
 
-  // Another account of the wallet connected: its own chooser opens (EIP-2255), and what it answers is the account in use (the wallet's own account
-  // change reaches the pages as it always has). A WalletConnect session is paired again, so the wallet app asks which account, and with several
-  // wallets announced which wallet. A wallet without a chooser is asked for nothing: the person is told to choose in it, and the page follows.
   async function changeAccount({ pick } = {}) {
     const provider = active || selected || injected();
     if (!provider || typeof provider.request !== 'function') throw new Error('no Ethereum wallet connected');
@@ -205,33 +158,19 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
     return { provider, address };
   }
 
-  // Derive the deterministic tacit1 identity from a personal_sign over the domain message. Returns
-  // { priv (hex), pubHex, address, provider } — priv is the tacit1 secret; provider/address stay for funding.
-  // Per-account anchor: the pubkey this account derived last time, so a second derivation that produces a
-  // DIFFERENT key is refused instead of silently opening an empty wallet. tacit.js's own ethWallet.login()
-  // has had this for a while; this module — the one integrators build on — had nothing, so an integrator's
-  // page would just show a zero balance and no explanation.
-  //
-  // It catches a real, narrow case. The `recovered !== address` guard above does not: ECDSA is malleable in
-  // `s`, and (r, N−s, v^1) recovers the SAME address while hashing to different bytes and therefore a
-  // different identity. RFC-6979 wallets always produce low-s, so this only fires for a buggy or hostile
-  // signer — but that is exactly when the user needs to be told, rather than shown an empty wallet.
-  // (The deeper fix is normalising to low-s before hashing. That is deliberately NOT done here: this
-  // derivation is shared byte-for-byte with every other Tacit app, so changing it is a cross-app decision,
-  // not a local one.)
   const ANCHOR_KEY = 'tacit-eth-identity-anchor:';
   function readAnchor(address) {
     try { return localStorage.getItem(ANCHOR_KEY + String(address).toLowerCase()) || null; } catch { return null; }
   }
   function writeAnchor(address, pubHex) {
-    try { localStorage.setItem(ANCHOR_KEY + String(address).toLowerCase(), pubHex); } catch { /* best effort */ }
+    try { localStorage.setItem(ANCHOR_KEY + String(address).toLowerCase(), pubHex); } catch { }
   }
 
   async function deriveIdentity({ pick, expect } = {}) {
     const c = await reach({ pick }), { provider, address } = c;
     const want = expect && String(expect).toLowerCase().replace(/^0x/, '');
     if (want && address !== want) throw new Error(`Switch your wallet to 0x${want.slice(0, 4)}…${want.slice(-4)}, the account this Tacit wallet was opened with.`);
-    let code = '0x'; try { code = await provider.request({ method: 'eth_getCode', params: ['0x' + address, 'latest'] }); } catch { /* treat as EOA */ }
+    let code = '0x'; try { code = await provider.request({ method: 'eth_getCode', params: ['0x' + address, 'latest'] }); } catch { }
     if (isContractCode(code)) throw new Error('Smart-contract wallets produce non-deterministic signatures and cannot derive a stable tacit identity — use a passkey, seed, or an EOA wallet.');
     const msg = derivationMsg();
     const sig = await provider.request({ method: 'personal_sign', params: ['0x' + bytesToHex(enc(msg)), '0x' + address] });
@@ -240,30 +179,8 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
     if (sigBytes.length !== 65) throw new Error('signature must be 65 bytes');
     const recovered = recoverAddr(msg, sig);
     if (recovered !== address) throw new Error(`signature is from ${recovered.slice(0, 8)}…, not ${address.slice(0, 8)}… — switch your active account and retry`);
-    // Canonicalize v to 27/28 before hashing — see tacit.js's ethWallet.login() for why: the recovery
-    // id is fully determined by the deterministic signature, but its wire encoding (0/1 vs 27/28)
-    // varies by provider, and hashing the raw byte would derive a different identity for the same
-    // account depending only on that encoding. No-op for every wallet observed in the wild.
     if (sigBytes[64] === 0 || sigBytes[64] === 1) sigBytes[64] += 27;
 
-// REFUSE a non-canonical (high-s) signature rather than hashing it or "fixing" it.
-//
-// ECDSA is malleable in s: (r, N-s, v^1) is an equally valid signature over the same message and recovers
-// the SAME address, so the `recovered !== addr` check above cannot see it. It hashes to different bytes,
-// though, so it derives a DIFFERENT identity — a silently empty wallet.
-//
-// Normalising to low-s would look like the obvious fix and is the wrong one HERE. This derivation is shared
-// byte-for-byte with every other Tacit app, and that sameness is the whole point of the shared identity
-// message: one wallet, one key, everywhere. If this page normalised and another app did not, a high-s signer
-// would get key X here and key X' there — funds silently split across two identities, which is strictly
-// worse than today's consistently-wrong-but-identical behaviour. Normalising is a decision every Tacit app
-// has to take together, not one this file can take alone.
-//
-// Refusing has neither problem: it changes no existing identity (EIP-2 has required s <= N/2 since 2016 and
-// every mainstream signer enforces it, so a real wallet's signature is always low-s and reaches this check
-// untouched), and it cannot split anyone's funds because it derives nothing at all. A high-s signature here
-// is not a wallet quirk to be accommodated — it means something modified the signature between the wallet
-// and this page, and deriving a private key from bytes bearing that mark is the wrong default.
     const sHigh = (() => {
       let s = 0n;
       for (let i = 32; i < 64; i++) s = (s << 8n) | BigInt(sigBytes[i]);
@@ -275,10 +192,6 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
         + 'from it. Every compliant signer produces the canonical form, so this usually means the signature '
         + 'was altered in transit. Reconnect with a wallet you trust and retry; nothing was derived or spent.');
     }
-    // The first key this account derives here is taken only when a second signature over the same message is the same
-    // bytes. A wallet that signs differently each time (some MPC wallets) would otherwise hand out a key it could never
-    // produce again, and anything paid to it would be out of reach. The key itself comes from the first signature, as
-    // it always has, so no existing identity changes; a known account (anchored) is not asked twice.
     if (!readAnchor(address)) {
       const again = await provider.request({ method: 'personal_sign', params: ['0x' + bytesToHex(enc(msg)), '0x' + address] });
       const b = typeof again === 'string' && again.startsWith('0x') ? hexToBytes(again.slice(2)) : null;
@@ -305,8 +218,6 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
     return { priv: privHex, pubHex, address, provider, label: providerLabel() };
   }
 
-  // Fund a tacit1 wrap from the external wallet: it signs+pays for the pool.wrap() tx (value = ETH deposited),
-  // minting a note owned by the tacit1 identity (owner is inside `data`'s commit). Returns the tx hash.
   async function fundTx({ from, to, data, valueWei = 0n }) {
     const provider = currentProvider();
     if (!provider) throw new Error('no Ethereum wallet connected');
@@ -317,10 +228,6 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
 
   async function chainId() { const p = currentProvider(); if (!p) return null; try { return Number(await p.request({ method: 'eth_chainId' })); } catch { return null; } }
 
-  // EIP-2612 permit signed by the CONNECTED wallet, so tokens held in the user's own wallet can be pulled by
-  // the router without first moving them to the derived account. The alternative — send tokens to the derived
-  // address, fund it with gas, then wrap — is three steps and two accounts for what is one signature here.
-  // `provider` signs with that wallet rather than the chosen one (a page that keeps its own connection).
   async function signErc2612({ token, name, version = '1', owner, spender, value, nonce, deadline, provider: via = null }) {
     const provider = via || currentProvider();
     if (!provider) throw new Error('no Ethereum wallet connected');
@@ -347,7 +254,7 @@ export function makeEvmWallet({ secp, sha256, keccak256, bytesToHex, hexToBytes,
     const h = String(sig).replace(/^0x/, '');
     if (h.length !== 130) throw new Error('permit signature malformed');
     let v = parseInt(h.slice(128, 130), 16);
-    if (v < 27) v += 27; // some wallets return 0/1
+    if (v < 27) v += 27;
     return { v, r: '0x' + h.slice(0, 64), s: '0x' + h.slice(64, 128) };
   }
 

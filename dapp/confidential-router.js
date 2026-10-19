@@ -1,17 +1,3 @@
-// Dapp-side ConfidentialRouter periphery client. The router collapses "approve + wrap" (and the public-AMM /
-// zap flows) into one user-sent transaction via a signature-based approval (EIP-2612 / Permit2 / native
-// msg.value). The router always pulls from msg.sender, so the tx is ALWAYS user-sent — each builder returns
-// { to, value, calldata } ready for evm-tx.signEip1559, exactly like confidential-pool-ux.buildWrap, but the
-// calldata targets the router (with a signed permit) instead of pool.wrap.
-//
-// Phase 1 (this file): the PROOF-FREE flows — the router call needs no SP1 proof. Wrap on-ramp (EIP-2612 /
-// Permit2 / native ETH; the note is minted by a later settle), public swap, public LP add. The atomic-settle
-// flows (wrapAndSettle* / zapETHToPayment / farm bonds — which embed a box proof) and the zRouter zaps layer
-// on in later phases.
-//
-// The caller supplies on-chain-read inputs the router needs (the token's EIP-2612 name/version + permit nonce,
-// or the Permit2 nonce) — fetched via RPC by the UX layer; this module is pure assembly + signing so it stays
-// browser-safe and unit-testable offline. Deps injected: { secp, keccak256, sha256, cfg }.
 
 export const PERMIT2_ADDRESS = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
 export const ZROUTER_ADDRESS = '0x000000000000FB114709235f1ccBFfb925F600e4';
@@ -21,39 +7,31 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
   if (!cfg) throw new Error('makeConfidentialRouter: cfg required');
   const chainId = BigInt(cfg.chainId);
   const permit2 = String(cfg.permit2 || PERMIT2_ADDRESS).toLowerCase();
-  // The router address is required only by the builders that emit a tx; signing/encoding helpers work without
-  // it (so the module is unit-testable before a deploy). routerAddr() throws with a clear message if unset.
   const _router = cfg.router ? String(cfg.router).toLowerCase() : null;
   function routerAddr() {
     if (!_router) throw new Error('cfg.router not set (deploy the ConfidentialRouter, then set cfg.router)');
     return _router;
   }
 
-  // ── hex / abi-word helpers ──
   const utf8 = (s) => new TextEncoder().encode(s);
   const hexToBytes = (h) => Uint8Array.from((String(h).replace(/^0x/, '').match(/../g) || []).map((x) => parseInt(x, 16)));
   const bytesToHex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
   const concat = (...arrs) => { const t = arrs.reduce((s, a) => s + a.length, 0); const o = new Uint8Array(t); let p = 0; for (const a of arrs) { o.set(a, p); p += a.length; } return o; };
-  // 32-byte ABI word from a bigint / decimal / 0x-hex scalar.
   const word = (v) => {
     if (typeof v === 'bigint') return v.toString(16).padStart(64, '0');
     const s = String(v);
     return (s.startsWith('0x') ? s.slice(2) : BigInt(s).toString(16)).padStart(64, '0');
   };
-  // 20-byte address left-padded to a 32-byte ABI word.
   const addrWord = (a) => String(a).replace(/^0x/, '').toLowerCase().padStart(64, '0');
   const keccakHex = (bytes) => '0x' + bytesToHex(keccak256(bytes));
   const selector = (sig) => bytesToHex(keccak256(utf8(sig)).subarray(0, 4));
 
-  // ── ConfidentialPool._evmAssetId mirror: sha256("tacit-evm-token-v1" ‖ chainid_be8 ‖ underlying20). Native
-  //    ETH (tETH) is address(0). Matches cross-chain-asset-resolver.js + ConfidentialPool.sol. ──
   const be8 = (n) => { const o = new Uint8Array(8); let v = BigInt(n); for (let i = 7; i >= 0; i--) { o[i] = Number(v & 0xffn); v >>= 8n; } return o; };
   function evmAssetId(underlying = '0x0000000000000000000000000000000000000000') {
     const u = hexToBytes(String(underlying).replace(/^0x/, '').toLowerCase().padStart(40, '0'));
     return '0x' + bytesToHex(sha256(concat(utf8('tacit-evm-token-v1'), be8(chainId), u)));
   }
 
-  // ── EIP-712 ──
   const DOMAIN_TYPEHASH_NVCV = keccakHex(utf8('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)'));
   const DOMAIN_TYPEHASH_NCV = keccakHex(utf8('EIP712Domain(string name,uint256 chainId,address verifyingContract)'));
   const PERMIT_2612_TYPEHASH = keccakHex(utf8('Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)'));
@@ -61,7 +39,6 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
   const PERMIT_SINGLE_TYPEHASH = keccakHex(utf8('PermitSingle(PermitDetails details,address spender,uint256 sigDeadline)PermitDetails(address token,uint160 amount,uint48 expiration,uint48 nonce)'));
   const PERMIT_BATCH_TYPEHASH = keccakHex(utf8('PermitBatch(PermitDetails[] details,address spender,uint256 sigDeadline)PermitDetails(address token,uint160 amount,uint48 expiration,uint48 nonce)'));
 
-  // hashStruct/digest take a list of 32-byte hex words (0x-prefixed) and keccak their concatenation.
   const hashWords = (words) => keccakHex(concat(...words.map(hexToBytes)));
   const w = (v) => '0x' + word(v);
   const aw = (a) => '0x' + addrWord(a);
@@ -73,13 +50,10 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
     const v = 27 + Number(sig.recovery);
     const r = '0x' + sig.r.toString(16).padStart(64, '0');
     const s = '0x' + sig.s.toString(16).padStart(64, '0');
-    // 65-byte r‖s‖v — the form Permit2 (and the router) recover.
     const signature = '0x' + sig.r.toString(16).padStart(64, '0') + sig.s.toString(16).padStart(64, '0') + v.toString(16).padStart(2, '0');
     return { v, r, s, signature };
   }
 
-  // EIP-2612: sign token.permit(owner, spender=router, value, nonce, deadline). The token's domain needs its
-  // name/version (per token — fetch via name()/version() or eip712Domain(); USDC = "USD Coin"/"2").
   function signErc2612({ token, name, version = '1', owner, value, nonce, deadline, priv, spender }) {
     const sp = spender || routerAddr();
     const domain = hashWords([DOMAIN_TYPEHASH_NVCV, keccakHex(utf8(name)), keccakHex(utf8(version)), w(chainId), aw(token)]);
@@ -132,7 +106,6 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
     return { amountIn: needed, amountOut: bi(amountOut), hops: reversed.reverse() };
   }
 
-  // Permit2 PermitSingle — one token. Returns { permitSingle, signature } ready for the calldata builders.
   function signPermit2Single({ token, amount, expiration, nonce, sigDeadline, priv, spender }) {
     const sp = spender || routerAddr();
     const details = { token, amount: String(amount), expiration: Number(expiration), nonce: Number(nonce) };
@@ -141,7 +114,6 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
     return { permitSingle: { details, spender: sp, sigDeadline: String(sigDeadline) }, signature };
   }
 
-  // Permit2 PermitBatch — N tokens, one signature (used by addLiquidityPublicWithPermit2).
   function signPermit2Batch({ details, sigDeadline, priv, spender }) {
     const sp = spender || routerAddr();
     const norm = details.map((d) => ({ token: d.token, amount: String(d.amount), expiration: Number(d.expiration), nonce: Number(d.nonce) }));
@@ -151,25 +123,18 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
     return { permitBatch: { details: norm, spender: sp, sigDeadline: String(sigDeadline) }, signature };
   }
 
-  // ── ABI encoding ──
-  // PermitSingle is fully STATIC (6 words): (token, amount, expiration, nonce, spender, sigDeadline).
   const encPermitSingle = (ps) => addrWord(ps.details.token) + word(BigInt(ps.details.amount)) + word(BigInt(ps.details.expiration)) + word(BigInt(ps.details.nonce)) + addrWord(ps.spender) + word(BigInt(ps.sigDeadline));
-  // A dynamic `bytes` tail: length word + right-padded data.
   function encBytes(hex) {
     const b = String(hex || '').replace(/^0x/, '');
     const pad = (64 - (b.length % 64)) % 64;
     return word(BigInt(b.length / 2)) + b + '0'.repeat(pad);
   }
-  // PermitBatch is DYNAMIC (details[] is a dynamic array): tuple head [offsetToDetails=0x60, spender,
-  // sigDeadline] then the array [len, det0(4w), det1(4w), …]. Returned WITHOUT a leading offset (the caller
-  // places it in the args tail).
   function encPermitBatch(pb) {
     const head = word(BigInt(0x60)) + addrWord(pb.spender) + word(BigInt(pb.sigDeadline));
     let arr = word(BigInt(pb.details.length));
     for (const d of pb.details) arr += addrWord(d.token) + word(BigInt(d.amount)) + word(BigInt(d.expiration)) + word(BigInt(d.nonce));
     return head + arr;
   }
-  // bytes[] (dynamic array of dynamic bytes): count ‖ offset_i (relative to the offsets block) ‖ enc(bytes_i).
   function encBytesArray(items) {
     const encs = (items || []).map(encBytes);
     let off = encs.length * 32, head = '';
@@ -182,9 +147,6 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
   function encUint32Array(items) {
     return word(BigInt((items || []).length)) + (items || []).map((x) => word(BigInt(x))).join('');
   }
-  // Generic head/tail ABI assembly: static words inline, trailing dynamic params (bytes / bytes[]) as offsets +
-  // blobs. parts: [{ static: '<hex, 64-char multiple>' } | { bytes: '<hex>' } | { bytesArray: ['<hex>', …] }
-  // | { addressArray: ['0x...', …] } | { uint32Array: [30, …] }].
   function abiArgs(parts) {
     const headWords = parts.reduce((acc, p) => acc + (p.static != null ? p.static.length / 64 : 1), 0);
     let head = '', tail = '', tailPos = headWords * 32;
@@ -206,14 +168,12 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
     return head + tail;
   }
 
-  // ── Calldata builders (proof-free) ──
   function wrapWithPermitCalldata({ token, amount, commit, deadline, v, r, s }) {
     return '0x' + selector('wrapWithPermit(address,uint256,bytes32,uint256,uint8,bytes32,bytes32)')
       + addrWord(token) + word(BigInt(amount)) + word(commit) + word(BigInt(deadline)) + word(BigInt(v)) + word(r) + word(s);
   }
 
   function wrapWithPermit2Calldata({ token, amount, commit, permitSingle, signature }) {
-    // head: token, amount, commit, permitSingle(6), sigOffset → 3 + 6 + 1 = 10 words ⇒ offset 0x140
     const head = addrWord(token) + word(BigInt(amount)) + word(commit) + encPermitSingle(permitSingle);
     return '0x' + selector('wrapWithPermit2(address,uint256,bytes32,((address,uint160,uint48,uint48),address,uint256),bytes)')
       + head + word(BigInt(10 * 32)) + encBytes(signature);
@@ -230,7 +190,6 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
   }
 
   function swapPublicWithPermit2Calldata({ tokenIn, tokenOut, feeBps, amountIn, minAmountOut, deadline, to, permitSingle, signature }) {
-    // head: 7 static + permitSingle(6) + sigOffset = 14 words ⇒ offset 0x1c0
     const head = addrWord(tokenIn) + addrWord(tokenOut) + word(BigInt(feeBps)) + word(BigInt(amountIn)) + word(BigInt(minAmountOut))
       + word(BigInt(deadline)) + addrWord(to) + encPermitSingle(permitSingle);
     return '0x' + selector('swapPublicWithPermit2(address,address,uint32,uint256,uint256,uint64,address,((address,uint160,uint48,uint48),address,uint256),bytes)')
@@ -272,7 +231,6 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
   }
 
   function addLiquidityPublicWithPermit2Calldata({ tokenA, tokenB, feeBps, amountA, amountB, minSharesOut, deadline, to, permitBatch, signature }) {
-    // head: 8 static + permitBatchOffset + sigOffset = 10 words. permitBatch at 0x140; signature follows it.
     const head = addrWord(tokenA) + addrWord(tokenB) + word(BigInt(feeBps)) + word(BigInt(amountA)) + word(BigInt(amountB))
       + word(BigInt(minSharesOut)) + word(BigInt(deadline)) + addrWord(to);
     const batchBlob = encPermitBatch(permitBatch);
@@ -297,7 +255,6 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
       + word(BigInt(minAmountB)) + word(BigInt(deadline)) + addrWord(to);
   }
 
-  // ── Atomic-settle calldata: the router embeds a box prove-only proof (publicValues, proof, memos[]) ──
   function wrapAndSettleWithPermitCalldata({ token, amount, commit, deadline, v, r, s, publicValues, proof, memos, feeRecipient }) {
     return '0x' + selector('wrapAndSettleWithPermit(address,uint256,bytes32,uint256,uint8,bytes32,bytes32,bytes,bytes,bytes[],address)')
       + abiArgs([
@@ -388,10 +345,6 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
       ]);
   }
 
-  // ── High-level builders: sign the permit + assemble { to, value, calldata } for evm-tx.signEip1559 ──
-  // The caller supplies `commit` (from confidential-pool-ux's note derivation / an invoice) + the on-chain
-  // nonces. `amount` is the underlying amount (wei-scale); `value` is always 0 except wrapETH.
-
   function buildWrapWithPermit({ priv, owner, token, name, version, amount, commit, tokenNonce, deadline }) {
     const sig = signErc2612({ token, name, version, owner, value: amount, nonce: tokenNonce, deadline, priv });
     return { to: routerAddr(), value: 0n, calldata: wrapWithPermitCalldata({ token, amount, commit, deadline, v: sig.v, r: sig.r, s: sig.s }), permitSig: sig };
@@ -469,8 +422,6 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
     return { to: routerAddr(), value: 0n, calldata: removeLiquidityPublicCalldata({ tokenA, tokenB, feeBps, shares, minAmountA, minAmountB, deadline, to }) };
   }
 
-  // ── Atomic-settle builders: caller supplies the box prove-only artifacts { publicValues, proof, memos }
-  //    (from relay.prove(...)) + the wrap/permit/zap inputs → { to, value, calldata } for the user's tx ──
   function buildWrapAndSettleETH({ commit, amount, publicValues, proof, memos }) {
     return { to: routerAddr(), value: BigInt(amount), calldata: wrapAndSettleETHCalldata({ commit, publicValues, proof, memos }) };
   }
@@ -536,24 +487,6 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
     };
   }
 
-  // ── Exit-and-execute: shielded exit → recipe-bound batch executor, atomically bound by the recipe-hash
-  //    CREATE2 escrow ──
-  //
-  // The router unwraps `exitedAsset` TO escrowAddressFor(recipe) — a CREATE2 address keyed by keccak(abi.encode
-  // (recipe)) — so the settle PROOF commits the whole recipe via its withdrawal `recipient`. A front-runner can't
-  // redirect the output or alter the batch without changing that address; the honest caller's funds are already
-  // in their escrow, so a tampered call reverts on an empty/short escrow.
-  //
-  // RECIPE-BUILDER USAGE:
-  //   1. const escrow = exitRecipeEscrow(executorImpl, recipe, cfg.router); // executorImpl from router.executorImpl()
-  //   2. build the settle proof so its withdrawals[0] = { assetId: recipe.exitedAsset, value, recipient: escrow };
-  //   3. send exitAndExecuteCalldata({ publicValues, proof, memos, recipe }) to the router.
-
-  // solady LibClone.initCodeHash_PUSH0(impl): keccak of the PUSH0 minimal-proxy creation code with `impl`
-  // spliced in. The template is a fixed prefix ‖ impl(20 bytes) ‖ fixed suffix (54 bytes / 0x36 total):
-  //   602d5f8160095f39f35f5f365f5f37365f73  ‖ <impl>  ‖  5af43d5f5f3e6029573d5ffd5b3d5ff3
-  // The escrow address is the deterministic clone of `escrowImpl` (read from the router's escrowImpl() getter)
-  // at salt = keccak(abi.encode(recipe)), deployed by the router.
   const PUSH0_INITCODE_PREFIX = '602d5f8160095f39f35f5f365f5f37365f73';
   const PUSH0_INITCODE_SUFFIX = '5af43d5f5f3e6029573d5ffd5b3d5ff3';
   function initCodeHashPush0(impl) {
@@ -561,10 +494,6 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
     return keccakHex(hexToBytes(PUSH0_INITCODE_PREFIX + i + PUSH0_INITCODE_SUFFIX));
   }
 
-  // Solidity abi.encode of a single ExitCall tuple
-  //   (address target, uint256 value, address token, uint256 amount, bool push, bytes data)
-  // It is a DYNAMIC tuple (holds `bytes`): 5 static head words + the dynamic `data` in the tail (head carries
-  // its offset). Returned WITHOUT the top-level offset word (the array encoder places offsets itself).
   function encExitCall(c) {
     return abiArgs([
       { static: addrWord(c.target) },
@@ -576,7 +505,6 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
     ]);
   }
 
-  // ExitCall[] (dynamic array of dynamic tuples): count ‖ offset_i (relative to the offsets block) ‖ enc(call_i).
   function encExitCallArray(items) {
     const encs = (items || []).map(encExitCall);
     let off = encs.length * 32, head = '';
@@ -588,11 +516,6 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
     return word(BigInt((items || []).length)) + (items || []).map((x) => word(BigInt(x))).join('');
   }
 
-  // Solidity abi.encode of the ExitRecipe tuple
-  //   (bytes32 exitedAsset, address feeAsset, address finalRecipient, uint64 deadline, uint256 nonce,
-  //    ExitCall[] calls, address[] sweepTokens, uint256[] minOuts)
-  // A DYNAMIC tuple (it holds dynamic arrays), so the top-level abi.encode prepends a 0x20 offset word, then the
-  // tuple body: 5 static head words + 3 dynamic arrays placed in the tail (each head word carries its offset).
   function encodeExitRecipe(recipe) {
     const tupleBody = abiArgs([
       { static: word(recipe.exitedAsset) },
@@ -604,18 +527,13 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
       { addressArray: recipe.sweepTokens || [] },
       { rawDyn: '0x' + encUint256Array(recipe.minOuts) },
     ]);
-    return '0x' + word(32n) + tupleBody; // leading offset word for the top-level dynamic tuple
+    return '0x' + word(32n) + tupleBody;
   }
 
-  // keccak256(abi.encode(recipe)) — the CREATE2 salt the contract uses.
   function exitRecipeSalt(recipe) {
     return keccakHex(hexToBytes(encodeExitRecipe(recipe)));
   }
 
-  // The deterministic escrow address the proof MUST pay (byte-identical to router.escrowAddressFor(recipe)):
-  //   keccak256(0xff ++ router ++ salt ++ initCodeHash_PUSH0(executorImpl))[12:].
-  // `executorImpl` is the router's one-time executor implementation — read it from the router's executorImpl()
-  // getter (it is part of the PUSH0 clone initcode hash). `router` is the deployer of the clone.
   function exitRecipeEscrow(executorImpl, recipe, router) {
     const salt = exitRecipeSalt(recipe);
     const pre = concat(
@@ -624,21 +542,16 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
       hexToBytes(salt),
       hexToBytes(initCodeHashPush0(executorImpl)),
     );
-    return '0x' + bytesToHex(keccak256(pre)).slice(24); // low 20 bytes
+    return '0x' + bytesToHex(keccak256(pre)).slice(24);
   }
 
-  // The ExitRecipe tuple ABI signature, for the exitAndExecute selector. ExitCall is the inner tuple.
   const EXIT_CALL_SIG = '(address,uint256,address,uint256,bool,bytes)';
   const EXIT_RECIPE_SIG = '(bytes32,address,address,uint64,uint256,' + EXIT_CALL_SIG + '[],address[],uint256[])';
 
-  // exitAndExecute(bytes publicValues, bytes proofBytes, bytes[] memos, ExitRecipe recipe). The recipe is
-  // encoded inline as a dynamic tuple (offset in the head, body in the tail) so it matches the Solidity args.
   function exitAndExecuteCalldata({ publicValues, proof, memos, recipe }) {
     return '0x' + selector('exitAndExecute(bytes,bytes,bytes[],' + EXIT_RECIPE_SIG + ')')
       + abiArgs([
         { bytes: publicValues }, { bytes: proof }, { bytesArray: memos },
-        // The recipe tuple body WITHOUT the top-level offset word (abiArgs places the tuple's own offset in
-        // the head); encodeExitRecipe returns `0x20 ‖ body`, so drop the leading 32-byte offset word.
         { rawDyn: '0x' + encodeExitRecipe(recipe).slice(2 + 64) },
       ]);
   }
@@ -647,20 +560,14 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
     return { to: routerAddr(), value: 0n, calldata: exitAndExecuteCalldata({ publicValues, proof, memos, recipe }) };
   }
 
-  // escrowAddressFor(ExitRecipe) — the on-chain view exitRecipeEscrow(...) mirrors locally; call this to
-  // cross-check that mirror against the live router before trusting it with a proof (mismatch ⇒ wrong escrow).
   function escrowAddressForCalldata(recipe) {
     return '0x' + selector('escrowAddressFor(' + EXIT_RECIPE_SIG + ')') + encodeExitRecipe(recipe).slice(2);
   }
 
-  // activateExit(ExitRecipe) — permissionless: deploy the recipe-bound escrow (if needed) and run its batch.
-  // Callable by anyone once the escrow is funded; decoupled from who settled the unwrap proof.
   function activateExitCalldata(recipe) {
     return '0x' + selector('activateExit(' + EXIT_RECIPE_SIG + ')') + encodeExitRecipe(recipe).slice(2);
   }
 
-  // reclaimExit(ExitRecipe, address[]) — permissionless post-deadline rescue: sweep the escrow's holdings to
-  // recipe.finalRecipient WITHOUT running the batch. `extraTokens` names outputs beyond recipe.sweepTokens.
   function reclaimExitCalldata(recipe, extraTokens = []) {
     return '0x' + selector('reclaimExit(' + EXIT_RECIPE_SIG + ',address[])')
       + abiArgs([
@@ -669,9 +576,6 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
         ]);
   }
 
-  // ── Ergonomic recipe builders ──
-  // buildBatchExit: general batch. `calls` is an array of { target, value?, token?, amount?, push?, data }.
-  // Returns a recipe ready for escrowAddressFor / proof construction / exitAndExecuteCalldata.
   function buildBatchExit({ exitedAsset, feeAsset = ZERO_ADDR, finalRecipient, deadline, nonce, calls, sweepTokens, minOuts }) {
     return {
       exitedAsset,
@@ -692,9 +596,6 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
     };
   }
 
-  // buildSwapExit: the single-call zRouter swap shape — exit `exitedAsset`, approve `inToken`/`inAmount` to
-  // zRouter, run `zCalldata` (a zRouter swap that delivers the output to the escrow, e.g. `to = address(0)`),
-  // then sweep `outToken` to `finalRecipient` with floor `minOut`. `push` selects APPROVE vs PUSH funding.
   function buildSwapExit({ exitedAsset, inToken, inAmount, outToken, minOut, finalRecipient, deadline, nonce, zCalldata, push = false, feeAsset = ZERO_ADDR }) {
     return buildBatchExit({
       exitedAsset,
@@ -708,30 +609,15 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
     });
   }
 
-  // ── OP-Stack L2 exit (Base et al) ──
-  // A shielded exit whose batch is a single canonical-bridge deposit: the escrow receives the unwrapped
-  // asset and hands it straight to the L1StandardBridge, which credits `l2Recipient` on the L2. Nothing is
-  // swept back (the funds leave L1 entirely), so `sweepTokens` is empty and `finalRecipient` is only the
-  // dust catcher for a partial/failed leg.
-  //
-  // PRIVACY BOUNDARY — the exit, the amount and `l2Recipient` are all public on L1. This buys "shielded
-  // accumulation, then exit anywhere", NOT a private cross-chain transfer. Do not present it as the latter.
-  //
-  // `depositETH`/`depositERC20` are `onlyEOA` and REVERT for a contract caller; the escrow is a contract, so
-  // the `…To` variants are the only usable ones. Per-chain L1StandardBridge address is the caller's to supply
-  // (Superchain Registry is canonical); Base mainnet is included below as the one we've verified.
   const OP_STACK_L1_BRIDGE = {
-    8453: '0x3154Cf16ccdb4C6d922629664174b904d80F2C35', // Base mainnet
+    8453: '0x3154Cf16ccdb4C6d922629664174b904d80F2C35',
   };
 
-  // depositETHTo(address _to, uint32 _minGasLimit, bytes _extraData) — payable, amount rides in msg.value.
   function depositETHToCalldata({ l2Recipient, minGasLimit = 200000, extraData = '0x' }) {
     return '0x' + selector('depositETHTo(address,uint32,bytes)')
       + abiArgs([{ static: addrWord(l2Recipient) }, { static: word(BigInt(minGasLimit)) }, { bytes: extraData }]);
   }
 
-  // depositERC20To(address _l1Token, address _l2Token, address _to, uint256 _amount, uint32 _minGasLimit,
-  //                bytes _extraData) — pulls via transferFrom, so the escrow funds it in APPROVE mode.
   function depositERC20ToCalldata({ l1Token, l2Token, l2Recipient, amount, minGasLimit = 200000, extraData = '0x' }) {
     return '0x' + selector('depositERC20To(address,address,address,uint256,uint32,bytes)')
       + abiArgs([
@@ -740,11 +626,6 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
       ]);
   }
 
-  // buildBridgeExit: exit `exitedAsset` and deposit it to `l2Recipient` on an OP-Stack L2.
-  // Native ETH (`l1Token` unset/zero) rides as call value; an ERC20 is approved to the bridge instead.
-  // `l2Token` is REQUIRED for the ERC20 path and is per-chain — it must come from that chain's token list /
-  // OptimismMintableERC20Factory. There is no universal L2 address for a given L1 token; a wrong one is a
-  // permanent misdelivery, so it is never defaulted here.
   function buildBridgeExit({
     exitedAsset, amount, l2Recipient, chainId = 8453, bridge, l1Token, l2Token,
     minGasLimit = 200000, finalRecipient, deadline, nonce, feeAsset = ZERO_ADDR,
@@ -765,26 +646,10 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
     });
   }
 
-  // ── Arbitrum Orbit L2 exit (Robinhood Chain et al) ──
-  // Arbitrum's deposit path is a DIFFERENT shape than OP-Stack's, and more dangerous if gotten wrong:
-  // Inbox.depositEth() from a CONTRACT caller (our escrow) SUCCEEDS and silently credits the contract's
-  // L2 ALIAS (L1_addr + 0x1111000000000000000000000000000000001111) — an address nobody holds a key
-  // for. There is no revert to catch this, unlike OP-Stack's onlyEOA. The only safe path is
-  // createRetryableTicket, which lets the escrow name the real L2 recipient explicitly.
-  //
-  // Unlike an OP-Stack deposit, msg.value here must ALSO prepay L2 execution gas
-  // (l2CallValue + maxSubmissionCost + gasLimit*maxFeePerGas) — any unused budget refunds ON L2, to
-  // excessFeeRefundAddress/callValueRefundAddress, never back to the L1 escrow. Arbitrum auto-aliases
-  // those refund addresses if they're L1 contracts (its own guard against this exact bug class) — but an
-  // aliased address is still one we hold no L2 key for, so callers MUST set both refund addresses to
-  // l2Recipient itself, never the escrow.
   const ARBITRUM_ORBIT_INBOX = {
-    4663: '0x1A07cc4BD17E0118BdB54D70990D2158AbAD7a2D', // Robinhood Chain mainnet
+    4663: '0x1A07cc4BD17E0118BdB54D70990D2158AbAD7a2D',
   };
 
-  // createRetryableTicket(address,uint256,uint256,address,address,uint256,uint256,bytes) — selector
-  // 0x679b6ded, verified against the live Robinhood Chain Inbox. msg.value must equal
-  // l2CallValue + maxSubmissionCost + gasLimit*maxFeePerGas.
   function createRetryableTicketCalldata({
     to, l2CallValue, maxSubmissionCost, excessFeeRefundAddress, callValueRefundAddress,
     gasLimit, maxFeePerGas, data = '0x',
@@ -798,12 +663,6 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
         ]);
   }
 
-  // buildArbitrumBridgeExit: exit `exitedAsset` and deposit it to `l2Recipient` on an Arbitrum Orbit L2
-  // via a retryable ticket. `l2CallValue` is what actually lands on L2 for `l2Recipient`; the recipe's
-  // call.value is the FULL escrow spend (l2CallValue + maxSubmissionCost + gasLimit*maxFeePerGas) —
-  // unlike buildBridgeExit, this is not just the deposit amount. gasLimit/maxSubmissionCost/maxFeePerGas
-  // must come from a live quote (NodeInterface.estimateRetryableTicket + Inbox.calculateRetryableSubmissionFee)
-  // — this function does no estimation itself, it only assembles the already-quoted call.
   function buildArbitrumBridgeExit({
     exitedAsset, l2Recipient, chainId = 4663, inbox,
     l2CallValue, maxSubmissionCost, gasLimit, maxFeePerGas,
@@ -817,9 +676,6 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
       target, value: totalValue, token: ZERO_ADDR, amount: 0, push: false,
       data: createRetryableTicketCalldata({
         to: l2Recipient, l2CallValue, maxSubmissionCost,
-        // Both refund addresses MUST be l2Recipient — never the escrow, never an L1-only address. See
-        // the block comment above: Arbitrum aliases a contract refund address, landing it somewhere
-        // nobody holds an L2 key for.
         excessFeeRefundAddress: l2Recipient, callValueRefundAddress: l2Recipient,
         gasLimit, maxFeePerGas,
       }),
@@ -832,33 +688,24 @@ export function makeConfidentialRouter({ secp, keccak256, sha256, cfg } = {}) {
 
   return {
     PERMIT2_ADDRESS, ZROUTER_ADDRESS, routerAddr, evmAssetId,
-    // exit-and-execute (recipe-bound PUSH0-clone batch executor escrow)
     initCodeHashPush0, encodeExitRecipe, exitRecipeSalt, exitRecipeEscrow,
     exitAndExecuteCalldata, buildExitAndExecute, buildBatchExit, buildSwapExit,
     escrowAddressForCalldata, activateExitCalldata, reclaimExitCalldata,
-    // OP-Stack L2 exit (Base et al) — see buildBridgeExit's privacy-boundary note
     OP_STACK_L1_BRIDGE, depositETHToCalldata, depositERC20ToCalldata, buildBridgeExit,
-    // Arbitrum Orbit L2 exit (Robinhood Chain et al) — see buildArbitrumBridgeExit's alias/refund note
     ARBITRUM_ORBIT_INBOX, createRetryableTicketCalldata, buildArbitrumBridgeExit,
-    // EIP-712 typehashes (public constants — exposed for cross-checking vs the canonical Permit2/EIP-2612)
     typehashes: { details: PERMIT_DETAILS_TYPEHASH, single: PERMIT_SINGLE_TYPEHASH, batch: PERMIT_BATCH_TYPEHASH, erc2612: PERMIT_2612_TYPEHASH },
-    // signing
     signErc2612, signPermit2Single, signPermit2Batch, poolId,
-    // public AMM quoting helpers (pure; reserve snapshots come from pool.pools(poolId) / indexer)
     publicAmountOut, publicAmountInForExactOut, quotePublicPathExactOut,
-    // calldata (proof-free)
     wrapWithPermitCalldata, wrapWithPermit2Calldata, wrapETHCalldata,
     swapPublicWithPermitCalldata, swapPublicWithPermit2Calldata, swapPublicETHCalldata,
     swapPublicPathWithPermit2Calldata, swapPublicETHPathCalldata,
     swapETHViaZRouterCalldata, swapTokenViaZRouterWithPermit2Calldata, addLiquidityPublicWithPermit2Calldata,
     addLiquidityPublicETHWithPermit2Calldata, removeLiquidityPublicCalldata,
-    // calldata (atomic-settle: embeds a box prove-only proof)
     wrapAndSettleWithPermitCalldata, wrapAndSettleWithPermit2Calldata, wrapAndSettleETHCalldata, zapETHToPaymentCalldata,
     wrapAndMintCusdWithPermitCalldata, wrapAndMintCusdWithPermit2Calldata, wrapETHAndMintCusdCalldata,
     zapETHToCanonicalNoteCalldata, zapTokenToCanonicalNoteWithPermit2Calldata,
     zapETHToCdpMintCalldata, zapTokenToCdpMintWithPermit2Calldata,
     zapETHToCanonicalCdpMintCalldata, zapTokenToCanonicalCdpMintWithPermit2Calldata,
-    // builders
     buildWrapWithPermit, buildWrapWithPermit2, buildWrapETH, buildSwapPublicWithPermit2, buildSwapPublicETH,
     buildSwapPublicPathWithPermit2, buildSwapPublicETHPath,
     buildSwapETHViaZRouter, buildSwapTokenViaZRouterWithPermit2, buildAddLiquidityPublicWithPermit2,

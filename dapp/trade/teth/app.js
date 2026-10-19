@@ -6,9 +6,9 @@
 // It reads the chain and the API with no wallet, as /trade/tac/ does, and holds no key it was not given: the key lives in this visit's memory.
 import { mountChart, fmtLocalStamp, fmtLocalTime } from '/trade/chart.js?cb=a17675b8';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=ceb79a33';
-import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=095a8480';
-import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=1f11613c';
-import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, proveOwn, ownWords, ownable, relayState, relayStopped, forgetUx, getUx } from '/trade/teth/wrap.js?cb=384ab9cf';
+import { makeKeySession, signInSheet, Cancelled } from '/trade/key.js?cb=149c5b79';
+import { readPool, heldHistory, heldBars, rangesFor, barSize, recentMoves, movedSince, readRates, readProgram, poolRows, positionsIn, programEnds, wrapQuote, shown, POOL, WRAP_TIP } from '/trade/teth/read.js?cb=de43ba2c';
+import { wrapEth, settle, readHeld, finish, wrapIssue, relayWords, selfable, selfFinish, settleCost, proveOwn, ownWords, ownable, relayState, relayStopped, forgetUx, getUx } from '/trade/teth/wrap.js?cb=6b8d342b';
 import { ownPref, setOwnPref, proverFor, readCredit, proofsFor, fundFromWallet, quoteEth, quoteEthFor, fundWithEth, loadSelfProver, tokenBalance } from '/trade/teth/prover.js?cb=af9025c9';
 import { overlay } from '/trade/sheet.js?cb=84cda8f2';
 import { mountDepth } from '/trade/depth.js?cb=6e51e04f';
@@ -192,7 +192,7 @@ function notify(msg, kind = '', ms = 5000) {
 }
 async function openBitcoin(prime = null) {
   try {
-    bitcoin ||= (await import('/trade/btc.js?cb=abb130b3')).makeBitcoin({ notify, onTraded: () => loadMarket().then(paintAll).catch(() => {}),
+    bitcoin ||= (await import('/trade/btc.js?cb=41a2ac80')).makeBitcoin({ notify, onTraded: () => loadMarket().then(paintAll).catch(() => {}),
       asset: { id: BTC_ID, title: 'tETH on Bitcoin', after: 'tETH reaches Bitcoin through the bridge: <a href="/#private/bitcoin">Bridge →</a>' } });
     await bitcoin.open(prime);
   } catch (e) { notify(`The Bitcoin market could not be opened: ${e?.message || e}`, 'error', 9000); }

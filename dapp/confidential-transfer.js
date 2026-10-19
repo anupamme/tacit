@@ -1,21 +1,3 @@
-// Arbitrary-amount confidential transfer for the EVM confidential pool — the
-// Bitcoin-CXFER construction, EVM-side. A transfer proves two things about
-// hidden amounts:
-//   1. non-negativity: every output value ∈ [0, 2^64), via an aggregated
-//      secp256k1 Bulletproofs+ range proof (dapp/bulletproofs-plus.js, the same
-//      construction and generators as the Bitcoin layer — so a note and its range
-//      proof are byte-identical across chains).
-//   2. conservation: Σ C_in − Σ C_out is a multiple of G (a Mimblewimble kernel
-//      Schnorr under the blinding excess). Since H and G are independent, that
-//      forces Σ value_in = Σ value_out; with the ranges, no value is created and
-//      none is negative.
-//
-// This prover runs in Node/browser today. The SP1 guest's job is only to
-// RE-VERIFY this exact proof, so a passing Node round-trip here locks the proof
-// format the guest will check — the guest port is then a mechanical
-// re-implementation of bppRangeVerify + this kernel in Rust.
-//
-// keccak256 injected for Node + browser parity.
 
 import {
   bppH, bppRangeProve, bppRangeVerify,
@@ -23,10 +5,6 @@ import {
 } from './bulletproofs-plus.js';
 
 const KERNEL_DOMAIN = new TextEncoder().encode('tacit-evm-cxfer-kernel-v1');
-// OP_TRANSFER's own kernel domain (cxfer-core TRANSFER_KERNEL_DOMAIN). A native transfer input is authorized by its
-// nullifier key and the kernel alone, so a transfer kernel must never share a transcript with another op's kernel —
-// otherwise a relay holding, say, a send-unwrap witness could settle it as a transfer and take the payout as its fee.
-// Pass `domain: 'transfer'` exactly when the result settles as OP_TRANSFER.
 const TRANSFER_KERNEL_DOMAIN = new TextEncoder().encode('tacit-evm-transfer-kernel-v1');
 const kernelDomainBytes = (domain) => {
   if (domain === 'transfer') return TRANSFER_KERNEL_DOMAIN;
@@ -40,7 +18,7 @@ export function makeConfidentialTransfer({ keccak256 }) {
   const bytesToHex = (b) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
   const hexToBytes = (h) => Uint8Array.from((String(h).replace(/^0x/, '').match(/../g) || []).map((x) => parseInt(x, 16)));
   const concat = (arr) => { const t = arr.reduce((s, x) => s + x.length, 0); const o = new Uint8Array(t); let p = 0; for (const x of arr) { o.set(x, p); p += x.length; } return o; };
-  const ptBytes = (P) => P.toRawBytes(true); // 33-byte compressed
+  const ptBytes = (P) => P.toRawBytes(true);
   const beHex = (n) => '0x' + n.toString(16).padStart(64, '0');
   const b32 = (h) => { const b = hexToBytes(h); if (b.length > 32) throw new Error('over 32 bytes'); const o = new Uint8Array(32); o.set(b, 32 - b.length); return o; };
   const u16be = (n) => Uint8Array.of((Number(n) >> 8) & 0xff, Number(n) & 0xff);
@@ -48,28 +26,15 @@ export function makeConfidentialTransfer({ keccak256 }) {
   const sum = (pts) => pts.reduce((a, p) => a.add(p), ZERO);
   const commit = (v, r) => H.multiply(v).add(mul(G, r));
   const xy = (P) => { const a = P.toAffine(); return { cx: beHex(a.x), cy: beHex(a.y) }; };
-  // The inverse of xy, and a point from its compressed hex: a note's commitment and a kernel's R as the points they are, for a
-  // party that holds only the op (no openings) and checks it (verifyTransfer).
   const pointOf = (cx, cy) => G.constructor.fromAffine({ x: BigInt(cx), y: BigInt(cy) });
   const pointFromHex = (h) => G.constructor.fromHex(String(h).replace(/^0x/, ''));
-  // NATIVE (EVM-domain) leaf = keccak(asset ‖ cx ‖ cy ‖ owner) — same layout as confidential-pool.leaf().
-  // Used for a non-Bitcoin destination and for ordinary transfer output binding.
   const destLeaf = (assetId, cx, cy, owner) => '0x' + bytesToHex(keccak256(concat([b32(assetId), b32(cx), b32(cy), b32(owner)])));
-  // BITCOIN-homed leaf = keccak(asset ‖ Cx ‖ Cy ‖ auth_key ‖ "tacit-btc-note-v1") — byte-identical to
-  // cxfer-core btc_note_leaf / confidential-pool.btcNoteLeaf. `auth_key` is the recipient's x-only Taproot
-  // key, which is what reflection's fold_crossout reads from the mint tx's vout-0 P2TR program.
   const BTC_NOTE_DOM = new TextEncoder().encode('tacit-btc-note-v1');
   const btcDestLeaf = (assetId, cx, cy, authKey) =>
     '0x' + bytesToHex(keccak256(concat([b32(assetId), b32(cx), b32(cy), b32(authKey), BTC_NOTE_DOM])));
-  // claimId = keccak(abi.encodePacked(destChain:uint16, destCommitment:bytes32,
-  // nullifier:bytes32, assetId:bytes32)) — mirrors ConfidentialPool.settle's re-derivation.
   const claimId = (destChain, destCommitment, nullifier, assetId) =>
     '0x' + bytesToHex(keccak256(concat([u16be(destChain), b32(destCommitment), b32(nullifier), b32(assetId)])));
 
-  // `outLeaves` (ordered output leaf hashes) bind the output OWNER into the kernel for ops that emit
-  // fresh prover-supplied-owner leaves (transfer / wrap-transfer / send-unwrap change), mirroring the
-  // guest's verify_kernel_with_fee_bound (leaves hashed AFTER out points, BEFORE R). Empty ⇒ the original
-  // transcript (bridge-burn / crossout, which force ZERO_OWNER or bind owner elsewhere, pass none).
   function kernelChallenge(inC, outC, R, outLeaves = [], domain) {
     const parts = [kernelDomainBytes(domain)];
     for (const P of inC) parts.push(ptBytes(P));
@@ -79,10 +44,6 @@ export function makeConfidentialTransfer({ keccak256 }) {
     return modN(BigInt('0x' + bytesToHex(keccak256(concat(parts)))));
   }
 
-  // Low-level conservation-kernel signer for ops that bind a NON-note out-leaf (e.g. the stealth blind LOCK
-  // leaf) or no leaf at all (bridge-stealth, where burn-set membership pins it). Returns the kernel { R, z }
-  // over Σin = Σout + fee with the given ordered `outLeaves` bound, mirroring verify_kernel_with_fee_bound.
-  // No range proof (the caller adds one only where the guest reads it). The fee is public ⇒ excess = Σr_in − Σr_out.
   function kernelSign({ inputs, outputs, fee = 0n, outLeaves = [], domain }) {
     const f = BigInt(fee);
     if (inputs.reduce((s, i) => s + i.value, 0n) !== outputs.reduce((s, o) => s + o.value, 0n) + f) {
@@ -97,27 +58,20 @@ export function makeConfidentialTransfer({ keccak256 }) {
     return { R, z: modN(k + e * excess), inC, outC };
   }
 
-  // inputs: [{ value, blinding }]; outputs: [{ value, blinding, owner }] with Σ value equal (modulo fee).
-  // `assetId` + each output `owner` bind the output LEAF into the kernel (so a delegated prover can't mutate
-  // an output owner into an unspendable leaf). Output count m must be in {1, 2, 4, 8} (BP+ aggregation).
   function buildTransfer({ inputs, outputs, fee = 0n, assetId, domain }) {
     const f = BigInt(fee);
     const sumIn = inputs.reduce((s, i) => s + i.value, 0n);
     const sumOut = outputs.reduce((s, o) => s + o.value, 0n);
-    // Conservation with a public relay fee: Σin = Σout + fee. The fee leaves the shielded set as a
-    // FeePayment (in the transfer asset); fee = 0 ⇒ the original Σin = Σout transfer.
     if (sumIn !== sumOut + f) throw new Error('transfer not conserved: Σin ≠ Σout + fee');
 
     const { proof: rangeProof, commitments: outC } =
       bppRangeProve(outputs.map((o) => o.value), outputs.map((o) => o.blinding));
     const inC = inputs.map((i) => commit(i.value, i.blinding));
-    // Output leaves (owner-bound) — keccak(asset‖cx‖cy‖owner), byte-identical to the guest's leaf().
     const outLeaves = outC.map((P, j) => {
       const { cx, cy } = xy(P);
       return destLeaf(assetId, cx, cy, outputs[j].owner);
     });
 
-    // The fee is public (no blinding), so the kernel excess is unchanged: Σr_in − Σr_out.
     const excess = modN(
       inputs.reduce((s, i) => s + i.blinding, 0n) - outputs.reduce((s, o) => s + o.blinding, 0n)
     );
@@ -129,61 +83,34 @@ export function makeConfidentialTransfer({ keccak256 }) {
     return { inC, outC, rangeProof, kernel: { R, z }, fee: f, outLeaves, domain };
   }
 
-  // Kernel-only conservation check (no range proof) — for ops whose range is bounded elsewhere or absent
-  // (stealth blind lock / bridge-stealth mint). Mirrors verify_kernel_with_fee_bound.
   function verifyKernel({ inC, outC, fee = 0n, kernel, outLeaves = [], domain }) {
     let X = sum(inC).add(sum(outC).negate());
-    if (BigInt(fee) !== 0n) X = X.add(mul(H, BigInt(fee)).negate()); // multiply-by-0 throws in noble
+    if (BigInt(fee) !== 0n) X = X.add(mul(H, BigInt(fee)).negate());
     const e = kernelChallenge(inC, outC, kernel.R, outLeaves, domain);
     return mul(G, kernel.z).equals(kernel.R.add(mul(X, e)));
   }
 
-  // Verifies ranges + conservation. Returns true iff the transfer creates no
-  // value and contains no negative output.
   function verifyTransfer({ inC, outC, rangeProof, kernel, fee = 0n, outLeaves = [], domain }) {
     if (!bppRangeVerify(outC, rangeProof)) return false;
     const f = BigInt(fee);
-    // Σ C_in − Σ C_out − fee·H (the public fee leaves the shielded set); fee = 0 ⇒ the original check.
     const X = sum(inC).add(sum(outC).negate()).add(mul(H, f).negate());
     const e = kernelChallenge(inC, outC, kernel.R, outLeaves, domain);
-    const lhs = mul(G, kernel.z);                        // z·G
-    const rhs = kernel.R.add(mul(X, e));                 // R + e·X
+    const lhs = mul(G, kernel.z);
+    const rhs = kernel.R.add(mul(X, e));
     return lhs.equals(rhs);
   }
 
-  // A bridge-burn (Ethereum → Bitcoin): the same conservation + range proof as a
-  // transfer, but the outputs are destination notes that will be MINTED ON BITCOIN
-  // rather than appended as Ethereum leaves. Each output yields a `crossOut`
-  // record {destChain, destCommitment, nullifier, assetId, claimId} that the
-  // contract emits (CrossOutRecorded) for Bitcoin validators to honor once-and-
-  // past-finality. Conservation across the chain boundary: Σ value_in (Ethereum,
-  // burned) = Σ value_out (Bitcoin, minted).
-  //
-  // inputs: [{value, blinding}] (Ethereum notes being burned, nullified).
-  // outputs: [{value, blinding, owner}] (Bitcoin destination notes; owner = the
-  //   recipient's x-only Taproot key). Exactly ONE output: every destination of a burn carries the same bound
-  //   nullifier and the pool records one cross-out per nullifier, so the guest refuses more than one.
-  // bindNullifier: the burn's canonical nullifier (the first input's ν), binding
-  //   every claimId of this burn to a specific consumed note (anti-replay).
   function buildBridgeBurn({ inputs, outputs, assetId, destChain, bindNullifier, fee = 0n }) {
     if (outputs.length !== 1) throw new Error('bridge-burn: exactly one destination per burn');
     const f = BigInt(fee);
     const sumIn = inputs.reduce((s, i) => s + i.value, 0n);
     const sumOut = outputs.reduce((s, o) => s + o.value, 0n);
-    // Conservation across the boundary, net of the relay fee: Σin (ETH burned) = Σout (BTC minted) + fee.
     if (sumIn !== sumOut + f) throw new Error('bridge-burn not conserved: Σin ≠ Σout + fee');
 
     const { proof: rangeProof, commitments: outC } =
       bppRangeProve(outputs.map((o) => o.value), outputs.map((o) => o.blinding));
     const inC = inputs.map((i) => commit(i.value, i.blinding));
 
-    // Destination leaves FIRST: the guest verifies the kernel with them bound
-    // (verify_kernel_with_fee_bound(in, out, fee, dest_commitments, R, z)), so signing over the bare
-    // (in,out,R) transcript produces a kernel the guest rejects as "conservation". A BITCOIN destination
-    // (destChain 1) commits under the Bitcoin-homed leaf domain keyed by the recipient's x-only TAPROOT
-    // key — mirroring main.rs OP_BRIDGE_BURN, which builds btc_note_leaf(asset,Cx,Cy,dest_auth_key) for
-    // dest_chain==1 and the native leaf otherwise. Using the native domain for a Bitcoin dest yields a
-    // destCommitment reflection will never fold, stranding the crossOut.
     const destCommitments = outC.map((C, j) => {
       const { cx, cy } = xy(C);
       return destChain === 1
@@ -215,11 +142,6 @@ export function makeConfidentialTransfer({ keccak256 }) {
     return { inC, outC, rangeProof, kernel: { R, z }, crossOuts, fee: f };
   }
 
-  // Verifies a bridge-burn: ranges + conservation (as a transfer) + that every
-  // crossOut's claimId binds its own (destChain, destCommitment, ν, assetId).
-  // Re-derives each destCommitment in the SAME domain buildBridgeBurn used (Bitcoin-homed for destChain 1,
-  // native otherwise) and feeds them to the kernel check as `outLeaves` — the guest binds them, so verifying
-  // without them would pass a kernel the guest rejects.
   function verifyBridgeBurn({ inC, outC, rangeProof, kernel, crossOuts, fee = 0n }) {
     const expectLeaves = crossOuts.map((c) => (Number(c.destChain) === 1
       ? btcDestLeaf(c.assetId, c.cx, c.cy, c.owner)
@@ -234,8 +156,6 @@ export function makeConfidentialTransfer({ keccak256 }) {
     return true;
   }
 
-  // Standalone aggregated BP+ range proof over `values` (with `blindings`) — for an output whose conservation
-  // kernel is unbound (e.g. the bridge-stealth lock L, range-bounded so the relay fee can't exceed the burn).
   function rangeProve(values, blindings) { return bppRangeProve(values, blindings); }
 
   return { H, commit, kernelSign, verifyKernel, rangeProve, buildTransfer, verifyTransfer, buildBridgeBurn, verifyBridgeBurn, claimId, destLeaf, btcDestLeaf, pointOf, pointFromHex, _ptBytes: ptBytes };

@@ -1,7 +1,3 @@
-// Confidential Pool tab — the dapp render over the LIVE pool (mainnet or the Sepolia signet pilot,
-// whichever confidential-deployments.js resolves as active). Presentational only; the read path (account +
-// seed-only balance) and the wrap/exit BUILD paths live in confidential-pool-ux.js (tested). Kept OUT of
-// tacit.js (a thin hook calls this).
 
 import { secp, sha256, keccak_256, bytesToHex } from './vendor/tacit-deps.min.js';
 import { makeConfidentialPoolUx } from './confidential-pool-ux.js';
@@ -18,7 +14,6 @@ function getUx() {
 
 const el = (id) => document.getElementById(id);
 
-// Exact ETH-string → wei (no float).
 function ethToWei(s) {
   s = String(s == null ? '' : s).trim();
   if (!s || !/^\d*\.?\d*$/.test(s)) return '0';
@@ -27,13 +22,6 @@ function ethToWei(s) {
   return (BigInt(i || '0') * (10n ** 18n) + BigInt(frac || '0')).toString();
 }
 
-// Wrap on-ramp: build + sign + broadcast the deposit, then carry it all the way to a spendable note. Order
-// matters — submitWrapSettle's guest checks the deposit is already registered, so the deposit tx must be
-// mined before submitting the OP_WRAP witness for settle. wrap()/routerWrap() already return every field
-// submitWrapSettle needs (wrapOp, leaf, outputs, memos, ephRand).
-// ticker/idPrefix/noteName let the same wiring drive more than one asset's wrap panel (cETH, cTAC, ...) —
-// wrap()/routerWrap() are already generic by ticker (confidential-pool-ux.js); this was the one DOM-wiring
-// layer still hard-coded to cETH's own ids and copy.
 function wireWrap(wallet, ux, { ticker = 'cETH', idPrefix = 'cpool-wrap', noteName = 'tETH' } = {}) {
   const btn = el(`${idPrefix}-btn`);
   if (!btn) return;
@@ -44,10 +32,8 @@ function wireWrap(wallet, ux, { ticker = 'cETH', idPrefix = 'cpool-wrap', noteNa
     if (!wei || wei === '0') { if (st) st.textContent = 'Enter an amount.'; return; }
     btn.disabled = true;
     if (st) st.textContent = 'Building + broadcasting the deposit…';
-    let r; // declared outside try so the catch block can still report a txHash from a step after broadcast
+    let r;
     try {
-      // One-tx ConfidentialRouter wrap when the router is deployed (collapses approve+wrap); otherwise the
-      // direct pool deposit. Same note commitment + recovery either way.
       r = ux.cfg.router
         ? await ux.routerWrap({ walletPriv: wallet.priv, amountWei: wei, ticker })
         : await ux.wrap({ walletPriv: wallet.priv, amountWei: wei, ticker });
@@ -59,10 +45,6 @@ function wireWrap(wallet, ux, { ticker = 'cETH', idPrefix = 'cpool-wrap', noteNa
       notify(`Wrap settled — ${noteName} note ready`, 'ok');
     } catch (e) {
       const m = formatSpecErr(e, 'Wrap');
-      // The deposit itself may already be irreversibly on-chain even though this failed (a dropped
-      // connection after broadcast, a settle timeout) — never imply otherwise, since the fix here is to
-      // resubmit the SAME index's settle, not to re-wrap and double-deposit.
-      // A deposit that reverted deposited nothing, so there is nothing to resume.
       if (st) st.textContent = r && r.txHash && !(e && e.reverted)
         ? `${m} — the deposit (${r.txHash}) is on-chain; do not re-wrap the same amount. Reload this tab — the pending deposit will show below with a Resume button.`
         : m;
@@ -73,15 +55,6 @@ function wireWrap(wallet, ux, { ticker = 'cETH', idPrefix = 'cpool-wrap', noteNa
   };
 }
 
-// pendingWrapRowsHtml / notifyPendingWrapsOnce now live in confidential-scan-health.js, shared with csend
-// (same wrap()/routerWrap() call, same failure mode). This file keeps only the DOM wiring below, which the
-// shared module deliberately stays free of (see its file header: no DOM, no network).
-
-// Deposits already on-chain (pool.wrap()/routerWrap() broadcast and confirmed) whose settle proof never
-// landed — a dropped connection or relay hiccup after wireWrap's broadcast step, before its submitWrapSettle
-// step. The escrow is safe and the note is deterministically recoverable from this wallet's own key
-// (buildWrap re-derives the exact same commitment for a given index — see confidential-pool-ux.js), so
-// resuming never re-broadcasts the deposit: it only rebuilds the OP_WRAP witness and resubmits it for settle.
 function wireResumeWraps(wallet, ux, diag) {
   const pending = (diag && diag.wrap && diag.wrap.pending) || [];
   if (!pending.length) return;
@@ -103,7 +76,7 @@ function wireResumeWraps(wallet, ux, diag) {
         const built = ux.buildWrap({ walletPriv: wallet.priv, amountWei: (BigInt(p.value) * unitScale).toString(), ticker, index: p.index });
         await ux.submitWrapSettle({ built });
         notify(`Settled — ${fmtUnits(p.value, meta ? (meta.tacitDecimals ?? meta.decimals) : 8)} ${shownTicker(ticker)} note ready`, 'ok');
-        setTimeout(() => renderConfidentialPoolTab(wallet), 1500); // refresh balance + pending list
+        setTimeout(() => renderConfidentialPoolTab(wallet), 1500);
       } catch (e) {
         btn.disabled = false;
         btn.textContent = prevText;
@@ -113,9 +86,6 @@ function wireResumeWraps(wallet, ux, diag) {
   }
 }
 
-// Gasless exit: render each recovered note as a whole-note exit row with a live fee preview, then submit
-// the chosen note to the relay (the box settles on-chain + is paid the fee out of the withdrawal, so the
-// user needs no ETH). The recipient + no-fee toggle are read at click time; no-fee builds a fee-0 exit.
 function wireExit(wallet, ux, notes) {
   const listEl = el('cpool-exit-list');
   const statusEl = el('cpool-exit-status');
@@ -124,12 +94,10 @@ function wireExit(wallet, ux, notes) {
 
   const decOf = (assetId) => {
     const m = ux.assets.find((x) => x.assetId.toLowerCase() === String(assetId).toLowerCase());
-    return m ? (m.tacitDecimals ?? m.decimals) : 8; // note values are in-system units
+    return m ? (m.tacitDecimals ?? m.decimals) : 8;
   };
   const byLeaf = new Map(notes.map((n) => [String(n.leafIndex), n]));
 
-  // An exit to the account deposits come from (the default when the field is empty) can be matched to them on
-  // chain; say so while it applies. Not refused: it is the user's call.
   const recField = el('cpool-exit-recipient'), linkNote = el('cpool-exit-linknote');
   const own = String(ux.account(wallet.priv).address).toLowerCase();
   const noteLink = () => {
@@ -151,7 +119,7 @@ function wireExit(wallet, ux, notes) {
       preview = q.net > 0n
         ? `→ receive ${fmtUnits(q.net, dec)} (fee ${fmtUnits(q.fee, dec)})`
         : '→ too small for a fee exit — tick “No fee”';
-    } catch { /* leave preview blank */ }
+    } catch { }
     return `<div class="list-row">`
       + `<span>${fmtUnits(n.value, dec)} ${esc(shownTicker(ticker))}${inboundBadgeHtml(n)} <span class="muted">${esc(preview)}</span></span>`
       + `<button data-leaf="${n.leafIndex}" class="cpool-exit-one" style="padding:4px 10px;font-size:10px;flex:0 0 auto;">Exit</button></div>`;
@@ -163,8 +131,6 @@ function wireExit(wallet, ux, notes) {
       if (!note) return;
       const recInput = el('cpool-exit-recipient');
       const recipient = (recInput && recInput.value || '').trim() || undefined;
-      // "No fee": the relay only proves the exit, and this key's own Tacit account sends its settle (paying the network fee),
-      // so the whole note reaches the recipient.
       const noFee = !!(el('cpool-exit-selfsettle') && el('cpool-exit-selfsettle').checked);
       const selfSettle = noFee
         ? ({ publicValues, proof, memos, pair }) => ux.settleFromAccount({ settlerPriv: wallet.priv, publicValues, proof, memos, pair })
@@ -184,7 +150,7 @@ function wireExit(wallet, ux, notes) {
             + (r.txHash ? ` (<code class="addr">${esc(r.txHash)}</code>)` : '') + '.';
         }
         notify(`Exit settled — ${fmtUnits(r.net, dec)} ${shownTicker(ticker)}`, 'ok');
-        setTimeout(() => renderConfidentialPoolTab(wallet), 1500); // refresh balance + exitable notes
+        setTimeout(() => renderConfidentialPoolTab(wallet), 1500);
       } catch (e) {
         const msg = (e && e.message) || String(e);
         const full = 'Exit failed: ' + msg + (/too small/.test(msg) ? ' — tick “No fee” to exit this note.' : '');
@@ -195,11 +161,6 @@ function wireExit(wallet, ux, notes) {
   }
 }
 
-// Cross-out (Ethereum -> Bitcoin) for confidential TAC notes: settle on Ethereum, wait for the reflection
-// worker's eth-state view to cover it, then mint on Bitcoin — see dapp/crossout-ux.js's own header for the
-// full state machine. The note picker follows the same convention dapp/burndep-ux.js's forward direction
-// uses: every note is listed, ineligible ones disabled with a reason. The in-flight list below it survives
-// reloads (crossoutUx journals to storage before each step, same as the forward bridge).
 const CROSSOUT_STAGE_LABEL = {
   settling: 'Sent to Ethereum — waiting for the settle to land',
   settled: 'Settled on Ethereum — waiting for the reflection worker to see it',
@@ -231,11 +192,6 @@ function crossoutRecordsHtml(records, network) {
   return `<div style="margin-bottom:4px;"><b style="font-size:11px;">Bridges to Bitcoin</b></div>${rows}`;
 }
 
-// Always present regardless of whether any record is journalled -- same rationale as burndep's own resume
-// box (dapp/tacit.js's _renderHoldingsBurndepBridges): the journal is a local cache, and losing it must not
-// also lose the only way back. recoverFromEthTx re-derives everything from the settle tx hash + the amount
-// (not recoverable from chain data alone) and refuses -- throws -- rather than journalling a wrong record if
-// the recomputed destCommitment doesn't match the real on-chain event.
 function crossoutResumeBoxHtml(hasRecords) {
   return `<details style="${hasRecords ? 'margin-top:10px;padding-top:8px;border-top:1px solid var(--ink-faint);' : ''}">`
     + `<summary class="muted" style="cursor:pointer;font-size:11px;">${hasRecords ? "Don't see a bridge you expect? " : ''}Recover a bridge from its Ethereum settle tx hash →</summary>`
@@ -248,8 +204,6 @@ function crossoutResumeBoxHtml(hasRecords) {
     + `</details>`;
 }
 
-// Wired independently of the note picker below (which needs the wallet to actually hold a TAC note) since
-// recovery must work even when the picker has nothing to show.
 function wireCrossoutResume(wallet, crossoutUx) {
   const btn = document.querySelector('[data-crossout-resume-btn]');
   if (!btn) return;
@@ -265,7 +219,7 @@ function wireCrossoutResume(wallet, crossoutUx) {
     btn.disabled = true;
     if (statusEl) statusEl.textContent = 'Checking the settle and rebuilding this bridge from chain data…';
     try {
-      const amountRaw = BigInt(Math.round(amountTac * 1e8)); // TAC uses 8 decimals
+      const amountRaw = BigInt(Math.round(amountTac * 1e8));
       await crossoutUx.recoverFromEthTx(txHash.startsWith('0x') ? txHash : '0x' + txHash, wallet.priv, { amount: amountRaw });
       notify('Bridge recovered from its transaction hash', 'ok');
       setTimeout(() => renderConfidentialPoolTab(wallet, crossoutUx), 1500);
@@ -276,16 +230,6 @@ function wireCrossoutResume(wallet, crossoutUx) {
   };
 }
 
-// Same "no black hole" rationale as dapp/tacit.js's _startBurndepAutoRefresh for the forward bridge: without
-// this, a cross-out only ever advances on an explicit Continue click or a fresh start() -- someone who bridges
-// and then just doesn't come back to click through each stage would otherwise sit stalled indefinitely even
-// though every remaining step is a plain poll. Self-stops once nothing is left to watch. Checks the panel's
-// own .active class (toggled by _activateTab in dapp/tacit.js for every tab-panel uniformly) rather than a
-// nav-button selector, since this tab is reached from a wallet-lane card, not a top-level .tab button.
-// wallet is a `const` in tacit.js (mutated in place on lock/unlock, never reassigned), so capturing it once
-// here stays correct across the poller's whole lifetime. crossoutUx is NOT: _crossoutUxSingleton() hands back
-// a different instance per network, so a network switch mid-poll needs the timer restarted against the new
-// one rather than silently continuing to poll the old network through a stale closure.
 const CROSSOUT_POLL_INTERVAL_MS = 75 * 1000;
 let _crossoutPollTimer = null;
 let _crossoutPollNetwork = null;
@@ -305,9 +249,9 @@ function _startCrossoutAutoRefresh(wallet, crossoutUx) {
     if (!records.length) { _stopCrossoutAutoRefresh(); return; }
     let changed = false;
     for (const rec of records) {
-      if (rec.stage === 'covered') continue; // covered -> mint-signed needs the key -- user-driven only
+      if (rec.stage === 'covered') continue;
       try { const after = await crossoutUx.advance(walletPub, rec.id); if (after.stage !== rec.stage) changed = true; }
-      catch { changed = true; /* the record's own lastError just moved even though its stage didn't -- re-render so it shows */ }
+      catch { changed = true; }
     }
     if (changed && document.getElementById('tab-confidential-pool')?.classList.contains('active')) renderConfidentialPoolTab(wallet, crossoutUx);
   }, CROSSOUT_POLL_INTERVAL_MS);
@@ -326,9 +270,6 @@ function wireCrossout(wallet, ux, crossoutUx, notes) {
 
   const walletPub = bytesToHex(secp.getPublicKey(wallet.priv, true));
   const pendingRecords = (() => { try { return crossoutUx.list(walletPub).filter((r) => r.stage !== 'minted'); } catch { return []; } })();
-  // The resume box is always rendered, even with zero records -- same reasoning as burndep's own (dapp/tacit.js's
-  // _renderHoldingsBurndepBridges): it disappearing exactly when there's nothing else to show is exactly when
-  // it's most needed.
   const refresh = () => {
     try {
       const records = crossoutUx.list(walletPub);
@@ -366,8 +307,6 @@ function wireCrossout(wallet, ux, crossoutUx, notes) {
         const rec = await crossoutUx.start({ note, walletPriv: wallet.priv });
         if (statusEl) statusEl.textContent = `Settled (${rec.settle.txHash}) — waiting for the reflection worker to see it before the Bitcoin-side mint can broadcast.`;
         notify('Cross-out settled on Ethereum', 'ok');
-        // Best-effort: the eth-state coverage check almost never passes this soon, but a resumed session
-        // that already cleared it (rare) shouldn't need an extra manual click.
         try { await crossoutUx.advance(walletPub, rec.id, { walletPriv: wallet.priv }); } catch {}
         setTimeout(() => renderConfidentialPoolTab(wallet, crossoutUx), 1500);
       } catch (e) {
@@ -390,8 +329,6 @@ function wireCrossout(wallet, ux, crossoutUx, notes) {
         } catch (e) {
           notify(formatSpecErr(e, 'Continue'), 'error');
         } finally {
-          // Always re-renders (success or failure), which rebuilds this button from fresh record state --
-          // no manual re-enable/relabel needed here, unlike wireResumeWraps (which doesn't always re-render).
           setTimeout(() => renderConfidentialPoolTab(wallet, crossoutUx), 800);
         }
       };
@@ -410,10 +347,6 @@ function wireCrossout(wallet, ux, crossoutUx, notes) {
   }
 }
 
-// The full key-only restore (notes, farm and borrow positions, stealth payments). ux.recover() reports its own
-// coverage, and a restore that skipped a settle it could not read is NOT a finished restore: someone rebuilding
-// from a seed who reads a partial set as complete concludes the rest is gone. The coverage line is rendered
-// with the totals, never after them.
 function wireRestore(wallet, ux) {
   const btn = el('cpool-restore-btn');
   const out = el('cpool-restore-out');
@@ -441,10 +374,6 @@ function wireRestore(wallet, ux) {
 
 let _finalityTimer = null;
 
-// Cross-chain finality indicator. Always shows the pool's finality model; for any provisional
-// Bitcoin-arbitrated action a cross-chain flow registered (confidential-finality.trackProvisional), shows
-// a live anchoring countdown that flips to "Bitcoin-final" once anchored. Ethereum-only actions (wrap /
-// exit) are final in seconds and are deliberately NOT flagged here.
 function renderFinality() {
   const box = el('cpool-finality');
   if (!box) return;
@@ -463,14 +392,10 @@ function renderFinality() {
   box.innerHTML = `<div class="muted" style="border:1px solid var(--hairline);padding:8px;">`
     + `<div>${model}</div>${rows}</div>`;
 
-  // Keep the countdown live only while something is still provisional.
   if (_finalityTimer) { clearInterval(_finalityTimer); _finalityTimer = null; }
   if (pending.some(({ s }) => s.tone === 'pending')) _finalityTimer = setInterval(renderFinality, 30000);
 }
 
-// Build the pool body as the shared cross-chain lane panel: account/balance summary as the intro, then
-// the Ethereum lane (wrap-in / exit-out) and a Bitcoin lane (value arrives as the same note), with a
-// legacy-bridge escape hatch in the footer. Every cpool-* id is preserved so the wire* handlers bind.
 function renderPoolPanel() {
   const intro =
     `<div class="note-concept"><b>One note, two chains.</b> Wrap <span class="eth-word">ETH</span> (or any token) into a shielded note here, or bring value over from <span class="btc-word">Bitcoin</span> — it becomes the same shielded note you can transfer, trade, or borrow against from either side.</div>`
@@ -535,12 +460,6 @@ function renderPoolPanel() {
   });
 }
 
-// Render the user's confidential account (derived Sepolia EVM address) + seed-only cETH balance into the
-// panel. Safe to call with a locked wallet (shows the unlock prompt). `wallet` is the tacit.js wallet object.
-// `crossoutUx` (optional) is tacit.js's own makeCrossoutUx(...) instance — injected rather than built here
-// because its Bitcoin-side mint needs tacit.js's own getUtxos/pickSafeCommitSats/broadcastWithRetry/getFeeRate
-// (the same cross-flow coin-selection coordination burndep-ux.js's bridge relies on), which this otherwise
-// fully decoupled tab module has no access to. Its absence only hides the "Bridge to Bitcoin" action.
 export async function renderConfidentialPoolTab(wallet, crossoutUx = null) {
   const body = el('cpool-body');
   if (!body) return;
@@ -569,8 +488,6 @@ export async function renderConfidentialPoolTab(wallet, crossoutUx = null) {
 
   if (statusEl) statusEl.textContent = 'Scanning the pool…';
   try {
-    // Seed-only recovery from the pool's log stream — no off-chain note storage. (The scan key aligns
-    // with note ownership once the wrap path lands; an empty pool recovers nothing regardless.)
     const { byAsset, notes, diag } = await ux.balance(wallet.priv);
     const assets = Object.values(byAsset);
     if (statusEl) {
@@ -580,14 +497,11 @@ export async function renderConfidentialPoolTab(wallet, crossoutUx = null) {
     }
     notifyPendingWrapsOnce(diag, notify);
     if (balEl) {
-      // A channel that failed is said so above the figure, not swallowed: an unreachable cBTC or bridge
-      // endpoint makes a real holding read as zero, and "no notes yet" is the wrong thing to tell someone
-      // in that case.
       balEl.innerHTML = scanHealthHtml(diag)
         + pendingWrapRowsHtml(diag, ux)
         + assets.map((a) => {
           const meta = ux.assets.find((x) => x.assetId.toLowerCase() === a.asset);
-          const dec = meta ? (meta.tacitDecimals ?? meta.decimals) : 8; // note values are in-system units
+          const dec = meta ? (meta.tacitDecimals ?? meta.decimals) : 8;
           return `<div class="list-row">`
             + `<span>${esc(shownTicker(a.ticker) || (a.asset.slice(0, 10) + '…'))}</span><strong>${fmtUnits(a.value, dec)}</strong></div>`;
         }).join('');

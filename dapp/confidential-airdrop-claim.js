@@ -1,26 +1,3 @@
-// TAC airdrop claim surface — the recipient-facing UI for the one-shot merkle distributor
-// (contracts/src/TacAirdrop.sol, docs/AIRDROP.md). The client that does the real work is
-// dapp/tac-airdrop.js (`ux.tacAirdrop`, from makeConfidentialPoolUx); this file only checks an
-// address, shows what it can claim, and drives claim/claimTo from a connected Ethereum wallet.
-// `ux.airdrop` is a different feature (the stealth one-to-many airdrop) — not touched here.
-//
-// The eligible addresses are external token holders (docs/AIRDROP.md / airdrop/v1/README.md), not
-// this dapp's own Tacit-derived EVM account, so claiming needs a real injected Ethereum wallet
-// (MetaMask etc.), the same one this dapp already uses for a plain mainnet contract call (see
-// `helpers.eth` below — reused, not reimplemented).
-//
-// Two surfaces share one piece of state (makeAirdropState): a site-wide banner (mountAirdropAnnouncement,
-// mounted once at boot) and a dedicated tab (renderAirdropTab, wired into the normal tab dispatch).
-// Connecting or claiming from either one updates both, immediately.
-//
-// Each surface is a static template (bannerTemplate/tabTemplate) whose named parts are shown, hidden
-// or filled in per state — the same shape as confidential-payout-panel.js — rather than a re-generated
-// innerHTML per render, so a click handler is bound once and every part stays reachable by a stable id.
-//
-// claimAndShield is never offered here: settling a shielded airdrop deposit into a spendable note has
-// not been run on mainnet for this contract (docs/AIRDROP.md §2), so the UI only ever builds `claim`
-// and `claimTo`. Success is never assumed from a sent transaction — every claim ends by polling
-// isClaimed(index) on-chain (ux.tacAirdrop.waitClaimed) before anything says "claimed".
 
 import { secp, sha256, keccak_256 } from './vendor/tacit-deps.min.js';
 import { makeConfidentialPoolUx } from './confidential-pool-ux.js';
@@ -30,7 +7,7 @@ import { checksumAddress } from './confidential-payout.js';
 export const BANNER_ID = 'tac-airdrop-claim-banner';
 const TAB_BODY_ID = 'airdrop-body';
 const DISMISS_PREFIX = 'tacit-tac-airdrop-dismissed:';
-const CLAIM_WAIT_TIMEOUT_MS = 120000; // how long to poll isClaimed after sending before saying "not yet confirmed"
+const CLAIM_WAIT_TIMEOUT_MS = 120000;
 const CLAIM_WAIT_INTERVAL_MS = 4000;
 
 const lc = (s) => String(s == null ? '' : s).toLowerCase();
@@ -56,17 +33,12 @@ function fmtLeft(seconds) {
   if (hours >= 2) return `${hours} hours left`;
   return 'closing soon';
 }
-// A calm note for a reason that still deserves one (the allocation is real, just not payable this
-// moment); everything else (not-listed, claimed, closed, error) is handled by the caller.
 function quietNote(status) {
   if (status.reason === 'paused') return 'claims are temporarily paused by the airdrop guardian';
   if (status.reason === 'unfunded') return 'the airdrop contract is temporarily short of funds for this claim';
   return null;
 }
 
-// Injectable so a test can verify dismissal without a real browser storage. `storage` is any
-// {getItem,setItem} object (defaults to window.localStorage) — a per-browser convenience only, so a
-// missing or throwing storage just means dismissal doesn't stick, never a hard failure.
 function defaultStorage() {
   try { return (typeof localStorage !== 'undefined') ? localStorage : null; } catch { return null; }
 }
@@ -78,14 +50,12 @@ function setDismissed(storage, key) {
   try { if (storage) storage.setItem(DISMISS_PREFIX + key, '1'); } catch {}
 }
 
-// ── shared state: one connected address, its status, whatever is in flight. Both surfaces subscribe
-// to the same instance in production (sharedState()); tests build their own with makeAirdropState(). ──
 export function makeAirdropState() {
   let address = null;
   let inflight = false;
-  let lastResult = null; // { action: 'claim'|'claimTo', txHash, confirmed } for the most recent send
+  let lastResult = null;
   const statusCache = new Map();
-  const inFlightFetch = new Map(); // key -> Promise<status>, so a forced refresh racing a running one still gets a fresh answer
+  const inFlightFetch = new Map();
   const listeners = new Set();
   const notify_ = () => { for (const fn of [...listeners]) { try { fn(); } catch {} } };
 
@@ -98,10 +68,6 @@ export function makeAirdropState() {
     get lastResult() { return lastResult; },
     setInflight(v) { inflight = !!v; notify_(); },
     setLastResult(r) { lastResult = r; notify_(); },
-    // Drops every cached status. Needed when the air/config a cached answer was computed against
-    // turns out to have been stale (see getUx()'s network-change handling below) -- an address doesn't
-    // change, so setAddress's own "next === address" shortcut would otherwise keep returning the old
-    // (wrong-network) answer forever.
     resetStatusCache() { statusCache.clear(); inFlightFetch.clear(); notify_(); },
     async setAddress(addr, air) {
       const next = addr ? lc(addr) : null;
@@ -111,10 +77,6 @@ export function makeAirdropState() {
       notify_();
       if (next) await self.refresh(air);
     },
-    // Never throws: a failed read is cached as status.reason === 'error', same as air.status() itself
-    // reports for other failures. `force` skips both caches and always starts a fresh chain read; a
-    // stale fetch that was already in flight when force was requested is superseded (guarded below by
-    // identity, not just presence) so it can never overwrite the newer answer once it lands.
     async refresh(air, { force = false } = {}) {
       if (!address) return null;
       const key = address;
@@ -122,7 +84,7 @@ export function makeAirdropState() {
         if (statusCache.has(key)) return statusCache.get(key);
         if (inFlightFetch.has(key)) return inFlightFetch.get(key);
       }
-      notify_(); // checking flips true (or stays true) while this fetch is outstanding
+      notify_();
       const p = (async () => {
         try { return await air.status(key); }
         catch (e) {
@@ -146,11 +108,6 @@ export function makeAirdropState() {
 let _sharedState = null;
 function sharedState() { return _sharedState || (_sharedState = makeAirdropState()); }
 
-// ── the confidential pool ux, for ux.tacAirdrop + ux.rpc (gas estimates only — no notes touched). ──
-// Rebuilt whenever the active network differs from the one it was last built for, not memoized forever:
-// this module's mount runs at boot, which can fire before tacit.js's own first tab activation has corrected
-// confidential-deployments.js's active-network default (see setActiveNetwork) away from its 'signet' default,
-// and a live mainnet/signet toggle later in the session needs to be picked up too, same as any other tab.
 let _ux = null, _uxNet = null;
 function getUx() {
   const net = activeNetwork();
@@ -161,9 +118,6 @@ function getUx() {
     if (hadPrior) {
       const st = sharedState();
       st.resetStatusCache();
-      // A clear alone leaves an already-set address with no status AND nothing in flight, which both
-      // surfaces read as "nothing to show" rather than "still checking" -- kick off a fresh, forced
-      // check right away so the UI has something to transition through instead of going quiet.
       if (st.address) st.refresh(_ux.tacAirdrop, { force: true }).catch(() => {});
     }
   }
@@ -174,10 +128,6 @@ function safeUx() {
   try { return getUx(); } catch (e) { console.error('confidential pool ux', e); return null; }
 }
 
-// ── connecting: window.ethereum only. The silent probe (eth_accounts) never prompts, so it runs
-// unconditionally on mount; the explicit "Connect" button goes through helpers.eth.connect(), which
-// is this dapp's own EIP-6963-aware chooser (ethNamesBridge in tacit.js) — reused here, not rebuilt,
-// so a wallet picked there is the same wallet picked here. ──
 async function detectSilentAddress() {
   try {
     const provider = (typeof window !== 'undefined') ? window.ethereum : null;
@@ -186,13 +136,6 @@ async function detectSilentAddress() {
     return (Array.isArray(accounts) && accounts[0]) ? lc(accounts[0]) : null;
   } catch { return null; }
 }
-// The raw provider listener is attached at most once (`_tacitAirdropClaimBound`), but the wallet's
-// active network can change AFTER that first bind (e.g. the documented signet→mainnet boot correction),
-// and each re-mount calls bindAccountsChanged again with a closure over the now-current `air`/`ux`. If
-// that later call were a no-op (as it used to be), the live listener would keep calling the FIRST
-// closure forever, wiring account switches to a stale network config. So the listener itself is
-// registered once, but always dispatches through this module-level indirection, which every
-// bindAccountsChanged call refreshes — the live handler is always the most recently mounted one.
 let _latestAccountsChangedHandler = null;
 function bindAccountsChanged(onChange) {
   _latestAccountsChangedHandler = onChange;
@@ -207,8 +150,6 @@ function bindAccountsChanged(onChange) {
   } catch {}
 }
 
-// A generic mainnet-switch failure from helpers.eth.sendTx carries copy written for the name-publish
-// flow ("...to publish the record"); the substance (switch network) is right, the wording isn't.
 function explainSendError(e) {
   const msg = (e && e.message) || String(e);
   if (/switch your wallet to ethereum mainnet/i.test(msg)) return 'Switch your wallet to Ethereum mainnet to send this claim.';
@@ -223,8 +164,6 @@ function makeSend(eth) {
   };
 }
 
-// Best-effort only (Simulate writes with eth_call/estimateGas, never send): a number to show, never a
-// gate. `tx` is a build* result ({ from, to, data, value }).
 async function estimateGas(ux, tx) {
   try {
     const raw = await ux.rpc('eth_estimateGas', [{ from: tx.from, to: tx.to, data: tx.data, value: tx.value || '0x0' }]);
@@ -232,8 +171,6 @@ async function estimateGas(ux, tx) {
   } catch { return null; }
 }
 
-// ── the claim actions, shared by the banner and the tab. `say` is a small status-line setter; the
-// outcome is always read back from the chain (waitClaimed polls isClaimed), never assumed from send(). ──
 async function runClaim({ air, state, eth }, { say, toast = notify } = {}) {
   const address = state.address;
   state.setInflight(true);
@@ -250,9 +187,6 @@ async function runClaim({ air, state, eth }, { say, toast = notify } = {}) {
   } catch (e) {
     const m = formatErr(e, 'Claim');
     say(m); toast(m, 'error');
-    // A refusal (someone else claimed for this address first, the window closed mid-flight, …) means the
-    // cached status is now stale — without this, the claim card stays visible and enabled, and a front-run
-    // reads as "try again" forever instead of surfacing the doc's actual "already claimed" state.
     await state.refresh(air, { force: true }).catch(() => {});
   } finally {
     state.setInflight(false);
@@ -281,10 +215,6 @@ async function runClaimTo({ air, state, eth }, to, { say, toast = notify } = {})
   }
 }
 
-// `button` (optional) gets the same disable + "connecting…" treatment as every other wallet-connect
-// button in the dapp (setupEthWalletButtons' #btn-eth-connect, the CLAIM tab's #btn-claim-connect-mm) —
-// without it, this was the one connect button in the app that gave no feedback while the wallet
-// extension's popup was open, and stayed clickable for a second, overlapping click.
 async function runConnect({ air, state, eth }, { say, toast = notify, button } = {}) {
   if (button) { if (button.disabled) return; button.disabled = true; }
   const orig = button ? button.textContent : null;
@@ -303,26 +233,14 @@ async function runConnect({ air, state, eth }, { say, toast = notify, button } =
   }
 }
 
-// Default "open the dedicated tab" action: the same click a nav button would get. Guarded so a non-
-// browser environment (tests, node:test) never touches a global `document` it doesn't have.
 function defaultGoToTab() {
   if (typeof document === 'undefined') return;
   const tabBtn = document.querySelector('.tab[data-tab="airdrop"]');
   if (tabBtn) tabBtn.click();
 }
 
-// ═══════════════════════════ banner (site-wide, dismissible) ═══════════════════════════
-// A static template, built once per container: paint() only toggles visibility/class/text on its
-// named parts, so a click handler assigned once stays bound across every re-render (same shape as
-// confidential-payout-panel.js's payoutPanelHtml()/wirePayout).
-
-// Exported so a test can scan its ids the same way it would scan a real page (see
-// tests/confidential-payout-panel.mjs's use of payoutPanelHtml() for the same purpose).
 export function bannerTemplateHtml() {
   return `<button type="button" class="tacit-warn-banner__close" id="tac-airdrop-banner-close" aria-label="Dismiss" title="Dismiss">×</button>`
-    // Message left, actions right, wrapping on narrow viewports — the same flex-row shape as the
-    // otc-claim-banner and evm-cer-banner (index.html), rather than the buttons running straight into
-    // the headline text with a single space between them.
     + `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;">`
     + `<span id="tac-airdrop-banner-headline"></span>`
     + `<span style="display:flex;gap:6px;flex-wrap:wrap;">`
@@ -345,7 +263,6 @@ function ensureBannerTemplate(container) {
   container.innerHTML = bannerTemplateHtml();
 }
 
-// Everything the paint step needs, read once by id.
 function bannerParts(el) {
   return {
     close: el('tac-airdrop-banner-close'), headline: el('tac-airdrop-banner-headline'),
@@ -376,7 +293,6 @@ function paintBanner(container, ctx, el) {
     return;
   }
 
-  // A dismissed address never flashes a banner, not even a transient "checking" one.
   const key = lc(address);
   if (isDismissed(storage, key)) return hide();
 
@@ -389,8 +305,8 @@ function paintBanner(container, ctx, el) {
     show(p.connect, false); show(p.claim, false); show(p.claimtoToggle, false); show(p.view, false); show(p.claimtoRow, false);
     return;
   }
-  if (!status || status.error) return hide();  // read failed — logged already, stay quiet
-  if (!status.eligible) return hide();          // not-listed
+  if (!status || status.error) return hide();
+  if (!status.eligible) return hide();
   if (status.reason === 'claimed' || status.reason === 'closed') return hide();
 
   const note = quietNote(status);
@@ -404,8 +320,6 @@ function paintBanner(container, ctx, el) {
     return;
   }
 
-  // Claimable. lastResult guards the narrow window between waitClaimed resolving true and the forced
-  // refresh landing — without it the banner would flash "you can claim" right after a successful claim.
   if (lastResult && lastResult.confirmed) return hide();
 
   container.className = 'tacit-warn-banner tacit-warn-banner--green';
@@ -419,7 +333,6 @@ function paintBanner(container, ctx, el) {
   if (p.claimtoGo) p.claimtoGo.disabled = inflight;
 }
 
-// Bound once, over the template's stable ids — never re-bound, since paint() never replaces these nodes.
 function wireBannerButtons(container, ctx, el, goToTab) {
   const p = bannerParts(el);
   const say = (t) => { if (p.status) p.status.textContent = t; };
@@ -439,8 +352,6 @@ function wireBannerButtons(container, ctx, el, goToTab) {
   };
 }
 
-// Core, testable wiring: everything is passed in. `state` defaults to the module singleton so the
-// banner and the tab agree in production without either one importing the other.
 export function wireAirdropAnnouncement({ ux, eth, state = sharedState(), el = (id) => document.getElementById(id), goToTab = defaultGoToTab, storage = defaultStorage(), autoDetect = true } = {}) {
   const container = el(BANNER_ID);
   if (!container || !ux || !ux.tacAirdrop) return;
@@ -448,8 +359,6 @@ export function wireAirdropAnnouncement({ ux, eth, state = sharedState(), el = (
   const ctx = { air, ux, eth, state, storage };
   ensureBannerTemplate(container);
   wireBannerButtons(container, ctx, el, goToTab);
-  // Re-wiring (e.g. a second mount call) must not pile up a second listener on the shared state —
-  // drop whatever the last wire registered before adding this one.
   if (container._airdropUnsub) container._airdropUnsub();
   const repaint = () => paintBanner(container, ctx, el);
   container._airdropUnsub = state.onChange(repaint);
@@ -460,9 +369,6 @@ export function wireAirdropAnnouncement({ ux, eth, state = sharedState(), el = (
   bindAccountsChanged((addr) => state.setAddress(addr, air));
 }
 
-// Called at boot, and safe to call again later (e.g. once the page's active network is corrected
-// after boot — see tacit.js's _activateTab) since wireAirdropAnnouncement re-wires idempotently.
-// Never throws — a misconfigured network just means no banner.
 export function mountAirdropAnnouncement(helpers = {}) {
   try {
     const ux = safeUx();
@@ -471,13 +377,9 @@ export function mountAirdropAnnouncement(helpers = {}) {
   } catch (e) { console.error('airdrop banner', e); }
 }
 
-// ═══════════════════════════ dedicated tab ═══════════════════════════
-
 const INTRO_HTML = `<div class="note-concept"><b>One-time TAC (EVM) distribution.</b> A merkle airdrop to every address that`
   + ` held one of seven tokens at snapshot, one claim per address. Claim it to your address, send it on, or wrap it`
   + ` into the shielded pool yourself afterward.</div>`
-  // A scannable facts row in place of burying the same numbers inside the prose above — the same `.kv`
-  // dt/dd idiom the rest of the dapp uses for compact key facts (index.html's own `.kv` rule).
   + `<dl class="kv" style="margin:14px 0;">`
   + `<dt>Distributing</dt><dd>999,999 TAC <span class="muted">— the Ethereum ERC-20, separate from TAC's Bitcoin-native issuance</span></dd>`
   + `<dt>Recipients</dt><dd>8,652 addresses</dd>`
@@ -537,9 +439,6 @@ function paintTab(body, ctx, el) {
   const { address, status, checking, inflight } = state;
   const setMsg = (html) => { if (p.message) p.message.innerHTML = html; };
 
-  // The claim-window fact holds regardless of whether a wallet is connected yet — shown eagerly so
-  // the page reads as a finished page rather than needing a connect first. The live countdown (which
-  // needs the chain's own clock, not this device's) stays on the claim card below, once eligible.
   if (p.window) p.window.textContent = air.config.claimByISO ? fmtDate(air.config.claimByISO) : 'not open on this network';
 
   show(p.claimCard, false);
@@ -566,10 +465,6 @@ function paintTab(body, ctx, el) {
   }
   if (!status.eligible) { setMsg('This address is not on the airdrop list.'); return; }
   if (status.reason === 'claimed') {
-    // Where the TAC actually landed depends on which path claimed it: plain claim() always pays this
-    // address, but claimTo() (by this address or, per the contract, by anyone calling it) can pay a
-    // DIFFERENT one — this state has no record of which ran (that only lives in this browser's in-memory
-    // lastResult, gone after a reload or on another device), so the copy can't assert where it went.
     setMsg(`This allocation (${esc(status.amountTac)} TAC) has already been claimed. If that wasn't a transaction `
       + `you sent, check this address's balance — it may have gone here, or, if a claimTo() sent it elsewhere, `
       + `to that other address instead. The on-chain Claimed event for this allocation says which.`);
@@ -588,30 +483,17 @@ function paintTab(body, ctx, el) {
     return;
   }
 
-  // claimable
   setMsg('');
   show(p.claimCard, true);
   if (p.amount) p.amount.textContent = status.amountTac;
-  // docs/BUILD-A-TACIT-DAPP.md §5a: "1,097 of the 8,652 are under 0.01 TAC... for the smallest ones the
-  // gas can exceed the value. Tell the user" — this is a fixed reference amount, not derived from a live
-  // gas price, so it's a plain threshold rather than an exact TAC-vs-gas-cost comparison (no price feed
-  // wired up here for that).
   const tinyNote = Number(status.amountTac) < 0.01 ? ' · this is a small allocation — gas may cost more than the TAC you\'d receive' : '';
   if (p.meta) p.meta.textContent = `Claim by ${fmtDate(status.claimByISO)} (${fmtLeft(status.secondsLeft)}) · allocation #${status.index}${tinyNote}`;
   if (p.claimtoFrom) p.claimtoFrom.textContent = `Sends from ${checksummedOrShort(address)} (this must be the connected wallet); the TAC lands at the address below instead.`;
-  // Mirrors the banner's own inflight guard (paintBanner) — without this the tab's Claim/Claim-to buttons
-  // stayed clickable while a claim was already in flight, letting a double-click send two real
-  // transactions (only one can land; the other burns gas reverting AlreadyClaimed).
   if (p.claimBtn) p.claimBtn.disabled = inflight;
   if (p.claimtoGoBtn) p.claimtoGoBtn.disabled = inflight;
   paintGasEstimates(p, ctx);
 }
 
-// Fire-and-forget, non-blocking: a number to show next to the claim buttons, never a gate (the client
-// simulates with eth_call on its own before every send regardless). claimTo costs about the same gas
-// as claim (same calldata shape, one more address word) — docs/AIRDROP.md's own gas table gives ~91k
-// vs ~88k for a first claim in a bitmap word — so one live measurement labels both slots instead of
-// estimating twice against a "to" address that may not even be filled in yet.
 function paintGasEstimates(p, ctx) {
   const { state, air, ux } = ctx;
   const address = state.address;
@@ -628,7 +510,6 @@ function paintGasEstimates(p, ctx) {
   });
 }
 
-// Bound once, over the template's stable ids.
 function wireTabButtons(ctx, el) {
   const p = tabParts(el);
   const say = (t) => { if (p.status) p.status.textContent = t; };
@@ -642,7 +523,6 @@ function wireTabButtons(ctx, el) {
   };
 }
 
-// Core, testable wiring — see wireAirdropAnnouncement for the shared-state rationale.
 export function wireAirdropTab({ ux, eth, state = sharedState(), el = (id) => document.getElementById(id), autoDetect = true } = {}) {
   const body = el(TAB_BODY_ID);
   if (!body || !ux || !ux.tacAirdrop) return;
@@ -650,8 +530,6 @@ export function wireAirdropTab({ ux, eth, state = sharedState(), el = (id) => do
   const ctx = { air, ux, eth, state };
   ensureTabTemplate(body);
   wireTabButtons(ctx, el);
-  // Every tab activation calls this again on the same persistent body — drop the previous visit's
-  // listener first so repeated visits don't pile up repaint subscribers on the shared state.
   if (body._airdropUnsub) body._airdropUnsub();
   const repaint = () => paintTab(body, ctx, el);
   body._airdropUnsub = state.onChange(repaint);
@@ -662,9 +540,6 @@ export function wireAirdropTab({ ux, eth, state = sharedState(), el = (id) => do
   bindAccountsChanged((addr) => state.setAddress(addr, air));
 }
 
-// Called from the tab dispatch. `wallet` (the Tacit/Bitcoin wallet) is accepted for signature
-// consistency with every other tab renderer but is not needed: a claim never touches a Tacit key or
-// the shielded pool, only the connected Ethereum wallet and the airdrop contract.
 export async function renderAirdropTab(wallet, helpers = {}) {
   const body = document.getElementById(TAB_BODY_ID);
   if (!body) return;

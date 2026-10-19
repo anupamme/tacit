@@ -5,9 +5,9 @@
 // wide "backstop" — and this module builds the market for each from the vault's token, reads which of them exist, and finds every other pool the factory holds for the token. A
 // market that is not open yet is created with one click, and seeded in the same transaction if amounts are typed. The pool's arithmetic is repeated here only to say what a deposit
 // will cost before it is sent; the pool settles every figure, and each transaction is tested with eth_call first.
-import { word, addrWord, wordAt, SEL, encApprove } from '/vault/chain.js?cb=d88e19bb';
+import { word, addrWord, wordAt, SEL, encApprove } from '/vault/chain.js?cb=2fb15a49';
 import * as M from '/vault/math.js?cb=ac1ed53e';
-import { MULTICALL3 } from '/vault/batch.js?cb=457d6163';
+import { MULTICALL3 } from '/vault/batch.js?cb=0df7601f';
 
 const WAD = 10n ** 18n, ZERO = '0x0000000000000000000000000000000000000000';
 const MIN_LIQUIDITY = 1000n;                                     // the pool keeps this much of the first deposit for good

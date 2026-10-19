@@ -1,19 +1,3 @@
-// Secret Sats demo steps. mount(el, ctx) renders the step list into el; the step styles live in index.html.
-//   ctx = { tacit, wallet, network, log, refresh, ensureKey, track, errMsg, getSats, onWallet }
-//   tacit: the imported tacit.js module; wallet: tacit.wallet; getSats() asks the faucet for signet sats;
-//   onWallet(fn) reports connect/unlock/balance changes.
-//
-// "Get signet sats" funds the fees and the lot price from the faucet.
-// "Get private cBTC" buys one of the faucet's pre-authorized cBTC lots straight into the pool in one
-// transaction: the T_BTC_SHIELD envelope rides vin[0], the faucet's lot is vin[1] with the seller's pre-signed
-// SIGHASH_SINGLE|ANYONECANPAY witness, and vout[1] is the seller's payout. (SINGLE_ACTION_JOIN = false shows the
-// two-step Get cBTC / Shield flow instead.)
-// "Back to sats" sells private cBTC to the faucet's maker in one transaction (btc-pool-zap.js exitToSats): the
-// spend exits the amount to the maker and wants sats paid to a fresh key of the pool wallet; the faucet checks
-// it and posts the carrier from its own coins. The change stays in the pool.
-// "Pay privately", "Receive" and "Exit" spend and scan pool notes. Every shield and spend is proved in this
-// browser (btc-pool-client.js: the pinned circuit and key, downloaded once and cached); the carrier is posted
-// by the pool's relayer when one is configured, else from this wallet's signet sats.
 
 import { secp, sha256, keccak_256, hmac, ripemd160, bytesToHex, hexToBytes } from '../vendor/tacit-deps.min.js';
 import { makeBtcShieldedPool } from '../btc-shielded-pool.js';
@@ -26,10 +10,6 @@ export const WORKER_BASE = (globalThis.__TACIT_WORKER_BASE__ || 'https://api.tac
 export const pool = makeBtcShieldedPool({ secp, keccak256: keccak_256, sha256, ripemd160 });
 export const zap = makeBtcPoolZap({ secp, sha256, keccak256: keccak_256 });
 
-// One indexer per network. Both serve the same prover artifacts at `base` (the circuit is shared), so only
-// `api` — the replay host — differs. poolClientFor(wallet.network) is how every call below picks it.
-// The relayer is deployed as its own origin on both networks rather than mounted on the replay service, so
-// it gets its own base; without it relayInfo() answers 404 and every payment quietly funds its own carrier.
 const MAINNET_POOL_API = globalThis.__TACIT_BTC_POOL_API_MAINNET__ || 'https://tacit-btc-pool-mainnet.onrender.com';
 const SIGNET_POOL_RELAY = globalThis.__TACIT_BTC_POOL_RELAY__ || 'https://tacit-btc-pool-relay.onrender.com';
 const MAINNET_POOL_RELAY = globalThis.__TACIT_BTC_POOL_RELAY_MAINNET__ || 'https://tacit-btc-pool-relay-mainnet.onrender.com';
@@ -40,25 +20,13 @@ const poolClients = {
 export const poolClient = poolClients.signet;
 export const poolClientFor = (network) => poolClients[network] || poolClients.signet;
 
-// The assets the pool takes on mainnet. The pool is asset-generic — one verifying key, the asset as a
-// public input, an asset-blind indexer — so an asset joins by being listed here; a relayed one also needs
-// an entry in the relay's BTC_POOL_RELAYER_FEES. Pool amounts are 8-decimal fixed point (tacitDecimals in
-// confidential-deployments.js), independent of any ERC-20's 18.
-//
-// Asset is public in every envelope (0x6C ‖ asset(32) ‖ …), so each asset gets its own anonymity set.
-// Listing a second one widens what the pool accepts; it does not deepen what is already in it.
 export const MAINNET_POOL_ASSETS = [
   { ticker: 'TAC', decimals: 8, logo: '../tac-logo.png', live: true,
     id: 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b' },
-  // cBTC reaches Bitcoin by bridging back from Ethereum (crossOut → T_CROSSOUT_MINT), not by being etched
-  // here, and the pool takes a crossout-mint note like any other — the shield-input rule refuses only a
-  // note bound to a pool deployment (T_CXFER_BOUND). Listed ahead of the supply: until some is bridged
-  // across it reads as an empty balance, and the relay prices it only once BTC_POOL_RELAYER_FEES has it.
   { ticker: 'cBTC', decimals: 8, logo: null, live: true,
     id: '62a20d98fc1cd20289621d1315294cb8772f934d822e404b71e1f471cf0679c8' },
 ];
 
-// The pool's first asset, and the one the TAC-specific surfaces (/tac, the holdings shield link) address.
 export const TAC_ASSET_MAINNET = MAINNET_POOL_ASSETS[0].id;
 export const livePoolAssets = () => MAINNET_POOL_ASSETS.filter((a) => a.live);
 const TAC_DECIMALS_FALLBACK = MAINNET_POOL_ASSETS[0].decimals;
@@ -67,7 +35,6 @@ const te = new TextEncoder();
 const SEQ = 0xfffffffd;
 const NOTES_KEY = (net) => `tacit-sats-demo-v1:${net}`;
 
-// Pool wallet derived from the Tacit key, so it is recoverable from the same backup.
 export function poolWalletFor(priv, network = 'signet') {
   return pool.walletFromSeed(hmac(sha256, priv, te.encode('tacit-btc-pool-seed-v1')), network);
 }
@@ -79,8 +46,6 @@ const outpointBytes = (txid, vout) => {
   return b;
 };
 
-// One read from the Bitcoin explorer, null when it has none. The dapp lists a second explorer (NET.api2) and a read that
-// the first cannot answer, whether it is down or answers with an error, is asked of the second before it fails.
 async function esplora(tacit, p) {
   let last = null;
   for (const base of [tacit.NET.api, tacit.NET.api2]) {
@@ -95,14 +60,12 @@ async function esplora(tacit, p) {
   throw last || new Error(`${p}: no explorer to ask`);
 }
 
-// ── faucet ──
 export async function fetchFaucet(url = FAUCET_URL) {
   const r = await fetch(`${url}/faucet/status`, { cache: 'no-store' });
   if (!r.ok) throw new Error(`faucet: HTTP ${r.status}`);
   return r.json();
 }
 
-// First open sale whose lot is unspent, with the full worker record (seller signature included).
 export async function pickSale(tacit, status) {
   const mine = tacit.wallet.pub ? bytesToHex(tacit.wallet.pub) : null;
   let lastErr = null;
@@ -119,7 +82,6 @@ export async function pickSale(tacit, status) {
   throw new Error('no open faucet sale right now; try again in a minute');
 }
 
-// Opening of the note a takePreauthSale leaves at reveal:0 (same ECDH derivation the take uses).
 export function takenNoteOpening(tacit, sale) {
   const anchor = outpointBytes(sale.asset_outpoint.txid, sale.asset_outpoint.vout);
   return { amount: BigInt(sale.asset_opening.amount), blinding: tacit.deriveBlinding(tacit.wallet.priv, hexToBytes(sale.seller_pubkey), anchor, 0) };
@@ -134,10 +96,7 @@ export async function claim(tacit, { status, sale, onProgress } = {}) {
   return { commitTxid: r.commit_txid, revealTxid: r.reveal_txid, sale, note };
 }
 
-// ── carriers ──
-// A transfer homed to a pool deployment (T_CXFER_BOUND) is spent on Ethereum; the Bitcoin pool refuses it as a shield input.
 const T_CXFER_BOUND = 0x39;
-// Checks (amount, blinding) opens the commitment that defines txid:vout, and returns it as (Cx, Cy).
 async function onChainNote(tacit, assetId, txid, vout, amount, blinding) {
   const tx = await esplora(tacit, `/tx/${txid}`);
   if (!tx) throw new Error(`${txid} not visible`);
@@ -151,10 +110,6 @@ async function onChainNote(tacit, assetId, txid, vout, amount, blinding) {
   return { Cx: xy.cx, Cy: xy.cy, value: tx.vout[vout].value };
 }
 
-// Commit/reveal carrier. vin[0] spends the envelope commit; inputs[] follow as vin[1..], each either
-// signed here by the wallet (P2WPKH) or carrying a pre-signed witness. The commit output funds
-// Σoutputs + reveal fee − Σinputs, from the wallet's plain sats.
-// `feeTier` ('economy' | 'standard' | 'priority') overrides the wallet's own fee preference for this carrier.
 export async function broadcastCarrier(tacit, { payload, inputs = [], outputs, feeTier = null }) {
   const w = tacit.wallet;
   const envelopeScript = tacit.encodeEnvelopeScript(w.xonly(), payload);
@@ -201,9 +156,6 @@ export async function broadcastCarrier(tacit, { payload, inputs = [], outputs, f
   revealTx.inputs[0].witness = tacit.signTaprootScriptPathInput(revealTx, prevouts, envelopeScript, cb);
   const revealTxid = tacit.txid(revealTx);
 
-  // Until the reveal is accepted, the commit's output can be spent only with its envelope: the record tacit.js's commit
-  // recovery reads (recoverPreauthCommit, and the classic app's Holdings) is kept before the commit goes out, and dropped
-  // once the reveal is in. A reveal Bitcoin refuses throws with the commit's txid, so a page can offer the sats back.
   const kept = typeof tacit.recordPreauthTakePending === 'function';
   if (kept) tacit.recordPreauthTakePending(commitTxid, { envelope_script_hex: bytesToHex(envelopeScript), control_block_hex: bytesToHex(cb), commit_value: commitValue, reveal_txid: revealTxid, ticker: 'sats' });
   try { await tacit.broadcast(bytesToHex(tacit.serializeTx(commitTx))); }
@@ -215,7 +167,6 @@ export async function broadcastCarrier(tacit, { payload, inputs = [], outputs, f
   if (kept) forgetCommit(tacit, commitTxid);
   return { commitTxid, revealTxid, revealFee, commitFee };
 }
-// Drops a commit's recovery record once its reveal is in (tacit.js keeps them under this key per network).
 function forgetCommit(tacit, commitTxid) {
   try {
     const k = `tacit-preauth-take-pending-v1:${tacit.NET?.name || 'mainnet'}`, all = JSON.parse(localStorage.getItem(k) || 'null');
@@ -223,7 +174,6 @@ function forgetCommit(tacit, commitTxid) {
   } catch {}
 }
 
-// Step 2: shield a transparent note the wallet holds (P2WPKH to wallet.pub) into poolWallet's address.
 export async function shieldNote(tacit, { note, poolWallet, say = () => {} }) {
   const amount = BigInt(note.amount), blinding = BigInt('0x' + note.blinding);
   const c = await onChainNote(tacit, note.assetId, note.txid, note.vout, amount, blinding);
@@ -242,8 +192,6 @@ export async function shieldNote(tacit, { note, poolWallet, say = () => {} }) {
   return { ...r, poolNote: poolNoteRecord(sh.note, r.revealTxid) };
 }
 
-// Buy and shield in one transaction. The seller's signature commits to vin[1] and vout[1] only, so the
-// envelope in vin[0] can be the shield; the kernel is signed from the sale's published opening.
 export async function buyAndShield(tacit, { status, sale, poolWallet, say = () => {}, feeTier = null } = {}) {
   status = status || await fetchFaucet();
   sale = sale || await pickSale(tacit, status);
@@ -252,7 +200,6 @@ export async function buyAndShield(tacit, { status, sale, poolWallet, say = () =
   const amount = BigInt(sale.asset_opening.amount), blinding = BigInt('0x' + sale.asset_opening.blinding);
   const c = await onChainNote(tacit, assetId, lot.txid, lot.vout, amount, blinding);
   if (c.value !== Number(lot.value)) throw new Error('listed lot value does not match the chain');
-  // The lot must trace to a valid note of the asset on Bitcoin, as every other buy checks: the pool refuses a shield input that does not.
   await tacit.requireValidatedLot(lot.txid, lot.vout, 'the listed lot');
   const sellerPub = hexToBytes(sale.seller_pubkey);
   const sh = pool.buildShieldEnvelope({
@@ -261,7 +208,6 @@ export async function buyAndShield(tacit, { status, sale, poolWallet, say = () =
     recipientAddress: poolWallet.addressString, network: poolWallet.network,
   });
   const { payload } = await proveHere(sh, say);
-  // The proof takes a while: a lot bought by someone else meanwhile is not paid for again.
   const sp = await esplora(tacit, `/tx/${lot.txid}/outspend/${lot.vout}`).catch(() => null);
   if (sp?.spent) throw Object.assign(new Error('That lot was just bought by someone else. Nothing was sent; pick another.'), { said: true });
   say('buying into the pool…');
@@ -281,10 +227,7 @@ function poolNoteRecord(note, txid) {
   return { ...fields, txid, value: value.toString() };
 }
 
-// ── proving on the device ──
 const mb = (n) => (n / 1e6).toFixed(1);
-// Proves a built shield or spend here, reporting the one-time download and then the elapsed proving time.
-// One thread in a Web Worker: 12–15 s on a laptop, plus about 3 s of key setup on the first proof.
 export async function proveHere(built, say = () => {}) {
   const total = await poolClient.artifactBytes();
   const got = new Map();
@@ -309,25 +252,19 @@ export async function proveHere(built, say = () => {}) {
     });
   } finally {
     if (timer) clearInterval(timer);
-    system.close?.();                                                // its worker holds the wasm and the proving key; each proof starts its own
+    system.close?.();
   }
 }
 
-// ── pool spends ──
 const DUST_SATS = 546;
 const eqAsset = (a, b) => String(a).replace(/^0x/, '').toLowerCase() === String(b).replace(/^0x/, '').toLowerCase();
 
-// The wallet's pool notes of `asset`, scanned from the replay service's feed.
 export async function poolNotes(poolWallet, asset) {
   const all = await poolClientFor(poolWallet.network).walletNotes(pool, poolWallet);
   return asset ? all.filter((x) => eqAsset(x.asset, asset)) : all;
 }
 
-// Notes this browser has spent, by nullifier, until the replay counts the spend (it does after three confirmations),
-// so a second spend made in between never picks them again; and each spend's change, shown as settling until the
-// change note is read back, with an exit's amount, shown as on its way out until the spend's notes are. Kept six hours.
 const PENDING_KEY = 'tacit-pool-pending-v1', PENDING_MS = 6 * 3600e3;
-// A payment the relay may still post either lands or is dropped well within this (its quote lasts ten minutes).
 const MAY_STILL_MS = 30 * 60e3;
 const nfKey = (nf) => String(nf).replace(/^0x/, '').toLowerCase();
 function pendingRead() {
@@ -338,19 +275,13 @@ function pendingRead() {
   for (const [k, x] of Object.entries(v?.change || {})) if (now - x.at < PENDING_MS) out.change[k] = x;
   return out;
 }
-// Change is marked with the wallet it belongs to, so another key opened in this browser does not count it as its own.
 const ownerTag = (poolWallet) => (poolWallet?.addressString ? String(poolWallet.addressString).slice(-16) : null);
-// `pay`: the exit pays someone (a sale key's listing), not this wallet's own address. `hold` (ms): notes a relay may still
-// post are set aside for that long only, with no change recorded, so a second payment does not pick them meanwhile.
 function pendingMark(notes, txid, change, asset, out = 0n, owner = null, { pay = false, hold = null } = {}) {
   const p = pendingRead(), at = Date.now();
   for (const n of notes) if (n.nf) p.spent[nfKey(n.nf)] = { at, txid, ...(hold ? { until: at + hold } : {}) };
   if (txid && (change > 0n || out > 0n)) p.change[txid] = { at, v: change.toString(), ...(out > 0n ? { [pay ? 'pay' : 'out']: out.toString() } : {}), asset: String(asset).replace(/^0x/, '').toLowerCase(), ...(owner ? { owner } : {}) };
   try { if (typeof localStorage !== 'undefined') localStorage.setItem(PENDING_KEY, JSON.stringify(p)); } catch {}
 }
-// The notes of `notes` this browser has not spent, how much of `asset` is settling as change not yet read back, how much
-// is leaving by an exit to this wallet's address and how much by one that pays someone, while the replay has not counted
-// them yet. With `poolWallet`, only that wallet's change counts.
 export function pendingView(notes, asset, poolWallet = null) {
   const p = pendingRead(), seen = new Set(notes.map((n) => n.txid)), owner = ownerTag(poolWallet);
   const live = notes.filter((n) => !n.spent && !(n.nf && p.spent[nfKey(n.nf)]));
@@ -361,13 +292,9 @@ export function pendingView(notes, asset, poolWallet = null) {
   }
   return { live, settling, leaving, paying };
 }
-// A relayer that refused a payment because its notes are already being spent: posting it again would only conflict.
 const spentElsewhere = (m) => /nullifier|conflict|replayed|already spent|double/i.test(String(m || ''));
-// A payment the relay did not take and this wallet was told not to post from its own Bitcoin address.
 const relayDeclined = (msg) => Object.assign(new Error(msg), { said: true, relayDeclined: true });
 
-// Inputs covering `need`, with the anchor, root and paths. { wait } when the wallet's anchor policy has not
-// reached the newest input yet; `anchor` overrides the policy with a retained height. `fixed` spends exactly those notes.
 async function prepare(poolWallet, asset, need, anchor, fixed = null) {
   const { inputs, total } = fixed
     ? { inputs: fixed, total: fixed.reduce((t, x) => t + BigInt(x.value), 0n) }
@@ -376,32 +303,14 @@ async function prepare(poolWallet, asset, need, anchor, fixed = null) {
   return { ...a, total };
 }
 
-// Pays `amount` of `asset` to a pool address, or to the pool lane of a tacit1… address. Relayed when the replay service
-// runs a relayer that quotes the asset (fee paid as an extra pool output); otherwise this wallet posts the carrier from
-// its own sats. `noRelay` forces the self-funded path. Used by the fallback below, so a relayer that quotes and then
-// cannot deliver does not leave the payment stranded. `maxFee` (base units, by default a quarter above the fee the relayer advertises)
-// refuses a relayer quote above it, with the quote on the error as `feeMoved`.
-// `askSelf(why, { timedOut, signal })`, when given, is asked before either fallback posts from this wallet's Bitcoin
-// address, which then shows as the sender: `why` is 'no-relay' when the relay cannot quote, 'relay-slow' when it has
-// not posted the payment (`timedOut` after five minutes of waiting; `signal` aborts when it posts while the question is
-// open). A false answer posts nothing and throws with `relayDeclined`. Without `askSelf` both fallbacks post unasked.
-// `deductFee` makes `amount` the total these notes give up: a relayer's quoted fee comes out of the recipient's output,
-// a self-funded post delivers all of it, and nothing comes back as change. The result's `amount` is what the recipient got.
-// A quote that ran out while the proof was made (a first proof fetches the prover) is asked for once more, with the same notes.
 export async function payPrivately(tacit, { poolWallet, to, amount, asset, anchor = null, noRelay = false, maxFee = null, say = () => {}, inputs = null, askSelf = null, deductFee = false, requoted = false }) {
   to = poolRecipient(to, poolWallet.network);
   pool.decodeAddress(to, poolWallet.network);
   const client = poolClientFor(poolWallet.network);
   const info = noRelay ? null : await client.relayInfo().catch(() => null);
   const fee = info?.fees?.['0x' + String(asset).replace(/^0x/, '').toLowerCase()];
-  // A relayer that cannot quote must not end the payment. Nothing has been proved yet and the self-funded
-  // path below needs no relayer, so every refusal it can give here — no free coin to bind, quote table full,
-  // rate limited — means "not now", not "impossible"; one that fails is asked once more after a moment, as a passing
-  // refusal must not send the payment from the wallet's own address. relayInfo() is already caught for the same reason.
   const askQuote = () => client.quote({ asset: '0x' + String(asset).replace(/^0x/, '') });
   const q = fee != null ? await askQuote().catch(() => new Promise((r) => setTimeout(r, 1500)).then(askQuote).catch(() => null)) : null;
-  // With no limit given, a quarter above the fee the relayer advertises is the limit: its fee rate moving between the two
-  // reads is taken, a quote far above what was shown is never signed unseen.
   const cap = maxFee ?? (fee != null ? (BigInt(fee) * 5n) / 4n : null);
   if (q && cap != null && BigInt(q.fee) > BigInt(cap)) throw Object.assign(new Error('The relay’s fee changed.'), { feeMoved: BigInt(q.fee) });
   const pay = deductFee ? amount - (q ? BigInt(q.fee) : 0n) : amount;
@@ -416,14 +325,7 @@ export async function payPrivately(tacit, { poolWallet, to, amount, asset, ancho
   const { payload, payloadHex } = await proveHere(built, say);
   if (q) {
     say('Handing it to the relay…');
-    // A relayer can quote and still fail to post — it needs its own confirmed coins to fund the carrier,
-    // and it reserves one of them as this batch's bind. When that happens the payment must not be stuck:
-    // the body is bound to the relayer's outpoint so this wallet cannot post THIS one, but it can build
-    // the same spend again without a bind and pay for the carrier itself. The rebuild is given the same
-    // notes (selecting again for the smaller need could pick others), so it publishes the same nullifiers — if the relayer does eventually post its copy, only
-    // whichever lands first is accepted and the other is rejected by the pool. The money cannot go twice.
     const relayed = (carrier) => { pendingMark(a.notes, carrier, a.total - pay - BigInt(q.fee), asset, 0n, ownerTag(poolWallet)); return { revealTxid: carrier, relayed: true, anchor: a.hAnchor, amount: pay, fee: BigInt(q.fee) }; };
-    // The relay counts a payment confirmed once the pool holds its spend, whichever carrier took it there.
     const landed = (stt) => stt?.carrier || (stt?.state === 'confirmed' ? stt.carrier || null : undefined);
     let reason = null, sub = null, timedOut = false;
     try {
@@ -447,7 +349,6 @@ export async function payPrivately(tacit, { poolWallet, to, amount, asset, ancho
       say('The relay could not post it in time, so this wallet is posting it from its Bitcoin address…');
       return payPrivately(tacit, { poolWallet, to, amount, asset, anchor: a.hAnchor, noRelay: true, say, inputs: a.notes, deductFee });
     }
-    // A payment still waiting at the relay can be posted by it while the question is open: its carrier ends the question.
     const ctl = new AbortController();
     const watch = timedOut ? (async () => {
       while (!ctl.signal.aborted) {
@@ -462,7 +363,6 @@ export async function payPrivately(tacit, { poolWallet, to, amount, asset, ancho
     if (got.landed) return relayed(got.carrier);
     if (!got.ok) {
       if (!timedOut) throw relayDeclined('The relay hasn’t posted it yet and may still. Nothing else was sent; check your balance before paying again.');
-      // Still queued at the relay: its notes are set aside while it may post them.
       pendingMark(a.notes, null, 0n, asset, 0n, ownerTag(poolWallet), { hold: MAY_STILL_MS });
       throw relayDeclined('The relay hasn’t posted it yet and may still. Nothing else was sent; the TAC it would spend is set aside for half an hour, so it is not paid twice.');
     }
@@ -476,8 +376,6 @@ export async function payPrivately(tacit, { poolWallet, to, amount, asset, ancho
   return { ...r, relayed: false, anchor: a.hAnchor, amount: pay };
 }
 
-// One spend takes at most two notes. How many times the two largest of `values` must be joined into one, each join
-// paying `fee`, before two notes cover `need`: 0 when two already do, null when no run of joins does.
 export function combinePlan(values, need, fee = 0n) {
   const desc = (a, b) => (a < b ? 1 : a > b ? -1 : 0), u = values.map(BigInt).filter((v) => v > 0n).sort(desc), want = BigInt(need), f = BigInt(fee);
   for (let n = 0; n < 64; n++) {
@@ -489,11 +387,6 @@ export function combinePlan(values, need, fee = 0n) {
   return null;
 }
 
-// Joins this wallet's two largest notes of `asset` into one, paid to its own pool address, for a payment two notes
-// cannot cover. Relayed, the relay's quoted fee (at most `maxFee`, which a relayed join needs) comes out of the new note,
-// so the two notes become exactly one; posted from the Bitcoin address, the new note holds both. Until the pool counts it,
-// it shows as settling.
-// → payPrivately's result, plus `value`, the new note's value.
 export async function combineNotes(tacit, { poolWallet, asset, anchor = null, noRelay = false, maxFee = null, say = () => {}, askSelf = null }) {
   if (!noRelay && maxFee == null) throw new Error('combineNotes: a relayed join needs maxFee');
   const desc = (a, b) => (BigInt(a.value) < BigInt(b.value) ? 1 : BigInt(a.value) > BigInt(b.value) ? -1 : 0);
@@ -510,8 +403,6 @@ export async function combineNotes(tacit, { poolWallet, asset, anchor = null, no
   return { ...r, value };
 }
 
-// Exits `amount` of `asset` to this wallet's own address as an ordinary Tacit note (vout 0 of the carrier), the
-// rest staying shielded as internal change. Returns the new note's opening.
 export async function exitToWallet(tacit, { poolWallet, amount, asset, anchor = null, say = () => {} }) {
   say('finding your notes…');
   const a = await prepare(poolWallet, asset, amount, anchor);
@@ -529,15 +420,10 @@ export async function exitToWallet(tacit, { poolWallet, amount, asset, anchor = 
   say('sending…');
   const r = await broadcastCarrier(tacit, { payload, outputs: [{ value: Math.max(tacit.DUST, DUST_SATS), script: own }] });
   pendingMark(a.notes, r.revealTxid, change, asset, amount, ownerTag(poolWallet));
-  // The holdings scan credits the note from this opening once the replay records the exit.
   tacit.recordOpening?.(r.revealTxid, 0, String(asset).replace(/^0x/, '').toLowerCase(), amount, BigInt(built.exit.blinding));
   return { ...r, exit: { vout: 0, value: amount.toString(), blinding: built.exit.blinding, cx: built.exit.cx, cy: built.exit.cy }, anchor: a.hAnchor };
 }
 
-// Opens again, from the pool seed, exits this wallet made to its own address whose openings this browser does not
-// hold (made on another device, or with its storage cleared), and records them. `utxos` are such outputs, as the
-// holdings scan lists them under `ghosts`; `notes` are the pool wallet's notes of `asset`, spent ones included, among
-// which recoverExit finds each spend's inputs. → how many it recorded.
 export async function recoverExitOpenings(tacit, { poolWallet, asset, utxos, notes }) {
   const assetHex = String(asset).replace(/^0x/, '').toLowerCase();
   let n = 0;
@@ -554,7 +440,6 @@ export async function recoverExitOpenings(tacit, { poolWallet, asset, utxos, not
   return n;
 }
 
-// ── back to sats ──
 async function faucetCall(url, init, { timeoutMs = 60_000, who = 'faucet' } = {}) {
   let r;
   const ctl = typeof AbortController === 'function' ? new AbortController() : null;
@@ -578,9 +463,6 @@ async function findFill(faucetUrl, quoteId, say) {
 }
 export const makerQuote = (units, faucetUrl = FAUCET_URL) => faucetCall(`${faucetUrl}/faucet/maker/quote?units=${BigInt(units)}`);
 
-// Sells `amount` of `asset` to the faucet's maker for sats. The quote names the maker's script, the sats and a
-// bind coin; the spend exits `amount` to that script and wants the sats paid to a fresh exit key of the pool
-// wallet (recoverable from the same backup). `usedScripts` (a Set) keeps exit keys from being reused.
 export async function sellForSats(tacit, { poolWallet, amount, asset, anchor = null, usedScripts = new Set(), say = () => {}, prove = proveHere, faucetUrl = FAUCET_URL }) {
   const assetHex = String(asset).replace(/^0x/, '').toLowerCase();
   say('finding your notes…');
@@ -605,7 +487,6 @@ export async function sellForSats(tacit, { poolWallet, amount, asset, anchor = n
       }),
     }, { timeoutMs: 120_000 });
   } catch (e) {
-    // The fill may have gone out with its answer lost on the way back: the faucet lists recent fills by quote.
     if (!e.unreachable) throw e;
     f = await findFill(faucetUrl, q.quoteId, say);
     if (!f) throw new Error('The faucet did not answer. If the swap went out it shows in your activity within a few minutes.');
@@ -617,11 +498,6 @@ export async function sellForSats(tacit, { poolWallet, amount, asset, anchor = n
   };
 }
 
-// ── pay a bitcoin address through the pool maker ──
-// The maker (worker-relay/src/pool-maker.js) takes TAC out of the pool for sats. One proved spend exits the TAC to the
-// maker and wants `sats` paid to `payoutScript`, a recipient's output script; the maker posts both in one carrier, so the
-// recipient is paid in the next block. Its terms (the TAC it takes for the sats, a coin to bind the carrier to) come from
-// GET /maker/quote?sats=. The want is in the proved body: a maker that does not pay cannot take the exit.
 export const makerQuoteSats = (sats, makerUrl) => faucetCall(`${String(makerUrl).replace(/\/$/, '')}/maker/quote?sats=${BigInt(sats)}`, undefined, { who: 'maker' });
 async function findMakerFill(makerUrl, quoteId, say) {
   for (let i = 0; i < 12; i++) {
@@ -660,7 +536,6 @@ export async function payThroughMaker(tacit, { poolWallet, sats, payoutScript, a
       }),
     }, { timeoutMs: 120_000, who: 'maker' });
   } catch (e) {
-    // The fill may have gone out with its answer lost on the way back: the maker lists recent fills by quote.
     if (!e.unreachable) throw e;
     f = await findMakerFill(base, q.quoteId, say);
     if (!f) throw new Error('The maker did not answer. If the payment went out it shows in your activity within a few minutes.');
@@ -668,10 +543,6 @@ export async function payThroughMaker(tacit, { poolWallet, sats, payoutScript, a
   pendingMark(a.notes, f.txid, 0n, assetHex);
   return { revealTxid: f.txid, commitTxid: f.commitTxid, sats: Number(f.sats), units, anchor: a.hAnchor, price: q.price };
 }
-
-// ── sats at exit keys ──
-// Back to sats pays to fresh P2TR exit keys of the pool wallet. exitCoins finds the plain-sats outputs there;
-// sweepExitCoins moves them to the wallet's own address, where they are ordinary sats.
 
 const B32 = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
 const bech32Poly = (vs) => {
@@ -681,7 +552,6 @@ const bech32Poly = (vs) => {
   return c >>> 0;
 };
 const hrpWords = (hrp) => [...hrp].map((ch) => ch.charCodeAt(0) >> 5).concat(0, [...hrp].map((ch) => ch.charCodeAt(0) & 31));
-// BIP-173 for version 0, BIP-350 (bech32m) for version 1 and up.
 function segwitAddress(hrp, version, program) {
   const words = [version];
   let acc = 0, bits = 0;
@@ -692,9 +562,6 @@ function segwitAddress(hrp, version, program) {
   return `${hrp}1${[...words, ...cs].map((w) => B32[w]).join('')}`;
 }
 
-// The script a listing pays, from a mainnet address: P2WPKH (bc1q…) or P2TR (bc1p…), each with its own checksum
-// (BIP-173 for version 0, BIP-350 for version 1). Anything else is refused rather than guessed at: this is where
-// someone's sats land.
 export function payoutScriptFor(addr) {
   const s = String(addr || '').trim();
   if (!/^bc1/i.test(s)) throw new Error('Use a bc1q… or bc1p… Bitcoin address.');
@@ -718,7 +585,6 @@ export function p2trAddress(spkHex, network = 'signet') {
   return segwitAddress(network === 'mainnet' ? 'bc' : 'tb', 1, spk.slice(2));
 }
 
-// Counters this browser knows were handed out, from the Secret payment progress of `pubHex`.
 export function knownExitCount(network, pubHex) {
   let st = {};
   try { st = JSON.parse(localStorage.getItem(`tacit-sats-demo-v2:${network}:${pubHex}`) || '{}') || {}; } catch {}
@@ -726,8 +592,6 @@ export function knownExitCount(network, pubHex) {
   return Math.max((st.sellUsed || []).length, counters.length ? Math.max(...counters) + 1 : 0);
 }
 
-// Whether txid:vout (at an exit key) is plain sats. Fails closed: dust-band outputs and anything a Tacit
-// envelope assigns a note to stay put. A pool spend's exit output is a cBTC note; its want output is sats.
 export async function isPlainSats(tacit, tx, vout) {
   const out = tx.vout[vout];
   if (!out) return false;
@@ -749,9 +613,6 @@ export async function isPlainSats(tacit, tx, vout) {
 }
 
 const EXIT_GAP = 3;
-// Unspent plain-sats outputs at the wallet's exit keys: every counter below `known`, then on until EXIT_GAP keys
-// in a row have no history, so a wallet restored from its backup finds its payouts too.
-// Returns { coins: [{ txid, vout, value, confirmed, counter, spk }], held: [...] (outputs left alone) }.
 export async function exitCoins(tacit, poolWallet, { known = 0 } = {}) {
   const coins = [], held = [];
   const txs = new Map();
@@ -775,12 +636,8 @@ export async function exitCoins(tacit, poolWallet, { known = 0 } = {}) {
   return { coins, held };
 }
 
-// vbytes of a sweep: n P2TR key-path inputs and m P2WPKH inputs to one P2WPKH output.
 export const sweepVbytes = (n, m = 0) => Math.ceil(10.5 + 57.5 * n + 68 * m + 31);
 
-// Spends `coins` (from exitCoins) to `toScript` at `feeRate` sat/vB, each input signed with its exit key. The
-// output has to clear the dust band, where the wallet keeps token notes; `walletCoins` (plain sats at toScript,
-// signed by signWallet(tx, i, value)) top it up when the exit coins alone fall short.
 export function buildSweep({ poolWallet, coins, walletCoins = [], toScript, feeRate, signKeyPath, signWallet, serializeTx, txid, dust = 546 }) {
   if (!coins.length) throw new Error('nothing to move');
   const total = coins.reduce((t, c) => t + c.value, 0);
@@ -809,8 +666,6 @@ export async function sweepFeeRate(tacit) {
   return Math.max(1, Number.isFinite(r) ? r : 1);
 }
 
-// The sweep for `coins` at the current fee rate, topped up from the wallet's plain sats (token notes excluded
-// by the holdings scan) when the exit coins alone do not clear the dust band.
 export async function planSweep(tacit, poolWallet, coins, { feeRate = null } = {}) {
   const rate = feeRate ?? await sweepFeeRate(tacit);
   const deps = {
@@ -826,25 +681,14 @@ export async function planSweep(tacit, poolWallet, coins, { feeRate = null } = {
   return buildSweep({ ...deps, walletCoins: [{ txid: top.txid, vout: top.vout, value: top.value }] });
 }
 
-// Moves every plain-sats coin at the exit keys to the wallet's own address.
 export async function sweepExitCoins(tacit, poolWallet, coins, { feeRate = null } = {}) {
   const b = await planSweep(tacit, poolWallet, coins, { feeRate });
   await tacit.broadcast(b.hex);
   return { txid: b.txid, total: b.total, added: b.added, fee: b.fee, value: b.value };
 }
 
-// ── sale keys ──
-// "To sats" sells shielded TAC on the market without the wallet's Bitcoin address anywhere in the trail. The relay takes
-// the TAC out of the pool to a sale key, a P2WPKH exit key of the pool wallet (DESIGN-btc-shielded-pool.md §6), posting
-// the carrier from its own coins for a fee in TAC; that key lists the note, and the buyer pays sats to an address the
-// seller names. The wallet's address funds nothing and signs nothing on this path, so a relay that cannot post the
-// take-out is never replaced by a post from that address.
-//
-// A sale key never takes a counter whose P2TR exit key has history: one secret backs both scripts of a counter, and
-// spending the P2WPKH output publishes the point the P2TR output key is tweaked from.
-
 const SALE_GAP = 6;
-const SALE_HOLD_MS = 24 * 3600e3;   // a counter handed out stays reserved while a relay may still post its take-out
+const SALE_HOLD_MS = 24 * 3600e3;
 const SALE_KEYS_KEY = 'tacit-pool-sale-keys-v1';
 const strip0x = (h) => String(h).replace(/^0x/, '').toLowerCase();
 
@@ -854,8 +698,6 @@ export function saleKey(poolWallet, counter) {
   return { counter, priv: strip0x(k.priv), pub: strip0x(k.pub), scriptPubKey: spk, address: segwitAddress(poolWallet.network === 'mainnet' ? 'bc' : 'tb', 0, hexToBytes(spk).slice(2)) };
 }
 
-// Counters this browser handed out in the last day, by pool wallet: a second take-out made before the first one's
-// carrier is seen on chain gets a key of its own.
 function saleHeld(poolWallet) {
   let v = null;
   try { v = typeof localStorage === 'undefined' ? null : JSON.parse(localStorage.getItem(SALE_KEYS_KEY) || 'null'); } catch {}
@@ -872,13 +714,6 @@ function saleHold(poolWallet, counter) {
   } catch {}
 }
 
-// The sale keys this pool wallet has used, each with the exit notes of `asset` still at it, and `free`: the first
-// counter neither used on chain nor held here. Walks counters until SALE_GAP in a row have no history at either script.
-// `notes` are the pool wallet's notes, spent ones included: each exit found is opened again from the pool seed
-// (recoverExit) and its opening recorded, so the holdings scan credits it under its key and a listing can name it.
-// `addresses` are the pool addresses the take-outs paid a fee to (the relay's, from relayInfo().address): the fee note is
-// not this wallet's, so without its address the opening is searched for among the first 65,536 units and a fee above
-// that is never found.
 export async function saleKeys(tacit, poolWallet, notes, asset, { addresses = [] } = {}) {
   const assetHex = strip0x(asset), held = saleHeld(poolWallet);
   const used = async (addr) => {
@@ -912,11 +747,6 @@ export async function saleKeys(tacit, poolWallet, notes, asset, { addresses = []
   return { keys, free };
 }
 
-// Takes `amount` of `asset` out of the pool to sale key `key` (saleKey) through the relay: the exit pays the key's
-// script at the output the relay assigns, the relay's fee is a pool output, and change stays shielded. Proved here.
-// → { revealTxid, exitVout, amount, fee } once the relay posts it (revealTxid null if it reports none; saleKeys finds
-// the note either way), or { wait, tip } when the newest note is too young for the anchor policy. A relay that cannot
-// quote, or has not posted after five minutes, ends it with `relayDeclined`: nothing is posted from the wallet.
 export async function exitToSaleKey(tacit, { poolWallet, amount, asset, key, anchor = null, maxFee = null, say = () => {}, inputs = null, requoted = false }) {
   const assetHex = strip0x(asset), client = poolClientFor(poolWallet.network);
   const NOT_NOW = 'The relay can’t take this one right now. Nothing was sent. Try again in a few minutes.';
@@ -931,9 +761,7 @@ export async function exitToSaleKey(tacit, { poolWallet, amount, asset, key, anc
   say('finding your notes…');
   const a = await prepare(poolWallet, assetHex, amount + fee, anchor, inputs);
   if (a.wait) return { wait: a.wait, tip: a.tip };
-  saleHold(poolWallet, key.counter);                                // reserved once a take-out to it can be posted
-  // The fee note, the change and zero-value padding to three outputs (an exit leaves it to the caller), the last two
-  // to the wallet's internal address so what stays shielded does not show as sent.
+  saleHold(poolWallet, key.counter);
   const self = { address: poolWallet.internalAddress, network: poolWallet.network };
   const change = a.total - amount - fee;
   const outputs = [{ address: q.address, value: fee }];
@@ -953,7 +781,6 @@ export async function exitToSaleKey(tacit, { poolWallet, amount, asset, key, anc
       say('The relay’s quote ran out while the proof was made; asking for a new one…');
       return exitToSaleKey(tacit, { poolWallet, amount, asset, key, anchor: a.hAnchor, maxFee, say, inputs: a.notes, requoted: true });
     }
-    // Another take-out filled that output of the relay's open carrier first: the same spend, signed for the one it names.
     if (e?.status !== 409 || !Number.isInteger(e?.body?.exitVout)) throw e;
     built = build(e.body.exitVout);
     ({ payloadHex } = await proveHere(built, say));
@@ -979,9 +806,6 @@ export async function exitToSaleKey(tacit, { poolWallet, amount, asset, key, anc
   throw relayDeclined('The relay hasn’t posted it yet and may still. Nothing else was sent; once it posts, the TAC shows here, ready to list.');
 }
 
-// Lists `note`, held at sale key `key`, for exactly `sats` paid to `payoutScript`. The sale key signs the pre-authorized
-// sale, so neither the listing nor the chain names the wallet. tacit.js holds one key at a time: the sale key goes in for
-// this call, the caller's comes back after and the sale key's bytes are wiped. Run it inside the page's own turn.
 export async function listFromSaleKey(tacit, { key, note, sats, expiry, payoutScript, onProgress = null }) {
   const keep = { priv: tacit.wallet.priv, pub: tacit.wallet.pub };
   const priv = hexToBytes(key.priv);
@@ -996,9 +820,6 @@ export async function listFromSaleKey(tacit, { key, note, sats, expiry, payoutSc
   }
 }
 
-// What a take-out that sells for exactly `sats` is listed at: `under` (2%) below the cheapest live ask on the book, or
-// below the market's mark when the book has none, so a buyer takes it soon. → { unit (sats per whole TAC), units (TAC
-// base units to take out), ask, mark }, or null when neither price can be read.
 export async function saleQuote(sats, { asset = TAC_ASSET_MAINNET, network = 'mainnet', under = 0.02, decimals = 8, fast = false } = {}) {
   const net = network === 'mainnet' ? 'mainnet' : 'signet';
   const read = (u) => fetch(u, { cache: 'no-store', signal: AbortSignal.timeout?.(20_000) }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
@@ -1008,8 +829,6 @@ export async function saleQuote(sats, { asset = TAC_ASSET_MAINNET, network = 'ma
     .filter((s) => !s.expired && Number(s.expiry) > now && /^\d+$/.test(String(s.asset_opening?.amount)) && BigInt(s.asset_opening.amount) > 0n)
     .map((s) => Number(s.min_price_sats) / (Number(s.asset_opening.amount) / one));
   const ask = asks.length ? Math.min(...asks) : null, mark = Number(info?.mark_price?.unit) || null;
-  // Faster prices under the last trade when that is below the cheapest ask: asks in a quiet book sit above where trades happen,
-  // and a lot priced off them waits. A last trade older than a week says little about today, so it is left out.
   const recent = mark && Number(info?.mark_price?.ts) > now - 7 * 86400 ? mark : null;
   let base, basis;
   if (fast && recent && (!ask || recent < ask)) { base = recent; basis = 'trade'; }
@@ -1020,17 +839,11 @@ export async function saleQuote(sats, { asset = TAC_ASSET_MAINNET, network = 'ma
   return { unit, units: BigInt(Math.ceil((Number(sats) * one) / unit)), ask, mark, basis };
 }
 
-// What a buy-and-shield carrier costs in Bitcoin fees at `tier`: about 1,150 vB (a one-input commit and a reveal carrying the
-// shield proof), at the rate broadcastCarrier will use.
 export const BUY_CARRIER_VB = 1150;
 export async function buyFee(tacit, tier = 'priority') {
   return Math.ceil((await tacit.getFeeRate(tier, { fresh: true, safetyMult: 1.2 })) * BUY_CARRIER_VB);
 }
 
-// Listings of `asset` on Bitcoin's market to buy straight into the pool (buyAndShield): unexpired for at least `minLeft`
-// seconds, not this wallet's own (its key, or a seller key in `exclude`, such as its sale keys), within `budget` sats when
-// one is given, cheapest per unit first. Each is the record the API lists, with `unit` (sats per whole token) added. A lot
-// is bought whole.
 export async function lotsToBuy(tacit, { asset = TAC_ASSET_MAINNET, network = 'mainnet', budget = null, limit = 3, minLeft = 900, decimals = 8, exclude = null } = {}) {
   const assetHex = String(asset).replace(/^0x/, '').toLowerCase();
   const book = await fetch(`${WORKER_BASE}/assets/${assetHex}/preauth-sales?network=${network === 'mainnet' ? 'mainnet' : 'signet'}`, { cache: 'no-store', signal: AbortSignal.timeout?.(20_000) })
@@ -1042,13 +855,10 @@ export async function lotsToBuy(tacit, { asset = TAC_ASSET_MAINNET, network = 'm
     .map((s) => ({ ...s, unit: Number(s.min_price_sats) / (Number(s.asset_opening.amount) / one) }))
     .sort((a, b) => a.unit - b.unit || Number(a.min_price_sats) - Number(b.min_price_sats));
   const within = budget == null ? live : live.filter((s) => Number(s.min_price_sats) <= Number(budget));
-  // Lots of the same size at the same price are one choice: the first of each stands for the rest.
   const seen = new Set(), distinct = within.filter((s) => { const k = `${s.asset_opening.amount}:${s.min_price_sats}`; if (seen.has(k)) return false; seen.add(k); return true; });
   return { lots: distinct.slice(0, limit), smallest: live.reduce((m, s) => (!m || Number(s.min_price_sats) < Number(m.min_price_sats) ? s : m), null) };
 }
 
-// Whether a listed note has been bought: the transaction that spent it, and whether it paid `payoutScript` at least
-// `sats`. null while the note is unspent.
 export async function saleSettlement(tacit, { note, payoutScript, sats }) {
   const sp = await esplora(tacit, `/tx/${note.txid}/outspend/${note.vout}`);
   if (!sp?.spent || !sp.txid) return null;
@@ -1058,15 +868,10 @@ export async function saleSettlement(tacit, { note, payoutScript, sats }) {
   return { txid: sp.txid, paid, confirmed: !!(sp.status?.confirmed ?? tx?.status?.confirmed) };
 }
 
-// ── UI ──
-// One-line switch: true shows a single "Get private cBTC" step (buy and shield in one transaction) in place of
-// the separate Get cBTC and Shield steps. The zap module can replace the local buyAndShield by import.
-// index.html carries a static preview of STEPS for before this module loads; merge its rows too when flipping.
 const SINGLE_ACTION_JOIN = true;
 const joinImpl = buyAndShield;
 
 const hooks = new Map();
-// impl: { title, done?(state), render(body, api) } where api = { ctx, state, save, log, poolWallet, pool, setStatus, rerender }.
 export function registerStep(id, impl) { hooks.set(id, impl); }
 
 export const STEPS = [
@@ -1080,7 +885,6 @@ export const STEPS = [
 
 const POOL_STEPS = new Set(['pay', 'receive', 'exit', 'sell']);
 
-// What each step does, shown while it is still ahead.
 const ABOUT = {
   sats: 'Free test sats for fees and the cBTC price.',
   get: 'Swap sats for a test cBTC lot in one atomic swap.',
@@ -1092,13 +896,11 @@ const ABOUT = {
   sell: 'Swap private cBTC for sats in one transaction. Change stays in the pool.',
 };
 
-// takePreauthSale progress stages, in words.
 const STAGE = {
   'fetch-start': 'checking the lot…', 'commit-start': 'sending your payment…',
   'wait-visible': 'waiting for the network…', 'broadcast-start': 'claiming the lot…',
 };
 
-// Rough sats a buy needs on top of the lot price (commit + reveal fees at signet rates, plus the change floor).
 const FEE_ALLOWANCE = 2500;
 
 function el(tag, attrs = {}, ...kids) {
@@ -1108,9 +910,6 @@ function el(tag, attrs = {}, ...kids) {
   return n;
 }
 
-// The question a payment asks before it posts from the wallet's own Bitcoin address, as payPrivately's `askSelf`:
-// 'no-relay' (the relay did not take it) or 'relay-slow' (it has not posted it). Asked inside `host`; the answer is
-// false when it is declined, when `signal` aborts (the relay posted it meanwhile) and after ten minutes unanswered.
 export const askSelfIn = (host) => (why, { timedOut = false, signal } = {}) => new Promise((resolve) => {
   const lead = why === 'relay-slow' ? (timedOut ? 'The relay hasn’t posted it in five minutes.' : 'The relay hasn’t posted it.') : 'The relay didn’t take this payment.';
   const yes = el('button', { class: 'btn', type: 'button' }, 'Post it from my Bitcoin address');
@@ -1124,7 +923,6 @@ export const askSelfIn = (host) => (why, { timedOut = false, signal } = {}) => n
   host.replaceChildren(box);
 });
 
-// One line for the step; the take's post-commit errors carry a recovery pointer the main app acts on.
 function stepError(e, ctx) {
   const m = String(e?.message || e || '');
   if (/locked at [0-9a-f]{64}/.test(m)) return 'Your payment went out but the claim did not finish. The sats are recoverable from the main Tacit app (Holdings, stranded commits).';
@@ -1145,17 +943,16 @@ export function mount(root, ctx) {
   const poolWallet = () => (ctx.wallet?.priv ? poolWalletFor(ctx.wallet.priv, network) : null);
   const n = (x) => Number(x).toLocaleString('en-US');
 
-  // Progress is kept per wallet, so a second wallet in this browser starts fresh.
-  let who = null; // { connected, unlocked, pubHex, sats }
+  let who = null;
   let state = {};
   const key = () => (who?.pubHex ? `tacit-sats-demo-v2:${network}:${who.pubHex}` : null);
   const load = () => { try { return JSON.parse((key() && localStorage.getItem(key())) || '{}') || {}; } catch { return {}; } };
   const save = () => { try { if (key()) localStorage.setItem(key(), JSON.stringify(state)); } catch {} };
 
   let faucet = { loading: true, status: null, error: null };
-  let running = null;             // step id in flight
-  const errs = {};                // step id → last error line
-  const progress = {};            // step id → progress line
+  let running = null;
+  const errs = {};
+  const progress = {};
 
   const intro = el('p', { class: 'note' });
   const list = el('ol', { class: 'steps', 'aria-label': 'Secret payment steps' });
@@ -1209,7 +1006,6 @@ export function mount(root, ctx) {
 
   function errLine(id) { return errs[id] ? el('div', { class: 'err', role: 'alert' }, errs[id]) : null; }
 
-  // Why a buy can't start yet, or null.
   function buyBlocker() {
     if (!who?.connected) return 'Connect a wallet above first.';
     if (faucet.loading) return 'Checking the faucet…';
@@ -1226,8 +1022,6 @@ export function mount(root, ctx) {
     return el('div', {}, `Swap ${n(st.price_sats)} signet sats for ${fmt(st.lot)} test ${ticker()}. ${k} lot${k === 1 ? '' : 's'} open.`);
   }
 
-  // done | active | locked, in order: the first open step is the active one. Pay, Receive and Exit open together
-  // once the wallet holds a pool note, and stay usable after they are done.
   function phases() {
     const done = {
       sats: !!(state.note || state.poolNote) || (satsKnown() && who.sats >= need()),
@@ -1345,7 +1139,6 @@ export function mount(root, ctx) {
       errLine('join'));
   }
 
-  // ── pool steps ──
   const asset = () => faucet.status?.asset_id || null;
   const units = (str) => {
     const d = Number.isInteger(faucet.status?.decimals) ? faucet.status.decimals : 8;
@@ -1353,7 +1146,7 @@ export function mount(root, ctx) {
     if (!m || (!m[1] && !m[2]) || (m[2] || '').length > d) throw new Error(`Enter an amount with at most ${d} decimals.`);
     return BigInt((m[1] || '0') + (m[2] || '').padEnd(d, '0'));
   };
-  let notes = null; // last scan: [{ value, spent, internal, txid, height, leafIndex }]
+  let notes = null;
   const balance = () => (notes || []).filter((x) => !x.spent).reduce((t, x) => t + BigInt(x.value), 0n);
   async function scanNotes(say) {
     const pw = poolWallet(); if (!pw) throw new Error('Unlock the wallet first.');
@@ -1369,7 +1162,7 @@ export function mount(root, ctx) {
     save();
   }
   const waitLine = (w) => `Your newest note is too recent for the wallet's anchor policy: it needs ${w.wait} more signet block${w.wait === 1 ? '' : 's'} (about ${w.wait * 10} min). Spending sooner anchors at the latest block, which tells an observer your note is new.`;
-  const pending = {}; // step id → { wait, retry }
+  const pending = {};
   function waitBox(id, retry) {
     const w = pending[id];
     if (!w) return null;
@@ -1454,7 +1247,6 @@ export function mount(root, ctx) {
       errLine('exit'));
   }
 
-  // The faucet's buy-back terms, from /faucet/status.
   const maker = () => (faucet.status?.maker?.enabled ? faucet.status.maker : null);
   const sellQuote = (u) => {
     const m = maker(), st = faucet.status;
@@ -1553,14 +1345,6 @@ export function mount(root, ctx) {
   return { render, get state() { return state; }, get running() { return !!running; }, sections, stop: () => clearInterval(timer) };
 }
 
-// ── mainnet ──
-// There is no faucet on mainnet, so there is no Get TAC / Back to sats step: a user already holds TAC (from
-// tacit.finance, an exchange, a peer) and shields it here. Shield and exit always pay their own Bitcoin fee
-// (broadcastCarrier, same as every other Tacit Bitcoin op); pay does too whenever the relayer has no quote
-// for the asset (payPrivately's existing fallback) — so none of the three needs the relayer to work. Only the
-// note reflects whether a relayer is live yet.
-
-// scanHoldings' utxo.blinding is a BigInt or a hex string (bare or 0x-prefixed); shieldNote wants bare hex.
 function blindingHex(v) {
   const big = typeof v === 'bigint' ? v : BigInt(/^0x/i.test(String(v)) ? v : '0x' + String(v));
   return big.toString(16).padStart(64, '0');
@@ -1572,42 +1356,33 @@ function parseTacUnits(str, decimals) {
   return BigInt((m[1] || '0') + (m[2] || '').padEnd(decimals, '0'));
 }
 
-// mount(el, ctx) for the mainnet pool panel: balance (public + shielded), shield, pay privately, receive
-// and exit, for whichever of MAINNET_POOL_ASSETS is selected. ctx is the same shape mount() takes;
-// getSats is unused here.
 export function mountMainnet(root, ctx) {
   const { tacit } = ctx;
   const log = ctx.log || (() => {});
   const explorer = tacit.NET?.explorer || 'https://mempool.space';
   const txLink = (txid, label) => el('a', { href: `${explorer}/tx/${txid}`, target: '_blank', rel: 'noopener noreferrer' }, label || `${txid.slice(0, 10)}…`);
   const poolWallet = () => (ctx.wallet?.priv ? poolWalletFor(ctx.wallet.priv, 'mainnet') : null);
-  // Read at call time, so switching asset redirects the loads and the actions already wired up.
   let sel = livePoolAssets()[0] || MAINNET_POOL_ASSETS[0];
   const asset = () => sel.id;
 
   let who = null;
   let running = null;
-  const errs = {}; // 'load' | 'shield' | 'pay' | 'receive' | 'exit' → last error line
+  const errs = {};
   let pub = { loading: false, utxos: [], decimals: sel.decimals };
   let shielded = { loading: false, notes: null };
   let relay = { checked: false, live: false };
   let lastShield = null, lastPay = null, lastExit = null;
-  const pending = {}; // 'pay' | 'exit' → { wait, tip }
+  const pending = {};
 
   const fmt = (units) => {
     const d = pub.decimals;
     const s = BigInt(units).toString().padStart(d + 1, '0');
     return `${s.slice(0, -d)}.${s.slice(-d)}`.replace(/\.?0+$/, '') || '0';
   };
-  // Notes this browser has spent are left out until the replay counts the spend, as coin selection leaves them out.
   const shieldedView = () => pendingView(shielded.notes || [], asset(), poolWallet());
   const shieldedTotal = () => shieldedView().live.reduce((t, x) => t + BigInt(x.value), 0n);
   const publicTotal = () => pub.utxos.reduce((t, u) => t + (typeof u.amount === 'bigint' ? u.amount : BigInt(u.amount)), 0n);
 
-  // Public balance: the same batched, cached holdings scan every other Wallet/Send/Holdings surface uses — not a
-  // one-off UTXO walk. scanHoldings() also carries each UTXO's opening (txid, vout, amount, blinding), which
-  // Shield needs.
-  // A read that finishes after the key changed belongs to the last key, and is dropped.
   async function loadPublic() {
     if (!ctx.wallet?.priv) return;
     const owner = who?.pubHex;
@@ -1621,8 +1396,6 @@ export function mountMainnet(root, ctx) {
     render();
   }
 
-  // Shielded balance: the replay service's batched note feed (poolClientFor('mainnet').allNotes(), paged 1000 at
-  // a time), scanned locally with the viewing key — the same call the signet demo's Receive step makes.
   async function loadShielded() {
     const pw = poolWallet(); if (!pw) return;
     const owner = who?.pubHex;
@@ -1658,9 +1431,6 @@ export function mountMainnet(root, ctx) {
   }
   const tok = (cls) => (sel.logo ? el('img', { class: cls ? `tok ${cls}` : 'tok', src: sel.logo, alt: '', 'aria-hidden': 'true' }) : null);
 
-  // Status lines proveHere/payPrivately/exitToWallet report through `say`, written directly into a persistent
-  // node rather than through render() — proving ticks every 500ms and a full rebuild would drop focus from
-  // whichever field the wallet's owner is mid-typing in another section.
   const shieldStatus = el('span', { class: 'small muted' });
   const payStatus = el('span', { class: 'small muted' });
   const exitStatus = el('span', { class: 'small muted' });
@@ -1672,7 +1442,7 @@ export function mountMainnet(root, ctx) {
   async function doShield() {
     await ctx.ensureKey?.();
     const pw = poolWallet(); if (!pw) throw new Error('Unlock the wallet first.');
-    if (!pub.utxos.length) await loadPublic(); // fresh scan once unlocked, for a wallet that was still locked (so not yet scanned) when the button was clicked
+    if (!pub.utxos.length) await loadPublic();
     if (!pub.utxos.length) throw new Error(`No ${sel.ticker} to shield yet.`);
     const val = (u) => (typeof u.amount === 'bigint' ? u.amount : BigInt(u.amount));
     const biggest = [...pub.utxos].sort((a, b) => (val(b) > val(a) ? 1 : val(b) < val(a) ? -1 : 0))[0];
@@ -1725,8 +1495,6 @@ export function mountMainnet(root, ctx) {
     await loadShielded();
   }
 
-  // Everything on this panel is per-asset — balances, the last receipts, a pending anchor wait — so a
-  // switch clears them rather than showing one asset's numbers under another's name.
   function selectAsset(id) {
     const next = livePoolAssets().find((a) => a.id === id);
     if (!next || next.id === sel.id) return;

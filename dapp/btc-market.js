@@ -1,17 +1,3 @@
-// The market page for one asset: header, live order book, trade ticket, your orders and
-// recent trades. Planning is btc-book.js; settlement is the audited executors in tacit.js,
-// reached only through `ctx` (see _btcMarketCtx there), so this module never builds a
-// transaction itself.
-//
-// Rendering: the shell is written once per asset. Inputs are never re-rendered — refreshes
-// patch the text of output nodes and swap the ladder rows, so typing, focus and scroll
-// survive every update. A 10 s loop (visible tab only) keeps the book, quote and your
-// orders live; a trade you make refreshes immediately.
-//
-// Safety: what the review screen shows is what runs. After you confirm, the page may
-// re-route around an offer someone else took, but only inside the bounds you confirmed
-// (never more sats, never a worse price — withinBounds in btc-book.js); anything else
-// stops and says so.
 
 import {
   DUST, buildBook, planBuy, planSell, withinBounds, ladderLevels, listingShape,
@@ -19,33 +5,18 @@ import {
 } from './btc-book.js';
 
 const REFRESH_MS = 10_000;
-// A refresh that hasn't answered by then counts as failed, so one hung request can't
-// freeze the page; the next tick tries again.
 const REFRESH_TIMEOUT_MS = 15_000;
 const STATS_REFRESH_MS = 60_000;
 const SELL_TRACK_MS = 8_000;
 const MAX_REROUTES = 3;
-// A dialog's confirm button takes focus when it opens, and Enter in the amount box is what
-// opens it, so a second Enter (a double tap, or key repeat) would land on it unread. The
-// button ignores activation for this long after the dialog appears, and ignores held keys.
 const CONFIRM_GRACE_MS = 600;
 const LADDER_ROWS = 8;
-// Orders this far from the last trade are folded away until "show all" (fat-finger
-// bids at a fraction of a sat, asks at many times the price).
 const FAR_BELOW = 0.2;
 const FAR_ABOVE = 5;
-// A market order's default price limit stays within this factor of the last trade (when there
-// is a recent one); a book priced beyond it is shown as it is and taken with one explicit tap.
 const BAND = 2;
 const BAND_FRESH_SEC = 30 * 86400;
 const CHART_TFS = [['1D', 86400, '1D'], ['1W', 7 * 86400, '1W'], ['1M', 30 * 86400, '1M'], ['ALL', Infinity, 'All']];
 const SLIPPAGE_CHOICES = [1, 2, 5, 10, 25];
-// A market order's default price cap. Thin books (most real listings here) sit in a few
-// large, unevenly-priced lots — a tight default cap turns "spend my sats at the best
-// price" into "spend my sats, unless that requires reaching the 2nd cheapest lot, in
-// which case do nothing and ask me first." Default wide enough that a normal budget
-// reaches the real available liquidity in one tap; Settings can still tighten it for
-// anyone who wants a hard price ceiling.
 const DEFAULT_SLIPPAGE = 25;
 const EXPIRY_CHOICES = [[86400, '1 day'], [3 * 86400, '3 days'], [7 * 86400, '7 days'], [30 * 86400, '30 days']];
 
@@ -63,12 +34,9 @@ function ago(ts) {
   return `${Math.floor(s / 86400)}d`;
 }
 
-// A unit price as the ticket's price box shows it: display precision, no separators.
 function plainUnit(u) {
   return fmtUnit(u).replace(/,/g, '');
 }
-// The same, moved on by one place when rounding went the wrong way: a limit buy set to the best ask has to reach the ask (167.994 shown as 167.99
-// would rest below it as a bid), and a limit sell set to the best bid has to reach the bid. `up` says which way it must not fall short.
 function plainUnitReach(u, up) {
   const t = plainUnit(u), x = Number(t);
   if (!Number.isFinite(x) || (up ? x >= u : x <= u)) return t;
@@ -85,8 +53,6 @@ function fmtUsd(v) {
   return '$0';
 }
 
-// Errors that mean "that offer is gone or moved" and nothing of yours was spent on it.
-// A message carrying a commit/recovery marker means sats are in flight — never retried.
 export function isRerouteable(err) {
   if (err && typeof err === 'object' && err.noReroute) return false;
   const s = String((err && typeof err === 'object' ? err.message : err) || '');
@@ -243,7 +209,6 @@ function createMarket(host, ctx) {
     </section>`;
   }
 
-  // ── derived data ──────────────────────────────────────────────────────────
   const me = () => ctx.me() || null;
 
   function rebuildBook() {
@@ -264,9 +229,6 @@ function createMarket(host, ctx) {
     const a = ctx.asset();
     return (S.side === 'buy' ? eligibleAsks()[0]?.unit : eligibleBids()[0]?.unit) || a.markUnit || null;
   };
-  // The price limit: a % from the best offer, unless the user picked an exact price
-  // from a suggestion (S.limitAt), which lasts until they change side or pick a %.
-  // The last trade, while it is recent enough to anchor a price.
   const lastTradeUnit = () => {
     const a = ctx.asset();
     return a.markUnit > 0 && a.lastTradeTs && nowSec() - a.lastTradeTs < BAND_FRESH_SEC ? a.markUnit : null;
@@ -288,13 +250,11 @@ function createMarket(host, ctx) {
     const floor = best * (1 - S.slip / 100);
     return r ? Math.max(floor, r / BAND) : floor;
   };
-  // Where a resting order starts: joining the book, unless the book is far from the last trade.
   function restingUnit(side) {
     const bb = S.book?.bestBid, ba = S.book?.bestAsk;
     const join = side === 'buy' ? (bb && ba ? Math.min(bb, ba) : bb || ba) : (ba || bb);
     const mark = ctx.asset().markUnit;
     const u = join && inBand(join) ? join : (mark || join || null);
-    // The price the field shows, so the amount a bid is worth is the one the ticket then quotes.
     return u ? Number(plainUnit(u)) : null;
   }
   const usdOf = (sats) => {
@@ -302,7 +262,6 @@ function createMarket(host, ctx) {
     return px > 0 && Number.isFinite(sats) ? (sats / 1e8) * px : null;
   };
 
-  // ── header ────────────────────────────────────────────────────────────────
   let lastPrice = null;
   function paintHeader() {
     const a = ctx.asset();
@@ -356,9 +315,6 @@ function createMarket(host, ctx) {
     node.__flashT = setTimeout(() => node.classList.remove('bm-flash-up', 'bm-flash-down'), 1500);
   }
 
-  // ── book ──────────────────────────────────────────────────────────────────
-  // One ladder row. The shaded bar is cumulative depth from the spread outward, so the
-  // book reads as a staircase: how much you'd have to buy (or sell) to reach this price.
   function rowHtml(lv, side, depthPct) {
     let tag = '';
     let why = side === 'ask'
@@ -423,8 +379,6 @@ function createMarket(host, ctx) {
     if (hid) notes.push(`${hid} OTC offer${hid === 1 ? '' : 's'} that need${hid === 1 ? 's' : ''} trust in the seller ${hid === 1 ? 'isn\'t' : 'aren\'t'} shown`);
     const stale = (ex.asks.stale || 0) + (ex.asks.claimed || 0);
     if (stale) notes.push(`${stale} offer${stale === 1 ? ' is' : 's are'} busy or inactive and hidden`);
-    // Each fact on its own line rather than one dense run-on sentence — a small "key"
-    // for the dots and the few whole-piece/online-only asks, not a paragraph to parse.
     const legend = [];
     if (b.overlap) {
       const autoAbove = b.bids.some((x) => !x.mine && x.auto && x.unit > b.bestAsk);
@@ -438,7 +392,6 @@ function createMarket(host, ctx) {
     if (el.bookNote.innerHTML !== nb) el.bookNote.innerHTML = nb;
   }
 
-  // ── ticket ────────────────────────────────────────────────────────────────
   function paintTicketFrame() {
     $$('[data-act=side]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.v === S.side)));
     $$('[data-act=type]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === S.type)));
@@ -534,10 +487,8 @@ function createMarket(host, ctx) {
     }
   }
 
-  // Sats a buy keeps back for network fees.
   const reserveSats = () => 3000;
 
-  // Parse the ticket into an order description (no network).
   function readOrder() {
     const amtTxt = el.amount.value;
     if (S.type === 'market') {
@@ -586,8 +537,6 @@ function createMarket(host, ctx) {
     el.go.dataset.kind = kind;
   }
 
-  // The bid that "Bid" places for a buy that found no match: the sats typed (or the amount
-  // asked for) at the price a resting order starts from.
   function bidOutcome(o) {
     const unit = restingUnit('buy');
     if (!unit) return null;
@@ -595,7 +544,6 @@ function createMarket(host, ctx) {
     return base > 0n ? { base, unit } : null;
   }
 
-  // The least it takes to buy a piece at the best price (asks sell in whole pieces).
   function piecesFromSats(asks) {
     const key = fmtUnit(asks[0].unit);
     return asks.filter((a) => fmtUnit(a.unit) === key).reduce((m, a) => Math.min(m, a.sats), Infinity);
@@ -624,8 +572,6 @@ function createMarket(host, ctx) {
     if (el.avail.innerHTML !== h) el.avail.innerHTML = h;
   }
 
-  // How far a fill's average price sits from the last trade, as a note when it's a lot
-  // worse than the market the page header shows (a thin book can ask well above it).
   function offMarketNote(p, side) {
     const mark = ctx.asset().markUnit;
     if (!(mark > 0) || !p?.avgUnit) return '';
@@ -661,7 +607,6 @@ function createMarket(host, ctx) {
         if (!S.book.asks.some((a) => !a.mine)) why = 'No one is selling right now.';
         else if (cheapBig && o.spendSats != null) why = `The cheapest offer is one piece of ${fmtAmount(cheapBig.ask.amount, dec, 4)} ${T} for ${fmtSats(cheapBig.ask.sats)} sats — more than you entered.`;
         else if (cheapBig) why = `Offers at this price come in larger pieces than you asked for (smallest: ${fmtAmount(cheapBig.ask.amount, dec, 4)} ${T}).`;
-        // What the same order could fill with no price limit, offered as a one-tap raise.
         const wide = S.book.asks.some((a) => !a.mine) ? planBuy(S.book, { spendSats: o.spendSats ?? null, receiveBase: o.receiveBase ?? null, maxUnit: Infinity, includeIntents: S.includeMaker }) : null;
         const best = eligibleAsks()[0]?.unit;
         const bid = bidOutcome(o);
@@ -712,8 +657,6 @@ function createMarket(host, ctx) {
         else if (p.skipped.some((s) => s.reason === 'too-big')) why = 'The bids here want more than you entered.';
         const acts = [];
         if (p.manualAvailable) acts.push(`<button type="button" class="bm-btn" data-act="inc-manual-now">Offer to online-only bids</button>`);
-        // The best bid you could sell into, when it sits below the price floor: stated with the
-        // last trade beside it, and taken only by choosing it.
         const wideBid = S.book.bids.find((b) => !b.mine && (S.includeManual || b.auto));
         if (wideBid && wideBid.unit < minSellUnit()) {
           const last = lastTradeUnit();
@@ -738,7 +681,6 @@ function createMarket(host, ctx) {
       setGo('Review sell', true, 'review');
       return;
     }
-    // limit
     if (o.side === 'buy') {
       const p = q.plan;
       const nowFill = p.fills.length ? p : null;
@@ -779,9 +721,6 @@ function createMarket(host, ctx) {
     setGo('Review listing', true, 'review');
   }
 
-  // "At my price" rests as an open order — if you already have one at the same displayed
-  // price, a second click adds a SECOND one rather than changing the first. Surface that
-  // before Review, not after, so it's a choice, not a surprise found later in Your orders.
   function existingOrderNote(side, unit) {
     if (!S.myRows) return '';
     const target = fmtUnit(unit);
@@ -790,8 +729,6 @@ function createMarket(host, ctx) {
     return `<div class="bm-q bm-note">You already have an open ${side === 'buy' ? 'bid' : 'listing'} for ${fmtAmount(dup.amount, dec, 4)} ${T} at this price — this adds a second one.</div>`;
   }
 
-  // A limit buy's resting bid: what the remaining sats buy at the limit, never more than
-  // the amount asked for minus what already filled.
   function limitBidBase(o, nowFill, restSats) {
     if (restSats < DUST) return 0n;
     let base = amountForSats(restSats, o.unit, dec);
@@ -812,15 +749,11 @@ function createMarket(host, ctx) {
     paintHeader();
     if (S.book) paintBook();
     paintBalance();
-    paintOrders();                                                                          // before the quote, which notes an order of yours at the same price from what this draws
+    paintOrders();
     paintQuote();
     paintLive();
   }
 
-  // ── your orders ───────────────────────────────────────────────────────────
-  // Everything of yours that is open here: listings and offers (each holds a coin until it
-  // sells or is cancelled), bids, and sells still being followed. `lock` is the tokens a row
-  // keeps out of what you can sell.
   function myOrderRows() {
     const mine = [];
     if (!S.book) return mine;
@@ -840,15 +773,13 @@ function createMarket(host, ctx) {
     }
     for (const [iid, sale] of S.sells) {
       if (mine.some((r) => r.raw?.intent_id === iid)) continue;
-      if (sale.owner && me()?.pubHex && sale.owner !== me().pubHex) continue;                  // another key's sale: not this key's order, and none of its tokens are locked
+      if (sale.owner && me()?.pubHex && sale.owner !== me().pubHex) continue;
       if (sale.state === 'settled' || sale.state === 'closed' || sale.state === 'gone') continue;
       mine.push({ id: 'sell:' + iid, side: 'sell', amount: BigInt(sale.amount), unit: sale.unit, sats: sale.sats, lock: BigInt(sale.amount), status: sellStatusText(sale), action: sale.state === 'posted' ? 'cancel' : null, kind: 'sale', raw: { intent_id: iid } });
     }
     return mine;
   }
 
-  // What you can still sell: the wallet balance less the coins already committed to your own
-  // open listings and offers (the executor sells only from free coins).
   function lockedBase() { return myOrderRows().reduce((t, r) => t + r.lock, 0n); }
   function freeBase(m) {
     if (m?.assetBase == null) return null;
@@ -860,7 +791,7 @@ function createMarket(host, ctx) {
     if (!S.book) return;
     const m = me();
     const mine = myOrderRows();
-    if (!mine.length || !m) { el.orders.hidden = true; el.orders.innerHTML = ''; el.orders.__html = null; S.myRows = new Map(); return; }   // what was drawn is forgotten, so the same orders drawn again (a key locked and opened again) are written, and no order of the key that left is still counted
+    if (!mine.length || !m) { el.orders.hidden = true; el.orders.innerHTML = ''; el.orders.__html = null; S.myRows = new Map(); return; }
     el.orders.hidden = false;
     const html = `<h3>Your orders <em>${mine.length}</em></h3><div class="bm-otable">${mine.map((r) => `
       <div class="bm-orow ${r.side}"><span class="s">${r.side === 'buy' ? 'Buy' : 'Sell'}</span>
@@ -881,11 +812,9 @@ function createMarket(host, ctx) {
     }[s.state] || 'waiting for the buyer';
   }
 
-  // ── recent trades ─────────────────────────────────────────────────────────
   function paintTrades() {
     const all = S.stats?.trades || [];
     if (!all.length) { el.trades.innerHTML = ''; el.trades.__html = null; return; }
-    // Oldest first so each print's arrow compares with the one before it.
     let prev = null;
     const rows = all.slice(0, 40).reverse().map((t) => {
       const amt = BigInt(t.amount || 0);
@@ -909,7 +838,6 @@ function createMarket(host, ctx) {
     if (el.trades.__html !== html) { el.trades.innerHTML = html; el.trades.__html = html; }
   }
 
-  // ── chart ─────────────────────────────────────────────────────────────────
   function chartPoints() {
     return (S.stats?.trades || []).map((t) => {
       const amt = BigInt(t.amount || 0);
@@ -917,15 +845,12 @@ function createMarket(host, ctx) {
     }).filter((p) => p && p.u > 0 && p.ts > 0).sort((a, b) => a.ts - b.ts);
   }
 
-  // Prints far outside the typical range (fat fingers, dust trades) stay out of the line,
-  // the axis and the range; they're counted instead.
   function chartBand(pts) {
     const us = pts.map((p) => p.u).sort((a, b) => a - b);
     const med = us[Math.floor(us.length / 2)];
     return { lo: med * FAR_BELOW, hi: med * FAR_ABOVE };
   }
 
-  // One volume-weighted price per time bucket: a smooth line that still follows every fill.
   function chartBuckets(pts, t0, t1, n) {
     const out = [];
     const w = Math.max(1, (t1 - t0) / n);
@@ -951,7 +876,6 @@ function createMarket(host, ctx) {
     let tf = LS.get('tacit-btc-market-tf', '1M');
     if (!CHART_TFS.some(([k]) => k === tf)) tf = '1M';
     const span = (k) => CHART_TFS.find(([x]) => x === k)[1];
-    // A quiet market: widen until there is something to draw.
     let shownTf = tf;
     for (const [k] of CHART_TFS) {
       if (span(k) < span(tf)) continue;
@@ -985,7 +909,6 @@ function createMarket(host, ctx) {
   const PL = 10, PR = 70, PT = 14, PB = 42, VH = 24;
   let CW = 640, CH = 240;
   function chartSvg(win, tf) {
-    // Draw at the box's real width so text stays at its natural size on phones.
     CW = Math.max(300, Math.min(900, Math.round(el.chart.clientWidth || 640)));
     CH = CW < 480 ? 200 : 240;
     const t0 = win[0].ts, t1 = Math.max(nowSec(), win[win.length - 1].ts);
@@ -1008,7 +931,6 @@ function createMarket(host, ctx) {
     const vmax = Math.max(...bk.map((b) => b.sats), 1);
     const bw = Math.max(1.5, (CW - PL - PR) / nb - 1.5);
     const vol = bk.map((b) => `<rect x="${(X(b.ts) - bw / 2).toFixed(1)}" y="${(plotB - (b.sats / vmax) * VH).toFixed(1)}" width="${bw.toFixed(1)}" height="${((b.sats / vmax) * VH).toFixed(1)}"/>`).join('');
-    // Right-axis tags for the live book; ticks that would sit under a tag are dropped.
     const tags = [];
     if (ask && ask >= lo && ask <= hi) tags.push({ v: ask, cls: 'ask', label: `ask ${fmtUnit(ask)}` });
     if (bid && bid >= lo && bid <= hi) tags.push({ v: bid, cls: 'bid', label: `bid ${fmtUnit(bid)}` });
@@ -1072,7 +994,6 @@ function createMarket(host, ctx) {
     hit.addEventListener('pointerleave', () => { cur.hidden = true; tip.hidden = true; }, sig);
   }
 
-  // ── refresh loop ──────────────────────────────────────────────────────────
   let inflight = null;
   async function refresh({ force = false, soft = false } = {}) {
     if (S.destroyed) return;
@@ -1112,7 +1033,6 @@ function createMarket(host, ctx) {
   document.addEventListener('visibilitychange', onVis, sig);
   const liveTick = setInterval(() => { if (!S.destroyed) paintLive(); }, 1000);
 
-  // ── pending sells: follow each offer until the buyer settles ──────────────
   let tracking = false;
   async function trackSells() {
     if (tracking || !S.sells.size || !ctx.exec?.offerStatus) return;
@@ -1140,7 +1060,6 @@ function createMarket(host, ctx) {
     } finally { tracking = false; }
   }
 
-  // ── review + execute ──────────────────────────────────────────────────────
   function modal() {
     const wrap = document.createElement('div');
     wrap.className = 'bm-modal';
@@ -1169,8 +1088,6 @@ function createMarket(host, ctx) {
             if (n.classList.contains('bm-go') && Date.now() - openedAt < CONFIRM_GRACE_MS) return;
             if (btns[+n.dataset.i].once !== false) {
               foot.querySelectorAll('button').forEach((x) => { x.disabled = true; });
-              // A slow unlock prompt or network round-trip can leave the button sitting
-              // disabled for a while; say so instead of just going quiet.
               if (n.classList.contains('bm-go')) n.textContent = 'Working…';
             }
             btns[+n.dataset.i].onClick();
@@ -1182,7 +1099,6 @@ function createMarket(host, ctx) {
       close() {
         if (onKey) document.removeEventListener('keydown', onKey);
         wrap.remove();
-        // Hand the keyboard back to what had it (the amount box), not to the page body.
         try { if (prevFocus && prevFocus.isConnected) prevFocus.focus({ preventScroll: true }); } catch {}
       },
       onEscape(fn) { onKey = (e) => { if (e.key === 'Escape' && !escLocked) fn(); }; document.addEventListener('keydown', onKey); },
@@ -1201,16 +1117,12 @@ function createMarket(host, ctx) {
   const planSig = (q) => (q?.plan ? q.plan.fills.map((f) => (f.ask || f.bid).id + ':' + f.amount + ':' + f.sats).join(',') : String(q?.shape?.totalSats ?? ''));
   let reviewing = false;
   async function review() {
-    // The page behind a dialog is still reachable by keyboard; one review at a time.
     if (S.busy || S.destroyed || reviewing || document.querySelector('.bm-modal')) return;
     const m = me();
     if (!m) { await ctx.unlock(); refresh({ soft: true }); return; }
     let q = computeQuote();
     if (!q || q.empty) return;
     if (el.go.dataset.kind === 'fund') { ctx.fundSats(); return; }
-    // The quote is only as fresh as the last refresh. After a stretch without one (a
-    // backgrounded tab, a dropped connection) re-read the book first, and show the new
-    // quote instead of a review of offers that may be gone.
     if (!S.lastOk || Date.now() - S.lastOk > 25_000) {
       reviewing = true;
       el.go.disabled = true; el.go.textContent = 'Checking prices…';
@@ -1235,8 +1147,6 @@ function createMarket(host, ctx) {
     if (o.type === 'market' && o.side === 'buy') {
       const p = q.plan;
       const maxUnit = q.maxUnit === Infinity ? p.worstUnit : q.maxUnit;
-      // Spend orders are capped at what was typed; buy-an-amount orders at that amount
-      // priced at the limit (whole pieces can round it up, never past the plan itself).
       const maxSats = o.spendSats != null
         ? o.spendSats
         : Math.max(p.sats, satsForAmount(o.receiveBase, maxUnit, dec));
@@ -1301,8 +1211,6 @@ function createMarket(host, ctx) {
   }
   function endBusy() { S.busy = false; refresh({ force: true }); }
 
-  // Buy: preauth listings together in one transaction where possible, then offers that
-  // need their seller to confirm, one at a time. Re-route only inside `bounds`.
   async function runBuy(md, plan0, bounds, order) {
     try { await ctx.unlock(); } catch (e) { md.close(); ctx.toast?.(ctx.friendlyError(e), 'error'); return; }
     if (!beginBusy(md)) return;
@@ -1333,7 +1241,6 @@ function createMarket(host, ctx) {
         } catch (e) {
           const msg = ctx.friendlyError(e);
           if (isRerouteable(e)) {
-            // One of them moved; take the rest one by one so only the stale one fails.
             pre.forEach((s) => { s.status = 'queued'; });
             rest.unshift(...pre);
           } else {
@@ -1372,7 +1279,6 @@ function createMarket(host, ctx) {
       }
       if (err || stop || !stale.length) break;
       if (++reroutes > MAX_REROUTES) break;
-      // Re-plan what's left against a fresh book, inside the confirmed bounds.
       await refresh({ force: true });
       const left = order.spendSats != null
         ? { spendSats: Math.min(order.spendSats, bounds.maxSats) - spent }
@@ -1383,7 +1289,6 @@ function createMarket(host, ctx) {
       if (!ok) { steps.push({ status: 'skipped', label: 'No other offers within your price limit — stopped here' }); break; }
       np.fills.forEach((f) => { const s = stepFor(f); s.note = 're-routed'; s.rerouted = true; queue.push(s); });
     }
-    // Anything never attempted (stopped, or an earlier step failed) says so, not "queued".
     for (const s of steps) if (s.status === 'queued') { s.status = 'skipped'; s.note = 'not attempted'; }
     const title = got > 0n ? `Bought ${fmtAmount(got, dec, 6)} ${T}` : 'Nothing bought';
     const summary = got > 0n
@@ -1399,8 +1304,6 @@ function createMarket(host, ctx) {
     endBusy();
   }
 
-  // Sell: offer tokens to each bid (the bidder's wallet or watchtower settles), then
-  // follow each offer until it settles.
   async function runSell(md, plan0, bounds) {
     try { await ctx.unlock(); } catch (e) { md.close(); ctx.toast?.(ctx.friendlyError(e), 'error'); return; }
     if (!beginBusy(md)) return;
@@ -1461,7 +1364,6 @@ function createMarket(host, ctx) {
       if (err) ctx.onError?.(err);
       return;
     }
-    // Follow the offers live inside the dialog; closing it keeps tracking in Your orders.
     const paintTrack = () => {
       const mineNow = [...runIds].map((id) => S.sells.get(id)).filter(Boolean);
       const settled = mineNow.filter((x) => x.state === 'settled');
@@ -1503,7 +1405,6 @@ function createMarket(host, ctx) {
         else { s.status = 'failed'; s.note = ctx.friendlyError(e); err = e; break; }
       }
     }
-    // The bid covers whatever didn't fill now, at the same price.
     let bidId = null;
     if (!err && bidStep) {
       const restSats = order.totalSats - spent;
@@ -1559,8 +1460,6 @@ function createMarket(host, ctx) {
     if (!r || S.cancelling.has(id)) return;
     const what = `${r.side === 'buy' ? 'bid for' : r.kind === 'sale' ? 'offer of' : 'listing of'} ${fmtAmount(r.amount, dec, 4)} ${asset0.ticker} at ${fmtUnit(r.unit)}`;
     const onchain = r.kind === 'preauth';
-    // An offer whose claim has been fulfilled is already in the buyer's hands, signed. Taking
-    // it off the board does not void that; only spending its coin back to you does.
     let signed = false;
     if (r.kind === 'intent' || r.kind === 'intent-var' || r.kind === 'sale') {
       try { signed = !!(await ctx.exec.offerNeedsSpend?.(r.raw)); } catch { signed = false; }
@@ -1591,13 +1490,9 @@ function createMarket(host, ctx) {
     refresh({ force: true });
   }
 
-  // Load a book row into the ticket: an ask → buy it, a bid → sell into it.
   function primeFromRow(side, key) {
     primeLevel(side, S.ladder?.[side]?.get(key));
   }
-  // The same for a price named from outside, as the trade page's ladder does (its row is the level at that price): the ticket is set exactly as a press on
-  // the sheet's own row sets it, the price limit that reaches the level, the online-only bids it needs, and no more to sell than the key holds. A price this
-  // book has no level at is read as a level of its own, so the sheet never opens on a limit that stops short of the row that was pressed.
   function primeAt(side, unit, flag = null) {
     const lvs = [...(S.ladder?.[side]?.values() || [])];
     const near = (l) => Math.abs(l.unit - unit) <= unit * 1e-6;
@@ -1605,22 +1500,16 @@ function createMarket(host, ctx) {
       || (side === 'ask' ? { unit, flag: 'lot', rows: [{ instant: true }] } : { unit, flag: flag === 'manual' ? 'manual' : 'auto', rows: [] });
     return primeLevel(side, lv);
   }
-  // The price limit that reaches `unit`: the smallest of the % choices from the best price that does, else that exact price (a level further out than
-  // the largest choice is allowed by its own price, not left outside the limit).
   function limitToReach(side, unit) {
     const buy = side === 'buy', best = (buy ? eligibleAsks() : eligibleBids())[0]?.unit || unit;
     const reach = SLIPPAGE_CHOICES.find((p) => (buy ? best * (1 + p / 100) >= unit : best * (1 - p / 100) <= unit));
     S.slip = reach ?? SLIPPAGE_CHOICES[SLIPPAGE_CHOICES.length - 1];
     S.limitAt = reach == null ? { side, unit } : null;
   }
-  // → false when this book has nothing at or below the price to take (the caller sets the ticket by its own amount instead).
   function primeLevel(side, lv) {
     if (!lv) return false;
     if (lv.flag === 'mine') { el.orders.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return true; }
     if (side === 'ask') {
-      // Everything up to and including this level, at this level's price. A level that
-      // needs the seller's confirmation turns that option on first, so the cheaper rows
-      // counted below are ones the quote can actually buy.
       if (!lv.rows[0].instant) S.includeMaker = true;
       const upTo = S.book.asks.filter((a) => !a.mine && a.unit <= lv.unit * (1 + 1e-9) && (S.includeMaker || a.instant));
       const need = upTo.reduce((t, a) => t + a.amount, 0n);
@@ -1642,12 +1531,11 @@ function createMarket(host, ctx) {
     }
   }
 
-  // Set the ticket from outside (book rows, Holdings "sell", the post-buy "bid the rest").
   function prime({ side, type, spendSats, receiveBase, sellBase, amountBase, totalSats, unit, reachUnit, includeManual } = {}) {
     if (side) S.side = side;
     if (type) S.type = type;
-    if (includeManual) S.includeManual = true;                                              // the caller's own plan took bids that settle only while their bidder is online
-    if (reachUnit > 0 && S.type === 'market') limitToReach(S.side, reachUnit);              // ...and went as far as this price: the limit reaches it, so the ticket quotes what the caller's plan did
+    if (includeManual) S.includeManual = true;
+    if (reachUnit > 0 && S.type === 'market') limitToReach(S.side, reachUnit);
     if (S.lane !== 'btc') setLane('btc');
     if (S.type === 'market' && S.side === 'buy') {
       if (receiveBase != null) { S.buyIn = 'token'; el.amount.value = fmtAmount(receiveBase, dec).replace(/,/g, ''); }
@@ -1655,13 +1543,9 @@ function createMarket(host, ctx) {
     } else if (S.type === 'market') {
       if (sellBase != null) el.amount.value = fmtAmount(sellBase, dec).replace(/,/g, '');
     } else {
-      // Resting defaults: a buy joins the best bid (or the cheapest ask when bids sit above
-      // it); a sell joins the cheapest ask.
       const u = unit || restingUnit(S.side);
       if (u) el.price2.value = plainUnit(u);
       if (totalSats != null && u) {
-        // The amount worth exactly this total at the price (one base unit more when rounding down
-        // would leave it a sat short), so the total the ticket shows is the sats you brought.
         const a0 = amountForSats(totalSats, u, dec);
         el.amount.value = fmtAmount(satsForAmount(a0, u, dec) < totalSats ? a0 + 1n : a0, dec).replace(/,/g, '');
       }
@@ -1686,7 +1570,6 @@ function createMarket(host, ctx) {
         ? `ETH ⇄ ${asset0.ticker} (ERC20) at the best price across Ethereum venues, from your own Ethereum wallet.`
         : 'Peer-to-peer order book — pay in sats, settle on Bitcoin. No custodian, no wrapped coins.';
     }
-    // The Ethereum ticket gets the Bitcoin book's last price so it can say how the two compare.
     if (lane === 'eth' && ctx.mountEth && el.ethHost) {
       ctx.mountEth(el.ethHost, { markUnit: () => ctx.asset().markUnit, btcUsd: () => ctx.btcUsd(), iconHtml: () => ctx.asset().iconHtml });
     }
@@ -1695,7 +1578,6 @@ function createMarket(host, ctx) {
     if (lane === 'btc') refresh({ force: true });
   }
 
-  // ── events ────────────────────────────────────────────────────────────────
   host.addEventListener('click', (e) => {
     if (S.destroyed) return;
     const t = e.target.closest('[data-act]');
@@ -1706,8 +1588,6 @@ function createMarket(host, ctx) {
     if (act === 'lane') { setLane(t.dataset.v); return; }
     if (act === 'side') { if (S.side !== t.dataset.v) { S.side = t.dataset.v; S.limitAt = null; el.amount.value = ''; el.total.value = ''; savePref(); paintTicketFrame(); paintAll(); } return; }
     if (act === 'type') {
-      // The amount box counts sats for a market buy entered in sats and tokens everywhere
-      // else, so crossing between the two carries the value over in the other unit.
       const from = readOrder(), to = t.dataset.v;
       const carried = S.side === 'buy' && S.buyIn === 'sats' && S.type !== to;
       S.type = to; savePref();
@@ -1737,7 +1617,6 @@ function createMarket(host, ctx) {
     if (act === 'unlock') { ctx.unlock().then(() => refresh({ soft: true })).catch(() => {}); return; }
     if (act === 'fund') { ctx.fundSats(); return; }
     if (act === 'row') {
-      // At my price: a row click just sets the price to that level (join or cross it).
       if (S.type === 'limit') {
         const lv = S.ladder?.[t.dataset.side]?.get(t.dataset.key);
         if (lv) { el.price2.value = plainUnit(lv.unit); S.anchorTotal ? el.total.dispatchEvent(new Event('input')) : S.syncTotal(); paintQuote(); el.amount.focus({ preventScroll: true }); }
@@ -1761,8 +1640,6 @@ function createMarket(host, ctx) {
   }, sig);
   let debounce = null;
   const onInput = () => { clearTimeout(debounce); debounce = setTimeout(paintQuote, 60); };
-  // At my price: any two of price / amount / total set the third. Typing the total
-  // anchors it, so a later price change re-derives the amount instead.
   const unitNow = () => parseNumber(el.price2.value);
   const syncTotal = () => {
     const u = unitNow(); const base = parseAmount(el.amount.value, dec);
@@ -1771,7 +1648,7 @@ function createMarket(host, ctx) {
   const syncAmount = () => {
     const u = unitNow(); const t = parseNumber(el.total.value);
     if (!(u > 0 && t > 0)) { el.amount.value = ''; return; }
-    const a0 = amountForSats(t, u, dec);                                                    // the sats typed are the sats the ticket then shows, not one fewer
+    const a0 = amountForSats(t, u, dec);
     el.amount.value = fmtAmount(satsForAmount(a0, u, dec) < t ? a0 + 1n : a0, dec).replace(/,/g, '');
   };
   el.amount.addEventListener('input', () => { S.anchorTotal = false; if (S.type === 'limit') syncTotal(); onInput(); }, sig);
@@ -1792,7 +1669,6 @@ function createMarket(host, ctx) {
     ac.abort();
   }
 
-  // first paint
   paintTicketFrame();
   if (ctx.mountEth) setLane(S.lane); else S.lane = 'btc';
   rebuildBook();

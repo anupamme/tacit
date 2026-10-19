@@ -10,7 +10,7 @@ if (/^\/trade\/(index\.html)?$/.test(location.pathname)) history.replaceState(nu
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import {
   makeEvmTradeVenues, zswapDeepLink, encErc20Approve, PRECISION_POOL, TAC_ERC20, TACIT_AMM, MULTICALL3, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, _internal,
-} from '/evm-trade-venues.js?cb=f6e1b626';
+} from '/evm-trade-venues.js?cb=563db4d4';
 import { getConfidentialDeployment } from '/confidential-deployments.js';
 import { buildBook, planBuy, planSell as planBtcSell, ladderLevels } from '/btc-book.js?cb=a129d53a';
 import { decodeTape, chartBars, continuous, invert, ethLaneUsd, btcLaneUsd, candlesFromTrades, tradePrices, closeAt, volumeSince, gap, TAPE_FINE, TAPE_COARSE } from '/trade/tape.js?cb=a4aefafb';
@@ -709,7 +709,7 @@ const pageWallet = () => (W.account && W.prov && !W.prov.isWalletConnect ? { uui
 // Made once: two asks at the same moment (the hover that warms it and the press that uses it) share one module and so one wallet session.
 let bitcoinP = null;
 function getBitcoin() {
-  return (bitcoinP ||= import('/trade/btc.js?cb=abb130b3').then((m) => (bitcoin = m.makeBitcoin({
+  return (bitcoinP ||= import('/trade/btc.js?cb=41a2ac80').then((m) => (bitcoin = m.makeBitcoin({
     notify, wallet: pageWallet, onChange: () => syncMe(),
     onTraded: (t) => { noteBitcoinTrade(t); loadBitcoin().then(paintAll).catch(() => {}); },
   }))).catch((e) => { bitcoinP = null; throw e; }));
@@ -1092,7 +1092,7 @@ function renderBorrow() {
   if (BW.q && BW.key === key) setHtml(el, borrowHtml(BW.q, tac));
   if ((BW.key === key && now() - BW.at < 60) || BW.busy) return;
   BW.busy = true;
-  (BW.mod ||= import('/vault/quote.js?cb=e70ac2ad').catch((e) => { BW.mod = null; throw e; })).then((m) => m.quoteBorrow({ tac, account: who, rpc }))
+  (BW.mod ||= import('/vault/quote.js?cb=1169a62c').catch((e) => { BW.mod = null; throw e; })).then((m) => m.quoteBorrow({ tac, account: who, rpc }))
     .then((q) => { BW.q = q; }, (e) => { console.warn('borrow quote:', e?.message || e); BW.q = null; })   // a failed read leaves the plain line, and is tried again in a minute
     .then(() => { BW.key = key; BW.at = now(); })
     .finally(() => { BW.busy = false; if (W.account && `${lc(W.account)}:${S.bal?.tac}` === key) setHtml(el, borrowHtml(BW.q, tac)); else renderBorrow(); });

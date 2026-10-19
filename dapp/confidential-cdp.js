@@ -1,29 +1,8 @@
-// JS mirror of the cxfer-core generic-CDP + cBTC-mint derivations.
-// Byte-identical to cxfer-core (lib.rs `cdp_*` / `commitment_hash`) AND to ConfidentialPool's
-// on-chain checks (`keccak256(abi.encodePacked("tacit-cdp-debt-v1", controller))` etc.), so the dapp can
-// build OP_CDP_MINT/CLOSE/LIQUIDATE/TOPUP + OP_CBTC_MINT witnesses, and a CollateralEngine is addressed by its
-// derived cUSD asset id. Inject `keccak256` (Uint8Array → 32-byte Uint8Array), e.g. @noble/hashes keccak_256.
-//
-// Byte layouts (all big-endian, raw concat — no length prefixes), matching cxfer-core `kn`:
-//   debt asset   = keccak( "tacit-cdp-debt-v1"      ‖ controller[20] )
-//   basket leg   = keccak( asset[32]                ‖ value_be[32] )
-//   basket root  = keccak Merkle root over the leg hashes, depth 32, zero-padded (keccak_merkle_root)
-//   position leaf= keccak( "tacit-cdp-position-v1"  ‖ controller[20] ‖ debtAsset[32] ‖ basketRoot[32]
-//                          ‖ debtValue_be[32] ‖ rateSnapshot[32] ‖ owner[32] ‖ nonce[32] )
-//     rateSnapshot = the controller's RAY-scaled debt accumulator at mint (32B BE). For a CDP mint it must lie in [RAY, rate],
-//                    so at a dormant (fee-free) controller the only valid value is RAY (1e27): CollateralEngine.onCdpMint reverts
-//                    BadSnapshot for anything lower, 0 included. The same field carries a receipt leaf on a savings bond/harvest
-//                    and the destination commitment on a surplus draw, where the engine treats it as inert.
-//   position ν   = keccak( "tacit-cdp-position-v1"  ‖ positionLeaf[32] ‖ "spent" )
-//   cBTC commit  = keccak( Cx[32] ‖ Cy[32] )                          (== cxfer-core commitment_hash)
 
 const TREE_DEPTH = 32;
 
 export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
   const enc = new TextEncoder();
-  // CollateralEngine's position lifecycle events (mint / voluntary close / liquidation) — the topic0 an
-  // indexer keys a key-alone CDP recovery scan on, same role NullifiersSpent plays for the pool. Computed
-  // here (not read from an ABI) so it's byte-identical to CollateralEngine.sol's own event signatures.
   const CDP_EVENT_TOPIC0 = {
     CdpMinted: '0x' + [...keccak256(enc.encode('CdpMinted(bytes32,uint256,uint256)'))].map((x) => x.toString(16).padStart(2, '0')).join(''),
     CdpClosed: '0x' + [...keccak256(enc.encode('CdpClosed(bytes32,uint256)'))].map((x) => x.toString(16).padStart(2, '0')).join(''),
@@ -31,9 +10,6 @@ export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
   };
   const CDP_POSITION_DOMAIN = enc.encode('tacit-cdp-position-v1');
   const CDP_DEBT_DOMAIN = enc.encode('tacit-cdp-debt-v1');
-  // Voluntary-close authorization (mirrors cxfer-core CDP_CLOSE_DOMAIN). The position owner BIP-340-signs the
-  // close so only they can reclaim the collateral — `owner` is a ONE-TIME x-only pubkey the wallet derives
-  // fresh per position (HD from the seed); reusing a key across positions would make them linkable.
   const CDP_CLOSE_DOMAIN = enc.encode('tacit-cdp-close-auth-v1');
   const CDP_TOPUP_DOMAIN = enc.encode('tacit-cdp-topup-auth-v1');
   const SPENT = enc.encode('spent');
@@ -54,7 +30,7 @@ export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
     return o;
   };
   const b32 = (h) => bN(h, 32);
-  const addr20 = (a) => bN(a, 20); // an Ethereum address (the controller), 20 bytes raw
+  const addr20 = (a) => bN(a, 20);
   const be = (v, n) => {
     let x = BigInt(v);
     const o = new Uint8Array(n);
@@ -63,14 +39,10 @@ export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
   };
   const k = (...parts) => keccak256(concat(parts));
 
-  // The controller-derived debt asset id — the controller is its SOLE minter (no registry/admin).
   const debtAssetId = (controller) => hx(k(CDP_DEBT_DOMAIN, addr20(controller)));
 
-  // One basket leg (asset, public value) → its 32-byte hash (hex).
   const basketLeg = (asset, value) => hx(k(b32(asset), be(value, 32)));
 
-  // The basket root over the leg hashes — the depth-32 zero-padded keccak Merkle root (mirrors
-  // cxfer-core keccak_merkle_root, the from-scratch form the incremental tree also produces).
   const basketRoot = (legsHex) => {
     const zeros = [];
     { let z = new Uint8Array(32); for (let i = 0; i < TREE_DEPTH; i++) { zeros.push(z); z = keccak256(concat([z, z])); } }
@@ -92,22 +64,14 @@ export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
     return hx(level[0]);
   };
 
-  // The domain-separated CDP position leaf — CLOSE/LIQUIDATE/TOPUP reproduce it to prove membership.
-  // `rateSnapshot` (32-byte hex) is the controller's debt accumulator at mint, committed so the controller
-  // can price accrued debt; pass the 0 word for a fee-free controller (a farm).
   const positionLeaf = (controller, debtAsset, basketRootHex, debtValue, rateSnapshot, owner, nonce) =>
     hx(k(CDP_POSITION_DOMAIN, addr20(controller), b32(debtAsset), b32(basketRootHex), be(debtValue, 32),
       b32(rateSnapshot), b32(owner), b32(nonce)));
 
-  // The position nullifier — the contract dedups it (close XOR liquidate, once).
   const positionNullifier = (leafHex) => hx(k(CDP_POSITION_DOMAIN, b32(leafHex), SPENT));
 
-  // The cBTC mint commitment binding (== cxfer-core commitment_hash) — the OP_CBTC_MINT anti-griefing bind.
   const cbtcMintCommitment = (cx, cy) => hx(k(b32(cx), b32(cy)));
 
-  // Opening-sigma builders for the CDP/cBTC op serializers. They deliberately return no blinding: the
-  // untrusted proving box receives only (R,z), while each context binds the complete public intent that
-  // the settle guest checks. `pool` is makeConfidentialPool(...), injected by the caller.
   const sigma = (domain, chainBinding, asset, bind, note, amounts, label, extraNotes = []) => {
     if (!pool) throw new Error('opening sigma requires the confidential-pool helper');
     const notes = [[note.cx, note.cy, note.owner], ...extraNotes];
@@ -117,41 +81,22 @@ export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
     return { sigR: sig.R, sigZ: sig.z };
   };
   const controllerWord = (controller) => hx(concat([new Uint8Array(12), addr20(controller)]));
-  // The collateral authorization MUST bind the exact debt destination (debtCx/debtCy) and the relay `fee`.
-  // Without them a delegated prover can honour every value the borrower signed, then substitute a debt
-  // commitment whose blinding IT knows and take almost the whole loan as fee — the borrower's collateral is
-  // encumbered for the gross debt while the relayer keeps the proceeds. The debt note's own sigma does not
-  // help: it is produced by whoever CHOSE that commitment, so it proves consistency, not consent. The
-  // `owner` label on the minted leaf does not help either — notes are BEARER, so a label is not authority.
-  // `nLegs` (the basket size) is bound too, so a prover cannot split the signed basket into several positions against
-  // one debt note or drop a leg.
   const cdpMintCollateralSigma = ({ chainBinding, controller, nonce, owner, asset, note, debtValue, index, rateSnapshot, fee = 0n, debtCx, debtCy, debtOwner, nLegs }) => {
     if (nLegs == null) throw new Error('cdp-mint collateral sigma: nLegs (basket size) is required');
     return sigma('tacit-cdp-mint-collateral-v1', chainBinding, asset, nonce, note,
       [note.value, debtValue, index, fee, nLegs], 'cdp-mint-collateral',
       [[controllerWord(controller), nonce, owner], [rateSnapshot, nonce, owner], [debtCx, debtCy, debtOwner]]);
   };
-  // The debt note opens to the NET (debtValue − fee); the gross debtValue + the relay fee are bound in the
-  // context (mirroring the guest's OP_CDP_MINT). The caller MUST build `note` committing to debtValue − fee
-  // and pass the gross `debtValue` + `fee` (fee = 0 ⇒ the note opens to the full debtValue). The settler is
-  // paid `fee` in the debt asset; the position still records the gross debtValue, so the controller's health
-  // check is on the gross debt.
   const cdpMintDebtSigma = ({ chainBinding, controller, nonce, owner, note, debtValue, fee = 0n, rateSnapshot }) =>
     sigma('tacit-cdp-mint-debt-v1', chainBinding, debtAssetId(controller), nonce, note,
       [debtValue != null ? BigInt(debtValue) : BigInt(note.value), BigInt(fee)], 'cdp-mint-debt',
       [[controllerWord(controller), nonce, owner], [rateSnapshot, nonce, owner]]);
-  // The released leg note opens to the NET (value − fee) for the FIRST (fee-carrying) leg; the gross value +
-  // the relay fee are bound in the context (mirroring OP_CDP_CLOSE). Other legs pass fee = 0 (note opens to
-  // the full value). The caller MUST commit the first released note to value − fee.
   const cdpCloseReleaseSigma = ({ chainBinding, positionLeaf: position, asset, note, value, fee = 0n }) =>
     sigma('tacit-cdp-close-release-v1', chainBinding, asset, position, note,
       [value != null ? BigInt(value) : BigInt(note.value), BigInt(fee)], 'cdp-close-release');
   const cdpCloseDebtSigma = ({ chainBinding, positionLeaf: position, debtAsset, debtValue, index, note }) =>
     sigma('tacit-cdp-close-debt-v1', chainBinding, debtAsset, position, note,
       [note.value, debtValue, index], 'cdp-close-debt');
-  // Bind the seized-collateral recipient (`liquidator`) + the relay `fee` (mirror OP_CDP_LIQUIDATE) so a
-  // delegated prover can't redirect the proceeds while reusing the keeper's debt-note witnesses. liquidator is
-  // bound as a left-padded address word (matching the guest's liq_word), the fee as a trailing amount.
   const cdpLiquidateDebtSigma = ({ chainBinding, positionLeaf: position, debtAsset, debtValue, index, note, liquidator, fee = 0n }) =>
     sigma('tacit-cdp-liquidate-debt-v1', chainBinding, debtAsset, position, note,
       [note.value, debtValue, index, BigInt(fee)], 'cdp-liquidate-debt',
@@ -159,48 +104,23 @@ export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
   const cdpTopupCollateralSigma = ({ chainBinding, oldPositionLeaf, controller, newNonce, owner, asset, note, debtValue, index }) =>
     sigma('tacit-cdp-topup-collateral-v1', chainBinding, asset, oldPositionLeaf, note,
       [note.value, debtValue, index], 'cdp-topup-collateral', [[controllerWord(controller), newNonce, owner]]);
-  // The bearer note opens to the NET (vBtc − fee); the gross vBtc + the relay fee are both bound in the context
-  // (mirror the guest OP_CBTC_MINT, which always binds [v_btc, fee] and verifies the opening to v_btc − fee —
-  // so even a fee-less mint must bind [vBtc, 0], not [vBtc]). Caller commits the note to net = vBtc − fee.
   const cbtcMintSigma = ({ chainBinding, cbtcAssetId, outpoint, note, vBtc, fee = 0n }) => {
     const bearer = { ...note, owner: '0x' + '00'.repeat(32) };
     return sigma('tacit-cbtc-mint-intent-v1', chainBinding, cbtcAssetId, outpoint, bearer,
       [BigInt(vBtc != null ? vBtc : note.value), BigInt(fee)], 'cbtc-mint');
   };
 
-  // OP_CDP_MINT op-assembler — open a CDP (lock a collateral basket → mint a debt note net of an optional relay
-  // fee), in the guest's io::read order (main.rs OP_CDP_MINT) + the exec-cdpmint.rs witness field names. The
-  // basket is canonicalized strictly asset-sorted (the guest rejects unsorted / duplicate-asset baskets). A
-  // bond (debtValue = 0) locks the basket with no debt note (fee must be 0); a payout (no collateral) mints the
-  // controller token. Requires the injected `pool` (commit + opening sigma). The caller supplies each collateral
-  // note's live merkle witness (leafIndex + path) and blindings; `debtBlinding` is the new debt note's blinding.
-  // `owner` is the position auth key (BIP-340, published for keepers/close). `debtOwner` is the debt (cUSD) note's
-  // SPEND owner = H(nk); each `leg.owner` is that collateral note's OWN spend owner (H(nk)) — none are the position
-  // key, so the loan + collateral are spendable and don't link through a shared published owner.
   const buildCdpMintOp = ({ chainBinding, controller, owner, debtOwner, debtValue, nonce, rateSnapshot, fee = 0n, collateral = [], spendRoot, debtBlinding, acknowledgeFeeShortfall = false }) => {
     if (!pool) throw new Error('buildCdpMintOp requires the confidential-pool helper');
-    // The guest mints the debt note at (debtValue − fee) but records the position's own debtValue at the
-    // full pre-fee figure (the health check tracks gross, immutable — see main.rs's mint/close arms). Any
-    // fee here leaves the position structurally short by exactly that fee: the holder owes more than they
-    // received, with no in-protocol way to true it up. This is a real, permanent gotcha, not a rounding
-    // nuance, so a nonzero fee requires an explicit caller acknowledgment rather than silently minting a
-    // position that can never close at face value.
     if (BigInt(fee) > 0n && !acknowledgeFeeShortfall) {
       throw new Error('buildCdpMintOp: a nonzero fee mints the debt note short of the recorded debtValue — the position becomes unclosable at face value. Pass acknowledgeFeeShortfall: true to proceed anyway, or mint fee-free (self-settled).');
     }
     const legsSorted = [...collateral].sort((a, b) => (BigInt(a.asset) < BigInt(b.asset) ? -1 : (BigInt(a.asset) > BigInt(b.asset) ? 1 : 0)));
-    // Derive the debt commitment FIRST: every collateral sigma must bind it (and the fee), so the borrower
-    // authorizes the exact destination of the loan rather than just its amount. Mirrors the guest, which
-    // reads `fee` + the debt commitment before the collateral legs for the same reason.
     const net = BigInt(debtValue) - BigInt(fee);
     const Z32 = '0x' + '00'.repeat(32);
-    // No debt note on a BOND (debtValue == 0): bind (0,0) with debtOwner = position owner (matching the guest,
-    // which carries `debt_owner = owner` when debt_value == 0).
     const dOwner = BigInt(debtValue) > 0n ? debtOwner : owner;
     const debtC = BigInt(debtValue) > 0n ? pool.commitXY(net, debtBlinding) : { cx: Z32, cy: Z32 };
     const legs = legsSorted.map((leg) => {
-      // Sigma binds the collateral commitment to the POSITION owner (locks it to this position); the LEAF the
-      // guest reconstructs uses the collateral note's OWN owner (leg.owner = leg_auth), witnessed separately.
       const note = { cx: leg.cx, cy: leg.cy, value: leg.value, owner, blinding: leg.blinding };
       const sig = cdpMintCollateralSigma({
         chainBinding, controller, nonce, owner, asset: leg.asset, note, debtValue,
@@ -211,7 +131,6 @@ export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
     });
     const op = { chainBinding, spendRoot, controller, owner, debtOwner: dOwner, debtValue: String(BigInt(debtValue)), nonce, rateSnapshot, legs, fee: String(BigInt(fee)) };
     if (BigInt(debtValue) > 0n) {
-      // the debt note opens to the NET (debtValue − fee); the position records the GROSS (the health check)
       const note = { cx: debtC.cx, cy: debtC.cy, value: net, owner: dOwner, blinding: debtBlinding };
       const sig = cdpMintDebtSigma({ chainBinding, controller, nonce, owner, note, debtValue, fee, rateSnapshot });
       op.debt = { cx: debtC.cx, cy: debtC.cy, sigR: sig.sigR, sigZ: sig.sigZ };
@@ -219,16 +138,6 @@ export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
     return op;
   };
 
-  // OP_WRAP_CDP_MINT op-assembler (op 30) — open a CDP straight from public deposits: each collateral leg is a
-  // pending PUBLIC deposit (no tree note, so no membership path, nullifier or change), consumed in the same settle
-  // that mints the debt note. The deposit is made by ConfidentialRouter.wrapAndMintCusd* in the same transaction, with
-  // `depositCommit(cx, cy, owner)` as its commit, so a deposit is owner-pinned to the POSITION owner and its value is
-  // exactly what the wrap escrowed. Each leg's authorization is op- and CDP-specific (`tacit-wrap-cdp-mint-collateral-v1`),
-  // never the plain wrap intent, so a depositor's wrap opening cannot be replayed to lock the deposit into another CDP;
-  // it binds the controller, the position nonce (0), the rate snapshot, the exact debt destination, the fee and the
-  // basket size. The debt-note sigma and the CdpMint are byte-identical to OP_CDP_MINT's, so the controller prices it
-  // the same. Mirrors tests/gen-confidential-wrapcdpmint-fixture.mjs and the guest arm in main.rs.
-  // `deposits` are { asset, value, blinding }: the in-system value (cBTC: sats) and the blinding of the deposit's commitment.
   const buildWrapCdpMintOp = ({ chainBinding, controller, owner, debtOwner, debtValue, nonce, rateSnapshot, fee = 0n, deposits = [], debtBlinding, acknowledgeFeeShortfall = false }) => {
     if (!pool) throw new Error('buildWrapCdpMintOp requires the confidential-pool helper');
     if (BigInt(debtValue) <= 0n) throw new Error('buildWrapCdpMintOp: a wrap-and-borrow mints a debt note (use a plain wrap for a deposit alone)');
@@ -243,7 +152,6 @@ export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
       if (BigInt(legsSorted[i].value) <= 0n) throw new Error('buildWrapCdpMintOp: a deposit of zero value');
       if (i > 0 && BigInt(legsSorted[i].asset) === BigInt(legsSorted[i - 1].asset)) throw new Error('buildWrapCdpMintOp: one deposit per asset (the basket is strictly asset-sorted)');
     }
-    // The debt commitment first: every collateral sigma binds it and the fee, so the depositor authorizes the exact destination of the loan.
     const net = BigInt(debtValue) - BigInt(fee);
     const debtC = pool.commitXY(net, debtBlinding);
     const legs = legsSorted.map((d) => {
@@ -260,21 +168,10 @@ export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
       debt: { cx: debtC.cx, cy: debtC.cy, debtOwner, sigR: dsig.sigR, sigZ: dsig.sigZ },
       legs: legs.map(({ asset, value, cx, cy, sigR, sigZ }) => ({ asset, value, cx, cy, sigR, sigZ })),
       depositIds: legs.map((l) => l.depositId),
-      // The commits the router wrap carries, in leg order (not part of the witness).
       commits: legs.map((l) => l.commit),
     };
   };
 
-  // OP_CDP_CLOSE op-assembler — close a CDP: burn the exact debt notes and re-mint the collateral basket to the
-  // owner, carving an OPTIONAL relay fee from the FIRST released leg (it opens to value − fee; the basket
-  // membership + the controller use the GROSS value). The released legs reproduce the position's canonical
-  // (asset-sorted) basket so the reconstructed `basketRoot` → `positionLeaf` matches membership. `Σ debtNotes =
-  // debtValue` (the gross debt repaid). Requires the injected `pool`. The caller supplies the position's
-  // merkle witness (positionIndex/Path), the basket it locked, fresh `releaseBlindings`, and the debt notes
-  // (cUSD) being repaid with their live merkle witnesses.
-  // `owner` is the position auth key. Each released leg goes to a FRESH H(nk) spend owner (releaseOwners[i]),
-  // bound in that leg's release sigma; each burned debt note carries its own H(nk) owner + secret nk (the debt
-  // note was minted to an H(nk) owner, and input spends read nk under the secret-key scheme).
   const buildCdpCloseOp = ({ chainBinding, controller, owner, ownerPriv, debtValue, nonce, rateSnapshot, basket = [], positionIndex, positionPath, spendRoot, cdpPositionRoot, fee = 0n, releaseBlindings = [], releaseOwners = [], debtNotes = [] }) => {
     if (!pool) throw new Error('buildCdpCloseOp requires the confidential-pool helper');
     if (!signSchnorr || !ownerPriv) throw new Error('buildCdpCloseOp requires ownerPriv + signSchnorr (owner-authorized close)');
@@ -283,7 +180,7 @@ export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
     const basketRootHex = basketRoot(sortedBasket.map((leg) => basketLeg(leg.asset, leg.value)));
     const position = positionLeaf(controller, debtAsset, basketRootHex, debtValue, rateSnapshot, owner, nonce);
     const legs = sortedBasket.map((leg, i) => {
-      const legFee = i === 0 ? BigInt(fee) : 0n; // only the first released leg carries the relay fee
+      const legFee = i === 0 ? BigInt(fee) : 0n;
       const net = BigInt(leg.value) - legFee;
       const { cx, cy } = pool.commitXY(net, releaseBlindings[i]);
       const relOwner = releaseOwners[i];
@@ -297,9 +194,6 @@ export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
       const sig = cdpCloseDebtSigma({ chainBinding, positionLeaf: position, debtAsset, debtValue, index: d.leafIndex, note });
       return { cx: d.cx, cy: d.cy, owner: dOwner, nk: d.nk, value: String(BigInt(d.value)), index: Number(d.leafIndex), path: d.path, sigR: sig.sigR, sigZ: sig.sigZ };
     });
-    // Owner authorization: BIP-340 sig over keccak(CDP_CLOSE_DOMAIN ‖ chainBinding ‖ positionLeaf ‖ releasedBytes),
-    // releasedBytes = per leg (asset ‖ value_be8 ‖ Cx ‖ Cy) in the SAME sorted order the guest reads them, then fee_be8.
-    // Binds the exact released commitments so a relayer can't redirect the reclaimed collateral.
     const releasedBytes = concat([
       ...legs.map((l) => concat([b32(l.asset), be(l.value, 8), b32(l.cx), b32(l.cy)])),
       be(fee, 8),
@@ -308,12 +202,6 @@ export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
     return { chainBinding, spendRoot, cdpPositionRoot, controller, owner, debtValue: String(BigInt(debtValue)), nonce, rateSnapshot, positionIndex: Number(positionIndex), positionPath, legs, fee: String(BigInt(fee)), debts, ownerSig };
   };
 
-  // OP_CDP_LIQUIDATE op-assembler — a KEEPER seizes an undercollateralized position. Reproduces the position
-  // leaf from its PUBLIC preimage (controller, debtAsset=derive(controller), basketRoot from the public legs,
-  // debtValue, rateSnapshot, owner, nonce=0 — all published at mint), proves membership, and burns the
-  // keeper's cUSD debt notes summing ≥ debtValue (each opening-sigma-bound under the liquidate-debt context).
-  // The basket is seized to `liquidator` as PUBLIC withdrawals (value bound by the basket root) — no minted
-  // note leaves. The contract still calls controller.onCdpLiquidate, which reverts if the position is healthy.
   const buildCdpLiquidateOp = ({ chainBinding, controller, owner, debtValue, nonce, rateSnapshot, basket = [], positionIndex, positionPath, spendRoot, cdpPositionRoot, liquidator, debtNotes = [], fee = 0n }) => {
     if (!pool) throw new Error('buildCdpLiquidateOp requires the confidential-pool helper');
     const debtAsset = debtAssetId(controller);
@@ -324,10 +212,6 @@ export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
       const dOwner = d.owner ?? owner;
       const note = { cx: d.cx, cy: d.cy, value: d.value, owner: dOwner, blinding: d.blinding };
       const sig = cdpLiquidateDebtSigma({ chainBinding, positionLeaf: position, debtAsset, debtValue, index: d.leafIndex, note, liquidator, fee });
-      // `d.nk` is this debt note's own secret nullifier key — it was minted to an H(nk) owner (like every
-      // debt note OP_CDP_MINT produces), and input_leaf_authed's native branch requires it to nullify the
-      // note; a missing/wrong nk does not throw, it makes the guest's assert fail silently (EXECUTE_OK,
-      // pv_bytes = 0). Mirrors buildCdpCloseOp's debts.
       return { cx: d.cx, cy: d.cy, owner: dOwner, nk: d.nk, value: String(BigInt(d.value)), index: Number(d.leafIndex), path: d.path, sigR: sig.sigR, sigZ: sig.sigZ };
     });
     return {
@@ -337,35 +221,16 @@ export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
     };
   };
 
-  // OP_CBTC_MINT op-assembler — mint a cBTC.zk bearer note against a reflection-recorded self-custody Bitcoin
-  // lock (the contract gates cbtcLock[outpoint].vBtc == vBtc + escrow sufficiency). FEE-LESS by necessity: the
-  // note is pinned to the lock's value (1:1 peg), owner-free (control is the blinding `r`). Requires `pool`
-  // (commit + opening sigma + the pinned CBTC_ZK_ASSET_ID). The caller supplies the lock `outpoint`, `vBtc`,
-  // and the note `blinding` (its own secret).
   const buildCbtcMintOp = ({ chainBinding, outpoint, vBtc, blinding, fee = 0n }) => {
     if (!pool) throw new Error('buildCbtcMintOp requires the confidential-pool helper');
     if (BigInt(fee) >= BigInt(vBtc)) throw new Error('buildCbtcMintOp: fee must be < vBtc');
-    const net = BigInt(vBtc) - BigInt(fee); // the bearer note commits to the NET; the settler is paid `fee` in cBTC
+    const net = BigInt(vBtc) - BigInt(fee);
     const { cx, cy } = pool.commitXY(net, blinding);
     const sig = cbtcMintSigma({ chainBinding, cbtcAssetId: pool.CBTC_ZK_ASSET_ID, outpoint, note: { cx, cy, value: net, blinding }, vBtc, fee });
     return { chainBinding, outpoint, vBtc: String(BigInt(vBtc)), fee: String(BigInt(fee)), cx, cy, sigR: sig.sigR, sigZ: sig.sigZ };
   };
 
-  // OP_CDP_TOPUP op-assembler — add collateral to a CDP without changing its debt. FEE-LESS (adds value, no
-  // spendable output; the relay is recouped on a later spend). Re-derives the OLD position leaf from the old
-  // basket (asset + value only) for membership, spends the ADDED collateral notes, and appends a new position
-  // (combined basket, `newNonce`). Requires `pool`. The caller supplies the old basket, the added collateral
-  // notes with their live merkle witnesses, and the old position's merkle witness.
   const byAsset = (a, b) => (BigInt(a.asset) < BigInt(b.asset) ? -1 : (BigInt(a.asset) > BigInt(b.asset) ? 1 : 0));
-  // A top-up REPLACES a live position (consumes the old ν, installs a new leaf), so it requires the
-  // POSITION OWNER's BIP-340 authorization — authority over the ADDED collateral is not authority over
-  // the position (owner labels are not spend authority; notes are bearer).
-  // Each added leg carries its OWN spend owner = H(leg.nk) (the depositor's, distinct from the position
-  // auth key `owner`) — bound as the sigma's FIRST note (mirroring the guest's `(cx, cy, coll_owner)`
-  // context), while `owner` still binds the position via the second (controllerWord, newNonce, owner)
-  // tuple. `leg.nk` rides straight through: input_leaf_authed's native branch requires it to nullify the
-  // note, and a missing/wrong one does not throw — it makes the guest's assert fail silently (EXECUTE_OK,
-  // pv_bytes = 0).
   const buildCdpTopupOp = ({ chainBinding, controller, owner, ownerPriv, debtValue, oldNonce, newNonce, rateSnapshot, oldBasket = [], addedCollateral = [], positionIndex, positionPath, spendRoot, cdpPositionRoot }) => {
     if (!pool) throw new Error('buildCdpTopupOp requires the confidential-pool helper');
     if (!signSchnorr || !ownerPriv) throw new Error('buildCdpTopupOp requires ownerPriv + signSchnorr (owner-authorized top-up)');
@@ -378,10 +243,6 @@ export function makeConfidentialCdp({ keccak256, pool, signSchnorr }) {
       const sig = cdpTopupCollateralSigma({ chainBinding, oldPositionLeaf: oldPosition, controller, newNonce, owner, asset: leg.asset, note, debtValue, index: leg.leafIndex });
       return { asset: leg.asset, cx: leg.cx, cy: leg.cy, owner: leg.owner, nk: leg.nk, value: String(BigInt(leg.value)), index: Number(leg.leafIndex), path: leg.path, sigR: sig.sigR, sigZ: sig.sigZ };
     });
-    // Mirror the guest's cdp_topup_msg: domain ‖ chainBinding ‖ oldLeaf ‖ oldNullifier ‖ newLeaf ‖ added,
-    // where `added` = each new basket leg hash in canonical order, then the gross debt (8-byte BE).
-    // The guest folds a same-asset top-up into the existing leg rather than appending a second one, so
-    // adding more of a collateral the position already holds yields ONE leg carrying the sum.
     const sortedAdded = [...addedCollateral].sort(byAsset);
     const sortedNew = [];
     for (let i = 0, j = 0; i < sortedOld.length || j < sortedAdded.length;) {

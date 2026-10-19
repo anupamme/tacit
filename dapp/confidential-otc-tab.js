@@ -1,19 +1,3 @@
-// Confidential OTC tab — peer-to-peer shielded swap (OP_OTC). Drives the REAL assembler/verifier
-// (confidential-otc.js) over the live pool scan, then settles through the gasless relay (type 'otc').
-//
-// PROTOCOL NOTE: a trustless OTC is a 3-message handshake — the shared opening-sigma context binds BOTH
-// parties' note commitments, so neither side can sign until both sets of commitments are exchanged. A
-// note's blinding `r` MUST NEVER appear in a shared artifact — it is a discrete-log secret, and
-// verifyOpeningSigma / cxfer-core::verify_opening_sigma is a standard, unforgeable Schnorr check over it,
-// so `r` alone is what would let a recipient forge an opening for a DIFFERENT context (spend the note
-// arbitrarily). `nk` is different: once a leg is signed, its `nk` cannot forge anything new — the guest
-// only ever uses it for nk_to_owner(nk)==owner and the nullifier of THIS SAME already-bound leaf/context —
-// so a SIGNED leg's `nk` is safe to disclose to the finalizer (or to anyone) alongside its sigmas; an
-// UNSIGNED leg's `nk` still isn't needed by anyone but its own owner. That is why step 2 below (the
-// taker's countersignature, sent after signing) includes `nk` — the finalizer needs it, has nothing else
-// to gain from it, and no separate out-of-band channel is required. The interactive composer (exchange
-// commitments → each party signs its own legs → assemble) is what drives all three steps; a passing
-// verifyOtc is the exact check the settle guest re-runs.
 
 import { secp, sha256, keccak_256 } from './vendor/tacit-deps.min.js';
 import { makeConfidentialPoolUx } from './confidential-pool-ux.js';
@@ -23,31 +7,17 @@ import { makeConfidentialOtc } from './confidential-otc.js';
 import { randomScalar } from './bulletproofs-plus.js';
 import { scanHealth, scanHealthHtml, inboundBadgeHtml, inboundSummaryHtml } from './confidential-scan-health.js';
 
-// Strip the client-only blinding (_r) from a leg before it leaves this browser — the one field that must
-// never cross, signed or not (it is bearer-spend authority for any context, not just this trade). `nk` is
-// kept ONLY when the leg is already signed (sig present): unsigned, no one else needs it yet; signed, it
-// cannot forge a different spend (see the PROTOCOL NOTE above), so there is nothing left to protect by
-// withholding it, and the finalizer needs it to complete this exact trade.
 function publicLeg(leg) {
   const strip = (p) => p && { cx: p.cx, cy: p.cy, amount: p.amount.toString(), leafIndex: p.leafIndex, path: p.path, sig: p.sig };
   const signed = leg.in?.sig && leg.recv?.sig;
   return { owner: leg.owner, nk: signed ? leg.nk : undefined, in: strip(leg.in), recv: strip(leg.recv), change: leg.change ? strip(leg.change) : null };
 }
-// Re-hydrate a pasted public leg's amounts to BigInt for verifyOtc / ctx. Carries `nk` through when the
-// leg included it (a signed leg from publicLeg) — undefined otherwise, same as an unsigned offer.
 function hydrateLeg(leg) {
   const h = (p) => p && { ...p, amount: BigInt(p.amount) };
   return { owner: leg.owner, nk: leg.nk, in: h(leg.in), recv: h(leg.recv), change: leg.change ? h(leg.change) : null };
 }
 const OTC_DRAFT_KEY = 'tacit-otc-maker-draft-v1';
 
-// The maker draft below carries the raw blinding `_r` of the input/recv/change legs — under this
-// protocol's bearer-note model that IS spend authority over the maker's traded note, so it must not sit
-// in localStorage as cleartext (any same-origin script bug elsewhere, or a browser extension with a
-// storage-read permission, could read it and later spend the note). It still has to survive a reload —
-// the maker may close the tab while waiting on the taker's countersignature — so it's encrypted at rest
-// with a key derived from the wallet's own private key (never itself written to storage), which raises
-// the bar from "any localStorage reader" to "present with this wallet unlocked."
 const _concatBytes = (a, b) => { const o = new Uint8Array(a.length + b.length); o.set(a, 0); o.set(b, a.length); return o; };
 async function _otcDraftKey(walletPriv) {
   const km = sha256(_concatBytes(new TextEncoder().encode('tacit-otc-draft-v1'), walletPriv));
@@ -68,7 +38,7 @@ async function loadOtcDraft(walletPriv) {
     const key = await _otcDraftKey(walletPriv);
     const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: Uint8Array.from(parsed.iv) }, key, Uint8Array.from(parsed.ct));
     return JSON.parse(new TextDecoder().decode(pt));
-  } catch { return null; } // wrong wallet unlocked, or corrupted — treat as no draft
+  } catch { return null; }
 }
 
 let _ux = null;
@@ -96,11 +66,6 @@ function wireSubmit(wallet, ux) {
       if (statusEl) statusEl.textContent = 'Offer rejected: ' + formatErr(e);
       return;
     }
-    // The relay's box proves this op with contracts/sp1/confidential/harnesses/exec-otc, which reads a
-    // FLAT per-leg wire shape (inCx/inLeafIndex/.../nk/.../recvSigZ) — not the nested {in,recv,change}
-    // shape verifyOtc/buildOtc use internally. toWireOp also fails loudly here if either leg's nk is
-    // missing, instead of letting an incomplete witness reach the box (which the guest would reject
-    // SILENTLY — EXECUTE_OK with pv_bytes = 0 — since input_leaf_authed's nk_to_owner assert just fails).
     let wireOp;
     try {
       wireOp = otcLib.toWireOp(otc);
@@ -108,19 +73,6 @@ function wireSubmit(wallet, ux) {
       if (statusEl) statusEl.textContent = 'Offer incomplete: ' + formatErr(e);
       return;
     }
-    // Settling is NOT wired, and is refused here rather than attempted.
-    //
-    // This call used to pass `outputs: []` with four real leaves, so the relay's recovery guard threw on
-    // every attempt — the button could never succeed. Worse was what sat next to it: `ephRand: () => 1n`, a
-    // CONSTANT ephemeral scalar. Anyone "fixing" the first problem by supplying real output descriptors
-    // would have armed the second, and an ephemeral of 1 makes the ECDH shared secret equal to the
-    // recipient's own public key — every OTC memo on chain would be decryptable by any observer. Removing
-    // the constant is the point of this change: a dead path that fails closed is fine, a dead path carrying
-    // a loaded footgun for the next person to touch it is not.
-    //
-    // To finish this: build one recovery descriptor per leaf (as confidential-pool-ux's own op builders do),
-    // pass `ephRand: freshEph` — the CSPRNG scalar source, never a fixed value — and move `waitOpts` to
-    // settle()'s SECOND argument, where it is actually read.
     if (statusEl) {
       statusEl.textContent = 'OTC settle is not wired up in this build — the offer above is valid and verified, '
         + 'but settling it needs per-leaf recovery descriptors that this tab does not build yet.';
@@ -129,9 +81,6 @@ function wireSubmit(wallet, ux) {
   };
 }
 
-// 3-step trustless composer: maker builds its leg (commitments only shared), taker countersigns its own leg
-// against the shared context, maker finalizes by signing its leg + assembling. No blinding ever leaves the
-// owner's browser; the assembled offer drops into the Verify+settle box below.
 function wireComposer(wallet, ux, notes) {
   const otc = makeConfidentialOtc({ keccak256: keccak_256, pool: ux.pool });
   const byLeaf = new Map((notes || []).map((n) => [String(n.leafIndex), n]));
@@ -148,9 +97,6 @@ function wireComposer(wallet, ux, notes) {
       const n = byLeaf.get((document.getElementById('otc-mk-note') || {}).value);
       const assetB = ((document.getElementById('otc-mk-wantasset') || {}).value || '').trim();
       if (!n || !/^0x[0-9a-fA-F]{64}$/.test(assetB)) { if (st) st.textContent = 'Fill in the give note and the want asset.'; return; }
-      // Both amounts are typed as decimal (e.g. "1.5"), each in its OWN asset's places — the give note's
-      // for vA, the chosen want asset's for vB — not raw base units. A plain BigInt() here (the earlier
-      // bug) would silently propose 1e-8 of what was typed on an 8-decimal asset.
       let vA, vB;
       try { vA = parseUnits((document.getElementById('otc-mk-give') || {}).value || '', decOf(ux, n.asset)); }
       catch (e) { if (st) st.textContent = `Give amount: ${e.message || e}`; return; }
@@ -159,8 +105,6 @@ function wireComposer(wallet, ux, notes) {
       if (vA <= 0n || vB <= 0n) { if (st) st.textContent = 'Fill in the give amount and the want amount.'; return; }
       if (n.asset.toLowerCase() === assetB.toLowerCase()) { if (st) st.textContent = 'Pick a different want asset than the one you give.'; return; }
       if (vA > BigInt(n.value)) { if (st) st.textContent = `Give amount exceeds the selected note (${formatUnits(n.value, decOf(ux, n.asset))} ${ux.tickerOf(n.asset) || ''}).`; return; }
-      // The draft slot is single — creating a new offer before an in-flight one finalizes silently
-      // strands it (its random blinding is gone, so a later countersignature for it can never assemble).
       if (await loadOtcDraft(wallet.priv)) {
         const proceed = window.confirm('You have an unfinished OTC offer waiting on a countersignature. Creating a new one discards it permanently — the old offer can never be finalized after this.\n\nContinue and discard it?');
         if (!proceed) { if (st) st.textContent = 'Kept the existing draft — finalize or abandon it before creating another.'; return; }
@@ -168,9 +112,6 @@ function wireComposer(wallet, ux, notes) {
       const recvR = randomScalar();
       const inVal = BigInt(n.value);
       const changeR = inVal > vA ? randomScalar() : null;
-      // `owner`/`nk` are the SELECTED NOTE's own (H(nk) owner + its secret nullifier key), not the
-      // wallet's default identity — the guest rebuilds membership from the note's real owner and
-      // requires this exact nk to authorize the spend (input_leaf_authed's native branch).
       const leg = otc.buildLeg({ owner: n.owner, nk: n.secret, inAmount: inVal, inR: BigInt(n.blinding), inLeafIndex: n.leafIndex, inPath: n.path, give: vA, recvValue: vB, recvR, changeR });
       const draft = { assetA: n.asset, assetB, vA: vA.toString(), vB: vB.toString(), chainBinding: ux.chainBindingHex(), spendRoot: n.root, deadline: 0, makerLeg: { ...leg, in: { ...leg.in, _r: leg.in._r.toString() }, recv: { ...leg.recv, _r: leg.recv._r.toString() }, change: leg.change ? { ...leg.change, _r: leg.change._r.toString() } : null } };
       await saveOtcDraft(wallet.priv, draft);
@@ -194,8 +135,6 @@ function wireComposer(wallet, ux, notes) {
       if (vB > inVal) { if (st) st.textContent = `This offer needs ${formatUnits(vB, decOf(ux, n.asset))} ${ux.tickerOf(n.asset) || ''} to countersign; the selected note only has ${formatUnits(inVal, decOf(ux, n.asset))}.`; return; }
       const recvR = randomScalar();
       const changeR = inVal > vB ? randomScalar() : null;
-      // Same as the maker leg: bind to the SELECTED note's own owner + nk, not the wallet's default
-      // identity — otherwise membership (and later, the guest's native-spend nk check) never matches.
       const taker = otc.buildLeg({ owner: n.owner, nk: n.secret, inAmount: inVal, inR: BigInt(n.blinding), inLeafIndex: n.leafIndex, inPath: n.path, give: vB, recvValue: vA, recvR, changeR });
       const maker = hydrateLeg(offer.maker);
       const ctx = otc.composeCtx({ assetA: offer.assetA, assetB: offer.assetB, chainBinding: offer.chainBinding, vA, vB, maker, taker, deadline: offer.deadline || 0 });
@@ -217,17 +156,12 @@ function wireComposer(wallet, ux, notes) {
       if (!draft.makerLeg) { if (st) st.textContent = 'No local maker draft — create the offer in step 1 first.'; return; }
       const reBig = (p) => p && { ...p, amount: BigInt(p.amount), _r: BigInt(p._r) };
       const maker = { owner: draft.makerLeg.owner, nk: draft.makerLeg.nk, in: reBig(draft.makerLeg.in), recv: reBig(draft.makerLeg.recv), change: draft.makerLeg.change ? reBig(draft.makerLeg.change) : null };
-      // `cs.taker` is the taker's PUBLIC countersignature — publicLeg keeps its `nk` (the leg is already
-      // signed by step 2, so `nk` cannot forge a different spend; see the PROTOCOL NOTE at the top of this
-      // file) while still stripping `_r`. So this genuinely finalizes a trade between two independent
-      // strangers: nothing here requires maker and taker to be the same operator.
       const taker = hydrateLeg(cs.taker);
       if (taker.nk == null) throw new Error('finalize: the countersignature has no taker nk — was it produced by an older publicLeg?');
       const vA = BigInt(cs.vA), vB = BigInt(cs.vB);
       const ctx = otc.composeCtx({ assetA: cs.assetA, assetB: cs.assetB, chainBinding: cs.chainBinding, vA, vB, maker, taker, deadline: cs.deadline || 0 });
       otc.signLegs(maker, ctx, 'maker');
       const assembled = otc.assembleOtc({ assetA: cs.assetA, assetB: cs.assetB, vA, vB, chainBinding: cs.chainBinding, spendRoot: cs.spendRoot, maker, taker, deadline: cs.deadline || 0 });
-      // Local proof it's well-formed + guest-exact before anyone settles.
       otc.verifyOtc(assembled, { merkleRootFrom: ux.pool.merkleRootFrom });
       const box = document.getElementById('otc-offer-input');
       if (box) box.value = JSON.stringify(assembled, (k, v) => typeof v === 'bigint' ? v.toString() : v);
@@ -236,7 +170,6 @@ function wireComposer(wallet, ux, notes) {
     } catch (e) { if (st) st.textContent = formatErr(e, 'Finalize'); }
   };
 
-  // Copy affordances for the two handoff blobs the counterparties exchange.
   const mkCopy = document.getElementById('otc-mk-copy');
   if (mkCopy) mkCopy.onclick = () => copyToClipboard((document.getElementById('otc-mk-out') || {}).value || '', mkCopy);
   const tkCopy = document.getElementById('otc-tk-copy');
@@ -254,8 +187,6 @@ export async function renderOtcTab(wallet, helpers = {}) {
       Instant and note-to-note: you end up holding a <b>shielded note</b>, cleared on the <span class="eth-word">Ethereum</span>
       lane. For <span class="btc-word">real sats</span>, use the <a href="#tab=market">order book</a>.</div>`;
   if (!wallet || !wallet.priv) {
-    // Same wallet as every other Ethereum-lane surface — keeps the concept blurb visible even locked, so
-    // the tab explains itself instead of dead-ending on a one-line "unlock a wallet" message.
     body.innerHTML = conceptHtml + lockedWalletHTML('trade OTC', 'otc-unlock-btn');
     wireUnlockButton('otc-unlock-btn', helpers);
     return;

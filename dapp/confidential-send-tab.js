@@ -1,15 +1,3 @@
-// Confidential Send tab — the shielded payment surface on the Ethereum lane. One intent: pay a recipient
-// privately. The tab decides HOW automatically:
-//   - enough shielded balance → note-to-note transfer (confidential-transfer.js: aggregated BP+ range proof
-//     + conservation kernel + Keccak membership), settled gasless through the relay (type 'transfer');
-//   - no note yet → one-tx wrap-and-send from the user's public ETH/token (OP_WRAP_TRANSFER), gasless permit
-//     for ERC20 (USDC = one click, no approve), the deposit consumed straight into the recipient note.
-// "Just hold it privately" wraps into a note the user owns (no recipient). Receiving is a Tacit address
-// (one handle, both chains) or an invoice. A plain 0x recipient cannot receive a note; it is paid publicly out of
-// the shielded balance by the payout panel (confidential-payout-panel.js).
-//
-// VERIFICATION: commitXY ≡ ct.commit (verified), and the op shape is byte-identical to the guest fixtures,
-// so a built op is what the settle guest re-checks.
 
 import { secp, sha256, keccak_256 } from './vendor/tacit-deps.min.js';
 import { makeConfidentialPoolUx } from './confidential-pool-ux.js';
@@ -26,8 +14,6 @@ let _pendingSend = null;
 function getUx() {
   return _ux || (_ux = makeConfidentialPoolUx({ secp, keccak256: keccak_256, sha256}));
 }
-// Name lookups always read Ethereum mainnet, whatever network the page is on. Writes go through the wallet the
-// host page hands over (helpers.ethNames.sendTx); without one the tab can read names but not publish.
 let _mainnetCall = null;
 function getNames(helpers) {
   _mainnetCall = _mainnetCall || makeMainnetCall();
@@ -41,22 +27,8 @@ function short(s, n = 10) {
   return x.length <= (n * 2 + 3) ? x : `${x.slice(0, n)}…${x.slice(-n)}`;
 }
 
-// Sender-side bookkeeping for stealth sends: onBuilt's refund record has to survive a page reload to be
-// useful (the lock lives on-chain for up to ~90 days), so it's kept in localStorage, per-browser like the
-// wallet itself. Two of its fields ARE spend authority: `lBlinding` and `refundPriv` together are the whole
-// refund authority for the lock, and buildStealthRefund signs over a caller-chosen refund owner, so anyone
-// who reads them refunds this lock into a note of their own once the deadline passes. They are sealed at
-// rest under a key derived from the wallet key (confidential-secret-store.js); what stays readable is the
-// locator the pending list renders from, all of which the chain already publishes.
-//
-// The record is kept rather than dropped because it is the sender's only backstop for a lock whose memo the
-// relay substituted — the chain-side copy of the same authority rides that memo's sender tail, and the
-// refund path below falls back to it (scanSentLocks) whenever the local record cannot be opened.
 const _stealthStore = makeStealthSendStore({ sha256 });
 
-// A stealth lock is minted from ONE WHOLE freshly-wrapped note — there's no atomic wrap+lock op for a
-// third party (unlike wrapAndSend's self-only OP_WRAP_TRANSFER), so this polls the pool after a plain wrap
-// broadcasts, same shape as confidential-unified-send.js's pollForBalance.
 async function pollForExactNote({ ux, walletPriv, asset, amount, tries = 30, delayMs = 4000 }) {
   for (let i = 0; i < tries; i++) {
     const { notes } = await ux.balance(walletPriv);
@@ -146,7 +118,6 @@ async function attachRegisteredExternalSendAssets(ux) {
   return added;
 }
 
-// Parse a decimal entry into in-system base units at `dec` decimals. Returns 0n on any malformed input.
 function parseAmount(amtStr, dec) {
   try {
     const [i, f = ''] = String(amtStr || '').trim().split('.');
@@ -155,7 +126,6 @@ function parseAmount(amtStr, dec) {
   } catch { return 0n; }
 }
 
-// Coin-select: greedily pick notes (largest first) of one asset to cover amount + fee.
 function selectNotes(notes, asset, need) {
   const pool = notes.filter((n) => n.asset === asset).sort((a, b) => (BigInt(b.value) - BigInt(a.value) > 0n ? 1 : -1));
   const picked = [];
@@ -164,22 +134,17 @@ function selectNotes(notes, asset, need) {
   return sum >= need ? picked : null;
 }
 
-// Resolve the chosen asset + amount from the form. Returns { asset, ticker, meta, dec, amount } or null.
 function readAssetAmount(ux, assetElId, amountElId) {
   const asset = (el(assetElId) || {}).value;
   if (!asset) return null;
   if (asset === '__btc__') return { asset, ticker: 'BTC', meta: {}, dec: 8, amount: 0n };
   const ticker = ux.tickerOf(asset) || 'cETH';
   const meta = ux.assetByTicker[ticker] || {};
-  // Note values + amounts are IN-SYSTEM units (tacitDecimals ≤8); underlying wei precision (meta.decimals,
-  // 18 for ETH) only governs the wrap deposit boundary.
   const dec = meta.tacitDecimals ?? meta.decimals ?? 8;
   const amount = parseAmount((el(amountElId) || {}).value, dec);
   return { asset, ticker, meta, dec, amount };
 }
 
-// Auto pay: spend existing notes when they cover the amount, else wrap-and-send from the wallet in one tx.
-// The user never chooses the mechanism; the status line reports which path ran.
 function wireSend(wallet, ux, notes, helpers) {
   const reviewBtn = el('csend-review-btn');
   const btn = el('csend-btn');
@@ -208,8 +173,6 @@ function wireSend(wallet, ux, notes, helpers) {
       : { error: 'Enter a Tacit address (tacit1…), a name (name.wei, name.gwei, name.eth) or the recipient’s shielded pubkey (0x02…/0x03…).' };
   };
 
-  // A name is looked up now and pinned: the key its record decodes to is what this send pays, and Review
-  // shows the address it came from so the sender can check it before anything is signed.
   async function readIntent() {
     if (!wallet || !wallet.priv) throw new Error('Unlock your wallet first.');
     const rawRecipient = (el('csend-recipient') && el('csend-recipient').value || '').trim();
@@ -222,15 +185,10 @@ function wireSend(wallet, ux, notes, helpers) {
     if (!sel || sel.amount <= 0n) throw new Error('Enter an amount to send.');
     const { asset, ticker, meta, dec, amount } = sel;
 
-    // A native note's owner is keccak(nk ‖ dom) — a hash, not a curve point — so a plain note-to-note mint
-    // only the sender authored can never be spendable by a third party (no nk hashes to a pubkey-derived
-    // owner). A self-send stays the plain transfer/wrap-and-send path below; a third party goes through the
-    // stealth lock/claim path (ux.stealthSend) — the recipient does not need to be online, and discovers +
-    // claims it themselves later (see the Claim panel below). Neither path needs the OTHER to be blocked.
     const myPubHex = ux.identity(wallet.priv).pubHex;
     const isSelf = String(recipient).toLowerCase() === String(myPubHex).toLowerCase();
 
-    const fee = 0n; // relay fee carving for transfers ships with the matcher; self-settle for now
+    const fee = 0n;
     const forceWrap = !!(el('csend-forcewrap') && el('csend-forcewrap').checked);
     const selfRelay = !!(el('csend-selfrelay') && el('csend-selfrelay').checked);
     const routerOK = !!(ux.routerConfigured && ux.routerConfigured());
@@ -239,11 +197,6 @@ function wireSend(wallet, ux, notes, helpers) {
       picked = forceWrap ? null : selectNotes(notes, asset, amount + fee);
       source = picked ? 'shielded' : 'wrap';
     } else {
-      // A stealth lock spends exactly ONE note — no multi-input change kernel — so this can't combine
-      // several smaller notes the way transfer()'s selectNotes does. ux.stealthSend's ensureExactNote
-      // already splits a single bigger note down to the exact size via its own relayed transfer, so all
-      // that's needed here is ONE note individually large enough; pass the whole asset note set through
-      // (not a pre-picked subset) and let ensureExactNote choose which one.
       const myAssetNotes = notes.filter((n) => n.asset === asset);
       const usable = !forceWrap && myAssetNotes.some((n) => BigInt(n.value) >= amount);
       picked = usable ? myAssetNotes : null;
@@ -327,8 +280,6 @@ function wireSend(wallet, ux, notes, helpers) {
     reviewBtn.disabled = true;
     try {
       if (!isSelf) {
-        // Third party: lock the value to a one-time address only they can claim (see the module header —
-        // a plain note-to-note mint to their published key would be unspendable, since owner = H(nk)).
         let sendNotes = picked;
         if (!sendNotes) {
           if (statusEl) statusEl.textContent = `No shielded balance yet — wrapping ${fmtUnits(amount, dec)} ${shownTicker(ticker)} from your wallet first…`;
@@ -355,9 +306,6 @@ function wireSend(wallet, ux, notes, helpers) {
             refundPriv: built.refundPriv, refundPub: built.refundPub, recipientPubHex: built.recipientPubHex,
             txHash: r && r.txHash, createdAt: Date.now(), recipientName: recipientName ? recipientName.name : undefined,
           });
-          // A record that could not be sealed is held for this session only — never written in the clear. The
-          // refund itself still works from the chain (the lock memo's sender tail), unless the relay replaced
-          // that memo, so say what was lost rather than let the panel imply a saved backstop.
           if (!saved.persisted) notify('This send\u2019s local refund record could not be saved securely in this browser — refund it from this tab before closing it, or recover it later from the chain.', 'error');
         }
         if (statusEl) statusEl.innerHTML = `Locked ${fmtUnits(amount, dec)} ${esc(shownTicker(ticker))} for the recipient`
@@ -368,7 +316,6 @@ function wireSend(wallet, ux, notes, helpers) {
         return;
       }
       if (picked) {
-        // Pay from the shielded balance already in the pool — note-to-note transfer.
         if (statusEl) statusEl.textContent = `Sending ${fmtUnits(amount, dec)} ${shownTicker(ticker)} from your shielded balance…`;
         const r = await ux.transfer({
           walletPriv: wallet.priv, notes: picked, recipientPubHex: recipient, amount, fee, selfRelay,
@@ -381,15 +328,10 @@ function wireSend(wallet, ux, notes, helpers) {
         setTimeout(() => renderSendTab(wallet, helpers), 1500);
         return;
       }
-      // No (usable) shielded balance → wrap from the wallet and send in one transaction.
       if (statusEl) statusEl.textContent = `No shielded balance yet — wrapping + sending ${fmtUnits(amount, dec)} ${shownTicker(ticker)} from your wallet in one transaction…`;
-      // Accumulated locally, not merged via localStorage, so a stale record from an earlier stuck attempt
-      // can never leak into this one — each save is a full replace of whatever this attempt has built so far.
       const thisAttempt = {};
       const r = await ux.wrapAndSend({
         walletPriv: wallet.priv, amountWei, ticker, recipientPubHex: recipient, amount,
-        // Captured BEFORE proving/broadcasting can fail — see wireResumeWrapSend above for why this can't
-        // just be rebuilt on retry. onJob fires the instant the job is queued, ahead of the long prove wait.
         onBuilt: (b) => { if (b.native) { Object.assign(thisAttempt, b); _saveWrapSendResume(ux, wallet, thisAttempt); } },
         waitOpts: {
           onUpdate: proveUpdater(statusEl, 'Wrap-and-send'),
@@ -415,13 +357,6 @@ function wireSend(wallet, ux, notes, helpers) {
   };
 }
 
-// Deposits already on-chain (wireHold's pool.wrap()/routerWrap() broadcast and confirmed) whose settle proof
-// never landed — a dropped connection or relay hiccup before submitWrapSettle. The escrow is safe and the
-// note is deterministically recoverable from this wallet's own key (buildWrap re-derives the exact same
-// commitment for a given index — see confidential-pool-ux.js), so resuming never re-broadcasts the deposit:
-// it only rebuilds the OP_WRAP witness and resubmits it for settle. Shared HTML lives in
-// confidential-scan-health.js (pendingWrapRowsHtml); this is just the DOM wiring for the buttons it renders.
-// `onDone` re-renders this tab afterward — same refresh-on-success pattern wireHold/wireSend already use.
 function wireResumeWraps(wallet, ux, diag, onDone) {
   const pending = (diag && diag.wrap && diag.wrap.pending) || [];
   if (!pending.length) return;
@@ -453,27 +388,15 @@ function wireResumeWraps(wallet, ux, diag, onDone) {
   }
 }
 
-// wrapAndSend (OP_WRAP_TRANSFER, "no shielded balance yet" path below) proves a random-blinded output, so
-// unlike a plain wrap it can NOT be safely rebuilt from (walletPriv, index) if something fails after the job
-// is queued — a rebuild would carry different memos and settle would reject it (MemoLeafMismatch). The only
-// way back is resumeWrapAndSend, which needs the EXACT jobId + memos + depositCommit + wrapAmount the original
-// attempt was building — confidential-pool-ux.js's wrapAndSend hands these out via onBuilt (before proving)
-// and waitOpts.onJob (the moment the job is queued, before the long wait), specifically so a caller can persist
-// them before either step can fail. Native ETH only (resumeWrapAndSend's own limit) — an ERC20 wrap-and-send
-// that fails this way has no resume path today; that gap is real and not fixed here, only not silently ignored.
 const WRAP_SEND_RESUME_PREFIX = 'tacit:wrapsend-resume-v1:';
 function _wrapSendResumeKey(ux, wallet) {
   try { return WRAP_SEND_RESUME_PREFIX + ux.account(wallet.priv).address.toLowerCase(); } catch { return null; }
 }
-// Always a full replace, never a merge onto whatever is already stored: a stale record from an earlier
-// stuck attempt must never survive into a new one. onBuilt and onJob fire in sequence for the SAME attempt
-// (nothing else can interleave between them within one wrapAndSend call), so the call site passes the
-// whole record it's accumulating each time, not a fragment to be merged against unrelated old data.
 function _saveWrapSendResume(ux, wallet, record) {
   const k = _wrapSendResumeKey(ux, wallet);
   if (!k) return;
   try { localStorage.setItem(k, JSON.stringify({ ...record, at: Date.now() })); }
-  catch { /* best effort — a lost record just means no resume UI, not lost funds (the tx may not exist yet) */ }
+  catch { }
 }
 function _loadWrapSendResume(ux, wallet) {
   const k = _wrapSendResumeKey(ux, wallet);
@@ -517,8 +440,6 @@ function wireResumeWrapSend(wallet, ux, record, onDone) {
   };
 }
 
-// "Just hold it privately": wrap public ETH/token into a confidential note the user owns — no recipient,
-// no send. Gasless one-tx router wrap when the router is live; direct pool deposit otherwise (native ETH).
 function wireHold(wallet, ux, helpers) {
   const btn = el('csend-hold-btn');
   if (!btn) return;
@@ -534,7 +455,7 @@ function wireHold(wallet, ux, helpers) {
     const amountWei = amount * unitScale;
     btn.disabled = true;
     if (statusEl) statusEl.textContent = `Wrapping ${fmtUnits(amount, dec)} ${shownTicker(ticker)} into a private note you own…`;
-    let r; // declared outside try so the catch block can still report a txHash from a step after broadcast
+    let r;
     try {
       r = routerOK
         ? await ux.routerWrap({ walletPriv: wallet.priv, amountWei, ticker })
@@ -550,10 +471,6 @@ function wireHold(wallet, ux, helpers) {
       setTimeout(() => renderSendTab(wallet, helpers), 2000);
     } catch (e) {
       const m = formatSpecErr(e, 'Wrap');
-      // The deposit itself may already be irreversibly on-chain even though this failed (a dropped
-      // connection after broadcast, a settle timeout) — never imply otherwise, since the fix here is to
-      // resubmit the SAME deposit's settle via Resume, not to re-wrap and double-deposit.
-      // A deposit that reverted deposited nothing, so there is nothing to resume.
       if (statusEl) statusEl.textContent = r && r.txHash && !(e && e.reverted)
         ? `${m} — the deposit (${r.txHash}) is on-chain; do not re-wrap the same amount. Reload this tab — the pending deposit will show above with a Resume button.`
         : m;
@@ -563,9 +480,6 @@ function wireHold(wallet, ux, helpers) {
   };
 }
 
-// Asset-first lane toggle: the asset dropdown chooses the lane. Ethereum/pool assets show the inline
-// shielded-send controls; the Bitcoin option swaps in a handoff to the mature Bitcoin send surface (that
-// live flow is not reimplemented here — see the module header).
 function wireAssetLane() {
   const sel = el('csend-asset');
   const evm = el('csend-evm-controls');
@@ -591,8 +505,6 @@ function wireAssetLane() {
   apply();
 }
 
-// "Publish my Tacit address to my name": finds the wallet's verified primary name, shows what its record holds
-// against what would be written, and only then offers the transaction. Mainnet names only.
 function wirePublishName(helpers, myTacit) {
   const findBtn = el('csend-name-find');
   const out = el('csend-name-out');
@@ -648,7 +560,6 @@ function wirePublishName(helpers, myTacit) {
   };
 }
 
-// Invoice receive (create a shareable request) + pay (wrap public funds into the recipient's note).
 function wireInvoice(wallet, ux) {
   const inv = makeConfidentialInvoice({ ux });
   const createBtn = document.getElementById('csend-inv-btn');
@@ -676,7 +587,6 @@ function wireInvoice(wallet, ux) {
   if (payBtn) payBtn.onclick = async () => {
     const st = document.getElementById('csend-pay-status');
     const raw = (document.getElementById('csend-pay-input') || {}).value || '';
-    // The invoice JSON, or a payment request link carrying it (…#tacit-invoice=<base64url JSON>, as zSwap shares them).
     const link = raw.match(/tacit-invoice=([A-Za-z0-9_-]{16,8000})/);
     let invoice;
     try { invoice = JSON.parse(link ? atob(link[1].replace(/-/g, '+').replace(/_/g, '/')) : raw.trim()); }
@@ -694,9 +604,6 @@ function wireInvoice(wallet, ux) {
   };
 }
 
-// Claim panel (payments discovered by scanning the shared lock-set for anything a stealth send addressed
-// to this wallet) + a "your pending sends" panel (refund whatever you've locked that hasn't been claimed
-// yet — the localStorage records stealthSend's onBuilt handed back in wireSend above).
 function wireClaimAndRefund(wallet, ux, helpers) {
   const scanBtn = el('csend-claim-scan-btn');
   const claimStatus = el('csend-claim-status');
@@ -704,9 +611,6 @@ function wireClaimAndRefund(wallet, ux, helpers) {
   const pendingDetails = el('csend-pending-details');
   const pendingList = el('csend-pending-list');
 
-  // Refund authority for one pending send: the sealed local record, or — when it cannot be opened (a record
-  // this wallet did not write, storage cleared between build and refund) — the sender tail the lock memo
-  // carries on-chain, which is the same authority by a different route.
   async function refundAuthorityFor(rec) {
     const local = await _stealthStore.secretsFor(wallet.priv, rec);
     if (local && local.refundPriv && local.lBlinding) return local;
@@ -758,8 +662,6 @@ function wireClaimAndRefund(wallet, ux, helpers) {
       };
     });
   }
-  // Records an older build wrote are plaintext: seal them before anything else reads this origin's storage,
-  // then render. A migration that cannot run (no WebCrypto here) leaves them as they are and still renders.
   if (wallet && wallet.priv) _stealthStore.migrate(wallet.priv).catch(() => {}).then(renderPending);
   else renderPending();
 
@@ -770,11 +672,7 @@ function wireClaimAndRefund(wallet, ux, helpers) {
     try {
       const scanned = await ux.scanStealthLocks({ walletPriv: wallet.priv });
       const lockSetRoot = scanned.lockSetRoot;
-      // Soonest-expiring first: per BUILD-A-TACIT-DAPP.md, "prompt the receiver to claim well before" the
-      // sender's refund deadline — the one closest to lapsing belongs at the top, not buried in list order.
       const mine = scanned.mine.filter((l) => l.spent !== true).sort((a, b) => Number(a.deadline || 0) - Number(b.deadline || 0));
-      // Whether the pool confirmed the set this scan was built from, and whether any lock's memo went
-      // unread, decide how much "no payments found" is worth saying. Shown either way, above the list.
       const lockHealth = lockScanHealthHtml(scanned, { style: 'margin:6px 0;' });
       if (!mine.length) {
         if (claimStatus) claimStatus.textContent = lockHealth ? 'No unclaimed payments found in what this scan could read.' : 'No unclaimed payments found right now.';
@@ -785,8 +683,6 @@ function wireClaimAndRefund(wallet, ux, helpers) {
           const ticker = ux.tickerOf(rec.asset) || rec.asset.slice(0, 10) + '…';
           const meta = ux.assetByTicker[ticker] || {};
           const dec = meta.tacitDecimals ?? meta.decimals ?? 8;
-          // The sender can refund an unclaimed lock once its deadline passes (~90 days by default) — show
-          // it here too, mirroring "Your pending sends" below, so a receiver knows there's a window to act in.
           const deadlineMs = Number(rec.deadline) * 1000;
           const daysLeft = Number.isFinite(deadlineMs) && deadlineMs > 0 ? (deadlineMs - Date.now()) / 86400000 : null;
           const deadlineLabel = daysLeft == null ? ''
@@ -830,11 +726,6 @@ export async function renderSendTab(wallet, helpers = {}) {
   if (!confidentialPoolReady()) { body.innerHTML = confidentialUnavailableHTML('Confidential Send'); return; }
   const ux = getUx();
   if (!wallet || !wallet.priv) {
-    // Same wallet as the Bitcoin lane — no separate "connect an Ethereum
-    // wallet" step. This mirrors the Bitcoin transfer tab and the market
-    // ask/bid forms: an inline "Unlock wallet" button right where the user
-    // already is, instead of a dead-end message that sends them hunting
-    // for the unlock control elsewhere.
     body.innerHTML = lockedWalletHTML('send', 'csend-unlock-btn');
     wireUnlockButton('csend-unlock-btn', helpers);
     return;
@@ -842,8 +733,6 @@ export async function renderSendTab(wallet, helpers = {}) {
   const id = ux.identity(wallet.priv);
   const myTacit = helpers.tacitAddress || null;
   await attachRegisteredExternalSendAssets(ux);
-  // Show the example prefix for the active network (tacit1… mainnet / tactt1… signet / tacrt1… regtest),
-  // derived from the holder's own address so it always matches what they'll receive.
   const addrPrefix = (myTacit && myTacit.split('1')[0]) || 'tacit';
   const canPublishName = !!(myTacit && myTacit.startsWith('tacit1') && helpers.ethNames);
   const sendAssets = ux.assets.filter((a) => a.assetId && /^c[A-Za-z0-9]/.test(a.ticker || ''));
@@ -1018,14 +907,9 @@ export async function renderSendTab(wallet, helpers = {}) {
     const { byAsset, notes, poolStats, diag } = await ux.balance(wallet.priv);
     const balEl = el('csend-balance');
     const assets = Object.values(byAsset || {});
-    // A rough, honestly-labeled pool-wide count — how many shielded notes currently sit in the pool across
-    // everyone — derived for free from the same event scan balance() just did (see poolStatsFromEvents).
-    // Not a per-payment anonymity guarantee; just a sense of how much cover the pool currently offers.
     const setLine = (poolStats && poolStats.outstandingNotes > 0)
       ? `<div class="muted" style="font-size:10px;margin-top:6px;">~${poolStats.outstandingNotes.toLocaleString()} shielded notes currently in the pool across all users.</div>`
       : '';
-    // A figure from a scan that lost a channel is shown with what it could not reach named above it. The
-    // cBTC and bridge channels have no memo to fall back on, so an endpoint outage there reads as zero.
     notifyPendingWrapsOnce(diag, notify);
     const wrapSendResume = _loadWrapSendResume(ux, wallet);
     if (balEl) {
@@ -1036,10 +920,10 @@ export async function renderSendTab(wallet, helpers = {}) {
         ? '<div style="font-weight:600;color:var(--ink);margin-bottom:4px;">Shielded balance</div>'
           + assets.map((a) => {
             const m = ux.assets.find((x) => x.assetId.toLowerCase() === a.asset) || {};
-            const dec = m.tacitDecimals ?? m.decimals ?? 8; // note values are in-system units
+            const dec = m.tacitDecimals ?? m.decimals ?? 8;
             return `<div style="padding:2px 0;">${fmtUnits(a.value, dec)} ${esc(shownTicker(a.ticker) || a.asset.slice(0, 10) + '…')}</div>`;
           }).join('')
-        : (scanHealthHtml(diag) // an empty result from an incomplete scan is not "you hold nothing"
+        : (scanHealthHtml(diag)
           ? 'No shielded notes were found in the channels that did finish.'
           : 'No shielded notes yet — “Send privately” will wrap from your wallet automatically, or use “Hold it privately” to just make funds private.'))
         + inboundSummaryHtml(notes || [])

@@ -1,7 +1,3 @@
-// AMM envelope encoder — dapp-side port of tests/amm-envelope.mjs (LP_ADD +
-// LP_REMOVE only, swap encoders live in tacit.js's existing SWAP_VAR path).
-// Byte-for-byte identical to the test reference so worker decoder accepts
-// dapp-produced payloads.
 
 import { concatBytes, hexToBytes, sha256, keccak_256, secp } from './vendor/tacit-deps.min.js';
 import { XCURVE_PROOF_LEN } from './amm-sigma.js';
@@ -14,32 +10,18 @@ const _FARM_OWNER_KEY_DOM = new TextEncoder().encode('tacit-farm-owner-key-v1');
 function _u128LE(n) { const b = new Uint8Array(16); let x = BigInt(n); for (let i = 0; i < 16; i++) { b[i] = Number(x & 0xffn); x >>= 8n; } return b; }
 function _u64BE(n) { const b = new Uint8Array(8); let x = BigInt(n); for (let i = 7; i >= 0; i--) { b[i] = Number(x & 0xffn); x >>= 8n; } return b; }
 function _u32BE(n) { const b = new Uint8Array(4); let x = BigInt(n); for (let i = 3; i >= 0; i--) { b[i] = Number(x & 0xffn); x >>= 8n; } return b; }
-// The vout[1] destination scriptPubKey bound by the trustless-farm owner/launcher auth (raw bytes, last field).
 function _spk(s) { return s == null ? new Uint8Array(0) : (s instanceof Uint8Array ? s : hexToBytes(String(s).replace(/^0x/, ''))); }
 function _scalar32(d) { const b = new Uint8Array(32); let x = d; for (let i = 31; i >= 0; i--) { b[i] = Number(x & 0xffn); x >>= 8n; } return b; }
 
-// ── Trustless farm receipt + owner-auth helpers (mirror confidential-pool.js + guest cxfer-core) ──
-// The farm receipt leaf — a STABLE position id: keccak(DOM ‖ farm ‖ lpAsset ‖ shares(8 LE) ‖ owner ‖ nonce).
-// It carries no rps entry: the entry checkpoint is stamped at execution (reflection state / FarmController),
-// the only time the live rps is knowable, so a bond can join a campaign at any moment without drifting.
-// It commits the STAKED asset so a harvest/unbond cannot re-label the receipt into another asset.
 export function farmReceiptLeaf({ farmId, lpAsset, shares, owner, nonce }) {
   return keccak_256(concatBytes(_FARM_RECEIPT_DOM, asBytes(farmId, 32, 'farmId'), asBytes(lpAsset, 32, 'lpAsset'), u64LE(shares), asBytes(owner, 32, 'owner'), asBytes(nonce, 32, 'nonce')));
 }
-// Owner BIP-340 auth messages — bind the materialized note's blinding (reward_r / lp_return_r) AND its
-// DESTINATION scriptPubKey (`destSpk` = vout[1] of the reveal tx). The destination is load-bearing: the note
-// is a bearer note keyed only by its outpoint, so binding only the blinding let a mempool front-runner replay
-// the public envelope into their own vout[1] and steal the materialized value. The txid can't be signed (it
-// commits sha256(envelope), which contains the sig), but vout[1]'s scriptPubKey is chosen at sign time and
-// isn't circular. Mirror guest cxfer-core lp_*_owner_msg + confidential-pool.js foldLp*.
 export function lpHarvestOwnerMsg({ farmId, oldLeaf, reward, rewardR, destSpk }) {
   return keccak_256(concatBytes(_LP_HARVEST_OWNER_DOM, asBytes(farmId, 32, 'farmId'), asBytes(oldLeaf, 32, 'oldLeaf'), _u64BE(reward), asBytes(rewardR, 32, 'rewardR'), _spk(destSpk)));
 }
 export function lpUnbondOwnerMsg({ farmId, oldLeaf, shares, lpReturnR, destSpk }) {
   return keccak_256(concatBytes(_LP_UNBOND_OWNER_DOM, asBytes(farmId, 32, 'farmId'), asBytes(oldLeaf, 32, 'oldLeaf'), _u64BE(shares), asBytes(lpReturnR, 32, 'lpReturnR'), _spk(destSpk)));
 }
-// Deterministic ONE-TIME receipt-owner key for a (farm, nonce): the bonder controls it; harvest/unbond
-// re-derive it from the same inputs and sign. Returns { priv(32), ownerXonly(32) }; owner_commit = ownerXonly.
 export function deriveFarmOwnerKey({ walletPriv, farmId, nonce }) {
   const seed = keccak_256(concatBytes(_FARM_OWNER_KEY_DOM, asBytes(walletPriv, 32, 'walletPriv'), asBytes(farmId, 32, 'farmId'), asBytes(nonce, 32, 'nonce')));
   let d = BigInt('0x' + [...seed].map((b) => b.toString(16).padStart(2, '0')).join('')) % _SECP_N;
@@ -79,42 +61,6 @@ function isZeroAddress(b) {
   return true;
 }
 
-// Required (variant 0):
-//   variant: 0
-//   assetA, assetB        : 32-byte
-//   deltaA, deltaB        : bigint > 0
-//   shareAmount           : bigint > 0
-//   shareCSecp            : 33 bytes
-//   shareCBJJ             : 32 bytes
-//   shareXcurveSigma      : 169 bytes
-//   kernelSigA, kernelSigB: 64 bytes each
-//   shareR                : 32 bytes (public opening blinding — see encodeLpAdd)
-// Additional for variant 1 (POOL_INIT):
-//   feeBps, vkCid, ceremonyCid, arbiterPubkeys, launcherSigs,
-//   protocolFeeAddress, protocolFeeBps, poolMetaUri, poolCapabilityFlags
-// T_PROTOCOL_FEE_CLAIM (0x31) — founder-pinned recipient mints accrued
-// LP-fee skim as an lp_asset_id UTXO. Fixed 207-byte payload (mirrors guest
-// cxfer-core::bitcoin::parse_protocol_fee_claim_envelope).
-// Wire format:
-//   opcode(1)=0x31 || pool_id(32) || claimer_pubkey(33, COMPRESSED secp256k1)
-//   || fee_bps_LE(4) || claim_amount_LE(8) || claim_C_secp(33)
-//   || claim_blinding(32) || claim_sig(64)
-//
-// claim_sig is BIP-340 Schnorr (under the claimer's x-only key) over:
-//   keccak256("tacit-amm-protocol-fee-claim-v1" || pool_id || amt_BE(8)
-//             || claim_C_secp || claim_blinding || dest_spk)
-// (mirrors guest cxfer-core::lib::protocol_fee_claim_msg — note the amount
-// is BIG-endian here, unlike the LE amount field in the envelope itself,
-// and dest_spk — the claim note's vout-0 scriptPubKey — is signed so a
-// mempool front-runner can't replay the public envelope into their own
-// output; see lpHarvestOwnerMsg/lpUnbondOwnerMsg above for the same pattern).
-//
-// The fold re-derives pool_id from (claimer_pubkey, the pool's STORED
-// fee_bps) to prove the claimer is that pool's bound fee recipient — the
-// envelope's fee_bps field is carried for wire-shape/provenance parity with
-// the guest parser but is NOT itself consulted for that check (the guest
-// uses its own registry-stored fee_bps), and the fold requires claim_amount
-// to exactly equal the crystallized protocol_fee_accrued.
 export function buildProtocolFeeClaimMsg({ poolIdBytes, claimAmount, claimCSecpBytes, claimBlindingBytes, destSpk }) {
   const poolId = asBytes(poolIdBytes, 32, 'poolIdBytes');
   const claimCSecp = asBytes(claimCSecpBytes, 33, 'claimCSecpBytes');
@@ -140,8 +86,6 @@ export function encodeProtocolFeeClaim(args) {
   );
 }
 
-// Decoder for T_PROTOCOL_FEE_CLAIM. Fixed 207-byte payload; bigint amount.
-// Returns null on any structural mismatch (caller treats null as non-tacit).
 export function decodeProtocolFeeClaim(payload) {
   if (!(payload instanceof Uint8Array)) return null;
   if (payload.length !== 207) return null;
@@ -157,11 +101,6 @@ export function decodeProtocolFeeClaim(payload) {
   return { poolId, claimerPubkey, feeBps, claimAmount: amt, claimCSecp, claimBlinding, claimSig };
 }
 
-// T_LP_REMOVE (0x2E) — burn LP-share UTXO(s) for proportional withdrawal
-// of pool reserves. Each receipt (A side + B side) carries a Pedersen
-// commit on both curves + an XCurve sigma binding them to the same
-// hidden amount. One kernel sig (LP side) proves the consumed LP-share
-// UTXOs net to exactly share_amount · H_secp.
 export function encodeLpRemove(args) {
   const parts = [
     new Uint8Array([OPCODE_T_LP_REMOVE]),
@@ -177,8 +116,6 @@ export function encodeLpRemove(args) {
     asBytes(args.recvBCBJJ, 32, 'recvBCBJJ'),
     asBytes(args.recvBXcurveSigma, XCURVE_PROOF_LEN, 'recvBXcurveSigma'),
     asBytes(args.kernelSigLP, 64, 'kernelSigLP'),
-    // option-a opening blindings (reflection): recvACSecp opens to deltaA under rRecvA, recvBCSecp to deltaB
-    // under rRecvB — so the relay can fold the withdrawal without an off-chain witness it cannot derive.
     asBytes(args.rRecvA, 32, 'rRecvA'),
     asBytes(args.rRecvB, 32, 'rRecvB'),
   ];
@@ -205,8 +142,6 @@ export function encodeLpAdd(args) {
     asBytes(args.shareXcurveSigma, XCURVE_PROOF_LEN, 'shareXcurveSigma'),
     asBytes(args.kernelSigA, 64, 'kernelSigA'),
     asBytes(args.kernelSigB, 64, 'kernelSigB'),
-    // option-a opening blinding (reflection): shareCSecp opens to the minted LP-share amount under shareR —
-    // lets the relay fold the share-note mint without an off-chain witness. Sits before the variant-1 tail.
     asBytes(args.shareR, 32, 'shareR'),
   ];
 
@@ -253,32 +188,18 @@ export function encodeLpAdd(args) {
     const metaBytes = new TextEncoder().encode(metaUri);
     if (metaBytes.length > 255) throw new Error('poolMetaUri length must be 0..255 bytes');
     parts.push(new Uint8Array([metaBytes.length]), metaBytes);
-    // (the variant-1 tail closes below; the variant-0 refund tail is emitted in the `else` branch)
     const capFlags = args.poolCapabilityFlags ?? 0;
     if (capFlags < 0 || capFlags > 0xff) throw new Error('poolCapabilityFlags must be u8');
-    // V1 pools fix capability_flags to 0x00. The byte is reserved in
-    // the pool_id preimage so future opcodes (e.g. range-LP) can extend
-    // the pool taxonomy without colliding with V1 pool_ids.
-    // Any non-zero value would derive a pool_id
-    // no V1 validator can interpret, so we reject at the encoder.
     if (capFlags !== 0) {
       throw new Error(`poolCapabilityFlags must be 0x00 for V1 pools (the byte is reserved in pool_id derivation for forward extensions)`);
     }
     parts.push(new Uint8Array([capFlags]));
-    // Founder-refund tail (mirrors the variant-0 refund binding, extended to both funded sides): a POOL_INIT
-    // that loses the deterministic pool_id to a front-run (or is otherwise stale/malformed post-kernel)
-    // returns the seeded delta_a / delta_b to owner-bound refund notes at the tx's vout 2 / vout 3 instead of
-    // self-burning the seed. expiry_height(4 LE) ‖ refund_a_blinding(32) ‖ refund_b_blinding(32); each kernel
-    // binds its side's expiry + refund key + blinding.
     const initExp = new Uint8Array(4);
     new DataView(initExp.buffer).setUint32(0, (args.expiryHeight >>> 0), true);
     parts.push(initExp);
     parts.push(asBytes(args.refundABlinding, 32, 'refundABlinding'));
     parts.push(asBytes(args.refundBBlinding, 32, 'refundBBlinding'));
   } else {
-    // Variant-0 refund tail (after share_r): expiry_height(4 LE) ‖ refund_a_blinding(32) ‖ refund_b_blinding(32).
-    // A sandwiched (mints < shareAmount) or expired add returns delta_a / delta_b to owner-bound refund notes
-    // instead of self-burning; each kernel binds its side's expiry + refund key + blinding.
     const exp = new Uint8Array(4);
     new DataView(exp.buffer).setUint32(0, (args.expiryHeight >>> 0), true);
     parts.push(exp);
@@ -286,22 +207,9 @@ export function encodeLpAdd(args) {
     parts.push(asBytes(args.refundBBlinding, 32, 'refundBBlinding'));
   }
 
-  // No proof tail: share_amount is a public envelope field, so the mint is bound by
-  // lp_add_kernel_verify's kernel sigs (real value in) plus shareR's direct Pedersen
-  // opening of shareCSecp against share_amount (real value out) — a hidden-value proof
-  // over an already-public number would add nothing. The envelope ends here for both
-  // variants; the guest's parse_lp_add_envelope rejects any trailing byte.
   return concatBytes(...parts);
 }
 
-// Minimal decoder for T_LP_ADD — returns the fields scanHoldings needs to
-// recognize + recover the founder/recipient LP-share UTXO at vout[0].
-// Returns null on any structural mismatch (caller treats null as non-tacit).
-//
-// For variant 1 (POOL_INIT) we also extract feeBps + poolCapabilityFlags so
-// the recovery path can re-derive pool_id without consulting the registry.
-// For variant 0 the dapp recovery path looks up pool_id by (assetA, assetB)
-// from its cached pool list.
 function _readU16LE(b, off) {
   return new DataView(b.buffer, b.byteOffset).getUint16(off, true);
 }
@@ -326,13 +234,9 @@ export function decodeLpAdd(payload) {
     const shareAmount = _readU64LE(payload, off); off += 8;
     const shareCSecp = payload.slice(off, off + 33); off += 33;
     const shareCBJJ = payload.slice(off, off + 32); off += 32;
-    // Capture the share xcurve sigma (binds shareCSecp ↔ shareCBJJ to the same
-    // hidden value). The reflection doesn't verify it — the secp kernel sigs
-    // that follow prove real value went in, and shareR's direct Pedersen
-    // opening of shareCSecp (below) proves exactly share_amount came out.
     const shareXcurveSigma = payload.slice(off, off + XCURVE_PROOF_LEN);
     off += XCURVE_PROOF_LEN + 64 + 64;
-    const shareR = payload.slice(off, off + 32); off += 32; // option-a opening blinding (between header and the variant-1 tail)
+    const shareR = payload.slice(off, off + 32); off += 32;
     const result = { variant, assetA, assetB, deltaA, deltaB, shareAmount, shareCSecp, shareCBJJ, shareXcurveSigma, shareR };
     if (variant === 1) {
       if (off + 2 > payload.length) return null;
@@ -365,37 +269,27 @@ export function decodeLpAdd(payload) {
       result.protocolFeeAddress = payload.slice(off, off + 33); off += 33;
       if (off + 2 > payload.length) return null;
       result.protocolFeeBps = _readU16LE(payload, off); off += 2;
-      if (result.protocolFeeBps > PROTOCOL_FEE_BPS_MAX) return null; // the same bound the encoder enforces
+      if (result.protocolFeeBps > PROTOCOL_FEE_BPS_MAX) return null;
       if (off + 1 > payload.length) return null;
       const metaLen = payload[off++];
       if (off + metaLen > payload.length) return null;
       result.poolMetaUri = _utf8.decode(payload.slice(off, off + metaLen)); off += metaLen;
       if (off + 1 > payload.length) return null;
       result.poolCapabilityFlags = payload[off++];
-      // Founder-refund tail: expiry_height(4 LE) ‖ refund_a_blinding(32) ‖ refund_b_blinding(32).
       if (off + 4 + 32 + 32 > payload.length) return null;
       result.expiryHeight = new DataView(payload.buffer, payload.byteOffset).getUint32(off, true); off += 4;
       result.refundABlinding = payload.slice(off, off + 32); off += 32;
       result.refundBBlinding = payload.slice(off, off + 32); off += 32;
     } else {
-      // Variant-0 refund tail (after share_r): expiry_height(4 LE) ‖ refund_a_blinding(32) ‖ refund_b_blinding(32).
       if (off + 4 + 32 + 32 > payload.length) return null;
       result.expiryHeight = new DataView(payload.buffer, payload.byteOffset).getUint32(off, true); off += 4;
       result.refundABlinding = payload.slice(off, off + 32); off += 32;
       result.refundBBlinding = payload.slice(off, off + 32); off += 32;
     }
-    // No proof tail — the envelope ends at the refund tail for both variants
-    // (see encodeLpAdd). A payload with trailing bytes past this point is not
-    // a valid T_LP_ADD envelope; callers that need to reject it structurally
-    // can compare payload.length against the expected fixed size themselves.
     return result;
   } catch { return null; }
 }
 
-// Minimal decoder for T_LP_REMOVE — returns fields scanHoldings needs to
-// recognize + recover the recipient's receive-A (vout[0]) and receive-B
-// (vout[1]) UTXOs. pool_id is NOT carried in the envelope; recovery looks
-// it up via canonical (assetA, assetB) from the dapp's pool registry.
 export function decodeLpRemove(payload) {
   if (!(payload instanceof Uint8Array)) return null;
   const minLen = 1 + 32 + 32 + 8 + 8 + 8 + 33 + 32 + 169 + 33 + 32 + 169 + 64 + 32 + 32 + 2;
@@ -415,7 +309,7 @@ export function decodeLpRemove(payload) {
     const recvBCBJJ = payload.slice(off, off + 32); off += 32;
     const recvBXcurveSigma = payload.slice(off, off + XCURVE_PROOF_LEN); off += XCURVE_PROOF_LEN;
     const kernelSigLP = payload.slice(off, off + 64); off += 64;
-    const rRecvA = payload.slice(off, off + 32); off += 32; // option-a opening blindings (between kernel sig and proof)
+    const rRecvA = payload.slice(off, off + 32); off += 32;
     const rRecvB = payload.slice(off, off + 32); off += 32;
     const result = {
       assetA, assetB, shareAmount, deltaA, deltaB,
@@ -423,10 +317,6 @@ export function decodeLpRemove(payload) {
       recvBCSecp, recvBCBJJ, recvBXcurveSigma,
       kernelSigLP, rRecvA, rRecvB,
     };
-    // The proof tail is mandatory here (minLen already counts its 2 length bytes) and must consume the
-    // payload exactly. Uint8Array.slice clamps instead of throwing, so without these two checks a
-    // truncated proof decoded to a short/absent one and trailing bytes rode along unnoticed — the
-    // envelope would have had more than one accepted encoding.
     const proofLen = _readU16LE(payload, off); off += 2;
     if (off + proofLen !== payload.length) return null;
     result.proof = payload.slice(off, off + proofLen);
@@ -434,19 +324,11 @@ export function decodeLpRemove(payload) {
   } catch { return null; }
 }
 
-// ===== LP-bond yield farms =====
-//
-// T_FARM_INIT (0x34) / T_LP_BOND (0x35) / T_LP_UNBOND (0x36). Mirrors
-// the byte layouts of tests/amm-farm.mjs encodeFarmInit / encodeLpBond /
-// encodeLpUnbond exactly so worker decoders accept dapp envelopes.
-
 export const OPCODE_T_FARM_INIT  = 0x34;
 export const OPCODE_T_LP_BOND    = 0x35;
 export const OPCODE_T_LP_UNBOND  = 0x36;
-export const OPCODE_T_LP_HARVEST = 0x3B;  // claim reward without unbonding
-export const OPCODE_T_FARM_REFUND = 0x3E; // launcher reclaims unspent treasury
-// Farm-state attestation reuses T_INTENT_ATTEST (0x30) per the spec
-// (scope_id = farm_id, intent_pool_hash = buildFarmStateHash output).
+export const OPCODE_T_LP_HARVEST = 0x3B;
+export const OPCODE_T_FARM_REFUND = 0x3E;
 export const FARM_NO_CHANGE_SENTINEL = new Uint8Array(33);
 
 const _FARM_INIT_DOMAIN    = new TextEncoder().encode('tacit-amm-farm-init-v1');
@@ -478,8 +360,6 @@ function _readU32LE(b, off) {
   return new DataView(b.buffer, b.byteOffset, b.byteLength).getUint32(off, true) >>> 0;
 }
 
-// farm_id = SHA256("tacit-amm-farm-init-v1" || pool_id || launcher_pubkey ||
-//                   reward_asset_id || farm_nonce)
 export function deriveFarmId({ poolId, launcherPubkey, rewardAssetId, farmNonce }) {
   return sha256(concatBytes(
     _FARM_INIT_DOMAIN,
@@ -495,11 +375,6 @@ export function deriveLpAssetIdFromPoolId(poolId) {
 }
 
 function _revBytes(b) { const r = new Uint8Array(b); r.reverse(); return r; }
-// Bind the funding of a farm/bond to its authorization signature. Mirrors cxfer-core `amm_funding_hash`:
-// sha256( (prev_txid_internalLE(32) ‖ prev_vout(4 LE))* ‖ sha256(kernel_sig) ) over the funding outpoints in
-// the SAME order the object's conservation kernel commits them (op.txid is display hex, reversed to internal
-// byte order exactly like the kernel msg). Folded into buildFarmInitMsg / buildLpBondMsg so a replay of the
-// launcher/bonder sig under different funding produces an invalid signature.
 export function ammFundingHash({ outpoints, kernelSig }) {
   const parts = [];
   for (const op of outpoints) {
@@ -510,12 +385,7 @@ export function ammFundingHash({ outpoints, kernelSig }) {
   return sha256(concatBytes(...parts));
 }
 
-// Domain msg builders. Sigs bind structural fields only; OP_RETURN
-// (SHA256(payload)) provides replay protection. Same convention as
-// T_SWAP_VAR intent_msg.
 export function buildFarmInitMsg({ farmId, launcherPubkey, rewardTotal, rewardPerBlock, startHeight, endHeight, fundingHash, refundExpiry, refundDestXonly, refundBlinding }) {
-  // The refund tail (expiry ‖ refund_dest_xonly ‖ refund_blinding) is signed so a relay can neither replay
-  // the launcher sig under different funding (fundingHash) nor redirect the treasury refund on a lost farm_id.
   return sha256(concatBytes(
     _FARM_INIT_DOMAIN,
     asBytes(farmId, 32, 'farmId'),
@@ -529,10 +399,6 @@ export function buildFarmInitMsg({ farmId, launcherPubkey, rewardTotal, rewardPe
   ));
 }
 export function buildLpBondMsg({ farmId, bonderPubkey, bondAmount, entryAccPerShare, bondViewHeight, ownerCommit, nonce, fundingHash, refundExpiry, refundDestXonly, refundBlinding }) {
-  // Binds the receipt owner_commit + nonce: the conservation kernel funds the bond but does not bind who
-  // owns the receipt, so the bonder must authorize the exact ownership or a coordinator could redirect it.
-  // fundingHash additionally binds the spent lp_asset outpoints + kernel_sig so the sig can't be replayed
-  // under different funding. The refund tail binds the bonded-amount refund on a lost receipt-leaf race.
   return sha256(concatBytes(
     _FARM_BOND_DOMAIN,
     asBytes(farmId, 32, 'farmId'),
@@ -573,10 +439,6 @@ export function buildLpHarvestMsg({ farmId, bondId, harvesterPubkey, exitAccPerS
     asBytes(rewardR, 32, 'rewardR'),
   ));
 }
-// Launcher refund auth message — keccak/BE, binding (farm, amount, refundR, view_height, destSpk), matching
-// the guest cxfer-core farm_refund_msg + confidential-pool.js foldFarmRefund. (The launcher pubkey is bound by
-// being the BIP-340 verify key + the FARM_INIT-committed launcher check, not by inclusion in the message.)
-// `destSpk` (vout[1] scriptPubKey) closes the front-run redirect of the treasury draw.
 export function buildFarmRefundMsg({ farmId, refundAmount, refundViewHeight, refundR, destSpk }) {
   return keccak_256(concatBytes(
     _FARM_REFUND_DOMAIN,
@@ -588,9 +450,6 @@ export function buildFarmRefundMsg({ farmId, refundAmount, refundViewHeight, ref
   ));
 }
 
-// Canonical farm-state hash for T_INTENT_ATTEST attestations.
-// Attesters publish this 32B value as the `intent_pool_hash` of a
-// T_INTENT_ATTEST envelope with scope_id = farm_id.
 export function buildFarmStateHash({ treasuryRemaining, totalBonded, accRewardPerShare }) {
   return sha256(concatBytes(
     _FARM_STATE_DOMAIN,
@@ -619,7 +478,6 @@ export function encodeFarmInit(args) {
   parts.push(u16LE(proof.length), proof);
   parts.push(asBytes(args.kernelSig, 64, 'kernelSig'));
   parts.push(asBytes(args.launcherSig, 64, 'launcherSig'));
-  // Founder-refund tail: refund_expiry(4 LE) ‖ refund_dest_xonly(32) ‖ refund_blinding(32).
   parts.push(u32LE(args.refundExpiry || 0));
   parts.push(asBytes(args.refundDestXonly, 32, 'refundDestXonly'));
   parts.push(asBytes(args.refundBlinding, 32, 'refundBlinding'));
@@ -634,8 +492,8 @@ export function encodeLpBond(args) {
     u64LE(args.bondAmount),
     u128LE(args.entryAccPerShare),
     u32LE(args.bondViewHeight),
-    asBytes(args.ownerCommit, 32, 'ownerCommit'), // blinded receipt owner (pubkey+b·G), PUBLIC so any prover
-    asBytes(args.nonce, 32, 'nonce'),             // folds the bond trustlessly; fresh b per bond ⇒ unlinkable
+    asBytes(args.ownerCommit, 32, 'ownerCommit'),
+    asBytes(args.nonce, 32, 'nonce'),
     asBytes(args.cChangeOrSentinel, 33, 'cChangeOrSentinel'),
   ];
   const proof = args.rangeProof;
@@ -644,7 +502,6 @@ export function encodeLpBond(args) {
   parts.push(u16LE(proof.length), proof);
   parts.push(asBytes(args.kernelSig, 64, 'kernelSig'));
   parts.push(asBytes(args.bonderSig, 64, 'bonderSig'));
-  // Bonder-refund tail: refund_expiry(4 LE) ‖ refund_dest_xonly(32) ‖ refund_blinding(32).
   parts.push(u32LE(args.refundExpiry || 0));
   parts.push(asBytes(args.refundDestXonly, 32, 'refundDestXonly'));
   parts.push(asBytes(args.refundBlinding, 32, 'refundBlinding'));
@@ -652,11 +509,6 @@ export function encodeLpBond(args) {
 }
 
 export function encodeLpUnbond(args) {
-  // Trustless complete exit: the bond's RECEIPT (owner_commit, nonce, shares) + the lp-return note's PUBLIC
-  // blinding ride the envelope, so any prover nullifies the receipt, drops shares, and mints the shares-worth
-  // lp_asset note back. No reward (harvest first). Matches guest parse_lp_unbond_fields (217B).
-  // `rpsEntry` is an unused fixed-width wire field: the entry checkpoint lives in reflection state, stamped at
-  // fold time, and the guest ignores what rides here.
   return concatBytes(
     new Uint8Array([OPCODE_T_LP_UNBOND]),
     asBytes(args.farmId, 32, 'farmId'),
@@ -679,10 +531,8 @@ export function encodeLpHarvest(args) {
     u32LE(args.exitViewHeight),
     u64LE(args.rewardAmount),
     asBytes(args.rewardR, 32, 'rewardR'),
-    asBytes(args.ownerCommit, 32, 'ownerCommit'), // The receipt's (owner, nonce, shares) ride the PUBLIC
-    asBytes(args.oldNonce, 32, 'oldNonce'),       // envelope so any prover reconstructs the position id and
-    // re-stamps its entry. `newNonce`/`rpsEntry` are unused fixed-width slots: the receipt is a stable id
-    // that does not rotate, and the checkpoint lives in reflection state.
+    asBytes(args.ownerCommit, 32, 'ownerCommit'),
+    asBytes(args.oldNonce, 32, 'oldNonce'),
     asBytes(args.newNonce ?? new Uint8Array(32), 32, 'newNonce'),
     u64LE(args.shares),
     u128LE(args.rpsEntry ?? 0n),
@@ -738,7 +588,7 @@ export function decodeFarmInit(payload) {
 
 export function decodeLpBond(payload) {
   if (!(payload instanceof Uint8Array)) return null;
-  if (payload.length < 319 + 2 + 68) return null; // +64 for owner_commit(32) + nonce(32); +68 refund tail
+  if (payload.length < 319 + 2 + 68) return null;
   let p = 0;
   if (payload[p++] !== OPCODE_T_LP_BOND) return null;
   try {
@@ -748,7 +598,7 @@ export function decodeLpBond(payload) {
     const bondAmount      = _readU64LE(payload, p); p += 8;
     const entryAccPerShare = _readU128LE(payload, p); p += 16;
     const bondViewHeight  = _readU32LE(payload, p); p += 4;
-    const ownerCommit     = payload.slice(p, p + 32); p += 32; // one-time owner pubkey (receipt) — trustless fold
+    const ownerCommit     = payload.slice(p, p + 32); p += 32;
     const nonce           = payload.slice(p, p + 32); p += 32;
     const cChangeOrSentinel = payload.slice(p, p + 33); p += 33;
     const rpLen = _readU16LE(payload, p); p += 2;
@@ -775,12 +625,12 @@ export function decodeLpUnbond(payload) {
   if (payload[p++] !== OPCODE_T_LP_UNBOND) return null;
   try {
     const farmId      = payload.slice(p, p + 32); p += 32;
-    const ownerCommit = payload.slice(p, p + 32); p += 32; // one-time owner pubkey (receipt)
+    const ownerCommit = payload.slice(p, p + 32); p += 32;
     const nonce       = payload.slice(p, p + 32); p += 32;
     const shares      = _readU64LE(payload, p); p += 8;
     const rpsEntry    = _readU128LE(payload, p); p += 16;
-    const lpReturnR   = payload.slice(p, p + 32); p += 32; // blinding of the re-minted lp_asset note
-    const unbonderSig = payload.slice(p, p + 64); p += 64; // owner BIP-340 auth over the lp-return output
+    const lpReturnR   = payload.slice(p, p + 32); p += 32;
+    const unbonderSig = payload.slice(p, p + 64); p += 64;
     if (p !== payload.length) return null;
     return { farmId, ownerCommit, nonce, shares, rpsEntry, lpReturnR, unbonderSig };
   } catch { return null; }
@@ -799,12 +649,12 @@ export function decodeLpHarvest(payload) {
     const exitViewHeight  = _readU32LE(payload, p); p += 4;
     const rewardAmount    = _readU64LE(payload, p); p += 8;
     const rewardR         = payload.slice(p, p + 32); p += 32;
-    const ownerCommit     = payload.slice(p, p + 32); p += 32; // one-time owner pubkey (receipt)
+    const ownerCommit     = payload.slice(p, p + 32); p += 32;
     const oldNonce        = payload.slice(p, p + 32); p += 32;
     const newNonce        = payload.slice(p, p + 32); p += 32;
     const shares          = _readU64LE(payload, p); p += 8;
     const rpsEntry        = _readU128LE(payload, p); p += 16;
-    const harvesterSig    = payload.slice(p, p + 64); p += 64; // owner BIP-340 auth over the reward output
+    const harvesterSig    = payload.slice(p, p + 64); p += 64;
     if (p !== payload.length) return null;
     return {
       farmId, bondId, harvesterPubkey, exitAccPerShare, exitViewHeight,
@@ -815,7 +665,7 @@ export function decodeLpHarvest(payload) {
 
 export function decodeFarmRefund(payload) {
   if (!(payload instanceof Uint8Array)) return null;
-  if (payload.length !== 174) return null;  // 1+32+33+8+4+32+64
+  if (payload.length !== 174) return null;
   let p = 0;
   if (payload[p++] !== OPCODE_T_FARM_REFUND) return null;
   try {
@@ -834,9 +684,6 @@ export function decodeFarmRefund(payload) {
   } catch { return null; }
 }
 
-// Q.96 lazy crystallization (mirrors tests/amm-farm.mjs crystallizeFarm).
-// Used by the dapp to compute live pending rewards before /farm fetch.
-// Mutates the farm object in place; idempotent at same height.
 export const FARM_ACC_FIXED_POINT_SHIFT = 96n;
 export function crystallizeFarm(farm, currentHeight) {
   const h = currentHeight > farm.end_height ? farm.end_height : currentHeight;

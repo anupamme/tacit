@@ -1,42 +1,12 @@
-// Confidential settle relay — thin dapp client for the worker prove/settle queue.
-//
-// The dapp assembles a confidential op (transfer / swap / lp) with the matching assembler
-// (confidential-transfer.js / confidential-swap.js / confidential-lp.js), then hands the
-// fixture-shaped `op` witness + per-leaf `memos` to the relay here. The worker queues it, the GPU
-// box claims + Groth16-proves it and submits ConfidentialPool.settle() on-chain, and the dapp polls
-// status until it lands. The op JSON shape MUST match the box harness for that type (the same shape
-// the gen-confidential-*-fixture.mjs scripts emit) — that parity is what the on-chain proof enforces.
-//
-// RELAY-FEE PRIVACY POLICY: a relayed op pays the settler a public FeePayment in the op's asset, so the fee
-// VALUE lands on-chain. To avoid re-introducing a per-intent amount/size signal that batch-netting otherwise
-// hides, relay fees SHOULD be a FLAT, gas-denominated per-op amount (independent of the trade size), never a
-// proportional skim. `fee = 0` (self-settle / self-broadcast) is the privacy-maximal path and is always
-// supported (the guest suppresses the empty FeePayment). The fee is bound in the proof — the settler cannot
-// pad or redirect it — so this is a privacy posture, not a fund control.
-//
-// fetchImpl injected for Node tests / non-window contexts; defaults to global fetch.
-//
-// checkEmittedMemos({ txHash, leaves, memos }) (optional): after a relayed settle lands, compares the memos the
-// chain actually emitted for each of this op's leaves with the ones sealed here. The relay feeds the prover the
-// memo hashes, so it could swap a memo for another consistently and the settle would still verify; the leaf
-// hash does not authenticate a memo that is simply absent or replaced. Returns { ok, mismatched } (ok null when
-// the receipt cannot be read). A mismatch fails the settle call with the sealed memos attached, so the caller
-// can keep the openings the chain no longer carries.
 
-// The op types whose own `deadline` the pool turns into its Expired() gate: a settle after it reverts, so a job still in the
-// relay's queue past it can only fail, with nothing spent. Others carry a deadline that means something else (a lock's refund
-// time, valid only AFTER it). Kept equal to worker-relay/src/lib/revert-data.js EXPIRY_TYPES (a test pins that).
 export const EXPIRY_TYPES = ['unwrap', 'sendunwrap', 'swap', 'swap_var', 'swap_route', 'route', 'wrapswap', 'wraplp',
   'lpadd', 'lp_add', 'lpbond', 'lp_bond', 'lpremove', 'lp_remove', 'stealthclaim'];
-// When a queued op expires, in unix seconds; 0 when it never does.
 export function opExpiry(type, op) {
   if (!EXPIRY_TYPES.includes(String(type))) return 0;
   const v = Number(op && (op.opDeadline ?? op.deadline) || 0);
   return Number.isFinite(v) && v > 0 ? v : 0;
 }
 
-// Whether the relay is proving, from relay.state(): false only when it says it is paused or down. An unread state (null) is
-// not a reason to send a job another way.
 export function relayCanProve(st) {
   return !(st && (st.state === 'paused' || st.state === 'down'));
 }
@@ -46,23 +16,17 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
   if (!f) throw new Error('confidential-relay: no fetch available');
   const root = (base || '').replace(/\/$/, '');
 
-  // A page follows its relayed ops through one event: `tacit:job` on the global object, fired when a job is
-  // queued and at every status change, with detail { jobId, type, status, txHash, error, at }. Nothing here
-  // waits on a listener, and a listener that throws never reaches the op.
   const jobTypes = new Map();
-  const jobBy = new Map();                                       // jobId -> when it expires, in ms (only for an op that does)
+  const jobBy = new Map();
   function announce(st) {
     try {
       if (!st || !st.jobId || typeof globalThis.dispatchEvent !== 'function' || typeof CustomEvent !== 'function') return;
       const detail = { jobId: st.jobId, type: st.type || jobTypes.get(st.jobId) || null, status: st.status || 'unknown',
         txHash: st.txHash || null, error: st.error || null, lane: st.lane || null, sealed: !!st.sealed, at: Date.now(), ...(jobBy.get(st.jobId) ? { by: jobBy.get(st.jobId) } : {}) };
       globalThis.dispatchEvent(new CustomEvent('tacit:job', { detail }));
-    } catch { /* listeners are best effort */ }
+    } catch { }
   }
 
-  // A refusal keeps the relay's own `code` (relay_held, relay_paused, free_budget, prove_budget …) and `retryAfter`, so a page
-  // can tell "send it yourself" (relay_held) apart from "the relay isn't proving right now" (relay_paused, a 503: prove it with
-  // the holder's own prover account) without reading the words.
   async function asJson(res) {
     const text = await res.text();
     let body; try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text }; }
@@ -70,17 +34,14 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
       const e = new Error(`relay ${res.status}: ${body.error || text || res.statusText}`);
       e.httpStatus = res.status;
       if (body.code) e.code = body.code;
-      if (body.class) e.class = body.class;      // which allowance a budget refusal hit ('client': this sender's share)
-      if (body.hint) e.hint = body.hint;         // the way on the relay names: 'relay', 'tip' or 'self-prove'
+      if (body.class) e.class = body.class;
+      if (body.hint) e.hint = body.hint;
       if (body.retryAfter != null) e.retryAfter = body.retryAfter;
       throw e;
     }
     return body;
   }
 
-  // Where the relay stands (GET /confidential/relay): { state, proving, settling, board }, with state one of 'ok', 'busy',
-  // 'held' (proving, not sending relayed settles; `board` when it puts them on the open board), 'paused' or 'down'. Read at
-  // most every 15 seconds; null when it cannot be read. Never throws.
   let stateAt = 0, stateLast = null, stateReading = null;
   async function state() {
     if (stateReading) return stateReading;
@@ -101,54 +62,18 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     } finally { stateReading = null; }
   }
 
-  // Enqueue a confidential op. type ∈ {unwrap, transfer, swap, lp, otc, route, bid}; op = the fixture-shaped
-  // witness. RECOVERY CHOKEPOINT: an op that creates leaves MUST pass `outputs` (one recovery descriptor per
-  // leaf, same order as the op's leaves) + the matching `leaves` + an `ephRand` scalar source. submitOp seals
-  // one memo per output through the guard and runs the assertOutputsRecoverable tripwire BEFORE queuing, so no
-  // op can ship a seed-only-unrecoverable leaf. A leaf-less op (unwrap) passes `memos: []`. (Back-compat: a
-  // relay constructed without a guard passes raw `memos` through unchecked — for non-leaf-bearing tests.)
-  // A caller that already sealed its own memos (e.g. wrapAndSend, which embeds them in a user-signed
-  // calldata BEFORE this call) passes them via `memos` alongside `outputs` — re-sealing here with `ephRand`
-  // would call that scalar source again and mint a SECOND, different sealing (ephRand is meant to vary per
-  // call, for unlinkability), so the memoRoot this proves would no longer match the caller's calldata memos
-  // (MemoLeafMismatch on settle). Every other caller still omits `memos` and gets the original one-shot seal.
-  // `lockMemos`: for stealth-lock ops (type 'stealthlock'/'stealthlockbatch'). A lock mints ZERO note
-  // leaves — the locked note lives in the separate lock-set, not the note tree, so it is never a
-  // `leaves`/`outputs` recovery descriptor the guard's note-recoverability model applies to. It still
-  // needs a memo tail riding the settle calldata (settle requires memos.length ==
-  // pv.leaves.length + pv.lockLeaves.length), so the outputs-or-nothing branching below can't express
-  // it: `outputs` would wrongly claim a note leaf exists, and the bare `memos` branch REJECTS non-empty
-  // memos with no `outputs` specifically to stop a note leaf's memo from bypassing the guard. Lock memos
-  // are already fully sealed by the caller (confidential-stealth.js / confidential-airdrop.js) before
-  // this call — there is nothing here for the guard to check.
-  // `onJob(jobId, type)` (from the caller's waitOpts) fires the moment the relay accepts the job, before `tacit:job`
-  // announces it, so a caller can tell its own jobs from any other the page sends meanwhile.
-  // `depositTx` (a wrap): the deposit's transaction, whose tip the relay reads so a paid wrap is not counted as free work.
-  // The answer carries `relay`, the relay's state when it took the job (as state() reads it), so a page knows at once that the
-  // job waits on a relay that is holding settles ('held'), paused or down.
   async function submitOp({ type, op, leaves = [], outputs = null, ephRand, memos = null, mode, feeAsset = null, lockMemos = null, depositTx = null } = {}, waitOpts) {
     const onJob = waitOpts && waitOpts.onJob;
     const sealedMemos = sealFor({ leaves, outputs, ephRand, memos, lockMemos });
-    // Some op builders (confidential-lp.js, confidential-route.js) leave numeric fields — amounts, reserves —
-    // as native BigInt rather than pre-stringifying like buildTransferOp/buildUnwrap do, since those values
-    // stay BigInt through the builder's own arithmetic and self-verify. JSON has no BigInt literal, so this is
-    // the one place that must bridge it: stringify every BigInt at the wire boundary rather than pushing
-    // `.toString()` onto each builder and risking a mismatch with call sites that still expect BigInt back.
     const bigintSafe = (_, v) => typeof v === 'bigint' ? v.toString() : v;
-    // Sealed (useSealer): a relayed settle whose op never reaches the relay; the sealer encrypts the program input to one
-    // prover-board worker and only that ciphertext and the memos are sent. A prove-only call, a call the caller sends to the
-    // relay on purpose (viaRelay), a wrap (its fee is the deposit's tip, read from `depositTx`) or an exit are sent as they always were.
     const sealing = sealer && !mode && !depositTx && !(waitOpts && waitOpts.viaRelay);
-    // A sealed job's id is the ciphertext's, and every sealing is fresh, so the same op sent twice (a second press, a wait that ran
-    // out) would be two jobs and two proofs: the job this client already made for the op is answered from memory instead, as the
-    // relay answers an op it holds in the clear. A job that failed is forgotten, so the op can be sent again.
     const opKey = sealing ? JSON.stringify({ type, op }, bigintSafe) : null;
     if (opKey && sealedJobs.has(opKey)) {
       const jobId = sealedJobs.get(opKey);
       let st = null;
       try { st = await status(jobId); } catch { st = null; }
       if (st && st.status && st.status !== 'failed' && st.status !== 'unknown') {
-        if (onJob) { try { onJob(jobId, type); } catch { /* best-effort */ } }
+        if (onJob) { try { onJob(jobId, type); } catch { } }
         return { ok: true, jobId, status: st.status, deduped: true, sealedMemos };
       }
       sealedJobs.delete(opKey);
@@ -165,14 +90,12 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
       if (opKey) sealedJobs.set(opKey, body.jobId);
       jobTypes.set(body.jobId, type);
       const by = opExpiry(type, op) * 1000; if (by) jobBy.set(body.jobId, by);
-      if (onJob) { try { onJob(body.jobId, type); } catch { /* best-effort */ } }
+      if (onJob) { try { onJob(body.jobId, type); } catch { } }
       announce({ ...body, type, status: body.status || 'pending' });
     }
     return { ...body, sealedMemos };
   }
 
-  // The memos an op ships with, sealed and checked as described above submitOp. Shared by a relay job and a proof made
-  // with the holder's own prover account, so neither can ship a memo the guard did not see.
   function sealFor({ leaves = [], outputs = null, ephRand, memos = null, lockMemos = null } = {}) {
     let sealedMemos;
     if (lockMemos != null) {
@@ -188,8 +111,6 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
       guard.assertOutputsRecoverable({ leaves, outputs, memos: sealedMemos });
     } else {
       sealedMemos = memos || [];
-      // With the guard wired, an op shipping leaves (non-empty memos) but no `outputs` can't be
-      // recovery-checked — reject it so nothing bypasses the guard. Leaf-less ops (unwrap) pass with [].
       if (guard && sealedMemos.length) {
         throw new Error('confidential-relay: pass `outputs` (recovery descriptors) for any op that creates leaves — raw memos bypass the recovery guard');
       }
@@ -197,30 +118,18 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     return sealedMemos;
   }
 
-  // Compare what the settle emitted with what was sealed (see checkEmittedMemos above). Only note leaves carry a
-  // memo per leaf, in leaf order; a leaf-less op (unwrap, a lock) has nothing to compare.
-  //
-  // A leaf-bearing op with no tx hash is NOT "nothing to compare" — it is a check that could not run. Say so
-  // rather than returning a clean result: the sealed memos are the only copy of those notes' openings, and a
-  // relay that suppresses the hash is exactly the party this check exists to catch.
   async function verifyEmittedMemos(st, leaves, memos) {
     if (typeof checkEmittedMemos !== 'function' || !st || !leaves || !leaves.length) return st;
     if (!st.txHash) return { ...st, memoCheck: { ok: null, reason: 'no settle tx hash — emitted memos were never checked' } };
     const memoCheck = await checkEmittedMemos({ txHash: st.txHash, leaves, memos: memos || [] });
-    // An UNVERIFIABLE check is not a passing one. `ok: null` means the receipt could not be read, so nothing
-    // was compared — and the sealed memos are the only copy of these notes' openings. Persist them exactly as
-    // the mismatch path does, so a check that could not run never silently costs the user their recovery
-    // channel. Not thrown: the settle itself is fine and the memos are probably honest; the caller gets the
-    // result with `memoCheck.ok === null` so it can surface "unverified" rather than a clean success.
     if (memoCheck && memoCheck.ok === null && typeof saveMismatchedMemos === 'function') {
-      try { await saveMismatchedMemos({ txHash: st.txHash, leaves, memos, memoCheck }); } catch { /* best effort */ }
+      try { await saveMismatchedMemos({ txHash: st.txHash, leaves, memos, memoCheck }); } catch { }
     }
     if (memoCheck && memoCheck.ok === false) {
       const e = new Error(`settled in ${st.txHash}, but the emitted memos differ from the sealed ones for leaf ${memoCheck.mismatched.map((m) => m.index).join(', ')}: keep this note's opening, the chain cannot recover it`);
       e.settleResult = st; e.memoCheck = memoCheck; e.sealedMemos = memos;
-      // The sealed memos are the only copy of these notes' openings: keep them before the error can be dropped.
       if (typeof saveMismatchedMemos === 'function') {
-        try { await saveMismatchedMemos({ txHash: st.txHash, leaves, memos, memoCheck }); } catch { /* the error still carries them */ }
+        try { await saveMismatchedMemos({ txHash: st.txHash, leaves, memos, memoCheck }); } catch { }
       }
       throw e;
     }
@@ -234,9 +143,6 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     return asJson(res);
   }
 
-  // A status poll that survives a transient network error (a dropped connection, a header timeout) instead of
-  // abandoning a job that is still proving. Gives up only after `maxErrors` polls in a row fail, and the error then
-  // names the job so a caller can resume polling it rather than resubmit.
   async function pollStatus(jobId, state, { wait, intervalMs, maxErrors = 8 } = {}) {
     for (;;) {
       try { const st = await status(jobId); state.errors = 0; return st; }
@@ -248,9 +154,6 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     }
   }
 
-  // A relayed job the relay has proved but is not sending yet is `open`: its proof is public (it goes on chain with the
-  // settle anyway) and anyone may send it, the holder included, and whoever sends it is paid its fee. `sending` is an
-  // open job a relay has taken to send. The error carries what a settle() needs, so a page can offer to send it at once.
   function openError(st) {
     const e = new Error(`settle held: proved and waiting for a sender (job ${st.jobId}); it can be sent from any account now`);
     e.code = 'open';
@@ -258,8 +161,6 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     return e;
   }
 
-  // Poll until the job settles or fails. onUpdate(state) fires on each status change. A job still `open` after
-  // `openGraceMs` (a relay that is sending open jobs takes it within that) throws with code 'open' and the proof.
   async function waitForSettle(jobId, { intervalMs = 2000, timeoutMs = 5 * 60 * 1000, openGraceMs = 20_000, onUpdate, sleep } = {}) {
     const wait = sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
     const deadline = Date.now() + timeoutMs;
@@ -284,20 +185,12 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     }
   }
 
-  // Convenience: submit and block until on-chain.
   async function settle(opSpec, waitOpts) {
     const { sealedMemos, ...sub } = await submitOp(opSpec, waitOpts);
     const { jobId, status: s } = sub;
-    // A relay answering the submit with "already settled" used to skip straight past the memo check: the
-    // literal {jobId, status} built here carried no txHash, and verifyEmittedMemos has nothing to read
-    // without one. That made the one client-side defence against memo substitution opt-out, by the very
-    // party it defends against. Keep whatever the submit returned, and go ask for the hash if it is missing
-    // — the same re-query sendUnwrap already does.
     let st;
     try { st = s === 'settled' ? { ...sub, jobId, status: 'settled' } : await waitForSettle(jobId, waitOpts); }
     catch (e) {
-      // An open job is sent with the memos the relay holds for it. Those were sealed here: anything else is not offered,
-      // so a page never sends memos it cannot open (the relayed path trusts the relay with them; this one need not).
       if (e && e.open) {
         const m = e.open.memos;
         if (!(Array.isArray(m) && m.length === sealedMemos.length && m.every((x, i) => String(x).toLowerCase() === String(sealedMemos[i]).toLowerCase()))) {
@@ -308,14 +201,11 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
       throw e;
     }
     if (!st.txHash && st.status === 'settled' && opSpec.leaves && opSpec.leaves.length) {
-      try { const rs = await status(jobId); if (rs && rs.txHash) st = { ...st, txHash: rs.txHash }; } catch { /* verifyEmittedMemos reports the gap */ }
+      try { const rs = await status(jobId); if (rs && rs.txHash) st = { ...st, txHash: rs.txHash }; } catch { }
     }
     return verifyEmittedMemos(st, opSpec.leaves, sealedMemos);
   }
 
-  // Prove-only poll: resolve when the box has proven the op (mode 'prove'), returning
-  // { publicValues, proof, ... } for the dapp to embed in a user-sent ConfidentialRouter tx. A job that the
-  // box ends up settling instead (already-settled dedup) also resolves — the caller can branch on st.status.
   async function waitForProof(jobId, { intervalMs = 1500, timeoutMs = 15 * 60 * 1000, onUpdate, sleep } = {}) {
     const wait = sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
     const deadline = Date.now() + timeoutMs;
@@ -333,14 +223,6 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     }
   }
 
-  // Convenience: submit a prove-only job and block until the proof is ready. `onJob(jobId)` fires the moment
-  // the job is queued (before the long prove wait) so a caller can persist a resumable record — a prove-timeout
-  // then leaves the jobId recoverable instead of orphaning the in-flight proof.
-  // A proven result carries `memos`: the ones its proof commits to, which settle() must carry exactly (see
-  // provenMemos).
-  // The prover is chosen once, per call: `waitOpts.viaRelay` sends this one to the relay whatever useProver holds, and
-  // otherwise the holder's own prover (if set) takes it. A call never reads the shared slot again, so a page that switches
-  // the slot for one action cannot send another action's witness to the relay mid-flight.
   async function prove(opSpec, waitOpts = {}) {
     const own = waitOpts && waitOpts.viaRelay ? null : ownProver;
     if (own) return proveOwn(own, opSpec, waitOpts);
@@ -349,9 +231,6 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     return st.status === 'proven' ? { ...st, memos: provenMemos(st, opSpec, r.sealedMemos) } : st;
   }
 
-  // The same op sent again (a second press, a reload) is proved once, with the memos it was first sent with, and
-  // the relay hands those back with the proof. They are checked as a fresh seal is before anything is sent: each
-  // opens to its leaf under this wallet's key. A relay that returns none (an older one) leaves this call's own.
   function provenMemos(st, { leaves = [], outputs = null } = {}, sealed = []) {
     const m = Array.isArray(st.memos) ? st.memos : null;
     if (!m || (m.length === sealed.length && m.every((x, i) => String(x).toLowerCase() === String(sealed[i]).toLowerCase()))) return sealed;
@@ -360,10 +239,8 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     return m;
   }
 
-  // A settle sent outside the relay (from the page, by another relayer) is reported so the job reads settled. The API
-  // checks the transaction on chain before it believes it; this never throws.
   async function landed(jobId, txHash) {
-    if (OWN_ID.test(String(jobId))) {                              // a proof the holder made: there is no relay job to close
+    if (OWN_ID.test(String(jobId))) {
       const j = ownJobs.get(jobId);
       if (j) { ownJobs.set(jobId, { ...j, status: 'settled', txHash }); announce({ ...j, status: 'settled', txHash }); }
       return { ok: true, status: 'settled', txHash };
@@ -376,15 +253,11 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     } catch (e) { return { ok: false, error: String(e && e.message || e) }; }
   }
 
-  // The open board: jobs proved and waiting for any sender, oldest first, each { jobId, type, publicValues, proof, memos,
-  // openSince, expiresAt, feeUsd, posted }. Whoever sends one is paid the fee its proof binds.
   async function openJobs({ limit } = {}) {
     const res = await f(`${root}/confidential/open${limit ? `?limit=${Number(limit)}` : ''}`);
     return asJson(res);
   }
 
-  // A proof made elsewhere (the holder's own prover account) goes on the open board for any relayer to send. The API
-  // simulates its settle first and refuses one the pool would not take.
   async function postProof({ type, publicValues, proof, memos = [] }) {
     const res = await f(`${root}/confidential/submit`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
@@ -395,21 +268,12 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
     return body;
   }
 
-  // ── Proving with the holder's own prover account ──
-  // `useProver(fn)` makes every prove() go to `fn({ type, op, memos, onUpdate })` → { requestId, publicValues, proof } (one
-  // whose waitOpts carry `viaRelay: true` still goes to the relay): the
-  // holder's own account on the prover network pays for the proof, and nothing about the op reaches the relay. The memos are
-  // sealed and checked here exactly as for a relay job (sealFor). The result reads like a relay's proven job, under the id
-  // 'spn:<requestId>', and `onJob` fires once the network has the request. useProver(null) goes back to the relay. A
-  // relayed settle() is not affected: a page that proves on its own account also sends the settle itself (selfSettle).
   let ownProver = null;
-  // `useSealer(fn)`: every relayed settle's input is sealed by `fn({ type, op, memos })` → { worker, epk, iv, ct } (dapp/sealed-input.js)
-  // before it goes, so the relay holds only ciphertext; useSealer(null) sends ops in the clear again.
   let sealer = null;
-  const sealedJobs = new Map();                                        // op (type + op JSON) → the sealed job this client made for it
+  const sealedJobs = new Map();
   function useSealer(fn) { sealer = typeof fn === 'function' ? fn : null; }
   const OWN_ID = /^spn:/;
-  const ownJobs = new Map();                                       // 'spn:<requestId>' -> its last state, for status()
+  const ownJobs = new Map();
   function useProver(fn) { ownProver = typeof fn === 'function' ? fn : null; }
   async function proveOwn(own, { type, op, ...spec }, waitOpts = {}) {
     const sealedMemos = sealFor(spec);
@@ -418,19 +282,16 @@ export function makeConfidentialRelay({ base, fetchImpl, guard, checkEmittedMemo
       if (!jobId && u.requestId) {
         jobId = 'spn:' + u.requestId;
         jobTypes.set(jobId, type);
-        if (waitOpts.onJob) { try { waitOpts.onJob(jobId, type); } catch { /* best-effort */ } }
+        if (waitOpts.onJob) { try { waitOpts.onJob(jobId, type); } catch { } }
       }
-      // Before the network names the request (the input is still being prepared and sent) there is no job to announce,
-      // but the caller's own progress line still hears it.
       if (!jobId) {
-        if (waitOpts.onUpdate) { try { waitOpts.onUpdate({ jobId: null, type, status: u.status || 'proving', stage: u.stage || null, ...(u.public ? { inputPublic: true } : {}) }); } catch { /* best-effort */ } }
+        if (waitOpts.onUpdate) { try { waitOpts.onUpdate({ jobId: null, type, status: u.status || 'proving', stage: u.stage || null, ...(u.public ? { inputPublic: true } : {}) }); } catch { } }
         return;
       }
-      // `inputPublic`: the network was refusing private inputs, so this proof's input went as a public one (self-prover.js).
       const st = { jobId, type, status: u.status || 'proving', stage: u.stage || null, error: u.error || null, ...(u.public ? { inputPublic: true } : {}) };
       ownJobs.set(jobId, st);
       announce(st);
-      if (waitOpts.onUpdate) { try { waitOpts.onUpdate(st); } catch { /* best-effort */ } }
+      if (waitOpts.onUpdate) { try { waitOpts.onUpdate(st); } catch { } }
     };
     try {
       const r = await own({ type, op, memos: sealedMemos, onUpdate });

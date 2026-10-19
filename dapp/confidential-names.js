@@ -1,19 +1,3 @@
-// Name lookup for private sends. A person publishes their Tacit address as the `finance.tacit` text record
-// of a name they own, and a sender types the name instead of the tacit1… string.
-//
-// Three name services are read, always on Ethereum mainnet regardless of the network the page is on:
-//   .wei   WNS  registry and resolver in one contract
-//   .gwei  GNS  same contract shape as WNS
-//   .eth   ENS  registry → resolver, direct for the name's own node, ENSIP-10 resolve() for an ancestor's
-//               wildcard resolver; a resolver that answers with an off-chain lookup is refused (no CCIP-read)
-//
-// The record value is the tacit1… address, trimmed and otherwise untouched. A decoded address must be the
-// unified layout [0x00][flags][spend 33][scan 33][Ethereum lane 33] with the Ethereum-lane bit set, and may carry
-// the pool lane (flag 0x04, 97 bytes) after it; the Ethereum-lane key is what a private send pays, and the pool
-// lane is what a shielded-pool payment pays. Resolutions are never cached: each call reads the chain.
-//
-// Everything on the wire goes through `call({ to, data, from? })` (an eth_call that throws CallRevert on a
-// revert) and, for writes, `send({ from, to, data })` supplied by the caller's wallet.
 
 import { decodeBech32m, poolAddressOf } from './tacit-address.js';
 import { bodyType } from './rpc-body.js';
@@ -22,10 +6,6 @@ export const RECORD_KEY = 'finance.tacit';
 export const WNS = '0x0000000000696760E15f265e828DB644A0c242EB';
 export const GNS = '0x9D51D507BC7264d4fE8Ad1cf7Fe191933A0a81d6';
 export const ENS_REGISTRY = '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e';
-// Verified from an actual page origin (not just curl): llamarpc, cloudflare-eth and every other public
-// endpoint tried besides these three fail CORS or the eth_call itself from a browser. Keep this list to
-// ones actually confirmed reachable from tacit.finance's origin — a dead entry costs nothing under the
-// concurrent race above, but it's still one fewer real vote toward the quorum every single call.
 export const MAINNET_RPCS = [
   'https://ethereum-rpc.publicnode.com',
   'https://1rpc.io/eth',
@@ -33,17 +13,17 @@ export const MAINNET_RPCS = [
 ];
 
 const SEL = {
-  text: '59d1d43c',            // text(bytes32,string)
-  setTextId: '3fb24782',       // setText(uint256,string,string)     WNS / GNS
-  setTextNode: '10f13a8c',     // setText(bytes32,string,string)     ENS resolver
-  resolverOf: '0178b8bf',      // resolver(bytes32)                  ENS registry
-  resolveWild: '9061b923',     // resolve(bytes,bytes)               ENSIP-10
-  reverseResolve: '9af8b7aa',  // reverseResolve(address)            WNS / GNS
-  resolveId: '4f896d4f',       // resolve(uint256)                   WNS / GNS forward
-  addr: '3b3b57de',            // addr(bytes32)
-  name: '691f3431',            // name(bytes32)
-  offchainLookup: '556f1830',  // OffchainLookup(address,string[],bytes,bytes4,bytes)
-  errorString: '08c379a0',     // Error(string)
+  text: '59d1d43c',
+  setTextId: '3fb24782',
+  setTextNode: '10f13a8c',
+  resolverOf: '0178b8bf',
+  resolveWild: '9061b923',
+  reverseResolve: '9af8b7aa',
+  resolveId: '4f896d4f',
+  addr: '3b3b57de',
+  name: '691f3431',
+  offchainLookup: '556f1830',
+  errorString: '08c379a0',
 };
 
 export class NameError extends Error {
@@ -55,7 +35,6 @@ export class NameError extends Error {
   }
 }
 
-// A reverted eth_call. `data` is the revert payload (hex) when the node returned one.
 export class CallRevert extends Error {
   constructor(message = 'execution reverted', data = null) {
     super(message);
@@ -73,10 +52,8 @@ const numWord = (n) => BigInt(n).toString(16).padStart(64, '0');
 const padTo32 = (hex) => hex + '0'.repeat((64 - (hex.length % 64)) % 64);
 const ZERO_ADDR = /^0{40}$/;
 
-// ABI string / bytes tail: length word then the data padded to a word boundary.
 const tail = (u8) => numWord(u8.length) + padTo32(hexOf(u8));
 
-// ABI-decode a `string` or `bytes` return: [offset][len][data] with the offset pointing at the length word.
 function decodeDynamic(out, at = 0) {
   const h = String(out || '').replace(/^0x/, '');
   if (h.length < 64 * (at + 1)) throw new NameError('bad-response', 'short reply from the name service');
@@ -100,26 +77,12 @@ function decodeAddressWord(out) {
   return ZERO_ADDR.test(a) ? null : '0x' + a;
 }
 
-// Any thrown error that carries revert data, or is a CallRevert, is a contract revert; everything else is a
-// transport failure and is not swallowed into "no record".
 const isRevert = (e) => e instanceof CallRevert || (e && (e.code === 3 || (typeof e.data === 'string' && /^0x/i.test(e.data))));
 const revertData = (e) => String((e && e.data) || '').replace(/^0x/, '').toLowerCase();
 const isOffchainRevert = (e) => revertData(e).startsWith(SEL.offchainLookup);
 
-// eth_call over a list of mainnet RPCs, raced concurrently. A revert is definitive and thrown as CallRevert;
-// a transport or node error just drops that endpoint from contention. `from` is set only for simulating a write.
-//
-// An answer must be given IDENTICALLY by `agree` endpoints before it is returned. What these calls decide is the
-// key a private send pays, so a single endpoint that lies about one text record sends the money to whoever wrote
-// the lie, with nothing on screen to show for it — and a public endpoint is exactly the party in a position to do
-// that. All endpoints are queried at once and the first `agree` (default 2) to return the same answer decide it,
-// so one slow or dead endpoint never stalls a lookup two others already agree on. No majority, a set that
-// disagrees, or too few endpoints answering is a refusal, never a resolution: a name that cannot be looked up is
-// recoverable (retry, or paste the address), a payment to the wrong key is not. A revert stays definitive on the
-// first endpoint that reports one — it yields no address, so the worst a faked revert can do is refuse the name.
 export function makeMainnetCall({ fetchImpl, rpcs = MAINNET_RPCS, timeoutMs = 10000, agree = 2 } = {}) {
   const f = fetchImpl || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
-  // A caller that configures a single endpoint has nothing to compare against and gets that endpoint's word.
   const need = Math.max(1, Math.min(agree, rpcs.length));
   return function call({ to, data, from }) {
     if (!f) return Promise.reject(new NameError('rpc', 'no fetch implementation'));
@@ -128,7 +91,7 @@ export function makeMainnetCall({ fetchImpl, rpcs = MAINNET_RPCS, timeoutMs = 10
     const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [tx, 'latest'] });
 
     return new Promise((resolve, reject) => {
-      const answers = new Map(); // normalized reply -> how many endpoints returned it
+      const answers = new Map();
       let lastErr = null, replies = 0, settled = 0, done = false;
 
       const finishIfExhausted = () => {
@@ -180,7 +143,6 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
 
   const selector = (sig) => hexOf(keccak256(enc.encode(sig)).slice(0, 4));
 
-  // ── names ──
   function normalizeName(name) {
     const n = String(name == null ? '' : name).toLowerCase();
     if (!/^[a-z0-9.-]+$/.test(n)) throw new NameError('bad-name', 'Names may use only letters a–z, digits, hyphens and dots.');
@@ -200,7 +162,6 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
     return '0x' + hexOf(node);
   }
 
-  // Which service owns a name. .base.eth names live off mainnet and are not read here.
   function classify(name) {
     const n = normalizeName(name);
     const labels = n.split('.');
@@ -212,7 +173,6 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
     throw new NameError('unsupported-name', 'Only names ending in .wei, .gwei or .eth can be looked up (.base.eth is not supported).');
   }
 
-  // A recipient field entry is name-like when it has a dot and no whitespace; hex, bech32 and 0x forms never do.
   const looksLikeName = (raw) => /^\S+$/.test(String(raw || '').trim()) && String(raw).includes('.');
 
   function dnsName(name) {
@@ -226,7 +186,6 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
     return Uint8Array.from(out);
   }
 
-  // ── calldata ──
   const textCalldata = (node, key) => '0x' + SEL.text + word(node) + numWord(64) + tail(enc.encode(key));
   const addrCalldata = (node) => '0x' + SEL.addr + word(node);
   const wildCalldata = (name, inner) => {
@@ -246,7 +205,6 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
     return '0x' + SEL.setTextNode + word(node) + numWord(96) + numWord(off2) + tail(k) + tail(enc.encode(value));
   };
 
-  // A revert with the off-chain marker is refused loudly; any other revert means "nothing there".
   async function guardedCall(req) {
     try { return await call(req); } catch (e) {
       if (!isRevert(e)) throw e;
@@ -258,7 +216,6 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
   }
   const emptyOut = (o) => o == null || /^(0x)?$/.test(o);
 
-  // ── ENS ──
   async function ensResolver(name) {
     const labels = normalizeName(name).split('.');
     for (let i = 0; i < labels.length; i++) {
@@ -271,8 +228,6 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
     return null;
   }
 
-  // Ask an ENS resolver for `inner` (text or addr calldata) about `name`: directly when it sits on the name's
-  // own node, through the wildcard entry point when it sits on an ancestor. Returns the raw inner-shaped reply.
   async function ensQuery(name, inner) {
     const found = await ensResolver(name);
     if (!found) return { found: null, out: null };
@@ -288,8 +243,6 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
     }
   }
 
-  // ── record reads ──
-  // The raw record for a name, trimmed, or null when there is none. Never decoded here.
   async function readRecord(name) {
     const c = classify(name);
     const node = namehash(c.name);
@@ -304,9 +257,6 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
     return value === '' ? null : value;
   }
 
-  // The Ethereum address a name points to (its address record), or null when it has none: .wei and .gwei read resolve(id) on their own
-  // contract, .eth asks its resolver for addr(node) (direct, or through an ancestor's wildcard). Unlike a Tacit record this pays nothing, so it is
-  // for looking an account up, not for sending to; it is read the same way (quorum, off-chain refused) and never cached.
   async function resolveAddress(name) {
     const c = classify(name), node = namehash(c.name);
     let out;
@@ -317,9 +267,6 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
     return address ? { name: c.name, source: c.source, address: address.toLowerCase() } : null;
   }
 
-  // Decoder for the record value: bech32m "tacit" address, version 0, carrying at least an Ethereum lane or a
-  // pool lane (or both) — a record with neither pays nothing this file knows how to resolve. When present, the
-  // Ethereum-lane key (33 bytes right after spend/scan) must be a valid secp256k1 point.
   function decodeTacitAddress(value) {
     const s = String(value == null ? '' : value).trim();
     let d;
@@ -331,10 +278,7 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
     if (p[0] !== 0) throw new NameError('bad-address', `Unsupported Tacit address version ${p[0]}.`);
     if (!(p[1] & 0x86)) throw new NameError('bad-address', 'This Tacit address carries neither an Ethereum lane nor a pool lane, so it cannot receive a payment.');
     if ((p[1] & 0x02) && (p[1] & 0x80)) throw new NameError('bad-address', 'This Tacit address names its Ethereum-side key twice.');
-    // 0x80: the Ethereum-side key is the Bitcoin spend key, carried once.
     const hasEvm = !!(p[1] & 0x02), sameKey = !!(p[1] & 0x80), hasPool = !!(p[1] & 0x04);
-    // 68 bytes (version+flags+spend+scan), plus the Ethereum lane's 33 when flagged (0x02), plus the pool lane's
-    // 97 when flagged (0x04); later lanes (0x08 to 0x40) follow and are not read here.
     const want = 68 + (hasEvm ? 33 : 0) + (hasPool ? 97 : 0), unknown = p[1] & ~0x87;
     if (unknown ? p.length < want : p.length !== want) throw new NameError('bad-address', `Tacit address payload is ${p.length} bytes, expected ${want}.`);
     let key = null;
@@ -351,14 +295,11 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
       flags: p[1],
       spendKey: '0x' + hexOf(p.slice(2, 35)),
       scanKey: '0x' + hexOf(p.slice(35, 68)),
-      // The Ethereum-lane key, when the address carries one: what a private send pays.
       ...(key ? { key } : {}),
-      // The pool lane, when the address carries one: the bp1… address a shielded-pool payment pays.
       ...(hasPool ? { pool: poolAddressOf(p.slice(poolAt, poolAt + 97)) } : {}),
     };
   }
 
-  // name → { name, address, key?, pool?, source, node }. Throws NameError with a code the caller can explain.
   async function resolveName(name) {
     const c = classify(name);
     const record = await readRecord(c.name);
@@ -372,14 +313,12 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
     return { name: c.name, address: d.address, ...(d.key ? { key: d.key } : {}), ...(d.pool ? { pool: d.pool } : {}), source: c.source, node: namehash(c.name) };
   }
 
-  // ── primary name ──
   const normAddress = (a) => {
     const h = String(a || '').replace(/^0x/, '').toLowerCase();
     if (!/^[0-9a-f]{40}$/.test(h)) throw new NameError('bad-address', 'Not an Ethereum address.');
     return h;
   };
 
-  // The address a name's forward record points at, or null.
   async function forwardAddress(c) {
     const node = namehash(c.name);
     if (c.source === 'ENS') {
@@ -404,7 +343,6 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
     return emptyOut(out) ? null : decodeString(out);
   }
 
-  // First of WNS, GNS, ENS whose reverse record names this wallet AND whose forward record points back at it.
   async function findPrimary(address) {
     const owner = normAddress(address);
     const skipped = [];
@@ -432,9 +370,6 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
   }
   const primaryName = async (address) => (await findPrimary(address)).primary;
 
-  // The recipient field: a name is looked up and pinned to the key its record decodes to; anything else goes to
-  // `local` (the synchronous tacit1… / raw-key parser), which returns { pubHex } or { error }. A bare Ethereum
-  // account address is never a private-send recipient.
   async function resolveRecipient(raw, { local } = {}) {
     const s = String(raw == null ? '' : raw).trim();
     if (/^0x[0-9a-fA-F]{40}$/.test(s)) {
@@ -453,9 +388,6 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
     return { pubHex: r.pubHex };
   }
 
-  // ── publishing ──
-  // Everything the UI needs to show before any signature: the verified primary name, what its record holds now,
-  // what would be written, and the exact transaction.
   async function planPublish({ owner, tacitAddress }) {
     const from = '0x' + normAddress(owner);
     const next = decodeTacitAddress(tacitAddress).address;
@@ -482,7 +414,7 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
   function revertReason(e) {
     const h = revertData(e);
     if (h.startsWith(SEL.errorString)) {
-      try { return dec.decode(decodeDynamic('0x' + h.slice(8))); } catch { /* fall through */ }
+      try { return dec.decode(decodeDynamic('0x' + h.slice(8))); } catch { }
     }
     return (e && e.message) || 'reverted';
   }
@@ -495,7 +427,6 @@ export function makeConfidentialNames({ call, send = null, secp, keccak256 }) {
     return true;
   }
 
-  // Skips the transaction when the record already holds the address; otherwise simulates, then sends.
   async function publish(plan) {
     if (!plan.changed) return { skipped: true, txHash: null };
     if (typeof send !== 'function') throw new NameError('no-sender', 'No wallet is connected to send the update.');

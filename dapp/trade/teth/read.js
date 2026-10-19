@@ -1,7 +1,7 @@
 // What the tETH page reads, and how each figure on it is worked out: the Tacit pool's totals and its ETH history (the API's stats reading), the
 // private farms and the prices in the pools that pair tETH (the farming program's reading), the dollar rates (Chainlink) and TAC's price (the
 // Precision pool), and the relay's quote for a wrap. The arithmetic is plain functions of what was read, so tests can pin it.
-import { MULTICALL3, PRECISION_POOL, _internal } from '/evm-trade-venues.js?cb=f6e1b626';
+import { MULTICALL3, PRECISION_POOL, _internal } from '/evm-trade-venues.js?cb=563db4d4';
 import { api, ethCall, wordAt, now, E10 } from '/trade/util.js?cb=509d6618';
 
 export const POOL = '0x000000000Ed1eabD231Be41d93b719056F7febFC';              // the Tacit pool (one contract): it holds the ETH behind every tETH

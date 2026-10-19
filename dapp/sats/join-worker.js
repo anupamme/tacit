@@ -1,6 +1,6 @@
 // Power-sum decoding for the Mix panel (DESIGN-secret-sats-join.md §4.1), off the page's main thread.
 // Message in: { id, S: [decimal strings] }; out: { id, keys: [decimal strings] | null, err }.
-import { decodePowerSums } from '/secret-sats-join.js?cb=7e817f1c';
+import { decodePowerSums } from '/secret-sats-join.js?cb=d4ee085a';
 
 self.onmessage = ({ data: { id, S } }) => {
   let keys = null, err = null;

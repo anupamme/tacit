@@ -1,17 +1,3 @@
-// Secret Sats Join: coordinator-less equal-denomination joins to silent-payment outputs
-// (contracts/sp1/confidential/DESIGN-secret-sats-join.md, "§N" below).
-//
-// Participants bring one confirmed coin each, meet on an untrusted bulletin board, shuffle their output
-// keys with a DC-net and each build the same transaction. Every participant signs only after it has
-// rebuilt that transaction and found its own output in it.
-//
-// Pure: runs in the browser and in Node. Network access goes through two injected interfaces:
-//   board  { info(), post(topic, msg), poll(topic, since, waitMs), topics(), evidence(), log(topic, txid) }
-//          makeHttpBoard(url) implements it over fetch; worker-relay/src/join-board.js is the server.
-//   chain  { tipHeight(), getTx(txid) (Esplora shape), getOutspend(txid, vout), broadcast(hex) }
-//          makeEsploraChain(base) implements it.
-// Keys are passed in: the page hands over its silent-payment identity (scanPriv, spendPub, spendPriv) and
-// the private key of each coin it registers.
 
 import { secp, sha256, ripemd160, hmac, hexToBytes, bytesToHex, concatBytes } from './vendor/tacit-deps.min.js';
 import {
@@ -28,16 +14,12 @@ const N = secp.CURVE.n;
 const P = secp.CURVE.p;
 const enc = new TextEncoder();
 
-// ─────────────────────────────────────────────────────────────── parameters (§2)
-
 export const BUCKETS = [1, 2, 3, 5, 8, 12, 20, 30, 50, 80, 120];
 export const T_STEP_MS = 30_000;
 export const AGE_MIN = 6;
 export const SEQUENCE = 0xfffffffd;
 export const MAX_WEIGHT = 400_000;
 
-// Tiers per network. The 10,000-sat tier exists on signet only, so a demo round of several participants
-// fits a small faucet budget.
 export const NETWORKS = {
   mainnet: { kMin: 10, kMax: 100, tiers: [100_000, 1_000_000], laterTiers: [10_000_000, 100_000_000], hrp: 'bc' },
   signet: { kMin: 3, kMax: 20, tiers: [10_000, 100_000, 1_000_000], laterTiers: [], hrp: 'tb' },
@@ -49,7 +31,6 @@ export function networkParams(network) {
   return p;
 }
 
-// a(fr) = max(1,000, ⌈(240 + 124·fr) / 500⌉ · 500): one follow-on key-path spend of d plus a 240-sat anchor.
 export function allowance(fr) {
   checkBucket(fr);
   return Math.max(1000, Math.ceil((240 + 124 * fr) / 500) * 500);
@@ -62,8 +43,6 @@ export function checkBucket(fr) {
   return fr;
 }
 
-// f_in(fr, P2TR) = ⌈fr × (57.5 + 43 + s)⌉, f_in(fr, P2WPKH) = ⌈fr × (68 + 43 + s)⌉, s = ⌈11 / k_min⌉.
-// Computed in half-vbytes so the 57.5 stays an integer.
 export function inputFee(fr, type, kMin) {
   const s = Math.ceil(11 / kMin);
   const halfVb = type === 'p2tr' ? 201 + 2 * s : type === 'p2wpkh' ? 222 + 2 * s : null;
@@ -71,16 +50,12 @@ export function inputFee(fr, type, kMin) {
   return Math.ceil((fr * halfVb) / 2);
 }
 
-// Excess ceiling: a coin whose excess over o + f_in exceeds max(f_in, 5,000) belongs in a higher bucket.
 export function excessCeiling(fr, type, kMin) { return Math.max(inputFee(fr, type, kMin), 5000); }
 
-// Value of each entry-transaction output (§2.4): o + f_in(fr, P2TR) + margin, margin = f_in(fr_est, P2TR).
 export function entryOutputValue({ d, fr, kMin, frEst = fr, margin = null }) {
   return outputValue(d, fr) + inputFee(fr, 'p2tr', kMin) + (margin ?? inputFee(frEst, 'p2tr', kMin));
 }
 
-// Bucket choice (§2.1): the smallest bucket ≥ fr_own, or the next one up when its open topic already has
-// more JOINs; never above 2·fr_own. `openJoins(fr)` returns the JOIN count of the open topic at fr.
 export function chooseBucket(frOwn, openJoins = () => 0) {
   const i = BUCKETS.findIndex((b) => b >= frOwn);
   if (i < 0) throw new Error('join: fee rate above the largest bucket');
@@ -88,8 +63,6 @@ export function chooseBucket(frOwn, openJoins = () => 0) {
   if (next != null && next <= 2 * frOwn && openJoins(next) > openJoins(base)) return next;
   return base;
 }
-
-// ─────────────────────────────────────────────────────────────── bytes
 
 const u8 = (n) => Uint8Array.of(n & 0xff);
 const u16be = (n) => { const b = new Uint8Array(2); new DataView(b.buffer).setUint16(0, n, false); return b; };
@@ -127,8 +100,6 @@ export function randomScalar() {
     if (k > 0n && k < N) return k;
   }
 }
-
-// ─────────────────────────────────────────────────────────────── BIP-340
 
 export function schnorrSign(msg32, priv) {
   const d0 = typeof priv === 'bigint' ? priv : b2n(priv);
@@ -169,8 +140,6 @@ export function liftX(xonly) {
 
 export const xonlyOfPriv = (priv) => G.multiply(typeof priv === 'bigint' ? priv : b2n(priv)).toRawBytes(true).slice(1);
 
-// ─────────────────────────────────────────────────────────────── ECDSA / DER
-
 function derEncode(compact) {
   const int = (x) => { let i = 0; while (i < x.length - 1 && x[i] === 0) i++; let t = x.slice(i); if (t[0] & 0x80) t = concatBytes(u8(0), t); return t; };
   const r = int(compact.slice(0, 32)), s = int(compact.slice(32));
@@ -196,7 +165,6 @@ const hash160 = (b) => ripemd160(sha256(b));
 export const p2trScript = (xonly) => concatBytes(Uint8Array.of(0x51, 0x20), toBytes(xonly));
 export const p2wpkhScript = (pub33) => concatBytes(Uint8Array.of(0x00, 0x14), hash160(toBytes(pub33)));
 
-// Input type of a prevout script: 'p2tr', 'p2wpkh' or null (refused, §2.2).
 export function scriptType(spk) {
   spk = toBytes(spk);
   if (spk.length === 34 && spk[0] === 0x51 && spk[1] === 0x20) return 'p2tr';
@@ -204,10 +172,6 @@ export function scriptType(spk) {
   return null;
 }
 
-// ─────────────────────────────────────────────────────────────── transactions
-
-// tx: { version, locktime, inputs: [{ txid (display hex), vout, sequence, witness: [Uint8Array] }],
-//       outputs: [{ value, script: Uint8Array }] }
 export function serializeTx(tx, withWitness = true) {
   const wit = withWitness && tx.inputs.some((i) => i.witness && i.witness.length);
   const parts = [u32le(tx.version)];
@@ -229,7 +193,6 @@ export function txWeight(tx) {
 }
 export const txVsize = (tx) => Math.ceil(txWeight(tx) / 4);
 
-// BIP-341 key-path sighash, SIGHASH_DEFAULT. prevouts: [{ value, script }] for every input.
 export function taprootSighash(tx, idx, prevouts) {
   const cat = (xs) => sha256(concatBytes(...xs));
   const msg = concatBytes(
@@ -244,7 +207,6 @@ export function taprootSighash(tx, idx, prevouts) {
   return taggedHash('TapSighash', msg);
 }
 
-// BIP-143 sighash of a P2WPKH input, SIGHASH_ALL.
 export function p2wpkhSighash(tx, idx, pub33, value) {
   const inp = tx.inputs[idx];
   const scriptCode = concatBytes(Uint8Array.of(0x76, 0xa9, 0x14), hash160(pub33), Uint8Array.of(0x88, 0xac));
@@ -258,7 +220,6 @@ export function p2wpkhSighash(tx, idx, pub33, value) {
   ));
 }
 
-// Witness for input idx spending coin { type, priv, pub33 } with every input's prevout.
 export function signInput(tx, idx, prevouts, coin) {
   if (coin.type === 'p2tr') return [schnorrSign(taprootSighash(tx, idx, prevouts), coin.priv)];
   if (coin.type === 'p2wpkh') {
@@ -269,7 +230,6 @@ export function signInput(tx, idx, prevouts, coin) {
   throw new Error('join: unknown coin type');
 }
 
-// True when `witness` validly spends prevouts[idx] in tx (P2TR key path SIGHASH_DEFAULT or P2WPKH SIGHASH_ALL).
 export function verifyInputWitness(tx, idx, prevouts, witness) {
   const spk = prevouts[idx].script, type = scriptType(spk);
   if (!Array.isArray(witness)) return false;
@@ -287,21 +247,14 @@ export function verifyInputWitness(tx, idx, prevouts, witness) {
   return false;
 }
 
-// ─────────────────────────────────────────────────────────────── BIP-352 (§3.1)
-
-// Public key an input contributes (§3.1): P2TR 0x02 ‖ x-only output key, P2WPKH its compressed key.
 export function inputPub(m) {
   return m.type === 'p2tr' ? concatBytes(u8(0x02), toBytes(m.spk).slice(2)) : toBytes(m.pub33);
 }
 
-// Receiver-side forward derivation of a participant's own output P_k over the input set, with its own scan
-// key alone: ecdh = b_scan · (input_hash · A_sum). Returns { xOnly, tweak (t_k, 32 bytes) }; the output's
-// spending key is b_spend + t_k.
 export function ownOutputKey({ inputs, scanPriv, spendPub, k = 0 }) {
   return ownOutputKeyFromPubs({ pubs: inputs.map(inputPub), outpoints: inputs.map((m) => outpointBytes(m.txid, m.vout)), scanPriv, spendPub, k });
 }
 
-// The same over explicit BIP-352 input keys (33 bytes, null for a non-contributing input) and every outpoint.
 export function ownOutputKeyFromPubs({ pubs, outpoints: ops, scanPriv, spendPub, k = 0 }) {
   const tweakPt = bip352PublicTweakPoint(pubs, ops);
   if (!tweakPt) throw new Error('join: A_sum is the identity or input_hash is not a scalar; refusing the run');
@@ -314,8 +267,6 @@ export function ownOutputKeyFromPubs({ pubs, outpoints: ops, scanPriv, spendPub,
   return { xOnly: Pk.toRawBytes(true).slice(1), tweak };
 }
 
-// Sender side of BIP-352 for the wallet's own transactions (entry and change outputs): every input's key
-// is the sender's. inputs: [{ txid, vout, priv, type }]; recipients: [{ scanPub, spendPub }] in output order.
 export function bip352SendOutputs({ inputs, recipients, allOutpoints = null }) {
   let a = 0n;
   for (const i of inputs) a = (a + evenYPriv(i.priv, i.type)) % N;
@@ -334,7 +285,6 @@ export function bip352SendOutputs({ inputs, recipients, allOutpoints = null }) {
   });
 }
 
-// A P2TR key counts with the secret of its even-y point (BIP-352 and BIP-340).
 function evenYPriv(priv, type) {
   const d = typeof priv === 'bigint' ? priv : b2n(toBytes(priv));
   if (type !== 'p2tr') return d;
@@ -347,14 +297,10 @@ export function spendingKey(spendPriv, tweak) {
   return n2b(sk);
 }
 
-// BIP-352 label tweak for label m (the change label is m = 0).
 export function labelTweak(scanPriv, m) {
   return b2n(taggedHash('BIP0352/Label', toBytes(scanPriv), u32be(m))) % N;
 }
 
-// ─────────────────────────────────────────────────────────────── join silent payments (§3.2)
-
-// H_P = SHA-256 of the run's outpoints in transaction (sorted) order.
 export function inputSetHash(inputs) {
   return sha256(concatBytes(...sortInputs(inputs).map((m) => outpointBytes(m.txid, m.vout))));
 }
@@ -365,7 +311,6 @@ function joinSpTweak(ecdh, k) {
   return t;
 }
 
-// Output key paying (scanPub, spendPub) from the sender's own input alone: a = its key (even-y for P2TR).
 export function joinSpSend({ inputs, own, recipient, k = 0 }) {
   const a = evenYPriv(own.priv, own.type);
   if (a === 0n) throw new Error('join: input key is zero');
@@ -374,15 +319,11 @@ export function joinSpSend({ inputs, own, recipient, k = 0 }) {
   if (ih === 0n || ih >= N) throw new Error('join: join-SP input_hash is not a scalar');
   const ecdh = Point.fromHex(hex(toBytes(recipient.scanPub))).multiply((a * ih) % N).toRawBytes(true);
   const t = joinSpTweak(ecdh, k);
-  // A labeled address already carries B_spend + label·G as its spend key.
   const Pk = Point.fromHex(hex(toBytes(recipient.spendPub))).add(G.multiply(t));
   if (Pk.equals(ZERO)) throw new Error('join: output point is the identity');
   return { xOnly: Pk.toRawBytes(true).slice(1), tweak: n2b(t) };
 }
 
-// Recipient scan of one join transaction, per input: ecdh_i = (b_scan · input_hash_i) · A_i.
-// inputs: [{ txid, vout, pub (33, the BIP-352 key of the input) }] in transaction order;
-// outputs: [{ script }]. Returns [{ vout, inputIndex, k, tweak, label }]; spending key = b_spend + tweak.
 export function joinSpScan({ inputs, outputs, scanPriv, spendPub, labels = [] }) {
   const b = b2n(toBytes(scanPriv));
   const H_P = sha256(concatBytes(...inputs.map((i) => outpointBytes(i.txid, i.vout))));
@@ -413,7 +354,6 @@ export function joinSpScan({ inputs, outputs, scanPriv, spendPub, labels = [] })
   return found;
 }
 
-// Esplora-shaped tx → the inputs joinSpScan and the BIP-352 scanner need, or null when not join-shaped.
 export function joinSpScanEsploraTx(tx, keys, opts = {}) {
   if (!joinShape(tx, opts)) return [];
   const inputs = tx.vin.map((v) => ({
@@ -428,12 +368,9 @@ export function joinSpScanEsploraTx(tx, keys, opts = {}) {
   return joinSpScan({ inputs, outputs, ...keys });
 }
 
-// ─────────────────────────────────────────────────────────────── join shape (§2.2)
-
 const ALLOWANCES = [...new Set(BUCKETS.map((fr) => allowance(fr)))];
 const ALL_TIERS = [...new Set(Object.values(NETWORKS).flatMap((n) => [...n.tiers, ...n.laterTiers]))];
 
-// Esplora tx → { d, value, allowance } when join-shaped, else null.
 export function joinShape(tx, { tiers = ALL_TIERS } = {}) {
   if (!tx || tx.version !== 2 || !Array.isArray(tx.vin) || !Array.isArray(tx.vout)) return null;
   if (tx.vout.length < 3 || tx.vout.length !== tx.vin.length) return null;
@@ -450,13 +387,9 @@ export function joinShape(tx, { tiers = ALL_TIERS } = {}) {
   return null;
 }
 
-// ─────────────────────────────────────────────────────────────── topics and messages (§4.3, §6)
-
 export const STEP = { KE: 1, CM: 2, DC: 3, CONF: 4, SIG: 5, REVEAL: 6 };
 export const STEP_NAME = Object.fromEntries(Object.entries(STEP).map(([k, v]) => [v, k]));
 
-// topic = H_tag("TacitJoin/topic", network ‖ d(8) ‖ fr(2) ‖ h_ref(4) ‖ K_board(32)); network is its ASCII
-// name behind a length byte, the integers big-endian.
 export function topicId({ network, d, fr, hRef, boardKey }) {
   const net = enc.encode(network);
   return hex(taggedHash('TacitJoin/topic', u8(net.length), net, u64be(d), u16be(fr), u32be(hRef), toBytes(boardKey)));
@@ -464,8 +397,6 @@ export function topicId({ network, d, fr, hRef, boardKey }) {
 
 const joinDigest = (m) => taggedHash('TacitJoin/own', toBytes(m.topic), outpointBytes(m.txid, m.vout), toBytes(m.spk), toBytes(m.session));
 
-// JOIN = (topic, outpoint, prevout_value, prevout_spk, pubkey33 if P2WPKH, S_i, own_sig), plus the topic's
-// parameters so a board can check the topic is its own.
 export function makeJoin({ network, d, fr, hRef, boardKey, coin, sessionPub }) {
   const topic = topicId({ network, d, fr, hRef, boardKey });
   const type = scriptType(coin.spk);
@@ -480,8 +411,6 @@ export function makeJoin({ network, d, fr, hRef, boardKey, coin, sessionPub }) {
   return m;
 }
 
-// Signature and shape check of a JOIN; returns the verifying x-only key or null. The topic's parameters are
-// checked against the board key by whoever holds it (the board on POST, a client by comparing topics).
 export function verifyJoin(m) {
   try {
     if (!m || m.t !== 'JOIN' || !/^[0-9a-f]{64}$/.test(m.txid) || !Number.isInteger(m.vout) || m.vout < 0) return null;
@@ -504,7 +433,6 @@ export const joinHash = (m) => sha256(concatBytes(toBytes(m.topic), outpointByte
 
 const msgDigest = (m) => taggedHash('TacitJoin/msg', toBytes(m.topic), u32be(m.r), u8(m.step), sha256(toBytes(m.body)), toBytes(m.view));
 
-// A run message (topic, r, step, body, view, sig), signed under the session key.
 export function makeMsg({ topic, r, step, body, view, sessionPriv }) {
   const m = { t: 'MSG', topic, r, step, session: hex(xonlyOfPriv(sessionPriv)), body: hex(body), view: hex(view) };
   m.sig = hex(schnorrSign(msgDigest(m), sessionPriv));
@@ -525,7 +453,6 @@ export function verifyMsg(m, { kMax = 100 } = {}) {
 
 export const msgHash = (m) => sha256(concatBytes(toBytes(m.topic), u32be(m.r), u8(m.step), toBytes(m.session), sha256(toBytes(m.body)), toBytes(m.view), toBytes(m.sig)));
 
-// view = SHA-256 of the sorted (S_l ‖ SHA-256(msg_l)).
 export function viewOf(pairs) {
   const items = pairs.map(([s, h]) => concatBytes(toBytes(s), h)).sort(compareBytes);
   return sha256(concatBytes(...items));
@@ -539,7 +466,6 @@ export function verifyClose(m, boardKey) {
   return !!m && m.t === 'CLOSE' && Number.isSafeInteger(m.lastSeq) && schnorrVerify(m.sig, closeDigest(m.topic, m.lastSeq), boardKey);
 }
 
-// EVIDENCE(outpoint, kind, bundle), posted under a session key of the topic.
 const evidenceDigest = (m) => taggedHash('TacitJoin/evidence', toBytes(m.topic), outpointBytes(m.txid, m.vout), enc.encode(m.kind), sha256(enc.encode(JSON.stringify(m.bundle))));
 export function makeEvidence({ topic, txid, vout, kind, bundle, sessionPriv }) {
   const m = { t: 'EVIDENCE', topic, txid, vout, kind, bundle, session: hex(xonlyOfPriv(sessionPriv)) };
@@ -549,8 +475,6 @@ export function makeEvidence({ topic, txid, vout, kind, bundle, sessionPriv }) {
 export function verifyEvidenceSig(m) {
   try { return m?.t === 'EVIDENCE' && schnorrVerify(m.sig, evidenceDigest(m), m.session); } catch { return false; }
 }
-
-// ─────────────────────────────────────────────────────────────── field and power sums (§4.1)
 
 const fmod = (a) => { const r = a % P; return r < 0n ? r + P : r; };
 function finv(a) {
@@ -567,7 +491,6 @@ export function powerVector(x, n) {
   return v;
 }
 
-// Polynomials: BigInt coefficient arrays, lowest degree first, no trailing zeros.
 const trim = (a) => { let n = a.length; while (n > 0 && a[n - 1] === 0n) n--; return a.slice(0, n); };
 const deg = (a) => a.length - 1;
 function pmod(a, f) {
@@ -618,7 +541,6 @@ function roots(f) {
   }
 }
 
-// Power sums S_1..S_n → the n messages, or null when they are not n distinct elements of F_p.
 export function decodePowerSums(S) {
   const n = S.length;
   const e = [1n];
@@ -637,8 +559,6 @@ export function decodePowerSums(S) {
   return rs.length === n ? rs.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)) : null;
 }
 
-// ─────────────────────────────────────────────────────────────── DC-net (§4.2)
-
 export function pairKey(topic, r, e, E) {
   return taggedHash('TacitJoin/dh', toBytes(topic), u32be(r), Point.fromHex(hex(toBytes(E))).multiply(e).toRawBytes(true));
 }
@@ -652,7 +572,6 @@ export function pads(k, n) {
   return out;
 }
 
-// DC_i[j] = x_i^j + Σ_{l≠i} σ_il · pad_il[j]; σ_il = +1 when S_i < S_l. peers: [{ session, E }].
 export function dcVector({ topic, r, x, e, session, peers, n }) {
   const v = powerVector(x, n);
   for (const p of peers) {
@@ -673,8 +592,6 @@ export function decodeVector(b) {
 }
 export const commitVector = (topic, r, body) => taggedHash('TacitJoin/cm', toBytes(topic), u32be(r), toBytes(body));
 
-// With every ephemeral key revealed: the message each participant's vector carries, or null when the vector
-// is not (y, y², …, y^n) for a valid x-only y. members: [{ session, E, e, dc }] (e may be null → unknown).
 export function unmaskVectors({ topic, r, members }) {
   const n = members.length;
   return members.map((m) => {
@@ -692,7 +609,6 @@ export function unmaskVectors({ topic, r, members }) {
   });
 }
 
-// Blame verdict after REVEAL (§4.5): excluded sessions, with the reason for each.
 export function blameVerdict({ topic, r, members, blamers, inputKeys }) {
   const un = unmaskVectors({ topic, r, members });
   const out = new Map();
@@ -706,15 +622,12 @@ export function blameVerdict({ topic, r, members, blamers, inputKeys }) {
   return out;
 }
 
-// ─────────────────────────────────────────────────────────────── formation (§2.3, §6.2)
-
 export const rankOf = (topic, m) => taggedHash('TacitJoin/rank', toBytes(topic), outpointBytes(m.txid, m.vout));
 
 export function sortInputs(inputs) {
   return inputs.slice().sort((a, b) => compareBytes(outpointBytes(a.txid, a.vout), outpointBytes(b.txid, b.vout)));
 }
 
-// Σ_P (v_in − o) ≥ Σ_P f_in and |R| ≤ |Φ|.
 export function fundingOk(members, { o, fr, kMin }) {
   let surplus = 0, need = 0, fresh = 0, remix = 0;
   for (const m of members) {
@@ -725,7 +638,6 @@ export function fundingOk(members, { o, fr, kMin }) {
   return remix <= fresh && surplus >= need;
 }
 
-// Drop remix inputs of highest rank until the funding rule holds.
 export function trimToFunding(members, ctx) {
   let P_ = members.slice();
   while (!fundingOk(P_, ctx)) {
@@ -737,7 +649,6 @@ export function trimToFunding(members, ctx) {
   return P_;
 }
 
-// Class of a coin at (d, fr): 'fresh', 'remix' or null (§2.3). parentShape: joinShape of the coin's tx.
 export function coinClass({ value, type, parentShape }, { d, fr, kMin }) {
   const o = outputValue(d, fr);
   if (type === 'p2tr' && parentShape && parentShape.d === d && value >= o) return 'remix';
@@ -745,8 +656,6 @@ export function coinClass({ value, type, parentShape }, { d, fr, kMin }) {
   return null;
 }
 
-// P_1 from the JOINs up to CLOSE. joins: verified JOIN messages; chain gives prevouts; evidence: Set of
-// outpoint keys with verified evidence on this board; exclusions: the local list (§8).
 export async function formRound({ topic, joins, chain, d, fr, kMin, kMax, evidence = new Set(), exclusions = null, tip = null }) {
   const o = outputValue(d, fr);
   const counts = new Map();
@@ -786,14 +695,11 @@ export async function formRound({ topic, joins, chain, d, fr, kMin, kMax, eviden
   return chosen.length >= kMin ? sortInputs(chosen) : [];
 }
 
-// k_eff(P): distinct txids among fresh inputs aged ≥ age_min plus distinct parent txids among aged remix inputs.
 export function kEff(members, ageMin = AGE_MIN) {
   const f = new Set(), r = new Set();
   for (const m of members) if ((m.confirmations ?? 0) >= ageMin) (m.cls === 'remix' ? r : f).add(m.txid);
   return f.size + r.size;
 }
-
-// ─────────────────────────────────────────────────────────────── the transaction (§2.2, §4.4, §7)
 
 export function buildJoinTx({ inputs, keys, o, hRef }) {
   const ins = sortInputs(inputs);
@@ -807,8 +713,6 @@ export function buildJoinTx({ inputs, keys, o, hRef }) {
 
 export const prevoutsOf = (tx, byKey) => tx.inputs.map((i) => { const m = byKey.get(outpointKey(i)); return { value: m.value, script: toBytes(m.spk) }; });
 
-// Every check of §7. Signs only when `ok`. own: [{ spk (hex or bytes) }] the scripts the client derived;
-// coin: its own input; members: P_r as formed.
 export function verifyBeforeSigning({ tx, members, own, coin, o, hRef, fr, frOwn, kMin, kMinClient = kMin, ageMin = AGE_MIN }) {
   const checks = [];
   const add = (id, ok, detail = '') => checks.push({ id, ok: !!ok, detail });
@@ -831,15 +735,10 @@ export function verifyBeforeSigning({ tx, members, own, coin, o, hRef, fr, frOwn
   return { ok: checks.every((c) => c.ok), checks, fee, weight: wu };
 }
 
-// Upper bound on the signed weight: 42 WU overhead, 230 per P2TR and 272 per P2WPKH input, 172 per output.
 export function estimatedWeight(members) {
   return 42 + members.reduce((s, m) => s + (m.type === 'p2tr' ? 230 : 272), 0) + 172 * members.length;
 }
 
-// ─────────────────────────────────────────────────────────────── local exclusion list (§8)
-
-// storage: { get(): string|null, set(string) } (localStorage adapter in the dapp). An offense m excludes
-// the outpoint for 24 h × 2^(m−1), at most 30 days, and extends one hop to outputs of a spending tx.
 export function makeExclusionList(storage = null, now = () => Date.now()) {
   let state = {};
   try { state = JSON.parse(storage?.get() || '{}') || {}; } catch { state = {}; }
@@ -854,7 +753,6 @@ export function makeExclusionList(storage = null, now = () => Date.now()) {
       save();
     },
     has: (o) => active(typeof o === 'string' ? o : outpointKey(o)),
-    // tx: the coin's own transaction (Esplora shape); its inputs carry the one-hop rule.
     excludes(o, tx = null) {
       if (active(outpointKey(o))) return true;
       return !!tx?.vin?.some((v) => active(`${v.txid}:${v.vout}`));
@@ -863,10 +761,6 @@ export function makeExclusionList(storage = null, now = () => Date.now()) {
   };
 }
 
-// ─────────────────────────────────────────────────────────────── evidence (§8)
-
-// Independent check of an EVIDENCE message. Returns true when it proves the offense. `chain` is needed for
-// 'double-spend' only.
 export async function verifyEvidence(ev, { chain = null } = {}) {
   if (!verifyEvidenceSig(ev)) return false;
   const b = ev.bundle || {};
@@ -907,7 +801,6 @@ export async function verifyEvidence(ev, { chain = null } = {}) {
       if (!vec || vec.length !== n) return false;
       members.push({ session: j.session, E, e, dc: vec });
     }
-    // Every revealed key must be present except possibly the accused's (a bad vector needs its own key).
     if (members.some((m) => m.e == null)) return false;
     const inputKeys = new Set(joins.map((j) => b2n(inputPub({ type: scriptType(j.spk), spk: j.spk, pub33: j.pub }).slice(1))));
     const blamers = [...cf.values()].filter((m) => m.body === '00').map((m) => m.session);
@@ -928,7 +821,6 @@ export async function verifyEvidence(ev, { chain = null } = {}) {
   return false;
 }
 
-// Minimal parser for the unsigned or signed transactions this module builds.
 export function parseTx(raw) {
   let p = 0;
   const rd = (n) => { const s = raw.slice(p, p + n); p += n; return s; };
@@ -958,10 +850,6 @@ function decodeWitness(b) {
   return items;
 }
 
-// ─────────────────────────────────────────────────────────────── transport
-
-// A board over HTTP. Requests carry no cookies, credentials or custom headers (§5.2); JSON bodies go as
-// text/plain so browsers send no preflight.
 export function makeHttpBoard(url, { fetch: f = globalThis.fetch } = {}) {
   const base = String(url).replace(/\/$/, '');
   const get = async (path) => {
@@ -986,7 +874,6 @@ export function makeHttpBoard(url, { fetch: f = globalThis.fetch } = {}) {
   };
 }
 
-// Topics of one tier and bucket across several boards, most JOINs first (§10.1 round preference).
 export async function openTopicsAcross(boards, { network, d, fr }) {
   const all = [];
   await Promise.all(boards.map(async (b) => {
@@ -998,8 +885,6 @@ export async function openTopicsAcross(boards, { network, d, fr }) {
   return all.sort((a, b) => b.joins - a.joins);
 }
 
-// Esplora chain source: several bases in turn, a few rounds with backoff (a public Esplora rate-limits), and
-// confirmed transactions cached, since formation reads the same prevouts for every JOIN.
 export function makeEsploraChain(bases, { fetch: f = globalThis.fetch, minGapMs = 0, rounds = 4, outspendTtlMs = 15_000 } = {}) {
   const list = (Array.isArray(bases) ? bases : [bases]).map((b) => b.replace(/\/$/, ''));
   const txCache = new Map();
@@ -1032,7 +917,6 @@ export function makeEsploraChain(bases, { fetch: f = globalThis.fetch, minGapMs 
       if (JSON.parse(text).status?.confirmed) txCache.set(txid, text);
       return JSON.parse(text);
     },
-    // Several participants of one client share this source; an unspent answer is reused for a few seconds.
     getOutspend: async (txid, vout) => {
       const key = `${txid}:${vout}`, hit = spendCache.get(key);
       if (hit && Date.now() - hit.at < outspendTtlMs) return hit.v;
@@ -1044,7 +928,6 @@ export function makeEsploraChain(bases, { fetch: f = globalThis.fetch, minGapMs 
   };
 }
 
-// Message inbox over a board topic: a background long-poll loop and waiters.
 class Inbox {
   constructor(board, topic, { pollMs = 20_000 } = {}) {
     this.board = board; this.topic = topic; this.pollMs = pollMs;
@@ -1061,7 +944,6 @@ class Inbox {
             this.since = seq;
             this.msgs.push({ seq, msg });
           }
-          // `last` lets a poll that returned nothing new for us still move forward.
           if (Number.isSafeInteger(r.last) && r.last > this.since) this.since = r.last;
           backoff = 250;
           this.notify();
@@ -1076,7 +958,6 @@ class Inbox {
   }
   stop() { this.stopped = true; this.notify(); }
   notify() { for (const w of [...this.waiters]) w(); }
-  // Resolves true once pred() holds, false at the deadline.
   until(pred, deadline) {
     return new Promise((resolve) => {
       const check = () => {
@@ -1091,26 +972,8 @@ class Inbox {
   }
 }
 
-// ─────────────────────────────────────────────────────────────── participant (§4.3–§4.5, §6)
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// One participant through one round.
-//   board, chain                 transports
-//   network, d, fr, frOwn        round parameters (fr a bucket, frOwn the client's own estimate)
-//   coin                         { txid, vout, value, spk, type, priv, pub33? } a confirmed own coin
-//   keys                         { scanPriv, spendPub } own silent-payment identity (output to self)
-//   payTo                        optional { scanPub, spendPub } — a join silent payment instead (§3.2)
-//   siblings                     outpoints of this client's other participants in the round (sets k)
-//   hRef                         reference height (default: chain tip)
-//   exclusions                   makeExclusionList(...) (optional)
-//   kMinClient, ageMin, tStepMs, jitter, joinDelayMs, closeTimeoutMs, maxRuns
-//   adversary                    test hooks { vector(r, v) → v, post(r, step, body) → body | null | body[] }
-//   onEvent                      progress callback ({ type, ... })
-//   decode                       power sums → keys, sync or async (default decodePowerSums; a Worker in the dapp)
-//   signal                       AbortSignal: leaves the round; nothing is signed or excluded after it fires
-// Returns { status: 'broadcast' | 'no-round' | 'failed' | 'refused' | 'cancelled', txid, hex, tx, own: [{ vout,
-// xOnly, tweak, spk, value }], runs, excluded, candidates }.
 export async function runParticipant(opts) {
   const {
     board, chain, network, d, fr, frOwn = fr, coin, keys = null, payTo = null, siblings = [],
@@ -1149,7 +1012,6 @@ export async function runParticipant(opts) {
     await board.post(topic, join);
     ev('joined', { hRef });
 
-    // Gathering: until the board's CLOSE.
     const closeDeadline = Date.now() + (opts.closeTimeoutMs ?? 3 * 3600_000);
     const closeMsg = () => inbox.msgs.find(({ msg }) => msg.t === 'CLOSE' && msg.topic === topic && verifyClose(msg, boardKey));
     if (!(await inbox.until(() => !!closeMsg(), closeDeadline))) return { status: signal?.aborted ? 'cancelled' : 'no-round', reason: 'no CLOSE' };
@@ -1176,7 +1038,6 @@ export async function runParticipant(opts) {
         r, members, topic, session, sessionPriv, coin, keys, payTo, siblings, o, hRef, fr, frOwn, kMin,
         kMinClient, ageMin, tStep, inbox, board, jitter, adversary, ev, decode, signal,
       });
-      // Messages stop arriving once aborted, so every peer would look missing: exclude no one.
       if (signal?.aborted) return { status: 'cancelled', runs: r, excluded: excludedAll, candidates: res.candidate ? [...candidates, res.candidate] : candidates };
       if (res.refused) return { status: 'refused', checks: res.checks, runs: r, excluded: excludedAll };
       if (res.candidate) candidates.push(res.candidate);
@@ -1202,8 +1063,6 @@ export async function runParticipant(opts) {
   }
 }
 
-// Registration checks on the client's own coin (§2.3): confirmed, unspent, an allowed type, admitted as
-// fresh or remix at (d, fr), and its excess within the ceiling (otherwise it belongs in a higher bucket).
 export async function checkOwnCoin({ coin, chain, d, fr, kMin }) {
   const type = scriptType(coin.spk);
   const tx = await chain.getTx(coin.txid);
@@ -1226,7 +1085,6 @@ async function runOnce(c) {
   const sessions = new Set(members.map((m) => m.session));
   const bySession = new Map(members.map((m) => [m.session, m]));
 
-  // Own output key for this run (§3): P_r changes every run, so keys revealed in a failed run never recur.
   const mine = members.find((m) => m.session === session);
   const own = [];
   let x;
@@ -1252,7 +1110,6 @@ async function runOnce(c) {
     for (const b of bodies) await c.board.post(topic, makeMsg({ topic, r, step, body: b, view, sessionPriv }));
   };
 
-  // Collect one step: the distinct valid messages per member, until all are in or the deadline passes.
   const stepMsgs = (step) => {
     const out = new Map();
     for (const { msg } of inbox.msgs) {
@@ -1264,7 +1121,6 @@ async function runOnce(c) {
     }
     return out;
   };
-  // Two different signed messages for one step exclude the signer, whenever they are seen in the run.
   const done = [];
   const flagged = new Set();
   const equivocations = () => {
@@ -1297,7 +1153,6 @@ async function runOnce(c) {
   const checkView = (msgs, view) => { for (const [s, m] of msgs) if (m.view !== hex(view)) exclude.set(s, 'view'); };
   const fail = () => ({ ok: false, exclude, evidence });
 
-  // KE
   const H_P = inputSetHash(members);
   const joinView = viewOf(members.map((m) => [m.session, joinHash(m.join)]));
   const e = randomScalar();
@@ -1314,7 +1169,6 @@ async function runOnce(c) {
   if (exclude.size) return fail();
   c.ev('step', { r, step: 'KE' });
 
-  // CM
   const keView = viewFrom(ke);
   const peers = members.map((m) => ({ session: m.session, E: Es.get(m.session) }));
   let vec = dcVector({ topic, r, x, e, session, peers, n });
@@ -1326,7 +1180,6 @@ async function runOnce(c) {
   if (exclude.size) return fail();
   c.ev('step', { r, step: 'CM' });
 
-  // DC
   const cmView = viewFrom(cm);
   await post(STEP.DC, dcBody, cmView);
   const dc = await collect(STEP.DC);
@@ -1346,7 +1199,6 @@ async function runOnce(c) {
   if (exclude.size) return fail();
   c.ev('step', { r, step: 'DC' });
 
-  // Decode, then OK or BLAME.
   const S = new Array(n).fill(0n);
   for (const v of vectors.values()) for (let j = 0; j < n; j++) S[j] = (S[j] + v[j]) % P;
   const keys = await c.decode(S);
@@ -1361,7 +1213,6 @@ async function runOnce(c) {
   c.ev('step', { r, step: 'CONF', blamers: blamers.length });
 
   if (blamers.length) {
-    // REVEAL: every ephemeral key, then recompute every vector.
     await post(STEP.REVEAL, n2b(e), confView);
     const rv = await collect(STEP.REVEAL);
     checkView(rv, confView);
@@ -1387,7 +1238,6 @@ async function runOnce(c) {
     return fail();
   }
 
-  // SIG: build T, check everything, sign only if the own output is present (§7).
   const tx = buildJoinTx({ inputs: members, keys: keys.map(n2b), o: c.o, hRef: c.hRef });
   const check = verifyBeforeSigning({ tx, members, own, coin: c.coin, o: c.o, hRef: c.hRef, fr: c.fr, frOwn: c.frOwn, kMin: c.kMin, kMinClient: c.kMinClient, ageMin: c.ageMin });
   c.ev('verify', { r, checks: check.checks });
@@ -1411,7 +1261,6 @@ async function runOnce(c) {
   const outs = tx.outputs.map((out, vout) => ({ out, vout }));
   const ownOut = own.map((w) => { const hit = outs.find(({ out }) => bytesEq(out.script, w.spk)); return { ...w, vout: hit.vout, value: c.o, spk: hex(w.spk), xOnly: hex(w.xOnly), tweak: w.tweak ? hex(w.tweak) : null }; });
   if (exclude.size) {
-    // Our witness for T_r exists; if T_r is completed later it pays every output, so track it (§4.5).
     return { ok: false, exclude, evidence, candidate: { txid: txidOf(tx), own: ownOut } };
   }
   tx.inputs.forEach((i, idx) => { i.witness = witnesses.get(idx); });
@@ -1422,12 +1271,6 @@ async function runOnce(c) {
 
 const strip = (m) => { const { _ok, ...rest } = m; return rest; };
 
-// ─────────────────────────────────────────────────────────────── entry transaction (§2.4)
-
-// Builds and signs the entry transaction: `count` outputs of `value` to the wallet's own silent address
-// (BIP-352 over this transaction's inputs, k = 0..count−1) and one change output. coins: [{ txid, vout,
-// value, spk, type, priv, pub33? }] all the wallet's. Returns { tx, hex, txid, fee, outputs: [{ vout, xOnly,
-// tweak, value }] }.
 export function buildEntryTx({ coins, keys, count = 1, value, changeSpk, feeRate }) {
   if (!coins?.length) throw new Error('join: no coins');
   const recips = Array.from({ length: count }, () => ({ scanPub: keys.scanPub, spendPub: keys.spendPub }));
@@ -1452,10 +1295,6 @@ export function buildEntryTx({ coins, keys, count = 1, value, changeSpk, feeRate
   };
 }
 
-// ─────────────────────────────────────────────────────────────── after the round
-
-// Own outputs of a confirmed join, found by scanning with the scan key alone (the forward derivation over
-// the transaction's own inputs). tx: Esplora shape. Returns [{ txid, vout, value, tweak, k }].
 export function scanJoinForOwn(tx, { scanPriv, spendPub }) {
   if (!joinShape(tx)) return [];
   const inputs = tx.vin.map((v) => ({
@@ -1478,21 +1317,12 @@ export function scanJoinForOwn(tx, { scanPriv, spendPub }) {
   return out;
 }
 
-// A mixed output as a spendable coin: { txid, vout, value, spk, type: 'p2tr', priv, xOnly }. `tweak` is the
-// credit's t_k (recordSpCredit's tweakHex); spendPriv the identity's b_spend.
 export function mixedCoin({ txid, vout, value, tweak, spendPriv }) {
   const priv = spendingKey(spendPriv, tweak);
   const xOnly = xonlyOfPriv(priv);
   return { txid, vout, value, spk: hex(p2trScript(xOnly)), type: 'p2tr', priv, xOnly: hex(xOnly) };
 }
 
-// Funds a buy-and-shield (dapp/btc-pool-zap.js buyAndShield) from one mixed output and nothing else. The
-// commit transaction spends the mixed coin by key path; its change, and the carrier's change, pay a fresh
-// output of the wallet's own silent address (BIP-352 from the mixed coin, k = 0), so the commit change is
-// found by an ordinary silent-payment scan. The envelope's signing key is that same fresh key.
-//   makeBtcWallet: dapp/bitcoin-taproot-wallet.js; resolveNote: as buyAndShield's tacit.resolveNote
-// Returns { tacit, wallet, change: { xOnly, tweak, spk } } for buyAndShield({ tacit, wallet, ... }). After
-// broadcast, record credits for commit vout 1 (when present) and carrier vout 0 with change.tweak.
 export function zapFromMixedCoin({ coin, keys, makeBtcWallet, hrp = 'tb', resolveNote, feeRate }) {
   const [derived] = bip352SendOutputs({ inputs: [coin], recipients: [{ scanPub: keys.scanPub, spendPub: keys.spendPub }] });
   const changePriv = spendingKey(keys.spendPriv, derived.tweak);

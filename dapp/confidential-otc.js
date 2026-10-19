@@ -1,17 +1,3 @@
-// Confidential OTC (OP_OTC) witness assembler for the EVM confidential pool.
-//
-// A direct 2-party swap of shielded notes: the MAKER gives `vA` of assetA and receives `vB` of
-// assetB; the TAKER gives `vB` of assetB and receives `vA` of assetA. No pool, no price curve — a
-// fixed agreed (vA, vB) cleared peer-to-peer. Each note is bound to its amount by an OPENING SIGMA
-// (Schnorr PoK of the note blinding `r` for the stated amount) under a SHARED intent context, so the
-// settle prover (the box / matcher) verifies the openings WITHOUT learning `r` and can neither spend
-// an input elsewhere nor redirect/relabel an output: every output owner + both amounts are in the
-// context. Atomic by construction — one OP_OTC is one op in one proof. This is the direct-trade
-// counterpart to OP_SWAP and reuses the same primitives. A passing Node round-trip locks the witness
-// the guest re-verifies (mirror of contracts/sp1/confidential/src/main.rs OP_OTC).
-//
-// keccak injected for Node+browser parity; `pool` is a makeConfidentialPool instance whose
-// commitXY/leaf/nullifier/merkle + openingSigma/intentContext primitives the guest agrees on.
 
 const U64_MAX = (1n << 64n) - 1n;
 const ZERO32 = '0x' + '00'.repeat(32);
@@ -20,8 +6,6 @@ const OTC_TAG = 'tacit-otc-intent-v1';
 export function makeConfidentialOtc({ keccak256, pool }) {
   const { leaf, commitXY, openingSigma, verifyOpeningSigma, deriveOpeningNonce, intentContext, nkToOwner, nativeNu } = pool;
 
-  // The shared intent context (mirror of the guest): every touched note (cx, cy, owner) in fixed
-  // order + both amounts. `m`/`t` are the built maker/taker legs.
   function otcCtx(assetA, assetB, chainBinding, vA, vB, m, t, deadline, feeA = 0n, feeB = 0n) {
     const notes = [[m.in.cx, m.in.cy, m.owner]];
     if (m.change) notes.push([m.change.cx, m.change.cy, m.owner]);
@@ -32,16 +16,6 @@ export function makeConfidentialOtc({ keccak256, pool }) {
     return intentContext(OTC_TAG, chainBinding, assetA, assetB, notes, [BigInt(vA), BigInt(vB), BigInt(deadline ?? 0), BigInt(feeA), BigInt(feeB)]);
   }
 
-  // Build one party's leg commitments. `give` = what this party hands the counterparty (vA for the
-  // maker's asset_a, vB for the taker's asset_b); `recvValue` = what it gets back. The input
-  // blinding `inR` is the party's existing note secret (they know it); change/recv blindings are
-  // fresh (the party picks them so only it can later spend the outputs). Change is omitted when the
-  // input exactly equals the give amount (no dust 0-change). `owner` is the SPENT note's own on-chain
-  // owner field (H(nk)) — the guest reuses it for the leg's recv/change leaves too (main.rs OP_OTC
-  // reads one `maker_owner`/`taker_owner` for the whole leg), so it must be the real note owner, not a
-  // wallet-wide identity key. `nk` is that same note's secret nullifier key — input_leaf_authed's
-  // native branch reads it right after the membership path and asserts nk_to_owner(nk) == owner; a
-  // missing/wrong nk here does not throw, it makes the guest's assert fail (EXECUTE_OK, pv_bytes = 0).
   function buildLeg({ owner, nk, inAmount, inR, inLeafIndex, inPath, give, recvValue, recvR, changeR }) {
     if (nk == null) throw new Error('otc: nk (the spent note\'s own secret nullifier key) is required');
     inAmount = BigInt(inAmount); give = BigInt(give); recvValue = BigInt(recvValue);
@@ -65,17 +39,11 @@ export function makeConfidentialOtc({ keccak256, pool }) {
     };
   }
 
-  // Flatten one signed leg into the box's wire shape (contracts/sp1/confidential/harnesses/exec-otc.rs
-  // `write_leg` / fixtures/otc_op.json): the guest reads the input's membership + nk, then the sigmas,
-  // in this exact field order. `nk` never crosses the trustless 3-step handshake (publicLeg strips it,
-  // same as the input blinding) — only assemble this once the caller actually holds it.
   function legToWire(leg) {
     if (leg.nk == null) throw new Error('otc: leg has no nk — cannot submit for settlement (see buildLeg)');
     if (!leg.in?.sig || !leg.recv?.sig) throw new Error('otc: leg is unsigned — call signLegs/buildOtc first');
     const wire = {
       inCx: leg.in.cx, inCy: leg.in.cy, inLeafIndex: Number(leg.in.leafIndex), inPath: leg.in.path,
-      // exec-otc.rs reads inAmount (and vA/vB/deadline/feeA/feeB below) via serde_json's `.as_u64()`,
-      // which requires a JSON NUMBER — not the BigInt-safe decimal strings other op wires use.
       nk: leg.nk, inAmount: Number(leg.in.amount), inSigR: leg.in.sig.R, inSigZ: leg.in.sig.z,
       hasChange: leg.change ? 1 : 0,
       recvCx: leg.recv.cx, recvCy: leg.recv.cy, recvSigR: leg.recv.sig.R, recvSigZ: leg.recv.sig.z,
@@ -90,10 +58,6 @@ export function makeConfidentialOtc({ keccak256, pool }) {
     return wire;
   }
 
-  // Assemble the box-ready OP_OTC witness (contracts/sp1/confidential/harnesses/exec-otc.rs's
-  // top-level OP_FILE shape) from an assembled/verified `otc` object. Throws loudly if either leg is
-  // missing its nk rather than letting an incomplete witness reach the relay (which the guest would
-  // fail on silently — EXECUTE_OK with pv_bytes = 0).
   function toWireOp(otc) {
     return {
       chainBinding: otc.chainBinding, spendRoot: otc.spendRoot,
@@ -106,15 +70,9 @@ export function makeConfidentialOtc({ keccak256, pool }) {
     };
   }
 
-  // Build the full OTC + generate every opening sigma once the shared context is known. Blindings stay
-  // client-side (never enter the witness); only the commitments + sigmas (R, z) do. Each sigma nonce is
-  // DERIVED per (note blinding, shared context) so a renegotiation (new vA/vB) of the same input note
-  // never reuses a nonce (reuse would leak the blinding → bearer spend).
   function buildOtc({ assetA, assetB, vA, vB, chainBinding, spendRoot, maker, taker, deadline, feeA = 0n, feeB = 0n }) {
     vA = BigInt(vA); vB = BigInt(vB);
     feeA = BigInt(feeA); feeB = BigInt(feeB);
-    // Each party may carve a relay fee from the asset it RECEIVES: the taker from vA (asset_a), the
-    // maker from vB (asset_b). The received note is built to the NET; fee = 0 ⇒ self-settle.
     if (!(feeA < vA)) throw new Error('otc: feeA >= taker receipt');
     if (!(feeB < vB)) throw new Error('otc: feeB >= maker receipt');
     deadline = BigInt(deadline ?? 0);
@@ -132,7 +90,6 @@ export function makeConfidentialOtc({ keccak256, pool }) {
     return { assetA, assetB, vA, vB, chainBinding, spendRoot, maker: m, taker: t, deadline, feeA, feeB };
   }
 
-  // JS mirror of EVERY OP_OTC guest assertion. Returns { nullifiers, leaves } or throws.
   function verifyOtc(otc, { merkleRootFrom }) {
     const fail = (msg) => { throw new Error('otc: ' + msg); };
     const { assetA, assetB, chainBinding, spendRoot, maker: m, taker: t } = otc;
@@ -144,28 +101,21 @@ export function makeConfidentialOtc({ keccak256, pool }) {
     if (assetA === assetB) fail('same asset');
     if (spendRoot === ZERO32 || !spendRoot) fail('membership requires a non-zero spend root');
 
-    // Membership of each spent input (maker spends assetA, taker spends assetB).
     const mInLf = leaf(assetA, m.in.cx, m.in.cy, m.owner);
     if (merkleRootFrom(mInLf, m.in.leafIndex, m.in.path) !== spendRoot) fail('maker membership');
     const tInLf = leaf(assetB, t.in.cx, t.in.cy, t.owner);
     if (merkleRootFrom(tInLf, t.in.leafIndex, t.in.path) !== spendRoot) fail('taker membership');
 
-    // Native spend authority — mirrors input_leaf_authed's unauthenticated branch: owner must commit
-    // to the secret nk (owner == H(nk)), else the guest's assert fails (silently, as EXECUTE_OK /
-    // pv_bytes = 0) rather than this throwing here.
     const sameHex = (a, b) => String(a).toLowerCase() === String(b).toLowerCase();
     if (m.nk == null || !sameHex(nkToOwner(m.nk), m.owner)) fail('maker nk does not commit to maker owner');
     if (t.nk == null || !sameHex(nkToOwner(t.nk), t.owner)) fail('taker nk does not commit to taker owner');
 
-    // Opening sigmas against the shared context: inputs authorize the spend, outputs bind the
-    // received amount to the owner (no redirect / no re-price).
     const ctx = otcCtx(assetA, assetB, chainBinding, vA, vB, m, t, deadline, feeA, feeB);
     if (!verifyOpeningSigma(m.in.cx, m.in.cy, m.in.amount, m.in.sig.R, m.in.sig.z, ctx)) fail('maker-in opening');
     if (!verifyOpeningSigma(t.in.cx, t.in.cy, t.in.amount, t.in.sig.R, t.in.sig.z, ctx)) fail('taker-in opening');
     if (!verifyOpeningSigma(m.recv.cx, m.recv.cy, vB - feeB, m.recv.sig.R, m.recv.sig.z, ctx)) fail('maker-recv opening (net of relay fee)');
     if (!verifyOpeningSigma(t.recv.cx, t.recv.cy, vA - feeA, t.recv.sig.R, t.recv.sig.z, ctx)) fail('taker-recv opening (net of relay fee)');
 
-    // Per-asset conservation + canonical change form.
     const changeA = m.change ? m.change.amount : 0n;
     const changeB = t.change ? t.change.amount : 0n;
     if (m.change) {
@@ -180,15 +130,13 @@ export function makeConfidentialOtc({ keccak256, pool }) {
     if (t.in.amount !== vB + changeB) fail('asset_b conservation');
     if (vA + changeA > U64_MAX || vB + changeB > U64_MAX) fail('amount over u64');
 
-    // Emit ν + leaves in the guest's fixed order (client + memos mirror it). ν is native_nu, not the
-    // bearer-only leaf-bound nullifier — it binds nk, so the published leaf alone can't reproduce it.
     const nullifiers = [
       nativeNu(m.owner, m.nk, mInLf),
       nativeNu(t.owner, t.nk, tInLf),
     ];
     const leaves = [
-      leaf(assetA, t.recv.cx, t.recv.cy, t.owner), // taker receives assetA (vA)
-      leaf(assetB, m.recv.cx, m.recv.cy, m.owner), // maker receives assetB (vB)
+      leaf(assetA, t.recv.cx, t.recv.cy, t.owner),
+      leaf(assetB, m.recv.cx, m.recv.cy, m.owner),
     ];
     if (m.change) leaves.push(leaf(assetA, m.change.cx, m.change.cy, m.owner));
     if (t.change) leaves.push(leaf(assetB, t.change.cx, t.change.cy, t.owner));
@@ -198,18 +146,9 @@ export function makeConfidentialOtc({ keccak256, pool }) {
     return { nullifiers, leaves, fees };
   }
 
-  // ── trustless 2-party composer ──
-  // buildOtc is the single-assembler path (needs both blindings). For a real handshake neither party holds
-  // the other's `r`, so each signs ONLY its own legs. The opening sigma depends solely on (the party's own
-  // _r, the SHARED context), so a split-signed OTC is BYTE-IDENTICAL to a monolithic buildOtc — same guest
-  // check. Flow: each party builds its leg commitments (buildLeg) and shares them (NO _r); once both legs are
-  // known either side computes the shared context and signs its own legs; assembleOtc merges the signed legs.
-
-  // The shared context from two already-built legs (commitments only needed).
   function composeCtx({ assetA, assetB, chainBinding, vA, vB, maker, taker, deadline = 0, feeA = 0n, feeB = 0n }) {
     return otcCtx(assetA, assetB, chainBinding, vA, vB, maker, taker, deadline, feeA, feeB);
   }
-  // Sign this party's own legs against the shared context. role ∈ {'maker','taker'}.
   function signLegs(leg, ctx, role) {
     const tag = role === 'maker' ? 'otc-maker' : 'otc-taker';
     leg.in.sig = openingSigma(leg.in.amount, leg.in._r, ctx, deriveOpeningNonce(leg.in._r, ctx, `${tag}-in`));
@@ -217,9 +156,6 @@ export function makeConfidentialOtc({ keccak256, pool }) {
     if (leg.change) leg.change.sig = openingSigma(leg.change.amount, leg.change._r, ctx, deriveOpeningNonce(leg.change._r, ctx, `${tag}-change`));
     return leg;
   }
-  // The value-conservation invariants the guest enforces, checked WITHOUT the merkle witness (which a
-  // composer may not yet hold). Fails a mis-built split-signed OTC here rather than producing a proof
-  // that only fails late. A strict subset of verifyOtc — no new acceptance, only earlier rejection.
   function assertOtcConservation(otc) {
     const fail = (m) => { throw new Error('otc: ' + m); };
     const vA = BigInt(otc.vA), vB = BigInt(otc.vB);
@@ -240,7 +176,6 @@ export function makeConfidentialOtc({ keccak256, pool }) {
     if (vA + changeA > U64_MAX || vB + changeB > U64_MAX) fail('amount over u64');
   }
 
-  // Merge two signed legs into the final OTC object (same shape as buildOtc's return).
   function assembleOtc({ assetA, assetB, vA, vB, chainBinding, spendRoot, maker, taker, deadline = 0, feeA = 0n, feeB = 0n }) {
     const out = { assetA, assetB, vA: BigInt(vA), vB: BigInt(vB), chainBinding, spendRoot, maker, taker, deadline: BigInt(deadline), feeA: BigInt(feeA), feeB: BigInt(feeB) };
     assertOtcConservation(out);
