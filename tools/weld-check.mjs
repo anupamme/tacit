@@ -3822,6 +3822,7 @@ await step('rewardsearn', async () => {
     await until(n.page, () => /Connect wallet/.test(document.querySelector('#fm-go')?.textContent || '') && /APR now/.test(document.querySelector('#fm-stats')?.textContent || ''), null, 90000);
     ok((await n.page.getAttribute('#fm-mode [data-fm="eth"]', 'aria-pressed')) === 'true' && !(await text(n.page, '#farm-note')), 'rewardsearn: the farm opens in place with its figures and its form on ETH alone, and nothing warns that no wallet is connected');
     ok(!(await n.page.$eval('#fm-prog', (e) => e.checkVisibility())), 'rewardsearn: the module\'s own list of private farms stays out of the way, since the rows below are those');
+    ok((await n.page.getAttribute('#farm .fm-alt a', 'href')) === '/#farm/public' && /Tacit account/.test(await text(n.page, '#farm .fm-alt')), 'rewardsearn: and the farm says where a Tacit account farms: the app\'s public farm');
     await n.page.click('#farm > summary');
     ok(!(await n.page.evaluate(() => document.querySelector('#farm').open)), 'rewardsearn: and closes again');
     // Points opens in place: the ways to earn and the leaderboard.
@@ -3845,6 +3846,9 @@ await step('rewardsearn', async () => {
     ok(true, 'rewardsearn: /rewards/#farm opens the farm at once');
     await until(m.page, () => document.querySelector('#lp-row')?.hidden === true && !document.querySelector('#lp-row').checkVisibility() && document.querySelector('#tk-f')?.textContent === '—', null, 60000);
     ok(true, 'rewardsearn: with the liquidity campaign off its row is gone, and a task budget that cannot be read is a dash, not a wrong number');
+    await m.page.goto(m.url + '#farm/public');
+    await until(m.page, () => document.querySelector('#sheet-farm')?.open === true, null, 90000);
+    ok(true, 'rewardsearn: and that link opens the app\'s farm sheet');
     if (m.errors.length) { fails++; console.log('FAIL rewardsearn page errors: ' + m.errors.slice(0, 3).join(' | ')); }
   } finally { await m.browser.close(); }
   // A link with a lookup in it keeps the place of its answer, so the farms do not jump when it arrives; clearing the bar lets the place go.
