@@ -5,10 +5,15 @@
 // the page as deployed (no addresses). Every limit the page offers is checked against the contract itself: the amount is accepted by an eth_call, one
 // wei more is refused.
 //
-//   VAULT_OUT=<forge out dir> PLAYWRIGHT=/Users/z/zFi/node_modules/playwright-core node tests/vault-page.mjs        (SHOTS=dir saves screenshots)
+//   1. build the three contracts it deploys (about 5 seconds; contracts/out is git-ignored build output):
+//        cd contracts && forge build src/TacVault.sol src/FixedFeed.sol test/TacVaultMocks.sol
+//      This needs contracts/lib (solady); in a git worktree, which has none: ln -s <main checkout>/contracts/lib contracts/lib
+//   2. run it (needs anvil and cast on PATH, and playwright-core):
+//        VAULT_OUT=<forge out dir> PLAYWRIGHT=/Users/z/zFi/node_modules/playwright-core node tests/vault-page.mjs        (SHOTS=dir saves screenshots)
 //
-// VAULT_OUT holds the compiled TacVault, the test mocks (contracts/test/TacVaultMocks.sol) and FixedFeed; it defaults to contracts/out. Without them
-// the test says so and stops.
+// VAULT_OUT holds the compiled TacVault, the test mocks (contracts/test/TacVaultMocks.sol) and FixedFeed; it defaults to contracts/out. If an artifact
+// is missing, or is there without bytecode (output left by an older build of the repo), the test says "skipped" and why, and stops with status 0; rebuild
+// with the command above.
 import { createRequire } from 'node:module';
 import http from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
@@ -18,7 +23,11 @@ import { join, extname } from 'node:path';
 const REPO = new URL('../', import.meta.url).pathname, DAPP = join(REPO, 'dapp'), FX = join(REPO, 'tests/fixtures');
 const OUT = process.env.VAULT_OUT || join(REPO, 'contracts/out'), SHOTS = process.env.SHOTS || null;
 const need = ['TacVault.sol/TacVault', 'TacVaultMocks.sol/TestTac', 'TacVaultMocks.sol/MockOracle', 'TacVaultMocks.sol/LiveFeed', 'FixedFeed.sol/FixedFeed'];
-if (need.some((f) => !existsSync(join(OUT, `${f}.json`)))) { console.log(`skipped: ${OUT} has no compiled TacVault and test mocks (forge build, or set VAULT_OUT)`); process.exit(0); }
+const BUILD = 'cd contracts && forge build src/TacVault.sol src/FixedFeed.sol test/TacVaultMocks.sol';
+const bytecodeOf = (f) => { try { return JSON.parse(readFileSync(join(OUT, `${f}.json`), 'utf8')).bytecode?.object || ''; } catch { return ''; } };
+const absent = need.filter((f) => !existsSync(join(OUT, `${f}.json`))), stale = need.filter((f) => !absent.includes(f) && !/^(0x)?([0-9a-f]{2})+$/i.test(bytecodeOf(f)));
+if (absent.length) { console.log(`skipped: ${OUT} has no compiled ${absent.join(', ')} (${BUILD}, or set VAULT_OUT)`); process.exit(0); }
+if (stale.length) { console.log(`skipped: ${OUT} is stale, ${stale.join(', ')} has no bytecode; rebuild: ${BUILD}`); process.exit(0); }
 const PW = process.env.PLAYWRIGHT || (existsSync('/Users/z/zFi/node_modules/playwright-core') ? '/Users/z/zFi/node_modules/playwright-core' : 'playwright-core');
 const { chromium } = createRequire(import.meta.url)(PW);
 const PORT = Number(process.env.ANVIL_PORT) || 21000 + Math.floor(Math.random() * 1000), WEB = Number(process.env.WEB_PORT) || PORT + 1, ANVIL = `http://127.0.0.1:${PORT}`;

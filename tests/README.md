@@ -36,6 +36,22 @@ suites (`bulletproofs*`, `composition`, `range-proof`, `swap-var`, `*-fuzz`) tak
 | `build-*.mjs`, `debug-*.mjs`, `_*.mjs`, `tools/` | Operator scripts for building or inspecting specific live transactions. Not tests. |
 | `*.bench.mjs` | Benchmarks (`npm run bench`). |
 
+## Needs a local anvil and a browser
+
+`vault-page.mjs` drives dapp/vault/ in Chromium against TacVaults it deploys on its own anvil (`--silent`, random port). It needs `anvil` and `cast`
+on PATH, playwright-core (`PLAYWRIGHT=<path>`; defaults to `/Users/z/zFi/node_modules/playwright-core` when that exists), and freshly compiled
+contracts. `contracts/out` is git-ignored build output, so build it first (about 5 s; a git worktree has no `contracts/lib`, so symlink it from the
+main checkout first):
+
+```sh
+ln -s <main checkout>/contracts/lib contracts/lib      # worktrees only
+cd contracts && forge build src/TacVault.sol src/FixedFeed.sol test/TacVaultMocks.sol && cd ..
+VAULT_OUT=$PWD/contracts/out node tests/vault-page.mjs
+```
+
+If the output is missing, or is left over from an older build and has no bytecode, the test prints `skipped:` with the reason and exits 0 instead of
+crashing. `SHOTS=<dir>` saves screenshots.
+
 ## Network-gated
 
 These need a live service, a funded wallet, or a Linux prover host, and are not part of an offline run:
