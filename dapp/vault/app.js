@@ -14,7 +14,7 @@ import { makeFeed, RECORD_GAS, PER_TX, encBatch, MULTICALL3 } from '/vault/feed.
 import { batchSupport, simulateBundle, sendBundle, readMixed } from '/vault/batch.js?cb=0df7601f';
 import { makePools } from '/vault/pools.js?cb=5a53ae6c';
 import { ROUTER_SEL, encRouterRecords, encRouterBorrow, encRouterWithdraw, encRouterDeposit, encRouterRepay, encRouterPermitSynth, borrowTyped, withdrawTyped } from '/vault/router.js?cb=21df6509';
-import { makeConnect, UserStopped } from '/trade/connect.js?cb=ceb79a33';
+import { makeConnect, UserStopped } from '/trade/connect.js?cb=598b5a23';
 
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

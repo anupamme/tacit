@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 // A read-only check of the live airdrop and points pages in a real browser: nothing is signed or sent. The wallet is a stub that only answers
-// account reads (it is set to the Precision pool's own address, which holds TAC and ETH, so the farm card has something to show).
+// account reads (it is set to the Precision pool's own address, which holds TAC and ETH, so the farm has something to fill in).
 //
 //   PLAYWRIGHT=/path/to/node_modules/playwright-core node tools/rewards-live-check.mjs [https://tacit.finance]
 //
-// It reads the page, a lookup by address and by name, the folds, the links into the page (the lander's airdrop line, /airdrop, another page's
-// wallet sheet), and the farm card with its private farms; it fails on a console error, a CSP violation or a page error. Exit 1 on any failure.
+// It reads the page and its list of what pays TAC (the farms with their APRs, points, liquidity, tasks), a lookup by address and by name, the folds,
+// the links into the page (the lander's airdrop line, /airdrop, another page's wallet sheet), and the farm row opened with a wallet that holds TAC;
+// it fails on a console error, a CSP violation or a page error. Exit 1 on any failure.
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_modules/playwright-core');
@@ -30,13 +31,17 @@ const connectBrowserWallet = async (p) => {
   await p.waitForSelector('.bsheet .way', { timeout: 15000 }).then(() => p.click('.bsheet .way:has-text("Browser wallet")')).catch(() => {});
 };
 try {
-  // the page, a lookup by address and by name, the token row, the APR on the Farm link
+  // the page, the list of what pays TAC, a lookup by address and by name, the token row
   let p = await open();
   await p.goto(`${BASE}/rewards/`);
   await p.waitForSelector('#tok');
   ok((await p.$eval('#tok [data-copy]', (e) => e.dataset.copy)) === TAC && (await p.$eval('#tok a', (e) => e.href)).endsWith(`/token/${TAC}`), 'the TAC token row: address, copy, and its Etherscan token page');
-  await wait(p, () => /^\d[\d,]*%/.test(document.querySelector('.uses .apr')?.textContent || '')).catch(() => {});
-  ok(/^\d/.test(await p.textContent('.uses .apr')), `the Farm link carries the APR (${(await p.textContent('.uses .apr')).trim()})`);
+  await wait(p, () => /^\d[\d,]*%/.test(document.querySelector('#farm-apr')?.textContent || '')).catch(() => {});
+  ok(/^\d/.test(await p.textContent('#farm-apr')), `the TAC / ETH farm's row carries its APR (${(await p.textContent('#farm-apr')).trim()})`);
+  await wait(p, () => document.querySelectorAll('#farms a[data-priv]').length > 0 && !document.querySelector('#farms .wait') && !!document.querySelector('#pts-f')?.textContent, 30000).catch(() => {});
+  const priv = await p.$$eval('#farms a[data-priv]', (a) => a.map((x) => `${x.querySelector('b').textContent} ${x.querySelector('.apr').textContent}`));
+  ok(priv.length > 0 && priv.every((x) => /\d%/.test(x)), `the private farms are rows with their APRs (${priv.join(', ')})`);
+  ok(/^\d/.test(await p.textContent('#pts-f')) && /^\d/.test(await p.textContent('#tk-f')), `points say the day's pot (${(await p.textContent('#pts-f')).trim()} TAC) and tasks the budget left (${(await p.textContent('#tk-f')).trim()} TAC); liquidity ${(await p.$eval('#lp-row', (e) => e.hidden)) ? 'is off' : 'says ' + (await p.textContent('#lp-f')).trim() + ' TAC a day'}`);
   await p.fill('#q', SEEN);
   await wait(p, () => document.querySelector('#c-pts') && !document.querySelector('#c-pts .sk') && /points/.test(document.querySelector('#c-pts').textContent));
   ok(/Rank #\d+/.test(await p.textContent('#c-pts')) || /No points yet/.test(await p.textContent('#c-pts')), 'a lookup by address reads its points');
@@ -66,18 +71,17 @@ try {
   await p.click('#wallet-chip');
   await p.waitForSelector('.bsheet a[href^="/rewards/?q=0x"]', { timeout: 15000 });
   ok(true, "another page's wallet sheet links to the account's airdrop and points");
-  // the farm card, for a wallet that holds TAC: it appears, opens, fills, and lists the private farms
+  // the farm, for a wallet that holds TAC: its row says what is held, opens, and fills in
   p = await open(POOL);
   await p.goto(`${BASE}/rewards/?q=${POOL}`);
   await p.waitForSelector('#tok');
   await p.waitForTimeout(1500);
   await connectBrowserWallet(p);
-  await wait(p, () => !document.querySelector('#farm').hidden);
+  await wait(p, () => /TAC held/.test(document.querySelector('#farm-s')?.textContent || ''));
   await p.click('#farm > summary');
   await wait(p, () => /Deposit/.test(document.querySelector('#fm-rcpt')?.textContent || '') && Number(document.querySelector('#fm-tacamt')?.value) > 0, 60000);
   ok(/Farm with/.test(await p.textContent('#fm-go')) && !(await p.$eval('#fm-go', (b) => b.disabled)), `the farm opens filled in (${await p.inputValue('#fm-amt')} ETH + ${await p.inputValue('#fm-tacamt')} TAC)`);
-  await wait(p, () => document.querySelectorAll('#fm-prog .fm-pf').length > 0, 30000).catch(() => {});
-  ok((await p.$$eval('#fm-prog .fm-pf', (a) => a.length)) > 0, 'and lists the private farms with their APRs');
+  ok(!(await p.$eval('#fm-prog', (e) => e.checkVisibility())), 'with the private farms left to the rows of the page');
 } catch (e) {
   fails++; console.log('FAIL', e.message.split('\n')[0]);
 } finally { await browser.close(); }

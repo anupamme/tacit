@@ -3509,7 +3509,7 @@ await step('rewards', async () => {
     if (slow) await sleep(slow);
     return json(route, { address: a, points: mine ? 12345.6 : 0, deposit_count: mine ? 4 : 0, deposits: [] });
   });
-  await n.ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => { hits.board++; return json(route, [{ address: hex40('1'), points: 9e9 }, { address: hex40('2'), points: 50000 }, { address: LISTED, points: 12345.6 }]); });
+  await n.ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => { if (!/day=today/.test(route.request().url())) hits.board++; return json(route, [{ address: hex40('1'), points: 9e9 }, { address: hex40('2'), points: 50000 }, { address: LISTED, points: 12345.6 }]); });   // the rank's board: the program's pot (day=today) is not a second reading of it
   const out = async () => (await text(n.page, '#out')).replace(/\s+/g, ' ').trim();
   const settled = () => until(n.page, () => !!document.querySelector('#out .cu') && !document.querySelector('#out .cu:not([data-settled])') && !document.querySelector('#out .sk'), null, 120000);
   const read = (txt) => n.page.evaluate(() => navigator.clipboard.readText()).catch(() => null);
@@ -3755,17 +3755,17 @@ await step('rewardswallet', async () => {
   } finally { await n.browser.close(); }
 });
 
-// The "With TAC" line under the search: what TAC is for, each a quiet link, and each landing where it says.
+// The "With TAC" line under the lists, the farm's APR in its own row, and the TAC token's address: each landing where it says.
 await step('rewardsuses', async () => {
   const n = await openPage({ account: A0, viewport: { width: 1000, height: 900 } });
   try {
     await n.page.goto(n.url + 'rewards/');
     await n.page.waitForSelector('.uses');
     const links = await n.page.$$eval('.uses a', (a) => a.map((x) => `${x.firstChild.textContent}:${x.getAttribute('href')}`));
-    ok(links.join(' ') === 'Trade:/trade/tac/ Farm:/swap/#earn Borrow:/vault/ Shield:/#tac Pay:/pay/#tac Bitcoin:/tac/', `rewardsuses: the line under the search names what TAC is for (${links.join(' ')})`);
-    await until(n.page, () => /^\d[\d,]*%\+?$/.test(document.querySelector('.uses a[data-apr] .apr')?.textContent || ''), null, 60000);
-    ok(Number((await text(n.page, '.uses a[data-apr] .apr')).replace(/\D/g, '')) > 0 && /APR now/.test(await n.page.getAttribute('.uses a[data-apr]', 'title')), `rewardsuses: the Farm link carries the farm's APR now (${await text(n.page, '.uses a[data-apr] .apr')})`);
-    ok(await n.page.evaluate(() => { const b = document.querySelector('.bar').getBoundingClientRect(), u = document.querySelector('.uses').getBoundingClientRect(); return u.top >= b.bottom && u.top - b.bottom < 100; }), 'rewardsuses: and it sits right under the bar (below the chips for connecting or going back)');
+    ok(links.join(' ') === 'Trade:/trade/tac/ Borrow:/vault/ Shield:/#tac Pay:/pay/#tac Bitcoin:/tac/', `rewardsuses: the line under the lists names what TAC is for (${links.join(' ')})`);
+    await until(n.page, () => /^\d[\d,]*%\+?$/.test(document.querySelector('#farm-apr')?.textContent || ''), null, 60000);
+    ok(Number((await text(n.page, '#farm-apr')).replace(/\D/g, '')) > 0, `rewardsuses: the farm's row carries its APR now (${await text(n.page, '#farm-apr')})`);
+    ok(await n.page.evaluate(() => { const b = document.querySelector('.bar').getBoundingClientRect(), f = document.querySelector('#farms').getBoundingClientRect(); return f.top >= b.bottom && f.top - b.bottom < 200 && f.top < innerHeight; }), 'rewardsuses: and the farms start right under the bar (below the chips for connecting or going back), on the first screen');
     const tok = await n.page.$eval('#tok', (e) => ({ copy: e.querySelector('[data-copy]').dataset.copy, href: e.querySelector('a').href, full: e.querySelector('.full').textContent, target: e.querySelector('a').target }));
     ok(tok.copy === TAC && tok.full === TAC && tok.href === `https://etherscan.io/token/${TAC}` && tok.target === '_blank', `rewardsuses: the TAC token's address is on the page in full, to copy, and links to its token page on Etherscan (${tok.full})`);
     await n.page.click('#tok [data-copy]');
@@ -3785,7 +3785,86 @@ await step('rewardsuses', async () => {
   } finally { await n.browser.close(); }
 });
 
-// Farming what was claimed, on the rewards page. The card is there only for the wallet's own account and only once it holds TAC; a claim opens it
+// The list of what pays TAC, under the bar: the farms (the Precision farm, then each private farm with its APR), then points, the liquidity
+// campaign and the tasks. It is there for anyone, with no wallet and nothing looked up; each row draws as its reading arrives, a source that says
+// nothing leaves its row plain (the liquidity campaign being off takes its row away), the farm opens in place with its form (the button connects),
+// and a link ending in #farm opens it at once.
+await step('rewardsearn', async () => {
+  const program = JSON.parse(readFileSync(new URL('../tests/fixtures/farm-program-2026-10-14.json', import.meta.url), 'utf8'));
+  const stubs = async (ctx, { lp = { enabled: true, endSec: 1795219200, terms: { fromDay: 20745, dailyWei: '25000000000000000000', createWei: '150000000000000000000', capWeiPerUsdDay: '50000000000000000' }, pools: [{ pool: '0x1', opened: true, openPaid: false }] }, tasks = { enabled: true, endSec: 1798243200, budget: { totalWei: '1150000000000000000000', creditedWei: '390000000000000000000', remainingWei: '760000000000000000000' } } } = {}) => {
+    await ctx.route(/api\.tacit\.finance\/farm\/program/, (route) => json(route, program));
+    await ctx.route(/api\.tacit\.finance\/leaderboard/, (route) => json(route, []));                  // the later route wins: the program's pot first below
+    await ctx.route(/api\.tacit\.finance\/leaderboard\?day=today/, (route) => json(route, { day: 20743, programDay: 25, programDays: 90, program: { settleGraceSecs: 1800, dayBudgetWei: '1111111111111111111111', rates: {} } }));
+    await ctx.route(/api\.tacit\.finance\/(points|claim)\/0x/, (route) => json(route, /\/claim\//.test(route.request().url()) ? { cumulativeAmount: '0', claimedWei: '0', unclaimedWei: '0', proof: null } : { points: 0, deposit_count: 0, deposits: [] }));
+    await ctx.route(/tacit-points\.onrender\.com\/lp/, (route) => json(route, lp));
+    await ctx.route(/tacit-points\.onrender\.com\/tasks/, (route) => json(route, tasks));
+  };
+  const rows = (page, sel) => page.$$eval(sel, (a) => a.map((x) => x.innerText.replace(/\s+/g, ' ').trim()));
+  const n = await openPage({ account: A0, viewport: { width: 1000, height: 900 } });
+  try {
+    await stubs(n.ctx);
+    await n.page.goto(n.url + 'rewards/');
+    await n.page.waitForSelector('#farm', { timeout: 60000 });
+    await until(n.page, () => !document.querySelector('#farms [data-priv].wait') && document.querySelectorAll('#farms a[data-priv]').length === 3 && /^\d/.test(document.querySelector('#farm-apr')?.textContent || ''), null, 90000);
+    const farms = await rows(n.page, '#farms > .ern');
+    ok(/^TAC \/ ETH Public · \d[\d,]* TAC a day [\d,]+% APR now Farm$/.test(farms[0]), `rewardsearn: the Precision farm is the first row, with what it streams and its APR (${farms[0]})`);
+    ok(farms.length === 4 && /^tETH \/ TAC Private · 554 TAC a day [\d,]+% APR now Farm$/.test(farms[1]) && /^tETH \/ cUSD Private · 332 TAC a day [\d,]+% APR now Farm$/.test(farms[2]) && /^tETH \/ cBTC Private · 222 TAC a day [\d,]+% APR now Farm$/.test(farms[3]), `rewardsearn: then the private farms from the farm program, each with its stream and APR (${farms.slice(1).join(' | ')})`);
+    const hrefs = await n.page.$$eval('#farms a[data-priv]', (a) => a.map((x) => x.getAttribute('href')));
+    ok(hrefs.join(' ') === '/#farm/private-0 /#farm/private-1 /#farm/private-2', `rewardsearn: each private farm leads to its own farm (${hrefs.join(' ')})`);
+    await until(n.page, () => !!document.querySelector('#pts-f')?.textContent && !!document.querySelector('#lp-f')?.textContent && !!document.querySelector('#tk-f')?.textContent, null, 60000);
+    const more = await rows(n.page, '#more > .ern');
+    ok(/^Points Day 25 of 90 · split by points 1,111 TAC a day$/.test(more[0]), `rewardsearn: the points row says the day's pot and where the program is (${more[0]})`);
+    ok(/^Liquidity Supply a Borrow market · 150 TAC for opening one 25 TAC a day Open$/.test(more[1]) && (await n.page.getAttribute('#lp-row', 'href')) === '/vault/', `rewardsearn: the liquidity campaign says what it pays and leads to the Borrow page (${more[1]})`);
+    ok(/^Tasks Small jobs paid in TAC 760 TAC left Open$/.test(more[2]) && (await n.page.getAttribute('#tk-row', 'href')) === '/tasks/', `rewardsearn: the task budget leads to the tasks (${more[2]})`);
+    ok(!(await n.page.$('#out .rw')) && await n.page.evaluate(() => { const f = document.querySelector('#farms').getBoundingClientRect(); return f.top < innerHeight; }), 'rewardsearn: all of it with nothing looked up, no wallet, and the farms on the first screen');
+    // The farm opens in place, with its form: ETH alone, and the button connects a wallet.
+    await n.page.click('#farm > summary');
+    await until(n.page, () => /Connect wallet/.test(document.querySelector('#fm-go')?.textContent || '') && /APR now/.test(document.querySelector('#fm-stats')?.textContent || ''), null, 90000);
+    ok((await n.page.getAttribute('#fm-mode [data-fm="eth"]', 'aria-pressed')) === 'true' && !(await text(n.page, '#farm-note')), 'rewardsearn: the farm opens in place with its figures and its form on ETH alone, and nothing warns that no wallet is connected');
+    ok(!(await n.page.$eval('#fm-prog', (e) => e.checkVisibility())), 'rewardsearn: the module\'s own list of private farms stays out of the way, since the rows below are those');
+    await n.page.click('#farm > summary');
+    ok(!(await n.page.evaluate(() => document.querySelector('#farm').open)), 'rewardsearn: and closes again');
+    // Points opens in place: the ways to earn and the leaderboard.
+    await n.page.click('#earn > summary');
+    await n.page.waitForSelector('#earn-b .ways', { timeout: 30000 }).catch(() => {});
+    ok(!!(await n.page.$('#earn #lb')), 'rewardsearn: the points row opens onto its ways to earn and the leaderboard');
+    ok(!(await n.page.evaluate(() => document.documentElement.scrollWidth > innerWidth)), 'rewardsearn: no sideways scroll');
+    if (SHOTS) await n.page.screenshot({ path: join(SHOTS, 'weld-rewardsearn.png'), fullPage: true });
+    await n.page.setViewportSize({ width: 390, height: 844 });
+    ok(!(await n.page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) && !(await n.page.$eval('#farm .go', (e) => e.checkVisibility())), 'rewardsearn: at phone width nothing scrolls sideways and the rows lose their buttons (the whole row is pressed)');
+    if (SHOTS) await n.page.screenshot({ path: join(SHOTS, 'weld-rewardsearn-phone.png'), fullPage: true });
+    if (n.errors.length) { fails++; console.log('FAIL rewardsearn page errors: ' + n.errors.slice(0, 3).join(' | ')); }
+  } finally { await n.browser.close(); }
+  // A link ending in #farm opens the farm; the campaign being off takes its row away; a service that does not answer leaves the figure as a dash.
+  const m = await openPage({ account: A0, viewport: { width: 1000, height: 900 } });
+  try {
+    await stubs(m.ctx, { lp: { enabled: false }, tasks: null });
+    await m.ctx.route(/tacit-points\.onrender\.com\/tasks/, (route) => route.fulfill({ status: 503, body: '' }));
+    await m.page.goto(m.url + 'rewards/#farm');
+    await until(m.page, () => document.querySelector('#farm')?.open === true && /APR now/.test(document.querySelector('#fm-stats')?.textContent || ''), null, 90000);
+    ok(true, 'rewardsearn: /rewards/#farm opens the farm at once');
+    await until(m.page, () => document.querySelector('#lp-row')?.hidden === true && !document.querySelector('#lp-row').checkVisibility() && document.querySelector('#tk-f')?.textContent === '—', null, 60000);
+    ok(true, 'rewardsearn: with the liquidity campaign off its row is gone, and a task budget that cannot be read is a dash, not a wrong number');
+    if (m.errors.length) { fails++; console.log('FAIL rewardsearn page errors: ' + m.errors.slice(0, 3).join(' | ')); }
+  } finally { await m.browser.close(); }
+  // A link with a lookup in it keeps the place of its answer, so the farms do not jump when it arrives; clearing the bar lets the place go.
+  const k = await openPage({ account: A0, viewport: { width: 1000, height: 900 } });
+  try {
+    await stubs(k.ctx);
+    await k.page.goto(k.url + 'rewards/?q=0x' + 'ab'.repeat(20));
+    const top = () => k.page.evaluate(() => Math.round(document.querySelector('#farms').getBoundingClientRect().top));
+    const top0 = await top();
+    await until(k.page, () => !!document.querySelector('#c-air .st') && !!document.querySelector('#c-pts .st'), null, 90000);
+    const top1 = await top();
+    ok(top0 > 600 && Math.abs(top1 - top0) < 40, `rewardsearn: the farms keep their place while the answer to a link's lookup arrives (${top0} then ${top1})`);
+    await k.page.focus('#q'); await k.page.keyboard.press('Escape');
+    await until(k.page, () => document.documentElement.dataset.lookup === undefined && !document.querySelector('#out').innerHTML, null, 10000);
+    ok((await top()) < top0 - 300, 'rewardsearn: and the place is let go once the bar is cleared');
+    if (k.errors.length) { fails++; console.log('FAIL rewardsearn page errors: ' + k.errors.slice(0, 3).join(' | ')); }
+  } finally { await k.browser.close(); }
+});
+
+// Farming what was claimed, on the rewards page. The farm is a row of the list for everyone; its line says what the wallet holds there, and a claim opens it
 // with the claimed TAC and the ETH that pairs with it already in, so one press farms it. With less ETH than that the pair is what the ETH covers
 // (and the page says so), with none to spare the TAC goes in alone, and under the network fee the button says to add ETH.
 await step('rewardsfarm', async () => {
@@ -3820,7 +3899,7 @@ await step('rewardsfarm', async () => {
     const n = await view(LISTED, LISTED);
     try {
       await n.page.waitForSelector('[data-claim="airdrop"]', { timeout: 120000 });
-      ok(await hidden(n.page), 'rewardsfarm: with no TAC in the wallet there is no farm card');
+      ok(!(await hidden(n.page)) && !(await n.page.evaluate(() => document.querySelector('#farm').open)) && !(await text(n.page, '#farm-s')), 'rewardsfarm: with no TAC in the wallet the farm is still a row of the list, closed, with nothing held to say');
       await claimed(n);
       await until(n.page, () => !document.querySelector('#farm').hidden && document.querySelector('#farm').open && /Deposit/.test(document.querySelector('#fm-rcpt')?.textContent || '') && !document.querySelector('#fm-go').disabled, null, 180000);
       const got = await tacOf(LISTED), tacIn = Number(await n.page.inputValue('#fm-tacamt')), ethIn = Number(await n.page.inputValue('#fm-amt')), held = Number(got / 10n ** 14n) / 1e4;
@@ -3834,6 +3913,14 @@ await step('rewardsfarm', async () => {
       ok(walletTxs.length === sent + 1 && String(tx.to).toLowerCase() === FARM.toLowerCase() && (await stakedOf(LISTED)) > 0n && left < 5n * E18, `rewardsfarm: one press farms the pair in one transaction (${(await text(n.page, '#fm-status')).slice(0, 60)}; ${Number(left / 10n ** 16n) / 100} TAC left)`);
       await until(n.page, () => /Your stake/.test(document.querySelector('#fm-pos')?.textContent || ''), null, 120000);
       ok(true, 'rewardsfarm: and the stake is shown under the form');
+      // The account's own panel lists it too: what it earned, and the way into the farm.
+      await n.page.goto(n.url + 'rewards/?q=' + LISTED);
+      await n.page.waitForSelector('#c-farm .rw [data-open-farm]', { timeout: 120000 });
+      const fr = (await text(n.page, '#c-farm')).replace(/\s+/g, ' ');
+      ok(/^Farm\s*[\d.,]+\s*TAC\s*[\d.,]+ ETH \+ [\d.,]+ TAC in the pool/.test(fr), `rewardsfarm: an account with a stake sees it in its rewards, with what it earned (${fr.slice(0, 90)})`);
+      await n.page.click('#c-farm [data-open-farm]');
+      await until(n.page, () => document.querySelector('#farm').open, null, 30000);
+      ok(true, 'rewardsfarm: and its button opens the farm');
       // With no TAC left in the wallet the card stays for the stake (to claim from, or withdraw), and does not say there is nothing to farm.
       const rest = await tacOf(LISTED);
       await rpc('eth_sendTransaction', [{ from: LISTED, to: TAC, data: '0xa9059cbb' + addrWord('0x000000000000000000000000000000000000dEaD') + word(rest) }]);
@@ -3843,7 +3930,7 @@ await step('rewardsfarm', async () => {
       await until(n.page, () => /Your stake/.test(document.querySelector('#fm-pos')?.textContent || '') && !document.querySelector('#fm-pos').hidden, null, 120000);
       ok(!(await text(n.page, '#farm-note')) && (await tacOf(LISTED)) === 0n, 'rewardsfarm: farm it all and the card stays for the stake, with its claim and withdrawal and no "nothing to farm" note');
       const pf = await n.page.$$eval('#fm-prog .fm-pf', (a) => a.map((x) => `${x.getAttribute('href')} ${x.innerText.replace(/\s+/g, ' ').trim()}`));
-      ok(pf.length === 3 && /^\/#farm\/private-0 tETH \/ TAC 554 TAC a day [\d,]+%/.test(pf[0]), `rewardsfarm: the private farms are listed in the card with their streams and APRs (${pf[0]})`);
+      ok(pf.length === 3 && /^\/#farm\/private-0 tETH \/ TAC\s*554 TAC a day\s*[\d,]+%/.test(pf[0]), `rewardsfarm: the module still lists the private farms in the card (hidden here, the rows of the page are those) with their streams and APRs (${pf[0]})`);
       // A day on: claim what the stake earned, and it is filled in to farm again, with the ETH that pairs with it.
       await rpc('evm_increaseTime', [86400]); await rpc('evm_mine', []);
       const tac0 = await tacOf(LISTED);
@@ -3901,7 +3988,7 @@ await step('rewardsfarm', async () => {
       await o.page.waitForSelector('#c-air .st', { timeout: 120000 }); await plug(o.page);
       await until(o.page, () => /Your wallet is on 0xf39f/.test(document.querySelector('#wl')?.textContent || ''), null, 30000);
       await sleep(1500);
-      ok(await hidden(o.page), 'rewardsfarm: a wallet on another account is offered no farm for this one');
+      ok(!(await hidden(o.page)) && !(await text(o.page, '#farm-s')), 'rewardsfarm: a wallet on another account has the farm for itself, and nothing is said of this account\'s TAC on it');
     } finally { await o.browser.close(); }
   }
   await rpc('evm_revert', [snap2]);
@@ -3999,7 +4086,7 @@ await step('rewardsfolds', async () => {
   try {
     await n.page.goto(n.url + 'rewards/?q=' + ME);
     await n.page.waitForSelector('#c-pts [data-days]', { timeout: 120000 });
-    const read = (sel) => n.page.$eval(sel, (e) => e.innerText.replace(/\s+/g, ' ').trim()), kv = await read('#c-pts .kv');
+    const read = (sel) => n.page.$eval(sel, (e) => e.innerText.replace(/\s+/g, ' ').trim()), kv = await read('#c-pts');
     ok(/Today 1,000 points · 0\.050% of the day · about 3 TAC/.test(kv), `rewardsfolds: today's share of the day's pot, in points and percent, and the TAC the service says it pays (not the share of the pot) (${kv.trim()})`);
     const clk = await read('#c-pts .clock');
     ok(/^Day 25 of 90 · today’s points can be claimed after 00:30 UTC$/.test(clk), `rewardsfolds: the program's day and when today's points can be claimed (${clk})`);

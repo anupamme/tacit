@@ -100,7 +100,7 @@ try {
   let r = await openPage({ wallet: true });
   try {
     await r.page.goto(`http://127.0.0.1:${WEB}/rewards/?q=${LISTED}`);
-    await until(r.page, () => !!document.querySelector('#c-air .card') && !document.querySelector('#out .sk'), null, 180000);
+    await until(r.page, () => !!document.querySelector('#c-air .rw .st') && !document.querySelector('#out .sk'), null, 180000);
     const airText = await text(r.page, '#c-air');
     const canClaim = !!(await r.page.$('[data-claim="airdrop"]'));
     await sleep(1500);
