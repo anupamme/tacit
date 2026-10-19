@@ -6541,7 +6541,7 @@ function brMintedText(rec) {
   if (tk !== 'TAC') return html`Arrived in your private ${tk}.`;
   if (plan?.publicTo && plan.publicDone && !plan.publicNote) return html`Arrived, and made public TAC in ${short(plan.publicTo, 6)}.`;
   if (plan?.publicNote === 'small') return html`Arrived in your private TAC. It is worth less than the relay’s fee to make public, so it stays private.`;
-  if (plan?.publicNote === 'gone') return html`Arrived. Its private note is no longer in your balance: it was made public or sent on.`;
+  if (plan?.publicNote === 'gone' && !brPrivateNote(rec)) return html`Arrived. Its private note is no longer in your balance: it was made public or sent on.`;
   if (plan?.publicTo && !plan.publicDone) {
     return plan.publicTries >= 3 || plan.publicErr
       ? html`Arrived in your private TAC. Making it public did not go${plan.publicErr ? `: ${errText(new Error(plan.publicErr))}` : ''}. Make public now tries again.`
@@ -7090,7 +7090,7 @@ async function brTick(first = false) {
     brNews(pub, ux.list(pub));
   } catch {} finally { BR.auto = false; }
   if (moved) { BR.at = 0; rerender('tac'); rerender('eth'); dashSoon(); }
-  if (brPublicPending(pub)) brPublishDue(pub).catch(() => {});
+  if (brPublicPending(pub) || brPublicRevivable(pub)) brPublishDue(pub).catch(() => {});
 }
 const BR_TOLD = 'tacit-lite-bridge-told-v1';
 const brLinkOf = (rec) => (brTk(rec) === 'TAC' ? 'bridge' : 'private/bitcoin');
@@ -7113,8 +7113,14 @@ function brNews(pub, recs) {
 async function brPublishDue(pub) {
   const ux = await brUx();
   for (const [id, plan] of Object.entries(brPlans(pub))) {
-    if (!plan.publicTo || plan.publicDone || S.key?.pubHex !== pub) continue;
+    if (!plan.publicTo || S.key?.pubHex !== pub) continue;
     const rec = ux.list(pub).find((r) => r.id === id && r.stage === 'minted');
+    // A plan set aside because its note was not in the balance goes on once a scan has the note again.
+    if (rec && plan.publicDone && plan.publicNote === 'gone' && brPrivateNote(rec)) {
+      Object.assign(plan, { publicDone: null, publicNote: null, publicTries: 0, publicAt: 0 });
+      brPlanSet(pub, id, plan);
+    }
+    if (plan.publicDone) continue;
     if (rec && await brPublish(pub, rec, plan)) { BR.at = 0; rerender('tac'); dashSoon(); return; }
   }
 }
@@ -7138,6 +7144,8 @@ async function brDiscover(pub, tab = false) {
   } catch { } finally { brFinding = false; }
 }
 const brPublicPending = (pub) => Object.values(brPlans(pub)).some((p) => p.publicTo && !p.publicDone && (p.publicTries || 0) < 3);
+// plans set aside as 'gone' in the last month, which brPublishDue takes up again if a scan has their note (it reads the last scan only)
+const brPublicRevivable = (pub) => Object.values(brPlans(pub)).some((p) => p.publicTo && p.publicNote === 'gone' && Date.now() - Number(p.publicDone || 0) < 30 * 86400e3);
 async function brPublish(pub, rec, plan) {
   if (BR.publishing || S.key?.pubHex !== pub || (plan.publicTries || 0) >= 3 || Date.now() - Number(plan.publicAt || 0) < 10 * 60e3) return false;
   BR.publishing = true;

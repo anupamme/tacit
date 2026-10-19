@@ -306,7 +306,20 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
   const _bridgeFound = new Map();
   const _bridgeFastTried = new Set();
   const _bridgeTried = new Set();
-  const _triedStoreKey = (wk, fast) => `tacit-bridge-tried-v1:${network || activeNetwork()}:${fast ? 'fast' : 'full'}:${wk}`;
+  // v2: a v1 set could hold leaves the search had found (it marked every leaf it searched), so a note it found was skipped on the next
+  // page load and fell out of the balance; v1 is left unread, so each such leaf is searched once more.
+  const _triedStoreKey = (wk, fast) => `tacit-bridge-tried-v2:${network || activeNetwork()}:${fast ? 'fast' : 'full'}:${wk}`;
+  // A bridge mint the search found, kept per key: its leaf, value, asset, destination index and the burn's ν (no blinding, which is
+  // derived from the key and ν). A later scan rebuilds each with one candidate instead of the whole search.
+  const _foundStoreKey = (wk) => `tacit-bridge-found-v1:${network || activeNetwork()}:${wk}`;
+  function _loadFoundHints(wk) {
+    if (typeof localStorage === 'undefined') return new Map();
+    try { return new Map((JSON.parse(localStorage.getItem(_foundStoreKey(wk)) || '[]') || []).filter((h) => h && h.leaf).map((h) => [lc(h.leaf), h])); } catch { return new Map(); }
+  }
+  function _saveFoundHints(wk, hints) {
+    if (typeof localStorage === 'undefined') return;
+    try { localStorage.setItem(_foundStoreKey(wk), JSON.stringify([...hints.values()].slice(-512))); } catch {}
+  }
   function _loadTried(wk, fast, sig, into) {
     if (typeof localStorage === 'undefined') return;
     try { const o = JSON.parse(localStorage.getItem(_triedStoreKey(wk, fast)) || 'null'); if (o && o.sig === sig) for (const lf of o.leaves || []) into.add(`${wk}:${sig}:${lf}`); } catch {}
@@ -571,15 +584,34 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
       const triedSet = fast ? _bridgeFastTried : _bridgeTried;
       const triedKey = (lf) => `${wk}:${amounts.join(',')}:${lf}`;
       _loadTried(wk, fast, amounts.join(','), triedSet);
+      const hints = _loadFoundHints(wk), rebuild = new Map();
+      const keep = (n) => {
+        _bridgeFound.set(wk + ':' + lc(n.leaf), n);
+        hints.set(lc(n.leaf), { leaf: lc(n.leaf), value: String(n.value), asset: n.asset, destIndex: Number(n.destIndex) || 0, burnNullifier: n.burnNullifier });
+        if (addDerived(n, 'bridge-mint', { burnNullifier: n.burnNullifier })) diag.bridge.found++;
+      };
       for (const l of unexplained()) {
         const lf = lc(l.leaf);
         const kept = _bridgeFound.get(wk + ':' + lf);
         if (kept) { if (addDerived(kept, 'bridge-mint', { burnNullifier: kept.burnNullifier })) diag.bridge.found++; continue; }
-        if (triedSet.has(triedKey(lf))) continue;
         const t = tx.txOfLeaf.get(lf);
         if (!t || !(tx.nullifiersOfTx.get(t) || []).length) continue;
+        if (hints.has(lf)) { if (!rebuild.has(t)) rebuild.set(t, []); rebuild.get(t).push(lf); continue; }
+        if (triedSet.has(triedKey(lf))) continue;
         if (!todo.has(t)) todo.set(t, []);
         todo.get(t).push(lf);
+      }
+      // What this key found before: one candidate each (its own value, asset and index), not the whole search.
+      if (rebuild.size) {
+        try {
+          const hs = [...rebuild.values()].flat().map((lf) => hints.get(lf));
+          const r = await R.walkBridgeMints({ priv: id.priv, tx, unexplained: rebuild, assets: [...new Map(hs.map((h) => [lc(h.asset), { assetId: h.asset }])).values()],
+            values: [...new Set(hs.map((h) => h.value))].map((v) => BigInt(v)), roundValues: false, destIndexes: Math.max(...hs.map((h) => h.destIndex)) + 1, maxNullifiers: 4096 });
+          const got = new Set(r.found.map((n) => lc(n.leaf)));
+          for (const n of r.found) keep(n);
+          // a hint that no longer rebuilds is dropped, and its leaf searched as any other
+          for (const [t, lfs] of rebuild) for (const lf of lfs) if (!got.has(lf)) { hints.delete(lf); if (!todo.has(t)) todo.set(t, []); todo.get(t).push(lf); }
+        } catch (e) { diag.errors.bridge = String(e && e.message || e); }
       }
       diag.bridge.unexplainedLeaves = [...todo.values()].reduce((sN, a) => sN + a.length, 0);
       if (todo.size) {
@@ -587,11 +619,14 @@ export function makeConfidentialPoolUx({ secp, keccak256, sha256, fetchImpl, net
         try {
           const r = await R.walkBridgeMints({ priv: id.priv, tx, unexplained: todo, assets: [...new Map(_poolAssets.filter((a) => a.bitcoinLink && (!fast || a.ticker === 'TAC' || a.ticker === 'cTAC')).map((a) => [lc(a.assetId), { assetId: a.assetId }])).values()], values: amounts.map((v) => BigInt(v)), destIndexes: fast ? 1 : 8, maxExp: fast ? 15 : 18, maxNullifiers: fast ? 4096 : 16 });
           diag.bridge.candidatesTried = r.tried;
-          for (const n of r.found) { _bridgeFound.set(wk + ':' + lc(n.leaf), n); if (addDerived(n, 'bridge-mint', { burnNullifier: n.burnNullifier })) diag.bridge.found++; }
-          for (const [t, lfs] of todo) if (!r.searched || r.searched.has(t)) for (const lf of lfs) triedSet.add(triedKey(lf));
+          const got = new Set(r.found.map((n) => lc(n.leaf)));
+          for (const n of r.found) keep(n);
+          // only a leaf searched and not found is marked tried; a found one is kept above and rebuilt on the next scan
+          for (const [t, lfs] of todo) if (!r.searched || r.searched.has(t)) for (const lf of lfs) if (!got.has(lf)) triedSet.add(triedKey(lf));
           _saveTried(wk, fast, amounts.join(','), triedSet);
         } catch (e) { diag.errors.bridge = String(e && e.message || e); }
       }
+      _saveFoundHints(wk, hints);
     }
 
     diag.change = { attempted: false, found: 0, skipped: [] };

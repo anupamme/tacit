@@ -304,6 +304,40 @@ test('balance: a bridge-mint note behind more than 16 older empty-memo spends is
   assert.equal(BigInt(again.byAsset[TAC.toLowerCase()].value), VALUE);
 });
 
+test('balance: a bridge-mint note found by the search is found again after a reload (a fresh instance over the same storage)', async () => {
+  const had = globalThis.localStorage, store = new Map();
+  globalThis.localStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => { store.set(k, String(v)); }, removeItem: (k) => { store.delete(k); } };
+  try {
+    const ux = mkUx();
+    const TAC = ux.assetByTicker.TAC.assetId;
+    const rec = makeBridgeMintRecovery({ hmac, sha256: nobleSha256, curveOrder: secp.CURVE.n });
+    const id = ux.identity(walletPriv);
+    const burnNu = '0x' + '4abdc897'.repeat(8);
+    const blinding = '0x' + rec.deriveBridgeMintBlinding({ privkey: id.priv, nullifier: burnNu }).toString(16).padStart(64, '0');
+    const owner = ux.pool.nkToOwner(ux.pool.deriveNote(id.priv, TAC, 0).secret);
+    const VALUE = 100000000000n; // 1,000 TAC: round, so its mint carries no memo
+    const c = ux.pool.commitXY(VALUE, blinding);
+    const leaf = ux.pool.leaf(TAC, c.cx, c.cy, owner);
+    const events = [leavesEv(0, [leaf], null, tx(2664)), nullifiersEv([burnNu], tx(2664))];
+    const first = await mkUx(chainHandler(events)).balance(walletPriv, { cbtc: false });
+    assert.equal(first.notes.length, 1, 'found by the search');
+    const hint = [...store].find(([k]) => k.startsWith('tacit-bridge-found-v1:'));
+    assert.ok(hint && !hint[1].includes(blinding.slice(2)), 'a kept hint, holding no blinding');
+    const reloaded = await mkUx(chainHandler(events)).balance(walletPriv, { cbtc: false });
+    assert.equal(reloaded.notes.length, 1, 'found again by a fresh instance');
+    assert.equal(BigInt(reloaded.byAsset[TAC.toLowerCase()].value), VALUE);
+    assert.equal(reloaded.notes[0].source, 'bridge-mint');
+    // A browser carrying the old tried set, which listed the found leaf, searches it once more instead of skipping it.
+    store.clear();
+    const wk = ux.identity(walletPriv).pubHex.toLowerCase();
+    const sig = [VALUE.toString()].join(',');
+    store.set(`tacit-bridge-tried-v1:mainnet:fast:${wk}`, JSON.stringify({ sig: '', leaves: [leaf.toLowerCase()] }));
+    store.set(`tacit-bridge-tried-v1:mainnet:fast:${wk.replace(/^0x/, '')}`, JSON.stringify({ sig, leaves: [leaf.toLowerCase()] }));
+    const legacy = await mkUx(chainHandler(events)).balance(walletPriv, { cbtc: false });
+    assert.equal(legacy.notes.length, 1, 'an old tried set does not hide a note');
+  } finally { globalThis.localStorage = had; if (had === undefined) delete globalThis.localStorage; }
+});
+
 test('balance: a non-round bridged amount is found once this browser knows it, from the bridge journal or added by hand', async () => {
   // In-memory storage for this test only (the pool UX reads its hints and saved memos from localStorage).
   const mem = new Map();

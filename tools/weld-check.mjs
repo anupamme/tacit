@@ -2639,10 +2639,10 @@ await step('bridgepub', async () => {
       ux.balance = async (priv) => {
         const b = await balance(priv);
         const hx = typeof priv === 'string' ? priv : '0x' + [...priv].map((x) => x.toString(16).padStart(2, '0')).join('');
-        const ws = [0, 1].map((index) => ux.buildWrap({ walletPriv: hx, amountWei: (30n * 10n ** 18n).toString(), ticker: 'cTAC', index }));
-        // One event holds both leaves, as a settle that inserts two would: a recovery needs the tree from leaf 0.
+        const ws = [0, 1, 2].map((index) => ux.buildWrap({ walletPriv: hx, amountWei: (30n * 10n ** 18n).toString(), ticker: 'cTAC', index }));
+        // One event holds the leaves, as a settle that inserts several would: a recovery needs the tree from leaf 0.
         const found = ux.indexer.recover([{ type: 'LeavesInserted', firstLeafIndex: 0, leaves: ws.map((w) => w.leaf), memos: ws.map((w) => w.memo) }], hx);
-        if (found.length !== 2) throw new Error('stub notes not recovered');
+        if (found.length !== 3) throw new Error('stub notes not recovered');
         for (const note of found) {
           b.notes = [...b.notes, note];
           const g = b.byAsset[note.asset] ||= { asset: note.asset, value: 0n, notes: [] };
@@ -2660,20 +2660,23 @@ await step('bridgepub', async () => {
     await r.page.click('#wallet-body [data-in="key"]');
     await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
     await r.page.evaluate(() => { location.hash = ''; location.hash = '#tac'; });
-    await until(r.page, () => (globalThis.__pubLeaves || []).length === 2, null, QUOTE_WAIT);
-    const [leafA, leafB] = await r.page.evaluate(() => globalThis.__pubLeaves);
+    await until(r.page, () => (globalThis.__pubLeaves || []).length === 3, null, QUOTE_WAIT);
+    const [leafA, leafB, leafC] = await r.page.evaluate(() => globalThis.__pubLeaves);
     // Two arrived bridges: the first asked for public TAC at DEAD, the second asked for nothing.
     const rec = (id, leaf) => ({ id: `${id}:0`, network: 'mainnet', walletPub: pub, path: 'reflected', stage: 'minted', createdAt: Date.now() - 9e6, mintedAt: Date.now() - 36e5, mintedTxHash: '0x' + 'ab'.repeat(32),
       source: { txid: id, vout: 0, sats: 546, assetId: '0x' + TAC, amount: { __big: '3000000000' }, blinding: { __big: '777' } }, envelope: { destLeaf: leaf } });
-    const A = 'a1'.repeat(32), B = 'a2'.repeat(32);
+    const A = 'a1'.repeat(32), B = 'a2'.repeat(32), C = 'a3'.repeat(32);
+    // The third asked for public TAC too, but was set aside as 'gone' while a scan missed its note; its note is in the balance now.
     await r.page.evaluate(([k, v, pk, pv]) => { localStorage.setItem(k, v); localStorage.setItem(pk, pv); },
-      [`tacit-burndep-bridge-v1:mainnet:${pub}`, JSON.stringify([rec(A, leafA), rec(B, leafB)]), 'tacit-lite-bridge-plan-v1', JSON.stringify({ [pub]: { [`${A}:0`]: { at: Date.now() - 36e5, publicTo: DEAD } } })]);
+      [`tacit-burndep-bridge-v1:mainnet:${pub}`, JSON.stringify([rec(A, leafA), rec(B, leafB), rec(C, leafC)]), 'tacit-lite-bridge-plan-v1',
+        JSON.stringify({ [pub]: { [`${A}:0`]: { at: Date.now() - 36e5, publicTo: DEAD }, [`${C}:0`]: { at: Date.now() - 36e5, publicTo: DEAD, publicDone: Date.now() - 6e5, publicNote: 'gone' } } })]);
     const n0 = submits.length;
     // The page's own tick (every couple of minutes while the key is open) makes the first public, to the address it chose, once its note
     // is found by the leaf the burn pinned.
-    for (let i = 0; i < 90 && !submits.slice(n0).some((x) => x.type === 'unwrap'); i++) await sleep(4000);
-    const first = submits.slice(n0).find((x) => x.type === 'unwrap');
-    ok(first && String(first.op.recipient).toLowerCase() === DEAD.toLowerCase(), `bridgepub: an arrived bridge whose holder asked for public TAC is made public to the address chosen (${first ? first.op.recipient : 'no submit'})`);
+    for (let i = 0; i < 90 && submits.slice(n0).filter((x) => x.type === 'unwrap').length < 2; i++) await sleep(4000);
+    const toDead = submits.slice(n0).filter((x) => x.type === 'unwrap' && String(x.op.recipient).toLowerCase() === DEAD.toLowerCase());
+    ok(toDead.length >= 1, `bridgepub: an arrived bridge whose holder asked for public TAC is made public to the address chosen (${toDead.length} to it)`);
+    ok(toDead.length === 2, `bridgepub: and one set aside as gone while a scan missed its note goes on once its note is in the balance (${toDead.length} made public to it)`);
     // The other asks for the press, on its row.
     await r.page.evaluate(() => { location.hash = ''; location.hash = '#bridge'; });
     const sel = `#bridge-body [data-bract="public"][data-brid="${B}:0"]`;
@@ -2684,7 +2687,7 @@ await step('bridgepub', async () => {
     for (let i = 0; i < 90 && submits.length === n1; i++) await sleep(4000);
     const second = submits.slice(n1).find((x) => x.type === 'unwrap');
     ok(second && /^0x[0-9a-fA-F]{40}$/.test(String(second.op.recipient)) && String(second.op.recipient).toLowerCase() !== DEAD.toLowerCase(), `bridgepub: its press sends the exit to the paying account (${second ? second.op.recipient : 'no submit'})`);
-    ok(submits.slice(n0).filter((x) => x.type === 'unwrap').length === 2, 'bridgepub: each note is exited once, not again on the next tick');
+    ok(submits.slice(n0).filter((x) => x.type === 'unwrap').length === 3, 'bridgepub: each note is exited once, not again on the next tick');
     if (r.errors.length) { fails++; console.log('FAIL bridgepub page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
