@@ -7741,6 +7741,31 @@ mod tests {
             "forward batch folds no cross-out"
         );
         assert_eq!(st_fwd.note_count, 0, "nothing folded in a forward batch");
+
+        // A SKIPPED MINT CONSUMES NO CLAIM (what lets the app send a refused Bitcoin step again): a mint the proof reaches while it holds a
+        // set without the burn (an older bundle) or no set at all (a forward batch) folds nothing and leaves the claim free, so a second mint
+        // transaction for the same claim, scanned once the set holds the burn, folds as the first would have.
+        let mut older = ImtAccumulator::new();
+        older.insert(&[0x90u8; 32]); // some other cross-out: a set that does not hold this one
+        let older_root = older.root();
+        let (o_lv, o_ln, o_li, o_lp) = imt_nonmember_w(&older, &leaf_key);
+        let mut retry = ScanReflection::genesis();
+        let free = retry.consumed_crossout_root;
+        retry.fold_crossout(&asset, &claim_id, &cx, &cy, false, &o_ln, &o_lv, o_li, &o_lp, &older_root, &txid, 0, &AUTH_DUMMY, &empty_path, &clv, &cln, cli, &clp, &cnp)
+            .expect("a bundle without the burn skips the mint");
+        assert_eq!(retry.note_count, 0, "skipped mint folds nothing");
+        assert_eq!(retry.consumed_crossout_root, free, "a skipped mint leaves its claim unconsumed");
+        assert!(
+            retry.fold_crossout(&asset, &claim_id, &cx, &cy, true, &sm_next, &[0u8; 32], sm_index, &sm_path, &[0u8; 32], &txid, 0, &AUTH_DUMMY, &empty_path, &clv, &cln, cli, &clp, &cnp).is_err(),
+            "forward batch skips the mint too"
+        );
+        assert_eq!(retry.note_count, 0);
+        assert_eq!(retry.consumed_crossout_root, free, "and consumes nothing");
+        let second_txid = [0x55u8; 32];
+        retry.fold_crossout(&asset, &claim_id, &cx, &cy, true, &sm_next, &[0u8; 32], sm_index, &sm_path, &set_root, &second_txid, 0, &AUTH_DUMMY, &empty_path, &clv, &cln, cli, &clp, &cnp)
+            .expect("a second mint of the same claim folds once the set holds the burn");
+        assert_eq!(retry.note_count, 1, "the second mint's note is appended");
+        assert_eq!(retry.consumed_crossout_root, consumed.root(), "and the claim is consumed by it");
     }
 
     /// cBTC.zk sats-lock value-entry: the reflection tracks ONLY a confirmed, nonzero self-custody lock
