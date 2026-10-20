@@ -26,7 +26,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /swap/app.js | | /confidential-pool-ux.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/swap/app.js?cb=71c408b0">
+<link rel="modulepreload" href="/swap/app.js?cb=03d138ec">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
 <link rel="modulepreload" href="/evm-trade-venues.js?cb=a11adb8d">
 <link rel="modulepreload" href="/zrouter-guard.js">
@@ -215,6 +215,13 @@ img.tk { object-fit: contain; }
 .q.err { color: var(--err); } .q.ok { color: var(--ok); }
 .link { padding: 0; font: inherit; color: var(--ink); background: none; border: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .sw-foot { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 4px 2px 0; padding-top: 10px; border-top: 1px solid var(--hair); font-size: 12px; color: var(--mute); }
+.recent { margin: 8px 2px 0; font-size: 12px; color: var(--mute); }
+.recent summary { width: fit-content; list-style: none; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.recent summary::-webkit-details-marker { display: none; }
+.recent ol { display: grid; gap: 6px; margin: 8px 0 0; padding: 0; list-style: none; }
+.recent li { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.recent a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--hair-2); overflow-wrap: break-word; }
+.recent time { white-space: nowrap; }
 .slip { display: inline-flex; gap: 4px; min-height: 26px; }
 .slip button { min-height: 26px; padding: 1px 9px; font: 12px var(--mono); color: var(--mute); background: none; border: 1px solid var(--hair-2); border-radius: 999px; cursor: pointer; }
 .slip button[aria-pressed="true"] { color: var(--card); background: var(--ink); border-color: var(--ink); }
@@ -550,6 +557,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
           <p class="q" id="q" role="status"></p>
         </div>
         <div class="sw-foot"><span id="foot-l">Slippage</span><span class="slip" id="slip" role="group" aria-label="Slippage"><button type="button" data-slip="10" aria-pressed="false">0.1%</button><button type="button" data-slip="50" aria-pressed="true">0.5%</button><button type="button" data-slip="100" aria-pressed="false">1%</button><button type="button" data-slip="300" aria-pressed="false">3%</button></span></div>
+        <details class="recent" id="recent" hidden><summary>Recent swaps</summary><ol id="recent-l"></ol></details>
       </div>
 
       <div class="sw-b" id="p-earn" role="tabpanel" aria-labelledby="tab-earn" hidden>
@@ -648,6 +656,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <link rel="modulepreload" href="/cbtc-note-recovery.js">
 </template>
 <!-- warm:end -->
-<script type="module" src="/swap/app.js?cb=71c408b0"></script>
+<script type="module" src="/swap/app.js?cb=03d138ec"></script>
 </body>
 </html>

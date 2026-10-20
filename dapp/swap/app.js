@@ -1,7 +1,7 @@
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
 import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venues.js?cb=a11adb8d';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=92188b57';
-import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18 } from '/trade/util.js?cb=509d6618';
+import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18, ago } from '/trade/util.js?cb=509d6618';
 import * as R from '/swap/route.js?cb=00b806b1';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
 import { aprText, readPrecision, readSpot, privateFarms } from '/trade/farm-read.js?cb=112a01b9';
@@ -30,6 +30,18 @@ const S = {
   tab: 'swap', mode: 'wallet', pay: lc(R.ZERO), get: lc(R.TAC), amt: '', slip: 50, pick: null, hold: false, q: null, seq: 0, busy: false, ack: false, max: false,
   custom: [], bal: {}, px: {}, gasPrice: null, chainT: 0, chainAt: 0, farm: 'precision', farms: null, lastBuy: null, note: '', ackKey: '', to: null, toOpen: false, toBad: '',
 };
+// The last swaps made from this browser, so a swap does not vanish with the line that said "Done": a short sentence and its transaction.
+const RECENT_KEY = 'tacit-swap-recent-v1';
+let RECENT = [];
+try { RECENT = (JSON.parse(localStorage.getItem(RECENT_KEY) || '[]') || []).filter((r) => /^0x[0-9a-f]{64}$/.test(r?.h) && Number.isFinite(r.t) && typeof r.s === 'string').slice(0, 8); } catch { }
+function remember(h, s) {
+  RECENT = [{ h, s: s.slice(0, 120), t: now() }, ...RECENT.filter((r) => r.h !== h)].slice(0, 8);
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(RECENT)); } catch { }
+}
+function paintRecent() {
+  $('#recent').hidden = !RECENT.length;
+  $('#recent-l').innerHTML = RECENT.map((r) => `<li><a href="https://etherscan.io/tx/${esc(r.h)}" target="_blank" rel="noopener noreferrer">${esc(r.s)}</a><time>${esc(ago(r.t))}</time></li>`).join('');
+}
 const SLIP_KEY = 'tacit-swap-slip-v1';
 try { const v = Number(localStorage.getItem(SLIP_KEY)); if ([10, 50, 100, 300].includes(v)) S.slip = v; } catch { }
 try { S.custom = (JSON.parse(localStorage.getItem(CUSTOM_KEY) || '[]') || []).filter((t) => /^0x[0-9a-f]{40}$/.test(t?.addr) && Number.isInteger(t.dec)).slice(0, 20); } catch { }
@@ -264,7 +276,7 @@ function vsMarket(q = S.q, r = picked(q)) {
 const BAD = -0.03, GATE = -0.1;
 
 function paint() {
-  paintTabs(); paintSides(); paintQuote();
+  paintTabs(); paintSides(); paintQuote(); paintRecent();
 }
 function paintTabs() {
   for (const [t, el] of [['swap', $('#tab-swap')], ['earn', $('#tab-earn')]]) el.setAttribute('aria-selected', String(S.tab === t));
@@ -402,6 +414,7 @@ async function go() {
     if (P.to) { S.to = null; S.toOpen = false; S.toBad = ''; $('#to-in').value = ''; }
     S.amt = ''; S.q = null; S.busy = false; keepUrl(); paint();
     say(`Done ${txLink(h)}: ${isEth(P.get) ? `about ${tidy(amtFmt(P.r.out, g.dec))} ETH to ${where}` : P.to ? `about ${tidy(amtFmt(P.r.out, g.dec))} ${esc(g.sym)} sent to ${where}` : got != null && got > 0n ? `${tidy(amtFmt(got, g.dec))} ${esc(g.sym)} in your wallet` : `${esc(g.sym)} sent to your wallet`}.${!isEth(P.get) && !P.to ? ` <button type="button" class="link" data-watch="${esc(g.addr)}">Add ${esc(g.sym)} to your wallet</button>` : ''}${S.lastBuy ? ` · <button type="button" class="link" data-farm-it>Farm it</button>` : ''}`, 'ok', true);
+    remember(h, `${tidy(amtFmt(P.wei, tokenOf(P.pay).dec))} ${tokenOf(P.pay).sym} → ${tidy(amtFmt(got != null && got > 0n ? got : P.r.out, g.dec))} ${g.sym}${P.to ? ` · to ${shortAddr(P.to)}` : ''}`); paintRecent();
     live('Swap done');
     readBalances().then(() => paintSides());
     readPrices().catch(() => {});

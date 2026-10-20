@@ -249,6 +249,17 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
     ok(eb0 - eb1 >= 2n * 10n ** 17n, 'the wallet paid the ETH');
     ok(/sent to 0x/.test(await page.textContent('#q')) && !(await page.$('[data-farm-it]')) && !(await page.$('[data-watch]')), 'the receipt says where it went, with no "Farm it" or "Add to wallet" for TAC that is not the wallet\'s');
     ok(await page.isHidden('#to-in') && (await page.inputValue('#to-in')) === '' && (await page.textContent('#get-where')).trim() === 'to your wallet', 'afterwards the address is cleared, so the next swap goes to the wallet');
+
+    // the swaps are listed, newest first, and kept in this browser
+    ok(await page.isVisible('#recent') && (await page.textContent('#recent summary')).trim() === 'Recent swaps', 'the page lists recent swaps once there are some');
+    await page.click('#recent summary');
+    const items = await page.$$eval('#recent-l li', (a) => a.map((li) => ({ t: li.textContent, h: li.querySelector('a')?.getAttribute('href') })));
+    ok(items.length === 2 && /to 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}/.test(items[0].t) && /^0\.2 ETH → [\d,.]+ TAC$/.test(items[1].t.replace(/just now.*$/, '').replace(/\d+ min ago$/, '').trim()) && items.every((x) => /^https:\/\/etherscan\.io\/tx\/0x[0-9a-f]{64}$/.test(x.h)), `two swaps listed with their transactions, the one to another address first (${items.map((x) => x.t).join(' | ')})`);
+    const p2 = await page.context().newPage();
+    await p2.goto(page.url());
+    await until(p2, () => !document.querySelector('#recent')?.hidden);
+    ok((await p2.$$('#recent-l li')).length === 2, 'a new page in the same browser lists them again');
+    await p2.close();
   }
 
   // USDC → TAC, signed for
