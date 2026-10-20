@@ -11,6 +11,7 @@ import http from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
 import { readFileSync, existsSync, statSync, mkdirSync } from 'node:fs';
 import { join, extname } from 'node:path';
+import { ammRouteDeployTx, ammRouteAddressMatches } from './amm-route-deploy.mjs';
 
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT || '/Users/z/zFi/node_modules/playwright-core');
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
@@ -18,7 +19,21 @@ const FORK = process.env.FORK || 'https://ethereum-rpc.publicnode.com', SHOTS = 
 const PORT = 22000 + Math.floor(Math.random() * 1000), WEB = PORT + 1, ANVIL = `http://127.0.0.1:${PORT}`;
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 const ZQUOTER = '0x000000bd2db80567c23e353ca95a251c573cbf9b';
-const up = async (method, params) => (await (await fetch(FORK, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json());
+// A node that caps a call's gas below what zQuoter's scan asks for (50M on some public nodes), or that is unreachable, is followed by the next.
+const UPSTREAMS = [FORK, 'https://mainnet.gateway.tenderly.co'];
+const up = async (method, params) => {
+  let last;
+  for (const url of UPSTREAMS) {
+    for (let a = 0; a < 2; a++) {
+      try {
+        const j = await (await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json();
+        if (j.error && /gas required exceeds|out of gas/i.test(j.error.message || '')) { last = j; break; }
+        return j;
+      } catch (e) { last = { error: { message: e.message } }; }
+    }
+  }
+  return last;
+};
 const FORK_BLOCK = BigInt((await up('eth_blockNumber', [])).result) - 2n;
 
 const anvil = spawn('anvil', ['--port', String(PORT), '--fork-url', FORK, '--fork-block-number', String(FORK_BLOCK), '--chain-id', '1', '--silent', '--no-rate-limit'], { stdio: 'ignore' });
@@ -307,10 +322,61 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await until(page, () => /Done/.test(document.querySelector('#q').textContent), null, 180000);
   const t4 = await bal(TAC, w.account);
   ok(t3 - t4 === 50n * 10n ** 18n, 'TAC → ETH spent exactly 50 TAC');
+  // TAC → USDC: a Tacit asset sold for any token on the list, in one transaction
+  {
+    await pick(page, 'pay', 'TAC');
+    await page.click('#get-coin');
+    ok(await page.isVisible('.pk-r:has(b:text-is("USDC"))') && await page.isVisible('#pk-q'), 'with TAC to sell, the Get list offers the tokens on the list, and can be searched');
+    await page.click('.pk-r:has(b:text-is("USDC"))');
+    ok((await page.textContent('#get-coin')).includes('USDC') && (await page.textContent('#pay-coin')).includes('TAC'), 'TAC sells for USDC');
+    const have = await bal(TAC, w.account), amt = String(Math.max(1, Math.floor(Number(have / 10n ** 18n) * 0.4)));
+    await typeAmt(page, amt); await quoted(page);
+    ok(/^Sell TAC$/.test((await page.textContent('#go')).trim()), 'the button sells TAC');
+    ok(/Route\s*(Precision|Tacit) pool → (Uniswap|Curve|Sushi|zAMM)/.test((await page.textContent('#rcpt')).replace(/\s+/g, ' ')), `the receipt names the pool that buys the ETH and the one that sells it for USDC (${(await page.textContent('#rcpt')).replace(/\s+/g, ' ').slice(0, 120)})`);
+    const usdc0 = await bal(USDC, w.account), tac0 = await bal(TAC, w.account);
+    await page.click('#go');
+    await until(page, () => /Done/.test(document.querySelector('#q').textContent), null, 180000);
+    const usdc1 = await bal(USDC, w.account), tac1 = await bal(TAC, w.account);
+    ok(tac0 - tac1 > 0n && tac0 - tac1 <= BigInt(amt) * 10n ** 18n && usdc1 > usdc0, `TAC → USDC landed in one transaction: ${Number(tac0 - tac1) / 1e18} TAC → ${Number(usdc1 - usdc0) / 1e6} USDC`);
+    ok(/USDC/.test(await page.textContent('#q')), 'the receipt names the USDC received');
+    await page.click('#flip');
+    ok((await page.textContent('#pay-coin')).includes('USDC') && (await page.textContent('#get-coin')).includes('TAC'), 'the flip turns the sale back into a purchase of TAC');
+    await typeAmt(page, '100'); await quoted(page);
+    ok(/^Buy TAC$/.test((await page.textContent('#go')).trim()), 'and the button buys TAC with the USDC');
+    await pick(page, 'pay', 'USDC'); await pick(page, 'get', 'tacUSD');
+    ok((await page.textContent('#get-coin')).includes('tacUSD') && (await page.textContent('#pay-coin')).includes('ETH') && !(await page.textContent('#pay-coin')).includes('USDC'), 'while TacitAmmRoute is not deployed, a token cannot be paid into tacUSD: choosing tacUSD moves the pay side to ETH');
+  }
   ok(walletLog.sends.every((s) => !/^0x095ea7b3/.test(s.data)) || walletLog.typed.length >= 2, `sales sign rather than approve where they can (${walletLog.sends.length} sends, ${walletLog.signs} signatures)`);
   ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
   ok(!blocked.length, `nothing blocked by the CSP${blocked.length ? ': ' + blocked.slice(0, 3).join(' | ') : ''}`);
   void e0;
+  await browser.close();
+}
+
+// ── TacitAmmRoute is deployed: any token into tacUSD, in one transaction ──
+{
+  const CUSD = '0x23cACFFAc2674514A6d4F6cD420B4cc2aC921564', DEPLOYER = '0x' + 'd3'.repeat(20);
+  await rpcA('anvil_impersonateAccount', [DEPLOYER]); await rpcA('anvil_setBalance', [DEPLOYER, '0x' + (5n * 10n ** 18n).toString(16)]);
+  ok(ammRouteAddressMatches(), 'the compiled TacitAmmRoute lands at the address route.js names');
+  await rpcA('eth_sendTransaction', [{ from: DEPLOYER, ...ammRouteDeployTx(), gas: '0x2dc6c0' }]);
+  const w = await fundedWallet();
+  const { browser, page, errors, blocked } = await openPage({ width: 1280, height: 900 }, { wallet: w });
+  await page.click('#wallet-chip');
+  await until(page, () => /0x/.test(document.querySelector('#wallet-label').textContent));
+  await until(page, () => /Balance/.test(document.querySelector('#pay-side').textContent));
+  await pick(page, 'pay', 'USDC'); await pick(page, 'get', 'tacUSD');
+  ok((await page.textContent('#get-coin')).includes('tacUSD'), 'once TacitAmmRoute is deployed, the page offers USDC → tacUSD');
+  await typeAmt(page, '150'); await quoted(page);
+  if (await page.$('#ack')) await page.check('#ack');
+  ok(/^Buy tacUSD$/.test((await page.textContent('#go')).trim()), `the button buys tacUSD (${(await page.textContent('#go')).trim()})`);
+  ok(/Route\s*(Uniswap|Curve|Sushi|zAMM).* → Tacit pool/.test((await page.textContent('#rcpt')).replace(/\s+/g, ' ')), 'the receipt names the pool that sells the ETH and the Tacit pool that buys tacUSD with it');
+  const c0 = await bal(CUSD, w.account), u0 = await bal(USDC, w.account);
+  await page.click('#go');
+  await until(page, () => /Done/.test(document.querySelector('#q').textContent), null, 180000);
+  const c1 = await bal(CUSD, w.account), u1 = await bal(USDC, w.account);
+  ok(c1 > c0 && u0 - u1 > 0n && u0 - u1 <= 150n * 10n ** 6n, `USDC → tacUSD landed in one transaction: ${Number(u0 - u1) / 1e6} USDC → ${Number(c1 - c0) / 1e18} tacUSD`);
+  ok(!errors.length, `no page errors${errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''}`);
+  ok(!blocked.length, `nothing blocked by the CSP${blocked.length ? ': ' + blocked.slice(0, 3).join(' | ') : ''}`);
   await browser.close();
 }
 

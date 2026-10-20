@@ -1,8 +1,8 @@
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
-import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venues.js?cb=a11adb8d';
+import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venues.js?cb=5a940508';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=92188b57';
 import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18, ago } from '/trade/util.js?cb=509d6618';
-import * as R from '/swap/route.js?cb=00b806b1';
+import * as R from '/swap/route.js?cb=49ce4d1f';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
 import { aprText, readPrecision, readSpot, privateFarms } from '/trade/farm-read.js?cb=112a01b9';
 
@@ -28,7 +28,7 @@ const TETH = { sym: 'tETH', name: 'Ether, private', addr: 'teth', dec: 18, icon:
 const CUSTOM_KEY = 'tacit-swap-tokens-v1';
 const S = {
   tab: 'swap', mode: 'wallet', pay: lc(R.ZERO), get: lc(R.TAC), amt: '', slip: 50, pick: null, hold: false, q: null, seq: 0, busy: false, ack: false, max: false,
-  custom: [], bal: {}, px: {}, gasPrice: null, chainT: 0, chainAt: 0, farm: 'precision', farms: null, lastBuy: null, note: '', ackKey: '', to: null, toOpen: false, toBad: '',
+  custom: [], bal: {}, px: {}, gasPrice: null, chainT: 0, chainAt: 0, farm: 'precision', farms: null, lastBuy: null, note: '', ackKey: '', to: null, toOpen: false, toBad: '', ammRoute: null,
 };
 // The last swaps made from this browser, so a swap does not vanish with the line that said "Done": a short sentence and its transaction.
 const RECENT_KEY = 'tacit-swap-recent-v1';
@@ -60,6 +60,14 @@ function takeList(rows) {
   }
 }
 try { const c = JSON.parse(localStorage.getItem(TL.key) || 'null'); if (c?.rows) { takeList(c.rows); TL.at = c.at || 0; } } catch { }
+// Whether TacitAmmRoute is deployed, which is what lets a token be swapped into tacUSD or tacBTC in one transaction. Read now and then, so the
+// pair appears by itself the day it is.
+async function checkAmmRoute() {
+  const v = await R.ammRouteLive({ ethCall }).catch(() => null);
+  if (v == null || v === S.ammRoute) return;
+  S.ammRoute = v;
+  if (!S.busy) { fit('pay'); paint(); if (S.q) requote(true); }
+}
 function loadList() {
   if (Date.now() - TL.at < TL.day && TL.rows.length) return Promise.resolve();
   return (TL.p ||= (async () => {
@@ -106,14 +114,18 @@ function kindOf(pay, get, mode = S.mode) {
   if (get === 'teth' || pay === 'teth') return null;
   if (isEth(pay)) return get === lc(R.TAC) ? 'tac' : (get === lc(R.CUSD) || get === lc(R.CBTC)) ? 'amm' : null;
   if (isEth(get)) return pay === lc(R.TAC) ? 'tac' : (pay === lc(R.CUSD) || pay === lc(R.CBTC)) ? 'amm' : null;
-  return get === lc(R.TAC) && !tacitKey(pay) ? 'any' : null;
+  const tin = tacitKey(pay), tout = tacitKey(get);
+  if (get === lc(R.TAC) && !tin) return 'any';
+  if (tin && !tout) return listed().some((t) => t.addr === get) ? 'out' : null;                          // TAC, tacUSD or tacBTC out to any token
+  if (!tin && (get === lc(R.CUSD) || get === lc(R.CBTC))) return S.ammRoute === true ? 'in' : null;         // any token in to tacUSD or tacBTC, once TacitAmmRoute is deployed
+  return null;
 }
 const payList = () => (S.mode === 'private' ? [lc(R.ZERO), 'teth', lc(R.TAC), lc(R.CUSD), lc(R.CBTC)] : listed().map((t) => t.addr));
-const getList = () => (S.mode === 'private' ? ['teth', lc(R.TAC), lc(R.CUSD), lc(R.CBTC)] : [lc(R.TAC), lc(R.CUSD), lc(R.CBTC), lc(R.ZERO)]);
+const getList = () => (S.mode === 'private' ? ['teth', lc(R.TAC), lc(R.CUSD), lc(R.CBTC)] : [lc(R.TAC), lc(R.CUSD), lc(R.CBTC), lc(R.ZERO), ...(tacitKey(S.pay) ? listed().map((t) => t.addr).filter((a) => !isEth(a) && !tacitKey(a)) : [])]);
 function fit(changed) {
   if (kindOf(S.pay, S.get)) return;
   if (changed === 'pay') S.get = S.mode === 'private' ? (S.pay === lc(R.TAC) ? 'teth' : lc(R.TAC)) : isEth(S.pay) ? lc(R.TAC) : tacitKey(S.pay) ? lc(R.ZERO) : lc(R.TAC);
-  else S.pay = S.mode === 'private' ? lc(R.ZERO) : isEth(S.get) ? lc(R.TAC) : lc(R.ZERO);
+  else S.pay = S.mode === 'private' ? lc(R.ZERO) : isEth(S.get) || !tacitKey(S.get) ? lc(R.TAC) : lc(R.ZERO);
   if (!kindOf(S.pay, S.get)) { S.pay = lc(R.ZERO); S.get = lc(R.TAC); }
 }
 
@@ -189,7 +201,7 @@ async function signTyped(typed, from) {
   }
 }
 
-const GAS = { tac: 160000n, tacSell: 210000n, split: 270000n, any: 320000n, amm: 150000n, ammIn: 200000n };
+const GAS = { tac: 160000n, tacSell: 210000n, split: 270000n, any: 320000n, amm: 150000n, ammIn: 200000n, out: 340000n, in: 290000n };
 function rowsFor(q) { return q?.rows || []; }
 const picked = (q = S.q) => (q?.rows || []).find((r) => r.k === S.pick) || q?.rows?.find((r) => r.best) || q?.rows?.[0] || null;
 
@@ -230,6 +242,19 @@ async function quote(my, wei) {
     const hop = q.hop ? `${q.hop.name}${q.hop.feeBps ? ` ${Number(q.hop.feeBps) / 100}%` : ''}` : null;
     return done({ rows: [{ k: 'any', name: hop ? `${hop} → Precision pool` : 'Precision pool', note: '', out: q.tacOut, any: q, gas: GAS.any, best: true }] });
   }
+  if (kind === 'out' || kind === 'in') {
+    const who = account || '0x0000000000000000000000000000000000000001', dest = recipient() || who, args = { ethCall, amountIn: wei, account: who, to: dest, slippageBps: S.slip, deadline: chainDeadline(1800) };
+    if (kind === 'out') {
+      const q = await within(R.quoteTacitToToken({ ...args, venues, tokenIn: S.pay, tokenOut: S.get }), 20e3, 'zQuoter did not answer in time. Try again.');
+      if (!q) return done({ rows: [], why: `No pool trades WETH for ${esc(get.sym)} deeply enough. Sell ${esc(pay.sym)} for ETH, then swap it elsewhere.` });
+      const via = q.leg.venue === 'precision' ? 'Precision pool' : 'Tacit pool', hop = q.hop ? `${q.hop.name}${q.hop.feeBps ? ` ${Number(q.hop.feeBps) / 100}%` : ''}` : null;
+      return done({ rows: [{ k: 'out', name: hop ? `${via} → ${hop}` : via, note: '', out: q.out, min: q.min, sell: q, gas: GAS.out, best: true }] });
+    }
+    const q = await within(R.quoteTokenToTacit({ ...args, token: S.pay, tokenOut: S.get }), 20e3, 'zQuoter did not answer in time. Try again.');
+    if (!q) return done({ rows: [], why: `No pool trades ${esc(pay.sym)} against WETH deeply enough. Swap it for ETH elsewhere first.` });
+    const hop = `${q.hop.name}${q.hop.feeBps ? ` ${Number(q.hop.feeBps) / 100}%` : ''}`;
+    return done({ rows: [{ k: 'in', name: `${hop} → Tacit pool`, note: '', out: q.out, buy: q, gas: GAS.in, best: true }] });
+  }
   const units = parseUnits(S.amt, 8);
   if (!units) return done({ rows: [], why: 'Enter an amount with at most 8 decimal places.' });
   if (isEth(S.pay) && S.get === 'teth') return done({ rows: [{ k: 'private', name: 'Made private', note: '', out: units * E10, best: true, priv: true }], fee: null });
@@ -267,7 +292,7 @@ function warmPrivate() {
 }
 const twoDigits = (v) => { if (v <= 0n) return 0n; const d = BigInt(String(v).length); if (d <= 2n) return v; const m = 10n ** (d - 2n); return ((v + m - 1n) / m) * m; };
 
-const spentOf = (q, r) => (r?.any ? r.any.spend : q.wei);
+const spentOf = (q, r) => (r?.any ? r.any.spend : r?.buy ? r.buy.spend : r?.sell ? r.sell.amountIn : q.wei);
 function vsMarket(q = S.q, r = picked(q)) {
   if (!q || !r) return null;
   const vin = usdOf(S.pay === 'teth' ? lc(R.ZERO) : S.pay, spentOf(q, r)) ?? (r.any ? usdOf(lc(R.ZERO), r.any.weth) : null), vout = usdOf(S.get === 'teth' ? lc(R.ZERO) : S.get, r.out);
@@ -337,8 +362,8 @@ function paintQuote() {
   if (r) {
     const inAmt = Number(spentOf(q, r)) / 10 ** pay.dec, outAmt = Number(r.out) / 10 ** get.dec;
     if (inAmt > 0 && outAmt > 0) lines.push(['Price', outAmt >= inAmt ? `1 ${pay.sym} = ${sig(outAmt / inAmt)} ${get.sym}` : `1 ${get.sym} = ${sig(inAmt / outAmt)} ${pay.sym}`]);
-    if (!r.priv) lines.push(['At least', `${tidy(amtFmt((r.out * BigInt(10000 - S.slip)) / 10000n, get.dec))} ${get.sym}`]);
-    if (r.any?.hop) lines.push(['Route', r.name]);
+    if (!r.priv) lines.push(['At least', `${tidy(amtFmt(r.min ?? (r.out * BigInt(10000 - S.slip)) / 10000n, get.dec))} ${get.sym}`]);
+    if (r.any?.hop || r.sell || r.buy) lines.push(['Route', r.name]);
     const tacSide = S.pay === lc(R.TAC) || S.get === lc(R.TAC);
     if (m != null && tacSide) lines.push(['Price impact', `${(Math.max(0, -m) * 100).toFixed(2)}%`, m <= GATE ? 'warn' : '']);
     else if (m != null) lines.push(['Against the market', m <= BAD ? `${(Math.abs(m) * 100).toFixed(1)}% below` : m >= 0.02 ? `${(m * 100).toFixed(1)}% above` : `${m >= 0 ? '+' : '−'}${(Math.abs(m) * 100).toFixed(2)}%`, m <= BAD ? 'warn' : m >= 0.02 ? 'ok' : '']);
@@ -378,7 +403,7 @@ function button(q, r, kind, gate) {
   if (bal != null && isEth(S.pay) && S.gasPrice && wei + r.gas * S.gasPrice > bal) return ['Leave some ETH for the network fee', false];
   if (gate && !S.ack) return ['Accept the price above to swap', false];
   const to = recipient(), tail = to ? ` → ${shortAddr(to)}` : '';
-  return [(isEth(S.get) ? `Sell ${pay.sym}` : isEth(S.pay) || kind === 'any' ? `Buy ${get.sym}` : `Swap ${pay.sym} for ${get.sym}`) + tail, true];
+  return [(isEth(S.get) || kind === 'out' ? `Sell ${pay.sym}` : isEth(S.pay) || kind === 'any' || kind === 'in' ? `Buy ${get.sym}` : `Swap ${pay.sym} for ${get.sym}`) + tail, true];
 }
 function lineFor(q, r, kind) {
   if (!kind) return kindOf(S.pay, S.get, 'private') ? `Swaps privately: <button type="button" class="link" data-mode-go="private">switch</button>.` : 'No route for this pair.';
@@ -459,6 +484,15 @@ async function prepare(P, from) {
     if (!q || q.tacOut < P.floor) return moved();
     const floor = floorFor(q.tacOut), access = await anyAccess(q, from);
     tx = R.buildAnyToTac({ quote: q, account: from, to: dest, minOut: floor, keccak256: keccak_256, access });
+  } else if (P.kind === 'out') {
+    const q = await within(R.quoteTacitToToken({ ethCall, venues, tokenIn: P.pay, tokenOut: P.get, amountIn: P.wei, account: from, to: dest, slippageBps: S.slip, deadline: dl }), 20e3, 'zQuoter did not answer in time. Nothing was sent; try again.');
+    if (!q || q.out < P.floor) return moved();
+    tx = R.buildTacitToToken({ quote: q, account: from, to: dest, venues, access: await tacitAccess(P.pay, q.amountIn, from, dl) });
+  } else if (P.kind === 'in') {
+    if ((await R.ammRouteLive({ ethCall })) !== true) { S.ammRoute = false; say('That swap is not available right now. Nothing was sent.', '', true); S.busy = false; paint(); return null; }
+    const q = await within(R.quoteTokenToTacit({ ethCall, token: P.pay, tokenOut: P.get, amountIn: P.wei, account: from, to: dest, slippageBps: S.slip, deadline: dl }), 20e3, 'zQuoter did not answer in time. Nothing was sent; try again.');
+    if (!q || q.out < P.floor) return moved();
+    tx = R.buildTokenToTacit({ quote: q, account: from, to: dest, minOut: floorFor(q.out), access: await anyAccess(q, from) });
   } else throw new Error('Nothing to do for this pair.');
   say('Checking it first…');
   const sim = await venues.simulate({ tx, from });
@@ -475,6 +509,14 @@ async function withAccess({ tx, make, from, dl, permit }) {
   }
   await approve(R.TAC, tx.approval.spender, tx.approval.amount, from, acc.allowed);
   return tx;
+}
+// How a Tacit asset reaches zRouter: the allowance it already has, else a permit signed for free.
+async function tacitAccess(token, amount, from, dl) {
+  const t = tokenOf(lc(token)), acc = await R.readAccess({ ethCall, token, owner: from });
+  if (acc.balance < amount) throw new Error(`Not enough ${t.sym}.`);
+  if (acc.allowed >= amount) return { kind: 'approved' };
+  say(`Sign the permit for your ${esc(t.sym)} in your wallet. The signature costs nothing.`);
+  return { kind: 'permit', value: amount, deadline: dl, ...R.splitSig(await signTyped(R.permitTyped({ token, name: 'Tacit Token', version: '1', owner: from, spender: R.ZROUTER, value: amount, nonce: acc.nonce, deadline: dl }), from)) };
 }
 async function anyAccess(q, from) {
   const t = tokenOf(lc(q.token)), acc = await R.readAccess({ ethCall, token: q.token, owner: from });
@@ -533,10 +575,11 @@ function openPicker(side) {
     const ok = side === 'pay' ? kindOf(k, other) || kindOf(k, defaultFor(k)) : kindOf(other, k) || true;
     return `<button type="button" class="pk-r${ok ? '' : ' off'}" data-k="${esc(k)}" aria-current="${k === cur}">${coin(t)}<span><b>${esc(t.sym)}</b><small>${esc(S.mode === 'private' ? (isEth(k) ? 'wallet' : 'private') : t.custom ? `${t.addr.slice(0, 8)}…${t.addr.slice(-6)}` : t.name)}</small></span><em>${bal ? esc(amtFmt(bal, t.dec)) : ''}</em></button>`;
   };
-  const groups = side === 'pay' && S.mode !== 'private'
-    ? [[null, keys.filter((k) => isEth(k) || tacitKey(k))], ['Any token → TAC', held(keys.filter((k) => !isEth(k) && !tacitKey(k)))]]
+  const groups = S.mode === 'private' ? [[null, keys]]
+    : side === 'pay' ? [[null, keys.filter((k) => isEth(k) || tacitKey(k))], ['Any token', held(keys.filter((k) => !isEth(k) && !tacitKey(k)))]]
+    : tacitKey(S.pay) ? [[null, keys.filter((k) => isEth(k) || tacitKey(k))], ['Any token', keys.filter((k) => !isEth(k) && !tacitKey(k))]]
     : [[null, keys]];
-  pk.innerHTML = `<div class="pk-s" role="dialog" aria-modal="true" aria-label="${side === 'pay' ? 'Pay with' : 'Get'}"><div class="pk-h"><b>${side === 'pay' ? 'Pay with' : 'Get'}</b><button type="button" class="pk-x" aria-label="Close">×</button></div>${side === 'pay' && S.mode !== 'private' ? '<input class="pk-q" id="pk-q" placeholder="Search, or paste a token address" autocomplete="off" spellcheck="false" aria-label="Search tokens or paste an address">' : ''}<div class="pk-l" id="pk-l">${groups.map(([g, ks]) => `${g ? `<p class="pk-g">${esc(g)}</p>` : ''}${ks.map(row).join('')}`).join('')}<p class="pk-n" id="pk-n"></p></div></div>`;
+  pk.innerHTML = `<div class="pk-s" role="dialog" aria-modal="true" aria-label="${side === 'pay' ? 'Pay with' : 'Get'}"><div class="pk-h"><b>${side === 'pay' ? 'Pay with' : 'Get'}</b><button type="button" class="pk-x" aria-label="Close">×</button></div>${S.mode !== 'private' && (side === 'pay' || tacitKey(S.pay)) ? '<input class="pk-q" id="pk-q" placeholder="Search, or paste a token address" autocomplete="off" spellcheck="false" aria-label="Search tokens or paste an address">' : ''}<div class="pk-l" id="pk-l">${groups.map(([g, ks]) => `${g ? `<p class="pk-g">${esc(g)}</p>` : ''}${ks.map(row).join('')}`).join('')}<p class="pk-n" id="pk-n"></p></div></div>`;
   pk.hidden = false;
   const onKey = (e) => {
     if (e.key === 'Escape') { e.stopPropagation(); close(); return; }
@@ -720,13 +763,15 @@ if (S.tab === 'earn') { paintEarn(); }
 if (S.mode === 'private') { warmPrivate(); if (S.amt) requote(true); }
 readPrices().then(() => { paint(); if (S.amt && S.mode !== 'private') requote(true); if (S.tab === 'earn') readFarms().then(paintEarn, paintEarn); }).catch(() => { if (S.amt && S.mode !== 'private') requote(true); });
 gasPrice();
+checkAmmRoute();
 PN.load().then(() => { if (S.q?.rows && !S.q.busy) paintQuote(); }, () => {});
-let ticked = 0;
+let ticked = 0, routeAt = now();
 const tick = () => {
   if (document.hidden || now() - ticked < 10) return;
   ticked = now();
   readPrices().catch(() => {});
-  if (S.q && !S.busy && !S.q.busy && now() - (S.q.at || 0) > (S.q.kind === 'any' ? 55 : 25) && kindOf(S.pay, S.get) !== 'private') requote(true);
+  if (now() - routeAt > 300) { routeAt = now(); checkAmmRoute(); }
+  if (S.q && !S.busy && !S.q.busy && now() - (S.q.at || 0) > (['any', 'out', 'in'].includes(S.q.kind) ? 55 : 25) && kindOf(S.pay, S.get) !== 'private') requote(true);
 };
 setInterval(tick, 30e3);
 document.addEventListener('visibilitychange', tick);
