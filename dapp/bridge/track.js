@@ -182,7 +182,9 @@ export function costLine(asset, dir, c = {}) {
   const btc = `${sats.toLocaleString('en-US')} sats on Bitcoin`;
   const relay = fee != null ? `${fmtAmount(fee, asset === 'teth' ? 4 : 2)} ${r.ticker} to the relay` : '';
   const usd = asset === 'teth' && c.btcUsd > 0 && (fee == null || c.ethUsd > 0) ? (sats / 1e8) * c.btcUsd + (fee != null ? (Number(fee) / 1e8) * c.ethUsd : 0) : null;
-  const money = usd != null ? `About $${usd < 10 ? usd.toFixed(2) : Math.round(usd)} now: ` : 'About ';
+  // The relay's figure is its floor; what the app quotes adds headroom for gas that moves, so the way out reads as a least.
+  const lead = fee != null ? 'From' : 'About';
+  const money = usd != null ? `${lead} $${usd < 10 ? usd.toFixed(2) : Math.round(usd)} now: ` : `${lead} `;
   return `${money}${[relay, btc].filter(Boolean).join(' and ')}${dir === 'in' ? '; Tacit covers the Ethereum side' : ''}`;
 }
 
