@@ -44,6 +44,9 @@ function relayer() {
 
 const R = relayer();
 const server = createServer(R.r.wrap((req, res) => { res.writeHead(404); res.end(); }));
+// The proving between the two takes below outlasts the server's 5 s keep-alive: it closes an idle socket just as fetch reuses it, and the
+// take-out's first read fails with ECONNRESET. No timeout, so the test never depends on how fast the machine is.
+server.keepAliveTimeout = 0;
 await new Promise((ok) => server.listen(0, ok));
 globalThis.__TACIT_BTC_POOL_RELAY_MAINNET__ = `http://127.0.0.1:${server.address().port}`;
 const secret = await import('../../dapp/sats/secret.js');

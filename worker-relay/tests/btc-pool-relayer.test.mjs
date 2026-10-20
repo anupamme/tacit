@@ -134,7 +134,7 @@ test('relayer address is the pool wallet derived from its seed', async () => {
   const { relayer } = await setup();
   assert.equal(relayer.address, relayerWallet.addressString);
   assert.match(relayer.fundAddress, /^tb1q/);
-  assert.equal(relayer.info().fees[ASSET], '10');
+  assert.equal((await relayer.info()).fees[ASSET], '10');
 });
 
 test('accept: fee note fully received, proof checked against the replayed root', async () => {
@@ -525,7 +525,7 @@ test('flood: in-flight proof checks count toward maxPending and run at most maxV
   const ps = Array.from({ length: 6 }, () => payloadFor({ notes: [ownedNote(100n)], outputs: payOuts() }));
   const results = ps.map((p) => s.relayer.submit({ payload: p.hex }).then(() => 'ok', (e) => e.message));
   await settle();
-  assert.equal(s.relayer.info().pending, 4);
+  assert.equal((await s.relayer.info()).pending, 4);
   assert.equal(s.relayer._state.verifyActive(), 2);
   while (gates.length || active) { gates.shift()?.(); await settle(); }
   const out = await Promise.all(results);
@@ -712,7 +712,7 @@ test('mempool sources: esplora skips an oversized mempool and backs off on 429; 
 test('anchor freshness is measured from the chain tip with a margin', async () => {
   const s = await setup();
   s.pool.ct = 1010; // replay at 1000
-  assert.equal(s.relayer.info().minAnchor, 1010 + 1 - 144 + 6);
+  assert.equal((await s.relayer.info()).minAnchor, 1010 + 1 - 144 + 6);
   await rejects(s.relayer.submit({ payload: payloadFor({ notes: [ownedNote(100n)], outputs: payOuts(), hAnchor: 870 }).hex }), /too old/);
   await s.relayer.submit({ payload: payloadFor({ notes: [ownedNote(100n)], outputs: payOuts(), hAnchor: 875 }).hex });
   s.pool.ct = 1013;

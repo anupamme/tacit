@@ -25,6 +25,11 @@ writeFileSync(OTHER_VK_PATH, OTHER_VK);
 const MAINNET_PIN_PATH = join(dir, 'pin.json');
 writeFileSync(MAINNET_PIN_PATH, JSON.stringify({ ...PIN, network: 'mainnet' }));
 for (const f of [PIN.vk, PIN.params, PIN.wasm]) copyFileSync(join(PIN_DIR, f), join(dir, f));
+// A signet-only copy, likewise: the shipped pin names both networks, so a pin for one network has to be made to test the refusal.
+const SIGNET_DIR = mkdtempSync(join(tmpdir(), 'btc-pool-verify-'));
+const SIGNET_PIN_PATH = join(SIGNET_DIR, 'pin.json');
+writeFileSync(SIGNET_PIN_PATH, JSON.stringify({ ...PIN, network: 'signet' }));
+for (const f of [PIN.vk, PIN.params, PIN.wasm]) copyFileSync(join(PIN_DIR, f), join(SIGNET_DIR, f));
 // A pin whose params hash is wrong.
 const BADPARAMS_DIR = mkdtempSync(join(tmpdir(), 'btc-pool-verify-'));
 writeFileSync(join(BADPARAMS_DIR, 'pin.json'), JSON.stringify({ ...PIN, params_sha256: '00'.repeat(32) }));
@@ -90,14 +95,22 @@ test('malformed hash or missing key file disables verification', () => {
 });
 
 test('pin for another network disables verification', () => {
-  const a = makeBtcPoolVerifier({ network: 'mainnet', env: {}, log: quiet });
+  // The shipped pin names both networks (a list, since 2026-09-29), so a verifier on either takes it.
+  assert.deepEqual(String(PIN.network).split(',').map((x) => x.trim()), ['signet', 'mainnet']);
+  for (const network of ['signet', 'mainnet']) {
+    const v = makeBtcPoolVerifier({ network, env: {}, log: quiet });
+    assert.equal(v.enabled, true, `${network}: ${v.reason}`);
+    assert.equal(v.vkHash, PIN.vk_hash);
+  }
+  // A pin for one network only is refused on the other.
+  const a = makeBtcPoolVerifier({ network: 'mainnet', env: { BTC_POOL_PIN: SIGNET_PIN_PATH }, log: quiet });
   assert.equal(a.enabled, false);
   assert.equal(a.verify, null);
   assert.match(a.reason, /is for signet, not mainnet/);
   const b = makeBtcPoolVerifier({ network: 'signet', env: { BTC_POOL_PIN: MAINNET_PIN_PATH }, log: quiet });
   assert.equal(b.enabled, false);
   assert.match(b.reason, /is for mainnet, not signet/);
-  assert.throws(() => loadBtcPoolKey({ env: {}, network: 'mainnet' }), /is for signet/);
+  assert.throws(() => loadBtcPoolKey({ env: { BTC_POOL_PIN: SIGNET_PIN_PATH }, network: 'mainnet' }), /is for signet/);
   const c = makeBtcPoolVerifier({ network: 'mainnet', env: { BTC_POOL_PIN: MAINNET_PIN_PATH }, log: quiet });
   assert.equal(c.enabled, true);
   assert.equal(c.vkHash, PIN.vk_hash);

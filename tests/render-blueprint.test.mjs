@@ -20,7 +20,7 @@ const test = (label, fn) => { try { fn(); console.log(`  PASS  ${label}`); pass+
 
 function parse(file) {
   const r = spawnSync('python3', ['-c', 'import sys,json,yaml;print(json.dumps(yaml.safe_load(open(sys.argv[1]))))', join(ROOT, file)], { encoding: 'utf8' });
-  if (r.error || /No module named yaml/.test(r.stderr || '')) return { skipped: true };
+  if (r.error || /No module named '?yaml'?/.test(r.stderr || '')) return { skipped: true };      // Python 3.12 and later quote the module's name
   if (r.status !== 0) throw new Error(`does not parse: ${(r.stderr || '').trim().split('\n').slice(-1)[0]}`);
   return JSON.parse(r.stdout);
 }
