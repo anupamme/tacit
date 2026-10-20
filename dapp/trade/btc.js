@@ -2,10 +2,10 @@
 // executors and the book's data from tacit.js, mounted in a sheet. The module plans and tacit.js settles; this file supplies what the classic
 // app supplies around them and a page like this one does not have: signing in, a confirmation, a notice, the sats and TAC the key holds,
 // and where a purchase that stopped halfway is recovered. Nothing here builds or signs a transaction.
-import { makeBtcSession, short, Cancelled } from '/trade/btc-session.js?cb=ca3ac665';
+import { makeBtcSession, short, Cancelled } from '/trade/btc-session.js?cb=81f47c3a';
 import { overlay, esc } from '/trade/sheet.js?cb=84cda8f2';
 
-const MARKET_URL = '/btc-market.js?cb=7db6ed03', CSS_URL = '/trade/btc-market.css?cb=359753e6';
+const MARKET_URL = '/btc-market.js?cb=10e4bb6b', CSS_URL = '/trade/btc-market.css?cb=359753e6';
 const TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
 // The asset a sheet trades: its id, its title, and the line under the market about getting it onto Bitcoin. TAC's, unless the page names another.
 const TAC_ASSET = { id: TAC, title: 'TAC on Bitcoin', after: 'To sell TAC you hold on Ethereum, bridge it to Bitcoin first. <a href="/#bridge">Bridge →</a>' };
