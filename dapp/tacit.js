@@ -15841,6 +15841,31 @@ function bridgedAtTaproot({ force = false } = {}) {
   _bridgedHeld.p = p;
   return p;
 }
+// A note bridged to Bitcoin is moved to the key's own trading address: a transfer to itself that the key signs at its Taproot address, after which the TAC
+// sells like any other. The note must open from this key, be confirmed and unspent, and pass the same check a purchase makes of a lot. Nothing in a page calls this.
+async function moveBridgedNote({ txid, vout = 0, onProgress = null } = {}) {
+  await ensurePrivkey();
+  if (NET.name !== 'mainnet') throw new Error('moving a bridged note is for mainnet');
+  const id = String(txid || '').toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(id) || Number(vout) !== 0) throw new Error('a bridged note is output 0 of its mint transaction');
+  const pubHex = bytesToHex(wallet.pub);
+  const known = {};
+  try { for (const r of _crossoutUxSingleton().list(pubHex)) if (r.settle?.claimId) known[String(r.settle.claimId).toLowerCase()] = { amount: BigInt(r.source.amount ?? r.source.value), nullifier: r.id }; } catch { }
+  const found = await _crossoutNotesSingleton().discover({ walletPriv: wallet.priv, assetIds: [CANONICAL_TAC_ASSET_ID_HEX], known });
+  const n = found.find((x) => x.txid === id && Number(x.vout) === 0);
+  if (!n) throw new Error('that note is not at this key\'s Taproot address');
+  if (n.amount == null || n.blinding == null) throw new Error(n.openErr ? 'its amount could not be read just now: try again in a minute' : 'its amount could not be worked out from this key and the chain');
+  if (!n.confirmed) throw new Error('it is waiting for its Bitcoin confirmation');
+  const os = await getOutspend(id, 0);
+  if (os && os.spent === true) throw new Error('that note is already spent');
+  await requireValidatedLot(id, 0, 'this note');
+  return buildAndBroadcastCXferMulti({
+    assetIdHex: CANONICAL_TAC_ASSET_ID_HEX,
+    recipients: [{ pubHex, amount: n.amount }],
+    forceUtxos: [{ utxo: { txid: id, vout: 0, value: n.sats }, amount: n.amount, blinding: n.blinding, scriptpubkey: bytesToHex(p2trScript(wallet.pub.slice(1))), taprootKeyPath: true }],
+    onProgress,
+  });
+}
 let _crossoutNotes = null, _crossoutNotesNet = null;
 let _spentValuesRead = null;
 function _spentValuesOf(walletPriv) {
@@ -23672,9 +23697,7 @@ async function buildAndBroadcastCXferMulti({ assetIdHex, recipients, forceUtxos 
   const commitHex = bytesToHex(serializeTx(commitTx));
   const commitTxid = txid(commitTx);
 
-  _progress('commit-start');
-  await broadcast(commitHex);
-
+  // The reveal is built and signed (and any Taproot input's signature checked) before anything is broadcast, so a failure here spends nothing.
   const revealOutputs = revealPkScripts.map(script => ({ value: DUST, script }));
   if (satsChange >= DUST) revealOutputs.push({ value: satsChange, script: senderP2wpkh });
   const revealTx = {
@@ -23695,6 +23718,12 @@ async function buildAndBroadcastCXferMulti({ assetIdHex, recipients, forceUtxos 
     }
   }
   const assetSigners = pickedAssetUtxos.map((x) => {
+    if (x.taprootKeyPath === true) {
+      if (assetSigner || x.stealthTweakedSk) throw new Error('a note at the key\'s Taproot address is signed by the key itself');
+      const spk = p2trScript(wallet.pub.slice(1));
+      if (x.scriptpubkey && String(x.scriptpubkey).toLowerCase() !== bytesToHex(spk)) throw new Error('this note is not at this key\'s own Taproot address');
+      return { priv: wallet.priv, pub: wallet.pub, taproot: true, spk };
+    }
     if (assetSigner) return { priv: assetSigner.priv, pub: assetSigner.pub };
     if (x.stealthTweakedSk) {
       const priv = hexToBytes(x.stealthTweakedSk);
@@ -23705,15 +23734,22 @@ async function buildAndBroadcastCXferMulti({ assetIdHex, recipients, forceUtxos 
   });
   const prevouts = [
     { value: commitValue, script: p2trSpk },
-    ...pickedAssetUtxos.map((x, i) => ({ value: x.utxo.value, script: p2wpkhScript(assetSigners[i].pub) })),
+    ...pickedAssetUtxos.map((x, i) => ({ value: x.utxo.value, script: assetSigners[i].taproot ? assetSigners[i].spk : p2wpkhScript(assetSigners[i].pub) })),
   ];
   revealTx.inputs[0].witness = signTaprootScriptPathInput(revealTx, prevouts, envelopeScript, cb);
   for (let i = 1; i < revealTx.inputs.length; i++) {
     const s = assetSigners[i - 1];
-    revealTx.inputs[i].witness = signP2wpkhInputWithKey(revealTx, i, prevouts[i].value, s.priv, s.pub);
+    if (s.taproot) {
+      revealTx.inputs[i].witness = signTaprootKeyPathInputWithKey(revealTx, i, prevouts, s.priv);
+      if (!verifySchnorr(revealTx.inputs[i].witness[0], tapSighashKeyPath(revealTx, i, prevouts, 0x00), s.pub.slice(1))) throw new Error('the Taproot input signature does not verify, so nothing was sent');
+    } else revealTx.inputs[i].witness = signP2wpkhInputWithKey(revealTx, i, prevouts[i].value, s.priv, s.pub);
   }
   const revealHex = bytesToHex(serializeTx(revealTx));
   const revealTxid = txid(revealTx);
+
+
+  _progress('commit-start');
+  await broadcast(commitHex);
 
   _progress('reveal-start');
   await broadcastWithRetry(revealHex);
@@ -61298,7 +61334,7 @@ export {
   getFeeRate, getFeeTierPref, setFeeTierPref, FEE_TIERS,
   broadcast, broadcastWithRetry, getTx,
   validateOutpoint, requireValidatedLot, _explorerTx, _crossCheckedFetcher, _lotProvedSession, verifyDiscoverAsset, enrichDiscoverMints, getCachedDiscoverMint,
-  bridgedAtTaproot, bridgedAtTaprootCount,
+  bridgedAtTaproot, bridgedAtTaprootCount, moveBridgedNote,
   getParentEnvelopeData, clearBtcPoolExitCache, _txOutputEnvelope as txOutputEnvelope,
   setStrictValidation, clearValidatorCaches, ValidationUnavailableError, rememberValidated,
   _txMarkNotFound as txMarkNotFound, _txIsRecentlyNotFound as txIsRecentlyNotFound,

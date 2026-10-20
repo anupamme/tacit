@@ -230,6 +230,26 @@ console.log('\nT_CROSSOUT_MINT:');
   ok('a mint the worker does not name for its claim is not credited', r4.v === false, JSON.stringify(r4));
 }
 
+console.log('\nA transfer that spends a cross-out mint note (a bridged note moved to its trading address):');
+{
+  const crossoutPair = (recorded) => {
+    const asset = randomBytes(32), claimId = randomBytes(32), amount = 1000n, r = randomScalar();
+    const { commitments } = bpRangeAggProve([amount], [r]);
+    const C = commitments[0].toAffine();
+    const payload = new Uint8Array(161);
+    payload[0] = 0x65; payload.set(asset, 1); payload.set(claimId, 33);
+    payload.set(hexToBytes(C.x.toString(16).padStart(64, '0')), 65); payload.set(hexToBytes(C.y.toString(16).padStart(64, '0')), 97);
+    const spk = p2tr(), mint = nextTxid();
+    txs.set(mint, { txid: mint, status: confirmed(100), vin: [{ txid: nextTxid(), vout: 0, witness: witnessFor(dapp.encodeEnvelopeScript(dapp.wallet.xonly(), payload)) }], vout: [{ scriptpubkey: spk, value: 546 }] });
+    if (recorded) E.storage.set(slotOf(bytesToHex(claimId), 77).toLowerCase(), kit.btcNoteLeaf('0x' + bytesToHex(asset), hex32(C.x), hex32(C.y), '0x' + spk.slice(4)));
+    return transfer({ txid: mint, vout: 0, amount, blinding: r, assetId: asset }, { bound: false, h: 120 });
+  };
+  const good = await verdict(crossoutPair(true).txid, 0);
+  ok('a transfer of a cross-out mint note validates once the pool holds the mint\'s leaf', good.v === true, JSON.stringify(good));
+  const bad = await verdict(crossoutPair(false).txid, 0);
+  ok('and does not when the pool never recorded the mint', bad.v === false, JSON.stringify(bad));
+}
+
 console.log('\nPurchases:');
 {
   E.reflected = 1000;
