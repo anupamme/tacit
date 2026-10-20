@@ -28,6 +28,7 @@ or attestor set signs a bridge message.
 - **Whitepaper:** [tacit.finance/tacit-v1](https://tacit.finance/tacit-v1) (source in [`whitepaper/`](./whitepaper/WHITEPAPER.md)), design and rationale
 - **Secret Sats paper:** [tacit.finance/secret-sats](https://tacit.finance/secret-sats), private payments on Bitcoin itself
 - **Contracts:** [`docs/DEPLOYMENTS.md`](./docs/DEPLOYMENTS.md), mainnet addresses and verifying keys
+- **How the pools trade:** [`docs/AMM.md`](./docs/AMM.md), public and private swaps and liquidity on one set of reserves
 - **Verify it yourself:** [`docs/VERIFY-LIVE.md`](./docs/VERIFY-LIVE.md), `node tools/verify-live.mjs` checks the
   live deployment against this repository
 - **Build on it:** [tacit.finance/build](https://tacit.finance/build/) maps every path on one page;
