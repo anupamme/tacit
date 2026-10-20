@@ -63,3 +63,14 @@ export function planAll(notes, { capRaw, maxInputs = MAX_MERGE_INPUTS }) {
 
 // How many notes a Bridge all would take on.
 export const countAll = (plan) => plan.burns.length + plan.sends.reduce((n, g) => n + g.notes.length, 0) + plan.privates.length + plan.checks.length;
+
+// Bitcoin transactions to get every tracked, non-private note bridged: by Bridge all (a burn for each ready note, a send then a burn for each pack
+// of older-form notes), and by Merge notes then bridging (a transfer then a burn for each pack, and for each note left alone a burn, or a send
+// then a burn if it is in the older form). Notes received privately and notes the proof does not track cost the same either way and are left out.
+export function opsCompared(mergePlan, allPlan) {
+  const alone = mergePlan.left.filter((n) => n.tracking === 'tracked' && !isPrivate(n));
+  return {
+    all: allPlan.burns.length + 2 * allPlan.sends.length,
+    merge: 2 * mergePlan.groups.length + alone.reduce((s, n) => s + (n.form === 'old' ? 2 : 1), 0),
+  };
+}

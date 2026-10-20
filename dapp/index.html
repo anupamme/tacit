@@ -1592,7 +1592,7 @@ import { makeEvmTx } from '/evm-tx.js';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=6a6bb45f';
 import { makeEvmTradeVenues, encErc20Approve, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, TACIT_AMM } from '/evm-trade-venues.js?cb=563db4d4';
 import { parseRecipient } from '/confidential-payout.js?cb=c27b4853';
-import { planMerge, planAll, countAll } from '/bridge-all.js?cb=5b33aeb0';
+import { planMerge, planAll, countAll, opsCompared } from '/bridge-all.js?cb=4b6de3ff';
 import { aprFrom, shieldedApr as shieldedAprOf, poolWorthEth } from '/trade/farm-read.js?cb=112a01b9';
 import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
@@ -7372,22 +7372,26 @@ async function brBulkFee(pub, bulk, kind) {
   const tx = (ns) => { const c = ux.bridgeCost({ path: 'reflected', feeRate: rate, coins: coins || [], noteSats: ns.reduce((s, n) => s + Number(n.sats || 0), 0) }); return { fee: c.fee + Math.ceil(68 * rate) * (ns.length - 1), need: c.need }; };
   const txs = kind === 'merge' ? bulk.merge.groups.map((g) => tx(g.notes))
     : [...bulk.all.burns.map((n) => tx([n])), ...bulk.all.sends.map((g) => tx(g.notes)), ...bulk.all.privates.map((n) => tx([n]))];
-  const fee = txs.reduce((s, x) => s + x.fee, 0), need = txs.reduce((s, x) => s + x.need, 0), free = (coins || []).reduce((s, c) => s + Math.max(0, Number(c?.value) || 0), 0);
-  return { fee, need, free, short: !!coins && free < need, autoMaxFee: Math.max(3000, Math.ceil(tx([{ sats: 546 }]).fee * 2)) };
+  const need = txs.reduce((s, x) => s + x.need, 0), free = (coins || []).reduce((s, c) => s + Math.max(0, Number(c?.value) || 0), 0), burn = tx([{ sats: 546 }]).fee;
+  // What comes after the first transactions: the burn of each merged or sent note, and for a note the proof does not track its move and its burn.
+  let fee = txs.reduce((s, x) => s + x.fee, 0), later = (kind === 'merge' ? bulk.merge.groups.length : bulk.all.sends.length + bulk.all.privates.length) * burn;
+  if (kind === 'all') for (const n of bulk.all.checks) { const c = ux.bridgeCost({ path: 'deposit', feeRate: rate, coins: coins || [], noteSats: n.sats, burnRate: rate }); fee += c.fee; later += c.later; }
+  return { fee, later, need, free, short: !!coins && free < need, autoMaxFee: Math.max(3000, Math.ceil(burn * 2)) };
 }
+const brRecentNote = (skipped) => { const n = skipped.filter((x) => x.why === 'recent').length; return n ? html`<p class="note">${brNotes(n)} too recent for Bitcoin’s proof to have seen ${n === 1 ? 'stays' : 'stay'} out of this.</p>` : ''; };
 function brBulkPanel(kind, bulk) {
   if (kind === 'merge') {
-    const g = bulk.merge.groups, count = g.reduce((s, x) => s + x.notes.length, 0), recent = bulk.merge.skipped.filter((x) => x.why === 'recent').length;
+    const g = bulk.merge.groups, count = g.reduce((s, x) => s + x.notes.length, 0);
     return html`
       <div class="kv"><span>Merge</span><b>${brNotes(count)} into ${brNotes(g.length)}: ${brAnd(g.map((x) => brTac(x.total)))}</b></div>
       <div class="kv"><span>Bitcoin fee</span><b id="br-allfee">Checking…</b></div>
       <div class="kv"><span>Then</span><b>Each can be bridged once Bitcoin’s proof on Ethereum has seen it, usually within a few hours</b></div>
-      ${recent ? html`<p class="note">${brNotes(recent)} too recent for Bitcoin’s proof to have seen stay out of it.</p>` : ''}
+      ${brRecentNote(bulk.merge.skipped)}
       ${brOptsHtml(['prepauto', 'public'], true)}
       <button class="btn" type="button" id="br-merge-go">Merge ${brNotes(count)}</button>`;
   }
   const a = bulk.all, sent = a.sends.reduce((s, g) => s + g.notes.length, 0) + a.privates.length, nSends = a.sends.length + a.privates.length;
-  const count = countAll(a);
+  const count = countAll(a), ops = opsCompared(bulk.merge, a);
   const total = [...a.burns, ...a.sends.flatMap((g) => g.notes), ...a.privates, ...a.checks].reduce((s, n) => s + BigInt(n.amount), 0n);
   return html`
     <div class="kv"><span>Bridge</span><b>${brTac(total)} from ${brNotes(count)}</b></div>
@@ -7396,6 +7400,8 @@ function brBulkPanel(kind, bulk) {
     ${a.checks.length ? html`<div class="kv"><span>Checked one by one</span><b>${brNotes(a.checks.length)}: a move, then a burn through a miner, sent for you</b></div>` : ''}
     <div class="kv"><span>Bitcoin fee</span><b id="br-allfee">Checking…</b></div>
     <div class="kv"><span>Arrives</span><b>Within a few hours of each burn${nSends ? '; the notes sent first take a few hours longer' : ''}</b></div>
+    ${ops.merge < ops.all ? html`<p class="note">Merge notes first would take ${ops.merge} Bitcoin transactions in all instead of ${ops.all}, and a few hours longer.</p>` : ''}
+    ${brRecentNote(a.skipped)}
     ${brOptsHtml(['public'], true)}
     <label class="pick"><input type="checkbox" id="br-allack"><span>I understand a bridge can’t be undone once its burn confirms on Bitcoin.</span></label>
     <button class="btn" type="button" id="br-all-go" disabled>Bridge ${brNotes(count)}</button>`;
@@ -7421,7 +7427,7 @@ function brBulkWire(el, pub, bulk, closeSingle) {
       if (!q || my !== seq || !panel.isConnected) return;
       quote = q; short = q.short;
       const fee = $('#br-allfee', panel);
-      if (fee) fee.textContent = `≈ ${q.fee.toLocaleString('en-US')} sats`;
+      if (fee) fee.textContent = `≈ ${q.fee.toLocaleString('en-US')} sats${q.later ? `, and about ${q.later.toLocaleString('en-US')} for the burns after` : ''}`;
       if (short) warn(panel, html`This key’s Bitcoin address has ${q.free.toLocaleString('en-US')} sats free for fees, short of the about ${q.need.toLocaleString('en-US')} this needs. <a href="#bitcoin/receive" data-link="bitcoin/receive">Add bitcoin to it</a>`);
       gate();
     }).catch(() => { const fee = $('#br-allfee', panel); if (fee) fee.textContent = 'not quoted just now'; });

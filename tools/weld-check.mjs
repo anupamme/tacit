@@ -2949,8 +2949,8 @@ async function bridgeAllRig() {
   const pool = makeConfidentialPool({ secp, keccak256: keccak_256, sha256 });
   const rev = (h) => h.match(/../g).reverse().join('');
   const TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
-  const ID = { R1: 'a1', R2: 'a2', R3: 'a3', O1: 'b1', O2: 'b2', U1: 'd1', Z: 'e0', X: 'f1' };
-  const AMT = { R1: 40000000000n, R2: 30000000000n, R3: 25000000000n, O1: 12000000000n, O2: 8000000000n, U1: 6000000000n, Z: 0n, X: 150000000000n };
+  const ID = { R1: 'a1', R2: 'a2', R3: 'a3', O1: 'b1', O2: 'b2', U1: 'd1', Z: 'e0', W: 'e1', X: 'f1' };
+  const AMT = { R1: 40000000000n, R2: 30000000000n, R3: 25000000000n, O1: 12000000000n, O2: 8000000000n, U1: 6000000000n, Z: 0n, W: 500000000n, X: 150000000000n };
   const id = (k) => ID[k].repeat(32);
   const leafOf = (a) => { const c = pool.commitXY(a, '0x' + (12345n + a).toString(16).padStart(64, '0')); return pool.btcNoteLeaf('0x' + TAC, c.cx, c.cy, '0x' + '00'.repeat(32)); };
   const sent = [], utxoUrls = [];
@@ -2973,7 +2973,7 @@ async function bridgeAllRig() {
   await r.page.evaluate(async ([ids, amts, aid]) => {
     globalThis.__TACIT_NO_INIT__ = true; localStorage.setItem('tacit-network-v1', 'mainnet');
     const T = await import([...document.scripts].map((x) => x.textContent).join('').match(/\/tacit\.js\?cb=[0-9a-f]+/)[0]);
-    const utxos = Object.keys(ids).map((k) => ({ utxo: { txid: ids[k].repeat(32), vout: 0, value: 546, status: { confirmed: true, block_height: 960000 } }, amount: BigInt(amts[k]), blinding: 12345n + BigInt(amts[k]) }));
+    const utxos = Object.keys(ids).map((k) => ({ utxo: { txid: ids[k].repeat(32), vout: 0, value: 546, status: { confirmed: true, block_height: k === 'W' ? 970500 : 960000 } }, amount: BigInt(amts[k]), blinding: 12345n + BigInt(amts[k]) }));
     const balance = utxos.reduce((x, u) => x + u.amount, 0n);
     T._testSetScanHoldingsOverride(() => new Map([[aid, { assetIdHex: aid, ticker: 'TAC', decimals: 8, balance, utxos, ghosts: [], inflated: [], pending: [] }]]));
   }, [ID, Object.fromEntries(Object.entries(AMT).map(([k, v]) => [k, String(v)])), TAC]);
@@ -2982,7 +2982,7 @@ async function bridgeAllRig() {
   await r.page.click('#wallet-body [data-in="key"]');
   await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
   // Signing in closes the wallet sheet, which can reset the address bar after this sets it: set it again until the tab is open.
-  const listed = () => until(r.page, () => document.querySelectorAll('#bridge-body .brn').length === 8 && !!document.querySelector('#br-all'), null, 40000);
+  const listed = () => until(r.page, () => document.querySelectorAll('#bridge-body .brn').length === 9 && !!document.querySelector('#br-all'), null, 40000);
   for (let i = 0; i < 5; i++) {
     await r.page.evaluate(() => { if (location.hash !== '#bridge') { location.hash = ''; location.hash = '#bridge'; } });
     if (await listed().then(() => true, () => false)) break;
@@ -3031,6 +3031,7 @@ await step('bridgemerge', async () => {
     await until(r.page, () => /≈ [\d,]+ sats/.test(document.querySelector('#br-allp')?.textContent || ''), null, 120000);
     const p1 = await panel();
     ok(/Merge\s*5 notes into 2 notes: 950 TAC and 200 TAC/.test(p1) && /Merge 5 notes/.test(await r.page.textContent('#br-merge-go')), `bridgemerge: five tracked notes merge into two within the limit, the untracked and the empty ones left out (${p1.slice(0, 260)})`);
+    ok(/Bitcoin fee\s*≈ [\d,]+ sats, and about [\d,]+ for the burns after/.test(p1) && /1 note too recent for Bitcoin’s proof to have seen stays out of this\./.test(p1), `bridgemerge: the fee line prices the burns that follow the merges, and a note too recent to take part is named (${p1.slice(0, 330)})`);
     ok(await r.page.isChecked('#br-prepauto') && /Then bridge them for me once they are ready/.test(p1) && !(await r.page.isDisabled('#br-merge-go')), `bridgemerge: bridging them once ready is on, and Merge can be pressed (${p1.slice(-300)} | utxo reads: ${JSON.stringify(utxoUrls.slice(0, 3))})`);
     await r.page.check(`#bridge-body input[value="${id('R2')}:0"]`);
     await until(r.page, () => document.querySelector('#br-allp').hidden && !document.querySelector('#br-rcpt').hidden, null, 120000);
@@ -3059,6 +3060,8 @@ await step('bridgeall', async () => {
     const p1 = await panel();
     ok(/Bridge\s*1,210 TAC from 6 notes/.test(p1) && /Burned now\s*3 notes/.test(p1) && /Sent first\s*2 notes in 1 send to your own address, then bridged for you/.test(p1) && /Checked one by one\s*1 note/.test(p1),
       `bridgeall: the panel counts what goes now, what is sent first and what is checked one by one (${p1.slice(0, 420)})`);
+    ok(/Bitcoin fee\s*≈ [\d,]+ sats, and about [\d,]+ for the burns after/.test(p1), `bridgeall: the fee line prices the burns of the notes sent first and the untracked note's move and burn (${p1.slice(-420)})`);
+    ok(/Merge notes first would take 4 Bitcoin transactions in all instead of 5, and a few hours longer\./.test(p1) && /1 note too recent for Bitcoin’s proof to have seen stays out of this\./.test(p1), `bridgeall: the panel says when merging first takes fewer Bitcoin transactions, and names the note too recent to take part (${p1.slice(-420)})`);
     ok(await r.page.isDisabled('#br-all-go') && /I understand a bridge can’t be undone/.test(p1) && await r.page.isHidden('#br-go'), 'bridgeall: nothing starts until the holder has said they understand a bridge cannot be undone, and the single note\'s button steps aside');
     ok(await r.page.evaluate(() => { const b = document.querySelector('#br-public'); return !!b && !b.checked; }) && /Make them public TAC when they arrive/.test(p1), 'bridgeall: public TAC on arrival is offered for all of them, and off');
     await r.page.evaluate(() => document.querySelector('#br-allp').scrollIntoView({ block: 'center' }));
@@ -3070,7 +3073,7 @@ await step('bridgeall', async () => {
     const st = (await text(r.page, '#br-status')).replace(/\s+/g, ' ');
     ok(/3 notes bridging/.test(st) && /2 notes sent to your own address in 1 send, to be bridged for you once ready/.test(st), `bridgeall: the press says what it started (${st.slice(0, 300)})`);
     ok(/60 TAC:/.test(st) && /They stay in the list above/.test(st), `bridgeall: and names the note it left, with why (${st.slice(0, 400)})`);
-    const spent = sent.flatMap((h) => { try { return inputsOf(h); } catch { return []; } }).filter((x) => Object.values({ R1: 'a1', R2: 'a2', R3: 'a3', O1: 'b1', O2: 'b2', U1: 'd1', Z: 'e0', X: 'f1' }).some((b) => x.startsWith(b.repeat(32)))).sort();
+    const spent = sent.flatMap((h) => { try { return inputsOf(h); } catch { return []; } }).filter((x) => Object.values({ R1: 'a1', R2: 'a2', R3: 'a3', O1: 'b1', O2: 'b2', U1: 'd1', Z: 'e0', W: 'e1', X: 'f1' }).some((b) => x.startsWith(b.repeat(32)))).sort();
     ok(JSON.stringify(spent) === JSON.stringify(['R1', 'R2', 'R3', 'O1', 'O2'].map((k) => `${id(k)}:0`).sort()), `bridgeall: the transactions spend the three notes it burned and the two it sent, once each, and not the untracked, the empty or the over-limit one (${JSON.stringify(spent)})`);
     const recs = await r.page.evaluate(([k]) => JSON.parse(localStorage.getItem(k) || '[]').map((x) => [x.source?.txid?.slice(0, 2), x.path]), [`tacit-burndep-bridge-v1:mainnet:${pub}`]);
     ok(recs.length === 3 && recs.every((x) => x[1] === 'reflected') && ['a1', 'a2', 'a3'].every((t) => recs.some((x) => x[0] === t)), `bridgeall: three bridges are under way, one for each note burned (${JSON.stringify(recs)})`);

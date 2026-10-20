@@ -2,7 +2,7 @@
 //   node --test tests/bridge-all.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert';
-import { packNotes, planMerge, planAll, countAll, MAX_MERGE_INPUTS } from '../dapp/bridge-all.js';
+import { packNotes, planMerge, planAll, countAll, opsCompared, MAX_MERGE_INPUTS } from '../dapp/bridge-all.js';
 
 const CAP = 100_000_000_000n;                       // 1,000 TAC in raw units (8 decimals)
 const tac = (v) => BigInt(Math.round(v * 1e8));
@@ -95,4 +95,16 @@ test('planAll and planMerge leave their input alone', () => {
   const list = reported(), before = JSON.stringify(list);
   planMerge(list, { capRaw: CAP }); planAll(list, { capRaw: CAP });
   assert.equal(JSON.stringify(list), before);
+});
+
+test('opsCompared: merging first takes fewer Bitcoin transactions for the reported list, and the same count when nothing can merge', () => {
+  const list = reported(), c = opsCompared(planMerge(list, { capRaw: CAP }), planAll(list, { capRaw: CAP }));
+  assert.deepEqual(c, { all: 8 + 2, merge: 4 }, 'eight burns and one two-step send, against two packs of a transfer and a burn');
+  const two = [note(900), note(900)], c2 = opsCompared(planMerge(two, { capRaw: CAP }), planAll(two, { capRaw: CAP }));
+  assert.deepEqual(c2, { all: 2, merge: 2 }, 'two notes that cannot share a pack cost the same either way');
+  const old = [note(900, { form: 'old' }), note(900, { form: 'old' })], c3 = opsCompared(planMerge(old, { capRaw: CAP }), planAll(old, { capRaw: CAP }));
+  assert.deepEqual(c3, { all: 4, merge: 4 }, 'older-form notes alone count a send and a burn each');
+  const mixed = [note(10), note(20), note(5, { tracking: 'untracked', form: null }), note(7, { form: 'private', stealthTweakedSk: 'cc'.repeat(32) })];
+  const c4 = opsCompared(planMerge(mixed, { capRaw: CAP }), planAll(mixed, { capRaw: CAP }));
+  assert.deepEqual(c4, { all: 2, merge: 2 }, 'untracked and private notes are left out of the comparison');
 });
