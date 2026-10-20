@@ -176,14 +176,14 @@ export async function quoteAnyToTac({ ethCall, venues, token, amountIn, account,
   return { kind: 'any', token, amountIn, maxIn: hop ? hop.amountLimit : weth, spend: hop ? hop.amountIn : weth, weth, tacOut: tac.amountOut, pool: tac.pool, hop: hop && { ...hop, name: SOURCES[hop.source] || 'a pool' }, deadline: dl };
 }
 
-// The transaction for a quoteAnyToTac answer. `access` is how the token reaches zRouter:
+// The transaction for a quoteAnyToTac answer. `to` is who receives the TAC (the payer, `account`, unless another address is given). `access` is how the token reaches zRouter:
 //   { kind: 'permit', value, deadline, v, r, s }   an EIP-2612 permit to zRouter (rides as zRouter's own permit leg)
 //   { kind: 'dai', nonce, expiry, v, r, s }        DAI's permit
 //   { kind: 'permit2', nonce, deadline, signature } a Permit2 transfer of `maxIn` into zRouter, the unspent part swept back
 //   { kind: 'approved' }                           zRouter already holds an allowance for `maxIn`
-export function buildAnyToTac({ quote, account, minOut, keccak256, access }) {
+export function buildAnyToTac({ quote, account, to = account, minOut, keccak256, access }) {
   const { token, weth, pool, hop, maxIn, deadline } = quote;
-  const route = encRouteFromWeth({ pools: [pool], amountIn: weth, minOut, to: account });
+  const route = encRouteFromWeth({ pools: [pool], amountIn: weth, minOut, to });
   const checkpoint = '0x' + SEL.checkpoint + addr(WETH) + b32(hex(keccak256(bytes(route)))) + addr(account);
   const legs = [];
   if (access.kind === 'permit') legs.push('0x' + SEL.permit + addr(token) + word(access.value) + word(access.deadline) + word(access.v) + b32(access.r) + b32(access.s));
@@ -199,7 +199,7 @@ export function buildAnyToTac({ quote, account, minOut, keccak256, access }) {
   if (hop) legs.push(hop.callData);
   else if (access.kind === 'permit2') legs.push('0x' + SEL.sweep + addr(WETH) + word(0) + word(weth) + addr(PRECISION_ROUTE));
   else { spendIn = WETH; spendAmt = weth; }
-  legs.push(encSnwap({ tokenIn: spendIn, amountIn: spendAmt, recipient: account, tokenOut: TAC, minOut, executor: PRECISION_ROUTE, data: route }));
+  legs.push(encSnwap({ tokenIn: spendIn, amountIn: spendAmt, recipient: to, tokenOut: TAC, minOut, executor: PRECISION_ROUTE, data: route }));
   if (access.kind === 'permit2' && hop) legs.push('0x' + SEL.sweep + addr(token) + word(0) + word(0) + addr(account));
   return { to: ZROUTER, data: encMulticall(legs), value: 0n };
 }
@@ -216,15 +216,15 @@ export async function quoteAmm({ ethCall, tokenIn, tokenOut, amountIn }) {
 }
 // ETH in rides zRouter's snwap (as the trade page's Tacit route does). A token in goes through the confidential pool's router with the
 // token's EIP-2612 permit (`permit`: { v, r, s }, signed to CONF_ROUTER for `amountIn` until `deadline`), else straight to the AMM after an approval.
-export function buildAmm({ quote, account, minOut, deadline, permit = null }) {
+export function buildAmm({ quote, account, to = account, minOut, deadline, permit = null }) {
   const { tokenIn, tokenOut, assetIn, assetOut, amountIn } = quote;
   if (same(tokenIn, ZERO)) {
-    const leg = encSnwap({ amountIn, recipient: account, tokenOut, minOut, executor: TACIT_AMM, data: encSwapPublic({ assetIn, assetOut, amountIn, minOut, deadline, to: account }) });
+    const leg = encSnwap({ amountIn, recipient: to, tokenOut, minOut, executor: TACIT_AMM, data: encSwapPublic({ assetIn, assetOut, amountIn, minOut, deadline, to }) });
     return { to: ZROUTER, data: encMulticall([leg]), value: amountIn, approval: null };
   }
   if (permit) return { to: CONF_ROUTER, value: 0n, approval: null,
-    data: '0x' + SEL.swapPublicWithPermit + addr(tokenIn) + addr(tokenOut) + word(AMM_FEE) + word(amountIn) + word(minOut) + word(deadline) + addr(account) + word(permit.v) + b32(permit.r) + b32(permit.s) };
-  return { to: TACIT_AMM, value: 0n, data: encSwapPublic({ assetIn, assetOut, amountIn, minOut, deadline, to: account }), approval: { token: tokenIn, spender: TACIT_AMM, amount: amountIn } };
+    data: '0x' + SEL.swapPublicWithPermit + addr(tokenIn) + addr(tokenOut) + word(AMM_FEE) + word(amountIn) + word(minOut) + word(deadline) + addr(to) + word(permit.v) + b32(permit.r) + b32(permit.s) };
+  return { to: TACIT_AMM, value: 0n, data: encSwapPublic({ assetIn, assetOut, amountIn, minOut, deadline, to }), approval: { token: tokenIn, spender: TACIT_AMM, amount: amountIn } };
 }
 
 // ── what the wallet is asked to sign ──

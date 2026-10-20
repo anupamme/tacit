@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // dapp/swap/route.js against an anvil fork of Ethereum mainnet: any ERC-20 into TAC in one transaction (USDC and wstETH by EIP-2612
 // permit, DAI by its own permit, USDC and WETH by Permit2, USDT and WETH by approval), and ETH to and from cUSD and cBTC through the
-// Tacit pool's public door (a token in by permit and by approval). Each run checks what arrives, that no more than the amount typed
+// Tacit pool's public door (a token in by permit and by approval), and each of them with the output sent to another address (the payer
+// receives none of it). Each run checks what arrives, that no more than the amount typed
 // is spent, and that nothing is left at zRouter or PrecisionRoute. Fresh accounts sign with real keys. Needs foundry (`anvil`, `cast`)
 // and a mainnet RPC that serves state (default: Tenderly's public gateway). Nothing leaves the fork.
 //
@@ -73,7 +74,7 @@ const leftovers = async (tokens) => {
 };
 
 // One any-token purchase of TAC, start to finish, the way the page makes it.
-async function anyToTac(sym, amount, how) {
+async function anyToTac(sym, amount, how, to = null) {
   const t = tok(sym), w = newWallet();
   await fund(w, t.addr, amount);
   const q = await quoteAnyToTac({ ethCall, venues, token: t.addr, amountIn: amount, account: w.address, slippageBps: 50, deadline: (await now()) + 1800n });
@@ -95,11 +96,12 @@ async function anyToTac(sym, amount, how) {
     assert.ok((await send(w.address, { to: t.addr, data: encApprove(ZROUTER, q.maxIn) })).ok, 'approve zRouter');
     access = { kind: 'approved' };
   }
-  const tx = buildAnyToTac({ quote: q, account: w.address, minOut, keccak256: keccak_256, access });
+  const tx = buildAnyToTac({ quote: q, account: w.address, ...(to ? { to } : {}), minOut, keccak256: keccak_256, access });
   const before = await leftovers([t.addr, WETH, TAC]);
   const r = await send(w.address, tx);
   assert.ok(r.ok, `${sym} by ${how}: the transaction landed`);
-  const got = await balanceOf(TAC, w.address), left = await balanceOf(t.addr, w.address), spent = amount - left;
+  const got = await balanceOf(TAC, to || w.address), left = await balanceOf(t.addr, w.address), spent = amount - left;
+  if (to) assert.equal(await balanceOf(TAC, w.address), 0n, `${sym}: the payer received no TAC`);
   assert.ok(got >= minOut, `${sym}: TAC ${got} at least the floor ${minOut}`);
   assert.ok(spent <= amount && spent <= q.maxIn, `${sym}: spent ${spent} within ${q.maxIn}`);
   const after = await leftovers([t.addr, WETH, TAC]);
@@ -108,7 +110,7 @@ async function anyToTac(sym, amount, how) {
     assert.ok(after[k].zr <= before[k].zr + 1n, `${sym}: nothing of ${k} left at zRouter (${before[k].zr} → ${after[k].zr})`);
   }
   if (how === 'permit') assert.equal((await readAccess({ ethCall, token: t.addr, owner: w.address })).nonce, acc.nonce + 1n, 'the permit was used');
-  ok(`${sym} → TAC by ${how}: ${f(spent, t.dec, 4)} ${sym} → ${f(got, 18, 2)} TAC via ${q.hop ? `${q.hop.name} + ` : ''}Precision (WETH ${f(q.weth)}), gas ${r.gas}`);
+  ok(`${sym} → TAC by ${how}${to ? ' to another address' : ''}: ${f(spent, t.dec, 4)} ${sym} → ${f(got, 18, 2)} TAC via ${q.hop ? `${q.hop.name} + ` : ''}Precision (WETH ${f(q.weth)}), gas ${r.gas}`);
   return { q, got };
 }
 
@@ -147,7 +149,7 @@ await anyToTac('WBTC', 2n * 10n ** 6n, 'approve');
 }
 
 // ── the Tacit pool's public door ──
-async function amm(sym, dir, amount, how) {
+async function amm(sym, dir, amount, how, to = null) {
   const t = tok(sym), w = newWallet(), dl = (await now()) + 1800n;
   const [inTok, outTok] = dir === 'buy' ? [ZERO, t.addr] : [t.addr, ZERO];
   await fund(w, inTok, amount);
@@ -159,15 +161,16 @@ async function amm(sym, dir, amount, how) {
     const acc = await readAccess({ ethCall, token: inTok, owner: w.address, spender: CONF_ROUTER });
     permit = splitSig(sign(w, permitTyped({ token: inTok, name: 'Tacit Token', version: '1', owner: w.address, spender: CONF_ROUTER, value: q.amountIn, nonce: acc.nonce, deadline: dl })));
   }
-  const tx = buildAmm({ quote: q, account: w.address, minOut, deadline: dl, permit });
+  const tx = buildAmm({ quote: q, account: w.address, ...(to ? { to } : {}), minOut, deadline: dl, permit });
   if (tx.approval) assert.ok((await send(w.address, { to: tx.approval.token, data: encApprove(tx.approval.spender, tx.approval.amount) })).ok, 'approve');
-  const before = await balanceOf(outTok, w.address);
+  const holder = to || w.address, before = await balanceOf(outTok, holder), payerBefore = await balanceOf(outTok, w.address);
   const r = await send(w.address, tx);
   assert.ok(r.ok, `${sym} ${dir} by ${how}: landed`);
-  const got = (await balanceOf(outTok, w.address)) - before + (outTok === ZERO ? 0n : 0n);
-  if (outTok !== ZERO) assert.ok(got >= minOut, `${sym}: ${got} at least ${minOut}`);
+  const got = (await balanceOf(outTok, holder)) - before;
+  if (outTok !== ZERO || to) assert.ok(got >= minOut, `${sym}: ${got} at least ${minOut}`);
   else assert.ok(got > 0n, 'ETH arrived (less gas)');
-  ok(`${dir === 'buy' ? `ETH → ${sym}` : `${sym} → ETH`}${how ? ` by ${how}` : ''}: ${f(q.amountIn)} → ${f(q.amountOut, 18, 6)} (${outTok === ZERO ? 'net of gas ' + f(got, 18, 6) : 'received ' + f(got, 18, 6)}), gas ${r.gas}`);
+  if (to) assert.ok((await balanceOf(outTok, w.address)) <= payerBefore, `${sym}: the payer received none of the output`);
+  ok(`${dir === 'buy' ? `ETH → ${sym}` : `${sym} → ETH`}${how ? ` by ${how}` : ''}${to ? ' to another address' : ''}: ${f(q.amountIn)} → ${f(q.amountOut, 18, 6)} (${outTok === ZERO ? 'net of gas ' + f(got, 18, 6) : 'received ' + f(got, 18, 6)}), gas ${r.gas}`);
   return got;
 }
 const cusdGot = await amm('tacUSD', 'buy', E18 / 50n);
@@ -177,6 +180,74 @@ await amm('tacUSD', 'sell', 20n * E18, 'permit');
 await amm('tacBTC', 'sell', E18 / 10000n, 'approve');
 assert.equal(await quoteAmm({ ethCall, tokenIn: ZERO, tokenOut: CUSD, amountIn: 5n }), null, 'an amount under one pool unit has no quote');
 ok('an amount under the pool\'s unit is not quoted');
+
+// ── the output to another address: through the venues (Precision, the Tacit pool, both) and the page's own routes ──
+// The payer funds and signs; the recipient is a fresh address that holds nothing. The recipient must receive at least the floor, the payer
+// none of the output, nothing may stay at zRouter or PrecisionRoute, and a floor the pool cannot meet must still revert.
+async function toOther(label, { payToken, amount, outToken, make, dir }) {
+  const w = newWallet(), to = newWallet().address;
+  await fund(w, payToken, amount);
+  if (payToken === ZERO) await rpc('anvil_setBalance', [w.address, hex(amount + 2n * E18)]);
+  const { tx, minOut } = await make(w, to);
+  if (tx.approval) assert.ok((await send(w.address, { to: tx.approval.token, data: encApprove(tx.approval.spender, tx.approval.amount) })).ok, `${label}: approve`);
+  const lo = await leftovers([TAC, WETH]), payerBefore = await balanceOf(outToken, w.address), toBefore = await balanceOf(outToken, to);
+  const r = await send(w.address, tx);
+  assert.ok(r.ok, `${label}: landed`);
+  const got = (await balanceOf(outToken, to)) - toBefore;
+  assert.ok(got >= minOut, `${label}: the recipient received ${got}, at least ${minOut}`);
+  assert.ok((await balanceOf(outToken, w.address)) <= payerBefore, `${label}: the payer received none of it`);
+  const la = await leftovers([TAC, WETH]);
+  for (const k of Object.keys(la)) { assert.ok(la[k].pr <= lo[k].pr, `${label}: nothing of ${k} left at PrecisionRoute`); assert.ok(la[k].zr <= lo[k].zr + 1n, `${label}: nothing of ${k} left at zRouter`); }
+  ok(`${label}: ${f(got, 18, outToken === ZERO ? 6 : 2)} ${outToken === ZERO ? 'ETH' : 'TAC'} to the other address, the payer none, gas ${r.gas}`);
+  return { to, got };
+}
+const dl30 = async () => (await now()) + 1800n;
+const slip = (x) => (x * 9950n) / 10000n;
+await toOther('ETH → TAC (Precision) to another address', { payToken: ZERO, amount: E18 / 10n, outToken: TAC, make: async (w, to) => {
+  const q = await venues.quotePrecision({ dir: 'ETH_TO_TAC', amountIn: E18 / 10n, account: w.address }), minOut = slip(BigInt(q.amountOut));
+  return { tx: venues.build({ quote: q, dir: 'ETH_TO_TAC', account: w.address, to, minOut, deadline: await dl30() }), minOut };
+} });
+await toOther('ETH → TAC (Tacit pool) to another address', { payToken: ZERO, amount: E18 / 10n, outToken: TAC, make: async (w, to) => {
+  const q = await venues.quoteTacitAmm({ dir: 'ETH_TO_TAC', amountIn: E18 / 10n }), minOut = slip(BigInt(q.amountOut));
+  return { tx: venues.build({ quote: q, dir: 'ETH_TO_TAC', account: w.address, to, minOut, deadline: await dl30() }), minOut };
+} });
+async function splitCase(dir, payToken, outToken, sizes, fundOf) {
+  for (const size of sizes) {
+    const probe = await venues.quoteSplit({ dir, amountIn: size, account: '0x1111111111111111111111111111111111111111' }).catch(() => null);
+    if (!probe) continue;
+    return toOther(`${dir === 'ETH_TO_TAC' ? 'ETH → TAC' : 'TAC → ETH'} (both pools) to another address`, { payToken, amount: fundOf(size), outToken, make: async (w, to) => {
+      const split = await venues.quoteSplit({ dir, amountIn: size, account: w.address }), minOut = slip(BigInt(split.amountOut));
+      return { tx: venues.buildSplit({ split, account: w.address, to, minOut, deadline: await dl30() }), minOut };
+    } });
+  }
+  console.log(`  skip - a split to another address (${dir}): no split worth quoting at these sizes right now`);
+}
+await splitCase('ETH_TO_TAC', ZERO, TAC, [3n * E18, 10n * E18], (x) => x);
+await toOther('TAC → ETH (Precision) to another address', { payToken: TAC, amount: 2000n * E18, outToken: ZERO, make: async (w, to) => {
+  const q = await venues.quotePrecision({ dir: 'TAC_TO_ETH', amountIn: 2000n * E18, account: w.address }), minOut = slip(BigInt(q.amountOut));
+  return { tx: venues.build({ quote: q, dir: 'TAC_TO_ETH', account: w.address, to, minOut, deadline: await dl30() }), minOut };
+} });
+await toOther('TAC → ETH (Tacit pool) to another address', { payToken: TAC, amount: 2000n * E18, outToken: ZERO, make: async (w, to) => {
+  const q = await venues.quoteTacitAmm({ dir: 'TAC_TO_ETH', amountIn: 2000n * E18 }), minOut = slip(BigInt(q.amountOut));
+  return { tx: venues.build({ quote: q, dir: 'TAC_TO_ETH', account: w.address, to, minOut, deadline: await dl30() }), minOut };
+} });
+await splitCase('TAC_TO_ETH', TAC, ZERO, [40000n * E18, 150000n * E18], (x) => x);
+await anyToTac('USDC', 500n * 10n ** 6n, 'permit', newWallet().address);
+await anyToTac('WETH', E18 / 4n, 'approve', newWallet().address);
+await anyToTac('WETH', E18 / 3n, 'permit2', newWallet().address);
+await amm('tacUSD', 'buy', E18 / 50n, null, newWallet().address);
+await amm('tacUSD', 'sell', 20n * E18, 'permit', newWallet().address);
+await amm('tacBTC', 'sell', E18 / 10000n, 'approve', newWallet().address);
+// a floor the pool cannot meet reverts with another recipient too (the builders in venues refuse to build one, so the page's own AMM route is used)
+{
+  const w = newWallet(), to = newWallet().address;
+  await fund(w, ZERO, E18 / 10n);
+  const q = await quoteAmm({ ethCall, tokenIn: ZERO, tokenOut: CUSD, amountIn: E18 / 50n });
+  const r = await send(w.address, buildAmm({ quote: q, account: w.address, to, minOut: q.amountOut * 2n, deadline: await dl30() }));
+  assert.equal(r.ok, false, 'reverts');
+  assert.equal(await balanceOf(CUSD, to), 0n, 'the recipient received nothing');
+  ok('a floor the pool cannot meet reverts with another recipient too, and the recipient receives nothing');
+}
 
 console.log(`\n${n} passed`);
 process.exit(0);

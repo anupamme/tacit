@@ -201,9 +201,8 @@ async function quotePrecision({ ethCall, dir, amountIn, account, block, trust = 
   return { venue: VENUES.PRECISION, amountIn, amountOut: best.amountOut, feeBps, pool: best.pool, tokenIn, tokenOut };
 }
 
-function buildPrecisionSwap({ quote, account, minOut, deadline, keccak256, permit }) {
+function buildPrecisionSwap({ quote, account, to = account, minOut, deadline, keccak256, permit }) {
   const { tokenIn, tokenOut, pool, amountIn } = quote;
-  const to = account;
   const routeData = encPrecisionRoute({ tokenIn, tokenOut, amountIn, minOut, to, pools: [pool] });
   const nativeIn = tokenIn === ZERO_ADDR;
   const guardLeg = encSnwap({ tokenIn: ZERO_ADDR, amountIn: 0n, recipient: to, tokenOut: ZERO_ADDR, minOut: 0n, executor: PRECISION_GUARD, data: encGuardDeadline(deadline) });
@@ -241,14 +240,14 @@ async function quoteTacitAmm({ ethCall, dir, amountIn, block }) {
   return { venue: VENUES.TACIT_AMM, amountIn: aligned, dustIn: amountIn - aligned, amountOut: best.amountOut, feeBps: best.feeBps, assetIn, assetOut };
 }
 
-function buildTacitAmmSwap({ quote, dir, account, minOut, deadline }) {
+function buildTacitAmmSwap({ quote, dir, account, to = account, minOut, deadline }) {
   const { assetIn, assetOut, feeBps, amountIn } = quote;
   if (dir === 'ETH_TO_TAC') {
-    const swapData = encTacitSwap({ assetIn, assetOut, feeBps, amountIn, minOut, deadline, to: account });
-    const leg = encSnwap({ tokenIn: ZERO_ADDR, amountIn, recipient: account, tokenOut: TAC_ERC20, minOut, executor: TACIT_AMM, data: swapData });
+    const swapData = encTacitSwap({ assetIn, assetOut, feeBps, amountIn, minOut, deadline, to });
+    const leg = encSnwap({ tokenIn: ZERO_ADDR, amountIn, recipient: to, tokenOut: TAC_ERC20, minOut, executor: TACIT_AMM, data: swapData });
     return { to: ZROUTER, data: encZRouterMulticall([leg]), value: amountIn, approval: null };
   }
-  return { to: TACIT_AMM, data: encTacitSwap({ assetIn, assetOut, feeBps, amountIn, minOut, deadline, to: account }), value: 0n, approval: { token: TAC_ERC20, spender: TACIT_AMM, amount: amountIn } };
+  return { to: TACIT_AMM, data: encTacitSwap({ assetIn, assetOut, feeBps, amountIn, minOut, deadline, to }), value: 0n, approval: { token: TAC_ERC20, spender: TACIT_AMM, amount: amountIn } };
 }
 
 const NO_ROUTE_SELECTOR = '6586e129';
@@ -407,7 +406,7 @@ async function quoteSplit({ ethCall, dir, amountIn, account, block = 'latest', s
     legs: [l1, l2] };
 }
 
-function buildSplit({ split, account, minOut: reviewedMinOut = null, slippageBps = 50, deadline, keccak256, permit }) {
+function buildSplit({ split, account, to = account, minOut: reviewedMinOut = null, slippageBps = 50, deadline, keccak256, permit }) {
   if (!split || split.legs?.length !== 2) throw new Error('buildSplit: a split quote is required');
   const [pl, tl] = split.legs, dir = split.dir;
   const dl = deadline ?? BigInt(Math.floor(Date.now() / 1000) + 1800);
@@ -417,24 +416,24 @@ function buildSplit({ split, account, minOut: reviewedMinOut = null, slippageBps
   const total = pl.amountIn + tl.amountIn;
   const guardLeg = encSnwap({ tokenIn: ZERO_ADDR, amountIn: 0n, recipient: account, tokenOut: ZERO_ADDR, minOut: 0n, executor: PRECISION_GUARD, data: encGuardDeadline(dl) });
   if (dir === 'ETH_TO_TAC') {
-    const route = encPrecisionRoute({ tokenIn: ZERO_ADDR, tokenOut: TAC_ERC20, amountIn: pl.amountIn, minOut: 0n, to: account, pools: [pl.pool] });
+    const route = encPrecisionRoute({ tokenIn: ZERO_ADDR, tokenOut: TAC_ERC20, amountIn: pl.amountIn, minOut: 0n, to, pools: [pl.pool] });
     const bundle = encAggregate3Value([
       { to: SAFE_EXECUTOR, value: pl.amountIn, data: encSafeExecute(PRECISION_ROUTE, route) },
-      { to: TACIT_AMM, value: tl.amountIn, data: encTacitSwap({ assetIn: tl.assetIn, assetOut: tl.assetOut, feeBps: tl.feeBps, amountIn: tl.amountIn, minOut: 0n, deadline: dl, to: account }) },
+      { to: TACIT_AMM, value: tl.amountIn, data: encTacitSwap({ assetIn: tl.assetIn, assetOut: tl.assetOut, feeBps: tl.feeBps, amountIn: tl.amountIn, minOut: 0n, deadline: dl, to }) },
     ], false);
-    const swap = encSnwap({ tokenIn: ZERO_ADDR, amountIn: 0n, recipient: account, tokenOut: TAC_ERC20, minOut, executor: MULTICALL3, data: bundle });
+    const swap = encSnwap({ tokenIn: ZERO_ADDR, amountIn: 0n, recipient: to, tokenOut: TAC_ERC20, minOut, executor: MULTICALL3, data: bundle });
     return { to: ZROUTER, data: encZRouterMulticall([guardLeg, swap]), value: total, approval: null, minOut };
   }
   if (typeof keccak256 !== 'function') throw new Error('buildSplit: keccak256 required for a TAC-in split');
-  const route = encPrecisionRoute({ tokenIn: TAC_ERC20, tokenOut: ZERO_ADDR, amountIn: pl.amountIn, minOut: 0n, to: account, pools: [pl.pool] });
+  const route = encPrecisionRoute({ tokenIn: TAC_ERC20, tokenOut: ZERO_ADDR, amountIn: pl.amountIn, minOut: 0n, to, pools: [pl.pool] });
   const bundle = encAggregate3([
     { to: SAFE_EXECUTOR, data: encSafeExecute(PRECISION_ROUTE, encPrecisionCheckpoint({ fund: TAC_ERC20, routeDataHex: route, account, keccak256 })) },
     { to: TAC_ERC20, data: encTransfer(PRECISION_ROUTE, pl.amountIn) },
     { to: SAFE_EXECUTOR, data: encSafeExecute(PRECISION_ROUTE, route) },
     { to: TAC_ERC20, data: '0x' + SEL.approve + addrWord(TACIT_AMM) + word(tl.amountIn) },
-    { to: TACIT_AMM, data: encTacitSwap({ assetIn: tl.assetIn, assetOut: tl.assetOut, feeBps: tl.feeBps, amountIn: tl.amountIn, minOut: 0n, deadline: dl, to: account }) },
+    { to: TACIT_AMM, data: encTacitSwap({ assetIn: tl.assetIn, assetOut: tl.assetOut, feeBps: tl.feeBps, amountIn: tl.amountIn, minOut: 0n, deadline: dl, to }) },
   ], false);
-  const swap = encSnwap({ tokenIn: TAC_ERC20, amountIn: total, recipient: account, tokenOut: ZERO_ADDR, minOut, executor: MULTICALL3, data: bundle });
+  const swap = encSnwap({ tokenIn: TAC_ERC20, amountIn: total, recipient: to, tokenOut: ZERO_ADDR, minOut, executor: MULTICALL3, data: bundle });
   const legs = [...(permit ? [encZRouterPermit({ token: TAC_ERC20, ...permit })] : []), guardLeg, swap];
   return { to: ZROUTER, data: encZRouterMulticall(legs), value: 0n, approval: permit ? null : { token: TAC_ERC20, spender: ZROUTER, amount: total }, minOut };
 }
@@ -491,17 +490,20 @@ export function makeEvmTradeVenues({ ethCall, keccak256 } = {}) {
     return { dir, amountIn, ranked, best: ranked[0] || null, precision, tacitAmm, boards, v4, zquoter };
   }
 
-  function build({ quote, dir, account, slippageBps = 50, minOut: reviewedMinOut = null, deadline, permit }) {
+  function build({ quote, dir, account, to = account, slippageBps = 50, minOut: reviewedMinOut = null, deadline, permit }) {
     if (!quote || !quote.venue) throw new Error('build: a ranked quote is required');
     const dl = deadline ?? BigInt(Math.floor(Date.now() / 1000) + 1800);
     const minOut = reviewedMinOut != null ? BigInt(reviewedMinOut) : (quote.amountOut * BigInt(10000 - slippageBps)) / 10000n;
     if (minOut > quote.amountOut) throw new Error('build: minOut is above what the quote pays');
     if (quote.venue === VENUES.PRECISION) {
       if (typeof keccak256 !== 'function' && quote.tokenIn !== ZERO_ADDR) throw new Error('build: keccak256 required for a TAC-in Precision route');
-      return buildPrecisionSwap({ quote, account, minOut, deadline: dl, keccak256, permit: quote.tokenIn === ZERO_ADDR ? null : permit });
+      return buildPrecisionSwap({ quote, account, to, minOut, deadline: dl, keccak256, permit: quote.tokenIn === ZERO_ADDR ? null : permit });
     }
-    if (quote.venue === VENUES.TACIT_AMM) return buildTacitAmmSwap({ quote, dir, account, minOut, deadline: dl });
-    if (quote.venue === VENUES.ZQUOTER) return buildZQuoterSwap({ quote });
+    if (quote.venue === VENUES.TACIT_AMM) return buildTacitAmmSwap({ quote, dir, account, to, minOut, deadline: dl });
+    if (quote.venue === VENUES.ZQUOTER) {
+      if (String(to).toLowerCase() !== String(account).toLowerCase()) throw new Error('build: a zQuoter route is quoted for one recipient');
+      return buildZQuoterSwap({ quote });
+    }
     throw new Error(`build: unknown venue ${quote.venue}`);
   }
 
