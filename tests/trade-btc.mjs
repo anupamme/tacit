@@ -239,7 +239,15 @@ try {
     await until(p, () => /3,000,000/.test(document.querySelector('.bsheet .bm')?.textContent || ''), null, 60000);
     await p.click('.bsheet .bm [data-act="side"][data-v="sell"]'); await p.waitForTimeout(2500);
     const hint = (await p.evaluate(() => document.querySelector('.bsheet .bm [data-k="bridged"]')?.textContent || '')).replace(/\s+/g, ' ');
-    ok(withNote ? /bridged to Bitcoin.*Taproot address.*can't be sold here yet/.test(hint) : hint === '', withNote ? `with a bridged note at the Taproot address the Sell side says it cannot be sold here yet (${hint.slice(0, 70)})` : 'with nothing at the Taproot address the Sell side says nothing about it');
+    ok(withNote ? /TAC you bridged to Bitcoin sits at your Taproot address.*Move it here to sell/.test(hint) : hint === '', withNote ? `with a bridged note at the Taproot address the Sell side offers to move it (${hint.slice(0, 80)})` : 'with nothing at the Taproot address the Sell side says nothing about it');
+    if (withNote) {
+      await p.click('.bsheet .bm [data-k="bridged"] [data-act="moveBridged"]');
+      await p.waitForSelector('.bm-modal', { timeout: 20000 });
+      await until(p, () => !/Looking for your bridged/.test(document.querySelector('.bm-modal')?.textContent || ''), null, 60000);
+      const dlg = (await text(p, '.bm-modal')).replace(/\s+/g, ' ');
+      ok(/Could not read it just now|No bridged TAC found|Move .* TAC here/.test(dlg) && !(await p.$('.bm-modal .bm-go:not(:has-text("Close"))')), `pressing it opens the dialog, which reads the address and offers nothing to send when nothing there can be opened (${dlg.slice(0, 70)})`);
+      ok(r.seen.posts.filter((x) => x !== '/chain/tac/ancestry').length === 0, 'and nothing was broadcast');
+    }
     await r.browser.close();
   }
 

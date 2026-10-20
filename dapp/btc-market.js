@@ -465,7 +465,9 @@ function createMarket(host, ctx) {
       const free = freeBase(m);
       const locked = free == null ? 0n : m.assetBase - free;
       bal = free == null ? `Balance: checking…` : `Balance: <b>${fmtAmount(free, dec)}</b> ${T}${locked > 0n ? ` <em>· ${fmtAmount(locked, dec)} ${T} in your open orders</em>` : ''}`;
-      if (m.bridged > 0) bal += `<br><small class="bm-muted" data-k="bridged">Notes you bridged to Bitcoin sit at your Taproot address and can't be sold here yet. <a href="/bridge/">Bridge →</a></small>`;
+      if (m.bridged > 0) bal += ctx.bridged
+        ? `<br><small class="bm-muted" data-k="bridged">${T} you bridged to Bitcoin sits at your Taproot address. <button type="button" class="bm-link" data-act="moveBridged">Move it here to sell</button></small>`
+        : `<br><small class="bm-muted" data-k="bridged">Notes you bridged to Bitcoin sit at your Taproot address and can't be sold here yet. <a href="/bridge/">Bridge →</a></small>`;
       if (free > 0n) {
         for (const p of [25, 50, 100]) {
           const v = (free * BigInt(p)) / 100n;
@@ -1458,6 +1460,60 @@ function createMarket(host, ctx) {
     endBusy();
   }
 
+  // Bridged tokens sit at the key's Taproot address, which selling does not read. The move sends one note to the key's own trading address in a Bitcoin
+  // transaction; once it confirms the token sells like any other.
+  const MOVE_FEE_SATS = 5000;
+  async function moveBridged() {
+    if (S.busy || S.destroyed || document.querySelector('.bm-modal') || !ctx.bridged) return;
+    try { await ctx.unlock(); } catch (e) { ctx.toast?.(ctx.friendlyError(e), 'error'); return; }
+    const md = modal();
+    const close = () => md.close();
+    md.onEscape(close);
+    md.set(`<h2>Looking for your bridged ${T}…</h2><p class="bm-q bm-muted">Reading your Taproot address.</p>`);
+    md.buttons([{ label: 'Close', onClick: close }]);
+    let found;
+    try { found = await ctx.bridged.list(); }
+    catch (e) { md.set(`<h2>Could not read your bridged ${T}</h2><p class="bm-q">${esc(ctx.friendlyError(e))}</p>`); md.buttons([{ label: 'Close', primary: true, onClick: close }]); return; }
+    const notes = found.notes || [];
+    const ready = notes.filter((n) => n.amount != null && n.confirmed);
+    const why = (n) => (n.amount == null ? (n.openErr ? 'its amount could not be read just now' : 'its amount could not be worked out yet') : !n.confirmed ? 'waiting for its Bitcoin confirmation' : '');
+    const rows = notes.map((n) => `<li class="${n.amount != null && n.confirmed ? 'done' : 'queued'}"><span class="lb">${n.amount != null ? `${fmtAmount(n.amount, dec, 4)} ${T}` : `a note of ${T}`}${why(n) ? `<em>${esc(why(n))}</em>` : ''}</span></li>`).join('');
+    if (!ready.length) {
+      md.set(`<h2>${notes.length ? `Nothing to move yet` : found.unread ? `Could not read it just now` : `No bridged ${T} found`}</h2>${rows ? `<ol class="bm-steps">${rows}</ol>` : ''}<p class="bm-q bm-muted">${notes.length ? 'Try again once it is ready.' : found.unread ? 'Bitcoin could not be read for part of your Taproot address. Try again in a minute.' : `Nothing at your Taproot address is ${T}.`}</p>`);
+      md.buttons([{ label: 'Close', primary: true, onClick: close }]);
+      return;
+    }
+    const note = ready[0];
+    if (m_sats() != null && m_sats() < MOVE_FEE_SATS) {
+      md.set(`<h2>Add sats first</h2><p class="bm-q">Moving ${fmtAmount(note.amount, dec, 4)} ${T} takes about ${fmtSats(MOVE_FEE_SATS)} sats for the Bitcoin fee, paid from your balance here.</p>`);
+      md.buttons([{ label: 'Close', onClick: close }, { label: 'Add sats', primary: true, onClick: () => { md.close(); ctx.fundSats(); } }]);
+      return;
+    }
+    md.set(`<h2>Move ${fmtAmount(note.amount, dec, 4)} ${T} here</h2>
+      <p class="bm-q">This sends your bridged ${T} to your own trading address in one Bitcoin transaction. It uses about ${fmtSats(MOVE_FEE_SATS)} sats from your balance for fees and confirms with the next Bitcoin block. After that you can sell it here.</p>
+      ${notes.length > 1 ? `<p class="bm-q bm-muted">You have ${notes.length} bridged notes; this moves one.</p>` : ''}`);
+    md.buttons([{ label: 'Cancel', onClick: close }, { label: 'Move', primary: true, onClick: () => runMoveBridged(md, note) }]);
+  }
+  const m_sats = () => { const m = me(); return m && m.sats != null ? m.sats : null; };
+  async function runMoveBridged(md, note) {
+    if (!beginBusy(md)) return;
+    md.lockEscape();
+    const step = { status: 'working', label: `Move ${fmtAmount(note.amount, dec, 4)} ${T} to your trading address` };
+    const paint = (title) => md.set(`<h2>${title}</h2>${stepsHtml([step])}`);
+    md.buttons([]);
+    paint('Moving…');
+    let err = null, res = null;
+    try {
+      res = await ctx.bridged.move(note, (stage) => { step.note = stage === 'commit-start' ? 'sending the first transaction' : stage === 'reveal-start' ? 'sending the second transaction' : step.note; paint('Moving…'); });
+      step.status = 'done'; step.note = ''; step.txid = res?.reveal_txid || res?.txid || null;
+    } catch (e) { step.status = 'failed'; step.note = /insufficient sats/i.test(e?.message || '') ? `You need about ${fmtSats(MOVE_FEE_SATS)} sats at your trading address for the fee. Add sats, then try again.` : ctx.friendlyError(e, { verb: 'Moving' }); err = e; }
+    md.set(`<h2>${err ? 'Not moved' : 'Moved'}</h2>${stepsHtml([step])}${err ? '' : `<p class="bm-q bm-muted">It confirms with the next Bitcoin block, and then the ${T} shows here, ready to sell.</p>`}`);
+    md.unlockEscape();
+    md.buttons([{ label: 'Done', primary: true, onClick: () => md.close() }]);
+    if (err) ctx.onError?.(err);
+    endBusy();
+  }
+
   async function runList(md, { order, shape }) {
     try { await ctx.unlock(); } catch (e) { md.close(); ctx.toast?.(ctx.friendlyError(e), 'error'); return; }
     if (!beginBusy(md)) return;
@@ -1639,6 +1695,7 @@ function createMarket(host, ctx) {
     if (act === 'go') { review(); return; }
     if (act === 'unlock') { ctx.unlock().then(() => refresh({ soft: true })).catch(() => {}); return; }
     if (act === 'fund') { ctx.fundSats(); return; }
+    if (act === 'moveBridged') { moveBridged(); return; }
     if (act === 'row') {
       if (S.type === 'limit') {
         const lv = S.ladder?.[t.dataset.side]?.get(t.dataset.key);

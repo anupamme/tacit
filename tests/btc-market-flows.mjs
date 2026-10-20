@@ -108,6 +108,7 @@ const SETUP = () => {
       ensureAutoConfirm: () => rec('ensureAutoConfirm', {}),
       offerStatus: async ({ intentId }) => W.statuses[intentId] || 'posted',
     },
+    bridged: W.bridgedNotes ? { list: async () => ({ notes: W.bridgedNotes, unread: 0 }), move: async (n, cb) => { rec('move', n.txid); cb?.('commit-start'); cb?.('reveal-start'); if (W.moveFail) throw new Error(W.moveFail); return { reveal_txid: 'cd'.repeat(32) }; } } : undefined,
     prepare: (raws) => rec('prepare', raws.map((r) => r.sale_id || r.intent_id)),
     onLotCheck: (fn) => { W.lotCheck = fn; return () => { if (W.lotCheck === fn) W.lotCheck = null; }; },
     after: {
@@ -308,6 +309,56 @@ await test('notes bridged to Bitcoin are named on the sell side, only when there
   await page.evaluate(() => { window.__w.me = { ...window.__w.me, bridged: 0 }; });
   await page.click('[data-act=side][data-v=buy]'); await settle(page, 200); await page.click('[data-act=side][data-v=sell]'); await settle(page, 600);
   assert.equal(await page.$('[data-k=bridged]'), null, 'it is named with nothing bridged');
+});
+
+const openMove = async (page, setup) => {
+  await page.evaluate(setup);
+  await mount(page); await settle(page, 300);
+  await page.click('[data-act=side][data-v=sell]'); await settle(page, 400);
+  await page.click('[data-k=bridged] [data-act=moveBridged]');
+  await page.waitForSelector('.bm-modal'); await settle(page, 400);
+};
+const NOTE = (extra = '') => `{ txid: 'aa'.repeat(32), vout: 0, sats: 546, amount: TAC(100), confirmed: true, openErr: null${extra} }`;
+
+await test('a bridged note is moved to the trading address after one confirmation, and the dialog says what it costs', async (page) => {
+  await openMove(page, `const W = window.__w; const TAC = (n) => BigInt(n) * 100000000n; W.listings = [W.preauth('p1', 10, 2000)]; W.me = { ...W.me, bridged: 1 }; W.bridgedNotes = [${NOTE()}];`);
+  const t = (await page.textContent('.bm-modal')).replace(/\s+/g, ' ');
+  assert.match(t, /Move 100 TAC here/); assert.match(t, /one Bitcoin transaction/); assert.match(t, /5,000 sats/);
+  await page.click('.bm-modal .bm-mfoot button:not(.bm-go)'); await settle(page, 300);
+  assert.equal(await page.$('.bm-modal'), null, 'Cancel closes it'); assert.equal((await calls(page, 'move')).length, 0, 'cancelling moved nothing');
+  await page.click('[data-k=bridged] [data-act=moveBridged]'); await page.waitForSelector('.bm-modal'); await settle(page, 400);
+  await modalPrimary(page);
+  const done = await waitModal(page, /Moved|Not moved/);
+  assert.match(done, /Moved/); assert.match(done, /next Bitcoin block/);
+  assert.deepEqual((await calls(page, 'move')).map((c) => c.args), ['aa'.repeat(32)]);
+});
+
+await test('a bridged note that is not ready is listed with why, and nothing can be moved', async (page) => {
+  await openMove(page, `const W = window.__w; const TAC = (n) => BigInt(n) * 100000000n; W.listings = [W.preauth('p1', 10, 2000)]; W.me = { ...W.me, bridged: 1 }; W.bridgedNotes = [${NOTE(", confirmed: false")}];`);
+  const t = (await page.textContent('.bm-modal')).replace(/\s+/g, ' ');
+  assert.match(t, /Nothing to move yet/); assert.match(t, /waiting for its Bitcoin confirmation/);
+  assert.equal(await page.$('.bm-modal .bm-go:not(:has-text("Close"))'), null, 'no Move button');
+  assert.equal((await calls(page, 'move')).length, 0);
+});
+
+await test('with nothing bridged at the address the dialog says so', async (page) => {
+  await openMove(page, `const W = window.__w; W.listings = [W.preauth('p1', 10, 2000)]; W.me = { ...W.me, bridged: 1 }; W.bridgedNotes = [];`);
+  assert.match((await page.textContent('.bm-modal')).replace(/\s+/g, ' '), /No bridged TAC found/);
+});
+
+await test('with too few sats the dialog offers to add them before anything is moved', async (page) => {
+  await openMove(page, `const W = window.__w; const TAC = (n) => BigInt(n) * 100000000n; W.listings = [W.preauth('p1', 10, 2000)]; W.me = { ...W.me, sats: 1000, bridged: 1 }; W.bridgedNotes = [${NOTE()}];`);
+  const t = (await page.textContent('.bm-modal')).replace(/\s+/g, ' ');
+  assert.match(t, /Add sats first/); assert.match(t, /5,000 sats/);
+  assert.equal((await calls(page, 'move')).length, 0);
+});
+
+await test('a move that fails says why and opens recovery, and spends nothing the page knows of', async (page) => {
+  await openMove(page, `const W = window.__w; const TAC = (n) => BigInt(n) * 100000000n; W.listings = [W.preauth('p1', 10, 2000)]; W.me = { ...W.me, bridged: 1 }; W.bridgedNotes = [${NOTE()}]; W.moveFail = 'insufficient sats for commit (need ~2030, have 0)';`);
+  await modalPrimary(page);
+  const done = await waitModal(page, /Moved|Not moved/);
+  assert.match(done, /Not moved/); assert.match(done, /Add sats, then try again/);
+  assert.equal((await calls(page, 'onError')).length, 1);
 });
 
 await test('stop after the current step', async (page) => {

@@ -15841,17 +15841,28 @@ function bridgedAtTaproot({ force = false } = {}) {
   _bridgedHeld.p = p;
   return p;
 }
+async function _bridgedTacOpen() {
+  const pubHex = bytesToHex(wallet.pub);
+  const known = {};
+  try { for (const r of _crossoutUxSingleton().list(pubHex)) if (r.settle?.claimId) known[String(r.settle.claimId).toLowerCase()] = { amount: BigInt(r.source.amount ?? r.source.value), nullifier: r.id }; } catch { }
+  return _crossoutNotesSingleton().discover({ walletPriv: wallet.priv, assetIds: [CANONICAL_TAC_ASSET_ID_HEX], known });
+}
+// The TAC notes at the key's Taproot address, opened from this key: what a page lists before it offers the move.
+async function bridgedTacNotes() {
+  await ensurePrivkey();
+  const found = await _bridgedTacOpen();
+  const notes = found.map((n) => ({ txid: n.txid, vout: n.vout, sats: n.sats, amount: n.amount, confirmed: !!n.confirmed, openErr: n.openErr || null }));
+  return { notes, unread: found.unread || 0 };
+}
 // A note bridged to Bitcoin is moved to the key's own trading address: a transfer to itself that the key signs at its Taproot address, after which the TAC
-// sells like any other. The note must open from this key, be confirmed and unspent, and pass the same check a purchase makes of a lot. Nothing in a page calls this.
+// sells like any other. The note must open from this key, be confirmed and unspent, and pass the same check a purchase makes of a lot.
 async function moveBridgedNote({ txid, vout = 0, onProgress = null } = {}) {
   await ensurePrivkey();
   if (NET.name !== 'mainnet') throw new Error('moving a bridged note is for mainnet');
   const id = String(txid || '').toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(id) || Number(vout) !== 0) throw new Error('a bridged note is output 0 of its mint transaction');
   const pubHex = bytesToHex(wallet.pub);
-  const known = {};
-  try { for (const r of _crossoutUxSingleton().list(pubHex)) if (r.settle?.claimId) known[String(r.settle.claimId).toLowerCase()] = { amount: BigInt(r.source.amount ?? r.source.value), nullifier: r.id }; } catch { }
-  const found = await _crossoutNotesSingleton().discover({ walletPriv: wallet.priv, assetIds: [CANONICAL_TAC_ASSET_ID_HEX], known });
+  const found = await _bridgedTacOpen();
   const n = found.find((x) => x.txid === id && Number(x.vout) === 0);
   if (!n) throw new Error('that note is not at this key\'s Taproot address');
   if (n.amount == null || n.blinding == null) throw new Error(n.openErr ? 'its amount could not be read just now: try again in a minute' : 'its amount could not be worked out from this key and the chain');
@@ -55560,6 +55571,7 @@ function _btcMarketCtx(aid) {
     } : null,
     initialLane: isTac ? _marketTacLane : 'btc',
     onLane: (lane) => { if (!isTac) return; _marketTacLane = lane; _saveMarketTacLane(lane); _writeMarketHash(aid); },
+    bridged: isTac ? { list: () => bridgedTacNotes(), move: (n, onProgress) => moveBridgedNote({ txid: n.txid, onProgress }) } : null,
     onLotCheck: (fn) => { _lotCheckListener = fn; return () => { if (_lotCheckListener === fn) _lotCheckListener = null; }; },
     prepare: (raws) => _btcMarketPrewarmLots(raws),
     exec: {
@@ -61334,7 +61346,7 @@ export {
   getFeeRate, getFeeTierPref, setFeeTierPref, FEE_TIERS,
   broadcast, broadcastWithRetry, getTx,
   validateOutpoint, requireValidatedLot, _explorerTx, _crossCheckedFetcher, _lotProvedSession, verifyDiscoverAsset, enrichDiscoverMints, getCachedDiscoverMint,
-  bridgedAtTaproot, bridgedAtTaprootCount, moveBridgedNote,
+  bridgedAtTaproot, bridgedAtTaprootCount, bridgedTacNotes, moveBridgedNote,
   getParentEnvelopeData, clearBtcPoolExitCache, _txOutputEnvelope as txOutputEnvelope,
   setStrictValidation, clearValidatorCaches, ValidationUnavailableError, rememberValidated,
   _txMarkNotFound as txMarkNotFound, _txIsRecentlyNotFound as txIsRecentlyNotFound,
