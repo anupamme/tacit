@@ -127,10 +127,11 @@ function etchWithWrongProof(amount) {
   return txid;
 }
 // A two-output T_CXFER_BOUND (identity vouts) or T_CXFER spending one note, kernel signed by r_out − r_in.
-function transfer(input, { bound, binding = BINDING, h = 100 }) {
+function transfer(input, { bound, binding = BINDING, h = 100, wrongProof = false }) {
   const amounts = [input.amount / 2n, input.amount - input.amount / 2n];
   const rs = [randomScalar(), randomScalar()];
-  const { proof, commitments } = bpRangeAggProve(amounts, rs);
+  const { proof: honest, commitments } = bpRangeAggProve(amounts, rs);
+  const proof = wrongProof ? bpRangeAggProve(amounts, [randomScalar(), randomScalar()]).proof : honest;      // a proof of the right shape for other commitments
   const outs = commitments.map((c) => pointToBytes(c));
   const msg = dapp.computeKernelMsg(input.assetId, [{ txid: input.txid, vout: input.vout }], outs, 0n);
   const kernelSig = dapp.signSchnorr(msg, b32(rs[0] + rs[1] - input.blinding));
@@ -242,6 +243,19 @@ console.log('\nPurchases:');
   err = null;
   try { await dapp.requireValidatedLot(plainLot.txid, 0); } catch (e) { err = e; }
   ok('and the same lot checked again is accepted from it', err === null && dapp._lotProvedSession.size === sizeBefore, String(err?.message || ''));
+
+  // A history of three hops: the proofs of every hop are checked together, so one wrong proof in the middle refuses a lot whose own proof is sound.
+  const hop = (n) => ({ txid: n.txid, vout: 0, amount: n.amounts[0], blinding: n.rs[0], assetId: n.assetId });
+  const goodChain = transfer(hop(transfer(etch(1000n), { bound: false })), { bound: false });
+  err = null;
+  try { await dapp.requireValidatedLot(goodChain.txid, 0); } catch (e) { err = e; }
+  ok('a three-hop history with sound proofs, of mixed sizes in one batch, is accepted', err === null, String(err?.message || ''));
+  const midBad = transfer(etch(1000n), { bound: false, wrongProof: true });
+  const badChain = transfer(hop(midBad), { bound: false });
+  err = null;
+  try { await dapp.requireValidatedLot(badChain.txid, 0); } catch (e) { err = e; }
+  ok('the same history with one wrong proof in its middle hop is refused', /does not validate/.test(String(err?.message)), String(err?.message || 'accepted'));
+  ok('and none of its outpoints is kept for the session', !dapp._lotProvedSession.has(`${badChain.txid}:0`) && !dapp._lotProvedSession.has(`${midBad.txid}:0`));
 
   const badTxid = etchWithWrongProof(1000n);
   err = null;
