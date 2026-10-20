@@ -23224,6 +23224,9 @@ async function discoverStealthFromTxid(txidHex, { merge = true } = {}) {
             : env.opcode === T_CXFER_BPP   ? decodeCXferBppPayload(env.payload)
             : null;
   if (!dec) return [];
+  // The sender's key is told by each input's previous output, so a transaction read without them (an archived one carries none) is a
+  // failed read, looked at again next scan, and not a transfer found to hold nothing for this key.
+  if (tx.vin.some((vin) => !vin.prevout)) throw new Error(`tx ${txidHex.slice(0,16)}… was read without its inputs' outputs`);
 
   const classifiedInputs = tx.vin.map((vin) => {
     const witness = (vin.witness || []).map(h => { try { return hexToBytes(h); } catch { return new Uint8Array(0); } });

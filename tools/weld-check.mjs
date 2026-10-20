@@ -180,7 +180,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgedeep,bridgemerge,bridgeall,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,clearedfind,bridgedeep,bridgemerge,bridgeall,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -3189,6 +3189,49 @@ await step('bridgefind', async () => {
     await new Promise((res) => setTimeout(res, 36000));
     const pages = asked.filter((x) => /\/txs/.test(x)).length;
     ok(pages === 2, `bridgefind: a key that has a bridge here is read two pages deep, as before (${pages})`);
+    await r.browser.close();
+  }
+});
+
+// A browser with no record of the key (new, or its data cleared) looks once, with no press, for TAC sent privately to the key's tacit1
+// address (TAC's whole transfer index, 200 a page) and for notes bridged to its Taproot address; a browser that has looked does not again.
+await step('clearedfind', async () => {
+  const TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
+  const run = async (hex, seed) => {
+    const r = await openPage({ account: A0, key: K0 });
+    const pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex'), seen = { deep: 0, taproot: 0 };
+    await r.ctx.route(new RegExp(`^https://api\\.tacit\\.finance/assets/${TAC}/recent-xfer-txids`), (route) => {
+      if (new URL(route.request().url()).searchParams.get('limit') === '200') seen.deep++;
+      return json(route, { asset_id: TAC, txids: [], next_cursor: null, done: true });
+    });
+    for (const base of ['https://mempool.space/api', 'https://blockstream.info/api', 'https://mempool.emzy.de/api']) {
+      await r.ctx.route(new RegExp(`^${base.replace(/[.]/g, '\\.')}/address/bc1p[0-9a-z]+/utxo`), (route) => { seen.taproot++; return json(route, []); });
+    }
+    await r.page.goto(r.url + '#wallet');
+    if (seed) await r.page.evaluate(([p]) => {
+      localStorage.setItem('tacit-lite-shielded-deep-v1', JSON.stringify({ [p]: Date.now() }));
+      localStorage.setItem('tacit-lite-bridged-look-v1', JSON.stringify({ [p]: { tac: Date.now(), teth: Date.now() } }));
+    }, [pub]);
+    await r.page.click('#wallet-body [data-in="paste"]');
+    await r.page.fill('#ws-hex', hex);
+    await r.page.click('#wallet-body [data-in="key"]');
+    await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
+    return { r, pub, seen };
+  };
+  {
+    const { r, pub, seen } = await run('c1ea'.padEnd(64, '7'), false);
+    await until(r.page, ([p]) => !!(JSON.parse(localStorage.getItem('tacit-lite-shielded-deep-v1') || '{}')[p]), [pub], 90000).catch(() => {});
+    await until(r.page, ([p]) => !!(JSON.parse(localStorage.getItem('tacit-lite-bridged-look-v1') || '{}')[p]?.tac), [pub], 60000).catch(() => {});
+    const marks = await r.page.evaluate(([p]) => [JSON.parse(localStorage.getItem('tacit-lite-shielded-deep-v1') || '{}')[p], JSON.parse(localStorage.getItem('tacit-lite-bridged-look-v1') || '{}')[p]], [pub]);
+    ok(seen.deep >= 1 && !!marks[0], `clearedfind: a browser with no record of the key looks through TAC's transfer index for shielded payments on its own, and marks it looked (${seen.deep} read)`);
+    ok(seen.taproot >= 1 && !!marks[1]?.tac, `clearedfind: and reads the key's Taproot address for TAC bridged to Bitcoin (${seen.taproot} read)`);
+    if (r.errors.length) { fails++; console.log('FAIL clearedfind page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+    await r.browser.close();
+  }
+  {
+    const { r, seen } = await run('c1eb'.padEnd(64, '7'), true);
+    await new Promise((res) => setTimeout(res, 30000));
+    ok(seen.deep === 0 && seen.taproot === 0, `clearedfind: a browser that has looked for the key does not look again (${seen.deep} index, ${seen.taproot} Taproot reads)`);
     await r.browser.close();
   }
 });

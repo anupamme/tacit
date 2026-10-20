@@ -3175,6 +3175,8 @@ function setKey(k) {
   setTimeout(() => xoTick(true), 6000);
   setTimeout(() => xoDiscover(pubHex, true), 25000);
   setTimeout(() => brDiscover(pubHex), brUnsearched(pubHex) ? 10000 : 28000);
+  if (shUnsearched(pubHex)) setTimeout(() => shDiscover(pubHex), 14000);
+  setTimeout(() => xbDiscover(pubHex).catch(() => {}), 18000);
   const opened = () => { if (S.key === key) toast(`Opened ${short(key.tacit, 8)}`); };
   if (UNI) return opened();
   loadUnified().catch(() => {}).then(() => {
@@ -3187,7 +3189,7 @@ function setKey(k) {
   });
 }
 
-const TACIT_URL = '/tacit.js?cb=01704b4c';
+const TACIT_URL = '/tacit.js?cb=b4234605';
 const SHARED_NET = 'tacit-network-v1', PREV_NET = 'tacit-lite-prev-net-v1';
 const SHARED_WALLET_KEYS = ['tacit-eth-identity', 'tacit-btc-identity', 'tacit-active-mode-v1', 'tacit-ext-mode-v1', 'tacit-ext-state-v1',
   ...['mainnet', 'signet'].flatMap((n) => [`tacit-eth-identity:${n}`, `tacit-btc-identity:${n}`, `tacit-active-mode-v1:${n}`])];
@@ -5132,6 +5134,24 @@ async function xoTick(first = false) {
   for (const sheet of moved) rerender(sheet);
   if (moved.size) dashSoon();
 }
+// What was bridged to Bitcoin sits at the key's Taproot address, which this page reads only for a key it has a bridge or a balance on record
+// for. A browser with neither (a new one, or one whose data was cleared) reads that address once for each asset, so the notes are listed
+// and counted again without a press.
+const XB_LOOK = 'tacit-lite-bridged-look-v1';
+async function xbDiscover(pub) {
+  const done = store.get(XB_LOOK)?.[pub] || {};
+  for (const a of Object.values(XA).filter((x) => !x.dark || xoOn(x))) {
+    if (S.key?.pubHex !== pub) return;
+    const XB = xbOf(a);
+    if (done[a.key] || xbCacheGet(pub, a) || xoJournaled(pub, a) || xbJournaled(pub, a) || (XB.pub === pub && XB.notes)) continue;
+    XB.asked = pub;
+    await loadBridged(false, a).catch(() => {});
+    if (S.key?.pubHex !== pub || XB.pub !== pub || !XB.notes || XB.unread) continue;
+    const m = store.get(XB_LOOK) || {}; m[pub] = { ...(m[pub] || {}), [a.key]: Date.now() }; store.set(XB_LOOK, m);
+    const n = XB.notes.filter((x) => x.amount != null).length;
+    if (n) { toast(`Found ${n} ${a.ticker} note${n === 1 ? '' : 's'} you bridged to Bitcoin`); rerender(a.sheet); dashSoon(); }
+  }
+}
 const XD = { pub: null, at: 0, loading: null }, XD_KEY = 'tacit-crossout-found-v1';
 async function xoDiscover(pub, daily = false) {
   if (!pub || XD.loading) return XD.loading;
@@ -6568,6 +6588,21 @@ async function scanShielded(status) {
   if (got.found) await loadBtc(true);
   return got;
 }
+// A key this browser has never looked for shielded payments for (a new browser, or one whose data was cleared, which drops the record of
+// every payment it found) is looked for once on its own, through the whole transfer index, so its TAC is back without a press.
+const SH_DEEP = 'tacit-lite-shielded-deep-v1';
+let shLooking = null;
+const shUnsearched = (pub) => !!pub && !store.get(SH_DEEP)?.[pub];
+async function shDiscover(pub) {
+  if (!shUnsearched(pub) || shLooking || S.key?.pubHex !== pub) return;
+  shLooking = pub; rerender('btc'); rerender('tac');
+  try {
+    const { found, failed } = await scanShielded(null);
+    if (!failed) { const m = store.get(SH_DEEP) || {}; m[pub] = Date.now(); store.set(SH_DEEP, m); }
+    if (found && S.key?.pubHex === pub) toast(found === 1 ? 'Found a shielded payment this browser had no record of' : `Found ${found} shielded payments this browser had no record of`);
+  } catch { } finally { shLooking = null; rerender('btc'); rerender('tac'); }
+}
+const shLookingNote = (pub) => (shLooking === pub ? html`<p class="note">Looking for TAC sent privately to your tacit1 address, which this browser has no record of yet…</p>` : '');
 async function lookForShielded(status) {
   try {
     const { found, failed } = await scanShielded(status);
@@ -6587,6 +6622,7 @@ render.btc = () => {
       <div class="side">${b || BTC.err ? html`<button class="link" type="button" id="btc-re">${BTC.err || !b ? 'retry' : 'refresh'}</button>` : 'updating…'}</div>
     </div>
     ${(b?.held || []).map((a) => html`<div class="kv"><span>${a.ticker} on Bitcoin${a.id === TAC_BTC_ID ? html` · <a href="#bridge" data-link="bridge">Bridge to Ethereum</a>` : ''}</span><b class="num">${fmt(a.balance, a.decimals, 4)}</b></div>`)}
+    ${shLookingNote(S.key.pubHex)}
     ${segSub('btcm', BTC.mode, [['send', 'Send'], ['receive', 'Receive']])}
     <div id="btc-form"></div>
     <div class="status" role="status" id="btc-status"></div>`);
@@ -7888,6 +7924,7 @@ function renderTacBal(el) {
       <div class="side"><button class="link" type="button" data-asset="tac">About TAC</button></div>
     </div>
     <div class="parts">${parts.map(([label, v]) => html`<span>${label} <b class="num">${v != null ? fmt(v, 18, 2) : (label === 'Private' && badP) || (label === 'On Ethereum' && badE) || (label === 'On Bitcoin' && badB) ? html`<span class="err">—</span> <button class="link" type="button" data-tac-retry>retry</button>` : html`<span class="sk" style="--w:4ch"></span>`}</b></span>`)}</div>
+    ${k ? shLookingNote(k) : ''}
     ${k ? depositCallout('tac', 'tac-finish') : ''}
     ${k ? html`<div id="tac-shield"></div>` : ''}
     ${k && spendable('tac') ? html`<div class="callout"><span>${fmt(spendable('tac') * E10, 18, 2)} TAC is in private notes. Make it public TAC in ${your()} to sell or farm it here, all at once.${tacFeeNote()}</span><button class="btn ghost" type="button" id="tac-pub">Make public</button></div>
