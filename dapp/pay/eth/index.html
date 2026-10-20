@@ -8,7 +8,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-PEnHVbHga0ZZxGNjzJbGEFgzf7/LcUHY2EkhoKdqhP4=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://api.tacit.finance https://ethereum-rpc.publicnode.com https://mainnet.gateway.tenderly.co https://eth.drpc.org https://1rpc.io https://rpc.flashbots.net https://mainnet.base.org https://base.gateway.tenderly.co https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <title>tacit pay · ETH</title>
-<meta name="description" content="Private ETH payments on Ethereum, Base, Robinhood Chain and MegaETH. Deposit, pay privately and withdraw any part, proved on your device and recovered from your key.">
+<meta name="description" content="Private ETH payments on Ethereum, Base, Robinhood Chain and MegaETH, proved on your device and recovered from your key.">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="tacit">
 <meta property="og:url" content="https://tacit.finance/pay/eth/">
@@ -577,7 +577,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 
   <section class="hero" aria-labelledby="hero-h">
     <h1 id="hero-h">Simple, private <br>payments in <em>ETH</em>.</h1>
-    <p>Deposit ETH on Ethereum, Base, Robinhood Chain or MegaETH, pay anyone privately and withdraw any part. Who you pay and how much stay hidden. Deposits and withdrawals show on chain.</p>
+    <p>Deposit ETH on Ethereum, Base, Robinhood Chain or MegaETH, pay anyone privately and withdraw any part. Deposits and withdrawals show on chain.</p>
     <ul class="facts">
       <li>Proved on your device</li>
       <li>Recovered from your key</li>
@@ -1001,7 +1001,7 @@ const relayUp = () => !!chainKeeper(S.chain) && !CH[S.chain.chainId]?.quoteErr;
 const routeOf = (tab) => (ROUTES[tab] === 'wallet' || !chainKeeper(S.chain) ? 'wallet' : 'relay');
 const viaFor = (tab) => {
   if (routeOf(tab) === 'wallet') return 'self';
-  if (!relayUp()) throw new Error('This one cannot go through the relay right now. Choose “send from my wallet instead” to send it yourself.');
+  if (!relayUp()) throw new Error('The relay can’t take this one right now. Choose “send from my wallet instead”.');
   return null;
 };
 const chainKeeper = (c) => c.keeper || null;
@@ -2072,12 +2072,12 @@ function privacyCheck(c, amount, to, via) {
   const depositors = new Set(mine.map((r) => r.from).filter(Boolean));
   if (to && (depositors.has(lc(to)) || (S.wallet && lc(to) === lc(S.wallet)))) {
     level = 'weak';
-    notes.push(depositors.has(lc(to)) ? 'This address put ETH into the pool, so withdrawing to it ties the two together. Use a fresh address.' : 'This is your connected wallet: withdrawing to it links it to the pool. A fresh address keeps them apart.');
+    notes.push(depositors.has(lc(to)) ? 'This address put ETH into the pool, so withdrawing to it ties the two together. Use a fresh address.' : 'This is your connected wallet: withdrawing to it links it to the pool. Use a fresh address.');
   }
   const near = (x) => x === amount || (x > amount ? x - amount : amount - x) * 1000n <= amount;
   const same = mine.find((r) => near(r.v) || near(r.v + (r.fee || 0n)));
   const when = (r) => (r.time ? `on ${new Date(r.time * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : 'earlier');
-  if (same) fair(`Close to the amount that came in ${when(same)}, so the two can be paired. A different amount, or withdrawing it in parts, blends in better.`);
+  if (same) fair(`Close to the amount that came in ${when(same)}, so the two can be paired. A different amount, or parts, blends in better.`);
   const odd = amount.toString().replace(/0+$/, '').length > 2, round = ROUND.filter((r) => r <= amount).pop();
   if (!same && odd && round) notes.push('Round amounts blend in with more withdrawals.');
   const last = mine.reduce((a, r) => (r.block > (a?.block ?? -1) ? r : a), null);
@@ -2085,7 +2085,7 @@ function privacyCheck(c, amount, to, via) {
   if (last) {
     const since = v.ins.filter(([b]) => b > last.block).length, hours = last.time ? (Date.now() / 1000 - last.time) / 3600 : Infinity;
     if (since < 5 || hours < 24) wait = { since, hours: hours === Infinity ? 0 : 24 - hours };
-    if (wait) fair(`${since ? `Only ${since} deposit${since === 1 ? '' : 's'} by others since yours` : 'No one else has deposited since yours'}${last.time ? `, ${ago(last.time)}` : ''}. Waiting a day, and for a few more deposits, makes this much harder to link.`);
+    if (wait) fair(`${since ? `Only ${since} deposit${since === 1 ? '' : 's'} by others since yours` : 'No one else has deposited since yours'}${last.time ? `, ${ago(last.time)}` : ''}. Waiting a day, and for more deposits, makes it much harder to link.`);
   }
   const large = v.ins.filter(([, x]) => BigInt(x) >= amount).length;
   if (large < 5) {
@@ -2093,7 +2093,7 @@ function privacyCheck(c, amount, to, via) {
     if (large < 2) level = 'weak'; else if (level === 'strong') level = 'fair';
   }
   if (via === 'self') fair('Your wallet shows as the one sending it.');
-  if (v.ins.length < YOUNG_POOL) fair(`The pool on ${c.full} is still young: ${v.ins.length} deposit${v.ins.length === 1 ? '' : 's'} so far. Every new deposit makes yours harder to single out.`);
+  if (v.ins.length < YOUNG_POOL) fair(`The pool on ${c.full} has ${v.ins.length} deposit${v.ins.length === 1 ? '' : 's'} so far. Each new one makes yours harder to single out.`);
   const crowd = `Your ETH hides among ${st.leaves ?? '…'} notes from ${v.ins.length} deposits in the pool on ${c.full}.`;
   return { level, notes, crowd, wait, round: (same || odd) && round && round !== amount ? round : null };
 }
@@ -2326,7 +2326,7 @@ function holderBoost() {
   return TACB.who === who && TACB.v ? TACB.v : { now: 1, held: 1 };
 }
 let PTSINFO = false;
-const PTS_WHY = 'Each day, up to 1,111 TAC is shared by points. A deposit earns 1,000 points per ETH, times an early bonus that shrinks as deposits add up, times a boost for holding TAC for a day, and times 1.2 with Privacy Pools. This is an estimate: the program counts deposits from its own records.';
+const PTS_WHY = 'A deposit earns 1,000 points per ETH, times an early bonus that shrinks as deposits add up, a boost for holding TAC for a day, and 1.2 with Privacy Pools. An estimate: the program counts from its own records.';
 document.addEventListener('click', (e) => {
   const b = e.target.closest?.('[data-ptsinfo]');
   if (!b) return;
@@ -2395,7 +2395,7 @@ function maxSpend(fee, extra = 0n, st = cur()) {
   return best;
 }
 const tooSpread = (amount, fee, st = cur()) => !spendPlan(amount, fee, st) && !!spendPlan(amount, fee, st, Infinity);
-const spreadText = (c, st, most, lead) => `Your private ETH on ${c.full} is spread over ${st.notes.filter((v) => v > 0n).length} notes, and one payment combines at most nine of them. ${lead} ${ethDown(most)} ETH now, with Max, and the rest after.`;
+const spreadText = (c, st, most, lead) => `Your private ETH on ${c.full} is spread over ${st.notes.filter((v) => v > 0n).length} notes, and one payment combines at most nine. ${lead} ${ethDown(most)} ETH now, with Max, then the rest.`;
 function depositFor(amount, cap, st = cur()) {
   const from = roundUp(amount + 2n * cap - maxSpend(cap, 0n, st));
   return ROUND.find((d) => d >= from && spendPlan(amount, cap, { notes: [...st.notes, d] })) ?? amount + cap;
@@ -2514,16 +2514,16 @@ function formDeposit(f) {
       <div class="blk"><div class="lbl"><span>Your deposit address</span><span>ETH only · four chains</span></div>
         <div class="addr"><code>${W?.receiveBox || '…'}</code>${W ? html`<button class="link" type="button" data-copy="${W.receiveBox}">copy</button>` : ''}</div>
         ${W ? html`<div class="qrbox" id="f-dqr"></div>` : ''}
-        <p class="note">Send ETH here from an exchange or any wallet. It moves into your private balance on the chain it was sent on, usually within minutes, for at most 0.25%.</p>
-        <p class="note warn">Choose Ethereum, Base, Robinhood Chain or MegaETH as the network, and send only ETH. Anything sent on another network, or as a token, cannot be collected.</p>
-        ${min ? html`<p class="note">On ${c.full} the relay takes it in from ${fmt(min, 18, 6)} ETH, a minimum that moves with network fees${c.chainId === 1 ? '. For less, choose Base' : ''}. Less waits here until more arrives, or you take it in yourself.</p>` : ''}
+        <p class="note">It moves into your private balance on the chain it was sent on, usually within minutes, for at most 0.25%.</p>
+        <p class="note warn">Send only ETH, on Ethereum, Base, Robinhood Chain or MegaETH. Anything sent on another network, or as a token, cannot be collected.</p>
+        ${min ? html`<p class="note">On ${c.full} the relay takes it in from ${fmt(min, 18, 6)} ETH${c.chainId === 1 ? '; for less, choose Base' : ''}. Less waits here until more arrives, or you take it in yourself.</p>` : ''}
         <p class="note">Everything sent here shows as paid to this one address. To be paid by others, share a link from Receive.</p></div>
-      ${c.points !== false ? html`<p class="note mute">Points go to the address that sent the ETH, so a deposit from an exchange earns you none.</p>` : ''}
+      ${c.points !== false ? html`<p class="note mute">Points go to the address that sent the ETH, so an exchange deposit earns none.</p>` : ''}
       ${(st.waitBoxes || []).map(([i, v]) => {
         const self = (min && v < min) || !relayUp();
-        return html`<div class="callout"><span>${fmt(v, 18, 6)} ETH is ${self ? 'waiting' : 'on its way in'} at ${i ? 'a payment link’s address' : 'your deposit address'}${self ? (relayUp() ? ': below the relay’s minimum, so it waits for more. You can take it in now.' : ': the relay can’t take it right now, so take it in yourself.') : '. The relay will collect it.'}</span>${self ? html`<button class="btn ghost sm" type="button" id="f-sweep-${i}" data-sweep="${i}">Take it in</button>` : ''}</div>`;
+        return html`<div class="callout"><span>${fmt(v, 18, 6)} ETH is ${self ? 'waiting' : 'on its way in'} at ${i ? 'a payment link’s address' : 'your deposit address'}${self ? (relayUp() ? ', below the relay’s minimum.' : '. The relay can’t take this one right now.') : '. The relay will collect it.'}</span>${self ? html`<button class="btn ghost sm" type="button" id="f-sweep-${i}" data-sweep="${i}">Take it in</button>` : ''}</div>`;
       })}
-      ${(st.waitBoxes || []).some(([, v]) => (min && v < min) || !relayUp()) ? html`<p class="note">Taking it in yourself has no relay fee. Your wallet pays the network fee, and its address shows as the one collecting it.</p>` : ''}
+      ${(st.waitBoxes || []).some(([, v]) => (min && v < min) || !relayUp()) ? html`<p class="note">Taking it in yourself has no relay fee. Your wallet pays the network fee and shows as the one collecting.</p>` : ''}
       <p class="more"><button class="link" type="button" id="f-check">Check for arrivals</button></p>`);
     $$('[data-copy]', f).forEach((b) => b.onclick = () => copy(b.dataset.copy, 'Deposit address copied'));
     const dq = $('#f-dqr');
@@ -2544,7 +2544,7 @@ function formDeposit(f) {
       <div class="amt text"><input id="f-dto" placeholder="Yourself, or an address" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Deposit to"></div>
       <div class="rcpt" id="f-rcpt" role="status" hidden></div>
       <button class="btn" type="button" id="f-go" aria-describedby="f-rcpt" disabled>${S.wallet ? 'Deposit privately' : 'Connect wallet'}</button>
-      <p class="note">Proved on this device, then sent from your wallet on ${c.full}: you pay the network fee, and there is no relay fee. The deposit, from your wallet, shows on chain. Where the ETH goes after it, including whose balance it lands in, does not.</p>`);
+      <p class="note">Proved on this device. You pay the network fee, with no relay fee. The deposit and your wallet show on chain; whose balance it lands in does not.</p>`);
     let wb = null, dto = null, lastDto = '';
     const amt = $('#f-damt'), go = $('#f-go'), rc = $('#f-rcpt'), toEl = $('#f-dto');
     $('#f-conn')?.addEventListener('click', () => connectWallet().catch((e) => toast(errText(e), true)));
@@ -2655,7 +2655,7 @@ async function upgradeName(plan) {
   });
   return names.publish(plan);
 }
-const upgradeView = (plan) => html`<div class="callout"><span>${plan.name} points to your address from before pool payments. Upgrade it so anyone can pay you privately in every pool: one transaction on Ethereum.</span><button class="btn ghost sm" type="button" id="name-up">Upgrade ${plan.name}</button></div>`;
+const upgradeView = (plan) => html`<div class="callout"><span>${plan.name} points to your address from before pool payments. Upgrade it so anyone can pay you privately: one transaction on Ethereum.</span><button class="btn ghost sm" type="button" id="name-up">Upgrade ${plan.name}</button></div>`;
 async function landedTx(c, h, ms = LOST_MS) {
   for (const t0 = Date.now(); Date.now() - t0 < ms; await sleep(4000)) {
     const s = await receiptOf(c, h, true).catch(() => undefined);
@@ -2747,8 +2747,8 @@ function formSend(f) {
     const known = nameFor(raw), valid = !!(okTo?.bp || okTo?.addr) && lc(okTo?.bp) !== lc(S.key.bp);
     save.hidden = !valid || !!known;
     say($('#f-note'), addr
-      ? routeNote(tab, 'The address and the amount show on chain, as a withdrawal from the pool. Nothing links it to you, and the relay cannot change it.', 'The address and the amount show on chain, and so does your wallet as the sender.')
-      : routeNote(tab, 'Nothing on chain links this payment to you or to them, and the relay cannot change it.', 'Your wallet’s address shows as the sender of a pool transaction. The amount and the recipient stay hidden.'));
+      ? routeNote(tab, 'The address and the amount show on chain, as a withdrawal. Nothing links it to you, and the relay cannot change it.', 'The address and the amount show on chain, and so does your wallet as the sender.')
+      : routeNote(tab, 'Nothing on chain links this payment to you or them, and the relay cannot change it.', 'Your wallet shows as the sender. The amount and the recipient stay hidden.'));
     const bad = (t) => R.set(html`<p class="note err" role="alert">${t}</p>`);
     const typing = /^(b|bp|bp1[a-z0-9]{0,159}|t|ta|tac|taci|tacit|tacit1[a-z0-9]{0,160}|0|0x[0-9a-f]{0,39})$/i.test(raw)
       || (/^[a-z0-9-]+(\.[a-z]{0,3})?$/i.test(raw) && !/\.(g?wei|eth)$/i.test(raw) && !/^(0x|bp1|tac(it|tt|rt)1)/i.test(raw));
@@ -2764,7 +2764,7 @@ function formSend(f) {
       const have = maxSpend(cap);
       dep = depositFor(a, cap);
       R.set(html`${kvRow('Your private balance covers', `${ethDown(have)} ETH`)}
-        <p class="note">Two steps keep this private. Deposit ${fmt(dep, 18, 6)} ETH from your wallet now. Once others have deposited after you, pay ${who || 'them'} from your private balance. This page holds the payment and tells you when. A round deposit does not match what you pay, and the rest stays yours.</p>`);
+        <p class="note">Two steps keep this private. Deposit ${fmt(dep, 18, 6)} ETH from your wallet now; once others have deposited after you, pay ${who || 'them'} from your private balance. This page holds the payment and tells you when.</p>`);
       go.disabled = false;
       go.textContent = S.wallet ? `Deposit ${fmt(dep, 18, 6)} ETH, pay later` : 'Connect wallet to deposit';
       return;
@@ -2842,7 +2842,7 @@ function formLink(f) {
   const shown = LINKSHOW.v;
   mount(f, html`
     <div class="lbl"><span>Pay by link</span><button type="button" id="f-byaddr">Pay an address instead</button></div>
-    <p class="note lead">For someone with no Tacit wallet, or for another wallet of your own. The ETH goes into a link. Whoever opens it takes it to any wallet, with no network fee to pay, or keeps it private.</p>
+    <p class="note lead">Whoever opens the link takes the ETH to any wallet, with no network fee, or keeps it private.</p>
     ${amountField('f-gamt', 'They get', html`<button type="button" id="f-max">Max</button>`)}
     <div class="lbl"><span>What it’s for (optional)</span></div>
     <div class="amt text"><input id="f-gfor" maxlength="60" placeholder="Dinner, rent, a gift…" autocomplete="off" aria-label="What it is for"></div>
@@ -2852,7 +2852,7 @@ function formLink(f) {
     ${shown ? html`<div class="blk glink"><div class="lbl"><span>Your link · they get ${shown.more ? 'at least ' : ''}${exact(shown.a)} ETH on ${shown.c.full}</span><button type="button" id="gl-x">done</button></div>
       <div class="addr"><code>${shown.url}</code></div>
       <div class="row2"><button class="btn" type="button" id="gl-copy">Copy link</button><button class="btn ghost" type="button" id="gl-share">Share</button></div>
-      <p class="note">Anyone with this link can take the ETH, so send it only to them, in a private message. Until it is taken, you can take it back below. Your key finds it again on any device.</p></div>` : ''}
+      <p class="note">Anyone with this link can take the ETH, so send it only to them, privately. Until it is taken, you can take it back below, and your key finds it on any device.</p></div>` : ''}
     <div id="f-gl">${linksList()}</div>`);
   wireRoute(f, tab);
   $('#f-byaddr').onclick = () => { S.sendMode = 'to'; LINKSHOW.v = null; renderForm(); writeHash(); };
@@ -2889,7 +2889,7 @@ function formLink(f) {
       const have = maxSpend(cap);
       dep = depositFor(a + cf, cap);
       R.set(html`${kvRow('Your private balance covers', `${ethDown(have)} ETH`)}
-        <p class="note">Deposit ${fmt(dep, 18, 6)} ETH from your wallet, and the link is made from your private balance right after. A round deposit does not match what they withdraw, and the rest stays yours.</p>`);
+        <p class="note">Deposit ${fmt(dep, 18, 6)} ETH from your wallet, and the link is made from your private balance right after. The rest stays yours.</p>`);
       go.disabled = false;
       go.textContent = S.wallet ? `Deposit ${fmt(dep, 18, 6)} ETH and create the link` : 'Connect wallet to deposit';
       return;
@@ -3033,14 +3033,14 @@ function paintDue() {
       const p = privacyCheck(c, a, d.to, null), ready = covers && p && !p.wait && !bad;
       if (d.sent) return html`<div class="due-i"><div class="h"><b>Pay ${who}</b><span class="num">${exact(a)} ETH</span></div>
         <div class="req-m">on ${c.full} · to <span class="nw">${short(d.to)}</span></div>
-        <p class="note">Sent. It leaves this list once Activity shows it. If it never does, dismiss it and pay again from Send.</p>
+        <p class="note">Sent. It leaves this list once Activity shows it; if it never does, dismiss it and pay again from Send.</p>
         <div class="foot-a"><span></span><button class="link" type="button" id="undue-${d.id}" data-undue="${d.id}">dismiss</button></div></div>`;
       const line = bad ? SUM_MSG
         : st.bal == null || !p ? 'Checking…'
         : fee == null ? (st.quoteErr ? 'The relay can’t take this one right now. Try again in a moment, or choose your wallet under Send.' : 'Checking…')
         : thin ? spreadText(c, st, maxSpend(cap, 0n, st), 'From Send, pay up to')
         : !covers ? `Waiting for your deposit to reach your private balance on ${c.full}.`
-        : p.wait ? `${p.wait.since >= 5 ? `${p.wait.since} deposits by others since yours` : `${p.wait.since} of 5 deposits by others since yours`}${p.wait.hours > 0 ? `, and ≈ ${Math.ceil(p.wait.hours)} h to go` : ''}. The longer it waits, the harder it is to link to you.`
+        : p.wait ? `${p.wait.since >= 5 ? `${p.wait.since} deposits by others since yours` : `${p.wait.since} of 5 deposits by others since yours`}${p.wait.hours > 0 ? `, and ≈ ${Math.ceil(p.wait.hours)} h to go` : ''}. Waiting longer makes it harder to link to you.`
         : 'Ready: enough others have deposited since yours.';
       return html`<div class="due-i"><div class="h"><b>Pay ${who}</b><span class="num">${exact(a)} ETH</span></div>
         <div class="req-m">on ${c.full} · to <span class="nw">${short(d.to)}</span></div>
@@ -3052,7 +3052,7 @@ function paintDue() {
   $$('[data-undue]', el).forEach((b) => b.onclick = () => { dropDue(b.dataset.undue); paintDue(); });
   $$('[data-due]', el).forEach((b) => b.onclick = () => payDue(b.dataset.due));
 }
-const PAYING_AWAY = 'That payment is already on its way. It shows in Activity once it lands. Check there before paying it again.';
+const PAYING_AWAY = 'That payment is already on its way. Check Activity before paying it again.';
 function payDue(id) {
   const d = dues().find((x) => x.id === id), c = d && chainOf(d.chain);
   if (!d || S.busy) return;
@@ -3092,8 +3092,8 @@ function formWithdraw(f) {
     ${l2 ? '' : routeSeg(tab, quoteFee(c))}
     <div class="rcpt" id="f-rcpt" role="status" hidden></div>
     <button class="btn" type="button" id="f-go" aria-describedby="f-rcpt" disabled>${l2 ? `Move to ${l2.full}` : 'Withdraw'}</button>
-    <p class="note">${l2 ? `Moves ETH through ${l2.full}’s canonical bridge to your deposit address there and into your private balance on ${l2.full}, usually within minutes. The move, its amount and that address show on Ethereum. Which of your notes paid does not.`
-      : html`Withdraw any part. The rest stays private. The address and the amount show on chain, ${routeNote(tab, 'but nothing links them to you, and the relay cannot change them.', 'and so does your wallet as the sender.')}`}</p>`);
+    <p class="note">${l2 ? `Moves ETH over ${l2.full}’s canonical bridge into your private balance there, usually within minutes. The move, its amount and your deposit address there show on Ethereum; which of your notes paid does not.`
+      : html`The address and the amount show on chain, ${routeNote(tab, 'but nothing links them to you, and the relay cannot change them.', 'and so does your wallet as the sender.')}`}</p>`);
   wireRoute(f, tab);
   $$('[data-dest]', f).forEach((b) => b.onclick = () => { S.dest = b.dataset.dest; renderForm(); if (S.dest !== 'addr') bridgeQuote(S.dest); });
   const to = $('#f-wto'), amt = $('#f-wamt'), go = $('#f-go'), rc = $('#f-rcpt');
@@ -3146,7 +3146,7 @@ function formWithdraw(f) {
         await Promise.all(missing().map((x) => (x === CHAINS[0] ? historyOf(x, true).catch(() => {}) : boxScan(x))));
         k = linkIndex();
       }
-      if (k == null) throw new Error(`Could not read your addresses on ${new Intl.ListFormat('en-GB').format(missing().map((x) => x.full))}. This move needs them to pick an address that no payment link uses. Try again in a moment.`);
+      if (k == null) throw new Error(`Could not read your addresses on ${new Intl.ListFormat('en-GB').format(missing().map((x) => x.full))}, which this move needs to pick an address no payment link uses. Try again in a moment.`);
       W.watchThrough(k);
       const h = await W.bridgeOut({ toChainId: l2.chainId, amount: a, l2Rpc: await rpcOn(l2), maxFee, onStep: step });
       walletOn(l2).then((w) => w.watchReceive()).catch(() => {});
@@ -3266,16 +3266,16 @@ function formReceive(f) {
       <div class="row2"><button class="btn" type="button" id="f-new" style="grid-column:1 / -1">New link</button></div>`
     : html`${box ? '' : html`<p class="note" id="f-wait">${k != null ? 'Preparing your link…' : linkWaitView()}</p>`}
       <div class="row2"><button class="btn" type="button" id="f-link" ${box ? html`data-box="${k}"` : ''}>Copy payment link</button><button class="btn ghost" type="button" id="f-share">Share</button></div>`}
-      <p class="note">Paid from a Tacit wallet, it is private end to end. Paid from any other wallet, it reaches your private balance on ${c.full}, usually within minutes, for at most 0.25%. Each paid link gets a fresh address, so your payments are not linked to each other.</p></div>
+      <p class="note">From a Tacit wallet it is private end to end. From any other wallet it reaches your private balance on ${c.full} within minutes, for at most 0.25%. Each link gets a fresh address, so payments are not linked.</p></div>
     ${UNIFIED_LIVE ? html`<div class="blk"><div class="lbl"><span>Your Tacit address</span><span>works in every Tacit app</span></div>
       <div class="addr"><code>${unifiedAddress()}</code><button class="link" type="button" data-copy="${unifiedAddress()}">copy</button></div>
-      <p class="note">ID <b class="num nw">${addressId(unifiedAddress())}</b>. Whoever pays you sees the same ID, so you can check it matches.</p>
-      <p class="note">Anyone using Tacit can pay you privately with it, on Bitcoin, Ethereum, Base, Robinhood Chain and MegaETH. It never appears on chain. Your pool-only address (ID <span class="num nw">${addressId(S.key.bp)}</span>) still works too: <button class="link" type="button" data-copy="${S.key.bp}">copy bp1…</button></p></div>
+      <p class="note">ID <b class="num nw">${addressId(unifiedAddress())}</b>. Whoever pays you sees the same ID.</p>
+      <p class="note">It never appears on chain. Your pool-only address (ID <span class="num nw">${addressId(S.key.bp)}</span>) also works: <button class="link" type="button" data-copy="${S.key.bp}">copy bp1…</button></p></div>
       <div id="f-up"></div>`
     : html`<div class="blk"><div class="lbl"><span>Your pool address</span><span>same on every chain</span></div>
       <div class="addr"><code>${S.key.bp}</code><button class="link" type="button" data-copy="${S.key.bp}">copy</button></div>
-      <p class="note">ID <b class="num nw">${addressId(S.key.bp)}</b>. Whoever pays you sees the same ID, so you can check it matches.</p>
-      <p class="note">For private payments from other Tacit users. It never appears on chain, and it receives in the Bitcoin pool too. From an exchange, use Deposit.</p></div>`}`);
+      <p class="note">ID <b class="num nw">${addressId(S.key.bp)}</b>. Whoever pays you sees the same ID.</p>
+      <p class="note">For private payments from other Tacit users. It never appears on chain, and also receives in the Bitcoin pool. From an exchange, use Deposit.</p></div>`}`);
   if (UNIFIED_LIVE) nameUpgrade().then((plan) => { const el = $('#f-up'); if (plan && el?.isConnected) { mount(el, upgradeView(plan)); wireUpgrade(el, plan, () => mount(el, html``)); } });
   $$('[data-copy]', f).forEach((b) => b.onclick = () => copy(b.dataset.copy));
   f.querySelector('.blk').addEventListener('click', (e) => {
@@ -3409,7 +3409,7 @@ function drawReq() {
       ${!r.amount ? html`<div class="amt act"><input id="req-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="Amount"><span class="u">${ethIcon}ETH</span></div>` : ''}
       ${held || r.state === 'confirm' || r.state === 'proving' ? '' : html`<div class="row2">${privFirst || used ? html`<button class="btn" type="button" id="req-priv"${used ? html` style="grid-column:1 / -1"` : ''}>Pay privately</button>` : ''}${walletBtn}${privFirst || used ? '' : html`<button class="btn ghost" type="button" id="req-priv">Pay privately</button>`}</div>`}
       ${used ? html`<p class="note warn">${BOX_USED}</p>` : ''}
-      <p class="note">${r.n && r.ns ? 'From a wallet: your address and the amount show on chain as a payment to their deposit address, then it moves into their private balance.' : 'From a wallet: proved on this device (a one-time download), then sent from your wallet straight into their private balance. Your address and the amount show on chain. Who you paid does not.'}${c.points !== false ? ' Paying from a wallet earns you TAC points.' : ''} Privately, from your own private ETH: nothing on chain links you to them.</p>`}`);
+      <p class="note">${r.n && r.ns ? 'From a wallet: your address and the amount show on chain, as a payment to their deposit address.' : 'From a wallet: your address and the amount show on chain; who you paid does not. Proved on this device first (a one-time download).'}${c.points !== false ? ' It earns you TAC points.' : ''} Privately, from your own private ETH: nothing on chain links you to them.</p>`}`);
   sayLive($('#req-status'), own ? '' : r.paid ? html`${{
     mining: html`<span class="spin" aria-hidden="true"></span>Paid ${exact(r.paid.a)} ETH · waiting for the block`,
     pending: html`<span class="warn">Paid ${exact(r.paid.a)} ETH, still pending. Check it on the explorer before paying again.</span>`,
@@ -3559,18 +3559,18 @@ const ptsFmt = (n) => Math.round(Number(n) || 0).toLocaleString('en-US');
 function paintPoints() {
   const v = PTS.who && PTS.who === lc(S.wallet || '') ? PTS.v : null, el = $('#points-body');
   keepFocus(el, () => mountOnce(el, html`
-    <p class="lede-s">Deposit ETH into the pool and earn TAC. Each day, up to 1,111 TAC is shared by points.</p>
+    <p class="lede-s">Deposit ETH into the pool and earn TAC: up to 1,111 TAC a day is shared by points.</p>
     <ul class="perks">
       <li><span><b>1,000+ points per ETH</b> deposited on Ethereum, Base or Robinhood Chain, more while the pool is young.</span></li>
       <li><span><b>1.2×</b> if your wallet has received ETH from <a id="pts-pp" href="https://privacypools.com" target="_blank" rel="noopener">Privacy Pools</a>.</span></li>
-      <li><span>Paying a link or a deposit address from your wallet counts too, and holding TAC adds a boost.</span></li>
+      <li><span>Paying a link or deposit address from your wallet counts too; holding TAC adds a boost.</span></li>
     </ul>
     ${S.wallet ? (v ? html`<div class="earn">
         <div><b class="num">${ptsFmt(v.points)}</b><span>your points${v.pool && v.pool < v.points ? ` · ${ptsFmt(v.pool)} from the pool` : ''}</span></div>
         <div><b class="num">${fmt(v.today, 18, 2)}</b><span>TAC today${v.share ? ` · ${v.share * 100 < 0.1 ? 'under 0.1' : (v.share * 100).toFixed(1)}%` : ''}</span></div>
         <div><b class="num">${fmt(v.owed, 18, 2, true)}</b><span>TAC to claim</span></div>
       </div>
-      <p class="note mute">Today’s TAC is shared out in <span id="pts-clock">${dayLeft()}</span>. Your share moves as deposits land. Read ${ago(Math.floor(PTS.at / 1000))}.</p>
+      <p class="note mute">Today’s TAC is shared out in <span id="pts-clock">${dayLeft()}</span>. Read ${ago(Math.floor(PTS.at / 1000))}.</p>
       ${v.pp ? html`<p class="note ok">Your Privacy Pools boost is on.</p>` : ''}`
       : PTS.reading ? html`<p class="note"><span class="sk" style="--w:14ch"></span></p>`
       : PTS.err ? html`<p class="note err">Could not read your points. <button class="link" type="button" id="pts-show">Try again</button></p>`
@@ -3578,7 +3578,7 @@ function paintPoints() {
     : html`<p class="note">Connect the wallet you deposit from to see its points.</p>`}
     ${(() => { const mine = PTS.expect.filter((e) => S.wallet && e.who === lc(S.wallet)), ok = ptsOk(lc(S.wallet || ''));
       return mine.length ? html`<div class="lbl"><span>Your latest</span><span>${ptsCounting() ? 'counting' : 'counted'}</span></div>${mine.map((e) => kvRow(`${fmt(e.a, 18, 6)} ETH on ${e.c.name}`, e.pts != null ? `+${ptsFmt(e.pts)} points` : `≈ ${ptsFmt(e.est)} points · ${ok ? 'counting…' : 'show your points to see it counted'}`, e.pts != null ? 'ok' : ''))}
-        <p class="note mute">The program counts a deposit once it is final on its chain, and a payment to a link once it moves into the payee’s balance.</p>` : ''; })()}
+        <p class="note mute">Counted once a deposit is final on its chain, or a link payment moves into the payee’s balance.</p>` : ''; })()}
     <div class="foot-a"><a class="link" id="pts-claim" href="/rewards/">${v?.owed > 0n ? 'Claim your TAC →' : 'Track and claim your TAC →'}</a>${S.wallet ? '' : html`<button class="link" type="button" id="pts-conn">Connect wallet</button>`}</div>`));
   const show = $('#pts-show'), conn = $('#pts-conn');
   if (show) show.onclick = () => { ptsAllow(lc(S.wallet)); readPoints(true); paintPoints(); };
@@ -3607,7 +3607,7 @@ function paintDevice() {
     : PROVER.cached ? html`<b>saved on this device</b>` : html`<b>33 MB, fetched once, then saved</b>`;
   const last = PROVER.last != null ? (PROVER.last / 1000).toFixed(1) : null, el = $('#device-body');
   keepFocus(el, () => mountOnce(el, html`
-    <p class="lede-s">Your key never leaves this tab. Every payment is proved here and checked before it is sent. The relay can deliver it but cannot change it.</p>
+    <p class="lede-s">Your key never leaves this tab. Every payment is proved and checked here; the relay can deliver it but not change it.</p>
     ${last ? html`<div class="proof"><b class="num">${last} s</b><span class="mute">${PROVER.lastKind === 'sample' ? 'to prove a sample payment here, and verify it' : 'your last payment’s proof, verified here'}</span></div>` : ''}
     <div class="kv"><span>Proving key</span>${state}</div>
     ${PROVER.state === 'loading' ? html`<div class="meter"><i id="device-meter"></i></div>` : ''}
@@ -3646,7 +3646,7 @@ function paintRecover() {
   const el = $('#recover-body');
   if (!S.key) {
     $('#recover-at').textContent = '';
-    mountOnce(el, html`<p class="lede-s">Your payments, rebuilt from your key and the chain on any device. Your key is the only backup.</p>`);
+    mountOnce(el, html`<p class="lede-s">Your payments, rebuilt from your key. Your key is the only backup.</p>`);
     return;
   }
   const at = (r) => r.time ?? r.near ?? Date.now() / 1000;
@@ -3664,7 +3664,7 @@ function paintRecover() {
     return html`<li><span class="n">${c.name}</span><span class="num">${ethDown(h.balance)} ETH</span><span class="s">${n} payment${n === 1 ? '' : 's'}${st.leaves != null ? ` · among ${st.leaves} pool notes` : ''}${match ? html` · <span class="ok">matches your balance</span>` : ''}${st.histErr ? html` · <span class="err">could not refresh</span> ${again}` : ''}</span></li>`;
   };
   keepFocus(el, () => mountOnce(el, html`
-    <p class="lede-s">Rebuilt from your key and the chain: what you received, and what you sent with its fee and the change you kept. Your key is the only backup. This browser keeps only a view, never a spend key.</p>
+    <p class="lede-s">Rebuilt from your key and the chain. Your key is the only backup; this browser keeps only a view, never a spend key.</p>
     <ul class="chainsum">${CHAINS.map(line)}</ul>
     <details class="adv"${S.advOpen ? ' open' : ''}><summary id="rc-adv">Rebuild from scratch</summary>
       <label class="chk"><input type="checkbox" id="rc-chain" ${(S.rcChain ?? S.chainOnly) ? 'checked' : ''}>Read the chain alone, skipping the relay’s index (slower)</label>
@@ -3678,7 +3678,7 @@ function paintRecover() {
       return html`<li><div class="h"><b>${label}${r.kind === 'out' ? html` to <span class="nw">${short(r.to)}</span>` : r.kind === 'bridge' ? ` to ${r.dest}` : ''}</b><span class="${isIn ? 'in' : ''}">${isIn ? '+' : r.kind === 'self' ? '' : '−'}${fmt(r.v, 18, 6)} ETH</span></div>
         <div class="f">${bits} · ${txLink(r.chain, r.tx)}${r.proof ? html` · <button class="link" type="button" id="prove-${r.chain.chainId}-${r.tx}-${r.proof.k}" data-proof="${r.chain.key}:${r.tx}:${r.proof.k}:${r.proof.e.toString(16).padStart(64, '0')}">copy proof</button>` : ''}</div></li>`;
     })}</ul>
-    <p class="note">Who received a private payment is known only to you and them: the chain holds the amount sealed to their key, and nothing that names them.</p>` : CHAINS.every((c) => CH[c.chainId].hist) ? html`<p class="note">No payments yet. Deposit to start.</p>` : ''}`));
+    <p class="note">Only you and the recipient know who a private payment went to: the chain holds the amount sealed to their key.</p>` : CHAINS.every((c) => CH[c.chainId].hist) ? html`<p class="note">No payments yet. Deposit to start.</p>` : ''}`));
   $('#rc-chain').onchange = (e) => { S.rcChain = e.target.checked; };
   el.querySelector('details.adv').ontoggle = (e) => { S.advOpen = e.target.open; };
   $('#rc-go').onclick = (e) => {
@@ -3786,16 +3786,16 @@ function drawGift() {
     <div class="req-m">on ${c.full}${g.note ? html` · “${g.note}”` : ''}</div>
     ${d ? html`<p class="status">${d.inBlock ? html`<span class="ok">${d.to ? `Sent to ${short(d.to)}.` : 'In your private balance.'}</span>` : html`<span class="warn">${d.to ? `Sent to ${short(d.to)}, not confirmed yet.` : 'Sent to your private balance, not confirmed yet.'} Check it on the explorer before taking it again.</span>`} ${txLink(c, d.h)}</p>`
     : b == null ? (GIFT.err ? html`<p class="note err">${errText(GIFT.err)} <button class="link" type="button" id="gift-re">retry</button></p>` : html`<p class="note">Reading the link’s balance…</p>`)
-    : b === 0n ? html`<p class="note">Nothing is in this link. It was already taken, by whoever holds it or by its sender, or the payment into it has not landed yet. <button class="link" type="button" id="gift-re">check again</button></p>`
-    : fee != null && b <= fee ? html`<p class="note err">This link holds ${exact(b)} ETH, less than the relay’s fee of ${fmt(fee, 18, 6)} ETH for taking it, so it cannot be withdrawn or kept. Its sender can take it back.</p>`
+    : b === 0n ? html`<p class="note">Nothing is in this link: it was already taken, or the payment into it has not landed yet. <button class="link" type="button" id="gift-re">check again</button></p>`
+    : fee != null && b <= fee ? html`<p class="note err">This link holds ${exact(b)} ETH, less than the relay’s fee of ${fmt(fee, 18, 6)} ETH, so it cannot be taken. Its sender can take it back.</p>`
     : html`
       <div class="lbl"><span>Take it to your wallet</span>${S.wallet ? html`<button type="button" id="gift-me">My wallet</button>` : ''}</div>
       <div class="amt text act"><input id="gift-to" placeholder="0x… any address of yours" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Your address" ${GIFT.busy ? 'disabled' : ''}></div>
       <p class="note err" id="gift-sum" role="alert" hidden>${SUM_MSG}</p>
       <button class="btn" type="button" id="gift-take" disabled>Take it</button>
-      <p class="note">${fee != null ? `No network fee to pay: the relay sends it, and its fee of ${fmt(fee, 18, 6)} ETH came with the link.` : 'Waiting for the relay, which sends it for you…'} Proved on this device first.</p>
+      <p class="note">${fee != null ? `No network fee to pay: the relay’s fee of ${fmt(fee, 18, 6)} ETH came with the link.` : 'Waiting for the relay…'} Proved on this device first.</p>
       <div class="foot-a"><span class="mute">Or keep it private, in your own Tacit wallet</span><button class="btn ghost sm" type="button" id="gift-keep" ${GIFT.busy || left == null ? 'disabled' : ''}>${S.key ? 'Keep it private' : 'Open your wallet to keep it'}</button></div>
-      <p class="note">Anyone with this link can take it, so take it soon or keep the link to yourself. Taking it right after it was sent pairs the two in time. Waiting a while blends in better.</p>`}`);
+      <p class="note">Anyone with this link can take it, so keep it to yourself. Taking it right after it was sent pairs the two in time; waiting a while blends in better.</p>`}`);
   $('#gift-x').onclick = () => { GIFT.v = null; renderApp(); };
   $('#gift-re')?.addEventListener('click', () => { Object.assign(GIFT, { err: null, bal: null }); paintGift(); loadGift(); });
   const to = $('#gift-to'), take = $('#gift-take');
@@ -3849,7 +3849,7 @@ function drawProof() {
   if (!p) return;
   mount($('#proof-body'), html`
     <div class="lbl"><span>Payment proof</span><button class="link" type="button" id="pf-x">dismiss</button></div>
-    <div class="req-m">A private payment on ${p.chain.full} in ${txLink(p.chain, p.tx)}. Enter who it was for to check it. The link alone shows nothing more.</div>
+    <div class="req-m">A private payment on ${p.chain.full} in ${txLink(p.chain, p.tx)}. Enter who it was for to check it.</div>
     <div class="amt text act"><input id="pf-to" placeholder="Address or name" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="Recipient"><button class="link" type="button" id="pf-go">check</button></div>`);
   if (typed) $('#pf-to').value = typed;
   $('#pf-x').onclick = () => { leaveBar(p.src); PROOF.v = null; PROOF.res = null; paintProof(); };
