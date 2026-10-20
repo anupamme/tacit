@@ -540,8 +540,19 @@ try {
   await p.click('#mode-seg [data-mode="use"]');
   await until(p, () => /0\.1\b/.test(document.querySelector('#held')?.textContent || ''), null, 30000);
   ok(/0\.1 .*tETH, private/.test(await text(p, '#held')), `Use tETH shows the key's private tETH (${await text(p, '#held')})`);
+  ok(!/on Bitcoin/.test(await text(p, '#held')), 'and no line about Bitcoin while the key is not known to hold any there');
+  // What the front page last read on the key's Bitcoin address (kept in this browser) shows beside it, with the way to bring it back. The test cannot
+  // name the key's public key, so the stored map answers for any.
+  await p.evaluate(() => {
+    const real = JSON.parse;
+    JSON.parse = (t, r) => { const v = real(t, r); return v && typeof v === 'object' && v.__bridged_probe__ ? new Proxy({}, { get: () => ({ teth: { v: '700000', n: 2, ready: 1, at: Date.now() } }) }) : v; };
+    localStorage.setItem('tacit-bridged-v1', '{"__bridged_probe__":1}');
+  });
+  await p.click('#mode-seg [data-mode="get"]'); await p.click('#mode-seg [data-mode="use"]');
+  await until(p, () => /tETH on Bitcoin/.test(document.querySelector('#held')?.textContent || ''), null, 15000);
+  ok(/0\.007\s+tETH on Bitcoin, in 2 notes/.test(await text(p, '#held')) && (await p.$eval('#held a.linkbtn', (a) => a.getAttribute('href'))) === '/#private/bitcoin/back', `a key that holds tETH on Bitcoin sees it beside its private balance, with a way to bring it back (${await text(p, '#held')})`);
   const links = await p.$$eval('#uses a.use', (as) => as.map((a) => [a.querySelector('b').textContent, a.getAttribute('href')]));
-  ok(links.length === 6 && links[0][1] === '/#private/send' && links.find((l) => /Bridge/.test(l[0]))[1] === '/#private/bitcoin' && links.find((l) => /Bring tETH back/.test(l[0]))[1] === '/#private/bitcoin' && links.find((l) => /Back to ETH/.test(l[0]))[1] === '/#card=shield:eth:wallet', `six ways on, each a link that opens tacit.finance ready (${links.map((l) => l[1]).join(' ')})`);
+  ok(links.length === 6 && links[0][1] === '/#private/send' && links.find((l) => /Bridge/.test(l[0]))[1] === '/#private/bitcoin/out' && links.find((l) => /Bring tETH back/.test(l[0]))[1] === '/#private/bitcoin/back' && links.find((l) => /Back to ETH/.test(l[0]))[1] === '/#card=shield:eth:wallet', `six ways on, each a link that opens tacit.finance ready (${links.map((l) => l[1]).join(' ')})`);
   await p.fill('#use-amt', '0.05');
   const links2 = await p.$$eval('#uses a.use', (as) => as.map((a) => a.getAttribute('href')));
   ok(links2.filter((h) => h.includes('&amt=0.05')).length === 2 && !links2.some((h) => /private\/bitcoin.*amt/.test(h)), `the amount rides on the swap and take-out links (the bridge asks for its own) (${links2.filter((h) => h.includes('amt')).join(' ')})`);
@@ -978,7 +989,7 @@ try {
   ok(!(await p.$('#btc-actions button')) && !(await p.$('#btc-actions a')) && (await p.$eval('#btc-depth', (e) => e.hidden)), 'no way to trade is offered until there is something to trade');
   const facts = await text(p, '#btc-facts');
   ok(/3 holders on Bitcoin · 2 transfers/.test(facts), `what is known of tETH on Bitcoin (${facts})`);
-  ok(/change hands in the same transaction/.test(await text(p, '#btc-note')) && (await p.$eval('#btc-note a', (a) => a.getAttribute('href'))) === '/#private/bitcoin', 'it says how a listing settles and where tETH comes from');
+  ok(/change hands in the same transaction/.test(await text(p, '#btc-note')) && (await p.$eval('#btc-note a', (a) => a.getAttribute('href'))) === '/#private/bitcoin/out', 'it says how a listing settles and where tETH comes from');
   ok((await p.$$eval('#lane-seg button', (b) => b.map((x) => x.textContent))).join() === 'ETH held', 'the chart offers no Bitcoin price while there is none');
   ok(r.errors.length === 0 && r.blocked.length === 0, `no page error (${[...r.errors, ...r.blocked].join(' | ').slice(0, 160)})`);
   await r.browser.close();

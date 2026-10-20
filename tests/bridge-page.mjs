@@ -129,11 +129,11 @@ try {
     ok((await page.textContent('#bt-limit')) === '0.01 to 0.5 tETH a bridge while it is new', 'tETH to Bitcoin: the tile says what one bridge takes');
     ok((await page.textContent('#bt-wait')).includes('a little BTC'), 'and that a little BTC from the address pays the mint');
     ok(/^A few hours: Ethereum finalizes \(about 13 min\), the next proof covers it, then you sign the Bitcoin step/.test(await page.textContent('#bt-wait')), 'the way out says it takes hours: finality, then the proof that covers the burn, then the Bitcoin step, not finality alone');
-    ok(await page.getAttribute('.lost a', 'href') === '/#private/bitcoin', 'and a bridge that cannot be seen is looked for on the Private ETH sheet, where tETH’s are found');
+    ok(await page.getAttribute('.lost a', 'href') === '/#private/bitcoin/back', 'and a bridge that cannot be seen is looked for on the Private ETH sheet, where tETH’s are found');
     await page.click('#bt-flip');
     ok((await page.textContent('#bt-go')).includes('Bring tETH back to Ethereum') && (await page.textContent('#bt-limit')) === 'Up to 0.5 tETH a bridge while it is new', 'tETH back from Bitcoin: its own button and limit');
     await page.click('#bt-flip');
-    ok(await page.getAttribute('#bt-go', 'href') === '/#private/bitcoin' && (await page.textContent('#bt-go')).includes('tETH to Bitcoin'), 'tETH to Bitcoin');
+    ok(await page.getAttribute('#bt-go', 'href') === '/#private/bitcoin/out' && (await page.textContent('#bt-go')).includes('tETH to Bitcoin'), 'tETH to Bitcoin');
     await page.click('[data-asset="cbtc"]');
     ok(await page.getAttribute('.lost a', 'href') === '/#lock', 'a cBTC lock that cannot be seen is looked for on the Borrow sheet');
     ok(await page.isHidden('#bt-limit'), 'cBTC has no per-bridge limit line');
@@ -148,7 +148,7 @@ try {
     ok(rows.length === 5, `five bridges (${rows.length})`);
     ok(rows.some((r) => /0\.3 tETH/.test(r) && /to Ethereum/.test(r)), 'a tETH bridge coming back from Bitcoin is listed as tETH, with its amount');
     ok(/1\.5 tETH/.test(rows[0]) && /Send to Bitcoin/.test(rows[0]), 'the one that needs its holder comes first, with its press');
-    ok(await page.$eval('#mine-l > li .mb-due', (a) => a.getAttribute('href')) === '/#private/bitcoin', 'which opens its sheet');
+    ok(await page.$eval('#mine-l > li .mb-due', (a) => a.getAttribute('href')) === '/#private/bitcoin/out', 'which opens its sheet, on the way it goes');
     ok(rows.some((r) => /250 TAC/.test(r) && /10 blocks behind/.test(r)), 'a burn on Bitcoin: how far the proof is behind its block');
     ok(rows.some((r) => /40 TAC/.test(r) && /mempool/.test(r)), 'a mint on Bitcoin: still in the mempool');
     ok(rows.some((r) => /1,000 TAC/.test(r) && /Arrived/.test(r)), 'an arrival');
@@ -229,7 +229,7 @@ try {
   {
     const { browser, page, errors } = await openPage({ width: 390, height: 844 }, { scheme: 'dark', path: '/bridge/#teth/out' });
     await page.waitForFunction(() => document.querySelector('#bt').dataset.asset === 'teth', null, { timeout: 10000 });
-    ok(await page.getAttribute('#bt-go', 'href') === '/#private/bitcoin' && await page.$eval('#bt', (b) => b.dataset.dir) === 'out', 'the link #teth/out opens on tETH to Bitcoin');
+    ok(await page.getAttribute('#bt-go', 'href') === '/#private/bitcoin/out' && await page.$eval('#bt', (b) => b.dataset.dir) === 'out', 'the link #teth/out opens on tETH to Bitcoin');
     await page.waitForTimeout(800);
     ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no sideways scroll on a phone');
     ok(await page.evaluate(() => getComputedStyle(document.body).backgroundColor) === 'rgb(21, 19, 14)', 'dark paper');

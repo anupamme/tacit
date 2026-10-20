@@ -3226,6 +3226,14 @@ await step('xobridge', async () => {
   await go(r.page, '#private/bitcoin');
   await until(r.page, () => document.querySelectorAll('#eth-v1 .brr').length === 6, null, 120000);
   ok(!!(await r.page.$('#eth-v1 [data-v1="btc"][aria-selected="true"]')) && (await r.page.evaluate(() => location.hash)) === '#private/bitcoin', 'xobridge: a bridge under way shows the tab, selected by the link, whose address reads #private/bitcoin');
+  // The tab has its two ways: a key with bridges under way opens on To Bitcoin, the other side is a press away, and the address bar follows.
+  ok(!!(await r.page.$('#eth-v1 [data-xseg="out"][aria-selected="true"]')) && !!(await r.page.$('#eth-v1 [data-xseg="back"]:not([aria-selected="true"])')), 'xobridge: the tab has two sides, To Bitcoin open for a key with bridges under way');
+  await r.page.click('#eth-v1 [data-xseg="back"]');
+  await until(r.page, () => location.hash === '#private/bitcoin/back' && !!document.querySelector('#eth-v1 [data-xseg="back"][aria-selected="true"]'), null, 30000);
+  ok(!(await r.page.$('#xo-amt')) && !(await r.page.$$('#eth-v1 .brr')).length && /comes back to Ethereum as private tETH/.test(await text(r.page, '#eth-v1')), 'xobridge: Back to Ethereum has its own words and none of the bridges going out');
+  await r.page.click('#eth-v1 [data-xseg="out"]');
+  await until(r.page, () => location.hash === '#private/bitcoin' && document.querySelectorAll('#eth-v1 .brr').length === 6, null, 30000);
+  ok(true, 'xobridge: and To Bitcoin brings its bridges and its form back');
   const rows = await r.page.$$eval('#eth-v1 .brr', (xs) => xs.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
   ok(rows.length === 6 && !rows.some((x) => /TAC/.test(x)) && /Sent to Ethereum/.test(rows[0]) && /Waiting for Bitcoin’s proof/.test(rows[1]) && /fees are high/.test(rows[2]) && /Waiting for the tETH to be credited/.test(rows[4]) && /was not credited/.test(rows[5]),
     `xobridge: the six unfinished tETH bridges are listed in order, a finished one and a TAC one are not (${rows.length}: ${rows.map((x) => x.slice(0, 90)).join(' || ')})`);
@@ -3241,7 +3249,7 @@ await step('xobridge', async () => {
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | dash: ${(await text(r.page, '#dash')).replace(/\s+/g, ' ').slice(0, 500)}`); });
   const dash0 = (await text(r.page, '#dash')).replace(/\s+/g, ' ');
   ok(/0\.0039 TAC is on its way from Ethereum to Bitcoin, waiting for Bitcoin’s proof on Ethereum to see the burn\./.test(dash0), `xobridge: the dashboard says where a TAC bridge to Bitcoin is, and names the tETH ones that wait for the holder (${dash0.slice(0, 260)})`);
-  await r.page.click('#dash [data-dash-do="private/bitcoin"]');
+  await r.page.click('#dash [data-dash-do="private/bitcoin/out"]');
   await until(r.page, () => location.hash === '#private/bitcoin' && document.querySelectorAll('#eth-v1 .brr').length === 6, null, 120000);
   ok(true, 'xobridge: and its button opens the To Bitcoin tab');
   // Cancelling looks on Ethereum first (nothing there on the fork), then lets the intent go.
@@ -3401,7 +3409,7 @@ await step('xbring', async () => {
   await r.page.fill('#ws-hex', hex);
   await r.page.click('#wallet-body [data-in="key"]');
   await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
-  await go(r.page, '#private/bitcoin');
+  await go(r.page, '#private/bitcoin/back');
   await r.page.waitForSelector('#xb-look', { timeout: 120000 });
   ok(/Look for it/.test(await text(r.page, '#eth-v1')), 'xbring: tETH on Bitcoin is listed on request, so a key that has bridged nothing loads nothing');
   await r.page.click('#xb-look');
@@ -3410,15 +3418,28 @@ await step('xbring', async () => {
   const items = await r.page.$$eval('#eth-v1 label.brn', (xs) => xs.map((x) => ({ text: x.textContent.replace(/\s+/g, ' ').trim(), off: x.classList.contains('off') })));
   ok(items.length === 2 && items.some((x) => /0\.004 tETH/.test(x.text) && !x.off) && items.some((x) => /0\.003 tETH/.test(x.text) && x.off && /Waiting for Bitcoin’s proof on Ethereum to reach its block/.test(x.text)),
     `xbring: both notes are found with their amounts; the one the proof has recorded can be chosen, the other says why not (${items.map((x) => x.text).join(' | ')})`);
+  ok(!!(await r.page.$('#eth-v1 [data-xseg="back"][aria-selected="true"]')) && (await r.page.evaluate(() => location.hash)) === '#private/bitcoin/back', 'xbring: a link to the notes opens the Back to Ethereum side');
+  await until(r.page, () => /0\.007 on Bitcoin/.test(document.querySelector('#sheet-eth .bal')?.textContent || ''), null, 30000);
+  ok(true, 'xbring: the sheet\'s balance line says what is on Bitcoin, beside the private balance');
+  const kept = await r.page.evaluate(() => Object.values(JSON.parse(localStorage.getItem('tacit-bridged-v1') || '{}'))[0]?.teth);
+  ok(kept && kept.v === '700000' && kept.n === 2 && kept.ready === 1, `xbring: what was read is kept for the next visit (${JSON.stringify(kept)})`);
+  await r.page.click('#eth-v1 [data-xseg="out"]');
+  await until(r.page, () => !!document.querySelector('#xo-amt') && !document.querySelector('#xb-look'), null, 30000);
+  ok(true, 'xbring: the To Bitcoin side has the form and not the notes');
+  await r.page.click('#eth-v1 [data-xseg="back"]');
+  await until(r.page, () => document.querySelectorAll('#eth-v1 input[name="xb-note"]').length === 2, null, 30000);
+  await shot(r.page, 'xbring-tab-notes');
   // The dashboard and the landing card read the same notes: what is on Bitcoin, and how much of it can come back now.
   await r.page.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
   await until(r.page, () => /on Bitcoin · 2 notes · 1 ready to bring back/.test(document.querySelector('#dash-g')?.textContent || ''), null, 120000)
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | dash: ${(await text(r.page, '#dash-g')).replace(/\s+/g, ' ').slice(0, 300)}`); });
-  ok(/0\.007/.test(await r.page.$eval('#dash-g a[href="#private/bitcoin"]', (a) => a.textContent)), `xbring: the dashboard counts the tETH on Bitcoin, 0.007 in 2 notes, 1 ready (${(await r.page.$eval('#dash-g a[href="#private/bitcoin"]', (a) => a.textContent)).replace(/\s+/g, ' ')})`);
+  ok(/0\.007/.test(await r.page.$eval('#dash-g a[href="#private/bitcoin/back"]', (a) => a.textContent)), `xbring: the dashboard counts the tETH on Bitcoin, 0.007 in 2 notes, 1 ready (${(await r.page.$eval('#dash-g a[href="#private/bitcoin/back"]', (a) => a.textContent)).replace(/\s+/g, ' ')})`);
+  await shot(r.page, 'xbring-dashboard');
   await r.page.click('[data-hxm="private"]'); await r.page.selectOption('#hx-from', 'tb');
   await until(r.page, () => /0\.007 tETH on Bitcoin, in 2 notes/.test(document.querySelector('#hx-have')?.textContent || ''), null, 60000);
   ok(/1 of them can come back now \(0\.004 tETH\)/.test(await text(r.page, '#hx-have')), `xbring: and the card, with tETH on Bitcoin picked, says the same (${(await text(r.page, '#hx-have')).replace(/\s+/g, ' ')})`);
-  await r.page.click('#dash-g a[href="#private/bitcoin"]');
+  await shot(r.page, 'xbring-card');
+  await r.page.click('#dash-g a[href="#private/bitcoin/back"]');
   await until(r.page, () => document.querySelectorAll('#eth-v1 input[name="xb-note"]').length === 2, null, 120000);
   ok(true, 'xbring: the dashboard line opens the To Bitcoin tab with the notes');
   // Above the ceiling nothing is offered: the receipt says so, with the cost, and there is no box to tick.
@@ -3432,6 +3453,7 @@ await step('xbring', async () => {
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | rcpt: ${(await text(r.page, '#xb-rcpt')).replace(/\s+/g, ' ')}`); });
   const rc = (await text(r.page, '#xb-rcpt')).replace(/\s+/g, ' ');
   ok(/Relay feeNone/.test(rc) && /Bitcoin feeabout [\d,]+ sats/.test(rc) && !(await r.page.isVisible('#xb-ackrow')) === false, `xbring: the one ready note is chosen for the holder and its receipt names what arrives and the Bitcoin fee (${rc.slice(0, 200)})`);
+  await shot(r.page, 'xbring-return-receipt');
   ok(await r.page.isDisabled('#xb-go'), 'xbring: the button waits for the box to be ticked');
   await r.page.check('#xb-ack');
   ok(!(await r.page.isDisabled('#xb-go')), 'xbring: ticked, it can start');
@@ -3454,7 +3476,7 @@ await step('xbring', async () => {
   await r.page.evaluate(([k]) => localStorage.removeItem(k), [`tacit-crossout-bridge-v1:mainnet:${pub}`]);
   await go(r.page, '#private');
   await until(r.page, () => !!document.querySelector('#eth-v1 [data-v1="btc"]'), null, 60000);
-  await go(r.page, '#private/bitcoin');
+  await go(r.page, '#private/bitcoin/back');
   await until(r.page, () => document.querySelectorAll('#eth-v1 .brr').length === 1, null, 60000);
   ok(true, 'xbring: with the setting off and no cross-out under way, a return in flight keeps the tab and its Coming back row');
   await go(r.page, '#bridge');
@@ -3462,11 +3484,12 @@ await step('xbring', async () => {
   await sleep(1500);
   ok((await r.page.$$('#bridge-body .brr')).length === 0, 'xbring: the TAC Bridge tab does not list the tETH bridge');
   // The new sections at phone width: a note with its reason, a row with its steps, the receipt, and the find box, with no sideways scroll.
-  await go(r.page, '#private/bitcoin');
+  await go(r.page, '#private/bitcoin/back');
   await until(r.page, () => document.querySelectorAll('#eth-v1 .brr').length === 1 && !!document.querySelector('#eth-v1 #xb-find'), null, 60000);
   await r.page.setViewportSize({ width: 360, height: 760 });
   await sleep(400);
   await r.page.evaluate(() => document.querySelector('#eth-v1 #xb-find')?.closest('details')?.setAttribute('open', ''));
+  await shot(r.page, 'xbring-phone');
   const wide = await r.page.evaluate(() => { const d = document.querySelector('#sheet-eth .sheet-in'); return [d.scrollWidth, d.clientWidth, document.documentElement.scrollWidth, innerWidth]; });
   ok(wide[0] <= wide[1] + 1 && wide[2] <= wide[3] + 1, `xbring: no sideways scroll at phone width (${wide})`);
   if (r.errors.length) { fails++; console.log('FAIL xbring page errors: ' + r.errors.slice(0, 3).join(' | ')); }
@@ -3864,7 +3887,7 @@ await step('xtring', async () => {
   ok(rec && rec.source.ticker === 'TAC' && rec.source.p2tr === true && rec.path === 'reflected', 'xtring: the bridge journal holds it as a TAC, Taproot-owned, reflected burn');
   // The Private ETH sheet's tETH tab does not take a TAC return as its own.
   await r.page.evaluate(() => localStorage.setItem('tacit-teth-btc', 'true'));
-  await toSide('#private/bitcoin');
+  await toSide('#private/bitcoin/back');
   await sleep(2500);
   ok((await r.page.$$('#eth-v1 .brr')).length === 0, 'xtring: the tETH tab does not list the TAC return');
   await r.page.evaluate(() => localStorage.setItem('tacit-teth-btc', 'false'));
@@ -3926,7 +3949,7 @@ await step('xtring', async () => {
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | rows: ${(await r.page.$$('#bridge-body .brr')).length}`); });
   ok(true, 'xtring: and the From Bitcoin side lists both');
   await r.page.evaluate(() => localStorage.setItem('tacit-teth-btc', 'true'));
-  await toSide('#private/bitcoin');
+  await toSide('#private/bitcoin/back');
   await sleep(2500);
   ok((await r.page.$$('#eth-v1 .brr')).length === 0, 'xtring: and the tETH tab lists neither');
   await r.page.evaluate(() => localStorage.setItem('tacit-teth-btc', 'false'));

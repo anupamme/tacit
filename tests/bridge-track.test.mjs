@@ -63,7 +63,7 @@ test('the presses a bridge in waits on, as the front page names them', () => {
 test('a bridge out: its step, its press, and its Ethereum block', () => {
   const r = outRow(outRec());
   assert.equal(r.asset, 'teth'); assert.equal(r.amount, 490000000n); assert.equal(r.at, 1);
-  assert.equal(r.ethTx, '0x' + 'ff'.repeat(32)); assert.equal(r.ethBlock, 26_225_900); assert.equal(r.href, '/#private/bitcoin');
+  assert.equal(r.ethTx, '0x' + 'ff'.repeat(32)); assert.equal(r.ethBlock, 26_225_900); assert.equal(r.href, '/#private/bitcoin/out');
   assert.equal(outDue(outRec({ stage: 'covered' })), 'Send to Bitcoin');
   assert.equal(outDue(outRec({ stage: 'mint-rejected' })), 'Send it again');
   assert.equal(outDue(outRec({ stage: 'mint-rejected', attempts: [{}, {}] })), 'Look at it', 'after the third step the front page offers none');
@@ -129,7 +129,7 @@ const tethBack = (o = {}) => inRec({ source: { txid: 'aa'.repeat(32), vout: 1, a
 test('tETH coming back from Bitcoin is a tETH row, read in its own places', () => {
   const r = inRow(tethBack({ stage: 'rburn-mined' }), NOW);
   assert.equal(r.asset, 'teth'); assert.equal(r.dir, 'in'); assert.equal(r.amount, 30_000_000n);
-  assert.equal(r.href, '/#private/bitcoin'); assert.equal(r.at, 2); assert.equal(r.btcTx, 'bb'.repeat(32));
+  assert.equal(r.href, '/#private/bitcoin/back'); assert.equal(r.at, 2); assert.equal(r.btcTx, 'bb'.repeat(32));
   assert.equal(fmtAmount(r.amount, 6), '0.3');
   assert.equal(inDue(tethBack({ stage: 'rfolded' }), NOW), 'Mint now');
   const rows = readBridges(store({ [IN_PREFIX + PUB]: JSON.stringify([tethBack({ id: 't1', createdAt: NOW - 1e3 }), inRec({ id: 'x1', createdAt: NOW - 2e3 })]) }), NOW);

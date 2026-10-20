@@ -28,8 +28,8 @@ export const ROUTES = {
   },
   teth: {
     ticker: 'tETH', icon: 'tk-teth', dp: 6,
-    in: { href: '/#private/bitcoin', go: 'Bring tETH back to Ethereum', steps: ['Burned on Bitcoin', 'Confirmed', 'Proven on Ethereum', 'Minted privately'] },
-    out: { href: '/#private/bitcoin', go: 'Bridge tETH to Bitcoin', steps: ['Burned on Ethereum', 'Proven for Bitcoin', 'Sent to Bitcoin', 'Arrived'] },
+    in: { href: '/#private/bitcoin/back', go: 'Bring tETH back to Ethereum', steps: ['Burned on Bitcoin', 'Confirmed', 'Proven on Ethereum', 'Minted privately'] },
+    out: { href: '/#private/bitcoin/out', go: 'Bridge tETH to Bitcoin', steps: ['Burned on Ethereum', 'Proven for Bitcoin', 'Sent to Bitcoin', 'Arrived'] },
   },
   // cBTC enters by a lock: the bitcoin stays at an output of the holder's own key, a wstETH bond stands behind it, Bitcoin's proof
   // records the lock, and the pool mints cBTC 1:1. Its steps are the Borrow sheet's own (Lock, Bond, Mint, Borrow), and the sheet

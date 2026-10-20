@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-sNq68gFg32KsPgrhduFgPBBsU4k8qGL8T1ziAJk/HwQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-IugkABOo1HFw8+eAYx+le49/JRTPf34mPFvloez9EfQ=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -3964,9 +3964,9 @@ const viewOf = (map, slug) => Object.keys(map).find((k) => map[k] === (slug || '
 const chainSlug = (c) => c.name.toLowerCase();
 const SUBLINK = {
   eth: {
-    get: () => (TAB.eth === 'dev' ? [DEV.tok ? DEV.tok.slug : chainSlug(DEV.chain), VIEW.dev[DEV.mode]] : [VIEW.v1[V1.mode]]),
+    get: () => (TAB.eth === 'dev' ? [DEV.tok ? DEV.tok.slug : chainSlug(DEV.chain), VIEW.dev[DEV.mode]] : [VIEW.v1[V1.mode], ...(V1.mode === 'btc' && XSEG.teth === 'back' ? ['back'] : [])]),
     set: (tab, parts) => {
-      if (tab !== 'dev') { V1.mode = viewOf(VIEW.v1, parts[0]) || 'wrap'; return; }
+      if (tab !== 'dev') { V1.mode = viewOf(VIEW.v1, parts[0]) || 'wrap'; if (V1.mode === 'btc') XSEG.teth = parts[1] === 'back' ? 'back' : parts[1] === 'out' ? 'out' : XSEG.teth; return; }
       const c = DEVICE_CHAINS.find((x) => chainSlug(x) === parts[0]), p = TOKEN_POOLS.find((x) => x.slug === parts[0]);
       if (p) DEV.tok = p;
       else if (c && (c !== DEV.chain || DEV.tok)) setDeviceChain(c);
@@ -4118,7 +4118,7 @@ function needKey(el, why, first) {
   wireSignIn(el, el.id);
   return false;
 }
-const SEG_NAME = { brm: 'Bridge direction', wal: 'Tacit account', wala: 'Asset', walc: 'Chain', v1: 'Tacit pool', swf: 'Swap from', swt: 'Swap for', chain: 'Chain', dev: 'On this device',
+const SEG_NAME = { brm: 'Bridge direction', xseg: 'Bridge direction', wal: 'Tacit account', wala: 'Asset', walc: 'Chain', v1: 'Tacit pool', swf: 'Swap from', swt: 'Swap for', chain: 'Chain', dev: 'On this device',
   dest: 'Withdraw to', sps: 'Pay with', btcm: 'Bitcoin', btca: 'Asset', plv: 'Leaderboard period', pfp: 'Share to withdraw', pfr: 'Withdraw as', pfm: 'Farm with' };
 const segSub = (name, cur, items) => html`<div class="seg sub" role="tablist"${SEG_NAME[name] ? html` aria-label="${SEG_NAME[name]}"` : ''}>${items.map(([k, label]) => html`<button type="button" role="tab" data-${name}="${k}" aria-selected="${k === cur}">${label}</button>`)}</div>`;
 function wireSub(el, name, set) { $$(`[data-${name}]`, el).forEach((b) => b.onclick = () => { if (!running(sheetOf(b))) { set(b.getAttribute(`data-${name}`)); syncLink(); } }); }
@@ -4365,14 +4365,14 @@ function renderV1(el) {
   mount(el, html`
     <div class="bal">
       <svg class="tk md" aria-hidden="true"><use href="#tk-teth"/></svg>
-      <div><div class="v num">${bal}</div><div class="u">tETH, private</div></div>
+      <div><div class="v num">${bal}</div><div class="u">tETH, private</div>${xoBtcLine(S.key.pubHex)}</div>
       <div class="side">${s?.partial ? html`<span class="err">part not read</span> <button class="link" type="button" id="v1-rescan">retry</button>` : P.err ? html`<button class="link" type="button" id="v1-rescan">retry</button>` : s ? html`<button class="link" type="button" id="v1-rescan">refresh</button>` : 'updating…'}</div>
     </div>
     ${depositCallout('eth', 'v1-finish')}
     ${LK.pub === S.key.pubHex && lockList('claim').length ? html`<div class="callout"><span>${lockLine(lockList('claim'), 'claim')}</span><button class="btn ghost" type="button" id="v1-claim">Claim</button></div>` : ''}
     ${LK.pub === S.key.pubHex && lockList('refund').length ? html`<div class="callout"><span>${lockLine(lockList('refund'), 'refund')}</span><button class="btn ghost" type="button" id="v1-back">Take back</button></div>` : ''}
     ${LK.failed?.pub === S.key.pubHex && LK.pub !== S.key.pubHex && !LK.scanning ? html`<div class="callout"><span>Payments sent to you could not be looked for just now.</span><button class="btn ghost" type="button" id="v1-locks">Try again</button></div>` : ''}
-    ${segSub('v1', V1.mode, [['wrap', 'Make private'], ['send', 'Send'], ['swap', 'Swap'], ['out', 'Withdraw'], ...(xoShown(S.key.pubHex) ? [['btc', xoJournal(S.key.pubHex, XA.teth).length || brJournal(S.key.pubHex, 'tETH').some((r) => !BR_DONE.includes(r.stage) && r.stage !== 'recovered') ? html`To Bitcoin<i class="dot live" aria-hidden="true"></i><span class="sr">, under way</span>` : 'To Bitcoin']] : [])])}
+    ${segSub('v1', V1.mode, [['wrap', 'Make private'], ['send', 'Send'], ['swap', 'Swap'], ['out', 'Withdraw'], ...(xoShown(S.key.pubHex) ? [['btc', xoJournal(S.key.pubHex, XA.teth).length || brJournal(S.key.pubHex, 'tETH').some((r) => !BR_DONE.includes(r.stage) && r.stage !== 'recovered') ? html`Bitcoin<i class="dot live" aria-hidden="true"></i><span class="sr">, under way</span>` : 'Bitcoin']] : [])])}
     <div id="v1-form"></div>
     <div class="status" role="status" id="v1-status"></div>`);
   wireSub(el, 'v1', (m) => { V1.mode = m; keep($('#sheet-eth'), render.eth); });
@@ -4909,8 +4909,8 @@ function v1Out(el, status) {
 }
 
 const XA = {
-  teth: { key: 'teth', ticker: 'tETH', pool: 'cETH', k: 'eth', icon: 'tk-teth', flag: 'tacit-teth-btc', sheet: 'eth', status: '#v1-status', pre: 'xo', bpre: 'xb', dp: 6,
-    held: 'tETH on your Bitcoin address', see: 'Private ETH, To Bitcoin', none: 'You have no private tETH yet. The Make private tab turns ETH into it.', after: 'There it can be brought back to Ethereum below once Bitcoin’s proof has recorded it.',
+  teth: { key: 'teth', ticker: 'tETH', pool: 'cETH', k: 'eth', icon: 'tk-teth', flag: 'tacit-teth-btc', seg: true, sheet: 'eth', status: '#v1-status', pre: 'xo', bpre: 'xb', dp: 6,
+    held: 'tETH on your Bitcoin address', see: 'Private ETH, Bitcoin', none: 'You have no private tETH yet. The Make private tab turns ETH into it.', after: 'There it can be brought back to Ethereum below once Bitcoin’s proof has recorded it.',
     get id() { return CETH_ID; } },
   tac: { key: 'tac', ticker: 'TAC', pool: 'cTAC', k: 'tac', icon: 'tk-tac', flag: 'tacit-tac-btc', sheet: 'tac', status: '#bt-status', pre: 'xt', bpre: 'xc', dp: 4, mixed: true, floor: true, min: 2_000_000_000n,
     held: 'Bridged TAC on your Bitcoin address', see: 'TAC, Bridge, To Bitcoin', none: 'You have no private TAC yet. Make TAC private above, buy it on the Buy tab, or bring it from Bitcoin on the From Bitcoin side.', after: 'There it can be brought back to Ethereum below once Bitcoin’s proof has recorded it.',
@@ -4977,6 +4977,36 @@ const xbJournaled = (pub, a = XA.teth) => {
   } catch { return false; }
 };
 const xoShown = (pub, a = XA.teth) => xoOn(a) || xoJournaled(pub, a) || xbJournaled(pub, a);
+// The Bitcoin tab's two sides, for an asset that has them (tETH): 'out' to Bitcoin and 'back' to Ethereum. null = by what the key holds.
+const XSEG = { teth: null };
+// What a key last held on its Bitcoin address, per asset, kept so the balance shows at once on a later visit while the notes are read again:
+// public aggregates only (a total, a count, how many can come back now, when).
+const XB_CACHE = 'tacit-bridged-v1';
+const xbCacheGet = (pub, a) => { try { const e = store.get(XB_CACHE)?.[pub]?.[a.key]; return e && /^\d+$/.test(String(e.v)) ? e : null; } catch { return null; } };
+const xbCacheSet = (pub, a, notes) => {
+  try {
+    const all = store.get(XB_CACHE) || {}, mine = (all[pub] ||= {}), ok = notes.filter((n) => n.amount != null);
+    mine[a.key] = { v: String(ok.reduce((t, n) => t + BigInt(n.amount), 0n)), n: ok.length, ready: ok.filter(xbReady).length, at: Date.now() };
+    store.set(XB_CACHE, all);
+  } catch { /* storage blocked: the balance is read again next time */ }
+};
+// A key's tETH (or TAC) on its Bitcoin address as the page can say it now: the notes read this session, else what the key last held.
+function xbHeld(pub, a) {
+  const XB = xbOf(a), live = XB.pub === pub && XB.notes ? XB.notes.filter((n) => n.amount != null) : null;
+  if (live) return { v: live.reduce((t, n) => t + BigInt(n.amount), 0n), n: live.length, ready: live.filter(xbReady).length, fresh: true };
+  const c = xbCacheGet(pub, a);
+  return c ? { v: BigInt(c.v), n: c.n, ready: c.ready, fresh: false, at: c.at } : null;
+}
+// The side of the tab a key opens on: to Bitcoin while it holds tETH to send or has a bridge under way, else back when it holds notes on
+// Bitcoin or has a return under way.
+const xoSegAuto = (pub, a, held, recs) => (held > 0n || recs.length ? 'out' : (xbHeld(pub, a)?.n || xbRows(pub, a).length || xbJournaled(pub, a) ? 'back' : 'out'));
+// The line under the Private ETH balance for what is not in the pool: on Bitcoin, and on its way there.
+function xoBtcLine(pub) {
+  if (!pub || !xoShown(pub)) return '';
+  const h = xbHeld(pub, XA.teth), way = xoRecords(pub, XA.teth).reduce((t, r) => t + BigInt(r.source.amount ?? r.source.value), 0n);
+  if (!(h?.v > 0n) && !(way > 0n)) return '';
+  return html`<a class="xb-line" href="#private/bitcoin/back" data-link="private/bitcoin/back">${h?.v > 0n ? html`<b class="num">${fmt(h.v, 8, 6)}</b> on Bitcoin` : ''}${h?.v > 0n && way > 0n ? ' · ' : ''}${way > 0n ? html`<b class="num">${fmt(way, 8, 6)}</b> on the way` : ''}</a>`;
+}
 const XFLOOR = {};
 async function xoFee(t, a) {
   const own = BigInt(await t.quoteOpFee(a.pool, 'bridgeburn'));
@@ -5043,7 +5073,7 @@ async function xoAdvance(ux, pub, rec, allowHighFee = false) {
 }
 function xoArrived(rec) {
   toast(`${xoAmt(rec)} is on your Bitcoin address. See ${xaOf(rec)?.see || 'To Bitcoin'}.`);
-  osNote('Bridge to Bitcoin', `${xoAmt(rec)} is on your Bitcoin address`, `${rec.id}:xminted`, () => openLink(xaOf(rec)?.key === 'tac' ? 'bridge/out' : xaOf(rec)?.key === 'cbtc' ? 'borrow' : 'private/bitcoin'));
+  osNote('Bridge to Bitcoin', `${xoAmt(rec)} is on your Bitcoin address`, `${rec.id}:xminted`, () => openLink(xaOf(rec)?.key === 'tac' ? 'bridge/out' : xaOf(rec)?.key === 'cbtc' ? 'borrow' : 'private/bitcoin/back'));
   loadBtc(true).then(() => rerender('btc')).catch(() => {});
 }
 async function xoAct(run, kind, id) {
@@ -5147,7 +5177,7 @@ function loadBridged(force = false, a = XA.teth) {
     const found = await t.crossoutNotes().discover({ walletPriv: walletPriv(), assetIds: [a.id], known, spentValue: (nu) => spent.get(String(nu).toLowerCase()) ?? null });
     for (const n of found) n.live = await ux.isLive(n.txid, n.vout).catch(() => undefined);
     return found;
-  })().then((notes) => { if (S.key?.pubHex === pub) Object.assign(XB, { pub, notes, at: notes.unread ? 0 : Date.now(), err: null, unread: notes.unread || 0 }); },
+  })().then((notes) => { if (S.key?.pubHex === pub) { Object.assign(XB, { pub, notes, at: notes.unread ? 0 : Date.now(), err: null, unread: notes.unread || 0 }); if (!notes.unread) xbCacheSet(pub, a, notes); } },
     (e) => { if (S.key?.pubHex === pub) Object.assign(XB, { pub, notes: null, err: e }); }).finally(() => { XB.loading = null; }));
 }
 const xbWhy = (n) => n.amount == null ? (n.openErr ? 'Its amount could not be read. Refresh in a minute.' : 'Its amount could not be worked out from this key and the chain.')
@@ -5196,7 +5226,7 @@ function wireHeld(el, status, a = XA.teth) {
       if (!xbIs(found, a)) {
         const other = xaOf(found);
         say(fst, brTk(found) === 'TAC' && a.key === 'teth' ? html`<span class="ok">That is a TAC bridge, not a tETH return: it shows on the TAC sheet’s Bridge tab, under On the way.</span>`
-          : other && other !== a ? html`<span class="ok">That is a ${brTk(found)} return, not a ${a.ticker} one: it shows on the ${other.sheet === 'eth' ? 'Private ETH' : 'TAC'} sheet’s ${other.sheet === 'eth' ? 'To Bitcoin tab, under Coming back' : 'Bridge tab'}.</span>`
+          : other && other !== a ? html`<span class="ok">That is a ${brTk(found)} return, not a ${a.ticker} one: it shows on the ${other.sheet === 'eth' ? 'Private ETH' : 'TAC'} sheet’s ${other.sheet === 'eth' ? 'Bitcoin tab, Back to Ethereum' : 'Bridge tab'}.</span>`
           : html`<span class="ok">That is a bridge of TAC from Bitcoin, not a return of bridged TAC: it shows under On the way on the From Bitcoin side.</span>`);
         rerender('tac'); return;
       }
@@ -5268,25 +5298,30 @@ function xoOut(el, status, a) {
   xoDiscover(pub);
   if (!T && (xoJournaled(pub, a) || xbJournaled(pub, a))) loadTacit().then(() => rerender(a.sheet)).catch(() => {});
   const open = xoOn(a);
+  // An asset with two sides shows one at a time, each with its own words and balance; the others show everything in one scroll.
+  const seg = a.seg ? (XSEG[a.key] || xoSegAuto(pub, a, held, recs)) : 'both', toBtc = seg !== 'back', fromBtc = seg !== 'out';
   mount(el, html`
-    ${open ? html`<p class="lede-s">Burn private ${a.ticker} here and the same amount, less the relay fee, arrives on your own Bitcoin address in a few hours, sometimes up to a day. ${a.after}</p>`
-      : html`<p class="lede-s">Your ${a.ticker} bridges to Bitcoin are followed here until each arrives on your own Bitcoin address.</p>`}
-    ${recs.length ? html`<div class="lbl"><span>On the way</span></div><ul class="acts brs">${recs.map(xoRow)}</ul><div class="status" role="status" id="${p('rstatus')}"></div>` : ''}
-    ${a.redeem ? '' : xbSection(pub, a)}
-    ${open ? html`<div class="lbl"><span>Amount</span><button type="button" id="${p('max')}"${maxAria(`Use the most one bridge takes, out of ${fmt(held, 8, a.dp)} ${a.ticker}`)}>${heldLabel(a.k, 8, a.dp, a.ticker)}</button></div>
+    ${a.seg ? segSub('xseg', seg, [['out', 'To Bitcoin'], ['back', 'Back to Ethereum']]) : ''}
+    ${toBtc ? (open ? html`<p class="lede-s">Burn private ${a.ticker} here and the same amount, less the relay fee, arrives on your own Bitcoin address in a few hours, sometimes up to a day. ${a.after}</p>`
+      : html`<p class="lede-s">Your ${a.ticker} bridges to Bitcoin are followed here until each arrives on your own Bitcoin address.</p>`) : html`<p class="lede-s">${a.ticker} on your Bitcoin address comes back to Ethereum as private ${a.ticker}, by proof of Bitcoin. A note comes back whole, so bridge in the amounts you will want back.</p>`}
+    ${toBtc && recs.length ? html`<div class="lbl"><span>On the way</span></div><ul class="acts brs">${recs.map(xoRow)}</ul><div class="status" role="status" id="${p('rstatus')}"></div>` : ''}
+    ${a.redeem || !fromBtc ? '' : xbSection(pub, a)}
+    ${open && toBtc ? html`<div class="lbl"><span>Amount</span><button type="button" id="${p('max')}"${maxAria(`Use the most one bridge takes, out of ${fmt(held, 8, a.dp)} ${a.ticker}`)}>${heldLabel(a.k, 8, a.dp, a.ticker)}</button></div>
     <div class="amt"><input id="${p('amt')}" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="${a.ticker} to bridge to Bitcoin"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#${a.icon}"/></svg>${a.ticker}</span></div>
     <div class="rcpt" id="${p('rcpt')}" hidden></div>
     <label class="pick" id="${p('ackrow')}" hidden><input type="checkbox" id="${p('ack')}"><span>I understand a bridge can’t be undone once it is burned on Ethereum. It can be brought back from Bitcoin once Bitcoin’s proof on Ethereum has recorded it, which takes hours.</span></label>
     <button class="btn" type="button" id="${p('go')}" disabled>Bridge to Bitcoin</button>` : ''}
-    <details class="lockmore"><summary>A bridge you started is not listed</summary>
+    ${toBtc ? html`<details class="lockmore"><summary>A bridge you started is not listed</summary>
       <p class="note">One started on another device, or whose page closed before the burn showed, is rebuilt from the burn’s Ethereum transaction and this key.</p>
       <div class="amt text"><input id="${p('txh')}" placeholder="Ethereum transaction hash of the burn" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" aria-label="Ethereum transaction hash of the burn"></div>
       <div class="amt"><input id="${p('ramt')}" inputmode="decimal" placeholder="${a.ticker} bridged" autocomplete="off" aria-label="${a.ticker} bridged"><span class="u">${a.ticker}</span></div>
       <button class="btn ghost" type="button" id="${p('find')}">Find it</button>
       <div class="status" role="status" id="${p('fstatus')}"></div>
-    </details>`);
+    </details>` : ''}`);
+  if (a.seg) wireSub(el, 'xseg', (k) => { XSEG[a.key] = k; rerender(a.sheet); });
   $$('[data-xoact]', el).forEach((x) => x.onclick = () => busy(x, (run) => xoAct(run, x.dataset.xoact, x.dataset.xoid)));
-  if (!a.redeem) wireHeld(el, status, a);
+  if (!a.redeem && fromBtc) wireHeld(el, status, a);
+  if (!toBtc) return;
   const find = $(`#${p('find')}`), txh = $(`#${p('txh')}`), ramt = $(`#${p('ramt')}`), fst = $(`#${p('fstatus')}`);
   find.onclick = () => busy(find, async (run) => {
     const h = txh.value.trim().toLowerCase(), v = parseUnits(ramt.value, 8);
@@ -5297,7 +5332,7 @@ function xoOut(el, status, a) {
       const found = await (await xoUx()).recoverFromEthTx(xoHash(h), walletPriv(), { amount: v });
       clearField(txh); clearField(ramt);
       const other = xaOf(found);
-      say(fst, other && other !== a ? html`<span class="ok">✓ Found it. That is a ${other.ticker} bridge: it shows under On the way on the ${other.sheet === 'eth' ? 'Private ETH sheet’s To Bitcoin tab' : 'TAC sheet’s Bridge tab, To Bitcoin'}.</span>`
+      say(fst, other && other !== a ? html`<span class="ok">✓ Found it. That is a ${other.ticker} bridge: it shows under On the way on the ${other.sheet === 'eth' ? 'Private ETH sheet’s Bitcoin tab' : 'TAC sheet’s Bridge tab, To Bitcoin'}.</span>`
         : html`<span class="ok">✓ Found it. It shows under On the way.</span>`);
       xoTick(true);
       rerender(a.sheet); if (other && other !== a) rerender(other.sheet);
@@ -7249,7 +7284,7 @@ function renderBridgeIn(el) {
       run.say(fst, 'Checking the burn and rebuilding the bridge…');
       const found = await (await brUx()).recoverFromTxid(id, walletPriv(), raw > 0n ? { amount: raw } : {});
       clearField(txid); clearField(ramt); amtRow.hidden = true;
-      if (brTk(found) !== 'TAC') say(fst, html`<span class="ok">That is a ${brTk(found)} return, not a TAC bridge: it shows on the tETH sheet’s To Bitcoin tab, under Coming back.</span>`);
+      if (brTk(found) !== 'TAC') say(fst, html`<span class="ok">That is a ${brTk(found)} return, not a TAC bridge: it shows on the tETH sheet’s Bitcoin tab, under Back to Ethereum.</span>`);
       else say(fst, html`<span class="ok">${found?.stage === 'minted' ? 'That bridge has arrived: its TAC is in your private TAC.' : '✓ Found it. It shows under On the way.'}</span>`);
       if (found?.stage === 'minted') scanPrivate(true).catch(() => {});
       BR.at = 0; rerender('tac');
@@ -7624,7 +7659,7 @@ async function brTick(first = false) {
   if (brPublicPending(pub) || brPublicRevivable(pub)) brPublishDue(pub).catch(() => {});
 }
 const BR_TOLD = 'tacit-lite-bridge-told-v1';
-const brLinkOf = (rec) => (brTk(rec) === 'TAC' ? 'bridge' : 'private/bitcoin');
+const brLinkOf = (rec) => (brTk(rec) === 'TAC' ? 'bridge' : 'private/bitcoin/back');
 function brNews(pub, recs) {
   const told = new Set(store.get(BR_TOLD)?.[pub] || []), day = new Date().toISOString().slice(0, 10), fresh = [];
   for (const rec of recs) {
@@ -10824,16 +10859,18 @@ function dashItems() {
     out.push({ key: 'dev', icon: 'tk-eth', label: 'ETH', dec: 18, max: 5, v: dev, meta: on.length ? `private on ${on.join(', ')}` : 'private', open: 'device', show: dev > 0n });
     const devTac = big(store.get(`tacit-lite-device-bal-v1:tac:${k}`)?.v);
     out.push({ key: 'devtac', icon: 'tk-tac', label: 'TAC', dec: 18, max: 2, v: devTac, meta: 'private on this device', open: 'device/tac', show: devTac > 0n });
-    const xb = xbOf(XA.teth), xbMine = xb.pub === k && xb.notes ? xb.notes.filter((n) => n.amount != null) : null;
-    if (!xbMine && !xb.loading && !xb.err && (xb.asked === k || xoJournaled(k) || xbJournaled(k))) loadBridged(false, XA.teth).then(dashSoon, () => {});
-    if (xbMine) { const v = xbMine.reduce((a, n) => a + BigInt(n.amount), 0n), ready = xbMine.filter(xbReady).length;
-      out.push({ key: 'tethbtc', icon: 'tk-teth', label: 'tETH', dec: 8, max: 6, v, href: '#private/bitcoin', show: v > 0n,
-        meta: `on Bitcoin · ${xbMine.length} note${xbMine.length === 1 ? '' : 's'}${ready < xbMine.length ? ` · ${ready} ready to bring back` : ''}` }); }
-    const xt = xbOf(XA.tac), xtMine = xt.pub === k && xt.notes ? xt.notes.filter((n) => n.amount != null) : null;
-    if (!xtMine && !xt.loading && !xt.err && (xt.asked === k || xoJournaled(k, XA.tac) || xbJournaled(k, XA.tac) || xoArrivedLately(k, XA.tac))) loadBridged(false, XA.tac).then(dashSoon, () => {});
-    if (xtMine) { const v = xtMine.reduce((a, n) => a + BigInt(n.amount), 0n), ready = xtMine.filter(xbReady).length;
-      out.push({ key: 'tacbridged', icon: 'tk-tac', label: 'TAC', dec: 8, max: 4, v, href: '#bridge/out', show: v > 0n,
-        meta: `bridged to Bitcoin · ${xtMine.length} note${xtMine.length === 1 ? '' : 's'}${ready < xtMine.length ? ` · ${ready} ready to bring back` : ''}` }); }
+    // What a key holds on its Bitcoin address: read again whenever it is known to have held some (or has a bridge under way), and shown from
+    // what it last held until the read is back, so it is there on every visit and not only the first of the day.
+    const xb = xbOf(XA.teth), xbH = xbHeld(k, XA.teth);
+    if (!(xb.pub === k && xb.notes) && !xb.loading && !xb.err && (xb.asked === k || xoJournaled(k) || xbJournaled(k) || xbCacheGet(k, XA.teth))) loadBridged(false, XA.teth).then(dashSoon, () => {});
+    if (xbH) {
+      out.push({ key: 'tethbtc', icon: 'tk-teth', label: 'tETH', dec: 8, max: 6, v: xbH.v, href: '#private/bitcoin/back', show: xbH.v > 0n,
+        meta: `on Bitcoin · ${xbH.n} note${xbH.n === 1 ? '' : 's'}${xbH.ready < xbH.n ? ` · ${xbH.ready} ready to bring back` : ''}` }); }
+    const xt = xbOf(XA.tac), xtH = xbHeld(k, XA.tac);
+    if (!(xt.pub === k && xt.notes) && !xt.loading && !xt.err && (xt.asked === k || xoJournaled(k, XA.tac) || xbJournaled(k, XA.tac) || xoArrivedLately(k, XA.tac) || xbCacheGet(k, XA.tac))) loadBridged(false, XA.tac).then(dashSoon, () => {});
+    if (xtH) {
+      out.push({ key: 'tacbridged', icon: 'tk-tac', label: 'TAC', dec: 8, max: 4, v: xtH.v, href: '#bridge/out', show: xtH.v > 0n,
+        meta: `bridged to Bitcoin · ${xtH.n} note${xtH.n === 1 ? '' : 's'}${xtH.ready < xtH.n ? ` · ${xtH.ready} ready to bring back` : ''}` }); }
   }
   const who = [...new Set([S.wallet, S.acct?.address].filter(Boolean).map((a) => a.toLowerCase()))].join();
   const pubTac = who && TACB.who === who ? TACB.erc : null, privTac = k ? (s ? s.tac.value * E10 : null) : 0n;
@@ -10941,7 +10978,7 @@ function paintDash() {
     else if (preps.length) due.push([preps.length === 1 ? `${prepAmt(preps[0])} is getting ready to bridge: it can go once Bitcoin’s proof on Ethereum reaches it, usually within a few hours.`
       : `${preps.length} notes are getting ready to bridge: they can go once Bitcoin’s proof on Ethereum reaches them, usually within a few hours.`, 'bridge', 'Follow']);
     const brs =brJournal(k, null).filter((r) => !BR_DONE.includes(r.stage) && r.stage !== 'recovered'), held = brs.filter(brHeld), need = brs.filter(brDue), going = brs.filter((r) => !brHeld(r));
-    const brLink = (xs) => (xs.every((r) => brTk(r) === 'TAC') ? 'bridge' : 'private/bitcoin'), ofTk = (xs) => (new Set(xs.map(brTk)).size === 1 ? ` of ${brTk(xs[0])}` : '');
+    const brLink = (xs) => (xs.every((r) => brTk(r) === 'TAC') ? 'bridge' : 'private/bitcoin/back'), ofTk = (xs) => (new Set(xs.map(brTk)).size === 1 ? ` of ${brTk(xs[0])}` : '');
     if (held.length) due.push([held.length === 1 ? `Your bridge of ${brAmt(held[0])} is ready to mint. Today’s free settles are used up, so this page asks again every hour while it is open with your wallet, or send it from your wallet now.`
       : `${held.length} bridges${ofTk(held)} are ready to mint. Today’s free settles are used up, so this page asks again every hour while it is open with your wallet, or send them from your wallet now.`, brLink(held), 'Open']);
     if (need.length) due.push([need.length === 1 ? `Your bridge of ${brAmt(need[0])} to Ethereum is waiting for you: ${brDue(need[0])}.` : `${need.length} bridges${ofTk(need)} to Ethereum are waiting for you.`, brLink(need), 'Open']);
@@ -10951,7 +10988,7 @@ function paintDash() {
         : `${going.length} bridges${ofTk(going)} are on their way from Bitcoin to Ethereum. ${withRelay ? 'The relay finishes their mints, so this page can be closed.' : 'They finish while this page is open with your wallet.'}`, brLink(going), 'Follow']);
     }
     for (const a of Object.values(XA)) {
-      const xs = xoJournal(k, a), needx = xs.filter(xoDue), link = a.key === 'tac' ? 'bridge/out' : a.key === 'cbtc' ? 'borrow' : 'private/bitcoin';
+      const xs = xoJournal(k, a), needx = xs.filter(xoDue), link = a.key === 'tac' ? 'bridge/out' : a.key === 'cbtc' ? 'borrow' : 'private/bitcoin/out';
       if (needx.length) due.push([needx.length === 1 ? `Your bridge of ${xoAmtRaw(needx[0])} to Bitcoin is waiting for you: ${xoDue(needx[0])}.` : `${needx.length} bridges of ${a.ticker} to Bitcoin are waiting for you.`, link, 'Open']);
       else if (xs.length) due.push([xs.length === 1 ? `${xoAmtRaw(xs[0])} is on its way from Ethereum to Bitcoin, ${xoWhere(xs[0])}. It finishes while this page is open with your wallet.`
         : `${xs.length} bridges of ${a.ticker} are on their way from Ethereum to Bitcoin. They finish while this page is open with your wallet.`, link, 'Follow']);
@@ -11857,7 +11894,7 @@ function hxHaveTb(el, pub) {
     : b?.err ? html`<span class="hx-pl">${icon}<span>Your tETH on Bitcoin could not be read.</span><button class="link" type="button" id="hx-tb-look">Try again</button></span>`
     : !b?.notes ? html`<span class="hx-pl">${icon}<span>Reading your tETH on Bitcoin…</span></span>`
     : notes.length ? html`<span class="hx-pl">${icon}<span><b>${fmt(sum(notes), 8, 6)} tETH</b> on Bitcoin, in ${notes.length} note${notes.length === 1 ? '' : 's'}</span></span>
-        <span class="hx-hv">${ready.length === notes.length ? 'All of it can come back now. Each note comes back whole.' : `${ready.length} of them can come back now (${fmt(sum(ready), 8, 6)} tETH); the To Bitcoin tab says why the others wait.`}</span>`
+        <span class="hx-hv">${ready.length === notes.length ? 'All of it can come back now. Each note comes back whole.' : `${ready.length} of them can come back now (${fmt(sum(ready), 8, 6)} tETH); the Bitcoin tab says why the others wait.`}</span>`
     : html`<span class="hx-pl">${icon}<span>No bridged tETH on this key’s Bitcoin address.</span></span>`);
   if (el.__h !== view.s) { el.__h = view.s; mount(el, view); }
   const look = $('#hx-tb-look');
@@ -12047,7 +12084,7 @@ function hxGo() {
   if (m === 'tacwrap') { hxDraft({ mode: 'tacwrap', amt }); return openLink('tac'); }
   if (m === 'paytac') { hxDraft({ mode: 'dep', amt, tac: true }); return openLink('device/tac/deposit'); }
   if (m === 'ppout' || m === 'ppv1') { const c = hxChain(); DEV.dest = m === 'ppv1' ? 'v1' : 'addr'; hxDraft({ mode: 'dout', amt, chain: c.chainId, all: HX.max }); return openLink(`device/${chainSlug(c)}/withdraw`); }
-  if (m === 'tbback') return openLink('private/bitcoin');
+  if (m === 'tbback') return openLink('private/bitcoin/back');
   if (m === 'borrow') {
     if (!S.key) return openSheet('wallet');
     return hxBwStart();
@@ -12077,8 +12114,8 @@ function hxGo() {
       hxDraft({ mode: XA.tac.pre, amt }); return openLink('bridge/out');
     }
     const xo = () => { hxDraft({ mode: 'xo', amt }); };
-    if (hxTwo(units)) return wrapFirst('private/bitcoin', 'send it to Bitcoin', xo);
-    xo(); return openLink('private/bitcoin');
+    if (hxTwo(units)) return wrapFirst('private/bitcoin/out', 'send it to Bitcoin', xo);
+    xo(); return openLink('private/bitcoin/out');
   }
 }
 const hxNb = (t) => String(t ?? '').replace(/ · /g, '\u00a0· ');
