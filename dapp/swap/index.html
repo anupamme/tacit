@@ -26,9 +26,9 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /swap/app.js | | /confidential-pool-ux.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/swap/app.js?cb=11d033cf">
+<link rel="modulepreload" href="/swap/app.js?cb=71c408b0">
 <link rel="modulepreload" href="/vendor/tacit-deps.min.js" fetchpriority="high">
-<link rel="modulepreload" href="/evm-trade-venues.js?cb=563db4d4">
+<link rel="modulepreload" href="/evm-trade-venues.js?cb=a11adb8d">
 <link rel="modulepreload" href="/zrouter-guard.js">
 <link rel="modulepreload" href="/trade/connect.js?cb=92188b57">
 <link rel="modulepreload" href="/walletconnect.js?cb=2dd7ae09">
@@ -38,7 +38,7 @@
 <link rel="modulepreload" href="/trade/rpc.js?cb=63f04503">
 <link rel="modulepreload" href="/rpc-body.js">
 <link rel="modulepreload" href="/trade/fmt.js?cb=c07717c4">
-<link rel="modulepreload" href="/swap/route.js?cb=2be79f2b">
+<link rel="modulepreload" href="/swap/route.js?cb=00b806b1">
 <link rel="modulepreload" href="/points-note.js?cb=eacef061">
 <link rel="modulepreload" href="/trade/farm-read.js?cb=112a01b9">
 <!-- preload:end -->
@@ -142,6 +142,12 @@ img.tk { object-fit: contain; }
 .fh, .ff { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 4px 10px; min-height: 22px; font-size: 12px; color: var(--mute); }
 .ff { min-height: 28px; }                                              /* the quick amounts' row, drawn by the script */
 .fh .where { display: inline-flex; align-items: center; gap: 6px; }
+.fh button.where { padding: 0; font: inherit; color: inherit; background: none; border: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.fh button.where:disabled { text-decoration: none; cursor: default; }
+.to { margin: 6px 0 4px; }
+.to input { width: 100%; min-height: 38px; padding: 8px 10px; font: 400 13px var(--mono); color: var(--ink); background: transparent; border: 1px solid var(--hair-2); border-radius: 8px; outline: none; }
+.to input:focus { border-color: var(--ink); } .to input[aria-invalid="true"] { border-color: var(--err); }
+.to small { display: block; min-height: 0; margin-top: 6px; font-size: 11.5px; line-height: 1.4; color: var(--mute); overflow-wrap: anywhere; } .to small:empty { display: none; } .to small.err { color: var(--err); }
 .fh .where.priv::before { content: ''; width: 8px; height: 9px; border: 1.5px dashed currentColor; border-radius: 2px; }
 .fm { display: flex; align-items: center; gap: 12px; min-height: 52px; margin: 2px 0; }
 .amt, .big { flex: 1; min-width: 0; padding: 0; font: 400 44px/1.1 var(--serif); letter-spacing: -.01em; color: var(--ink); background: none; border: 0; outline: none; font-variant-numeric: tabular-nums; }
@@ -531,9 +537,10 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         </div>
         <div class="mid"><button class="flip" id="flip" type="button" aria-label="Swap the two sides"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v17m0 0-4-4m4 4 4-4M16 21V4m0 0-4 4m4-4 4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
         <div class="f" id="f-get">
-          <div class="fh"><span>You get</span><span class="where" id="get-where">to your wallet</span></div>
+          <div class="fh"><span>You get</span><button class="where" id="get-where" type="button" aria-expanded="false" aria-controls="to">to your wallet</button></div>
           <div class="fm"><output class="big ph num" id="out" for="amt">0</output><button class="coin" id="get-coin" type="button" aria-haspopup="dialog" aria-label="Get TAC"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg>TAC<span class="car" aria-hidden="true">▾</span></button></div>
           <div class="ff"><span id="get-usd" class="num"></span><span id="get-side"></span></div>
+          <div class="to" id="to" hidden><input id="to-in" type="text" inputmode="text" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Send to another address" placeholder="Send to another address, 0x…"><small id="to-note" role="status"></small></div>
         </div>
         <div class="rows" id="rows" role="radiogroup" aria-label="Route" hidden></div>
         <dl class="rcpt" id="rcpt" hidden></dl>
@@ -641,6 +648,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
 <link rel="modulepreload" href="/cbtc-note-recovery.js">
 </template>
 <!-- warm:end -->
-<script type="module" src="/swap/app.js?cb=11d033cf"></script>
+<script type="module" src="/swap/app.js?cb=71c408b0"></script>
 </body>
 </html>

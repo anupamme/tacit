@@ -1,8 +1,8 @@
 import { keccak_256 } from '/vendor/tacit-deps.min.js';
-import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venues.js?cb=563db4d4';
+import { makeEvmTradeVenues, _internal as V, MULTICALL3 } from '/evm-trade-venues.js?cb=a11adb8d';
 import { makeConnect, UserStopped } from '/trade/connect.js?cb=92188b57';
 import { rpc, api, esc, fmtUnits, parseUnits, plain, usd, sig, $, E10, E18 } from '/trade/util.js?cb=509d6618';
-import * as R from '/swap/route.js?cb=2be79f2b';
+import * as R from '/swap/route.js?cb=00b806b1';
 import { makePointsNote } from '/points-note.js?cb=eacef061';
 import { aprText, readPrecision, readSpot, privateFarms } from '/trade/farm-read.js?cb=112a01b9';
 
@@ -28,7 +28,7 @@ const TETH = { sym: 'tETH', name: 'Ether, private', addr: 'teth', dec: 18, icon:
 const CUSTOM_KEY = 'tacit-swap-tokens-v1';
 const S = {
   tab: 'swap', mode: 'wallet', pay: lc(R.ZERO), get: lc(R.TAC), amt: '', slip: 50, pick: null, hold: false, q: null, seq: 0, busy: false, ack: false, max: false,
-  custom: [], bal: {}, px: {}, gasPrice: null, chainT: 0, chainAt: 0, farm: 'precision', farms: null, lastBuy: null, note: '', ackKey: '',
+  custom: [], bal: {}, px: {}, gasPrice: null, chainT: 0, chainAt: 0, farm: 'precision', farms: null, lastBuy: null, note: '', ackKey: '', to: null, toOpen: false, toBad: '',
 };
 const SLIP_KEY = 'tacit-swap-slip-v1';
 try { const v = Number(localStorage.getItem(SLIP_KEY)); if ([10, 50, 100, 300].includes(v)) S.slip = v; } catch { }
@@ -69,6 +69,24 @@ const isEth = (k) => k === lc(R.ZERO);
 const tacitKey = (k) => R.tacitToken(k);
 const KEY = { [lc(R.ZERO)]: 'ether', teth: 'eth', [lc(R.TAC)]: 'tac', [lc(R.CUSD)]: 'cusd', [lc(R.CBTC)]: 'cbtc' };
 const POOLID = (k) => (k === 'teth' ? CETH_ID : R.POOL_ID[Object.keys(R.POOL_ID).find((a) => lc(a) === k)]);
+
+// ── the output to another address (public swaps only; never read from the address bar, so a shared link cannot name one) ──
+const NOT_A_WALLET = new Set([R.ZERO, R.TAC, R.CUSD, R.CBTC, R.WETH, R.ZROUTER, R.PRECISION_ROUTE, R.PRECISION_GUARD, R.TACIT_AMM, R.CONF_ROUTER, PRECISION_POOL, MULTICALL3].map(lc));
+// EIP-55: the capitals of an address are its checksum
+const checksum = (a) => {
+  const body = lc(a).slice(2), h = Array.from(keccak_256(new TextEncoder().encode(body)), (x) => x.toString(16).padStart(2, '0')).join('');
+  return '0x' + [...body].map((c, i) => (parseInt(h[i], 16) >= 8 ? c.toUpperCase() : c)).join('');
+};
+function recipientOf(text) {
+  const t = String(text || '').trim();
+  if (!t) return { addr: null, bad: '' };
+  if (!/^0x[0-9a-fA-F]{40}$/.test(t)) return { addr: null, bad: 'Paste a full 0x address.' };
+  if (/[a-f]/.test(t.slice(2)) && /[A-F]/.test(t.slice(2)) && t !== checksum(t)) return { addr: null, bad: 'The capitals do not match this address’s checksum. Check it.' };
+  if (NOT_A_WALLET.has(lc(t))) return { addr: null, bad: 'That is a contract this swap uses. Send to a wallet.' };
+  return { addr: lc(t), bad: '' };
+}
+const shortAddr = (a) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+const recipient = () => (S.to && S.mode !== 'private' && lc(S.to) !== lc(W.account || '') ? S.to : null);
 
 function kindOf(pay, get, mode = S.mode) {
   if (pay === get) return null;
@@ -263,7 +281,11 @@ function paintSides() {
   const payPriv = priv && !isEth(S.pay);
   $('#f-pay').classList.toggle('priv', payPriv); $('#f-get').classList.toggle('priv', priv);
   $('#pay-where').className = `where${payPriv ? ' priv' : ''}`; $('#pay-where').textContent = payPriv ? 'from your private balance' : 'from your wallet';
-  $('#get-where').className = `where${priv ? ' priv' : ''}`; $('#get-where').textContent = priv ? 'private on Ethereum' : 'to your wallet';
+  const to = recipient(), gw = $('#get-where');
+  gw.className = `where${priv ? ' priv' : ''}`; gw.textContent = priv ? 'private on Ethereum' : to ? `to ${shortAddr(to)}` : 'to your wallet';
+  gw.disabled = priv; gw.setAttribute('aria-expanded', String(S.toOpen && !priv));
+  $('#to').hidden = priv || !S.toOpen; $('#to-in').setAttribute('aria-invalid', String(!!S.toBad));
+  $('#to-note').textContent = S.toBad || (to && $('#to-in').value.trim() !== checksum(to) ? checksum(to) : ''); $('#to-note').className = S.toBad ? 'err' : '';
   const a = $('#amt'); if (a.value !== S.amt) a.value = S.amt;
   fitSize(a);
   $('#flip').disabled = !kindOf(S.get, S.pay);
@@ -272,7 +294,7 @@ function paintSides() {
   if (bal != null) side.innerHTML = `<button type="button" id="max" class="${wei && wei > bal ? 'over' : ''}">Balance ${esc(amtFmt(bal, pay.dec))}${bal > 0n ? ' · Max' : ''}</button>`;
   else if (!S.amt) side.innerHTML = `<span class="quick">${(QUICK[pay.sym] || []).map((v) => `<button type="button" data-quick="${v}">${v}</button>`).join('')}</span>`;
   else side.textContent = '';
-  const getBal = !priv && W.account ? S.bal[S.get] : null;
+  const getBal = !priv && !to && W.account ? S.bal[S.get] : null;
   $('#get-side').textContent = getBal ? `You have ${amtFmt(getBal, get.dec)}` : '';
   const v = wei ? usdOf(S.pay === 'teth' ? lc(R.ZERO) : S.pay, wei) : null;
   $('#pay-usd').textContent = v != null ? `≈ ${usd(v)}` : '';
@@ -297,7 +319,7 @@ function paintQuote() {
   if (first && !rows.hidden) rows.innerHTML = `<div class="rows-h"><span>Route</span><span>${esc(get.sym)} out</span></div>${list.map((x) => `<button type="button" role="radio" aria-checked="false" disabled><span class="rt"><b>${esc(x.name)}</b></span><span class="ra"><span>…</span></span><span class="rd" aria-hidden="true"></span></button>`).join('')}`;
   else if (!rows.hidden) {
     const top = list.reduce((a, b) => (b.out > a.out ? b : a));
-    rows.innerHTML = `<div class="rows-h"><span>Route</span><span>${esc(get.sym)} out</span></div>${list.map((x) => `<button type="button" role="radio" aria-checked="${x.k === r?.k}" data-route="${esc(x.k)}"><span class="rt"><b>${esc(x.name)}</b>${noteOf(x, q) ? `<small>${noteOf(x, q)}</small>` : ''}</span><span class="ra"><span>${esc(tidy(amtFmt(x.out, get.dec)))}</span>${x === top && list.length > 1 ? '<em>best</em>' : x.out < top.out ? `<small>−${(Number(top.out - x.out) * 100 / Number(top.out)).toFixed(2)}%</small>` : ''}</span><span class="rd" aria-hidden="true"></span></button>`).join('')}`;
+    rows.innerHTML = `<div class="rows-h"><span>Route</span><span>${esc(get.sym)} out</span></div>${list.map((x) => `<button type="button" role="radio" aria-checked="${x.k === r?.k}" data-route="${esc(x.k)}"><span class="rt"><b>${esc(x.name)}</b>${noteOf(x, q) ? `<small>${noteOf(x, q)}</small>` : ''}</span><span class="ra"><span>${esc(tidy(amtFmt(x.out, get.dec)))}</span>${x === top && list.length > 1 ? '<em>best</em>' : x.out < top.out ? `<small>${(Number(top.out - x.out) * 100 / Number(top.out)).toFixed(2)}% less</small>` : ''}</span><span class="rd" aria-hidden="true"></span></button>`).join('')}`;
   }
   const lines = first ? (kind === 'private' ? ['Price', 'Price impact', 'Relay fee'] : ['Price', 'At least', 'Price impact', 'Network fee']).map((k) => [k, '…']) : [];
   if (r) {
@@ -337,12 +359,14 @@ function button(q, r, kind, gate) {
   if (q?.busy) return ['Finding the best price…', false];
   if (!r) return [q?.err ? 'Try again' : 'No route', !!q?.err];
   if (kind === 'private') return [S.get === 'teth' && isEth(S.pay) ? 'Make it private →' : 'Continue privately →', true, 'priv'];
+  if (S.toBad) return ['Check the address', false];
   if (!W.account) return ['Connect wallet', true];
   const bal = S.bal[S.pay], wei = q.wei;
   if (bal != null && wei > bal) return [`Not enough ${pay.sym}`, false];
   if (bal != null && isEth(S.pay) && S.gasPrice && wei + r.gas * S.gasPrice > bal) return ['Leave some ETH for the network fee', false];
   if (gate && !S.ack) return ['Accept the price above to swap', false];
-  return [isEth(S.get) ? `Sell ${pay.sym}` : isEth(S.pay) || kind === 'any' ? `Buy ${get.sym}` : `Swap ${pay.sym} for ${get.sym}`, true];
+  const to = recipient(), tail = to ? ` → ${shortAddr(to)}` : '';
+  return [(isEth(S.get) ? `Sell ${pay.sym}` : isEth(S.pay) || kind === 'any' ? `Buy ${get.sym}` : `Swap ${pay.sym} for ${get.sym}`) + tail, true];
 }
 function lineFor(q, r, kind) {
   if (!kind) return kindOf(S.pay, S.get, 'private') ? `Swaps privately: <button type="button" class="link" data-mode-go="private">switch</button>.` : 'No route for this pair.';
@@ -358,24 +382,26 @@ async function go() {
   S.note = '';
   if (kind === 'private') { location.href = privateLink(); return; }
   if (!W.account) { await connect.connect(); return; }
-  const from = W.account, P = { kind, r, wei: S.q.wei, floor: (r.out * BigInt(10000 - S.slip)) / 10000n, pay: S.pay, get: S.get };
+  const from = W.account, P = { kind, r, wei: S.q.wei, floor: (r.out * BigInt(10000 - S.slip)) / 10000n, pay: S.pay, get: S.get, to: recipient() };
+  if (S.toBad) return;
   S.busy = true; paintQuote();
-  const before = await balanceNow(P.get, from).catch(() => null);
+  const before = P.to ? null : await balanceNow(P.get, from).catch(() => null);
   try {
     say('Reading the price again…');
     const tx = await prepare(P, from);
     if (!tx) return;
-    say('Confirm the swap in your wallet.');
+    say(P.to ? `Confirm the swap in your wallet. It sends the ${esc(tokenOf(P.get).sym)} to ${esc(shortAddr(P.to))}.` : 'Confirm the swap in your wallet.');
     const h = await wallet.sendTx({ to: tx.to, data: tx.data, value: tx.value || 0n, from });
     say(`Sent ${txLink(h)}. Waiting for it to land…`);
     live('Swap sent');
     const rc = await wallet.receipt(h);
     if (rc.status !== '0x1') throw new Error(`The transaction failed (${txLink(h)}). Nothing was swapped.`);
-    const after = await balanceNow(P.get, from).catch(() => null), got = before != null && after != null ? after - before : null;
-    const g = tokenOf(P.get);
+    const after = P.to ? null : await balanceNow(P.get, from).catch(() => null), got = before != null && after != null ? after - before : null;
+    const g = tokenOf(P.get), where = P.to ? esc(shortAddr(P.to)) : 'your wallet';
     S.lastBuy = P.get === lc(R.TAC) && got > 0n ? got : null;
+    if (P.to) { S.to = null; S.toOpen = false; S.toBad = ''; $('#to-in').value = ''; }
     S.amt = ''; S.q = null; S.busy = false; keepUrl(); paint();
-    say(`Done ${txLink(h)}: ${isEth(P.get) ? `about ${tidy(amtFmt(P.r.out, g.dec))} ETH to your wallet` : got != null && got > 0n ? `${tidy(amtFmt(got, g.dec))} ${esc(g.sym)} in your wallet` : `${esc(g.sym)} sent to your wallet`}.${!isEth(P.get) ? ` <button type="button" class="link" data-watch="${esc(g.addr)}">Add ${esc(g.sym)} to your wallet</button>` : ''}${S.lastBuy ? ` · <button type="button" class="link" data-farm-it>Farm it</button>` : ''}`, 'ok', true);
+    say(`Done ${txLink(h)}: ${isEth(P.get) ? `about ${tidy(amtFmt(P.r.out, g.dec))} ETH to ${where}` : P.to ? `about ${tidy(amtFmt(P.r.out, g.dec))} ${esc(g.sym)} sent to ${where}` : got != null && got > 0n ? `${tidy(amtFmt(got, g.dec))} ${esc(g.sym)} in your wallet` : `${esc(g.sym)} sent to your wallet`}.${!isEth(P.get) && !P.to ? ` <button type="button" class="link" data-watch="${esc(g.addr)}">Add ${esc(g.sym)} to your wallet</button>` : ''}${S.lastBuy ? ` · <button type="button" class="link" data-farm-it>Farm it</button>` : ''}`, 'ok', true);
     live('Swap done');
     readBalances().then(() => paintSides());
     readPrices().catch(() => {});
@@ -388,7 +414,7 @@ const balanceNow = async (k, who) => (isEth(k) ? BigInt(await rpc('eth_getBalanc
 
 async function prepare(P, from) {
   const floorFor = (out) => { const f = (out * BigInt(10000 - S.slip)) / 10000n; return f > P.floor ? f : P.floor; };
-  const dl = chainDeadline(1200);
+  const dl = chainDeadline(1200), dest = P.to || from;
   const moved = () => { say('The price moved below the least you accept. Nothing was sent; the quote above is the new one.', '', true); S.busy = false; requote(true); return null; };
   let tx;
   if (P.kind === 'tac') {
@@ -398,7 +424,7 @@ async function prepare(P, from) {
     if (!pick) { say('That route is no longer offered. Nothing was sent; press again for the new quote.', '', true); S.busy = false; requote(true); return null; }
     if (BigInt(pick.amountOut) < P.floor) return moved();
     const floor = floorFor(BigInt(pick.amountOut)), isSplit = !!P.r.split;
-    const make = (permit) => (isSplit ? venues.buildSplit({ split: pick, account: from, minOut: floor, deadline: dl, permit }) : venues.build({ quote: pick, dir, account: from, minOut: floor, deadline: dl, permit }));
+    const make = (permit) => (isSplit ? venues.buildSplit({ split: pick, account: from, to: dest, minOut: floor, deadline: dl, permit }) : venues.build({ quote: pick, dir, account: from, to: dest, minOut: floor, deadline: dl, permit }));
     tx = make();
     if (tx.approval) tx = await withAccess({ tx, make, from, dl, permit: pick.venue === 'precision' || isSplit });
   } else if (P.kind === 'amm') {
@@ -414,12 +440,12 @@ async function prepare(P, from) {
         permit = R.splitSig(await signTyped(R.permitTyped({ token: P.pay, name: 'Tacit Token', version: '1', owner: from, spender: R.CONF_ROUTER, value: q.amountIn, nonce: accR.nonce, deadline: dl }), from));
       }
     }
-    tx = R.buildAmm({ quote: q, account: from, minOut: floor, deadline: dl, permit });
+    tx = R.buildAmm({ quote: q, account: from, to: dest, minOut: floor, deadline: dl, permit });
   } else if (P.kind === 'any') {
     const q = await within(R.quoteAnyToTac({ ethCall, venues, token: P.pay, amountIn: P.wei, account: from, slippageBps: S.slip, deadline: dl }), 15e3, 'zQuoter did not answer in time. Nothing was sent; try again.');
     if (!q || q.tacOut < P.floor) return moved();
     const floor = floorFor(q.tacOut), access = await anyAccess(q, from);
-    tx = R.buildAnyToTac({ quote: q, account: from, minOut: floor, keccak256: keccak_256, access });
+    tx = R.buildAnyToTac({ quote: q, account: from, to: dest, minOut: floor, keccak256: keccak_256, access });
   } else throw new Error('Nothing to do for this pair.');
   say('Checking it first…');
   const sim = await venues.simulate({ tx, from });
@@ -615,6 +641,9 @@ $('#flip').addEventListener('click', () => {
   [S.pay, S.get] = [S.get, S.pay]; S.note = '';
   S.amt = out ? tidy(out.replace(/(\.\d{8})\d+$/, '$1')) : S.amt; S.q = null; S.pick = null; S.hold = false; keepUrl(); paint(); requote(true);
 });
+$('#get-where').addEventListener('click', () => { if (S.mode === 'private') return; S.toOpen = !S.toOpen; paintSides(); if (S.toOpen) $('#to-in').focus(); });
+$('#to-in').addEventListener('input', (e) => { const r = recipientOf(e.target.value); S.to = r.addr; S.toBad = r.bad; S.note = ''; paint(); });
+$('#to-in').addEventListener('keydown', (e) => { if (e.key === 'Escape') { S.toOpen = false; paintSides(); $('#get-where').focus(); } });
 $('#go').addEventListener('click', go);
 $('#rows').addEventListener('click', (e) => { const b = e.target.closest('[data-route]'); if (!b) return; S.pick = b.dataset.route; S.hold = true; S.ack = false; S.ackKey = `${S.pay}>${S.get}:${S.amt}:${S.pick}`; paintQuote(); });
 $('#p-swap').addEventListener('click', (e) => {

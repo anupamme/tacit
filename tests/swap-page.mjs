@@ -118,6 +118,7 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   const rowText = async (k) => ((await page.textContent(`#rows [data-route="${k}"]`).catch(() => '')) || '').replace(/\s+/g, ' ');
   const pr = await rowText('precision'), ta = await rowText('tacit-amm'), sp = await rowText('split');
   ok(/500\+ points/.test(pr) && !/points/.test(ta), `ETH → TAC says what the Precision pool earns (500+ for 0.5 ETH) and the Tacit pool nothing (${pr.slice(0, 70)} | ${ta.slice(0, 50)})`);
+  { const rt = await page.textContent('#rows'); ok(/\d+\.\d+% less/.test(rt) && !/−\d/.test(rt), `a route that pays less says by how much, in words, against the best (${rt.replace(/\s+/g, ' ').slice(0, 110)})`); }
   ok(!sp || (/\d+% \/ \d+% · [\d,]+\+ points/.test(sp) && Number(sp.match(/([\d,]+)\+ points/)[1].replace(/,/g, '')) < 500), `a split earns on its Precision leg only (${sp.slice(0, 80) || 'no split offered'})`);
   ok((await page.textContent('#go')) === 'Connect wallet', 'without a wallet the button connects one');
   // The route picked follows the amount: 0.5 ETH after a small amount is routed as a fresh 0.5 ETH is, and a route the visitor clicked stays.
@@ -214,6 +215,41 @@ const pick = async (page, side, sym) => { await page.click(side === 'pay' ? '#pa
   await until(page, () => /Done/.test(document.querySelector('#q').textContent), null, 180000);
   const t1 = await bal(TAC, w.account);
   ok(t1 > t0, `ETH → TAC landed: +${Number(t1 - t0) / 1e18} TAC`);
+
+  // ETH → TAC to another address: the address is checked, then the TAC goes there and the wallet gets none of it
+  {
+    const other = JSON.parse(cast('wallet', 'new', '--json'))[0].address, good = cast('to-check-sum-address', other);
+    const flip = (a) => { const i = a.slice(2).search(/[a-fA-F]/) + 2; return a.slice(0, i) + (a[i] === a[i].toUpperCase() ? a[i].toLowerCase() : a[i].toUpperCase()) + a.slice(i + 1); };
+    const note = async () => (await page.textContent('#to-note')).trim(), go = async () => (await page.textContent('#go')).trim();
+    ok(await page.isHidden('#to-in') && (await page.textContent('#get-where')).trim() === 'to your wallet', 'the get side says "to your wallet" and keeps the address field closed');
+    await page.click('#get-where');
+    ok(await page.isVisible('#to-in') && (await page.getAttribute('#get-where', 'aria-expanded')) === 'true', 'it opens the address field');
+    await typeAmt(page, '0.2'); await quoted(page);
+    await page.fill('#to-in', '0x1234');
+    ok(/Paste a full 0x address/.test(await note()) && (await go()) === 'Check the address' && await page.isDisabled('#go'), 'a short address is refused, and the button says to check it');
+    await page.fill('#to-in', flip(good));
+    ok(/checksum/.test(await note()) && await page.isDisabled('#go'), 'capitals that do not match the checksum are refused');
+    await page.fill('#to-in', TAC);
+    ok(/contract this swap uses/.test(await note()) && await page.isDisabled('#go'), 'the TAC token itself is not a wallet to send to');
+    await page.fill('#to-in', '0x0000000000000000000000000000000000000000');
+    ok(/contract this swap uses/.test(await note()), 'the zero address is refused');
+    await page.fill('#to-in', other.toLowerCase());
+    ok((await note()) === good && /^to 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}$/.test((await page.textContent('#get-where')).trim()) && !(await page.isDisabled('#go')), 'a right address typed in lowercase shows its checksummed form, and its short form on the get side');
+    await page.fill('#to-in', good);
+    ok((await note()) === '' && !(await page.isDisabled('#go')), 'the checksummed form needs no second line');
+    ok(/^Buy TAC → 0x[0-9a-fA-F]{4}…[0-9a-fA-F]{4}$/.test(await go()), `the button names where it sends (${await go()})`);
+    ok(!page.url().toLowerCase().includes(other.slice(2, 12).toLowerCase()), 'the address is not put in the address bar');
+    ok(!(await page.textContent('#get-side')).trim(), 'the get side shows no "You have" for the other address');
+    const r0 = await bal(TAC, other), p0 = await bal(TAC, w.account), eb0 = BigInt(await rpcA('eth_getBalance', [w.account, 'latest']));
+    const signs = walletLog.signs;
+    await page.click('#go');
+    await until(page, () => /Done/.test(document.querySelector('#q').textContent), null, 180000);
+    const r1 = await bal(TAC, other), p1 = await bal(TAC, w.account), eb1 = BigInt(await rpcA('eth_getBalance', [w.account, 'latest']));
+    ok(r1 > r0 && p1 === p0, `the TAC went to the other address (+${Number(r1 - r0) / 1e18}) and none to the wallet`);
+    ok(eb0 - eb1 >= 2n * 10n ** 17n, 'the wallet paid the ETH');
+    ok(/sent to 0x/.test(await page.textContent('#q')) && !(await page.$('[data-farm-it]')) && !(await page.$('[data-watch]')), 'the receipt says where it went, with no "Farm it" or "Add to wallet" for TAC that is not the wallet\'s');
+    ok(await page.isHidden('#to-in') && (await page.inputValue('#to-in')) === '' && (await page.textContent('#get-where')).trim() === 'to your wallet', 'afterwards the address is cleared, so the next swap goes to the wallet');
+  }
 
   // USDC → TAC, signed for
   await pick(page, 'pay', 'USDC');
