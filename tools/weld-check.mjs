@@ -180,7 +180,7 @@ const { chromium } = require(process.env.PLAYWRIGHT || '/Users/z/zFi/node_module
 const DAPP = new URL('../dapp/', import.meta.url).pathname;
 // Borrow reports under each step's own line (#bw-s1…#bw-s4) as well as the sheet's: read them all.
 const bwText = (page) => page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => e.textContent).join(' '), '#bw-status, #bw-s1, #bw-s2, #bw-s3, #bw-s4');
-const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgedeep,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
+const ONLY = new Set((process.argv[2] || 'airdrop,links,flowpanel,ux,apr,farmgate,pair,farm,reinvest,buy,tacfarm,sell,v1,v1refuse,wrapform,devsend,device,devtac,devtacdraft,devtacacct,borrow,bonds,bondadd,mainbond,locks,redeem,repay,csend,tacsend,selfexit,selfmore,selflocks,selfsplit,makepub,farmjoin,farmpos,farmsteps,farmzap,farmqueue,farmheld,farmreuse,hxtip,farmexit,farmclaim,farmself,farmworth,swap,shield,keys,tacopen,saved,bitcoin,passkey,acct,devmove,btc,bridge,bridgedeep,bridgemerge,bridgeall,bridgepub,xobridge,xbring,xtbridge,xtring,xtfind,hxout,hxlink,hxpanel,hxweek,hxsell,hxsats,hxdry,hxnudge,hxfold,hxteth,hxsend,hxsendtac,hxsendwallet,hxborrow,hxborrowback,tradelinks,pxs,pxsback,pts,ptsview,retention,activity,receipts,stats,dash,tacdeposit,openact,openfarm,heldoff,provecap,heldborrow,holdborrow,holdpublic,selffund,selfeth,selfprove,relaystate,relayfail').split(','));
 const FORK = process.argv[3] || 'https://mainnet.gateway.tenderly.co';
 const SHOTS = process.env.SHOTS || null;
 const PORT = 20000 + Math.floor(Math.random() * 2000), WEB = PORT + 1;
@@ -2937,6 +2937,142 @@ await step('bridgedeep', async () => {
     if (r.errors.length) { fails++; console.log('FAIL bridgedeep page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   } finally { await r.browser.close(); }
 });
+// Merge notes and Bridge all, the two presses over the Bridge tab's whole list. The key holds three notes in the proof's tree (950 TAC), two the
+// tree holds in an older form (200 TAC), one the proof does not track (60 TAC), one that holds nothing and one over the limit. The page's
+// broadcasts are caught, not sent: each press is judged by the notes the transactions it signed spend.
+async function bridgeAllRig() {
+  const r = await openPage({ account: A0, key: K0 });
+  const hex = 'b41f'.padEnd(64, '7'), pubB = secp.getPublicKey(hex, true), pub = Buffer.from(pubB).toString('hex');
+  const { ripemd160 } = await import('@noble/hashes/ripemd160');
+  const spk = '0014' + Buffer.from(ripemd160(sha256(pubB))).toString('hex');
+  const { makeConfidentialPool } = await import(new URL('../dapp/confidential-pool.js', import.meta.url));
+  const pool = makeConfidentialPool({ secp, keccak256: keccak_256, sha256 });
+  const rev = (h) => h.match(/../g).reverse().join('');
+  const TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
+  const ID = { R1: 'a1', R2: 'a2', R3: 'a3', O1: 'b1', O2: 'b2', U1: 'd1', Z: 'e0', X: 'f1' };
+  const AMT = { R1: 40000000000n, R2: 30000000000n, R3: 25000000000n, O1: 12000000000n, O2: 8000000000n, U1: 6000000000n, Z: 0n, X: 150000000000n };
+  const id = (k) => ID[k].repeat(32);
+  const leafOf = (a) => { const c = pool.commitXY(a, '0x' + (12345n + a).toString(16).padStart(64, '0')); return pool.btcNoteLeaf('0x' + TAC, c.cx, c.cy, '0x' + '00'.repeat(32)); };
+  const sent = [], utxoUrls = [];
+  r.page.on('request', (rq) => { if (/utxo/.test(rq.url())) utxoUrls.push(rq.url()); });
+  const api = (re, fn) => r.page.route(re, (route) => fn(route, new URL(route.request().url())));
+  // Registered first, so every handler below wins: any other post to the API (hints, armed mints) is answered and not sent on.
+  await r.page.route(/^https:\/\/api\.tacit\.finance\//, (route) => (route.request().method() === 'POST' ? json(route, { ok: true }) : route.fallback()));
+  // The key's history, which the page reads from public explorers to find its cBTC locks before it sends: none.
+  await api(/^https:\/\/(mempool\.space|blockstream\.info|mempool\.emzy\.de)\/api\/scripthash\//, (route) => json(route, []));
+  await api(/^https:\/\/api\.tacit\.finance\/reflection\/dump/, (route) => json(route, { attestedHeight: 970000,
+    snapshot: { height: 970000, liveTriples: ['R1', 'R2', 'R3', 'O1', 'O2', 'Z'].map((k) => { const c = pool.commitXY(AMT[k], '0x' + (12345n + AMT[k]).toString(16).padStart(64, '0')); return [pool.outpointKey('0x' + rev(id(k)), 0), pool.commitmentHash(c.cx, c.cy), '0x' + TAC, '0x' + '00'.repeat(32), 0]; }), burnNodes: [],
+      noteLeaves: ['R1', 'R2', 'R3'].map((k) => leafOf(AMT[k])), pendingDepositRecords: [] } }));
+  await api(/^https:\/\/api\.tacit\.finance\/reflection\/status/, (route) => json(route, { network: 'mainnet', attestedHeight: 970000, tipHeight: 970000, lagBlocks: 0 }));
+  await api(/^https:\/\/api\.tacit\.finance\/chain\/tx\/[0-9a-f]{64}/, (route) => route.fulfill({ status: 404, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"error":"not-found"}' }));
+  await api(new RegExp(`^https://api\\.tacit\\.finance/chain/tx/(${Object.values(ID).join('|')}){32}`), (route, u) => json(route, { txid: u.pathname.split('/').pop(), status: { confirmed: true, block_height: 960000 }, vout: [{ scriptpubkey: spk, value: 546 }] }));
+  await api(/^https:\/\/(mempool\.space|blockstream\.info|api\.tacit\.finance\/chain)\/(api\/)?address\/[^/]+\/utxo/, (route) => json(route, [1, 2, 3, 4, 5, 6].map((i) => ({ txid: ('9' + i).repeat(32), vout: 1, value: 100000, status: { confirmed: true, block_height: 960000 } }))));
+  await api(/^https:\/\/(mempool\.space|blockstream\.info|api\.tacit\.finance\/chain)\/(api\/)?tx$/, (route) => { const h = route.request().postData() || ''; if (!sent.includes(h)) sent.push(h); return route.fulfill({ status: 200, contentType: 'text/plain', headers: { 'access-control-allow-origin': '*' }, body: 'ab'.repeat(32) }); });
+  await api(/^https:\/\/api\.tacit\.finance\/reflection\/burndep\/trace/, (route) => json(route, { ok: false, error: 'trace failed: temporarily unavailable' }));
+  await r.page.goto(r.url + '#wallet');
+  await r.page.evaluate(async ([ids, amts, aid]) => {
+    globalThis.__TACIT_NO_INIT__ = true; localStorage.setItem('tacit-network-v1', 'mainnet');
+    const T = await import([...document.scripts].map((x) => x.textContent).join('').match(/\/tacit\.js\?cb=[0-9a-f]+/)[0]);
+    const utxos = Object.keys(ids).map((k) => ({ utxo: { txid: ids[k].repeat(32), vout: 0, value: 546, status: { confirmed: true, block_height: 960000 } }, amount: BigInt(amts[k]), blinding: 12345n + BigInt(amts[k]) }));
+    const balance = utxos.reduce((x, u) => x + u.amount, 0n);
+    T._testSetScanHoldingsOverride(() => new Map([[aid, { assetIdHex: aid, ticker: 'TAC', decimals: 8, balance, utxos, ghosts: [], inflated: [], pending: [] }]]));
+  }, [ID, Object.fromEntries(Object.entries(AMT).map(([k, v]) => [k, String(v)])), TAC]);
+  await r.page.click('#wallet-body [data-in="paste"]');
+  await r.page.fill('#ws-hex', hex);
+  await r.page.click('#wallet-body [data-in="key"]');
+  await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
+  // Signing in closes the wallet sheet, which can reset the address bar after this sets it: set it again until the tab is open.
+  const listed = () => until(r.page, () => document.querySelectorAll('#bridge-body .brn').length === 8 && !!document.querySelector('#br-all'), null, 40000);
+  for (let i = 0; i < 5; i++) {
+    await r.page.evaluate(() => { if (location.hash !== '#bridge') { location.hash = ''; location.hash = '#bridge'; } });
+    if (await listed().then(() => true, () => false)) break;
+  }
+  await listed()
+    .catch(async (e) => { console.log('bridgeall: the list showed', JSON.stringify(await text(r.page, '#bridge-body').then((t) => t.replace(/\s+/g, ' ').slice(0, 500))), 'hash', await r.page.evaluate(() => location.hash), 'errors', r.errors.slice(0, 3)); throw e; });
+  // The inputs of a raw transaction, as txid:vout (every txid here reads the same either way round).
+  const inputsOf = (h) => {
+    const b = Buffer.from(h, 'hex'); let p = 4;
+    if (b[p] === 0 && b[p + 1] === 1) p += 2;
+    const n = b[p++], out = [];
+    for (let i = 0; i < n; i++) { out.push(`${Buffer.from(b.subarray(p, p + 32)).reverse().toString('hex')}:${b.readUInt32LE(p + 32)}`); p += 36; const sl = b[p++]; p += sl + 4; }
+    return out;
+  };
+  return { r, pub, id, sent, utxoUrls, inputsOf, panel: () => text(r.page, '#br-allp').then((t) => t.replace(/\s+/g, ' ').trim()) };
+}
+// Presses a go button until the status says it is done. Reading the key's cBTC locks goes through the fork, which can be slow to warm: the page
+// says so and to try again, as a holder would.
+async function pressUntil(page, goSel, done) {
+  for (let i = 0; i < 5; i++) {
+    await page.click(goSel);
+    await until(page, ([re]) => { const t = document.querySelector('#br-status')?.textContent || ''; return new RegExp(re).test(t) || /locked coins/.test(t); }, [done.source], 420000);
+    if (!/locked coins/.test(await text(page, '#br-status'))) return;
+    console.log(`     bridge press ${i + 1}: the fork was slow to read the locks, pressing again`);
+    await sleep(20000);
+    await until(page, (s) => !!document.querySelector(s), goSel, 60000);
+  }
+}
+await step('bridgemerge', async () => {
+  const { r, pub, id, sent, utxoUrls, inputsOf, panel } = await bridgeAllRig();
+  try {
+    const listed = (await text(r.page, '#bridge-body .brns')).replace(/\s+/g, ' ');
+    ok(/0 TAC\s*Holds no TAC/.test(listed), `bridgemerge: a note that holds nothing says so and is not a choice (${listed.slice(0, 300)})`);
+    ok((await r.page.textContent('#br-merge')).trim() === 'Merge notes' && (await r.page.textContent('#br-all')).trim() === 'Bridge all', 'bridgemerge: the list offers Merge notes and Bridge all');
+    // A pick and the merge panel do not share the screen: opening one closes the other.
+    await r.page.check(`#bridge-body input[value="${id('R1')}:0"]`);
+    await until(r.page, () => !document.querySelector('#br-rcpt').hidden, null, 120000);
+    await r.page.click('#br-merge');
+    await until(r.page, () => !document.querySelector('#br-allp').hidden && /Merge/.test(document.querySelector('#br-allp').textContent), null, 30000);
+    ok(await r.page.evaluate(() => document.querySelector('#br-rcpt').hidden && ![...document.querySelectorAll('input[name="br-note"]')].some((x) => x.checked)), 'bridgemerge: opening Merge closes the picked note\'s receipt and clears the pick');
+    await until(r.page, () => /≈ [\d,]+ sats/.test(document.querySelector('#br-allp')?.textContent || ''), null, 120000);
+    const p1 = await panel();
+    ok(/Merge\s*5 notes into 2 notes: 950 TAC and 200 TAC/.test(p1) && /Merge 5 notes/.test(await r.page.textContent('#br-merge-go')), `bridgemerge: five tracked notes merge into two within the limit, the untracked and the empty ones left out (${p1.slice(0, 260)})`);
+    ok(await r.page.isChecked('#br-prepauto') && /Then bridge them for me once they are ready/.test(p1) && !(await r.page.isDisabled('#br-merge-go')), `bridgemerge: bridging them once ready is on, and Merge can be pressed (${p1.slice(-300)} | utxo reads: ${JSON.stringify(utxoUrls.slice(0, 3))})`);
+    await r.page.check(`#bridge-body input[value="${id('R2')}:0"]`);
+    await until(r.page, () => document.querySelector('#br-allp').hidden && !document.querySelector('#br-rcpt').hidden, null, 120000);
+    ok(true, 'bridgemerge: picking a note closes the merge panel');
+    await r.page.click('#br-merge');
+    await until(r.page, () => !document.querySelector('#br-allp').hidden && !!document.querySelector('#br-merge-go'), null, 30000);
+    await pressUntil(r.page, '#br-merge-go', /merged into 2/);
+    const st = (await text(r.page, '#br-status')).replace(/\s+/g, ' ');
+    ok(/5 notes merged into 2 notes: 950 TAC and 200 TAC/.test(st) && /bridged for you/.test(st), `bridgemerge: the press says what it merged and that they are bridged once ready (${st.slice(0, 260)})`);
+    ok(sent.length === 4, `bridgemerge: two merges are four transactions, a commit and a reveal each (${sent.length})`);
+    const spends = [1, 3].map((i) => inputsOf(sent[i]).slice(1).sort());
+    ok(JSON.stringify(spends[0]) === JSON.stringify(['R1', 'R2', 'R3'].map((k) => `${id(k)}:0`).sort()) && JSON.stringify(spends[1]) === JSON.stringify(['O1', 'O2'].map((k) => `${id(k)}:0`).sort()),
+      `bridgemerge: the first merge spends the three notes in the tree and the second the two older ones, and nothing else of the key's TAC (${JSON.stringify(spends)})`);
+    const preps = await r.page.evaluate(([k, p]) => (JSON.parse(localStorage.getItem(k) || '{}')[p] || []).map((x) => [x.amount, !!x.plan?.auto, x.plan?.auto?.maxFee]), ['tacit-lite-bridge-prep-v1', pub]);
+    ok(preps.length === 2 && preps.some((x) => x[0] === '95000000000') && preps.some((x) => x[0] === '20000000000') && preps.every((x) => x[1] && x[2] >= 3000), `bridgemerge: each merged note is listed as getting ready, to be bridged on its own (${JSON.stringify(preps)})`);
+    await until(r.page, () => /Getting ready/.test(document.querySelector('#bridge-body')?.textContent || ''), null, 60000);
+    ok(await r.page.evaluate(() => document.querySelector('#br-allp').hidden), 'bridgemerge: the panel closes once it has merged');
+    if (r.errors.length) { fails++; console.log('FAIL bridgemerge page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+await step('bridgeall', async () => {
+  const { r, pub, id, sent, inputsOf, panel } = await bridgeAllRig();
+  try {
+    await r.page.click('#br-all');
+    await until(r.page, () => /≈ [\d,]+ sats/.test(document.querySelector('#br-allp')?.textContent || ''), null, 120000);
+    const p1 = await panel();
+    ok(/Bridge\s*1,210 TAC from 6 notes/.test(p1) && /Burned now\s*3 notes/.test(p1) && /Sent first\s*2 notes in 1 send to your own address, then bridged for you/.test(p1) && /Checked one by one\s*1 note/.test(p1),
+      `bridgeall: the panel counts what goes now, what is sent first and what is checked one by one (${p1.slice(0, 420)})`);
+    ok(await r.page.isDisabled('#br-all-go') && /I understand a bridge can’t be undone/.test(p1), 'bridgeall: nothing starts until the holder has said they understand a bridge cannot be undone');
+    ok(await r.page.evaluate(() => { const b = document.querySelector('#br-public'); return !!b && !b.checked; }) && /Make them public TAC when they arrive/.test(p1), 'bridgeall: public TAC on arrival is offered for all of them, and off');
+    await r.page.check('#br-allack');
+    await until(r.page, () => !document.querySelector('#br-all-go').disabled, null, 30000);
+    await pressUntil(r.page, '#br-all-go', /✓.*bridging/)
+      .catch(async (e) => { console.log('bridgeall: the status showed', JSON.stringify(await text(r.page, '#br-status')), 'sent', sent.length, 'errors', r.errors.slice(0, 3)); throw e; });
+    const st = (await text(r.page, '#br-status')).replace(/\s+/g, ' ');
+    ok(/3 notes bridging/.test(st) && /2 notes sent to your own address in 1 send, to be bridged for you once ready/.test(st), `bridgeall: the press says what it started (${st.slice(0, 300)})`);
+    ok(/60 TAC:/.test(st) && /They stay in the list above/.test(st), `bridgeall: and names the note it left, with why (${st.slice(0, 400)})`);
+    const spent = sent.flatMap((h) => { try { return inputsOf(h); } catch { return []; } }).filter((x) => Object.values({ R1: 'a1', R2: 'a2', R3: 'a3', O1: 'b1', O2: 'b2', U1: 'd1', Z: 'e0', X: 'f1' }).some((b) => x.startsWith(b.repeat(32)))).sort();
+    ok(JSON.stringify(spent) === JSON.stringify(['R1', 'R2', 'R3', 'O1', 'O2'].map((k) => `${id(k)}:0`).sort()), `bridgeall: the transactions spend the three notes it burned and the two it sent, once each, and not the untracked, the empty or the over-limit one (${JSON.stringify(spent)})`);
+    const recs = await r.page.evaluate(([k]) => JSON.parse(localStorage.getItem(k) || '[]').map((x) => [x.source?.txid?.slice(0, 2), x.path]), [`tacit-burndep-bridge-v1:mainnet:${pub}`]);
+    ok(recs.length === 3 && recs.every((x) => x[1] === 'reflected') && ['a1', 'a2', 'a3'].every((t) => recs.some((x) => x[0] === t)), `bridgeall: three bridges are under way, one for each note burned (${JSON.stringify(recs)})`);
+    const preps = await r.page.evaluate(([k, p]) => (JSON.parse(localStorage.getItem(k) || '{}')[p] || []).map((x) => [x.amount, !!x.plan?.auto]), ['tacit-lite-bridge-prep-v1', pub]);
+    ok(preps.length === 1 && preps[0][0] === '20000000000' && preps[0][1], `bridgeall: the two older notes went as one send of 200 TAC, to be bridged once it is ready (${JSON.stringify(preps)})`);
+    if (r.errors.length) { fails++; console.log('FAIL bridgeall page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+  } finally { await r.browser.close(); }
+});
+
 await step('bridgepub', async () => {
   const r = await openPage({ account: A0, key: K0 });
   const hex = 'b9b1'.padEnd(64, '7'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex');

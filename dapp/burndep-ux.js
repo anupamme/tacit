@@ -313,6 +313,19 @@ export function makeBurnDepositUx(deps) {
     return out;
   }
 
+  // Whether the reflection tracks each note, read from the state noteForms reads and with no explorer call: 'tracked' (a live output),
+  // 'bound' (a live output bound to a deployment, which a plain transfer is not for), 'new' (made in a block the proof has not reached, or no
+  // known block) or 'untracked' (a block it has passed that left no live output).
+  async function noteTracking(notes) {
+    const r = await reflected(), out = new Map();
+    for (const n of notes || []) {
+      const key = outpointOf(n.txid, n.vout), h = Number(n.height);
+      out.set(`${n.txid}:${n.vout}`, r.live.has(key) ? (r.liveBound.get(key) ? 'bound' : 'tracked')
+        : Number.isInteger(h) && h > 0 && Number.isInteger(r.height) && h <= r.height ? 'untracked' : 'new');
+    }
+    return out;
+  }
+
   async function preflightHeld({ note, walletPub }) {
     const out = { steps: [], ok: false };
     const step = (name, ok, detail) => { out.steps.push({ name, ok, detail }); return ok; };
@@ -1099,7 +1112,7 @@ export function makeBurnDepositUx(deps) {
   }
 
   return {
-    BURNDEP_BETA_CAP_RAW, assets: ASSETS, assetOf, eligibleNotes, isReserved, pickFunding, bridgeCost, noteForms, preflight, preflightHeld, recheckBurn, RETURN_FEE_CEILING, start, startReflected, advance, resumeAll, recoverFromTxid, discover, list, abandon,
+    BURNDEP_BETA_CAP_RAW, assets: ASSETS, assetOf, eligibleNotes, isReserved, pickFunding, bridgeCost, noteForms, noteTracking, preflight, preflightHeld, recheckBurn, RETURN_FEE_CEILING, start, startReflected, advance, resumeAll, recoverFromTxid, discover, list, abandon,
     cancelSigned, buildCancel, reclaim, recover, verify, isLive, burnRecorded, destLeaf, relayFault, mintRetryDue, armMint,
     quoteRate: () => chain.getFeeRate('priority'),
     slipstreamStatus: broadcaster.slipstreamStatus,

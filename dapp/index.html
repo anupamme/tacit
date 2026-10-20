@@ -1592,6 +1592,7 @@ import { makeEvmTx } from '/evm-tx.js';
 import { makeTacAirdrop, makeRpcCall } from '/tac-airdrop.js?cb=6a6bb45f';
 import { makeEvmTradeVenues, encErc20Approve, CETH_POOL_ASSET_ID, TAC_POOL_ASSET_ID, TACIT_AMM } from '/evm-trade-venues.js?cb=563db4d4';
 import { parseRecipient } from '/confidential-payout.js?cb=c27b4853';
+import { planMerge, planAll, countAll } from '/bridge-all.js?cb=5b33aeb0';
 import { aprFrom, shieldedApr as shieldedAprOf, poolWorthEth } from '/trade/farm-read.js?cb=112a01b9';
 import { addressId } from '/address-id.js?cb=c4fa5a58';
 import { PXS_KEY, PX_CALLS, pxFigures, paintPx, pxState } from '/px-strip.js';
@@ -6835,13 +6836,16 @@ function loadBridge(force = false) {
   return (BR.loading = withKey(async (t) => {
     const h = await t.scanHoldings(force);
     const tac = h instanceof Map ? [...h.entries()].find(([id, x]) => String(x.assetIdHex || id).toLowerCase() === TAC_BTC_ID)?.[1] : null;
-    const notes = await Promise.all((tac?.utxos || []).map(async (u) => ({
-      txid: u.utxo.txid, vout: u.utxo.vout, sats: u.utxo.value, assetId: TAC_BTC_ID, amount: u.amount, blinding: u.blinding,
-      confirmed: !!u.utxo.status?.confirmed || !!(await esplora(`/tx/${u.utxo.txid}/status`).catch(() => null))?.confirmed,
-      stealth: !!u.stealthTweakedSk, stealthTweakedSk: u.stealthTweakedSk || null,
-    })));
+    const notes = await Promise.all((tac?.utxos || []).map(async (u) => {
+      const st = u.utxo.status?.confirmed ? u.utxo.status : await esplora(`/tx/${u.utxo.txid}/status`).catch(() => null);
+      return { txid: u.utxo.txid, vout: u.utxo.vout, sats: u.utxo.value, assetId: TAC_BTC_ID, amount: u.amount, blinding: u.blinding,
+        confirmed: !!st?.confirmed, height: st?.block_height,
+        stealth: !!u.stealthTweakedSk, stealthTweakedSk: u.stealthTweakedSk || null };
+    }));
     const forms = await t.bridgeUx().noteForms(notes).catch(() => null);
     if (forms) for (const n of notes) n.form = forms.get(brId(n)) ?? null;
+    const tracks = await t.bridgeUx().noteTracking(notes).catch(() => null);
+    if (tracks) for (const n of notes) n.tracking = tracks.get(brId(n)) ?? null;
     return t.bridgeUx().eligibleNotes(notes).sort((a, b) => (b.eligible - a.eligible) || (BigInt(b.amount) > BigInt(a.amount) ? 1 : BigInt(b.amount) < BigInt(a.amount) ? -1 : 0));
   }, pub).then(async (notes) => {
     await refl;
@@ -6951,6 +6955,7 @@ const brOver = (n) => !n.eligible && /beta limit/.test(n.reason || '');
 const brLongReason = (s) => (s.unprovable ? `Its history includes ${BR_THROUGH[s.through] || BR_THROUGH.other}, which the bridge does not follow.`
   : `${brLongCount(s).replace(/^./, (c) => c.toUpperCase())} in its history; the bridge proves up to ${s.max}.`);
 const brMarkDeep = (n) => (n.eligible && BR.deep.has(brId(n)) ? { ...n, eligible: false, reason: brLongReason(BR.deep.get(brId(n))) } : n);
+const brMarkEmpty = (n) => (n.eligible && BigInt(n.amount) === 0n ? { ...n, eligible: false, reason: 'Holds no TAC' } : n);
 const brNote = (n) => brOver(n) ? html`<div class="brn brsp"><span><b class="num">${fmt(BigInt(n.amount), 8, 4)} TAC</b><small>Over 1,000 TAC, the most one bridge takes. Split some off to your own address, then bridge that.</small></span>
   <div class="amt"><input id="brsp-${n.txid.slice(0, 8)}-${n.vout}" inputmode="decimal" value="1000" autocomplete="off" aria-label="TAC to split off"><span class="u">TAC</span></div>
   <button class="btn ghost" type="button" data-brsplit="${brId(n)}" data-brsplit-in="brsp-${n.txid.slice(0, 8)}-${n.vout}">Split off</button></div>`
@@ -7068,11 +7073,16 @@ function renderBridgeIn(el) {
   const pub = S.key.pubHex, b = BR.pub === pub ? BR : null;
   if (!b?.notes && !BR.loading && !b?.err) loadBridge().then(() => rerender('tac')).catch(() => {});
   brDiscover(pub, true);
-  const recs = brRecords(pub), done = brArrived(pub), notes = (b?.notes || []).filter((n) => n.reason !== 'already bridging').map(brMarkDeep), open = notes.filter((n) => n.eligible);
+  const recs = brRecords(pub), done = brArrived(pub), notes = (b?.notes || []).filter((n) => n.reason !== 'already bridging').map(brMarkDeep).map(brMarkEmpty), open = notes.filter((n) => n.eligible);
   const preps = brPreps(pub);
   if (preps.some((p) => !p.height || brPrepState(p) !== 'ready')) brPrepTick().catch(() => {});
   if (BR.pick && !open.some((n) => brId(n) === BR.pick)) BR.pick = null;
   if (!BR.pick && open.length === 1) BR.pick = brId(open[0]);
+  const capRaw = T ? BigInt(T.bridgeUx().BURNDEP_BETA_CAP_RAW) : 0n;
+  const plans = capRaw && open.length > 1 ? { merge: planMerge(notes, { capRaw }), all: planAll(notes, { capRaw }) } : null;
+  const bulk = plans && countAll(plans.all) > 1 ? plans : null;
+  if (BR.act && (!bulk || (BR.act === 'merge' && !bulk.merge.groups.length))) BR.act = null;
+  if (BR.act) BR.pick = null;
   mount(el, html`
     <p class="lede-s">TAC on your Bitcoin address becomes private TAC on Ethereum. You pay a Bitcoin fee, in sats. It arrives once Bitcoin’s proof on Ethereum records the burn, usually within a few hours and sometimes up to a day. A one-step bridge finishes even if you close this page; any other picks up when you open it again with the same wallet. Tick the receipt’s choice to arrive as public TAC (ERC20), or press Make public after. <a href="/bridge/">How the bridge is proven</a></p>
     ${preps.length ? html`<div class="lbl"><span>Getting ready</span></div><ul class="acts brs">${preps.map(brPrepRow)}</ul>` : ''}
@@ -7083,7 +7093,9 @@ function renderBridgeIn(el) {
     <div class="lbl"><span>TAC on Bitcoin</span>${b?.notes ? html`<button type="button" id="br-re">refresh</button>` : ''}</div>
     ${!b?.notes ? (b?.err ? html`<p class="note err">${errText(b.err)} <button class="link" type="button" id="br-re">Try again</button></p>` : html`<p class="note">Reading your TAC on Bitcoin…</p>`)
       : !notes.length ? html`<p class="note">No TAC on this key’s Bitcoin address. <a href="#bitcoin/receive" data-link="bitcoin/receive">Receive TAC on Bitcoin</a>${xoShown(pub, XA.tac) ? ' TAC bridged from Ethereum is listed under To Bitcoin.' : ''}</p>`
-      : html`<div class="brns" role="radiogroup" aria-label="TAC to bridge">${notes.map(brNote)}</div>${notes.length > 1 ? html`<p class="note">Each amount is one note on Bitcoin and goes whole.</p>` : ''}`}
+      : html`<div class="brns" role="radiogroup" aria-label="TAC to bridge">${notes.map(brNote)}</div>${notes.length > 1 ? html`<p class="note">Each amount is one note on Bitcoin and goes whole.</p>` : ''}
+        ${bulk ? html`<div class="brr-a brall">${bulk.merge.groups.length ? html`<button class="btn ghost" type="button" id="br-merge" aria-pressed="false">Merge notes</button>` : ''}<button class="btn ghost" type="button" id="br-all" aria-pressed="false">Bridge all</button></div>
+        <div class="rcpt" id="br-allp" hidden></div>` : ''}`}
     <div class="rcpt" id="br-rcpt" hidden></div>
     <label class="pick" id="br-ackrow" hidden><input type="checkbox" id="br-ack"><span>I understand a bridge can’t be undone once its burn confirms on Bitcoin.</span></label>
     <button class="btn" type="button" id="br-go" disabled>Bridge to Ethereum</button>
@@ -7181,7 +7193,8 @@ function renderBridgeIn(el) {
       ackRow.hidden = false; gateOk();
     } catch (e) { if (my === seq && rc.isConnected) quoteErr(rc, brFail(e)); }
   };
-  $$('input[name="br-note"]', el).forEach((r) => r.onchange = () => { BR.pick = r.value; check(); });
+  let paintBulk = null;
+  $$('input[name="br-note"]', el).forEach((r) => r.onchange = () => { BR.pick = r.value; BR.act = null; paintBulk?.(); check(); });
   $$('[data-brsplit]', el).forEach((x) => x.onclick = () => busy(x, (run) => {
     const n = notes.find((y) => brId(y) === x.dataset.brsplit), v = parseUnits($(`#${x.dataset.brsplitIn}`).value, 8);
     if (!n) return;
@@ -7198,6 +7211,10 @@ function renderBridgeIn(el) {
     BR.pick = brId(n); rerender('tac');
     $('#br-rcpt')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }));
+  if (bulk) paintBulk = brBulkWire(el, pub, bulk, () => {
+    BR.pick = null; seq++; review = null; rc.hidden = true; ackRow.hidden = true; gateOk();
+    $$('input[name="br-note"]', el).forEach((x) => { x.checked = false; });
+  });
   if (BR.pick) check();
   go.onclick = () => busy(go, async (run) => {
     const r = review;
@@ -7238,10 +7255,10 @@ function renderBridgeIn(el) {
   });
 }
 const brPublicTo = () => (S.key && S.address ? String(S.address) : null);
-function brOptsHtml(kinds) {
-  const o = BR.opts, to = brPublicTo();
+function brOptsHtml(kinds, many = false) {
+  const o = BR.opts, to = brPublicTo(), it = many ? 'them' : 'it', they = many ? 'they' : 'it', are = many ? 'are' : 'is', arrive = many ? 'arrive' : 'arrives';
   const box = (id, on, body) => html`<label class="pick"><input type="checkbox" id="${id}" data-bropt="${id.slice(3)}" ${on ? 'checked' : ''}><span>${body}</span></label>`;
-  return html`${kinds.includes('prepauto') ? box('br-prepauto', o.prepauto, html`Then bridge it for me once it is ready. This page must be open with my wallet. <span id="br-prepcost"></span>`) : ''}${kinds.includes('selfburn') ? box('br-selfburn', o.selfburn, html`Send the burn for me once the move is ready. This page must be open with my wallet; if the miner’s rate more than doubles it waits for me.`) : ''}${kinds.includes('public') && to ? box('br-public', o.public && !BR.noPublic, html`Make it public TAC when it arrives, in ${your()} (${short(to, 6)}). <span id="br-pubfee"></span>The amount and the address are then public on Ethereum.`) : ''}`;
+  return html`${kinds.includes('prepauto') ? box('br-prepauto', o.prepauto, html`Then bridge ${it} for me once ${they} ${are} ready. This page must be open with my wallet. <span id="br-prepcost"></span>`) : ''}${kinds.includes('selfburn') ? box('br-selfburn', o.selfburn, html`Send the burn for me once the move is ready. This page must be open with my wallet; if the miner’s rate more than doubles it waits for me.`) : ''}${kinds.includes('public') && to ? box('br-public', o.public && !BR.noPublic, html`Make ${it} public TAC when ${they} ${arrive}, in ${your()} (${short(to, 6)}). <span id="br-pubfee"></span>The ${many ? 'amounts' : 'amount'} and the address are then public on Ethereum.`) : ''}`;
 }
 const brOptsWire = (root) => $$('[data-bropt]', root).forEach((x) => { x.onchange = () => { BR.opts[x.dataset.bropt] = x.checked; }; });
 async function brPublicFee(amount) {
@@ -7295,6 +7312,168 @@ async function brSend(run, n, amount, verb, plan = null) {
     dashSoon();
     Promise.allSettled([loadBridge(true), loadBtc(true)]).then(() => rerender('tac'));
   } catch (e) { run.fail(status, /insufficient sats|no plain-sats/i.test(String(e?.message)) ? new Error('Not enough BTC for this and its Bitcoin fee.') : brFail(e)); }
+}
+// Merge notes and Bridge all: the two presses over the whole list, planned by dapp/bridge-all.js. One panel is open at a time, this
+// one or the receipt of a single picked note.
+const brNotes = (n) => `${n} note${n === 1 ? '' : 's'}`;
+const brAnd = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
+const brShort = (e) => /insufficient sats|no plain-sats/i.test(String(e?.message));
+const BR_NO_SATS = 'Not enough BTC for this and its Bitcoin fee.';
+const BR_CHAIN = 'Bitcoin allows only so many unconfirmed transactions in a chain. The rest can go once these confirm: press again then.';
+const brChainFull = (e) => /ancestor-chain limit|too-long-mempool-chain/i.test(String(e?.message));
+// What no later step of the run could do better: a shortage of sats, a full chain of unconfirmed transactions, locks that could not be read.
+const brHalts = (e) => brShort(e) || brChainFull(e) || /read your locked coins/i.test(String(e?.message));
+const brHaltText = (e) => (brShort(e) ? BR_NO_SATS : brChainFull(e) ? BR_CHAIN : brErr(e));
+const brFresh = (pub) => withKey(async (t) => { try { t.invalidateHoldingsCache?.(); } catch {} }, pub);
+// A transaction just sent may not yet show its change among the key's free coins: once something has gone in a run, a shortage is looked
+// at again after a pause, with the coin list read afresh, before it is called one.
+async function brTry(pub, sentBefore, fn) {
+  try { const r = await fn(); if (!(r && r.why === BR_NO_SATS && sentBefore())) return r; }
+  catch (e) { if (!brShort(e) || !sentBefore()) throw e; }
+  await brFresh(pub); await new Promise((res) => setTimeout(res, 5000)); await brFresh(pub);
+  return fn();
+}
+const brTac = (v) => `${fmt(BigInt(v), 8, 4)} TAC`;
+// Notes sent whole to this key's own address in one transaction: several make one note (a merge), and the new note is what gets bridged.
+const brMergeSend = (pub, ns, plan) => withKey(async (t) => {
+  const h = await t.scanHoldings(true), have = h.get(TAC_BTC_ID)?.utxos || [];
+  const us = ns.map((n) => have.find((x) => x.utxo.txid === n.txid && x.utxo.vout === n.vout));
+  if (us.some((u) => !u)) throw new Error('That TAC is no longer at this address. Refresh, then try again.');
+  const amount = us.reduce((s, u) => s + BigInt(u.amount), 0n);
+  const r = await t.buildAndBroadcastCXfer({ assetIdHex: TAC_BTC_ID, amount, recipientPubHex: bytesToHex(t.wallet.pub), forceUtxos: us });
+  try { t.invalidateHoldingsCache?.(); } catch {}
+  return { txid: r.revealTxid, amount, n: ns.length };
+}, pub).then((r) => {
+  actBtc(r.txid, r.n > 1 ? `Merged ${brNotes(r.n)} (${brTac(r.amount)})` : `Sent ${brTac(r.amount)} to your own address`);
+  brPrepAdd(pub, { txid: r.txid, amount: String(r.amount), at: Date.now(), ...(plan && (plan.auto || plan.publicTo) ? { plan } : {}) });
+  return r;
+});
+// One note bridged as the single-note press does it: its own check, then its burn (or its move, with the burn to follow on its own).
+async function brStartNote(pub, n, publicTo) {
+  const ux = await brUx(), pf = await ux.preflight({ note: n, walletPub: hexToBytes(pub) });
+  if (!pf.ok) return { why: brCheckText(pf.steps.find((x) => !x.ok) || { name: '' }) };
+  const one = pf.path === 'reflected';
+  const coins = await withKey(async (t) => t.pickSafeCommitSats(await t.getUtxos(t.wallet.address())), pub).catch(() => null);
+  const cost = ux.bridgeCost({ path: pf.path, feeRate: one ? pf.burnFeeRate : pf.migrateFeeRate, coins: coins || [], noteSats: n.sats, burnRate: pf.burnRate });
+  if (coins && !cost.ok) return { why: BR_NO_SATS };
+  const mara = pf.slipstreamRates, base = mara ? Math.max(Number(mara.effective_rate) || 0, Number(mara.submit_fee_rate) || 0, 1) * 1.1 : 10;
+  const rec = await brBegin(pub, { note: n, pf, cost });
+  const plan = { at: Date.now(), ...(one ? {} : { burn: { maxRate: Math.ceil(Math.max(10, base * 2)) } }), ...(publicTo ? { publicTo } : {}) };
+  if (plan.burn || plan.publicTo) brPlanSet(pub, rec.id, plan);
+  await brFresh(pub);
+  return { rec };
+}
+// What the transactions of a press cost at today's rate, by the estimate the single note's panel uses (a commit and a reveal each, a
+// merge adding an input's weight per extra note), and whether the key's free coins cover them.
+async function brBulkFee(pub, bulk, kind) {
+  const ux = await brUx(), rate = await ux.quoteRate().catch(() => null);
+  if (!rate) return null;
+  const coins = await withKey(async (t) => t.pickSafeCommitSats(await t.getUtxos(t.wallet.address())), pub).catch(() => null);
+  const tx = (ns) => { const c = ux.bridgeCost({ path: 'reflected', feeRate: rate, coins: coins || [], noteSats: ns.reduce((s, n) => s + Number(n.sats || 0), 0) }); return { fee: c.fee + Math.ceil(68 * rate) * (ns.length - 1), need: c.need }; };
+  const txs = kind === 'merge' ? bulk.merge.groups.map((g) => tx(g.notes))
+    : [...bulk.all.burns.map((n) => tx([n])), ...bulk.all.sends.map((g) => tx(g.notes)), ...bulk.all.privates.map((n) => tx([n]))];
+  const fee = txs.reduce((s, x) => s + x.fee, 0), need = txs.reduce((s, x) => s + x.need, 0), free = (coins || []).reduce((s, c) => s + Math.max(0, Number(c?.value) || 0), 0);
+  return { fee, need, free, short: !!coins && free < need, autoMaxFee: Math.max(3000, Math.ceil(tx([{ sats: 546 }]).fee * 2)) };
+}
+function brBulkPanel(kind, bulk) {
+  if (kind === 'merge') {
+    const g = bulk.merge.groups, count = g.reduce((s, x) => s + x.notes.length, 0), recent = bulk.merge.skipped.filter((x) => x.why === 'recent').length;
+    return html`
+      <div class="kv"><span>Merge</span><b>${brNotes(count)} into ${brNotes(g.length)}: ${brAnd(g.map((x) => brTac(x.total)))}</b></div>
+      <div class="kv"><span>Bitcoin fee</span><b id="br-allfee">Checking…</b></div>
+      <div class="kv"><span>Then</span><b>Each can be bridged once it confirms and Bitcoin’s proof on Ethereum has seen it, usually within a few hours</b></div>
+      ${recent ? html`<p class="note">${brNotes(recent)} too recent for Bitcoin’s proof to have seen stay out of it.</p>` : ''}
+      ${brOptsHtml(['prepauto', 'public'], true)}
+      <button class="btn" type="button" id="br-merge-go">Merge ${brNotes(count)}</button>`;
+  }
+  const a = bulk.all, sent = a.sends.reduce((s, g) => s + g.notes.length, 0) + a.privates.length, nSends = a.sends.length + a.privates.length;
+  const count = countAll(a);
+  const total = [...a.burns, ...a.sends.flatMap((g) => g.notes), ...a.privates, ...a.checks].reduce((s, n) => s + BigInt(n.amount), 0n);
+  return html`
+    <div class="kv"><span>Bridge</span><b>${brTac(total)} from ${brNotes(count)}</b></div>
+    ${a.burns.length ? html`<div class="kv"><span>Burned now</span><b>${brNotes(a.burns.length)}, one Bitcoin transaction each</b></div>` : ''}
+    ${nSends ? html`<div class="kv"><span>Sent first</span><b>${brNotes(sent)} in ${nSends} send${nSends === 1 ? '' : 's'} to your own address, then bridged for you</b></div>` : ''}
+    ${a.checks.length ? html`<div class="kv"><span>Checked one by one</span><b>${brNotes(a.checks.length)} Bitcoin’s proof does not track: a move, then a burn through a miner, sent for you</b></div>` : ''}
+    <div class="kv"><span>Bitcoin fee</span><b id="br-allfee">Checking…</b></div>
+    <div class="kv"><span>Arrives</span><b>Usually within a few hours of each burn, once Bitcoin’s proof on Ethereum records it${nSends ? '; the notes sent first take a few hours longer' : ''}</b></div>
+    ${brOptsHtml(['public'], true)}
+    <label class="pick"><input type="checkbox" id="br-allack"><span>I understand a bridge can’t be undone once its burn confirms on Bitcoin.</span></label>
+    <button class="btn" type="button" id="br-all-go" disabled>Bridge ${brNotes(count)}</button>`;
+}
+function brBulkWire(el, pub, bulk, closeSingle) {
+  const panel = $('#br-allp', el), btn = { merge: $('#br-merge', el), all: $('#br-all', el) };
+  if (!panel) return;
+  let quote = { autoMaxFee: 6000 }, seq = 0;
+  const paint = () => {
+    const kind = BR.act, my = ++seq;
+    for (const k of Object.keys(btn)) btn[k]?.setAttribute('aria-pressed', String(kind === k));
+    if (!kind) { panel.hidden = true; BR.allAck = false; mount(panel, html``); return; }
+    mount(panel, brBulkPanel(kind, bulk));
+    panel.hidden = false;
+    brOptsWire(panel);
+    const go = $(kind === 'merge' ? '#br-merge-go' : '#br-all-go', panel), ack = $('#br-allack', panel);
+    let short = false;
+    const gate = () => { go.disabled = short || (!!ack && !ack.checked); };
+    if (ack) { ack.checked = !!BR.allAck; ack.onchange = () => { BR.allAck = ack.checked; gate(); }; }
+    brBulkFee(pub, bulk, kind).then((q) => {
+      if (!q || my !== seq || !panel.isConnected) return;
+      quote = q; short = q.short;
+      const fee = $('#br-allfee', panel);
+      if (fee) fee.textContent = `≈ ${q.fee.toLocaleString('en-US')} sats`;
+      if (short) warn(panel, html`This key’s Bitcoin address has ${q.free.toLocaleString('en-US')} sats free for fees, short of the about ${q.need.toLocaleString('en-US')} this needs. <a href="#bitcoin/receive" data-link="bitcoin/receive">Add bitcoin to it</a>`);
+      gate();
+    }).catch(() => { const fee = $('#br-allfee', panel); if (fee) fee.textContent = 'not quoted just now'; });
+    go.onclick = () => busy(go, (run) => (kind === 'merge' ? brRunMerge : brRunAll)(run, pub, bulk, brBulkPlan(panel, quote, kind)));
+  };
+  for (const k of Object.keys(btn)) if (btn[k]) btn[k].onclick = () => { BR.act = BR.act === k ? null : k; if (BR.act) closeSingle(); paint(); };
+  paint();
+  return paint;
+}
+const brBulkPlan = (panel, quote, kind) => {
+  if (kind === 'merge') return brPlanFrom(panel, { autoMaxFee: quote.autoMaxFee });
+  const pubBox = $('#br-public', panel), plan = { at: Date.now(), auto: { maxFee: quote.autoMaxFee } };
+  if (pubBox?.checked && !pubBox.disabled && brPublicTo()) plan.publicTo = brPublicTo();
+  return plan;
+};
+async function brRunMerge(run, pub, bulk, plan) {
+  const status = $('#br-status'), groups = bulk.merge.groups, did = [], left = [];
+  BR.starting = true;
+  try {
+    for (const [i, g] of groups.entries()) {
+      run.say(status, `Merging ${brNotes(g.notes.length)} (${i + 1} of ${groups.length})…`);
+      try { did.push(await brTry(pub, () => did.length > 0, () => brMergeSend(pub, g.notes, plan))); }
+      catch (e) { left.push(brHalts(e) ? brHaltText(e) : brErr(e)); if (brHalts(e)) break; }
+    }
+  } finally { BR.starting = false; }
+  if (did.length) Object.assign(BR, { act: null, allAck: false, pick: null, rv: null, acked: null, at: 0 });
+  say(status, html`${did.length ? html`<span class="ok">✓ ${brNotes(did.reduce((s, d) => s + d.n, 0))} merged into ${brNotes(did.length)}: ${brAnd(did.map((d) => brTac(d.amount)))}.</span> ${plan.auto ? 'They are bridged for you' : 'They can be bridged from here'} once they confirm and Bitcoin’s proof on Ethereum has seen them, usually within a few hours${plan.auto ? ', while this page is open with your wallet' : ''}.` : ''}${left.length ? html` <span class="err">${left[0]}${left.length > 1 ? ` (${left.length} failed)` : ''}</span>` : ''}`);
+  if (did.length) { toast(`${brNotes(did.reduce((s, d) => s + d.n, 0))} merged`); dashSoon(); }
+  Promise.allSettled([loadBridge(true), loadBtc(true)]).then(() => rerender('tac'));
+}
+async function brRunAll(run, pub, bulk, plan) {
+  const status = $('#br-status'), a = bulk.all, left = [], did = { burns: 0, sends: 0, sent: 0 };
+  const sends = [...a.sends, ...a.privates.map((n) => ({ notes: [n] }))], rest = [...a.burns, ...a.checks], total = sends.length + rest.length;
+  let at = 0, stop = false;
+  BR.starting = true;
+  try {
+    for (const g of sends) {
+      run.say(status, `${g.notes.length > 1 ? `Merging ${brNotes(g.notes.length)}` : 'Sending a note to your own address'} (${++at} of ${total})…`);
+      try { await brTry(pub, () => did.sends + did.burns > 0, () => brMergeSend(pub, g.notes, plan)); did.sends++; did.sent += g.notes.length; }
+      catch (e) { left.push(brHalts(e) ? brHaltText(e) : brErr(e)); if (brHalts(e)) { stop = true; break; } }
+    }
+    if (!stop) for (const n of rest) {
+      run.say(status, `Bridging ${brTac(n.amount)} (${++at} of ${total})…`);
+      try {
+        const r = await brTry(pub, () => did.sends + did.burns > 0, () => brStartNote(pub, n, plan.publicTo));
+        if (r.rec) did.burns++; else left.push(`${brTac(n.amount)}: ${r.why}`);
+      } catch (e) { left.push(`${brTac(n.amount)}: ${brHalts(e) ? brHaltText(e) : brErr(e)}`); if (brHalts(e)) break; }
+    }
+  } finally { BR.starting = false; }
+  const parts = [did.burns ? `${brNotes(did.burns)} bridging` : '', did.sends ? `${brNotes(did.sent)} sent to your own address in ${did.sends} send${did.sends === 1 ? '' : 's'}, to be bridged for you once ready` : ''].filter(Boolean);
+  if (parts.length) Object.assign(BR, { act: null, allAck: false, pick: null, rv: null, acked: null, at: 0 });
+  say(status, html`${parts.length ? html`<span class="ok">✓ ${parts.join('; ')}.</span> They show under On the way and Getting ready, and finish on their own whenever this page is open with your wallet.` : ''}${left.length ? html`<br><span class="err">${left.length === 1 ? left[0] : `${left.length} not done: ${left.join(' · ')}`}</span> They stay in the list above.` : ''}`);
+  if (parts.length) { toast(parts.join('; ')); dashSoon(); }
+  Promise.allSettled([loadBridge(true), loadBtc(true)]).then(() => rerender('tac'));
 }
 async function brAct(run, kind, id) {
   const pub = S.key.pubHex, ux = await brUx(), rec = ux.list(pub).find((r) => r.id === id);

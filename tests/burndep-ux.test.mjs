@@ -69,7 +69,7 @@ function makeWorld() {
   // The reflection's attested state as /reflection/dump serves it: the live set (outpoint keys) and the burns it
   // recorded (destination leaves). A burn checked through /reflection/burndep/check is recorded once folded, unless
   // recordBurns is off.
-  const liveKeys = new Set(), checkedDests = [];
+  const liveKeys = new Set(), boundKeys = new Set(), checkedDests = [];
   let recordBurns = true, noteHeight = 800, attested = 1000;
   const recoverPosts = [], recoverState = new Map();
   const chainHex = new Map();
@@ -109,7 +109,7 @@ function makeWorld() {
     }
     if (u.pathname === '/reflection/dump') {
       const dests = [...(burnFolded && recordBurns ? checkedDests : []), ...(recordReflected ? reflectedDests : [])];
-      const live = [...liveKeys].map((k) => [k, '0x00', ASSET, '0x00', 0]);
+      const live = [...liveKeys].map((k) => [k, '0x00', ASSET, '0x00', boundKeys.has(k) ? 1 : 0]);
       const noteLeaves = ['0x' + '01'.repeat(32)];
       if (reflectedNote) { live.push(reflectedNote.triple); noteLeaves.push(reflectedNote.leaf); }
       return json({ attestedHeight: attested, snapshot: { height: attested, noteLeaves, liveTriples: live.sort((a, b) => (BigInt(a[0]) < BigInt(b[0]) ? -1 : 1)), spentLinks: [],
@@ -207,6 +207,7 @@ function makeWorld() {
     setBurnHomeOnChain: (txid, spkHex) => chainTxs.set(stripHex(txid), { confirmed: true, vout: [{ scriptpubkey: stripHex(spkHex) }] }),
     setSubmitStatus: (s) => { submitStatus = s; },
     setRegisterConflict: (v) => { registerConflict = v; },
+    setBound: (txid, vout) => boundKeys.add(String(pool.outpointKey(withHex(stripHex(txid).match(/../g).reverse().join('')), vout)).toLowerCase()),
     setLive: (txid, vout) => liveKeys.add(String(pool.outpointKey(withHex(stripHex(txid).match(/../g).reverse().join('')), vout)).toLowerCase()),
     setRecordBurns: (v) => { recordBurns = v; },
     setReflectedNote: ({ txid, vout, value, blinding, asset = ASSET, authKey = '0x' + '00'.repeat(32), bound = false }) => {
@@ -718,6 +719,21 @@ let rec;
   ok((await uNew.noteForms([note])).get(id) === 'ready', 'and one in the burn\'s form ready');
   ok((await uNew.noteForms([{ ...note, stealthTweakedSk: '11'.repeat(32) }])).get(id) === 'private', 'and a privately received tracked note private');
   ok(wOld.broadcasts.length === 0 && wNew.broadcasts.length === 0, 'noteForms sends nothing');
+}
+// noteTracking says whether the reflection tracks each note, from the dump alone: a live output is tracked, one in a block the proof has
+// not reached (or with no known block) is new, and one in a block it has passed with no live output is untracked.
+{
+  const w = makeWorld(); w.setAttested(1000); w.setLive(NOTE_TXID, NOTE_VOUT);
+  const ux = makeUx(w, makeMemStorage());
+  const live = { txid: NOTE_TXID, vout: NOTE_VOUT, height: 800 }, gone = { txid: 'ab'.repeat(32), vout: 0, height: 800 };
+  const fresh = { txid: 'cd'.repeat(32), vout: 0, height: 1001 }, unknown = { txid: 'ef'.repeat(32), vout: 0 };
+  const t = await ux.noteTracking([live, gone, fresh, unknown]);
+  ok(t.get(`${live.txid}:${NOTE_VOUT}`) === 'tracked' && t.get(`${gone.txid}:0`) === 'untracked' && t.get(`${fresh.txid}:0`) === 'new' && t.get(`${unknown.txid}:0`) === 'new',
+    'noteTracking names a live note tracked, one in a block the proof has passed untracked, and one past it or with no block new');
+  ok((await ux.noteTracking([{ ...live, height: 5000 }])).get(`${NOTE_TXID}:${NOTE_VOUT}`) === 'tracked', 'a live note is tracked whatever height it is given');
+  const wb = makeWorld(); wb.setLive(NOTE_TXID, NOTE_VOUT); wb.setBound(NOTE_TXID, NOTE_VOUT);
+  ok((await makeUx(wb, makeMemStorage()).noteTracking([live])).get(`${NOTE_TXID}:${NOTE_VOUT}`) === 'bound', 'a live note bound to a deployment is named bound, not tracked');
+  ok(w.broadcasts.length === 0, 'noteTracking sends nothing');
 }
 // The reflected path end to end: one standard burn of the note itself, then the class-1 mint once it is recorded.
 {
