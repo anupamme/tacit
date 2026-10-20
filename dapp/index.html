@@ -630,7 +630,6 @@ a.di { color: inherit; text-decoration: none; }
 .tc-do span { font-size: 13px; line-height: 1.5; color: var(--mute); }
 .tc-pay { max-width: 640px; margin: 30px 0 0; padding: 20px 0 0; border-top: 1px dashed var(--hair-2); }
 .tc-pay h3 { margin: 0; font: 400 26px/1.15 var(--serif); letter-spacing: -.01em; }
-.tc-pay p { margin: 10px 0 0; font-size: 15px; line-height: 1.6; max-width: 60ch; }
 .tp-flow { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 18px 0 0; padding: 0; border: 1px solid var(--ink); border-radius: 14px; overflow: hidden; }
 .tp-flow li + li { border-left: 1px dotted var(--hair-2); position: relative; }
 .tp-flow li + li::before { content: '→'; position: absolute; left: -9px; top: 50%; transform: translateY(-50%); width: 18px; text-align: center; background: var(--paper); color: var(--mute); font-size: 13px; line-height: 18px; z-index: 1; }
@@ -1296,7 +1295,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <section class="sx" id="how" aria-labelledby="how-h">
     <div class="sx-h">
       <div><span class="sx-k">How it works</span><h2 id="how-h">One ID.<br><em>Two chains.</em></h2></div>
-      <p>One key holds your private balances on both chains. Zero-knowledge proofs move them between the two, with no federation or multisig. Everything recovers from that key alone, and the Ethereum pool is one immutable contract.</p>
+      <p>One key holds your private balances on both chains, and zero-knowledge proofs move them between the two.</p>
     </div>
     <div class="wd">
       <div class="wd-top">
@@ -1332,11 +1331,11 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <section class="sx fm" aria-labelledby="fm-h">
     <div class="sx-h">
       <div><span class="sx-k">Earn</span><h2 id="fm-h">Farm <em>TAC</em>.</h2></div>
-      <p>TAC streams to both farms every second. Claim it, or leave, whenever you like.</p>
+      <p>TAC streams to both farms every second. Claim or leave whenever you like.</p>
     </div>
     <div class="fm-y">
-      <a class="fm-way" href="#farm/public" data-link="farm/public"><span class="fm-apr num" id="pub-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span><h3>Public farm, from ETH alone</h3><p>One transaction from your wallet: about half your ETH becomes TAC inside the pool, then both earn. <span id="pub-day">TAC/ETH farm</span></p><span class="fm-go">Farm with ETH <span class="go" aria-hidden="true">→</span></span></a>
-      <a class="fm-way" id="flow-farm" href="#farm" data-link="farm"><span class="fm-apr num" id="priv-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg></span><h3>Private farms, hidden</h3><p>tETH alone or both sides, in private pools. Nobody sees what you hold. <span id="priv-day">Private pools</span></p><span class="fm-go">Farm privately <span class="go" aria-hidden="true">→</span></span></a>
+      <a class="fm-way" href="#farm/public" data-link="farm/public"><span class="fm-apr num" id="pub-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-tac"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-eth"/></svg></span><h3>Public farm, from ETH alone</h3><p>One transaction: about half your ETH becomes TAC, then both earn. <span id="pub-day">TAC/ETH farm</span></p><span class="fm-go">Farm with ETH <span class="go" aria-hidden="true">→</span></span></a>
+      <a class="fm-way" id="flow-farm" href="#farm" data-link="farm"><span class="fm-apr num" id="priv-apr"><span class="sk" style="--w:4ch"></span></span><span class="pair"><svg class="tk" aria-hidden="true"><use href="#tk-teth"/></svg><svg class="tk" aria-hidden="true"><use href="#tk-cusd"/></svg></span><h3>Private farms, hidden</h3><p>tETH alone or both sides. Nobody sees what you hold. <span id="priv-day">Private pools</span></p><span class="fm-go">Farm privately <span class="go" aria-hidden="true">→</span></span></a>
     </div>
     <a class="ptsline" href="#points" data-link="points"><svg class="tk" aria-hidden="true"><use href="#i-pts"/></svg><span class="fig"><b class="num" id="ern-pts-v"><span class="sk" style="--w:5ch"></span></b><span id="ern-pts">points pot today</span></span><span class="you"><span class="dot" data-dot="pts"></span><span data-foot="pts">100,000 TAC over 90 days</span><span class="go" aria-hidden="true">→</span></span></a>
   </section>
@@ -1353,7 +1352,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <div class="tc-t">
       <span class="sx-k">TAC</span>
       <h2 id="tc-h">TAC is private money, <em>born on Bitcoin</em>.</h2>
-      <p class="tc-p">Issued once on Bitcoin and fair-launched by airdrop. Its amounts are hidden on Bitcoin, its own shielded pool there hides who holds it, and the Tacit pool keeps it private on Ethereum too.</p>
+      <p class="tc-p">Fair-launched by airdrop. Private on Bitcoin in its own shielded pool, and on Ethereum in the Tacit pool.</p>
       <dl class="tc-facts">
         <div><dt>Fixed supply</dt><dd class="num">21,000,000</dd></div>
         <div><dt>Airdrop, eligible wallets</dt><dd class="num">14,000+</dd></div>
@@ -1361,7 +1360,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       </dl>
       <div class="tc-pay" role="group" aria-labelledby="tp-h">
         <h3 id="tp-h">Private bitcoin payments, today.</h3>
-        <p>Buy TAC with sats, shield it in TAC’s pool on Bitcoin, then sell it for sats paid to any address: yours, or whoever you are paying. Every trade is an atomic swap on TAC’s live order book, and the pool breaks the link between sats in and sats out. In between, you hold TAC.</p>
         <ol class="tp-flow">
           <li><button type="button" data-hx="swap:sats:tac"><svg class="tk" aria-hidden="true"><use href="#tk-btc"/></svg><span><b>Sats in</b><small>buy TAC, one atomic swap</small></span></button></li>
           <li><button type="button" data-hx="shield:btc:pool"><svg class="g" aria-hidden="true"><use href="#g-shield"/></svg><span><b>Shielded</b><small>in TAC’s pool on Bitcoin</small></span></button></li>
@@ -1370,11 +1368,11 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       </div>
       <ul class="tc-do" aria-label="What holding TAC does">
         <li><b>Cheaper exits</b><span>Private exits cost 0.30%, down to 0.15% for holders.</span></li>
-        <li><b>More points</b><span>Up to 2× on every points activity, held in an Ethereum wallet.</span></li>
+        <li><b>More points</b><span>Up to 2× points, with TAC held in an Ethereum wallet.</span></li>
         <li><b>A vote</b><span>On how the protocol’s governed parts are run.</span></li>
-        <li><b>Never sold</b><span>Relay fees paid in TAC go to the reserve, and part of the relay’s ETH surplus buys more.</span></li>
+        <li><b>Never sold</b><span>TAC paid as relay fees goes to the reserve, and part of the relay’s ETH surplus buys more.</span></li>
       </ul>
-      <p class="tc-spec">TAC is the standing example of the <a href="https://github.com/src-company/tacit/blob/main/SPEC.md" rel="noopener">Tacit spec</a>: a confidential token issued on Bitcoin with no mint key. Anyone can issue one the same way.</p>
+      <p class="tc-spec">TAC is the standing example of the <a href="https://github.com/src-company/tacit/blob/main/SPEC.md" rel="noopener">Tacit spec</a>: a confidential token issued on Bitcoin with no mint key. Anyone can issue one.</p>
       <div class="tc-links"><button class="btn" type="button" data-hx="swap:ether:tac">Buy TAC</button><a class="tl" href="/trade/tac/">Price and chart →</a><a class="tl" href="/vault/">Borrow against TAC →</a><a class="tl" href="/verify.html">Verify TAC →</a><a class="tl" href="https://github.com/src-company/tacit/blob/main/docs/TAC.md" rel="noopener">About TAC →</a></div>
     </div>
   </section>
@@ -1505,7 +1503,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <h2 id="farm-h" tabindex="-1" autofocus>Farm TAC</h2>
       <button class="x" type="button" data-close aria-label="Close">×</button>
     </div>
-    <p class="lede-s">Earn TAC every second and withdraw whenever you like. Private pools keep what you hold hidden.</p>
+    <p class="lede-s">Earn TAC every second, and withdraw any time. Private pools keep what you hold hidden.</p>
     <div id="farm-notes"></div>
     <ul class="farms" id="farm-list"></ul>
   </div>
@@ -3541,7 +3539,7 @@ function l2Balances(who) {
 render.wallet = () => {
   const el = $('#wallet-body');
   if (!S.key) {
-    mount(el, html`<p class="lede-s">Your Tacit wallet is one key for private balances on Bitcoin and Ethereum. Signing in with a wallet sends nothing and costs nothing, and the same account or passkey always opens the same Tacit wallet, everywhere on tacit.finance.</p>${signIn('ws')}
+    mount(el, html`<p class="lede-s">One key for your private balances on Bitcoin and Ethereum. Signing in with a wallet sends nothing and costs nothing, and the same account or passkey always opens the same Tacit wallet.</p>${signIn('ws')}
       ${ethLine()}`);
     return wireSignIn(el, 'ws', () => $('#sheet-wallet').close());
   }
@@ -3697,14 +3695,14 @@ function renderProve() {
   const credit = SP.credit, short_ = credit != null && proofsFor(credit) === 0;
   const unit = src === 'eth' ? 'ETH' : 'PROVE';
   mount(el, html`
-    <p class="lede-s">Your private actions can be proved on Succinct’s prover network with your own credit instead of by Tacit’s relay, so nothing waits on the relay’s queue or credit. Its private details go to Succinct’s own prover as a private input, passing through Tacit’s API without being kept. While Succinct’s network isn’t taking private inputs, they go as a public input instead, which anyone can read, and the action says so; the relay meanwhile proves on Tacit’s own machine, where the details stay with Tacit, and asks Succinct’s network when that machine is unavailable, with the details as a public input while the network isn’t taking private ones. Each action’s line says which. Each costs about ${perProof()} PROVE, and is sent from ${your()}, which pays its network fee.</p>
+    <p class="lede-s">Prove your private actions on Succinct’s prover network with your own credit, so nothing waits on the relay’s queue or credit. Their details go to Succinct’s prover as a private input, passing through Tacit’s API without being kept; while Succinct’s network isn’t taking private inputs they go as a public input, which anyone can read, and the action says so. Each costs about ${perProof()} PROVE and is sent from ${your()}, which pays its network fee.</p>
     <ol class="steps">
       <li class="step done"><span class="n">1</span><div><h3>Your prover account</h3>
         <div class="kv"><span>Tacit account</span><b class="mono">${short(a.address, 8)}</b><button class="link" type="button" data-copy="${a.address}">copy</button></div>
         <div class="kv"><span>Prover credit</span><b class="num" id="sp-credit"><span class="sk" style="--w:7ch"></span></b></div>
         <div class="kv"><span>Enough for</span><b id="sp-proofs"><span class="sk" style="--w:9ch"></span></b></div>
         <div class="kv"><span>ETH for network fees</span><b class="num" id="sp-eth"><span class="sk" style="--w:6ch"></span></b><button class="link" type="button" data-fund>Add ETH</button></div>
-        <p class="note">Your Tacit account is your account on the prover network. PROVE you add shows here a few minutes after it lands.</p></div></li>
+        <p class="note">PROVE you add shows here a few minutes after it lands.</p></div></li>
       <li class="${credit == null || short_ ? 'step now' : 'step done'}"><span class="n">2</span><div><h3>Add PROVE</h3>
         ${segSub('sps', src, [['prove', 'PROVE from wallet'], ['eth', 'ETH from wallet'], ...(SP.held > 0n ? [['acct', 'PROVE in Tacit account']] : [])])}
         <div class="lbl"><span>${src === 'eth' ? 'ETH to pay' : 'PROVE to add'}</span><button type="button" id="sp-max"><span id="sp-hold"></span></button></div>
@@ -3715,12 +3713,12 @@ function renderProve() {
         <div class="status" role="status" id="sp-status"></div></div></li>
       <li class="${on ? 'step done' : 'step now'}"><span class="n">3</span><div><h3>Prove with your credit</h3>
         <label class="pick"><input type="checkbox" id="sp-on" ${on ? 'checked' : ''}><span>Prove my actions with my own credit</span></label>
-        <p class="note">${on ? `On: each private action is proved with your own credit (about ${perProof()} PROVE) and sent from ${your()}. An action your credit can’t prove from here yet goes through Tacit’s relay, and says so.`
+        <p class="note">${on ? `On: each private action is proved with your credit (about ${perProof()} PROVE) and sent from ${your()}. One it can’t prove from here goes through Tacit’s relay, and says so.`
           : 'Off: Tacit’s relay proves your actions. Turn this on to prove them yourself.'}</p>
         <label class="pick"><input type="checkbox" id="sp-seal" ${seal ? 'checked' : ''} ${on ? 'disabled' : ''}><span>Seal my actions to Tacit’s prover machine</span></label>
         <p class="note">${on ? 'Not needed while your own credit proves: nothing of yours reaches the relay.'
-          : seal ? 'On: each action is encrypted here to the key of the machine that proves it, so Tacit’s relay and API hold only the ciphertext. While that machine is away, an action waits for you to try again.'
-          : 'Off: the relay reads each action to prove it, on Tacit’s machine or the prover network. Turn this on and only the machine that proves it can read your sends, swaps and pool moves.'}</p>
+          : seal ? 'On: each action is encrypted here to the machine that proves it, so Tacit’s relay and API hold only ciphertext. While that machine is away, an action waits for you to try again.'
+          : 'Off: the relay reads each action to prove it. Turn this on and only the machine that proves it can read your sends, swaps and pool moves.'}</p>
         ${SP.then ? html`<div class="callout"><span>Waiting to go on: ${SP.then.label}.</span><button class="btn ghost" type="button" id="sp-then" ${on ? '' : 'disabled'}>Go on</button></div>` : ''}</div></li>
     </ol>`);
   $$('[data-copy]', el).forEach((b) => b.onclick = () => copy(b.dataset.copy));
@@ -3895,12 +3893,12 @@ const your = () => (payer() === 'tacit' ? 'your Tacit account' : 'your wallet');
 const GH = 'https://github.com/src-company/tacit/blob/main/', ETHERSCAN = (a, kind = 'address') => `${SCAN}/${kind}/${a}`;
 const ASSETS = {
   teth: { name: 'tETH', icon: 'teth',
-    lede: ['tETH is ETH held as a private note in the Tacit pool, one for one: wrap ETH to enter, unwrap to any address to leave.',
-      'It is one asset on Ethereum and Bitcoin, and it trades and farms in the pool. Every balance recovers from your key and public chain data.'],
+    lede: ['ETH held as a private note in the Tacit pool, one for one. Wrap ETH to enter, unwrap to any address to leave.',
+      'One asset on Ethereum and Bitcoin. It trades and farms in the pool, and every balance recovers from your key.'],
     links: [['The Tacit pool', ETHERSCAN(ADDR.pool)], ['Assets and units in the spec', GH + 'SPEC.md#42-assets-and-units'], ['Whitepaper', '/tacit-v1.pdf'], ['How recovery works', GH + 'docs/RECOVERY.md']] },
   tac: { name: 'TAC', icon: 'tac',
-    lede: ['TAC is Tacit’s native token: 21,000,000 issued once on Bitcoin with no mint key, so no more can ever exist. On Ethereum it is a private note in the Tacit pool or the TAC ERC-20, which only the pool can mint, from TAC that has left Bitcoin.',
-      'Public TAC held at an address through the past day boosts that address\u2019s points, and TAC you hold privately or at your Ethereum addresses lowers the private exit fee. TAC paid as relay fees is never sold, and holders vote on proposals that the ops multisig carries out.'],
+    lede: ['Tacit’s native token, issued once on Bitcoin with no mint key. On Ethereum it is a private note in the Tacit pool or the TAC ERC-20, which only the pool can mint, from TAC that has left Bitcoin.',
+      'Public TAC held through the past day boosts an address\u2019s points, and TAC held privately or at your Ethereum addresses lowers the private exit fee. TAC paid as relay fees is never sold. Holders vote on proposals that the ops multisig carries out.'],
     facts: [['Supply', '21,000,000, fixed'], ['Issued', 'on Bitcoin, block 948,242'], ['On Ethereum', 'ERC-20, minted only by the pool']],
     links: [['Verify TAC on Bitcoin and Ethereum', '/verify.html'], ['Its genesis on Bitcoin', MEMPOOL + '/tx/e2d10be19c2b73b86e14be99dc237a3d999ba3dfbe6f3e3714590acee2ca481e'],
       ['Its supply record on IPFS', 'https://ipfs.filebase.io/ipfs/bafkreig7m5j66zlaewjvo6bipk723udgdhnyl7ve5k2suofuvhi2mmb3ai'],
@@ -3908,17 +3906,17 @@ const ASSETS = {
       ['The ERC-20 on Etherscan', ETHERSCAN(ADDR.tac, 'token')], ['Integrating the ERC-20', GH + 'docs/TAC.md#integrating-the-erc-20'], ['What holding TAC does', GH + 'docs/TAC.md#holding-tac'], ['The buyback contract', ETHERSCAN('0x6919cbEf0e70AFFA02Ae02c86c532A137154f250')]] },
   cbtc: { name: 'cBTC', icon: 'cbtc',
     lede: ['Private bitcoin, one for one with BTC locked at your own address.',
-      'It is minted once as a note in the Tacit pool, from an output only your key can spend. A wstETH bond worth at least 1.5× the lock makes spending that bitcoin unprofitable: spend it without redeeming and the bond is forfeited. Hold cBTC privately or borrow cUSD against it.'],
+      'Minted once as a note in the Tacit pool, from an output only your key can spend. A wstETH bond worth at least 1.5× the lock makes spending that bitcoin unprofitable: spend it without redeeming and the bond is forfeited.'],
     links: [['cBTC and cUSD in the spec', GH + 'SPEC.md#57-cdp-cusd-and-cbtc'], ['The bond helper', ETHERSCAN(ADDR.escrow)], ['A mint in the Tacit pool', ETHERSCAN('0xc6cf22b2a423e807ec8a4a93f635b47e68f5858a0cdce47c734e541770c30a6f', 'tx')]] },
   cusd: { name: 'cUSD', icon: 'cusd',
     lede: ['A private dollar borrowed against cBTC.',
-      'A loan needs 150% collateral and can be liquidated below 130%. The borrower stays unlinkable, while loan amounts are public so they can be priced. A stability fee and a savings rate are built in and set to zero today. Withdrawn to a public address, cUSD becomes tacUSD.'],
+      'A loan needs 150% collateral and can be liquidated below 130%. The borrower stays unlinkable; loan amounts are public so they can be priced. The stability fee and savings rate are zero today. Withdrawn to a public address, cUSD becomes tacUSD.'],
     links: [['cBTC and cUSD in the spec', GH + 'SPEC.md#57-cdp-cusd-and-cbtc'], ['The collateral engine', ETHERSCAN(ADDR.engine)], ['A loan opened', ETHERSCAN('0x6da330c161f236030ef83ce5c9c77268c735a52e7f9789c7ebceaccb479b3229', 'tx')]] },
   tacbtc: { name: 'tacBTC', icon: 'tacbtc',
-    lede: ['cBTC in public.', 'The ERC-20 minted when a cBTC note is withdrawn to an Ethereum address, and burned when it is wrapped back into a note, one for one. Only the Tacit pool can mint it.'],
+    lede: ['cBTC in public.', 'The ERC-20 minted when a cBTC note is withdrawn to an Ethereum address and burned when it is wrapped back, one for one. Only the Tacit pool mints it.'],
     links: [['tacBTC on Etherscan', ETHERSCAN(ADDR.tacbtc, 'token')], ['The token list', 'https://token.list.wei.limo'], ['cBTC and cUSD in the spec', GH + 'SPEC.md#57-cdp-cusd-and-cbtc']] },
   tacusd: { name: 'tacUSD', icon: 'tacusd',
-    lede: ['cUSD in public.', 'The ERC-20 minted when a cUSD note is withdrawn to an Ethereum address, and burned when it is wrapped back into a note, one for one. Only the Tacit pool can mint it.'],
+    lede: ['cUSD in public.', 'The ERC-20 minted when a cUSD note is withdrawn to an Ethereum address and burned when it is wrapped back, one for one. Only the Tacit pool mints it.'],
     links: [['tacUSD on Etherscan', ETHERSCAN(ADDR.tacusd, 'token')], ['The token list', 'https://token.list.wei.limo'], ['Borrow on Bitcoin', '#borrow']] },
   tacd: { name: 'TACD', icon: 'tacd',
     lede: ['A dollar borrowed against TAC.'],
@@ -4358,8 +4356,8 @@ async function settleLocks(run, kind, status) {
 }
 
 function renderV1(el) {
-  if (!needKey(el, V1.mode === 'swap' ? 'Swap tETH, TAC, cUSD and cBTC for one another inside the pool. What you hold stays private, and nothing says whose swap it is. Open your Tacit wallet to start.'
-    : 'Make your ETH private as tETH, then send it to anyone without the world seeing how much or to whom. Open your Tacit wallet to start.')) return;
+  if (!needKey(el, V1.mode === 'swap' ? 'Swap tETH, TAC, cUSD and cBTC inside the pool. What you hold and whose swap it is stay private.'
+    : 'Make your ETH private as tETH, then send it without anyone seeing how much or to whom.')) return;
   if (V1.mode === 'btc' && !xoShown(S.key.pubHex)) V1.mode = 'wrap';
   const s = P.scan, last = s || P.err ? null : lastSeen('teth');
   const bal = s ? html`${fmt(s.eth.value, 8, 6)}` : P.err ? html`<span class="err">—</span>` : last != null ? html`<span class="stale">${fmt(last, 8, 6)}</span>` : html`<span class="sk" style="--w:8ch"></span>`;
@@ -4476,7 +4474,7 @@ function v1Wrap(el, status) {
     <div class="amt"><input id="w-amt" inputmode="decimal" placeholder="0.00" autocomplete="off" aria-label="ETH to wrap"><span class="u"><svg class="tk sm" aria-hidden="true"><use href="#tk-eth"/></svg>ETH</span></div>
     <div class="rcpt" id="w-rcpt" aria-live="polite" hidden></div>
     <button class="btn" type="button" id="w-go" disabled>Make ETH private</button>
-    <p class="note">${ownNow(['wrap']) ? html`Two transactions from ${your()}: the deposit, then the settle, proved with your own credit, so there is no relay tip.` : html`One transaction from ${your()}. A small fee in it pays Tacit’s relay to do the privacy work, so nothing heavy runs on your device.`}</p>
+    <p class="note">${ownNow(['wrap']) ? html`Two transactions from ${your()}: the deposit, then the settle, proved with your own credit, so there is no relay tip.` : html`One transaction from ${your()}. A small fee in it pays Tacit’s relay to do the privacy work.`}</p>
     <p class="note mute" data-pool="v1">${poolLine('v1')}</p>`);
   const input = $('#w-amt'), go = $('#w-go'), rc = $('#w-rcpt');
   let bal = null, q = null, seq = 0;
@@ -5265,7 +5263,7 @@ function xoOut(el, status, a) {
   if (!T && (xoJournaled(pub, a) || xbJournaled(pub, a))) loadTacit().then(() => rerender(a.sheet)).catch(() => {});
   const open = xoOn(a);
   mount(el, html`
-    ${open ? html`<p class="lede-s">Burn private ${a.ticker} here and the same amount, less the relay fee, arrives as ${a.ticker} on your own Bitcoin address. It takes a few hours, sometimes up to a day: Bitcoin takes the note only after its proof on Ethereum has seen the burn. ${a.after}</p>`
+    ${open ? html`<p class="lede-s">Burn private ${a.ticker} here and the same amount, less the relay fee, arrives on your own Bitcoin address in a few hours, sometimes up to a day. ${a.after}</p>`
       : html`<p class="lede-s">Your ${a.ticker} bridges to Bitcoin are followed here until each arrives on your own Bitcoin address.</p>`}
     ${recs.length ? html`<div class="lbl"><span>On the way</span></div><ul class="acts brs">${recs.map(xoRow)}</ul><div class="status" role="status" id="${p('rstatus')}"></div>` : ''}
     ${a.redeem ? '' : xbSection(pub, a)}
@@ -5792,7 +5790,7 @@ function privacyView(c, amount, to, self) {
 
 function renderDevice(el) {
   if (DEV.tok) return renderTokenPool(el);
-  if (!needKey(el, 'Keep ETH private on Ethereum, Base, Robinhood Chain or MegaETH, with the privacy work done here in your browser. Open your Tacit wallet to start.')) return;
+  if (!needKey(el, 'Keep ETH private on Ethereum, Base, Robinhood Chain or MegaETH, proved in your browser.')) return;
   const c = DEV.chain, W = DEV.W && DEV.key === S.key.pubHex + c.chainId ? DEV.W : null;
   const last = DEV.bal == null ? big(store.get(`tacit-lite-device-bal-v1:${c.chainId}:${S.key.pubHex}`)?.v) : null;
   mount(el, html`
@@ -6198,7 +6196,7 @@ async function tokRecipient(raw) {
 
 function renderTokenPool(el) {
   const t = DEV.tok;
-  if (!needKey(el, `Keep ${t.sym} private on Ethereum, with the privacy work done here in your browser. Open your Tacit wallet to start.`)) return;
+  if (!needKey(el, `Keep ${t.sym} private on Ethereum, proved in your browser.`)) return;
   const W = TK.W && TK.key === S.key.pubHex + t.slug ? TK.W : null;
   const last = TK.bal == null ? big(store.get(`tacit-lite-device-bal-v1:${t.slug}:${S.key.pubHex}`)?.v) : null;
   mount(el, html`
@@ -6462,7 +6460,7 @@ async function lookForShielded(status) {
 }
 render.btc = () => {
   const el = $('#btc-body');
-  if (!needKey(el, 'Your key’s own Bitcoin wallet: hold BTC and TAC on Bitcoin, send them to anyone, and get paid privately at your tacit1 address. Open your Tacit wallet to start.', 'btc')) return;
+  if (!needKey(el, 'Your key’s own Bitcoin wallet: hold BTC and TAC, send them to anyone, and get paid privately at your tacit1 address.', 'btc')) return;
   const b = BTC.pub === S.key.pubHex ? BTC : null, last = b || BTC.err ? null : lastSeen('btc');
   if (!b && !BTC.loading && !BTC.err) loadBtc().then(() => rerender('btc')).catch(() => {});
   mount(el, html`
@@ -6860,8 +6858,8 @@ function brProofText(rec) {
 }
 const brMinting = (rec) => (rec.lastError ? `Recorded, and ready to mint.${brHeld(rec) ? ' Today’s free settles are used up, so this page asks again every hour while it is open with your wallet, or send it from your wallet now.'
     : rec.lastError.relay ? ' Its proof is not ready yet: this page asks again every few minutes while it is open with your wallet.' : ''}`
-  : rec.mintJob && Date.now() - Number(rec.mintJob.at || 0) < 20 * 60e3 ? `Recorded. Its mint is with the relay, which proves it and settles it on Ethereum, usually within minutes.`
-  : rec.arm?.ok && Date.now() - Number(rec.foldedAt || rec.arm.at || 0) < 15 * 60e3 ? `Recorded. Its mint is with the relay, which finishes it even if this page is closed, usually within minutes.`
+  : rec.mintJob && Date.now() - Number(rec.mintJob.at || 0) < 20 * 60e3 ? `Recorded. The relay is minting it, usually within minutes.`
+  : rec.arm?.ok && Date.now() - Number(rec.foldedAt || rec.arm.at || 0) < 15 * 60e3 ? `Recorded. The relay finishes the mint even if this page is closed, usually within minutes.`
   : `Recorded. Minting your private ${brTk(rec)}: this page does it while it is open with your wallet.`);
 function brMoveText(rec) {
   const h = Number(rec.migrateHeight), p = Number(BR.refl), at = (n) => n.toLocaleString('en-US');
@@ -7065,8 +7063,8 @@ function renderBridge(el) {
   xoOut($('#brm-form'), $('#bt-status'), XA.tac);
 }
 function renderBridgeIn(el) {
-  if (!needKey(el, BRM.mode === 'out' ? 'Burn private TAC on Ethereum and have it arrive as TAC on your own Bitcoin address, usually within a few hours. Open your Tacit wallet to start.'
-    : 'Bring TAC from your Bitcoin address into your private TAC on Ethereum. A burn on Bitcoin pays only BTC, and the pool mints the same TAC once Bitcoin’s proof carries it over, usually within a few hours. Open your Tacit wallet to start.', 'btc')) return;
+  if (!needKey(el, BRM.mode === 'out' ? 'Burn private TAC on Ethereum and it arrives on your own Bitcoin address, usually within a few hours.'
+    : 'Bring TAC from your Bitcoin address into your private TAC on Ethereum, usually within a few hours.', 'btc')) return;
   const pub = S.key.pubHex, b = BR.pub === pub ? BR : null;
   if (!b?.notes && !BR.loading && !b?.err) loadBridge().then(() => rerender('tac')).catch(() => {});
   brDiscover(pub, true);
@@ -7076,7 +7074,7 @@ function renderBridgeIn(el) {
   if (BR.pick && !open.some((n) => brId(n) === BR.pick)) BR.pick = null;
   if (!BR.pick && open.length === 1) BR.pick = brId(open[0]);
   mount(el, html`
-    <p class="lede-s">TAC on your Bitcoin address becomes private TAC on Ethereum. You pay a Bitcoin fee, in sats. It arrives once Bitcoin’s proof on Ethereum records the burn, usually within a few hours and sometimes up to a day. A one-step bridge is handed to the relay once its burn is sent, so its mint arrives even if you close this page; any other picks up where it stopped the next time you open this page with the same wallet. Tick the choice on the receipt to have it made public TAC (ERC20) when it arrives, or press Make public after. <a href="/bridge/">How the bridge is proven</a></p>
+    <p class="lede-s">TAC on your Bitcoin address becomes private TAC on Ethereum. You pay a Bitcoin fee, in sats. It arrives once Bitcoin’s proof on Ethereum records the burn, usually within a few hours and sometimes up to a day. A one-step bridge finishes even if you close this page; any other picks up when you open it again with the same wallet. Tick the receipt’s choice to arrive as public TAC (ERC20), or press Make public after. <a href="/bridge/">How the bridge is proven</a></p>
     ${preps.length ? html`<div class="lbl"><span>Getting ready</span></div><ul class="acts brs">${preps.map(brPrepRow)}</ul>` : ''}
     ${recs.length ? html`<div class="lbl"><span>On the way</span></div><ul class="acts brs">${recs.map(brRow)}</ul>` : ''}
     ${done.length ? html`<div class="lbl"><span>Arrived</span></div><ul class="acts brs">${done.map(brRow)}</ul>` : ''}
@@ -8834,12 +8832,12 @@ function renderPrecision(el) {
   if (S.address) FARM.signIn = false;
   if (!S.address) {
     if (FARM.signIn && !S.key) {
-      needKey(el, 'Open your Tacit wallet and farm from its own account. Add ETH to that account, and TAC if you want to farm with both.');
+      needKey(el, 'Farm from your Tacit account. Add ETH to it, and TAC to farm with both.');
       el.insertAdjacentHTML('beforeend', html`<p class="note"><button class="link" type="button" id="pf-back">Connect a browser wallet instead</button></p>`.s);
       $('#pf-back').onclick = () => { FARM.signIn = false; rerender('farm'); };
       return;
     }
-    mount(el, gate('Deposit ETH, TAC or both, and the farm puts it to work for you. TAC streams to you every second.', 'Connect wallet', 'pf-connect',
+    mount(el, gate('Deposit ETH, TAC or both. TAC streams to you every second.', 'Connect wallet', 'pf-connect',
       html`No browser wallet? <button class="link" type="button" id="pf-tacit">Open your Tacit wallet</button> instead.`));
     $('#pf-tacit').onclick = () => { FARM.signIn = true; rerender('farm'); };
     return wireConnect('pf-connect', () => rerender('farm'));
@@ -10144,13 +10142,13 @@ RETRY.borrow = () => { delete FLASH['bw-status']; rerender('borrow'); };
 RETRY.loan = () => loadBorrow(true).then(() => rerender('borrow')).catch(() => rerender('borrow'));
 render.borrow = () => {
   const el = $('#borrow-body');
-  if (!needKey(el, 'Borrow dollars against your bitcoin, which stays at an address only your key can spend. Open your Tacit wallet to start.', 'btc')) return;
+  if (!needKey(el, 'Borrow dollars against your bitcoin, which stays at an address only your key can spend.', 'btc')) return;
   const st = LOCK.state, rec = st?.rec;
-  const intro = html`<p class="lede-s">Borrow dollars (cUSD) against your bitcoin. The BTC never leaves an address only your key can spend; a refundable wstETH bond stands behind the lock.</p>`;
+  const intro = html`<p class="lede-s">Borrow cUSD against your bitcoin, which never leaves an address only your key can spend. A refundable wstETH bond stands behind the lock.</p>`;
   const wireBwFinish = () => wireFinish(el, 'borrow', 'bw-finish', 'bw-status');
   if (!st) {
     const blanks = [
-      ['Lock BTC', 'Send BTC to a self-custody output only your key can spend, then lock it.'],
+      ['Lock BTC', 'Send BTC to an output only your key can spend, then lock it.'],
       ['Post the wstETH bond', 'A bond of wstETH worth at least 1.5× the BTC, staked from your ETH in one transaction. Refundable, as wstETH.'],
       ['Mint cBTC', 'One to one against the lock, free, once Bitcoin confirms it and the bond is posted.'],
       ['Borrow cUSD', 'Borrow against the cBTC up to the pool’s floor. Repay anytime to reclaim it.'],
@@ -10983,7 +10981,7 @@ const hxTipFresh = (units = hxUnits()) => { const hit = units ? HXT.m.get(String
 const hxWrapMode = () => HX.mode === 'private' || (HX.mode === 'swap' && HX.from === 'ether' && HX.to === 'eth');
 const hxWrapSay = (units, tip) => ({ out: units ? fmt(units, 8, 6) : null, go: 'Make ETH private', pk: 'wrap',
   line: units ? `1 for 1, ${ownNow(['wrap']) ? 'with no relay tip: you prove it with your own credit.' : `with a relay tip${tip ? ` of ${fmt(tip, 18, 6)} ETH` : tip === undefined ? ', which the next step shows,' : ''} on top.`}`
-    : 'ETH in, tETH out, 1 for 1: a private note that sends, swaps and farms, and recovers from your key.' });
+    : 'ETH in, tETH out, 1 for 1, as a private note that recovers from your key.' });
 const hxWarm = () => { if (Date.now() - (HX.warm || 0) < 10e3) return; HX.warm = Date.now(); gasNow(); getUx().then((t) => t.quoteOpFee('cETH', 'route')).catch(() => {}); };
 const hxWarmWrap = () => { if (!S.key || Date.now() - (HX.warmWrap || 0) < 60e3) return; HX.warmWrap = Date.now(); getUx().then((t) => t.warmWrapLogs?.()).catch(() => {}); };
 async function hxPoolSwap(from, to, units) {
@@ -11114,12 +11112,12 @@ function hxSub() {
 function hxHandoff(m, units) {
   const amt = units ? fmt(units, 8, 6) : null, ch = hxChain();
   if (m === 'pay') return { out: amt, go: 'Deposit privately', pk: ch.points === false ? null : 'dev',
-    line: `Proved on this device, then sent from your wallet: you pay the network fee and no relay fee. The deposit shows on ${ch.name}; whose private balance it lands in does not.${ch.points === false ? ` No TAC points on ${ch.name}.` : ''}` };
-  if (m === 'btcpool') return { out: 'Private', go: 'Shield TAC on Bitcoin', line: 'Your TAC on Bitcoin goes into the shielded pool on Bitcoin. It hides who holds it, and it sells for sats on the Bitcoin order book.' };
+    line: `Proved on this device and sent from your wallet, for the network fee alone. The deposit shows on ${ch.name}; whose private balance it lands in does not.${ch.points === false ? ` No TAC points on ${ch.name}.` : ''}` };
+  if (m === 'btcpool') return { out: 'Private', go: 'Shield TAC on Bitcoin', line: 'Your TAC goes into the shielded pool on Bitcoin, hiding who holds it. It still sells for sats on the order book.' };
   if (m === 'unwrap') return { out: amt, go: 'Turn tETH into ETH', line: 'To your wallet, one for one, less the relay fee, which the next step shows.' };
-  if (m === 'paytac') return { out: amt, go: 'Deposit privately', line: `Proved on this device, then sent from ${your()}: you pay the network fee and no relay fee. The deposit shows on Ethereum; whose private balance it lands in does not.` };
+  if (m === 'paytac') return { out: amt, go: 'Deposit privately', line: `Proved on this device and sent from ${your()}, for the network fee alone. The deposit shows on Ethereum; whose private balance it lands in does not.` };
   if (m === 'tacwrap') return { out: amt, go: 'Make TAC private', line: `One transaction from ${your()}, with a signed permit instead of a separate approval. The relay then proves your private note.` };
-  if (m === 'tacpub') return { out: 'All', go: 'Make TAC public', line: 'All your private TAC becomes ERC-20 TAC in your Ethereum account at once, ready to sell, send or farm. The next step shows the relay fee.' };
+  if (m === 'tacpub') return { out: 'All', go: 'Make TAC public', line: 'All your private TAC becomes ERC-20 TAC in your Ethereum account, ready to sell, send or farm. The next step shows the relay fee.' };
   if (m === 'ppout') return { out: amt, go: 'Withdraw ETH', line: `From your pool on ${ch.name} to any address, public. A small relay fee, or send it from your wallet for the network fee alone.` };
   if (m === 'ppv1') return { out: amt, go: 'Move ETH into tETH', line: 'Straight into the Tacit pool, with no public stop on the way. A small relay fee, shown in the next step.' };
   if (m === 'tbback') return { out: 'Your notes', go: 'Bring tETH back', line: 'tETH on your Bitcoin address comes back to Ethereum as private tETH, by proof of Bitcoin. The next step lists what can come.' };
@@ -11283,7 +11281,7 @@ async function hxBorrowQuote(units) {
   const go = ready != null && ready >= need ? `Lock ${fmt(units, 8, 8)} BTC` : st.sats != null && st.sats >= need ? 'Waiting for your BTC to confirm' : 'Send BTC to lock';
   const held = st.sats == null ? 'What your Bitcoin address holds could not be read.' : `It holds ${fmt(st.sats, 8, 8)} BTC${st.pendingSats ? ` (${fmt(st.pendingSats, 8, 8)} unconfirmed)` : ''}; this lock needs about ${fmt(need, 8, 8)} with its network fees.`;
   const max = q.out && HX.bm !== 'cbtc' ? ` and borrow up to ${q.out.replace(/^≈ /, 'about ')} cUSD` : '';
-  return { ...q, go, wait: go === 'Waiting for your BTC to confirm', line: `${held} Then a wstETH bond of at least 1.5× (refundable, staked from your ETH), mint ${fmt(units, 8, 8)} cBTC${max}. Each step is here.` };
+  return { ...q, go, wait: go === 'Waiting for your BTC to confirm', line: `${held} Then a wstETH bond of at least 1.5× (refundable, staked from your ETH), mint ${fmt(units, 8, 8)} cBTC${max}.` };
 }
 const HXP = { at: 0, v: null, p: null };
 const hxPad = () => (HXP.v && Date.now() - HXP.at < 60e3 ? Promise.resolve(HXP.v) : (HXP.p ||= lockPad().then((v) => { Object.assign(HXP, { at: Date.now(), v }); return v; }).finally(() => { HXP.p = null; })));
@@ -11291,7 +11289,7 @@ async function hxBorrowTerms(units) {
   const btc = units ? Number(units) / 1e8 : 0, usd = TPX.v?.usdBtc, floor = HXR.ratio, liq = HXR.liq;
   const bond = 'a refundable wstETH bond of at least 1.5× the lock';
   if (HX.bm === 'cbtc') return { out: btc ? fmt(units, 8, 5) : null, go: 'Lock BTC for cBTC',
-    line: `Lock BTC at an address only your key spends, post ${bond}, and mint the same amount of cBTC, free. Hold it privately, or borrow against it later.` };
+    line: `Lock BTC at an address only your key spends, post ${bond}, and mint the same amount of cBTC, free.` };
   const max = btc && usd && floor ? btc * usd / (floor / 100) : null;
   return { out: max ? `≈ ${max >= 100 ? Math.round(max).toLocaleString('en-US') : max.toFixed(2)}` : btc ? '—' : null, go: 'Lock BTC and borrow',
     line: `Lock BTC at an address only your key spends, with ${bond}. Borrow ${max ? `up to about ${Math.round(max).toLocaleString('en-US')} cUSD (the ${floor}% floor)` : 'against it'}, repay any time.${liq ? ` Liquidation starts at ${liq}%.` : ''}` };
@@ -11550,7 +11548,7 @@ async function hxQuote() {
       const tacSrc = HX.from === 'wtac' || HX.from === 'tac';
       return done({ out: units ? sig(pick.day) : null, rows, pick: pick.k, unit: 'TAC a day', pk: two ? 'wrap' : null,
         go: pick.k === 'precision' ? (tacSrc ? 'Farm with TAC' : 'Farm with ETH') : two ? 'Make ETH private' : 'Farm privately',
-        line: pick.k === 'precision' ? `From ${tacSrc ? 'TAC' : 'ETH'} alone: about half is swapped to ${tacSrc ? 'ETH' : 'TAC'} in the pool, then both farm. Claim TAC any time.`
+        line: pick.k === 'precision' ? `From ${tacSrc ? 'TAC' : 'ETH'} alone: about half is swapped to ${tacSrc ? 'ETH' : 'TAC'} in the pool, then both farm.`
           : `${pick.dry ? 'Between reward periods: nothing streams until the next one starts. ' : ''}${two ? 'Two steps: make the ETH private, then farm it. ' : ''}From ${tacSrc ? 'TAC' : 'tETH'} alone: about half is swapped inside the pool. Nobody sees whose deposit it is.` });
     }
     if (m === 'btc' && HX.from === 'tac') {
