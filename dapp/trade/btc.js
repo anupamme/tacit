@@ -149,6 +149,7 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
     const seq = ++meSeq;                                                                    // a read that began later is the one to keep: an older, slower one must not put its balance over it
     if (!session.unlocked) { meState = null; changed(); return; }
     const T = session.T, my = session.key;
+    if (meState?.pubHex !== my.pubHex) { meState = { pubHex: my.pubHex, h160: T.bytesToHex(T.hash160(T.wallet.pub)), unlocked: true, sats: null, assetBase: null, address: T.wallet.address() }; changed(); ctl?.refresh?.({ soft: true }); }      // no state reads as no wallet: the sheet shows the key open, its balance being checked, while the explorers answer
     const holdingsP = T.scanHoldings().catch(() => null);
     const utxos = await T.getUtxos(T.wallet.address()).catch(() => null);
     if (session.key !== my || seq !== meSeq) return;                                       // the key changed while this was read, or a newer read began

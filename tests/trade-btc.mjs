@@ -57,7 +57,7 @@ async function stubWallet(ctx) {
   return log;
 }
 
-async function openPage(viewport, { wallet = false, hash = '#btc=on', utxos = [], delay = 0 } = {}) {
+async function openPage(viewport, { wallet = false, hash = '#btc=on', utxos = [], delay = 0, utxoHold = 0 } = {}) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport, colorScheme: 'light' });
   const walletLog = wallet ? await stubWallet(ctx) : null;
@@ -83,7 +83,7 @@ async function openPage(viewport, { wallet = false, hash = '#btc=on', utxos = []
     seen.explorer.add(`${route.request().method()} ${path}`);
     if (route.request().method() === 'POST') { seen.posts.push(`${who}${path}`); return route.fulfill({ status: 400, headers: { 'access-control-allow-origin': '*' }, body: 'not served in this test' }); }
     let m;
-    if ((m = /\/address\/([^/]+)\/utxo$/.exec(path))) return route.fulfill(ok200(utxos.length ? utxos : [{ txid: 'cd'.repeat(32), vout: 0, value: 3000000, status: { confirmed: true, block_height: 900000, block_time: soon - 700000 } }]));
+    if ((m = /\/address\/([^/]+)\/utxo$/.exec(path))) { if (utxoHold) await new Promise((r) => setTimeout(r, utxoHold)); return route.fulfill(ok200(utxos.length ? utxos : [{ txid: 'cd'.repeat(32), vout: 0, value: 3000000, status: { confirmed: true, block_height: 900000, block_time: soon - 700000 } }])); }
     if (/\/v1\/prices$/.test(path)) return route.fulfill(ok200({ time: soon, USD: 100000, EUR: 92000 }));
     if ((m = /\/tx\/([0-9a-f]{64})$/.exec(path))) { if (delay) await new Promise((r) => setTimeout(r, delay)); return route.fulfill(ok200({ txid: m[1], version: 2, locktime: 0, vin: [{ txid: '11'.repeat(32), vout: 0, sequence: 4294967295, witness: [], prevout: { value: 3001000, scriptpubkey_address: 'bc1qplainfunding' } }], vout: [{ value: 3000000, scriptpubkey_address: 'bc1qplainfunding' }], size: 200, weight: 800, fee: 1000, status: { confirmed: true, block_height: 900000, block_time: soon - 700000 } })); };
     if (/\/fees\/recommended$/.test(path)) return route.fulfill(ok200({ fastestFee: 5, halfHourFee: 5, hourFee: 4, economyFee: 3, minimumFee: 2 }));
@@ -165,7 +165,8 @@ try {
   await until(p, () => /nothing bought|nothing was spent|not found|stale|could not|failed/i.test(document.querySelector('.bm-modal')?.textContent || '') || !document.querySelector('.bm-modal'), null, 90000);
   ok(/Nothing bought.*taken before you.*nothing was spent/i.test((await text(p, '.bm-modal')).replace(/\s+/g, ' ')), 'a listing the API no longer has is reported as taken before the buyer, with nothing spent');
   ok([...r.seen.api].some((x) => /GET \/assets\/[0-9a-f]{64}\/preauth-sales\/[0-9a-f]+/.test(x)) || /not found|refresh/i.test(await text(p, 'body')), `the executor asked the API for the full listing before anything else (${[...r.seen.api].filter((x) => /preauth-sales\//.test(x)).slice(0, 1).join('') || 'noted in the message'})`);
-  ok(r.seen.posts.length === 0, `nothing was broadcast or posted (${r.seen.posts.join(', ') || 'no POSTs'})`);
+  const posted = r.seen.posts.filter((x) => x !== '/chain/tac/ancestry');                  // the archive's answer to a list of transactions is a read that happens to be a POST
+  ok(posted.length === 0, `nothing was broadcast or posted (${posted.join(', ') || 'no POSTs'})`);
   ok(r.errors.length === 0 && r.blocked.length === 0, `no page errors or blocked requests (${[...r.errors, ...r.blocked].slice(0, 3).join(' | ')})`);
   console.log('     unmatched requests:', [...r.seen.unmatched].join(' | ') || 'none');
   await r.browser.close();
@@ -208,6 +209,21 @@ try {
   await until(p, () => /3,000,000/.test(document.querySelector('.bsheet .bm')?.textContent || ''), null, 60000);
   const took = Date.now() - t0;
   ok(took < 6000, `signing in shows the sats in ${took} ms, not after the walk through the key's history (the explorer is held 9 s a request)`);
+  await r.browser.close();
+
+  // while the explorers are slow to give the sats, the key shows as open with its balance being checked: 'Connect a wallet' says the sign-in did not work
+  r = await openPage({ width: 1280, height: 900 }, { wallet: true, utxoHold: 8000 });
+  p = r.page;
+  await until(p, () => document.querySelectorAll('#ladders [data-btc]').length > 0, null, 120000);
+  await p.click('#ladders [data-btc="open"]');
+  await until(p, () => document.querySelector('.bsheet.wide .bm [data-act="unlock"]'), null, 180000);
+  await p.click('.bsheet .bm [data-act="unlock"]'); await p.waitForSelector('.bsheet.top .ways');
+  await p.click('.bsheet.top [data-in="eth"]');
+  const checking = await until(p, () => /Balance: checking/.test(document.querySelector('.bsheet .bm')?.textContent || ''), null, 6000).then(() => true, () => false);
+  const held = (await text(p, '.bsheet .bm')).replace(/\s+/g, ' ');
+  ok(checking && !/Connect a wallet|Unlock/.test(held), `after signing in, while the sats are still being read, the sheet says the balance is being checked, not that no wallet is connected (${(/Balance[^|]{0,30}|Connect a wallet[^|]{0,30}/.exec(held) || [''])[0]})`);
+  await until(p, () => /3,000,000/.test(document.querySelector('.bsheet .bm')?.textContent || ''), null, 60000);
+  ok(true, 'and the sats follow when they arrive');
   await r.browser.close();
 
   // a bid's Sell sets the ticket to sell, and the recovery of a stopped purchase is offered with its figures
