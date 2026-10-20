@@ -6880,7 +6880,7 @@ await step('hxout', async () => {
   const lander = () => p.evaluate(() => { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); history.replaceState(null, '', location.pathname); });
   const body = async () => (await text(p, '#hx-body')).replace(/\s+/g, ' ');
   // Shield names what is held, then the ways it can go: the Bitcoin legs are ways, and each follows its own setting.
-  const sourceValues = () => p.$$eval('#hx-from option', (o) => o.map((x) => x.value).join());
+  const sourceValues = () => p.$$eval('#hx-from option', (o) => o.map((x) => x.value).filter((v) => v !== 'wtac').join());   // wallet TAC is offered whenever the wallet holds the ERC-20, and has its own scenario (hxsendtac)
   const waysOf = async (src) => { await p.selectOption('#hx-from', src); return p.$$eval('#hx-dest [data-hxd], #hx-dest .hx-r', (r) => r.map((x) => x.dataset.hxd || 'back').join()); };
   const repaint = async () => { await p.click('[data-hxm="swap"]'); await p.click('[data-hxm="private"]'); };
   try {
