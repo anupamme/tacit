@@ -29,7 +29,7 @@
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
 <!-- preload-roots: /bridge/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/bridge/app.js?cb=339524f1">
+<link rel="modulepreload" href="/bridge/app.js?cb=9fcdbf07">
 <link rel="modulepreload" href="/bridge/track.js?cb=089731ca">
 <link rel="modulepreload" href="/rpc-body.js">
 <!-- preload:end -->
@@ -540,7 +540,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
           <div class="bt-c"><span class="pair"><svg class="tk" aria-hidden="true"><use id="bt-to-ic" href="#tk-eth"/></svg><svg class="tk bt-tk" aria-hidden="true"><use href="#tk-tac"/></svg></span><span><small>To</small><b id="bt-to">Ethereum</b></span></div>
         </div>
         <ol id="bt-steps" aria-label="Steps" data-key="tac/in"><li style="--i:0"><span class="dot" aria-hidden="true"></span>Burned on Bitcoin</li><li style="--i:1"><span class="dot" aria-hidden="true"></span>Confirmed</li><li style="--i:2"><span class="dot" aria-hidden="true"></span>Proven on Ethereum</li><li style="--i:3"><span class="dot" aria-hidden="true"></span>Minted privately</li></ol>
-        <p class="bt-w" id="bt-wait">About 4 hours: 24 Bitcoin confirmations, then the next proof</p>
+        <p class="bt-w" id="bt-wait">About 4 hours: 24 Bitcoin confirmations, then the next proof (about every 30 min)</p>
         <p class="bt-w bt-l" id="bt-limit">Up to 1,000 TAC a bridge while it is new</p>
         <a class="go" id="bt-go" href="/#bridge"><span>Bridge TAC to Ethereum</span><span aria-hidden="true">→</span></a>
       </div>
@@ -562,7 +562,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="wt-h">
         <span class="kk">How it works</span>
         <h2 id="wt-h">Two chains, <em>one state</em></h2>
-        <p>Each chain keeps a proven copy of the other’s Tacit state. We call it reflection. A bridge is a burn on one side and a mint on the other, with a proof in between.</p>
+        <p>Each chain keeps a proven copy of the other’s Tacit state. We call it reflection.</p>
         <ul class="trio"><li><b>No</b> federation</li><li><b>No</b> multisig</li><li><b>No</b> soft fork</li><li><b>Live</b> on mainnet</li><li><a href="#run"><b>Anyone</b> can run it</a></li></ul>
       </div>
     </section>
@@ -612,9 +612,9 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         </div>
       </figure>
       <ol class="cap3">
-        <li><b><i class="b"></i>Bitcoin, in</b><span>Every block, once 24 deep. Each Tacit envelope in it is folded into proven roots.</span></li>
-        <li><b><i class="e"></i>Ethereum, in</b><span>Its finalized state, checked by a light client against the sync committee’s signatures.</span></li>
-        <li><b><i class="k"></i>One proof, out</b><span>Verified by the pool, an immutable contract. Nobody signs it, and anyone can make it.</span></li>
+        <li><b><i class="b"></i>Bitcoin, in</b><span>Every block, once 24 deep.</span></li>
+        <li><b><i class="e"></i>Ethereum, in</b><span>Its finalized state, checked by a light client.</span></li>
+        <li><b><i class="k"></i>One proof, out</b><span>Verified by the pool. Anyone can make it.</span></li>
       </ol>
     </section>
 
@@ -638,9 +638,9 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         </svg>
       </figure>
       <ol class="cap3 mvc">
-        <li><b>1 · Burn</b><span class="in">The note is burned on Bitcoin. Its amount stays hidden.</span><span class="out">The note is burned in the pool, and the cross-out is recorded in its storage. Its amount stays hidden.</span></li>
-        <li><b>2 · Prove</b><span class="in">Once 24 blocks deep, the burn is folded into Bitcoin’s proof, and the pool verifies it.</span><span class="out">Once Ethereum finalizes it, the cross-out is proven inside Bitcoin’s proof.</span></li>
-        <li><b>3 · Mint</b><span class="in">The pool mints a fresh note of the same value, privately, once per burn. A second claim fails.</span><span class="out">A Bitcoin transaction mints a fresh note of the same value, once, as a proven member of the cross-outs.</span></li>
+        <li><b>1 · Burn</b><span class="in">The note is burned on Bitcoin. Amount hidden.</span><span class="out">The note is burned in the pool. Amount hidden.</span></li>
+        <li><b>2 · Prove</b><span class="in">Once 24 blocks deep, the burn joins Bitcoin’s proof.</span><span class="out">Once Ethereum finalizes, the cross-out joins Bitcoin’s proof.</span></li>
+        <li><b>3 · Mint</b><span class="in">The pool mints a fresh note of the same value, once.</span><span class="out">A Bitcoin transaction mints a fresh note of the same value, once.</span></li>
       </ol>
     </section>
 
@@ -649,7 +649,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div>
         <span class="kk">The note</span>
         <h3 id="c1-h">One format, <em>two chains</em></h3>
-        <p>A Tacit note is a Pedersen commitment on secp256k1, the curve both chains already use. A bridge burns a note on one chain and mints a fresh one of the same value on the other, with a proof that nothing was added or lost.</p>
+        <p>A Tacit note is a Pedersen commitment on secp256k1, the curve both chains use.</p>
       </div>
       <div class="fig" id="note-fig" data-side="btc">
         <div class="seg" role="group" aria-label="Where the note is"><button type="button" data-side="btc" aria-pressed="true">On Bitcoin</button><button type="button" data-side="eth" aria-pressed="false">In the pool</button></div>
@@ -682,7 +682,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
           <path class="dash" d="M216 200 C300 230 360 230 455 200"/>
           <text class="m" x="226" y="222">same value, a new blinding</text>
         </svg>
-        <p class="fx"><code>C = v·H + r·G</code> · amount <code>v</code> hidden, blinding <code>r</code> known to its owner alone. A bridge keeps <code>v</code> and picks a new <code>r</code>.</p>
+        <p class="fx"><code>C = v·H + r·G</code> · amount <code>v</code> hidden, blinding <code>r</code> known only to its owner.</p>
       </div>
     </section>
 
@@ -694,19 +694,19 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         <div class="seg" id="hood-dir" role="group" aria-label="Direction"><button type="button" data-dir="in" aria-pressed="true">Bitcoin → Ethereum</button><button type="button" data-dir="out" aria-pressed="false">Ethereum → Bitcoin</button></div>
         <div data-hood="in">
         <ol class="st-l" data-for="in" aria-label="Steps, Bitcoin to Ethereum">
-          <li data-step tabindex="0"><b>Headers, by work</b><span>A permissionless relay on Ethereum checks every Bitcoin header’s proof of work. The heaviest chain wins.</span></li>
-          <li data-step tabindex="0"><b>Every envelope folded</b><span>A program re-hashes each block to its Merkle root and folds every Tacit envelope in it: transfers, trades, burns, locks.</span></li>
-          <li data-step tabindex="0"><b>One proof</b><span>SP1 proves the fold. Its tip must be at least 24 blocks behind the relay’s.</span></li>
-          <li data-step tabindex="0"><b>Checked by the pool</b><span>The pool verifies the proof against a pinned key, then mints each proven burn once, keyed by its burn id.</span></li>
+          <li data-step tabindex="0"><b>Headers, by work</b><span>A relay on Ethereum checks every Bitcoin header’s proof of work.</span></li>
+          <li data-step tabindex="0"><b>Every envelope folded</b><span>A program folds every Tacit envelope in each block.</span></li>
+          <li data-step tabindex="0"><b>One proof</b><span>SP1 proves the fold, 24 or more blocks behind the relay’s tip.</span></li>
+          <li data-step tabindex="0"><b>Checked by the pool</b><span>The pool verifies it against a pinned key and mints each burn once.</span></li>
         </ol>
         <span class="live"><i></i>Proven to block <b class="num sk" data-live="btc" style="--w:7ch"></b></span>
         </div>
         <div data-hood="out" hidden>
         <ol class="st-l" data-for="out" aria-label="Steps, Ethereum to Bitcoin">
-          <li data-step tabindex="0"><b>Finality, signed</b><span>Ethereum’s sync committee signs each finalized block. A light client checks the signatures, period after period, from a pinned anchor.</span></li>
-          <li data-step tabindex="0"><b>The pool’s storage</b><span>Storage proofs against the finalized state root read the pool’s cross-outs, the notes it consumed, and its outbox.</span></li>
-          <li data-step tabindex="0"><b>Inside Bitcoin’s proof</b><span>The Bitcoin program verifies the Ethereum proof recursively. One proof carries both chains.</span></li>
-          <li data-step tabindex="0"><b>Folded on Bitcoin</b><span>A crossed-out note is minted on Bitcoin only if its claim is a member of the proven set, and only once.</span></li>
+          <li data-step tabindex="0"><b>Finality, signed</b><span>The sync committee signs each finalized block, and a light client checks it.</span></li>
+          <li data-step tabindex="0"><b>The pool’s storage</b><span>Storage proofs read the pool’s cross-outs, spent notes and outbox.</span></li>
+          <li data-step tabindex="0"><b>Inside Bitcoin’s proof</b><span>Bitcoin’s program verifies the Ethereum proof recursively.</span></li>
+          <li data-step tabindex="0"><b>Folded on Bitcoin</b><span>A cross-out mints on Bitcoin once, only if proven a member.</span></li>
         </ol>
         <span class="live"><i></i>Proven to Ethereum block <b class="num sk" data-live="eth" style="--w:8ch"></b></span>
         </div>
@@ -808,8 +808,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div>
         <span class="kk">Trust</span>
         <h3 id="c4-h">Who checks <em>what</em></h3>
-        <p>Each hop is checked by proof of work or by a proof, and anyone can rerun the check.</p>
-        <p class="none"><b>No multisig, federation or attestor set signs a bridge message.</b> You rely on Bitcoin’s proof of work, Ethereum’s validators, and the SP1 proof system with verifying keys anyone can rebuild. <a href="#run">Anyone can run it.</a></p>
+        <p class="none"><b>No multisig, federation or attestor set signs a bridge message.</b> You rely on Bitcoin’s proof of work, Ethereum’s validators, and SP1 proofs with verifying keys anyone can rebuild.</p>
       </div>
       <div class="fig" id="ck">
         <div class="ck-b" role="group" aria-label="A hop">
@@ -821,23 +820,23 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         </div>
         <div class="ck-p" data-ckp="work">
           <svg class="d" viewBox="0 0 120 120" aria-hidden="true"><rect class="bx s-btc" x="10" y="44" width="28" height="28" rx="4"/><rect class="bx s-btc" x="46" y="44" width="28" height="28" rx="4"/><rect class="bx s-btc ink" x="82" y="44" width="28" height="28" rx="4"/><path class="ln" d="M38 58h8M74 58h8"/><text class="m" x="22" y="96">proof of work</text></svg>
-          <div><b>Proof of work</b><p>Every header’s work is checked on Ethereum by a permissionless relay. A block counts once it is 24 deep, and a deeper reorg halts reflection rather than rewriting it.</p></div>
+          <div><b>Proof of work</b><p>A relay on Ethereum checks every header’s work. A reorg deeper than 24 blocks halts reflection.</p></div>
         </div>
         <div class="ck-p" data-ckp="final" hidden>
           <svg class="d" viewBox="0 0 120 120" aria-hidden="true"><g class="eth"><circle cx="30" cy="40" r="5"/><circle cx="48" cy="40" r="5"/><circle cx="66" cy="40" r="5"/><circle cx="84" cy="40" r="5"/><circle cx="30" cy="58" r="5"/><circle cx="48" cy="58" r="5"/><circle cx="66" cy="58" r="5"/><circle cx="84" cy="58" r="5"/></g><path class="ln ink" d="M30 80h54"/><text class="m" x="24" y="98">sync committee</text></svg>
-          <div><b>The sync committee’s signatures</b><p>Checked inside the proof by a light client built on sp1-helios, chained period to period from a pinned anchor, and bound to Ethereum’s genesis so no other chain’s proof passes.</p></div>
+          <div><b>The sync committee’s signatures</b><p>Checked inside the proof by an sp1-helios light client, from a pinned anchor, bound to Ethereum’s genesis.</p></div>
         </div>
         <div class="ck-p" data-ckp="pool" hidden>
           <svg class="d" viewBox="0 0 120 120" aria-hidden="true"><path class="bx ink" d="M60 18l36 20v42L60 100 24 80V38z"/><path class="ln" d="M24 38l36 20 36-20M60 58v42"/></svg>
-          <div><b>An immutable contract</b><p>Every proof is verified on Ethereum against pinned verifying keys. Nobody can change them.</p><code>Bitcoin reflection 0x00bb158b…074bc5</code><br><code>Ethereum reflection 0x00ca8171…6aea72</code></div>
+          <div><b>An immutable contract</b><p>Every proof is verified against pinned verifying keys that nobody can change.</p><code>Bitcoin reflection 0x00bb158b…074bc5</code><br><code>Ethereum reflection 0x00ca8171…6aea72</code></div>
         </div>
         <div class="ck-p" data-ckp="rules" hidden>
           <svg class="d" viewBox="0 0 120 120" aria-hidden="true"><rect class="bx" x="16" y="24" width="88" height="72" rx="8"/><path class="ln" d="M28 44h64M28 58h64M28 72h40"/><circle class="btc" cx="92" cy="80" r="7"/></svg>
-          <div><b>Bitcoin orders, the rules decide</b><p>Ops ride in Taproot witnesses. Every indexer that runs the same rules over the same chain reaches the same state, and the reflection proves that state.</p></div>
+          <div><b>Bitcoin orders, the rules decide</b><p>Ops ride in Taproot witnesses. The same rules over the same chain give every indexer the same state, which reflection proves.</p></div>
         </div>
         <div class="ck-p" data-ckp="build" hidden>
           <svg class="d" viewBox="0 0 120 120" aria-hidden="true"><path class="ln ink" d="M40 34L18 60l22 26M80 34l22 26-22 26M68 26L52 94"/></svg>
-          <div><b>Reproducible programs</b><p>Each program rebuilds byte for byte from source and is pinned by SHA-256 to its verifying key.</p><a href="https://github.com/src-company/tacit/blob/main/docs/REPRODUCIBLE-BUILDS.md" target="_blank" rel="noopener">Rebuild it →</a></div>
+          <div><b>Reproducible programs</b><p>Each program rebuilds byte for byte from source, pinned by SHA-256 to its verifying key.</p><a href="https://github.com/src-company/tacit/blob/main/docs/REPRODUCIBLE-BUILDS.md" target="_blank" rel="noopener">Rebuild it →</a></div>
         </div>
       </div>
     </section>
@@ -847,7 +846,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="wt-h">
         <span class="kk">Run it</span>
         <h2 id="run-h">Anyone can run <em>reflection</em></h2>
-        <p>Tacit’s services keep it current, and so can you. Every step is an on-chain call that needs no permission, and you pay only the network fee.</p>
+        <p>Tacit’s services keep it current, and so can you.</p>
       </div>
       <figure class="fig big" style="margin:22px 0 0">
         <svg class="d" viewBox="0 0 1000 232" role="img" aria-label="Anyone can send Bitcoin's headers to the relay, make the proof, and submit it to the pool">
@@ -880,9 +879,9 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         </svg>
       </figure>
       <ol class="cap3">
-        <li><b><i class="b"></i>Send the headers</b><span>Bitcoin’s block headers go to the relay on Ethereum. The contract checks each one’s proof of work, so only real blocks are accepted.</span></li>
-        <li><b><i class="k"></i>Make the proof</b><span>Run the reflection prover with your own account on Succinct’s prover network. Everyone runs the same program on the same public inputs.</span></li>
-        <li><b><i class="e"></i>Submit it</b><span>Any wallet can send a valid proof to the pool. It needs only a valid proof.</span></li>
+        <li><b><i class="b"></i>Send the headers</b><span>Bitcoin’s block headers go to the relay on Ethereum.</span></li>
+        <li><b><i class="k"></i>Make the proof</b><span>Run the reflection prover with your own Succinct account.</span></li>
+        <li><b><i class="e"></i>Submit it</b><span>Any wallet can send a valid proof to the pool.</span></li>
       </ol>
       <div class="runcta">
         <a class="go" href="/weld/keeper/"><span>Open community ops</span><span aria-hidden="true">→</span></a>
@@ -903,10 +902,10 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="wt-h"><span class="kk">On mainnet</span><h2 id="rt-h" style="font-size:clamp(28px,4vw,40px)">There and back, <em>proven twice</em></h2>
         <p><b class="num sk" data-live="supply" style="--w:9ch"></b> TAC on Ethereum, every one minted from TAC proven to have left Bitcoin.</p></div>
       <ol class="rt">
-        <li class="e"><i></i><b>Out of the pool</b><p>A cross-out burns the note on Ethereum.</p><a href="https://etherscan.io/tx/0xc7bfc7cec938e59c5d256d1c44c2aea5269eb7c237ac018878f21b2a93c29a8f" target="_blank" rel="noopener">Ethereum tx</a></li>
-        <li class="b"><i></i><b>Minted on Bitcoin</b><p>The cross-out is proven inside Bitcoin’s proof, and the note is minted on Bitcoin.</p><a href="https://mempool.space/tx/aaa687924435ef64f056aa83beb7fabef4f57087f315655b52c596f83897bcf2" target="_blank" rel="noopener">Bitcoin tx</a></li>
-        <li class="b"><i></i><b>Burned on Bitcoin</b><p>The note is burned on Bitcoin to go back.</p><a href="https://mempool.space/tx/7320b6b654726ba99489bcf47f3d31dcf8a87040241def827b5fccd8836b0fbb" target="_blank" rel="noopener">Bitcoin tx</a></li>
-        <li class="e"><i></i><b>Back in the pool</b><p>The pool verifies the proof of the burn and mints a fresh note.</p><a href="https://etherscan.io/tx/0x0f0793f61e57a0eb40ef551ef516e9a33ba0f270343abedf4ea014aa006465bb" target="_blank" rel="noopener">Ethereum tx</a></li>
+        <li class="e"><i></i><b>Out of the pool</b><p>The note is burned on Ethereum.</p><a href="https://etherscan.io/tx/0xc7bfc7cec938e59c5d256d1c44c2aea5269eb7c237ac018878f21b2a93c29a8f" target="_blank" rel="noopener">Ethereum tx</a></li>
+        <li class="b"><i></i><b>Minted on Bitcoin</b><p>The cross-out is proven and the note minted.</p><a href="https://mempool.space/tx/aaa687924435ef64f056aa83beb7fabef4f57087f315655b52c596f83897bcf2" target="_blank" rel="noopener">Bitcoin tx</a></li>
+        <li class="b"><i></i><b>Burned on Bitcoin</b><p>The note is burned to go back.</p><a href="https://mempool.space/tx/7320b6b654726ba99489bcf47f3d31dcf8a87040241def827b5fccd8836b0fbb" target="_blank" rel="noopener">Bitcoin tx</a></li>
+        <li class="e"><i></i><b>Back in the pool</b><p>The burn is proven and a fresh note minted.</p><a href="https://etherscan.io/tx/0x0f0793f61e57a0eb40ef551ef516e9a33ba0f270343abedf4ea014aa006465bb" target="_blank" rel="noopener">Ethereum tx</a></li>
       </ol>
     </section>
 
@@ -914,14 +913,10 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <section class="faq rv" aria-labelledby="fq-h">
       <div class="wt-h"><span class="kk">Good to know</span><h2 id="fq-h" style="font-size:clamp(28px,4vw,40px)">Before you <em>cross</em></h2></div>
       <div class="fq">
-        <details><summary>How long does it take?</summary><p>Bitcoin to Ethereum waits for 24 Bitcoin confirmations, about four hours, and then the next proof, which lands on Ethereum about every half hour. Ethereum to Bitcoin waits for Ethereum to finalize, about 13 minutes, and then you sign the Bitcoin mint and it confirms. TAC that goes in two steps, a move and then a burn, waits for the proof after each, usually within a day.</p></details>
-        <details><summary>Do I have to keep the page open?</summary><p>Nothing is lost if you close it. A bridge is rebuilt from your key and the chain, and the list of your bridges at the top shows what needs you. A step that needs your key, like signing the Bitcoin mint, waits until you open the page.</p></details>
-        <details><summary>Can anyone see how much I bridge?</summary><p>The amount is not published on either chain. Whoever makes the mint’s proof sees it, and today that is Tacit’s prover. The burn and the mint are public events. A cBTC lock is plain bitcoin at an output of your own key, so its size is visible.</p></details>
-        <details><summary>What can I bridge?</summary><p>TAC and tETH cross both ways. tETH is private ETH, made in the <a href="/#private">Make private</a> tab. cBTC enters by locking bitcoin at your own key, with a wstETH bond behind it, and the pool mints it 1:1. cUSD is borrowed against cBTC on Ethereum.</p></details>
-        <details><summary>Is there a limit?</summary><p>While the bridge is new, TAC takes 20 to 1,000 TAC to Bitcoin and up to 1,000 TAC back, and tETH takes 0.01 to 0.5 tETH to Bitcoin and up to 0.5 tETH back. Coming back from Bitcoin, a note goes whole, so split a larger one first. Most TAC goes back in one Bitcoin transaction; TAC that Bitcoin’s proof on Ethereum has not followed goes in two, a move and then a burn, and the bridge proves up to 255 transfers of its history.</p></details>
-        <details><summary>What does it cost?</summary><p>Bitcoin to Ethereum costs a Bitcoin network fee, and Tacit is covering the Ethereum mint for now. Ethereum to Bitcoin takes a small relay fee out of the note, plus a Bitcoin fee in sats for the mint, paid from your Bitcoin address. The bridge shows each cost before you sign.</p></details>
-        <details><summary>Who keeps it running?</summary><p>Tacit’s services do today, and anyone can. Sending Bitcoin’s headers, making the proof and submitting it are all open calls that need no permission. <a href="/weld/keeper/">Community ops</a> does the first and the last from your own wallet.</p></details>
-        <details><summary>A bridge is missing or stuck</summary><p>Open Bridge with the same key. A bridge is rebuilt from its transaction and your key, so nothing about it lives only in this browser. A note that was moved but not burned can be moved back.</p></details>
+        <details><summary>Can anyone see how much I bridge?</summary><p>The burn and the mint are public. The amount is not published on either chain. Whoever makes the mint’s proof sees it, today Tacit’s prover. A cBTC lock’s size is visible.</p></details>
+        <details><summary>Is there a limit?</summary><p>While the bridge is new, TAC takes 20 to 1,000 to Bitcoin and up to 1,000 back; tETH takes 0.01 to 0.5 to Bitcoin and up to 0.5 back. A note goes back whole, so split a larger one first. TAC that Bitcoin’s proof has not reached goes in two steps, a move and then a burn, each waiting for a proof, usually within a day. Up to 255 transfers of history are proven.</p></details>
+        <details><summary>What does it cost?</summary><p>Bitcoin to Ethereum costs a Bitcoin network fee, and Tacit is covering the Ethereum mint for now. Ethereum to Bitcoin takes a small relay fee out of the note, plus a Bitcoin fee in sats, paid from your Bitcoin address. Each cost shows before you sign.</p></details>
+        <details><summary>Can I close the page?</summary><p>Yes, nothing is lost. A step that needs your key waits until you open the page. A note moved but not burned can be moved back.</p></details>
       </div>
     </section>
 
@@ -929,7 +924,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
     <section class="nx rv" aria-labelledby="nx-h">
       <span class="kk">Next</span>
       <h3 id="nx-h">Ready for <em>covenants</em></h3>
-      <p>When Bitcoin can enforce where an output is spent, a cBTC lock can become a vault that only a redemption opens, with no bond behind it. The bytes for it are already reserved.</p>
+      <p>With covenants on Bitcoin, a cBTC lock can become a vault that only a redemption opens, with no bond.</p>
     </section>
   </main>
 
@@ -954,6 +949,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/bridge/app.js?cb=339524f1"></script>
+<script type="module" src="/bridge/app.js?cb=9fcdbf07"></script>
 </body>
 </html>

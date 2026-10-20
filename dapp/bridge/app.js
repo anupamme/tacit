@@ -60,7 +60,7 @@ function paintWait() {
   if (!el) return;
   const confs = LIVE.btcConfs ?? 24, hours = Math.round(confs / 6);
   el.innerHTML = PICK.dir === 'in'
-    ? `About ${hours} hours: <span data-live="confs" class="num">${confs}</span> Bitcoin confirmations, then the next proof${LIVE.cadence ? ` (one lands about every ${LIVE.cadence} min)` : ''}`
+    ? `About ${hours} hours: <span data-live="confs" class="num">${confs}</span> Bitcoin confirmations, then the next proof (about every ${LIVE.cadence || 30} min)`
     : 'About 13 minutes for Ethereum to finalize, then you sign the Bitcoin mint, paid with a little BTC from your address';
 }
 

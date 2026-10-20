@@ -191,9 +191,9 @@ try {
     await page.click('#hood-dir button[data-dir="in"]');
     await page.click('.faq summary');
     ok(await page.isVisible('.faq details[open] p'), 'a question opens to its answer');
-    ok((await page.$$('.faq details')).length === 8, 'eight questions');
+    ok((await page.$$('.faq details')).length === 4, 'four questions');
     const faq = await page.textContent('.faq');
-    ok(/tETH takes 0\.01 to 0\.5 tETH to Bitcoin and up to 0\.5 tETH back/.test(faq) && /20 to 1,000 TAC to Bitcoin/.test(faq), 'the limits answer gives each asset its own range, both ways');
+    ok(/tETH takes 0\.01 to 0\.5 to Bitcoin and up to 0\.5 back/.test(faq) && /TAC takes 20 to 1,000 to Bitcoin and up to 1,000 back/.test(faq) && /255 transfers/.test(faq), 'the limits answer gives each asset its own range, both ways, and the history it proves');
     ok(/Ethereum to Bitcoin takes a small relay fee out of the note/.test(faq) && /Tacit is covering the Ethereum mint/.test(faq), 'and the cost answer is right for both directions');
     ok(!/allowance|free/i.test(await page.textContent('.faq')), 'the answers keep to plain words about who pays');
     ok(await page.getAttribute('.runcta .go', 'href') === '/weld/keeper/' && (await page.$$('#run .cap3 li')).length === 3 && (await page.$$('#run .pill')).length === 3, 'anyone can run it: three steps, each open to anyone, and a door to community ops');
