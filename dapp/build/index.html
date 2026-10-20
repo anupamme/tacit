@@ -448,7 +448,27 @@ await tacit.unwrap({ note: notes[0], walletPriv, recipient: '0x…' });</code></
 <section class="part" id="amm">
   <p class="kick">Path 02</p>
   <h2>Trading <em>and liquidity</em></h2>
-  <p class="lead">one (asset pair, fee tier) is one pool · public reserves · anyone can found one</p>
+  <p class="lead">one (asset pair, fee tier) is one pool · public reserves · public or private trades · anyone can found one</p>
+  <h3 id="amm-doors">One pool, two doors</h3>
+  <p>A pool&rsquo;s reserves and its share total live in one place, <code>pools(poolId)</code>. A swap or a liquidity position can reach them in the clear, as an ordinary transaction with no proof, or privately, as a note and a proof. Both move the same reserves, so liquidity is never split.</p>
+  <div class="tbl"><table>
+    <caption>The same pool, two ways in</caption>
+    <tr><th></th><th>Public</th><th>Private</th></tr>
+    <tr><td>Call</td><td><code>TacitPublicAmm.swapPublic</code>, from any wallet or contract</td><td>A settle that carries <code>OP_SWAP</code> or <code>OP_SWAP_ROUTE</code></td></tr>
+    <tr><td>Proof</td><td>None</td><td>One SP1 proof</td></tr>
+    <tr><td>Lands</td><td>In your transaction</td><td>When the proof is settled</td></tr>
+    <tr><td>In and out</td><td>Tokens or ETH, to any address</td><td>Notes</td></tr>
+    <tr><td>Visible</td><td>The sender and the amounts</td><td>The reserve change, not whose notes</td></tr>
+    <tr><td>Combines with</td><td>Any other call in the same transaction</td><td>The ops in the same proof, a route of up to four pools</td></tr>
+  </table></div>
+  <ul>
+    <li><b>Public swaps wait for nothing.</b> The swap clears against the live reserves inside its own transaction, so it can sit in one all-or-nothing transaction with other calls: a route through another pool, an order split across two pools, or one of <code>ConfidentialRouter</code>&rsquo;s zaps (<code>zapETHIntoLP</code>, <code>zapTokenIntoShieldedLP</code>, <code>zapETHIntoFarm</code>).</li>
+    <li><b>Private swaps clear at the live reserves.</b> The proof names the reserves it was built against, and the pool takes it only while they are still the live ones. If another trade lands first, the settle is refused, nothing is spent, and the app builds a fresh quote. A private swap hides which note was spent and who holds the output. A lone one still moves the reserves by its own amounts.</li>
+    <li><b>One liquidity.</b> Public shares (<code>lpShares</code>) and LP-share notes count in the same <code>totalShares</code>. <code>shieldShares</code> turns a public position into a note in place, and <code>OP_LP_ADD</code> and <code>OP_WRAP_LP</code> open one privately.</li>
+    <li><b>Yield.</b> On a pool without a protocol-fee switch, a swap&rsquo;s fee stays in the reserves, so each share&rsquo;s claim grows with every swap, public or private. A private position earns from public trading and the reverse, and can bond into a farm to earn TAC.</li>
+    <li><b>Bitcoin in the same pool.</b> cBTC (locked BTC), TAC and other Tacit tokens, ETH (tETH) and any registered ERC-20 are notes of one format. Bitcoin moves in and out by proof, never by a signer (<a href="#bridge">03</a>); ETH and tokens wrap and unwrap (<a href="#eth">01</a>).</li>
+  </ul>
+  <h3 id="amm-code">Private swaps and liquidity in code</h3>
   <div class="code"><pre><code>const poolId = tacit.routePoolId(assetA, assetB, 30);
 const res    = await tacit.poolReserves(poolId);     // null if never founded
 const q      = await tacit.quoteRoute({ asset0: assetA, amountIn, path: [{ assetNext: assetB, feeBps: 30 }] });
@@ -842,6 +862,7 @@ const out = await client.readContract({ address: AMM, abi, functionName: 'quoteS
     <a href="https://github.com/src-company/tacit/blob/main/docs/INTEGRATOR-PLAYBOOK.md" target="_blank" rel="noopener noreferrer">Integrator playbook<span>An integration that adds no trust</span></a>
     <a href="https://github.com/src-company/tacit/blob/main/SPEC.md" target="_blank" rel="noopener noreferrer">Specification<span>Envelopes, pool ops and reflection</span></a>
     <a href="https://github.com/src-company/tacit/blob/main/docs/RECOVERY.md" target="_blank" rel="noopener noreferrer">Recovery<span>What a wallet recovers from its key</span></a>
+    <a href="https://github.com/src-company/tacit/blob/main/docs/AMM.md" target="_blank" rel="noopener noreferrer">The pool&rsquo;s AMM<span>Public and private swaps and liquidity on one set of reserves</span></a>
     <a href="https://github.com/src-company/tacit/blob/main/docs/FARMS.md" target="_blank" rel="noopener noreferrer">Farms<span>Cards, flows, monitoring and governance bounds</span></a>
     <a href="https://github.com/src-company/tacit/blob/main/docs/TAC.md" target="_blank" rel="noopener noreferrer">TAC<span>Trading, holding and governance</span></a>
     <a href="/verify.html">Verify TAC<span>The etch and the ERC-20, checked in your browser</span></a>

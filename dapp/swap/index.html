@@ -303,6 +303,9 @@ img.tk { object-fit: contain; }
 
 /* how it works */
 .how { margin: 64px 0 0; }
+.how .more { display: inline-block; margin: -10px 0 0; font-size: 13px; color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--hair-2); }
+.how .more:hover, .how .more:focus-visible { border-bottom-color: var(--ink); }
+.how .more::after { content: " \2192"; }
 .how > h2 { font: 400 clamp(34px, 5vw, 52px)/1 var(--serif); letter-spacing: -.02em; margin: 0 0 10px; }
 .how > h2 em { font-style: italic; }
 .how > h2 { margin-bottom: 26px; }
@@ -562,6 +565,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
       <div class="door priv"><span>private door</span><small>a proof, sent by the relay</small></div>
       <div class="end priv"><b>Your private balance</b><small>hidden</small></div>
     </div>
+    <a class="more" href="/build/#amm-doors">How the pool trades</a>
   </section>
 
   <details class="addrs">
