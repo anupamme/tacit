@@ -138,7 +138,7 @@ export function makeBtcHistoryProvider({ fetchImpl, sha256, bases = ESPLORA_BASE
     const s = walletScripts(priv);
     const mine = new Set([bytesToHex(s.funding), bytesToHex(s.lock)]);
     const seen = new Map();
-    for (const spk of [s.funding, s.lock]) for (const t of await txsOf(spk)) seen.set(t.txid, t);
+    for (const txs of await Promise.all([s.funding, s.lock].map((spk) => txsOf(spk)))) for (const t of txs) seen.set(t.txid, t);
     const anchors = [], lockOutputs = [];
     for (const t of seen.values()) {
       for (const v of t.vin || []) if (v.prevout && mine.has(String(v.prevout.scriptpubkey || '').toLowerCase())) anchors.push({ txid: v.txid, vout: v.vout });
