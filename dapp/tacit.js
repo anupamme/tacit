@@ -2046,6 +2046,18 @@ function _apiBases() {
 }
 
 const _apiHealth = new Map();
+// Which explorer served each transaction read this session, and which gave the second source of a purchase's check its copy: the check compares two
+// operators' copies, so when both came from one (the shared reader failed over to the host the second source starts with) another is asked.
+const _txServedBy = new Map(), _explorerServedBy = new Map();
+function _noteServed(map, id, base) {
+  map.delete(id); map.set(id, base);
+  if (map.size > 600) map.delete(map.keys().next().value);
+}
+function _noteTxServedBy(path, base) {
+  const m = /^\/tx\/([0-9a-f]{64})$/.exec(path);
+  if (m) _noteServed(_txServedBy, m[1], base);
+}
+const _explorerOperator = (base) => { try { const h = new URL(base).hostname; return /(^|\.)mempool\.space$/.test(h) ? 'mempool.space' : h; } catch { return String(base); } };
 function _markUnhealthy(base, ms, label) {
   _apiHealth.set(base, { cooldownUntil: Date.now() + ms, lastErr: label });
   if (label === 'network') {
@@ -2271,7 +2283,7 @@ async function _apiFetchUncached(path, opts = {}) {
           lastRes = r;
           continue;
         }
-        if (r.ok) { _apiHealth.delete(base); _rebroadcastToOtherBases(path, opts, base, order); }
+        if (r.ok) { _apiHealth.delete(base); _rebroadcastToOtherBases(path, opts, base, order); _noteTxServedBy(path, base); }
         if (!r.ok) {
           const t = await r.text();
           if (
@@ -14893,14 +14905,72 @@ const _txFieldsOf = (t) => JSON.stringify({
   vout: (t.vout || []).map((o) => [String(o.scriptpubkey).toLowerCase(), Number(o.value)]),
   height: t.status?.confirmed ? Number(t.status.block_height) : null,
 });
-async function _explorerTx(id) {
-  for (const base of [NET.api2, NET.api].filter(Boolean)) {
-    try {
-      const r = await fetch(`${base}/tx/${id}`, { signal: AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined });
-      if (r.ok) return await r.json();
-    } catch { }
+// The second source of a purchase's cross-check: the explorers other than the one the shared reader tends to use first (blockstream, then the
+// community mirrors, mempool.space's own last). A lot's ancestry is a hundred transactions or so, and one answer that is a rate limit or a timeout
+// must not end the whole check, so a pass that failed for such a reason is made again after a pause, a host that just limited this browser is left
+// alone while another is not limiting it, and a pass in which every explorer answered and none had the transaction ends it at once.
+const _EXPLORER_TX_BACKOFF_MS = [0, 500, 1500];
+async function _explorerTx(id, { backoffMs = _EXPLORER_TX_BACKOFF_MS, avoid = null } = {}) {
+  const extra = _CANDIDATE_BASES[NET.name] || [], other = (b) => !/\/\/mempool\.space\//.test(b) && !/\.mempool\.space\//.test(b);
+  const order = [...new Set([NET.api2, ...extra.filter(other), NET.api, ...extra.filter((b) => !other(b))].filter(Boolean))].filter((b) => !avoid || _explorerOperator(b) !== avoid);
+  if (!order.length) return null;
+  const t0 = Date.now();
+  for (let pass = 0; pass < backoffMs.length; pass++) {
+    if (pass) {
+      if (Date.now() - t0 > 40_000) break;
+      await new Promise((res) => setTimeout(res, backoffMs[pass]));
+    }
+    const ready = order.filter((b) => !_isCooling(b));
+    let transient = false;
+    for (const base of (ready.length ? ready : order)) {
+      _acquireBaseSlot(base);
+      try {
+        const r = await fetch(`${base}/tx/${id}`, { signal: AbortSignal.timeout ? AbortSignal.timeout(12_000) : undefined });
+        if (r.ok) { const j = await r.json(); _noteServed(_explorerServedBy, id, base); return j; }
+        if (r.status === 429 || r.status >= 500) {
+          transient = true;
+          const ra = parseInt(r.headers.get('retry-after') || '', 10);
+          _markUnhealthy(base, Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 120_000) : 30_000, r.status === 429 ? 'rate-limited' : String(r.status));
+        }
+      } catch (e) {
+        transient = true;
+        const slow = e && (e.name === 'TimeoutError' || e.name === 'AbortError');
+        _markUnhealthy(base, slow ? 20_000 : 60_000, slow ? 'timeout' : 'network');
+      } finally { _releaseBaseSlot(base); }
+    }
+    if (!transient && ready.length === order.length) return null;
   }
   return null;
+}
+// A transaction two explorers have given the same bytes for, once it is a day deep, is not asked for twice again: its txid is kept with a hash of
+// every field the check compares (witness included), and only a copy that hashes to that is taken as already agreed. The record is never written
+// from what an explorer sends, so a changed copy of the same transaction is a different hash and goes through both sources again.
+const _XCHECK_MAX = 2500, _XCHECK_DEEP_S = 24 * 3600;
+let _xcheck = null, _xcheckTimer = 0;
+const _xcheckKey = () => `tacit-xchecked-v1:${NET.name}`;
+const _xcheckTag = (t) => bytesToHex(sha256(new TextEncoder().encode(_txFieldsOf(t)))).slice(0, 32);
+function _xcheckMap() {
+  if (_xcheck && _xcheck.net === NET.name) return _xcheck.map;
+  const map = new Map();
+  try {
+    for (const part of (localStorage.getItem(_xcheckKey()) || '').split(',')) {
+      const [id, tag] = part.split(':');
+      if (/^[0-9a-f]{64}$/.test(id) && /^[0-9a-f]{32}$/.test(tag || '')) map.set(id, tag);
+    }
+  } catch { }
+  _xcheck = { net: NET.name, map };
+  return map;
+}
+function _xcheckRemember(id, t) {
+  if (!t.status?.confirmed || !(Date.now() / 1000 - Number(t.status.block_time) > _XCHECK_DEEP_S)) return;
+  const map = _xcheckMap();
+  map.delete(id); map.set(id, _xcheckTag(t));
+  while (map.size > _XCHECK_MAX) map.delete(map.keys().next().value);
+  if (_xcheckTimer) return;
+  _xcheckTimer = setTimeout(() => {
+    _xcheckTimer = 0;
+    try { localStorage.setItem(_xcheckKey(), [..._xcheckMap()].map(([k, v]) => `${k}:${v}`).join(',')); } catch { }
+  }, 400);
 }
 const _crossCheckedTxs = new Map();
 function _crossCheckedFetcher() {
@@ -14908,17 +14978,33 @@ function _crossCheckedFetcher() {
   return (id) => {
     if (_crossCheckedTxs.has(id)) return Promise.resolve(_crossCheckedTxs.get(id));
     if (!memo.has(id)) {
-      memo.set(id, Promise.all([_sharedFetchTx(id), _explorerTx(id)]).then(([a, b]) => {
-        if (!a || !b || _txFieldsOf(a) !== _txFieldsOf(b)) return null;
-        if (a.status?.confirmed) _crossCheckedTxs.set(id, a);
+      const known = _xcheckMap().has(id), pa = _sharedFetchTx(id), pb = known ? null : _explorerTx(id);
+      memo.set(id, (async () => {
+        let a = await pa.catch(() => null);
+        for (let i = 1; !a && i < _EXPLORER_TX_BACKOFF_MS.length && !_txIsRecentlyNotFound(id); i++) {        // the shared reader answers null when its explorers limited or failed it: it reads again, as the second source does
+          await new Promise((res) => setTimeout(res, _EXPLORER_TX_BACKOFF_MS[i]));
+          a = await _sharedFetchTx(id).catch(() => null);
+        }
+        if (!a) return null;
+        if (known && a.status?.confirmed && _xcheckMap().get(id) === _xcheckTag(a)) { _crossCheckedTxs.set(id, a); return a; }
+        let b = await (pb || _explorerTx(id));
+        const sa = _txServedBy.get(id), sb = _explorerServedBy.get(id);
+        if (b && sa && sb && _explorerOperator(sa) === _explorerOperator(sb)) b = (await _explorerTx(id, { avoid: _explorerOperator(sa) })) || b;
+        if (!b || _txFieldsOf(a) !== _txFieldsOf(b)) return null;
+        if (a.status?.confirmed) { _crossCheckedTxs.set(id, a); _xcheckRemember(id, a); }
         return a;
-      }, () => null));
+      })().catch(() => null));
     }
     return memo.get(id);
   };
 }
 
+let _tradeCheckInFlight = 0;
 async function requireValidatedLot(txidHex, vout, label = "the seller's lot") {
+  _tradeCheckInFlight++;
+  try { return await _requireValidatedLot(txidHex, vout, label); } finally { _tradeCheckInFlight--; }
+}
+async function _requireValidatedLot(txidHex, vout, label) {
   const txid = String(txidHex).toLowerCase(), v = Number(vout), key = `${txid}:${v}`;
   const proved = _getPersistedValidatedTrue();
   const set = new Map([..._callerProved].map((k) => [k, true])), reasons = new Map();
@@ -15455,8 +15541,16 @@ let _holdingsInFlight = null;
 let _holdingsLatestGen = 0;
 
 const _STEALTH_AUTO_SCAN_DISCOVER_LIMIT = 25;
-const _STEALTH_AUTO_SCAN_DISCOVER_CONCURRENCY = 4;
+const _STEALTH_AUTO_SCAN_DISCOVER_CONCURRENCY = 2;
 const _STEALTH_AUTO_SCAN_DISCOVER_THROTTLE_MS = 6 * 60 * 60 * 1000;
+// The scan is background work against the same explorers a purchase needs. It waits while a purchase's lot is being checked, and after this many
+// transfers in a row it could not read it stops and rests, leaving what it has not read for the next session (each one read is recorded).
+const _STEALTH_AUTO_SCAN_GIVE_UP_AFTER = 4;
+const _STEALTH_AUTO_SCAN_REST_MS = 10 * 60 * 1000;
+let _stealthAutoScanRestUntil = 0;
+async function _yieldToTrade() {
+  for (let i = 0; i < 240 && _tradeCheckInFlight > 0; i++) await new Promise((r) => setTimeout(r, 500));
+}
 function _stealthAutoScanThrottleKey() {
   if (!wallet.pub) return null;
   let pubHex; try { pubHex = bytesToHex(wallet.pub); } catch { return null; }
@@ -15478,6 +15572,7 @@ function _triggerStealthAutoScanInBackground(holdings) {
   if (!walletAddr || !walletPubHex) return;
   if (_stealthAutoScanRanPubs.has(walletPubHex)) return;
   if (_heavyAddresses.has(walletAddr)) return;
+  if (Date.now() < _stealthAutoScanRestUntil) return;
   _stealthAutoScanRanPubs.add(walletPubHex);
   const heldCandidates = (holdings instanceof Map ? [...holdings.entries()] : [])
     .filter(([, h]) => h && typeof h.balance === 'bigint' && h.balance > 0n)
@@ -15539,6 +15634,7 @@ function _triggerStealthAutoScanInBackground(holdings) {
       discoverCandidates = [...merged.keys()].slice(0, _STEALTH_AUTO_SCAN_DISCOVER_LIMIT);
     } catch { }
     discoverCandidates = [...protocolTokens, ...discoverCandidates];
+    let gaveUp = false;
     if (discoverCandidates.length > 0) {
       let globalIndexUsed = false;
       try {
@@ -15551,15 +15647,19 @@ function _triggerStealthAutoScanInBackground(holdings) {
             const filtered = entries.filter(e => e && typeof e.txid === 'string' && allowed.has(String(e.aid || '').toLowerCase())
               && !isStealthTxidSeen(String(e.aid).toLowerCase(), e.txid));
             showPill(`scanning shielded · discover 0/${filtered.length}`);
-            let i = 0;
-            for (let w = 0; w < filtered.length; w += _STEALTH_AUTO_SCAN_DISCOVER_CONCURRENCY) {
+            let i = 0, streak = 0;
+            for (let w = 0; w < filtered.length && !gaveUp; w += _STEALTH_AUTO_SCAN_DISCOVER_CONCURRENCY) {
+              await _yieldToTrade();
               await Promise.all(filtered.slice(w, w + _STEALTH_AUTO_SCAN_DISCOVER_CONCURRENCY).map(async (e) => {
                 let clean = false;
                 try {
                   const creds = await discoverStealthFromTxid(e.txid, { merge: true });
                   totalFound += creds.length;
-                  clean = true;
-                } catch (err) { if (err?.notShielded) clean = true; else failureCount++; }
+                  clean = true; streak = 0;
+                } catch (err) {
+                  if (err?.notShielded) { clean = true; streak = 0; }
+                  else { failureCount++; if (++streak >= _STEALTH_AUTO_SCAN_GIVE_UP_AFTER) gaveUp = true; }
+                }
                 if (clean) markStealthTxidSeen(String(e.aid).toLowerCase(), e.txid);
                 attempts++; i++;
                 showPill(`scanning shielded · discover ${i}/${filtered.length}`);
@@ -15594,7 +15694,8 @@ function _triggerStealthAutoScanInBackground(holdings) {
         const pool = Array.from({ length: _STEALTH_AUTO_SCAN_DISCOVER_CONCURRENCY }, worker);
         await Promise.all(pool);
       }
-      if (!_passTwoSkipped && _throttleKey) {
+      if (gaveUp) _stealthAutoScanRestUntil = Date.now() + _STEALTH_AUTO_SCAN_REST_MS;
+      else if (!_passTwoSkipped && _throttleKey) {
         try { localStorage.setItem(_throttleKey, String(Date.now())); } catch {}
       }
     }
@@ -51666,7 +51767,8 @@ const _discoverFetchCache = new Map();
 function _sharedFetchTx(id) {
   if (_discoverFetchCache.has(id)) return _discoverFetchCache.get(id);
   const p = getTx(id);
-  p.catch(() => { if (_discoverFetchCache.get(id) === p) _discoverFetchCache.delete(id); });
+  const forget = () => { if (_discoverFetchCache.get(id) === p) _discoverFetchCache.delete(id); };
+  p.then((t) => { if (!t) forget(); }, forget);                              // getTx answers null for a read that failed: that is not an answer to keep for the session
   _discoverFetchCache.set(id, p);
   return p;
 }
@@ -61116,7 +61218,7 @@ export {
   parseRecipientInput,
   getFeeRate, getFeeTierPref, setFeeTierPref, FEE_TIERS,
   broadcast, broadcastWithRetry, getTx,
-  validateOutpoint, requireValidatedLot,
+  validateOutpoint, requireValidatedLot, _explorerTx, _crossCheckedFetcher,
   getParentEnvelopeData, clearBtcPoolExitCache, _txOutputEnvelope as txOutputEnvelope,
   setStrictValidation, clearValidatorCaches, ValidationUnavailableError, rememberValidated,
   _txMarkNotFound as txMarkNotFound, _txIsRecentlyNotFound as txIsRecentlyNotFound,

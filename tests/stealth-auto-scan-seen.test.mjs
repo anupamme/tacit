@@ -29,7 +29,7 @@ const entries = [
   ...Array.from({ length: 12 }, (_, i) => ({ txid: id(i + 1), aid: ASSET })),
   ...Array.from({ length: 4 }, (_, i) => ({ txid: id(0x1000 + i), aid: OTHER })),     // an asset the scan does not look at
 ];
-const reads = { by: new Map(), inflight: 0, maxInflight: 0, failing: new Set() };
+const reads = { by: new Map(), inflight: 0, maxInflight: 0, failing: new Set(), hold: new Map() };
 const total = () => [...reads.by.values()].reduce((a, b) => a + b, 0);
 globalThis.fetch = async (input) => {
   const url = new URL(typeof input === 'string' ? input : input.url);
@@ -40,7 +40,7 @@ globalThis.fetch = async (input) => {
   if (m) {
     reads.by.set(m[1], (reads.by.get(m[1]) || 0) + 1);
     reads.maxInflight = Math.max(reads.maxInflight, ++reads.inflight);
-    await new Promise((r) => setTimeout(r, 3));
+    await new Promise((r) => setTimeout(r, reads.hold.get(m[1]) || 3));
     reads.inflight--;
     if (reads.failing.has(m[1])) return json({ error: 'unavailable' }, 500);
     // transfer 3 has one input: read, and not a shielded transfer
@@ -99,6 +99,46 @@ await test('with every listed transfer ruled out, a session reads none', async (
   globalThis.localStorage.removeItem(lastRun());
   await three._triggerStealthAutoScanInBackground(new Map());
   assert(total() === 0, `${total()} reads, expected none`);
+});
+
+// A second key, so what the sessions above recorded as read does not hide the transfers from it.
+const priv2 = hexToBytes('bb'.repeat(32)), pub2 = secp.getPublicKey(priv2, true);
+async function session2(tag) {
+  await new Promise((r) => setTimeout(r, 250));
+  const d = await import(`../dapp/tacit.js?${tag}`);
+  d.wallet.priv = priv2; d.wallet.pub = pub2;
+  return d;
+}
+const lastRun2 = () => `tacit-stealth-discover-last-v1:signet:${bytesToHex(pub2)}`;
+
+const four = await session2('four');
+await test('explorers that fail every read stop the scan after a few, and it does not record itself as done or try again for a while', async () => {
+  reads.by.clear();
+  for (let i = 1; i <= 12; i++) reads.failing.add(id(i));
+  await four._triggerStealthAutoScanInBackground(new Map());
+  assert(reads.by.size >= 4 && reads.by.size < 12, `${reads.by.size} transfers were tried, expected a few and not all 12`);
+  assert(!globalThis.localStorage.getItem(lastRun2()), 'the sweep was recorded as done');
+  assert(![...reads.by.keys()].some((t) => four.isStealthTxidSeen(ASSET, t)), 'a transfer that could not be read was marked');
+  reads.by.clear();
+  await four._triggerStealthAutoScanInBackground(new Map());
+  assert(total() === 0, `${total()} reads while it was resting`);
+});
+
+const five = await session2('five');
+await test('the scan waits while a purchase is checking its lot, then carries on', async () => {
+  reads.by.clear(); reads.failing.clear();
+  globalThis.localStorage.removeItem(lastRun2());
+  const LOT = id(0x2000);
+  reads.hold.set(LOT, 1200);
+  const buy = five.requireValidatedLot(LOT, 0).catch(() => null);
+  await new Promise((r) => setTimeout(r, 100));
+  const scan = five._triggerStealthAutoScanInBackground(new Map());
+  await new Promise((r) => setTimeout(r, 500));
+  const early = [...reads.by.keys()].filter((t) => t !== LOT).length;
+  assert(early === 0, `${early} transfers were read while the lot was being checked`);
+  await buy; await scan;
+  reads.hold.clear();
+  assert([...reads.by.keys()].filter((t) => t !== LOT).length === 12, `${reads.by.size} transactions read after the check ended, expected the 12 transfers`);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);
