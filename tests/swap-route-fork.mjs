@@ -11,15 +11,31 @@ import assert from 'node:assert';
 import { spawn, execFileSync } from 'node:child_process';
 import { keccak_256 } from '@noble/hashes/sha3';
 import { makeEvmTradeVenues } from '../dapp/evm-trade-venues.js';
+import { ammRouteDeployTx, ammRouteAddress, ammRouteAddressMatches } from './amm-route-deploy.mjs';
 import {
   ZERO, WETH, TAC, CUSD, CBTC, DAI, ZROUTER, ZQUOTER, PERMIT2, PRECISION_ROUTE, CONF_ROUTER, TOKENS,
-  quoteAnyToTac, buildAnyToTac, quoteAmm, buildAmm, readToken, readAccess, encApprove, permitTyped, daiPermitTyped, permit2Typed, splitSig, randomNonce,
+  quoteAnyToTac, buildAnyToTac, quoteAmm, buildAmm, quoteTacitToToken, buildTacitToToken, quoteTokenToTacit, buildTokenToTacit, ammRouteLive, TACIT_AMM, TACIT_AMM_ROUTE, readToken, readAccess, encApprove, permitTyped, daiPermitTyped, permit2Typed, splitSig, randomNonce,
 } from '../dapp/swap/route.js';
 
 const FORK = process.env.FORK || 'https://ethereum-rpc.publicnode.com', PORT = Number(process.env.PORT || 8613), URL = `http://127.0.0.1:${PORT}`;
 // zQuoter's scan of every pool reads thousands of storage slots, which a fork fetches one by one: that one view call is asked of the
 // upstream node at the block the fork was made from, and everything else runs on the fork.
-const upstream = async (method, params) => { const j = await (await fetch(FORK, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json(); if (j.error) throw Object.assign(new Error(j.error.message), { revert: /revert/i.test(j.error.message || '') }); return j.result; };
+// The upstream node answers the zQuoter scan at the fork's block. A node that is unreachable, or that caps a call's gas below what the scan asks for
+// (50M on some public nodes), is followed by the next one.
+const UPSTREAMS = [FORK, 'https://mainnet.gateway.tenderly.co'];
+const upstream = async (method, params) => {
+  let last;
+  for (const url of UPSTREAMS) {
+    for (let a = 0; a < 2; a++) {
+      try {
+        const j = await (await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })).json();
+        if (j.error) { last = Object.assign(new Error(j.error.message), { revert: /revert/i.test(j.error.message || '') }); if (/gas required exceeds|out of gas/i.test(j.error.message || '') || last.revert) break; continue; }
+        return j.result;
+      } catch (e) { last = e; }
+    }
+  }
+  throw last;
+};
 const FORK_BLOCK = Number(BigInt(await upstream('eth_blockNumber', [])) - 2n);
 const anvil = spawn('anvil', ['--port', String(PORT), '--fork-url', FORK, '--fork-block-number', String(FORK_BLOCK), '--chain-id', '1', '--silent', '--no-rate-limit'], { stdio: 'ignore' });
 process.on('exit', () => anvil.kill('SIGKILL'));
@@ -42,16 +58,22 @@ const balanceOf = async (token, who) => (token === ZERO ? BigInt(await rpc('eth_
 const cast = (...args) => execFileSync('cast', args, { encoding: 'utf8' }).trim();
 const newWallet = () => { const j = JSON.parse(cast('wallet', 'new', '--json'))[0]; return { address: j.address, key: j.private_key }; };
 const sign = (w, typed) => cast('wallet', 'sign', '--private-key', w.key, '--data', JSON.stringify(typed));
+// The pool mints and burns TAC, tacUSD and tacBTC, and burns without checking the supply: a balance dealt on top of the supply would
+// make the next burn wrap it, and the next mint overflow. So what is dealt of those is added to their supply as well.
+const SUPPLY_SLOT = '0x' + '5345cdf77eb68f44c'.padStart(64, '0');
+const POOL_MINTED = new Set([TAC, CUSD, CBTC].map((a) => a.toLowerCase()));
 async function fund(w, token, amount) {
   await rpc('anvil_setBalance', [w.address, hex(10n * E18)]);
-  if (token && token !== ZERO) await rpc('anvil_dealERC20', [w.address, token, hex(amount)]);
+  if (!token || token === ZERO) return;
+  await rpc('anvil_dealERC20', [w.address, token, hex(amount)]);
+  if (POOL_MINTED.has(token.toLowerCase())) await rpc('anvil_setStorageAt', [token, SUPPLY_SLOT, '0x' + (BigInt(await rpc('eth_getStorageAt', [token, SUPPLY_SLOT, 'latest'])) + amount).toString(16).padStart(64, '0')]);
 }
 async function send(from, tx) {
   await rpc('anvil_impersonateAccount', [from]);
   const h = await rpc('eth_sendTransaction', [{ from, to: tx.to, data: tx.data, ...(tx.value ? { value: hex(tx.value) } : {}), gas: hex(3_000_000) }]);
   let rc = null;
   for (let i = 0; i < 40 && !rc; i++) { rc = await rpc('eth_getTransactionReceipt', [h]); if (!rc) await sleep(250); }
-  return { ok: rc?.status === '0x1', gas: BigInt(rc?.gasUsed || 0) };
+  return { ok: rc?.status === '0x1', gas: BigInt(rc?.gasUsed || 0), hash: h };
 }
 const now = async () => BigInt((await rpc('eth_getBlockByNumber', ['latest', false])).timestamp);
 
@@ -68,8 +90,8 @@ const ok = (s) => { console.log('  ok -', s); n++; };
 const f = (x, d = 18, p = 4) => (Number(x) / 10 ** d).toFixed(p);
 const leftovers = async (tokens) => {
   const out = {};
-  for (const t of tokens) out[t] = { zr: await balanceOf(t, ZROUTER), pr: await balanceOf(t, PRECISION_ROUTE) };
-  out.eth = { zr: await balanceOf(ZERO, ZROUTER), pr: await balanceOf(ZERO, PRECISION_ROUTE) };
+  for (const t of tokens) out[t] = { zr: await balanceOf(t, ZROUTER), pr: await balanceOf(t, PRECISION_ROUTE), ar: await balanceOf(t, TACIT_AMM_ROUTE) };
+  out.eth = { zr: await balanceOf(ZERO, ZROUTER), pr: await balanceOf(ZERO, PRECISION_ROUTE), ar: await balanceOf(ZERO, TACIT_AMM_ROUTE) };
   return out;
 };
 
@@ -248,6 +270,105 @@ await amm('tacBTC', 'sell', E18 / 10000n, 'approve', newWallet().address);
   assert.equal(await balanceOf(CUSD, to), 0n, 'the recipient received nothing');
   ok('a floor the pool cannot meet reverts with another recipient too, and the recipient receives nothing');
 }
+
+// ── a Tacit asset out to any ERC-20, in one transaction ──
+const venuesOnly = (only) => ({ ...venues, route: async (a) => { const rt = await venues.route(a); return { ...rt, r: { ...rt.r, ranked: (rt.r.ranked || []).filter((v) => v.venue === only) } }; } });
+async function sellFor(label, { token, out, amount, only = null, how, to = null }) {
+  const w = newWallet(), tOut = tok(out), dl = (await now()) + 1800n;
+  await fund(w, token, amount);
+  const q = await quoteTacitToToken({ ethCall, venues: only ? venuesOnly(only) : venues, tokenIn: token, tokenOut: tOut.addr, amountIn: amount, account: w.address, ...(to ? { to } : {}), deadline: dl });
+  assert.ok(q, `${label}: a route`);
+  if (only) assert.equal(q.leg.venue, only, `${label}: sold on ${only}`);
+  let access;
+  if (how === 'permit') {
+    const acc = await readAccess({ ethCall, token, owner: w.address });
+    access = { kind: 'permit', value: q.amountIn, deadline: dl, ...splitSig(sign(w, permitTyped({ token, name: 'Tacit Token', version: '1', owner: w.address, spender: ZROUTER, value: q.amountIn, nonce: acc.nonce, deadline: dl }))) };
+  } else { assert.ok((await send(w.address, { to: token, data: encApprove(ZROUTER, q.amountIn) })).ok, `${label}: approve`); access = { kind: 'approved' }; }
+  const tx = buildTacitToToken({ quote: q, account: w.address, ...(to ? { to } : {}), venues, access });
+  const holder = to || w.address, before = await balanceOf(tOut.addr, holder), lo = await leftovers([token, tOut.addr, WETH]);
+  const r = await send(w.address, tx);
+  assert.ok(r.ok, `${label}: the transaction landed`);
+  const got = (await balanceOf(tOut.addr, holder)) - before, spent = amount - (await balanceOf(token, w.address));
+  assert.ok(got >= q.min, `${label}: ${got} received, at least the floor ${q.min}`);
+  assert.equal(spent, q.amountIn, `${label}: exactly the quoted amount was sold`);
+  if (to) assert.equal(await balanceOf(tOut.addr, w.address), 0n, `${label}: the payer received none of the output`);
+  const la = await leftovers([token, tOut.addr, WETH]);
+  for (const k of Object.keys(la)) { assert.ok(la[k].pr <= lo[k].pr, `${label}: nothing of ${k} left at PrecisionRoute`); assert.ok(la[k].zr <= lo[k].zr, `${label}: nothing of ${k} left at zRouter`); assert.ok(la[k].ar <= lo[k].ar, `${label}: nothing of ${k} left at TacitAmmRoute`); }
+  ok(`${label}: ${f(spent)} → ${f(got, tOut.dec, tOut.dec > 8 ? 4 : 6)} ${out}${to ? ' to another address' : ''} (quoted ${f(q.out, tOut.dec, tOut.dec > 8 ? 4 : 6)}, floor ${f(q.min, tOut.dec, tOut.dec > 8 ? 4 : 6)}${q.hop ? `, via ${q.hop.name}` : ''}), gas ${r.gas}`);
+}
+await sellFor('TAC → USDC (Precision) by permit', { token: TAC, out: 'USDC', amount: 20000n * E18, only: 'precision', how: 'permit' });
+await sellFor('TAC → USDC (Tacit pool) by approval', { token: TAC, out: 'USDC', amount: 20000n * E18, only: 'tacit-amm', how: 'approve' });
+await sellFor('TAC → USDC (the better pool) to another address', { token: TAC, out: 'USDC', amount: 5000n * E18, how: 'permit', to: newWallet().address });
+await sellFor('TAC → WETH', { token: TAC, out: 'WETH', amount: 20000n * E18, how: 'approve' });
+await sellFor('tacUSD → USDC by permit', { token: CUSD, out: 'USDC', amount: 100n * E18, how: 'permit' });
+await sellFor('tacBTC → WBTC by approval', { token: CBTC, out: 'WBTC', amount: E18 / 5000n, how: 'approve' });
+// without the allowance it reverts and moves nothing
+{
+  const w = newWallet(), dl = (await now()) + 1800n, amount = 5000n * E18;
+  await fund(w, TAC, amount);
+  const q = await quoteTacitToToken({ ethCall, venues, tokenIn: TAC, tokenOut: tok('USDC').addr, amountIn: amount, account: w.address, deadline: dl });
+  const r = await send(w.address, buildTacitToToken({ quote: q, account: w.address, venues, access: { kind: 'approved' } }));
+  assert.equal(r.ok, false, 'reverts');
+  assert.equal(await balanceOf(TAC, w.address), amount, 'nothing was sold');
+  ok('a sale zRouter has no allowance for reverts and moves nothing');
+}
+
+// ── any ERC-20 into tacUSD and tacBTC, in one transaction, through TacitAmmRoute ──
+async function buyTacit(label, { sym, out, amount, how, to = null }) {
+  const t = tok(sym), w = newWallet(), tOut = tok(out), dl = (await now()) + 1800n;
+  await fund(w, t.addr, amount);
+  const q = await quoteTokenToTacit({ ethCall, token: t.addr, tokenOut: tOut.addr, amountIn: amount, account: w.address, ...(to ? { to } : {}), deadline: dl });
+  assert.ok(q, `${label}: a route`);
+  assert.ok(q.maxIn <= amount, `${label}: the most spent (${q.maxIn}) is inside the amount (${amount})`);
+  const acc = await readAccess({ ethCall, token: t.addr, owner: w.address });
+  let access;
+  if (how === 'permit') access = { kind: 'permit', value: q.maxIn, deadline: dl, ...splitSig(sign(w, permitTyped({ token: t.addr, name: (await readToken({ ethCall, keccak256: keccak_256, address: t.addr })).name, version: t.permit, owner: w.address, spender: ZROUTER, value: q.maxIn, nonce: acc.nonce, deadline: dl }))) };
+  else if (how === 'dai') access = { kind: 'dai', nonce: acc.nonce, expiry: dl, ...splitSig(sign(w, daiPermitTyped({ owner: w.address, nonce: acc.nonce, expiry: dl }))) };
+  else if (how === 'permit2') {
+    assert.ok((await send(w.address, { to: t.addr, data: encApprove(PERMIT2, (1n << 256n) - 1n) })).ok, 'approve Permit2');
+    const nonce = randomNonce();
+    access = { kind: 'permit2', nonce, deadline: dl, signature: sign(w, permit2Typed({ token: t.addr, amount: q.maxIn, nonce, deadline: dl })) };
+  } else {
+    if (sym === 'USDT' && acc.allowed) await send(w.address, { to: t.addr, data: encApprove(ZROUTER, 0n) });
+    assert.ok((await send(w.address, { to: t.addr, data: encApprove(ZROUTER, q.maxIn) })).ok, `${label}: approve`);
+    access = { kind: 'approved' };
+  }
+  const minOut = (q.out * 9950n) / 10000n, tx = buildTokenToTacit({ quote: q, account: w.address, ...(to ? { to } : {}), minOut, access });
+  const holder = to || w.address, before = await balanceOf(tOut.addr, holder), lo = await leftovers([t.addr, WETH, tOut.addr]);
+  const r = await send(w.address, tx);
+  return { w, q, r, t, tOut, holder, before, lo, minOut, label, amount, to, how, tx };
+}
+async function bought(c) {
+  const { w, q, r, t, tOut, holder, before, lo, minOut, label, amount, to, how, tx } = c;
+  if (!r.ok) { const why = await rpc('eth_call', [{ from: w.address, to: tx.to, data: tx.data, gas: hex(3_000_000) }, 'latest']).then(() => 'no revert on a replay', (e) => `${e.message} ${e.data || ''}`); const walk = (n, d = 0) => (n.error || n.revertReason ? [`${' '.repeat(d)}${n.type} ${n.to} ${String(n.input || '').slice(0, 10)} -> ${n.error || ''} ${n.revertReason || ''} ${String(n.output || '').slice(0, 10)}`] : []).concat(...(n.calls || []).map((x) => walk(x, d + 1))); let path = ''; try { path = '\n' + walk(await rpc('debug_traceTransaction', [r.hash, { tracer: 'callTracer' }])).join('\n'); } catch (e) { path = ' (no trace: ' + e.message + ')'; } assert.fail(`${label}: the transaction reverted: ${why}${path}`); }
+  const got = (await balanceOf(tOut.addr, holder)) - before, spent = amount - (await balanceOf(t.addr, w.address));
+  assert.ok(got >= minOut, `${label}: ${got} received, at least the floor ${minOut}`);
+  assert.ok(spent <= q.maxIn && spent <= amount, `${label}: spent ${spent} within ${q.maxIn}`);
+  if (to) assert.equal(await balanceOf(tOut.addr, w.address), 0n, `${label}: the payer received none of the output`);
+  const la = await leftovers([t.addr, WETH, tOut.addr]);
+  for (const k of Object.keys(la)) { assert.ok(la[k].pr <= lo[k].pr, `${label}: nothing of ${k} left at PrecisionRoute`); assert.ok(la[k].zr <= lo[k].zr, `${label}: nothing of ${k} left at zRouter`); assert.ok(la[k].ar <= lo[k].ar, `${label}: nothing of ${k} left at TacitAmmRoute`); }
+  ok(`${label}: ${f(spent, t.dec, 4)} ${t.sym} → ${f(got, 18, 4)} ${tOut.sym}${to ? ' to another address' : ''} (floor ${f(minOut, 18, 4)}, via ${q.hop.name}), gas ${r.gas}`);
+}
+assert.ok(ammRouteAddressMatches(), `the compiled TacitAmmRoute lands at the address route.js names (${ammRouteAddress()})`);
+ok('the compiled TacitAmmRoute lands at the address route.js names');
+if ((await ammRouteLive({ ethCall })) !== true) {
+  assert.equal(await ammRouteLive({ ethCall }), false, 'TacitAmmRoute is not on chain yet');
+  ok('TacitAmmRoute is not deployed: the route is not offered');
+  const c = await buyTacit('USDC → tacUSD before TacitAmmRoute is deployed', { sym: 'USDC', out: 'tacUSD', amount: 150n * 10n ** 6n, how: 'permit' });
+  assert.equal(c.r.ok, false, 'reverts while it is not deployed');
+  assert.equal(await balanceOf(CUSD, c.w.address), 0n, 'nothing was bought');
+  ok('without it the transaction reverts and nothing is bought');
+  const d = newWallet(); await fund(d, null, 0n);
+  assert.ok((await send(d.address, ammRouteDeployTx())).ok, 'the proxy deploys it');
+  assert.equal(await ammRouteLive({ ethCall }), true, 'TacitAmmRoute now answers');
+  ok('after TacitAmmRoute is deployed, the route reads as available');
+}
+await bought(await buyTacit('USDC → tacUSD by permit', { sym: 'USDC', out: 'tacUSD', amount: 150n * 10n ** 6n, how: 'permit' }));
+await bought(await buyTacit('USDT → tacBTC by approval', { sym: 'USDT', out: 'tacBTC', amount: 200n * 10n ** 6n, how: 'approve' }));
+await bought(await buyTacit('DAI → tacUSD by its permit', { sym: 'DAI', out: 'tacUSD', amount: 120n * E18, how: 'dai' }));
+await bought(await buyTacit('USDC → tacBTC by Permit2', { sym: 'USDC', out: 'tacBTC', amount: 300n * 10n ** 6n, how: 'permit2' }));
+await bought(await buyTacit('wstETH → tacUSD by permit', { sym: 'wstETH', out: 'tacUSD', amount: E18 / 50n, how: 'permit' }));
+await bought(await buyTacit('USDC → tacUSD to another address', { sym: 'USDC', out: 'tacUSD', amount: 150n * 10n ** 6n, how: 'permit', to: newWallet().address }));
 
 console.log(`\n${n} passed`);
 process.exit(0);

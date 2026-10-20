@@ -201,19 +201,23 @@ async function quotePrecision({ ethCall, dir, amountIn, account, block, trust = 
   return { venue: VENUES.PRECISION, amountIn, amountOut: best.amountOut, feeBps, pool: best.pool, tokenIn, tokenOut };
 }
 
-function buildPrecisionSwap({ quote, account, to = account, minOut, deadline, keccak256, permit }) {
+// The legs of a Precision swap, for a caller that goes on to add legs of its own (the swap page's sell for any token pays this swap's ETH to zRouter).
+function precisionSwapLegs({ quote, account, to = account, minOut, deadline, keccak256, permit }) {
   const { tokenIn, tokenOut, pool, amountIn } = quote;
   const routeData = encPrecisionRoute({ tokenIn, tokenOut, amountIn, minOut, to, pools: [pool] });
   const nativeIn = tokenIn === ZERO_ADDR;
   const guardLeg = encSnwap({ tokenIn: ZERO_ADDR, amountIn: 0n, recipient: to, tokenOut: ZERO_ADDR, minOut: 0n, executor: PRECISION_GUARD, data: encGuardDeadline(deadline) });
   const routedLeg = encSnwap({ tokenIn: nativeIn ? ZERO_ADDR : tokenIn, amountIn, recipient: to, tokenOut, minOut, executor: PRECISION_ROUTE, data: routeData });
-  if (nativeIn) {
-    return { to: ZROUTER, data: encZRouterMulticall([guardLeg, routedLeg]), value: amountIn, approval: null };
-  }
+  if (nativeIn) return { legs: [guardLeg, routedLeg], value: amountIn, approval: null };
   const checkpointLeg = encSnwap({ tokenIn: ZERO_ADDR, amountIn: 0n, recipient: to, tokenOut: ZERO_ADDR, minOut: 0n, executor: PRECISION_ROUTE, data: encPrecisionCheckpoint({ fund: tokenIn, routeDataHex: routeData, account, keccak256 }) });
-  if (permit) return { to: ZROUTER, data: encZRouterMulticall([encZRouterPermit({ token: tokenIn, ...permit }), guardLeg, checkpointLeg, routedLeg]), value: 0n, approval: null };
-  return { to: ZROUTER, data: encZRouterMulticall([guardLeg, checkpointLeg, routedLeg]), value: 0n, approval: { token: tokenIn, spender: ZROUTER, amount: amountIn } };
+  if (permit) return { legs: [encZRouterPermit({ token: tokenIn, ...permit }), guardLeg, checkpointLeg, routedLeg], value: 0n, approval: null };
+  return { legs: [guardLeg, checkpointLeg, routedLeg], value: 0n, approval: { token: tokenIn, spender: ZROUTER, amount: amountIn } };
 }
+function buildPrecisionSwap(args) {
+  const { legs, value, approval } = precisionSwapLegs(args);
+  return { to: ZROUTER, data: encZRouterMulticall(legs), value, approval };
+}
+
 
 function encTacitQuote({ assetIn, assetOut, feeBps, amountIn }) {
   return '0x' + SEL.tacitQuote + bytes32Word(assetIn) + bytes32Word(assetOut) + word(feeBps) + word(amountIn);
@@ -565,6 +569,7 @@ export function makeEvmTradeVenues({ ethCall, keccak256 } = {}) {
     plan,
     quoteSplit: (args) => quoteSplit({ ethCall, ...args }),
     buildSplit: (args) => buildSplit({ keccak256, ...args }),
+    precisionLegs: (args) => precisionSwapLegs({ keccak256, ...args }),
     simulate: (args) => simulateTx({ ethCall, ...args }),
     quotePrecision: (args) => quotePrecision({ ethCall, ...args }),
     quoteTacitAmm: (args) => quoteTacitAmm({ ethCall, ...args }),

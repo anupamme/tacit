@@ -6,6 +6,12 @@
 //     commits to the exact calldata it will run (amount included) and refuses any other balance change; whatever of the token the
 //     leg does not need stays with its owner.
 //   - ETH to and from tacUSD and tacBTC in the Tacit pool's public door (TacitPublicAmm), the same reserves its private swaps use.
+//   - a Tacit asset (TAC, tacUSD, tacBTC) out to any ERC-20 in ONE transaction: the pool (or Precision) pays its ETH to zRouter, which wraps it,
+//     and zQuoter's swap of that WETH pays the wallet. zRouter keeps what a call pays to it for the next leg, which is what lets one leg feed another.
+//   - any ERC-20 into tacUSD or tacBTC in ONE transaction: zQuoter buys an exact amount of WETH for zRouter, and an snwap hands that WETH to
+//     TacitAmmRoute (the snwap executor), which unwraps it and swaps the ETH through TacitPublicAmm to the recipient. zRouter's own `execute` would
+//     reach TacitPublicAmm only if its owner trusted it, which this does not need. The route is offered when `ammRouteLive` finds TacitAmmRoute
+//     deployed (a read, so the page switches it on by itself once it is).
 //
 // How the token reaches zRouter, best first: an EIP-2612 permit signed for free (USDC, wstETH, TAC, tacUSD, tacBTC and most new tokens;
 // DAI's own permit), a Permit2 signature where the token already allows Permit2, else an approval of the exact amount.
@@ -27,6 +33,8 @@ export const PERMIT2 = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
 export const PRECISION_ROUTE = '0x0000007Be74558A1F8c9045301c6F44C8eD0c9eB';
 export const PRECISION_GUARD = '0x00000057B53fB5feEdedaf7066e1f1C7002b1961';
 export const TACIT_AMM = '0x00000000E36C7EC997CC59DCda9E03673B448119';
+// contracts/src/TacitAmmRoute.sol (WETH → ETH → TacitPublicAmm for an snwap), at the address the deterministic CREATE2 proxy gives its init code and salt.
+export const TACIT_AMM_ROUTE = '0x000000ce935718faa9D2649c5D0183b765A1C731';
 export const CONF_ROUTER = '0x000000005dA3E3B73726af3c774Deeb9472D4992';
 // The Tacit pool's asset ids: tETH's shared id, and each canonical token's ASSET_ID().
 export const POOL_ID = {
@@ -69,7 +77,7 @@ const dyn = (h) => { const d = strip(h); return word(d.length / 2) + pad(d); };
 
 const SEL = {
   buildBestSwap: 'e7798987', snwap: '5f3bd1c8', multicall: 'ac9650d8', permit: '7ac2ff7b', permitDAI: '230390f4', permit2From: '09d31579', sweep: 'cb019b84',
-  guardDeadline: '10c2e3cd', checkpoint: '0b7c6c6c', routeFromWETH: '78fd78b0',
+  guardDeadline: '10c2e3cd', checkpoint: '0b7c6c6c', routeFromWETH: '78fd78b0', wrap: 'ea598cb0', aggregate3: '82ad56cb', ammRoute: '4f987fff', ammRouteAmm: '44a70686',
   quoteSwap: '3bc1414a', swapPublic: 'cfdf9dcc', swapPublicWithPermit: '53c87456',
   balanceOf: '70a08231', allowance: 'dd62ed3e', approve: '095ea7b3', nonces: '7ecebe00', domain: '3644e515', p2allowance: '927da105',
   name: '06fdde03', symbol: '95d89b41', decimals: '313ce567',
@@ -86,6 +94,7 @@ const encRouteFromWeth = ({ pools, amountIn, minOut, to }) =>
   '0x' + SEL.routeFromWETH + word(160) + addr(TAC) + word(amountIn) + word(minOut) + addr(to) + word(pools.length) + pools.map(addr).join('');
 const encSwapPublic = ({ assetIn, assetOut, amountIn, minOut, deadline, to }) =>
   '0x' + SEL.swapPublic + b32(assetIn) + b32(assetOut) + word(AMM_FEE) + word(amountIn) + word(minOut) + word(deadline) + addr(to);
+const encAmmRoute = ({ assetOut, minOut, deadline, to }) => '0x' + SEL.ammRoute + b32(assetOut) + word(AMM_FEE) + word(minOut) + word(deadline) + addr(to);
 
 // ── reads ──
 // A Multicall3 aggregate3 with every call allowed to fail: a token that lacks a function answers null for it.
@@ -137,8 +146,8 @@ export async function readAccess({ ethCall, token, owner, spender = ZROUTER }) {
 
 // ── zQuoter: the best single pool for `tokenIn` against WETH. → { source, feeBps, amountIn, amountOut, callData, amountLimit } or null ──
 export const SOURCES = ['Uniswap v2', 'Sushi', 'zAMM', 'Uniswap v3', 'Uniswap v4', 'Curve', 'Lido', 'WETH', 'Uniswap v4'];
-async function bestToWeth({ ethCall, tokenIn, amount, exactOut, slippageBps, deadline }) {
-  const data = '0x' + SEL.buildBestSwap + addr(PRECISION_ROUTE) + word(exactOut ? 1 : 0) + addr(tokenIn) + addr(WETH) + word(amount) + word(slippageBps) + word(deadline);
+async function zqSwap({ ethCall, to, tokenIn, tokenOut, amount, exactOut, slippageBps, deadline }) {
+  const data = '0x' + SEL.buildBestSwap + addr(to) + word(exactOut ? 1 : 0) + addr(tokenIn) + addr(tokenOut) + word(amount) + word(slippageBps) + word(deadline);
   let raw;
   try { raw = strip(await ethCall(ZQUOTER, data, 'latest', { gas: '0x5F5E100' })); } catch (e) { if (e?.revert || /revert/i.test(e?.message || '')) return null; throw e; }
   if (raw.length < 448) return null;
@@ -146,6 +155,7 @@ async function bestToWeth({ ethCall, tokenIn, amount, exactOut, slippageBps, dea
   const q = { source: Number(wordAt(raw, 0)), feeBps: wordAt(raw, 1), amountIn: wordAt(raw, 2), amountOut: wordAt(raw, 3), callData: '0x' + raw.slice((at + 1) * 64, (at + 1) * 64 + len * 2), amountLimit: wordAt(raw, 5), msgValue: wordAt(raw, 6) };
   return q.amountOut > 0n && q.amountIn > 0n && q.msgValue === 0n ? q : null;
 }
+const bestToWeth = ({ ethCall, tokenIn, amount, exactOut, slippageBps, deadline }) => zqSwap({ ethCall, to: PRECISION_ROUTE, tokenIn, tokenOut: WETH, amount, exactOut, slippageBps, deadline });
 
 // Any ERC-20 → TAC. `venues.quotePrecision` prices the TAC leg (the Precision pool the lens finds best, which the policy allows).
 // Spends at most `amountIn`: the WETH bought is what `amountIn` buys less `slippageBps`, so the leg's own limit (its quote plus the same
@@ -181,15 +191,19 @@ export async function quoteAnyToTac({ ethCall, venues, token, amountIn, account,
 //   { kind: 'dai', nonce, expiry, v, r, s }        DAI's permit
 //   { kind: 'permit2', nonce, deadline, signature } a Permit2 transfer of `maxIn` into zRouter, the unspent part swept back
 //   { kind: 'approved' }                           zRouter already holds an allowance for `maxIn`
+// The leg (if any) that lets zRouter take `maxIn` of `token` from the sender, by how the wallet gave access (see buildAnyToTac).
+function accessLegs(access, token, maxIn, who) {
+  if (access.kind === 'permit') return ['0x' + SEL.permit + addr(token) + word(access.value) + word(access.deadline) + word(access.v) + b32(access.r) + b32(access.s)];
+  if (access.kind === 'dai') return ['0x' + SEL.permitDAI + word(access.nonce) + word(access.expiry) + word(access.v) + b32(access.r) + b32(access.s)];
+  if (access.kind === 'permit2') return ['0x' + SEL.permit2From + addr(token) + word(maxIn) + word(access.nonce) + word(access.deadline) + word(160) + dyn(access.signature)];
+  if (access.kind === 'approved') return [];
+  throw new Error(`${who}: unknown access`);
+}
 export function buildAnyToTac({ quote, account, to = account, minOut, keccak256, access }) {
   const { token, weth, pool, hop, maxIn, deadline } = quote;
   const route = encRouteFromWeth({ pools: [pool], amountIn: weth, minOut, to });
   const checkpoint = '0x' + SEL.checkpoint + addr(WETH) + b32(hex(keccak256(bytes(route)))) + addr(account);
-  const legs = [];
-  if (access.kind === 'permit') legs.push('0x' + SEL.permit + addr(token) + word(access.value) + word(access.deadline) + word(access.v) + b32(access.r) + b32(access.s));
-  else if (access.kind === 'dai') legs.push('0x' + SEL.permitDAI + word(access.nonce) + word(access.expiry) + word(access.v) + b32(access.r) + b32(access.s));
-  else if (access.kind === 'permit2') legs.push('0x' + SEL.permit2From + addr(token) + word(maxIn) + word(access.nonce) + word(access.deadline) + word(160) + dyn(access.signature));
-  else if (access.kind !== 'approved') throw new Error('buildAnyToTac: unknown access');
+  const legs = accessLegs(access, token, maxIn, 'buildAnyToTac');
   // Each call to another contract is an snwap with that contract as executor (zRouter's multicall can only call itself).
   legs.push(encSnwap({ recipient: account, executor: PRECISION_GUARD, data: '0x' + SEL.guardDeadline + word(deadline) + addr(ZROUTER) }));
   legs.push(encSnwap({ recipient: account, executor: PRECISION_ROUTE, data: checkpoint }));
@@ -227,6 +241,103 @@ export function buildAmm({ quote, account, to = account, minOut, deadline, permi
   return { to: TACIT_AMM, value: 0n, data: encSwapPublic({ assetIn, assetOut, amountIn, minOut, deadline, to }), approval: { token: tokenIn, spender: TACIT_AMM, amount: amountIn } };
 }
 
+// ── the legs the two routes below are made of ──
+const encSweep = (token, to) => '0x' + SEL.sweep + addr(token) + word(0) + word(0) + addr(to);
+const guardLeg = (account, deadline) => encSnwap({ recipient: account, executor: PRECISION_GUARD, data: '0x' + SEL.guardDeadline + word(deadline) + addr(ZROUTER) });
+// A Multicall3 aggregate3 in which every call has to succeed.
+function encAggregate3(calls) {
+  let head = '', tail = '', off = calls.length * 32;
+  for (const c of calls) { const body = addr(c.to) + word(0) + word(96) + dyn(c.data); head += word(off); tail += body; off += body.length / 2; }
+  return '0x' + SEL.aggregate3 + word(32) + word(calls.length) + head + tail;
+}
+
+// ── a Tacit asset out to any ERC-20, public, in one transaction ──
+// The pool pays its ETH to zRouter itself (a call's output may go there), zRouter wraps it, and zQuoter's exact-in swap of that WETH pays the
+// wallet. `quote.leg` is the first sale: Precision (TAC only) or the Tacit pool, whichever pays more ETH.
+export async function quoteTacitToToken({ ethCall, venues, tokenIn, tokenOut, amountIn, account, to = account, slippageBps = 50, deadline }) {
+  const slip = BigInt(slippageBps), dl = deadline ?? BigInt(Math.floor(Date.now() / 1000) + 1800);
+  if (!tacitToken(tokenIn) || tacitToken(tokenOut) || same(tokenOut, ZERO)) return null;
+  let leg = null;
+  if (same(tokenIn, TAC)) {
+    const best = ((await venues.route({ dir: 'TAC_TO_ETH', amountIn, account })).r?.ranked || []).find((v) => v.venue === 'precision' || v.venue === 'tacit-amm');
+    if (best) leg = { venue: best.venue, quote: best, eth: BigInt(best.amountOut) };
+  } else {
+    const q = await quoteAmm({ ethCall, tokenIn, tokenOut: ZERO, amountIn });
+    if (q) leg = { venue: 'tacit-amm', quote: { assetIn: q.assetIn, assetOut: q.assetOut, feeBps: AMM_FEE, amountIn: q.amountIn, amountOut: q.amountOut }, eth: q.amountOut };
+  }
+  if (!leg) return null;
+  const spend = BigInt(leg.quote.amountIn), floor1 = (leg.eth * (10000n - slip)) / 10000n;
+  if (floor1 <= 0n) return null;
+  let hop = null, out, min = floor1;
+  if (!same(tokenOut, WETH)) {
+    hop = await zqSwap({ ethCall, to, tokenIn: WETH, tokenOut, amount: floor1, exactOut: false, slippageBps: slip, deadline: dl });
+    if (!hop) return null;
+    // The second leg must be one swap that sells exactly the ETH the first leg is sure to pay, and pays the recipient.
+    if (checkZRouterCall(hop.callData, { to, tokenIn: WETH, tokenOut, exactOut: false, amount: floor1, maxIn: floor1, deadline: dl })) return null;
+    out = (hop.amountOut * leg.eth) / floor1; min = hop.amountLimit;       // what the whole sale pays; the floor is the one zQuoter set for the part it is sure of
+  } else out = leg.eth;
+  return { kind: 'out', tokenIn, tokenOut, amountIn: spend, leg, eth: leg.eth, floor1, hop: hop && { ...hop, name: SOURCES[hop.source] || 'a pool' }, out, min, to, deadline: dl };
+}
+// `access` is how the Tacit token reaches zRouter: { kind: 'permit', value, deadline, v, r, s } or { kind: 'approved' } (see buildAnyToTac).
+export function buildTacitToToken({ quote, account, to = quote.to, venues, access }) {
+  if (!same(to, quote.to)) throw new Error('buildTacitToToken: this quote pays another recipient');
+  const { tokenIn, leg, floor1, hop, amountIn, deadline } = quote;
+  const legs = accessLegs(access, tokenIn, amountIn, 'buildTacitToToken');
+  if (leg.venue === 'precision') legs.push(...venues.precisionLegs({ quote: leg.quote, account, to: ZROUTER, minOut: floor1, deadline }).legs);
+  else {
+    const { assetIn, assetOut } = leg.quote;
+    legs.push(guardLeg(account, deadline), encSnwap({
+      tokenIn, amountIn, recipient: ZROUTER, tokenOut: ZERO, minOut: floor1, executor: MC3,
+      data: encAggregate3([{ to: tokenIn, data: encApprove(TACIT_AMM, amountIn) }, { to: TACIT_AMM, data: encSwapPublic({ assetIn, assetOut, amountIn, minOut: floor1, deadline, to: ZROUTER }) }]),
+    }));
+  }
+  legs.push('0x' + SEL.wrap + word(0));
+  if (hop) legs.push(hop.callData, encSweep(WETH, account));       // what the swap did not need goes back to the payer
+  else legs.push(encSweep(WETH, to));
+  return { to: ZROUTER, data: encMulticall(legs), value: 0n };
+}
+
+// ── any ERC-20 into tacUSD or tacBTC, public, in one transaction ──
+// Whether TacitAmmRoute is deployed at its address and serves TacitPublicAmm: true, false, or null when the node did not say.
+export async function ammRouteLive({ ethCall }) {
+  try { return same('0x' + String(await ethCall(TACIT_AMM_ROUTE, '0x' + SEL.ammRouteAmm)).slice(-40), TACIT_AMM); } catch (e) {
+    return /revert|execution/i.test(`${e?.data?.data || e?.data || ''} ${e?.message || ''}`) ? false : null;
+  }
+}
+export async function quoteTokenToTacit({ ethCall, token, tokenOut, amountIn, account, to = account, slippageBps = 50, deadline }) {
+  const slip = BigInt(slippageBps), dl = deadline ?? BigInt(Math.floor(Date.now() / 1000) + 1800);
+  if (same(token, ZERO) || same(token, WETH) || tacitToken(token) || !(same(tokenOut, CUSD) || same(tokenOut, CBTC))) return null;
+  const fwd = await zqSwap({ ethCall, to: ZROUTER, tokenIn: token, tokenOut: WETH, amount: amountIn, exactOut: false, slippageBps: 0n, deadline: dl });
+  if (!fwd) return null;
+  // The WETH is bought exactly (the pool takes ETH in steps of 1e10) and for no more than was typed: a curve steeper than the margin asks for a little less.
+  // One wei more is bought than is swapped: snwap leaves one wei of zRouter's balance behind when it hands the rest on.
+  let weth = (fwd.amountOut * (10000n - slip)) / 10000n, hop = null;
+  weth -= weth % UNIT;
+  for (let i = 0; i < 3 && weth > 0n; i++) {
+    hop = await zqSwap({ ethCall, to: ZROUTER, tokenIn: token, tokenOut: WETH, amount: weth + 1n, exactOut: true, slippageBps: slip, deadline: dl });
+    if (!hop) return null;
+    if (hop.amountLimit <= amountIn) break;
+    weth = (weth * amountIn * 9990n) / (hop.amountLimit * 10000n); weth -= weth % UNIT;
+    hop = null;
+  }
+  if (!hop || weth <= 0n) return null;
+  if (checkZRouterCall(hop.callData, { to: ZROUTER, tokenIn: token, tokenOut: WETH, exactOut: true, amount: weth + 1n, maxIn: amountIn, deadline: dl })) return null;
+  if (decodeZRouterCall(hop.callData)[0].limit !== hop.amountLimit) return null;
+  const amm = await quoteAmm({ ethCall, tokenIn: ZERO, tokenOut, amountIn: weth });
+  if (!amm || amm.amountIn !== weth) return null;
+  return { kind: 'in', token, tokenOut, amountIn, maxIn: hop.amountLimit, spend: hop.amountIn, weth, out: amm.amountOut, amm, hop: { ...hop, name: SOURCES[hop.source] || 'a pool' }, to, deadline: dl };
+}
+// `access` as in buildAnyToTac. The WETH the hop leaves at zRouter is handed on by an snwap to TacitAmmRoute, which unwraps it and swaps it for `to`;
+// what zRouter keeps of it (one wei) goes back to the payer.
+export function buildTokenToTacit({ quote, account, to = account, minOut, access }) {
+  const { token, tokenOut, hop, amm, deadline, maxIn } = quote;
+  const legs = accessLegs(access, token, maxIn, 'buildTokenToTacit');
+  legs.push(guardLeg(account, deadline), hop.callData,
+    encSnwap({ tokenIn: WETH, recipient: to, tokenOut, minOut, executor: TACIT_AMM_ROUTE, data: encAmmRoute({ assetOut: amm.assetOut, minOut, deadline, to }) }), encSweep(WETH, account));
+  if (access.kind === 'permit2') legs.push(encSweep(token, account));
+  return { to: ZROUTER, data: encMulticall(legs), value: 0n };
+}
+
 // ── what the wallet is asked to sign ──
 export const permitTyped = ({ token, name, version, owner, spender, value, nonce, deadline }) => ({
   types: { EIP712Domain: [{ name: 'name', type: 'string' }, { name: 'version', type: 'string' }, { name: 'chainId', type: 'uint256' }, { name: 'verifyingContract', type: 'address' }],
@@ -257,4 +368,4 @@ export function splitSig(sig) {
 // A Permit2 nonce: any unused one will do (Permit2's nonces are a bitmap), so a random one, well away from the low words wallets use.
 export const randomNonce = () => { const b = crypto.getRandomValues(new Uint8Array(12)); return BigInt(hex(b)) + (1n << 120n); };
 
-export const _internal = { encSnwap, encRouteFromWeth, encSwapPublic, bestToWeth, reads };
+export const _internal = { encSnwap, encRouteFromWeth, encSwapPublic, encAmmRoute, bestToWeth, zqSwap, reads };
