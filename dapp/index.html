@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-0wpH2EAC5IRWs/DhS3vC5s0UWrYPH8brdtwTjHb1Bho=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-U2ZqX6/ujrth0pCOQFlpD9pQ6Ge9VMWY7voLCUFQ5uA=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -6543,8 +6543,12 @@ function loadBtc(force = false) {
       const aid = String(x.assetIdHex || id).toLowerCase(), dec = Number.isInteger(x.decimals) ? x.decimals : aid === TAC_BTC_ID ? 8 : null;
       return { id: aid, ticker: aid === TAC_BTC_ID ? 'TAC' : x.ticker && x.ticker !== '???' ? x.ticker : short(aid, 4), decimals: dec ?? 0, known: dec != null, balance: typeof x.balance === 'bigint' ? x.balance : 0n };
     }).filter((a) => a.balance > 0n);
+    // TAC notes the scan found at the address but whose history it could not read this time: not in the balance, and said so.
+    const tacH = h instanceof Map ? [...h.entries()].find(([id, x]) => String(x.assetIdHex || id).toLowerCase() === TAC_BTC_ID)?.[1] : null;
+    const recent = (u) => !u.utxo?.status?.confirmed || Date.now() / 1e3 - Number(u.utxo.status.block_time || 0) < 30 * 60;
+    const unread = (tacH?.unverified || []).filter((u) => !recent(u)).length, arriving = (tacH?.unverified || []).length - unread;
     if (!live()) return;
-    Object.assign(BTC, { held, got: Math.max(BTC.got, 2) });
+    Object.assign(BTC, { held, unread, arriving, got: Math.max(BTC.got, 2) });
     drawn(true);
     const todo = [];
     for (const e of Object.entries(t.loadSpCredits() || {}).filter(([, c]) => !c.coinClass)) {
@@ -6602,7 +6606,9 @@ async function shDiscover(pub) {
     if (found && S.key?.pubHex === pub) toast(found === 1 ? 'Found a shielded payment this browser had no record of' : `Found ${found} shielded payments this browser had no record of`);
   } catch { } finally { shLooking = null; rerender('btc'); rerender('tac'); }
 }
-const shLookingNote = (pub) => (shLooking === pub ? html`<p class="note">Looking for TAC sent privately to your tacit1 address, which this browser has no record of yet…</p>` : '');
+const shLookingNote = (pub) => html`${shLooking === pub ? html`<p class="note">Looking for TAC sent privately to your tacit1 address, which this browser has no record of yet…</p>` : ''}${BTC.pub === pub && BTC.unread
+  ? html`<p class="note">${BTC.unread === 1 ? 'One TAC note' : `${BTC.unread} TAC notes`} at your Bitcoin address ${BTC.unread === 1 ? 'is' : 'are'} not counted yet: ${BTC.unread === 1 ? 'its' : 'their'} history could not be read from Bitcoin just now. Refresh the Bitcoin balance in a minute.</p>` : ''}${BTC.pub === pub && BTC.arriving
+  ? html`<p class="note">${BTC.arriving === 1 ? 'One TAC note' : `${BTC.arriving} TAC notes`} just sent to your Bitcoin address ${BTC.arriving === 1 ? 'is' : 'are'} counted once ${BTC.arriving === 1 ? 'it has' : 'they have'} confirmed and been checked.</p>` : ''}`;
 async function lookForShielded(status) {
   try {
     const { found, failed } = await scanShielded(status);

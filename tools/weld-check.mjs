@@ -3197,7 +3197,7 @@ await step('bridgefind', async () => {
 // address (TAC's whole transfer index, 200 a page) and for notes bridged to its Taproot address; a browser that has looked does not again.
 await step('clearedfind', async () => {
   const TAC = 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b';
-  const run = async (hex, seed) => {
+  const run = async (hex, seed, before = null) => {
     const r = await openPage({ account: A0, key: K0 });
     const pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex'), seen = { deep: 0, taproot: 0 };
     await r.ctx.route(new RegExp(`^https://api\\.tacit\\.finance/assets/${TAC}/recent-xfer-txids`), (route) => {
@@ -3212,6 +3212,7 @@ await step('clearedfind', async () => {
       localStorage.setItem('tacit-lite-shielded-deep-v1', JSON.stringify({ [p]: Date.now() }));
       localStorage.setItem('tacit-lite-bridged-look-v1', JSON.stringify({ [p]: { tac: Date.now(), teth: Date.now() } }));
     }, [pub]);
+    if (before) await before(r.page);
     await r.page.click('#wallet-body [data-in="paste"]');
     await r.page.fill('#ws-hex', hex);
     await r.page.click('#wallet-body [data-in="key"]');
@@ -3232,6 +3233,23 @@ await step('clearedfind', async () => {
     const { r, seen } = await run('c1eb'.padEnd(64, '7'), true);
     await new Promise((res) => setTimeout(res, 30000));
     ok(seen.deep === 0 && seen.taproot === 0, `clearedfind: a browser that has looked for the key does not look again (${seen.deep} index, ${seen.taproot} Taproot reads)`);
+    await r.browser.close();
+  }
+  // TAC notes the scan found but could not count: those whose history it could not read are named as such, a just-sent one as arriving.
+  {
+    const { r } = await run('c1ec'.padEnd(64, '7'), true, (page) => page.evaluate(async (aid) => {
+      globalThis.__TACIT_NO_INIT__ = true; localStorage.setItem('tacit-network-v1', 'mainnet');
+      const T = await import([...document.scripts].map((x) => x.textContent).join('').match(/\/tacit\.js\?cb=[0-9a-f]+/)[0]);
+      const old = Math.floor(Date.now() / 1e3) - 7200, u = (n, status) => ({ utxo: { txid: n.repeat(32), vout: 0, value: 546, status }, commitment: new Uint8Array(33) });
+      const unverified = [u('e1', { confirmed: true, block_time: old }), u('e2', { confirmed: true, block_time: old }), u('e3', { confirmed: false })];
+      T._testSetScanHoldingsOverride(() => new Map([[aid, { assetIdHex: aid, ticker: 'TAC', decimals: 8, balance: 0n, utxos: [], ghosts: [], inflated: [], pending: [], unverified }]]));
+    }, TAC));
+    await r.page.evaluate(() => { location.hash = '#btc'; });
+    await until(r.page, () => /2 TAC notes at your Bitcoin address are not counted yet/.test(document.querySelector('#btc-body')?.textContent || ''), null, 90000).catch(() => {});
+    const body = (await text(r.page, '#btc-body')).replace(/\s+/g, ' ');
+    ok(/2 TAC notes at your Bitcoin address are not counted yet: their history could not be read from Bitcoin just now/.test(body), 'clearedfind: TAC notes whose history could not be read are said to be not counted yet, not shown as nothing');
+    ok(/One TAC note just sent to your Bitcoin address is counted once it has confirmed/.test(body), 'clearedfind: and a just-sent one is said to be arriving');
+    if (r.errors.length) { fails++; console.log('FAIL clearedfind page errors: ' + r.errors.slice(0, 3).join(' | ')); }
     await r.browser.close();
   }
 });
