@@ -1,8 +1,8 @@
 
 const TACIT_URL = '/tacit.js?cb=403b6011';
 const SECRET_URL = '/sats/secret.js?cb=a8c52b0f';
-const SATS_URL = '/tac/sats.js?cb=b7aaaf73';
-const MARKET_URL = '/tac/market.js?cb=596f6e90';
+const SATS_URL = '/tac/sats.js?cb=cbc4ba41';
+const MARKET_URL = '/tac/market.js?cb=c06d841d';
 const CLAIM_URL = '/tac/claim.js?cb=1523631a';
 const UNIFIED_URL = '/tacit-unified.js?cb=a5b3a042';
 const KNOWN_URL = '/tacit-wallet-known.js?cb=ed4c75b7';
@@ -640,7 +640,7 @@ function renderShieldPicker() {
   const shieldable = pub.notes.filter((u) => !u.stealthTweakedSk);
   const stealthHeld = pub.notes.length - shieldable.length;
   $('shield-stealth-note').textContent = stealthHeld
-    ? `${stealthHeld} note${stealthHeld === 1 ? '' : 's'} paid to a one-time address ${stealthHeld === 1 ? 'is' : 'are'} in your balance but cannot be shielded from this page yet. Move ${stealthHeld === 1 ? 'it' : 'them'} in the classic app first.`
+    ? `${stealthHeld} note${stealthHeld === 1 ? '' : 's'} paid to a one-time address cannot be shielded here yet. Move ${stealthHeld === 1 ? 'it' : 'them'} in the classic app first.`
     : '';
   if (!shieldable.length) {
     const o = document.createElement('option');
@@ -1015,7 +1015,7 @@ async function showClaim(payload) {
     await loadTacit();
     if (!unlocked() && !knownWallet()) {
       openWallet();
-      say('st-claim', 'Sign in first: the TAC moves into your wallet. Then press Claim again.');
+      say('st-claim', 'Sign in first, then press Claim again.');
       return;
     }
     await ensureKey();
@@ -1030,7 +1030,7 @@ async function showClaim(payload) {
   });
 
   host.replaceChildren(
-    Object.assign(document.createElement('p'), { className: 'note', style: 'margin-top:0', textContent: parsed.pinned ? 'This link is PIN-protected. Enter the PIN you were given.' : 'This link holds shielded TAC. Claiming moves it into a wallet only you control.' }),
+    Object.assign(document.createElement('p'), { className: 'note', style: 'margin-top:0', textContent: parsed.pinned ? 'Enter the PIN you were given.' : 'Claiming moves the TAC into a wallet only you control.' }),
     ...(parsed.pinned ? [pinField] : []), line, btn, st);
   if (parsed.pinned) pinField.addEventListener('input', () => { clearTimeout(showClaim._t); showClaim._t = setTimeout(refresh, 400); });
   await refresh();

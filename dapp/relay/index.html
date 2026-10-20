@@ -14,7 +14,7 @@
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <!-- preload-roots: /relay/app.js -->
 <!-- preload:begin -->
-<link rel="modulepreload" href="/relay/app.js?cb=1d1c07a8">
+<link rel="modulepreload" href="/relay/app.js?cb=cf2478a8">
 <link rel="modulepreload" href="/trade/connect.js?cb=92188b57">
 <link rel="modulepreload" href="/walletconnect.js?cb=2dd7ae09">
 <link rel="modulepreload" href="/trade/wallet.js?cb=4965f3e0">
@@ -367,7 +367,7 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   <main>
     <section class="hero">
       <h1>The relay, <em>in the open</em></h1>
-      <p class="sub">The relay proves and settles what people send through it, and keeps Bitcoin’s state on Ethereum current for everyone. Here is what it earns, what that costs and the tenth of its fee income that buys TAC. Below: settles it has proved that anyone can send, and how to pay for its proofs.</p>
+      <p class="sub">The relay proves and settles what people send it. Here is what it earns, what that costs and the tenth of its fee income that buys TAC.</p>
       <p class="jump"><a href="#open">Send a settle</a><a href="#prove">Pay for proofs</a></p>
     </section>
 
@@ -382,10 +382,10 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         <section class="panel" id="p-flow">
           <p class="eyebrow">Where it goes</p>
           <ol class="flow">
-            <li>Fees paid in ETH, or in a token the relay converts, land in the settle wallet. <b>A tenth of them goes to the TAC buyback</b>, every pass; the rest pays for settles and proving.</li>
-            <li>Fees paid in TAC are never sold: the relay moves them to the protocol reserve.</li>
+            <li>Fees in ETH or converted tokens land in the settle wallet. <b>A tenth goes to the TAC buyback</b> each pass; the rest pays for settles and proving.</li>
+            <li>Fees paid in TAC are never sold. They go to the protocol reserve.</li>
             <li id="flow-tips">A wrap’s tip pays for settling it.</li>
-            <li>The buyback turns its ETH into TAC on the public market, a little at a time, and sends the TAC to the reserve.</li>
+            <li>The buyback buys TAC on the public market and sends it to the reserve.</li>
           </ol>
         </section>
       </div>
@@ -396,19 +396,19 @@ footer.sf svg.fill { width: 16px; height: 16px; }
         <p class="eyebrow"><span id="open-h">Proved, waiting for a sender</span><button class="linkbtn" id="open-re" type="button">Refresh</button></p>
         <div id="open-list" aria-live="polite"><p class="mute">Loading…</p></div>
         <div class="status" id="open-status" role="status"></div>
-        <p class="note">Anyone can send these. Each is a settle the relay has proved. The pool’s settle is open to every account, and whoever sends one is paid the fee its proof binds, in the asset it names. Your wallet pays the network fee. Each settle is tried first, so one already sent is not sent again. To send them as they come, <a href="https://github.com/src-company/tacit/blob/main/docs/OPEN-RELAYER.md" target="_blank" rel="noopener">run your own relay</a>.</p>
+        <p class="note">Anyone can send these and is paid the fee its proof binds, in the asset it names. Your wallet pays the network fee. To send them as they come, <a href="https://github.com/src-company/tacit/blob/main/docs/OPEN-RELAYER.md" target="_blank" rel="noopener">run your own relay</a>.</p>
       </section>
       <section class="panel" id="prove" aria-labelledby="prove-h">
         <p class="eyebrow"><span id="prove-h">Pay for proofs</span><a href="https://etherscan.io/address/0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7" target="_blank" rel="noopener">prover account</a></p>
-        <p class="lead">Every proof the relay makes is paid in PROVE, the token of Succinct’s prover network, from one prover account. PROVE sent to that account is put to work within a few minutes, or at the next half-hourly top-up when it is under 2 PROVE. About 0.4 PROVE pays for one proof.</p>
+        <p class="lead">Every proof is paid in PROVE, Succinct’s prover token, from one prover account. About 0.4 PROVE pays for one proof. PROVE sent there is used within a few minutes, or at the next half-hourly top-up when under 2 PROVE.</p>
         <div class="seg" role="group" aria-label="Pay with"><button type="button" data-pay="prove" aria-pressed="true">Send PROVE</button><button type="button" data-pay="eth" aria-pressed="false">Pay with ETH</button></div>
         <div class="lbl2"><label for="pv-amt" id="pv-lbl">PROVE to send</label><span><span id="pv-bal"></span> <button class="linkbtn" id="pv-max" type="button" hidden>Max</button></span></div>
         <div class="amt"><input id="pv-amt" inputmode="decimal" placeholder="0.0" autocomplete="off" aria-describedby="pv-quote"><span class="u" id="pv-unit">PROVE</span></div>
         <div class="rows" id="pv-quote"></div>
         <button class="btn" id="pv-go" type="button">Connect wallet</button>
         <div class="status" id="pv-status" role="status"></div>
-        <p class="note">The prover account is <span class="addr">0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7</span>. PROVE goes to it in one transfer. With ETH, one transaction swaps it to PROVE through zRouter and sends the PROVE straight there. The least it may buy is set before you confirm.</p>
-        <p class="note" id="prove-self">Prove your own actions with your own PROVE, privately: your Tacit account pays Succinct’s prover for its own proofs and sends each one itself, so the relay neither proves nor sends them. <a href="/#prove-self">Set it up →</a></p>
+        <p class="note">The prover account is <span class="addr">0x68575B073DE49a94e3E3ACf6F3A0d6E3b66267C7</span>. With ETH, one transaction swaps to PROVE through zRouter and sends it straight there.</p>
+        <p class="note" id="prove-self">Prove your own actions with your own PROVE, privately: the relay neither proves nor sends them. <a href="/#prove-self">Set it up →</a></p>
       </section>
     </div>
   </main>
@@ -427,6 +427,6 @@ footer.sf svg.fill { width: 16px; height: 16px; }
   </footer>
   <!-- chrome:foot:end -->
 </div>
-<script type="module" src="/relay/app.js?cb=1d1c07a8"></script>
+<script type="module" src="/relay/app.js?cb=cf2478a8"></script>
 </body>
 </html>

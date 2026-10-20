@@ -149,7 +149,7 @@ ok(/Fees paid in TAC are kept, not sold/.test(tacNote) && !/\$/.test(tacNote), '
   t = await text('#p-costs');
   ok(/Network fees to settle0\.02 ETH · \$48/.test(t) && /PROVE put into the prover55 PROVE · \$9\.9/.test(t), `costs: network fees and PROVE, in ETH and dollars (${t.slice(0, 120)})`);
   ok(/Fees pay part of all this; the team funds the rest/.test(t), 'costs: says the team funds the rest');
-  ok(/Settles the relay pays for today/.test(t) && /Bridge and cBTC mints3 of 12/.test(t) && /Farm harvests and unbonds17 so far/.test(t) && /Wraps with no tip2 so far/.test(t) && /Other requests with no fee1 of 4/.test(t) && /settled from the sender’s own account/.test(t), `costs: today's sponsored settles against each limit (${t.slice(-330)})`);
+  ok(/Settles the relay pays for today/.test(t) && /Bridge and cBTC mints3 of 12/.test(t) && /Farm harvests and unbonds17 so far/.test(t) && /Wraps with no tip2 so far/.test(t) && /Other requests with no fee1 of 4/.test(t) && /the sender settles it from their own account/.test(t), `costs: today's sponsored settles against each limit (${t.slice(-330)})`);
   t = await text('#p-tips');
   ok(/122wraps tipped, 0\.032 ETH/.test(t) && /To Ops multisig0\.031 ETH/.test(t) && /Prover account63%/.test(t) && /Settle wallet27%/.test(t) && /TAC buyback10%/.test(t), `tips: the month's tips, where they went and who the splitter pays (${t.slice(0, 130)})`);
   ok(!/To 0x0+…0+/.test(t), 'tips: a recipient that was paid nothing is not listed');

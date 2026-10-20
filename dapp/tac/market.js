@@ -278,7 +278,7 @@ export async function mount(host, ctx = {}) {
     el('div', { class: 'chips' }, ...[['1h', row.price_1h_change_pct], ['4h', row.price_4h_change_pct], ['24h', row.price_24h_change_pct], ['7d', row.price_7d_change_pct], ['all', row.price_all_change_pct]]
       .filter(([, v]) => Number.isFinite(Number(v)))
       .map(([k, v]) => el('span', { class: 'chipx' }, el('i', {}, k), el('b', { class: Number(v) >= 0 ? 'ok' : 'err' }, pct(v))))),
-    el('p', { class: 'note' }, `Price comes from real trades on the book, not a quote. ${(row.price_summary || []).length} price points · ${num(row.holder_count || 0, 0)} holders.`),
+    el('p', { class: 'note' }, `From real trades on the book. ${(row.price_summary || []).length} price points · ${num(row.holder_count || 0, 0)} holders.`),
     el('p', { class: 'eyebrow', style: 'margin-top:22px' }, 'Asks on the book'),
     ...(buy ? [buy.fund] : []),
     sales ? askDepth(sales, Number(row.decimals) || 8, mark, buy?.onBuy) : el('p', { class: 'note' }, 'Could not read the book.'),
@@ -309,9 +309,9 @@ export async function mount(host, ctx = {}) {
       el('div', { class: 'kv' }, el('span', {}, ended ? 'Ended' : 'Runs for'), el('b', { class: 'num' }, ended ? new Date(p.finish * 1000).toISOString().slice(0, 10) : `${days} more day${days === 1 ? '' : 's'}`)),
       apr != null && !ended ? el('div', { class: 'kv' }, el('span', {}, 'Rewards vs staked value'), el('b', { class: 'num' }, `≈ ${num(apr, 0)}% a year`)) : null,
       el('p', { class: 'note' }, ended
-        ? 'The stream has ended: withdrawing and claiming still work, but a new stake earns nothing until the farm is funded again.'
-        : 'That rate moves sharply as stake joins or leaves: it is a snapshot, not a promise. Nothing indexes this pool over time, so there is no chart yet.'),
-      el('p', { class: 'note' }, 'A one-sided deposit into a pool this thin moves the price against you. Add both sides when you hold both.'),
+        ? 'The stream has ended. Withdrawing and claiming still work; a new stake earns nothing until the farm is funded.'
+        : 'That rate is a snapshot and moves as stake joins or leaves.'),
+      el('p', { class: 'note' }, 'A one-sided deposit moves the price against you; add both sides when you hold both.'),
     );
   } catch (e) {
     document.getElementById('prec-body').replaceChildren(el('p', { class: 'note err' }, `Could not read the pool: ${words(ctx, e)}`));

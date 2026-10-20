@@ -106,7 +106,7 @@ export function mount(host, ctx) {
       const r = await fetch(`${ctx.T.NET.api}/address/${a}`);
       const j = r.ok ? await r.json() : null;
       const used = j && [j.chain_stats, j.mempool_stats].some((x) => x?.tx_count > 0);
-      if (payout.value.trim() === a && used) payHint.textContent = 'This address has been used before. A new one keeps these sats apart from the coins it already holds.';
+      if (payout.value.trim() === a && used) payHint.textContent = 'This address has been used before. A new one keeps these sats apart.';
     } catch {}
   });
 
@@ -236,7 +236,7 @@ export function mount(host, ctx) {
     const f = fee(), rows = held();
     fill(host,
       el('p', { class: 'note', style: 'margin-top:0' },
-        'Shielded TAC out, real bitcoin in. The relay takes your TAC out of the pool to a new key made for this sale and pays its Bitcoin fee, for a fee in TAC. That key lists it at your price, and the buyer pays sats straight to an address you name. This wallet’s address takes no part, so nothing on chain or on the listing ties those sats to it.'),
+        'Sell shielded TAC for sats. A new key made for this sale lists it, and the buyer pays sats straight to an address you name. This wallet’s address takes no part, so nothing ties those sats to it.'),
 
       el('div', { class: 'lbl' }, el('label', { for: 'sats-amt' }, 'Amount to take out'),
         el('button', { class: 'link', type: 'button', onclick: () => { const m = shieldedTotal() - f; amt.value = m > 0n ? plain(m) : '0'; recompute(); } }, 'Max')),
@@ -250,12 +250,12 @@ export function mount(host, ctx) {
 
       el('div', { class: 'lbl sep' }, el('label', { for: 'sats-payout' }, 'Pay the sats to')),
       el('div', { class: 'amt text' }, payout),
-      el('p', { class: 'note' }, 'An address from another wallet, ideally one that has never been used. It needs no funds first.'),
+      el('p', { class: 'note' }, 'Ideally a new address from another wallet. It needs no funds first.'),
       payHint,
       el('div', { class: 'lbl' }, el('label', { for: 'sats-lasts' }, 'Listing lasts'), lasts),
 
       el('p', { class: 'eyebrow', style: 'margin-top:22px' }, 'Step 1: take it out'),
-      f ? el('p', { class: 'note' }, `The relay’s fee is ${fmt(f)} TAC, from your shielded balance. The rest stays shielded.`) : null,
+      f ? el('p', { class: 'note' }, `The relay’s fee is ${fmt(f)} TAC, from your shielded balance.`) : null,
       btnOut,
       statusStep1,
 
@@ -265,7 +265,7 @@ export function mount(host, ctx) {
       ...rows.map(heldRow),
       btnList,
       statusStep2,
-      el('p', { class: 'note' }, 'Listing is a signature, not a transaction: it costs nothing and needs no bitcoin. A listing stands until it ends; to change the price, list again after that. It shows the amount and the price, as every listing does, so round amounts are harder to pick out. The relay sees your connection when it takes the TAC out and the market sees it when you list, so Tor or a VPN for the listing keeps those two apart.'),
+      el('p', { class: 'note' }, 'Listing is a free signature and stands until it ends. The relay sees your connection when it takes the TAC out and the market when you list, so Tor or a VPN for the listing keeps the two apart.'),
     );
     host.querySelectorAll('input[name="sats-pick"]').forEach((r, i) => r.addEventListener('change', () => { pick = opKey(listable()[i]); recompute(); }));
     btnList.disabled = !chosen();

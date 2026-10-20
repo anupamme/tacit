@@ -39,14 +39,14 @@ function paintBuyback(j) {
   mount($('#p-buyback'),
     h('p', { class: 'eyebrow' }, h('span', {}, 'TAC buyback'), scan(`address/${b.address}`, `${b.address.slice(0, 8)}…${b.address.slice(-4)}`)),
     h('p', { class: 'big num' }, num(b.tacBought, b.tacBought < 100 ? 2 : b.tacBought < 1000 ? 1 : 0), h('small', {}, 'TAC bought')),
-    h('p', { class: 'note' }, `${b.buys} ${b.buys === 1 ? 'buy' : 'buys'} for ${eth(b.ethSpent)} ETH${b.lastBuyBlock && j.chain.head ? `, the last ${ago(j.chain.head - b.lastBuyBlock)}` : ''}. The TAC goes straight to the protocol reserve.`),
+    h('p', { class: 'note' }, `${b.buys} ${b.buys === 1 ? 'buy' : 'buys'} for ${eth(b.ethSpent)} ETH${b.lastBuyBlock && j.chain.head ? `, the last ${ago(j.chain.head - b.lastBuyBlock)}` : ''}.`),
     b.complete ? null : h('p', { class: 'stale' }, 'Still reading the contract’s full history; the figures above can only grow.'),
     h('div', { class: 'rows' },
       kv('Commitment', pct ? `${pct} of the relay’s fee income` : 'not set'),
       week ? kv(`Sent in the last ${week.days} ${week.days === 1 ? 'day' : 'days'}`, `${eth(week.buybackEth)} ETH`) : null,
       l && l.owedEth > 0 ? kv('Carried to the next pass', `${eth(l.owedEth)} ETH`) : null,
       kv('Waiting in the contract', `${eth(b.ethHeld)} ETH`)),
-    h('p', { class: 'note' }, 'The relay keeps a small float for its next settles. A share not yet paid is carried to the next pass. The contract buys at most once every six hours, in small amounts, so ETH waits there between buys.'));
+    h('p', { class: 'note' }, 'The relay keeps a small float for its settles. The contract buys at most once every six hours, so ETH waits there between buys.'));
 }
 
 function paintFees(j) {
@@ -77,7 +77,7 @@ function sponsorshipRows(j) {
     h('p', { class: 'eyebrow' }, 'Settles the relay pays for today'),
     h('div', { class: 'rows' }, Object.entries(CLASS_WORDS).map(([k, label]) => { const c = sp.classes[k]; return kv(label, c.cap == null || c.used > c.cap ? `${c.used} so far` : `${c.used} of ${c.cap}`); }),
       sp.prove ? kv('Proofs for requests the sender settles', sp.prove.cap == null || sp.prove.used > sp.prove.cap ? `${sp.prove.used} so far` : `${sp.prove.used} of ${sp.prove.cap}${sp.prove.perClient ? `, up to ${sp.prove.perClient} per sender` : ''}`) : null),
-    h('p', { class: 'note' }, 'Requests that carry a fee, or a tip with the wrap, are not counted. Past a limit the relay still proves the request, and it is settled from the sender’s own account instead. Past the proofs’ limit a request goes through the relay with a fee, or is proved locally.'));
+    h('p', { class: 'note' }, 'Requests with a fee or a wrap tip are not counted. Past a limit the relay still proves the request and the sender settles it from their own account. Past the proofs’ limit a request needs a fee, or is proved locally.'));
 }
 
 function paintCosts(j) {
@@ -89,7 +89,7 @@ function paintCosts(j) {
     h('div', { class: 'rows' },
       kv('Network fees to settle', h('span', {}, `${eth(w.gasEth)} ETH`, gasUsd != null ? h('small', { class: 'mute' }, ` · ${usd(gasUsd)}`) : null)),
       kv('PROVE put into the prover', h('span', {}, `${num(w.proveIn, 1)} PROVE`, proveUsd != null ? h('small', { class: 'mute' }, ` · ${usd(proveUsd)}`) : null))),
-    h('p', { class: 'note' }, 'Keeping Bitcoin’s state current on Ethereum (headers and attests) is paid from the same wallets and is not in these figures. Fees pay part of all this; the team funds the rest.'),
+    h('p', { class: 'note' }, 'Keeping Bitcoin’s state current on Ethereum is paid from the same wallets and is not counted here. Fees pay part of all this; the team funds the rest.'),
     sponsorshipRows(j));
 }
 
@@ -97,7 +97,7 @@ function paintTips(j) {
   const t = j.chain && j.chain.tips, sp = j.chain && j.chain.splitter, el = $('#p-tips');
   const paid = t ? t.byRecipient.filter((r) => r.eth > 0) : [];
   // Said as it is set up now: a splitter is only mentioned once there is one.
-  $('#flow-tips').textContent = sp && sp.shares ? 'A wrap’s tip pays for settling it. Tacit’s own pages send it to a splitter, which sends it on to the wallets that keep Bitcoin’s state current and settle requests, and to the buyback. A page that pays the ops multisig directly is counted the same.' : 'A wrap’s tip pays for settling it. It goes to the ops multisig, which funds the relay’s wallets.';
+  $('#flow-tips').textContent = sp && sp.shares ? 'A wrap’s tip pays for settling it. Tacit’s pages send it to a splitter, which passes it to the wallets that settle and keep Bitcoin’s state current, and to the buyback.' : 'A wrap’s tip pays for settling it. It goes to the ops multisig, which funds the relay’s wallets.';
   mount(el,
     h('p', { class: 'eyebrow' }, 'Wrap tips, last 30 days'),
     !t ? h('p', { class: 'mute' }, 'Loading…')
@@ -108,7 +108,7 @@ function paintTips(j) {
     sp && sp.shares ? h('div', {},
       h('p', { class: 'note' }, 'A splitter sends what tips it receives on to:'),
       h('div', { class: 'rows' }, sp.shares.map((s) => kv(nameOf(s.to), `${s.percent}%`))),
-      h('p', { class: 'note' }, scan(`address/${sp.address}`, 'The splitter'), ' can be changed by the ops multisig, and anyone can send on what it holds.')) : null);
+      h('p', { class: 'note' }, scan(`address/${sp.address}`, 'The splitter'), ' can be changed by the ops multisig; anyone can send on what it holds.')) : null);
 }
 
 async function load() {
