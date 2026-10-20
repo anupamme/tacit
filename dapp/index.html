@@ -1819,6 +1819,7 @@ const errText = (e) => {
   if (/^the relay is busy with other sends/i.test(m)) return m.charAt(0).toUpperCase() + m.slice(1);
   if (/free relayed settles for today are used up/i.test(m)) return 'The relay’s free settles for today are used up. They open again at midnight UTC.';
   if (/\bHTTP 5\d\d\b/.test(m)) return 'The service is busy. Try again in a moment.';
+  if (e?.name === 'QuotaExceededError' || e?.name === 'NS_ERROR_DOM_QUOTA_REACHED' || /^the quota has been exceeded\.?$|^failed to execute 'setItem' on 'storage'/i.test(m)) return 'Could not save this in your browser. Its storage for this site is full. Free up space on this device or clear old site data, then try again.';
   if (/failed to fetch|networkerror|load failed|all rpcs failed/i.test(m)) return 'Could not reach the network. Check your connection and try again.';
   if (/rate.?limit|too many requests|\b429\b|exceeded.*(?:request|quota)|upgrade.*(?:plan|tier)/i.test(m)) return 'That network is busy. Try again in a moment.';
   if (/timed? ?out|timeout/i.test(m)) return 'The network took too long to answer. Try again.';

@@ -48,7 +48,12 @@ export function prfBytesToScalar(raw32) {
 export function loadPrfMap() {
   try { return JSON.parse(localStorage.getItem(PRF_MAP_KEY) || '{}'); } catch { return {}; }
 }
-export function savePrfMap(m) { localStorage.setItem(PRF_MAP_KEY, JSON.stringify(m)); }
+// The map only remembers which passkey signed in last (its label, id and time). A browser with no room left, or one that
+// refuses storage, must not stop a sign-in the passkey has already answered: the key is the same either way, and the
+// next visit asks for the passkey again. True when it was kept.
+export function savePrfMap(m) {
+  try { localStorage.setItem(PRF_MAP_KEY, JSON.stringify(m)); return true; } catch { return false; }
+}
 export function clearPrfMap() { localStorage.removeItem(PRF_MAP_KEY); }
 
 export async function prfRegister(label) {

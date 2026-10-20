@@ -149,6 +149,22 @@ test('loadPrfMap survives corrupt JSON without throwing', () => {
   return typeof m === 'object' && Object.keys(m).length === 0;
 });
 
+test('savePrfMap returns true when it saved', () => {
+  clearPrfMap();
+  return savePrfMap({ a: { credentialId: 'abc' } }) === true && loadPrfMap().a.credentialId === 'abc';
+});
+
+// A full or refusing storage (QuotaExceededError: Safari/Firefox "The quota has been exceeded.") must not stop a
+// sign-in the passkey already answered; the caller carries on with the key and only the "last used" memory is lost.
+test('savePrfMap does not throw when storage is full, and reports it', () => {
+  const S = dom.window.Storage.prototype, real = S.setItem;
+  S.setItem = () => { throw new dom.window.DOMException('The quota has been exceeded.', 'QuotaExceededError'); };
+  let r, threw = false;
+  try { r = savePrfMap({ a: { credentialId: 'abc' } }); } catch { threw = true; }
+  finally { S.setItem = real; }
+  return !threw && r === false;
+});
+
 // ---------- prfTryRestore ordering ----------
 console.log('\nprfTryRestore:');
 
