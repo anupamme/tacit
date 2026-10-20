@@ -1114,6 +1114,21 @@ function createMarket(host, ctx) {
     }[s.status] || '○'}</span><span class="lb">${s.label}${s.note ? `<em>${esc(s.note)}</em>` : ''}${s.txid && ctx.txUrl ? ` <a href="${esc(ctx.txUrl(s.txid))}" target="_blank" rel="noopener">tx</a>` : ''}</span></li>`).join('')}</ol>`;
   }
 
+  // A review that stays open this long is a purchase being weighed: the lots of its plan are checked ahead, so the buy has less left to read.
+  const PREPARE_DWELL_MS = 4000;
+  // While a lot is being checked on Bitcoin, the step that is working says how many of its transactions have been read.
+  function watchLotChecks(steps, paint, title) {
+    if (!ctx.onLotCheck) return () => {};
+    let timer = 0, over = false;
+    const off = ctx.onLotCheck((e) => {
+      if (over) return;
+      if (e.phase === 'end') for (const s of steps) { if (/^checking /.test(s.note || '')) s.note = ''; }
+      else { const live = steps.find((x) => x.status === 'working'); if (!live) return; live.note = e.n ? `checking this lot on Bitcoin · ${e.n} transactions` : 'checking this lot on Bitcoin'; }
+      if (!timer) timer = setTimeout(() => { timer = 0; if (!over) paint(title); }, 250);
+    });
+    return () => { over = true; clearTimeout(timer); off(); };
+  }
+
   const planSig = (q) => (q?.plan ? q.plan.fills.map((f) => (f.ask || f.bid).id + ':' + f.amount + ':' + f.sats).join(',') : String(q?.shape?.totalSats ?? ''));
   let reviewing = false;
   async function review() {
@@ -1140,8 +1155,9 @@ function createMarket(host, ctx) {
     }
     const o = q.order;
     const md = modal();
-    let cancelled = false;
-    const close = () => { cancelled = true; md.close(); };
+    let cancelled = false, prepTimer = 0;
+    const close = () => { cancelled = true; clearTimeout(prepTimer); md.close(); };
+    const prepareAfterDwell = (raws) => { prepTimer = setTimeout(() => { try { ctx.prepare?.(raws); } catch { /* checking the lots ahead is a courtesy */ } }, PREPARE_DWELL_MS); };
     md.onEscape(close);
     const row = (k, v) => `<div class="bm-qr"><span>${k}</span><span>${v}</span></div>`;
     if (o.type === 'market' && o.side === 'buy') {
@@ -1159,7 +1175,8 @@ function createMarket(host, ctx) {
         ${row('Limits', `at most ${fmtUnit(maxUnit)} sats/${T} · ${fmtSats(maxSats)} sats`)}
         <p class="bm-q bm-muted">If an offer is taken before you, the page moves to the next one — only within these limits. Otherwise it stops and nothing more is spent.</p>
         ${stepsHtml(p.fills.map((f) => ({ status: 'queued', label: fillLabel(f), note: f.ask.instant ? '' : 'seller confirms' })))}`);
-      md.buttons([{ label: 'Cancel', onClick: close }, { label: 'Buy now', primary: true, onClick: () => runBuy(md, p, bounds, o) }]);
+      md.buttons([{ label: 'Cancel', onClick: close }, { label: 'Buy now', primary: true, onClick: () => { clearTimeout(prepTimer); runBuy(md, p, bounds, o); } }]);
+      prepareAfterDwell(p.fills.map((f) => f.ask.raw));
       return;
     }
     if (o.type === 'market' && o.side === 'sell') {
@@ -1186,7 +1203,8 @@ function createMarket(host, ctx) {
         ${bidBase > 0n ? row('Bid', `${fmtAmount(bidBase, dec, 6)} ${T} for up to ${fmtSats(bidSats)} sats <em>(lasts ${exp})</em>`) : ''}
         ${bidBase > 0n && wt.on ? row('Watchtower', `moves ${fmtSats(bidSats + 10000)} sats into a bid wallet only you can reclaim <em>(includes 10,000 for fees)</em>`) : ''}
         <p class="bm-q bm-muted">${bidBase > 0n ? (wt.on ? 'Sellers can fill your bid while you\'re away; cancel any time from Your orders and reclaim what\'s left.' : 'Fills complete while this page is open. Cancel any time from Your orders.') : ''}</p>`);
-      md.buttons([{ label: 'Cancel', onClick: close }, { label: 'Place order', primary: true, onClick: () => runLimitBuy(md, { order: o, now, bidBase, bidSats, watchtower: wt.on && bidBase > 0n }) }]);
+      md.buttons([{ label: 'Cancel', onClick: close }, { label: 'Place order', primary: true, onClick: () => { clearTimeout(prepTimer); runLimitBuy(md, { order: o, now, bidBase, bidSats, watchtower: wt.on && bidBase > 0n }); } }]);
+      if (now) prepareAfterDwell(now.fills.map((f) => f.ask.raw));
       return;
     }
     const sh = q.shape;
@@ -1227,6 +1245,7 @@ function createMarket(host, ctx) {
     const tried = new Set();
     let queue = steps.slice();
     paint('Buying…');
+    const stopWatch = watchLotChecks(steps, paint, 'Buying…');
     while (queue.length && !stop) {
       const pre = queue.filter((s) => s.fill.ask.kind === 'preauth');
       const rest = queue.filter((s) => s.fill.ask.kind !== 'preauth');
@@ -1289,6 +1308,7 @@ function createMarket(host, ctx) {
       if (!ok) { steps.push({ status: 'skipped', label: 'No other offers within your price limit — stopped here' }); break; }
       np.fills.forEach((f) => { const s = stepFor(f); s.note = 're-routed'; s.rerouted = true; queue.push(s); });
     }
+    stopWatch();
     for (const s of steps) if (s.status === 'queued') { s.status = 'skipped'; s.note = 'not attempted'; }
     const title = got > 0n ? `Bought ${fmtAmount(got, dec, 6)} ${T}` : 'Nothing bought';
     const summary = got > 0n
@@ -1394,6 +1414,7 @@ function createMarket(host, ctx) {
     const paint = (t) => md.set(`<h2>${t}</h2>${stepsHtml(steps)}`);
     md.buttons([]);
     let spent = 0; let got = 0n; let err = null;
+    const stopWatch = watchLotChecks(steps, paint, 'Placing your order…');
     for (const s of steps.filter((x) => x.fill)) {
       s.status = 'working'; paint('Placing your order…');
       try {
@@ -1428,6 +1449,7 @@ function createMarket(host, ctx) {
         } catch (e) { bidStep.status = 'failed'; bidStep.note = ctx.friendlyError(e, { verb: 'Bid' }); err = e; if (wtStep) wtStep.status = 'skipped'; }
       } else { bidStep.status = 'skipped'; bidStep.note = 'everything filled'; if (wtStep) wtStep.status = 'skipped'; }
     }
+    stopWatch();
     paint(err ? 'Order not completed' : bidId ? 'Your bid is live' : 'Done');
     md.unlockEscape();
     md.buttons([{ label: 'Done', primary: true, onClick: () => md.close() }]);

@@ -108,6 +108,8 @@ const SETUP = () => {
       ensureAutoConfirm: () => rec('ensureAutoConfirm', {}),
       offerStatus: async ({ intentId }) => W.statuses[intentId] || 'posted',
     },
+    prepare: (raws) => rec('prepare', raws.map((r) => r.sale_id || r.intent_id)),
+    onLotCheck: (fn) => { W.lotCheck = fn; return () => { if (W.lotCheck === fn) W.lotCheck = null; }; },
     after: {
       bought: async (o) => rec('bought', { amount: String(o.amount), ids: o.ids }),
       sold: async (o) => rec('sold', { amount: String(o.amount), ids: o.ids }),
@@ -265,6 +267,34 @@ await test('limit sell lists in walk-away pieces', async (page) => {
   assert.equal(l.k, 7);
   assert.equal(l.amountBase, '7000000000');
   assert.equal(l.perLotSats, 2500);
+});
+
+await test('the lots of a plan are checked ahead while its review is open, and the buy says how far the check has got', async (page) => {
+  await page.evaluate(() => { const W = window.__w; W.listings = [W.preauth('p1', 100, 20000)];
+    const orig = W.ctx; W.ctx = () => { const c = orig(); const t = c.exec.takeAsk; c.exec.takeAsk = async (...a) => { W.lotCheck?.({ phase: 'start', n: 0 }); W.lotCheck?.({ phase: 'read', n: 37 }); await new Promise((r) => setTimeout(r, 900)); W.lotCheck?.({ phase: 'end', n: 37 }); return t(...a); }; return c; }; });
+  await mount(page); await settle(page, 300);
+  await page.fill('[data-k=amount]', '20500'); await settle(page);
+  await clickGo(page); await settle(page, 1000);
+  assert.equal((await calls(page, 'prepare')).length, 0, 'nothing is checked ahead the moment a review opens');
+  await settle(page, 3600);
+  assert.deepEqual((await calls(page, 'prepare')).map((c) => c.args), [['p1']], 'the lots of the plan are handed over for checking once the review has stayed open');
+  await modalPrimary(page);
+  await page.waitForFunction(() => /checking this lot on Bitcoin · 37 transactions/.test(document.querySelector('.bm-modal')?.textContent || ''), null, { timeout: 5000 });
+  const done = await waitModal(page, /Bought/);
+  assert.doesNotMatch(done, /checking this lot/, 'the progress line is gone once the check has ended');
+});
+
+await test('a review that is cancelled, or confirmed, before it has been open a while checks nothing ahead', async (page) => {
+  await page.evaluate(() => { const W = window.__w; W.listings = [W.preauth('p1', 100, 20000)]; });
+  await mount(page); await settle(page, 300);
+  await page.fill('[data-k=amount]', '20500'); await settle(page);
+  await clickGo(page); await settle(page, 400);
+  await page.click('.bm-modal .bm-mfoot button:not(.bm-go)');
+  await settle(page, 4600);
+  assert.equal((await calls(page, 'prepare')).length, 0, 'a cancelled review checked lots ahead');
+  await clickGo(page); await modalPrimary(page);
+  await waitModal(page, /Bought/); await settle(page, 4600);
+  assert.equal((await calls(page, 'prepare')).length, 0, 'a confirmed review checked lots ahead');
 });
 
 await test('stop after the current step', async (page) => {
