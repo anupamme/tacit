@@ -8,4 +8,14 @@ assert.equal(replenishDue({ ...base, lastAt: base.now - 30 * 60_000 }), true, 'r
 assert.equal(replenishDue({ ...base, enabled: false }), false, 'switched off: never');
 assert.equal(replenishDue({ ...base, enabled: false, pendingDrain: true }), true, 'the one-off consolidation runs even when the top-up is off');
 assert.equal(replenishDue({ ...base, intervalMin: 0, lastAt: base.now }), true, 'a zero interval is always due');
-console.log('ok - 6 replenish schedule checks');
+const P = (n) => BigInt(n) * 10n ** 18n;
+const urgent = { ...base, lastAt: base.now - 12 * 60_000, urgentBelow: P(45), urgentEveryMin: 10 };
+assert.equal(replenishDue({ ...urgent, credit: P(14) }), true, 'credit under its urgent line, 12 minutes since the last pass: due early');
+assert.equal(replenishDue({ ...urgent, credit: P(14), lastAt: base.now - 9 * 60_000 }), false, 'but not twice within the urgent gap');
+assert.equal(replenishDue({ ...urgent, credit: P(80) }), false, 'a healthy credit waits out the interval');
+assert.equal(replenishDue({ ...urgent, credit: P(45) }), false, 'at the line is not under it');
+assert.equal(replenishDue({ ...urgent, credit: null }), false, 'an unread credit is never urgent');
+assert.equal(replenishDue({ ...urgent, credit: P(14), enabled: false }), false, 'switched off: never, urgent or not');
+assert.equal(replenishDue({ ...urgent, credit: P(14), urgentBelow: 0n }), false, 'no urgent line set: the interval alone');
+assert.equal(replenishDue({ ...urgent, credit: P(14), urgentEveryMin: 0 }), false, 'urgent passes switched off');
+console.log('ok - 13 replenish schedule checks');

@@ -162,6 +162,29 @@ await test('treasury: PROVE is bought from the settle wallet when the credit is 
   ok(swaps(rich.sent).filter((x) => !x.exactOut).length === 0, 'PROVE was bought with five days of credit on hand');
 });
 
+await test('treasury: a thin settle wallet buys PROVE first when the credit is under the reflection\'s reserve (the 2026-10-20 outage)', async () => {
+  // The wallets as they stood: the settle wallet 0.0016 ETH, the relay wallet 0.001, the credit 14 PROVE, under the ~17 a reflection proof needs
+  // free. Levelling alone raised the credit to the settle wallet's own runway and the sliver due was under the minimum swap, so nothing was bought
+  // and every attest was refused. With the urgent line (the default) everything above the settle wallet's floor goes to PROVE, for the sink.
+  const balances = { [settle]: ETH(0.0016), [relay]: ETH(0.001) };
+  const { sent, log: stdout } = await run({ feeAssets: A.eth, extraEnv: fakeCredit(14), balances, tokenBalances: {} });
+  const buys = swaps(sent).filter((x) => !x.exactOut && x.recipient === relay && x.signer === settle);
+  ok(buys.length === 1, `expected one ETH->PROVE swap for the sink, got ${show(buys)}\n${stdout}`);
+  ok(buys[0].value >= ETH(0.0008) && buys[0].value < ETH(0.0016), `expected what the settle wallet holds above its floor (about 0.00076 at the stub's gas), swapped ${Number(buys[0].value) / 1e18}`);
+  ok(!sent.some((t) => t.from === settle && t.to === relay && t.value > 0n), 'the relay wallet was fed ahead of the credit');
+  ok(/of it urgent/.test(stdout), `the pass does not say the purchase was urgent\n${stdout}`);
+  // The old plan: no urgent line, and the fixed 0.002 ETH minimum swap (a floor equal to the ceiling) in place of the gas-based one.
+  const old = await run({ feeAssets: A.eth, extraEnv: { ...fakeCredit(14), PROVE_URGENT_BELOW_WEI: '0', TREASURY_MIN_SWAP_FLOOR_WEI: String(ETH(0.002)) }, balances, tokenBalances: {} });
+  ok(swaps(old.sent).filter((x) => !x.exactOut).length === 0, 'the old levelling and fixed minimum bought PROVE after all, so this no longer reproduces the outage');
+  const calm = await run({ feeAssets: A.eth, extraEnv: fakeCredit(120), balances, tokenBalances: {} });
+  ok(swaps(calm.sent).filter((x) => !x.exactOut).length === 0, 'PROVE was bought with 120 on hand');
+});
+
+await test('treasury: PROVE already waiting in the sink counts toward the credit, so it is not bought twice', async () => {
+  const { sent } = await run({ feeAssets: A.eth, extraEnv: fakeCredit(14), balances: { [settle]: ETH(0.0016), [relay]: ETH(0.001) }, tokenBalances: { [A.prove]: { [relay]: 80n * 10n ** 18n } } });
+  ok(swaps(sent).filter((x) => !x.exactOut).length === 0, 'PROVE was bought though 80 were waiting for their deposit');
+});
+
 await test('reserve: tacUSD and tacBTC are moved to the reserve like TAC, each past its own minimum, never swapped', async () => {
   const TACUSD = '0x23cacffac2674514a6d4f6cd420b4cc2ac921564', TACBTC = '0xdf1d99148beb7a9aff1d95c49b3d22b7ed90d696', RESERVE = '0x006cd14f36f65ecbb29b2519ccbe63a0dc8549f2';
   const xfers = (sent, token) => sent.filter((t) => t.to === token && t.data.startsWith('0xa9059cbb')).map((t) => ({ signer: t.from, to: '0x' + t.data.slice(34, 74), amount: BigInt('0x' + t.data.slice(74, 138)) }));

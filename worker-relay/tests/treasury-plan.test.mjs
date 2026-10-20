@@ -3,7 +3,7 @@
 // node --test tests/treasury-plan.test.mjs
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { planTreasury, burnFromBooks, runwayDays, daysText } from '../src/lib/treasury-plan.js';
+import { planTreasury, burnFromBooks, runwayDays, daysText, swapMinWei } from '../src/lib/treasury-plan.js';
 
 const E = (n) => BigInt(Math.round(n * 1e6)) * 10n ** 12n;   // ETH → wei, to a millionth
 const P = (n) => BigInt(Math.round(n * 1e4)) * 10n ** 14n;   // PROVE → wei
@@ -153,4 +153,92 @@ test('runway helpers', () => {
   assert.equal(runwayDays(10n, 0n), Infinity);
   assert.equal(runwayDays(10n, 4n), 2.5);
   assert.equal(daysText(Infinity), '∞'); assert.equal(daysText(400), '365+'); assert.equal(daysText(12.4), '12'); assert.equal(daysText(1.26), '1.3');
+});
+
+// The 2026-10-20 outage: the settle wallet held 0.0016 ETH (floor 0.0007, burning 0.0059/day), the relay wallet 0.001, and the credit 14.2 PROVE,
+// under the ~17 a reflection proof needs free. Levelling alone raised the credit to the settle wallet's own 0.3 days and then dropped the
+// purchase under the 0.002 ETH minimum swap, so nothing was ever bought while every attest was refused.
+const OUTAGE = {
+  settle: { wei: E(0.0016), burnPerDayWei: E(0.0059), floorWei: E(0.0007) },
+  relay: { wei: E(0.001), burnPerDayWei: E(0.0033), floorWei: E(0.0033) },
+  prove: { wei: P(14.2), burnPerDayWei: P(58.4), floorWei: P(60) },
+  targetDays: 3, minMoveWei: E(0.0005), minSwapWei: E(0.002), maxSwapWei: E(0.02), proveWeiPerEth: PRICE,
+};
+
+test('the old plan bought nothing in that outage: the levelled purchase fell under the minimum swap', () => {
+  const plan = planTreasury(OUTAGE);
+  assert.equal(plan.toProveWei, 0n);
+  assert.ok(plan.notes.some((n) => /minimum swap/.test(n)));
+});
+
+test('a credit under its urgent line is bought up first with all the settle wallet holds above its floor', () => {
+  const plan = planTreasury({ ...OUTAGE, urgentMinSwapWei: E(0.0003), prove: { ...OUTAGE.prove, urgentBelowWei: P(45), urgentToWei: P(60) } });
+  assert.equal(plan.toProveWei, E(0.0009), 'everything above the floor');
+  assert.equal(plan.urgentWei, E(0.0009));
+  assert.equal(plan.toRelayWei, 0n, 'nothing is left to level');
+  assert.ok(E(0.0016) - plan.toProveWei >= E(0.0007), 'the settle wallet keeps its floor');
+  assert.ok(plan.after.proveDays > plan.runway.proveDays + 0.1, `credit ${plan.runway.proveDays} -> ${plan.after.proveDays} days`);
+  assert.ok(plan.notes.some((n) => /urgent line/.test(n)));
+});
+
+test('the urgent purchase stops at what the credit needs, and at the most a swap may take', () => {
+  const rich = { ...OUTAGE, settle: { wei: E(1), burnPerDayWei: E(0.0059), floorWei: E(0.0007) }, urgentMinSwapWei: E(0.0003) };
+  const need = (60 - 14.2) / 13000;                                 // ETH to bring 14.2 PROVE to 60 at 13,000 PROVE an ETH
+  const plan = planTreasury({ ...rich, prove: { ...OUTAGE.prove, urgentBelowWei: P(45), urgentToWei: P(60) } });
+  assert.ok(plan.urgentWei >= E(need) - 10n ** 12n && plan.urgentWei <= E(need) + 10n ** 12n, `${plan.urgentWei} vs ${E(need)}`);
+  const capped = planTreasury({ ...rich, maxSwapWei: E(0.001), prove: { ...OUTAGE.prove, urgentBelowWei: P(45), urgentToWei: P(60) } });
+  assert.equal(capped.toProveWei, E(0.001));
+  assert.ok(capped.urgentWei <= E(0.001));
+});
+
+test('with a long credit nothing is urgent: the plan is the levelling it was', () => {
+  const calm = { ...OUTAGE, settle: { wei: E(0.0146), burnPerDayWei: E(0.0105), floorWei: E(0.003) }, prove: { wei: P(120), burnPerDayWei: P(58.4), floorWei: P(60), urgentBelowWei: P(45), urgentToWei: P(60) } };
+  const plain = planTreasury({ ...calm, prove: { ...calm.prove, urgentBelowWei: 0n } });
+  const plan = planTreasury(calm);
+  assert.equal(plan.urgentWei, 0n);
+  assert.equal(plan.toProveWei, plain.toProveWei);
+  assert.equal(plan.toRelayWei, plain.toRelayWei);
+});
+
+test('an urgent purchase the settle wallet cannot afford waits with a reason, and a wallet at its floor gives nothing', () => {
+  const tiny = planTreasury({ ...OUTAGE, settle: { ...OUTAGE.settle, wei: E(0.0008) }, urgentMinSwapWei: E(0.0003), prove: { ...OUTAGE.prove, urgentBelowWei: P(45), urgentToWei: P(60) } });
+  assert.equal(tiny.toProveWei, 0n);
+  assert.ok(tiny.notes.some((n) => /minimum swap/.test(n)));
+  const none = planTreasury({ ...OUTAGE, settle: { ...OUTAGE.settle, wei: E(0.0007) }, urgentMinSwapWei: E(0.0003), prove: { ...OUTAGE.prove, urgentBelowWei: P(45), urgentToWei: P(60) } });
+  assert.equal(none.toProveWei, 0n);
+  assert.ok(none.notes.some((n) => /nothing above its floor/.test(n)));
+});
+
+test('an unpriced PROVE is never swapped, urgent or not', () => {
+  const plan = planTreasury({ ...OUTAGE, proveWeiPerEth: null, urgentMinSwapWei: E(0.0003), prove: { ...OUTAGE.prove, urgentBelowWei: P(45), urgentToWei: P(60) } });
+  assert.equal(plan.toProveWei, 0n);
+  assert.equal(plan.urgentWei, 0n);
+});
+
+test('the least a swap is worth making follows the gas price, between a floor and the old fixed minimum', () => {
+  const cost = (gwei) => BigInt(Math.round(gwei * 1e9)) * 300_000n;          // 300k gas
+  const cfg = { multiple: 25, floorWei: E(0.0003), ceilWei: E(0.002) };
+  assert.equal(swapMinWei({ gasWei: cost(0.01), ...cfg }), E(0.0003), 'nearly free gas: the floor');
+  assert.equal(swapMinWei({ gasWei: cost(0.09), ...cfg }), cost(0.09) * 25n, 'today’s 0.09 gwei: 25 times the swap gas, 0.0007 ETH rather than 0.002');
+  assert.equal(swapMinWei({ gasWei: cost(0.2), ...cfg }), cost(0.2) * 25n, 'at 0.2 gwei: 25 times the swap gas, 0.0015 ETH');
+  assert.equal(swapMinWei({ gasWei: cost(0.5), ...cfg }), E(0.002), 'at 0.5 gwei the old minimum already holds');
+  assert.equal(swapMinWei({ gasWei: cost(20), ...cfg }), E(0.002), 'dear gas: the old minimum');
+  assert.equal(swapMinWei({ gasWei: 0n, floorWei: E(0.01), ceilWei: E(0.002) }), E(0.002), 'a floor above the ceiling gives way to it');
+});
+
+test('an urgent purchase does not leave the relay wallet without gas: its hard minimum is filled first', () => {
+  const urgent = { ...OUTAGE, urgentMinSwapWei: E(0.0003), prove: { ...OUTAGE.prove, urgentBelowWei: P(45), urgentToWei: P(60) } };
+  // The relay wallet holds 0.0002 and its minimum is 0.0006: 0.0004 goes to it, and the PROVE gets the rest above the settle floor.
+  const plan = planTreasury({ ...urgent, relay: { ...OUTAGE.relay, wei: E(0.0002), hardMinWei: E(0.0006) } });
+  assert.equal(plan.toRelayWei, E(0.0004));
+  assert.equal(plan.toProveWei, E(0.0009) - E(0.0004));
+  assert.ok(E(0.0016) - plan.toRelayWei - plan.toProveWei >= E(0.0007), 'the settle wallet keeps its floor');
+  assert.ok(plan.notes.some((n) => /minimum before the credit/.test(n)));
+  // A relay wallet already over its minimum is not asked for anything, and the purchase is the whole room as before.
+  const fine = planTreasury({ ...urgent, relay: { ...OUTAGE.relay, wei: E(0.001), hardMinWei: E(0.0006) } });
+  assert.equal(fine.toProveWei, E(0.0009));
+  assert.equal(fine.toRelayWei, 0n);
+  // With the credit healthy the minimum is not applied here at all: the levelling feeds the relay wallet as it always did.
+  const calm = planTreasury({ ...OUTAGE, prove: { ...OUTAGE.prove, wei: P(120), urgentBelowWei: P(45), urgentToWei: P(60) }, relay: { ...OUTAGE.relay, wei: E(0.0002), hardMinWei: E(0.0006) } });
+  assert.equal(calm.urgentWei, 0n);
 });

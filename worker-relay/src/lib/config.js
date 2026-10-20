@@ -277,7 +277,13 @@ export const CFG = {
   // PROVE a day when the books cannot say yet (the 2026-10-09..16 measurement: 86).
   proveBurnPerDayDefault: num('PROVE_BURN_PER_DAY', 90),
   treasuryMinMoveWei: BigInt(opt('TREASURY_MIN_MOVE_WEI', '500000000000000')),   // 0.0005 ETH: a transfer's gas is a sliver of it
-  treasuryMinSwapWei: BigInt(opt('TREASURY_MIN_SWAP_WEI', '2000000000000000')),  // 0.002 ETH: a swap's gas is a sliver of it
+  treasuryMinSwapWei: BigInt(opt('TREASURY_MIN_SWAP_WEI', '2000000000000000')),  // 0.002 ETH: a swap's gas is a sliver of it (the most the minimum ever is)
+  // The minimum follows the gas price instead: a swap of `treasurySwapGas` at today's price times these multiples (its gas about 4% of
+  // the swap, 10% of an urgent one), never under the floor nor over TREASURY_MIN_SWAP_WEI. At 0.09 gwei that is 0.0007 ETH, not 0.002.
+  treasurySwapGas: BigInt(opt('TREASURY_SWAP_GAS', '300000')),
+  treasurySwapGasMultiple: num('TREASURY_SWAP_GAS_MULTIPLE', 25),
+  treasuryUrgentSwapGasMultiple: num('TREASURY_URGENT_SWAP_GAS_MULTIPLE', 10),
+  treasuryMinSwapFloorWei: BigInt(opt('TREASURY_MIN_SWAP_FLOOR_WEI', '200000000000000')), // 0.0002 ETH
   // A free prove-only job (the holder sends the settle; the relay pays only the proof) is proved only while the credit holds this
   // much: under it the credit is kept for the bridge's attests and for paid work. The API turns such jobs away at submit on the same
   // figure (PROVE_MODE_MIN_CREDIT); this is the backstop for jobs already queued.
@@ -471,6 +477,15 @@ export const CFG = {
   // credit while the wallet can still pay gas.
   proveCreditFloorWei: BigInt(opt('PROVE_CREDIT_FLOOR_WEI', '60000000000000000000')), // 60 PROVE: the reflection holds ~16-30 for each of its proofs
   proveTopUpMaxWei: BigInt(opt('PROVE_TOPUP_MAX_WEI', '20000000000000000')), // 0.02 ETH
+  // The credit's urgent line: a reflection proof needs ~17-30 PROVE free before the network takes it, so under this the bridge's attests
+  // stop. Below it the settle wallet's ETH above its floor buys PROVE first, up to PROVE_URGENT_TO_WEI (0 = the floor above), past the
+  // levelling and past the ordinary minimum swap, and a pass is due again after PROVE_EAGER_EVERY_MIN rather than the full interval. The
+  // settle loop reads the credit every PROVE_EAGER_PROBE_SECS (0 = never: only the scheduled pass reads it).
+  proveUrgentBelowWei: BigInt(opt('PROVE_URGENT_BELOW_WEI', '45000000000000000000')), // 45 PROVE: above the free-prove pause (40) and the reserve (~30)
+  proveUrgentToWei: BigInt(opt('PROVE_URGENT_TO_WEI', '0')),
+  proveEagerEveryMin: num('PROVE_EAGER_EVERY_MIN', 10),
+  relayHardMinAttests: num('RELAY_HARD_MIN_ATTESTS', 6),   // the relay wallet's own minimum, in attests of gas (at twice the base fee), filled before an urgent PROVE purchase
+  proveEagerProbeSecs: num('PROVE_EAGER_PROBE_SECS', 180),
   // The monitor's prover-credit alerts, in whole PROVE (lib/prove-credit.js): a warning to top up, and a critical about
   // two proofs from zero.
   proveCreditWarn: num('PROVE_CREDIT_WARN', 20),

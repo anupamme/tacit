@@ -9,9 +9,10 @@ export const creditText = (wei) => (wei == null ? null : (Number(wei) / 1e18).to
 export const creditField = (v) => (typeof v === 'string' && /^\d{1,12}(\.\d{1,4})?$/.test(v) ? v : null);
 
 // How low it is, in whole PROVE: 'critical' under `critical` (proofs are about to stop), 'warning' under `warn` (top it
-// up). A proof spends about 2-3 PROVE (an attest ~2, a settle ~3), and replenish buys toward its own floor
-// (PROVE_CREDIT_FLOOR_WEI) only from ETH above the settle wallet's gas float, so the credit normally runs between a few
-// PROVE and a few tens; these thresholds sit below that band rather than at replenish's target.
+// up). A proof spends about 2-3 PROVE (an attest ~2, a settle ~3) but the network wants its reserve free first (a reflection
+// proof ~17-30), so the bridge stops well above zero. Replenish buys from the settle wallet's ETH above its floor: first, and
+// past the levelling, whenever the credit is under PROVE_URGENT_BELOW_WEI (45), and a pass comes early then; otherwise by
+// runway toward PROVE_CREDIT_FLOOR_WEI. These thresholds sit below that band rather than at replenish's target.
 export function creditLevel(whole, { warn, critical } = {}) {
   const w = Number(whole), hi = Number(warn), lo = Number(critical);
   if (!Number.isFinite(w) || !(hi > 0) || !(lo >= 0) || lo > hi) return null;

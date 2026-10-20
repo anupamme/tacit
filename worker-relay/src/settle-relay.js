@@ -37,7 +37,7 @@ import { ledger } from './lib/income-ledger.js';
 import { makeBooksRestorer } from './lib/ledger-restore.js';
 import { ROUTER_EXIT_ABI, recipeArgs, exitCheck, activationCover } from './lib/exit-activate.js';
 import { makeAbandonedSettles } from './lib/abandoned-settles.js';
-import { quoteRelayFee, provePriceUsd, replenishOnce, drainToSink, feeAssets, depositArrivedProve, lastProverCredit, readProverCredit } from './replenish.js';
+import { quoteRelayFee, provePriceUsd, replenishOnce, drainToSink, feeAssets, depositArrivedProve, lastProverCredit, readProverCredit, creditForEager } from './replenish.js';
 import { proveFloorWei } from './lib/prove-floor.js';
 import { openable, pickOpen, ethFeeWei, STALE_PROOF_SELECTORS, pvFees } from './lib/open-board.js';
 import { boardProving, standingNote, creditShort, makeProvePause } from './lib/prove-pause.js';
@@ -1075,10 +1075,22 @@ let drained = false;
 // The highest nonce this process has put on the wire. A settle sent to a private endpoint is invisible to
 // the public node, so "idle" does not mean "nothing of ours is pending".
 let lastBroadcastNonce = -1;
+// The credit as last read for the urgent check (the network's plus PROVE waiting in the sink), read every PROVE_EAGER_PROBE_SECS: one small
+// helper process a few times an hour, so that a credit that falls under its line brings the next pass forward instead of waiting out the
+// interval (lib/replenish-schedule.js). null = not read.
+let eagerCredit = null, lastProbeAt = 0;
+async function probeCredit() {
+  if (!CFG.replenishInSettle || !CFG.replenishDepositProve || !(CFG.proveEagerProbeSecs > 0)) { eagerCredit = null; return; }
+  if (Date.now() - lastProbeAt < CFG.proveEagerProbeSecs * 1000) return;
+  lastProbeAt = Date.now();
+  try { eagerCredit = await creditForEager(); } catch { eagerCredit = null; }
+}
 async function maybeReplenish() {
   // Cheap to call every cycle: nothing below (the nonce check included) runs unless the top-up, or the one-off key
   // consolidation, is actually due.
-  if (!replenishDue({ enabled: CFG.replenishInSettle, now: Date.now(), lastAt: lastReplenishAt, intervalMin: CFG.replenishIntervalMin, pendingDrain: !!CFG.replenishDrainToSink && !drained })) return;
+  await probeCredit();
+  if (!replenishDue({ enabled: CFG.replenishInSettle, now: Date.now(), lastAt: lastReplenishAt, intervalMin: CFG.replenishIntervalMin, pendingDrain: !!CFG.replenishDrainToSink && !drained,
+    credit: eagerCredit, urgentBelow: CFG.proveUrgentBelowWei, urgentEveryMin: CFG.proveEagerEveryMin })) return;
   // Serialisation with settles holds only while a settle is being awaited. Once its rounds are exhausted the
   // job is acked failed and the loop goes idle — but the transaction is still live at the private endpoint
   // and can still be included. A swap signed here would reuse that nonce, get mined first because it is

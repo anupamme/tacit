@@ -115,7 +115,7 @@ test('the sink gets its own gas, since it earns nothing', () => {
   ok(/gasLegs\.push\(\[sinkAddr, 'sink'\]\)/.test(loop), 'no exact-out gas leg for the sink');
   // Native ETH reaches the sink through the treasury pass, by runway (lib/treasury-plan.js), not by a fixed float.
   ok(/await runTreasury\(settleEarner, sink, \{ credit, convertToProve \}\)/.test(replenish), 'the treasury pass is not run for the settle earner');
-  ok(/planTreasury\(\{/.test(replenish) && /relay: toSink \? \{ wei: relayWei, burnPerDayWei: relayBurn, floorWei: relayFloor \}/.test(replenish), 'the relay wallet is not a taker in the plan');
+  ok(/planTreasury\(\{/.test(replenish) && /relay: toSink \? \{ wei: relayWei, burnPerDayWei: relayBurn, floorWei: relayFloor(, hardMinWei: [^}]+)? \}/.test(replenish), 'the relay wallet is not a taker in the plan');
   ok(/toSink/.test(loop), 'the sink legs must only apply when earner and sink differ');
 });
 

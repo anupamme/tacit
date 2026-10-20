@@ -11,9 +11,16 @@
 // known (0) falls back to the floors alone: a wallet under its floor is brought up to twice it, a credit under its floor to the floor. A
 // move under its minimum (gas would be a real share of it) waits for the next pass.
 //
-//   settle, relay: { wei, burnPerDayWei, floorWei }   prove: { wei, burnPerDayWei, floorWei } in PROVE wei
+//   settle: { wei, burnPerDayWei, floorWei }   relay: { wei, burnPerDayWei, floorWei, hardMinWei }   prove: { wei, burnPerDayWei, floorWei, urgentBelowWei, urgentToWei } in PROVE wei
 //   proveWeiPerEth: PROVE wei one ETH buys now (null = PROVE cannot be priced, so nothing is swapped)
-//   → { toRelayWei, toProveWei, runway: { settleDays, relayDays, proveDays }, after: {...}, notes }
+//   → { toRelayWei, toProveWei, urgentWei, runway: { settleDays, relayDays, proveDays }, after: {...}, notes }
+//
+// The credit is the one shortage that stops the bridge outright: a reflection proof needs its reserve (about 17 to 30 PROVE) free on the
+// account before the network will take it, so a credit under that line stops every attest while the wallets still hold ETH. Under
+// `urgentBelowWei` it is therefore fed first, from everything the settle wallet holds above its floor, up to `urgentToWei`, ahead of the
+// levelling below and past the ordinary minimum swap (`urgentMinSwapWei`, smaller). What is left is levelled as before. The relay wallet is
+// not starved for it: it is brought to its own `hardMinWei` (a few attests of gas) first, since a relay wallet with no gas stops the same
+// attests from the other side.
 
 const min = (a, b) => (a < b ? a : b);
 const max = (a, b) => (a > b ? a : b);
@@ -25,15 +32,36 @@ export const runwayDays = (wei, burnPerDay) => (big(burnPerDay) > 0n ? Number(bi
 // Days as a short number for a log line or a heartbeat: whole days past a year read as "a year or more".
 export const daysText = (d) => (!Number.isFinite(d) ? '∞' : d >= 365 ? '365+' : d >= 10 ? String(Math.round(d)) : d.toFixed(1));
 
-export function planTreasury({ settle, relay, prove, targetDays = 3, minMoveWei = 0n, minSwapWei = 0n, maxSwapWei = null, proveWeiPerEth = null } = {}) {
+export function planTreasury({ settle, relay, prove, targetDays = 3, minMoveWei = 0n, minSwapWei = 0n, urgentMinSwapWei = null, maxSwapWei = null, proveWeiPerEth = null } = {}) {
   const s = { wei: big(settle?.wei), burn: big(settle?.burnPerDayWei), floor: big(settle?.floorWei) };
-  const r = { wei: big(relay?.wei), burn: big(relay?.burnPerDayWei), floor: big(relay?.floorWei) };
+  const r = { wei: big(relay?.wei), burn: big(relay?.burnPerDayWei), floor: big(relay?.floorWei), hardMin: big(relay?.hardMinWei) };
   const p = { wei: big(prove?.wei), burn: big(prove?.burnPerDayWei), floor: big(prove?.floorWei) };
+  const urgentBelow = big(prove?.urgentBelowWei), urgentTo = max(big(prove?.urgentToWei), max(urgentBelow, p.floor));
   const target = Math.max(0, Number(targetDays) || 0);
   const notes = [];
   const runway = { settleDays: runwayDays(s.wei, s.burn), relayDays: runwayDays(r.wei, r.burn), proveDays: runwayDays(p.wei, p.burn) };
   const priced = proveWeiPerEth != null && big(proveWeiPerEth) > 0n, price = priced ? big(proveWeiPerEth) : 0n;
   const toEth = (proveWei) => (priced ? (proveWei * ONE_ETH + price - 1n) / price : 0n);
+  const settle0 = s.wei, prove0 = p.wei, relay0 = r.wei;
+
+  // Tier one: a credit under its urgent line is bought up first with whatever the settle wallet holds above its floor (the most a swap
+  // may take, and no more than the credit needs to reach its urgent target). The settle wallet and the credit are then levelled as if
+  // that ETH had always been PROVE, so the rest of the plan sees them as they will stand.
+  let urgentWei = 0n, relayFirstWei = 0n;
+  const urgentMin = urgentMinSwapWei != null ? big(urgentMinSwapWei) : big(minSwapWei);
+  if (priced && urgentBelow > 0n && p.wei < urgentBelow) {
+    let room = s.wei > s.floor ? s.wei - s.floor : 0n;
+    if (r.hardMin > r.wei) { relayFirstWei = min(r.hardMin - r.wei, room); room -= relayFirstWei; }
+    let want = toEth(urgentTo - p.wei);
+    if (maxSwapWei != null) want = min(want, big(maxSwapWei));
+    urgentWei = min(want, room);
+    if (urgentWei > 0n && urgentWei < urgentMin) { notes.push(`prover credit is under its urgent line: ${urgentWei} wei of ETH is all the settle wallet can give, under the ${urgentMin} wei minimum swap — waits`); urgentWei = 0n; }
+    else if (urgentWei > 0n) notes.push(`prover credit is under its urgent line: ${urgentWei} wei of ETH goes to PROVE first`);
+    else if (room === 0n) notes.push('prover credit is under its urgent line, but the settle wallet holds nothing above its floor');
+  }
+  if (relayFirstWei > 0n) notes.push(`relay wallet: ${relayFirstWei} wei of ETH brings it to its minimum before the credit is bought`);
+  s.wei -= relayFirstWei + urgentWei; r.wei += relayFirstWei;
+  if (urgentWei > 0n) p.wei += (urgentWei * price) / ONE_ETH;
   const spare = s.wei > s.floor ? s.wei - s.floor : 0n;
 
   // The takers, each in ETH wei: what it holds, what it burns a day, and the most it is ever fed to (its target, or its floor when
@@ -67,18 +95,30 @@ export function planTreasury({ settle, relay, prove, targetDays = 3, minMoveWei 
   let over = amounts.reduce((a, x) => a + x.wei, 0n) - spare;
   for (let i = amounts.length - 1; i >= 0 && over > 0n; i--) { const cut = min(over, amounts[i].wei); amounts[i].wei -= cut; over -= cut; }
 
-  let toRelayWei = amounts.find((x) => x.t.key === 'relay')?.wei ?? 0n;
-  let toProveWei = amounts.find((x) => x.t.key === 'prove')?.wei ?? 0n;
+  let toRelayWei = amounts.find((x) => x.t.key === 'relay')?.wei ?? 0n;      // the levelled part; what the relay's minimum took first is added after its own minimum move
+  // What the levelling adds to the urgent purchase is one swap with it; the urgent part has its own, smaller minimum.
+  let toProveWei = (amounts.find((x) => x.t.key === 'prove')?.wei ?? 0n) + urgentWei;
   if (toRelayWei > 0n && toRelayWei < big(minMoveWei)) { notes.push(`relay wallet: ${toRelayWei} wei due, under the ${minMoveWei} wei minimum move — waits`); toRelayWei = 0n; }
+  toRelayWei += relayFirstWei;                                              // its hard minimum is a need, not a convenience: no minimum move
   if (maxSwapWei != null && toProveWei > big(maxSwapWei)) toProveWei = big(maxSwapWei);
-  if (toProveWei > 0n && toProveWei < big(minSwapWei)) { notes.push(`prover credit: ${toProveWei} wei of ETH due, under the ${minSwapWei} wei minimum swap — waits`); toProveWei = 0n; }
+  const swapMin = urgentWei > 0n ? urgentMin : big(minSwapWei);
+  if (toProveWei > 0n && toProveWei < swapMin) { notes.push(`prover credit: ${toProveWei} wei of ETH due, under the ${swapMin} wei minimum swap — waits`); toProveWei = 0n; urgentWei = 0n; }
+  if (urgentWei > toProveWei) urgentWei = toProveWei;
 
   const after = {
-    settleDays: runwayDays(s.wei - toRelayWei - toProveWei, s.burn),
-    relayDays: runwayDays(r.wei + toRelayWei, r.burn),
-    proveDays: priced ? runwayDays(p.wei + (toProveWei * price) / ONE_ETH, p.burn) : runway.proveDays,
+    settleDays: runwayDays(settle0 - toRelayWei - toProveWei, s.burn),
+    relayDays: runwayDays(relay0 + toRelayWei, r.burn),
+    proveDays: priced ? runwayDays(prove0 + (toProveWei * price) / ONE_ETH, p.burn) : runway.proveDays,
   };
-  return { toRelayWei, toProveWei, spareWei: spare - toRelayWei - toProveWei, levelDays: s.burn > 0n ? L : null, runway, after, notes };
+  return { toRelayWei, toProveWei, urgentWei, spareWei: spare - toRelayWei - (toProveWei - urgentWei), levelDays: s.burn > 0n ? L : null, runway, after, notes };
+}
+
+// The least a swap is worth making: its gas a small share of it. `gasWei` is what the swap costs now (its gas at the live price); the
+// least is that cost times `multiple`, held between `floorWei` and `ceilWei` (the old fixed minimum, which a dear gas price keeps).
+export function swapMinWei({ gasWei, multiple = 25, floorWei = 0n, ceilWei }) {
+  const cost = big(gasWei) * BigInt(Math.max(1, Math.round(Number(multiple) || 1)));
+  const ceil = big(ceilWei), floor = min(big(floorWei), ceil);
+  return min(max(cost, floor), ceil);
 }
 
 // What the ledger's books say the relay burns a day, from the days it has: settle gas (ETH a day) and PROVE put in (a day's deposits

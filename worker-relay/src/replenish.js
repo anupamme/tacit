@@ -20,7 +20,7 @@ import { setProverCredit } from './lib/worker-client.js';
 import { creditText } from './lib/prove-credit.js';
 import { ledger } from './lib/income-ledger.js';
 import { planBuyback, splitterDue } from './lib/income-allocation.js';
-import { planTreasury, daysText } from './lib/treasury-plan.js';
+import { planTreasury, daysText, swapMinWei } from './lib/treasury-plan.js';
 import { treasuryFloors } from './lib/settle-fees.js';
 import { checkZRouterCall, decodeZRouterCall } from './lib/zrouter-guard.js';
 import {
@@ -239,6 +239,15 @@ export async function readProverCredit() {
   const credit = await proverCredit();
   if (credit != null) { setProverCredit(creditText(credit)); lastCreditWei = credit; lastCreditAt = Date.now(); }
   return credit;
+}
+
+// The credit as the settle loop's urgent check reads it: what the network holds plus PROVE already in the sink waiting for its deposit
+// (the watch deposits it within a minute, so buying more now would double the top-up). null when the network credit cannot be read.
+export async function creditForEager() {
+  const credit = await readProverCredit();
+  if (credit == null) return null;
+  const waiting = await erc20Balance(PROVE, relayWallet.account.address).catch(() => 0n);
+  return credit + waiting;
 }
 
 // Deposits the wallet's PROVE into the vApp. DEPOSIT_AMOUNT_WEI caps how much goes in (default: the
@@ -501,17 +510,24 @@ async function runTreasury(earner, sink, { credit, convertToProve }) {
     if (convertToProve) {
       try { const q = await quote(ETH, PROVE, CFG.treasuryMinSwapWei, sinkAddr); if (q?.amountOut > 0n) proveWeiPerEth = (q.amountOut * 10n ** 18n) / CFG.treasuryMinSwapWei; } catch {}
     }
+    // What a swap is worth making follows today's gas (a swap's gas about 4% of it, 10% for an urgent one), up to the fixed minimum a dear
+    // gas price keeps: at 0.09 gwei that is 0.0007 ETH rather than 0.002, so a small wallet's PROVE is bought, not left waiting.
+    const swapGasWei = CFG.treasurySwapGas * gasPrice;
+    const minSwapWei = swapMinWei({ gasWei: swapGasWei, multiple: CFG.treasurySwapGasMultiple, floorWei: CFG.treasuryMinSwapFloorWei, ceilWei: CFG.treasuryMinSwapWei });
+    const urgentMinSwapWei = swapMinWei({ gasWei: swapGasWei, multiple: CFG.treasuryUrgentSwapGasMultiple, floorWei: CFG.treasuryMinSwapFloorWei, ceilWei: minSwapWei });
     const plan = planTreasury({
       settle: { wei: settleWei, burnPerDayWei: toSink ? settleBurn : settleBurn + relayBurn, floorWei: toSink ? settleFloor : settleFloor + relayFloor },
-      relay: toSink ? { wei: relayWei, burnPerDayWei: relayBurn, floorWei: relayFloor } : { wei: 0n, burnPerDayWei: 0n, floorWei: 0n },
-      prove: { wei: credit ?? 0n, burnPerDayWei: credit == null ? 0n : proveBurn, floorWei: CFG.proveCreditFloorWei },
-      targetDays: CFG.treasuryTargetDays, minMoveWei: CFG.treasuryMinMoveWei, minSwapWei: CFG.treasuryMinSwapWei, maxSwapWei: CFG.proveTopUpMaxWei,
+      relay: toSink ? { wei: relayWei, burnPerDayWei: relayBurn, floorWei: relayFloor, hardMinWei: CFG.attestGasBudget * (gasPrice * 2n) * BigInt(CFG.relayHardMinAttests) } : { wei: 0n, burnPerDayWei: 0n, floorWei: 0n },
+      prove: { wei: credit ?? 0n, burnPerDayWei: credit == null ? 0n : proveBurn, floorWei: CFG.proveCreditFloorWei,
+        urgentBelowWei: credit == null ? 0n : CFG.proveUrgentBelowWei, urgentToWei: CFG.proveUrgentToWei },
+      targetDays: CFG.treasuryTargetDays, minMoveWei: CFG.treasuryMinMoveWei, minSwapWei, urgentMinSwapWei, maxSwapWei: CFG.proveTopUpMaxWei,
       proveWeiPerEth: credit == null ? null : proveWeiPerEth,
     });
     const d = (x) => daysText(x);
     log(`  treasury: settle ${d(plan.runway.settleDays)} d, relay ${d(plan.runway.relayDays)} d, credit ${d(plan.runway.proveDays)} d of burn`
       + ` (floors ${settleFloor} / ${relayFloor} wei, burns ${settleBurn} / ${relayBurn} wei/day, ${(Number(proveBurn) / 1e18).toFixed(1)} PROVE/day${books.days ? `, ${books.days} day(s) of books` : ', no books yet'})`
-      + ` -> relay wallet +${plan.toRelayWei} wei, PROVE +${plan.toProveWei} wei of ETH; after: ${d(plan.after.settleDays)} / ${d(plan.after.relayDays)} / ${d(plan.after.proveDays)} d`);
+      + ` -> relay wallet +${plan.toRelayWei} wei, PROVE +${plan.toProveWei} wei of ETH${plan.urgentWei > 0n ? ` (${plan.urgentWei} of it urgent)` : ''}; after: ${d(plan.after.settleDays)} / ${d(plan.after.relayDays)} / ${d(plan.after.proveDays)} d`
+      + ` (minimum swap ${minSwapWei}, urgent ${urgentMinSwapWei} wei at ${Number(gasPrice) / 1e9} gwei)`);
     for (const n of plan.notes) log(`  treasury: ${n}`);
     let sentRelay = 0n, sentProve = 0n;
     if (plan.toRelayWei > 0n && toSink) {
@@ -595,8 +611,8 @@ export async function replenishOnce({ roles = null, convertToProve = true } = {}
 
   // Proving stops outright when the network credit runs out, so a low credit outranks keeping a large ETH float:
   // under the floor, ETH above the gas buffer goes to PROVE this pass (capped), not only ETH above the sweep line.
-  const credit = convertToProve ? await readProverCredit() : null;
-  if (credit != null) log(`prover credit ${(Number(credit) / 1e18).toFixed(2)} PROVE`);
+  const credit = convertToProve ? await creditForEager() : null;      // the network's, and PROVE waiting in the sink for the deposit this pass ends with
+  if (credit != null) log(`prover credit ${(Number(credit) / 1e18).toFixed(2)} PROVE (the network's and what waits in the sink)`);
 
   // Where the fee ETH goes (lib/treasury-plan.js): the settle wallet feeds the relay wallet (headers, attests, deposits) and the prover's
   // credit by runway, shortest first, keeping what its own next settles need. Only the settle service has the books and the settle key.
