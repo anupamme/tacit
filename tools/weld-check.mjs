@@ -3358,7 +3358,7 @@ await step('xbring', async () => {
   // A cross-out's destination blinding is HMAC(key, 'tacit-crossout-blinding-v1' || nullifier) mod n, as crossOut() derives it.
   const derive = (nullifier) => { const m = Buffer.concat([Buffer.from('tacit-crossout-blinding-v1'), Buffer.from(nullifier.slice(2), 'hex')]); let b = 0n; for (const x of hmac(sha256, privB, m)) b = (b << 8n) | BigInt(x); b %= secp.CURVE.n; return b === 0n ? 1n : b; };
   const mk = (amount, claim, nullifier) => { const nu = '0x' + nullifier.repeat(32), blinding = derive(nu), { cx, cy } = pool.commitXY(amount, blinding); return { amount, blinding, cx, cy, claimId: '0x' + claim.repeat(32), nullifier: nu }; };
-  const NA = mk(400000n, 'c1', 'a1'), NB = mk(300000n, 'c2', 'a2');
+  const NA = mk(400000n, 'c1', 'a1'), NB = mk(300000n, 'c2', 'a2'), NC = mk(200000n, 'c3', 'a3'), ND = mk(150000n, 'c4', 'a4');   // C and D join the list at the end, for Bring back all
   await r.page.evaluate(async () => {
     globalThis.__TACIT_NO_INIT__ = true; localStorage.setItem('tacit-network-v1', 'mainnet');
     const T = await import([...document.scripts].map((x) => x.textContent).join('').match(/\/tacit\.js\?cb=[0-9a-f]+/)[0]);
@@ -3372,8 +3372,10 @@ await step('xbring', async () => {
     const w = makeBtcWallet({ priv, hrp: 'bc', fetchUtxos: async () => [], broadcastTx: async () => {}, fetchFeeRate: async () => 3 });
     const mr = makeCrossoutMintReveal({ secp });
     return notes.map((n, i) => { const b = mr.buildCrossoutMintTxs({ prims: w.prims, assetId: asset, claimId: n.claimId, cx: n.cx, cy: n.cy, destXonly: xonly, fundingUtxo: { txid: String(i + 1).repeat(64), vout: 0, value: 50000 }, feeRate: 3 }); return { revealHex: b.revealHex, revealTxid: b.revealTxid }; });
-  }, [hex, XONLY, CETH, [NA, NB].map((n) => ({ claimId: n.claimId, cx: n.cx, cy: n.cy }))]);
+  }, [hex, XONLY, CETH, [NA, NB, NC, ND].map((n) => ({ claimId: n.claimId, cx: n.cx, cy: n.cy }))]);
   NA.revealHex = built[0].revealHex; NA.txid = built[0].revealTxid; NB.revealHex = built[1].revealHex; NB.txid = built[1].revealTxid;
+  NC.revealHex = built[2].revealHex; NC.txid = built[2].revealTxid; ND.revealHex = built[3].revealHex; ND.txid = built[3].revealTxid;
+  const live = [NA, NB], recorded = [NA], coins = [{ txid: 'f1'.repeat(32), vout: 0, value: 20000, status: { confirmed: true, block_height: 960000 } }];   // what the explorer lists; C and D are added at the end
   const leafOf = (n) => pool.btcNoteLeaf(CETH, n.cx, n.cy, XONLY);
   const addrP2tr = await r.page.evaluate(async (x) => (await import('/crossout-notes.js')).p2trAddress(x.slice(2), 'bc'), XONLY);
   const posts = [];
@@ -3381,11 +3383,11 @@ await step('xbring', async () => {
   const explorer = (route, u) => {
     const p = u.pathname.replace(/^\/api/, '').replace(/^\/chain/, '');
     if (route.request().method() === 'POST' && p === '/tx') { posts.push(route.request().postData()); return route.fulfill({ status: 200, contentType: 'text/plain', headers: { 'access-control-allow-origin': '*' }, body: 'ab'.repeat(32) }); }
-    if (p === `/address/${addrP2tr}/utxo`) return json(route, [NA, NB].map((n) => ({ txid: n.txid, vout: 0, value: 330, status: { confirmed: true, block_height: n === NA ? 970000 : 970200 } })));
-    if (/^\/address\/bc1q[0-9a-z]+\/utxo$/.test(p)) return json(route, [{ txid: 'f1'.repeat(32), vout: 0, value: 20000, status: { confirmed: true, block_height: 960000 } }]);
-    for (const n of [NA, NB]) {
+    if (p === `/address/${addrP2tr}/utxo`) return json(route, live.map((n) => ({ txid: n.txid, vout: 0, value: 330, status: { confirmed: true, block_height: n === NB ? 970200 : 970000 } })));
+    if (/^\/address\/bc1q[0-9a-z]+\/utxo$/.test(p)) return json(route, coins);
+    for (const n of [NA, NB, NC, ND]) {
       if (p === `/tx/${n.txid}/hex`) return route.fulfill({ status: 200, contentType: 'text/plain', headers: { 'access-control-allow-origin': '*' }, body: n.revealHex });
-      if (p === `/tx/${n.txid}`) return json(route, { txid: n.txid, status: { confirmed: true, block_height: n === NA ? 970000 : 970200 }, vout: [{ scriptpubkey: '5120' + XONLY.slice(2), value: 330 }] });
+      if (p === `/tx/${n.txid}`) return json(route, { txid: n.txid, status: { confirmed: true, block_height: n === NB ? 970200 : 970000 }, vout: [{ scriptpubkey: '5120' + XONLY.slice(2), value: 330 }] });
     }
     if (/\/fees\/recommended$/.test(p)) return json(route, { fastestFee: feeNow, halfHourFee: feeNow, hourFee: Math.min(feeNow, 2), economyFee: 1, minimumFee: 1 });
     if (/\/fee-estimates$/.test(p)) return json(route, { 1: feeNow, 6: Math.min(feeNow, 2), 144: 1 });
@@ -3394,7 +3396,7 @@ await step('xbring', async () => {
   await api(/^https:\/\/(mempool\.space|blockstream\.info)\/api\//, explorer);
   await api(/^https:\/\/api\.tacit\.finance\/chain\//, explorer);
   await api(/^https:\/\/api\.tacit\.finance\/reflection\/dump/, (route) => json(route, { attestedHeight: 970100, snapshot: { height: 970100,
-    liveTriples: [[pool.outpointKey('0x' + rev(NA.txid), 0), pool.commitmentHash(NA.cx, NA.cy), CETH, XONLY, 0]], noteLeaves: [leafOf(NA)], spentLinks: [],
+    liveTriples: recorded.map((n) => [pool.outpointKey('0x' + rev(n.txid), 0), pool.commitmentHash(n.cx, n.cy), CETH, XONLY, 0]), noteLeaves: recorded.map(leafOf), spentLinks: [],
     burnNodes: [['0x' + '00'.repeat(32), '0x' + '00'.repeat(32), '0x' + '00'.repeat(32), true]], pendingDepositRecords: [] } }));
   await api(/^https:\/\/api\.tacit\.finance\/crossout\/minted/, (route) => json(route, { decided: false, minted: false }));
   await api(/^https:\/\/api\.tacit\.finance\/reflection\/(status|eth-state)/, (route) => json(route, { network: 'mainnet', attestedHeight: 970100, tipHeight: 970100, lagBlocks: 0 }));
@@ -3403,7 +3405,7 @@ await step('xbring', async () => {
   const big = (v) => ({ __big: String(v) });
   const jr = (n) => ({ id: n.nullifier, network: 'mainnet', walletPub: pub, stage: 'minted', createdAt: Date.now() - 36e5, destXonly: XONLY.slice(2),
     source: { nullifier: n.nullifier, value: big(n.amount), amount: big(n.amount), fee: big(0), assetId: CETH, ticker: 'tETH' }, settle: { txHash: 'e1'.repeat(32), claimId: n.claimId, cx: n.cx, cy: n.cy, ethBlock: 26000000, claimIdVerified: true } });
-  await r.page.evaluate(([k, v]) => localStorage.setItem(k, v), [`tacit-crossout-bridge-v1:mainnet:${pub}`, JSON.stringify([jr(NA), jr(NB)])]);
+  await r.page.evaluate(([k, v]) => localStorage.setItem(k, v), [`tacit-crossout-bridge-v1:mainnet:${pub}`, JSON.stringify([jr(NA), jr(NB), jr(NC), jr(ND)])]);
   await r.page.evaluate(() => localStorage.setItem('tacit-teth-btc', 'true'));
   await r.page.click('#wallet-body [data-in="paste"]');
   await r.page.fill('#ws-hex', hex);
@@ -3443,7 +3445,7 @@ await step('xbring', async () => {
   await until(r.page, () => document.querySelectorAll('#eth-v1 input[name="xb-note"]').length === 2, null, 120000);
   ok(true, 'xbring: the dashboard line opens the To Bitcoin tab with the notes');
   // Above the ceiling nothing is offered: the receipt says so, with the cost, and there is no box to tick.
-  await until(r.page, () => /fees are high right now/.test(document.querySelector('#xb-rcpt')?.textContent || ''), null, 120000)
+  await until(r.page, () => /fees are high right now[^]*16\d sat\/vB/.test(document.querySelector('#xb-rcpt')?.textContent || ''), null, 120000)
     .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | rcpt: ${(await text(r.page, '#xb-rcpt')).replace(/\s+/g, ' ')}`); });
   ok(/16\d sat\/vB/.test(await text(r.page, '#xb-rcpt')) && !(await r.page.isVisible('#xb-ackrow')), `xbring: at 165 sat/vB (150 and the priority margin) the return is not offered, the receipt says why and what it would cost, and there is nothing to tick (${(await text(r.page, '#xb-rcpt')).replace(/\s+/g, ' ')} | ackrow visible: ${await r.page.isVisible('#xb-ackrow')})`);
   feeNow = 3;
@@ -3492,6 +3494,33 @@ await step('xbring', async () => {
   await shot(r.page, 'xbring-phone');
   const wide = await r.page.evaluate(() => { const d = document.querySelector('#sheet-eth .sheet-in'); return [d.scrollWidth, d.clientWidth, document.documentElement.scrollWidth, innerWidth]; });
   ok(wide[0] <= wide[1] + 1 && wide[2] <= wide[3] + 1, `xbring: no sideways scroll at phone width (${wide})`);
+  // Bring back all: two more notes the proof has recorded (C 0.002, D 0.0015) join the one already on its way (A, now reserved) and the one it has
+  // not reached (B). With two ready, a choice brings them both back, and one press burns each in turn.
+  await r.page.setViewportSize({ width: 1000, height: 1000 });
+  live.push(NC, ND); recorded.push(NC, ND);
+  await r.page.evaluate(([k, v]) => { localStorage.setItem(k, v); localStorage.setItem('tacit-teth-btc', 'true'); }, [`tacit-crossout-bridge-v1:mainnet:${pub}`, JSON.stringify([jr(NA), jr(NB), jr(NC), jr(ND)])]);   // the journal and the setting the check above cleared
+  for (const f of ['f2', 'f3']) coins.push({ txid: f.repeat(32), vout: 0, value: 20000, status: { confirmed: true, block_height: 960000 } });   // the explorer here shows no change from a burn, so each burn gets a coin of its own
+  await go(r.page, '#private/bitcoin/back');
+  await sleep(11000);                                                                 // the page keeps an address's coins for ten seconds
+  await r.page.click('#xb-re');
+  await until(r.page, () => !!document.querySelector('#eth-v1 input[name="xb-note"][value="all"]'), null, 240000)
+    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | section: ${(await text(r.page, '#eth-v1')).replace(/\s+/g, ' ').slice(-500)}`); });
+  const choices = await r.page.$$eval('#eth-v1 label.brn', (xs) => xs.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
+  ok(/All 2 ready notes0\.0035 tETH in all/.test(choices[0]) && choices.some((x) => /0\.003 tETH.*Waiting for Bitcoin/.test(x)), `xbring: with two notes ready a first choice brings back all of them, and the one still waiting is listed apart (${choices.join(' | ')})`);
+  await r.page.check('#eth-v1 input[name="xb-note"][value="all"]');
+  await until(r.page, () => /You get[^]*in 2 notes/.test(document.querySelector('#xb-rcpt')?.textContent || ''), null, 240000)
+    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | rcpt: ${(await text(r.page, '#xb-rcpt')).replace(/\s+/g, ' ')}`); });
+  const rcAll = (await text(r.page, '#xb-rcpt')).replace(/\s+/g, ' ');
+  ok(/0\.0035 private tETH on Ethereum, in 2 notes/.test(rcAll) && /Bitcoin feeabout [\d,]+ sats[^]*in all/.test(rcAll) && /Relay feeNone/.test(rcAll), `xbring: its receipt adds the two together and says the Bitcoin fee for both (${rcAll.slice(0, 220)})`);
+  ok(/Bring back 2 notes/.test(await text(r.page, '#xb-go')) && await r.page.isDisabled('#xb-go'), 'xbring: the button says how many and waits for the box to be ticked');
+  await r.page.check('#xb-ack');
+  const beforeAll = posts.length;
+  await r.page.click('#xb-go');
+  await until(r.page, () => /2 burns sent/.test(document.querySelector('#v1-status')?.textContent || ''), null, 300000)
+    .catch(async (e) => { throw new Error(`${e.message.split('\n')[0]} | status: ${(await text(r.page, '#v1-status')).replace(/\s+/g, ' ')} | posts ${posts.length - beforeAll}`); });
+  ok(posts.length - beforeAll >= 4, `xbring: each of the two is signed and sent as its own commit and reveal (${posts.length - beforeAll} transactions)`);
+  const journal = await r.page.evaluate((k) => JSON.parse(localStorage.getItem(k) || '[]').map((x) => [x.source?.amount?.__big ?? String(x.source?.amount), x.stage]), `tacit-burndep-bridge-v1:mainnet:${pub}`);
+  ok(journal.length === 3 && ['400000', '200000', '150000'].every((v) => journal.some(([a]) => a === v)), `xbring: the journal holds three returns, the first and the two from that press (${JSON.stringify(journal)})`);
   if (r.errors.length) { fails++; console.log('FAIL xbring page errors: ' + r.errors.slice(0, 3).join(' | ')); }
   await r.browser.close();
 });

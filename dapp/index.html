@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-tL5lhbQz/z/yPXqBbss8/RIqywiof9zPQdbnjeA3cEM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-6VlFpdG7J+UWwbAPLInODsXijbsfLh50fxsEFONu6w8=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -5182,7 +5182,8 @@ function loadBridged(force = false, a = XA.teth) {
     for (const r of t.crossoutUx().list(pub)) if (xoIs(r, a) && r.settle?.claimId) known[String(r.settle.claimId).toLowerCase()] = { amount: BigInt(r.source.amount ?? r.source.value), nullifier: r.id };
     const spent = new Map((P.scan?.spentNotes || []).map((n) => [String(n.nullifier).toLowerCase(), BigInt(n.value)]));
     const found = await t.crossoutNotes().discover({ walletPriv: walletPriv(), assetIds: [a.id], known, spentValue: (nu) => spent.get(String(nu).toLowerCase()) ?? null });
-    for (const n of found) n.live = await ux.isLive(n.txid, n.vout).catch(() => undefined);
+    const first = found.findIndex((n) => n.confirmed);                    // a refresh reads the proof afresh, once for all the notes
+    for (const [i, n] of found.entries()) n.live = await ux.isLive(n.txid, n.vout, { fresh: force && i === first }).catch(() => undefined);
     return found;
   })().then((notes) => { if (S.key?.pubHex === pub) { Object.assign(XB, { pub, notes, at: notes.unread ? 0 : Date.now(), err: null, unread: notes.unread || 0 }); if (!notes.unread) xbCacheSet(pub, a, notes); } },
     (e) => { if (S.key?.pubHex === pub) Object.assign(XB, { pub, notes: null, err: e }); }).finally(() => { XB.loading = null; }));
@@ -5198,15 +5199,17 @@ function xbSection(pub, a = XA.teth) {
   const XB = xbOf(a), rows = xbRows(pub, a), b = XB.pub === pub ? XB : null, looked = XB.asked === pub || rows.length > 0 || xoJournaled(pub, a) || xbJournaled(pub, a) || xoArrivedLately(pub, a);
   if (looked && !b?.notes && !XB.loading && !b?.err) loadBridged(false, a).then(() => rerender(a.sheet)).catch(() => {});
   const notes = (b?.notes || []).filter((n) => !T.bridgeUx().isReserved(n.txid, n.vout)), open = notes.filter(xbReady);
-  if (XB.pick && !open.some((n) => xbId(n) === XB.pick)) XB.pick = null;
+  if (XB.pick === 'all' ? open.length < 2 : XB.pick && !open.some((n) => xbId(n) === XB.pick)) XB.pick = null;
   if (!XB.pick && open.length === 1) XB.pick = xbId(open[0]);
+  // With two or more notes ready, one choice brings them all back, each burned on its own.
+  const allOpt = open.length > 1 ? html`<label class="pick brn"><input type="radio" name="${a.bpre}-note" value="all" ${XB.pick === 'all' ? 'checked' : ''}><span><b class="num">All ${open.length} ready notes</b><small>${fmt(open.reduce((t, n) => t + BigInt(n.amount), 0n), 8, a.dp)} ${a.ticker} in all, each burned on its own</small></span></label>` : '';
   return html`
     ${rows.length ? html`<div class="lbl"><span>Coming back</span></div><ul class="acts brs">${rows.map(brRow)}</ul><div class="status" role="status" id="${a.bpre}-rstatus"></div>` : ''}
     <div class="lbl"><span>${a.held}</span>${looked && (b?.notes || b?.err) ? html`<button type="button" id="${a.bpre}-re">refresh</button>` : ''}</div>
     ${!looked ? html`<p class="note">${a.ticker} you have bridged to Bitcoin is listed here. <button class="link" type="button" id="${a.bpre}-look">Look for it</button></p>`
       : !b?.notes ? (b?.err ? html`<p class="note err">${errText(b.err)}</p>` : html`<p class="note">Reading your ${a.ticker} on Bitcoin…</p>`)
       : !notes.length && !b.unread ? html`<p class="note">No bridged ${a.ticker} on this key’s Bitcoin address.</p>`
-      : html`${notes.length ? html`<div class="brns" role="radiogroup" aria-label="${a.ticker} to bring back">${notes.map((n) => xbNote(n, a))}</div>` : ''}${b.unread ? html`<p class="note err">${b.unread === 1 ? 'One output' : `${b.unread} outputs`} at this key’s Bitcoin address could not be read, so this list may be missing a note. Refresh in a minute.</p>` : ''}`}
+      : html`${notes.length ? html`<div class="brns" role="radiogroup" aria-label="${a.ticker} to bring back">${allOpt}${notes.map((n) => xbNote(n, a))}</div>` : ''}${b.unread ? html`<p class="note err">${b.unread === 1 ? 'One output' : `${b.unread} outputs`} at this key’s Bitcoin address could not be read, so this list may be missing a note. Refresh in a minute.</p>` : ''}`}
     <div class="rcpt" id="${a.bpre}-rcpt" hidden></div>
     <label class="pick" id="${a.bpre}-ackrow" hidden><input type="checkbox" id="${a.bpre}-ack"><span>I understand a burn cannot be undone once it confirms on Bitcoin.</span></label>
     <button class="btn" type="button" id="${a.bpre}-go" disabled ${open.length ? '' : 'hidden'}>Bring back to Ethereum</button>
@@ -5248,9 +5251,45 @@ function wireHeld(el, status, a = XA.teth) {
   const gateOk = () => { go.disabled = !review || review.short || !ack.checked; };
   ack.onchange = gateOk;
   const noteOf = () => (XB.notes || []).find((n) => xbId(n) === XB.pick);
+  const readyNotes = () => (XB.notes || []).filter((n) => xbReady(n) && !T.bridgeUx().isReserved(n.txid, n.vout));
+  const noteArg = (n) => ({ txid: n.txid, vout: n.vout, amount: n.amount, blinding: n.blinding, assetId: a.id });
+  // Every ready note at once: each is checked, the fees of all are said together, and the sats the key holds are read against what they need.
+  const checkAll = async (my) => {
+    const ns = readyNotes();
+    mount(rc, html`<p class="note">Checking these notes and Bitcoin’s fees…</p>`); rc.hidden = false;
+    try {
+      const ux = await brUx();
+      const pfs = await Promise.all(ns.map((n) => ux.preflightHeld({ note: noteArg(n), walletPub: hexToBytes(pub) }).catch((e) => ({ ok: false, steps: [{ name: 'fee-estimate', detail: brErr(e) }] }))));
+      if (my !== seq || !rc.isConnected) return;
+      const good = ns.filter((_, i) => pfs[i].ok);
+      if (!good.length) { mount(rc, html``); warn(rc, xbCheckText(pfs[0]?.steps.find((x) => !x.ok) || { name: '' })); return; }
+      const rate = Math.max(...pfs.filter((p) => p.ok).map((p) => p.burnFeeRate));
+      const coins = await withKey(async (t) => t.pickSafeCommitSats(await t.getUtxos(t.wallet.address())), pub).catch(() => null);
+      if (my !== seq || !rc.isConnected) return;
+      const costs = good.map((n) => ux.bridgeCost({ path: 'reflected', feeRate: rate, coins: coins || [], noteSats: n.sats, p2tr: true })), fee = costs.reduce((t, c) => t + c.fee, 0);
+      if (rate > ux.RETURN_FEE_CEILING) { mount(rc, html``); warn(rc, html`Bitcoin’s fees are high right now (${Math.round(rate)} sat/vB, about ${fee.toLocaleString('en-US')} sats for these). Bringing ${a.ticker} back waits for them to fall under ${ux.RETURN_FEE_CEILING} sat/vB.`); return; }
+      // How many the sats on the key's address reach, the cheapest first: the rest come back when more is added and the press is repeated.
+      const have = (coins || []).reduce((t, c) => t + Number(c.value || 0), 0);
+      let left = have, reach = 0;
+      for (const c of costs.map((x) => x.need).sort((x, y) => x - y)) { if (left < c) break; left -= c; reach++; }
+      const total = good.reduce((t, n) => t + BigInt(n.amount), 0n);
+      review = { all: good, short: !!coins && reach === 0 };
+      mount(rc, html`
+        <div class="kv"><span>You get</span><b>${fmt(total, 8, a.dp)} private ${a.ticker} on Ethereum, in ${good.length} notes</b></div>
+        <div class="kv"><span>Bitcoin fee</span><b>about ${fee.toLocaleString('en-US')} sats${xoUsd({ sats: fee })} in all</b></div>
+        <div class="kv"><span>Relay fee</span><b>None</b></div>
+        <div class="kv"><span>Arrives</span><b>usually a few hours, sometimes up to a day</b></div>`);
+      if (good.length < ns.length) rc.insertAdjacentHTML('beforeend', html`<p class="note">${ns.length - good.length} of ${ns.length} cannot come back just now and stay where they are.</p>`.s);
+      if (coins && reach < good.length) warn(rc, html`This key’s Bitcoin address has ${fmt(BigInt(have), 8, 8)} BTC free for fees, enough for ${reach} of ${good.length}. ${reach ? 'The rest come back when you add bitcoin and press again.' : ''} <a href="#bitcoin/receive" data-link="bitcoin/receive">Add bitcoin to it</a>`);
+      go.textContent = `Bring back ${good.length} notes`;
+      ackRow.hidden = false; gateOk();
+    } catch (e) { if (my === seq && rc.isConnected) quoteErr(rc, brFail(e)); }
+  };
   const check = async () => {
     const my = ++seq;
     review = null; ack.checked = false; ackRow.hidden = true; gateOk();
+    go.textContent = 'Bring back to Ethereum';
+    if (XB.pick === 'all') return checkAll(my);
     const n = noteOf();
     if (!n) { rc.hidden = true; return; }
     const key = `${pub}:${xbId(n)}`, kept = XB.rv?.key === key && Date.now() - XB.rv.at < 120e3 ? XB.rv.pf : null;
@@ -5278,9 +5317,38 @@ function wireHeld(el, status, a = XA.teth) {
   };
   $$(`input[name="${a.bpre}-note"]`, el).forEach((r) => r.onchange = () => { XB.pick = r.value; check(); });
   if (XB.pick) check();
+  // One burn, signed and sent through the page's key; what the record says if the send did not go through.
+  const burnOne = (n, pf) => withKey(async (t) => {
+    const ux = t.bridgeUx(), priv = walletPriv();
+    const made = await ux.startReflected({ note: { txid: n.txid, vout: n.vout, sats: n.sats, amount: n.amount, blinding: n.blinding, assetId: a.id, p2tr: true }, walletPriv: priv, feeRate: pf.burnFeeRate });
+    try { return await ux.advance(made.walletPub, made.id); } catch { return ux.list(made.walletPub).find((x) => x.id === made.id) || made; }
+  }, pub);
+  // Each ready note in turn, the largest first, each checked again just before its burn. A shortage of sats or a full chain of unconfirmed
+  // transactions ends the run there (after one look at the coin list afresh, as the TAC run does), and what is left is said.
+  const bringAll = async (run, r) => {
+    const list = [...r.all].sort((x, y) => (BigInt(y.amount) > BigInt(x.amount) ? 1 : BigInt(y.amount) < BigInt(x.amount) ? -1 : 0)), left = [];
+    let did = 0, at = 0, halted = false;
+    for (const n of list) {
+      const amt = `${fmt(n.amount, 8, a.dp)} ${a.ticker}`;
+      run.say(status, `Bringing ${amt} back (${++at} of ${list.length})…`);
+      try {
+        const ux = await brUx(), pf = await ux.preflightHeld({ note: noteArg(n), walletPub: hexToBytes(pub) });
+        if (!pf.ok) { left.push(`${amt}: ${xbCheckText(pf.steps.find((x) => !x.ok) || { name: '' })}`); continue; }
+        if (pf.burnFeeRate > ux.RETURN_FEE_CEILING) { left.push(`${amt}: Bitcoin’s fees are high right now`); halted = true; break; }
+        await brTry(pub, () => did > 0, () => burnOne(n, pf));
+        did++; await brFresh(pub);
+      } catch (e) { left.push(`${amt}: ${brHalts(e) ? brHaltText(e) : brErr(e)}`); if (brHalts(e)) { halted = true; break; } }
+    }
+    const waiting = list.length - did - left.length;
+    XB.pick = null; XB.rv = null; XB.at = 0;
+    if (did) toast(`Bringing ${did} ${a.ticker} note${did === 1 ? '' : 's'} back to Ethereum`);
+    say(status, html`${did ? html`<span class="ok">✓ ${did} burn${did === 1 ? '' : 's'} sent.</span> ${did === 1 ? 'It shows' : 'They show'} under Coming back, and finish${did === 1 ? 'es' : ''} on their own whenever this page is open with your key.` : ''}${left.length ? html`<br><span class="err">${left.join(' · ')}</span>` : ''}${halted && waiting > 0 ? html`<br>${waiting} more ${waiting === 1 ? 'is' : 'are'} still here: press again once that is sorted.` : ''}`);
+    Promise.allSettled([loadBridged(true, a), loadBtc(true)]).then(() => rerender(a.sheet));
+  };
   go.onclick = () => busy(go, async (run) => {
     const r = review;
     if (!r) return;
+    if (r.all) { try { review = null; await bringAll(run, r); } catch (e) { run.fail(status, brFail(e)); } return; }
     const amtText = `${fmt(r.note.amount, 8, a.dp)} ${a.ticker}`;
     try {
       run.say(status, 'Signing the burn and sending it to Bitcoin…');
@@ -7364,7 +7432,7 @@ async function brSend(run, n, amount, verb, plan = null) {
 // one or the receipt of a single picked note.
 const brNotes = (n) => `${n} note${n === 1 ? '' : 's'}`;
 const brAnd = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}`);
-const brShort = (e) => /insufficient sats|no plain-sats/i.test(String(e?.message));
+const brShort = (e) => /insufficient (plain )?sats|no plain-sats/i.test(String(e?.message));
 const BR_NO_SATS = 'Not enough BTC for this and its Bitcoin fee.';
 const BR_CHAIN = 'Bitcoin allows only so many unconfirmed transactions in a chain. The rest can go once these confirm: press again then.';
 const brChainFull = (e) => /ancestor-chain limit|too-long-mempool-chain/i.test(String(e?.message));
