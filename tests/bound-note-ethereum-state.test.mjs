@@ -53,6 +53,7 @@ globalThis.fetch = async (url, opts = {}) => {
     return json({ error: 'not found' }, 404);
   }
   const tm = u.pathname.match(/\/tx\/([0-9a-f]{64})$/);
+  if (tm && E.explorerDown) return json({ error: 'unavailable' }, 500);
   if (tm) {
     const t = (u.hostname === 'blockstream.info' && E.explorerOverride.get(tm[1])) || txs.get(tm[1]);
     return t ? json(t) : json({ error: 'not found' }, 404);
@@ -278,6 +279,27 @@ console.log('\nPurchases:');
   err = null;
   try { await dapp.requireValidatedLot(t.txid, 0); } catch (e) { err = e; }
   ok('the same lot after it moved to Ethereum is refused (not reused as proven)', /does not validate/.test(String(err?.message)), String(err?.message || ''));
+}
+
+console.log('\nFailed reads in the asset checks:');
+{
+  const note = etch(1000n);
+  const asset = { asset_id: bytesToHex(note.assetId), etch_txid: note.txid, ticker: 'TST', decimals: 0 };
+  E.explorerDown = true;
+  const down = await dapp.verifyDiscoverAsset(asset);
+  E.explorerDown = false;
+  ok('an asset whose etch could not be read is unverified for now, and says the read failed', down.ok === false && down.transient === true, JSON.stringify({ ok: down.ok, transient: down.transient }));
+  const back = await dapp.verifyDiscoverAsset(asset);
+  ok('and it is asked again rather than kept: the next check verifies it', back.ok === true, JSON.stringify({ ok: back.ok, error: back.error }));
+
+  const bogusMint = nextTxid();
+  E.explorerDown = true;
+  await dapp.enrichDiscoverMints({ asset_id: asset.asset_id, mints: [{ mint_txid: bogusMint }] }, { ok: true, verifiedMints: {} });
+  E.explorerDown = false;
+  ok('a mint that could not be read is not written to the stored record as invalid', !dapp.getCachedDiscoverMint(bogusMint), JSON.stringify(dapp.getCachedDiscoverMint(bogusMint)));
+  txs.set(bogusMint, { txid: bogusMint, status: confirmed(95), vin: [{ txid: nextTxid(), vout: 0, witness: ['00', '00'], prevout: { scriptpubkey_type: 'v0_p2wpkh', value: 1000 } }], vout: [{ scriptpubkey: '0014' + '11'.repeat(20), value: 546 }] });
+  await dapp.enrichDiscoverMints({ asset_id: asset.asset_id, mints: [{ mint_txid: bogusMint }] }, { ok: true, verifiedMints: {} });
+  ok('while a mint that was read and is not a mint is still recorded as invalid', dapp.getCachedDiscoverMint(bogusMint)?.ok === false, JSON.stringify(dapp.getCachedDiscoverMint(bogusMint)));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

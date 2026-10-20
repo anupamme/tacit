@@ -11564,7 +11564,7 @@ async function _verifyBridgeDepositProof(leaf, aidHex, denom, getTx, gctx) {
   ];
   const pool = poolRegistry.get(poolKey(aidHex, denom, _gen));
   const vkCid = pool ? new TextDecoder().decode(pool.vkCid) : null;
-  if (!vkCid) { _bridgeProofCache.set(cacheKey, null); return null; }
+  if (!vkCid) return null;
   let ok;
   try { ok = await verifyMixerProof({ vkCid, publicInputs, proof: envelope.proof }); }
   catch { ok = null; }
@@ -11582,10 +11582,7 @@ async function _verifyBridgeDepositProof(leaf, aidHex, denom, getTx, gctx) {
       const calldata = '0xe5f99a21' + _pad32(poolId) + _pad32(ethRootHex);
       const result = await _ethRpcCall('eth_call', [{ to: _g.address, data: calldata }, 'latest']);
       const rootKnown = result && result !== '0x' + '0'.repeat(64);
-      if (!rootKnown) {
-        _bridgeProofCache.set(cacheKey, false);
-        return false;
-      }
+      if (!rootKnown) return false;                                    // the Ethereum root may not be relayed yet: not kept as the leaf's answer
     } catch {
     }
   }
@@ -51957,7 +51954,7 @@ async function _processBatchedDiscoverCardVerify(items) {
         };
       }
       try { return await _verifyDiscoverEtchOnlyBatched(asset, rpBatch); }
-      catch (e) { return { ok: false, error: (e && e.message) || String(e) }; }
+      catch (e) { return { ok: false, error: (e && e.message) || String(e), transient: true }; }
     }));
     let batchOk = rpBatch.length === 0;
     if (rpBatch.length > 0) {
@@ -51968,7 +51965,7 @@ async function _processBatchedDiscoverCardVerify(items) {
         if (cacheHits.has(live[i].asset.asset_id)) continue;
         if (!canonicals[i].ok) continue;
         try { canonicals[i] = await _verifyDiscoverEtchOnly(live[i].asset); }
-        catch (e) { canonicals[i] = { ok: false, error: (e && e.message) || String(e) }; }
+        catch (e) { canonicals[i] = { ok: false, error: (e && e.message) || String(e), transient: true }; }
       }
     }
     await Promise.all(live.map(async ({ card, asset }, i) => {
@@ -51992,7 +51989,7 @@ async function _processBatchedDiscoverCardVerify(items) {
             etcherXonly: canonical.etcherXonly || null,
             ipfsAttest: null, verifiedMints: {}, verifiedBurns: {}, mismatches: [],
           }
-        : { ok: false, error: canonical.error || 'unknown', mismatches: [], verifiedMints: {}, verifiedBurns: {}, ipfsAttest: null };
+        : { ok: false, error: canonical.error || 'unknown', transient: !!canonical.transient, mismatches: [], verifiedMints: {}, verifiedBurns: {}, ipfsAttest: null };
       if (verify.ok) {
         const m = [];
         if (typeof asset.ticker === 'string' && asset.ticker !== verify.ticker) m.push(`ticker (worker=${asset.ticker} vs chain=${verify.ticker})`);
@@ -52001,7 +51998,7 @@ async function _processBatchedDiscoverCardVerify(items) {
         if ((asset.image_uri || null) !== (verify.imageUri || null)) m.push('image_uri');
         verify.mismatches = m;
       }
-      _discoverVerifyCache.set(asset.asset_id, verify);
+      if (!verify.transient) _discoverVerifyCache.set(asset.asset_id, verify);
       verify._assetId = asset.asset_id;
       const effectiveImageUri = verify.ok ? verify.imageUri : asset.image_uri;
       const imgUrl = effectiveImageUri ? await resolveImageUri(effectiveImageUri).catch(() => null) : null;
@@ -52060,7 +52057,7 @@ async function verifyDiscoverAsset(a) {
     };
   } else {
     canonical = await _verifyDiscoverEtchOnly(a)
-      .catch(e => ({ ok: false, error: (e && e.message) || String(e) }));
+      .catch(e => ({ ok: false, error: (e && e.message) || String(e), transient: true }));
     if (canonical.ok) {
       setCachedDiscoverEtch(aid, {
         etch_txid:        a.etch_txid,
@@ -52088,7 +52085,7 @@ async function verifyDiscoverAsset(a) {
   } else {
     canonical.mismatches = [];
   }
-  _discoverVerifyCache.set(aid, canonical);
+  if (!canonical.transient) _discoverVerifyCache.set(aid, canonical);          // a read that failed is asked again, not kept as the asset's answer
   return canonical;
 }
 
@@ -52097,10 +52094,11 @@ async function _verifyDiscoverEtchOnlyBatched(a, rpBatch) {
   if (!/^[0-9a-f]{64}$/.test(a.asset_id || ''))  return { ok: false, error: 'bad asset_id' };
   const aidComputed = bytesToHex(assetIdFor(a.etch_txid, 0));
   if (aidComputed !== a.asset_id) return { ok: false, error: 'asset_id ≠ sha256(etch_txid_BE‖0_LE)' };
-  const validatedSet = new Map();
-  const valid = await validateOutpoint(a.etch_txid, 0, validatedSet, _sharedFetchTx, 0, null, rpBatch);
-  if (!valid) return { ok: false, error: 'on-chain CETCH failed validation (non-rangeproof)' };
+  const validatedSet = new Map(), reasons = new Map();
+  const valid = await validateOutpoint(a.etch_txid, 0, validatedSet, _sharedFetchTx, 0, null, rpBatch, null, reasons);
+  if (!valid) return { ok: false, error: 'on-chain CETCH failed validation (non-rangeproof)', transient: reasons.get(`${a.etch_txid}:0`) === _REASON_FETCH_FAILED };
   const etchTx = await _sharedFetchTx(a.etch_txid);
+  if (!etchTx) return { ok: false, error: 'etch transaction not readable', transient: true };
   let env;
   try { env = decodeEnvelopeScript(hexToBytes(etchTx.vin[0].witness[1])); } catch { return { ok: false, error: 'envelope decode failed' }; }
   if (!env || env.opcode !== T_CETCH) return { ok: false, error: 'parent is not CETCH' };
@@ -52123,10 +52121,11 @@ async function _verifyDiscoverEtchOnly(a) {
   if (!/^[0-9a-f]{64}$/.test(a.asset_id || ''))  return { ok: false, error: 'bad asset_id' };
   const aidComputed = bytesToHex(assetIdFor(a.etch_txid, 0));
   if (aidComputed !== a.asset_id) return { ok: false, error: 'asset_id ≠ sha256(etch_txid_BE‖0_LE)' };
-  const validatedSet = new Map();
-  const valid = await validateOutpoint(a.etch_txid, 0, validatedSet, _sharedFetchTx);
-  if (!valid) return { ok: false, error: 'on-chain CETCH failed validation' };
+  const validatedSet = new Map(), reasons = new Map();
+  const valid = await validateOutpoint(a.etch_txid, 0, validatedSet, _sharedFetchTx, 0, null, null, null, reasons);
+  if (!valid) return { ok: false, error: 'on-chain CETCH failed validation', transient: reasons.get(`${a.etch_txid}:0`) === _REASON_FETCH_FAILED };
   const etchTx = await _sharedFetchTx(a.etch_txid);
+  if (!etchTx) return { ok: false, error: 'etch transaction not readable', transient: true };
   let env;
   try { env = decodeEnvelopeScript(hexToBytes(etchTx.vin[0].witness[1])); } catch { return { ok: false, error: 'envelope decode failed' }; }
   if (!env || env.opcode !== T_CETCH) return { ok: false, error: 'parent is not CETCH' };
@@ -52213,9 +52212,11 @@ async function enrichDiscoverMints(a, verify) {
       continue;
     }
     try {
-      const ok = await validateOutpoint(mtxid, 0, new Map(), _sharedFetchTx);
-      if (!ok) { setCachedDiscoverMint(mtxid, { ok: false }); continue; }
+      const reasons = new Map();
+      const ok = await validateOutpoint(mtxid, 0, new Map(), _sharedFetchTx, 0, null, null, null, reasons);
+      if (!ok) { if (reasons.get(`${mtxid}:0`) !== _REASON_FETCH_FAILED) setCachedDiscoverMint(mtxid, { ok: false }); continue; }
       const mtx = await _sharedFetchTx(mtxid);
+      if (!mtx) continue;
       const menv = decodeEnvelopeScript(hexToBytes(mtx.vin[0].witness[1]));
       if (!menv || menv.opcode !== T_MINT) { setCachedDiscoverMint(mtxid, { ok: false }); continue; }
       const md = decodeCMintPayload(menv.payload);
@@ -52229,7 +52230,7 @@ async function enrichDiscoverMints(a, verify) {
       };
       setCachedDiscoverMint(mtxid, entry);
       verify.verifiedMints[mtxid] = { commitment: entry.commitment, encryptedAmount: entry.encryptedAmount };
-    } catch { setCachedDiscoverMint(mtxid, { ok: false }); }
+    } catch { /* a read that threw says nothing about the mint: it is asked again next time */ }
   }
 }
 
@@ -61271,7 +61272,7 @@ export {
   parseRecipientInput,
   getFeeRate, getFeeTierPref, setFeeTierPref, FEE_TIERS,
   broadcast, broadcastWithRetry, getTx,
-  validateOutpoint, requireValidatedLot, _explorerTx, _crossCheckedFetcher, _lotProvedSession,
+  validateOutpoint, requireValidatedLot, _explorerTx, _crossCheckedFetcher, _lotProvedSession, verifyDiscoverAsset, enrichDiscoverMints, getCachedDiscoverMint,
   getParentEnvelopeData, clearBtcPoolExitCache, _txOutputEnvelope as txOutputEnvelope,
   setStrictValidation, clearValidatorCaches, ValidationUnavailableError, rememberValidated,
   _txMarkNotFound as txMarkNotFound, _txIsRecentlyNotFound as txIsRecentlyNotFound,
