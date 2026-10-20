@@ -57,7 +57,7 @@ async function stubWallet(ctx) {
   return log;
 }
 
-async function openPage(viewport, { wallet = false, hash = '#btc=on', utxos = [], delay = 0, utxoHold = 0 } = {}) {
+async function openPage(viewport, { wallet = false, hash = '#btc=on', utxos = [], delay = 0, utxoHold = 0, taprootCoin = false } = {}) {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport, colorScheme: 'light' });
   const walletLog = wallet ? await stubWallet(ctx) : null;
@@ -83,6 +83,7 @@ async function openPage(viewport, { wallet = false, hash = '#btc=on', utxos = []
     seen.explorer.add(`${route.request().method()} ${path}`);
     if (route.request().method() === 'POST') { seen.posts.push(`${who}${path}`); return route.fulfill({ status: 400, headers: { 'access-control-allow-origin': '*' }, body: 'not served in this test' }); }
     let m;
+    if ((m = /\/address\/(bc1p[^/]+)\/utxo$/.exec(path))) return route.fulfill(ok200(taprootCoin ? [{ txid: 'ee'.repeat(32), vout: 0, value: 546, status: { confirmed: true, block_height: 900000, block_time: soon - 700000 } }] : []));
     if ((m = /\/address\/([^/]+)\/utxo$/.exec(path))) { if (utxoHold) await new Promise((r) => setTimeout(r, utxoHold)); return route.fulfill(ok200(utxos.length ? utxos : [{ txid: 'cd'.repeat(32), vout: 0, value: 3000000, status: { confirmed: true, block_height: 900000, block_time: soon - 700000 } }])); }
     if (/\/v1\/prices$/.test(path)) return route.fulfill(ok200({ time: soon, USD: 100000, EUR: 92000 }));
     if ((m = /\/tx\/([0-9a-f]{64})$/.exec(path))) { if (delay) await new Promise((r) => setTimeout(r, delay)); return route.fulfill(ok200({ txid: m[1], version: 2, locktime: 0, vin: [{ txid: '11'.repeat(32), vout: 0, sequence: 4294967295, witness: [], prevout: { value: 3001000, scriptpubkey_address: 'bc1qplainfunding' } }], vout: [{ value: 3000000, scriptpubkey_address: 'bc1qplainfunding' }], size: 200, weight: 800, fee: 1000, status: { confirmed: true, block_height: 900000, block_time: soon - 700000 } })); };
@@ -225,6 +226,22 @@ try {
   await until(p, () => /3,000,000/.test(document.querySelector('.bsheet .bm')?.textContent || ''), null, 60000);
   ok(true, 'and the sats follow when they arrive');
   await r.browser.close();
+
+  // notes bridged to Bitcoin sit at the key's Taproot address: with one there, the Sell side says nothing sells from it yet; with none, it says nothing
+  for (const withNote of [true, false]) {
+    r = await openPage({ width: 1280, height: 900 }, { wallet: true, taprootCoin: withNote });
+    p = r.page;
+    await until(p, () => document.querySelectorAll('#ladders [data-btc]').length > 0, null, 120000);
+    await p.click('#ladders [data-btc="open"]');
+    await until(p, () => document.querySelector('.bsheet.wide .bm [data-act="unlock"]'), null, 180000);
+    await p.click('.bsheet .bm [data-act="unlock"]'); await p.waitForSelector('.bsheet.top .ways');
+    await p.click('.bsheet.top [data-in="eth"]');
+    await until(p, () => /3,000,000/.test(document.querySelector('.bsheet .bm')?.textContent || ''), null, 60000);
+    await p.click('.bsheet .bm [data-act="side"][data-v="sell"]'); await p.waitForTimeout(2500);
+    const hint = (await p.evaluate(() => document.querySelector('.bsheet .bm [data-k="bridged"]')?.textContent || '')).replace(/\s+/g, ' ');
+    ok(withNote ? /bridged to Bitcoin.*Taproot address.*can't be sold here yet/.test(hint) : hint === '', withNote ? `with a bridged note at the Taproot address the Sell side says it cannot be sold here yet (${hint.slice(0, 70)})` : 'with nothing at the Taproot address the Sell side says nothing about it');
+    await r.browser.close();
+  }
 
   // a bid's Sell sets the ticket to sell, and the recovery of a stopped purchase is offered with its figures
   r = await openPage({ width: 1280, height: 900 }, { wallet: true });

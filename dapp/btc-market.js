@@ -465,6 +465,7 @@ function createMarket(host, ctx) {
       const free = freeBase(m);
       const locked = free == null ? 0n : m.assetBase - free;
       bal = free == null ? `Balance: checking…` : `Balance: <b>${fmtAmount(free, dec)}</b> ${T}${locked > 0n ? ` <em>· ${fmtAmount(locked, dec)} ${T} in your open orders</em>` : ''}`;
+      if (m.bridged > 0) bal += `<br><small class="bm-muted" data-k="bridged">Notes you bridged to Bitcoin sit at your Taproot address and can't be sold here yet. <a href="/bridge/">Bridge →</a></small>`;
       if (free > 0n) {
         for (const p of [25, 50, 100]) {
           const v = (free * BigInt(p)) / 100n;

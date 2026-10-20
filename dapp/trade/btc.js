@@ -157,9 +157,10 @@ export function makeBitcoin({ notify = () => {}, onTraded = () => {}, onChange =
     meState = {
       pubHex: my.pubHex, h160: T.bytesToHex(T.hash160(T.wallet.pub)), unlocked: true,
       sats: raw ? spendable(raw, null) : null,
-      assetBase: kept, address: T.wallet.address(),
+      assetBase: kept, address: T.wallet.address(), bridged: meState?.pubHex === my.pubHex ? meState.bridged : undefined,
     };
     changed(); ctl?.refresh?.({ soft: true });
+    T.bridgedAtTaproot().then((b) => { if (session.key !== my || !meState || seq !== meSeq || b.count == null || meState.bridged === b.count) return; meState = { ...meState, bridged: b.count }; changed(); ctl?.refresh?.({ soft: true }); }).catch(() => {});
     holdingsP.then((holdings) => {
       if (session.key !== my || !meState || seq !== meSeq) return;
       const h = holdings instanceof Map ? holdings.get(AID) : null;

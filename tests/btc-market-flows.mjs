@@ -297,6 +297,19 @@ await test('a review that is cancelled, or confirmed, before it has been open a 
   assert.equal((await calls(page, 'prepare')).length, 0, 'a confirmed review checked lots ahead');
 });
 
+await test('notes bridged to Bitcoin are named on the sell side, only when there are some, and not on the buy side', async (page) => {
+  await page.evaluate(() => { const W = window.__w; W.listings = [W.bid ? W.bid('b1', 10, 2000) : W.preauth('p1', 10, 2000)]; W.me = { ...W.me, bridged: 2 }; });
+  await mount(page); await settle(page, 300);
+  assert.equal(await page.$('[data-k=bridged]'), null, 'the buy side names them');
+  await page.click('[data-act=side][data-v=sell]'); await settle(page, 400);
+  const t = await page.textContent('[data-k=bridged]');
+  assert.match(t, /bridged to Bitcoin.*Taproot address.*can't be sold here yet/, t);
+  assert.equal(await page.getAttribute('[data-k=bridged] a', 'href'), '/bridge/');
+  await page.evaluate(() => { window.__w.me = { ...window.__w.me, bridged: 0 }; });
+  await page.click('[data-act=side][data-v=buy]'); await settle(page, 200); await page.click('[data-act=side][data-v=sell]'); await settle(page, 600);
+  assert.equal(await page.$('[data-k=bridged]'), null, 'it is named with nothing bridged');
+});
+
 await test('stop after the current step', async (page) => {
   await page.evaluate(() => { const W = window.__w; W.listings = [W.intent('i1', 10, 2000), W.intent('i2', 10, 2010), W.intent('i3', 10, 2020)];
     const orig = W.ctx; W.ctx = () => { const c = orig(); const t = c.exec.takeAsk; c.exec.takeAsk = async (...a) => { await new Promise((r) => setTimeout(r, 400)); return t(...a); }; return c; }; });

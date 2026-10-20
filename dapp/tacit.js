@@ -43,7 +43,7 @@ import { makeConfidentialPoolUx, setExternalTacHolders, forgetKeys as forgetPool
 import { makeBurnDepositUx, BURNDEP_BETA_CAP_RAW as BURNDEP_BETA_CAP_RAW_TAC } from './burndep-ux.js';
 import { makeTxArchive } from './tx-archive.js';
 import { makeCrossoutUx, CROSSOUT_BETA_CAP_RAW as CROSSOUT_TAC_CAP_RAW, CROSSOUT_TETH_CAP_RAW, CROSSOUT_TETH_MIN_RAW, CROSSOUT_CBTC_CAP_RAW, CROSSOUT_CBTC_MIN_RAW } from './crossout-ux.js';
-import { makeCrossoutNotes } from './crossout-notes.js';
+import { makeCrossoutNotes, p2trAddress as _crossoutP2trAddress } from './crossout-notes.js';
 import { renderConfidentialPoolTab } from './confidential-pool-tab.js';
 import { renderLanePanel } from './cross-chain-lane.js';
 import { renderCdpTab, announceCbtcBonds } from './confidential-defi-tab.js';
@@ -15817,6 +15817,29 @@ function _crossoutUxSingleton() {
 }
 function _crossoutReserved(txid, vout) {
   try { return _crossoutUxSingleton().isFundingReserved(txid, vout); } catch { return false; }
+}
+// A note bridged to Bitcoin sits at the key's own Taproot address, which the holdings scan does not read. One look at that address (its small outputs,
+// which is what a bridged note is) lets a page say why nothing is there to sell; the count is kept for a minute and a half.
+const _bridgedHeld = { key: null, at: 0, count: null, address: null, p: null };
+function bridgedAtTaprootCount() {
+  try { return wallet.pub && _bridgedHeld.key === bytesToHex(wallet.pub) ? _bridgedHeld.count : null; } catch { return null; }
+}
+function bridgedAtTaproot({ force = false } = {}) {
+  if (!wallet.pub) return Promise.resolve({ count: null, address: null });
+  const key = bytesToHex(wallet.pub);
+  if (_bridgedHeld.key !== key) Object.assign(_bridgedHeld, { key, at: 0, count: null, address: null, p: null });
+  if (!force && _bridgedHeld.p) return _bridgedHeld.p;
+  if (!force && _bridgedHeld.count != null && Date.now() - _bridgedHeld.at < 90_000) return Promise.resolve({ count: _bridgedHeld.count, address: _bridgedHeld.address });
+  const address = _crossoutP2trAddress(key.slice(2), NET.hrp);
+  _bridgedHeld.address = address;
+  const p = (async () => {
+    const utxos = await apiJson(`/address/${address}/utxo`);
+    const n = (Array.isArray(utxos) ? utxos : []).filter((u) => Number(u.vout) === 0 && Number(u.value) <= 2000).length;
+    if (_bridgedHeld.key === key) { _bridgedHeld.count = n; _bridgedHeld.at = Date.now(); }
+    return { count: n, address };
+  })().catch(() => ({ count: _bridgedHeld.key === key ? _bridgedHeld.count : null, address })).finally(() => { if (_bridgedHeld.p === p) _bridgedHeld.p = null; });
+  _bridgedHeld.p = p;
+  return p;
 }
 let _crossoutNotes = null, _crossoutNotesNet = null;
 let _spentValuesRead = null;
@@ -55472,6 +55495,7 @@ function _btcMarketCtx(aid) {
     me: () => {
       if (typeof wallet === 'undefined' || !wallet?.pub) return null;
       const h = _holdingsCache?.holdings instanceof Map ? _holdingsCache.holdings.get(aid) : null;
+      if (wallet.priv && bridgedAtTaprootCount() == null && !_bridgedHeld.p) bridgedAtTaproot().then(() => _btcMarketSoftRefresh()).catch(() => { });
       if (wallet.priv && !_holdingsCache && !_btcMarketCtx._scanKicked) {
         _btcMarketCtx._scanKicked = true;
         scanHoldings().then(() => { _btcMarketCtx._scanKicked = false; _btcMarketSoftRefresh(); }).catch(() => { _btcMarketCtx._scanKicked = false; });
@@ -55482,6 +55506,7 @@ function _btcMarketCtx(aid) {
         unlocked: !!wallet.priv,
         sats: Number.isFinite(_walletCardState.balance) ? _walletCardState.balance : null,
         assetBase: h && typeof h.balance === 'bigint' ? h.balance : (_holdingsCache && wallet.priv ? 0n : null),
+        bridged: bridgedAtTaprootCount(),
       };
     },
     unlock: async () => { await ensurePrivkey(); },
@@ -61273,6 +61298,7 @@ export {
   getFeeRate, getFeeTierPref, setFeeTierPref, FEE_TIERS,
   broadcast, broadcastWithRetry, getTx,
   validateOutpoint, requireValidatedLot, _explorerTx, _crossCheckedFetcher, _lotProvedSession, verifyDiscoverAsset, enrichDiscoverMints, getCachedDiscoverMint,
+  bridgedAtTaproot, bridgedAtTaprootCount,
   getParentEnvelopeData, clearBtcPoolExitCache, _txOutputEnvelope as txOutputEnvelope,
   setStrictValidation, clearValidatorCaches, ValidationUnavailableError, rememberValidated,
   _txMarkNotFound as txMarkNotFound, _txIsRecentlyNotFound as txIsRecentlyNotFound,
