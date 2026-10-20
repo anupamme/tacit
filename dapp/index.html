@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-F+0ChswtNQ0UMdPRR4nnbezmJ5oMuWsDnIg0evh01KI=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-IswT6Hr5pdl9CobLkoTgXedQydCsiHglxtQ70RsVdCM=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -7381,7 +7381,7 @@ function brBulkPanel(kind, bulk) {
     return html`
       <div class="kv"><span>Merge</span><b>${brNotes(count)} into ${brNotes(g.length)}: ${brAnd(g.map((x) => brTac(x.total)))}</b></div>
       <div class="kv"><span>Bitcoin fee</span><b id="br-allfee">Checking…</b></div>
-      <div class="kv"><span>Then</span><b>Each can be bridged once it confirms and Bitcoin’s proof on Ethereum has seen it, usually within a few hours</b></div>
+      <div class="kv"><span>Then</span><b>Each can be bridged once Bitcoin’s proof on Ethereum has seen it, usually within a few hours</b></div>
       ${recent ? html`<p class="note">${brNotes(recent)} too recent for Bitcoin’s proof to have seen stay out of it.</p>` : ''}
       ${brOptsHtml(['prepauto', 'public'], true)}
       <button class="btn" type="button" id="br-merge-go">Merge ${brNotes(count)}</button>`;
@@ -7393,9 +7393,9 @@ function brBulkPanel(kind, bulk) {
     <div class="kv"><span>Bridge</span><b>${brTac(total)} from ${brNotes(count)}</b></div>
     ${a.burns.length ? html`<div class="kv"><span>Burned now</span><b>${brNotes(a.burns.length)}, one Bitcoin transaction each</b></div>` : ''}
     ${nSends ? html`<div class="kv"><span>Sent first</span><b>${brNotes(sent)} in ${nSends} send${nSends === 1 ? '' : 's'} to your own address, then bridged for you</b></div>` : ''}
-    ${a.checks.length ? html`<div class="kv"><span>Checked one by one</span><b>${brNotes(a.checks.length)} Bitcoin’s proof does not track: a move, then a burn through a miner, sent for you</b></div>` : ''}
+    ${a.checks.length ? html`<div class="kv"><span>Checked one by one</span><b>${brNotes(a.checks.length)}: a move, then a burn through a miner, sent for you</b></div>` : ''}
     <div class="kv"><span>Bitcoin fee</span><b id="br-allfee">Checking…</b></div>
-    <div class="kv"><span>Arrives</span><b>Usually within a few hours of each burn, once Bitcoin’s proof on Ethereum records it${nSends ? '; the notes sent first take a few hours longer' : ''}</b></div>
+    <div class="kv"><span>Arrives</span><b>Within a few hours of each burn${nSends ? '; the notes sent first take a few hours longer' : ''}</b></div>
     ${brOptsHtml(['public'], true)}
     <label class="pick"><input type="checkbox" id="br-allack"><span>I understand a bridge can’t be undone once its burn confirms on Bitcoin.</span></label>
     <button class="btn" type="button" id="br-all-go" disabled>Bridge ${brNotes(count)}</button>`;
@@ -7404,9 +7404,11 @@ function brBulkWire(el, pub, bulk, closeSingle) {
   const panel = $('#br-allp', el), btn = { merge: $('#br-merge', el), all: $('#br-all', el) };
   if (!panel) return;
   let quote = { autoMaxFee: 6000 }, seq = 0;
+  const single = $('#br-go', el);
   const paint = () => {
     const kind = BR.act, my = ++seq;
     for (const k of Object.keys(btn)) btn[k]?.setAttribute('aria-pressed', String(kind === k));
+    if (single) single.hidden = !!kind;
     if (!kind) { panel.hidden = true; BR.allAck = false; mount(panel, html``); return; }
     mount(panel, brBulkPanel(kind, bulk));
     panel.hidden = false;

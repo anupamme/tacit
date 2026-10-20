@@ -3020,16 +3020,21 @@ await step('bridgemerge', async () => {
     // A pick and the merge panel do not share the screen: opening one closes the other.
     await r.page.check(`#bridge-body input[value="${id('R1')}:0"]`);
     await until(r.page, () => !document.querySelector('#br-rcpt').hidden, null, 120000);
+    await shot(r.page, 'ba-list');
     await r.page.click('#br-merge');
     await until(r.page, () => !document.querySelector('#br-allp').hidden && /Merge/.test(document.querySelector('#br-allp').textContent), null, 30000);
+    await until(r.page, () => /≈ [\d,]+ sats/.test(document.querySelector('#br-allp')?.textContent || ''), null, 120000);
+    await r.page.evaluate(() => document.querySelector('#br-allp').scrollIntoView({ block: 'center' }));
+    await shot(r.page, 'ba-merge-panel');
     ok(await r.page.evaluate(() => document.querySelector('#br-rcpt').hidden && ![...document.querySelectorAll('input[name="br-note"]')].some((x) => x.checked)), 'bridgemerge: opening Merge closes the picked note\'s receipt and clears the pick');
+    ok(await r.page.isHidden('#br-go'), 'bridgemerge: the single note\'s Bridge to Ethereum steps aside while the merge panel is open, so one button leads');
     await until(r.page, () => /≈ [\d,]+ sats/.test(document.querySelector('#br-allp')?.textContent || ''), null, 120000);
     const p1 = await panel();
     ok(/Merge\s*5 notes into 2 notes: 950 TAC and 200 TAC/.test(p1) && /Merge 5 notes/.test(await r.page.textContent('#br-merge-go')), `bridgemerge: five tracked notes merge into two within the limit, the untracked and the empty ones left out (${p1.slice(0, 260)})`);
     ok(await r.page.isChecked('#br-prepauto') && /Then bridge them for me once they are ready/.test(p1) && !(await r.page.isDisabled('#br-merge-go')), `bridgemerge: bridging them once ready is on, and Merge can be pressed (${p1.slice(-300)} | utxo reads: ${JSON.stringify(utxoUrls.slice(0, 3))})`);
     await r.page.check(`#bridge-body input[value="${id('R2')}:0"]`);
     await until(r.page, () => document.querySelector('#br-allp').hidden && !document.querySelector('#br-rcpt').hidden, null, 120000);
-    ok(true, 'bridgemerge: picking a note closes the merge panel');
+    ok(await r.page.isVisible('#br-go'), 'bridgemerge: picking a note closes the merge panel and brings the single note\'s button back');
     await r.page.click('#br-merge');
     await until(r.page, () => !document.querySelector('#br-allp').hidden && !!document.querySelector('#br-merge-go'), null, 30000);
     await pressUntil(r.page, '#br-merge-go', /merged into 2/);
@@ -3054,8 +3059,10 @@ await step('bridgeall', async () => {
     const p1 = await panel();
     ok(/Bridge\s*1,210 TAC from 6 notes/.test(p1) && /Burned now\s*3 notes/.test(p1) && /Sent first\s*2 notes in 1 send to your own address, then bridged for you/.test(p1) && /Checked one by one\s*1 note/.test(p1),
       `bridgeall: the panel counts what goes now, what is sent first and what is checked one by one (${p1.slice(0, 420)})`);
-    ok(await r.page.isDisabled('#br-all-go') && /I understand a bridge can’t be undone/.test(p1), 'bridgeall: nothing starts until the holder has said they understand a bridge cannot be undone');
+    ok(await r.page.isDisabled('#br-all-go') && /I understand a bridge can’t be undone/.test(p1) && await r.page.isHidden('#br-go'), 'bridgeall: nothing starts until the holder has said they understand a bridge cannot be undone, and the single note\'s button steps aside');
     ok(await r.page.evaluate(() => { const b = document.querySelector('#br-public'); return !!b && !b.checked; }) && /Make them public TAC when they arrive/.test(p1), 'bridgeall: public TAC on arrival is offered for all of them, and off');
+    await r.page.evaluate(() => document.querySelector('#br-allp').scrollIntoView({ block: 'center' }));
+    await shot(r.page, 'ba-all-panel');
     await r.page.check('#br-allack');
     await until(r.page, () => !document.querySelector('#br-all-go').disabled, null, 30000);
     await pressUntil(r.page, '#br-all-go', /✓.*bridging/)
