@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- One page, one inline module. The module's sha256 is pinned in script-src (build/build.mjs recomputes it and
      the ?cb= tokens on every build), so nothing else can run on this origin from here. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-lmZYXfiA+pmbkNnXH03P6tsYI6K/qN3/al6biuGvX14=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'sha256-EG11y6FG1Xjpl+yrXx6PIj0JrLOARcyF0PxDXCXnerI=' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https://api.tacit.finance https://rpc.mainnet.succinct.xyz https://tacit-points.onrender.com wss://relay.walletconnect.org https://verify.walletconnect.org https://verify.walletconnect.com https://ethereum-rpc.publicnode.com https://eth.drpc.org https://1rpc.io https://mainnet.gateway.tenderly.co https://base.gateway.tenderly.co https://rpc.flashbots.net https://mainnet.base.org https://base.drpc.org https://base.rpc.blxrbdn.com https://rpc.mainnet.chain.robinhood.com https://tacit-evm-pool-keepers.onrender.com https://mainnet.megaeth.com https://megaeth.drpc.org https://tacit-btc-pool-mainnet.onrender.com https://mempool.space https://*.mempool.space https://blockstream.info https://mempool.emzy.de https://mempool.bitaroo.net https://slipstream.mara.com; frame-src https://verify.walletconnect.org https://verify.walletconnect.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="color-scheme" content="light dark">
 <link rel="preconnect" href="https://api.tacit.finance" crossorigin>
 <link rel="preconnect" href="https://ethereum-rpc.publicnode.com" crossorigin>
@@ -3174,7 +3174,7 @@ function setKey(k) {
   setTimeout(() => brPrepTick(true).catch(() => {}), 5000);
   setTimeout(() => xoTick(true), 6000);
   setTimeout(() => xoDiscover(pubHex, true), 25000);
-  setTimeout(() => brDiscover(pubHex), 28000);
+  setTimeout(() => brDiscover(pubHex), brUnsearched(pubHex) ? 10000 : 28000);
   const opened = () => { if (S.key === key) toast(`Opened ${short(key.tacit, 8)}`); };
   if (UNI) return opened();
   loadUnified().catch(() => {}).then(() => {
@@ -7200,6 +7200,7 @@ function renderBridgeIn(el) {
   if (BR.act) BR.pick = null;
   mount(el, html`
     <p class="lede-s">TAC on your Bitcoin address becomes private TAC on Ethereum. You pay a Bitcoin fee, in sats. It arrives once Bitcoin’s proof on Ethereum records the burn, usually within a few hours and sometimes up to a day. A one-step bridge finishes even if you close this page; any other picks up when you open it again with the same wallet. Tick the receipt’s choice to arrive as public TAC (ERC20), or press Make public after. <a href="/bridge/">How the bridge is proven</a></p>
+    ${brLooking === pub ? html`<p class="note">Looking through your Bitcoin history for bridges this browser has no record of…</p>` : ''}
     ${preps.length ? html`<div class="lbl"><span>Getting ready</span></div><ul class="acts brs">${preps.map(brPrepRow)}</ul>` : ''}
     ${recs.length ? html`<div class="lbl"><span>On the way</span></div><ul class="acts brs">${recs.map(brRow)}</ul>` : ''}
     ${done.length ? html`<div class="lbl"><span>Arrived</span></div><ul class="acts brs">${done.map(brRow)}</ul>` : ''}
@@ -7765,24 +7766,33 @@ async function brPublishDue(pub) {
     if (rec && await brPublish(pub, rec, plan)) { BR.at = 0; rerender('tac'); dashSoon(); return; }
   }
 }
-const BR_FOUND = 'tacit-lite-bridge-found-v1';
-let brFindAt = 0, brFinding = false;
+const BR_FOUND = 'tacit-lite-bridge-found-v1', BR_DEEP = 'tacit-lite-bridge-deep-v1';
+let brFindAt = 0, brFinding = false, brLooking = null;
+// A key this browser holds no bridge for (a new browser, or one whose data was cleared) is searched once through a longer stretch of its
+// Bitcoin history, and its first look comes sooner. An address-history page is 25 transactions; a bridge's burn is among them.
+const brUnsearched = (pub) => !!pub && !brList(pub).length && !store.get(BR_DEEP)?.[pub];
 async function brDiscover(pub, tab = false) {
-  if (!pub || brFinding || S.key?.pubHex !== pub || Date.now() - brFindAt < (tab ? 10 : 60) * 60e3) return;
-  brFinding = true; brFindAt = Date.now();
+  const deep = brUnsearched(pub);
+  if (!pub || brFinding || S.key?.pubHex !== pub || Date.now() - brFindAt < (deep ? 2 : tab ? 10 : 60) * 60e3) return;
+  brFinding = true; brFindAt = Date.now(); brLooking = deep ? pub : null;
   try {
     const addr = await withKey((t) => t.wallet.address(), pub);
     const first = await esplora(`/address/${addr}/txs`);
     let txs = Array.isArray(first) ? first : [];
-    if (txs.length >= 25) { const more = await esplora(`/address/${addr}/txs/chain/${txs[txs.length - 1].txid}`).catch(() => []); txs = txs.concat(Array.isArray(more) ? more : []); }
+    for (let page = 1, last = txs; page < (deep ? 8 : 2) && last.length >= 25; page++) {
+      const more = await esplora(`/address/${addr}/txs/chain/${last[last.length - 1].txid}`).catch(() => []);
+      last = Array.isArray(more) ? more : [];
+      txs = txs.concat(last);
+    }
     const seen = new Set(store.get(BR_FOUND)?.[pub] || []);
-    const { found, tried } = await withKey((t) => t.bridgeUx().discover({ walletPriv: walletPriv(), txs, skip: [...seen] }), pub);
+    const { found, tried, left } = await withKey((t) => t.bridgeUx().discover({ walletPriv: walletPriv(), txs, skip: [...seen], limit: deep ? 80 : 20 }), pub);
     if (tried.length) { const m = store.get(BR_FOUND) || {}; m[pub] = [...seen, ...tried].slice(-300); store.set(BR_FOUND, m); }
+    if (deep && !left) { const m = store.get(BR_DEEP) || {}; m[pub] = Date.now(); store.set(BR_DEEP, m); }
     if (found.length && S.key?.pubHex === pub) {
       toast(found.length === 1 ? `Found a bridge of ${brAmt(found[0])} that this browser had no record of: it goes on here` : `Found ${found.length} bridges that this browser had no record of: they go on here`);
       BR.at = 0; rerender('tac'); dashSoon(); brTick(true);
     }
-  } catch { } finally { brFinding = false; }
+  } catch { } finally { brFinding = false; if (brLooking) { brLooking = null; rerender('tac'); } }
 }
 const brPublicPending = (pub) => Object.values(brPlans(pub)).some((p) => p.publicTo && !p.publicDone && (p.publicTries || 0) < 3);
 // plans set aside as 'gone' in the last month, which brPublishDue takes up again if a scan has their note (it reads the last scan only)

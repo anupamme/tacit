@@ -961,25 +961,32 @@ export function makeBurnDepositUx(deps) {
     return putRecord(rec);
   }
 
+  // A burn's reveal carries no range proof, so the envelope script it spends is a couple of hundred bytes; a transfer's is nearly a
+  // thousand. A transaction whose script is plainly a transfer's is not read: the explorer's answer for the address already says so.
+  const TRANSFER_SCRIPT_HEX = 1200;
+  const looksLikeTransfer = (tx) => { const w = tx.vin[0] && tx.vin[0].witness; return Array.isArray(w) && w.length >= 3 && String(w[1]).length > TRANSFER_SCRIPT_HEX; };
+  // `left` is how many candidates this call did not get to (past `limit`, or a read that could not be answered just now).
   async function discover({ walletPriv, txs = [], skip = [], limit = 20 } = {}) {
     if (!walletPriv) throw new Error('burndep-ux: discover needs the wallet key');
     const walletPub = secp.getPublicKey(walletPriv, true);
     const have = new Set(loadAll(walletPub).map((r) => r && r.burn && r.burn.txid).filter(Boolean).map(lc));
     const skipped = new Set(skip.map(lc)), found = [], tried = [];
+    let left = 0;
     for (const tx of txs) {
-      if (tried.length >= limit) break;
       const id = tx && tx.txid ? lc(stripHex(tx.txid)) : null;
       if (!id || have.has(id) || skipped.has(id)) continue;
       if (!tx.status || !tx.status.confirmed || !Array.isArray(tx.vin) || tx.vin.length < 2) continue;
       const first = tx.vin[0] && tx.vin[0].prevout;
       if (first && first.scriptpubkey_type && first.scriptpubkey_type !== 'v1_p2tr') continue;
+      if (looksLikeTransfer(tx)) continue;
+      if (tried.length >= limit) { left++; continue; }
       try {
         const rec = await recoverReflectedBurn(id, walletPriv);
         if (rec) found.push(rec);
         tried.push(id);
-      } catch (e) { if (!passing(e)) tried.push(id); }
+      } catch (e) { if (!passing(e)) tried.push(id); else left++; }
     }
-    return { found, tried };
+    return { found, tried, left };
   }
 
   async function recoverFromTxid(burnTxidDisplay, walletPriv, { amount } = {}) {

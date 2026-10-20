@@ -3150,6 +3150,49 @@ await step('bridgepub', async () => {
 
 // The tETH sheet's To Bitcoin tab (see the header). The pool module is stubbed to hold tETH notes; Bitcoin and the proof answer
 // from canned responses; the relay is the harness's own, which takes a submit and then reports its job failed.
+// A key this browser holds no bridge for (a new browser, or storage cleared) is searched through a longer stretch of its Bitcoin history,
+// once; a key that has bridges here keeps the short look. Pages of 25 transactions are served and the asks counted.
+await step('bridgefind', async () => {
+  const run = async (hex, journal) => {
+    const r = await openPage({ account: A0, key: K0 });
+    const pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex'), asked = [];
+    const page = (n) => Array.from({ length: 25 }, (_, i) => ({ txid: (n * 25 + i + 1).toString(16).padStart(64, '0'), status: { confirmed: true, block_height: 900000 - n }, vin: [{ txid: 'ab'.repeat(32), vout: 0 }], vout: [] }));
+    for (const base of ['https://mempool.space/api', 'https://blockstream.info/api', 'https://mempool.emzy.de/api']) {
+      await r.ctx.route(`${base}/address/**`, (route) => { asked.push(new URL(route.request().url()).pathname); return json(route, page(asked.length - 1)); });
+    }
+    await r.page.goto(r.url + '#wallet');
+    if (journal) await r.page.evaluate(([k, v]) => localStorage.setItem(k, v), [`tacit-burndep-bridge-v1:mainnet:${pub}`, JSON.stringify(journal)]);
+    await r.page.click('#wallet-body [data-in="paste"]');
+    await r.page.fill('#ws-hex', hex);
+    await r.page.click('#wallet-body [data-in="key"]');
+    await until(r.page, () => !!document.querySelector('#wallet-dot.on'));
+    return { r, pub, asked };
+  };
+  // Cleared: eight pages of history (200 transactions) are read once, and the key is marked as searched.
+  {
+    const { r, pub, asked } = await run('b41e'.padEnd(64, '9'), null);
+    await until(r.page, ([k, p]) => !!(JSON.parse(localStorage.getItem(k) || '{}')[p]), ['tacit-lite-bridge-deep-v1', pub], 60000).catch(() => {});
+    const pages = asked.filter((x) => /\/txs/.test(x)).length;
+    ok(pages === 8, `bridgefind: a browser with no bridge for the key reads eight pages of its Bitcoin history (${pages})`);
+    ok(!!(await r.page.evaluate(([k, p]) => JSON.parse(localStorage.getItem(k) || '{}')[p], ['tacit-lite-bridge-deep-v1', pub])), 'bridgefind: and marks the key as searched, so it is not read this deep again');
+    if (r.errors.length) { fails++; console.log('FAIL bridgefind page errors: ' + r.errors.slice(0, 3).join(' | ')); }
+    await r.browser.close();
+  }
+  // A key with a bridge here keeps the short look: two pages.
+  {
+    const hex = 'b41f'.padEnd(64, '9'), pub = Buffer.from(secp.getPublicKey(hex, true)).toString('hex');
+    const rec = { id: 'd1'.repeat(32) + ':0', network: 'mainnet', walletPub: pub, path: 'reflected', stage: 'rburn-mined', createdAt: Date.now(), burnHeight: 970050,
+      source: { txid: 'd1'.repeat(32), vout: 0, sats: 546, assetId: '0x' + 'f0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b', amount: { __big: '10000000000' }, blinding: { __big: '777' } },
+      burn: { txid: 'bb'.repeat(32), hex: '00', commitTxid: 'cc'.repeat(32), commitHex: '00', fundingUtxo: { txid: 'dd'.repeat(32), vout: 1 } }, envelope: { destLeaf: '0x' + 'ee'.repeat(32) } };
+    const { r, asked } = await run(hex, [rec]);
+    await until(r.page, () => true, null, 1000);
+    await new Promise((res) => setTimeout(res, 36000));
+    const pages = asked.filter((x) => /\/txs/.test(x)).length;
+    ok(pages === 2, `bridgefind: a key that has a bridge here is read two pages deep, as before (${pages})`);
+    await r.browser.close();
+  }
+});
+
 await step('xobridge', async () => {
   const r = await openPage({ account: A0, key: K0 });
   const hex = 'b7e7'.padEnd(64, '5'), pubB = secp.getPublicKey(hex, true), pub = Buffer.from(pubB).toString('hex');

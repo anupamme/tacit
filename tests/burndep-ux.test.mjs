@@ -1018,6 +1018,14 @@ let rec;
   ok(d1.tried.includes(orig.burn.txid) && !d1.tried.includes(one.txid) && !d1.tried.includes(unconfirmed.txid) && !d1.tried.includes(wpkhFirst.txid), 'a transaction that cannot be a burn (one input, no Taproot commit first) or is not confirmed yet is not read, and so is not counted as looked at');
   const dLimit = await makeUx(world, makeMemStorage(), { openNote: ownerOpens, nullifierSpent: async () => false }).discover({ walletPriv: WALLET_PRIV, txs: [plain, burnTx], limit: 1 });
   ok(dLimit.tried.length === 1, 'it reads at most `limit` transactions a time and leaves the rest for the next');
+  ok(dLimit.left === 1 && d1.left === 0, 'and says how many it left for the next call (none when it got to all)');
+  // A transfer's reveal carries range proofs, so its script is long; the explorer's list already says so, and it is not read at all.
+  const withScript = (tx, bytes) => ({ ...tx, vin: [{ ...tx.vin[0], witness: ['aa', 'bb'.repeat(bytes), 'cc'] }, ...tx.vin.slice(1)] });
+  const transferShaped = withScript({ ...plain, txid: 'f1'.repeat(32) }, 900), burnShaped = withScript(burnTx, 210);
+  const dShape = await makeUx(world, makeMemStorage(), { openNote: ownerOpens, nullifierSpent: async () => false }).discover({ walletPriv: WALLET_PRIV, txs: [transferShaped, burnShaped] });
+  ok(!dShape.tried.includes(transferShaped.txid) && dShape.found.length === 1 && dShape.left === 0, 'a transaction with a transfer-sized script is not read, and a burn-sized one still is and is found');
+  const dMany = await makeUx(world, makeMemStorage(), { openNote: ownerOpens, nullifierSpent: async () => false }).discover({ walletPriv: WALLET_PRIV, txs: [plain, burnTx], limit: 80 });
+  ok(dMany.found.length === 1 && dMany.left === 0, 'a deeper search (a larger limit) goes through all the candidates');
   const d2 = await disc.discover({ walletPriv: WALLET_PRIV, txs: [burnTx, plain], skip: d1.tried });
   ok(d2.found.length === 0 && d2.tried.length === 0 && disc.list(rebuilt.walletPub).length === 1, 'asked again, it finds nothing new and does not read what it has seen');
   const dStranger = await makeUx(world, makeMemStorage(), { openNote: async () => null }).discover({ walletPriv: other, txs: [burnTx] });
